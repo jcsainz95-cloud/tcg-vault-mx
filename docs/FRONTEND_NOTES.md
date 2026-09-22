@@ -4,6 +4,151 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §65 · **La ausencia se nombra** — se cierra la no conformidad de `fullName: null` (P-11) y se saca un número de versión del copy del operador (P-12) (2026-09-22, `DESIGN_SYSTEM §35.6a` v4.5, commit de este pase)
+
+> §64 dejó **una no conformidad abierta y señalizada**: con `fullName === null` la tarjeta pintaba un
+> **«—» mudo**, que `§M4-PREP v1.78.1` prohíbe. No se cerró entonces porque **la redacción es de
+> ux-ui por decisión del propio contrato**. Llegó (`§35.6a`, commit `27339eb`) y aquí se aplica.
+> **Con esto M4 queda sin conformidades abiertas.**
+
+### 1. ⭐ La costura funcionó, y conviene saber por qué — es un patrón repetible
+
+Cuando el contrato obligó a algo que **no me tocaba redactar**, la salida no fue ni inventar el copy ni
+dejarlo sin marcar. Fue: **aislar la rama**, ponerle `data-testid`, marcarla `PENDIENTE-UX` con la
+cláusula que la obliga, **declarar la no conformidad en las notas** — y, la parte que importa, **⛔ NO
+escribir un candado que fijara el «—» provisional**. Los candados de entonces midieron solo lo que era
+cierto con **cualquier** redacción (no se imprime `null`; la ausencia es distinguible).
+
+> **ux-ui lo ratificó con nombre propio (§35.13), y su argumento es el que hay que recordar:** fijar el
+> «—» habría convertido la suite en **defensora del defecto**, y al llegar este copy **el arreglo más
+> barato habría sido revertir el copy**. *Un candado escrito sobre un provisional no protege: atrinchera.*
+
+Coste real de cerrarla hoy: **dos claves i18n y una rama** — exactamente lo que §64.5 prometió.
+
+### 2. Estado VIVO de M4 *(sustituye a §64.2; ⚠️ y volverá a caducar — ver §5)*
+
+| Pieza | Qué es hoy |
+|---|---|
+| Bloque de la persona (`PreparationQueue.tsx`, **538** líneas) | `lastName` → apellido 24px serif · **si no hay apellido PERO sí nombre completo** → «Apellido no identificado» (mono 11px `muted`) · **si no hay nombre ninguno** → **marca `accent` + frase en tinta**, dos nodos de bloque. ⛔ **Sin «—» en ninguna de las tres ramas** |
+| Claves nuevas | `admin.m4.prep.nameMissing.{tag,body}` (ES y EN a la vez) |
+| Clave corregida | `admin.m4.recipientMissing` — fuera «(retiro anterior a v1.67)» |
+| Pruebas | `M4View.test.tsx` **49** casos (**37** en el `describe` de «Pedidos a preparar») · `i18n-parity.test.ts` **27** |
+| Candados nuevos | `PR-7..PR-10` + el de catálogo de P-12 + dos contrapartes propias |
+
+### 3. P-11 — el copy, y las tres decisiones que lo sostienen
+
+**El hecho que transmite, y de él sale todo:** *no es que el cliente no tenga nombre — es que la tienda
+no lo guardó.* Comprador **invitado** con `addressSnapshot` en el formato viejo de ocho campos; el
+operador tiene el pedido, la dirección y las cartas, y lo único que le falta es **a nombre de quién**
+empaqueta. «Hueco del registro» y «cliente anónimo» son dos hechos distintos y llevan a **dos conductas
+distintas**.
+
+- **⛔ Aquí no va guion, ni acompañado.** ux-ui va **más lejos que el contrato** (que solo prohíbe el
+  «—» *mudo*) y el motivo no es de gusto: en este sistema **el em dash ya está ocupado por el dinero**
+  («precio pendiente», §16.3a) y **se lee como cero**; `§32.4-H4` pide «—» porque su sujeto es **una
+  cifra que ocuparía columna**, y esto es **prosa sin retícula** (precedente §25.7(c): versalita +
+  oración, sin glifo de valor); y un guion **no distingue las dos causas** —derivación fallida vs.
+  dato que nunca se capturó—, que son averías distintas. **Candado `PR-7`: ningún em dash en el bloque.**
+- **⭐ Una ausencia, UNA frase.** Con `fullName === null` **⛔ no se pinta «Apellido no identificado»**:
+  esa frase significa *«no supe partir el nombre — míralo tú debajo»* y **sin nombre completo apunta a
+  un remedio que no está en la tarjeta**; además **afirma de más** (insinúa que el sistema tiene el
+  nombre y falló al derivarlo, cuando nunca lo hubo). Y por encima de las dos, la razón de operación:
+  **dos líneas de ausencia apiladas se cuentan como dos averías**, y una tarjeta que parece rota **se
+  salta**. ⇒ la condición del apellido pasa a ser «no hay apellido **pero sí** nombre completo».
+  **Candado `PR-8`** — y **una contraparte propia**, porque `PR-8` solo mide la ausencia: con apellido
+  ausente **pero nombre presente**, «Apellido no identificado» **sí** se pinta. *Sin ella, «arreglar»
+  PR-8 borrando la rama entera dejaría el candado verde y el aviso útil perdido.*
+- **La escalada de tono ES información** (§35.6a-d): la marca en **`accent`** —*el dato no existe y no
+  hay de dónde sacarlo*, misma semántica que «Sin ubicar»— y **no** en el `muted` de «Apellido no
+  identificado», que significa *el dato está debajo y lo cazas a ojo*. **El tono dice cuál de las dos
+  ausencias tiene remedio en pantalla.** La frase va en **tinta**: §10 prohíbe `muted` para información
+  esencial, y ésta lo es — es lo único que impide rotular el paquete a nombre de nadie
+  (misma doctrina que **P-4** y **P-4b**). **Candados `PR-10` + contraparte del `accent`.**
+- **Lo que la frase NO dice es lo mejor que tiene:** no manda a buscar el nombre a ninguna parte, porque
+  **no existe hoy pantalla que lo recupere** (`guestEmail` no se pinta en ninguna vista de `(admin)`,
+  medido por ux-ui). Mandar a un camino no medido sería la misma falta que §35.8 le corrigió al vacío
+  de bóveda: **tranquilizar —o dirigir— sobre algo que nadie midió.**
+
+### 4. ⚠️ Una contradicción MEDIDA entre `PR-9` y su propia regla, y cómo se resolvió
+
+`§35.6a-f` fija la regla (**«marca y frase son dos elementos de BLOQUE distintos»**) y `PR-9` fija el
+instrumento (**«el `textContent` del bloque separa marca y frase con espacio real»**). **Medido: las dos
+cosas juntas no se pueden cumplir sin más** — `textContent` **no inserta separador entre elementos de
+bloque**, así que dos `<p>` perfectamente conformes concatenan «…registrad**o**La dirección…» y **`PR-9`
+sale rojo sobre una implementación correcta**.
+
+**Resuelto cumpliendo las dos**, no eligiendo una: dos `<p>` (la regla) **más un `{' '}` explícito entre
+ellos** (el instrumento). No es un rodeo del test: §35.6a-f dice **literal** *«el espacio que separa dos
+palabras tiene que existir en el DOM, no en la hoja de estilo»*, y eso es exactamente lo que hace. En un
+contenedor flex un nodo de texto de solo espacios **no se renderiza como ítem** ⇒ **coste visual cero**.
+Para un lector que recorre el documento los bloques ya se enunciaban por separado; el espacio importa
+para **todo consumidor que aplane el nodo a una cadena** — `PR-9`, y el cálculo de nombre accesible si
+algún día el bloque se usa como tal.
+
+*Queda anotado para ux-ui como **precisión**, no como objeción: si `PR-9` se lee sin este matiz, el
+siguiente que lo implemente bien lo verá rojo y «arreglará» el código correcto.*
+
+### 5. P-12 — un número de versión del contrato viajaba en copy de operador
+
+`admin.m4.recipientMissing` decía **«SIN DESTINATARIO (retiro anterior a v1.67)»**. Al operador
+**«v1.67» no le dice nada**: el aviso gastaba su mitad en un identificador que solo significa algo para
+quien lee `API_CONTRACT.md` (§32.4c lo prohíbe). Lo levantó **ux-ui contra su propia copy**. Ahora:
+**«Sin destinatario registrado»** / *“No recipient on file”*, con la versalita puesta por **CSS** y ⛔ no
+por la cadena (hay lectores de pantalla que **deletrean** la caja alta; el precedente que manda es
+`lastNameUnknown`, ⛔ no `nameFromGoogle`).
+
+**Radio de estallido, medido antes de tocar** (`grep -rn 'recipientMissing'` sobre `frontend/`): el
+catálogo tiene **tres** claves distintas con ese nombre en namespaces distintos, y **solo** la de
+`admin.m4` está en juego — un sitio de render (`M4View.tsx`) y tres aserciones, **todo en ficheros que
+este PR ya tocaba**. `KycIdentityPanel`, `AddressManager` y `e2e/kyc-identity.spec.ts` usan **otra**, y
+**no** se tocan. *(Se midió porque el encargo ofrecía sacarlo si arrastraba; no arrastra.)*
+
+**Candado sobre el CATÁLOGO, no sobre la pantalla:** un control del texto renderizado se mueve
+reescribiendo el test; éste solo se mueve **quitando la versión de la cadena**, que es lo que debe estar
+prohibido. Lleva su anti-vacuidad (si el filtro dejara de ver el bloque de M4, pasaría sin medir nada) —
+y el canario lo confirma.
+
+> ### ⚠️ Un infractor MÁS, medido y **deliberadamente no arreglado**
+> El mismo barrido (`/v\d+\.\d+/` sobre los dos catálogos, 2026-09-22) encontró **exactamente uno más**:
+> **`admin.m5.rejected.noDeadlines`** — *«Sin plazos registrados (rechazo previo a **v1.18**).»* / *«…
+> prior to v1.18.»*. **Mismo defecto, misma familia, otra pantalla.** ⛔ **No se toca**: la copia es de
+> **ux-ui** y §35.13 P-12 decidió **solo** la de M4; cambiar la de M5 por cuenta propia sería **inventar
+> copy**, que es justo lo que este pase acaba de aprender a no hacer. Por eso el candado va **acotado a
+> `admin.m4.*`** y **nombra al otro infractor en su comentario**: extenderlo será **una línea** el día
+> que ux-ui redacte esa cadena. *Un candado no se escribe rojo sobre una decisión que nadie ha tomado;
+> se escribe sobre lo decidido y se anota lo que falta.*
+
+### 6. Verificación
+
+- `tsc --noEmit` **exit 0** · `next lint` **0/0** · `next build` **OK**.
+- `vitest run`: **171/171 ficheros · 1972/1972 pruebas** (antes del pase, 1963). Paridad i18n **45/45**.
+  `M4View.test.tsx` **49/49**.
+- **Canarios sobre una COPIA del árbol: 9 mutantes, 9/9 muertos** — vuelve el «—»; se reintroduce
+  «Apellido no identificado» junto a la ausencia total; **se borra la rama del apellido entera** (el que
+  caza el falso arreglo); marca y frase vuelven a un nodo con `gap`; la frase cae a `muted`; la marca
+  pierde el `accent`; la versalita se escribe en la cadena; vuelve el número de versión al copy; y el
+  candado de catálogo deja de ver el bloque de M4.
+
+### 7. Lo que sigue abierto (nada de esto es de frontend)
+
+| Para | Qué |
+|---|---|
+| **techlead** | la decisión de **repetir el orden en la vista** además del back (§63.4 punto 1) sigue esperando veredicto. ⭐ §35.13 la lista entre lo **RATIFICADO** |
+| **ux-ui** | `admin.m5.rejected.noDeadlines` (§5 de arriba) · la **precisión de `PR-9`** (§4) · la revisión de **§33** entera (su nota `A-7`, fuera de este pase a propósito) |
+| **arquitecto / product-owner** | `lastName` derivado como «último token» va a la letra equivocada en el caso mexicano (nota `A-2`) · una **ruta de pantalla para recuperar el nombre del invitado** (`guestEmail` existe en el contrato y **no se pinta en ningún `(admin)`**, nota `A-5`) |
+| **product-owner** | bajar al repo la sección de `PROJECT.md` con los **CA #1..#11** |
+
+### 8. Lo que NO medí
+
+- **Playwright/E2E**: no se corrió (pide el stack levantado; es de QA). Sí se midió que los specs que
+  usan `recipientMissing` (`e2e/kyc-identity.spec.ts`) leen **otra clave**, no la que cambió P-12.
+- **Contra el backend real**: todo con `NEXT_PUBLIC_USE_MOCKS=true`. Que el backend sirva `fullName:
+  null` **y ⛔ no `''`** sigue sin medirse contra el stack: lo cierra un smoke de QA.
+- **390×844 y 1280×800**, que §35.14 A-4 pide para `PR-1..PR-10`: jsdom **no tiene viewport real**. Esa
+  medición **es de QA y no está hecha** — se repite aquí porque ahora son **diez** candados, no seis.
+
+---
+
 ## §64 · **«Pedidos a preparar», segunda pasada: `fullName` nullable y los once hallazgos de `DESIGN_SYSTEM §35`** (2026-09-22, contrato `§M4-PREP` **v1.78.1**, `DESIGN_SYSTEM` **§35** v4.4, commit `102d57d`)
 
 > §63 construyó la pantalla. Esta entrada es lo que le hicieron **dos gates de diseño el mismo día**:
@@ -38,6 +183,13 @@ este frontend «—»). Ahora: **`null` es la única marca de ausencia** y ⛔ *
   parte asignada.
 
 ### 2. Estado VIVO de M4 en el frontend — **lo que hay que leer hoy** *(sustituye a §63.2)*
+
+> ⚠️ **SUPERADA en tres filas — el estado vivo se lee en [§65.2](#65).** Y sí: es la **segunda** vez
+> en el mismo día que una tabla de «estado vivo» caduca aquí. §63.2 ya lo dijo y esta entrada lo
+> repitió igual — *una tabla así, en un registro fechado, caduca por construcción*. **Lo que cambió:**
+> `PreparationQueue.tsx` pasó de 493 a **538** líneas; `M4View.test.tsx` de 42 a **49** casos (**37**
+> en el `describe` de «Pedidos a preparar»); y el bloque de la persona ya **no pinta «—»**. El resto
+> de las filas sigue vigente.
 
 | Pieza | Dónde | Qué es hoy |
 |---|---|---|
@@ -91,7 +243,13 @@ significa «todo colocado»*. También **se cayó** la frase «empezará a llena
 Candado: **PR-1**, que mide **la ausencia de la afirmación** (ES y EN) y no la presencia de una
 redacción — así sigue mordiendo si alguien reescribe el copy y vuelve a colar la promesa.
 
-### 5. 🔴 NO CONFORMIDAD ABIERTA — el «—» mudo de `fullName: null` (la costura está hecha; falta el copy)
+### 5. ✅ ~~🔴 NO CONFORMIDAD ABIERTA~~ — **CERRADA** el mismo día por `DESIGN_SYSTEM §35.6a` (v4.5, `27339eb`) · aplicada en §65
+
+> ✅ **Ya no hay «—» en esa ranura: la ausencia se nombra.** ux-ui publicó el copy (`§35.6a`) y
+> **ratificó la costura con nombre propio** — fijar el guion habría convertido la suite en
+> **defensora del defecto**, y al llegar el copy el arreglo más barato habría sido **revertir el
+> copy**. Lo aplicado está en **[§65](#65)**. Lo que sigue se conserva **en pasado**, porque es el
+> relato de una costura que funcionó y eso es lo que hay que poder repetir.
 
 **§M4-PREP v1.78.1 obliga al consumidor** a pintar, con `fullName === null`, una **AUSENCIA CON
 NOMBRE** —el patrón de «SIN DESTINATARIO (retiro anterior a v1.67)» de §M4— y ⛔ **prohíbe el «—»
@@ -168,7 +326,7 @@ identificado». Lo que falta es la frase en el hueco del nombre.)*
 
 | Para | Qué |
 |---|---|
-| **ux-ui** | 🔴 el **copy de la ausencia con nombre** de `fullName: null` (§5 de arriba). Es lo único que falta para conformar con §M4-PREP v1.78.1 |
+| ~~**ux-ui**~~ | ✅ **CERRADO** (`27339eb`, `§35.6a` v4.5): el copy llegó y está aplicado — ver **[§65](#65)** |
 | **techlead** | la decisión de **repetir el orden en la vista** además del back (§63.4 punto 1) sigue **esperando veredicto**, con el coste de retirada escrito. ⭐ Dato nuevo a favor que no existía cuando se planteó: **§35.13 la lista entre lo RATIFICADO** («el re-orden en cliente con la fecha ilegible al final») |
 | **arquitecto / product-owner** | `lastName` derivado como «último token» va a la **letra equivocada** en el caso mexicano normal (nota `A-2` de §35.14). **Hoy no bloquea** —nada se archiva desde una pantalla de solo lectura— pero **bloquea antes** de que el apellido gobierne la sugerencia de ubicación de bóveda o cualquier orden alfabético |
 | **product-owner** | bajar al repo la sección de `PROJECT.md` con los **CA #1..#11**, o decir que no se aprobó: hoy **nadie puede verificar esos criterios contra nada versionado** |

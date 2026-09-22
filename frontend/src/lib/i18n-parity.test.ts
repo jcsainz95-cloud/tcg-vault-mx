@@ -698,4 +698,34 @@ describe('§32.6 · ninguna clave `*Hint` sin consumidor (CS-8)', () => {
     const vivas = keyPaths(catalog);
     expect(muertas.filter((k) => vivas.includes(k))).toEqual([]);
   });
+
+  /*
+   * ⭐ **P-12 / `DESIGN_SYSTEM §32.4c` — un NÚMERO DE VERSIÓN DEL CONTRATO no viaja en copy de
+   * operador.** `admin.m4.recipientMissing` decía «SIN DESTINATARIO (retiro anterior a **v1.67**)»:
+   * al operador «v1.67» no le dice nada y el aviso gastaba su mitad en un identificador técnico que
+   * solo significa algo para quien lee `API_CONTRACT.md`. Lo levantó **ux-ui contra su propia copy**.
+   *
+   * El candado va sobre el CATÁLOGO y no sobre la pantalla: un control sobre el texto renderizado se
+   * mueve reescribiendo el test, y éste solo se mueve **quitando la versión de la cadena**, que es lo
+   * que debe estar prohibido.
+   *
+   * ⚠️ **Alcance acotado a `admin.m4.*` A PROPÓSITO, y aquí está por qué** — medido hoy
+   * (2026-09-22) sobre los dos catálogos con `/v\d+\.\d+/`: queda **exactamente un** infractor más,
+   * **`admin.m5.rejected.noDeadlines`** («Sin plazos registrados (rechazo previo a **v1.18**).» /
+   * «…prior to v1.18.»). Es el **mismo defecto de la misma familia**, pero **la copia es de ux-ui** y
+   * §35.13 P-12 solo decidió la de M4: cambiar la de M5 por cuenta propia sería inventar copy, que es
+   * justo lo que esta pantalla acaba de aprender a no hacer. **Se deja nombrado aquí en vez de
+   * arreglado**, para que extender el candado sea una línea el día que ux-ui redacte esa cadena.
+   * *(Un candado no se escribe rojo sobre una decisión que nadie ha tomado; se escribe sobre lo
+   * decidido y se anota lo que falta.)*
+   */
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s · el copy de M4 no lleva ningún número de versión del contrato (§32.4c)', (_locale, catalog) => {
+    const m4 = stringEntries(catalog).filter(([path]) => path.startsWith('admin.m4.'));
+    // Anti-vacuidad: si el filtro dejara de ver el bloque, el test pasaría sin medir nada.
+    expect(m4.length).toBeGreaterThan(20);
+    expect(m4.filter(([, value]) => /v\d+\.\d+/.test(value)).map(([path]) => path)).toEqual([]);
+  });
 });

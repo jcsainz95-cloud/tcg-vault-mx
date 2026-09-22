@@ -318,37 +318,82 @@ function PreparationCard({
         </p>
       </header>
 
-      {/* Cliente: el APELLIDO manda (archivero alfabético). `lastName` es DERIVADO y puede venir
-          `null` (§6.A: no hay apellido estructurado en el modelo) — entonces se dice que no se pudo
-          identificar y se deja el nombre completo, ⛔ nunca «null» ni un hueco mudo. */}
+      {/*
+        * **Plano 1 · quién** (§35.3). El APELLIDO manda porque es la llave del archivero alfabético.
+        *
+        * ⭐ **§35.6a-e — UNA ausencia, UNA frase: las dos de este plano son MUTUAMENTE EXCLUYENTES.**
+        * `lastNameUnknown` («no supe partir el nombre — míralo tú debajo») **solo tiene sentido si hay
+        * nombre completo debajo**; sin él apunta a un remedio que no está en la tarjeta, y además
+        * **afirma de más** (insinúa que el sistema tiene el nombre y falló al derivarlo, cuando el
+        * hecho es más duro: nunca lo hubo). Y hay una razón de operación por encima de las dos: **dos
+        * líneas de ausencia apiladas se cuentan como dos averías**, y una tarjeta que parece rota se
+        * salta. ⇒ la condición del apellido es «no hay apellido **pero sí** nombre completo».
+        */}
       <div data-testid={`prep-customer-${order.shipmentId}`} className="flex flex-col gap-0.5">
         {lastName ? (
           <p className="font-serif text-2xl leading-tight text-text">{lastName}</p>
         ) : (
-          <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
-            {t('lastNameUnknown')}
-          </p>
+          !fullNameMissing && (
+            <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              {t('lastNameUnknown')}
+            </p>
+          )
         )}
         {fullNameMissing ? (
           /*
-           * ⚠️⚠️ **PENDIENTE-UX — NO CONFORME TODAVÍA, y se dice aquí en vez de taparlo.**
-           * §M4-PREP v1.78.1 obliga al consumidor a pintar una **AUSENCIA CON NOMBRE** —el patrón de
-           * «SIN DESTINATARIO (retiro anterior a v1.67)» de §M4—, y ⛔ **prohíbe el «—» mudo**:
-           * `DESIGN_SYSTEM §32.4-H4` pide «—» **más la frase que diga que no se pudo saber**, y
-           * §16.3a advierte que el em dash **ya carga semántica de dinero** («precio pendiente») y se
-           * lee como **cero**.
+           * ⭐⭐ **§35.6a — LA AUSENCIA SE NOMBRA, y ⛔ NO se pinta con un guion.** Cierra la no
+           * conformidad que este código llevaba marcada `PENDIENTE-UX` (§M4-PREP v1.78.1 prohíbe el
+           * «—» mudo). ux-ui va **más lejos que el contrato** y prohíbe el guion **del todo** aquí, con
+           * tres motivos que no son de gusto: (1) en este sistema el em dash **ya está ocupado por el
+           * dinero** —«precio pendiente», §16.3a— y **se lee como cero**; (2) §32.4-H4 pide «—» porque
+           * su sujeto es **una cifra que ocuparía columna**, y esto es **una línea de prosa sin
+           * retícula** (precedente §25.7(c): versalita + oración, sin glifo de valor); (3) un guion
+           * **no distingue las dos causas** —derivación fallida vs. dato que nunca se capturó—, que son
+           * averías distintas.
            *
-           * ⛔ **La frase NO se inventa aquí: su redacción es de ux-ui** (lo dice el propio contrato),
-           * y ux-ui está escribiendo su sección de esta pantalla. Lo que sí queda hecho es **la
-           * costura**: la rama existe, está aislada y marcada con `data-testid`, así que ponerle el
-           * copy es **una clave i18n y una línea**. Las pruebas que la cubren asertan lo que es
-           * cierto con CUALQUIER redacción —que no se imprime `null`/`undefined` y que la ausencia
-           * es distinguible—, ⛔ jamás el «—» actual: un test que fijara el «—» **protegería en CI
-           * justo lo que el contrato prohíbe**.
+           * **El hecho que el copy transmite:** *no es que el cliente no tenga nombre — es que la
+           * tienda no lo guardó.* Comprador invitado con `addressSnapshot` en el formato viejo de ocho
+           * campos; el operador tiene el pedido, la dirección y las cartas, y lo único que le falta es
+           * **a nombre de quién** empaqueta. Leerlo como «hueco del registro» y no como «cliente
+           * anónimo» lleva a dos conductas distintas.
+           *
+           * **Tonos, y la escalada ES información** (§35.6a-d): la marca va en `accent` —*el dato no
+           * existe y no hay de dónde sacarlo*, misma semántica que «Sin ubicar»— y ⛔ **no** en `muted`
+           * como `lastNameUnknown`, que significa *el dato está debajo y lo cazas a ojo*. La frase va en
+           * **tinta**: §10 prohíbe `muted` para información esencial, y ésta lo es — es lo único que
+           * impide rotular el paquete a nombre de nadie.
+           *
+           * ⛔ Y lo que la frase NO dice es lo más importante que tiene: no manda a buscar el nombre a
+           * ninguna parte, porque **no existe hoy pantalla que lo recupere** (`guestEmail` no se pinta
+           * en ninguna vista de `(admin)`, medido por ux-ui). Mandar a un camino no medido sería la
+           * misma falta que §35.8 le corrigió al vacío de bóveda.
            */
-          <p data-testid={`prep-fullname-missing-${order.shipmentId}`} className="text-sm text-text">
-            {DASH}
-          </p>
+          <div data-testid={`prep-fullname-missing-${order.shipmentId}`} className="flex flex-col gap-0.5">
+            {/*
+              * §35.6a-f · **dos nodos de BLOQUE**, uno tras otro: la separación entre marca y frase
+              * ⛔ **no puede venir de un `gap`** — el texto accesible concatena los nodos sin el aire
+              * del CSS y produce cadenas pegadas. Es el defecto «ParaAsh Ketchum» de esta misma
+              * pantalla, convertido en norma. Candado: **PR-9**.
+              *
+              * Las versalitas las pone el CSS (`uppercase`), ⛔ **no** la cadena en mayúsculas: hay
+              * lectores de pantalla que deletrean la caja alta.
+              */}
+            <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
+              {t('nameMissing.tag')}
+            </p>{' '}
+            {/*
+              * ⚠️ **Ese `{' '}` entre dos bloques no es decorativo, y tampoco es un rodeo del test.**
+              * `textContent` **no inserta separador entre elementos de bloque**: dos `<p>` seguidos
+              * concatenan «…registradoLa dirección…». Para un lector que recorre el documento eso no
+              * es un problema (los bloques se enuncian por separado), pero **sí** lo es para todo
+              * consumidor que aplane el nodo a una cadena — que es justo lo que hace el candado
+              * **PR-9**, y lo que hace el cálculo de nombre accesible si algún día este bloque se
+              * usa como tal. §35.6a-f lo dice literal: *el espacio que separa dos palabras tiene que
+              * existir en el DOM, no en la hoja de estilo*. En un contenedor flex un nodo de texto
+              * con solo espacios **no se renderiza como ítem** ⇒ coste visual **cero**.
+              */}
+            <p className="text-sm text-text">{t('nameMissing.body')}</p>
+          </div>
         ) : (
           /* P-4b / §35.6: `text-text`, ⛔ ya no `muted`. El apellido grande de arriba es **derivado**
              («último token»), y en México eso entrega el apellido **materno** cuando el archivero se

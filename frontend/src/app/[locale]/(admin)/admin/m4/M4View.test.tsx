@@ -4,6 +4,11 @@ import { renderWithProviders } from '@/test/render';
 import { M4View } from './M4View';
 import * as api from '@/lib/api';
 import type { PreparationItemDTO, PreparationOrderDTO } from '@/types/contract';
+// Los catálogos se leen directos para el candado de §35.6a-f (la versalita la pone el CSS, no la
+// cadena): medir el texto RENDERIZADO no distinguiría una cosa de la otra, porque `uppercase` las
+// pinta igual.
+import esMessages from '../../../../../../messages/es.json';
+import enMessages from '../../../../../../messages/en.json';
 
 // «Ver ficha» → M6 usa Link de next-intl con href de objeto; en jsdom se aplana a <a href>.
 vi.mock('@/i18n/navigation', () => ({
@@ -207,7 +212,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
       expect.stringContaining('/admin/m6?user=u-777'),
     );
     expect(screen.queryByText('u-777')).not.toBeInTheDocument();
-    expect(parties).not.toHaveTextContent('SIN DESTINATARIO');
+    expect(parties).not.toHaveTextContent('Sin destinatario registrado');
   });
 
   it('v1.67.1 (D-CTA-9): el destinatario sale del SNAPSHOT aunque el suelto deprecado no venga; y si SOLO viene el suelto (legado), se tolera', async () => {
@@ -248,7 +253,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
     expect(both).not.toHaveTextContent('VIEJO');
   });
 
-  it('retiro anterior a v1.67 (snapshot de ocho campos): «SIN DESTINATARIO» en mono rojo, resto igual, sin User.name', async () => {
+  it('P-12 · sin destinatario en el snapshot: aviso en mono rojo SIN número de versión, resto igual, sin User.name', async () => {
     vi.spyOn(api, 'getAdminShipments').mockResolvedValue({
       data: [
         {
@@ -273,7 +278,13 @@ describe('M4View · destinatario y dirección (F9)', () => {
     renderWithProviders(<M4View />, 'es');
 
     const parties = await screen.findByTestId('shipment-parties-shp-9002');
-    const missing = within(parties).getByText('SIN DESTINATARIO (retiro anterior a v1.67)');
+    /*
+     * ⭐ **P-12 / §32.4c — un número de versión del contrato NO viaja en copy de operador.** Decía
+     * «SIN DESTINATARIO (retiro anterior a v1.67)»: al operador «v1.67» no le dice nada, y el aviso
+     * gastaba su mitad en un identificador técnico. Lo levantó **ux-ui contra su propia copy**.
+     * La versalita la sigue poniendo el CSS (`uppercase`), ⛔ no la cadena.
+     */
+    const missing = within(parties).getByText('Sin destinatario registrado');
     expect(missing.className).toContain('text-accent');
     expect(missing.className).toContain('font-mono');
     expect(parties).toHaveTextContent('Ciudad de México, CDMX · CP 06600 · Tel 5555123456');
@@ -286,7 +297,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
   it('sin snapshot ni destinatario (fixture actual): cada dato ausente es «—» y nunca el userId', async () => {
     renderWithProviders(<M4View />, 'es');
     const parties = await screen.findByTestId('shipment-parties-shp-7001');
-    expect(parties).toHaveTextContent('SIN DESTINATARIO');
+    expect(parties).toHaveTextContent('Sin destinatario registrado');
     expect(parties).toHaveTextContent('—, — · CP — · Tel —');
     // S3-ENVIO-DIR: sin snapshot la calle también es «—», nunca omitida en silencio.
     expect(parties).toHaveTextContent('Calle —');
@@ -868,22 +879,132 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   });
 
   /**
-   * §M4-PREP **v1.78.1** — `customer.fullName` es `string | null`. ⛔ El candado NO fija el «—»
-   * actual: el contrato obliga a una **ausencia con nombre** y la redacción es de ux-ui, así que
-   * fijar el guion **protegería en CI justo lo que el contrato prohíbe**. Se mide lo que es cierto
-   * con cualquier redacción: no se imprime `null`, y la ausencia es **distinguible**.
+   * §M4-PREP **v1.78.1** + `DESIGN_SYSTEM §35.6a` — `customer.fullName` es `string | null`, y la
+   * ausencia **se nombra**.
+   *
+   * ⭐ **Aquí estaba la costura, y así se cierra.** Mientras no hubo copy, este candado midió solo lo
+   * que era cierto con **cualquier** redacción (no se imprime `null`, la ausencia es distinguible) y
+   * ⛔ **no** fijó el «—» provisional: fijarlo habría convertido la suite en **defensora del
+   * defecto**, y al llegar el copy el arreglo más barato habría sido **revertir el copy**. Con §35.6a
+   * publicada, el candado pasa a medir el copy normativo.
+   *
+   * ⚠️ **Y se RETIRA de aquí la aserción de «Apellido no identificado»**, que era correcta hasta
+   * v4.4 y que §35.6a-e vuelve incorrecta (una ausencia, **una** frase). Lo avisó ux-ui con fichero y
+   * línea en su propia sección: *una regla de diseño que invalida un candado existente tiene que
+   * decirlo ella misma, o el candado gana por inercia.*
    */
-  it('v1.78.1 · `fullName` null: la ausencia es distinguible y ⛔ nunca se imprime «null»', async () => {
+  it('§35.6a · `fullName` null: marca + frase que nombran la ausencia, y ⛔ nunca «null»', async () => {
     serve([order({ shipmentId: 'shp-sinnombre', customer: { lastName: null, fullName: null } })]);
     renderWithProviders(<M4View />, 'es');
 
     const who = await screen.findByTestId('prep-customer-shp-sinnombre');
+    const block = within(who).getByTestId('prep-fullname-missing-shp-sinnombre');
     expect(who).not.toHaveTextContent('null');
     expect(who).not.toHaveTextContent('undefined');
-    // Rama de ausencia presente (su COPY lo decide ux-ui; aquí solo se exige que exista).
-    expect(within(who).getByTestId('prep-fullname-missing-shp-sinnombre')).toBeInTheDocument();
-    // `fullName === null ⇒ lastName === null` por construcción (el apellido se deriva del nombre).
+    expect(within(block).getByText('Sin nombre registrado')).toBeInTheDocument();
+    // La carga útil de la frase: «hueco del registro, no un cliente anónimo» ⇒ es un dato NUESTRO que
+    // falta, no un cliente raro. Sin ella la conducta correcta del operador cambia.
+    expect(block).toHaveTextContent(/hueco del registro, no un cliente anónimo/);
+    expect(block).toHaveTextContent(/Identifica el paquete por su folio/);
+  });
+
+  it('§35.6a (EN) · el mismo bloque en inglés, con el vocabulario que §33 ya fijó', async () => {
+    serve([order({ shipmentId: 'shp-noname', customer: { lastName: null, fullName: null } })]);
+    renderWithProviders(<M4View />, 'en');
+
+    const block = await screen.findByTestId('prep-fullname-missing-shp-noname');
+    expect(within(block).getByText('No name on file')).toBeInTheDocument();
+    expect(block).toHaveTextContent(/a gap in our records, not an anonymous customer/);
+  });
+
+  /**
+   * **PR-7 (§35.14 A-4) — el inverso exacto de la prueba que me negué a escribir.** No fija lo que
+   * hay; fija **lo que el contrato y §35.6a-a prohíben**: ⛔ **ningún em dash** en este bloque. El em
+   * dash de este sistema **ya está ocupado por el dinero** («precio pendiente», §16.3a) y **se lee
+   * como cero**, así que reciclarlo para nombrar a una persona la dibuja como un importe en blanco.
+   */
+  it('PR-7 · con `fullName` null el bloque de la persona NO contiene ningún em dash', async () => {
+    serve([order({ shipmentId: 'shp-nodash', customer: { lastName: null, fullName: null } })]);
+    renderWithProviders(<M4View />, 'es');
+
+    const who = await screen.findByTestId('prep-customer-shp-nodash');
+    expect(who.textContent).not.toContain('—');
+  });
+
+  /**
+   * **PR-8** — una ausencia, **una** frase (§35.6a-e). «Apellido no identificado» promete un remedio
+   * —«míralo tú debajo»— que sin nombre completo **no está en la tarjeta**, y además insinúa que el
+   * sistema tiene el nombre y falló al derivarlo. Dos líneas de ausencia apiladas se cuentan como dos
+   * averías, y una tarjeta que parece rota se salta.
+   */
+  it('PR-8 · con `fullName` null NO se pinta además «Apellido no identificado» (ES y EN)', async () => {
+    serve([order({ shipmentId: 'shp-una', customer: { lastName: null, fullName: null } })]);
+    const { unmount } = renderWithProviders(<M4View />, 'es');
+    expect(await screen.findByTestId('prep-customer-shp-una')).not.toHaveTextContent(
+      'Apellido no identificado',
+    );
+    unmount();
+
+    renderWithProviders(<M4View />, 'en');
+    expect(await screen.findByTestId('prep-customer-shp-una')).not.toHaveTextContent(
+      'Last name not identified',
+    );
+  });
+
+  it('PR-8 (contraparte) · con apellido ausente PERO nombre completo presente, «Apellido no identificado» SÍ se pinta', async () => {
+    // La regla es de exclusión mutua, ⛔ no de retirada: sin este caso, «arreglar» PR-8 borrando la
+    // rama entera dejaría el candado verde y el aviso útil perdido.
+    serve([order({ shipmentId: 'shp-solo-ap', customer: { lastName: null, fullName: 'Misty' } })]);
+    renderWithProviders(<M4View />, 'es');
+
+    const who = await screen.findByTestId('prep-customer-shp-solo-ap');
     expect(who).toHaveTextContent('Apellido no identificado');
+    expect(who).toHaveTextContent('Misty');
+    expect(within(who).queryByTestId('prep-fullname-missing-shp-solo-ap')).not.toBeInTheDocument();
+  });
+
+  /**
+   * **PR-9** — el espacio que separa dos palabras **tiene que existir en el DOM**, no en la hoja de
+   * estilo. Un `gap` de flex no existe para el lector de pantalla: ya produjo «ParaAsh Ketchum» en
+   * esta misma pantalla, y por eso §35.6a-f exige **dos nodos de bloque**.
+   */
+  it('PR-9 · marca y frase son bloques separados: el texto accesible NO queda pegado', async () => {
+    serve([order({ shipmentId: 'shp-sep', customer: { lastName: null, fullName: null } })]);
+    renderWithProviders(<M4View />, 'es');
+
+    const block = await screen.findByTestId('prep-fullname-missing-shp-sep');
+    expect(block.textContent).not.toMatch(/registradoLa dirección/);
+    expect(block.textContent).toMatch(/registrado\s+La dirección/);
+    // Dos ELEMENTOS de bloque, no uno con un `gap` en medio (el nodo de texto del espacio no cuenta
+    // como `children`, que solo enumera elementos).
+    expect(block.children.length).toBe(2);
+  });
+
+  /**
+   * **PR-10** — la frase va en TINTA. §10 prohíbe `muted` para información esencial, y ésta lo es: es
+   * lo único que impide que el operador rotule el paquete a nombre de nadie. Misma doctrina que P-4
+   * (la dirección) y P-4b (el nombre completo).
+   */
+  it('PR-10 · la frase NO lleva `text-muted`, y la marca va en `accent` (la escalada es información)', async () => {
+    serve([order({ shipmentId: 'shp-tono', customer: { lastName: null, fullName: null } })]);
+    renderWithProviders(<M4View />, 'es');
+
+    const block = await screen.findByTestId('prep-fullname-missing-shp-tono');
+    const tag = within(block).getByText('Sin nombre registrado');
+    const body = within(block).getByText(/hueco del registro/);
+    expect(body.className).not.toContain('text-muted');
+    expect(body.className).toContain('text-text');
+    // `accent` ≠ el `muted` de «Apellido no identificado»: el tono dice cuál de las dos ausencias
+    // tiene remedio en pantalla (§35.6a-d).
+    expect(tag.className).toContain('text-accent');
+    expect(tag.className).toContain('uppercase'); // versalita por CSS, ⛔ no por la cadena
+  });
+
+  it('§35.6a-f · la versalita la pone el CSS: la CADENA del catálogo no está en mayúsculas', async () => {
+    // Hay lectores de pantalla que deletrean las cadenas en caja alta. El precedente que manda es
+    // `lastNameUnknown` (texto normal + `uppercase`), ⛔ no `nameFromGoogle` («NOMBRE DE GOOGLE»).
+    expect(esMessages.admin.m4.prep.nameMissing.tag).toBe('Sin nombre registrado');
+    expect(enMessages.admin.m4.prep.nameMissing.tag).toBe('No name on file');
   });
 
   it('v1.78.1 · la cadena vacía (servidor no conforme) se lee como AUSENCIA, no como nombre vacío', async () => {

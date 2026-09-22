@@ -1497,7 +1497,7 @@
       "queueEmpty": "Sin envíos con ese filtro.",
       "itemCount": "{count, plural, one {# ítem} other {# ítems}}",
       "recipient": "Para",
-      "recipientMissing": "SIN DESTINATARIO (retiro anterior a v1.67)",
+      "recipientMissing": "Sin destinatario registrado",
       "street": "Calle",
       "customer": "Cliente",
       "postalCode": "CP",
@@ -1543,6 +1543,10 @@
         "emptyVault": {
           "title": "Esta cubeta todavía no se alimenta.",
           "body": "Una compra que el cliente deja en su bóveda no genera cola: al liquidarse el pago la carta ya es suya sin salir de la tienda. Vacío aquí no significa «todo colocado» — significa que esta pantalla todavía no lleva ese registro."
+        },
+        "nameMissing": {
+          "tag": "Sin nombre registrado",
+          "body": "La dirección de este pedido se guardó sin el nombre de quien recibe: es un hueco del registro, no un cliente anónimo. Identifica el paquete por su folio."
         }
       }
     },
