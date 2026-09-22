@@ -1930,6 +1930,18 @@ export const mockAdminShipments: AdminShipmentDTO[] = [
     items: [{ inventoryItemId: 'inv-1012' }],
   },
   {
+    // Envío DIRECTO de un INVITADO (`userId: null`, contrato §M4 v1.21) con snapshot LEGADO de ocho
+    // campos: sin `recipientName` ⇒ su `customer.fullName` en la cola de preparación es **null**
+    // (§M4-PREP v1.78.1). Compañero de `shp-7005` en `mockPreparationQueue`.
+    id: 'shp-7005',
+    userId: null,
+    status: 'picking',
+    carrier: null,
+    trackingNumber: null,
+    requestedAt: '2026-08-12T08:15:00Z',
+    items: [{ inventoryItemId: 'inv-1014' }],
+  },
+  {
     id: 'shp-7003',
     userId: 'u-779',
     status: 'solicitado',
@@ -2041,6 +2053,47 @@ export const mockPreparationQueue: PreparationOrderDTO[] = [
         },
         // Pieza SIN ubicación asignada: el front pinta copy legible, ⛔ nunca "UNASSIGNED".
         currentLocation: { kind: 'unassigned' },
+      },
+    ],
+  },
+  {
+    // ⭐ §M4-PREP v1.78.1 — EL CASO QUE NINGUNA FIXTURE RECORRÍA: `customer.fullName` **null**.
+    // Envío directo de un INVITADO (`userId == null`) cuyo `addressSnapshot` es de los de OCHO
+    // campos (anteriores a v1.67) ⇒ no hay `recipientName` de donde sacar el nombre ⇒ `fullName`
+    // es `null`, y `lastName` lo es **por construcción** (se deriva de `fullName`).
+    // ⛔ La cadena vacía está PROHIBIDA como marca de ausencia: aquí va `null`, no `''`.
+    // *Un tipo nullable sin fixture que lo recorra es un tipo que nadie probó.*
+    shipmentId: 'shp-7005',
+    orderId: 'ord-5002',
+    orderNumber: 'TCG-000124',
+    destination: 'ship',
+    requestedAt: '2026-08-12T08:15:00Z',
+    customer: { lastName: null, fullName: null },
+    shipTo: {
+      recipientName: null,
+      line1: 'Blvd. Adolfo López Mateos 500',
+      line2: null,
+      neighborhood: null,
+      city: 'León',
+      state: 'GTO',
+      postalCode: '37000',
+      country: 'MX',
+      phone: '4779876543',
+    },
+    items: [
+      {
+        shipmentItemId: 'sit-9005-1',
+        inventoryItemId: 'inv-1014',
+        folio: 'INV-000114',
+        quantity: 1,
+        card: {
+          name: 'Blastoise',
+          setName: 'Base Set',
+          finish: 'holofoil',
+          conditionLabel: 'NM',
+          imageSmallUrl: 'https://images.pokemontcg.io/base1/2.png',
+        },
+        currentLocation: { kind: 'assigned', label: 'C02-F01-S08' },
       },
     ],
   },

@@ -620,31 +620,319 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   });
 
   /**
-   * ⚠️ **Hecho medido (arquitecto, §M4-PREP 2026-09-22): la cubeta de BÓVEDA está VACÍA hoy** — las
-   * órdenes `fulfillmentMode='vault'` no generan `ShipmentRequest`, así que no hay cola que servir.
-   * El vacío tiene copy PROPIO: un «nada pendiente» genérico dejaría al operador sin saber si la
-   * cola está al día o si la pantalla se rompió, y no es ninguna de las dos.
+   * ⚠️⚠️ **PR-1 (§35.14 A-4) — EL VACÍO DE BÓVEDA NO PUEDE TRANQUILIZAR SOBRE LO QUE NADIE MIDIÓ.**
+   *
+   * Hecho medido (arquitecto, §M4-PREP): las órdenes `fulfillmentMode='vault'` no generan
+   * `ShipmentRequest` **y no existe artefacto** que diga si una compra a bóveda está pendiente de
+   * colocar. ⇒ el sistema **no sabe** si hay trabajo físico esperando. La versión anterior de este
+   * copy decía *«No hay nada pendiente ni nada roto»*: acertaba en *nada roto* y **afirmaba sin
+   * base** en *nada pendiente*, que es el error más caro de un vacío en una superficie de
+   * operación — deja trabajo físico sin hacer **con el operador tranquilo**.
+   *
+   * El candado mide la **ausencia de la afirmación**, no la presencia de una redacción: así sigue
+   * mordiendo si alguien reescribe el copy y vuelve a colar la promesa.
    */
-  it('cubeta BÓVEDA vacía: estado vacío HONESTO y propio — ni alarma, ni el genérico', async () => {
+  it('PR-1 · cubeta BÓVEDA vacía: explica la ausencia y ⛔ NO afirma «nada pendiente»', async () => {
     serve([order({ shipmentId: 'shp-envio', destination: 'ship' })]);
-    renderWithProviders(<M4View />, 'es');
+    const { container } = renderWithProviders(<M4View />, 'es');
 
     await screen.findByTestId('prep-order-shp-envio');
     fireEvent.click(screen.getByRole('button', { name: 'Solo bóveda' }));
 
-    expect(await screen.findByText('Nada que preparar para bóveda.')).toBeInTheDocument();
-    expect(screen.getByText(/no pasan por esta cola/i)).toBeInTheDocument();
-    // No es el vacío genérico, y no dice que algo falló.
+    expect((await screen.findAllByText('Esta cubeta todavía no se alimenta.')).length).toBe(2);
+    expect(screen.getByText(/no lleva ese registro/i)).toBeInTheDocument();
+    // ⛔ PR-1: ni la afirmación, ni una promesa de versión futura, ni alarma.
+    expect(container.textContent).not.toMatch(/nada pendiente/i);
+    expect(container.textContent).not.toMatch(/empezará a llenarse/i);
     expect(screen.queryByText('Nada que preparar por ahora.')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('PR-1 (EN) · el mismo candado en inglés: ni «nothing is pending» ni «nothing is broken»', async () => {
+    serve([order({ shipmentId: 'shp-envio', destination: 'ship' })]);
+    const { container } = renderWithProviders(<M4View />, 'en');
+
+    await screen.findByTestId('prep-order-shp-envio');
+    fireEvent.click(screen.getByRole('button', { name: 'Vault only' }));
+
+    expect((await screen.findAllByText("This bucket isn't fed yet.")).length).toBe(2);
+    expect(container.textContent).not.toMatch(/nothing is pending/i);
+    expect(container.textContent).not.toMatch(/nothing is broken/i);
+  });
+
+  /**
+   * **P-2 (§35.9) — una superficie que promete actualizarse sola tiene que actualizarse sola.**
+   * El copy de los vacíos prometía que «los nuevos aparecen aquí solos» mientras el cliente global
+   * fija `refetchOnWindowFocus:false`. Se arregló la conducta (no el copy), pero el candado vigila
+   * **la promesa**: si alguien la devuelve sin devolver el refresco, esto se pone rojo.
+   */
+  it('P-2 · ningún vacío promete una actualización automática que la consulta no haga', async () => {
+    serve([]);
+    const { container } = renderWithProviders(<M4View />, 'es');
+
+    await screen.findAllByText('Nada que preparar por ahora.');
+    expect(container.textContent).not.toMatch(/aparecen aquí solos/i);
   });
 
   it('cola COMPLETAMENTE vacía (ambas cubetas): estado vacío general, no error', async () => {
     serve([]);
     renderWithProviders(<M4View />, 'es');
 
-    expect(await screen.findByText('Nada que preparar por ahora.')).toBeInTheDocument();
+    // El título vive en DOS sitios a propósito (PR-2): la región viva y el `EmptyState`.
+    expect((await screen.findAllByText('Nada que preparar por ahora.')).length).toBe(2);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  /**
+   * **PR-2 (§35.10) — la región viva está SIEMPRE montada.** Una región `role="status"` que se monta
+   * **junto con** su contenido no se anuncia de forma fiable: al cambiar a una cubeta vacía el
+   * operador no oía nada. El candado exige que el MISMO nodo exista antes y después y que su texto
+   * cambie — no basta con que aparezca una región nueva.
+   */
+  it('PR-2 · cambiar a una cubeta vacía ANUNCIA: la región viva ya estaba montada y cambia de texto', async () => {
+    serve([order({ shipmentId: 'shp-envio', destination: 'ship' })]);
+    renderWithProviders(<M4View />, 'es');
+
+    // La región existe desde el primer render (vacía mientras carga: ⛔ no se anuncia lo que
+    // todavía no se sabe) y se RELLENA cuando llegan los datos, sin remontarse.
+    const live = await screen.findByTestId('prep-live-region');
+    expect(live).toHaveAttribute('role', 'status');
+    await waitFor(() => expect(live).toHaveTextContent('1 pedido'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Solo bóveda' }));
+
+    await waitFor(() => expect(live).toHaveTextContent('Esta cubeta todavía no se alimenta.'));
+    // El MISMO nodo: si se remontara, el anuncio no sería fiable.
+    expect(screen.getByTestId('prep-live-region')).toBe(live);
+  });
+
+  /**
+   * **PR-3 (§35.4) — lo que ordena la lista tiene que leerse primero.** La ubicación es el criterio
+   * de orden de las cartas y era el dato menos visible: último renglón, mono 11px, `muted`, detrás
+   * del folio. ⚠️ **No era contraste** (cumple AA): era jerarquía. El candado mide el **orden en el
+   * DOM**, que es lo que sobrevive a un cambio de clases de Tailwind.
+   */
+  it('PR-3 · la UBICACIÓN se renderiza ANTES que el folio, y no en el tono de lo secundario', async () => {
+    serve([
+      order({
+        shipmentId: 'shp-ord',
+        items: [item({ shipmentItemId: 'sit-ord', folio: 'INV-000777', currentLocation: { kind: 'assigned', label: 'C03-F02-S15' } })],
+      }),
+    ]);
+    renderWithProviders(<M4View />, 'es');
+
+    const li = await screen.findByTestId('prep-item-sit-ord');
+    const loc = within(li).getByText('C03-F02-S15');
+    const folio = within(li).getByText('INV-000777');
+    // `DOCUMENT_POSITION_FOLLOWING` = el folio va DESPUÉS de la ubicación en el documento.
+    expect(loc.compareDocumentPosition(folio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(loc.className).not.toContain('text-muted');
+    expect(loc.className).toContain('text-sm');
+
+    /*
+     * ⚠️ **Y el orden VISUAL, que el orden del DOM no garantiza.** Lo cazó un canario: mutar el
+     * bloque de ubicación con un `order-last` de Tailwind lo manda al final **en pantalla** y deja
+     * el DOM intacto ⇒ la aserción de arriba seguía verde con el defecto puesto. La columna de
+     * ubicación es el **primer hijo** de la fila y ⛔ **ninguna utilidad `order-*` la mueve**.
+     */
+    const column = within(li).getByTestId('prep-location-sit-ord');
+    expect(li.firstElementChild).toBe(column);
+    for (const node of [li, column]) {
+      expect(node.className).not.toMatch(/(^|\s)(sm:|md:|lg:)?order-(first|last|none|\d+)(\s|$)/);
+    }
+  });
+
+  it('PR-3 · «Sin ubicar» conserva el bermellón y va al MISMO tamaño que una ubicación real', async () => {
+    serve([
+      order({
+        shipmentId: 'shp-sinubi',
+        items: [item({ shipmentItemId: 'sit-nada', currentLocation: { kind: 'unassigned' } })],
+      }),
+    ]);
+    renderWithProviders(<M4View />, 'es');
+
+    const li = await screen.findByTestId('prep-item-sit-nada');
+    const label = within(li).getByText('Sin ubicar');
+    expect(label.className).toContain('text-accent');
+    expect(label.className).toContain('text-sm'); // ⛔ no es una nota al pie de 11px
+  });
+
+  /**
+   * **PR-4 (§35.5) — esta dirección se TRANSCRIBE a mano** (no hay impresión de etiquetas), así que
+   * ningún valor puede heredar el tono de lo secundario: la diferencia entre `muted` y `text-text`
+   * aquí es la probabilidad de equivocar un CP. Los RÓTULOS sí van en muted — el valor pesa más que
+   * su etiqueta.
+   */
+  it('PR-4 · ningún VALOR de la dirección hereda `text-muted` (y los rótulos sí lo llevan)', async () => {
+    serve([
+      order({
+        shipmentId: 'shp-dir4',
+        shipTo: {
+          recipientName: 'Ash Ketchum',
+          line1: 'Av. Insurgentes Sur 1234',
+          line2: null,
+          neighborhood: null,
+          city: 'Ciudad de México',
+          state: 'CDMX',
+          postalCode: '03100',
+          country: 'MX',
+          phone: '5551239876',
+        },
+      }),
+    ]);
+    renderWithProviders(<M4View />, 'es');
+
+    const block = await screen.findByTestId('prep-address-shp-dir4');
+    // El contenedor no tiñe de muted a sus hijos.
+    expect(block.className).not.toContain('text-muted');
+    expect(block.className).toContain('text-text');
+    for (const value of ['Av. Insurgentes Sur 1234', 'Ash Ketchum', '03100', '5551239876']) {
+      const node = within(block).getByText(value);
+      expect(node.className).not.toContain('text-muted');
+      expect(node.closest('.text-muted')).toBeNull();
+    }
+    // Los RÓTULOS sí: se leen una vez en la vida, el valor cada vez.
+    expect(within(block).getByText('CP').className).toContain('text-muted');
+    expect(within(block).getByText('Tel').className).toContain('text-muted');
+  });
+
+  it('P-4b · el NOMBRE COMPLETO no es secundario: es con lo que se caza un apellido derivado mal', async () => {
+    // «último token» sobre un nombre mexicano normal entrega el apellido MATERNO (§35.6): el
+    // archivero lo espera en la S de «Sainz» y el sistema propone la O de «Ortega».
+    serve([order({ shipmentId: 'shp-ap', customer: { lastName: 'Ortega', fullName: 'Juan Carlos Sainz Ortega' } })]);
+    renderWithProviders(<M4View />, 'es');
+
+    const who = await screen.findByTestId('prep-customer-shp-ap');
+    const full = within(who).getByText('Juan Carlos Sainz Ortega');
+    expect(full.className).not.toContain('text-muted');
+    expect(full.className).toContain('text-text');
+  });
+
+  /**
+   * **PR-5 (§35.3) — una fecha ilegible deja «—» en LAS DOS líneas.** `formatAge` devuelve `''` y la
+   * línea de antigüedad quedaba **en blanco** mientras la de abajo sí caía a «—». Y ese pedido es
+   * justo el que el orden manda **al final**: el más sospechoso se quedaba sin nada que leer.
+   */
+  it('PR-5 · `requestedAt` ilegible ⇒ «—» en las dos líneas, y el pedido AL FINAL de la cola', async () => {
+    serve([
+      order({ shipmentId: 'shp-rota', requestedAt: 'no-es-una-fecha' }),
+      order({ shipmentId: 'shp-viejo', requestedAt: '2026-08-01T10:00:00Z' }),
+      order({ shipmentId: 'shp-nuevo', requestedAt: '2026-09-20T10:00:00Z' }),
+    ]);
+    renderWithProviders(<M4View />, 'es');
+
+    const rota = await screen.findByTestId('prep-order-shp-rota');
+    // Las DOS líneas de tiempo dicen «—»: ni la antigüedad ni la fecha quedan en blanco.
+    expect(within(rota).getAllByText('—')).toHaveLength(2);
+    expect(within(rota).getByText(/Solicitado/)).toHaveTextContent('Solicitado —');
+    const ids = screen.getAllByTestId(/^prep-order-/).map((n) => n.getAttribute('data-testid'));
+    expect(ids[ids.length - 1]).toBe('prep-order-shp-rota');
+  });
+
+  /**
+   * **PR-6 (§35.9) — al recuperar el foco, la cola se vuelve a pedir.** Sin esto, un operador con la
+   * pestaña abierta en el mostrador mira una lista muerta toda la tarde. El precedente es
+   * `hooks/usePendings.ts:38`, que ya hace la misma excepción al `refetchOnWindowFocus:false` global.
+   */
+  it('PR-6 · volver a la ventana RE-PIDE la cola (contador ≥ 2)', async () => {
+    const spy = serve([order({ shipmentId: 'shp-focus' })]);
+    renderWithProviders(<M4View />, 'es');
+    await screen.findByTestId('prep-order-shp-focus');
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    /*
+     * ⚠️ **DOS cosas que, mal hechas, dan un candado VACUO** (verde porque no mide):
+     * 1. TanStack Query v5 escucha **`visibilitychange` en `window`** —⛔ no el `focus` de
+     *    `window`, que retiró en v5, y ⛔ tampoco en `document`, que es donde uno lo busca—
+     *    (`@tanstack/query-core@5.101.4`, `focusManager.js:12`). Con el evento equivocado, o
+     *    despachado en el nodo equivocado, esto pasaría sin medir nada.
+     * 2. El gestor solo reacciona a la **TRANSICIÓN** oculto→visible. En jsdom el documento nace
+     *    visible, así que hay que pasar por `hidden` primero: disparar `visibilitychange` sobre un
+     *    documento que ya estaba visible no cambia el estado y **no dispara nada**.
+     */
+    const setVisibility = (value: 'hidden' | 'visible') => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value });
+      window.dispatchEvent(new Event('visibilitychange'));
+    };
+    setVisibility('hidden');
+    setVisibility('visible');
+
+    await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2));
+    /*
+     * ⚠️ **Lo que este candado NO mide, dicho aquí para que nadie lea de más su verde:** el cliente
+     * de pruebas (`test/render.tsx`) **no fija `staleTime`**, así que la consulta nace obsoleta y
+     * el foco siempre la re-pide. En producción el `staleTime: 30_000` global la hace fresca
+     * durante 30 s, y volver a la ventana dentro de esa ventana **no re-pide** — que es la conducta
+     * que §35.9 quiere. PR-6 verifica **el cableado**, ⛔ no la ventana de frescura.
+     */
+  });
+
+  /**
+   * §M4-PREP **v1.78.1** — `customer.fullName` es `string | null`. ⛔ El candado NO fija el «—»
+   * actual: el contrato obliga a una **ausencia con nombre** y la redacción es de ux-ui, así que
+   * fijar el guion **protegería en CI justo lo que el contrato prohíbe**. Se mide lo que es cierto
+   * con cualquier redacción: no se imprime `null`, y la ausencia es **distinguible**.
+   */
+  it('v1.78.1 · `fullName` null: la ausencia es distinguible y ⛔ nunca se imprime «null»', async () => {
+    serve([order({ shipmentId: 'shp-sinnombre', customer: { lastName: null, fullName: null } })]);
+    renderWithProviders(<M4View />, 'es');
+
+    const who = await screen.findByTestId('prep-customer-shp-sinnombre');
+    expect(who).not.toHaveTextContent('null');
+    expect(who).not.toHaveTextContent('undefined');
+    // Rama de ausencia presente (su COPY lo decide ux-ui; aquí solo se exige que exista).
+    expect(within(who).getByTestId('prep-fullname-missing-shp-sinnombre')).toBeInTheDocument();
+    // `fullName === null ⇒ lastName === null` por construcción (el apellido se deriva del nombre).
+    expect(who).toHaveTextContent('Apellido no identificado');
+  });
+
+  it('v1.78.1 · la cadena vacía (servidor no conforme) se lee como AUSENCIA, no como nombre vacío', async () => {
+    // ⛔ El contrato PROHÍBE `""` como marca de ausencia; si llega igual, la lectura segura es
+    // tratarla como ausente — nunca pintar un hueco invisible.
+    serve([order({ shipmentId: 'shp-vacio', customer: { lastName: null, fullName: '   ' } })]);
+    renderWithProviders(<M4View />, 'es');
+
+    const who = await screen.findByTestId('prep-customer-shp-vacio');
+    expect(within(who).getByTestId('prep-fullname-missing-shp-vacio')).toBeInTheDocument();
+  });
+
+  it('P-5 · el verde del sistema NO se gasta en un destino: los dos badges van en la misma tinta', async () => {
+    serve([
+      order({ shipmentId: 'shp-e', destination: 'ship', requestedAt: '2026-08-01T10:00:00Z' }),
+      order({ shipmentId: 'shp-b', destination: 'vault' }),
+    ]);
+    renderWithProviders(<M4View />, 'es');
+
+    const envio = within(await screen.findByTestId('prep-order-shp-e')).getByText('Para enviar');
+    const boveda = within(screen.getByTestId('prep-order-shp-b')).getByText('Para bóveda');
+    // §2.4: el color nunca es el portador del significado — lo porta la palabra.
+    expect(boveda.className).not.toContain('text-success');
+    expect(boveda.className).toBe(envio.className);
+  });
+
+  it('P-9 · cada tarjeta tiene nombre accesible (el folio, o «Retiro de bóveda» cuando no hay orden)', async () => {
+    serve([
+      order({ shipmentId: 'shp-conf', orderNumber: 'TCG-000123', requestedAt: '2026-08-01T10:00:00Z' }),
+      order({ shipmentId: 'shp-ret', orderId: null, orderNumber: null }),
+    ]);
+    renderWithProviders(<M4View />, 'es');
+
+    await screen.findByTestId('prep-order-shp-conf');
+    expect(screen.getByRole('article', { name: 'TCG-000123' })).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Retiro de bóveda' })).toBeInTheDocument();
+  });
+
+  /**
+   * **P-10 (§35.13)** — esta ruta hospeda una pantalla de **administración** (la cola de envíos, sin
+   * paginar) y una de **ejecución física** (esta, que se usa de pie). Manda la que se usa de pie: el
+   * operador que entra a preparar no puede tener que hacer scroll por una lista que no es la suya.
+   */
+  it('P-10 · «Pedidos a preparar» se monta ARRIBA de la cola de envíos', async () => {
+    renderWithProviders(<M4View />, 'es');
+
+    const prep = await screen.findByRole('heading', { name: 'Pedidos a preparar' });
+    const cola = screen.getByRole('heading', { name: 'Cola de envíos de clientes' });
+    expect(prep.compareDocumentPosition(cola) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('ERROR de la cola: banner con «Reintentar» que vuelve a consultar (§8.1)', async () => {

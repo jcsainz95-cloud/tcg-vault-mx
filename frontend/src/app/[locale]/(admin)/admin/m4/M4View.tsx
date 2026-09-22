@@ -190,6 +190,19 @@ export function M4View() {
     <div className="flex flex-col gap-8">
       <h1 className="text-h1 font-bold">{t('title')}</h1>
 
+      {/*
+        * «Pedidos a preparar» (contrato §M4-PREP): tarjeta por PEDIDO y dos cubetas. Sustituye a la
+        * lista PLANA de piezas ordenada por ubicación — ver PreparationQueue.tsx.
+        *
+        * ⭐ **P-10 / DESIGN_SYSTEM §35.13 — va ARRIBA de la cola de envíos, y no es una preferencia.**
+        * Esta ruta hospeda dos pantallas de naturaleza distinta: una de **administración** (la cola de
+        * envíos, que se consulta sentado y **no está paginada**) y una de **ejecución física** (esta,
+        * que se usa **de pie**, con las manos ocupadas y caminando a la bóveda). Con la cola arriba,
+        * el operador que entra a preparar **hace scroll por una lista que no es la suya** y cuya
+        * longitud crece con el negocio. Manda la que se usa de pie.
+        */}
+      <PreparationQueue />
+
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-h2 font-semibold">{t('queueTitle')}</h2>
@@ -326,9 +339,6 @@ export function M4View() {
         </QueryState>
       </section>
 
-      {/* «Pedidos a preparar» (contrato §M4-PREP): tarjeta por PEDIDO y dos cubetas. Sustituye a la
-          lista PLANA de piezas ordenada por ubicación — ver PreparationQueue.tsx. */}
-      <PreparationQueue />
 
       <Modal
         open={trackingTarget !== null}

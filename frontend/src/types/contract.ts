@@ -1233,7 +1233,9 @@ export interface PreparationOrderDTO {
   // --- cliente ---
   customer: {
     lastName: string | null; // apellido DERIVADO del nombre (archivero alfabético). FRÁGIL — §6.A; NO bloquea
-    fullName: string; // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
+    // v1.78.1 — `| null`: la fuente del INVITADO puede faltar (snapshot de 8 campos anterior a v1.67).
+    // ⛔ `""` PROHIBIDA como marca de ausencia: un hecho, una grafía (ver la nota de abajo).
+    fullName: string | null; // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
   };
   // --- solo destino ENVÍO ('ship'): dirección COMPLETA, CON la calle que la fila omite hoy (CA #6) ---
   shipTo?: {
@@ -1271,6 +1273,24 @@ export interface LocationView {
   kind: 'assigned' | 'unassigned';
   label?: string; // "C03-F02-S15" cuando kind='assigned'; ausente cuando 'unassigned'
 }
+
+// ⭐ §M4-PREP v1.78.1 — LA NOTA DE `customer.fullName`, porque el tipo solo dice la mitad.
+// `null` es la ÚNICA marca de «no hay nombre» en este DTO — igual que en `lastName`,
+// `shipTo.recipientName`, `orderId` y `orderNumber`. ⛔ `""` está PROHIBIDA (y omitir la llave
+// también): una cadena vacía renderiza como un hueco invisible, no se distingue de un nombre vacío
+// legítimo y obliga a todo consumidor a escribir `if (!x)` en vez de `x === null`.
+//
+// ⚠️ **Obligación NORMATIVA del consumidor (nosotros):** con `null` se pinta una **AUSENCIA CON
+// NOMBRE** —el patrón que §M4 ya exige para el destinatario («SIN DESTINATARIO (retiro anterior a
+// v1.67)»)— y ⛔ **nunca un «—» mudo sin causa**. `DESIGN_SYSTEM §32.4-H4` pide «—» **más la frase
+// que diga que no se pudo saber**, y §16.3a advierte que el em dash **ya carga semántica de dinero**
+// («precio pendiente») y se lee como cero. **La redacción de esa frase es de ux-ui**, no del
+// contrato ni del frontend: ver el `PENDIENTE-UX` de `PreparationQueue.tsx`.
+//
+// Por qué `| null` aunque backend midiera que hoy el caso es inalcanzable (los snapshots de 8 campos
+// son de RETIROS, que tienen `User.name`): el contrato declara la **forma** de la fuente, no su
+// suerte. Un campo no-nulo «mientras la coincidencia se sostenga» miente en cuanto se rompa, y no
+// avisa — sale un hueco pintado en la pantalla del operador.
 
 // Captura de guía en M4 (contrato §M4 · POST /admin/shipments/:id/tracking).
 // shippingCostCents (v1.4-finance): costo real en centavos MXN que la plataforma

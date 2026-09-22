@@ -40,6 +40,13 @@ import type {
 /** §32.4: lo desconocido es «—», nunca omitido en silencio. */
 const DASH = '—';
 
+/**
+ * Tono del **RÓTULO** (§35.3 regla 1: *el valor pesa más que su etiqueta*). Vive en una constante
+ * para que ningún bloque vuelva a invertir la relación por descuido: los rótulos («Destinatario»,
+ * «CP», «Tel», «Ubicación», «Folio») se leen **una vez en la vida**; los valores, **cada vez**.
+ */
+const LABEL = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted';
+
 /** Cubeta elegida por el operador (CA #8). `''` = ambas (⇒ `?destination` ausente). */
 type Bucket = '' | PreparationDestination;
 
@@ -98,16 +105,49 @@ export function PreparationQueue() {
   const queue = useQuery({
     queryKey: ['admin-preparation-queue', bucket],
     queryFn: () => getAdminPreparationQueue({ destination: bucket || undefined }),
+    /**
+     * ⭐ **P-2 / DESIGN_SYSTEM §35.9 — una superficie que promete actualizarse sola tiene que
+     * actualizarse sola.** El cliente global fija `refetchOnWindowFocus: false`
+     * (`Providers.tsx:12`); **esta cola lo sobrescribe**, con el precedente exacto de
+     * `hooks/usePendings.ts:38`, que ya hace la misma excepción para las pendientes del
+     * back-office y por el mismo motivo: **volver a la ventana ES el gesto de «¿hay algo
+     * nuevo?»**. Sin esto, un operador con la pestaña abierta en el mostrador mira una lista
+     * muerta toda la tarde mientras el copy del vacío le dice que los nuevos aparecen solos.
+     *
+     * ⛔ **Sin `refetchInterval`**, y es deliberado (§35.9): un sondeo de fondo gasta en una
+     * pantalla que pasa horas abierta sin nadie delante, y el foco ya cubre el caso real.
+     *
+     * ⚠️ **`true`, no `'always'` — y la distinción se midió, no se supuso.** Llegué a poner
+     * `'always'` creyendo que `true` no cumplía la promesa (PR-6 se quedaba en **1** llamada). Era
+     * **falso**: el `1` venía de que la prueba despachaba `visibilitychange` en `document`, y
+     * `query-core@5.101.4` lo escucha en **`window`** (`focusManager.js:12`). Con el evento en su
+     * sitio, **`true` pasa igual** ⇒ ⛔ no hay motivo para desviarse de la letra de §35.9 ni del
+     * precedente citado (`usePendings.ts:38`, que también usa `true` con `staleTime: 30_000`).
+     *
+     * **Lo que `true` significa de verdad, dicho para que nadie lo lea de más:** re-pide al volver
+     * a la ventana **si la consulta está obsoleta**; con el `staleTime: 30_000` global
+     * (`Providers.tsx:12`) eso es *«a partir de 30 s»*, no *«en cada parpadeo»*. Es la conducta
+     * que §35.9 pide y la que evita una petición por cada alt-tab. ⚠️ **El candado PR-6 no puede
+     * ver ese matiz**: el cliente de pruebas (`test/render.tsx`) no fija `staleTime`, así que ahí
+     * la consulta nace obsoleta. PR-6 mide **el cableado** (que la cola se re-pide en el gesto),
+     * ⛔ no la ventana de frescura de producción.
+     */
+    refetchOnWindowFocus: true,
   });
 
   const orders = sortPreparationOrders(queue.data ?? []);
 
   /**
-   * El vacío de la cubeta **bóveda** tiene copy propio, y ese copy es un HECHO medido, no un
-   * consuelo: bajo el modelo actual las compras a bóveda **no generan cola de preparación** (§M4-PREP,
-   * hallazgo del arquitecto 2026-09-22). Un «nada pendiente» genérico dejaría al operador sin saber
-   * si la cola está al día o si la pantalla se rompió, y la respuesta correcta no es ninguna de las
-   * dos: ahí todavía no hay nada que preparar **por diseño**.
+   * Un copy de vacío por cubeta: las tres situaciones son distintas (§35.8).
+   *
+   * ⚠️ **P-1 — el de BÓVEDA es el delicado, y la versión anterior afirmaba de más.** Decía «No hay
+   * nada pendiente ni nada roto»: acertaba en *nada roto* y **afirmaba sin base** en *nada
+   * pendiente*. Lo medido (`API_CONTRACT §M4-PREP`) es que **no existe artefacto** que diga si una
+   * compra a bóveda está pendiente de colocar ⇒ el sistema **no sabe** si hay trabajo físico
+   * esperando. **Un estado vacío afirma solo lo que el sistema sabe**: puede decir «esta lista no
+   * tiene nada», ⛔ **no puede decir «no hay trabajo»** si nadie lo mide. Tranquilizar sobre trabajo
+   * que nadie cuenta es el error más caro de un vacío en una superficie de operación. Copy
+   * normativo en §35.8; el candado es **PR-1**.
    */
   const emptyKey = bucket === 'vault' ? 'emptyVault' : bucket === 'ship' ? 'emptyShip' : 'empty';
 
@@ -146,6 +186,29 @@ export function PreparationQueue() {
         </div>
       </div>
 
+      {/*
+        * ⭐ **P-8 / PR-2 / §35.10 — la región viva está SIEMPRE montada, y por eso vive FUERA de
+        * `QueryState`.** Dentro no bastaba: al cambiar de cubeta cambia la clave de la consulta ⇒
+        * `isLoading` ⇒ `QueryState` sustituye a TODOS sus hijos por el esqueleto y **desmonta la
+        * región**; una región que se remonta con su contenido **no se anuncia de forma fiable**, que
+        * es exactamente el defecto que P-8 venía a cerrar. *(Lo descubrió el candado PR-2 al exigir
+        * que fuera el MISMO nodo antes y después, no «una región con el texto nuevo».)*
+        *
+        * Mientras carga no anuncia nada (cadena vacía): afirmar «esta cubeta no se alimenta» antes
+        * de que llegue la respuesta sería decirle al operador algo que todavía no se sabe.
+        */}
+      <p
+        className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted"
+        role="status"
+        data-testid="prep-live-region"
+      >
+        {queue.isLoading || queue.isError
+          ? ''
+          : orders.length === 0
+            ? t(`${emptyKey}.title`)
+            : t('orderCount', { count: orders.length })}
+      </p>
+
       <QueryState
         isLoading={queue.isLoading}
         isError={queue.isError}
@@ -165,12 +228,12 @@ export function PreparationQueue() {
         }
       >
         {orders.length === 0 ? (
-          <EmptyState tone="positive" title={t(`${emptyKey}.title`)} body={t(`${emptyKey}.body`)} />
+          // P-6: ⛔ sin `tone`. `EmptyState` lo acepta por compatibilidad y **no lo pinta** — la
+          // dirección 5a retiró los rellenos de color (§2.1) y §35.8 corrige el «verde suave» de
+          // §8.1: el vacío positivo se comunica con el texto y el aire, no con color.
+          <EmptyState title={t(`${emptyKey}.title`)} body={t(`${emptyKey}.body`)} />
         ) : (
           <>
-            <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted" role="status">
-              {t('orderCount', { count: orders.length })}
-            </p>
             <ol className="flex flex-col gap-4">
               {orders.map((order) => (
                 <li key={order.shipmentId}>
@@ -198,7 +261,13 @@ function PreparationCard({
   t: Translator;
   tm4: Translator;
 }) {
-  const fullName = order.customer.fullName?.trim() || DASH;
+  /**
+   * ⭐ §M4-PREP **v1.78.1** — `customer.fullName` es `string | null`, y `null` es la **única** marca
+   * de ausencia. ⛔ La cadena vacía está **PROHIBIDA** por el contrato; si llegara igual (servidor no
+   * conforme) se lee como ausencia, que es la lectura segura: ⛔ nunca se pinta un hueco invisible.
+   */
+  const fullNameMissing = order.customer.fullName === null || order.customer.fullName.trim() === '';
+  const fullName = order.customer.fullName?.trim() ?? '';
   const lastName = order.customer.lastName?.trim();
   // La dirección solo existe (y solo se pinta) en destino ENVÍO — CA #6.
   const shipTo = order.destination === 'ship' ? order.shipTo : undefined;
@@ -206,20 +275,31 @@ function PreparationCard({
   return (
     <article
       data-testid={`prep-order-${order.shipmentId}`}
+      /* P-9 / §35.10: sin nombre, un lector de pantalla anuncia «artículo» N veces seguidas. El
+         nombre es el folio — o «Retiro de bóveda», que es lo que ocupa su lugar cuando no hay orden. */
+      aria-labelledby={`prep-ref-${order.shipmentId}`}
       className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4"
     >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col items-start gap-1.5">
           {/* Destino de un vistazo (DECISIÓN #1): es del PEDIDO, nunca de la carta. */}
-          <Badge tone={order.destination === 'vault' ? 'success' : 'primary'} shape="outline">
+          {/* P-5 / §2.4: **los dos destinos van en `primary`**. El verde es el ÚNICO color positivo
+              del sistema (§2.1: confirmado/liquidado) y gastarlo en un destino —que no es un estado—
+              diluye la señal que sostiene la confianza en las pantallas de dinero. Los distingue **la
+              palabra** en versalitas: el color nunca es el portador del significado. */}
+          <Badge tone="primary" shape="outline">
             {t(`destination.${order.destination}`)}
           </Badge>
           <div className="flex flex-wrap items-baseline gap-2">
             {/* Folio del pedido; en un RETIRO DE BÓVEDA no hay orden ⇒ se dice lo que es, no un hueco. */}
             {order.orderNumber ? (
-              <span className="tabular text-lg font-semibold text-text">{order.orderNumber}</span>
+              <span id={`prep-ref-${order.shipmentId}`} className="tabular text-lg font-semibold text-text">
+                {order.orderNumber}
+              </span>
             ) : (
-              <span className="font-serif text-lg text-text">{t('withdrawal')}</span>
+              <span id={`prep-ref-${order.shipmentId}`} className="font-serif text-lg text-text">
+                {t('withdrawal')}
+              </span>
             )}
             <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
               {t('shipmentRef')} <span className="tabular">{order.shipmentId}</span>
@@ -228,9 +308,12 @@ function PreparationCard({
         </div>
         {/* Antigüedad legible (CA #9) + la fecha absoluta al lado: el «hace N días» nunca la sustituye. */}
         <p className="flex flex-col items-start gap-0.5 text-sm sm:items-end">
-          <span className="font-medium text-text">{formatAge(order.requestedAt, locale)}</span>
+          {/* P-7 / §32.4: `formatAge` devuelve `''` con una fecha ilegible, y la línea quedaba EN
+              BLANCO mientras la de abajo sí caía a «—». Y ese pedido es justo el que el orden manda
+              **al final**: el más sospechoso se quedaba sin nada que leer. Candado: **PR-5**. */}
+          <span className="font-medium text-text">{formatAge(order.requestedAt, locale) || DASH}</span>
           <time dateTime={order.requestedAt} className="text-xs text-muted">
-            {t('requestedAt')} {formatDate(order.requestedAt, locale) || DASH}
+            {t('requestedAt')} <span>{formatDate(order.requestedAt, locale) || DASH}</span>
           </time>
         </p>
       </header>
@@ -246,38 +329,84 @@ function PreparationCard({
             {t('lastNameUnknown')}
           </p>
         )}
-        <p className="text-sm text-muted">{fullName}</p>
+        {fullNameMissing ? (
+          /*
+           * ⚠️⚠️ **PENDIENTE-UX — NO CONFORME TODAVÍA, y se dice aquí en vez de taparlo.**
+           * §M4-PREP v1.78.1 obliga al consumidor a pintar una **AUSENCIA CON NOMBRE** —el patrón de
+           * «SIN DESTINATARIO (retiro anterior a v1.67)» de §M4—, y ⛔ **prohíbe el «—» mudo**:
+           * `DESIGN_SYSTEM §32.4-H4` pide «—» **más la frase que diga que no se pudo saber**, y
+           * §16.3a advierte que el em dash **ya carga semántica de dinero** («precio pendiente») y se
+           * lee como **cero**.
+           *
+           * ⛔ **La frase NO se inventa aquí: su redacción es de ux-ui** (lo dice el propio contrato),
+           * y ux-ui está escribiendo su sección de esta pantalla. Lo que sí queda hecho es **la
+           * costura**: la rama existe, está aislada y marcada con `data-testid`, así que ponerle el
+           * copy es **una clave i18n y una línea**. Las pruebas que la cubren asertan lo que es
+           * cierto con CUALQUIER redacción —que no se imprime `null`/`undefined` y que la ausencia
+           * es distinguible—, ⛔ jamás el «—» actual: un test que fijara el «—» **protegería en CI
+           * justo lo que el contrato prohíbe**.
+           */
+          <p data-testid={`prep-fullname-missing-${order.shipmentId}`} className="text-sm text-text">
+            {DASH}
+          </p>
+        ) : (
+          /* P-4b / §35.6: `text-text`, ⛔ ya no `muted`. El apellido grande de arriba es **derivado**
+             («último token»), y en México eso entrega el apellido **materno** cuando el archivero se
+             ordena por el **paterno**. El nombre completo es el ÚNICO dato con el que el operador
+             caza ese error a ojo ⇒ no puede pintarse como secundario. ⛔ El TAMAÑO del apellido no se
+             toca: esa jerarquía está ratificada. */
+          <p className="text-sm text-text">{fullName}</p>
+        )}
       </div>
 
       {shipTo && (
-        // ⛔ NO va en un <address>: el HTML reserva ese elemento para los datos de contacto DEL
-        // artículo/documento, no para una dirección postal arbitraria de un tercero.
+        /*
+         * ⭐ **P-4 / §35.5 — ESTA DIRECCIÓN SE TRANSCRIBE A MANO, y por eso NO puede ir en `muted`.**
+         * En este sistema **no hay impresión de etiquetas**: el operador copia la calle, el CP y el
+         * teléfono de la pantalla al paquete o a la ventanilla del transportista. Un dato que se lee
+         * **dígito a dígito** no se pinta en el tono de lo secundario — la diferencia entre `muted` y
+         * `text-text` aquí no es estética, es **la probabilidad de equivocar un CP**.
+         *
+         * La regla que invierte lo que había: **el VALOR pesa más que su RÓTULO.** «Destinatario»,
+         * «CP» y «Tel» son rótulos (mono 11px `muted`, se leen una vez en la vida); lo que sigue va
+         * en `text-text` con `tabular` (se lee cada vez). Candado: **PR-4**.
+         *
+         * ⛔ NO va en un <address>: el HTML reserva ese elemento para los datos de contacto DEL
+         * artículo/documento, no para la dirección postal de un tercero.
+         */
         <div
           data-testid={`prep-address-${order.shipmentId}`}
-          className="flex flex-col gap-0.5 text-sm text-muted"
+          className="flex flex-col gap-1 text-sm text-text"
         >
           {/* `recipientName` es nullable (snapshots de 8 campos anteriores a v1.67): si no viene, la
-              línea NO se pinta vacía — el bloque «cliente» de arriba ya nombra a la persona. */}
+              línea NO se pinta vacía — el bloque «cliente» de arriba ya nombra a la persona. Una
+              línea «Destinatario: —» parecería una avería (§35.3). */}
           {shipTo.recipientName && (
+            /* ⚠️ El espacio entre rótulo y valor es un `{' '}` REAL, no un `gap` de flex: con el
+               hueco pintado por CSS el texto accesible queda pegado («ParaAsh Ketchum») y un lector
+               de pantalla lo lee así. El aire visual puede venir del layout; **la separación de
+               palabras, no**. */
             <p>
-              <span className="font-medium text-text">{tm4('recipient')}</span>{' '}
-              <span className="text-text">{shipTo.recipientName}</span>
+              <span className={LABEL}>{tm4('recipient')}</span>{' '}
+              <span>{shipTo.recipientName}</span>
             </p>
           )}
-          {/* CA #6: la CALLE, que la fila de hoy omite. `line2`/`neighborhood` son nullable ⇒ se
-              filtran en vez de dejar comas colgando. */}
-          <p className="text-text">
+          {/* CA #6: la CALLE completa y en su propia línea, primera del bloque — es el dato que la
+              pantalla anterior omitía y el que hace la dirección utilizable. `line2`/`neighborhood`
+              son nullable ⇒ se filtran en vez de dejar comas colgando. */}
+          <p>
             {[shipTo.line1, shipTo.line2, shipTo.neighborhood]
               .map((p) => p?.trim())
               .filter((p): p is string => Boolean(p))
               .join(', ') || DASH}
           </p>
           <p>
-            {shipTo.city}, {shipTo.state} · {tm4('postalCode')}{' '}
+            {shipTo.city}, {shipTo.state} · <span className={LABEL}>{tm4('postalCode')}</span>{' '}
             <span className="tabular">{shipTo.postalCode}</span> · {shipTo.country}
           </p>
           <p>
-            {tm4('phone')} <span className="tabular">{shipTo.phone}</span>
+            <span className={LABEL}>{tm4('phone')}</span>{' '}
+            <span className="tabular">{shipTo.phone}</span>
           </p>
         </div>
       )}
@@ -305,8 +434,34 @@ function PreparationItem({ item, t }: { item: PreparationItemDTO; t: Translator 
   return (
     <li
       data-testid={`prep-item-${item.shipmentItemId}`}
-      className="flex gap-3 border-t border-border pt-3 first:border-t-0 first:pt-0"
+      className="flex flex-col gap-2 border-t border-border pt-3 first:border-t-0 first:pt-0 sm:flex-row sm:gap-4"
     >
+      {/*
+        * ⭐⭐ **P-3 / §35.4 — LA UBICACIÓN VA PRIMERO Y FORMA COLUMNA.** Es lo único de esta pantalla
+        * que el operador usa **mientras camina**, y era el dato **menos visible** de la tarjeta:
+        * último renglón, mono 11px, `muted`, detrás del folio.
+        *
+        * ⚠️ **No era un problema de contraste** —`muted` sobre papel da ~4.8:1 y cumple AA (§10)—
+        * **era de jerarquía**: `muted` es por definición el tono de lo **secundario**, y la ubicación
+        * es **el criterio de orden de la lista**. *Lo que ordena una lista tiene que formar columna*:
+        * enterrada al final de un párrafo, el orden existe pero no se ve, y el operador vuelve a
+        * recorrer la tarjeta entera por cada carta. ⛔ Y **no se trunca nunca**: es corta y es una
+        * llave. Candado: **PR-3** (la ubicación se renderiza ANTES que el folio en el DOM).
+        */}
+      <div
+        data-testid={`prep-location-${item.shipmentItemId}`}
+        className="flex shrink-0 flex-col gap-0.5 sm:w-32"
+      >
+        <span className={LABEL}>{t('location')}</span>
+        {located ? (
+          <span className="tabular text-sm text-text">{currentLocation.label}</span>
+        ) : (
+          /* «Sin ubicar» en bermellón —*esto te va a costar trabajo*— y **al mismo tamaño** que una
+             ubicación real: es una excepción que se atiende, no una nota al pie. Su carta va al final
+             del pedido, que es donde el recorrido la encuentra. */
+          <span className="text-sm text-accent">{t('unassigned')}</span>
+        )}
+      </div>
       {/* `imageSmallUrl` es nullable por contrato: sin foto queda el pozo de papel (CardImage ya
           NO pulsa sin `src`), nunca un roto ni un esqueleto eterno. */}
       <CardImage src={card.imageSmallUrl} alt={card.name} className="w-16 shrink-0" />
@@ -319,23 +474,18 @@ function PreparationItem({ item, t }: { item: PreparationItemDTO; t: Translator 
         <p className="text-sm font-semibold text-text" lang="en">
           {card.setName ?? DASH}
         </p>
-        <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
+        <p className="flex flex-wrap items-center gap-2 text-sm">
           <FinishMark finish={card.finish} band={false} />
           {/* ⛔ La condición NO se recompone aquí: viene ya compuesta del back (`conditionLabel`,
               graded/raw/sealed). Repetir esa precedencia en el front sería la segunda fuente. */}
           <span className="text-text">{card.conditionLabel}</span>
           {/* `quantity` es constante 1 bajo el modelo actual: se pinta SOLO si alguna vez no lo es. */}
-          {item.quantity !== 1 && <span className="tabular">×{item.quantity}</span>}
+          {item.quantity !== 1 && <span className="tabular text-text">×{item.quantity}</span>}
         </p>
-        <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+        {/* El folio baja DETRÁS de la ubicación: es el dato de **cotejo en mano** (ya con la carta
+            delante), no de recorrido. Se lee de cerca ⇒ mono 11px muted es su sitio. */}
+        <p className={LABEL}>
           {t('folio')} <span className="tabular">{item.folio}</span>
-          {' · '}
-          {t('location')}{' '}
-          {located ? (
-            <span className="tabular text-text">{currentLocation.label}</span>
-          ) : (
-            <span className="text-accent">{t('unassigned')}</span>
-          )}
         </p>
       </div>
     </li>

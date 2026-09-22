@@ -1538,11 +1538,11 @@
         },
         "emptyShip": {
           "title": "Nothing to ship right now.",
-          "body": "No paid orders are waiting to be shipped. New ones appear here on their own."
+          "body": "No paid orders are waiting to be shipped."
         },
         "emptyVault": {
-          "title": "Nothing to prepare for the vault.",
-          "body": "Purchases a customer leaves in their vault do not go through this queue: once the payment settles the card is already theirs without leaving the store. This bucket will start filling once the system tracks filing into the binder. Nothing is pending and nothing is broken."
+          "title": "This bucket isn't fed yet.",
+          "body": "A purchase the customer leaves in their vault doesn't create a queue: once the payment settles the card is already theirs without leaving the store. Empty here doesn't mean “everything is filed” — it means this screen doesn't track that yet."
         }
       }
     },

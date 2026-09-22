@@ -1538,11 +1538,11 @@
         },
         "emptyShip": {
           "title": "Nada que enviar por ahora.",
-          "body": "No hay pedidos cobrados esperando envío. Los nuevos aparecen aquí solos."
+          "body": "No hay pedidos cobrados esperando envío."
         },
         "emptyVault": {
-          "title": "Nada que preparar para bóveda.",
-          "body": "Las compras que el cliente deja en su bóveda no pasan por esta cola: al liquidarse el pago la carta ya queda a su nombre sin salir de la tienda. Esta cubeta empezará a llenarse cuando el sistema lleve el registro de colocación en el archivero. No hay nada pendiente ni nada roto."
+          "title": "Esta cubeta todavía no se alimenta.",
+          "body": "Una compra que el cliente deja en su bóveda no genera cola: al liquidarse el pago la carta ya es suya sin salir de la tienda. Vacío aquí no significa «todo colocado» — significa que esta pantalla todavía no lleva ese registro."
         }
       }
     },
