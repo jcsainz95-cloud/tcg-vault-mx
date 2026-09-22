@@ -5,6 +5,37 @@
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
 > Última limpieza: **2026-09-11 ~08:30 UTC** (orquestador, sesión 2, tras fusionar Stream A + andamiaje de CI a `main`). Cuerpos de los ítems: **verbatim**, sin reescribir.
 
+## Actualización 2026-09-22 (orquestador, sesión 4) — propuesta de regla O-17
+
+> Medido sobre `b5e24df`. **No se escribe en `CLAUDE.md` en esta rama a propósito:** este árbol aún no
+> trae **O-16** (vive en `claude/handoff-sesion-nueva`, PR #61). Añadir O-17 aquí crearía un choque al
+> fusionar. Aterriza cuando #61 entre.
+
+### P-O17-BD · Propuesta de regla **O-17 · La base de datos compartida es un recurso compartido, y `ALTER ROLE` es silencioso
+
+**Enunciado propuesto:** antes de tocar **credenciales, esquema o fixtures** de una base de datos que otro
+agente pueda estar usando, **se comprueba quién está conectado**. No basta con que el árbol de trabajo esté
+libre: O-8 (scratchpad) y O-14 (árbol) cubren dos recursos compartidos y **dejaban fuera el tercero**.
+
+**De dónde viene (error del orquestador, medido hoy):** para correr mi verificación O-9 necesitaba la base
+local, la autenticación falló con el valor de `.env.example` y corrí `ALTER ROLE tcg WITH PASSWORD …`
+**sin comprobar quién más medía**. El agente **backend** estaba dentro: le produje **355 rojas de 369**,
+todas `PrismaClientInitializationError` en el `beforeAll`. Ninguna era un defecto.
+
+**Lo que hace grave al fallo, y es la lección:** el rojo que produce **se parece a un defecto**. Un agente
+menos cuidadoso habría ido a «arreglar» código sano. El agente afectado hizo lo correcto —**no** revirtió mi
+contraseña, porque habría roto a quien la estuviera usando; se creó rol y base propios (`m4prep`/`tcg_m4prep`)
+y volvió a medir limpio— pero eso fue criterio suyo, no una regla del proyecto.
+
+**Comprobación propuesta (barata, en la línea de O-6):** antes de tocar credenciales o fixtures,
+`SELECT usename, datname, state FROM pg_stat_activity;` dice quién está conectado. Treinta segundos.
+Y como norma preferente: **una base por agente** cuando varios midan a la vez, o serializar a quien mida
+contra infraestructura. *(El mecanismo de comprobación lo propuso el agente backend; la regla la escribe el
+orquestador porque el error fue suyo.)*
+
+**Dueño:** orquestador. **Fecha de medición:** 2026-09-22. **Comprobación:** al fusionar PR #61, O-17 existe
+en `CLAUDE.md` tras O-16, o esta ficha explica por qué se descartó.
+
 ## Actualización 2026-09-21 (orquestador, sesión 3) — Meta Battle Decks + bounties
 
 > ⚠️ El índice de abiertos de abajo es del **2026-09-11** y NO se ha re-medido entero. **Re-conteo completo del backlog: agendado** (aprobado por el dueño 2026-09-21) para justo después de fusionar el botón de operación de Meta Battle Decks. Hasta entonces, las filas viejas se tratan como **NO medidas** (O-5).
