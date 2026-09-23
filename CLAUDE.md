@@ -241,6 +241,23 @@ mío**. O lo mido, o lo relayo diciendo **de quién es y con qué N**.
 **Comprobación:** toda proporción en un mensaje mío lleva su **N** y su autor. `5/5` sin N es una afirmación sin
 medición, y se trata como **NO MEDIDO**.
 
+### O-16 · Un diseño aprobado sin construir se rastrea, o se pierde entre sesiones
+Cuando el dueño **aprueba** un diseño (sección de `PROJECT.md` y/o borrador de contrato) pero **no se construye en
+la misma sesión**, se registra en `PENDIENTES.md` con **rama + SHA + fecha de medición**. Un diseño aprobado que
+vive solo en una rama sin fusionar, y **fuera del índice de `PENDIENTES.md`**, se cae del radar entre sesiones y se
+evapora.
+
+> *De dónde viene:* el makeover de M4 «Pedidos a preparar» se aprobó el **2026-09-15** (las 6 decisiones del dueño
+> incorporadas, «listo para arquitecto», con borrador de contrato del arquitecto) y **nunca se construyó**: quedó
+> solo en la rama `claude/tcg-hunt-orchestration-4`, sin entrar al índice de `PENDIENTES.md`. El dueño lo encontró
+> el **2026-09-22**: *«no veo la parte del makeover a envíos, ¿dónde quedó eso?»*. Un diseño aprobado que no está
+> en `PENDIENTES` es trabajo pagado que se evapora — y el dueño paga dos veces: una por diseñarlo, otra por volver
+> a encontrarlo.
+
+**Comprobación:** al cerrar una sesión (y en el traspaso), todo diseño **aprobado-sin-construir** aparece en
+`PENDIENTES.md` con rama+SHA+fecha, y el `TRASPASO.md` lo enumera en «en vuelo». Un diseño aprobado que solo existe
+en una rama sin fusionar y no en el índice se trata como **perdido**.
+
 ## Arranque y traspaso de sesión
 - **Tres ficheros, tres papeles:** `HECHOS.md` (lo que el dueño estableció y lo medido de infraestructura; no
   se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y **comprobación**, y sus

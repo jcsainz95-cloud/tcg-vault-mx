@@ -26,6 +26,26 @@
 
 **Decisiones del dueño pendientes:** (1) cómo publica el automático (solo vs. tú aprietas) tras validar el ensayo; (2) OK al texto de P-TARIFA; (3) DMARC en el DNS (P-60, viejo).
 
+## Actualización 2026-09-22 (orquestador, sesión 3) — Publicar ahora, M4 makeover, precio de sellado
+
+> Medido el 2026-09-22 contra `origin/production` = **c7c58aa5**.
+
+**Cerrado / obsoleto desde el bloque 2026-09-21 (para NO re-enrutar trabajo muerto — O-5):**
+- El «en vuelo» SEG-DMF1 (rama `decksmeta-dial-and-audit`) **se fusionó** como PR #57, y luego PR #58 (trust-source, `c7c58aa5`) **retiró todo el gateo de legalidad** de Meta Battle Decks.
+- ⇒ **P-LEG-CAUSE, P-LEG-AUTODERIVE y P-API-DOC (endpoint `standard-legality`) quedan OBSOLETOS**: ya no hay filtro de legalidad propio (se confía en Limitless). No re-enrutar.
+
+**En vuelo / listo para el botón del dueño:**
+- **PR #59 — «Publicar ahora» (M12 Meta Battle Decks)** — rama `claude/decksmeta-publish-now` (`deca05d9`). Botón super_admin que dispara la publicación inmediata (endpoint que ya existía). **Verificado por el orquestador** (tsc, 16/16, i18n 43/43, mutación) y **CI 64/64 verde**. Falta solo que el dueño lo fusione.
+
+**Abiertos nuevos (medido 2026-09-22):**
+- **P-M4-PREP** — makeover de M4 «Pedidos a preparar». Rama `claude/m4-pedidos-preparar`. Diseño **aprobado por el dueño 2026-09-15** (6 decisiones); recuperado a rama viva (`b5b38d47`) tras haberse perdido (ver O-16). Contrato de la **rebanada de SOLO LECTURA** aterrizado por el arquitecto (`5c973e6b`, solo docs, cero migración). **SIGUIENTE:** construir la **cubeta de ENVÍO** (backend reproyecta `GET /admin/shipments/picking-list` → `PreparationOrderDTO`; frontend reconstruye M4). Sin migración, sin dinero. Gates QA+techlead + verificación del orquestador. **Hallazgo del arquitecto:** la **cubeta de BÓVEDA está vacía hoy** (las órdenes `fulfillmentMode='vault'` NO generan `ShipmentRequest`/cola de preparación) ⇒ servir `?destination=vault` **requiere schema + lógica** = seguimiento aparte. **Seguimientos (NO en la 1a PR):** palomear/firmar (`PATCH …/prep-items`, `POST …/prepared` + columnas), sugerencia de bóveda, y 💰 **reembolso parcial** por carta faltante (extender `POST /admin/orders/:id/refund` + `refund-preview` + `partialRefundedCents`; **3 veredictos**). Ver `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md` y `docs/API_CONTRACT.md §M4-PREP`.
+- **P-SELLADO-PRECIO** (💰 money) — nuevo modelo de precio de sellado: al **dar de alta**, teclear **costo** y **precio de venta** directos; **mercado solo de referencia**; **precio distinto por colección/formato**; **retirar/degradar** el panel de spreads (mercado × margen). Pedido por el dueño 2026-09-22. **En DISEÑO** (sesión hija `session_01QBuT3Vv2gkt9sXioNTBLrp`, PR de solo-diseño con 5 preguntas para el dueño). Hechos: `acquisitionCostCents` (schema:851) y `manualMarketMxnCents` ya existen; hoy el precio manual solo aparece si NO hay mercado; `sealedProductId` = set+presentación. Al aprobar el dueño → arquitecto → backend/frontend (money zone, gates completos + verificación del orquestador).
+- **P-SELLADO-REPRECIO** — falta forma directa de **re-editar el precio de un sellado YA publicado** (hoy solo por la cola de pendientes de M2 o al alta). Medido 2026-09-22. Probable que lo absorba P-SELLADO-PRECIO.
+- **P-FONTS-CJK** — ~300 woff2 por `Zen_Old_Mincho` (familia CJK) declarada en `frontend/src/app/[locale]/layout.tsx` → carga lenta (el dueño lo reportó con captura de red). Fix: quitar/subsetear esa familia (las demás son latinas). No dinero. Dueño: frontend.
+- **P-BUYLIST-CONC-FLAKE** (money-adjacent) — `backend/test/integration/buylist-intake-concurrency.e2e-spec.ts:161` (§6/SEC-A2) es **intermitente**: exige que «el conflicto SÍ ocurrió», que depende del timing. Rojo 1/1044 en el CI de PR #59, **verde al re-run**; base `production` verde. Estabilizar la prueba (O-3/O-15) sin debilitar el candado. Dueño: backend.
+
+**Decisiones del dueño pendientes (nuevas):** (1) las **5 preguntas** de la PR de diseño de precio de sellado; (2) ¿construir la cubeta de **bóveda** de M4 (requiere schema) además de la de envío?
+
 ## Índice de abiertos (re-medido 2026-09-11 ~03:20 UTC sobre `17ce9a9`; **actualizado 2026-09-11 ~08:30 UTC tras fusionar Stream A + andamiaje de CI a `main`**; «—» = el cuerpo no lo dice)
 
 > Sesión 2, 2026-09-11: se re-midió **cada fila** contra el árbol (O-5). Punteros a línea corregidos donde envejecieron.
