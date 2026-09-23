@@ -1,9 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Loader2, Check, X, Play } from 'lucide-react';
-import { getDecksMetaPreview } from '@/lib/api';
+import { Loader2, Check, X, Play, AlertTriangle } from 'lucide-react';
+import { getDecksMetaPreview, runDecksMetaPublishNow } from '@/lib/api';
 import type {
   DecksMetaCanaryCheck,
   DecksMetaDeckReport,
@@ -11,8 +12,10 @@ import type {
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate } from '@/lib/format';
+import { useRole } from '@/lib/role';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
+import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DecksMetaDialControl } from './DecksMetaDialControl';
 
@@ -115,7 +118,140 @@ export function M12View() {
 
       {report && <Report report={report} locale={locale} />}
       </section>
+
+      <hr className="border-border" />
+
+      {/* C · Publicar ahora. Publicación REAL inmediata; solo super_admin. */}
+      <PublishNowSection locale={locale} />
     </div>
+  );
+}
+
+/**
+ * §13 Fase 2 — súper-admin: dispara la publicación REAL inmediata
+ * (`POST /admin/jobs/decks-meta-refresh`, sin `dryRun`). Corre el pipeline en vivo RESPETANDO el
+ * interruptor de arriba: si está apagado, no publica nada. Publica de verdad en la tienda, así que
+ * el botón pide confirmación explícita antes de disparar.
+ */
+function PublishNowSection({ locale }: { locale: AppLocale }) {
+  const t = useTranslations('admin.decksMetaRefresh');
+  const { isSuperAdmin } = useRole();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const run = useMutation({ mutationFn: runDecksMetaPublishNow });
+
+  if (!isSuperAdmin) return null;
+
+  const result = run.data;
+  const report = result && !result.skipped ? result.report : null;
+  const skipped = result && result.skipped ? result : null;
+  const publishedCount = report?.publishedSlugs.length ?? 0;
+
+  function onConfirm() {
+    setConfirmOpen(false);
+    run.mutate();
+  }
+
+  return (
+    <section className="flex flex-col gap-8" aria-labelledby="dmr-publish-now-title">
+      <div className="flex flex-col gap-1">
+        <h2 id="dmr-publish-now-title" className="text-h2 font-semibold">
+          {t('publishNow.title')}
+        </h2>
+        <p className="max-w-[70ch] text-sm text-muted">{t('publishNow.subtitle')}</p>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div>
+          <Button loading={run.isPending} disabled={run.isPending} onClick={() => setConfirmOpen(true)}>
+            <Play size={18} aria-hidden /> {t('publishNow.button')}
+          </Button>
+        </div>
+
+        {run.isPending && (
+          <Banner variant="info" role="status">
+            <span className="flex items-center gap-2 text-text">
+              <Loader2 size={16} className="animate-spin" aria-hidden />
+              {t('publishNow.running')}
+            </span>
+            <p className="mt-1">{t('publishNow.runningNote')}</p>
+          </Banner>
+        )}
+
+        {/* Fallo de red / servidor: aviso amable con reintento (no volcamos el error crudo). */}
+        {run.isError && (
+          <Banner
+            variant="danger"
+            role="alert"
+            action={
+              <Button size="sm" variant="secondary" onClick={() => run.mutate()}>
+                {t('publishNow.retry')}
+              </Button>
+            }
+          >
+            {t('publishNow.error')}
+          </Banner>
+        )}
+
+        {/* El interruptor de arriba estaba apagado: la corrida no publicó nada. */}
+        {skipped && skipped.reason === 'DIAL_OFF' && (
+          <Banner variant="warning" role="status">
+            {t('publishNow.dialOff')}
+          </Banner>
+        )}
+
+        {/* Single-flight: ya hay una corrida en curso en el servidor. */}
+        {skipped && skipped.reason === 'ALREADY_RUNNING' && (
+          <Banner
+            variant="warning"
+            role="status"
+            action={
+              <Button size="sm" variant="secondary" onClick={() => run.mutate()}>
+                {t('publishNow.retry')}
+              </Button>
+            }
+          >
+            {t('publishNow.alreadyRunning')}
+          </Banner>
+        )}
+
+        {/* Corrió de verdad: éxito si publicó algo, aviso si algún chequeo no dejó publicar. */}
+        {report &&
+          (publishedCount > 0 ? (
+            <Banner variant="success" role="status">
+              {t('publishNow.published', { count: publishedCount })}
+            </Banner>
+          ) : (
+            <Banner variant="warning" role="status">
+              {t('publishNow.nothingPublished')}
+            </Banner>
+          ))}
+      </div>
+
+      {report && <Report report={report} locale={locale} />}
+
+      {/* Confirmación: esto publica de verdad en la tienda, así que no dispara de un clic. */}
+      <Modal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title={t('publishNow.confirm.title')}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmOpen(false)}>
+              {t('publishNow.confirm.cancel')}
+            </Button>
+            <Button variant="accent" size="sm" loading={run.isPending} onClick={onConfirm}>
+              {t('publishNow.confirm.confirmCta')}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex items-start gap-2">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+          <p>{t('publishNow.confirm.body')}</p>
+        </div>
+      </Modal>
+    </section>
   );
 }
 

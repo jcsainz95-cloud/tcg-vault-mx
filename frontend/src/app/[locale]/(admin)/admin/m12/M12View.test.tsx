@@ -1,13 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { M12View } from './M12View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { DecksMetaRefreshReport } from '@/types/contract';
+import type { DecksMetaRefreshReport, DecksMetaPreviewResponse } from '@/types/contract';
+
+// El rol de back-office se controla por test (patrón de DecksMetaDialControl.test).
+const roleState = vi.hoisted(() => ({ role: 'super_admin' as 'super_admin' | 'vault_operator' }));
+vi.mock('@/lib/role', () => ({
+  useRole: () => ({
+    role: roleState.role,
+    setRole: () => {},
+    isSuperAdmin: roleState.role === 'super_admin',
+    canSwitchRole: false,
+  }),
+}));
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  roleState.role = 'super_admin';
 });
 
 function report(over: Partial<DecksMetaRefreshReport> = {}): DecksMetaRefreshReport {
@@ -118,5 +130,103 @@ describe('M12View · Ensayo decks meta (dry-run)', () => {
     await screen.findByText('PUBLICARÍA');
     expect(screen.queryByText('Diagnóstico de legalidad')).not.toBeInTheDocument();
     expect(screen.queryByText('Caídas por legalidad')).not.toBeInTheDocument();
+  });
+});
+
+describe('M12View · Publicar ahora (publicación real inmediata)', () => {
+  it('el botón "Publicar ahora" solo se ve para super_admin, no para operador', () => {
+    const { unmount } = renderWithProviders(<M12View />, 'es');
+    expect(screen.getByRole('button', { name: 'Publicar ahora' })).toBeInTheDocument();
+    unmount();
+
+    roleState.role = 'vault_operator';
+    renderWithProviders(<M12View />, 'es');
+    expect(screen.queryByRole('button', { name: 'Publicar ahora' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Publicar ahora')).not.toBeInTheDocument();
+  });
+
+  it('no publica de un clic: pide confirmación y, al confirmar, llama al endpoint real y pinta el éxito con el conteo', async () => {
+    const runSpy = vi.spyOn(api, 'runDecksMetaPublishNow').mockResolvedValue({
+      skipped: false,
+      mode: 'live',
+      report: report({
+        mode: 'live',
+        applied: true,
+        publishedSlugs: ['dragapult-ex', 'charizard-ex', 'raging-bolt-ex'],
+      }),
+    });
+    renderWithProviders(<M12View />, 'es');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    // NO se llamó todavía: primero aparece la confirmación (esto publica de verdad).
+    expect(runSpy).not.toHaveBeenCalled();
+    expect(await screen.findByText('¿Publicar ahora?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sí, publicar ahora' }));
+    await waitFor(() => expect(runSpy).toHaveBeenCalledTimes(1));
+
+    expect(await screen.findByText('Listo: se publicó en la tienda (3 decks).')).toBeInTheDocument();
+  });
+
+  it('con el interruptor apagado (DIAL_OFF) muestra el aviso de que no se publicó nada', async () => {
+    const skippedDialOff: DecksMetaPreviewResponse = { skipped: true, reason: 'DIAL_OFF', mode: 'off' };
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockResolvedValue(skippedDialOff);
+    renderWithProviders(<M12View />, 'es');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+
+    expect(
+      await screen.findByText(
+        'El interruptor está apagado, así que no se publicó nada. Enciéndelo arriba para poder publicar.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('single-flight (ALREADY_RUNNING) muestra el aviso correspondiente', async () => {
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockResolvedValue({
+      skipped: true,
+      reason: 'ALREADY_RUNNING',
+      mode: 'skipped',
+    });
+    renderWithProviders(<M12View />, 'es');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+
+    expect(
+      await screen.findByText('Ya hay una corrida en curso. Espera a que termine y vuelve a intentarlo.'),
+    ).toBeInTheDocument();
+  });
+
+  it('un fallo de red al publicar muestra el aviso amable con reintento', async () => {
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockRejectedValue(
+      new ApiClientError(502, { code: 'INTERNAL', message: 'boom' }),
+    );
+    renderWithProviders(<M12View />, 'es');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+
+    expect(
+      await screen.findByText('No se pudo publicar. Suele ser un problema de red con Limitless; vuelve a intentarlo.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+  });
+
+  it('cuando algún chequeo no deja publicar (publishedSlugs vacío) avisa que no se publicó nada', async () => {
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockResolvedValue({
+      skipped: false,
+      mode: 'live',
+      report: report({ mode: 'live', wouldPublish: false, applied: false, publishedSlugs: [] }),
+    });
+    renderWithProviders(<M12View />, 'es');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+
+    expect(
+      await screen.findByText('No se publicó nada: algún chequeo no pasó. Se conservó la última lista buena.'),
+    ).toBeInTheDocument();
   });
 });
