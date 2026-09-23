@@ -13146,3 +13146,136 @@ ese frente:**
    **Qué confirmar**: **(a)** los seis tal cual; **(b)** quitar los que nunca use —**menos casillas es
    mejor**: una casilla que no aplica **se acaba eligiendo por pereza**—; **o (c)** añadir los que le falten,
    con **sus palabras**, porque **ese texto lo va a leer un cliente**.
+
+## Precio de sellado: costo + precio de venta al alta (mercado como referencia) — v2.3 (DECISIONES DEL DUEÑO, 2026-09-23)
+
+> # **EL DUEÑO APROBÓ ESTAS 5 DECISIONES EL 2026-09-23. EL TRABAJO QUEDA LISTO PARA PASAR AL ARQUITECTO (regla 9).**
+>
+> ⚠️ **Sigue siendo DISEÑO: nada se construye ni se fusiona hasta que el arquitecto aterrice el contrato.**
+> El dueño contestó las 5 preguntas del §5 (verbatim, 2026-09-23): *«Quitalo no dejes como respaldo el spread
+> automatico. el precio de venta directo es por producto. Para editar el precio que sea en la misma pantalla de
+> sellado. si esta bien desplegar el margen. Los dos pérfiles pueden editar precio»*. El §5 de abajo registra
+> cada respuesta como **DECISIÓN**.
+
+Origen: petición del dueño el 2026-09-22, viendo la pantalla **M11 · Inventario de sellado** (verbatim):
+> «vamos a tener que cambiar ese panel de arriba de mercado por formato no nos va a funcionar porque tenemos
+> que tener la flexibilidad de tener diferente precio por colección por formato. Es más fácil si cuando lo
+> subimos ponemos cuánto nos costó y cuánto lo vamos a pricear, lo único que me pones de referencia es el
+> precio de mercado para yo saber dónde ponerlo, puede ser en esa hoja de esa sección.»
+
+### 1. Problema (en llano)
+Hoy el precio de venta del sellado se calcula **solo** con una fórmula automática: **mercado × (1 + spread)**.
+Esa fórmula da el mismo trato a todo y **no permite poner un precio distinto por colección ni por formato**
+(ETB, booster box, blíster…). El dueño quiere dejar de depender de ese cálculo y, en su lugar, **teclear al dar
+de alta el sellado cuánto le costó y a cuánto lo va a vender**, viendo el precio de mercado **solo como
+referencia** para saber dónde pararse.
+
+### 2. Objetivo
+- Al **dar de alta** un sellado, capturar dos cosas directas: **(a) cuánto costó** y **(b) a cuánto se vende**.
+- El **precio de mercado** deja de mandar el precio: pasa a ser **solo una referencia** visible **en la misma
+  hoja** de esa sección.
+- El precio es **por producto** (set + presentación), y **editable después** del alta.
+
+### 3. Qué ya existe (medido 2026-09-22)
+La buena noticia, medida: **la mayor parte de lo que pide el dueño YA está soportada por el modelo de datos y
+por la lógica del servidor. El hueco real está en la pantalla de alta de sellado**, no en el fondo.
+
+- **Fórmula automática actual**: copy en `frontend/messages/es.json:2066` («Precio de venta = mercado × (1 +
+  spread).»). El panel **«Márgenes de venta del sellado»** (`SealedSpreadsSection`) vive en **M11 · Sellado →
+  «Ajustes avanzados (precios de mercado)»** (solo super_admin, plegado): 5.1 fuente de mercado, 5.2 cómo se
+  calcula, 5.3 márgenes.
+- **YA EXISTE el campo de costo**: `acquisitionCostCents` en `backend/prisma/schema.prisma:851` y en el DTO
+  `backend/src/modules/inventory/dto/inventory.dto.ts:106` (Min 0). **PERO** el flujo de alta de sellado
+  `frontend/src/app/[locale]/(admin)/admin/m1/SealedAddFlow.tsx` **NO lo expone** (0 referencias a
+  `acquisitionCost`; sí se expone en QuickAdd/graded, no en sellado). → **hueco de UI, no de datos.**
+- **YA EXISTE el precio de venta directo**: `listPriceCents` en el DTO `dto/inventory.dto.ts:108` (Min 1). El
+  servidor **ya lo trata como override manual**: `backend/src/modules/inventory/inventory.service.ts:1293`
+  («`listPriceCents` presente → override manual; ausente → precio de venta derivado server-side = mercado ×
+  spread»). Copy relacionado `es.json:1431` («Precio de venta (opcional)… Si lo dejas vacío, se calcula por
+  mercado × spread. Un precio manual lo sobreescribe.»). **PERO** `SealedAddFlow.tsx` **tampoco lo expone** (0
+  referencias). → **otro hueco de UI: el dato y la lógica ya existen; falta la casilla en el alta de sellado.**
+- **⚠️ NO CONFUNDIR dos cosas distintas** (el dueño y los roles aguas abajo tienen que tenerlo claro):
+  - **`listPriceCents`** = **precio de venta** (lo que paga el cliente). Es lo que el dueño quiere teclear.
+  - **`manualMarketMxnCents`** (DTO `dto/inventory.dto.ts:126`) = **override del *mercado de referencia***, NO
+    del precio de venta. Está gateado por `sealedProductId` (`inventory.service.ts:708`) y en el flujo de
+    sellado **solo aparece cuando NO hay mercado vivo** (`SealedAddFlow.tsx:87` y `:410`). **Son cosas
+    diferentes: una es «a cuánto lo vendo», la otra es «cuál digo que es el mercado de referencia».**
+- **El mercado como referencia YA existe** como `marketRef`: sugerencia informativa que aparece cuando no hay
+  mercado gateado (`SealedAddFlow.tsx:173-175`).
+- **Identidad del sellado** = `sealedProductId` = **set + presentación** (ETB, booster box, blíster son
+  entradas separadas): esto ya da la granularidad **«por colección por formato»** a nivel de dato, así que un
+  precio directo **por producto** encaja de forma natural.
+
+**Conclusión medida**: lo que pide el dueño está en su mayor parte **ya soportado por el modelo de datos**
+(`acquisitionCostCents` + `listPriceCents`) y por la **lógica del servidor** (el precio directo ya manda sobre
+el spread). El hueco real es la **UI de alta de sellado** (`SealedAddFlow.tsx` no expone ni costo ni precio de
+venta directo, y trata el precio manual como «solo si no hay mercado»). Esto hace el cambio **más barato y de
+menor riesgo** que «abandonar el modelo de margen».
+
+### 4. Alcance / NO-alcance
+**DENTRO del alcance:**
+- Exponer en el alta de sellado (`SealedAddFlow`) **el costo** (`acquisitionCostCents`) y **el precio de venta
+  directo** (`listPriceCents`).
+- Que el **precio de venta esté SIEMPRE disponible** al alta, **aunque haya mercado vivo** (hoy el precio manual
+  solo asoma cuando no hay mercado).
+- Mostrar el **mercado como referencia al lado**, en la misma hoja, para orientar dónde poner el precio.
+- Permitir **editar el precio después** del alta.
+- **Retirar el panel de spreads** («Márgenes de venta del sellado»): por **decisión del dueño 2026-09-23**
+  (§5.1) el spread automático se retira por completo, sin dejarlo como respaldo (ver decisión 1 y Nota A).
+
+**FUERA del alcance:**
+- Precio de **cartas sueltas** (no sellado).
+- **Buylist** (precios de compra al público).
+- Cualquier cambio de **checkout**.
+
+### 5. Decisiones del dueño (2026-09-23)
+El dueño contestó las 5 preguntas el **2026-09-23**. Cada punto queda **DECIDIDO** con su respuesta. Donde su
+decisión contradijo la propuesta del equipo, se dice explícito.
+
+1. **DECIDIDO (2026-09-23) — El spread automático SE RETIRA POR COMPLETO. NO queda como respaldo.**
+   La **propuesta del equipo era conservarlo como respaldo opcional** (con el precio directo mandando cuando
+   existiera); **el dueño decidió retirarlo por completo** (verbatim: «Quitalo no dejes como respaldo el spread
+   automatico»). → Ver **Nota de consecuencia A** más abajo: al retirar el spread, todo sellado necesita un
+   precio de venta tecleado o no se puede publicar.
+2. **DECIDIDO (2026-09-23) — El precio de venta directo es POR PRODUCTO** = por `sealedProductId` (set +
+   presentación). Coincide con la propuesta del equipo y con la granularidad que el dueño describió («por
+   colección por formato»), ya existente a nivel de dato. (Verbatim: «el precio de venta directo es por producto».)
+3. **DECIDIDO (2026-09-23) — El precio se edita tras el alta EN LA MISMA PANTALLA DE SELLADO (M11).**
+   Coincide con la propuesta del equipo (fila editable en M11 con el mercado de referencia al lado). (Verbatim:
+   «Para editar el precio que sea en la misma pantalla de sellado».)
+4. **DECIDIDO (2026-09-23) — SÍ se despliega el margen calculado (precio de venta − costo), solo informativo.**
+   Coincide con la propuesta del equipo. (Verbatim: «si esta bien desplegar el margen».)
+5. **💰 DECIDIDO (2026-09-23) — LOS DOS PERFILES pueden fijar/editar el precio de venta: operador Y súper-admin.**
+   (Verbatim: «Los dos pérfiles pueden editar precio».) → Ver **Nota de consecuencia B** más abajo: hoy los
+   controles de precio de sellado son solo super_admin; permitir al operador ensancha la puerta de dinero actual
+   y **seguridad debe verificar el gate y la auditoría** al construir.
+
+### 5b. Notas de consecuencia medida (para arquitecto/seguridad — el product-owner NO las decide, solo las anota)
+
+- **Nota de consecuencia A — de la decisión 1 (medida 2026-09-23):** al retirar el spread, **todo sellado
+  necesita un precio de venta tecleado o no se puede publicar**. Hoy, si `listPriceCents` es null, el servidor
+  deriva `mercado × spread` (`backend/src/modules/inventory/inventory.service.ts:1293`) y si tampoco hay mercado,
+  queda «precio pendiente» (`inventory.service.ts:772`, `sealedNeedsEscalate`). Sin spread, esa red desaparece:
+  **el arquitecto debe decidir qué pasa con el sellado que se suba sin precio** (previsiblemente: queda pendiente
+  de publicar hasta que se le ponga precio). El product-owner **NO lo decide**; queda como punto para el arquitecto.
+- **Nota de consecuencia B — de la decisión 5 (medida 2026-09-23):** hoy los controles de precio de sellado
+  (panel de márgenes `SealedSpreadsSection`, override `manualMarketMxnCents`) son **solo super_admin**. Permitir
+  que el **operador** fije/edite el precio de venta **ensancha la puerta de dinero actual**. Es la decisión del
+  dueño; **seguridad debe verificar** el gate al construir (registro/auditoría de quién cambió el precio). Queda
+  como punto para seguridad.
+
+### 6. Handoff aguas abajo (el dueño YA aprobó — 2026-09-23)
+El product-owner no define contrato ni diseño. Con las 5 decisiones aprobadas, el trabajo **arranca por el
+arquitecto** (regla 9). **Nada se construye ni se fusiona hasta que el arquitecto aterrice el contrato.**
+- **arquitecto (PRIMERO)** → contrato: confirmar si `listPriceCents` / `acquisitionCostCents` **bastan tal cual**
+  o hay que ajustar el contrato/DTO; cualquier cambio de contrato pasa por él primero (regla 9). **Además debe
+  resolver los dos puntos de consecuencia del §5b:** (A) qué pasa con el sellado que se suba sin precio ahora que
+  el spread se retira; (B) el modelo de permisos/auditoría para que ambos perfiles editen el precio de venta.
+- **ux-ui** → cómo se ve la fila de alta y de edición: costo, precio de venta, **mercado de referencia** al
+  lado, y el **margen informativo** (decisión 4).
+- **frontend** (dueño de `frontend/`, incluido `SealedAddFlow.tsx`) → exponer costo y precio de venta en el
+  alta de sellado según el diseño aprobado; edición en la misma pantalla de sellado M11 (decisión 3).
+- **backend** (dueño de `backend/`) → cualquier ajuste de servidor/DTO que resulte del contrato; retirar la
+  derivación por spread (decisión 1 / Nota A).
+- **qa / seguridad** → verificar la **puerta de dinero** (decisión 5 / Nota B): que **ambos perfiles** pueden
+  fijar/editar el precio de venta y que queda **auditoría de quién lo cambió**.
