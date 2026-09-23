@@ -12342,3 +12342,252 @@ dejó de llegar al proceso.
 degradado limpio) ante una fila de PII que no descifra es un comportamiento de **backend** —hoy queda
 tapado por la clave estable, pero un enmascarado/omisión de la fila ilegible sería más robusto que un 500.
 Es hallazgo para **backend**, no arreglo de devops; lo dejo anotado, no tocado.
+
+---
+
+## §66 · El censo E2E pasa a CINCO claves: entra `realOnly`, y el techo baja a lo medido (2026-09-22, B-QA1 + M-QA4)
+
+**Qué estaba rojo.** `./scripts/check-e2e-skip-census.sh` sobre `claude/m4-pedidos-preparar` daba
+**rc=1** (tres categorías CRECIERON) y ese job está en el `needs` de `ci-ok` sin estar en la lista de
+OPCIONALES de `scripts/check-ci-ok.sh` ⇒ **bloqueaba de verdad**. Sobre `origin/main` (`bb239c09`,
+extraído a una copia) el mismo script daba **rc=0**: lo introducía la rama, no era un rojo heredado.
+
+**Lo que el censo cuenta, dicho sin ambigüedad, porque aquí es donde se manda a alguien a lo que no
+es.** El censo cuenta **palabras** (`grep -rwo`), no llamadas. En el fichero nuevo
+`frontend/e2e/m4-preparation.spec.ts` hay 4 apariciones de `mockOnly`, 3 de `needsSeed`, 1 de
+`harnessLimit` y 7 de `realOnly`, y **solo TRES son llamadas**:
+
+| Sitio | Clave | Qué es |
+|---|---|---|
+| `:79` | `needsSeed(...)` | llamada real |
+| `:102` | `mockOnly(...)` | llamada real |
+| `:181` | `realOnly(...)` | llamada real |
+| `:3`, `:26`, `:35`, `:40`–`:42`, `:96`, `:169` | varias | **import y PROSA** de los docstrings |
+
+En particular **`harnessLimit` +1 es 100 % prosa**: el fichero **no tiene ni una llamada** a
+`harnessLimit`; la palabra aparece solo porque el docstring de `:41` enumera la taxonomía entera.
+
+Y el matiz de las **instancias**: el fichero entero vive dentro de `for (const vp of VIEWPORTS)` con
+dos anchos (390×844 y 1280×800), así que cada llamada produce **dos tests saltados**. De ahí el «dos»
+que reportaron frontend y QA: **son instancias, no sitios**. Las dos cuentas son correctas y miden
+cosas distintas; decir cuál se está usando evita mandar a backend a sembrar dos filas cuando la
+petición es una.
+
+**Dos techos que bajan, y no los baja este stream.** Medido sobre `origin/main`: el censo ya daba
+`mockOnly` **98/22** (el baseline decía 99/23) y `skipIfSeedMissing` **10/5** (decía 15/6). Es decir,
+`main` venía verde con dos claves **por debajo** del techo, y el delta visible de `mockOnly` (+3)
+estaba **enmascarado** por ese −1 heredado: el fichero nuevo aporta **+4**. Este `--update` fija los
+techos en lo medido hoy, que es justo lo que pedía el aviso «bajó: regenera el baseline».
+
+**La decisión de M-QA4: `realOnly` ENTRA al censo.** Es la quinta clave desde hoy. El razonamiento,
+por si alguien quiere revertirlo con datos:
+
+1. **Por el criterio que el propio script declara** — «cada uno es un test que en algún entorno NO
+   mide». `realOnly` es `test.skip(!IS_REAL, …)` (`frontend/e2e/utils/auth.ts:227`): no se salta en el
+   pase real de QA, se salta en la **corrida de mocks**. Y la corrida de mocks es la que **gatea cada
+   PR**; el pase real corre por stream/release. Su ventana ciega es **la más frecuente de las cinco**.
+2. **Por un agujero operativo, no teórico** — mientras estuvo fuera, convertir un `mockOnly` en un
+   `realOnly` **bajaba** el censo y **subía** lo no medido en CI. El instrumento hecho para contar lo
+   que no mide tenía una gaveta que no veía. Medido: ningún script ni workflow del repo menciona
+   `realOnly` (`grep -rn realOnly scripts/ .github/` ⇒ vacío antes de hoy).
+3. **Contarla no la castiga.** Cada clave lleva **su propia línea y su propio techo**: `realOnly` no
+   se mezcla con las otras cuatro. Subirla cuesta lo mismo que subir cualquiera — un `--update
+   --motivo` en el mismo diff. Esto es lo contrario de desalentarla: es reconocerla como gaveta de
+   primera clase, después de que el techlead zanjara (contra la primera lectura de frontend) que
+   `realOnly` es **preferible** a dejar la receta en un comentario, que es una quinta gaveta que
+   **ningún runner enumera**.
+
+**Corrección al encargo, con el dato:** `realOnly` **no la estrena este stream**. `origin/main` ya
+traía **7 ocurrencias en 3 ficheros** — `catalog.spec.ts:273` y `grading-estimate.spec.ts:465/629/862`
+(cuatro llamadas reales), más la definición en `utils/auth.ts`. El stream añade **una** llamada. El
+techo inicial de `realOnly` (14/4) es por tanto **una foto, no un crecimiento de nadie**.
+
+**Estado después del arreglo** — `mockOnly 102/23 · needsSeed 34/9 · harnessLimit 5/3 ·
+skipIfSeedMissing 10/5 · realOnly 14/4`, gate en **rc=0, 3/3 corridas**, canario **rc=0, 3/3**.
+
+**Caducidad declarada:** el `needsSeed` de `:79` muere el día que `backend/prisma/seed-e2e.ts` siembre
+un `ShipmentRequest` en `picking`. Ese día el censo **baja** y hay que regenerar el baseline.
+
+**Y una propiedad del instrumento que conviene saber antes de usarlo:** `--update` **sobrescribe** el
+fichero, así que el baseline guarda **un solo motivo, el último**. El anterior (2026-09-11, KYC,
+`mockOnly` 92→99) no se pierde: vive en git en `1972e80`. No lo cambié — acumularlos haría crecer sin
+límite una línea que ya es enorme, y `git log -p scripts/e2e-skip-census.baseline` los da todos.
+
+---
+
+## §67 · El apagado del stack mataba stacks AJENOS — acotado por puerto y por clon (2026-09-22, I-QA2)
+
+**Dos daños medidos el mismo día, por dos agentes distintos:**
+
+- el **pentester** corrió `pkill -f "src/main.ts"` de limpieza y mató el **backend de QA** a mitad de
+  su gate;
+- **QA** corrió `down` con `FRONTEND_PORT=3200` y mató el `next-server` huérfano de **:3000**, que era
+  de **otro clon**.
+
+**La causa no era la mano de nadie: estaba cableada en el script.** `stack-native.sh` apagaba con
+`pkill -f 'ts-node --transpile-only src/main.ts'`, `pkill -f '^next-server '` y
+`pkill -f 's3-local/server.js'`. Los tres patrones describen **el programa**, no **mi instancia**: ni
+filtran por puerto ni por clon. Con dos sesiones en paralelo sobre puertos distintos, el mecanismo
+para matarse entre sí **venía de fábrica**. Es O-8/O-14 en el recurso «stack»: allí era el scratchpad
+y el árbol de trabajo, aquí es el stack.
+
+**El criterio nuevo** (bloque `>>> APAGADO-ACOTADO` de `scripts/stack-native.sh`). Se mata un proceso
+solo si es mío por una de dos vías:
+
+- **(a) escucha en el puerto que esta invocación declara suyo** (`BACKEND_PORT` / `FRONTEND_PORT` /
+  `S3_LOCAL_PORT`) — pedir ese puerto **es** reclamarlo; o
+- **(b) su línea de comando casa el patrón Y su `cwd` cuelga de ESTE clon** (`$ROOT_DIR`, vía
+  `/proc/<pid>/cwd`). Esta vía es la que sigue cazando al backend que **murió antes de abrir el
+  puerto** (arranque a medias), que (a) no ve.
+
+Lo que casa el patrón pero vive en otro clon **y** en otro puerto **ya no se toca**: se nombra en un
+aviso, con su `cwd`, para que quien mire sepa que sigue vivo y de quién es.
+
+**El límite, dicho entero, porque acotar por puerto NO lo cubre todo.** Medido hoy mientras trabajaba:
+había un `s3-local` vivo en **:9000** cuyo `cwd` era
+`…/scratchpad/qa-m4b/clone` — **el clon de QA**. Los dos clones usan el **mismo puerto por defecto**,
+así que ahí **no hay dos puertos que separar**: un `down --all` mío seguiría llevándoselo, y tiene que
+hacerlo (si no reclama su puerto, el siguiente `up --gate` muere con «ya hay algo sirviendo en
+:9000»). Lo que sí se exige ahora es que **lo diga, con el `cwd` del dueño**: la muerte de un gate
+ajeno tiene que ser **explicable**, no un misterio. Para separarse de verdad, dos sesiones simultáneas
+deben exportar **puertos distintos** (`BACKEND_PORT` / `FRONTEND_PORT` / `S3_LOCAL_PORT`) — y ahora
+eso **funciona**, que es lo que antes no pasaba.
+
+**Canario: `scripts/check-stack-kill-scope.sh`** (job `stack-kill-scope` en `ci.yml`, dentro del
+`needs` de `ci-ok`). No lee código: **extrae el bloque del fichero vivo**, levanta **procesos de
+verdad escuchando en puertos de verdad** y mira quién quedó vivo.
+
+| Caso | Exige |
+|---|---|
+| 1 | dos stacks, dos puertos: apago el mío ⇒ **el ajeno sigue vivo** (N tiradas, O-3) |
+| 2 | …y apagar **apaga**: el mío muere (si no, el puerto queda tomado y cae SEC-OPS-1) |
+| 3 | patrón + otro clon + otro puerto ⇒ **sobrevive**, y se **nombra** |
+| 5bis | mi puerto ocupado por otro clon ⇒ muere (reclamo el puerto) **pero se nombra con su `cwd`** |
+| 4 | patrón + mi clon **sin puerto abierto** ⇒ **muere** (arranque a medias) |
+| 6 | estático: no queda ni un `pkill` **ejecutable** en `stack-native.sh` |
+
+**Medición del arreglo:** canario **8/8**, `rc=0` en **3/3** corridas con `N=5` (⇒ **15/15** en el caso
+del stack ajeno y 15/15 en «el mío muere»).
+
+**Y el canario muerde** — mutación sobre una **copia** del árbol (O-9), devolviendo `stop_scoped` al
+`pkill` por patrón de antes: **rc=1**, con «el stack AJENO murió en **5 de 5** tiradas», reproducido
+**3/3 corridas**. Es decir: el mecanismo viejo mataba el stack ajeno **el 100 % de las veces**, no de
+cuando en cuando.
+
+**Detalle del canario que casi lo deja mintiendo:** su primera versión buscaba `pkill` con
+`^[^#]*\bpkill\b` y llamó rojo a una **línea de ayuda dentro de un heredoc** (la que dice «a mano NO
+basta con `pkill -f 'next start -p …'`»). Un candado que no distingue **código** de **prosa** manda a
+arreglar lo que no está roto. Hoy exige que el `pkill` **empiece una sentencia**.
+
+**Lo que NO arregla:** que un agente escriba `pkill -f src/main.ts` **a mano** en su terminal. Eso no
+es código, es doctrina — y su sitio es el encargo, no este script.
+
+---
+
+## §68 · `REL-D` refrescada: mismo número, contenido distinto (2026-09-22, `S-M4P-C`) — y una retractación mía sobre el rango del diff (§68.1)
+
+**De dónde viene.** El pentester declaró las dependencias «NO RE-MEDIDO» porque *«el corte no las
+mueve»*, y **seguridad lo refutó con el argumento correcto**: `npm audit` no cambia con el *lockfile*,
+cambia cuando **se publican avisos nuevos**. El lockfile está congelado; **la base de avisos no**.
+
+**Re-medido por mí `[medido 2026-09-22]`** (`npm audit --package-lock-only --omit=dev`, sobre `31aff17`):
+
+- **frontend: 0 vulnerabilidades.**
+- **backend: 5 `moderate`, 0 `high`, 0 `critical`** — en `@nestjs/core`, `@nestjs/platform-express`,
+  `body-parser`, `express`, `qs`.
+
+**El mismo número que `REL-D`, y el mismo que `origin/main`** (lo audité también en una copia de
+`bb239c09`: 5 moderate, los mismos cinco paquetes). Pero **el contenido de la ficha estaba caduco**:
+`REL-D` decía que *«las cinco cuelgan de `qs`»*. Hoy son **tres avisos en dos racimos**:
+
+| Aviso | Paquete | ¿Estaba en `REL-D`? | Alcance en esta app |
+|---|---|---|---|
+| `GHSA-x5fp-wj9c-mxmx` (array-limit bypass) | `qs` ≤6.15.3 | sí | el de siempre |
+| `GHSA-4mjr-xmp4-gh2g` — DoS vía `isBuffer` (CVE-2026-82417) | `qs` ≤6.15.3 | **no** | **no alcanzable** |
+| `GHSA-36xv-jgw5-4q75` — *injection* en SSE (CVE-2026-35515) | `@nestjs/core` ≤11.1.17 | **no** (no como aviso propio) | **no aplica** |
+
+**Por qué los dos nuevos son inocuos aquí — medido, no supuesto** (re-corrí los dos greps de
+seguridad):
+
+- `@nestjs/core` es **inyección en SSE**: exige que la app exponga un `@Sse()`.
+  `grep -rniE "@Sse\(|text/event-stream|EventSource" backend/src frontend/src` ⇒ **0 aciertos**. La
+  ruta vulnerable **nunca se instancia**.
+- `qs` exige `plainObjects:true` o `allowPrototypes:true` más un ida-y-vuelta `parse`→`stringify`.
+  `grep -rniE "allowPrototypes|plainObjects|query parser|qs\.(parse|stringify)" backend/src` ⇒ **0
+  aciertos**, sin importación directa de `qs`. Express va con sus opciones por defecto.
+
+⇒ **La postura de `REL-D` no cambia: Info, no bloqueante, ABIERTA.** El gate de CI tampoco:
+`.github/workflows/security-sast.yml:187` corre con `AUDIT_LEVEL: high` sobre runtime, y los tres son
+`moderate`. **`@nestjs/core` 10.x no recibe el parche** (se corrige en `11.1.18`; `npm` propone
+`12.0.4`, **cambio rompedor**) ⇒ **el salto de mayor de NestJS es de ventana ordinaria, no de este
+release** — así lo dejó seguridad y así lo dejo yo. ⛔ No lo toqué en este pase.
+
+### §68.1 · RETRACTADO y corregido: `cheerio` **ya estaba en producción**. Lo que queda es la trampa del rango (2026-09-22)
+
+**Lo que escribí primero, y era falso:** que esta rama mete `cheerio 1.0.0` como dependencia nueva de
+producción. **Me refutó el orquestador con medición y tenía razón** (O-2). Lo comprobé yo antes de
+corregir, y el dato lo confirma entero:
+
+```
+cheerio en origin/production (c7c58aa): 1      ← YA DESPLEGADO
+cheerio en origin/main       (bb239c09): 0
+cheerio en HEAD              (0cdab08):  1      ← heredado, no añadido
+
+git merge-base --is-ancestor 097d422 origin/production          ⇒ SÍ
+git diff --stat origin/production...HEAD -- '*package.json' '*package-lock.json'  ⇒ VACÍO
+```
+
+⇒ **Esta fusión NO mete ninguna dependencia nueva en producción.** `cheerio` entró por `097d422`
+(*decks-meta* Fase 2), que es **ancestro de `production`**; esta rama sale de `production`, así que lo
+**arrastra por herencia**. El pentester y seguridad midieron `c7c58aa..5e6f2ee` —**el rango correcto
+para esta PR**— y por eso les salió vacío. **En este punto ellos acertaron y yo no.**
+
+**Y mi error es exactamente la clase que yo mismo estaba enunciando, aplicada a mí:** medí contra la
+referencia equivocada. Pero la conclusión operativa se **invierte**, y así es como hay que escribirla:
+
+> **El rango de un diff de dependencias es el de la BASE DE LA FUSIÓN, no `main` por costumbre.**
+> En este proyecto la fusión que publica es **`main` → `production`**, y la base contra la que se
+> pregunta «¿qué entra en producción?» es **`production`**.
+
+**Por qué aquí eso es una trampa y no una sutileza — medido hoy:**
+
+| Rango | Commits que incluye | Qué son |
+|---|---|---|
+| `origin/main...HEAD` (el que usé) | **432** | …de los cuales **404 YA ESTÁN DESPLEGADOS** |
+| `origin/production...HEAD` (el correcto) | **28** | lo que de verdad entra |
+
+`main` **es ancestro de `production`** y va **404 commits por detrás** (`0` en sentido contrario). No
+es que «diverjan»: es que `main` está **estrictamente atrasado**, y por eso `origin/main...HEAD`
+arrastra 404 commits de trabajo **ya publicado** y los presenta como novedad. Con esa base, **cualquier
+release parece meter dependencias nuevas**. A mí me salió una; el mecanismo produce tantas como haya
+acumulado `production` desde el último toque de `main`.
+
+**Lo peor de este fallo es CUÁNDO ocurre:** el diff de dependencias se mira justo al redactar la
+solicitud de fusión, es decir **en el momento de firmar un despliegue**. Un hallazgo fantasma ahí no es
+ruido: es una alarma que puede frenar una publicación correcta, o —al revés— gastar la credibilidad
+que hace falta cuando la alarma sea de verdad.
+
+**Los comandos, para copiarlos en el momento en que hacen falta** (redacción de la solicitud
+`main → production`):
+
+```bash
+git fetch origin production
+# ¿qué dependencias entran DE VERDAD en producción con esta fusión?
+git diff --stat origin/production...HEAD -- '*package.json' '*package-lock.json'
+git diff        origin/production...HEAD -- '*/package.json' | grep -E '^[-+] {4}"'
+# cordura: ¿cuánto de lo que vería contra main ya está publicado?
+git rev-list --count origin/main..origin/production
+```
+
+**Lo que NO hice y por qué:** no cableé un candado para esto. Hoy **ningún job de CI consume ese
+diff** — el gate de dependencias es `npm audit` sobre el árbol, que no depende del rango — así que un
+check nuevo vigilaría una entrada que nadie usa. El sitio correcto es la **lista de comprobación de la
+solicitud de fusión**, que es de quien la redacta. Queda dicho aquí para que se copie de un sitio con
+los números al lado. **NO MEDIDO:** si alguna plantilla de PR del repo sugiere hoy el rango contra
+`main` (no la revisé).
+
+**Lo que sí queda abierto, y no es fantasma:** `cheerio` **está en runtime de producción** —lo importa
+`backend/src/modules/decks-meta/limitless-html.parser.ts:16`, un parser de HTML de terceros que corre
+sobre HTML remoto— y **nadie lo ha inventariado**. No es de esta PR ni la bloquea. Dueños: **seguridad**
+(inventario de terceros en runtime) y **backend** (dueño de `decks-meta`). Lo registra el orquestador
+como pendiente; yo no toco esas rutas.

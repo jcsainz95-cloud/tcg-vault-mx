@@ -6709,6 +6709,111 @@ Decisiones de arquitectura:
 
 ---
 
+### 4.21p WS «Órdenes y dinero» — «Pedidos a preparar» (rediseño de la cola de picking, M4) · rebanada de SOLO LECTURA (v1.78)
+
+> **Producto:** `PROJECT.md` §«Pedidos a preparar» (aprobado 2026-09-15, 6 decisiones incorporadas). **Contrato:**
+> `API_CONTRACT.md` §M4-PREP. Aquí vive el **por qué** de la forma y el **hallazgo de medición** que acota la rebanada.
+> Borrador de trabajo del arquitecto: `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md`.
+
+**Qué cambia (solo visibilidad):** la cola `GET /admin/shipments/picking-list` deja de ser una **lista plana de piezas
+ordenada por ubicación** (`PickingListEntryDTO`: `shipmentId·inventoryItemId·folio·location`) y pasa a ser una **hoja de
+trabajo agrupada por pedido** (`PreparationOrderDTO`: destino, cliente+apellido, dirección con calle, y por carta
+nombre/set/acabado/condición/miniatura/ubicación). **Se conserva la ruta y solo cambia el DTO** — menor radio de estallido,
+no toca el guard ni el ruteo ni la máquina de estados (`REL-B`/`REL-C` intactas). **⛔ CERO cambio de schema:** todo es
+proyección de datos que ya existen (`Card`, `InventoryItem`, `VaultLocation`, `Order.fulfillmentMode`, `addressSnapshot`,
+`User.name`).
+
+**`destination` se DERIVA del discriminador canónico `Order.fulfillmentMode` (§4.21d), no se inventa un campo.** Eso
+garantiza por construcción que un pedido no mezcla destinos (DECISIÓN #1). `PreparationDestination = 'vault'|'ship'` es un
+**tipo de DTO, no un enum de dominio**: sus valores no coinciden con los de `FulfillmentMode` (`direct_ship`/`vault`), así
+que no entra en la paridad de enums (`enum-values-parity.spec.ts`).
+
+**⭐ v1.78.1 — el eje `?destination=` es clase L, y su fila estaba SIN ESCRIBIR.** La v1.78 declaró el filtro y su `400`
+en §M4-PREP pero **no puso su fila en el REGISTRO DE EJES de `§0-Q` punto 4** ⇒ `C-EQ-1` lo marcó **huérfano** (medido por
+backend: 1 roja de 359; cerrado provisionalmente con `filaEn0Q: 'PENDIENTE-ARQUITECTO'`, que es el pagaré que el propio
+spec provee, ⛔ no una decisión). **La decisión, tomada con §4.37 y no por analogía:** clase **L** — `ship` no existe en
+`FulfillmentMode` y un retiro de bóveda no tiene `Order`, luego el dominio **se computa**; no hay cláusula que citar y la
+prueba de subconjunto que exige la clase R sería **roja por construcción**. *Una clase cuya prueba obligatoria no puede
+pasar es la clase equivocada.* Fila y razón entera: API_CONTRACT §0-Q punto 4 y §M4-PREP.
+
+**⭐ v1.78.1 — `customer.fullName: string | null`: el contrato no puede pedir un `string` a una fuente nullable.** La
+v1.78 lo declaraba `string` mientras su fuente para el **invitado** (`addressSnapshot.recipientName`) puede faltar en
+snapshots de 8 campos anteriores a v1.67 — que el mismo bloque ya declaraba nullable dos filas más abajo. **Lo trajeron
+frontend y backend por separado, con medición**, y mientras tanto cada uno eligió su relleno (`''` en el back, «—» en el
+front): **dos grafías de un hecho que el contrato no decidió**, que es la clase de §0-B que este documento persigue.
+Decisión: **`null` es la única marca de ausencia** (como `lastName`, `shipTo.recipientName`, `orderId`, `orderNumber` en
+el mismo DTO) y ⛔ **la cadena vacía queda prohibida** — `""` **renderiza como un hueco invisible**, no se distingue de un
+nombre vacío legítimo y obliga a todo consumidor a `if (!x)` en lugar de `x === null`. Que el caso sea **hoy inalcanzable
+en la práctica** (medición de backend: los snapshots de 8 campos son de retiros, que tienen `User.name`) **no cambia la
+decisión**: el contrato declara la forma de la fuente, no su suerte.
+
+#### ⭐ v1.78.2 — las dos conductas que el contrato CALLABA, y el tipo que permitía el estado ilegal
+
+> **De dónde viene:** los dos gates de la rebanada. **QA** midió por HTTP el `500` de `?date=` y levantó el `409` que
+> nadie había escrito; el **techlead** midió lo que costaba el `label?`. **Ninguno de los tres es un defecto nuevo:
+> los tres son huecos de DECLARACIÓN.** Contrato: `API_CONTRACT §M4-PREP` (conducta normativa entera).
+
+**(1) `?date=` — «se conserva» no es una declaración de conducta.** v1.78 escribió esa frase y con ella heredó, sin
+decidirlo, que `?date=banana` devolviera **`500`** (`Invalid Date` crudo al `where` de Prisma) — el defecto que el
+comentario de `P-84` describe *resuelto* para `?status=` en el mismo servicio. La decisión tiene **dos** mitades y la
+segunda es la que importa: **(a)** malformado ⇒ `400 VALIDATION_ERROR` con `details:{field:'date'}` — ⛔ **sin
+`allowed`**, porque §0-Q **no aplica** (un día del calendario no es un dominio cerrado de tokens y su `allowed` **no se
+puede enumerar**: criterio literal de §4.37/§0-Q punto 7) y ⛔ **sin eco del valor** (§0-Q punto 2 ya lo prohíbe en todo
+eje nuevo y norma la cota del eco; la medición de amplificación que backend cita de `P-89` ⛔ **no la re-midió el
+arquitecto** y la decisión no depende de ella);
+**(b)** ⭐ el dominio se **estrecha a date-only `YYYY-MM-DD`**, porque este eje **no recibe una ventana sino un día** y
+el otro extremo lo **inventa el endpoint** (`+24h`): admitir un datetime produce una **ventana deslizante que cruza dos
+días del calendario**, que el operador no puede nombrar. *Una cola que contesta en silencio una pregunta distinta de la
+que se hizo es la misma familia que el clamp silencioso.* **Coste del estrechamiento: cero, medido** — ningún llamador
+manda `date` hoy (`frontend/src/lib/api.ts` lo admite, la pantalla no lo envía) y el endpoint es admin-only, sin
+clientes de terceros. El anclaje sigue siendo **UTC**, igual que `from`/`to` (§0 v1.25.1): ⛔ un endpoint **no** estrena
+zona horaria propia.
+
+**(2) El `409` de la fila corrupta: el radio de estallido ENSANCHA, y se posee.** `destinationOf` deriva dentro del
+`map`, así que **una sola** fila con `orderId` y `fulfillmentMode ≠ direct_ship` rechaza la cola **entera**, no solo su
+cubeta. Estaba candado y **no estaba escrito**. Se ratifica **rechazar entero** y se **prohíbe** degradar por fila:
+filtrando en SQL la corrupción solo habría reventado **su** cubeta — y esa cubeta es **`vault`, que hoy devuelve vacío**
+(hallazgo de abajo) ⇒ la fila corrupta habría quedado **invisible en la única cubeta que alguien mira**. Junto al dinero
+y al inventario, *denunciar en todas partes > esconder en una*; y una lista más corta en una cola de preparación **se
+lee igual que «no hay nada que preparar»** — un envío ya cobrado que nunca sale por la puerta. Cuerpo: el que ya
+gobierna `/admin/shipments` (`kindForFulfillment`), **un cuerpo, muchos lectores** (§4.39c).
+
+**(3) `LocationView`: unión discriminada, y por qué se decide EN CONTRA de la tercera cara de `B-1`.** `{kind; label?}`
+dejaba representable `{kind:'assigned'}` sin etiqueta y obligaba a **cuatro** re-derivaciones con **tres** predicados
+distintos (`label === undefined` en el back, *falsy* en el front), con una **divergencia de orden** back↔front
+representable. Pasa a `{kind:'assigned'; label: string} | {kind:'unassigned'}`. Backend razonaba que *«`kind` describe
+la fila y `label` el texto, son dos hechos»* — **cierto en la tabla, ocioso en esta hoja**: el DTO no espeja
+`VaultLocation`, es la hoja de trabajo del operador, cuya única pregunta es *«¿hay sitio al que caminar?»*, y los tres
+consumidores **ya** colapsan los dos hechos (el propio comentario de backend lo concede al ordenar el blanco junto a las
+`unassigned`). Y el estado defendido es **inalcanzable, medido 2026-09-22**: el único creador compone
+`label = box-row-slot` (`inventory.service.ts`, `createLocation`) ⇒ **siempre trae los dos guiones**, y los otros
+escritores son *seeds* con etiqueta literal. *Pagar un estado ilegal permanente en un DTO compartido para defender un
+fantasma es el intercambio equivocado* — y ⛔ un tercer `kind` lo sería aún más. Se cierra **ahora** y no como deuda
+porque la rebanada interactiva consume el mismo DTO (sería la quinta rama) y porque **el compilador verifica el cambio**:
+la unión obliga a estrechar en cada lectura.
+
+#### ⚠️⚠️ Hallazgo de medición (arquitecto, 2026-09-22) — la cubeta `vault` no tiene datos bajo el modelo actual
+
+Medido sobre `claude/m4-pedidos-preparar` @ `b5b38d47`:
+
+- `pickingList` (`shipments.service.ts:543`) proyecta **solo `ShipmentRequest{status:'picking'}`**. **Todo**
+  `ShipmentRequest` es físicamente un **ENVÍO a domicilio** — un retiro de bóveda (`orderId==null`) o un envío directo
+  (`orderId!=null`, `fulfillmentMode='direct_ship'`) ⇒ **todas las filas de la cola son `destination='ship'`**.
+- El «Para bóveda» del producto (mover una compra AL archivero del cliente, sin guía, con cambio de ubicación)
+  corresponde a órdenes **`fulfillmentMode='vault'`**, y **esas órdenes no generan `ShipmentRequest`**: al liquidar
+  (`payments.service.ts:237-275`) las piezas pasan `reserved → in_custody, settled` y **se quedan sin ninguna cola de
+  preparación ni de colocación**. No hay hoy artefacto que diga «pendiente de colocar» ni «ya colocado».
+
+**Decisión de alcance:** el tipo y el filtro `?destination` quedan **declarados y listos** en el contrato, pero la cubeta
+`?destination=vault` **devuelve vacío** hasta que una versión posterior alimente la cola con las órdenes vault. Eso **no es
+una reproyección** de la cola actual: exige decidir *qué órdenes vault están pendientes de colocar* y *cómo se marca una
+como colocada* — y eso **muy probablemente pide schema** (un sello de preparación/colocación en la ruta vault, inexistente
+hoy). **⛔ Por la regla de cero-migración, aquí NO se propone columna: se DETIENE y se reporta.** La cubeta `ship`
+(retiros + envíos directos) se sirve **completa** sin migración. Las piezas interactivas (palomear/firmar, sugerencia de
+bóveda) y el 💰 reembolso parcial quedan **planeadas, fuera de esta versión** (API_CONTRACT §M4-PREP, recuadro final).
+
+---
+
 ### 4.22 WS «Catálogo y precios» + «Inventario y vault» — Variantes reales y orden natural del master set (v1.22-variantes-orden)
 
 > **Requisito del PO, textual:** «Ve cómo en el master set son dos cartas de cada una: la común a la izquierda y la
@@ -14808,6 +14913,15 @@ API_CONTRACT §Enums.
 | `location \| price` en `?missing=` de `GET /admin/inventory/pending-publish` | **L** (v1.73) | No nombra estados: nombra **qué le falta a la fila**. `rg 'enum .*Missing' schema.prisma` ⇒ 0 |
 | `sale \| buy` en `?axis=` de `GET /admin/reports/pricing-brackets` | **L** (v1.73) | `rg 'enum .*[Aa]xis' schema.prisma` ⇒ **0** (medido). Es un modo de agregación, no un dato |
 | `BountyState` en `?state=` · `AdminBountySort` en `?sort=` de `GET /admin/pricing/bounties` | **L** (v1.73) | `BountyState` es un estado **derivado** (§M2-B.0), no una columna; `sort` es un **orden con default** (API_CONTRACT §0-Q punto 6), no un filtro |
+| **`PreparationDestination`** (`vault \| ship`) en `?destination=` de `GET /admin/shipments/picking-list` | **L** (v1.78.1) | `rg 'enum FulfillmentMode' backend/prisma/schema.prisma` ⇒ `vault \| direct_ship`: **`ship` NO existe** en el schema. Y en un **retiro de bóveda** (`orderId == null`) **no hay `Order`**, luego no hay `fulfillmentMode` que recortar ⇒ el eje **computa** una partición, no recorta un dominio persistido. ⇒ ⛔ nada que citar (no es R) y la prueba de **subconjunto del enum** que R exige sería **roja por construcción**. Canónico: la línea del propio endpoint (API_CONTRACT §M4-PREP, «DOMINIO CANÓNICO»); paridad a **dos** bandas |
+
+> **⚠️ `D-EQ-R1` (v1.78.1) — dos filas del registro de `§0-Q` punto 4 que NO están en este inventario y que, por la
+> letra de §4.37, serían L y no R:** `?kind=` (§M4) y `?scope=` (§M6), clasificados **R** en v1.77 como *«subconjunto
+> semántico»* — término que §4.37 **no define**. Medido 2026-09-22 (censo completo `rg '^enum ' backend/prisma/schema.prisma`
+> ⇒ **45 enums, ninguno `ShipmentKind` ni `*Scope`**); sus tokens no viven en ninguna columna. ⛔ **No se re-clasifican aquí:** su **conducta observable es idéntica**
+> bajo R y bajo L, y el cambio toca código ya fusionado en **dos** streams. Lo que sí queda fijado: **ningún eje nuevo
+> se clasifica R si su prueba de subconjunto del enum no puede existir.** Cuerpo entero de la cuestión abierta:
+> API_CONTRACT §0-Q punto 4, nota `D-EQ-R1`.
 
 **El caso `RawCondition`, explicado — es el que enseña la diferencia.** La lista pasó de `@IsIn(['NM'])` a la lista
 derivada. **Hoy no ensanchó nada** y el resultado es idéntico. Pero «raw = solo NM» **no es un hecho del schema**: es

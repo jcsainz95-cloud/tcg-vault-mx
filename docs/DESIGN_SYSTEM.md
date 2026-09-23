@@ -4,7 +4,27 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.3** — **§33.1 + §33.16 R10: el header del storefront gana una 6ª entrada, «Meta Battle Decks»**
+> Estado: **v4.6** — **§35.15 NUEVA: el `409` de la fila corrupta tiene copy, y ⛔ no se pinta como vacío**
+> (2026-09-22, `API_CONTRACT §M4-PREP v1.78.2`). El contrato declaró que una **sola** fila corrupta tumba la cola
+> **entera** y dejó la redacción a ux-ui con una obligación dura: ese `409` **tiene que ser distinguible de
+> `200 {data:[]}`**. Aquí se redacta (ES/EN), se decide **a quién avisa el operador** —**al súper-admin, ⛔ no a
+> «soporte»**, porque medido hoy **no hay ninguna ruta de soporte en `(admin)`**— y **⛔ se le retira el botón
+> «Reintentar»**: reintentar un `409` por datos corruptos devuelve el mismo `409`. Candados nuevos
+> **PR-11..PR-16**; nota **A-8** al arquitecto (el radio de estallido, con su coste dicho). **§35.16 NUEVA:** se
+> redacta `admin.m5.rejected.noDeadlines`, **el último superviviente** de la familia de **P-12** (un número de
+> versión del contrato en copy de operador, contra §32.4c) — es de **M5**, otra pantalla. **Cero tokens nuevos.**
+> Antes: **v4.5** — **§35.6a: la copy del nombre ausente** (marca `text-accent` + frase en tinta, ⛔ sin em dash;
+> candados **PR-7..PR-10**, medidos verdes por QA en `390×844` y `1280×800`) y **P-12** (el «v1.67» de la cola de
+> envíos). *(Esa versión no llegó a escribirse en esta línea de estado; se registra aquí.)*
+> Antes: **v4.4** — **§35 NUEVA: «Pedidos a preparar», la hoja de trabajo del operador de pie** (2026-09-22,
+> `API_CONTRACT §M4-PREP`). **Esta sección se escribe DESPUÉS de la pantalla, no antes** (§35.0): documenta el
+> patrón que ya existe —**tarjeta por PEDIDO** con las cartas anidadas y ordenadas por ubicación, dos cubetas
+> envío/bóveda— y **lo juzga**, con **4 correcciones bloqueantes** y **6 no bloqueantes** enrutadas a frontend
+> (§35.13). **Cero tokens nuevos.** Dos derivas cerradas en el mismo pase: **§12 ya no describe M4 como
+> «picking-list por ubicación»** y **§33.10d ya no afirma que «la lista de picking no cambia»** — ambas
+> describían la pantalla anterior. **Corrección a §8.1:** el vacío de una cola admin **no es «verde suave»**
+> (`EmptyState` perdió el relleno de color en la dirección 5a y **ignora** su prop `tone`) — §35.8.
+> Antes: **v4.3** — **§33.1 + §33.16 R10: el header del storefront gana una 6ª entrada, «Meta Battle Decks»**
 > (2026-09-19). Decisión del **dueño**, tomada hoy (funcionalidad **Decks Meta Fase 1**, `ARCHITECTURE §12`,
 > ruta pública `/decks-meta`): se suma **una entrada de navegación más** —texto, mismo patrón que las otras cinco,
 > **sin** sub-menús, íconos especiales ni tablero—, **pública** (visible **con y sin** sesión), colocada
@@ -2208,7 +2228,7 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 | M2 Precios/Catálogo | `/admin/pricing/*`, `/fx`, `/fx/mode`, `/admin/catalog/sync`,`/backfill`,`/remote-sets` | Tabla precio pendiente, curva de precio (§21), **consola de bounties (§28)**, **tarjeta de tipo de cambio con interruptor auto/manual (§30)**, colchón, rareza→categoría, sync/backfill de sets (super_admin) |
 | **M2 › Bounties** (v3.4) | `GET /admin/pricing/bounties` (lectura, `super_admin`); escribe en `PUT /admin/pricing/variant-controls/:cardId/:finish` **fila a fila** | `DataTable` agrupada **atención (rebasados + sin precio) → activos → completados → apagados**, con **`counts` de los cinco estados sobre el total**, edición **de una fila a la vez** y confirmación solo cuando **sube** el dinero — **§28** |
 | M3 Órdenes | `/admin/orders/*` | DataTable, AmountBreakdown, refund destructivo (super_admin) |
-| M4 Retiros | `/admin/shipments/*` | Cola, picking-list por ubicación, captura de guía, PipelineStepper |
+| M4 Retiros | `/admin/shipments/*` | Cola de envíos (StatusBadge, captura de guía, PipelineStepper) + **«Pedidos a preparar» (§35)**: **una tarjeta por PEDIDO** con las cartas anidadas y ordenadas por ubicación, y dos cubetas (envío / bóveda). ~~picking-list por ubicación~~ — **la lista PLANA de piezas ya no existe** (v4.4); la palabra «picking» **no aparece de cara al operador** (sigue solo en la ruta interna `…/picking-list` y en el enum `ShipmentStatus`, `API_CONTRACT §M4-PREP`) |
 | M5 Buylist | `/admin/buylist/*` | Pipeline, cherry-pick por item, convertir a inventario, pago SPEI (super_admin) |
 | M6 Usuarios/KYC | `/admin/users/*` | Ficha 360° (Tabs), KYC, bloquear (destructivo) |
 | M7 Finanzas | `/admin/finance/*` | StatCards financieros, tablas, export CSV (solo super_admin) |
@@ -16544,7 +16564,11 @@ estado (sin marcar nada al cliente: no puede arreglar un envío ya creado).
     **M5 ya usa** (P-66 B3). Requiere que `GET /admin/shipments` traiga `addressSnapshot` y `customer` (R5): hasta
     entonces, **se pinta «—»** en cada dato ausente (§32.4: lo desconocido es «—», nunca omitido en silencio) y
     **nunca** el `userId`.
-- La **lista de picking** no cambia (es por ubicación, no por persona).
+- ~~La **lista de picking** no cambia (es por ubicación, no por persona).~~ **⛔ DEJÓ DE SER CIERTO EN v4.4.**
+  La lista plana de piezas fue **sustituida** por «Pedidos a preparar» (**§35**): la unidad pasó a ser el
+  **pedido** —con su persona, su dirección y su antigüedad— y la ubicación sigue ordenando, pero **dentro** de
+  cada pedido. *Se deja tachada y no borrada porque esta frase es justo la que hacía creer que la persona no
+  entraba en esa lista: hoy la persona es el encabezado de la tarjeta.*
 
 ---
 
@@ -17721,3 +17745,935 @@ auth y del sidebar del panel, ya verificado en §10 y §17.2. **Cero tokens nuev
 | **D1** | **product-owner** | ¿Correo de **identidad verificada**? Recomendación: **no** (buena noticia sin acción, visible en la cuenta). Por defecto no se diseña. |
 | **D2** | **product-owner / dueño** | ¿Hay **plazo** que prometerle al cliente en «En revisión»? Recomendación: **empezar sin plazo** — la copy de §34.8 funciona entera sin él y prometer un plazo que no se cumple es peor que no darlo. Si el dueño fija uno, es **una sola clave** (`account.kyc.pending.sla`) y entra sin tocar el diseño. |
 | **E1** | **QA** | Candados **de interfaz** que ponen un test en rojo (los de servidor son K-1…K-10 del contrato, §M6-K.9; éstos no los repiten, los complementan): **KY-1** el HTML de `/admin/m6` (lista **y** ficha) **no contiene ninguna URL firmada** ni llama a `ine-links`: el enlace se pide **solo** al abrir la pantalla de revisión; **KY-2** un `vault_operator` que teclea `/admin/m6/kyc/{id}` **no ve el documento** (y el `403` del servidor se mide aparte, K-1); **KY-3** con `kycStatus='rejected'`, «Mi cuenta» muestra el `rejectionReason` **y** los dos uploaders (hoy, con `ineOnFile=true`, no muestra ninguno); **KY-4** con `kycStatus='pending'` la sección contiene «No tienes que hacer nada más» y **cero** controles de subida; **KY-4b** con `verified`, **sí** existe «Actualizar mi identificación» y al usarlo el estado vuelve a `pending`; **KY-5** la superficie de cliente renderizada **no contiene** «tope»/«Tope»/«cap» ni ninguna cifra de política, y `GET /users/me/kyc` **no trae** `threshold`/`cap`/`monthUsed` en ninguna clave; **KY-6** rechazar con motivo de 2 caracteres ⇒ botón deshabilitado y **cero** peticiones; con 501 ⇒ error en el campo; **KY-7** *(solo si A8 se aprueba)* el correo lleva el motivo **literal** y **ninguna** imagen ni enlace al documento; **KY-8** con el enlace caducado, «Volver a pedir el enlace» **conserva zoom, rotación y cara**, y **no hay ninguna re-petición automática** en 3 minutos de pantalla abierta *(mídelo con el contador de llamadas a `ine-links`: debe ser **1**)*; **KY-9** la ficha 360° **no** contiene ningún control que fije `kycStatus`. Medir en 390×844 y 1280×800. |
+
+---
+
+## 35. «Pedidos a preparar» — la hoja de trabajo del operador **de pie** (v4.6, 2026-09-22 · `API_CONTRACT §M4-PREP`)
+
+### 35.0 De dónde sale esta sección, y por qué llega tarde
+
+**El flujo del proyecto pone a ux-ui antes que a frontend. En esta rebanada no ocurrió: la pantalla ya estaba
+construida cuando me llamaron.** Se dice aquí en vez de disimularse, porque cambia la naturaleza del documento:
+**§35 no es un encargo, es un acta** — describe el patrón que existe, lo ratifica donde acierta y lo corrige
+donde falla (§35.13).
+
+**Lo que medí antes de escribir (2026-09-22, rama `claude/m4-pedidos-preparar`):**
+
+| Medición | Resultado |
+|---|---|
+| `grep -n -i 'preparar\|archivero' docs/DESIGN_SYSTEM.md` | **0 resultados** — la pantalla no estaba documentada; la última sección era §34 |
+| `grep -n -i 'preparar' PROJECT.md` | **ninguna sección «Pedidos a preparar»** (los aciertos son de M5 y del rastreo público). ⚠️ Ver **nota A-1** de §35.14 |
+| Fuente de producto **que sí existe en el árbol** | `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md` (arquitecto, 2026-09-15) + `API_CONTRACT §M4-PREP` (`:14746`) |
+| Lo construido | `frontend/src/app/[locale]/(admin)/admin/m4/PreparationQueue.tsx` (343 líneas) montado en `M4View.tsx:331` |
+| Tokens/componentes usados | **ninguno nuevo**: §4 layout, §6/§7 componentes, §8.1/§8.2 estados y accesibilidad, §9.2/§9.3 i18n, con `Badge`, `CardImage`, `FinishMark`, `EmptyState`, `QueryState`, `Skeleton` |
+
+**Cero tokens nuevos en §35.** Nada de lo que pido aquí necesita una tinta, un tamaño ni un componente que el
+sistema no tenga ya: todas las correcciones son **de jerarquía, de copy y de frescura**, que es exactamente lo
+que una revisión de diseño tardía puede arreglar sin obligar a reconstruir.
+
+> **v4.5 (2026-09-22) — qué añade y por qué.** Los 11 hallazgos de v4.4 entraron (commit `102d57d`). Queda **una
+> no-conformidad abierta y es de redacción, no de código**: `§M4-PREP v1.78.1` declara `customer.fullName` como
+> `string | null`, ⛔ prohíbe `""` como marca de ausencia y **delega en ux-ui** la frase con la que se pinta ese
+> `null` — obligando a una **ausencia con nombre** y ⛔ prohibiendo el «—» mudo. La pantalla pinta hoy «—» a
+> secas, señalizado en el código como `PENDIENTE-UX` en vez de tapado. **v4.5 escribe esa frase** (nuevo
+> **§35.6a**), ajusta la tabla de ausencias de §35.3, y añade **P-11**, **P-12**, **PR-7..PR-10** y las notas
+> **A-5..A-7**. **Sigue sin haber tokens nuevos.**
+
+---
+
+### 35.1 El trabajo que esta pantalla sirve — **y es un trabajo físico**
+
+Quien la usa **no está sentado**. Está de pie frente a un archivero, con las manos ocupadas (cartas, funda,
+caja), caminando entre ubicaciones y volviendo a la pantalla entre viaje y viaje. **Esa postura es la
+especificación**: no es una tabla de back-office que se lee con el ratón, es una **hoja de trabajo** que se
+consulta a metro y medio, de un vistazo, muchas veces seguidas.
+
+De ahí salen las cinco preguntas que la tarjeta contesta, **en este orden**, y toda la jerarquía de §35.3 es la
+consecuencia de ese orden:
+
+1. **¿De quién es este paquete?** → el apellido (archivero alfabético) y, debajo, el nombre completo.
+2. **¿Dónde están las cartas?** → la **ubicación** de cada pieza: es el dato por el que camina.
+3. **¿Qué carta es exactamente?** → nombre + set + acabado + condición + miniatura (una `Charizard` no es *una*
+   carta: es una familia de variantes, y equivocarse cuesta un envío mal armado).
+4. **¿A dónde va cuando esté armado?** → destino (envío / bóveda) y, si es envío, la **dirección completa con
+   la calle**.
+5. **¿Qué tan tarde voy?** → la antigüedad («hace 3 días»), porque la cola se atiende por lo más viejo.
+
+> **Regla derivada, y es la que gobierna esta sección entera:** *un dato que el operador usa **caminando** pesa
+> más que un dato que usa **mirando**.* La ubicación y la dirección se usan **fuera** de la pantalla —una para
+> andar, otra para rotular el paquete—; el resto se usa delante de ella. Por eso las dos correcciones
+> bloqueantes de jerarquía (§35.4, §35.5) caen precisamente sobre esas dos.
+
+**Lo que esta pantalla NO es:** no es la cola de envíos (esa vive arriba, con el `StatusBadge`, la captura de
+guía y el `PipelineStepper`, §12). **Son dos superficies sobre los mismos envíos y contestan preguntas
+distintas:** la cola de arriba es *administración del envío* (¿en qué estado está? ¿ya tiene guía?); ésta es
+*ejecución física* (¿qué saco, de dónde y para quién?). Se permiten en la misma ruta, pero el orden de lectura
+importa — ver hallazgo **P-10**.
+
+---
+
+### 35.2 La unidad de la lista es el **PEDIDO**, no la pieza (patrón de lista agrupada)
+
+**Antes:** una fila por pieza, toda la cola ordenada por ubicación. **Ahora:** una **tarjeta por pedido**, con
+sus cartas anidadas y **ordenadas por ubicación dentro de la tarjeta**.
+
+- **Por qué cambia:** el operador no entrega piezas, **entrega paquetes**. Una lista plana ordenada por
+  ubicación optimiza el recorrido y **rompe la unidad de trabajo**: obliga a reconstruir de memoria a qué
+  paquete pertenece cada carta, y ese trabajo mental no deja rastro — cuando falla, falla en silencio (una
+  carta en la caja equivocada).
+- **Lo que NO se pierde:** el recorrido. El orden por ubicación **sobrevive dentro de la tarjeta**, así que
+  «caminar la bóveda en orden» sigue valiendo dentro de un pedido. Se cambia un óptimo global (toda la cola en
+  una pasada) por un óptimo local **con la unidad de trabajo intacta**. Es la decisión correcta: el error que
+  evita es **irreversible** (paquete mal armado, cliente equivocado); el que introduce es **caminar un poco
+  más**.
+- **Estructura:** `<ol>` de pedidos → `<article>` por pedido → `<ul>` de cartas. La lista ordenada **es
+  semántica, no estilo**: el orden (más viejo primero) es información, y un lector de pantalla debe poder
+  decir «1 de 7».
+- **Orden de los pedidos:** `requestedAt` **ascendente** — lo más viejo arriba. El servidor ya lo sirve así y
+  **la pantalla lo vuelve a aplicar a propósito** (`sortPreparationOrders`): el orden de la cola es un criterio
+  de aceptación, y anclarlo donde el operador lo ve lo hace verificable ahí. Una fecha ilegible va **al final**
+  — *una fecha que no se puede leer no es «la más vieja»*.
+- **Sin paginación y sin scroll infinito.** Es una cola de trabajo, no un catálogo: si crece tanto que no cabe,
+  el problema es la cola, no la pantalla, y paginarla escondería precisamente eso.
+- **⛔ Sin umbral de urgencia.** No se pinta «lleva demasiado» en acento **hasta que el dueño fije un plazo**:
+  el sistema no tiene SLA de preparación y **una alarma inventada por el diseño enseña a ignorar las alarmas**.
+  El orden ya dice quién va primero.
+
+---
+
+### 35.3 Jerarquía de la tarjeta — **cuatro planos de lectura**
+
+Una tarjeta es papel (`bg-surface`) con una regla de 1px (`border-border`), `p-4`, `gap-4` (§4.1, §4.2: radio 0,
+sin sombra). Dentro, **cuatro planos** y nada entre ellos:
+
+| Plano | Qué lleva | Tipografía / token | Por qué ese peso |
+|---|---|---|---|
+| **1 · Quién** | **Apellido** | `font-serif text-2xl leading-tight text-text` | Es la llave del archivero y la del paquete. Es lo único de la tarjeta que se busca **alfabéticamente**, y la serif a 24px se distingue del resto a metro y medio |
+| | Nombre completo | `text-sm text-text` *(hoy `text-muted` — corrección **P-4b**, §35.6)* | Es el dato **fiable**; el apellido de arriba es derivado y puede estar mal (§35.6) |
+| **2 · Qué saco** | Ubicación por carta | mono `tabular`, **`text-sm text-text`** *(corrección **P-3**, §35.4)* | Es por donde **camina** |
+| | Nombre de la carta | `font-serif text-lg text-text` + `lang="en"` | Identidad principal de la pieza |
+| | Set | `text-sm font-semibold text-text` + `lang="en"` | Con el set se llega a la carpeta correcta; sin él, dos cartas del mismo nombre son la misma |
+| | Acabado + condición | `FinishMark` sin banda (mono 10px, doble canal §2.4, §16.6) + `text-sm text-text` | Distinguen variantes; el `conditionLabel` viene **compuesto del servidor** (⛔ no se recompone aquí) |
+| | Miniatura | `CardImage w-16` (5:7, §5) | **Cotejo visual**, no decoración: confirma de un golpe que la carta en la mano es la de la línea |
+| | Folio | mono 11px `text-muted` | Desempate final; se lee **de cerca**, ya con la carta en la mano |
+| **3 · A dónde va** | Destino | versalita mono 11px (`Badge`, §2.4) | Decide la **forma** de la tarjeta (con dirección o sin ella) |
+| | Dirección completa | `text-sm` **`text-text`** *(corrección **P-4**, §35.5)* | Se **transcribe** al paquete |
+| **4 · Traza y tiempo** | Antigüedad + fecha | `text-sm font-medium text-text` + `time` `text-xs text-muted` | El «hace 3 días» **nunca sustituye** a la fecha: acompaña |
+| | Folio del pedido · referencia de envío | `tabular text-lg font-semibold` · mono 11px `text-muted` | El folio es lo que se dice por teléfono; la referencia de envío es traza interna |
+
+**Dos reglas normativas que salen de esta tabla:**
+
+1. **El valor pesa más que su etiqueta.** «CP», «Tel», «Folio», «Ubicación» son **rótulos**: van en mono 11px
+   `text-muted`. El número que sigue va en `text-text` con `tabular`. *La etiqueta se lee una vez en la vida;
+   el valor, cada vez.* (Hoy, en dos bloques, está al revés — **P-4**.)
+2. **Lo que ordena una lista tiene que formar columna.** Si las cartas se ordenan por ubicación, las
+   ubicaciones **se leen en vertical, alineadas**; enterradas al final de un párrafo, el orden existe pero no
+   se ve, y el operador vuelve a recorrer la tarjeta entera por cada carta. Ver §35.4.
+
+**Lo que la tarjeta dice cuando un dato no existe** (§32.4 — *lo desconocido es «—», nunca omitido en silencio*):
+
+| Caso | Qué se pinta | ⛔ Nunca |
+|---|---|---|
+| Pedido **sin folio** (retiro de bóveda: no tiene orden) | **«Retiro de bóveda»** en serif, **en el lugar del folio** | Un hueco, ni un `null`, ni un id crudo |
+| **Apellido** no derivable, **pero hay nombre completo** | versalita `text-muted` **«Apellido no identificado»** + el nombre completo | «null», ni el nombre completo ascendido a apellido en silencio |
+| **No hay nombre ninguno** (`fullName === null` ⇒ `lastName === null`) | **un solo bloque**: versalita `text-accent` **«Sin nombre registrado»** + la frase de **§35.6a** | ⛔ Un «—» (mudo o acompañado), ⛔ «Apellido no identificado» **además** del bloque, ⛔ dos líneas de ausencia apiladas |
+| Carta **sin ubicación** | **«Sin ubicar»** en `text-accent`, **al final de su pedido** | El código `UNASSIGNED` (§6.B del borrador), ni una cadena vacía que la cuele arriba en el orden |
+| `recipientName` ausente (snapshots del formato viejo) | la línea **no se pinta** — el plano 1 responde por ella: **o** nombra a la persona, **o** declara la ausencia (§35.6a) | Una línea «Destinatario: —» que parece una avería; y ⛔ **una segunda frase de ausencia** cuando el plano 1 ya la dio |
+| Miniatura ausente | el **pozo de papel** (`surface-2`, §5) | Una imagen rota, ni un esqueleto eterno |
+| `requestedAt` ilegible | **«—»** en las **dos** líneas (antigüedad **y** fecha) — **P-7** | Una línea de antigüedad **en blanco** |
+
+---
+
+### 35.4 La **ubicación** es la clave de recorrido — y se lee en columna *(corrección normativa)*
+
+La ubicación (`C03-F02-S15`) es lo único de esta pantalla que el operador usa **mientras camina**. Hoy es el
+dato **menos visible** de la tarjeta: último renglón, mono **11px**, `text-muted`, y **detrás del folio**.
+
+**No es un problema de contraste** —`#6E695E` sobre papel da ~4.8:1 y cumple AA (§10)— **es un problema de
+jerarquía**: el tono `muted` es, por definición de este sistema, el de lo **secundario** (§10: *«el texto
+subtle/placeholder no se usa para información esencial»*), y la ubicación no es secundaria: **es el criterio de
+orden de la lista**.
+
+**Regla normativa:**
+
+- La ubicación va **primero** en el renglón de la carta, **en columna a la izquierda** (o en su propia línea
+  superior en `< sm`), **mono `tabular`, `text-sm` (14px), `text-text`**, con el rótulo «Ubicación» en mono 11px
+  `text-muted` **encima o delante**, no compartiendo peso con el valor.
+- **«Sin ubicar»** conserva `text-accent` (bermellón = *esto te va a costar trabajo*) **al mismo tamaño** que
+  una ubicación real: es una excepción que se atiende, no una nota al pie. Su carta va **al final** del pedido,
+  que es donde el recorrido la encuentra: cuando ya no queda nada que caminar.
+- El **folio de la pieza** baja detrás de la ubicación. Es el dato de **cotejo en mano**, no de recorrido.
+- ⛔ **La ubicación no se trunca nunca.** Es corta y es una llave; un `truncate` en una llave la vuelve inútil.
+
+---
+
+### 35.5 La dirección se lee **para copiarla** — y por eso no puede ir en `muted` *(corrección normativa)*
+
+**No hay impresión de etiquetas en este sistema** (`PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md §7`: *impresión de
+etiquetas (cero)*). Eso significa que la dirección de la pantalla **se transcribe a mano** al paquete o a la
+ventanilla del transportista. Un dato que se transcribe es **un dato que se lee dígito a dígito**, y ahí la
+diferencia entre `text-muted` y `text-text` no es estética: es la probabilidad de equivocar un CP.
+
+**Regla normativa del bloque de dirección (solo destino `ship`):**
+
+- **Valores en `text-text`, `text-sm`** (calle y número, colonia, ciudad, estado, país, **CP** y **teléfono**
+  con `tabular`). **Rótulos** («CP», «Tel», «Destinatario») en mono 11px `text-muted`.
+- **La calle va completa y en su propia línea**, primera del bloque: es el dato que la pantalla anterior omitía
+  y el que hace la dirección utilizable.
+- `line2` y `neighborhood` son opcionales: **se filtran**, nunca dejan comas colgando.
+- El bloque **no usa `<address>`**: ese elemento es para los datos de contacto del documento, no para la
+  dirección postal de un tercero.
+- **Destino `vault` ⇒ no hay bloque de dirección.** No se pinta vacío ni «—»: en un pedido a bóveda la
+  dirección **no existe**, y un «—» afirmaría que falta.
+
+---
+
+### 35.6 El apellido: por qué domina la tarjeta, y por qué **no se puede confiar en él**
+
+**La jerarquía está bien y se ratifica:** apellido en serif 24px sobre nombre completo en 14px. Con un archivero
+alfabético, el apellido es la llave de búsqueda y **debe ganar** — la proporción actual (24 vs 14) es
+suficiente y no necesita tocarse.
+
+**Lo que está mal es la confianza.** El apellido **no es un dato capturado: es derivado** —el último token del
+nombre completo (`API_CONTRACT.md:14843`, marcado ahí mismo como **FRÁGIL**)— y la tarjeta lo presenta como el
+hecho más grande de la pantalla, sin ninguna reserva.
+
+> ⚠️ **Y el modo de fallo no es el caso raro: es el más común en México.** El orden habitual es *nombre(s) +
+> apellido **paterno** + apellido **materno***, y un archivero alfabético mexicano se ordena por el **paterno**.
+> «Último token» devuelve el **materno**. Con «Juan Carlos Sainz Ortega», el sistema propone archivar en
+> **O**, y el archivero lo espera en **S**. No falla en los nombres compuestos: falla en los normales.
+
+**Consecuencias de diseño, en dos tiempos:**
+
+- **Hoy, en esta rebanada de solo lectura, no bloquea** — la pantalla no archiva nada, no propone ubicación, y
+  la cubeta bóveda está vacía (§35.8). Lo que sí exige hoy es que **el nombre completo deje de ser `muted`**
+  (`text-sm text-text`): es el único elemento con el que el operador puede **corregir a ojo** la letra
+  equivocada, y un dato que existe para corregir a otro no puede pintarse como secundario (**P-4b**).
+- **Antes de que el apellido gobierne algo** —la sugerencia de ubicación de bóveda (`source='alpha_by_lastname'`,
+  §3 del borrador) o cualquier orden alfabético— **bloquea**: hay que decidir si se captura apellido
+  estructurado o si esa función no usa el apellido jamás. **Es petición al arquitecto / product-owner, no al
+  frontend** (nota **A-2**, §35.14).
+
+---
+
+### 35.6a Cuando **no hay nombre ninguno** — la ausencia se nombra, y ⛔ no se pinta con un guion *(copy normativo, v4.5)*
+
+**El caso, medido, para escribir sobre el hecho y no sobre una hipótesis.** Ocurre con un **comprador invitado**
+cuyo pedido guardó la dirección en el **formato viejo de 8 campos**, que **no traía el nombre del destinatario**.
+`customer.fullName` para un invitado **es** ese `addressSnapshot.recipientName` (`API_CONTRACT.md:14901`), así que
+cuando falta **falta entero**: no hay nombre en el plano 1, no hay destinatario en el bloque de dirección, y
+—por construcción— **tampoco hay apellido** (`fullName === null ⇒ lastName === null`, `API_CONTRACT.md:14902`).
+
+> **La frase que resume el caso, y de la que sale todo el copy:** *no es que el cliente no tenga nombre — es que
+> la tienda no lo guardó.* El operador tiene el pedido, la dirección completa y las cartas; lo único que le falta
+> es **a nombre de quién** empaqueta. Necesita leer que eso es **un hueco del registro**, no un cliente anónimo:
+> son dos hechos distintos y llevan a dos conductas distintas (buscar el dato · seguir tranquilo).
+
+#### a · ⛔ Por qué el «—» no sirve aquí, y por qué voy **más lejos** que el contrato
+
+`§M4-PREP v1.78.1` prohíbe el **«—» mudo** (guion sin frase). **Estoy de acuerdo, y en esta ranura prohíbo el
+guion del todo**, acompañado o no. El motivo no es de gusto:
+
+1. **En este sistema el em dash ya está ocupado por el dinero.** Significa **«precio pendiente»** (§16.3a) y
+   **se lee como cero** — la lista de prohibiciones de **§25.7(b)** (`:10675`) lo dice con esas palabras. Un
+   glifo que carga semántica de dinero no se recicla para nombrar a una persona.
+2. **`§32.4-H4` habla de cifras, y un nombre no es una cifra.** H4 pide «—» en `tabular` **más** la frase porque
+   su sujeto es **un número que ocuparía una columna** y que en blanco se leería `0`. Aquí no hay columna ni
+   retícula: hay una línea de prosa. Y **§25.7(c)** ya resolvió exactamente esta distinción —*«Cero real: hay
+   retícula y hay número · Sin conteo: no ocupa columna, ocupa una oración»*— con la forma que aquí se reusa:
+   **versalita + oración, sin glifo de valor.** ⇒ **Esta ranura no lleva guion.** No es una excepción a H4: es H4
+   aplicada a un sujeto que no es numérico. *(§25.7 es el precedente más fuerte que tiene el sistema: allí una
+   ausencia **en una pantalla de dinero** se resolvió sin guion, con versalita `accent` + frase en tinta. Si ahí
+   se pudo, aquí —donde no hay dinero— con más razón.)*
+3. **Un guion no distingue las dos causas.** «Apellido no identificado» y «no hay nombre» son averías distintas
+   (una derivación que falló · un dato que nunca se capturó) y el mismo «—» las dibujaría igual.
+
+*Diferencia con el precedente de §33 («Recibe: — Sin destinatario»): allí el guion vive **dentro de una línea
+rotulada** («Recibe:»), pegado a las palabras que lo explican, ocupando la ranura de un valor etiquetado. El
+plano 1 de esta tarjeta **no tiene rótulo**: es el sitio donde normalmente hay un nombre a 24px. Un guion suelto
+ahí no tiene nada al lado que lo desmienta.*
+
+#### b · Copy normativo — **ES**
+
+| Pieza | Texto | Token |
+|---|---|---|
+| **Marca** *(ocupa la ranura del apellido)* | **«Sin nombre registrado»** | versalita mono `text-[11px]`, `tracking-[0.06em]`, **`text-accent`** |
+| **Frase** *(ocupa la ranura del nombre completo)* | **«La dirección de este pedido se guardó sin el nombre de quien recibe: es un hueco del registro, no un cliente anónimo. Identifica el paquete por su folio.»** | `text-sm` **`text-text`** |
+
+#### c · Copy normativo — **EN**
+
+| Pieza | Texto | Token |
+|---|---|---|
+| **Marca** | **“No name on file”** | versalita mono `text-[11px]`, `tracking-[0.06em]`, **`text-accent`** |
+| **Frase** | **“This order's address was saved without a recipient name: it's a gap in our records, not an anonymous customer. Identify the package by its folio.”** | `text-sm` **`text-text`** |
+
+*(«No name on file» reusa el vocabulario que §33 ya fijó en inglés — `recipientMissing`: “Recipient: — none on
+file”, §33.10 —, para que las dos pantallas nombren la misma ausencia con las mismas palabras.)*
+
+**Claves i18n — dos, nuevas, y en `es.json` y `en.json` a la vez** (⛔ nunca una sola lengua: la paridad de
+mensajes es un candado del proyecto). Cuelgan de `admin.m4.prep`, junto a `lastNameUnknown`, y siguen la forma
+anidada que ese bloque ya usa para los vacíos (`empty.title` / `empty.body`):
+
+```
+admin.m4.prep.nameMissing.tag    → «Sin nombre registrado»            | “No name on file”
+admin.m4.prep.nameMissing.body   → «La dirección de este pedido …»    | “This order's address …”
+```
+
+**Comportamiento que se le pide a frontend** (la rama ya existe y está aislada; esto es copy y condición, no
+arquitectura):
+
+1. En la rama `fullNameMissing` (hoy `PreparationQueue.tsx:332-351`), sustituir el `{DASH}` por **marca + frase**
+   con los tokens de las tablas de arriba. **Se conserva** `data-testid="prep-fullname-missing-{shipmentId}"`
+   en el contenedor del bloque.
+2. **En esa misma rama, ⛔ no renderizar «Apellido no identificado»** (§35.6a-e). La condición del apellido pasa a
+   ser *«no hay apellido **pero sí** nombre completo»*.
+3. Marca y frase, **dos nodos de bloque**; ⛔ la separación no puede depender de un `gap` (§35.6a-f).
+4. Se mantiene la lectura defensiva de `''`/espacios como ausencia que el código ya hace: el contrato prohíbe esa
+   grafía, pero **si llegara, la lectura segura es ausencia** — ⛔ jamás un hueco invisible.
+5. Los candados **PR-7..PR-10** entran **en este mismo cambio** (§35.14 A-4), y con ellos se retira la aserción
+   contradictoria de `M4View.test.tsx:886`.
+
+#### d · Por qué cada decisión, punto por punto
+
+- **`text-accent` en la marca, y no `muted` como en «Apellido no identificado» — la escalada es información.**
+  `muted` = *la derivación falló, pero el dato está debajo y lo cazas a ojo* (§35.6). `accent` = *el dato no
+  existe y no hay de dónde sacarlo*, que es la misma semántica que «Sin ubicar» (§35.4: bermellón = **esto te va
+  a costar trabajo**). Que las dos ausencias del plano 1 **no compartan tono** es deliberado: el tono dice cuál
+  de las dos tiene remedio en pantalla.
+- **La frase va en TINTA, ⛔ nunca en `muted`.** §10 prohíbe el muted para información esencial, y ésta lo es:
+  es lo único que impide que el operador rotule el paquete a nombre de nadie. Misma doctrina que **P-4** (la
+  dirección) y **P-4b** (el nombre completo): *lo que se usa para decidir no se pinta como secundario.*
+- **«hueco del registro, no un cliente anónimo» es la carga útil de la frase** y no se puede recortar. Sin ella
+  el operador lee «cliente raro» en vez de «dato nuestro que falta», y la conducta correcta cambia.
+- **«Identifica el paquete por su folio» se puede cumplir SIEMPRE, y eso está medido.** `fullName` solo puede ser
+  `null` en un pedido de **invitado**, y un invitado **siempre tiene orden** ⇒ **siempre hay folio en la
+  tarjeta**. El único caso sin folio es el **retiro de bóveda** (`orderId == null`), que va contra `User.name`
+  —`NOT NULL` en el schema— y por tanto **nunca cae en esta rama** (`API_CONTRACT.md:14901`). La frase no
+  promete un dato que a veces no está: cuando la persona falta, **el folio está**, y el folio es justamente «lo
+  que se dice por teléfono» (§35.3, plano 4).
+- **⛔ Lo que la frase NO dice, y es lo más importante que tiene.** No dice «búscalo en Pedidos», no dice
+  «pregúntale al cliente», no dice «se corregirá». **Medido hoy (2026-09-22): `guestEmail` no se pinta en
+  ninguna pantalla de `frontend/src/app/[locale]/(admin)`** (`grep -rn 'guestEmail'` sobre esa carpeta: **0
+  resultados**), aunque el contrato sí lo expone al back-office (`API_CONTRACT.md:14674`). ⇒ **no existe hoy un
+  camino de pantalla medido para recuperar el nombre**, y una frase que mandara a recorrerlo sería la misma
+  falta que §35.8 le corrige al vacío de bóveda: *tranquilizar (o mandar) sobre algo que no se midió*. Ruta
+  pedida en la nota **A-5**; hasta que exista, el copy **nombra la ausencia y para ahí**.
+
+#### e · ⭐ Una ausencia, **una** frase — la relación con «Apellido no identificado»
+
+**Regla normativa:** las dos ausencias del plano 1 son **mutuamente excluyentes en pantalla**. Cuando
+`fullName === null`, ⛔ **no se pinta «Apellido no identificado»**: se pinta **solo** el bloque de §35.6a(b/c).
+
+**Por qué, y es un argumento de verdad, no de estética:**
+
+- **«Apellido no identificado» es una promesa implícita:** significa *«no supe partir el nombre — míralo tú
+  debajo»*, y toda su utilidad está en el nombre completo que le sigue (§35.6). Sin nombre completo, esa frase
+  **apunta a un remedio que no está en la tarjeta**.
+- **Y afirma de más:** insinúa que el sistema **tiene** el nombre y falló al derivar. El hecho es más duro —
+  nunca hubo nombre. Dos grafías del mismo hecho es exactamente lo que `§M4-PREP v1.78.1` retiró del backend
+  (`''` vs `null`); reintroducirlas en la pantalla sería perder la misma batalla un piso más arriba.
+- **Dos líneas de ausencia apiladas se cuentan como dos averías.** El operador de pie cuenta problemas, no
+  matices: una tarjeta con dos avisos parece rota, y una tarjeta rota se salta.
+
+⚠️ **Esto contradice una prueba verde de hoy.** `frontend/src/app/[locale]/(admin)/admin/m4/M4View.test.tsx:886`
+aserta, en el caso `fullName: null`, `expect(who).toHaveTextContent('Apellido no identificado')`. **Con esta
+regla esa línea pasa a ser incorrecta** y se retira **en el mismo cambio** que aplica el copy (**P-11**). Se dice
+aquí, con fichero y línea, para que no se descubra como un rojo sorpresa: *una regla de diseño que invalida un
+candado existente tiene que decirlo ella misma, o el candado gana por inercia.*
+
+#### f · Accesibilidad de este bloque
+
+- **Marca y frase son dos elementos de bloque distintos**, uno tras otro, dentro del contenedor de la persona.
+  ⛔ **La separación entre ambas no puede venir de un `gap` de flex**: el texto accesible concatena los nodos sin
+  el aire del CSS y produce cadenas pegadas del tipo «ParaAsh Ketchum» —**defecto ya observado en esta misma
+  pantalla**—. El espacio que separa dos palabras **tiene que existir en el DOM**, no en la hoja de estilo.
+- **Las versalitas se hacen con CSS (`uppercase`), ⛔ no escribiendo la cadena en mayúsculas** en el fichero de
+  mensajes: hay lectores de pantalla que deletrean las cadenas en caja alta. Es el criterio que ya sigue
+  `lastNameUnknown` («Apellido no identificado» + `uppercase` en la clase) y **no** el de `nameFromGoogle`
+  («NOMBRE DE GOOGLE» en el JSON) — entre los dos precedentes del sistema, **manda el primero**.
+- **Contraste, sin tokens nuevos:** bermellón `#B44B3A` sobre papel **~4.65:1** (AA para texto pequeño) y tinta
+  `#1A1A18` sobre papel **~15.5:1** — los dos ya inventariados en §35.12.
+- **El bloque no es enfocable ni interactivo.** Esta pantalla es de solo lectura (§35.11): ⛔ nada de tooltip, de
+  botón «buscar» apagado, ni de `title` como único portador (**§25.7(b)**: *el tooltip no existe en táctil ni
+  para el lector de pantalla*).
+
+---
+
+### 35.7 El filtro de **cubetas** (envío / bóveda)
+
+Tres botones —**Ambas · Solo envío · Solo bóveda**— bajo un rótulo mono 11px en versalitas, con
+`role="group"` + `aria-labelledby`, `aria-pressed` en cada botón, `min-h-[44px]` (§8.2) y el activo en tinta
+sólida (`bg-text` / `text-primary-fg`), el resto con regla `border-border-strong`.
+
+**Se ratifica tal cual, y con precedente:** este sistema usa **`role="group"` + `aria-pressed`** para los
+filtros segmentados (`LocaleToggle` §6.5, `RangeToggle` §7.17 punto 2) y reserva **`role="radiogroup"`** para las
+elecciones que **cambian qué gobierna el dinero** (el interruptor de FX, §30). Un filtro de vista no es de esa
+familia: no cambia nada del mundo, solo qué se mira. **⛔ No se migra a `radiogroup`.**
+
+- **«Ambas» es el estado por defecto** y equivale a no mandar el parámetro. Es la lectura correcta para un
+  operador que va a vaciar la cola entera: **el filtro sirve para concentrarse, no para encontrar**.
+- **Ancho por segmento suficiente para el español** (§9.4); las etiquetas no se abrevian.
+- El filtro **no se recuerda entre visitas**: es una decisión del momento («ahora voy a hacer los envíos»), no
+  una preferencia. Persistirlo haría que el operador volviera a una pantalla que le esconde trabajo.
+- ⚠️ **Hoy, «Ambas» y «Solo envío» devuelven lo mismo y «Solo bóveda» siempre vacío** (§35.8). El filtro **se
+  conserva igual**: está en el contrato, y quitarlo haría invisible una parte del producto que ya se decidió.
+  Lo que no se vale es que la cubeta vacía **mienta** — que es justo el hallazgo **P-1**.
+
+---
+
+### 35.8 Carga, error y **vacío** — y el vacío de bóveda, que es el copy delicado
+
+**Carga.** Esqueleto **con la forma final** (§8.1): dos tarjetas de pedido con sus tres bloques, no un spinner.
+El operador de pie tiene que poder anticipar «viene una lista de tarjetas», no «pasa algo».
+
+**Error.** `Banner danger` + **«Reintentar»**, con el copy resuelto desde el `errorCode` y **audiencia
+`operator`** (§26): a quien lee esta pantalla se le habla de la cola, nunca de «tu documento» ni de «tu pago».
+
+> ⭐ **Corrección de alcance (v4.6): este párrafo describe el error GENÉRICO, y hay uno que no lo es.** El
+> `409 CONFLICT` de la fila corrupta (`§M4-PREP v1.78.2`) **no** se pinta con este banner ni lleva «Reintentar»:
+> es un **cuarto estado**, con copy propio, y su sitio es **§35.15**. Aquí se nombra para que la lista de estados
+> de esta sección esté completa: **carga · vacío (×3) · error genérico · cola bloqueada por datos corruptos**.
+
+**Vacío.** `EmptyState` (§8.1): dos reglas, mucho aire, título en serif y **una** frase.
+
+> **⚠️ Corrección a §8.1 (v4.4).** §8.1 dice *«Cola admin vacía: "Nada pendiente aquí" (estado positivo, verde
+> suave)»*. **El «verde suave» ya no existe**: la dirección 5a retiró los rellenos de color (§2.1, los `*-bg`
+> semánticos son `transparent`) y `EmptyState` **ignora** su prop `tone` (lo acepta por compatibilidad y no lo
+> pinta). El vacío positivo de una cola admin se comunica **con el texto y el aire**, no con color. ⇒ dejar de
+> pasar `tone` (hallazgo **P-6**).
+
+**Un copy por cubeta, porque las tres situaciones son distintas** — y aquí está la regla que las gobierna:
+
+> **Un estado vacío afirma solo lo que el sistema sabe.** Puede decir «esta lista no tiene nada»; **no puede
+> decir «no hay trabajo»** si el sistema no mide el trabajo. La diferencia entre las dos frases es la
+> diferencia entre una pantalla honesta y una pantalla que **deja trabajo físico sin hacer con el operador
+> tranquilo**.
+
+| Cubeta | Qué es verdad | Copy normativo |
+|---|---|---|
+| **Ambas** | No hay ningún pedido cobrado esperando | **«Nada que preparar por ahora.»** / *«Cuando entre un pedido cobrado aparecerá aquí, con el más viejo arriba.»* ✅ correcto **si** la lista se refresca sola (§35.9) |
+| **Solo envío** | No hay envíos esperando | **«Nada que enviar por ahora.»** / *«No hay pedidos cobrados esperando envío.»* ✅ (la segunda frase, «Los nuevos aparecen aquí solos», **solo es cierta con §35.9** — **P-2**) |
+| **Solo bóveda** | **La cola no se alimenta de ahí todavía** | ⛔ **el copy de hoy afirma de más — ver abajo** |
+
+**El vacío de bóveda, dicho con precisión.** El hecho medido (`API_CONTRACT §M4-PREP`, recuadro del arquitecto)
+es: las órdenes `fulfillmentMode='vault'` **no generan cola**, y *«no existe hoy artefacto que diga “esta compra
+a bóveda está pendiente de colocar” ni “ya se colocó”»*. Es decir: **el sistema no sabe si hay trabajo de
+colocación pendiente.** Por eso la frase actual **«No hay nada pendiente ni nada roto»** es media verdad: acierta
+en *nada roto* y **afirma sin base** en *nada pendiente*. Es el error más caro que puede cometer un estado vacío
+en una superficie de operación: **tranquiliza sobre algo que no midió.**
+
+**Copy normativo (ES):**
+
+- **Título:** «Esta cubeta todavía no se alimenta.»
+- **Cuerpo:** «Una compra que el cliente deja en su bóveda no genera cola: al liquidarse el pago la carta ya es
+  suya sin salir de la tienda. Vacío aquí **no significa “todo colocado”** — significa que esta pantalla
+  todavía no lleva ese registro.»
+
+**Copy normativo (EN):**
+
+- **Título:** «This bucket isn't fed yet.»
+- **Cuerpo:** «A purchase the customer leaves in their vault doesn't create a queue: once the payment settles
+  the card is already theirs without leaving the store. Empty here **doesn't mean "everything is filed"** — it
+  means this screen doesn't track that yet.»
+
+**Por qué así, punto por punto:** (a) **no alarma** — no hay rojo, ni «error», ni «pendiente»; (b) **no
+tranquiliza de más** — retira la afirmación que el sistema no puede sostener; (c) **no promete software** — se
+cae la frase *«empezará a llenarse cuando el sistema lleve el registro…»*, que es un compromiso de versión
+futura hecho en una pantalla de operación, y las versiones futuras se mueven; (d) **cabe de pie** — dos frases
+en vez de cuatro (§8.1 pide título + una frase; éste es el único vacío del sistema al que le concedo dos, y
+**solo** porque tiene que explicar una ausencia estructural).
+
+---
+
+### 35.9 Frescura: **una cola de mostrador se re-pide sola, o no promete que lo hace**
+
+Medido: el cliente de datos global fija `refetchOnWindowFocus: false` y `staleTime: 30_000`
+(`frontend/src/components/Providers.tsx:12`), y la consulta de esta cola **no lo sobrescribe ni pone
+`refetchInterval`** (`PreparationQueue.tsx:98-101`). **Consecuencia:** la lista solo cambia al montar la
+pantalla o cuando otra acción de M4 la invalida. Un operador que deja la pestaña abierta en el mostrador **puede
+mirar una lista muerta toda la tarde** — mientras el copy del vacío le dice que los nuevos «aparecen aquí
+solos».
+
+**Regla normativa:** *una superficie que promete actualizarse sola tiene que actualizarse sola.* Para esta cola:
+
+- **`refetchOnWindowFocus: true`**, contra el default global — exactamente el precedente de `usePendings.ts:38`,
+  que ya hace esta excepción para las pendientes del back-office y por el mismo motivo. Volver a la ventana
+  **es** el gesto de «¿hay algo nuevo?».
+- **`staleTime` corto** (≈30 s, el global sirve). ⛔ **Sin `refetchInterval` de fondo**: un sondeo permanente
+  gasta en una pantalla que pasa horas abierta sin nadie delante, y el foco ya cubre el caso real.
+- **La actualización nunca reordena bajo el dedo sin decirlo:** el conteo de pedidos vive en una región
+  `role="status"` **siempre montada** (§35.10), así que un pedido nuevo se **anuncia** en vez de aparecer en
+  silencio.
+- Si se decidiera **no** refrescar, entonces el copy de los vacíos **pierde** «Los nuevos aparecen aquí solos» y
+  gana una línea con el gesto real. **Lo que no puede quedarse es el par actual: no refresca y lo promete.**
+
+---
+
+### 35.10 Accesibilidad y orden de lectura
+
+- **Orden del DOM = orden de lectura de §35.1**: destino → folio/«Retiro de bóveda» → referencia de envío →
+  antigüedad → persona → dirección → cartas. Un lector de pantalla recorre la tarjeta como el operador recorre
+  el trabajo.
+- **Cada tarjeta lleva nombre accesible:** `<article aria-labelledby>` apuntando al folio (o a «Retiro de
+  bóveda»). Un `article` sin nombre se anuncia como «artículo» N veces seguidas (**P-9**).
+- **La región de conteo (`role="status"`) está SIEMPRE montada**, aunque la lista esté vacía: una región viva
+  que se monta junto con su contenido **no se anuncia de forma fiable**. Al cambiar de cubeta, el operador debe
+  oír «7 pedidos» **o** el título del vacío (**P-8**).
+- **Objetivos táctiles ≥ 44×44px** en los tres botones de cubeta — **ya se cumple** (`min-h-[44px]`), y es lo
+  correcto para dedos que acaban de soltar una carta.
+- **Foco visible** bermellón de 2px (§4.3, §8.2) en los botones de cubeta y en «Reintentar»; son los únicos
+  elementos enfocables de la pantalla (es una superficie de **solo lectura**).
+- **`lang="en"` en nombre de carta y set** (§9.2: los datos de catálogo no se traducen) — **ya se cumple**.
+  ⛔ No se marca `lang` en la ubicación ni en el folio: no son idioma, son códigos.
+- **`<time dateTime>`** en la fecha del pedido — ya se cumple; la antigüedad relativa la acompaña, **no la
+  sustituye** (§9.3: *«hace 3 días»* no sirve para hablar por teléfono con el cliente).
+- **El acabado lleva doble canal** (`FinishMark`: banda decorativa `aria-hidden` + etiqueta mono siempre
+  visible, §2.4) — ya se cumple.
+- **Zoom y reflow:** la tarjeta es una columna de bloques; a 200 % y en 390×844 los bloques apilan sin
+  scroll horizontal. ⛔ Ninguna tabla de columnas fijas en esta pantalla.
+- ⭐ **El aire visual no separa palabras para quien no ve la pantalla** *(v4.5)*. Un `gap` de flex es espacio de
+  layout, **no** un separador de texto: el contenido accesible concatena los nodos y produce cadenas pegadas
+  —**«ParaAsh Ketchum»**, defecto observado en esta misma tarjeta—. **Regla:** allí donde dos nodos hermanos se
+  leen como una frase, el espacio **existe en el DOM** (o los nodos son **bloques** y no hermanos en línea). Se
+  aplica al rótulo «Para» + destinatario, a la marca + frase de **§35.6a**, y a cualquier par rótulo/valor de
+  §35.5.
+
+---
+
+### 35.11 Lo que esta pantalla **no** hace — y que no se insinúa
+
+Es una rebanada de **solo lectura**: no hay palomear cartas, ni firmar el pedido como preparado, ni sugerencia
+de ubicación de bóveda, ni reembolso por carta faltante (`§M4-PREP`, recuadro PLANEADO).
+
+**Regla:** ⛔ **no se pintan afordancias apagadas** — ni checkboxes deshabilitados, ni un botón «Marcar
+preparado» en gris, ni una barra de progreso «0 de 7». *Un control deshabilitado es una promesa con fecha*, y
+las fechas de esa tabla no están decididas. Cuando la rebanada interactiva llegue, la tarjeta **ya tiene el
+sitio**: la casilla vive a la izquierda de la miniatura y el botón de firma al pie de la tarjeta. Se dice aquí
+para que quien la construya no reorganice la jerarquía de §35.3 al añadirla.
+
+---
+
+### 35.12 Contraste — verificado, sin tokens nuevos
+
+Todos los pares de esta pantalla ya están verificados en §10 y **ninguno es nuevo**:
+
+| Par | Ratio (§10) | Uso aquí |
+|---|---|---|
+| Tinta `#1A1A18` sobre papel `#F4F1EA` | ~15.5:1 | apellido, nombre de carta, set, valores de dirección, ubicación, **frase de la ausencia de nombre** (§35.6a, v4.5), **título y frase de impacto del bloqueo** (§35.15, v4.6) |
+| Muted `#6E695E` sobre papel | ~4.8:1 | rótulos, folio, fecha, referencia de envío, **explicación y acción del bloqueo** (§35.15, v4.6) |
+| Bermellón `#B44B3A` sobre papel | ~4.65:1 | «Sin ubicar», **«Sin nombre registrado»** (§35.6a, v4.5), **regla izquierda del `Banner danger`** (§35.15, v4.6), anillo de foco |
+| Papel sobre tinta (botón de cubeta activo) | ~15.5:1 | segmento activo del filtro |
+
+**Y la advertencia que importa:** las correcciones **P-3** y **P-4** **no son de contraste** —los tonos actuales
+cumplen AA— **son de jerarquía**. Se dice explícito porque un lector apurado podría «cerrarlas» subiendo el
+contraste y dejando el problema intacto: el fallo no es que no se lea, es que **no se lee primero**.
+
+---
+
+### 35.13 Hallazgos sobre lo construido (`PreparationQueue.tsx`, 343 líneas · `M4View.tsx`)
+
+**Dueño de todos los hallazgos de esta tabla: `frontend`.** ux-ui no toca código (regla 8 de `CLAUDE.md`).
+
+> **Fecha de medición de las referencias `fichero:línea`.** **P-1..P-10** se midieron el **2026-09-22 antes** de
+> que entraran sus arreglos: ✅ **los once están aplicados** en el commit `102d57d`, y sus números de línea son
+> **los del árbol anterior** — se conservan como acta, ⛔ no se usan para navegar el código de hoy. **P-11** y
+> **P-12** se midieron **sobre `102d57d`** (el mismo día, ya con los arreglos dentro) y **siguen abiertos**.
+
+**BLOQUEANTES** — *lo que le hace decir a la pantalla algo que no es verdad, o le esconde al operador el dato
+por el que camina.*
+
+| # | Hallazgo | Dónde | Qué pido |
+|---|---|---|---|
+| **P-1** | **El vacío de bóveda afirma «No hay nada pendiente», y eso no está medido.** Lo medido es que el sistema **no lleva** el registro de colocación (`API_CONTRACT.md:14867-14874`). Tranquiliza sobre trabajo físico que nadie está contando | `frontend/messages/es.json:1545` · `en.json:1545` (`admin.m4.prep.emptyVault.body`) | Sustituir por el copy normativo de **§35.8** (ES y EN). Dos claves, cero código |
+| **P-2** | **Los vacíos prometen que la lista se actualiza sola, y no se actualiza.** «Los nuevos aparecen aquí solos» / «New ones appear here on their own» con `refetchOnWindowFocus:false` global (`Providers.tsx:12`) y sin override ni `refetchInterval` en la consulta | `es.json:1537,1541` · `PreparationQueue.tsx:98-101` | **`refetchOnWindowFocus: true`** en esta consulta (precedente exacto: `hooks/usePendings.ts:38`) ⇒ el copy pasa a ser cierto. Si se decide no refrescar, **cae el copy** (§35.9) |
+| **P-3** | **La ubicación —criterio de orden de las cartas (`:81-90`)— es el dato menos visible de la tarjeta:** último renglón, mono 11px, `text-muted`, **detrás del folio**. Lo que ordena la lista no forma columna | `PreparationQueue.tsx:330-338` | Ubicación **primero y en columna**, mono `tabular` **`text-sm text-text`**; rótulo en mono 11px muted; folio detrás. «Sin ubicar» en `text-accent` **al mismo tamaño** (§35.4) |
+| **P-4** | **La dirección completa va en `text-muted`** (el `div` padre fija el tono y los valores lo heredan: ciudad, estado, **CP**, país, **teléfono**). Es el dato que se **transcribe** al paquete, y **no hay impresión de etiquetas** | `PreparationQueue.tsx:255-282` (tono en `:257`; valores en `:269-281`) | **Valores en `text-text`**, rótulos («CP», «Tel», «Destinatario») en mono 11px muted. Es invertir la relación actual (§35.5) |
+| **P-4b** | **El nombre completo va en `text-muted`** siendo el **único** dato con el que el operador puede detectar un apellido derivado mal (y en México la derivación «último token» entrega el apellido **materno** — §35.6) | `PreparationQueue.tsx:249` | `text-sm` **`text-text`**. ⛔ No tocar el tamaño del apellido: esa jerarquía está bien |
+| **P-11** ⭐ *(v4.5)* | **`fullName === null` se pinta como «—» a secas**, que `§M4-PREP v1.78.1` prohíbe expresamente (exige **ausencia con nombre**) y que en este sistema **se lee como cero** por la semántica de dinero del em dash (§16.3a). El operador no puede distinguir «no guardamos el nombre» de «aquí no hay nada» | `PreparationQueue.tsx:332-351` (rama marcada `PENDIENTE-UX`, `data-testid="prep-fullname-missing-*"`) · claves nuevas en `es.json` / `en.json` | Aplicar el copy de **§35.6a**: **dos claves i18n nuevas** (`admin.m4.prep.nameMissing.tag` y `.body`, ES y EN **a la vez**) y sustituir `{DASH}` por marca + frase. **⛔ Y en el mismo cambio, retirar «Apellido no identificado» cuando `fullName === null`** (§35.6a-e), lo que incluye corregir la aserción de `M4View.test.tsx:886`. Añadir los candados **PR-7..PR-10** (§35.14 A-4) |
+| **P-13** ⭐ *(v4.6)* | **El `409` de la fila corrupta se pinta hoy como error genérico, con un botón que no arregla nada** — y eso es exactamente lo que `§M4-PREP v1.78.2` prohíbe («⛔ no se renderiza como “cola vacía” ni como un error genérico de red»). Medido sobre el árbol de hoy: la cola pasa por `QueryState`, que ante **cualquier** error pinta `Banner danger` con `common.errorTitle` **«Algo salió mal»**, el cuerpo `error.CONFLICT` **«Hubo un conflicto con el estado actual.»** y un **«Reintentar»** (`QueryState.tsx:199-216`; `es.json` `common.errorTitle`, `error.CONFLICT`). El `409` de este endpoint **no manda `details`** (el contrato lo declara: hoy `{error:{code,message}}`), así que `DETAILED_ERRORS.CONFLICT` devuelve `null` y cae a esa base. **El operador lee “la app falló”, pulsa Reintentar, recibe el mismo `409`, y la cola sigue caída sin que nadie le haya dicho que hay envíos cobrados esperando** | `PreparationQueue.tsx:175-179` (`<QueryState>`) · `components/ui/QueryState.tsx:199-216` · claves nuevas en `es.json` / `en.json` | Aplicar **§35.15**: rama propia **antes** de `QueryState` para `ApiClientError` con `status === 409` **y** `code === 'CONFLICT'`; **cinco claves i18n nuevas** bajo `admin.m4.prep.conflict` (ES y EN a la vez); ⛔ **sin «Reintentar»**; la referencia del envío **solo** en un `<details>` cerrado. ⛔ **Y NO se escribe copy en `error.CONFLICT_OPERATOR`** — ver §35.15.3, es la trampa de este arreglo. Añadir **PR-11..PR-16** (§35.14 A-4) |
+
+**NO BLOQUEANTES** — *deudas de consistencia y de detalle; ninguna miente ni esconde trabajo.*
+
+| # | Hallazgo | Dónde | Qué pido |
+|---|---|---|---|
+| **P-5** | **`Badge tone="success"` para «Para bóveda»** gasta el **único color positivo del sistema** (§2.1: verde = *confirmado/liquidado*) en un **destino**, que no es un estado. Diluye la señal que sostiene la confianza en las pantallas de dinero | `PreparationQueue.tsx:214` | **`tone="primary"` en los dos destinos**; los distingue **la palabra** en versalitas, que es la regla §2.4 (el color nunca es el portador) |
+| **P-6** | **`tone="positive"` es un prop muerto:** `EmptyState` lo acepta y **no lo desestructura** — no pinta nada | `PreparationQueue.tsx:168` · `components/ui/EmptyState.tsx:6,15` | Dejar de pasarlo (§8.1 corregida en §35.8). Si alguien lo quiere vivo, es otra conversación: hoy contradice §2.1 |
+| **P-7** | **Antigüedad en blanco con fecha ilegible:** `formatAge` devuelve `''` (`lib/format.ts:94-96`) y se pinta sin respaldo, mientras la fecha de al lado **sí** cae a «—». Y ese pedido es justo el que el orden manda **al final** (`:73-77`): el más sospechoso queda con la línea vacía | `PreparationQueue.tsx:231` | `formatAge(...) || DASH`, como ya hace `:233` (§32.4) |
+| **P-8** | **La región `role="status"` del conteo solo existe cuando hay pedidos:** al cambiar a una cubeta vacía **no se anuncia nada** (la región y su contenido se montan juntos) | `PreparationQueue.tsx:167-172` | Región **siempre montada**; dentro, el conteo **o** el título del vacío (§35.10) |
+| **P-9** | **`<article>` sin nombre accesible:** siete tarjetas se anuncian como «artículo» | `PreparationQueue.tsx:206-209` | `aria-labelledby` al folio / «Retiro de bóveda» (`:219-223`) |
+| **P-10** | **La hoja de trabajo queda debajo de la cola de envíos completa y sin paginar.** El operador que va a preparar entra a `/admin/m4` y **hace scroll por una lista que no es la suya** | `M4View.tsx:331` (`<PreparationQueue/>` tras la sección de `:193-327`) | Subir «Pedidos a preparar» **encima** de la cola de envíos. Es una pantalla de **ejecución física** compartiendo ruta con una de **administración**: manda la que se usa de pie (§35.1) |
+| **P-12** *(v4.5)* | **Un número de versión del contrato viaja en copy de operador:** la cola de envíos de arriba pinta literalmente **«SIN DESTINATARIO (retiro anterior a v1.67)»**. §32.4c lo prohíbe (*⛔ identificadores técnicos fuera del aviso*), y **la copy es mía**, así que el defecto es mío: `§M4-PREP` cita esa cadena como el patrón a imitar, y §35.6a **no lo imita** — se dice aquí para que la divergencia sea deliberada y no parezca un olvido | `frontend/messages/es.json:1500` · `en.json:1500` (`admin.m4.recipientMissing`) | Sustituir por **«Sin destinatario registrado»** / *“No recipient on file”* (versalitas por CSS, como §35.6a-f). ⛔ **No** se toca la sección §33 en este pase: su redacción entera se revisa aparte (**A-7**) |
+| **P-14** *(v4.6)* | **El último superviviente de la familia de P-12, y es de otra pantalla:** `admin.m5.rejected.noDeadlines` dice **«Sin plazos registrados (rechazo previo a v1.18).»** / *«…prior to v1.18.»*. Mismo defecto de §32.4c (un número de versión del contrato en copy de operador), **misma dueña de la copy** (yo). Lo midió **frontend** y **deliberadamente no lo tocó** —la redacción no existía y inventarla habría sido el defecto que ese pase acababa de cerrar—, y por eso su candado de §32.4c quedó **acotado a `admin.m4.*`** nombrando a éste en su comentario | `frontend/messages/es.json:1601` · `en.json:1601` · pintado en `M5View.tsx:659` · candado acotado en `lib/i18n-parity.test.ts:722-730` | Sustituir por el copy normativo de **§35.16** (ES y EN). **Dos claves, cero código.** Y en el mismo cambio, **quitarle el alcance al candado**: que recorra el catálogo entero en vez de `admin.m4.*` (§35.16.4) |
+
+**RATIFICADO — lo que está bien y ⛔ no se toca** *(se enumera para que una revisión futura no lo «arregle»)*:
+la **tarjeta por pedido** con cartas anidadas (§35.2); el **apellido 24px serif** dominando (§35.6); **«Retiro de
+bóveda»** en el lugar del folio en vez de un hueco; **«Apellido no identificado»** en vez de `null` *(ratificado
+**solo** para el caso en que sí hay nombre completo — cuando no lo hay, manda §35.6a-e)*; **«Sin
+ubicar»** sin código `UNASSIGNED` y al final del pedido; el **esqueleto con la forma final** (`:155-165`); el
+**re-orden en cliente** con la fecha ilegible al final (`:72-90`); **`lang="en"`** en nombre y set; el
+**`conditionLabel` compuesto en el servidor** y no recompuesto aquí; **`role="group"` + `aria-pressed` +
+`min-h-[44px]`** en las cubetas (§35.7); **`<time dateTime>`** con la fecha absoluta junto al «hace N días»; y
+que la pantalla **no pinte ni una afordancia apagada** de la rebanada interactiva (§35.11).
+
+> ⭐ **Y se ratifica, con nombre propio, la forma en que frontend dejó la costura de P-11** *(v4.5)*. Se negó a
+> escribir una prueba que fijara el «—» actual, con este argumento: *un test que lo fijara protegería en CI justo
+> lo que el contrato prohíbe*. **Es correcto, y es la lectura fuerte de la doctrina del proyecto:** un candado no
+> mide «lo que la pantalla hace hoy», mide **lo que la pantalla debe seguir cumpliendo**. Fijar el guion habría
+> convertido la suite en la defensora del defecto, y al llegar este copy el arreglo más barato habría sido
+> **revertir el copy** — que es la misma clase de fallo que el censo de pruebas apagadas existe para cazar.
+> Sus dos candados (`M4View.test.tsx:876`, `:889`) asertan lo que es cierto **con cualquier redacción** —que no
+> se imprime `null`/`undefined` y que la rama de ausencia existe y es distinguible—, así que **este copy entra
+> como una adición, no como una reescritura de pruebas**. Y señalizó la no-conformidad en el código
+> (`PENDIENTE-UX`) en vez de taparla con algo que *pareciera* conforme: **una costura visible vale más que una
+> conformidad aparente.** ⛔ **Lo que sí faltaba** —y no es una objeción a su decisión, sino su continuación— son
+> los candados que **solo pueden existir una vez escrita la redacción**: **PR-7..PR-10** (§35.14 A-4). Escritos
+> antes, habrían sido rojos por construcción; escritos ahora, cierran la costura.
+
+---
+
+### 35.14 Notas a otros roles — lo que este diseño **no** decide
+
+| Ref | Para | Qué |
+|---|---|---|
+| **A-1** | **product-owner / orquestador** | **La fuente de producto que se me citó no está en el árbol.** El encargo apuntaba a `PROJECT.md §«Pedidos a preparar»` (aprobada por el dueño **2026-09-15**, con 6 decisiones y CA #1..#11); medido hoy: `grep -n -i 'preparar' PROJECT.md` **no devuelve esa sección**. Lo que sí existe es `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md` (borrador del **arquitecto**) y `API_CONTRACT §M4-PREP`, y **contra esos dos + el código** se escribió §35. **`PROJECT.md` es del product-owner**, no mío: si la sección se aprobó, **falta bajarla al repo**; si no se aprobó, hay una rebanada construida sin fuente de producto versionada. **Esto no bloquea §35** (el contrato y el borrador cubren los datos), pero sí bloquea que alguien pueda verificar CA #1..#11 contra algo |
+| **A-2** | **arquitecto / product-owner** | **`customer.lastName` derivado como «último token» va a la letra equivocada en el caso mexicano normal** (*nombre(s) + apellido paterno + apellido **materno***; el archivero se ordena por el **paterno**) — `API_CONTRACT.md:14843`, ya marcado FRÁGIL ahí. **Hoy no bloquea** (nada se archiva desde una pantalla de solo lectura y la cubeta bóveda está vacía). **Bloquea antes** de que el apellido gobierne la **sugerencia de ubicación de bóveda** (`source='alpha_by_lastname'`, §3 del borrador) o cualquier orden alfabético. Decidir entre: **(a)** apellido estructurado en captura, **(b)** que la sugerencia **no** use el apellido nunca (la bóveda existente del cliente ya es mejor fuente), o **(c)** derivar el **penúltimo** token y asumir su error. ⛔ Mientras no se decida, **ninguna pantalla debe ordenar ni archivar por `lastName`** |
+| **A-3** | **arquitecto** *(pequeña)* | Si algún día la cubeta **bóveda** se alimenta, el copy de su vacío (§35.8) **deja de ser cierto** y hay que retirarlo. Queda anotado aquí para que no sobreviva a su causa |
+| **A-4** | **QA** | Candados de interfaz que esta sección hace verificables: **PR-1** el HTML de la cubeta `vault` vacía **no contiene** la cadena «nada pendiente» / «nothing is pending»; **PR-2** cambiar de cubeta con resultado vacío **produce un anuncio** en una región viva ya montada; **PR-3** la **ubicación** de cada carta se renderiza **antes** que su folio en el DOM; **PR-4** ningún valor del bloque de dirección hereda `text-muted`; **PR-5** con `requestedAt` inválida, la tarjeta pinta «—» en **las dos** líneas de tiempo y el pedido queda **al final**; **PR-6** con la pestaña recuperando el foco, la cola **se vuelve a pedir** (contador de llamadas ≥ 2). ⭐ *(v4.5, y **solo tras aplicar P-11**: escritos antes serían rojos por construcción)* **PR-7** con `fullName === null`, el bloque de la persona **no contiene ningún em dash** (`—`) — es el candado que fija la prohibición del contrato, y es **el inverso exacto** de la prueba que frontend se negó a escribir; **PR-8** con `fullName === null`, el bloque **no** contiene «Apellido no identificado» / “Last name not identified” (una ausencia, **una** frase — §35.6a-e); **PR-9** el `textContent` del bloque **separa marca y frase con espacio real** (⛔ nada de «Sin nombre registradoLa dirección…»: el aire de un `gap` de flex no existe para el lector de pantalla — defecto ya observado en esta pantalla); **PR-10** la frase **no** lleva `text-muted`. Medir en **390×844** y **1280×800**. ⭐ *(v4.6, el `409` de §35.15 — **solo tras aplicar P-13**)* **PR-11** con el endpoint en `409`, el HTML **no contiene** ninguno de los tres títulos de vacío (`empty.title`, `emptyShip.title`, `emptyVault.title`) **ni** el título genérico `common.errorTitle` («Algo salió mal»), **y sí contiene** `conflict.title` — es **el candado de la obligación del contrato**: distinguible de `200 {data:[]}` **y** del error de red; **PR-12** con `409`, **no existe** ningún botón «Reintentar» ni control de cierre dentro del aviso (⛔ nada que pulsar que no arregle nada); **PR-13** con `409`, hay **exactamente una** región que anuncia: el aviso lleva `role="alert"` **y** `prep-live-region` queda **vacía** (un hecho, un anuncio); **PR-14** con `409`, la referencia del envío **no aparece** ni en el título ni en el primer párrafo, y el `<details>` que la contiene **está cerrado** (sin atributo `open`) — §32.4c hecho verificable; **PR-15** con `409`, la frase de impacto **no** lleva `text-muted` (color computado = tinta), misma doctrina que PR-10; **PR-16** con `409`, **cambiar de cubeta no cambia el estado** (sigue el mismo aviso, ⛔ ni lista ni vacío) y los tres botones de cubeta **siguen habilitados**. Medir también en **390×844** y **1280×800** |
+| **A-5** ⭐ | **product-owner / arquitecto** | **Si se quiere que el operador pueda RECUPERAR el nombre que falta, hoy no hay por dónde — medido.** `guestEmail` está en el contrato como contacto operativo de back-office (`API_CONTRACT.md:14674`) y **no se pinta en ninguna pantalla** de `frontend/src/app/[locale]/(admin)` (`grep -rn 'guestEmail'` sobre esa carpeta, 2026-09-22: **0 resultados**). Sí existe el buscador por **folio** en la cola de pedidos (`M3View.tsx:151,157`), así que el camino natural sería **exponer el contacto del invitado en el detalle de M3** — ⛔ **no** en esta pantalla, que es de solo lectura y de ejecución física (§35.11). **Mientras no se decida, el copy de §35.6a no manda al operador a ningún lado**, y esa contención es deliberada: una frase que manda a recorrer un camino inexistente es el mismo error que §35.8 le corrigió al vacío de bóveda |
+| **A-6** | **product-owner** | **¿Puede salir un paquete sin nombre de destinatario?** Cuando `fullName` falta, `addressSnapshot.recipientName` falta también (son la misma fuente, `API_CONTRACT.md:14901`): **la guía se rotula sin nombre**. Eso es una decisión de **operación**, no de diseño, y **no la tomo**: §35.6a se limita a que el operador **sepa** que el nombre no está antes de empaquetar. Si la respuesta es «no puede salir», hace falta una conducta (bloqueo, aviso, tarea) que **hoy esta pantalla no tiene y que ⛔ no se insinúa** (§35.11: nada de afordancias apagadas). **NO MEDIDO por mí:** con qué frecuencia ocurre en la base real |
+| **A-8** ⭐ *(v4.6)* | **arquitecto** | **No objeto la regla del `409`; sí traigo un coste que las cuatro razones no pesan, y una medición.** Estoy de acuerdo con el fondo —*ruidoso > silencioso*— y §35.15 existe para **hacerlo ruidoso de verdad**: sin copy propia, ese `409` se pintaba como «Algo salió mal» con un botón inútil, que es **silencio con otro disfraz**. El coste: **rechazar entero convierte una fila corrupta en cero trabajo hecho**, y **el operador no tiene ninguna palanca** — medido hoy (2026-09-22): `grep -rn 'fulfillmentMode' frontend/src/app/\[locale\]/(admin)` devuelve **dos comentarios y ningún control**, y en el backend el campo **solo se escribe en el checkout** (`orders/guest-checkout.service.ts`, `payments.service.ts` lo lee). ⇒ **no existe pantalla, de ningún rol, que pueda limpiar la fila**: la cola queda caída hasta que alguien toque datos. Con la cubeta `vault` vacía, el caso realista es *una* fila mala parando **todos** los envíos del día. **No pido cambiarlo ahora.** Pido que cuando la rebanada interactiva reabra el DTO —cosa que el contrato ya se compromete a hacer para la forma de `details`— se pese una tercera opción que es **ruidosa Y deja salir la mercancía**: `200` con `data` **más** un `problems: [{shipmentId, fulfillmentMode}]` **declarado en el envelope**, que la pantalla pinta como aviso permanente encabezando la lista. ⛔ **No es «degradar por fila»** (la razón 4, que comparto): degradar es **omitir en silencio**; esto es **listar lo que no se pudo derivar**, que es lo contrario. Si se descarta, que se descarte **por escrito** — hoy el contrato no la considera |
+| **A-7** | **ux-ui** *(deuda propia)* | **§33 pinta un número de versión del contrato en copy de operador** («SIN DESTINATARIO (retiro anterior a v1.67)», §33 · `es.json:1500`), contra §32.4c. §35.6a **no reproduce ese patrón** a propósito, aunque `§M4-PREP` lo cite como modelo. El arreglo de la cadena de M4 va como **P-12**; la **revisión de la redacción de §33 entera** queda pendiente para un pase propio — ⛔ no se hace aquí porque arrastraría código construido que nadie pidió tocar, y un cambio de copy a medias deja las dos pantallas diciendo la misma ausencia con dos voces. *(v4.6: **§35.16 cierra el otro superviviente**, `admin.m5.rejected.noDeadlines`, que **no** es de §33. A-7 sigue abierta y sigue siendo solo §33.)* |
+
+---
+
+### 35.15 ⭐ El **`409` de la fila corrupta**: la cola bloqueada, que ⛔ **no es una cola vacía** *(v4.6)*
+
+> **Contexto (contrato, no mío):** `API_CONTRACT §M4-PREP v1.78.2` declara que si **una sola** fila de la cola
+> tiene un destino que no se puede derivar, el endpoint responde **`409 CONFLICT` para la petición entera** —
+> las **dos** cubetas, con `?destination=` o sin él. El contrato **me asigna la redacción** y fija una sola
+> obligación dura: *«⛔ no se renderiza como “cola vacía” ni como un error genérico de red… este `409` es
+> **distinguible de `200 {data:[]}`** y el operador no se queda creyendo que terminó su trabajo»*.
+
+#### 35.15.0 Por qué esta ranura es la más cara de la pantalla
+
+En las otras superficies del sistema, confundir un error con un vacío cuesta una mirada de más. **Aquí cuesta un
+envío.** Una cola de preparación vacía es una instrucción completa —*no hay nada que armar, vete a tu casa*— y es
+la única pantalla del back-office donde **no hacer nada** es una acción legítima y frecuente. Por eso:
+
+> **Regla normativa (extiende la de §35.8):** un estado que **no pudo leer la cola** ⛔ **no puede parecerse a un
+> estado que la leyó y estaba vacía.** No basta con no mentir: tiene que **contradecir activamente** la lectura
+> barata. El operador de pie lee un título y decide; si el título no le dice que hay trabajo, se va.
+
+Y lo que hoy hay en pantalla es peor que un vacío: es un **error genérico con un botón inútil** (hallazgo
+**P-13**). «Algo salió mal» + «Reintentar» le enseña al operador que la app falló y que insistir puede servir.
+Insistir devuelve **el mismo `409`**, porque nada de lo que él puede hacer cambia el dato. *Un botón que no puede
+arreglar nada es una forma de silencio: ocupa el sitio donde debía ir la verdad.*
+
+#### 35.15.1 Copy normativo — **ES**
+
+| Pieza | Texto | Token |
+|---|---|---|
+| **Título** | **«La cola no se puede mostrar, y no está vacía.»** | `Banner` `title`: `font-medium` **`text-text`** |
+| **Impacto** *(la frase que no se puede recortar)* | **«Hay pedidos ya cobrados esperando y desde aquí no se ven.»** | `text-sm font-medium` **`text-text`** |
+| **Explicación** | **«Un pedido de esta cola no permite saber a dónde va: los datos que deciden su destino no cuadran. Por eso no se muestra ninguna cubeta, ni envío ni bóveda — dejar fuera esa sola fila haría que un pedido cobrado desapareciera de la pantalla sin que nadie lo notara.»** | `text-sm` `text-muted` *(heredado de `Banner`)* |
+| **Acción** | **«Avisa al súper-admin: esto se corrige en los datos, no desde esta pantalla. Cuando esté corregido, vuelve a cargar.»** | `text-sm` `text-muted` |
+| **Rótulo del detalle** | **«Detalle técnico»** | `summary`, mono `text-[11px]` `uppercase` `tracking-[0.06em]` `text-muted` |
+
+#### 35.15.2 Copy normativo — **EN**
+
+| Pieza | Texto |
+|---|---|
+| **Título** | **“This queue can't be shown, and it isn't empty.”** |
+| **Impacto** | **“There are already-paid orders waiting, and they can't be seen from here.”** |
+| **Explicación** | **“One order in this queue gives no way to tell where it goes: the data that decides its destination doesn't add up. That's why no bucket is shown, neither shipping nor vault — leaving that one row out would drop a paid order off the screen with nobody noticing.”** |
+| **Acción** | **“Tell the super-admin: this gets fixed in the data, not from this screen. Once it's fixed, reload.”** |
+| **Rótulo del detalle** | **“Technical detail”** |
+
+*(«Súper-admin» / “Super-admin” es **vocabulario que el operador ya lee en este back-office**, no uno que yo
+invente: `admin.roles.super_admin` («Súper-admin» / “Super-admin”), `admin.superAdminGateBody` («Este módulo es
+solo para súper-admin. Cambia de rol o pide acceso.») y `admin.m5…superAdminOnly`. Medido en `es.json:1212,1242,1783`
+y `en.json:1212,1242`.)*
+
+**Claves i18n — cinco, nuevas, en `es.json` y `en.json` a la vez** (⛔ nunca una sola lengua). Cuelgan de
+`admin.m4.prep`, junto a `empty`/`emptyShip`/`emptyVault`/`nameMissing`, con la misma forma anidada:
+
+```
+admin.m4.prep.conflict.title            → «La cola no se puede mostrar, y no está vacía.»
+admin.m4.prep.conflict.impact           → «Hay pedidos ya cobrados esperando …»
+admin.m4.prep.conflict.body             → «Un pedido de esta cola no permite saber a dónde va …»
+admin.m4.prep.conflict.action           → «Avisa al súper-admin …»
+admin.m4.prep.conflict.technicalDetail  → «Detalle técnico»
+```
+
+⚠️ **`conflict.technicalDetail` es, carácter por carácter, la cadena que §32.4c ya fijó** para el `<details>`
+plegado de los identificadores (`admin.m2.catalog.technicalDetail`, `es.json:2059` / `en.json:2059`). **⛔ No se
+reescribe** — es el mismo mueble en otra pantalla, y un segundo rótulo para el mismo cajón es vocabulario nuevo
+sin lector. *(Se duplica la cadena en vez de reusar la clave de M2 porque el namespace de esta pantalla es
+`admin.m4.prep`; la paridad ES/EN la cubre el candado de i18n. Si algún día se promueve a `common.*`, se promueven
+las dos.)*
+
+#### 35.15.3 ⛔ Dónde **NO** vive este copy — la trampa de `error.CONFLICT`
+
+**La tentación es escribirlo en `error.CONFLICT_OPERATOR` y dejar que `QueryState` haga el resto. ⛔ Prohibido, y
+el motivo está medido:**
+
+`CONFLICT` **no es el nombre de este hecho**: es el cuerpo que el contrato comparte entre endpoints
+(`§M4-PREP v1.78.2`, razón 2: *«un cuerpo, muchos lectores»*). El **mismo** código gobierna el `409` de **§M5-T**
+—una solicitud de buylist ya cerrada—, y ese copy ya existe y ya está cableado (`error.CONFLICT`,
+`error.CONFLICT_WITH_DETAILS`, `es.json:3661-3662`). Medido hoy (2026-09-22): **`M5View.tsx:203` llama
+`useErrorMessage('operator')`**, y `errorMessageKeys` prefiere `error.<CODE>_OPERATOR` sobre la base
+(`lib/error-audience.ts:255-259`). ⇒ **una clave `error.CONFLICT_OPERATOR` con mi redacción le diría al operador
+de la mesa de buylist que «hay pedidos cobrados esperando y los datos no cuadran» cuando lo único que pasó es que
+una solicitud ya estaba cerrada.** Un copy escrito para una pantalla, aterrizando en una pantalla de dinero.
+
+**La regla que sale de ahí, y vale más allá de este caso:**
+
+> **El copy va en `error.<CODE>` cuando el CÓDIGO nombra el hecho; va en la pantalla cuando lo que nombra el
+> hecho es la combinación código + endpoint.** Aquí `409 CONFLICT` sobre *esta* consulta significa «la cola trae
+> una fila imposible»; sobre otra, significa otra cosa. **La superficie es parte del hecho**, así que la
+> superficie es la dueña del texto.
+
+Esto **no reabre** lo que §26 cerró (*«copy de error resuelto a mano en una vista es copy que nadie compara con
+nada»*): lo que §26 prohíbe es **inventar literales dentro del componente**. Aquí las cinco cadenas viven en el
+**catálogo**, bajo su namespace, con paridad ES/EN candada y con candados de pantalla (**PR-11..PR-16**). Lo que
+vive en la vista es **la condición**, no el texto. *Y la condición es una propiedad del cliente —qué endpoint
+llamé—, no una conducta de API inventada* (mismo razonamiento con el que `resolveErrorAudience` admite la
+audiencia de superficie, `error-audience.ts:225-236`).
+
+#### 35.15.4 Forma, estructura del DOM y tokens — **cero tokens nuevos**
+
+```
+<Banner variant="danger" role="alert">        ← regla izquierda bermellón 2px (§2.1, dirección 5a)
+  <p>  título     </p>                        ← text-text, font-medium   (lo pinta Banner)
+  <p>  impacto    </p>                        ← text-sm font-medium TEXT-TEXT  ⚠️ explícito
+  <p>  explicación</p>                        ← hereda text-muted de Banner
+  <p>  acción     </p>                        ← hereda text-muted
+  <details>                                   ← CERRADO por defecto, ⛔ sin `open`
+    <summary> Detalle técnico </summary>
+    <p> Envío: <código> </p>                  ← mono tabular text-xs
+  </details>
+</Banner>
+```
+
+- **⚠️ La frase de impacto se pinta en tinta A MANO, y no es un capricho.** Medido: `Banner` envuelve a **todos**
+  sus hijos en `text-muted` y solo el `title` va en `text-text` (`components/ui/Banner.tsx:56-58`). Dejar la
+  frase que impide que el operador se vaya a su casa en el tono **secundario** es exactamente el defecto que
+  **P-4**, **P-4b** y **PR-10** vinieron a cerrar en esta misma pantalla: *lo que se usa para decidir no se pinta
+  como secundario* (§10). ⛔ **No se modifica `Banner`** —es compartido y su convención sirve al resto del
+  sistema—: se sobreescribe el tono **en este hijo**. Candado **PR-15**.
+- **⛔ No es `dismissible`.** Un aviso bloqueante con cruz de cierre deja detrás **una pantalla vacía**, que es
+  literalmente el estado que el contrato prohíbe confundir. §32.4c ya dice que el aviso no se autodestruye; aquí
+  se endurece: **tampoco se puede cerrar a mano**.
+- **⛔ Sin «Reintentar».** Desarrollado abajo.
+- **La cabecera y el filtro de cubetas NO desaparecen**, y los tres botones **siguen habilitados** (**PR-16**).
+  Apagarlos sería una afordancia muerta (§35.11) y, peor, **escondería el hecho**: el operador que pulsa «Solo
+  envío» y recibe el mismo aviso **aprende que no es su cubeta, es la cola** — que es justo lo que el copy le
+  dice. Un filtro apagado le deja la duda de si en la otra cubeta habría algo.
+- **Contraste:** los tres pares ya están en §35.12; **ningún token nuevo** (§35.15 no estrena color, tamaño ni
+  componente).
+
+#### 35.15.5 Las cuatro decisiones que el contrato me dejó, con su argumento
+
+**(a) Qué ve el operador — y qué NO le digo.** Tres hechos, en este orden: *no puedes trabajar desde aquí* ·
+*hay trabajo* · *a quién le toca*. **El título ya carga la mitad del mensaje** («…y no está vacía») porque es la
+única línea que se lee seguro; el impacto **lo repite con las palabras concretas** («ya cobrados»). *La
+redundancia es deliberada y es de una sola cosa*: del único hecho cuyo malentendido cuesta un envío. ⛔ **No le
+digo qué pedido es** —no puede hacer nada con él—, ⛔ **no le digo cuántos pedidos hay detrás** (el `409` no trae
+esa cuenta; inventarla sería el defecto de §27.1.2) y ⛔ **no le prometo que se arregla pronto**.
+
+**(b) A quién avisa: al súper-admin. ⛔ NO a «soporte» — y esto es lo que medí antes de escribirlo.**
+*(Es la falta que §35.8 le corrigió al vacío de bóveda y §35.6a-d al nombre ausente: **prometer un camino que
+nadie midió**. El contrato mismo escribió «hay que avisar a soporte» en su obligación del consumidor; la
+redacción es mía, y la redacción tiene que ser cierta.)*
+
+| Qué medí (2026-09-22) | Resultado |
+|---|---|
+| `grep -rn -i 'soporte\|support' frontend/src/app/[locale]/(admin)` | **1 resultado, y es un comentario de código** (`M8View.tsx:123`, sobre la evidencia de disputas). **Ninguna pantalla de back-office ofrece una ruta de soporte** |
+| `soporte` en `messages/es.json` | **5 resultados, todos de cara al CLIENTE** (`:831`, `:1108`, `:1112`, `:1116`, `:3821`): disputas, términos y «consulta con soporte citando tu número de pedido» |
+| El buzón que sí existe (`SUPPORT_EMAIL` → `soporte@tcghunt.mx`, contrato §M5) | Es el buzón **al que escribe el vendedor** cuando le rechazan una carta. **Mandar ahí al operador de la propia tienda es mandarlo a su propio buzón de clientes** |
+| El rol que sí existe y sí gobierna este módulo | **`super_admin`** — el endpoint es `@Roles(vault_operator, super_admin)` (`§M4-PREP`), y la palabra **ya se le dice al operador** en tres cadenas del catálogo |
+
+⇒ **«Avisa al súper-admin» nombra a una persona cuyo rol está medido y cuya palabra ya está en su vocabulario.**
+⚠️ **Y no promete una pantalla**: medido también que **nadie puede arreglarlo desde la interfaz** —
+`fulfillmentMode` no se escribe en ningún endpoint de admin (solo en el checkout) y no hay ningún control en
+`(admin)` que lo toque (nota **A-8**). Por eso la frase dice *«se corrige **en los datos**, no desde esta
+pantalla»*: le quita al operador la búsqueda inútil **y** le dice al súper-admin que esto no se resuelve
+pulsando nada.
+
+*(Diferencia con §35.6a, por si parece incoherente conmigo misma: allí **callé** al destinatario porque el
+operador **podía seguir trabajando** —empaqueta por folio— y nombrar un camino era ruido. Aquí **no puede seguir
+trabajando**: callar al destinatario lo deja parado sin nada que hacer, y una pantalla que bloquea sin decir
+quién desbloquea es una pantalla que **fabrica** el silencio que este `409` vino a romper.)*
+
+**(c) El `shipmentId`: ni ruido ni titular — plegado, y la pregunta ya estaba contestada.** Para el operador, un
+UUID **es ruido**: no lo puede buscar en ninguna pantalla de esta cola y no cambia lo que hace. Para quien repara,
+**es lo único que identifica el renglón**. §32.4c ya resolvió exactamente este dilema —*«identificadores técnicos
+… no van en la frase que lee el dueño; si hacen falta para soporte, van en un `<details>` «Detalle técnico»
+plegado al pie del aviso»*— y aquí **se reusa sin inventar nada**: mismo mueble, mismo rótulo, mismo sitio.
+Candado **PR-14**.
+
+**Qué se pinta dentro, en orden de preferencia:**
+1. **`details.shipmentId`**, rotulado con **`admin.m4.prep.shipmentRef`** («Envío» / “Shipment”) — **la misma
+   etiqueta que ya lleva cada tarjeta** para esa referencia. El operador no aprende una palabra nueva.
+2. Si ese campo no viaja —**que es el caso de HOY**: el contrato declara que el cuerpo actual es
+   `{error:{code,message}}` y que `details:{shipmentId, fulfillmentMode}` es **deuda no bloqueante** que se cierra
+   con la rebanada interactiva— se pinta **el `message` del servidor, verbatim**, en mono y con **`lang="en"`**
+   (§9.2). *Es inglés de desarrollador y por eso va **plegado y rotulado como técnico**, ⛔ jamás como el mensaje
+   que el operador lee: la prohibición de §26.6(7) es sobre **la frase**, no sobre el cajón de la evidencia.*
+3. Si no hay ni campo ni mensaje, **el `<details>` no se pinta**. ⛔ Nunca un cajón vacío, y ⛔ nunca un «—»:
+   el copy no se apoya en él (por eso la frase de acción **no dice «con la referencia de abajo»**, que es la
+   única redacción que se rompería si el cajón faltara).
+
+**(d) ⛔ El botón «Reintentar» se retira, y el gesto verdadero va en la frase.** Reintentar un `409` por datos
+corruptos **devuelve el mismo `409`**: nada de lo que el operador controla toca el dato. Ofrecerlo es enseñarle a
+pulsar algo inútil **y** sugerirle que la culpa es de la red — la lectura equivocada, porque esto **no es un
+fallo de lectura** (razón 1 del contrato). Lo que sí es cierto es que **después** de la corrección hay que volver
+a pedir la cola, y eso lo dice la frase de acción con su condición delante: *«Cuando esté corregido, vuelve a
+cargar»*. **⛔ Y no prometo que se recargue sola:** esta cola tiene `refetchOnWindowFocus: true` (§35.9), pero
+**NO he medido** si una consulta en error se re-pide al recuperar el foco, y §35.9 existe precisamente para no
+prometer frescura sin medirla. *Recargar la pantalla es un gesto que no depende de ninguna medición.* Candado
+**PR-12**.
+
+#### 35.15.6 Cómo se distingue de los otros tres estados — la tabla que hace verificable la obligación
+
+| Estado | Componente | Título que se lee | Botón | Región que anuncia |
+|---|---|---|---|---|
+| **Vacío · Ambas** | `EmptyState` | «Nada que preparar por ahora.» | — | `prep-live-region` (`role="status"`) con el título del vacío |
+| **Vacío · Solo bóveda** | `EmptyState` | «Esta cubeta todavía no se alimenta.» | — | ídem |
+| **Error genérico** (500, red) | `Banner danger` vía `QueryState` | «Algo salió mal» | **«Reintentar»** | el `Banner` (`role="alert"`); la región viva queda vacía |
+| **⭐ Cola bloqueada (`409`)** | `Banner danger` **propio** | **«La cola no se puede mostrar, y no está vacía.»** | **⛔ ninguno** | el `Banner` (`role="alert"`); la región viva queda vacía |
+
+**Los tres ejes que los separan, y ninguno depende del color:** *(a)* **la palabra del título** —los cuatro
+títulos son literales distintos, y **PR-11** exige que el HTML del `409` no contenga ninguno de los otros tres—;
+*(b)* **el componente** —regla bermellón con `role="alert"` vs. el aire del `EmptyState`—; *(c)* **la presencia
+del botón**, que ahora dice algo: *«Reintentar» = puede que insistir sirva*; **sin botón = insistir no sirve,
+tiene que moverse otra cosa**. Es la doctrina §2.4 del sistema aplicada a un control: **el color nunca es el
+portador**; aquí tampoco lo es la ausencia de color, sino la palabra y la estructura.
+
+#### 35.15.7 Accesibilidad
+
+- **Un hecho, un anuncio.** El `Banner` lleva `role="alert"` ⇒ se anuncia solo al montarse. La región
+  `prep-live-region` (`role="status"`, siempre montada, §35.10) **debe quedar vacía** en este estado — que es lo
+  que el código ya hace (`isError ⇒ ''`, `PreparationQueue.tsx:168-172`) y ⛔ **no se cambia**. Dos regiones vivas
+  narrando el mismo hecho es la versión sonora de las **dos líneas de ausencia apiladas** que §35.6a-e prohíbe.
+  Candado **PR-13**.
+- **Cuatro párrafos, cuatro nodos de bloque.** Título, impacto, explicación y acción **no** se concatenan con
+  `gap`: el contenido accesible pega los nodos hermanos en línea y produce cadenas del tipo «…no está
+  vacía.Hay pedidos…» — el defecto ya observado en esta pantalla (§35.10, v4.5). **Bloques, no hermanos en
+  línea.**
+- **El `<details>` es enfocable y es correcto que lo sea:** es el **quinto** elemento enfocable de una pantalla de
+  solo lectura (los otros cuatro: tres botones de cubeta y, en el error genérico, «Reintentar»). Foco visible
+  bermellón de 2px (§4.3, §8.2). ⛔ **Nada de `title` como portador** (§25.7(b)).
+- **El código de la referencia va en mono `tabular`** y ⛔ **sin `lang`** si es un identificador (§35.10: los
+  códigos no son idioma); **con `lang="en"`** solo cuando lo que se pinta es el mensaje en inglés del servidor.
+- **Zoom y reflow:** el aviso es una columna de párrafos; a 200 % y en 390×844 apila sin scroll horizontal.
+
+#### 35.15.8 Lo que le pido a **frontend** *(copy y condición; ⛔ ni arquitectura ni contrato)*
+
+1. **Rama propia ANTES de `QueryState`**, con la condición explícita: `error instanceof ApiClientError &&
+   error.status === 409 && error.code === 'CONFLICT'`. **Los dos términos** (`status` y `code`) a propósito: el
+   código es compartido entre endpoints y el 409 es lo que fija el contrato. Cualquier otro error **sigue cayendo
+   en `QueryState`**, con su «Reintentar» intacto.
+2. **Cinco claves nuevas** bajo `admin.m4.prep.conflict`, **en `es.json` y `en.json` a la vez**, con el texto de
+   §35.15.1/§35.15.2 **carácter por carácter**. ⛔ **Ninguna en `error.CONFLICT*`** (§35.15.3).
+3. **La frase de impacto en `text-text`** aunque `Banner` tiña a sus hijos de `muted` (§35.15.4).
+4. **⛔ Sin `action`** (ningún botón) y **⛔ sin `dismissible`** en ese `Banner`.
+5. **El `<details>` cerrado**, rotulado «Detalle técnico», con la referencia según la preferencia de §35.15.5(c);
+   si no hay nada que poner, **no se pinta**.
+6. **La cabecera, el `hint` y el filtro de cubetas se quedan y siguen habilitados**; la región viva se queda
+   vacía.
+7. **Los candados PR-11..PR-16 entran en este mismo cambio** (§35.14 A-4). ⚠️ Escritos antes serían rojos por
+   construcción — es la misma costura que §35.6a dejó ratificada en la nota de §35.13.
+8. **Si al cablear midieras que algo de aquí no se sostiene** —por ejemplo, que el `message` del `409` no trae el
+   `shipmentId`, o que `Banner` ya no tiñe a sus hijos— **dilo con el dato y no lo rellenes**: esta sección se
+   escribió midiendo el árbol de hoy, y el árbol se mueve.
+
+---
+
+### 35.16 *(anexo, pantalla de M5)* `admin.m5.rejected.noDeadlines` — el último «v1.x» en copy de operador *(v4.6)*
+
+> **Encargo pequeño y de otra pantalla.** No es de §35 ni de M4: es la pestaña **«Rechazadas» de M5**. Se redacta
+> aquí porque **la copy es mía**, porque es **el mismo defecto de §32.4c que P-12** y porque frontend lo midió,
+> **no lo tocó** —correctamente: la redacción no existía— y dejó su candado acotado esperándola. *Un defecto vivo
+> de una familia ya juzgada, si se queda en un párrafo de informe, se evapora.*
+
+#### 35.16.0 Qué es verdad — medido antes de redactar, ⛔ no deducido del nombre de la clave
+
+| Qué medí (2026-09-22) | Resultado |
+|---|---|
+| Dónde se pinta | `M5View.tsx:659`, `<p className="text-xs text-muted">`, **en la ranura donde las demás filas llevan sus dos plazos** («Devolución hasta {fecha} · Abandono a partir de {fecha}») |
+| Qué son esos plazos | **DERIVADOS, no columnas:** `returnDeadlineAt = rejectedAt + 7d`, `abandonDeadlineAt = rejectedAt + 30d` (`API_CONTRACT.md:17598-17601`) |
+| Cuándo salen `null` | **Exactamente cuando `rejectedAt` es `null`** — `rejectDeadlines(i.rejectedAt)` (`backend/src/modules/buylist/buylist.service.ts:7111-7113`, y el comentario de `:1886-1888`: *«Ítems legacy (rechazados pre-M-22, sin `rejectedAt`) exponen los cuatro campos null»*) |
+| Si el operador puede recuperar la fecha | **NO.** `reject` sobre un ítem ya rechazado es **no-op** y **no re-fija `rejectedAt`** (`API_CONTRACT.md:17602-17603`). No hay pantalla que la escriba |
+| Qué pasa al vencer los plazos | **Nada automático:** *«No hay transición automática del ÍTEM al vencer (informativo)»* (`API_CONTRACT.md:17600`). ⇒ sin plazos **no se pierde ningún automatismo**; se pierde **la referencia con la que decidir** |
+| Qué NO cambia | La carta **sigue retenida** igual: un ítem rechazado **nunca** entra a inventario vendible, ni tras vencer los plazos (`API_CONTRACT.md:17628-17631`), y el `intro` de la pestaña ya se lo dice al operador |
+
+**Traducción de todo eso a una frase:** el defecto no es que falten plazos — es que **falta la fecha de la que se
+calculan**. La cadena de hoy nombra **la versión en la que se arregló el sistema**; el operador necesita **el dato
+que falta en esta carta**. *«v1.18» le contesta a quien lee `API_CONTRACT.md`, no a quien tiene la carta en la
+mano.*
+
+#### 35.16.1 Copy normativo
+
+| Lengua | Texto | Token |
+|---|---|---|
+| **ES** | **«Sin fecha de rechazo registrada: los plazos se cuentan desde ella, así que esta carta no tiene ninguno.»** | `text-xs text-muted` *(el que ya tiene, ⛔ no se toca)* |
+| **EN** | **“No rejection date on file: the deadlines are counted from it, so this card has none.”** | ídem |
+
+```
+admin.m5.rejected.noDeadlines → «Sin fecha de rechazo registrada: …» | “No rejection date on file: …”
+```
+
+**Una clave, dos catálogos, cero código.** ⛔ No se añaden claves ni se cambia el `<p>`.
+
+#### 35.16.2 Por qué así
+
+- **«Sin fecha de rechazo registrada» es, a propósito, la MISMA construcción que «Sin nombre registrado»**
+  (§35.6a) y que “No name on file” en inglés. El back-office nombra con **una sola voz** la clase de ausencia
+  *«la tienda no guardó este dato»*. Que dos pantallas distintas usen la misma fórmula es lo que convierte una
+  frase en un patrón reconocible de un vistazo.
+- **Nombra la causa, no la versión.** §32.4c: ⛔ identificadores técnicos fuera de la frase que lee el operador.
+  Y aquí el cambio no es solo de higiene: **«previo a v1.18» no dice nada que el operador pueda usar**, mientras
+  que «sin fecha de rechazo» le dice **exactamente** qué le falta a esta carta y por qué su renglón se ve
+  distinto de los de arriba.
+- **La cláusula del medio se gana su sitio.** «…los plazos se cuentan desde ella…» es lo único que explica por
+  qué esta fila no tiene fechas cuando todas las demás sí: sin ella, el operador lee «el sistema está raro»; con
+  ella, lee «a esta carta le falta un dato». *Es la misma carga útil que «es un hueco del registro, no un cliente
+  anónimo» en §35.6a.*
+- **⛔ Y para ahí.** No dice «vuelve a rechazarla» (medido: es no-op y **no** re-fija la fecha), no dice «avisa a
+  soporte» (el buzón de soporte es del **vendedor**, §35.15.5(b)) y no dice «se corregirá». **Ninguna de las tres
+  está medida como camino disponible**, y una frase que manda a recorrer un camino inexistente es la falta que
+  §35.8 le corrigió al vacío de bóveda.
+- **No repite lo que la fila ya dice.** No menciona que la carta sigue retenida: el `intro` de la pestaña ya lo
+  declara para todas («quedan retenidas hasta su devolución… o abandono»). *Una frase por hecho.*
+
+#### 35.16.3 Las tres menciones de esta ausencia en la misma fila — **ratificadas**, con su reparto
+
+Esta fila nombra la ausencia **tres veces** y **⛔ no es una infracción de §35.6a-e**, que prohíbe *dos líneas de
+ausencia apiladas*. Se escribe el reparto para que nadie lo «arregle»:
+
+| Dónde | Qué dice | Qué papel hace |
+|---|---|---|
+| `Badge` de fase | «Sin plazos» (`rejected.phase.unknown`) | **El estado**, para barrer la lista con la vista |
+| Valor rotulado | «Rechazada el: **—**» (`M5View.tsx:636`) | **La ranura del dato**: hay rótulo y hay retícula ⇒ el «—» es correcto, §32.4-H4 |
+| La línea de §35.16.1 | «Sin fecha de rechazo registrada: …» | **La causa**, que es lo único que las otras dos no pueden dar |
+
+*Estado · dato · causa. Tres papeles, no tres avisos.* Lo que **sí** estaría prohibido es una cuarta línea que
+volviera a decir «no hay plazos».
+
+#### 35.16.4 El candado — se le **quita** el alcance, no se le añade otro
+
+Frontend dejó su control de §32.4c acotado a `admin.m4.*` **con este infractor nombrado en el comentario**
+(`frontend/src/lib/i18n-parity.test.ts:712-730`), y escribió que extenderlo *«será una línea el día que ux-ui
+redacte esa cadena»*. Ese día es hoy.
+
+**Lo que pido:** que el control **deje de estar acotado** y recorra **el catálogo entero**, en vez de añadir
+`admin.m5.` a una lista. Motivo: un candado con lista de barrios **sigue dejando barrios sin vigilar**, y la
+medición de frontend (`/v\d+\.\d+/` sobre los dos catálogos, 2026-09-22) dice que tras este cambio quedan
+**cero** infractores — así que el alcance total **nace verde**. ⚠️ **Si al quitarle el alcance apareciera un
+infractor legítimo** que yo no midiera, ⛔ **no se silencia**: se acota **con su nombre y su motivo escrito**, que
+es exactamente lo que frontend hizo con éste y por lo que se pudo cerrar hoy. Se conserva su **anti-vacuidad**
+(el `expect(...).toBeGreaterThan(20)`), ajustada al tamaño del catálogo entero.
+
+*(Y con esto la familia de **P-12** queda cerrada: `admin.m4.recipientMissing` en v4.5, `admin.m5.rejected.noDeadlines`
+en v4.6. **A-7 sigue abierta** y sigue siendo otra cosa: la redacción de **§33 entera**, que ⛔ no se toca aquí.)*

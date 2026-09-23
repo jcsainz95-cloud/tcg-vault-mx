@@ -5,11 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   getAdminShipments,
-  getAdminPickingList,
   saveShipmentTracking,
   updateAdminShipmentStatus,
 } from '@/lib/api';
-import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
@@ -23,12 +21,8 @@ import { useShipmentSteps } from '@/lib/pipelines';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
 import { Link } from '@/i18n/navigation';
-import type {
-  AdminShipmentDTO,
-  PickingListEntryDTO,
-  ShipmentStatus,
-  ShipmentTrackingRequest,
-} from '@/types/contract';
+import type { AdminShipmentDTO, ShipmentStatus, ShipmentTrackingRequest } from '@/types/contract';
+import { PreparationQueue } from './PreparationQueue';
 
 // `pesosToCents` vive en su propio módulo (función pura, sin React) para que su test no arrastre
 // el árbol de la vista (que importa `Link` de next-intl, no cargable en jsdom sin mock).
@@ -124,8 +118,6 @@ export function M4View() {
     queryKey: ['admin-shipments', statusFilter],
     queryFn: () => getAdminShipments({ status: statusFilter || undefined }),
   });
-  // Lista de picking real (contrato §M4 · GET /admin/shipments/picking-list).
-  const picking = useQuery({ queryKey: ['admin-picking-list'], queryFn: () => getAdminPickingList() });
 
   // --- Captura de guía (contrato §M4 · POST /admin/shipments/:id/tracking) ---
   const [trackingTarget, setTrackingTarget] = useState<AdminShipmentDTO | null>(null);
@@ -149,7 +141,7 @@ export function M4View() {
     },
     onSuccess: (_d, target) => {
       void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
-      void qc.invalidateQueries({ queryKey: ['admin-picking-list'] });
+      void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
       setTrackingSaved(target.id);
       closeTracking();
     },
@@ -165,7 +157,7 @@ export function M4View() {
       updateAdminShipmentStatus(id, to),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
-      void qc.invalidateQueries({ queryKey: ['admin-picking-list'] });
+      void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
       setStatusChanged(vars.id);
       setCancelTarget(null);
     },
@@ -194,15 +186,22 @@ export function M4View() {
   const canSubmitTracking =
     carrierValue.trim() !== '' && trackingNumberValue.trim() !== '' && !shippingCostInvalid;
 
-  const pickingColumns: Column<PickingListEntryDTO>[] = [
-    { key: 'location', header: t('picking.location'), render: (r) => <span className="tabular">{r.location}</span> },
-    { key: 'folio', header: t('picking.folio'), render: (r) => <span className="tabular">{r.folio}</span> },
-    { key: 'shipment', header: t('picking.shipment'), render: (r) => <span className="tabular">{r.shipmentId}</span> },
-  ];
-
   return (
     <div className="flex flex-col gap-8">
       <h1 className="text-h1 font-bold">{t('title')}</h1>
+
+      {/*
+        * «Pedidos a preparar» (contrato §M4-PREP): tarjeta por PEDIDO y dos cubetas. Sustituye a la
+        * lista PLANA de piezas ordenada por ubicación — ver PreparationQueue.tsx.
+        *
+        * ⭐ **P-10 / DESIGN_SYSTEM §35.13 — va ARRIBA de la cola de envíos, y no es una preferencia.**
+        * Esta ruta hospeda dos pantallas de naturaleza distinta: una de **administración** (la cola de
+        * envíos, que se consulta sentado y **no está paginada**) y una de **ejecución física** (esta,
+        * que se usa **de pie**, con las manos ocupadas y caminando a la bóveda). Con la cola arriba,
+        * el operador que entra a preparar **hace scroll por una lista que no es la suya** y cuya
+        * longitud crece con el negocio. Manda la que se usa de pie.
+        */}
+      <PreparationQueue />
 
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -340,24 +339,6 @@ export function M4View() {
         </QueryState>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-h2 font-semibold">{t('pickingList')}</h2>
-        <p className="text-sm text-muted">{t('pickingHint')}</p>
-        <QueryState
-          isLoading={picking.isLoading}
-          isError={picking.isError}
-          error={picking.error}
-          onRetry={() => picking.refetch()}
-        >
-          {picking.data && picking.data.length > 0 ? (
-            <div className="rounded-lg border border-border bg-surface p-2">
-              <DataTable columns={pickingColumns} rows={picking.data} rowKey={(r) => `${r.shipmentId}-${r.inventoryItemId}`} />
-            </div>
-          ) : (
-            <EmptyState tone="positive" title={t('pickingEmpty')} />
-          )}
-        </QueryState>
-      </section>
 
       <Modal
         open={trackingTarget !== null}

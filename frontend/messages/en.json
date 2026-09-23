@@ -1480,7 +1480,6 @@
     },
     "m4": {
       "title": "M4 · Withdrawals / shipping",
-      "pickingList": "Picking list (by location)",
       "tracking": {
         "capture": "Capture tracking",
         "title": "Tracking capture",
@@ -1498,18 +1497,11 @@
       "queueEmpty": "No shipments match that filter.",
       "itemCount": "{count, plural, one {# item} other {# items}}",
       "recipient": "To",
-      "recipientMissing": "NO RECIPIENT (withdrawal prior to v1.67)",
+      "recipientMissing": "No recipient on file",
       "street": "Street",
       "customer": "Customer",
       "postalCode": "ZIP",
       "phone": "Phone",
-      "pickingHint": "Shipments in picking, sorted by vault location.",
-      "pickingEmpty": "Nothing to pick right now.",
-      "picking": {
-        "location": "Location",
-        "folio": "Folio",
-        "shipment": "Shipment"
-      },
       "statusActions": {
         "enviado": "Mark shipped",
         "entregado": "Mark delivered",
@@ -1518,6 +1510,51 @@
         "cancelTitle": "Cancel shipment",
         "cancelConfirm": "Cancel shipment",
         "cancelBody": "Cancel shipment {id}? This action cannot be undone."
+      },
+      "prep": {
+        "title": "Orders to prepare",
+        "hint": "Paid orders, ready to pull. Oldest goes first.",
+        "filterLabel": "Bucket",
+        "filterAll": "Both",
+        "filterShip": "Shipping only",
+        "filterVault": "Vault only",
+        "destination": {
+          "ship": "To ship",
+          "vault": "To vault"
+        },
+        "withdrawal": "Vault withdrawal",
+        "shipmentRef": "Shipment",
+        "requestedAt": "Requested",
+        "lastNameUnknown": "Last name not identified",
+        "unassigned": "No location yet",
+        "folio": "Folio",
+        "location": "Location",
+        "set": "Set",
+        "itemCount": "{count, plural, one {# card} other {# cards}}",
+        "orderCount": "{count, plural, one {# order} other {# orders}}",
+        "empty": {
+          "title": "Nothing to prepare right now.",
+          "body": "Paid orders show up here as they come in, oldest first."
+        },
+        "emptyShip": {
+          "title": "Nothing to ship right now.",
+          "body": "No paid orders are waiting to be shipped."
+        },
+        "emptyVault": {
+          "title": "This bucket isn't fed yet.",
+          "body": "A purchase the customer leaves in their vault doesn't create a queue: once the payment settles the card is already theirs without leaving the store. Empty here doesn't mean “everything is filed” — it means this screen doesn't track that yet."
+        },
+        "nameMissing": {
+          "tag": "No name on file",
+          "body": "This order's address was saved without a recipient name: it's a gap in our records, not an anonymous customer. Identify the package by its folio."
+        },
+        "conflict": {
+          "title": "This queue can't be shown, and it isn't empty.",
+          "impact": "There are already-paid orders waiting, and they can't be seen from here.",
+          "body": "One order in this queue gives no way to tell where it goes: the data that decides its destination doesn't add up. That's why no bucket is shown, neither shipping nor vault — leaving that one row out would drop a paid order off the screen with nobody noticing.",
+          "action": "Tell the super-admin: this gets fixed in the data, not from this screen. Once it's fixed, reload.",
+          "technicalDetail": "Technical detail"
+        }
       }
     },
     "m5": {
@@ -1568,7 +1605,7 @@
         "rejectedAtLabel": "Rejected on",
         "returnUntil": "Return until {date} (at the seller's cost)",
         "abandonAt": "Abandonment from {date}",
-        "noDeadlines": "No deadlines recorded (rejection prior to v1.18).",
+        "noDeadlines": "No rejection date on file: the deadlines are counted from it, so this card has none.",
         "viewRequest": "View request {id}",
         "phase": {
           "return": "In return window",
@@ -3529,7 +3566,7 @@
     },
     "shipment": {
       "solicitado": "Requested",
-      "picking": "Picking",
+      "picking": "In preparation",
       "guia": "Label created",
       "enviado": "In transit",
       "entregado": "Delivered",

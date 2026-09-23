@@ -698,4 +698,38 @@ describe('§32.6 · ninguna clave `*Hint` sin consumidor (CS-8)', () => {
     const vivas = keyPaths(catalog);
     expect(muertas.filter((k) => vivas.includes(k))).toEqual([]);
   });
+
+  /*
+   * ⭐ **P-12 / `DESIGN_SYSTEM §32.4c` — un NÚMERO DE VERSIÓN DEL CONTRATO no viaja en copy de
+   * operador.** `admin.m4.recipientMissing` decía «SIN DESTINATARIO (retiro anterior a **v1.67**)»:
+   * al operador «v1.67» no le dice nada y el aviso gastaba su mitad en un identificador técnico que
+   * solo significa algo para quien lee `API_CONTRACT.md`. Lo levantó **ux-ui contra su propia copy**.
+   *
+   * El candado va sobre el CATÁLOGO y no sobre la pantalla: un control sobre el texto renderizado se
+   * mueve reescribiendo el test, y éste solo se mueve **quitando la versión de la cadena**, que es lo
+   * que debe estar prohibido.
+   *
+   * ⭐ **v4.6 — SE LE QUITA EL ALCANCE: ahora recorre el CATÁLOGO ENTERO.** Nació acotado a
+   * `admin.m4.*` con el único infractor restante **nombrado en este comentario**
+   * (`admin.m5.rejected.noDeadlines`, «…rechazo previo a **v1.18**»), porque esa copia era de ux-ui y
+   * §35.13 P-12 solo había decidido la de M4: acotarlo era lo honesto mientras la decisión no existía.
+   * Ux-ui la redactó (§35.16) y, con ella, **pidió quitar el alcance en vez de añadir `admin.m5.` a
+   * una lista**. Su argumento, que es mejor que el mío: *un candado con lista de barrios sigue dejando
+   * barrios sin vigilar.*
+   *
+   * Medido tras aplicar §35.16 (`/v\d+\.\d+/` sobre los dos catálogos completos): **cero** infractores
+   * ⇒ el alcance total **nace verde**. ⚠️ Si algún día aparece un infractor **legítimo**, ⛔ **no se
+   * silencia**: se acota **con su nombre y su motivo escrito**, que es exactamente lo que se hizo con
+   * éste y por lo que se pudo cerrar.
+   */
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s · ningún copy del catálogo lleva un número de versión del contrato (§32.4c)', (_locale, catalog) => {
+    const all = stringEntries(catalog);
+    // Anti-vacuidad, ajustada al catálogo entero: si el extractor dejara de ver las cadenas, el
+    // test pasaría sin medir nada.
+    expect(all.length).toBeGreaterThan(2000);
+    expect(all.filter(([, value]) => /v\d+\.\d+/.test(value)).map(([path]) => path)).toEqual([]);
+  });
 });

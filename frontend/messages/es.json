@@ -1480,7 +1480,6 @@
     },
     "m4": {
       "title": "M4 · Retiros / envíos",
-      "pickingList": "Lista de picking (por ubicación)",
       "tracking": {
         "capture": "Capturar guía",
         "title": "Captura de guía",
@@ -1498,18 +1497,11 @@
       "queueEmpty": "Sin envíos con ese filtro.",
       "itemCount": "{count, plural, one {# ítem} other {# ítems}}",
       "recipient": "Para",
-      "recipientMissing": "SIN DESTINATARIO (retiro anterior a v1.67)",
+      "recipientMissing": "Sin destinatario registrado",
       "street": "Calle",
       "customer": "Cliente",
       "postalCode": "CP",
       "phone": "Tel",
-      "pickingHint": "Envíos en preparación (picking), ordenados por ubicación en bóveda.",
-      "pickingEmpty": "Nada que preparar por ahora.",
-      "picking": {
-        "location": "Ubicación",
-        "folio": "Folio",
-        "shipment": "Envío"
-      },
       "statusActions": {
         "enviado": "Marcar enviado",
         "entregado": "Marcar entregado",
@@ -1518,6 +1510,51 @@
         "cancelTitle": "Cancelar envío",
         "cancelConfirm": "Cancelar envío",
         "cancelBody": "¿Cancelar el envío {id}? Esta acción no se puede revertir."
+      },
+      "prep": {
+        "title": "Pedidos a preparar",
+        "hint": "Pedidos ya cobrados, listos para armar. Se atiende primero el más viejo.",
+        "filterLabel": "Cubeta",
+        "filterAll": "Ambas",
+        "filterShip": "Solo envío",
+        "filterVault": "Solo bóveda",
+        "destination": {
+          "ship": "Para enviar",
+          "vault": "Para bóveda"
+        },
+        "withdrawal": "Retiro de bóveda",
+        "shipmentRef": "Envío",
+        "requestedAt": "Solicitado",
+        "lastNameUnknown": "Apellido no identificado",
+        "unassigned": "Sin ubicar",
+        "folio": "Folio",
+        "location": "Ubicación",
+        "set": "Set",
+        "itemCount": "{count, plural, one {# carta} other {# cartas}}",
+        "orderCount": "{count, plural, one {# pedido} other {# pedidos}}",
+        "empty": {
+          "title": "Nada que preparar por ahora.",
+          "body": "Cuando entre un pedido cobrado aparecerá aquí, con el más viejo arriba."
+        },
+        "emptyShip": {
+          "title": "Nada que enviar por ahora.",
+          "body": "No hay pedidos cobrados esperando envío."
+        },
+        "emptyVault": {
+          "title": "Esta cubeta todavía no se alimenta.",
+          "body": "Una compra que el cliente deja en su bóveda no genera cola: al liquidarse el pago la carta ya es suya sin salir de la tienda. Vacío aquí no significa «todo colocado» — significa que esta pantalla todavía no lleva ese registro."
+        },
+        "nameMissing": {
+          "tag": "Sin nombre registrado",
+          "body": "La dirección de este pedido se guardó sin el nombre de quien recibe: es un hueco del registro, no un cliente anónimo. Identifica el paquete por su folio."
+        },
+        "conflict": {
+          "title": "La cola no se puede mostrar, y no está vacía.",
+          "impact": "Hay pedidos ya cobrados esperando y desde aquí no se ven.",
+          "body": "Un pedido de esta cola no permite saber a dónde va: los datos que deciden su destino no cuadran. Por eso no se muestra ninguna cubeta, ni envío ni bóveda — dejar fuera esa sola fila haría que un pedido cobrado desapareciera de la pantalla sin que nadie lo notara.",
+          "action": "Avisa al súper-admin: esto se corrige en los datos, no desde esta pantalla. Cuando esté corregido, vuelve a cargar.",
+          "technicalDetail": "Detalle técnico"
+        }
       }
     },
     "m5": {
@@ -1568,7 +1605,7 @@
         "rejectedAtLabel": "Rechazada el",
         "returnUntil": "Devolución hasta {date} (a costo del vendedor)",
         "abandonAt": "Abandono a partir de {date}",
-        "noDeadlines": "Sin plazos registrados (rechazo previo a v1.18).",
+        "noDeadlines": "Sin fecha de rechazo registrada: los plazos se cuentan desde ella, así que esta carta no tiene ninguno.",
         "viewRequest": "Ver solicitud {id}",
         "phase": {
           "return": "En plazo de devolución",

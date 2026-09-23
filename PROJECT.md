@@ -2014,7 +2014,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **M3 — Ventas / órdenes**: estados `pending / settled / fallida / reembolsada / contracargo`,
       **desglose con línea de Stripe**, **reembolso**.
 - [ ] **M4 — Retiros / envíos**: cola `solicitado → picking → guía → enviado → entregado`,
-      **lista de picking por ubicación**, **captura de guía**, solo sobre cartas `settled`.
+      ~~**lista de picking por ubicación**~~ **⚠ SUSTITUIDA en v2.3 (2026-09-22) por «Pedidos a preparar» (§S)**:
+      una **tarjeta por PEDIDO** con sus cartas dentro ordenadas por ubicación y **dos cubetas** (envío /
+      bóveda). La máquina de estados **no cambia**. Ver **§S** y el criterio **20** (superseded),
+      **captura de guía**, solo sobre cartas `settled`.
 - [ ] **M5 — Buylist** *(pipeline ampliado en v2.1, §P)*: pipeline
       `cotizada → ofertada → aceptada → en_transito → recibida → verificación → aprobada → pagada`, con
       **estados terminales** *(**eran cuatro; la 5ª ronda los subió a CINCO; la 6ª los devuelve a CUATRO** —
@@ -6407,7 +6410,269 @@ inventan motivos que él nunca haya usado.** Propuesta, **a confirmar** (pregunt
 **⛔ Restricción que aplica a los seis, venga el texto que venga**: **ningún motivo puede mencionar topes ni
 umbrales** — son política interna (`HECHOS.md`, 2026-09-11 (c)). Es el criterio **201**.
 
+### S. «Pedidos a preparar» — la hoja de trabajo del operador (rediseño de la cola de picking, M4) — **RECONSTRUIDA v2.3, 2026-09-22 · ⚠️ PENDIENTE DE RE-APROBACIÓN DEL DUEÑO**
+
+> ### ⚠️⚠️ S.0 · Por qué esta sección dice «RECONSTRUIDA» y no «aprobada»
+>
+> **Lo que está establecido:** tres documentos del árbol afirman, cada uno por su cuenta, que el dueño **aprobó
+> esta funcionalidad el 2026-09-15 con seis decisiones suyas incorporadas**, y los tres citan como fuente una
+> sección `PROJECT.md` §«Pedidos a preparar»:
+> `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md:27-28` · `docs/API_CONTRACT.md:14805` · `docs/ARCHITECTURE.md:6714`.
+>
+> **Lo que medí yo hoy (2026-09-22, rama `claude/m4-pedidos-preparar`, HEAD `af4c01c`) y que obliga a este aviso:**
+>
+> | Medición | Resultado |
+> |---|---|
+> | `grep -i 'preparar' PROJECT.md` | **ninguna sección de esta funcionalidad** (los aciertos son de M5 y del rastreo público) |
+> | `grep -ci 'archivero' PROJECT.md` · `grep -ci 'cubeta' PROJECT.md` | **0** · **0** |
+> | Criterios `CA #1..#N` en `PROJECT.md` | **ninguno** |
+> | `grep '2026-09-15\|6 decisiones' HECHOS.md PENDIENTES.md HISTORIAL.md TRASPASO.md` | **0 resultados** — la aprobación **tampoco** quedó en los ficheros de memoria |
+>
+> ⇒ **La sección aprobada nunca llegó al repositorio, y su texto no es recuperable de ninguna fuente del árbol.**
+> Lo destapó **ux-ui** (`DESIGN_SYSTEM §35.14`, nota **A-1**), no el orquestador.
+>
+> **Qué es entonces esto que estás leyendo:** una **reconstrucción**, escrita por el product-owner a partir de las
+> únicas fuentes que sobrevivieron —el borrador del arquitecto, `API_CONTRACT §M4-PREP`, `DESIGN_SYSTEM §35` y el
+> código construido—. **Todo lo que aquí se afirma cita de dónde salió.** Lo que no se pudo recuperar está marcado
+> **HUECO**, no rellenado: ⛔ **un criterio de aceptación inventado es peor que uno ausente, porque QA lo daría por
+> aprobado.**
+>
+> **Por qué importa y no es papeleo:** la Definición de Terminado exige que *«todos los criterios de aceptación de
+> `PROJECT.md` están cumplidos»*. Sin esta sección, **QA no tenía contra qué verificar**, y el contrato y el código
+> citan unos `CA #N` que no vivían en ninguna parte citable. **Lo ya construido no se re-abre por esto** (es la
+> rebanada de solo lectura, ya medida y ya servida); lo que se abre es **la redacción de los criterios y los cuatro
+> huecos** de S.7.
+
+#### S.1 Qué es, y a quién sirve
+
+**Un cambio de unidad, no de pantalla.** La cola de M4 dejó de ser una **lista plana de piezas ordenada por
+ubicación** (una fila = una carta) y pasó a ser una **hoja de trabajo agrupada por pedido**: una tarjeta por
+pedido, con sus cartas dentro y ordenadas por ubicación.
+
+**Quién la usa y en qué postura** (`DESIGN_SYSTEM §35.1`): **el operador de bóveda, de pie**, frente al archivero,
+con las manos ocupadas, caminando entre ubicaciones y volviendo a la pantalla entre viaje y viaje. **Esa postura
+es la especificación**: no es una tabla de back-office que se lee con el ratón.
+
+**Las cinco preguntas que la pantalla contesta, en este orden:**
+
+1. **¿De quién es este paquete?** → el apellido (llave del archivero) y, debajo, el nombre completo.
+2. **¿Dónde están las cartas?** → la **ubicación** de cada pieza: es el dato por el que camina.
+3. **¿Qué carta es exactamente?** → nombre + set + acabado + condición/grado + miniatura (una *Charizard* no es
+   *una* carta: es una familia de variantes, y equivocarse cuesta un envío mal armado).
+4. **¿A dónde va cuando esté armado?** → destino (envío / bóveda) y, si es envío, la **dirección completa con la calle**.
+5. **¿Qué tan tarde voy?** → la antigüedad, porque la cola se atiende por **lo más viejo primero**.
+
+**Renombrado de cara al operador:** la palabra «picking» **desaparece de la pantalla**; se llama **«Pedidos a
+preparar»**. La ruta interna sigue diciendo `picking-list` y eso es correcto: el renombrado es de producto, no de
+plomería (`API_CONTRACT.md:14813-14818`).
+
+**Por qué agrupar por pedido y no seguir optimizando el recorrido** (`DESIGN_SYSTEM §35.2`): el operador **no
+entrega piezas, entrega paquetes**. Una lista plana obliga a reconstruir de memoria a qué paquete pertenece cada
+carta, y **ese trabajo mental no deja rastro: cuando falla, falla en silencio** (una carta en la caja equivocada).
+Se cambia un óptimo global por uno local **con la unidad de trabajo intacta**: el error que evita es
+**irreversible** (paquete mal armado); el que introduce es **caminar un poco más**.
+
+#### S.2 Fuera de alcance de §S — *(recuperado literal del borrador: «NO-alcance del producto §2», `…CONTRACT_DRAFT.md:348-349`)*
+
+**Esto NO cambia y §S no lo toca:**
+- La **política de envíos** y la **tarifa de MX$175**.
+- **Impresión de etiquetas: cero.** No existe y no se promete. *(Consecuencia de producto, no cosmética: la
+  dirección **se transcribe a mano** al paquete ⇒ se lee dígito a dígito — `DESIGN_SYSTEM §35.5`.)*
+- **M5 / buylist.**
+- La **máquina de estados de envío** (`solicitado → picking → guía → enviado → entregado`, + `cancelado`) y la
+  **captura de guía**: intactas.
+- **Solo entra a la cola lo ya cobrado.** Un envío en `picking` es un envío **pagado**; preparar un retiro no
+  cobrado es justo lo que ese filtro existe para impedir (`shipments.service.ts:655-657`).
+
+**Y fuera de ESTA VERSIÓN (construido ≠ diseñado) — planeado, no implementado** (`API_CONTRACT §M4-PREP`, recuadro
+PLANEADO):
+- **Palomear cada carta y firmar el pedido como preparado** (S.5).
+- **Sugerencia de ubicación de bóveda** (S.4) — además **bloqueada** por la decisión pendiente de S.6.
+- 💰 **Reembolso parcial por carta faltante** (S.5) — **toca dinero: exige los tres veredictos (QA + techlead +
+  seguridad) ANTES de escribir código.**
+- ⛔ **Regla de pantalla mientras tanto** (`DESIGN_SYSTEM §35.11`): **no se pintan afordancias apagadas** — ni
+  casillas deshabilitadas, ni un botón «Marcar preparado» en gris, ni «0 de 7». *Un control deshabilitado es una
+  promesa con fecha, y esas fechas no están decididas.*
+
+#### S.3 Lo que la cola despliega hoy — **CONSTRUIDO y servido** *(la cita heredada «producto §4»)*
+
+Esto **está implementado y medido** (`shipments.service.ts::pickingList`, `PreparationQueue.tsx`,
+`API_CONTRACT §M4-PREP`):
+
+| Dato | Detalle |
+|---|---|
+| **Destino, prominente** | «Para enviar» / «Para bóveda». Es del **PEDIDO**, nunca de la carta (DECISIÓN #1) |
+| **Cliente** | apellido (llave del archivero) + **nombre completo** debajo |
+| **Dirección completa CON LA CALLE** | solo en destino envío. Es lo que la fila anterior **omitía** y lo que hace la dirección utilizable |
+| **Por carta** | nombre + **set** + acabado + **condición/grado junto al acabado** + **miniatura** + **ubicación** + folio |
+| **Ubicación** | en texto legible. ⛔ El código `UNASSIGNED` **ya no viaja ni se pinta**: «Sin ubicar», y esa carta va **al final** de su pedido |
+| **Antigüedad** | «hace N días» **junto a** la fecha absoluta — la relativa nunca la sustituye |
+| **Referencia** | folio del pedido; en un **retiro de bóveda** (que no tiene orden) se pinta **«Retiro de bóveda»** en su lugar, ⛔ nunca un hueco |
+| **Orden** | pedidos por antigüedad **ascendente**; cartas **por ubicación** dentro de cada pedido |
+| **Cubetas** | **Ambas · Solo envío · Solo bóveda**. «Ambas» es el estado por defecto y **no se recuerda entre visitas**: el filtro sirve para **concentrarse**, no para encontrar |
+
+#### S.4 «Para bóveda» — y ⚠️ **la cubeta está vacía, y es correcto que lo esté** *(la cita heredada «producto §3.6»)*
+
+**Qué es «Para bóveda»:** mover una compra **al archivero del cliente**, **sin guía**, con **cambio de ubicación**
+(`API_CONTRACT.md:14970`). El siguiente paso no es un transportista: es un cajón.
+
+> ### ⚠️ HECHO MEDIDO — la cubeta **bóveda** no tiene datos, y no es un defecto
+> Medido por el arquitecto (2026-09-22) y **re-medido por mí hoy en `payments.service.ts:237-275`**: cuando se
+> liquida una orden que el cliente deja en bóveda, sus piezas pasan `reserved → in_custody, settled` y **se quedan
+> en la tienda sin generar ninguna cola**. No existe hoy artefacto que diga «esta compra está pendiente de
+> colocar» ni «ya se colocó».
+> ⇒ **La cubeta ENVÍO se sirve completa y fielmente. La cubeta BÓVEDA devuelve vacío**, y lo seguirá haciendo
+> hasta que una versión posterior la alimente — **lo cual muy probablemente pide cambio de base de datos**, y por
+> eso el arquitecto **se detuvo y lo reportó** en vez de proponer una columna.
+> **Esto es una PREGUNTA ABIERTA para el dueño (S.8, pregunta 2), no un defecto.**
+>
+> **Y la regla de honestidad que sale de ahí** (`DESIGN_SYSTEM §35.8`, hallazgo **P-1**): *un estado vacío afirma
+> solo lo que el sistema sabe.* Puede decir «esta lista no tiene nada»; **no puede decir «no hay trabajo»** si el
+> sistema no mide el trabajo. Decirle al operador «no hay nada pendiente» cuando nadie está contando es **el error
+> más caro de una pantalla de operación: tranquiliza sobre algo que no midió**.
+
+**Planeado, no construido:** que el sistema **proponga** la bóveda del cliente y el operador **solo confirme**
+(DECISIÓN #5). ⚠️ **Bloqueado por S.6** si la propuesta se apoya en el apellido.
+
+#### S.5 Preparar, firmar y la carta que no aparece — **PLANEADO, NO CONSTRUIDO** *(las citas heredadas «producto §3» y «§5.7»)*
+
+**Lo que el producto pide** (recuperado de `…CONTRACT_DRAFT.md:66-67,147-149,238`):
+- **Palomear carta por carta dentro de un pedido**, y **dar el pedido por preparado como una unidad** — solo
+  cuando **todas** sus cartas estén palomeadas **o** marcadas como faltantes.
+- **Registrar quién preparó y cuándo**, consultable en la **bitácora de auditoría**.
+- **El siguiente paso depende del destino**: envío ⇒ **guía**; bóveda ⇒ **cambio de ubicación** (⛔ sin guía).
+- **Si una carta no aparece** (DECISIÓN #2): **(a)** se ajusta el total a pagar, **(b)** se le avisa al cliente,
+  **(c)** el admin **ve el monto exacto** y ejecuta el reembolso **parcial**; marcar una carta como faltante
+  **deja seguir preparando el resto**.
+
+> 💰 **El reembolso parcial es el único punto de §S que mueve dinero**, y hoy el reembolso del sistema es
+> **todo-o-nada**. ⛔ **No se escribe código de esto hasta tener los tres veredictos** (QA + techlead + seguridad).
+> Quién **marca faltante** (operador) y quién **ejecuta el reembolso** (súper-admin) son **personas distintas a
+> propósito**: separación de poderes.
+
+#### S.6 ⚠️⚠️ DECISIÓN PENDIENTE DEL DUEÑO — **en qué letra del archivero queda cada cliente**
+
+*(La trajo **ux-ui** con medición — `DESIGN_SYSTEM §35.6` y nota **A-2** de §35.14. Es **nueva**: no estaba en las
+seis decisiones del 2026-09-15.)*
+
+**El problema, en tu tienda:** el sistema toma el nombre completo del cliente y **se queda con la última palabra**
+para decidir el apellido. En México casi todos llevamos **dos apellidos**: primero el del **papá**, luego el de la
+**mamá** — y un archivero alfabético se ordena por el **del papá**.
+
+> Con **«Juan Carlos Sainz Ortega»**, el sistema dice **Ortega** y lo manda a la letra **O**.
+> El archivero lo tiene en **Sainz**, letra **S**.
+
+**Lo que hace esto grave no es el caso raro: es el normal.** No falla con los nombres extraños — falla con
+**cualquier cliente que tenga dos apellidos**, que son casi todos.
+
+**Hoy no rompe nada, y está medido por qué:** la pantalla de hoy **solo muestra**, no archiva nada; y la cubeta de
+bóveda —la única donde el apellido decidiría un cajón— **está vacía** (S.4). **Rompe en el momento** en que el
+apellido gobierne algo: la propuesta de ubicación de bóveda, o cualquier listado ordenado por letra.
+
+**Las salidas posibles, con lo que cuesta cada una:**
+
+| Salida | Qué se gana | Qué cuesta en tu tienda |
+|---|---|---|
+| **(a)** Pedir el apellido **en un campo aparte** al registrarse y al capturar direcciones | Es **lo único que acierta siempre** | Hay que tocar los formularios de alta y de dirección, y **los clientes que ya tienes se quedan sin ese dato** hasta que alguien lo llene o se lo pregunte |
+| **(b)** Que la bóveda **no use nunca el apellido**: la ubicación se propone por **dónde ya están las otras cartas de ese cliente** | **Gratis, y más fiable que cualquier letra.** Es la propuesta del arquitecto | Un cliente **nuevo**, que aún no tiene nada en bóveda, se queda **sin propuesta**: el operador elige el cajón |
+| **(c)** Quedarse con la **penúltima** palabra en vez de la última | Acierta en «nombre + dos apellidos», el caso común | Falla al revés con quien tiene **un solo apellido** o **nombre compuesto**, y **falla sin avisar**: cambias un error frecuente por otro menos frecuente |
+| **(d)** Que **el operador teclee o corrija** la letra al archivar | Decide quien archiva, que es quien sabe | Un paso manual más en cada pedido |
+
+⛔ **Regla que aplica mientras no decidas:** **ninguna pantalla ordena ni archiva por apellido.** La pantalla de
+hoy muestra el apellido derivado **y, debajo, el nombre completo**, precisamente para que el operador pueda
+**corregir a ojo** la letra equivocada. Cuando el apellido no se puede derivar, se pinta **«Apellido no
+identificado»**, ⛔ nunca un hueco ni el nombre completo ascendido a apellido en silencio.
+
+#### S.7 Criterios de aceptación de §S — ⚠️ numeración **LOCAL**, y cuatro **HUECOS**
+
+> ### ⛔⛔ AVISO A QA — LEER ANTES DE VERIFICAR: `CA #N` **NO** es el criterio global N
+> El contrato, el código y las pruebas citan **`CA #6`, `CA #8`, `CA #9`, `CA #11`**… y esos números pertenecen a
+> **esta lista local de §S**, **no** a la lista global de `## Criterios de aceptación` (que va del 1 al 212+).
+> **La colisión es real y confunde:** el criterio global **9** es *«Un usuario puede solicitar el retiro de 1 o más
+> cartas `settled`…»* y el global **6** es *«Un usuario NO tiene saldo/wallet…»* — **nada que ver**.
+> ⇒ **Cuando leas `CA #N` en `API_CONTRACT §M4-PREP`, en `shipments.service.ts` o en `M4View.test.tsx`, ven a esta
+> tabla.** Cítalos siempre como **`CA #N de §S`**.
+>
+> ### ⚠️ Y el texto de abajo es **RECONSTRUIDO**, no el verbatim aprobado
+> Cada fila dice **de dónde se recuperó** y con qué confianza. **El dueño confirma o corrige la redacción**; QA
+> puede verificar desde ya las de confianza **ALTA** (son las que el código y las pruebas ya implementan).
+
+| # | Criterio (texto **reconstruido**) | Confianza | Fuente de la recuperación | Estado hoy |
+|---|---|---|---|---|
+| **CA #1** | ⛔ **HUECO — no referenciado en ninguna fuente del árbol.** Texto **no recuperable**. | — | `grep 'CA #1[^0-9]'` ⇒ 0 | **pendiente del dueño** |
+| **CA #2** | ⛔ **HUECO — no referenciado en ninguna fuente del árbol.** Texto **no recuperable**. | — | `grep 'CA #2[^0-9]'` ⇒ 0 | **pendiente del dueño** |
+| **CA #3** | La cola muestra **la identidad exacta de la carta** (no basta el nombre). | **PARCIAL** — se conoce el tema, no la redacción | `…CONTRACT_DRAFT.md:110` («identidad de la carta — DECISIÓN #6 / CA #3, #10») | construido (S.3); **redacción a confirmar** |
+| **CA #4** | Queda registrado **quién preparó el pedido y cuándo**, y es **consultable en la bitácora de auditoría**. El dato se toma de **la sesión del usuario**, ⛔ nunca se teclea (DECISIÓN #3). | **ALTA** | `…CONTRACT_DRAFT.md:147-149,174` | **PLANEADO** — no construido |
+| **CA #5** | Al dar un pedido por preparado, **el siguiente paso que se ofrece depende del destino**: envío ⇒ **guía**; bóveda ⇒ **cambio de ubicación**, ⛔ sin guía. | **ALTA** | `…CONTRACT_DRAFT.md:178-181` | **PLANEADO** — no construido |
+| **CA #6** | En destino **envío**, la cola muestra la **dirección COMPLETA, con la calle** — el dato que la fila plana omitía. | **ALTA** | `…CONTRACT_DRAFT.md:87` · `API_CONTRACT.md:14855` · `shipments.service.ts:736` · `M4View.test.tsx:464` | ✅ **construido y con prueba** |
+| **CA #7** | El operador **palomea carta por carta**, y un pedido **solo puede darse por preparado cuando todas sus cartas están palomeadas o marcadas como faltantes**. | **PARCIAL** — el borrador agrupa tres CA (#4,#5,#7) sobre cuatro conductas; **cuál de las dos mitades es exactamente el #7 no es recuperable** | `…CONTRACT_DRAFT.md:147-149` | **PLANEADO** — no construido; **reparto #4/#5/#7 a confirmar** |
+| **CA #8** | La cola tiene **dos cubetas, envío y bóveda**, y se puede ver **una o las dos**. | **ALTA** | `…CONTRACT_DRAFT.md:231` · `frontend/src/lib/api.ts:1417` · `M4View.test.tsx:595` | ✅ **construido y con prueba**; ⚠️ la cubeta bóveda **sale vacía** (S.4) |
+| **CA #9** | Los pedidos se atienden **por antigüedad: lo más viejo primero**. | **ALTA** | `API_CONTRACT.md:14821,14846` · `shipments.service.ts:659,692` · `M4View.test.tsx:391` | ✅ **construido y con prueba** |
+| **CA #10** | Por cada carta se ve **cantidad, set, acabado, condición/grado junto al acabado y miniatura**; y el cliente se identifica por **apellido** (archivero alfabético) con el nombre completo al lado. | **ALTA** | `…CONTRACT_DRAFT.md:109-117,313` | ✅ **construido** (S.3) · ⚠️ el apellido, **condicionado por S.6** |
+| **CA #11** | La ubicación se muestra **en texto entendible**: ⛔ el código **`UNASSIGNED` deja de viajar y de pintarse**. | **ALTA** | `…CONTRACT_DRAFT.md:125,328` · `API_CONTRACT.md:14886` · `shipments.service.ts:67,861` · `M4View.test.tsx:574` | ✅ **construido y con prueba** |
+| **CA #12** | ⛔ **HUECO — no referenciado en ninguna fuente del árbol.** Texto **no recuperable**. | — | `grep 'CA #12'` ⇒ 0 | **pendiente del dueño** |
+| **CA #13** | Marcar una carta como **faltante deja seguir preparando el resto** del pedido. | **ALTA** | `…CONTRACT_DRAFT.md:259-260` | **PLANEADO** — no construido |
+| **CA #14** | ⛔ **HUECO — no referenciado en ninguna fuente del árbol.** Texto **no recuperable**. | — | `grep 'CA #14'` ⇒ 0 | **pendiente del dueño** |
+| **CA #15** | Cuando falta una carta, **se le avisa al cliente** (por el centro de avisos, §R). | **ALTA** | `…CONTRACT_DRAFT.md:284-286` | **PLANEADO** — no construido |
+| **CA #16** | 💰 El admin **ve el monto exacto a reembolsar antes de ejecutar nada**. | **ALTA** | `…CONTRACT_DRAFT.md:263` | **PLANEADO** — 💰 tres veredictos |
+
+⚠️ **NO MEDIDO — hasta dónde llegaba la lista.** La referencia más alta que sobrevive es **`CA #16`**. **No hay
+forma de saber si la lista aprobada terminaba ahí o seguía.** ⇒ **pregunta 4 de S.8.**
+*(Corrección al encargo que originó esta sección: se me pidió recuperar «`CA #1..#11`». **Medido: las referencias
+llegan al menos hasta `#16`** — `#13`, `#15` y `#16` están citados en `…CONTRACT_DRAFT.md:259,263,284`.)*
+
+#### S.7-bis Las seis decisiones del dueño (2026-09-15) — cinco recuperadas, **una hueca**
+
+| # | Decisión (reconstruida) | Fuente | Estado |
+|---|---|---|---|
+| **#1** | **El destino es del PEDIDO, no de la carta**: un pedido **no mezcla** destinos. | `…DRAFT.md:48,77,137` · `API_CONTRACT.md:14844` | ✅ construido (se deriva del modo de entrega de la orden) |
+| **#2** | Si una carta **no aparece**: se **ajusta el total**, se **avisa al cliente** y el admin **ve el monto exacto**, conectado con el reembolso. | `…DRAFT.md:238-240` | 💰 planeado — tres veredictos |
+| **#3** | **Quién preparó se toma de la sesión**, ⛔ no se teclea a mano. | `…DRAFT.md:148,156` | planeado |
+| **#4** | ⛔ **HUECO — no referenciado en ninguna fuente.** *Candidato **NO CONFIRMADO**: el **renombrado** «picking → Pedidos a preparar», que `API_CONTRACT.md:14817` atribuye al dueño pero **sin número**.* ⛔ No se da por buena: **la confirma el dueño**. | `grep 'DECISIÓN #4'` ⇒ 0 | **pendiente del dueño** |
+| **#5** | En bóveda, **el sistema PROPONE la ubicación** y el operador **solo confirma** (no la teclea). | `…DRAFT.md:192-196` | planeado · ⚠️ condicionado por **S.6** |
+| **#6** | **Atender lo más viejo primero**, y mostrar **la identidad completa de la carta**. ⚠️ El borrador cita `DECISIÓN #6` con **dos significados distintos** (`:79` antigüedad, `:110` identidad de carta): **puede ser una decisión compuesta o una cita imprecisa — a confirmar.** | `…DRAFT.md:79,110` | ✅ construido |
+
+#### S.8 Preguntas abiertas de §S (para el dueño)
+
+1. **¿La reconstrucción es fiel?** Esta sección entera se reescribió desde documentos derivados. **Si algo no es
+   lo que aprobaste el 2026-09-15, mándalo corregir: manda tu palabra, no este documento.**
+2. ⚠️ **¿Quieres que las compras «a bóveda» generen cola de preparación?** Hoy **no la generan** (medido): al
+   liquidarse, la carta ya es del cliente sin salir de la tienda, y **nadie está contando el trabajo de
+   colocarla en su cajón**. Por eso la cubeta bóveda sale vacía. Alimentarla **probablemente exige cambio de base
+   de datos**, así que es decisión tuya, no del equipo. *(También decide si hoy ese trabajo lo llevas en otro
+   lado — papel, memoria — o si sencillamente no existe.)*
+3. ⚠️ **La letra del archivero (S.6): (a), (b), (c) o (d).** Bloquea la propuesta de ubicación de bóveda.
+4. **Los cuatro huecos y el final de la lista:** ¿qué decían **CA #1, #2, #12, #14**, qué era **DECISIÓN #4**, y
+   **terminaba la lista en #16**?
+5. **¿Cada cuánto debe refrescarse sola la cola?** Hoy la pantalla **promete que los pedidos nuevos aparecen
+   solos y no se actualiza sola** (`DESIGN_SYSTEM §35.9`, hallazgo **P-2**, enrutado a frontend). El arreglo
+   técnico ya está decidido; lo que no está decidido es **si quieres que prometa eso**.
+6. **¿Hay un plazo a partir del cual un pedido «lleva demasiado»?** Hoy **no hay ninguno** y la pantalla **no
+   pinta alarmas a propósito** (`DESIGN_SYSTEM §35.2`): *una alarma inventada por el diseño enseña a ignorar las
+   alarmas*. Si quieres un plazo, dilo y se pinta.
+
+*(Pregunta **abierta al arquitecto**, no al dueño, anotada aquí para que no se pierda: ¿«preparado» es un estado
+nuevo de la máquina de envíos o un hito **dentro** de `picking`? Propuesta del arquitecto: lo segundo, sin tocar
+el enum — `…CONTRACT_DRAFT.md:183-188`.)*
+
+#### S.9 Mapa de citas heredadas
+
+Los documentos aguas abajo citan subsecciones de la sección perdida. **El contenido de abajo está recuperado de
+la cita literal; el número de destino es reconstrucción mía**, no dato:
+
+| Cita heredada | Qué decía (recuperado) | Vive hoy en |
+|---|---|---|
+| «NO-alcance del producto **§2**» | política de envíos, tarifa MX$175, impresión de etiquetas (cero), M5/buylist, máquina de estados | **S.2** |
+| «producto **§3**» | palomear por carta dentro de un pedido | **S.5** |
+| «producto **§3.6**» | «Para bóveda»: mover una compra al archivero del cliente, sin guía, con cambio de ubicación | **S.4** |
+| «producto **§4**» | los datos que la cola despliega | **S.3** |
+| «producto **§5.7**» | dar el pedido por preparado **como una unidad** | **S.5** |
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De «Pedidos a preparar» (§S), fuera de la versión construida** *(NUEVO v2.3, 2026-09-22)*: **palomear y
+  firmar** el pedido como preparado, la **sugerencia de ubicación de bóveda**, y 💰 el **reembolso parcial por
+  carta faltante** (este último **exige los tres veredictos antes de escribir una línea**). **También sigue fuera:
+  la impresión de etiquetas.** Detalle y motivo en **§S.2**.
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
   *(Ojo — esta línea NO responde la **pregunta abierta 26**: lo que está fuera es la plataforma como
   **intermediaria** entre dos usuarios. Que **la plataforma COMPRE** una carta que ya está en la bóveda —el
@@ -6897,6 +7162,15 @@ nuevo, no como parte de §R**:
 > **⚠ Dos criterios dependen de preguntas que siguen abiertas y se verifican con su supuesto declarado**: el
 > **190** (pregunta **57**, órdenes congeladas — la regla propuesta es la que se verifica) y el rótulo exacto
 > del importe de IVA del checkout (pregunta **60**). **Si el dueño responde distinto, se reverifican.**
+> ### ⛔⛔ AVISO A QA — v2.3 (2026-09-22): **`CA #N` NO pertenece a esta lista.** «Pedidos a preparar» (**§S**)
+> tiene su **propia numeración local `CA #1..#16`**, y el contrato, el código y las pruebas la citan así
+> (`API_CONTRACT §M4-PREP`, `shipments.service.ts`, `M4View.test.tsx`). **La colisión es real:** `CA #9 de §S` es
+> *«lo más viejo primero»*, mientras el criterio global **9** es *«un usuario puede solicitar el retiro…»*.
+> ⇒ **Los criterios de §S se verifican contra la tabla de `§S.7`**, y se citan siempre como **`CA #N de §S`**.
+> ⚠️ **Su texto es RECONSTRUIDO** (la sección aprobada el 2026-09-15 nunca se bajó al repositorio) y **cuatro de
+> ellos son huecos declarados**: ver el recuadro **§S.0**. **QA verifica desde ya los de confianza ALTA marcados
+> «construido»; los demás esperan la palabra del dueño.**
+> ⚠️ **El criterio 20 queda SUPERSEDED por §S** — ver su nota más abajo.
 
 **Catálogo y precio**
 1. En la sección **Compra**, un visitante navega **nuestro inventario publicado a la venta** y filtra por
@@ -7122,7 +7396,13 @@ nuevo, no como parte de §R**:
     editor por rareza/tier — ver criterios 86–87)* y el **`PricingProvider`** por tipo de producto.
 19. En M3 una orden refleja los estados `pending/settled/fallida/reembolsada/contracargo` con desglose
     que incluye la **línea de Stripe**, y el súper-admin puede emitir un **reembolso**.
-20. En M4 existe una **lista de picking ordenada por ubicación**.
+20. ~~En M4 existe una **lista de picking ordenada por ubicación**.~~
+    **⚠️ SUPERSEDED por §S (v2.3, 2026-09-22). TACHADO, NO BORRADO** —porque **era lo que QA verificaba** y hoy
+    es **falso**: la lista **plana de piezas ya no existe**. La sustituye **«Pedidos a preparar»**: una **tarjeta
+    por PEDIDO** con sus cartas dentro **ordenadas por ubicación** (el recorrido **no se pierde**, sobrevive
+    dentro del pedido) y **dos cubetas** (envío / bóveda). **QA verifica en su lugar `CA #6, #8, #9, #10, #11`
+    de §S** (numeración **local** de §S — ver el aviso al inicio de esta lista). La **captura de guía** y la
+    máquina de estados del criterio **11** **no cambian**.
 21. En M7 el P&L calcula **ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia**, muestra
     **valor de inventario (a referencia y a costo)**, **valor en custodia de clientes** y el **IVA cobrado**
     (para conciliación/CFDI), con **export CSV**.
