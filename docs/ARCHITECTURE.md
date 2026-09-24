@@ -4,6 +4,19 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.79 — ⭐⭐ «PARA BÓVEDA»: LA COMPRA A BÓVEDA NACE CON SU COLOCACIÓN PENDIENTE (`VaultPlacement`, `M-59`)**
+> (2026-09-24, arquitecto. Base: **v1.77 + §4.21p (v1.78.x), vigentes enteras**. Origen: decisión del dueño
+> 2026-09-24, `PROJECT §S.4.1`, CA #17–#23 de §S. `API_CONTRACT` sube a **v1.79**. ⛔ **Cero dinero.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Entidad nueva `VaultPlacement`** (una por orden `vault` liquidada, `orderId @unique`), gemela del `ShipmentRequest` de `direct_ship`. ⛔ **NO** se reutiliza `ShipmentRequest` (5 lectores la leen como «sale por la puerta»/dinero) ⇒ **su invariante `vault+orderId ⇒ corrupción` queda INTACTO** | §4.21q (a)–(b) | **Sí, backend + schema** |
+> | **2** | **Nace en la MISMA transacción que la liquidación**, con `INSERT … ON CONFLICT DO NOTHING` (idempotente bajo carrera) | §4.21q (c) | **Sí, backend** |
+> | **3** | ⭐ **Propuesta de cajón = «junto a sus otras cartas»** con filtro de zona **portante** y regla para varios cajones (**provisional**, S.8 #9) | §4.21q (d) | **Sí, backend** |
+> | **4** | ⭐⭐ **Confirmar = CAS sobre el estado (`REL-B`) + mover solo `locationId` con el predicado en el `WHERE`**; bitácora dentro de la tx | §4.21q (e) | **Sí, backend + frontend** |
+> | **5** | **«Pendiente de colocar» vive en la colocación, ⛔ NO en la pieza**: `InventoryStatus` no cambia ⇒ candados de doble venta intactos | §4.21q (f) | — |
+>
+> ---
 > **Rev v1.77 — ⭐⭐ BOUNTIES (ZONA DE DINERO): EL PISO DEJA DE FORZAR «ARRIBA DE MERCADO» (Q1) Y NACE ELIMINAR (Q2)**
 > (2026-09-19, arquitecto. Base: **v1.76, vigente entera**. Dos arreglos del dueño en `pricing`, medidos con
 > `archivo:línea` antes de diseñar (O-1). `API_CONTRACT` sube a **v1.77**.)
@@ -6811,6 +6824,84 @@ como colocada* — y eso **muy probablemente pide schema** (un sello de preparac
 hoy). **⛔ Por la regla de cero-migración, aquí NO se propone columna: se DETIENE y se reporta.** La cubeta `ship`
 (retiros + envíos directos) se sirve **completa** sin migración. Las piezas interactivas (palomear/firmar, sugerencia de
 bóveda) y el 💰 reembolso parcial quedan **planeadas, fuera de esta versión** (API_CONTRACT §M4-PREP, recuadro final).
+✅ **v1.79: la cubeta `vault` se alimenta — §4.21q.** El hallazgo de arriba sigue siendo cierto *de `ShipmentRequest`*.
+
+---
+
+### 4.21q WS «Órdenes y dinero» × «Inventario y vault» — «Para bóveda»: la COLOCACIÓN en el cajón del cliente (v1.79, `M-59`)
+
+> **Producto:** `PROJECT.md` §S.4.1–S.4.2, S.6 (b), CA #17–#23 de §S. **Contrato (conducta normativa entera):**
+> `API_CONTRACT §M4-VAULT`. Aquí vive el **por qué** y las alternativas descartadas. Medido por el arquitecto el
+> 2026-09-24 sobre `claude/m4-boveda` (sale de `5e623e6`). ⛔ **Cero dinero.**
+
+**(a) El problema, en el modelo.** Una orden `vault` liquidada deja sus piezas `in_custody` del cliente **en el estante
+de tienda** (`locationId` no se toca al liquidar) y **ningún artefacto** dice «esto hay que llevarlo a un cajón». El
+producto pide dos hechos que hoy no existen: **qué está pendiente de colocar** y **cuándo/quién/dónde se colocó**.
+
+**(b) La decisión: una entidad propia, `VaultPlacement`, y las dos que se descartan.**
+
+```
+                       Order (fulfillmentMode)
+                      /                        \
+          direct_ship                           vault
+               |                                  |
+   ShipmentRequest (nace en picking)      VaultPlacement (nace pending)     ← mismo momento: la tx del settle
+               |                                  |
+   picking → guia → enviado → entregado     pending → placed | cancelled
+   (sale por la puerta; dinero; avisos)     (cambia InventoryItem.locationId; sin dinero, sin avisos)
+```
+
+| Alternativa | Por qué NO |
+|---|---|
+| `ShipmentRequest` con un `kind`/destino nuevo | Medido: la leen **como envío o como dinero** el P&L de M7 (`admin.service.ts`, `status in picking…` acotado por `pickingAt`), el contador de envíos pendientes del dashboard, el anti-doble-retiro (`409 ITEM_IN_ANOTHER_SHIPMENT` ⇒ el cliente **no podría retirar** una carta recién comprada), `HoldingDTO.withdrawable/shipmentState` (por contrato) y la máquina de estados con guía y avisos. Además obliga a inventar `addressSnapshot`/`priceConvention`/`shippingFeeCents` (NOT NULL). Y **rompe el invariante** `vault+orderId ⇒ corrupción` que hoy candan `kindForFulfillment` y `shipments.picking-list.spec.ts`. *Cinco lectores que aprenden a excluir una fila es exactamente el patrón de §4.39(c): nueve listas de literales que no fallan en compilación* |
+| Columnas en `Order` (`placedAt`, `placedByUserId`, …) | Mete estado **operativo** en la tabla del **dinero**; la cola filtraría `Order` por modo+estado; sin id propio de fila. Funcionaría, pero es peor en las tres cosas |
+| Nuevo `InventoryStatus.pending_placement` | `in_custody` lo leen holdings, portafolio, `withdrawable`, master-set, admin-vaults y el anti-doble-retiro: todos tendrían que decidir sobre un valor nuevo para decir algo que **no es de la pieza, es del pedido** (DECISIÓN #1) |
+
+**(c) Nacimiento atómico e idempotente.** Único creador: la rama `vault` de `onPaymentSucceeded`, **dentro** de su
+`$transaction`, con `createMany({skipDuplicates:true})` ⇒ `INSERT … ON CONFLICT DO NOTHING` sobre `orderId @unique`.
+*Por qué no el `findFirst`+`create` del precedente `direct_ship`:* el `if (order.status === 'settled') return` se lee
+**fuera** de la transacción, así que dos entregas concurrentes entran las dos; con `create` la segunda revienta con
+`P2002` (⇒ `500` y reintento), con `findFirst` la ventana TOCTOU crea dos. El motor, no la lectura, decide.
+
+**(d) La propuesta de cajón.** Una función (`suggestVaultLocation`), consumida por la cola y por el `confirm` (para la
+bitácora). Candidatos = cajones `customer_custody` activos donde el cliente tiene piezas `in_custody`. **El filtro de
+zona es portante**: las piezas *pendientes* del mismo cliente también son `in_custody` y están en `platform_stock`;
+sin el filtro, el sistema propondría el estante de origen. Varios candidatos ⇒ **la llegada más reciente**
+(provisional, S.8 #9) — porque dos cajones suelen significar «el primero se llenó», y «el que tiene más» propondría
+para siempre el lleno. ⛔ El apellido no interviene (S.6). Sin memoria extra: colocar **deja** las piezas en el cajón,
+y eso **es** lo que la siguiente propuesta lee (CA #19).
+⚠️ **Hallazgo de datos:** `VaultLocation.label` **no es único entre zonas** (el seed crea `C01-F01-S01` en las dos). La
+pantalla nombra el destino **con su zona**; ⛔ no se cambia la unicidad aquí (otro stream, dato existente).
+
+**(e) Confirmar: la clase de `REL-B`, cerrada desde el diseño.** La transición se **reclama**
+(`updateMany … WHERE status='pending'`, `count===1`), ⛔ nunca se escribe sobre una lectura. Bajo `READ COMMITTED` el
+perdedor de una carrera **espera el candado de fila**, re-evalúa el `WHERE` y cuenta `0` ⇒ relee ⇒ `200 already_placed`
+(mismo cajón) o `409 PLACEMENT_NOT_PENDING` (otro). Cada pieza se mueve con el **predicado de colocable en el `WHERE`**
+y con `OR [locationId null, locationId ≠ destino]` (⛔ `NOT {locationId: destino}` **excluye los NULL** en SQL). **Solo
+`locationId`**: ⛔ no se reutiliza `inventory.service.ts · moveItem` (dos sentencias sin tx ni guarda y dispara
+`tryAutoPublish`). La bitácora va **dentro** de la tx: CA #22 no admite un «quién/cuándo» que pueda faltar.
+
+**(f) La pieza entre liquidación y colocación.** Estado **idéntico al de hoy** (`in_custody`, cliente, `settled`).
+Doble venta imposible por las mismas razones que hoy (catálogo = `platform ∧ listed`; publish y ajustes rechazan
+`in_custody`) ⇒ **cero candados de doble venta tocados**. El contracargo cancela la colocación pendiente en su misma tx;
+el reembolso no (coherente con A1).
+
+**(g) Invariantes nuevos (normativos):**
+- `INV-VP-1` — orden `vault` en `settled` (por liquidación) ⇒ **exactamente una** `VaultPlacement`. (Misma tx + `@unique`.)
+- `INV-VP-2` — `VaultPlacement` ⇒ su orden es `fulfillmentMode='vault'` con `userId` no nulo. Violación ⇒ `409` de la cola entera (misma doctrina §4.21p (2)).
+- `INV-VP-3` — sellos coherentes con el estado: **CHECKs en la BD** (`M-59`), no solo en el código.
+- `INV-VP-4` — `confirm` solo escribe `InventoryItem.locationId` (+ `InventoryMovement` + fila + bitácora). Nunca estado, dueño ni titularidad.
+- **Sin cambio:** `ShipmentRequest` con `orderId` ⇒ su orden es `direct_ship` (`kindForFulfillment`).
+
+**(h) Zonas compartidas y streams (para el orquestador).** Toca `backend/prisma/` (schema), `payments` y `shipments`
+(«Órdenes y dinero»), `vault`/`inventory` («Inventario y vault»), `common/error-codes.ts`, y en frontend
+`src/types/contract.ts` y la pantalla `(admin)` M4. ⇒ **se serializa** contra cualquier otro stream que toque esas
+zonas. **Dónde vive el verbo:** `backend/src/modules/vault/` (servicio de colocación + controlador admin); la cola sigue
+en `shipments` y **lee** `VaultPlacement`; la función `suggestVaultLocation` vive en `vault` y la importa `shipments`
+(un cuerpo, dos lectores).
+
+**(i) Provisional (dueño, `PROJECT §S.8` #7–#11):** cada respuesta cambia **un solo sitio** — tabla en
+`API_CONTRACT §M4-VAULT.9`. ⛔ El diseño no las da por contestadas; las marca.
 
 ---
 
