@@ -6443,6 +6443,15 @@ umbrales** — son política interna (`HECHOS.md`, 2026-09-11 (c)). Es el criter
 > rebanada de solo lectura, ya medida y ya servida); lo que se abre es **la redacción de los criterios y los cuatro
 > huecos** de S.7.
 
+> ### ✅ S.0-bis · Lo que el dueño ya contestó (2026-09-24) — **decidido, no se vuelve a preguntar**
+>
+> | Pregunta | Respuesta del dueño | Dónde queda |
+> |---|---|---|
+> | **S.8 n.º 2** — ¿las compras a bóveda generan cola? | **SÍ.** *«falta la parte de separar los pedidos que van a las bóvedas de los clientes, hay que meterlo; si no, físicamente cómo sabemos cómo y cuándo qué mover, necesitamos eso»* | **S.4** (ciclo aprobado por construir) · CA **#17–#23** de §S |
+> | **S.8 n.º 3 / S.6** — en qué cajón queda cada cliente | **Opción (b), «junto a sus otras cartas».** (a), (c) y (d) **descartadas** | **S.6** (RESUELTA) |
+>
+> El resto de §S **sigue pendiente de re-aprobación** (S.8 n.º 1, 4, 5, 6 y las nuevas 7–11).
+
 #### S.1 Qué es, y a quién sirve
 
 **Un cambio de unidad, no de pantalla.** La cola de M4 dejó de ser una **lista plana de piezas ordenada por
@@ -6455,7 +6464,9 @@ es la especificación**: no es una tabla de back-office que se lee con el ratón
 
 **Las cinco preguntas que la pantalla contesta, en este orden:**
 
-1. **¿De quién es este paquete?** → el apellido (llave del archivero) y, debajo, el nombre completo.
+1. **¿De quién es este paquete?** → el apellido y, debajo, el nombre completo. *(Corregido 2026-09-24: el
+   apellido **ya no es la llave del archivero** — es solo ayuda visual; el cajón lo decide el historial del
+   cliente, S.6.)*
 2. **¿Dónde están las cartas?** → la **ubicación** de cada pieza: es el dato por el que camina.
 3. **¿Qué carta es exactamente?** → nombre + set + acabado + condición/grado + miniatura (una *Charizard* no es
    *una* carta: es una familia de variantes, y equivocarse cuesta un envío mal armado).
@@ -6487,7 +6498,9 @@ Se cambia un óptimo global por uno local **con la unidad de trabajo intacta**: 
 **Y fuera de ESTA VERSIÓN (construido ≠ diseñado) — planeado, no implementado** (`API_CONTRACT §M4-PREP`, recuadro
 PLANEADO):
 - **Palomear cada carta y firmar el pedido como preparado** (S.5).
-- **Sugerencia de ubicación de bóveda** (S.4) — además **bloqueada** por la decisión pendiente de S.6.
+- ~~**Sugerencia de ubicación de bóveda** (S.4) — además **bloqueada** por la decisión pendiente de S.6.~~
+  → **Sale de esta lista el 2026-09-24:** el dueño la **aprobó por construir** junto con la cubeta de bóveda
+  (S.4) y **desbloqueó S.6** con la opción (b). Ya no es «fuera de esta versión»: es trabajo aprobado.
 - 💰 **Reembolso parcial por carta faltante** (S.5) — **toca dinero: exige los tres veredictos (QA + techlead +
   seguridad) ANTES de escribir código.**
 - ⛔ **Regla de pantalla mientras tanto** (`DESIGN_SYSTEM §35.11`): **no se pintan afordancias apagadas** — ni
@@ -6502,7 +6515,7 @@ Esto **está implementado y medido** (`shipments.service.ts::pickingList`, `Prep
 | Dato | Detalle |
 |---|---|
 | **Destino, prominente** | «Para enviar» / «Para bóveda». Es del **PEDIDO**, nunca de la carta (DECISIÓN #1) |
-| **Cliente** | apellido (llave del archivero) + **nombre completo** debajo |
+| **Cliente** | apellido + **nombre completo** debajo. *(Desde 2026-09-24 el apellido es **solo ayuda visual**, ya no llave del archivero — S.6)* |
 | **Dirección completa CON LA CALLE** | solo en destino envío. Es lo que la fila anterior **omitía** y lo que hace la dirección utilizable |
 | **Por carta** | nombre + **set** + acabado + **condición/grado junto al acabado** + **miniatura** + **ubicación** + folio |
 | **Ubicación** | en texto legible. ⛔ El código `UNASSIGNED` **ya no viaja ni se pinta**: «Sin ubicar», y esa carta va **al final** de su pedido |
@@ -6511,7 +6524,7 @@ Esto **está implementado y medido** (`shipments.service.ts::pickingList`, `Prep
 | **Orden** | pedidos por antigüedad **ascendente**; cartas **por ubicación** dentro de cada pedido |
 | **Cubetas** | **Ambas · Solo envío · Solo bóveda**. «Ambas» es el estado por defecto y **no se recuerda entre visitas**: el filtro sirve para **concentrarse**, no para encontrar |
 
-#### S.4 «Para bóveda» — y ⚠️ **la cubeta está vacía, y es correcto que lo esté** *(la cita heredada «producto §3.6»)*
+#### S.4 «Para bóveda» — **APROBADA POR EL DUEÑO PARA CONSTRUIR (2026-09-24)** · hoy la cubeta sigue vacía *(la cita heredada «producto §3.6»)*
 
 **Qué es «Para bóveda»:** mover una compra **al archivero del cliente**, **sin guía**, con **cambio de ubicación**
 (`API_CONTRACT.md:14970`). El siguiente paso no es un transportista: es un cajón.
@@ -6524,15 +6537,60 @@ Esto **está implementado y medido** (`shipments.service.ts::pickingList`, `Prep
 > ⇒ **La cubeta ENVÍO se sirve completa y fielmente. La cubeta BÓVEDA devuelve vacío**, y lo seguirá haciendo
 > hasta que una versión posterior la alimente — **lo cual muy probablemente pide cambio de base de datos**, y por
 > eso el arquitecto **se detuvo y lo reportó** en vez de proponer una columna.
-> **Esto es una PREGUNTA ABIERTA para el dueño (S.8, pregunta 2), no un defecto.**
+> ~~**Esto es una PREGUNTA ABIERTA para el dueño (S.8, pregunta 2), no un defecto.**~~ → **Contestada el
+> 2026-09-24: SÍ debe generar cola** (abajo). El hecho medido de arriba **sigue siendo cierto hasta que se
+> construya** — lo que cambió es que ya no es «correcto que esté vacía»: ahora es **trabajo aprobado pendiente**.
 >
 > **Y la regla de honestidad que sale de ahí** (`DESIGN_SYSTEM §35.8`, hallazgo **P-1**): *un estado vacío afirma
 > solo lo que el sistema sabe.* Puede decir «esta lista no tiene nada»; **no puede decir «no hay trabajo»** si el
 > sistema no mide el trabajo. Decirle al operador «no hay nada pendiente» cuando nadie está contando es **el error
 > más caro de una pantalla de operación: tranquiliza sobre algo que no midió**.
 
-**Planeado, no construido:** que el sistema **proponga** la bóveda del cliente y el operador **solo confirme**
-(DECISIÓN #5). ⚠️ **Bloqueado por S.6** si la propuesta se apoya en el apellido.
+##### S.4.1 La decisión del dueño (2026-09-24) — **las compras a bóveda SÍ generan cola**
+
+Sus palabras, literales:
+
+> *«falta la parte de separar los pedidos que van a las bóvedas de los clientes, hay que meterlo; si no,
+> físicamente cómo sabemos cómo y cuándo qué mover, necesitamos eso»*
+
+**Qué problema resuelve, dicho como él lo dijo:** hoy, cuando alguien compra y deja sus cartas en bóveda, el
+sistema ya las da por suyas, pero **nadie le dice a la tienda que hay cartas que llevar a un cajón**. Sin eso
+no se sabe **qué** mover, **a dónde** ni **cuándo**. La cubeta «Para bóveda» existe para eso.
+
+##### S.4.2 El ciclo físico, de punta a punta (aprobado, **por construir**)
+
+Así lo vive el operador. Cada paso cita la decisión o el criterio que lo sostiene; ⛔ **cómo se guarda cada cosa
+por dentro lo diseña el arquitecto**, no esta sección.
+
+1. **El cliente paga una compra y elige dejarla en bóveda.** Hasta que no está pagada, **no aparece en ninguna
+   cola** (misma regla que envíos, S.2: *solo entra a la cola lo ya cobrado*).
+2. **La compra aparece en la cubeta «Para bóveda»** como **un pedido** (una tarjeta), con sus cartas dentro y la
+   ubicación en tienda de cada una — igual que un pedido de envío. Todo el pedido va a bóveda: **un pedido no
+   mezcla destinos** (DECISIÓN #1).
+3. **El operador junta las cartas** de la tienda y las palomea como cualquier otro pedido, y lo da por preparado
+   cuando todas están palomeadas o marcadas como faltantes (S.5, CA #7 y #13 de §S). Si una carta no aparece,
+   aplica lo mismo que en envío (DECISIÓN #2).
+4. **El sistema le propone el cajón** (DECISIÓN #5, S.6 opción (b)):
+   - si el cliente **ya tiene cartas en bóveda** → le propone **el cajón donde ya están sus otras cartas**;
+   - si el cliente es **nuevo** y aún no tiene nada en bóveda → **no hay propuesta**: **el operador elige el
+     cajón esa primera vez**, y a partir de ahí el sistema ya lo sabe.
+   - ⛔ **Nunca se propone por apellido** (S.6).
+5. **El operador lleva las cartas al cajón y confirma.** Confirmar es **aceptar la propuesta**, no teclearla
+   (DECISIÓN #5). Tras «preparado», el siguiente paso que se le ofrece es **colocar en bóveda**, ⛔ **nunca
+   capturar guía** (CA #5 de §S).
+6. **Queda registrado** que esas cartas están en ese cajón, **quién** las colocó y **cuándo**. El «quién» sale de
+   **la sesión del operador**, ⛔ no se escribe a mano (DECISIÓN #3, CA #4 de §S), y se puede consultar en la
+   **bitácora de auditoría**.
+7. **El pedido sale de la cola.** Ya no está pendiente: la tienda sabe dónde está cada carta.
+
+⚠️ **Dependencia:** el paso 3 (palomear y dar por preparado) es S.5, que **aún no está construido**. Si la
+colocación va antes que S.5 o espera a S.5 es **S.8 pregunta 11**.
+
+⚠️ **Qué no está decidido de este ciclo y es del dueño:** S.8 preguntas **7 a 11** (cajón lleno, cliente con
+cartas en varios cajones, si el operador puede cambiar la propuesta, y qué pasa con las compras a bóveda que ya
+se pagaron antes de que esto exista). **El diseño no debe darlas por contestadas.**
+
+Criterios de aceptación de este ciclo: **CA #17 a #23 de §S** (S.7).
 
 #### S.5 Preparar, firmar y la carta que no aparece — **PLANEADO, NO CONSTRUIDO** *(las citas heredadas «producto §3» y «§5.7»)*
 
@@ -6550,7 +6608,24 @@ Esto **está implementado y medido** (`shipments.service.ts::pickingList`, `Prep
 > Quién **marca faltante** (operador) y quién **ejecuta el reembolso** (súper-admin) son **personas distintas a
 > propósito**: separación de poderes.
 
-#### S.6 ⚠️⚠️ DECISIÓN PENDIENTE DEL DUEÑO — **en qué letra del archivero queda cada cliente**
+#### S.6 ✅ **RESUELTA (2026-09-24) — opción (b), «junto a sus otras cartas»** — en qué cajón del archivero queda cada cliente
+
+> ### ✅ Decisión del dueño, 2026-09-24
+> **Eligió la opción (b).** Se le presentó así, y la eligió:
+> *«Propone el cajón donde ya están las demás cartas de ese cliente. Acierta siempre y no depende del apellido.
+> Si el cliente es nuevo y aún no tiene nada en bóveda, el operador elige el cajón la primera vez; a partir de
+> ahí el sistema ya lo sabe.»*
+>
+> **Consecuencias que quedan fijadas:**
+> - **El apellido deja de ser dato de negocio para la bóveda.** No decide cajón, ni propuesta, ni orden. Pasa a
+>   ser **solo ayuda visual** para que el operador reconozca al cliente de un vistazo, siempre con el nombre
+>   completo debajo.
+> - **(a), (c) y (d) quedan DESCARTADAS por decisión del dueño (2026-09-24).** No se piden apellidos en campo
+>   aparte, no se cambia la regla de «última palabra» por «penúltima», y el operador no teclea letras.
+> - El error de los dos apellidos descrito abajo **ya no rompe nada**: sigue existiendo en lo que se *muestra*,
+>   pero ya **no gobierna ningún cajón**. Por eso el nombre completo sigue debajo — para corregir a ojo.
+>
+> *El análisis de abajo se conserva como registro de por qué se decidió así.*
 
 *(La trajo **ux-ui** con medición — `DESIGN_SYSTEM §35.6` y nota **A-2** de §35.14. Es **nueva**: no estaba en las
 seis decisiones del 2026-09-15.)*
@@ -6578,10 +6653,14 @@ apellido gobierne algo: la propuesta de ubicación de bóveda, o cualquier lista
 | **(c)** Quedarse con la **penúltima** palabra en vez de la última | Acierta en «nombre + dos apellidos», el caso común | Falla al revés con quien tiene **un solo apellido** o **nombre compuesto**, y **falla sin avisar**: cambias un error frecuente por otro menos frecuente |
 | **(d)** Que **el operador teclee o corrija** la letra al archivar | Decide quien archiva, que es quien sabe | Un paso manual más en cada pedido |
 
-⛔ **Regla que aplica mientras no decidas:** **ninguna pantalla ordena ni archiva por apellido.** La pantalla de
-hoy muestra el apellido derivado **y, debajo, el nombre completo**, precisamente para que el operador pueda
-**corregir a ojo** la letra equivocada. Cuando el apellido no se puede derivar, se pinta **«Apellido no
-identificado»**, ⛔ nunca un hueco ni el nombre completo ascendido a apellido en silencio.
+~~⛔ **Regla que aplica mientras no decidas:** **ninguna pantalla ordena ni archiva por apellido.**~~
+**Regla vigente desde 2026-09-24 (la decisión la vuelve permanente, no la retira):**
+- **Archivar:** el cajón **nunca** se decide por apellido — se decide por **dónde ya están las cartas del
+  cliente** o, si es nuevo, **lo elige el operador**. *(Esto es lo que la decisión resolvió.)*
+- **Ordenar:** **ninguna pantalla ordena por apellido.** *(Esto la decisión no lo cambia: sigue igual.)*
+- **Mostrar:** la pantalla muestra el apellido derivado **y, debajo, el nombre completo**, para que el operador
+  reconozca al cliente y **corrija a ojo** si la palabra está mal. Cuando el apellido no se puede derivar, se
+  pinta **«Apellido no identificado»**, ⛔ nunca un hueco ni el nombre completo ascendido a apellido en silencio.
 
 #### S.7 Criterios de aceptación de §S — ⚠️ numeración **LOCAL**, y cuatro **HUECOS**
 
@@ -6608,7 +6687,7 @@ identificado»**, ⛔ nunca un hueco ni el nombre completo ascendido a apellido 
 | **CA #7** | El operador **palomea carta por carta**, y un pedido **solo puede darse por preparado cuando todas sus cartas están palomeadas o marcadas como faltantes**. | **PARCIAL** — el borrador agrupa tres CA (#4,#5,#7) sobre cuatro conductas; **cuál de las dos mitades es exactamente el #7 no es recuperable** | `…CONTRACT_DRAFT.md:147-149` | **PLANEADO** — no construido; **reparto #4/#5/#7 a confirmar** |
 | **CA #8** | La cola tiene **dos cubetas, envío y bóveda**, y se puede ver **una o las dos**. | **ALTA** | `…CONTRACT_DRAFT.md:231` · `frontend/src/lib/api.ts:1417` · `M4View.test.tsx:595` | ✅ **construido y con prueba**; ⚠️ la cubeta bóveda **sale vacía** (S.4) |
 | **CA #9** | Los pedidos se atienden **por antigüedad: lo más viejo primero**. | **ALTA** | `API_CONTRACT.md:14821,14846` · `shipments.service.ts:659,692` · `M4View.test.tsx:391` | ✅ **construido y con prueba** |
-| **CA #10** | Por cada carta se ve **cantidad, set, acabado, condición/grado junto al acabado y miniatura**; y el cliente se identifica por **apellido** (archivero alfabético) con el nombre completo al lado. | **ALTA** | `…CONTRACT_DRAFT.md:109-117,313` | ✅ **construido** (S.3) · ⚠️ el apellido, **condicionado por S.6** |
+| **CA #10** | Por cada carta se ve **cantidad, set, acabado, condición/grado junto al acabado y miniatura**; y el cliente se identifica por **apellido** (archivero alfabético) con el nombre completo al lado. | **ALTA** | `…CONTRACT_DRAFT.md:109-117,313` | ✅ **construido** (S.3) · ✅ S.6 resuelta (2026-09-24): el texto se conserva tal cual, pero **«archivero alfabético» ya no gobierna nada** — el apellido es solo identificación visual; el cajón lo decide CA #18/#19 |
 | **CA #11** | La ubicación se muestra **en texto entendible**: ⛔ el código **`UNASSIGNED` deja de viajar y de pintarse**. | **ALTA** | `…CONTRACT_DRAFT.md:125,328` · `API_CONTRACT.md:14886` · `shipments.service.ts:67,861` · `M4View.test.tsx:574` | ✅ **construido y con prueba** |
 | **CA #12** | ⛔ **HUECO — no referenciado en ninguna fuente del árbol.** Texto **no recuperable**. | — | `grep 'CA #12'` ⇒ 0 | **pendiente del dueño** |
 | **CA #13** | Marcar una carta como **faltante deja seguir preparando el resto** del pedido. | **ALTA** | `…CONTRACT_DRAFT.md:259-260` | **PLANEADO** — no construido |
@@ -6618,6 +6697,26 @@ identificado»**, ⛔ nunca un hueco ni el nombre completo ascendido a apellido 
 
 ⚠️ **NO MEDIDO — hasta dónde llegaba la lista.** La referencia más alta que sobrevive es **`CA #16`**. **No hay
 forma de saber si la lista aprobada terminaba ahí o seguía.** ⇒ **pregunta 4 de S.8.**
+
+##### S.7.1 Criterios NUEVOS del ciclo «Para bóveda» (2026-09-24) — **no reconstruidos: salen de las decisiones del dueño de hoy**
+
+*Continúan la numeración local tras #16. ⛔ Los huecos **#1, #2, #12, #14 no se reutilizan**: siguen pendientes
+del dueño. Si la lista aprobada el 2026-09-15 resultara llegar más allá de #16 (pregunta 4 de S.8), estos se
+renumeran y se deja constancia; **no** se mezclan con los recuperados.*
+
+| # | Criterio | Fuente | Estado |
+|---|---|---|---|
+| **CA #17** | Cuando se **paga** una compra que el cliente deja en bóveda, aparece **un pedido** en la cubeta **«Para bóveda»** con todas sus cartas. Una compra a bóveda **no pagada no aparece** en ninguna cubeta. Un pedido de bóveda **no aparece** en la cubeta de envío, ni al revés. | Dueño 2026-09-24 (S.4.1) · S.2 · DECISIÓN #1 | **APROBADO — por construir** |
+| **CA #18** | Si el cliente **ya tiene cartas en bóveda**, el pedido muestra como cajón propuesto **el cajón donde ya están sus otras cartas**, y el operador lo acepta **sin teclearlo**. | S.6 (b) · DECISIÓN #5 | **APROBADO — por construir** |
+| **CA #19** | Si el cliente **no tiene ninguna carta en bóveda**, **no se propone cajón** (⛔ ni uno derivado del apellido ni uno por defecto) y el operador **elige** el cajón. La **siguiente** compra a bóveda de ese mismo cliente ya llega con **ese cajón propuesto**. | S.6 (b) | **APROBADO — por construir** |
+| **CA #20** | **El apellido no interviene en el cajón.** Verificable así: dos clientes con el mismo apellido derivado y cartas en cajones distintos reciben **cada uno su propio cajón**; y un cliente cuyo apellido se deriva mal (p. ej. «Juan Carlos Sainz Ortega» → «Ortega») recibe **el cajón donde ya están sus cartas**, no uno por la letra O. Ninguna pantalla de §S **ordena** por apellido. | S.6 (regla vigente) | **APROBADO — por construir** |
+| **CA #21** | Tras dar por preparado un pedido de bóveda, el siguiente paso que se ofrece es **colocar en bóveda**, ⛔ **nunca capturar guía**. | CA #5 de §S · S.4.2 paso 5 | **APROBADO — por construir** |
+| **CA #22** | Al **confirmar la colocación**, cada carta del pedido queda con **ese cajón como su ubicación**, y queda registrado **quién** colocó (tomado de su sesión, ⛔ no tecleado) y **cuándo**, consultable en la **bitácora de auditoría**. | DECISIÓN #3 · CA #4 de §S · S.4.2 paso 6 | **APROBADO — por construir** |
+| **CA #23** | Un pedido de bóveda **sigue en la cola hasta que se confirma su colocación** (no desaparece solo por estar pagado ni por estar preparado), y una vez confirmado **sale de la cola y no vuelve a aparecer**; confirmarlo por segunda vez **no** crea un segundo registro de colocación. | Dueño 2026-09-24 (*«cómo y cuándo qué mover»*) · S.4.2 paso 7 | **APROBADO — por construir** |
+
+⚠️ Estos siete **no** cubren lo que depende de las preguntas **7 a 11 de S.8** (cajón lleno, varios cajones,
+cambiar la propuesta, compras previas, y si hay que palomear antes de colocar). Cuando el dueño conteste, se añaden criterios; ⛔ **QA no debe inferir
+la conducta de esos casos a partir de estos siete.**
 *(Corrección al encargo que originó esta sección: se me pidió recuperar «`CA #1..#11`». **Medido: las referencias
 llegan al menos hasta `#16`** — `#13`, `#15` y `#16` están citados en `…CONTRACT_DRAFT.md:259,263,284`.)*
 
@@ -6629,19 +6728,18 @@ llegan al menos hasta `#16`** — `#13`, `#15` y `#16` están citados en `…CON
 | **#2** | Si una carta **no aparece**: se **ajusta el total**, se **avisa al cliente** y el admin **ve el monto exacto**, conectado con el reembolso. | `…DRAFT.md:238-240` | 💰 planeado — tres veredictos |
 | **#3** | **Quién preparó se toma de la sesión**, ⛔ no se teclea a mano. | `…DRAFT.md:148,156` | planeado |
 | **#4** | ⛔ **HUECO — no referenciado en ninguna fuente.** *Candidato **NO CONFIRMADO**: el **renombrado** «picking → Pedidos a preparar», que `API_CONTRACT.md:14817` atribuye al dueño pero **sin número**.* ⛔ No se da por buena: **la confirma el dueño**. | `grep 'DECISIÓN #4'` ⇒ 0 | **pendiente del dueño** |
-| **#5** | En bóveda, **el sistema PROPONE la ubicación** y el operador **solo confirma** (no la teclea). | `…DRAFT.md:192-196` | planeado · ⚠️ condicionado por **S.6** |
+| **#5** | En bóveda, **el sistema PROPONE la ubicación** y el operador **solo confirma** (no la teclea). | `…DRAFT.md:192-196` | **aprobado por construir** · S.6 resuelta 2026-09-24: la propuesta es **el cajón donde ya están las cartas del cliente**; cliente nuevo ⇒ elige el operador |
 | **#6** | **Atender lo más viejo primero**, y mostrar **la identidad completa de la carta**. ⚠️ El borrador cita `DECISIÓN #6` con **dos significados distintos** (`:79` antigüedad, `:110` identidad de carta): **puede ser una decisión compuesta o una cita imprecisa — a confirmar.** | `…DRAFT.md:79,110` | ✅ construido |
 
 #### S.8 Preguntas abiertas de §S (para el dueño)
 
 1. **¿La reconstrucción es fiel?** Esta sección entera se reescribió desde documentos derivados. **Si algo no es
    lo que aprobaste el 2026-09-15, mándalo corregir: manda tu palabra, no este documento.**
-2. ⚠️ **¿Quieres que las compras «a bóveda» generen cola de preparación?** Hoy **no la generan** (medido): al
-   liquidarse, la carta ya es del cliente sin salir de la tienda, y **nadie está contando el trabajo de
-   colocarla en su cajón**. Por eso la cubeta bóveda sale vacía. Alimentarla **probablemente exige cambio de base
-   de datos**, así que es decisión tuya, no del equipo. *(También decide si hoy ese trabajo lo llevas en otro
-   lado — papel, memoria — o si sencillamente no existe.)*
-3. ⚠️ **La letra del archivero (S.6): (a), (b), (c) o (d).** Bloquea la propuesta de ubicación de bóveda.
+2. ✅ **CONTESTADA 2026-09-24 — SÍ.** ~~¿Quieres que las compras «a bóveda» generen cola de preparación?~~
+   *«falta la parte de separar los pedidos que van a las bóvedas de los clientes, hay que meterlo; si no,
+   físicamente cómo sabemos cómo y cuándo qué mover, necesitamos eso»* → S.4.1–S.4.2, CA #17–#23.
+3. ✅ **CONTESTADA 2026-09-24 — opción (b)**, «junto a sus otras cartas». ~~La letra del archivero (S.6): (a),
+   (b), (c) o (d).~~ (a), (c), (d) descartadas → S.6.
 4. **Los cuatro huecos y el final de la lista:** ¿qué decían **CA #1, #2, #12, #14**, qué era **DECISIÓN #4**, y
    **terminaba la lista en #16**?
 5. **¿Cada cuánto debe refrescarse sola la cola?** Hoy la pantalla **promete que los pedidos nuevos aparecen
@@ -6650,6 +6748,26 @@ llegan al menos hasta `#16`** — `#13`, `#15` y `#16` están citados en `…CON
 6. **¿Hay un plazo a partir del cual un pedido «lleva demasiado»?** Hoy **no hay ninguno** y la pantalla **no
    pinta alarmas a propósito** (`DESIGN_SYSTEM §35.2`): *una alarma inventada por el diseño enseña a ignorar las
    alarmas*. Si quieres un plazo, dilo y se pinta.
+
+**Nuevas (2026-09-24), salen de tus dos respuestas de hoy — las necesita el diseño del ciclo de bóveda:**
+
+7. **¿Qué hace el operador si el cajón propuesto ya está lleno?** ¿Pone las cartas en otro cajón y le dice al
+   sistema cuál, o hay otra forma en que lo manejas en la tienda?
+8. **¿Puede el operador cambiar el cajón propuesto** (por lleno o por cualquier motivo)? Si lo cambia, **¿desde
+   ahí ese cliente «vive» en el cajón nuevo** para sus siguientes compras, o sigue en el anterior?
+9. **Si un cliente ya tiene cartas en más de un cajón, ¿cuál se le propone?** (Por ejemplo: el de su última
+   compra, el que tiene más cartas suyas, o que el operador elija.) *Nota del product-owner: la opción (b) se te
+   presentó como «acierta siempre»; acierta siempre **mientras** cada cliente esté en un solo cajón. Este es el
+   caso donde no hay una respuesta única, y por eso te lo pregunto.*
+10. **¿Qué pasa con las compras a bóveda que ya se pagaron antes de que exista esta cola?** Hoy el sistema no
+    sabe si esas cartas ya se colocaron en su cajón. Opciones: **(a)** entran todas a la cola para que el
+    operador confirme dónde están; **(b)** se dan por colocadas y no entran; **(c)** tú dices cuáles. *(También:
+    si un cliente sacó o vendió todas sus cartas de bóveda y vuelve a comprar, ¿cuenta como «nuevo» y el operador
+    elige cajón otra vez, o el sistema recuerda su cajón anterior?)*
+11. **¿La colocación en bóveda espera a que exista «palomear y dar por preparado» (S.5), o va antes?** Lo
+    aprobado (CA #5) dice que colocar viene **después** de dar el pedido por preparado, y palomear/preparar
+    **aún no está construido** (S.2). Si quieres la cubeta de bóveda antes, el operador confirmaría la
+    colocación **sin** palomear carta por carta en esa primera versión. Es orden de trabajo y es tuyo decidirlo.
 
 *(Pregunta **abierta al arquitecto**, no al dueño, anotada aquí para que no se pierda: ¿«preparado» es un estado
 nuevo de la máquina de envíos o un hito **dentro** de `picking`? Propuesta del arquitecto: lo segundo, sin tocar
@@ -6670,8 +6788,9 @@ la cita literal; el número de destino es reconstrucción mía**, no dato:
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De «Pedidos a preparar» (§S), fuera de la versión construida** *(NUEVO v2.3, 2026-09-22)*: **palomear y
-  firmar** el pedido como preparado, la **sugerencia de ubicación de bóveda**, y 💰 el **reembolso parcial por
-  carta faltante** (este último **exige los tres veredictos antes de escribir una línea**). **También sigue fuera:
+  firmar** el pedido como preparado, y 💰 el **reembolso parcial por carta faltante** (este último **exige los
+  tres veredictos antes de escribir una línea**). *(2026-09-24: la **cubeta de bóveda y la sugerencia de cajón
+  salen de esta lista** — el dueño las aprobó para construir, §S.4 y §S.6.)* **También sigue fuera:
   la impresión de etiquetas.** Detalle y motivo en **§S.2**.
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
   *(Ojo — esta línea NO responde la **pregunta abierta 26**: lo que está fuera es la plataforma como
