@@ -23717,3 +23717,37 @@ lectura de config). Requieren diseño + prueba que falle primero:
 - `GET /catalog/facets`
 El índice debe recortar la parte de la lectura de `InventoryItem`. Si tras el deploy siguen ~10s, la
 cola restante es la Causa 2 (histórico de precio) — que necesita el arreglo enrutado arriba.
+
+---
+
+# Meta Battle Decks — arte de la teja: «la ex representativa del deck» (2026-09-25)
+
+Pedido del dueño: «En las imágenes hay que poner la EX representativa del deck» / «No cualquier carta en los decks».
+El contrato no fija la regla (`imageUrl` de `GET /decks-meta`); es decisión de implementación. Código:
+`backend/src/modules/decks-meta/deck-image.ts` (`pickDeckImage(deckName, imageCardId, cards)`, función pura),
+pruebas en `deck-image.spec.ts`.
+
+**Medido antes de decidir:** Limitless trae el nombre del arquetipo SIN «ex» (`test/fixtures/limitless/home-index.html`:
+«Dragapult», «Basic Box», «Alakazam», «N's Zoroark», «Slowking», «Mega Excadrill»). El jalado automático
+(`decks-meta-refresh.service.ts`, upsert de `MetaDeck`) NO escribe `imageCardId`. La regla vieja tomaba la primera
+Pokémon casada en el orden en que Prisma devolvía las líneas (sin `orderBy`) ⇒ típicamente una básica.
+
+**Regla** (sólo líneas casadas, grupo Pokémon, con imagen de catálogo; nunca arte externo):
+1. `imageCardId` del admin, si sigue en la lista.
+2. La **ex** cuyo nombre aparece en el nombre del deck (palabras completas; si hay varias, la que aparece antes:
+   «Gardevoir ex / Jellicent ex» ⇒ Gardevoir ex; «Charizard Pidgeot» ⇒ Charizard ex).
+3. (2b) Si ninguna ex casa por nombre: la Pokémon NO-ex cuyo nombre aparece en el del deck («Alakazam» ⇒ Alakazam,
+   no Fezandipiti ex). Añadido al orden pedido porque los nombres de Limitless lo hacen necesario.
+4. La ex con más copias (sumando impresiones). 5. La Pokémon con más copias. 6. `null`.
+
+Normalización: minúsculas, sin acentos (NFD), apóstrofo tipográfico ⇒ recto, «ex»/«EX» suelto fuera; ex = nombre
+terminado en «ex» (cualquier caja) o `subtypes` con «ex». Coincidencia: nombre completo sin «ex» primero, luego la
+especie (última palabra: «Teal Mask Ogerpon ex» casa con «Ogerpon»). Desempates deterministas: completa > especie;
+posición más temprana; nombre más largo («Mega Excadrill ex» > «Excadrill»); más copias; nombre ascendente.
+Varias impresiones de la misma carta: más copias en su línea, luego `externalId` ascendente.
+
+**Propuesta (no implementada, requiere arquitecto):** la home de Limitless ya trae la carta que Limitless usa como
+portada del arquetipo: `a.leader-image img[alt="TWM-130"]` (set+número; en el fixture: TWM-130, TWM-25, MEG-56,
+JTG-98, SCR-58, PBL-65). `limitless-html.parser.ts` no la extrae hoy. Casándola por `ptcgoCode`+`number` como el
+resto de líneas y guardándola en `imageCardId` (o en un campo nuevo, para no pisar la elección del admin) daría la
+portada exacta de la fuente sin heurística de nombres.

@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CatalogService, DeckMetaUnitDTO } from '../catalog/catalog.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseDeckList } from './deck-list.parser';
+import { pickDeckImage } from './deck-image';
 import { DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import {
   AUTOFETCH_DIAL_VALUES,
@@ -174,7 +175,7 @@ export class DecksMetaService {
         ...(fromPriceMxnCents > 0 ? { fromPriceMxnCents } : {}),
         availableCount,
         totalCount,
-        imageUrl: pickDeckImage(deck.imageCardId, cards),
+        imageUrl: pickDeckImage(deck.name, deck.imageCardId, cards),
       };
     });
 
@@ -491,20 +492,4 @@ function fromMatchedLine(m: MatchedLine): StoredLine {
     matchStatus: m.matchStatus,
     matchedCard: m.matchedCard,
   };
-}
-
-/** Arte del deck: la carta configurada, o la primera Pokémon casada con imagen. Nunca arte externo. */
-function pickDeckImage(
-  imageCardId: string | null,
-  cards: { matchStatus: MetaMatchStatus; group: MetaCardGroup; matchedCard: (Card & { set: CardSet }) | null }[],
-): string | null {
-  if (imageCardId) {
-    const configured = cards.find((c) => c.matchedCard?.id === imageCardId)?.matchedCard;
-    if (configured) return configured.imageLargeUrl ?? configured.imageSmallUrl ?? null;
-  }
-  const firstPokemon = cards.find(
-    (c) => c.matchStatus === MetaMatchStatus.matched && c.group === MetaCardGroup.pokemon && c.matchedCard,
-  )?.matchedCard;
-  if (firstPokemon) return firstPokemon.imageLargeUrl ?? firstPokemon.imageSmallUrl ?? null;
-  return null;
 }
