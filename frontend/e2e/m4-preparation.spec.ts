@@ -158,12 +158,6 @@ for (const vp of VIEWPORTS) {
     });
 
     /**
-     * **PR-1 en navegador, y es env-AGNÓSTICO a propósito:** la cubeta `vault` está vacía **en los
-     * dos modos**, porque las órdenes `fulfillmentMode='vault'` no generan `ShipmentRequest`
-     * (hallazgo medido del arquitecto, §M4-PREP). Es el único candado de esta pantalla que el
-     * backend real puede satisfacer hoy sin sembrar nada.
-     */
-    /**
      * ⭐⭐ **PR-11..PR-16 (§35.14 A-4 · §35.15) — EL `409` DE FILA CORRUPTA, EN NAVEGADOR.**
      *
      * `realOnly` porque la corrida de mocks **no emite red** y aquí se intercepta la respuesta del
