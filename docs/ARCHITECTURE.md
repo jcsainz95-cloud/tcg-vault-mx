@@ -4,6 +4,19 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.79.4 — EL SETTLE DEL PAGO ES UN CAS: «UN HECHO, UN INSTANTE» TAMBIÉN BAJO CARRERA** (2026-09-25, arquitecto.
+> Base: **v1.79.3, vigente entera salvo lo que esta rev toca**. Origen: hallazgo medido por backend, commit `6eb5f1d`.
+> `API_CONTRACT` sube a **v1.79.4**; norma y pruebas en `API_CONTRACT §M4-VAULT.2-bis.1` y `.8` (35–39). ⛔ **Sin schema,
+> sin migración, sin endpoint, ningún código de error nuevo.** ⚠️ **Toca una escritura de `Order`** (tabla del dinero):
+> solo la conducta del **perdedor** de la carrera; el camino secuencial, idéntico.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ El `order.update` del settle (ramas `vault` y `direct_ship`) pasa a `updateMany` con `status: { not: 'settled' }` en el `WHERE`, **primera** escritura de la tx; `count 0` ⇒ el perdedor no escribe ni avisa | §4.21q (n) | **Sí, solo backend** |
+> | **2** | 🔴 `API_CONTRACT §R.3` fila `AV-2`: su «motor» era cierto solo en secuencia; ahora es el CAS | §4.21q (n) | con la 1 |
+> | **3** | Observación **registrada, no decidida**: un `succeeded` tardío puede re-liquidar una orden `refunded`/`chargeback` (conducta previa) — para «Órdenes y dinero» | §4.21q (n) | **No** (en esta rev) |
+>
+> ---
 > **Rev v1.79.3 — «PARA BÓVEDA» CIERRA LOS HUECOS QUE ux-ui ANOTÓ AL DISEÑAR (`DESIGN_SYSTEM §36.13`)** (2026-09-25,
 > arquitecto. Base: **v1.79.2, vigente entera salvo lo que esta rev toca**. `API_CONTRACT` sube a **v1.79.3**; detalle y
 > verificación de cada hueco en `API_CONTRACT §M4-VAULT.12`. ⛔ **Schema `M-59` sin cambio.** ⛔ **Ningún código de error
@@ -7035,6 +7048,31 @@ ninguno falso.
 | Frontera de H-1: **admin** de «Bóvedas de clientes» | Extenderla también a la vista del propio cliente («Mi bóveda») o a todas las pantallas admin | La vista del cliente no pinta `owner` y es otro público; las demás pantallas admin (tarjeta `ship`, M6) son de otros streams — **NO MEDIDO** qué pintan. Se declara la frontera en vez de ensancharla a ciegas |
 | **H-4:** `locationId` opcional **solo** con cero cartas `picked`, decidido **bajo la puerta**; cierre directo `pending → cancelled` | Verbo de cierre aparte; o cajón siempre opcional | Un verbo aparte duplica puerta, preparado, CAS y bitácora, y obliga a la pantalla a escoger verbo con un conteo que puede estar viejo. Siempre opcional dejaría colocar cartas **sin cajón**. El conteo de `picked` es estable bajo la puerta porque las marcas solo se escriben sin preparar |
 | **H-2 / H-5:** `details` con el cajón **nombrable** que **sustituye** a los ids | Añadir `label`/`zone` junto a los ids | Dos llaves para un hecho. Los verbos no están construidos: no hay compatibilidad que guardar |
+
+**(n) v1.79.4 — El settle es un CAS (desviación medida por backend, se cierra en este stream).** Medido por backend
+(commit `6eb5f1d`, N=10 por corrida): con dos `payment_intent.succeeded` concurrentes del mismo PI y event.id distintos,
+`VaultPlacement.createdAt ≠ Order.settledAt` en 10/10 aislada y 8/10 en suite completa. Causa previa a M-59: el
+early-return por `settled` se lee fuera de la tx (`payments.service.ts:192`) y el `order.update` del settle solo filtra
+por `id` ⇒ el perdedor re-escribe `settledAt`. Por lectura del código (⛔ NO MEDIDO en ejecución) la misma carrera manda
+**dos `AV-2`** y, en invitado, **dos** confirmaciones. Norma: `API_CONTRACT §M4-VAULT.2-bis.1`.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **Cerrar ahora, en este stream** | Registrarlo como deuda | `INV` «un hecho, un instante» es promesa de M-59 (este stream) y hoy es falsa bajo carrera; el arreglo es **una** sentencia con precedente en el mismo fichero (`REL-B`, `:313`) y cierra además un doble correo al cliente. Deuda aquí sería dejar escrita una garantía que no se cumple |
+| CAS en el `WHERE` (`updateMany` + `count`), primera escritura de la tx, **las dos ramas** | `SELECT … FOR UPDATE` + `if`; `Serializable`; arreglar solo `vault` | Una sentencia es atómica por construcción (Postgres re-evalúa el `WHERE` tras el candado bajo `READ COMMITTED`); `Serializable` añade reintentos a un webhook; `direct_ship` tiene el mismo defecto (re-escribe `settledAt`, tarjeta, y duplica correo) — un arreglo en una rama deja la otra con dos verdades |
+| Predicado `status: { not: 'settled' }` | `status: 'pending'` | Es la negación **exacta** del early-return: el camino secuencial no cambia de estados de origen. Estrechar a `pending` dejaría de liquidar un `succeeded` tras `payment_failed` del mismo PI — decisión de dinero que no es de este arreglo |
+| El perdedor: `200`, cero escrituras, cero avisos | Dejar que siga su bucle (hoy es inocuo) | Cualquier escritura del perdedor es otra fuente de «quién liquidó»; y los avisos cuelgan de «¿gané?», que solo el `count` sabe |
+| Se conservan el early-return y los `skipDuplicates` | Quitarlos por redundantes | El early-return ahorra el `getCardDetails` y el ruido de H1 en la reentrega secuencial; `skipDuplicates` es segunda defensa (su prueba de carrera deja de morder y se declara — `API_CONTRACT` prueba 39) |
+
+⚠️ **Precondición de reparto (O-12/zonas):** `payments` es del stream «Órdenes y dinero». Esta rama ya lo tocó en fase 1
+(M-59). ⛔ **NO MEDIDO** por el arquitecto si otra sesión tiene `payments.service.ts` abierto: lo comprueba el
+orquestador antes de encargarlo.
+
+⚠️ **Observación registrada, NO decidida (para «Órdenes y dinero»):** el settle liquida desde **cualquier** estado salvo
+`settled` — también `refunded` y `chargeback`. Un `succeeded` tardío (event.id distinto) sobre una orden reembolsada o
+contracargada la volvería `settled` y movería piezas. Conducta **previa**, que el CAS conserva a propósito para no mezclar
+decisiones. ⛔ **NO MEDIDO** si Stripe llega a emitir ese evento en esa secuencia. Decidir el conjunto de estados de
+origen liquidables es una rev propia, con el dueño si cambia qué pagos se aceptan.
 
 ---
 

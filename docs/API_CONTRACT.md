@@ -2,7 +2,27 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-25 (rev **v1.79.3**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-25 (rev **v1.79.4**).
+>
+> **Changelog v1.79.4 — EL SETTLE DEL PAGO GANA UN CAS: «UN HECHO, UN INSTANTE» TAMBIÉN BAJO CARRERA, Y `AV-2` DE VERDAD
+> UNA VEZ (2026-09-25, arquitecto; base v1.79.3, vigente entera salvo lo que esta rev toca). Origen: hallazgo MEDIDO por
+> backend en la fase 1 de M-59 (commit `6eb5f1d`, `BACKEND_NOTES` §M4-VAULT·M-59 §4): con dos entregas concurrentes del
+> webhook `payment_intent.succeeded` (event.id **distintos**, mismo PI — la prueba C genera un id por entrega),
+> `VaultPlacement.createdAt ≠ Order.settledAt` en **10/10** aislada y **8/10** en suite completa (N=10 cada una, medido por
+> backend). ⛔ **Sin schema, sin migración, sin endpoint, sin tipo, ⛔ ningún código de error nuevo.** Es una escritura
+> sobre `Order` (tabla del dinero): cambia **solo** la conducta del perdedor de la carrera; el camino secuencial queda
+> idéntico.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **El `order.update` del settle pasa a CAS** — `tx.order.updateMany({ where: { id, status: { not: 'settled' } }, data })` como **primera** escritura de la tx, en las **dos** ramas (`vault` y `settleDirectShipOrder`). `count === 0` ⇒ el perdedor **no escribe nada más** (ni piezas, ni movimientos, ni colocación, ni envío) y **no avisa** (ni `AV-2`, ni confirmación de invitado, ni auditoría de anomalías) ⇒ `200` idempotente | [§M4-VAULT.2-bis](#M4-VAULT) | **Sí, solo backend** |
+> | **2** | 🔴 **Corrección de §R.3 fila `AV-2`:** «MOTOR: early-return con `status === 'settled'`» **era falso bajo concurrencia** (la lectura está fuera de la tx; derivado de leer `payments.service.ts:192,240-298`; ⛔ **NO MEDIDO en ejecución**). El motor pasa a ser el CAS de la fila 1 — misma clase que `AV-5/AV-6` en v1.76 | §R.3 | con la fila 1 |
+> | **3** | Pruebas **35 a 39** de §M4-VAULT.8 (la medición informativa de la prueba C pasa a **aserción**) | §M4-VAULT.8 | con la fila 1 |
+>
+> **Lo que NO cambia:** qué estados de origen liquida el settle (sigue siendo «cualquiera salvo `settled`», exactamente la
+> negación del early-return de hoy — ver .2-bis «Por qué `not: 'settled'` y no `'pending'`»); el early-return (queda como
+> atajo); el `skipDuplicates` de la colocación y de sus filas (queda como segunda defensa); `onChargeDisputeClosed(won)`;
+> todo lo de v1.79.3.
 >
 > **Changelog v1.79.3 — §M4-VAULT CIERRA LOS HUECOS QUE ux-ui ANOTÓ AL DISEÑAR LA PANTALLA (`DESIGN_SYSTEM §36.13`,
 > v4.7) (2026-09-25, arquitecto; base v1.79.2, vigente entera salvo lo que esta rev toca). Cada hueco se verificó
@@ -15558,6 +15578,10 @@ Detalle completo de estas piezas planeadas: borrador `docs/specs/PEDIDOS_A_PREPA
 > opcional sin cartas tomadas; `details` nombrables en `409 PLACEMENT_NOT_PENDING` y `422 not_customer_drawer`) · **.7**
 > (qué cambia para quién) · **.8** (pruebas 27–34) · **.10** (el `details` del `409` del `DELETE`) · **.12** (NUEVA: la
 > verificación de cada hueco). ⛔ Schema `M-59` **idéntico**. ⛔ Ningún código de error nuevo.
+>
+> ⭐ **v1.79.4 (2026-09-25) — el settle gana un CAS** (hallazgo medido por backend, commit `6eb5f1d`). Sitios: **.2-bis**
+> («un hecho, un instante» bajo carrera: CAS en el `order.update` del settle, el perdedor no escribe ni avisa) · **.8**
+> (pruebas 35–39) · §R.3 fila `AV-2` (corrección). ⛔ Schema `M-59` **idéntico**. ⛔ Ningún código de error nuevo.
 
 ##### M4-VAULT.1 — El hecho de partida (medido)
 
@@ -15719,6 +15743,67 @@ tienda nunca procesó una venta real ⇒ no hay órdenes `vault` pasadas que rel
 - ⛔ **`onChargeDisputeClosed(won)` NO la crea ni la reabre**: cuando se gana un contracargo, las piezas ya volvieron
   a la plataforma (§M4-VAULT.6) — no hay nada del cliente que colocar.
 - ⛔ `settleDirectShipOrder` **no** la crea (un `direct_ship` nunca tiene `VaultPlacement`).
+
+###### M4-VAULT.2-bis.1 — ⭐⭐ v1.79.4: el settle es un CAS (el «un instante» también bajo carrera)
+
+**El defecto (medido por backend, commit `6eb5f1d`, N=10 por corrida):** dos entregas concurrentes del webhook
+(`payment_intent.succeeded`, **event.id distintos**, mismo PI) pasan las dos el `if (order.status === 'settled') return`
+(leído fuera de la tx, `payments.service.ts:192`). Las dos entran a su `$transaction`; la segunda **espera** el candado
+de fila del `UPDATE "Order"` de la primera y, al soltarse, su `order.update` —que filtra solo por `id`— **re-escribe**
+`settledAt` con **su** `now`. La colocación conserva el `now` de la primera (`ON CONFLICT DO NOTHING`) ⇒
+`createdAt ≠ settledAt` en 10/10 (aislada) y 8/10 (suite completa; las 2 iguales son coincidencia de milisegundo).
+Una sola colocación, sin `500`. *Alcance real:* dos entregas del **mismo** event.id ya no llegan aquí (guardia
+`ProcessedStripeEvent`, `payments.service.ts:133-143`); hace falta un **segundo evento** `succeeded` para el mismo PI.
+⛔ **NO MEDIDO** con qué frecuencia Stripe emite eso en producción — no se mide desde aquí. Se cierra igual: el
+contrato ya trata «otro event.id, mismo PI» como escenario (prueba B), el arreglo es una línea con precedente en el
+mismo fichero (`REL-B`, `payments.service.ts:313`) y cierra además el doble aviso (abajo).
+
+**Lo que la misma carrera hace hoy además (derivado de LEER el código; ⛔ NO MEDIDO en ejecución):** tras su commit,
+**las dos** entregas llegan a `notifyOrderSettled` (`:298` en `vault`, `:539` en `direct_ship`) ⇒ **dos `AV-2`** al
+registrado; en `direct_ship` de invitado, **dos** `guestMail.sendConfirmation` (`:516`). Nada entre la lectura de
+`:192` y esos envíos lo impide. En `direct_ship` la segunda también re-escribe `settledAt` y
+`paymentMethodBrand/Last4` (`:392-399`); ⛔ **no** duplica el envío (el `findFirst` de `:458` es sentencia nueva tras
+el commit de la primera, `READ COMMITTED`).
+
+**La norma (las dos ramas, un solo patrón):**
+
+```ts
+// Firma/pseudocódigo — lo implementa backend. PRIMERA escritura de la $transaction, en `vault` y en settleDirectShipOrder.
+const won = await tx.order.updateMany({
+  where: { id: order.id, status: { not: 'settled' } },   // ⭐ el estado en el WHERE (REL-B)
+  data: { status: 'settled', settledAt: now /* direct_ship: + paymentMethodBrand/Last4 si hay card */ },
+});
+if (won.count === 0) return { settled: false };          // ⛔ nada más en esta tx
+// … bucle de piezas, movimientos, createVaultPlacement(tx, order, now) | envío de fulfillment — SIN CAMBIO …
+return { settled: true };
+// FUERA de la tx: si !settled ⇒ return (⛔ ni AV-2, ni guestMail, ni audit de anomalías). Si settled ⇒ igual que hoy.
+```
+
+- **Por qué es correcto bajo `READ COMMITTED`** (el aislamiento de esta tx: no fija `isolationLevel`, medido
+  `rg isolationLevel backend/src` ⇒ solo `serializable-retry.ts`): el `UPDATE` del perdedor espera el candado de fila;
+  al soltarse, Postgres **re-evalúa el `WHERE` sobre la versión confirmada** ⇒ `status = 'settled'` ⇒ **0 filas**. Es
+  el mismo mecanismo del que ya dependen `REL-B` y el cierre directo de H-4. ⛔ Prohibido resolverlo con `SELECT … FOR
+  UPDATE` + `if` (dos sentencias donde basta una) o subiendo a `Serializable` (añade reintentos a un webhook).
+- **`updateMany` + `count`, ⛔ no `update` con `where` extendido:** `update` sin fila lanza `P2025` ⇒ `500` ⇒ Stripe
+  reintenta un settle ya aplicado. El perdedor debe salir **200 limpio**.
+- **Por qué `not: 'settled'` y ⛔ no `status: 'pending'`:** el CAS es la **negación exacta** del early-return de hoy,
+  movida al motor. Así el camino secuencial es **idéntico** (mismos estados de origen liquidables: `pending`, y hoy
+  también `failed`, `refunded`, `chargeback`) y lo único que cambia es el perdedor de la carrera. Estrechar a `pending`
+  **cambiaría** qué pagos se liquidan (p. ej. un `succeeded` tras un `payment_failed` del mismo PI) — eso es una
+  decisión de dinero distinta, no parte de este arreglo. ⚠️ *Observación registrada, NO decidida aquí:* que un
+  `succeeded` tardío pueda re-liquidar una orden `refunded`/`chargeback` es conducta **previa** (el early-return solo
+  mira `settled`); se anota en `ARCHITECTURE §4.21q (n)` para el stream «Órdenes y dinero». ⛔ **NO MEDIDO** si es
+  alcanzable con eventos reales de Stripe.
+- **El perdedor, exacto:** `200`; ⛔ cero escrituras más en la tx (ni `inventoryItem`, ni `inventoryMovement`, ni
+  `vaultPlacement*`, ni `shipmentRequest`); ⛔ cero `AV-2`, cero confirmación de invitado, cero `audit.log` de
+  anomalías; el marcador `ProcessedStripeEvent` de **su** event.id queda (no debe reintentarse). La llamada previa a
+  `stripe.getCardDetails` de `direct_ship` (lectura, fuera de la tx) puede ocurrir en el perdedor: sin efecto.
+- **Lo que queda como está:** el early-return de `:192` (atajo: evita el `getCardDetails` y el ruido de H1 en la
+  reentrega secuencial); `createMany … skipDuplicates` de la colocación y de sus filas (segunda defensa: con el CAS el
+  conflicto ya **no se alcanza** por esta carrera — ver prueba 39 sobre qué deja de morder).
+- **Garantías resultantes:** `Order.settledAt` se escribe **una vez** por liquidación y `VaultPlacement.createdAt ===
+  Order.settledAt` también bajo carrera; `AV-2` (y la confirmación de invitado) salen **una** vez por liquidación.
+- ⛔ `onChargeDisputeClosed(won)` (`settledAt: order.settledAt ?? new Date()`) **no** se toca: conserva el instante.
 
 ##### M4-VAULT.3 — La cola: `PreparationOrderDTO` pasa a UNIÓN DISCRIMINADA
 
@@ -16333,6 +16418,40 @@ la **5** cambia y se añaden de la **12** a la **20**. ⭐ v1.79.2: se añaden d
 '\bPreparationStateDTO\b' docs/API_CONTRACT.md frontend/src/types` solo encuentra las líneas de changelog/errata de
 v1.79.3; si `contract.ts` declarara un `PreparationStateDTO` suelto, el `tsc` de frontend no lo atraparía — por eso se
 comprueba el nombre, no el tipo.
+
+⭐ **v1.79.4 — pruebas 35 a 39** (el CAS del settle, §M4-VAULT.2-bis.1). Carreras con **entrelazado forzado** (la técnica de
+la prueba C: candado de fila sobre `Order` + `esperarBloqueoDeFila`), **N ≥ 10**, se reporta la proporción (O-3):
+
+35. ⭐⭐ **`vault` — un instante, bajo carrera** (integración, Postgres real, webhook firmado, event.id distintos). La
+    medición informativa de la prueba C **pasa a aserción**, en **todas** las tiradas: dos `200`, **una** colocación con
+    sus filas, `vp.createdAt === order.settledAt`, **y cero re-liquidaciones**. Esto último se mide con un **trigger de
+    prueba** (patrón de la prueba D, se borra en `afterAll`) que registra cada `UPDATE` de `"Order"` de las órdenes de la
+    prueba con `OLD.status = 'settled' AND NEW.status = 'settled'` ⇒ debe contar **0**. *Por qué el trigger:* la igualdad de
+    fechas sola pasa por coincidencia de milisegundo (backend midió 2/10 así); el conteo no. **Debe estar roja hoy**
+    (backend: 10/10 desfasadas aislada). **Mutación (sobre copia del árbol entero, O-9):** quitar `status` del `WHERE`
+    ⇒ roja; reportar proporción de tiradas rojas.
+36. ⭐⭐ **`AV-2` una sola vez.** (a) *Unidad (determinista):* doble de Prisma con `order.updateMany → { count: 0 }` ⇒
+    `mail.send` **0** llamadas, `guestMail.sendConfirmation` **0**, y **0** llamadas a `inventoryItem.updateMany`,
+    `inventoryMovement.create`, `vaultPlacement.createMany`, `vaultPlacementItem.createMany`, `shipmentRequest.create`,
+    `audit.log`; con `{ count: 1 }` ⇒ exactamente lo de hoy (1 `AV-2` al registrado). Las dos ramas. (b) *Integración:*
+    en la carrera de la 35, **un** `AV-2` por orden, si el harness puede contar correos enviados — ⛔ **NO MEDIDO** que
+    `E2EHarness` exponga esa captura (`rg -i mail backend/test/integration/helpers/e2e-app.ts` no la muestra); si no la
+    expone, basta (a) y se dice en `BACKEND_NOTES`. *Muerde* a quien ponga el CAS pero siga avisando tras `count 0`.
+37. **`direct_ship` — la misma carrera** (registrado **e** invitado): en todas las tiradas, dos `200`, **un**
+    `ShipmentRequest` activo, trigger de la 35 en **0**, `paymentMethodBrand/Last4` escritos una vez; confirmación de
+    invitado **1** / `AV-2` **1** (registrado) — por (a) de la 36 si la captura no existe. *Muerde* a quien arregle solo la
+    rama `vault`.
+38. **Candado de NO-cambio del camino secuencial.** (i) La prueba B sigue verde tal cual. (ii) Orden en `failed` que
+    recibe `succeeded` ⇒ se liquida **como hoy** (`status='settled'`, `settledAt` escrito). *Muerde* a quien estreche el
+    `WHERE` a `status: 'pending'` sin decisión (§M4-VAULT.2-bis.1). (iii) Forma (unidad): la escritura de la orden es
+    `updateMany` con `where` **exactamente** `{ id, status: { not: 'settled' } }`, es la **primera** escritura de la tx, y
+    su `data` sigue siendo exactamente `{ status, settledAt }` en `vault` (⛔ cero dinero — el candado de fase 1 se
+    conserva, cambiando solo el método).
+39. **Lo que deja de morder, declarado.** Con el CAS, la carrera **ya no alcanza** el `INSERT` de la colocación del
+    perdedor ⇒ la mutación de fase 1 «`create` a secas ⇒ 0/10» **deja de ponerse roja por la prueba C**. ⛔ No se quita
+    `skipDuplicates`: queda como segunda defensa, candada **por forma** en la unidad (`payments.vault-placement-birth.spec.ts`
+    ya exige `skipDuplicates: true`). Backend confirma en `BACKEND_NOTES`, sobre copia, qué prueba muerde ahora a cada
+    una de las dos mutaciones (quitar `status` del `WHERE` / `create` a secas) — ⛔ NO MEDIDO por el arquitecto.
 
 ##### M4-VAULT.9 — Respuestas del dueño (2026-09-25), las que quedan con valor por defecto y dónde cambia cada una (v1.79.2: ya no queda ninguna PROVISIONAL preguntada)
 
@@ -23358,7 +23477,7 @@ cuelga de `User`). ⇒ para el invitado **no existe el pendiente**, no es que no
 | # | Correo | Cuelga de (medido) | Destinatario (R.5) | «Una sola vez» lo garantiza |
 |---|---|---|---|---|
 | **AV-1** | **Rechazo de identidad, con motivo** | `AdminService.updateUserKyc`, rama `kycStatus==='rejected'` | `User.email` del `:id` | ⭐ **SELLO** `kycRejectionNoticeSentAt`. **Es el ÚNICO que no tiene guarda de motor**: el `upsert` **no mira el estado actual**, así que N rechazos seguidos serían N correos (`PROJECT §R.4`) |
-| **AV-2** | **Pedido liquidado — SOLO al REGISTRADO** | el settle de `PaymentsService` (las **dos** ramas: bóveda y `direct_ship`), **post-commit** | `Order.user.email` | **MOTOR**: el settle hace early-return con `status === 'settled'` ⇒ un reintento de Stripe no duplica |
+| **AV-2** | **Pedido liquidado — SOLO al REGISTRADO** | el settle de `PaymentsService` (las **dos** ramas: bóveda y `direct_ship`), **post-commit** | `Order.user.email` | 🔴 **v1.79.4 — CORREGIDO.** ~~MOTOR: el settle hace early-return con `status === 'settled'` ⇒ un reintento de Stripe no duplica~~ **cierto solo en secuencia**: la lectura está fuera de la tx y dos `succeeded` concurrentes (event.id distintos) la pasan los dos ⇒ dos `AV-2` (derivado de leer `payments.service.ts`; ⛔ NO MEDIDO en ejecución). **MOTOR sí, el CAS del settle: `updateMany` con `status: { not: 'settled' }` en el `WHERE` + `count === 1` para avisar** ⇒ §M4-VAULT.2-bis.1. ⛔ Sin columna nueva |
 | **AV-3** | **Reembolso** | `onChargeRefunded`, **solo el reembolso TOTAL** (el parcial ⛔ no transiciona y ⛔ no avisa) | `guestEmail ?? user.email` | **MOTOR**: `if (order.status === 'refunded') return` |
 | **AV-4** | **Guía al COMPRADOR** (transportista + número) | ⭐ **`ShipmentsService.setTracking` — ⛔ JAMÁS el cambio de estado.** Ver R.3.a | R.5 (envío) | ⭐ **SELLO** `trackingNoticeSentAt`: `setTracking` **no tiene ninguna guarda** (`D-AV-1`) |
 | **AV-5** | **Salida del envío (`enviado`)** | `ShipmentsService.updateStatus(to='enviado')` | R.5 (envío) | 🔴 **v1.76 — CORREGIDO.** ~~MOTOR: la tabla `TRANSITIONS`~~ **era FALSO** (medido: **13/13 trials duplicaron**, 3–10 correos). **MOTOR sí, pero el que hay que construir: `updateMany` con `status = 'guia'` en el `WHERE` + `count === 1`** ⇒ **R.4.c**. ⛔ Sigue **sin columna nueva**: `shippedAt` es el sello |
