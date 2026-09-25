@@ -4,6 +4,18 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.79.2 — «PARA BÓVEDA» CIERRA SUS PREGUNTAS: DESHACER «PREPARADO», NOMBRE Y APELLIDO, LO FÍSICO ES DEL DUEÑO**
+> (2026-09-25, arquitecto. Base: **v1.79.1, vigente entera salvo lo que esta rev toca**. Fuente: `HECHOS.md`, última
+> fila de decisiones. `API_CONTRACT` sube a **v1.79.2**. ⛔ **Schema `M-59` sin cambio.** ⛔ **Ningún código de error
+> nuevo.** ⛔ **Cero dinero.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Deshacer «preparado»** (`DELETE …/vault-placements/:id/prepared`): puerta del cliente + CAS con el estado en el `WHERE`, solo `pending`, **conserva las marcas por carta**, bitácora con el sello borrado en `before` | §4.21q (j) | **Sí, backend + frontend** |
+> | **2** | ⭐ **Nombre y apellido en primer plano:** titular = `User.name` entero; un nombre fabricado del correo (`nameSource='derived'`) es `null` en la cubeta `vault` y en la vista física | §4.21q (l) | **Sí, backend + frontend** |
+> | **3** | El sistema ⛔ **no** vigila muebles, numeración ni cajones compartidos; sin aviso al cliente al colocar. P-A y P-D: valor por defecto, **no preguntadas** | §4.21q (i) | **No** |
+>
+> ---
 > **Rev v1.79.1 — ⭐⭐ «PARA BÓVEDA» CON LAS RESPUESTAS DEL DUEÑO: UN CLIENTE = UN CAJÓN, PALOMEAR (SOLO BÓVEDA) Y
 > VISTA DE INVENTARIO FÍSICO** (2026-09-25, arquitecto. Base: **v1.79, vigente entera salvo lo que esta rev toca**.
 > `API_CONTRACT` sube a **v1.79.1**. v1.79 no se construyó ⇒ `M-59` se **amplía**, no hay migración aparte. ⛔ **Cero dinero.**)
@@ -6922,6 +6934,8 @@ el reembolso no (coherente con A1).
   cliente). Las anomalías de otras vías se **nombran**, no se corrigen.
 - ⭐ v1.79.1 — `INV-VP-4` se **extiende** a palomear/preparar: escriben solo `VaultPlacement`/`VaultPlacementItem` +
   `AuditLog`; ⛔ nunca `InventoryItem`. Una carta `missing` **no mueve nada** (ni pieza, ni dinero, ni aviso).
+  ⭐ v1.79.2: **deshacer «preparado»** entra en la misma extensión, y más estrecho: escribe **solo** `VaultPlacement.
+  preparedAt/preparedByUserId` (a `NULL`) + `AuditLog`; ⛔ ni `VaultPlacementItem`.
 
 **(h) Zonas compartidas y streams (para el orquestador).** Toca `backend/prisma/` (schema), `payments` y `shipments`
 («Órdenes y dinero»), `vault`/`inventory` («Inventario y vault»), `common/error-codes.ts`, y en frontend
@@ -6935,7 +6949,12 @@ en `shipments` y **lee** `VaultPlacement`; la función `suggestVaultLocation` vi
 **(i) Provisional (dueño, `PROJECT §S.8` #7–#11):** cada respuesta cambia **un solo sitio** — tabla en
 `API_CONTRACT §M4-VAULT.9`. ⛔ El diseño no las da por contestadas; las marca. ⭐ **v1.79.1:** #7, #8, #9 y #11
 **contestadas** (2026-09-25); quedan cinco preguntas nuevas/abiertas (retirar antes de colocar, aviso, muebles con la
-misma numeración, cliente que vació su bóveda, cajón compartido) — misma tabla.
+misma numeración, cliente que vació su bóveda, cajón compartido) — misma tabla. ⭐ **v1.79.2:** contestadas **P-B**
+(sin aviso), **P-C** (*«solo necesito que me digas nombre y apellido»* ⇒ ver (l)), **P-E** (*«yo me encargo del
+aspecto físico»* ⇒ el sistema no vigila cajones compartidos) y **deshacer «preparado»** (sí ⇒ ver (j)). **P-A** y
+**P-D** quedan con su **valor por defecto, no preguntadas** (retirar antes de colocar = permitido; quien vació su
+bóveda = nuevo). *Principio que sale de P-C/P-E:* **lo físico es del dueño; el sistema dice de quién es y qué debe
+haber** — ⛔ no modela muebles, numeración ni exclusividad de cajón.
 
 **(j) v1.79.1 — Palomear y «preparado»: por qué una tabla por carta, por qué una puerta, y por qué solo bóveda.**
 
@@ -6957,7 +6976,22 @@ VaultPlacement (pending) ──► palomear cartas (VaultPlacementItem: pending 
 | **Puerta por cliente** (`pg_advisory_xact_lock`) en palomear, preparar y colocar | Solo CAS sobre `VaultPlacement` | *Write skew:* preparar decide sobre N cartas y des-palomear escribe una sin tocar `VaultPlacement` ⇒ el CAS no ve el conflicto. Y la regla «un cliente = un cajón» cruza pedidos. Una puerta por cliente cierra las dos; la contención es nula (un cliente, un operador) |
 | **Solo bóveda** | Palomear también envío | Medido en `shipments.service.ts · updateStatus`: las ramas terminales mueven **todas** las `ShipmentItem` (`withdrawn` en retiro; `shipped/delivered` en directo) ⇒ una carta «faltante» saldría como entregada. Decidir su destino es la DECISIÓN #2 (💰). En bóveda una faltante simplemente no se mueve |
 
-⛔ **Límite declarado:** no hay «deshacer preparado». Es un verbo si el dueño lo pide (API_CONTRACT §M4-VAULT.9).
+~~⛔ **Límite declarado:** no hay «deshacer preparado».~~ ⭐ **v1.79.2 — el dueño lo pidió: `DELETE …/prepared`.**
+
+```
+pending + preparedAt ──DELETE …/prepared──► pending + preparedAt NULL   (marcas por carta INTACTAS)
+   │                                            │ PATCH …/prep-items vuelve a abrir → corregir la marca mal puesta
+   └──confirm──► placed  (sin vuelta: deshacer sobre placed = 409 PLACEMENT_NOT_PENDING)
+```
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **Conservar** las marcas por carta | Resetear todas a `pending` | El dueño pidió **corregir**, no rehacer; y el reset borraría marcas `missing` **sin** su bitácora `item_missing_cleared` ⇒ una faltante «reaparecería» sin que nadie lo dijera. Corregir una por una con el `PATCH` sí deja rastro |
+| Bitácora con **`before: {preparedAt, preparedByUserId}`** | Solo `after` | La fila **pierde** el sello al limpiarlo: la bitácora es su único rastro. Sin `before`, «quién preparó mal» desaparece |
+| `200 not_prepared` idempotente | `409 PLACEMENT_NOT_PREPARED` | El estado pedido ya es el actual; simétrico a `already_prepared`. ⇒ **ningún código nuevo** |
+| Solo `pending` | Permitir sobre `placed` («descolocar») | Nadie lo pidió, y exigiría deshacer movimientos de inventario: otro verbo, otro diseño |
+| Misma puerta del cliente + CAS `status='pending' ∧ preparedAt NOT NULL` | Solo la puerta | La carrera con `confirm` queda cerrada **tres veces**: la puerta (orden), los dos CAS sobre **la misma fila** (el perdedor re-evalúa su `WHERE` y cuenta 0; el `confirm` reclama **antes** de mover) y el `CHECK INV-VP-6`. La puerta es la capa que da el `409` limpio; las otras dos hacen que quitarla no produzca un estado falso |
+| ⛔ Sin cambio de schema | Columna `unpreparedAt` / historial de sellos | El historial vive en `AuditLog` (`prepared` / `unprepared`, con `before`). Los `CHECK` de v1.79.1 ya admiten volver a `NULL` los dos campos a la vez |
 
 **(k) v1.79.1 — Inventario físico esperado por cliente.** El dueño: *«saber qué cartas deben estar en bóveda por
 cliente»*. Lo que existía (`/admin/vaults` y hermanas) es **valuación**, agrupada por set/producto, y no dice dónde
@@ -6966,6 +7000,19 @@ Clasifica cada pieza que debe estar en bóveda en **cinco estados** con preceden
 `pending_placement` › `in_drawer` › `unlocated`— y dice el cajón del cliente con **la misma** función que la cola
 (`customerDrawers`): *una cola que dice «su cajón es X» y una vista que dice «Y» serían dos verdades.* Distingue
 **colocado** (`in_drawer`) de **pagado sin colocar** (`pending_placement`), y pone las anomalías **arriba**.
+
+**(l) v1.79.2 — «Nombre y apellido» (P-C).** Medido en `schema.prisma · model User` (2026-09-25): un solo campo libre
+`name String` (NOT NULL) + `nameSource user|google|derived`; **no hay** campo de apellido. «Nombre y apellido» en
+pantalla = **`name` entero**, como titular; el correo, segunda línea, desempate entre homónimos.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| Titular = `fullName` entero | Titular = `lastName` derivado / «Apellido, Nombre» | `lastName` es el último token: falla con apellidos compuestos (§6.A) y **recorta** lo que el dueño pidió ver |
+| `nameSource='derived'` ⇒ **`null`** en la cubeta `vault` y la vista física | Emitir `User.name` + bandera `nameIsDerived` | `derived` = prefijo del correo que el servidor inventó (alta Google sin nombre). **Parece** un nombre y no lo es; como `null`, el consumidor **no puede** pintarlo por olvido (una bandera sí se olvida). Precedente: v1.67 ya prohíbe usar un nombre `derived` como destinatario |
+| ⛔ Sin campo `lastName` en `User` | Añadirlo | Es registro y perfil (stream «Cuentas y acceso»); el dueño pidió **ver** nombre y apellido, que ya se capturan en `name` |
+
+⚠️ **Asimetría declarada:** la cubeta `ship` (congelada en este stream) sigue emitiendo `User.name` aunque sea
+`derived`. Alinearla es una línea en su fuente cuando esa tarjeta se abra.
 
 ---
 

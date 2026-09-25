@@ -2,7 +2,26 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-25 (rev **v1.79.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-25 (rev **v1.79.2**).
+>
+> **Changelog v1.79.2 — §M4-VAULT CIERRA SUS PREGUNTAS: NOMBRE Y APELLIDO EN PRIMER PLANO, LO FÍSICO ES DEL DUEÑO,
+> SIN AVISO AL CLIENTE, Y NACE «DESHACER PREPARADO» (2026-09-25, arquitecto; base v1.79.1, vigente entera salvo lo
+> que esta rev toca). Origen: respuestas del dueño a P-B, P-C, P-E y «deshacer preparado», registradas en `HECHOS.md`
+> (última fila de decisiones, 2026-09-25) y citadas literales en [§M4-VAULT.9](#M4-VAULT). ⛔ **Schema `M-59` SIN
+> CAMBIO** respecto a v1.79.1 (el verbo nuevo solo pone a `NULL` dos columnas que ya existen y cuyos `CHECK` ya lo
+> admiten). ⛔ **Ningún código de error nuevo.** ⛔ CERO DINERO.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Verbo nuevo `DELETE /admin/vault-placements/:id/prepared` — deshacer «preparado»** (el dueño: **sí**). Bajo la puerta del cliente, CAS con el estado en el `WHERE` (`REL-B`), solo con la colocación `pending`; limpia `preparedAt/preparedByUserId`, **conserva las marcas por carta**, bitácora `vault_placement.unprepared` en la misma tx; `200` idempotente si ya no estaba preparado. Reusa `404` / `409 CONFLICT` / `409 PLACEMENT_NOT_PENDING`. Se retira el «límite declarado» de v1.79.1 | [§M4-VAULT.10](#M4-VAULT-10) | **Sí, backend y frontend** |
+> | **2** | ⭐ **«Nombre y apellido» en primer plano (P-C):** la cabecera de la fila `vault` y de la vista física es `customer.fullName` **entero, tal cual** (⛔ no el `lastName` derivado solo); el correo es la segunda línea, desempate. **Cambia una regla de fuente:** un nombre **fabricado del correo** (`User.nameSource='derived'`) sale como **`null`** — no es un nombre | [§M4-VAULT.3](#M4-VAULT), .11 | **Sí, backend y frontend** (el tipo no cambia; cambia el valor en un caso) |
+> | **3** | **P-E y el resto de P-C: el sistema NO vigila muebles, numeración ni cajones compartidos** (el dueño: *«yo me encargo del aspecto físico»*). ⛔ Ni `422` de exclusividad ni cambio de unicidad de `label` | §M4-VAULT.4, .9 | **No** (confirma lo que v1.79.1 ya hacía) |
+> | **4** | **P-B: sin aviso al cliente al colocar** — el paso 12 del `confirm` deja de ser provisional | §M4-VAULT.5, .9 | **No** |
+> | **5** | **P-A y P-D quedan con su valor por defecto, NO PREGUNTADAS** (envío antes de colocar = permitido; quien vació su bóveda = cliente nuevo). Se marcan así, ⛔ no como contestadas | §M4-VAULT.4, .6, .9 | **No** |
+>
+> **Lo que NO cambia:** los DTOs de v1.79.1 conservan **todos sus tipos** (el verbo nuevo **reutiliza** `VaultPlacementDTO`
+> y `VaultPreparationStateDTO`); los seis códigos de error de v1.79/v1.79.1; la cubeta `ship` y su `customer.fullName`
+> (ver la asimetría declarada en §M4-VAULT.3).
 >
 > **Changelog v1.79.1 — ⭐⭐ §M4-VAULT CON LAS RESPUESTAS DEL DUEÑO: UN CLIENTE = UN CAJÓN, PALOMEAR ENTRA (SOLO
 > BÓVEDA) Y NACE LA VISTA DE INVENTARIO FÍSICO POR CLIENTE (2026-09-25, arquitecto; base v1.79, vigente entera salvo
@@ -27,7 +46,8 @@
 > ⇒ los candados de doble venta no se tocan. **(d)** ⛔ la cubeta `ship` y su DTO (`ShipPreparationOrderDTO`) no
 > cambian. **(e)** ⛔ **no hay flujo de «mover a un cliente a otro cajón»**: nadie lo pidió.
 > ⚠️ **Siguen provisionales (preguntas al dueño, §M4-VAULT.9):** retirar antes de colocar, aviso al cliente, muebles
-> con la misma numeración, cliente que vació su bóveda, y si un cajón se comparte entre clientes.
+> con la misma numeración, cliente que vació su bóveda, y si un cajón se comparte entre clientes. *(→ v1.79.2:
+> contestadas P-B, P-C, P-E; P-A y P-D quedan con su valor por defecto, no preguntadas.)*
 >
 > **Changelog v1.79 — ⭐⭐ LA CUBETA «PARA BÓVEDA» DEJA DE ESTAR VACÍA: NACE `VaultPlacement` (la colocación en bóveda),
 > CON SCHEMA (2026-09-24, arquitecto; base v1.78.3, vigente entera salvo lo que esta rev toca). Origen: decisión del
@@ -5642,10 +5662,10 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
 - **`422 LOCATION_NOT_AVAILABLE` (v1.79 — NUEVO):** en `POST /admin/vault-placements/:id/confirm`, el cajón elegido no sirve para colocar: `details: { reason: 'not_found' | 'inactive' | 'not_customer_custody' }`. Se valida **antes** de reclamar la colocación ⇒ un `422` **no escribió nada**. Ver [§M4-VAULT.5](#M4-VAULT).
   ⭐ **v1.79.1:** gana `reason: 'not_customer_drawer'` — el cliente **ya tiene** cajón (o varios, anomalía) y el `locationId` pedido **no es uno de ellos** («un cliente = un cajón»). `details: { reason: 'not_customer_drawer', customerDrawerIds: string[] }`. Se valida bajo la puerta del cliente y **antes** de reclamar ⇒ no escribió nada.
 - **`409 PLACEMENT_NOT_PREPARED` (v1.79.1 — NUEVO):** en `POST /admin/vault-placements/:id/confirm`, la colocación sigue `pending` pero **no se ha dado por preparada** (CA #21 de §S: colocar va **después** de preparar). `details: { preparation: PreparationStateDTO }`. No escribió nada. Ver [§M4-VAULT.10](#M4-VAULT-10).
-- **`409 PREPARATION_CLOSED` (v1.79.1 — NUEVO):** en `PATCH /admin/vault-placements/:id/prep-items/:placementItemId`, el pedido **ya se dio por preparado**: las marcas por carta quedan fijas. `details: { preparedAt }`. No escribió nada.
+- **`409 PREPARATION_CLOSED` (v1.79.1 — NUEVO):** en `PATCH /admin/vault-placements/:id/prep-items/:placementItemId`, el pedido **ya se dio por preparado**: las marcas por carta quedan fijas. `details: { preparedAt }`. No escribió nada. ⭐ **v1.79.2:** fijas **hasta que se deshaga «preparado»** (`DELETE /admin/vault-placements/:id/prepared`, [§M4-VAULT.10](#M4-VAULT-10)); el remedio que la pantalla ofrece ante este `409` es ese verbo.
 - **`409 PREPARATION_INCOMPLETE` (v1.79.1 — NUEVO):** en `POST /admin/vault-placements/:id/prepared`, queda al menos una carta **preparable** sin palomear ni marcar faltante (CA #7 de §S). `details: { pendingCount }`. No escribió nada.
 - **`409 PREP_ITEM_BLOCKED` (v1.79.1 — NUEVO):** en `PATCH …/prep-items/:placementItemId` con `status: 'picked' | 'missing'`, la carta **no se puede colocar** (`placeability.kind === 'blocked'`). `details: { reason: VaultPlacementBlockReason }`. Volver a `pending` **nunca** da este error.
-- **`409 PLACEMENT_NOT_PENDING` (v1.79 — NUEVO):** en `POST /admin/vault-placements/:id/confirm`, la colocación ya no está pendiente: `details: { status: 'placed', locationId } | { status: 'cancelled', cancelReason }`. ⭐ **v1.79.1:** lo emiten **también** `PATCH …/prep-items/:placementItemId` y `POST …/prepared` sobre una colocación `placed`/`cancelled`, con el mismo `details`. ⚠️ **Ya colocada en el MISMO cajón NO es `409`**: es `200` idempotente (`outcome:'already_placed'`) — doble clic y el perdedor de una carrera al mismo cajón. El `409` también lo produce **una carrera** a cajones distintos: se declara para que no se lea como defecto. Ver [§M4-VAULT.5](#M4-VAULT).
+- **`409 PLACEMENT_NOT_PENDING` (v1.79 — NUEVO):** en `POST /admin/vault-placements/:id/confirm`, la colocación ya no está pendiente: `details: { status: 'placed', locationId } | { status: 'cancelled', cancelReason }`. ⭐ **v1.79.1:** lo emiten **también** `PATCH …/prep-items/:placementItemId` y `POST …/prepared` sobre una colocación `placed`/`cancelled`, con el mismo `details`. ⭐ **v1.79.2:** y `DELETE …/prepared` (deshacer «preparado») — es el `409` que recibe quien pierde la carrera contra un `confirm`. ⚠️ **Ya colocada en el MISMO cajón NO es `409`**: es `200` idempotente (`outcome:'already_placed'`) — doble clic y el perdedor de una carrera al mismo cajón. El `409` también lo produce **una carrera** a cajones distintos: se declara para que no se lea como defecto. Ver [§M4-VAULT.5](#M4-VAULT).
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
 - **`422 ITEM_NOT_OFFERED` (v1.51.20 — NUEVO; DINERO Y PROPIEDAD AJENA):** en `PATCH /admin/buylist/items/:itemId/decision`
@@ -14859,6 +14879,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - ⭐ `POST /api/v1/admin/vault-placements/:placementId/confirm` — **(v1.79, NUEVO)** coloca en bóveda las cartas de un pedido `vault` y sella quién/cuándo. Rol **operador+**. Forma, carrera e idempotencia en **[§M4-VAULT.5](#M4-VAULT)**. ⭐ v1.79.1: **exige el pedido preparado** y **el cajón del cliente** (un cliente = un cajón).
 - ⭐ `PATCH /api/v1/admin/vault-placements/:placementId/prep-items/:placementItemId` — **(v1.79.1, NUEVO)** palomea / marca faltante / deshace UNA carta de un pedido `vault`. Rol **operador+**. **[§M4-VAULT.10](#M4-VAULT-10)**.
 - ⭐ `POST /api/v1/admin/vault-placements/:placementId/prepared` — **(v1.79.1, NUEVO)** da por preparado un pedido `vault`; quién/cuándo de la sesión. Rol **operador+**. **[§M4-VAULT.10](#M4-VAULT-10)**.
+- ⭐ `DELETE /api/v1/admin/vault-placements/:placementId/prepared` — **(v1.79.2, NUEVO)** deshace «preparado» mientras la colocación siga `pending`; conserva las marcas por carta. Rol **operador+**. **[§M4-VAULT.10](#M4-VAULT-10)**.
 - ⭐ `GET /api/v1/admin/vaults/:userId/physical-inventory` — **(v1.79.1, NUEVO)** inventario físico **esperado** de un cliente: su cajón y qué cartas deben estar ahí. Rol **operador+**. **[§M4-VAULT.11](#M4-VAULT-11)**.
 - `PATCH /api/v1/admin/shipments/:id/status` — Req `{ to: ShipmentStatus }` (transiciones `solicitado→picking→guia→enviado→entregado`).
   - **v1.21 — RAMIFICACIÓN OBLIGATORIA por tipo de envío (`orderId == null`?):**
@@ -15491,6 +15512,12 @@ Detalle completo de estas piezas planeadas: borrador `docs/specs/PEDIDOS_A_PREPA
 > sin «lleno») · **.5** (puerta por cliente, exige preparado, exige el cajón del cliente, `missing` no se mueve) ·
 > **.7/.8** (roles y candados) · **.9** (respuestas y preguntas) · **.10** (palomear, NUEVA) · **.11** (vista de
 > inventario físico, NUEVA). ⛔ Nada de lo que v1.79 dijo del dinero, de `ShipmentRequest` ni de la pieza cambia.
+>
+> ⭐ **v1.79.2 (2026-09-25) — cierra las preguntas de .9** (fuente: `HECHOS.md`, última fila de decisiones). Sitios:
+> **.3** (nombre y apellido en primer plano; un nombre fabricado del correo sale `null`) · **.4/.6** (P-A y P-D: valor
+> por defecto, no preguntadas; P-E: el sistema no vigila cajones compartidos) · **.5** (paso 12 deja de ser
+> provisional) · **.8** (pruebas 21–26) · **.9** (tabla de contestadas) · **.10** (verbo nuevo `DELETE …/prepared`).
+> ⛔ Schema `M-59` **idéntico** al de v1.79.1. ⛔ Ningún código de error nuevo.
 
 ##### M4-VAULT.1 — El hecho de partida (medido)
 
@@ -15681,6 +15708,8 @@ export interface VaultPreparationOrderDTO {
   requestedAt: string;                  // VaultPlacement.createdAt (= momento de la liquidación)
   // v1.79.1 — «a nombre de quién está», INEQUÍVOCO: dos clientes pueden llamarse igual; su userId/email no.
   // (email: PII mínima ya visible para vault_operator en M6 y en /admin/vaults). ⛔ Sigue sin ordenar por apellido.
+  // v1.79.2 — TITULAR = fullName entero («nombre y apellido»); email = segunda línea (desempate). fullName null ⇔
+  // nombre en blanco O fabricado del correo (nameSource 'derived'). Ver «Nombre y apellido» abajo.
   customer: { userId: string; email: string; lastName: string | null; fullName: string | null };
   suggestedLocation: VaultLocationSuggestion;   // §M4-VAULT.4 (v1.79.1: un cliente = un cajón)
   preparation: VaultPreparationStateDTO;        // v1.79.1 — §M4-VAULT.10
@@ -15725,7 +15754,7 @@ export type VaultPlacementBlockReason =
 |---|---|
 | `placementId` / `requestedAt` | `VaultPlacement.id` / `VaultPlacement.createdAt` |
 | `orderId` / `orderNumber` | `VaultPlacement.orderId` / `Order.orderNumber` |
-| `customer.fullName` | `Order.user.name` (`nullIfBlank`); `lastName` derivado, **solo visual** (S.6: ⛔ no decide cajón ni orden) |
+| `customer.fullName` | `Order.user.name` (`nullIfBlank`); `lastName` derivado, **solo visual** (S.6: ⛔ no decide cajón ni orden). ⭐ **v1.79.2:** si `Order.user.nameSource = 'derived'` ⇒ **`null`** (ver «Nombre y apellido» abajo) |
 | `customer.userId` / `customer.email` | **v1.79.1** — `Order.userId` (no nulo por `INV-VP-2`) / `Order.user.email` |
 | `items[].placementItemId` / `prepStatus` | **v1.79.1** — `VaultPlacementItem.id` / `.prepStatus`. `items[]` **se lee de `VaultPlacementItem`** (una por `OrderItem`, `INV-VP-5`) |
 | `items[].currentZone` | **v1.79.1** — `InventoryItem.location.zone`; `null` ⇔ `currentLocation.kind==='unassigned'` |
@@ -15733,6 +15762,34 @@ export type VaultPlacementBlockReason =
 | `items[]` | **Todos** los `OrderItem` de la orden (⛔ no se omite ninguna: una carta que ya no se puede colocar **se muestra** con `blocked`, para que el operador no la busque) |
 | `items[].currentLocation` | `InventoryItem.location` con la **misma** función `locationViewOf` de §M4-PREP |
 | `items[].placeability` | **Colocable** ⇔ el predicado `P` de §M4-VAULT.5 (el MISMO cuerpo en lectura y en escritura). Si no: `in_withdrawal` si la pieza tiene `ShipmentItem` en un envío `picking\|guia\|enviado`; `not_in_custody` en cualquier otro caso |
+
+**⭐ v1.79.2 — «Nombre y apellido» (P-C: *«solo necesito que me digas nombre y apellido»*).** Medido en
+`backend/prisma/schema.prisma` · `model User` (2026-09-25): el nombre es **un solo campo libre**, `name String` (**NOT
+NULL**), más `nameSource NameSource @default(user)` con `user | google | derived`; ⛔ **no existe** un campo de
+apellido. `derived` = el alta Google llegó **sin nombre** y el servidor guardó `email.split('@')[0]` (§auth/google,
+v1.67.1) ⇒ **es un nombre fabricado**, no uno que alguien dijo. La norma:
+- **La cabecera de la tarjeta `vault` es `customer.fullName` ENTERO, tal cual se capturó** — eso es «nombre y
+  apellido» en este sistema. ⛔ **No** se reemplaza por `lastName` ni se reordena a «Apellido, Nombre»: `lastName` es el
+  último token (frágil ante apellidos compuestos, §6.A) y cortar el nombre **pierde** justo lo que el dueño pidió ver.
+  `lastName` sigue en el DTO, **solo visual y secundario** (y ⛔ no decide cajón ni orden, S.6).
+- **El correo (`customer.email`) va SIEMPRE, en segunda línea**: es el **desempate** entre homónimos, ⛔ no el titular.
+- **Fuente (backend):** `fullName = (User.nameSource === 'derived') ? null : nullIfBlank(User.name)`; `lastName = null`
+  si `fullName === null` (misma construcción de §M4-PREP).
+- **Qué ve el operador con `fullName === null`** (cuenta cuyo nombre se fabricó del correo; `""`/solo espacios es
+  inalcanzable —`name` es NOT NULL y v1.67.1 prohíbe persistir `""`— pero `nullIfBlank` lo cubre igual): una
+  **ausencia con nombre** en el sitio del titular (redacción de **ux-ui**; el sentido es «este cliente no ha dado su
+  nombre») y el **correo como único identificador visible**. ⛔ Nunca un hueco, un «—» mudo, ni el prefijo del correo
+  presentado como si fuera un nombre (`juan.perez95` **parece** un nombre y no lo es: por eso sale `null`, y no como
+  bandera aparte que el front pudiera olvidar leer).
+- **La misma regla aplica a `owner.name` de la vista física (§M4-VAULT.11).** ⛔ No aplica a `preparedBy.name` /
+  `placedBy.name` (son operadores, no clientes; su regla sigue siendo `nullIfBlank`).
+- ⚠️ **Asimetría declarada, no un descuido:** la cubeta `ship` (`ShipPreparationOrderDTO.customer.fullName`, §M4-PREP)
+  **sigue** emitiendo `User.name` aunque sea `derived` — su tarjeta está congelada en este stream (§M4-VAULT.7). En
+  «Ambas», una misma cuenta `derived` puede salir con el prefijo del correo en una tarjeta de envío y con la ausencia
+  con nombre en una de bóveda. Alinearla es **una línea** en la fuente de `ship`, y se hará cuando esa tarjeta se abra.
+- ⛔ **Nada de apellido paterno/materno ni de campo nuevo**: añadir `lastName` a `User` es el formulario de registro y
+  el perfil (stream «Cuentas y acceso») y el dueño no lo pidió — pidió **ver** nombre y apellido, y ya se capturan en
+  `name`. **NO MEDIDO** qué escribe en `name` la anonimización (`anonymizedAt`); si es un marcador, se muestra tal cual.
 
 **Qué filas entran:** `VaultPlacement{status:'pending'}`. ⛔ `placed` y `cancelled` **no vuelven a la cola** (CA #23).
 **Orden de la cola mezclada:** `requestedAt` **asc** (CA #9) sobre las dos fuentes; **empate exacto** ⇒ `ship` antes
@@ -15805,9 +15862,19 @@ la vista física (§M4-VAULT.11):**
    inalcanzable por construcción, medido entonces).
 
 **Consecuencia que cumple CA #19 sin memoria extra:** la primera colocación de un cliente nuevo **deja** sus piezas en
-el cajón elegido ⇒ su **siguiente** compra ya tiene cajón ⇒ ya llega con propuesta. ⚠️ **Y la otra cara, PROVISIONAL
-(pregunta al dueño, §M4-VAULT.9):** si el cliente retira **todas** sus cartas, vuelve a no tener cajón ⇒ vuelve a ser
-«nuevo». La regla lee **el estado de hoy**, no la historia.
+el cajón elegido ⇒ su **siguiente** compra ya tiene cajón ⇒ ya llega con propuesta. **Y la otra cara — v1.79.2: valor
+por defecto, NO PREGUNTADO al dueño (P-D, §M4-VAULT.9):** si el cliente retira **todas** sus cartas, vuelve a no tener
+cajón ⇒ vuelve a ser «nuevo». La regla lee **el estado de hoy**, no la historia.
+
+**⭐ v1.79.2 — cajones compartidos y muebles (P-E y P-C, el dueño: *«yo me encargo del aspecto físico»*):** el sistema
+⛔ **no** vigila si un cajón tiene cartas de **varios** clientes, ni qué mueble es, ni si la numeración se repite entre
+muebles. Consecuencias, dichas para que nadie las lea como hueco: **(1)** la lista del cliente nuevo (`source:'none'`)
+**no** excluye cajones que ya usa otro cliente; **(2)** ⛔ no hay `422` de exclusividad en el `confirm`; **(3)** si dos
+clientes comparten cajón, `customerDrawers` le devuelve **ese** cajón a cada uno y `customerPieceCount` cuenta **solo**
+las del cliente de la fila — la pantalla **no** dice «este cajón es compartido» (nadie lo pidió, y decirlo sería vigilar);
+**(4)** ⛔ no cambia la unicidad de `VaultLocation.label`. Lo que **sí** sigue: el cajón se nombra **con su zona**
+(obligación de pantalla de abajo), porque eso no es vigilar lo físico, es no mostrar dos cosas distintas con el mismo
+nombre.
 
 **⛔ Se retira `GET /admin/shipments/:id/vault-location-suggestion` del borrador.** La propuesta viaja **dentro** de la
 fila (`suggestedLocation`): tiene **un solo** lector (esta pantalla), evita una llamada por tarjeta, y la regla vive en
@@ -15852,8 +15919,9 @@ puede llegar aquí si al preparar estaba bloqueada (§M4-VAULT.10) — tampoco s
    `error`). *(Va antes de la puerta porque la puerta necesita `userId`.)*
 4. ⭐ **v1.79.1 — PUERTA DEL CLIENTE (dentro de la transacción):** `lockCustomerVaultGate(tx, order.userId)` ⇒
    `SELECT pg_advisory_xact_lock(<VAULT_GATE_NAMESPACE>::int, hashtext(<userId>))`. **Misma ceremonia que
-   `orders/reservation.ts` · `lockReservationGate`** (dos enteros, se libera al commit/rollback). La toman **los tres
-   verbos de bóveda que escriben** —este, `PATCH …/prep-items` y `POST …/prepared` (§M4-VAULT.10)—.
+   `orders/reservation.ts` · `lockReservationGate`** (dos enteros, se libera al commit/rollback). La toman **los ~~tres~~ cuatro
+   verbos de bóveda que escriben** —este, `PATCH …/prep-items`, `POST …/prepared` y ⭐ v1.79.2 `DELETE …/prepared`
+   (§M4-VAULT.10)—.
    *Por qué por cliente y no por colocación:* la regla «un cliente = un cajón» es **del cliente**, no de un pedido.
    Sin esta puerta, dos pedidos pendientes de un cliente **nuevo** confirmados a la vez leen los dos «sin cajón»,
    eligen cajones distintos y **el propio sistema crea la anomalía**. El CAS del paso 8 no lo impide: son dos filas
@@ -15905,8 +15973,8 @@ puede llegar aquí si al preparar estaba bloqueada (§M4-VAULT.10) — tampoco s
    fila (`placedByUserId`/`placedAt`, NOT NULL por CHECK); la bitácora es donde el dueño **lo consulta**
    (`GET /admin/audit-log?entityType=VaultPlacement`). ⚠️ Si `?action=` de la bitácora resultara ser dominio cerrado
    (§0-Q), las dos acciones se registran ahí — **NO MEDIDO por el arquitecto**; lo mide backend.
-12. ⛔ **Sin correo al cliente.** Ningún aviso de §R cuelga de esto (no hay criterio que lo pida) — ⚠️ **PROVISIONAL**,
-   pregunta al dueño en §M4-VAULT.9.
+12. ⛔ **Sin correo al cliente.** Ningún aviso de §R cuelga de esto. ⭐ **v1.79.2 — DECIDIDO por el dueño (P-B): «No»**
+   (§M4-VAULT.9). Ni correo, ni aviso en la app, ni sello de aviso en la fila.
 
 **Respuestas — la tabla completa, incluida la carrera (dos operadores confirmando a la vez):**
 
@@ -15953,6 +16021,9 @@ type VaultPlacementItemResultDTO =
 (nuevo; v1.79.1 + `not_customer_drawer`) · **`409 PLACEMENT_NOT_PENDING`** (nuevo) · **`409 PLACEMENT_NOT_PREPARED`**
 (v1.79.1) · `409 CONFLICT` (corrupción). Rol: `@Roles(vault_operator, super_admin)`.
 
+⭐ **v1.79.2 — Colocar vs. deshacer «preparado»:** **sí** se cierra, y con tres capas (puerta del cliente, los dos CAS
+sobre la **misma** fila, y el `CHECK` `placed ⇒ preparedAt NOT NULL`). Tabla en §M4-VAULT.10 · `DELETE …/prepared`.
+
 **Carreras que NO se cierran con candado, y por qué son benignas (dichas para que nadie las «descubra»):**
 - ⭐ v1.79.1 — **Colocar vs. el `move` de M1** sobre una pieza del mismo cliente: el `move` no toma la puerta del
   cliente (es de otro stream y no se toca). Puede dejar al cliente con dos cajones — **no es silencioso**: la
@@ -15974,7 +16045,7 @@ type VaultPlacementItemResultDTO =
   `ownerType='platform' ∧ status='listed'`; `bulk-publish` rechaza `in_custody` (`ITEM_NOT_PUBLISHABLE`); los ajustes
   rechazan `in_custody` (`ITEM_NOT_ADJUSTABLE`). Y el verbo de colocación **solo** cambia `locationId`.
 - **Lo que el cliente ve:** nada cambia. La carta **ya está en «Mi bóveda»** desde la liquidación (como hoy) y puede
-  pedir su retiro (como hoy) — ⚠️ **PROVISIONAL**, ver la pregunta al dueño en §M4-VAULT.9.
+  pedir su retiro (como hoy) — ⭐ **v1.79.2: valor por defecto, NO PREGUNTADO al dueño (P-A, §M4-VAULT.9).**
 - **Contracargo (`payments.service.ts` · `onChargeDisputeVault`)**: en su **misma** transacción, **al final**:
   `tx.vaultPlacement.updateMany({ where: { orderId, status: 'pending' }, data: { status:'cancelled', cancelledAt: now,
   cancelledByUserId: null, cancelReason:'chargeback' } })`. Siempre, sin importar cómo salió cada pieza: tras un
@@ -15996,6 +16067,16 @@ type VaultPlacementItemResultDTO =
 
 ##### M4-VAULT.7 — Qué cambia para cada rol
 
+**⭐ v1.79.2 — lo que añade esta rev (sobre las filas de v1.79.1, que siguen vigentes enteras):**
+
+| Rol | Qué añade v1.79.2 |
+|---|---|
+| **backend** | **(1)** El verbo `DELETE /admin/vault-placements/:placementId/prepared` en `modules/vault/` (mismo servicio y controlador que `POST …/prepared`), con la puerta del cliente, el CAS, la bitácora `vault_placement.unprepared` en la tx y su tabla de respuestas (§M4-VAULT.10). **(2)** La fuente de `customer.fullName` (cola `vault`) y de `owner.name` (vista física): `nameSource==='derived' ⇒ null` (§M4-VAULT.3 «Nombre y apellido»). **(3)** Las pruebas 21–26 de §M4-VAULT.8. ⛔ **Sin cambio de schema** (`M-59` idéntico), ⛔ **sin código de error nuevo**, ⛔ la fuente de `ship` no se toca |
+| **frontend** | **(1)** Botón **«Deshacer preparado»** en la tarjeta `vault` cuando `preparation.status==='prepared'` (la colocación está `pending` por estar en la cola), y como remedio ofrecido ante `409 PREPARATION_CLOSED`; tras el `200` las casillas vuelven a ser editables con **las marcas que ya tenían**. Los `409 PLACEMENT_NOT_PENDING` (perdió contra un `confirm`) y el `200 outcome:'not_prepared'` como estados con nombre. **(2)** Cabecera de la tarjeta `vault` y de la vista física: **`fullName` entero** como titular, **correo** en segunda línea; con `fullName===null`, ausencia con nombre + correo (redacción: ux-ui). ⛔ No titular por `lastName`. **(3)** Tipo nuevo `UnprepareVaultPlacementResponse` en `contract.ts` |
+| **ux-ui** | Texto y ubicación de «Deshacer preparado» (¿pide confirmación?, a decisión de ux-ui: no mueve nada físico ni dinero); la ausencia con nombre del cliente sin nombre; la cabecera nombre-y-apellido + correo |
+
+**Filas de v1.79.1 (vigentes):**
+
 | Rol | Qué |
 |---|---|
 | **backend** | **(v1.79.1: esta fila sustituye a la de v1.79.)** `M-59` **final** (2 tablas, 3 enums, 6 CHECKs — §M4-VAULT.2); nacimiento de colocación **y** filas por carta en la rama `vault` de `onPaymentSucceeded`; cancelación en `onChargeDisputeVault`; cola de dos fuentes + unión + invariantes + estado de preparación; `customerDrawers` (una función: cola, `confirm`, vista física); la **puerta del cliente** (`lockCustomerVaultGate`, namespace nuevo); los verbos `PATCH …/prep-items`, `POST …/prepared` y `confirm` con sus tablas; `GET /admin/vaults/:userId/physical-inventory`; los códigos nuevos en `common/error-codes.ts` (`LOCATION_NOT_AVAILABLE`, `PLACEMENT_NOT_PENDING`, `PLACEMENT_NOT_PREPARED`, `PREPARATION_CLOSED`, `PREPARATION_INCOMPLETE`, `PREP_ITEM_BLOCKED`). **Dónde:** verbos y vista en `modules/vault/` (servicio de colocación + controlador admin; la vista en `admin-vaults.controller.ts`); la cola sigue en `shipments` y **lee**. ⛔ `ShipmentRequest`, `ShipmentItem`, `updateStatus` y `setTracking` **no se tocan** |
@@ -16014,13 +16095,13 @@ type VaultPlacementItemResultDTO =
 | `enum-values-parity.spec.ts` | Los enums nuevos **no** son filtro de query ⇒ no entran a la paridad a tres bandas; su línea canónica sí se declara (§Enums) |
 | Candados de doble venta / reserva (`reservationGuard`, `ITEM_NOT_PUBLISHABLE`, R-2) | ⛔ Intactos (la pieza no cambia de estado) |
 | Contracargo `vault` | ➕ Gana una escritura en su tx; sus pruebas actuales no cambian de veredicto |
-| ⭐ v1.79.1 — **`REL-B` / `REL-C` en `shipments.service.ts`** (`updateStatus`, `setTracking`, `avisos-sellos`) | ⛔ **Intactos**: palomear en envío no entra (§M4-VAULT.10.1). `REL-B` se **reutiliza como patrón** en los tres verbos de bóveda (CAS con el estado en el `WHERE`), ⛔ no se toca su código |
+| ⭐ v1.79.1 — **`REL-B` / `REL-C` en `shipments.service.ts`** (`updateStatus`, `setTracking`, `avisos-sellos`) | ⛔ **Intactos**: palomear en envío no entra (§M4-VAULT.10.1). `REL-B` se **reutiliza como patrón** en los ~~tres~~ cuatro verbos de bóveda (v1.79.2: + `DELETE …/prepared`) (CAS con el estado en el `WHERE`), ⛔ no se toca su código |
 | ⭐ v1.79.1 — `orders/reservation.ts` · `lockReservationGate` | ⛔ Intacto. Se **copia su ceremonia** con un namespace **distinto** |
 | ⭐ v1.79.1 — `GET /admin/vaults` y hermanas (valuación) | ⛔ Intactas: la vista física es un endpoint **propio** del mismo controlador |
 | ⭐ v1.79.1 — `test/avisos.seals-out-of-dto.spec.ts` | ⛔ Intacto (ninguna columna nueva en `ShipmentRequest`) |
 
 **Pruebas que deben FALLAR si se implementa mal (las escribe el modelo fuerte primero — `CLAUDE.md`).** ⭐ v1.79.1:
-la **5** cambia y se añaden de la **12** a la **20**.
+la **5** cambia y se añaden de la **12** a la **20**. ⭐ v1.79.2: se añaden de la **21** a la **26**.
 1. Liquidar una orden `vault` ⇒ **exactamente una** `VaultPlacement pending` con `createdAt === Order.settledAt`;
    reentregar el webhook (y dos entregas **concurrentes**, N≥10, reportando proporción) ⇒ sigue **una**, sin `500`.
 2. Forzar un fallo después del `createMany` dentro de la tx ⇒ **ni** orden `settled` **ni** colocación (atomicidad).
@@ -16058,8 +16139,42 @@ la **5** cambia y se añaden de la **12** a la **20**.
     `missing` ⇒ `nothing_to_place` y la vista física las sigue diciendo **`missing`** (no `unlocated`).
 20. **Vista física:** una pieza por cada uno de los cinco estados, con la precedencia de §M4-VAULT.11; y la anomalía
     de dos cajones sale como `drawer.kind:'multiple'` con los dos.
+21. ⭐ **v1.79.2 — Deshacer preparado, camino feliz:** colocación preparada con una carta `missing` y el resto `picked`
+    ⇒ `DELETE …/prepared` ⇒ `200 outcome:'unprepared'`, `preparedAt` **y** `preparedByUserId` `NULL`, **las marcas por
+    carta intactas** (la `missing` sigue `missing` con su `prepMarkedAt/By`; muerde a quien «limpie» las cartas),
+    **una** fila de bitácora `vault_placement.unprepared` con `before.preparedAt/preparedByUserId`; y a continuación
+    `PATCH …/prep-items` sobre la `missing` ⇒ `picked` **ya no** da `409 PREPARATION_CLOSED`. Forzar un fallo después del
+    `updateMany` dentro de la tx ⇒ **ni** sello limpio **ni** bitácora (atomicidad).
+22. **Idempotencia:** segundo `DELETE` ⇒ `200 outcome:'not_prepared'` **sin** escritura y **sin** bitácora (contar filas
+    de `AuditLog` antes/después). Sobre una colocación nunca preparada ⇒ ídem.
+23. **Terminal:** sobre `placed` ⇒ `409 PLACEMENT_NOT_PENDING {status:'placed', locationId}`; sobre `cancelled`
+    (`nothing_to_place` o `chargeback`) ⇒ `409 PLACEMENT_NOT_PENDING {status:'cancelled', cancelReason}`; en los dos,
+    `preparedAt` **intacto** (muerde a quien quite `status:'pending'` del `WHERE` — y en `placed` el `CHECK` también lo
+    haría fallar, con `500`: la prueba exige el `409`, no el `500`).
+24. ⭐⭐ **Carrera deshacer vs. `confirm`** (N≥10, entrelazado **forzado** — p. ej. el `confirm` bloqueado justo antes de
+    tomar la puerta y el `DELETE` soltado entonces, y la simétrica), reportar proporción (O-3). En **todas** las tiradas
+    el resultado es **uno** de estos dos y nada más: **(a)** `DELETE 200 unprepared` + `confirm 409 PLACEMENT_NOT_PREPARED`,
+    colocación `pending` sin preparar, **cero** `InventoryMovement`, **cero** `locationId` cambiados; **(b)** `confirm
+    200 placed` + `DELETE 409 PLACEMENT_NOT_PENDING`, `preparedAt` intacto. ⛔ **Nunca** `placed` con `preparedAt NULL`,
+    ⛔ nunca movimientos sobre una colocación `pending`, ⛔ nunca `500`. **Mutaciones (sobre copia, O-9):**
+    **(m1)** en el `confirm`, quitar el paso 6 **y** `preparedAt: { not: null }` de su CAS ⇒ en las tiradas tipo (a)
+    aparece `500` (el `CHECK` `INV-VP-6` rechaza `placed` sin preparar) ⇒ la prueba **debe** ponerse roja.
+    **(m2)** en el `DELETE`, quitar la comprobación de estado bajo la puerta (paso 3) **y** `status: 'pending'` de su
+    CAS ⇒ en las tiradas tipo (b) el `CHECK` rechaza `placed` con `preparedAt NULL` (`500`) ⇒ roja.
+    **(m3)** quitar **solo** la puerta **no** debe ponerla roja: los dos CAS sobre **la misma fila** bastan (el perdedor
+    espera el candado de fila, re-evalúa su `WHERE`, cuenta `0` y contesta por estado). Si (m3) la pone roja, el arnés
+    mide otra cosa — se reporta, no se «arregla».
+25. **Carrera deshacer vs. palomear** (N≥10, entrelazado forzado): `DELETE …/prepared` concurrente con `PATCH` de una
+    carta ⇒ o el `PATCH` va **antes** y da `409 PREPARATION_CLOSED` sin escribir, o va **después** y escribe; ⛔ nunca una
+    marca escrita mientras `preparedAt` seguía puesto. Proporción. *(Es de regresión: esta carrera es benigna por
+    construcción —el `DELETE` solo **abre** la edición—; la peligrosa es la 18, preparar vs. des-palomear.)*
+26. **Nombre y apellido:** cliente `nameSource='derived'` ⇒ fila `vault` con `customer.fullName === null`, `lastName ===
+    null` y `email` presente, y `owner.name === null` en la vista física; cliente `nameSource='user'` con `name='María
+    de la Luz Pérez Gómez'` ⇒ `fullName` **idéntico, completo** (muerde a quien lo recorte a un token o lo reordene); la
+    tarjeta `ship` de una cuenta `derived` **sigue** emitiendo `User.name` (la asimetría declarada, candada para que no
+    cambie en silencio).
 
-##### M4-VAULT.9 — Respuestas del dueño (2026-09-25), lo que sigue PROVISIONAL y dónde cambia cada respuesta
+##### M4-VAULT.9 — Respuestas del dueño (2026-09-25), las que quedan con valor por defecto y dónde cambia cada una (v1.79.2: ya no queda ninguna PROVISIONAL preguntada)
 
 **Contestadas por el dueño** (relayadas por el orquestador el 2026-09-25; sus palabras, literales):
 
@@ -16070,21 +16185,27 @@ la **5** cambia y se añaden de la **12** a la **20**.
 | **#8** ¿puede cambiar la propuesta? | *«Lo único que debe de decir el sistema: a nombre de quién está, y saber qué cartas deben estar en bóveda por cliente»* | Leída (con el orquestador) como **requisito**, no como sí/no: **(a)** la fila dice de quién es de forma inequívoca (`customer.userId/email`) y nombra el cajón **con su zona**; **(b)** vista **nueva** de inventario físico esperado por cliente (§M4-VAULT.11). **Cambio de cajón:** con un cliente = un cajón, el operador **solo elige** con un cliente **nuevo** (o entre sus cajones si hay anomalía); ⛔ sin flujo de «mover a otro cajón». *Lectura propia, y se dice:* la respuesta **no prohíbe** literalmente elegir otro cajón; el `422 not_customer_drawer` es **consecuencia** de «un cliente = un cajón» (#9), no de esta frase. Si el dueño quisiera permitir «mudar» a un cliente, cambia **un sitio**: el paso 7 del `confirm` |
 | **#11** ¿colocar espera a palomear? | *«Sí, construir las dos juntas»* | **Palomear entra** (bóveda) y **colocar exige preparado** (§M4-VAULT.10, CHECK en la BD) |
 
-**Siguen PROVISIONALES — preguntas para el dueño (redactadas en su lenguaje en el informe al orquestador):**
+⭐ **v1.79.2 — contestadas en la segunda ronda** (2026-09-25; fuente: `HECHOS.md`, última fila de la tabla de
+decisiones; sus palabras, literales donde las hay):
 
-| Pregunta | Lo que el contrato hace mientras tanto | Si contesta otra cosa, cambia… |
+| Pregunta | Respuesta del dueño | Qué hace el contrato (v1.79.2) |
+|---|---|---|
+| **P-B** ¿Se le avisa al cliente cuando sus cartas quedan guardadas? | **No** | Paso 12 del `confirm`: ⛔ sin correo, sin aviso en la app, sin sello de aviso. Deja de ser provisional |
+| **P-C** ¿Muebles distintos para tienda y clientes, con la misma numeración de cajones? | *«no te preocupes por eso, solo necesito que me digas nombre y apellido»* | **(a)** El sistema ⛔ **no** modela muebles ni numeración y ⛔ **no** cambia la unicidad de `label`; el cajón se sigue nombrando **con su zona**. **(b)** Leída (con el orquestador, `HECHOS.md`) como **requisito de pantalla**: la tarjeta y la vista física muestran **nombre y apellido en primer plano** = `customer.fullName` entero; el correo, segunda línea, desempate. Un nombre fabricado del correo (`nameSource='derived'`) sale `null` ⇒ ausencia con nombre + correo (§M4-VAULT.3 «Nombre y apellido») |
+| **P-E** ¿Un cajón puede tener cartas de varios clientes? | *«yo me encargo del aspecto físico»* | El sistema ⛔ **no lo impide ni lo vigila**: sin `422` de exclusividad, la lista del cliente nuevo no excluye cajones ocupados, sin aviso de «compartido» (§M4-VAULT.4). *Es lo que v1.79.1 ya hacía; ahora es decisión, no supuesto* |
+| **Deshacer «preparado»** (el «límite declarado» de v1.79.1) | **Sí** | Verbo nuevo `DELETE /admin/vault-placements/:id/prepared` (§M4-VAULT.10): bajo la puerta del cliente, solo con la colocación `pending`, conserva las marcas por carta, bitácora en la tx. **Se retira el límite declarado** |
+
+**Valor por defecto, NO PREGUNTADAS** (el orquestador no las llevó al dueño; ⛔ **no** son respuestas — si un día se
+preguntan y contesta otra cosa, cambia un sitio):
+
+| Pregunta | Lo que el contrato hace (valor por defecto) | Si un día contesta otra cosa, cambia… |
 |---|---|---|
 | **P-A** ¿Un cliente puede pedir que le envíen una carta **antes** de que esté guardada en su cajón? | **Sí**, como hoy (§M4-VAULT.6). Si el envío se cobra, la carta sale de la cola de colocación como `blocked/in_withdrawal` | «No» ⇒ la regla de retirable (`HoldingDTO.withdrawable` + `POST /shipments`) gana una condición — **otro stream** (Órdenes y dinero), no éste |
-| **P-B** ¿Se le avisa al cliente cuando sus cartas quedan guardadas? | **No** (paso 12 del `confirm`) | «Sí» ⇒ un aviso nuevo de §R colgado **detrás** del CAS del paso 8 (sello propio, patrón `AV-4`) |
-| **P-C** ⭐ ¿Las cartas de la tienda y las de los clientes están en **muebles distintos**, y esos muebles **repiten la misma numeración** de cajones? | La pantalla nombra **siempre** la zona junto a la etiqueta (`zone`, `currentZone`) | Si **es el mismo mueble** (las zonas son solo del sistema), dos etiquetas iguales en zonas distintas serían **el mismo hueco físico** ⇒ los datos sembrados están mal y hay que decidir la unicidad de `label` — **otro stream** (inventario). Si son muebles distintos, el diseño ya cubre el caso |
 | **P-D** Un cliente que sacó todas sus cartas y vuelve a comprar: ¿se le elige cajón otra vez? | **Sí, cuenta como nuevo** (la regla lee el estado de hoy) | «Recordar su cajón» ⇒ el paso 1 de `customerDrawers` lee también `VaultPlacement.locationId` histórico |
-| **P-E** ¿Un mismo cajón puede tener cartas de **varios** clientes? | **Sí**, el sistema no lo impide ni lo vigila (nada en `PROJECT.md` dice lo contrario; *«espacio por cliente»* es ambiguo en este punto) | «Un cajón por cliente, exclusivo» ⇒ la lista del cliente nuevo tiene que excluir cajones ocupados **y** el `confirm` gana un `422` más |
 | **P-F** (compras previas, S.8 #10 primera mitad) | **Sin backfill** (`HECHOS.md`: cero ventas reales) | — |
 
-**Límite declarado (no es pregunta, se dice para que no se descubra en tienda):** una vez **«preparado»**, las marcas
-por carta **no se pueden corregir** (no existe «deshacer preparado»). Si el operador marca por error una carta como
-faltante y prepara, esa carta **no se mueve** al colocar y la vista física la dirá «faltante». Si el dueño lo quiere,
-es **un verbo** (`DELETE …/prepared`, bajo la misma puerta, solo con la colocación `pending`).
+~~**Límite declarado:** una vez «preparado», las marcas por carta no se pueden corregir (no existe «deshacer
+preparado»).~~ → ✅ **v1.79.2: retirado** — el dueño pidió el verbo (§M4-VAULT.10 · `DELETE …/prepared`).
 
 ##### <a id="M4-VAULT-10"></a>M4-VAULT.10 — Palomear y «pedido preparado» — cubeta `vault` (v1.79.1, NUEVO)
 
@@ -16102,7 +16223,8 @@ es **un verbo** (`DELETE …/prepared`, bajo la misma puerta, solo con la coloca
   tiene `prepStatus='pending'`. *(Las bloqueadas no cuentan: si contaran, una carta en un retiro ya cobrado dejaría el
   pedido sin poder prepararse **nunca**.)*
 
-**Puerta:** los dos verbos toman la **puerta del cliente** de §M4-VAULT.5 paso 4 **antes** de leer nada que decidan.
+**Puerta:** los ~~dos~~ tres verbos (⭐ v1.79.2: + `DELETE …/prepared`) toman la **puerta del cliente** de §M4-VAULT.5
+paso 4 **antes** de leer nada que decidan.
 *Por qué:* «preparar» decide sobre **N filas** (las cartas) y «palomear» escribe **una** de ellas; sin una puerta
 común, un des-palomeo que llega entre el conteo y el sello deja un pedido «preparado» con una carta sin palomear
 (*write skew*: cada uno comprueba lo del otro y ninguno lo ve). El CAS sobre `VaultPlacement` **no** lo cierra porque
@@ -16157,6 +16279,93 @@ VaultPreparationStateDTO }`. **Siguiente paso (CA #21):** la pantalla ofrece **c
 *Casos límite, dichos:* todas bloqueadas ⇒ se puede preparar (nada pendiente) y el `confirm` dará `nothing_to_place`;
 todas faltantes ⇒ ídem.
 
+###### ⭐ `DELETE /api/v1/admin/vault-placements/:placementId/prepared` — deshacer «preparado» (operador+, v1.79.2, NUEVO)
+
+> **Fuente:** el dueño, **«Sí»** a deshacer «preparado» si se marcó mal (`HECHOS.md`, 2026-09-25). Existe para un caso:
+> el operador dio por preparado un pedido con una marca equivocada (típicamente una carta `missing` que sí estaba) y
+> quiere corregirla **antes de colocar**. ⛔ Después de colocar no hay vuelta: eso sería «descolocar», y nadie lo pidió.
+
+**Req:** sin cuerpo (cualquier cuerpo se descarta, `whitelist`). Quién y cuándo: sesión y servidor. **Rol:**
+`@Roles(vault_operator, super_admin)` — ⛔ **no** se restringe a quien preparó (el dueño no lo pidió; la bitácora
+dice quién preparó y quién deshizo).
+
+1. **Colocación** no existe ⇒ **`404 NOT_FOUND`**. **Invariantes de la orden** (§M4-VAULT.5 paso 3) ⇒ **`409 CONFLICT`**.
+2. `$transaction` + **puerta del cliente** (`lockCustomerVaultGate(tx, order.userId)`).
+3. **Bajo la puerta, se relee la colocación:** no `pending` ⇒ **`409 PLACEMENT_NOT_PENDING`** (mismo `details` que en
+   §M4-VAULT.5: `{status:'placed', locationId}` | `{status:'cancelled', cancelReason}`), sin escribir;
+   `preparedAt IS NULL` ⇒ ⭐ **`200` idempotente** `outcome:'not_prepared'`, ⛔ sin escribir ni bitácora (doble toque,
+   o dos operadores deshaciendo a la vez: querían lo mismo — misma regla que `already_prepared`).
+4. **CAS (`REL-B`), con el estado en el `WHERE` — ⛔ jamás sobre la lectura del paso 3:**
+   `tx.vaultPlacement.updateMany({ where: { id, status: 'pending', preparedAt: { not: null } }, data: { preparedAt: null,
+   preparedByUserId: null } })`. `count === 1` ⇒ ganó. `count === 0` ⇒ **relee y contesta por estado** con las reglas del
+   paso 3 (lo cuela el contracargo, que **no** toma la puerta). *El `CHECK` `(preparedAt IS NULL) = (preparedByUserId IS
+   NULL)` exige limpiar los dos en la misma sentencia; `status='pending'` en el `WHERE` es lo que impide que esta
+   escritura alcance una fila `placed` (donde además el `CHECK` `INV-VP-6` la rechazaría).*
+5. **Las marcas por carta SE CONSERVAN** (`VaultPlacementItem.prepStatus/prepMarkedAt/prepMarkedByUserId` intactas).
+   **Decisión, con su porqué:**
+   - **Es lo que el dueño pidió:** *corregir* lo que se marcó mal, no rehacer el pedido. Borrar las marcas obligaría a
+     re-palomear las 30 cartas de un pedido para corregir **una**.
+   - **Borrarlas destruiría un registro auditado sin auditarlo:** entrar/salir de `missing` deja bitácora
+     (`item_missing` / `item_missing_cleared`, §`PATCH …/prep-items` paso 9). Un reset en bloque haría desaparecer
+     marcas `missing` **sin** su `item_missing_cleared`, y la vista física (§M4-VAULT.11) dejaría de decir «faltante»
+     de una carta que nadie ha dicho que apareció. Si el operador la encontró, la corrige con el `PATCH` — que **sí**
+     deja la bitácora de salida.
+   - **No hace falta para la seguridad del flujo:** el `confirm` ya exige preparado (paso 6 + `CHECK`), y volver a
+     preparar pasa **otra vez** por la regla «ninguna colocable `pending`» (§`POST …/prepared` paso 4) bajo la puerta.
+   - *Consecuencia, dicha:* si **nada** cambia, el operador puede volver a pulsar «Dar por preparado» y le saldrá
+     `200 prepared` con un sello **nuevo** (otro `preparedAt`, quizá otro operador) y una bitácora `vault_placement.
+     prepared` más. Es correcto: son dos actos.
+6. **Bitácora dentro de la tx** (misma forma que `AuditService.log`; ⛔ no post-commit): `action =
+   'vault_placement.unprepared'`, `entityType='VaultPlacement'`, `entityId=placementId`, `actorUserId` = sesión,
+   **`before: { preparedAt, preparedByUserId }`** (el sello que se borra: la fila ya no lo guarda, así que **la bitácora
+   es su único rastro**), `after: { orderId, picked:[ids], missing:[ids], blocked:[{id,reason}] }` (las marcas que
+   quedan, misma forma que `vault_placement.prepared`). ⚠️ `?action=` de la bitácora: misma nota **NO MEDIDO** que en
+   §M4-VAULT.5 paso 11.
+7. ⛔ **No toca** `InventoryItem`, `InventoryMovement`, `VaultPlacementItem`, dinero ni avisos (`INV-VP-4` extendido).
+
+**Respuestas:**
+
+| Situación | Respuesta | Escribe |
+|---|---|---|
+| `pending` y preparada, gana el CAS | **`200`** `{ outcome:'unprepared', placement, preparation }` | ✅ sello limpio + bitácora |
+| `pending` y **no** preparada (doble toque, carrera entre dos «deshacer», o nunca preparada) | ⭐ **`200` idempotente** `{ outcome:'not_prepared', placement, preparation }` | ⛔ nada |
+| `placed` (p. ej. perdió la carrera contra un `confirm`) | **`409 PLACEMENT_NOT_PENDING`** `{status:'placed', locationId}` | ⛔ nada |
+| `cancelled` (`nothing_to_place` o contracargo) | **`409 PLACEMENT_NOT_PENDING`** `{status:'cancelled', cancelReason}` | ⛔ nada |
+| Colocación inexistente | **`404 NOT_FOUND`** | ⛔ nada |
+| Orden corrupta (`INV-VP-2`) | **`409 CONFLICT`** | ⛔ nada |
+
+```ts
+type UnprepareVaultPlacementResponse = {
+  outcome: 'unprepared' | 'not_prepared';
+  placement: VaultPlacementDTO;            // el de §M4-VAULT.5: preparedAt/preparedBy ya en null
+  preparation: VaultPreparationStateDTO;   // status 'in_progress', conteos con las marcas conservadas
+};
+```
+
+**Errores (catálogo §0):** `403` (rol) · `404 NOT_FOUND` · `409 PLACEMENT_NOT_PENDING` · `409 CONFLICT`. ⛔ **Ningún
+código nuevo**: los casos del verbo son exactamente los de sus hermanos. *(Se consideró `409 PLACEMENT_NOT_PREPARED`
+para «no estaba preparado» y se descarta: ese código dice «te falta un paso para lo que pides», y aquí el estado pedido
+**ya es** el actual ⇒ `200` idempotente, como `already_prepared`.)*
+
+**La carrera con `confirm` — cerrada, con tres capas (cada una bastaría para no dejar un estado falso):**
+
+| Orden real | Qué pasa | Resultado |
+|---|---|---|
+| `DELETE` toma la puerta primero | confirma su CAS y suelta; el `confirm` relee bajo la puerta (su paso 5 ve `pending`, su paso 6 ve `preparedAt NULL`) | `DELETE 200 unprepared` · `confirm 409 PLACEMENT_NOT_PREPARED`, **cero** movimientos |
+| `confirm` toma la puerta primero | coloca y suelta; el `DELETE` relee (paso 3) y ve `placed` | `confirm 200 placed` · `DELETE 409 PLACEMENT_NOT_PENDING`, `preparedAt` intacto |
+| **Sin puerta** (defensa en profundidad, p. ej. si alguien la quita) | los dos CAS escriben **la misma fila**: el perdedor espera el candado de fila (`READ COMMITTED`), re-evalúa su `WHERE` (`preparedAt: {not:null}` en el `confirm`; `status:'pending'` en el `DELETE`), cuenta `0`, relee y contesta por estado. El `confirm` reclama **antes** de mover (§M4-VAULT.5 pasos 8→9) ⇒ un `confirm` que pierde no movió nada | los mismos dos resultados de arriba |
+| Última red | el `CHECK` `status='placed' ⇒ preparedAt IS NOT NULL` (`INV-VP-6`) | un estado «colocado sin preparar» es **inexpresable en la BD** |
+
+⛔ **Nunca** `placed` con `preparedAt NULL`, ⛔ nunca movimientos de una colocación que sigue `pending`. Pruebas 21–26
+de §M4-VAULT.8.
+
+**Las otras carreras, benignas y dichas:** **vs. `PATCH …/prep-items`** — misma puerta ⇒ en cola; el `DELETE` solo
+**abre** la edición (un `PATCH` antes da `409 PREPARATION_CLOSED` sin escribir; después, escribe). **vs. `POST …/prepared`**
+— misma puerta ⇒ en cola; cualquier orden deja un estado válido (preparada o no, con el sello del último acto).
+**vs. contracargo** (no toma la puerta) — si cancela antes del CAS, éste cuenta `0` ⇒ `409 PLACEMENT_NOT_PENDING
+{cancelled, chargeback}`; si cancela después, cancela una colocación `pending` sin preparar (los `CHECK` de `cancelled` no
+exigen `preparedAt`). Nada queda falso.
+
 ###### <a id="M4-VAULT-10-1"></a>M4-VAULT.10.1 — Por qué palomear en ENVÍO **no** entra en este stream (decisión, con medición)
 
 El diseño del 15 de septiembre describe palomear **para todo pedido** (S.5; S.4.2 paso 3 dice *«como cualquier otro
@@ -16194,6 +16403,8 @@ no por cajón). ⛔ **Sin precios**: esta vista no llama a `pricing`.
 
 ```ts
 export interface CustomerPhysicalInventoryDTO {
+  // v1.79.2 — name = MISMA regla que customer.fullName de la cola (§M4-VAULT.3 «Nombre y apellido»):
+  // nullIfBlank(User.name), y null si nameSource='derived'. Titular = name entero; email = segunda línea.
   owner: { userId: string; name: string | null; email: string };
   drawer:                                             // = customerDrawers(userId) — la MISMA función que la cola (§M4-VAULT.4)
     | { kind: 'none' }                                // aún sin cajón (nunca colocado, o vació su bóveda)
