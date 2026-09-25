@@ -37,7 +37,8 @@ function makeHarness() {
     });
 
   const tx = {
-    order: { update: rec('order.update') },
+    // v1.79.4: el settle escribe la orden con un CAS (`updateMany`); el contracargo sigue con `update`.
+    order: { update: rec('order.update'), updateMany: rec('order.updateMany', () => ({ count: 1 })) },
     inventoryItem: {
       findUnique: rec('inventoryItem.findUnique', ({ where }) => ({
         id: where.id,
@@ -133,9 +134,9 @@ describe('M-59 · nacimiento de la colocación en la rama `vault` de onPaymentSu
     expect(arg.skipDuplicates).toBe(true);
     expect(arg.data).toEqual([{ orderId: 'o1', createdAt: expect.any(Date) }]);
 
-    // Orden de sentencias: BEGIN · order.update · (bucle de piezas) · createMany · findUniqueOrThrow · items · COMMIT
+    // Orden de sentencias: BEGIN · order.updateMany (CAS, v1.79.4) · (bucle de piezas) · createMany · findUniqueOrThrow · items · COMMIT
     const iBegin = ops.indexOf('BEGIN');
-    const iOrder = ops.indexOf('order.update');
+    const iOrder = ops.indexOf('order.updateMany');
     const iLastMovement = ops.lastIndexOf('inventoryMovement.create');
     const iVp = ops.indexOf('vaultPlacement.createMany');
     const iFind = ops.indexOf('vaultPlacement.findUniqueOrThrow');
@@ -154,7 +155,7 @@ describe('M-59 · nacimiento de la colocación en la rama `vault` de onPaymentSu
     const h = makeHarness();
     h.prisma.order.findUnique.mockResolvedValue(vaultOrder());
     await h.payments.onPaymentSucceeded(piOf('pi_1', 100000));
-    const settledAt: Date = h.tx.order.update.mock.calls[0][0].data.settledAt;
+    const settledAt: Date = h.tx.order.updateMany.mock.calls[0][0].data.settledAt;
     const createdAt: Date = h.tx.vaultPlacement.createMany.mock.calls[0][0].data[0].createdAt;
     expect(settledAt).toBeInstanceOf(Date);
     // Identidad del objeto: la misma constante `now`, no dos relojes que casualmente coinciden.
@@ -165,9 +166,12 @@ describe('M-59 · nacimiento de la colocación en la rama `vault` de onPaymentSu
     const h = makeHarness();
     h.prisma.order.findUnique.mockResolvedValue(vaultOrder());
     await h.payments.onPaymentSucceeded(piOf('pi_1', 100000));
-    expect(h.tx.order.update).toHaveBeenCalledTimes(1);
-    expect(h.tx.order.update.mock.calls[0][0]).toEqual({
-      where: { id: 'o1' },
+    // v1.79.4 (prueba 38(iii)): el candado se CONSERVA cambiando solo el método — la escritura es el
+    // CAS (`updateMany`, estado en el WHERE) y su `data` sigue siendo exactamente { status, settledAt }.
+    expect(h.tx.order.update).not.toHaveBeenCalled();
+    expect(h.tx.order.updateMany).toHaveBeenCalledTimes(1);
+    expect(h.tx.order.updateMany.mock.calls[0][0]).toEqual({
+      where: { id: 'o1', status: { not: 'settled' } },
       data: { status: 'settled', settledAt: expect.any(Date) },
     });
   });

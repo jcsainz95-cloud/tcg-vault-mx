@@ -75,7 +75,8 @@ export class PaymentsService {
    * por exceso); la segunda, que no se intente escribir a un pedido sin dueño.
    * ⛔ **Y no se le escribe a una cuenta anonimizada** (§R.5.a).
    * **Una sola vez, sin columna:** el early-return por `status === 'settled'` del settle ⇒ un
-   * reintento de Stripe no duplica.
+   * reintento SECUENCIAL no duplica; ⭐ v1.79.4: bajo CONCURRENCIA lo garantiza el CAS del settle
+   * (`order.updateMany` con `status: { not: 'settled' }` en el `WHERE`) — el perdedor no llega aquí.
    */
   private async notifyOrderSettled(order: Order & { items: OrderItem[] }): Promise<void> {
     if (order.guestEmail || !order.userId) return;
@@ -237,11 +238,19 @@ export class PaymentsService {
       // v1.79 (M-59, §M4-VAULT.2-bis): UN instante para UN hecho — `Order.settledAt` y
       // `VaultPlacement.createdAt` son el mismo valor, escrito explícitamente en las dos filas.
       const now = new Date();
-      await this.prisma.$transaction(async (tx) => {
-        await tx.order.update({
-          where: { id: order.id },
+      const settled = await this.prisma.$transaction(async (tx) => {
+        // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el settle es un CAS: el estado va en el `WHERE` (`REL-B`) y
+        // es la PRIMERA escritura de la tx. El early-return de arriba lee FUERA de la tx: dos entregas
+        // `succeeded` concurrentes (event.id distintos) lo pasan las dos; la segunda espera aquí el
+        // candado de fila de la primera y, bajo READ COMMITTED, Postgres RE-EVALÚA el `WHERE` sobre la
+        // versión confirmada ⇒ `settled` ⇒ 0 filas. `updateMany` y no `update`: sin fila, `update` lanza
+        // `P2025` ⇒ 500 ⇒ Stripe reintentaría un settle ya aplicado. `not: 'settled'` es la negación
+        // EXACTA del early-return (⛔ no `'pending'`: estrecharlo cambiaría qué pagos se liquidan).
+        const won = await tx.order.updateMany({
+          where: { id: order.id, status: { not: 'settled' } },
           data: { status: 'settled', settledAt: now },
         });
+        if (won.count === 0) return false; // perdedor: ⛔ nada más en esta tx
         for (const oi of order.items) {
           const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
           if (!item) continue;
@@ -277,7 +286,11 @@ export class PaymentsService {
         }
         // v1.79 (M-59) — nace la colocación, en ESTA transacción y DESPUÉS del bucle de piezas.
         await this.createVaultPlacement(tx, order, now);
+        return true;
       });
+      // v1.79.4 — el perdedor de la carrera ⛔ no avisa: ni AV-2 ni auditoría de anomalías (su bucle no
+      // corrió). Su marcador `ProcessedStripeEvent` queda: el 200 es correcto (el settle ya está hecho).
+      if (!settled) return;
       if (anomalies.length > 0) {
         await this.audit
           .log({
@@ -375,8 +388,9 @@ export class PaymentsService {
    *    (mismo PaymentIntent). Repetirlo aquí lo contaría DOS VECES en el P&L de M7 (§4.21b).
    *  - Se capturan marca + últimos 4 de la tarjeta (único dato de pago que se persiste).
    *
-   * Idempotente: el early-return por `status==='settled'`, la guardia `status:'reserved'` de cada
-   * pieza y la búsqueda del envío activo hacen que un reintento de Stripe no duplique nada.
+   * Idempotente: el early-return por `status==='settled'` (secuencial), ⭐ v1.79.4 el CAS del settle
+   * (concurrente: el perdedor no escribe ni avisa), la guardia `status:'reserved'` de cada pieza y la
+   * búsqueda del envío activo hacen que un reintento de Stripe no duplique nada.
    * El correo es POST-COMMIT y BEST-EFFORT: su fallo NO revierte el pago ni falla el webhook.
    */
   private async settleDirectShipOrder(order: Order & { items: OrderItem[] }): Promise<void> {
@@ -388,15 +402,18 @@ export class PaymentsService {
     // de la transacción para que el log y la auditoría no dependan de su commit.
     const anomalies: { inventoryItemId: string; was: string; recovered: boolean }[] = [];
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.order.update({
-        where: { id: order.id },
+    const settled = await this.prisma.$transaction(async (tx) => {
+      // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el MISMO CAS que la rama `vault` (ver `onPaymentSucceeded`):
+      // primera escritura, estado en el `WHERE`, `count === 0` ⇒ el perdedor no escribe nada más.
+      const won = await tx.order.updateMany({
+        where: { id: order.id, status: { not: 'settled' } },
         data: {
           status: 'settled',
           settledAt: now,
           ...(card ? { paymentMethodBrand: card.brand, paymentMethodLast4: card.last4 } : {}),
         },
       });
+      if (won.count === 0) return false;
       for (const oi of order.items) {
         const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
         if (!item) continue;
@@ -480,7 +497,10 @@ export class PaymentsService {
           },
         });
       }
+      return true;
     });
+    // v1.79.4 — el perdedor ⛔ no avisa: ni confirmación de invitado, ni AV-2, ni auditoría.
+    if (!settled) return;
 
     // B3 — las anomalías son RUIDOSAS: log de error + AuditLog consultable (M10). Nunca se
     // liquidan en silencio: cada una significa que una pieza única no estaba donde el pedido

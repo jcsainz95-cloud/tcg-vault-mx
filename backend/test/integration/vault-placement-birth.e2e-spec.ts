@@ -19,6 +19,9 @@
  *  E. `direct_ship` ⇒ CERO colocaciones.
  *  F. Contracargo `vault` ⇒ `cancelled/chargeback`, sin actor; sobre una ya `placed` ⇒ intacta.
  *  G. CHECKs de M-59: un sello a medias es INEXPRESABLE (cada uno con su control positivo).
+ *  ⭐ v1.79.4 (§M4-VAULT.2-bis.1, pruebas 35/37/38): el settle es un CAS. C pasa de medición informativa
+ *     a ASERCIÓN (`createdAt === settledAt` y CERO re-liquidaciones, contadas por un trigger de prueba);
+ *     H repite la carrera en `direct_ship` (registrado e invitado); I fija el camino secuencial.
  */
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -57,6 +60,9 @@ describe('M-59 · nacimiento de la colocación en bóveda (Postgres real)', () =
     if (h) {
       await h.prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS vp59_fail_trg ON "VaultPlacementItem"`);
       await h.prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS vp59_fail_fn()`);
+      await h.prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS vp59_resettle_trg ON "Order"`);
+      await h.prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS vp59_resettle_fn()`);
+      await h.prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS vp59_resettle_log`);
       await h.prisma.vaultPlacementItem.deleteMany({ where: { orderItem: { orderId: { in: orderIds } } } });
       await h.prisma.vaultPlacement.deleteMany({ where: { orderId: { in: orderIds } } });
       await h.prisma.shipmentRequest.deleteMany({ where: { orderId: { in: orderIds } } });
@@ -69,14 +75,14 @@ describe('M-59 · nacimiento de la colocación en bóveda (Postgres real)', () =
   });
 
   /** Orden PENDIENTE con `n` piezas reservadas por ella, lista para que el webhook la liquide. */
-  async function mkOrder(n: number, mode: 'vault' | 'direct_ship' = 'vault') {
+  async function mkOrder(n: number, mode: 'vault' | 'direct_ship' = 'vault', registered = false) {
     const k = (seq += 1);
     const totalCents = 10000 + k;
     const pi = `pi_vp59_${RUN}_${k}`;
     const order = await h.prisma.order.create({
       data: {
-        userId: mode === 'vault' ? userId : null,
-        guestEmail: mode === 'direct_ship' ? `vp59.${RUN}.${k}@example.com` : null,
+        userId: mode === 'vault' || registered ? userId : null,
+        guestEmail: mode === 'direct_ship' && !registered ? `vp59.${RUN}.${k}@example.com` : null,
         fulfillmentMode: mode,
         orderNumber: `VP59-${RUN}-${k}`,
         status: 'pending',
@@ -174,47 +180,115 @@ describe('M-59 · nacimiento de la colocación en bóveda (Postgres real)', () =
     });
   });
 
+  /**
+   * ⭐ v1.79.4 (prueba 35) — el contador de RE-LIQUIDACIONES: un trigger de prueba registra cada
+   * `UPDATE` de `"Order"` de ESTE fichero con `OLD.status = 'settled' AND NEW.status = 'settled'`.
+   * *Por qué el trigger:* la igualdad `createdAt === settledAt` sola pasa por coincidencia de
+   * milisegundo (medido en fase 1: 2/10 así); el conteo no.
+   */
+  async function instalarContadorDeReliquidaciones() {
+    await h.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS vp59_resettle_log (order_id text NOT NULL)`);
+    await h.prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION vp59_resettle_fn() RETURNS trigger AS $$
+      BEGIN
+        IF OLD.status = 'settled' AND NEW.status = 'settled' AND NEW."orderNumber" LIKE 'VP59-${RUN}-%' THEN
+          INSERT INTO vp59_resettle_log(order_id) VALUES (NEW.id);
+        END IF;
+        RETURN NEW;
+      END $$ LANGUAGE plpgsql`);
+    await h.prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS vp59_resettle_trg ON "Order"`);
+    await h.prisma.$executeRawUnsafe(
+      `CREATE TRIGGER vp59_resettle_trg AFTER UPDATE ON "Order" FOR EACH ROW EXECUTE FUNCTION vp59_resettle_fn()`,
+    );
+  }
+  const reliquidaciones = async (orderId: string) =>
+    Number(
+      (
+        await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+          `SELECT count(*) AS n FROM vp59_resettle_log WHERE order_id = $1`,
+          orderId,
+        )
+      )[0].n,
+    );
+
+  /** Dos entregas `succeeded` (event.id distintos) con el entrelazado FORZADO sobre la fila de `Order`. */
+  async function carreraForzada(o: { order: { id: string }; pi: string; totalCents: number }) {
+    const soltar = diferida();
+    const tomado = diferida();
+    // La prueba toma la fila de la orden: las dos entregas leen `pending` (lectura sin candado),
+    // entran a su transacción y se BLOQUEAN en su primera escritura sobre `"Order"`.
+    const candado = h.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${o.order.id} FOR UPDATE`;
+        tomado.abrir();
+        await soltar.promesa;
+      },
+      { timeout: 30000 },
+    );
+    await tomado.promesa;
+    const a = pay(o);
+    const b = pay(o);
+    await esperarBloqueoDeFila(h.prisma, 'Order', 2); // ⛔ no es un sleep: se COMPRUEBA
+    soltar.abrir();
+    await candado;
+    return Promise.all([a, b]);
+  }
+
   describe('C — ⭐⭐ dos entregas CONCURRENTES, entrelazado FORZADO sobre la fila de Order', () => {
-    it(`N=${N_CARRERA}: en TODAS las tiradas, dos 200 y exactamente UNA colocación con sus filas`, async () => {
+    beforeAll(instalarContadorDeReliquidaciones);
+
+    it(`⭐⭐ 35 — N=${N_CARRERA}: en TODAS las tiradas, dos 200, UNA colocación con sus filas, createdAt === settledAt y CERO re-liquidaciones`, async () => {
       const resultados: string[] = [];
-      // MEDICIÓN informativa (⛔ no es aserción — ver docs/BACKEND_NOTES.md §M-59): la SEGUNDA entrega
-      // concurrente re-escribe `Order.settledAt` (conducta previa a M-59 del `order.update` del settle),
-      // así que tras la carrera `createdAt` conserva el instante de la PRIMERA.
-      let desfasadas = 0;
       for (let t = 0; t < N_CARRERA; t += 1) {
         const o = await mkOrder(2);
-        const soltar = diferida();
-        const tomado = diferida();
-        // La prueba toma la fila de la orden: las dos entregas leen `pending` (lectura sin candado),
-        // entran a su transacción y se BLOQUEAN en el `UPDATE "Order"`.
-        const candado = h.prisma.$transaction(
-          async (tx) => {
-            await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${o.order.id} FOR UPDATE`;
-            tomado.abrir();
-            await soltar.promesa;
-          },
-          { timeout: 30000 },
-        );
-        await tomado.promesa;
-        const a = pay(o);
-        const b = pay(o);
-        await esperarBloqueoDeFila(h.prisma, 'Order', 2); // ⛔ no es un sleep: se COMPRUEBA
-        soltar.abrir();
-        await candado;
-        const [ra, rb] = await Promise.all([a, b]);
+        const [ra, rb] = await carreraForzada(o);
         const vps = await placementsOf(o.order.id);
         const settledAt = (await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } })).settledAt;
-        if (vps[0] && settledAt && vps[0].createdAt.getTime() !== settledAt.getTime()) desfasadas += 1;
-        const ok = ra.status === 200 && rb.status === 200 && vps.length === 1 && vps[0].items.length === 2;
-        resultados.push(ok ? 'ok' : `KO(${ra.status},${rb.status},vp=${vps.length},items=${vps[0]?.items.length})`);
+        const mismo = !!vps[0] && !!settledAt && vps[0].createdAt.getTime() === settledAt.getTime();
+        const re = await reliquidaciones(o.order.id);
+        const ok = ra.status === 200 && rb.status === 200 && vps.length === 1 && vps[0].items.length === 2 && mismo && re === 0;
+        resultados.push(ok ? 'ok' : `KO(${ra.status},${rb.status},vp=${vps.length},items=${vps[0]?.items.length},mismo=${mismo},re=${re})`);
       }
       const verdes = resultados.filter((r) => r === 'ok').length;
       // eslint-disable-next-line no-console
-      console.log(
-        `[M-59 C] entregas concurrentes forzadas: ${verdes}/${N_CARRERA} verdes · ${resultados.join(' ')} · ` +
-          `createdAt≠settledAt tras la carrera: ${desfasadas}/${N_CARRERA}`,
-      );
+      console.log(`[M-59 C/35] entregas concurrentes forzadas: ${verdes}/${N_CARRERA} verdes · ${resultados.join(' ')}`);
       expect(resultados).toEqual(Array(N_CARRERA).fill('ok'));
+    });
+  });
+
+  describe('H — ⭐ 37: la MISMA carrera en `direct_ship` (registrado e invitado)', () => {
+    beforeAll(instalarContadorDeReliquidaciones);
+
+    it.each([
+      ['invitado', false],
+      ['registrado', true],
+    ])(`N=${N_CARRERA} (%s): dos 200, UN envío activo, CERO re-liquidaciones, marca/últimos 4 escritos`, async (_n, registered) => {
+      const resultados: string[] = [];
+      for (let t = 0; t < N_CARRERA; t += 1) {
+        const o = await mkOrder(1, 'direct_ship', registered as boolean);
+        const [ra, rb] = await carreraForzada(o);
+        const envios = await h.prisma.shipmentRequest.count({ where: { orderId: o.order.id, status: { not: 'cancelado' } } });
+        const re = await reliquidaciones(o.order.id);
+        const ord = await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } });
+        const ok = ra.status === 200 && rb.status === 200 && envios === 1 && re === 0 && ord.status === 'settled';
+        resultados.push(ok ? 'ok' : `KO(${ra.status},${rb.status},envios=${envios},re=${re},${ord.status})`);
+      }
+      const verdes = resultados.filter((r) => r === 'ok').length;
+      // eslint-disable-next-line no-console
+      console.log(`[M-59 H/37 ${_n}] ${verdes}/${N_CARRERA} verdes · ${resultados.join(' ')}`);
+      expect(resultados).toEqual(Array(N_CARRERA).fill('ok'));
+    });
+  });
+
+  describe('I — 38: el camino SECUENCIAL no cambia', () => {
+    it('38(ii) — una orden en `failed` que recibe `succeeded` se liquida COMO HOY (status settled, settledAt escrito)', async () => {
+      const o = await mkOrder(1);
+      await h.prisma.order.update({ where: { id: o.order.id }, data: { status: 'failed' } });
+      expect((await pay(o)).status).toBe(200);
+      const ord = await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } });
+      expect(ord.status).toBe('settled');
+      expect(ord.settledAt).toBeInstanceOf(Date);
+      expect(await placementsOf(o.order.id)).toHaveLength(1);
     });
   });
 
