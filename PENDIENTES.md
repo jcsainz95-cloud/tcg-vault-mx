@@ -5,6 +5,85 @@
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
 > Última limpieza: **2026-09-11 ~08:30 UTC** (orquestador, sesión 2, tras fusionar Stream A + andamiaje de CI a `main`). Cuerpos de los ítems: **verbatim**, sin reescribir.
 
+## Recuento del backlog 2026-09-25 (sobre production 47e4efa) — sustituye al índice del 2026-09-11 como punto de partida
+
+> Medido por un agente de solo lectura (git show/grep sobre origin/production 47e4efa, API de GitHub). El orquestador re-verificó 4 filas a mano: P-83 (0 usos de SEALED_MARKET_KEY_REQUIRED en backend/src), DO-D4 (vence 2026-10-06, deploy.yml:21), P-BOUNTY-CEIL (money.ts:243) y razón social (es.json:11). Lo demás es del agente, NO re-verificado por el orquestador. Desde entonces, P-FONTS-CJK tiene arreglo en rama claude/arreglos-rapidos (f6ffb01, sin publicar) y la cubeta de bóveda está decidida y en construcción (claude/m4-boveda).
+
+# Recuento del backlog — medido 2026-09-25
+
+- **Medido contra:** `origin/production` = **`47e4efa6f8a5`** (merge PR #59 «Publicar ahora», 2026-09-23 07:53 -0600).
+- **Fuente del backlog:** `origin/claude/handoff-sesion-nueva:PENDIENTES.md` (`86cdea6b`): índice del 2026-09-11 + bloques 2026-09-21 y 2026-09-22. `HISTORIAL.md`/`HECHOS.md` de production (sin cambios frente a la rama de traspaso).
+- **Método:** solo `git show`/`git grep` sobre `origin/production`, más la API pública de GitHub (ramas, rulesets, PRs abiertas). No se levantó la app ni se tocó ninguna BD. No se ejecutó ninguna suite.
+- **PRs abiertas (API GitHub, 2026-09-25):** #62 M4 «Pedidos a preparar» (sin fusionar), #61 traspaso (docs), #60 DISEÑO precio de sellado (no fusionar).
+- Se omiten las filas de streams publicados (Stream A/B/C, P-78, P-84, P-89) y las notas de proceso del orquestador (O-14-b, O-14-c, O-5-bis, O-1-bis), que no dejan acción pendiente real.
+
+#### Tabla
+
+| ID | Estado | Evidencia (en `origin/production` salvo que se diga otra cosa) | Qué falta | ¿Dinero? |
+|---|---|---|---|---|
+| **P-BOUNTY-CEIL** | ABIERTO | `backend/src/common/money.ts:243`: «El bounty NUNCA se compara contra el» mercado | Arquitecto→backend: poner un techo al bounty contra el precio de mercado | **Sí** |
+| **P-TARIFA** | ABIERTO · DEPENDE DEL DUEÑO | `frontend/messages/es.json:2425` `"rate": "TARIFA VIGENTE"` (y 2419, 2438, 3439, 3442); «tu tarifa de compra» = 0 hits | Que el dueño apruebe el texto; frontend lo cambia y pone el mercado al lado | Pantalla de dinero (solo texto) |
+| **P-LEG-CAUSE / P-LEG-AUTODERIVE** | OBSOLETO (cerrado) | PR #58 `c7c58aa` retiró el filtro de legalidad; `activeMarksSnapshot: []` en `decks-meta-refresh.service.ts:274`; `admin-decks-meta.controller.spec.ts:137` dice que `standard-legality` ya no existe | Nada | — |
+| **P-API-DOC** | CERRADO | Dial documentado en `docs/API_CONTRACT.md:22115`; `standard-legality` retirado (ver fila anterior) | Nada | — |
+| **PR #59 «Publicar ahora»** | CERRADO (en producción) | Es el HEAD `47e4efa`; `M12View.tsx:156-175` `publishNow` | Nada | — |
+| **Decisión: cómo publica el automático** | DEPENDE DEL DUEÑO | El interruptor existe (`DecksMetaDialControl.tsx:19`; `admin-decks-meta.controller.ts:110,120`, off/dryrun/on + autopublish) | Que el dueño elija «publica solo» o «yo aprieto» tras ver el ensayo | No |
+| **P-M4-PREP** | ABIERTO (en PR) | `PreparationOrderDTO` = 0 hits en `backend/src` y `frontend/src`; solo existe `GET picking-list` (`admin-shipments.controller.ts:38`). PR #62 abierta, sin fusionar | Gates + fusionar PR #62 (cubeta de envío). Cubeta de bóveda: requiere schema, **decisión del dueño**. Reembolso parcial: aparte, 3 veredictos | 1a PR no; reembolso parcial **sí** |
+| **P-SELLADO-PRECIO** | ABIERTO · DEPENDE DEL DUEÑO | PR #60 «DISEÑO (no fusionar)» abierta; nada en production | Que el dueño conteste las 5 preguntas; luego arquitecto → backend/frontend | **Sí** |
+| **P-SELLADO-REPRECIO** | ABIERTO (lo absorbería P-SELLADO-PRECIO) | Sin cambios desde 2026-09-22 (nada fusionado después de #59) | Poder re-editar el precio de un sellado ya publicado | **Sí** |
+| **P-FONTS-CJK** | ABIERTO | `frontend/src/app/[locale]/layout.tsx:2,16` importa y usa `Zen_Old_Mincho` | Frontend: quitar o recortar esa familia | No |
+| **P-BUYLIST-CONC-FLAKE** | ABIERTO | `backend/test/integration/buylist-intake-concurrency.e2e-spec.ts` sigue exigiendo `expect(conflictos).toBeGreaterThan(0)` (≈l.169; antes l.161) | Backend: estabilizar sin debilitar el candado; medir N≥10 | Adyacente |
+| **P-79 (c)** cola M1 no pinta sellado | CERRADO | `PendingPublishQueue.tsx`: `grep -c 'productType\|sealedProductName'` = 11 (antes 0); `frontend/src/types/contract.ts:826` `sealedProductName` | Nada | — |
+| **P-79 (a) / P-69** precio de mercado se pierde entre paso 1 y 2 | CERRADO en código · visual NO MEDIDO | `SealedAddFlow.tsx:167`: se basa en `effectiveMarketCents` (gateado por `sealedPriceSource`), ya no en `marketRef` | Confirmarlo en pantalla (requiere levantar la app) | **Sí** |
+| **P-79 (b)** precio manual inventado (MX$1,300) | CAMBIADO → lo absorbe P-SELLADO-PRECIO | Rediseño del precio de sellado en PR #60 | Ver P-SELLADO-PRECIO | **Sí** |
+| **P-79 (d) · reparación de las 9 filas viejas** | DEPENDE DEL DUEÑO · NO MEDIBLE sin BD de producción | Guion `backend/prisma/data-repair/20260912_p79d_llave_de_precio_del_sellado.sql` sigue terminando en `ROLLBACK;` (l.295); nada indica que se haya corrido | Que el dueño corra el PASO 1 (ensayo) en Railway; luego aplicar con 3 veredictos | **Sí** |
+| **P-80** Stripe dentro de la transacción | CERRADO (decisión de diseño) | Arquitecto decidió en v1.70: la cancelación **se queda** en la transacción y el estado «huérfana de pago» se declara y se sana (`ARCHITECTURE.md:23526,23594`; `API_CONTRACT.md:8158`); timeout 8 s (`stripe.service.ts:123`); `closePaymentIntent` relee estado (`orders.service.ts:852-859`) | Nada (riesgo residual de pool con N alto, aceptado) | **Sí** |
+| **P-81** tercera rama de §M5-S | CERRADO | Contrato v1.70 la declara (`API_CONTRACT.md:239`); código `buylist.service.ts:5962,5998` | Nada | No |
+| **RSV-L1** rama legada `reservedByOrderId IS NULL` | ABIERTO (media mitad) | Conteo en prod = 0 (lo corrió el dueño 2026-09-12, fila MEDICIÓN-PROD). Pero los sitios siguen: `reservation.ts:42,48`, `payments.service.ts:782`, `guest-checkout.service.ts:465`, `orders.service.ts:1181` | Backend: retirar esos sitios (ya no hay nada que rompa) | **Sí** |
+| **P-82** dos ventas simultáneas → 500 | CERRADO | `dd3522b` (2026-09-14, en production): reintento de `SERIALIZABLE`; candado `buylist-intake-concurrency.e2e-spec.ts` exige 0 respuestas 5xx | Solo el flake (ver P-BUYLIST-CONC-FLAKE) | Adyacente |
+| **SB-D6** correo del invitado en `sessionStorage` | CERRADO (contrato) | Contrato v1.70 lo vuelve normativo (`API_CONTRACT.md:207,8039`) y documenta por qué no hay vía sin Stripe (`:8195`). La ficha FE-SB-1 de `TECH_DEBT.md:7005` sigue sin marcar cerrada | Higiene: cerrar la ficha FE-SB-1 | Adyacente |
+| **FE-SB-4** E2E `@real` contra frontend horneado | ABIERTO | `docs/TECH_DEBT.md:7057` sigue abierta | Devops: arnés | No |
+| **P-83** llave `'sealed'` | PARCIAL — diseño hecho, código NO | Contrato v1.70 §M2-SK exige `422 SEALED_MARKET_KEY_REQUIRED` y «hay que desplegarlo» (`API_CONTRACT.md:5433,11424`); `git grep SEALED_MARKET_KEY_REQUIRED\|map_or_price` en `backend/` y `frontend/src` = **0** | Backend: implementar el 422 y retirar el fallback de `inventoryValue()` | **Sí** |
+| **SEC-SB-1 / C9** reservas atascadas | CERRADO | Arreglo `dbb8e46` en production; conteo en prod = 0 (MEDICIÓN-PROD 2026-09-12) | Nada | **Sí** (cerrado) |
+| **INFRA-SMOKE** | NO MEDIBLE aquí | Requiere correr la suite con S3 local; sin cambio documentado (`TECH_DEBT.md:2834` sigue citándola como fallo ajeno) | Devops | No |
+| **P-85** paginación con dos conductas | ABIERTO | `common/admin-list-filters.ts:8-10` (400, «NUNCA se silencia con un clamp») vs `admin.controller.ts:137-138,167` (users acota a [1,100]) | Arquitecto: una sola regla | No |
+| **P-86** validación de query dispersa | ABIERTO (deuda) | 180 `@Query(` en 22 ficheros; `main.ts:56` `forbidNonWhitelisted: false` (aceptado por seguridad, `SECURITY_NOTES.md` §4) | Backend: consolidar (H3) | No |
+| **P-90** censo desfasado + 2 ejes de pricing | CERRADO | v1.73 retira el censo de estado (`API_CONTRACT.md:123,130`); `?context=` y `?finish=` arreglados por `H3-d` (`pricing.controller.ts:258-265`; `admin-bounties.controller.ts:82`) | Nada | (era pantalla de dinero) |
+| **P-91** «contra mocks se ve bien» | PARCIAL | (a) La frase ya no está en el contrato (grep «sí devuelve tejas» = 0). (b) `DESIGN_SYSTEM.md` §7.16 sigue ofreciendo «Todo · Raw (NM) · Graded · Sellado» + subtipo (l.1766-1769). (c) `API_CONTRACT.md:7400-7405` sigue «NO SE DECIDE AQUÍ» | ux-ui corrige §7.16; arquitecto decide la faceta | No |
+| **P-92** roja intermitente en frontend | CAMBIADO · NO RE-MEDIDO | `012ccce` «aisla el reloj en dos tests bomba-de-reloj (clase P-92)», en production vía `5a48afb` | Re-medir N=10 para confirmar que era esa | No |
+| **P-93** bóveda del cliente ignora filtros | CERRADO | `ce7017b` (PR #35); `TECH_DEBT.md` EQ-D1 fila «CERRADO 2026-09-13 (EQ-D0)» | Nada | No |
+| **EQ-D1** ejes de query sin registrar | PARCIAL | Cerrados: bóveda, `kind`, `scope`, `sort` de catálogo (`f34e6ec`) y lote 2 de orden/rango (`e31c5d7`). Siguen: `?report=` de finanzas cae a «inventario» con cualquier valor (`admin.service.ts:1723-1735`, `admin.controller.ts:454,498`); `?range=` se acota a `1m` en silencio (`sealed-catalog.service.ts:506-507`, `set-value.service.ts:253`); `?sealedSubtype=` en `/catalog/cards` vivo pese a estar retirado (`catalog.controller.ts:17,38`) | Backend (arquitecto da la clase) | `report=` es de finanzas |
+| **P-94** rechazo de INE sin aviso | CERRADO | Plantilla `backend/src/modules/admin/mail/kyc-notice.templates.ts`; `admin.service.ts:1152,1175` envía el correo al rechazar (merge `d50cfa4`, PR #36) | Nada | No |
+| **P-95** rechazar N veces | CERRADO (decisión) | `admin.service.ts:1134-1141`: re-rechazar actualiza el motivo pero **un solo correo** (sello `kycRejectionNoticeSentAt`, v1.74 §R.4.a) | Nada | No |
+| **P-96** centro de avisos | CERRADO (primer corte) | `d50cfa4`: plantillas de aviso de pedidos, envíos, disputas, buylist, KYC + `users/me-pendings.controller.ts`, `pendings.service.ts` | Ampliar eventos si el dueño quiere más | No |
+| **P-97** M8 Disputas vacía se ve rota | PARCIAL | Estado vacío hecho (`M8View.tsx:87-96`, `EmptyState`). Filtro: `getAdminDisputes()` sigue sin argumentos (`frontend/src/lib/api.ts:4431`) | ux-ui/dueño: ¿hace falta filtro? | No |
+| **P-98** importe negativo pierde «MX» | CERRADO | `frontend/src/lib/format.ts:39` arregla «por presencia», tabla de 4 casos en l.15-18 | Nada | **Sí** (cerrado) |
+| **P-87** BD de integración sucia | ABIERTO | `backend/package.json:20` `test:integration` sin base efímera; sin `--fresh-db` en `scripts/` | Devops | No |
+| **H1** protección de ramas | ABIERTO · DEPENDE DEL DUEÑO | API GitHub 2026-09-25: `GET /rulesets` → `[]`; `branches/production` y `branches/main` → `"protected": false` | Que el dueño decida activarla (devops la aplica) | Indirecto |
+| **P-88** formateo mezclado con lógica | ABIERTO | No hay `.husky` ni hook previo en production; el candado sigue siendo post-push | Orquestador/devops | Indirecto |
+| **DO-D2** secrets de CD | ABIERTO · DEPENDE DEL DUEÑO | `deploy.yml:142` `secrets-gate`, `:495,545` `promote-production-*` siguen; `TECH_DEBT.md:6864` abierta | Dueño: cargar los 5 secrets o retirar esos jobs | No |
+| **DO-D4 / C2-bis** DAST en modo informe | ABIERTO · **vence 2026-10-06** | `deploy.yml:485` `report_only: true`; caducidad `ci.yml:409`, `deploy.yml:21,469` | Seguridad decide + devops quita la línea antes del 2026-10-06 o CI se pone rojo | Indirecto |
+| **Seguridad · release A** (bloqueos para dinero real) | ABIERTO (parcial) | C7: login/google/register solo limitan **por IP** (`auth.controller.ts:25,35,45`); P-REDIR-1: `safeNext` no rechaza `\` (`frontend/src/lib/account-routes.ts:50-53`); P-SEED-1: el guard mira solo `hostname` (`seed-target-guard.ts:37-54`); P-GL-2: gitleaks aún exime `docs/*.md` por ruta (`security/gitleaks.toml:116`); S-NAT-1: sin `chmod` en `stack-native.sh`; C6, C12, C13 sin evidencia de cierre (`SECURITY_NOTES.md:997,1120`). Cerrado: logout revoca (`auth.service.ts:115`, `tokenVersion` +1) | Backend C7; devops C6/C2-bis; red team vivo C12; pentest externo C13; bajos aceptados | **Sí** (bloquea `sk_live`) |
+| **Seguridad C3** | NO MEDIBLE aquí · DEPENDE DEL DUEÑO/QA | Requiere `gh run view … --log` (no hay `gh` en este entorno); `SECURITY_NOTES.md:997,1120` la sigue listando abierta | Correrla | **Sí** |
+| **Arquitecto (post-A)** | PARCIAL | `orderNumber` ya en los DTO (`contract.ts:977,1023,1050`). Cliente en fila de M4: va en PR #62 (abierta). Preguntas §4.47.9: NO MEDIDO | Fusionar #62; revisar §4.47.9 | No |
+| **P-IVA-INCL** | CERRADO | `money.ts:520` `PRICE_CONVENTION_OF_NEW_ROWS = 'IVA_INCLUSIVE'`; «IVA {rate} % incluido» en `es.json:26,460`; merge `d50cfa4` (D56) | Nada | **Sí** (cerrado) |
+| **P-BL** stream buylist v1.59/v1.60 | ABIERTO (sin cambio visible) | Backend sigue emitiendo `scope: 'per_request'` y `'per_request_offer'` (`buylist.service.ts:1598,3697`) mientras frontend los retiró (`error-audience.ts:42`). Resto (§M5-D, §M5-I, BL-42, D50): NO re-medido uno por uno | Backend alinear §M5-A; arquitecto D50 | **Sí** |
+| **P-53** disco de Postgres | CERRADO en código · disco real NO MEDIBLE | `eff00b2` «integra P-53 (cura de disco…)»; `evidenceDate` ya se lee (`graded-estimate.ts:830-853`); alarma de disco `85c26ba` | Ver el uso de disco en Railway | No |
+| **P-56** wishlist | ABIERTO · falta alcance | `git grep -i wishlist` en backend/src, frontend/src, docs, PROJECT.md = 0 | Product-owner + dueño definen alcance | **Sí** |
+| **P-58** «Marcar recibida» | CERRADO | Front: solo en `en_transito` (`M5View.tsx:1000-1003`); back: `receive: { allowedFrom: ['en_transito'] }` (`buylist.service.ts:5935`) | Nada | **Sí** (cerrado) |
+| **P-59** reserva sin dueño | CERRADO | Contrato §4-R v1.68 (`API_CONTRACT.md:7940`); código `error-codes.ts:184`, `reservedByOrderId` | Nada | **Sí** (cerrado) |
+| **P-60** DMARC | DEPENDE DEL DUEÑO · NO MEDIBLE aquí | El proxy bloquea las consultas DNS por HTTPS (dns.google, cloudflare-dns → 403) | Dueño añade `_dmarc.tcghunt.mx` en su DNS | No |
+| **P-61** catálogo de Vender se ve chico | ABIERTO | `BuylistView.tsx:328` `lg:grid-cols-[minmax(0,1fr)_360px]` (carrito lateral fijo) | ux-ui → frontend (carrito en ventana emergente) | No |
+| **P-65** fotos tardan 5–10 s | PARCIAL · NO MEDIBLE sin app | `e691ce0` preconnect a `images.scrydex.com`; fuentes CJK siguen (P-FONTS-CJK) | Medir en navegador; quitar fuentes CJK | No |
+| **P-66** vuelta al panel de admin | ABIERTO (casi todo) | Menú sigue rotulado por código (`es.json:1222-1226` «M1 · Inventario»…); copy «beta cerrada» (`es.json:3145`); no hay commits P-66 salvo docs. B2 (móvil) necesita navegador | ux-ui → frontend, en el orden B1, B3, P-67, I2, I1 | No |
+| **P-67** inventario de datos para analytics | ABIERTO | `git grep -il analytics docs PROJECT.md` = 0 | Arquitecto/backend → product-owner | No |
+| **P-68** FX: consulta de una fila antes del interruptor | CAMBIADO · NO MEDIBLE sin BD | El interruptor ya está publicado (`FxRateCard.tsx`, desde `5402676` 2026-09-09); sigue la resolución `legacy` (`fx-mode.ts:33,46`) | Dueño: confirmar en M2 que el modo y la tasa son los que quiere (o correr la consulta) | **Sí** |
+| **P-71** código corto del set | PARCIAL | `ptcgoCode` ya lo usa el matcher de decks (`decks-meta/deck-matcher.service.ts`, `deck-list.parser.ts`) pero 0 usos en `frontend/src` | Frontend: mostrarlo junto a las imágenes | No |
+| **P-72** «SIN PRECIO RESOLUBLE» ambiguo | CERRADO | `contract.ts:2584-2593` `pendingReason`; M2 lo traduce (`PendingQueueSection.tsx:42`) | Nada | **Sí** (cerrado) |
+| **P-46** sellado «0 presentaciones» | CERRADO en código · verificación en prod DEPENDE DEL DUEÑO | Match único compartido (`card-product-resolver.service.ts:237-245` → `matchTcgcsvGroupByName`) | Correr la sync de Pitch Black / Chaos Rising en producción y contar | **Sí** |
+| **Razón social** | DEPENDE DEL DUEÑO | `es.json:11` `"legalEntity": "[Razón social pendiente]"`; `footer.ts:4` («publicar SIN razón social por ahora») | Que el dueño dé el dato | No |
+| **Deuda gates 2026-09-11** | NO RE-MEDIDO ficha por ficha | Fichas BE-82..87, GA-D1..D7, DO-D1..D10 en `docs/TECH_DEBT.md` | Revisión aparte | Varias |
+
+
 ## Actualización 2026-09-25 (orquestador, sesión 4) — lección: ramificar desde el head de una PR abierta
 
 ### P-RAMA-HEAD-PR · Empujar una rama nueva **en el mismo sha** que el head de una PR abierta contamina sus checks
