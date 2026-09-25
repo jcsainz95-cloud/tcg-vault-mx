@@ -4,6 +4,18 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.79.3 — «PARA BÓVEDA» CIERRA LOS HUECOS QUE ux-ui ANOTÓ AL DISEÑAR (`DESIGN_SYSTEM §36.13`)** (2026-09-25,
+> arquitecto. Base: **v1.79.2, vigente entera salvo lo que esta rev toca**. `API_CONTRACT` sube a **v1.79.3**; detalle y
+> verificación de cada hueco en `API_CONTRACT §M4-VAULT.12`. ⛔ **Schema `M-59` sin cambio.** ⛔ **Ningún código de error
+> nuevo.** ⛔ **Cero dinero.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐ **H-1:** la regla «nombre fabricado del correo ⇒ `null`» se extiende a todo lo que el operador ve en «Bóvedas de clientes» (lista, cabecera del detalle, `owner` de «Cartas» y «Sellado»), con **una** función `customerDisplayName` para las cinco fuentes | §4.21q (m) | **Sí, backend + frontend** |
+> | **2** | ⭐ **H-4:** `confirm` sin cajón cuando no hay cartas tomadas — cierre directo `pending → cancelled/nothing_to_place` bajo la puerta | §4.21q (m) | **Sí, backend + frontend** |
+> | **3** | H-2 / H-5: los `409 {placed}` y `422 not_customer_drawer` traen el cajón **nombrable** (etiqueta + zona). H-3: errata de nombre de tipo. H-6: sin contrato | §4.21q (m) | **Sí, backend + frontend** |
+>
+> ---
 > **Rev v1.79.2 — «PARA BÓVEDA» CIERRA SUS PREGUNTAS: DESHACER «PREPARADO», NOMBRE Y APELLIDO, LO FÍSICO ES DEL DUEÑO**
 > (2026-09-25, arquitecto. Base: **v1.79.1, vigente entera salvo lo que esta rev toca**. Fuente: `HECHOS.md`, última
 > fila de decisiones. `API_CONTRACT` sube a **v1.79.2**. ⛔ **Schema `M-59` sin cambio.** ⛔ **Ningún código de error
@@ -7013,6 +7025,16 @@ pantalla = **`name` entero**, como titular; el correo, segunda línea, desempate
 
 ⚠️ **Asimetría declarada:** la cubeta `ship` (congelada en este stream) sigue emitiendo `User.name` aunque sea
 `derived`. Alinearla es una línea en su fuente cuando esa tarjeta se abra.
+
+**(m) v1.79.3 — Huecos de la pantalla (`DESIGN_SYSTEM §36.13`).** Verificados uno por uno (`API_CONTRACT §M4-VAULT.12`);
+ninguno falso.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **H-1:** la regla del nombre fabricado gobierna **la pantalla entera** «Bóvedas de clientes» (lista, cabecera, `owner` de sus pestañas), con **una** función pura `customerDisplayName` en `modules/vault/` | Aplicarla solo a la pestaña nueva; o exponer `nameSource` | La pestaña «Qué debe haber» vive **dentro** de ese detalle: una misma persona con dos voces en una pantalla es el defecto que la regla existe para impedir. Una función y no cinco ternarios: cinco copias son cinco sitios donde olvidarla. `null` y no bandera: mismo argumento que (l) |
+| Frontera de H-1: **admin** de «Bóvedas de clientes» | Extenderla también a la vista del propio cliente («Mi bóveda») o a todas las pantallas admin | La vista del cliente no pinta `owner` y es otro público; las demás pantallas admin (tarjeta `ship`, M6) son de otros streams — **NO MEDIDO** qué pintan. Se declara la frontera en vez de ensancharla a ciegas |
+| **H-4:** `locationId` opcional **solo** con cero cartas `picked`, decidido **bajo la puerta**; cierre directo `pending → cancelled` | Verbo de cierre aparte; o cajón siempre opcional | Un verbo aparte duplica puerta, preparado, CAS y bitácora, y obliga a la pantalla a escoger verbo con un conteo que puede estar viejo. Siempre opcional dejaría colocar cartas **sin cajón**. El conteo de `picked` es estable bajo la puerta porque las marcas solo se escriben sin preparar |
+| **H-2 / H-5:** `details` con el cajón **nombrable** que **sustituye** a los ids | Añadir `label`/`zone` junto a los ids | Dos llaves para un hecho. Los verbos no están construidos: no hay compatibilidad que guardar |
 
 ---
 
