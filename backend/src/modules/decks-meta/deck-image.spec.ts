@@ -90,6 +90,14 @@ describe('pickDeckImage — la ex representativa del deck', () => {
     expect(pickDeckImage('Raging Bolt Ogerpon', null, rb)).toBe(img('rb'));
   });
 
+  it('a igual posición, el nombre completo gana a la especie: deck «Excadrill» ⇒ «Excadrill ex», no «Mega Excadrill ex»', () => {
+    const cards = [
+      line('Mega Excadrill ex', 3, { externalId: 'mexc' }),
+      line('Excadrill ex', 1, { externalId: 'exc' }),
+    ];
+    expect(pickDeckImage('Excadrill', null, cards)).toBe(img('exc'));
+  });
+
   it('apóstrofo tipográfico y acentos se normalizan («N’s Zoroark» ⇒ «N\'s Zoroark ex»)', () => {
     const cards = [line("N's Zorua", 4, { externalId: 'zorua' }), line('Latias ex', 4, { externalId: 'latias' }), line("N's Zoroark ex", 3, { externalId: 'zor' })];
     expect(pickDeckImage('N’s Zoroark', null, cards)).toBe(img('zor'));

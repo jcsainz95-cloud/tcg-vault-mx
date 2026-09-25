@@ -23742,8 +23742,9 @@ Pokémon casada en el orden en que Prisma devolvía las líneas (sin `orderBy`) 
 
 Normalización: minúsculas, sin acentos (NFD), apóstrofo tipográfico ⇒ recto, «ex»/«EX» suelto fuera; ex = nombre
 terminado en «ex» (cualquier caja) o `subtypes` con «ex». Coincidencia: nombre completo sin «ex» primero, luego la
-especie (última palabra: «Teal Mask Ogerpon ex» casa con «Ogerpon»). Desempates deterministas: completa > especie;
-posición más temprana; nombre más largo («Mega Excadrill ex» > «Excadrill»); más copias; nombre ascendente.
+especie (última palabra: «Teal Mask Ogerpon ex» casa con «Ogerpon»). Desempates deterministas: posición más
+temprana en el nombre del deck (el primero nombrado); a igual posición, completa > especie (deck «Excadrill» ⇒
+«Excadrill ex», no «Mega Excadrill ex»); más copias; nombre ascendente.
 Varias impresiones de la misma carta: más copias en su línea, luego `externalId` ascendente.
 
 **Propuesta (no implementada, requiere arquitecto):** la home de Limitless ya trae la carta que Limitless usa como

@@ -20,10 +20,11 @@ import { MetaCardGroup, MetaMatchStatus } from '@prisma/client';
  * («mega excadrill», «n's zoroark»); si no, la especie (última palabra: «Teal Mask Ogerpon ex» casa con
  * el deck «Ogerpon»). Los nombres de Limitless vienen SIN «ex» («Dragapult», «Mega Excadrill»).
  *
- * Desempates (deterministas, no dependen del orden de las líneas): coincidencia completa antes que por
- * especie; posición más temprana en el nombre del deck («Mega Excadrill» ⇒ «Mega Excadrill ex» casa en la
- * posición 0 y «Excadrill ex» en la 5); más copias; nombre normalizado ascendente. Entre impresiones de la MISMA carta: más
- * copias en su línea y luego `externalId` ascendente.
+ * Desempates (deterministas, no dependen del orden de las líneas): posición más temprana en el nombre
+ * del deck (manda «el primero nombrado»); a igual posición, coincidencia completa antes que por especie
+ * (deck «Excadrill» ⇒ «Excadrill ex» antes que «Mega Excadrill ex»; en el deck «Mega Excadrill» la
+ * Mega casa en la posición 0 y «Excadrill ex» en la 5); luego más copias; luego nombre normalizado
+ * ascendente. Entre impresiones de la MISMA carta: más copias en su línea, luego `externalId` ascendente.
  */
 export interface DeckImageCard {
   id: string;
@@ -55,9 +56,9 @@ const imageOf = (c: DeckImageCard): string | null => c.imageLargeUrl ?? c.imageS
 export function normalizeName(s: string): string {
   return s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[’‘`´]/g, "'")
+    .replace(/[\u2019\u2018`\u00b4]/g, "'")
     .replace(/[^a-z0-9']+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ');
@@ -76,7 +77,7 @@ function byQtyThenKey(a: Candidate, b: Candidate): number {
   return b.totalQty - a.totalQty || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 }
 
-/** Coincidencia por nombre: [tier, posición] (menor es mejor) o null si no aparece. */
+/** Coincidencia por nombre: [tier (0 completa, 1 especie), posición] o null si no aparece. */
 function nameMatch(deckPadded: string, c: Candidate): [number, number] | null {
   if (c.base) {
     const p = deckPadded.indexOf(` ${c.base} `);
@@ -99,8 +100,8 @@ function pickByName(deckPadded: string, pool: Candidate[]): Candidate | null {
 }
 
 function isBetter(m: [number, number], c: Candidate, bm: [number, number], b: Candidate): boolean {
-  if (m[0] !== bm[0]) return m[0] < bm[0];
   if (m[1] !== bm[1]) return m[1] < bm[1];
+  if (m[0] !== bm[0]) return m[0] < bm[0];
   return byQtyThenKey(c, b) < 0;
 }
 
