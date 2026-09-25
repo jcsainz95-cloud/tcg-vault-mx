@@ -41,6 +41,22 @@ describe('reset-db-keep-users · planificador puro', () => {
     expect(plan).toContain(LOCATION_ORDER[0]);
   });
 
+  it('v1.79 (M-59): la colocación en bóveda se borra ANTES que lo que referencia (FKs Restrict)', () => {
+    const plan = buildDeletionPlan({ wipeCatalog: true, wipeAudit: false, wipeLocations: true });
+    // ⛔ `indexOf === -1` pasaría el «antes que» en silencio: primero se exige que ESTÉN.
+    expect(plan).toContain('vaultPlacementItem');
+    expect(plan).toContain('vaultPlacement');
+    const before = (child: string, parent: string) =>
+      expect(plan.indexOf(child)).toBeLessThan(plan.indexOf(parent));
+    // VaultPlacementItem → VaultPlacement / OrderItem / InventoryItem (las tres Restrict)
+    before('vaultPlacementItem', 'vaultPlacement');
+    before('vaultPlacementItem', 'orderItem');
+    before('vaultPlacementItem', 'inventoryItem');
+    // VaultPlacement → Order / VaultLocation (Restrict)
+    before('vaultPlacement', 'order');
+    before('vaultPlacement', 'vaultLocation');
+  });
+
   it('respeta el invariante hijos-antes-que-padres en las cadenas FK clave', () => {
     const plan = buildDeletionPlan({ wipeCatalog: true, wipeAudit: false, wipeLocations: true });
     const before = (child: string, parent: string) =>

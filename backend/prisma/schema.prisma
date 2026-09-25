@@ -144,6 +144,27 @@ enum VaultZone {
   customer_custody
 }
 
+// v1.79 (M-59, API_CONTRACT §M4-VAULT.2) — ciclo de la COLOCACIÓN en bóveda de una orden `vault`
+// liquidada. Clase E. ⛔ Ningún filtro de query lo consume hoy.
+enum VaultPlacementStatus {
+  pending // nació con la liquidación; está en la cubeta «Para bóveda»
+  placed // el operador confirmó la colocación (terminal)
+  cancelled // no hay nada que colocar (terminal) — ver cancelReason
+}
+
+// v1.79 (M-59, §M4-VAULT.5/.6) — por qué una colocación terminó sin colocar. Clase E.
+enum VaultPlacementCancelReason {
+  chargeback // contracargo: las piezas volvieron a la plataforma (§M4-VAULT.6)
+  nothing_to_place // al confirmar, ninguna pieza se colocó (todas faltantes o bloqueadas) (§M4-VAULT.5)
+}
+
+// v1.79.1 (M-59, §M4-VAULT.10) — marca de preparación de UNA carta de un pedido de bóveda. Clase E.
+enum PreparationItemStatus {
+  pending // sin palomear (estado de nacimiento)
+  picked // el operador la tiene en la mano
+  missing // el operador NO la encontró. ⛔ Solo se registra: no mueve dinero, ni inventario, ni avisa
+}
+
 enum OrderStatus {
   pending
   settled
@@ -810,7 +831,9 @@ model VaultLocation {
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
 
-  items InventoryItem[]
+  items      InventoryItem[]
+  // v1.79 (M-59, §M4-VAULT.2): colocaciones confirmadas en este cajón (relación inversa).
+  placements VaultPlacement[]
 
   @@unique([zone, box, row, slot])
 }
@@ -903,12 +926,14 @@ model InventoryItem {
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
-  movements     InventoryMovement[]
-  orderItems    OrderItem[]
-  shipmentItems ShipmentItem[]
-  disputes      Dispute[]
+  movements           InventoryMovement[]
+  orderItems          OrderItem[]
+  shipmentItems       ShipmentItem[]
+  disputes            Dispute[]
   // v1.20 (M-24): ajustes por levantamiento físico registrados sobre esta pieza.
-  adjustments   InventoryAdjustment[]
+  adjustments         InventoryAdjustment[]
+  // v1.79.1 (M-59, §M4-VAULT.2): filas de preparación de bóveda que apuntan a esta pieza.
+  vaultPlacementItems VaultPlacementItem[]
 
   @@index([cardId])
   @@index([status])
@@ -1228,6 +1253,8 @@ model Order {
   accessTokens     OrderAccessToken[]
   // v1.21 (M-25): envíos que fulfillan esta orden (envío directo). Vacío en pedidos a bóveda.
   shipmentRequests ShipmentRequest[]
+  // v1.79 (M-59, §M4-VAULT.2): la colocación en bóveda de esta orden (solo `vault` liquidada).
+  vaultPlacement   VaultPlacement?
 
   @@index([userId])
   @@index([status])
@@ -1256,7 +1283,61 @@ model OrderItem {
   marketBracket   MarketBracket?
   finish          Finish?
 
+  // v1.79.1 (M-59, §M4-VAULT.2): su fila de preparación de bóveda (solo órdenes `vault` liquidadas).
+  vaultPlacementItem VaultPlacementItem?
+
   @@index([orderId])
+}
+
+// ============================= VAULT PLACEMENT (M-59) =============================
+//
+// v1.79 / v1.79.1 (API_CONTRACT §M4-VAULT.2, ARCHITECTURE §4.21q). Una fila por orden `vault`
+// liquidada: el gemelo del `ShipmentRequest` que `settleDirectShipOrder` crea para `direct_ship`.
+// ⛔ NO se reutiliza `ShipmentRequest` (sus lectores la leen como «sale por la puerta»/dinero).
+// Único creador: la rama `vault` de `PaymentsService.onPaymentSucceeded`, en la MISMA transacción
+// que liquida la orden (`createMany … skipDuplicates` ⇒ `ON CONFLICT DO NOTHING` sobre `orderId`).
+// Los sellos coherentes con el estado son CHECKs en la BD (migración M-59), no solo código.
+model VaultPlacement {
+  id                String                      @id @default(uuid())
+  orderId           String                      @unique
+  order             Order                       @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  status            VaultPlacementStatus        @default(pending)
+  // = el `now` de la liquidación (MISMO valor que `Order.settledAt`, escrito explícitamente).
+  createdAt         DateTime
+  // --- sello de preparación (v1.79.1) — independiente de `status` ---
+  preparedAt        DateTime?
+  preparedByUserId  String? // de la SESIÓN, ⛔ nunca del body. Sin FK dura (patrón AuditLog)
+  // --- sello de colocación (status='placed') ---
+  placedAt          DateTime?
+  placedByUserId    String? // de la SESIÓN, ⛔ nunca del body. Sin FK dura
+  locationId        String?
+  location          VaultLocation?              @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  // --- sello de cancelación (status='cancelled') ---
+  cancelledAt       DateTime?
+  cancelledByUserId String? // null ⇔ la canceló el sistema (webhook de contracargo)
+  cancelReason      VaultPlacementCancelReason?
+
+  items VaultPlacementItem[]
+
+  @@index([status, createdAt])
+}
+
+// v1.79.1 — una fila por CARTA del pedido de bóveda: el nodo que se palomea. Nace con su colocación.
+model VaultPlacementItem {
+  id                 String                @id @default(uuid())
+  placementId        String
+  placement          VaultPlacement        @relation(fields: [placementId], references: [id], onDelete: Restrict)
+  orderItemId        String                @unique // una carta de la orden ⇒ a lo más UNA fila
+  orderItem          OrderItem             @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  // Copia de `OrderItem.inventoryItemId` (inmutable). Existe para el índice por pieza.
+  inventoryItemId    String
+  inventoryItem      InventoryItem         @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  prepStatus         PreparationItemStatus @default(pending)
+  prepMarkedAt       DateTime?
+  prepMarkedByUserId String? // de la SESIÓN. Sin FK dura
+
+  @@index([placementId])
+  @@index([inventoryItemId])
 }
 
 // ============================= SHIPMENTS =============================
