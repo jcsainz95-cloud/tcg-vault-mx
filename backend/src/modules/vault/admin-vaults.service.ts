@@ -5,6 +5,7 @@ import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { VaultService } from './vault.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { compareByDisplayName, customerDisplayName } from './customer-display-name';
 
 /**
  * AdminVaultsService (v1.20-master-set-everywhere, §4.20c) — GET /admin/vaults: lista de clientes
@@ -31,7 +32,8 @@ const ADMIN_VAULTS_SORT_DEFAULT: AdminVaultsSort = 'value_desc';
 
 export interface AdminVaultSummaryDTO {
   userId: string;
-  name: string;
+  /** ⭐ v1.79.3 (H-1): `customerDisplayName(User)` ⇒ `null` si el nombre se fabricó del correo. */
+  name: string | null;
   email: string;
   pieceCount: number;
   totalValueMxnCents: number;
@@ -62,11 +64,16 @@ export class AdminVaultsService {
   async sealed(userId: string, q: { sealedSubtype?: string; condition?: string; sort?: string }) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, nameSource: true, email: true },
     });
     if (!user) throw BusinessException.notFound('NOT_FOUND', 'User not found');
     const base = await this.vault.sealedTab(userId, q);
-    return { ...base, owner: { userId: user.id, name: user.name, email: user.email } };
+    // ⭐ v1.79.3 (H-1): la pestaña «Sellado» nombra al cliente con la MISMA regla que el resto de
+    // «Bóvedas de clientes» (un nombre fabricado del correo sale `null`).
+    return {
+      ...base,
+      owner: { userId: user.id, name: customerDisplayName(user), email: user.email },
+    };
   }
 
   async list(q: {
@@ -108,7 +115,7 @@ export class AdminVaultsService {
             }
           : {}),
       },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, nameSource: true, email: true },
     });
     const userById = new Map(users.map((u) => [u.id, u]));
 
@@ -144,7 +151,7 @@ export class AdminVaultsService {
 
     let rows: AdminVaultSummaryDTO[] = [...agg.entries()].map(([userId, a]) => {
       const u = userById.get(userId)!;
-      return { userId, name: u.name, email: u.email, ...a };
+      return { userId, name: customerDisplayName(u), email: u.email, ...a };
     });
 
     rows = this.sortRows(rows, q.sort);
@@ -163,8 +170,10 @@ export class AdminVaultsService {
   private sortRows(rows: AdminVaultSummaryDTO[], sortRaw: string): AdminVaultSummaryDTO[] {
     const sort =
       parseEnumFilter('sort', sortRaw, ADMIN_VAULTS_SORT_VALUES) ?? ADMIN_VAULTS_SORT_DEFAULT;
-    const byName = (a: AdminVaultSummaryDTO, b: AdminVaultSummaryDTO) =>
-      a.name.localeCompare(b.name);
+    // ⭐ v1.79.3 (H-1): `name` puede ser `null` ⇒ ⛔ `a.name.localeCompare(b.name)` reventaba con
+    // `TypeError` (500). Los `null` van al final, entre ellos por `email` (unidades de código) y
+    // `userId`; lo mismo como desempate de `value_desc`/`pieces_desc`.
+    const byName = compareByDisplayName;
     if (sort === 'pieces_desc') {
       return [...rows].sort((a, b) => b.pieceCount - a.pieceCount || byName(a, b));
     }

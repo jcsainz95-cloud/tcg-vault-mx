@@ -3,6 +3,9 @@ import { VaultService } from './vault.service';
 import { VaultController } from './vault.controller';
 import { AdminVaultsService } from './admin-vaults.service';
 import { AdminVaultsController } from './admin-vaults.controller';
+import { VaultPlacementService } from './vault-placement.service';
+import { VaultPhysicalInventoryService } from './vault-physical-inventory.service';
+import { VaultPlacementsController } from './vault-placements.controller';
 import { PricingModule } from '../pricing/pricing.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { PortfolioSnapshotJobService } from '../../jobs/portfolio-snapshot.service';
@@ -14,11 +17,20 @@ import { PortfolioSnapshotJobService } from '../../jobs/portfolio-snapshot.servi
  * `GET /vault/master-sets[...]` (VaultController) y las de admin `GET /admin/vaults[...]`
  * (AdminVaultsController, vault_operator+). El read model vive en MasterSetService
  * (InventoryModule, exportado); aquí solo se consumen sus scopes.
+ * ⭐ v1.79 (§M4-VAULT): gana la COLOCACIÓN en bóveda — los cuatro verbos de
+ * `/admin/vault-placements` (VaultPlacementService) y la vista física por cliente
+ * (`GET /admin/vaults/:userId/physical-inventory`, VaultPhysicalInventoryService).
  */
 @Module({
   imports: [PricingModule, InventoryModule],
-  providers: [VaultService, AdminVaultsService, PortfolioSnapshotJobService],
-  controllers: [VaultController, AdminVaultsController],
+  providers: [
+    VaultService,
+    AdminVaultsService,
+    PortfolioSnapshotJobService,
+    VaultPlacementService,
+    VaultPhysicalInventoryService,
+  ],
+  controllers: [VaultController, AdminVaultsController, VaultPlacementsController],
   exports: [VaultService, PortfolioSnapshotJobService],
 })
 export class VaultModule {}

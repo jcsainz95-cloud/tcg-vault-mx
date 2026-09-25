@@ -8,7 +8,6 @@ import {
   InventoryItem,
   MovementReason,
   Prisma,
-  SealedCondition,
   ShipmentItem,
   ShipmentRequest,
   ShipmentStatus,
@@ -30,6 +29,17 @@ import { parseEnumFilter } from '../../common/enum-filter';
 import { DATE_ONLY_RE } from '../../common/admin-list-filters';
 import { runSerializable } from '../../common/serializable-retry';
 import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
+import {
+  LocationView,
+  lastNameOf,
+  locationViewOf,
+  nullIfBlank,
+  preparationCardOf,
+} from './preparation-view';
+import {
+  VaultPreparationOrderDTO,
+  loadVaultQueue,
+} from '../vault/vault-preparation.view';
 import {
   ShipmentNoticeParams,
   shipmentCancelledTemplate,
@@ -65,39 +75,6 @@ export type ShipmentKind = (typeof SHIPMENT_KIND_VALUES)[number];
 export const PREPARATION_DESTINATION_VALUES = ['vault', 'ship'] as const;
 export type PreparationDestination = (typeof PREPARATION_DESTINATION_VALUES)[number];
 
-/**
- * §M4-PREP / CA #11 — el código `"UNASSIGNED"` **deja de viajar por el cable**. El back manda el
- * ESTADO (`kind`) y, cuando lo hay, el DATO (`label`), para que el front no compare strings.
- */
-/**
- * §M4-PREP / CA #11 — el código `"UNASSIGNED"` **deja de viajar por el cable**. El back manda el
- * ESTADO y, con él, su etiqueta.
- *
- * ### ⭐⭐ v1.78.2 — UNIÓN DISCRIMINADA, ⛔ ya NO `{ kind; label? }`
- * Con `label` **opcional**, el estado `{kind:'assigned'}` —asignada, pero sin etiqueta a la que
- * caminar— era **representable**, y cada consumidor tenía que re-derivar con su propio predicado si
- * era caminable o no. Aquí `assigned` ⇒ **hay etiqueta**, por el tipo: el estado ilegal deja de
- * existir en vez de estar prohibido por un comentario.
- *
- * ### ⛔ Y esto REVIERTE una decisión mía, que el arquitecto refutó con una medición mejor
- * Yo había servido `{kind:'assigned'}` sin `label` ante una etiqueta en blanco, argumentando que
- * «`kind` describe la FILA y `label` el TEXTO: son dos hechos». El argumento es cierto **en la tabla**
- * y **ocioso en esta hoja**: este DTO no espeja `VaultLocation`, es la hoja de trabajo del operador,
- * cuya única pregunta es *«¿hay sitio al que caminar?»*. Y sobre todo, **estaba defendiendo un
- * fantasma** — re-medido por mí, no aceptado de palabra:
- *
- * ```
- * grep -rn "vaultLocation\.(create|update|upsert|createMany|updateMany)" src/ prisma/
- * ```
- * ⇒ **un solo escritor de producción**, `inventory.service.ts` · `createLocation`, que **compone**
- * `` `${box}-${row}-${slot}` `` ⇒ **siempre trae los dos guiones**, aunque los tres componentes
- * vinieran vacíos (`"--"`); los otros tres son *seeds* con etiqueta literal; y **ninguno actualiza
- * `label`**. El único sitio del repositorio que escribe una etiqueta en blanco es **mi propio
- * fixture de prueba**. ⇒ el estado que yo defendía **no lo produce el sistema**, y el precio de
- * defenderlo era un estado ilegal **permanente** en un DTO que otros consumen. *El dato gana.*
- */
-export type LocationView = { kind: 'assigned'; label: string } | { kind: 'unassigned' };
-
 /** §M4-PREP — una CARTA dentro de un pedido a preparar. */
 export interface PreparationItemDTO {
   shipmentItemId: string;
@@ -116,12 +93,17 @@ export interface PreparationItemDTO {
   currentLocation: LocationView;
 }
 
-/** §M4-PREP — un elemento = UN envío/pedido a preparar (⛔ NO una pieza). */
-export interface PreparationOrderDTO {
+/**
+ * §M4-PREP — un elemento = UN envío/pedido a preparar (⛔ NO una pieza).
+ *
+ * ⭐ v1.79 (§M4-VAULT.3) — la rama `ship`: el DTO de v1.78.3 con `destination` literal y `shipTo`
+ * OBLIGATORIO. La unión discriminada es {@link PreparationOrderDTO}.
+ */
+export interface ShipPreparationOrderDTO {
   shipmentId: string;
   orderId: string | null;
   orderNumber: string | null;
-  destination: PreparationDestination;
+  destination: 'ship';
   requestedAt: string;
   /**
    * ⭐ **v1.78.1 — `fullName` es `string | null`, y ⛔ `''` queda PROHIBIDA como marca de ausencia.**
@@ -132,7 +114,7 @@ export interface PreparationOrderDTO {
    * distingue de un nombre vacío legítimo y obliga a cada consumidor a escribir `if (!x)`.
    */
   customer: { lastName: string | null; fullName: string | null };
-  shipTo?: {
+  shipTo: {
     recipientName: string | null;
     line1: string;
     line2?: string | null;
@@ -147,46 +129,10 @@ export interface PreparationOrderDTO {
 }
 
 /**
- * §M4-PREP — etiqueta del SELLADO. `Record<SealedCondition, string>` y no un `switch` con `default`:
- * un valor nuevo en el enum **rompe la compilación aquí**, en el punto exacto donde falta decidir
- * cómo se le habla al operador. (⛔ No es una lista literal de enum: las llaves son del `Record`
- * tipado, no un array a mano — §4.37.)
+ * ⭐ v1.79 (§M4-VAULT.3) — `PreparationOrderDTO` pasa a UNIÓN DISCRIMINADA por `destination`: `ship`
+ * (lo de hoy) · `vault` (la colocación en el cajón del cliente, `modules/vault/`).
  */
-const SEALED_CONDITION_LABELS: Record<SealedCondition, string> = {
-  mint: 'Mint',
-  minor_box_damage: 'Minor box damage',
-};
-
-/**
- * ⭐⭐ **§M4-PREP v1.78.1 — «un hecho, una grafía». La ausencia se escribe `null`, y SOLO `null`.**
- *
- * ### El defecto que lo trae (`B-1`, bloqueante de QA, medido por HTTP contra Postgres real)
- * v1.78.1 declaró `null` como única marca de ausencia y ⛔ prohibió `""`. Este módulo lo cerró **a
- * medias**: `?? null` cae ante `null`/`undefined` **pero no ante `""` ni `"   "`**, así que una
- * fuente que existe VACÍA pasaba intacta por el cable. En la cola viva salieron **las tres grafías
- * del mismo hecho una debajo de otra**: `""`, `"   "` y `null`. *Cerrar «la llave no existe» y dejar
- * abierta «la llave existe vacía» no es medio arreglo: es el mismo defecto con menos superficie.*
- *
- * Y es alcanzable, no teórico: `guest-checkout.dto.ts` valida `recipientName` con `@IsString()
- * @MaxLength(120)` **sin `@IsNotEmpty()`**, y `auth.dto.ts` valida `name` con `@MinLength(1)`
- * **sin `trim`** ⇒ `""` y `"   "` llegan a la base. (⚠️ Endurecer esas DOS validaciones de ENTRADA
- * es más ancho y toca el checkout: queda como **seguimiento**, no en este pase.)
- *
- * ### Por qué un helper y no un `if` en cada campo
- * Es la lección de `§M5-T` aplicada a un DTO: *«el defecto no fue que a dos métodos les faltara un
- * `where`; fue que la regla estaba escrita en un solo sitio, así que faltar era gratis»*. Con la
- * regla en **una** función, un campo nullable nuevo que no la use es una omisión **visible** —y el
- * censo de `shipments.picking-list.spec.ts` la pone roja.
- *
- * ⛔ **Devuelve el valor ORIGINAL, sin recortar, cuando NO está en blanco.** El `trim()` decide si
- * hay ausencia; ⛔ no «arregla» el dato. Misma doctrina que `parseEnumFilter` (§0-Q: *el `trim()`
- * decide si viene VACÍO, no normaliza el token*). Recortar aquí convertiría `"Ana "` en otro dato
- * del que el operador no pidió cambio.
- */
-function nullIfBlank(v: string | null | undefined): string | null {
-  if (v === null || v === undefined) return null;
-  return v.trim() === '' ? null : v;
-}
+export type PreparationOrderDTO = ShipPreparationOrderDTO | VaultPreparationOrderDTO;
 
 /** El join a `Order` que §M4-PREP necesita: el folio legible y el discriminador de destino. */
 type PreparationOrderJoin = { orderNumber: string | null; fulfillmentMode: FulfillmentMode } | null;
@@ -755,13 +701,41 @@ export class ShipmentsService {
         user: { select: { name: true } },
       },
     });
-    const rows = shipments.map((s) => this.toPreparationOrder(s));
+    const shipRows = shipments.map((s) => this.toPreparationOrder(s));
+    // ⭐ v1.79 (§M4-VAULT.3) — la SEGUNDA fuente: las colocaciones pendientes (cubeta `vault`). La
+    // proyección y las reglas (`P`, `customerDrawers`, preparación) viven en `modules/vault/`: esta
+    // cola solo LEE. Mismo `?date=` aplicado a `VaultPlacement.createdAt`.
+    const vault = await loadVaultQueue(this.prisma, dia);
+    if (vault.corruption) {
+      // Mismo trato que `vault` + `orderId` en la fuente `ship` (v1.78.2): ⛔ nunca degradar por fila.
+      this.logger.error(`«Pedidos a preparar»: ${vault.corruption}. Es corrupción de datos.`);
+      throw BusinessException.conflict('CONFLICT', `Corrupt vault placement row: ${vault.corruption}`);
+    }
+    for (const r of vault.rows) r.items.sort(ShipmentsService.byLocation);
+    // Orden de la cola MEZCLADA (§M4-VAULT.3): `requestedAt` asc; empate exacto ⇒ `ship` antes que
+    // `vault`, y dentro de la cubeta por `shipmentId`/`placementId` en unidades de código (§M4P-ORDER).
+    // ⛔ No se deja el empate al orden del motor.
+    const rows: PreparationOrderDTO[] = [...shipRows, ...vault.rows].sort(
+      ShipmentsService.byRequestedAt,
+    );
     // ⚠️ El filtro se aplica DESPUÉS de derivar, no en el `where`: `destination` no es una columna,
     // es una lectura de `Order.fulfillmentMode`, y la derivación es también el sitio donde la
     // combinación imposible `vault` + `orderId` se detecta y se denuncia (invariante). Filtrar en
-    // SQL por el modo escondería esa corrupción justo en la cubeta donde importa.
+    // SQL por el modo escondería esa corrupción justo en la cubeta donde importa. ⭐ v1.79: y lo
+    // mismo con la segunda fuente — `?destination=ship` también rechaza una colocación corrupta.
     const data = destinationFilter ? rows.filter((r) => r.destination === destinationFilter) : rows;
     return { data };
+  }
+
+  /** §M4-VAULT.3 — orden de la cola mezclada (ver `pickingList`). */
+  private static byRequestedAt(a: PreparationOrderDTO, b: PreparationOrderDTO): number {
+    const ta = Date.parse(a.requestedAt);
+    const tb = Date.parse(b.requestedAt);
+    if (ta !== tb) return ta - tb;
+    if (a.destination !== b.destination) return a.destination === 'ship' ? -1 : 1;
+    const ia = a.destination === 'ship' ? a.shipmentId : a.placementId;
+    const ib = b.destination === 'ship' ? b.shipmentId : b.placementId;
+    return ia < ib ? -1 : ia > ib ? 1 : 0;
   }
 
   /**
@@ -869,7 +843,7 @@ export class ShipmentsService {
   }
 
   /** §M4-PREP — proyecta UN `ShipmentRequest` en `picking` a su renglón de «Pedidos a preparar». */
-  private toPreparationOrder(s: PreparationShipmentRow): PreparationOrderDTO {
+  private toPreparationOrder(s: PreparationShipmentRow): ShipPreparationOrderDTO {
     const destination = this.destinationOf(s);
     const snapshot = ShipmentsService.addressSnapshotOf(s.addressSnapshot);
     // Con cuenta ⇒ `User.name` (NOT NULL en schema); invitado ⇒ el nombre CONGELADO en el snapshot.
@@ -896,9 +870,10 @@ export class ShipmentsService {
       orderNumber: nullIfBlank(s.order?.orderNumber),
       destination,
       requestedAt: s.requestedAt.toISOString(),
-      customer: { lastName: ShipmentsService.lastNameOf(fullName), fullName },
-      // CA #6 — la dirección COMPLETA, CON la calle que la fila plana omitía. Solo para 'ship'.
-      ...(destination === 'ship' ? { shipTo: snapshot } : {}),
+      customer: { lastName: lastNameOf(fullName), fullName },
+      // CA #6 — la dirección COMPLETA, CON la calle que la fila plana omitía. ⭐ v1.79: OBLIGATORIA
+      // en la rama `ship` (la única que proyecta este método; la `vault` no lleva dirección).
+      shipTo: snapshot,
       items,
     };
   }
@@ -940,7 +915,7 @@ export class ShipmentsService {
    */
   private static addressSnapshotOf(
     raw: Prisma.JsonValue,
-  ): NonNullable<PreparationOrderDTO['shipTo']> {
+  ): ShipPreparationOrderDTO['shipTo'] {
     const s =
       raw !== null && typeof raw === 'object' && !Array.isArray(raw)
         ? (raw as Record<string, unknown>)
@@ -961,29 +936,6 @@ export class ShipmentsService {
     };
   }
 
-  /**
-   * §M4-PREP / §6.A — apellido **DERIVADO** (último token del nombre), para el archivero alfabético.
-   *
-   * ⚠️ **FRÁGIL A PROPÓSITO y NO BLOQUEA NADA.** No existe apellido estructurado en el modelo
-   * (`User.name` y `addressSnapshot.recipientName` son **un solo string**), y derivarlo falla con
-   * apellidos compuestos o con otro orden de nombre. Es la **etiqueta de ordenación visual**, no un
-   * dato de negocio: ningún flujo depende de él. La alternativa —columna nueva + captura nueva— es
-   * cambio de modelo, fuera del alcance de una rebanada de solo lectura.
-   *
-   * **v1.78.1 — `fullName === null ⇒ lastName === null` POR CONSTRUCCIÓN**, no por coincidencia: la
-   * ausencia se propaga, no se traduce. También `null` si el nombre viene en blanco. Un nombre de UN
-   * solo token SÍ devuelve ese token — un mononombre se archiva bajo su propia letra, y devolver
-   * `null` tiraría información de archivo que sí tenemos.
-   */
-  private static lastNameOf(fullName: string | null): string | null {
-    if (fullName === null) return null;
-    const tokens = fullName
-      .trim()
-      .split(/\s+/)
-      .filter((t) => t.length > 0);
-    return tokens.length === 0 ? null : tokens[tokens.length - 1];
-  }
-
   /** §M4-PREP — una carta del pedido, con su identidad de catálogo y su ubicación. */
   private static toPreparationItem(si: PreparationShipmentItem): PreparationItemDTO {
     const item = si.inventoryItem;
@@ -994,64 +946,9 @@ export class ShipmentsService {
       // Constante 1: un `ShipmentItem` ES una pieza física. ⛔ No hay columna de cantidad y esta
       // rebanada no estrena ninguna.
       quantity: 1,
-      card: {
-        name: item.card.name,
-        // El SET, prominente para ENVÍO: mapea a la carpeta por set del archivero.
-        // ⭐ `nullIfBlank` — este campo es el que el orquestador cazó: mutar `?? null` a `?? ''`
-        // **sobrevivía a las 5611 unitarias**. Es la misma clase que `B-1` sentada en el campo de al
-        // lado, sin candado. Ahora la cierra el helper y la vigila el censo de blancos.
-        setName: nullIfBlank(item.card.set?.name),
-        finish: item.finish,
-        conditionLabel: ShipmentsService.conditionLabelOf(item),
-        // Una URL en blanco es una imagen que no existe, y se dice con la misma grafía que las
-        // demás ausencias. (Antes pasaba directa: `null` desde el catálogo sí, `''` también.)
-        imageSmallUrl: nullIfBlank(item.card.imageSmallUrl),
-      },
-      currentLocation: ShipmentsService.locationViewOf(item.location),
+      card: preparationCardOf(item),
+      currentLocation: locationViewOf(item.location),
     };
-  }
-
-  /**
-   * §M4-PREP — `conditionLabel` se compone **EN EL BACK** (⛔ no en el front) para no repetir la
-   * lógica `graded/raw/sealed` en cada cliente. Precedencia, en este orden:
-   *
-   * 1. `gradingCompany` + `gradeValue` ⇒ `"PSA 9"` — hacen falta **los dos**: una gradeada a medio
-   *    capturar no dice «PSA» a secas, cae al siguiente escalón.
-   * 2. `rawCondition` ⇒ `"NM"`.
-   * 3. `sealedCondition` ⇒ etiqueta legible (`SEALED_CONDITION_LABELS`).
-   *
-   * Cadena vacía si la pieza no tiene ninguna de las tres (fila incompleta): el contrato declara
-   * `conditionLabel: string` y esta cola no es el sitio donde se descubre una captura a medias.
-   */
-  private static conditionLabelOf(item: {
-    gradingCompany: InventoryItem['gradingCompany'];
-    gradeValue: string | null;
-    rawCondition: InventoryItem['rawCondition'];
-    sealedCondition: SealedCondition | null;
-  }): string {
-    if (item.gradingCompany && item.gradeValue) return `${item.gradingCompany} ${item.gradeValue}`;
-    if (item.rawCondition) return item.rawCondition;
-    if (item.sealedCondition) return SEALED_CONDITION_LABELS[item.sealedCondition];
-    return '';
-  }
-
-  /**
-   * §M4-PREP / CA #11 — estado + su etiqueta. ⛔ `"UNASSIGNED"` ya no viaja por el cable.
-   *
-   * ⭐ **v1.78.2 — el blanco se enruta a `unassigned`, no a un `assigned` sin etiqueta.** La pregunta
-   * que esta hoja contesta es *«¿hay sitio al que caminar?»*, y una etiqueta en blanco responde que
-   * **no** exactamente igual que la ausencia de fila. Es lo que mi propio comentario ya admitía sin
-   * darse cuenta cuando decía que esa carta ordena al final *«exactamente igual de no-caminable»*:
-   * si se ordena igual y se lee igual, **es el mismo estado**, y tener dos nombres para él solo
-   * obliga a cada consumidor a saberlo. ⛔ No se acuña un tercer `kind`.
-   *
-   * ⭐ `nullIfBlank` **sigue siendo necesario aquí** (no se tira con el cambio de destino): es lo que
-   * distingue «etiqueta» de «hueco», y sin él `label: "  "` volvería al cable como cuarta grafía de
-   * la ausencia — que es `B-1` otra vez. Lo que cambia es **a dónde enruta**, no que haga falta.
-   */
-  private static locationViewOf(location: VaultLocation | null): LocationView {
-    const label = location ? nullIfBlank(location.label) : null;
-    return label === null ? { kind: 'unassigned' } : { kind: 'assigned', label };
   }
 
   /**
@@ -1091,7 +988,10 @@ export class ShipmentsService {
    * *Coste medido (2026-09-22): sobre las etiquetas que el sistema produce hoy —`CAJA-FILA-SLOT` en
    * mayúsculas con ceros a la izquierda— los dos comparadores dan el MISMO recorrido.*
    */
-  private static byLocation(a: PreparationItemDTO, b: PreparationItemDTO): number {
+  private static byLocation(
+    a: { currentLocation: LocationView },
+    b: { currentLocation: LocationView },
+  ): number {
     const A = a.currentLocation;
     const B = b.currentLocation;
     if (A.kind === 'unassigned') return B.kind === 'unassigned' ? 0 : 1;

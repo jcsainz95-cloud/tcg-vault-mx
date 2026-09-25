@@ -1,9 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HttpStatus } from '@nestjs/common';
-import { PreparationOrderDTO, ShipmentsService } from '../src/modules/shipments/shipments.service';
+import {
+  PreparationOrderDTO,
+  ShipPreparationOrderDTO,
+  ShipmentsService,
+} from '../src/modules/shipments/shipments.service';
 import { BusinessException } from '../src/common/business.exception';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { vaultReadMocks, vpRow } from './helpers/vault-placement-fixtures';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 // `B-TL2` (techlead): la ÚNICA puerta para leer código en un candado, con su control de
@@ -22,8 +27,10 @@ import { codigoDeFichero } from './helpers/codigo-de-fichero';
  *  - **lo que sí:** agrupación por pedido, `destination` derivado, cliente (+apellido derivado),
  *    dirección completa, identidad de carta con `conditionLabel` compuesta en el back,
  *    `currentLocation` como `LocationView` (⛔ `"UNASSIGNED"` ya no viaja), y los dos órdenes;
- *  - **el filtro nuevo `?destination=`** con la doctrina §0-Q completa, incluida la cubeta `vault`
- *    que hoy sale **vacía a propósito** (las órdenes `fulfillmentMode='vault'` no generan envío).
+ *  - **el filtro nuevo `?destination=`** con la doctrina §0-Q completa. ⭐ v1.79 (§M4-VAULT.8): la
+ *    cubeta `vault` YA NO sale vacía — su fuente es `VaultPlacement{pending}`; el candado que asertaba
+ *    el vacío se reescribió a propósito (su premisa era el hueco que v1.79 cierra). La fila `vault` en
+ *    detalle: `shipments.picking-list.vault.spec.ts`.
  */
 
 // ---------------------------------------------------------------- fixtures
@@ -121,8 +128,16 @@ function shipment(o: ShipmentOverrides = {}) {
   };
 }
 
-function makeService(rows: ReturnType<typeof shipment>[] = []) {
-  const prisma = { shipmentRequest: { findMany: jest.fn().mockResolvedValue(rows) } };
+function makeService(
+  rows: ReturnType<typeof shipment>[] = [],
+  placements: ReturnType<typeof vpRow>[] = [],
+) {
+  const prisma = {
+    // ⭐ v1.79 — la segunda fuente (cubeta `vault`). Vacía por defecto: estas pruebas son de la rama
+    // `ship`; la fila `vault` en detalle la prueban `shipments.picking-list.vault.spec.ts` y la integración.
+    ...vaultReadMocks(placements),
+    shipmentRequest: { findMany: jest.fn().mockResolvedValue(rows) },
+  };
   const service = new ShipmentsService(
     prisma as unknown as PrismaService,
     {} as SettingsService,
@@ -132,11 +147,17 @@ function makeService(rows: ReturnType<typeof shipment>[] = []) {
 }
 
 /** El único `PreparationOrderDTO` de una respuesta de una sola fila. */
-async function onlyOrder(rows: ReturnType<typeof shipment>[]): Promise<PreparationOrderDTO> {
+async function onlyOrder(rows: ReturnType<typeof shipment>[]): Promise<ShipPreparationOrderDTO> {
   const { service } = makeService(rows);
   const res = await service.pickingList();
   expect(res.data).toHaveLength(1);
-  return res.data[0];
+  return asShip(res.data[0]);
+}
+
+/** ⭐ v1.79 — `PreparationOrderDTO` es unión: estas pruebas son de la rama `ship` (y lo comprueban). */
+function asShip(o: PreparationOrderDTO): ShipPreparationOrderDTO {
+  expect(o.destination).toBe('ship');
+  return o as ShipPreparationOrderDTO;
 }
 
 // ---------------------------------------------------------------- lo que NO cambió
@@ -619,7 +640,7 @@ describe('pickingList — los dos órdenes', () => {
       shipment({ id: 'nuevo', requestedAt: new Date('2026-09-20T08:00:00.000Z') }),
     ]);
     const res = await service.pickingList();
-    expect(res.data.map((o) => o.shipmentId)).toEqual(['viejo', 'medio', 'nuevo']);
+    expect(res.data.map((o) => asShip(o).shipmentId)).toEqual(['viejo', 'medio', 'nuevo']);
     expect(res.data.map((o) => o.requestedAt)).toEqual([
       '2026-09-18T08:00:00.000Z',
       '2026-09-19T08:00:00.000Z',
@@ -655,7 +676,7 @@ describe('pickingList — `?destination=` (§0-Q: o filtra, o 400)', () => {
   it('ausente ⇒ AMBAS cubetas (no filtra)', async () => {
     const { service } = makeService(dosFilas());
     const res = await service.pickingList();
-    expect(res.data.map((o) => o.shipmentId)).toEqual(['directo', 'retiro']);
+    expect(res.data.map((o) => asShip(o).shipmentId)).toEqual(['directo', 'retiro']);
   });
 
   it('`?destination=ship` ⇒ devuelve filas (retiros + envíos directos)', async () => {
@@ -665,10 +686,17 @@ describe('pickingList — `?destination=` (§0-Q: o filtra, o 400)', () => {
     expect(res.data.every((o) => o.destination === 'ship')).toBe(true);
   });
 
-  it('⚠️ `?destination=vault` ⇒ VACÍO: las órdenes `fulfillmentMode=vault` no generan envío', async () => {
-    const { service } = makeService(dosFilas());
+  // 🔁 v1.79 (§M4-VAULT.8) — REESCRITO A PROPÓSITO. Antes: «`?destination=vault` ⇒ VACÍO». Su premisa
+  // (una orden `vault` no genera nada que preparar) era el hueco que v1.79 cierra, y con un fixture sin
+  // colocaciones **seguiría verde**: un verde que ya no prueba nada. Ahora aserta la fila `vault`.
+  it('⭐ `?destination=vault` ⇒ la fila `vault` (VaultPlacement pending) y NINGÚN envío', async () => {
+    const { service } = makeService(dosFilas(), [vpRow({ id: 'vp-x' })]);
     const res = await service.pickingList(undefined, 'vault');
-    expect(res.data).toEqual([]);
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0]).toMatchObject({ destination: 'vault', placementId: 'vp-x' });
+    // …y `ship` no la trae (CA #17: cubetas disjuntas)
+    const ship = await service.pickingList(undefined, 'ship');
+    expect(ship.data.map((o) => o.destination)).toEqual(['ship', 'ship']);
   });
 
   it('cadena vacía y solo-espacios ≡ ausente (nunca 400 — §0-Q fila 1)', async () => {
@@ -998,7 +1026,7 @@ describe('§M4P-ORDER — orden por unidades de código UTF-16, aseverado CONTRA
       }),
     ]);
     const res = await service.pickingList();
-    return res.data[0].items.map((i) => i.shipmentItemId);
+    return asShip(res.data[0]).items.map((i) => i.shipmentItemId);
   }
 
   /**

@@ -415,13 +415,42 @@ describe('E2E — «Pedidos a preparar» (§M4-PREP) contra Postgres real', () =
       expect(ids.indexOf(viejo)).toBeGreaterThanOrEqual(0);
     });
 
-    it('`?destination=ship` devuelve filas; `?destination=vault` devuelve VACÍO (cubeta sin datos)', async () => {
-      const ship = await cola('?destination=ship');
-      expect(ship.status).toBe(200);
-      expect(mias(ship.body).length).toBeGreaterThan(0);
-      const vault = await cola('?destination=vault');
-      expect(vault.status).toBe(200);
-      expect(vault.body.data).toEqual([]);
+    // 🔁 v1.79 (§M4-VAULT.8) — REESCRITO A PROPÓSITO. Antes aseveraba «`?destination=vault` devuelve
+    // VACÍO»: su premisa era el hueco que v1.79 cierra, y con un fixture sin colocaciones **seguiría
+    // verde** — un verde que ya no prueba nada. Ahora siembra UNA colocación pendiente y exige verla
+    // en `vault` y NO en `ship` (las cubetas son disjuntas, CA #17). La cubeta `vault` en detalle:
+    // `vault-placement-verbs.e2e-spec.ts`.
+    it('`?destination=ship` trae los envíos y NO la colocación; `?destination=vault` trae la colocación y NINGÚN envío', async () => {
+      const cliente = await h.prisma.user.findUniqueOrThrow({ where: { id: clienteId } });
+      const order = await h.prisma.order.create({
+        data: {
+          userId: cliente.id,
+          fulfillmentMode: 'vault',
+          orderNumber: `${MARCA}-VP`,
+          status: 'settled',
+          settledAt: new Date(),
+          subtotalCents: 1,
+          processingFeeCents: 0,
+          ivaCents: 0,
+          totalCents: 1,
+          priceConvention: 'IVA_INCLUSIVE',
+        },
+      });
+      const vp = await h.prisma.vaultPlacement.create({ data: { orderId: order.id, createdAt: new Date() } });
+      try {
+        const ship = await cola('?destination=ship');
+        expect(ship.status).toBe(200);
+        expect(mias(ship.body).length).toBeGreaterThan(0);
+        expect(ship.body.data.every((r: any) => r.destination === 'ship')).toBe(true);
+        expect(ship.body.data.some((r: any) => r.placementId === vp.id)).toBe(false);
+        const vault = await cola('?destination=vault');
+        expect(vault.status).toBe(200);
+        expect(vault.body.data.every((r: any) => r.destination === 'vault')).toBe(true);
+        expect(vault.body.data.map((r: any) => r.placementId)).toContain(vp.id);
+      } finally {
+        await h.prisma.vaultPlacement.delete({ where: { id: vp.id } });
+        await h.prisma.order.delete({ where: { id: order.id } });
+      }
     });
 
     it('`?destination=basura` ⇒ 400 con el `details` exacto', async () => {
