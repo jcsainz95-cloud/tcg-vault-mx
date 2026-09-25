@@ -4,7 +4,16 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.6** — **§35.15 NUEVA: el `409` de la fila corrupta tiene copy, y ⛔ no se pinta como vacío**
+> Estado: **v4.7** — **§36 NUEVA: la cubeta «Para bóveda» deja de estar vacía** (2026-09-25, `API_CONTRACT
+> §M4-VAULT` v1.79.2 · `PROJECT §S.4` · `HECHOS.md` filas de bóveda del 2026-09-24/25). Tarjeta de colocación con
+> **nombre completo en primer plano** y correo debajo (⛔ sin apellido derivado en esta tarjeta); cajón **siempre con
+> su zona**; tres ramas de cajón (su cajón · **varios cajones = anomalía nombrada** · cliente nuevo); **palomear en
+> tres estados** con cartas bloqueadas que dicen por qué; **«Pedido preparado»**, **«Deshacer preparado»** (con
+> confirmación) y **«Confirmar colocación»**, una acción principal por paso; todos los `200` idempotentes y los
+> `409`/`422` con copy propio (ES/EN); la **ausencia de nombre** de una cuenta sin nombre (⛔ nunca el prefijo del
+> correo); y la **vista nueva «Qué debe haber»** por cliente (cinco estados, anomalías primero). **§35.8:** el vacío
+> de la cubeta bóveda se reescribe (ya se mide). **Cero tokens nuevos.** Huecos del contrato en §36.13.
+> Antes: **v4.6** — **§35.15 NUEVA: el `409` de la fila corrupta tiene copy, y ⛔ no se pinta como vacío**
 > (2026-09-22, `API_CONTRACT §M4-PREP v1.78.2`). El contrato declaró que una **sola** fila corrupta tumba la cola
 > **entera** y dejó la redacción a ux-ui con una obligación dura: ese `409` **tiene que ser distinguible de
 > `200 {data:[]}`**. Aquí se redacta (ES/EN), se decide **a quién avisa el operador** —**al súper-admin, ⛔ no a
@@ -18183,6 +18192,11 @@ futura hecho en una pantalla de operación, y las versiones futuras se mueven; (
 en vez de cuatro (§8.1 pide título + una frase; éste es el único vacío del sistema al que le concedo dos, y
 **solo** porque tiene que explicar una ausencia estructural).
 
+> ⭐ **v4.7 — este copy de bóveda CADUCA con `§M4-VAULT` y se retira (cierra la nota A-3).** Desde v1.79 cada compra
+> a bóveda pagada nace con su `VaultPlacement pending`, así que la cubeta **sí** mide el trabajo y el vacío ya puede
+> afirmar que no lo hay. El copy nuevo está en **§36.10**. ⛔ Las claves `emptyVault.*` de arriba **no** pueden
+> sobrevivir al despliegue de la cubeta: dirían «esta pantalla no lleva ese registro» de una pantalla que sí lo lleva.
+
 ---
 
 ### 35.9 Frescura: **una cola de mostrador se re-pide sola, o no promete que lo hace**
@@ -18250,6 +18264,11 @@ preparado» en gris, ni una barra de progreso «0 de 7». *Un control deshabilit
 las fechas de esa tabla no están decididas. Cuando la rebanada interactiva llegue, la tarjeta **ya tiene el
 sitio**: la casilla vive a la izquierda de la miniatura y el botón de firma al pie de la tarjeta. Se dice aquí
 para que quien la construya no reorganice la jerarquía de §35.3 al añadirla.
+
+> ⭐ **v4.7 — alcance de esta regla:** la rebanada interactiva llegó **solo para la tarjeta de bóveda** (§36;
+> `§M4-VAULT.10.1`: palomear en envío no entra). ⇒ Esta regla **sigue entera para la tarjeta de ENVÍO**: ni
+> casillas, ni botón de preparado, ni progreso apagados. La asimetría entre las dos tarjetas en «Ambas» se resuelve
+> en §36.2.
 
 ---
 
@@ -18677,3 +18696,547 @@ es exactamente lo que frontend hizo con éste y por lo que se pudo cerrar hoy. S
 
 *(Y con esto la familia de **P-12** queda cerrada: `admin.m4.recipientMissing` en v4.5, `admin.m5.rejected.noDeadlines`
 en v4.6. **A-7 sigue abierta** y sigue siendo otra cosa: la redacción de **§33 entera**, que ⛔ no se toca aquí.)*
+
+---
+
+## 36. «Para bóveda» — la tarjeta de colocación y la vista «Qué debe haber» (v4.7, 2026-09-25 · `API_CONTRACT §M4-VAULT` v1.79.2)
+
+### 36.0 Fuente, alcance y las reglas duras
+
+**Esta vez el diseño va antes que la pantalla** (a diferencia de §35.0). Fuentes, leídas el 2026-09-25 en la rama
+`claude/m4-boveda`: `API_CONTRACT §M4-VAULT` v1.79.2 (sobre todo .3, .4, .5, .7, .10 y .11), `PROJECT.md §S.4–S.7.1`
+(CA #17–#23 de §S) y las dos filas de bóveda de `HECHOS.md` (2026-09-24 y 2026-09-25). **Cero tokens nuevos**: todo
+sale de §2, §3, §4, §6, §7, §8 y de los patrones de §35.
+
+**Qué es:** la cubeta «Para bóveda» de «Pedidos a preparar» (§35) deja de estar vacía. Cada compra que el cliente
+deja en su bóveda, ya pagada, aparece como **una tarjeta por pedido** (§35.2). El operador **junta** las cartas del
+estante de la tienda, las **palomea**, da el pedido **por preparado** y lo **lleva a su cajón**. Además, cada
+cliente gana una vista de **qué debe haber** en su bóveda, para comprobar el archivero contra el sistema.
+
+**Las reglas duras (se revisan en el PR):**
+
+| # | Regla | De dónde sale |
+|---|---|---|
+| **V1** | El titular de la tarjeta es el **nombre completo tal cual se capturó**; el correo va **siempre** en segunda línea. ⛔ En la tarjeta de bóveda **no se pinta el apellido derivado** (`lastName`), ni «Apellido, Nombre», ni «Apellido no identificado» | `§M4-VAULT.3` «Nombre y apellido» · `HECHOS.md` 2026-09-25 (a) |
+| **V2** | Un nombre fabricado del correo llega como `null` y se pinta como **ausencia con nombre** (§36.4). ⛔ Nunca el prefijo del correo presentado como nombre, ⛔ nunca un «—» | `§M4-VAULT.3` · §35.6a |
+| **V3** | **Un cajón se nombra siempre con su zona**: «Custodia de clientes · C01-F01-S01». También la ubicación actual de cada carta: «Stock de plataforma · C03-F02-S15». ⛔ Nunca una etiqueta sola | `§M4-VAULT.4` obligación de pantalla · `§M4-VAULT.1` (las etiquetas se repiten entre zonas) |
+| **V4** | **El sistema no elige cajón en silencio.** Cliente con cajón ⇒ se muestra, sin opción de cambiarlo. Varios cajones ⇒ **anomalía con nombre** y el operador elige entre ellos. Cliente nuevo ⇒ elige el operador. ⛔ Ningún cajón preseleccionado en las dos últimas | `§M4-VAULT.4` · CA #18, #19 de §S |
+| **V5** | **Una acción principal por paso.** Mientras se junta: «Pedido preparado». Ya preparado: «Confirmar colocación» (+ «Deshacer preparado» como secundaria). ⛔ Nunca «Capturar guía» ni nada de envío en esta tarjeta | CA #21 de §S |
+| **V6** | ⛔ El sistema **no vigila** muebles, numeración ni cajones compartidos: la pantalla **no** dice «este cajón es compartido», «cajón ocupado» ni «cajón lleno» | `HECHOS.md` 2026-09-25 (b) · `§M4-VAULT.4` P-E |
+| **V7** | **Faltante se anota y se detiene.** La pantalla no promete reembolso, aviso al cliente ni búsqueda: dice qué hace (anotarla) y qué **no** hace | `§M4-VAULT.6` · CA #15/#16 de §S (planeados, no construidos) |
+| **V8** | Cada `200` idempotente y cada `409`/`422` tiene **copy propio** con audiencia `operator` (§26). ⛔ Ninguno cae a «Algo salió mal» ni se escribe en `error.<CODE>_OPERATOR` de forma que se filtre a otras pantallas (§35.15.3) | `§M4-VAULT.7` fila ux-ui |
+
+---
+
+### 36.1 Dónde vive
+
+- **La tarjeta:** dentro de «Pedidos a preparar» (`/admin/m4`), en la cubeta «Solo bóveda» y mezclada en «Ambas» por
+  antigüedad (`requestedAt` ascendente; empate ⇒ envío antes que bóveda, `§M4-VAULT.3`). ⛔ La pantalla no reordena
+  por su cuenta más allá de la regla de §35.2.
+- **La vista «Qué debe haber»:** una **tercera pestaña** en el detalle de cada cliente de «Bóvedas de clientes»
+  (`/admin/vaults`), junto a «Cartas» y «Sellado» (medido: `VaultsView.tsx:23,71` — dos pestañas hoy). Es donde el
+  operador ya busca a un cliente por nombre o correo, y es lectura pura como sus hermanas.
+- **Enlace opcional desde la tarjeta** («Ver qué debe haber en su bóveda», enlace de texto al pie de la persona): útil,
+  **no obligatorio**. ⚠️ Medido hoy: el detalle del cliente **no tiene ruta propia** (se abre con estado local,
+  `VaultsView.tsx:40`), así que un enlace directo exige que frontend lo haga direccionable. Si no se hace, ⛔ no se pinta
+  un enlace que lleve a la lista general y obligue a buscar de nuevo.
+
+---
+
+### 36.2 La tarjeta de bóveda — planos y orden
+
+Misma caja que §35.3 (papel, regla de 1px, `p-4`, `gap-4`, radio 0, sin sombra) y mismo orden del DOM de §35.10.
+Lo que cambia es **qué hay en cada plano**:
+
+| Plano | Qué lleva (bóveda) | Tipografía / token |
+|---|---|---|
+| **Cabecera** | Destino **«Para bóveda»** (`Badge tone="primary"`, P-5) · folio del pedido · antigüedad + fecha | Igual que §35.3 plano 4 |
+| **1 · De quién** | **Nombre completo** | `font-serif text-2xl leading-tight text-text` — la ranura que en envío ocupa el apellido |
+| | Correo | `font-mono text-sm text-text`, **segunda línea**, ⛔ nunca truncado (es el desempate) |
+| **2 · A dónde va** | El **cajón**, con su zona, o la situación de cajón (§36.3) | Rótulo mono 11px `text-muted` + valor mono `tabular text-sm text-text` |
+| **3 · Paso actual** | Línea de paso + conteo de palomeo (§36.5) | Versalita mono 11px `text-muted` + `text-sm text-text tabular` |
+| **4 · Qué saco** | Las cartas, ordenadas por ubicación (§35.4), cada una con su control de palomeo a la izquierda de la miniatura | §35.3 plano 2 + §36.5 |
+| **5 · Pie de acción** | La acción del paso (§36.6/§36.7/§36.8) | `Button` (§6.1) |
+
+**Sin bloque de dirección** (§35.5: en bóveda la dirección no existe, y un «—» afirmaría que falta).
+
+**La ubicación de cada carta lleva su zona** (V3): rótulo «Ubicación · Stock de plataforma» en mono 11px `text-muted`
+y la etiqueta en mono `tabular text-sm text-text`. `currentZone === null` ⇔ la carta no tiene ubicación ⇒ **«Sin
+ubicar»** en `text-accent`, al final del pedido (§35.4, sin cambio).
+
+**La asimetría en «Ambas»** (`§M4-VAULT.7`, pregunta a ux-ui): las tarjetas de bóveda tienen controles y las de envío
+no. **Se resuelve con la línea de paso del plano 3, no con controles apagados en la de envío** (§35.11 sigue
+mandando ahí). La línea de paso dice, en palabras, que la tarjeta de bóveda es un trámite en dos pasos:
+
+| Estado | Línea de paso (versalita) |
+|---|---|
+| `preparation.status === 'in_progress'` | **«Paso 1 de 2 · Junta y palomea»** |
+| `preparation.status === 'prepared'` | **«Paso 2 de 2 · Llévalas a su cajón y confirma»** |
+
+Con eso, una tarjeta con casillas al lado de otra sin ellas se lee como **dos tipos de trabajo**, no como una
+tarjeta rota. El destino en versalita de la cabecera ya separa las dos familias (§2.4: la palabra es el portador).
+
+⚠️ **Asimetría de nombres que el contrato declara y no es de diseño** (`§M4-VAULT.3`): en «Ambas», una misma cuenta
+sin nombre puede salir en una tarjeta de **envío** con el prefijo del correo como nombre, y en una de **bóveda** con
+«Sin nombre registrado». Es conocida y está candada; ⛔ frontend **no** la «arregla» en la tarjeta de envío en este
+stream.
+
+---
+
+### 36.3 El cajón — tres casos, tres textos (plano 2)
+
+La rama la decide `suggestedLocation.source`, **y nada más**. Cada una tiene un rótulo fijo y un cuerpo.
+
+**(a) `existing_customer_vault` — el caso normal: su cajón.**
+
+- Rótulo: **«Su cajón»**. Valor: **«Custodia de clientes · C01-F01-S01»**.
+- Debajo, en `text-sm text-text`: **«Junto a sus otras cartas: ya tiene {count, plural, one {# carta} other {# cartas}}
+  ahí.»** (`location.customerPieceCount`).
+- ⛔ **Sin selector, sin «cambiar»** (el `confirm` rechaza otro cajón). El operador confirma, no elige.
+
+**(b) `multiple_drawers` — ANOMALÍA con nombre.**
+
+- Marca: **«Cartas en varios cajones»** — versalita mono 11px **`text-accent`** (misma semántica que «Sin ubicar»:
+  *esto te va a costar trabajo*).
+- Frase, en tinta: **«Este cliente debería tener un solo cajón, pero sus cartas están repartidas en {count} cajones.
+  El sistema no elige por ti: al confirmar, escoge a cuál van estas cartas. Juntarlas en uno solo no se hace desde
+  esta pantalla.»**
+- Debajo, la lista de **todos** sus cajones (`locations`, en el orden del servidor: por etiqueta), cada uno con zona y
+  «{count} cartas ahí». En el paso 1 es **solo lectura**; en el paso 2 se vuelve el selector (§36.8).
+- ⛔ Ningún cajón resaltado, ⛔ ninguno «recomendado», ⛔ no se reordena por número de cartas (`§M4-VAULT.4`: ordenar
+  por «más cartas» es proponer en silencio).
+- ⛔ La frase **no** manda a «Inventario» a juntar cartas: no medí que exista un camino de pantalla para mover una carta
+  de cliente entre cajones (el `move` existe en el servidor; su pantalla, NO MEDIDO). Nombra la anomalía y para ahí.
+
+**(c) `none` — cliente nuevo.**
+
+- Rótulo: **«Cajón»**. Valor, en tinta: **«Todavía no tiene. Es su primera compra guardada con nosotros: al confirmar,
+  eliges tú el cajón y sus siguientes compras irán ahí.»**
+- El selector aparece en el paso 2 (§36.8). ⛔ Ningún cajón preseleccionado, ⛔ ninguno «sugerido» por apellido, por
+  orden o por ser «el último usado» (CA #19, CA #20).
+- *Por qué «sus siguientes compras irán ahí» es cierto:* la propuesta se calcula por dónde están sus cartas hoy
+  (`§M4-VAULT.4` regla 1), así que en cuanto se coloca, el siguiente pedido llega con ese cajón. ⚠️ Y **deja de ser
+  cierto si el cliente retira todo** (P-D, valor por defecto): la frase dice «irán», no «quedará asignado para
+  siempre», a propósito.
+
+---
+
+### 36.4 Cliente sin nombre (`customer.fullName === null`) — la ausencia se nombra *(copy normativo)*
+
+**El caso, sin hipótesis:** una cuenta creada con Google **sin nombre**, a la que el servidor le puso como nombre el
+principio del correo (`nameSource='derived'`). El contrato lo manda como `null` precisamente para que ninguna pantalla
+lo presente como nombre (`§M4-VAULT.3`). **No es el mismo hecho que §35.6a** (allí falta el nombre en la dirección de
+un invitado; aquí la cuenta nunca dio nombre), así que lleva **su propia frase** con **la misma marca**: una sola voz
+para la clase «la tienda no tiene este dato» (§35.16.2).
+
+| Pieza | ES | EN | Token |
+|---|---|---|---|
+| **Marca** (ranura del nombre) | **«Sin nombre registrado»** | **“No name on file”** | versalita mono `text-[11px]` `tracking-[0.06em]` **`text-accent`** (`uppercase` por CSS) |
+| **Frase** | **«Esta cuenta se creó sin nombre: el cliente no nos lo ha dado. Identifícalo por su correo.»** | **“This account was created without a name: the customer hasn't given us one. Identify them by their email.”** | `text-sm` **`text-text`** |
+| **Correo** | tal cual | tal cual | `font-mono text-sm text-text`, en su segunda línea de siempre |
+
+**Reglas:**
+
+- ⛔ **Nunca** se reconstruye un nombre desde el correo (`email.split('@')[0]`) en el cliente: sería deshacer lo que el
+  contrato hizo a propósito. `juan.perez95` **parece** un nombre y no lo es.
+- ⛔ Sin «—», ⛔ sin «Apellido no identificado» (V1: la tarjeta de bóveda no pinta apellido nunca), ⛔ dos líneas de
+  ausencia apiladas (§35.6a-e).
+- Marca, frase y correo son **tres nodos de bloque**; ⛔ la separación no depende de un `gap` (§35.6a-f).
+- **«Identifícalo por su correo» siempre se puede cumplir:** `customer.email` es obligatorio en la fila `vault`.
+- ⛔ La frase no dice «pídeselo», «búscalo» ni «se corregirá»: no medí un camino para que el operador edite el nombre de
+  un cliente, y una frase que manda a un camino que no existe es la falta de §35.8.
+- **La misma regla y el mismo copy en la vista «Qué debe haber»** (`owner.name === null`, §36.11).
+
+---
+
+### 36.5 Palomear por carta (paso 1)
+
+Cada carta tiene **tres estados** (`prepStatus`) y, aparte, puede estar **bloqueada** (`placeability.kind ===
+'blocked'`). El control vive **a la izquierda de la miniatura** (el hueco reservado en §35.11).
+
+**Controles por estado — botones de texto, ⛔ no una casilla** (una casilla tiene dos estados y aquí hay tres):
+
+| Estado de la carta | Qué se ve en la fila | Controles (`Button size="sm"`, `min-h-[44px]`) |
+|---|---|---|
+| **pendiente** | nada añadido | **«La tengo»** (secundario) · **«No la encontré»** (fantasma) |
+| **tomada** (`picked`) | versalita **«Tomada»** en `text-text` + regla izquierda de 2px en tinta | **«Deshacer»** (fantasma) |
+| **faltante** (`missing`) | versalita **«Faltante»** en **`text-accent`** + regla izquierda de 2px bermellón + frase **«Queda anotada como faltante. No se mueve al cajón. Esta pantalla no avisa al cliente ni hace reembolsos.»** (`text-sm text-text`) | **«Deshacer»** (fantasma) |
+| **bloqueada** (cualquier `prepStatus`) | versalita **«No va al cajón»** en `text-muted` + la razón en tinta (abajo) | **ninguno** — no se palomea ni se marca faltante |
+
+**EN de esa tabla:** «La tengo» → **“I have it”** · «No la encontré» → **“Couldn't find it”** · «Deshacer» →
+**“Undo”** · «Tomada» → **“Picked”** · «Faltante» → **“Missing”** · «No va al cajón» → **“Not for the drawer”** · la
+frase de faltante → **“Recorded as missing. It isn't moved to the drawer. This screen doesn't notify the customer or
+issue refunds.”**
+
+- ⛔ **El verde no se usa** para «tomada»: el verde es del dinero confirmado (§2.1, P-5). La palabra es el portador;
+  la regla de tinta solo ayuda a barrer la columna con la vista.
+- ⛔ **No se atenúa** una carta tomada (ni opacidad ni `muted`): el operador vuelve a mirarla para cotejar y tiene que
+  seguir leyéndose.
+- **Nombre accesible de cada botón** con la carta: `aria-label` «La tengo: {nombre de carta} · {folio}» (y así los
+  otros dos). Los controles de una carta van en `role="group"` con `aria-labelledby` al nombre de la carta.
+- **Mientras se guarda una marca:** el botón pulsado pasa a *loading* (§6.1, conserva ancho) y los otros de **esa**
+  carta se deshabilitan; ⛔ no se bloquea el resto de la tarjeta.
+- **Estado optimista: no.** La marca se pinta **cuando el servidor responde** (`200` trae `item` y `preparation`). Un
+  operador de pie que pulsa y se va tiene que ver lo que el sistema guardó, no lo que él quiso.
+- `200 changed:false` (doble toque): **silencioso**, no es un error.
+
+**Por qué no va al cajón una carta bloqueada** (`placeability.reason`), copy normativo:
+
+| `reason` | ES | EN |
+|---|---|---|
+| `in_withdrawal` | **«Está en un retiro que el cliente ya pagó: sale con ese envío, no va al cajón.»** | **“It's in a withdrawal the customer already paid for: it leaves with that shipment, not to the drawer.”** |
+| `not_in_custody` | **«Ya no está a nombre del cliente en bóveda, así que no va a su cajón. No hace falta buscarla.»** | **“It's no longer held in the customer's vault, so it doesn't go to their drawer. No need to look for it.”** |
+
+**Conteo del paso 1** (plano 3, desde `preparation`, ⛔ no recalculado en el cliente — el servidor aplica la regla de
+«preparable»):
+
+- ES: **«{picked} tomadas · {missing} faltantes · {pending} por palomear»** y, solo si `blocked > 0`, **« · {blocked} no
+  van al cajón»**. EN: **“{picked} picked · {missing} missing · {pending} to check”** · **“ · {blocked} not for the
+  drawer”**. Plurales con ICU (§9.4).
+- Vive dentro de la región `role="status"` **de la tarjeta** (`aria-live="polite"`), así cada marca se anuncia como el
+  nuevo conteo, sin que cada botón tenga que anunciar nada.
+
+**Errores al palomear** (se pintan **en la fila de la carta**, `text-sm`, debajo de sus controles; `role="alert"`):
+
+| Respuesta | ES | EN | Qué hace la pantalla |
+|---|---|---|---|
+| `409 PREP_ITEM_BLOCKED` `{reason}` | **«Esta carta ya no se puede palomear.»** + la razón de la tabla de arriba | **“This card can no longer be checked.”** + reason | Vuelve a pedir la cola; la carta pasa a «No va al cajón» |
+| `409 PREPARATION_CLOSED` `{preparedAt}` | **«Este pedido ya se dio por preparado y sus marcas están fijas. Para corregir una carta, primero deshaz «preparado».»** | **“This order was already marked as prepared and its marks are locked. To fix a card, undo “prepared” first.”** | Ofrece **ahí mismo** el botón **«Deshacer preparado»** (§36.7) — es el remedio que fija el contrato |
+| `409 PLACEMENT_NOT_PENDING` | el copy de §36.9 según `details` | | Vuelve a pedir la cola |
+| `404 NOT_FOUND` | **«Esta carta o este pedido ya no está en la cola.»** | **“This card or order is no longer in the queue.”** | Vuelve a pedir la cola |
+
+---
+
+### 36.6 «Pedido preparado» (fin del paso 1)
+
+**Cuándo se puede pulsar:** exactamente cuando `preparation.status === 'in_progress'` **y** `preparation.pending === 0`
+— la misma regla del servidor (`§M4-VAULT.3`). Las bloqueadas no cuentan.
+
+| Estado | Qué se ve |
+|---|---|
+| Falta palomear | Botón **deshabilitado** + razón visible debajo (unida por `aria-describedby`): **«{pending, plural, one {Falta # carta} other {Faltan # cartas}} por palomear: márcalas como «La tengo» o «No la encontré».»** / EN **“{pending, plural, one {# card} other {# cards}} still to check: mark them “I have it” or “Couldn't find it”.”** — *es un control construido, así que se permite apagarlo; lo que §35.11 prohíbe es apagar lo **no** construido* |
+| Listo | Botón **primario** **«Pedido preparado»** / **“Order prepared”** |
+| Guardando | *loading* (§6.1), texto **«Guardando…»** |
+| Todas faltantes o bloqueadas | Se puede preparar igual (`§M4-VAULT.10`). Encima del botón, en tinta: **«Ninguna carta está tomada: al final no se guardará nada en el cajón.»** / **“No card is picked: nothing will go into the drawer in the end.”** |
+
+**Respuestas:**
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `200 prepared` | la tarjeta pasa al paso 2; en el plano 3: **«Preparado por {name} · {fecha y hora}»** | **“Prepared by {name} · {date time}”** |
+| `200 already_prepared` | igual, sin aviso extra — *quien pulsó a la vez quería lo mismo* | |
+| `preparedBy.name === null` | **«Preparado por una cuenta sin nombre · {fecha y hora}»** | **“Prepared by an account with no name · {date time}”** |
+| `409 PREPARATION_INCOMPLETE` `{pendingCount}` | **«Todavía {pendingCount, plural, one {falta # carta} other {faltan # cartas}} por palomear. Puede que alguien acabe de deshacer una marca.»** + vuelve a pedir la cola | **“{pendingCount, plural, one {# card is} other {# cards are}} still unchecked. Someone may have just undone a mark.”** |
+| `409 PLACEMENT_NOT_PENDING` | §36.9 | |
+
+⛔ El botón **no** dice «Firmar», «Cerrar» ni «Terminar»: el pedido **no** ha terminado (falta colocar, CA #23).
+La fecha se pinta con `<time dateTime>` y formato de §9.3.
+
+---
+
+### 36.7 «Deshacer preparado» — con confirmación
+
+**Dónde:** en el pie de la tarjeta en el paso 2, como botón **fantasma** junto a «Confirmar colocación», **a la
+izquierda** y separado de él por el ancho de un botón (en `< sm` va **debajo**, nunca pegado). Y como remedio dentro
+del error `PREPARATION_CLOSED` (§36.5).
+
+**Por qué pide confirmación, aunque no mueve nada físico ni dinero:** borra el sello «quién y cuándo preparó» de la
+tarjeta (queda solo en la bitácora) y vive **al lado** del botón que coloca. Un toque equivocado de pie cuesta volver a
+dar el pedido por preparado. ⛔ **Pero no es destructivo**: el diálogo usa `Dialog` (§7.6) con botones **neutros**, ⛔
+no el estilo `danger`.
+
+| Pieza | ES | EN |
+|---|---|---|
+| Título | **«¿Deshacer «preparado»?»** | **“Undo “prepared”?”** |
+| Cuerpo | **«Las marcas de cada carta se quedan como están; solo vuelven a poder corregirse. No se mueve ninguna carta. Para colocar tendrás que darlo por preparado otra vez.»** | **“Each card's marks stay as they are; they just become editable again. No card moves. To place it you'll have to mark it as prepared again.”** |
+| Confirmar | **«Deshacer preparado»** | **“Undo prepared”** |
+| Cancelar | **«Cancelar»** (foco inicial aquí) | **“Cancel”** |
+
+**Respuestas:**
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `200 unprepared` | la tarjeta vuelve al paso 1 **con las marcas que ya tenía**; aviso en la región de la tarjeta: **«Listo: ya puedes corregir las marcas. Cuando termines, vuelve a darlo por preparado.»** | **“Done: you can fix the marks now. When you're finished, mark it as prepared again.”** |
+| `200 not_prepared` | igual; aviso: **«Ya no estaba preparado: alguien lo deshizo antes. Puedes corregir las marcas.»** | **“It was no longer prepared: someone undid it first. You can fix the marks.”** |
+| `409 PLACEMENT_NOT_PENDING` `{status:'placed'}` | **«No se pudo deshacer: el pedido ya se guardó en su cajón. Después de colocar ya no hay vuelta atrás desde esta pantalla.»** | **“Couldn't undo: the order was already placed in its drawer. Once placed, there's no going back from this screen.”** |
+| `409 PLACEMENT_NOT_PENDING` `{status:'cancelled'}` | §36.9 | |
+
+---
+
+### 36.8 «Confirmar colocación» (paso 2)
+
+**Qué hay en el pie, de arriba abajo:**
+
+1. **El selector de cajón, solo si hace falta** (V4):
+   - `existing_customer_vault` ⇒ **no hay selector**.
+   - `multiple_drawers` ⇒ grupo de **radios nativos** (`<fieldset>` + `<legend>` **«¿A qué cajón van estas cartas?»** /
+     **“Which drawer do these cards go to?”**), una opción por cajón: «Custodia de clientes · C01-F01-S01 — {n} cartas
+     ahí». ⛔ Ninguno marcado de inicio. *Es radio y no el filtro de `aria-pressed` de §35.7 porque aquí la elección
+     **cambia el mundo** (dónde quedan las cartas).*
+   - `none` ⇒ `Select`/`Combobox` con búsqueda (§6.3), rótulo **«Elige su cajón»** / **“Choose their drawer”**, con los
+     cajones activos de «Custodia de clientes» (lista de `GET /admin/inventory/locations` filtrada, `§M4-VAULT.4`),
+     cada opción con su zona. ⛔ Sin opción preseleccionada; placeholder **«Sin elegir»**. ⛔ Nada de «vacío»,
+     «ocupado» ni «compartido» (V6).
+   - `none` y **la lista sale vacía**: en lugar del selector, en tinta: **«No hay cajones de clientes dados de alta.
+     Crea uno en Inventario → «Ubicaciones», con zona «Custodia de clientes», y vuelve aquí.»** (medido: el alta existe,
+     `m1/LocationsModal.tsx`, botón `admin.m1.locations.button` «Ubicaciones»).
+2. **El resumen de lo que va a pasar**, en tinta, justo encima del botón:
+   **«Se guardan {picked, plural, one {# carta} other {# cartas}} en Custodia de clientes · C01-F01-S01.»** — con el
+   cajón elegido o el suyo; sin cajón elegido: **«Elige un cajón para ver a dónde van.»** Si hay faltantes, segunda
+   frase: **«{missing, plural, one {# faltante no se mueve} other {# faltantes no se mueven}}.»**
+3. **El botón primario** **«Confirmar colocación»** / **“Confirm placement”**, con `aria-describedby` al resumen.
+   Deshabilitado **solo** mientras falta elegir cajón (razón visible: el mismo «Elige un cajón…»).
+   - Si `picked === 0` (todo faltante o bloqueado): el botón dice **«Cerrar pedido sin guardar nada»** / **“Close order
+     without placing anything”** y el resumen: **«Ninguna carta está tomada: el pedido se cierra y sale de la lista.
+     Las faltantes siguen anotadas.»** ⚠️ El contrato exige cajón también en este caso — ver hueco **H-4** (§36.13).
+
+⛔ **Sin diálogo de confirmación** en «Confirmar colocación»: el resumen del punto 2 **es** la confirmación, está a la
+vista y se lee antes de pulsar; y la acción es idempotente al mismo cajón. Un diálogo más en cada pedido enseña a
+pulsar «Aceptar» sin leer.
+
+**Qué pasa al acertar:** la tarjeta **sale de la lista** (CA #23). Para que el resultado no desaparezca con ella, queda
+un **aviso de resultado** encima de la lista (`Banner` sin relleno, §7.5, `role="status"`, se cierra a mano; el último
+sustituye al anterior), con el folio:
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `200 placed` | **«Pedido {folio} colocado: {n, plural, one {# carta} other {# cartas}} en Custodia de clientes · C01-F01-S01.»** + si hubo: **«{m} faltantes no se movieron.»** · **«{k} no se movieron porque ya no se podían colocar.»** | **“Order {folio} placed: {n, plural, one {# card} other {# cards}} in Customer custody · C01-F01-S01.”** + **“{m} missing weren't moved.”** · **“{k} weren't moved because they could no longer be placed.”** |
+| `200 nothing_to_place` | **«Pedido {folio} cerrado sin guardar nada: ninguna carta estaba para el cajón. Las faltantes siguen anotadas en «Qué debe haber» del cliente.»** | **“Order {folio} closed without placing anything: no card was ready for the drawer. The missing ones are still recorded under the customer's “What should be there”.”** |
+| `200 already_placed` | **«Pedido {folio}: ya estaba colocado en ese cajón. No se hizo nada nuevo.»** | **“Order {folio}: already placed in that drawer. Nothing new was done.”** |
+
+*(`n` = resultados `moved` + `already_there`: para el operador las dos son «está en el cajón».)*
+
+**Errores del `confirm`** (en el pie de la tarjeta, `role="alert"`):
+
+| Respuesta | ES | EN | Qué hace la pantalla |
+|---|---|---|---|
+| `422 LOCATION_NOT_AVAILABLE` `not_customer_drawer` | **«Este cliente ya tiene cajón y no es el que elegiste: seguramente otra persona acaba de guardar otro pedido suyo. Actualizamos la tarjeta con su cajón.»** | **“This customer already has a drawer and it isn't the one you chose: someone probably just placed another of their orders. We've refreshed the card with their drawer.”** | Vuelve a pedir la cola |
+| `422` `not_found` · `inactive` · `not_customer_custody` | **«Ese cajón ya no sirve para guardar cartas de clientes. Elige otro.»** | **“That drawer can no longer hold customer cards. Choose another.”** | Limpia la elección |
+| `409 PLACEMENT_NOT_PREPARED` | **«Este pedido ya no está preparado: alguien deshizo «preparado». Revisa las marcas y vuelve a darlo por preparado.»** | **“This order is no longer prepared: someone undid “prepared”. Check the marks and mark it as prepared again.”** | Vuelve a pedir la cola (la tarjeta vuelve al paso 1) |
+| `409 PLACEMENT_NOT_PENDING` | §36.9 | | |
+
+---
+
+### 36.9 Cuando otra persona llegó antes — `409 PLACEMENT_NOT_PENDING` y `409 CONFLICT`
+
+Un solo copy para los cuatro verbos, porque el hecho es el mismo: **el pedido ya no está pendiente**. Se elige por
+`details`:
+
+| `details` | ES | EN |
+|---|---|---|
+| `{status:'placed'}` | **«Otra persona ya colocó este pedido. No se cambió nada; sale de la lista.»** | **“Someone else already placed this order. Nothing was changed; it leaves the list.”** |
+| `{status:'cancelled', cancelReason:'chargeback'}` | **«Este pedido se canceló por un contracargo: sus cartas ya no son del cliente. Sale de la lista.»** | **“This order was cancelled by a chargeback: its cards no longer belong to the customer. It leaves the list.”** |
+| `{status:'cancelled', cancelReason:'nothing_to_place'}` | **«Este pedido ya se cerró sin guardar nada. Sale de la lista.»** | **“This order was already closed without placing anything. It leaves the list.”** |
+
+⚠️ En `placed` el `details` trae solo `locationId`, no la etiqueta: **no se nombra el cajón** (sería inventarlo o
+pintar un id). Hueco **H-2**.
+
+**`409 CONFLICT` de un verbo** (orden con datos que no cuadran): copy **propio de esta tarjeta**, ⛔ no `error.CONFLICT`
+ni `error.CONFLICT_OPERATOR` (§35.15.3): **«Este pedido tiene datos que no cuadran y no se puede tocar desde aquí.
+Avisa al súper-admin.»** / **“This order has data that doesn't add up and can't be changed from here. Tell the
+super-admin.”** Sin «Reintentar». *(Si la fila está corrupta, la cola entera ya habrá dado el `409` de §35.15; este
+copy cubre la carrera en la que se corrompe con la pantalla abierta.)*
+
+Errores genéricos (red, `500`, `403`): `QueryState`/`Banner danger` con «Reintentar», como §35.8.
+
+---
+
+### 36.10 Vacío de la cubeta bóveda — reescrito (sustituye al de §35.8)
+
+Con `§M4-VAULT` la cubeta **sí** cuenta el trabajo (cada compra a bóveda pagada nace con su colocación pendiente, y
+solo sale al colocarse o cancelarse). Ya se puede afirmar que no hay trabajo:
+
+| | ES | EN |
+|---|---|---|
+| Título | **«Nada que llevar a bóveda por ahora.»** | **“Nothing to take to the vault for now.”** |
+| Cuerpo | **«No hay compras pagadas esperando su cajón.»** | **“No paid purchases are waiting for their drawer.”** |
+
+⛔ El cuerpo **no** dice «aparecen aquí solas» salvo que §35.9 (volver a pedir al recuperar el foco) siga vigente en
+esta consulta — misma condición que P-2.
+
+---
+
+### 36.11 Vista «Qué debe haber» — la bóveda física de un cliente
+
+**Pregunta que contesta, en palabras del dueño:** *«saber qué cartas deben estar en bóveda por cliente»*. El operador
+la usa **delante del cajón**, comprobando el archivero contra el sistema. Es **lectura pura** (`§M4-VAULT.11`): ⛔ ni
+un botón que corrija nada.
+
+**Pestaña:** **«Qué debe haber»** / **“What should be there”** (tercera, tras «Cartas» y «Sellado»).
+
+**Anatomía, de arriba abajo:**
+
+1. **La persona** — `owner.name` en serif `text-2xl`, correo debajo; `null` ⇒ §36.4 tal cual.
+2. **El cajón** (`drawer`):
+   - `single` ⇒ rótulo **«Su cajón»** + «Custodia de clientes · C01-F01-S01».
+   - `multiple` ⇒ la marca **«Cartas en varios cajones»** (`text-accent`) + **«Este cliente debería tener un solo cajón,
+     pero sus cartas están en {count}:»** + la lista de cajones con zona y «{n} cartas ahí».
+   - `none` ⇒ **«Todavía no tiene cajón.»** y, si `counts.pendingPlacement > 0`: **«Sus cartas pagadas siguen en la
+     tienda, esperando que se coloquen.»**
+3. **El resumen de conteos** — `<dl>` en una línea que se parte, en el orden de los grupos (abajo), cada número
+   `tabular`: «2 faltantes · 1 sin ubicar · 14 en su cajón · 3 por colocar · 1 en un retiro — 21 en total».
+   ⛔ Un conteo en 0 **sí** se dice aquí (es la respuesta a «¿falta algo?»); lo que no se pinta es su grupo vacío.
+4. **Los grupos**, uno por estado físico.
+
+**Los cinco estados, con qué se decide y en qué orden se ven — dos órdenes distintos, y no se confunden:**
+
+- **Qué estado tiene una carta** lo decide el servidor con su **precedencia**: faltante › en retiro › pendiente de
+  colocar › en cajón › sin ubicar (`§M4-VAULT.11`, `physicalStateOf`). ⛔ La pantalla **no** la recalcula.
+- **En qué orden se ven los grupos** es otro: **anomalías primero**, para que no se pierdan al final. El orden es el
+  del contrato, y **manda sobre cualquier otro**:
+
+| # | Grupo (título, `h3`) | ES / EN | Tono del título | Qué dice cada fila |
+|---|---|---|---|---|
+| 1 | `missing` | **«Faltantes»** / “Missing” | versalita **`text-accent`** | **«La marcó como faltante {name} el {fecha}, al preparar el pedido {folio}. El sistema la sigue contando como del cliente.»** — `markedBy.name === null` ⇒ «una cuenta sin nombre» |
+| 2 | `unlocated` | **«Sin ubicar»** / “Unlocated” | versalita **`text-accent`** | `no_location`: **«El sistema no tiene ubicación para esta carta.»** · `not_in_customer_drawer`: **«El sistema la tiene en {zona · etiqueta}, no en un cajón de cliente.»** |
+| 3 | `in_drawer` | **«En su cajón»** / “In their drawer” | versalita `text-text` | la ubicación (zona · etiqueta) en la columna izquierda; nada más: es el caso normal |
+| 4 | `pending_placement` | **«Por colocar»** / “To be placed” | versalita `text-text` | **«Pagada; falta llevarla a su cajón (pedido {folio}).»** + el avance: `prepStatus pending` ⇒ **«aún sin juntar»** · `picked` ⇒ **«ya la juntaron»** · `prepared` ⇒ **«pedido preparado»** · `missing` no llega aquí (gana el grupo 1) |
+| 5 | `in_withdrawal` | **«En un retiro»** / “In a withdrawal” | versalita `text-text` | **«Sale con el envío que pidió el cliente — {estado}.»** con `status.shipment.<shipmentStatus>` (claves que ya existen: «En preparación», «Guía generada», «En tránsito») |
+
+- **Cada fila** reutiliza el renglón de carta de §35.3 plano 2: **ubicación primero, en columna** (§35.4), nombre de
+  carta `lang="en"`, set, `FinishMark`, condición, miniatura, folio. La ubicación siempre con zona (V3).
+- **Dentro de cada grupo**, el orden del servidor (en cajón: por cajón, carta y folio — el recorrido del archivero).
+- ⛔ Los faltantes y los sin ubicar **no** se pintan en rojo relleno ni con icono como único portador: título en
+  palabras, bermellón solo en la versalita.
+- **Sin paginar** (una bóveda de un cliente, `§M4-VAULT.11`).
+- ⛔ Sin precios ni valor: esta vista no es de valuación.
+
+**Carga, error y vacío (§8.1):**
+
+- **Carga:** esqueleto con la forma final (persona, cajón, una línea de conteos, dos grupos).
+- **Error:** `Banner danger` + «Reintentar». `404`: **«No encontramos a este cliente.»** / **“We couldn't find this
+  customer.”**
+- **Vacío** (`items: []`): `EmptyState` **«Este cliente no tiene cartas guardadas con nosotros.»** / **“This customer has
+  no cards stored with us.”** · cuerpo **«Cuando compre y deje cartas en su bóveda, aparecerán aquí.»** / **“When they
+  buy and keep cards in their vault, they'll show up here.”** — *cierto por construcción: el conjunto es exactamente
+  «cartas del cliente en custodia».*
+
+**Accesibilidad:** cada grupo es un `<section aria-labelledby>` con su `h3` (el título incluye el conteo: «Faltantes
+(2)»), así el lector de pantalla salta de estado en estado; la lista de cartas es `<ul>` (⛔ nada de tabla de columnas
+fijas: reflujo a 390×844 y 200 %); fechas con `<time dateTime>`; ⛔ sin `lang` en ubicaciones ni folios; enfocables solo
+las pestañas y «Reintentar».
+
+---
+
+### 36.12 Accesibilidad y móvil de la tarjeta (además de §35.10)
+
+- **Orden del DOM:** cabecera → persona → cajón → línea de paso y conteo → cartas (cada una: ubicación, controles,
+  carta) → pie de acción. El foco recorre los controles de palomeo **en el orden de las cartas**, que es el del
+  recorrido.
+- **Región viva por tarjeta** (`role="status"`, siempre montada) para el conteo y los avisos de éxito; los errores van
+  en `role="alert"` **en el sitio del error** (fila o pie). ⛔ Nunca las dos para el mismo hecho (§35.15.7).
+- **Tras una acción que cambia de paso**, el foco va a la **línea de paso** de esa tarjeta (con `tabIndex={-1}`), no al
+  inicio de la página.
+- **Al salir la tarjeta de la lista** (colocada), el foco va al **aviso de resultado** (§36.8).
+- **Objetivos ≥ 44×44 px** en todos los botones. En `< sm`, «La tengo» y «No la encontré» se reparten el ancho (50/50)
+  **debajo** de la carta; el pie apila «Confirmar colocación» arriba y «Deshacer preparado» abajo, con `gap-4` entre
+  ellos.
+- **Foco visible** bermellón de 2px (§4.3, §8.2) en todo control nuevo.
+- **Contraste — cero pares nuevos:** tinta sobre papel (~15.5:1) en nombre, correo, cajón, frases y resúmenes;
+  muted sobre papel (~4.8:1) solo en rótulos y en «No va al cajón»; bermellón sobre papel (~4.65:1) en «Faltante»,
+  «Sin nombre registrado», «Cartas en varios cajones», «Sin ubicar» y sus reglas de 2px. Todos en §35.12.
+
+---
+
+### 36.13 Huecos del contrato — **no los corrijo, los digo** (para el arquitecto)
+
+| Ref | Hueco | Efecto en pantalla | ¿Bloquea? |
+|---|---|---|---|
+| **H-1** | **El nombre del detalle del cliente no sigue la regla de «nombre fabricado».** La vista «Qué debe haber» usa `owner.name` (con la regla `derived ⇒ null`), pero la cabecera del detalle de «Bóvedas de clientes» pinta `AdminVaultSummaryDTO.name` de `GET /admin/vaults` (`VaultsView.tsx:64`), que **no** aplica esa regla (`§M4-VAULT.11`: las hermanas no cambian). En una cuenta sin nombre, la misma pantalla diría «juan.perez95» en la cabecera y «Sin nombre registrado» en la pestaña | Dos voces para la misma persona, y una presenta el correo como nombre | No bloquea la tarjeta. **Sí** conviene cerrarlo antes de publicar la pestaña: o `GET /admin/vaults` aplica la regla, o expone `nameSource` |
+| **H-2** | `409 PLACEMENT_NOT_PENDING {status:'placed'}` trae `locationId` **sin etiqueta ni zona** | «Otra persona ya lo colocó» no puede decir **en qué cajón** (§36.9) | No. Pedir `location:{label, zone}` en `details` |
+| **H-3** | **Nombre de tipo distinto para lo mismo:** el catálogo de errores declara `PLACEMENT_NOT_PREPARED` con `details:{ preparation: PreparationStateDTO }` (`API_CONTRACT.md:5664`), y §M4-VAULT.3 llama a ese tipo `VaultPreparationStateDTO` | Frontend puede tipar uno que no existe | No, pero es una línea del contrato |
+| **H-4** | **El `confirm` exige cajón aunque no se vaya a guardar nada** (`picked === 0` ⇒ `nothing_to_place`). Con un cliente **nuevo**, el operador tiene que elegir un cajón para cerrar un pedido vacío, y esa elección no deja nada asignado | Un paso sin sentido para el operador; hoy §36.8 lo cubre con el selector normal | No. Opción: `locationId` opcional cuando no hay nada `picked`, o un verbo de cierre |
+| **H-5** | `422 not_customer_drawer` trae solo `customerDrawerIds` | La pantalla tiene que volver a pedir la cola para nombrar el cajón | No (el diseño ya re-pide) |
+| **H-6** | **Enlace de la tarjeta a «Qué debe haber»** — el detalle del cliente no es direccionable hoy (§36.1) | Sin el enlace, el operador busca al cliente a mano | No; es de frontend, no de contrato |
+
+---
+
+### 36.14 i18n — claves nuevas (de frontend; se copian sin interpretar)
+
+**Paridad ES/EN:** como en §35.6a y §35.15, **toda clave nueva entra en `es.json` y `en.json` en el mismo cambio**
+(el candado de paridad de mensajes del proyecto lo exige). Las versalitas se hacen con CSS (`uppercase`), ⛔ nunca
+escribiendo la cadena en mayúsculas (§35.6a-f).
+
+**Espacios de nombres:**
+
+- `admin.m4.prep.vault.*` — la tarjeta (§36.2–§36.9): `step.collect`, `step.place`, `drawer.{own, ownBody, multipleTag,
+  multipleBody, multipleLegend, newLabel, newBody, chooseLabel, choosePlaceholder, noneAvailable}`, `nameMissing.{tag,
+  body}`, `item.{pick, miss, undo, picked, missing, missingBody, blocked}`, `blockedReason.{in_withdrawal,
+  not_in_custody}`, `count`, `countBlocked`, `prepare.{cta, saving, pending, nothingPicked}`, `prepared.{by, byNoName}`,
+  `unprepare.{cta, title, body, confirm, done, alreadyUndone}`, `place.{cta, ctaEmpty, summary, summaryMissing,
+  summaryEmpty, chooseFirst}`, `result.{placed, placedMissing, placedSkipped, nothingToPlace, alreadyPlaced}`,
+  `error.{itemBlocked, closed, notFound, incomplete, notPrepared, notCustomerDrawer, drawerUnavailable, placed,
+  chargeback, nothingToPlace, placedUndo, conflict}`, `emptyVault.{title, body}` (**reemplaza** a
+  `admin.m4.prep.emptyVault.*`; la vieja se **retira** en el mismo cambio).
+- `admin.vaults.physical.*` — la vista (§36.11): `tab`, `drawer.{own, multiple, none, nonePending}`, `counts.*`,
+  `group.{missing, unlocated, in_drawer, pending_placement, in_withdrawal}`, `row.{missing, missingNoName,
+  noLocation, notInCustomerDrawer, pendingPlacement, prepPending, prepPicked, prepPrepared, inWithdrawal}`,
+  `empty.{title, body}`, `notFound`. Y `admin.vaults.detailTabs.physical`.
+- **Se reutiliza, ⛔ no se duplica:** las zonas `admin.m1.zone.{platform_stock, customer_custody}` («Stock de
+  plataforma», «Custodia de clientes», medido `es.json:1359-1361`) — *un solo nombre para cada zona en todo el
+  back-office*; los estados de envío `status.shipment.*`; «Sin ubicar» `admin.m4.prep.unassigned`. La marca «Sin
+  nombre registrado» **sí** se repite como cadena en `vault.nameMissing.tag` (mismo texto que `prep.nameMissing.tag`,
+  distinta frase: son dos hechos distintos, §36.4).
+
+Los textos son los de las tablas de §36.3–§36.11, carácter por carácter. **EN de los textos que arriba solo aparecen
+en español:**
+
+| ES (sección) | EN |
+|---|---|
+| «Paso 1 de 2 · Junta y palomea» (§36.2) | “Step 1 of 2 · Collect and check off” |
+| «Paso 2 de 2 · Llévalas a su cajón y confirma» | “Step 2 of 2 · Take them to their drawer and confirm” |
+| «Su cajón» (§36.3a, §36.11) | “Their drawer” |
+| «Junto a sus otras cartas: ya tiene {count} … ahí.» | “Next to their other cards: they already have {count, plural, one {# card} other {# cards}} there.” |
+| «Cartas en varios cajones» | “Cards in several drawers” |
+| «Este cliente debería tener un solo cajón, pero sus cartas están repartidas en {count} cajones. El sistema no elige por ti: al confirmar, escoge a cuál van estas cartas. Juntarlas en uno solo no se hace desde esta pantalla.» | “This customer should have a single drawer, but their cards are spread across {count} drawers. The system won't choose for you: when confirming, pick which one these cards go to. Merging them into one isn't done from this screen.” |
+| «Cajón» · «Todavía no tiene. Es su primera compra guardada con nosotros: al confirmar, eliges tú el cajón y sus siguientes compras irán ahí.» (§36.3c) | “Drawer” · “None yet. This is their first purchase stored with us: when confirming, you choose the drawer and their next purchases will go there.” |
+| «Sin elegir» (§36.8) | “Not chosen” |
+| «No hay cajones de clientes dados de alta. Crea uno en Inventario → «Ubicaciones», con zona «Custodia de clientes», y vuelve aquí.» | “There are no customer drawers set up. Create one in Inventory → “Locations”, with zone “Customer custody”, and come back.” *(usar las cadenas EN reales de `admin.m1.locations.button` y `admin.m1.zone.customer_custody` por interpolación, ⛔ no reescribirlas)* |
+| «Se guardan {picked} … en {cajón}.» · «{missing} faltantes no se mueven.» | “{picked, plural, one {# card goes} other {# cards go}} into {drawer}.” · “{missing, plural, one {# missing card isn't moved} other {# missing cards aren't moved}}.” |
+| «Elige un cajón para ver a dónde van.» | “Choose a drawer to see where they go.” |
+| «Ninguna carta está tomada: el pedido se cierra y sale de la lista. Las faltantes siguen anotadas.» | “No card is picked: the order closes and leaves the list. The missing ones stay recorded.” |
+| «Qué debe haber» (§36.11) · «Todavía no tiene cajón.» · «Sus cartas pagadas siguen en la tienda, esperando que se coloquen.» | “What should be there” · “No drawer yet.” · “Their paid cards are still in the store, waiting to be placed.” |
+| «Este cliente debería tener un solo cajón, pero sus cartas están en {count}:» | “This customer should have a single drawer, but their cards are in {count}:” |
+| Filas de §36.11: faltante · sin ubicación · fuera de su cajón · por colocar (+ avance) · en un retiro | “Marked missing by {name} on {date}, while preparing order {folio}. The system still counts it as the customer's.” · “The system has no location for this card.” · “The system has it in {zone · label}, not in a customer drawer.” · “Paid; still needs to go to their drawer (order {folio}).” + “not collected yet” / “already collected” / “order prepared” · “Leaves with the shipment the customer requested — {status}.” |
+| «Ver qué debe haber en su bóveda» (§36.1) | “See what should be in their vault” |
+| «una cuenta sin nombre» | “an account with no name” |
+
+---
+
+### 36.15 Qué NO hacer
+
+- ⛔ Titular por apellido, «Apellido, Nombre» o el nombre recortado a un token (V1).
+- ⛔ El prefijo del correo como nombre, ni reconstruido en el cliente (V2).
+- ⛔ Una etiqueta de cajón sin su zona, ni «C01-F01-S01 → C01-F01-S01» (V3).
+- ⛔ Un cajón preseleccionado o «recomendado» con cliente nuevo o con varios cajones (V4).
+- ⛔ «Capturar guía», dirección o transportista en la tarjeta de bóveda (CA #21).
+- ⛔ «Cajón compartido», «cajón lleno», «ocupado» (V6).
+- ⛔ Prometer reembolso, aviso al cliente o búsqueda de una faltante (V7).
+- ⛔ Verde para «Tomada» (§2.1).
+- ⛔ Casillas, «preparado» o progreso apagados en la tarjeta de **envío** (§35.11).
+- ⛔ Copy de estos errores en `error.CONFLICT*` genéricos (§35.15.3).
+- ⛔ Un «—» en cualquier ausencia de esta sección.
+
+---
+
+### 36.16 Candados sugeridos (QA · se escriben con la pantalla; medir en 390×844 y 1280×800)
+
+- **PV-1** Con `fullName: 'María de la Luz Pérez Gómez'`, el titular contiene la cadena **entera** y la tarjeta **no**
+  contiene `lastName` en ningún nodo propio ni «Apellido no identificado».
+- **PV-2** Con `fullName: null` y `email: 'juan.perez95@…'`, el bloque de persona contiene «Sin nombre registrado» y el
+  correo completo, y **ningún** nodo contiene `juan.perez95` **fuera** del correo; ni un `—`.
+- **PV-3** Toda etiqueta de cajón o de ubicación en la tarjeta y en la vista va precedida del nombre de su zona.
+- **PV-4** Con `source:'multiple_drawers'`: aparece «Cartas en varios cajones», se listan **todos** los cajones y
+  **ningún** radio está marcado al abrir; con `source:'none'`, el selector no tiene valor inicial.
+- **PV-5** Con `pending > 0`, «Pedido preparado» está deshabilitado **y** su razón visible está unida por
+  `aria-describedby`; con `pending === 0`, habilitado.
+- **PV-6** Una carta `blocked` **no** tiene botones de palomeo y muestra su razón en texto.
+- **PV-7** En el paso 2 existen «Confirmar colocación» y «Deshacer preparado»; en el paso 1, **ninguno** de los dos.
+  En ningún paso existe un control de guía.
+- **PV-8** «Deshacer preparado» abre un diálogo con foco inicial en «Cancelar»; tras `200 unprepared`, las marcas que
+  había siguen pintadas.
+- **PV-9** Ante `409 PREPARATION_CLOSED` al palomear, la fila muestra el botón «Deshacer preparado».
+- **PV-10** En «Ambas», la tarjeta de envío **no** contiene casillas, «La tengo» ni línea de paso.
+- **PV-11** Vista física: los grupos aparecen en el orden faltantes → sin ubicar → en su cajón → por colocar → en un
+  retiro; un grupo con 0 **no** se pinta, pero su conteo sí aparece en el resumen.
+- **PV-12** Vacío de la cubeta bóveda: el HTML **no** contiene «todavía no se alimenta» / “isn't fed yet”.
