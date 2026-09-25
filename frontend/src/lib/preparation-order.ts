@@ -1,4 +1,4 @@
-import type { LocationView, PreparationItemDTO, PreparationOrderDTO } from '@/types/contract';
+import type { LocationView, PreparationOrderDTO } from '@/types/contract';
 
 /**
  * **Orden de «Pedidos a preparar»** (contrato **§M4-PREP**, `DESIGN_SYSTEM §35.2/§35.4`).
@@ -41,13 +41,30 @@ function locationSortKey(location: LocationView): string | null {
 /**
  * Orden NORMATIVO de los pedidos: `requestedAt` **asc** — lo más viejo primero (CA #9).
  * Una `requestedAt` inválida va **al final**: una fecha que no se puede leer no es «la más vieja».
+ *
+ * ⭐ **§M4-VAULT.3 (v1.79) — el EMPATE exacto ya no se deja al orden del motor:** con la cola
+ * mezclada, `ship` va antes que `vault`, y dentro de la misma cubeta por `shipmentId`/`placementId`
+ * en **unidades de código** (la regla de §M4P-ORDER). Es la misma regla que el servidor.
  */
 export function sortPreparationOrders(orders: PreparationOrderDTO[]): PreparationOrderDTO[] {
   const at = (o: PreparationOrderDTO) => {
     const ms = Date.parse(o.requestedAt);
     return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
   };
-  return orders.slice().sort((a, b) => at(a) - at(b));
+  const rank = (o: PreparationOrderDTO) => (o.destination === 'ship' ? 0 : 1);
+  const ref = (o: PreparationOrderDTO) => (o.destination === 'ship' ? o.shipmentId : o.placementId);
+  return orders.slice().sort((a, b) => {
+    const ta = at(a);
+    const tb = at(b);
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
+    const ra = ref(a);
+    const rb = ref(b);
+    // ⛔ NO `localeCompare`: unidades de código UTF-16 (§M4P-ORDER).
+    if (ra < rb) return -1;
+    if (ra > rb) return 1;
+    return 0;
+  });
 }
 
 /**
@@ -70,8 +87,11 @@ export function sortPreparationOrders(orders: PreparationOrderDTO[]): Preparatio
  * mayúsculas con ceros a la izquierda, el recorrido que camina el operador **sale idéntico**.
  *
  * ⛔ **`sortPreparationOrders` NO cambia**: compara marcas de tiempo numéricas, no texto.
+ *
+ * v1.79: genérica sobre el renglón — la usan las cartas de ENVÍO y las de BÓVEDA (§M4P-ORDER
+ * aplica igual a las dos, §M4-VAULT.3).
  */
-export function sortPreparationItems(items: PreparationItemDTO[]): PreparationItemDTO[] {
+export function sortPreparationItems<T extends { currentLocation: LocationView }>(items: T[]): T[] {
   return items.slice().sort((a, b) => {
     const ka = locationSortKey(a.currentLocation);
     const kb = locationSortKey(b.currentLocation);

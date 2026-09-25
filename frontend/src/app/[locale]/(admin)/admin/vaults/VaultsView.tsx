@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Link } from '@/i18n/navigation';
 import { getAdminVaults, type AdminVaultFilters } from '@/lib/api';
-import type { AdminVaultSort, AdminVaultSummaryDTO } from '@/types/contract';
+import type { AdminVaultSort } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Input } from '@/components/ui/Input';
@@ -13,14 +14,9 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
-import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
-import { SealedVaultPanel } from '@/components/domain/SealedVaultPanel';
 
 const SORTS: AdminVaultSort[] = ['value_desc', 'pieces_desc', 'name_asc'];
 const PAGE_SIZE = 20;
-
-// v1.23-sealed-sales: la bóveda del cliente se lee en dos pestañas — «Cartas» (master set) y «Sellado».
-type VaultDetailTab = 'cards' | 'sealed';
 
 /** Retícula compartida de cabecera y renglones de la lista. */
 const ROW = 'grid grid-cols-[1fr_auto] items-center gap-3 sm:grid-cols-[1.4fr_1.6fr_auto_auto_auto] sm:gap-4';
@@ -28,17 +24,19 @@ const ROW = 'grid grid-cols-[1fr_auto] items-center gap-3 sm:grid-cols-[1.4fr_1.
 /**
  * «Bóvedas de clientes» (contrato §M1 v1.20 · GET /admin/vaults, `vault_operator+`):
  * lista de clientes con bóveda (piezas + valor estimado con la MISMA base del portafolio §3).
- * Clic en un cliente → su master set (vista (ii), scope user_vault) reutilizando los
- * componentes compartidos en modo LECTURA: sin captura/publicación/ajuste y sin `buyable`.
+ * Clic en un cliente → **su detalle con URL propia** (`/admin/vaults/<userId>`, H-6 de
+ * `DESIGN_SYSTEM §36.13`): «Cartas», «Sellado» y «Qué debe haber». Ver `[userId]/VaultDetailView`.
+ *
+ * ⭐ §M4-VAULT.3 v1.79.3 (H-1): `name` puede ser `null` (nombre fabricado del correo o en blanco) ⇒
+ * la fila pinta la AUSENCIA CON NOMBRE de §36.4 + el correo. ⛔ Nunca el prefijo del correo.
  */
 export function VaultsView() {
   const t = useTranslations('admin.vaults');
+  const tName = useTranslations('admin.m4.prep.vault.nameMissing');
   const locale = useLocale() as AppLocale;
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<AdminVaultSort>('value_desc');
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<AdminVaultSummaryDTO | null>(null);
-  const [detailTab, setDetailTab] = useState<VaultDetailTab>('cards');
 
   const filters: AdminVaultFilters = {
     q: q.trim() || undefined,
@@ -49,46 +47,9 @@ export function VaultsView() {
   const vaults = useQuery({
     queryKey: ['admin-vaults', filters],
     queryFn: () => getAdminVaults(filters),
-    enabled: selected === null,
   });
 
   const totalPages = vaults.data ? Math.max(1, Math.ceil(vaults.data.total / PAGE_SIZE)) : 1;
-
-  if (selected) {
-    return (
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setSelected(null)} aria-label={t('back')}>
-            <ChevronLeft size={18} /> {t('back')}
-          </Button>
-          <h1 className="text-h1 font-bold">{selected.name}</h1>
-          <span className="font-mono text-xs text-muted">{selected.email}</span>
-        </div>
-
-        {/* Pestañas: «Cartas» (binder master set) ⇆ «Sellado» (producto cerrado, §M1 GET
-            /admin/vaults/:userId/sealed). Ambas lectura pura (§4.20a / §3). */}
-        <div className="flex gap-5 border-b border-border" role="tablist" aria-label={selected.name}>
-          {(['cards', 'sealed'] as VaultDetailTab[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={detailTab === key}
-              onClick={() => setDetailTab(key)}
-              className={`-mb-px border-b-2 px-1 pb-3 text-sm ${
-                detailTab === key ? 'border-primary text-text' : 'border-transparent text-muted hover:text-text'
-              }`}
-            >
-              {t(`detailTabs.${key}`)}
-            </button>
-          ))}
-        </div>
-
-        {detailTab === 'cards' && <MasterSetPanel mode="user_vault_admin" userId={selected.userId} />}
-        {detailTab === 'sealed' && <SealedVaultPanel mode="admin" userId={selected.userId} />}
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -137,30 +98,43 @@ export function VaultsView() {
                 <span className="eyebrow text-right">{t('colPending')}</span>
               </div>
               <ul>
-                {vaults.data.data.map((v) => (
-                  <li key={v.userId}>
-                    <button
-                      type="button"
-                      onClick={() => setSelected(v)}
-                      aria-label={`${t('open')} · ${v.name}`}
-                      className={`${ROW} w-full border-b border-border py-3 text-left transition-colors hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none`}
-                    >
-                      <span className="min-w-0 truncate text-sm font-medium">{v.name}</span>
-                      <span className="hidden min-w-0 truncate font-mono text-xs text-muted sm:block">
-                        {v.email}
-                      </span>
-                      <span className="font-mono tabular-nums text-xs sm:text-right">
-                        {t('pieces', { count: v.pieceCount })}
-                      </span>
-                      <span className="hidden font-mono tabular-nums text-sm sm:block sm:text-right">
-                        {formatMoneyCents(v.totalValueMxnCents, locale)}
-                      </span>
-                      <span className="hidden font-mono tabular-nums text-xs text-muted sm:block sm:text-right">
-                        {v.pendingPriceCount}
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                {vaults.data.data.map((v) => {
+                  const name = v.name?.trim() ? v.name.trim() : null;
+                  return (
+                    <li key={v.userId}>
+                      <Link
+                        href={`/admin/vaults/${v.userId}`}
+                        aria-label={`${t('open')} · ${name ?? `${tName('tag')} · ${v.email}`}`}
+                        className={`${ROW} w-full border-b border-border py-3 text-left transition-colors hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none`}
+                      >
+                        {name !== null ? (
+                          <span className="min-w-0 truncate text-sm font-medium">{name}</span>
+                        ) : (
+                          <span className="flex min-w-0 flex-col" data-testid={`vault-row-noname-${v.userId}`}>
+                            <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
+                              {tName('tag')}
+                            </span>{' '}
+                            {/* En `< sm` la columna de correo se oculta: sin nombre, el correo es el
+                                ÚNICO identificador (§36.4) y tiene que verse aquí. */}
+                            <span className="break-all font-mono text-xs text-text sm:hidden">{v.email}</span>
+                          </span>
+                        )}
+                        <span className="hidden min-w-0 truncate font-mono text-xs text-muted sm:block">
+                          {v.email}
+                        </span>
+                        <span className="font-mono tabular-nums text-xs sm:text-right">
+                          {t('pieces', { count: v.pieceCount })}
+                        </span>
+                        <span className="hidden font-mono tabular-nums text-sm sm:block sm:text-right">
+                          {formatMoneyCents(v.totalValueMxnCents, locale)}
+                        </span>
+                        <span className="hidden font-mono tabular-nums text-xs text-muted sm:block sm:text-right">
+                          {v.pendingPriceCount}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
 
               <div className="flex items-center justify-between">

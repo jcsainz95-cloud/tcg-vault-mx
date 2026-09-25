@@ -18055,3 +18055,75 @@ lista↔pegar); **falta el enlace de entrada desde la tienda**. O-4 abierto en e
 |---|---|---|
 | `F-DM1` | **Que la forma real del backend Fase 1 coincida con el espejo `§13`.** Construí contra el contrato y mocks; el backend va en paralelo | contrato E2E de QA contra el stack levantado |
 | `F-DM2` | **El `substitute` (Fase 3) end-to-end.** La UI ya lo pinta y lo agrega si viene; el backend Fase 1 aún no lo emite | cuando Fase 3 lo cablee, medir contra el detalle real |
+
+---
+
+## §M4-VAULT — «Para bóveda»: tarjeta de colocación, «Qué debe haber» y nombres nulos (2026-09-25, rama `claude/m4-boveda`)
+
+Fuentes: `API_CONTRACT §M4-VAULT` v1.79.3 (incluye v1.79.1–.3) y `DESIGN_SYSTEM §36` v4.7. Construido
+**contra el contrato y mocks**: los verbos del backend se escriben en paralelo (no medidos aquí).
+
+### Qué se construyó
+- **Tipos 1:1** (`src/types/contract.ts`): `PreparationOrderDTO` pasa a unión
+  `ShipPreparationOrderDTO | VaultPreparationOrderDTO` (`shipTo` obligatorio en `ship`); tipos de la
+  fila vault, `VaultPreparationStateDTO`, `VaultLocationSuggestion`/`CustomerDrawerRef`, los cuatro
+  verbos (req/res), `details` de `409 PLACEMENT_NOT_PENDING` (con `location`, H-2) y
+  `422 LOCATION_NOT_AVAILABLE` (con `customerDrawers`, H-5, y `location_required`, H-4), y
+  `CustomerPhysicalInventoryDTO`. `AdminVaultSummaryDTO.name` y `VaultOwnerRefDTO.name` → `string | null`
+  (H-1). H-3: no existe un `PreparationStateDTO` suelto (`rg '\bPreparationStateDTO\b' src/types` vacío).
+- **API** (`src/lib/api.ts`): `setVaultPrepItem` (PATCH), `prepareVaultPlacement` (POST),
+  `unprepareVaultPlacement` (DELETE), `confirmVaultPlacement` (POST, `locationId` opcional),
+  `getAdminVaultPhysicalInventory`. Mocks con estado en `lib/mock/fixtures.ts` (`resetMockVaultPlacements`).
+- **Tarjeta** `m4/VaultPlacementCard.tsx` (§36.2–§36.9): persona (nombre completo + correo, o la
+  ausencia de §36.4), cajón por `source` (su cajón / anomalía / cliente nuevo), línea de paso + región viva
+  con el conteo, palomeo por carta (La tengo / No la encontré / Deshacer; bloqueadas con su razón),
+  «Pedido preparado» (deshabilitado con razón por `aria-describedby`), «Deshacer preparado» con diálogo
+  (foco en «Cancelar»), «Confirmar colocación» / «Cerrar pedido sin guardar nada». Piezas comunes con la
+  tarjeta de envío en `m4/prep-shared.tsx` (antigüedad, carta, zona).
+- **Vacío de bóveda reescrito** (§36.10): `admin.m4.prep.emptyVault` **retirada**; ahora
+  `admin.m4.prep.vault.emptyVault`. PR-1 se reescribe como **PV-12**.
+- **Detalle direccionable** (H-6): `/admin/vaults/[userId]?tab=cards|sealed|physical`. La lista enlaza a
+  él (antes era estado local). Tercera pestaña «Qué debe haber» (`[userId]/PhysicalInventoryPanel.tsx`).
+- **Nombres nulos** (H-1): lista, cabecera del detalle, `aria-label` de las pestañas, y la línea «Bóveda
+  de …» de `MasterSetIndex`/`MasterSetBinder` (modo `user_vault_admin`).
+
+### Decisiones
+1. **Sin optimismo** (§36.5): cada `200` parchea la caché de la cola con `item`/`preparation` de la
+   respuesta (`setQueriesData`), no con lo pulsado.
+2. **H-4**: se manda `locationId` ⇔ `items.filter(i => i.prepStatus === 'picked').length > 0` (sobre
+   `items[]`, ⛔ no `preparation.picked`); sin cartas tomadas no hay selector y el cuerpo es `{}`.
+3. **`409 PLACEMENT_NOT_PENDING` sube al aviso de la cola** (no se pinta en la tarjeta): la tarjeta sale de
+   la lista y el aviso se iría con ella. Mismo sitio que el aviso de resultado de §36.8 (`role="alert"`
+   en este caso, `role="status"` para resultados), con el folio y el foco movido a él (§36.12).
+4. **La cabecera del detalle lee `owner` de `physical-inventory`** — misma clave de consulta que la
+   pestaña ⇒ un solo dato para el nombre en toda la pantalla.
+5. **Controles de palomeo solo en el paso 1.** En el paso 2 las marcas están fijas (el servidor daría
+   `PREPARATION_CLOSED`); si una pantalla vieja lo provoca, la fila ofrece «Deshacer preparado» (PV-9).
+6. `isActive?` añadido a `VaultLocationDTO` (el backend lo emite en `toVaultLocationDTO`; §M1 no lo
+   declara) para filtrar la lista del cliente nuevo; ausente ⇒ se lee activo.
+7. Orden de la cola mezclada: empate exacto ⇒ `ship` antes que `vault`, y por id en unidades de código
+   (`lib/preparation-order.ts`, misma regla que §M4-VAULT.3).
+
+### Textos que escribí yo (ux-ui no los redactó) — para revisión de ux-ui
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m4.prep.vault.error.locationRequired` | «Este pedido ya tiene cartas tomadas, así que hay que elegir su cajón: la pantalla estaba desactualizada. Actualizamos la tarjeta; revísala y vuelve a confirmar.» | “This order already has picked cards, so its drawer must be chosen: the screen was out of date. We've refreshed the card; check it and confirm again.” |
+| `admin.m4.prep.vault.error.placedIn` (H-2) | «Quedó en {drawer}.» | “It's in {drawer}.” |
+| `masterSet.ownerVaultNoName` (línea compacta de «Cartas») | «Bóveda de un cliente sin nombre registrado» | “Vault of a customer with no name on file” |
+| Cabecera del detalle sin nombre | la marca «Sin nombre registrado» como `h1` + correo | ídem |
+| `admin.m4.prep.vault.drawer.piecesThere` | «{count} cartas ahí» (plural ICU) | “{count} cards there” |
+| `admin.m4.prep.vault.orderRef` | «Pedido» (rótulo del aviso de la cola) | “Order” |
+| `admin.vaults.physical.counts.label` | «Resumen» (`aria-label` del `<dl>`) | “Summary” |
+
+### Huecos (para el arquitecto)
+- **Ruta de ubicaciones:** §M4-VAULT.4 dice `GET /admin/inventory/locations`; la ruta real y la de §M1 es
+  `GET /admin/locations` (medido: `inventory.controller.ts` `@Controller('admin')` + `@Get('locations')`).
+  Uso la real (`getLocations()`).
+- **`VaultLocationDTO.isActive`**: §M1 no lo declara y §M4-VAULT.4 filtra por él.
+
+### NO MEDIDO
+| # | Qué | Qué lo cerraría |
+|---|---|---|
+| `F-MV1` | Que las respuestas reales de los cuatro verbos y de `physical-inventory` coincidan con los tipos | contrato/E2E de QA contra el stack con el backend de esta rama |
+| `F-MV2` | Suite Playwright de la tarjeta (390×844 y 1280×800, §36.16) — solo hay vitest | spec E2E en `frontend/e2e/` |
+| `F-MV3` | Que `window.history.replaceState` mantenga sincronizado `useSearchParams` de Next en producción | navegar el detalle en `next start` |

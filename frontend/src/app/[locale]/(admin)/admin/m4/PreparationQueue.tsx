@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getAdminPreparationQueue } from '@/lib/api';
@@ -8,11 +8,8 @@ import { ApiClientError } from '@/lib/api-client';
 import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
-import { CardImage } from '@/components/ui/CardImage';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Banner } from '@/components/ui/Banner';
-import { FinishMark } from '@/components/domain/FinishMark';
-import { formatAge, formatDate } from '@/lib/format';
 // El orden vive en `lib/` para que la vista y el servidor falso usen LA MISMA regla
 // (tres fuentes → dos). Su condición de validez —la cola no pagina— está allí y en
 // `docs/TECH_DEBT.md` (`M4P-SORT`).
@@ -22,8 +19,10 @@ import type { AppLocale } from '@/i18n/routing';
 import type {
   PreparationDestination,
   PreparationItemDTO,
-  PreparationOrderDTO,
+  ShipPreparationOrderDTO,
 } from '@/types/contract';
+import { AgeStamp, CardInfo, DASH, LABEL } from './prep-shared';
+import { VaultPlacementCard, type QueueNotice } from './VaultPlacementCard';
 
 /**
  * **«Pedidos a preparar»** — la hoja de trabajo del operador (contrato **§M4-PREP** v1.78 ·
@@ -37,20 +36,11 @@ import type {
  * ⚠️ La ruta interna sigue diciendo `picking-list` (decisión del arquitecto, §M4-PREP). El
  * renombrado es de cara al operador: en pantalla **no aparece la palabra «picking»**.
  *
- * ⛔ **Rebanada de SOLO LECTURA.** Palomear cartas, firmar el pedido como preparado, sugerir
- * ubicación de bóveda y el reembolso parcial por carta faltante **no se construyen aquí** (§M4-PREP,
- * recuadro «PLANEADO»). Esta pantalla no tiene ni un verbo de escritura.
+ * La tarjeta de **ENVÍO** sigue siendo de SOLO LECTURA (⛔ sin casillas: §M4-VAULT.10.1, §35.11).
+ * ⭐ **§M4-VAULT (v1.79):** la cubeta «Para bóveda» deja de estar vacía y su tarjeta
+ * (`VaultPlacementCard`, `DESIGN_SYSTEM §36`) sí tiene verbos: palomear, «Pedido preparado»,
+ * «Deshacer preparado» y «Confirmar colocación».
  */
-
-/** §32.4: lo desconocido es «—», nunca omitido en silencio. */
-const DASH = '—';
-
-/**
- * Tono del **RÓTULO** (§35.3 regla 1: *el valor pesa más que su etiqueta*). Vive en una constante
- * para que ningún bloque vuelva a invertir la relación por descuido: los rótulos («Destinatario»,
- * «CP», «Tel», «Ubicación», «Folio») se leen **una vez en la vida**; los valores, **cada vez**.
- */
-const LABEL = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted';
 
 /** Cubeta elegida por el operador (CA #8). `''` = ambas (⇒ `?destination` ausente). */
 type Bucket = '' | PreparationDestination;
@@ -66,6 +56,18 @@ export function PreparationQueue() {
   const tm4 = useTranslations('admin.m4');
   const locale = useLocale() as AppLocale;
   const [bucket, setBucket] = useState<Bucket>('');
+  /**
+   * §36.8 — el AVISO DE RESULTADO (o de «ya no está pendiente», §36.9) queda ENCIMA de la lista:
+   * la tarjeta sale de ella y el resultado no puede irse con ella. El último sustituye al anterior;
+   * se cierra a mano. `seq` fuerza el remontaje para que un aviso cerrado pueda volver a abrirse.
+   */
+  const [notice, setNotice] = useState<(QueueNotice & { seq: number }) | null>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const pushNotice = (n: QueueNotice) => setNotice((prev) => ({ ...n, seq: (prev?.seq ?? 0) + 1 }));
+  // §36.12: al salir la tarjeta de la lista, el foco va al aviso de resultado.
+  useEffect(() => {
+    if (notice) noticeRef.current?.focus();
+  }, [notice]);
 
   const queue = useQuery({
     queryKey: ['admin-preparation-queue', bucket],
@@ -142,16 +144,14 @@ export function PreparationQueue() {
   /**
    * Un copy de vacío por cubeta: las tres situaciones son distintas (§35.8).
    *
-   * ⚠️ **P-1 — el de BÓVEDA es el delicado, y la versión anterior afirmaba de más.** Decía «No hay
-   * nada pendiente ni nada roto»: acertaba en *nada roto* y **afirmaba sin base** en *nada
-   * pendiente*. Lo medido (`API_CONTRACT §M4-PREP`) es que **no existe artefacto** que diga si una
-   * compra a bóveda está pendiente de colocar ⇒ el sistema **no sabe** si hay trabajo físico
-   * esperando. **Un estado vacío afirma solo lo que el sistema sabe**: puede decir «esta lista no
-   * tiene nada», ⛔ **no puede decir «no hay trabajo»** si nadie lo mide. Tranquilizar sobre trabajo
-   * que nadie cuenta es el error más caro de un vacío en una superficie de operación. Copy
-   * normativo en §35.8; el candado es **PR-1**.
+   * ⭐ **§36.10 — el vacío de BÓVEDA se reescribe, y ahora SÍ puede afirmar que no hay trabajo.** El
+   * texto anterior («Esta cubeta todavía no se alimenta») era cierto cuando no existía artefacto que
+   * contara las compras a bóveda pendientes de colocar (P-1). Con `§M4-VAULT` cada compra a bóveda
+   * pagada nace con su `VaultPlacement` pendiente y solo sale al colocarse o cancelarse ⇒ la cubeta
+   * **cuenta el trabajo**, y dejar el texto viejo sería afirmar algo que dejó de ser verdad. El
+   * candado es **PV-12**.
    */
-  const emptyKey = bucket === 'vault' ? 'emptyVault' : bucket === 'ship' ? 'emptyShip' : 'empty';
+  const emptyKey = bucket === 'vault' ? 'vault.emptyVault' : bucket === 'ship' ? 'emptyShip' : 'empty';
 
   return (
     <section className="flex flex-col gap-4">
@@ -211,6 +211,21 @@ export function PreparationQueue() {
             ? t(`${emptyKey}.title`)
             : t('orderCount', { count: orders.length })}
       </p>
+
+      {notice && (
+        <div ref={noticeRef} tabIndex={-1} data-testid="prep-notice" className="outline-none focus-visible:shadow-focus">
+          <Banner key={notice.seq} variant={notice.role === 'alert' ? 'warning' : 'info'} role={notice.role} dismissible>
+            <p className={LABEL}>
+              {t('vault.orderRef')} <span className="tabular">{notice.folio}</span>
+            </p>
+            {notice.lines.map((line) => (
+              <p key={line} className="text-sm text-text">
+                {line}
+              </p>
+            ))}
+          </Banner>
+        </div>
+      )}
 
       <QueryState
         isLoading={queue.isLoading}
@@ -299,11 +314,17 @@ export function PreparationQueue() {
         ) : (
           <>
             <ol className="flex flex-col gap-4">
-              {orders.map((order) => (
-                <li key={order.shipmentId}>
-                  <PreparationCard order={order} locale={locale} t={t} tm4={tm4} />
-                </li>
-              ))}
+              {orders.map((order) =>
+                order.destination === 'ship' ? (
+                  <li key={`ship-${order.shipmentId}`}>
+                    <PreparationCard order={order} locale={locale} t={t} tm4={tm4} />
+                  </li>
+                ) : (
+                  <li key={`vault-${order.placementId}`}>
+                    <VaultPlacementCard order={order} locale={locale} onNotice={pushNotice} />
+                  </li>
+                ),
+              )}
             </ol>
           </>
         )}
@@ -320,7 +341,7 @@ function PreparationCard({
   t,
   tm4,
 }: {
-  order: PreparationOrderDTO;
+  order: ShipPreparationOrderDTO;
   locale: AppLocale;
   t: Translator;
   tm4: Translator;
@@ -333,8 +354,8 @@ function PreparationCard({
   const fullNameMissing = order.customer.fullName === null || order.customer.fullName.trim() === '';
   const fullName = order.customer.fullName?.trim() ?? '';
   const lastName = order.customer.lastName?.trim();
-  // La dirección solo existe (y solo se pinta) en destino ENVÍO — CA #6.
-  const shipTo = order.destination === 'ship' ? order.shipTo : undefined;
+  // La dirección solo existe (y solo se pinta) en destino ENVÍO — CA #6. v1.79: obligatoria en esta rama.
+  const shipTo = order.shipTo;
 
   return (
     <article
@@ -370,16 +391,8 @@ function PreparationCard({
             </span>
           </div>
         </div>
-        {/* Antigüedad legible (CA #9) + la fecha absoluta al lado: el «hace N días» nunca la sustituye. */}
-        <p className="flex flex-col items-start gap-0.5 text-sm sm:items-end">
-          {/* P-7 / §32.4: `formatAge` devuelve `''` con una fecha ilegible, y la línea quedaba EN
-              BLANCO mientras la de abajo sí caía a «—». Y ese pedido es justo el que el orden manda
-              **al final**: el más sospechoso se quedaba sin nada que leer. Candado: **PR-5**. */}
-          <span className="font-medium text-text">{formatAge(order.requestedAt, locale) || DASH}</span>
-          <time dateTime={order.requestedAt} className="text-xs text-muted">
-            {t('requestedAt')} <span>{formatDate(order.requestedAt, locale) || DASH}</span>
-          </time>
-        </p>
+        {/* Antigüedad legible (CA #9) + la fecha absoluta al lado. P-7 / PR-5: nunca una línea en blanco. */}
+        <AgeStamp iso={order.requestedAt} locale={locale} t={t} />
       </header>
 
       {/*
@@ -573,32 +586,7 @@ function PreparationItem({ item, t }: { item: PreparationItemDTO; t: Translator 
           <span className="text-sm text-accent">{t('unassigned')}</span>
         )}
       </div>
-      {/* `imageSmallUrl` es nullable por contrato: sin foto queda el pozo de papel (CardImage ya
-          NO pulsa sin `src`), nunca un roto ni un esqueleto eterno. */}
-      <CardImage src={card.imageSmallUrl} alt={card.name} className="w-16 shrink-0" />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="font-serif text-lg leading-tight text-text" lang="en">
-          {card.name}
-        </p>
-        {/* El SET va PROMINENTE: al armar el paquete se busca por carpeta de set (§4 del producto).
-            Datos de catálogo no se traducen (DESIGN_SYSTEM §9.2) ⇒ lang="en". */}
-        <p className="text-sm font-semibold text-text" lang="en">
-          {card.setName ?? DASH}
-        </p>
-        <p className="flex flex-wrap items-center gap-2 text-sm">
-          <FinishMark finish={card.finish} band={false} />
-          {/* ⛔ La condición NO se recompone aquí: viene ya compuesta del back (`conditionLabel`,
-              graded/raw/sealed). Repetir esa precedencia en el front sería la segunda fuente. */}
-          <span className="text-text">{card.conditionLabel}</span>
-          {/* `quantity` es constante 1 bajo el modelo actual: se pinta SOLO si alguna vez no lo es. */}
-          {item.quantity !== 1 && <span className="tabular text-text">×{item.quantity}</span>}
-        </p>
-        {/* El folio baja DETRÁS de la ubicación: es el dato de **cotejo en mano** (ya con la carta
-            delante), no de recorrido. Se lee de cerca ⇒ mono 11px muted es su sitio. */}
-        <p className={LABEL}>
-          {t('folio')} <span className="tabular">{item.folio}</span>
-        </p>
-      </div>
+      <CardInfo card={card} folio={item.folio} quantity={item.quantity} t={t} />
     </li>
   );
 }

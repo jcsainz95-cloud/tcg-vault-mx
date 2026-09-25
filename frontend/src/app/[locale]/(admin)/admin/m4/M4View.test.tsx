@@ -4,7 +4,12 @@ import { renderWithProviders } from '@/test/render';
 import { M4View } from './M4View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { PreparationItemDTO, PreparationOrderDTO } from '@/types/contract';
+import type {
+  PreparationItemDTO,
+  PreparationOrderDTO,
+  ShipPreparationOrderDTO,
+  VaultPreparationOrderDTO,
+} from '@/types/contract';
 // Los catálogos se leen directos para el candado de §35.6a-f (la versalita la pone el CSS, no la
 // cadena): medir el texto RENDERIZADO no distinguiría una cosa de la otra, porque `uppercase` las
 // pinta igual.
@@ -346,14 +351,38 @@ describe('M4View · destinatario y dirección (F9)', () => {
  */
 describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   /** Pedido base; cada prueba sobrescribe lo suyo. */
-  const order = (over: Partial<PreparationOrderDTO> = {}): PreparationOrderDTO => ({
+  const order = (over: Partial<ShipPreparationOrderDTO> = {}): ShipPreparationOrderDTO => ({
     shipmentId: 'shp-a',
     orderId: 'ord-a',
     orderNumber: 'TCG-000999',
     destination: 'ship',
     requestedAt: '2026-09-01T10:00:00Z',
     customer: { lastName: 'Oak', fullName: 'Samuel Oak' },
+    // §M4-VAULT v1.79: `shipTo` es OBLIGATORIO en la rama 'ship' de la unión.
+    shipTo: {
+      recipientName: 'Samuel Oak',
+      line1: 'Calle Laboratorio 1',
+      city: 'Pueblo Paleta',
+      state: 'KAN',
+      postalCode: '00001',
+      country: 'MX',
+      phone: '5550000000',
+    },
     items: [item()],
+    ...over,
+  });
+
+  /** Pedido de BÓVEDA (§M4-VAULT.3): otra rama de la unión, sin `shipmentId` ni dirección. */
+  const vaultOrder = (over: Partial<VaultPreparationOrderDTO> = {}): VaultPreparationOrderDTO => ({
+    destination: 'vault',
+    placementId: 'vp-a',
+    orderId: 'ord-v',
+    orderNumber: 'TCG-000888',
+    requestedAt: '2026-09-01T10:00:00Z',
+    customer: { userId: 'u-1', email: 'samuel@example.com', lastName: 'Oak', fullName: 'Samuel Oak' },
+    suggestedLocation: { source: 'none' },
+    preparation: { status: 'in_progress', total: 0, pending: 0, picked: 0, missing: 0, blocked: 0 },
+    items: [],
     ...over,
   });
 
@@ -445,12 +474,12 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   it('el DESTINO del pedido se ve de un vistazo (bóveda / envío), y es del PEDIDO', async () => {
     serve([
       order({ shipmentId: 'shp-envio', destination: 'ship', requestedAt: '2026-08-01T10:00:00Z' }),
-      order({ shipmentId: 'shp-boveda', destination: 'vault' }),
+      vaultOrder({ placementId: 'vp-boveda' }),
     ]);
     renderWithProviders(<M4View />, 'es');
 
     expect(within(await screen.findByTestId('prep-order-shp-envio')).getByText('Para enviar')).toBeInTheDocument();
-    expect(within(screen.getByTestId('prep-order-shp-boveda')).getByText('Para bóveda')).toBeInTheDocument();
+    expect(within(screen.getByTestId('prep-order-vp-boveda')).getByText('Para bóveda')).toBeInTheDocument();
   });
 
   it('CLIENTE: el APELLIDO va destacado junto al nombre completo (archivero alfabético)', async () => {
@@ -523,11 +552,14 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   });
 
   it('destino BÓVEDA: no se pinta bloque de dirección (no hay envío que direccionar)', async () => {
-    serve([order({ shipmentId: 'shp-bov', destination: 'vault', shipTo: undefined })]);
+    serve([vaultOrder({ placementId: 'vp-bov' })]);
     renderWithProviders(<M4View />, 'es');
 
-    await screen.findByTestId('prep-order-shp-bov');
-    expect(screen.queryByTestId('prep-address-shp-bov')).not.toBeInTheDocument();
+    const card = await screen.findByTestId('prep-order-vp-bov');
+    expect(screen.queryByTestId('prep-address-vp-bov')).not.toBeInTheDocument();
+    // Ni rótulos de dirección (§35.5: en bóveda la dirección no existe).
+    expect(card).not.toHaveTextContent('CP');
+    expect(card).not.toHaveTextContent('Tel');
   });
 
   it('CARTA: nombre, SET prominente, acabado, condición TAL CUAL viene del back, folio y miniatura', async () => {
@@ -607,24 +639,24 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   it('CA #8 — las DOS CUBETAS: ambas / solo envío / solo bóveda re-consultan con ?destination', async () => {
     const spy = serve([
       order({ shipmentId: 'shp-envio', destination: 'ship', requestedAt: '2026-08-01T10:00:00Z' }),
-      order({ shipmentId: 'shp-boveda', destination: 'vault' }),
+      vaultOrder({ placementId: 'vp-boveda' }),
     ]);
     renderWithProviders(<M4View />, 'es');
 
     // Ambas cubetas por defecto (sin `?destination`).
     await screen.findByTestId('prep-order-shp-envio');
-    expect(screen.getByTestId('prep-order-shp-boveda')).toBeInTheDocument();
+    expect(screen.getByTestId('prep-order-vp-boveda')).toBeInTheDocument();
     expect(spy).toHaveBeenCalledWith({ destination: undefined });
 
     fireEvent.click(screen.getByRole('button', { name: 'Solo envío' }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ destination: 'ship' }));
-    await waitFor(() => expect(screen.queryByTestId('prep-order-shp-boveda')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('prep-order-vp-boveda')).not.toBeInTheDocument());
     expect(screen.getByTestId('prep-order-shp-envio')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Solo envío' })).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Solo bóveda' }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ destination: 'vault' }));
-    expect(await screen.findByTestId('prep-order-shp-boveda')).toBeInTheDocument();
+    expect(await screen.findByTestId('prep-order-vp-boveda')).toBeInTheDocument();
     expect(screen.queryByTestId('prep-order-shp-envio')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Ambas' }));
@@ -632,44 +664,49 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   });
 
   /**
-   * ⚠️⚠️ **PR-1 (§35.14 A-4) — EL VACÍO DE BÓVEDA NO PUEDE TRANQUILIZAR SOBRE LO QUE NADIE MIDIÓ.**
+   * ⭐ **PV-12 (§36.10) — el vacío de BÓVEDA se REESCRIBE, porque el viejo dejó de ser verdad.**
    *
-   * Hecho medido (arquitecto, §M4-PREP): las órdenes `fulfillmentMode='vault'` no generan
-   * `ShipmentRequest` **y no existe artefacto** que diga si una compra a bóveda está pendiente de
-   * colocar. ⇒ el sistema **no sabe** si hay trabajo físico esperando. La versión anterior de este
-   * copy decía *«No hay nada pendiente ni nada roto»*: acertaba en *nada roto* y **afirmaba sin
-   * base** en *nada pendiente*, que es el error más caro de un vacío en una superficie de
-   * operación — deja trabajo físico sin hacer **con el operador tranquilo**.
+   * PR-1 (§35.14 A-4) protegía un hecho medido: no existía artefacto que contara las compras a
+   * bóveda pendientes de colocar, así que el vacío no podía afirmar «no hay trabajo». Con
+   * `§M4-VAULT` cada compra a bóveda pagada NACE con su `VaultPlacement` pendiente y solo sale al
+   * colocarse o cancelarse ⇒ la cubeta cuenta el trabajo y **ya puede** afirmarlo. Lo que sería
+   * falso ahora es lo contrario: seguir diciendo «esta cubeta todavía no se alimenta».
    *
-   * El candado mide la **ausencia de la afirmación**, no la presencia de una redacción: así sigue
-   * mordiendo si alguien reescribe el copy y vuelve a colar la promesa.
+   * El candado mide la **ausencia** del texto retirado (en los dos idiomas) **y** la presencia del
+   * nuevo; y sigue vigilando la promesa de P-2 (§36.10: ⛔ «aparecen aquí solas»).
    */
-  it('PR-1 · cubeta BÓVEDA vacía: explica la ausencia y ⛔ NO afirma «nada pendiente»', async () => {
+  it('PV-12 · cubeta BÓVEDA vacía: «Nada que llevar a bóveda por ahora» y ⛔ nunca «todavía no se alimenta»', async () => {
     serve([order({ shipmentId: 'shp-envio', destination: 'ship' })]);
     const { container } = renderWithProviders(<M4View />, 'es');
 
     await screen.findByTestId('prep-order-shp-envio');
     fireEvent.click(screen.getByRole('button', { name: 'Solo bóveda' }));
 
-    expect((await screen.findAllByText('Esta cubeta todavía no se alimenta.')).length).toBe(2);
-    expect(screen.getByText(/no lleva ese registro/i)).toBeInTheDocument();
-    // ⛔ PR-1: ni la afirmación, ni una promesa de versión futura, ni alarma.
-    expect(container.textContent).not.toMatch(/nada pendiente/i);
-    expect(container.textContent).not.toMatch(/empezará a llenarse/i);
-    expect(screen.queryByText('Nada que preparar por ahora.')).not.toBeInTheDocument();
+    expect((await screen.findAllByText('Nada que llevar a bóveda por ahora.')).length).toBe(2);
+    expect(screen.getByText('No hay compras pagadas esperando su cajón.')).toBeInTheDocument();
+    expect(container.innerHTML).not.toMatch(/todavía no se alimenta/i);
+    expect(container.innerHTML).not.toMatch(/no lleva ese registro/i);
+    expect(container.textContent).not.toMatch(/aparecen aquí solas/i);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('PR-1 (EN) · el mismo candado en inglés: ni «nothing is pending» ni «nothing is broken»', async () => {
+  it('PV-12 (EN) · el mismo candado en inglés: ⛔ nunca «isn\'t fed yet»', async () => {
     serve([order({ shipmentId: 'shp-envio', destination: 'ship' })]);
     const { container } = renderWithProviders(<M4View />, 'en');
 
     await screen.findByTestId('prep-order-shp-envio');
     fireEvent.click(screen.getByRole('button', { name: 'Vault only' }));
 
-    expect((await screen.findAllByText("This bucket isn't fed yet.")).length).toBe(2);
-    expect(container.textContent).not.toMatch(/nothing is pending/i);
-    expect(container.textContent).not.toMatch(/nothing is broken/i);
+    expect((await screen.findAllByText('Nothing to take to the vault for now.')).length).toBe(2);
+    expect(container.innerHTML).not.toMatch(/isn't fed yet/i);
+  });
+
+  it('PV-12 (catálogo) · la clave vieja `admin.m4.prep.emptyVault` se RETIRÓ de los dos idiomas (§36.14)', () => {
+    for (const catalog of [esMessages, enMessages]) {
+      const prep = (catalog as { admin: { m4: { prep: Record<string, unknown> } } }).admin.m4.prep;
+      expect(prep.emptyVault).toBeUndefined();
+      expect(JSON.stringify(catalog)).not.toMatch(/todavía no se alimenta|isn't fed yet/i);
+    }
   });
 
   /**
@@ -713,7 +750,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Solo bóveda' }));
 
-    await waitFor(() => expect(live).toHaveTextContent('Esta cubeta todavía no se alimenta.'));
+    await waitFor(() => expect(live).toHaveTextContent('Nada que llevar a bóveda por ahora.'));
     // El MISMO nodo: si se remontara, el anuncio no sería fiable.
     expect(screen.getByTestId('prep-live-region')).toBe(live);
   });
@@ -1021,12 +1058,12 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   it('P-5 · el verde del sistema NO se gasta en un destino: los dos badges van en la misma tinta', async () => {
     serve([
       order({ shipmentId: 'shp-e', destination: 'ship', requestedAt: '2026-08-01T10:00:00Z' }),
-      order({ shipmentId: 'shp-b', destination: 'vault' }),
+      vaultOrder({ placementId: 'vp-b' }),
     ]);
     renderWithProviders(<M4View />, 'es');
 
     const envio = within(await screen.findByTestId('prep-order-shp-e')).getByText('Para enviar');
-    const boveda = within(screen.getByTestId('prep-order-shp-b')).getByText('Para bóveda');
+    const boveda = within(screen.getByTestId('prep-order-vp-b')).getByText('Para bóveda');
     // §2.4: el color nunca es el portador del significado — lo porta la palabra.
     expect(boveda.className).not.toContain('text-success');
     expect(boveda.className).toBe(envio.className);
@@ -1084,7 +1121,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
     for (const ajeno of [
       'Nada que preparar por ahora.',
       'Nada que enviar por ahora.',
-      'Esta cubeta todavía no se alimenta.',
+      'Nada que llevar a bóveda por ahora.',
       'Algo salió mal',
     ]) {
       expect(container.textContent, `el ${ajeno} no puede aparecer con un 409`).not.toContain(ajeno);

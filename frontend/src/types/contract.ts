@@ -1221,13 +1221,18 @@ export interface AdminShipmentDTO {
 // paridad de enums (§M4-PREP, nota explícita).
 export type PreparationDestination = 'vault' | 'ship';
 
-export interface PreparationOrderDTO {
+// ⭐⭐ §M4-VAULT v1.79 (.3) — `PreparationOrderDTO` pasa a UNIÓN DISCRIMINADA por `destination`.
+// La rama 'ship' ES el DTO de v1.78.3 con dos precisiones: `destination` literal y `shipTo`
+// OBLIGATORIO. La rama 'vault' nace de `VaultPlacement` (no de `ShipmentRequest`): no tiene
+// `shipmentId` ni dirección (CA #21: nunca guía).
+export type PreparationOrderDTO = ShipPreparationOrderDTO | VaultPreparationOrderDTO;
+
+export interface ShipPreparationOrderDTO {
+  destination: 'ship';
   // --- identidad y traza ---
   shipmentId: string; // SIEMPRE presente — la referencia estable del renglón (ShipmentRequest.id)
   orderId: string | null; // null en un RETIRO DE BÓVEDA (no tiene orden); poblado en envío directo
   orderNumber: string | null; // folio legible "TCG-000123"; null cuando orderId es null (retiro)
-  // --- destino (a nivel de PEDIDO — DECISIÓN #1) ---
-  destination: PreparationDestination; // deriva de Order.fulfillmentMode; retiro (orderId null) ⇒ 'ship'
   // --- antigüedad (CA #9: atender lo más viejo primero) ---
   requestedAt: string; // ISO; la cola ordena asc por defecto
   // --- cliente ---
@@ -1237,8 +1242,8 @@ export interface PreparationOrderDTO {
     // ⛔ `""` PROHIBIDA como marca de ausencia: un hecho, una grafía (ver la nota de abajo).
     fullName: string | null; // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
   };
-  // --- solo destino ENVÍO ('ship'): dirección COMPLETA, CON la calle que la fila omite hoy (CA #6) ---
-  shipTo?: {
+  // --- dirección COMPLETA, CON la calle (CA #6). v1.79: obligatoria en esta rama ---
+  shipTo: {
     recipientName: string | null; // ausente en snapshots de 8 campos anteriores a v1.67 ⇒ null
     line1: string; // la CALLE
     line2?: string | null;
@@ -1252,6 +1257,179 @@ export interface PreparationOrderDTO {
   // --- las cartas del pedido ---
   items: PreparationItemDTO[];
 }
+
+export interface VaultPreparationOrderDTO {
+  destination: 'vault';
+  placementId: string; // VaultPlacement.id — la referencia estable de la fila (⛔ no hay shipmentId)
+  orderId: string; // SIEMPRE: una colocación nace de una orden
+  orderNumber: string | null; // mismo tratamiento que en 'ship' (nullIfBlank)
+  requestedAt: string; // VaultPlacement.createdAt (= momento de la liquidación)
+  // v1.79.2 — TITULAR = fullName ENTERO; email = segunda línea (desempate). `fullName` null ⇔ nombre
+  // en blanco O fabricado del correo (nameSource 'derived'). ⛔ `lastName` no se pinta en esta tarjeta.
+  customer: { userId: string; email: string; lastName: string | null; fullName: string | null };
+  suggestedLocation: VaultLocationSuggestion; // §M4-VAULT.4 (un cliente = un cajón)
+  preparation: VaultPreparationStateDTO; // §M4-VAULT.10
+  items: VaultPreparationItemDTO[];
+  // ⛔ SIN `shipTo`: no hay dirección, no sale por la puerta (CA #21: nunca guía).
+}
+
+export interface VaultPreparationItemDTO {
+  placementItemId: string; // VaultPlacementItem.id — EL NODO QUE SE PALOMEA
+  orderItemId: string; // OrderItem.id (traza a la venta)
+  inventoryItemId: string;
+  folio: string;
+  quantity: number; // SIEMPRE 1
+  card: PreparationItemDTO['card']; // el MISMO objeto de §M4-PREP
+  currentLocation: LocationView; // dónde está HOY (lo normal: el estante de tienda)
+  // La ZONA de donde se saca (las etiquetas se repiten entre zonas). null ⇔ currentLocation 'unassigned'.
+  currentZone: VaultZone | null;
+  prepStatus: PreparationItemStatus;
+  placeability: { kind: 'placeable' } | { kind: 'blocked'; reason: VaultPlacementBlockReason };
+}
+
+// Enum de Prisma (clase E) — `PreparationItemStatus` (§M4-VAULT.2, M-59).
+export type PreparationItemStatus = 'pending' | 'picked' | 'missing';
+// Enums de Prisma (clase E) — `VaultPlacementStatus` / `VaultPlacementCancelReason` (M-59).
+export type VaultPlacementStatus = 'pending' | 'placed' | 'cancelled';
+export type VaultPlacementCancelReason = 'chargeback' | 'nothing_to_place';
+
+// Estado de preparación del pedido. Conteos sobre items[] (total = items.length). `blocked` cuenta
+// aparte y NO bloquea «preparado». `pending` cuenta SOLO colocables sin marcar.
+// ⇒ «se puede dar por preparado» ⇔ status==='in_progress' ∧ pending===0 (la MISMA regla del verbo).
+export interface VaultPreparationCounts {
+  total: number;
+  pending: number;
+  picked: number;
+  missing: number;
+  blocked: number;
+}
+export type VaultPreparationStateDTO =
+  | ({ status: 'in_progress' } & VaultPreparationCounts)
+  | ({
+      status: 'prepared';
+      preparedAt: string;
+      preparedBy: { userId: string; name: string | null };
+    } & VaultPreparationCounts);
+
+// Tipo de DTO (clase L: se COMPUTA, ⛔ no es enum de Prisma).
+export type VaultPlacementBlockReason = 'in_withdrawal' | 'not_in_custody';
+
+// §M4-VAULT.4 — «un cliente = un cajón».
+export interface CustomerDrawerRef {
+  id: string;
+  label: string;
+  zone: 'customer_custody'; // SIEMPRE: la pantalla nombra el cajón CON su zona
+  customerPieceCount: number; // cuántas piezas de ESTE cliente hay HOY en ese cajón
+}
+export type VaultLocationSuggestion =
+  | { source: 'existing_customer_vault'; location: CustomerDrawerRef } // su cajón: se confirma, ⛔ no se elige
+  | { source: 'multiple_drawers'; locations: CustomerDrawerRef[] } // ⚠️ ANOMALÍA: se elige ENTRE éstos
+  | { source: 'none' }; // cliente nuevo ⇒ el operador ELIGE (CA #19)
+
+// ---- Verbos de la colocación (§M4-VAULT.5 / .10) · operador+ ----
+
+export interface VaultPlacementDTO {
+  id: string;
+  orderId: string;
+  orderNumber: string | null;
+  status: VaultPlacementStatus;
+  createdAt: string;
+  preparedAt: string | null;
+  preparedBy: { userId: string; name: string | null } | null;
+  placedAt: string | null;
+  placedBy: { userId: string; name: string | null } | null;
+  location: { id: string; label: string; zone: 'customer_custody' } | null;
+  cancelledAt: string | null;
+  cancelReason: VaultPlacementCancelReason | null;
+}
+
+/** `PATCH /admin/vault-placements/:placementId/prep-items/:placementItemId` */
+export interface SetVaultPrepItemRequest {
+  status: PreparationItemStatus;
+}
+export interface SetVaultPrepItemResponse {
+  changed: boolean;
+  item: VaultPreparationItemDTO;
+  preparation: VaultPreparationStateDTO;
+}
+
+/** `POST /admin/vault-placements/:placementId/prepared` */
+export interface PrepareVaultPlacementResponse {
+  outcome: 'prepared' | 'already_prepared';
+  placement: VaultPlacementDTO;
+  preparation: VaultPreparationStateDTO;
+}
+
+/** `DELETE /admin/vault-placements/:placementId/prepared` (v1.79.2) */
+export interface UnprepareVaultPlacementResponse {
+  outcome: 'unprepared' | 'not_prepared';
+  placement: VaultPlacementDTO; // preparedAt/preparedBy ya en null
+  preparation: VaultPreparationStateDTO; // status 'in_progress', conteos con las marcas conservadas
+}
+
+/**
+ * `POST /admin/vault-placements/:placementId/confirm` — v1.79.3 (H-4): `locationId` OPCIONAL.
+ * Se manda ⇔ `items.filter(i => i.prepStatus === 'picked').length > 0` (contado sobre `items[]`).
+ */
+export interface ConfirmVaultPlacementRequest {
+  locationId?: string;
+}
+export type VaultPlacementSkipReason = VaultPlacementBlockReason | 'not_picked'; // clase L
+export type VaultPlacementItemResultDTO =
+  | { inventoryItemId: string; folio: string; result: 'moved' | 'already_there' | 'missing' }
+  | { inventoryItemId: string; folio: string; result: 'skipped'; reason: VaultPlacementSkipReason };
+export type ConfirmVaultPlacementResponse =
+  | {
+      outcome: 'placed' | 'nothing_to_place';
+      placement: VaultPlacementDTO;
+      items: VaultPlacementItemResultDTO[];
+    }
+  | { outcome: 'already_placed'; placement: VaultPlacementDTO };
+
+// `details` de los errores de estos verbos (catálogo §0 + §M4-VAULT.5/.10, v1.79.3).
+/** `409 PLACEMENT_NOT_PENDING` — v1.79.3 (H-2): `location` sustituye a `locationId`. */
+export type PlacementNotPendingDetails =
+  | { status: 'placed'; location: { id: string; label: string; zone: 'customer_custody' } }
+  | { status: 'cancelled'; cancelReason: VaultPlacementCancelReason };
+/** `422 LOCATION_NOT_AVAILABLE` — v1.79.3: + `location_required`; H-5 `customerDrawers`. */
+export type LocationNotAvailableDetails =
+  | { reason: 'not_found' | 'inactive' | 'not_customer_custody' }
+  | { reason: 'not_customer_drawer'; customerDrawers: CustomerDrawerRef[] }
+  | { reason: 'location_required'; pickedCount: number };
+
+// ---- §M4-VAULT.11 · GET /admin/vaults/:userId/physical-inventory (operador+) ----
+export interface CustomerPhysicalInventoryDTO {
+  // name = MISMA regla que customer.fullName de la cola: null si en blanco o nameSource 'derived'.
+  owner: { userId: string; name: string | null; email: string };
+  drawer:
+    | { kind: 'none' }
+    | { kind: 'single'; location: CustomerDrawerRef }
+    | { kind: 'multiple'; locations: CustomerDrawerRef[] }; // ⚠️ ANOMALÍA nombrada
+  counts: {
+    total: number;
+    inDrawer: number;
+    pendingPlacement: number;
+    missing: number;
+    inWithdrawal: number;
+    unlocated: number;
+  };
+  items: PhysicalInventoryItemDTO[];
+}
+export interface PhysicalInventoryItemDTO {
+  inventoryItemId: string;
+  folio: string;
+  card: PreparationItemDTO['card'];
+  currentLocation: LocationView;
+  currentZone: VaultZone | null;
+  origin: { placementId: string; orderId: string; orderNumber: string | null } | null;
+  physical: PhysicalState;
+}
+export type PhysicalState = // clase L (computado), ⛔ no es enum de Prisma
+  | { state: 'in_drawer'; drawer: { id: string; label: string; zone: 'customer_custody' } }
+  | { state: 'pending_placement'; placementId: string; prepStatus: PreparationItemStatus; prepared: boolean }
+  | { state: 'missing'; placementId: string; markedAt: string; markedBy: { userId: string; name: string | null } }
+  | { state: 'in_withdrawal'; shipmentId: string; shipmentStatus: 'picking' | 'guia' | 'enviado' }
+  | { state: 'unlocated'; reason: 'no_location' | 'not_in_customer_drawer' }; // ⚠️ ANOMALÍA
 
 export interface PreparationItemDTO {
   shipmentItemId: string; // ShipmentItem.id — el nodo por carta (será lo que se palomee en la rebanada siguiente)
@@ -1699,6 +1877,10 @@ export interface VaultLocationDTO {
   row: string;
   slot: string;
   label: string;
+  // §M4-VAULT.4 filtra la lista del cliente nuevo por `isActive`. El backend lo emite
+  // (`inventory.service.ts` · `toVaultLocationDTO`), pero §M1 no lo declara ⇒ opcional aquí;
+  // ausente se lee como activo (la guarda real es el `422 inactive` del `confirm`).
+  isActive?: boolean;
 }
 
 // Motivo del movimiento de bóveda (enum MovementReason del backend; ARCHITECTURE/prisma).
@@ -1791,7 +1973,9 @@ export type MasterSetScope = 'platform' | 'user_vault';
 // en la vista (iii) del propio cliente se omite.
 export interface VaultOwnerRefDTO {
   userId: string;
-  name: string;
+  // v1.79.3 (H-1): en la vista ADMIN (ii) `null` ⇔ nombre fabricado del correo o en blanco. La vista
+  // (iii) del propio cliente sigue emitiendo `User.name`.
+  name: string | null;
   email?: string;
 }
 
@@ -2434,7 +2618,9 @@ export interface AdminBountyListResponse {
 // ACABADO de cada pieza; piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
 export interface AdminVaultSummaryDTO {
   userId: string;
-  name: string;
+  // §M4-VAULT.3 v1.79.3 (H-1): `null` ⇔ nombre en blanco o fabricado del correo (nameSource
+  // 'derived'). ⛔ Nunca se reconstruye desde `email` en el cliente.
+  name: string | null;
   email: string;
   pieceCount: number;
   totalValueMxnCents: number;

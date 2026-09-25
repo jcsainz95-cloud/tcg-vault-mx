@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { codigoDe } from '@/test/strip-comments';
-import { sortPreparationItems } from './preparation-order';
-import type { LocationView, PreparationItemDTO } from '@/types/contract';
+import { sortPreparationItems, sortPreparationOrders } from './preparation-order';
+import type { LocationView, PreparationItemDTO, PreparationOrderDTO } from '@/types/contract';
 
 /**
  * **§M4P-ORDER (contrato v1.78.3) — los 7 casos se leen DEL CONTRATO, ⛔ nunca se transcriben.**
@@ -160,5 +160,47 @@ describe('§M4P-ORDER · orden por ubicación, aseverado contra el CONTRATO', ()
     expect(codigo.split('\n').filter((l) => l.trim() !== '').length).toBeGreaterThan(20);
 
     expect(codigo).not.toMatch(/localeCompare|Intl\.Collator/);
+  });
+});
+
+/**
+ * ⭐ §M4-VAULT.3 (v1.79) — la cola MEZCLADA: `requestedAt` asc; EMPATE exacto ⇒ `ship` antes que
+ * `vault`, y dentro de la misma cubeta por `shipmentId`/`placementId` en unidades de código. ⛔ El
+ * empate no se deja al orden de llegada.
+ */
+describe('§M4-VAULT.3 · orden de la cola mezclada (envío + bóveda)', () => {
+  const at = '2026-09-01T10:00:00Z';
+  const ship = (id: string, requestedAt = at): PreparationOrderDTO => ({
+    destination: 'ship',
+    shipmentId: id,
+    orderId: null,
+    orderNumber: null,
+    requestedAt,
+    customer: { lastName: null, fullName: null },
+    shipTo: { recipientName: null, line1: 'x', city: 'x', state: 'x', postalCode: '1', country: 'MX', phone: '1' },
+    items: [],
+  });
+  const vault = (id: string, requestedAt = at): PreparationOrderDTO => ({
+    destination: 'vault',
+    placementId: id,
+    orderId: 'o',
+    orderNumber: null,
+    requestedAt,
+    customer: { userId: 'u', email: 'u@x', lastName: null, fullName: null },
+    suggestedLocation: { source: 'none' },
+    preparation: { status: 'in_progress', total: 0, pending: 0, picked: 0, missing: 0, blocked: 0 },
+    items: [],
+  });
+  const ref = (o: PreparationOrderDTO) => (o.destination === 'ship' ? o.shipmentId : o.placementId);
+
+  it('lo más viejo primero, sin importar la cubeta', () => {
+    const out = sortPreparationOrders([ship('s1', '2026-09-03T00:00:00Z'), vault('v1', '2026-09-02T00:00:00Z')]);
+    expect(out.map(ref)).toEqual(['v1', 's1']);
+  });
+
+  it('empate exacto: envío antes que bóveda, y dentro de cada cubeta por id en unidades de código', () => {
+    const out = sortPreparationOrders([vault('vb'), vault('va'), ship('sb'), ship('sB'), ship('sa')]);
+    // 'B' (0x42) < 'a' (0x61) < 'b' (0x62): unidades de código, no orden alfabético de locale.
+    expect(out.map(ref)).toEqual(['sB', 'sa', 'sb', 'va', 'vb']);
   });
 });
