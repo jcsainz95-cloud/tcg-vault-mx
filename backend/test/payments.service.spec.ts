@@ -37,6 +37,14 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+    // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
+    // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
+    vaultPlacement: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     // Fix 4: por defecto la carta NO tiene envío enviado/entregado (sigue en bóveda).
     shipmentItem: { findFirst: jest.fn().mockResolvedValue(null) },
   });

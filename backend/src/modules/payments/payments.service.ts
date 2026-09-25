@@ -234,10 +234,13 @@ export class PaymentsService {
       }
       // v1.68: piezas que NO estaban reservadas por esta orden al liquidar (se auditan fuera del tx).
       const anomalies: { inventoryItemId: string; was: string }[] = [];
+      // v1.79 (M-59, §M4-VAULT.2-bis): UN instante para UN hecho — `Order.settledAt` y
+      // `VaultPlacement.createdAt` son el mismo valor, escrito explícitamente en las dos filas.
+      const now = new Date();
       await this.prisma.$transaction(async (tx) => {
         await tx.order.update({
           where: { id: order.id },
-          data: { status: 'settled', settledAt: new Date() },
+          data: { status: 'settled', settledAt: now },
         });
         for (const oi of order.items) {
           const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
@@ -272,6 +275,8 @@ export class PaymentsService {
             },
           });
         }
+        // v1.79 (M-59) — nace la colocación, en ESTA transacción y DESPUÉS del bucle de piezas.
+        await this.createVaultPlacement(tx, order, now);
       });
       if (anomalies.length > 0) {
         await this.audit
@@ -310,6 +315,51 @@ export class PaymentsService {
         data: { status: 'picking', pickingAt: new Date() },
       });
     }
+  }
+
+  /**
+   * v1.79 / v1.79.1 (M-59, API_CONTRACT §M4-VAULT.2-bis, ARCHITECTURE §4.21q) — nace la COLOCACIÓN
+   * de una orden `vault` recién liquidada y sus filas por carta. ÚNICO creador de `VaultPlacement`.
+   *
+   * Se llama SOLO desde la rama `vault` de `onPaymentSucceeded`, dentro de su `$transaction` ⇒ una
+   * orden `vault` liquidada sin colocación, o una colocación sin liquidación, o sin sus filas por
+   * carta, son imposibles (`INV-VP-1`, `INV-VP-5`).
+   *
+   * ⭐⭐ Idempotente y a prueba de carrera por CONSTRUCCIÓN, no por lectura previa:
+   *  - `createMany … skipDuplicates` ⇒ `INSERT … ON CONFLICT DO NOTHING` sobre `orderId @unique`.
+   *    ⛔ No `create` a secas: dos entregas concurrentes pasan las dos el `status === 'settled'`
+   *    (leído FUERA de la tx) y la segunda reventaría con `P2002` ⇒ 500 y reintento de Stripe.
+   *    ⛔ No `findFirst` + `create`: es la lectura sin candado que `REL-B` enseñó a no escribir.
+   *  - El id sale de `findUniqueOrThrow` por `orderId` (sentencia nueva ⇒ bajo READ COMMITTED ve la
+   *    fila de quien ganó). ⛔ No del retorno de `createMany`: con `skipDuplicates` no dice cuál.
+   *  - Filas por carta: TODAS las `OrderItem` de la orden (⛔ sin filtrar por el estado de la pieza:
+   *    una carta que ya no se puede colocar se muestra `blocked` en la cola), `ON CONFLICT DO
+   *    NOTHING` sobre `orderItemId @unique`.
+   *
+   * ⛔ CERO DINERO: no lee ni escribe importes. ⛔ No toca la pieza (`InventoryStatus` no cambia).
+   */
+  private async createVaultPlacement(
+    tx: Prisma.TransactionClient,
+    order: Order & { items: OrderItem[] },
+    now: Date,
+  ): Promise<void> {
+    await tx.vaultPlacement.createMany({
+      data: [{ orderId: order.id, createdAt: now }],
+      skipDuplicates: true,
+    });
+    const { id: placementId } = await tx.vaultPlacement.findUniqueOrThrow({
+      where: { orderId: order.id },
+      select: { id: true },
+    });
+    if (order.items.length === 0) return;
+    await tx.vaultPlacementItem.createMany({
+      data: order.items.map((oi) => ({
+        placementId,
+        orderItemId: oi.id,
+        inventoryItemId: oi.inventoryItemId,
+      })),
+      skipDuplicates: true,
+    });
   }
 
   /**
@@ -807,6 +857,19 @@ export class PaymentsService {
       await tx.order.update({
         where: { id: order.id },
         data: { status: 'chargeback', chargebackNeedsManual: needsManual },
+      });
+      // v1.79 (M-59, §M4-VAULT.6) — tras un contracargo ninguna pieza de esta orden sigue siendo
+      // «del cliente en custodia» ⇒ no hay nada que colocar. Misma tx, al final, sin actor (lo
+      // canceló el sistema). El estado va en el `WHERE`: una colocación ya `placed`/`cancelled` no se
+      // toca, y `count === 0` NO es error.
+      await tx.vaultPlacement.updateMany({
+        where: { orderId: order.id, status: 'pending' },
+        data: {
+          status: 'cancelled',
+          cancelledAt: new Date(),
+          cancelledByUserId: null,
+          cancelReason: 'chargeback',
+        },
       });
     });
   }

@@ -39,6 +39,14 @@ function build(order: any = VAULT_ORDER) {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+    // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
+    // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
+    vaultPlacement: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     shipmentItem: { findFirst: jest.fn().mockResolvedValue(null) },
     shipmentRequest: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
   };

@@ -23786,3 +23786,93 @@ SELECT datcollate, datctype FROM pg_database WHERE datname = current_database();
 preparación vs. el catálogo de ubicaciones), así que la discrepancia **no salta a la vista**: se ve como
 *«el archivero y la hoja de trabajo no van en el mismo orden»*, que un operador atribuye a la pantalla,
 no a una collation. Ficha: **`M4P-ORD3`** en `docs/TECH_DEBT.md`.
+
+---
+
+# §M4-VAULT · M-59 — la COLOCACIÓN en bóveda: schema y nacimiento (backend, fase 1 · 2026-09-25)
+
+> Contrato: `API_CONTRACT §M4-VAULT` v1.79.1 (.2, .2-bis, .6, .8). Arquitectura: `§4.21q`. Rama
+> `claude/m4-boveda`. **Fase 1 = solo schema + nacimiento + cancelación por contracargo.** Los verbos
+> (palomear / preparado / confirm / deshacer preparado), la cola de dos fuentes y la vista física son
+> **fase 2** y NO existen todavía (medido: `rg "vault-placements" backend/src` ⇒ 0).
+
+## 1 · Migración `20260925120000_m59_vault_placement`
+
+- **Qué crea:** enums `VaultPlacementStatus`, `VaultPlacementCancelReason`, `PreparationItemStatus`;
+  tablas `VaultPlacement` (`orderId @unique`, índice `(status, createdAt)`) y `VaultPlacementItem`
+  (`orderItemId @unique`, índices `placementId` e `inventoryItemId`); 5 FKs, **todas `Restrict`**; y los
+  **6 CHECKs** del contrato, con nombre propio (así el error dice cuál se violó):
+  `VaultPlacement_pending_seals_chk`, `_placed_seals_chk`, `_cancelled_seals_chk`,
+  `_prepared_seal_chk`, `_placed_requires_prepared_chk` (INV-VP-6) y `VaultPlacementItem_prep_mark_chk`.
+- **Aditiva:** ninguna tabla existente gana columna ni constraint; ningún enum existente cambia; cero
+  `UPDATE/DELETE/DROP`. Sin backfill (`HECHOS.md`: cero ventas reales).
+- **Paridad schema ↔ migraciones medida:** `prisma migrate diff --from-url <bd migrada> --to-schema-datamodel`
+  deja **solo** el `RenameIndex` de `PriceReference_variant_capturedDate_key`, que es deriva **previa** a
+  M-59 (sale igual sobre la base sin M-59) — no es de esta migración y no la toqué.
+- En `InventoryItem` se realinearon (solo espacios) las cuatro relaciones existentes al añadir
+  `vaultPlacementItems`: `git diff -w` sobre el schema no tiene ni una línea `-`.
+
+### Rollback (probado el 2026-09-25 sobre `tcg_vault59_mut`, con filas dentro)
+
+**Orden obligatorio: primero el CÓDIGO, luego el DDL.** El código de fase 1 escribe `VaultPlacement` en
+la transacción del settle: si se tiran las tablas con ese código vivo, **toda liquidación `vault` falla**
+(500 ⇒ Stripe reintenta, no se pierde dinero, pero no liquida). Con el artefacto anterior desplegado:
+```sql
+DROP TABLE "VaultPlacementItem";
+DROP TABLE "VaultPlacement";
+DROP TYPE "PreparationItemStatus";
+DROP TYPE "VaultPlacementCancelReason";
+DROP TYPE "VaultPlacementStatus";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20260925120000_m59_vault_placement';
+```
+Medido: tras la reversa, 0 tipos y 0 tablas; `prisma migrate deploy` la vuelve a aplicar y el diff contra
+el schema queda limpio. ⚠️ Pierde el rastro de colocaciones (quién/cuándo preparó y colocó, marcas de
+faltante). No toca dinero ni el estado de ninguna pieza.
+
+### Lo que el `Restrict` obliga a quien BORRA órdenes
+
+`VaultPlacement → Order` y `VaultPlacementItem → OrderItem/InventoryItem` son `Restrict` (el contrato lo
+fija). El código de producción **no borra** órdenes, `OrderItem` ni piezas (medido: `rg
+"order\.delete|orderItem\.delete|inventoryItem\.delete" backend/src` ⇒ 0), pero dos herramientas sí:
+- `prisma/seed-e2e.ts` (reset por usuario del fixture) — borra colocaciones antes que órdenes.
+- `prisma/reset-db-keep-users.ts` — `vaultPlacementItem` al nivel hoja y `vaultPlacement` antes que
+  `order`; candado nuevo en su spec (que exige que **estén** antes de comparar posiciones: el
+  `indexOf === -1` de las aserciones existentes pasaría en silencio).
+
+## 2 · El nacimiento (`payments.service.ts`)
+
+- **Dónde:** `createVaultPlacement(tx, order, now)`, llamado **solo** desde la rama `vault` de
+  `onPaymentSucceeded`, dentro de su `$transaction`, **después** del bucle de piezas. Único creador.
+- **`now` izado:** la rama escribía `settledAt: new Date()` en línea; ahora hay una constante `now` que
+  va a `Order.settledAt` **y** a `VaultPlacement.createdAt` (la prueba unitaria exige la **misma
+  referencia** de objeto, no dos relojes que coinciden).
+- **Mecanismo:** `vaultPlacement.createMany({ skipDuplicates })` ⇒ `ON CONFLICT DO NOTHING`;
+  id por `findUniqueOrThrow({ where: { orderId } })`; `vaultPlacementItem.createMany({ skipDuplicates })`
+  con **todas** las `OrderItem` (sin filtrar por estado de la pieza).
+- **Contracargo** (`onChargeDisputeVault`): al final de su tx, `updateMany({ orderId, status:'pending' }
+  → cancelled/chargeback, cancelledByUserId: null)`. `count 0` no es error. Contracargo ganado,
+  reembolso y `direct_ship` **no** tocan colocaciones (con prueba).
+- ⛔ **Cero dinero:** la escritura de la orden sigue siendo exactamente `{status, settledAt}` (prueba).
+
+## 3 · Pruebas y mutaciones
+
+- Unidad: `test/payments.vault-placement-birth.spec.ts` (13). Integración (Postgres real + webhook
+  firmado): `test/integration/vault-placement-birth.e2e-spec.ts` (14): nacimiento, reentrega secuencial,
+  **carrera con entrelazado forzado** (candado de fila sobre `Order` + `esperarBloqueoDeFila`, N=10),
+  atomicidad (trigger de prueba que revienta el `INSERT` por carta), `direct_ship`, contracargo y los 6
+  CHECKs con su control positivo.
+- Mutaciones (sobre copia del árbol, no el vivo): `create` a secas ⇒ carrera **0/10** verde (el perdedor
+  da 500 en las 10); quitar `skipDuplicates` de las filas por carta ⇒ **0/10**; colocación fuera de la tx
+  ⇒ rojo atomicidad; sin cancelación por contracargo ⇒ rojo F; sin `CHECK` 5 ⇒ rojo INV-VP-6.
+
+## 4 · ⚠️ Medido para el arquitecto (no lo cambié: toca el settle)
+
+**Bajo dos entregas CONCURRENTES del webhook, `VaultPlacement.createdAt ≠ Order.settledAt` al final:
+10/10 en la corrida aislada y 8/10 en la suite completa** (medición informativa de la prueba C, N=10 cada
+una; las 2 iguales son coincidencia de milisegundo entre los dos `now`, no ausencia del mecanismo). Causa, previa a M-59: la segunda entrega también pasa el
+`status === 'settled'` leído **fuera** de la tx y su `order.update` **re-escribe** `settledAt` con su
+propio `now`; la colocación conserva el de la primera (ON CONFLICT). Una sola colocación, sin 500 — pero
+el «un hecho, un instante» del .2-bis solo se cumple en el camino secuencial. Cerrarlo pide guardar el
+`order.update` del settle con el estado en el `WHERE` (decisión del arquitecto: cambia la conducta de una
+escritura de la tabla del dinero). **NO MEDIDO:** si esa misma carrera manda dos veces el correo `AV-2`
+(también cuelga de la lectura fuera de la tx).
