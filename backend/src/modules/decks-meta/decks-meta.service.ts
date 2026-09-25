@@ -11,7 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CatalogService, DeckMetaUnitDTO } from '../catalog/catalog.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseDeckList } from './deck-list.parser';
-import { pickDeckImage } from './deck-image';
+import { imageOf, pickDeckImage } from './deck-image';
 import { DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import {
   AUTOFETCH_DIAL_VALUES,
@@ -112,7 +112,7 @@ export class DecksMetaService {
     const cardDto = {
       cardId: card.id,
       name: card.name,
-      imageUrl: card.imageLargeUrl ?? card.imageSmallUrl ?? null,
+      imageUrl: imageOf(card),
     };
 
     // FUENTE-CONFIABLE (SUP-LEG): sin compuerta de legalidad. Una carta casada ofrece su stock.

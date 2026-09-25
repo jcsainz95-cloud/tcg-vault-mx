@@ -156,6 +156,54 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
     });
   });
 
+  describe('listPublished — arte de la teja (QA IMPORTANTE 1, gate sobre 3806fec)', () => {
+    /**
+     * `listPublished` debe pasar `deck.name` a `pickDeckImage`. QA midió que la mutación
+     * `pickDeckImage('', deck.imageCardId, cards)` sobrevivía la suite entera (5266/5266): las pruebas
+     * de `deck-image.spec.ts` llaman a la función pura, ninguna al servicio. Aquí el nombre del deck es
+     * lo ÚNICO que separa a Alakazam (casa por nombre, regla 2b) de Dudunsparce ex (la ex con más
+     * copias, regla 3): sin el nombre, la teja muestra la ex de apoyo.
+     */
+    const pk = (name: string, qty: number, id: string): any => ({
+      quantity: qty,
+      group: 'pokemon',
+      matchStatus: 'matched',
+      matchedCard: card({ id, externalId: id, name, imageLargeUrl: `https://img/${id}.png` }),
+    });
+
+    it('deck «Alakazam» con ex de apoyo ⇒ la teja exige Alakazam (el nombre del deck llega a pickDeckImage)', async () => {
+      const catalog = { getSellableRawUnitsByCardIds: jest.fn(async () => new Map()) } as unknown as CatalogService;
+      const prisma = {
+        metaDeck: {
+          findMany: jest.fn(async () => [
+            {
+              slug: 'alakazam',
+              name: 'Alakazam',
+              rank: 1,
+              sharePct: null,
+              trend: null,
+              imageCardId: null,
+              currentList: {
+                fetchedAt: new Date('2026-09-20T00:00:00Z'),
+                cards: [
+                  pk('Abra', 4, 'abra'),
+                  pk('Kadabra', 3, 'kad'),
+                  pk('Alakazam', 3, 'ala'),
+                  pk('Fezandipiti ex', 1, 'fez'),
+                  pk('Dudunsparce ex', 2, 'dud'),
+                ],
+              },
+            },
+          ]),
+        },
+      } as unknown as PrismaService;
+      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService);
+      const res = await svc.listPublished();
+      expect(res.data).toHaveLength(1);
+      expect(res.data[0].imageUrl).toBe('https://img/ala.png');
+    });
+  });
+
   describe('getBySlug', () => {
     it('slug desconocido ⇒ 404 DECK_NOT_FOUND', async () => {
       const catalog = { getSellableRawUnitsByCardIds: jest.fn(async () => new Map()) } as unknown as CatalogService;

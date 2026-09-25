@@ -5,8 +5,12 @@ import { MetaCardGroup, MetaMatchStatus } from '@prisma/client';
  * es decisión de implementación (docs/BACKEND_NOTES.md §«Arte del deck»). Pedido del dueño: «la EX
  * representativa del deck», «no cualquier carta».
  *
- * Regla, en orden (sólo líneas CASADAS, del grupo Pokémon, con imagen de catálogo):
- *  1. `imageCardId` configurado por el admin, si sigue en la lista.
+ * Regla, en orden (las reglas 2–4 miran sólo líneas CASADAS, del grupo Pokémon, con imagen de
+ * catálogo; la regla 1 NO):
+ *  1. `imageCardId` configurado por el admin, si alguna línea de la lista trae esa carta con imagen
+ *     de catálogo — SIN filtro de grupo ni de estado (puede ser entrenador o energía, no sólo
+ *     Pokémon). Es intencional: la elección explícita del operador manda sobre la heurística; el
+ *     filtro Pokémon es de la regla automática, no suyo.
  *  2. La Pokémon **ex** cuyo nombre aparece en el nombre del deck; si hay varias, la que aparece
  *     ANTES en el nombre («Gardevoir ex / Jellicent ex» ⇒ Gardevoir ex).
  *  2b. Si ninguna ex casa por nombre: la Pokémon NO-ex cuyo nombre aparece en el del deck
@@ -51,7 +55,9 @@ interface Candidate {
   best: { quantity: number; card: DeckImageCard };
 }
 
-const imageOf = (c: DeckImageCard): string | null => c.imageLargeUrl ?? c.imageSmallUrl ?? null;
+/** Imagen de catálogo de una carta: grande, si no pequeña, si no null. Nunca arte externo. */
+export const imageOf = (c: Pick<DeckImageCard, 'imageLargeUrl' | 'imageSmallUrl'>): string | null =>
+  c.imageLargeUrl ?? c.imageSmallUrl ?? null;
 
 export function normalizeName(s: string): string {
   return s
