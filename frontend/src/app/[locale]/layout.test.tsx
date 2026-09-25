@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * `next/font/google` solo existe bajo el compilador de Next: en vitest se sustituye por el
@@ -8,8 +10,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
  */
 vi.mock('next/font/google', () => {
   const font = () => ({ variable: '--font-stub', className: 'font-stub' });
-  return { Archivo: font, JetBrains_Mono: font, Montserrat: font, Zen_Old_Mincho: font };
+  return { Archivo: font, JetBrains_Mono: font, Montserrat: font };
 });
+vi.mock('next/font/local', () => ({
+  default: () => ({ variable: '--font-stub', className: 'font-stub' }),
+}));
 // `@/i18n/navigation` arrastra `createNavigation` de next-intl, que en ESM puro no resuelve
 // `next/navigation` fuera del compilador de Next. Es el mismo stub que usa el resto de la
 // suite; nada de lo que este test asegura pasa por la navegación.
@@ -84,5 +89,35 @@ describe('LocaleLayout · <head> (PERF, candado)', () => {
     // El CDN de sellado vive bajo el pliegue (SealedShelf): ahí `lazy` + conexión tardía es
     // el comportamiento correcto, no una omisión.
     expect(html).not.toContain('tcgplayer-cdn.tcgplayer.com');
+  });
+});
+
+/**
+ * CANDADO de P-FONTS-CJK. `Zen_Old_Mincho` de `next/font/google` ignora `subsets: ['latin']`
+ * (familia CJK troceada por Google): generaba 366 woff2 y el layout precargaba 242. Se sirve
+ * un subconjunto latino local. Si alguien vuelve a importar una familia CJK de Google, o el
+ * subconjunto crece hasta volver a ser la fuente entera, esto se pone rojo.
+ */
+describe('LocaleLayout · fuentes (PERF, candado P-FONTS-CJK)', () => {
+  const here = join(process.cwd(), 'src/app/[locale]');
+  const fontsDir = join(process.cwd(), 'src/app/fonts/zen-old-mincho');
+
+  it('no importa familias CJK de next/font/google (troceo de ~122 ficheros por peso)', () => {
+    const src = readFileSync(join(here, 'layout.tsx'), 'utf8');
+    const googleImport = src.match(/import\s*\{([^}]*)\}\s*from\s*'next\/font\/google'/)?.[1] ?? '';
+    expect(googleImport).not.toMatch(/Mincho|Gothic|Noto_Sans_JP|Noto_Serif_JP|Maru|Kaku|_JP|_SC|_TC|_KR/);
+  });
+
+  it('sirve Zen Old Mincho como 3 woff2 latinos pequeños (400/500/600), con su licencia OFL', () => {
+    const files = readdirSync(fontsDir);
+    const woff2 = files.filter((f) => f.endsWith('.woff2')).sort();
+    expect(woff2).toEqual([
+      'zen-old-mincho-latin-400.woff2',
+      'zen-old-mincho-latin-500.woff2',
+      'zen-old-mincho-latin-600.woff2',
+    ]);
+    // La fuente completa pesa ~5 MB por peso; el subconjunto latino ~16 KB.
+    for (const f of woff2) expect(statSync(join(fontsDir, f)).size).toBeLessThan(64 * 1024);
+    expect(files).toContain('OFL.txt');
   });
 });
