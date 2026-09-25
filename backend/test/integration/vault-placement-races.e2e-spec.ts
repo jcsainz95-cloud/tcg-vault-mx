@@ -39,7 +39,11 @@ describe('§M4-VAULT — carreras con entrelazado forzado (Postgres real)', () =
   const code = (r: R) => (r.status === 200 ? `200:${r.body.outcome ?? (r.body.changed ? 'changed' : 'same')}` : `${r.status}:${r.body?.error?.code}`);
 
   /**
-   * A se lanza primero y se bloquea; B después y se bloquea; se suelta la barrera. Devuelve [A, B].
+   * A se lanza primero y se COMPRUEBA bloqueado; luego B, que se bloquea detrás (en la puerta, o en la
+   * misma fila) — **o termina sin bloquearse**, que es justo lo que pasa cuando una mutación quita la
+   * serialización (p. ej. sin puerta, un `PATCH` no escribe la fila que la barrera sostiene): esa
+   * tirada se evalúa igual, con A todavía bloqueado cuando B terminó. Se suelta la barrera SIEMPRE
+   * (`finally`): una barrera que no se suelta cuelga la suite entera. Devuelve [A, B].
    */
   async function forced(
     barrier: () => Promise<{ release: () => Promise<void> }>,
@@ -47,12 +51,19 @@ describe('§M4-VAULT — carreras con entrelazado forzado (Postgres real)', () =
     b: () => Promise<R>,
   ): Promise<[R, R]> {
     const hold = await barrier();
-    const pa = a();
-    await db.waitBlocked(1);
-    const pb = b();
-    await db.waitBlocked(2);
-    await hold.release();
-    return Promise.all([pa, pb]);
+    try {
+      const pa = a();
+      await db.waitBlocked(1);
+      let bDone = false;
+      const pb = b().finally(() => {
+        bDone = true;
+      });
+      await db.waitBlocked(2, () => bDone);
+      await hold.release();
+      return await Promise.all([pa, pb]);
+    } finally {
+      await hold.release();
+    }
   }
 
   function report(id: string, outcomes: string[], ok: (o: string) => boolean) {

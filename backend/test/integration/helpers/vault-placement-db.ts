@@ -289,6 +289,7 @@ export class VaultPlacementDb {
     );
     await tomado.promesa;
     return {
+      // idempotente: `forced` la llama en el camino feliz y otra vez en su `finally`.
       release: async () => {
         soltar.abrir();
         await done;
@@ -321,9 +322,10 @@ export class VaultPlacementDb {
    * Espera —y COMPRUEBA— que haya `n` sesiones bloqueadas en un candado (de fila o advisory) en esta
    * BD. ⛔ No es un sleep: si no llegan, revienta diciendo que la barrera ya no mide lo que dice.
    */
-  async waitBlocked(n: number) {
+  async waitBlocked(n: number, orDone: () => boolean = () => false) {
     const hasta = Date.now() + 10000;
     for (;;) {
+      if (orDone()) return;
       const r = await this.h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
         `SELECT count(*) AS n FROM pg_stat_activity
           WHERE datname = current_database() AND wait_event_type = 'Lock' AND state = 'active'`,
