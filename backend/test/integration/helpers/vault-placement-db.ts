@@ -168,7 +168,9 @@ export class VaultPlacementDb {
         processingFeeCents: 0,
         ivaCents: 0,
         totalCents: 100,
-        priceConvention: 'IVA_INCLUSIVE',
+        // Pareja coherente para el censo de `iva-price-convention.e2e-spec.ts` (sin dial ⇔ EXCLUSIVE):
+        // estas órdenes no tienen importes que leer; solo existen para colgar la colocación.
+        priceConvention: 'IVA_EXCLUSIVE',
         // `Order_direct_ship_has_address_chk`: solo para sembrar la fila CORRUPTA de la invariante.
         ...(opts.fulfillmentMode === 'direct_ship' ? { shippingAddressSnapshot: { line1: 'x' } } : {}),
       },

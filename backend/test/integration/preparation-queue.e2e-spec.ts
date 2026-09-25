@@ -433,7 +433,7 @@ describe('E2E — «Pedidos a preparar» (§M4-PREP) contra Postgres real', () =
           processingFeeCents: 0,
           ivaCents: 0,
           totalCents: 1,
-          priceConvention: 'IVA_INCLUSIVE',
+          priceConvention: 'IVA_EXCLUSIVE', // sin dial ⇔ EXCLUSIVE (censo de iva-price-convention)
         },
       });
       const vp = await h.prisma.vaultPlacement.create({ data: { orderId: order.id, createdAt: new Date() } });
