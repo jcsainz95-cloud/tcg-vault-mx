@@ -13,6 +13,48 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-09-25 · gates arreglos-rápidos (sobre `3806fec`)
+
+> Los identificadores llevan el sufijo «(arreglos-rápidos)» porque `TD-1`/`TD-2` ya existen más abajo (cerrados, de
+> 2026-08-16 y 2026-08-22) y son otra deuda.
+
+### TD-1 (arreglos-rápidos) · Nada sostiene bajo carga `SERIALIZABLE_ATTEMPTS = 5` (backend · techlead C1/TD-4, 2026-09-25)
+- **Dueño:** **backend** (`src/common/serializable-retry.ts`, `SERIALIZABLE_ATTEMPTS`).
+- **Severidad:** Baja. **No bloqueante.** La conducta de producción no cambia; lo que falta es el candado que la sostenga.
+- **Qué es (medido 2026-09-25 sobre `3806fec`):** el 5 salió de una medición histórica (2026-09-14, `dd3522b`, autor
+  backend) sobre la versión 4 altas × 12 rondas de `buylist-intake-concurrency.e2e-spec.ts`: 3 intentos ⇒ roja 10/10
+  (N=10), 5 ⇒ verde 8/8 (N=8). Desde `c36b492` (P-BUYLIST-CONC-FLAKE) esa prueba fuerza el conflicto con **dos**
+  contendientes y el perdedor reintenta sin rival: pasa con 2 intentos, así que **ya no distingue 2 de 5**. Hoy solo
+  hay un candado **unitario** del literal (`test/serializable-retry.spec.ts`, «el presupuesto es 5»; mutación 5→3 ⇒
+  rojo, backend 2026-09-25): obliga a leer la nota, no demuestra suficiencia.
+- **Riesgo:** alguien baja el presupuesto (o cambia el backoff) y ninguna prueba de integración lo nota; bajo carga
+  real sube la proporción de `503 BUSY_TRY_AGAIN` en `POST /buylist/requests`.
+- **Propuesta:** prueba de **estrés fuera del gate** (job manual/nocturno, no en la suite de PR — es probabilística y
+  lenta): K altas simultáneas del mismo vendedor × R rondas con `connection_limit=5` como el CI, midiendo la proporción
+  de `503` con N≥30 corridas, para 3/4/5 intentos. Criterio a fijar con el techlead (p. ej. «con 5, 0 `503` en N=30 a
+  K=4»). ⛔ NO MEDIDO hoy qué pasa con K≈50.
+- **Disparador:** antes de tocar `SERIALIZABLE_ATTEMPTS`/`BACKOFF_BASE_MS`, o si aparecen `503 BUSY_TRY_AGAIN
+  [reintentos-agotados]` en los logs de producción.
+
+### TD-2 (arreglos-rápidos) · La imagen del deck se elige por heurística de NOMBRE (backend · QA, 2026-09-25)
+- **Dueño del código:** **backend** (`src/modules/decks-meta/deck-image.ts`, `pickDeckImage`). **Dueño de la
+  decisión:** **arquitecto** (fuente de la portada) y **dueño** (reglas 3/4 del orden — ⛔ no se cambian aquí).
+- **Severidad:** Baja. **No bloqueante.** No toca dinero; es la foto de la teja de `GET /decks-meta`.
+- **Qué es:** Limitless publica el arquetipo por nombre sin «ex» y el jalado automático no escribe `imageCardId`, así
+  que la teja depende de casar palabras del nombre del deck con nombres de carta (`docs/BACKEND_NOTES.md`, «Meta Battle
+  Decks — arte de la teja»). **Casos medidos por QA** sobre `3806fec` donde la heurística no da la carta que un humano
+  elegiría:
+  - la carta principal del deck **no está casada** en catálogo ⇒ cae a la regla 3 y sale una **ex de apoyo**;
+  - decks **«Box»** («Basic Box» y similares): no hay nombre de especie que casar ⇒ ex/Pokémon con más copias;
+  - **«Alakazam Mew»** ⇒ sale **Mew ex** (regla 2: una ex que casa por nombre gana sobre la no-ex nombrada antes);
+  - **V / VSTAR / GX** no casan por especie (la normalización solo quita «ex»; «Giratina VSTAR» no es «… giratina»).
+- **Propuesta (al arquitecto):** usar la portada que la propia Limitless ya publica en su home,
+  `a.leader-image img[alt="SET-NUM"]` (p. ej. `TWM-130`), que `limitless-html.parser.ts` no extrae hoy. Casarla por
+  `ptcgoCode`+`number` como el resto de líneas y guardarla en `imageCardId` o en un campo nuevo (para no pisar la
+  elección del admin). Eso es superficie de schema/contrato ⇒ decide el arquitecto. La heurística quedaría como
+  respaldo cuando la portada no case.
+- **Disparador:** decisión del dueño sobre las reglas 3/4, o del arquitecto sobre la portada de Limitless.
+
 ## Backend · 2026-09-17 · M11 sellado (fix de QA)
 
 ### SB-YEAR1 · El resolver único de `set_main` NO desempata por año — pierde la AUTO-adopción que el viejo `matchScore` hacía en homónimos de años distintos (backend · QA IMPORTANTE-3, P-46-bis, 2026-09-17)

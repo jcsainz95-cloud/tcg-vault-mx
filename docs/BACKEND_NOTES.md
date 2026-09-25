@@ -23752,3 +23752,55 @@ portada del arquetipo: `a.leader-image img[alt="TWM-130"]` (set+número; en el f
 JTG-98, SCR-58, PBL-65). `limitless-html.parser.ts` no la extrae hoy. Casándola por `ptcgoCode`+`number` como el
 resto de líneas y guardándola en `imageCardId` (o en un campo nuevo, para no pisar la elección del admin) daría la
 portada exacta de la fuente sin heurística de nombres.
+
+**Aclaración (gate sobre `3806fec`, techlead menor):** la regla 1 (`imageCardId` del admin) NO lleva el filtro de
+grupo/estado de las demás: si alguna línea trae esa carta con imagen de catálogo, gana aunque sea entrenador o
+energía. Intencional — la elección explícita del operador manda sobre la heurística. Docstring de `deck-image.ts`
+alineado. `decks-meta.service.ts` reutiliza `imageOf` (exportado de `deck-image.ts`) en vez de repetir
+`imageLargeUrl ?? imageSmallUrl ?? null`.
+
+**Candado de servicio (QA IMPORTANTE 1):** `decks-meta.service.spec.ts` › «listPublished — arte de la teja»: deck
+«Alakazam» con Fezandipiti ex (1) y Dudunsparce ex (2) ⇒ exige Alakazam. Sin él, la mutación
+`pickDeckImage('', deck.imageCardId, cards)` en `listPublished` sobrevivía la suite unitaria entera (QA, 5266/5266).
+Con él cae (backend, 2026-09-25, copia del árbol con el cambio; recibe `dud.png`). Mutación determinista: N=1 basta.
+Deuda de la heurística: `docs/TECH_DEBT.md` «TD-2 (arreglos-rápidos)».
+
+---
+
+# P-BUYLIST-CONC-FLAKE — el rojo intermitente de `buylist-intake-concurrency` era un `503`, no la no-vacuidad (2026-09-25)
+
+**Síntoma.** `test/integration/buylist-intake-concurrency.e2e-spec.ts` salía rojo de vez en cuando en
+`expect(servidor).toEqual([])` (línea 161 de la versión anterior a `c36b492`).
+
+**Causa real (medida).** La respuesta era **`503 BUSY_TRY_AGAIN`**, no un `500` ni un fallo de la no-vacuidad. La versión
+anterior disparaba **4 altas simultáneas del mismo vendedor × 12 rondas** dentro de `runSerializable` (SERIALIZABLE,
+`SEC-A2`). Con 4 contendientes sobre el mismo predicado (el acumulado mensual AML), el SSI puede abortar a 3 por ronda y
+los reintentos vuelven a pelear entre sí; de vez en cuando una alta pierde los **5** intentos
+(`SERIALIZABLE_ATTEMPTS`), el helper propaga el `P2034` original y `AllExceptionsFilter.motivoTransitorio` lo traduce a
+`503` + `Retry-After: 1` (§0-T, desde `a5aa07e`). Es la «cola esperable» bajo carga que §0-T describe: conducta de
+producción correcta; lo frágil era la prueba, que apostaba a que la máquina no produjera esa cola.
+
+**Mediciones (autor · N):**
+| Qué | Resultado | Autor | N |
+|---|---|---|---|
+| CI de la PR #59 | 1 prueba roja de 1044, `503 BUSY_TRY_AGAIN`; verde al re-run | CI (registro de la PR) | 1 corrida |
+| Versión anterior, aislada en local, `connection_limit=5` como el CI | **1/30** rojas, la roja con `503 BUSY_TRY_AGAIN` | backend (`c36b492`) | 30 |
+| Presupuesto de intentos, versión 4×12 (histórico) | 3 intentos ⇒ **10/10 rojas**; 5 ⇒ **8/8 verdes** | backend (`dd3522b`, 2026-09-14) | 10 y 8 |
+
+⚠️ Con una tasa de ~1/30, un «verde» de pocas corridas no dice nada (0.97^10 ≈ 74 % de sacar 10/10 verdes con el
+intermitente dentro).
+
+**Arreglo (`c36b492`, solo prueba, cero producción).** Cada ronda FUERZA el entrelazado con
+`test/integration/helpers/row-lock-barrier.ts`: la prueba toma `SELECT … FROM "Card" … FOR UPDATE`, suelta **2** altas y
+comprueba en `pg_stat_activity` que las dos esperan en el `INSERT "SellRequestItem"` (la FK a `"Card"` pide
+`FOR KEY SHARE`), ya con el acumulado leído y su `SellRequest` insertada. Al soltar, el SSI tiene que abortar a una y su
+reintento corre sin rival ⇒ determinista. Aserciones endurecidas, ninguna relajada (cero `5xx`; 201 en todas; ≥1
+conflicto **por ronda**). El helper de barrera documenta ahora a este usuario y que la sentencia que espera puede ser
+cualquiera que pida candado sobre la fila (no solo `UPDATE`).
+
+**Lo que se pierde, dicho:** la prueba nueva ya no distingue 2 intentos de 5, así que **ningún candado de integración
+sostiene hoy `SERIALIZABLE_ATTEMPTS = 5`**. Queda un candado unitario barato del literal
+(`test/serializable-retry.spec.ts`, «el presupuesto es 5») y la propuesta de estrés fuera del gate en
+`docs/TECH_DEBT.md` «TD-1 (arreglos-rápidos)».
+
+⛔ NO MEDIDO: la proporción de `503` con ~50 altas simultáneas del mismo vendedor.
