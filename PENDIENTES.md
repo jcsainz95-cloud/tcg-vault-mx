@@ -5,6 +5,25 @@
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
 > Última limpieza: **2026-09-11 ~08:30 UTC** (orquestador, sesión 2, tras fusionar Stream A + andamiaje de CI a `main`). Cuerpos de los ítems: **verbatim**, sin reescribir.
 
+## Actualización 2026-09-25 (orquestador, sesión 4) — lección: ramificar desde el head de una PR abierta
+
+### P-RAMA-HEAD-PR · Empujar una rama nueva **en el mismo sha** que el head de una PR abierta contamina sus checks
+
+**Qué pasó (error del orquestador, medido):** creé `claude/m4-boveda` desde `5e623e6` —el head de la PR #62,
+con sus cuatro veredictos y 66/66 en verde— y la empujé **sin commit propio encima**. Los runs de push de la
+rama nueva cayeron en el mismo sha y la concurrencia **canceló** los de #62: la PR pasó a `unstable` con el
+dueño a punto de fusionar. Nada estaba roto; el rojo era mío.
+
+**Cómo se cerró:** re-run de los tres runs cancelados (CI `35950322460`, E2E `35950322445`, Security SAST
+`35950322454`) — medido 2026-09-25 ~02:53 UTC por API: los tres `completed/success` (attempt 2) y #62
+`mergeable_state: clean` sobre `5e623e6`, 98/98 check-runs `success`.
+
+**Regla práctica:** una rama nueva se empuja **solo con un commit propio encima** del head de la PR (sha
+distinto), o se espera a que la PR fusione. Nunca se empuja una rama en el sha de una PR abierta.
+
+**Dueño:** orquestador. **Fecha de medición:** 2026-09-25. **Comprobación:** antes de `git push` de una rama
+nueva, `git rev-parse HEAD` no coincide con el `head.sha` de ninguna PR abierta (`GET /pulls?state=open`).
+
 ## Actualización 2026-09-22 (orquestador, sesión 4) — propuesta de regla O-17
 
 > Medido sobre `b5e24df`. **No se escribe en `CLAUDE.md` en esta rama a propósito:** este árbol aún no
