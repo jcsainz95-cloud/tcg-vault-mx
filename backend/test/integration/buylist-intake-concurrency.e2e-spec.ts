@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_CARDS, E2E_USERS } from '../../prisma/e2e-fixtures';
+import { diferida, esperarBloqueoDeFila } from './helpers/row-lock-barrier';
 
 /**
  * # `buylist-intake-concurrency.e2e-spec.ts` — ⭐⭐ **DOS ALTAS A LA VEZ NO PUEDEN DAR `500`**
@@ -37,13 +38,45 @@ import { E2E_CARDS, E2E_USERS } from '../../prisma/e2e-fixtures';
  * —es el motivo mismo de que la transacción sea `SERIALIZABLE`—, solo se le da cabecera.
  * *Un candado de concurrencia que comparte cupo con el resto de la suite mide el orden de los
  * ficheros, no el código.*
+ *
+ * ## ⭐⭐ El conflicto se FUERZA, no se sortea (P-BUYLIST-CONC-FLAKE, 2026-09-25)
+ * La versión anterior disparaba **4 altas a la vez × 12 rondas** y esperaba que la máquina produjera
+ * la carrera. Eso hacía la prueba dependiente de la carga **por los dos lados**:
+ *  · ROJO sin defecto: con 4 transacciones peleando por el MISMO predicado, de vez en cuando una
+ *    pierde las 5 veces seguidas ⇒ `503 BUSY_TRY_AGAIN` (§0-T, «la cola esperable» bajo carga) ⇒
+ *    reventaba `expect(servidor).toEqual([])` (línea 161 de la versión anterior). Medido: rojo en el
+ *    CI de la PR #59 (1 de 1044 pruebas, verde al re-run) y **1/30 corridas aisladas en local**
+ *    (2026-09-25, `connection_limit=5` como el CI), las dos veces con `503 BUSY_TRY_AGAIN`. ⚠️ No
+ *    era la no-vacuidad la que fallaba: era el presupuesto de reintentos agotándose bajo carga.
+ *  · y la no-vacuidad (`conflictos > 0`) dependía igualmente de que la máquina entrelazara.
+ *
+ * Ahora el entrelazado lo pone la prueba, con la técnica de `helpers/row-lock-barrier.ts`:
+ * ```
+ * prueba:  BEGIN; SELECT … FROM "Card" WHERE id = :carta FOR UPDATE
+ * A y B:   (SERIALIZABLE) leen el acumulado del mes · INSERT "SellRequest" ·
+ *          INSERT "SellRequestItem" ⇒ la FK a "Card" pide FOR KEY SHARE ⇒ SE BLOQUEAN (verificado
+ *          en pg_stat_activity, las DOS)
+ * prueba:  COMMIT ⇒ A y B siguen, cada una habiendo leído un acumulado que NO incluye la fila de la
+ *          otra ⇒ no hay orden serial equivalente ⇒ el SSI de Postgres TIENE que abortar a una
+ * ```
+ * ⇒ **Toda ronda produce un conflicto real**, por construcción y no por suerte. Y como solo hay DOS
+ * contendientes, el reintento del perdedor corre **sin rival** (la otra ya commiteó) ⇒ prospera: la
+ * aserción «cero `5xx`» deja de ser una apuesta sobre el presupuesto de reintentos bajo carga y pasa
+ * a medir **exactamente** lo que este candado protege: que el conflicto existe (`SERIALIZABLE`
+ * vivo, `SEC-A2`) y que se reintenta en vez de salir por la puerta.
+ * ⛔ Ninguna aserción se relajó: las tres siguen (cero `5xx`, ≥1 alta creada, ≥1 conflicto) y ahora
+ * se exigen **por ronda** y con cifras exactas (2 altas `201` por ronda).
  */
 
 const CLABE_B = '012345678901234568';
-/** Rondas, TODAS. Si en ninguna hubo un conflicto, la prueba REVIENTA (ver el control de no-vacuidad). */
-const RONDAS = 12;
-/** Altas simultáneas por ronda. */
-const CONC = 4;
+/** Rondas, TODAS. Cada una FUERZA su conflicto; si alguna no lo produce, la prueba REVIENTA. */
+const RONDAS = 4;
+/**
+ * Altas por ronda. ⚠️ **DOS, a propósito**: con dos contendientes el SSI aborta a UNA y su reintento
+ * corre sin rival ⇒ el resultado es determinista. Con tres o más, los perdedores vuelven a pelearse
+ * entre sí sin barrera y se regresa a la tirada de dados que este fichero dejó atrás.
+ */
+const CONC = 2;
 /** Tope mensual que se le presta al usuario de esta suite (y se le retira en el `afterAll`). */
 const CAP_SUITE_CENTS = 100_000_000;
 
@@ -138,14 +171,45 @@ describe('§6 / SEC-A2 — altas simultáneas de buylist: cero `5xx`', () => {
       },
     });
 
+  /**
+   * Una ronda con el conflicto FORZADO: la prueba sostiene el candado de la fila de `Card` que la FK
+   * de `SellRequestItem` necesita, suelta `CONC` altas, **comprueba** que las `CONC` quedaron
+   * bloqueadas dentro de su transacción serializable (ya leyeron el acumulado y ya insertaron su
+   * `SellRequest`) y solo entonces suelta el candado.
+   */
+  async function rondaForzada() {
+    const candadoPuesto = diferida();
+    const todasBloqueadas = diferida();
+    const tx = h.prisma.$transaction(
+      async (t) => {
+        await t.$executeRawUnsafe(`SELECT id FROM "Card" WHERE id = $1 FOR UPDATE`, cardId);
+        candadoPuesto.abrir();
+        await todasBloqueadas.promesa;
+      },
+      { timeout: 30000, maxWait: 30000 },
+    );
+    await candadoPuesto.promesa;
+    const peticiones = Array.from({ length: CONC }, () => alta());
+    try {
+      // ⛔ No es un `sleep`: si el alta dejara de escribir `SellRequestItem` dentro de la
+      // transacción (o dejara de referenciar `Card`), esto REVIENTA en vez de medir en falso.
+      await esperarBloqueoDeFila(h.prisma, 'SellRequestItem', CONC);
+    } finally {
+      todasBloqueadas.abrir();
+      await tx;
+    }
+    return Promise.all(peticiones);
+  }
+
   it('⭐⭐ N altas simultáneas repetidas: ni un solo `5xx`, y el conflicto SÍ ocurrió', async () => {
     const codigos: number[] = [];
     const servidor: string[] = [];
-    // ⛔ SIN salida anticipada: todas las rondas, siempre. Cortar al primer conflicto hacía que cada
-    // corrida ejercitara una cantidad de concurrencia distinta — y una prueba cuyo trabajo depende
-    // de la suerte tiene un resultado que también depende de la suerte.
+    const conflictosPorRonda: number[] = [];
+    // ⛔ SIN salida anticipada: todas las rondas, siempre.
     for (let ronda = 0; ronda < RONDAS; ronda++) {
-      const res = await Promise.all(Array.from({ length: CONC }, () => alta()));
+      const antes = conflictos;
+      const res = await rondaForzada();
+      conflictosPorRonda.push(conflictos - antes);
       for (const r of res) {
         codigos.push(r.status);
         // El CUERPO del 5xx viaja al assert: un `Array [500, 500]` no dice si fue el conflicto sin
@@ -156,17 +220,20 @@ describe('§6 / SEC-A2 — altas simultáneas de buylist: cero `5xx`', () => {
       }
     }
 
-    // ⛔ LA MITAD QUE FALLA POR EXCESO, y es el defecto medido: un `500` en cara del cliente por una
+    // ⛔ LA MITAD QUE FALLA POR EXCESO, y es el defecto medido: un `5xx` en cara del cliente por una
     // transacción que el motor abortó haciendo exactamente su trabajo.
     expect(servidor).toEqual([]);
-    // Toda respuesta es una de las del contrato §6 (201 crea; 422 si el tope mensual la para).
-    for (const c of codigos) expect([201, 422]).toContain(c);
+    // Con el tope prestado, TODA alta de cada ronda prospera: el perdedor del conflicto se reintenta
+    // y crea su solicitud. (Más estricto que el `[201, 422]` de antes: aquí nada puede quedarse fuera.)
+    expect(codigos).toEqual(Array.from({ length: RONDAS * CONC }, () => 201));
 
-    // ⛔ CONTROL DE NO-VACUIDAD, en sus dos mitades. Sin ALTAS que prosperen no hubo concurrencia
-    // real que medir (fue así como se cazó el defecto de aislamiento de este mismo fichero), y sin
-    // CONFLICTO observado el verde de arriba no dice nada sobre el reintento.
-    expect(creadas.length).toBeGreaterThan(0);
+    // ⛔ CONTROL DE NO-VACUIDAD, en sus dos mitades — y ahora POR RONDA. Sin ALTAS que prosperen no
+    // hubo concurrencia real que medir, y sin CONFLICTO observado en CADA ronda el verde de arriba no
+    // diría nada sobre el reintento: significaría que el camino dejó de ser serializable (`SEC-A2`
+    // caído) o que la barrera dejó de entrelazar lo que dice entrelazar.
+    expect(creadas.length).toBe(RONDAS * CONC);
     expect(conflictos).toBeGreaterThan(0);
+    for (const n of conflictosPorRonda) expect(n).toBeGreaterThanOrEqual(1);
   }, 180000);
 
   it('⭐ y las que prosperaron quedaron BIEN escritas (el reintento no duplica ni deja a medias)', async () => {
