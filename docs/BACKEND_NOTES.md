@@ -23876,3 +23876,138 @@ el «un hecho, un instante» del .2-bis solo se cumple en el camino secuencial. 
 `order.update` del settle con el estado en el `WHERE` (decisión del arquitecto: cambia la conducta de una
 escritura de la tabla del dinero). **NO MEDIDO:** si esa misma carrera manda dos veces el correo `AV-2`
 (también cuelga de la lectura fuera de la tx).
+
+# §M4-VAULT · fase 2 — cola «Para bóveda», los cuatro verbos, vista física y H-1 (backend · 2026-09-25)
+
+> Contrato: `API_CONTRACT §M4-VAULT` **v1.79.3** (.3, .4, .5 con 6-bis, .10, .11, .12). Rama
+> `claude/m4-boveda`, commits `b6d5e43` (código + pruebas) y `ef7ce20` (arnés de carreras). ⛔ Sin schema:
+> `M-59` idéntico. ⛔ Cero dinero: ningún verbo lee ni escribe importes.
+
+## 1 · Dónde vive cada cosa
+
+| Pieza | Fichero | Nota |
+|---|---|---|
+| Reglas compartidas (puerta, `P`, retiros activos, `customerDrawers`, sugerencia) | `modules/vault/vault-placement.rules.ts` | Un cuerpo por regla; lo importan la cola, los verbos y la vista física |
+| Proyección de la fila `vault`, conteos, `VaultPlacementDTO`, invariantes | `modules/vault/vault-preparation.view.ts` | `loadVaultQueue` = la segunda fuente de la cola |
+| Los cuatro verbos | `modules/vault/vault-placement.service.ts` + `vault-placements.controller.ts` (`/admin/vault-placements`) | `POST`/`DELETE` con `@HttpCode(200)` |
+| Vista física | `modules/vault/vault-physical-inventory.service.ts`, ruta en `admin-vaults.controller.ts` | `physicalStateOf` exportada (pura) |
+| `customerDisplayName` + orden null-safe | `modules/vault/customer-display-name.ts` | H-1 |
+| Cola mezclada | `shipments.service.ts` · `pickingList` / `byRequestedAt` | La cola **lee**; `byLocation` sigue en el servicio (su guarda de residuo lo lee ahí) |
+| Ayudantes puros de proyección | `modules/shipments/preparation-view.ts` | `nullIfBlank`, `locationViewOf`, `conditionLabelOf`, `lastNameOf`, `preparationCardOf` — **movidos sin cambiar el cuerpo** para que `vault` los use sin ciclo de imports |
+| Códigos nuevos | `common/error-codes.ts` | `LOCATION_NOT_AVAILABLE`, `PLACEMENT_NOT_PENDING`, `PLACEMENT_NOT_PREPARED`, `PREPARATION_CLOSED`, `PREPARATION_INCOMPLETE`, `PREP_ITEM_BLOCKED` |
+
+- **Puerta del cliente:** `pg_advisory_xact_lock(79_125_059::int, hashtext(userId))` — namespace distinto del de
+  reservas (`63_120_959`), candado en `vault.placement-rules.spec.ts`. La toman los cuatro verbos (candado de forma:
+  4 llamadas).
+- **Cuerpos sin clase DTO** (`@Body() body: Record<string, unknown>`): el contrato fija `details` exactos para el `400`
+  (`{field:'status', allowed}`, `{field:'locationId'}`) y el `ValidationPipe` global no los da. Con metatipo `Object` la
+  pipe no valida ni recorta; valida el servicio. Llaves extra (`placedByUserId`, `placedAt`) se ignoran: el actor sale
+  de `@CurrentUser()` (prueba 11, medida por HTTP).
+- **`?action=` de la bitácora NO es dominio cerrado** (lo que .5 paso 11 pedía medir): `settings.controller.ts` ·
+  `auditLog` hace `where.action = action` libre. Las acciones nuevas (`vault_placement.placed | nothing_to_place |
+  prepared | unprepared | item_missing | item_missing_cleared`) se consultan sin registrarlas en ningún sitio (prueba
+  HTTP en `vault-placement-verbs.e2e-spec.ts`).
+
+## 2 · Decisiones de implementación que el contrato dejaba abiertas (para QA/techlead/frontend)
+
+1. **Conteos de `preparation` = partición de `items[]`** (suman `total`): `picked`/`missing` por su **marca** (aunque la
+   carta haya quedado bloqueada después), `pending` = colocable sin marcar, `blocked` = bloqueada **sin marcar**. Es lo
+   único coherente con «`pending` cuenta solo colocables sin marcar; una bloqueada con `pending` cuenta en `blocked`» y
+   con «se puede preparar ⇔ `pending === 0`». Las listas `picked/missing/blocked` de la bitácora de `prepared` /
+   `unprepared` usan la **misma** partición y son **ids de pieza** (`inventoryItemId`), igual que `moved/missing/…` del
+   `confirm`.
+2. **Orden de `items[]` en los resultados del `confirm`** y en la vista cargada por los verbos: por `folio` (unidades de
+   código). La cola ordena sus cartas con `byLocation` (§M4P-ORDER), sin cambio.
+3. **`fromLocationId` del `InventoryMovement` del `confirm`**: se lee la pieza en la misma tx justo antes del `updateMany`
+   con el `WHERE` del contrato (`…P, OR:[{locationId:null},{locationId:{not:target}}]`). El `move` de M1 no toma la puerta
+   (carrera benigna declarada en .5); si se colara entre la lectura y el `UPDATE`, el `from` podría ser el anterior.
+4. **Perder el CAS del `confirm` contra un «deshacer»** (solo alcanzable SIN la puerta — defensa en profundidad, mutación
+   m3) contesta `409 PLACEMENT_NOT_PREPARED` (la fila de la tabla), ⛔ no un `CONFLICT` genérico.
+5. **Vista física — «la marca más reciente»**: por `VaultPlacement.createdAt` desc, desempate `VaultPlacement.id` desc
+   (unidades de código). Dentro de `missing` / `unlocated` el orden es `card.name`, `folio`.
+6. **H-1 — orden de `GET /admin/vaults`**: con nombre, `localeCompare` (lo que ya había); `null` al final; desempate
+   **siempre** `email` (unidades de código) y `userId` — también entre nombres iguales (antes el empate quedaba al orden
+   de `Array.sort`).
+7. **`customerDisplayName` recibe `nameSource` opcional**: un llamador que no lo selecciona trata el nombre como no
+   fabricado. Las cinco fuentes lo seleccionan (candado por HTTP, prueba 27); la de fuente `ship` **no** (asimetría
+   declarada, candada en unidad).
+
+## 3 · Medido para el arquitecto (⛔ no alineado aquí, como pide .11)
+
+- **`pieceCount` de `GET /admin/vaults` ≠ `counts.total` de la vista física**, por construcción: la lista cuenta
+  `ownerType='customer' ∧ status ∉ NOT_ON_HAND` con **cualquier** titularidad (incluye `reserved`/`ownershipStatus=
+  'pending'`); la vista física cuenta `settled ∧ in_custody`. Medido por HTTP: un cliente con 1 pieza en custodia y 1
+  reservada ⇒ `pieceCount 2`, `counts.total 1` (prueba «MEDIDO» de `vault-placement-verbs.e2e-spec.ts`).
+
+## 4 · Pruebas
+
+- **Unidad** (nuevas): `vault.customer-display-name.spec.ts` (27/28 mitad unidad + candado «una función, cinco
+  fuentes»), `shipments.picking-list.vault.spec.ts` (fila `vault`, `P`, conteos, sugerencia, 26, invariantes, orden
+  mezclado), `vault.placement-rules.spec.ts` (reglas puras + candados de forma). Reescrito a propósito: el «`?destination=
+  vault` ⇒ VACÍO» de `shipments.picking-list.spec.ts` y el de `preparation-queue.e2e-spec.ts` (su premisa era el hueco).
+- **Integración**: `vault-placement-verbs.e2e-spec.ts` (32 casos: 4, 5, 7, 8, 9, 11, 12, 14–17, 19–23, 26–28, 30, 31,
+  33 sobre `placed`, 34, 403/404, invariante de la cola, `?action=`), `vault-placement-races.e2e-spec.ts` (6, 6/33, 13,
+  18, 24, 25, 32a, 32b). Fixtures: `test/integration/helpers/vault-placement-db.ts`.
+- **Carreras** (entrelazado forzado: candado de fila del CAS o la propia puerta, comprobado en `pg_stat_activity`):
+  todas `k/N = N/N` — ver la tabla del informe de la corrida en §5.
+- **Carrera 25 con la mutación m3 (sin puerta)**: su orden «PATCH primero» usa **la propia puerta** como barrera; sin
+  puerta en el producto nada se bloquea en ella y la espera revienta. Es límite del arnés de esa prueba de regresión, no
+  del producto (el contrato no le pide m3).
+
+## 5 · Mutaciones (sobre copia del árbol ENTERO, `git archive` de `b6d5e43` + el arnés de `ef7ce20`, en
+`scratchpad/backend-vault59/mut-f2`; la copia tiene su propio `git` local para revertir entre mutaciones)
+
+| Mutación | Prueba que la muerde | Resultado |
+|---|---|---|
+| m1 — `confirm` sin paso 6 y sin `preparedAt` en su CAS | 24 (orden «deshacer primero») | **roja**: 10/20 tiradas ok; las 10 «deshacer primero» dan `500` (CHECK `INV-VP-6`) |
+| m2 — `DELETE` sin estado bajo la puerta y sin `status:'pending'` en su CAS | 24 (orden «confirm primero») | **roja**: 10/20; las 10 «confirm primero» dan `500` |
+| m3 — quitar SOLO la puerta (los 4 verbos) | 24 | **verde 20/20** (lo que el contrato predice: los dos CAS sobre la misma fila bastan) |
+| m3 | 13 | **roja 0/10**: en las 10 tiradas, dos `200` y el cliente queda con **dos** cajones |
+| m3 | 18 | **roja 0/20**: violación (preparada con una colocable `pending`) en las 20 |
+| m3 (control) | 32b | verde 10/10 (el `WHERE` del cierre directo basta sin puerta) |
+| m4 — quitar `status:'pending'` del `WHERE` del cierre directo (la mutación de la prueba 32) | 32b | ⚠️ **verde 10/10 — SOBREVIVE**: con la puerta, el segundo `confirm {}` relee bajo la puerta (paso 5), ve `cancelled` y contesta `409` antes de su CAS. Ver §6 |
+| m4 + m3 (sin `status` y sin puerta) | 32b | **roja 0/10**: dos `200 nothing_to_place` y **dos** bitácoras en las 10 |
+| m5 — `customerDrawers` sin filtro de zona | unidad (1) + integración 4, 5, 8, 12, 14, 19, 20, 23… | **roja** (11 integración) |
+| m6 — trampa del NULL (`NOT:{locationId}` en vez del `OR`) | 7 | **roja** (solo integración: un doble de Prisma no evalúa SQL) |
+| m7 — `sortRows` de vuelta a `a.name.localeCompare(b.name)` | 28 (unidad) | **roja** (2) |
+| m8 — `sealed` con `User.name` crudo | 27 (unidad) | **roja** |
+| m9 — `409 {placed}` con `locationId` en vez de `location` | 23/33 | **roja** (solo integración) |
+
+## 6 · ⚠️ Discrepancia con el contrato (para el arquitecto — NO la cambié)
+
+**Prueba 32, mutación declarada:** *«quitar `status:'pending'` del `WHERE` del cierre directo ⇒ (b) debe dar dos
+bitácoras en alguna tirada ⇒ roja»*. **Medido: no muerde (10/10 verde)** mientras exista la puerta del cliente, porque
+el paso 5 (relectura bajo la puerta) ya filtra el segundo `confirm {}`. Solo se pone roja quitando **también** la puerta
+(0/10). Es el mismo razonamiento que el contrato hace para m3 en la prueba 24 («los dos CAS sobre la misma fila
+bastan»), al revés: aquí la puerta basta sin el `WHERE`. El `WHERE` sigue siendo necesario como defensa en profundidad
+(es la única protección si alguien quita la puerta — medido: m4+m3 roja), pero la prueba 32 tal como está escrita **no
+lo discrimina**. Decisión del arquitecto: o se reescribe la mutación de la 32 como «m4 + sin puerta», o se acepta que
+el candado del `WHERE` del cierre directo sea la combinación.
+
+# §M4-VAULT.2-bis.1 · el settle es un CAS (v1.79.4 · backend · 2026-09-25)
+
+> Cierra el hallazgo de la fase 1 (§M4-VAULT · M-59 §4 de arriba: `createdAt ≠ settledAt` bajo dos entregas
+> concurrentes). Commit `aa1fec7`, **separado** de la fase 2. Contrato: `API_CONTRACT §M4-VAULT.2-bis.1`, pruebas 35–39.
+
+- **Qué cambió:** en las dos ramas del settle (`onPaymentSucceeded` rama `vault` y `settleDirectShipOrder`) la primera
+  escritura de la tx es `tx.order.updateMany({ where: { id, status: { not: 'settled' } }, data })`. `count === 0` ⇒ la tx
+  devuelve `false` sin escribir nada más y, fuera, `return` antes de auditoría de anomalías, confirmación de invitado y
+  `AV-2`. `data` idéntico al de antes. Early-return, `skipDuplicates` y `ProcessedStripeEvent` sin cambio.
+- **Pruebas:** `test/payments.settle-cas.spec.ts` (36a, 38iii; tres variantes). `vault-placement-birth.e2e-spec.ts`: C
+  (35) pasa a aserción con un **trigger de prueba** que cuenta `UPDATE "Order"` `settled → settled` (se borra en
+  `afterAll`); H (37) repite la carrera en `direct_ship` registrado e invitado; I (38ii) `failed → settled`. 38(i) = la B
+  de siempre, verde.
+- **Rojo antes / verde después (N=10, entrelazado forzado, medido por mí):** 35 **0/10 → 10/10**; 37 invitado **0/10 →
+  10/10**; 37 registrado **0/10 → 10/10**. Unidad: 6/9 rojas antes, 9/9 después.
+- **36(b):** `E2EHarness` **no** captura correos (medido: no sobreescribe `MAIL_PORT`; `rg -i mail
+  test/integration/helpers/e2e-app.ts` sin captura) ⇒ «un `AV-2` / una confirmación» se prueba solo por la unidad 36(a),
+  como permite el contrato.
+
+**Mutaciones (copia del árbol entero, `git archive aa1fec7`):**
+
+| Mutación | Qué la muerde | Medido |
+|---|---|---|
+| s1 — quitar `status` del `WHERE` (rama `vault`) | 35 | **0/10 verdes** (roja en las 10). En una tirada `createdAt === settledAt` coincidió por milisegundo y el trigger contó igual `re=1`: sin el conteo esa tirada habría pasado. También 5 unitarias |
+| s2 — ídem en `settleDirectShipOrder` | 37 | **0/10** invitado y **0/10** registrado; 35 sigue 10/10 (muerde a quien arregle solo `vault`). 2 unitarias |
+| s3 — la rama `vault` sigue avisando tras `count 0` | 36(a) | roja (1 unitaria: `AV-2` enviado por el perdedor) |
+| s4 — `createVaultPlacement` con `create` a secas (la mutación de fase 1) | **ya no la muerde la integración** (C/35 17/17 verde: el perdedor no llega al `INSERT`) | **16 unitarias rojas** (`payments.vault-placement-birth.spec.ts`: la forma `createMany + skipDuplicates`). Es lo que la prueba 39 declara: la segunda defensa queda candada por forma |
