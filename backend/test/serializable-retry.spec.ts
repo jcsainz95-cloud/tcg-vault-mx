@@ -213,3 +213,20 @@ describe('runSerializable — reintenta el conflicto y NADA más', () => {
     expect(intentos).toBe(1);
   });
 });
+
+/**
+ * ⚠️ **Candado BARATO del literal, no prueba de suficiencia** (techlead C1/TD-4, gate sobre `3806fec`).
+ *
+ * El 5 salió de una medición HISTÓRICA: 2026-09-14, `dd3522b`, versión anterior de
+ * `buylist-intake-concurrency.e2e-spec.ts` (4 altas simultáneas × 12 rondas) — con 3 intentos roja
+ * 10/10 (N=10), con 5 verde 8/8 (N=8); autor: backend. Desde `c36b492` (2026-09-25) esa prueba fuerza
+ * el conflicto con DOS contendientes y ya no distingue 2 de 5: **ningún candado de integración
+ * sostiene hoy el 5**. Esta prueba solo obliga a que quien lo cambie lea la nota de
+ * `SERIALIZABLE_ATTEMPTS` y re-mida (propuesta de estrés:
+ * `docs/TECH_DEBT.md`, «TD-1 (arreglos-rápidos)»).
+ */
+describe('SERIALIZABLE_ATTEMPTS — el presupuesto es 5 (medición de 2026-09-14, `dd3522b`)', () => {
+  it('⛔ el presupuesto es 5: cambiarlo exige re-medir bajo carga, no solo editar el literal', () => {
+    expect(SERIALIZABLE_ATTEMPTS).toBe(5);
+  });
+});
