@@ -24262,3 +24262,101 @@ M1 quitar el `increment`; M2 `increment: 0`; M3 mover el `increment` a una segun
   re-siembra a mitad de corrida invalidaría sesiones de Playwright) y eso no lo puedo medir sin levantar el stack.
   **NO MEDIDO:** si alguna corrida E2E re-siembra con sesiones ya emitidas.
 - **`backend/prisma/data-repair/*.sql`:** no tocan `User`.
+
+# C7 — límite de intentos de contraseña POR CUENTA + dispositivo conocido (v1.80 · backend · 2026-09-28)
+
+> Implementa `API_CONTRACT §1` «Límite de intentos por cuenta» (`#auth-password-attempts`) y `ARCHITECTURE §4.57`
+> (decisiones 1–14). Código en `cf32dc9` (rama `claude/paquete-seguridad`). Todo lo de esta sección está **medido**
+> salvo lo marcado **NO MEDIDO**.
+
+## 1 · Dónde vive cada cosa
+
+| Pieza | Fichero |
+|---|---|
+| Números con nombre (5 libres, 60 s·2^(f−5) tope 3600 s, olvido 2 h, 250 ms, 30 s, 50 000 claves, 24 h) y `lockMsForFailures` | `backend/src/modules/auth/password-attempts.constants.ts` |
+| Almacén: `MemoryLoginAttemptStore` (cuerpo síncrono ⇒ atómico), `RedisLoginAttemptStore` (Lua, una ida y vuelta), `ResilientLoginAttemptStore` (Redis con plazo 250 ms ⇒ memoria 30 s), cliente Redis propio, selección | `backend/src/modules/auth/login-attempt.store.ts` |
+| Política: claves (HMAC del correo normalizado vía `PiiCryptoService.blindIndex`, `auth-cp:v1:`, `auth-pwdev:v1:`), `reserve` ⇒ `429`, `clear`/`clearForUser`, efectos del candado sin `await` | `backend/src/modules/auth/password-attempts.service.ts` |
+| `deviceToken` (JWT HS256 90 d, llave HKDF de `JWT_REFRESH_SECRET`, `info=tcg-hunt/device-token/v1`) | `backend/src/modules/auth/device-token.service.ts` |
+| Orden normativo en `login`, contador de `change-password`, limpieza en `reset-password`, `deviceToken` en login/google/refresh/reset-password | `backend/src/modules/auth/auth.service.ts` |
+| `Retry-After` en `429 TOO_MANY_PASSWORD_ATTEMPTS` | `backend/src/modules/auth/retry-after.interceptor.ts` (en `AuthController`) |
+| Reset por admin levanta el candado | `backend/src/modules/admin/admin.service.ts` (`resetPassword`) + `AdminModule` importa `AuthModule` |
+| Correo de aviso a staff | `mail.templates.ts` `passwordLockAlertTemplate`, `MailService.sendPasswordLockAlert` |
+| Código de error | `common/error-codes.ts` `TOO_MANY_PASSWORD_ATTEMPTS` (zona compartida, lo pedía el diseño) |
+| Memoria siempre bajo la suite | `config/test-env.ts` `isLoginAttemptRedisDisabled()` (zona compartida, lo pedía el diseño) |
+| `trust proxy = 1` (C7-18) | `backend/src/trust-proxy.ts`, usado por `main.ts` **y** por el arnés E2E (`test/integration/helpers/e2e-app.ts`, que antes no lo ponía) |
+
+## 2 · Para frontend
+
+- `POST /auth/login` acepta `deviceToken?` (string ≤ 2048; más largo ⇒ `400 VALIDATION_ERROR` del `ValidationPipe`;
+  ajeno/caducado/mal firmado ⇒ se ignora sin error).
+- `200` de `login`, `google`, `refresh` y `reset-password` traen `deviceToken`. `reset-password` responde
+  `{ ok: true, deviceToken }` (sin sesión).
+- `429 TOO_MANY_PASSWORD_ATTEMPTS`: cabecera `Retry-After` = `details.retryAfterSeconds` (mismo número, segundos).
+  Lo emiten `login` y `change-password`. El `message` es fijo en inglés y no distingue nada.
+
+## 3 · Decisiones de implementación que el diseño no fijaba (para arquitecto/techlead)
+
+1. **Tope del correo 1/24 h:** vive en el almacén, como `claimOnce(key, ttlMs)` (Redis `SET NX PX`; memoria con
+   el mismo `Map` acotado). §4.57.5 solo nombra `acquire`/`reset`; no quise añadir estado a la BD.
+2. **`reset-password` y reset por admin limpian también el cubo de `change-password`** (`auth-cp:v1:<id>`), no
+   solo el del login: si no, el usuario recién reseteado podía encontrarse `change-password` en `429` con una
+   sesión nueva. Los cubos de dispositivo no se pueden enumerar (van por `jti`) y no se limpian.
+3. **`change-password`:** solo el `200` limpia (lectura literal del contrato). Un `422 PASSWORD_SAME_AS_CURRENT`
+   tras una actual correcta **cuenta** como intento.
+4. **Correo a staff solo si `status = active`** (un staff bloqueado/borrado no recibe aviso).
+5. **Bitácora:** `actorUserId = null` en login (nadie autenticado); `= userId` en `change-password`.
+6. **`Retry-After` por interceptor del módulo `auth`** y no en el filtro global (`common/filters`, zona compartida
+   que el diseño no pedía tocar). El filtro conserva las cabeceras ya puestas.
+7. **`AdminService` recibe `PasswordAttemptsService` como `@Optional()`** porque 25 specs lo construyen a mano; el
+   cableado real lo prueba C7-8(b) por HTTP contra la app.
+8. **`AuthService` NO lo recibe opcional:** las 14 construcciones manuales en specs usan
+   `test/helpers/auth-c7-deps.ts` (política y dispositivo REALES sobre memoria nueva; no apaga nada).
+9. **Arranque con Redis:** `ResilientLoginAttemptStore.onModuleInit` conecta con plazo de 2 s; si falla, arranca
+   igual en memoria. Con un Redis que acepta TCP y no contesta, el arranque espera esos 2 s (medido en
+   `auth.c7-store.spec.ts`).
+
+## 4 · Pruebas y dónde viven
+
+| C7 | Unit (sin infra) | Integración (Postgres/Redis reales) |
+|---|---|---|
+| 1 | `auth.c7-policy.spec.ts` (5/5 correos nuevos) | `auth-password-attempts.e2e-spec.ts` (X-Forwarded-For distinto, 5/5) |
+| 2, 3, 7, 9, 10, 11, 14, 16, 17 | `auth.c7-policy.spec.ts` | `auth-password-attempts.e2e-spec.ts` |
+| 4 | memoria: `auth.c7-store.spec.ts` y `auth.c7-policy.spec.ts`, **N=10, 10/10** cada una | HTTP 20 simultáneos; Redis: `auth-password-attempts-redis.e2e-spec.ts`, **N=10, 10/10** almacén y **N=10, 10/10** `AuthService` |
+| 5, 6 | `auth.c7-store.spec.ts` (reloj falso) | Lua: `auth-password-attempts-redis.e2e-spec.ts` |
+| 8 | `auth.c7-policy.spec.ts` (a–d) | `auth-password-attempts.e2e-spec.ts` (a–d, incl. reset admin por HTTP) |
+| 12 | — | `auth-password-attempts-redis.e2e-spec.ts` (prefijo aleatorio; sin `REDIS_URL` salta con aviso salvo `E2E_STRICT_INFRA=true`) |
+| 13 | `auth.c7-store.spec.ts` (fallo, cuelgue, ioredis real a puerto cerrado y a agujero negro) | — |
+| 15 | `auth.c7-policy.spec.ts` (audit que nunca resuelve, 1 correo/24 h, customer 0) | filas reales en `AuditLog` |
+| 18 | `auth.c7-trust-proxy.spec.ts` | — |
+| deviceToken | `auth.c7-device-token.spec.ts` | refresh con `deviceToken` en `auth-password-attempts.e2e-spec.ts` |
+
+**Mutaciones** — sobre copia del árbol ENTERO (`git archive cf32dc9`), 24 de 24 en rojo (medido 2026-09-28):
+M1 sin reserva · M2 candado tras argon2 · M2b dejar pasar al acierto · M3 no contar inexistente · M4 `await` entre
+mirar y contar (memoria: store 10/10 y política 10/10 en rojo) · M4r dos operaciones en Redis (20/20 en rojo) ·
+M5a contar durante el candado · M5b sin tope · M6 TTL ≤ tope · M7 no limpiar al acertar · M8 limpiar en
+forgot-password · M9 ignorar deviceToken · M10a no comparar `sub` · M10b firmar con `JWT_REFRESH_SECRET` tal cual ·
+M11 limpiar la cuenta en acierto por dispositivo · M12 correo en claro en la clave · M13a fail-open · M13b
+fail-closed · M14 umbral por rol · M15 `await` de la bitácora · M16 compartir cubo login/cp · M17a sin normalizar ·
+M17b saltar en test · M18 `trust proxy = true`; extra: M19 sin `Retry-After`, M20 correo sin tope de 24 h.
+
+## 5 · N-C7-4 y N-C7-5 (medidos)
+
+- **N-C7-4:** bajo la suite **no hay `PII_HMAC_KEY`**; `PiiCryptoService` usa una clave EFÍMERA aleatoria por
+  proceso (arnés `NODE_ENV=test`) ⇒ el blind index es determinista dentro del proceso y el candado funciona. Visto en
+  el aviso `PII_HMAC_KEY not set — using an EPHEMERAL random key` y en las pruebas verdes. En producción/staging la
+  clave es obligatoria (fail-fast ya existente).
+- **N-C7-5 (backend):** con C7 activo, la suite de integración existente (51 suites, sin las dos nuevas) quedó
+  **51/51 verde, 1135 pasan, 2 saltadas** (mismas que antes) y la unitaria **357/357 suites, 5889 pruebas**.
+  **Ninguna spec existente hace ≥ 5 logins fallidos con el mismo correo en el mismo `AppModule`**; no hubo que cambiar
+  ninguna por el candado. Las que sí cambié, por **otra** causa (constructor con dos dependencias nuevas, o el
+  nuevo shape de `reset-password`): `auth.change-password.spec.ts`, `auth.email-flows.spec.ts` (además
+  `resetPassword` ⇒ `{ ok, deviceToken }` y la fila de prueba gana `email`), `auth.google.spec.ts`,
+  `auth.login-timing.spec.ts`, `auth.logout.spec.ts`. **Frontend (Playwright): NO MEDIDO** por corrida; por `grep`
+  no encontré ≥ 5 logins fallidos con el mismo correo en `frontend/e2e`. Nota para frontend: `loginViaApi`
+  (`frontend/e2e/utils/env.ts`) reintenta ante **cualquier** `429`, también `TOO_MANY_PASSWORD_ATTEMPTS`.
+
+## 6 · NO MEDIDO
+
+- **N-C7-3** (ritmo de `argon2.verify` en el contenedor de producción): NO MEDIDO. Solo indicativo, **local** (4
+  CPU, máquina cargada por otros agentes): ~159 ms por `verify` en serie y ~10,6 `verify`/s con 20 en paralelo.
+- N-C7-1, N-C7-2, N-C7-6: de devops (sin cambios).
