@@ -4,6 +4,17 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80 — P-71: EL CÓDIGO CORTO DEL SET SE PUBLICA** (2026-09-28, arquitecto. Base: **v1.79.5, vigente entera
+> salvo lo que esta rev toca**. Origen: `DESIGN_SYSTEM §37.3` (v4.9) pidió el dato (regla 9). `API_CONTRACT` sube a
+> **v1.80**. ⛔ **Sin schema, sin migración, sin endpoint, sin código de error, CERO DINERO.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | `CardSet.ptcgoCode` (ya guardado) se proyecta a seis DTOs con **una** normalización (`trim`, vacío ⇒ `null`) | §4.57.1–.3 | **Sí, backend y frontend** |
+> | **2** | «Buscar set» casa por nombre **o** código (servidor en tres índices; cliente en el cotizador) | §4.57.4 | **Sí, backend y frontend** |
+> | **3** | Qué NO se sabe de los datos de producción, y la consulta de solo lectura que lo mide | §4.57.6 | **No** (medición del dueño) |
+>
+> ---
 > **Rev v1.79.5 — «PARA BÓVEDA» TRAS LOS GATES: EL RIVAL DE LOS CAS ES EL CONTRACARGO** (2026-09-28, arquitecto. Base:
 > **v1.79.4, vigente entera salvo lo que esta rev toca**. Origen: veredictos de QA, techlead y seguridad sobre
 > `db7d1c2`. `API_CONTRACT` sube a **v1.79.5**. ⛔ **Sin schema, sin migración, sin endpoint, sin código de error, sin
@@ -25220,6 +25231,158 @@ fichero ya declara en su cabecera**.
 | `N-AR76-3` | **Cuántas `SellRequest`/`ShipmentRequest` vivas hay hoy**, y por tanto si el CAS de `updateStatus` cambia algo para alguien **hoy**. Sé que **no hay ventas reales** (`HECHOS.md`), no cuántas filas sintéticas quedan | `count(*)` con **usuario de solo lectura**, o corrido **por el dueño**. ⛔ Nunca una credencial por conversación | orquestador / dueño |
 | `N-AR76-4` | **Qué contesta hoy el `PUT` del dial con `acknowledgement.samplePriceCents` ausente pero `previewedNetDeltaCents` presente.** Leí que `parseIvaTransferAck` devuelve `null` si **cualquiera** de los dos falta ⇒ caería en `422 IVA_TRANSFER_ACK_REQUIRED`; **no lo disparé** | un `supertest` de dos líneas con token `super_admin` | backend |
 | `N-AR76-5` | **Que `P2028` produzca hoy `500` por HTTP.** Lo tengo del pentester y del propio `serializable-retry.ts` (que lo excluye del reintento a propósito); **yo no lo tiré** | sostener un candado de fila > 5 s y pegarle a la ruta | backend |
+
+---
+
+### 4.57 P-71 · EL CÓDIGO CORTO DEL SET («TWM») — proyección de un dato que ya guardamos (v1.80, 2026-09-28, NORMATIVO)
+
+> Petición del dueño (2026-09-09): *«en los sets cuando estamos viendo las imágenes pongamos el código chico que viene
+> en las cartas»*. Diseño de pantalla: `DESIGN_SYSTEM §37.3`. Contrato: `API_CONTRACT` Changelog v1.80. Stream:
+> **Catálogo y precios** (`catalog`, `buylist`) + **Inventario y vault** (`inventory/master-set.service.ts`) — toca dos
+> streams: el orquestador lo lleva en **un** pase (ningún módulo es zona compartida; ⛔ **no** hay cambio de
+> `prisma/`).
+
+#### 4.57.1 Lo medido (2026-09-28, en este worktree, leyendo — no ejecutando)
+
+| # | Hecho | Fuente |
+|---|---|---|
+| 1 | La columna existe: `CardSet.ptcgoCode String?`. ⚠️ `PENDIENTES.md` P-71 la cita en `:510`; hoy está en **`:612`** | `backend/prisma/schema.prisma:612` |
+| 2 | La escribe el sync de set en **create y update**, valor **crudo** del proveedor (`rs.ptcgoCode`, opcional en `RemoteCardSet`). En update, un `undefined` del proveedor deja la columna intacta (Prisma no-op); un `""` **sí** la escribiría | `catalog-sync.service.ts:1294,1304`; `pokemontcg-io.client.ts:20` |
+| 3 | Ningún DTO de catálogo/binder la publica; `frontend/src` la menciona 0 veces fuera de un comentario de mock | grep `ptcgoCode` |
+| 4 | `CardDTO` tiene **un** constructor, `toCardDTO` (`catalog.service.ts:230`), que ya lee `card.set?.name`. Todos los emisores pasan por él | grep `toCardDTO` |
+| 5 | `MasterSetSummaryDTO` sale de `MasterSetService.index()` (`select` explícito en `:430-443`), que sirve a **tres** endpoints; el cotizador compone el suyo en el cliente desde `GET /buylist/sets` (`catalog.service.ts:1930`, `select` explícito) | `master-set.service.ts:422`, `MasterSetIndex.tsx:49` |
+| 6 | El `?q=` del índice es `name contains insensitive` **en BD, antes del plegado** de combinados | `master-set.service.ts:431,546` |
+| 7 | `SetRefDTO` se construye en **seis** sitios (gráfica de valor, binder, tres servicios de sellado) | grep `SetRefDTO` |
+| 8 | `PublicBountyDTO` se construye en `buylist.service.ts:1304` con `include: { card: { include: { set: true } } }` | `:1272` |
+| 9 | El matcher de decks-meta normaliza a **clave de emparejado** (`trim().toUpperCase()`) y trae **todos** los sets con código | `deck-matcher.service.ts:107-109` |
+
+#### 4.57.2 Decisión: dónde viaja el código
+
+**Regla:** *el código viaja donde se pinta la identidad de una carta o se elige un set por su sigla.* Es la hermana de
+la regla de §4.41.5 para el logo («la imagen viaja donde el set es el objeto que se selecciona»).
+
+| DTO | Campo | Por qué |
+|---|---|---|
+| `CardDTO` | `setPtcgoCode` | tejas de Compra, ficha, carrito de venta. Un solo constructor ⇒ un solo cambio |
+| `MasterSetRefDTO` (**nuevo nombre**, = `SetRefDTO & {ptcgoCode}`) | `ptcgoCode` | cabecera del binder |
+| `SetPartDTO` | `ptcgoCode` | separador de parte en combinados — el de **esa** parte |
+| `MasterSetSummaryDTO` | `ptcgoCode` | teja del índice; fila plegada = el del principal |
+| `BuylistSetDTO` | `ptcgoCode` | fuente del índice **y** de la cabecera del cotizador |
+| `PublicBountyDTO` | `setPtcgoCode` | línea del carrito de venta que entra por bounty |
+
+**Descartado — añadirlo a `SetRefDTO`:** obligaría a tocar **seis** constructores, cinco de ellos en superficies
+(gráfica del valor, sellado) donde nadie lo pinta, y con la clave obligatoria cada uno sería un sitio más donde
+olvidarlo. El tipo con nombre propio (`MasterSetRefDTO`) hace que el compilador sostenga la diferencia — misma
+doctrina que `CardSetDTO`/`BuylistSetDTO` (v1.53, DT-Gd). Exponerlo en `SetRefDTO` el día que una de esas pantallas
+lo pida es aditivo.
+
+**Descartado — un campo por celda (`MasterSetCardCellDTO`):** repetiría el mismo valor N veces; la celda ya sabe su
+set (`set` o `parts[]` por `partSetId`).
+
+**Descartado — congelarlo en líneas de compra:** los hechos de una orden son congelados (§5.2); añadir uno es una
+decisión de dinero/registro que P-71 no necesita.
+
+#### 4.57.3 Una normalización, en el servidor
+
+Firma (en `backend/src/modules/catalog/`, junto a `toCardDTO`; ⛔ **no** en `common/` para no abrir zona compartida):
+
+```
+publicPtcgoCode(raw: string | null | undefined): string | null
+  // trim; '' ⇒ null; mayúsculas intactas. Pura. La usan TODOS los emisores de v1.80.
+```
+
+- **No** se pasa a mayúsculas: el diseño pide «mayúsculas tal como llegan», y hacerlo aquí escondería un dato raro que
+  conviene ver (§4.57.6 consulta 4).
+- **No** se reusa la normalización del matcher de decks-meta: aquella fabrica una **clave de comparación**; ésta
+  **exhibe** un dato. Unificarlas cambiaría la conducta del matcher o la de la pantalla. Dos funciones, dos propósitos.
+- **No** se normaliza en la ingesta en este pase: cambiaría lo guardado y el matcher lo lee. Si la consulta 4 de
+  §4.57.6 muestra basura real, se decide ahí.
+
+#### 4.57.4 «Buscar set»
+
+- **Servidor (tres índices, `index()`):** `where: q ? { OR: [ {name contains q insensitive}, {ptcgoCode contains q
+  insensitive} ] } : {}`. «Contiene», igual que el nombre: `por` encuentra `POR`, y una sola regla que explicar. Un
+  `equals` también pasaría P71-B5; se elige `contains` por simetría con el nombre y con el filtro del cliente.
+- **Cliente (cotizador):** `name.toLowerCase().includes(q) || (ptcgoCode ?? '').toLowerCase().includes(q)`, con el
+  mismo `q` recortado que hoy. ⛔ Nada de buscar por código en `GET /buylist/cards` ni en Compra: no se pidió.
+- ⚠️ **Conducta heredada que el código puede destapar (no cambia en este pase):** el `q` se aplica **antes** del
+  plegado de combinados (hecho 6). Si principal y subset tienen códigos **distintos** y el `q` casa solo con el del
+  principal, la fila sale **sin plegar el subset** (agregados parciales: p. ej. 25 en vez de 50). Con los nombres de
+  hoy no hay disparador conocido (buscar «Celebrations» casa ambas partes). **NO MEDIDO** si `cel25`/`cel25c` tienen
+  el mismo código (consulta 5 de §4.57.6). Si difieren, la corrección elegida es **ampliar las coincidencias con sus
+  socios de grupo antes de agregar** (una lectura del mapa `master-set-groups.ts`, cero queries) — se decide con el
+  dato, no antes.
+
+#### 4.57.5 Despliegue y compatibilidad
+
+- Aditivo en el cable. Vercel y Railway publican a la vez al fusionar (`HECHOS.md`): puede haber una ventana con
+  frontend nuevo y backend viejo ⇒ el campo llega `undefined`. **El render condiciona por verdad** (`code ? … : '#130'`),
+  ⛔ nunca `code !== null`, así la ventana pinta lo de hoy.
+- Si el carrito de venta persiste líneas en el cliente (**NO MEDIDO** si lo hace), una línea guardada antes del
+  despliegue no trae el campo: mismo trato, se omite.
+- Sin re-sync: el dato ya está en la columna para todo set sincronizado cuyo proveedor lo publique.
+
+#### 4.57.6 ⚠️ NO MEDIDO — los datos de producción, y la consulta que los mide
+
+| # | Afirmación **NO MEDIDA** | Qué la cierra | Dueño |
+|---|---|---|---|
+| `N-P71-1` | **Cuántos sets tienen código** en producción (con cartas importadas, que son los que se ven) | consultas 1 y 2 | dueño (la corre él) |
+| `N-P71-2` | **Si los recientes traen el código IMPRESO.** Indicios en contra: el mock de decks-meta modela `MEG` como «set sin ptcgoCode» (`frontend/src/lib/mock/decks-meta.ts:140`, es un mock, no un dato) y `DEVOPS_NOTES.md:3020` busca Pitch Black por `ptcgoCode='ME05'`, estilo de código que no es la sigla del cartón | consulta 3, comparada a ojo contra el cartón | dueño |
+| `N-P71-3` | Si hay códigos con espacios, minúsculas o vacíos | consulta 4 | dueño |
+| `N-P71-4` | Si hay **colisiones** (dos sets, un código): «Buscar set» devolvería ambos, lo cual es correcto, pero la teja/ficha no las distingue por código | consulta 5 | dueño |
+
+**Consulta de SOLO LECTURA** (Postgres de producción; la transacción es `READ ONLY` — el motor rechaza cualquier
+escritura dentro de ella; ⛔ la credencial no viaja por chat: la corre el dueño donde ya vive, o un usuario de solo
+lectura):
+
+```sql
+BEGIN TRANSACTION READ ONLY;
+
+-- 1) Cobertura global
+SELECT count(*)                                                            AS sets_total,
+       count(*) FILTER (WHERE btrim(coalesce("ptcgoCode", '')) <> '')      AS con_codigo,
+       count(*) FILTER (WHERE "ptcgoCode" IS NOT NULL
+                          AND btrim("ptcgoCode") = '')                     AS vacios
+FROM "CardSet";
+
+-- 2) Cobertura de los sets que se VEN (tienen cartas importadas)
+SELECT count(*)                                                            AS sets_con_cartas,
+       count(*) FILTER (WHERE btrim(coalesce(s."ptcgoCode", '')) <> '')    AS con_codigo
+FROM "CardSet" s
+WHERE EXISTS (SELECT 1 FROM "Card" c WHERE c."setId" = s.id);
+
+-- 3) Los 25 más recientes: ¿traen código y coincide con el impreso?
+SELECT s."externalId", s.name, s."releaseDate", s."ptcgoCode"
+FROM "CardSet" s
+ORDER BY s."releaseDate" DESC NULLS LAST, s.name
+LIMIT 25;
+
+-- 4) Valores raros (espacios, minúsculas, vacíos)
+SELECT s."externalId", s.name, '[' || s."ptcgoCode" || ']' AS codigo_crudo
+FROM "CardSet" s
+WHERE s."ptcgoCode" IS NOT NULL
+  AND (s."ptcgoCode" <> btrim(s."ptcgoCode")
+       OR s."ptcgoCode" <> upper(s."ptcgoCode")
+       OR btrim(s."ptcgoCode") = '');
+
+-- 5) Colisiones (incluye cel25/cel25c si comparten código)
+SELECT upper(btrim(s."ptcgoCode")) AS codigo, count(*) AS sets,
+       string_agg(s."externalId" || ' · ' || s.name, ' | ' ORDER BY s."releaseDate") AS cuales
+FROM "CardSet" s
+WHERE btrim(coalesce(s."ptcgoCode", '')) <> ''
+GROUP BY 1
+HAVING count(*) > 1
+ORDER BY 2 DESC, 1;
+
+ROLLBACK;
+```
+
+- Nombres de tabla/columna verificados contra `prisma/migrations/0000000000000_init/migration.sql:142-149`
+  (`"CardSet"`, `"ptcgoCode"`) y `schema.prisma` (`Card.setId`). ⛔ **No la corrí**: no tengo acceso a producción.
+- **Qué se hace con el resultado:** nada de esto bloquea construir (el diseño ya omite el código cuando falta). Bloquea
+  **prometerle** al dueño «verás el código en todos los sets». Si los recientes vienen vacíos o con otra sigla, la
+  captura manual (columna de override o edición en M2) es una **decisión de producto** para product-owner, y
+  entonces sí sería schema — ⛔ no en este pase.
 
 ---
 
