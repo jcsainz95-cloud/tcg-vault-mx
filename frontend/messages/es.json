@@ -2895,7 +2895,21 @@
         "share": "% del meta",
         "cardsParsed": "Cartas leídas",
         "sumQuantity": "Total sumado",
-        "matched": "Casadas"
+        "matched": "Casadas",
+        "cover": "Portada"
+      },
+      "cover": {
+        "matched": "casada",
+        "unmatched": "no casada",
+        "none": "sin portada",
+        "notReported": "—",
+        "reason": {
+          "unmatched_set": "el set no está en el catálogo",
+          "unmatched_number": "ese número no existe en el set",
+          "ambiguous": "varias cartas candidatas"
+        },
+        "noImage": "sin imagen en el catálogo",
+        "alt": "Portada de {deck}: {code}"
       },
       "deckError": "No se pudo leer este deck: {error}",
       "sumOk": "≈ 60 cartas",

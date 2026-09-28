@@ -230,3 +230,96 @@ describe('M12View · Publicar ahora (publicación real inmediata)', () => {
     ).toBeInTheDocument();
   });
 });
+
+/**
+ * rev `decks-portada` (§13 «Portada del deck», ARCHITECTURE §12.4.5): columna «Portada» del ensayo.
+ * Regla «nunca arte externo»: la miniatura sale SOLO de `cover.imageUrl` (nuestro catálogo) y jamás
+ * de Limitless — ni construida desde `SET-NÚM` ni aceptada si el backend la mandara por error.
+ */
+describe('M12View · columna Portada (decks-portada)', () => {
+  const OUR_IMG = 'https://images.pokemontcg.io/sv6/130_hires.png';
+  const LIMITLESS_IMG = 'https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/TWM/TWM_130_R_EN_SM.png';
+
+  function deck(over: Partial<DecksMetaRefreshReport['decks'][number]>): DecksMetaRefreshReport['decks'][number] {
+    return {
+      archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'a',
+      cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17 }, inBand: true,
+      ...over,
+    };
+  }
+
+  async function runWith(decks: DecksMetaRefreshReport['decks'], locale: 'es' | 'en' = 'es') {
+    vi.spyOn(api, 'getDecksMetaPreview').mockResolvedValue({ skipped: false, mode: 'dryrun', report: report({ decks }) });
+    renderWithProviders(<M12View />, locale);
+    fireEvent.click(screen.getByRole('button', { name: locale === 'es' ? 'Correr ensayo' : 'Run dry-run' }));
+    await screen.findByText(locale === 'es' ? 'PUBLICARÍA' : 'WOULD PUBLISH');
+  }
+
+  const imgSrcs = () => Array.from(document.querySelectorAll('img')).map((i) => i.getAttribute('src') ?? '');
+
+  it('portada casada: miniatura de NUESTRO catálogo + SET-NÚM + «casada»', async () => {
+    await runWith([
+      deck({ cover: { setCode: 'TWM', number: '130', matchStatus: 'matched', cardId: 'c1', imageUrl: OUR_IMG } }),
+    ]);
+    expect(screen.getAllByText('Portada').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('TWM-130').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('casada').length).toBeGreaterThan(0);
+    const srcs = imgSrcs();
+    expect(srcs.length).toBeGreaterThan(0);
+    expect(srcs.every((s) => s === OUR_IMG)).toBe(true);
+    expect(screen.getAllByAltText('Portada de Dragapult ex: TWM-130').length).toBeGreaterThan(0);
+  });
+
+  // 🔒 PRUEBA PRINCIPAL: si una URL de Limitless llega a pintarse (porque el backend la mandó por
+  // error, o porque alguien «arregla» la miniatura construyéndola desde SET-NÚM), esto se pone rojo.
+  it('NUNCA pinta una URL de Limitless, aunque el backend la mande en imageUrl', async () => {
+    await runWith([
+      deck({ cover: { setCode: 'TWM', number: '130', matchStatus: 'matched', cardId: 'c1', imageUrl: LIMITLESS_IMG } }),
+      deck({
+        archetypeId: 'charizard-ex', name: 'Charizard ex',
+        cover: { setCode: 'OBF', number: '125', matchStatus: 'unmatched_number', cardId: null, imageUrl: null },
+      }),
+    ]);
+    expect(screen.getAllByText('TWM-130').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('OBF-125').length).toBeGreaterThan(0);
+    const srcs = imgSrcs();
+    expect(srcs.filter((s) => /limitless/i.test(s))).toEqual([]);
+    // Y ninguna imagen de otra fuente se cuela: sin imagen propia, queda el pozo vacío.
+    expect(srcs).toEqual([]);
+    // Sigue diciendo la verdad del casado: casó, pero sin imagen utilizable del catálogo.
+    expect(screen.getAllByText(/sin imagen en el catálogo/).length).toBeGreaterThan(0);
+  });
+
+  it('no casada: dice por qué y no pinta imagen', async () => {
+    await runWith([
+      deck({ cover: { setCode: 'MEG', number: '56', matchStatus: 'unmatched_set', cardId: null, imageUrl: null } }),
+      deck({
+        archetypeId: 'gardevoir-ex', name: 'Gardevoir ex',
+        cover: { setCode: 'SVI', number: '86', matchStatus: 'ambiguous', cardId: null, imageUrl: OUR_IMG },
+      }),
+    ]);
+    expect(screen.getAllByText('no casada · el set no está en el catálogo').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('no casada · varias cartas candidatas').length).toBeGreaterThan(0);
+    // Aunque un no-casado trajera imageUrl, no hay carta elegida ⇒ no se pinta.
+    expect(imgSrcs()).toEqual([]);
+  });
+
+  it('sin portada (null) vs backend anterior (campo ausente)', async () => {
+    await runWith([
+      deck({ cover: null }),
+      deck({ archetypeId: 'charizard-ex', name: 'Charizard ex' }), // sin `cover`: backend previo a la rev
+    ]);
+    // Solo el deck con `cover:null` dice «sin portada» (tabla + bloque móvil = 2).
+    expect(screen.getAllByText('sin portada')).toHaveLength(2);
+    expect(imgSrcs()).toEqual([]);
+  });
+
+  it('en EN la columna y los estados tienen texto (paridad)', async () => {
+    await runWith(
+      [deck({ cover: { setCode: 'MEG', number: '56', matchStatus: 'unmatched_set', cardId: null, imageUrl: null } })],
+      'en',
+    );
+    expect(screen.getAllByText('Cover').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('not matched · set not in catalog').length).toBeGreaterThan(0);
+  });
+});

@@ -17491,3 +17491,37 @@ sha256 de origen). La URL del TTF la decide Google y no se puede fijar; por eso 
 del entorno) durante `(storefront)/page.test.tsx`. Ajeno a este cambio (no toca `HomeQuoter`); aislado ese
 fichero: 0/5 errores. Queda registrado como intermitente del test de la home — **no lo corrijo aquí**.
 
+
+## §80 · **Portada del deck en el ensayo M12** — columna «Portada» (2026-09-28, rama `claude/decks-portada`, base `836442a`)
+
+Contrato: `API_CONTRACT.md §13` («Portada del deck» + `decks[].cover` en `GET /admin/decks-meta/preview`);
+`ARCHITECTURE.md §12.4.5`. No es zona de dinero.
+
+| Dónde | Qué |
+|---|---|
+| `src/types/contract.ts` | `DecksMetaDeckReport.cover?: DecksMetaDeckCover \| null` + `DecksMetaDeckCover {setCode, number, matchStatus, cardId, imageUrl}`. **Opcional** a propósito (el contrato lo pide: tolerante a un backend anterior) |
+| `admin/m12/DeckCoverCell.tsx` | la celda: miniatura (`CardImage`) + `SET-NÚM` crudo + estado |
+| `admin/m12/M12View.tsx` | la columna `cover` al final de `deckColumns` |
+| `messages/{es,en}.json` | `admin.decksMetaRefresh.columns.cover` y `admin.decksMetaRefresh.cover.*` (paridad por `i18n-parity.test.ts`) |
+| `src/lib/mock/decks-meta.ts` | el mock del ensayo trae los tres casos: casada con imagen, `unmatched_set`, `null` |
+
+**Estados que pinta:** `casada` · `no casada · <motivo>` (`unmatched_set` ⇒ «el set no está en el catálogo»,
+`unmatched_number` ⇒ «ese número no existe en el set», `ambiguous` ⇒ «varias cartas candidatas») · `sin portada`
+(`cover:null`) · `—` (campo **ausente** = backend previo a la rev: no se afirma «sin portada» sin saberlo).
+Casada pero sin imagen utilizable ⇒ `casada · sin imagen en el catálogo`.
+
+**Regla «nunca arte externo» — dos capas.** (1) La única fuente de imagen es `cover.imageUrl`, y solo con
+`matchStatus === 'matched'`; nunca se construye una URL desde `setCode`/`number`. (2) Defensa en profundidad:
+`isOurCatalogImage` rechaza no-https y cualquier host que contenga `limitless` (`limitlesstcg.com`,
+`limitlesstcg.nyc3.cdn.digitaloceanspaces.com`, `limitless3.…`). Es una **denylist**, no una allowlist: los hosts
+del arte de carta no están cerrados en el frontend (`remotePatterns` refleja `SET_IMAGE_HOSTS`, que es de logos) —
+que el arte de carta venga solo de esos hosts: **NO MEDIDO**, por eso no se filtró por allowlist (podría ocultar
+arte legítimo).
+
+**Candado y su canario (medido 2026-09-28 sobre copia en scratchpad, determinista ⇒ 1 tirada por mutación):**
+`M12View.test.tsx` › «NUNCA pinta una URL de Limitless…». Mutación A (quitar `isOurCatalogImage`) ⇒ esa prueba
+roja (1/16 rojas). Mutación B (miniatura construida desde `SET-NÚM` con el CDN de Limitless) ⇒ 3/16 rojas. Árbol
+restaurado ⇒ 16/16.
+
+**Storefront: cero cambios** (`git diff -- frontend/src/app/[locale]/(storefront)` vacío; `DecksMetaDeckReport`
+solo lo usa M12).

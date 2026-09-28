@@ -4960,6 +4960,26 @@ export interface DecksMetaDeckReport {
   /** `sumQuantity` dentro de la banda de «las 60» (lo calcula el backend con sus umbrales). */
   inBand: boolean;
   error?: string;
+  /**
+   * rev `decks-portada` (§13 «Portada del deck», ARCHITECTURE §12.4) — la portada que Limitless da
+   * para el arquetipo y si casó contra NUESTRO catálogo. Solo lectura/procedencia: no altera
+   * `verdict`/`checks`/`inBand`. `null` ⇔ la home no trajo portada válida o la lista falló.
+   * Opcional (`?`) para tolerar un backend anterior a la rev, que no manda el campo.
+   */
+  cover?: DecksMetaDeckCover | null;
+}
+
+/** Portada del deck en el ensayo (`GET /admin/decks-meta/preview` › `decks[].cover`). */
+export interface DecksMetaDeckCover {
+  /** Crudo del `alt` de Limitless («TWM-130» ⇒ `TWM`), ya validado por el backend. */
+  setCode: string;
+  /** Crudo, SIN normalizar («25»; el casado normaliza 25 ↔ 025). */
+  number: string;
+  matchStatus: 'matched' | 'ambiguous' | 'unmatched_set' | 'unmatched_number';
+  /** `null` si no casó. */
+  cardId: string | null;
+  /** Imagen de NUESTRO catálogo de esa carta; `null` si no casó o no tiene imagen. Nunca arte de Limitless. */
+  imageUrl: string | null;
 }
 
 export interface DecksMetaRefreshReport {

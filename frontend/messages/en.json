@@ -2895,7 +2895,21 @@
         "share": "% of meta",
         "cardsParsed": "Cards read",
         "sumQuantity": "Total summed",
-        "matched": "Matched"
+        "matched": "Matched",
+        "cover": "Cover"
+      },
+      "cover": {
+        "matched": "matched",
+        "unmatched": "not matched",
+        "none": "no cover",
+        "notReported": "—",
+        "reason": {
+          "unmatched_set": "set not in catalog",
+          "unmatched_number": "number not in that set",
+          "ambiguous": "several candidate cards"
+        },
+        "noImage": "no image in the catalog",
+        "alt": "Cover of {deck}: {code}"
       },
       "deckError": "This deck couldn't be read: {error}",
       "sumOk": "≈ 60 cards",
