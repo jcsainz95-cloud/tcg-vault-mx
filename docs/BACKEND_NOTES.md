@@ -24228,3 +24228,50 @@ mueren; detalle en el informe del commit.
 - **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
   `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
 
+
+# P-83 · **MONEY** — `'sealed'` es clave de COLA, nunca de PRECIO (§M2-SK, v1.70 · backend · 2026-09-28, medido)
+
+Contrato: `API_CONTRACT.md` §M2-SK (normas SK-1…SK-4) y §0 `SEALED_MARKET_KEY_REQUIRED`; diseño: `ARCHITECTURE.md`
+§4.50.1. Rama `claude/paquete-dinero`. Implementado **lo que el reparto asigna a backend** (SK-2 en `inventoryValue`,
+SK-3); SK-1 (cero migración) y SK-4 (la vía `listPriceCents` ya existía) no llevan código.
+
+## Qué cambió
+- **SK-3** — `POST /admin/pricing/override` (`pricing.controller.ts`, justo tras `isCanonicalGradeKey` y **antes**
+  del `findUnique` de la carta): `productType:'sealed'` ∧ `gradeKey:'sealed'` ⇒ **`422 SEALED_MARKET_KEY_REQUIRED`**,
+  `details: { gradeKey: 'sealed', remedy: 'map_or_price_the_piece' }`. Código nuevo en `common/error-codes.ts`.
+  `isCanonicalGradeKey` **no se tocó**: `'sealed'` sigue siendo canónica para la COLA (pendientes, `PendingPriceEntry`).
+- **SK-2** — `admin.inventoryValue()`: retirado el fallback a `'sealed'` (antes pedía ambas claves al lote y hacía
+  `mercado ?? legacy`, **también para piezas MAPEADAS** sin referencia bajo su `sealed:tcg:<id>`). Ahora: sin clave de
+  mercado, o sin referencia bajo ella ⇒ `pendingPriceCount`. Efecto declarado por el contrato: el total **baja** y los
+  pendientes **suben** en la cuantía de las filas legadas que antes se sumaban.
+
+## Decisiones que el contrato no fijaba
+- **Orden de la guarda SK-3:** va antes de la búsqueda de la carta porque se decide solo con el body (un `cardId`
+  inexistente + `'sealed'` responde `422 SEALED_MARKET_KEY_REQUIRED`, no `404`). No se consulta BD para rechazar.
+- **Sin bitácora del intento bloqueado:** el contrato no la pide (la de `GRADED_*` sale de §O.8, que es de graduadas).
+- **Datos existentes:** ni backfill ni borrado (SK-1). Las filas `PriceReference(productType='sealed', gradeKey='sealed')`
+  que existan quedan **inertes** para `inventoryValue`; el censo sigue siendo el de P-79(d) (solo `SELECT`), NO MEDIDO
+  en producción.
+
+## Pruebas (rojo primero, medido)
+- `test/pricing.sealed-market-key-required.spec.ts` (8): 5 rojas contra el código previo, 3 controles verdes.
+- `test/admin.inventory-value-breakdown.spec.ts`: los dos casos que afirmaban el fallback se **invierten** (SK-2);
+  rojos contra el código previo.
+- `test/pricing.graded-intent.spec.ts`: dos casos usaban `sealed`/`'sealed'` como ejemplo de «no graduada»; pasan a
+  `sealed:tcg:4242` (con `'sealed'` hoy reciben el 422, que es la norma).
+- `test/integration/sealed-market-key.e2e-spec.ts` (3, Postgres real, por HTTP): sobre de error y CERO filas escritas;
+  control mapeado `200`; delta de `inventory-value` con fila legada (no suma) y mapeada sin ref (pendiente).
+
+## ⚠️ Discrepancia con el contrato (para el arquitecto — NO la cambié)
+§M2-SK SK-2 dice que `inventoryValue` es **«la ÚNICA excepción viva»**. **Medido 2026-09-28 (Postgres propio,
+sonda HTTP no commiteada):** con una pieza sellada **de cliente** sin mapeo y una fila legada `'sealed'` de MX$800,
+- `GET /vault/holdings` ⇒ `referenceValue {status:'priced', referenceMxnCents: 80000}` (`vault.service.ts` `holdings`,
+  `tryGradeKeyFor(item)` ⇒ `'sealed'` ⇒ `getReference(cardId,'sealed','sealed',finish)`);
+- `GET /vault/holdings/:id` ⇒ lo mismo (`holdingDetail`);
+- `GET /admin/finance/custody-value` ⇒ `105000 → 185000` (`admin.service.ts` `custodyValue`).
+Por lectura de código (NO MEDIDO por HTTP) el mismo patrón está en `admin-vaults.service.ts` (valuación en lote de
+bóvedas) y `admin.service.ts` `ownedItemRefs` (ficha 360° de usuario). La causa común: `tryBuildGradeKey` devuelve
+`'sealed'` para sellado, y esos lectores no tratan el sellado aparte (los cinco «gemelos» que el contrato ratifica sí).
+Además, para una pieza de cliente **mapeada** estos lectores leen `'sealed'` y **no** su `sealed:tcg:<id>`.
+No lo toqué: cambia el patrimonio que ve el **cliente** y el reparto de §M2-SK no lo asigna; decide el arquitecto
+(¿`tryBuildGradeKey('sealed')` ⇒ `null` en lectura, o cada lector resuelve `sealedMarketGradeKeyForItem`?).

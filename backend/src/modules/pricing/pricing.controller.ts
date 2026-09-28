@@ -10,6 +10,7 @@ import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } fro
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
+import { ErrorCode } from '../../common/error-codes';
 // `H3-d`: §0-Q (ausente/vacío/token/inválido) en UN solo sitio. No se re-teclea aquí.
 import { parseEnumFilter } from '../../common/enum-filter';
 import { ManualOverrideResult, PricingService, toPriceHistoryEntry } from './pricing.service';
@@ -352,6 +353,25 @@ export class PricingController {
           `productType:"${dto.productType}". Una fila de precio con una clave imposible es dinero que ` +
           'ninguna pieza puede leer.',
         { field: 'gradeKey' },
+      );
+    }
+    // ===== v1.70 (P-83, API_CONTRACT §M2-SK norma SK-3) — `'sealed'` es clave de COLA, no de PRECIO ==
+    //
+    // `isCanonicalGradeKey` admite `'sealed'` porque sigue siendo una clave legítima… de la COLA de
+    // pendientes (deduplica «esta clase de pieza espera precio»). Como clave de DINERO no sirve dos
+    // veces: la publicación solo lee `sealed:tcg:<productId>` (nadie lee esta fila) y no identifica al
+    // producto (un ETB y un blíster anclados a la misma `Card` compartirían la fila). Escribir dinero
+    // en una llave que no identifica al producto es peor que no escribirlo ⇒ se rechaza diciendo qué
+    // hacer, y ANTES de cualquier lectura o escritura (se decide solo con el body).
+    // ⛔ Sin fallback: no se «traduce» a otra llave ni se escribe en la pieza desde aquí.
+    if (dto.productType === 'sealed' && dto.gradeKey === 'sealed') {
+      throw BusinessException.validation(
+        ErrorCode.SEALED_MARKET_KEY_REQUIRED,
+        'Este sellado no tiene clave de mercado (gradeKey "sealed" = pieza sin mapeo): un precio de ' +
+          'mercado aquí no identifica al producto y ninguna pieza lo leería. Dos salidas: mapea la ' +
+          'pieza a su presentación (M2) y fija el precio bajo "sealed:tcg:<productId>", o fija el ' +
+          'precio de ESA pieza (InventoryItem.listPriceCents).',
+        { gradeKey: 'sealed', remedy: 'map_or_price_the_piece' },
       );
     }
     const card = await this.prisma.card.findUnique({

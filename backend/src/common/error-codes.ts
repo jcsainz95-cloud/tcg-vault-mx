@@ -167,6 +167,12 @@ export const ErrorCode = {
   // 409 y no 422: el body es sintácticamente impecable — el conflicto es con el ESTADO del recurso, y
   // lo que hay que cambiar es la INTENCIÓN, no el cuerpo.
   GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF: 'GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF',
+  // ⭐ v1.70 (P-83, API_CONTRACT §M2-SK norma SK-3 · §0) — 422. `POST /admin/pricing/override` con
+  // `productType:"sealed"` y `gradeKey:"sealed"` (la constante legada = pieza SIN mapeo). `'sealed'` es
+  // clave de COLA, nunca de PRECIO: la fila no la lee nadie (la publicación lee `sealed:tcg:<id>`) y no
+  // distingue un producto de otro. `details: { gradeKey: "sealed", remedy: "map_or_price_the_piece" }`.
+  // Remedio: mapear la pieza a su presentación (M2) o fijar `InventoryItem.listPriceCents` de ESA pieza.
+  SEALED_MARKET_KEY_REQUIRED: 'SEALED_MARKET_KEY_REQUIRED',
   // v1.50.3 (§4.38n.3 / §M2) — `GET /admin/pricing/graded-estimates/review` con una clave de config
   // PRESENTE-pero-INVÁLIDA de la que depende la coherencia (hoy `graded_estimate_max_raw_multiple`).
   //

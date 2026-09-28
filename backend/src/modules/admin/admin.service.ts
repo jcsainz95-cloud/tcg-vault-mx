@@ -1586,9 +1586,12 @@ export class AdminService {
    * `pendingPriceCount` — nunca un 0 inventado):
    *  - raw/graded → referencia vigente del `(cardId, productType, gradeKey, finish)` del item
    *    (graded típicamente el override de MERCADO manual por grado, §M2 P-20);
-   *  - sealed → **`sealedMarketRef`** (`sealed:tcg:<productId>` del mapeo M-23; norma §4.26f) con
-   *    FALLBACK al gradeKey legacy `'sealed'` (override manual de mercado preexistente) para no
-   *    perder valuaciones capturadas antes de v1.19 — antes se valuaba SOLO por el legacy.
+   *  - sealed → **SOLO `sealedMarketRef`** (`sealed:tcg:<productId>` del mapeo M-23; norma §4.26f).
+   *    ⛔ v1.70 (P-83, API_CONTRACT §M2-SK **SK-2**): se RETIRA el fallback al gradeKey legacy
+   *    `'sealed'`. Esa llave es de COLA, no de PRECIO: no identifica al producto (un ETB y un blíster
+   *    anclados a la misma `Card` comparten fila), así que sumarla valuaba una caja con el precio de
+   *    otra. Sin clave de mercado (o sin referencia bajo ella) ⇒ `pendingPriceCount`, igual que la
+   *    graduada sin identidad de slab. Efecto declarado: el total baja y el contador de pendientes sube.
    * Rendimiento: referencias en UN lote (`getReferencesBatch`, cierra la deuda N+1 anotada en
    * ese método), no una query por pieza.
    */
@@ -1606,13 +1609,12 @@ export class AdminService {
         tcgplayerProductId: true,
       },
     });
-    // Claves de valuación por pieza (para sealed mapeado entran AMBAS: mercado + legacy fallback).
+    // Claves de valuación por pieza. Sellado: SOLO la de mercado (SK-2 — `'sealed'` jamás se pide).
     const keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] = [];
     for (const item of items) {
       if (item.productType === 'sealed') {
         const gk = this.pricing.sealedMarketGradeKeyForItem(item);
         if (gk) keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' });
-        keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: 'sealed', finish: 'normal' });
       } else {
         // v1.53 (§4.40.4b, MONEY) — LECTURA agregada: una graduada sin identidad de slab NO aporta
         // clave al lote (mismo idioma que el sellado no mapeado, justo arriba). Abajo cae a
@@ -1655,9 +1657,8 @@ export class AdminService {
       let cents: number | null;
       if (item.productType === 'sealed') {
         const gk = this.pricing.sealedMarketGradeKeyForItem(item);
-        cents =
-          (gk ? refCentsOf(item.cardId, 'sealed', gk, 'normal') : null) ??
-          refCentsOf(item.cardId, 'sealed', 'sealed', 'normal');
+        // SK-2: sin clave de mercado ⇒ `null` ⇒ pendiente. ⛔ Sin `?? 'sealed'`.
+        cents = gk ? refCentsOf(item.cardId, 'sealed', gk, 'normal') : null;
       } else {
         // v1.6-finish: valúa contra la referencia del ACABADO del item.
         // v1.53 (§4.40.4b): sin clave ⇒ `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`.
