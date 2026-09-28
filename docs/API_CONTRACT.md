@@ -2,7 +2,25 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-25 (rev **v1.79.4**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.79.5**).
+>
+> **Changelog v1.79.5 — §M4-VAULT: EL RIVAL REAL DE LOS CAS ES EL CONTRACARGO, DOS CONTEOS CON NOMBRE, Y DOS ERRATAS
+> (2026-09-28, arquitecto; base v1.79.4, vigente entera salvo lo que esta rev toca). Origen: gates del stream bóveda
+> sobre `db7d1c2` (`SECURITY_NOTES` «Stream bóveda M4-VAULT», `SEC-VLT-TL`, `SEC-VLT-DL`, `SEC-SETTLE-LATE`; techlead y
+> QA para `pieceCount`; `FRONTEND_NOTES` §M4-VAULT «Huecos»). ⛔ **Sin schema, sin migración, sin endpoint nuevo, sin
+> código de error nuevo, ⛔ sin cambio de conducta en ningún verbo ni en `GET /admin/vaults`.** Cambian pruebas,
+> nombres y dos citas.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Prueba 32: su mutación declarada NO muerde** (medido por seguridad: sobrevive a toda la suite; `32a` 20/20 y `32b` 10/10 verdes con la mutación puesta — N y autor en §M4-VAULT.8). La puerta serializa dos `confirm`; el único escritor que no la toma es el **contracargo**. La 32 queda como regresión (su cláusula de mutación se corrige) y **nace la prueba 40 «contracargo vs verbo»**: entrelazado forzado por barrera de fila, N≥10, cuatro verbos, y las mutaciones que debe matar | §M4-VAULT.8 (#32, #40) | **Solo pruebas de backend** (el código de `db7d1c2` ya lleva el estado en los `WHERE`) |
+> | **2** | **`SEC-VLT-DL` registrado y ACEPTADO como está** (interbloqueo `40P01` contracargo↔`confirm`, recuperable, medido por seguridad). ⛔ No se fija orden en este stream; queda elegida la corrección para cuando salte el disparador, y descartadas las otras dos con su porqué | §M4-VAULT.5 «Carreras que NO se cierran» | **No** |
+> | **3** | **`pieceCount` (lista) y `counts.total` (vista física) son DOS conceptos y se nombran:** «a su nombre» (perímetro de valuación, conducta previa **intacta**) vs. «deben estar en bóveda» (`settled ∧ in_custody`). Ninguno manda sobre el otro; ⛔ la pantalla no los pinta con el mismo sustantivo | §M1 `GET /admin/vaults`, §Tipos `AdminVaultSummaryDTO`, §M4-VAULT.11 | **Solo frontend (copy)**; backend nada |
+> | **4** | **Errata de ruta:** la lista de ubicaciones es `GET /api/v1/admin/locations` (medido: `inventory.controller.ts` `@Controller('admin')` + `@Get('locations')`), ⛔ no `/admin/inventory/locations`. Y se **declara `VaultLocationDTO`** (con `isActive`), que el backend ya emite (`inventory.service.ts` · `toVaultLocationDTO`) | §M4-VAULT.4, §M1 «Ubicaciones» | **No** (el código ya es así) |
+> | **5** | **`SEC-SETTLE-LATE` registrado, NO decidido:** un `payment_intent.succeeded` tardío devuelve una orden `chargeback` a `settled` y reescribe `settledAt` (medido por seguridad en local, N=1). Va al stream «Órdenes y dinero» | §M4-VAULT.2-bis.1, `ARCHITECTURE §4.21q (o)` | **No** (en este stream) |
+>
+> **Lo que NO cambia:** todo v1.79.4 (settle CAS, pruebas 35–39); los cuatro verbos y sus tablas de respuesta; el
+> contracargo de bóveda (sigue cancelando **al final** de su tx); `GET /admin/vaults` (filtro, orden, valuación).
 >
 > **Changelog v1.79.4 — EL SETTLE DEL PAGO GANA UN CAS: «UN HECHO, UN INSTANTE» TAMBIÉN BAJO CARRERA, Y `AV-2` DE VERDAD
 > UNA VEZ (2026-09-25, arquitecto; base v1.79.3, vigente entera salvo lo que esta rev toca). Origen: hallazgo MEDIDO por
@@ -6921,6 +6939,8 @@ MasterSetSummaryDTO += { partSetIds?: string[] }
 // totalValueMxnCents usa la MISMA base de valuación del portafolio (§3): referencia del ACABADO de cada pieza
 // (PriceReference vigente); piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
 // pieceCount = piezas del usuario "en bóveda" (mismo filtro de status del scope user_vault).
+// ⭐ v1.79.5: su nombre de concepto es «A SU NOMBRE» (perímetro de valuación: incluye lo apartado en un pedido sin
+// pagar). ⛔ NO es «lo que debe estar en el cajón» — eso es CustomerPhysicalInventoryDTO.counts.total (§M4-VAULT.11).
 // ⭐ v1.79.3 (H-1): name = customerDisplayName(User) — null si el nombre se fabricó del correo (nameSource='derived').
 AdminVaultSummaryDTO = { userId: string, name: string | null, email: string, pieceCount: number,
                          totalValueMxnCents: number, pendingPriceCount: number }
@@ -10645,6 +10665,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `POST /api/v1/admin/inventory/items/:id/move` — Req `{ toLocationId, note? }` → registra `InventoryMovement`.
 - `POST /api/v1/admin/inventory/items/:id/mark` — Req `{ mark: "lost" | "damaged", note }` → `status` y movimiento; disponible para reposición (M7/tope M10).
 - Ubicaciones: `GET /api/v1/admin/locations`, `POST /api/v1/admin/locations` (`{ zone, box, row, slot }`).
+  ⭐ v1.79.5: la forma de la respuesta (`{ data: VaultLocationDTO[] }`, con `isActive`) se declara en §M4-VAULT.4.
 
 #### Master Set + inventario a escala (v1.16-master-set) — `vault_operator+`
 > Vista agregada del inventario (binder/cuadrícula por set) + escritura por lote. **NO cambia el modelo por-pieza**
@@ -10810,6 +10831,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   Res `200` (`AdminVaultListResponse`): `{ data: AdminVaultSummaryDTO[], page, pageSize, total }` — por cliente:
   `userId`, `name`, `email`, `pieceCount`, `totalValueMxnCents` (**misma valuación que el portafolio §3**:
   referencia vigente por acabado; pendientes excluidos del total y contados en `pendingPriceCount`).
+  - ⭐ **v1.79.5 — `pieceCount` es «a su nombre», no «en el cajón».** Cuenta `ownerType='customer' ∧ status ∉
+    NOT_ON_HAND` sin filtrar `ownershipStatus` (incluye lo apartado sin pagar). Conducta **sin cambio**; lo que cambia
+    es cómo se nombra en pantalla. Tabla de los dos conceptos en §M4-VAULT.11.
   - **Sin N+1:** una agregación de piezas por usuario + `getReferencesBatch` para valuar la página (no una query
     por pieza ni por usuario). El valor es **estimado del día** (misma frescura que el portafolio del cliente).
   - PII: solo identificación mínima (`name`/`email`, ya visibles para `vault_operator` en M6). **Nunca** CLABE/RFC/INE.
@@ -15271,7 +15295,8 @@ export type LocationView =
      `sv-SE`) y exigir **el mismo `OUT`**; backend, el equivalente en un proceso hijo con `LC_ALL` distinto. ⛔ No
      bloquea esta rebanada.
 
-  **⚠️ Fuera de alcance, dicho para que no se cuele:** `GET /admin/inventory/locations` ordena **en Postgres**
+  **⚠️ Fuera de alcance, dicho para que no se cuele:** `GET /admin/inventory/locations` *(errata v1.79.5: la ruta real
+  es `GET /admin/locations`, §M4-VAULT.4)* ordena **en Postgres**
   (`orderBy: { label: 'asc' }`, `inventory.service.ts` · `listLocations`) ⇒ una **tercera** autoridad de orden sobre
   el mismo campo, la del motor. ⛔ **No se toca aquí** (otro endpoint, otro work stream, conducta observable que
   cambiaría). Se deja **nombrado** porque el día que alguien quiera «un solo orden de ubicaciones en todo el
@@ -15582,6 +15607,11 @@ Detalle completo de estas piezas planeadas: borrador `docs/specs/PEDIDOS_A_PREPA
 > ⭐ **v1.79.4 (2026-09-25) — el settle gana un CAS** (hallazgo medido por backend, commit `6eb5f1d`). Sitios: **.2-bis**
 > («un hecho, un instante» bajo carrera: CAS en el `order.update` del settle, el perdedor no escribe ni avisa) · **.8**
 > (pruebas 35–39) · §R.3 fila `AV-2` (corrección). ⛔ Schema `M-59` **idéntico**. ⛔ Ningún código de error nuevo.
+>
+> ⭐ **v1.79.5 (2026-09-28) — gates del stream sobre `db7d1c2`.** Sitios: **.8** (la 32 corrige su mutación; **nace la
+> 40**, contracargo vs verbo) · **.5** (`SEC-VLT-DL` aceptado, con disparador y corrección elegida) · **.4** (ruta real
+> `GET /admin/locations` + `VaultLocationDTO`) · **.11** y §M1 (`pieceCount` «a su nombre» vs `counts.total` «deben
+> estar en bóveda») · **.2-bis.1** (`SEC-SETTLE-LATE`, registrado). ⛔ Ninguna conducta de verbo cambia.
 
 ##### M4-VAULT.1 — El hecho de partida (medido)
 
@@ -15794,6 +15824,17 @@ return { settled: true };
   `succeeded` tardío pueda re-liquidar una orden `refunded`/`chargeback` es conducta **previa** (el early-return solo
   mira `settled`); se anota en `ARCHITECTURE §4.21q (n)` para el stream «Órdenes y dinero». ⛔ **NO MEDIDO** si es
   alcanzable con eventos reales de Stripe.
+  ⭐ **v1.79.5 — ahora MEDIDA, registrada como `SEC-SETTLE-LATE` (Baja), ⛔ NO DECIDIDA aquí.** Seguridad, en local,
+  **N=1**, eventos firmados sintéticos (`SECURITY_NOTES` «Stream bóveda», sonda S4): orden en `chargeback` + un
+  `payment_intent.succeeded` con importe y moneda correctos ⇒ `200`, la orden pasa a **`settled`** y **`settledAt` se
+  reescribe**; la pieza se queda `platform/listed` (`reservationGuard`) y la colocación `cancelled/chargeback`
+  (`skipDuplicates`). Consecuencia: el registro de dinero dice «liquidada» con los fondos revertidos, y `settledAt`
+  deja de escribirse una sola vez. ⛔ **NO MEDIDO:** si sale `AV-2` en ese camino, y la alcanzabilidad con Stripe real.
+  **Dueño de la decisión:** stream «Órdenes y dinero» (arquitecto y luego backend): qué estados de origen liquida el
+  settle (hoy «todo salvo `settled`»). **Disparador:** antes de operar con disputas reales, o el siguiente pase de ese
+  stream. ⛔ **Este stream no lo toca:** estrechar el `WHERE` es una decisión de dinero. ⚠️ La prueba 38 (ii) canda la
+  liquidación desde `failed` (⛔ no desde `chargeback`): quien estreche el `WHERE` tiene que decidir las dos a la vez y
+  tocar la 38 con esa decisión escrita.
 - **El perdedor, exacto:** `200`; ⛔ cero escrituras más en la tx (ni `inventoryItem`, ni `inventoryMovement`, ni
   `vaultPlacement*`, ni `shipmentRequest`); ⛔ cero `AV-2`, cero confirmación de invitado, cero `audit.log` de
   anomalías; el marcador `ProcessedStripeEvent` de **su** event.id queda (no debe reintentarse). La llamada previa a
@@ -16029,9 +16070,31 @@ nombre.
 **⛔ Se retira `GET /admin/shipments/:id/vault-location-suggestion` del borrador.** La propuesta viaja **dentro** de la
 fila (`suggestedLocation`): tiene **un solo** lector (esta pantalla), evita una llamada por tarjeta, y la regla vive en
 **una** función. ⭐ **v1.79.1 — la lista de cajones para elegir se usa SOLO con `source:'none'`** (cliente nuevo): es
-la que ya existe, `GET /admin/inventory/locations` (§M1), filtrada en el cliente por `zone==='customer_custody' &&
-isActive` — *filtrar ahí es presentación*; **la guarda real es el `confirm`** (`422`). Con `multiple_drawers` se
-elige **entre `locations`**; con `existing_customer_vault` ⛔ **no se ofrece elegir**.
+la que ya existe, ~~`GET /admin/inventory/locations`~~ ⭐ **v1.79.5 (errata): `GET /api/v1/admin/locations`** (§M1
+«Ubicaciones»; medido 2026-09-28: `inventory.controller.ts` · `@Controller('admin')` + `@Get('locations')` ·
+`listLocations`), filtrada en el cliente por `zone==='customer_custody' && isActive` — *filtrar ahí es presentación*;
+**la guarda real es el `confirm`** (`422`). Con `multiple_drawers` se elige **entre `locations`**; con
+`existing_customer_vault` ⛔ **no se ofrece elegir**.
+
+⭐ **v1.79.5 — la forma de esa lista, declarada** (hasta hoy §M1 no la daba y este filtro leía `isActive` de un tipo sin
+declarar). Es la que el backend **ya emite** (`inventory.service.ts` · `listLocations` → `toVaultLocationDTO`, medido
+2026-09-28); ⛔ sin cambio de código:
+
+```ts
+// GET /api/v1/admin/locations → 200 { data: VaultLocationDTO[] } · orden: label asc (del motor). Sin paginar, sin filtros.
+// Rol: el del controlador de inventario (vault_operator+). Devuelve TODAS las zonas y también las inactivas.
+export interface VaultLocationDTO {
+  id: string;
+  zone: VaultZone;        // 'platform_stock' | 'customer_custody'
+  box: string; row: string; slot: string;
+  label: string;          // `${box}-${row}-${slot}` — ⚠️ se REPITE entre zonas (§M4-VAULT.1): nunca identifica solo
+  isActive: boolean;      // hoy siempre true (no hay escritor de false, v1.78.2); el filtro de arriba lo lee igual
+  createdAt: string;
+}
+```
+⚠️ El orden `label asc` lo da el motor (colación de la BD), ⛔ no la regla de unidades de código de §M4P-ORDER (deuda
+ya registrada: `TECH_DEBT` `M4P-ORD3`): si la pantalla necesita ese orden exacto, lo aplica ella (es presentación). **Aviso a ux-ui:** `DESIGN_SYSTEM §36` cita la
+ruta vieja; la corrección es suya.
 ⚠️ **Obligación de la pantalla (frontend + ux-ui):** como `label` **no es único entre zonas** (M4-VAULT.1), el cajón
 destino se nombra **con su zona** («Bóveda de clientes · C01-F01-S01»), para que el operador no lea
 `C01-F01-S01 → C01-F01-S01` como «ya está ahí».
@@ -16121,6 +16184,8 @@ puede llegar aquí si al preparar estaba bloqueada (§M4-VAULT.10) — tampoco s
    placedAt: now, placedByUserId: actor, locationId } })`. **`count === 1` ⇒ ganó**; `count === 0` ⇒ **relee y
    contesta por estado** (tabla). *Los pasos 2 y 5 son lecturas; la garantía la da ESTE `WHERE`* — la puerta no la
    toma el contracargo (§M4-VAULT.6), así que una cancelación puede colarse entre el paso 5 y éste, y el `WHERE` la ve.
+   ⭐ *v1.79.5: esa carrera es la que canda la prueba 40 (b); la del CAS del cierre directo (6-bis), la 40 (a); las de
+   `POST|DELETE …/prepared`, la 40 (c) y (d).*
 9. **Mover, carta por carta de `VaultPlacementItem`:**
    - `prepStatus = 'missing'` ⇒ resultado **`missing`**, ⛔ **sin escribir nada** en la pieza.
    - `prepStatus = 'pending'` ⇒ `skipped` con su `reason` si hoy está bloqueada; si no, `skipped/not_picked`. ⛔ Sin escribir.
@@ -16224,6 +16289,34 @@ sobre la **misma** fila, y el `CHECK` `placed ⇒ preparedAt NOT NULL`). Tabla e
   cajón) y el retiro nace en `solicitado`, que no bloquea `P`. Nada queda falso.
 - **Colocar vs. desactivar el cajón:** hoy **no hay escritor** de `isActive=false` (el único escritor de `VaultLocation`
   es `createLocation`, medido v1.78.2). Si se crea uno, esta línea se reabre.
+- ⭐ **v1.79.5 — `SEC-VLT-DL`: `confirm` vs. contracargo en el orden «`confirm` reclama primero» se INTERBLOQUEAN, y se
+  ACEPTA como está.** *Causa (seguridad, leyendo `db7d1c2`):* el `confirm` bloquea la fila `VaultPlacement` (paso 8) y
+  **después** las piezas (paso 9); el contracargo bloquea las piezas (`onChargeDisputeVault`, su bucle), luego `Order`,
+  y **al final** `VaultPlacement` (§M4-VAULT.6). *Medido por seguridad* (sonda con barrera de fila, N=20 en dos corridas
+  de 10): `40P01` en **20/20** entrelazados forzados; víctima el **webhook** en **19/20** (`503 BUSY_TRY_AGAIN`,
+  marcador `ProcessedStripeEvent` borrado; reintento con el mismo `event.id` ⇒ contracargo aplicado, **10/10** en la
+  corrida que lo midió) y el **`confirm`** en **1/20** (`503` al operador; el contracargo se aplica). Estado final en
+  los dos casos: uno de los que la secuencia normal ya produce (§M4-VAULT.6 «consecuencia conocida»). ⛔ Probabilidad
+  **natural** (sin barrera) **NO MEDIDA**.
+  **Decisión: se acepta, ⛔ no se fija orden en este stream.** Por qué: **(1)** converge sin estado falso (medido);
+  **(2)** las dos correcciones baratas **empeoran** otra cosa, y eso se dice para que nadie las aplique por reflejo:
+  - *Mover la cancelación al PRINCIPIO de la tx del contracargo* ⇒ ⛔ **descartada:** abre una regresión contra el
+    **settle** (derivado de leer, ⛔ NO MEDIDO): si el contracargo corre mientras el settle de la misma orden está en
+    vuelo, su `UPDATE "VaultPlacement"` **no ve** la fila aún sin confirmar y cuenta `0`; el settle confirma después una
+    colocación `pending` que ya nadie cancela. Hoy, «al final», esa sentencia corre **tras** esperar las piezas del
+    settle y sí la ve.
+  - *Que el contracargo tome la puerta del cliente* ⇒ ⛔ **descartada:** elimina el **único** rival de los `WHERE` con
+    estado de los cuatro verbos ⇒ la prueba 40 dejaría de poder morder y esos `WHERE` volverían a ser candados sin
+    canario (`SEC-VLT-TL`). Y mete un webhook de dinero en la cola de los operadores.
+  - **Corrección elegida, para cuando salte el disparador** (⛔ no ahora): como **primera** sentencia de la tx del
+    contracargo, tomar el candado de la fila de colocación **sin escribir** — `SELECT id FROM "VaultPlacement" WHERE
+    "orderId" = $1 FOR UPDATE` (parametrizado) — y dejar la escritura **al final** como está. Orden de candados de los
+    dos: colocación → piezas. Conserva la espera al settle (la escritura final es sentencia nueva) y conserva el rival.
+  **Disparador:** un `40P01` en registros de producción, **o** el siguiente cambio a `onChargeDisputeVault`. Entonces
+  entra con una variante de la prueba 40 en el orden «`confirm` primero» que exija **cero** `40P01` en N≥10.
+  **Riesgo residual que NO es de este stream, dicho:** la recuperación depende de que el borrado del marcador no falle;
+  hoy su error se traga (`payments.service.ts` · `.catch(() => undefined)` tras fallo del handler — seguridad, ⛔ NO
+  MEDIDO con fallo inyectado). Loguearlo con nivel `error` es de «Órdenes y dinero» (`ARCHITECTURE §4.21q (o)`).
 
 ##### M4-VAULT.6 — Qué le pasa a la pieza entre la liquidación y la colocación (y el contracargo)
 
@@ -16258,6 +16351,14 @@ sobre la **misma** fila, y el `CHECK` `placed ⇒ preparedAt NOT NULL`). Tabla e
 
 ##### M4-VAULT.7 — Qué cambia para cada rol
 
+**⭐ v1.79.5 — lo que añade esta rev (gates sobre `db7d1c2`; todo lo anterior sigue vigente):**
+
+| Rol | Qué añade v1.79.5 |
+|---|---|
+| **backend** | **(1)** La **prueba 40** (§M4-VAULT.8) con sus cinco casos y las cinco mutaciones demostradas sobre copia, con proporción y N. **(2)** En la 32, retirar/corregir la afirmación de que su mutación muerde (si la suite o `BACKEND_NOTES` la declaran). ⛔ **Ningún cambio de código de producción**: los `WHERE` de `db7d1c2` ya son los correctos, y ⛔ **no** se toca el orden de candados del contracargo (`SEC-VLT-DL` aceptado). Si al escribir la 40 algo del código resulta no cumplir la tabla, se reporta aquí antes de cambiarlo |
+| **frontend** | **(1)** Copy de los dos conteos: la fila de la lista (`GET /admin/vaults`) pasa de «{n} piezas» a «**{n} a su nombre**»; el resumen de «Qué debe haber» pasa de «en total» a «**deben estar en bóveda**» (sentido fijado aquí; redacción final de ux-ui). ⛔ Sin lógica nueva, sin restar un número del otro. **(2)** Nada por la ruta de ubicaciones: ya usa `GET /admin/locations`. **(3)** `VaultLocationDTO` en `contract.ts` con la forma de §M4-VAULT.4 (si ya existe un tipo equivalente, alinear nombre y campos) |
+| **ux-ui** | Redacción de «a su nombre» / «deben estar en bóveda» (es/en), y corregir en `DESIGN_SYSTEM §36` la cita de la ruta de ubicaciones |
+
 **⭐ v1.79.3 — lo que añade esta rev (huecos de `DESIGN_SYSTEM §36.13`; las filas de v1.79.2 y v1.79.1 siguen vigentes):**
 
 | Rol | Qué añade v1.79.3 |
@@ -16280,7 +16381,7 @@ sobre la **misma** fila, y el `CHECK` `placed ⇒ preparedAt NOT NULL`). Tabla e
 | Rol | Qué |
 |---|---|
 | **backend** | **(v1.79.1: esta fila sustituye a la de v1.79.)** `M-59` **final** (2 tablas, 3 enums, 6 CHECKs — §M4-VAULT.2); nacimiento de colocación **y** filas por carta en la rama `vault` de `onPaymentSucceeded`; cancelación en `onChargeDisputeVault`; cola de dos fuentes + unión + invariantes + estado de preparación; `customerDrawers` (una función: cola, `confirm`, vista física); la **puerta del cliente** (`lockCustomerVaultGate`, namespace nuevo); los verbos `PATCH …/prep-items`, `POST …/prepared` y `confirm` con sus tablas; `GET /admin/vaults/:userId/physical-inventory`; los códigos nuevos en `common/error-codes.ts` (`LOCATION_NOT_AVAILABLE`, `PLACEMENT_NOT_PENDING`, `PLACEMENT_NOT_PREPARED`, `PREPARATION_CLOSED`, `PREPARATION_INCOMPLETE`, `PREP_ITEM_BLOCKED`). **Dónde:** verbos y vista en `modules/vault/` (servicio de colocación + controlador admin; la vista en `admin-vaults.controller.ts`); la cola sigue en `shipments` y **lee**. ⛔ `ShipmentRequest`, `ShipmentItem`, `updateStatus` y `setTracking` **no se tocan** |
-| **frontend** | Tipos 1:1 (`contract.ts`); tarjeta `vault` (sin dirección, **sin guía** — CA #21) que dice **de quién es** (nombre + correo) y **con qué zona** se nombra el cajón; palomear por carta (tomada / no la encontré / deshacer), el conteo, **«Dar por preparado»**, y **solo después** «Colocar» (CA #21); el cajón según `source`: **su cajón sin opción de cambiar** · **anomalía** con elección entre sus cajones · **cliente nuevo** con lista de `GET /admin/inventory/locations` filtrada. Los `200` idempotentes y los `409`/`422` como estados **con nombre** (redacción: ux-ui). **Pantalla nueva:** inventario físico por cliente (desde la ficha de bóveda del cliente en admin). La tarjeta `ship` **no cambia** (⛔ sin casillas: §M4-VAULT.10.1 y `DESIGN_SYSTEM §35.11`). Y el vacío de la cubeta `vault` **deja de ser** «no medido» (`DESIGN_SYSTEM §35.8`) |
+| **frontend** | Tipos 1:1 (`contract.ts`); tarjeta `vault` (sin dirección, **sin guía** — CA #21) que dice **de quién es** (nombre + correo) y **con qué zona** se nombra el cajón; palomear por carta (tomada / no la encontré / deshacer), el conteo, **«Dar por preparado»**, y **solo después** «Colocar» (CA #21); el cajón según `source`: **su cajón sin opción de cambiar** · **anomalía** con elección entre sus cajones · **cliente nuevo** con lista de ~~`GET /admin/inventory/locations`~~ `GET /admin/locations` (errata v1.79.5) filtrada. Los `200` idempotentes y los `409`/`422` como estados **con nombre** (redacción: ux-ui). **Pantalla nueva:** inventario físico por cliente (desde la ficha de bóveda del cliente en admin). La tarjeta `ship` **no cambia** (⛔ sin casillas: §M4-VAULT.10.1 y `DESIGN_SYSTEM §35.11`). Y el vacío de la cubeta `vault` **deja de ser** «no medido» (`DESIGN_SYSTEM §35.8`) |
 | **ux-ui** | La tarjeta de bóveda (palomear, preparado, colocar), los textos de: cliente nuevo, **anomalía de varios cajones**, carta `blocked`, carta faltante, los idempotentes y los errores; la **vista de inventario física** (cinco estados, anomalías primero). ⚠️ En «Ambas», las tarjetas de bóveda llevan casillas y las de envío no: decidir cómo se lee esa asimetría sin que parezca un fallo |
 
 ##### M4-VAULT.8 — Candados existentes que esto toca (y cuáles NO)
@@ -16302,7 +16403,8 @@ sobre la **misma** fila, y el `CHECK` `placed ⇒ preparedAt NOT NULL`). Tabla e
 
 **Pruebas que deben FALLAR si se implementa mal (las escribe el modelo fuerte primero — `CLAUDE.md`).** ⭐ v1.79.1:
 la **5** cambia y se añaden de la **12** a la **20**. ⭐ v1.79.2: se añaden de la **21** a la **26**. ⭐ v1.79.3: de la
-**27** a la **34** (y la **23** cambia `locationId` por `location`).
+**27** a la **34** (y la **23** cambia `locationId` por `location`). ⭐ v1.79.5: la **32** corrige su mutación y nace
+la **40** (contracargo vs. verbo).
 1. Liquidar una orden `vault` ⇒ **exactamente una** `VaultPlacement pending` con `createdAt === Order.settledAt`;
    reentregar el webhook (y dos entregas **concurrentes**, N≥10, reportando proporción) ⇒ sigue **una**, sin `500`.
 2. Forzar un fallo después del `createMany` dentro de la tx ⇒ **ni** orden `settled` **ni** colocación (atomicidad).
@@ -16404,8 +16506,17 @@ la **5** cambia y se añaden de la **12** a la **20**. ⭐ v1.79.2: se añaden d
     `DELETE …/prepared` ⇒ en **todas** las tiradas, o `DELETE 200 unprepared` + `confirm 409 PLACEMENT_NOT_PREPARED`
     (fila `pending`), o `confirm 200 nothing_to_place` + `DELETE 409 PLACEMENT_NOT_PENDING {cancelled, nothing_to_place}`;
     ⛔ nunca `500`, ⛔ nunca `cancelled` con la fila reabierta. **(b)** Dos `confirm {}` a la vez ⇒ un `200` + un `409
-    {cancelled, nothing_to_place}`, **una** bitácora. **Mutación (sobre copia, O-9):** quitar `status:'pending'` del
-    `WHERE` del cierre directo ⇒ (b) debe dar **dos** bitácoras en alguna tirada ⇒ roja.
+    {cancelled, nothing_to_place}`, **una** bitácora. ~~**Mutación (sobre copia, O-9):** quitar `status:'pending'` del
+    `WHERE` del cierre directo ⇒ (b) debe dar **dos** bitácoras en alguna tirada ⇒ roja.~~
+    ⭐ **v1.79.5 — esa mutación NO muerde aquí, y era un error del contrato.** Medido por **seguridad** sobre copia de
+    `db7d1c2` (`SECURITY_NOTES` «Stream bóveda», `SEC-VLT-TL`): con `status:'pending'` quitado del cierre directo,
+    `32a` **20/20** y `32b` **10/10** siguen verdes, igual que las 4 suites de integración de bóveda (74/74) y la unitaria
+    completa (5742/5742). *Por qué:* bajo la **puerta del cliente**, el segundo `confirm` relee en el paso 5, ve
+    `cancelled` y **nunca llega** al CAS; entre dos verbos el `WHERE` no tiene rival. **El 32 se queda como prueba de
+    regresión de la puerta** (resultados de (a) y (b) sin cambio). Lo que sí debería ponerla roja —**NO MEDIDO**, se
+    deja declarado para quien quiera comprobarlo—: quitar **a la vez** la puerta **y** `status:'pending'` ⇒ en (b) el
+    segundo CAS reescribe la fila `cancelled` (sigue con `preparedAt`) ⇒ dos bitácoras. **La mutación de `status` en los
+    `WHERE` pasa a la prueba 40**, contra el único escritor que no toma la puerta.
 33. ⭐ **H-2 — el `409 {placed}` nombra el cajón.** Dos `confirm` a cajones **distintos** (la carrera de la prueba 6) ⇒ el
     perdedor recibe `details.location` **igual** a `{id, label, zone:'customer_custody'}` del cajón del ganador (leído de
     la BD) y ⛔ **sin** llave `locationId`. Ídem `PATCH …/prep-items`, `POST …/prepared` y `DELETE …/prepared` sobre una
@@ -16452,6 +16563,53 @@ la prueba C: candado de fila sobre `Order` + `esperarBloqueoDeFila`), **N ≥ 10
     `skipDuplicates`: queda como segunda defensa, candada **por forma** en la unidad (`payments.vault-placement-birth.spec.ts`
     ya exige `skipDuplicates: true`). Backend confirma en `BACKEND_NOTES`, sobre copia, qué prueba muerde ahora a cada
     una de las dos mutaciones (quitar `status` del `WHERE` / `create` a secas) — ⛔ NO MEDIDO por el arquitecto.
+
+⭐ **v1.79.5 — prueba 40** (cierra la condición C1 de seguridad, `SEC-VLT-TL`; la escribe backend, modelo fuerte):
+
+40. ⭐⭐ **Contracargo vs. verbo — el único rival de los `WHERE` con estado** (integración, Postgres real, webhook
+    `charge.dispute.created` **firmado** sobre una orden `vault` liquidada; ⛔ nada de dobles de Prisma). *Por qué existe:*
+    entre dos verbos, la puerta del cliente serializa y el `status` de los `WHERE` no tiene rival (lo que dejó sin morder
+    a la 32); el contracargo (§M4-VAULT.6) es el **único escritor de `VaultPlacement` que no toma la puerta**.
+    **Entrelazado forzado por barrera de fila** (la técnica FIFO de `vault-placement-races.e2e-spec.ts` y
+    `helpers/vault-placement-db.ts`, ⛔ sin `sleep`), en este orden y **no en otro**:
+    1. la barrera (una tx de la prueba) toma `SELECT … FOR UPDATE` sobre **la fila `VaultPlacement`**;
+    2. se lanza **A = el webhook**; se espera a verlo **bloqueado en esa fila** (a esas alturas ya revirtió piezas y
+       escribió `Order`; espera en su `UPDATE` final de la colocación);
+    3. se lanza **B = el verbo**; se espera a verlo **bloqueado en esa misma fila** (ya pasó la puerta y su relectura
+       bajo la puerta, que vio `pending`). ⚠️ Hay que comprobar que B espera el **candado de fila**, ⛔ no la puerta: si
+       esperara la puerta, la tirada no prueba nada;
+    4. se suelta la barrera ⇒ A obtiene la fila primero, cancela y confirma; B re-evalúa su `WHERE` sobre la versión
+       confirmada.
+    ⛔ El orden inverso («B reclama primero») **no** entra aquí: ahí se interbloquean (`SEC-VLT-DL`, §M4-VAULT.5,
+    aceptado) y el resultado depende de la víctima que elija Postgres. **Canario del arnés:** una tirada en la que no
+    se observó a A **y** a B esperando la fila **no cuenta** — se reporta como tal, ⛔ no como verde.
+    **N ≥ 10 por caso; se reporta la proporción con su N** (O-3/O-15). **En todas las tiradas, sin mutación:** webhook
+    `200`; fila `cancelled/chargeback` con `cancelledByUserId NULL`; `Order.status='chargeback'`; y B:
+
+    | Caso | Colocación antes | B | B recibe | Además, en todas las tiradas |
+    |---|---|---|---|---|
+    | **(a)** cierre directo (6-bis) | `pending`, preparada, **cero** `picked` | `confirm {}` | `409 PLACEMENT_NOT_PENDING {status:'cancelled', cancelReason:'chargeback'}` | `preparedAt` intacto; **cero** bitácoras `vault_placement.nothing_to_place` |
+    | **(b)** reclamo (paso 8) | `pending`, preparada, ≥1 `picked` | `confirm {locationId}` válido | ídem | **cero** `InventoryMovement reason='move'` de la orden; piezas `platform/listed` con su `locationId` de antes; **cero** bitácoras `vault_placement.placed` |
+    | **(c)** `POST …/prepared` | `pending`, **sin** preparar, todas `picked` | `prepared` | ídem | `preparedAt` y `preparedByUserId` **NULL**; **cero** bitácoras `vault_placement.prepared` |
+    | **(d)** `DELETE …/prepared` | `pending`, preparada | `unprepare` | ídem | `preparedAt` **intacto**; **cero** bitácoras `vault_placement.unprepared` |
+    | **(e)** el `WHERE` del propio contracargo — **secuencial, sin carrera** (N=1 basta: es determinista) | **(e1)** `placed` · **(e2)** `cancelled/nothing_to_place` | — (solo A) | — | webhook `200`; **(e1)** la fila sigue `placed` con su `placedAt/placedByUserId/locationId`, y las piezas `platform/listed` **en el cajón** (la «consecuencia conocida» de §M4-VAULT.6); **(e2)** sigue `nothing_to_place` con **su** `cancelledByUserId` |
+
+    **Mutaciones que DEBE matar** (cada una sobre **copia del árbol entero** con su sha anotado, O-8/O-9; roja en **≥1 de
+    N≥10** con la mutación, verde **N/N** sin ella; se reporta la proporción de las dos):
+
+    | Mutación | Caso que la mata | Cómo se ve roja (derivado de leer; ⚠️ medido solo donde se dice) |
+    |---|---|---|
+    | **(m-a)** quitar `status:'pending'` del `WHERE` del **cierre directo** (6-bis) | (a) | B `200 nothing_to_place`, la fila acaba `nothing_to_place` con el **operador** como autor + una bitácora — *la sonda S1 de seguridad lo midió: **10/10** roja con la mutación, **10/10** verde sin ella (N=10, seguridad)* |
+    | **(m-b)** quitar `status:'pending'` del CAS del **paso 8** (se deja `preparedAt`) | (b) | el `UPDATE` alcanza la fila `cancelled`, que aún tiene sus sellos de cancelación ⇒ el `CHECK` de `placed` la rechaza ⇒ `500`. La prueba exige el `409` ⇒ roja. (Si un mutante además limpiara los sellos, las piezas ya no cumplen `P` ⇒ paso 10 ⇒ `nothing_to_place` ⇒ roja por la razón). ⛔ NO MEDIDO |
+    | **(m-c)** quitar `status:'pending'` del CAS de **`POST …/prepared`** | (c) | `200 prepared` sobre una fila `cancelled` (ningún `CHECK` lo impide) ⇒ roja. ⛔ NO MEDIDO |
+    | **(m-d)** quitar `status:'pending'` del CAS de **`DELETE …/prepared`** | (d) | `200 unprepared` y `preparedAt NULL` sobre una fila `cancelled` ⇒ roja. ⛔ NO MEDIDO |
+    | **(m-e)** quitar `status:'pending'` del `WHERE` del **contracargo** | (e1), (e2) | (e1): el `CHECK` de `cancelled` rechaza una fila con sellos de colocación ⇒ la tx del webhook aborta ⇒ ⛔ no `200`; (e2): reescribe `cancelReason` a `chargeback` y el autor a `NULL` ⇒ roja. ⛔ NO MEDIDO |
+
+    **Lo que NO debe ponerla roja (se reporta si lo hace, ⛔ no se «arregla»):** quitar **solo** la puerta del cliente —el
+    rival de esta prueba no la toma—. Si esa mutación la pone roja, el arnés mide otra cosa.
+    ⚠️ **Coste de mantenerla:** si algún día el contracargo pasa a tomar la puerta, esta prueba **deja de poder
+    entrelazar** (A esperaría la puerta, no la fila) y los `WHERE` vuelven a quedarse sin canario — por eso esa opción
+    está descartada en `SEC-VLT-DL` (§M4-VAULT.5).
 
 ##### M4-VAULT.9 — Respuestas del dueño (2026-09-25), las que quedan con valor por defecto y dónde cambia cada una (v1.79.2: ya no queda ninguna PROVISIONAL preguntada)
 
@@ -16710,9 +16868,32 @@ export type PhysicalState =                           // clase L (computado), �
 ```
 
 **Qué cartas «deben estar en bóveda»:** las piezas con `ownerType='customer' ∧ ownerUserId=:userId ∧
-ownershipStatus='settled' ∧ status='in_custody'` — **el mismo conjunto** que alimenta la propuesta de cajón. ⚠️ **NO
+ownershipStatus='settled' ∧ status='in_custody'` — **el mismo conjunto** que alimenta la propuesta de cajón. ~~⚠️ **NO
 MEDIDO** si coincide con el `pieceCount` de `GET /admin/vaults` (su filtro es «el del scope `user_vault`», no releído
-por el arquitecto): backend lo mide y lo reporta; ⛔ no se alinean en este stream.
+por el arquitecto): backend lo mide y lo reporta; ⛔ no se alinean en este stream.~~
+
+⭐ **v1.79.5 — medido: NO coinciden, y son DOS conceptos con nombre propio.** Techlead y QA lo reprodujeron sobre
+`db7d1c2` (el operador ve «12» en la lista y «10» en «Qué debe haber» del mismo cliente). El arquitecto releyó la
+fuente (2026-09-28): `admin-vaults.service.ts` · `list` cuenta `ownerType='customer' ∧ ownerUserId NOT NULL ∧ status ∉
+NOT_ON_HAND` (`master-set.service.ts` · `NOT_ON_HAND = withdrawn|shipped|delivered|lost|damaged`), **sin** filtro de
+`ownershipStatus` ⇒ entra lo **apartado** en un pedido aún sin pagar (`reserved`, `ownershipStatus='pending'`), y
+cualquier otro estado «en mano» con dueño cliente (⚠️ p. ej. un `direct_ship` a medio enviar: derivado de leer, ⛔ NO
+MEDIDO).
+
+| Concepto | Campo | Definición | Pregunta que contesta | Etiqueta en pantalla (sentido; redacción final: ux-ui) |
+|---|---|---|---|---|
+| **A su nombre** | `AdminVaultSummaryDTO.pieceCount` (`GET /admin/vaults`, fila de la lista) | `ownerType='customer' ∧ status ∉ NOT_ON_HAND` — **el perímetro de valuación** (es lo que suma `totalValueMxnCents`) | «¿Cuántas cartas son (o están por ser) de este cliente y aún no han salido?» | **«{n} a su nombre»** / “{n} in their name” |
+| **Deben estar en bóveda** | `CustomerPhysicalInventoryDTO.counts.total` (`…/physical-inventory`) | `ownerType='customer' ∧ ownershipStatus='settled' ∧ status='in_custody'` | «¿Cuántas cartas tengo que poder encontrar físicamente de este cliente?» | **«{n} deben estar en bóveda»** / “{n} should be in the vault” — y su desglose `inDrawer`/`pendingPlacement`/`missing`/`inWithdrawal`/`unlocated` como hoy |
+
+- **Ninguno manda sobre el otro:** contestan preguntas distintas; la lista es de **valuación** (y ahí lo apartado sí
+  pesa en el valor), la vista es **física**. ⛔ **No se cambia la conducta de la lista** (conducta previa con gates
+  aprobados, y la valuación depende de ese perímetro). ⛔ No se añade campo nuevo: la diferencia no se pinta.
+- **La obligación es de nombre:** ⛔ los dos números **nunca** se pintan con el mismo sustantivo desnudo («piezas»,
+  «en total», «cartas») en la misma pantalla. Hoy la fila de la lista dice «{count} piezas» y el resumen de la vista
+  «en total» (`messages/es.json`, medido 2026-09-28) ⇒ los dos cambian de copy.
+- **Invariante que sí se puede afirmar** (derivado de las dos definiciones, ⛔ NO MEDIDO como prueba): `counts.total ≤
+  pieceCount` para el mismo cliente — todo lo `settled ∧ in_custody` está fuera de `NOT_ON_HAND`. Si un día se viera
+  al revés, es un defecto, no una diferencia de concepto.
 
 **Estado físico — UNA función (`physicalStateOf`), gana la PRIMERA que aplica:**
 1. **`missing`** — la `VaultPlacementItem` **más reciente** de la pieza (por `VaultPlacement.createdAt` desc, desempate

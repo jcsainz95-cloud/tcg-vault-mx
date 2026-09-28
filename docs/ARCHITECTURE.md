@@ -4,6 +4,20 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.79.5 — «PARA BÓVEDA» TRAS LOS GATES: EL RIVAL DE LOS CAS ES EL CONTRACARGO** (2026-09-28, arquitecto. Base:
+> **v1.79.4, vigente entera salvo lo que esta rev toca**. Origen: veredictos de QA, techlead y seguridad sobre
+> `db7d1c2`. `API_CONTRACT` sube a **v1.79.5**. ⛔ **Sin schema, sin migración, sin endpoint, sin código de error, sin
+> cambio de conducta.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | La mutación de la prueba 32 no mordía (puerta serializa); **nace la prueba 40** contracargo vs. verbo | §4.21q (o), `API_CONTRACT §M4-VAULT.8` | **Solo pruebas de backend** |
+> | **2** | `SEC-VLT-DL` **aceptado** con disparador; corrección elegida y dos descartadas | §4.21q (o) | **No** |
+> | **3** | `pieceCount` «a su nombre» vs. `counts.total` «deben estar en bóveda» | §4.21q (o), `API_CONTRACT §M4-VAULT.11` | **Solo copy de frontend** |
+> | **4** | Errata `GET /admin/locations` + `VaultLocationDTO` | `API_CONTRACT §M4-VAULT.4` | **No** |
+> | **5** | `SEC-SETTLE-LATE` registrada (medida N=1), no decidida; corrige «movería piezas» de (n) | §4.21q (o) | **No** (en este stream) |
+>
+> ---
 > **Rev v1.79.4 — EL SETTLE DEL PAGO ES UN CAS: «UN HECHO, UN INSTANTE» TAMBIÉN BAJO CARRERA** (2026-09-25, arquitecto.
 > Base: **v1.79.3, vigente entera salvo lo que esta rev toca**. Origen: hallazgo medido por backend, commit `6eb5f1d`.
 > `API_CONTRACT` sube a **v1.79.4**; norma y pruebas en `API_CONTRACT §M4-VAULT.2-bis.1` y `.8` (35–39). ⛔ **Sin schema,
@@ -7073,6 +7087,39 @@ orquestador antes de encargarlo.
 contracargada la volvería `settled` y movería piezas. Conducta **previa**, que el CAS conserva a propósito para no mezclar
 decisiones. ⛔ **NO MEDIDO** si Stripe llega a emitir ese evento en esa secuencia. Decidir el conjunto de estados de
 origen liquidables es una rev propia, con el dueño si cambia qué pagos se aceptan.
+
+**(o) v1.79.5 — Gates sobre `db7d1c2`: el rival de los CAS es el contracargo; dos conteos con nombre.** Norma y
+pruebas en `API_CONTRACT §M4-VAULT` v1.79.5 (.4, .5, .8 #32/#40, .11, .2-bis.1). ⛔ Sin schema, sin endpoint, sin
+cambio de conducta.
+
+- **La lección de la prueba 32 (medida por seguridad, `SEC-VLT-TL`):** un candado solo se prueba contra **un escritor
+  que no pasa por los otros candados**. Entre verbos de bóveda la puerta del cliente ya serializa, así que el `status`
+  de los `WHERE` no tenía rival en la prueba y su mutación sobrevivía a toda la suite. El único escritor fuera de la
+  puerta es el contracargo ⇒ la prueba 40 lo enfrenta a los cuatro CAS con barrera de fila. *Regla general que queda
+  para los próximos diseños:* al declarar la mutación de un `WHERE` con estado, **nombrar el escritor rival** y
+  comprobar que no comparte la serialización del verbo; si no hay ninguno, el `WHERE` es defensa en profundidad y se
+  dice así, ⛔ sin prometer que una prueba lo muerde.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **`SEC-VLT-DL` (interbloqueo contracargo↔`confirm`) se acepta** con disparador | Fijar ya el orden de candados | Converge sin estado falso (seguridad: 20/20 interbloqueos forzados, reintento correcto 10/10). Las dos correcciones baratas empeoran otra cosa (abajo) |
+| Corrección elegida para el disparador: `SELECT … FOR UPDATE` de la colocación como **primera** sentencia del contracargo; la escritura sigue **al final** | (i) mover la cancelación al principio; (ii) que el contracargo tome la puerta | (i) su `UPDATE` no vería una colocación que un settle concurrente aún no confirmó ⇒ quedaría `pending` una colocación de una orden contracargada (derivado de leer, ⛔ NO MEDIDO). (ii) quita al único rival de los `WHERE` ⇒ la prueba 40 no podría entrelazar y los `WHERE` vuelven a quedarse sin canario; además pone un webhook de dinero en la cola de los operadores |
+| `pieceCount` = **«a su nombre»** (valuación) y `counts.total` = **«deben estar en bóveda»** (físico); los dos se quedan | Alinear la lista al conjunto físico | La lista es un perímetro de **valuación** con gates aprobados: lo apartado sin pagar pesa en el valor. Cambiarlo movería `totalValueMxnCents`. El defecto era de **nombre** (el mismo sustantivo para dos preguntas), y se cierra con nombre |
+| Ruta de ubicaciones: errata a `GET /admin/locations` + `VaultLocationDTO` declarado | Crear el alias `/admin/inventory/locations` | El contrato citaba mal; el código y §M1 ya coincidían. Un alias sería dos rutas para un hecho |
+
+⚠️ **`SEC-SETTLE-LATE` — registrada, NO decidida (para «Órdenes y dinero»).** La observación de arriba (n) queda
+**medida** por seguridad en local (N=1, eventos firmados sintéticos): orden `chargeback` + `succeeded` tardío con
+importe correcto ⇒ `200`, `Order.status='settled'`, **`settledAt` reescrito**. **Corrige una frase de (n):** las piezas
+⛔ **no** se mueven (las protege `reservationGuard`: se quedan `platform/listed`) y la colocación sigue
+`cancelled/chargeback` (`skipDuplicates`). Lo que sí queda falso es el registro de dinero («liquidada» con los fondos
+revertidos). ⛔ NO MEDIDO: `AV-2` en ese camino y la alcanzabilidad con Stripe real. **Disparador:** antes de operar con
+disputas reales, o el siguiente pase de ese stream. Quien lo decida revisa a la vez la prueba 38 (ii) (`API_CONTRACT
+§M4-VAULT.8`), que canda la liquidación desde `failed`.
+
+⚠️ **Riesgo residual anotado para «Órdenes y dinero» (de `SEC-VLT-DL`, no de este stream):** tras un fallo del handler
+del webhook, el borrado del marcador `ProcessedStripeEvent` se traga su propio error (`payments.service.ts`,
+`.catch(() => undefined)`); si ese borrado fallara, Stripe no reintentaría y **el contracargo se perdería en silencio**
+(seguridad, ⛔ NO MEDIDO con fallo inyectado). Mínimo propuesto: log nivel `error` en ese `catch`.
 
 ---
 
