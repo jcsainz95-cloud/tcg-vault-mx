@@ -28,6 +28,113 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.56 — ⭐⭐ **v1.80 §M4-VAULT.2-bis.2: `SEC-SETTLE-LATE` — el pago solo se liquida desde `pending` o `failed`** (2026-09-28)
+
+> Contrato v1.80 §M4-VAULT.2-bis.2 · ARCHITECTURE §4.21q (p). Zona de dinero (`payments`). Sin schema, sin
+> migración, sin endpoint, sin código de error.
+
+### 0.56.1 — La forma del cambio
+
+- **Una constante, un predicado:** `SETTLEABLE_ORDER_STATUSES = ['pending','failed'] as const satisfies
+  readonly OrderStatus[]` en `backend/src/modules/payments/settleable-order-statuses.ts`, con
+  `isSettleableOrderStatus(status)` (la única forma de preguntarlo). La leen **tres** sitios y ningún otro: el
+  early-return de `onPaymentSucceeded` (negado) y el CAS `tx.order.updateMany({ where: { id, status: { in:
+  [...SETTLEABLE_ORDER_STATUSES] } } })` en las ramas `vault` y `settleDirectShipOrder`.
+- **El early-return va antes de H1** (un tardío no es un descuadre: ⛔ no audita `order.settle_amount_mismatch`)
+  y antes del reparto por `fulfillmentMode` (⛔ no llama a `getCardDetails`).
+- **La única huella del tardío** es `logger.warn('SEC-SETTLE-LATE: payment_intent.succeeded ignorado — orden
+  <orderNumber ?? id> en <status> (PI <pi>)')`, **solo** en `refunded`/`chargeback`; `settled` sale en silencio.
+  El perdedor del CAS no loguea nada (no sabe contra quién perdió). Marcador `ProcessedStripeEvent`: queda.
+- ⛔ No se tocó: `onChargeDispute*`, `onChargeDisputeClosed`, `failAndRelease`, `createMany … skipDuplicates`.
+
+### 0.56.2 — Medido ANTES del arreglo (sobre `cb4ee3e`, Postgres real, webhook firmado, N=1 por caso)
+
+El contrato marcaba ⛔ NO MEDIDO si salía `AV-2` por el camino tardío. **Sale**, y hay algo peor en `direct_ship`:
+
+| Caso (tardío = `succeeded` con otro event.id) | Antes de v1.80 |
+|---|---|
+| `vault` settled → contracargo → tardío | orden vuelve a `settled`, **`AV-2` enviado** |
+| `vault` settled → reembolso total → tardío | `settled`, **`AV-2` enviado** |
+| `direct_ship` (reg./inv.) settled → contracargo → tardío | `settled` + **`ShipmentRequest` NUEVO en `picking`** (el contracargo había cancelado el anterior) + confirmación de invitado / `AV-2` |
+| `direct_ship` (reg./inv.) `pending` → contracargo → tardío | lo anterior **y** la pieza que el contracargo había devuelto a `listed` se **re-congela en `picking`** (rama «recuperada» del settle) |
+
+Es decir: con Stripe entregando fuera de orden, una carta contracargada volvía a la cola de envío. Desde v1.80
+los cuatro casos son no-op (SL-1…SL-3, abajo).
+
+### 0.56.3 — Pruebas (primero en rojo, luego verdes)
+
+| Prueba | Fichero | Rojo sobre `cb4ee3e` | Verde |
+|---|---|---|---|
+| **38 (iii) enmendada** (`where` exacto `{ id, status: { in: ['pending','failed'] } }`, literal) | `test/payments.settle-cas.spec.ts` | 3/3 ramas | ✓ |
+| 38 (iii) literal en las otras tres specs que la afirmaban | `test/payments.service.spec.ts`, `test/payments.vault-placement-birth.spec.ts`, `src/modules/payments/h1-settle-amount.spec.ts` | — (cambio de literal) | ✓ |
+| **38 (ii) intacta** + control positivo `failed` en el fichero nuevo | `test/integration/vault-placement-birth.e2e-spec.ts`, `test/integration/settle-late.e2e-spec.ts` | verde (conducta que se conserva) | ✓ |
+| **SL-5** tabla de 5 estados × 3 ramas (unidad) + warn con id si no hay `orderNumber` + tardío antes de H1 | `test/payments.settle-late.spec.ts` | 18 rojas (las 21 de la corrida incluyen las 3 de 38 (iii)) | ✓ |
+| **SL-6** canario de lista cerrada (una fila por valor de `Object.values(OrderStatus)`) | ídem | — (nace con la constante) | ✓ |
+| **SL-1** `vault` contracargo → tardío (`settledAt` al ms, colocación igual) | `test/integration/settle-late.e2e-spec.ts` | rojo | ✓ |
+| **SL-2** `refunded` → tardío, 3 variantes | ídem | 3 rojas | ✓ |
+| **SL-3** `direct_ship` en `chargeback`, 4 variantes (reg./inv. × tras liquidar / sin liquidar) | ídem | 4 rojas | ✓ |
+| **SL-4** carrera con barrera de fila, N=10 por rama (`vault`, `direct_ship` reg., `direct_ship` inv.) | ídem | 0/10 verdes en cada rama | ✓ |
+| **SL-7** `dispute.closed(won)` conserva `settledAt`; luego tardío ⇒ no-op sin warn | ídem | verde (regresión) | ✓ |
+
+**«Cero escrituras» se mide con `xmin`:** la foto de SL-1…SL-3 incluye `xmin` de `Order`, `InventoryItem`,
+`VaultPlacement(Item)` y `ShipmentRequest`; cualquier `UPDATE` —aunque reescriba el mismo valor— lo cambia. Así
+«la tarjeta no se reescribió» no depende de que el doble de Stripe devuelva otra tarjeta.
+**`AV-2`:** el arnés no trae bandeja propia; la spec espía `mail.send`, `guestMail.sendConfirmation` y
+`logger.warn` **de la instancia viva** de `PaymentsService` (`h.app.get(PaymentsService)`), y
+`h.stripe.getCardDetails`. SL-1 lo mide directamente (no depende de SL-5).
+
+**SL-4, el arnés:** la barrera abre una tx, `SELECT … FOR UPDATE` + `UPDATE "Order" SET status='chargeback'`
+sin confirmar; se lanza el `succeeded` y se espera a verlo en `pg_stat_activity` con `wait_event_type='Lock'` y
+`query ILIKE '%UPDATE%"Order"%'`; se confirma la barrera. **Canario:** una tirada en la que el webhook respondió
+sin haberse visto esperando la fila cuenta como `INVALIDA` (⛔ no como verde) y la prueba exige 10/10 válidas.
+
+### 0.56.4 — Mediciones (autor: backend; sobre copia del árbol ENTERO `git archive HEAD` + mis ficheros)
+
+- **SL-4 verde:** 5 corridas × N=10 ⇒ **50/50 válidas y 50/50 verdes en cada una de las tres ramas**, 0 inválidas.
+- **Mutaciones** (cada una sobre la copia, suites de unidad de payments + `settle-late` + `vault-placement-birth`):
+
+| Mutación | Qué se pone rojo |
+|---|---|
+| M1 CAS **y** early-return a `not: 'settled'` (lo de v1.79.4) | SL-1, SL-2 ×3, SL-3 ×4, SL-4 ×3 (**0/10 verdes por rama, 2 corridas ⇒ 20/20 rojas**), residual ×2; unidad 25 |
+| M2 añadir `'refunded'` a la constante | SL-2 ×3, residual ×2; SL-5/SL-6/38 (iii) en unidad (17) |
+| M3 arreglar solo `vault` (early-return no aplica a `direct_ship` + CAS `direct_ship` viejo) | SL-2 direct_ship ×2, SL-3 ×4, SL-4 direct_ship ×2 (0/10 c/u) |
+| M4 early-return con la lista nueva, **CAS con `not: 'settled'`** en las dos ramas | en integración **solo SL-4** ×3 (**0/10 válidas-verdes por rama, 2 corridas ⇒ 20/20 rojas**); en unidad 38 (iii) + SL-5 (13) |
+| M5a quitar `'failed'` | 38 (ii) ×2 (integración), SL-5, SL-6, 38 (iii) (14) |
+| M5b añadir `'chargeback'` | SL-1, SL-3 ×4, SL-4 ×3, SL-5, SL-6 (23 en unidad) |
+| M5c early-return con lista propia `['pending','failed','refunded']` (CAS intacto) | SL-5 `refunded` ×3; SL-2 ×3 y residual ×2 (por el `warn`) |
+| M5d early-return con lista propia `['pending']` | SL-5 `failed` ×3; 38 (ii) ×2 |
+| M6 añadir `disputed` al enum `OrderStatus` + `prisma generate` | SL-6 ×2 |
+| M7 `onChargeDisputeClosed(won)` con `settledAt: new Date()` | SL-7 |
+| MCAN (canario) early-return que sale siempre | SL-4 ×3: **10/10 `INVALIDA`** por rama ⇒ rojo por el canario (sin él habría sido verde falso) |
+
+### 0.56.5 — ⭐ Residual declarado: el barrido de reservas y una orden `refunded` sin liquidar (MEDIDO)
+
+**Predicado leído** (`OrdersService.sweepExpiredReservations`, `orders.service.ts:1069`): selecciona piezas
+`status='reserved' ∧ reservedByOrderId ≠ null ∧ reservedUntil < now` **sin mirar el estado de la orden**; por
+orden, B3: `closePaymentIntent` y solo si queda `canceled` libera (`reservationGuard(orden)` ⇒ `listed`); la orden
+solo pasa a `failed` si seguía `pending`.
+
+**Medido** (Postgres real, `settle-late.e2e-spec.ts` «RESIDUAL», N=1 por variante): orden `vault` `pending` con 2
+piezas `reserved` vencidas ⇒ `charge.refunded` total (reembolso desde el panel, sin liquidar) ⇒ `refunded` ⇒
+tardío no-op ⇒ barrido:
+- **Con el doble en modo Stripe real** (`cancelOutcome='throws-succeeded'`: un PI reembolsado está `succeeded` y
+  cancelarlo lanza): **NO las suelta**, dos pasadas seguidas. Quedan `reserved` por una orden `refunded` para
+  siempre, y el barrido lo reintenta y loguea `error` en **cada** pasada (cada 15 min).
+- Contraste con el doble que sí cancela (irreal para un PI reembolsado): las soltaría a `listed`; la orden sigue
+  `refunded`.
+
+⇒ **Las piezas no se sueltan.** El contrato dice que en ese caso «se registra en `TECH_DEBT.md` con disparador
+"primer reembolso fuera de la app"»; mi encargo me limitó a `payments/`, sus pruebas y estas notas, así que **no
+lo escribí** — queda para el orquestador (propuesta de texto en el informe). Cuidado al arreglarlo: soltar una
+pieza de una orden reembolsada es devolver a la venta una carta cuyo cliente puede tenerla ya (depende de por
+qué se reembolsó); no es «liberar y ya».
+
+### 0.56.6 — Para QA / seguridad
+
+- Re-medir la sonda S4 de seguridad (N≥10) sobre este sha: `chargeback` + `succeeded` con importe correcto ⇒
+  `200`, sigue `chargeback`, `settledAt` sin reescribir, `logger.warn SEC-SETTLE-LATE` en el log.
+- Frontend: nada.
+
 ## 0.55 — ⭐⭐ **v1.80 §M2-B.11: TOPE DE PAGO DEL BOUNTY — se paga `min(bounty, mercado)`** (2026-09-28)
 
 > Contrato v1.80 §M2-B.11 · ARCHITECTURE §4.36.6e · `HECHOS.md` (dos filas del 2026-09-28): «el bounty nunca
