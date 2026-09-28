@@ -23947,7 +23947,7 @@ escritura de la tabla del dinero). **NO MEDIDO:** si esa misma carrera manda dos
   vault` ⇒ VACÍO» de `shipments.picking-list.spec.ts` y el de `preparation-queue.e2e-spec.ts` (su premisa era el hueco).
 - **Integración**: `vault-placement-verbs.e2e-spec.ts` (32 casos: 4, 5, 7, 8, 9, 11, 12, 14–17, 19–23, 26–28, 30, 31,
   33 sobre `placed`, 34, 403/404, invariante de la cola, `?action=`), `vault-placement-races.e2e-spec.ts` (6, 6/33, 13,
-  18, 24, 25, 32a, 32b). Fixtures: `test/integration/helpers/vault-placement-db.ts`.
+  18, 24, 25, 32a, 32b; desde v1.79.5 también 40(a)–(e2), §7). Fixtures: `test/integration/helpers/vault-placement-db.ts`.
 - **Carreras** (entrelazado forzado: candado de fila del CAS o la propia puerta, comprobado en `pg_stat_activity`):
   todas `k/N = N/N` — ver la tabla del informe de la corrida en §5.
 - **Carrera 25 con la mutación m3 (sin puerta)**: su orden «PATCH primero» usa **la propia puerta** como barrera; sin
@@ -23983,6 +23983,55 @@ bastan»), al revés: aquí la puerta basta sin el `WHERE`. El `WHERE` sigue sie
 (es la única protección si alguien quita la puerta — medido: m4+m3 roja), pero la prueba 32 tal como está escrita **no
 lo discrimina**. Decisión del arquitecto: o se reescribe la mutación de la 32 como «m4 + sin puerta», o se acepta que
 el candado del `WHERE` del cierre directo sea la combinación.
+
+> ⭐ **Resuelto en v1.79.5 (arquitecto, `9b5b08f`):** la cláusula de mutación de la 32 se retiró del contrato; la 32
+> queda como **regresión de la puerta** (así lo dice ahora un comentario encima de 32a/32b en la suite) y la mutación
+> del `status` de los `WHERE` pasa a la **prueba 40** (§7), contra el contracargo.
+
+## 7 · Prueba 40 — contracargo vs verbo (v1.79.5 · backend · 2026-09-28)
+
+Cierra C1 de techlead + seguridad y la IMPORTANTE 3 de QA (sobre `db7d1c2`). Commits `982fddf` (prueba + log del
+marcador + limpiezas) y `8979202` (40(e) en dos `it`). ⛔ Sin cambios en los `WHERE` ni en el orden de candados.
+
+- **Dónde:** `vault-placement-races.e2e-spec.ts`, casos 40(a)–(d) (N=10, entrelazado forzado) y 40(e1)/(e2)
+  (secuencial, N=1). Webhook `charge.dispute.created` **firmado** (`E2EHarness.sendStripeWebhook`) con `event.id` propio
+  (se borra en `afterAll`).
+- **Canario del arnés:** `VaultPlacementDb.waitRowBlocked(n)` cuenta sesiones con `wait_event_type='Lock'` y
+  `wait_event IN ('transactionid','tuple')` — candado de **fila**, ⛔ no advisory (la puerta). Se exige ver a A y luego
+  a A+B esperando fila; una tirada sin eso se reporta como `SIN-ENTRELAZADO:` y la prueba exige **0** de ésas.
+- **Qué asierta (todas las tiradas):** webhook `200`; fila `cancelled/chargeback` con `cancelledByUserId NULL`;
+  `Order.status='chargeback'`; B `409 PLACEMENT_NOT_PENDING {status:'cancelled', cancelReason:'chargeback'}`; y por
+  caso: (a) `preparedAt` intacto, 0 bitácoras `nothing_to_place`; (b) 0 `InventoryMovement reason='move'`, piezas
+  `platform/listed` con su `locationId` de antes, 0 `placed`; (c) `preparedAt`/`preparedByUserId` NULL, 0 `prepared`;
+  (d) `preparedAt` intacto, 0 `unprepared`; (e1) `placed` intacta y piezas `platform/listed` **en el cajón**; (e2)
+  `nothing_to_place` conserva razón, autor y fecha.
+
+**Medido por mí** (copias del árbol ENTERO con `git archive`, BD propia `tcg_bevault3`/`tcg_bevault3_mut`, Postgres 16):
+
+| Corrida | SHA de la copia | Resultado |
+|---|---|---|
+| limpio | `982fddf` | 40a/b/c/d **10/10** cada una, sin entrelazado **0/10**; (e) verde |
+| limpio (repetición) | `8979202` | 40a/b/c/d **10/10** cada una, sin entrelazado **0/10**; e1, e2 verdes; suite de carreras 14/14 |
+| m-a — sin `status` en el cierre directo (`:463`) | `982fddf` | **40a roja 0/10** (B `200 nothing_to_place`, fila `nothing_to_place` con **operador** como autor, 1 bitácora); b/c/d 10/10 |
+| m-b — sin `status` en el paso 8 (`:510`) | `982fddf` | **40b roja 0/10** (B `500 INTERNAL`; la fila queda `cancelled/chargeback`, 0 movimientos); a/c/d 10/10 |
+| m-c — sin `status` en `POST …/prepared` (`:330`) | `982fddf` | **40c roja 0/10** (B `200 prepared` sobre la cancelada, `preparedAt` escrito, 1 bitácora); a/b/d 10/10 |
+| m-d — sin `status` en `DELETE …/prepared` (`:380`) | `982fddf` | **40d roja 0/10** (B `200 unprepared`, `preparedAt` borrado, 1 bitácora); a/b/c 10/10 |
+| m-e — sin `status` en el `WHERE` del contracargo (`payments.service.ts:895`) | `982fddf` / `8979202` | a–d 10/10; **e1 roja** (webhook `500`: el CHECK rechaza la placed cancelada) y **e2 roja** (reescribe a `chargeback`, autor `NULL`) — medidas por separado en `8979202` |
+| m-gate — quitar SOLO la puerta (`lockCustomerVaultGate` no-op) | `982fddf` | 40a/b/c/d **10/10 verdes** + (e) verde: lo que el contrato pide (el rival no toma la puerta) |
+
+«0/10» = 0 tiradas correctas de 10 (roja en las 10). Las filas `(m-b)`–`(m-e)` estaban **NO MEDIDAS** en el contrato;
+su forma de ponerse rojas coincide con la derivada allí.
+
+**Otros de este pase:**
+- **37 (QA menor 7):** ahora asierta marca/últimos 4 (`visa/4242`, del doble `getCardDetails` del harness); «una vez»
+  lo da `re === 0` (una segunda escritura sería `settled→settled` y el trigger la cuenta). Mutación m-37 (el settle
+  `direct_ship` sin marca, `8979202`): **roja 0/10** invitado y **0/10** registrado.
+- **Borrado del marcador de Stripe (`payments.service.ts`, tras fallo del handler):** su error ya no se traga en
+  silencio: `logger.error` con evento, tipo, causa y «requiere reproceso manual». Semántica sin cambio (se propaga el
+  error original). Unidad nueva en `payments.service.spec.ts`; mutación m-log (volver a `.catch(() => undefined)`):
+  **roja** (1 de 16). ⛔ Sigue NO MEDIDO con fallo inyectado en integración. Resto en `TECH_DEBT.md` `SEC-VLT-DL`.
+- **Techlead:** corregido el comentario falso de `shipments.service.ts` («`?destination=vault` devuelve VACÍO hoy») y
+  quitado el JSDoc duplicado de `preparation-view.ts`. Deuda D1–D4, D8 y SEC-VLT-DL en `docs/TECH_DEBT.md` (`d6af930`).
 
 # §M4-VAULT.2-bis.1 · el settle es un CAS (v1.79.4 · backend · 2026-09-25)
 
