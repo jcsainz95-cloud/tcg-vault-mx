@@ -429,8 +429,9 @@ describe('§M4-VAULT — carreras con entrelazado forzado (Postgres real)', () =
     expect(k).toBe(N);
   });
 
-  it('40(e) — el WHERE del propio contracargo, secuencial (determinista, N=1): (e1) placed sigue placed y las piezas vuelven a plataforma EN el cajón; (e2) nothing_to_place conserva su autor', async () => {
-    // (e1) colocada de verdad (por HTTP), luego el contracargo.
+  // 40(e) — el WHERE del propio contracargo, secuencial (determinista, N=1). Dos `it` para que la
+  // mutación m-e se vea roja en CADA uno por su cuenta (en uno solo, el primer `expect` ocultaría el otro).
+  it('40(e1) — contracargo sobre una colocación YA placed: sigue placed con su placedAt/placedBy/cajón, y las piezas vuelven a plataforma EN el cajón', async () => {
     const u1 = await db.mkUser('Cuarenta E Uno');
     const x = await db.mkDrawer();
     const p1 = await db.mkPlacement(u1.id, 1, { marks: ['picked'], prepared: true });
@@ -454,8 +455,9 @@ describe('§M4-VAULT — carreras con entrelazado forzado (Postgres real)', () =
     });
     const piece1 = await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: p1.pieces[0].id } });
     expect([piece1.ownerType, piece1.status, piece1.locationId]).toEqual(['platform', 'listed', x.id]);
+  });
 
-    // (e2) cerrada sin cajón por el operador, luego el contracargo.
+  it('40(e2) — contracargo sobre una colocación YA cancelled/nothing_to_place: conserva su razón, su autor y su fecha', async () => {
     const u2 = await db.mkUser('Cuarenta E Dos');
     const p2 = await db.mkPlacement(u2.id, 1, { marks: ['missing'], prepared: true });
     expect(code(await db.confirm(p2.placement.id, {}))).toBe('200:nothing_to_place');
