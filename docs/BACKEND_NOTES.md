@@ -23722,6 +23722,9 @@ cola restante es la Causa 2 (histórico de precio) — que necesita el arreglo e
 
 # Meta Battle Decks — arte de la teja: «la ex representativa del deck» (2026-09-25)
 
+> **Sustituida (2026-09-28)** por «Meta Battle Decks — portada del deck = la de Limitless (M-60)» más abajo: la regla
+> pasó a ser normativa (API_CONTRACT §13) y las reglas 2/2b se funden en un solo conjunto. Lo de aquí queda como historia.
+
 Pedido del dueño: «En las imágenes hay que poner la EX representativa del deck» / «No cualquier carta en los decks».
 El contrato no fija la regla (`imageUrl` de `GET /decks-meta`); es decisión de implementación. Código:
 `backend/src/modules/decks-meta/deck-image.ts` (`pickDeckImage(deckName, imageCardId, cards)`, función pura),
@@ -23804,3 +23807,72 @@ sostiene hoy `SERIALIZABLE_ATTEMPTS = 5`**. Queda un candado unitario barato del
 `docs/TECH_DEBT.md` «TD-1 (arreglos-rápidos)».
 
 ⛔ NO MEDIDO: la proporción de `503` con ~50 altas simultáneas del mismo vendedor.
+
+# Meta Battle Decks — portada del deck = la de Limitless (M-60, rev `decks-portada`, 2026-09-28)
+
+Diseño: `ARCHITECTURE.md §12.4`; contrato: `API_CONTRACT.md §13` «Portada del deck (`imageUrl`) — regla normativa» y
+«Admin» (`decks[].cover` del ensayo). Rama `claude/decks-portada`. Implementado tal cual; sin discrepancias con el
+contrato que requieran al arquitecto (ver «Decisiones de implementación» para lo que el diseño dejaba abierto).
+
+## Qué hace, por pieza
+- **Parser** (`limitless-html.parser.ts`): `HomeLeader.cover: { setCode, number } | null`, leído SOLO de
+  `a.leader-image img[alt]` (trim), validado con `^([A-Za-z0-9][A-Za-z0-9-]{0,9})-([A-Za-z0-9]{1,8})$` y longitud ≤ 20
+  (`parseCoverAlt`, exportada). Número CRUDO («25»). El `src` no se lee. Si hay bloques y ninguna portada válida ⇒
+  `logger.warn` que empieza por «portada:» (no es check del canario).
+- **Matcher**: `DeckMatcherService.matchCover(cover) ⇒ { matchStatus, card }` delega en `matchLines` con una línea
+  sintética (`quantity:1`, `pokemon`, `isBasicEnergy:false`). `card` sólo si `matched`.
+- **Refresh** (`decks-meta-refresh.service.ts`): por deck, `matchDeckCover` aparte de `matched` (las 60). Modo vivo:
+  `persistDeck` escribe `coverSetCode/coverNumber/coverMatchStatus/coverCardId` en la `MetaDeckList` nueva. Ensayo:
+  `DeckReport.cover = { setCode, number, matchStatus, cardId, imageUrl } | null` (`imageUrl` = `imageOf` de NUESTRA
+  carta). Deck con `error` ⇒ `cover:null`. `GET /admin/decks-meta/preview` devuelve el reporte tal cual, así que el
+  campo llega al front sin tocar el controlador.
+- **Regla** (`deck-image.ts`): `pickDeckImage({ deckName, imageCardId, coverCard, cards })` (firma-objeto). Orden:
+  1 admin › 2 `coverCard` con imagen (sin filtro de grupo, no exige estar en las 60) › 3 nombre en UN conjunto con
+  desempate (posición, completa<especie, ex<no-ex, copias desc, clave asc) › 4 ex con más copias › 5 Pokémon con más
+  copias › `null`.
+- **Lectura** (`decks-meta.service.ts` `listPublished`): `include: { currentList: { include: { coverCard: true, … } } }`
+  y pasa `coverCard`. `getBySlug` y `paste`: sin cambio. `adminCreateOrCurate` NO escribe portada (nace null).
+
+## Migración M-60 — `20260928120000_m60_meta_deck_list_cover`
+Escrita a mano (equivale a lo que genera `prisma migrate diff`, medido: mismas dos sentencias salvo el orden de
+columnas). 4 columnas nullable en `MetaDeckList` + FK `MetaDeckList_coverCardId_fkey → Card(id) ON DELETE SET NULL ON
+UPDATE CASCADE`. Sin default, sin backfill, sin índice, sin enum nuevo. Número: M-59 lo usa otra rama
+(`20260925120000_m59_vault_placement`, dato del orquestador, NO MEDIDO por mí en esta rama); si al fusionar hay
+colisión de timestamp u orden, el orquestador lo reasigna — la migración no depende de M-59.
+
+**Rollback** (medido en BD propia dentro de `BEGIN … ROLLBACK`: deja 0 columnas `cover%`; tras el `ROLLBACK`, 4):
+```sql
+ALTER TABLE "MetaDeckList" DROP CONSTRAINT "MetaDeckList_coverCardId_fkey";
+ALTER TABLE "MetaDeckList" DROP COLUMN "coverCardId", DROP COLUMN "coverMatchStatus",
+  DROP COLUMN "coverNumber", DROP COLUMN "coverSetCode";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20260928120000_m60_meta_deck_list_cover';
+```
+y desplegar el backend anterior (no lee estas columnas). Sólo se pierde procedencia de portada, que el job reescribe.
+Sin la migración, el backend nuevo falla al escribir/leer `coverCard` ⇒ migración y código van juntos (la migración
+primero, como siempre: es aditiva y el código viejo la ignora).
+
+## Decisiones de implementación (lo que el diseño no fijaba)
+1. **Fallo al casar la portada ⇒ el deck sigue SIN portada** (las 4 columnas null, `cover:null` en el ensayo) y
+   `logger.warn`; el deck no pasa a `error` ni toca el canario. Motivo: §13 «la portada nunca bloquea». En la práctica
+   `matchCover` hace las mismas lecturas que `matchLines`, así que si falla la BD ya habría fallado la lista.
+2. **Nombre de la línea sintética:** `name` = `SET-NÚM` (no se persiste: la línea no sale de `matchCover`).
+3. **Aviso del parser**: `logger.warn` por corrida, no por bloque.
+
+## Pruebas (§12.4.6) y dónde viven
+| # | Fichero |
+|---|---|
+| P1, P2 (+aviso), P3–P6 | `backend/test/decks-meta-portada.spec.ts` (P3–P6 con el matcher REAL sobre catálogo en memoria) |
+| P7, S1 | `backend/src/modules/decks-meta/decks-meta.service.spec.ts` (el mock de S1 honra el `include`) |
+| D1–D7 | `backend/src/modules/decks-meta/deck-image.spec.ts` (las 19 previas: sólo cambia la forma de la llamada) |
+| matchCover | `deck-matcher.service.spec.ts` (`4`↔`004`, minúsculas, `unmatched_set/number`, `ambiguous`) |
+| forma M-60 | `backend/test/migration.m60-meta-deck-list-cover.spec.ts` |
+| integración | `backend/test/integration/decks-meta-persistence.e2e-spec.ts` › «portada del deck (M-60)»: `matchCover` contra BD real, `listPublished` lee la portada, `ON DELETE SET NULL`, curaduría ⇒ null |
+
+Todas deterministas (sin reloj ni carrera): N=1 por mutación. Las 18 mutaciones de la tabla §12.4.6 (y variantes)
+mueren; detalle en el informe del commit.
+
+## NO MEDIDO
+- Qué carta de NUESTRO catálogo es `TWM-25`: no hay BD con catálogo en este entorno (la BD de pruebas es propia y
+  vacía). Se mide en staging/prod con el ensayo: la columna «Portada» dirá `casada` y la miniatura.
+- Cuántas portadas de la home real casan hoy contra el catálogo de prod (depende de `ptcgoCode` de `MEG`/`JTG`/`PBL`).
+
