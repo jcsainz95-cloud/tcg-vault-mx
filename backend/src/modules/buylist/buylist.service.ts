@@ -18,7 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { cardProductRefKey, PricingService } from '../pricing/pricing.service';
 import { bountyRemainingQty } from '../pricing/bounty-progress';
-import { toCardDTO } from '../catalog/catalog.service';
+import { publicPtcgoCode, toCardDTO } from '../catalog/catalog.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
@@ -1243,6 +1243,8 @@ export class BuylistService implements OnModuleInit {
       name: string;
       number: string;
       setName: string;
+      /** v1.80 (P-71): código corto del set de la carta; mismas reglas que `CardDTO.setPtcgoCode`. */
+      setPtcgoCode: string | null;
       imageSmallUrl?: string;
       rarity?: string;
       finish: Finish;
@@ -1306,6 +1308,8 @@ export class BuylistService implements OnModuleInit {
       name: r.card.name,
       number: r.card.number,
       setName: r.card.set.name,
+      // v1.80 (P-71, §4.57): la consulta ya carga `card.set` ⇒ cero queries nuevas. Clave SIEMPRE presente.
+      setPtcgoCode: publicPtcgoCode(r.card.set.ptcgoCode),
       ...(r.card.imageSmallUrl ? { imageSmallUrl: r.card.imageSmallUrl } : {}),
       ...(r.card.rarity ? { rarity: r.card.rarity } : {}),
       finish: r.finish,

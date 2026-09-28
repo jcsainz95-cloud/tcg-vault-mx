@@ -28,6 +28,60 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.55 — **P-71: el código corto del set («TWM») se publica, y «Buscar set» lo encuentra** (2026-09-28, contrato v1.80, `ARCHITECTURE §4.57`)
+
+> Propiedad: **backend**. Rama `claude/paquete-pantallas`, base `ffef230`. ⛔ Sin schema, sin migración, sin
+> endpoint nuevo, cero dinero: proyección de `CardSet.ptcgoCode`, que el sync ya guardaba.
+
+**Una sola normalización:** `publicPtcgoCode(raw)` en `backend/src/modules/catalog/catalog.service.ts`, junto a
+`toCardDTO` (⛔ no en `common/`). `trim()`; vacío/espacios ⇒ `null`; **mayúsculas intactas** (`'twm'` sale
+`'twm'`); jamás deduce nada del `externalId` ni del nombre. **No** es la clave de emparejado de decks-meta
+(`deck-matcher.service.ts`, `trim().toUpperCase()`), que sigue como estaba.
+
+| Campo (clave SIEMPRE presente) | Emisor | Nota |
+|---|---|---|
+| `CardDTO.setPtcgoCode` | `toCardDTO` | misma relación que `setName`: emisor sin `include:{set:true}` ⇒ ambos `null` |
+| `MasterSetBinderResponse.set.ptcgoCode` (tipo nuevo `MasterSetRefDTO`) | `MasterSetService.binder` | combinado = el del **principal**. ⛔ `SetRefDTO` no cambia |
+| `SetPartDTO.ptcgoCode` | `binder` → `resolveMasterSet` (mismo `select`, +1 columna) | el **de cada parte** |
+| `MasterSetSummaryDTO.ptcgoCode` | `MasterSetService.index` (mismo `select`, +1 columna) | fila plegada = el del **principal** (el plegado no lo toca) |
+| `BuylistSetDTO.ptcgoCode` | `CatalogService.listSetsWithImportedCards` (`GET /buylist/sets`) | ⛔ `GET /catalog/sets` **no** lo trae (su builder arma el objeto campo a campo) |
+| `PublicBountyDTO.setPtcgoCode` | `BuylistService.publicBounties` | la consulta ya cargaba `card.set` |
+
+**«Buscar set»** (`?q=` de `GET /admin/inventory/master-sets`, `GET /admin/vaults/:userId/master-sets`,
+`GET /vault/master-sets` — los tres pasan por `index()`): `OR [name contains q insensitive, ptcgoCode contains q
+insensitive]`. Un set con código `NULL` solo casa por nombre (ILIKE sobre NULL no casa y no revienta — medido en
+Postgres real). La conducta heredada «el `q` se aplica **antes** del plegado de combinados» (§4.57.4) **no cambia**.
+
+**Pruebas** (P71-B1..B7 del contrato):
+- `backend/test/set-ptcgo-code.p71.spec.ts` — B1, B2, B3, B4, B6, B7 (31 casos). Los dobles de Prisma **respetan
+  `select`/`include`** (una columna no seleccionada no llega), así que «quitar `ptcgoCode` del `select`» y «emisor
+  sin `include:{set:true}`» se ven en unitario.
+- `backend/test/integration/set-ptcgo-code-search.e2e-spec.ts` — B5 contra Postgres real, por HTTP, en los **tres**
+  endpoints (`twm`/`TwM`/`TWM`/`wm` ⇒ TWM y no el de código null; `twilight` ⇒ sigue por nombre; `sin codigo` ⇒ el de
+  código null con `ptcgoCode:null`; `zzz` ⇒ `total:0`, sin 500). Fixture propio `P71-*`, limpiado en `afterAll`.
+  Antes de implementar: 15 rojos / 6 verdes de 21 (los verdes eran `twilight` y `zzz`, que ya pasaban por nombre).
+- Ajustadas dos aserciones de forma exacta que el campo nuevo tocaba: `test/catalog.group-dto-shape.spec.ts`
+  (conjunto de claves de `CardDTO`) y `test/buylist.bounties.spec.ts` (`toEqual` del elemento de la vitrina).
+
+**Mutaciones** (sobre copia del árbol, una tirada cada una — son deterministas, sin carrera ni reloj):
+
+| Mutación | Resultado |
+|---|---|
+| `setPtcgoCode: card.set?.ptcgoCode ?? null` (sin normalizar) | 3 rojos |
+| `.toUpperCase()` en `publicPtcgoCode` | 6 rojos |
+| clave omitida en `toCardDTO` cuando no hay código | 4 rojos |
+| quitar `ptcgoCode` del `select` del índice | rojo de compilación (`TS2339`): el tipo de Prisma lo caza antes que la prueba |
+| la fila plegada hereda el código del subset | 2 rojos |
+| todas las partes con el código del principal | 2 rojos |
+| `/buylist/sets` emite `s.ptcgoCode` crudo | 1 rojo |
+| bounties: clave omitida | 1 rojo |
+| `searchAllCards` sin `include:{set:true}` / ficha sin `include:{set:true}` | 1 rojo / 1 rojo |
+| quitar la rama `ptcgoCode` del `OR` (integración) | 12 rojos de 21 |
+| `equals` en vez de `contains` (integración) | 3 rojos (el caso `wm`); el contrato lo declara aceptable, la prueba es más estricta |
+
+**Para frontend:** el campo llega `null` con frecuencia (promos, sets viejos, y quizá recientes: `N-P71-1/2`
+de `ARCHITECTURE §4.57.6`, **NO MEDIDO** en producción). Condicionar por verdad (`code ? … : '#130'`).
+
 ## 0.54 — ⭐⭐ **P-53 ALTO-4: F4/F5 dejan de capar la ventana por `capturedDate` crudo (frescura efectiva en TODA ruta de dinero)** (2026-09-18)
 
 > Propiedad: **backend**. Cierra los dos últimos lectores de dinero que el barrido del arquitecto
