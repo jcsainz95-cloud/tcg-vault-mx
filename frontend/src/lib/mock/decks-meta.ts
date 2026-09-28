@@ -133,9 +133,15 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
     finishedAt: '2026-09-19T12:00:38Z',
     urlsFetched: ['home', 'list/abc123', 'list/def456', 'list/ghi789'],
     decks: [
-      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'abc123', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17, unmatched_set: 1 }, inBand: true },
-      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'def456', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, inBand: true },
-      { archetypeId: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, listId: 'ghi789', cardsParsed: 19, sumQuantity: 60, matched: 18, total: 19, matchStatusBreakdown: { matched: 18, unmatched_set: 1 }, inBand: true },
+      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'abc123', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17, unmatched_set: 1 }, inBand: true,
+        // rev `decks-portada`: portada casada — imagen de NUESTRO catálogo, nunca la de Limitless.
+        cover: { setCode: 'TWM', number: '130', matchStatus: 'matched', cardId: 'mock-card-twm-130', imageUrl: 'https://images.pokemontcg.io/sv6/130_hires.png' } },
+      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'def456', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, inBand: true,
+        // Portada que no casa (set sin ptcgoCode en catálogo): la teja caerá a la regla por nombre.
+        cover: { setCode: 'MEG', number: '56', matchStatus: 'unmatched_set', cardId: null, imageUrl: null } },
+      { archetypeId: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, listId: 'ghi789', cardsParsed: 19, sumQuantity: 60, matched: 18, total: 19, matchStatusBreakdown: { matched: 18, unmatched_set: 1 }, inBand: true,
+        // Sin portada (la home no trajo `alt` válido para este arquetipo).
+        cover: null },
     ],
     canary: {
       verdict: 'PUBLISH',
@@ -158,6 +164,29 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
     manualConflicts: ['gardevoir-ex'],
     pausedSkipped: [],
     errors: [],
+  },
+};
+
+/**
+ * MOCK de «Publicar ahora» (`POST /admin/jobs/decks-meta-refresh`) para demo / smoke E2E sin
+ * backend. Reutiliza el reporte del ensayo pero como corrida EN VIVO ya publicada: canary en
+ * verde, `applied:true` y `publishedSlugs` con los decks del mock de arriba.
+ */
+export const mockDecksMetaPublishNow: DecksMetaPreviewResponse = {
+  skipped: false,
+  mode: 'live',
+  report: {
+    ...(mockDecksMetaPreview as Extract<DecksMetaPreviewResponse, { skipped: false }>).report,
+    mode: 'live',
+    verdict: 'PUBLISH',
+    wouldPublish: true,
+    applied: true,
+    persistedCount: 3,
+    publishedSlugs: ['dragapult-ex', 'charizard-ex', 'raging-bolt-ex'],
+    canary: {
+      ...(mockDecksMetaPreview as Extract<DecksMetaPreviewResponse, { skipped: false }>).report.canary,
+      verdict: 'PUBLISH',
+    },
   },
 };
 

@@ -29630,3 +29630,156 @@ Serializa el arquitecto (zona compartida): `prisma/schema`, `common/` (legalidad
 (mapeo), `API_CONTRACT.md`. Disjunto/paralelizable: `modules/decks-meta` (backend) + `(storefront)/decks-meta`
 (frontend). Fase 0 (legalidad) bloquea; Fase 1 (motor+disponibilidad+carrito+top-10 curado) BE+FE en paralelo;
 Fase 2 (auto Limitless) BE-solo; Fase 3 (sustitución legal + "avísame" vía §R). Spec §9.
+
+### 12.4 Portada del deck = la de Limitless (rev `decks-portada`, 2026-09-28, arquitecto)
+
+> **Decisión del dueño (2026-09-28, `HECHOS.md` de `claude/m4-boveda`):** la imagen de cada deck es la **portada
+> que usa Limitless**; si no se puede, la regla por nombre de respaldo y, con dos Pokémon, **manda el primero
+> nombrado** (sea ex o no: «Alakazam Mew» ⇒ Alakazam). La elección del admin (`imageCardId`) sigue ganando. Pedido
+> original: «la EX representativa del deck, no cualquier carta». Contrato: `API_CONTRACT.md §13` «Portada del
+> deck». Cierra la propuesta de `TECH_DEBT.md` TD-2 (arreglos-rápidos), salvo V/VSTAR/GX (§12.4.7). No es zona de
+> dinero.
+
+**Estado medido (sobre `13acdb2`, lectura de código, 2026-09-28):** la regla vive en
+`backend/src/modules/decks-meta/deck-image.ts` (`pickDeckImage`, pura; hoy «ex nombrada» gana a «no-ex nombrada»
+aunque ésta vaya antes, l.156–160). La home trae la portada en `a.leader-image > img[alt]` con formato `SET-NÚM`
+(`backend/test/fixtures/limitless/home-index.html` l.214/228/242/256/270/284: `TWM-130`, `TWM-25`, `MEG-56`,
+`JTG-98`, `SCR-58`, `PBL-65` — número **sin** ceros, mientras el `src` sí los trae: `TWM_025`).
+`limitless-html.parser.ts` (`parseLeaderBlock`, l.84–124) lee el `href` de `a.leader-image` pero **no** el `img`.
+Qué carta de nuestro catálogo es `TWM-25`: **NO MEDIDO** (no hay BD aquí); las pruebas usan una carta sintética.
+
+#### 12.4.1 Extracción (parser, puro)
+
+- `HomeLeader` gana `cover: { setCode: string; number: string } | null`.
+- Fuente **única**: `block.find('a.leader-image img').first().attr('alt')`, `trim`. Se valida con
+  `^([A-Za-z0-9][A-Za-z0-9-]{0,9})-([A-Za-z0-9]{1,8})$` (el set se separa por el **último** guion; longitud total
+  ≤ 20). Lo que no valide ⇒ `cover:null`, **sin** tocar el resto del bloque (`archetypeId`, `rank`, … intactos).
+- ⛔ **No** se usa el `src` como respaldo ni se persiste/sirve: es arte externo (regla «nunca arte externo»,
+  §13) y añadiría una segunda fuente que puede discrepar. Si Limitless quita el `alt`, la portada sale `null`
+  en todos los decks, la teja cae a la regla por nombre y el ensayo lo muestra (0 portadas).
+- `number` se guarda **crudo** (`"25"`); no se normaliza en el parser.
+- Aviso operativo: si `totalBlocks > 0` y **ninguna** portada valida ⇒ `logger.warn` (posible cambio de markup).
+  **No** es un check del canario.
+
+#### 12.4.2 Casado (matcher, mismo motor)
+
+- El refresh, por cada candidato con `cover`, casa la portada con **el mismo código** que las 60:
+  `DeckMatcherService.matchCover(cover)` ⇒ `{ matchStatus, card }`, implementado **delegando** en `matchLines`
+  con una línea sintética (`quantity:1`, `group:'pokemon'`, `isBasicEnergy:false`). ⛔ **Prohibido** una segunda
+  implementación de `normalizeNumber` / búsqueda por `ptcgoCode`: la tolerancia `25`↔`025` debe ser la misma.
+- ⛔ La línea sintética **nunca** entra al arreglo `lines` del deck: no cuenta en `sumQuantity`, `matched`,
+  `total`, canario, `MetaDeckCard`, carrito ni reporte de no-mapeadas.
+- `ambiguous` / `unmatched_set` / `unmatched_number` ⇒ `card:null` (igual que una línea: no se auto-resuelve).
+- **Si `matchCover` LANZA** (C-1b, 2026-09-28): la portada nunca bloquea ⇒ se trata como **sin portada**
+  (`cover:null` en el ensayo, 4 columnas `cover*` a null al persistir; respeta el invariante todo-null) y el fallo
+  va a `errors[]` como `cover <SET>-<NÚM>: <msg>`. No se inventa un `MetaMatchStatus` para un fallo nuestro:
+  `MetaMatchStatus` describe el casado, no la infraestructura. Se cura sola en la siguiente corrida viva.
+- Coste: +2 queries por deck (sets + cartas del set), top-N ≈ 10 ⇒ despreciable; el job es semanal.
+- Se casa **en el job** (como `MetaDeckCard.matchedCardId`), **no** en lectura: la lectura pública no hace
+  búsquedas por set-número. Consecuencia aceptada: si la carta entra al catálogo después, la portada se cura en
+  la **siguiente** corrida viva.
+
+#### 12.4.3 Dónde se guarda — `MetaDeckList`, migración ADITIVA (`M-DM-COVER`)
+
+```prisma
+model MetaDeckList {
+  // … existentes …
+  coverSetCode     String?          // crudo del alt de Limitless («TWM»); null ⇔ sin portada
+  coverNumber      String?          // crudo («25»); null ⇔ sin portada
+  coverMatchStatus MetaMatchStatus? // null ⇔ sin portada; si no, el estado del casado
+  coverCardId      String?          // solo si coverMatchStatus = matched
+  coverCard        Card?            @relation("MetaDeckListCover", fields: [coverCardId], references: [id], onDelete: SetNull)
+}
+model Card {
+  // … existentes …
+  metaDeckListCovers MetaDeckList[] @relation("MetaDeckListCover")   // solo lado Prisma, sin columna
+}
+```
+
+- **Migración:** 4 columnas nullable + FK `coverCardId → Card.id ON DELETE SET NULL`. Reusa el enum
+  `MetaMatchStatus` (no crea enum). **Sin backfill, sin default, sin índice** (se lee lista→carta, nunca al revés).
+  Carpeta sugerida `2026092812xxxx_decks_meta_list_cover`. **Número `M-xx`: lo asigna el orquestador al fusionar**
+  (último medido en esta rama: `M-58`; otras ramas vivas pueden haber tomado `M-59` — **NO MEDIDO**).
+- **Invariantes** (las cumple el único escritor, `DecksMetaRefreshService.persistDeck`): `coverSetCode`,
+  `coverNumber`, `coverMatchStatus` son todos null o todos no-null; `coverCardId ≠ null ⇒ coverMatchStatus =
+  matched`. `adminCreateOrCurate` (manual) **no** escribe portada ⇒ null.
+- **Por qué en la LISTA y no en `MetaDeck`:** la portada es un hecho de la **misma** foto de la home que produjo
+  esa lista; con la lista inmutable nace, se supersede y queda como procedencia. Si viviera en `MetaDeck`, una
+  curaduría manual posterior (lista sin portada) seguiría mostrando la portada de Limitless de la lista vieja.
+- **Alternativas sin schema, descartadas:**
+  (a) escribir en `MetaDeck.imageCardId` — pisa la elección del admin, no distingue quién la puso y el job la
+  reescribiría cada semana; (b) meter la portada como `MetaDeckCard` con `quantity:0` — contamina las 60, el
+  canario, los totales, el carrito y el reporte de no-mapeadas; (c) resolverla en lectura re-pidiendo la home —
+  egress por request, y el tercero solo se toca desde el job; (d) guardarla en `MetaFetchRun.note` — JSON de
+  procedencia, no consultable por deck; (e) «buscar entre las 60 la línea con ese set-número» — sigue
+  necesitando guardar el set-número, y la portada puede no estar entre las 60.
+
+#### 12.4.4 La regla (pura) — `pickDeckImage`
+
+Firma nueva (objeto, no posicional — ya se coló una mutación posicional que sobrevivía, ver
+`decks-meta.service.spec.ts` l.161):
+
+```ts
+pickDeckImage(input: {
+  deckName: string;
+  imageCardId: string | null;
+  coverCard: DeckImageCard | null;   // MetaDeckList.coverCard (solo existe si casó)
+  cards: DeckImageLine[];
+}): string | null
+```
+
+Orden (normativo en el contrato): **1** admin (sin cambio de semántica) › **2** `coverCard` con imagen (sin filtro
+de grupo, **no** exige estar entre las 60) › **3** por nombre en **un solo** conjunto (ex y no-ex juntas),
+comparando `(posición asc, completa<especie, ex<no-ex, copias desc, clave asc)` › **4** ex con más copias › **5**
+Pokémon con más copias › `null`. Desaparece la separación en dos pozas (`pickByName(exs) ?? pickByName(nonEx)`).
+**Razón del orden (ii) antes que (iii):** si el deck se llama «Excadrill» y trae `Excadrill` y `Mega Excadrill ex`,
+Limitless lo habría llamado «Mega Excadrill» si la Mega fuera la protagonista; la ex solo desempata entre nombres
+igual de exactos («Pikachu» con `Pikachu`/`Pikachu ex` ⇒ la ex, que respeta el pedido original).
+
+`DecksMetaService.listPublished` incluye `currentList.coverCard` en su `include` y lo pasa. `GET /decks-meta/:slug`
+no expone imagen de deck: sin cambio.
+
+#### 12.4.5 Qué ve cada quien
+
+- **Cliente** (`/decks-meta`): la misma teja, misma forma de DTO; la foto pasa a ser la portada de Limitless
+  cuando casa. **Frontend storefront: cero cambios.**
+- **Operador** (M12, ensayo `GET /admin/decks-meta/preview`): columna «Portada» por deck con miniatura de
+  **nuestro** catálogo + `SET-NÚM` + estado (`casada` / `set no está en catálogo` / `número no existe` / `varias
+  candidatas` / `sin portada`). Así sabe, antes de publicar, qué decks caerán a la regla por nombre y qué carta
+  dar de alta en el catálogo para arreglarlo. **Frontend admin: una columna + tipo `cover?`.**
+- **Admin que fija `imageCardId`:** sigue ganando. (Hoy solo se fija vía `POST /admin/decks-meta` curaduría; el
+  `PUT /:id` no lo acepta — sin cambio en esta rev; si el dueño quiere cambiar la foto de un deck de Limitless sin
+  re-pegar lista, es un pedido aparte.)
+
+#### 12.4.6 Pruebas que DEBEN fallar sobre `13acdb2` (y la mutación que cada una mata)
+
+Todas deterministas (sin carrera ni reloj) ⇒ una tirada basta; aun así el reporte dice sobre qué árbol corrió.
+
+| # | Prueba | Nivel | Falla hoy porque | Mutación que debe matar |
+|---|---|---|---|---|
+| P1 | Fixture real `home-index.html` ⇒ `leaders[i].cover` = `TWM/130, TWM/25, MEG/56, JTG/98, SCR/58, PBL/65`, en orden | parser | no existe `cover` | leer `src` en vez de `alt`; quitar la extracción |
+| P2 | `alt` ausente / `""` / `"TWM"` / `"TWM-"` / `"<b>x</b>-1"` / 30 chars ⇒ `cover:null` y el resto del bloque idéntico | parser | no existe `cover` | quitar la validación regex |
+| P3 | Portada casada con número con ceros en BD: set `ptcgoCode:"TWM"`, carta `number:"025"`, alt `TWM-25` ⇒ `coverCardId` = esa carta, `coverMatchStatus=matched` | refresh (vivo) | no se guarda | comparar número sin `normalizeNumber` (segunda implementación) |
+| P4 | **Portada no casada** (set ausente) ⇒ lista persistida con crudo + `unmatched_set` + `coverCardId:null`; `verdict`, `published`, `persistedCount` **iguales** al mismo run sin portada | refresh | no se guarda | hacer que portada no casada salte el deck o baje el canario |
+| P5 | La portada no se cuela en las 60: `MetaDeckCard` persistidas = líneas parseadas; `sumQuantity` sin cambio (también cuando la portada **sí** está en la lista) | refresh | (verde hoy; **candado de no-regresión**) | concatenar la línea sintética a `lines` |
+| P6 | Dry-run: `decks[].cover` presente con `imageUrl` de catálogo y **cero** escrituras | refresh | no existe `cover` | escribir portada en dry-run |
+| P7 | Curaduría manual ⇒ columnas de portada null | service | (verde hoy; candado) | copiar la portada de la lista anterior |
+| D1 | **Admin gana**: `imageCardId` en lista + `coverCard` distinta ⇒ la del admin | regla | firma nueva | mover la regla 2 antes de la 1 |
+| D2 | Portada gana al nombre y **no** exige estar en las 60: deck «Dragapult», `Dragapult ex` en lista, `coverCard` = otra impresión fuera de la lista ⇒ la de la portada | regla | no hay regla 2 | quitar la regla 2; exigir `cards.find(id)` |
+| D3 | **«Basic Box» ⇒ portada**: lista con `Terapagos ex` ×2 (hoy gana), `coverCard` = carta `TWM-25` ⇒ la portada | regla | sale Terapagos | quitar la regla 2 |
+| D4 | Portada sin imagen ⇒ cae a la regla por nombre | regla | firma nueva | devolver `null` si la portada no tiene imagen |
+| D5 | **«Alakazam Mew»**: `Alakazam` (no-ex, 3) + `Mew ex` (2) ⇒ Alakazam | regla | hoy sale Mew ex (dos pozas) | volver a «ex primero» |
+| D6 | «Mew Alakazam» con las mismas cartas ⇒ Mew ex | regla | (verde hoy; candado del espejo) | «no-ex primero» |
+| D7 | «Excadrill» con `Excadrill` + `Mega Excadrill ex` ⇒ `Excadrill`; «Pikachu» con `Pikachu` + `Pikachu ex` ⇒ `Pikachu ex` | regla | el 1.º sale la Mega | invertir (ii) y (iii) |
+| S1 | `listPublished`: deck cuyo nombre no casa nada, lista con `coverCard` casada ⇒ `imageUrl` = portada | service | no se lee `coverCard` | pasar `coverCard:null`; quitar `coverCard` del `include` |
+
+Las 19 pruebas existentes de `deck-image.spec.ts` siguen verdes con `coverCard:null` (solo cambia la forma de la
+llamada) (ninguna ejercita «ex nombrada
+después de no-ex nombrada»; medido leyendo el spec). La de `Basic Box ⇒ tera-a` sigue válida **sin** portada.
+
+#### 12.4.7 Fuera de alcance (anotado, no decidido)
+
+- **V / VSTAR / VMAX / GX** no casan por especie en la regla 3 (la normalización solo quita «ex»; «Giratina VSTAR»
+  toma «vstar» como especie). Con portada casada deja de importar para los decks de Limitless; queda en TD-2 para
+  listas manuales. Cambiarlo es decisión del dueño (orden de reglas), no de esta rev.
+- `imageCardId` editable por `PUT /:id` (ver §12.4.5).

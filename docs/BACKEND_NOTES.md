@@ -24060,3 +24060,171 @@ su forma de ponerse rojas coincide con la derivada allí.
 | s2 — ídem en `settleDirectShipOrder` | 37 | **0/10** invitado y **0/10** registrado; 35 sigue 10/10 (muerde a quien arregle solo `vault`). 2 unitarias |
 | s3 — la rama `vault` sigue avisando tras `count 0` | 36(a) | roja (1 unitaria: `AV-2` enviado por el perdedor) |
 | s4 — `createVaultPlacement` con `create` a secas (la mutación de fase 1) | **ya no la muerde la integración** (C/35 17/17 verde: el perdedor no llega al `INSERT`) | **16 unitarias rojas** (`payments.vault-placement-birth.spec.ts`: la forma `createMany + skipDuplicates`). Es lo que la prueba 39 declara: la segunda defensa queda candada por forma |
+
+# Meta Battle Decks — arte de la teja: «la ex representativa del deck» (2026-09-25)
+
+> **Sustituida (2026-09-28)** por «Meta Battle Decks — portada del deck = la de Limitless (M-60)» más abajo: la regla
+> pasó a ser normativa (API_CONTRACT §13) y las reglas 2/2b se funden en un solo conjunto. Lo de aquí queda como historia.
+
+Pedido del dueño: «En las imágenes hay que poner la EX representativa del deck» / «No cualquier carta en los decks».
+El contrato no fija la regla (`imageUrl` de `GET /decks-meta`); es decisión de implementación. Código:
+`backend/src/modules/decks-meta/deck-image.ts` (`pickDeckImage(deckName, imageCardId, cards)`, función pura),
+pruebas en `deck-image.spec.ts`.
+
+**Medido antes de decidir:** Limitless trae el nombre del arquetipo SIN «ex» (`test/fixtures/limitless/home-index.html`:
+«Dragapult», «Basic Box», «Alakazam», «N's Zoroark», «Slowking», «Mega Excadrill»). El jalado automático
+(`decks-meta-refresh.service.ts`, upsert de `MetaDeck`) NO escribe `imageCardId`. La regla vieja tomaba la primera
+Pokémon casada en el orden en que Prisma devolvía las líneas (sin `orderBy`) ⇒ típicamente una básica.
+
+**Regla** (sólo líneas casadas, grupo Pokémon, con imagen de catálogo; nunca arte externo):
+1. `imageCardId` del admin, si sigue en la lista.
+2. La **ex** cuyo nombre aparece en el nombre del deck (palabras completas; si hay varias, la que aparece antes:
+   «Gardevoir ex / Jellicent ex» ⇒ Gardevoir ex; «Charizard Pidgeot» ⇒ Charizard ex).
+3. (2b) Si ninguna ex casa por nombre: la Pokémon NO-ex cuyo nombre aparece en el del deck («Alakazam» ⇒ Alakazam,
+   no Fezandipiti ex). Añadido al orden pedido porque los nombres de Limitless lo hacen necesario.
+4. La ex con más copias (sumando impresiones). 5. La Pokémon con más copias. 6. `null`.
+
+Normalización: minúsculas, sin acentos (NFD), apóstrofo tipográfico ⇒ recto, «ex»/«EX» suelto fuera; ex = nombre
+terminado en «ex» (cualquier caja) o `subtypes` con «ex». Coincidencia: nombre completo sin «ex» primero, luego la
+especie (última palabra: «Teal Mask Ogerpon ex» casa con «Ogerpon»). Desempates deterministas: posición más
+temprana en el nombre del deck (el primero nombrado); a igual posición, completa > especie (deck «Excadrill» ⇒
+«Excadrill ex», no «Mega Excadrill ex»); más copias; nombre ascendente.
+Varias impresiones de la misma carta: más copias en su línea, luego `externalId` ascendente.
+
+**Propuesta (no implementada, requiere arquitecto):** la home de Limitless ya trae la carta que Limitless usa como
+portada del arquetipo: `a.leader-image img[alt="TWM-130"]` (set+número; en el fixture: TWM-130, TWM-25, MEG-56,
+JTG-98, SCR-58, PBL-65). `limitless-html.parser.ts` no la extrae hoy. Casándola por `ptcgoCode`+`number` como el
+resto de líneas y guardándola en `imageCardId` (o en un campo nuevo, para no pisar la elección del admin) daría la
+portada exacta de la fuente sin heurística de nombres.
+
+**Aclaración (gate sobre `3806fec`, techlead menor):** la regla 1 (`imageCardId` del admin) NO lleva el filtro de
+grupo/estado de las demás: si alguna línea trae esa carta con imagen de catálogo, gana aunque sea entrenador o
+energía. Intencional — la elección explícita del operador manda sobre la heurística. Docstring de `deck-image.ts`
+alineado. `decks-meta.service.ts` reutiliza `imageOf` (exportado de `deck-image.ts`) en vez de repetir
+`imageLargeUrl ?? imageSmallUrl ?? null`.
+
+**Candado de servicio (QA IMPORTANTE 1):** `decks-meta.service.spec.ts` › «listPublished — arte de la teja»: deck
+«Alakazam» con Fezandipiti ex (1) y Dudunsparce ex (2) ⇒ exige Alakazam. Sin él, la mutación
+`pickDeckImage('', deck.imageCardId, cards)` en `listPublished` sobrevivía la suite unitaria entera (QA, 5266/5266).
+Con él cae (backend, 2026-09-25, copia del árbol con el cambio; recibe `dud.png`). Mutación determinista: N=1 basta.
+Deuda de la heurística: `docs/TECH_DEBT.md` «TD-2 (arreglos-rápidos)».
+
+---
+
+# P-BUYLIST-CONC-FLAKE — el rojo intermitente de `buylist-intake-concurrency` era un `503`, no la no-vacuidad (2026-09-25)
+
+**Síntoma.** `test/integration/buylist-intake-concurrency.e2e-spec.ts` salía rojo de vez en cuando en
+`expect(servidor).toEqual([])` (línea 161 de la versión anterior a `c36b492`).
+
+**Causa real (medida).** La respuesta era **`503 BUSY_TRY_AGAIN`**, no un `500` ni un fallo de la no-vacuidad. La versión
+anterior disparaba **4 altas simultáneas del mismo vendedor × 12 rondas** dentro de `runSerializable` (SERIALIZABLE,
+`SEC-A2`). Con 4 contendientes sobre el mismo predicado (el acumulado mensual AML), el SSI puede abortar a 3 por ronda y
+los reintentos vuelven a pelear entre sí; de vez en cuando una alta pierde los **5** intentos
+(`SERIALIZABLE_ATTEMPTS`), el helper propaga el `P2034` original y `AllExceptionsFilter.motivoTransitorio` lo traduce a
+`503` + `Retry-After: 1` (§0-T, desde `a5aa07e`). Es la «cola esperable» bajo carga que §0-T describe: conducta de
+producción correcta; lo frágil era la prueba, que apostaba a que la máquina no produjera esa cola.
+
+**Mediciones (autor · N):**
+| Qué | Resultado | Autor | N |
+|---|---|---|---|
+| CI de la PR #59 | 1 prueba roja de 1044, `503 BUSY_TRY_AGAIN`; verde al re-run | CI (registro de la PR) | 1 corrida |
+| Versión anterior, aislada en local, `connection_limit=5` como el CI | **1/30** rojas, la roja con `503 BUSY_TRY_AGAIN` | backend (`c36b492`) | 30 |
+| Presupuesto de intentos, versión 4×12 (histórico) | 3 intentos ⇒ **10/10 rojas**; 5 ⇒ **8/8 verdes** | backend (`dd3522b`, 2026-09-14) | 10 y 8 |
+
+⚠️ Con una tasa de ~1/30, un «verde» de pocas corridas no dice nada (0.97^10 ≈ 74 % de sacar 10/10 verdes con el
+intermitente dentro).
+
+**Arreglo (`c36b492`, solo prueba, cero producción).** Cada ronda FUERZA el entrelazado con
+`test/integration/helpers/row-lock-barrier.ts`: la prueba toma `SELECT … FROM "Card" … FOR UPDATE`, suelta **2** altas y
+comprueba en `pg_stat_activity` que las dos esperan en el `INSERT "SellRequestItem"` (la FK a `"Card"` pide
+`FOR KEY SHARE`), ya con el acumulado leído y su `SellRequest` insertada. Al soltar, el SSI tiene que abortar a una y su
+reintento corre sin rival ⇒ determinista. Aserciones endurecidas, ninguna relajada (cero `5xx`; 201 en todas; ≥1
+conflicto **por ronda**). El helper de barrera documenta ahora a este usuario y que la sentencia que espera puede ser
+cualquiera que pida candado sobre la fila (no solo `UPDATE`).
+
+**Lo que se pierde, dicho:** la prueba nueva ya no distingue 2 intentos de 5, así que **ningún candado de integración
+sostiene hoy `SERIALIZABLE_ATTEMPTS = 5`**. Queda un candado unitario barato del literal
+(`test/serializable-retry.spec.ts`, «el presupuesto es 5») y la propuesta de estrés fuera del gate en
+`docs/TECH_DEBT.md` «TD-1 (arreglos-rápidos)».
+
+⛔ NO MEDIDO: la proporción de `503` con ~50 altas simultáneas del mismo vendedor.
+
+# Meta Battle Decks — portada del deck = la de Limitless (M-60, rev `decks-portada`, 2026-09-28)
+
+Diseño: `ARCHITECTURE.md §12.4`; contrato: `API_CONTRACT.md §13` «Portada del deck (`imageUrl`) — regla normativa» y
+«Admin» (`decks[].cover` del ensayo). Rama `claude/decks-portada`. Implementado tal cual; sin discrepancias con el
+contrato que requieran al arquitecto (ver «Decisiones de implementación» para lo que el diseño dejaba abierto).
+
+## Qué hace, por pieza
+- **Parser** (`limitless-html.parser.ts`): `HomeLeader.cover: { setCode, number } | null`, leído SOLO de
+  `a.leader-image img[alt]` (trim), validado con `^([A-Za-z0-9](?:[A-Za-z0-9-]{0,8}[A-Za-z0-9])?)-([A-Za-z0-9]{1,8})$`
+  y longitud ≤ 20 (`parseCoverAlt`, exportada). El set empieza y TERMINA en alfanumérico (QA 5, 2026-09-28):
+  «TWM--25» ⇒ `null`, no set «TWM-». Número CRUDO («25»). El `src` no se lee. Si hay bloques y ninguna portada válida ⇒
+  `logger.warn` que empieza por «portada:» (no es check del canario).
+- **Matcher**: `DeckMatcherService.matchCover(cover) ⇒ { matchStatus, card }` delega en `matchLines` con una línea
+  sintética (`quantity:1`, `pokemon`, `isBasicEnergy:false`). `card` sólo si `matched`. `matchStatus` es
+  `CoverMatchStatus = Exclude<MetaMatchStatus, 'unmatched_basic_energy'>` (TD-c, también en `DeckCoverReport`);
+  si el motor devolviera `unmatched_basic_energy` (inalcanzable por construcción), `matchCover` LANZA y el refresh lo
+  trata como fallo de portada (abajo).
+- **Refresh** (`decks-meta-refresh.service.ts`): por deck, `matchDeckCover` aparte de `matched` (las 60). Modo vivo:
+  `persistDeck` escribe `coverSetCode/coverNumber/coverMatchStatus/coverCardId` en la `MetaDeckList` nueva. Ensayo:
+  `DeckReport.cover = { setCode, number, matchStatus, cardId, imageUrl } | null` (`imageUrl` = `imageOf` de NUESTRA
+  carta). Deck con `error` ⇒ `cover:null`. `GET /admin/decks-meta/preview` devuelve el reporte tal cual, así que el
+  campo llega al front sin tocar el controlador.
+- **Regla** (`deck-image.ts`): `pickDeckImage({ deckName, imageCardId, coverCard, cards })` (firma-objeto). Orden:
+  1 admin › 2 `coverCard` con imagen (sin filtro de grupo, no exige estar en las 60) › 3 nombre en UN conjunto con
+  desempate (posición, completa<especie, ex<no-ex, copias desc, clave asc) › 4 ex con más copias › 5 Pokémon con más
+  copias › `null`.
+- **Lectura** (`decks-meta.service.ts` `listPublished`): `include: { currentList: { include: { coverCard: true, … } } }`
+  y pasa `coverCard`. `getBySlug` y `paste`: sin cambio. `adminCreateOrCurate` NO escribe portada (nace null).
+
+## Migración M-60 — `20260928120000_m60_meta_deck_list_cover`
+Escrita a mano (equivale a lo que genera `prisma migrate diff`, medido: mismas dos sentencias salvo el orden de
+columnas). 4 columnas nullable en `MetaDeckList` + FK `MetaDeckList_coverCardId_fkey → Card(id) ON DELETE SET NULL ON
+UPDATE CASCADE`. Sin default, sin backfill, sin índice, sin enum nuevo. Número: M-59 lo usa otra rama
+(`20260925120000_m59_vault_placement`, dato del orquestador, NO MEDIDO por mí en esta rama); si al fusionar hay
+colisión de timestamp u orden, el orquestador lo reasigna — la migración no depende de M-59.
+
+**Rollback** (medido en BD propia dentro de `BEGIN … ROLLBACK`: deja 0 columnas `cover%`; tras el `ROLLBACK`, 4):
+```sql
+ALTER TABLE "MetaDeckList" DROP CONSTRAINT "MetaDeckList_coverCardId_fkey";
+ALTER TABLE "MetaDeckList" DROP COLUMN "coverCardId", DROP COLUMN "coverMatchStatus",
+  DROP COLUMN "coverNumber", DROP COLUMN "coverSetCode";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20260928120000_m60_meta_deck_list_cover';
+```
+y desplegar el backend anterior (no lee estas columnas). Sólo se pierde procedencia de portada, que el job reescribe.
+Sin la migración, el backend nuevo falla al escribir/leer `coverCard` ⇒ migración y código van juntos (la migración
+primero, como siempre: es aditiva y el código viejo la ignora).
+
+## Decisiones de implementación (lo que el diseño no fijaba)
+1. **Fallo al casar la portada ⇒ el deck sigue SIN portada** (las 4 columnas null, `cover:null` en el ensayo),
+   `logger.warn` **y una entrada en `errors[]` con la forma EXACTA `cover <SET>-<NÚM>: <msg>`** (API_CONTRACT §13 Admin
+   fila 4b, ARCHITECTURE §12.4.2; C-1 del techlead, cerrado 2026-09-28). El deck no pasa a `error`, ni cambian
+   `verdict`, `canary` ni `persistedCount`. `errors[]` viaja al `note` del `MetaFetchRun`, así que el fallo queda
+   también en la traza de la corrida. Motivo: §13 «la portada nunca bloquea». En la práctica `matchCover` hace las
+   mismas lecturas que `matchLines`, así que si falla la BD ya habría fallado la lista.
+2. **Nombre de la línea sintética:** `name` = `SET-NÚM` (no se persiste: la línea no sale de `matchCover`).
+3. **Aviso del parser**: `logger.warn` por corrida, no por bloque.
+
+## Pruebas (§12.4.6) y dónde viven
+| # | Fichero |
+|---|---|
+| P1, P2 (+aviso, +set terminado en guion), P3–P6, C-1, TD-c | `backend/test/decks-meta-portada.spec.ts` (P3–P6 y C-1 con el matcher REAL sobre catálogo en memoria; C-1 = `matchCover` lanza ⇒ deck sin portada, reporte igual y `errors == ['cover TWM-25: …']`) |
+| P7, S1 | `backend/src/modules/decks-meta/decks-meta.service.spec.ts` (el mock de S1 honra el `include`) |
+| D1–D7 | `backend/src/modules/decks-meta/deck-image.spec.ts` (las 19 previas: sólo cambia la forma de la llamada) |
+| matchCover | `deck-matcher.service.spec.ts` (`4`↔`004`, minúsculas, `unmatched_set/number`, `ambiguous`) |
+| forma M-60 | `backend/test/migration.m60-meta-deck-list-cover.spec.ts` |
+| integración | `backend/test/integration/decks-meta-persistence.e2e-spec.ts` › «portada del deck (M-60)»: `matchCover` contra BD real, `listPublished` lee la portada, `ON DELETE SET NULL`, curaduría ⇒ null |
+
+Todas deterministas (sin reloj ni carrera): N=1 por mutación. Las 18 mutaciones de la tabla §12.4.6 (y variantes)
+mueren; detalle en el informe del commit.
+
+## NO MEDIDO
+- Qué carta de NUESTRO catálogo es `TWM-25`: no hay BD con catálogo en este entorno (la BD de pruebas es propia y
+  vacía). Se mide en staging/prod con el ensayo: la columna «Portada» dirá `casada` y la miniatura.
+- Cuántas portadas de la home real casan hoy contra el catálogo de prod (depende de `ptcgoCode` de `MEG`/`JTG`/`PBL`).
+
+## Deuda anotada
+- **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
+  `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
+

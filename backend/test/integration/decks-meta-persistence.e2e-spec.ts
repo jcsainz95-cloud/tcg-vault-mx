@@ -154,4 +154,62 @@ describe('DecksMeta persistence (integración, Postgres real)', () => {
     expect(found?.matchStatus).toBe('unmatched_number');
     expect(found?.totalQuantity).toBeGreaterThanOrEqual(1);
   });
+
+  /**
+   * rev `decks-portada` (M-60, ARCHITECTURE §12.4.2/§12.4.3) — contra Postgres REAL: la portada casa con
+   * el mismo motor (número con ceros en BD), `listPublished` la lee vía `include`, y `ON DELETE SET NULL`
+   * suelta la portada si la carta sale del catálogo sin bloquear el borrado.
+   */
+  describe('portada del deck (M-60)', () => {
+    const coverCardId = `card-cover-${tag}`;
+    const coverSlug = `basic-box-${tag}`;
+
+    beforeAll(async () => {
+      await prisma.card.create({
+        data: {
+          id: coverCardId, externalId: `${tag}-025`, setId, name: 'Portada Sintética', number: '025',
+          supertype: 'Pokémon', imageLargeUrl: 'https://img/cover-large.png',
+        },
+      });
+    });
+
+    it('curaduría manual (P7) ⇒ la lista curada tiene las 4 columnas de portada en null', async () => {
+      const deck = await prisma.metaDeck.findUnique({ where: { slug }, include: { currentList: true } });
+      expect(deck?.currentList).toMatchObject({ coverSetCode: null, coverNumber: null, coverMatchStatus: null, coverCardId: null });
+    });
+
+    it('matchCover: «25» casa contra «025» en BD (mismo normalizeNumber que las 60)', async () => {
+      const out = await matcher.matchCover({ setCode: code, number: '25' });
+      expect(out.matchStatus).toBe('matched');
+      expect(out.card?.id).toBe(coverCardId);
+      const miss = await matcher.matchCover({ setCode: 'ZZZ', number: '25' });
+      expect(miss).toEqual({ matchStatus: 'unmatched_set', card: null });
+    });
+
+    it('listPublished: deck cuyo nombre no casa ⇒ imageUrl = portada; borrar la carta ⇒ coverCardId null (SET NULL)', async () => {
+      const deck = await prisma.metaDeck.create({
+        data: { slug: coverSlug, name: `Basic Box ${tag}`, source: 'limitless', rank: 99, published: true },
+      });
+      const list = await prisma.metaDeckList.create({
+        data: {
+          deckId: deck.id, formatLabel: 'Standard', activeMarksSnapshot: [],
+          coverSetCode: code, coverNumber: '25', coverMatchStatus: 'matched', coverCardId,
+          cards: {
+            create: [{ rawName: `Dragapult ex ${tag}`, rawSetCode: code, rawNumber: '130', quantity: 4, group: 'pokemon', matchStatus: 'matched', matchedCardId: legalCardId }],
+          },
+        },
+      });
+      await prisma.metaDeck.update({ where: { id: deck.id }, data: { currentListId: list.id } });
+
+      const tile = (await service.listPublished()).data.find((d) => d.slug === coverSlug);
+      expect(tile?.imageUrl).toBe('https://img/cover-large.png');
+
+      await prisma.card.delete({ where: { id: coverCardId } });
+      const after = await prisma.metaDeckList.findUnique({ where: { id: list.id } });
+      expect(after).toMatchObject({ coverSetCode: code, coverNumber: '25', coverMatchStatus: 'matched', coverCardId: null });
+      // Sin portada casada, la teja cae a la regla por nombre/copias (Dragapult ex, la única Pokémon).
+      const tile2 = (await service.listPublished()).data.find((d) => d.slug === coverSlug);
+      expect(tile2?.imageUrl).toBe('https://img/large.png');
+    });
+  });
 });

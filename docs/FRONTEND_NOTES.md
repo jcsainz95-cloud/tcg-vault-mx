@@ -4832,6 +4832,8 @@ y `PortfolioTrendChart` con hex de paleta hardcodeados. **No** se corrigen en es
 
 ### Verificaciones (todas OK, sin cambios extra)
 - **Fuentes:** `app/[locale]/layout.tsx` carga Zen Old Mincho / Archivo / JetBrains Mono por `next/font/google`
+  *(⚠️ superado 2026-09-25: Zen Old Mincho ya NO va por `next/font/google` sino por `next/font/local` con un
+  subconjunto latino propio — ver §79 P-FONTS-CJK; Archivo y JetBrains Mono siguen por `next/font/google`)*
   (self-host, `display:'swap'`, sin FOUT roto), exponiendo `--font-serif`/`--font-sans`/`--font-mono` que
   consumen `globals.css` y el `fontFamily` de tailwind. El viejo `--font-inter: 'Inter'` (que nunca se cargaba)
   ya no existe. `body` usa `font-sans`; H1–H4 y `.vertical-label` usan `--font-serif`; cifras/eyebrow, `--font-mono`.
@@ -18224,3 +18226,126 @@ vitest **175 ficheros / 2039 pruebas verdes** · E2E mocks como arriba.
   `'use client'` salvo nombre local PascalCase **y** `export default` PascalCase. Hoy ningún `page`/`layout` usa
   imports por defecto ni de espacio de nombres (medido con grep), así que la regla estricta no rompe nada. Canarios
   nuevos; al desactivar cada detección, su canario cae (1/1 cada una).
+
+## §79 · **P-FONTS-CJK** — Zen Old Mincho como subconjunto latino local (2026-09-25, rama `claude/arreglos-rapidos`, commits `f6ffb01` + cierre de condiciones de gates)
+
+### Qué
+`src/app/[locale]/layout.tsx` carga Zen Old Mincho (400/500/600, variable `--font-serif`, sin cambio visual)
+por **`next/font/local`** desde `src/app/fonts/zen-old-mincho/` (3 woff2 + `OFL.txt`, licencia OFL 1.1), en
+vez de `next/font/google`. Archivo y JetBrains Mono siguen por `next/font/google` (son latinas, trocean bien).
+
+### Por qué
+Zen Old Mincho es una familia **CJK**: `next/font/google` ignora `subsets: ['latin']` en ella y Google la trocea
+en ~122 tramos `unicode-range` por peso, con los glifos latinos repartidos en ~22 de ellos. El sitio no tiene
+ni un carácter japonés (medido con grep de rangos CJK en `frontend/`), así que pagábamos cientos de ficheros
+por nada.
+
+### Antes → después (medido con `npm run build`, por el agente en `f6ffb01` y confirmado por QA)
+| Medida | Antes | Después |
+|---|---|---|
+| woff2 en `.next` | 380 (Zen Old Mincho 366) | 17 (Zen Old Mincho 3) |
+| `.next/static/media` | 8.9 MB | 300 KB |
+| ficheros precargados por el layout (`next-font-manifest`) | 242 | 6 |
+
+### Cómo se regenera
+`frontend/scripts/subset-zen-old-mincho.sh` (requiere `curl`, `python3`, `sha256sum`): baja de la API css2
+de Google el TTF completo por peso (sin User-Agent de navegador no lo trocea), crea un venv temporal con
+**`fonttools==4.66.0` y `brotli==1.2.0` fijados** (TD-3) y corre `pyftsubset` con `UNICODES` (latín estándar
+de Google + flechas `U+2190-2193` + **∞ `U+221E`**) y `--layout-features='*'`. Al final imprime los sha256 de
+los TTF de origen y de los woff2, para compararlos con la tabla de abajo.
+
+**∞ (U+221E), añadido 2026-09-25:** QA midió que era el único carácter usado por el sitio que la fuente
+completa tenía y el subconjunto de `f6ffb01` perdía (`manualFreshnessNever`, pintado en
+`GradedEstimatesSection.tsx:384`). Verificado con fontTools (`getBestCmap()`): los tres pesos contienen
+`0x221E`; respecto de `f6ffb01` el único codepoint nuevo es `0x221e` y **ninguno perdido** (229 entradas cmap
+por peso). Tamaños: 16 008 / 16 380 / 16 496 B — el candado de `layout.test.tsx` (< 64 KB) sigue verde (6/6).
+
+### Huellas (sha256) — TD-3
+Con las versiones fijadas del script y estos TTF de origen, la regeneración es **byte-idéntica**: medido
+2/2 regeneraciones consecutivas (`cmp` de los tres woff2).
+
+| Fichero | sha256 |
+|---|---|
+| `zen-old-mincho-latin-400.woff2` | `b4b2fe2a0ddbe9ca44c8f094162f6ed532e296f67cb4351737a890d6094ab34a` |
+| `zen-old-mincho-latin-500.woff2` | `e786f52de7474bbc98b3958c59f11532fea02079b92516ab8a614034a280b380` |
+| `zen-old-mincho-latin-600.woff2` | `09b02d18988f753c68f1cf9fd8c1ef4d2f78e7235b5ee917bd5be5ac6e18e27b` |
+| TTF origen 400 (Google, 2026-09-25) | `43f53fe7e3411475c9867ca889fccc9e950f1ef896618857a0cfc903f1377aea` |
+| TTF origen 500 | `8ae7770a0f93e128f28d572a11f48e0e15396341a4be8abbba5cbd3832a43cf9` |
+| TTF origen 600 | `96d633d176a18ce8ca8b8ea0800668da4410ecbe4400e511bc3af03247cdb740` |
+
+Si un sha256 de salida no coincide: o cambió una versión fijada, o **Google publicó otro TTF** (compara los
+sha256 de origen). La URL del TTF la decide Google y no se puede fijar; por eso se anota su huella.
+
+### Gates (2026-09-25, desde `frontend/`)
+`tsc --noEmit` 0 errores · `npm run lint` 0 warnings/errores · `vitest` **171/171 ficheros, 1937/1937 pruebas**.
+⚠️ En 1 de 4 corridas completas vitest salió con código 1 por **un error no manejado** (0 pruebas rojas):
+`ReferenceError: window is not defined` desde `HomeQuoter.tsx:105` (`setLines` en el `.catch` tras el teardown
+del entorno) durante `(storefront)/page.test.tsx`. Ajeno a este cambio (no toca `HomeQuoter`); aislado ese
+fichero: 0/5 errores. Queda registrado como intermitente del test de la home — **no lo corrijo aquí**.
+
+
+## §80 · **Portada del deck en el ensayo M12** — columna «Portada» (2026-09-28, rama `claude/decks-portada`, base `836442a`)
+
+Contrato: `API_CONTRACT.md §13` («Portada del deck» + `decks[].cover` en `GET /admin/decks-meta/preview`);
+`ARCHITECTURE.md §12.4.5`. No es zona de dinero.
+
+| Dónde | Qué |
+|---|---|
+| `src/types/contract.ts` | `DecksMetaDeckReport.cover?: DecksMetaDeckCover \| null` + `DecksMetaDeckCover {setCode, number, matchStatus, cardId, imageUrl}`. **Opcional** a propósito (el contrato lo pide: tolerante a un backend anterior) |
+| `admin/m12/DeckCoverCell.tsx` | la celda: miniatura (`CardImage`) + `SET-NÚM` crudo + estado |
+| `admin/m12/M12View.tsx` | la columna `cover` al final de `deckColumns` |
+| `messages/{es,en}.json` | `admin.decksMetaRefresh.columns.cover` y `admin.decksMetaRefresh.cover.*` (paridad por `i18n-parity.test.ts`) |
+| `src/lib/mock/decks-meta.ts` | el mock del ensayo trae los tres casos: casada con imagen, `unmatched_set`, `null` |
+
+**Estados que pinta:** `casada` · `no casada · <motivo>` (`unmatched_set` ⇒ «el set no está en el catálogo»,
+`unmatched_number` ⇒ «ese número no existe en el set», `ambiguous` ⇒ «varias cartas candidatas») · `sin portada`
+(`cover:null`) · `—` (campo **ausente** = backend previo a la rev: no se afirma «sin portada» sin saberlo).
+Casada pero sin imagen utilizable ⇒ `casada · sin imagen en el catálogo`.
+
+**Regla «nunca arte externo» — dos capas.** (1) La única fuente de imagen es `cover.imageUrl`, y solo con
+`matchStatus === 'matched'`; nunca se construye una URL desde `setCode`/`number`. (2) Defensa en profundidad:
+`isOurCatalogImage` rechaza no-https y cualquier host que contenga `limitless` (`limitlesstcg.com`,
+`limitlesstcg.nyc3.cdn.digitaloceanspaces.com`, `limitless3.…`). Es una **denylist**, no una allowlist: los hosts
+del arte de carta no están cerrados en el frontend (`remotePatterns` refleja `SET_IMAGE_HOSTS`, que es de logos) —
+que el arte de carta venga solo de esos hosts: **NO MEDIDO**, por eso no se filtró por allowlist (podría ocultar
+arte legítimo).
+
+**Candado y su canario (medido 2026-09-28 sobre copia en scratchpad, determinista ⇒ 1 tirada por mutación):**
+`M12View.test.tsx` › «NUNCA pinta una URL de Limitless…». Mutación A (quitar `isOurCatalogImage`) ⇒ esa prueba
+roja (1/16 rojas). Mutación B (miniatura construida desde `SET-NÚM` con el CDN de Limitless) ⇒ 3/16 rojas. Árbol
+restaurado ⇒ 16/16.
+
+**Storefront: cero cambios** (`git diff -- frontend/src/app/[locale]/(storefront)` vacío; `DecksMetaDeckReport`
+solo lo usa M12).
+
+### §80.1 · Cierre de hallazgos de los gates sobre `DeckCoverCell` (2026-09-28, base `b3dde07`)
+
+**TD-a (techlead) — el estado mentía.** Cuando `isOurCatalogImage` rechazaba una URL, la celda decía
+«casada · sin imagen en el catálogo», que es falso: el backend **sí** mandó imagen, solo que viola el contrato.
+Ahora hay dos estados distintos:
+
+| Caso | Texto (es / en) |
+|---|---|
+| `matched` + `imageUrl` nulo/vacío (legítimo) | `casada · sin imagen en el catálogo` / `matched · no image in the catalog` |
+| `matched` + `imageUrl` presente pero rechazado (no-https o host `*limitless*`) | `casada · imagen rechazada (no es de nuestro catálogo)` / `matched · image rejected (not from our catalog)` (en `text-danger`) |
+
+`isOurCatalogImage` **sigue siendo lista de prohibidos** (no se convirtió en allowlist, por lo dicho arriba) y su
+comentario dice ahora que es **candado de no-regresión, no la garantía**: la garantía de «nunca arte externo» está
+en el backend (solo emite `imageUrl` de nuestro catálogo). Si el candado muerde, la celda lo **dice** en vez de
+callarlo, para que el operador vea el defecto del backend.
+
+**QA menor 3 (a11y).** Sin `src` no se renderiza `<img>` y se perdía el `alt`. Ahora, cuando no hay imagen, la
+celda lleva un `<span class="sr-only">` con el mismo texto del `alt` («Portada de {deck}: {SET-NÚM}»); el estado
+ya era texto visible.
+
+**QA menor 4 (i18n).** El motivo del no-casado usa `t.has('reason.<status>')`; si llega un `matchStatus` que
+este frontend no conoce, pinta `no casada · motivo no reconocido (<status>)` / `not matched · unrecognized reason
+(<status>)` en vez de la ruta i18n cruda.
+
+**Candados y canarios** (`M12View.test.tsx`, medido 2026-09-28 sobre copia del árbol entero en scratchpad;
+deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
+- M1 `rejected = false` (conducta previa) ⇒ 2/19 rojas («NUNCA pinta… Limitless» y la de paridad EN «rechazada»).
+- M2 sin el `sr-only` ⇒ 1/19 roja («NUNCA pinta… Limitless», que ahora exige el nombre accesible).
+- M3 `t(reasonKey)` sin respaldo ⇒ 1/19 roja («matchStatus desconocido…»).
+- M4 `rejected = matched && !src` (todo sin imagen se llama «rechazada») ⇒ 1/19 roja («casada sin imageUrl…»).
+- Restaurado ⇒ 19/19.

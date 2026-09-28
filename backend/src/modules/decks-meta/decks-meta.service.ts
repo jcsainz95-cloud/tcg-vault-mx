@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CatalogService, DeckMetaUnitDTO } from '../catalog/catalog.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseDeckList } from './deck-list.parser';
+import { imageOf, pickDeckImage } from './deck-image';
 import { DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import {
   AUTOFETCH_DIAL_VALUES,
@@ -111,7 +112,7 @@ export class DecksMetaService {
     const cardDto = {
       cardId: card.id,
       name: card.name,
-      imageUrl: card.imageLargeUrl ?? card.imageSmallUrl ?? null,
+      imageUrl: imageOf(card),
     };
 
     // FUENTE-CONFIABLE (SUP-LEG): sin compuerta de legalidad. Una carta casada ofrece su stock.
@@ -137,7 +138,15 @@ export class DecksMetaService {
     const decks = await this.prisma.metaDeck.findMany({
       where: { published: true, pausedByOperator: false },
       orderBy: [{ rank: 'asc' }, { createdAt: 'asc' }],
-      include: { currentList: { include: { cards: { include: { matchedCard: { include: { set: true } } } } } } },
+      // `coverCard` = portada de Limitless casada por el job (rev `decks-portada`, §13): regla 2 de la teja.
+      include: {
+        currentList: {
+          include: {
+            coverCard: true,
+            cards: { include: { matchedCard: { include: { set: true } } } },
+          },
+        },
+      },
     });
 
     // Piezas de TODAS las cartas casadas de TODOS los decks, en UN lote (sin N+1 por deck).
@@ -174,7 +183,12 @@ export class DecksMetaService {
         ...(fromPriceMxnCents > 0 ? { fromPriceMxnCents } : {}),
         availableCount,
         totalCount,
-        imageUrl: pickDeckImage(deck.imageCardId, cards),
+        imageUrl: pickDeckImage({
+          deckName: deck.name,
+          imageCardId: deck.imageCardId,
+          coverCard: deck.currentList?.coverCard ?? null,
+          cards,
+        }),
       };
     });
 
@@ -491,20 +505,4 @@ function fromMatchedLine(m: MatchedLine): StoredLine {
     matchStatus: m.matchStatus,
     matchedCard: m.matchedCard,
   };
-}
-
-/** Arte del deck: la carta configurada, o la primera Pokémon casada con imagen. Nunca arte externo. */
-function pickDeckImage(
-  imageCardId: string | null,
-  cards: { matchStatus: MetaMatchStatus; group: MetaCardGroup; matchedCard: (Card & { set: CardSet }) | null }[],
-): string | null {
-  if (imageCardId) {
-    const configured = cards.find((c) => c.matchedCard?.id === imageCardId)?.matchedCard;
-    if (configured) return configured.imageLargeUrl ?? configured.imageSmallUrl ?? null;
-  }
-  const firstPokemon = cards.find(
-    (c) => c.matchStatus === MetaMatchStatus.matched && c.group === MetaCardGroup.pokemon && c.matchedCard,
-  )?.matchedCard;
-  if (firstPokemon) return firstPokemon.imageLargeUrl ?? firstPokemon.imageSmallUrl ?? null;
-  return null;
 }
