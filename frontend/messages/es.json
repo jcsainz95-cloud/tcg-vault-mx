@@ -1635,9 +1635,10 @@
             "notPrepared": "Este pedido ya no está preparado: alguien deshizo «preparado». Revisa las marcas y vuelve a darlo por preparado.",
             "notCustomerDrawer": "Este cliente ya tiene cajón y no es el que elegiste: seguramente otra persona acaba de guardar otro pedido suyo. Actualizamos la tarjeta con su cajón.",
             "drawerUnavailable": "Ese cajón ya no sirve para guardar cartas de clientes. Elige otro.",
-            "locationRequired": "Este pedido ya tiene cartas tomadas, así que hay que elegir su cajón: la pantalla estaba desactualizada. Actualizamos la tarjeta; revísala y vuelve a confirmar.",
+            "locationRequired": "La pantalla estaba desactualizada: este pedido ahora tiene {pickedCount, plural, one {# carta tomada} other {# cartas tomadas}}, así que no se puede cerrar sin guardarlas en un cajón. No se hizo nada. Actualizamos la tarjeta: revísala y confirma otra vez.",
+            "locationRequiredNoCount": "La pantalla estaba desactualizada: este pedido ahora tiene cartas tomadas, así que no se puede cerrar sin guardarlas en un cajón. No se hizo nada. Actualizamos la tarjeta: revísala y confirma otra vez.",
             "placed": "Otra persona ya colocó este pedido. No se cambió nada; sale de la lista.",
-            "placedIn": "Quedó en {drawer}.",
+            "placedIn": "El pedido quedó en {drawer}.",
             "chargeback": "Este pedido se canceló por un contracargo: sus cartas ya no son del cliente. Sale de la lista.",
             "nothingToPlace": "Este pedido ya se cerró sin guardar nada. Sale de la lista.",
             "placedUndo": "No se pudo deshacer: el pedido ya se guardó en su cajón. Después de colocar ya no hay vuelta atrás desde esta pantalla.",
@@ -3278,15 +3279,15 @@
       "sortLabel": "Ordenar por",
       "sort": {
         "value_desc": "Valor (mayor primero)",
-        "pieces_desc": "Piezas (mayor primero)",
+        "pieces_desc": "A su nombre (mayor primero)",
         "name_asc": "Nombre (A–Z)"
       },
       "colName": "Cliente",
       "colEmail": "Correo",
-      "colPieces": "Piezas",
+      "colPieces": "A su nombre",
       "colValue": "Valor estimado",
       "colPending": "Sin precio",
-      "pieces": "{count, plural, one {# pieza} other {# piezas}}",
+      "pieces": "{count, plural, other {# a su nombre}}",
       "open": "Ver bóveda",
       "back": "Clientes",
       "emptyTitle": "Sin bóvedas",
@@ -3314,7 +3315,8 @@
           "inDrawer": "en su cajón",
           "pendingPlacement": "por colocar",
           "inWithdrawal": "{count, plural, one {en un retiro} other {en retiros}}",
-          "total": "en total"
+          "total": "{count, plural, one {debe estar en bóveda} other {deben estar en bóveda}}",
+          "help": "Puede ser menos de lo que la lista de clientes cuenta «a su nombre»: allí entra también lo apartado en pedidos que aún no se pagan. Aquí solo cuenta lo pagado que guardamos."
         },
         "group": {
           "missing": "Faltantes",

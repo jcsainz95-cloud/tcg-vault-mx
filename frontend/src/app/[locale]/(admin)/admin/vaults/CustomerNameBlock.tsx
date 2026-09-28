@@ -1,6 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import { customerDisplayName } from './customer-name';
 
 /**
  * **De quién es** — el bloque de persona de la tarjeta «Para bóveda» (§36.2 plano 1) y de la vista
@@ -25,8 +26,8 @@ export function CustomerNameBlock({
   testId?: string;
 }) {
   const t = useTranslations('admin.m4.prep.vault.nameMissing');
-  // `null` es la única marca de ausencia; una cadena en blanco (servidor no conforme) se lee igual.
-  const display = name?.trim() ? name.trim() : null;
+  // La regla vive en `customer-name.ts` (una sola fuente; la cabecera del detalle usa la misma).
+  const display = customerDisplayName(name);
 
   return (
     <div data-testid={testId} className="flex flex-col gap-0.5">

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
-import { VaultDetailView, parseVaultDetailTab } from './VaultDetailView';
+import { VaultDetailView } from './VaultDetailView';
+import { parseVaultDetailTab } from './tabs';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { CustomerPhysicalInventoryDTO, PhysicalInventoryItemDTO } from '@/types/contract';
@@ -157,6 +158,33 @@ describe('«Qué debe haber» (§36.11 · §M4-VAULT.11)', () => {
     expect(missing).toHaveTextContent('0');
     expect(missing).toHaveTextContent('faltantes');
     expect(counts.querySelector('[data-count="total"]')).toHaveTextContent('4');
+  });
+
+  /**
+   * **PV-13 · PV-14 (§36.17).** El cierre del resumen dice «deben estar en bóveda» (singular con 1),
+   * ⛔ nunca «en total»; y la ayuda está SIEMPRE visible bajo el resumen, fuera del `<dl>`.
+   */
+  it('PV-13/PV-14 · «N deben estar en bóveda» / «1 debe estar en bóveda», ⛔ sin «en total», con su ayuda fuera del <dl>', async () => {
+    vi.spyOn(api, 'getAdminVaultPhysicalInventory').mockResolvedValue(full());
+    const { unmount } = renderWithProviders(<VaultDetailView userId="u-1" initialTab="physical" />, 'es');
+    await screen.findByTestId('physical-inventory');
+    const counts = screen.getByTestId('physical-counts');
+    expect(counts.querySelector('[data-count="total"]')).toHaveTextContent('deben estar en bóveda');
+    expect(counts.textContent).not.toContain('en total');
+    const help = screen.getByTestId('physical-counts-help');
+    expect(help).toHaveTextContent('Puede ser menos de lo que la lista de clientes cuenta «a su nombre»');
+    expect(counts.contains(help)).toBe(false);
+    unmount();
+
+    const one = full();
+    one.items = one.items.filter((i) => i.physical.state === 'in_drawer');
+    one.counts = { total: 1, inDrawer: 1, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0 };
+    vi.spyOn(api, 'getAdminVaultPhysicalInventory').mockResolvedValue(one);
+    renderWithProviders(<VaultDetailView userId="u-2" initialTab="physical" />, 'es');
+    const counts1 = await screen.findByTestId('physical-counts');
+    const total = counts1.querySelector('[data-count="total"]')!;
+    expect(total).toHaveTextContent('debe estar en bóveda');
+    expect(total).not.toHaveTextContent('deben');
   });
 
   it('cada fila dice su estado en palabras, con la ubicación CON zona (V3/PV-3), y ⛔ sin un solo botón', async () => {

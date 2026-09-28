@@ -1870,17 +1870,22 @@ export interface InventoryItemDTO {
   acquisitionCostCents?: number;
 }
 
+/**
+ * `GET /api/v1/admin/locations` → `200 { data: VaultLocationDTO[] }` (§M4-VAULT.4 v1.79.5, errata de
+ * ruta). Orden `label asc` del motor; sin paginar; TODAS las zonas, también las inactivas.
+ */
 export interface VaultLocationDTO {
   id: string;
   zone: VaultZone;
   box: string;
   row: string;
   slot: string;
+  // ⚠️ `${box}-${row}-${slot}`: se REPITE entre zonas (§M4-VAULT.1) ⇒ nunca identifica solo.
   label: string;
-  // §M4-VAULT.4 filtra la lista del cliente nuevo por `isActive`. El backend lo emite
-  // (`inventory.service.ts` · `toVaultLocationDTO`), pero §M1 no lo declara ⇒ opcional aquí;
-  // ausente se lee como activo (la guarda real es el `422 inactive` del `confirm`).
-  isActive?: boolean;
+  // v1.79.5 (§M4-VAULT.4): declarado. Hoy siempre `true` (no hay escritor de `false`); la lista del
+  // cliente nuevo lo filtra igual. La guarda real es el `422 inactive` del `confirm`.
+  isActive: boolean;
+  createdAt: string;
 }
 
 // Motivo del movimiento de bóveda (enum MovementReason del backend; ARCHITECTURE/prisma).

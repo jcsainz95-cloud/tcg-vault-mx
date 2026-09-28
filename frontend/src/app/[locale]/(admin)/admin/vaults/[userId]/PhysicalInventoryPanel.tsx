@@ -12,7 +12,7 @@ import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
 import type { CustomerPhysicalInventoryDTO, PhysicalInventoryItemDTO, PhysicalState } from '@/types/contract';
-import { CardInfo, LABEL, TAG, useZoneName, useZonedLabel } from '../../m4/prep-shared';
+import { CardInfo, LABEL, TAG, ZonedLocationColumn, useZonedLabel } from '../../m4/prep-shared';
 import { CustomerNameBlock } from '../CustomerNameBlock';
 
 export const physicalInventoryQueryKey = (userId: string) => ['admin-vault-physical', userId] as const;
@@ -149,10 +149,16 @@ function PhysicalInventoryBody({
               );
             })}
             <div className="flex flex-row-reverse gap-1" data-count="total">
-              <dt>{t('counts.total')}</dt>
+              {/* §36.17: «deben estar en bóveda», ⛔ no «en total» — la lista de clientes cuenta OTRA cosa
+                  («a su nombre») y las dos cifras no pueden compartir sustantivo. */}
+              <dt>{t('counts.total', { count: counts.total })}</dt>
               <dd className="tabular">{counts.total}</dd>
             </div>
           </dl>
+          {/* §36.17: la ayuda, siempre visible bajo el resumen (⛔ ni tooltip ni dentro del `<dl>`). */}
+          <p className="text-sm text-muted" data-testid="physical-counts-help">
+            {t('counts.help')}
+          </p>
 
           {/* 4 · Los grupos, anomalías primero. Un grupo vacío NO se pinta (su conteo sí, arriba). */}
           {PHYSICAL_GROUP_ORDER.map((g) => {
@@ -183,9 +189,7 @@ function PhysicalInventoryBody({
 
 function PhysicalRow({ item, t }: { item: PhysicalInventoryItemDTO; t: Translator }) {
   const tp = useTranslations('admin.m4.prep');
-  const tv = useTranslations('admin.m4.prep.vault');
   const tShip = useTranslations('status.shipment');
-  const zoneName = useZoneName();
   const zoned = useZonedLabel();
   const locale = useLocale() as AppLocale;
   const loc = item.currentLocation;
@@ -222,22 +226,12 @@ function PhysicalRow({ item, t }: { item: PhysicalInventoryItemDTO; t: Translato
       className="flex flex-col gap-2 border-t border-border pt-3 first:border-t-0 first:pt-0"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-        {/* Ubicación PRIMERO, en columna, CON su zona (V3, §35.4). */}
-        <div className="flex shrink-0 flex-col gap-0.5 sm:w-40" data-testid={`physical-location-${item.inventoryItemId}`}>
-          {loc.kind === 'assigned' ? (
-            <>
-              <span className={LABEL}>
-                {item.currentZone ? tv('item.locationLabel', { zone: zoneName(item.currentZone) }) : tp('location')}
-              </span>
-              <span className="tabular text-sm text-text">{loc.label}</span>
-            </>
-          ) : (
-            <>
-              <span className={LABEL}>{tp('location')}</span>
-              <span className="text-sm text-accent">{tp('unassigned')}</span>
-            </>
-          )}
-        </div>
+        {/* Ubicación PRIMERO, en columna, CON su zona (V3, §35.4). Pieza compartida (D6). */}
+        <ZonedLocationColumn
+          location={loc}
+          zone={item.currentZone}
+          testId={`physical-location-${item.inventoryItemId}`}
+        />
         <div className="flex min-w-0 flex-1 gap-3">
           <CardInfo card={item.card} folio={item.folio} quantity={1} t={tp} />
         </div>

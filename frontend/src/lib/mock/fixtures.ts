@@ -2139,13 +2139,13 @@ export const mockDashboard: DashboardDTO = {
 };
 
 export const mockLocations: VaultLocationDTO[] = [
-  { id: 'loc-1', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S15', label: 'C03-F02-S15' },
-  { id: 'loc-2', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S16', label: 'C03-F02-S16' },
-  { id: 'loc-3', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S01', label: 'C10-F01-S01' },
+  { id: 'loc-1', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S15', label: 'C03-F02-S15', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  { id: 'loc-2', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S16', label: 'C03-F02-S16', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  { id: 'loc-3', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S01', label: 'C10-F01-S01', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
   // §M4-VAULT: dos cajones de cliente más, para que la anomalía `multiple_drawers` y la elección del
   // cliente nuevo tengan de dónde escoger en modo mocks.
-  { id: 'loc-4', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S02', label: 'C10-F01-S02' },
-  { id: 'loc-5', zone: 'customer_custody', box: 'C11', row: 'F01', slot: 'S01', label: 'C11-F01-S01' },
+  { id: 'loc-4', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S02', label: 'C10-F01-S02', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  { id: 'loc-5', zone: 'customer_custody', box: 'C11', row: 'F01', slot: 'S01', label: 'C11-F01-S01', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
 ];
 
 export const mockInventory: InventoryItemDTO[] = [

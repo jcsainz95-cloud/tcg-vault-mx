@@ -1,4 +1,5 @@
-import { VaultDetailView, parseVaultDetailTab } from './VaultDetailView';
+import { VaultDetailView } from './VaultDetailView';
+import { parseVaultDetailTab } from './tabs';
 
 /**
  * `/admin/vaults/[userId]` — detalle de la bóveda de UN cliente, con **URL propia** (H-6 de

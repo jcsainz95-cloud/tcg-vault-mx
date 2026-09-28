@@ -7935,3 +7935,43 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   ⛔ Sigue **NO MEDIDO** con fallo inyectado en integración; y un log no reintenta: el reproceso es manual.
 - **Dueño del resto:** «Órdenes y dinero» (`ARCHITECTURE §4.21q (o)`): una alarma sobre ese log o un reintento del borrado.
 - **Disparador:** un `40P01` en producción, el siguiente cambio a `onChargeDisputeVault`, o ese log en producción.
+
+## Frontend · 2026-09-28 · techlead sobre `db7d1c2` — M4-VAULT (tarjeta «Para bóveda» y «Qué debe haber»)
+
+> Deuda **no bloqueante** del techlead sobre el frontend de M4-VAULT. Los dos bloqueantes de QA (la ruta
+> `/admin/vaults/<id>` caída en producción y la clave retirada en los E2E) se cerraron en este pase y no figuran aquí.
+> Medido el **2026-09-28** sobre el árbol de trabajo encima de `982fddf`.
+
+### VLT-D5 · `m4/` y `vaults/` se importan mutuamente (frontend · zona compartida, 2026-09-28)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m4/VaultPlacementCard.tsx:35` importa
+  `../vaults/CustomerNameBlock`; `vaults/[userId]/PhysicalInventoryPanel.tsx:15` importa
+  `../../m4/prep-shared` (`CardInfo`, `LABEL`, `TAG`, `ZonedLocationColumn`, `useZonedLabel`).
+- **Impacto:** dos carpetas de ruta dependen una de otra para piezas transversales; cualquier tercera pantalla que
+  quiera la tarjeta de carta o el bloque de persona tendrá que importar de una ruta ajena, y el ciclo invita a más.
+- **Corrección:** mover `CustomerNameBlock` + `customer-name.ts`, `CardInfo`, `ZonedLocationColumn`, `LABEL`/`TAG` y
+  `useZoneName`/`useZonedLabel` a `frontend/src/components/` (p. ej. `components/domain/vault/`). Es **zona
+  compartida** (CLAUDE.md): se serializa con el orquestador y no se hace desde un stream que no la tenga.
+- **Disparador:** el próximo stream que tenga `frontend/src/components/`, o una tercera pantalla que necesite alguna
+  de esas piezas.
+- **Comprobación de cierre:** `rg -n "from '\.\./(\.\./)?(m4|vaults)/" "frontend/src/app/[locale]/(admin)/admin"` ⇒ **0**.
+
+### VLT-D6 · La regla del nombre en tres sitios y la columna de ubicación duplicada — **CERRADO en este pase** (frontend, 2026-09-28)
+- **Qué era:** `VaultDetailView.tsx` reimplementaba el `trim`/`null` de `CustomerNameBlock`, y la columna de
+  ubicación con zona estaba copiada en `VaultPlacementCard.tsx` y `PhysicalInventoryPanel.tsx`.
+- **Cierre:** `vaults/customer-name.ts · customerDisplayName` (lo usan `CustomerNameBlock`, la cabecera del detalle y
+  la fila de `VaultsView`, que era un cuarto sitio) y `m4/prep-shared.tsx · ZonedLocationColumn`.
+- **Residual (no bloqueante, fuera de M4-VAULT):** `components/master-set/MasterSetBinder.tsx:436` y
+  `MasterSetIndex.tsx:138` repiten `owner.name?.trim()` para «Bóveda de {name}». Se une a `customerDisplayName` cuando
+  VLT-D5 lo mueva a `components/`.
+
+### VLT-D7 · `VaultPlacementCard.tsx` mide 828 líneas; las cuatro mutaciones deben salir a `useVaultPlacementActions` (frontend · Inventario y vault, 2026-09-28)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m4/VaultPlacementCard.tsx` (`wc -l` ⇒ 828, 2026-09-28): el
+  componente contiene las cuatro `useMutation` (palomear, preparado, deshacer, confirmar), su traducción de errores
+  (`commonError`, `goneFromQueue`) y el parcheo de la caché, además de los cinco planos de la tarjeta.
+- **Impacto:** revisión y cambio lentos; la lógica de errores por verbo (la parte con más ramas y la que toca el
+  contrato) está mezclada con el marcado.
+- **Corrección:** extraer `useVaultPlacementActions(order, onNotice)` → `{ mark, prepare, unprepare, confirm, busy,
+  rowErrors, footerError, cardNotice }`, sin cambiar conducta; la suite `VaultPlacementCard.test.tsx` (25 casos) y
+  `e2e/m4-vault-placement.spec.ts` son el juez.
+- **Disparador:** el próximo verbo nuevo sobre la colocación, o el próximo cambio a la tabla de errores de §36.9.
+- **Comprobación de cierre:** `wc -l VaultPlacementCard.tsx` < 500 y `rg -c "useMutation" VaultPlacementCard.tsx` ⇒ **0**.

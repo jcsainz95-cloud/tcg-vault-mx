@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { loginAs, mockOnly, needsSeed, realOnly } from './utils/auth';
+import { drainVaultBucket, openVaultBucket } from './utils/vault-placement';
 
 /**
  * **«Pedidos a preparar» (M4) en un NAVEGADOR DE VERDAD** — `DESIGN_SYSTEM §35`, contrato §M4-PREP.
@@ -195,7 +196,7 @@ for (const vp of VIEWPORTS) {
       for (const ajeno of [
         P('empty.title'),
         P('emptyShip.title'),
-        P('emptyVault.title'),
+        P('vault.emptyVault.title'),
         t('es', 'common.errorTitle'),
       ]) {
         expect(main, `«${ajeno}» no puede aparecer con un 409`).not.toContain(ajeno);
@@ -270,15 +271,26 @@ for (const vp of VIEWPORTS) {
       await expectNoHorizontalOverflow(page);
     });
 
-    test('PR-1 · la cubeta de bóveda vacía explica la ausencia y ⛔ NO afirma «nada pendiente»', async ({ page }) => {
-      await page.goto('/es/admin/m4');
-      await page.getByRole('button', { name: P('filterVault') }).click();
+    /**
+     * **PR-1 → PV-12 (§36.10).** El PR-1 original afirmaba que el vacío de bóveda «explica la
+     * ausencia y ⛔ NO afirma “nada pendiente”», porque la cubeta **no se alimentaba**. Con
+     * `§M4-VAULT` sí cuenta el trabajo y el copy se reescribió: ahora el vacío **sí** afirma que no
+     * hay nada que llevar. Pedía una clave retirada (`admin.m4.prep.emptyVault.title`) y la `t` del
+     * arnés lanza si falta ⇒ el caso moría antes de medir nada (rechazo de QA sobre db7d1c2).
+     *
+     * En mocks la cubeta ya NO viene vacía (tres colocaciones sembradas), así que para VER el vacío
+     * hay que vaciarla con el flujo del operador. `mockOnly`: el vaciado recorre folios del fixture.
+     */
+    test('PV-12 · vaciada la cubeta de bóveda, el vacío es el de §36.10 y ⛔ no dice «todavía no se alimenta»', async ({ page }) => {
+      mockOnly('vacía la cubeta recorriendo las tres colocaciones del fixture (`vaultPlacementSeed`)');
+      await openVaultBucket(page);
+      await drainVaultBucket(page);
 
-      await expect(page.getByRole('heading', { name: P('emptyVault.title') })).toBeVisible();
-      const body = await page.locator('main').innerText();
-      expect(body.toLowerCase(), 'el vacío volvió a tranquilizar sobre lo que nadie mide').not.toContain(
-        'nada pendiente',
-      );
+      await expect(page.getByRole('heading', { name: P('vault.emptyVault.title') })).toBeVisible();
+      await expect(page.locator('main')).toContainText(P('vault.emptyVault.body'));
+      const html = (await page.content()).toLowerCase();
+      expect(html, 'volvió el copy viejo del vacío de bóveda').not.toContain('todavía no se alimenta');
+      expect(html).not.toContain("isn't fed yet");
       await expectNoHorizontalOverflow(page);
     });
   });

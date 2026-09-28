@@ -256,9 +256,9 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
   it('PV-4 · `none`: el selector de cajón NO tiene valor inicial («Sin elegir») y solo ofrece cajones de clientes activos', async () => {
     serve([vaultOrder({ prepared: true, items: [vItem('a1', { prepStatus: 'picked' })], suggestedLocation: { source: 'none' } })]);
     vi.spyOn(api, 'getLocations').mockResolvedValue([
-      { id: 'loc-1', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S15', label: 'C03-F02-S15' },
-      { id: 'loc-3', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S01', label: 'C10-F01-S01' },
-      { id: 'loc-9', zone: 'customer_custody', box: 'C12', row: 'F01', slot: 'S01', label: 'C12-F01-S01', isActive: false },
+      { id: 'loc-1', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S15', label: 'C03-F02-S15', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+      { id: 'loc-3', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S01', label: 'C10-F01-S01', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+      { id: 'loc-9', zone: 'customer_custody', box: 'C12', row: 'F01', slot: 'S01', label: 'C12-F01-S01', isActive: false, createdAt: '2026-07-01T10:00:00Z' },
     ]);
     renderWithProviders(<PreparationQueue />, 'es');
 
@@ -511,25 +511,62 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
     expect(within(notice).getByRole('alert')).toHaveTextContent(
       'Otra persona ya colocó este pedido. No se cambió nada; sale de la lista.',
     );
-    expect(notice).toHaveTextContent('Quedó en Custodia de clientes · C10-F01-S02.');
+    // PV-15 (§36.9 v4.8): con sujeto explícito, y el cajón con su zona.
+    expect(notice).toHaveTextContent('El pedido quedó en Custodia de clientes · C10-F01-S02.');
     await waitFor(() => expect(screen.queryByTestId('prep-order-vp-1')).not.toBeInTheDocument());
   });
 
-  it('`422 location_required` (pantalla vieja): copy propio y se vuelve a pedir la cola', async () => {
+  it('PV-15 · `409 PLACEMENT_NOT_PENDING {placed}` con `zone` que no es de clientes: ⛔ sin segunda frase', async () => {
+    const items = [vItem('a1', { prepStatus: 'picked' })];
+    const { state } = serve([vaultOrder({ prepared: true, items })]);
+    vi.spyOn(api, 'confirmVaultPlacement').mockImplementation(async () => {
+      state.orders = [];
+      throw new ApiClientError(409, {
+        code: 'PLACEMENT_NOT_PENDING',
+        message: 'placed',
+        details: { status: 'placed', location: { id: 'loc-1', label: 'C03-F02-S15', zone: 'platform_stock' } },
+      });
+    });
+    renderWithProviders(<PreparationQueue />, 'es');
+
+    fireEvent.click(within(await card()).getByRole('button', { name: 'Confirmar colocación' }));
+    const notice = await screen.findByTestId('prep-notice');
+    expect(notice).toHaveTextContent('Otra persona ya colocó este pedido.');
+    expect(notice).not.toHaveTextContent('El pedido quedó en');
+    expect(notice).not.toHaveTextContent('C03-F02-S15');
+  });
+
+  it('PV-15 · `422 location_required` con `pickedCount: 2`: nombra las 2 tomadas y que no se hizo nada; se vuelve a pedir la cola', async () => {
     const items = [vItem('a1', { prepStatus: 'missing' })];
     const { spy: queueSpy } = serve([vaultOrder({ prepared: true, items })]);
     vi.spyOn(api, 'confirmVaultPlacement').mockRejectedValue(
-      new ApiClientError(422, { code: 'LOCATION_NOT_AVAILABLE', message: 'x', details: { reason: 'location_required', pickedCount: 1 } }),
+      new ApiClientError(422, { code: 'LOCATION_NOT_AVAILABLE', message: 'x', details: { reason: 'location_required', pickedCount: 2 } }),
     );
     renderWithProviders(<PreparationQueue />, 'es');
 
     const c = await card();
     const before = queueSpy.mock.calls.length;
     fireEvent.click(within(c).getByRole('button', { name: 'Cerrar pedido sin guardar nada' }));
-    expect(await within(c).findByRole('alert')).toHaveTextContent(
-      'Este pedido ya tiene cartas tomadas, así que hay que elegir su cajón',
-    );
+    const alert = await within(c).findByRole('alert');
+    expect(alert).toHaveTextContent('La pantalla estaba desactualizada');
+    expect(alert).toHaveTextContent('2 cartas tomadas');
+    expect(alert).toHaveTextContent('No se hizo nada');
     await waitFor(() => expect(queueSpy.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it('`422 location_required` SIN `pickedCount`: la variante sin número (⛔ no se inventa la cifra)', async () => {
+    const items = [vItem('a1', { prepStatus: 'missing' })];
+    serve([vaultOrder({ prepared: true, items })]);
+    vi.spyOn(api, 'confirmVaultPlacement').mockRejectedValue(
+      new ApiClientError(422, { code: 'LOCATION_NOT_AVAILABLE', message: 'x', details: { reason: 'location_required' } }),
+    );
+    renderWithProviders(<PreparationQueue />, 'es');
+
+    const c = await card();
+    fireEvent.click(within(c).getByRole('button', { name: 'Cerrar pedido sin guardar nada' }));
+    const alert = await within(c).findByRole('alert');
+    expect(alert).toHaveTextContent('este pedido ahora tiene cartas tomadas, así que no se puede cerrar');
+    expect(alert.textContent).not.toMatch(/\d/);
   });
 
   it('`409 CONFLICT` de un verbo: copy PROPIO de la tarjeta, ⛔ no el genérico y ⛔ sin «Reintentar»', async () => {

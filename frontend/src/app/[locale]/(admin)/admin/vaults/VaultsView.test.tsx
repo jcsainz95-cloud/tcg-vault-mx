@@ -27,7 +27,8 @@ describe('Admin · Bóvedas de clientes (GET /admin/vaults, v1.20)', () => {
     // Ana (mockHoldings: 128000+950000+320000 = MX$13,980.00; Zapdos pendiente NO suma).
     expect(await screen.findByText('Ana López')).toBeInTheDocument();
     expect(screen.getByText('ana@example.com')).toBeInTheDocument();
-    expect(screen.getByText('4 piezas')).toBeInTheDocument();
+    // §36.17 / PV-13: «a su nombre», ⛔ no «piezas» (la vista física cuenta OTRA cosa).
+    expect(screen.getByText('4 a su nombre')).toBeInTheDocument();
     expect(screen.getByText(/13,980\.00/)).toBeInTheDocument();
     // Bruno (bóveda chica) después por valor.
     expect(screen.getByText('Bruno Díaz')).toBeInTheDocument();
@@ -72,5 +73,30 @@ describe('Admin · Bóvedas de clientes (GET /admin/vaults, v1.20)', () => {
       expect((n.textContent ?? '').trim()).not.toBe('jcsainz95');
     }
     expect(container.textContent).not.toContain('null');
+  });
+
+  /**
+   * **PV-13 · PV-14 (§36.17).** La celda de `pieceCount` dice «a su nombre», también en singular, y
+   * ⛔ ningún «pieza(s)» en la pantalla (ni cabecera ni opción de orden): la vista física cuenta otra
+   * cosa («deben estar en bóveda») y las dos cifras no comparten sustantivo.
+   */
+  it('PV-13/PV-14 · «1 a su nombre» y ⛔ ningún «pieza(s)» en la lista (celda, cabecera ni orden)', async () => {
+    vi.spyOn(api, 'getAdminVaults').mockResolvedValue({
+      data: [{ userId: 'u-1', name: 'Uno', email: 'uno@example.com', pieceCount: 1, totalValueMxnCents: 100, pendingPriceCount: 0 }],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    const { container } = renderWithProviders(<VaultsView />, 'es');
+    expect(await screen.findByText('1 a su nombre')).toBeInTheDocument();
+    expect(screen.getByText('A su nombre')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'A su nombre (mayor primero)' })).toBeInTheDocument();
+    expect(container.textContent?.toLowerCase()).not.toMatch(/pieza/);
+  });
+
+  it('PV-13 · EN: «in their name», ⛔ ningún «piece(s)»', async () => {
+    const { container } = renderWithProviders(<VaultsView />, 'en');
+    expect(await screen.findByText('4 in their name')).toBeInTheDocument();
+    expect(container.textContent?.toLowerCase()).not.toMatch(/\bpieces?\b/);
   });
 });

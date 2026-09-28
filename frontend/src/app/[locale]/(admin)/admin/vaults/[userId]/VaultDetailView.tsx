@@ -12,15 +12,8 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 import { SealedVaultPanel } from '@/components/domain/SealedVaultPanel';
 import { PhysicalInventoryPanel, physicalInventoryQueryKey } from './PhysicalInventoryPanel';
-
-/** Pestañas del detalle: «Cartas» (master set) · «Sellado» · «Qué debe haber» (§36.11, tercera). */
-export type VaultDetailTab = 'cards' | 'sealed' | 'physical';
-const TABS: VaultDetailTab[] = ['cards', 'sealed', 'physical'];
-
-export function parseVaultDetailTab(raw: string | string[] | undefined): VaultDetailTab {
-  const v = Array.isArray(raw) ? raw[0] : raw;
-  return v === 'sealed' || v === 'physical' ? v : 'cards';
-}
+import { customerDisplayName } from '../customer-name';
+import { VAULT_DETAIL_TABS, type VaultDetailTab } from './tabs';
 
 /**
  * Detalle de la bóveda de un cliente (`/admin/vaults/<userId>`, H-6). Las tres pestañas son
@@ -41,7 +34,8 @@ export function VaultDetailView({ userId, initialTab }: { userId: string; initia
     queryFn: () => getAdminVaultPhysicalInventory(userId),
   });
   const owner = physical.data?.owner;
-  const name = owner?.name?.trim() ? owner.name.trim() : null;
+  // §36.4: la MISMA regla que `CustomerNameBlock` (D6: antes se repetía aquí a mano).
+  const name = owner ? customerDisplayName(owner.name) : null;
   const notFound = physical.error instanceof ApiClientError && physical.error.status === 404;
 
   function selectTab(next: VaultDetailTab) {
@@ -99,7 +93,7 @@ export function VaultDetailView({ userId, initialTab }: { userId: string; initia
         role="tablist"
         aria-label={name ?? (owner ? `${tName('tag')} · ${owner.email}` : undefined)}
       >
-        {TABS.map((key) => (
+        {VAULT_DETAIL_TABS.map((key) => (
           <button
             key={key}
             type="button"

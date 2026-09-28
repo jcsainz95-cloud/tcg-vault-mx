@@ -14,6 +14,7 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
+import { customerDisplayName } from './customer-name';
 
 const SORTS: AdminVaultSort[] = ['value_desc', 'pieces_desc', 'name_asc'];
 const PAGE_SIZE = 20;
@@ -99,7 +100,8 @@ export function VaultsView() {
               </div>
               <ul>
                 {vaults.data.data.map((v) => {
-                  const name = v.name?.trim() ? v.name.trim() : null;
+                  // §36.4: la misma regla que la tarjeta, la cabecera y «Qué debe haber» (D6).
+                  const name = customerDisplayName(v.name);
                   return (
                     <li key={v.userId}>
                       <Link

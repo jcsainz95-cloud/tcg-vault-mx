@@ -33,7 +33,7 @@ import type {
   VaultPreparationOrderDTO,
 } from '@/types/contract';
 import { CustomerNameBlock } from '../vaults/CustomerNameBlock';
-import { AgeStamp, CardInfo, LABEL, TAG, useZoneName, useZonedLabel } from './prep-shared';
+import { AgeStamp, CardInfo, LABEL, TAG, ZonedLocationColumn, useZonedLabel } from './prep-shared';
 
 /**
  * **La tarjeta «Para bóveda»** (`DESIGN_SYSTEM §36` v4.7 · contrato `§M4-VAULT` v1.79.3).
@@ -290,7 +290,15 @@ export function VaultPlacementCard({
           setChosen('');
           void refetchQueue();
         } else if (reason === 'location_required') {
-          setFooterError({ text: tv('error.locationRequired') });
+          // §36.8 v4.8: se nombra cuántas cartas tomadas hay (`details.pickedCount`, que manda el
+          // contrato) para cotejarlo con la tarjeta refrescada; ⛔ si no llega, no se inventa.
+          const pickedCount = (err.details as { pickedCount?: unknown } | undefined)?.pickedCount;
+          setFooterError({
+            text:
+              typeof pickedCount === 'number' && Number.isInteger(pickedCount) && pickedCount > 0
+                ? tv('error.locationRequired', { pickedCount })
+                : tv('error.locationRequiredNoCount'),
+          });
           void refetchQueue();
         } else {
           setFooterError({ text: tv('error.drawerUnavailable') });
@@ -318,7 +326,7 @@ export function VaultPlacementCard({
   // §M4-VAULT.4: la lista del cliente nuevo = cajones ACTIVOS de «Custodia de clientes». Filtrar aquí
   // es presentación; la guarda real es el `confirm` (`422`). ⛔ Nada de «vacío/ocupado/compartido» (V6).
   const customerDrawers = (locations.data ?? []).filter(
-    (l) => l.zone === 'customer_custody' && l.isActive !== false,
+    (l) => l.zone === 'customer_custody' && l.isActive,
   );
 
   let targetDrawer: { id: string; name: string } | null = null;
@@ -641,9 +649,7 @@ function VaultItemRow({
   tv: Translator;
   tc: Translator;
 }) {
-  const zoneName = useZoneName();
   const blocked = item.placeability.kind === 'blocked';
-  const located = item.currentLocation.kind === 'assigned';
   const aria = (action: string) => tv('item.actionAria', { action, card: item.card.name, folio: item.folio });
   const anyBusy = busy !== null;
 
@@ -659,24 +665,12 @@ function VaultItemRow({
       )}
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-        {/* Ubicación PRIMERO y en columna (§35.4), CON su zona (V3). */}
-        <div data-testid={`prep-location-${item.placementItemId}`} className="flex shrink-0 flex-col gap-0.5 sm:w-40">
-          {located ? (
-            <>
-              <span className={LABEL}>
-                {item.currentZone ? tv('item.locationLabel', { zone: zoneName(item.currentZone) }) : t('location')}
-              </span>
-              <span className="tabular text-sm text-text">
-                {item.currentLocation.kind === 'assigned' ? item.currentLocation.label : null}
-              </span>
-            </>
-          ) : (
-            <>
-              <span className={LABEL}>{t('location')}</span>
-              <span className="text-sm text-accent">{t('unassigned')}</span>
-            </>
-          )}
-        </div>
+        {/* Ubicación PRIMERO y en columna (§35.4), CON su zona (V3). Pieza compartida (D6). */}
+        <ZonedLocationColumn
+          location={item.currentLocation}
+          zone={item.currentZone}
+          testId={`prep-location-${item.placementItemId}`}
+        />
 
         {/* Controles a la izquierda de la miniatura (§36.5); en `< sm` bajan debajo de la carta. */}
         {editable && !blocked && (

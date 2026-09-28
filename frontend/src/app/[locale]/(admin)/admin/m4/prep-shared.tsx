@@ -5,7 +5,7 @@ import { CardImage } from '@/components/ui/CardImage';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { formatAge, formatDate } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
-import type { PreparationItemDTO, VaultZone } from '@/types/contract';
+import type { LocationView, PreparationItemDTO, VaultZone } from '@/types/contract';
 
 /**
  * Piezas que comparten la tarjeta de ENVÍO y la de BÓVEDA de «Pedidos a preparar» (§35.3 / §36.2:
@@ -99,5 +99,43 @@ export function CardInfo({
         </p>
       </div>
     </>
+  );
+}
+
+/**
+ * **La columna de ubicación ACTUAL de una carta, con su zona** (V3 · §35.4: ubicación primero y en
+ * columna). Una sola pieza para la tarjeta de bóveda (`prep-location-*`) y la vista «Qué debe haber»
+ * (`physical-location-*`): antes eran dos copias idénticas (D6 del techlead).
+ *
+ * - Asignada y con zona ⇒ rótulo «Ubicación · <zona>» + etiqueta.
+ * - Asignada sin zona (dato no conforme) ⇒ rótulo genérico «Ubicación» + etiqueta.
+ * - Sin asignar ⇒ «Ubicación» + «Sin ubicación» en acento (la ausencia se dice).
+ */
+export function ZonedLocationColumn({
+  location,
+  zone,
+  testId,
+}: {
+  location: LocationView;
+  zone: VaultZone | null;
+  testId: string;
+}) {
+  const tp = useTranslations('admin.m4.prep');
+  const tv = useTranslations('admin.m4.prep.vault');
+  const zoneName = useZoneName();
+  return (
+    <div data-testid={testId} className="flex shrink-0 flex-col gap-0.5 sm:w-40">
+      {location.kind === 'assigned' ? (
+        <>
+          <span className={LABEL}>{zone ? tv('item.locationLabel', { zone: zoneName(zone) }) : tp('location')}</span>
+          <span className="tabular text-sm text-text">{location.label}</span>
+        </>
+      ) : (
+        <>
+          <span className={LABEL}>{tp('location')}</span>
+          <span className="text-sm text-accent">{tp('unassigned')}</span>
+        </>
+      )}
+    </div>
   );
 }

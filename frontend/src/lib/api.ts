@@ -3731,6 +3731,8 @@ export async function createLocation(input: CreateLocationInput): Promise<VaultL
     id: `loc-new-${fx.mockLocations.length + 1}`,
     ...input,
     label: `${input.box}-${input.row}-${input.slot}`,
+    isActive: true,
+    createdAt: new Date().toISOString(),
   };
   fx.mockLocations.push(created);
   return delay(created);

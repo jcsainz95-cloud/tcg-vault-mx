@@ -1635,9 +1635,10 @@
             "notPrepared": "This order is no longer prepared: someone undid “prepared”. Check the marks and mark it as prepared again.",
             "notCustomerDrawer": "This customer already has a drawer and it isn't the one you chose: someone probably just placed another of their orders. We've refreshed the card with their drawer.",
             "drawerUnavailable": "That drawer can no longer hold customer cards. Choose another.",
-            "locationRequired": "This order already has picked cards, so its drawer must be chosen: the screen was out of date. We've refreshed the card; check it and confirm again.",
+            "locationRequired": "The screen was out of date: this order now has {pickedCount, plural, one {# picked card} other {# picked cards}}, so it can't be closed without placing them in a drawer. Nothing was done. We've refreshed the card: check it and confirm again.",
+            "locationRequiredNoCount": "The screen was out of date: this order now has picked cards, so it can't be closed without placing them in a drawer. Nothing was done. We've refreshed the card: check it and confirm again.",
             "placed": "Someone else already placed this order. Nothing was changed; it leaves the list.",
-            "placedIn": "It's in {drawer}.",
+            "placedIn": "The order was placed in {drawer}.",
             "chargeback": "This order was cancelled by a chargeback: its cards no longer belong to the customer. It leaves the list.",
             "nothingToPlace": "This order was already closed without placing anything. It leaves the list.",
             "placedUndo": "Couldn't undo: the order was already placed in its drawer. Once placed, there's no going back from this screen.",
@@ -3278,15 +3279,15 @@
       "sortLabel": "Sort by",
       "sort": {
         "value_desc": "Value (highest first)",
-        "pieces_desc": "Pieces (highest first)",
+        "pieces_desc": "In their name (highest first)",
         "name_asc": "Name (A–Z)"
       },
       "colName": "Customer",
       "colEmail": "Email",
-      "colPieces": "Pieces",
+      "colPieces": "In their name",
       "colValue": "Estimated value",
       "colPending": "No price",
-      "pieces": "{count, plural, one {# piece} other {# pieces}}",
+      "pieces": "{count, plural, other {# in their name}}",
       "open": "View vault",
       "back": "Customers",
       "emptyTitle": "No vaults",
@@ -3314,7 +3315,8 @@
           "inDrawer": "in their drawer",
           "pendingPlacement": "to be placed",
           "inWithdrawal": "{count, plural, one {in a withdrawal} other {in withdrawals}}",
-          "total": "in total"
+          "total": "{count, plural, other {should be in the vault}}",
+          "help": "This can be lower than what the customer list counts “in their name”: that also includes items reserved in orders not yet paid. Here, only what's paid and in our keeping counts."
         },
         "group": {
           "missing": "Missing",

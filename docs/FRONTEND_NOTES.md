@@ -18125,5 +18125,88 @@ Fuentes: `API_CONTRACT §M4-VAULT` v1.79.3 (incluye v1.79.1–.3) y `DESIGN_SYST
 | # | Qué | Qué lo cerraría |
 |---|---|---|
 | `F-MV1` | Que las respuestas reales de los cuatro verbos y de `physical-inventory` coincidan con los tipos | contrato/E2E de QA contra el stack con el backend de esta rama |
-| `F-MV2` | Suite Playwright de la tarjeta (390×844 y 1280×800, §36.16) — solo hay vitest | spec E2E en `frontend/e2e/` |
+| ~~`F-MV2`~~ | ~~Suite Playwright de la tarjeta~~ — **cerrado 2026-09-28**: `e2e/m4-vault-placement.spec.ts` (ver abajo) | — |
 | `F-MV3` | Que `window.history.replaceState` mantenga sincronizado `useSearchParams` de Next en producción | navegar el detalle en `next start` |
+
+### Rechazo de QA sobre `db7d1c2` y pase v1.79.5 / DESIGN_SYSTEM v4.8 (2026-09-28, rama `claude/m4-boveda`)
+
+**B-1 · `/admin/vaults/<userId>` caía entera en build de producción.** `page.tsx` (servidor) llamaba a
+`parseVaultDetailTab`, exportada desde `VaultDetailView.tsx` (`'use client'`). Para el servidor esa función es
+una *referencia de cliente*: se puede renderizar si es componente, ⛔ no se puede invocar. Arreglo:
+`vaults/[userId]/tabs.ts` (sin `'use client'`) con `VaultDetailTab`, `VAULT_DETAIL_TABS` y `parseVaultDetailTab`.
+- **Medido contra `next build` + `next start` (mocks), petición real con `curl`:** árbol nuevo ⇒
+  `?tab=physical`, sin `tab` y `?tab=sealed` ⇒ **200, 3/3**, `tablist` presente, pestaña «Qué debe haber»
+  `aria-selected="true"` en el HTML del servidor. Copia de `db7d1c2` (`git archive`) ⇒ **500, 2/2**, y el log
+  del servidor dice «Attempted to call parseVaultDetailTab() from the server but parseVaultDetailTab is on the
+  client» (2 veces).
+- **Candado estático nuevo:** `src/app/server-client-boundary.test.ts` — un `page.tsx`/`layout.tsx` de servidor
+  que importa de un módulo `'use client'` solo puede importar componentes (PascalCase) o tipos. Con dos canarios
+  (el patrón exacto de `db7d1c2` se detecta; componentes/tipos y funciones de módulo sin `'use client'` pasan).
+  Mutación sobre copia: importar `physicalInventoryQueryKey` en `page.tsx` ⇒ **rojo 1/1** (determinista).
+  ⚠️ Es una aproximación por regex; la prueba de verdad es el E2E, que corre contra `next start`.
+
+**B-2 · E2E con la clave retirada `admin.m4.prep.emptyVault.title`.** PR-11 pasa a `vault.emptyVault.title`.
+PR-1 se reescribe como **PV-12**: en mocks la cubeta de bóveda ya no está vacía (tres colocaciones sembradas),
+así que el caso **la vacía con el flujo del operador** (`e2e/utils/vault-placement.ts · drainVaultBucket`) y
+luego aserta el vacío de §36.10 y que el HTML no contenga «todavía no se alimenta» / “isn't fed yet”.
+`mockOnly`. ⚠️ **PR-11..PR-16 (`@real`) NO los corrí**: necesitan stack real; en mocks salen en el censo de
+saltados. La clave que piden es la misma que PV-12 ya resolvió en verde.
+
+**I-4 · Playwright de la tarjeta y de la vista física** — `e2e/m4-vault-placement.spec.ts` (nuevo):
+palomear ⇒ preparado ⇒ deshacer ⇒ preparado ⇒ confirmar con cajón (PV-5..PV-8, foco a la línea de paso,
+marcas conservadas); dos cajones sin elección por defecto (PV-4); el enlace de la tarjeta abre `?tab=physical`;
+entrada directa por URL a `/admin/vaults/u-777?tab=physical` con **status 200**, grupos en el orden de PV-11,
+resumen «deben estar en bóveda» y su ayuda; cliente sin nombre en la cabecera; sin `?tab`/`sealed`/valor raro;
+cierre **sin cajón a 390 px** (sin selector, botón ≥ 44 px dentro del ancho). Todos en 390×844 y 1280×800
+salvo el cierre sin cajón (solo 390). Uno `@real` **agnóstico**: descubre un cliente en `/admin/vaults` y abre su
+`?tab=physical` (200 + pestaña + panel o su vacío); en mocks corre por su rama mock. Los recorridos de la
+tarjeta son `mockOnly`: el seed real no siembra `VaultPlacement` (`seed-e2e.ts` solo las borra).
+
+**Suite E2E completa en mocks (build de producción, `E2E_MOCK_PORT=3473`), 2026-09-28:** 227 casos ·
+**218 verdes · 3 rojos · 6 saltados (solo-real)**. Los 16 casos de M4-VAULT verdes (14 del spec nuevo —incluido el `@real`
+en su rama mock— + PV-12 ×2). Los 3 rojos **no son de este stream y ya estaban rojos en `db7d1c2`** (medido: los
+mismos 3 sobre la copia `git archive db7d1c2` ⇒ 3/3 rojos; sobre este árbol con `--repeat-each=3` ⇒ 9/9 rojos,
+deterministas): `account.spec.ts:287` (el header tiene 6 enlaces, espera 5), `admin.spec.ts:451` (no existe
+`getByLabel('Spread de UPC')`), `checkout.spec.ts:12` (violación de modo estricto: el aviso de titularidad
+aparece 2 veces). Dueños: Cuentas y acceso / Catálogo y precios / Órdenes y dinero.
+*(Primer intento de la suite: el build falló en `next/font` — `Cannot read properties of null (reading '1')`
+al bajar la fuente de Google; el reintento compiló. Fallo de red del build, no del código.)*
+
+**D6 (techlead) — arreglado en vez de anotado.**
+- La regla del nombre (§36.4) vive en `vaults/customer-name.ts · customerDisplayName` (sin `'use client'`). La
+  usan `CustomerNameBlock`, la cabecera de `VaultDetailView` **y la fila de `VaultsView`** (que era un cuarto
+  sitio con el mismo `trim` a mano, no citado en el hallazgo). Quedan fuera, a propósito: `MasterSetBinder.tsx:436`
+  y `MasterSetIndex.tsx:138` (componentes compartidos del master set, otra superficie y zona compartida).
+- La columna de ubicación con zona es una pieza: `m4/prep-shared.tsx · ZonedLocationColumn`, usada por la
+  tarjeta (`prep-location-*`) y por «Qué debe haber» (`physical-location-*`). Mismos `data-testid`, mismo DOM.
+
+**v1.79.5 / DESIGN_SYSTEM v4.8 (74d4da2).**
+- `VaultLocationDTO` alineado a §M4-VAULT.4: `isActive: boolean` (ya no opcional) y `createdAt: string`. El
+  filtro del cliente nuevo pasa de `isActive !== false` a `isActive`. Mocks (`mockLocations`, `createLocation`)
+  y el fixture de PV-4 traen los dos campos.
+- §36.17: `admin.vaults.pieces` «# a su nombre», `colPieces` «A su nombre», `sort.pieces_desc` «A su nombre
+  (mayor primero)», `physical.counts.total` con plural «debe/deben estar en bóveda» (ahora recibe `{count}`) y
+  `physical.counts.help` siempre visible bajo el `<dl>` (fuera de él). PV-13/PV-14 en `VaultsView.test.tsx` y
+  `VaultDetailView.test.tsx`.
+- §36.8: `error.locationRequired` con `{pickedCount}` cableado desde `details.pickedCount` (entero > 0); si no
+  llega, `error.locationRequiredNoCount` (⛔ no se inventa). §36.9: `error.placedIn` «El pedido quedó en
+  {drawer}.»; con zona que no es de clientes, sin segunda frase. PV-15 en `VaultPlacementCard.test.tsx`.
+  Mutación sobre copia (exigir `pickedCount > 99`) ⇒ PV-15 **rojo 1/1**.
+- Los textos provisionales que escribí para `locationRequired` y `placedIn` (tabla de arriba) quedan
+  **sustituidos** por los de ux-ui.
+
+**Menor 8 (QA) — `ShipmentsView.test.tsx` «con `nameSource=user` se propone `user.name`».** QA lo midió rojo en
+**1 de 2** corridas con la suite completa bajo carga y **10/10** verde aislado (números de QA, no míos). No lo
+reproduje: la suite completa de este pase lo dio verde (1 corrida). Hipótesis **NO MEDIDA**: el `findByLabelText`
+resuelve cuando el campo existe, y el prellenado con `user.name` llega en un render posterior; bajo carga el
+`expect(input.value)` síncrono puede leer `''`. Lo cerraría envolver la aserción en `waitFor` y medir N ≥ 20
+corridas de la suite completa. No lo toqué (no es de este stream).
+
+**Totales de este pase (medidos por mí, 2026-09-28):** `tsc --noEmit` limpio · `next lint` sin avisos ·
+vitest **175 ficheros / 2039 pruebas verdes** · E2E mocks como arriba.
+
+| # | NO MEDIDO | Qué lo cerraría |
+|---|---|---|
+| `F-MV1` | Respuestas reales de los cuatro verbos y de `physical-inventory` contra los tipos | E2E `@real` de QA contra el stack de esta rama |
+| `F-MV3` | Que cambiar de pestaña (`history.replaceState`) mantenga `useSearchParams` sincronizado en producción | un E2E que pulse las pestañas y recargue |
+| `F-MV4` | PR-11..PR-16 con la clave corregida | pase `@real` de QA |
