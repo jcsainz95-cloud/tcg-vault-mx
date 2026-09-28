@@ -23816,11 +23816,15 @@ contrato que requieran al arquitecto (ver «Decisiones de implementación» para
 
 ## Qué hace, por pieza
 - **Parser** (`limitless-html.parser.ts`): `HomeLeader.cover: { setCode, number } | null`, leído SOLO de
-  `a.leader-image img[alt]` (trim), validado con `^([A-Za-z0-9][A-Za-z0-9-]{0,9})-([A-Za-z0-9]{1,8})$` y longitud ≤ 20
-  (`parseCoverAlt`, exportada). Número CRUDO («25»). El `src` no se lee. Si hay bloques y ninguna portada válida ⇒
+  `a.leader-image img[alt]` (trim), validado con `^([A-Za-z0-9](?:[A-Za-z0-9-]{0,8}[A-Za-z0-9])?)-([A-Za-z0-9]{1,8})$`
+  y longitud ≤ 20 (`parseCoverAlt`, exportada). El set empieza y TERMINA en alfanumérico (QA 5, 2026-09-28):
+  «TWM--25» ⇒ `null`, no set «TWM-». Número CRUDO («25»). El `src` no se lee. Si hay bloques y ninguna portada válida ⇒
   `logger.warn` que empieza por «portada:» (no es check del canario).
 - **Matcher**: `DeckMatcherService.matchCover(cover) ⇒ { matchStatus, card }` delega en `matchLines` con una línea
-  sintética (`quantity:1`, `pokemon`, `isBasicEnergy:false`). `card` sólo si `matched`.
+  sintética (`quantity:1`, `pokemon`, `isBasicEnergy:false`). `card` sólo si `matched`. `matchStatus` es
+  `CoverMatchStatus = Exclude<MetaMatchStatus, 'unmatched_basic_energy'>` (TD-c, también en `DeckCoverReport`);
+  si el motor devolviera `unmatched_basic_energy` (inalcanzable por construcción), `matchCover` LANZA y el refresh lo
+  trata como fallo de portada (abajo).
 - **Refresh** (`decks-meta-refresh.service.ts`): por deck, `matchDeckCover` aparte de `matched` (las 60). Modo vivo:
   `persistDeck` escribe `coverSetCode/coverNumber/coverMatchStatus/coverCardId` en la `MetaDeckList` nueva. Ensayo:
   `DeckReport.cover = { setCode, number, matchStatus, cardId, imageUrl } | null` (`imageUrl` = `imageOf` de NUESTRA
@@ -23852,16 +23856,19 @@ Sin la migración, el backend nuevo falla al escribir/leer `coverCard` ⇒ migra
 primero, como siempre: es aditiva y el código viejo la ignora).
 
 ## Decisiones de implementación (lo que el diseño no fijaba)
-1. **Fallo al casar la portada ⇒ el deck sigue SIN portada** (las 4 columnas null, `cover:null` en el ensayo) y
-   `logger.warn`; el deck no pasa a `error` ni toca el canario. Motivo: §13 «la portada nunca bloquea». En la práctica
-   `matchCover` hace las mismas lecturas que `matchLines`, así que si falla la BD ya habría fallado la lista.
+1. **Fallo al casar la portada ⇒ el deck sigue SIN portada** (las 4 columnas null, `cover:null` en el ensayo),
+   `logger.warn` **y una entrada en `errors[]` con la forma EXACTA `cover <SET>-<NÚM>: <msg>`** (API_CONTRACT §13 Admin
+   fila 4b, ARCHITECTURE §12.4.2; C-1 del techlead, cerrado 2026-09-28). El deck no pasa a `error`, ni cambian
+   `verdict`, `canary` ni `persistedCount`. `errors[]` viaja al `note` del `MetaFetchRun`, así que el fallo queda
+   también en la traza de la corrida. Motivo: §13 «la portada nunca bloquea». En la práctica `matchCover` hace las
+   mismas lecturas que `matchLines`, así que si falla la BD ya habría fallado la lista.
 2. **Nombre de la línea sintética:** `name` = `SET-NÚM` (no se persiste: la línea no sale de `matchCover`).
 3. **Aviso del parser**: `logger.warn` por corrida, no por bloque.
 
 ## Pruebas (§12.4.6) y dónde viven
 | # | Fichero |
 |---|---|
-| P1, P2 (+aviso), P3–P6 | `backend/test/decks-meta-portada.spec.ts` (P3–P6 con el matcher REAL sobre catálogo en memoria) |
+| P1, P2 (+aviso, +set terminado en guion), P3–P6, C-1, TD-c | `backend/test/decks-meta-portada.spec.ts` (P3–P6 y C-1 con el matcher REAL sobre catálogo en memoria; C-1 = `matchCover` lanza ⇒ deck sin portada, reporte igual y `errors == ['cover TWM-25: …']`) |
 | P7, S1 | `backend/src/modules/decks-meta/decks-meta.service.spec.ts` (el mock de S1 honra el `include`) |
 | D1–D7 | `backend/src/modules/decks-meta/deck-image.spec.ts` (las 19 previas: sólo cambia la forma de la llamada) |
 | matchCover | `deck-matcher.service.spec.ts` (`4`↔`004`, minúsculas, `unmatched_set/number`, `ambiguous`) |
@@ -23875,4 +23882,8 @@ mueren; detalle en el informe del commit.
 - Qué carta de NUESTRO catálogo es `TWM-25`: no hay BD con catálogo en este entorno (la BD de pruebas es propia y
   vacía). Se mide en staging/prod con el ensayo: la columna «Portada» dirá `casada` y la miniatura.
 - Cuántas portadas de la home real casan hoy contra el catálogo de prod (depende de `ptcgoCode` de `MEG`/`JTG`/`PBL`).
+
+## Deuda anotada
+- **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
+  `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
 

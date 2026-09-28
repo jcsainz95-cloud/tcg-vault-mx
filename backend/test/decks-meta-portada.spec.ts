@@ -3,14 +3,14 @@ import { join } from 'path';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { DeckMatcherService } from '../src/modules/decks-meta/deck-matcher.service';
+import { CoverMatchStatus, DeckMatcherService } from '../src/modules/decks-meta/deck-matcher.service';
 import { LimitlessFetchClient } from '../src/modules/decks-meta/limitless-fetch.client';
 import { DecksMetaRefreshService } from '../src/modules/decks-meta/decks-meta-refresh.service';
 import { parseDeckListHtml, parseHomeIndex } from '../src/modules/decks-meta/limitless-html.parser';
 import { DIAL_AUTOFETCH, DIAL_AUTOPUBLISH } from '../src/modules/decks-meta/limitless.config';
 
 /**
- * rev `decks-portada` (API_CONTRACT §13 «Portada del deck», ARCHITECTURE §12.4) — P1–P6.
+ * rev `decks-portada` (API_CONTRACT §13 «Portada del deck», ARCHITECTURE §12.4) — P1–P6, C-1 (fila 4b) y TD-c.
  *
  * La portada que Limitless pinta en la home (`a.leader-image > img[alt="SET-NÚM"]`) se extrae (parser),
  * se casa con el MISMO motor que las 60 (matcher real, Prisma en memoria) y se guarda en la
@@ -62,6 +62,8 @@ describe('P2 · `alt` inválido ⇒ cover:null y el RESTO del bloque intacto', (
     ['30 chars (número largo)', ` alt="TWM-${'1'.repeat(26)}"`],
     ['30 chars (set largo)', ` alt="${'A'.repeat(28)}-1"`],
     ['espacio interno', ' alt="TW M-1"'],
+    ['set terminado en guion', ' alt="TWM--25"'],
+    ['set de solo guion final (SV-)', ' alt="SV--P"'],
   ])('alt %s ⇒ cover:null', (_label, attrs) => {
     expect(parseHomeIndex(block(attrs)).leaders[0]).toEqual({ ...rest, cover: null });
   });
@@ -200,6 +202,24 @@ describe('P3 · portada casada con número con CEROS en BD (TWM-25 ↔ «025"), 
   });
 });
 
+describe('TD-c · la portada NUNCA es `unmatched_basic_energy` (tipo + guarda en ejecución)', () => {
+  it('si el motor devolviera `unmatched_basic_energy`, matchCover LANZA (el refresh lo trata como fallo de portada)', async () => {
+    const { prisma } = fakePrisma('on');
+    const matcher = new DeckMatcherService(prisma);
+    jest.spyOn(matcher, 'matchLines').mockResolvedValue([
+      { quantity: 1, rawName: 'x', rawSetCode: 'TWM', rawNumber: '25', group: 'pokemon', matchStatus: 'unmatched_basic_energy', matchedCard: null } as any,
+    ]);
+    await expect(matcher.matchCover({ setCode: 'TWM', number: '25' })).rejects.toThrow(/energía básica/);
+  });
+
+  it('tipo: `CoverMatchStatus` excluye `unmatched_basic_energy`', () => {
+    // @ts-expect-error — si el tipo volviera a ser `MetaMatchStatus`, esta línea compilaría y tsc fallaría.
+    const bad: CoverMatchStatus = 'unmatched_basic_energy';
+    const ok: CoverMatchStatus = 'unmatched_number';
+    expect([bad, ok]).toHaveLength(2);
+  });
+});
+
 describe('P4 · portada NO casada: se guarda el crudo + estado, y NO cambia el veredicto ni lo persistido', () => {
   it('MEG-56 (set ausente) ⇒ unmatched_set; SCR-58 (número inexistente) ⇒ unmatched_number; coverCardId null', async () => {
     const { writes } = await live();
@@ -277,5 +297,37 @@ describe('P6 · ensayo (dry-run): decks[].cover con imagen de NUESTRO catálogo 
     const r = await svc.run({ dryRun: true });
     if (r.skipped) throw new Error('no debía saltarse');
     expect(r.report.decks.every((d) => d.error && d.cover === null)).toBe(true);
+  });
+});
+
+describe('C-1 · `matchCover` FALLA: el deck sigue SIN portada, no pasa a `error` y el fallo llega a `errors[]`', () => {
+  it('TWM-25 lanza ⇒ deck 2 sin portada (4 columnas null), verdict/persistedCount/canary iguales y `cover TWM-25: …` en errors', async () => {
+    const base = await live();
+    const h = build('on');
+    const real = h.matcher.matchCover.bind(h.matcher);
+    jest.spyOn(h.matcher, 'matchCover').mockImplementation(async (c) => {
+      if (c.setCode === 'TWM' && c.number === '25') throw new Error('db caída');
+      return real(c);
+    });
+    const r = await h.svc.run({});
+    if (r.skipped) throw new Error('no debía saltarse');
+    const rep = r.report;
+    // No convierte el deck en `error`: se persiste igual, sin portada.
+    expect(rep.decks[1].error).toBeUndefined();
+    expect(rep.decks[1].cover).toBeNull();
+    expect(coverCols(h.writes.listCreate[1])).toEqual({ coverSetCode: null, coverNumber: null, coverMatchStatus: null, coverCardId: null });
+    // El resto de portadas intactas.
+    expect(coverCols(h.writes.listCreate[0])).toEqual(coverCols(base.writes.listCreate[0]));
+    // Ni veredicto, ni canario, ni lo persistido cambian.
+    expect(rep.verdict).toBe(base.report.verdict);
+    expect(rep.canary).toEqual(base.report.canary);
+    expect(rep.persistedCount).toBe(base.report.persistedCount);
+    expect(rep.publishedSlugs).toEqual(base.report.publishedSlugs);
+    // Y el fallo es visible en el reporte (y en el `note` del MetaFetchRun), con prefijo propio.
+    expect(base.report.errors).toEqual([]);
+    expect(rep.errors).toHaveLength(1);
+    // Forma EXACTA del contrato (§13 Admin fila 4b): `cover <SET>-<NÚM>: <msg>`.
+    expect(rep.errors).toEqual(['cover TWM-25: db caída']);
+    expect(h.writes.fetchRun[0].note).toContain('cover TWM-25');
   });
 });

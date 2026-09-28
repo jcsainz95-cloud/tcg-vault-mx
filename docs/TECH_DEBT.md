@@ -7654,3 +7654,24 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Comprobación de cierre:** el arquitecto decide por escrito (contrato/§ de valuación) si `displayPrice`
   se materializa; si se aprueba, existe la columna, su recomputo ante cambio de referencia/FX y un canario
   que fija que el valor materializado coincide con el calculado en vivo.
+
+## Backend · 2026-09-28 · Portada del deck (M-60, rev `decks-portada`)
+
+### DP-D1 · Las invariantes de la portada (`MetaDeckList.cover*`) no tienen `CHECK` en BD (backend · Catálogo y precios, 2026-09-28) — TD-b del techlead
+- **Dueño:** backend (si se paga, la migración pasa antes por el **arquitecto**: es schema, regla 9).
+  **Severidad:** Baja. **No bloqueante.**
+- **Qué es:** las 4 columnas nullable de M-60 (`coverSetCode`, `coverNumber`, `coverMatchStatus`, `coverCardId`)
+  tienen dos invariantes que **sólo garantiza el código** de `DecksMetaRefreshService.persistDeck`:
+  (1) **todo-null o todo-crudo**: `coverSetCode`, `coverNumber` y `coverMatchStatus` son las tres null o las tres
+  no-null; (2) `coverCardId` no-null **sólo** si `coverMatchStatus = 'matched'`, y nunca `unmatched_basic_energy`.
+  La migración (`20260928120000_m60_meta_deck_list_cover`) no añade `CHECK`. Excepción conocida y correcta: el
+  `ON DELETE SET NULL` de la FK puede dejar `matched` con `coverCardId` null si se borra la carta — un `CHECK`
+  ingenuo de (2) en sentido inverso lo rompería.
+- **Por qué no se paga hoy:** hay **un solo escritor** (el job de refresh; `adminCreateOrCurate` no escribe
+  portada), cubierto por P3–P6 y C-1 en `backend/test/decks-meta-portada.spec.ts` y el tipo `CoverMatchStatus`.
+- **Disparador:** aparece un **segundo escritor** de `cover*` (curaduría manual de portada, backfill, script SQL).
+- **Dirección:** migración con `CHECK ((coverSetCode IS NULL) = (coverNumber IS NULL) AND (coverNumber IS NULL) =
+  (coverMatchStatus IS NULL))`, `CHECK (coverCardId IS NULL OR coverMatchStatus = 'matched')` y
+  `CHECK (coverMatchStatus IS DISTINCT FROM 'unmatched_basic_energy')`, con prueba de migración que lo fije.
+- **Comprobación de cierre:** existe la migración con los `CHECK` aprobada por el arquitecto; un `INSERT` que viole
+  cada invariante falla con `23514` en la integración.

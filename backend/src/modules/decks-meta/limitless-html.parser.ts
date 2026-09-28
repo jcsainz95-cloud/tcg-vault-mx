@@ -58,9 +58,10 @@ const FORMAT_IN_H2 = /Top Decks\s*\(([A-Za-z-]+)\)/;
 const FORMAT_IN_HREF = /[?&]format=([A-Za-z-]+)/;
 /**
  * `alt` de la portada: `SET-NÚM`. El set se separa por el ÚLTIMO guion (el grupo 1 es codicioso y
- * admite guiones internos, «SV-P-12» ⇒ SV-P / 12). Cotas: set ≤ 10, número ≤ 8, total ≤ 20.
+ * admite guiones internos, «SV-P-12» ⇒ SV-P / 12). El set empieza Y termina en alfanumérico: «TWM--25»
+ * no se lee como set «TWM-» (QA 5). Cotas: set ≤ 10, número ≤ 8, total ≤ 20.
  */
-const COVER_ALT = /^([A-Za-z0-9][A-Za-z0-9-]{0,9})-([A-Za-z0-9]{1,8})$/;
+const COVER_ALT = /^([A-Za-z0-9](?:[A-Za-z0-9-]{0,8}[A-Za-z0-9])?)-([A-Za-z0-9]{1,8})$/;
 const COVER_ALT_MAX_LEN = 20;
 
 /** Portada desde el `alt` (ya recortado). Lo que no valide ⇒ `null` (no toca el resto del bloque). */

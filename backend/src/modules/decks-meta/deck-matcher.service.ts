@@ -55,10 +55,13 @@ function normalizeNumber(n: string): string {
   return t.toUpperCase();
 }
 
+/** Estados posibles de la portada: todos los de `MetaMatchStatus` salvo `unmatched_basic_energy` (TD-c). */
+export type CoverMatchStatus = Exclude<MetaMatchStatus, 'unmatched_basic_energy'>;
+
 /** Resultado del casado de la PORTADA del deck (rev `decks-portada`, ARCHITECTURE §12.4.2). */
 export interface CoverMatch {
-  /** Nunca `unmatched_basic_energy`: la línea sintética siempre lleva set+número. */
-  matchStatus: MetaMatchStatus;
+  /** Nunca `unmatched_basic_energy`: la línea sintética siempre lleva set+número (y el tipo lo fija). */
+  matchStatus: CoverMatchStatus;
   /** Sólo si `matchStatus === 'matched'`; `null` en `ambiguous`/`unmatched_*` (no se auto-resuelve). */
   card: (Card & { set: CardSet }) | null;
 }
@@ -78,6 +81,11 @@ export class DeckMatcherService {
     const [m] = await this.matchLines([
       { quantity: 1, name: `${cover.setCode}-${cover.number}`, setCode: cover.setCode, number: cover.number, group: 'pokemon', isBasicEnergy: false },
     ]);
+    // Inalcanzable por construcción (`isBasicEnergy:false`); si alguien lo rompe, lanza y el refresh
+    // lo trata como fallo de portada (deck sin portada + `errors[]`), nunca guarda un estado imposible.
+    if (m.matchStatus === MetaMatchStatus.unmatched_basic_energy) {
+      throw new Error('invariante rota: la portada no puede ser energía básica');
+    }
     return {
       matchStatus: m.matchStatus,
       card: m.matchStatus === MetaMatchStatus.matched ? m.matchedCard : null,

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MetaDeckSource, MetaMatchStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CoverMatch, DeckMatcherService, MatchedLine } from './deck-matcher.service';
+import { CoverMatch, CoverMatchStatus, DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import { imageOf } from './deck-image';
 import { LimitlessFetchClient } from './limitless-fetch.client';
 import { parseHomeIndex, parseDeckListHtml, HomeLeader } from './limitless-html.parser';
@@ -138,7 +138,7 @@ export class DecksMetaRefreshService {
         const matched = await this.matcher.matchLines(lines);
         // Portada (§12.4.2): casada APARTE con el mismo motor; NUNCA se mezcla con `matched` (las 60),
         // así que no cuenta en sumQuantity/matched/total, canario, MetaDeckCard ni no-mapeadas.
-        const cover = await this.matchDeckCover(c);
+        const cover = await this.matchDeckCover(c, errors);
         const summary = summarize(c, matched);
         const report = toDeckReport(c, matched, thresholds.cardsMin, thresholds.cardsMax, cover);
         parsedDecks.push({ leader: c, matched, summary, cover });
@@ -223,15 +223,20 @@ export class DecksMetaRefreshService {
   /**
    * Casa la portada del arquetipo (si la home la trajo). La portada es PROCEDENCIA, nunca bloquea: un
    * fallo al casarla (p. ej. error de BD en la lectura) se registra y el deck sigue SIN portada (las 4
-   * columnas null, invariante todo-null) — no convierte el deck en `error` ni toca el canario.
+   * columnas null, invariante todo-null) — no convierte el deck en `error` ni toca el canario, pero
+   * el fallo SÍ se añade a `errors` (visible en el reporte y en el `note` del `MetaFetchRun`).
    */
-  private async matchDeckCover(leader: HomeLeader): Promise<DeckCover | null> {
+  private async matchDeckCover(leader: HomeLeader, errors: string[]): Promise<DeckCover | null> {
     if (!leader.cover) return null;
     try {
       const m = await this.matcher.matchCover(leader.cover);
       return { setCode: leader.cover.setCode, number: leader.cover.number, matchStatus: m.matchStatus, card: m.card };
     } catch (e) {
-      this.logger.warn(`portada ${leader.cover.setCode}-${leader.cover.number} (${leader.name ?? leader.archetypeId}): no se pudo casar (${(e as Error).message}); el deck sigue sin portada.`);
+      const msg = (e as Error).message;
+      // Forma EXACTA del contrato (API_CONTRACT §13 Admin fila 4b): `cover <SET>-<NÚM>: <msg>`. Es el
+      // único sitio donde queda el crudo: el reporte da `cover:null` y en vivo las 4 columnas van null.
+      errors.push(`cover ${leader.cover.setCode}-${leader.cover.number}: ${msg}`);
+      this.logger.warn(`portada ${leader.cover.setCode}-${leader.cover.number} (${leader.name ?? leader.archetypeId}): no se pudo casar (${msg}); el deck sigue sin portada.`);
       return null;
     }
   }
@@ -428,7 +433,7 @@ interface DeckCover {
 export interface DeckCoverReport {
   setCode: string;
   number: string;
-  matchStatus: MetaMatchStatus;
+  matchStatus: CoverMatchStatus;
   cardId: string | null;
   imageUrl: string | null;
 }
