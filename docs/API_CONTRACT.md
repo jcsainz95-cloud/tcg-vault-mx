@@ -22026,6 +22026,7 @@ su bóveda?* **Es política de negocio sobre dinero en disputa, y la contesta el
 > | **2** | **Regla por nombre: la posición en el nombre manda sobre «ser ex»** («Alakazam Mew» ⇒ Alakazam aunque Mew sea ex). Antes toda ex nombrada ganaba a toda no-ex nombrada | mismo | **Sí, backend** |
 > | **3** | **DDL aditivo: 4 columnas nullable en `MetaDeckList`** (`coverSetCode`, `coverNumber`, `coverMatchStatus`, `coverCardId` + relación a `Card`). Sin backfill | `ARCHITECTURE.md §12.4.3` | **Sí, backend** (migración aditiva) |
 > | **4** | **El ensayo `GET /admin/decks-meta/preview` gana `decks[].cover`** (aditivo) para que el operador vea la portada y si casó ANTES de publicar | [§13 Admin](#admin-rol-vault_operator) | **Sí, backend**; luego frontend (M12, una columna) |
+> | **4b** | *(C-1b del techlead, 2026-09-28.)* **Si `matchCover` LANZA ⇒ `cover: null` + entrada `cover <SET>-<NÚM>: <msg>` en `errors[]`**; deck y canario intactos; en vivo, columnas `cover*` a `null`. **Sin** valor nuevo en `MetaMatchStatus`, **sin** `matchStatus` nullable. Aclara, no cambia forma | [§13 Admin](#admin-rol-vault_operator), `ARCHITECTURE.md §12.4.2` | backend: lo que ya implementa · frontend **cero** |
 >
 > **Lo que NO cambia:** **(a)** ⛔ la forma de `GET /decks-meta`, `GET /decks-meta/:slug` y `POST /decks-meta/paste`;
 > **(b)** ⛔ el canario (C1–C5): la portada **nunca** bloquea ni cuenta para publicar; **(c)** ⛔ **nunca arte
@@ -22162,7 +22163,7 @@ Res `200`: `{ "inventoryItemIds": ["…", "…"] }`. El front las agrega con `us
 - **`GET /api/v1/admin/decks-meta/preview` — `decks[].cover` (rev `decks-portada`, ADITIVO).** Cada `DeckReport` del
   ensayo gana:
   ```jsonc
-  "cover": {                       // null ⇔ la home no trajo portada válida para ese arquetipo, o la lista falló (`error`)
+  "cover": {                       // null ⇔ la home no trajo portada válida, la lista falló (`error`), o el casado LANZÓ (`errors[]`)
     "setCode": "TWM",              // crudo del alt de Limitless («TWM-130»), ya validado
     "number": "130",               // crudo, SIN normalizar (el casado normaliza: «25» ↔ «025»)
     "matchStatus": "matched",      // matched | ambiguous | unmatched_set | unmatched_number
@@ -22170,6 +22171,13 @@ Res `200`: `{ "inventoryItemIds": ["…", "…"] }`. El front las agrega con `us
     "imageUrl": "https://…"        // imagen de NUESTRO catálogo de esa carta; null si no casó o no tiene imagen
   }
   ```
+  **Si el casado de la portada LANZA** (error de BD u otro fallo de `matchCover`; C-1b, 2026-09-28): `cover: null`
+  y el fallo va a `errors[]` del reporte con la forma `cover <SET>-<NÚM>: <mensaje>` (el crudo vive ahí, no en
+  `cover`). El deck **sigue** en el reporte y en el canario exactamente igual que sin portada; en modo vivo se
+  persiste con las 4 columnas `cover*` en `null` (se reintenta sola en la siguiente corrida viva). ⛔ **No** hay
+  valor nuevo en `MetaMatchStatus` ni `matchStatus: null` dentro de `cover`: un fallo nuestro no es un estado del
+  casado. Así `cover: null` significa «sin portada utilizable»; el *por qué* (home sin `alt` válido / lista
+  fallida / casado que lanzó) se lee en `error` del deck o en `errors[]`.
   Es solo lectura/procedencia: **no** altera `verdict`, `checks`, `inBand` ni ningún conteo. El frontend lo pinta
   como una columna «Portada» (miniatura + `SET-NÚM` + estado). Tipo cliente: `cover?: … | null` (tolerante a un
   backend anterior). La misma información se escribe en la `MetaDeckList` al persistir (modo vivo).

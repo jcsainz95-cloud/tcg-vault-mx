@@ -29247,6 +29247,10 @@ Qué carta de nuestro catálogo es `TWM-25`: **NO MEDIDO** (no hay BD aquí); la
 - ⛔ La línea sintética **nunca** entra al arreglo `lines` del deck: no cuenta en `sumQuantity`, `matched`,
   `total`, canario, `MetaDeckCard`, carrito ni reporte de no-mapeadas.
 - `ambiguous` / `unmatched_set` / `unmatched_number` ⇒ `card:null` (igual que una línea: no se auto-resuelve).
+- **Si `matchCover` LANZA** (C-1b, 2026-09-28): la portada nunca bloquea ⇒ se trata como **sin portada**
+  (`cover:null` en el ensayo, 4 columnas `cover*` a null al persistir; respeta el invariante todo-null) y el fallo
+  va a `errors[]` como `cover <SET>-<NÚM>: <msg>`. No se inventa un `MetaMatchStatus` para un fallo nuestro:
+  `MetaMatchStatus` describe el casado, no la infraestructura. Se cura sola en la siguiente corrida viva.
 - Coste: +2 queries por deck (sets + cartas del set), top-N ≈ 10 ⇒ despreciable; el job es semanal.
 - Se casa **en el job** (como `MetaDeckCard.matchedCardId`), **no** en lectura: la lectura pública no hace
   búsquedas por set-número. Consecuencia aceptada: si la carta entra al catálogo después, la portada se cura en
