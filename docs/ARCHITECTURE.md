@@ -4,6 +4,18 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.1 — DINERO: LA CAJA DEL CLIENTE YA NO SE VALÚA CON LA LLAVE DE COLA** (2026-09-28, arquitecto. Base:
+> **v1.80, vigente entera salvo lo que esta rev toca**. Origen: `BACKEND_NOTES` «P-83 › Discrepancia con el contrato»,
+> sonda HTTP de backend, **N=1**. `API_CONTRACT` sube a **v1.80.1**; norma y candados en `§M2-SK` **SK-5** (VK-1…VK-7).
+> ⛔ **Sin schema, sin migración, sin endpoint, sin campo, sin código de error nuevo.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | Errata de v1.70: `inventoryValue` **no** era la única lectura que caía a `'sealed'`; había cinco más, una de ellas el patrimonio que ve el cliente | §4.50.1-bis, §4.50.6 (D-SK-3) | No (documental) |
+> | **2** | ⭐⭐ Una función de valuación por pieza (`valuationKeyFor` + `valuationCentsOf`) para los **seis** lectores de patrimonio; sellado sin mapeo ⇒ «Precio pendiente»; mapeado ⇒ su `sealed:tcg:<id>` con el gate de dial de `/vault/sealed` | §4.50.1-bis | **Sí, backend** (frontend nada) |
+> | **3** | Dos preguntas **no bloqueantes** al dueño, en llano, con valor por defecto ya aplicado | §4.50.1-bis | No |
+>
+> ---
 > **Rev v1.80 — DINERO: `SEC-SETTLE-LATE` SE CIERRA Y EL BOUNTY SE TOPA AL MERCADO** (2026-09-28, arquitecto. Base:
 > **v1.79.5, vigente entera salvo lo que esta rev toca**. Origen: `SEC-SETTLE-LATE` (seguridad, medido en local, N=1) y
 > la decisión del dueño del 2026-09-28 sobre bounties (`HECHOS.md`, última fila). `API_CONTRACT` sube a **v1.80**; norma y
@@ -24077,7 +24089,8 @@ para lo primero y no puede servir para lo segundo. Las cuatro normas (SK-1…SK-
 2. **Ningún lector de dinero cae a `'sealed'`.** Es `§4.40.4(b)` aplicado sin excepción: `null` ⇒ **no hay
    referencia** ⇒ `PRICE_PENDING` / «—», jamás un default. El `gk ? … : undefined` de backend **se ratifica**: no
    era una omisión, era lo correcto, y ahora tiene una razón escrita en vez de una ausencia.
-3. ⭐ **La única excepción viva SE RETIRA, y es el cambio que hay que desplegar.** `admin.inventoryValue()`
+3. ⭐ **La única excepción viva SE RETIRA, y es el cambio que hay que desplegar.** *(⚠️ Errata v1.80.1: no era la
+   única — ver §4.50.1-bis.)* `admin.inventoryValue()`
    (`admin.service.ts:1188`, `:1233`) hoy **sí** cae a `'sealed'` ⇒ **un ETB puede estar sumando el precio de un
    blíster en el total de valuación del dueño**. Backend lo citó como «precedente del fallback, pero solo en lectura
    agregada»; **lo retiro, y por su propio vecino**: dos líneas más abajo, la graduada sin identidad de slab **no
@@ -24097,6 +24110,61 @@ para lo primero y no puede servir para lo segundo. Las cuatro normas (SK-1…SK-
 consultas —**solo `SELECT`**— ya están escritas en `docs/BACKEND_NOTES.md` P-79(d). **Cierra:** correrlas contra la
 BD de producción y anotar el número con fecha. **No bloquea esta decisión**, y ésa es una propiedad buscada: las dos
 salidas que M2 ofrecerá (mapear, o fijar el precio de la pieza) son money-safe **con censo o sin él**.
+
+#### 4.50.1-bis (v1.80.1) — el punto 3 estaba mal contado: seis lectores, una función
+
+**La errata, dicha sin adorno.** El punto 3 afirmó que `inventoryValue` era «la única excepción viva». No lo medí:
+lo deduje de los sitios que ya tenían rama de sellado. Backend lo refutó con datos (`BACKEND_NOTES` P-83,
+«Discrepancia»; sonda HTTP, **N=1**): `tryBuildGradeKey` devuelve `'sealed'` para **todo** sellado, así que cualquier
+lector que la llame sin rama propia cae a la llave de cola. Cinco lo hacen, y **uno es el patrimonio del cliente**
+(«Mi bóveda»). Medidos por HTTP: holdings, holdingDetail, custody-value. **NO MEDIDO** por HTTP (lectura de código):
+`/admin/vaults` y la ficha 360°. Gana el dato (O-2).
+
+**Por qué NO se cambia `tryBuildGradeKey('sealed') ⇒ null`** (la opción corta que backend planteó): esa función es
+también la que produce la llave de **cola** —justo el uso legítimo de `'sealed'` que SK-2 preserva— y tiene ~15
+llamadores que no he medido uno a uno. Cambiarla arregla seis lectores a cambio de un riesgo sin censo en la cola y
+en la publicación. *Se arregla donde está el defecto, no donde es más corto escribirlo.*
+
+**La decisión: una sola puerta para valuar patrimonio.** `PricingService.valuationKeyFor` (qué fila buscar) y
+`PricingService.valuationCentsOf` (cuánto cuenta esa fila). Firmas y tabla de lectores en `API_CONTRACT §M2-SK SK-5`.
+Tres razones de diseño:
+
+1. **La regla estaba escrita cinco veces y acertada cuatro.** `/vault/sealed`, catálogo, grid, bulk-publish y
+   `inventoryValue` hacen a mano `productType==='sealed' ? sealedMarketGradeKeyForItem : tryGradeKeyFor`; los seis
+   lectores defectuosos simplemente no lo copiaron. Una función quita la posibilidad de olvidarse, y el censo VK-6
+   quita la de esquivarla.
+2. **El gate de dial va DENTRO**, porque el cliente ve la misma caja en dos pestañas y `/vault/sealed` ya gatea
+   (H-1). Sin él, con el dial apagado, «Mis piezas» y «Sellado» dirían dos cosas de la misma caja. *Dos verdades del
+   mismo dinero son peores que una mala* (§4.38l.4.4A). Efecto colateral declarado: `inventoryValue` también gana el
+   gate. **NO MEDIDO:** el valor de `sealed_price_source` en producción; encendido ⇒ el gate no mueve ningún número hoy.
+3. **Raw y graduada no cambian ni un centavo.** La rama no-sellada de `valuationCentsOf` es la condición de hoy
+   (`priced ∧ != null`), no la de `gateSealedMarketCents` (`<= 0 ⇒ null`). Unificarlas sería otro cambio de dinero
+   y no se mete de contrabando en éste.
+
+**Efecto en las cifras (dirección medida por backend; magnitud NO MEDIDA en producción):**
+- **Cliente, caja sin ligar:** si existe fila legada `'sealed'` en su `Card`, hoy ve **un número que puede ser el de
+  otra caja**; pasa a «Precio pendiente» y sale de su total. Si no existe, ya veía «Precio pendiente»: nada cambia.
+- **Cliente, caja ligada:** hoy se busca bajo `'sealed'` ⇒ normalmente «Precio pendiente» aunque la pestaña
+  «Sellado» le muestre precio; pasa a **su** mercado ⇒ su total **puede subir**, y cuadra con «Sellado».
+- **Dueño, valor de custodia:** baja por lo primero, puede subir por lo segundo. `custody-value` no trae contador de
+  pendientes: las piezas excluidas **no se ven** en esa cifra. No lo añado en esta rev (sería campo nuevo); queda
+  anotado abajo.
+- **Medición que da la magnitud** (solo `SELECT`, producción): contar `"InventoryItem"` con `"ownerType"='customer'`
+  ∧ `"productType"='sealed'`, separado por `"tcgplayerProductId" IS NULL` / `IS NOT NULL`; y cuántas `Card` de las
+  primeras tienen `PriceReference` con `"gradeKey"='sealed'`. Dueño: devops, o el dueño donde vive la credencial.
+
+**Para el dueño, en llano (no bloquean; el valor por defecto ya está aplicado):**
+
+1. *«Algunas cajas selladas de clientes que no están ligadas a su presentación exacta van a dejar de mostrar un
+   valor en "Mi bóveda" y van a decir "Precio pendiente — Lo fijaremos pronto". Hoy muestran un número, pero ese
+   número puede ser el precio de otra caja distinta anclada a la misma carta. El total de bóveda de esos clientes
+   bajará.»* **Por defecto:** se aplica — es la regla de SK-2 que ya aprobaste («ningún precio sale de la llave
+   genérica»), cumplida donde el código no la cumplía. **Lo que sí te pregunto:** la frase «Lo fijaremos pronto» es
+   una promesa. Para esas cajas solo se cumple si alguien del equipo las liga a su presentación. ¿La dejamos, o
+   prefieres que ux-ui escriba otra para este caso? (Cambiarla es copy de ux-ui/frontend, no de esta rev.)
+   **NO MEDIDO:** que el endpoint de mapeo de M2 acepte piezas de cliente (y no solo de inventario propio).
+2. *«La cifra de "valor en custodia" que ves en finanzas no dice cuántas piezas quedaron fuera por no tener precio.»*
+   ¿Quieres ese contador? **Por defecto:** no se añade ahora; es un campo nuevo y se diseña aparte si lo pides.
 
 #### 4.50.2 `P-80` — Stripe dentro de la transacción: la pregunta del fondo ya tenía respuesta en el código publicado
 
@@ -24244,6 +24312,7 @@ los dos carriles y que el salto sea **visible en el resumen**. Tabla normativa e
 |---|---|---|---|
 | **backend** (`users`/`admin`) | **C10 entero**: guard de tope por `actorUserId` (reusando el mecanismo de `C7`), cabeceras `no-store` + `X-Robots-Tag`, y **un solo** TTL efectivo usado en firma + cuerpo + bitácora (+ `ttlClamped`/`ttlRequested`). Los **tres candados** de la sección | `§M6-K.2.0/.2.1/.2.3/.2.5` | No (§M6-K aún no existe en código) |
 | **backend** (`admin`) | **SK-2**: retirar el fallback a `'sealed'` de `admin.inventoryValue()` (`admin.service.ts:1188,1233`). Test: sellado **no mapeado** ⇒ suma a `pendingPriceCount`, **nunca** a `atReferenceCents` | `§M2-SK` | **Sí** |
+| **backend** (`pricing`, `vault`, `admin`) — **v1.80.1** | **SK-5**: `valuationKeyFor` + `valuationCentsOf` en `PricingService`; los seis lectores (holdings, holdingDetail, custodyValue, `/admin/vaults`, `ownedItemRefs`, `inventoryValue`) pasan por ellas; candados **VK-1…VK-7** con mutación por lector | `§M2-SK SK-5` | **Sí** |
 | **backend** (`pricing`) | **SK-3**: `POST /admin/pricing/override` con `productType:'sealed'` ∧ `gradeKey:'sealed'` ⇒ **`422 SEALED_MARKET_KEY_REQUIRED`** | `§M2-SK`, §0 Errores | **Sí** |
 | **backend** (`orders`) | **R-10**: el reuso relee el estado del PI; `canceled` ⇒ **sustitución**, nunca `200 reused` con el `clientSecret` viejo | `§4-R.9` | **Sí** |
 | **backend** (`buylist`) | **Nada.** §M5-S ya se comporta como el contrato dice ahora. *(Si algo hubiera que hacer, sería no tocarlo.)* | `§M5-S` | No |
@@ -24257,6 +24326,7 @@ los dos carriles y que el salto sea **visible en el resumen**. Tabla normativa e
 | # | Desviación | Dónde | Dueño | Estado |
 |---|---|---|---|---|
 | **D-SK-1** | `admin.inventoryValue()` valúa el sellado **no mapeado** cayendo a la llave `'sealed'`, que **no identifica producto** ⇒ el total puede sumar el precio de otra presentación. Contradice a su propio vecino (`:1190-1192`), que para la graduada sin identidad cae a `pendingPriceCount` | `admin.service.ts:1188`, `:1233` | **backend** | **Abierta.** Cierra con SK-2 |
+| **D-SK-3** (v1.80.1) | Cinco lectores de patrimonio valúan el sellado con `tryGradeKeyFor` ⇒ llave `'sealed'`: sin mapeo suman el precio de una fila que no identifica producto; mapeados no encuentran su `sealed:tcg:<id>`. Incluye «Mi bóveda» del cliente. Medido por HTTP (backend, N=1) en los tres primeros | `vault.service.ts:187,493`; `admin.service.ts:1691,1029`; `admin-vaults.service.ts:128,142` | **backend** | **Abierta.** Cierra con SK-5 |
 | **D-SK-2** | `POST /admin/pricing/override` acepta escribir dinero bajo `'sealed'` para una pieza sin mapeo: la fila **no la lee nadie** y **no identifica al producto** | `pricing.controller.ts` (ruta de override) | **backend** | **Abierta.** Cierra con SK-3 |
 | **D-PI-1** | El reuso devuelve el `clientSecret` de un PI **cancelado** sin mirar su estado ⇒ callejón sin salida para el cliente | `orders.service.ts:933-935` | **backend** | **Abierta.** Cierra con R-10 |
 | **D-M5S-1** | §M5-S del contrato normaba **dos** ramas y el código tiene **tres** (preexistente desde v1.68) | `buylist.service.ts` (`throwStepRejected`) | **arquitecto** | ✅ **Cerrada en v1.70**: el contrato se alinea con el código (§4.50.3) |

@@ -2,7 +2,34 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.80**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.80.1**).
+>
+> **Changelog v1.80.1 — DINERO: `§M2-SK` SK-2 ESTABA MAL CONTADO — HAY CINCO LECTORES MÁS QUE CAEN A `'sealed'`, Y UNO
+> DE ELLOS ES EL PATRIMONIO DEL CLIENTE (2026-09-28, arquitecto; base v1.80, vigente entera salvo lo que esta rev
+> toca). Origen: `BACKEND_NOTES` «P-83», sección «Discrepancia con el contrato» — sonda HTTP de backend sobre Postgres
+> propio, **N=1, autor: backend, 2026-09-28**. ⛔ **Sin schema, sin migración, sin endpoint nuevo, sin campo nuevo, sin
+> código de error nuevo.** Cambia qué NÚMERO sale en cinco lecturas existentes.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Errata de v1.70:** SK-2 decía que `admin.inventoryValue()` era «la ÚNICA excepción viva». **Falso.** `tryBuildGradeKey` devuelve `'sealed'` para todo sellado, y cinco lectores lo usan sin tratar el sellado aparte: `GET /vault/holdings`, `GET /vault/holdings/:id`, `GET /admin/finance/custody-value` (medidos por HTTP, backend, N=1), `GET /admin/vaults` y la pestaña «Bóveda» de la ficha 360° (**NO MEDIDO** por HTTP; por lectura de código) | [`§M2-SK`](#M2-SK) SK-2 | con la 2 |
+> | **2** | ⭐⭐ **SK-5 (nueva): UNA función de valuación por pieza** (`valuationKeyFor` + `valuationCentsOf`, en `PricingService`) y los **seis** lectores la usan. Sellado **mapeado** ⇒ `sealed:tcg:<id>` con acabado `normal` y el gate de dial de `/vault/sealed`; sellado **sin mapeo** ⇒ **sin referencia** ⇒ `pending`, fuera del total y contado | [`§M2-SK` SK-5](#M2-SK-5) | **Sí, backend** |
+> | **3** | Candados **VK-1…VK-7** (con mutaciones) | [`§M2-SK` SK-5](#M2-SK-5) | con la 2 |
+>
+> **Qué cambia para quién:**
+>
+> | Quién | Qué ve |
+> |---|---|
+> | **Cliente («Mi bóveda», `GET /vault/holdings[/:id]`)** | Caja **sin ligar a su presentación**: deja de mostrar una cifra que podía ser **el precio de otra caja** y muestra el estado que ya existe: pill «Precio pendiente» + «Lo fijaremos pronto» (`DESIGN_SYSTEM` §Pending); sale del total y suma a `pendingPriceCount`. Caja **ligada**: pasa a valuarse con **su** mercado — el mismo número que ya le enseña la pestaña «Sellado» (`/vault/sealed`). Hoy las dos pestañas pueden decir cosas distintas de la misma caja |
+> | **Dueño / operador** | Valor de custodia, lista de bóvedas y ficha 360° usan la misma regla ⇒ **las tres cuadran con lo que ve el cliente**. El valor de custodia **baja** en lo que hoy suman cajas sin ligar valuadas con la fila `'sealed'`, y **puede subir** en cajas ligadas que hoy no encontraban precio |
+> | **Backend** | Dos funciones + seis lectores + VK-1…VK-7. Nada más |
+> | **Frontend** | **Nada.** `referenceValue.status:'pending'` y `pendingPriceCount` ya se pintan en las cinco superficies |
+>
+> **Lo que NO cambia:** `tryBuildGradeKey`/`tryGradeKeyFor` (siguen devolviendo `'sealed'`: es la llave de **cola**,
+> SK-2); `/vault/sealed` y `/admin/vaults/:userId/sealed` (ya eran correctos); raw y graduada (misma clave, mismo
+> criterio `priced ∧ != null` que hoy); SK-1, SK-3, SK-4.
+>
+> ⚠️ *Numeración:* esta rev cuelga de la v1.80 de esta rama; si otra rama usó «v1.80.1», se renumera al fusionar.
 >
 > **Changelog v1.80 — DINERO, DOS DECISIONES: (A) `SEC-SETTLE-LATE` SE CIERRA — EL PAGO SOLO SE LIQUIDA DESDE `pending`
 > O `failed`; (B) TOPE DE BOUNTIES — SE PAGA EL MENOR ENTRE EL BOUNTY Y EL MERCADO (2026-09-28, arquitecto; base
@@ -11724,7 +11751,7 @@ del sellado, con su `fallback` duplicado en los cinco lectores.)*
 | # | Norma | Efecto |
 |---|---|---|
 | **SK-1** | ⛔ **`PriceReference` NO gana identidad de sellado.** **Cero migración, cero DDL, cero backfill** | Nada que desplegar por esta línea |
-| **SK-2** | ⛔ **Ninguna lectura de dinero cae a `'sealed'`.** Sin clave de mercado ⇒ **no hay referencia** ⇒ `PRICE_PENDING` / «—». Es la regla dura de `ARCHITECTURE §4.40.4(b)` aplicada al sellado, sin excepción | El `gk ? … : undefined` de `inventory.service.ts:1593` **se ratifica** (no era una omisión: era lo correcto) y sus cuatro gemelos (`catalog.service.ts:614`, `sealed-catalog.service.ts:128`, `vault.service.ts:372`, `admin.service.ts:944`) **también**. ⭐ **La ÚNICA excepción viva se RETIRA:** `admin.inventoryValue()` (`admin.service.ts:1188,1233`) hoy **sí** cae a `'sealed'` ⇒ **hay que desplegar su retirada** |
+| **SK-2** | ⛔ **Ninguna lectura de dinero cae a `'sealed'`.** Sin clave de mercado ⇒ **no hay referencia** ⇒ `PRICE_PENDING` / «—». Es la regla dura de `ARCHITECTURE §4.40.4(b)` aplicada al sellado, sin excepción | El `gk ? … : undefined` de `inventory.service.ts:1593` **se ratifica** (no era una omisión: era lo correcto) y sus cuatro gemelos (`catalog.service.ts:614`, `sealed-catalog.service.ts:128`, `vault.service.ts:372`, `admin.service.ts:944`) **también**. ⭐ **La ÚNICA excepción viva se RETIRA:** `admin.inventoryValue()` (`admin.service.ts:1188,1233`) hoy **sí** cae a `'sealed'` ⇒ **hay que desplegar su retirada**. ⚠️ **ERRATA v1.80.1:** «la ÚNICA» era **falso** — había **cinco** lectores más cayendo a `'sealed'` por `tryGradeKeyFor` (holdings, holdingDetail, custody-value, `/admin/vaults`, ficha 360°). La norma no cambia; su aplicación se completa en [**SK-5**](#M2-SK-5) |
 | **SK-3** | ⛔ **`POST /admin/pricing/override` con `productType:'sealed'` EXIGE clave de mercado.** `gradeKey: 'sealed'` ⇒ **[`422 SEALED_MARKET_KEY_REQUIRED`](#sealed-market-key-required)** | Un override que hoy «funciona» y no sirve pasa a ser un rechazo **que dice qué hacer**. **Hay que desplegarlo** |
 | **SK-4** | ✅ **La vía de precio del sellado NO mapeado es LA PIEZA:** `InventoryItem.listPriceCents` (precedencia **#1** de §K, `derivePublishSalePrice` la resuelve **antes** de tocar ninguna clave). Vive en la fila de la pieza ⇒ **no puede cruzarse con otra**, y ya es manual, auditada y money-safe | La salida existe desde siempre; lo que faltaba era **decir que es ésa** |
 
@@ -11757,6 +11784,94 @@ efecto declarado: piezas que hoy suman a `atReferenceCents` pasan a `pendingPric
 el mismo idioma que ya usa la graduada sin identidad dos líneas más abajo, `admin.service.ts:1190-1192`) y SK-3 (el
 `422`). **frontend** (`(admin)/admin/m2`) — las dos salidas de la tabla. **devops** — nada: cero migraciones, cero
 DDL, cero variables. Razón entera: `ARCHITECTURE §4.50.1`.
+
+<a id="M2-SK-5"></a>
+##### SK-5 — UNA función de valuación por pieza; los seis lectores la usan (v1.80.1 — NORMATIVA, **DINERO**)
+
+**El defecto, medido** (`BACKEND_NOTES` P-83, «Discrepancia»; sonda HTTP, Postgres propio, **N=1, backend,
+2026-09-28**): una caja de **cliente** sin mapeo + una `PriceReference(productType='sealed', gradeKey='sealed')` legada
+de MX$800 anclada a la misma `Card` ⇒ `GET /vault/holdings` y `GET /vault/holdings/:id` devuelven
+`referenceValue {status:'priced', referenceMxnCents: 80000}` y `GET /admin/finance/custody-value` pasa de `105000` a
+`185000`. Causa `[código]`: `tryBuildGradeKey` (`pricing.types.ts:715-716`) devuelve `'sealed'` para **todo** sellado,
+y estos lectores la usan sin rama de sellado: `vault.service.ts:187` (holdings), `:493` (holdingDetail),
+`admin.service.ts:1691` (custodyValue), `admin-vaults.service.ts:128,142` (lista de bóvedas) y `admin.service.ts:1029`
+(`ownedItemRefs`, ficha 360°). **NO MEDIDO por HTTP:** los dos últimos (solo lectura de código). Y el defecto
+simétrico: una caja **mapeada** se busca bajo `'sealed'` y **no** bajo su `sealed:tcg:<id>` ⇒ o sale `pending`
+teniendo mercado, o sale con el precio de la fila legada.
+
+**Decisión: no se toca `tryBuildGradeKey`.** Devolver `null` para sellado arreglaría estos cinco y **rompería los
+sitios que la usan como llave de COLA** (SK-2: `'sealed'` es clave de cola) — hay ~15 llamadores y no los medí todos.
+En su lugar, **una función de valuación** que es la única puerta de los lectores de patrimonio:
+
+```
+// PricingService (módulo pricing). Firmas normativas; el cuerpo es de backend.
+valuationKeyFor(item: LooseGradeKeyInput & { cardId: string; finish: Finish; tcgplayerProductId: number | null })
+  : { cardId: string; productType: ProductType; gradeKey: string; finish: Finish } | null
+  // sealed ∧ tcgplayerProductId != null ⇒ { cardId, 'sealed', sealedMarketGradeKey(id), 'normal' }
+  // sealed ∧ tcgplayerProductId == null ⇒ null            ⛔ jamás 'sealed'
+  // raw | graded                         ⇒ tryBuildGradeKey(item) ? { cardId, productType, gk, item.finish } : null
+
+valuationCentsOf(item: { productType: ProductType }, ref: PriceInfo | undefined, sourceOn: boolean): number | null
+  // sealed          ⇒ gateSealedMarketCents(ref, sourceOn)   (el MISMO gate que /vault/sealed: override manual
+  //                    sobrevive al dial; tcgcsv solo con el dial encendido; <= 0 ⇒ null)
+  // raw | graded    ⇒ ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null
+  //                    (idéntico a hoy — esta rev NO cambia raw ni graded)
+```
+
+`null` en cualquiera de las dos ⇒ **no hay referencia**: la pieza **no suma** al total y **suma** a `pendingPriceCount`
+donde el DTO lo tenga; su `referenceValue` es `{ status: 'pending' }`. ⛔ Ningún `??` rellena ese `null`.
+`sourceOn` sale de `loadSealedSpreads()` **una vez por petición**.
+
+**Los seis lectores y lo que devuelven para sellado:**
+
+| Lector | Endpoint | Sellado mapeado | Sellado sin mapeo |
+|---|---|---|---|
+| `vault.holdings` | `GET /vault/holdings` | `referenceValue` = ref de `sealed:tcg:<id>` si pasa el gate; si no, `pending` | `pending`, fuera de `totalValueMxnCents`, +1 `pendingPriceCount` |
+| `vault.holdingDetail` | `GET /vault/holdings/:id` | ídem | `referenceValue: {status:'pending'}` |
+| `admin.custodyValue` | `GET /admin/finance/custody-value` | suma si pasa el gate | **no suma** |
+| `adminVaults` (lista) | `GET /admin/vaults` | suma a `totalValueMxnCents` | +1 `pendingPriceCount` |
+| `admin.ownedItemRefs` | ficha 360°, pestaña «Bóveda» | `referenceValue` priced si pasa el gate | `pending` |
+| `admin.inventoryValue` | `GET /admin/finance/inventory-value` (SK-2) | **ya** usa `sealed:tcg:<id>`; ⭐ **gana el gate de dial** | ya va a `pendingPriceCount` (SK-2) |
+
+*`/vault/sealed` y `/admin/vaults/:userId/sealed` ya cumplen esta regla (`vault.service.ts:394-439`); migrarlas a la
+función es **opcional**, y deseable: una regla, un sitio.* Los lectores que hoy no seleccionan `tcgplayerProductId`
+(`admin-vaults.service.ts` `select`, el tipo de `ownedItemRefs`) lo añaden; ⛔ ningún campo nuevo en ningún DTO.
+
+**Por qué el gate de dial entra también (y no solo la llave):** la misma caja se enseña al cliente en dos pestañas
+(«Mis piezas» y «Sellado»). `/vault/sealed` ya gatea por dial (H-1, v1.24: *«para que la VALUACIÓN coincida»*); si
+holdings no lo hiciera, con el dial apagado una pestaña diría MX$1,200 y la otra «Precio pendiente» **de la misma
+caja**. **NO MEDIDO:** el valor de `sealed_price_source` en producción; si está encendido, el gate no cambia ningún
+número hoy. **Medición que lo cierra:** leer esa fila de `ConfigSetting` en producción (solo `SELECT`).
+
+**Lo que ve el cliente — estado existente, ⛔ sin copy nuevo:** `referenceValue.status === 'pending'` ⇒ pill «Precio
+pendiente / Price pending» + «Lo fijaremos pronto» (`DESIGN_SYSTEM` §Pending, bóveda), fuera del total, con el
+contador de pendientes. Frontend no cambia nada.
+
+**Candados (los escribe backend; deben estar ROJOS contra el código de `3e0ed12` salvo los marcados «control»):**
+
+| # | Prueba | Nivel | Mutación que la pone roja |
+|---|---|---|---|
+| **VK-1** | `valuationKeyFor`: sellado sin mapeo ⇒ `null`; mapeado ⇒ `sealed:tcg:<id>` con `finish:'normal'` aunque la pieza traiga otro `finish`; raw/graded ⇒ idéntico a `tryBuildGradeKey` (control) | unitaria | devolver `'sealed'` en la rama sin mapeo; usar `item.finish` en la mapeada |
+| **VK-2** | `valuationCentsOf`: sellado `source:'tcgcsv'` + `sourceOn=false` ⇒ `null`; `source:'manual'` + `sourceOn=false` ⇒ cents; sellado `referenceMxnCents: 0` ⇒ `null`; raw ignora `sourceOn` (control) | unitaria | cambiar el gate por `status==='priced'` |
+| **VK-3** | **El caso de la sonda**, por HTTP y Postgres real: caja de cliente sin mapeo + fila legada `'sealed'` MX$800 ⇒ holdings `pending` y `pendingPriceCount+1` y total sin esos 80000; holdingDetail `pending`; custody-value **no** sube 80000; `/admin/vaults` fila con `pendingPriceCount+1`; ficha 360° `pending` | e2e | revertir **cualquiera** de los seis lectores a `tryGradeKeyFor` (una mutación por lector, cada una debe poner roja SU aserción) |
+| **VK-4** | Caja de cliente **mapeada**, ref `sealed:tcg:<id>` MX$1,200 (manual) **y** fila legada `'sealed'` MX$800 en la misma `Card` ⇒ las cinco superficies dan **120000**, nunca 80000 | e2e | ídem VK-3 |
+| **VK-5** | **Paridad entre pestañas:** la misma caja mapeada ⇒ `holdings[i].referenceValue.referenceMxnCents === sealed.data[j].marketValue.referenceMxnCents`; con dial `off` y ref `tcgcsv` ⇒ **ambas** `pending` | e2e | quitar el gate de `valuationCentsOf` |
+| **VK-6** | **Censo de llamadores:** lista cerrada de los ficheros que llaman `tryGradeKeyFor(`/`tryBuildGradeKey(`; `vault.service.ts`, `admin-vaults.service.ts` y los métodos `custodyValue`/`ownedItemRefs`/`inventoryValue` de `admin.service.ts` **no** están en ella. Un llamador nuevo pone la prueba roja hasta que alguien lo añada **con su razón** | unitaria (escaneo de fuente) | añadir una llamada a `tryGradeKeyFor` en `vault.service.ts` |
+| **VK-7** | Controles: raw y graduada con identidad dan **el mismo número que hoy** en las cinco superficies; graduada sin identidad sigue `pending` | e2e (control) | — (debe estar verde antes y después) |
+
+⚠️ **VK-3/VK-4 deben medirse con fixture propio** (usuario, carta y caja creados por la prueba), no con datos de
+semilla, para que un cambio de semilla no las ponga verdes por ausencia. Mutaciones de VK-3: **una por lector** y se
+reporta la proporción `k/6` de las que muerden (O-3).
+
+**Llamadores de `tryGradeKeyFor` que NO toca esta rev (NO MEDIDO por HTTP; por lectura están detrás de una rama de
+sellado o no valúan patrimonio):** `orders.service.ts:308`, `catalog.service.ts:678,692,732,830`,
+`master-set.service.ts:1028,1042`, `inventory.service.ts:1445,1643`, `inventory-position.adapter.ts:68`,
+`sealed-graded.service.ts:394`, `buylist.service.ts:7718`, `price-sync.service.ts:49`,
+`price-ingest.service.ts:1001,1016`. VK-6 los deja en la lista cerrada **con su razón escrita**; si al escribirla
+backend encuentra uno que valúa sellado con `'sealed'`, **lo reporta**, no lo arregla en este pase.
+
+**Reparto:** **backend** (`pricing`, `vault`, `admin`) — las dos funciones, los seis lectores, VK-1…VK-7.
+**frontend** — nada. **devops** — nada (cero migraciones, cero variables). Razón: `ARCHITECTURE §4.50.1-bis`.
 
 ---
 
