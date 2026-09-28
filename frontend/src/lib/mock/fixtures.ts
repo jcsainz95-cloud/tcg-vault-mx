@@ -9,6 +9,7 @@
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
 import { brandEmail } from '../brand';
+import { setMatchesQuery } from '../setCode';
 import type {
   ConfirmVaultPlacementResponse,
   CustomerDrawerRef,
@@ -166,7 +167,7 @@ function yearOf(releaseDate?: string): number | undefined {
  * La columna es `string | null` **requerida** (la fila siempre la tiene; el valor puede ser
  * nulo), para que ninguna fixture pueda nacer sin decidir si ese set tiene logo o no.
  */
-export type MockCardSetRow = CardSetDTO & { logoUrl: string | null };
+export type MockCardSetRow = CardSetDTO & { logoUrl: string | null; ptcgoCode: string | null };
 
 // v1.52 (M-47, ARCHITECTURE §4.41 · DESIGN_SYSTEM §24): `logoUrl` CONVIVE con `null` de forma
 // PERMANENTE — hay sets que el proveedor nunca ilustra (promos, colecciones, sets viejos). El mock
@@ -174,21 +175,27 @@ export type MockCardSetRow = CardSetDTO & { logoUrl: string | null };
 // página del índice: CON logo (sv08, sv06, sv1, cel25) y SIN logo (cel25c, swsh1, base1 → `null`).
 // Si todos tuvieran logo, el monograma de §24.5 no se ejercitaría nunca en dev ni en Playwright y el
 // hueco solo aparecería en producción (es el modo exacto en que se escapó el bug de imagen del carrito).
+//
+// v1.80 (P-71): `ptcgoCode` es otra COLUMNA de la fila (`CardSet.ptcgoCode`), con la misma doctrina: la
+// fila siempre la tiene y el valor puede ser `null`. Los dos casos conviven a propósito: CON código
+// (SSP, TWM, SVI, CEL, CLC, SSH) y SIN código (`base1` → `null`, el caso de un set que el proveedor no
+// codifica). Base Set es el set del cotizador en las pruebas: así el caso `#4` (sin código) queda
+// ejercitado en dev y en Playwright, y el caso «TWM 130» lo ejercitan los sets modernos.
 export const mockSets: MockCardSetRow[] = [
-  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png' },
-  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv6/logo.png' },
-  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023, logoUrl: 'https://images.pokemontcg.io/sv1/logo.png' },
+  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png', ptcgoCode: 'SSP' },
+  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv6/logo.png', ptcgoCode: 'TWM' },
+  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023, logoUrl: 'https://images.pokemontcg.io/sv1/logo.png', ptcgoCode: 'SVI' },
   // v1.33-master-set-multipart (P-27): Celebrations es un master COMBINADO — principal `cel25`
   // (25 cartas) + subset `cel25c` "Classic Collection" (25 cartas) = 50. Ambos se importan como sets
   // REALES (el mapa es solo presentación); la numeración COLISIONA entre partes a propósito (dos "#1",
   // §4.31f) para ejercer el separador por bloque.
-  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: 'https://images.pokemontcg.io/cel25/logo.png' },
+  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: 'https://images.pokemontcg.io/cel25/logo.png', ptcgoCode: 'CEL' },
   // `logoUrl: null` (clave PRESENTE, valor nulo) = lo que manda el backend cuando el proveedor no
   // publica logo. Nunca `""`, nunca una URL de marcador: un placeholder se pintaría como si fuera
   // un logo y rompería §24.5.
-  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: null },
-  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020, logoUrl: null },
-  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999, logoUrl: null },
+  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: null, ptcgoCode: 'CLC' },
+  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020, logoUrl: null, ptcgoCode: 'SSH' },
+  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999, logoUrl: null, ptcgoCode: null },
 ].map((s) => ({ ...s, year: yearOf(s.releaseDate) }));
 
 /**
@@ -202,7 +209,8 @@ export const mockSets: MockCardSetRow[] = [
  * se **borra de verdad** aquí (mismo `Omit` por destructuring que `mockSellRequestDTO`).
  */
 export function mockCatalogSetDTO(row: MockCardSetRow): CardSetDTO {
-  const { logoUrl: _logoUrl, ...dto } = row;
+  // v1.80 (P-71): `GET /catalog/sets` tampoco emite `ptcgoCode` («dónde NO» del contrato).
+  const { logoUrl: _logoUrl, ptcgoCode: _ptcgoCode, ...dto } = row;
   return dto;
 }
 
@@ -309,6 +317,11 @@ export function foldSetsForDropdown<T extends CardSetDTO>(sets: T[]): T[] {
     });
 }
 
+/** v1.80 (P-71): `CardDTO.setPtcgoCode` sale de la MISMA fila del set que `setName` (proyección del mock). */
+function ptcgoCodeOfSet(setId: string): string | null {
+  return mockSets.find((s) => s.id === setId)?.ptcgoCode ?? null;
+}
+
 function card(
   id: string,
   name: string,
@@ -330,6 +343,7 @@ function card(
     subtypes,
     setId,
     setName,
+    setPtcgoCode: ptcgoCodeOfSet(setId),
     imageSmallUrl: `${img}/${number}.png`,
     imageLargeUrl: `${img}/${number}_hires.png`,
     // v1.6-finish: se sobre-escribe por CARD_FINISHES abajo; default seguro ["normal"].
@@ -391,6 +405,7 @@ function celebrationsCards(): CardDTO[] {
     subtypes: ['Basic'],
     setId,
     setName,
+    setPtcgoCode: ptcgoCodeOfSet(setId),
     imageSmallUrl: `${CEL}/${n}.png`,
     imageLargeUrl: `${CEL}/${n}_hires.png`,
     availableFinishes: ['holofoil'],
@@ -2654,6 +2669,9 @@ export function mockMasterSetIndex(
       // `MockCardSetRow.logoUrl` es `string | null` REQUERIDA, así que si desapareciera de la
       // fila esto NO compilaría — que es justo el candado que el `??` desactivaba.
       logoUrl: s.logoUrl,
+      // v1.80 (P-71): misma doctrina que `logoUrl` (columna requerida de la fila, sin `??`). La fila
+      // plegada de un combinado conserva el del PRINCIPAL (el pliegue de abajo no lo toca).
+      ptcgoCode: s.ptcgoCode,
       catalogCardCount,
       distinctCardsOwned,
       completionPct,
@@ -2705,7 +2723,8 @@ export function mockMasterSetIndex(
 
   if (params.q) {
     const q = params.q.toLowerCase();
-    summaries = summaries.filter((s) => s.name.toLowerCase().includes(q));
+    // v1.80 (P-71): por nombre O por código, «contiene» sin distinguir mayúsculas (contrato §M1).
+    summaries = summaries.filter((s) => setMatchesQuery(s.name, s.ptcgoCode, q));
   }
   summaries.sort((a, b) => {
     if (sort === 'completion_asc') return (a.variantCompletionPct ?? 0) - (b.variantCompletionPct ?? 0);
@@ -2827,11 +2846,13 @@ export function mockMasterSetBinder(
         isPrimary: id === group!.primary,
         order: idx,
         catalogCardCount: numberedCardsOfSet(id).length + (MASTER_SET_PROMO_CELLS[id]?.length ?? 0),
+        // v1.80 (P-71): el código de ESTA parte, no el del principal.
+        ptcgoCode: mockSets.find((s) => s.id === id)?.ptcgoCode ?? null,
       }))
     : undefined;
 
   return {
-    set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate },
+    set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate, ptcgoCode: set.ptcgoCode },
     printedTotal,
     catalogCardCount: cells.length,
     cells,
@@ -5053,6 +5074,7 @@ export function mockPublicBounties(): import('@/types/contract').PublicBountiesR
       name: card.name,
       number: card.number,
       setName: card.setName,
+      setPtcgoCode: card.setPtcgoCode,
       imageSmallUrl: card.imageSmallUrl,
       rarity: card.rarity || undefined,
       finish: finish as Finish,

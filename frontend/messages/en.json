@@ -4154,7 +4154,7 @@
         "energy": "Energy"
       },
       "quantity": "×{qty}",
-      "cardCode": "{set} · {number}"
+      "cardCode": "{set}\u00a0{number}"
     },
     "line": {
       "available": "Available",
@@ -4168,8 +4168,8 @@
     },
     "substitute": {
       "label": "Substitute available",
-      "use": "Use {name} ({set} {number}) · {price}",
-      "usePending": "Use {name} ({set} {number})"
+      "use": "Use {name} ({set}\u00a0{number}) · {price}",
+      "usePending": "Use {name} ({set}\u00a0{number})"
     },
     "addAll": {
       "button": "Add the whole deck",

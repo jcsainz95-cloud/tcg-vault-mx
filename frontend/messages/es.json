@@ -4154,7 +4154,7 @@
         "energy": "Energía"
       },
       "quantity": "×{qty}",
-      "cardCode": "{set} · {number}"
+      "cardCode": "{set}\u00a0{number}"
     },
     "line": {
       "available": "Disponible",
@@ -4168,8 +4168,8 @@
     },
     "substitute": {
       "label": "Sustituto disponible",
-      "use": "Usar {name} ({set} {number}) · {price}",
-      "usePending": "Usar {name} ({set} {number})"
+      "use": "Usar {name} ({set}\u00a0{number}) · {price}",
+      "usePending": "Usar {name} ({set}\u00a0{number})"
     },
     "addAll": {
       "button": "Agregar de jalón",

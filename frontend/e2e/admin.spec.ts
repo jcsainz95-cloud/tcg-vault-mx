@@ -447,12 +447,31 @@ test.describe('admin · M8 disputas', () => {
  * exista). El vínculo vacío ⇔ «usa el global» se afirma como bicondicional, sin asumir cuál de los
  * dos lados toca hoy.
  */
-test.describe('admin · M2 spreads del sellado (T-1)', () => {
+/*
+ * ⚠️ UBICACIÓN (2026-09-28): el editor de spreads del sellado se MUDÓ de M2 a «Sellado» (M11), dentro
+ * del acordeón «Ajustes avanzados» (súper-admin) — `SealedDialsPanel` › «Márgenes de venta». Este test
+ * seguía entrando a `/admin/m2` y buscaba un campo que ya no vive ahí: rojo en mocks y en producción
+ * (medido por QA), por la RUTA, no por el producto. Lo que mide no cambia: la misma fila editable por
+ * UPC y Collection y el mismo bicondicional vacío ⇔ «usa el global». Además fija la mudanza: en M2 ya
+ * no hay editor (un único editor, `M11-single-editor`).
+ */
+test.describe('admin · Sellado (M11) › spreads del sellado (T-1)', () => {
   test('@real hay fila editable para UPC y Collection, y el vacío dice que cae al global', async ({
     page,
   }) => {
     await loginAs(page, 'admin');
+
+    // Un solo editor: en «Catálogo y precios» (M2) ya no está.
     await page.goto('/es/admin/m2');
+    await expect(page.getByRole('heading', { level: 1, name: t('es', 'admin.modules.m2') })).toBeVisible();
+    await expect(
+      page.getByLabel(t('es', 'admin.m2.sealedSpreads.spreadFor', { subtype: 'UPC' })),
+    ).toHaveCount(0);
+
+    // Vive en «Sellado» › «Ajustes avanzados» (acordeón plegado por defecto) › «Márgenes de venta».
+    await page.goto('/es/admin/m11');
+    await page.getByText(t('es', 'admin.m11.advanced.title'), { exact: true }).click();
+    await expect(page.getByRole('heading', { name: t('es', 'admin.m11.advanced.margins.title') })).toBeVisible();
 
     const usesGlobal = /Usa el global \(\d+(\.\d+)?%\)/;
     for (const subtype of ['UPC', 'Collection']) {

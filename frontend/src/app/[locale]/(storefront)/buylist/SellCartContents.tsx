@@ -21,6 +21,8 @@ import type { CartLine } from './useSellCart';
 import { MAX_LINE_QUANTITY } from './useSellCart';
 import { minimumShortfallCents } from './useQuotePolicy';
 import { CartTotalFigure } from './CartTotalFigure';
+import { CardCode } from '@/components/domain/CardCode';
+import { displaySetCode } from '@/lib/setCode';
 
 /**
  * Renglón de detalle: concepto a la izquierda, dato a la derecha.
@@ -217,6 +219,14 @@ export function SellCartContents({
                         </span>
                       </div>
                       <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-[10px] text-muted">
+                        {/* v1.80 (P-71, §37.3c): «TWM 130» primero, solo si hay código (sin código la
+                            línea queda como antes: el número no se pintaba aquí). */}
+                        {displaySetCode(l.card.setPtcgoCode) && (
+                          <>
+                            <CardCode code={l.card.setPtcgoCode} number={l.card.number} />
+                            <span aria-hidden>·</span>
+                          </>
+                        )}
                         <span className="text-muted">{t('cartItemEstimate')}:</span>
                         {pending ? (
                           <BuylistPendingLineLabel className="text-[10px]" />

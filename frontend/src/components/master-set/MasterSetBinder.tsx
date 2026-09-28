@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronLeft } from 'lucide-react';
@@ -38,6 +38,8 @@ import { FINISH_ORDER, displayFinishesOf, displayedVariants } from '@/lib/finish
 import { FinishBand } from '@/components/domain/FinishMark';
 import { RarityLabel } from '@/components/domain/RarityLabel';
 import { CardDetailModal } from '@/components/domain/CardDetailModal';
+import { CardCode } from '@/components/domain/CardCode';
+import { displaySetCode } from '@/lib/setCode';
 import { cn } from '@/lib/cn';
 import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 import { VariantPricingCompact } from './VariantPriceConsole';
@@ -91,7 +93,8 @@ interface Props {
   onBack: () => void;
   onOpenCell: (cell: MasterSetCardCellDTO) => void;
   /** Solo modo `quoter`: clic en una casilla de acabado agrega esa combinación al carrito de venta. */
-  onAddVariant?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
+  /** v1.80 (P-71): `setPtcgoCode` = el código del set (o de la parte) de esa celda, para la línea del carrito. */
+  onAddVariant?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO, setPtcgoCode: string | null) => void;
   /**
    * v1.30 (§4.29) · Solo modo `quoter`: clic en «Agregar» de un PRODUCTO SEPARADO
    * (deck_exclusive/promo) agrega ESE producto al carrito de venta como LÍNEA PROPIA por su
@@ -103,6 +106,7 @@ interface Props {
     product: CardProductDTO,
     finish: Finish,
     quote: BuylistQuoteResponse,
+    setPtcgoCode: string | null,
   ) => void;
   /**
    * v1.28 (P-17, solo M1): si viene, el clic en una casilla abre el DRILL-DOWN de ESA variante
@@ -242,7 +246,9 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<QuoterBinder
   }
 
   return {
-    set: { id: set.setId, name: set.name, series: set.series, releaseDate: set.releaseDate },
+    // v1.80 (P-71): la cabecera del binder del cotizador toma el código de la teja del índice, que
+    // a su vez lo mapeó de `BuylistSetDTO.ptcgoCode` (P71-F2: olvidarlo ⇒ rojo en `quoter`).
+    set: { id: set.setId, name: set.name, series: set.series, releaseDate: set.releaseDate, ptcgoCode: set.ptcgoCode },
     printedTotal: set.printedTotal ?? null,
     catalogCardCount: cells.length,
     cells,
@@ -364,6 +370,23 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
       .filter((sec) => sec.tiles.length > 0);
   }, [binder.data, tiles]);
 
+  /**
+   * v1.80 (P-71, §37.3c): las celdas NO traen código propio — lo heredan del `set` o, en un master
+   * combinado, de SU parte (`partSetId` → `parts[].ptcgoCode`: Classic Collection es `CLC`, no `CEL`).
+   */
+  const codeOfCell = useCallback(
+    (cell: MasterSetCardCellDTO): string | null => {
+      const data = binder.data;
+      if (!data) return null;
+      if (cell.partSetId && data.parts) {
+        const part = data.parts.find((p) => p.setId === cell.partSetId);
+        if (part) return part.ptcgoCode;
+      }
+      return data.set.ptcgoCode;
+    },
+    [binder.data],
+  );
+
   // v1.20: contador del set POR VARIANTE, derivado del binder (suma de expected/covered).
   const variantTotals = useMemo(() => {
     const all = binder.data?.cells ?? [];
@@ -389,6 +412,9 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
   // Título del master: el NOMBRE del principal (SetRefDTO de la respuesta) manda sobre el del prop,
   // así abrir un subset ya muestra "Celebrations" y no la etiqueta del subset.
   const title = canonicalName ?? set.name;
+  // v1.80 (P-71): el código del master. La respuesta manda (en un combinado es el del PRINCIPAL);
+  // mientras carga, el de la teja del índice que se abrió.
+  const headerCode = displaySetCode(binder.data ? binder.data.set.ptcgoCode : set.ptcgoCode);
 
   return (
     <div className="flex flex-col gap-4">
@@ -406,9 +432,22 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
               `failed` previo se quedaría pegado en monograma). */}
           <div className="flex items-center gap-4">
             <SetPlate key={set.logoUrl ?? 'no-logo'} name={title} logoUrl={set.logoUrl} size="sm" />
-            <h2 lang="en" className="text-h2">
-              {title}
-            </h2>
+            {/* v1.80 (P-71, §37.3c): el código junto al nombre, en la MISMA línea base, 12 px de aire
+                (sin «·»), mono 13 px muted — nunca más grande que el nombre. Sin código, nada. */}
+            <div className="flex flex-wrap items-baseline gap-x-3">
+              <h2 lang="en" className="text-h2">
+                {title}
+              </h2>
+              {headerCode && (
+                <span
+                  lang="en"
+                  data-testid="binder-set-code"
+                  className="font-mono text-[13px] tracking-label text-muted"
+                >
+                  {headerCode}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         {binder.data && !isQuoter && (
@@ -552,9 +591,11 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                           // `productId` (un producto separado es una LÍNEA propia del carrito). Así el
                           // sombreado «En el carrito» es consistente en TODAS las tejas del cotizador.
                           inCart={isInCart?.(tile.cell.cardId, tile.finish, tile.product.productId)}
+                          setCode={codeOfCell(tile.cell)}
                           onAdd={
                             onAddProduct
-                              ? (quote) => onAddProduct(tile.cell, tile.product, tile.finish, quote)
+                              ? (quote) =>
+                                  onAddProduct(tile.cell, tile.product, tile.finish, quote, codeOfCell(tile.cell))
                               : undefined
                           }
                         />
@@ -567,12 +608,14 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                             variant={tile.variant}
                             imageLargeUrl={binder.data?.imageLargeByCardId?.[tile.cell.cardId]}
                             inCart={isInCart?.(tile.cell.cardId, tile.variant.finish)}
-                            onAdd={() => onAddVariant?.(tile.cell, tile.variant)}
+                            setCode={codeOfCell(tile.cell)}
+                            onAdd={() => onAddVariant?.(tile.cell, tile.variant, codeOfCell(tile.cell))}
                           />
                         ) : (
                           <BinderTile
                             cell={tile.cell}
                             variant={tile.variant}
+                            setCode={codeOfCell(tile.cell)}
                             onOpen={() =>
                               onOpenVariant
                                 ? onOpenVariant(tile.cell, tile.variant)
@@ -610,6 +653,12 @@ function PartSeparator({ part, tileCount }: { part: SetPartDTO; tileCount: numbe
       >
         {part.label ?? part.name}
       </h3>
+      {/* v1.80 (P-71, §37.3c): el código de ESTA parte, a la escala del separador. */}
+      {displaySetCode(part.ptcgoCode) && (
+        <span lang="en" data-testid="part-set-code" className="font-mono text-xs tracking-label text-muted">
+          {part.ptcgoCode}
+        </span>
+      )}
       <span className="h-px flex-1 bg-border" aria-hidden />
       <span className="font-mono tabular-nums text-[10px] uppercase tracking-wide text-muted">
         {t('partCardCount', { count: part.catalogCardCount })}
@@ -633,6 +682,7 @@ function TileHeader({
   showFinishCount,
   onImageClick,
   imageAriaLabel,
+  setCode,
 }: {
   cell: MasterSetCardCellDTO;
   /**
@@ -656,6 +706,8 @@ function TileHeader({
    */
   onImageClick?: () => void;
   imageAriaLabel?: string;
+  /** v1.80 (P-71): código del set de la celda; `null` ⇒ se queda `#130`. */
+  setCode: string | null;
 }) {
   const t = useTranslations('masterSet');
   // BUG-FIX (regresión de IMP-2): el badge on-hand es POR ACABADO, no por carta. Cada teja del binder
@@ -713,7 +765,8 @@ function TileHeader({
       </p>
       {/* El acabado es el DISCRIMINADOR de la tarjeta: en mono, junto al número. */}
       <p className="mt-1 font-mono text-[10px] uppercase leading-snug tracking-wide text-muted">
-        <span className="tabular-nums">#{cell.number}</span>
+        {/* v1.80 (P-71, §37.3c): «TWM 130» sustituye a `#130` cuando hay código; mismo color. */}
+        <CardCode code={setCode} number={cell.number} />
         <span aria-hidden> · </span>
         <span className="text-text">{finishLabel}</span>
       </p>
@@ -735,10 +788,12 @@ function BinderTile({
   cell,
   variant,
   onOpen,
+  setCode,
 }: {
   cell: MasterSetCardCellDTO;
   variant: MasterSetVariantDTO;
   onOpen: () => void;
+  setCode: string | null;
 }) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
@@ -782,6 +837,7 @@ function BinderTile({
         dimmed={isGap}
         dashed={isGap}
         showFinishCount
+        setCode={setCode}
       />
       {pricing ? (
         <VariantPricingCompact pricing={pricing} marketRefCents={marketRef} />
@@ -835,6 +891,7 @@ function QuoterTile({
   onAdd,
   imageLargeUrl,
   inCart,
+  setCode,
 }: {
   cell: MasterSetCardCellDTO;
   variant: MasterSetVariantDTO;
@@ -843,6 +900,7 @@ function QuoterTile({
   imageLargeUrl?: string;
   /** P-42: ¿esta (carta, acabado) ya está en el carrito? → teja sombreada/destacada. */
   inCart?: boolean;
+  setCode: string | null;
 }) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
@@ -872,6 +930,7 @@ function QuoterTile({
       <TileHeader
         cell={cell}
         finishLabel={finishLabel}
+        setCode={setCode}
         onImageClick={() => setDetailOpen(true)}
         imageAriaLabel={t('quoterDetailAria', { name: cell.name, finish: finishLabel })}
       />
@@ -911,6 +970,7 @@ function QuoterTile({
         card={{
           name: cell.name,
           number: cell.number,
+          setPtcgoCode: setCode,
           rarity: cell.rarity,
           productType: 'raw',
           imageLargeUrl,
@@ -946,6 +1006,7 @@ function SeparateProductTile({
   quoteResult,
   inCart,
   onAdd,
+  setCode,
 }: {
   cell: MasterSetCardCellDTO;
   product: CardProductDTO;
@@ -956,6 +1017,7 @@ function SeparateProductTile({
   /** P-42 (SOLO quoter): ¿este producto separado (por su `productId`) ya está en el carrito? → teja sombreada. */
   inCart?: boolean;
   onAdd?: (quote: BuylistQuoteResponse) => void;
+  setCode: string | null;
 }) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
@@ -1001,7 +1063,7 @@ function SeparateProductTile({
         {product.name}
       </p>
       <p className="mt-1 font-mono text-[10px] uppercase leading-snug tracking-wide text-muted">
-        <span className="tabular-nums">#{cell.number}</span>
+        <CardCode code={setCode} number={cell.number} />
         <span aria-hidden> · </span>
         <span className="text-text">{kindLabel}</span>
         <span aria-hidden> · </span>

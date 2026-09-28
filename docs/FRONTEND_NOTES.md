@@ -18399,3 +18399,38 @@ deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
 - **Candados:** `src/app/[locale]/(admin)/admin/AdminPageTitles.test.tsx` — P66-1, P66-2 (una prueba por ruta,
   renderizando el `page.tsx` real), P66-3 (el grep, en prueba), el orden/grupos/SÚPER del menú en es y en,
   y los textos de M9.
+
+## §82 · **P-71 — código corto del set («TWM 130»)** + reubicación del E2E de spreads (2026-09-28, rama `claude/paquete-pantallas`, base `924a75d`; contrato v1.80, backend `72d4372`)
+
+- **Tipos (`contract.ts`), sin `?`:** `CardDTO.setPtcgoCode`, `MasterSetRefDTO = SetRefDTO & { ptcgoCode }`
+  (cabecera del binder; `SetRefDTO` no cambia), `SetPartDTO.ptcgoCode`, `MasterSetSummaryDTO.ptcgoCode`,
+  `BuylistSetDTO.ptcgoCode`, `PublicBountyDTO.setPtcgoCode`. El compilador obligó a decidir el valor en cada
+  composición cliente (índice y binder del cotizador) — mismo candado que `logoUrl`.
+- **Una sola función** `lib/setCode.ts`: `formatCardCode(code, number)` ⇒ `TWM 130` o `#130`
+  (nunca «—»/«null»; vacío/espacios ⇒ sin código; sin mayúsculas forzadas); `setMatchesQuery(name, code, q)`
+  ⇒ «Buscar set» por nombre **o** código, sin distinguir mayúsculas. Componente `domain/CardCode.tsx`.
+- **Superficies (§37.3c):** cabecera del binder (`binder-set-code`, mono 13 px muted, 12 px de aire, misma
+  línea base); separador de parte con el código **de esa parte** (`part-set-code`); tejas del binder en los
+  cuatro modos (la celda hereda `set.ptcgoCode` o, en combinados, el de su parte por `partSetId`); teja del
+  índice (`index-set-code`, bajo el nombre); teja de Compra (`CatalogTile`, `ListingCard`); ficha
+  (`CardDetailView`) y pop-up de detalle del cotizador (`CardDetailModal`); línea del carrito de venta
+  (primer elemento de la línea mono, solo con código). El binder pasa el código al alta del carrito
+  (`onAddToSellCart(cell, variant, setPtcgoCode)`); el bounty lo trae en `PublicBountyDTO`.
+  `QuoterCardRef.setPtcgoCode` es opcional: las listas guardadas antes de P-71 no lo tienen y se pintan sin él.
+- **Fuera de este pase (§37.3c):** carrito de compra, checkout y pedidos (hechos congelados). Las tejas de
+  bounty (vitrina y tablero del home) no están en la tabla de §37.3 y siguen con `#130`.
+- **Decks:** `decksMeta.detail.cardCode` y `substitute.use/usePending` pasan a `{set} {number}`; el
+  ensayo M12 (`DeckCoverCell`) pinta la portada con `formatCardCode` («TWM 130», antes «TWM-130»).
+- **Mock:** `MockCardSetRow.ptcgoCode` es columna requerida: SSP, TWM, SVI, CEL, CLC, SSH y `base1` = `null`
+  (el cotizador de las pruebas ejercita `#4`). `mockCatalogSetDTO` descarta la columna (`GET /catalog/sets` no
+  la emite). El `?q=` del índice mock usa `setMatchesQuery`.
+- **Candados:** `master-set/P71SetCode.test.tsx` (P71-F1 y F2 en los cuatro modos, F3, índice, alta con código,
+  formato); combinado CEL/CLC en `MasterSet.test.tsx`; `CatalogTile.test.tsx`; línea del carrito en
+  `BuylistView.test.tsx`. Los E2E de `master-set.spec.ts` leen el número del renglón `card-code` sin depender
+  de si lleva código.
+- **E2E de spreads (T-1):** `admin.spec.ts` entraba a `/admin/m2`, pero el editor está en «Sellado» (M11) ›
+  «Ajustes avanzados» › «Márgenes de venta». La spec va ahora ahí (abre el acordeón), mide lo mismo (fila
+  editable de UPC y Collection, bicondicional vacío ⇔ «usa el global») y además afirma que M2 ya no lo tiene.
+- **Corrección de §81:** el E2E `master-set-plate` «I-2» quedó rojo por P-61 (placa a 1024 = 206 px vs 181 a
+  640: diferencia 25 < 30). El §81 dijo que pasaba y no era cierto. Se cambió el par de viewports a 640/1280
+  (181 vs 270 px, medido en Chromium), no el umbral.

@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
+import { formatCardCode } from '@/lib/setCode';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -311,7 +312,8 @@ function Detail({
             {card.name}
           </h1>
           <p className="mt-3 font-mono text-xs uppercase tracking-[0.1em] text-muted" lang="en">
-            {card.setName} · #{card.number} · {card.rarity}
+            {/* v1.80 (P-71, §37.3c): «Twilight Masquerade · TWM 130 · rareza»; sin código, `#130`. */}
+            {card.setName} · {formatCardCode(card.setPtcgoCode, card.number)} · {card.rarity}
           </p>
 
           {primary && (

@@ -8,6 +8,7 @@ import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { Button } from '@/components/ui/Button';
+import { formatCardCode } from '@/lib/setCode';
 
 export interface ListingCardProps {
   listing: ListingDTO;
@@ -59,7 +60,8 @@ export function ListingCard({ listing, onAdd, inCart = false }: ListingCardProps
         <Link href={`/catalog/${card.id}`}>{card.name}</Link>
       </p>
       <p className="mt-1.5 font-mono text-[11px] leading-snug text-muted" lang="en">
-        {isSealed ? card.setName : `${card.setName} · #${card.number}`}
+        {/* v1.80 (P-71, §37.3c): «Set · TWM 130»; sin código, `#130`. */}
+        {isSealed ? card.setName : `${card.setName} · ${formatCardCode(card.setPtcgoCode, card.number)}`}
       </p>
 
       <ListingSpec

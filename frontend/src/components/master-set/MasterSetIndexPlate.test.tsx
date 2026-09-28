@@ -287,6 +287,7 @@ describe('§4.41.5 · modo `quoter`: el logo viaja desde GET /buylist/sets', () 
       releaseDate: '2024/11/08',
       year: 2024,
       logoUrl: 'https://images.pokemontcg.io/sv8/logo.png',
+      ptcgoCode: null,
     },
     {
       id: 'base1',
@@ -295,6 +296,7 @@ describe('§4.41.5 · modo `quoter`: el logo viaja desde GET /buylist/sets', () 
       releaseDate: '1999/01/09',
       year: 1999,
       logoUrl: null,
+      ptcgoCode: null,
     },
   ];
 

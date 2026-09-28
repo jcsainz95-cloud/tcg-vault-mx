@@ -13,7 +13,7 @@ const BOUNTY: PublicBountyDTO = {
   cardId: 'card_abc',
   name: 'Pikachu ex',
   number: '104',
-  setName: 'Surging Sparks',
+  setName: 'Surging Sparks', setPtcgoCode: null,
   imageSmallUrl: 'https://img.example/104.png',
   rarity: 'Special Illustration Rare',
   finish: 'holofoil',

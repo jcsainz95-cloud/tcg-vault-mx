@@ -1318,7 +1318,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
           cardId: 'c-charizard',
           name: 'Charizard',
           number: '4',
-          setName: 'Base Set',
+          setName: 'Base Set', setPtcgoCode: null,
           finish: 'normal',
           bountyPriceCents: 3_000_000,
           targetQty: null,
@@ -1631,5 +1631,64 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     expect(screen.queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument();
     // Ni un número inventado: el bloque de dinero sigue con UN solo monto.
     expect(screen.getByTestId('sell-cart-money').textContent?.match(/MX\$/g) ?? []).toHaveLength(1);
+  });
+});
+
+/**
+ * v1.80 (P-71, §37.3c): la línea del carrito de venta abre con «TWM 130 · Estimado c/u …» cuando la
+ * carta trae código; sin código la línea queda como antes (sin número, sin «—»).
+ */
+describe('BuylistView · P-71 código del set en la línea del carrito de venta', () => {
+  function bountyWith(code: string | null) {
+    vi.spyOn(api, 'getPublicBounties').mockResolvedValue({
+      data: [
+        {
+          cardId: 'c-dragapult',
+          name: 'Dragapult ex',
+          number: '130',
+          setName: 'Twilight Masquerade',
+          setPtcgoCode: code,
+          finish: 'normal',
+          bountyPriceCents: 3_000_000,
+          targetQty: null,
+          remainingQty: null,
+        },
+      ],
+    });
+    vi.spyOn(api, 'batchQuote').mockResolvedValue({
+      results: [
+        {
+          index: 0,
+          cardId: 'c-dragapult',
+          ok: true as const,
+          rarity: 'Double Rare',
+          finish: 'normal' as const,
+          priceBasis: 'market' as const,
+          quote: { status: 'cotizada' as const, quotedPriceCents: 3_000_000, currency: 'MXN' as const },
+          referencePrice: { status: 'priced' as const, priceMxnCents: 6_000_000 },
+          paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+        },
+      ],
+    });
+  }
+
+  it('con código: la línea empieza por «TWM 130»', async () => {
+    bountyWith('TWM');
+    renderWithProviders(<BuylistView />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Cotizar esta carta' }));
+    const lines = await screen.findByTestId('sell-cart-lines');
+    const code = within(lines).getByTestId('card-code');
+    expect(code.textContent).toBe('TWM 130');
+    // Es el PRIMER elemento de la línea mono.
+    expect(code.parentElement?.firstElementChild).toBe(code);
+  });
+
+  it('sin código: la línea no pinta código ni «—»/«null»', async () => {
+    bountyWith(null);
+    renderWithProviders(<BuylistView />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Cotizar esta carta' }));
+    const lines = await screen.findByTestId('sell-cart-lines');
+    expect(within(lines).queryByTestId('card-code')).toBeNull();
+    expect(lines.textContent).not.toMatch(/null|undefined|#130/);
   });
 });

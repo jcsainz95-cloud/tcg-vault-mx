@@ -222,7 +222,7 @@ export function BuylistView() {
    * una identidad nueva por render — prepara el `memo` de tiles si algún día hace falta.
    */
   const addFromMasterSet = useCallback(
-    (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => {
+    (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO, setPtcgoCode: string | null) => {
       if (!variant.quote) return;
       const quote: BuylistQuoteResponse = {
         rarity: variant.quote.rarity ?? '',
@@ -233,7 +233,7 @@ export function BuylistView() {
         paymentNotice: 'PAY_AFTER_RECEIPT',
       };
       addLine({
-        card: { id: cell.cardId, name: cell.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl },
+        card: { id: cell.cardId, name: cell.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl, setPtcgoCode },
         productType: 'raw',
         rawCondition: 'NM',
         finish: variant.finish,
@@ -251,9 +251,15 @@ export function BuylistView() {
    * en useSellCart). El nombre de la línea es el del PRODUCTO (p. ej. «Charizard (Deck Exclusive)»).
    */
   const addFromMasterSetProduct = useCallback(
-    (cell: MasterSetCardCellDTO, product: CardProductDTO, finish: Finish, quote: BuylistQuoteResponse) => {
+    (
+      cell: MasterSetCardCellDTO,
+      product: CardProductDTO,
+      finish: Finish,
+      quote: BuylistQuoteResponse,
+      setPtcgoCode: string | null,
+    ) => {
       addLine({
-        card: { id: cell.cardId, name: product.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl },
+        card: { id: cell.cardId, name: product.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl, setPtcgoCode },
         productType: 'raw',
         rawCondition: 'NM',
         finish,
@@ -287,6 +293,8 @@ export function BuylistView() {
           name: bounty.name,
           number: bounty.number,
           imageSmallUrl: bounty.imageSmallUrl,
+          // v1.80 (P-71): la vitrina ya trae el código del set de la carta.
+          setPtcgoCode: bounty.setPtcgoCode,
         },
         productType: 'raw',
         rawCondition: 'NM',
