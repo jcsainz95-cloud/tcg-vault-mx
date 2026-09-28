@@ -12362,3 +12362,233 @@ de `adminSellRequestDTO` y trazabilidad del log), ninguna bloqueante.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-18 · candidato `1d43a19e` · robustez PII / deuda M11 ·
 **APROBADO**
+
+---
+
+# Stream bóveda M4-VAULT «Para bóveda» — consolidación VLT-1..4 + hallazgo del techlead · sha `db7d1c2` (rama `claude/m4-boveda`) · 2026-09-28
+
+**Alcance:** los cuatro verbos de `/admin/vault-placements` (`PATCH …/prep-items/:id`, `POST|DELETE …/prepared`,
+`POST …/confirm`), las lecturas `GET /admin/vaults*` y `…/physical-inventory`, el nacimiento de `VaultPlacement` en
+el settle, el settle CAS (`payments.service.ts:241-252`, v1.79.4) y el contracargo de bóveda
+(`payments.service.ts:820-896`). Normativo: `API_CONTRACT §M4-VAULT` v1.79.4. Insumo: `PENTEST_NOTES.md` pase
+2026-09-28 (estático) y el hallazgo del techlead relayado por el orquestador.
+
+**Cómo medí (O-9/O-14):** copia `git archive db7d1c2` en
+`scratchpad/sec-vault/` (árbol vivo intacto; solo escribo este fichero), BD propia `secvault` creada tras
+`pg_stat_activity` (QA estaba en `tcg_qavault`; no la toqué) y **borrada al terminar** (rol incluido). La copia de
+`vault-placement.service.ts` se restauró y se comprobó idéntica a `db7d1c2` (`diff -q` vacío) antes de cada corrida
+de referencia. Una sonda propia, solo en la copia —`backend/test/integration/zz-secvault-probe.e2e-spec.ts`—
+fuerza el entrelazado contracargo↔`confirm` con la barrera de fila de `helpers/vault-placement-db.ts` (la misma
+técnica FIFO de `vault-placement-races.e2e-spec.ts`, sin `sleep`). **Todo número de abajo es mío, con su N**;
+lo que no medí va marcado **NO MEDIDO**.
+
+**Línea base medida en `db7d1c2`:** `vault-placement-{verbs,races,birth}.e2e-spec.ts` **3/3 suites, 57/57** verdes.
+Proporciones de carrera (N por escenario): `6-same 10/10`, `6-diff 10/10`, `13 10/10`, `18 20/20`, `24 20/20`,
+`25 20/20`, `32a 20/20`, `32b 10/10`.
+
+## Lo que revisé y RESISTE (confirmo al pentester, con la línea)
+
+- **Authz:** `@Roles(vault_operator, super_admin)` a nivel de clase en `vault-placements.controller.ts:16` y
+  `admin-vaults.controller.ts:15`; `RolesGuard`/`JwtAuthGuard` globales. El actor sale de `@CurrentUser()`, nunca
+  del cuerpo (`vault-placement.service.ts:33`). Los verbos no tocan dinero ni titularidad: la única escritura sobre la
+  pieza es `locationId` (`:527-536`), con `placeableWhere(userId)` en el `WHERE` y `userId` derivado de la orden.
+- **IDOR:** `markItem` rechaza con 404 una carta de otra colocación (`:225`). El resto opera por `placementId` y deriva
+  al cliente de la orden (`assertSane`, `:117-127`).
+- **Concurrencia de los verbos entre sí:** puerta por cliente (`pg_advisory_xact_lock`, parámetros vinculados,
+  `vault-placement.rules.ts:31-34`) + CAS con estado en el `WHERE` en `prepare` (`:330`), `unprepare` (`:380`),
+  cierre sin cajón (`:463`), reclamo (`:510`). Medido en vivo (línea base arriba).
+- **Contracargo vs verbos, las dos órdenes, medido** (N=10 cada una, sonda propia):
+  - contracargo primero → `confirm {}`: **10/10** `409 PLACEMENT_NOT_PENDING`, fila `cancelled/chargeback`,
+    `cancelledByUserId = null` (rastro intacto).
+  - contracargo primero → `confirm {locationId}`: **10/10** `409`, fila `cancelled/chargeback`, pieza
+    `platform/listed` fuera del cajón (no se movió).
+  - `confirm {locationId}` primero → contracargo: ver `VLT-1` abajo (interbloqueo, converge).
+- **Settle CAS** (`payments.service.ts:249-253`): `updateMany … status:{not:'settled'}` como primera escritura, el
+  perdedor sale sin escribir ni avisar; `createMany … skipDuplicates` sobre `orderId @unique` como segunda defensa.
+  Correcto por construcción; no re-medí la prueba 39 de backend (la reporta `BACKEND_NOTES`; relayado, **no medido
+  por mí**).
+- **Idempotencia del webhook ante fallo:** si el handler lanza, el marcador `ProcessedStripeEvent` se borra y el error
+  se propaga (`payments.service.ts:175-183`). **Medido:** tras el interbloqueo de `VLT-1`, `marker=0` en **10/10** y
+  el reintento con el **mismo** `event.id` aplica el contracargo en **10/10**.
+- **PII:** la vista de la colocación selecciona `{id, name, nameSource, email}` del cliente
+  (`vault-preparation.view.ts:103`); `customerDisplayName` da `null` a nombres derivados del correo. Ni CLABE, ni RFC,
+  ni INE, ni dirección en esta superficie. Dentro de lo aprobado.
+- **Inyección:** sin `$queryRawUnsafe` ni `$executeRawUnsafe` en el delta de `backend/src`; el único `$executeRaw` es
+  la puerta, parametrizada.
+- **Dependencias:** `npm audit --omit=dev` = 0 críticas, 0 altas, 5 moderadas (`qs`/`express`/`@nestjs/*`), que ya
+  estaban registradas como `REL-D` (devops). Este stream no toca `package-lock.json`.
+
+## Hallazgos consolidados (por severidad)
+
+| ID | Sev. | Estado | Bloquea este stream |
+|---|---|---|---|
+| `SEC-RESET-TV` (nuevo, fuera del stream) | **Media** | abierto | No (anterior al stream, fuera del delta) |
+| `SEC-VLT-TL` (hallazgo del techlead, **medido**) | **Baja** | abierto | **Condición de aprobación** (C1) |
+| `SEC-SETTLE-LATE` (observación del contrato, ahora **medida**) | **Baja** | abierto | No (conducta previa, otro stream) |
+| `VLT-1` (pentester: Baja) → **reclasificado Info** | Info | cerrado por diseño (medido) | No |
+| `SEC-VLT-DL` (nuevo, derivado de VLT-1) | Info | aceptado con disparador | No |
+| `VLT-2` | Info | cerrado por decisión del dueño | No |
+| `VLT-3` | Info (latente) | aceptado con condición | No (condición C2 con disparador) |
+| `VLT-4` | Info | cerrado en parte por esta medición | No |
+
+Críticos: **0**. Altos: **0**.
+
+### `SEC-VLT-TL` — Baja — el `status:'pending'` del cierre sin cajón no tiene prueba que lo sostenga (el techlead tenía razón)
+- **Ubicación:** `backend/src/modules/vault/vault-placement.service.ts:462-470` (`confirm`, paso 6-bis).
+- **El código en `db7d1c2` está bien:** el `WHERE` lleva `status:'pending'`. Lo que falla es la **prueba**: la
+  mutación que declara la prueba 32 del contrato (`§M4-VAULT.8` #32) no la detecta. Bajo la puerta, el segundo
+  `confirm` relee en `:441`, ve `cancelled` y nunca llega a `:462`. **El único escritor que se salta la puerta es el
+  contracargo** (`payments.service.ts:885-893`), y **ninguna prueba enfrenta un verbo con el contracargo**.
+- **Medido (sobre la copia, mutación = quitar `status:'pending'` de `:463`):**
+  - La mutación **sobrevive** a 4/4 suites de integración de bóveda (`vault-placement-{verbs,races,birth}`,
+    `vault-shipments`: **74/74 verdes**) y a la suite unitaria completa (**349/349 suites, 5742/5742**).
+    `32a` **20/20** y `32b` **10/10** siguen verdes con la mutación puesta.
+  - Mi sonda S1 (contracargo primero, `confirm {}` detrás, forzado) **muerde en 10/10**: con la mutación, la fila
+    acaba `cancelled/nothing_to_place`, `cancelledByUserId = <operador>`, más una bitácora
+    `vault_placement.nothing_to_place` (se pierde el rastro del contracargo **en la colocación**). Sin la mutación:
+    **10/10** `cancelled/chargeback`, `cancelledByUserId = null`.
+- **Impacto si alguien quita esa condición:** se falsea la auditoría (el operador aparece como quien cerró algo que
+  cerró un contracargo). No mueve dinero ni piezas: `Order.status='chargeback'` y los
+  `InventoryMovement chargeback_return` sobreviven. Por eso es **Baja** y no más. Pero está en zona de dinero y es
+  justo la clase «candado sin canario» que el proyecto no acepta.
+- **Relación con `VLT-1`:** tienen la **misma raíz**: el contracargo es el único escritor fuera de la puerta. `VLT-1`
+  es el orden «`confirm` gana y el contracargo llega detrás»; `SEC-VLT-TL` es el orden «el contracargo gana entre la
+  lectura bajo la puerta y el CAS». El segundo es el que los `WHERE` con estado protegen, y es el que no tiene prueba.
+- **Condición de cierre (C1) — responsable: backend:** una prueba de integración con entrelazado forzado de
+  **contracargo vs verbo**, N≥10, que muerda (**roja en alguna tirada**) al quitar `status:'pending'` de **`:463`**, y
+  que se demuestre con la mutación sobre copia (O-9). Recomendado extenderla con el mismo arnés al reclamo (`:510`,
+  `preparedAt`/`status`) y a `prepare`/`unprepare` (`:330`, `:380`) frente al contracargo. Como plantilla vale la
+  sonda S1 de `scratchpad/sec-vault/backend/test/integration/zz-secvault-probe.e2e-spec.ts` (barrera de fila sobre
+  `VaultPlacement`; A = `charge.dispute.created` firmado, B = `confirm {}`). Muerde 10/10 y pasa 10/10 sin la
+  mutación. **Si la prueba cambia la tabla de la #32 del contrato, pasa antes por el arquitecto** (regla 9).
+
+### `VLT-1` — reclasificado **Info**, cerrado por diseño — carrera contracargo vs `confirm` (medido)
+- **Lo que el pentester razonó (estático):** que `confirm` y el contracargo se confirmaran los dos a la vez, dejando
+  una colocación `placed` obsoleta sobre una pieza ya revertida.
+- **Lo que pasa en realidad (medido, sonda S2, `confirm {locationId}` primero y contracargo detrás, forzado):** los
+  dos **no se confirman a la vez**: **se interbloquean** (`40P01 deadlock detected`) en **20/20** entrelazados forzados
+  (dos corridas de N=10). Postgres aborta uno:
+  - víctima el **webhook** en **19/20**: `503 BUSY_TRY_AGAIN` ⇒ `confirm 200 placed`, contracargo **sin aplicar**,
+    `marker=0` (medido en 10/10 de la corrida que lo miró). El reintento con el mismo `event.id` ⇒ `200` y estado
+    final en **10/10**: `vp=placed`, pieza `platform/listed` con `locationId` = cajón del cliente,
+    `order=chargeback`.
+  - víctima el **`confirm`** en **1/20**: `503` al operador; el contracargo se aplica (`cancelled/chargeback`, pieza
+    `platform/listed` en el estante).
+- **El estado final** (`placed` + pieza de plataforma en el cajón del cliente) es **exactamente** la «consecuencia
+  conocida, NO es un defecto» que el contrato declara para el contracargo **posterior** a la colocación
+  (`API_CONTRACT §M4-VAULT.6`: «es la verdad física… ⛔ no se arregla moviendo la ubicación en el webhook»). La
+  carrera no produce ningún estado que la secuencia normal no produzca. No hay pérdida de dinero, doble titularidad
+  ni fuga: la pieza no aparece en `physical-inventory` (`customerCustodyWhere`).
+- **Cierre:** cerrado por diseño. La carrera en sí deja un residuo, que registro aparte como `SEC-VLT-DL`.
+
+### `SEC-VLT-DL` — Info — contracargo y `confirm` toman los candados en orden inverso (interbloqueo recuperable)
+- **Causa:** `confirm` bloquea la fila `VaultPlacement` (reclamo, `:509`) y **después** las piezas (`:527`). El
+  contracargo bloquea las piezas (`payments.service.ts:846`), luego `Order` (`:877`) y **al final** `VaultPlacement`
+  (`:885`). Con los dos en vuelo sobre el mismo cliente, el ciclo es seguro.
+- **Por qué es solo Info:** Postgres lo detecta y aborta a uno. El webhook borra su marcador y Stripe reintenta; el
+  operador recibe `503` y reintenta. **Medido:** converge al estado correcto en **10/10** reintentos.
+- **Coste residual:** (a) la reversión de la pieza se retrasa un ciclo de reintentos de Stripe (**cadencia NO
+  MEDIDA**). Mientras tanto la pieza sigue `customer/in_custody`, aunque esa ventana ya existe entre la disputa y la
+  primera entrega del webhook. (b) La recuperación depende de que `processedStripeEvent.delete` no falle; su
+  `.catch(() => undefined)` (`payments.service.ts:180`) se traga el error y, si el borrado fallara, **el contracargo
+  se perdería** en silencio. Esto es anterior al stream y **no lo medí** con fallo inyectado. (c) La probabilidad
+  **natural** (sin barrera) **NO está MEDIDA**: la ventana dura milisegundos.
+- **Disparador para abordarlo:** que aparezca un `40P01` en los registros de producción, o el próximo cambio al
+  contracargo de bóveda. **Opciones (backend, vía arquitecto):** que el contracargo bloquee primero la colocación
+  (hoy el contrato la pone «al final»), o que tome la puerta del cliente. Aparte, loguear con `error` cuando falle el
+  borrado del marcador en `:180`.
+
+### `VLT-2` — Info — cajón compartido entre clientes en la primera colocación: cerrado por decisión del dueño
+- Confirmado en `vault-placement.service.ts:503`. El contrato lo declara a propósito: `§M4-VAULT.4` v1.79.2, P-E
+  (el dueño: «yo me encargo del aspecto físico»), «⛔ no hay `422` de exclusividad». Los datos siguen siendo
+  consistentes (un dueño y una ubicación por pieza). **Sin acción.** Se reabre solo si el dueño cambia P-E.
+
+### `VLT-3` — Info latente — `RolesGuard` decide por el claim `role` del JWT
+- **Confirmado:** `jwt-auth.guard.ts:62-65` relee de BD `status`, `tokenVersion`, `emailVerified` y
+  `mustChangePassword`, pero **no** `role`; `:78` pone `role: payload.role`. El refresh sí relee el rol de BD
+  (`auth.service.ts:476-486` → `issueTokens(user)`), así que la ventana de un rol viejo es el TTL del access token
+  (`JWT_ACCESS_TTL`, por defecto `15m`, `auth.service.ts:87`).
+- **Hoy no es explotable:** en `backend/src` ninguna escritura muta `User.role`. Medido con `grep` de
+  `user.update|updateMany|upsert`: `updateUserStatus` solo toca `status` (y el guard relee `status`), el perfil propio
+  no acepta `role`, y el único `update` de rol está en `prisma/seed-e2e.ts:117`, que es de pruebas.
+- **Condición (C2), con disparador — responsable: backend (auth):** **cualquier mutación futura de `User.role`**
+  (endpoint, script de ops o migración de datos) debe incrementar `tokenVersion` **en la misma sentencia**. La
+  alternativa más barata y robusta, que recomiendo: añadir `role: true` al `select` de `jwt-auth.guard.ts:64` y usar
+  el rol de BD en `:78`. No cuesta ninguna consulta más y deja de depender de que alguien se acuerde. **Disparador:**
+  antes de fusionar cualquier cambio que escriba `User.role`.
+
+### `VLT-4` — Info — superficie que el pentest no midió en vivo: cerrada en parte
+- Cerrado ahora: la línea base de carreras en vivo (arriba) y contracargo vs `confirm` en las dos órdenes (N=10
+  cada una).
+- Sigue **NO MEDIDO:** el DAST genérico (no hay staging, `HECHOS.md`) y la prueba 39 del settle CAS en mi copia
+  (la reporta backend).
+
+### `SEC-SETTLE-LATE` — Baja — un `succeeded` que llega tarde vuelve a liquidar una orden en `chargeback` (conducta previa, ahora medida)
+- **Ubicación:** `payments.service.ts:193` (el early-return solo mira `settled`) y `:249` (el CAS `not:'settled'`).
+  El contrato lo tenía como «observación registrada, NO decidida… ⛔ NO MEDIDO si es alcanzable» (`§M4-VAULT.2-bis.1`,
+  remite a `ARCHITECTURE §4.21q (n)`).
+- **Medido en local (sonda S4, N=1, eventos firmados sintéticos):** con la orden en `chargeback`, un
+  `payment_intent.succeeded` con importe y moneda correctos ⇒ `200` y la orden pasa a **`settled`**, **con
+  `settledAt` reescrito**. La pieza se queda `platform/listed` (la protege `reservationGuard`) y la colocación sigue
+  `cancelled/chargeback` (`skipDuplicates`).
+- **Impacto:** el registro de dinero miente: la orden dice «liquidada» cuando Stripe revirtió los fondos, y
+  `settledAt` deja de escribirse una sola vez. Probablemente sale también el aviso `AV-2` al cliente (**NO MEDIDO**).
+  Las piezas no se mueven. Un atacante no puede forzarlo (hace falta un evento firmado por Stripe). Stripe no
+  garantiza el orden de entrega, así que es alcanzable si la entrega del `succeeded` falla y se reintenta después de
+  procesarse la disputa. La alcanzabilidad **con Stripe real está NO MEDIDA**.
+- **No es de este stream:** el CAS de v1.79.4 conservó a propósito la semántica anterior. **Responsable:** arquitecto
+  y después backend (stream «Órdenes y dinero»), para decidir qué estados de origen pueden liquidarse.
+  **Disparador:** antes de operar con disputas reales, o en el siguiente pase del stream de dinero.
+
+### `SEC-RESET-TV` — Media — el script de rescate de contraseña de staff no revoca sesiones (fuera del stream)
+- **Ubicación:** `backend/prisma/reset-admin-password.ts:51-54`: `data: { passwordHash, emailVerified: true }`,
+  **sin** `tokenVersion: { increment: 1 }`. Los dos caminos de la app sí lo incrementan (`auth.service.ts:277` en el
+  reset por correo, `:351` en el cambio de contraseña), y también el reset de admin (`admin.service.ts:1347`).
+- **Impacto:** este script es el camino de rescate del `super_admin` (el rol que aprueba el dinero saliente). Si se
+  usa porque la cuenta está **comprometida**, los refresh tokens del atacante siguen valiendo hasta
+  `JWT_REFRESH_TTL` (**30 días** por defecto, `auth.service.ts:94`): el refresh solo compara `tokenVersion`, que no
+  cambió. Quien corre el script cree, con motivo, que cortó el acceso. Para explotarlo hace falta haber robado antes
+  un token. Por eso es **Media** y no Alta.
+- **No es del delta del stream** (el fichero no cambia en `db7d1c2`) y **nunca se había registrado** (`grep` en
+  `SECURITY_NOTES`, `PENTEST_NOTES`, `BACKEND_NOTES`, `TECH_DEBT`: sin menciones). **Responsable: backend.** El
+  arreglo es una línea: `tokenVersion: { increment: 1 }`. Conviene añadir también `mustChangePassword: false`
+  explícito si aplica. **Disparador:** antes del próximo uso del script en producción.
+
+## Deuda de seguridad aceptada (no bloquea)
+- `VLT-2`: por decisión del dueño (P-E).
+- `SEC-VLT-DL`: interbloqueo recuperable; se retoma si aparece un `40P01` en producción o al cambiar el contracargo.
+- `VLT-3`: latente, con la condición C2 (disparador: cualquier escritura de `User.role`).
+- `SEC-SETTLE-LATE`: conducta previa, se enruta al stream de dinero.
+- `REL-D` (dependencias moderadas): sin cambio, ya enrutado a devops.
+
+## Banderas para el humano
+- **Antes de operar con disputas reales:** cerrar `SEC-SETTLE-LATE`. Hoy una entrega fuera de orden de Stripe puede
+  dejar una orden «liquidada» cuyo dinero ya se revirtió.
+- **Antes de volver a usar `reset-admin-password.ts` en producción** (`SEC-RESET-TV`): hoy **no** cierra las sesiones
+  abiertas. Si alguna vez se usó por sospecha de compromiso, conviene cerrarlas a mano (incrementar
+  `tokenVersion` de esa cuenta).
+- Sigue vigente la bandera general: pentest de un tercero y bug bounty antes de operar con dinero real; no hay
+  staging, así que el DAST no mide esta superficie.
+
+## VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `db7d1c2`
+
+Cero críticos y cero altos abiertos en el stream. El DoD («sin críticos/altos abiertos») **se cumple**. La
+superficie nueva resiste por construcción, y lo medí en vivo: authz de clase, IDOR, puerta + CAS en los cuatro
+verbos, contracargo vs `confirm` en las dos órdenes, idempotencia del webhook ante fallo, y PII mínima. `VLT-1` no
+produce ningún estado que el contrato no declare. `VLT-2` es decisión del dueño.
+
+**Condiciones:**
+- **C1 (antes de fusionar a `main`) — backend:** la prueba de contracargo vs verbo de `SEC-VLT-TL`, demostrada con la
+  mutación de `:463` sobre copia: **roja en ≥1 de N≥10** con la mutación y **verde en N/N** sin ella. Hoy esa mutación
+  sobrevive a **toda** la suite. Es barata (la plantilla ya existe en mi scratch) y protege el rastro de auditoría de
+  un contracargo en zona de dinero.
+- **C2 (con disparador, no bloquea la fusión) — backend (auth):** `VLT-3`. Toda mutación futura de `User.role`
+  incrementa `tokenVersion` en la misma sentencia; mejor aún, el guard lee `role` de BD.
+
+**Mínimo para quedar APROBADO sin condiciones:** C1 cerrada y medida por QA o por mí sobre un sha fijado.
+`SEC-RESET-TV` (Media) y `SEC-SETTLE-LATE` (Baja) son anteriores al stream y **no** condicionan este veredicto, pero
+quedan enrutados a backend (y al arquitecto, en el segundo caso) con su disparador.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-28 · candidato `db7d1c2` · §M4-VAULT v1.79.4 · **APROBADO CON CONDICIONES**
