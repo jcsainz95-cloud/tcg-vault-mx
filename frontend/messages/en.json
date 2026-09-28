@@ -1141,6 +1141,8 @@
       "connecting": "Connecting…"
     },
     "forgotPassword": "Forgot your password?",
+    "tooManyAttempts": "Too many attempts for this email. Try again in {minutes} min or <reset>reset your password</reset>.",
+    "tooManyAttemptsNoTime": "Too many attempts for this email. Try again later or <reset>reset your password</reset>.",
     "changePassword": {
       "title": "Create your permanent password",
       "body": "You signed in with a temporary password. Choose a new one to continue.",
@@ -3840,6 +3842,8 @@
     "CONFLICT": "There was a conflict with the current state.",
     "CONFLICT_WITH_DETAILS": "{closed, select, yes {This request is already closed (it ended in “{status}”), so this action no longer applies.} other {This action doesn’t apply to the request’s current status (“{status}”).}} This isn’t an app failure and retrying won’t change it: refresh the view to see the real status.",
     "RATE_LIMITED": "Too many requests, try again later.",
+    "TOO_MANY_PASSWORD_ATTEMPTS": "Too many attempts. Try again later.",
+    "TOO_MANY_PASSWORD_ATTEMPTS_WITH_DETAILS": "Too many attempts. Try again in {minutes} min.",
     "FX_MANUAL_RATE_MISSING": "There's no saved manual rate to go back to. Save one first, then flip the switch to manual. Nothing was changed.",
     "FX_MANUAL_RATE_REQUIRED": "To remove the manual rate, switch to automatic first: it's the one in force right now, and deleting it would leave the system with no rate of its own. Nothing was saved.",
     "FX_NO_AUTOMATIC_RATE": "There's no Banxico rate, so switching to automatic would leave a fixed fallback value in force that nobody typed. Confirm it from the notice, or refresh first. Nothing was changed.",

@@ -96,6 +96,9 @@ export function PasswordForm({
       else if (code === 'VALIDATION_ERROR') fail('new', t('weak'));
       else if (code === 'PASSWORD_NOT_SET') onPasswordNotSet?.();
       else if (code === 'RATE_LIMITED') setFormError({ kind: 'rate', message: t('rateLimited') });
+      // v1.80 (C7): contador propio de change-password por usuario. Copy con minutos desde
+      // `error.TOO_MANY_PASSWORD_ATTEMPTS_WITH_DETAILS`; sin enlace (ya hay sesión). No se reintenta solo.
+      else if (code === 'TOO_MANY_PASSWORD_ATTEMPTS') setFormError({ kind: 'rate', message: getMessage(err) });
       else setFormError({ kind: 'other', message: getMessage(err) });
     } finally {
       setSubmitting(false);

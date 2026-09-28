@@ -1141,6 +1141,8 @@
       "connecting": "Conectando…"
     },
     "forgotPassword": "¿Olvidaste tu contraseña?",
+    "tooManyAttempts": "Demasiados intentos con este correo. Vuelve a intentarlo en {minutes} min o <reset>restablece tu contraseña</reset>.",
+    "tooManyAttemptsNoTime": "Demasiados intentos con este correo. Vuelve a intentarlo más tarde o <reset>restablece tu contraseña</reset>.",
     "changePassword": {
       "title": "Crea tu contraseña definitiva",
       "body": "Entraste con una contraseña temporal. Para continuar, elige una nueva.",
@@ -3840,6 +3842,8 @@
     "CONFLICT": "Hubo un conflicto con el estado actual.",
     "CONFLICT_WITH_DETAILS": "{closed, select, yes {Esta solicitud ya está cerrada (quedó en «{status}»), así que esta acción ya no aplica.} other {Esta acción no aplica al estado actual de la solicitud («{status}»).}} No es un fallo de la aplicación y reintentar no lo cambia: actualiza la vista para ver el estado real.",
     "RATE_LIMITED": "Demasiadas solicitudes, intenta más tarde.",
+    "TOO_MANY_PASSWORD_ATTEMPTS": "Demasiados intentos. Vuelve a intentarlo más tarde.",
+    "TOO_MANY_PASSWORD_ATTEMPTS_WITH_DETAILS": "Demasiados intentos. Vuelve a intentarlo en {minutes} min.",
     "FX_MANUAL_RATE_MISSING": "No hay ninguna tasa manual guardada a la que volver. Guarda una primero y luego pasa el interruptor a manual. No se cambió nada.",
     "FX_MANUAL_RATE_REQUIRED": "Para quitar la tasa manual, pasa primero a automática: ahora mismo es la que rige, y borrarla dejaría al sistema sin tipo de cambio propio. No se guardó nada.",
     "FX_NO_AUTOMATIC_RATE": "No hay ninguna tasa de Banxico, así que pasar a automática dejaría rigiendo un valor fijo de respaldo que nadie tecleó. Confírmalo desde el aviso, o refresca primero. No se cambió nada.",

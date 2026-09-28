@@ -7,6 +7,7 @@ import { ApiClientError } from '@/lib/api-client';
 import { gradeLabelFromKey } from '@/lib/gradeKey';
 import { getBadgeSpec } from '@/lib/status-map';
 import { formatMoneyCents } from '@/lib/format';
+import { retryAfterMinutes } from '@/lib/password-attempts';
 import { errorMessageKeys, resolveErrorAudience, type ErrorAudience } from '@/lib/error-audience';
 import type { AppLocale } from '@/i18n/routing';
 
@@ -150,6 +151,16 @@ const DETAILED_ERRORS: Record<
       capAmount: formatMoneyCents(cap, locale),
       wouldBeAmount: formatMoneyCents(wouldBe, locale),
     };
+  },
+
+  /**
+   * `429 TOO_MANY_PASSWORD_ATTEMPTS` (v1.80, C7): `details.retryAfterSeconds` ⇒ minutos redondeados
+   * hacia arriba (fórmula del contrato en `retryAfterMinutes`). Lo usa el cambio de contraseña; el
+   * login tiene su propio copy con enlace a restablecer (`auth.tooManyAttempts`).
+   */
+  TOO_MANY_PASSWORD_ATTEMPTS: (d) => {
+    const minutes = retryAfterMinutes(d);
+    return minutes === null ? null : { minutes };
   },
 };
 
