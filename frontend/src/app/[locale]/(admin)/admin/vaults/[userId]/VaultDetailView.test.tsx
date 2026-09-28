@@ -187,6 +187,28 @@ describe('«Qué debe haber» (§36.11 · §M4-VAULT.11)', () => {
     expect(total).not.toHaveTextContent('deben');
   });
 
+  /**
+   * **PV-15 (§36.17, DESIGN_SYSTEM v4.8).** La ayuda se compara ENTERA, en es y en, contra el texto
+   * literal de la tabla «Textos finales» — no contra `messages/*.json`, que es justo lo que se vigila.
+   * La palabra es «reservado» (la que la tienda ya usa); ⛔ «apartado» (rechazo de QA sobre f2981e1).
+   */
+  it.each([
+    [
+      'es',
+      'Puede ser menos de lo que la lista de clientes cuenta «a su nombre»: allí entra también lo reservado en pedidos que aún no se pagan. Aquí solo cuenta lo pagado que guardamos.',
+    ],
+    [
+      'en',
+      'This can be lower than what the customer list counts \u201cin their name\u201d: that also includes items reserved in orders not yet paid. Here, only what\'s paid and in our keeping counts.',
+    ],
+  ] as const)('PV-15 · la ayuda de la vista física es EXACTAMENTE la de §36.17 (%s)', async (locale, expected) => {
+    vi.spyOn(api, 'getAdminVaultPhysicalInventory').mockResolvedValue(full());
+    renderWithProviders(<VaultDetailView userId="u-1" initialTab="physical" />, locale);
+    const help = await screen.findByTestId('physical-counts-help');
+    expect(help.textContent).toBe(expected);
+    expect(help.textContent).not.toMatch(/apartad/i);
+  });
+
   it('cada fila dice su estado en palabras, con la ubicación CON zona (V3/PV-3), y ⛔ sin un solo botón', async () => {
     vi.spyOn(api, 'getAdminVaultPhysicalInventory').mockResolvedValue(full());
     renderWithProviders(<VaultDetailView userId="u-1" initialTab="physical" />, 'es');

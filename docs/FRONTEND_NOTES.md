@@ -18210,3 +18210,17 @@ vitest **175 ficheros / 2039 pruebas verdes** · E2E mocks como arriba.
 | `F-MV1` | Respuestas reales de los cuatro verbos y de `physical-inventory` contra los tipos | E2E `@real` de QA contra el stack de esta rama |
 | `F-MV3` | Que cambiar de pestaña (`history.replaceState`) mantenga `useSearchParams` sincronizado en producción | un E2E que pulse las pestañas y recargue |
 | `F-MV4` | PR-11..PR-16 con la clave corregida | pase `@real` de QA |
+
+### M4-VAULT · cierre del IMPORTANTE de QA sobre `f2981e1` (2026-09-28)
+
+- `admin.vaults.physical.counts.help` (es): «lo **apartado**» → «lo **reservado**», texto exacto de DESIGN_SYSTEM v4.8
+  §36.17. La en ya coincidía.
+- `VaultDetailView.test.tsx` PV-15 compara la ayuda **entera** (es y en) contra el literal de §36.17 (no contra el
+  JSON) y además `not.toMatch(/apartad/i)`. Mutación medida: volver a «apartado» ⇒ PV-15 (es) roja, 3/3 (N=3);
+  «reserved» → «set aside» en en ⇒ PV-15 (en) roja, 1/1.
+- `tabs.ts`: `VaultDetailTab` y `parseVaultDetailTab` derivan de `VAULT_DETAIL_TABS` (`as const`); sin literales
+  repetidos. Quitar `'sealed'` de la lista ⇒ 2 pruebas de pestañas rojas (1/1).
+- `server-client-boundary.test.ts`: detecta también `import * as X` (siempre) y el import por defecto de un módulo
+  `'use client'` salvo nombre local PascalCase **y** `export default` PascalCase. Hoy ningún `page`/`layout` usa
+  imports por defecto ni de espacio de nombres (medido con grep), así que la regla estricta no rompe nada. Canarios
+  nuevos; al desactivar cada detección, su canario cae (1/1 cada una).

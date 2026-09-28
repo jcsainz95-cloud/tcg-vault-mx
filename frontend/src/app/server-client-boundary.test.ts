@@ -16,7 +16,13 @@ import path from 'node:path';
  * `'use client'` solo puede importar **componentes** (PascalCase) o **tipos**. Una importación de
  * valor en minúscula (función, hook, constante) es exactamente la clase del defecto.
  *
- * ⚠️ Es una aproximación ESTÁTICA (regex de imports con nombre, rutas relativas y `@/`). La prueba
+ * Además (observación de QA/techlead sobre `f2981e1`: `import * as V from './VaultDetailView'` pasaba
+ * verde): ⛔ `import * as X` de un módulo `'use client'` se marca siempre (`X.fn()` es la misma
+ * invocación de una referencia de cliente, y no hay forma estática barata de saber qué se usa); y el
+ * import POR DEFECTO solo pasa si el nombre local es PascalCase **y** el `export default` del módulo
+ * es una función/clase/identificador PascalCase (un componente).
+ *
+ * ⚠️ Es una aproximación ESTÁTICA (regex de imports, rutas relativas y `@/`). La prueba
  * definitiva es el build de producción + una petición real a la ruta (lo hace el E2E
  * `m4-vault-placement.spec.ts`, que abre `/admin/vaults/<id>?tab=physical` contra `next start`).
  */
@@ -67,6 +73,30 @@ function namedValueImports(source: string): { names: string[]; spec: string }[] 
   return out;
 }
 
+/** `import * as X from '…'` (no `import type * as X`). */
+function namespaceImports(source: string): { local: string; spec: string }[] {
+  const out: { local: string; spec: string }[] = [];
+  const re = /import\s+(type\s+)?\*\s*as\s+([\w$]+)\s+from\s*['"]([^'"]+)['"]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source))) if (!m[1]) out.push({ local: m[2], spec: m[3] });
+  return out;
+}
+
+/** `import X from '…'` y `import X, { … } from '…'` (no `import type X`). */
+function defaultImports(source: string): { local: string; spec: string }[] {
+  const out: { local: string; spec: string }[] = [];
+  const re = /import\s+(type\s+)?([\w$]+)\s*(?:,\s*\{[^}]*\}\s*)?from\s*['"]([^'"]+)['"]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source))) if (!m[1] && m[2] !== 'type') out.push({ local: m[2], spec: m[3] });
+  return out;
+}
+
+/** ¿El `export default` del módulo es un componente (función/clase/identificador PascalCase)? */
+function defaultExportIsComponent(source: string): boolean {
+  const m = /export\s+default\s+(?:async\s+)?(?:function\s*\*?\s*|class\s+)?([\w$]*)/.exec(source);
+  return !!m && /^[A-Z]/.test(m[1]);
+}
+
 /** Devuelve las violaciones de un fichero de servidor (vacío si está limpio). */
 function boundaryViolations(
   file: string,
@@ -81,6 +111,20 @@ function boundaryViolations(
     if (!target || !isClientModule(readModule(target))) continue;
     for (const n of names) {
       if (!/^[A-Z]/.test(n)) bad.push(`${path.relative(SRC, file)}: «${n}» de ${spec} ('use client')`);
+    }
+  }
+  for (const { local, spec } of namespaceImports(source)) {
+    const target = resolve(file, spec);
+    if (!target || !isClientModule(readModule(target))) continue;
+    bad.push(`${path.relative(SRC, file)}: «* as ${local}» de ${spec} ('use client')`);
+  }
+  for (const { local, spec } of defaultImports(source)) {
+    const target = resolve(file, spec);
+    if (!target) continue;
+    const mod = readModule(target);
+    if (!isClientModule(mod)) continue;
+    if (!/^[A-Z]/.test(local) || !defaultExportIsComponent(mod)) {
+      bad.push(`${path.relative(SRC, file)}: default «${local}» de ${spec} ('use client')`);
     }
   }
   return bad;
@@ -100,6 +144,37 @@ describe('frontera servidor → cliente en page/layout', () => {
     const v = boundaryViolations(path.join(APP, 'x/page.tsx'), page, () => view, () => 'VaultDetailView.tsx');
     expect(v).toHaveLength(1);
     expect(v[0]).toContain('parseVaultDetailTab');
+  });
+
+  it('canario: `import * as X` de un módulo `use client` SÍ se detecta (medido por QA: pasaba verde)', () => {
+    const page = "import * as V from './VaultDetailView';\n";
+    const view = "'use client';\nexport function parseVaultDetailTab() {}\nexport function VaultDetailView() {}\n";
+    const v = boundaryViolations(path.join(APP, 'x/page.tsx'), page, () => view, () => 'VaultDetailView.tsx');
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain('* as V');
+    // `import type * as V` es solo de tipos: pasa.
+    const pageT = "import type * as V from './VaultDetailView';\n";
+    expect(boundaryViolations(path.join(APP, 'x/page.tsx'), pageT, () => view, () => 'v.tsx')).toEqual([]);
+  });
+
+  it('canario: el import por defecto de una función de un módulo `use client` SÍ se detecta (aunque el nombre local sea PascalCase)', () => {
+    const fnView = "'use client';\nexport default function parseVaultDetailTab() {}\n";
+    for (const page of [
+      "import parse from './tabs';\n",
+      "import Parse from './tabs';\n",
+      "import parse, { VaultDetailView } from './tabs';\n",
+    ]) {
+      const v = boundaryViolations(path.join(APP, 'x/page.tsx'), page, () => fnView, () => 't.tsx');
+      expect(v, page).toHaveLength(1);
+      expect(v[0]).toContain('default');
+    }
+    // Un componente por defecto, importado con nombre PascalCase, pasa.
+    const compView = "'use client';\nexport default function VaultDetailView() {}\n";
+    const ok = "import VaultDetailView from './VaultDetailView';\n";
+    expect(boundaryViolations(path.join(APP, 'x/page.tsx'), ok, () => compView, () => 'v.tsx')).toEqual([]);
+    // …pero con nombre local en minúscula, no (la regla es la misma que para los imports con nombre).
+    const low = "import view from './VaultDetailView';\n";
+    expect(boundaryViolations(path.join(APP, 'x/page.tsx'), low, () => compView, () => 'v.tsx')).toHaveLength(1);
   });
 
   it('canario: componentes y tipos de un módulo cliente, y funciones de un módulo SIN `use client`, pasan', () => {

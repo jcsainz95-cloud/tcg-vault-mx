@@ -7,10 +7,15 @@
  * `/admin/vaults/<userId>` fallaba con «Attempted to call parseVaultDetailTab() from the server»
  * (rechazo de QA sobre db7d1c2). vitest y tsc no lo ven; lo vigila `e2e/m4-vault-placement.spec.ts`.
  */
-export type VaultDetailTab = 'cards' | 'sealed' | 'physical';
-export const VAULT_DETAIL_TABS: readonly VaultDetailTab[] = ['cards', 'sealed', 'physical'];
+export const VAULT_DETAIL_TABS = ['cards', 'sealed', 'physical'] as const;
+export type VaultDetailTab = (typeof VAULT_DETAIL_TABS)[number];
 
+function isVaultDetailTab(v: string | undefined): v is VaultDetailTab {
+  return v !== undefined && (VAULT_DETAIL_TABS as readonly string[]).includes(v);
+}
+
+/** Cualquier valor fuera de `VAULT_DETAIL_TABS` cae en la primera pestaña («Cartas»). */
 export function parseVaultDetailTab(raw: string | string[] | undefined): VaultDetailTab {
   const v = Array.isArray(raw) ? raw[0] : raw;
-  return v === 'sealed' || v === 'physical' ? v : 'cards';
+  return isVaultDetailTab(v) ? v : VAULT_DETAIL_TABS[0];
 }

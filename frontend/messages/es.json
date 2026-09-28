@@ -3316,7 +3316,7 @@
           "pendingPlacement": "por colocar",
           "inWithdrawal": "{count, plural, one {en un retiro} other {en retiros}}",
           "total": "{count, plural, one {debe estar en bóveda} other {deben estar en bóveda}}",
-          "help": "Puede ser menos de lo que la lista de clientes cuenta «a su nombre»: allí entra también lo apartado en pedidos que aún no se pagan. Aquí solo cuenta lo pagado que guardamos."
+          "help": "Puede ser menos de lo que la lista de clientes cuenta «a su nombre»: allí entra también lo reservado en pedidos que aún no se pagan. Aquí solo cuenta lo pagado que guardamos."
         },
         "group": {
           "missing": "Faltantes",
