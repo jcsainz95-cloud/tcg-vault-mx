@@ -7873,3 +7873,65 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Disparador:** el próximo rojo de gate que resulte no ser un defecto; o cuando se toque esa suite.
 - **Comprobación de cierre:** 20 corridas de la suite completa con BD recreada ⇒ **0 rojas**, y
   `grep -c "customer2" test/integration/buylist-intake-concurrency.e2e-spec.ts` ⇒ **0**.
+
+## Backend · 2026-09-28 · gates de «Inventario y vault» M4-VAULT sobre `db7d1c2` (techlead + seguridad)
+
+> Deuda **no bloqueante** que techlead y seguridad dejaron sobre `db7d1c2` (colocación en bóveda, M-59). Lo bloqueante
+> (C1: nadie vigilaba el `status:'pending'` de los CAS contra el contracargo) se cerró con la **prueba 40** de
+> `vault-placement-races.e2e-spec.ts` — no figura aquí. Medido el **2026-09-28** sobre `9b5b08f`.
+
+### VLT-D1 · `customerDrawersOf` repite a mano el predicado de `customerCustodyWhere` (backend · Inventario y vault, 2026-09-28)
+- **Dónde:** `backend/src/modules/vault/vault-placement.rules.ts:178-183` (el `where` del `groupBy`) copia los cuatro
+  campos de `customerCustodyWhere(userId)` (`:51`) con `ownerUserId: { in: ids }` en vez de un id, más la zona.
+- **Impacto:** dos fuentes para «pieza del cliente en custodia». Si una cambia (p. ej. un estado nuevo de custodia) y la
+  otra no, la propuesta de cajón y la vista física dejan de contar lo mismo **sin que ninguna prueba lo diga**.
+- **Corrección:** que `customerCustodyWhere` acepte `string | string[]` (o un `customerCustodyWhereMany`) y que el
+  `groupBy` lo esparza y añada solo la zona.
+- **Disparador:** el próximo cambio a cualquiera de los dos predicados.
+- **Comprobación de cierre:** `rg -n "ownershipStatus: 'settled'" backend/src/modules/vault/vault-placement.rules.ts` ⇒ **1**.
+
+### VLT-D2 · El trío «leer cabecera / 404 / no-pending» está escrito 7+ veces, y hay dos formas de «contestar por estado» (backend · Inventario y vault, 2026-09-28)
+- **Dónde:** `backend/src/modules/vault/vault-placement.service.ts` — `loadHead` + `throw notFound('Vault placement not
+  found')` aparece **9** veces (`grep -c`, 2026-09-28) y el `if (status !== 'pending') throw notPending` en cada verbo;
+  además `answerConfirmByState` (confirm) y los cierres locales `answer`/`byState` (prepare/unprepare) resuelven lo
+  mismo con dos formas.
+- **Impacto:** un cambio de la tabla de respuestas por estado (§M4-VAULT.5/.10) hay que hacerlo en N sitios; el riesgo es
+  que un verbo conteste distinto. Hoy lo cubren la 33 (los cuatro verbos sobre `placed`) y la 40.
+- **Corrección:** un `loadPendingOrThrow(tx, id)` único y una sola función «contestar por estado» parametrizada por verbo.
+- **Disparador:** el próximo verbo nuevo sobre `VaultPlacement`, o el próximo cambio de la tabla de respuestas.
+
+### VLT-D3 · `confirm` mide ~200 líneas; el paso 9 (mover carta por carta) debe salir a su función (backend · Inventario y vault, 2026-09-28)
+- **Dónde:** `vault-placement.service.ts` `confirm` (≈ líneas 412-611).
+- **Impacto:** legibilidad y revisión; el paso 9 (UPDATE condicional + relectura + razón) es la parte con más ramas.
+- **Corrección:** extraer `moveOne(tx, it, userId, locationId, actor, orderNumber) → VaultPlacementItemResultDTO`, sin
+  cambiar el orden de escrituras (la 7, la 24 y la 40(b) lo vigilan).
+- **Disparador:** el próximo cambio al paso 9.
+
+### VLT-D4 · `shipments/preparation-view.ts` ya no es de `shipments`: lo importan `vault/` y `shipments/` (backend · zona compartida, 2026-09-28)
+- **Dónde:** `backend/src/modules/shipments/preparation-view.ts` (ayudantes puros: `nullIfBlank`, proyección de carta,
+  ubicación y ausencia), importado desde `modules/vault/` (p. ej. `vault-placement.service.ts:5`).
+- **Impacto:** dependencia `vault → shipments` para ayudantes transversales; invita a ciclos entre módulos.
+- **Corrección:** moverlo a `backend/src/common/` — **zona compartida** (CLAUDE.md): se serializa con el orquestador y
+  no se hace desde un stream que no la tenga.
+- **Disparador:** el próximo stream que tenga `backend/src/common/`.
+
+### VLT-D8 · Ningún censo falla si aparece un escritor de `VaultLocation.isActive = false` (backend · Inventario y vault, 2026-09-28)
+- **Qué:** el `confirm` rechaza un cajón inactivo (`422 inactive`), y la propuesta de cajón y la vista física suponen
+  que un cajón con piezas de cliente sigue activo. Hoy **no hay** escritor de `isActive=false` en `src/`
+  (`rg -n "isActive: false" backend/src` ⇒ 0, 2026-09-28); si uno aparece, nadie decide qué pasa con las piezas dentro.
+- **Corrección:** un censo de unidad (patrón de los censos existentes) que falle si `rg` encuentra una escritura de
+  `isActive: false` / `isActive:false` sobre `vaultLocation` fuera de una lista permitida, para forzar la decisión.
+- **Disparador:** cualquier pantalla/endpoint de «desactivar cajón».
+
+### SEC-VLT-DL · `confirm` y contracargo toman candados en orden inverso ⇒ `40P01` (se recupera) — **ACEPTADO** por el arquitecto (§M4-VAULT.5, v1.79.5)
+- **Qué (medido por seguridad, N=20):** con el `confirm` reclamando primero, `40P01` en 20/20 entrelazados forzados;
+  víctima casi siempre el webhook (`503`, marcador borrado, reintento de Stripe lo aplica). Converge sin estado falso.
+  ⛔ No se toca el orden en este stream (decisión del contrato; la corrección elegida y por qué las baratas empeoran otra
+  cosa están en `API_CONTRACT §M4-VAULT.5`).
+- **Riesgo residual, reducido en este pase:** la recuperación depende de que el borrado del marcador `ProcessedStripeEvent`
+  no falle. Hasta hoy su error se tragaba (`.catch(() => undefined)`); **desde este pase se registra con
+  `logger.error`** (evento, tipo, causa, «requiere reproceso manual») sin cambiar la semántica — el error original se
+  sigue propagando. Unidad: `test/payments.service.spec.ts` «SEC-VLT-DL: si revertir la marca TAMBIÉN falla…».
+  ⛔ Sigue **NO MEDIDO** con fallo inyectado en integración; y un log no reintenta: el reproceso es manual.
+- **Dueño del resto:** «Órdenes y dinero» (`ARCHITECTURE §4.21q (o)`): una alarma sobre ese log o un reintento del borrado.
+- **Disparador:** un `40P01` en producción, el siguiente cambio a `onChargeDisputeVault`, o ese log en producción.
