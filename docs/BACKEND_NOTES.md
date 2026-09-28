@@ -24228,3 +24228,37 @@ mueren; detalle en el informe del commit.
 - **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
   `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
 
+
+# SEC-RESET-TV — el script de rescate de contraseña de staff revoca sesiones (backend · 2026-09-28)
+
+**Hallazgo de seguridad** (`docs/SECURITY_NOTES.md` › `SEC-RESET-TV`, Media): `backend/prisma/reset-admin-password.ts`
+cambiaba el hash **sin** `tokenVersion +1`; un refresh token robado seguía valiendo hasta `JWT_REFRESH_TTL` (30 d).
+
+**Arreglo:** la MISMA `user.update` escribe `passwordHash`, `tokenVersion: { increment: 1 }`, `emailVerified: true` y
+`mustChangePassword: false` (igual que `auth.service.ts:272-281` reset por correo y `:347-353` cambio de contraseña;
+el reset de admin `admin.service.ts:1341-1349` también incrementa, pero pone `mustChangePassword: true` porque la
+contraseña es temporal — aquí la fija quien corre el script, así que `false`). Una sola escritura ⇒ atómico: no hay
+estado intermedio «hash nuevo, sesiones vivas».
+
+**Forma:** la lógica sale a `resetStaffPassword(prisma, env, hash?)` exportada; `main()` solo corre con
+`require.main === module` (mismo patrón que `reset-db-keep-users.ts`). El uso no cambia:
+`npx ts-node prisma/reset-admin-password.ts`.
+
+**Prueba:** `backend/prisma/reset-admin-password.spec.ts` (6 casos, sin BD: Prisma y hasher inyectados). Roja contra
+el código anterior (2/6: los dos de revocación). Mutaciones (deterministas, N=1 cada una), las tres mueren con 2 rojas:
+M1 quitar el `increment`; M2 `increment: 0`; M3 mover el `increment` a una segunda escritura aparte (no atómica).
+
+## Barrido: otros escritores de `passwordHash` / `role` sin `tokenVersion +1` (medido 2026-09-28, `grep` sobre `c4d378b`)
+- **`backend/src/`:** ningún `update` escribe `role` (los únicos `role:` en `data` son `create`: `admin.service.ts:716-735`
+  alta de usuario, `auth.service.ts:441-455` alta Google con `customer` fijo). Escritores de `passwordHash` en
+  `update`: `auth.service.ts:272`, `:347`, `admin.service.ts:1341`, `:1458` (anonimización, `null`) — **los cuatro
+  incrementan**. `VLT-3`/C2 sigue latente: hoy no hay mutación de `User.role` en la app.
+- **`backend/prisma/seed.ts`:** `upsert` con `update: {}` — solo crea (nace con `tokenVersion=0`). Sin hallazgo.
+- **`backend/prisma/seed-e2e.ts`** (NO arreglado, se reporta): cuatro `upsert` cuyo `update` reescribe `passwordHash`
+  y/o `role` sin `tokenVersion +1` — `:117` (`role`), `:809-834` (temporales: hash + `role`), `:839-865`
+  (solo-Google: hash `null` + `role`), `:981-1005` (KYC: hash + `role`). Es siembra de fixtures con
+  `assertSeedTarget` (`seed-target-guard.ts`) que se niega a correr contra hosts no autorizados, así que el riesgo
+  en producción es nulo mientras el candado aguante. No lo toqué porque cambia la conducta del harness E2E (una
+  re-siembra a mitad de corrida invalidaría sesiones de Playwright) y eso no lo puedo medir sin levantar el stack.
+  **NO MEDIDO:** si alguna corrida E2E re-siembra con sesiones ya emitidas.
+- **`backend/prisma/data-repair/*.sql`:** no tocan `User`.
