@@ -21,6 +21,8 @@ export interface SellCartFabProps {
  *   lectores de pantalla lo hace el `role="status"` existente de la página (addedLine).
  * - Con carrito vacío el FAB permanece: da acceso al panel de requisitos de venta.
  * - z-40: por debajo del drawer (z-50) y por encima de la barra sticky de filtros (z-10).
+ * - §37.1a (P-61): `lg:hidden` — en `≥ lg` el disparador es la `SellCartBar`. Los dos se montan
+ *   siempre y se esconden por CSS (sin `useMediaQuery`, sin destello al hidratar).
  */
 export const SellCartFab = forwardRef<HTMLButtonElement, SellCartFabProps>(function SellCartFab(
   { count, open, onClick },
@@ -36,7 +38,7 @@ export const SellCartFab = forwardRef<HTMLButtonElement, SellCartFabProps>(funct
       aria-expanded={open}
       aria-label={count > 0 ? t('cartFab.ariaWithCount', { count }) : t('cartFab.ariaEmpty')}
       data-testid="sell-cart-fab"
-      className="fixed right-5 z-40 flex h-14 w-14 items-center justify-center border border-border-strong bg-ink text-on-ink focus-visible:shadow-focus focus-visible:outline-none"
+      className="fixed right-5 z-40 flex h-14 w-14 items-center justify-center border border-border-strong bg-ink text-on-ink focus-visible:shadow-focus focus-visible:outline-none lg:hidden"
       style={{ bottom: 'calc(20px + env(safe-area-inset-bottom))' }}
     >
       <ShoppingCart size={20} aria-hidden />

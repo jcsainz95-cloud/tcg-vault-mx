@@ -24,11 +24,12 @@ import { CatalogSyncSection } from './sections/CatalogSyncSection';
  */
 export function M2View() {
   const t = useTranslations('admin.m2');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const catalog = useCatalogSync();
 
   return (
     <div className="flex flex-col gap-10">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m2')}</h1>
 
       {/* Sección 1 · «Actualizar precios» (PRIMARIA · G3) */}
       <PriceIngestSection catalog={catalog} />

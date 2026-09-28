@@ -190,6 +190,7 @@ const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);
 
 export function M5View() {
   const t = useTranslations('admin.m5');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tDesk = useTranslations('admin.m5.desk');
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
@@ -512,7 +513,7 @@ export function M5View() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m5')}</h1>
       <p className="text-sm text-muted">{t('cherryPick')}</p>
 
       {/* Buscador por folio/usuario (clave i18n admin.searchGlobal) */}

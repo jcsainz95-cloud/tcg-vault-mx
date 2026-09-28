@@ -931,6 +931,12 @@
       "ariaLabel": "Carrito de venta ({count})",
       "close": "Cerrar carrito"
     },
+    "cartBar": {
+      "region": "Resumen de tu lista de venta",
+      "empty": "Vacía. Elige cartas del catálogo para agregarlas.",
+      "open": "Ver lista",
+      "loginHint": "Para enviar tu solicitud necesitas cuenta."
+    },
     "lineDetailShow": "Detalle del estimado",
     "lineDetailHide": "Ocultar detalle",
     "cartEmpty": "Tu carrito está vacío. Elige una carta del catálogo para agregarla.",
@@ -1213,27 +1219,27 @@
       "super_admin": "Súper-admin"
     },
     "groups": {
-      "operation": "Operación",
-      "pricing": "Catálogo / Precios",
-      "finance": "Ventas / Finanzas",
+      "daily": "Día a día",
+      "stock": "Existencias",
+      "storefront": "Tienda",
       "administration": "Administración"
     },
     "modules": {
-      "dashboard": "Dashboard",
-      "m1": "M1 · Inventario",
-      "m2": "M2 · Precios",
-      "m3": "M3 · Órdenes",
-      "m4": "M4 · Retiros",
-      "m5": "M5 · Buylist",
-      "m6": "M6 · Usuarios",
-      "m7": "M7 · Finanzas",
-      "m8": "M8 · Disputas",
-      "m9": "M9 · Reportes",
-      "m10": "M10 · Config",
-      "m11": "M11 · Sellado",
-      "m12": "M12 · Meta Battle Decks",
+      "dashboard": "Resumen",
+      "m1": "Inventario",
+      "m2": "Catálogo y precios",
+      "m3": "Ventas",
+      "m4": "Preparar y enviar",
+      "m5": "Solicitudes de venta",
+      "m6": "Usuarios",
+      "m7": "Finanzas",
+      "m8": "Disputas",
+      "m9": "Reportes",
+      "m10": "Configuración",
+      "m11": "Sellado",
+      "m12": "Meta Battle Decks",
       "vaults": "Bóvedas de clientes",
-      "m2Bounties": "M2 · Bounties"
+      "m2Bounties": "Bounties"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
@@ -1264,7 +1270,7 @@
       "withdrawals": "Retiros sin disputa"
     },
     "m1": {
-      "title": "M1 · Inventario y bóveda",
+      "title": "Inventario",
       "tabPieces": "Piezas",
       "tabMasterSet": "Master Set",
       "newItem": "Alta de item",
@@ -1390,14 +1396,14 @@
       },
       "mark": {
         "title": "Marcar pérdida / daño",
-        "warning": "Esta acción cambia el estado del item y queda en bitácora; el item entra a reposición (M7).",
+        "warning": "Esta acción cambia el estado del item y queda en bitácora; el item entra a reposición («Finanzas»).",
         "kind": "Marca",
         "lost": "Perdida",
         "damaged": "Dañada",
         "note": "Nota (obligatoria)",
         "action": "Marcar",
         "confirmTitle": "Confirmar marca",
-        "confirmQuestion": "¿Confirmas marcar esta pieza como {mark}? Cambia el estado del item, queda en bitácora y entra a reposición (M7).",
+        "confirmQuestion": "¿Confirmas marcar esta pieza como {mark}? Cambia el estado del item, queda en bitácora y entra a reposición («Finanzas»).",
         "confirmCta": "Sí, marcar {mark}",
         "success": "Item marcado como {mark}.",
         "error": "No se pudo marcar el item."
@@ -1452,7 +1458,7 @@
       }
     },
     "m3": {
-      "title": "M3 · Ventas / órdenes",
+      "title": "Ventas",
       "refund": "Reembolsar",
       "refundConfirm": "Reembolsar {amount}",
       "refundQuestion": "¿Confirmas el reembolso de esta orden? Esta acción mueve dinero.",
@@ -1480,7 +1486,7 @@
       "pageInfo": "Página {page} de {totalPages}"
     },
     "m4": {
-      "title": "M4 · Retiros / envíos",
+      "title": "Preparar y enviar",
       "tracking": {
         "capture": "Capturar guía",
         "title": "Captura de guía",
@@ -1652,7 +1658,7 @@
       }
     },
     "m5": {
-      "title": "M5 · Buylist",
+      "title": "Solicitudes de venta",
       "receive": "Marcar recibida",
       "verify": "Iniciar verificación",
       "approve": "Aprobar",
@@ -1924,7 +1930,7 @@
       }
     },
     "m8": {
-      "title": "M8 · Disputas",
+      "title": "Disputas",
       "empty": "Sin disputas por ahora.",
       "emptyBody": "Cuando un cliente abra una disputa aparecerá aquí para resolverla.",
       "resolveRepurchase": "Resolver con recompra",
@@ -1938,7 +1944,7 @@
       "resolvedReject": "Disputa rechazada."
     },
     "m2": {
-      "title": "M2 · Catálogo y precios",
+      "title": "Catálogo y precios",
       "updatePrices": {
         "title": "Actualizar precios",
         "subtitle": "Refresca los precios de referencia de todo el catálogo. Es la acción principal de este módulo; corre 1–2 veces al día y también puedes dispararla a mano aquí."
@@ -2207,16 +2213,16 @@
         "zeroBanner": "Un spread de 0% vende al costo de mercado, sin margen. Verifica antes de guardar.",
         "prereqHint": "El spread solo produce precio si el producto está mapeado a TCGCSV y la fuente de precio del sellado está activa.",
         "saved": "Spreads guardados.",
-        "movedToM11": "Los controles de precio del sellado (spreads y diales) viven ahora en M11 · Sellado."
+        "movedToM11": "Los controles de precio del sellado (spreads y diales) viven ahora en «Sellado»."
       },
       "gradedEstimates": {
         "title": "Valor estimado si se gradea · costos y curaduría",
         "subtitle": "Decide qué cartas se promocionan con el gancho de grading. Nada de esto se le muestra al cliente: solo cambia qué cartas llevan cifra en las tejas y en la vitrina del home.",
         "masterSwitch": "Interruptor maestro",
-        "masterSwitchHint": "Se enciende y se apaga en M10 · Config.",
+        "masterSwitchHint": "Se enciende y se apaga en «Configuración».",
         "enabledOn": "Encendido",
         "enabledOff": "Apagado",
-        "offBanner": "La feature está apagada: puedes dejar la tabla lista, pero la tienda no mostrará ninguna cifra hasta encenderla en M10.",
+        "offBanner": "La feature está apagada: puedes dejar la tabla lista, pero la tienda no mostrará ninguna cifra hasta encenderla en «Configuración».",
         "tiers": {
           "title": "Escalones de costo de gradeo",
           "hint": "Costo total puerta a puerta para un comprador en México (cuota PSA + envío internacional + retorno asegurado + manejo), según el valor de la carta. Los escalones son contiguos por construcción: el inicio de cada uno es el fin del anterior, y el último queda abierto para que ninguna carta se quede sin escalón.",
@@ -2246,7 +2252,7 @@
           "hint": "Cuántas cartas tuyas mira el barrido en cada corrida (1–1 000). Acota <b>el alcance</b>, no lo que el proveedor te cobra.",
           "warnTitleUp": "Estás subiendo el techo de gasto",
           "warnTitleDown": "Estás bajando el techo de gasto",
-          "warn": "Con <b><n>{maxCards, number}</n> cartas</b> por corrida y <b><n>{runs}</n> corridas al día</b>, el techo son <b><n>{credits, number}</n> créditos al día</b> si el proveedor cobra por petición; si cobra por carta devuelta, cada petición pide el <b>set entero</b> y la factura puede ser <b>varias veces</b> esa cifra. Nadie lo ha medido todavía: la primera corrida lo mide. Guardar no cobra nada — se cobra en la siguiente corrida, y solo si el gancho está <b>encendido</b> en M10.",
+          "warn": "Con <b><n>{maxCards, number}</n> cartas</b> por corrida y <b><n>{runs}</n> corridas al día</b>, el techo son <b><n>{credits, number}</n> créditos al día</b> si el proveedor cobra por petición; si cobra por carta devuelta, cada petición pide el <b>set entero</b> y la factura puede ser <b>varias veces</b> esa cifra. Nadie lo ha medido todavía: la primera corrida lo mide. Guardar no cobra nada — se cobra en la siguiente corrida, y solo si el gancho está <b>encendido</b> en «Configuración».",
           "rangeError": "Un número entero entre 1 y 1 000."
         },
         "grades": "Grados que muestra la ficha: {grades}. Grados que pinta el badge de las tejas: {highlight}. El gate siempre se evalúa con PSA 9, aunque el badge muestre PSA 10.",
@@ -2254,7 +2260,7 @@
           "minUpside": "El margen mínimo debe ser un número entre 0 y 1000.",
           "freshness": "La frescura debe ser un número entero de días entre 1 y 365."
         },
-        "recalcHint": "Al guardar se recalcula al vuelo qué cartas se promocionan (subir el margen o encarecer un escalón puede vaciar la vitrina). No toca ningún precio de venta, valuación de portafolio ni cotización de buylist. Queda en la bitácora de M10.",
+        "recalcHint": "Al guardar se recalcula al vuelo qué cartas se promocionan (subir el margen o encarecer un escalón puede vaciar la vitrina). No toca ningún precio de venta, valuación de portafolio ni cotización de buylist. Queda en la bitácora de «Configuración».",
         "saved": "Configuración del gancho guardada.",
         "confidenceDials": "Gate de confianza (hoy solo por API): el estimado manual caduca a los {manualFreshness} días · tope del PSA 10 = {maxRawMultiple}× el precio raw · muestra mínima del ingest {minSampleCount} ventas · estadístico publicado «{sourceStat}».",
         "manualFreshnessNever": "∞ (no caduca)"
@@ -2264,7 +2270,7 @@
         "subtitle": "Publica la cifra ILUSTRATIVA de cuánto valdría una carta si se gradeara. Es la herramienta de curaduría del gancho y el respaldo del ingest automático: corregir un dato malo, empujar una carta gancho o tapar un hueco del proveedor.",
         "boundaryTitle": "Esto NO fija el precio de ninguna pieza",
         "boundaryBody": "Aquí se publica una estimación sobre una carta SIN gradear: una cifra ilustrativa, no una oferta. Para ponerle precio a un slab que ya tienes en inventario, ve a Inventario › Gradeadas: ahí se fija el precio de mercado real de esas piezas, que es dinero.",
-        "featureOff": "El gancho está apagado (interruptor maestro en M10): puedes capturar la cifra, pero la tienda no la mostrará hasta encenderlo.",
+        "featureOff": "El gancho está apagado (interruptor maestro en «Configuración»): puedes capturar la cifra, pero la tienda no la mostrará hasta encenderlo.",
         "searchLabel": "Buscar carta",
         "searchPlaceholder": "Nombre o número de la carta",
         "searchHint": "Escribe al menos 2 caracteres. Busca en todo el catálogo, no solo en lo publicado.",
@@ -2289,7 +2295,7 @@
           "notEligible": "No destacada",
           "noGroups": "Esta carta no tiene ningún grupo raw publicado. Puedes capturar su estimado igualmente —la fila cuelga de la carta, no del inventario—, pero no se destacará en Compra ni en el home hasta que la publiques.",
           "reason": {
-            "FEATURE_OFF": "El interruptor maestro está apagado (M10).",
+            "FEATURE_OFF": "El interruptor maestro está apagado («Configuración»).",
             "NOT_RAW": "No es un grupo raw.",
             "NOT_PUBLISHED": "La carta no está publicada.",
             "NO_PSA10": "Falta el estimado PSA 10.",
@@ -2666,7 +2672,7 @@
       }
     },
     "m6": {
-      "title": "M6 · Usuarios / KYC",
+      "title": "Usuarios",
       "subtitle": "Consulta usuarios, su ficha 360° y gestiona KYC y bloqueo.",
       "searchLabel": "Buscar (correo o nombre)",
       "view": "Ver ficha",
@@ -2944,7 +2950,7 @@
         },
         "settings": {
           "title": "Cómo se calculan los precios",
-          "subtitle": "Se editan sin redeploy (PUT parcial). Solo se guardan las claves modificadas. Misma validación y auditoría que M10.",
+          "subtitle": "Se editan sin redeploy (PUT parcial). Solo se guardan las claves modificadas. Misma validación y auditoría que «Configuración».",
           "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
           "sealedValueTrend": "Tendencia de valor del sellado",
           "sealedRestockAlerts": "Alertas de reposición de sellado",
@@ -3126,13 +3132,13 @@
       }
     },
     "m10": {
-      "title": "M10 · Config y bitácora",
+      "title": "Configuración",
       "dials": {
         "title": "Diales de configuración",
         "subtitle": "Se editan sin redeploy. Solo se guardan las claves modificadas.",
         "save": "Guardar {count} cambio(s)",
         "saved": "Configuración guardada.",
-        "sealedMovedToM11": "Los diales de precio del sellado (proveedor, fuente de mercado, tendencia, alertas y spreads) se editan ahora en M11 · Sellado.",
+        "sealedMovedToM11": "Los diales de precio del sellado (proveedor, fuente de mercado, tendencia, alertas y spreads) se editan ahora en «Sellado».",
         "labels": {
           "shippingFeeCents": "Tarifa de envío",
           "aportacionPct": "% aportación en especie",
@@ -3162,14 +3168,14 @@
           "off": "Apagado"
         },
         "gradingHook": {
-          "note": "Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas <b>y</b> el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna <b>y</b> tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura y el tope de cartas por corrida se editan en M2 · Catálogo y precios, junto con la lista de revisión — que es la herramienta para una cifra concreta. Ese tope acota <b>cuántas cartas tuyas mira</b> el barrido, no cuántas te cobra el proveedor.",
+          "note": "Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas <b>y</b> el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna <b>y</b> tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura y el tope de cartas por corrida se editan en «Catálogo y precios», junto con la lista de revisión — que es la herramienta para una cifra concreta. Ese tope acota <b>cuántas cartas tuyas mira</b> el barrido, no cuántas te cobra el proveedor.",
           "onTitle": "Encendido: publica cifras y consume créditos",
-          "on": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, todavía nadie lo ha medido.</b> Lo que sí sabemos es el alcance: el barrido mira hasta <b><n>{maxCards, number}</n> cartas tuyas</b> por corrida, <b><n>{runs}</n> corridas al día</b> (ese tope se edita en M2 · Catálogo y precios). Lo que no sabemos es <b>cómo factura el proveedor</b>: si cobra por petición, el techo son <b><n>{credits, number}</n> créditos al día</b> (<n>{maxCards, number}</n> × <n>{perCard}</n> × <n>{runs}</n>); si cobra por carta devuelta, cada petición pide el <b>set entero</b>, el barrido paga <b>todas</b> las cartas de cada set que toque y la factura puede ser <b>varias veces</b> esa cifra. <b>La primera corrida lo mide</b>; hasta entonces, <n>{credits, number}</n> es un techo bajo un supuesto, no un presupuesto. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "on": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, todavía nadie lo ha medido.</b> Lo que sí sabemos es el alcance: el barrido mira hasta <b><n>{maxCards, number}</n> cartas tuyas</b> por corrida, <b><n>{runs}</n> corridas al día</b> (ese tope se edita en «Catálogo y precios»). Lo que no sabemos es <b>cómo factura el proveedor</b>: si cobra por petición, el techo son <b><n>{credits, number}</n> créditos al día</b> (<n>{maxCards, number}</n> × <n>{perCard}</n> × <n>{runs}</n>); si cobra por carta devuelta, cada petición pide el <b>set entero</b>, el barrido paga <b>todas</b> las cartas de cada set que toque y la factura puede ser <b>varias veces</b> esa cifra. <b>La primera corrida lo mide</b>; hasta entonces, <n>{credits, number}</n> es un techo bajo un supuesto, no un presupuesto. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
           "onMeasured": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, ya está medido.</b> El barrido mira hasta <b><n>{maxCards, number}</n> cartas tuyas</b> por corrida, <b><n>{runs}</n> corridas al día</b>, y la corrida medida el {measuredOn} gastó a razón de <b><n>{credits, number}</n> créditos al día</b>. Es una medición, no un supuesto: si cambia el tope, el inventario o el proveedor, vuelve a medirse. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
-          "onNoFigures": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, todavía nadie lo ha medido.</b> Consume créditos en cada corrida. El tope que fijaste en M2 · Catálogo y precios acota <b>cuántas cartas tuyas mira</b> el barrido, <b>no cuántas te cobra el proveedor</b>: cada petición pide el set entero. Cuánto cuesta de verdad lo mide la primera corrida. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "onNoFigures": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, todavía nadie lo ha medido.</b> Consume créditos en cada corrida. El tope que fijaste en «Catálogo y precios» acota <b>cuántas cartas tuyas mira</b> el barrido, <b>no cuántas te cobra el proveedor</b>: cada petición pide el set entero. Cuánto cuesta de verdad lo mide la primera corrida. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
           "audit": "Solo súper-admin · queda en bitácora.",
           "offTitle": "Apagar también deja de actualizar",
-          "off": "<b>Para las dos cosas a la vez.</b> Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. <b>Para una cifra concreta, este no es el remedio.</b> Una cifra rara se borra en la <review>lista de revisión</review>; si lo que sobra es la promoción, sube el margen mínimo en M2 y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en M2."
+          "off": "<b>Para las dos cosas a la vez.</b> Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. <b>Para una cifra concreta, este no es el remedio.</b> Una cifra rara se borra en la <review>lista de revisión</review>; si lo que sobra es la promoción, sube el margen mínimo en «Catálogo y precios» y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en «Catálogo y precios»."
         }
       },
       "ingest": {
@@ -3235,7 +3241,7 @@
       }
     },
     "m7": {
-      "title": "M7 · Finanzas",
+      "title": "Finanzas",
       "range": {
         "title": "Rango de fechas",
         "subtitle": "Aplica al P&L y al IVA cobrado. Sin rango se usa todo el histórico.",
@@ -3279,7 +3285,7 @@
       }
     },
     "m9": {
-      "title": "M9 · Reportes",
+      "title": "Reportes",
       "range": {
         "title": "Rango de fechas",
         "subtitle": "Cada métrica respeta el rango por su fecha de realización.",
@@ -3288,8 +3294,8 @@
         "clear": "Limpiar rango"
       },
       "metrics": {
-        "title": "Métricas de lanzamiento",
-        "subtitle": "Avance de la beta cerrada frente a las metas N/X/Y/Z.",
+        "title": "Actividad de la tienda",
+        "subtitle": "Conteos en el rango de fechas elegido.",
         "users": "Usuarios activos",
         "salesSettled": "Ventas liquidadas",
         "buylistPaid": "Buylist pagadas",
@@ -3297,7 +3303,7 @@
       },
       "goalPending": "Meta sin fijar",
       "goalProgress": "{current} de {target} · {pct}%",
-      "goalsUnset": "Las metas de lanzamiento (N/X/Y/Z) aún no se fijan; se muestran solo los conteos.",
+      "goalsUnset": "Todavía no hay metas fijadas: se muestran solo los conteos.",
       "export": {
         "title": "Exportar",
         "subtitle": "Descarga los reportes en CSV para análisis externo.",
@@ -3443,7 +3449,7 @@
         "manualValueTitle": "Valor fijado manualmente",
         "fixValue": "Fijar valor…",
         "fixValueLabel": "Valor de mercado (MXN)",
-        "fixValueHelper": "Fija el PRECIO DE MERCADO REAL de estas piezas (p. ej. lo que se vende una PSA 10). Es dinero: alimenta la valuación del inventario y el precio de venta del slab. El valor ESTIMADO «si se gradea» de una carta SIN gradear no se captura aquí, sino en M2 · Precios › Capturar estimado a mano.",
+        "fixValueHelper": "Fija el PRECIO DE MERCADO REAL de estas piezas (p. ej. lo que se vende una PSA 10). Es dinero: alimenta la valuación del inventario y el precio de venta del slab. El valor ESTIMADO «si se gradea» de una carta SIN gradear no se captura aquí, sino en «Catálogo y precios» › Capturar estimado a mano.",
         "intentNote": "Lo que se fija aquí es dinero real (precio de mercado del slab), no un estimado.",
         "fixValueSave": "Guardar",
         "fixValueCancel": "Cancelar",

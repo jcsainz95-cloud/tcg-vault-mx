@@ -18349,3 +18349,53 @@ deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
 - M3 `t(reasonKey)` sin respaldo ⇒ 1/19 roja («matchStatus desconocido…»).
 - M4 `rejected = matched && !src` (todo sin imagen se llama «rechazada») ⇒ 1/19 roja («casada sin imageUrl…»).
 - Restaurado ⇒ 19/19.
+
+## §81 · **Paquete de pantallas** — Vender en computadora (P-61, DESIGN_SYSTEM §37.1) y menú del panel sin códigos (P-66 I2, §37.2) (2026-09-28, rama `claude/paquete-pantallas`, base `82ea0f3`)
+
+### §37.1 · P-61 — el carrito vuelve a ser cajón en escritorio
+
+- **Un solo `SellCartDrawer` para todos los tamaños.** Se retiró `useMediaQuery` de `BuylistView` (el hook
+  sigue existiendo: lo usa `FeaturedCarousel`), el `lg:grid-cols-[minmax(0,1fr)_360px]` y el `<aside>` del
+  panel fijo de P-42. Los dos disparadores se montan siempre y los esconde el CSS: FAB `lg:hidden`
+  (`SellCartFab`), barra `hidden lg:flex` (`SellCartBar`, nueva, en la carpeta de la ruta).
+- **Una sola función para el total:** `buylist/CartTotalFigure.tsx` tiene las tres ramas (recotizando/fallida
+  ⇒ «—» · todo pendiente ⇒ versalita · importe) y la usan el bloque de dinero del cajón (`size="hero"`, 26 px)
+  y la barra (`size="bar"`, 20 px). `testIdScope` distingue las dos superficies (`sell-cart-total*` /
+  `sell-cart-bar-total*`), porque en jsdom conviven en el DOM.
+- **Anfitriones (regla de «exactamente uno», decidida en `BuylistView`):**
+  `shippingNoteHost = requestOpen ? 'createStep' : drawerOpen ? 'cart' : 'header'` (sin `isDesktopCart`);
+  `requirementsHost = drawerOpen ? 'cart' : 'header'`, con la instancia de cabecera en `hidden lg:block`
+  (`data-testid="buylist-header-requirements"`), después de la nota y antes de «Guía de envío seguro».
+- **Retorno de foco:** `openerRef` (en `BuylistView`) apunta al disparador que abrió el cajón y se fija ANTES
+  de abrir (el cajón lo lee al montarse). FAB y barra fijan su propio botón; el CTA del bounty captura
+  `document.activeElement` al pulsarlo (antes del `await` del batch) y, si el clic no lo enfocó (Safari),
+  cae al disparador visible de su tamaño (`matchMedia` solo para ESO, nunca para elegir contenedor).
+  `SellCartDrawer.returnFocusRef` se ensanchó a `RefObject<HTMLElement | null>` y ganó `id` (para el
+  `aria-controls` de la barra).
+- **Decisión propia, fuera del texto de §37.1:** la barra es `fixed` de 64 px y el pie legal del layout va
+  DESPUÉS de la vista, así que al final del scroll lo taparía. `globals.css` reserva 64 px al `body` en `≥ lg`
+  solo mientras existe la barra (`body:has([data-sell-cart-bar])`). Sin JS ni tocar el layout.
+- **Medido en navegador** (`next build` + `next start` con mocks, Chromium; `getBoundingClientRect().width` de
+  las 5 primeras tejas de Base Set): antes (`82ea0f3`) **144 px** a 1280×800 y **122 px** a 1024×768, con
+  `aside`=1; después **216 px** y **212 px**, `aside`=0, barra visible y FAB oculto. Coincide con la
+  aritmética de §37.1.
+- **Candados:** vitest P61-1…P61-5 en `BuylistView.test.tsx` (describe «P-61»); Playwright P61-1 (ancho ≥ 200
+  px a 1280 y 1024, barra de 64 px pegada al borde, FAB oculto; FAB visible y barra oculta a 390), P61-3 y
+  P61-5 en `e2e/buylist.spec.ts`. Sin `mockOnly` nuevos (usa `openBaseSet`, env-agnóstico). Los helpers
+  `openCart` de `buylist.spec.ts` y `sell-cart-persist.spec.ts` pulsan el disparador VISIBLE; las aserciones
+  sobre «Valor de tus cartas» se acotan al cajón (la barra también lo rotula).
+
+### §37.2 · P-66 I2 — menú por nombre
+
+- `AdminSidebar`: grupos `daily` / `stock` / `storefront` / `administration` en el orden de §37.2b, «Resumen»
+  solo arriba sin rótulo (`groupKey: null`). Se exporta `ADMIN_MENU_ITEMS` (lista plana en orden) para el
+  candado. Se retiraron las claves de grupo `operation` / `pricing` / `finance` (solo las usaba el menú).
+- **El `h1` de cada página lee `admin.modules.<key>`** (una sola fuente, no dos cadenas iguales que puedan
+  divergir). Las claves `admin.<módulo>.title` se conservan con el mismo texto que el menú porque siguen
+  alimentando toasts y `aria-label` de pestañas (M1, M5, M11) y las usan specs E2E.
+- Barrido de copy: `grep -nE '\bM1?[0-9]\b' messages/{es,en}.json` = **0 / 0**. Ninguna referencia resultó
+  legítima. ES usa «…» y EN “…” para el nombre dentro de frase. SÚPER y «Meta Battle Decks» intactos.
+- M9: «Actividad de la tienda» / “Store activity” + subtítulo y `goalsUnset` de §37.2d.
+- **Candados:** `src/app/[locale]/(admin)/admin/AdminPageTitles.test.tsx` — P66-1, P66-2 (una prueba por ruta,
+  renderizando el `page.tsx` real), P66-3 (el grep, en prueba), el orden/grupos/SÚPER del menú en es y en,
+  y los textos de M9.

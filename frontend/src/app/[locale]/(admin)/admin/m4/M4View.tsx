@@ -103,6 +103,7 @@ const MANUAL_TRANSITIONS: Partial<Record<ShipmentStatus, ShipmentStatus[]>> = {
 
 export function M4View() {
   const t = useTranslations('admin.m4');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const ts = useTranslations('shipments');
   const tStatus = useTranslations('status.shipment');
   const tc = useTranslations('common');
@@ -188,7 +189,7 @@ export function M4View() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m4')}</h1>
 
       {/*
         * «Pedidos a preparar» (contrato §M4-PREP): tarjeta por PEDIDO y dos cubetas. Sustituye a la

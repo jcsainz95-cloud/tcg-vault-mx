@@ -89,6 +89,7 @@ interface EditingState {
 
 export function BountiesView() {
   const t = useTranslations('admin.m2.bounties');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tRoot = useTranslations();
   const locale = useLocale() as AppLocale;
   const getError = useErrorMessage('operator');
@@ -373,7 +374,7 @@ export function BountiesView() {
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-3">
         <p className="eyebrow">{t('eyebrow')}</p>
-        <h1 className="font-serif text-h1">{t('title')}</h1>
+        <h1 className="font-serif text-h1">{tModules('m2Bounties')}</h1>
         <p className="max-w-3xl text-sm leading-relaxed text-muted">{t('lead')}</p>
       </header>
 

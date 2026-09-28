@@ -91,6 +91,7 @@ interface DrawerState {
 
 export function M1View() {
   const t = useTranslations('admin.m1');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tInv = useTranslations('admin.inventory');
   const queryClient = useQueryClient();
   const { isSuperAdmin } = useRole();
@@ -241,7 +242,7 @@ export function M1View() {
 
       {/* Header: título + buscador por folio SIEMPRE visible en las tres pestañas. */}
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-h1 font-bold">{t('title')}</h1>
+        <h1 className="text-h1 font-bold">{tModules('m1')}</h1>
         <div className="flex w-full flex-col md:w-auto">
           <div className="flex items-end gap-2">
             <Input

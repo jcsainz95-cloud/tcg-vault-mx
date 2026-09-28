@@ -324,9 +324,10 @@ test.describe('§24.5 · el monograma', () => {
       return { box, fontSize, glyphs };
     };
 
-    // 640 → 3 columnas ⇒ placa ~181px · 1024 → 4 columnas en la MISMA columna estrecha del
-    // cotizador ⇒ placa ~116px (más pequeña que en móvil: es el hallazgo I-2 de QA sobre §24.4,
-    // reportado a ux-ui). Sirven justo por eso: son dos placas de tamaños muy distintos.
+    // 640 → 3 columnas ⇒ placa ~181px · 1024 → 4 columnas. Hasta P-61 el cotizador compartía el
+    // ancho con la columna fija del carrito y la placa quedaba en ~116px (hallazgo I-2 de QA sobre
+    // §24.4); desde §37.1 el cotizador va a todo el ancho y ese número ya no aplica (el nuevo NO se
+    // midió aquí). La prueba no depende de él: exige que las dos placas difieran > 30 px.
     await page.setViewportSize({ width: 640, height: 900 });
     await openSetIndex(page);
     await settleLogos(page);
