@@ -55,9 +55,34 @@ function normalizeNumber(n: string): string {
   return t.toUpperCase();
 }
 
+/** Resultado del casado de la PORTADA del deck (rev `decks-portada`, ARCHITECTURE §12.4.2). */
+export interface CoverMatch {
+  /** Nunca `unmatched_basic_energy`: la línea sintética siempre lleva set+número. */
+  matchStatus: MetaMatchStatus;
+  /** Sólo si `matchStatus === 'matched'`; `null` en `ambiguous`/`unmatched_*` (no se auto-resuelve). */
+  card: (Card & { set: CardSet }) | null;
+}
+
 @Injectable()
 export class DeckMatcherService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * rev `decks-portada` (§12.4.2) — casa la PORTADA de Limitless («TWM-25») con el MISMO motor que las
+   * 60: DELEGA en `matchLines` con UNA línea sintética (`quantity:1`, `pokemon`, no básica), así que la
+   * tolerancia `25`↔`025`, el case-insensitive del set y los estados son idénticos por construcción.
+   * ⛔ No hay segunda implementación de `normalizeNumber` ni de la búsqueda por `ptcgoCode`.
+   * La línea sintética vive sólo aquí: NUNCA entra al arreglo `lines` del deck.
+   */
+  async matchCover(cover: { setCode: string; number: string }): Promise<CoverMatch> {
+    const [m] = await this.matchLines([
+      { quantity: 1, name: `${cover.setCode}-${cover.number}`, setCode: cover.setCode, number: cover.number, group: 'pokemon', isBasicEnergy: false },
+    ]);
+    return {
+      matchStatus: m.matchStatus,
+      card: m.matchStatus === MetaMatchStatus.matched ? m.matchedCard : null,
+    };
+  }
 
   async matchLines(lines: ParsedLine[]): Promise<MatchedLine[]> {
     if (lines.length === 0) return [];

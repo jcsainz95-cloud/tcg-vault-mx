@@ -204,6 +204,77 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
     });
   });
 
+  /**
+   * rev `decks-portada` (API_CONTRACT §13 «Portada del deck», ARCHITECTURE §12.4.6 S1/P7).
+   */
+  describe('portada del deck (§12.4) — S1 listPublished lee coverCard · P7 curaduría no escribe portada', () => {
+    const coverCard = card({ id: 'twm-25', externalId: 'sv6-25', name: 'Portada', imageLargeUrl: 'https://img/twm-25.png' });
+
+    it('S1 · deck cuyo nombre no casa nada + lista con coverCard casada ⇒ imageUrl = la portada', async () => {
+      const catalog = { getSellableRawUnitsByCardIds: jest.fn(async () => new Map()) } as unknown as CatalogService;
+      const findMany = jest.fn(async (args: any) => {
+        // El mock HONRA el include: la portada sólo llega si el servicio la pide.
+        const wantsCover = Boolean(args?.include?.currentList?.include?.coverCard);
+        return [
+          {
+            slug: 'basic-box',
+            name: 'Basic Box',
+            rank: 1,
+            sharePct: null,
+            trend: null,
+            imageCardId: null,
+            currentList: {
+              fetchedAt: new Date('2026-09-20T00:00:00Z'),
+              ...(wantsCover ? { coverCard } : {}),
+              cards: [
+                { quantity: 1, group: 'pokemon', matchStatus: 'matched', matchedCard: card({ id: 'fez', externalId: 'fez', name: 'Fezandipiti ex', imageLargeUrl: 'https://img/fez.png' }) },
+                { quantity: 2, group: 'pokemon', matchStatus: 'matched', matchedCard: card({ id: 'tera', externalId: 'tera', name: 'Terapagos ex', imageLargeUrl: 'https://img/tera.png' }) },
+              ],
+            },
+          },
+        ];
+      });
+      const prisma = { metaDeck: { findMany } } as unknown as PrismaService;
+      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService);
+      const res = await svc.listPublished();
+      expect(res.data[0].imageUrl).toBe('https://img/twm-25.png');
+      // Forma del DTO SIN cambio: la teja no gana campos por la portada.
+      expect(Object.keys(res.data[0]).sort()).toEqual(['availableCount', 'imageUrl', 'name', 'rank', 'slug', 'totalCount']);
+    });
+
+    it('P7 · curaduría manual ⇒ la lista nueva nace con las 4 columnas de portada en null (no copia la anterior)', async () => {
+      const oldList = { id: 'old-list', coverSetCode: 'TWM', coverNumber: '25', coverMatchStatus: 'matched', coverCardId: 'twm-25' };
+      const created: any[] = [];
+      const tx = {
+        metaDeck: {
+          upsert: jest.fn(async () => ({ id: 'deck-1', currentListId: 'old-list' })),
+          update: jest.fn(async () => ({})),
+          findUnique: jest.fn(async () => ({ id: 'deck-1', currentListId: 'old-list', currentList: oldList })),
+        },
+        metaDeckList: {
+          findUnique: jest.fn(async () => oldList),
+          findFirst: jest.fn(async () => oldList),
+          create: jest.fn(async ({ data }: any) => { created.push(data); return { id: 'new-list' }; }),
+          update: jest.fn(async () => ({})),
+        },
+        metaFetchRun: { create: jest.fn(async () => ({})) },
+      };
+      const prisma = { $transaction: jest.fn(async (cb: any) => cb(tx)), metaDeckList: tx.metaDeckList } as unknown as PrismaService;
+      const matcher = { matchLines: jest.fn(async () => [{ ...matchedLine(), matchedCard: card() }]) } as unknown as DeckMatcherService;
+      const svc = new DecksMetaService(prisma, { getSellableRawUnitsByCardIds: jest.fn() } as unknown as CatalogService, matcher);
+      await svc.adminCreateOrCurate({ slug: 'dragapult', name: 'Dragapult', listText: '4 Dragapult ex TWM 130' });
+      expect(created).toHaveLength(1);
+      const d = created[0];
+      expect({
+        coverSetCode: d.coverSetCode ?? null,
+        coverNumber: d.coverNumber ?? null,
+        coverMatchStatus: d.coverMatchStatus ?? null,
+        coverCardId: d.coverCardId ?? null,
+        coverCard: d.coverCard ?? null,
+      }).toEqual({ coverSetCode: null, coverNumber: null, coverMatchStatus: null, coverCardId: null, coverCard: null });
+    });
+  });
+
   describe('getBySlug', () => {
     it('slug desconocido ⇒ 404 DECK_NOT_FOUND', async () => {
       const catalog = { getSellableRawUnitsByCardIds: jest.fn(async () => new Map()) } as unknown as CatalogService;

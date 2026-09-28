@@ -138,7 +138,15 @@ export class DecksMetaService {
     const decks = await this.prisma.metaDeck.findMany({
       where: { published: true, pausedByOperator: false },
       orderBy: [{ rank: 'asc' }, { createdAt: 'asc' }],
-      include: { currentList: { include: { cards: { include: { matchedCard: { include: { set: true } } } } } } },
+      // `coverCard` = portada de Limitless casada por el job (rev `decks-portada`, §13): regla 2 de la teja.
+      include: {
+        currentList: {
+          include: {
+            coverCard: true,
+            cards: { include: { matchedCard: { include: { set: true } } } },
+          },
+        },
+      },
     });
 
     // Piezas de TODAS las cartas casadas de TODOS los decks, en UN lote (sin N+1 por deck).
@@ -175,7 +183,12 @@ export class DecksMetaService {
         ...(fromPriceMxnCents > 0 ? { fromPriceMxnCents } : {}),
         availableCount,
         totalCount,
-        imageUrl: pickDeckImage(deck.name, deck.imageCardId, cards),
+        imageUrl: pickDeckImage({
+          deckName: deck.name,
+          imageCardId: deck.imageCardId,
+          coverCard: deck.currentList?.coverCard ?? null,
+          cards,
+        }),
       };
     });
 

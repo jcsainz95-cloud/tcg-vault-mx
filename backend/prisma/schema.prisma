@@ -763,6 +763,9 @@ model Card {
   // sale del catálogo NO borra la línea del deck (la línea guarda el crudo set+número, procedencia).
   // Es LECTURA; el matcher escribe `matchedCardId` sólo al emparejar por `ptcgoCode`+`number`.
   metaDeckCards              MetaDeckCard[]
+  // rev `decks-portada` (M-60): inversa de `MetaDeckList.coverCard`. Solo lado Prisma (sin columna).
+  // Si la carta sale del catálogo, la portada queda en null (ON DELETE SET NULL) y conserva su crudo.
+  metaDeckListCovers         MetaDeckList[] @relation("MetaDeckListCover")
 
   @@index([setId])
   @@index([name])
@@ -1833,6 +1836,17 @@ model MetaDeckList {
   supersededById      String? // apunta a la lista que la reemplazó
   cards               MetaDeckCard[]
   currentOf           MetaDeck?      @relation("CurrentList")
+  // rev `decks-portada` (M-60, ARCHITECTURE §12.4.3, API_CONTRACT §13 «Portada del deck»): la PORTADA
+  // que Limitless pinta para el arquetipo en la MISMA foto de la home que produjo esta lista
+  // (`a.leader-image > img[alt="SET-NÚM"]`). Crudo + resultado del casado (mismo motor que las 60).
+  // Invariantes (único escritor: `DecksMetaRefreshService.persistDeck`): las tres primeras son todas
+  // null o todas no-null; `coverCardId ≠ null ⇒ coverMatchStatus = matched`. Curaduría manual ⇒ null.
+  // ⛔ Nunca se guarda la URL de imagen de Limitless (nunca arte externo). Sin índice: se lee lista→carta.
+  coverSetCode        String? // crudo del alt («TWM»); null ⇔ sin portada
+  coverNumber         String? // crudo («25», SIN normalizar); null ⇔ sin portada
+  coverMatchStatus    MetaMatchStatus? // null ⇔ sin portada; si no, el estado del casado
+  coverCardId         String? // solo si coverMatchStatus = matched
+  coverCard           Card?          @relation("MetaDeckListCover", fields: [coverCardId], references: [id], onDelete: SetNull)
 
   @@index([deckId, fetchedAt])
 }

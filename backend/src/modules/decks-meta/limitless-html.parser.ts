@@ -31,6 +31,17 @@ export interface HomeLeader {
   sharePct: number | null;
   listId: string | null;
   sourceTournament: string | null;
+  /**
+   * rev `decks-portada` (ARCHITECTURE §12.4.1): la PORTADA que Limitless pinta para el arquetipo, leída
+   * SOLO del `alt` de `a.leader-image img` («TWM-25»). `number` CRUDO (el casado normaliza). `null` si el
+   * `alt` falta o no valida. ⛔ El `src` NO se usa (arte externo, y una 2.ª fuente que puede discrepar).
+   */
+  cover: HomeLeaderCover | null;
+}
+
+export interface HomeLeaderCover {
+  setCode: string;
+  number: string;
 }
 
 export interface HomeIndexResult {
@@ -45,6 +56,20 @@ const RANK_NAME = /^(\d+)\.\s*(.+)$/;
 const SHARE = /([\d.]+)\s*%/;
 const FORMAT_IN_H2 = /Top Decks\s*\(([A-Za-z-]+)\)/;
 const FORMAT_IN_HREF = /[?&]format=([A-Za-z-]+)/;
+/**
+ * `alt` de la portada: `SET-NÚM`. El set se separa por el ÚLTIMO guion (el grupo 1 es codicioso y
+ * admite guiones internos, «SV-P-12» ⇒ SV-P / 12). Cotas: set ≤ 10, número ≤ 8, total ≤ 20.
+ */
+const COVER_ALT = /^([A-Za-z0-9][A-Za-z0-9-]{0,9})-([A-Za-z0-9]{1,8})$/;
+const COVER_ALT_MAX_LEN = 20;
+
+/** Portada desde el `alt` (ya recortado). Lo que no valide ⇒ `null` (no toca el resto del bloque). */
+export function parseCoverAlt(alt: string | undefined | null): HomeLeaderCover | null {
+  const v = (alt ?? '').trim();
+  if (!v || v.length > COVER_ALT_MAX_LEN) return null;
+  const m = COVER_ALT.exec(v);
+  return m ? { setCode: m[1], number: m[2] } : null;
+}
 
 export function parseHomeIndex(html: string): HomeIndexResult {
   const $ = load(html);
@@ -77,6 +102,12 @@ export function parseHomeIndex(html: string): HomeIndexResult {
   blocks.each((_i, el) => {
     leaders.push(parseLeaderBlock($, el));
   });
+
+  // Aviso operativo (§12.4.1): hay bloques pero NINGUNA portada válida ⇒ posible cambio de markup del
+  // tercero. NO es un check del canario: la portada nunca bloquea (la teja cae a la regla por nombre).
+  if (blocks.length > 0 && leaders.every((l) => l.cover === null)) {
+    logger.warn(`portada: ${blocks.length} bloques .leader y ninguna portada válida en a.leader-image img[alt] (¿cambió el markup?).`);
+  }
 
   return { formatCode, leaders, totalBlocks: blocks.length };
 }
@@ -120,7 +151,10 @@ function parseLeaderBlock($: CheerioAPI, el: AnyNode): HomeLeader {
   const tournamentDiv = decklistAnchor.find('div').not('.text-sm').last();
   const sourceTournament = tournamentDiv.length > 0 ? tournamentDiv.text().trim() || null : null;
 
-  return { archetypeId, name, rank, sharePct, listId, sourceTournament };
+  // Portada: fuente ÚNICA = `alt` del img de a.leader-image (§12.4.1).
+  const cover = parseCoverAlt(block.find('a.leader-image img').first().attr('alt'));
+
+  return { archetypeId, name, rank, sharePct, listId, sourceTournament, cover };
 }
 
 function matchId(value: string, re: RegExp): string | null {

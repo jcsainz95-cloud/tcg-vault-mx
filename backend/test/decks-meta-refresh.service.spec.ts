@@ -36,6 +36,8 @@ function fakeMatcher(): DeckMatcherService {
         };
       }),
     ),
+    // rev `decks-portada`: la home real trae portada; este fake no la casa (cubierto en decks-meta-portada.spec).
+    matchCover: jest.fn(async () => ({ matchStatus: 'unmatched_set', card: null })),
   } as unknown as DeckMatcherService;
 }
 

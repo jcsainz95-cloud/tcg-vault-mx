@@ -136,4 +136,30 @@ describe('DeckMatcherService (DECKS-META §3.2) — empareja por ptcgoCode + nú
     expect(out).toHaveLength(0);
     expect((prisma.card.findMany as jest.Mock)).not.toHaveBeenCalled();
   });
+
+  /**
+   * rev `decks-portada` (ARCHITECTURE §12.4.2) — `matchCover`: la portada de Limitless se casa con el
+   * MISMO motor que las 60 (delegando en `matchLines`), así que su tolerancia `4`↔`004` y sus estados
+   * son idénticos. Lo que no casa ⇒ `card:null` (no se auto-resuelve).
+   */
+  describe('matchCover (portada del deck)', () => {
+    it('número sin ceros contra BD con ceros (TWM-4 ↔ «004») ⇒ matched + la carta', async () => {
+      const out = await svc().matchCover({ setCode: 'TWM', number: '4' });
+      expect(out).toMatchObject({ matchStatus: 'matched', card: { id: 'card-budew' } });
+    });
+
+    it('set en minúsculas casa igual que en las 60', async () => {
+      const out = await svc().matchCover({ setCode: 'twm', number: '130' });
+      expect(out.card?.id).toBe('card-dragapult');
+    });
+
+    it.each([
+      [{ setCode: 'ZZZ', number: '1' }, 'unmatched_set'],
+      [{ setCode: 'TWM', number: '999' }, 'unmatched_number'],
+      [{ setCode: 'PR', number: '1' }, 'ambiguous'],
+    ])('%j ⇒ %s y card:null', async (cover, status) => {
+      const out = await svc().matchCover(cover);
+      expect(out).toEqual({ matchStatus: status, card: null });
+    });
+  });
 });
