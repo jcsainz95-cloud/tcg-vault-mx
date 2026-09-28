@@ -12592,3 +12592,71 @@ produce ningún estado que el contrato no declare. `VLT-2` es decisión del due�
 quedan enrutados a backend (y al arquitecto, en el segundo caso) con su disparador.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-28 · candidato `db7d1c2` · §M4-VAULT v1.79.4 · **APROBADO CON CONDICIONES**
+
+# Stream bóveda M4-VAULT — re-verificación de C1 · sha `f2981e1` (rama `claude/m4-boveda`) · 2026-09-28
+
+> Medido por mí (seguridad) el **2026-09-28** sobre copias del árbol ENTERO (`git archive f2981e1`, limpio y mutante)
+> en `scratchpad/sec-vault2/`, BD propias `tcg_secvault2` / `tcg_secvault2_mut` (rol `secvault2`), Postgres 16; antes
+> de crearlas, `pg_stat_activity` sin sesiones sobre `%secvault%`. El canario del arnés filtra por
+> `current_database()`, así que la corrida en paralelo de QA sobre su BD no lo contamina.
+
+## C1 — prueba 40 (contracargo firmado vs verbo, §M4-VAULT.8 v1.79.5) · **CERRADA**
+
+| Corrida | Qué cambia | 40(a) | 40(b) | 40(c) | 40(d) | e1/e2 |
+|---|---|---|---|---|---|---|
+| limpio (suite de carreras entera) | nada | **10/10** | **10/10** | **10/10** | **10/10** | verdes · suite 14/14 |
+| **m-a** (condición C1) | sin `status:'pending'` en `vault-placement.service.ts:463` | **0/10 — ROJA** | 10/10 | 10/10 | 10/10 | verdes |
+| m-b | ídem `:510` (reclamo, paso 8) | 10/10 | **0/10 — ROJA** | 10/10 | 10/10 | verdes |
+| m-c | ídem `:330` (`POST …/prepared`) | 10/10 | 10/10 | **0/10 — ROJA** | 10/10 | verdes |
+| m-d | ídem `:380` (`DELETE …/prepared`) | 10/10 | 10/10 | 10/10 | **0/10 — ROJA** | verdes |
+
+N=10 por caso y por corrida; «sin entrelazado observado» **0/10** en todas (el arnés vio a A y a A+B esperando
+candado de FILA en cada tirada). Cada mutación muerde **solo** su caso: la prueba discrimina, no es un rojo genérico.
+
+Forma del rojo (coincide con la derivada en el contrato y con `BACKEND_NOTES §7`):
+- **m-a:** B `200 nothing_to_place`; la fila acaba `cancelled/nothing_to_place` **con el operador como autor** y 1
+  bitácora; la orden sí queda `chargeback`. Es exactamente el riesgo de `SEC-VLT-TL`: el rastro del contracargo se
+  reescribe como un cierre operativo.
+- **m-b:** B `500 INTERNAL`, fila `cancelled/chargeback` intacta y **0** movimientos: el CHECK de BD frena el daño
+  (defensa en profundidad), pero el `500` lo caza la prueba.
+- **m-c:** B `200 prepared` sobre la fila cancelada (escribe `preparedAt`, 1 bitácora).
+- **m-d:** B `200 unprepared` sobre la fila cancelada (borra `preparedAt`, 1 bitácora).
+
+Revisé el arnés: el webhook va **firmado** (`sendStripeWebhook`), la barrera es un candado de fila real sobre
+`VaultPlacement`, y el canario (`waitRowBlocked`, `wait_event IN ('transactionid','tuple')`) excluye la puerta
+advisory; una tirada sin entrelazado no cuenta y la prueba exige 0 de ésas. m-e (`payments.service.ts:895`) y m-gate
+**no** las repetí: quedan como medición de backend (`BACKEND_NOTES §7`), no mía.
+
+## `payments.service.ts:180-189` — log del fallo al borrar el marcador de Stripe · **correcto**
+- La semántica no cambia: se sigue propagando el error **original** (⇒ `5xx` ⇒ Stripe reintenta). Solo el `.catch`
+  del borrado pasa de tragarse a `logger.error`.
+- El log lleva `event.id`, `event.type` y el mensaje del error de Prisma: ni PII ni secretos (el `WHERE` es el
+  `event.id`). Aceptable.
+- Medido: unidad `payments.service.spec.ts` **16/16** en limpio; con la mutación «volver a `.catch(() => undefined)`»,
+  **roja 1/16** (la de `SEC-VLT-DL`). Determinista, N=1 basta.
+- Sigue **NO MEDIDO** con fallo inyectado en integración, y un log no reintenta: está dicho en la deuda.
+
+## `SEC-VLT-DL` — registrado como aceptado · **correcto**
+`docs/TECH_DEBT.md` (en `f2981e1`) lo lleva como **ACEPTADO** por el arquitecto (`API_CONTRACT §M4-VAULT.5`, v1.79.5),
+con qué, riesgo residual (la dependencia del borrado del marcador y que el reproceso es manual), dueño («Órdenes y
+dinero») y **disparador** (un `40P01` en producción, el siguiente cambio a `onChargeDisputeVault`, o ese log en
+producción). Cumple lo que pedí.
+
+## Resto del delta `db7d1c2..f2981e1`
+Backend de producción: solo el cambio de arriba más comentarios/JSDoc (`shipments.service.ts`, `preparation-view.ts`),
+sin código ejecutable nuevo. Frontend: reordenación de módulos de `/admin/vaults` y textos; sin `innerHTML`, sin
+almacenamiento de tokens, sin llamadas nuevas a la API. Nada nuevo que revisar desde seguridad.
+
+## Pendiente que no cambia
+- **C2** (`VLT-3`, con disparador) sigue como estaba: no condiciona la fusión.
+- `SEC-RESET-TV` (Media) y `SEC-SETTLE-LATE` (Baja): anteriores al stream, siguen enrutados y con su bandera.
+
+## VEREDICTO
+
+### **APROBADO** sobre `f2981e1`
+
+C1 queda cerrada y medida por mí: la mutación de `:463` pone roja la 40(a) en **10 de 10** tiradas y el árbol limpio
+pasa **10/10** en los cuatro casos, con el entrelazado confirmado en todas. De paso, las tres mutaciones recomendadas
+(`:510`, `:330`, `:380`) también las muerde cada una su caso, 10 de 10. Cero críticos y cero altos abiertos en el stream.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-28 · candidato `f2981e1` · §M4-VAULT v1.79.5 · **APROBADO**
