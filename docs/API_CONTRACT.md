@@ -18,6 +18,7 @@
 > | **3** | **`pieceCount` (lista) y `counts.total` (vista física) son DOS conceptos y se nombran:** «a su nombre» (perímetro de valuación, conducta previa **intacta**) vs. «deben estar en bóveda» (`settled ∧ in_custody`). Ninguno manda sobre el otro; ⛔ la pantalla no los pinta con el mismo sustantivo | §M1 `GET /admin/vaults`, §Tipos `AdminVaultSummaryDTO`, §M4-VAULT.11 | **Solo frontend (copy)**; backend nada |
 > | **4** | **Errata de ruta:** la lista de ubicaciones es `GET /api/v1/admin/locations` (medido: `inventory.controller.ts` `@Controller('admin')` + `@Get('locations')`), ⛔ no `/admin/inventory/locations`. Y se **declara `VaultLocationDTO`** (con `isActive`), que el backend ya emite (`inventory.service.ts` · `toVaultLocationDTO`) | §M4-VAULT.4, §M1 «Ubicaciones» | **No** (el código ya es así) |
 > | **5** | **`SEC-SETTLE-LATE` registrado, NO decidido:** un `payment_intent.succeeded` tardío devuelve una orden `chargeback` a `settled` y reescribe `settledAt` (medido por seguridad en local, N=1). Va al stream «Órdenes y dinero» | §M4-VAULT.2-bis.1, `ARCHITECTURE §4.21q (o)` | **No** (en este stream) |
+> | **6** | **Errata (techlead):** el fallo al borrar la marca de idempotencia de Stripe ⛔ ya no «se traga»: desde `982fddf` se registra con `logger.error` y se propaga el error original (`payments.service.ts:175-191`, leído) | §M4-VAULT.5 «Riesgo residual» | **No** (el código ya es así) |
 >
 > **Lo que NO cambia:** todo v1.79.4 (settle CAS, pruebas 35–39); los cuatro verbos y sus tablas de respuesta; el
 > contracargo de bóveda (sigue cancelando **al final** de su tx); `GET /admin/vaults` (filtro, orden, valuación).
@@ -16315,8 +16316,10 @@ sobre la **misma** fila, y el `CHECK` `placed ⇒ preparedAt NOT NULL`). Tabla e
   **Disparador:** un `40P01` en registros de producción, **o** el siguiente cambio a `onChargeDisputeVault`. Entonces
   entra con una variante de la prueba 40 en el orden «`confirm` primero» que exija **cero** `40P01` en N≥10.
   **Riesgo residual que NO es de este stream, dicho:** la recuperación depende de que el borrado del marcador no falle;
-  hoy su error se traga (`payments.service.ts` · `.catch(() => undefined)` tras fallo del handler — seguridad, ⛔ NO
-  MEDIDO con fallo inyectado). Loguearlo con nivel `error` es de «Órdenes y dinero» (`ARCHITECTURE §4.21q (o)`).
+  si falla, la marca se queda y el reintento de Stripe se ignora como «ya procesado». ⭐ *Errata v1.79.5:* desde
+  `982fddf` ese fallo ⛔ ya NO se traga: se registra con `logger.error` (evento, tipo y «requiere reproceso manual») y
+  se sigue propagando el error **original** del handler (`payments.service.ts:175-191`, leído; ⛔ NO MEDIDO con fallo
+  inyectado). Lo que queda —reproceso automático del evento perdido— es de «Órdenes y dinero» (`ARCHITECTURE §4.21q (o)`).
 
 ##### M4-VAULT.6 — Qué le pasa a la pieza entre la liquidación y la colocación (y el contracargo)
 
