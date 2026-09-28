@@ -22013,6 +22013,26 @@ su bóveda?* **Es política de negocio sobre dinero en disputa, y la contesta el
 > `inventoryItemId`, §4-G): estos endpoints devuelven los `inventoryItemId` a agregar; **no** hay carrito
 > servidor nuevo. Precio y piezas se **reusan** de §2 (ficha/`units`, `getReferencesBatch`) — no se reinventan.
 
+> **Changelog §13 · rev `decks-portada` (2026-09-28, arquitecto; rama `claude/decks-portada` desde `13acdb2`).**
+> Origen: decisión del dueño (2026-09-28, `HECHOS.md` de `claude/m4-boveda`): *la imagen de cada deck es la
+> **portada que usa Limitless**; si no se puede, la regla por nombre de respaldo con «**manda el primero
+> nombrado**», sea ex o no; la elección del admin (`imageCardId`) sigue ganando*. Cierra la propuesta de
+> `TECH_DEBT.md` «TD-2 (arreglos-rápidos)» salvo el punto V/VSTAR/GX (fuera de alcance, sigue abierto). No es
+> zona de dinero. Diseño y razones: `ARCHITECTURE.md §12.4`.
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | **`imageUrl` de la teja pasa a tener regla NORMATIVA** (antes «decisión de implementación»): admin › **portada Limitless casada** › nombre («primero nombrado») › ex con más copias › Pokémon con más copias › `null`. ⛔ **Forma del DTO SIN cambio** | [§13 «Portada del deck»](#portada-del-deck-imageurl--regla-normativa) | **Sí, backend** · frontend **cero** |
+> | **2** | **Regla por nombre: la posición en el nombre manda sobre «ser ex»** («Alakazam Mew» ⇒ Alakazam aunque Mew sea ex). Antes toda ex nombrada ganaba a toda no-ex nombrada | mismo | **Sí, backend** |
+> | **3** | **DDL aditivo: 4 columnas nullable en `MetaDeckList`** (`coverSetCode`, `coverNumber`, `coverMatchStatus`, `coverCardId` + relación a `Card`). Sin backfill | `ARCHITECTURE.md §12.4.3` | **Sí, backend** (migración aditiva) |
+> | **4** | **El ensayo `GET /admin/decks-meta/preview` gana `decks[].cover`** (aditivo) para que el operador vea la portada y si casó ANTES de publicar | [§13 Admin](#admin-rol-vault_operator) | **Sí, backend**; luego frontend (M12, una columna) |
+>
+> **Lo que NO cambia:** **(a)** ⛔ la forma de `GET /decks-meta`, `GET /decks-meta/:slug` y `POST /decks-meta/paste`;
+> **(b)** ⛔ el canario (C1–C5): la portada **nunca** bloquea ni cuenta para publicar; **(c)** ⛔ **nunca arte
+> externo**: la URL de imagen de Limitless **no** se guarda ni se sirve — solo se usa su `set-número` para casar
+> contra NUESTRO catálogo; **(d)** ⛔ la semántica de `imageCardId` del admin (sigue exigiendo que la carta esté en
+> la lista actual; si no, cae a la siguiente regla).
+
 ### Convenciones de esta sección
 - **CONFÍA EN LA FUENTE (SUP-LEG, 2026-09-21, ARCHITECTURE §12.1):** una carta en una decklist de Limitless en
   Standard es **legal por definición de la fuente**. Se ofrece **iff** tenemos la impresión casada en stock. **No
@@ -22044,12 +22064,37 @@ Res `200`:
     "fromPriceMxnCents": 184500, // "desde": suma de disponibles (casadas + stock) con precio; opcional
     "availableCount": 52,        // Σ availableQty de líneas casadas con stock
     "totalCount": 60,
-    "imageUrl": "https://…"      // arte de Card representativa (nunca arte externo)
+    "imageUrl": "https://…"      // arte de NUESTRO catálogo (nunca arte externo); regla abajo; null si nada aplica
   }],
   "updatedAt": "2026-09-14T12:00:00Z",   // fetchedAt de la lista más reciente aplicada
   "source": "Datos de Limitless TCG"
 }
 ```
+
+#### Portada del deck (`imageUrl`) — regla normativa
+*(rev `decks-portada`, 2026-09-28.)* `imageUrl` es **siempre** `imageLargeUrl ?? imageSmallUrl` de una `Card` de
+nuestro catálogo, o `null`. Se elige la **primera** regla que dé una carta **con imagen**:
+
+| # | Regla | Condición para aplicar | Si no aplica |
+|---|---|---|---|
+| **1** | **Elección del admin** — `MetaDeck.imageCardId` | alguna línea de la lista actual trae esa carta casada con imagen (**sin** filtro de grupo: puede ser entrenador) | ⇒ 2 |
+| **2** | **Portada de Limitless** — `MetaDeckList.coverCard` de la lista actual | la home de Limitless dio `set-número` para el arquetipo, **casó** (`matched`) contra el catálogo por `ptcgoCode`+`number` y la carta tiene imagen. ⛔ **No** exige que la carta esté entre las 60 (la portada puede ser otra impresión); ⛔ sin filtro de grupo | ⇒ 3 |
+| **3** | **Por nombre, «manda el primero nombrado»** — entre las Pokémon casadas con imagen de la lista, la que aparece **antes** en el nombre del deck, sea ex o no | alguna casa por palabra completa (nombre completo sin «ex», o especie = última palabra) | ⇒ 4 |
+| **4** | La **ex** con más copias (sumando impresiones) | hay alguna ex elegible | ⇒ 5 |
+| **5** | La **Pokémon** con más copias | hay alguna Pokémon elegible | ⇒ `null` |
+
+**Desempate de la regla 3 (determinista, no depende del orden de las líneas):** (i) posición más temprana en el
+nombre del deck; (ii) coincidencia de nombre completo antes que por especie; (iii) ex antes que no-ex; (iv) más
+copias; (v) nombre normalizado ascendente. Entre impresiones de la misma carta: más copias en su línea, luego
+`externalId` ascendente. Ejemplos normativos: «Alakazam Mew» ⇒ Alakazam; «Mew Alakazam» ⇒ Mew ex; «Excadrill» con
+`Excadrill` y `Mega Excadrill ex` ⇒ `Excadrill` (ii antes que iii); «Pikachu» con `Pikachu` y `Pikachu ex` ⇒
+`Pikachu ex` (iii).
+
+**Portada que no casa** (set sin `ptcgoCode` en catálogo, número inexistente, o `ambiguous`): **no** es error, no
+bloquea nada; se guarda el crudo y su `coverMatchStatus` (procedencia, visible en el ensayo) y la teja cae a la
+regla 3. **Listas sin portada** (curaduría manual `source=manual`, listas anteriores a esta rev, o markup de la home
+sin `alt` válido): `coverMatchStatus=null` ⇒ regla 3. Las listas previas se rellenan **solas** en la siguiente
+corrida viva del job (no hay backfill).
 
 ### GET /api/v1/decks-meta/:slug — `public`
 Deck + disponibilidad por línea. `slug` desconocido ⇒ `404 DECK_NOT_FOUND`. El deck **siempre se muestra**
@@ -22114,3 +22159,17 @@ Res `200`: `{ "inventoryItemIds": ["…", "…"] }`. El front las agrega con `us
   **SEG-DMF1-2** bitácora) se van **con** el endpoint: quedan **moot**, no se pierde ninguna garantía money (ya no
   hay rotación que auditar). **Se conservan** el **dial** (`GET`/`PUT /api/v1/admin/decks-meta/dial`, super_admin,
   auditado + atómico) y `GET /api/v1/admin/decks-meta/preview` — no tienen que ver con legalidad.
+- **`GET /api/v1/admin/decks-meta/preview` — `decks[].cover` (rev `decks-portada`, ADITIVO).** Cada `DeckReport` del
+  ensayo gana:
+  ```jsonc
+  "cover": {                       // null ⇔ la home no trajo portada válida para ese arquetipo, o la lista falló (`error`)
+    "setCode": "TWM",              // crudo del alt de Limitless («TWM-130»), ya validado
+    "number": "130",               // crudo, SIN normalizar (el casado normaliza: «25» ↔ «025»)
+    "matchStatus": "matched",      // matched | ambiguous | unmatched_set | unmatched_number
+    "cardId": "…",                 // null si no casó
+    "imageUrl": "https://…"        // imagen de NUESTRO catálogo de esa carta; null si no casó o no tiene imagen
+  }
+  ```
+  Es solo lectura/procedencia: **no** altera `verdict`, `checks`, `inBand` ni ningún conteo. El frontend lo pinta
+  como una columna «Portada» (miniatura + `SET-NÚM` + estado). Tipo cliente: `cover?: … | null` (tolerante a un
+  backend anterior). La misma información se escribe en la `MetaDeckList` al persistir (modo vivo).
