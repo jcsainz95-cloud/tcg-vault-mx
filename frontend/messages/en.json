@@ -2909,6 +2909,8 @@
           "ambiguous": "several candidate cards"
         },
         "noImage": "no image in the catalog",
+        "rejectedImage": "image rejected (not from our catalog)",
+        "reasonUnknown": "unrecognized reason ({status})",
         "alt": "Cover of {deck}: {code}"
       },
       "deckError": "This deck couldn't be read: {error}",

@@ -2909,6 +2909,8 @@
           "ambiguous": "varias cartas candidatas"
         },
         "noImage": "sin imagen en el catálogo",
+        "rejectedImage": "imagen rechazada (no es de nuestro catálogo)",
+        "reasonUnknown": "motivo no reconocido ({status})",
         "alt": "Portada de {deck}: {code}"
       },
       "deckError": "No se pudo leer este deck: {error}",

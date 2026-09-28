@@ -286,8 +286,36 @@ describe('M12View · columna Portada (decks-portada)', () => {
     expect(srcs.filter((s) => /limitless/i.test(s))).toEqual([]);
     // Y ninguna imagen de otra fuente se cuela: sin imagen propia, queda el pozo vacío.
     expect(srcs).toEqual([]);
-    // Sigue diciendo la verdad del casado: casó, pero sin imagen utilizable del catálogo.
+    // TD-a: dice la verdad — casó y el backend SÍ mandó imagen, pero se rechazó por violar el contrato.
+    // No debe decir «sin imagen en el catálogo» (eso sería falso y escondería el defecto del backend).
+    expect(screen.getAllByText(/imagen rechazada \(no es de nuestro catálogo\)/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/sin imagen en el catálogo/)).toBeNull();
+    // a11y (QA menor 3): sin `<img>` no hay `alt`, pero la celda sigue teniendo nombre accesible.
+    expect(screen.getAllByText('Portada de Dragapult ex: TWM-130').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Portada de Charizard ex: OBF-125').length).toBeGreaterThan(0);
+  });
+
+  it('casada sin imageUrl (legítimo): «sin imagen en el catálogo», NO «rechazada»', async () => {
+    await runWith([
+      deck({ cover: { setCode: 'TWM', number: '130', matchStatus: 'matched', cardId: 'c1', imageUrl: null } }),
+    ]);
     expect(screen.getAllByText(/sin imagen en el catálogo/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/imagen rechazada/)).toBeNull();
+    expect(imgSrcs()).toEqual([]);
+  });
+
+  it('matchStatus desconocido (contrato ampliado): respaldo legible, sin clave i18n cruda', async () => {
+    await runWith([
+      deck({
+        cover: {
+          setCode: 'MEG', number: '56', cardId: null, imageUrl: null,
+          matchStatus: 'future_status' as unknown as 'ambiguous',
+        },
+      }),
+    ]);
+    expect(screen.getAllByText('no casada · motivo no reconocido (future_status)').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/reason\./)).toBeNull();
+    expect(imgSrcs()).toEqual([]);
   });
 
   it('no casada: dice por qué y no pinta imagen', async () => {
@@ -321,5 +349,15 @@ describe('M12View · columna Portada (decks-portada)', () => {
     );
     expect(screen.getAllByText('Cover').length).toBeGreaterThan(0);
     expect(screen.getAllByText('not matched · set not in catalog').length).toBeGreaterThan(0);
+  });
+
+  it('en EN el estado «rechazada» también tiene texto (paridad)', async () => {
+    await runWith(
+      [deck({ cover: { setCode: 'TWM', number: '130', matchStatus: 'matched', cardId: 'c1', imageUrl: LIMITLESS_IMG } })],
+      'en',
+    );
+    expect(screen.getAllByText(/image rejected \(not from our catalog\)/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/no image in the catalog/)).toBeNull();
+    expect(imgSrcs()).toEqual([]);
   });
 });

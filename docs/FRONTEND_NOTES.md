@@ -17525,3 +17525,35 @@ restaurado ⇒ 16/16.
 
 **Storefront: cero cambios** (`git diff -- frontend/src/app/[locale]/(storefront)` vacío; `DecksMetaDeckReport`
 solo lo usa M12).
+
+### §80.1 · Cierre de hallazgos de los gates sobre `DeckCoverCell` (2026-09-28, base `b3dde07`)
+
+**TD-a (techlead) — el estado mentía.** Cuando `isOurCatalogImage` rechazaba una URL, la celda decía
+«casada · sin imagen en el catálogo», que es falso: el backend **sí** mandó imagen, solo que viola el contrato.
+Ahora hay dos estados distintos:
+
+| Caso | Texto (es / en) |
+|---|---|
+| `matched` + `imageUrl` nulo/vacío (legítimo) | `casada · sin imagen en el catálogo` / `matched · no image in the catalog` |
+| `matched` + `imageUrl` presente pero rechazado (no-https o host `*limitless*`) | `casada · imagen rechazada (no es de nuestro catálogo)` / `matched · image rejected (not from our catalog)` (en `text-danger`) |
+
+`isOurCatalogImage` **sigue siendo lista de prohibidos** (no se convirtió en allowlist, por lo dicho arriba) y su
+comentario dice ahora que es **candado de no-regresión, no la garantía**: la garantía de «nunca arte externo» está
+en el backend (solo emite `imageUrl` de nuestro catálogo). Si el candado muerde, la celda lo **dice** en vez de
+callarlo, para que el operador vea el defecto del backend.
+
+**QA menor 3 (a11y).** Sin `src` no se renderiza `<img>` y se perdía el `alt`. Ahora, cuando no hay imagen, la
+celda lleva un `<span class="sr-only">` con el mismo texto del `alt` («Portada de {deck}: {SET-NÚM}»); el estado
+ya era texto visible.
+
+**QA menor 4 (i18n).** El motivo del no-casado usa `t.has('reason.<status>')`; si llega un `matchStatus` que
+este frontend no conoce, pinta `no casada · motivo no reconocido (<status>)` / `not matched · unrecognized reason
+(<status>)` en vez de la ruta i18n cruda.
+
+**Candados y canarios** (`M12View.test.tsx`, medido 2026-09-28 sobre copia del árbol entero en scratchpad;
+deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
+- M1 `rejected = false` (conducta previa) ⇒ 2/19 rojas («NUNCA pinta… Limitless» y la de paridad EN «rechazada»).
+- M2 sin el `sr-only` ⇒ 1/19 roja («NUNCA pinta… Limitless», que ahora exige el nombre accesible).
+- M3 `t(reasonKey)` sin respaldo ⇒ 1/19 roja («matchStatus desconocido…»).
+- M4 `rejected = matched && !src` (todo sin imagen se llama «rechazada») ⇒ 1/19 roja («casada sin imageUrl…»).
+- Restaurado ⇒ 19/19.
