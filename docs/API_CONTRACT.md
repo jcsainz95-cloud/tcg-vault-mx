@@ -2,7 +2,32 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.80.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.80.2**).
+>
+> **Changelog v1.80.2 — DINERO: EL TOPE DEL BOUNTY NO SE CALCULA CONTRA UN MERCADO QUE EL GUARDARRAÍL PREMIUM YA
+> DECLARÓ ROTO (2026-09-28, arquitecto; base v1.80.1, vigente entera salvo lo que esta rev toca). Origen:
+> `BACKEND_NOTES` §0.55.3 (backend, commit `c77ebc8`): chase con mercado corrupto MX$1 y bounty MX$9,000 ⇒ con v1.80
+> literal **cotiza y publica MX$1**, fijado en `pricing.premium-floor-guard.spec.ts`. ⛔ **Sin schema, sin migración, sin
+> endpoint, sin campo, sin código de error nuevo.** Cambia qué sale en una esquina de dinero (chase + bounty topado +
+> curva en el bin).**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ Si el bounty **se topa** (`mercado < bounty`) **y** la curva de esa variante cayó al **bin** **y** la rareza es premium ⇒ el guardarraíl dispara como si no hubiera bounty: **`precio_pendiente`**, `quotedPriceCents=null`, cola `premium_at_floor`. Una función pura `bountyGuardBasis` en `money.ts` dice qué `basis` ve el guardarraíl. Sin tope (bounty ≤ mercado) o sin mercado ⇒ **nada cambia** | [§M2-B.11 punto 8](#M2-B11-8) | **Sí, backend** |
+> | **2** | Vitrina: esa fila **no se publica** (se filtra antes de ordenar/cap 50). Consola: `buy.source='pending'`, `buy.premiumAtFloor=true`, `bounty.payoutCents=null`, `cappedByMarket=false`; `state` sigue `activa` | §M2-B.11 punto 8, [`GET /buylist/bounties`](#M2-B11) | con la 1 (frontend: nada) |
+> | **3** | Pruebas **BG-1…BG-8**. La expectativa «MX$1» de `pricing.premium-floor-guard.spec.ts` **se invierte** a `precio_pendiente` | §M2-B.11 punto 8 | con la 1 |
+> | **4** | Errata de texto en `GET /buylist/bounties`: «la cotización es **estrictamente mayor** que la tarifa estándar» dejó de ser cierto con Q1 (v2.2) y con §M2-B.11; se reescribe la garantía | [`GET /buylist/bounties`](#M2-B11) | No (documental) |
+>
+> **Qué cambia para quién:** *Vendedor* — en esa esquina ve «precio pendiente» en vez de MX$1 (como una chase sin
+> bounty). *Dueño* — la ve en la cola de precios con motivo `premium_at_floor`, como hoy cualquier chase con mercado roto;
+> una pregunta **no bloqueante** en ARCHITECTURE §4.36.6e (valor por defecto: pendiente). *Operador* — al ofertar, la
+> línea llega sin derivado (`offerDerivedPriceCents=null`) y pone el precio a mano con motivo (criterio 148(a), sin
+> cambio). *Frontend* — nada.
+>
+> **Lo que NO cambia:** `isBountyEffective` y su tabla de 12 casos; `bountyPayoutCents`; la tabla BC-5 (es de
+> `quoteAcquisitionFromCurve`, que no ve la rareza); el guardarraíl de VENTA; el override (no se topa ni se retiene).
+>
+> ⚠️ *Numeración:* cuelga de la v1.80.1 de esta rama; si otra rama usó «v1.80.2», se renumera al fusionar.
 >
 > **Changelog v1.80.1 — DINERO: `§M2-SK` SK-2 ESTABA MAL CONTADO — HAY CINCO LECTORES MÁS QUE CAEN A `'sealed'`, Y UNO
 > DE ELLOS ES EL PATRIMONIO DEL CLIENTE (2026-09-28, arquitecto; base v1.80, vigente entera salvo lo que esta rev
@@ -6867,6 +6892,9 @@ VariantPricingDTO = { market: MarketReferenceDTO,
                                  payoutCents: number | null,     // ⭐ v1.80 (§M2-B.11): lo que paga HOY = bountyPayoutCents(priceCents, mercado) si effective; null si no
                                  cappedByMarket: boolean } | null }  // ⭐ v1.80: effective ∧ payoutCents < priceCents. INFORMATIVO: no cambia `state` ni alerta
 // ⚠️ v1.80: `bounty.priceCents` sigue siendo lo CONFIGURADO; lo que se paga es `payoutCents` (= `buy.effectiveCents` cuando `buy.source='bounty'`).
+// ⭐⭐ v1.80.2 (§M2-B.11 punto 8): bounty efectivo RETENIDO por el guardarraíl (topado + curva en el bin + premium) ⇒
+//   buy.source='pending', buy.effectiveCents=null, buy.premiumAtFloor=true, bounty.payoutCents=null, bounty.cappedByMarket=false.
+//   `state` sigue 'activa' (isBountyEffective intacta). Se conserva: buy.source === 'bounty' ⇒ payoutCents === buy.effectiveCents.
 
 // <!-- CANON: mercado-de-la-variante · estado: VIGENTE · única fuente · §0-B.3 reglas 8 y 10 · ver ARCHITECTURE §4.42j -->
 //    (marca DENTRO del bloque `ts` a propósito: la fuente única es esta declaración, no una prosa aparte.)
@@ -9671,7 +9699,9 @@ compra = max( bin , mercado × pct(mercado) )        // pct INTERPOLADO; SIN red
   2. **GUARDARRAÍL — rareza premium que aterriza en el BIN** (§4.36.5, criterio 88): que una chase resuelva al bin
      solo puede significar que su dato de mercado está **mal**. Se cotiza `precio_pendiente` y la variante entra a la
      cola con `reason="premium_at_floor"`. **NO** dispara con `priceBasis ∈ {override, bounty}` (decisiones
-     deliberadas del admin, §4.36.6).
+     deliberadas del admin, §4.36.6). ⭐⭐ **v1.80.2 — excepción:** un bounty **topado por el mercado** (§M2-B.11) ya
+     no paga lo que el admin decidió sino **el mercado**; si la curva de esa variante cayó al bin, el guardarraíl
+     evalúa el basis **de la curva** y dispara ⇒ `precio_pendiente` (norma: [§M2-B.11 punto 8](#M2-B11-8)).
 - **`escalatePending` sin cambio de doctrina:** `/quote` y `/quote/batch` siguen siendo **READ-ONLY** (v1.12) — no
   escriben en la cola aunque devuelvan `precio_pendiente`. Quien escala sigue siendo `POST /buylist/requests`.
 - **`appliedRule` RETIRADO del payload** (no hay `{mode,value}`); lo reemplaza `priceBasis`. El snapshot
@@ -9785,8 +9815,13 @@ desc`; **cap 50** (sin paginación — es una vitrina, no un listado). Sin query
 > **Orden de operaciones NORMATIVO (importa):** seleccionar candidatos activos → resolver el mercado en **lote** →
 > **filtrar los no efectivos** → ordenar `bountyPriceCents desc` → **tomar el top 50**. Filtrar **después** del cap
 > dejaría huecos silenciosos en la vitrina. **Efecto garantizado:** para **todo** bounty visible aquí, la cotización
-> de `/buylist/quote` es **exactamente** `bountyPriceCents` y es **estrictamente mayor** que la tarifa estándar de esa
-> variante (criterio 91). El dueño ve los rebasados como **alerta en el binder** (`VariantPricingDTO.bounty.effective
+> de `/buylist/quote` es **exactamente** `bountyPriceCents` (criterio 91: el número publicado es el que se paga).
+> ⚠️ **v1.80.2 — errata:** esta frase decía además que esa cotización «es **estrictamente mayor** que la tarifa
+> estándar». **Ya no es una garantía** y no debe probarse: (i) desde Q1 (v2.2, §M2-B.8) un bounty `≥ mercado` pero
+> `≤ curva` es efectivo en cartas donde el bin supera al mercado; (ii) desde v1.80 (§M2-B.11) lo que se paga es
+> `min(bounty, mercado)`, que en esas cartas es **menor** que la tarifa estándar (tabla §M2-B.11 punto 6, filas
+> `500/700/*`). Lo que sí se garantiza: el bounty visible es **efectivo** (`isBountyEffective`), **no** está retenido por
+> el guardarraíl (§M2-B.11 punto 8) y paga **exactamente** lo publicado. El dueño ve los rebasados como **alerta en el binder** (`VariantPricingDTO.bounty.effective
 > = false` + `curveQuoteCents`, §M2) — **sin** aviso proactivo por correo/push (decisión del humano).
 
 > **⭐⭐ v1.80 — TOPE DE MERCADO EN EL PAGO ([§M2-B.11](#M2-B11), decisión del dueño 2026-09-28).** `bountyPriceCents`
@@ -9795,6 +9830,11 @@ desc`; **cap 50** (sin paginación — es una vitrina, no un listado). Sin query
 > mercado en lote → **filtrar no efectivos** (sin cambio) → **calcular el pago** → ordenar **por el pago** `desc` → top 50.
 > La garantía «la cotización es exactamente `bountyPriceCents`» se conserva (ahora los dos están topados). ⛔ Misma
 > forma; ⛔ ningún campo dice que hubo tope.
+> ⭐⭐ **v1.80.2 ([§M2-B.11 punto 8](#M2-B11-8)):** tras calcular el pago y **antes** de ordenar, se **filtran** las filas
+> que el guardarraíl retiene (`premiumFloorGuard(rarityCanonical, bountyGuardBasis(...)) === 'premium_at_floor'`): una
+> chase con bounty topado contra un mercado que cayó al bin **no se publica** (cotizaría `precio_pendiente`, y criterio
+> 91 prohíbe publicar un número que no se paga). Orden completo: seleccionar → mercado en lote → filtrar no efectivos →
+> calcular pago → **filtrar retenidos** → ordenar por el pago → top 50.
 Res `200` (`PublicBountiesResponse`): `{ data: PublicBountyDTO[] }`
 ```json
 { "data": [
@@ -12597,6 +12637,86 @@ Va como pregunta **no bloqueante** al dueño (ARCHITECTURE §4.36.6e), con esta 
   el despliegue el pago y `acquisitionCostCents` son **1200**. Y una línea topada (`quotedPriceCents = 1000`, `basis
   bounty`) que se paga **sí** incrementa `bountyAcquiredQty`. *Mutación:* marcar la línea topada como `market` ⇒ el
   contador no sube ⇒ roja.
+
+<a id="M2-B11-8"></a>
+**8. ⭐⭐ v1.80.2 — El tope no se calcula contra un mercado que el guardarraíl premium ya declaró roto (NORMATIVO,
+DINERO).**
+
+*El defecto (backend, `BACKEND_NOTES` §0.55.3, commit `c77ebc8`).* Chase, mercado corrupto **MX$1**, bounty
+**MX$9,000** ⇒ v1.80 literal cotiza, congela y **publica MX$1**. El guardarraíl (ARCHITECTURE §4.36.5) no dispara porque
+`basis='bounty'`, y esa exención existía porque el monto **era la decisión del admin**. Con el tope, el monto pasa a
+salir **del mercado** — justo del dato en el que el guardarraíl existe para no confiar. La exención dejó de tener
+fundamento en esa esquina.
+
+**La regla.** El guardarraíl de COMPRA deja de recibir `q.basis` y recibe **`bountyGuardBasis`**: si el bounty ganó el
+peldaño 1 **y se topó** (`bountyPayoutCents(bounty, mercado) < bounty`), el guardarraíl ve el **basis de la curva** de
+esa variante; en cualquier otro caso, el basis de siempre.
+
+```ts
+// common/money.ts, junto a bountyPayoutCents (mismo motivo de ubicación: H-1). Devuelve un BASIS, no un monto, y NO
+// recibe rareza ⇒ criterio 84 intacto. La rareza la sigue poniendo premiumFloorGuard, sin cambio.
+export function bountyGuardBasis(bountyPriceCents: number, marketMxnCents: number | null,
+                                 curveBasis: PriceBasis): PriceBasis {
+  return bountyPayoutCents(bountyPriceCents, marketMxnCents) < bountyPriceCents ? curveBasis : 'bounty';
+}
+// quoteAcquisitionFromCurve: el resultado gana un campo INTERNO `guardBasis: PriceBasis` (⛔ no viaja en ningún DTO):
+//   peldaño 1 ⇒ bountyGuardBasis(bounty, marketMxnCents, <basis de resolveBuyFromCurve>); peldaños 2-4 ⇒ = basis.
+// Todo llamador de COMPRA: premiumFloorGuard(rarityCanonical, q.guardBasis)   // antes: q.basis
+```
+
+- **Por qué basta la curva:** si el bounty se topó, el mercado es **presente** (H-1) ⇒ la curva resolvió `market` o
+  `floor`, nunca `pending`. `floor` en una chase es exactamente la señal de §4.36.5 («su dato de mercado está mal»).
+- **Sin tope ⇒ nada cambia.** Bounty `≤` mercado (empate incluido) paga el **bounty**, que es la decisión del admin y
+  no sale del mercado ⇒ la exención de §4.36.5 sigue vigente. **Sin mercado / mercado `≤ 0`** ⇒ no hay tope ⇒ se paga
+  el bounty (punto 2, sin cambio).
+- **Qué produce la retención** (idéntico a una chase sin bounty con la curva en el bin): `quote.status =
+  'precio_pendiente'`, `quotedPriceCents = null`; `createRequest` escala a la cola con `reason = 'premium_at_floor'`
+  (`/quote` y `/quote/batch` siguen **READ-ONLY**); la oferta llega con `offerDerivedPriceCents = null` y el operador
+  fija el precio con motivo (criterio 148(a), sin cambio); vitrina: **fuera** (ver `GET /buylist/bounties`, filtro
+  antes de ordenar); consola: `buy.source='pending'`, `buy.effectiveCents=null`, `buy.premiumAtFloor=true`,
+  `bounty.payoutCents=null`, `bounty.cappedByMarket=false`, `state` **`activa`** (⛔ `isBountyEffective` no se toca).
+  Cuando el mercado se corrige, el cierre simétrico de la cola (§4.36.5) la cierra y el bounty vuelve a pagar.
+- ⚠️ **Dos excepciones que se aceptan, dichas enteras:** (i) `activa` promete «sale en la vitrina»; una fila retenida
+  es `activa` y **no** sale. (ii) En `?sort=price_desc` la fila retenida ordena por `payoutCents ?? bountyPriceCents` =
+  **lo configurado** (MX$9,000) y no está en la vitrina: el «espejo exacto» vale para las `activa` **no retenidas**. La
+  señal para el dueño es `buy.premiumAtFloor` y la cola; un `state` nuevo tocaría el canon *estado-de-bounty* por una
+  esquina de ≈1 % del catálogo (volumen del guardarraíl, §4.36.5a).
+- **AML:** la línea retenida entra al mes con **$0** (como toda pendiente); el dinero que sale al aprobarla lo liga
+  AML-1 (ARCHITECTURE §4.36.6a). Sin cambio de mecanismo.
+- **Pregunta al dueño, no bloqueante** (ARCHITECTURE §4.36.6e, pregunta 3). Valor por defecto: **esta regla**.
+
+**Pruebas que deben FALLAR si se implementa mal** (las escribe backend, modelo fuerte; mutaciones sobre copia del
+árbol **entero**, O-9; montos en centavos; «bin» = el del seed, y **cada prueba afirma como precondición** que la curva
+resolvió `floor` o `market` según el caso — sin esa precondición la prueba puede pasar en vacío):
+
+- **BG-1 el caso de backend** (unidad, seam de compra): rareza premium, mercado 100, curva `floor`, bounty 900000 ⇒
+  `precio_pendiente`, `quotedPriceCents = null`. Precondición: `quoteAcquisitionFromCurve` sigue devolviendo
+  `priceCents 100`, `basis 'bounty'` (BC-5 intacta), `guardBasis 'floor'`. *Mutación:* pasar `q.basis` al guardarraíl
+  (conducta de `c77ebc8`) ⇒ cotiza 100 ⇒ roja. **La expectativa «MX$1» de `pricing.premium-floor-guard.spec.ts` se
+  invierte a esta** (cambio de expectativa, lo hace backend con modelo fuerte y lo anota).
+- **BG-2 sin premium no se retiene:** mismos números, rareza no premium ⇒ cotiza **100** `bounty`. *Mutación:* retener
+  todo bounty topado con curva `floor` sin pasar por `premiumFloorGuard` ⇒ roja.
+- **BG-3 sin tope no se retiene:** premium, curva `floor`, mercado 300, bounty 250 ⇒ **250** `bounty`; empate mercado
+  300 = bounty 300 ⇒ **300** `bounty`. *Mutaciones:* `guardBasis = curveBasis` en todo el peldaño 1 ⇒ roja; `<=` en vez
+  de `<` en `bountyGuardBasis` ⇒ roja (empate).
+- **BG-4 tope con mercado sano no se retiene:** premium, mercado 100000 (curva `market`), bounty 120000 ⇒ **100000**
+  `bounty`. *Mutación:* retener todo bounty topado premium sin mirar la curva ⇒ roja.
+- **BG-5 sin mercado no se retiene:** premium, mercado `null` ⇒ **900000**; mercado `0` ⇒ **900000**. *Mutación:*
+  `curveBasis` por defecto `'floor'` cuando la curva es `pending` ⇒ roja.
+- **BG-6 ⭐⭐ todas las superficies, una conducta** (integración, Postgres real, por HTTP; carta premium, mercado 100,
+  bounty 900000, **más** una variante sana con bounty efectivo como canario de no-vaciar): `POST /buylist/quote` y
+  `/quote/batch` ⇒ `precio_pendiente`; `GET /buylist/bounties` ⇒ la retenida **ausente** y la sana **presente**;
+  `POST /buylist/requests` ⇒ línea `precio_pendiente`, `quotedPriceCents null`, entrada abierta en la cola con `reason
+  'premium_at_floor'`; consola/binder ⇒ los cinco valores del punto 8 y `state 'activa'`. *Mutaciones, una por
+  superficie:* vitrina sin el filtro ⇒ publica 100 ⇒ roja; consola evaluando con `q.basis` ⇒ `buy.source 'bounty'` ⇒
+  roja; `createRequest` sin escalar ⇒ roja.
+- **BG-7 oferta** (integración): la línea de BG-6 ⇒ `offerDerivedPriceCents = null`; ofertar 900000 con motivo ⇒ se
+  oferta, `offerPriceBasis 'override'`. *Mutación:* derivar la oferta con `q.basis` ⇒ `offerDerivedPriceCents = 100`
+  ⇒ roja.
+- **BG-8 cierre** (integración): tras BG-6, inyectar referencia de mercado 1000000 y re-resolver ⇒ la entrada de la cola
+  se **cierra** y la cotización da **900000** `bounty` (ya no topa). *Mutación:* que la retención se persista en vez de
+  derivarse ⇒ sigue pendiente ⇒ roja.
+- **Canarios que siguen verdes sin editarse:** BC-1…BC-12 y la tabla de 12 casos de `isBountyEffective` (BC-7).
 
 ---
 

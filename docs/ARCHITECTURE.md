@@ -4,6 +4,17 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.2 — DINERO: EL GUARDARRAÍL PREMIUM VUELVE A MORDER CUANDO EL BOUNTY SE TOPA CONTRA UN MERCADO ROTO**
+> (2026-09-28, arquitecto. Base: **v1.80.1, vigente entera salvo lo que esta rev toca**. Origen: `BACKEND_NOTES`
+> §0.55.3, commit `c77ebc8`. `API_CONTRACT` sube a **v1.80.2**; norma y pruebas BG-1…BG-8 en `§M2-B.11` punto 8.
+> ⛔ **Sin schema, sin migración, sin endpoint, sin campo, sin código de error nuevo.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ Bounty **topado** + curva en el **bin** + rareza premium ⇒ `premium_at_floor` (pendiente), como sin bounty. `bountyGuardBasis` en `money.ts` | §4.36.5 (a), §4.36.6e | **Sí, backend** |
+> | **2** | Pregunta 3 al dueño, **no bloqueante**, con el valor por defecto ya aplicado | §4.36.6e | No |
+>
+> ---
 > **Rev v1.80.1 — DINERO: LA CAJA DEL CLIENTE YA NO SE VALÚA CON LA LLAVE DE COLA** (2026-09-28, arquitecto. Base:
 > **v1.80, vigente entera salvo lo que esta rev toca**. Origen: `BACKEND_NOTES` «P-83 › Discrepancia con el contrato»,
 > sonda HTTP de backend, **N=1**. `API_CONTRACT` sube a **v1.80.1**; norma y candados en `§M2-SK` **SK-5** (VK-1…VK-7).
@@ -14213,6 +14224,11 @@ de rareza del sistema y tiene exactamente **tres** consumidores legítimos:
 deliberadas del admin y **no se corrigen** (§4.36.6). Con `basis='pending'` no hace falta: ya no se publica ni se
 cotiza por la vía normal.
 
+> ⭐⭐ **v1.80.2 — la exención del bounty se acota a lo que la justificaba.** Desde v1.80 un bounty **topado** paga el
+> **mercado**, no lo que el admin decidió (§4.36.6e). En esa esquina el guardarraíl de COMPRA evalúa el **basis de la
+> curva** (`bountyGuardBasis`, `money.ts`): si cayó al bin en una chase ⇒ `premium_at_floor`. Bounty sin topar (paga lo
+> decidido) ⇒ la exención sigue. Norma y BG-1…BG-8: `API_CONTRACT §M2-B.11` punto 8.
+
 **Por qué funciona.** Que una chase resuelva al piso solo puede significar que su dato de mercado está **mal**
 (ausente, aplanado o absurdo). El guardarraíl convierte un error de dinero silencioso en una **cola visible**. Volumen
 medido sobre un master set completo: **≈3 de 333** cartas — no es una alarma ruidosa, por eso puede bloquear la
@@ -14779,6 +14795,7 @@ COMPRA:  bounty VÁLIDO ⇒ paga min(bounty, mercado)   >  buyOverrideCents (ABS
 | Consola: `payoutCents` + `cappedByMarket` **informativos**; `state` igual | Nuevo `state` `topada`; entrar al grupo de atención | «No se avisa al dueño por ese motivo». Pero **ver** cuánto paga no es un aviso: sin el número, el dueño configuraría 1200 creyendo que paga 1200 (la ceguera sobre dinero que motivó D52) |
 | ⛔ No retroactivo: nada congelado se reescribe | Backfill de `quotedPriceCents` | La oferta **ya** se deriva al ofertar con reglas vigentes (§4.39h); el tope entra por ahí sin tocar historia. Un backfill reescribiría la cifra que el vendedor vio |
 | El override manual (variante y oferta) ⛔ no se topa | Topar todo pago de compra | La decisión es sobre el bounty. El override es absoluto (criterio 89) y el de la oferta exige motivo (148(a)): son actos humanos deliberados |
+| ⭐⭐ **v1.80.2:** bounty **topado** en una chase cuya curva cayó al bin ⇒ **pendiente** (`premium_at_floor`), igual que sin bounty | (a) Pagar el mercado topado (v1.80 literal: MX$1 por una chase con bounty de MX$9,000); (b) pagar el bounty completo; (c) tratar ese mercado como ausente (⇒ (b)) | (a) usa como **dinero** el dato que §4.36.5 existe para no creer: publica y congela un número absurdo, y el vendedor lo ve. (b)/(c) pueden pagar **por encima** del mercado real, que es justo lo que el dueño prohibió — y no hay forma de saberlo con el dato roto. Pendiente es el error **recuperable** de §N.0: no se paga nada que no se pueda justificar, la cola lo hace visible y el operador fija el precio con motivo al ofertar. «No se bloquea por ese motivo» habla del tope; aquí el motivo es el mercado roto, que ya bloqueaba sin bounty. La exención de §4.36.5 existía porque el monto **era** la decisión del admin; con tope, deja de serlo |
 
 **Efecto en los topes AML (§4.36.6a):** el tope **baja o deja igual** montos de compra, nunca los sube ⇒ los acumulados
 AML solo pueden bajar. Sin cambio de mecanismo.
@@ -14799,6 +14816,13 @@ monto». **Se enruta a product-owner** para transcribirla. No bloquea el diseño
    mercado $5, nuestra tarifa normal $7, bounty $8 ⇒ se pagan $5. ¿Así lo quieres, o en ese caso prefieres pagar la
    tarifa normal ($7)?»* — Por defecto: **se paga el mercado** (lectura literal; coherente con Q1, que ya paga $5 a un
    bounty de $5 en esa carta).
+3. ⭐ **v1.80.2 — Carta cara cuyo precio de mercado se ve roto.** *«A veces el precio de mercado que nos llega de una
+   carta cara viene mal — por ejemplo, una carta que vale miles aparece a $1. El sistema ya detecta eso y no cotiza la
+   carta hasta que alguien la revise. Si esa carta tiene un bounty, con la regla nueva ("nunca más que el mercado") le
+   ofreceríamos al vendedor **$1** en vez de tu bounty de **$9,000**. Lo que hacemos por ahora: la tratamos como si no
+   tuviera bounty — queda en "precio pendiente", te aparece en la cola de precios, y si alguien la trae, el operador
+   pone el precio a mano (puede ser tus $9,000) dejando el motivo. ¿Te parece, o prefieres que en ese caso se pague tu
+   bounty completo aunque no podamos confirmar que no esté por encima del mercado real?»* — Por defecto: **pendiente**.
 
 #### 4.36.6a Topes AML del buylist — SÍ están en el alcance de este cambio (v2.1.6, NORMATIVO)
 
