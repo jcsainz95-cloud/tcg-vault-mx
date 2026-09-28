@@ -28,6 +28,76 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.55 — ⭐⭐ **v1.80 §M2-B.11: TOPE DE PAGO DEL BOUNTY — se paga `min(bounty, mercado)`** (2026-09-28)
+
+> Contrato v1.80 §M2-B.11 · ARCHITECTURE §4.36.6e · `HECHOS.md` (dos filas del 2026-09-28): «el bounty nunca
+> paga más que el precio de mercado»; sin mercado ⇒ bounty completo; carta barata ⇒ se paga el mercado aunque la
+> tarifa normal pague más (sin piso). Zona de dinero.
+
+### 0.55.1 — La forma del cambio
+
+- **`bountyPayoutCents(bounty, mercado)`** (`backend/src/common/money.ts`, junto a `quoteAcquisitionFromCurve`):
+  `isPresentAmount(mercado) ? Math.min(bounty, mercado) : bounty`. Enteros, sin redondeo. Un mercado `<= 0` es
+  ausente (H-1) ⇒ se paga el bounty, jamás MX$0.
+- **Peldaño 1 de `quoteAcquisitionFromCurve`**: único cambio, `priceCents = clampCents(bountyPayoutCents(...))`.
+  `basis` sigue `bounty`; `marketMxnCents` y `curveQuoteCents` sin cambio. De ahí salen cotización, lote,
+  `createRequest` (congela `quotedPriceCents`) y la **oferta derivada** (`offerDerivedPriceCents`, con el mercado
+  del momento de ofertar).
+- **Override** (`buyOverrideCents`, peldaño 2) y override del operador al ofertar: **no se topan**.
+- `isBountyEffective`, `422 BOUNTY_BELOW_RULE`, `state` de la consola: **intactos** (la tabla de 12 casos de
+  `src/common/pricing-curve.spec.ts` no se editó — canario BC-7).
+- **Vitrina** (`publicBounties`): seleccionar → mercado en lote → filtrar no efectivos → **calcular el pago** →
+  ordenar por el pago desc (desempate: el orden del query, `updatedAt` desc; `sort` es estable) → top 50.
+  `bountyPriceCents` publicado = lo que se paga. Misma forma; ningún campo delata el tope.
+- **`VariantPricingDTO.bounty`** gana `payoutCents: number | null` (`bountyPayoutCents` si `effective`, si no
+  `null`) y `cappedByMarket: boolean` (`payoutCents < priceCents`; empate ⇒ `false`). `priceCents` sigue siendo
+  lo configurado. Para toda fila efectiva `payoutCents === buy.effectiveCents`.
+- **Consola** (`admin-bounties.service.ts`): `price_desc` y el orden dentro de grupo de `attention_first` usan
+  `payoutCents ?? bountyPriceCents`.
+- **No retroactivo**: sin migración ni backfill; lo congelado (`quotedPriceCents`, `offeredPriceCents`,
+  `approvedPriceCents`, `acquisitionCostCents`) no se toca.
+- Docblock de `money.ts` corregido (decía «el bounty NUNCA se compara contra el mercado»).
+
+### 0.55.2 — Pruebas
+
+| Prueba | Dónde |
+|---|---|
+| BC-1..BC-6, BC-9 (candado de forma: único `Math.min` sobre bounty en `src/`, comentarios blanqueados, con canario) | `backend/test/money.bounty-cap.spec.ts` |
+| composer / vitrina / consola sin infra (BC-8 y BC-10 en unidad) | `backend/test/pricing.bounty-cap.spec.ts` |
+| BC-8, BC-10, BC-11, BC-12 (Postgres real, por HTTP) | `backend/test/integration/bounty-cap.e2e-spec.ts` |
+
+Montos de la integración **×100** respecto al contrato (MX$1,200 / MX$1,000): con MX$12 la solicitud no pasa el
+mínimo de MX$500 ni el neto mínimo de oferta. BC-10 usa para B mercado 400000 en vez de 10000×100: con la curva
+del seed (50 % en el tramo alto) el B del contrato **no es efectivo**; el B elegido conserva la propiedad que la
+prueba necesita (configurado menor que A, pago mayor).
+
+**Pruebas existentes que cambiaron de expectativa** (afirmaban la conducta anterior, bounty > mercado pagaba el
+bounty): `pricing.bounty-market-floor.spec.ts` (650 y 701 sobre mercado 500 ⇒ pagan 500),
+`buylist.bounty-revalidation.spec.ts` (3 casos: mercado $10 < bounty $50 ⇒ paga $10),
+`pricing.variant-controls.spec.ts` (DTO con los dos campos nuevos), `pricing.premium-floor-guard.spec.ts` (ver
+0.55.3), `buylist.variant-overrides.spec.ts` (el caso de tope por solicitud necesitaba mercado > bounty para que
+el bounty se pague entero).
+
+Mutaciones (sobre copia del árbol entero; todas deterministas): 16 unitarias y 6 de integración, **todas
+muertas** — incluidas `Math.max`, `market != null` en vez de `isPresentAmount`, topar contra la curva, topar solo
+si curva < mercado, `basis: 'market'` al topar, topar el override, vitrina publicando/ordenando por lo
+configurado, `Math.min` a mano en la vitrina, consola ordenando por lo configurado, y reescribir
+`quotedPriceCents` al ofertar.
+
+### 0.55.3 — ⚠️ Para el arquitecto: una consecuencia que el contrato no nombra
+
+**Guardarraíl premium + bounty.** El guardarraíl (§4.36.5) no dispara con basis `bounty`, y el contrato no lo
+cambia. Pero ahora el **monto** sale del mercado: una chase con un mercado corrupto de MX$1 (justo el dato que
+el guardarraíl existe para no creer) y un bounty de MX$9,000 **cotiza y publica MX$1** en vez de MX$9,000
+(antes) o `pendiente`. Lo implementé literal (mercado presente ⇔ `> 0`) y lo dejé fijado en
+`pricing.premium-floor-guard.spec.ts`. Si el arquitecto quiere otra cosa (p. ej. no topar cuando el
+guardarraíl dispararía sobre la curva), es una decisión de contrato, no mía.
+
+### 0.55.4 — Para frontend
+
+`VariantPricingDTO.bounty.payoutCents` / `cappedByMarket` son aditivos. La vitrina no cambia de forma. La marca
+visual del tope en la consola es de ux-ui.
+
 ## 0.54 — ⭐⭐ **P-53 ALTO-4: F4/F5 dejan de capar la ventana por `capturedDate` crudo (frescura efectiva en TODA ruta de dinero)** (2026-09-18)
 
 > Propiedad: **backend**. Cierra los dos últimos lectores de dinero que el barrido del arquitecto

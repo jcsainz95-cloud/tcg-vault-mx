@@ -408,8 +408,20 @@ describe('E4 — guardarraíl del eje de COMPRA (§4.36.5, simetría money-safe)
     expect(q.priceBasis).toBe('override');
   });
 
-  it('un BOUNTY también lo desactiva', async () => {
+  it('un BOUNTY también lo desactiva — y desde v1.80 paga `min(bounty, mercado)` (§M2-B.11)', async () => {
+    // El guardarraíl no dispara con basis `bounty` (sin cambio). Lo que cambió es el MONTO: el mercado
+    // presente (> 0, H-1) topa el pago, aunque ese mercado sea el dato absurdo que el guardarraíl
+    // existe para no creer. ⚠️ Consecuencia de la lectura literal del contrato, reportada al
+    // arquitecto (docs/BACKEND_NOTES.md, tope de bounties): una chase con mercado corrupto de MX$1 y
+    // bounty de MX$9,000 cotiza MX$1 en vez de quedar pendiente.
     const { svc } = buylistFor(CHASE, 100, { bountyEnabled: true, bountyPriceCents: 900000 });
+    const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
+    expect(q.quote.quotedPriceCents).toBe(100);
+    expect(q.priceBasis).toBe('bounty');
+  });
+
+  it('un BOUNTY sin mercado (curva pendiente) paga el bounty completo y no dispara el guardarraíl', async () => {
+    const { svc } = buylistFor(CHASE, null, { bountyEnabled: true, bountyPriceCents: 900000 });
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
     expect(q.quote.quotedPriceCents).toBe(900000);
     expect(q.priceBasis).toBe('bounty');

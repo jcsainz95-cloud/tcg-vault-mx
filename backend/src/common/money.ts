@@ -237,11 +237,38 @@ export function computeSalePriceFromCurve(
 }
 
 /**
+ * v1.80 (API_CONTRACT §M2-B.11, ARCHITECTURE §4.36.6e; decisión del dueño 2026-09-28, `HECHOS.md`) —
+ * **TOPE DE PAGO DEL BOUNTY: se paga el menor entre el bounty y el mercado.** «El bounty nunca paga
+ * más que el precio de mercado.» Un solo cuerpo: lo llaman el peldaño 1 de `quoteAcquisitionFromCurve`
+ * (⇒ cotización, lote, solicitud, oferta derivada y consola), la vitrina pública y el composer de la
+ * consola. ⛔ Prohibido un `Math.min(bounty…, mercado…)` fuera de aquí (candado BC-9).
+ *
+ * - **Mercado** = la MISMA referencia `priced` de la variante que ya entra a la curva y a
+ *   `isBountyEffective`; no se resuelve otro.
+ * - **Presencia H-1:** mercado presente ⇔ `> 0`. Un `0`/negativo es dato degenerado ⇒ AUSENTE ⇒ se
+ *   paga el bounty (jamás topar a MX$0 por un dato corrupto).
+ * - **Sin mercado ⇒ el bounty completo** (decisión del dueño, 2026-09-28).
+ * - **Sin piso en la tarifa normal:** si la curva/bin paga más que el mercado, un bounty efectivo paga
+ *   el mercado igualmente (dueño: «mercado $5, tarifa $7, bounty $8 ⇒ se pagan $5»).
+ * - Enteros de centavos ⇒ el mínimo es entero; ⛔ ningún redondeo.
+ *
+ * PRECONDICIÓN: se llama solo con un bounty ya EFECTIVO (`bountyPriceCents > 0`); quién es efectivo lo
+ * decide `isBountyEffective`, que este tope NO toca.
+ */
+export function bountyPayoutCents(bountyPriceCents: number, marketMxnCents: number | null): number {
+  return isPresentAmount(marketMxnCents) ? Math.min(bountyPriceCents, marketMxnCents) : bountyPriceCents;
+}
+
+/**
  * COMPRA (§4.36.6). Precedencia NORMATIVA:
- *   1. **bounty VÁLIDO** → `bounty`. Válido = habilitado, `priceCents > 0` y **ESTRICTAMENTE MAYOR**
- *      que la cotización de la curva vigente (criterio 91). Un bounty rebasado por la curva DEJA DE
- *      SER BOUNTY: se salta este peldaño y se paga la curva. El bounty NUNCA se compara contra el
- *      mercado — solo contra la curva (vive en la escala de compra, 30–50 % del mercado).
+ *   1. **bounty EFECTIVO** → `bounty`. Quién es efectivo lo decide `isBountyEffective` (§M2-B.8, Q1):
+ *      habilitado, `priceCents > 0` y **ESTRICTAMENTE MAYOR** que la curva vigente, **o** `>=` al
+ *      mercado (el piso efectivo es `min(curva, mercado)`). Un bounty rebasado DEJA DE SER BOUNTY: se
+ *      salta este peldaño. **Lo que PAGA** un bounty efectivo es `bountyPayoutCents(bounty, mercado)` =
+ *      `min(bounty, mercado)` (v1.80, §M2-B.11): el mercado es TECHO del pago además de piso de la
+ *      efectividad; sin mercado se paga el bounty. `basis` sigue siendo `bounty` aunque se tope.
+ *      *(Antes de v1.80 este docblock decía «el bounty NUNCA se compara contra el mercado»: dejó de ser
+ *      cierto con Q1 —el mercado ya entraba como piso— y con v1.80 entra también como techo.)*
  *   2. `buyOverrideCents` (variante, M-30) → `override`. **ABSOLUTO**, igual que en venta.
  *   3. CURVA `max(bin, mercado × pct(mercado))` (SIN redondeo) → `market` | `floor`.
  *   4. sin resolver → `pending`.
@@ -258,9 +285,11 @@ export function quoteAcquisitionFromCurve(
   const curveQuoteCents = fromCurve.cents == null ? null : clampCents(fromCurve.cents);
   // 1. Bounty, REVALIDADO contra el piso efectivo `min(curva, mercado)` (Q1, §M2-B.8): no solo al
   //    crear, también aquí al cotizar. `marketMxnCents` ya está en mano — es la entrada de la curva.
+  //    v1.80 (§M2-B.11): lo que se PAGA es `min(bounty, mercado)` — ÚNICO cambio de la función; ni
+  //    `basis` ni `marketMxnCents`/`curveQuoteCents` cambian. El override (peldaño 2) NO se topa.
   if (controls?.bountyEnabled && isBountyEffective(controls.bountyPriceCents ?? null, curveQuoteCents, marketMxnCents)) {
     return {
-      priceCents: clampCents(controls.bountyPriceCents as number),
+      priceCents: clampCents(bountyPayoutCents(controls.bountyPriceCents as number, marketMxnCents)),
       basis: 'bounty',
       marketMxnCents,
       curveQuoteCents,

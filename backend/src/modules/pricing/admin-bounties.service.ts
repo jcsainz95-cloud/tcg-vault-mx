@@ -299,16 +299,19 @@ export class AdminBountiesService {
    * Los tres órdenes del contrato. Todos terminan en `id` asc para que el orden sea **total** y la
    * paginación **estable** (dos filas empatadas en todo lo demás no pueden bailar entre páginas).
    *
-   * - `attention_first` (**default**): grupo de atención, luego `bountyPriceCents` **desc**
-   *   (espejo de la vitrina), desempate `updatedAt` desc.
-   * - `price_desc`: espejo EXACTO del orden de `GET /buylist/bounties` (precio desc, `updatedAt` desc).
+   * - `attention_first` (**default**): grupo de atención, luego `payoutCents ?? bountyPriceCents`
+   *   **desc** (espejo de la vitrina, v1.80 §M2-B.11), desempate `updatedAt` desc.
+   * - `price_desc`: espejo EXACTO del orden de `GET /buylist/bounties` (lo que se paga desc —
+   *   `payoutCents ?? bountyPriceCents`—, `updatedAt` desc).
    * - `updated_desc`: lo último tocado primero.
    *
    * Un `bountyPriceCents` nulo (solo lo tiene `invalida`, y filas de pura historia) ordena **al
    * final** de su grupo: `null` no es «gratis», es «sin precio», y no puede ganarle a una cifra.
    */
   private comparator(sort: AdminBountySort): (a: ClassifiedRow, b: ClassifiedRow) => number {
-    const price = (c: ClassifiedRow) => c.row.bountyPriceCents ?? -1;
+    // v1.80 (§M2-B.11): la llave es LO QUE SE PAGA (`payoutCents`, ya topado por el mercado) y, si no
+    // paga, lo configurado — así `price_desc` sigue siendo el espejo exacto de la vitrina.
+    const price = (c: ClassifiedRow) => c.pricing.bounty?.payoutCents ?? c.row.bountyPriceCents ?? -1;
     const updated = (c: ClassifiedRow) => c.row.updatedAt.getTime();
     const byId = (a: ClassifiedRow, b: ClassifiedRow) => (a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0);
     if (sort === 'updated_desc') {
