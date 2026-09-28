@@ -663,14 +663,12 @@ export class ShipmentsService {
    * Las cartas DENTRO del pedido van por ubicación (asignadas ordenadas, `unassigned` al final), que
    * conserva el beneficio de «caminar por ubicación» que daba la lista plana de hoy.
    *
-   * ### ⚠️ La cubeta `?destination=vault` devuelve VACÍO hoy, y es correcto que lo haga
-   * Medido (arquitecto, 2026-09-22, y re-medido aquí): **todo** `ShipmentRequest` es físicamente un
-   * ENVÍO a domicilio — un retiro de bóveda (`orderId == null`) o un envío directo (`orderId != null`
-   * con `fulfillmentMode='direct_ship'`) ⇒ **toda fila de esta cola es `destination='ship'`**. Las
-   * órdenes `fulfillmentMode='vault'` **no generan `ShipmentRequest`**: al liquidar, sus piezas pasan
-   * `reserved → in_custody, settled` (`payments.service.ts`) y se quedan sin cola de colocación. El
-   * filtro queda **declarado y listo**; alimentarlo exige decidir qué órdenes vault están pendientes
-   * de colocar y cómo se marcan como colocadas — y eso pide schema. ⛔ Aquí NO se propone: se reporta.
+   * ### Dos fuentes, dos cubetas (v1.79, §M4-VAULT.3)
+   * `ship`: los `ShipmentRequest` en `picking` — todos son físicamente un ENVÍO a domicilio (retiro de
+   * bóveda con `orderId == null`, o envío directo con `fulfillmentMode='direct_ship'`). `vault`: las
+   * colocaciones `VaultPlacement` pendientes que nace el settle de una orden `vault`, proyectadas por
+   * `loadVaultQueue` (`modules/vault/`). ⚠️ Hasta v1.78 este comentario decía que `?destination=vault`
+   * devolvía VACÍO: dejó de ser cierto con M-59 (lo señaló el techlead sobre db7d1c2).
    *
    * @param date filtro de día sobre `requestedAt` (se conserva tal cual de la versión anterior).
    * @param destination §0-Q (misma doctrina que `?kind=`): ausente/vacío ⇒ ambas cubetas; token del

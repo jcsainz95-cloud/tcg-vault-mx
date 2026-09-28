@@ -175,9 +175,18 @@ export class PaymentsService {
     } catch (e) {
       // El handler falló (p. ej. DB transitoria): revierte la marca de idempotencia
       // para que Stripe pueda reintegrar el evento en un reintento, y propaga el error.
+      // Si el borrado TAMBIÉN falla, la marca se queda y el reintento de Stripe se ignorará como «ya
+      // procesado»: el evento (p. ej. un contracargo) se perdería. No cambia la semántica (se sigue
+      // propagando el error ORIGINAL), pero ya no es silencioso. SEC-VLT-DL · docs/TECH_DEBT.md.
       await this.prisma.processedStripeEvent
         .delete({ where: { id: event.id } })
-        .catch(() => undefined);
+        .catch((delErr: unknown) =>
+          this.logger.error(
+            `Stripe event ${event.id} (${event.type}): el handler falló y NO se pudo revertir su marca ` +
+              `de idempotencia (${(delErr as Error)?.message ?? String(delErr)}). El reintento de Stripe se ` +
+              'ignorará como ya procesado: requiere reproceso manual.',
+          ),
+        );
       throw e;
     }
   }

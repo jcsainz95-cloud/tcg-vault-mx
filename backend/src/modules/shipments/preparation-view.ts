@@ -12,10 +12,6 @@ import { Finish, InventoryItem, SealedCondition, VaultLocation } from '@prisma/c
 
 /**
  * §M4-PREP / CA #11 — el código `"UNASSIGNED"` **deja de viajar por el cable**. El back manda el
- * ESTADO (`kind`) y, cuando lo hay, el DATO (`label`), para que el front no compare strings.
- */
-/**
- * §M4-PREP / CA #11 — el código `"UNASSIGNED"` **deja de viajar por el cable**. El back manda el
  * ESTADO y, con él, su etiqueta.
  *
  * ### ⭐⭐ v1.78.2 — UNIÓN DISCRIMINADA, ⛔ ya NO `{ kind; label? }`

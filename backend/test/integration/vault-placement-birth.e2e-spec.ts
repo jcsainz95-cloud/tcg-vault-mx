@@ -270,8 +270,12 @@ describe('M-59 · nacimiento de la colocación en bóveda (Postgres real)', () =
         const envios = await h.prisma.shipmentRequest.count({ where: { orderId: o.order.id, status: { not: 'cancelado' } } });
         const re = await reliquidaciones(o.order.id);
         const ord = await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } });
-        const ok = ra.status === 200 && rb.status === 200 && envios === 1 && re === 0 && ord.status === 'settled';
-        resultados.push(ok ? 'ok' : `KO(${ra.status},${rb.status},envios=${envios},re=${re},${ord.status})`);
+        // Marca/últimos 4: los del doble de Stripe del harness (`getCardDetails` ⇒ visa/4242). «Una vez» lo
+        // da `re === 0`: una segunda escritura sería un UPDATE settled→settled y el trigger la contaría.
+        const card = `${ord.paymentMethodBrand}/${ord.paymentMethodLast4}`;
+        const ok =
+          ra.status === 200 && rb.status === 200 && envios === 1 && re === 0 && ord.status === 'settled' && card === 'visa/4242';
+        resultados.push(ok ? 'ok' : `KO(${ra.status},${rb.status},envios=${envios},re=${re},${ord.status},card=${card})`);
       }
       const verdes = resultados.filter((r) => r === 'ok').length;
       // eslint-disable-next-line no-console

@@ -191,6 +191,26 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     );
   });
 
+  it('SEC-VLT-DL: si revertir la marca TAMBIÉN falla, se registra un error (antes: silencio) y se propaga el error ORIGINAL', async () => {
+    prisma.order.findUnique.mockRejectedValueOnce(new Error('DB down'));
+    prisma.processedStripeEvent.delete.mockRejectedValueOnce(new Error('delete failed'));
+    const logError = jest.spyOn((payments as any).logger, 'error').mockImplementation(() => undefined);
+    const evt = {
+      id: 'evt_lost',
+      type: 'charge.dispute.created',
+      data: { object: { object: 'dispute', payment_intent: 'pi_1' } },
+    } as any;
+
+    // Semántica sin cambio: el error que sube es el del HANDLER, no el del borrado.
+    await expect(payments.handleEvent(evt)).rejects.toThrow('DB down');
+    // La marca se quedó (el borrado falló) ⇒ el reintento se ignorará: eso es lo que ya no es silencioso.
+    expect(processedIds.has('evt_lost')).toBe(true);
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError.mock.calls[0][0]).toEqual(expect.stringContaining('evt_lost'));
+    expect(logError.mock.calls[0][0]).toEqual(expect.stringContaining('charge.dispute.created'));
+    expect(logError.mock.calls[0][0]).toEqual(expect.stringContaining('delete failed'));
+  });
+
   it('already-settled order is not re-processed', async () => {
     prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled', items: [] });
     await payments.onPaymentSucceeded(piOf('pi_1'));

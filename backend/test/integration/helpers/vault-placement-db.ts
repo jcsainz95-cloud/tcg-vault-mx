@@ -343,6 +343,27 @@ export class VaultPlacementDb {
     }
   }
 
+  /**
+   * Prueba 40: espera a ver `n` sesiones esperando un candado de FILA (`transactionid`/`tuple`), ⛔ no
+   * uno advisory (la puerta). A diferencia de `waitBlocked`, NO revienta: devuelve `false` si no llegan
+   * (o si `orDone()` — el verbo terminó sin bloquearse), para que la tirada se reporte como «sin
+   * entrelazado observado» y NO cuente, en vez de leerse como verde.
+   */
+  async waitRowBlocked(n: number, orDone: () => boolean = () => false): Promise<boolean> {
+    const hasta = Date.now() + 10000;
+    for (;;) {
+      if (orDone()) return false;
+      const r = await this.h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock' AND state = 'active'
+            AND wait_event IN ('transactionid', 'tuple')`,
+      );
+      if (Number(r[0].n) >= n) return true;
+      if (Date.now() > hasta) return false;
+      await new Promise((res) => setTimeout(res, 20));
+    }
+  }
+
   // ------------------------------------------------------------ limpieza
 
   async limpiar() {
