@@ -10,6 +10,9 @@ import { MailService } from '../mail/mail.service';
 import { ChangePasswordDto, RegisterDto, LoginDto } from './dto/auth.dto';
 import { GoogleTokenVerifier } from './google-token-verifier';
 import { AuthTokenService } from './auth-token.service';
+import { normalizeEmail } from '../../common/validation/credentials';
+import { DeviceTokenService } from './device-token.service';
+import { PasswordAttemptsService } from './password-attempts.service';
 
 /** Máx. de correos por hora y por usuario (reenvío de verificación / olvido de contraseña). */
 const MAX_EMAILS_PER_HOUR = 3;
@@ -42,6 +45,10 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly tokens: AuthTokenService,
     private readonly mail: MailService,
+    // v1.80 (C7, §4.57): límite de intentos por cuenta y «dispositivo conocido». ⛔ NO opcionales:
+    // un AuthService sin contador sería un login sin candado que arranca en silencio.
+    private readonly attempts: PasswordAttemptsService,
+    private readonly devices: DeviceTokenService,
   ) {}
 
   private publicUser(u: User) {
@@ -252,7 +259,7 @@ export class AuthService {
    * incrementa tokenVersion (revoca sesiones), setea emailVerified=true (v1.5-3), limpia
    * mustChangePassword. No devuelve tokens: el usuario re-inicia sesión. 422 si el token es inválido.
    */
-  async resetPassword(token: string, password: string): Promise<{ ok: true }> {
+  async resetPassword(token: string, password: string): Promise<{ ok: true; deviceToken: string }> {
     const userId = await this.tokens.consume(token, AuthTokenType.password_reset);
     if (!userId) {
       throw BusinessException.validation(
@@ -285,7 +292,11 @@ export class AuthService {
       entityType: 'User',
       entityId: userId,
     });
-    return { ok: true };
+    // v1.80 (C7): quien pulsó el enlace probó el buzón ⇒ levanta el candado de la cuenta y le da un
+    // dispositivo conocido: su próximo login no queda atrapado por un atacante que siga golpeando.
+    // (Sigue SIN devolver sesión.) ⛔ `forgot-password` NO limpia nada: lo pide cualquiera.
+    await this.attempts.clearForUser(user);
+    return { ok: true, deviceToken: await this.devices.issue(userId) };
   }
 
   /**
@@ -322,6 +333,13 @@ export class AuthService {
         {},
       );
     }
+    // 2-bis (v1.80, C7 — contrato §1): contador PROPIO por userId (no comparte cubo con el login: un
+    // atacante que bloquea el login del dueño desde fuera no le impide cambiarla desde dentro). Cada
+    // intento que llega al paso 3 se reserva; con candado ⇒ 429 sin argon2 (⛔ nunca 401).
+    const cpKey = this.attempts.changePasswordKey(user.id);
+    const accountKey = this.attempts.accountKey(user.email);
+    const gate = await this.attempts.reserve(cpKey);
+    this.attempts.notifyLock(gate, { via: 'change_password', accountKey, user, actorUserId: user.id });
     // 3. La actual, verificada contra el hash real.
     let currentOk = false;
     try {
@@ -354,6 +372,8 @@ export class AuthService {
     });
     // 6. Par nuevo con el `tokenVersion` YA incrementado (el de `updated`, no el de `user`).
     const tokens = await this.issueTokens(updated);
+    // v1.80 (C7): probó la contraseña ⇒ limpia LOS DOS cubos (este y el del login de su correo).
+    await this.attempts.clear(cpKey, accountKey);
     // 7. Auditoría, sin volcar ninguna contraseña.
     await this.audit.log({
       actorUserId: user.id,
@@ -366,8 +386,28 @@ export class AuthService {
     return { ok: true, ...tokens };
   }
 
+  /**
+   * POST /auth/login — v1.80 (C7): orden NORMATIVO (`API_CONTRACT §1` «Límite de intentos por
+   * cuenta», `ARCHITECTURE §4.57.3`): normalizar → buscar → verificar `deviceToken` → elegir cubo →
+   * RESERVAR (o 429) → argon2 (dummy si no hay hash) → 401 | limpiar el cubo usado → 403 → 200.
+   *
+   *  - La clave sale del correo TECLEADO (normalizado), no de la fila: el contador de un correo que
+   *    no existe crece igual que el de uno que existe ⇒ `401×5, 429` idéntico para los dos.
+   *  - Con candado, NADIE llega a argon2 (ni a una segunda consulta): el 429 es igual de rápido.
+   *  - Un `deviceToken` válido DE ESTA CUENTA elige su propio cubo; uno ajeno/caducado/mal firmado se
+   *    IGNORA sin error. ⛔ No autentica: sin la contraseña correcta no entra nadie.
+   *  - ⚠️ El acierto por el dispositivo limpia SOLO su cubo: limpiar el de la cuenta le regalaría al
+   *    atacante 5 intentos libres cada vez que el dueño entra.
+   */
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    const email = normalizeEmail(dto.email);
+    const accountKey = this.attempts.accountKey(email);
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    const device = await this.devices.verify(dto.deviceToken);
+    const viaDevice = device !== null && user !== null && device.userId === user.id;
+    const bucket = viaDevice ? this.attempts.deviceKey(device.jti) : accountKey;
+    const gate = await this.attempts.reserve(bucket);
+    this.attempts.notifyLock(gate, { via: viaDevice ? 'device' : 'account', accountKey, user });
 
     // MITIGACIÓN DE ENUMERACIÓN POR TEMPORIZACIÓN (D5): se ejecuta SIEMPRE un
     // `argon2.verify`, incluso cuando el usuario no existe o su `passwordHash` es null
@@ -387,13 +427,15 @@ export class AuthService {
     if (!user || !user.passwordHash || !passwordOk) {
       throw new BusinessException('INVALID_CREDENTIALS', 401, 'Invalid credentials');
     }
+    // La contraseña fue correcta: se limpia el cubo USADO (también antes del 403, conducta intacta).
+    await this.attempts.clear(bucket);
     // v1.3.1: `deleted` (soft-delete/anonimizado) también es no-autenticable; mismo code que
     // `blocked` para no revelar el motivo.
     if (user.status === UserStatus.blocked || user.status === UserStatus.deleted) {
       throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
     }
     const tokens = await this.issueTokens(user);
-    return { user: this.publicUser(user), ...tokens };
+    return { user: this.publicUser(user), ...tokens, deviceToken: await this.devices.issue(user.id) };
   }
 
   /**
@@ -463,10 +505,12 @@ export class AuthService {
       throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
     }
     const tokens = await this.issueTokens(user);
-    return { user: this.publicUser(user), ...tokens };
+    // v1.80 (C7): mismo shape que /auth/login ⇒ también trae `deviceToken`. Google NO entra al
+    // contador por cuenta (§4.57.2 #12): no hay contraseña que adivinar.
+    return { user: this.publicUser(user), ...tokens, deviceToken: await this.devices.issue(user.id) };
   }
 
-  async refresh(refreshToken: string): Promise<TokenPair> {
+  async refresh(refreshToken: string): Promise<TokenPair & { deviceToken: string }> {
     try {
       const payload = await this.jwt.verifyAsync(refreshToken, {
         secret: this.config.get<string>('JWT_REFRESH_SECRET'),
@@ -483,7 +527,10 @@ export class AuthService {
       ) {
         throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid refresh token');
       }
-      return this.issueTokens(user);
+      // v1.80 (C7): +deviceToken — los navegadores con sesión abierta el día del despliegue reciben
+      // su dispositivo conocido en el siguiente refresco, sin esperar a un login (§4.57.4).
+      const tokens = await this.issueTokens(user);
+      return { ...tokens, deviceToken: await this.devices.issue(user.id) };
     } catch (e) {
       if (e instanceof BusinessException) throw e;
       throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or expired refresh token');

@@ -36,6 +36,7 @@ import {
 // v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { PasswordAttemptsService } from '../auth/password-attempts.service';
 import { kycRejectedTemplate } from './mail/kyc-notice.templates';
 import {
   MIN_PASSWORD_LENGTH,
@@ -618,6 +619,10 @@ export class AdminService {
     // v1.74 (§R): `@Optional()` — los tests unitarios construyen este servicio a mano, y el envío es
     // best-effort: ⛔ un fallo del correo NO puede hacer fallar `PATCH /admin/users/:id/kyc`.
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // v1.80 (C7, §M6): el reset por admin LEVANTA el candado de intentos de la cuenta. `@Optional()`
+    // solo porque los tests unitarios construyen este servicio a mano (posición tras `mail`); en la
+    // app lo provee `AuthModule` (importado por `AdminModule`) y lo prueba C7-8(b) por HTTP real.
+    @Optional() private readonly passwordAttempts?: PasswordAttemptsService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -1330,7 +1335,10 @@ export class AdminService {
    * loguea/audita (el AuditLog solo guarda action + actor + target).
    */
   async resetPassword(id: string): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
-    const user = await this.prisma.user.findUnique({ where: { id }, select: { id: true, status: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, status: true, email: true },
+    });
     if (!user) throw BusinessException.notFound();
     if (user.status === 'deleted') {
       throw BusinessException.validation('USER_DELETED', 'Cannot reset a deleted account');
@@ -1347,6 +1355,8 @@ export class AdminService {
         tokenVersion: { increment: 1 },
       },
     });
+    // v1.80 (C7): es la vía para que el dueño desbloquee a un operador (contrato §M6).
+    await this.passwordAttempts?.clearForUser(user);
     return { userId: id, tempPassword, mustChangePassword: true };
   }
 

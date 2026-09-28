@@ -27,6 +27,7 @@ import { E2E_USERS } from '../../../prisma/e2e-fixtures';
 import { AllExceptionsFilter } from '../../../src/common/filters/all-exceptions.filter';
 import { StripeService } from '../../../src/modules/payments/stripe.service';
 import { PrismaService } from '../../../src/prisma/prisma.service';
+import { applyTrustProxy } from '../../../src/trust-proxy';
 
 /**
  * Secreto del webhook usado para firmar/verificar en la suite.
@@ -255,6 +256,8 @@ export class E2EHarness {
     const app = moduleRef.createNestApplication();
 
     // Réplica EXACTA de la configuración de main.ts (raw body para el webhook incluido).
+    // v1.80 (C7-18): `trust proxy` también — faltaba, y sin él `X-Forwarded-For` no llegaba a `req.ip`.
+    applyTrustProxy(app.getHttpAdapter().getInstance());
     app.setGlobalPrefix('api/v1');
     app.use(
       '/api/v1/webhooks/stripe',

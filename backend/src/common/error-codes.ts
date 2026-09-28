@@ -47,6 +47,11 @@ export const ErrorCode = {
   // 422 — POST /auth/change-password sobre `passwordHash IS NULL` (solo-Google): no hay actual que
   // probar y este endpoint NO crea contraseñas (remedio: forgot-password). ARCHITECTURE §4.47.3.
   PASSWORD_NOT_SET: 'PASSWORD_NOT_SET',
+  // 429 — v1.80 (C7, ARCHITECTURE §4.57): demasiados intentos de contraseña CONTRA LA MISMA CUENTA
+  // (`POST /auth/login`, por correo normalizado) o desde la misma sesión (`change-password`, por
+  // userId). Cabecera `Retry-After` + details { retryAfterSeconds }. Idéntico exista o no la cuenta.
+  // Distinto de RATE_LIMITED porque el remedio difiere: restablecer la contraseña también lo levanta.
+  TOO_MANY_PASSWORD_ATTEMPTS: 'TOO_MANY_PASSWORD_ATTEMPTS',
   // 422 — POST /shipments/quote | /shipments con un `addressId` cuya fila tiene `recipientName IS NULL`
   // (dirección anterior a M-52). Emisor: módulo `shipments` (Stream A · B5). details { field, addressId }.
   RECIPIENT_NAME_REQUIRED: 'RECIPIENT_NAME_REQUIRED',

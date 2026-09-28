@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 // BE-9: la longitud mínima de contraseña vive en un solo sitio (compartida con admin.createUser).
 import { MIN_PASSWORD_LENGTH } from '../../../common/validation/credentials';
 
@@ -29,6 +29,13 @@ export class LoginDto {
 
   @IsString()
   password!: string;
+
+  // v1.80 (C7, contrato §1): el último `deviceToken` que recibió este navegador. Opcional; uno
+  // ajeno, caducado o mal firmado se IGNORA sin error (lo decide `DeviceTokenService.verify`).
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  deviceToken?: string;
 }
 
 export class RefreshDto {
