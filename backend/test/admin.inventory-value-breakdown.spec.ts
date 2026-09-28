@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { buildGradeKey, tryBuildGradeKey, sealedMarketGradeKey } from '../src/modules/pricing/pricing.types';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
 
 /**
  * v1.28 (P-24, §4.26f / API_CONTRACT §M7, ADITIVO) — `GET /admin/finance/inventory-value` gana
@@ -39,6 +40,11 @@ function buildHarness(items: any[], refsByKey: Record<string, number>) {
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: (i: any) => buildGradeKey(i),
     tryGradeKeyFor: (i: any) => tryBuildGradeKey(i),
+    // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
+    ...REAL_VALUATION_GATE,
+    // SK-5: dial ENCENDIDO — estas pruebas no son del dial (ese lo cubren VK-2/VK-5); con él encendido la
+    // valuación del sellado es la de antes de SK-5 para refs sin `source`.
+    loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: true })),
     sealedMarketGradeKeyForItem: (i: any) =>
       i.tcgplayerProductId != null ? sealedMarketGradeKey(i.tcgplayerProductId) : null,
     getReferencesBatch,

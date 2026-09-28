@@ -24454,3 +24454,87 @@ bóvedas) y `admin.service.ts` `ownedItemRefs` (ficha 360° de usuario). La caus
 Además, para una pieza de cliente **mapeada** estos lectores leen `'sealed'` y **no** su `sealed:tcg:<id>`.
 No lo toqué: cambia el patrimonio que ve el **cliente** y el reparto de §M2-SK no lo asigna; decide el arquitecto
 (¿`tryBuildGradeKey('sealed')` ⇒ `null` en lectura, o cada lector resuelve `sealedMarketGradeKeyForItem`?).
+
+# SK-5 · **MONEY** — una sola llave de valuación por pieza; los seis lectores de patrimonio la usan (§M2-SK SK-5, v1.80.1 · backend · 2026-09-28, medido)
+
+Contrato: `API_CONTRACT.md` §M2-SK **SK-5** (tabla de lectores, VK-1…VK-7); diseño: `ARCHITECTURE.md` §4.50.1-bis.
+Rama `claude/paquete-dinero`, medido sobre `1971291` + este cambio. Cierra la «Discrepancia» de P-83 (arriba).
+
+## Qué cambió
+- **`PricingService.valuationKeyFor(item)`** — sellado mapeado ⇒ `{cardId,'sealed','sealed:tcg:<id>','normal'}`
+  (finish `normal` aunque la pieza traiga otro); sellado sin mapeo ⇒ `null` (⛔ nunca `'sealed'`); raw/graduada ⇒
+  `tryGradeKeyFor(item)` (misma clave que antes). Llama al envoltorio `this.tryGradeKeyFor`, no a `tryBuildGradeKey`
+  directo: es la misma función, y así los dobles de prueba que fijan `tryGradeKeyFor` siguen gobernando la clave.
+- **`PricingService.valuationCentsOf(item, ref, sourceOn)`** — sellado ⇒ `gateSealedMarketCents` (el gate de
+  `/vault/sealed`: manual sobrevive al dial, `tcgcsv` solo con dial on, `<= 0` ⇒ `null`); raw/graduada ⇒
+  `priced ∧ != null` (sin cambio de un centavo).
+- **Seis lectores** por esas dos funciones: `vault.holdings`, `vault.holdingDetail` (comparten un `valuate()` privado),
+  `admin.custodyValue`, `adminVaults.list`, `admin.ownedItemRefs`, `admin.inventoryValue`. **Opcional del contrato,
+  hecho:** `vault.sealedTab` (`/vault/sealed` y, por delegación, `/admin/vaults/:userId/sealed`) también pasa por
+  ellas — una regla, un sitio; su número no cambia (su clave y su gate ya eran éstos).
+- `sourceOn` sale de `loadSealedSpreads()` **una vez por petición y solo si hay alguna pieza sellada** (sin sellado no
+  se lee el dial: cero consultas nuevas en bóvedas solo-raw).
+- `tcgplayerProductId` entra al `select` de `admin-vaults` y al de `ownedItems` (`ADMIN_USER_DETAIL_SELECT`) y al
+  tipo de `ownedItemRefs`. ⛔ No viaja a ningún DTO.
+- `tryBuildGradeKey('sealed')` **no cambió** (llave de cola, SK-2).
+
+## Decisiones que el contrato no fijaba
+- **`null` de `valuationCentsOf` ⇒ `referenceValue: {status:'pending'}`** en los lectores que emiten `PriceInfo`. Para
+  raw/graduada esto solo difiere de antes en un caso patológico: una fila `priced` **sin** `referenceMxnCents`, que
+  antes se emitía tal cual (`priced` sin cifra) y ya contaba como pendiente; ahora sale `pending`. Ningún total cambia.
+- **Efecto de `inventoryValue` declarado por §4.50.1-bis:** ahora gatea por dial. Con `sealed_price_source=off`, una
+  caja de plataforma mapeada cuyo único mercado es `tcgcsv` pasa de `atReferenceCents` a `pendingPriceCount`.
+  **NO MEDIDO** el valor del dial en producción.
+- Pruebas unitarias de los lectores: sus dobles de `PricingService` ganan `REAL_VALUATION_GATE`
+  (`test/helpers/valuation-gate.ts`): los **métodos reales** del prototipo, no stubs. Donde el doble valuaba sellado
+  se le añadió `loadSealedSpreads` con dial **on** (esas pruebas no son del dial; el dial lo cubren VK-2/VK-5), y el
+  fixture de `vault.holdings-sealed-identity.spec.ts` gana `tcgplayerProductId: 42` (la clave `sealed:tcg:42` que su
+  doble ya fijaba) + una aserción nueva: la caja se busca bajo `sealed:tcg:42`/`normal`. `vault-sealed.spec.ts`
+  sustituye su copia del gate por el real (el real además trata `<= 0` como sin mercado). Ninguna aserción se relajó.
+
+## Pruebas (rojo primero, medido)
+- `test/pricing.valuation-key.spec.ts` — **VK-1/VK-2** (20). Contra `c77ebc8`: no compila (las funciones no existían).
+- `test/pricing.valuation-callers-census.spec.ts` — **VK-6** (9): censo CERRADO por fichero y nº de apariciones del
+  identificador en código (comentarios fuera con `helpers/strip-comments.ts`; cuenta también referencias sin
+  paréntesis e imports), cada entrada con su razón; los tres ficheros de SK-5 no pueden figurar y deben llamar a las
+  dos funciones; canario (llamada inyectada en `vault.service.ts` se ve; comentario no cuenta). Rojo contra el
+  código previo (5 de 9: `vault.service.ts` 2, `admin-vaults.service.ts` 2, `admin.service.ts` 4 usos).
+- `test/integration/sk5-valuation.e2e-spec.ts` — **VK-3, VK-4, VK-5, VK-7** (7), Postgres real por HTTP, **fixture
+  propio** (set, 2 cartas, clientes y piezas por corrida). Contra el código previo: **5 rojas / 2 verdes** (las verdes:
+  VK-7 control y el 6º lector de VK-3, que SK-2 ya había arreglado en `inventoryValue`).
+- **Mutaciones** (copia del árbol ENTERO `git archive 1971291` + este cambio, BD propia; deterministas, N=1 cada una):
+  - VK-3, una por lector, revirtiendo SU clave a `tryGradeKeyFor`: **6/6 muerden**, y cada una en SU aserción
+    (holdings `:218`, holdingDetail `:222`, custody `:224`, `/admin/vaults` `:226`, ficha 360° `:229`,
+    inventory-value `:237`). Todas ponen también rojo VK-4.
+  - VK-1 `'sealed'` en la rama sin mapeo ⇒ rojo (unit + 2 e2e); VK-1 `item.finish` en la mapeada ⇒ rojo (unit).
+  - VK-2 gate cambiado por `status==='priced'` ⇒ rojo (2 unit + VK-5 dial off).
+  - VK-6 llamada nueva a `tryGradeKeyFor` en `vault.service.ts` ⇒ rojo (2 del censo).
+- Suites: unit **358/358 suites, 5902/5902**; `tsc --noEmit` limpio; eslint 0 errores (5 avisos previos, ninguno
+  de estos ficheros). Integración completa sobre BD **virgen**: ver «Discrepancias» (una roja, **preexistente**).
+
+## N-MEDICIÓN pedida por el arquitecto — ¿el mapeo de M2 acepta piezas de CLIENTE? **Sí (medido)**
+Sonda HTTP no commiteada, Postgres propio, **N=1, backend, 2026-09-28**: caja sellada de cliente sin mapeo ⇒
+aparece en `GET /admin/pricing/sealed/unmapped` (`true`); `PUT /admin/pricing/sealed/items/:id/mapping`
+`{tcgplayerProductId, tcgplayerGroupId}` ⇒ **`200`**; «Mi bóveda» pasa de `{status:'pending'}` a
+`{status:'priced', referenceMxnCents: 111100}` (con una ref manual bajo `sealed:tcg:<id>`). Por código
+(`sealed-mapping.service.ts` `listUnmapped`/`updateMapping`): ninguno filtra por `ownerType`. ⇒ «Lo fijaremos pronto»
+tiene camino real en el backend. **NO MEDIDO:** la pantalla de M2 que lo ofrece para piezas de cliente (frontend).
+⚠️ Por lectura (NO MEDIDO): `applyToSiblings` copia el mapeo a piezas `sealed` sin mapeo con el mismo
+`(cardId, sealedSubtype)` **de cualquier dueño** (cliente y plataforma).
+
+## ⚠️ Discrepancias / hallazgos para el arquitecto (NO los arreglé)
+1. **Export `.xlsx` de inventario cae a `'sealed'`** (fuera de los seis lectores): `inventory.service.ts`
+   `exportGradeKey` devuelve `tryBuildGradeKey(it)` = `'sealed'` para sellado **sin mapeo**, y las columnas de
+   mercado/compra/venta del export salen con la fila legada `'sealed'` (el precio de otra caja). Solo plataforma
+   (`ownerType:'platform'`). Además, para sellado **mapeado** busca con `it.finish`, no `normal`. Por lectura, **NO
+   MEDIDO** por HTTP. Candidato natural a `valuationKeyFor`. Está en el censo VK-6 con esta nota.
+2. **`price-sync` (job) pide `'sealed'` para sellado** — por lectura es uso de **cola** (sincroniza/escala por
+   variante), no valúa patrimonio; lo dejo en el censo como legítimo. Resto de la lista del contrato: confirmados por
+   lectura detrás de rama de sellado o sin sellado posible. Además de la lista del contrato, el censo encontró
+   `inventory.service.ts` re-publicación por variante (clave de cola, legítimo) y el export (punto 1).
+3. **Rojo PREEXISTENTE en integración, no de SK-5:** `enum-query-axes.e2e-spec.ts` › `GET /admin/vaults?sort= ⇒
+   conforme` sale rojo cuando corre detrás de cierta secuencia de suites. Medido: BD virgen + secuencia
+   `buylist-cycle, vault-placement-races, fx-mode, seed-idempotency, pricing-visibility, seed-account-fixtures,
+   buylist-pay-verdicts, checkout-reservation-owner, preparation-queue, enum-query-axes` ⇒ **rojo igual en el árbol
+   base `1971291` sin este cambio y con él** (N=1 cada uno). Sola, verde (N=2). Dependencia de orden de la prueba.
+   Integración completa del árbol con SK-5 sobre BD virgen: 54/55 suites, 1165 verdes, esa 1 roja.

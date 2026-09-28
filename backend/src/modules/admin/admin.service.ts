@@ -13,7 +13,6 @@ import {
   MarketBracket,
   OrderStatus,
   Prisma,
-  ProductType,
   Role,
   SellRequestStatus,
   UserStatus,
@@ -589,6 +588,8 @@ const ADMIN_USER_DETAIL_SELECT = {
       gradingCompany: true,
       gradeValue: true,
       ownershipStatus: true,
+      // v1.80.1 (SK-5): identidad de mercado del sellado — la valuación la necesita; ⛔ no viaja al DTO.
+      tcgplayerProductId: true,
       card: { include: { set: true } },
     },
   },
@@ -980,6 +981,7 @@ export class AdminService {
       rawCondition: string | null;
       gradingCompany: string | null;
       gradeValue: string | null;
+      tcgplayerProductId: number | null;
       ownershipStatus: Prisma.InventoryItemGetPayload<object>['ownershipStatus'];
       card: Prisma.CardGetPayload<{ include: { set: true } }>;
     }[],
@@ -1022,22 +1024,28 @@ export class AdminService {
     // vigente (izada UNA vez), en paridad con getReference/getReferencesBatch. Overrides manuales y
     // precios nativos en MXN quedan congelados (los distingue `liveMxnCents`).
     const fx = await this.pricing.fxSnapshotSafe();
+    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear.
+    const sourceOn = items.some((i) => i.productType === 'sealed')
+      ? (await this.pricing.loadSealedSpreads()).sourceOn
+      : false;
     return items.map((item) => {
-      // v1.53 (§4.40.4b, MONEY) — LECTURA: sin identidad de slab no hay clave, y sin clave no hay
-      // referencia ⇒ `pending`. Antes la fila se resolvía como `graded:PSA:10` y el admin veía el
-      // valor del grado MÁS CARO para una pieza cuyo grado nunca se capturó.
-      const gradeKey = this.pricing.tryGradeKeyFor(item);
-      const r = gradeKey
-        ? latest.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`)
-        : undefined;
-      const referenceValue: PriceInfo = r
+      // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — por la ÚNICA puerta de valuación, la misma que
+      // «Mi bóveda» del cliente: la ficha 360° y lo que ve el cliente cuadran.
+      //  - raw/graduada: la clave de siempre (v1.53 §4.40.4b: sin identidad de slab no hay clave ⇒
+      //    `pending`; antes se resolvía `graded:PSA:10`, el grado MÁS CARO).
+      //  - sellado: su `sealed:tcg:<id>` con el gate de dial; sin mapeo ⇒ `pending`. ⛔ Nunca `'sealed'`.
+      const key = this.pricing.valuationKeyFor(item);
+      const r = key ? latest.get(`${key.cardId}|${key.productType}|${key.gradeKey}|${key.finish}`) : undefined;
+      const ref: PriceInfo | undefined = r
         ? {
             status: 'priced',
             referenceMxnCents: this.pricing.liveMxnCents(r, fx),
             source: r.source as PriceInfo['source'],
             capturedDate: r.capturedDate.toISOString().slice(0, 10),
           }
-        : { status: 'pending' };
+        : undefined;
+      const referenceValue: PriceInfo =
+        ref && this.pricing.valuationCentsOf(item, ref, sourceOn) != null ? ref : { status: 'pending' };
       return {
         inventoryItemId: item.id,
         folio: item.folio,
@@ -1609,39 +1617,17 @@ export class AdminService {
         tcgplayerProductId: true,
       },
     });
-    // Claves de valuación por pieza. Sellado: SOLO la de mercado (SK-2 — `'sealed'` jamás se pide).
-    const keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] = [];
-    for (const item of items) {
-      if (item.productType === 'sealed') {
-        const gk = this.pricing.sealedMarketGradeKeyForItem(item);
-        if (gk) keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' });
-      } else {
-        // v1.53 (§4.40.4b, MONEY) — LECTURA agregada: una graduada sin identidad de slab NO aporta
-        // clave al lote (mismo idioma que el sellado no mapeado, justo arriba). Abajo cae a
-        // `pendingPriceCount`, que es la verdad: no se puede valuar lo que no se sabe qué grado es.
-        const gk = this.pricing.tryGradeKeyFor(item);
-        if (gk) {
-          keys.push({
-            cardId: item.cardId,
-            productType: item.productType,
-            gradeKey: gk,
-            finish: item.finish,
-          });
-        }
-      }
-    }
+    // v1.80.1 (API_CONTRACT §M2-SK **SK-5**) — claves por la ÚNICA puerta de valuación. Sellado: SOLO
+    // la de mercado (SK-2 — `'sealed'` jamás se pide); graduada sin identidad de slab: sin clave
+    // (§4.40.4b). Ambos casos caen abajo a `pendingPriceCount`, que es la verdad.
+    const keyOf = items.map((item) => this.pricing.valuationKeyFor(item));
+    const keys = keyOf.flatMap((k) => (k ? [k] : []));
     const refs = keys.length ? await this.pricing.getReferencesBatch(keys) : new Map<string, PriceInfo>();
-    const refCentsOf = (
-      cardId: string,
-      productType: string,
-      gradeKey: string,
-      finish: string,
-    ): number | null => {
-      const ref = refs.get(`${cardId}|${productType}|${gradeKey}|${finish}`);
-      return ref && ref.status === 'priced' && ref.referenceMxnCents != null
-        ? ref.referenceMxnCents
-        : null;
-    };
+    // SK-5 (efecto declarado en §4.50.1-bis): el sellado gana el gate de dial de `/vault/sealed` — la
+    // fuente `tcgcsv` solo cuenta con el dial encendido; el override manual sobrevive. UNA lectura.
+    const sourceOn = items.some((i) => i.productType === 'sealed')
+      ? (await this.pricing.loadSealedSpreads()).sourceOn
+      : false;
 
     const emptyBucket = () => ({
       atReferenceCents: 0,
@@ -1650,24 +1636,17 @@ export class AdminService {
       pendingPriceCount: 0,
     });
     const breakdown = { raw: emptyBucket(), sealed: emptyBucket(), graded: emptyBucket() };
-    for (const item of items) {
+    items.forEach((item, i) => {
       const bucket = breakdown[item.productType];
       bucket.pieceCount += 1;
       bucket.atCostCents += item.acquisitionCostCents ?? 0;
-      let cents: number | null;
-      if (item.productType === 'sealed') {
-        const gk = this.pricing.sealedMarketGradeKeyForItem(item);
-        // SK-2: sin clave de mercado ⇒ `null` ⇒ pendiente. ⛔ Sin `?? 'sealed'`.
-        cents = gk ? refCentsOf(item.cardId, 'sealed', gk, 'normal') : null;
-      } else {
-        // v1.6-finish: valúa contra la referencia del ACABADO del item.
-        // v1.53 (§4.40.4b): sin clave ⇒ `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`.
-        const gk = this.pricing.tryGradeKeyFor(item);
-        cents = gk ? refCentsOf(item.cardId, item.productType, gk, item.finish) : null;
-      }
+      const k = keyOf[i];
+      const ref = k ? refs.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`) : undefined;
+      // `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`. ⛔ Sin `?? 'sealed'`.
+      const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
       if (cents != null) bucket.atReferenceCents += cents;
       else bucket.pendingPriceCount += 1;
-    }
+    });
 
     // Top-level = Σ del breakdown (shape previo intacto; el breakdown es ADITIVO).
     const buckets = [breakdown.raw, breakdown.sealed, breakdown.graded];
@@ -1683,18 +1662,22 @@ export class AdminService {
     const items = await this.prisma.inventoryItem.findMany({
       where: { ownerType: 'customer' },
     });
+    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear.
+    const sourceOn = items.some((i) => i.productType === 'sealed')
+      ? (await this.pricing.loadSealedSpreads()).sourceOn
+      : false;
     let totalCustodyValueCents = 0;
     for (const item of items) {
-      // v1.53 (§4.40.4b, MONEY) — VALOR DE CUSTODIA: sin identidad de slab la pieza no se valúa (no
-      // suma). Sumarla al precio de un PSA 10 inflaría el pasivo con el cliente por una carta cuyo
-      // grado nunca se preguntó; no sumarla es honesto y entra al censo §4.40.8.
-      const gradeKey = this.pricing.tryGradeKeyFor(item);
-      if (gradeKey == null) continue;
-      // v1.6-finish: valúa contra la referencia del ACABADO del item.
-      const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
-      if (ref.status === 'priced' && ref.referenceMxnCents != null) {
-        totalCustodyValueCents += ref.referenceMxnCents;
-      }
+      // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — VALOR DE CUSTODIA por la ÚNICA puerta de
+      // valuación, la misma que «Mi bóveda»: el pasivo con el cliente cuadra con lo que él ve.
+      //  - sin identidad de slab (v1.53 §4.40.4b) o sellado sin mapeo ⇒ sin clave ⇒ NO suma. Antes el
+      //    sellado sin mapeo sumaba la fila legada `'sealed'` — el precio de otra caja (P-83, medido).
+      //  - sellado mapeado ⇒ su `sealed:tcg:<id>` con el gate de dial de `/vault/sealed`.
+      const key = this.pricing.valuationKeyFor(item);
+      if (key == null) continue;
+      const ref = await this.pricing.getReference(key.cardId, key.productType, key.gradeKey, key.finish);
+      const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
+      if (cents != null) totalCustodyValueCents += cents;
     }
     return { totalCustodyValueCents };
   }
