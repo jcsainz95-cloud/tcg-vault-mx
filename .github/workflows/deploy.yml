@@ -16,10 +16,11 @@
 #      El backend corre `prisma migrate deploy` al arrancar (Dockerfile CMD).
 #   3) GATES de promoción (deben pasar los TRES para ir a prod):
 #        a) DAST (`dast-release` → security-dast.yml, stack EFÍMERO sobre el SHA
-#           de este run; §56). Hoy `report_only` (C2): el RUN no se pone rojo,
-#           pero `blocking` se calcula igual y SÍ gatea la promoción (F1-1).
-#           `report_only` caduca el 2026-10-06 (job `dast-report-only-expiry`
-#           de ci.yml se pone rojo si sigue puesto).
+#           de este run; §56). BLOQUEANTE desde 2026-09-28 (C2-bis, decisión de
+#           seguridad): un hallazgo FAIL pone el RUN en rojo. `blocking` se
+#           calcula igual en todos los modos y gatea la promoción (F1-1).
+#           Volver a `report_only: true` lo pone rojo `dast-report-only-expiry`
+#           de ci.yml (DEVOPS_NOTES §69).
 #        b) E2E REAL (e2e-real.yml, stack real mocks=false, endpoints reales).
 #        c) SAST en PR (branch protection) ya exigido antes del merge.
 #   4) SOLO si DAST no tiene bloqueantes Y el E2E real pasó -> promoción a PRODUCCIÓN,
@@ -451,10 +452,16 @@ jobs:
   # es el SHA que Vercel/Railway acaban de desplegar; en `workflow_dispatch`, el
   # de la rama elegida.
   #
-  # `report_only: true` (C2): mide, publica el veredicto en el resumen y deja
-  # los informes como artifact, pero el RUN no se pone rojo. Lo sube a
-  # bloqueante el rol seguridad cuando haya visto los primeros barridos reales
-  # (basta poner `report_only: false`).
+  # `report_only: false` (C2-bis, 2026-09-28 — DEVOPS_NOTES §69): el candado
+  # BLOQUEA el run. Hasta esa fecha estuvo en `true` (C2: medir sin pintar rojo
+  # mientras seguridad calibraba). Seguridad decidió retirarlo (SECURITY_NOTES,
+  # «Decisión sobre `report_only`») con 19/19 barridos sobre `production` en
+  # VERDE (medido por anotaciones del candado, §69.2). Lo que el rojo NO hace:
+  # frenar la publicación — Vercel/Railway ya desplegaron por integración nativa
+  # al recibir este mismo push; este run va DESPUÉS. El rojo es la alarma de que
+  # lo publicado tiene un hallazgo bloqueante, y abre issue (`abrir-issue`).
+  # Si sale rojo por un hallazgo real, el hallazgo va a su dueño; NO se vuelve
+  # a `report_only` (decisión de seguridad).
   #
   # LO QUE `report_only` NO HACE (techlead F1-1, 2026-09-11): no abre el gate
   # de promoción. Antes sí: `blocking` se derivaba del outcome del paso del
@@ -465,10 +472,11 @@ jobs:
   # `blocking == 'false'` (vacío = el candado no corrió = NO se promueve).
   # Lo comprueba scripts/check-dast-gate-live.sh (5-bis) en cada push.
   #
-  # CADUCIDAD: `report_only: true` tiene fecha. `scripts/check-dast-report-only-expiry.sh`
-  # (job `dast-report-only-expiry` de ci.yml) se pone ROJO desde el 2026-10-06
-  # si sigue aquí. Para retirarlo: borrar la línea `report_only: true` de abajo
-  # (o ponerla en false); el rojo se apaga solo. Dueño de la decisión: seguridad.
+  # ANTI-REGRESIÓN: `scripts/check-dast-report-only-expiry.sh` (job
+  # `dast-report-only-expiry` de ci.yml) se pone ROJO si `report_only: true`
+  # vuelve a este bloque a partir del 2026-10-06 (antes, solo avisa). Reabrir la
+  # calibración exige decisión de seguridad Y mover FECHA_LIMITE con motivo en
+  # DEVOPS_NOTES. Dueño de la decisión: seguridad.
   #
   # No depende de `secrets-gate`: el DAST no necesita secrets de CD (el stack se
   # levanta en el runner; STRIPE_TEST_* llegan por `secrets: inherit`, y sin
@@ -482,7 +490,7 @@ jobs:
     with:
       ref: ${{ github.sha }}
       scan_profile: full
-      report_only: true
+      report_only: false   # C2-bis (2026-09-28): bloqueante. Ver arriba y DEVOPS_NOTES §69.
     secrets: inherit
 
   # ---------------------------------------------------------------------------

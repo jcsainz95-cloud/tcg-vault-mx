@@ -409,6 +409,8 @@ jobs:
   # FECHA_LIMITE del script (2026-10-06) si sigue puesto, con el retiro en el
   # mensaje. Se apaga solo al quitar la línea. Y su canario demuestra en cada
   # push que sabe ponerse rojo cuando toca y no antes.
+  # 2026-09-28 (C2-bis, DEVOPS_NOTES §69): `report_only` RETIRADO (`false`).
+  # El job queda como ANTI-REGRESIÓN: si `report_only: true` vuelve, rojo.
   # ---------------------------------------------------------------------------
   dast-report-only-expiry:
     runs-on: ubuntu-latest

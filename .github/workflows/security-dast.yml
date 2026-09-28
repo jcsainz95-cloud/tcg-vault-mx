@@ -39,8 +39,8 @@
 #
 # CADENCIA: semanal (lunes 06:00 UTC, la misma que ya tenía el cron muerto que
 #   sustituye) + `workflow_call` desde `deploy.yml` en CADA push a `production`
-#   —la rama que publica (HECHOS.md)— sobre el SHA publicado, en modo
-#   `report_only` mientras seguridad no lo suba a bloqueante (C2, §56) + manual.
+#   —la rama que publica (HECHOS.md)— sobre el SHA publicado, BLOQUEANTE desde
+#   2026-09-28 (C2-bis, §69; antes `report_only`, C2 §56) + manual.
 #   NO por push a otras ramas: el escaneo activo tarda demasiado para castigar
 #   el día a día.
 #

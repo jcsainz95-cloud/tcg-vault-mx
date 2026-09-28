@@ -12591,3 +12591,79 @@ los números al lado. **NO MEDIDO:** si alguna plantilla de PR del repo sugiere 
 sobre HTML remoto— y **nadie lo ha inventariado**. No es de esta PR ni la bloquea. Dueños: **seguridad**
 (inventario de terceros en runtime) y **backend** (dueño de `decks-meta`). Lo registra el orquestador
 como pendiente; yo no toco esas rutas.
+
+## §69 · C2-bis / DO-D4 — `dast-release` pasa a BLOQUEANTE (`report_only: false`) antes de que caduque el 2026-10-06 (2026-09-28, rama `claude/paquete-seguridad`)
+
+### 69.1 · Qué mide ese DAST, contra qué y cuándo (leído del árbol en `c4d378b`)
+
+- **Qué:** ZAP (perfil `full`, escaneo activo, tope 10 min) contra la vitrina y nuclei contra vitrina + API,
+  con la política `security/zap/baseline.conf`; el veredicto lo da `security/scripts/dast-gate.py`. Antes
+  de escanear, el job `selftest` barre un canario con vulnerabilidades plantadas y **exige** rojo.
+- **Contra qué:** un **stack efímero** levantado en el runner (`docker-compose.staging.yml`, datos
+  sintéticos) sobre el SHA pedido. **No necesita staging** (HECHOS.md: no existe) ni secretos de CD. NO es
+  producción (§44.4): no cubre la red/CDN/TLS de Vercel y Railway ni sus datos.
+- **Cuándo:** (1) en cada push a `production` vía `deploy.yml > dast-release`, sobre ese SHA;
+  (2) lunes 06:00 UTC (`schedule`, rama por defecto); (3) a mano.
+- **Qué hacía `report_only: true`:** solo el color del run. `blocking` se calcula igual (F1-1) y las
+  `promote-*` —inertes, el CD por Actions está apagado— lo exigen `== 'false'`.
+
+### 69.2 · Lo medido (API de GitHub, 2026-09-28)
+
+| Qué | Resultado |
+|---|---|
+| Runs de `Deploy` por push a `production` desde el 2026-09-12 (`35870241154` sobre `47e4efa` … `34692360915` sobre `9050d59e`) | **19/19** con veredicto del candado **VERDE**, 0 líneas `FAIL` (anotación «DAST … — VERDE» del check-run «DAST contra el stack efímero») |
+| Run `34650494939` (2026-09-11, `efe65f57`) | **rojo** por «Levantar y preparar el stack efímero» — un fallo de arranque pone el run rojo **con o sin** `report_only`; no es de la política |
+| Barridos semanales (`schedule`) 09-14, 09-21, 09-28 | **3/3 VERDE**. Ojo: 09-21 y 09-28 escanearon `bb239c09` (la punta de la rama por defecto no se movió entre ambas) |
+| `abrir-issue` en los 19 | **skipped** ⇒ `blocking` nunca fue `'true'` |
+| Rulesets activos sobre `production` (`GET /rules/branches/production`) | **ninguno** (`[]`) |
+| Protección clásica de ramas | **NO MEDIDO** (403 para el token de integración) |
+| Artefactos `dast-ephemeral-reports` | **NO MEDIDO** (descarga bloqueada por el proxy de salida); el veredicto sale de las anotaciones, que dast-gate.py escribe con independencia de `report_only` |
+
+Lo que se ve en las anotaciones del último run (`47e4efa`): solo `WARN` — CSP ausente (Medio x5),
+anti-clickjacking ausente (Medio x5), cookie sin HttpOnly (Bajo x5). Ninguno es `FAIL` según la política
+vigente. Revisar esos `WARN` le toca a seguridad, no a este cambio.
+
+### 69.3 · Qué pasaba el 6 de octubre sin este cambio
+
+`check-dast-report-only-expiry.sh` devuelve rc=9 ⇒ el job `dast-report-only-expiry` sale rojo ⇒ **`ci-ok` sale
+rojo en todos los push y PR de todas las ramas**, sin que el producto haya cambiado. `ci-ok` es el check que
+cita C5 (`check-candidate-checks.sh <sha>` debe dar rc=0 antes de cada publicación), así que **el
+procedimiento de publicación quedaba parado** hasta retirar la línea o mover la fecha. Comprobado sobre una
+copia de `deploy.yml` de `HEAD`: `--today 2026-09-28` → rc=0, `--today 2026-10-06` → **rc=9**.
+
+### 69.4 · El cambio
+
+- `deploy.yml > dast-release`: `report_only: false` (explícito, para que volver a `true` se vea en el diff).
+  Comentarios de cabecera y del bloque puestos al día.
+- **No bloquea la publicación.** Vercel y Railway publican solos al recibir el push a `production`; este run
+  corre después, sobre el mismo SHA. Un hallazgo `FAIL` pone rojo el run y abre issue: es la alarma de que
+  **lo publicado** tiene algo bloqueante, no una puerta previa. Hacerlo puerta previa exigiría escanear en
+  `main` antes de la solicitud de fusión — eso es otra decisión (§69.5).
+- `scripts/check-dast-report-only-expiry.sh`: la semántica no cambia (sin `report_only: true` → verde; con él
+  y fecha ≥ 2026-10-06 → rc=9). Queda como **anti-regresión** y así lo dicen su cabecera y el comentario del
+  job en `ci.yml`. `FECHA_LIMITE` no se mueve.
+- `security-dast.yml`: comentario de cadencia actualizado.
+
+**Medido en el árbol (sin actionlint en este contenedor):** YAML de los 3 workflows parsea; expiry sobre el
+árbol → rc=0 con hoy, `2026-10-06` y `2027-01-01`; canario de caducidad **8/8**; mutación sobre copia
+(volver a `report_only: true`) → rc=0 el 09-28 y **rc=9** el 10-06; `check-dast-gate-live`,
+`check-provenance-gate`, `check-ci-ok --static`, `check-workflow-cwd`, `check-secret-defaults` → rc=0.
+**NO MEDIDO:** actionlint, y el primer run bloqueante real — lo da el primer push a `production` que lleve
+este commit (hay que citarlo por número con `blocking=false`, como pide la condición C2-bis).
+
+### 69.5 · Qué tiene que decidir seguridad
+
+1. **Confirmar que lo retirado es lo decidido.** La decisión ya está escrita («Decisión sobre `report_only`»
+   en SECURITY_NOTES: retirarlo, plazo 2026-09-25, pasado ya). Este commit la ejecuta; el cierre de C2-bis
+   pide además citar el primer run de `dast-release` en `production` con `blocking=false`.
+2. **Si el DAST debe ser puerta *previa*:** hoy es una alarma *posterior* a la publicación. Hacerlo previo
+   exige correr `security-dast.yml` sobre el SHA candidato de `main` y meterlo en C5; cuesta ~17 min por
+   candidato. Lo decide seguridad (y el dueño, por el tiempo del ciclo).
+3. **Los `WARN` que se repiten** (CSP, anti-clickjacking, cookie sin HttpOnly): aceptarlos con motivo, o
+   subirlos a `FAIL` en `security/zap/baseline.conf` — subirlos **hoy** pondría rojos los runs, porque salen en
+   todos los barridos.
+4. **Si el primer run bloqueante sale rojo:** según lo ya decidido, el hallazgo va a su dueño y **no** se vuelve
+   a `report_only`.
+
+**Rollback de este cambio:** revertir el commit. Antes del 2026-10-06 no rompe nada; desde esa fecha vuelve a
+poner `ci-ok` en rojo, y así tiene que ser.
