@@ -13,6 +13,32 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-09-28 · SEC-SETTLE-LATE (sobre `2fb61f1`)
+
+### SSL-R1 · Piezas `reserved` de una orden `refunded` SIN liquidar nunca se sueltan: el barrido las salta en cada pasada (backend · API_CONTRACT §M4-VAULT.2-bis.2 «Residual», 2026-09-28)
+- **Dueño:** **backend** (`src/modules/orders/orders.service.ts#sweepExpiredReservations` + `closePaymentIntent`).
+  **Dueño de la decisión** de qué hacer con la pieza: **arquitecto** (y el dueño si toca dinero/inventario vendible).
+- **Severidad:** Baja. **No bloqueante** (declarado así por el contrato v1.80). Nuestro reembolso exige `settled`
+  (`admin-orders.controller.ts:239`); solo se llega aquí con un reembolso hecho **desde el panel de Stripe** sobre una
+  orden aún `pending`.
+- **Qué es (medido 2026-09-28 sobre `2fb61f1`, autor backend, Postgres real, N=1 por variante,
+  `test/integration/settle-late.e2e-spec.ts` «RESIDUAL»):** orden `vault` `pending` con 2 piezas `reserved` vencidas ⇒
+  `charge.refunded` total ⇒ `refunded`; el `succeeded` tardío ya no las mueve (v1.80). El barrido selecciona
+  `reserved ∧ reservedByOrderId ≠ null ∧ reservedUntil < now` sin mirar el estado de la orden y, por B3, solo suelta
+  si el PI queda `canceled`. Un PI reembolsado está `succeeded` ⇒ cancelar lanza ⇒ `closed:false` ⇒ se salta. Con el
+  doble en modo Stripe real (`throws-succeeded`): **siguen `reserved` tras dos pasadas**, y cada pasada (cada 15 min)
+  loguea `error`. Contraste (doble que sí cancela, irreal aquí): las soltaría a `listed`.
+- **Riesgo:** cartas únicas atrapadas en `reserved` para siempre (fuera de venta) y ruido de `error` perpetuo en el
+  barrido, que entrena a ignorarlo.
+- **Dirección (⛔ no decidida):** ⛔ «liberar y ya» no vale: soltar a `listed` devuelve a la venta una carta que el
+  cliente puede tener ya, según por qué se reembolsó. Opciones a decidir: excluir del barrido las órdenes no `pending`
+  y llevar las piezas a una cola de revisión humana (como `chargebackNeedsManual`), o una transición explícita al
+  recibir `charge.refunded` sobre una orden `pending`.
+- **Comprobación de cierre:** la prueba «RESIDUAL — Stripe real» de `settle-late.e2e-spec.ts` cambia de aserción a la
+  conducta decidida (y se pone roja con el código de hoy); ⛔ ninguna pieza queda `reserved` por una orden `refunded`
+  tras una pasada del barrido; el barrido deja de loguear `error` por esas órdenes.
+- **Disparador:** el **primer reembolso hecho fuera de la app** (panel de Stripe) sobre una orden sin liquidar.
+
 ## Backend · 2026-09-25 · gates arreglos-rápidos (sobre `3806fec`)
 
 > Los identificadores llevan el sufijo «(arreglos-rápidos)» porque `TD-1`/`TD-2` ya existen más abajo (cerrados, de
