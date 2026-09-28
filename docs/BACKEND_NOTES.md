@@ -24259,6 +24259,8 @@ SK-3); SK-1 (cero migración) y SK-4 (la vía `listPriceCents` ya existía) no l
   rojos contra el código previo.
 - `test/pricing.graded-intent.spec.ts`: dos casos usaban `sealed`/`'sealed'` como ejemplo de «no graduada»; pasan a
   `sealed:tcg:4242` (con `'sealed'` hoy reciben el 422, que es la norma).
+- `test/pricing.m44-no-degrade.spec.ts`: la lista «claves legítimas siguen pasando» incluía `['sealed','sealed']`;
+  sale de la lista (sigue siendo canónica para la cola, pero el override responde 422). Lo cazó la suite completa.
 - `test/integration/sealed-market-key.e2e-spec.ts` (3, Postgres real, por HTTP): sobre de error y CERO filas escritas;
   control mapeado `200`; delta de `inventory-value` con fila legada (no suma) y mapeada sin ref (pendiente).
 
