@@ -4,6 +4,20 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80 — C7: LÍMITE DE INTENTOS POR CUENTA** (2026-09-28, arquitecto. Base: **v1.79.5, vigente entera salvo lo
+> que esta rev toca**. Origen: condición **C7** del veredicto de seguridad «release A» (`SECURITY_NOTES`, `P-RL-1`); bloquea
+> el paso a dinero real. `API_CONTRACT` sube a **v1.80**. ⛔ **Sin schema, sin migración, sin variable de entorno
+> nueva.** Toca zonas compartidas: `backend/src/common/`, `backend/src/config/`, `frontend/src/lib/`.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ Contador de intentos **por cuenta** (HMAC del correo normalizado) delante de `argon2`: 5 libres, luego candado 1 min que se duplica hasta 60 min; `429 TOO_MANY_PASSWORD_ATTEMPTS` idéntico exista o no la cuenta | §4.57.2–.3 | **Sí, backend** |
+> | **2** | ⭐ **Dispositivo conocido** (`deviceToken`) para que un atacante no pueda dejar fuera al dueño; CAPTCHA descartado | §4.57.2 #8, §4.57.4 | **Sí, backend y frontend** |
+> | **3** | Redis con respaldo en memoria (ni fail-open ni fail-closed) | §4.57.2 #11, §4.57.5 | **Sí, backend** |
+> | **4** | `change-password` con contador propio por `userId` | §4.57.2 #14 | **Sí, backend** |
+> | **5** | Aviso: log + bitácora sin `await` + correo solo a staff | §4.57.2 #10 | **Sí, backend** |
+>
+> ---
 > **Rev v1.79.5 — «PARA BÓVEDA» TRAS LOS GATES: EL RIVAL DE LOS CAS ES EL CONTRACARGO** (2026-09-28, arquitecto. Base:
 > **v1.79.4, vigente entera salvo lo que esta rev toca**. Origen: veredictos de QA, techlead y seguridad sobre
 > `db7d1c2`. `API_CONTRACT` sube a **v1.79.5**. ⛔ **Sin schema, sin migración, sin endpoint, sin código de error, sin
@@ -25223,6 +25237,188 @@ fichero ya declara en su cabecera**.
 
 ---
 
+### 4.57 C7 — EL LÍMITE DE INTENTOS **POR CUENTA**: un tope que el atacante no elige y que no encierra al dueño (v1.80, 2026-09-28, NORMATIVO, **SEGURIDAD · bloquea dinero real**)
+
+> *El tope por IP le pregunta al atacante desde dónde viene, y le cree. El tope por cuenta le pregunta a quién
+> ataca, y eso no lo puede mentir: si cambia el correo, cambia de víctima.*
+> Interfaz exacta, códigos y pruebas: **`API_CONTRACT §1` «Límite de intentos por cuenta (v1.80, C7)»**.
+
+#### 4.57.0 Estado de partida, con su fuente
+
+| Hecho | Fuente | Estado |
+|---|---|---|
+| `POST /auth/login` topa **solo por IP**: `@Throttle 5/min` | `auth.controller.ts:35-41` (leído hoy, rama `claude/paquete-seguridad`) | **LEÍDO** |
+| `AuthService.login` no cuenta fallos por cuenta: busca, `argon2.verify` (dummy si no existe), `401` | `auth.service.ts:369-397` | **LEÍDO** |
+| Rotando `X-Forwarded-For` el tope por IP **no dispara** (8/8) **en local** | `SECURITY_NOTES` §3.1 `P-RL-1` | **REPORTADO por seguridad** (N=8) |
+| Si el edge de Railway neutraliza ese truco en producción | `C6` | **NO MEDIDO** por nadie |
+| El throttler guarda en memoria del proceso | `app.module.ts:44-46` | **LEÍDO** |
+| `REDIS_URL` es **opcional** en el código (sin él: health `skipped`, sin scheduler) | `health-redis.provider.ts:65-66`, `jobs.module.ts:24` | **LEÍDO** |
+| Hay Redis en producción (add-on de Railway) | `DEVOPS_NOTES` l. 282 y 460 | **DOCUMENTAL — NO MEDIDO por mí** |
+| Hay Redis en CI (`ci.yml:124`, `e2e.yml:148`) y en `stack-native.sh:228` | ficheros de devops | **LEÍDO** |
+| `numReplicas: 1` | `SECURITY_NOTES` (`PII-D`) | **REPORTADO por seguridad como MEDIDO** |
+| El `ValidationPipe` descarta en silencio los campos desconocidos (`forbidNonWhitelisted: false`) | `main.ts:56` | **LEÍDO** — un campo nuevo en el cuerpo **no obliga a un orden de despliegue** |
+
+#### 4.57.1 Qué protege esto y qué NO (para que nadie lo lea como cerrado)
+
+- ✅ **Protege:** adivinar en línea la contraseña de **una cuenta concreta** desde muchas IPs, o desde una sola con
+  `X-Forwarded-For` falso. La cuenta que más importa es la del **dueño (`super_admin`)**: es la que mueve dinero.
+- ⛔ **NO protege — y se dice por su nombre:** *password spraying* (una contraseña común contra miles de cuentas,
+  pocas veces por cuenta) ni *credential stuffing* (pares correo/contraseña filtrados de otro sitio, un intento por
+  cuenta). Ninguno de los dos acumula intentos sobre una misma cuenta, así que un tope por cuenta **no los ve**. Su
+  eje es la IP (`C6`) y, a futuro, rechazar contraseñas filtradas conocidas. **No es parte de C7** y queda anotado
+  para seguridad.
+
+#### 4.57.2 Las decisiones, cada una con su alternativa descartada
+
+| # | Pregunta | Decisión | Por qué, y qué se descartó |
+|---|---|---|---|
+| **1** | **Clave del contador** | `HMAC(PII_HMAC_KEY, "auth-pw:v1:" + normalizeEmail(email))` vía `PiiCryptoService.blindIndex` (`common/crypto`, `@Global`). `normalizeEmail` = la de `common/validation/credentials.ts:15` (trim + minúsculas) | **La normalización de la clave y la de la búsqueda son LA MISMA función** — si difirieran, `Owner@X.com` y `owner@x.com` abrirían dos cubos contra la misma cuenta. Hoy `login` hace `.toLowerCase()` a mano (`auth.service.ts:370`): pasa a `normalizeEmail`. ⛔ **Nada de canonicalizar puntos ni `+etiqueta` de Gmail**: la búsqueda no lo hace, así que `a.b@gmail.com` y `ab@gmail.com` **son dos cuentas** aquí, y la clave es de *cuenta*. **HMAC y no el correo en claro:** las claves de Redis las lee cualquiera con acceso a Redis y un correo es PII (§3.4). **HMAC y no SHA-256 a secas:** un hash sin llave se revierte con una lista de correos. El prefijo `auth-pw:v1:` separa dominios: el mismo HMAC no coincide nunca con el blind index de la CLABE |
+| **2** | **Qué se cuenta** | **Cada INTENTO se reserva ANTES de `argon2`** (cuenta como fallo de entrada) y un acierto lo **borra**. La reserva y la comprobación del candado son **una sola operación atómica** | Contar el fallo *después* de `argon2` deja una ventana: 50 peticiones simultáneas ven todas «sin candado» y las 50 llegan a `argon2`. Con la reserva atómica, **exactamente 5 pasan** por mucha concurrencia que haya (prueba `C7-4`). Un proceso que muere a mitad de `argon2` deja el intento contado: falla hacia el lado seguro |
+| **3** | **Umbral y ventana** | **5 intentos libres.** El 5.º ya deja puesto un candado de **60 s**; cada intento posterior (cuando el candado expira) lo **duplica**: 60 s, 2 min, 4, 8, 16, 32 min y **tope 60 min**. El contador se olvida tras **2 h sin intentos** (TTL deslizante) | Ritmo máximo sostenido de un atacante contra **una** cuenta: ~11 en la primera hora y luego **1 por hora ⇒ ~34 al día**. Un usuario real que olvidó su contraseña ve 1 minuto tras el 5.º dedazo y el mensaje le ofrece restablecer. El TTL de 2 h tiene que ser **mayor que el tope** (60 min): si fuera menor, el contador moriría durante el candado y el atacante recuperaría sus 5 libres |
+| **4** | **Intentos DURANTE el candado** | Se rechazan **sin contarse y sin alargar el candado** | Si contaran, un atacante mantendría el candado puesto **para siempre** con un intento cada minuto, gratis. Así, alargar el castigo le cuesta esperar |
+| **5** | **Qué responde** | **`429 TOO_MANY_PASSWORD_ATTEMPTS`** + cabecera `Retry-After` (segundos) + `details: { retryAfterSeconds }`. **Idéntico** para cuenta existente, inexistente, solo-Google y bloqueada. En estado de candado **nadie** llega a `argon2` | **Sin oráculo de existencia:** el contador de un correo que no existe crece **igual** que el de uno que existe (la clave sale del correo tecleado, no de la fila, y la reserva ocurre para los dos), así que la secuencia `401×5, 429` es la misma para los dos, y el `429` es igual de rápido para los dos. **Código propio y no `RATE_LIMITED`** porque **el remedio difiere** (doctrina del contrato: códigos por remedio, §4.56.2): contra el tope por IP solo cabe esperar; contra éste, **restablecer la contraseña también lo levanta** (#7), y el mensaje tiene que poder decirlo. ⛔ **No es un `401`** (el front lo trataría como credenciales malas y el usuario seguiría tecleando a ciegas) |
+| **6** | **Rol** | **Umbrales idénticos para todos los roles. Nadie está exento — tampoco el `super_admin`** | Cualquier conducta **previa a la autenticación** que dependa del rol **delata quién es staff**: si la cuenta del dueño se bloqueara al 3.º intento y la de un cliente al 5.º, bastaría con contar para encontrar al dueño. ⛔ Y la tentación contraria —«al dueño no lo bloquees, que es el dueño»— convierte la cuenta más valiosa en la única sin candado. Lo que el dueño recibe de más va **después** de la autenticación o fuera de la respuesta: aviso por correo (#10) y la puerta del dispositivo (#8) |
+| **7** | **Qué lo levanta** | (a) **Login correcto** por la vía normal; (b) **completar `reset-password`** (token consumido); (c) **`POST /admin/users/:id/reset-password`**; (d) **`change-password` correcto**. ⛔ **`forgot-password` NO lo levanta** | `forgot-password` lo puede pedir **cualquiera** para **cualquier** correo: si levantara el candado, el atacante lo pediría antes de cada ráfaga. Lo que lo levanta tiene que **probar algo**: la contraseña, el buzón, o ser el `super_admin` |
+| **8** | **Denegación contra la víctima** (que el atacante no deje al dueño fuera) | **Retroceso exponencial con tope (#3) + DISPOSITIVO CONOCIDO.** Cada login correcto (y `google`, `refresh`, `reset-password`) devuelve un `deviceToken`; el navegador lo guarda y lo manda en el siguiente login. Un `deviceToken` válido **de esa misma cuenta** hace que el intento **no mire el candado de la cuenta**: usa su **propio** contador (mismas reglas, 5 libres). ⛔ **CAPTCHA descartado** | Sin esto, el retroceso solo **no basta**, y lo digo con el mecanismo: un atacante con un script manda un intento cada vez que el candado expira y lo re-pone al instante ⇒ **el dueño queda fuera para siempre**. Y el reset tampoco lo salva: reinicia el contador, y el atacante lo vuelve a llenar en un segundo. La puerta del dispositivo es lo único que **el atacante no puede cerrar**: no tiene un `deviceToken` de la víctima (va firmado) y los intentos **suyos** no tocan el contador **del dispositivo** de ella. Patrón OWASP «device cookies». **Por qué no CAPTCHA:** exige un **tercero** (Turnstile/hCaptcha), una **cuenta y llaves que tendría que crear el dueño** (`O-6`: no se le pide lo que se puede evitar), cambiar la CSP, y una dependencia externa más que puede caerse — y una granja humana lo resuelve igual. El dispositivo conocido no pide nada a nadie |
+| **9** | **Dónde vive el contador** | **Redis** (el mismo servicio de Railway; cliente **propio**, no el de BullMQ) — con **respaldo en memoria** del proceso | Redis sobrevive a los reinicios y a varias réplicas; la memoria no. El cliente es propio porque BullMQ **exige** `maxRetriesPerRequest: null` (reintentar para siempre), y un login **no puede esperar para siempre** (#11) |
+| **10** | **Aviso y bitácora** | (a) `logger.warn` estructurado **en cada candado nuevo** (nunca con el correo: con los 12 primeros caracteres del HMAC). (b) `AuditLog` `auth.password_lock` **solo si la cuenta existe**, **sin `await`** (se escribe después de responder). (c) **Correo al titular** solo si es **staff** (`super_admin`, `vault_operator`), **máx. 1 cada 24 h** por cuenta, también sin `await` | **Sin `await` es anti-enumeración, no descuido:** escribir la bitácora solo para cuentas que existen, **antes** de responder, añadiría unos milisegundos **solo** a las cuentas que existen — un oráculo por tiempo. **Solo cuentas existentes** porque un atacante que rota correos inventados llenaría la tabla. **Correo solo a staff** por decisión del arquitecto, **revisable por el dueño** (§4.57.9): a un cliente un correo de «alguien intentó entrar» le cuesta un susto sin darle ninguna acción que el propio mensaje de la pantalla no le dé, y convertiría el login en un **cañón de correos** hacia cualquier cliente. La bitácora es **detectiva y de mejor esfuerzo**: aquí no es la compuerta (la compuerta es el contador), así que no falla cerrada |
+| **11** | **Si Redis se cae** | **Ni fail-open ni fail-closed: se degrada a memoria.** Cada operación contra Redis tiene **250 ms** de plazo; si falla o vence, esa operación (y las siguientes durante 30 s) va al almacén en memoria, con las mismas reglas | **Fail-closed** (login `503` mientras Redis no conteste) convierte un parpadeo de Redis —que también sirve a BullMQ— en **tienda cerrada para todos**, dueño incluido. **Fail-open** (dejar pasar sin contar) apaga el control justo cuando algo va mal, y hoy el tope por IP **no se sabe si aguanta** (`C6`). Con `numReplicas: 1`, la memoria **es** un contador completo: lo único que se pierde es lo que Redis tenía antes de la caída. Un atacante **no puede provocar** la caída desde fuera (Redis va por red privada), así que la degradación no es un botón que él pulse. Si algún día hay réplicas > 1, la memoria cuenta por réplica (tope ×N durante la caída): aceptable como degradación temporal, y lo anota §4.57.9 |
+| **12** | **`POST /auth/google`** | **FUERA** del contador por cuenta | No hay secreto que adivinar: el ID token lo firma Google y se verifica server-side. Un fallo es «firma inválida», no «contraseña equivocada de X», y el correo **ni siquiera es de fiar** hasta verificar la firma — contar por él dejaría que cualquiera con un token basura bloqueara la cuenta que quisiera. Sigue con su tope por IP. Y es, además, **otra puerta de escape** del cliente con cuenta de Google |
+| **13** | **`POST /auth/register`** | **FUERA** | El registro no adivina nada. Contar por correo no frena la creación masiva (cada alta usa un correo distinto). Su eje es la IP (`C6`) |
+| **14** | **`POST /auth/change-password`** | **Contador PROPIO por `userId`** (`auth-cp:v1:<userId>`), mismas reglas; `422 CURRENT_PASSWORD_INCORRECT` cuenta, `429 TOO_MANY_PASSWORD_ATTEMPTS` al superarlo | La amenaza aquí es **una sesión robada** adivinando la contraseña real (para poder cambiarla y quedarse la cuenta). **No comparte cubo con el login a propósito:** si lo compartiera, un atacante que bloquea el login del dueño desde fuera le impediría también **cambiar su contraseña desde dentro** — justo lo que haría el dueño al verse atacado. El éxito limpia **los dos** cubos (probó la contraseña) |
+
+#### 4.57.3 El login, paso a paso (orden NORMATIVO)
+
+```
+login(dto, deviceToken?):
+  key   = blindIndex("auth-pw:v1:" + normalizeEmail(dto.email))
+  user  = findUnique({ email: normalizeEmail(dto.email) })        // se busca SIEMPRE (existe o no)
+  dev   = deviceTokens.verify(deviceToken)                          // null si ausente/malo/caducado
+  bucket = (dev && user && dev.userId == user.id) ? "auth-pwdev:v1:" + dev.jti : key
+  gate  = store.acquire(bucket)                                     // ATÓMICO: ¿candado? si no, reserva
+  if !gate.allowed: throw 429 TOO_MANY_PASSWORD_ATTEMPTS (Retry-After = gate.retryAfterSeconds)
+                                                                    // ⛔ sin argon2, sin tocar la BD otra vez
+  if gate.lockedNow: fireAndForget(warnLog, audit(user?), staffMail(user?))
+  ok = argon2.verify(user?.passwordHash ?? DUMMY_PASSWORD_HASH, dto.password)
+  if !user || !user.passwordHash || !ok: throw 401 INVALID_CREDENTIALS
+  store.reset(bucket)                                               // solo el cubo usado (ver nota)
+  if user.status in (blocked, deleted): throw 403 USER_BLOCKED     // igual que hoy
+  return { user, accessToken, refreshToken, deviceToken: deviceTokens.issue(user.id) }
+```
+
+- ⚠️ **El acierto por la vía del dispositivo limpia SOLO el cubo del dispositivo**, no el de la cuenta. Si limpiara
+  el de la cuenta, **cada vez que el dueño entra le regala al atacante 5 intentos libres**.
+- ⚠️ **Un `deviceToken` de otra cuenta, falsificado o caducado se IGNORA** (se sigue por la vía normal) — ⛔ nunca
+  es un error: un error distinto diría algo sobre la cuenta.
+- ⛔ **El `deviceToken` NO autentica.** Solo elige qué contador mira el candado. Sin la contraseña correcta no entra
+  nadie.
+- El reset tras `403 USER_BLOCKED`: la contraseña fue correcta, así que el contador se limpia (conducta del `403`,
+  **intacta**: no es de este corte).
+
+#### 4.57.4 El `deviceToken`
+
+- **Forma:** JWT HS256 `{ typ: "device", sub: userId, jti: uuid, iat, exp }`, **caduca a los 90 días**.
+- **Llave:** derivada, **sin variable de entorno nueva**: `HKDF-SHA256(JWT_REFRESH_SECRET, salt = "", info =
+  "tcg-hunt/device-token/v1", 32 bytes)`. La separación de dominio por `info` hace que un `deviceToken` **no
+  verifique** como access (otra llave) ni como refresh (otra llave), y a la inversa. *Cero secretos nuevos que alguien
+  tenga que dar de alta en Railway.* ⚠️ Rotar `JWT_REFRESH_SECRET` invalida también los `deviceToken`: consecuencia
+  aceptada (todos vuelven a la vía normal; nadie se queda fuera).
+- **Sin estado:** sin tabla, sin migración. **No se liga a `tokenVersion`**: si se ligara, cerrar sesión (que hace
+  `tokenVersion +1`, v1.71) tiraría el dispositivo, y el dueño que cierra sesión **perdería su puerta** justo antes
+  de volver a entrar.
+- **Se emite en:** `200` de `login`, `google`, `refresh` y `reset-password`. En `refresh` **a propósito**: así los
+  navegadores que **ya tienen sesión el día del despliegue** —el del dueño incluido— reciben su dispositivo en el
+  siguiente refresco (≤ 15 min), sin esperar a su próximo login. Firmar un HMAC por refresco es gratis.
+- **Si lo roban** (XSS sobre `localStorage`, el mismo sitio donde viven los tokens de sesión): el ladrón obtiene un
+  contador de 5 intentos libres + retroceso **para esa cuenta**, igual al de la vía normal. **No obtiene acceso.** Y
+  quien puede leer `localStorage` ya tiene la sesión, que vale mucho más.
+
+#### 4.57.5 El almacén (`LoginAttemptStore`)
+
+```
+interface LoginAttemptStore {
+  acquire(key): Promise<{ allowed: true;  failures: number; lockedNow: boolean }
+                      | { allowed: false; retryAfterSeconds: number }>;
+  reset(key): Promise<void>;
+}
+```
+
+- **Redis — un script Lua, una ida y vuelta, atómico** (pseudocódigo; claves `tcg:auth:f:<k>` y `tcg:auth:l:<k>`):
+  ```
+  pttl = PTTL(lockKey);  if pttl > 0 → return {blocked, ceil(pttl/1000)}
+  f = INCR(failKey);  PEXPIRE(failKey, 2h)
+  if f >= 5 → SET(lockKey, 1, PX = min(60s · 2^(f−5), 60min))  → lockedNow = true
+  return {allowed, f, lockedNow}
+  ```
+  `reset` = `DEL failKey lockKey`.
+- **Cliente Redis propio**, con el `family` de `resolveRedisFamily` (`jobs/redis-connection.util.ts`, el arreglo
+  IPv6 de Railway), `commandTimeout: 250`, `maxRetriesPerRequest: 1`, `enableOfflineQueue: false`, `lazyConnect`, y un
+  listener de `'error'` que no tumbe el proceso (patrón de `health-redis.provider.ts:38`).
+- **Memoria** — misma semántica (mismo retroceso, mismos TTL) sobre un `Map` con **tope de 50 000 claves**; al
+  llenarse, desaloja primero las caducadas y luego las más viejas. ⚠️ En modo memoria un atacante que inunde el mapa
+  puede desalojar contadores ajenos: **aceptado**, es una degradación temporal, y queda escrito.
+- **Selección:** con `REDIS_URL` ⇒ Redis con respaldo en memoria (#11); sin `REDIS_URL` ⇒ memoria.
+- **Memoria de Redis — la cota, con su fórmula:** cada correo **distinto** que falla crea ≤ 2 claves (~200 B) que
+  viven ≤ 2 h. Cota = (correos distintos por segundo) × 7 200 s × 200 B. El techo lo pone `argon2` (m = 64 MiB, t = 3,
+  p = 4, `auth.service.ts:30-31`): a, digamos, 20 verificaciones/s serían ~144 000 claves ≈ **30 MB**. ⚠️ **NO MEDIDO**
+  el ritmo real de `argon2` en el contenedor ni la memoria y la política de desalojo (`maxmemory-policy`) del Redis de
+  Railway: si fuera `allkeys-lru`, una inundación podría **desalojar claves de BullMQ**. Dueño de la medición: devops
+  (§4.57.9).
+
+#### 4.57.6 Bajo la suite automatizada
+
+- ⛔ **El candado NO se apaga en `NODE_ENV=test`.** A diferencia del throttler (`test-env.ts:36`), éste es el control
+  que se está probando, y un control que la suite no ve es un control que nadie sabe si existe.
+- **Lo que sí cambia en test:** el almacén es **siempre memoria**, nuevo por cada `AppModule`. Motivo: en CI hay
+  `REDIS_URL` (`ci.yml:124`), y un Redis compartido entre specs dejaría contadores vivos de una spec a otra (TTL 2 h)
+  ⇒ intermitencias. Vive en `config/test-env.ts` como función con nombre propio (`isLoginAttemptRedisDisabled()`,
+  mismo AND obligatorio `NODE_ENV === 'test'`), porque ése es **el único punto** donde el código se comporta distinto
+  bajo la suite (regla de su cabecera). El almacén Redis se prueba **directamente**, contra el Redis de CI, con un
+  prefijo aleatorio por corrida (prueba `C7-12`).
+- ⚠️ **NO MEDIDO:** qué specs existentes hacen **≥ 5 logins fallidos contra el mismo correo en un mismo proceso** (o
+  E2E de Playwright contra el stack con Redis real). Esas se pondrán rojas **por diseño** y se arreglan usando
+  correos distintos, ⛔ nunca apagando el candado. Medición: `grep -rn "INVALID_CREDENTIALS\|wrong.*password"
+  backend/test frontend/e2e` y correr la suite.
+
+#### 4.57.7 Quién hace qué, zonas compartidas y orden de despliegue
+
+| Rol | Qué | Dónde |
+|---|---|---|
+| **backend** | `LoginAttemptStore` (Redis + memoria + respaldo), `DeviceTokenService`, política en `AuthService` (login, change-password, reset-password, refresh, google), limpieza desde `admin` reset, `TOO_MANY_PASSWORD_ATTEMPTS` en `error-codes.ts`, `Retry-After`, aviso por correo a staff (plantilla en `mail`), función en `test-env.ts`, **las pruebas `C7-1…C7-18`** | `modules/auth/`, `modules/admin/` (una línea), `modules/mail/`, **`common/error-codes.ts`** y **`config/test-env.ts` (zonas compartidas)** |
+| **frontend** | Guardar/mandar `deviceToken`; pintar `TOO_MANY_PASSWORD_ATTEMPTS` con los minutos y el enlace a «¿Olvidaste tu contraseña?»; no reintentar solo | `lib/` (almacenamiento del token y `api-client`: **zona compartida**), `components/domain/AuthForm.tsx`, `PasswordForm.tsx`, vista de reset, `messages/*.json` |
+| **devops** | Medir memoria y `maxmemory-policy` del Redis de Railway; `C6` sigue siendo suyo | — |
+
+- **Zonas compartidas tocadas:** `backend/src/common/`, `backend/src/config/`, `frontend/src/lib/` ⇒ el orquestador
+  serializa este cambio (`CLAUDE.md`). ⛔ **Sin schema, sin migración, sin variable de entorno nueva.**
+- **Orden de despliegue: indiferente, y medido por qué.** Frontend primero: el backend viejo **descarta** el
+  `deviceToken` del cuerpo (`main.ts:56`, `forbidNonWhitelisted: false`) y no emite ninguno ⇒ el front no guarda nada;
+  nada se rompe. Backend primero: el candado muerde ya; el front viejo pinta el código desconocido con el genérico
+  `INTERNAL` (`AuthForm.tsx:108`) —feo, no roto— hasta que sale el frontend. **Recomendado: los dos en el mismo
+  release**, backend primero.
+
+#### 4.57.8 Desviación que este diseño cierra
+
+- **`D-C7-1`** — *No existe ningún tope por cuenta en `login` ni en `change-password`* (`auth.controller.ts:35-41,76`,
+  `auth.service.ts:307-397`; leído 2026-09-28). Rol dueño: **backend**. Cierre: las pruebas `C7-*` de
+  `API_CONTRACT §1` en verde **y** su mutación correspondiente en rojo.
+
+#### 4.57.9 ⚠️ NO MEDIDO en este pase (arquitecto) y lo que decide el dueño
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| `N-C7-1` | Que haya Redis en producción y responda desde el backend | `GET /api/v1/health` en producción ⇒ `redis: up` (lectura, sin secretos) | devops |
+| `N-C7-2` | Memoria libre y `maxmemory-policy` del Redis de Railway | `INFO memory` + `CONFIG GET maxmemory-policy` por quien tenga acceso, o el panel de Railway | devops |
+| `N-C7-3` | Ritmo real de `argon2.verify` en el contenedor (la cota de §4.57.5) | un micro-benchmark en la imagen de producción | backend |
+| `N-C7-4` | Que `PII_HMAC_KEY` esté disponible en local/test (el `blindIndex` la necesita) | arrancar la suite; si falta, `PiiCryptoService` dirá cómo resuelve el test | backend |
+| `N-C7-5` | Qué specs existentes caen por el candado (§4.57.6) | la suite completa | backend / frontend |
+| `N-C7-6` | Con `numReplicas > 1`, el respaldo en memoria cuenta por réplica | disparador: subir réplicas | devops |
+
+**Para el dueño (decisión opcional, con default ya tomado):** *¿Quieres que a los **clientes** también les llegue un
+correo cuando alguien falla muchas veces entrando a su cuenta?* Hoy el diseño se lo manda **solo a ti y a tus
+operadores** (una vez al día como mucho). Si dices que sí, es un cambio de una línea y un texto de correo.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -25883,6 +26079,10 @@ miente en la otra dirección cuesta lo mismo que uno que no mide.*
 
 Regla de oro: **el dinero que sale solo lo toca el súper-admin**; todo queda en bitácora.
 
+**Límite de intentos de contraseña por cuenta (v1.80, §4.57):** **idéntico para todos los roles** y **sin excepción
+para `super_admin`** — cualquier diferencia por rol antes de autenticar delataría quién es staff. Lo único que el
+staff tiene de más va fuera de la respuesta: el correo de aviso (máx. 1/24 h).
+
 **Invitado (sin cuenta) — v1.21-guest-checkout.** No es un `Role` (no hay fila `User`, no hay JWT, no hay rol que
 escalar): es la **ausencia** de sesión, y su superficie es una lista cerrada de endpoints `@Public()`
 (`POST /checkout/guest/quote|session`, `POST /orders/guest/track|resend-link`). Autorización por acción:
@@ -25909,6 +26109,11 @@ no lo lee ningún guard, no abre ningún endpoint `customer`).
 
 Variables de entorno necesarias (sin valores; devops las gestiona):
 - `DATABASE_URL`, `REDIS_URL`
+  - ⭐ **v1.80 (§4.57):** `REDIS_URL` pasa a guardar también el **contador de intentos de login por cuenta**, con
+    cliente propio (plazo 250 ms). **Sigue siendo opcional:** sin él, el contador vive en memoria del proceso. Ninguna
+    variable nueva: la llave del `deviceToken` se **deriva** de `JWT_REFRESH_SECRET` (rotarla invalida también los
+    dispositivos conocidos; nadie queda fuera). Pendiente de devops: `N-C7-1`/`N-C7-2` (memoria y política de
+    desalojo del Redis de Railway).
 - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`
 - `POKEMONTCG_IO_API_KEY`, `POKEMONPRICETRACKER_API_KEY`, `POKETRACE_API_KEY`
@@ -25970,6 +26175,10 @@ Riesgos técnicos:
 ---
 
 ## 9. Desviaciones detectadas
+
+> **v1.80 — `D-C7-1` (abierta, backend):** no existe tope de intentos **por cuenta** en `POST /auth/login` ni en
+> `POST /auth/change-password` (solo por IP: `auth.controller.ts:35-41,76`; leído 2026-09-28). Diseño y cierre en
+> §4.57; pruebas `C7-*` en `API_CONTRACT §1`.
 
 > El arquitecto **no corrige código** (CLAUDE.md): documenta la desviación y la enruta al **rol dueño**
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
