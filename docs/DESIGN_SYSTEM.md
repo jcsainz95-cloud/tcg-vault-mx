@@ -4,7 +4,14 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.7** — **§36 NUEVA: la cubeta «Para bóveda» deja de estar vacía** (2026-09-25, `API_CONTRACT
+> Estado: **v4.8** — **§36.17 NUEVA: las dos cifras de bóveda tienen nombre propio** (2026-09-28, `API_CONTRACT
+> §M4-VAULT.11` y §M1 v1.79.5). La lista de clientes dice **«{n} a su nombre»** (`pieceCount`) y «Qué debe haber» dice
+> **«{n} deben estar en bóveda»** (`counts.total`), con **una** ayuda breve en la vista física que explica por qué la
+> segunda puede ser menor; ⛔ nunca el mismo sustantivo para las dos. Se revisan los dos textos que frontend escribió
+> sin ux-ui (`error.locationRequired`, `error.placedIn`: **ambos cambian**, §36.8 y §36.9), se cierran en §36.8/§36.9/
+> §36.13 los huecos H-2 y H-4 que el contrato aceptó en v1.79.3, y se corrige la ruta de ubicaciones de §36.8
+> (`/admin/locations`, no `/admin/inventory/locations`). **Cero tokens nuevos.**
+> Antes: **v4.7** — **§36 NUEVA: la cubeta «Para bóveda» deja de estar vacía** (2026-09-25, `API_CONTRACT
 > §M4-VAULT` v1.79.2 · `PROJECT §S.4` · `HECHOS.md` filas de bóveda del 2026-09-24/25). Tarjeta de colocación con
 > **nombre completo en primer plano** y correo debajo (⛔ sin apellido derivado en esta tarjeta); cajón **siempre con
 > su zona**; tres ramas de cajón (su cajón · **varios cajones = anomalía nombrada** · cliente nuevo); **palomear en
@@ -18974,7 +18981,8 @@ no el estilo `danger`.
      ahí». ⛔ Ninguno marcado de inicio. *Es radio y no el filtro de `aria-pressed` de §35.7 porque aquí la elección
      **cambia el mundo** (dónde quedan las cartas).*
    - `none` ⇒ `Select`/`Combobox` con búsqueda (§6.3), rótulo **«Elige su cajón»** / **“Choose their drawer”**, con los
-     cajones activos de «Custodia de clientes» (lista de `GET /admin/inventory/locations` filtrada, `§M4-VAULT.4`),
+     cajones activos de «Custodia de clientes» (lista de `GET /admin/locations` filtrada, `§M4-VAULT.4` y §M1 —
+     *v4.8: decía `/admin/inventory/locations`, ruta que no existe; medido por frontend en `inventory.controller.ts`*),
      cada opción con su zona. ⛔ Sin opción preseleccionada; placeholder **«Sin elegir»**. ⛔ Nada de «vacío»,
      «ocupado» ni «compartido» (V6).
    - `none` y **la lista sale vacía**: en lugar del selector, en tinta: **«No hay cajones de clientes dados de alta.
@@ -18988,7 +18996,8 @@ no el estilo `danger`.
    Deshabilitado **solo** mientras falta elegir cajón (razón visible: el mismo «Elige un cajón…»).
    - Si `picked === 0` (todo faltante o bloqueado): el botón dice **«Cerrar pedido sin guardar nada»** / **“Close order
      without placing anything”** y el resumen: **«Ninguna carta está tomada: el pedido se cierra y sale de la lista.
-     Las faltantes siguen anotadas.»** ⚠️ El contrato exige cajón también en este caso — ver hueco **H-4** (§36.13).
+     Las faltantes siguen anotadas.»** *(v4.8: H-4 cerrado en el contrato v1.79.3 — sin cartas tomadas el `confirm`
+     va **sin** cajón, así que este botón va **sin selector**.)*
 
 ⛔ **Sin diálogo de confirmación** en «Confirmar colocación»: el resumen del punto 2 **es** la confirmación, está a la
 vista y se lee antes de pulsar; y la acción es idempotente al mismo cajón. Un diálogo más en cada pedido enseña a
@@ -19012,8 +19021,22 @@ sustituye al anterior), con el folio:
 |---|---|---|---|
 | `422 LOCATION_NOT_AVAILABLE` `not_customer_drawer` | **«Este cliente ya tiene cajón y no es el que elegiste: seguramente otra persona acaba de guardar otro pedido suyo. Actualizamos la tarjeta con su cajón.»** | **“This customer already has a drawer and it isn't the one you chose: someone probably just placed another of their orders. We've refreshed the card with their drawer.”** | Vuelve a pedir la cola |
 | `422` `not_found` · `inactive` · `not_customer_custody` | **«Ese cajón ya no sirve para guardar cartas de clientes. Elige otro.»** | **“That drawer can no longer hold customer cards. Choose another.”** | Limpia la elección |
+| `422 LOCATION_NOT_AVAILABLE` `location_required` `{pickedCount}` *(v4.8, clave `error.locationRequired`)* | **«La pantalla estaba desactualizada: este pedido ahora tiene {pickedCount, plural, one {# carta tomada} other {# cartas tomadas}}, así que no se puede cerrar sin guardarlas en un cajón. No se hizo nada. Actualizamos la tarjeta: revísala y confirma otra vez.»** | **“The screen was out of date: this order now has {pickedCount, plural, one {# picked card} other {# picked cards}}, so it can't be closed without placing them in a drawer. Nothing was done. We've refreshed the card: check it and confirm again.”** | Vuelve a pedir la cola |
 | `409 PLACEMENT_NOT_PREPARED` | **«Este pedido ya no está preparado: alguien deshizo «preparado». Revisa las marcas y vuelve a darlo por preparado.»** | **“This order is no longer prepared: someone undid “prepared”. Check the marks and mark it as prepared again.”** | Vuelve a pedir la cola (la tarjeta vuelve al paso 1) |
 | `409 PLACEMENT_NOT_PENDING` | §36.9 | | |
+
+**Por qué `error.locationRequired` no queda como lo escribió frontend** (v4.8). El provisional decía *«…así que hay que
+elegir su cajón…»*. Tres fallos: (1) **no siempre hay que elegir**: si el cliente ya tiene cajón, la tarjeta
+actualizada lo muestra sin selector (V4), y la frase mandaría a buscar un control que no está; (2) ponía la
+consecuencia antes que la causa, y la causa («la pantalla estaba desactualizada») es lo que el operador necesita
+para entender por qué su botón decía «Cerrar pedido sin guardar nada»; (3) no decía que **no se escribió nada**
+(el `422` va bajo la puerta, `§M4-VAULT.10`). La nueva nombra el número de cartas tomadas —`details.pickedCount`, que
+el contrato ya manda— para que el operador pueda cotejarlo con la tarjeta refrescada. ⚠️ **Cambio de cableado:**
+frontend pasa `{ pickedCount }` al `t()`; si `details.pickedCount` no llegara, ⛔ no se inventa: se usa la variante
+sin número **«La pantalla estaba desactualizada: este pedido ahora tiene cartas tomadas, así que no se puede cerrar
+sin guardarlas en un cajón. No se hizo nada. Actualizamos la tarjeta: revísala y confirma otra vez.»** / **“The screen
+was out of date: this order now has picked cards, so it can't be closed without placing them in a drawer. Nothing was
+done. We've refreshed the card: check it and confirm again.”** (`error.locationRequiredNoCount`).
 
 ---
 
@@ -19028,8 +19051,19 @@ Un solo copy para los cuatro verbos, porque el hecho es el mismo: **el pedido ya
 | `{status:'cancelled', cancelReason:'chargeback'}` | **«Este pedido se canceló por un contracargo: sus cartas ya no son del cliente. Sale de la lista.»** | **“This order was cancelled by a chargeback: its cards no longer belong to the customer. It leaves the list.”** |
 | `{status:'cancelled', cancelReason:'nothing_to_place'}` | **«Este pedido ya se cerró sin guardar nada. Sale de la lista.»** | **“This order was already closed without placing anything. It leaves the list.”** |
 
-⚠️ En `placed` el `details` trae solo `locationId`, no la etiqueta: **no se nombra el cajón** (sería inventarlo o
-pintar un id). Hueco **H-2**.
+~~⚠️ En `placed` el `details` trae solo `locationId`, no la etiqueta: **no se nombra el cajón** (sería inventarlo o
+pintar un id). Hueco **H-2**.~~ **v4.8 — H-2 cerrado** (contrato v1.79.3: `details.location: { id, label, zone }`).
+Tras la frase de `placed` se añade una segunda (clave `error.placedIn`):
+
+| | ES | EN |
+|---|---|---|
+| `details.location` con `zone === 'customer_custody'` | **«El pedido quedó en {drawer}.»** — `{drawer}` = zona · etiqueta (V3), p. ej. «Custodia de clientes · C01-F01-S01» | **“The order was placed in {drawer}.”** |
+| sin `location`, o con otra zona | ⛔ no se pinta la segunda frase (nunca una etiqueta sin zona ni un id) | |
+
+*Por qué cambia el provisional de frontend* («Quedó en {drawer}.» / “It's in {drawer}.”): la frase va **detrás** de
+«…No se cambió nada; sale de la lista.», y un «Quedó» sin sujeto se engancha a lo último leído (la lista), no al
+pedido. Con sujeto explícito no hay que releer. En EN, “It's in” afirmaba el estado **de hoy** del cajón, que la
+respuesta no mide; “was placed in” dice solo lo que pasó.
 
 **`409 CONFLICT` de un verbo** (orden con datos que no cuadran): copy **propio de esta tarjeta**, ⛔ no `error.CONFLICT`
 ni `error.CONFLICT_OPERATOR` (§35.15.3): **«Este pedido tiene datos que no cuadran y no se puede tocar desde aquí.
@@ -19074,8 +19108,10 @@ un botón que corrija nada.
    - `none` ⇒ **«Todavía no tiene cajón.»** y, si `counts.pendingPlacement > 0`: **«Sus cartas pagadas siguen en la
      tienda, esperando que se coloquen.»**
 3. **El resumen de conteos** — `<dl>` en una línea que se parte, en el orden de los grupos (abajo), cada número
-   `tabular`: «2 faltantes · 1 sin ubicar · 14 en su cajón · 3 por colocar · 1 en un retiro — 21 en total».
+   `tabular`: «2 faltantes · 1 sin ubicar · 14 en su cajón · 3 por colocar · 1 en un retiro — 21 deben estar en
+   bóveda». *(v4.8: el cierre era «21 en total»; cambia por §36.17.)*
    ⛔ Un conteo en 0 **sí** se dice aquí (es la respuesta a «¿falta algo?»); lo que no se pinta es su grupo vacío.
+   Debajo del resumen, **la ayuda de §36.17** (una línea, `text-sm text-muted`).
 4. **Los grupos**, uno por estado físico.
 
 **Los cinco estados, con qué se decide y en qué orden se ven — dos órdenes distintos, y no se confunden:**
@@ -19133,7 +19169,7 @@ las pestañas y «Reintentar».
   ellos.
 - **Foco visible** bermellón de 2px (§4.3, §8.2) en todo control nuevo.
 - **Contraste — cero pares nuevos:** tinta sobre papel (~15.5:1) en nombre, correo, cajón, frases y resúmenes;
-  muted sobre papel (~4.8:1) solo en rótulos y en «No va al cajón»; bermellón sobre papel (~4.65:1) en «Faltante»,
+  muted sobre papel (~4.8:1) solo en rótulos, en «No va al cajón» y en la ayuda de §36.17; bermellón sobre papel (~4.65:1) en «Faltante»,
   «Sin nombre registrado», «Cartas en varios cajones», «Sin ubicar» y sus reglas de 2px. Todos en §35.12.
 
 ---
@@ -19148,6 +19184,13 @@ las pestañas y «Reintentar».
 | **H-4** | **El `confirm` exige cajón aunque no se vaya a guardar nada** (`picked === 0` ⇒ `nothing_to_place`). Con un cliente **nuevo**, el operador tiene que elegir un cajón para cerrar un pedido vacío, y esa elección no deja nada asignado | Un paso sin sentido para el operador; hoy §36.8 lo cubre con el selector normal | No. Opción: `locationId` opcional cuando no hay nada `picked`, o un verbo de cierre |
 | **H-5** | `422 not_customer_drawer` trae solo `customerDrawerIds` | La pantalla tiene que volver a pedir la cola para nombrar el cajón | No (el diseño ya re-pide) |
 | **H-6** | **Enlace de la tarjeta a «Qué debe haber»** — el detalle del cliente no es direccionable hoy (§36.1) | Sin el enlace, el operador busca al cliente a mano | No; es de frontend, no de contrato |
+
+*v4.8 — estado según el contrato v1.79.3 (leído en `API_CONTRACT.md`, tabla de v1.79.3; ⛔ no releído en código):*
+**H-1..H-6 aceptados o resueltos.** Los que tocan copy de esta sección ya están aplicados: H-2 ⇒ §36.9
+(`error.placedIn`), H-4 ⇒ §36.8 (botón sin selector + `error.locationRequired`). ⚠️ **Pendiente de ux-ui, no hecho en
+v4.8:** la ausencia de nombre en la **línea compacta** «Bóveda de {name}» de «Cartas» y en la **cabecera** del detalle
+(frontend usó «Bóveda de un cliente sin nombre registrado» y la marca como `h1`; `FRONTEND_NOTES` §M4-VAULT) — sin
+revisar aquí.
 
 ---
 
@@ -19172,6 +19215,10 @@ escribiendo la cadena en mayúsculas (§35.6a-f).
   `group.{missing, unlocated, in_drawer, pending_placement, in_withdrawal}`, `row.{missing, missingNoName,
   noLocation, notInCustomerDrawer, pendingPlacement, prepPending, prepPicked, prepPrepared, inWithdrawal}`,
   `empty.{title, body}`, `notFound`. Y `admin.vaults.detailTabs.physical`.
+- *(v4.8)* **Cambian de valor:** `admin.vaults.{pieces, colPieces}`, la etiqueta de `pieces_desc` de la lista de
+  bóvedas, `admin.vaults.physical.counts.total` (ahora con `{count}`), `admin.m4.prep.vault.error.{locationRequired
+  (ahora con `{pickedCount}`), placedIn}` — textos en §36.8, §36.9 y §36.17. **Nuevas:**
+  `admin.vaults.physical.counts.help`, `admin.m4.prep.vault.error.locationRequiredNoCount`.
 - **Se reutiliza, ⛔ no se duplica:** las zonas `admin.m1.zone.{platform_stock, customer_custody}` («Stock de
   plataforma», «Custodia de clientes», medido `es.json:1359-1361`) — *un solo nombre para cada zona en todo el
   back-office*; los estados de envío `status.shipment.*`; «Sin ubicar» `admin.m4.prep.unassigned`. La marca «Sin
@@ -19240,3 +19287,68 @@ en español:**
 - **PV-11** Vista física: los grupos aparecen en el orden faltantes → sin ubicar → en su cajón → por colocar → en un
   retiro; un grupo con 0 **no** se pinta, pero su conteo sí aparece en el resumen.
 - **PV-12** Vacío de la cubeta bóveda: el HTML **no** contiene «todavía no se alimenta» / “isn't fed yet”.
+- **PV-13** *(v4.8)* Lista de bóvedas: la celda de `pieceCount` contiene «a su nombre» / “in their name” y **no**
+  contiene «pieza(s)» / “piece(s)”; vista física: el `<dl>` contiene «deben estar en bóveda» / “should be in the vault” y
+  **no** contiene «en total» / “in total”.
+- **PV-14** *(v4.8)* Con `counts.total: 1`, el resumen dice «1 debe estar en bóveda» (singular); con `pieceCount: 1`,
+  la celda dice «1 a su nombre».
+- **PV-15** *(v4.8)* `422 location_required` con `pickedCount: 2` ⇒ el pie contiene «2 cartas tomadas» y «No se hizo
+  nada»; `409 PLACEMENT_NOT_PENDING {status:'placed', location:{label:'C01-F01-S01', zone:'customer_custody'}}` ⇒ el
+  aviso contiene «El pedido quedó en Custodia de clientes · C01-F01-S01.»; con `zone:'platform_stock'`, **no** hay
+  segunda frase.
+
+---
+
+### 36.17 «A su nombre» y «deben estar en bóveda» — dos cifras, dos nombres (v4.8 · `API_CONTRACT §M4-VAULT.11`, §M1 v1.79.5)
+
+**El caso, medido por techlead y QA** (sobre `db7d1c2`, según el contrato): el operador ve **«12»** en la fila del
+cliente en «Bóvedas de clientes» y **«10»** en «Qué debe haber» del mismo cliente. No es un defecto: son **dos
+preguntas**. La fila es de **valuación** (todo lo que es, o está por ser, del cliente y no ha salido — incluido lo
+reservado en un pedido aún sin pagar). La vista es **física** (lo pagado que está en custodia: lo que el operador tiene
+que poder encontrar). Invariante que da el contrato: vista ≤ fila. ⛔ La pantalla no pinta la diferencia (no hay campo
+para ello y no se calcula en el cliente).
+
+**La regla:** ⛔ las dos cifras **nunca** llevan el mismo sustantivo desnudo («piezas», «cartas», «en total»). Cada una
+lleva **su frase**, que ya dice qué cuenta. Ninguna usa un sustantivo de objeto: así «a su nombre» cubre también el
+sellado (que no es «carta») sin mentir.
+
+**Textos finales:**
+
+| Dónde | Clave | ES | EN |
+|---|---|---|---|
+| Lista `/admin/vaults` — **celda** de la fila (`pieceCount`; en `< sm` es la única pista porque la cabecera se oculta) | `admin.vaults.pieces` | **«{count, plural, other {# a su nombre}}»** → «12 a su nombre» | **“{count, plural, other {# in their name}}”** → “12 in their name” |
+| Lista — **cabecera** de columna (`≥ sm`) | `admin.vaults.colPieces` | **«A su nombre»** | **“In their name”** |
+| Lista — opción de orden `pieces_desc` | la etiqueta de `pieces_desc` de la lista de bóvedas (⛔ no la homónima del Master Set) | **«A su nombre (mayor primero)»** | **“In their name (highest first)”** |
+| «Qué debe haber» — **cierre del resumen** (`counts.total`, el `<dt>` que acompaña al número) | `admin.vaults.physical.counts.total` (ahora recibe `{count}`) | **«{count, plural, one {debe estar en bóveda} other {deben estar en bóveda}}»** → «21 deben estar en bóveda» · «1 debe estar en bóveda» | **“{count, plural, other {should be in the vault}}”** → “21 should be in the vault” |
+| «Qué debe haber» — **ayuda**, una línea bajo el resumen | `admin.vaults.physical.counts.help` | **«Puede ser menos de lo que la lista de clientes cuenta «a su nombre»: allí entra también lo reservado en pedidos que aún no se pagan. Aquí solo cuenta lo pagado que guardamos.»** | **“This can be lower than what the customer list counts “in their name”: that also includes items reserved in orders not yet paid. Here, only what's paid and in our keeping counts.”** |
+
+**Diferencias con lo que frontend aplicó de forma provisional:** «{n} a su nombre» y «deben estar en bóveda» **se
+quedan tal cual** en su sentido; lo que se fija aquí es (a) el **singular** «1 **debe** estar en bóveda» (ICU
+`plural`), (b) la **cabecera** y la **opción de orden** de la lista, que decían «Piezas» y habrían dejado el
+sustantivo prohibido a la vista, y (c) la **ayuda**. *(No medí qué dejó frontend en cabecera y orden; si ya las
+cambió, basta con cotejar.)*
+
+**La ayuda — por qué existe, por qué ahí y por qué así:**
+
+- **Una sola, en la vista física**, que es donde el número «no cuadra» con lo que el operador ya vio. ⛔ En la lista
+  no: allí se lee valor, y una nota en cada fila sería ruido sobre veinte clientes.
+- **Siempre visible** mientras haya resumen (no en tooltip ni en `title`: el operador está de pie delante del cajón,
+  en móvil, sin cursor). ⛔ No condicionada a «si no coincide»: la vista no recibe `pieceCount` y ⛔ no se pide.
+- **Dice «también», no «solo»:** el contrato nombra lo reservado sin pagar como causa **medida** y deja otras
+  (p. ej. un envío directo a medio salir) como **NO MEDIDAS**. «Allí entra también lo reservado…» es cierto aunque haya
+  más; «la diferencia es lo reservado» no lo sería.
+- **Dice «puede ser menos», ⛔ no «nunca más»:** la invariante está derivada, no medida como prueba (`§M4-VAULT.11`).
+  Si un día la vista diera **más**, es un defecto y se reporta; la pantalla no lo promete.
+- `<p>` `text-sm text-muted` (~4.8:1 sobre papel, AA), sin icono, sin `role`: es texto estático. ⛔ No va dentro del
+  `<dl>` (no es un par término/valor).
+- **«Reservado»** es la palabra que la tienda ya usa para eso (medido: `es.json` 580, 585, 1093 — «Reservado para ti
+  hasta…», «reservado a tu nombre», y `status` «Reservada» 3747); ⛔ no «apartado» ni «pending». *Y el carrito ya dice
+  «reservado **a tu nombre**»: la fila «a su nombre» es la misma voz vista desde el operador.*
+
+**Qué NO hacer:**
+
+- ⛔ «piezas», «cartas», «total» o «en total» junto a cualquiera de las dos cifras en estas dos pantallas.
+- ⛔ «en bóveda» en la fila de la lista (lo reservado sin pagar **no** está en bóveda para el cliente: la tienda le dice
+  «Tus piezas entran a tu bóveda al pagar», `es.json:449`).
+- ⛔ Restar en el cliente para pintar «{n} reservadas»: no hay campo, y la resta mezclaría causas no medidas.
+- ⛔ Cambiar la columna de «Valor estimado»: sigue sumando el mismo perímetro que «a su nombre», y eso es coherente.
