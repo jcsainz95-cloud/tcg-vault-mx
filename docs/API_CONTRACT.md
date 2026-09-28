@@ -2,7 +2,43 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.79.5**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.80**).
+>
+> **Changelog v1.80 — DINERO, DOS DECISIONES: (A) `SEC-SETTLE-LATE` SE CIERRA — EL PAGO SOLO SE LIQUIDA DESDE `pending`
+> O `failed`; (B) TOPE DE BOUNTIES — SE PAGA EL MENOR ENTRE EL BOUNTY Y EL MERCADO (2026-09-28, arquitecto; base
+> v1.79.5, vigente entera salvo lo que esta rev toca). Origen: (A) `SECURITY_NOTES` «Stream bóveda M4-VAULT»,
+> `SEC-SETTLE-LATE` (medido por seguridad en local, **N=1**, autor: seguridad), disparador «antes de operar con disputas
+> reales»; (B) decisión del dueño del 2026-09-28 (`HECHOS.md`, última fila: *«Pagar el precio de mercado»*). ⛔ **Sin
+> schema, sin migración, sin endpoint nuevo, ⛔ sin código de error nuevo.** Cambian dos conductas de dinero y ganan dos
+> campos ADITIVOS un DTO de admin.** ⚠️ *Numeración:* otra rama puede haber usado «v1.80»; si colisiona al fusionar, se
+> renumera esta rev — nada de su contenido depende del número.
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **(A) El settle solo liquida desde `pending` o `failed`.** El CAS de v1.79.4 pasa de `status: { not: 'settled' }` a `status: { in: ['pending','failed'] }` (constante única `SETTLEABLE_ORDER_STATUSES`), en las **dos** ramas; el early-return es su negación exacta. Un `succeeded` que llega con la orden en `refunded` o `chargeback` ⇒ **`200`, cero escrituras, cero avisos**, `logger.warn` | [§M4-VAULT.2-bis.2](#M4-VAULT-2bis2) | **Sí, solo backend** |
+> | **2** | Prueba **38 (ii) intacta** (se sigue liquidando desde `failed`); **38 (iii) cambia de forma** (el `WHERE`); nacen **SL-1…SL-7** | §M4-VAULT.8, [§M4-VAULT.2-bis.2](#M4-VAULT-2bis2) | con la 1 |
+> | **3** | ⭐⭐ **(B) Un bounty paga `min(bounty, mercado)`.** Una función pura única `bountyPayoutCents` en `common/money.ts`, llamada desde el peldaño 1 de `quoteAcquisitionFromCurve` ⇒ cotización, lote, solicitud y la **derivación de la oferta**. Sin mercado ⇒ se paga el bounty tal cual. ⛔ **Quién es bounty efectivo NO cambia** (`isBountyEffective` intacta). ⛔ Nada congelado se reescribe | [§M2-B.11](#M2-B11) | **Sí, backend** |
+> | **4** | **Vitrina pública:** `PublicBountyDTO.bountyPriceCents` pasa a ser **lo que se paga** (ya topado) y ordena por ese número. ⛔ Misma forma | [`GET /buylist/bounties`](#M2-B11), §M2-B.11 | **Sí, backend** (frontend: nada) |
+> | **5** | `VariantPricingDTO.bounty` gana **`payoutCents: number \| null`** y **`cappedByMarket: boolean`** (aditivos). `price_desc`/grupos de la consola ordenan por lo que se paga | §M2 `VariantPricingDTO`, §M2-B.1, [§M2-B.11](#M2-B11) | **Sí, backend; frontend cuando quiera** (aditivo) |
+> | **6** | Correcciones de texto: `INV-BOUNTY-COST` decía «bajo bounty, ese bruto ES el precio del bounty» ⇒ es **el pago topado**; el docblock de `money.ts:239-251` («el bounty NUNCA se compara contra el mercado») queda falso y lo corrige backend | §M2-B.10, [§M2-B.11](#M2-B11) | con la 3 |
+>
+> **Qué cambia para quién:**
+>
+> | Quién | (A) liquidación tardía | (B) tope de bounties |
+> |---|---|---|
+> | **Cliente que compra** | Nada visible. Una orden contracargada o reembolsada ya no «vuelve» a liquidada ni dispara la confirmación de pago (⛔ NO MEDIDO que hoy la dispare) | Nada |
+> | **Cliente que vende** | Nada | Ve en la cotización y en la vitrina **lo que se le paga**, ya topado. ⛔ **No** se le dice que hubo tope (ni pantalla, ni correo) |
+> | **Dueño (`super_admin`)** | Una orden `chargeback`/`refunded` **se queda así** en M3; «liquidada» vuelve a significar dinero que entró y no se revirtió | En la consola de bounties ve lo que configuró **y** lo que paga hoy, con la marca «tope: mercado» si aplica. ⛔ Ni alerta, ni cambio de `state`, ni bloqueo al darlo de alta |
+> | **Operador** | Nada | Nada |
+> | **Backend** | CAS + early-return + pruebas SL | `bountyPayoutCents` + tres llamadores + dos campos + pruebas BC |
+> | **Frontend** | Nada | Consola: pintar `payoutCents`/`cappedByMarket` (copy de ux-ui). Vitrina: nada |
+> | **QA / seguridad** | SL-4 (carrera) con N≥10 y proporción; re-medir la sonda S4 de seguridad | BC-8 (tres superficies, un número) |
+>
+> **Lo que NO cambia:** qué órdenes se liquidan desde `pending`/`failed` y cómo (piezas, colocación, envío, avisos:
+> todo v1.79.4); `onChargeDisputeClosed(won)`; `isBountyEffective` y su tabla de 12 casos (quién es bounty, el alta y su
+> `422 BOUNTY_BELOW_RULE`, la vitrina filtra igual); el override manual de compra (**absoluto**, no se topa); los montos
+> ya congelados (`quotedPriceCents`, `offeredPriceCents`, `acquisitionCostCents`); `bountyAcquiredQty` (una línea topada
+> sigue siendo `priceBasis='bounty'` y cuenta).
 >
 > **Changelog v1.79.5 — §M4-VAULT: EL RIVAL REAL DE LOS CAS ES EL CONTRACARGO, DOS CONTEOS CON NOMBRE, Y DOS ERRATAS
 > (2026-09-28, arquitecto; base v1.79.4, vigente entera salvo lo que esta rev toca). Origen: gates del stream bóveda
@@ -6800,7 +6836,10 @@ VariantPricingDTO = { market: MarketReferenceDTO,
                               source: PriceBasis, premiumAtFloor: boolean },
                       bounty?: { enabled: boolean, priceCents: number | null, targetQty: number | null,
                                  acquiredQty: number, completedAt: string | null,
-                                 effective: boolean, curveQuoteCents: number | null } | null }
+                                 effective: boolean, curveQuoteCents: number | null,
+                                 payoutCents: number | null,     // ⭐ v1.80 (§M2-B.11): lo que paga HOY = bountyPayoutCents(priceCents, mercado) si effective; null si no
+                                 cappedByMarket: boolean } | null }  // ⭐ v1.80: effective ∧ payoutCents < priceCents. INFORMATIVO: no cambia `state` ni alerta
+// ⚠️ v1.80: `bounty.priceCents` sigue siendo lo CONFIGURADO; lo que se paga es `payoutCents` (= `buy.effectiveCents` cuando `buy.source='bounty'`).
 
 // <!-- CANON: mercado-de-la-variante · estado: VIGENTE · única fuente · §0-B.3 reglas 8 y 10 · ver ARCHITECTURE §4.42j -->
 //    (marca DENTRO del bloque `ts` a propósito: la fuente única es esta declaración, no una prosa aparte.)
@@ -9722,6 +9761,13 @@ desc`; **cap 50** (sin paginación — es una vitrina, no un listado). Sin query
 > de `/buylist/quote` es **exactamente** `bountyPriceCents` y es **estrictamente mayor** que la tarifa estándar de esa
 > variante (criterio 91). El dueño ve los rebasados como **alerta en el binder** (`VariantPricingDTO.bounty.effective
 > = false` + `curveQuoteCents`, §M2) — **sin** aviso proactivo por correo/push (decisión del humano).
+
+> **⭐⭐ v1.80 — TOPE DE MERCADO EN EL PAGO ([§M2-B.11](#M2-B11), decisión del dueño 2026-09-28).** `bountyPriceCents`
+> de esta respuesta **es lo que se paga**: `bountyPayoutCents(bounty, mercado) = min(bounty, mercado)` (sin mercado, el
+> bounty). El monto configurado por encima del mercado ⛔ **no sale** por esta ruta. Orden de operaciones: seleccionar →
+> mercado en lote → **filtrar no efectivos** (sin cambio) → **calcular el pago** → ordenar **por el pago** `desc` → top 50.
+> La garantía «la cotización es exactamente `bountyPriceCents`» se conserva (ahora los dos están topados). ⛔ Misma
+> forma; ⛔ ningún campo dice que hubo tope.
 Res `200` (`PublicBountiesResponse`): `{ data: PublicBountyDTO[] }`
 ```json
 { "data": [
@@ -11814,6 +11860,9 @@ Query: `?state=&setId=&finish=&q=&page=&pageSize=&sort=`
   dentro de cada grupo `bountyPriceCents` **desc** (espejo de la vitrina), desempate
   `updatedAt` desc y, para que el orden sea **total** y la paginación estable, `id` asc como último criterio.
   `price_desc` es el espejo exacto del orden de `GET /buylist/bounties`.
+  ⭐ **v1.80 ([§M2-B.11](#M2-B11)):** donde arriba dice `bountyPriceCents` como llave de orden, léase **`payoutCents ??
+  bountyPriceCents`** (lo que se paga; si no paga, lo configurado). Es lo que mantiene el «espejo exacto» ahora que la
+  vitrina ordena por lo que se paga.
 
 Res `200` (`AdminBountyListResponse`):
 ```
@@ -12275,6 +12324,164 @@ pagado; bajo bounty, ese bruto **ES** el precio del bounty) — **fuente ÚNICA*
 `DELETE` → el costo es **idéntico**; (2) **cero P/L** — el reporte M7 de esa carta antes/después tiene **delta 0**; (3)
 **aislamiento de tablas** — durante la tx del `DELETE`, **cero** escrituras a `InventoryItem` (solo `VariantPriceOverride`
 + `AuditLog`). Ver ARCHITECTURE §4.36.6c, mutación **B-21**.
+
+> ⭐ **v1.80 — corrección de una frase de arriba:** «bajo bounty, ese bruto **ES** el precio del bounty» deja de ser
+> cierto cuando el bounty supera al mercado: el bruto es **el pago topado** `min(bounty, mercado)` (§M2-B.11). El
+> invariante no cambia (el costo sigue siendo el bruto pagado, sellado una vez); el criterio de prueba (1) se lee
+> `acquisitionCostCents == pago del bounty`, ⛔ no `== bountyPriceCents`.
+
+<a id="M2-B11"></a>
+##### M2-B.11 — ⭐⭐ TOPE DE PAGO DEL BOUNTY: se paga el menor entre el bounty y el mercado (v1.80, decisión del dueño 2026-09-28, NORMATIVO, **DINERO**)
+
+**La decisión, literal** (`HECHOS.md`, 2026-09-28): *«el bounty nunca paga más que el precio de mercado. Si el bounty
+ofrece más que el mercado, se paga el mercado (el menor de los dos). No se bloquea la cotización ni se avisa al dueño
+por ese motivo.»* Al elegir entre pagar el mercado o bloquear, eligió: *«Pagar el precio de mercado»*.
+
+**Estado medido antes de esta rev (leído 2026-09-28):** el peldaño 1 de `quoteAcquisitionFromCurve`
+(`money.ts:261-267`) paga `clampCents(bountyPriceCents)` sin compararlo con el mercado; el docblock de `money.ts:239-244`
+lo dice («el bounty NUNCA se compara contra el mercado»). El mercado **sí** entra ya a `isBountyEffective`, pero solo
+como **piso** (Q1, §M2-B.8), nunca como **techo** del pago.
+
+**1. La regla — una función pura, un solo cuerpo:**
+
+```ts
+// common/money.ts (junto a quoteAcquisitionFromCurve; ahí vive isPresentAmount — la dirección money.ts → pricing-curve.ts
+// no permite ponerla en pricing-curve.ts sin repetir el `> 0` a mano, que es H-1 incumplida).
+// PRECONDICIÓN: se llama solo con un bounty ya EFECTIVO (bountyPriceCents > 0).
+export function bountyPayoutCents(bountyPriceCents: number, marketMxnCents: number | null): number {
+  return isPresentAmount(marketMxnCents) ? Math.min(bountyPriceCents, marketMxnCents) : bountyPriceCents;
+}
+
+// quoteAcquisitionFromCurve — peldaño 1, ÚNICO cambio de la función:
+if (controls?.bountyEnabled && isBountyEffective(bounty, curveQuoteCents, marketMxnCents)) {
+  return { priceCents: clampCents(bountyPayoutCents(bounty, marketMxnCents)), basis: 'bounty', marketMxnCents, curveQuoteCents };
+}
+```
+
+- **Qué «mercado»:** el **mismo** `marketMxnCents` que ya entra a la curva de compra y a `isBountyEffective`: la
+  referencia `priced` de **esa variante** (`referenceMxnCents`, `MONEY_REF_WHERE` + `BASE_CARD_REF_WHERE`), el que la
+  consola pinta como «Mercado» (`VariantPricingDTO.market`, canon *mercado-de-la-variante*). ⛔ No se resuelve un
+  segundo mercado ni se consulta otra fuente.
+- **Presencia (H-1):** mercado presente ⇔ `> 0`. Un `0` o negativo es dato degenerado ⇒ **ausente** ⇒ se paga el
+  bounty (ver punto 2). ⛔ Un `market != null` a secas topa a **MX$0** con un dato corrupto: es la mutación que BC-4 mata.
+- **Redondeo:** ninguno. Bounty y mercado son **enteros de centavos**; el mínimo de dos enteros es entero. ⛔ Prohibido
+  redondear hacia arriba o introducir decimales (cualquier redondeo `↑` podría pagar un centavo **por encima** del
+  mercado). `clampCents` se conserva como red Int32.
+- **Empate** (`bounty == mercado`): se paga ese número; `cappedByMarket = false` (no se topó nada).
+- **`priceBasis` sigue siendo `bounty`** aunque se tope: el bounty ganó el peldaño 1; lo que cambió es cuánto paga. Así
+  `bountyAcquiredQty` sigue contando la línea (`buylist.service.ts:7695`, `priceBasis: 'bounty'`) y la serie §N.8 no
+  gana un valor de enum. ⛔ Ni `PriceBasis` nuevo ni columna nueva.
+- ⛔ **Quién es bounty efectivo NO cambia.** `isBountyEffective` y su tabla de 12 casos (§M2-B.8) quedan **intactas**: el
+  alta y su `422 BOUNTY_BELOW_RULE`, el filtro de la vitrina y el `state` de la consola deciden igual que hoy. El tope
+  actúa **después**, sobre el monto.
+- ⛔ **El override manual de compra NO se topa** (`buyOverrideCents`, peldaño 2, **absoluto**, criterio 89) — la decisión
+  del dueño es sobre el **bounty**. Tampoco el override del operador al ofertar (`offeredPriceCents ≠ derived` con motivo,
+  criterio 148(a)): es un acto humano deliberado con motivo, y el dueño pidió no bloquear.
+
+**2. Sin mercado ⇒ se paga el bounty tal cual (decisión por defecto; ver pregunta al dueño).** Sin mercado la curva es
+`pending` y el bounty explícito **ya** manda (§M2-B.8, rama 2): es el caso donde el bounty más se usa (una carta sin
+precio de referencia a la que el dueño le puso precio a mano). No hay mercado contra el cual topar, y **no se inventa
+uno**. Las alternativas se descartan: *no cotizar* convertiría en `precio_pendiente` justo los bounties que existen para
+cubrir ese hueco, y bloquear es lo que el dueño dijo que no; *usar la curva o el bin* sería un precio que nadie pidió.
+
+**3. Dónde se aplica (y dónde ⛔ no):**
+
+| Momento | ¿Se topa? | Cómo |
+|---|---|---|
+| Cotización pública (`POST /buylist/quote`, `/quote/batch`) | **Sí** | `decideBuyLine` → `quoteAcquisitionFromCurve` |
+| Crear la solicitud (`POST /buylist/requests`) — congela `quotedPriceCents` | **Sí** | mismo cuerpo (`decideBuyLine`) |
+| Derivar la oferta (`offerDerivedPriceCents`, al emitir) | **Sí** | mismo cuerpo, con el mercado **del momento de ofertar** (como hoy con cualquier movimiento de mercado) |
+| Vitrina pública (`GET /buylist/bounties`) | **Sí** | `bountyPayoutCents(bountyPriceCents, referenceMxnCents)` sobre las filas ya filtradas por `isBountyEffective` |
+| Consola / binder (`composeVariantPricing`) | **Sí** (`buy.effectiveCents`, `bounty.payoutCents`) | mismo cuerpo |
+| `offeredPriceCents` ya congelado, pago SPEI, `acquisitionCostCents` | ⛔ **No** | lo congelado **no se mueve jamás** (D2/D9); se paga lo ofertado |
+
+⛔ **Prohibido un `Math.min(bounty…, market…)` fuera de `bountyPayoutCents`** (candado de forma BC-9). Cinco copias del
+tope son cinco sitios donde la vitrina y el pago pueden discrepar — el defecto que criterio 91 prohíbe.
+
+**4. Solicitudes ya cotizadas — ⛔ no retroactivo.** No hay migración ni backfill: `quotedPriceCents` de las líneas ya
+creadas **no se reescribe**. Lo que se paga sale de la **oferta**, y la oferta **ya hoy** se deriva con la regla y el
+mercado **vigentes al ofertar** (`offerDerivedPriceCents`, §4.39h) — igual que si el mercado se hubiera movido entre
+cotizar y ofertar. Consecuencia, dicha entera: una línea cotizada antes del despliegue a un bounty por encima del
+mercado se **ofertará** topada; si el dueño quiere honrar la cifra cotizada, la oferta lo permite con override y motivo
+(criterio 148(a)), sin cambio. Solicitudes ya **ofertadas/aceptadas/pagadas**: intactas.
+
+**5. Qué ve cada quien:**
+
+- **Vendedor:** el número que se le paga — en la cotización y en la vitrina — **ya topado**. ⛔ **No** se le dice que hubo
+  tope: ni campo en el DTO público, ni copy, ni correo. *(Mismo criterio que los topes KYC: la política interna no se
+  publica; y el número mostrado es exactamente el pagado, que es lo que criterio 91 exige.)*
+- **Vitrina pública:** `PublicBountyDTO.bountyPriceCents` **= lo que se paga** (`bountyPayoutCents`). ⛔ El monto
+  configurado por encima del mercado **no sale** por la ruta pública. Orden `desc` **por ese número** (filtrar efectivos
+  → calcular pago → ordenar → cap 50). ⛔ Misma forma del DTO; el frontend no cambia.
+- **Dueño (consola de bounties / binder):** `VariantPricingDTO.bounty` gana dos campos **aditivos**:
+  `payoutCents: number | null` — `bountyPayoutCents(...)` si `effective`, `null` si no (un bounty no efectivo no paga
+  nada) — y `cappedByMarket: boolean` — `effective ∧ payoutCents < priceCents`. `bounty.priceCents` sigue siendo **lo
+  configurado**; `buy.effectiveCents` (que ya existe) es igual a `payoutCents` cuando `buy.source = 'bounty'`.
+  ⛔ **`state` no cambia** (un bounty topado sigue `activa`), ⛔ no entra al grupo de atención, ⛔ no hay alerta: es
+  **información**, no aviso (el dueño pidió no avisar). Copy de la marca («tope: mercado» o similar): **ux-ui**.
+- **Orden de la consola (§M2-B.1):** `price_desc` y el orden dentro de cada grupo de `attention_first` pasan a ordenar
+  por **`payoutCents ?? bountyPriceCents`** (lo que se paga; si no paga, lo configurado). Así `price_desc` **sigue siendo
+  el espejo exacto** de la vitrina para las filas `activa`, que es lo que §M2-B.1 promete.
+- **Operador:** nada (la mesa de oferta ya muestra `offerDerivedPriceCents`, que sale topado).
+
+**6. Tabla normativa (se añade la columna «paga» a la de §M2-B.8; quién es efectivo, idéntico):**
+
+| mercado | curva | bounty | ¿efectivo? | **paga (v1.80)** | antes | `cappedByMarket` |
+|---|---|---|---|---|---|---|
+| `null` | `null` | 5000 | sí | **5000** (sin mercado) | 5000 | `false` |
+| `0` (degenerado) | `null` | 5000 | sí | **5000** (mercado ausente, H-1) | 5000 | `false` |
+| 1000 | 400 | 401 | sí | **401** | 401 | `false` |
+| 1000 | 400 | 1000 | sí | **1000** (empate) | 1000 | `false` |
+| 1000 | 400 | 1200 | sí | **1000** | 1200 | **`true`** |
+| 500 | 700 | 701 | sí | **500** | 701 | **`true`** |
+| 500 | 700 | 650 | sí | **500** | 650 | **`true`** |
+| 500 | 700 | 500 | sí | **500** | 500 | `false` |
+| 1000 | 400 | 400 | ⛔ no | curva (400) | curva | — (`payoutCents: null`) |
+
+⚠️ **Las filas `500/700/*` dicho entero:** en cartas baratas donde **nuestra tarifa normal ya supera al mercado** (el bin
+domina), un bounty efectivo paga el **mercado**, que es **menos** que la tarifa normal que se pagaría **sin** bounty. Es
+la lectura literal de la decisión y es coherente con Q1 (que ya aceptó un bounty `= mercado < bin` pagando el mercado).
+Va como pregunta **no bloqueante** al dueño (ARCHITECTURE §4.36.6e), con esta conducta como valor por defecto.
+
+**7. Pruebas que deben FALLAR si se implementa mal** (las escribe backend, modelo fuerte; mutaciones sobre copia del
+árbol entero, O-9):
+
+- **BC-1 bounty > mercado ⇒ mercado** (unidad, `bountyPayoutCents(1200, 1000) === 1000`). *Mutación:* `return
+  bountyPriceCents` ⇒ roja.
+- **BC-2 bounty < mercado ⇒ bounty** (`(800, 1000) === 800`). *Mutaciones:* `return market` ⇒ roja; `Math.max` ⇒ roja
+  (también BC-1).
+- **BC-3 sin mercado ⇒ bounty** (`(5000, null) === 5000`). *Mutación:* devolver `null`/`0`/la curva ⇒ roja.
+- **BC-4 mercado degenerado ⇒ bounty** (`(5000, 0) === 5000`, `(5000, -1) === 5000`). *Mutación:* `market != null` en vez
+  de `isPresentAmount` ⇒ paga 0 ⇒ roja.
+- **BC-5 la tabla del punto 6 por `quoteAcquisitionFromCurve`** (unidad): `priceCents` = columna «paga», `basis =
+  'bounty'` en las efectivas, `marketMxnCents` y `curveQuoteCents` **sin cambio**. *Mutaciones:* topar contra
+  `curveQuoteCents` en vez del mercado ⇒ roja (1000/400/1200 daría 400); topar solo cuando `curva < mercado` ⇒ roja
+  (500/700/701); `basis: 'market'` al topar ⇒ roja.
+- **BC-6 el override NO se topa** (unidad): bounty no efectivo, `buyOverrideCents = 5000`, mercado 1000 ⇒ paga **5000**
+  `override`. *Mutación:* aplicar el tope a todo el resultado ⇒ roja.
+- **BC-7 canario de «quién es efectivo»:** la tabla de 12 casos de `isBountyEffective` (`pricing-curve.spec.ts:495-538`)
+  sigue verde **sin editarla**. Si alguien la toca para hacer pasar el tope, el diff lo delata (el techlead lo revisa).
+- **BC-8 ⭐⭐ tres superficies, un número** (integración, Postgres real): variante con bounty 1200 y mercado 1000 ⇒
+  `POST /buylist/quote` = **1000** `basis:'bounty'`; `GET /buylist/bounties` trae esa carta con `bountyPriceCents:
+  1000`; `POST /buylist/requests` congela `quotedPriceCents = 1000`, `priceBasis = 'bounty'`, `marketMxnCents = 1000`;
+  el binder/consola da `bounty.priceCents = 1200`, `payoutCents = 1000`, `cappedByMarket = true`, `buy.effectiveCents =
+  1000`. *Mutación:* topar solo en `quoteAcquisitionFromCurve` y dejar la vitrina publicando el configurado ⇒ roja
+  (criterio 91: el número publicado es el que se paga).
+- **BC-9 candado de forma** (unidad/estático): en `backend/src` (sin specs), `bountyPayoutCents` es el **único** sitio con
+  un `Math.min` que involucre un monto de bounty; la vitrina y el composer lo **llaman**. *Mutación:* un `Math.min` a mano
+  en `publicBounties` ⇒ roja.
+- **BC-10 orden de la vitrina por lo que se paga** (integración): A = bounty 5000 / mercado 2000 (paga 2000); B = bounty
+  3000 / mercado 10000 (paga 3000, efectivo) ⇒ B antes que A. *Mutación:* ordenar por el configurado ⇒ roja. Y en la
+  consola `?sort=price_desc`: mismo orden relativo.
+- **BC-11 no retroactivo y oferta derivada** (integración): línea sembrada con `quotedPriceCents = 1200` (cotizada
+  «antes»), bounty 1200, mercado 1000 ⇒ al emitir la oferta `offerDerivedPriceCents = 1000`; `quotedPriceCents` de la
+  línea sigue **1200**; ofertar 1200 **sin** motivo ⇒ `422 OVERRIDE_REASON_REQUIRED`, que ya existe (criterio 148(a));
+  con motivo ⇒ se oferta 1200 y `offerPriceBasis = 'override'`. *Mutación:* reescribir `quotedPriceCents` al cotizar de
+  nuevo o por backfill ⇒ roja.
+- **BC-12 lo congelado no se mueve** (integración, regresión): solicitud ya ofertada con `offeredPriceCents = 1200` ⇒ tras
+  el despliegue el pago y `acquisitionCostCents` son **1200**. Y una línea topada (`quotedPriceCents = 1000`, `basis
+  bounty`) que se paga **sí** incrementa `bountyAcquiredQty`. *Mutación:* marcar la línea topada como `market` ⇒ el
+  contador no sube ⇒ roja.
 
 ---
 
@@ -15836,6 +16043,8 @@ return { settled: true };
   stream. ⛔ **Este stream no lo toca:** estrechar el `WHERE` es una decisión de dinero. ⚠️ La prueba 38 (ii) canda la
   liquidación desde `failed` (⛔ no desde `chargeback`): quien estreche el `WHERE` tiene que decidir las dos a la vez y
   tocar la 38 con esa decisión escrita.
+  ⭐⭐ **v1.80 — DECIDIDO en [§M4-VAULT.2-bis.2](#M4-VAULT-2bis2):** se liquida desde `pending` y `failed` (38 (ii)
+  intacta); `refunded` y `chargeback` ya no. **Este bullet queda como historia; el predicado vigente es el de .2-bis.2.**
 - **El perdedor, exacto:** `200`; ⛔ cero escrituras más en la tx (ni `inventoryItem`, ni `inventoryMovement`, ni
   `vaultPlacement*`, ni `shipmentRequest`); ⛔ cero `AV-2`, cero confirmación de invitado, cero `audit.log` de
   anomalías; el marcador `ProcessedStripeEvent` de **su** event.id queda (no debe reintentarse). La llamada previa a
@@ -15846,6 +16055,123 @@ return { settled: true };
 - **Garantías resultantes:** `Order.settledAt` se escribe **una vez** por liquidación y `VaultPlacement.createdAt ===
   Order.settledAt` también bajo carrera; `AV-2` (y la confirmación de invitado) salen **una** vez por liquidación.
 - ⛔ `onChargeDisputeClosed(won)` (`settledAt: order.settledAt ?? new Date()`) **no** se toca: conserva el instante.
+
+<a id="M4-VAULT-2bis2"></a>
+###### M4-VAULT.2-bis.2 — ⭐⭐ v1.80: QUÉ ESTADOS SE LIQUIDAN — cierre de `SEC-SETTLE-LATE` (stream «Órdenes y dinero»)
+
+**El defecto (medido por seguridad, local, N=1, eventos firmados sintéticos, sonda S4):** con la orden en `chargeback`,
+un `payment_intent.succeeded` con importe y moneda correctos ⇒ `200`, la orden pasa a **`settled`** y **`settledAt` se
+reescribe**. Causa (leída en `payments.service.ts`): el early-return solo mira `settled` (`:202`) y el CAS filtra
+`status: { not: 'settled' }` (`:259` en `vault`, `:418` en `direct_ship`). Por lectura, `refunded` sigue el mismo camino
+(⛔ NO MEDIDO en ejecución). ⛔ NO MEDIDO: si hoy sale `AV-2` por ese camino, y la alcanzabilidad con Stripe real.
+
+**La decisión — lista CERRADA de estados de origen liquidables:**
+
+| Estado de la orden cuando llega el `succeeded` | Hoy | **v1.80** | Por qué |
+|---|---|---|---|
+| `pending` | liquida | **liquida** | El camino normal |
+| `failed` | liquida | **liquida** (prueba 38 (ii), intacta) | Stripe deja reintentar el cobro sobre el **mismo** PaymentIntent tras un intento fallido (`payment_failed` ⇒ `requires_payment_method` ⇒ nuevo intento). Si llega `succeeded`, **el dinero entró**: negarse a liquidar dejaría un cobro sin orden. Lo que pasa con las piezas es conducta previa **sin cambio** (bóveda: anomalía auditada `order.settle_item_not_reserved`, no se mueven; `direct_ship`: se re-congelan si nadie las tomó) |
+| `settled` | no-op | **no-op** | Reentrega |
+| `refunded` | ⚠️ re-liquida | **no-op, `200`** | Un reembolso exige un cargo cobrado ⇒ un `succeeded` posterior es **siempre** una entrega fuera de orden. El dinero ya salió; «liquidada» sería falso |
+| `chargeback` | ⚠️ re-liquida (medido) | **no-op, `200`** | Una disputa exige un cargo cobrado ⇒ ídem. El **único** camino `chargeback → settled` es `charge.dispute.closed(won)` / `funds_reinstated` (`onChargeDisputeClosed`), que no pasa por aquí y conserva `settledAt` |
+
+*(«Reembolso/disputa exige cargo cobrado» es propiedad de Stripe, ⛔ no medida desde aquí; la decisión no depende de
+ella: aunque Stripe mandara el `succeeded` en otro orden, liquidar una orden reembolsada o contracargada sigue siendo
+falso.)* ⛔ **Nuestro propio reembolso** ya exige `settled` (`admin-orders.controller.ts:239`); un reembolso hecho
+**fuera** de la app (panel de Stripe) sobre una orden `pending` es el único camino a `refunded` sin liquidar — ver
+«Residual» abajo.
+
+**La norma (las dos ramas, un solo predicado):**
+
+```ts
+// Firma/pseudocódigo — lo implementa backend. UNA constante, exportada del módulo payments; lista CERRADA.
+export const SETTLEABLE_ORDER_STATUSES = ['pending', 'failed'] as const satisfies readonly OrderStatus[];
+
+// onPaymentSucceeded — early-return (FUERA de la tx; atajo), ANTES de H1 (importe/moneda):
+if (!SETTLEABLE_ORDER_STATUSES.includes(order.status)) {
+  if (order.status === 'refunded' || order.status === 'chargeback') {
+    logger.warn(`SEC-SETTLE-LATE: payment_intent.succeeded ignorado — orden ${orderNumber ?? id} en ${status} (PI ${pi.id})`);
+  }
+  return;                                   // 200; el marcador ProcessedStripeEvent de ESTE event.id queda
+}
+// CAS — PRIMERA escritura de la $transaction, en `vault` y en settleDirectShipOrder (sin otro cambio):
+const won = await tx.order.updateMany({
+  where: { id: order.id, status: { in: [...SETTLEABLE_ORDER_STATUSES] } },
+  data:  { status: 'settled', settledAt: now /* direct_ship: + paymentMethodBrand/Last4 si hay card */ },
+});
+if (won.count === 0) return false;          // perdedor: ⛔ nada más en esta tx; fuera: ⛔ ni AV-2, ni guestMail, ni audit
+```
+
+- **El early-return es la negación EXACTA del CAS** (misma constante, ⛔ nunca dos listas). El CAS es quien decide bajo
+  carrera; el early-return ahorra el `getCardDetails` de `direct_ship` y el ruido de H1 en el caso secuencial.
+- **El perdedor / el tardío, exacto:** `200`; cero escrituras (`order`, `inventoryItem`, `inventoryMovement`,
+  `vaultPlacement*`, `shipmentRequest`, tarjeta); cero `AV-2`, cero confirmación de invitado, ⛔ **cero `audit.log`**
+  (ni de anomalías ni de H1); el marcador `ProcessedStripeEvent` de su event.id **queda** (no debe reintentarse). La
+  única huella es el `logger.warn` del early-return (⛔ no en el perdedor del CAS: ése no sabe si perdió contra otro
+  settle o contra un contracargo, y el primero es ruido normal).
+- **Por qué `warn` y ⛔ no fila de auditoría:** es una entrega fuera de orden esperable, no una acción de nadie; una fila
+  de `AuditLog` sería una escritura más del perdedor (y un `action` nuevo que el catálogo tendría que declarar). Si algún
+  día se quiere conciliar, el dato ya está en Stripe.
+- **Carreras con el contracargo:** `onChargeDispute*` escribe la orden con `update` por `id`. (i) Si el contracargo
+  confirma antes, el CAS del settle re-evalúa su `WHERE` sobre la versión confirmada (`READ COMMITTED`) ⇒ `chargeback`
+  ∉ lista ⇒ 0 filas ⇒ perdedor. (ii) Si el settle confirma antes, el contracargo lo pisa con `chargeback` — el orden
+  correcto. ⛔ No se toca el contracargo en esta rev.
+- **Lo que queda como está:** todo lo de .2-bis.1 salvo el predicado; `onChargeDisputeClosed`; `failAndRelease` (su
+  `status !== 'pending'` no cambia).
+
+**Residual declarado (⛔ NO bloquea):** una orden `pending` reembolsada **desde el panel de Stripe** (no por nuestra
+ruta) queda `refunded` con sus piezas `reserved` por ella; hasta hoy un `succeeded` tardío las movía a custodia (peor:
+el cliente se quedaba la carta con el dinero devuelto); desde v1.80 se quedan `reserved`. ⛔ **NO MEDIDO** qué hace el
+barrido de reservas con piezas reservadas por una orden que ya no es `pending` (§4-R.4). **Comprobación** (backend):
+leer el predicado del barrido y decirlo en `BACKEND_NOTES`; si no las suelta, se registra en `TECH_DEBT.md` con
+disparador «primer reembolso fuera de la app».
+
+**Pruebas (las escribe backend, modelo fuerte; la 38 se enmienda así):**
+
+- **38 (ii) — SIN CAMBIO:** `failed` + `succeeded` ⇒ se liquida. Es la mitad «qué SÍ se liquida» de esta decisión.
+- **38 (iii) — ENMENDADA:** la escritura de la orden es `updateMany` con `where` **exactamente**
+  `{ id, status: { in: ['pending','failed'] } }` (⛔ ya no `{ not: 'settled' }`), primera escritura de la tx, y en
+  `vault` su `data` sigue siendo exactamente `{ status, settledAt }`.
+
+Nacen **SL-1 a SL-7** (integración = Postgres real + webhook **firmado**; ⛔ nada de dobles de Prisma salvo donde se dice
+«unidad»). **Toda mutación se corre sobre copia del árbol ENTERO (O-9) y se reporta proporción con su N.**
+
+- **SL-1 ⭐⭐ `vault` — contracargo y luego `succeeded` tardío** (integración). Orden llevada a `settled` por el flujo
+  real, luego `charge.dispute.created`, luego `payment_intent.succeeded` **con otro event.id**, importe correcto ⇒ `200`;
+  `status = 'chargeback'`; `settledAt` **idéntico al milisegundo** al de antes del evento tardío; cero
+  `InventoryMovement` nuevos; `VaultPlacement` sin cambio (`cancelled/chargeback`); `AV-2` **0** (captura del harness si
+  existe; si no, SL-5 lo cubre y se dice en `BACKEND_NOTES`). **Roja hoy** (seguridad: N=1). *Mutación:* volver el CAS y
+  el early-return a `not: 'settled'` ⇒ roja.
+- **SL-2 — `refunded` y luego `succeeded` tardío** (integración, las dos ramas): `settled` → `charge.refunded` total →
+  `succeeded` tardío ⇒ `200`; `status = 'refunded'`; `settledAt` y `refundedAt` sin cambio; en `direct_ship` ni envío
+  nuevo ni `paymentMethodBrand/Last4` reescritos. *Mutación:* añadir `'refunded'` a la constante ⇒ roja.
+- **SL-3 — `direct_ship` (registrado e invitado) en `chargeback`** (integración): `succeeded` tardío ⇒ `200`, orden
+  intacta (incluida la tarjeta), ningún `ShipmentRequest` creado ni reactivado, confirmación de invitado **0**, `AV-2`
+  **0**. *Muerde* a quien arregle solo la rama `vault`.
+- **SL-4 ⭐⭐ La carrera que solo el CAS cierra** (integración, entrelazado forzado por barrera de fila, las dos ramas,
+  **N ≥ 10**, se reporta proporción). Orden `pending` sin liquidar. (1) La barrera toma la fila `Order` y la escribe a
+  `chargeback` **sin confirmar**. (2) Se lanza el `succeeded`: su lectura previa ve `pending` confirmado ⇒ pasa el
+  early-return; se espera a verlo **bloqueado en el `UPDATE` del CAS**. (3) La barrera confirma. ⇒ `200`, `status =
+  'chargeback'`, `settledAt` **nulo**, cero movimientos, cero colocación/envío, `AV-2` 0. **Canario del arnés:** una
+  tirada en la que no se observó al webhook esperando la fila **no cuenta** (se reporta aparte, ⛔ no como verde).
+  *Mutación:* early-return con la lista nueva pero CAS con `not: 'settled'` ⇒ roja en todas las tiradas válidas. *(Es la
+  única prueba que muerde esa mutación; las secuenciales las para el early-return.)*
+- **SL-5 — tabla de estados, unidad (determinista), las dos ramas.** Doble de Prisma, `order.status` ∈ los cinco valores
+  del enum: `pending`/`failed` ⇒ `$transaction` **1** y CAS con la lista; `settled`/`refunded`/`chargeback` ⇒
+  `$transaction` **0**, `stripe.getCardDetails` **0**, `mail.send` **0**, `guestMail.sendConfirmation` **0**,
+  `audit.log` **0**; `logger.warn` **1** exactamente para `refunded` y `chargeback`, **0** para `settled`. *Mutaciones:*
+  quitar `'failed'` ⇒ roja (y la 38 (ii)); añadir `'chargeback'` ⇒ roja; early-return con lista propia distinta de la
+  del CAS ⇒ roja.
+- **SL-6 — canario de lista cerrada** (unidad): para **cada** valor de `Object.values(OrderStatus)` la prueba tiene una
+  fila explícita `liquidable: sí/no` (`pending`, `failed` ⇒ sí; el resto ⇒ no) y asierta que coincide con
+  `SETTLEABLE_ORDER_STATUSES`. Un valor nuevo del enum sin fila ⇒ **roja**. *Por qué:* un estado nuevo tiene que ser
+  decidido, ⛔ no heredado. *Mutación (en copia):* añadir un valor al enum ⇒ roja.
+- **SL-7 — regresión del desenlace** (integración): `chargeback` → `charge.dispute.closed` con `won` ⇒ `settled`,
+  `settledAt` **conservado** si existía (sin cambio de v1.21). Luego un `succeeded` tardío ⇒ no-op (`settled`). Muerde a
+  quien «arregle» esto tocando `onChargeDisputeClosed`.
+
+**Comprobación de cierre de `SEC-SETTLE-LATE`:** SL-1…SL-7 verdes sin mutación; las mutaciones declaradas rojas con su
+proporción; y seguridad re-corre su sonda S4 (N≥10, autor y N en el veredicto).
 
 ##### M4-VAULT.3 — La cola: `PreparationOrderDTO` pasa a UNIÓN DISCRIMINADA
 
@@ -16561,6 +16887,8 @@ la prueba C: candado de fila sobre `Order` + `esperarBloqueoDeFila`), **N ≥ 10
     `updateMany` con `where` **exactamente** `{ id, status: { not: 'settled' } }`, es la **primera** escritura de la tx, y
     su `data` sigue siendo exactamente `{ status, settledAt }` en `vault` (⛔ cero dinero — el candado de fase 1 se
     conserva, cambiando solo el método).
+    ⭐ **v1.80:** (ii) **sin cambio**; (iii) **enmendada** — el `where` es exactamente `{ id, status: { in:
+    ['pending','failed'] } }` ([§M4-VAULT.2-bis.2](#M4-VAULT-2bis2), que añade SL-1…SL-7).
 39. **Lo que deja de morder, declarado.** Con el CAS, la carrera **ya no alcanza** el `INSERT` de la colocación del
     perdedor ⇒ la mutación de fase 1 «`create` a secas ⇒ 0/10» **deja de ponerse roja por la prueba C**. ⛔ No se quita
     `skipDuplicates`: queda como segunda defensa, candada **por forma** en la unidad (`payments.vault-placement-birth.spec.ts`

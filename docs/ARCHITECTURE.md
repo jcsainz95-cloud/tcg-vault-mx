@@ -4,6 +4,20 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80 — DINERO: `SEC-SETTLE-LATE` SE CIERRA Y EL BOUNTY SE TOPA AL MERCADO** (2026-09-28, arquitecto. Base:
+> **v1.79.5, vigente entera salvo lo que esta rev toca**. Origen: `SEC-SETTLE-LATE` (seguridad, medido en local, N=1) y
+> la decisión del dueño del 2026-09-28 sobre bounties (`HECHOS.md`, última fila). `API_CONTRACT` sube a **v1.80**; norma y
+> pruebas en `§M4-VAULT.2-bis.2` (SL-1…SL-7) y `§M2-B.11` (BC-1…BC-12). ⛔ **Sin schema, sin migración, sin endpoint,
+> sin código de error nuevo.** Si otra rama ya usó «v1.80», se renumera al fusionar.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ El settle liquida solo desde **`pending`/`failed`** (constante cerrada `SETTLEABLE_ORDER_STATUSES`, early-return = negación exacta del CAS); `refunded`/`chargeback` + `succeeded` tardío ⇒ `200` sin escribir ni avisar | §4.21q (p) | **Sí, backend** |
+> | **2** | ⭐⭐ Un bounty efectivo paga **`min(bounty, mercado)`**; sin mercado, el bounty. Una función pura (`bountyPayoutCents`), tres llamadores; `isBountyEffective` intacta; ⛔ no retroactivo sobre lo congelado | §4.36.6e | **Sí, backend** (+ frontend aditivo en la consola) |
+> | **3** | Dos preguntas **no bloqueantes** al dueño con valor por defecto ya aplicado (sin mercado; cartas baratas) | §4.36.6e | **No** |
+> | **4** | ⚠️ `PROJECT.md` no transcribe aún la decisión del 2026-09-28 (medido: `grep 2026-09-28 PROJECT.md` ⇒ 0). Se enruta a **product-owner** (criterio 91 / §N.6) | §4.36.6e | **No** |
+>
+> ---
 > **Rev v1.79.5 — «PARA BÓVEDA» TRAS LOS GATES: EL RIVAL DE LOS CAS ES EL CONTRACARGO** (2026-09-28, arquitecto. Base:
 > **v1.79.4, vigente entera salvo lo que esta rev toca**. Origen: veredictos de QA, techlead y seguridad sobre
 > `db7d1c2`. `API_CONTRACT` sube a **v1.79.5**. ⛔ **Sin schema, sin migración, sin endpoint, sin código de error, sin
@@ -7114,12 +7128,33 @@ importe correcto ⇒ `200`, `Order.status='settled'`, **`settledAt` reescrito**.
 `cancelled/chargeback` (`skipDuplicates`). Lo que sí queda falso es el registro de dinero («liquidada» con los fondos
 revertidos). ⛔ NO MEDIDO: `AV-2` en ese camino y la alcanzabilidad con Stripe real. **Disparador:** antes de operar con
 disputas reales, o el siguiente pase de ese stream. Quien lo decida revisa a la vez la prueba 38 (ii) (`API_CONTRACT
-§M4-VAULT.8`), que canda la liquidación desde `failed`.
+§M4-VAULT.8`), que canda la liquidación desde `failed`. ⭐ **v1.80: DECIDIDA en (p) abajo.**
 
 ⚠️ **Riesgo residual anotado para «Órdenes y dinero» (de `SEC-VLT-DL`, no de este stream):** tras un fallo del handler
 del webhook, el borrado del marcador `ProcessedStripeEvent` se traga su propio error (`payments.service.ts`,
 `.catch(() => undefined)`); si ese borrado fallara, Stripe no reintentaría y **el contracargo se perdería en silencio**
 (seguridad, ⛔ NO MEDIDO con fallo inyectado). Mínimo propuesto: log nivel `error` en ese `catch`.
+
+**(p) v1.80 — `SEC-SETTLE-LATE` decidida: el settle liquida solo desde `pending` y `failed`.** Norma, tabla de estados y
+pruebas SL-1…SL-7 en `API_CONTRACT §M4-VAULT.2-bis.2`. Stream «Órdenes y dinero» (`payments`).
+
+La pregunta de diseño no era «¿qué estados excluyo?» sino **«¿qué significa que un `succeeded` llegue?»**. Significa
+«Stripe cobró este PaymentIntent en algún momento». Eso autoriza a liquidar solo si **nada posterior al cobro** ha
+pasado ya en nuestra orden. `refunded` y `chargeback` son hechos **posteriores** a un cobro (Stripe no reembolsa ni
+disputa lo que no cobró) ⇒ si ya están, el `succeeded` es viejo. `failed` **no** es posterior: es un intento anterior
+fallido sobre el mismo PaymentIntent, y el `succeeded` es el reintento que sí cobró.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| Lista **cerrada** positiva `['pending','failed']` | Seguir con la negativa `not: 'settled'` + excepciones (`notIn: ['settled','refunded','chargeback']`) | Con lista negativa, un estado nuevo del enum se vuelve liquidable **por omisión**; con la positiva, por omisión **no** se liquida y el canario SL-6 obliga a decidirlo. En código de dinero, el valor por omisión tiene que ser el que no mueve dinero |
+| `failed` **sí** se liquida (38 (ii) intacta) | Estrechar a `pending` | Un `succeeded` tras `payment_failed` del mismo PI es un cobro real (reintento de tarjeta). Negarse dejaría dinero cobrado sin orden liquidada, que solo se arregla con reembolso manual. Lo de las piezas en ese camino es conducta previa, auditada |
+| `refunded`/`chargeback` ⇒ `200` no-op con `logger.warn` | `409`/`500` para que Stripe reintente; o fila de `AuditLog` | Un no-`2xx` haría que Stripe reintente **para siempre** un evento que nunca va a aplicar. `AuditLog` sería una escritura del perdedor y un `action` nuevo para un hecho que ya vive en Stripe |
+| Early-return y CAS leen **la misma constante** | Dos listas «que coinciden» | Dos listas son dos sitios donde divergir; la mutación que lo prueba (early-return nuevo, CAS viejo) solo la muerde la carrera SL-4 — por eso la forma también se canda en SL-5 |
+| ⛔ No tocar el contracargo | Hacerle CAS también | Su `update` por `id` gana **después** de un settle (orden correcto) y el CAS del settle pierde **después** de un contracargo; el hueco era de un solo lado. Mover el contracargo reabre `SEC-VLT-DL` (§4.21q (o)) |
+
+**Residual declarado:** reembolso hecho **desde el panel de Stripe** sobre una orden aún `pending` ⇒ piezas `reserved`
+por una orden `refunded`; ⛔ NO MEDIDO si el barrido de §4-R.4 las suelta. Backend lo mide y lo anota; no bloquea
+(nuestro reembolso exige `settled`, `admin-orders.controller.ts:239`).
 
 ---
 
@@ -14413,7 +14448,8 @@ storefront, ficha, checkout y binder, y **no** enmascara el `sellOverrideCents` 
 
 **Bounty revalidado contra la regla vigente (decisión 9/§N.6, criterios 90/91).** El bounty es la **sección de ofertas**
 del dueño: vive en la escala de **compra** (30–50 % del mercado), está **siempre** por debajo del mercado y **nunca se
-compara contra el mercado** — solo **contra la curva de compra**. El hueco: hoy `BOUNTY_BELOW_RULE` se valida **solo al
+compara contra el mercado** — solo **contra la curva de compra**. *(⚠️ Superado dos veces: v2.2/Q1 metió el mercado como
+**piso** de efectividad, y **v1.80 lo mete como TECHO del pago** — §4.36.6e. Esta frase queda como historia.)* El hueco: hoy `BOUNTY_BELOW_RULE` se valida **solo al
 crear** (`variant-controls.service.ts:301-315`); si después sube el mercado y la curva rebasa al bounty, la «oferta»
 publicada **paga menos que la tarifa normal** y aun así sigue publicada y ganando la precedencia #1.
 
@@ -14703,6 +14739,54 @@ por ocho acuerdos tácitos explícitos (la proyección que a backend le pareció
 > de credencial no tiene ninguna razón para viajar en la respuesta de «cambiar estado»**, y ninguna auditoría previa
 > lo había visto porque **el contrato no declaraba esa forma**. Es el argumento de la regla en un solo caso: el
 > problema nunca fue el campo, fue que **nadie había declarado cuáles eran los campos**.
+
+#### 4.36.6e ⭐⭐ Tope de pago del bounty: `min(bounty, mercado)` (v1.80, decisión del dueño 2026-09-28, NORMATIVO, DINERO)
+
+Norma completa, tabla y pruebas BC-1…BC-12: `API_CONTRACT §M2-B.11`. Aquí, el porqué.
+
+**Dos preguntas distintas que el diseño anterior mezclaba en una.** Desde v2.0 el bounty tenía **una** relación con el
+resto del precio: *¿gana el peldaño 1?* (`isBountyEffective`, contra la curva; desde Q1 también contra el mercado como
+**piso**). La decisión del dueño añade la segunda: *¿cuánto paga cuando gana?* — con el mercado como **techo**. Se
+mantienen **separadas a propósito**: la primera decide visibilidad, alta y `state`; la segunda solo el monto. Fundirlas
+(p. ej. «un bounty por encima del mercado deja de ser efectivo») habría hecho **desaparecer** de la vitrina justo los
+bounties más generosos y cambiado el `state` de la consola, que el dueño pidió no tocar («no bloquear ni avisar»).
+
+```
+COMPRA:  bounty VÁLIDO ⇒ paga min(bounty, mercado)   >  buyOverrideCents (ABSOLUTO)  >  CURVA  >  pendiente
+                         (sin mercado ⇒ el bounty)
+```
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| El tope va **dentro** de `quoteAcquisitionFromCurve` (una función pura `bountyPayoutCents` en `money.ts`) | Topar en cada llamador; o al pagar | Ya es **el único cuerpo** de la precedencia de compra (cotización, lote, solicitud, oferta derivada, consola). Topar al **pagar** reescribiría un monto congelado (`offeredPriceCents`, D2/D9) y el vendedor habría aceptado otra cifra |
+| `bountyPayoutCents` en `money.ts`, ⛔ no en `pricing-curve.ts` | Junto a `isBountyEffective` | La presencia del mercado es H-1 (`isPresentAmount`, en `money.ts`); `pricing-curve.ts` no puede importarlo (dependencia única `money → pricing-curve`) y repetir el `> 0` a mano es como nació H-1 |
+| **Mismo** mercado que la curva (`referenceMxnCents` de la variante) | Otro «mercado» (sin colchón FX, de otro proveedor, el de venta) | Un segundo mercado es la «quinta proyección del mismo dinero» (canon *mercado-de-la-variante*); la consola ya pinta ése como «Mercado», así que el dueño ve el mismo número que topa |
+| `basis` sigue `bounty` al topar | `market`, o un valor nuevo de `PriceBasis` | El bounty **ganó**; solo pagó menos. Con `market` la línea dejaría de contar para `bountyAcquiredQty` y el objetivo del bounty no se cumpliría nunca. Un valor nuevo de enum toca paridad schema↔contrato y la serie §N.8 por un dato derivable (`quoted == market ∧ basis bounty`) |
+| Sin mercado ⇒ **se paga el bounty** (por defecto) | No cotizar (`precio_pendiente`); pagar la curva | Sin mercado la curva ya es `pending` y el bounty es **el único precio** que alguien decidió; es el caso para el que el dueño más usa bounties. No cotizar contradice «no bloquear»; la curva no existe. ⛔ No se inventa un mercado. **Pregunta al dueño, no bloqueante** (abajo) |
+| Vitrina publica **lo que se paga**, sin decir que hubo tope | Publicar el configurado; o marcar «topado» en público | Criterio 91: *el número publicado es el que se paga*. Publicar el configurado lo rompe. Marcarlo en público publica política interna (misma doctrina que los topes KYC) y no le da al vendedor nada que pueda usar |
+| Consola: `payoutCents` + `cappedByMarket` **informativos**; `state` igual | Nuevo `state` `topada`; entrar al grupo de atención | «No se avisa al dueño por ese motivo». Pero **ver** cuánto paga no es un aviso: sin el número, el dueño configuraría 1200 creyendo que paga 1200 (la ceguera sobre dinero que motivó D52) |
+| ⛔ No retroactivo: nada congelado se reescribe | Backfill de `quotedPriceCents` | La oferta **ya** se deriva al ofertar con reglas vigentes (§4.39h); el tope entra por ahí sin tocar historia. Un backfill reescribiría la cifra que el vendedor vio |
+| El override manual (variante y oferta) ⛔ no se topa | Topar todo pago de compra | La decisión es sobre el bounty. El override es absoluto (criterio 89) y el de la oferta exige motivo (148(a)): son actos humanos deliberados |
+
+**Efecto en los topes AML (§4.36.6a):** el tope **baja o deja igual** montos de compra, nunca los sube ⇒ los acumulados
+AML solo pueden bajar. Sin cambio de mecanismo.
+
+**`PROJECT.md` (regla de conflicto):** la decisión está en `HECHOS.md` (fuente del dueño, «no se re-pregunta») pero **no**
+en `PROJECT.md` (medido: `grep -n 2026-09-28 PROJECT.md` ⇒ sin resultados). No contradice ningún criterio vigente —
+criterio 91 exige que publicado = pagado, y se cumple— pero §N.6 y criterio 91 describen el pago del bounty como «su
+monto». **Se enruta a product-owner** para transcribirla. No bloquea el diseño.
+
+**Preguntas al dueño — NO bloqueantes, cada una con el valor por defecto que ya está normado:**
+
+1. **Carta sin precio de mercado.** *«Si pones un bounty a una carta de la que no tenemos precio de mercado, no hay
+   con qué compararlo. Por ahora pagamos tu bounty completo. ¿Te parece, o prefieres que en ese caso no se cotice hasta
+   que haya precio?»* — Por defecto: **se paga el bounty**.
+2. **Cartas baratas donde nuestra tarifa normal ya es mayor que el mercado.** *«En algunas cartas muy baratas, lo que
+   pagamos normalmente (el mínimo por carta) es más que su precio de mercado. Si a una de esas le pones un bounty,
+   con la regla nueva el bounty paga el precio de mercado — o sea, **menos** de lo que pagarías sin bounty. Ejemplo:
+   mercado $5, nuestra tarifa normal $7, bounty $8 ⇒ se pagan $5. ¿Así lo quieres, o en ese caso prefieres pagar la
+   tarifa normal ($7)?»* — Por defecto: **se paga el mercado** (lectura literal; coherente con Q1, que ya paga $5 a un
+   bounty de $5 en esa carta).
 
 #### 4.36.6a Topes AML del buylist — SÍ están en el alcance de este cambio (v2.1.6, NORMATIVO)
 
