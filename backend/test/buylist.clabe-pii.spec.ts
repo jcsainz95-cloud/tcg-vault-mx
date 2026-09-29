@@ -18,6 +18,12 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
  */
 const CLABE_A = '012345678901234567';
 const CLABE_B = '111122223333444455';
+// ⭐ Robustez PII (deuda M11, MISMA clase que PR #43 en getUser/getKyc) — un texto cifrado con la
+// forma correcta (`v1:iv:tag:ct`, tag de 16 bytes) pero que NINGUNA clave de este proceso autentica:
+// emula «clave rotada / clave efímera de un proceso anterior / fila corrupta». `decrypt` LANZA sobre
+// esto, y hoy ese throw sube sin capturar hasta el filtro global ⇒ 500 en el DETALLE de la solicitud.
+const UNDECRYPTABLE_CLABE =
+  'v1:' + Buffer.alloc(12).toString('base64') + ':' + Buffer.alloc(16).toString('base64') + ':' + Buffer.from('garbage').toString('base64');
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -164,5 +170,35 @@ describe('BuylistService.adminGet — nunca CLABE en claro', () => {
     expect(res.clabeMasked).toBe('**************4567');
     expect(res.clabeSnapshotEnc).toBeUndefined();
     expect(JSON.stringify(res)).not.toContain(CLABE_A);
+    // Camino feliz: el snapshot descifra ⇒ NO gana el flag de degradación.
+    expect(res.piiUnavailable).toBeUndefined();
+  });
+
+  // ⭐ Robustez PII (deuda M11, MISMA clase que PR #43 en getUser/getKyc, en la vista que aquel commit
+  // no tocó): un `clabeSnapshotEnc` INDESCIFRABLE (clave rotada / fila corrupta) NO debe tumbar el
+  // detalle con un 500. Debe DEGRADAR SOLO su casilla (`clabeMasked: undefined` + `piiUnavailable: true`,
+  // ambos ADITIVOS y solo en el estado degradado) y servir el resto del detalle intacto (200).
+  it('snapshot INDESCIFRABLE → degrada la CLABE (clabeMasked undefined + piiUnavailable), NO 500', async () => {
+    const prisma: any = {
+      sellRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'sr',
+          userId: 'u',
+          status: 'recibida',
+          clabeSnapshotEnc: UNDECRYPTABLE_CLABE,
+          items: [],
+        }),
+      },
+    };
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, settings(), {} as UsersService, pii);
+    // ANTES del arreglo esto RECHAZA (decryptOptional lanza ⇒ 500). Debe RESOLVER degradado.
+    const res: any = await svc.adminGet('sr');
+    expect(res.clabeMasked).toBeUndefined();
+    expect(res.piiUnavailable).toBe(true);
+    // El resto del detalle viaja intacto y el ciphertext nunca se filtra.
+    expect(res.id).toBe('sr');
+    expect(res.status).toBe('recibida');
+    expect(res.clabeSnapshotEnc).toBeUndefined();
+    expect(JSON.stringify(res)).not.toContain(UNDECRYPTABLE_CLABE);
   });
 });

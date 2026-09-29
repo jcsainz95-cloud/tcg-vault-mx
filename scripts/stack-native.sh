@@ -554,6 +554,87 @@ SQL
 # Backend nativo: el stack Nest COMPLETO por ts-node (no un arnés recortado)
 # -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
+# APAGADO ACOTADO — un `down` mío NO puede matar el stack de otra sesión (I-QA2)
+# -----------------------------------------------------------------------------
+# DE DÓNDE VIENE (QA, 2026-09-22, medido DOS veces el mismo día y las dos con daño):
+#   · el pentester corrió `pkill -f "src/main.ts"` de limpieza y se llevó por
+#     delante el BACKEND DE QA a mitad de su gate;
+#   · QA corrió `down` con FRONTEND_PORT=3200 y mató el `next-server` huérfano
+#     de :3000, que era de OTRO clon.
+# Los patrones de antes (`ts-node --transpile-only src/main.ts`, `^next-server `,
+# `s3-local/server.js`) no filtran ni por puerto ni por clon: describen al
+# PROGRAMA, no a MI instancia. Con dos sesiones en paralelo sobre puertos
+# distintos, eso no es un riesgo teórico — es el mecanismo, cableado dentro del
+# script. Es O-8/O-14 en el recurso «stack»: el mismo error que con el
+# scratchpad y con el árbol de trabajo, en otro recurso compartido.
+#
+# EL CRITERIO NUEVO — se mata un proceso solo si es MÍO por una de dos vías:
+#   (a) ESCUCHA en el puerto que esta invocación declara suyo (BACKEND_PORT /
+#       FRONTEND_PORT / S3_LOCAL_PORT). Pedir ese puerto ES reclamarlo; y
+#   (b) su línea de comando casa el patrón Y su cwd cuelga de ESTE clon
+#       ($ROOT_DIR). Esta vía es la que sigue cazando al backend que murió
+#       ANTES de abrir el puerto (arranque a medias), que (a) no ve.
+# Lo que casa el patrón pero vive en otro clon y en otro puerto YA NO SE TOCA:
+# se nombra en un aviso, para que quien mire sepa que sigue vivo y de quién es.
+# -----------------------------------------------------------------------------
+# >>> APAGADO-ACOTADO (no muevas estas marcas: `check-stack-kill-scope.sh` extrae
+# EXACTAMENTE este bloque del fichero vivo y lo ejerce contra dos stacks de verdad.
+# Si el canario no encuentra las marcas, sale rc=2 — nunca verde por no medir.)
+pids_listening_on() { # <puerto> → pids que ESCUCHAN ahí (no clientes conectados)
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null
+  elif command -v fuser >/dev/null 2>&1; then
+    fuser -n tcp "$port" 2>/dev/null | tr ' \t' '\n\n' | grep -E '^[0-9]+$'
+  fi
+}
+pid_es_de_este_clon() { # <pid> → 0 si su cwd cuelga de $ROOT_DIR
+  local cwd; cwd="$(readlink -f "/proc/$1/cwd" 2>/dev/null)" || return 1
+  case "$cwd" in "$ROOT_DIR"|"$ROOT_DIR"/*) return 0 ;; *) return 1 ;; esac
+}
+# stop_scoped <etiqueta> <puerto> [patrón…] — mata SOLO lo que es de esta instancia.
+stop_scoped() {
+  local label="$1" port="$2"; shift 2
+  local pid pat mios="" ajenos=""
+  for pid in $(pids_listening_on "$port" || true); do
+    mios="$mios $pid"
+    # El puerto manda: si pides :$port, reclamas lo que lo ocupa. Pero si el dueño
+    # es de OTRO clon hay que DECIRLO — medido hoy: el s3-local de QA escuchaba en
+    # el :9000 por defecto desde su clon del scratchpad, y los dos clones usan el
+    # mismo puerto por defecto. Acotar por puerto no salva ese caso (no hay dos
+    # puertos que separar); lo que evita es que el gate ajeno muera sin explicación.
+    pid_es_de_este_clon "$pid" || warn "$label: el pid $pid que ocupa :$port es de OTRO clon ($(readlink -f /proc/$pid/cwd 2>/dev/null)) — lo apago porque ESTA invocación reclama ese puerto. Si era de otra sesión, avísale."
+  done
+  for pat in "$@"; do
+    for pid in $(pgrep -f "$pat" 2>/dev/null || true); do
+      # Nunca yo mismo ni mi shell padre: un `pkill -f` sin ancla ya se suicidó
+      # una vez aquí (exit 144) al casar el `bash -c` que corría este `down`.
+      [ "$pid" = "$$" ] && continue
+      [ "$pid" = "${PPID:-0}" ] && continue
+      if pid_es_de_este_clon "$pid"; then mios="$mios $pid"
+      else ajenos="$ajenos $pid"; fi
+    done
+  done
+  # `|| true`: con `set -o pipefail`, un `grep` sin coincidencias (lista vacía =
+  # nada que matar, el caso NORMAL) tumbaría el script entero por errexit.
+  mios="$(printf '%s\n' $mios | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ' || true)"
+  for pid in $ajenos; do
+    case " $mios " in *" $pid "*) continue ;; esac
+    warn "$label: pid $pid casa el patrón pero NO es de este clon ni de :$port — lo DEJO VIVO (cmd: $(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null | cut -c1-70))"
+  done
+  [ -n "${mios// /}" ] || return 0
+  for pid in $mios; do kill "$pid" 2>/dev/null || true; done
+  for _ in $(seq 1 10); do
+    local vivos=0
+    for pid in $mios; do kill -0 "$pid" 2>/dev/null && vivos=1; done
+    [ "$vivos" -eq 0 ] && break
+    sleep 1
+  done
+  for pid in $mios; do kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true; done
+}
+# <<< APAGADO-ACOTADO
+
+# -----------------------------------------------------------------------------
 # Apagar SOLO el backend, para poder relanzarlo contra el árbol de ahora.
 #
 # ⚠️ LO QUE ESTA FUNCIÓN **NO** HACE, Y ES EL PUNTO ENTERO:
@@ -570,7 +651,8 @@ stop_backend_only() {
     kill "$pid" 2>/dev/null || true
     rm -f "$RUN_DIR/backend.pid"
   fi
-  pkill -f 'ts-node --transpile-only src/main.ts' 2>/dev/null || true
+  # ACOTADO (I-QA2): solo lo que escucha en MI :$BACKEND_PORT o cuelga de MI clon.
+  stop_scoped "backend" "$BACKEND_PORT" 'ts-node --transpile-only src/main.ts'
   rm -f "$BACKEND_STAMP"
   for i in $(seq 1 20); do
     curl -sf -m 2 "$BACKEND_HEALTH_URL" >/dev/null 2>&1 || { ok "backend obsoleto detenido."; return 0; }
@@ -966,11 +1048,11 @@ stop_apps() {
       warn "$svc: sin pidfile (¿lo levantaste a mano?)."
     fi
   done
-  pkill -f "ts-node --transpile-only src/main.ts" 2>/dev/null || true
-  pkill -f "next dev -p $FRONTEND_PORT"           2>/dev/null || true
-  pkill -f "next start -p $FRONTEND_PORT"         2>/dev/null || true
+  # ACOTADO (I-QA2): `stop_scoped` mata lo que escucha en MIS puertos o cuelga de
+  # MI clon; lo de otra sesión lo nombra y lo deja vivo.
+  stop_scoped "backend" "$BACKEND_PORT" 'ts-node --transpile-only src/main.ts'
   # `next start` se RENOMBRA a «next-server (vX.Y.Z)» en cuanto arranca, así que los dos
-  # `pkill` de arriba NO lo matan: sólo matan al `npx` que lo lanzó. Y el pidfile guarda
+  # `pkill` de arriba NO lo matan (hoy `stop_scoped`): sólo matan al `npx` que lo lanzó. Y el pidfile guarda
   # ese `npx`, no al servidor. Resultado observado: `down` decía «frontend detenido»,
   # el pidfile quedaba huérfano y el puerto SEGUÍA sirviendo 200 — con lo que el
   # siguiente `up --gate` moría con «Ya hay ALGO sirviendo en :$FRONTEND_PORT».
@@ -979,7 +1061,11 @@ stop_apps() {
   # también a cualquier shell cuya LÍNEA DE COMANDO mencione la cadena — incluido el
   # `bash -c` que esté ejecutando este mismo `down` desde una sesión de agente. Probado:
   # se suicidó (exit 144). El proceso real se llama literalmente «next-server (v15.5.23)».
-  pkill -f "^next-server "                        2>/dev/null || true
+  # Y desde I-QA2 el ancla NO basta: `^next-server ` casa el de CUALQUIER puerto y
+  # de cualquier clon (QA mató con FRONTEND_PORT=3200 el huérfano de :3000). El
+  # filtro de verdad es el puerto + el clon, que es lo que aplica `stop_scoped`.
+  stop_scoped "frontend" "$FRONTEND_PORT" \
+    "next dev -p $FRONTEND_PORT" "next start -p $FRONTEND_PORT" "^next-server "
 
   # Los sellos de procedencia mueren con los procesos que describen. Un sello
   # huérfano no puede engañar al comprobador (compara contra el uptime del proceso
@@ -1458,7 +1544,9 @@ case "${1:-up}" in
         kill "$(cat "$RUN_DIR/s3.pid")" 2>/dev/null || true
         rm -f "$RUN_DIR/s3.pid"
       fi
-      pkill -f 's3-local/server.js' 2>/dev/null || true
+      # ACOTADO (I-QA2): :$S3_LOCAL_PORT es el puerto que ESTA invocación declara
+      # suyo; el `s3-local` de otro clon en otro puerto sobrevive y se nombra.
+      stop_scoped "s3-local" "$S3_LOCAL_PORT" 's3-local/server.js'
       ok "s3-local detenido (los objetos de $RUN_DIR/s3 se conservan)."
     else
       warn "Postgres, Redis y s3-local SIGUEN ARRIBA (los datos se conservan). Usa 'down --all' para pararlos."

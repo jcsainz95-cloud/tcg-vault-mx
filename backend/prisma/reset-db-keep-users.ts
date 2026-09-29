@@ -63,6 +63,9 @@ export const CONFIG_PRESERVED = ['configSetting'] as const;
 // Balde OPERATIVO en orden FK-seguro (HIJOS antes que PADRES). Se borra siempre con --execute.
 export const OPERATIONAL_ORDER = [
   // --- nivel hoja: referencian a InventoryItem / Order / ShipmentRequest / SellRequest / Card ---
+  // v1.79 (M-59): FK placementId → VaultPlacement · orderItemId → OrderItem · inventoryItemId →
+  // InventoryItem (las TRES Restrict) ⇒ antes que cualquiera de sus padres.
+  'vaultPlacementItem',
   'inventoryMovement', // FK itemId → InventoryItem (Cascade)
   'inventoryAdjustment', // FK inventoryItemId → InventoryItem (Cascade)
   'orderItem', // FK orderId → Order (Cascade) · FK inventoryItemId → InventoryItem (Restrict)
@@ -77,6 +80,7 @@ export const OPERATIONAL_ORDER = [
   'pendingPriceEntry', // FK cardId → Card (Restrict) · FK sealedProductId → SealedProduct (SetNull)
   'variantPriceOverride', // FK cardId → Card (Restrict) — overrides/bounties manuales de precio
   // --- nivel intermedio: padres de lo anterior, hijos de User/Order ---
+  'vaultPlacement', // v1.79 (M-59): FK orderId → Order (Restrict) · locationId → VaultLocation (Restrict)
   'shipmentRequest', // FK orderId → Order (Restrict) · FK userId → User (Restrict)
   'order', // FK userId → User (Restrict) — tras orderItem/orderAccessToken/shipmentRequest
   'sellRequest', // FK userId → User (Restrict) — tras sellRequestItem

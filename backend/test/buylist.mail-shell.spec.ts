@@ -594,7 +594,10 @@ describe('§31.3/§31.4 — la retícula y la escala, medidas sobre el correo mi
 
   it('⭐ NINGÚN importe en la serif: Georgia tiene cifras de estilo antiguo (§31.4)', () => {
     // Se localizan las celdas que contienen un importe y se comprueba que ninguna declara la serif.
-    const celdas = html().match(/<td\b[^>]*>[^<]*\$[\d,.]+[^<]*</g) ?? [];
+    // Anotación explícita `string[]`: cheerio@1.0.0 arrastra undici, cuyos tipos globales
+    // ambientes desplazan la inferencia de TS y hacen que `String.match(...) ?? []` colapse a
+    // `never[]` (rompía `.includes` en la línea de más abajo). El valor real siempre es `string[]`.
+    const celdas: string[] = html().match(/<td\b[^>]*>[^<]*\$[\d,.]+[^<]*</g) ?? [];
     expect(celdas.length).toBeGreaterThan(0);
     for (const celda of celdas) {
       // La regla es sobre **la serif**: el 3, 4, 5, 7 y 9 de Georgia bajan de la línea base.

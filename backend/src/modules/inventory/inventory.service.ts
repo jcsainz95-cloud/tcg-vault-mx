@@ -1780,6 +1780,7 @@ export class InventoryService {
   async pendingPublish(q: {
     missing?: PendingPublishMissing;
     acquisitionType?: AcquisitionType;
+    productType?: ProductType;
     setId?: string;
     page: number;
     pageSize: number;
@@ -1788,6 +1789,10 @@ export class InventoryService {
       ownerType: 'platform',
       status: 'in_stock',
       ...(q.acquisitionType ? { acquisitionType: q.acquisitionType } : {}),
+      // M11 (§M1) — eje ADITIVO `productType`: empuja el filtro a la BD (predicado SQL sobre la
+      // columna, como `acquisitionType`). Ausente ⇒ cola entera; `sealed` ⇒ solo sellado. Sin esto
+      // la cola de M11 (que pide `productType=sealed`) devolvía TODO y una carta suelta se colaba.
+      ...(q.productType ? { productType: q.productType } : {}),
       ...(q.setId ? { card: { setId: q.setId } } : {}),
       // Cuando se filtra por `missing=location` el predicado SÍ es SQL: se empuja a la BD para no
       // barrer de más. `missing=price` no puede empujarse — ver el bloque de arriba.
@@ -1852,6 +1857,19 @@ export class InventoryService {
         productType: item.productType,
         finish: item.finish,
         cardProductId: item.cardProductId,
+        // v1.69.1 (P-79c, §M1) — NOMBRE del sellado (snapshot por-pieza M-37, columna
+        // `InventoryItem.sealedProductName`; ya viene en `rows`, sin join nuevo). Passthrough directo
+        // como en `toHoldingDTO` (:529): `null` en raw/graded y en sellado legado sin nombre. El front
+        // discrimina por `productType` y, sin nombre resoluble, pinta «sellado sin identificar» — ⛔
+        // NUNCA `card.name` (el ancla es el defecto reportado). Display-only, money-safe.
+        sealedProductName: item.sealedProductName,
+        // M11 (§2.C, hallazgo C) — subtipo del sellado (Bundle/Box/ETB…) para la cola de M11. ADITIVO,
+        // display-only (alcance D10 «solo visibilidad», no toca dinero). Passthrough directo de
+        // `InventoryItem.sealedSubtype`, presente SOLO para `productType='sealed'` (ausente en raw/graded:
+        // una carta suelta no tiene subtipo de sellado) — mismo patrón condicional que el resto del DTO.
+        ...(item.productType === 'sealed' && item.sealedSubtype
+          ? { sealedSubtype: item.sealedSubtype }
+          : {}),
         locationId: item.locationId,
         listPriceCents: item.listPriceCents,
         resolvedSalePriceCents: state.resolvedSalePriceCents,

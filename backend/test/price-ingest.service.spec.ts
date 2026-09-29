@@ -400,8 +400,16 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
 
 /**
  * Auditoría de precios (2026-08-17) — `hasRecentIngest` alimenta el catch-up al boot:
- * "reciente" = ≥1 PriceReference NO-manual con capturedDate ≥ ayer 00:00 UTC. Los overrides
- * manuales del admin NO cuentan como ingesta.
+ * "reciente" = el barrido CONFIRMÓ ≥1 PriceReference NO-manual hoy/ayer. Los overrides manuales del
+ * admin NO cuentan como ingesta.
+ *
+ * ⚠️ **P-53 §4.3 (T-6/CA-6, cierre de ALTO-2):** la señal se mide contra la EVIDENCIA
+ * (`evidenceDate ?? capturedDate`), NO `capturedDate` a secas. Con el escritor DIARIO write-on-change,
+ * un barrido que confirma precios SIN cambios no escribe fila nueva (no hay `capturedDate` de hoy) —
+ * solo avanza `evidenceDate`. Medir SOLO `capturedDate` haría que un día sin cambios devolviera `false`
+ * y el boot re-disparara el barrido (podía quemar cuota del proveedor de PAGA). El `OR` con fallback a
+ * `capturedDate` (para filas legadas `evidenceDate=null`) evita el re-disparo en el PRIMER boot tras el
+ * deploy. Este canario cae en rojo si alguien revierte a un `capturedDate` de nivel superior.
  */
 describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', () => {
   function buildWithRef(row: unknown) {
@@ -419,22 +427,36 @@ describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', (
     return { svc, prisma };
   }
 
+  const ayer00Utc = () => {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d;
+  };
+
   it('hay referencia no-manual reciente → true', async () => {
     const { svc } = buildWithRef({ id: 'ref-1' });
     await expect(svc.hasRecentIngest()).resolves.toBe(true);
   });
 
-  it('sin referencias recientes → false, y el filtro excluye manuales y acota a ayer 00:00 UTC', async () => {
+  it('T-6/CA-6 · la señal mira EVIDENCIA (evidenceDate), no capturedDate a secas; excluye manuales y acota a ayer 00:00 UTC', async () => {
     const { svc, prisma } = buildWithRef(null);
     await expect(svc.hasRecentIngest()).resolves.toBe(false);
 
     const where = prisma.priceReference.findFirst.mock.calls[0][0].where;
     expect(where.isManualOverride).toBe(false);
-    const since: Date = where.capturedDate.gte;
-    const expected = new Date();
-    expected.setUTCHours(0, 0, 0, 0);
-    expected.setUTCDate(expected.getUTCDate() - 1);
-    expect(since.toISOString()).toBe(expected.toISOString());
+    // MONEY_REF_WHERE: la pregunta es «¿corrió el barrido de MERCADO?» (no un estimado).
+    expect(where.refKind).toBe('market');
+    // ⛔ CANARIO ALTO-2: NO hay un `capturedDate` de nivel superior — se mide la evidencia.
+    expect(where.capturedDate).toBeUndefined();
+    expect(Array.isArray(where.OR)).toBe(true);
+    expect(where.OR).toHaveLength(2);
+    const expected = ayer00Utc();
+    // Rama primaria: evidencia reciente (la que puebla el escritor DIARIO write-on-change).
+    expect((where.OR[0].evidenceDate.gte as Date).toISOString()).toBe(expected.toISOString());
+    // Rama fallback: fila LEGADA (evidenceDate=null) con captura reciente ⇒ no re-dispara el primer boot.
+    expect(where.OR[1].evidenceDate).toBeNull();
+    expect((where.OR[1].capturedDate.gte as Date).toISOString()).toBe(expected.toISOString());
   });
 });
 

@@ -310,4 +310,16 @@ describe('M10View · Config y bitácora', () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ priceProvider: 'tcgcsv_singles' }));
     spy.mockRestore();
   });
+
+  it('M11-single-editor: M10 YA NO dibuja el dial de proveedor del SELLADO (se editan en M11)', async () => {
+    renderWithProviders(<M10View />, 'es');
+    await screen.findByLabelText(/Tarifa de envío/);
+    // §diseño §4.1 (D-2): el editor del proveedor de referencia del sellado se mudó a M11. Que
+    // desaparezca aquí es parte de la norma: un solo editor por dial de dinero, no dos.
+    expect(screen.queryByLabelText(/Proveedor de referencia por-carta \(sellado\)/)).not.toBeInTheDocument();
+    // Pero los per-carta de raw/graded siguen aquí.
+    expect(screen.getByLabelText(/Proveedor de referencia por-carta \(raw\)/)).toBeInTheDocument();
+    // Y hay un deep-link a M11 para quien busque los controles del sellado aquí.
+    expect(screen.getByText(/se editan ahora en M11/)).toBeInTheDocument();
+  });
 });

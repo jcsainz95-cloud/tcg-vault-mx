@@ -475,8 +475,21 @@ export function BuylistDecisionDesk({ sellRequestId, onClose }: BuylistDecisionD
                             inputMode="decimal"
                             step="0.01"
                             min={0}
+                            // ⚠️ PRE-LLENADO QUE NO ES OVERRIDE. Sin override el campo MUESTRA el
+                            // precio con que se cotizó (`derivedPriceCents`), para que el operador
+                            // CONFIRME/ajuste en vez de teclear en blanco (un campo vacío invita al
+                            // `0.01` fantasma). Es SOLO display: no se siembra un override — mientras
+                            // no toque, `overrides[itemId]` sigue sin existir, así que `isOverride`
+                            // da false, `lineAmountCents` resuelve al derivado y `buildPayload` NO
+                            // manda `overridePriceCents`. El pre-llenado se vuelve override únicamente
+                            // cuando el `onChange` de abajo escribe un monto DISTINTO al derivado.
+                            // Carta sin derivado (null / PRICE_PENDING) ⇒ vacío: no se inventa precio.
                             value={
-                              override?.amountCents != null ? String(override.amountCents / 100) : ''
+                              override?.amountCents != null
+                                ? String(override.amountCents / 100)
+                                : line.derivedPriceCents != null
+                                  ? String(line.derivedPriceCents / 100)
+                                  : ''
                             }
                             onChange={(e) => {
                               const raw = e.target.value.trim();

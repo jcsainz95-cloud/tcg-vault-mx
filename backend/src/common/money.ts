@@ -256,8 +256,9 @@ export function quoteAcquisitionFromCurve(
 ): CurvePriceResult {
   const fromCurve = resolveBuyFromCurve(marketMxnCents, curve);
   const curveQuoteCents = fromCurve.cents == null ? null : clampCents(fromCurve.cents);
-  // 1. Bounty, REVALIDADO contra la curva vigente (no solo al crear: también aquí, al cotizar).
-  if (controls?.bountyEnabled && isBountyEffective(controls.bountyPriceCents ?? null, curveQuoteCents)) {
+  // 1. Bounty, REVALIDADO contra el piso efectivo `min(curva, mercado)` (Q1, §M2-B.8): no solo al
+  //    crear, también aquí al cotizar. `marketMxnCents` ya está en mano — es la entrada de la curva.
+  if (controls?.bountyEnabled && isBountyEffective(controls.bountyPriceCents ?? null, curveQuoteCents, marketMxnCents)) {
     return {
       priceCents: clampCents(controls.bountyPriceCents as number),
       basis: 'bounty',

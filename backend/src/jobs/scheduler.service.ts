@@ -15,6 +15,7 @@ import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
 import { PriceIngestJobService, PRICE_INGEST_SET_JOB } from './price-ingest.service';
 import { SealedPriceIngestJobService } from './sealed-price-ingest.service';
+import { DecksMetaRefreshService } from '../modules/decks-meta/decks-meta-refresh.service';
 import { FxSnapshot } from '../modules/pricing/price-ingest.service';
 import { bullRedisOptions } from './redis-connection.util';
 import { isSchedulerDisabled } from '../config/test-env';
@@ -103,6 +104,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly sealedPriceIngest: SealedPriceIngestJobService,
     // v1.21-guest-checkout (T9): barrido de reservas de pedidos de invitado sin pagar.
     private readonly orderReservationSweep: OrderReservationSweepJobService,
+    // DECKS-META Fase 2 (§7): refresh SEMANAL de decks meta desde Limitless (fail-closed por dial).
+    private readonly decksMetaRefresh: DecksMetaRefreshService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -210,6 +213,13 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     const sealedIngestCron = this.config.get<string>('SEALED_PRICE_INGEST_CRON') ?? '30 21 * * *';
     await this.queue.add('sealed-price-ingest', {}, this.repeat('sealed-price-ingest', sealedIngestCron));
 
+    // DECKS-META Fase 2 (§7): refresh SEMANAL de decks meta — lunes 09:00 UTC (03:00 CDMX; tras
+    // cargar los resultados de torneos del fin de semana). Configurable por env. Fail-closed por el
+    // dial `decks_meta_autofetch` (seed off): hasta el flip es un no-op logueado; el disparo manual
+    // `POST /admin/jobs/decks-meta-refresh` (incluido el dry-run) sigue disponible sin Redis.
+    const decksMetaCron = this.config.get<string>('DECKS_META_REFRESH_CRON') ?? '0 9 * * 1';
+    await this.queue.add('decks-meta-refresh', {}, this.repeatWeekly('decks-meta-refresh', decksMetaCron));
+
     // WS-A — METADATA del catálogo = import de sets/cartas/imágenes NUEVAS con `force:false` (barato:
     // salta sets ya poblados), cadencia LIGERA (diaria), NO el barrido redundante 2×/día `force:true`.
     // El disparo manual `POST /admin/jobs/catalog-price-sync` (force:true, ops) se conserva intacto.
@@ -268,6 +278,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
           // single-flight, fail-closed por dial `sealed_price_source`.
           case 'sealed-price-ingest':
             return this.sealedPriceIngest.run();
+          // DECKS-META Fase 2 (§7): refresh semanal. Idempotente (supersede-based) + single-flight
+          // (flag en memoria del servicio). Fail-closed por dial: sin `on` no publica.
+          case 'decks-meta-refresh':
+            return this.decksMetaRefresh.run({});
           default:
             this.logger.warn(`Job desconocido en la cola: ${job.name}`);
             return null;
@@ -330,6 +344,16 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     return {
       repeat: { pattern },
       jobId: `${jobId}-daily`,
+      removeOnComplete: true,
+      removeOnFail: 100,
+    };
+  }
+
+  /** Igual que `repeat` pero con sufijo `-weekly` (DECKS-META Fase 2, §7): el job es semanal, no diario. */
+  private repeatWeekly(jobId: string, pattern: string) {
+    return {
+      repeat: { pattern },
+      jobId: `${jobId}-weekly`,
       removeOnComplete: true,
       removeOnFail: 100,
     };

@@ -1258,7 +1258,10 @@ export class BuylistService implements OnModuleInit {
     // Efecto garantizado: para TODO bounty visible aquí, `/buylist/quote` cotiza EXACTAMENTE ese monto
     // y es ESTRICTAMENTE mayor que la tarifa estándar de esa variante.
     const candidates = await this.prisma.variantPriceOverride.findMany({
-      where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
+      // Q2 (§M2-B.9): una fila DESPUBLICADA (`bountyUnpublishedAt != null`) queda FUERA de la vitrina.
+      // Defensa en profundidad: ya está fuera por `bountyEnabled=false`, pero el filtro lo hace
+      // explícito e imposible de re-colar si algún día una fila quedara `enabled` con sello.
+      where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw', bountyUnpublishedAt: null },
       // Desempate estable por edición más reciente (el contrato solo norma el precio desc).
       orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
       // Cap de CANDIDATOS (no de la vitrina): el endpoint es público/anónimo y una lectura sin cota
@@ -1291,7 +1294,8 @@ export class BuylistService implements OnModuleInit {
       const referenceMxnCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
       // MISMO cuerpo de precedencia que la cotización ⇒ el número publicado ES el que se paga.
       const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
-      return isBountyEffective(r.bountyPriceCents, curveQuoteCents);
+      // Q1 (§M2-B.8): el piso efectivo es `min(curva, mercado)`; `referenceMxnCents` es ese mercado.
+      return isBountyEffective(r.bountyPriceCents, curveQuoteCents, referenceMxnCents);
     })
       // Re-orden explícito tras el filtro (el `orderBy` del query ya lo daba; se conserva por claridad
       // de que el ORDEN es parte del contrato de la vitrina) y CAP de la vitrina.
@@ -1644,6 +1648,28 @@ export class BuylistService implements OnModuleInit {
       // `GET /users/me/kyc?quotedTotalCents=N` y recibe un veredicto (`ineRequiredForTotal`), no el
       // número — así §P.2.2 (pedir el INE en el paso de la dirección) sigue cumpliéndose.
       throw BusinessException.validation('INE_REQUIRED', 'INE required above threshold', {});
+    }
+
+    // ⭐⭐ v1.71 (D-INE-UMBRAL, decisión del dueño 2026-09-15 «umbral, luego bloqueo» · API_CONTRACT
+    // §M5-K, D51 reescrita) — EXCEPCIÓN ACOTADA A D51. Contigua a `INE_REQUIRED` y sobre el MISMO
+    // `ineRequired` (que ya incluye `|| hasPendingLine`, cierre C15): al/por encima del umbral INE,
+    // una identidad **rechazada** no puede crear la solicitud. Por DEBAJO del umbral, sin efecto
+    // (comportamiento actual intacto). Bloquea SOLO `rejected` (NO `none`/`pending`).
+    // · Reusa el `kyc` ya leído (arriba, por el `userId` autenticado): CERO queries nuevas, CERO PII de
+    //   otro usuario, y se gatea sobre `ineRequired` —no sobre `quotedTotalCents >= ineThreshold` a
+    //   secas— para no reabrir el bypass de «precio pendiente» que C15 cerró.
+    // · Va DESPUÉS de `INE_REQUIRED` (mensaje más accionable para el 99%: «sube tu INE») y ANTES del
+    //   `upsert` de KYC y de la tx serializable: si va a fallar, que falle antes de escribir nada y
+    //   antes de abrir la transacción de dinero. En la práctica excluyentes: un rechazado tiene keys
+    //   en archivo ⇒ `ineProvided=true` ⇒ no dispara `INE_REQUIRED`.
+    // · `details: {}` VACÍO: ni umbral ni PII (jamás `rejectionReason`). El motivo lo lee el propio
+    //   usuario por `GET /users/me/kyc`. Filas legacy `rejected` sin motivo se bloquean igual.
+    if (ineRequired && kyc?.kycStatus === 'rejected') {
+      throw BusinessException.validation(
+        'KYC_REJECTED',
+        'Identity was rejected; cannot sell at/above threshold',
+        {},
+      );
     }
 
     // Snapshot CIFRADO de la CLABE resuelta (de request o fallback) para el pago SPEI: usa la CLABE
@@ -2529,6 +2555,34 @@ export class BuylistService implements OnModuleInit {
       },
     });
     if (!req) throw BusinessException.notFound();
+    // ⭐ Robustez PII (deuda M11 · MISMA clase que PR #43 en `getUser`/`getKyc`, pero en el DETALLE de
+    // solicitud que aquel commit no tocó): `clabeSnapshotEnc` es el blob AES-256-GCM de la CLABE del
+    // vendedor; se descifra SOLO para ENMASCARARLO (`****4567`) en la vista admin. Si el snapshot
+    // EXISTE y NO descifra —`PII_ENCRYPTION_KEY` rotada, clave efímera de un proceso anterior, o fila
+    // corrupta que el GCM no autentica— `decryptOptional` LANZA, y ese throw subiría sin capturar
+    // hasta el filtro global ⇒ **500 que tumba TODO el detalle**. Aquí es robustez de PRESENTACIÓN,
+    // NO de dinero: se DEGRADA SOLO esta casilla (`clabeMasked: undefined` + `piiUnavailable: true`,
+    // AMBOS ADITIVOS y SOLO en el estado degradado) y el resto del detalle se sirve intacto (200). El
+    // motivo se registra SIN el texto cifrado. ⛔ El reveal para pagar SPEI (`revealClabe`) NO se
+    // toca: ahí la CLABE es OBLIGATORIA para la operación y un fallo debe seguir siendo RUIDOSO.
+    // `piiUnavailable` solo aparece degradado, así que el candado de conjunto de claves sigue verde en
+    // el camino feliz. (Se resuelve local a `buylist` para no tocar la zona compartida
+    // `common/crypto/`; cuando #43 aporte `PiiCryptoService.tryDecryptOptional` a `production`, este
+    // try/catch puede reemplazarse por esa llamada sin cambiar el contrato de respuesta.)
+    let clabeMasked: string | undefined;
+    let clabeUnavailable = false;
+    try {
+      clabeMasked = maskClabe(this.pii.decryptOptional(req.clabeSnapshotEnc));
+    } catch (e) {
+      clabeUnavailable = true;
+      const cause = e instanceof Error ? e.message : String(e);
+      this.logger.error(
+        `adminGet(${id}): CLABE snapshot decrypt failed — degrading clabeMasked to unavailable ` +
+          `(${cause}). Likely PII_ENCRYPTION_KEY was rotated (or an ephemeral per-process key from a ` +
+          'previous run) or the row is corrupt. NOT throwing: the rest of the sell-request detail is ' +
+          'served and piiUnavailable is flagged. Ciphertext is never logged.',
+      );
+    }
     // La CLABE cifrada NUNCA se expone en la vista de detalle; solo por el reveal dedicado.
     // El join de User tampoco se propaga crudo: se proyecta SOLO el AdminSellerRef.
     // S49-M1: la cabecera pasa por la MISMA lista blanca que `receive`/`verify`/`pay-spei` — antes
@@ -2546,7 +2600,9 @@ export class BuylistService implements OnModuleInit {
       pickupAddress: req.pickupAddressSnapshot ?? null,
       // v1.18-buylist-rejects: items como SellItemDTO (incluye campos de rechazo + plazos derivados).
       items: (req.items ?? []).map((i) => this.itemDTO(i)),
-      clabeMasked: maskClabe(this.pii.decryptOptional(req.clabeSnapshotEnc)),
+      clabeMasked,
+      // ADITIVO y SOLO en el estado degradado (§ robustez PII de arriba).
+      ...(clabeUnavailable ? { piiUnavailable: true } : {}),
     };
   }
 
@@ -3287,7 +3343,12 @@ export class BuylistService implements OnModuleInit {
     const bountyActive =
       override?.bountyEnabled === true &&
       override.bountyCompletedAt == null &&
-      isBountyEffective(override.bountyPriceCents ?? null, decision?.quote.curveQuoteCents ?? null);
+      isBountyEffective(
+        override.bountyPriceCents ?? null,
+        decision?.quote.curveQuoteCents ?? null,
+        // Q1 (§M2-B.8): el mercado que entró a la curva viaja en la misma decisión de cotización.
+        decision?.quote.marketMxnCents ?? null,
+      );
 
     const bucket = positionKey == null ? null : (position?.get(positionKey) ?? null);
     if (position == null || bucket == null) {

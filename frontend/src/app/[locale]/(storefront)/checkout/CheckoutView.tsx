@@ -341,6 +341,10 @@ export function CheckoutView() {
                 <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
               </div>
 
+              {/* Recordatorio breve del destino, junto al total: la compra registrada va a la
+                  bóveda. Reusa el copy existente (`afterPayment`); no se inventa texto nuevo. */}
+              <p className="mt-4 text-xs leading-relaxed text-muted">{t('afterPayment')}</p>
+
               {/* Éxito del upsell de bóveda (§15.4): el desglose se re-cotizó sin envío. */}
               {vaultUpsellDone && (
                 <div role="status" aria-live="polite" className="mt-6">

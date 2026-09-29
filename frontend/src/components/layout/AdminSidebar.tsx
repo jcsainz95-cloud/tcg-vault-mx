@@ -17,6 +17,13 @@ const groups: { groupKey: string; items: Item[] }[] = [
     items: [
       { href: '/admin', key: 'dashboard' },
       { href: '/admin/m1', key: 'm1' },
+      // §diseño §1 (D-1/D-4): M11 · Sellado. Ruta `vault_operator+` (secciones i/ii/iii de alta,
+      // inventario y cola); el panel de diales (iv) se gatea DENTRO de la vista con SuperAdminOnly.
+      // Por eso el nav-item va SIN `superAdminOnly` — a diferencia de M2/M10.
+      { href: '/admin/m11', key: 'm11' },
+      // §13 Fase 2 — Ensayo del auto-fetch de decks meta (dry-run). Ruta `vault_operator+` (el
+      // backend `GET /admin/decks-meta/preview` admite operador): sin `superAdminOnly`, como M11.
+      { href: '/admin/m12', key: 'm12' },
       // v1.20: bóvedas de clientes (vista (ii) del master set, `vault_operator+`, lectura).
       { href: '/admin/vaults', key: 'vaults' },
       { href: '/admin/m4', key: 'm4' },

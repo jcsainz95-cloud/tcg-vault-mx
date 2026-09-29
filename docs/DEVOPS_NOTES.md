@@ -12108,3 +12108,486 @@ Lo que queda abierto **no es una petición, es trabajo nuestro**: enrutar el roj
 dueño (§60.3) y decidir si el gate de dinero debe dejar de colgar de `secrets-gate` en la ruta de
 publicación (§60.4b). Lo segundo es **cambio de mis rutas**, y lo dejo **propuesto, no hecho**: mueve
 cuándo se publica, y eso se decide con el orquestador y el dueño, no en un commit mío a mitad de release.
+
+# =============================================================================
+# §61 · P-53 — Acotar el WAL de Postgres + Vigilancia propia del disco (devops)
+# =============================================================================
+> **Dueño: devops.** Fecha de medición de esta sección: **2026-09-17**.
+> Entregado en la rama `claude/devops-p53-wal-monitor` (base `origin/production`).
+>
+> **Contexto (verdad medida por el orquestador):** el volumen de Postgres de prod
+> (Railway, 1 GB) estaba al **86%** subiendo **~20 MB/día**. El dueño ya amplió el
+> volumen como red de seguridad ⇒ el reloj de saturación se detuvo. Esta sección
+> entrega las **dos cosas de competencia devops** que P-53 dejó pendientes: (1)
+> acotar el WAL, y (2) una vigilancia propia. La cura de fondo —escribir menos
+> filas/día en `PriceReference`— la diseña el **arquitecto → backend** (money-
+> critical, triple veredicto); **no es devops** y no entra aquí.
+>
+> **⚠️ Lo que NO pude medir (O-1):** este entorno tiene el **egress a Railway
+> bloqueado**, así que **NO medí contra la prod**. Todo lo de abajo lo verifiqué
+> contra un **Postgres 16.13 de usar y tirar** (mismo motor que prod), no contra
+> el volumen real. Los tamaños reales de prod los mide el dueño con la herramienta
+> de §61.2, en su base.
+
+## 61.1 · Acotar el WAL — configuración + runbook (lo aplica el DUEÑO en su ventana)
+
+**El diagnóstico de P-53 (sep):** `pgdata/pg_wal` ≈ **145 MB (46% de lo usado)**
+con **cero replication slots** (verificado: `pg_replication_slots` → 0 filas ⇒
+**no hay fuga**). Es Postgres con `max_wal_size = 1GB` **de fábrica**, dimensionado
+para un disco mucho mayor. Acotarlo recupera **del orden de ~100 MB**.
+
+**La configuración exacta** vive en **`scripts/db-wal-tuning.sql`** (idempotente,
+solo-lectura salvo el `ALTER SYSTEM`; no toca datos). Baja:
+
+| Parámetro | Fábrica | Nuevo | Por qué |
+|---|---|---|---|
+| `max_wal_size` | 1GB | **128MB** | techo del WAL entre checkpoints; el ingest diario (~13-20 MB datos ⇒ ~30-60 MB WAL) cabe holgado ⇒ checkpoints por TIEMPO, no por tamaño |
+| `min_wal_size` | 80MB | **32MB** | deja que Postgres recicle hacia abajo el pool de segmentos ⇒ el WAL **encoge** de verdad |
+| `checkpoint_completion_target` | 0.9 | 0.9 | ya es el default de PG16; se fija explícito para dejarlo auditable |
+| `wal_keep_size` | 0 | 0 | correcto: no hay slots ni réplicas |
+
+**Dato de parámetros (documentado, NO medido contra prod):** `max_wal_size` y
+`min_wal_size` son de contexto **`sighup`** (postgresql.org / `pg_settings.context`)
+⇒ **cambian con un RELOAD, sin reinicio**. Corregí aquí la premisa de P-53 («requiere
+reinicio»): el **cambio de parámetro** no lo exige. Lo que reclama el espacio es que
+ocurran checkpoints; por eso el script termina con `pg_reload_conf()` **y** un
+`CHECKPOINT` manual que fuerza el reciclado del WAL sobrante de inmediato. Aun así el
+runbook mantiene **respaldo + ventana**, porque es prudente en una BD de dinero y
+porque el mecanismo concreto de Railway (§61.1c) puede exigir redeploy.
+
+### 61.1a · Runbook — pasos EXACTOS para el dueño
+1. **Respaldo primero.** En Railway → servicio Postgres → pestaña **Backups**:
+   dispara un backup manual y espera a que termine (o confirma que el backup
+   automático de hoy ya corrió). Es la red por si algo se ve raro.
+2. **Ventana.** No hace falta parar la tienda: el cambio es un `reload`. Elige un
+   momento de bajo tráfico igualmente (el `CHECKPOINT` genera un pico breve de I/O).
+3. **Conéctate a la prod** (una de dos):
+   - Railway → servicio Postgres → **Data / Query** (consola web), pega el contenido
+     de `scripts/db-wal-tuning.sql`; **o**
+   - desde tu máquina con el `DATABASE_URL` del servicio Postgres (entorno
+     `production`):
+     ```bash
+     export DATABASE_URL='postgresql://…'      # NO se pega en ningún fichero del repo
+     psql "$DATABASE_URL" -f scripts/db-wal-tuning.sql
+     unset DATABASE_URL
+     ```
+4. **Verifica que aplicó.** El propio script imprime el bloque **DESPUÉS**; confirma:
+   - `max_wal_size = 128`, `min_wal_size = 32` (unit `MB`), y **`source = configuration file`**.
+   - **⚠️ Si `max_wal_size` sigue en 1024 con `source = command line`:** entonces
+     Railway está fijando el parámetro por un **flag de arranque** (o una variable de
+     servicio), y el `ALTER SYSTEM` **no lo puede pisar** (medido: en mi PG de prueba,
+     arrancar con `-c max_wal_size=1GB` mantuvo 1024 pese al `ALTER SYSTEM`; al
+     reiniciar SIN ese flag, quedó en 128 con `source = configuration file`). En ese
+     caso, cámbialo en la **config del servicio de Railway**, no por SQL. En una
+     instalación de fábrica (que es lo que P-53 midió, `source = default`) el
+     `ALTER SYSTEM` + reload **sí** basta.
+5. **Verifica el ahorro.** A los ~15-30 min (deja que corra ≥1 checkpoint), corre la
+   herramienta de §61.2 o directamente:
+   ```sql
+   SELECT count(*) AS wal_files, pg_size_pretty(sum(size)) AS wal_total FROM pg_ls_waldir();
+   ```
+   El WAL debe bajar de ~145 MB hacia ~min_wal_size (decenas de MB). El número de
+   volumen autoritativo lo ves en el panel de Railway.
+
+### 61.1b · Cómo revertir
+En el pie de `scripts/db-wal-tuning.sql` está el bloque `ALTER SYSTEM RESET …` +
+`pg_reload_conf()`. Vuelve a fábrica (`max_wal_size = 1GB`). **No se pierde ni un
+dato**; el disco simplemente vuelve a crecer como antes.
+
+### 61.1c · Verificación que SÍ hice (2026-09-17, PG 16.13 de usar y tirar)
+Apliqué `scripts/db-wal-tuning.sql` contra un cluster PG16 local: `ALTER SYSTEM` ×4,
+`pg_reload_conf()=t`, `CHECKPOINT` ok. Tras reiniciar sin overrides de línea de
+comandos: `max_wal_size=128 MB`, `min_wal_size=32 MB`, `source=configuration file`
+(confirmado con `pg_settings`). No es una medición de prod (egress bloqueado): prueba
+que **el SQL es válido y hace lo que dice** en el mismo motor.
+
+## 61.2 · Vigilancia propia del disco y del ritmo de filas/día
+
+**Herramienta: `scripts/db-disk-watch.sh`** — todo **solo lectura** (abre
+`BEGIN TRANSACTION READ ONLY`), por **SQL** (no necesita shell en el contenedor de
+Railway), y **no imprime la credencial** (del `DATABASE_URL` solo saca el nombre de
+la base y una huella sha256 del host; repo público). Mide:
+- **uso estimado** del volumen = suma de tamaños de todas las bases + WAL
+  (`pg_ls_waldir()`). El total del VOLUMEN no lo da ningún SQL en Postgres gestionado
+  ⇒ se pasa con `--volume-bytes` (default **1 GiB**, el de prod). El número
+  autoritativo del volumen es el del panel de Railway; esto es la **señal temprana**.
+- **WAL** (ficheros y bytes) — dice si el parche de §61.1 ya surtió efecto.
+- **replication slots** — P-53 esperaba 0; **>0 ⇒ FUGA ⇒ ROJO**.
+- **`max_wal_size`/`min_wal_size` efectivos** — avisa si el WAL sigue **de fábrica**.
+- **`PriceReference`**: filas, bytes/fila, y **filas/día** (prom. 7 días, vía
+  `GROUP BY "capturedDate"`) ⇒ el **ritmo real** de crecimiento.
+- **Proyección**: días hasta llenar el volumen al ritmo medido.
+
+**Veredicto y umbrales** (configurables por bandera):
+- **ROJO** (rc=1, un cron lo NOTIFICA): uso ≥ `--crit-pct` (90) · **o** días-al-tope
+  ≤ `--min-days` (21) · **o** ≥1 replication slot.
+- **AVISO** (rc=0, `::warning::` visible): uso ≥ `--warn-pct` (80). Aún hay margen.
+- **OK** (rc=0). · **rc=2 = NO CONCLUYENTE** (sin URL/psql/target/SQL) — nunca sale
+  0 con una cifra que no leyó.
+
+**Cómo lo corre el dueño a mano** (o en un cron de Railway, red interna):
+```bash
+export DATABASE_URL='postgresql://…'          # idealmente el USUARIO DE SOLO LECTURA de abajo
+./scripts/db-disk-watch.sh --target prod --volume-bytes 1073741824
+unset DATABASE_URL
+./scripts/db-disk-watch.sh --print-queries     # las 4 consultas de P-53, para pegar a mano
+```
+
+**Usuario de solo lectura (vía correcta si se quiere en CI, CLAUDE.md «Secretos»):**
+```sql
+CREATE ROLE disk_watch LOGIN PASSWORD '<generada, no en el repo>';
+GRANT pg_monitor TO disk_watch;   -- da pg_ls_waldir(), pg_replication_slots, tamaños
+GRANT CONNECT ON DATABASE tcg_marketplace TO disk_watch;
+GRANT USAGE ON SCHEMA public TO disk_watch;
+GRANT SELECT ON "PriceReference" TO disk_watch;
+```
+`pg_monitor` es lo que habilita `pg_ls_waldir()` y `pg_replication_slots` a un no-super.
+
+**Cableado en CI: `.github/workflows/db-disk-watch.yml`** (lunes 06:00 UTC + manual,
+y el canario también en cada PR/push que toque la herramienta). **Dos trabajos, y la
+distinción es la lección P-77:**
+- `autoprueba` — **siempre** corre `scripts/check-db-disk-watch-canary.sh` (7 casos,
+  sin base ni red): prueba que la alarma **sabe ponerse roja**. Es el «blanco» real
+  del workflow aunque nadie cablee la prod.
+- `vigilancia` — corre la medición viva **solo si existe el secret `DB_READONLY_URL`**.
+  Si no existe, **no finge verde vigilando**: emite un `::notice::` diciendo que no
+  está cableada y a dónde ir. En ROJO abre/actualiza un **issue** con label `disco`
+  (patrón `deps-audit`) y pone el run en rojo. Tamaño del volumen: variable de repo
+  `DB_VOLUME_BYTES` (vacío ⇒ 1 GiB).
+
+> **Por qué el secret y no el `DATABASE_URL` normal:** la base solo se alcanza donde
+> vive la credencial; el egress a Railway está bloqueado aquí y **no medí** que un
+> runner de GitHub llegue a la prod. Vías sin exponer credencial en GitHub: un **cron
+> de Railway** (red interna) o **correrlo a mano**. Si el dueño quiere el aviso en CI,
+> el usuario de solo lectura de arriba en `DB_READONLY_URL` es la vía correcta.
+
+**⛔ No convertir `db-disk-watch.yml` en required check:** es `schedule`/manual, no
+gatea deploy. Su trabajo es **avisar con semanas de antelación**, no bloquear.
+
+## 61.3 · Qué necesito del dueño
+1. **Una ventana** (unos minutos, bajo tráfico) para aplicar `scripts/db-wal-tuning.sql`
+   con respaldo, siguiendo §61.1a. Es un `reload`, no un corte de servicio.
+2. **Opcional** (para el aviso automático en CI): crear el usuario de solo lectura de
+   §61.2 y ponerlo en el secret `DB_READONLY_URL`; y si su volumen ya no es 1 GB,
+   fijar la variable de repo `DB_VOLUME_BYTES`. Sin esto, la vigilancia sigue
+   disponible corriéndola a mano o desde un cron de Railway.
+## §62 · `backend-e2e` rojo en `production`: NO era el S3, era la clave PII que faltaba en el job (S-PII-CI, 2026-09-17)
+
+**El defecto, medido, no el que me pasaron.** Me llegó como «el S3-local rechaza el PUT presignado (SigV4
+403) y/o el seed no sube las imágenes de INE». **Lo medí y es FALSO.** Gana la medición (O-2):
+
+- Contra el `scripts/s3-local/server.js` REAL, con el firmante REAL (`UploadsService`, mismo `@aws-sdk`
+  3.1109.0, mismo `PutObjectCommand`/`GetObjectCommand`) y credenciales que cuadran: **PUT presignado
+  200, GET presignado 200**, bytes correctos, `Content-Disposition: attachment` y `Cache-Control:
+  no-store` honrados. El bloque `G-3` de `kyc-ine-links` (subir → enlazar → DESCARGAR) pasa entero.
+- El `seed:synthetic` sube las 4 imágenes de INE al bucket sin error (`✓ seed-e2e: 4 imágenes de INE
+  sembradas en tcg-photos`).
+- El «PUT presignado devolvió 403» que reportó un agente en local era un **desajuste de secreto** entre
+  el proceso firmante y el `s3-local` (dos `S3_SECRET_ACCESS_KEY` distintas), no un defecto del stand-in.
+
+**La causa raíz REAL** (medida con la API de check-runs de GitHub sobre `production` 187b1d40, más
+reproducción local contra app + Postgres + `s3-local` reales): `backend-e2e` = **`Tests: 3 failed, 973
+passed`**, las tres en `backend/test/integration/kyc-ine-links.e2e-spec.ts`:
+
+| test | ruta que golpea | resultado |
+|---|---|---|
+| K-2 (`:226`) | `GET /admin/users/:id` (customer2) | **HTTP 500** |
+| K-6 (`:305`) | `GET /users/me/kyc` (customer2) | **HTTP 500** |
+| §M6-K.5 (`:325`) | `GET /users/me/kyc?quotedTotalCents=N` (customer2) | **HTTP 500** |
+
+El 500 es, literal en el log de la app: `Error: Unsupported state or unable to authenticate data`, y su
+causa la nombra `UsersService` sola: *«rfcEnc does not decrypt with this process's PII key … Likely
+`PII_ENCRYPTION_KEY` differs from the one that encrypted it (**ephemeral per-process key in a local
+harness**)»*.
+
+**Por qué pasa, en una frase:** el job `backend-e2e` de `.github/workflows/e2e.yml` **nunca fijaba
+`PII_ENCRYPTION_KEY` / `PII_HMAC_KEY`**, y este job tiene **dos procesos que se pasan PII cifrada por la
+BD**: el `seed:synthetic` (proceso `ts-node` aparte) **cifra** el RFC/CLABE del fixture, y la suite jest
+los **descifra** al servir el 360º de admin y el `/users/me/kyc`. Sin la clave en el entorno,
+`PiiCryptoService` cae a una **clave efímera POR PROCESO** (y, peor, POR instancia de app: cada
+`E2EHarness.create()` genera otra). Con claves distintas, el descifrado revienta ⇒ 500.
+
+**Por qué era order-dependent (y por eso «ambiental»):** cada suite crea su propia app con su propia clave
+efímera; quien escribió de último el `billingProfile` del customer2 manda. En el orden de un runner
+LIMPIO (jest ordena por tamaño de fichero, `buylist-cycle` corre PRIMERO y le escribe el `billingProfile`
+al customer2), `kyc-ine-links` (#10) lo lee con OTRA clave ⇒ 500 determinista. En una corrida con caché
+de jest el orden cambia y tapa el fallo — por eso salía verde en algunas máquinas y rojo en CI. El
+arnés nativo (`scripts/stack-native.sh`) ya fija estas dos claves desde 2026-09-11; este job se quedó sin
+ellas, y `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` **están en el catálogo de secretos exigidos**
+(`security/secretos-exigidos-contenedor.txt`), así que la omisión era un hueco, no una decisión.
+
+**El arreglo (mis rutas, sin tocar código de app ni debilitar prueba alguna):** añadir
+`PII_ENCRYPTION_KEY PII_HMAC_KEY` a la lista de `scripts/secrets-preflight.sh github-env` del paso
+«Resolver secretos» de `e2e.yml`. Se generan por corrida (base64 de 32 bytes, enmascaradas en el log) y
+viven en `$GITHUB_ENV`, así que **el paso de seed y el de test heredan la MISMA clave**: la PII que cifra
+el seed la descifra la app. No se fija ninguna imagen nueva (el arreglo es puro cableado de entorno).
+
+**Medición del arreglo** (app + Postgres + `s3-local` reales, orden de runner limpio = caché de jest
+borrada, BD virgen):
+
+- SIN las dos claves: `Tests: 3 failed, 973 passed` — las MISMAS tres (K-2, K-6, §M6-K.5), reproducido
+  **2/2**, idéntico a lo que reporta CI en `production`.
+- CON las dos claves: **`Tests: 976 passed, 976 total`**, `45 passed` suites. Determinista: la clave
+  estable elimina la dependencia del orden.
+
+**`e2e-real.yml` no está afectado:** resuelve el catálogo COMPLETO (`secrets-preflight.sh github-env` sin
+argumentos), que ya incluye las dos claves. El hueco era exclusivo de la lista acotada de `e2e.yml`.
+
+**Cómo se confirma en CI:** el próximo run de `e2e.yml` sobre esta rama debe dar `backend-e2e` verde
+(`Tests: 976 passed`); si algún día vuelve el 500 en esas rutas, mira primero el aviso
+«PII_ENCRYPTION_KEY not set — using an EPHEMERAL random key» en el log de la app: significa que la clave
+dejó de llegar al proceso.
+
+**Ownership de lo que queda:** que `GET /admin/users/:id` y `GET /users/me/kyc` respondan **500** (y no un
+degradado limpio) ante una fila de PII que no descifra es un comportamiento de **backend** —hoy queda
+tapado por la clave estable, pero un enmascarado/omisión de la fila ilegible sería más robusto que un 500.
+Es hallazgo para **backend**, no arreglo de devops; lo dejo anotado, no tocado.
+
+---
+
+## §66 · El censo E2E pasa a CINCO claves: entra `realOnly`, y el techo baja a lo medido (2026-09-22, B-QA1 + M-QA4)
+
+**Qué estaba rojo.** `./scripts/check-e2e-skip-census.sh` sobre `claude/m4-pedidos-preparar` daba
+**rc=1** (tres categorías CRECIERON) y ese job está en el `needs` de `ci-ok` sin estar en la lista de
+OPCIONALES de `scripts/check-ci-ok.sh` ⇒ **bloqueaba de verdad**. Sobre `origin/main` (`bb239c09`,
+extraído a una copia) el mismo script daba **rc=0**: lo introducía la rama, no era un rojo heredado.
+
+**Lo que el censo cuenta, dicho sin ambigüedad, porque aquí es donde se manda a alguien a lo que no
+es.** El censo cuenta **palabras** (`grep -rwo`), no llamadas. En el fichero nuevo
+`frontend/e2e/m4-preparation.spec.ts` hay 4 apariciones de `mockOnly`, 3 de `needsSeed`, 1 de
+`harnessLimit` y 7 de `realOnly`, y **solo TRES son llamadas**:
+
+| Sitio | Clave | Qué es |
+|---|---|---|
+| `:79` | `needsSeed(...)` | llamada real |
+| `:102` | `mockOnly(...)` | llamada real |
+| `:181` | `realOnly(...)` | llamada real |
+| `:3`, `:26`, `:35`, `:40`–`:42`, `:96`, `:169` | varias | **import y PROSA** de los docstrings |
+
+En particular **`harnessLimit` +1 es 100 % prosa**: el fichero **no tiene ni una llamada** a
+`harnessLimit`; la palabra aparece solo porque el docstring de `:41` enumera la taxonomía entera.
+
+Y el matiz de las **instancias**: el fichero entero vive dentro de `for (const vp of VIEWPORTS)` con
+dos anchos (390×844 y 1280×800), así que cada llamada produce **dos tests saltados**. De ahí el «dos»
+que reportaron frontend y QA: **son instancias, no sitios**. Las dos cuentas son correctas y miden
+cosas distintas; decir cuál se está usando evita mandar a backend a sembrar dos filas cuando la
+petición es una.
+
+**Dos techos que bajan, y no los baja este stream.** Medido sobre `origin/main`: el censo ya daba
+`mockOnly` **98/22** (el baseline decía 99/23) y `skipIfSeedMissing` **10/5** (decía 15/6). Es decir,
+`main` venía verde con dos claves **por debajo** del techo, y el delta visible de `mockOnly` (+3)
+estaba **enmascarado** por ese −1 heredado: el fichero nuevo aporta **+4**. Este `--update` fija los
+techos en lo medido hoy, que es justo lo que pedía el aviso «bajó: regenera el baseline».
+
+**La decisión de M-QA4: `realOnly` ENTRA al censo.** Es la quinta clave desde hoy. El razonamiento,
+por si alguien quiere revertirlo con datos:
+
+1. **Por el criterio que el propio script declara** — «cada uno es un test que en algún entorno NO
+   mide». `realOnly` es `test.skip(!IS_REAL, …)` (`frontend/e2e/utils/auth.ts:227`): no se salta en el
+   pase real de QA, se salta en la **corrida de mocks**. Y la corrida de mocks es la que **gatea cada
+   PR**; el pase real corre por stream/release. Su ventana ciega es **la más frecuente de las cinco**.
+2. **Por un agujero operativo, no teórico** — mientras estuvo fuera, convertir un `mockOnly` en un
+   `realOnly` **bajaba** el censo y **subía** lo no medido en CI. El instrumento hecho para contar lo
+   que no mide tenía una gaveta que no veía. Medido: ningún script ni workflow del repo menciona
+   `realOnly` (`grep -rn realOnly scripts/ .github/` ⇒ vacío antes de hoy).
+3. **Contarla no la castiga.** Cada clave lleva **su propia línea y su propio techo**: `realOnly` no
+   se mezcla con las otras cuatro. Subirla cuesta lo mismo que subir cualquiera — un `--update
+   --motivo` en el mismo diff. Esto es lo contrario de desalentarla: es reconocerla como gaveta de
+   primera clase, después de que el techlead zanjara (contra la primera lectura de frontend) que
+   `realOnly` es **preferible** a dejar la receta en un comentario, que es una quinta gaveta que
+   **ningún runner enumera**.
+
+**Corrección al encargo, con el dato:** `realOnly` **no la estrena este stream**. `origin/main` ya
+traía **7 ocurrencias en 3 ficheros** — `catalog.spec.ts:273` y `grading-estimate.spec.ts:465/629/862`
+(cuatro llamadas reales), más la definición en `utils/auth.ts`. El stream añade **una** llamada. El
+techo inicial de `realOnly` (14/4) es por tanto **una foto, no un crecimiento de nadie**.
+
+**Estado después del arreglo** — `mockOnly 102/23 · needsSeed 34/9 · harnessLimit 5/3 ·
+skipIfSeedMissing 10/5 · realOnly 14/4`, gate en **rc=0, 3/3 corridas**, canario **rc=0, 3/3**.
+
+**Caducidad declarada:** el `needsSeed` de `:79` muere el día que `backend/prisma/seed-e2e.ts` siembre
+un `ShipmentRequest` en `picking`. Ese día el censo **baja** y hay que regenerar el baseline.
+
+**Y una propiedad del instrumento que conviene saber antes de usarlo:** `--update` **sobrescribe** el
+fichero, así que el baseline guarda **un solo motivo, el último**. El anterior (2026-09-11, KYC,
+`mockOnly` 92→99) no se pierde: vive en git en `1972e80`. No lo cambié — acumularlos haría crecer sin
+límite una línea que ya es enorme, y `git log -p scripts/e2e-skip-census.baseline` los da todos.
+
+---
+
+## §67 · El apagado del stack mataba stacks AJENOS — acotado por puerto y por clon (2026-09-22, I-QA2)
+
+**Dos daños medidos el mismo día, por dos agentes distintos:**
+
+- el **pentester** corrió `pkill -f "src/main.ts"` de limpieza y mató el **backend de QA** a mitad de
+  su gate;
+- **QA** corrió `down` con `FRONTEND_PORT=3200` y mató el `next-server` huérfano de **:3000**, que era
+  de **otro clon**.
+
+**La causa no era la mano de nadie: estaba cableada en el script.** `stack-native.sh` apagaba con
+`pkill -f 'ts-node --transpile-only src/main.ts'`, `pkill -f '^next-server '` y
+`pkill -f 's3-local/server.js'`. Los tres patrones describen **el programa**, no **mi instancia**: ni
+filtran por puerto ni por clon. Con dos sesiones en paralelo sobre puertos distintos, el mecanismo
+para matarse entre sí **venía de fábrica**. Es O-8/O-14 en el recurso «stack»: allí era el scratchpad
+y el árbol de trabajo, aquí es el stack.
+
+**El criterio nuevo** (bloque `>>> APAGADO-ACOTADO` de `scripts/stack-native.sh`). Se mata un proceso
+solo si es mío por una de dos vías:
+
+- **(a) escucha en el puerto que esta invocación declara suyo** (`BACKEND_PORT` / `FRONTEND_PORT` /
+  `S3_LOCAL_PORT`) — pedir ese puerto **es** reclamarlo; o
+- **(b) su línea de comando casa el patrón Y su `cwd` cuelga de ESTE clon** (`$ROOT_DIR`, vía
+  `/proc/<pid>/cwd`). Esta vía es la que sigue cazando al backend que **murió antes de abrir el
+  puerto** (arranque a medias), que (a) no ve.
+
+Lo que casa el patrón pero vive en otro clon **y** en otro puerto **ya no se toca**: se nombra en un
+aviso, con su `cwd`, para que quien mire sepa que sigue vivo y de quién es.
+
+**El límite, dicho entero, porque acotar por puerto NO lo cubre todo.** Medido hoy mientras trabajaba:
+había un `s3-local` vivo en **:9000** cuyo `cwd` era
+`…/scratchpad/qa-m4b/clone` — **el clon de QA**. Los dos clones usan el **mismo puerto por defecto**,
+así que ahí **no hay dos puertos que separar**: un `down --all` mío seguiría llevándoselo, y tiene que
+hacerlo (si no reclama su puerto, el siguiente `up --gate` muere con «ya hay algo sirviendo en
+:9000»). Lo que sí se exige ahora es que **lo diga, con el `cwd` del dueño**: la muerte de un gate
+ajeno tiene que ser **explicable**, no un misterio. Para separarse de verdad, dos sesiones simultáneas
+deben exportar **puertos distintos** (`BACKEND_PORT` / `FRONTEND_PORT` / `S3_LOCAL_PORT`) — y ahora
+eso **funciona**, que es lo que antes no pasaba.
+
+**Canario: `scripts/check-stack-kill-scope.sh`** (job `stack-kill-scope` en `ci.yml`, dentro del
+`needs` de `ci-ok`). No lee código: **extrae el bloque del fichero vivo**, levanta **procesos de
+verdad escuchando en puertos de verdad** y mira quién quedó vivo.
+
+| Caso | Exige |
+|---|---|
+| 1 | dos stacks, dos puertos: apago el mío ⇒ **el ajeno sigue vivo** (N tiradas, O-3) |
+| 2 | …y apagar **apaga**: el mío muere (si no, el puerto queda tomado y cae SEC-OPS-1) |
+| 3 | patrón + otro clon + otro puerto ⇒ **sobrevive**, y se **nombra** |
+| 5bis | mi puerto ocupado por otro clon ⇒ muere (reclamo el puerto) **pero se nombra con su `cwd`** |
+| 4 | patrón + mi clon **sin puerto abierto** ⇒ **muere** (arranque a medias) |
+| 6 | estático: no queda ni un `pkill` **ejecutable** en `stack-native.sh` |
+
+**Medición del arreglo:** canario **8/8**, `rc=0` en **3/3** corridas con `N=5` (⇒ **15/15** en el caso
+del stack ajeno y 15/15 en «el mío muere»).
+
+**Y el canario muerde** — mutación sobre una **copia** del árbol (O-9), devolviendo `stop_scoped` al
+`pkill` por patrón de antes: **rc=1**, con «el stack AJENO murió en **5 de 5** tiradas», reproducido
+**3/3 corridas**. Es decir: el mecanismo viejo mataba el stack ajeno **el 100 % de las veces**, no de
+cuando en cuando.
+
+**Detalle del canario que casi lo deja mintiendo:** su primera versión buscaba `pkill` con
+`^[^#]*\bpkill\b` y llamó rojo a una **línea de ayuda dentro de un heredoc** (la que dice «a mano NO
+basta con `pkill -f 'next start -p …'`»). Un candado que no distingue **código** de **prosa** manda a
+arreglar lo que no está roto. Hoy exige que el `pkill` **empiece una sentencia**.
+
+**Lo que NO arregla:** que un agente escriba `pkill -f src/main.ts` **a mano** en su terminal. Eso no
+es código, es doctrina — y su sitio es el encargo, no este script.
+
+---
+
+## §68 · `REL-D` refrescada: mismo número, contenido distinto (2026-09-22, `S-M4P-C`) — y una retractación mía sobre el rango del diff (§68.1)
+
+**De dónde viene.** El pentester declaró las dependencias «NO RE-MEDIDO» porque *«el corte no las
+mueve»*, y **seguridad lo refutó con el argumento correcto**: `npm audit` no cambia con el *lockfile*,
+cambia cuando **se publican avisos nuevos**. El lockfile está congelado; **la base de avisos no**.
+
+**Re-medido por mí `[medido 2026-09-22]`** (`npm audit --package-lock-only --omit=dev`, sobre `31aff17`):
+
+- **frontend: 0 vulnerabilidades.**
+- **backend: 5 `moderate`, 0 `high`, 0 `critical`** — en `@nestjs/core`, `@nestjs/platform-express`,
+  `body-parser`, `express`, `qs`.
+
+**El mismo número que `REL-D`, y el mismo que `origin/main`** (lo audité también en una copia de
+`bb239c09`: 5 moderate, los mismos cinco paquetes). Pero **el contenido de la ficha estaba caduco**:
+`REL-D` decía que *«las cinco cuelgan de `qs`»*. Hoy son **tres avisos en dos racimos**:
+
+| Aviso | Paquete | ¿Estaba en `REL-D`? | Alcance en esta app |
+|---|---|---|---|
+| `GHSA-x5fp-wj9c-mxmx` (array-limit bypass) | `qs` ≤6.15.3 | sí | el de siempre |
+| `GHSA-4mjr-xmp4-gh2g` — DoS vía `isBuffer` (CVE-2026-82417) | `qs` ≤6.15.3 | **no** | **no alcanzable** |
+| `GHSA-36xv-jgw5-4q75` — *injection* en SSE (CVE-2026-35515) | `@nestjs/core` ≤11.1.17 | **no** (no como aviso propio) | **no aplica** |
+
+**Por qué los dos nuevos son inocuos aquí — medido, no supuesto** (re-corrí los dos greps de
+seguridad):
+
+- `@nestjs/core` es **inyección en SSE**: exige que la app exponga un `@Sse()`.
+  `grep -rniE "@Sse\(|text/event-stream|EventSource" backend/src frontend/src` ⇒ **0 aciertos**. La
+  ruta vulnerable **nunca se instancia**.
+- `qs` exige `plainObjects:true` o `allowPrototypes:true` más un ida-y-vuelta `parse`→`stringify`.
+  `grep -rniE "allowPrototypes|plainObjects|query parser|qs\.(parse|stringify)" backend/src` ⇒ **0
+  aciertos**, sin importación directa de `qs`. Express va con sus opciones por defecto.
+
+⇒ **La postura de `REL-D` no cambia: Info, no bloqueante, ABIERTA.** El gate de CI tampoco:
+`.github/workflows/security-sast.yml:187` corre con `AUDIT_LEVEL: high` sobre runtime, y los tres son
+`moderate`. **`@nestjs/core` 10.x no recibe el parche** (se corrige en `11.1.18`; `npm` propone
+`12.0.4`, **cambio rompedor**) ⇒ **el salto de mayor de NestJS es de ventana ordinaria, no de este
+release** — así lo dejó seguridad y así lo dejo yo. ⛔ No lo toqué en este pase.
+
+### §68.1 · RETRACTADO y corregido: `cheerio` **ya estaba en producción**. Lo que queda es la trampa del rango (2026-09-22)
+
+**Lo que escribí primero, y era falso:** que esta rama mete `cheerio 1.0.0` como dependencia nueva de
+producción. **Me refutó el orquestador con medición y tenía razón** (O-2). Lo comprobé yo antes de
+corregir, y el dato lo confirma entero:
+
+```
+cheerio en origin/production (c7c58aa): 1      ← YA DESPLEGADO
+cheerio en origin/main       (bb239c09): 0
+cheerio en HEAD              (0cdab08):  1      ← heredado, no añadido
+
+git merge-base --is-ancestor 097d422 origin/production          ⇒ SÍ
+git diff --stat origin/production...HEAD -- '*package.json' '*package-lock.json'  ⇒ VACÍO
+```
+
+⇒ **Esta fusión NO mete ninguna dependencia nueva en producción.** `cheerio` entró por `097d422`
+(*decks-meta* Fase 2), que es **ancestro de `production`**; esta rama sale de `production`, así que lo
+**arrastra por herencia**. El pentester y seguridad midieron `c7c58aa..5e6f2ee` —**el rango correcto
+para esta PR**— y por eso les salió vacío. **En este punto ellos acertaron y yo no.**
+
+**Y mi error es exactamente la clase que yo mismo estaba enunciando, aplicada a mí:** medí contra la
+referencia equivocada. Pero la conclusión operativa se **invierte**, y así es como hay que escribirla:
+
+> **El rango de un diff de dependencias es el de la BASE DE LA FUSIÓN, no `main` por costumbre.**
+> En este proyecto la fusión que publica es **`main` → `production`**, y la base contra la que se
+> pregunta «¿qué entra en producción?» es **`production`**.
+
+**Por qué aquí eso es una trampa y no una sutileza — medido hoy:**
+
+| Rango | Commits que incluye | Qué son |
+|---|---|---|
+| `origin/main...HEAD` (el que usé) | **432** | …de los cuales **404 YA ESTÁN DESPLEGADOS** |
+| `origin/production...HEAD` (el correcto) | **28** | lo que de verdad entra |
+
+`main` **es ancestro de `production`** y va **404 commits por detrás** (`0` en sentido contrario). No
+es que «diverjan»: es que `main` está **estrictamente atrasado**, y por eso `origin/main...HEAD`
+arrastra 404 commits de trabajo **ya publicado** y los presenta como novedad. Con esa base, **cualquier
+release parece meter dependencias nuevas**. A mí me salió una; el mecanismo produce tantas como haya
+acumulado `production` desde el último toque de `main`.
+
+**Lo peor de este fallo es CUÁNDO ocurre:** el diff de dependencias se mira justo al redactar la
+solicitud de fusión, es decir **en el momento de firmar un despliegue**. Un hallazgo fantasma ahí no es
+ruido: es una alarma que puede frenar una publicación correcta, o —al revés— gastar la credibilidad
+que hace falta cuando la alarma sea de verdad.
+
+**Los comandos, para copiarlos en el momento en que hacen falta** (redacción de la solicitud
+`main → production`):
+
+```bash
+git fetch origin production
+# ¿qué dependencias entran DE VERDAD en producción con esta fusión?
+git diff --stat origin/production...HEAD -- '*package.json' '*package-lock.json'
+git diff        origin/production...HEAD -- '*/package.json' | grep -E '^[-+] {4}"'
+# cordura: ¿cuánto de lo que vería contra main ya está publicado?
+git rev-list --count origin/main..origin/production
+```
+
+**Lo que NO hice y por qué:** no cableé un candado para esto. Hoy **ningún job de CI consume ese
+diff** — el gate de dependencias es `npm audit` sobre el árbol, que no depende del rango — así que un
+check nuevo vigilaría una entrada que nadie usa. El sitio correcto es la **lista de comprobación de la
+solicitud de fusión**, que es de quien la redacta. Queda dicho aquí para que se copie de un sitio con
+los números al lado. **NO MEDIDO:** si alguna plantilla de PR del repo sugiere hoy el rango contra
+`main` (no la revisé).
+
+**Lo que sí queda abierto, y no es fantasma:** `cheerio` **está en runtime de producción** —lo importa
+`backend/src/modules/decks-meta/limitless-html.parser.ts:16`, un parser de HTML de terceros que corre
+sobre HTML remoto— y **nadie lo ha inventariado**. No es de esta PR ni la bloquea. Dueños: **seguridad**
+(inventario de terceros en runtime) y **backend** (dueño de `decks-meta`). Lo registra el orquestador
+como pendiente; yo no toco esas rutas.

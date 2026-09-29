@@ -404,7 +404,7 @@ describe('permisos de los endpoints nuevos (metadata @Roles, §4.20a)', () => {
 
   it('vista admin (ii): index/binder con includeOwnerEmail y SIN buyable', async () => {
     const masterSets = { index: jest.fn().mockResolvedValue({}), binder: jest.fn().mockResolvedValue({}) };
-    const ctrl = new AdminVaultsController({} as any, masterSets as any);
+    const ctrl = new AdminVaultsController({} as any, masterSets as any, {} as any);
 
     await ctrl.masterSetIndex('u9');
     expect(masterSets.index).toHaveBeenCalledWith(

@@ -4,6 +4,103 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.79.5 — «PARA BÓVEDA» TRAS LOS GATES: EL RIVAL DE LOS CAS ES EL CONTRACARGO** (2026-09-28, arquitecto. Base:
+> **v1.79.4, vigente entera salvo lo que esta rev toca**. Origen: veredictos de QA, techlead y seguridad sobre
+> `db7d1c2`. `API_CONTRACT` sube a **v1.79.5**. ⛔ **Sin schema, sin migración, sin endpoint, sin código de error, sin
+> cambio de conducta.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | La mutación de la prueba 32 no mordía (puerta serializa); **nace la prueba 40** contracargo vs. verbo | §4.21q (o), `API_CONTRACT §M4-VAULT.8` | **Solo pruebas de backend** |
+> | **2** | `SEC-VLT-DL` **aceptado** con disparador; corrección elegida y dos descartadas | §4.21q (o) | **No** |
+> | **3** | `pieceCount` «a su nombre» vs. `counts.total` «deben estar en bóveda» | §4.21q (o), `API_CONTRACT §M4-VAULT.11` | **Solo copy de frontend** |
+> | **4** | Errata `GET /admin/locations` + `VaultLocationDTO` | `API_CONTRACT §M4-VAULT.4` | **No** |
+> | **5** | `SEC-SETTLE-LATE` registrada (medida N=1), no decidida; corrige «movería piezas» de (n) | §4.21q (o) | **No** (en este stream) |
+>
+> ---
+> **Rev v1.79.4 — EL SETTLE DEL PAGO ES UN CAS: «UN HECHO, UN INSTANTE» TAMBIÉN BAJO CARRERA** (2026-09-25, arquitecto.
+> Base: **v1.79.3, vigente entera salvo lo que esta rev toca**. Origen: hallazgo medido por backend, commit `6eb5f1d`.
+> `API_CONTRACT` sube a **v1.79.4**; norma y pruebas en `API_CONTRACT §M4-VAULT.2-bis.1` y `.8` (35–39). ⛔ **Sin schema,
+> sin migración, sin endpoint, ningún código de error nuevo.** ⚠️ **Toca una escritura de `Order`** (tabla del dinero):
+> solo la conducta del **perdedor** de la carrera; el camino secuencial, idéntico.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ El `order.update` del settle (ramas `vault` y `direct_ship`) pasa a `updateMany` con `status: { not: 'settled' }` en el `WHERE`, **primera** escritura de la tx; `count 0` ⇒ el perdedor no escribe ni avisa | §4.21q (n) | **Sí, solo backend** |
+> | **2** | 🔴 `API_CONTRACT §R.3` fila `AV-2`: su «motor» era cierto solo en secuencia; ahora es el CAS | §4.21q (n) | con la 1 |
+> | **3** | Observación **registrada, no decidida**: un `succeeded` tardío puede re-liquidar una orden `refunded`/`chargeback` (conducta previa) — para «Órdenes y dinero» | §4.21q (n) | **No** (en esta rev) |
+>
+> ---
+> **Rev v1.79.3 — «PARA BÓVEDA» CIERRA LOS HUECOS QUE ux-ui ANOTÓ AL DISEÑAR (`DESIGN_SYSTEM §36.13`)** (2026-09-25,
+> arquitecto. Base: **v1.79.2, vigente entera salvo lo que esta rev toca**. `API_CONTRACT` sube a **v1.79.3**; detalle y
+> verificación de cada hueco en `API_CONTRACT §M4-VAULT.12`. ⛔ **Schema `M-59` sin cambio.** ⛔ **Ningún código de error
+> nuevo.** ⛔ **Cero dinero.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐ **H-1:** la regla «nombre fabricado del correo ⇒ `null`» se extiende a todo lo que el operador ve en «Bóvedas de clientes» (lista, cabecera del detalle, `owner` de «Cartas» y «Sellado»), con **una** función `customerDisplayName` para las cinco fuentes | §4.21q (m) | **Sí, backend + frontend** |
+> | **2** | ⭐ **H-4:** `confirm` sin cajón cuando no hay cartas tomadas — cierre directo `pending → cancelled/nothing_to_place` bajo la puerta | §4.21q (m) | **Sí, backend + frontend** |
+> | **3** | H-2 / H-5: los `409 {placed}` y `422 not_customer_drawer` traen el cajón **nombrable** (etiqueta + zona). H-3: errata de nombre de tipo. H-6: sin contrato | §4.21q (m) | **Sí, backend + frontend** |
+>
+> ---
+> **Rev v1.79.2 — «PARA BÓVEDA» CIERRA SUS PREGUNTAS: DESHACER «PREPARADO», NOMBRE Y APELLIDO, LO FÍSICO ES DEL DUEÑO**
+> (2026-09-25, arquitecto. Base: **v1.79.1, vigente entera salvo lo que esta rev toca**. Fuente: `HECHOS.md`, última
+> fila de decisiones. `API_CONTRACT` sube a **v1.79.2**. ⛔ **Schema `M-59` sin cambio.** ⛔ **Ningún código de error
+> nuevo.** ⛔ **Cero dinero.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Deshacer «preparado»** (`DELETE …/vault-placements/:id/prepared`): puerta del cliente + CAS con el estado en el `WHERE`, solo `pending`, **conserva las marcas por carta**, bitácora con el sello borrado en `before` | §4.21q (j) | **Sí, backend + frontend** |
+> | **2** | ⭐ **Nombre y apellido en primer plano:** titular = `User.name` entero; un nombre fabricado del correo (`nameSource='derived'`) es `null` en la cubeta `vault` y en la vista física | §4.21q (l) | **Sí, backend + frontend** |
+> | **3** | El sistema ⛔ **no** vigila muebles, numeración ni cajones compartidos; sin aviso al cliente al colocar. P-A y P-D: valor por defecto, **no preguntadas** | §4.21q (i) | **No** |
+>
+> ---
+> **Rev v1.79.1 — ⭐⭐ «PARA BÓVEDA» CON LAS RESPUESTAS DEL DUEÑO: UN CLIENTE = UN CAJÓN, PALOMEAR (SOLO BÓVEDA) Y
+> VISTA DE INVENTARIO FÍSICO** (2026-09-25, arquitecto. Base: **v1.79, vigente entera salvo lo que esta rev toca**.
+> `API_CONTRACT` sube a **v1.79.1**. v1.79 no se construyó ⇒ `M-59` se **amplía**, no hay migración aparte. ⛔ **Cero dinero.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Un cliente = un cajón.** ≥2 cajones ⇒ **anomalía nombrada** (`multiple_drawers`), ⛔ nunca elegida en silencio; el `confirm` exige el cajón del cliente y una **puerta por cliente** (`pg_advisory_xact_lock`) impide que el propio sistema cree la anomalía | §4.21q (d) | **Sí, backend + frontend** |
+> | **2** | ⭐⭐ **Palomear y «preparado» para la cubeta `vault`**: tabla `VaultPlacementItem`, enum `PreparationItemStatus`, sello en `VaultPlacement`; **colocar exige preparado** (CHECK) | §4.21q (j) | **Sí, backend + schema + frontend** |
+> | **3** | ⚠️ **Palomear en ENVÍO NO entra**: «faltante» chocaría con las ramas terminales de `updateStatus` (medido). `ShipmentRequest`/`ShipmentItem`/`REL-B` intactos | §4.21q (j) | **No** |
+> | **4** | ⭐ **Vista nueva de inventario físico esperado por cliente** (`GET /admin/vaults/:userId/physical-inventory`) — cinco estados, anomalías primero | §4.21q (k) | **Sí, backend + frontend** |
+>
+> ---
+> **Rev v1.79 — ⭐⭐ «PARA BÓVEDA»: LA COMPRA A BÓVEDA NACE CON SU COLOCACIÓN PENDIENTE (`VaultPlacement`, `M-59`)**
+> (2026-09-24, arquitecto. Base: **v1.77 + §4.21p (v1.78.x), vigentes enteras**. Origen: decisión del dueño
+> 2026-09-24, `PROJECT §S.4.1`, CA #17–#23 de §S. `API_CONTRACT` sube a **v1.79**. ⛔ **Cero dinero.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Entidad nueva `VaultPlacement`** (una por orden `vault` liquidada, `orderId @unique`), gemela del `ShipmentRequest` de `direct_ship`. ⛔ **NO** se reutiliza `ShipmentRequest` (5 lectores la leen como «sale por la puerta»/dinero) ⇒ **su invariante `vault+orderId ⇒ corrupción` queda INTACTO** | §4.21q (a)–(b) | **Sí, backend + schema** |
+> | **2** | **Nace en la MISMA transacción que la liquidación**, con `INSERT … ON CONFLICT DO NOTHING` (idempotente bajo carrera) | §4.21q (c) | **Sí, backend** |
+> | **3** | ⭐ **Propuesta de cajón = «junto a sus otras cartas»** con filtro de zona **portante** y regla para varios cajones (**provisional**, S.8 #9) | §4.21q (d) | **Sí, backend** |
+> | **4** | ⭐⭐ **Confirmar = CAS sobre el estado (`REL-B`) + mover solo `locationId` con el predicado en el `WHERE`**; bitácora dentro de la tx | §4.21q (e) | **Sí, backend + frontend** |
+> | **5** | **«Pendiente de colocar» vive en la colocación, ⛔ NO en la pieza**: `InventoryStatus` no cambia ⇒ candados de doble venta intactos | §4.21q (f) | — |
+>
+> ---
+> **Rev v1.77 — ⭐⭐ BOUNTIES (ZONA DE DINERO): EL PISO DEJA DE FORZAR «ARRIBA DE MERCADO» (Q1) Y NACE ELIMINAR (Q2)**
+> (2026-09-19, arquitecto. Base: **v1.76, vigente entera**. Dos arreglos del dueño en `pricing`, medidos con
+> `archivo:línea` antes de diseñar (O-1). `API_CONTRACT` sube a **v1.77**.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Q1 — `isBountyEffective` gana `marketMxnCents` y un TOPE DE MERCADO.** Piso efectivo = **`min(curva, mercado)`**: empate-con-curva **rechazado** (tramo normal, sin cambio), empate-con-mercado **aceptado** (borde de cartas baratas, `bin ≥ mercado`). El gate `BOUNTY_BELOW_RULE` llama a la **misma** función ⇒ coherencia alta↔runtime **por construcción** (la lección de v1.62.2). Fórmula + tabla de 12 casos + criterios de prueba | §4.36.6 (predicado + tabla) · `API_CONTRACT §M2-B.8` | **Sí, backend** (`pricing-curve.ts`, `money.ts`, `variant-controls.service.ts`, los 4 call-sites) |
+> | **2** | ⭐⭐ **Q2 — nace `DELETE …/variant-controls/:cardId/:finish/bounty`** (`super_admin`, auditado). El servidor **ramifica por historia**: sin compra (`acquiredQty=0 ∧ completedAt=null`) ⇒ **borra**; con compra ⇒ **despublica** (nuevo estado `despublicada`, conserva el registro y sale de la vitrina + tablero por defecto). Verbo dedicado, **no** `remove:true` en el `PUT` | §4.36.6b (nueva) · `API_CONTRACT §M2-B.9` | **Sí, backend + schema + frontend** |
+> | **3** | **DDL mínimo `M-58`: UNA columna** `VariantPriceOverride.bountyUnpublishedAt DateTime?`, aditiva, nullable, **sin backfill**. Espejo de `bountyCompletedAt`; es lo que distingue `despublicada` (eliminado con historia) de `apagada` (hold reversible). `BountyState` **no** es enum de Prisma (clase L, derivado) | §4.36.6b · §11 | **Sí, backend** (migración aditiva) |
+> | **4** | **Invariante `INV-BOUNTY-COST` (Q2-C):** eliminar/despublicar un bounty **NO** modifica `acquisitionCostCents` ni crea asiento de P/L (el costo vive **una sola vez** en `InventoryItem`, `buylist.service.ts:7143`). **Ya se cumple estructuralmente** (tablas separadas) ⇒ candado de **no-regresión** | §4.36.6c (nueva) · `API_CONTRACT §M2-B.10` | **No** (solo prueba nueva) |
+> | **5** | **Bloque `PARA BACKEND` (§4.36.6d):** archivos/funciones exactas y las **pruebas-que-fallan** que el modelo fuerte escribe primero (protocolo de reparto de modelos, CLAUDE.md) | §4.36.6d (nueva) | — (guía de implementación) |
+>
+> **Lo que NO cambia, y se dice porque es donde alguien aflojaría:** **(a)** ⛔ **el tramo NORMAL de Q1 es idéntico a
+> v2.0** — solo el borde `curva ≥ mercado` se ablanda. **(b)** ⛔ **`bounty:null` en el `PUT` sigue siendo APAGAR**
+> (hold reversible); eliminar es otro verbo. **(c)** ⛔ **el `DELETE` no toca `sellOverrideCents`/`buyOverrideCents`**
+> ni abre una segunda puerta de `upsert`. **(d)** ⛔ re-publicar **no reinicia** los contadores de historia (M-46).
+> **Desviación enrutada:** **`D-PROC-Q1`** — Q1 relaja **criterio 91 en el borde** (la vitrina puede pagar por debajo
+> del bin inflado, nunca por debajo del mercado); si `PROJECT.md` lo fija LOCKED sin este matiz, la frase se enruta a
+> **product-owner** (regla de conflicto). Ver §4.36.6 y §9.
+>
+> ---
 > **Rev v1.76 — ⭐⭐ ESTE DOCUMENTO PROMETÍA UNA GARANTÍA QUE EL CÓDIGO NO DA (§4.54.4), Y UN ACUSE QUE SE FIRMA
 > CON MX$0.00 NO ES UN ACUSE**
 > (2026-09-14, arquitecto. Base: **v1.73 + §4.54/§4.55, vigentes enteras salvo la fila que esta rev corrige**.
@@ -6685,6 +6782,344 @@ Decisiones de arquitectura:
 - **`q` (contains) sin índice B-tree útil** — mismo criterio que buylist: a escala MVP barre el conjunto ya reducido por
   los demás filtros; `pg_trgm` GIN sobre `User.name`/`email` (y opcionalmente `guestEmail`) queda como deuda futura si
   el volumen lo exige, no en este stream.
+
+---
+
+### 4.21p WS «Órdenes y dinero» — «Pedidos a preparar» (rediseño de la cola de picking, M4) · rebanada de SOLO LECTURA (v1.78)
+
+> **Producto:** `PROJECT.md` §«Pedidos a preparar» (aprobado 2026-09-15, 6 decisiones incorporadas). **Contrato:**
+> `API_CONTRACT.md` §M4-PREP. Aquí vive el **por qué** de la forma y el **hallazgo de medición** que acota la rebanada.
+> Borrador de trabajo del arquitecto: `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md`.
+
+**Qué cambia (solo visibilidad):** la cola `GET /admin/shipments/picking-list` deja de ser una **lista plana de piezas
+ordenada por ubicación** (`PickingListEntryDTO`: `shipmentId·inventoryItemId·folio·location`) y pasa a ser una **hoja de
+trabajo agrupada por pedido** (`PreparationOrderDTO`: destino, cliente+apellido, dirección con calle, y por carta
+nombre/set/acabado/condición/miniatura/ubicación). **Se conserva la ruta y solo cambia el DTO** — menor radio de estallido,
+no toca el guard ni el ruteo ni la máquina de estados (`REL-B`/`REL-C` intactas). **⛔ CERO cambio de schema:** todo es
+proyección de datos que ya existen (`Card`, `InventoryItem`, `VaultLocation`, `Order.fulfillmentMode`, `addressSnapshot`,
+`User.name`).
+
+**`destination` se DERIVA del discriminador canónico `Order.fulfillmentMode` (§4.21d), no se inventa un campo.** Eso
+garantiza por construcción que un pedido no mezcla destinos (DECISIÓN #1). `PreparationDestination = 'vault'|'ship'` es un
+**tipo de DTO, no un enum de dominio**: sus valores no coinciden con los de `FulfillmentMode` (`direct_ship`/`vault`), así
+que no entra en la paridad de enums (`enum-values-parity.spec.ts`).
+
+**⭐ v1.78.1 — el eje `?destination=` es clase L, y su fila estaba SIN ESCRIBIR.** La v1.78 declaró el filtro y su `400`
+en §M4-PREP pero **no puso su fila en el REGISTRO DE EJES de `§0-Q` punto 4** ⇒ `C-EQ-1` lo marcó **huérfano** (medido por
+backend: 1 roja de 359; cerrado provisionalmente con `filaEn0Q: 'PENDIENTE-ARQUITECTO'`, que es el pagaré que el propio
+spec provee, ⛔ no una decisión). **La decisión, tomada con §4.37 y no por analogía:** clase **L** — `ship` no existe en
+`FulfillmentMode` y un retiro de bóveda no tiene `Order`, luego el dominio **se computa**; no hay cláusula que citar y la
+prueba de subconjunto que exige la clase R sería **roja por construcción**. *Una clase cuya prueba obligatoria no puede
+pasar es la clase equivocada.* Fila y razón entera: API_CONTRACT §0-Q punto 4 y §M4-PREP.
+
+**⭐ v1.78.1 — `customer.fullName: string | null`: el contrato no puede pedir un `string` a una fuente nullable.** La
+v1.78 lo declaraba `string` mientras su fuente para el **invitado** (`addressSnapshot.recipientName`) puede faltar en
+snapshots de 8 campos anteriores a v1.67 — que el mismo bloque ya declaraba nullable dos filas más abajo. **Lo trajeron
+frontend y backend por separado, con medición**, y mientras tanto cada uno eligió su relleno (`''` en el back, «—» en el
+front): **dos grafías de un hecho que el contrato no decidió**, que es la clase de §0-B que este documento persigue.
+Decisión: **`null` es la única marca de ausencia** (como `lastName`, `shipTo.recipientName`, `orderId`, `orderNumber` en
+el mismo DTO) y ⛔ **la cadena vacía queda prohibida** — `""` **renderiza como un hueco invisible**, no se distingue de un
+nombre vacío legítimo y obliga a todo consumidor a `if (!x)` en lugar de `x === null`. Que el caso sea **hoy inalcanzable
+en la práctica** (medición de backend: los snapshots de 8 campos son de retiros, que tienen `User.name`) **no cambia la
+decisión**: el contrato declara la forma de la fuente, no su suerte.
+
+#### ⭐ v1.78.2 — las dos conductas que el contrato CALLABA, y el tipo que permitía el estado ilegal
+
+> **De dónde viene:** los dos gates de la rebanada. **QA** midió por HTTP el `500` de `?date=` y levantó el `409` que
+> nadie había escrito; el **techlead** midió lo que costaba el `label?`. **Ninguno de los tres es un defecto nuevo:
+> los tres son huecos de DECLARACIÓN.** Contrato: `API_CONTRACT §M4-PREP` (conducta normativa entera).
+
+**(1) `?date=` — «se conserva» no es una declaración de conducta.** v1.78 escribió esa frase y con ella heredó, sin
+decidirlo, que `?date=banana` devolviera **`500`** (`Invalid Date` crudo al `where` de Prisma) — el defecto que el
+comentario de `P-84` describe *resuelto* para `?status=` en el mismo servicio. La decisión tiene **dos** mitades y la
+segunda es la que importa: **(a)** malformado ⇒ `400 VALIDATION_ERROR` con `details:{field:'date'}` — ⛔ **sin
+`allowed`**, porque §0-Q **no aplica** (un día del calendario no es un dominio cerrado de tokens y su `allowed` **no se
+puede enumerar**: criterio literal de §4.37/§0-Q punto 7) y ⛔ **sin eco del valor** (§0-Q punto 2 ya lo prohíbe en todo
+eje nuevo y norma la cota del eco; la medición de amplificación que backend cita de `P-89` ⛔ **no la re-midió el
+arquitecto** y la decisión no depende de ella);
+**(b)** ⭐ el dominio se **estrecha a date-only `YYYY-MM-DD`**, porque este eje **no recibe una ventana sino un día** y
+el otro extremo lo **inventa el endpoint** (`+24h`): admitir un datetime produce una **ventana deslizante que cruza dos
+días del calendario**, que el operador no puede nombrar. *Una cola que contesta en silencio una pregunta distinta de la
+que se hizo es la misma familia que el clamp silencioso.* **Coste del estrechamiento: cero, medido** — ningún llamador
+manda `date` hoy (`frontend/src/lib/api.ts` lo admite, la pantalla no lo envía) y el endpoint es admin-only, sin
+clientes de terceros. El anclaje sigue siendo **UTC**, igual que `from`/`to` (§0 v1.25.1): ⛔ un endpoint **no** estrena
+zona horaria propia.
+
+**(2) El `409` de la fila corrupta: el radio de estallido ENSANCHA, y se posee.** `destinationOf` deriva dentro del
+`map`, así que **una sola** fila con `orderId` y `fulfillmentMode ≠ direct_ship` rechaza la cola **entera**, no solo su
+cubeta. Estaba candado y **no estaba escrito**. Se ratifica **rechazar entero** y se **prohíbe** degradar por fila:
+filtrando en SQL la corrupción solo habría reventado **su** cubeta — y esa cubeta es **`vault`, que hoy devuelve vacío**
+(hallazgo de abajo) ⇒ la fila corrupta habría quedado **invisible en la única cubeta que alguien mira**. Junto al dinero
+y al inventario, *denunciar en todas partes > esconder en una*; y una lista más corta en una cola de preparación **se
+lee igual que «no hay nada que preparar»** — un envío ya cobrado que nunca sale por la puerta. Cuerpo: el que ya
+gobierna `/admin/shipments` (`kindForFulfillment`), **un cuerpo, muchos lectores** (§4.39c).
+
+**(3) `LocationView`: unión discriminada, y por qué se decide EN CONTRA de la tercera cara de `B-1`.** `{kind; label?}`
+dejaba representable `{kind:'assigned'}` sin etiqueta y obligaba a **cuatro** re-derivaciones con **tres** predicados
+distintos (`label === undefined` en el back, *falsy* en el front), con una **divergencia de orden** back↔front
+representable. Pasa a `{kind:'assigned'; label: string} | {kind:'unassigned'}`. Backend razonaba que *«`kind` describe
+la fila y `label` el texto, son dos hechos»* — **cierto en la tabla, ocioso en esta hoja**: el DTO no espeja
+`VaultLocation`, es la hoja de trabajo del operador, cuya única pregunta es *«¿hay sitio al que caminar?»*, y los tres
+consumidores **ya** colapsan los dos hechos (el propio comentario de backend lo concede al ordenar el blanco junto a las
+`unassigned`). Y el estado defendido es **inalcanzable, medido 2026-09-22**: el único creador compone
+`label = box-row-slot` (`inventory.service.ts`, `createLocation`) ⇒ **siempre trae los dos guiones**, y los otros
+escritores son *seeds* con etiqueta literal. *Pagar un estado ilegal permanente en un DTO compartido para defender un
+fantasma es el intercambio equivocado* — y ⛔ un tercer `kind` lo sería aún más. Se cierra **ahora** y no como deuda
+porque la rebanada interactiva consume el mismo DTO (sería la quinta rama) y porque **el compilador verifica el cambio**:
+la unión obliga a estrechar en cada lectura.
+
+#### ⚠️⚠️ Hallazgo de medición (arquitecto, 2026-09-22) — la cubeta `vault` no tiene datos bajo el modelo actual
+
+Medido sobre `claude/m4-pedidos-preparar` @ `b5b38d47`:
+
+- `pickingList` (`shipments.service.ts:543`) proyecta **solo `ShipmentRequest{status:'picking'}`**. **Todo**
+  `ShipmentRequest` es físicamente un **ENVÍO a domicilio** — un retiro de bóveda (`orderId==null`) o un envío directo
+  (`orderId!=null`, `fulfillmentMode='direct_ship'`) ⇒ **todas las filas de la cola son `destination='ship'`**.
+- El «Para bóveda» del producto (mover una compra AL archivero del cliente, sin guía, con cambio de ubicación)
+  corresponde a órdenes **`fulfillmentMode='vault'`**, y **esas órdenes no generan `ShipmentRequest`**: al liquidar
+  (`payments.service.ts:237-275`) las piezas pasan `reserved → in_custody, settled` y **se quedan sin ninguna cola de
+  preparación ni de colocación**. No hay hoy artefacto que diga «pendiente de colocar» ni «ya colocado».
+
+**Decisión de alcance:** el tipo y el filtro `?destination` quedan **declarados y listos** en el contrato, pero la cubeta
+`?destination=vault` **devuelve vacío** hasta que una versión posterior alimente la cola con las órdenes vault. Eso **no es
+una reproyección** de la cola actual: exige decidir *qué órdenes vault están pendientes de colocar* y *cómo se marca una
+como colocada* — y eso **muy probablemente pide schema** (un sello de preparación/colocación en la ruta vault, inexistente
+hoy). **⛔ Por la regla de cero-migración, aquí NO se propone columna: se DETIENE y se reporta.** La cubeta `ship`
+(retiros + envíos directos) se sirve **completa** sin migración. Las piezas interactivas (palomear/firmar, sugerencia de
+bóveda) y el 💰 reembolso parcial quedan **planeadas, fuera de esta versión** (API_CONTRACT §M4-PREP, recuadro final).
+✅ **v1.79: la cubeta `vault` se alimenta — §4.21q.** El hallazgo de arriba sigue siendo cierto *de `ShipmentRequest`*.
+
+---
+
+### 4.21q WS «Órdenes y dinero» × «Inventario y vault» — «Para bóveda»: la COLOCACIÓN en el cajón del cliente (v1.79, `M-59`)
+
+> **Producto:** `PROJECT.md` §S.4.1–S.4.2, S.6 (b), CA #17–#23 de §S. **Contrato (conducta normativa entera):**
+> `API_CONTRACT §M4-VAULT`. Aquí vive el **por qué** y las alternativas descartadas. Medido por el arquitecto el
+> 2026-09-24 sobre `claude/m4-boveda` (sale de `5e623e6`). ⛔ **Cero dinero.**
+
+**(a) El problema, en el modelo.** Una orden `vault` liquidada deja sus piezas `in_custody` del cliente **en el estante
+de tienda** (`locationId` no se toca al liquidar) y **ningún artefacto** dice «esto hay que llevarlo a un cajón». El
+producto pide dos hechos que hoy no existen: **qué está pendiente de colocar** y **cuándo/quién/dónde se colocó**.
+
+**(b) La decisión: una entidad propia, `VaultPlacement`, y las dos que se descartan.**
+
+```
+                       Order (fulfillmentMode)
+                      /                        \
+          direct_ship                           vault
+               |                                  |
+   ShipmentRequest (nace en picking)      VaultPlacement (nace pending)     ← mismo momento: la tx del settle
+               |                                  |
+   picking → guia → enviado → entregado     pending → placed | cancelled
+   (sale por la puerta; dinero; avisos)     (cambia InventoryItem.locationId; sin dinero, sin avisos)
+```
+
+| Alternativa | Por qué NO |
+|---|---|
+| `ShipmentRequest` con un `kind`/destino nuevo | Medido: la leen **como envío o como dinero** el P&L de M7 (`admin.service.ts`, `status in picking…` acotado por `pickingAt`), el contador de envíos pendientes del dashboard, el anti-doble-retiro (`409 ITEM_IN_ANOTHER_SHIPMENT` ⇒ el cliente **no podría retirar** una carta recién comprada), `HoldingDTO.withdrawable/shipmentState` (por contrato) y la máquina de estados con guía y avisos. Además obliga a inventar `addressSnapshot`/`priceConvention`/`shippingFeeCents` (NOT NULL). Y **rompe el invariante** `vault+orderId ⇒ corrupción` que hoy candan `kindForFulfillment` y `shipments.picking-list.spec.ts`. *Cinco lectores que aprenden a excluir una fila es exactamente el patrón de §4.39(c): nueve listas de literales que no fallan en compilación* |
+| Columnas en `Order` (`placedAt`, `placedByUserId`, …) | Mete estado **operativo** en la tabla del **dinero**; la cola filtraría `Order` por modo+estado; sin id propio de fila. Funcionaría, pero es peor en las tres cosas |
+| Nuevo `InventoryStatus.pending_placement` | `in_custody` lo leen holdings, portafolio, `withdrawable`, master-set, admin-vaults y el anti-doble-retiro: todos tendrían que decidir sobre un valor nuevo para decir algo que **no es de la pieza, es del pedido** (DECISIÓN #1) |
+
+**(c) Nacimiento atómico e idempotente.** Único creador: la rama `vault` de `onPaymentSucceeded`, **dentro** de su
+`$transaction`, con `createMany({skipDuplicates:true})` ⇒ `INSERT … ON CONFLICT DO NOTHING` sobre `orderId @unique`.
+*Por qué no el `findFirst`+`create` del precedente `direct_ship`:* el `if (order.status === 'settled') return` se lee
+**fuera** de la transacción, así que dos entregas concurrentes entran las dos; con `create` la segunda revienta con
+`P2002` (⇒ `500` y reintento), con `findFirst` la ventana TOCTOU crea dos. El motor, no la lectura, decide.
+
+**(d) La propuesta de cajón.** Una función (`suggestVaultLocation`), consumida por la cola y por el `confirm` (para la
+bitácora). Candidatos = cajones `customer_custody` activos donde el cliente tiene piezas `in_custody`. **El filtro de
+zona es portante**: las piezas *pendientes* del mismo cliente también son `in_custody` y están en `platform_stock`;
+sin el filtro, el sistema propondría el estante de origen. ~~Varios candidatos ⇒ **la llegada más reciente**
+(provisional, S.8 #9) — porque dos cajones suelen significar «el primero se llenó», y «el que tiene más» propondría
+para siempre el lleno.~~ ⭐ **v1.79.1 — el dueño: *«En teoría un cliente solo tiene un cajón»* y *«infinito el
+espacio por cliente»*.** La premisa de la regla retirada (dos cajones = uno se llenó) desaparece con la segunda
+respuesta, y la primera convierte los dos cajones en **un desorden físico**, no en un caso de uso. ⇒ Con ≥2 el
+sistema **nombra la anomalía** (`multiple_drawers`, todos los cajones con su conteo, sin propuesta) y el operador
+elige **entre ellos**. *Por qué no elegir uno:* cualquier regla («el último», «el que tiene más») convierte la
+anomalía en una propuesta de aspecto normal, y el operador guardaría cartas en un cajón sin saber que el cliente
+tiene otro. **Cómo no la crea el propio sistema:** el `confirm` exige el cajón del cliente (`422 not_customer_drawer`)
+y serializa por cliente con `pg_advisory_xact_lock` (ceremonia de `lockReservationGate`, namespace propio) — sin la
+puerta, dos pedidos de un cliente nuevo confirmados a la vez eligen dos cajones y el CAS no lo ve (son dos filas).
+Nace, entonces, solo por vías **ajenas** (el `move` de M1, datos sembrados), que no se cierran aquí.
+`isActive` deja de filtrar candidatos: un cajón es del cliente porque ahí están sus cartas; filtrarlo haría pasar por
+«nuevo» a quien tiene el cajón desactivado. ⛔ El apellido no interviene (S.6). Sin memoria extra: colocar **deja** las piezas en el cajón,
+y eso **es** lo que la siguiente propuesta lee (CA #19).
+⚠️ **Hallazgo de datos:** `VaultLocation.label` **no es único entre zonas** (el seed crea `C01-F01-S01` en las dos). La
+pantalla nombra el destino **con su zona**; ⛔ no se cambia la unicidad aquí (otro stream, dato existente).
+
+**(e) Confirmar: la clase de `REL-B`, cerrada desde el diseño.** La transición se **reclama**
+(`updateMany … WHERE status='pending'`, `count===1`), ⛔ nunca se escribe sobre una lectura. Bajo `READ COMMITTED` el
+perdedor de una carrera **espera el candado de fila**, re-evalúa el `WHERE` y cuenta `0` ⇒ relee ⇒ `200 already_placed`
+(mismo cajón) o `409 PLACEMENT_NOT_PENDING` (otro). Cada pieza se mueve con el **predicado de colocable en el `WHERE`**
+y con `OR [locationId null, locationId ≠ destino]` (⛔ `NOT {locationId: destino}` **excluye los NULL** en SQL). **Solo
+`locationId`**: ⛔ no se reutiliza `inventory.service.ts · moveItem` (dos sentencias sin tx ni guarda y dispara
+`tryAutoPublish`). La bitácora va **dentro** de la tx: CA #22 no admite un «quién/cuándo» que pueda faltar.
+
+**(f) La pieza entre liquidación y colocación.** Estado **idéntico al de hoy** (`in_custody`, cliente, `settled`).
+Doble venta imposible por las mismas razones que hoy (catálogo = `platform ∧ listed`; publish y ajustes rechazan
+`in_custody`) ⇒ **cero candados de doble venta tocados**. El contracargo cancela la colocación pendiente en su misma tx;
+el reembolso no (coherente con A1).
+
+**(g) Invariantes nuevos (normativos):**
+- `INV-VP-1` — orden `vault` en `settled` (por liquidación) ⇒ **exactamente una** `VaultPlacement`. (Misma tx + `@unique`.)
+- `INV-VP-2` — `VaultPlacement` ⇒ su orden es `fulfillmentMode='vault'` con `userId` no nulo. Violación ⇒ `409` de la cola entera (misma doctrina §4.21p (2)).
+- `INV-VP-3` — sellos coherentes con el estado: **CHECKs en la BD** (`M-59`), no solo en el código.
+- `INV-VP-4` — `confirm` solo escribe `InventoryItem.locationId` (+ `InventoryMovement` + fila + bitácora). Nunca estado, dueño ni titularidad.
+- **Sin cambio:** `ShipmentRequest` con `orderId` ⇒ su orden es `direct_ship` (`kindForFulfillment`).
+- ⭐ v1.79.1 — `INV-VP-5` — cada `VaultPlacement` tiene **exactamente una** `VaultPlacementItem` por `OrderItem` de su
+  orden, nacidas en la misma tx; `VaultPlacementItem.inventoryItemId = OrderItem.inventoryItemId`.
+- ⭐ v1.79.1 — `INV-VP-6` — `placed ⇒ preparedAt NOT NULL` (**CHECK**): preparado precede a colocado.
+- ⭐ v1.79.1 — `INV-VP-7` — **el `confirm` nunca le da a un cliente un segundo cajón** (regla del cajón + puerta por
+  cliente). Las anomalías de otras vías se **nombran**, no se corrigen.
+- ⭐ v1.79.1 — `INV-VP-4` se **extiende** a palomear/preparar: escriben solo `VaultPlacement`/`VaultPlacementItem` +
+  `AuditLog`; ⛔ nunca `InventoryItem`. Una carta `missing` **no mueve nada** (ni pieza, ni dinero, ni aviso).
+  ⭐ v1.79.2: **deshacer «preparado»** entra en la misma extensión, y más estrecho: escribe **solo** `VaultPlacement.
+  preparedAt/preparedByUserId` (a `NULL`) + `AuditLog`; ⛔ ni `VaultPlacementItem`.
+
+**(h) Zonas compartidas y streams (para el orquestador).** Toca `backend/prisma/` (schema), `payments` y `shipments`
+(«Órdenes y dinero»), `vault`/`inventory` («Inventario y vault»), `common/error-codes.ts`, y en frontend
+`src/types/contract.ts` y la pantalla `(admin)` M4. ⇒ **se serializa** contra cualquier otro stream que toque esas
+zonas. **Dónde vive el verbo:** `backend/src/modules/vault/` (servicio de colocación + controlador admin); la cola sigue
+en `shipments` y **lee** `VaultPlacement`; la función `suggestVaultLocation` vive en `vault` y la importa `shipments`
+(un cuerpo, dos lectores). ⭐ **v1.79.1:** la función pasa a llamarse `customerDrawers` y tiene **tres** lectores
+(cola, `confirm`, vista física); palomear/preparar y la puerta del cliente viven en `vault`; la vista física en
+`vault/admin-vaults.controller.ts`. ⛔ **No** toca `shipments.service.ts` más allá de la cola (lectura).
+
+**(i) Provisional (dueño, `PROJECT §S.8` #7–#11):** cada respuesta cambia **un solo sitio** — tabla en
+`API_CONTRACT §M4-VAULT.9`. ⛔ El diseño no las da por contestadas; las marca. ⭐ **v1.79.1:** #7, #8, #9 y #11
+**contestadas** (2026-09-25); quedan cinco preguntas nuevas/abiertas (retirar antes de colocar, aviso, muebles con la
+misma numeración, cliente que vació su bóveda, cajón compartido) — misma tabla. ⭐ **v1.79.2:** contestadas **P-B**
+(sin aviso), **P-C** (*«solo necesito que me digas nombre y apellido»* ⇒ ver (l)), **P-E** (*«yo me encargo del
+aspecto físico»* ⇒ el sistema no vigila cajones compartidos) y **deshacer «preparado»** (sí ⇒ ver (j)). **P-A** y
+**P-D** quedan con su **valor por defecto, no preguntadas** (retirar antes de colocar = permitido; quien vació su
+bóveda = nuevo). *Principio que sale de P-C/P-E:* **lo físico es del dueño; el sistema dice de quién es y qué debe
+haber** — ⛔ no modela muebles, numeración ni exclusividad de cajón.
+
+**(j) v1.79.1 — Palomear y «preparado»: por qué una tabla por carta, por qué una puerta, y por qué solo bóveda.**
+
+```
+VaultPlacement (pending) ──► palomear cartas (VaultPlacementItem: pending → picked | missing)
+        │                         │  (todas colocables marcadas)
+        │                         ▼
+        │                  preparedAt/preparedByUserId   ← hito DENTRO de pending, ⛔ no un estado nuevo
+        │                         │
+        └──────────────► confirm (exige preparado) ──► placed   (mueve solo las `picked`; `missing` no se toca)
+```
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| Nodo por carta = **`VaultPlacementItem`** (nace con la colocación) | Columnas en `OrderItem` | `OrderItem` es el snapshot **inmutable del dinero** (M-41.4): meterle estado operativo es el mismo error que se descartó para `Order` en (b) |
+| | Filas «perezosas» (solo al palomear) | El conteo «nada pendiente» se volvería «total − marcadas» contra otra tabla; con filas nacidas, es un `count` sobre una |
+| Sello de preparado en **`VaultPlacement`** | `ShipmentRequest.preparedAt` del borrador | El borrador lo ubicó ahí cuando solo existía esa fuente; una colocación **no** es un envío (b) |
+| «Preparado» = **hito**, no estado | `VaultPlacementStatus.prepared` | Un estado más obliga a cada lector de `status` (cola, CHECKs, contracargo) a decidir sobre él; un sello con CHECK dice lo mismo y el `confirm` lo exige en su `WHERE` |
+| **Puerta por cliente** (`pg_advisory_xact_lock`) en palomear, preparar y colocar | Solo CAS sobre `VaultPlacement` | *Write skew:* preparar decide sobre N cartas y des-palomear escribe una sin tocar `VaultPlacement` ⇒ el CAS no ve el conflicto. Y la regla «un cliente = un cajón» cruza pedidos. Una puerta por cliente cierra las dos; la contención es nula (un cliente, un operador) |
+| **Solo bóveda** | Palomear también envío | Medido en `shipments.service.ts · updateStatus`: las ramas terminales mueven **todas** las `ShipmentItem` (`withdrawn` en retiro; `shipped/delivered` en directo) ⇒ una carta «faltante» saldría como entregada. Decidir su destino es la DECISIÓN #2 (💰). En bóveda una faltante simplemente no se mueve |
+
+~~⛔ **Límite declarado:** no hay «deshacer preparado».~~ ⭐ **v1.79.2 — el dueño lo pidió: `DELETE …/prepared`.**
+
+```
+pending + preparedAt ──DELETE …/prepared──► pending + preparedAt NULL   (marcas por carta INTACTAS)
+   │                                            │ PATCH …/prep-items vuelve a abrir → corregir la marca mal puesta
+   └──confirm──► placed  (sin vuelta: deshacer sobre placed = 409 PLACEMENT_NOT_PENDING)
+```
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **Conservar** las marcas por carta | Resetear todas a `pending` | El dueño pidió **corregir**, no rehacer; y el reset borraría marcas `missing` **sin** su bitácora `item_missing_cleared` ⇒ una faltante «reaparecería» sin que nadie lo dijera. Corregir una por una con el `PATCH` sí deja rastro |
+| Bitácora con **`before: {preparedAt, preparedByUserId}`** | Solo `after` | La fila **pierde** el sello al limpiarlo: la bitácora es su único rastro. Sin `before`, «quién preparó mal» desaparece |
+| `200 not_prepared` idempotente | `409 PLACEMENT_NOT_PREPARED` | El estado pedido ya es el actual; simétrico a `already_prepared`. ⇒ **ningún código nuevo** |
+| Solo `pending` | Permitir sobre `placed` («descolocar») | Nadie lo pidió, y exigiría deshacer movimientos de inventario: otro verbo, otro diseño |
+| Misma puerta del cliente + CAS `status='pending' ∧ preparedAt NOT NULL` | Solo la puerta | La carrera con `confirm` queda cerrada **tres veces**: la puerta (orden), los dos CAS sobre **la misma fila** (el perdedor re-evalúa su `WHERE` y cuenta 0; el `confirm` reclama **antes** de mover) y el `CHECK INV-VP-6`. La puerta es la capa que da el `409` limpio; las otras dos hacen que quitarla no produzca un estado falso |
+| ⛔ Sin cambio de schema | Columna `unpreparedAt` / historial de sellos | El historial vive en `AuditLog` (`prepared` / `unprepared`, con `before`). Los `CHECK` de v1.79.1 ya admiten volver a `NULL` los dos campos a la vez |
+
+**(k) v1.79.1 — Inventario físico esperado por cliente.** El dueño: *«saber qué cartas deben estar en bóveda por
+cliente»*. Lo que existía (`/admin/vaults` y hermanas) es **valuación**, agrupada por set/producto, y no dice dónde
+está nada. Endpoint **propio** en el mismo controlador (`GET /admin/vaults/:userId/physical-inventory`), ⛔ sin precios.
+Clasifica cada pieza que debe estar en bóveda en **cinco estados** con precedencia fija —`missing` › `in_withdrawal` ›
+`pending_placement` › `in_drawer` › `unlocated`— y dice el cajón del cliente con **la misma** función que la cola
+(`customerDrawers`): *una cola que dice «su cajón es X» y una vista que dice «Y» serían dos verdades.* Distingue
+**colocado** (`in_drawer`) de **pagado sin colocar** (`pending_placement`), y pone las anomalías **arriba**.
+
+**(l) v1.79.2 — «Nombre y apellido» (P-C).** Medido en `schema.prisma · model User` (2026-09-25): un solo campo libre
+`name String` (NOT NULL) + `nameSource user|google|derived`; **no hay** campo de apellido. «Nombre y apellido» en
+pantalla = **`name` entero**, como titular; el correo, segunda línea, desempate entre homónimos.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| Titular = `fullName` entero | Titular = `lastName` derivado / «Apellido, Nombre» | `lastName` es el último token: falla con apellidos compuestos (§6.A) y **recorta** lo que el dueño pidió ver |
+| `nameSource='derived'` ⇒ **`null`** en la cubeta `vault` y la vista física | Emitir `User.name` + bandera `nameIsDerived` | `derived` = prefijo del correo que el servidor inventó (alta Google sin nombre). **Parece** un nombre y no lo es; como `null`, el consumidor **no puede** pintarlo por olvido (una bandera sí se olvida). Precedente: v1.67 ya prohíbe usar un nombre `derived` como destinatario |
+| ⛔ Sin campo `lastName` en `User` | Añadirlo | Es registro y perfil (stream «Cuentas y acceso»); el dueño pidió **ver** nombre y apellido, que ya se capturan en `name` |
+
+⚠️ **Asimetría declarada:** la cubeta `ship` (congelada en este stream) sigue emitiendo `User.name` aunque sea
+`derived`. Alinearla es una línea en su fuente cuando esa tarjeta se abra.
+
+**(m) v1.79.3 — Huecos de la pantalla (`DESIGN_SYSTEM §36.13`).** Verificados uno por uno (`API_CONTRACT §M4-VAULT.12`);
+ninguno falso.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **H-1:** la regla del nombre fabricado gobierna **la pantalla entera** «Bóvedas de clientes» (lista, cabecera, `owner` de sus pestañas), con **una** función pura `customerDisplayName` en `modules/vault/` | Aplicarla solo a la pestaña nueva; o exponer `nameSource` | La pestaña «Qué debe haber» vive **dentro** de ese detalle: una misma persona con dos voces en una pantalla es el defecto que la regla existe para impedir. Una función y no cinco ternarios: cinco copias son cinco sitios donde olvidarla. `null` y no bandera: mismo argumento que (l) |
+| Frontera de H-1: **admin** de «Bóvedas de clientes» | Extenderla también a la vista del propio cliente («Mi bóveda») o a todas las pantallas admin | La vista del cliente no pinta `owner` y es otro público; las demás pantallas admin (tarjeta `ship`, M6) son de otros streams — **NO MEDIDO** qué pintan. Se declara la frontera en vez de ensancharla a ciegas |
+| **H-4:** `locationId` opcional **solo** con cero cartas `picked`, decidido **bajo la puerta**; cierre directo `pending → cancelled` | Verbo de cierre aparte; o cajón siempre opcional | Un verbo aparte duplica puerta, preparado, CAS y bitácora, y obliga a la pantalla a escoger verbo con un conteo que puede estar viejo. Siempre opcional dejaría colocar cartas **sin cajón**. El conteo de `picked` es estable bajo la puerta porque las marcas solo se escriben sin preparar |
+| **H-2 / H-5:** `details` con el cajón **nombrable** que **sustituye** a los ids | Añadir `label`/`zone` junto a los ids | Dos llaves para un hecho. Los verbos no están construidos: no hay compatibilidad que guardar |
+
+**(n) v1.79.4 — El settle es un CAS (desviación medida por backend, se cierra en este stream).** Medido por backend
+(commit `6eb5f1d`, N=10 por corrida): con dos `payment_intent.succeeded` concurrentes del mismo PI y event.id distintos,
+`VaultPlacement.createdAt ≠ Order.settledAt` en 10/10 aislada y 8/10 en suite completa. Causa previa a M-59: el
+early-return por `settled` se lee fuera de la tx (`payments.service.ts:192`) y el `order.update` del settle solo filtra
+por `id` ⇒ el perdedor re-escribe `settledAt`. Por lectura del código (⛔ NO MEDIDO en ejecución) la misma carrera manda
+**dos `AV-2`** y, en invitado, **dos** confirmaciones. Norma: `API_CONTRACT §M4-VAULT.2-bis.1`.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **Cerrar ahora, en este stream** | Registrarlo como deuda | `INV` «un hecho, un instante» es promesa de M-59 (este stream) y hoy es falsa bajo carrera; el arreglo es **una** sentencia con precedente en el mismo fichero (`REL-B`, `:313`) y cierra además un doble correo al cliente. Deuda aquí sería dejar escrita una garantía que no se cumple |
+| CAS en el `WHERE` (`updateMany` + `count`), primera escritura de la tx, **las dos ramas** | `SELECT … FOR UPDATE` + `if`; `Serializable`; arreglar solo `vault` | Una sentencia es atómica por construcción (Postgres re-evalúa el `WHERE` tras el candado bajo `READ COMMITTED`); `Serializable` añade reintentos a un webhook; `direct_ship` tiene el mismo defecto (re-escribe `settledAt`, tarjeta, y duplica correo) — un arreglo en una rama deja la otra con dos verdades |
+| Predicado `status: { not: 'settled' }` | `status: 'pending'` | Es la negación **exacta** del early-return: el camino secuencial no cambia de estados de origen. Estrechar a `pending` dejaría de liquidar un `succeeded` tras `payment_failed` del mismo PI — decisión de dinero que no es de este arreglo |
+| El perdedor: `200`, cero escrituras, cero avisos | Dejar que siga su bucle (hoy es inocuo) | Cualquier escritura del perdedor es otra fuente de «quién liquidó»; y los avisos cuelgan de «¿gané?», que solo el `count` sabe |
+| Se conservan el early-return y los `skipDuplicates` | Quitarlos por redundantes | El early-return ahorra el `getCardDetails` y el ruido de H1 en la reentrega secuencial; `skipDuplicates` es segunda defensa (su prueba de carrera deja de morder y se declara — `API_CONTRACT` prueba 39) |
+
+⚠️ **Precondición de reparto (O-12/zonas):** `payments` es del stream «Órdenes y dinero». Esta rama ya lo tocó en fase 1
+(M-59). ⛔ **NO MEDIDO** por el arquitecto si otra sesión tiene `payments.service.ts` abierto: lo comprueba el
+orquestador antes de encargarlo.
+
+⚠️ **Observación registrada, NO decidida (para «Órdenes y dinero»):** el settle liquida desde **cualquier** estado salvo
+`settled` — también `refunded` y `chargeback`. Un `succeeded` tardío (event.id distinto) sobre una orden reembolsada o
+contracargada la volvería `settled` y movería piezas. Conducta **previa**, que el CAS conserva a propósito para no mezclar
+decisiones. ⛔ **NO MEDIDO** si Stripe llega a emitir ese evento en esa secuencia. Decidir el conjunto de estados de
+origen liquidables es una rev propia, con el dueño si cambia qué pagos se aceptan.
+
+**(o) v1.79.5 — Gates sobre `db7d1c2`: el rival de los CAS es el contracargo; dos conteos con nombre.** Norma y
+pruebas en `API_CONTRACT §M4-VAULT` v1.79.5 (.4, .5, .8 #32/#40, .11, .2-bis.1). ⛔ Sin schema, sin endpoint, sin
+cambio de conducta.
+
+- **La lección de la prueba 32 (medida por seguridad, `SEC-VLT-TL`):** un candado solo se prueba contra **un escritor
+  que no pasa por los otros candados**. Entre verbos de bóveda la puerta del cliente ya serializa, así que el `status`
+  de los `WHERE` no tenía rival en la prueba y su mutación sobrevivía a toda la suite. El único escritor fuera de la
+  puerta es el contracargo ⇒ la prueba 40 lo enfrenta a los cuatro CAS con barrera de fila. *Regla general que queda
+  para los próximos diseños:* al declarar la mutación de un `WHERE` con estado, **nombrar el escritor rival** y
+  comprobar que no comparte la serialización del verbo; si no hay ninguno, el `WHERE` es defensa en profundidad y se
+  dice así, ⛔ sin prometer que una prueba lo muerde.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **`SEC-VLT-DL` (interbloqueo contracargo↔`confirm`) se acepta** con disparador | Fijar ya el orden de candados | Converge sin estado falso (seguridad: 20/20 interbloqueos forzados, reintento correcto 10/10). Las dos correcciones baratas empeoran otra cosa (abajo) |
+| Corrección elegida para el disparador: `SELECT … FOR UPDATE` de la colocación como **primera** sentencia del contracargo; la escritura sigue **al final** | (i) mover la cancelación al principio; (ii) que el contracargo tome la puerta | (i) su `UPDATE` no vería una colocación que un settle concurrente aún no confirmó ⇒ quedaría `pending` una colocación de una orden contracargada (derivado de leer, ⛔ NO MEDIDO). (ii) quita al único rival de los `WHERE` ⇒ la prueba 40 no podría entrelazar y los `WHERE` vuelven a quedarse sin canario; además pone un webhook de dinero en la cola de los operadores |
+| `pieceCount` = **«a su nombre»** (valuación) y `counts.total` = **«deben estar en bóveda»** (físico); los dos se quedan | Alinear la lista al conjunto físico | La lista es un perímetro de **valuación** con gates aprobados: lo apartado sin pagar pesa en el valor. Cambiarlo movería `totalValueMxnCents`. El defecto era de **nombre** (el mismo sustantivo para dos preguntas), y se cierra con nombre |
+| Ruta de ubicaciones: errata a `GET /admin/locations` + `VaultLocationDTO` declarado | Crear el alias `/admin/inventory/locations` | El contrato citaba mal; el código y §M1 ya coincidían. Un alias sería dos rutas para un hecho |
+
+⚠️ **`SEC-SETTLE-LATE` — registrada, NO decidida (para «Órdenes y dinero»).** La observación de arriba (n) queda
+**medida** por seguridad en local (N=1, eventos firmados sintéticos): orden `chargeback` + `succeeded` tardío con
+importe correcto ⇒ `200`, `Order.status='settled'`, **`settledAt` reescrito**. **Corrige una frase de (n):** las piezas
+⛔ **no** se mueven (las protege `reservationGuard`: se quedan `platform/listed`) y la colocación sigue
+`cancelled/chargeback` (`skipDuplicates`). Lo que sí queda falso es el registro de dinero («liquidada» con los fondos
+revertidos). ⛔ NO MEDIDO: `AV-2` en ese camino y la alcanzabilidad con Stripe real. **Disparador:** antes de operar con
+disputas reales, o el siguiente pase de ese stream. Quien lo decida revisa a la vez la prueba 38 (ii) (`API_CONTRACT
+§M4-VAULT.8`), que canda la liquidación desde `failed`.
+
+⚠️ **Riesgo residual anotado para «Órdenes y dinero» (de `SEC-VLT-DL`, no de este stream):** tras un fallo del handler
+del webhook, el borrado del marcador `ProcessedStripeEvent` se traga su propio error (`payments.service.ts`,
+`.catch(() => undefined)`); si ese borrado fallara, Stripe no reintentaría y **el contracargo se perdería en silencio**
+(seguridad, ⛔ NO MEDIDO con fallo inyectado). Mínimo propuesto: log nivel `error` en ese `catch`.
 
 ---
 
@@ -13982,28 +14417,249 @@ compara contra el mercado** — solo **contra la curva de compra**. El hueco: ho
 crear** (`variant-controls.service.ts:301-315`); si después sube el mercado y la curva rebasa al bounty, la «oferta»
 publicada **paga menos que la tarifa normal** y aun así sigue publicada y ganando la precedencia #1.
 
-**Predicado único (puro, en `common/pricing-curve.ts`; prohibido duplicar):**
+**Predicado único (puro, en `common/pricing-curve.ts`; prohibido duplicar). ⚠️ AMENDADO por §4.36.6b-piso
+(decisión del dueño Q1, 2026-09-19): gana el argumento `marketMxnCents` y el TOPE DE MERCADO.**
 
 ```ts
-export function isBountyEffective(bountyPriceCents: number | null, curveQuoteCents: number | null): boolean {
+export function isBountyEffective(
+  bountyPriceCents: number | null,
+  curveQuoteCents: number | null,
+  marketMxnCents: number | null,        // ⭐ v2.2 (Q1): el mercado que ENTRÓ al cálculo de la curva de compra
+): boolean {
   if (bountyPriceCents == null || bountyPriceCents <= 0) return false;
-  if (curveQuoteCents == null) return true;              // curva sin resolver ⇒ el bounty explícito manda
-  return bountyPriceCents > curveQuoteCents;             // ESTRICTAMENTE mayor (criterio 91)
+  if (curveQuoteCents == null) return true;              // curva sin resolver (⇒ mercado null) ⇒ el bounty explícito manda
+  // El candado exige BATIR la tarifa normal (curva)… PERO nunca obliga a pagar por ENCIMA del mercado:
+  // en el borde de cartas baratas (bin/piso ≥ mercado) basta con IGUALAR el mercado (empate CON EL MERCADO aceptado).
+  return (
+    bountyPriceCents > curveQuoteCents ||
+    (marketMxnCents != null && bountyPriceCents >= marketMxnCents)
+  );
 }
 ```
 
-**Tres seams (las tres, no solo la primera):**
+> **Por qué el mercado entra al predicado (Q1, el problema real del dueño).** `curveQuoteCents =
+> max(bin, mercado × pct(mercado))` (`resolveBuyFromCurve`). Para cartas **baratas** el término `bin/piso` puede quedar
+> **pegado o por encima del mercado**, así que `curveQuoteCents ≥ mercado`; exigir `bounty > curveQuoteCents` obligaba a
+> poner el bounty **estrictamente por encima del mercado** (*«a fuerza pagamos arriba de mercado»*). La decisión del
+> dueño: **mantener el mínimo = su precio de compra normal, pero que el candado NUNCA obligue a un precio estrictamente
+> por encima de la referencia de mercado**. En una fórmula: el piso efectivo del bounty es **`min(curveQuoteCents,
+> marketMxnCents)`**, con una asimetría de empate que la forma `OR` de arriba captura exactamente:
+> - **empate CON LA CURVA se RECHAZA** (`> curveQuoteCents`, estricto — sin cambio, criterio 91 en su tramo normal);
+> - **empate CON EL MERCADO se ACEPTA** (`>= marketMxnCents`) — es lo único que impide forzar un precio > mercado.
 
-| Seam | Dónde | Comportamiento |
+**Tabla de casos NORMATIVA** (`mercado` = `marketMxnCents`; `curva` = `curveQuoteCents = max(bin, mercado·pct)`; el
+resultado es el mismo en las CUATRO seams porque las cuatro llaman a `isBountyEffective`):
+
+| mercado | curva | bounty | ¿efectivo? / alta | basis en runtime | código en el alta |
+|---|---|---|---|---|---|
+| `null` (pending) | `null` | cualquiera `> 0` | **SÍ** (bounty explícito manda) | `bounty` | 200 (acepta) |
+| `null` (pending) | `null` | `≤ 0` | NO | — | `422 BOUNTY_PRICE_REQUIRED` |
+| 1000 (cara) | 400 (`curva < mercado`) | 401 | **SÍ** (`> curva`) | `bounty` | 200 |
+| 1000 | 400 | **400** (empate curva) | **NO** | (curva/override) | **`422 BOUNTY_BELOW_RULE`** |
+| 1000 | 400 | 399 | NO | (curva/override) | **`422 BOUNTY_BELOW_RULE`** |
+| 1000 | 400 | 1000 | SÍ | `bounty` | 200 |
+| 500 (barata) | 700 (`curva ≥ mercado`, bin domina) | 701 | SÍ (`> curva` y `≥ mercado`) | `bounty` (paga 701) | 200 |
+| 500 | 700 | 650 | **SÍ** (`≥ mercado`, aunque `< bin`) | `bounty` (paga 650) | 200 |
+| 500 | 700 | **500** (empate MERCADO) | **SÍ** (empate con mercado aceptado) | `bounty` (paga 500 = mercado) | **200** |
+| 500 | 700 | 499 | **NO** (`< mercado` **y** `< curva`) | (curva/override) | **`422 BOUNTY_BELOW_RULE`** |
+| 500 | 500 (bin == mercado) | 500 | SÍ (`≥ mercado`) | `bounty` | 200 |
+| 500 | 500 | 499 | NO | (curva/override) | **`422 BOUNTY_BELOW_RULE`** |
+
+Condición de RECHAZO equivalente (la que implementa el `422 BOUNTY_BELOW_RULE`): un bounty es «below-rule» **iff**
+`bountyPriceCents ≤ curveQuoteCents ∧ (marketMxnCents == null? false : bountyPriceCents < marketMxnCents)` — es decir,
+está por debajo de la curva **y** además no alcanza el mercado. Nótese la asimetría `≤` (curva) vs `<` (mercado).
+
+**Coherencia alta↔runtime — POR CONSTRUCCIÓN, no por convención (la lección de v1.62.2).** El gate de creación
+**llama a `isBountyEffective`**, la misma función que gobierna la cotización, la vitrina y la pantalla de estado; el
+`422 BOUNTY_BELOW_RULE` dispara **exactamente cuando `isBountyEffective(...) === false`**. Así, un bounty que el alta
+ACEPTA es necesariamente **efectivo** al cotizar y **visible** en `/buylist/bounties`, y uno que el alta rechaza jamás
+podría colarse como inefectivo en runtime. ⛔ **Prohibido re-derivar el gate con un `<`/`<=` a mano**: repetir el
+predicado es cómo se llegó a la divergencia que §4.36.6 existe para cerrar (mutación **B-2**/**B-16**).
+
+**Las CUATRO seams (la cuarta se añadió en §M2-B.0):**
+
+| Seam | Dónde | Cómo pasa `marketMxnCents` |
 |---|---|---|
-| **CREAR/EDITAR** | `PUT /admin/pricing/variant-controls/:cardId/:finish` | `enabled:true` con `priceCents ≤` cotización de curva vigente ⇒ **`422 BOUNTY_BELOW_RULE`** (con `curveQuoteCents` en el detalle). Curva `pending` ⇒ se **acepta** (el bounty es precio explícito; es el caso donde más se necesita) |
-| **COTIZAR** | `quoteAcquisitionFromCurve` (núcleo único de compra) | bounty **no efectivo** ⇒ se **salta el peldaño 1** y cae a `override`/curva/pendiente. El `basis` resultante **nunca** es `bounty` |
-| **PUBLICAR** | `GET /buylist/bounties` (vitrina Home + Vender) | se resuelve la efectividad **por bounty** y se **filtran los no efectivos ANTES** de aplicar el cap 50 (seleccionar candidatos → filtrar → ordenar por `bountyPriceCents desc` → top 50). Filtrar después del cap dejaría huecos silenciosos |
+| **CREAR/EDITAR** | `PUT /admin/pricing/variant-controls/:cardId/:finish` | de `quoteAcquisitionFromCurve(referenceMxnCents, curve)` — devuelve `curveQuoteCents` **y** `marketMxnCents` en una sola llamada. `enabled:true` con `!isBountyEffective(priceCents, curveQuoteCents, marketMxnCents)` ⇒ **`422 BOUNTY_BELOW_RULE`** (con `curveQuoteCents` **y** `marketMxnCents` en el detalle). Curva `pending` ⇒ se **acepta** |
+| **COTIZAR** | `quoteAcquisitionFromCurve` (núcleo único de compra) | ya tiene `marketMxnCents` y `curveQuoteCents` en mano (`money.ts:258-266`). bounty **no efectivo** ⇒ se **salta el peldaño 1** y cae a `override`/curva/pendiente; el `basis` **nunca** es `bounty` |
+| **PUBLICAR** | `GET /buylist/bounties` (vitrina Home + Vender) | `marketMxnCents` sale de la misma `PriceReference` batch que ya alimenta a la curva; se filtran los no efectivos **ANTES** del cap 50 |
+| **ESTADO (binder/consola)** | `composeVariantPricing` → `state` de §M2-B.0 | `pricing.market.referenceMxnCents` (v1.62.2) es ese mismo mercado; la pantalla NO re-implementa el predicado |
 
-> **Cambio explícito de semántica en el 422 (bandera para QA/PO):** el gate de creación pasa de `<` (rechaza solo si es
-> **menor**) a `≤` (rechaza también el **empate**). Sin este ajuste, un bounty exactamente igual a la curva **pasaría el
-> alta** y sería **invisible en runtime** (el predicado exige `>` estricto por criterio 91) — una incoherencia entre
-> alta y ejecución. Es un endurecimiento money-safe, reversible en dato (subir el bounty $0.01).
+> **Cambio explícito de semántica (bandera para QA/PO), v2.2 (Q1):** el gate de creación pasa a comparar contra el
+> **piso efectivo `min(curva, mercado)`**. En el tramo NORMAL (`curva < mercado`, cartas caras) **no cambia nada**:
+> sigue exigiendo `> curva` (empate con la curva rechazado — el endurecimiento de v2.0 se conserva). En el **borde**
+> (`curva ≥ mercado`, cartas baratas con piso dominante) el candado deja de rechazar un bounty `∈ [mercado, curva]`:
+> ahora esos bounties se **aceptan y son efectivos** (pagan su propio monto, que puede quedar por **debajo del bin**
+> pero **nunca por debajo del mercado**). Es un **ablandamiento money-safe deliberado del dueño**, no un bug.
+>
+> **⚠️ Enmienda a criterio 91 en el borde — dicho entero, no escondido.** Criterio 91 rezaba *«todo lo de la vitrina es
+> mejor que la tarifa estándar»*. En el borde, la tarifa estándar (el bin) está **por encima del mercado**, y las dos
+> metas —*«batir la tarifa estándar»* y *«nunca forzar por encima del mercado»*— son **lógicamente incompatibles**: no
+> existe un bounty que sea a la vez `> bin` y `≤ mercado` cuando `bin > mercado`. La decisión Q1 del dueño **reancla la
+> garantía de la vitrina al MERCADO** cuando el bin lo rebasa: en ese borde la vitrina promete *«pago al menos el
+> mercado, nunca te obligo a pagar por encima»*, no *«pago más que mi propia tarifa inflada»*. Esta enmienda es del
+> dueño (autoridad de negocio) y **prevalece sobre criterio 91 en su tramo de borde**; el tramo normal de criterio 91
+> queda intacto. *(Regla de conflicto: si `PROJECT.md` transcribe criterio 91 como LOCKED sin este matiz, la frase de
+> `PROJECT.md` debe enmendarse — se enruta a product-owner; el contrato NO puede contradecir `PROJECT.md`, así que
+> hasta que se enmiende esta relajación queda **normada pero marcada como bloqueada por D-PROC**, igual que en
+> §4.36.6.)*
+
+#### 4.36.6b ELIMINAR un bounty — borrar-si-sin-historia / despublicar-si-con-historia (decisión Q2, v2.2)
+
+**El hueco medido.** Hoy `variant-controls.service.ts:294-296` trata `bounty:null` como **APAGAR** (`bountyEnabled=false`,
+un *hold* reversible) y **conserva la fila** con su historial. La fila `VariantPriceOverride` solo se BORRA físicamente
+si TODO queda vacío **y** no hay historia de bounty (`:147-164`: `bountyAcquiredQty===0 ∧ bountyCompletedAt==null`). En
+consecuencia, **un bounty que ya compró ≥1 pieza nunca se puede eliminar, solo apagar.** No existe operación de
+«eliminar». El dueño la pidió.
+
+**Decisión del dueño (Q2), ramificada por historia de compra:**
+
+| Rama | Condición (server-side) | Qué hace | Estado resultante |
+|---|---|---|---|
+| **A · BORRAR de verdad** | `bountyAcquiredQty === 0 ∧ bountyCompletedAt == null` (nunca se compró nada bajo el bounty) | **limpia** todos los campos de bounty (`bountyEnabled=false`, `bountyPriceCents=null`, `bountyTargetQty=null`, `bountyUnpublishedAt=null`); si la fila queda **sin** `sellOverrideCents`/`buyOverrideCents`, se **borra físicamente** (comportamiento ya existente de `:147-164`) | **no existe bounty** (fila fuera de `enScope`, o borrada) |
+| **B · DESPUBLICAR** | `bountyAcquiredQty > 0 ∨ bountyCompletedAt != null` (ya se compró algo) | **conserva el registro/historial** (`bountyPriceCents`, `bountyTargetQty`, `bountyAcquiredQty`, `bountyCompletedAt` **intactos**), pone `bountyEnabled=false` y **marca `bountyUnpublishedAt = now()`** | **`despublicada`** (nuevo estado, §M2-B.0) — fuera de la vitrina pública **y** del tablero admin por defecto, pero **queryable como registro** |
+
+Palabras del dueño: *«solo se despublica el bounty si se llegó a comprar algo»*. La rama la decide el **servidor** por la
+historia, **no** el cliente: el cliente pide *eliminar*, el servidor elige *borrar* o *despublicar*.
+
+**Verbo y forma — `DELETE` dedicado, NO un `bounty:{remove:true}` en el `PUT`.**
+
+```
+DELETE /api/v1/admin/pricing/variant-controls/:cardId/:finish/bounty      (super_admin, AUDITADO)
+```
+
+Por qué un `DELETE` y no reusar el `PUT` (que la doctrina de §M2-B.2 pide reusar para la CONSOLA):
+1. **La doctrina «cero superficie nueva» prohíbe una segunda puerta de *upsert*** — porque un segundo `PUT` reintroduce
+   el riesgo de pisar overrides por la semántica de omisión (§M2-B.3). Un `DELETE` **no es un upsert**: está acotado al
+   **sub-recurso `bounty`** de esa variante y **no toca** `sellOverrideCents`/`buyOverrideCents`, así que no reabre ese
+   riesgo. Es otro verbo, no otra puerta de escritura de controles.
+2. **`bounty:null` en el `PUT` ya significa APAGAR (hold), y ese significado NO cambia.** Meter «eliminar» como
+   `bounty:{remove:true}` obligaría a un caso mágico dentro de la tabla omitir/`null`/valor (el `remove` ignoraría
+   `priceCents`/`targetQty`), ensuciando la única semántica de merge del endpoint. Apagar y eliminar son **lifecycle
+   distintos**: apagar es reversible y sigue en el tablero; eliminar es terminal.
+3. **Precedente del propio proyecto:** `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue` ya existe — el
+   proyecto **sí** usa `DELETE` dedicado para sub-entidades de pricing.
+4. **Auditoría money-adjacent (pedido de seguridad):** un verbo propio lleva su **evento de auditoría propio**
+   (`bounty.deleted` vs `bounty.unpublished`), con la pre-imagen para reconstruir qué se borró.
+
+**El estado `despublicada` necesita una columna, y es la única DDL.** «Apagada» (hold) y «despublicada» comparten
+`bountyEnabled=false ∧ bountyCompletedAt` posiblemente `null`: **no son distinguibles con las columnas de hoy**. Se
+añade **`bountyUnpublishedAt DateTime?`** a `VariantPriceOverride` (migración **M-58** — el número libre: **M-57** es el
+más alto en `backend/prisma/migrations/`, backend confirma antes de crear; aditiva, `NULL`able, **sin
+backfill** — toda fila existente = `null` = «nunca despublicada»). Es el espejo exacto de `bountyCompletedAt`: un sello
+temporal nullable que marca una transición de ciclo de vida y alimenta un estado **derivado** (`state` sigue sin
+persistirse; §M2-B.0). ⛔ **`BountyState` NO es un enum de Prisma** (es unión de literales, clase L §M2-B.0): añadir
+`despublicada` **no** toca `schema.prisma` salvo por la columna `bountyUnpublishedAt`.
+
+**Re-publicar tras despublicar / recrear tras borrar (semántica de retorno).** Un `PUT … bounty:{enabled:true,…}`
+posterior **limpia `bountyUnpublishedAt=null`** (vuelve a la vitrina y al tablero) y pasa por el gate `BOUNTY_BELOW_RULE`
+como cualquier alta. ⚠️ **La historia de DINERO (`bountyAcquiredQty`) NO se reinicia al re-publicar** — misma doctrina
+que M-46 (*copiar sí, adivinar no*; no se borra historia de dinero). **⚠️ Enmienda 2026-09-19 (reconcilia el re-armado
+P-22 §4.36.6 criterios 90-91 con §M2-B.9):** `bountyCompletedAt` **SÍ se limpia** al re-publicar
+(`variant-controls.service.ts:516`, re-armado P-22): un bounty re-encendido está `activa`, **no** `completada`, y
+conservar el sello de «objetivo alcanzado» sobre un bounty que vuelve a pagar sería incoherente. El *«por qué dejó de
+pagarse»* **no se pierde**: vive en el `AuditLog` (`bounty.unpublished`, con pre-imagen), no en el sello de estado.
+*Si el dueño quiere un bounty «desde cero» con el contador `bountyAcquiredQty` en 0, eso es una decisión de negocio
+distinta y va a `PROJECT.md` (regla de conflicto: no lo asumo aquí).* Contrato: §M2-B.9.
+
+**Criterios de prueba que deben FALLAR si se implementa mal** (el modelo fuerte los escribe primero):
+- **Rama A borra:** alta de bounty sin compra (`acquiredQty=0`, no completado) → `DELETE` → la variante ya no trae
+  bounty (`GET /admin/pricing/bounties` sin la fila; `pricing.bounty` ausente/limpio) y, si no había otros overrides,
+  la fila `VariantPriceOverride` **no existe** en BD. Rojo si queda una fila apagada con `bountyPriceCents` persistido.
+- **Rama B despublica y CONSERVA:** alta + simular `acquiredQty > 0` → `DELETE` → `state:"despublicada"`,
+  `bountyPriceCents`/`bountyTargetQty`/`bountyAcquiredQty` **iguales** a antes; **ausente** de `GET /buylist/bounties`
+  **y** del `GET /admin/pricing/bounties` por defecto; **presente** con `?state=despublicada`. Rojo si borra la
+  historia o si sigue apareciendo en la vitrina/tablero por defecto.
+- **La rama la decide la historia, no el cliente:** el mismo `DELETE` sobre dos fixtures idénticos salvo `acquiredQty`
+  produce borrado en uno y `despublicada` en el otro.
+- **Auditoría:** ambas ramas escriben un `AuditLog` (`bounty.deleted` / `bounty.unpublished`) con actor + pre-imagen.
+
+#### 4.36.6c Invariante contable — eliminar/despublicar un bounty NO toca el costo ni el P/L (Q2-C, NORMATIVO)
+
+**Estado medido: YA se cumple estructuralmente. Esto es un candado de NO-REGRESIÓN, no una reparación.**
+
+`buylist.service.ts:7143`: al convertir una compra en inventario,
+`InventoryItem.acquisitionCostCents = offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents ?? 0` — el **bruto
+pagado** (bajo bounty, ese bruto **ES** el precio del bounty). Es la **fuente ÚNICA** del costo; el P&L por carta (M7)
+lo lee de ahí. El bounty vive en `VariantPriceOverride`, **tabla separada** de las piezas (`InventoryItem`). Por
+construcción, borrar/despublicar un bounty **solo toca `VariantPriceOverride`** (y `AuditLog`) y **jamás**
+`InventoryItem`. Palabras del dueño: *«ya debería de estar el costo en inventario, no en el P/L también»* — medido: así
+es.
+
+> **INV-BOUNTY-COST (invariante normativo).** Eliminar o despublicar un bounty **NO modifica** `acquisitionCostCents`
+> de ninguna pieza ya adquirida, **NO** crea ni altera ningún asiento de P/L, y **NO** genera gasto. El costo de una
+> pieza vive **una sola vez**, en `InventoryItem.acquisitionCostCents`, sellado en el momento de la conversión a
+> inventario. El bounty es la **regla de precio** que fijó ese bruto; una vez capturado el costo, la regla y la pieza
+> son independientes. *(Es la doctrina §0-B.1: dos fuentes para un mismo número divergen; el costo tiene una.)*
+
+**Criterio de prueba (candado de no-regresión):**
+- **Inmutabilidad del costo:** crear bounty → adquirir ≥1 pieza bajo el bounty (`acquisitionCostCents == bountyPrice`)
+  → `DELETE` (rama B, despublicar) → el `acquisitionCostCents` de esa pieza es **idéntico** al de antes del `DELETE`.
+  Rojo si cambia un centavo.
+- **Cero asiento de P/L:** el reporte M7 de esa carta **antes y después** del `DELETE` reporta el **mismo** costo y el
+  **mismo** P&L (delta = 0). Rojo si aparece un gasto o se recomputa el costo.
+- **Aislamiento de tablas (canario estructural):** durante la transacción del `DELETE`, **cero** `UPDATE`/`INSERT`
+  sobre `InventoryItem`; las únicas escrituras son a `VariantPriceOverride` y `AuditLog`. Rojo si alguien alguna vez
+  cablea el borrado del bounty a tocar el inventario. *Este candado convierte «hoy se cumple por diseño» en «no se
+  puede romper sin que un test lo grite».*
+
+#### 4.36.6d PARA BACKEND — archivos, funciones y las pruebas-que-FALLAN (protocolo modelo-fuerte-primero)
+
+**Reparto de modelos (CLAUDE.md).** Todo esto toca `pricing`/`buylist`/`inventory` — **dinero** ⇒ el **modelo fuerte
+escribe el plano y las pruebas que fallan**; el barato solo las hace pasar sobre código de producción, **jamás** toca
+pruebas ni candados. La prueba es el contrato entre ambos. **Escribir primero las pruebas rojas de abajo** y verlas
+fallar antes de tocar producción.
+
+**Q1 — el piso del bounty con tope de mercado (§M2-B.8 / §4.36.6):**
+- `backend/src/common/pricing-curve.ts` — `isBountyEffective` (`:609`): **cambia la firma** a
+  `(bountyPriceCents, curveQuoteCents, marketMxnCents)` y el cuerpo a `bounty>0 ∧ (curve==null ∨ bounty>curve ∨
+  (market!=null ∧ bounty>=market))`. Es el **único cuerpo** (cuatro seams). Actualiza el JSDoc.
+- `backend/src/common/money.ts` — `quoteAcquisitionFromCurve` (`:260`): pasa `marketMxnCents` a `isBountyEffective`
+  (ya lo tiene en mano; `:258-266` devuelve ambos). Sin otro cambio de precedencia.
+- `backend/src/modules/pricing/variant-controls.service.ts` — el gate `BOUNTY_BELOW_RULE` (`:365-386`): reemplaza el
+  predicado `curveQuoteCents != null ∧ next.bountyPriceCents <= curveQuoteCents` por
+  `!isBountyEffective(next.bountyPriceCents, curveQuoteCents, marketMxnCents)`; toma `marketMxnCents` del **mismo**
+  `quoteAcquisitionFromCurve(referenceMxnCents, curve)` que ya llama; incluye `curveQuoteCents` **y** `marketMxnCents`
+  en el `details` del `422`.
+- **Los otros dos seams** (`buylist.service.ts` vitrina, y `admin-bounties.service.ts`/`composeVariantPricing` estado)
+  ya llaman a `isBountyEffective`: **actualiza cada call-site** para pasar el mercado (vitrina: de la `PriceReference`
+  batch; consola/binder: `pricing.market.referenceMxnCents`). ⛔ Un call-site que no pase mercado no compila (la firma
+  cambió) — es el candado de que nadie se quede en la versión de dos argumentos.
+- **Pruebas rojas primero:** unitarios de `isBountyEffective` con la tabla de casos de §M2-B.8 (los 12 renglones), el
+  **canario del dueño** (para todo `curva≥mercado` existe aceptado `≤mercado`) y **B-16** (dos superficies: el `PUT`
+  acepta `bounty=mercado` en el borde ⇒ la vitrina lo trae; `bounty=mercado−1` ⇒ `422` y ausente).
+
+**Q2 — eliminar/despublicar (§M2-B.9 / §4.36.6b):**
+- `backend/prisma/schema.prisma` — `VariantPriceOverride`: **+`bountyUnpublishedAt DateTime?`** (M-58, número libre —
+  confirmar contra `backend/prisma/migrations/`). `BountyState` **no** es enum de Prisma; no se toca ningún enum.
+- `backend/src/modules/pricing/variant-controls.service.ts`:
+  - **nuevo** `deleteBounty(cardId, finish, actor)`: computa `hasHistory = bountyAcquiredQty>0 ∨ bountyCompletedAt!=null`;
+    **rama A** limpia campos de bounty y reusa la limpieza de fila vacía (`:147-164`); **rama B** setea
+    `bountyEnabled=false` + `bountyUnpublishedAt=now()` conservando el resto; escribe `AuditLog`
+    (`bounty.deleted`/`bounty.unpublished`) con pre-imagen; `404 BOUNTY_NOT_FOUND` si no hay bounty en alcance;
+    idempotente si ya `despublicada`.
+  - `mergeBounty` + persistencia: al `enabled:true` **limpia `bountyUnpublishedAt=null`** (re-publicar); **no** reinicia
+    `bountyAcquiredQty` (⚠️ enmienda 2026-09-19: `bountyCompletedAt` **sí** se limpia al re-publicar por el re-armado
+    P-22 `:516` — un bounty re-encendido está `activa`, no `completada`; ver §4.36.6b).
+  - la limpieza de fila vacía (`:147-164`): añade `bountyUnpublishedAt == null` al predicado de «fila vacía» (una
+    `despublicada` **no** califica como vacía — pero como siempre tiene historia, ya no calificaba; el guard es explícito).
+- `backend/src/modules/pricing/*.controller.ts` (el controller de `variant-controls`, **no** el de `admin/pricing/bounties`
+  que es solo `@Get`): **nueva** ruta `@Delete(':cardId/:finish/bounty')`, `@Roles(super_admin)`, auditada.
+- `backend/src/modules/pricing/admin-bounties.service.ts` (handler de `GET /admin/pricing/bounties`): deriva el estado
+  `despublicada` (discrimina **primero**, §M2-B.0); `data` **excluye** `despublicada` salvo `?state=despublicada`;
+  `counts` gana la sexta cubeta y la reporta **siempre** (regla 2, es selector); el orden `attention_first` la pone al
+  final.
+- `backend/src/modules/buylist/buylist.service.ts` (vitrina `/buylist/bounties`, ~`:715`): excluye
+  `bountyUnpublishedAt IS NOT NULL` del conjunto de candidatos **antes** del cap 50 (defensa; ya está fuera por
+  `enabled=false`).
+- **Pruebas rojas primero:** **B-17** (rama por historia), **B-18** (fuera de vitrina+tablero por defecto, dentro con
+  `?state=despublicada`), **B-19** (no colapsa con `apagada`/`completada`), **B-20** (verbo `DELETE`, no `remove:true`;
+  no toca overrides sell/buy).
+
+**Q2-C — invariante contable (§M2-B.10 / §4.36.6c):**
+- **Ningún archivo de producción cambia por C** (ya se cumple estructuralmente). Solo **prueba de no-regresión B-21**:
+  adquirir pieza bajo bounty (`buylist.service.ts:7143` sella `acquisitionCostCents`) → `DELETE` → costo idéntico, M7
+  delta 0, cero escrituras a `InventoryItem` en la tx del `DELETE`.
 
 #### 4.36.0b Deuda D10 — ocho respuestas sin forma declarada: la declara el ARQUITECTO (v2.1.8)
 
@@ -14566,6 +15222,15 @@ API_CONTRACT §Enums.
 | `location \| price` en `?missing=` de `GET /admin/inventory/pending-publish` | **L** (v1.73) | No nombra estados: nombra **qué le falta a la fila**. `rg 'enum .*Missing' schema.prisma` ⇒ 0 |
 | `sale \| buy` en `?axis=` de `GET /admin/reports/pricing-brackets` | **L** (v1.73) | `rg 'enum .*[Aa]xis' schema.prisma` ⇒ **0** (medido). Es un modo de agregación, no un dato |
 | `BountyState` en `?state=` · `AdminBountySort` en `?sort=` de `GET /admin/pricing/bounties` | **L** (v1.73) | `BountyState` es un estado **derivado** (§M2-B.0), no una columna; `sort` es un **orden con default** (API_CONTRACT §0-Q punto 6), no un filtro |
+| **`PreparationDestination`** (`vault \| ship`) en `?destination=` de `GET /admin/shipments/picking-list` | **L** (v1.78.1) | `rg 'enum FulfillmentMode' backend/prisma/schema.prisma` ⇒ `vault \| direct_ship`: **`ship` NO existe** en el schema. Y en un **retiro de bóveda** (`orderId == null`) **no hay `Order`**, luego no hay `fulfillmentMode` que recortar ⇒ el eje **computa** una partición, no recorta un dominio persistido. ⇒ ⛔ nada que citar (no es R) y la prueba de **subconjunto del enum** que R exige sería **roja por construcción**. Canónico: la línea del propio endpoint (API_CONTRACT §M4-PREP, «DOMINIO CANÓNICO»); paridad a **dos** bandas |
+
+> **⚠️ `D-EQ-R1` (v1.78.1) — dos filas del registro de `§0-Q` punto 4 que NO están en este inventario y que, por la
+> letra de §4.37, serían L y no R:** `?kind=` (§M4) y `?scope=` (§M6), clasificados **R** en v1.77 como *«subconjunto
+> semántico»* — término que §4.37 **no define**. Medido 2026-09-22 (censo completo `rg '^enum ' backend/prisma/schema.prisma`
+> ⇒ **45 enums, ninguno `ShipmentKind` ni `*Scope`**); sus tokens no viven en ninguna columna. ⛔ **No se re-clasifican aquí:** su **conducta observable es idéntica**
+> bajo R y bajo L, y el cambio toca código ya fusionado en **dos** streams. Lo que sí queda fijado: **ningún eje nuevo
+> se clasifica R si su prueba de subconjunto del enum no puede existir.** Cuerpo entero de la cuestión abierta:
+> API_CONTRACT §0-Q punto 4, nota `D-EQ-R1`.
 
 **El caso `RawCondition`, explicado — es el que enseña la diferencia.** La lista pasó de `@IsIn(['NM'])` a la lista
 derivada. **Hoy no ensanchó nada** y el resultado es idéntico. Pero «raw = solo NM» **no es un hecho del schema**: es
@@ -26131,6 +26796,30 @@ Riesgos técnicos:
     frase es mía y está en mi documento**, así que **la corrijo yo** (§M2-B la sustituye). Las cinco de `PROJECT.md`
     **no las toco**: son de otro dueño (regla 5).
 
+- **⚠️ v1.77 (Q2) — la operación ELIMINAR bounty (`DELETE …/bounty`, §4.36.6b) cae bajo el paraguas de `D-PROC-7`.**
+  Eliminar/despublicar es una **acción de gestión de bounties**; la misma enmienda de las cinco frases que `D-PROC-7`
+  pide para la consola de ver+editar **debe incluir explícitamente** el borrado. **No** abre una desviación nueva —es el
+  mismo `PROJECT.md` y el mismo dueño (product-owner)—; se anota para que la enmienda no se quede corta.
+
+- **⛔ NUEVA (v1.77) — `D-PROC-Q1`: Q1 RELAJA CRITERIO 91 EN EL BORDE, y criterio 91 puede vivir LOCKED en `PROJECT.md`.**
+  **Dueño del arreglo: product-owner** (yo no escribo `PROJECT.md`). **Estado: ⚠️ ABIERTA — bloquea la implementación de
+  §4.36.6 / `API_CONTRACT §M2-B.8` SI criterio 91 está LOCKED sin este matiz.**
+  - **Qué decide el dueño (Q1, 2026-09-19):** el candado del bounty **nunca debe forzar un precio estrictamente por
+    encima del mercado**. En el borde (`curva = max(bin, mercado·pct) ≥ mercado`, cartas baratas) eso obliga a **aceptar
+    un bounty que puede quedar por debajo del bin** (su tarifa de compra normal inflada), aunque **nunca por debajo del
+    mercado**. Fórmula y tabla en §4.36.6.
+  - **Por qué es una desviación y no una nota:** criterio 91 reza *«todo lo de la vitrina es mejor que la tarifa
+    estándar»*. En el borde, *«batir la tarifa estándar (bin)»* y *«nunca forzar arriba de mercado»* son **lógicamente
+    incompatibles** (no hay bounty a la vez `> bin` y `≤ mercado` cuando `bin > mercado`). Q1 **reancla la garantía al
+    MERCADO** en ese borde. Como **`PROJECT.md` manda sobre el contrato**, si criterio 91 está LOCKED sin este matiz, QA
+    leyendo `PROJECT.md` **debería rechazar** un bounty de borde por debajo del bin — *implementar Q1 haría fallar el
+    gate por hacer lo que el dueño pidió* (mismo patrón que D-PROC-7).
+  - **Qué hace falta (solo product-owner, con aprobación del humano):** enmendar criterio 91 para que su tramo de borde
+    diga *«al menos el mercado, nunca por encima»*. **NO MEDIDO** si criterio 91 está hoy LOCKED en `PROJECT.md` ni con
+    qué palabras — no lo tengo a la vista en este pase; **la medición que lo cierra** es `rg "criterio 91" PROJECT.md` y
+    leer si está en la lista LOCKED. Hasta entonces, la relajación de §4.36.6 queda **normada pero marcada como
+    bloqueada por D-PROC-Q1**.
+
 - **⚠️ NUEVA (v1.62.1) — `D-UX-1`: `DESIGN_SYSTEM §28` contradice el contrato en CUATRO puntos, y uno pinta
   «está pagando» sobre un bounty que no puede pagar.**
   **Dueño del arreglo: ux-ui** (yo no escribo `docs/DESIGN_SYSTEM.md` — regla 5 y tabla de propiedad de
@@ -28853,3 +29542,244 @@ re-sync; hasta entonces todo se comporta como `normal`). El re-sync es idempoten
 | M-11 | `Card.rarity` | **Sin cambio** — permanece `String` libre (taxonomía abierta pokemontcg.io) | — | Se documenta explícitamente para que no se convierta en enum. |
 
 Ninguna otra tabla cambia. Los índices existentes se conservan.
+
+## 12. Decks Meta (diseño — 2026-09-18, arquitecto)
+
+> Diseño completo y razones: **`docs/specs/DECKS_META_ARCH.md`**. Contrato de endpoints:
+> **`API_CONTRACT.md §13`**. Origen: borrador PO `docs/specs/DECKS_META_DRAFT.md`. **Estado: DISEÑO, no
+> construido.** Base `origin/production cd0bf02c`.
+
+### 12.1 Legalidad — CONFÍA EN LA FUENTE (SUP-LEG, 2026-09-21, decisión del dueño)
+
+> **⚠️ SUPERSEDIDO (2026-09-21).** El modelo original de esta sección —legalidad DERIVADA en lectura contra una
+> ventana de marcas de regulación (`standard.active_regulation_marks`) + banlist en `ConfigSetting`, editable por
+> el operador— **se retira para Meta Battle Decks**. Razón, del dueño y medida: **Limitless solo publica decks
+> legales en el Standard vigente** —no lista un meta-deck ilegal—, así que re-filtrar por NUESTRA propia ventana
+> era (a) redundante, (b) carga de mantenimiento (rotación anual a mano) y (c) la **causa real** del bug
+> «casi todo sale como rotada»: nuestras marcas de ventana/catálogo no cuadraban y tiraban cartas legales.
+> Cierra **P-LEG-CAUSE** y **P-LEG-AUTODERIVE**.
+
+**El nuevo modelo (trust-source):** una carta que aparece en una decklist de Limitless en Standard es **legal por
+definición de la fuente**. La casamos por set+número (`ptcgoCode`+`number`, la impresión exacta) y la **ofrecemos**
+(precio + «Agregar» / incluir en «agregar de jalón») **si y solo si tenemos esa impresión en stock**. Sin chequeo
+de marca de regulación, sin banlist, sin ventana.
+
+**La legalidad deja de ser un estado que computamos para los meta-decks.** Una línea de un meta-deck es exactamente
+uno de:
+- **disponible** — casada + en stock, con precio y piezas (`unitInventoryItemIds`).
+- **no la tenemos** — casada pero sin stock (o no está en catálogo). No aporta piezas; no es un error, no se oculta.
+- **no identificada** — no casó por set+número (`matchStatus ≠ matched`); sin carta/precio (nunca se inventa).
+
+El concepto **«rotada / no vigente» desaparece** de los meta-decks. No hay `isLegalStandardNow`, ni
+`loadLegalityConfig`, ni `legalityVerifiedAt`, ni el bloque «Diagnóstico de legalidad» / «Caídas por legalidad» del
+ensayo (F2), ni la «Ventana de legalidad» del operador (M12).
+
+**Edge — ban explícito del proveedor:** pokemontcg.io expone `legalStandardRaw` (`'Banned'`) por carta, gratis y
+automático (el sync ya lo guarda). **Decisión: NO se conserva ningún chequeo de `'Banned'` para meta-decks —
+confianza pura en la fuente.** Razón: la premisa (Limitless solo publica decks legales) ya garantiza que no hay
+cartas prohibidas en el origen; la única forma realista de que `'Banned'` dispare es un **desajuste de datos del
+proveedor por impresión** —exactamente la clase de caída-sorpresa que este cambio elimina— y es la preferencia
+declarada del dueño («confío en Limitless, sin excepciones que yo tenga que pensar»). `legalStandardRaw` **queda
+como columna cruda** (abajo); solo se deja de GATEAR con ella.
+
+**Columnas de `Card` — SE QUEDAN COMO ESTÁN** (hechos crudos del proveedor, inofensivos; el catálogo general puede
+usarlos luego). Escritor único intacto: `catalog-sync.upsertCards`, con **NO-DEGRADACIÓN**, igual que
+`logoUrl`/imágenes (§4.39).
+- `regulationMark String?` — `RemoteCard.regulationMark` ("F"/"G"/"H"/"I"…).
+- `legalStandardRaw String?` — `RemoteCard.legalities.standard` ("Legal"|"Banned"); ausente ⇒ null.
+- `@@index([regulationMark])`.
+
+**Disposición de config/migración (aditiva / no-op, sin migración destructiva):** la migración F0
+(`20260919120000_decks_meta_f0_legality`) y sus columnas **se dejan tal cual**. Las filas
+`ConfigSetting['standard.active_regulation_marks']` y `['standard.banlist_card_ids']` quedan **inertes** (ya sin
+lector) — no se borran (borrar es riesgo sin beneficio). La columna `MetaDeckList.activeMarksSnapshot` (NOT NULL)
+se conserva; a partir de ahora se escribe `[]` (procedencia: «sin ventana aplicada»). No hace falta migración nueva.
+
+### 12.2 Módulo `decks-meta` (backend nuevo, disjunto) + `(storefront)/decks-meta` (frontend)
+
+Modelos Prisma (separación deck persistente / lista inmutable): `MetaDeck`, `MetaDeckList`, `MetaDeckCard`
+(guarda el crudo `rawSetCode`+`rawNumber`+`quantity`+`group`+`matchStatus`+`matchedCardId?`), `MetaFetchRun`
+(provenance+canario). Enums `MetaDeckSource`, `MetaCardGroup`, `MetaMatchStatus`. **Sin** tablas de precio
+(se calcula al render), alertas (reusa §R) ni compras. Detalle en el spec §3.1.
+
+**Matcher (el corazón, R3):** un solo motor parser+emparejado sirve pegar-lista (H3), traído semanal (H2) y
+curaduría manual. Identificador fiable = **`CardSet.ptcgoCode` + `Card.number`** (NO el nombre). Lo que no casa
+se **persiste como no-mapeado y se registra para curar**, nunca se inventa carta/precio. Detalle spec §3.2.
+
+**Disponibilidad + precio: se REUSA, no se reinventa.** `where` de `fetchSellable`
+(`ownerType='platform' ∧ status='listed' ∧ productType<>'sealed'`, NM) para el stock; `getReferencesBatch` +
+el `displayPriceCents` (P, con IVA) / `units` de la ficha para precio y piezas concretas (el servicio proyecta el token neutro `priceMxnCents` = P; **nunca** viaja `salePriceCents`/`L`). `availableQty = min(qty, stockNM)`.
+**Sin compuerta de legalidad** (SUP-LEG §12.1): se ofrece toda línea CASADA con stock. Spec §3.4.
+
+**Carrito de jalón:** el carrito es de **cliente** (`frontend/src/lib/cart.ts`, array de `inventoryItemId`); el
+servidor devuelve los `inventoryItemId` disponibles (casados + en stock) por línea y el front hace `useCart().add` en batch.
+Checkout/quote intactos (el re-quote v1.21.3 ya revalida y poda). Spec §6.
+
+**Job semanal `decks-meta-refresh`** (BullMQ, cron env `DECKS_META_REFRESH_CRON`, patrón `scheduler.service.ts`):
+fetch (adaptador Limitless fijado+versionado) → parse → **validación ≥8 arquetipos / canario de formato** (si
+falla: no aplica, conserva lo último bueno, `MetaFetchRun{applied:false}`, email ops) → aplica creando
+`MetaDeckList` nueva inmutable. **Solo verificable en prod** (egress bloqueado). **Fallback:** curaduría manual
+desde admin (`source=manual`), disponible desde Fase 1. Spec §3.3/§8.
+
+**Limitless API vs scraping = NO MEDIDO** (403 en dev). Adaptador tras formato fijado+canario; tests contra
+fixture, jamás red. Spec §8.
+
+### 12.3 Fases y zona compartida
+
+Serializa el arquitecto (zona compartida): `prisma/schema`, `common/` (legalidad+error-codes), `catalog`
+(mapeo), `API_CONTRACT.md`. Disjunto/paralelizable: `modules/decks-meta` (backend) + `(storefront)/decks-meta`
+(frontend). Fase 0 (legalidad) bloquea; Fase 1 (motor+disponibilidad+carrito+top-10 curado) BE+FE en paralelo;
+Fase 2 (auto Limitless) BE-solo; Fase 3 (sustitución legal + "avísame" vía §R). Spec §9.
+
+### 12.4 Portada del deck = la de Limitless (rev `decks-portada`, 2026-09-28, arquitecto)
+
+> **Decisión del dueño (2026-09-28, `HECHOS.md` de `claude/m4-boveda`):** la imagen de cada deck es la **portada
+> que usa Limitless**; si no se puede, la regla por nombre de respaldo y, con dos Pokémon, **manda el primero
+> nombrado** (sea ex o no: «Alakazam Mew» ⇒ Alakazam). La elección del admin (`imageCardId`) sigue ganando. Pedido
+> original: «la EX representativa del deck, no cualquier carta». Contrato: `API_CONTRACT.md §13` «Portada del
+> deck». Cierra la propuesta de `TECH_DEBT.md` TD-2 (arreglos-rápidos), salvo V/VSTAR/GX (§12.4.7). No es zona de
+> dinero.
+
+**Estado medido (sobre `13acdb2`, lectura de código, 2026-09-28):** la regla vive en
+`backend/src/modules/decks-meta/deck-image.ts` (`pickDeckImage`, pura; hoy «ex nombrada» gana a «no-ex nombrada»
+aunque ésta vaya antes, l.156–160). La home trae la portada en `a.leader-image > img[alt]` con formato `SET-NÚM`
+(`backend/test/fixtures/limitless/home-index.html` l.214/228/242/256/270/284: `TWM-130`, `TWM-25`, `MEG-56`,
+`JTG-98`, `SCR-58`, `PBL-65` — número **sin** ceros, mientras el `src` sí los trae: `TWM_025`).
+`limitless-html.parser.ts` (`parseLeaderBlock`, l.84–124) lee el `href` de `a.leader-image` pero **no** el `img`.
+Qué carta de nuestro catálogo es `TWM-25`: **NO MEDIDO** (no hay BD aquí); las pruebas usan una carta sintética.
+
+#### 12.4.1 Extracción (parser, puro)
+
+- `HomeLeader` gana `cover: { setCode: string; number: string } | null`.
+- Fuente **única**: `block.find('a.leader-image img').first().attr('alt')`, `trim`. Se valida con
+  `^([A-Za-z0-9][A-Za-z0-9-]{0,9})-([A-Za-z0-9]{1,8})$` (el set se separa por el **último** guion; longitud total
+  ≤ 20). Lo que no valide ⇒ `cover:null`, **sin** tocar el resto del bloque (`archetypeId`, `rank`, … intactos).
+- ⛔ **No** se usa el `src` como respaldo ni se persiste/sirve: es arte externo (regla «nunca arte externo»,
+  §13) y añadiría una segunda fuente que puede discrepar. Si Limitless quita el `alt`, la portada sale `null`
+  en todos los decks, la teja cae a la regla por nombre y el ensayo lo muestra (0 portadas).
+- `number` se guarda **crudo** (`"25"`); no se normaliza en el parser.
+- Aviso operativo: si `totalBlocks > 0` y **ninguna** portada valida ⇒ `logger.warn` (posible cambio de markup).
+  **No** es un check del canario.
+
+#### 12.4.2 Casado (matcher, mismo motor)
+
+- El refresh, por cada candidato con `cover`, casa la portada con **el mismo código** que las 60:
+  `DeckMatcherService.matchCover(cover)` ⇒ `{ matchStatus, card }`, implementado **delegando** en `matchLines`
+  con una línea sintética (`quantity:1`, `group:'pokemon'`, `isBasicEnergy:false`). ⛔ **Prohibido** una segunda
+  implementación de `normalizeNumber` / búsqueda por `ptcgoCode`: la tolerancia `25`↔`025` debe ser la misma.
+- ⛔ La línea sintética **nunca** entra al arreglo `lines` del deck: no cuenta en `sumQuantity`, `matched`,
+  `total`, canario, `MetaDeckCard`, carrito ni reporte de no-mapeadas.
+- `ambiguous` / `unmatched_set` / `unmatched_number` ⇒ `card:null` (igual que una línea: no se auto-resuelve).
+- **Si `matchCover` LANZA** (C-1b, 2026-09-28): la portada nunca bloquea ⇒ se trata como **sin portada**
+  (`cover:null` en el ensayo, 4 columnas `cover*` a null al persistir; respeta el invariante todo-null) y el fallo
+  va a `errors[]` como `cover <SET>-<NÚM>: <msg>`. No se inventa un `MetaMatchStatus` para un fallo nuestro:
+  `MetaMatchStatus` describe el casado, no la infraestructura. Se cura sola en la siguiente corrida viva.
+- Coste: +2 queries por deck (sets + cartas del set), top-N ≈ 10 ⇒ despreciable; el job es semanal.
+- Se casa **en el job** (como `MetaDeckCard.matchedCardId`), **no** en lectura: la lectura pública no hace
+  búsquedas por set-número. Consecuencia aceptada: si la carta entra al catálogo después, la portada se cura en
+  la **siguiente** corrida viva.
+
+#### 12.4.3 Dónde se guarda — `MetaDeckList`, migración ADITIVA (`M-DM-COVER`)
+
+```prisma
+model MetaDeckList {
+  // … existentes …
+  coverSetCode     String?          // crudo del alt de Limitless («TWM»); null ⇔ sin portada
+  coverNumber      String?          // crudo («25»); null ⇔ sin portada
+  coverMatchStatus MetaMatchStatus? // null ⇔ sin portada; si no, el estado del casado
+  coverCardId      String?          // solo si coverMatchStatus = matched
+  coverCard        Card?            @relation("MetaDeckListCover", fields: [coverCardId], references: [id], onDelete: SetNull)
+}
+model Card {
+  // … existentes …
+  metaDeckListCovers MetaDeckList[] @relation("MetaDeckListCover")   // solo lado Prisma, sin columna
+}
+```
+
+- **Migración:** 4 columnas nullable + FK `coverCardId → Card.id ON DELETE SET NULL`. Reusa el enum
+  `MetaMatchStatus` (no crea enum). **Sin backfill, sin default, sin índice** (se lee lista→carta, nunca al revés).
+  Carpeta sugerida `2026092812xxxx_decks_meta_list_cover`. **Número `M-xx`: lo asigna el orquestador al fusionar**
+  (último medido en esta rama: `M-58`; otras ramas vivas pueden haber tomado `M-59` — **NO MEDIDO**).
+- **Invariantes** (las cumple el único escritor, `DecksMetaRefreshService.persistDeck`): `coverSetCode`,
+  `coverNumber`, `coverMatchStatus` son todos null o todos no-null; `coverCardId ≠ null ⇒ coverMatchStatus =
+  matched`. `adminCreateOrCurate` (manual) **no** escribe portada ⇒ null.
+- **Por qué en la LISTA y no en `MetaDeck`:** la portada es un hecho de la **misma** foto de la home que produjo
+  esa lista; con la lista inmutable nace, se supersede y queda como procedencia. Si viviera en `MetaDeck`, una
+  curaduría manual posterior (lista sin portada) seguiría mostrando la portada de Limitless de la lista vieja.
+- **Alternativas sin schema, descartadas:**
+  (a) escribir en `MetaDeck.imageCardId` — pisa la elección del admin, no distingue quién la puso y el job la
+  reescribiría cada semana; (b) meter la portada como `MetaDeckCard` con `quantity:0` — contamina las 60, el
+  canario, los totales, el carrito y el reporte de no-mapeadas; (c) resolverla en lectura re-pidiendo la home —
+  egress por request, y el tercero solo se toca desde el job; (d) guardarla en `MetaFetchRun.note` — JSON de
+  procedencia, no consultable por deck; (e) «buscar entre las 60 la línea con ese set-número» — sigue
+  necesitando guardar el set-número, y la portada puede no estar entre las 60.
+
+#### 12.4.4 La regla (pura) — `pickDeckImage`
+
+Firma nueva (objeto, no posicional — ya se coló una mutación posicional que sobrevivía, ver
+`decks-meta.service.spec.ts` l.161):
+
+```ts
+pickDeckImage(input: {
+  deckName: string;
+  imageCardId: string | null;
+  coverCard: DeckImageCard | null;   // MetaDeckList.coverCard (solo existe si casó)
+  cards: DeckImageLine[];
+}): string | null
+```
+
+Orden (normativo en el contrato): **1** admin (sin cambio de semántica) › **2** `coverCard` con imagen (sin filtro
+de grupo, **no** exige estar entre las 60) › **3** por nombre en **un solo** conjunto (ex y no-ex juntas),
+comparando `(posición asc, completa<especie, ex<no-ex, copias desc, clave asc)` › **4** ex con más copias › **5**
+Pokémon con más copias › `null`. Desaparece la separación en dos pozas (`pickByName(exs) ?? pickByName(nonEx)`).
+**Razón del orden (ii) antes que (iii):** si el deck se llama «Excadrill» y trae `Excadrill` y `Mega Excadrill ex`,
+Limitless lo habría llamado «Mega Excadrill» si la Mega fuera la protagonista; la ex solo desempata entre nombres
+igual de exactos («Pikachu» con `Pikachu`/`Pikachu ex` ⇒ la ex, que respeta el pedido original).
+
+`DecksMetaService.listPublished` incluye `currentList.coverCard` en su `include` y lo pasa. `GET /decks-meta/:slug`
+no expone imagen de deck: sin cambio.
+
+#### 12.4.5 Qué ve cada quien
+
+- **Cliente** (`/decks-meta`): la misma teja, misma forma de DTO; la foto pasa a ser la portada de Limitless
+  cuando casa. **Frontend storefront: cero cambios.**
+- **Operador** (M12, ensayo `GET /admin/decks-meta/preview`): columna «Portada» por deck con miniatura de
+  **nuestro** catálogo + `SET-NÚM` + estado (`casada` / `set no está en catálogo` / `número no existe` / `varias
+  candidatas` / `sin portada`). Así sabe, antes de publicar, qué decks caerán a la regla por nombre y qué carta
+  dar de alta en el catálogo para arreglarlo. **Frontend admin: una columna + tipo `cover?`.**
+- **Admin que fija `imageCardId`:** sigue ganando. (Hoy solo se fija vía `POST /admin/decks-meta` curaduría; el
+  `PUT /:id` no lo acepta — sin cambio en esta rev; si el dueño quiere cambiar la foto de un deck de Limitless sin
+  re-pegar lista, es un pedido aparte.)
+
+#### 12.4.6 Pruebas que DEBEN fallar sobre `13acdb2` (y la mutación que cada una mata)
+
+Todas deterministas (sin carrera ni reloj) ⇒ una tirada basta; aun así el reporte dice sobre qué árbol corrió.
+
+| # | Prueba | Nivel | Falla hoy porque | Mutación que debe matar |
+|---|---|---|---|---|
+| P1 | Fixture real `home-index.html` ⇒ `leaders[i].cover` = `TWM/130, TWM/25, MEG/56, JTG/98, SCR/58, PBL/65`, en orden | parser | no existe `cover` | leer `src` en vez de `alt`; quitar la extracción |
+| P2 | `alt` ausente / `""` / `"TWM"` / `"TWM-"` / `"<b>x</b>-1"` / 30 chars ⇒ `cover:null` y el resto del bloque idéntico | parser | no existe `cover` | quitar la validación regex |
+| P3 | Portada casada con número con ceros en BD: set `ptcgoCode:"TWM"`, carta `number:"025"`, alt `TWM-25` ⇒ `coverCardId` = esa carta, `coverMatchStatus=matched` | refresh (vivo) | no se guarda | comparar número sin `normalizeNumber` (segunda implementación) |
+| P4 | **Portada no casada** (set ausente) ⇒ lista persistida con crudo + `unmatched_set` + `coverCardId:null`; `verdict`, `published`, `persistedCount` **iguales** al mismo run sin portada | refresh | no se guarda | hacer que portada no casada salte el deck o baje el canario |
+| P5 | La portada no se cuela en las 60: `MetaDeckCard` persistidas = líneas parseadas; `sumQuantity` sin cambio (también cuando la portada **sí** está en la lista) | refresh | (verde hoy; **candado de no-regresión**) | concatenar la línea sintética a `lines` |
+| P6 | Dry-run: `decks[].cover` presente con `imageUrl` de catálogo y **cero** escrituras | refresh | no existe `cover` | escribir portada en dry-run |
+| P7 | Curaduría manual ⇒ columnas de portada null | service | (verde hoy; candado) | copiar la portada de la lista anterior |
+| D1 | **Admin gana**: `imageCardId` en lista + `coverCard` distinta ⇒ la del admin | regla | firma nueva | mover la regla 2 antes de la 1 |
+| D2 | Portada gana al nombre y **no** exige estar en las 60: deck «Dragapult», `Dragapult ex` en lista, `coverCard` = otra impresión fuera de la lista ⇒ la de la portada | regla | no hay regla 2 | quitar la regla 2; exigir `cards.find(id)` |
+| D3 | **«Basic Box» ⇒ portada**: lista con `Terapagos ex` ×2 (hoy gana), `coverCard` = carta `TWM-25` ⇒ la portada | regla | sale Terapagos | quitar la regla 2 |
+| D4 | Portada sin imagen ⇒ cae a la regla por nombre | regla | firma nueva | devolver `null` si la portada no tiene imagen |
+| D5 | **«Alakazam Mew»**: `Alakazam` (no-ex, 3) + `Mew ex` (2) ⇒ Alakazam | regla | hoy sale Mew ex (dos pozas) | volver a «ex primero» |
+| D6 | «Mew Alakazam» con las mismas cartas ⇒ Mew ex | regla | (verde hoy; candado del espejo) | «no-ex primero» |
+| D7 | «Excadrill» con `Excadrill` + `Mega Excadrill ex` ⇒ `Excadrill`; «Pikachu» con `Pikachu` + `Pikachu ex` ⇒ `Pikachu ex` | regla | el 1.º sale la Mega | invertir (ii) y (iii) |
+| S1 | `listPublished`: deck cuyo nombre no casa nada, lista con `coverCard` casada ⇒ `imageUrl` = portada | service | no se lee `coverCard` | pasar `coverCard:null`; quitar `coverCard` del `include` |
+
+Las 19 pruebas existentes de `deck-image.spec.ts` siguen verdes con `coverCard:null` (solo cambia la forma de la
+llamada) (ninguna ejercita «ex nombrada
+después de no-ex nombrada»; medido leyendo el spec). La de `Basic Box ⇒ tera-a` sigue válida **sin** portada.
+
+#### 12.4.7 Fuera de alcance (anotado, no decidido)
+
+- **V / VSTAR / VMAX / GX** no casan por especie en la regla 3 (la normalización solo quita «ex»; «Giratina VSTAR»
+  toma «vstar» como especie). Con portada casada deja de importar para los decks de Limitless; queda en TD-2 para
+  listas manuales. Cambiarlo es decisión del dueño (orden de reglas), no de esta rev.
+- `imageCardId` editable por `PUT /:id` (ver §12.4.5).

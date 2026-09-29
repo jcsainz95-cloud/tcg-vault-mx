@@ -41,6 +41,14 @@ export function lineAmountCents(
  * no cambia el `priceBasis`— porque *lo auditable es la desviación, no la pulsación*
  * (contrato v1.51.12). **No existe ni existirá banda de tolerancia:** un centavo de delta ya es un
  * override. *«Casi igual» no es una categoría de este contrato.*
+ *
+ * ⚠️ **Relación con el PRE-LLENADO de la casilla (`BuylistDecisionDesk`).** La UI muestra por
+ * defecto el `derivedPriceCents` en el campo «Precio ofertado» para que el operador confirme en vez
+ * de teclear en blanco, pero ese pre-llenado es **solo display**: **no** siembra un `override`.
+ * Mientras el operador no cambie el monto, `override` es `undefined` y esta función devuelve
+ * `false` — la línea sigue **SIN override** (basis derivado, sin motivo, sin `overridePriceCents`).
+ * El monto solo se vuelve override cuando el operador teclea una cifra **distinta** del derivado,
+ * momento en que sí existe `override.amountCents` y la igualdad entera decide.
  */
 export function isOverride(line: BuylistDecisionLineDTO, override?: LineOverride): boolean {
   const amount = override?.amountCents;

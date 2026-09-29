@@ -93,7 +93,10 @@ const DIALS: DialSpec[] = [
   { key: 'stripeFeeFixedCents', kind: 'cents' },
   { key: 'pricingProviderRaw', kind: 'provider' },
   { key: 'pricingProviderGraded', kind: 'provider' },
-  { key: 'pricingProviderSealed', kind: 'provider' },
+  // §diseño §4.1 (D-2): la fila `pricingProviderSealed` se RETIRA de M10. Los diales de precio del
+  // SELLADO tienen su superficie ÚNICA de edición en M11 (deep-link de solo-texto abajo). La clave
+  // permanece en `SETTING_DTO_MAP`/`SettingsDTO` (lectura+escritura) — solo cambia qué pantalla la
+  // dibuja; el `PUT /admin/settings` con `pricingProviderSealed` sigue vivo, ahora desde M11.
   { key: 'catalogSyncFromDate', kind: 'text' },
   // v1.51-one-dial (§M10, M-48 —era `M-46`, v1.54(1)): el DIAL ÚNICO del «gancho de grading». Seed `off` fail-closed, y la
   // clave es NUEVA ⇒ ningún entorno la trae encendida. Gobierna exhibición Y obtención: sin él en la
@@ -327,6 +330,18 @@ export function M10View() {
                   ),
                 )}
               </div>
+
+              {/* §diseño §4.1 (D-2) · los diales de precio del SELLADO (proveedor de referencia,
+                  fuente de mercado, tendencia, alertas y spreads) se editan AHORA en M11, su
+                  superficie única. No se deja un control inerte aquí: solo el deep-link. */}
+              <p className="text-xs text-muted">
+                <Link
+                  href="/admin/m11"
+                  className="border-b border-accent pb-0.5 hover:border-text hover:text-text"
+                >
+                  {t('dials.sealedMovedToM11')}
+                </Link>
+              </p>
 
               {/* El «gancho de grading» NO es un dial más: con UN solo interruptor (v1.51, M-46)
                   encenderlo publica una afirmación comercial **y** autoriza el gasto de créditos de

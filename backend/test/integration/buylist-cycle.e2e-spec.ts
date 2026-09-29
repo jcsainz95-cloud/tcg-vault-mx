@@ -302,6 +302,52 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
   });
 
   // ===========================================================================================
+  // 3-bis) ROBUSTEZ PII — un `clabeSnapshotEnc` INDESCIFRABLE DEGRADA el detalle, NO lo tumba con 500
+  // ===========================================================================================
+  describe('robustez PII: CLABE indescifrable degrada el detalle admin (deuda M11, clase de PR #43)', () => {
+    it('con el snapshot corrupto en BD, GET /admin/buylist/:id responde 200 degradado (clabeMasked ausente + piiUnavailable), NO 500', async () => {
+      // Estado que la API NO puede fabricar (siempre escribe ciphertext válido): se SIEMBRA por la BD
+      // real (norma de la suite) un `clabeSnapshotEnc` con la forma correcta pero que NINGUNA clave de
+      // este proceso autentica — emula clave rotada / fila corrupta. La conducta se prueba POR HTTP,
+      // que es donde el throw se traducía a 500 en el filtro global.
+      const created = await createRequest(validBody());
+      expect(created.status).toBe(201);
+      const srId = created.body.sellRequestId;
+
+      const UNDECRYPTABLE =
+        'v1:' +
+        Buffer.alloc(12).toString('base64') +
+        ':' +
+        Buffer.alloc(16).toString('base64') +
+        ':' +
+        Buffer.from('garbage').toString('base64');
+      await h.prisma.sellRequest.update({
+        where: { id: srId },
+        data: { clabeSnapshotEnc: UNDECRYPTABLE },
+      });
+
+      const detail = await h.api('GET', `/admin/buylist/${srId}`, { token: operatorToken });
+      expect(detail.status).toBe(200); // ANTES del arreglo: 500 (el throw subía sin capturar).
+      expect(detail.body.piiUnavailable).toBe(true);
+      expect(detail.body.clabeMasked ?? null).toBeNull(); // enmascarado a nada en el estado degradado
+      // El resto del detalle viaja intacto y el ciphertext NUNCA se filtra a la respuesta.
+      expect(detail.body.id).toBe(srId);
+      expect(detail.body.status).toBe('cotizada');
+      expect(JSON.stringify(detail.body)).not.toContain(UNDECRYPTABLE);
+    });
+
+    it('camino feliz: un snapshot que SÍ descifra sigue enmascarando la CLABE y NO gana el flag', async () => {
+      const created = await createRequest(validBody());
+      const srId = created.body.sellRequestId;
+      const detail = await h.api('GET', `/admin/buylist/${srId}`, { token: operatorToken });
+      expect(detail.status).toBe(200);
+      expect(detail.body.clabeMasked).toBe('**************4567');
+      expect(detail.body).not.toHaveProperty('piiUnavailable');
+      expect(JSON.stringify(detail.body)).not.toContain(CLABE_A);
+    });
+  });
+
+  // ===========================================================================================
   // 4) EL SMOKE COMPLETO — cotizar → ofertar → aceptar → guía → tránsito → verificar → pagar
   // ===========================================================================================
   describe('el ciclo de punta a punta (los criterios 114/122/134/161 en un solo recorrido)', () => {

@@ -1,0 +1,31 @@
+-- M-58 — migración `v2.2` (Q2 · ELIMINAR bounty · API_CONTRACT §M2-B.9 · ARCHITECTURE §4.36.6b).
+--
+-- DDL ADITIVO Y MÍNIMO: UNA columna de SELLO, y ninguna más. Cero tablas nuevas, cero cambios de
+-- tipo, cero enum nuevo (`BountyState` NO es enum de Prisma: es una unión de literales derivada,
+-- clase L §M2-B.0 — añadir `despublicada` no toca el schema salvo por esta columna). Segura con la
+-- app corriendo.
+--
+-- QUÉ ES: el sello de DESPUBLICACIÓN de un bounty. Es el espejo EXACTO de `bountyCompletedAt` (un
+-- `TIMESTAMP` nullable que marca una transición de ciclo de vida y alimenta un estado DERIVADO, no
+-- persistido). Distingue las dos suertes que HOY son indistinguibles con las columnas existentes:
+--   · `apagada`      — `bountyEnabled=false ∧ bountyUnpublishedAt IS NULL`  (hold reversible; sigue
+--                       en el tablero para que el dueño lo re-encienda).
+--   · `despublicada` — `bountyUnpublishedAt IS NOT NULL`                     (se ELIMINÓ teniendo
+--                       historia de compra; se archiva del tablero y de la vitrina pública).
+-- Sin esta columna las dos serían el mismo `state` y el «por qué dejó de pagarse» se perdería (§0-B.1).
+--
+-- SIN BACKFILL, y es la verdad, no un atajo: `NULL` significa «nunca despublicada», que es
+-- literalmente cierto en toda fila existente — hoy no existe la operación de despublicar.
+-- SIN DEFAULT: un `DEFAULT now()` marcaría como «ya despublicado» a todo bounty que se cree después.
+-- SIN ÍNDICE: la vitrina pública ya filtra por `bountyEnabled` (indexado) y la consola iza el
+--   conjunto en lote y clasifica en memoria (el `state` no es SQL-calculable, §M2-B.1); un índice
+--   aquí sería coste de escritura por cero lecturas selectivas.
+--
+-- REVERSA (probada; el artefacto ANTERIOR ignora la columna por completo — no la lee ni la escribe):
+--   ALTER TABLE "VariantPriceOverride" DROP COLUMN "bountyUnpublishedAt";
+-- La reversa PIERDE qué bounties estaban despublicados: al re-aplicar la migración quedan en `NULL`,
+-- y un bounty despublicado con historia volvería a mostrarse como `apagada` (no `despublicada`) hasta
+-- que se vuelva a eliminar. NO es pérdida de dinero ni de costo (INV-BOUNTY-COST, §M2-B.10: el costo
+-- vive en `InventoryItem`, intacto); es pérdida del rótulo de archivo. Se dice.
+
+ALTER TABLE "VariantPriceOverride" ADD COLUMN "bountyUnpublishedAt" TIMESTAMP(3);

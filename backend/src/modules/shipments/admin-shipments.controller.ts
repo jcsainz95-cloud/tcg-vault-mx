@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -35,9 +35,31 @@ export class AdminShipmentsController {
     );
   }
 
+  /**
+   * «Pedidos a preparar» (API_CONTRACT §M4-PREP, v1.78). **Misma ruta, mismo guard**: lo único que
+   * cambió es el DTO proyectado (lista plana de piezas → hoja de trabajo agrupada por pedido).
+   *
+   * `?date=` se conserva tal cual. `?destination=vault|ship` es nuevo y OPCIONAL: ausente ⇒ ambas
+   * cubetas; fuera de dominio ⇒ `400` (§0-Q, lo impone `parseEnumFilter` en el servicio).
+   */
+  /**
+   * ⭐ **`S-M4P-B` (seguridad, BAJA) — `Cache-Control: no-store`.**
+   *
+   * Esta respuesta transporta, por cada pedido en preparación, el **nombre del cliente y su
+   * domicilio COMPLETO** (`shipTo`, 9 campos con la calle). El precedente lo fijó el propio rol
+   * seguridad para respuestas **menos** densas que ésta —`admin.controller.ts`, textual: *«ni en el
+   * disco del navegador»*— y el contrato ya lo exige para `orders/guest/track`.
+   *
+   * **Por qué BAJA y no más:** el `Authorization: Bearer` excluye a las cachés **compartidas** (una
+   * respuesta con `Authorization` no es cacheable por un intermediario sin `public`), así que el
+   * residual es el **disco del navegador del operador** — una terminal de tienda, a menudo
+   * compartida por turno. ⛔ No es motivo para omitirlo: *el coste es una cabecera y el beneficio es
+   * que la PII de los clientes no sobreviva al turno en un disco que nadie audita.*
+   */
+  @Header('Cache-Control', 'no-store')
   @Get('picking-list')
-  pickingList(@Query('date') date?: string) {
-    return this.shipments.pickingList(date);
+  pickingList(@Query('date') date?: string, @Query('destination') destination?: string) {
+    return this.shipments.pickingList(date, destination);
   }
 
   @Get(':id')

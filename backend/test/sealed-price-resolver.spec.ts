@@ -1,4 +1,5 @@
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { SealedCatalogService } from '../src/modules/catalog/sealed-catalog.service';
@@ -300,6 +301,9 @@ describe('H-1 v1.43 (IMP-C) — bucle cerrado: dial OFF + override manual mata e
     let seq = 0;
     return {
       _pending: pending,
+      // H-PERF-1: getReferencesBatch poda el histórico vía $queryRaw; el emulador lee `priceRefs` VIVO
+      // (el mismo array que create/update mutan), igual que el findMany mockeado.
+      $queryRaw: makeRefsRawQuery(priceRefs),
       inventoryItem: {
         findMany: jest.fn(async ({ where }: any) => {
           const ids = where?.id?.in;

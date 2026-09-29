@@ -56,12 +56,14 @@ const MAP: Record<StatusDomain, Record<string, BadgeSpec>> = {
   },
   sellRequest: {
     cotizada: S('sellRequest', 'cotizada', 'neutral', 'soft'),
-    // v1.51 / DESIGN_SYSTEM §23.1a-b: `ofertada` y `aceptada` comparten `accent` A PROPÓSITO y se
-    // distinguen por la palabra. `aceptada` NO es verde: el verde del sistema significa «ya ocurrió
-    // y no depende de nadie», y una aceptada es un sí con el reloj corriendo y sin una sola carta
-    // en la casa — pintarla verde diría «esto ya está» sobre la fase de más riesgo del ciclo.
+    // v1.51 / DESIGN_SYSTEM §23.1a-b: `ofertada` conserva `accent`.
+    // `aceptada`: CAMBIO DE DISEÑO aprobado por el dueño (2026-09-15). Antes compartía `accent`
+    // (rojo) con `ofertada` a propósito, argumentando que el verde significaba «ya ocurrió y no
+    // depende de nadie» y una aceptada es un sí con el reloj corriendo. El dueño decidió que el
+    // «sí» del vendedor es un desenlace positivo y debe leerse como tal: ahora usa el tono de
+    // éxito (`success`), como el resto de estados positivos del sistema (`aprobada`, `pagada`).
     ofertada: S('sellRequest', 'ofertada', 'accent', 'soft'),
-    aceptada: S('sellRequest', 'aceptada', 'accent', 'soft'),
+    aceptada: S('sellRequest', 'aceptada', 'success', 'soft'),
     // §23.1c: hereda el token de `Shipment.enviado` — es el MISMO hecho del mundo físico visto
     // desde el otro lado del mostrador; otro tono inventaría una segunda gramática para «va en camino».
     en_transito: S('sellRequest', 'en_transito', 'primary', 'soft', 'truck'),

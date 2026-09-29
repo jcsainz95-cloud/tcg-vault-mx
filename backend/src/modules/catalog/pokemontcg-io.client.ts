@@ -47,6 +47,13 @@ export interface RemoteCard {
   // endpoint `GET /v2/cards?q=set.id:*` NO usa `select=`, así que este bloque YA venía en el JSON
   // descargado y se estaba descartando ⇒ CERO requests extra.
   cardmarket?: { url?: string; prices?: Record<string, unknown> | null } | null;
+  // DECKS-META §2.2 (Fase 0): LEGALIDAD. Igual que `cardmarket` arriba, SOLO ES TIPADO: el endpoint
+  // `GET /v2/cards` NO usa `select=`, así que estos campos YA venían en el JSON y hoy se descartan
+  // (M3) ⇒ mapearlos cuesta CERO requests. `regulationMark` = la marca impresa ("F"/"G"/"H"/"I"…);
+  // `legalities.standard` = "Legal"|"Banned" (ausente ⇒ no viene). Los lee `upsertCards` con
+  // NO-DEGRADACIÓN. Confirmar que el payload en vivo los trae poblados es NO MEDIDO (egress, M9).
+  regulationMark?: string | null;
+  legalities?: { standard?: string; expanded?: string; unlimited?: string } | null;
   set: RemoteCardSet;
 }
 

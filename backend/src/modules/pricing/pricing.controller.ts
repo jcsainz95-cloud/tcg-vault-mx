@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Logger, Optional, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Optional, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, PriceRefKind, ProductType, Role } from '@prisma/client';
 import {
   FINISH_VALUES,
@@ -588,6 +588,22 @@ export class PricingController {
     @CurrentUser('id') userId: string,
   ) {
     return this.variantControls.update(cardId, finish, dto, userId);
+  }
+
+  /**
+   * v2.2 (Q2, §M2-B.9 / ARCHITECTURE §4.36.6b) — **ELIMINAR el bounty** de una variante. `super_admin`
+   * (hereda el `@Roles` del controller) y AUDITADO dentro del servicio. Verbo DEDICADO —⛔ NO un
+   * `bounty:{remove:true}` en el `PUT` (mutación B-20)— y acotado al sub-recurso `bounty`: no toca
+   * `sellOverrideCents`/`buyOverrideCents`. El servidor **ramifica por historia**: sin compra ⇒
+   * borra; con compra ⇒ despublica (estado `despublicada`). Responde el `VariantPricingDTO` resultante.
+   */
+  @Delete('variant-controls/:cardId/:finish/bounty')
+  deleteBounty(
+    @Param('cardId') cardId: string,
+    @Param('finish') finish: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.variantControls.deleteBounty(cardId, finish, userId);
   }
 
   /**

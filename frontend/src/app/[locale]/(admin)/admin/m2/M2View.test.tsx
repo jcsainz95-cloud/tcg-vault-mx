@@ -951,4 +951,13 @@ describe('M2 · Salud del catálogo de rarezas (P-48, §21.7b)', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Unificar rarezas' }));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
   });
+
+  it('M11-single-editor: M2 YA NO monta el editor de spreads del SELLADO (se movió a M11)', async () => {
+    renderWithProviders(<M2View />, 'es');
+    await screen.findByRole('heading', { level: 1, name: /Catálogo y precios/ });
+    // §diseño §4.2/§4.3 (D-2): el editor de spreads de venta del sellado se mudó a M11 (superficie
+    // única). No queda un mando muerto aquí: solo un deep-link de solo-texto.
+    expect(screen.queryByRole('heading', { name: /Spreads de venta del sellado/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Los controles de precio del sellado .* viven ahora en M11/)).toBeInTheDocument();
+  });
 });

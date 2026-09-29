@@ -20,17 +20,18 @@ import {
  * nulo) gana sobre la genérica `cardProductId=null` (NULLS LAST), y la elección es ESTABLE sin importar
  * el orden en que la BD devuelva las filas. Además, la fuente de mayor precedencia (override manual)
  * gana aunque su `cardProductId` sea nulo (la fuente domina sobre el desempate por cardProductId).
+ *
+ * P-53 ALTO-4 (§3): `getReference` DELEGA en `getReferencesBatch` (una sola fuente de verdad para la
+ * selección de mercado, sin el `take:32` por `capturedDate` crudo). La lectura ya NO son dos `findMany`
+ * capados sino una poda `$queryRaw` + el MISMO `isBetterRef` en Node. El mock devuelve las candidatas por
+ * `$queryRaw` y estos tests siguen fijando el desempate determinista sobre ellas.
  */
 function build(rows: any[]) {
-  const findManyArgs: any[] = [];
-  const prisma: any = {
-    priceReference: {
-      findMany: jest.fn(async (args: any) => {
-        findManyArgs.push(args);
-        return rows;
-      }),
-    },
-  };
+  const queryRaw = jest.fn(async () => rows);
+  const findMany = jest.fn(async () => {
+    throw new Error('P-53 ALTO-4: getReference delega en getReferencesBatch ($queryRaw), no findMany capado');
+  });
+  const prisma: any = { priceReference: { findMany }, $queryRaw: queryRaw };
   const fx: any = { getCurrent: jest.fn(async () => null) }; // fx null ⇒ liveMxnCents = priceMxnCents.
   const svc = new PricingService(
     prisma as PrismaService,
@@ -40,7 +41,7 @@ function build(rows: any[]) {
     {} as PokemonPriceTrackerProvider,
     {} as PokeTraceProvider,
   );
-  return { svc, findManyArgs };
+  return { svc, queryRaw, findMany };
 }
 
 const DAY = new Date('2026-08-22T00:00:00Z');
@@ -106,24 +107,16 @@ describe('PricingService.getReference — desempate determinista money-safe (M-3
     expect(info.referenceMxnCents).toBe(1000); // la de HOY, aunque sea la genérica null.
   });
 
-  it('la lectura del tier automático es acotada y determinista: orderBy con NULLS LAST + take', async () => {
-    // §4.27f-2 (P47-2, v1.46): getReference hace DOS lecturas — el bloque reciente CAPADO (tier
-    // automático) y la lectura DIRIGIDA de manuales SIN cota (candidata perenne). La capada mantiene el
-    // orderBy NULLS LAST + take; la manual NO lleva take (durabilidad cross-day del override humano).
-    const { svc, findManyArgs } = build([row({ cardProductId: 'cp', priceMxnCents: 1500 })]);
-    await svc.getReference('c1', 'raw', 'raw:NM', 'normal');
-    expect(findManyArgs).toHaveLength(2);
-    const capped = findManyArgs.find((a) => a.take != null);
-    const manual = findManyArgs.find((a) => a.take == null);
-    expect(capped).toBeDefined();
-    expect(capped.orderBy).toEqual([
-      { capturedDate: 'desc' },
-      { cardProductId: { sort: 'asc', nulls: 'last' } },
-    ]);
-    expect(capped.take).toBeGreaterThan(0);
-    // La lectura manual: sin `take`, y filtra por el predicado de override manual.
-    expect(manual).toBeDefined();
-    expect(JSON.stringify(manual.where)).toContain('isManualOverride');
+  it('P-53 ALTO-4: DELEGA en getReferencesBatch — una poda $queryRaw, SIN el findMany capado por capturedDate crudo', async () => {
+    // Antes getReference hacía DOS `findMany` (bloque reciente CAPADO `take:32` ⊕ manuales dirigidas). El
+    // `take:32` por `capturedDate` crudo era el vector del bug P-53 (la primaria congelada caía fuera del
+    // top-32). Ahora delega en `getReferencesBatch`, cuya ventana se mide por `COALESCE(evidenceDate,
+    // capturedDate)` vía `$queryRaw`. El spy de `findMany` lanza si se vuelve a él.
+    const { svc, queryRaw, findMany } = build([row({ cardProductId: 'cp', priceMxnCents: 1500 })]);
+    const info = await svc.getReference('c1', 'raw', 'raw:NM', 'normal');
+    expect(info.referenceMxnCents).toBe(1500);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(findMany).not.toHaveBeenCalled();
   });
 
   it('sin filas ⇒ pending (invariante: nunca 0, nunca referencia inventada)', async () => {

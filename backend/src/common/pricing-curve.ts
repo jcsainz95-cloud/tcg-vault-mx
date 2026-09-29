@@ -600,16 +600,28 @@ export function resolvePendingReason(basis: PriceBasis, rarityCanonical: string 
 // ============================================================================
 
 /**
- * Un bounty por debajo —o IGUAL— de la tarifa vigente de la curva DEJA DE SER BOUNTY: no aplica en la
+ * Un bounty por debajo del PISO EFECTIVO `min(curva, mercado)` DEJA DE SER BOUNTY: no aplica en la
  * cotización, no se publica en la vitrina y genera alerta en el binder.
  *
- * `> ESTRICTAMENTE mayor` por criterio 91 («todo lo de la vitrina es mejor que la tarifa estándar»).
- * Curva sin resolver (`null`) ⇒ el bounty explícito manda: es justo el caso donde más se necesita.
+ * ⚠️ **v2.2 (Q1, §M2-B.8 / §4.36.6): gana un tercer argumento `marketMxnCents` y un TOPE DE MERCADO.**
+ * El candado exige BATIR la tarifa normal (curva) —empate-con-curva RECHAZADO, `> curva` estricto,
+ * criterio 91 en su tramo normal— PERO nunca obliga a pagar por ENCIMA del mercado: en el borde de
+ * cartas baratas (`bin/piso ≥ mercado`) basta con IGUALAR el mercado (empate-con-mercado ACEPTADO,
+ * `>= mercado`). El piso efectivo es por tanto `min(curveQuoteCents, marketMxnCents)`, y la forma `OR`
+ * captura la asimetría de empate exactamente.
+ *
+ * `marketMxnCents` es el mercado que ENTRÓ al cálculo de la curva de compra (§4.36.6, «las cuatro
+ * seams ya lo tienen en mano»). Curva sin resolver (`null`) ⇒ mercado también `null` por construcción
+ * ⇒ el bounty explícito manda: es justo el caso donde más se necesita.
  */
-export function isBountyEffective(bountyPriceCents: number | null, curveQuoteCents: number | null): boolean {
+export function isBountyEffective(
+  bountyPriceCents: number | null,
+  curveQuoteCents: number | null,
+  marketMxnCents: number | null,
+): boolean {
   if (bountyPriceCents == null || bountyPriceCents <= 0) return false;
   if (curveQuoteCents == null) return true;
-  return bountyPriceCents > curveQuoteCents;
+  return bountyPriceCents > curveQuoteCents || (marketMxnCents != null && bountyPriceCents >= marketMxnCents);
 }
 
 // ============================================================================

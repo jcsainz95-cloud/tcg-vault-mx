@@ -78,7 +78,8 @@
           "action": "Ir a mi cuenta"
         }
       }
-    }
+    },
+    "decksMeta": "Meta Battle Decks"
   },
   "account": {
     "eyebrow": "CUENTA",
@@ -701,6 +702,7 @@
     "driftChipAria": "{finish}: {count} piezas fuera de catálogo",
     "driftNote": "fuera de catálogo",
     "ownerVault": "Bóveda de {name}",
+    "ownerVaultNoName": "Bóveda de un cliente sin nombre registrado",
     "variantsTitle": "Casillas por acabado",
     "buyCta": "Agregar al carrito · {price}",
     "buyAdded": "Agregada al carrito de compra.",
@@ -1228,6 +1230,8 @@
       "m8": "M8 · Disputas",
       "m9": "M9 · Reportes",
       "m10": "M10 · Config",
+      "m11": "M11 · Sellado",
+      "m12": "M12 · Meta Battle Decks",
       "vaults": "Bóvedas de clientes",
       "m2Bounties": "M2 · Bounties"
     },
@@ -1442,6 +1446,8 @@
         "salePrice": "Precio de venta",
         "noSalePrice": "Sin precio resoluble",
         "pendingPriceLink": "Ver en la cola de precio pendiente",
+        "sealedMark": "SELLADO",
+        "sealedUnidentified": "Sellado sin identificar",
         "note": "Esta cola solo mira: no se capturan precios de venta aquí ni se heredan del costo de compra."
       }
     },
@@ -1475,7 +1481,6 @@
     },
     "m4": {
       "title": "M4 · Retiros / envíos",
-      "pickingList": "Lista de picking (por ubicación)",
       "tracking": {
         "capture": "Capturar guía",
         "title": "Captura de guía",
@@ -1493,17 +1498,11 @@
       "queueEmpty": "Sin envíos con ese filtro.",
       "itemCount": "{count, plural, one {# ítem} other {# ítems}}",
       "recipient": "Para",
-      "recipientMissing": "SIN DESTINATARIO (retiro anterior a v1.67)",
+      "recipientMissing": "Sin destinatario registrado",
+      "street": "Calle",
       "customer": "Cliente",
       "postalCode": "CP",
       "phone": "Tel",
-      "pickingHint": "Envíos en preparación (picking), ordenados por ubicación en bóveda.",
-      "pickingEmpty": "Nada que preparar por ahora.",
-      "picking": {
-        "location": "Ubicación",
-        "folio": "Folio",
-        "shipment": "Envío"
-      },
       "statusActions": {
         "enviado": "Marcar enviado",
         "entregado": "Marcar entregado",
@@ -1512,6 +1511,144 @@
         "cancelTitle": "Cancelar envío",
         "cancelConfirm": "Cancelar envío",
         "cancelBody": "¿Cancelar el envío {id}? Esta acción no se puede revertir."
+      },
+      "prep": {
+        "title": "Pedidos a preparar",
+        "hint": "Pedidos ya cobrados, listos para armar. Se atiende primero el más viejo.",
+        "filterLabel": "Cubeta",
+        "filterAll": "Ambas",
+        "filterShip": "Solo envío",
+        "filterVault": "Solo bóveda",
+        "destination": {
+          "ship": "Para enviar",
+          "vault": "Para bóveda"
+        },
+        "withdrawal": "Retiro de bóveda",
+        "shipmentRef": "Envío",
+        "requestedAt": "Solicitado",
+        "lastNameUnknown": "Apellido no identificado",
+        "unassigned": "Sin ubicar",
+        "folio": "Folio",
+        "location": "Ubicación",
+        "set": "Set",
+        "itemCount": "{count, plural, one {# carta} other {# cartas}}",
+        "orderCount": "{count, plural, one {# pedido} other {# pedidos}}",
+        "empty": {
+          "title": "Nada que preparar por ahora.",
+          "body": "Cuando entre un pedido cobrado aparecerá aquí, con el más viejo arriba."
+        },
+        "emptyShip": {
+          "title": "Nada que enviar por ahora.",
+          "body": "No hay pedidos cobrados esperando envío."
+        },
+        "nameMissing": {
+          "tag": "Sin nombre registrado",
+          "body": "La dirección de este pedido se guardó sin el nombre de quien recibe: es un hueco del registro, no un cliente anónimo. Identifica el paquete por su folio."
+        },
+        "conflict": {
+          "title": "La cola no se puede mostrar, y no está vacía.",
+          "impact": "Hay pedidos ya cobrados esperando y desde aquí no se ven.",
+          "body": "Un pedido de esta cola no permite saber a dónde va: los datos que deciden su destino no cuadran. Por eso no se muestra ninguna cubeta, ni envío ni bóveda — dejar fuera esa sola fila haría que un pedido cobrado desapareciera de la pantalla sin que nadie lo notara.",
+          "action": "Avisa al súper-admin: esto se corrige en los datos, no desde esta pantalla. Cuando esté corregido, vuelve a cargar.",
+          "technicalDetail": "Detalle técnico"
+        },
+        "vault": {
+          "step": {
+            "collect": "Paso 1 de 2 · Junta y palomea",
+            "place": "Paso 2 de 2 · Llévalas a su cajón y confirma"
+          },
+          "drawer": {
+            "own": "Su cajón",
+            "ownBody": "Junto a sus otras cartas: ya tiene {count, plural, one {# carta} other {# cartas}} ahí.",
+            "multipleTag": "Cartas en varios cajones",
+            "multipleBody": "Este cliente debería tener un solo cajón, pero sus cartas están repartidas en {count} cajones. El sistema no elige por ti: al confirmar, escoge a cuál van estas cartas. Juntarlas en uno solo no se hace desde esta pantalla.",
+            "piecesThere": "{count, plural, one {# carta ahí} other {# cartas ahí}}",
+            "multipleLegend": "¿A qué cajón van estas cartas?",
+            "newLabel": "Cajón",
+            "newBody": "Todavía no tiene. Es su primera compra guardada con nosotros: al confirmar, eliges tú el cajón y sus siguientes compras irán ahí.",
+            "chooseLabel": "Elige su cajón",
+            "choosePlaceholder": "Sin elegir",
+            "noneAvailable": "No hay cajones de clientes dados de alta. Crea uno en Inventario → «{locations}», con zona «{zone}», y vuelve aquí."
+          },
+          "nameMissing": {
+            "tag": "Sin nombre registrado",
+            "body": "Esta cuenta se creó sin nombre: el cliente no nos lo ha dado. Identifícalo por su correo."
+          },
+          "orderRef": "Pedido",
+          "seeWhatShouldBe": "Ver qué debe haber en su bóveda",
+          "item": {
+            "locationLabel": "Ubicación · {zone}",
+            "pick": "La tengo",
+            "miss": "No la encontré",
+            "undo": "Deshacer",
+            "actionAria": "{action}: {card} · {folio}",
+            "picked": "Tomada",
+            "missing": "Faltante",
+            "missingBody": "Queda anotada como faltante. No se mueve al cajón. Esta pantalla no avisa al cliente ni hace reembolsos.",
+            "blocked": "No va al cajón"
+          },
+          "blockedReason": {
+            "in_withdrawal": "Está en un retiro que el cliente ya pagó: sale con ese envío, no va al cajón.",
+            "not_in_custody": "Ya no está a nombre del cliente en bóveda, así que no va a su cajón. No hace falta buscarla."
+          },
+          "count": "{picked, plural, one {# tomada} other {# tomadas}} · {missing, plural, one {# faltante} other {# faltantes}} · {pending} por palomear",
+          "countBlocked": "{blocked, plural, one {# no va al cajón} other {# no van al cajón}}",
+          "prepare": {
+            "cta": "Pedido preparado",
+            "saving": "Guardando…",
+            "pending": "{pending, plural, one {Falta # carta} other {Faltan # cartas}} por palomear: márcalas como «La tengo» o «No la encontré».",
+            "nothingPicked": "Ninguna carta está tomada: al final no se guardará nada en el cajón."
+          },
+          "prepared": {
+            "by": "Preparado por {name} · {date}",
+            "byNoName": "Preparado por una cuenta sin nombre · {date}"
+          },
+          "unprepare": {
+            "cta": "Deshacer preparado",
+            "title": "¿Deshacer «preparado»?",
+            "body": "Las marcas de cada carta se quedan como están; solo vuelven a poder corregirse. No se mueve ninguna carta. Para colocar tendrás que darlo por preparado otra vez.",
+            "confirm": "Deshacer preparado",
+            "cancel": "Cancelar",
+            "done": "Listo: ya puedes corregir las marcas. Cuando termines, vuelve a darlo por preparado.",
+            "alreadyUndone": "Ya no estaba preparado: alguien lo deshizo antes. Puedes corregir las marcas."
+          },
+          "place": {
+            "cta": "Confirmar colocación",
+            "ctaEmpty": "Cerrar pedido sin guardar nada",
+            "summary": "Se guardan {picked, plural, one {# carta} other {# cartas}} en {drawer}.",
+            "summaryMissing": "{missing, plural, one {# faltante no se mueve} other {# faltantes no se mueven}}.",
+            "summaryEmpty": "Ninguna carta está tomada: el pedido se cierra y sale de la lista. Las faltantes siguen anotadas.",
+            "chooseFirst": "Elige un cajón para ver a dónde van."
+          },
+          "result": {
+            "placed": "Pedido {folio} colocado: {n, plural, one {# carta} other {# cartas}} en {drawer}.",
+            "placedMissing": "{m, plural, one {# faltante no se movió} other {# faltantes no se movieron}}.",
+            "placedSkipped": "{k, plural, one {# no se movió porque ya no se podía colocar} other {# no se movieron porque ya no se podían colocar}}.",
+            "nothingToPlace": "Pedido {folio} cerrado sin guardar nada: ninguna carta estaba para el cajón. Las faltantes siguen anotadas en «Qué debe haber» del cliente.",
+            "alreadyPlaced": "Pedido {folio}: ya estaba colocado en ese cajón. No se hizo nada nuevo."
+          },
+          "error": {
+            "itemBlocked": "Esta carta ya no se puede palomear.",
+            "closed": "Este pedido ya se dio por preparado y sus marcas están fijas. Para corregir una carta, primero deshaz «preparado».",
+            "notFound": "Esta carta o este pedido ya no está en la cola.",
+            "incomplete": "Todavía {pendingCount, plural, one {falta # carta} other {faltan # cartas}} por palomear. Puede que alguien acabe de deshacer una marca.",
+            "notPrepared": "Este pedido ya no está preparado: alguien deshizo «preparado». Revisa las marcas y vuelve a darlo por preparado.",
+            "notCustomerDrawer": "Este cliente ya tiene cajón y no es el que elegiste: seguramente otra persona acaba de guardar otro pedido suyo. Actualizamos la tarjeta con su cajón.",
+            "drawerUnavailable": "Ese cajón ya no sirve para guardar cartas de clientes. Elige otro.",
+            "locationRequired": "La pantalla estaba desactualizada: este pedido ahora tiene {pickedCount, plural, one {# carta tomada} other {# cartas tomadas}}, así que no se puede cerrar sin guardarlas en un cajón. No se hizo nada. Actualizamos la tarjeta: revísala y confirma otra vez.",
+            "locationRequiredNoCount": "La pantalla estaba desactualizada: este pedido ahora tiene cartas tomadas, así que no se puede cerrar sin guardarlas en un cajón. No se hizo nada. Actualizamos la tarjeta: revísala y confirma otra vez.",
+            "placed": "Otra persona ya colocó este pedido. No se cambió nada; sale de la lista.",
+            "placedIn": "El pedido quedó en {drawer}.",
+            "chargeback": "Este pedido se canceló por un contracargo: sus cartas ya no son del cliente. Sale de la lista.",
+            "nothingToPlace": "Este pedido ya se cerró sin guardar nada. Sale de la lista.",
+            "placedUndo": "No se pudo deshacer: el pedido ya se guardó en su cajón. Después de colocar ya no hay vuelta atrás desde esta pantalla.",
+            "conflict": "Este pedido tiene datos que no cuadran y no se puede tocar desde aquí. Avisa al súper-admin."
+          },
+          "emptyVault": {
+            "title": "Nada que llevar a bóveda por ahora.",
+            "body": "No hay compras pagadas esperando su cajón."
+          }
+        }
       }
     },
     "m5": {
@@ -1562,7 +1699,7 @@
         "rejectedAtLabel": "Rechazada el",
         "returnUntil": "Devolución hasta {date} (a costo del vendedor)",
         "abandonAt": "Abandono a partir de {date}",
-        "noDeadlines": "Sin plazos registrados (rechazo previo a v1.18).",
+        "noDeadlines": "Sin fecha de rechazo registrada: los plazos se cuentan desde ella, así que esta carta no tiene ninguno.",
         "viewRequest": "Ver solicitud {id}",
         "phase": {
           "return": "En plazo de devolución",
@@ -2069,7 +2206,8 @@
         "zeroWarning": "Sin margen",
         "zeroBanner": "Un spread de 0% vende al costo de mercado, sin margen. Verifica antes de guardar.",
         "prereqHint": "El spread solo produce precio si el producto está mapeado a TCGCSV y la fuente de precio del sellado está activa.",
-        "saved": "Spreads guardados."
+        "saved": "Spreads guardados.",
+        "movedToM11": "Los controles de precio del sellado (spreads y diales) viven ahora en M11 · Sellado."
       },
       "gradedEstimates": {
         "title": "Valor estimado si se gradea · costos y curaduría",
@@ -2382,6 +2520,7 @@
           "activa": "ACTIVOS {count}",
           "completada": "COMPLETADOS {count}",
           "apagada": "APAGADOS {count}",
+          "despublicada": "DESPUBLICADOS {count}",
           "atLeast": "{label} ≥ {count}",
           "atLeastAria": "Al menos {count}; la lista está incompleta.",
           "loadingAria": "Contando bounties"
@@ -2401,7 +2540,8 @@
           "attentionHint": "Están encendidos y no pagan premium. Cada uno pide una decisión.",
           "activa": "ACTIVOS · {count}",
           "completada": "COMPLETADOS · {count}",
-          "apagada": "APAGADOS · {count}"
+          "apagada": "APAGADOS · {count}",
+          "despublicada": "DESPUBLICADOS · {count}"
         },
         "list": {
           "truncated": "Esta lista está incompleta: hay más bounties de los que caben en una consulta, así que los conteos son mínimos, no totales. Filtra por estado o busca una carta para verlos todos."
@@ -2424,12 +2564,14 @@
           "invalida": "SIN PRECIO",
           "completada": "COMPLETADO",
           "apagada": "APAGADO",
+          "despublicada": "DESPUBLICADO",
           "unknown": "SIN CLASIFICAR",
           "activaAria": "Activo: paga por encima de la tarifa vigente y aparece en Top Bounties.",
           "rebasadaAria": "Rebasado: la tarifa vigente paga más que tu oferta, así que se paga la tarifa y la carta no aparece en Top Bounties.",
           "invalidaAria": "Sin precio: este bounty está encendido, pero no tiene un precio con el que pagar. No paga nada y no aparece en Top Bounties. Ponle un precio o apágalo.",
           "completadaAria": "Completado el {date}: se apagó solo al llegar al objetivo.",
           "apagadaAria": "Apagado: lo apagó una persona. No se publica ni se paga premium. El contador se conserva.",
+          "despublicadaAria": "Despublicado: este bounty se eliminó cuando ya tenía compras, así que se conserva el registro pero sale del tablero y de la vitrina. No paga ni se publica; puedes volver a publicarlo con Encender.",
           "unknownAria": "Estado no reconocido por esta pantalla. No se puede afirmar si está pagando; ábrelo en el binder."
         },
         "premium": {
@@ -2453,7 +2595,11 @@
           "turnOn": "Encender",
           "turnOnHint": "Revisa el precio antes de encenderlo: la tarifa vigente pudo cambiar desde que lo apagaste.",
           "setPrice": "Poner precio",
-          "setPriceAria": "Poner precio al bounty de {card}"
+          "setPriceAria": "Poner precio al bounty de {card}",
+          "delete": "Eliminar",
+          "deleteAria": "Eliminar el bounty de {card}",
+          "deletedToast": "Bounty eliminado · {card}. No se había comprado nada bajo él, así que se borró.",
+          "unpublishedToast": "Bounty despublicado · {card}. Ya se había comprado bajo él, así que se conserva el registro y sale del tablero."
         },
         "progress": {
           "value": "{acquired} de {target}",
@@ -2482,6 +2628,11 @@
           "price": "Antes {before} · ahora {after} · {delta} más por carta.",
           "target": "Objetivo: antes hasta {before} · ahora hasta {after}.",
           "cta": "Sí, pagar {amount}"
+        },
+        "delete": {
+          "title": "Eliminar este bounty",
+          "body": "Si no se ha comprado nada bajo este bounty, se elimina. Si ya se compró, solo se despublica (sale del tablero) y se conserva el registro. El servidor decide cuál según la historia de compra.",
+          "cta": "Eliminar"
         },
         "saved": "Bounty guardado.",
         "savedNowActive": "Guardado: ya paga por encima de la tarifa y vuelve a Top Bounties.",
@@ -2723,6 +2874,257 @@
         "user_kyc_update": "Decidió sobre la identidad"
       }
     },
+    "m11": {
+      "title": "Sellado",
+      "subtitle": "Sube producto, ponle precio y publícalo. Aquí también actualizas los precios de mercado de toda la colección.",
+      "inventory": {
+        "title": "Inventario de sellado",
+        "subtitle": "Da de alta producto sellado, edita precio y formato por pieza, y publica o despublica desde el detalle de cada presentación."
+      },
+      "queue": {
+        "title": "Listas para publicar (sellado)",
+        "subtitle": "Piezas de sellado ya adquiridas que todavía no están a la venta, y qué les falta. Filtrada a sellado."
+      },
+      "collection": {
+        "title": "Precios de mercado de la colección",
+        "subtitle": "Trae los precios de mercado de todos los sets de sellado y te dice cuántos quedaron con precio y cuántos no.",
+        "photo": "{priced, plural, one {# producto con precio} other {# productos con precio}} · {pending, plural, one {# pendiente} other {# pendientes}}",
+        "refreshCta": "Actualizar precios de la colección",
+        "refreshing": "Actualizando precios…",
+        "doneLabel": "Listo",
+        "inFlight": "Ya hay una actualización en marcha; espera a que termine.",
+        "errorRetry": "Reintentar",
+        "confirm": {
+          "title": "Vamos a activar los precios automáticos de mercado",
+          "body": "A partir de ahora los sellados con referencia resuelta tomarán precio de mercado (× tu margen). Es una decisión de dinero y queda registrada a tu nombre.",
+          "cta": "Activar y actualizar"
+        },
+        "fixTitle": "{count, plural, one {# set por completar:} other {# sets por completar:}}",
+        "fixCta": "Arreglar este set",
+        "completeCta": "Completar este set",
+        "setProgress": "{priced} de {total} con precio",
+        "missingNote": "{count, plural, one {le falta # producto} other {le faltan # productos}}",
+        "reason": {
+          "no_group": "Este set aún no está conectado a la fuente de precios.",
+          "dial_off": "La fuente automática está apagada.",
+          "no_source_price": "Conectado, pero la fuente no trajo precio esta vez."
+        },
+        "breakdownToggle": "Ver desglose por set"
+      },
+      "advanced": {
+        "title": "Ajustes avanzados (precios de mercado)",
+        "subtitle": "Plomería de súper-admin. Normalmente no necesitas abrir esto: el botón de arriba ya hace lo del día a día.",
+        "source": {
+          "title": "Fuente automática de mercado",
+          "purpose": "Enciende o apaga de dónde salen los precios de mercado. Normalmente no lo tocas: el botón «Actualizar precios de la colección» ya la enciende cuando hace falta."
+        },
+        "calc": {
+          "title": "Cómo se calculan los precios",
+          "purpose": "De qué proveedor sale la referencia por carta, si se muestra la tendencia de valor y si se avisan las reposiciones."
+        },
+        "margins": {
+          "title": "Márgenes de venta",
+          "purpose": "Cuánto le sumas al precio de mercado para vender cada presentación. Un margen 0 % vende sin ganancia (se avisa)."
+        }
+      },
+      "dialsPanel": {
+        "master": {
+          "title": "Fuente automática de mercado del sellado",
+          "subtitle": "El interruptor maestro sealed_price_source. Con él encendido, la ingesta puede resolver el mercado del sellado y las aportaciones pueden valuarse contra ese mercado.",
+          "stateOn": "Encendida: los sellados mapeados con referencia resuelta cuentan con precio automático (mercado × spread).",
+          "stateOff": "Apagada: los sellados sin override manual quedan SIN PRECIO DE MERCADO y no se autoprecian.",
+          "turnOn": "Encender la fuente automática",
+          "turnOff": "Apagar la fuente automática",
+          "confirmOnTitle": "Encender la fuente automática de mercado del sellado",
+          "confirmOnBody": "A partir de ahora los sellados con referencia resuelta contarán con precio automático (mercado × spread) y las aportaciones podrán valuarse contra ese mercado. Es una decisión de dinero, auditada a tu nombre.",
+          "confirmOffTitle": "Apagar la fuente automática de mercado del sellado",
+          "confirmOffBody": "Los sellados sin override manual quedarán SIN PRECIO DE MERCADO y no se autopreciarán.",
+          "confirmOffPreserved": "Los precios manuales y los overrides ya fijados NO se apagan: apagar la fuente solo detiene el mercado automático (la ingesta de TCGCSV), nunca borra los precios que fijaste a mano.",
+          "audit": "Solo súper-admin · queda en bitácora."
+        },
+        "settings": {
+          "title": "Cómo se calculan los precios",
+          "subtitle": "Se editan sin redeploy (PUT parcial). Solo se guardan las claves modificadas. Misma validación y auditoría que M10.",
+          "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
+          "sealedValueTrend": "Tendencia de valor del sellado",
+          "sealedRestockAlerts": "Alertas de reposición de sellado",
+          "save": "Guardar {count} cambio(s)",
+          "saved": "Diales guardados."
+        },
+        "onOff": {
+          "on": "Encendido",
+          "off": "Apagado"
+        }
+      },
+      "status": {
+        "empty": "No hay sets de sellado que mostrar.",
+        "colSet": "Set",
+        "colState": "Estado",
+        "colBreakdown": "Con / sin precio / sin conectar",
+        "colWhy": "Por qué",
+        "breakdown": "{priced} · {mapped} · {unmapped}",
+        "state": {
+          "priced": "Con precio",
+          "mapped_unpriced": "Conectado, sin precio",
+          "unmapped": "Sin conectar a la fuente"
+        }
+      },
+      "mapping": {
+        "title": "Arreglar el precio de: {set}",
+        "intro": "Este set no está conectado con la fuente de precios (TCGplayer). Pega el código del set en TCGplayer para conectarlo.",
+        "groupIdLabel": "Código del set en TCGplayer",
+        "groupIdHint": "El número que identifica el set en TCGplayer. Reemplaza el actual si ya había uno.",
+        "helpLabel": "¿Dónde encuentro el código?",
+        "helpBody": "Es el número de grupo del set en TCGplayer (aparece en la URL del set en tcgplayer.com). Si no lo tienes a mano, pídeselo a quien lleve el catálogo.",
+        "reasonLabel": "Motivo (opcional, queda en bitácora)",
+        "note": "Conectar el set dispara la actualización de su precio de una vez. Si no trae precio, la fuente aún no lo tenía esta vez.",
+        "currentGroup": "Conectado ahora a: {groupId}",
+        "setMainCta": "Conectar y actualizar",
+        "unlinkCta": "Desconectar"
+      }
+    },
+    "decksMetaRefresh": {
+      "moduleTitle": "Meta Battle Decks",
+      "moduleSubtitle": "Opera el jalado automático de Meta Battle Decks: enciéndelo o apágalo y haz un ensayo antes de publicar.",
+      "title": "Ensayo (modo prueba)",
+      "subtitle": "Corre el jalado automático de Meta Battle Decks en modo prueba: trae todo de Limitless, lo revisa y te dice si publicaría, sin tocar nada de lo que ya está en línea.",
+      "runButton": "Correr ensayo",
+      "running": "Jalando de Limitless… (~30-45s)",
+      "runningNote": "Tarda porque baja las listas de verdad, una por una. No cierres la pestaña.",
+      "error": "No se pudo correr el ensayo. Suele ser un problema de red con Limitless; vuelve a intentarlo.",
+      "retry": "Reintentar",
+      "alreadyRunning": "Ya hay un ensayo en curso. Espera a que termine y vuelve a intentarlo.",
+      "empty": "Todavía no corres el ensayo. Aprieta «Correr ensayo» para ver qué pasaría, sin publicar nada.",
+      "verdict": {
+        "publish": "PUBLICARÍA",
+        "noPublish": "NO PUBLICARÍA",
+        "publishBody": "Todos los chequeos pasaron. Con el jalado automático encendido, esto se publicaría.",
+        "noPublishBody": "Algún chequeo no pasó. No se publicaría nada; se conservaría la última lista buena."
+      },
+      "mode": {
+        "label": "Modo",
+        "dryrun": "ensayo — no publica nada",
+        "live": "en vivo — publica",
+        "off": "apagado"
+      },
+      "format": "Formato",
+      "autopublish": {
+        "label": "Publicación automática",
+        "on": "encendida",
+        "off": "apagada"
+      },
+      "ranAt": "Corrido {date}",
+      "urlsFetched": "{count, plural, one {# página jalada} other {# páginas jaladas}}",
+      "notLivePrompt": "El jalado automático está en modo prueba; se enciende después de validar el ensayo en producción.",
+      "decks": {
+        "title": "Por deck",
+        "empty": "El ensayo no trajo ningún deck."
+      },
+      "columns": {
+        "deck": "Deck",
+        "rank": "#",
+        "share": "% del meta",
+        "cardsParsed": "Cartas leídas",
+        "sumQuantity": "Total sumado",
+        "matched": "Casadas",
+        "cover": "Portada"
+      },
+      "cover": {
+        "matched": "casada",
+        "unmatched": "no casada",
+        "none": "sin portada",
+        "notReported": "—",
+        "reason": {
+          "unmatched_set": "el set no está en el catálogo",
+          "unmatched_number": "ese número no existe en el set",
+          "ambiguous": "varias cartas candidatas"
+        },
+        "noImage": "sin imagen en el catálogo",
+        "rejectedImage": "imagen rechazada (no es de nuestro catálogo)",
+        "reasonUnknown": "motivo no reconocido ({status})",
+        "alt": "Portada de {deck}: {code}"
+      },
+      "deckError": "No se pudo leer este deck: {error}",
+      "sumOk": "≈ 60 cartas",
+      "canary": {
+        "title": "Chequeos",
+        "measured": "medido {measured} · umbral {threshold}",
+        "ok": "pasa",
+        "fail": "no pasa"
+      },
+      "checks": {
+        "C1": "arquetipos encontrados",
+        "C2": "60 cartas por deck",
+        "C3": "cartas reconocidas",
+        "C4": "cartas sin edición",
+        "C5": "página principal legible"
+      },
+      "notes": {
+        "title": "Notas",
+        "manualConflicts": "Decks manuales que no se pisan",
+        "pausedSkipped": "Decks en pausa (saltados)",
+        "errors": "Errores",
+        "none": "Sin notas ni errores."
+      },
+      "publishNow": {
+        "title": "Publicar ahora",
+        "subtitle": "Jala los decks de Limitless y los publica en tu tienda en este momento, sin esperar al barrido automático del lunes. Respeta el interruptor de arriba.",
+        "button": "Publicar ahora",
+        "running": "Publicando… (~30-45s)",
+        "runningNote": "Tarda porque baja las listas de verdad, una por una. No cierres la pestaña.",
+        "error": "No se pudo publicar. Suele ser un problema de red con Limitless; vuelve a intentarlo.",
+        "retry": "Reintentar",
+        "dialOff": "El interruptor está apagado, así que no se publicó nada. Enciéndelo arriba para poder publicar.",
+        "alreadyRunning": "Ya hay una corrida en curso. Espera a que termine y vuelve a intentarlo.",
+        "published": "Listo: se publicó en la tienda ({count, plural, one {# deck} other {# decks}}).",
+        "nothingPublished": "No se publicó nada: algún chequeo no pasó. Se conservó la última lista buena.",
+        "confirm": {
+          "title": "¿Publicar ahora?",
+          "body": "Esto trae los decks de Limitless y los publica en tu tienda en este momento. Respeta el interruptor: si está apagado, no hará nada. ¿Seguro?",
+          "cancel": "Cancelar",
+          "confirmCta": "Sí, publicar ahora"
+        }
+      }
+    },
+    "decksMetaDial": {
+      "title": "Interruptor del jalado automático",
+      "subtitle": "Decide si el jalado de Meta Battle Decks corre solo cada semana y si publica sin que nadie apriete nada. Cambiarlo es solo para súper-admin.",
+      "loading": "Cargando el interruptor…",
+      "loadError": "No se pudo leer el estado del interruptor.",
+      "retry": "Reintentar",
+      "state": {
+        "autofetch": "Estado ahora",
+        "autopublish": "Publicar solo"
+      },
+      "autofetch": {
+        "label": "Jalado automático",
+        "off": "Apagado",
+        "dryrun": "Ensayo",
+        "on": "Encendido",
+        "help": {
+          "off": "No corre solo. Solo puedes hacer el ensayo de aquí abajo a mano.",
+          "dryrun": "Corre solo cada semana, revisa todo, pero NO publica nada. Sirve para vigilar sin riesgo.",
+          "on": "Corre solo cada semana y, si «publicar solo» está activo, publica lo que pase los chequeos."
+        }
+      },
+      "autopublish": {
+        "label": "Publicar solo",
+        "on": "Encendida",
+        "off": "Apagada",
+        "help": "Con esto activo, los decks que pasan los chequeos se publican sin que nadie los apruebe. Sin esto, solo se preparan y tú decides."
+      },
+      "save": "Guardar interruptor",
+      "saved": "Interruptor guardado.",
+      "saveError": "No se pudo guardar el interruptor. Vuelve a intentarlo.",
+      "forbidden": "No tienes permiso para cambiar el interruptor. Solo un súper-admin puede.",
+      "readOnly": "Estás viendo el estado en solo-lectura. Cambiar el interruptor es solo para súper-admin.",
+      "confirm": {
+        "title": "¿Encender el jalado automático?",
+        "body": "Esto hará que el jalado corra solo cada semana y, si «publicar solo» está activo, publique sin que aprietes nada. ¿Seguro?",
+        "confirmCta": "Sí, encender",
+        "cancel": "Cancelar"
+      }
+    },
     "m10": {
       "title": "M10 · Config y bitácora",
       "dials": {
@@ -2730,6 +3132,7 @@
         "subtitle": "Se editan sin redeploy. Solo se guardan las claves modificadas.",
         "save": "Guardar {count} cambio(s)",
         "saved": "Configuración guardada.",
+        "sealedMovedToM11": "Los diales de precio del sellado (proveedor, fuente de mercado, tendencia, alertas y spreads) se editan ahora en M11 · Sellado.",
         "labels": {
           "shippingFeeCents": "Tarifa de envío",
           "aportacionPct": "% aportación en especie",
@@ -2911,15 +3314,15 @@
       "sortLabel": "Ordenar por",
       "sort": {
         "value_desc": "Valor (mayor primero)",
-        "pieces_desc": "Piezas (mayor primero)",
+        "pieces_desc": "A su nombre (mayor primero)",
         "name_asc": "Nombre (A–Z)"
       },
       "colName": "Cliente",
       "colEmail": "Correo",
-      "colPieces": "Piezas",
+      "colPieces": "A su nombre",
       "colValue": "Valor estimado",
       "colPending": "Sin precio",
-      "pieces": "{count, plural, one {# pieza} other {# piezas}}",
+      "pieces": "{count, plural, other {# a su nombre}}",
       "open": "Ver bóveda",
       "back": "Clientes",
       "emptyTitle": "Sin bóvedas",
@@ -2929,7 +3332,50 @@
       "next": "Siguiente",
       "detailTabs": {
         "cards": "Cartas",
-        "sealed": "Sellado"
+        "sealed": "Sellado",
+        "physical": "Qué debe haber"
+      },
+      "physical": {
+        "tab": "Qué debe haber",
+        "drawer": {
+          "own": "Su cajón",
+          "multiple": "Este cliente debería tener un solo cajón, pero sus cartas están en {count}:",
+          "none": "Todavía no tiene cajón.",
+          "nonePending": "Sus cartas pagadas siguen en la tienda, esperando que se coloquen."
+        },
+        "counts": {
+          "label": "Resumen",
+          "missing": "{count, plural, one {faltante} other {faltantes}}",
+          "unlocated": "sin ubicar",
+          "inDrawer": "en su cajón",
+          "pendingPlacement": "por colocar",
+          "inWithdrawal": "{count, plural, one {en un retiro} other {en retiros}}",
+          "total": "{count, plural, one {debe estar en bóveda} other {deben estar en bóveda}}",
+          "help": "Puede ser menos de lo que la lista de clientes cuenta «a su nombre»: allí entra también lo reservado en pedidos que aún no se pagan. Aquí solo cuenta lo pagado que guardamos."
+        },
+        "group": {
+          "missing": "Faltantes",
+          "unlocated": "Sin ubicar",
+          "in_drawer": "En su cajón",
+          "pending_placement": "Por colocar",
+          "in_withdrawal": "En un retiro"
+        },
+        "row": {
+          "missing": "La marcó como faltante {name} el <d>{date}</d>, al preparar el pedido {folio}. El sistema la sigue contando como del cliente.",
+          "missingNoName": "La marcó como faltante una cuenta sin nombre el <d>{date}</d>, al preparar el pedido {folio}. El sistema la sigue contando como del cliente.",
+          "noLocation": "El sistema no tiene ubicación para esta carta.",
+          "notInCustomerDrawer": "El sistema la tiene en {location}, no en un cajón de cliente.",
+          "pendingPlacement": "Pagada; falta llevarla a su cajón (pedido {folio}).",
+          "prepPending": "aún sin juntar",
+          "prepPicked": "ya la juntaron",
+          "prepPrepared": "pedido preparado",
+          "inWithdrawal": "Sale con el envío que pidió el cliente — {status}."
+        },
+        "empty": {
+          "title": "Este cliente no tiene cartas guardadas con nosotros.",
+          "body": "Cuando compre y deje cartas en su bóveda, aparecerán aquí."
+        },
+        "notFound": "No encontramos a este cliente."
       }
     },
     "inventory": {
@@ -3486,7 +3932,9 @@
     "INE_NOT_ON_FILE": "Este usuario no tiene INE en el expediente.",
     "KYC_REJECTION_REASON_REQUIRED": "Sin motivo no se puede rechazar: el cliente tiene que saber qué corregir.",
     "IVA_TRANSFER_ACK_REQUIRED": "Hay que ver el costo en pesos antes de guardar esta fracción. Vuelve a calcularlo y guarda desde ahí.",
-    "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar."
+    "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar.",
+    "DECK_NOT_FOUND": "No encontramos ese deck. Puede que haya salido del top-10.",
+    "DECK_LIST_UNPARSEABLE": "No pudimos leer ninguna carta de tu lista. Revisa el formato (cantidad, set y número) e inténtalo de nuevo."
   },
   "payment": {
     "title": "Pago",
@@ -3671,5 +4119,67 @@
     "requoteFailed": "No pudimos actualizar los precios. Reintenta.",
     "retry": "Reintentar",
     "requoting": "Actualizando los precios de tu lista"
+  },
+  "decksMeta": {
+    "metaTitle": "Meta Battle Decks",
+    "metaSubtitle": "El top-10 del formato Standard, cruzado con nuestro inventario: qué tienes y a qué precio.",
+    "pasteLink": "Pegar mi lista",
+    "list": {
+      "sourceLine": "{source} · actualizado {date}",
+      "rank": "#{rank}",
+      "share": "{share}% del meta",
+      "availability": "{available} de {total} disponibles",
+      "fromPrice": "Desde {price}",
+      "trendUp": "Sube en el meta",
+      "trendDown": "Baja en el meta",
+      "trendFlat": "Sin cambio",
+      "view": "Ver deck",
+      "emptyTitle": "Aún no hay decks publicados",
+      "emptyBody": "En cuanto publiquemos el top-10 del meta, aparecerá aquí."
+    },
+    "detail": {
+      "back": "Volver a Meta Battle Decks",
+      "source": "Fuente: {source}",
+      "sourceTournament": "Torneo: {tournament}",
+      "viewSource": "Ver la lista original",
+      "groups": {
+        "pokemon": "Pokémon",
+        "trainer": "Entrenador",
+        "energy": "Energía"
+      },
+      "quantity": "×{qty}",
+      "cardCode": "{set} · {number}"
+    },
+    "line": {
+      "available": "Disponible",
+      "soldOut": "No la tenemos",
+      "unidentified": "No identificada",
+      "unidentifiedNote": "No encontramos esta carta en nuestro catálogo.",
+      "basicEnergy": "Energía básica",
+      "availableOf": "{available} de {qty}",
+      "add": "Agregar",
+      "inCart": "En el carrito"
+    },
+    "substitute": {
+      "label": "Sustituto disponible",
+      "use": "Usar {name} ({set} {number}) · {price}",
+      "usePending": "Usar {name} ({set} {number})"
+    },
+    "addAll": {
+      "button": "Agregar de jalón",
+      "hint": "{count, plural, one {# pieza disponible} other {# piezas disponibles}}",
+      "none": "Nada disponible para agregar",
+      "done": "{count, plural, one {# pieza agregada} other {# piezas agregadas}}"
+    },
+    "paste": {
+      "title": "Pega tu lista",
+      "subtitle": "Pega tu lista en formato Limitless / TCG Live y te decimos qué tenemos y a qué precio.",
+      "label": "Tu lista",
+      "placeholder": "4 Dragapult ex TWM 130\n3 Drakloak TWM 129\n2 Boss’s Orders PAL 172",
+      "submit": "Ver disponibilidad",
+      "clear": "Limpiar",
+      "emptyTitle": "Pega una lista para empezar",
+      "emptyBody": "Aún no has pegado nada. Copia tu lista y pégala arriba."
+    }
   }
 }

@@ -1206,14 +1206,280 @@ export interface AdminShipmentDTO {
   items?: { id?: string; inventoryItemId: string; folio?: string; card?: CardDTO }[];
 }
 
-// Fila de la lista de picking (contrato §M4 · GET /admin/shipments/picking-list),
-// ordenada por ubicación; `location` = label plano ("C03-F02-S15" | "UNASSIGNED").
-export interface PickingListEntryDTO {
-  shipmentId: string;
+// ---- «Pedidos a preparar» (contrato §M4-PREP v1.78 · GET /admin/shipments/picking-list) ----
+//
+// ⚠️ La RUTA sigue diciendo `picking-list` (decisión del arquitecto en §M4-PREP: se conserva la ruta
+// y solo cambia el DTO, para no mover guard ni ruteo). El renombrado «picking → Pedidos a preparar»
+// es de cara al OPERADOR (copy/etiquetas), no de la ruta interna.
+//
+// Reemplaza a `PickingListEntryDTO` (lista PLANA de piezas ordenada por ubicación). Un elemento =
+// UN pedido/envío a preparar, con sus cartas anidadas.
+//
+// ⛔ `PreparationDestination` es un TIPO DE DTO, **NO un enum de dominio**: se DERIVA de
+// `Order.fulfillmentMode` y sus valores (`ship`/`vault`) NO coinciden con los de `FulfillmentMode`
+// (`direct_ship`/`vault`). Por eso NO va al bloque «Enums (fuente de verdad)» ni a ningún control de
+// paridad de enums (§M4-PREP, nota explícita).
+export type PreparationDestination = 'vault' | 'ship';
+
+// ⭐⭐ §M4-VAULT v1.79 (.3) — `PreparationOrderDTO` pasa a UNIÓN DISCRIMINADA por `destination`.
+// La rama 'ship' ES el DTO de v1.78.3 con dos precisiones: `destination` literal y `shipTo`
+// OBLIGATORIO. La rama 'vault' nace de `VaultPlacement` (no de `ShipmentRequest`): no tiene
+// `shipmentId` ni dirección (CA #21: nunca guía).
+export type PreparationOrderDTO = ShipPreparationOrderDTO | VaultPreparationOrderDTO;
+
+export interface ShipPreparationOrderDTO {
+  destination: 'ship';
+  // --- identidad y traza ---
+  shipmentId: string; // SIEMPRE presente — la referencia estable del renglón (ShipmentRequest.id)
+  orderId: string | null; // null en un RETIRO DE BÓVEDA (no tiene orden); poblado en envío directo
+  orderNumber: string | null; // folio legible "TCG-000123"; null cuando orderId es null (retiro)
+  // --- antigüedad (CA #9: atender lo más viejo primero) ---
+  requestedAt: string; // ISO; la cola ordena asc por defecto
+  // --- cliente ---
+  customer: {
+    lastName: string | null; // apellido DERIVADO del nombre (archivero alfabético). FRÁGIL — §6.A; NO bloquea
+    // v1.78.1 — `| null`: la fuente del INVITADO puede faltar (snapshot de 8 campos anterior a v1.67).
+    // ⛔ `""` PROHIBIDA como marca de ausencia: un hecho, una grafía (ver la nota de abajo).
+    fullName: string | null; // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
+  };
+  // --- dirección COMPLETA, CON la calle (CA #6). v1.79: obligatoria en esta rama ---
+  shipTo: {
+    recipientName: string | null; // ausente en snapshots de 8 campos anteriores a v1.67 ⇒ null
+    line1: string; // la CALLE
+    line2?: string | null;
+    neighborhood?: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    phone: string;
+  };
+  // --- las cartas del pedido ---
+  items: PreparationItemDTO[];
+}
+
+export interface VaultPreparationOrderDTO {
+  destination: 'vault';
+  placementId: string; // VaultPlacement.id — la referencia estable de la fila (⛔ no hay shipmentId)
+  orderId: string; // SIEMPRE: una colocación nace de una orden
+  orderNumber: string | null; // mismo tratamiento que en 'ship' (nullIfBlank)
+  requestedAt: string; // VaultPlacement.createdAt (= momento de la liquidación)
+  // v1.79.2 — TITULAR = fullName ENTERO; email = segunda línea (desempate). `fullName` null ⇔ nombre
+  // en blanco O fabricado del correo (nameSource 'derived'). ⛔ `lastName` no se pinta en esta tarjeta.
+  customer: { userId: string; email: string; lastName: string | null; fullName: string | null };
+  suggestedLocation: VaultLocationSuggestion; // §M4-VAULT.4 (un cliente = un cajón)
+  preparation: VaultPreparationStateDTO; // §M4-VAULT.10
+  items: VaultPreparationItemDTO[];
+  // ⛔ SIN `shipTo`: no hay dirección, no sale por la puerta (CA #21: nunca guía).
+}
+
+export interface VaultPreparationItemDTO {
+  placementItemId: string; // VaultPlacementItem.id — EL NODO QUE SE PALOMEA
+  orderItemId: string; // OrderItem.id (traza a la venta)
   inventoryItemId: string;
   folio: string;
-  location: string;
+  quantity: number; // SIEMPRE 1
+  card: PreparationItemDTO['card']; // el MISMO objeto de §M4-PREP
+  currentLocation: LocationView; // dónde está HOY (lo normal: el estante de tienda)
+  // La ZONA de donde se saca (las etiquetas se repiten entre zonas). null ⇔ currentLocation 'unassigned'.
+  currentZone: VaultZone | null;
+  prepStatus: PreparationItemStatus;
+  placeability: { kind: 'placeable' } | { kind: 'blocked'; reason: VaultPlacementBlockReason };
 }
+
+// Enum de Prisma (clase E) — `PreparationItemStatus` (§M4-VAULT.2, M-59).
+export type PreparationItemStatus = 'pending' | 'picked' | 'missing';
+// Enums de Prisma (clase E) — `VaultPlacementStatus` / `VaultPlacementCancelReason` (M-59).
+export type VaultPlacementStatus = 'pending' | 'placed' | 'cancelled';
+export type VaultPlacementCancelReason = 'chargeback' | 'nothing_to_place';
+
+// Estado de preparación del pedido. Conteos sobre items[] (total = items.length). `blocked` cuenta
+// aparte y NO bloquea «preparado». `pending` cuenta SOLO colocables sin marcar.
+// ⇒ «se puede dar por preparado» ⇔ status==='in_progress' ∧ pending===0 (la MISMA regla del verbo).
+export interface VaultPreparationCounts {
+  total: number;
+  pending: number;
+  picked: number;
+  missing: number;
+  blocked: number;
+}
+export type VaultPreparationStateDTO =
+  | ({ status: 'in_progress' } & VaultPreparationCounts)
+  | ({
+      status: 'prepared';
+      preparedAt: string;
+      preparedBy: { userId: string; name: string | null };
+    } & VaultPreparationCounts);
+
+// Tipo de DTO (clase L: se COMPUTA, ⛔ no es enum de Prisma).
+export type VaultPlacementBlockReason = 'in_withdrawal' | 'not_in_custody';
+
+// §M4-VAULT.4 — «un cliente = un cajón».
+export interface CustomerDrawerRef {
+  id: string;
+  label: string;
+  zone: 'customer_custody'; // SIEMPRE: la pantalla nombra el cajón CON su zona
+  customerPieceCount: number; // cuántas piezas de ESTE cliente hay HOY en ese cajón
+}
+export type VaultLocationSuggestion =
+  | { source: 'existing_customer_vault'; location: CustomerDrawerRef } // su cajón: se confirma, ⛔ no se elige
+  | { source: 'multiple_drawers'; locations: CustomerDrawerRef[] } // ⚠️ ANOMALÍA: se elige ENTRE éstos
+  | { source: 'none' }; // cliente nuevo ⇒ el operador ELIGE (CA #19)
+
+// ---- Verbos de la colocación (§M4-VAULT.5 / .10) · operador+ ----
+
+export interface VaultPlacementDTO {
+  id: string;
+  orderId: string;
+  orderNumber: string | null;
+  status: VaultPlacementStatus;
+  createdAt: string;
+  preparedAt: string | null;
+  preparedBy: { userId: string; name: string | null } | null;
+  placedAt: string | null;
+  placedBy: { userId: string; name: string | null } | null;
+  location: { id: string; label: string; zone: 'customer_custody' } | null;
+  cancelledAt: string | null;
+  cancelReason: VaultPlacementCancelReason | null;
+}
+
+/** `PATCH /admin/vault-placements/:placementId/prep-items/:placementItemId` */
+export interface SetVaultPrepItemRequest {
+  status: PreparationItemStatus;
+}
+export interface SetVaultPrepItemResponse {
+  changed: boolean;
+  item: VaultPreparationItemDTO;
+  preparation: VaultPreparationStateDTO;
+}
+
+/** `POST /admin/vault-placements/:placementId/prepared` */
+export interface PrepareVaultPlacementResponse {
+  outcome: 'prepared' | 'already_prepared';
+  placement: VaultPlacementDTO;
+  preparation: VaultPreparationStateDTO;
+}
+
+/** `DELETE /admin/vault-placements/:placementId/prepared` (v1.79.2) */
+export interface UnprepareVaultPlacementResponse {
+  outcome: 'unprepared' | 'not_prepared';
+  placement: VaultPlacementDTO; // preparedAt/preparedBy ya en null
+  preparation: VaultPreparationStateDTO; // status 'in_progress', conteos con las marcas conservadas
+}
+
+/**
+ * `POST /admin/vault-placements/:placementId/confirm` — v1.79.3 (H-4): `locationId` OPCIONAL.
+ * Se manda ⇔ `items.filter(i => i.prepStatus === 'picked').length > 0` (contado sobre `items[]`).
+ */
+export interface ConfirmVaultPlacementRequest {
+  locationId?: string;
+}
+export type VaultPlacementSkipReason = VaultPlacementBlockReason | 'not_picked'; // clase L
+export type VaultPlacementItemResultDTO =
+  | { inventoryItemId: string; folio: string; result: 'moved' | 'already_there' | 'missing' }
+  | { inventoryItemId: string; folio: string; result: 'skipped'; reason: VaultPlacementSkipReason };
+export type ConfirmVaultPlacementResponse =
+  | {
+      outcome: 'placed' | 'nothing_to_place';
+      placement: VaultPlacementDTO;
+      items: VaultPlacementItemResultDTO[];
+    }
+  | { outcome: 'already_placed'; placement: VaultPlacementDTO };
+
+// `details` de los errores de estos verbos (catálogo §0 + §M4-VAULT.5/.10, v1.79.3).
+/** `409 PLACEMENT_NOT_PENDING` — v1.79.3 (H-2): `location` sustituye a `locationId`. */
+export type PlacementNotPendingDetails =
+  | { status: 'placed'; location: { id: string; label: string; zone: 'customer_custody' } }
+  | { status: 'cancelled'; cancelReason: VaultPlacementCancelReason };
+/** `422 LOCATION_NOT_AVAILABLE` — v1.79.3: + `location_required`; H-5 `customerDrawers`. */
+export type LocationNotAvailableDetails =
+  | { reason: 'not_found' | 'inactive' | 'not_customer_custody' }
+  | { reason: 'not_customer_drawer'; customerDrawers: CustomerDrawerRef[] }
+  | { reason: 'location_required'; pickedCount: number };
+
+// ---- §M4-VAULT.11 · GET /admin/vaults/:userId/physical-inventory (operador+) ----
+export interface CustomerPhysicalInventoryDTO {
+  // name = MISMA regla que customer.fullName de la cola: null si en blanco o nameSource 'derived'.
+  owner: { userId: string; name: string | null; email: string };
+  drawer:
+    | { kind: 'none' }
+    | { kind: 'single'; location: CustomerDrawerRef }
+    | { kind: 'multiple'; locations: CustomerDrawerRef[] }; // ⚠️ ANOMALÍA nombrada
+  counts: {
+    total: number;
+    inDrawer: number;
+    pendingPlacement: number;
+    missing: number;
+    inWithdrawal: number;
+    unlocated: number;
+  };
+  items: PhysicalInventoryItemDTO[];
+}
+export interface PhysicalInventoryItemDTO {
+  inventoryItemId: string;
+  folio: string;
+  card: PreparationItemDTO['card'];
+  currentLocation: LocationView;
+  currentZone: VaultZone | null;
+  origin: { placementId: string; orderId: string; orderNumber: string | null } | null;
+  physical: PhysicalState;
+}
+export type PhysicalState = // clase L (computado), ⛔ no es enum de Prisma
+  | { state: 'in_drawer'; drawer: { id: string; label: string; zone: 'customer_custody' } }
+  | { state: 'pending_placement'; placementId: string; prepStatus: PreparationItemStatus; prepared: boolean }
+  | { state: 'missing'; placementId: string; markedAt: string; markedBy: { userId: string; name: string | null } }
+  | { state: 'in_withdrawal'; shipmentId: string; shipmentStatus: 'picking' | 'guia' | 'enviado' }
+  | { state: 'unlocated'; reason: 'no_location' | 'not_in_customer_drawer' }; // ⚠️ ANOMALÍA
+
+export interface PreparationItemDTO {
+  shipmentItemId: string; // ShipmentItem.id — el nodo por carta (será lo que se palomee en la rebanada siguiente)
+  inventoryItemId: string; // InventoryItem.id
+  folio: string; // InventoryItem.folio
+  quantity: number; // SIEMPRE 1 bajo el modelo actual (un ShipmentItem = una pieza física; no hay columna cantidad)
+  card: {
+    name: string; // Card.name (nomenclatura de tienda)
+    setName: string | null; // Card.set.name — SET prominente para ENVÍO (mapea a carpeta por set)
+    finish: Finish; // InventoryItem.finish
+    conditionLabel: string; // COMPUESTA EN EL BACK: graded → "PSA 9" | raw → "NM" | sealed → "Mint"
+    imageSmallUrl: string | null; // Card.imageSmallUrl (nullable en catálogo)
+  };
+  currentLocation: LocationView; // resuelve "UNASSIGNED" (§6.B) — el código deja de viajar como string
+}
+
+// CA #11: "UNASSIGNED" deja de viajar como código; el back manda estado + (opcional) etiqueta.
+//
+// ⭐⭐ **v1.78.2 — UNIÓN DISCRIMINADA, y el tipo deja de permitir el estado ilegal.**
+// Antes era `{ kind: 'assigned' | 'unassigned'; label?: string }`: el invariante vivía en el
+// comentario y `{kind:'assigned'}` **sin etiqueta a la que caminar** era REPRESENTABLE — así que
+// cada consumidor lo re-derivaba con **su propio predicado** (el techlead contó CUATRO ramas
+// defensivas y una divergencia de orden back↔front sobre `label: ''`). Es la doctrina de v1.78.1
+// (`fullName`) aplicada al campo de al lado: **una grafía por hecho**.
+//
+// ⇒ Con la unión, preguntar `kind === 'assigned'` **basta y es total**: en ese brazo `label` es
+// `string` obligatorio, y en el otro **la llave no existe**. ⛔ Prohibido `if (loc.label)`: un
+// predicado sobre el campo vuelve a admitir el estado que el tipo acaba de borrar.
+// Una `VaultLocation.label` en blanco (⛔ inalcanzable por construcción) se sirve `{kind:'unassigned'}`.
+export type LocationView =
+  | { kind: 'assigned'; label: string } // "C03-F02-S15" — NO en blanco (§M4-PREP)
+  | { kind: 'unassigned' }; // ⛔ sin `label`: la llave no existe en este brazo
+
+// ⭐ §M4-PREP v1.78.1 — LA NOTA DE `customer.fullName`, porque el tipo solo dice la mitad.
+// `null` es la ÚNICA marca de «no hay nombre» en este DTO — igual que en `lastName`,
+// `shipTo.recipientName`, `orderId` y `orderNumber`. ⛔ `""` está PROHIBIDA (y omitir la llave
+// también): una cadena vacía renderiza como un hueco invisible, no se distingue de un nombre vacío
+// legítimo y obliga a todo consumidor a escribir `if (!x)` en vez de `x === null`.
+//
+// ⚠️ **Obligación NORMATIVA del consumidor (nosotros):** con `null` se pinta una **AUSENCIA CON
+// NOMBRE** —el patrón que §M4 ya exige para el destinatario («SIN DESTINATARIO (retiro anterior a
+// v1.67)»)— y ⛔ **nunca un «—» mudo sin causa**. `DESIGN_SYSTEM §32.4-H4` pide «—» **más la frase
+// que diga que no se pudo saber**, y §16.3a advierte que el em dash **ya carga semántica de dinero**
+// («precio pendiente») y se lee como cero. **La redacción de esa frase es de ux-ui**, no del
+// contrato ni del frontend: ver el `PENDIENTE-UX` de `PreparationQueue.tsx`.
+//
+// Por qué `| null` aunque backend midiera que hoy el caso es inalcanzable (los snapshots de 8 campos
+// son de RETIROS, que tienen `User.name`): el contrato declara la **forma** de la fuente, no su
+// suerte. Un campo no-nulo «mientras la coincidencia se sostenga» miente en cuanto se rompa, y no
+// avisa — sale un hueco pintado en la pantalla del operador.
 
 // Captura de guía en M4 (contrato §M4 · POST /admin/shipments/:id/tracking).
 // shippingCostCents (v1.4-finance): costo real en centavos MXN que la plataforma
@@ -1604,13 +1870,22 @@ export interface InventoryItemDTO {
   acquisitionCostCents?: number;
 }
 
+/**
+ * `GET /api/v1/admin/locations` → `200 { data: VaultLocationDTO[] }` (§M4-VAULT.4 v1.79.5, errata de
+ * ruta). Orden `label asc` del motor; sin paginar; TODAS las zonas, también las inactivas.
+ */
 export interface VaultLocationDTO {
   id: string;
   zone: VaultZone;
   box: string;
   row: string;
   slot: string;
+  // ⚠️ `${box}-${row}-${slot}`: se REPITE entre zonas (§M4-VAULT.1) ⇒ nunca identifica solo.
   label: string;
+  // v1.79.5 (§M4-VAULT.4): declarado. Hoy siempre `true` (no hay escritor de `false`); la lista del
+  // cliente nuevo lo filtra igual. La guarda real es el `422 inactive` del `confirm`.
+  isActive: boolean;
+  createdAt: string;
 }
 
 // Motivo del movimiento de bóveda (enum MovementReason del backend; ARCHITECTURE/prisma).
@@ -1703,7 +1978,9 @@ export type MasterSetScope = 'platform' | 'user_vault';
 // en la vista (iii) del propio cliente se omite.
 export interface VaultOwnerRefDTO {
   userId: string;
-  name: string;
+  // v1.79.3 (H-1): en la vista ADMIN (ii) `null` ⇔ nombre fabricado del correo o en blanco. La vista
+  // (iii) del propio cliente sigue emitiendo `User.name`.
+  name: string | null;
   email?: string;
 }
 
@@ -2160,6 +2437,74 @@ export interface SealedSetGroupLinkRequest {
   kind: SealedGroupKind;
 }
 
+// ===== M11 (§diseño §§9-11): traer precios de sellado, estado por set y mapeo manual =====
+
+/**
+ * §9 — Respuesta de `POST /admin/jobs/sealed-price-ingest` (`super_admin`, `202`). El job es AWAITED:
+ * cuando la promesa resuelve, la corrida ya terminó. La respuesta NO trae conteos (`priced`/
+ * `unmatched`); ésos se leen refrescando `GET /admin/inventory/sealed-price-status` (§10).
+ *  - `enqueued:true` ⇒ la corrida se ejecutó.
+ *  - `enqueued:false, reason:'SEALED_PRICE_SOURCE_OFF'` ⇒ el dial maestro está apagado (fail-closed,
+ *    I-2); NO es error, es la puerta money-safe: no se escribió ni una `PriceReference`.
+ *  - `enqueued:false` SIN `reason` ⇒ ya hay una ingesta en curso (single-flight).
+ */
+export interface SealedPriceIngestResponse {
+  job: string;
+  enqueued: boolean;
+  jobId?: string;
+  reason?: 'SEALED_PRICE_SOURCE_OFF';
+  scope?: string;
+  groupId?: number;
+}
+
+/** §10 — Estado ROLLUP del precio/mapeo de un set de sellado. */
+export type SealedPriceState = 'priced' | 'mapped_unpriced' | 'unmapped';
+
+/**
+ * §10 — Por qué un set NO trae precio (para el humano, sin abrir logs):
+ *  - `no_group` ⇒ el set no tiene grupo TCGCSV resuelto (arréglalo con el mapeo manual §11).
+ *  - `dial_off` ⇒ está mapeado pero el dial maestro `sealed_price_source` está apagado (I-2).
+ *  - `no_source_price` ⇒ mapeado y dial `on`, pero la fuente no trajo precio (dispara §9 o revisa).
+ */
+export type SealedPriceStatusReason = 'no_group' | 'dial_off' | 'no_source_price';
+
+/**
+ * §10 — Estado de precio/mapeo del sellado POR SET, desde estado PERSISTIDO (sin TCGCSV, O-17 safe).
+ * `priced`/`mappedUnpriced`/`unmapped` son el desglose a nivel de producto sellado del set; `state`
+ * es el rollup (el peor no-vacío). Reusa el mismo gate (`gateSealedMarketCents`) que el alta: la
+ * vista REFLEJA la verdad del motor, no la inventa (I-2/I-6).
+ */
+export interface SealedPriceStatusRowDTO {
+  set: SetRefDTO;
+  setMainGroupId: number | null;
+  linkedGroupIds: number[];
+  productCount: number;
+  priced: number;
+  mappedUnpriced: number;
+  unmapped: number;
+  state: SealedPriceState;
+  reason?: SealedPriceStatusReason;
+}
+
+export interface SealedPriceStatusResponse {
+  /** El dial maestro (para el copy: con `off`, lo mapeado cuenta como `mapped_unpriced` por gate). */
+  sealedPriceSource: SealedPriceSource;
+  data: SealedPriceStatusRowDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+/**
+ * §11 — Req de `PUT /admin/inventory/sealed-sets/:setId/set-main-group` (`super_admin`). Fija/
+ * REEMPLAZA el grupo `set_main` del set aunque ya haya uno (a diferencia de `linkGroup`, que solo
+ * escribe si `CardSet.tcgcsvGroupId` es null). Auditado con `before/after`.
+ */
+export interface SetMainGroupRequest {
+  tcgplayerGroupId: number;
+  reason?: string;
+}
+
 // ===== v1.28 Stream B (P-20): pestaña «Gradeadas» =====
 // GET /admin/inventory/graded — agregado por (cardId, gradingCompany, gradeValue).
 // `marketReferenceMxnCents` = PriceReference de (cardId,'graded','graded:<company>:<grade>',
@@ -2208,9 +2553,14 @@ export interface PublicBountiesResponse {
 //
 // ⛔ `state` LO DERIVA EL SERVIDOR y la UI lo OBEDECE: no se recalcula cruzando
 // `enabled`/`effective`/`completedAt` ni comparando importes en pantalla (§M2-B.1, §28.0 regla
-// «el estado lo dice el servidor»). Son CINCO valores del enum del contrato —en español, no
+// «el estado lo dice el servidor»). Son SEIS valores del enum del contrato —en español, no
 // `outbid`/`active`/`off`—; traducirlos a rótulos es trabajo de i18n, jamás un enum paralelo.
-export type BountyState = 'activa' | 'rebasada' | 'invalida' | 'completada' | 'apagada';
+//
+// ⭐ v2.2 (Q2, §M2-B.0/.9): el sexto, `despublicada`, es el bounty que se ELIMINÓ teniendo historia
+// (`DELETE …/bounty` rama B). Se conserva el registro pero sale de la vitrina pública Y del tablero
+// admin por defecto (§M2-B.1: `data` lo excluye salvo con `?state=despublicada`; `counts` lo trae
+// SIEMPRE como selector). Va AL FINAL del enum, en el mismo orden en que lo escribe el `AdminBountyRowDTO`.
+export type BountyState = 'activa' | 'rebasada' | 'invalida' | 'completada' | 'apagada' | 'despublicada';
 
 /** `sort` del endpoint. `attention_first` es el DEFAULT (decisión de producto de §M2-B.1). */
 export type AdminBountySort = 'attention_first' | 'price_desc' | 'updated_desc';
@@ -2224,8 +2574,13 @@ export interface AdminBountyProgressDTO {
 
 /**
  * `AdminBountyCountsDTO` — el conteo por estado SOBRE EL CONJUNTO CLASIFICADO, jamás sobre la
- * página. **Cinco claves, las mismas del enum**: `invalida` tiene la suya y no se funde en
- * `activa`. Ignora el filtro `state` y respeta los de identidad (`setId`, `finish`, `q`).
+ * página. **Seis claves, las mismas del enum** (⭐ v2.2: `despublicada` entró como sexta): `invalida`
+ * tiene la suya y no se funde en `activa`. Ignora el filtro `state` y respeta los de identidad
+ * (`setId`, `finish`, `q`).
+ *
+ * ⚠️ **`counts` reporta SIEMPRE las seis cubetas, `despublicada` incluida** (§M2-B.1): es el
+ * **selector** con el que el dueño VE cuántas hay archivadas aunque el tablero por defecto no las
+ * liste, y puede pedirlas. Es **`data`** quien excluye `despublicada` por defecto, **no** `counts`.
  */
 export type AdminBountyCountsDTO = Record<BountyState, number>;
 
@@ -2268,7 +2623,9 @@ export interface AdminBountyListResponse {
 // ACABADO de cada pieza; piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
 export interface AdminVaultSummaryDTO {
   userId: string;
-  name: string;
+  // §M4-VAULT.3 v1.79.3 (H-1): `null` ⇔ nombre en blanco o fabricado del correo (nameSource
+  // 'derived'). ⛔ Nunca se reconstruye desde `email` en el cliente.
+  name: string | null;
   email: string;
   pieceCount: number;
   totalValueMxnCents: number;
@@ -2745,6 +3102,20 @@ export interface PendingPublishRowDTO {
   productType: ProductType;
   finish: Finish;
   cardProductId: number | null;
+  // v1.69.1 (P-79c, contrato §M1) — NOMBRE del producto sellado, presente SOLO cuando
+  // productType='sealed' (ausente en raw/graded). RESUELTO server-side: SealedProduct.name (vivo, vía
+  // sealedProductId) → snapshot InventoryItem.sealedProductName (M-37). ⛔ En ESTA cola el último
+  // escalón NO cae a Card.name (el nombre del ancla es justo el defecto reportado): sin nombre
+  // resoluble el front pinta «sellado sin identificar», nunca `card.name`. El front pinta la CAJA
+  // sellada, no el single ancla. Mismo estilo que HoldingDTO/BatchInventoryItemInput.
+  sealedProductName?: string;
+  /**
+   * v1.xx (M11 · §diseño §2.C) — PRESENTACIÓN del sellado, presente SOLO cuando
+   * `productType==='sealed'` (ausente en raw/graded). RESUELTA server-side desde
+   * `InventoryItem.sealedSubtype`. Mismo patrón opcional que `sealedProductName`. La cola de M11
+   * la pinta (Bundle/Booster Box/…); consumidores viejos la ignoran (aditivo, retrocompatible).
+   */
+  sealedSubtype?: SealedSubtype;
   locationId: string | null;
   listPriceCents: number | null;
   resolvedSalePriceCents: number | null;
@@ -3996,6 +4367,31 @@ export interface SettingsDTO {
    * producción) y el deploy siguiente habría empezado a gastar solo.
    */
   gradingHookEnabled?: OnOff;
+  /**
+   * v1.xx (M11 · §diseño §1.iv/§3): interruptor MAESTRO de la fuente automática de mercado del
+   * sellado (`sealed_price_source`, enum `tcgcsv | off`, **seed `off` fail-closed**). Ya viaja en
+   * `GET /admin/settings` y se acepta en `PUT /admin/settings` (DTO map `settings.constants.ts`),
+   * pero hasta M11 **no tenía UI** — su único mando era `curl`/runbook. Encenderlo (`off→tcgcsv`) es
+   * un ACTO DE DINERO GLOBAL (§3): autoriza a la ingesta a resolver mercado y hace que el mercado
+   * automático cuente como efectivo (gate I-2). ⚠️ NO gatea el override manual (I-7): un precio
+   * `source='manual'` sobrevive con el dial `off`. Opcional en el tipo porque un backend anterior a
+   * M11 podría omitirlo; la UI trata la ausencia como `off`.
+   */
+  sealedPriceSource?: SealedPriceSource;
+  /**
+   * v1.xx (M11 · §diseño §1.iv): tendencia de valor del sellado (`sealed_value_trend`, enum
+   * `on | off`, **seed `off` fail-closed**). Ya vive en el `SETTING_DTO_MAP` del backend
+   * (`settings.constants.ts`), pero hasta M11 **no tenía UI** — su único mando era `curl`. Opcional
+   * en el tipo porque un backend anterior a M11 la omite; la UI trata la ausencia como `off`.
+   * Se edita por `PUT /admin/settings` (body parcial), misma validación/auditoría que el resto.
+   */
+  sealedValueTrend?: OnOff;
+  /**
+   * v1.xx (M11 · §diseño §1.iv): alertas de reposición de sellado (`sealed_restock_alerts`, enum
+   * `on | off`, **seed `off` fail-closed**). Igual que `sealedValueTrend`: en el DTO map del
+   * backend desde antes, sin UI hasta M11. Ausente ⇒ `off`. `PUT /admin/settings` parcial.
+   */
+  sealedRestockAlerts?: OnOff;
 }
 
 /**
@@ -4673,4 +5069,246 @@ export interface IvaTransferUpdateRequest {
 export interface IvaTransferUpdateResponse {
   ivaTransferPct: number;
   preview: IvaTransferPreviewDTO;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §13 — DECKS META (2026-09-18, arquitecto). Espejo de docs/API_CONTRACT.md §13. El carrito sigue
+// siendo de cliente (array de inventoryItemId, §4-G): estos DTOs devuelven los `inventoryItemId`
+// a agregar; NO hay carrito servidor nuevo. Precio y piezas se REUSAN de §2 (no se reinventan).
+//
+// DISPONIBILIDAD (§13 «Convenciones», trust-source SUP-LEG): la fuente (Limitless) ya sólo publica
+// decks legales, así que NO re-filtramos por legalidad. Una línea es OFRECIBLE si casó
+// (`matchStatus === 'matched'`) y tiene stock; `matchStatus ≠ 'matched'` ⇒ no identificada, sin
+// `card`/precio (nunca se inventa carta ni precio).
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/** §13 — el grupo de la sección de deck (Pokémon / Entrenador / Energía). */
+export type MetaCardGroup = 'pokemon' | 'trainer' | 'energy';
+
+/**
+ * §13 — resultado del emparejado set+número ↔ nuestra `Card`. Solo `matched` trae `card` y precio;
+ * el resto se muestra «no identificada» sin inventar nada (regla dura del dueño).
+ */
+export type MetaMatchStatus =
+  | 'matched'
+  | 'ambiguous'
+  | 'unmatched_set'
+  | 'unmatched_number'
+  | 'unmatched_basic_energy';
+
+/** §13 — la `Card` casada de una línea (solo cuando `matchStatus === 'matched'`). */
+export interface MetaDeckCardRefDTO {
+  cardId: string;
+  name: string;
+  imageUrl: string;
+}
+
+/**
+ * §13 (Fase 3, opcional) — otra impresión de la misma carta en stock, sugerida cuando la línea
+ * original está agotada. Ausente en Fase 1.
+ */
+export interface MetaDeckLineSubstituteDTO {
+  cardId: string;
+  name: string;
+  setCode: string;
+  number: string;
+  availableQty: number;
+  unitPriceMxnCents: number | null;
+  unitInventoryItemIds: string[];
+}
+
+/**
+ * §13 `MetaDeckLineDTO` — una línea del deck con su disponibilidad.
+ *
+ * `unitInventoryItemIds`: hasta `availableQty`, cheapest-first — es el add-to-cart «de jalón».
+ * Una línea NO identificada (`matchStatus≠matched`) o sin stock NO aporta `unitInventoryItemIds`
+ * propios; puede traer `substitute` (Fase 3).
+ */
+export interface MetaDeckLineDTO {
+  rawName: string;
+  setCode: string;
+  number: string;
+  quantity: number;
+  group: MetaCardGroup;
+  matchStatus: MetaMatchStatus;
+  /** `null` si la línea no casó a una `Card` (nunca se inventa). */
+  card: MetaDeckCardRefDTO | null;
+  /** `min(quantity, stockNM)`; 0 si falta. */
+  availableQty: number;
+  /** «desde» de la carta (salePriceCents); `null` si pending/faltante. */
+  unitPriceMxnCents: number | null;
+  /** Hasta `availableQty`, cheapest-first — las piezas del «de jalón». */
+  unitInventoryItemIds: string[];
+  substitute?: MetaDeckLineSubstituteDTO;
+}
+
+/** §13 — las líneas del deck agrupadas por sección. Misma forma en el detalle y en `paste`. */
+export interface MetaDeckGroupsDTO {
+  pokemon: MetaDeckLineDTO[];
+  trainer: MetaDeckLineDTO[];
+  energy: MetaDeckLineDTO[];
+}
+
+/** §13 `GET /decks-meta` — teja del top-10 del meta. */
+export interface MetaDeckSummaryDTO {
+  slug: string;
+  name: string;
+  rank: number;
+  /** % del meta, si la fuente lo da. */
+  sharePct?: number;
+  /** share_actual − anterior (▲=+, ▼=−, 0). */
+  trend?: number;
+  /** «desde»: suma de disponibles con precio; opcional. */
+  fromPriceMxnCents?: number;
+  /** Σ availableQty de líneas casadas con stock. */
+  availableCount: number;
+  totalCount: number;
+  /** arte de una Card representativa (nunca arte externo). */
+  imageUrl?: string;
+}
+
+/** §13 `GET /decks-meta` — top-10 publicado, ordenado por `rank` asc, con cita de fuente. */
+export interface DecksMetaListResponse {
+  data: MetaDeckSummaryDTO[];
+  /** fetchedAt de la lista más reciente aplicada. */
+  updatedAt: string;
+  source: string;
+}
+
+/** §13 `GET /decks-meta/:slug` — deck + disponibilidad por línea. */
+export interface DeckMetaDetailResponse {
+  slug: string;
+  name: string;
+  rank: number;
+  sharePct?: number;
+  trend?: number;
+  source: string;
+  sourceUrl?: string;
+  sourceTournament?: string;
+  groups: MetaDeckGroupsDTO;
+}
+
+/**
+ * §13 `POST /decks-meta/paste` — misma forma que `groups` del detalle (parsea+empareja+valora en
+ * memoria, no persiste). Texto vacío / sin líneas válidas ⇒ `422 DECK_LIST_UNPARSEABLE`.
+ */
+export interface DeckMetaPasteResponse {
+  groups: MetaDeckGroupsDTO;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────────────────────
+ * §13 Fase 2 (auto-fetch) — ADMIN dry-run. `GET /admin/decks-meta/preview` (rol `vault_operator+`)
+ * corre el pipeline REAL (home → listas → parse → match → canary) en dry-run y
+ * devuelve el reporte INLINE **sin escribir NADA**. Es la vía de verificación en prod: superficie
+ * de OPERADOR, no de cliente, por eso vive aquí y no en la superficie pública §13.
+ *
+ * Los tipos ESPEJAN `RefreshReport`/`RefreshRunResult` del backend
+ * (`backend/src/modules/decks-meta/decks-meta-refresh.service.ts` + `canary.ts`). No se inventan
+ * campos: si el backend cambia el shape, se actualiza aquí a mano (no hay generación de tipos).
+ * ────────────────────────────────────────────────────────────────────────────────────────── */
+
+export interface DecksMetaCanaryCheck {
+  id: 'C1' | 'C2' | 'C3' | 'C4' | 'C5';
+  ok: boolean;
+  measured: number;
+  threshold: number;
+  /** Etiqueta de procedencia del backend (NO es i18n de UI: la pantalla la rotula por `id`). */
+  label?: string;
+}
+
+export interface DecksMetaCanaryResult {
+  verdict: 'PUBLISH' | 'NO_PUBLISH';
+  checks: DecksMetaCanaryCheck[];
+  reason: string | null;
+  inBandDeckCount: number;
+}
+
+export interface DecksMetaDeckReport {
+  archetypeId: string;
+  name: string | null;
+  rank: number | null;
+  sharePct: number | null;
+  listId: string;
+  /** Nº de líneas parseadas de la lista. */
+  cardsParsed: number;
+  /** Σ de cantidades (un deck estándar = 60). */
+  sumQuantity: number;
+  matched: number;
+  total: number;
+  matchStatusBreakdown: Record<string, number>;
+  /** `sumQuantity` dentro de la banda de «las 60» (lo calcula el backend con sus umbrales). */
+  inBand: boolean;
+  error?: string;
+  /**
+   * rev `decks-portada` (§13 «Portada del deck», ARCHITECTURE §12.4) — la portada que Limitless da
+   * para el arquetipo y si casó contra NUESTRO catálogo. Solo lectura/procedencia: no altera
+   * `verdict`/`checks`/`inBand`. `null` ⇔ la home no trajo portada válida o la lista falló.
+   * Opcional (`?`) para tolerar un backend anterior a la rev, que no manda el campo.
+   */
+  cover?: DecksMetaDeckCover | null;
+}
+
+/** Portada del deck en el ensayo (`GET /admin/decks-meta/preview` › `decks[].cover`). */
+export interface DecksMetaDeckCover {
+  /** Crudo del `alt` de Limitless («TWM-130» ⇒ `TWM`), ya validado por el backend. */
+  setCode: string;
+  /** Crudo, SIN normalizar («25»; el casado normaliza 25 ↔ 025). */
+  number: string;
+  matchStatus: 'matched' | 'ambiguous' | 'unmatched_set' | 'unmatched_number';
+  /** `null` si no casó. */
+  cardId: string | null;
+  /** Imagen de NUESTRO catálogo de esa carta; `null` si no casó o no tiene imagen. Nunca arte de Limitless. */
+  imageUrl: string | null;
+}
+
+export interface DecksMetaRefreshReport {
+  mode: 'live' | 'dryrun';
+  formatCode: string | null;
+  formatLabel: string;
+  autopublish: boolean;
+  startedAt: string;
+  finishedAt: string;
+  urlsFetched: string[];
+  decks: DecksMetaDeckReport[];
+  canary: DecksMetaCanaryResult;
+  verdict: 'PUBLISH' | 'NO_PUBLISH';
+  wouldPublish: boolean;
+  applied: boolean;
+  persistedCount: number;
+  publishedSlugs: string[];
+  supersededListIds: string[];
+  manualConflicts: string[];
+  pausedSkipped: string[];
+  errors: string[];
+}
+
+/**
+ * La respuesta del endpoint es el `RefreshRunResult`: o bien corrió (`skipped:false` + `report`),
+ * o bien se saltó por single-flight (`ALREADY_RUNNING`). En dry-run el dial `off` NO aplica (el
+ * dry-run se fuerza), así que en la práctica sólo llega `ALREADY_RUNNING`, pero se tipa completo.
+ */
+export type DecksMetaPreviewResponse =
+  | { skipped: true; reason: 'ALREADY_RUNNING' | 'DIAL_OFF'; mode: 'skipped' | 'off' }
+  | { skipped: false; report: DecksMetaRefreshReport; mode: 'live' | 'dryrun' };
+
+// ── §13 Fase 2 · DIAL del jalado automático (operación admin) ────────────────────────────────────
+// Espeja el endpoint ya construido en `admin-decks-meta.controller.ts`. No cambia el contrato:
+// mirror de shapes existentes.
+
+/** El interruptor de 3 estados del auto-fetch. `on` dispara egress real + publicación (super_admin). */
+export type DecksMetaAutofetch = 'off' | 'dryrun' | 'on';
+
+/**
+ * Estado del dial (`GET /admin/decks-meta/dial`, vault_operator+; `PUT` super_admin). Fail-closed:
+ * ausente ⇒ `{ autofetch:'off', autopublish:false }`.
+ */
+export interface DecksMetaDialDTO {
+  autofetch: DecksMetaAutofetch;
+  autopublish: boolean;
+}
+
+/** Patch parcial del dial (`PUT /admin/decks-meta/dial`). Sólo las llaves que el dueño tocó. */
+export interface DecksMetaDialUpdateRequest {
+  autofetch?: DecksMetaAutofetch;
+  autopublish?: boolean;
 }

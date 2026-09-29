@@ -13,6 +13,62 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-09-25 · gates arreglos-rápidos (sobre `3806fec`)
+
+> Los identificadores llevan el sufijo «(arreglos-rápidos)» porque `TD-1`/`TD-2` ya existen más abajo (cerrados, de
+> 2026-08-16 y 2026-08-22) y son otra deuda.
+
+### TD-1 (arreglos-rápidos) · Nada sostiene bajo carga `SERIALIZABLE_ATTEMPTS = 5` (backend · techlead C1/TD-4, 2026-09-25)
+- **Dueño:** **backend** (`src/common/serializable-retry.ts`, `SERIALIZABLE_ATTEMPTS`).
+- **Severidad:** Baja. **No bloqueante.** La conducta de producción no cambia; lo que falta es el candado que la sostenga.
+- **Qué es (medido 2026-09-25 sobre `3806fec`):** el 5 salió de una medición histórica (2026-09-14, `dd3522b`, autor
+  backend) sobre la versión 4 altas × 12 rondas de `buylist-intake-concurrency.e2e-spec.ts`: 3 intentos ⇒ roja 10/10
+  (N=10), 5 ⇒ verde 8/8 (N=8). Desde `c36b492` (P-BUYLIST-CONC-FLAKE) esa prueba fuerza el conflicto con **dos**
+  contendientes y el perdedor reintenta sin rival: pasa con 2 intentos, así que **ya no distingue 2 de 5**. Hoy solo
+  hay un candado **unitario** del literal (`test/serializable-retry.spec.ts`, «el presupuesto es 5»; mutación 5→3 ⇒
+  rojo, backend 2026-09-25): obliga a leer la nota, no demuestra suficiencia.
+- **Riesgo:** alguien baja el presupuesto (o cambia el backoff) y ninguna prueba de integración lo nota; bajo carga
+  real sube la proporción de `503 BUSY_TRY_AGAIN` en `POST /buylist/requests`.
+- **Propuesta:** prueba de **estrés fuera del gate** (job manual/nocturno, no en la suite de PR — es probabilística y
+  lenta): K altas simultáneas del mismo vendedor × R rondas con `connection_limit=5` como el CI, midiendo la proporción
+  de `503` con N≥30 corridas, para 3/4/5 intentos. Criterio a fijar con el techlead (p. ej. «con 5, 0 `503` en N=30 a
+  K=4»). ⛔ NO MEDIDO hoy qué pasa con K≈50.
+- **Disparador:** antes de tocar `SERIALIZABLE_ATTEMPTS`/`BACKOFF_BASE_MS`, o si aparecen `503 BUSY_TRY_AGAIN
+  [reintentos-agotados]` en los logs de producción.
+
+### TD-2 (arreglos-rápidos) · La imagen del deck se elige por heurística de NOMBRE (backend · QA, 2026-09-25)
+- **Dueño del código:** **backend** (`src/modules/decks-meta/deck-image.ts`, `pickDeckImage`). **Dueño de la
+  decisión:** **arquitecto** (fuente de la portada) y **dueño** (reglas 3/4 del orden — ⛔ no se cambian aquí).
+- **Severidad:** Baja. **No bloqueante.** No toca dinero; es la foto de la teja de `GET /decks-meta`.
+- **Qué es:** Limitless publica el arquetipo por nombre sin «ex» y el jalado automático no escribe `imageCardId`, así
+  que la teja depende de casar palabras del nombre del deck con nombres de carta (`docs/BACKEND_NOTES.md`, «Meta Battle
+  Decks — arte de la teja»). **Casos medidos por QA** sobre `3806fec` donde la heurística no da la carta que un humano
+  elegiría:
+  - la carta principal del deck **no está casada** en catálogo ⇒ cae a la regla 3 y sale una **ex de apoyo**;
+  - decks **«Box»** («Basic Box» y similares): no hay nombre de especie que casar ⇒ ex/Pokémon con más copias;
+  - **«Alakazam Mew»** ⇒ sale **Mew ex** (regla 2: una ex que casa por nombre gana sobre la no-ex nombrada antes);
+  - **V / VSTAR / GX** no casan por especie (la normalización solo quita «ex»; «Giratina VSTAR» no es «… giratina»).
+- **Propuesta (al arquitecto):** usar la portada que la propia Limitless ya publica en su home,
+  `a.leader-image img[alt="SET-NUM"]` (p. ej. `TWM-130`), que `limitless-html.parser.ts` no extrae hoy. Casarla por
+  `ptcgoCode`+`number` como el resto de líneas y guardarla en `imageCardId` o en un campo nuevo (para no pisar la
+  elección del admin). Eso es superficie de schema/contrato ⇒ decide el arquitecto. La heurística quedaría como
+  respaldo cuando la portada no case.
+- **Disparador:** decisión del dueño sobre las reglas 3/4, o del arquitecto sobre la portada de Limitless.
+
+## Backend · 2026-09-17 · M11 sellado (fix de QA)
+
+### SB-YEAR1 · El resolver único de `set_main` NO desempata por año — pierde la AUTO-adopción que el viejo `matchScore` hacía en homónimos de años distintos (backend · QA IMPORTANTE-3, P-46-bis, 2026-09-17)
+- **Dueño del código:** **backend** (`src/modules/inventory/sealed-product.service.ts` `bestSetMainMatch`, que delega en `src/modules/pricing/providers/tcgcsv-group-match.ts`).
+- **Dueño de la DECISIÓN de diseño:** **arquitecto** — debe **ratificar/documentar** esta conducta en el diseño **§8** (matcher de sellado / escalera S-D3). Hoy vive fijada solo en un canario de backend; falta la línea en el diseño que diga que es la conducta querida.
+- **Severidad:** Baja. **No bloqueante.** Es dirección **money-safe** (ver abajo); se anota porque cambia una conducta observable respecto del histórico y nadie la había escrito.
+- **Qué es (medido 2026-09-17):** al unificar el match en `matchTcgcsvGroupByName` (P-46-bis), el sellado dejó de tener el desempate **por año** que el viejo `SealedProductService.matchScore` aplicaba dentro de `bestSetMainMatch`. El caso concreto: **dos grupos TCGCSV con el MISMO nombre y AÑO distinto** (p. ej. `Base Set` 1999 y `Base Set` 2016) donde el set LOCAL coincide en año con uno de ellos.
+  - **Antes:** `matchScore` daba **1.0** al grupo cuyo año empata y **0.7** al otro; `bestSetMainMatch` elegía el de 1.0 ⇒ **auto-adoptaba el del año**.
+  - **Ahora:** los dos nombres normalizan igual ⇒ el peldaño `exact` de `matchTcgcsvGroupByName` tiene **DOS candidatos** ⇒ `ambiguous` ⇒ `null`; `bestSetMainMatch` **no baja** a un desempate de año (money-safe: match ÚNICO o nada) ⇒ **no auto-adopta ninguno**.
+- **Por qué es dirección SEGURA:** lo único que se pierde es una **auto-adopción** que antes ocurría (`null → groupId`); ⛔ **jamás** puede pasar `groupId → OTRO grupo` (el peor caso, repreciar con precios ajenos). El desempate por año **sigue informando** al humano: `syncCandidates` surfacea ambos con su score (1.0 / 0.7) para que cure a mano (`linkGroup` / `set-main-group`), y el curado sí baja.
+- **Canario que la fija (para que el cambio, si se decide otro, sea VISIBLE y no silencioso):** `backend/test/sealed-product.service.spec.ts` — *«IMPORTANTE-3: dos grupos mismo-nombre/año-distinto → resolver único devuelve null (NO desempata por año como el viejo matchScore)»*. Verifica: candidatos surfaceados con 1.0/0.7, `sync` deja `tcgcsvGroupId=null` y sin `set_main`, y la cura manual sí baja.
+- **Texto sugerido para el arquitecto (§8):** *«El match automático de `set_main` del sellado usa la escalera S-D3 (`matchTcgcsvGroupByName`), que exige match ÚNICO por peldaño y NO desempata por año. Ante dos grupos homónimos de años distintos NO auto-adopta (devuelve `null`); la desambiguación por año queda como señal de curación (score en `syncCandidates`), no como criterio de auto-adopción. Money-safe: solo `null → groupId`, nunca `groupId → OTRO`.»*
+- **Disparador:** cuando el arquitecto revise §8 del diseño de sellado, o si el negocio pide que los homónimos-de-año-distinto vuelvan a auto-adoptarse por año (en cuyo caso el desempate se reintroduce **en la fuente única**, no en una copia, y este canario se actualiza a la nueva conducta).
+
 ## Backend · 2026-09-11 · gates Stream B
 
 ### RSV-L1 · La rama LEGADA `reservedByOrderId IS NULL` está en **TRES** sitios, no en uno (backend · techlead I4 / H-5, 2026-09-11)
@@ -3276,6 +3332,25 @@ aparece, con la bandera SÍ).
 > (v1.21.3-quote-prune, 2026-08-18) + un hallazgo de QA. El único fix de código de ese veredicto
 > (F-2: re-quote tras `ITEM_UNAVAILABLE`/`NOT_FOUND` en session) **ya se corrigió en la misma rama**
 > y no figura aquí. Todos los ítems son no bloqueantes; dueño **frontend**.
+
+### M4P-SORT · El re-orden en el cliente de «Pedidos a preparar» es correcto **SOLO mientras la cola NO pagine**, y esa condición no está en el código (techlead, §M4-PREP/§35, 2026-09-22)
+- **Dueño:** **frontend** (`src/lib/preparation-order.ts`; consumidores: `m4/PreparationQueue.tsx` y la rama mock de `lib/api.ts`). **Severidad:** Baja **hoy**; **Alta el día que se cumpla el disparador**. **No bloqueante.**
+- **Redacción:** la levanta el **techlead** en su veredicto del pase de M4; **este texto lo escribe frontend** porque el pase no tenía forma de pedirle el suyo verbatim. ⛔ Si el techlead tiene una redacción propia, **sustituye a ésta** — el contenido es suyo, no la prosa.
+- **La deuda, en una frase:** `sortPreparationOrders` / `sortPreparationItems` reordenan en el cliente lo que el servidor ya ordena, y eso **es correcto sobre una lista completa e incorrecto sobre una página**.
+- **Por qué existe el re-orden, y por qué se aprobó:** el orden *lo más viejo primero* es el **criterio de aceptación CA #9**, no un detalle de presentación. Anclarlo en la pantalla lo hace verificable **donde el operador lo ve**, y evita que un cambio de orden en el servidor se herede en silencio. **Aprobado por el techlead** en este mismo veredicto y **ratificado por ux-ui** (`DESIGN_SYSTEM §35.13`, lista *«el re-orden en cliente con la fecha ilegible al final»* entre lo **RATIFICADO**).
+- **🔴 Por qué es deuda igualmente, y el argumento es del techlead:** **ordenar una lista COMPLETA es idempotente; ordenar una PÁGINA destruye el orden global.** Y el mismo `DESIGN_SYSTEM`, del mismo dueño, ya fija la regla contraria para una pantalla **paginada** — §28.2, tabla de la anatomía de M2›Bounties (`DESIGN_SYSTEM.md:12596-12597`), en **dos filas distintas**: *«**⛔ La pantalla no ordena.** El orden llega hecho»* y *«⛔ No se ofrece ninguna opción que el servidor no tenga —**ordenar en el cliente sobre una página vuelve a romper el eje**»*. *(Se citan por separado porque **son** dos filas: unidas en una sola frase parecen una regla que el documento no escribió.)* Las dos reglas no se contradicen: **dependen de si la respuesta es completa**, y hoy `GET /admin/shipments/picking-list` **no pagina** (envelope `{ data }` sin `page`/`pageSize`, §M4-PREP). **Esa condición de validez no está escrita en ninguna precondición del código: vive en un comentario.**
+- **⚠️ El modo de fallo, que es lo que la hace peligrosa:** si alguien pagina ese endpoint **sin retirar el re-orden**, **CA #9 se rompe en silencio** —la página 2 se ordena contra sí misma y el pedido más viejo global deja de salir primero— **y la prueba sigue VERDE**, porque el servidor falso devuelve la colección entera y nunca ve una página. *Un candado que no puede distinguir «ordenado» de «ordenado por página» no protege ese cambio.*
+- **⚠️ Disparador (explícito, para que no dependa de que alguien se acuerde):** **el día que `GET /admin/shipments/picking-list` publique paginación** —o cualquier forma de respuesta parcial (`limit`, cursor, «solo los N más viejos»)—. En ese momento: (1) **se retiran las dos funciones** y la vista pinta el orden del servidor tal cual; (2) el candado de CA #9 pasa a medir **la petición** (que se pide el orden correcto), no el DOM; (3) esta entrada se cierra. Ref: `API_CONTRACT.md §M4-PREP`, `DESIGN_SYSTEM.md §28.2a` y §35.13, `FRONTEND_NOTES.md` §63.4 punto 1.
+
+**Dos notas del techlead dentro de esta misma entrada** (medidas por él, verificadas por frontend):
+
+- **(a) ⚠️ ~~«Los dos comparadores divergen con `label: ''`»~~ — ✅ RETIRADA POR EL TECHLEAD, que la verificó y la dio por falsa** (*«mi hallazgo era falso. Lo retiro.»*). Se conserva el rastro porque **la medición es la lección**, no el hallazgo. **NO SE REPRODUCÍA, y la medición decía lo contrario:** La nota, tal como llegó, decía que el backend ordena **primero** una etiqueta vacía y el cliente **última**. Medido hoy (2026-09-22) sobre `backend/src/modules/shipments/shipments.service.ts`:
+  - el comparador **no está en `:871-877`** (ahí vive el mapper del `addressSnapshot`) sino en **`byLocation`**;
+  - y, sobre todo, **el backend nunca emite `label: ''`**: `locationViewOf` normaliza con `nullIfBlank` y una etiqueta en blanco **omite la llave**, así que llega como `undefined` ⇒ su propio comparador la manda **al final** (`la === undefined ⇒ return 1`).
+  - ⚠️ **Las tres citas llevan su sha, y esto es la corrección de `NB-2`.** La primera redacción daba números de línea **sin sha** y decía «medido hoy», así que se leía como vigente cuando ya no resolvían (el techlead midió el desfase: `:871-877` → `byLocation` real, `:160-163` → `nullIfBlank` real, `:958-961` → `locationViewOf` real). **Re-medido sobre `975a307`:** `nullIfBlank` **`:186`**, `locationViewOf` **`:1041-1044`**, `byLocation` **`:1058-1063`**, todos en `backend/src/modules/shipments/shipments.service.ts`. *En un repo cuya disciplina es «fichero:línea o NO MEDIDO», una cita que no resuelve manda a alguien a mirar el sitio equivocado* — el patrón bueno es el de `ARCHITECTURE.md:6797`, que cita **con su sha** y por eso no engaña aunque las líneas se muevan. Reproducible: `git show 975a307:backend/src/modules/shipments/shipments.service.ts | sed -n '1041,1063p'`.
+  - **⇒ los dos comparadores COINCIDEN**, también en ese borde: al final los dos. Y el backend escribió el mismo razonamiento por su cuenta, en el comentario de `locationViewOf`: *«⛔ `label: ""` sería la cuarta grafía de la ausencia. Consecuencia declarada: esa carta ordena al final, junto a las `unassigned` — correcto, porque es exactamente igual de no-caminable.»*
+  - **Qué queda de la nota, que no es nada:** que los dos lados **escriben la misma regla por separado** (uno compara `undefined`, el otro *falsy*). Eso no es un defecto hoy —la normalización del emisor hace que los dos caminos coincidan— pero **sí es la fragilidad real**: si el contrato permitiera algún día `label: ''`, el cliente seguiría acertando y el backend dependería de `nullIfBlank`. **No se anota como deuda propia** porque no hay conducta observable que corregir; se deja aquí el rastro para que nadie vuelva a levantarla sin medir. *(Si el techlead midió otra cosa, que traiga fichero:línea: lo de arriba es reproducible con `sed -n '955,976p'`.)*
+- **(b) ~~Las dos funciones estaban `export`adas sin ningún importador~~ — ✅ CERRADA en el mismo pase.** El techlead midió **0 importadores**: eran superficie pública sin consumidor, exportadas solo porque vivían dentro del componente. Al mover el orden a `src/lib/preparation-order.ts` pasaron a tener **dos** consumidores reales —la vista y el **servidor falso**— lo que además cierra el hallazgo hermano del techlead: había **TRES** fuentes para un mismo orden (servidor, vista y un `sort` escrito a mano en la rama mock de `getAdminPreparationQueue`) y ahora hay **dos**. ⛔ Un servidor falso que ordena «a su manera» no puede equivocarse igual que el real, y **ésa es justo la propiedad que se le pide a un mock**.
 
 ### FX-F1 · ~~El acuse de §30.8 **consulta al servidor antes de que el humano confirme**, porque el número que tiene que nombrar no viaja en el DTO~~ — **✅ CERRADA (2026-09-09, contrato v1.63.4)** (frontend, §30/§M2-F)
 - **Dueño:** **frontend** (`m2/sections/fx/FxRateCard.tsx`, `chooseMode`). **Severidad:** Baja. **No bloqueante.** **Residual declarado**, no un descubrimiento suelto: se anota porque **diverge de la letra de un candado de diseño**.
@@ -7228,11 +7303,16 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
 - **Comprobación de cierre:** las dos salen de `SIN_CLASE_DECLARADA`; un `?report=` fuera de dominio
   devuelve `400` con `field`+`allowed` y **no** un fichero.
 
-### EQ-D1 · Los 22 ejes de query de DOMINIO CERRADO que §0-Q no registra — ⭐ **16 abiertos** (backend · descubierto por `C-EQ-1`, 2026-09-13)
+### EQ-D1 · Los 22 ejes de query de DOMINIO CERRADO que §0-Q no registra — ⭐ **12 abiertos** (backend · descubierto por `C-EQ-1`, 2026-09-13)
 
 > ⭐ **22 → 16 el 2026-09-13**: `EQ-D0` (la bóveda) pagó **seis** — `?sealedSubtype=`, `?condition=` y
-> `?sort=` en `GET /vault/sealed` **y** en `GET /admin/vaults/:userId/sealed`. El trinquete de
-> `C-EQ-1` está en **16**. *Un número que solo puede bajar es una deuda que se paga.*
+> `?sort=` en `GET /vault/sealed` **y** en `GET /admin/vaults/:userId/sealed`.
+> ⭐ **16 → 12 el 2026-09-16 (`EQ-D1`, este pase)**: se migraron a `parseEnumFilter` **cuatro ejes
+> no-dinero** con su fila de §0-Q escrita por el arquitecto (`API_CONTRACT` v1.77) — `?kind=` (envíos,
+> clase R), `?scope=` (auditoría, clase R) y los `?sort=` de los **dos catálogos públicos**
+> (`/catalog/cards`, `/catalog/sealed`; ORDEN/L). Salieron de `SIN_CLASE_DECLARADA` y entraron al
+> `REGISTRO` de `enum-query-axes.e2e-spec.ts` con sus **siete propiedades verdes** (medido 303/303,
+> N=3). El trinquete de `C-EQ-1` está en **12**. *Un número que solo puede bajar es una deuda que se paga.*
 
 - **Dueño:** **backend**, repartido por stream en la tabla. **Severidad:** **Media** para el conjunto —
   ⚠️ **salvo las filas promovidas a `EQ-D0` (bóveda, Alta) y `EQ-D0b` (`?report=`, Media-export)**, que
@@ -7266,20 +7346,23 @@ obliga a **subir el número a mano** y eso se ve en la revisión.
 |---|---|---|---|
 | ✅ ~~`GET /vault/sealed?sealedSubtype=` · `?condition=` · `?sort=`~~ | **CERRADO 2026-09-13** (`EQ-D0`): `parseEnumFilter` + `switch` exhaustivo. Fuera de dominio ⇒ `400`; el orden ya no clampa | — | backend · Inventario y vault |
 | ✅ ~~`GET /admin/vaults/:userId/sealed?sealedSubtype=` · `?condition=` · `?sort=`~~ | **CERRADO 2026-09-13** (mismo servicio) | — | backend · Inventario y vault |
-| `GET /admin/shipments?kind=` | `if (kind === 'guest_direct_ship')… if (kind === 'vault_withdrawal')…` ⇒ lo desconocido se **ignora en silencio** | punto 1 fila 3: debería ser `400` | backend · Órdenes y dinero |
-| `GET /admin/users/:id/audit?scope=` | cae al default `target` ante basura ⇒ **clamp silencioso** | punto 6 ⛔ *«prohibido el clamp silencioso»*: devuelve una lista distinta de la pedida | backend · Admin y auditoría |
+| ✅ ~~`GET /admin/shipments?kind=`~~ | **CERRADO 2026-09-16 (`EQ-D1`)**: `parseEnumFilter('kind', …, SHIPMENT_KIND_VALUES)` — clase R `{guest_direct_ship, vault_withdrawal}` (§M4). Fuera de dominio ⇒ `400` | — | backend · Órdenes y dinero |
+| ✅ ~~`GET /admin/users/:id/audit?scope=`~~ | **CERRADO 2026-09-16 (`EQ-D1`)**: `parseEnumFilter('scope', …, USER_AUDIT_SCOPE_VALUES) ?? 'target'` — clase R `{target, actor, both}` (§M6). El clamp ⇒ `400` | — | backend · Admin y auditoría |
 | `GET /admin/pricing/graded-estimates/review?reason=` | `400` con `details.{field, invalid, allowed}` | **CUARTA forma de `details`** (`invalid` no es `invalidStatus` del punto 5 ni está declarada) | backend · Catálogo y precios |
 | `GET /admin/finance/export.csv?report=` · `GET /admin/reports/export.csv?report=` | `if(report==='pnl')… if(report==='iva')…` ⇒ **cualquier otra cosa cae a `inventory`** | punto 1 fila 3 con el signo peor: devuelve **otro informe** del pedido, sin avisar | backend · Admin y auditoría |
 | `?range=` ×4 (`/catalog/featured-set/value-history`, `/catalog/sealed/:id/value-history`, `/catalog/sets/:id/value-history`, `/vault/portfolio/history`) | `normalizeRange` ⇒ **clamp silencioso a `'1m'`** sobre un dominio de 8 literales | punto 6 ⛔ clamp silencioso | backend · Catálogo y precios + Inventario y vault |
-| `?sort=` ×**6** (`/catalog/cards`, `/catalog/sealed`, `/admin/inventory/master-sets`, `/admin/vaults`, `/admin/vaults/:id/master-sets`, `/vault/master-sets`) — ✅ los de **bóveda sellada** salieron con `EQ-D0` | todos caen a su default ante basura | punto 6 ⛔ clamp silencioso; y §0-Q **no declara su dominio** (solo registra el de `bounties`) | backend · varios |
+| `?sort=` ×**4 restantes** (`/admin/inventory/master-sets`, `/admin/vaults`, `/admin/vaults/:id/master-sets`, `/vault/master-sets`) — ✅ **`/catalog/cards` y `/catalog/sealed` cerrados 2026-09-16 (`EQ-D1`)**: ORDEN/L, `parseEnumFilter ?? default`, fuera de dominio ⇒ `400`; los de **bóveda sellada** salieron con `EQ-D0` | los 4 restantes caen a su default ante basura | punto 6 ⛔ clamp silencioso; su dominio ya está DECIDIDO (§0-Q v1.77) pero falta migrar el código — los 3 de master-sets comparten `sortSummaries`, `/admin/vaults` va aparte | backend · varios |
 | `GET /catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 · §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo | **backend** · Catálogo y precios — ⚠️ ver `EQ-D3`: la precondición YA se cumplió |
 
 - **Impacto:** el peor era el de la bóveda —un filtro que miente en una pantalla del **cliente**—, y ya
   está **cerrado** (`EQ-D0`). De lo que queda, el peor son los `?report=` de finanzas: devuelven **un
-  informe distinto** del pedido. Los ocho `?sort=` y los cuatro `?range=` son clamp silencioso: molesto, no
+  informe distinto** del pedido. Los `?sort=` restantes y los cuatro `?range=` son clamp silencioso: molesto, no
   peligroso.
 - **Disparador:** el arquitecto decide su clase (o los declara no-enum con su motivo); entonces cada
-  stream migra los suyos al helper único y **los borra de `SIN_CLASE_DECLARADA`**.
+  stream migra los suyos al helper único y **los borra de `SIN_CLASE_DECLARADA`**. ⭐ **Decisión de clase YA
+  tomada para TODOS los `?sort=`/`?range=`** (§0-Q v1.77, clase L/ORDEN): lo pendiente de los 12 restantes es
+  **migrar código**, no decidir. Los DINERO (`?report=` ×2, `graded-estimates/review?reason=`) requieren los
+  **tres veredictos** al migrarse.
 - **Comprobación de cierre:** cada eje pasa de `SIN_CLASE_DECLARADA` al `REGISTRO` de
   `enum-query-axes.e2e-spec.ts` y **sus siete propiedades de §0-Q salen verdes sin excepción**.
 
@@ -7504,3 +7587,454 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   `PrismaClientUnknownRequestError` / `PrismaClientRustPanicError`); quien no es error del motor **no
   llega a la regex**. Regresión en `test/serializable-retry.spec.ts` («un error de NEGOCIO cuyo mensaje
   contiene `40001` NO se reintenta»), que sale **roja** con el respaldo viejo.
+
+## Backend · 2026-09-18 · H-PERF-1 aterrizado (poda del histórico en la BD) + solicitudes al arquitecto
+
+> Anotado por **backend** a petición del **techlead**, tras aprobar **H-PERF-1** (poda del histórico de
+> `PriceReference` movida a la BD, commit `12927edd`; veredicto blue-team **APROBADO** en
+> `docs/SECURITY_NOTES.md`). Aquí SOLO queda lo que NO cierra con este pase: el remanente de escalado
+> (índice de cobertura, decisión de **arquitecto**) y el diferido **H-PERF-3**. La implementación cerrada
+> está en `src/modules/pricing/pricing.service.ts` (`getReferencesBatch`) y en `docs/BACKEND_NOTES.md`.
+> Continúa la numeración `BE-*` (tras BE-87). Cada ficha lleva «Comprobación de cierre».
+
+### BE-88 · H-PERF-1 **ATERRIZADO** (`12927edd`): la poda del histórico de `PriceReference` se resuelve en la BD, no en Node
+- **Dueño:** **backend**. **Severidad:** Media a futuro → **la parte de escalado por histórico queda
+  CUBIERTA** (ver cierre parcial de BE-49/BE-20 abajo). **No bloqueante.** Enrutada por el techlead al
+  aprobar el pase.
+- **Qué se hizo (medido, `12927edd`):** `getReferencesBatch` (`src/modules/pricing/pricing.service.ts`)
+  dejó de **releer el histórico completo** de `PriceReference` y desempatar «la más reciente» en memoria
+  de Node. Ahora la poda ocurre en la BD con `$queryRaw`: por cada clave `(cardId, productType,
+  gradeKey, finish)` se calcula la **ventana** `max_auto_date` (la captura automática más reciente) **∪**
+  las filas manuales, y un `SELECT DISTINCT` acota los `finish` a considerar. Solo las filas dentro de esa
+  ventana viajan a Node; el histórico dominado ya no cruza la frontera BD↔proceso.
+- **Invariante money-safe (lo que NO cambia):** solo se **descartan filas dominadas** bajo `isBetterRef`
+  — el **argmax se conserva** siempre. La referencia elegida por combinación es **byte-idéntica** a la del
+  camino viejo; lo único que se retira del resultado son filas que jamás habrían ganado el desempate. ⛔
+  En ningún caso una combinación pierde su referencia ni adopta la de otra clave/finish.
+- **Anclado por dos pruebas (que muerden si se rompe el invariante):**
+  - **Canario unit:** `backend/test/pricing.references-batch-history-prune.spec.ts` — fija que, ante un
+    histórico con filas dominadas, `getReferencesBatch` devuelve el mismo argmax que el camino previo y
+    que las filas dominadas no alteran el resultado (emula el `$queryRaw` con
+    `test/helpers/refs-raw-emulate.ts`).
+  - **Oráculo de integración:** `backend/test/integration/references-batch-history-prune.e2e-spec.ts` —
+    contrasta el resultado de la poda en BD contra **Postgres real**, de modo que la semántica del
+    `$queryRaw` (ventana + `DISTINCT`) queda verificada contra el motor, no contra un mock.
+- **Comprobación de cierre (ya verde en `12927edd`):** ambas pruebas pasan; y el resultado de
+  `getReferencesBatch` para un lote con histórico dominado coincide con el argmax por `isBetterRef` (el
+  oráculo e2e lo confirma contra Postgres).
+- **Cruce con BE-49 y BE-20 (actualización de estado):**
+  - **BE-20** (`PriceReference` crece sin poda): la parte de **coste de consulta por histórico** en el
+    camino de valuación queda cubierta — `getReferencesBatch` ya no paga el histórico completo. ⚠️ **Lo
+    que NO cierra BE-20:** la tabla **sigue creciendo sin job de retención/particionado** por
+    `capturedDate` (crecimiento monotónico de storage). BE-20 permanece abierta por esa mitad, con su
+    disparador (retención/particionado, dependencia **devops**/DEV-1) intacto.
+  - **BE-49** (`GET /admin/vaults` valúa TODAS las bóvedas por request): la sub-causa «`getReferencesBatch`
+    escala con el histórico» queda **resuelta** por H-PERF-1. ⚠️ **Lo que NO cierra BE-49:** sigue en pie
+    (a) valuar+ordenar TODAS las piezas ANTES de paginar y (b) el `gradeKeyFor` calculado **dos veces**
+    por pieza. BE-49 permanece abierta por esas dos, con su disparador (miles de piezas / histórico real)
+    intacto.
+
+### BE-89 · **Solicitud al ARQUITECTO (regla 9): índice de cobertura de `PriceReference`** — cambio de SCHEMA, NO implementado por backend
+- **Dueño de la DECISIÓN:** **arquitecto** (cambio de schema / zona compartida `backend/prisma/`). **Dueño
+  del código si se aprueba:** backend. **Severidad:** Media a futuro. **No bloqueante.**
+- **⛔ Backend NO lo añade solo:** un índice nuevo sobre `PriceReference` es cambio de `schema.prisma`
+  (migración), y por **regla 9** pasa por el **arquitecto** antes. Esta ficha es la **solicitud**, no la
+  implementación.
+- **Qué se pide:** un **índice de cobertura** que sirva la query de poda de H-PERF-1 sin **Seq Scan**,
+  p. ej. `@@index([cardId, productType, gradeKey, finish, capturedDate])` en `PriceReference` (el
+  orden/columnas exactos los ratifica el arquitecto contra la forma real del `$queryRaw`).
+- **Por qué (medido a escala local, 2026-09-18):** tras mover la poda a la BD queda un **suelo de
+  ~170 ms** en la query (window **seq-scan + sort**). El índice de cobertura es lo que quita ese
+  seq-scan+sort; sin él, el suelo se mantiene y crece con la tabla (que sigue sin poda física, BE-20).
+  **NO MEDIDO:** el suelo a escala de producción (histórico real) — solo se midió local; la medición que
+  lo cerraría es el `EXPLAIN (ANALYZE)` de la query de poda con y sin el índice sobre un histórico a
+  escala.
+- **Disparador:** antes de operar a escala con histórico real de precios; o si el listado admin (BE-49)
+  se siente lento por este suelo. Dirección: el arquitecto ratifica el índice en el contrato/schema y
+  backend lo aterriza en una migración con su canario de `EXPLAIN`.
+- **Comprobación de cierre:** existe la migración con el índice aprobado por el arquitecto; un
+  `EXPLAIN (ANALYZE)` de la query de poda muestra uso de índice (sin Seq Scan sobre `PriceReference`) y el
+  suelo de ~170 ms baja de forma medible a escala local.
+
+### BE-90 · H-PERF-3 (**DIFERIDO**): materializar `displayPrice` en la fila — cambio de SCHEMA, pendiente de decisión del arquitecto
+- **Dueño de la DECISIÓN:** **arquitecto** (cambio de schema). **Dueño del código si se aprueba:**
+  backend. **Severidad:** Media a futuro. **No bloqueante. DIFERIDO en este pase.**
+- **Qué es:** **materializar `displayPrice`** en la propia fila (persistir el precio de exhibición ya
+  calculado) para **no recalcularlo por cada carga**. Hoy `displayPrice` se computa por-request en el
+  camino de valuación; materializarlo lo convierte en una lectura directa.
+- **Por qué se difiere:** es **cambio de schema** (columna nueva + su invalidación/recomputo cuando cambie
+  la referencia o el FX), y por **regla 9** la decisión es del **arquitecto**. Backend NO lo implementa
+  hasta que el arquitecto decida la forma (columna, disparadores de recomputo, consistencia con overrides
+  y FX). **NO MEDIDO:** el ahorro real por carga de materializar `displayPrice` — se anota como diferido,
+  no como ganancia medida.
+- **Disparador:** cuando el arquitecto revise la capa de valuación/materialización (familia
+  `InventoryStockSummary`/BE-4/D3), o si el recálculo por-request de `displayPrice` aparece como cuello a
+  escala.
+- **Comprobación de cierre:** el arquitecto decide por escrito (contrato/§ de valuación) si `displayPrice`
+  se materializa; si se aprueba, existe la columna, su recomputo ante cambio de referencia/FX y un canario
+  que fija que el valor materializado coincide con el calculado en vivo.
+
+---
+
+## Backend · 2026-09-22 · «Pedidos a preparar» (§M4-PREP, rebanada de solo lectura) — gate del techlead
+
+> Las dos fichas nacen del **veredicto del techlead** sobre la reproyección de
+> `GET /admin/shipments/picking-list`. Ninguna es bloqueante: la rebanada es de **solo lectura** y la
+> cola que sirve hoy es **operativa** (decenas de pedidos, no miles). Se anotan porque las dos dejan
+> de ser baratas exactamente cuando el negocio crezca, y ése es el momento en que nadie se acuerda.
+>
+> ⚠️ **Sobre la autoría del texto:** el techlead redactó su versión en su veredicto; **este backend no
+> tuvo acceso a ese texto verbatim** al escribir las fichas. Lo que sigue es la **sustancia** que se le
+> encargó anotar, con **mediciones propias** (comando y fichero al lado de cada afirmación). Si su
+> redacción difiere, **manda la suya** y esta ficha se sustituye.
+
+### M4P-PAGE · La cola trae el registro ENTERO de cada pieza y no puede paginarse en SQL mientras el filtro se derive en Node (backend · Órdenes y dinero, 2026-09-22)
+- **Dueño del código:** **backend** (`src/modules/shipments/shipments.service.ts` · `pickingList`).
+- **Severidad:** Baja hoy, Media a escala. **No bloqueante.**
+- **Qué es (medido 2026-09-22), en dos mitades que se agravan la una a la otra:**
+  1. **Carga por fila.** El `findMany` anida `include` en **cuatro niveles**
+     (`ShipmentRequest → items → inventoryItem → { card → set, location }`) y **sin un solo `select`**
+     en los dos niveles gordos. Medido sobre `prisma/schema.prisma`: `InventoryItem` declara **41**
+     líneas de campo y `Card` **30**; el DTO usa de ellas **siete** (`folio`, `finish`,
+     `rawCondition`, `sealedCondition`, `gradingCompany`, `gradeValue`, y de la carta `name` +
+     `imageSmallUrl`). O sea: viajan desde la BD ~60 columnas por pieza para pintar 8. *Los `include`
+     de `order` y `user` sí llevan `select` — la asimetría es del propio método, no del estilo del
+     repo.*
+  2. **Sin cota.** `grep -cE "skip|take"` dentro de `pickingList` ⇒ **0**. La cola **no pagina**: si un
+     día hay 5 000 envíos en `picking`, se materializan los 5 000 con sus piezas.
+- **Y por qué la segunda mitad no se arregla sola:** `?destination=` **se deriva en Node y se filtra
+  después** (`rows.filter(...)`), porque `destination` no es una columna sino una lectura de
+  `Order.fulfillmentMode`. **Paginar en SQL exige resolver antes el filtro en SQL**, y eso obliga a
+  escribir la derivación como `where` (`orderId IS NULL OR order.fulfillmentMode = 'direct_ship'`).
+  ⚠️ **El coste escondido de esa traducción, que es la razón de que NO se haga a la ligera:** hoy la
+  derivación es también el sitio donde la combinación imposible `fulfillmentMode='vault'` **con**
+  `orderId` se **detecta y se denuncia** (`kindForFulfillment` loguea y lanza). Un `where` que
+  seleccione por modo **deja de ver esas filas en vez de gritar**, y la corrupción pasa a ser
+  invisible justo en la cubeta donde importa. *Quien pagine tiene que decidir a propósito dónde vive
+  entonces esa denuncia, no descubrirlo después.*
+- **Por qué NO se hace ahora:** la rebanada es de solo lectura y la cola es operativa —lo que el
+  operador puede preparar en un día—. Un `select` explícito de 8 campos y una paginación son
+  **cambios de forma de la respuesta y del contrato** (`{data}` sin `page/total` es lo que §M4-PREP
+  declara): tocar eso es **regla 9**, arquitecto primero.
+- **Disparador:** cuando `SELECT count(*) FROM "ShipmentRequest" WHERE status='picking'` pase de ~200
+  de forma sostenida, o cuando el operador reporte que la pantalla tarda. *(Medido el 2026-09-22 en la
+  BD de integración: **0** filas — el número de producción **NO lo he medido**; es del dueño y no
+  tengo acceso.)*
+- **Comprobación de cierre:** el `findMany` lleva `select` explícito en `inventoryItem` y `card`; y, si
+  se pagina, §M4-PREP declara la forma paginada, el filtro `?destination=` vive en el `where`, y
+  existe un canario que demuestre que la fila corrupta `vault`+`orderId` **sigue gritando** y no se
+  ha vuelto invisible.
+
+### M4P-EQR1 · `clazz` del registro de ejes es metadato de SOLO ESCRITURA: 45 apariciones, **0 lecturas** — y por eso 3 ejes de clase L no tienen candado (backend, 2026-09-22)
+- **Dueño del código:** **backend** (`test/integration/enum-query-axes.e2e-spec.ts`).
+- **Severidad:** Baja. **No bloqueante.** No hay defecto servido: es un candado que **no existe** donde
+  el propio fichero dice que debería.
+- **Qué es (medido 2026-09-22, con los comandos):**
+  - `grep -c "clazz" test/integration/enum-query-axes.e2e-spec.ts` ⇒ **45**.
+  - `grep -rnE "\.clazz|clazz ===|clazz !==" --include=*.ts src/ test/` ⇒ **vacío**. **Ninguna aserción
+    lee el campo.** Se escribe 44 veces y no se consulta nunca: es documentación con forma de código,
+    que es la clase que este repo ya nombró mortal (*«una conducta en dos sitios son dos conductas
+    esperando a divergir»*).
+  - **Y ya divergió.** El bloque `§4.37 clase L — paridad a dos bandas` mantiene su lista **a mano**, y
+    los dos conjuntos **no coinciden**: hay **6** filas con `clazz: 'L'` y **4** entradas en el bloque,
+    y ni siquiera son las mismas. Sin paridad, declarando L: **`GET /admin/pricing/bounties?state=`**,
+    **`GET /admin/inventory/sealed-price-status?state=`** y **`GET /vault/portfolio/history?range=`**.
+    En el bloque pero declarada `clazz: 'ORDEN'`: **`GET /vault/sealed?sort=`**.
+- **Por qué importa, dicho sin inflarlo:** la clase **L** es precisamente la que **no tiene schema que
+  la ancle** —por eso §0-Q le exige la paridad contrato↔literal—. Tres ejes la declaran y **nadie
+  comprueba que su literal siga diciendo lo que el contrato dice**. Es el mismo hueco que este stream
+  midió para `?destination=`: mover una banda dejaba la suite **en verde** hasta que se añadió su
+  entrada a mano. *Un campo que clasifica y no gobierna es una etiqueta, no una clase.*
+- **La cura, en una frase:** **derivar** la lista del bloque de paridad de `REGISTRO.filter(r => r.clazz === 'L')`
+  en vez de mantenerla a mano, de modo que declarar `clazz: 'L'` **obligue** a aportar su `re` y su
+  `enunciado`. Eso convierte `clazz` de etiqueta en clase y cierra los tres huecos de una vez.
+  ⚠️ **No se hace en este pase por alcance:** los tres ejes son de **otros work streams** (Catálogo y
+  precios · Inventario y vault) y cada uno necesita que **el arquitecto** declare su línea de dominio
+  canónico antes de que haya contra qué medir — escribir el `re` sin esa línea sería inventarla.
+- **Disparador:** el próximo eje de clase **L** que entre al registro (será el cuarto sin candado), o
+  cuando el arquitecto escriba la línea de «DOMINIO CANÓNICO» de cualquiera de los tres.
+- **Comprobación de cierre:** el array `L` del bloque de paridad **se deriva** de `clazz === 'L'`;
+  `grep -rnE "\.clazz" --include=*.ts test/` deja de estar vacío; y una fila nueva marcada `clazz: 'L'`
+  **sin** `re`/`enunciado` pone la suite **roja** (canario: añadirla y medir el rojo).
+
+### M4P-409D · El `409` de la fila corrupta no dice CUÁL fila ni QUÉ modo: el diagnóstico sale del log, no de la respuesta (backend · Órdenes y dinero, 2026-09-22)
+- **Dueño del código:** **backend** (`src/modules/shipments/shipments.service.ts` · `kindForFulfillment`).
+- **Dueño de la DECISIÓN de abrirlo:** **arquitecto** — y ya decidió: **no se abre ahora**. Esta ficha
+  existe para que la decisión quede escrita, ⛔ no para reabrirla.
+- **Severidad:** Baja. **No bloqueante.** ⛔ **La conducta del `409` NO cambia** (rechazo de la cola
+  entera, ⛔ no degradación por fila): eso está declarado en §M4-PREP v1.78.2 y queda como está.
+- **Qué es:** cuando un `ShipmentRequest` tiene `orderId` y su orden es `fulfillmentMode='vault'`
+  —combinación imposible por invariante—, `kindForFulfillment` **loguea y lanza `409 CONFLICT`**. El
+  `message` lleva el `shipmentId` y el modo, pero **`details` va vacío**. Debería llevar
+  `details: { shipmentId, fulfillmentMode: FulfillmentMode | null }` (`null` = orden inexistente;
+  ⛔ **jamás** el centinela de texto `'ORDEN_INEXISTENTE'` que hoy se compone para el log — un
+  centinela en un campo tipado es un valor que nadie puede distinguir de un dato).
+- **Por qué NO se abre ahora (razón del arquitecto, y es buena):** el cuerpo es **compartido** con
+  `GET /admin/shipments` y `GET /admin/shipments/:id`, **los dos con gates aprobados**; tocar la forma
+  de su error es tocar tres endpoints por una mejora de diagnóstico. **§M5-T tiene el precedente
+  literal** (`details: { status, closedAt }`) y es aditivo, así que el día que se haga no habrá que
+  decidir la forma. **Se cierra con la rebanada interactiva**, que ya toca este cuerpo.
+- **Disparador:** la rebanada interactiva de «Pedidos a preparar» (palomear / `prepared`), o el primer
+  incidente real en el que un operador reporte el `409` y haya que ir al log para saber de qué envío
+  hablaba.
+- **Comprobación de cierre:** el `409` emite `details.{shipmentId,fulfillmentMode}` con
+  `fulfillmentMode: null` cuando la orden no existe; ⛔ `grep -n "ORDEN_INEXISTENTE"` no aparece en
+  ningún `details`; y los tres endpoints que comparten el cuerpo siguen verdes.
+
+### M4P-DATEOVF · `?from=`/`?to=` de los listados admin aceptan días que NO existen y filtran por OTRO día (backend · Admin y auditoría, 2026-09-22)
+- **Dueño del código:** **backend** (`src/common/admin-list-filters.ts` · `parseDate`). Afecta a
+  `GET /admin/buylist` (§M5) y `GET /admin/orders` (§M3).
+- **Dueño de la DECISIÓN:** **arquitecto** — es conducta observable de dos endpoints con gates
+  aprobados, y §0 (v1.25.1) no declara qué pasa con un día inexistente.
+- **Severidad:** Baja-Media. **No bloqueante.** ⛔ **No toca dinero** (solo acota listados), pero **sí
+  puede hacer que un informe afirme un periodo que no es el pedido**.
+- **Qué es (medido el 2026-09-22 con `node`, replicando `parseDate` línea a línea):**
+
+  | entrada | conducta de HOY |
+  |---|---|
+  | `from=2026-13-45` | **`400`** ✅ (`Invalid Date`) |
+  | `from=2026-02-30` | ⛔ **`200` filtrando desde el `2026-03-02`** |
+  | `from=2026-04-31` | ⛔ **`200` filtrando desde el `2026-05-01`** |
+
+  `new Date('2026-02-30T00:00:00.000Z')` **no es inválida: DESBORDA** al 2 de marzo. El guard
+  `Number.isNaN(d.getTime())` que ese helper usa **no ve el desbordamiento**, así que el listado
+  responde por **un día distinto del pedido, sin decirlo**. Es la misma familia que la *ventana
+  deslizante* que §M4-PREP v1.78.2 acaba de cerrar en `?date=`: *la cola contesta una pregunta que no
+  es la que se le hizo*.
+- **Cómo se cierra (ya probado en `?date=`):** comprobación de **ida y vuelta** — construir el `Date`
+  y exigir que **vuelva a serializar el mismo token** (`d.toISOString().slice(0,10) === token`).
+  Acepta los bisiestos reales (`2024-02-29` ✅) y rechaza todo desbordamiento. En
+  `shipments.service.ts` · `parseDayFilter` está implementada y con canario.
+- **Por qué NO se arregla en este pase:** son **otros endpoints**, con gates aprobados, y el cambio es
+  **observable** (`200` ⇒ `400`). Medir su coste —¿algún cliente manda fechas desbordadas?— y
+  declararlo en §0 es del arquitecto (regla 9). *Aquí se anota con el dato, no se toca.*
+- **Disparador:** cuando el arquitecto revise §0 «Borde de día» (v1.25.1), o al primer informe de
+  finanzas cuyo periodo no cuadre con lo que el operador pidió.
+- **Comprobación de cierre:** `GET /admin/buylist?from=2026-02-30` ⇒ **`400 VALIDATION_ERROR`**, y
+  `?from=2024-02-29` (bisiesto real) sigue devolviendo `200` filtrando por ese día.
+
+## Backend · 2026-09-22 · cierre de gates de «Pedidos a preparar» (seguridad + techlead)
+
+### M4P-ORD3 · `GET /admin/inventory/locations` es una TERCERA autoridad de orden sobre `VaultLocation.label`, y la única que no sigue §M4P-ORDER (backend · Inventario y vault, 2026-09-22)
+- **Dueño del código:** **backend** (`src/modules/inventory/inventory.service.ts` · `listLocations`).
+- **Dueño de la DECISIÓN:** **arquitecto** — §M4P-ORDER lo deja nombrado y **fuera de alcance** a
+  propósito; cambiarlo es conducta observable de otro endpoint y de otro work stream.
+- **Severidad:** Baja. **No bloqueante.** ⛔ Sin dinero, sin PII, sin schema.
+- **Qué es:** §M4P-ORDER bajó de **tres** comparadores a **dos** (servidor y vista) y les dio norma
+  —unidades de código UTF-16—. El tercero **no bajó**: `listLocations` ordena **en Postgres**
+  (`orderBy: { label: 'asc' }`), que no es unidades de código sino **la collation de la base**.
+- **⭐ El dato que a la ficha del techlead le faltaba (él marcó NO MEDIDO por no tener BD; medido por
+  backend el 2026-09-22 con las etiquetas discriminantes de los casos 3 y 4 del contrato):**
+
+  | Autoridad | Orden | ¿= §M4P-ORDER? |
+  |---|---|---|
+  | Unidades de código (la norma) | `C01 < CZ < CÑ < c01` | — |
+  | Postgres collation **`C`** | `C01 < CZ < CÑ < c01` | ✅ idéntico |
+  | Postgres collation **`und-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario** |
+  | Postgres collation **`en-US-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario** |
+
+  ⇒ **La divergencia no depende de los datos: depende de la CONFIGURACIÓN de la base.** Con `C`/`C.UTF-8`
+  coincide; con ICU o `en_US.UTF-8` **discrepa exactamente en los dos casos que el contrato usa como
+  discriminantes** — el mismo desacuerdo que `localeCompare`. *El «riesgo bajo» del orden en SQL
+  descansa en un ajuste de infraestructura que nadie declaró.* Detalle en `docs/BACKEND_NOTES.md` §M4P-ORDER.
+- **⚠️ Lo que sigue NO MEDIDO y quién puede cerrarlo:** la collation de **producción**. Backend no tiene
+  acceso; la consulta es de **solo lectura** y la corre el dueño:
+  `SELECT datcollate, datctype FROM pg_database WHERE datname = current_database();`
+- **Por qué no se nota aunque discrepe:** las dos autoridades ordenan **listas distintas** (la cola de
+  preparación vs. el catálogo de ubicaciones), así que no hay dos columnas que comparar de un vistazo.
+  Se manifiesta como *«el archivero y la hoja de trabajo no van en el mismo orden»* — que un operador
+  atribuye a la pantalla, ⛔ no a una collation.
+- **Disparador:** que el dueño mida una collation distinta de `C`; o que entre una etiqueta fuera de
+  `^[A-Z0-9-]+$`; o cuando el arquitecto abra el stream de «Inventario y vault».
+- **Comprobación de cierre:** o §M4P-ORDER declara que esa lista **no** entra en su norma (y se escribe
+  por qué), o `listLocations` ordena en el proceso con el mismo comparador y un canario lo fija.
+
+### M4P-ORDCH · La medición de charset que el contrato deja a deber ya no vive solo en un informe (backend, 2026-09-22) — **CERRADA en este pase**
+- **Dueño:** **backend**. **Severidad:** Baja. **No bloqueante.**
+- **Qué era:** §M4P-ORDER declara **NO MEDIDO** si el cambio de comparador altera lo que el operador ve,
+  y encarga la medición a *«quien cablee»*. La hice y la reporté, pero **no estaba en ninguna
+  `*_NOTES.md`**: vivía en un informe de agente. *Una medición que no está en `docs/` se evapora, y
+  dentro de seis meses alguien la vuelve a medir o —peor— la supone.* Es la misma clase que `O-5`.
+- **Cierre:** escrita en **`docs/BACKEND_NOTES.md` § «§M4P-ORDER — la medición de charset…»**, con su
+  **fecha**, su **consulta**, su **alcance declarado** (bases de desarrollo, ⛔ no producción) y el
+  matiz de que el alfabeto seguro es **una costumbre, no un invariante** (`CreateLocationDto` valida
+  `box`/`row`/`slot` con `@IsString()` a secas).
+- **Comprobación de cierre:** `grep -n "M4P-ORDER" docs/BACKEND_NOTES.md` devuelve la sección con su
+  tabla fechada. **Se deja la ficha en vez de borrarla** para que el enlace informe→documento quede
+  trazable.
+
+### M4P-DOCV · Un docstring afirmaba EN PRESENTE que el contrato prescribe algo falso (backend, 2026-09-22) — **CERRADA en este pase**
+- **Dueño:** **backend** (`src/modules/shipments/shipments.service.ts` · `parseDayFilter`).
+- **Severidad:** Baja. **No bloqueante.** ⛔ Cero conducta.
+- **Qué era:** el docstring decía, en presente, que §M4-PREP *«prescribe `Number.isNaN` y eso es falso»*
+  y que este método **desobedece el MECANISMO** del contrato. Era cierto cuando se escribió (v1.78.2) y
+  **dejó de serlo con v1.78.3**, que corrigió el texto normativo (`B-TL1`). Un lector dentro de seis
+  meses habría concluido que este método **desobedece deliberadamente al contrato** — exactamente lo
+  contrario de la verdad. Es la clase que `ARCHITECTURE §4.37.1-a` llama mortal: **una afirmación de
+  estado que envejece con autoridad**, aquí dentro del código que la sostiene.
+- **Cierre:** reescrito **en pasado** (patrón `FRONTEND_NOTES.md` para lo superado), con un
+  **«Estado de HOY»** al principio que dice que contrato y método **coinciden**. ⛔ **La tabla de
+  desbordamiento se CONSERVA íntegra**: sigue siendo cierta, es el porqué de la norma y es la lección
+  que el método tiene que llevar encima. También se enlaza `M4P-DATEOVF` como lo que **sigue abierto**.
+- **Comprobación de cierre:** el docstring no afirma en presente ninguna discrepancia con el contrato,
+  conserva las cinco filas de la tabla (`2026-13-45`, `2026-02-30`, `2026-04-31`, `2026-02-29`,
+  `2024-02-29`) y nombra `M4P-DATEOVF`.
+
+### M4P-FLK1 · `buylist-intake-concurrency` es INTERMITENTE en la corrida completa: 2/10 en `main`, 3/10 con este delta — el cupo AML de `customer2` se comparte con 9 specs (backend · Catálogo y precios, 2026-09-22)
+- **Dueño del código:** **backend**, stream **«Catálogo y precios»** (`test/integration/buylist-intake-concurrency.e2e-spec.ts`).
+  ⛔ **NO es de «Órdenes y dinero»**: lo descubrió este stream midiendo, pero el fichero y la causa son de otro.
+- **Severidad:** Media **como instrumento**, Baja como producto. **No bloqueante.** ⛔ **Cero defecto de
+  producción**: lo que falla es la prueba, y falla **cerrándose** (avisa de que no midió), ⛔ no abriéndose.
+- **Qué es (medido el 2026-09-22, suite de integración completa, BD **recreada** en cada tirada):**
+
+  | Árbol | Tiradas | Rojas |
+  |---|---|---|
+  | `HEAD` sin este delta | **10** | **2** |
+  | Con el delta de este pase | **10** | **3** |
+
+  ⇒ **Indistinguibles: el intermitente PREEXISTE.** *(Se midió con N=10 a cada lado justamente porque
+  con N=4 la diferencia 0/4 vs 2/7 parecía atribuible a este pase, y no lo era — O-3.)*
+- **El fallo, textual:** `expect(creadas.length).toBeGreaterThan(0)` ⇒ `Received: 0`. Ninguna de las
+  48 altas simultáneas prosperó, así que **no hubo concurrencia que medir** y el control de
+  no-vacuidad de la propia suite reventó — *haciendo exactamente su trabajo*.
+- **La causa está escrita en el docstring de esa misma suite**, que documenta este modo de fallo como
+  ya visto: *«otras suites ya habían consumido el tope mensual AML de `customer2`, así que las 48
+  altas contestaron `422 BUYLIST_LIMIT_EXCEEDED`, ninguna creó nada»*. El remedio que se aplicó
+  —**prestarse el tope** en el `beforeAll` (`CAP_SUITE_CENTS = 100_000_000`) y devolverlo en el
+  `afterAll`— **redujo la frecuencia pero no cerró la clase**: medido, **nueve** specs más crean
+  `SellRequest` de `customer2` (`avisos`, `avisos-sellos`, `buylist`, `buylist-closed-total`,
+  `buylist-cycle`, `buylist-pay-verdicts`, `buylist-raw-only`, `buylist-step-guard`,
+  `kyc-ine-links`), así que el cupo sigue siendo un **recurso compartido sin dueño** y el resultado
+  depende de cuánto consumieron las anteriores. *Un candado de concurrencia que comparte cupo con el
+  resto de la suite mide el orden de los ficheros, no el código* — lo dice su propio docstring, y
+  sigue siendo verdad.
+- **Dirección de cura (⛔ no implementada aquí: otro stream, y tocar fixtures compartidos en mitad de
+  un gate es justo lo que O-14 prohíbe):** darle a esta suite un **usuario propio y efímero** en vez
+  de compartir `customer2` — el cupo deja de ser un recurso disputado y el préstamo/devolución del
+  tope sobra. Es el mismo patrón que `C-EQ-1` ya usa (`CEQ1-` crea lo suyo y lo barre).
+- **Disparador:** el próximo rojo de gate que resulte no ser un defecto; o cuando se toque esa suite.
+- **Comprobación de cierre:** 20 corridas de la suite completa con BD recreada ⇒ **0 rojas**, y
+  `grep -c "customer2" test/integration/buylist-intake-concurrency.e2e-spec.ts` ⇒ **0**.
+
+## Backend · 2026-09-28 · gates de «Inventario y vault» M4-VAULT sobre `db7d1c2` (techlead + seguridad)
+
+> Deuda **no bloqueante** que techlead y seguridad dejaron sobre `db7d1c2` (colocación en bóveda, M-59). Lo bloqueante
+> (C1: nadie vigilaba el `status:'pending'` de los CAS contra el contracargo) se cerró con la **prueba 40** de
+> `vault-placement-races.e2e-spec.ts` — no figura aquí. Medido el **2026-09-28** sobre `9b5b08f`.
+
+### VLT-D1 · `customerDrawersOf` repite a mano el predicado de `customerCustodyWhere` (backend · Inventario y vault, 2026-09-28)
+- **Dónde:** `backend/src/modules/vault/vault-placement.rules.ts:178-183` (el `where` del `groupBy`) copia los cuatro
+  campos de `customerCustodyWhere(userId)` (`:51`) con `ownerUserId: { in: ids }` en vez de un id, más la zona.
+- **Impacto:** dos fuentes para «pieza del cliente en custodia». Si una cambia (p. ej. un estado nuevo de custodia) y la
+  otra no, la propuesta de cajón y la vista física dejan de contar lo mismo **sin que ninguna prueba lo diga**.
+- **Corrección:** que `customerCustodyWhere` acepte `string | string[]` (o un `customerCustodyWhereMany`) y que el
+  `groupBy` lo esparza y añada solo la zona.
+- **Disparador:** el próximo cambio a cualquiera de los dos predicados.
+- **Comprobación de cierre:** `rg -n "ownershipStatus: 'settled'" backend/src/modules/vault/vault-placement.rules.ts` ⇒ **1**.
+
+### VLT-D2 · El trío «leer cabecera / 404 / no-pending» está escrito 7+ veces, y hay dos formas de «contestar por estado» (backend · Inventario y vault, 2026-09-28)
+- **Dónde:** `backend/src/modules/vault/vault-placement.service.ts` — `loadHead` + `throw notFound('Vault placement not
+  found')` aparece **9** veces (`grep -c`, 2026-09-28) y el `if (status !== 'pending') throw notPending` en cada verbo;
+  además `answerConfirmByState` (confirm) y los cierres locales `answer`/`byState` (prepare/unprepare) resuelven lo
+  mismo con dos formas.
+- **Impacto:** un cambio de la tabla de respuestas por estado (§M4-VAULT.5/.10) hay que hacerlo en N sitios; el riesgo es
+  que un verbo conteste distinto. Hoy lo cubren la 33 (los cuatro verbos sobre `placed`) y la 40.
+- **Corrección:** un `loadPendingOrThrow(tx, id)` único y una sola función «contestar por estado» parametrizada por verbo.
+- **Disparador:** el próximo verbo nuevo sobre `VaultPlacement`, o el próximo cambio de la tabla de respuestas.
+
+### VLT-D3 · `confirm` mide ~200 líneas; el paso 9 (mover carta por carta) debe salir a su función (backend · Inventario y vault, 2026-09-28)
+- **Dónde:** `vault-placement.service.ts` `confirm` (≈ líneas 412-611).
+- **Impacto:** legibilidad y revisión; el paso 9 (UPDATE condicional + relectura + razón) es la parte con más ramas.
+- **Corrección:** extraer `moveOne(tx, it, userId, locationId, actor, orderNumber) → VaultPlacementItemResultDTO`, sin
+  cambiar el orden de escrituras (la 7, la 24 y la 40(b) lo vigilan).
+- **Disparador:** el próximo cambio al paso 9.
+
+### VLT-D4 · `shipments/preparation-view.ts` ya no es de `shipments`: lo importan `vault/` y `shipments/` (backend · zona compartida, 2026-09-28)
+- **Dónde:** `backend/src/modules/shipments/preparation-view.ts` (ayudantes puros: `nullIfBlank`, proyección de carta,
+  ubicación y ausencia), importado desde `modules/vault/` (p. ej. `vault-placement.service.ts:5`).
+- **Impacto:** dependencia `vault → shipments` para ayudantes transversales; invita a ciclos entre módulos.
+- **Corrección:** moverlo a `backend/src/common/` — **zona compartida** (CLAUDE.md): se serializa con el orquestador y
+  no se hace desde un stream que no la tenga.
+- **Disparador:** el próximo stream que tenga `backend/src/common/`.
+
+### VLT-D8 · Ningún censo falla si aparece un escritor de `VaultLocation.isActive = false` (backend · Inventario y vault, 2026-09-28)
+- **Qué:** el `confirm` rechaza un cajón inactivo (`422 inactive`), y la propuesta de cajón y la vista física suponen
+  que un cajón con piezas de cliente sigue activo. Hoy **no hay** escritor de `isActive=false` en `src/`
+  (`rg -n "isActive: false" backend/src` ⇒ 0, 2026-09-28); si uno aparece, nadie decide qué pasa con las piezas dentro.
+- **Corrección:** un censo de unidad (patrón de los censos existentes) que falle si `rg` encuentra una escritura de
+  `isActive: false` / `isActive:false` sobre `vaultLocation` fuera de una lista permitida, para forzar la decisión.
+- **Disparador:** cualquier pantalla/endpoint de «desactivar cajón».
+
+### SEC-VLT-DL · `confirm` y contracargo toman candados en orden inverso ⇒ `40P01` (se recupera) — **ACEPTADO** por el arquitecto (§M4-VAULT.5, v1.79.5)
+- **Qué (medido por seguridad, N=20):** con el `confirm` reclamando primero, `40P01` en 20/20 entrelazados forzados;
+  víctima casi siempre el webhook (`503`, marcador borrado, reintento de Stripe lo aplica). Converge sin estado falso.
+  ⛔ No se toca el orden en este stream (decisión del contrato; la corrección elegida y por qué las baratas empeoran otra
+  cosa están en `API_CONTRACT §M4-VAULT.5`).
+- **Riesgo residual, reducido en este pase:** la recuperación depende de que el borrado del marcador `ProcessedStripeEvent`
+  no falle. Hasta hoy su error se tragaba (`.catch(() => undefined)`); **desde este pase se registra con
+  `logger.error`** (evento, tipo, causa, «requiere reproceso manual») sin cambiar la semántica — el error original se
+  sigue propagando. Unidad: `test/payments.service.spec.ts` «SEC-VLT-DL: si revertir la marca TAMBIÉN falla…».
+  ⛔ Sigue **NO MEDIDO** con fallo inyectado en integración; y un log no reintenta: el reproceso es manual.
+- **Dueño del resto:** «Órdenes y dinero» (`ARCHITECTURE §4.21q (o)`): una alarma sobre ese log o un reintento del borrado.
+- **Disparador:** un `40P01` en producción, el siguiente cambio a `onChargeDisputeVault`, o ese log en producción.
+
+## Frontend · 2026-09-28 · techlead sobre `db7d1c2` — M4-VAULT (tarjeta «Para bóveda» y «Qué debe haber»)
+
+> Deuda **no bloqueante** del techlead sobre el frontend de M4-VAULT. Los dos bloqueantes de QA (la ruta
+> `/admin/vaults/<id>` caída en producción y la clave retirada en los E2E) se cerraron en este pase y no figuran aquí.
+> Medido el **2026-09-28** sobre el árbol de trabajo encima de `982fddf`.
+
+### VLT-D5 · `m4/` y `vaults/` se importan mutuamente (frontend · zona compartida, 2026-09-28)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m4/VaultPlacementCard.tsx:35` importa
+  `../vaults/CustomerNameBlock`; `vaults/[userId]/PhysicalInventoryPanel.tsx:15` importa
+  `../../m4/prep-shared` (`CardInfo`, `LABEL`, `TAG`, `ZonedLocationColumn`, `useZonedLabel`).
+- **Impacto:** dos carpetas de ruta dependen una de otra para piezas transversales; cualquier tercera pantalla que
+  quiera la tarjeta de carta o el bloque de persona tendrá que importar de una ruta ajena, y el ciclo invita a más.
+- **Corrección:** mover `CustomerNameBlock` + `customer-name.ts`, `CardInfo`, `ZonedLocationColumn`, `LABEL`/`TAG` y
+  `useZoneName`/`useZonedLabel` a `frontend/src/components/` (p. ej. `components/domain/vault/`). Es **zona
+  compartida** (CLAUDE.md): se serializa con el orquestador y no se hace desde un stream que no la tenga.
+- **Disparador:** el próximo stream que tenga `frontend/src/components/`, o una tercera pantalla que necesite alguna
+  de esas piezas.
+- **Comprobación de cierre:** `rg -n "from '\.\./(\.\./)?(m4|vaults)/" "frontend/src/app/[locale]/(admin)/admin"` ⇒ **0**.
+
+### VLT-D6 · La regla del nombre en tres sitios y la columna de ubicación duplicada — **CERRADO en este pase** (frontend, 2026-09-28)
+- **Qué era:** `VaultDetailView.tsx` reimplementaba el `trim`/`null` de `CustomerNameBlock`, y la columna de
+  ubicación con zona estaba copiada en `VaultPlacementCard.tsx` y `PhysicalInventoryPanel.tsx`.
+- **Cierre:** `vaults/customer-name.ts · customerDisplayName` (lo usan `CustomerNameBlock`, la cabecera del detalle y
+  la fila de `VaultsView`, que era un cuarto sitio) y `m4/prep-shared.tsx · ZonedLocationColumn`.
+- **Residual (no bloqueante, fuera de M4-VAULT):** `components/master-set/MasterSetBinder.tsx:436` y
+  `MasterSetIndex.tsx:138` repiten `owner.name?.trim()` para «Bóveda de {name}». Se une a `customerDisplayName` cuando
+  VLT-D5 lo mueva a `components/`.
+
+### VLT-D7 · `VaultPlacementCard.tsx` mide 828 líneas; las cuatro mutaciones deben salir a `useVaultPlacementActions` (frontend · Inventario y vault, 2026-09-28)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m4/VaultPlacementCard.tsx` (`wc -l` ⇒ 828, 2026-09-28): el
+  componente contiene las cuatro `useMutation` (palomear, preparado, deshacer, confirmar), su traducción de errores
+  (`commonError`, `goneFromQueue`) y el parcheo de la caché, además de los cinco planos de la tarjeta.
+- **Impacto:** revisión y cambio lentos; la lógica de errores por verbo (la parte con más ramas y la que toca el
+  contrato) está mezclada con el marcado.
+- **Corrección:** extraer `useVaultPlacementActions(order, onNotice)` → `{ mark, prepare, unprepare, confirm, busy,
+  rowErrors, footerError, cardNotice }`, sin cambiar conducta; la suite `VaultPlacementCard.test.tsx` (25 casos) y
+  `e2e/m4-vault-placement.spec.ts` son el juez.
+- **Disparador:** el próximo verbo nuevo sobre la colocación, o el próximo cambio a la tabla de errores de §36.9.
+- **Comprobación de cierre:** `wc -l VaultPlacementCard.tsx` < 500 y `rg -c "useMutation" VaultPlacementCard.tsx` ⇒ **0**.
+
+## Backend · 2026-09-28 · Portada del deck (M-60, rev `decks-portada`)
+
+### DP-D1 · Las invariantes de la portada (`MetaDeckList.cover*`) no tienen `CHECK` en BD (backend · Catálogo y precios, 2026-09-28) — TD-b del techlead
+- **Dueño:** backend (si se paga, la migración pasa antes por el **arquitecto**: es schema, regla 9).
+  **Severidad:** Baja. **No bloqueante.**
+- **Qué es:** las 4 columnas nullable de M-60 (`coverSetCode`, `coverNumber`, `coverMatchStatus`, `coverCardId`)
+  tienen dos invariantes que **sólo garantiza el código** de `DecksMetaRefreshService.persistDeck`:
+  (1) **todo-null o todo-crudo**: `coverSetCode`, `coverNumber` y `coverMatchStatus` son las tres null o las tres
+  no-null; (2) `coverCardId` no-null **sólo** si `coverMatchStatus = 'matched'`, y nunca `unmatched_basic_energy`.
+  La migración (`20260928120000_m60_meta_deck_list_cover`) no añade `CHECK`. Excepción conocida y correcta: el
+  `ON DELETE SET NULL` de la FK puede dejar `matched` con `coverCardId` null si se borra la carta — un `CHECK`
+  ingenuo de (2) en sentido inverso lo rompería.
+- **Por qué no se paga hoy:** hay **un solo escritor** (el job de refresh; `adminCreateOrCurate` no escribe
+  portada), cubierto por P3–P6 y C-1 en `backend/test/decks-meta-portada.spec.ts` y el tipo `CoverMatchStatus`.
+- **Disparador:** aparece un **segundo escritor** de `cover*` (curaduría manual de portada, backfill, script SQL).
+- **Dirección:** migración con `CHECK ((coverSetCode IS NULL) = (coverNumber IS NULL) AND (coverNumber IS NULL) =
+  (coverMatchStatus IS NULL))`, `CHECK (coverCardId IS NULL OR coverMatchStatus = 'matched')` y
+  `CHECK (coverMatchStatus IS DISTINCT FROM 'unmatched_basic_energy')`, con prueba de migración que lo fije.
+- **Comprobación de cierre:** existe la migración con los `CHECK` aprobada por el arquitecto; un `INSERT` que viole
+  cada invariante falla con `23514` en la integración.

@@ -81,7 +81,8 @@ describe('publicBounties — vitrina pública READ-ONLY (contrato §6)', () => {
 
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
+        // v2.2 (Q2, §M2-B.9): excluye las DESPUBLICADAS de los candidatos (defensa; ya fuera por enabled).
+        where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw', bountyUnpublishedAt: null },
         orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
         // v2.0: el `take` del QUERY es el cap de CANDIDATOS; el cap 50 de la vitrina se aplica
         // DESPUÉS de filtrar los no efectivos (filtrar tras el cap dejaría huecos silenciosos).

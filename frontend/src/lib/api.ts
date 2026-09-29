@@ -1,4 +1,5 @@
 import { config } from './config';
+import { sortPreparationOrders } from './preparation-order';
 import {
   apiRequest,
   requestBlob,
@@ -12,6 +13,7 @@ import {
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
 import * as mockReservation from './mock/reservation';
+import * as mockDecksMeta from './mock/decks-meta';
 import type {
   Paginated,
   ListingDTO,
@@ -61,7 +63,16 @@ import type {
   RejectedSellItemDTO,
   AdminOrderDTO,
   AdminShipmentDTO,
-  PickingListEntryDTO,
+  PreparationOrderDTO,
+  PreparationItemStatus,
+  SetVaultPrepItemRequest,
+  SetVaultPrepItemResponse,
+  PrepareVaultPlacementResponse,
+  UnprepareVaultPlacementResponse,
+  ConfirmVaultPlacementRequest,
+  ConfirmVaultPlacementResponse,
+  CustomerPhysicalInventoryDTO,
+  PreparationDestination,
   RefundOrderResponse,
   RevealClabeResponse,
   BuylistItemDecisionInput,
@@ -188,6 +199,10 @@ import type {
   SealedSetGroupLinkRequest,
   SealedSetGroupDTO,
   SealedGroupKind,
+  SealedPriceIngestResponse,
+  SealedPriceStatusResponse,
+  SealedPriceState,
+  SetMainGroupRequest,
   GradedInventoryResponse,
   PublicBountiesResponse,
   AdminBountyListResponse,
@@ -203,6 +218,13 @@ import type {
   GuestResendLinkResponse,
   ClaimableOrderDTO,
   ClaimOrdersResponse,
+  // §13 Decks Meta
+  DecksMetaListResponse,
+  DeckMetaDetailResponse,
+  DeckMetaPasteResponse,
+  DecksMetaPreviewResponse,
+  DecksMetaDialDTO,
+  DecksMetaDialUpdateRequest,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -429,6 +451,89 @@ export async function getCardDetail(cardId: string): Promise<GroupedListingDetai
   } catch (e) {
     throw translateFixtureError(e);
   }
+}
+
+// ---------- Decks Meta (§13) ----------
+// El carrito sigue siendo de cliente (useCart, array de inventoryItemId): estas lecturas
+// devuelven los `inventoryItemId` a agregar «de jalón»; no hay carrito servidor nuevo.
+
+/** §13 `GET /decks-meta` — top-10 del meta publicado, ordenado por rank, con cita de fuente. */
+export async function getDecksMeta(): Promise<DecksMetaListResponse> {
+  if (!config.useMocks) return apiRequest<DecksMetaListResponse>('/decks-meta');
+  return delay(mockDecksMeta.mockDecksMetaList);
+}
+
+/** §13 `GET /decks-meta/:slug` — deck + disponibilidad por línea. `slug` desconocido ⇒ 404 DECK_NOT_FOUND. */
+export async function getDeckMeta(slug: string): Promise<DeckMetaDetailResponse> {
+  if (!config.useMocks) return apiRequest<DeckMetaDetailResponse>(`/decks-meta/${slug}`);
+  return delay(mockDecksMeta.mockDeckMetaDetail(slug));
+}
+
+/**
+ * §13 `POST /decks-meta/paste` — texto (formato Limitless) → misma vista de disponibilidad que el
+ * detalle. Texto vacío / sin líneas válidas ⇒ `422 DECK_LIST_UNPARSEABLE`. Rate-limited (`429`).
+ */
+export async function pasteDeckList(text: string): Promise<DeckMetaPasteResponse> {
+  if (!config.useMocks) {
+    return apiRequest<DeckMetaPasteResponse>('/decks-meta/paste', { method: 'POST', body: { text } });
+  }
+  // MOCK: reproduce el candado del contrato — texto vacío ⇒ 422 (mismo shape que el backend real).
+  if (!text.trim()) {
+    throw new ApiClientError(422, {
+      code: 'DECK_LIST_UNPARSEABLE',
+      message: 'El texto está vacío o no tiene ninguna línea válida.',
+    });
+  }
+  return delay(mockDecksMeta.mockDeckMetaPaste(text));
+}
+
+/**
+ * §13 Fase 2 — ADMIN dry-run: `GET /admin/decks-meta/preview` (rol `vault_operator+`). Corre el
+ * pipeline REAL en dry-run y devuelve el reporte INLINE sin escribir nada. ⚠️ Egress real a un
+ * tercero (Limitless) ⇒ tarda ~30-45s y puede fallar por red; el llamador muestra carga y reintento.
+ */
+export async function getDecksMetaPreview(): Promise<DecksMetaPreviewResponse> {
+  if (!config.useMocks) return apiRequest<DecksMetaPreviewResponse>('/admin/decks-meta/preview');
+  // MOCK: el reporte de ejemplo es instantáneo (el backend real dispara el egress lento).
+  return delay(mockDecksMeta.mockDecksMetaPreview, 400);
+}
+
+/**
+ * §13 Fase 2 — ADMIN super_admin: dispara la publicación REAL inmediata del refresh de decks meta
+ * (`POST /admin/jobs/decks-meta-refresh`, 202). Corre el pipeline en vivo RESPETANDO el dial:
+ * `off` ⇒ no publica ({skipped:'DIAL_OFF'}); `on` ⇒ jala de Limitless y publica si el canary pasa.
+ * Egress real a un tercero ⇒ tarda ~30-45s. Mismo shape que el preview (`DecksMetaPreviewResponse`).
+ */
+export async function runDecksMetaPublishNow(): Promise<DecksMetaPreviewResponse> {
+  if (!config.useMocks) {
+    return apiRequest<DecksMetaPreviewResponse>('/admin/jobs/decks-meta-refresh', { method: 'POST', body: {} });
+  }
+  return delay(mockDecksMeta.mockDecksMetaPublishNow, 500);
+}
+
+/**
+ * §13 Fase 2 — ADMIN: estado ACTUAL del dial de auto-fetch (`GET /admin/decks-meta/dial`,
+ * `vault_operator+`, sólo lectura). Fail-closed: keys ausentes ⇒ `{ autofetch:'off',
+ * autopublish:false }`. El PUT es super_admin (encenderlo dispara egress real + publicación).
+ */
+export async function getDecksMetaDial(): Promise<DecksMetaDialDTO> {
+  if (!config.useMocks) return apiRequest<DecksMetaDialDTO>('/admin/decks-meta/dial');
+  return delay(mockDecksMeta.getMockDial());
+}
+
+/**
+ * §13 Fase 2 — ADMIN: escribe el dial (`PUT /admin/decks-meta/dial`, **super_admin sólo**). Patch
+ * parcial; devuelve el `{ autofetch, autopublish }` nuevo. Un `vault_operator` recibe `403 FORBIDDEN`
+ * (el front esconde la edición; el backend es la autoridad). `400 VALIDATION_ERROR` en enum/boolean
+ * inválidos. AUDITADO server-side (old→new).
+ */
+export async function setDecksMetaDial(
+  patch: DecksMetaDialUpdateRequest,
+): Promise<DecksMetaDialDTO> {
+  if (!config.useMocks) {
+    return apiRequest<DecksMetaDialDTO>('/admin/decks-meta/dial', { method: 'PUT', body: patch });
+  }
+  return delay(mockDecksMeta.setMockDial(patch));
 }
 
 // ---------- Bóveda / portafolio ----------
@@ -1324,17 +1429,123 @@ export async function getAdminShipments(
 }
 
 /**
- * Lista de picking ordenada por ubicación (contrato §M4 · GET /admin/shipments/picking-list).
- * Solo envíos en `picking`; `?date=` opcional (día de solicitud).
+ * **«Pedidos a preparar»** — hoja de trabajo AGRUPADA por pedido (contrato **§M4-PREP** v1.78 ·
+ * `GET /admin/shipments/picking-list`). Solo envíos en `picking`.
+ *
+ * ⚠️ **La RUTA sigue diciendo `picking-list` a propósito** (decisión del arquitecto en §M4-PREP: se
+ * conserva la ruta y solo cambia el DTO, para no mover el guard ni el ruteo). El renombrado es de
+ * cara al operador. ⛔ No se acuña `…/preparation-queue`.
+ *
+ * `?destination=vault|ship` (CA #8, las dos cubetas): ausente ⇒ ambas. `?date=` se conserva.
+ * Envelope `{ data }`, sin paginar. Orden normativo: `requestedAt` **asc** (CA #9).
+ *
+ * ⭐ **§M4-VAULT (v1.79):** la cubeta `vault` ya no viene vacía — cada compra a bóveda pagada nace
+ * con su `VaultPlacement` pendiente, y la fila es la rama `destination:'vault'` de la unión
+ * (`VaultPreparationOrderDTO`, sin `shipmentId` ni dirección).
  */
-export async function getAdminPickingList(date?: string): Promise<PickingListEntryDTO[]> {
+export async function getAdminPreparationQueue(
+  filters: { destination?: PreparationDestination; date?: string } = {},
+): Promise<PreparationOrderDTO[]> {
   if (!config.useMocks) {
-    const res = await apiRequest<{ data: PickingListEntryDTO[] }>('/admin/shipments/picking-list', {
-      query: { date },
+    const res = await apiRequest<{ data: PreparationOrderDTO[] }>('/admin/shipments/picking-list', {
+      query: { date: filters.date, destination: filters.destination },
     });
     return res.data;
   }
-  return delay([...fx.mockPickingList]);
+  // El mock hace de SERVIDOR: filtra la cubeta y devuelve el orden normativo (asc por requestedAt).
+  // ⭐ Usa **el mismo comparador que la vista** (`lib/preparation-order`) en vez del suyo propio: el
+  // techlead midió que había TRES fuentes para un mismo orden (servidor, vista y este `sort` escrito
+  // a mano) y tres copias de una regla es la forma exacta de que dos se queden atrás sin que nadie
+  // lo note. ⛔ Un servidor falso que ordena «a su manera» no puede equivocarse igual que el real.
+  // MOCK §M4-VAULT: las dos fuentes (envíos + colocaciones pendientes), como el servidor.
+  const all: PreparationOrderDTO[] = [...fx.mockPreparationQueue, ...fx.mockVaultPreparationQueue()];
+  return delay(
+    sortPreparationOrders(all.filter((o) => !filters.destination || o.destination === filters.destination)),
+  );
+}
+
+// ---------- §M4-VAULT · «Para bóveda»: palomear, preparado, colocar (operador+) ----------
+
+/** `PATCH /admin/vault-placements/:placementId/prep-items/:placementItemId` (§M4-VAULT.10). */
+export async function setVaultPrepItem(
+  placementId: string,
+  placementItemId: string,
+  status: PreparationItemStatus,
+): Promise<SetVaultPrepItemResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SetVaultPrepItemResponse>(
+      `/admin/vault-placements/${placementId}/prep-items/${placementItemId}`,
+      { method: 'PATCH', body: { status } satisfies SetVaultPrepItemRequest },
+    );
+  }
+  try {
+    return await delay(fx.mockSetVaultPrepItem(placementId, placementItemId, status));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `POST /admin/vault-placements/:placementId/prepared` — dar por preparado (§M4-VAULT.10). */
+export async function prepareVaultPlacement(placementId: string): Promise<PrepareVaultPlacementResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PrepareVaultPlacementResponse>(`/admin/vault-placements/${placementId}/prepared`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+  try {
+    return await delay(fx.mockPrepareVaultPlacement(placementId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `DELETE /admin/vault-placements/:placementId/prepared` — deshacer «preparado» (v1.79.2). */
+export async function unprepareVaultPlacement(placementId: string): Promise<UnprepareVaultPlacementResponse> {
+  if (!config.useMocks) {
+    return apiRequest<UnprepareVaultPlacementResponse>(`/admin/vault-placements/${placementId}/prepared`, {
+      method: 'DELETE',
+    });
+  }
+  try {
+    return await delay(fx.mockUnprepareVaultPlacement(placementId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * `POST /admin/vault-placements/:placementId/confirm` — colocar (§M4-VAULT.5). v1.79.3 (H-4):
+ * `locationId` OPCIONAL; quien llama lo omite cuando ninguna carta de `items[]` está `picked`.
+ * ⛔ El cuerpo no lleva actor ni fecha.
+ */
+export async function confirmVaultPlacement(
+  placementId: string,
+  body: ConfirmVaultPlacementRequest,
+): Promise<ConfirmVaultPlacementResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ConfirmVaultPlacementResponse>(`/admin/vault-placements/${placementId}/confirm`, {
+      method: 'POST',
+      body,
+    });
+  }
+  try {
+    return await delay(fx.mockConfirmVaultPlacement(placementId, body, fx.mockLocations));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `GET /admin/vaults/:userId/physical-inventory` — «Qué debe haber» (§M4-VAULT.11, lectura pura). */
+export async function getAdminVaultPhysicalInventory(userId: string): Promise<CustomerPhysicalInventoryDTO> {
+  if (!config.useMocks) {
+    return apiRequest<CustomerPhysicalInventoryDTO>(`/admin/vaults/${userId}/physical-inventory`);
+  }
+  try {
+    return await delay(fx.mockPhysicalInventory(userId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /**
@@ -1406,7 +1617,7 @@ export const SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
  * Cambio de estado MANUAL de un envío (contrato §M4 · PATCH /admin/shipments/:id/status,
  * `vault_operator+`). Body `{ to }`. El backend solo acepta una transición LEGAL de la tabla
  * TRANSITIONS (una ilegal → `409 CONFLICT`). Al éxito, M4 invalida `['admin-shipments']` y
- * `['admin-picking-list']`.
+ * `['admin-preparation-queue']`.
  */
 export async function updateAdminShipmentStatus(
   id: string,
@@ -3126,6 +3337,95 @@ export async function linkSealedSetGroup(
 }
 
 /**
+ * M11 §9 — Dispara la ingesta de la referencia de mercado del sellado (contrato §M10-ops ·
+ * `POST /admin/jobs/sealed-price-ingest`, `super_admin`, `202`). NO fija precio: pide al backend
+ * consultar TCGCSV y upsertear `PriceReference` para los sellados MAPEADOS. `groupId?` acota a un
+ * grupo (§11.iv); sin body = «traer todo». Fail-closed por el dial maestro (`SEALED_PRICE_SOURCE_OFF`)
+ * y single-flight (`enqueued:false` sin `reason`). El endpoint es AWAITED: al resolver, la corrida
+ * ya terminó. Auditado a nombre del super-admin por el propio endpoint (no añade auditoría nueva).
+ */
+export async function triggerSealedPriceIngest(
+  groupId?: number,
+): Promise<SealedPriceIngestResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedPriceIngestResponse>('/admin/jobs/sealed-price-ingest', {
+      method: 'POST',
+      body: groupId != null ? { groupId } : {},
+    });
+  }
+  // MOCK: la ingesta real solo corre en prod (egress a tcgcsv.com bloqueado aquí, O-17). El demo
+  // devuelve un `202 enqueued` benigno; los tests espían esta función directamente.
+  return delay({ job: 'sealed-price-ingest', enqueued: true, jobId: 'mock-job', groupId });
+}
+
+/**
+ * M11 §10 — Estado de precio/mapeo del sellado POR SET (contrato §M11 · `GET
+ * /admin/inventory/sealed-price-status`, `vault_operator+`). READ-ONLY, sin red externa (lee estado
+ * persistido → O-17 safe). Clasifica cada set en `priced | mapped_unpriced | unmapped` con el MISMO
+ * gate que el alta (I-2/I-6): no fabrica precio, solo refleja lo que el motor valuaría.
+ */
+export async function getSealedPriceStatus(
+  params: { q?: string; state?: SealedPriceState; page?: number; pageSize?: number } = {},
+): Promise<SealedPriceStatusResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedPriceStatusResponse>('/admin/inventory/sealed-price-status', {
+      query: {
+        q: params.q,
+        state: params.state,
+        page: params.page,
+        pageSize: params.pageSize,
+      },
+    });
+  }
+  // MOCK: sin fixtures reales de estado persistido; los tests espían esta función. Demo → vacío.
+  return delay({ sealedPriceSource: 'off', data: [], page: 1, pageSize: 20, total: 0 });
+}
+
+/**
+ * M11 §11 — Fija/REEMPLAZA el grupo `set_main` de un set (contrato §M11 · `PUT
+ * /admin/inventory/sealed-sets/:setId/set-main-group`, `super_admin`). A diferencia de `linkGroup`
+ * (que solo escribe `CardSet.tcgcsvGroupId` si es null), ESTE lo reescribe aunque ya haya uno —es el
+ * escape de P-46: corregir un mapeo equivocado sin esperar al matcher automático. Auditado con
+ * `before/after`. NO fabrica precio (solo dice de qué grupo saldrá; el precio lo trae §9).
+ */
+export async function setSealedSetMainGroup(
+  setId: string,
+  req: SetMainGroupRequest,
+): Promise<SealedSetGroupDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SealedSetGroupDTO>(
+      `/admin/inventory/sealed-sets/${encodeURIComponent(setId)}/set-main-group`,
+      { method: 'PUT', body: req },
+    );
+  }
+  // MOCK: los tests espían esta función. Demo → devuelve el enlace resultante.
+  return delay({
+    id: 'mock-group',
+    setId,
+    tcgplayerGroupId: req.tcgplayerGroupId,
+    kind: 'set_main',
+  });
+}
+
+/**
+ * M11 §11 — Desenlaza un grupo mal asignado de un set (contrato §M11 · `DELETE
+ * /admin/inventory/sealed-sets/:setId/groups/:groupId`, `super_admin`). Si era el `set_main`, deja
+ * `CardSet.tcgcsvGroupId` en null (el set vuelve a «SIN emparejar», honesto). NO borra las
+ * `PriceReference` ya escritas (quedan stale/inocuas); solo cambia de dónde saldrá el próximo precio.
+ */
+export async function deleteSealedSetGroup(setId: string, groupId: number): Promise<void> {
+  if (!config.useMocks) {
+    await apiRequest<void>(
+      `/admin/inventory/sealed-sets/${encodeURIComponent(setId)}/groups/${groupId}`,
+      { method: 'DELETE' },
+    );
+    return;
+  }
+  // MOCK: los tests espían esta función. Demo → no-op.
+  await delay(undefined as unknown as void);
+}
+
+/**
  * Pestaña «Gradeadas» (contrato §M1 v1.28 · GET /admin/inventory/graded, `vault_operator+`):
  * inventario PSA/CGC agregado por (carta, empresa, grado) con valor de mercado por grado
  * (típicamente MANUAL, fijado con POST /admin/pricing/override productType="graded").
@@ -3156,7 +3456,11 @@ export async function getPublicBounties(): Promise<PublicBountiesResponse> {
 // ---------- v1.62/v1.62.1 · CONSOLA DE BOUNTIES (M2 › Bounties, §M2-B / §28) ----------
 
 export interface AdminBountyFilters {
-  /** Repetible. Omitido/vacío ⇒ **todos** (no se manda el parámetro). */
+  /**
+   * Repetible. Omitido/vacío ⇒ **todos MENOS `despublicada`** (§M2-B.1, v2.2): los registros
+   * archivados no ensucian el tablero de trabajo. Para verlos se piden **explícitamente**
+   * (`states: ['despublicada']`, combinable). Es la única asimetría del filtro y es deliberada.
+   */
   states?: BountyState[];
   setId?: string;
   finish?: Finish;
@@ -3180,7 +3484,8 @@ export async function getAdminBounties(
   filters: AdminBountyFilters = {},
 ): Promise<AdminBountyListResponse> {
   const query = {
-    // `[]` no emite nada: «sin filtro» ⇒ los cinco estados, que es el default del contrato.
+    // `[]` no emite nada: «sin filtro» ⇒ el default del contrato (todos menos `despublicada`, que
+    // hay que pedir explícitamente con `states: ['despublicada']`).
     ...(filters.states && filters.states.length > 0 ? { state: filters.states } : {}),
     setId: filters.setId,
     finish: filters.finish,
@@ -3193,6 +3498,49 @@ export async function getAdminBounties(
     return apiRequest<AdminBountyListResponse>('/admin/pricing/bounties', { query });
   }
   return delay(fx.mockAdminBounties(filters));
+}
+
+/**
+ * ⭐ ELIMINAR el bounty de una variante (contrato §M2-B.9 · `DELETE
+ * /admin/pricing/variant-controls/:cardId/:finish/bounty`, `super_admin`, AUDITADO).
+ *
+ * **La rama la decide el SERVIDOR por la historia de compra, no el cliente:**
+ * - **sin compras** (`bountyAcquiredQty === 0 ∧ bountyCompletedAt == null`) ⇒ **BORRA** los campos
+ *   de bounty (la fila puede desaparecer entera si no le quedan otros overrides);
+ * - **con compras** (`acquiredQty > 0 ∨ completedAt != null`) ⇒ **DESPUBLICA** (estado
+ *   `despublicada`, §M2-B.0): conserva `priceCents`/`targetQty`/`acquiredQty`/`completedAt` y solo
+ *   pone `enabled=false` + `bountyUnpublishedAt`.
+ *
+ * ⛔ **Es un verbo dedicado, NO `remove:true` en el `PUT`** (§M2-B.9 / B-20). ⛔ **No toca**
+ * `sellOverrideCents`/`buyOverrideCents` de la variante. La respuesta es el `VariantControlsResponse`
+ * resultante (mismo DTO que el `PUT`), para que la UI refleje «borrado» vs «despublicado» **sin una
+ * segunda lectura**: rama A devuelve el bounty limpio/ausente, rama B lo devuelve conservado.
+ * Idempotente en la rama B (un `DELETE` sobre una fila ya `despublicada` es no-op y responde `200`).
+ */
+export async function deleteBounty(
+  cardId: string,
+  finish: Finish,
+): Promise<VariantControlsResponse> {
+  if (!config.useMocks) {
+    return apiRequest<VariantControlsResponse>(
+      `/admin/pricing/variant-controls/${cardId}/${finish}/bounty`,
+      { method: 'DELETE' },
+    );
+  }
+  // MOCK: replica las guardas de identidad del contrato antes de ramificar en el store.
+  const card = fx.mockCards.find((c) => c.id === cardId);
+  if (!card) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'card not found' });
+  if (!card.availableFinishes.includes(finish)) {
+    throw new ApiClientError(422, {
+      code: 'FINISH_NOT_AVAILABLE',
+      message: 'finish not in availableFinishes',
+    });
+  }
+  try {
+    return await delay(fx.mockDeleteBounty(cardId, finish));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 // ---------- Master set en todas partes (v1.20) · admin vaults + ajustes ----------
@@ -3396,6 +3744,8 @@ export async function createLocation(input: CreateLocationInput): Promise<VaultL
     id: `loc-new-${fx.mockLocations.length + 1}`,
     ...input,
     label: `${input.box}-${input.row}-${input.slot}`,
+    isActive: true,
+    createdAt: new Date().toISOString(),
   };
   fx.mockLocations.push(created);
   return delay(created);
@@ -3743,11 +4093,23 @@ export async function getLiveSellers(): Promise<Paginated<LiveSellerRowDTO>> {
  * momentos, y **un disparo perdido deja la pieza EN ESTA COLA** en vez de invisible. Por eso la
  * cola no se estrecha ni se «optimiza».
  */
-export async function getPendingPublish(): Promise<Paginated<PendingPublishRowDTO>> {
+export async function getPendingPublish(
+  params: { productType?: ProductType } = {},
+): Promise<Paginated<PendingPublishRowDTO>> {
   if (!config.useMocks) {
-    return apiRequest<Paginated<PendingPublishRowDTO>>('/admin/inventory/pending-publish');
+    return apiRequest<Paginated<PendingPublishRowDTO>>('/admin/inventory/pending-publish', {
+      // §diseño §iii · el endpoint ya acepta `?productType=` (contrato §M1): M11 filtra a `sealed`.
+      // Omitido ⇒ la cola entera (comportamiento de M1, sin cambios).
+      query: { productType: params.productType },
+    });
   }
-  return delay(fx.mockPendingPublish());
+  const all = fx.mockPendingPublish();
+  if (!params.productType) return delay(all);
+  return delay({
+    ...all,
+    data: all.data.filter((r) => r.productType === params.productType),
+    total: all.data.filter((r) => r.productType === params.productType).length,
+  });
 }
 
 /**

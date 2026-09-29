@@ -491,15 +491,19 @@ export function BuylistKycForm({
           <ShieldCheck size={18} className="text-info" aria-hidden />
           <h3 className="text-h3 font-semibold">{t('ineSectionTitle')}</h3>
         </div>
-        {ineOnFile ? (
-          /* v1.15: INE ya en archivo → no se re-pide (el backend lo trata como provisto, umbral AML). */
+        {ineOnFile && kycStatus !== 'rejected' ? (
+          /* v1.15: INE ya en archivo Y NO rechazada → no se re-pide (el backend lo trata como
+             provisto, umbral AML). El verde solo cuando NO hay rechazo: una INE rechazada con el
+             archivo aún presente (`ineOnFile:true`) NO puede ganarle al banner de rechazo, o el
+             vendedor nunca vería POR QUÉ falló ni que debe re-subir. */
           <p className="text-sm text-success">{t('ineOnFileNote')}</p>
         ) : (
           <>
             <p className="text-sm text-muted">{t('ineSectionNote')}</p>
             {ineRequired && <Banner variant="warning" role="alert">{t('ineRequiredError')}</Banner>}
             {/* El rechazo, donde duele: si le volvemos a pedir la INE, tiene que leer POR QUÉ
-                falló la anterior — con el motivo textual del revisor, entre comillas (§34.8.4). */}
+                falló la anterior — con el motivo textual del revisor, entre comillas (§34.8.4).
+                Se muestra AUNQUE `ineOnFile` sea true: el archivo previo no borra el rechazo. */}
             {kycStatus === 'rejected' && rejectionReason && (
               <Banner variant="warning" role="status" title={t('ineRejectedTitle')}>
                 <span className="flex flex-col gap-1">

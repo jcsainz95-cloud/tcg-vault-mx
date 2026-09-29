@@ -6,6 +6,7 @@ import { FxService } from '../src/modules/pricing/fx.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { Logger } from '@nestjs/common';
 import { ivaDialsStub } from './helpers/iva-dials';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import {
   DEFAULT_GRADING_COST_TIERS,
   toGradedEstimateConfigDTO,
@@ -152,6 +153,8 @@ function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
   const priceRefFindMany = q('priceReference.findMany', async (args: any) =>
     refs.filter((r) => matchWhere(r, args.where)),
   );
+  // H-PERF-1: emula el $queryRaw de la poda (getReferencesBatch / getPricedRawFinishesBatch) sobre `refs`.
+  const refsRaw = makeRefsRawQuery(refs);
   const invFindMany = q('inventoryItem.findMany', async (args: any) =>
     items.filter((i) => matchWhere(i, args.where)),
   );
@@ -171,6 +174,10 @@ function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
       }),
     },
     priceReference: { findMany: priceRefFindMany },
+    // H-PERF-1: getReferencesBatch/getPricedRawFinishesBatch podan el histórico vía $queryRaw. NO se
+    // envuelve con `q()` a propósito: corren en on Y off (fetchSellable, dial-independiente), así que
+    // el DELTA de coste on/off que miden los tests de abajo no los cuenta (antes se restaban entre sí).
+    $queryRaw: refsRaw,
     variantPriceOverride: { findMany: q('variantPriceOverride.findMany', async () => []) },
     inventoryItem: { findMany: invFindMany },
     card: {
@@ -187,7 +194,7 @@ function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
   const fx = { getCurrent: jest.fn(async () => null) } as unknown as FxService;
   const pricing = new PricingService(prisma, settings, fx, {} as any, {} as any, {} as any);
   const catalog = new CatalogService(prisma, pricing, ivaDialsStub() as never);
-  return { catalog, pricing, prisma, priceRefFindMany, configStore, queryLog };
+  return { catalog, pricing, prisma, priceRefFindMany, refsRaw, configStore, queryLog };
 }
 
 /** Dial ÚNICO del gancho ENCENDIDO (en producción arranca en `off`, seed fail-closed). */
@@ -553,14 +560,19 @@ describe('GU-A8 — una clave corrupta apaga SOLO su superficie (§4.38d)', () =
 
 describe('Doctrina (b) — las filas PSA son INFORMATIVAS (§4.38b)', () => {
   it('no entran en la evidencia de acabados (`displayFinishes`) ni convierten el grupo en graded', async () => {
-    const { catalog, priceRefFindMany } = wire(A_ITEMS, A_REFS, ON);
+    const { catalog, refsRaw } = wire(A_ITEMS, A_REFS, ON);
     const ficha: any = await catalog.getCard('ca');
     expect(ficha.card.displayFinishes).toEqual(['normal']);
     expect(ficha.listings[0].productType).toBe('raw'); // el productType lo fija la pieza física
     expect(ficha.listings[0].stockCount).toBe(1); // los estimados no cuentan como stock
-    // La query de evidencia de acabados sigue acotada a `raw`/`raw:NM` (jamás ve las filas PSA).
-    const finishQuery = priceRefFindMany.mock.calls.find((c: any) => c[0]?.distinct != null);
-    expect(finishQuery?.[0].where).toMatchObject({ productType: 'raw', gradeKey: 'raw:NM' });
+    // La query de evidencia de acabados (getPricedRawFinishesBatch, H-PERF-1: `$queryRaw SELECT DISTINCT`)
+    // sigue acotada a `raw`/`raw:NM` (jamás ve las filas PSA). Se comprueba en el TEXTO del SQL emitido.
+    const finishSql = refsRaw.mock.calls
+      .map((c: any) => (typeof c[0]?.sql === 'string' ? c[0].sql : (c[0]?.strings ?? []).join(' ')))
+      .find((t: string) => /SELECT\s+DISTINCT/i.test(t));
+    expect(finishSql).toBeDefined();
+    expect(finishSql).toMatch(/"productType"\s*=\s*'raw'/);
+    expect(finishSql).toMatch(/"gradeKey"\s*=\s*'raw:NM'/);
   });
 
   it('no fijan el precio de venta ni la referencia de mercado del grupo raw', async () => {

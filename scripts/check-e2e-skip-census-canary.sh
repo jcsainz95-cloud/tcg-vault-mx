@@ -24,21 +24,29 @@
 # Por eso el canario trabaja sobre un árbol SINTÉTICO propio con conteos
 # CONOCIDOS y un baseline que él mismo fabrica. No depende de `frontend/` (ruta
 # de otro rol, que cambia cada día) ni del baseline commiteado. Del baseline
-# vivo solo comprueba la ESTRUCTURA (que tenga las cuatro claves), nunca sus
+# vivo solo comprueba la ESTRUCTURA (que tenga las cinco claves), nunca sus
 # números: esos son del gate.
+#
+# 2026-09-22 (devops, M-QA4): el censo pasó de cuatro claves a CINCO — entra
+# `realOnly`, el inverso (se salta en la corrida de MOCKS, que es la que gatea
+# cada PR). El árbol sintético la siembra con conteo conocido (2 ocurrencias en
+# 2 ficheros) y su propio señuelo `realOnlyX`, y el caso 3bis comprueba que la
+# clave nueva MUERDE sola: una clave contada pero no vigilada es peor que no
+# contarla, porque parece vigilancia.
 #
 # QUÉ EXIGE
 #   1. Cuenta EXACTO sobre un árbol de conteos conocidos (valida el método
 #      `grep -rwo` por palabra completa: `mockOnlyX` no es `mockOnly`).
 #   2. Árbol == baseline                         → rc=0
 #   3. MUTACIÓN: +1 `mockOnly`                   → rc=1 (y lo dice)
-#   4. MUTACIÓN: +1 en cada una de las 4 claves  → rc=1
+#  3bis. MUTACIÓN: +1 `realOnly` SOLA            → rc=1 (la quinta clave muerde)
+#   4. MUTACIÓN: +1 en cada una de las 5 claves  → rc=1
 #   5. -1 `needsSeed`                            → rc=0 (bajar no es delito)
 #   6. baseline ausente                          → rc=2 (no concluyente)
 #   7. baseline sin una de las claves            → rc=2 (no concluyente)
 #   8. `--update` sin `--motivo`                 → rc=2 (un techo sin motivo no)
 #   9. `--update --motivo` deja el gate en verde y el motivo escrito en el fichero
-#  10. el baseline COMMITEADO tiene las 4 claves (estructura, no números)
+#  10. el baseline COMMITEADO tiene las 5 claves (estructura, no números)
 #
 # Uso:  ./scripts/check-e2e-skip-census-canary.sh
 # =============================================================================
@@ -58,9 +66,10 @@ DIR="$TMP/e2e"; BL="$TMP/baseline"
 
 # --- Árbol sintético con conteos CONOCIDOS -----------------------------------
 #   mockOnly 4/3 · needsSeed 3/3 · harnessLimit 2/2 · skipIfSeedMissing 1/1
+#   realOnly 2/2
 # (los valores de ESPERADO están MEDIDOS sobre este mismo árbol, no escritos a
 # ojo: la primera versión los puso a mano y este caso 1 cazó el error.)
-# Incluye señuelos que NO deben contar (`mockOnlyX`, `_mockOnly`, `.md`).
+# Incluye señuelos que NO deben contar (`mockOnlyX`, `_mockOnly`, `realOnlyX`, `.md`).
 sembrar() {
   rm -rf "$DIR"; mkdir -p "$DIR/utils"
   cat > "$DIR/a.spec.ts" <<'T'
@@ -72,12 +81,15 @@ T
 const o = { mockOnly: true, harnessLimit: 'sin-google' };
 test(needsSeed ? 'a' : 'b', () => {});
 const notThis = _mockOnlyZ;  // señuelo: prefijo y sufijo
+realOnly;
 T
   cat > "$DIR/c.spec.ts" <<'T'
 skipIfSeedMissing(test);
 harnessLimit;
 mockOnly;
 needsSeed;
+realOnly('el 409 solo existe contra el backend real');
+const realOnlyish = realOnlyX;  // señuelo: sufijo, no la palabra
 T
   cat > "$DIR/utils/env.ts" <<'T'
 export const helpers = 1;  // sin salvaguardas
@@ -89,7 +101,8 @@ T
 ESPERADO="mockOnly 4 3
 needsSeed 3 3
 harnessLimit 2 2
-skipIfSeedMissing 1 1"
+skipIfSeedMissing 1 1
+realOnly 2 2"
 
 fabricar_bl() { "$GATE" --dir "$DIR" --baseline "$BL" --update --motivo "canario" >/dev/null 2>&1; }
 # caso <rc_esperado> <nombre> [baseline]
@@ -99,7 +112,7 @@ caso() { local rc; "$GATE" --dir "$DIR" --baseline "${3:-$BL}" >/dev/null 2>&1; 
 # 1. cuenta exacto (y los señuelos no cuentan)
 sembrar; fabricar_bl
 VISTO="$(grep -vE '^#' "$BL" | grep -v '^$')"
-if [ "$VISTO" = "$ESPERADO" ]; then ok "cuenta EXACTO sobre conteos conocidos (mockOnly 4/3, needsSeed 3/3, harnessLimit 2/2, skipIfSeedMissing 1/1; señuelos mockOnlyX/_mockOnly/.md fuera)"
+if [ "$VISTO" = "$ESPERADO" ]; then ok "cuenta EXACTO sobre conteos conocidos (mockOnly 4/3, needsSeed 3/3, harnessLimit 2/2, skipIfSeedMissing 1/1, realOnly 2/2; señuelos mockOnlyX/_mockOnly/realOnlyX/.md fuera)"
 else bad "conteo incorrecto:"; printf '      esperado: %s\n' "$(tr '\n' '|' <<<"$ESPERADO")"; printf '      visto:    %s\n' "$(tr '\n' '|' <<<"$VISTO")"; fi
 
 # 2. intacto
@@ -113,11 +126,17 @@ grep -F 'CRECIÓ' >/dev/null <<<"$SALIDA" && ok "el rojo dice qué clave creció
   || bad "el rojo no dice «CRECIÓ»: $(tail -2 <<<"$SALIDA" | tr -d '\033')"
 sembrar
 
+# 3bis. +1 realOnly SOLA (la quinta clave, devops 2026-09-22 M-QA4): si la clave
+# entra al censo pero no muerde, el censo la cuenta y no la vigila.
+printf "\nrealOnly('otro caso solo-real');\n" >> "$DIR/a.spec.ts"
+caso 1 "MUTACIÓN: +1 realOnly (sola) ⇒ ROJO"
+sembrar
+
 # 4. +1 en cada clave
-for k in mockOnly needsSeed harnessLimit skipIfSeedMissing; do
+for k in mockOnly needsSeed harnessLimit skipIfSeedMissing realOnly; do
   printf '\nconst z = %s;\n' "$k" >> "$DIR/c.spec.ts"
 done
-caso 1 "MUTACIÓN: +1 en las CUATRO claves ⇒ ROJO"
+caso 1 "MUTACIÓN: +1 en las CINCO claves ⇒ ROJO"
 sembrar
 
 # 5. bajar no es delito
@@ -149,10 +168,10 @@ grep -F 'MOTIVO-CANARIO-9' >/dev/null < "$BL" && ok "el motivo queda ESCRITO en 
 # 10. el baseline COMMITEADO: estructura, no números (los números son del gate)
 if [ -f "$BL_VIVO" ]; then
   FALTAN=""
-  for k in mockOnly needsSeed harnessLimit skipIfSeedMissing; do
+  for k in mockOnly needsSeed harnessLimit skipIfSeedMissing realOnly; do
     grep -E "^$k [0-9]+ [0-9]+$" >/dev/null < "$BL_VIVO" || FALTAN="$FALTAN $k"
   done
-  [ -z "$FALTAN" ] && ok "el baseline commiteado tiene las 4 claves bien formadas (sus NÚMEROS los juzga el gate, no este canario)" \
+  [ -z "$FALTAN" ] && ok "el baseline commiteado tiene las 5 claves bien formadas (sus NÚMEROS los juzga el gate, no este canario)" \
     || bad "el baseline commiteado no tiene bien formada(s):$FALTAN"
 else
   bad "falta $BL_VIVO (el gate saldría rc=2)"

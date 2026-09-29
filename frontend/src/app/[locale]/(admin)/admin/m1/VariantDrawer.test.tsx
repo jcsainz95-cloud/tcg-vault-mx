@@ -120,6 +120,21 @@ describe('VariantDrawer (P-17, §16.4) · piezas de la variante', () => {
     expect(screen.queryByRole('heading', { name: 'Precios' })).toBeNull();
   });
 
+  it('SELLADO-M1(C): el encabezado del sellado muestra el SUBTIPO (Bundle/Booster Box), no solo «SELLADO»', async () => {
+    // S3-SELLADO-M1 (2026-09-17): tras el alta el desglose de FORMATO se perdía en el drill-down —
+    // el encabezado pintaba «SELLADO» a secas aunque el subtipo YA viaja como prop.
+    renderDrawer({
+      productType: 'sealed',
+      sealedSubtype: 'bundle',
+      sealedCondition: 'mint',
+      cardId: 'c-sealed-chaos-bundle',
+      cardName: 'Chaos Rising Booster Bundle',
+    });
+    await screen.findByText(/Piezas \(/);
+    // El subtipo (Bundle) aparece en el encabezado.
+    expect(screen.getByText(/BUNDLE/)).toBeInTheDocument();
+  });
+
   it('M-1: guardar un override en la consola pinta el estado nuevo SIN reabrir y refresca agregados', async () => {
     const pricing: VariantPricingDTO = {
       buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 87_500, source: 'market', premiumAtFloor: false },

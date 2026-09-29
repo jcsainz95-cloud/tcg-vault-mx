@@ -1023,10 +1023,16 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         },
       });
       expect(session.status).toBe(409);
-      // (b) …y el operador ya no la ve en la lista de picking.
+      // (b) …y el operador ya no la ve en la cola de «Pedidos a preparar».
+      // ⚠️ §M4-PREP (v1.78): la cola AGRUPA POR PEDIDO — `inventoryItemId` vive en `items[]`, no en
+      // el renglón. Buscarlo arriba daría `false` **siempre**: un verde que no mide nada.
       const picking = await h.api('GET', '/admin/shipments/picking-list', { token: adminToken });
       expect(picking.status).toBe(200);
-      expect((picking.body.data as any[]).some((r) => r.inventoryItemId === cbItemId)).toBe(false);
+      const enCola = picking.body.data as any[];
+      expect(enCola.every((p) => Array.isArray(p.items))).toBe(true);
+      expect(enCola.flatMap((p) => p.items).some((i: any) => i.inventoryItemId === cbItemId)).toBe(
+        false,
+      );
     });
 
     it('T1-b: una SEGUNDA disputa (otro event.id) NO descongela la pieza ni baja el flag', async () => {

@@ -3,11 +3,13 @@ import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
+import { parseEnumFilter } from '../../common/enum-filter';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido — prohibido repetirlo a mano.
 import { hasManualPrice } from '../../common/money';
 // v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
 import { VariantPricingDTO, composeVariantPricing, resolveMarketReference } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
+import { customerDisplayName } from '../vault/customer-display-name';
 // v1.33 (P-27, §4.31): mapa curado padre→subset del MASTER SET COMBINADO. SOLO lectura de
 // presentación (money-safe): resuelve `externalId`→`CardSet.id` local por join; nunca fuente de verdad.
 import {
@@ -49,6 +51,24 @@ export const NOT_ON_HAND: InventoryStatus[] = [
 ];
 
 /**
+ * ⭐ **`EQ-D1` lote 2 — dominio del eje `?sort=` del índice master set (CLASE ORDEN, §0-Q punto 6).**
+ *
+ * Los TRES consumidores de `index()` comparten este orden: `GET /admin/inventory/master-sets`,
+ * `GET /admin/vaults/:userId/master-sets` y `GET /vault/master-sets`. Un solo dominio, un solo
+ * validador (`sortSummaries`), así que la conducta que §0-Q punto 6 prohíbe —el **clamp silencioso**
+ * de `?sort=zzz` al default `release_desc`— se cierra en un sitio para los tres.
+ *
+ * ⛔ **La fila FORMAL de §0-Q punto 4 la escribe el ARQUITECTO** (regla 9): es un MODO de la consulta
+ * (`rg 'enum .*Sort' schema.prisma` ⇒ 0), clase L/ORDEN sin columna. Lo que se arregla aquí es la
+ * conducta (fuera de dominio ⇒ `400` con `details.{field,allowed}`), no el contrato. `C-EQ-1` importa
+ * este literal REAL (no una copia) para vigilar la paridad, y su fila va `PENDIENTE-ARQUITECTO`.
+ */
+export const MASTER_SET_SORT_VALUES = ['release_desc', 'completion_asc', 'pieces_desc'] as const;
+export type MasterSetSort = (typeof MASTER_SET_SORT_VALUES)[number];
+/** Default declarado por el índice (fila del controller: `@Query('sort') sort = 'release_desc'`). */
+const MASTER_SET_SORT_DEFAULT: MasterSetSort = 'release_desc';
+
+/**
  * v1.22 — el ORDEN CANONICO (de acabados y de numeros) vive en `common/card-order.ts`: UN solo
  * algoritmo compartido por el sync (que ESCRIBE `numberSort`/`numberPrefix`), por el `orderBy` de
  * la BD y por los seeds (ARCHITECTURE 4.22b). Se re-exporta aqui por compatibilidad de imports.
@@ -71,7 +91,8 @@ export interface MasterSetViewOptions {
 
 export interface VaultOwnerRefDTO {
   userId: string;
-  name: string;
+  /** ⭐ v1.79.3 (H-1): `null` SOLO en la vista admin (ii) con nombre fabricado del correo. */
+  name: string | null;
   email?: string;
 }
 
@@ -491,8 +512,17 @@ export class MasterSetService implements OnModuleInit {
     };
   }
 
-  /** Ordena el índice según `sort` (release_desc default | completion_asc | pieces_desc). */
-  private sortSummaries(rows: MasterSetSummaryDTO[], sort: string): MasterSetSummaryDTO[] {
+  /**
+   * Ordena el índice según `sort` (release_desc default | completion_asc | pieces_desc).
+   *
+   * ⭐ `EQ-D1` lote 2 — el eje `?sort=` pasa por `parseEnumFilter` (§0-Q): ausente/vacío ⇒ el default
+   * `release_desc`; un token fuera de dominio ⇒ `400` con `details.{field,allowed}` (antes caía al
+   * `else` y devolvía `release_desc` **sin decirlo** — el clamp silencioso que §0-Q punto 6 prohíbe).
+   * Un solo validador para los TRES consumidores de `index()`. `C-EQ-1` lo vigila por HTTP.
+   */
+  private sortSummaries(rows: MasterSetSummaryDTO[], sortRaw: string): MasterSetSummaryDTO[] {
+    const sort =
+      parseEnumFilter('sort', sortRaw, MASTER_SET_SORT_VALUES) ?? MASTER_SET_SORT_DEFAULT;
     const byRelease = (a: MasterSetSummaryDTO, b: MasterSetSummaryDTO) =>
       (b.releaseDate ?? '').localeCompare(a.releaseDate ?? '');
     if (sort === 'completion_asc') {
@@ -579,12 +609,15 @@ export class MasterSetService implements OnModuleInit {
     if (scope.kind !== 'user_vault') return null;
     const user = await this.prisma.user.findUnique({
       where: { id: scope.userId },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, nameSource: true, email: true },
     });
     if (!user) throw BusinessException.notFound('NOT_FOUND', 'User not found');
+    // ⭐ v1.79.3 (H-1): en la vista ADMIN (ii) —la que lleva `email`— el nombre sale por
+    // `customerDisplayName` (fabricado del correo ⇒ `null`). ⛔ La vista (iii) del propio cliente
+    // sigue con `User.name`: la frontera la decidió el contrato, no este método.
     return {
       userId: user.id,
-      name: user.name,
+      name: opts.includeOwnerEmail ? customerDisplayName(user) : user.name,
       ...(opts.includeOwnerEmail ? { email: user.email } : {}),
     };
   }

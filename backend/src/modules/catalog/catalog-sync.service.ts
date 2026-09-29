@@ -1454,6 +1454,13 @@ export class CatalogSyncService {
       // (`.../product/<id>`). Es el ANCLA del join a TCGCSV (resolver estructural) y lo usa P-7. Se
       // incluye SOLO cuando se pudo parsear (null ⇒ se OMITE la clave: no clobbea un ancla previo).
       const tcgplayerId = parseTcgplayerProductId(c.tcgplayer?.url);
+      // DECKS-META §2.2 (Fase 0): LEGALIDAD con NO-DEGRADACIÓN, igual que `tcgplayerId`/`logoUrl`.
+      // Se normaliza a string-o-null (trim; vacío ⇒ null) y la clave se incluye SOLO cuando hay
+      // valor bueno ⇒ ausente NO viaja ⇒ Prisma deja la columna intacta (no clobbea con null lo que
+      // otro sync pobló). En CREATE, ausente ⇒ la columna nullable nace en null (regulationMark null
+      // ⇒ no legal, conservador §2.3). Coste de red = CERO (M3: ya venían en el payload).
+      const regulationMark = c.regulationMark?.trim() || null;
+      const legalStandardRaw = c.legalities?.standard?.trim() || null;
       const data = {
         setId: localSetId,
         name: c.name,
@@ -1470,6 +1477,9 @@ export class CatalogSyncService {
         imageSmallUrl: c.images?.small ?? null,
         imageLargeUrl: c.images?.large ?? null,
         ...(tcgplayerId !== null ? { tcgplayerId } : {}),
+        // DECKS-META §2.2: NO-DEGRADACIÓN — la clave NI SIQUIERA VIAJA cuando no hay valor bueno.
+        ...(regulationMark !== null ? { regulationMark } : {}),
+        ...(legalStandardRaw !== null ? { legalStandardRaw } : {}),
       };
       try {
         const upserted = await this.prisma.card.upsert({

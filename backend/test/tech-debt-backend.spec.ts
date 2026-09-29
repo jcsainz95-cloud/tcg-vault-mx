@@ -1,5 +1,6 @@
 import { isPremiumCanonicalRarity } from '../src/common/rarity-catalog';
 import { variantKey } from '../src/common/variant-key';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -85,6 +86,7 @@ function buildPricing(refRows: any[], overrideRows: any[]) {
   const prisma = {
     priceReference: { findMany: jest.fn(async () => refRows) },
     variantPriceOverride: { findMany: jest.fn(async () => overrideRows) },
+    $queryRaw: makeRefsRawQuery(refRows), // H-PERF-1: getReferencesBatch poda vía $queryRaw
   } as unknown as PrismaService;
   const svc = new PricingService(
     prisma,

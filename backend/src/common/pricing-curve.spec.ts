@@ -469,23 +469,72 @@ describe('pricing-curve — guardarraíl premiumFloorGuard (§4.36.5)', () => {
 });
 
 describe('pricing-curve — bounty revalidado isBountyEffective (§4.36.6, criterio 91)', () => {
+  // v2.2 (Q1): la firma gana `marketMxnCents`. En el tramo NORMAL (`curva < mercado`) nada cambia:
+  // sigue exigiendo `> curva`. Se pasa un mercado ALTO para quedarnos en ese tramo.
+  const CARO = 10_000_000; // mercado muy por encima de la curva ⇒ empate-con-mercado no aplica
   it('ESTRICTAMENTE mayor que la curva ⇒ efectivo', () => {
-    expect(isBountyEffective(5001, 5000)).toBe(true);
+    expect(isBountyEffective(5001, 5000, CARO)).toBe(true);
   });
 
-  it('IGUAL o MENOR que la curva ⇒ deja de ser bounty', () => {
-    expect(isBountyEffective(5000, 5000)).toBe(false);
-    expect(isBountyEffective(4999, 5000)).toBe(false);
+  it('IGUAL o MENOR que la curva ⇒ deja de ser bounty (tramo normal, `curva < mercado`)', () => {
+    expect(isBountyEffective(5000, 5000, CARO)).toBe(false);
+    expect(isBountyEffective(4999, 5000, CARO)).toBe(false);
   });
 
   it('curva sin resolver (null) ⇒ el bounty explícito manda', () => {
-    expect(isBountyEffective(5000, null)).toBe(true);
+    expect(isBountyEffective(5000, null, null)).toBe(true);
   });
 
   it('bounty ausente o degenerado (<= 0) ⇒ nunca efectivo', () => {
-    expect(isBountyEffective(null, 100)).toBe(false);
-    expect(isBountyEffective(0, null)).toBe(false);
-    expect(isBountyEffective(-1, null)).toBe(false);
+    expect(isBountyEffective(null, 100, 100)).toBe(false);
+    expect(isBountyEffective(0, null, null)).toBe(false);
+    expect(isBountyEffective(-1, null, null)).toBe(false);
+  });
+});
+
+describe('pricing-curve — isBountyEffective con TOPE DE MERCADO: la TABLA de 12 casos (§M2-B.8, Q1)', () => {
+  // La tabla NORMATIVA de §M2-B.8 / §4.36.6, renglón a renglón. `mercado`=`marketMxnCents`,
+  // `curva`=`curveQuoteCents`. Asimetría de empate: `>` contra la curva, `>=` contra el mercado.
+  // (Los casos `bounty <= 0` los cubre el bloque anterior; aquí van los 10 renglones de efectividad.)
+  it.each([
+    // mercado, curva, bounty, efectivo, glosa
+    [null, null, 1, true, 'pending: bounty explícito manda'],
+    [1000, 400, 401, true, 'caro `curva<mercado`: > curva'],
+    [1000, 400, 400, false, 'caro: EMPATE CON CURVA rechazado'],
+    [1000, 400, 399, false, 'caro: < curva rechazado'],
+    [1000, 400, 1000, true, 'caro: muy por encima'],
+    [500, 700, 701, true, 'barato `curva>=mercado`: > curva'],
+    [500, 700, 650, true, 'barato: >= mercado aunque < bin/curva'],
+    [500, 700, 500, true, 'barato: EMPATE CON MERCADO aceptado (killer)'],
+    [500, 700, 499, false, 'barato: < mercado Y < curva rechazado'],
+    [500, 500, 500, true, 'bin==mercado: >= mercado aceptado'],
+    [500, 500, 499, false, 'bin==mercado: < ambos rechazado'],
+  ] as [number | null, number | null, number, boolean, string][])(
+    'mercado=%p curva=%p bounty=%p ⇒ efectivo=%p (%s)',
+    (market, curve, bounty, expected) => {
+      expect(isBountyEffective(bounty, curve, market)).toBe(expected);
+    },
+  );
+
+  it('🐤 CANARIO DEL DUEÑO — para TODO `curva ≥ mercado`, bounty=mercado es EFECTIVO (nunca fuerza > mercado)', () => {
+    // El requisito Q1 en una propiedad: en el borde el candado jamás obliga a pagar por encima del
+    // mercado, así que `bounty = mercado` SIEMPRE se acepta, sea cual sea cuánto lo rebase el bin.
+    for (const [market, curve] of [
+      [500, 700],
+      [500, 500],
+      [1, 100],
+      [12345, 99999],
+    ] as [number, number][]) {
+      expect(isBountyEffective(market, curve, market)).toBe(true);
+      // Y el amarre inverso: un centavo por debajo del mercado (y de la curva) se RECHAZA.
+      expect(isBountyEffective(market - 1, curve, market)).toBe(false);
+    }
+  });
+
+  it('la asimetría es EXACTA: `>=` contra mercado, `>` contra curva (no se confunden)', () => {
+    // empate-mercado: aceptado. empate-curva (con mercado por encima): rechazado.
+    expect(isBountyEffective(500, 700, 500)).toBe(true); // = mercado
+    expect(isBountyEffective(700, 700, 1000)).toBe(false); // = curva, < mercado ⇒ rechazado
   });
 });
 

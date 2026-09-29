@@ -11,6 +11,7 @@ import { FxService, parseBanxicoRate } from '../src/modules/pricing/fx.service';
 import { FxController } from '../src/modules/pricing/pricing.controller';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { AuditService } from '../src/modules/audit/audit.service';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import {
   FX_AUTO_STALE_AFTER_DAYS,
   FX_FALLBACK_RATE,
@@ -254,6 +255,9 @@ function harness(seed: SeedOpts = {}) {
       findMany: async () => priceRefs.map((r) => ({ ...r })),
       findFirst: async () => (priceRefs[0] ? { ...priceRefs[0] } : null),
     },
+    // P-53 ALTO-4 (§3): `getReference` DELEGA en `getReferencesBatch`, que poda por ventana vía
+    // `$queryRaw` (no `findMany`). El emulador entrega la misma fila `card-1` que valúa este arnés.
+    $queryRaw: makeRefsRawQuery(priceRefs),
     auditLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         auditEntries.push(data);

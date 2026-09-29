@@ -44,11 +44,15 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   const sealedRestockNotify = {
     run: jest.fn().mockResolvedValue({ job: 'sealed-restock-notify', enqueued: false, reason: 'SEALED_RESTOCK_ALERTS_OFF' }),
   } as unknown as SealedRestockNotifyService;
+  // DECKS-META Fase 2 (§7): disparo manual del refresh semanal.
+  const decksMetaRefresh = {
+    run: jest.fn().mockResolvedValue({ skipped: true, reason: 'DIAL_OFF', mode: 'off' }),
+  } as unknown as import('../src/modules/decks-meta/decks-meta-refresh.service').DecksMetaRefreshService;
   const audit = { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 
   const ctrl = new AdminJobsController(
     snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest,
-    sealedPriceIngest, sealedRestockNotify, audit,
+    sealedPriceIngest, sealedRestockNotify, decksMetaRefresh, audit,
   );
 
   beforeEach(() => jest.clearAllMocks());

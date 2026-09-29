@@ -99,6 +99,10 @@ export const ErrorCode = {
   // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
   // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
   BOUNTY_BELOW_RULE: 'BOUNTY_BELOW_RULE',
+  // v2.2 (Q2, §M2-B.9): `DELETE …/variant-controls/:cardId/:finish/bounty` sobre una variante que NO
+  // tiene bounty en alcance (§M2-B.0). La variante/carta existe, pero no hay nada de bounty que
+  // eliminar. 404.
+  BOUNTY_NOT_FOUND: 'BOUNTY_NOT_FOUND',
   // v2.0 (P-48, §4.36.3 / API_CONTRACT §Errores) — códigos de la CURVA. Todos son 422, todos se
   // validan AL GUARDAR (no solo en runtime), todos se evalúan sobre el OBJETO COMPLETO y todos
   // indican QUÉ PUNTO lo rompe en `details: { axis, index, marketCents, … }` (criterio 87).
@@ -295,6 +299,23 @@ export const ErrorCode = {
   // diría al cliente CUÁL falló, que es un oráculo gratis sobre qué keys existen y de quién son.
   // `details: { field }` dice QUÉ CAMPO, no por qué.
   INE_UPLOAD_KEY_INVALID: 'INE_UPLOAD_KEY_INVALID',
+  // ⭐⭐ v1.71 (D-INE-UMBRAL, decisión del dueño 2026-09-15 «umbral, luego bloqueo» · API_CONTRACT
+  // §M5-K, D51 reescrita) — 422. `POST /buylist/requests` cuando la solicitud cae AL/POR ENCIMA del
+  // umbral INE (mismo `ineRequired` que la puerta `INE_REQUIRED`, o sea `>= INE_THRESHOLD_CENTS` **o**
+  // `hasPendingLine` — no `>= threshold` a secas, para no reabrir el bypass de «precio pendiente» de
+  // C15) Y el vendedor tiene la identidad **rechazada** (`kycStatus === 'rejected'`).
+  //
+  // ⛔ EXCEPCIÓN ACOTADA A D51: `kycStatus` NO gatea dinero en ningún OTRO endpoint (ni ofertar, ni
+  // pagar) ni por DEBAJO del umbral — ahí el comportamiento actual queda intacto (montos chicos se
+  // dejan crear aunque la INE esté rechazada). Bloquea SOLO `rejected` (NO `none`/`pending`: no toca a
+  // quien apenas se verifica). No reabre la pregunta 40 (cotejo INE↔titular de la CLABE, cerrada por
+  // «no existe fuente»): gatea sobre el VEREDICTO del admin, que ya existe, no sobre el nombre.
+  //
+  // `details: {}` VACÍO — misma doctrina que `INE_REQUIRED` (§M6-K.5 / v1.69): NI el umbral NI PII
+  // (jamás `rejectionReason`) viajan al vendedor. El motivo lo lee solo el propio usuario por
+  // `GET /users/me/kyc`. Filas legacy `rejected` sin `rejectionReason` (pre-M-54) se bloquean igual,
+  // con mensaje genérico.
+  KYC_REJECTED: 'KYC_REJECTED',
   // ⭐ v1.70 (C20 / SEC-PII-7) — 500. `DELETE /admin/users/:id` en modo HARD cuando la imagen de INE
   // **no se pudo borrar del bucket**. La cascada borraría la fila `KycProfile` con sus keys dentro,
   // así que el ÚNICO puntero a esa imagen desaparecería y la purga de retención **nunca** la
@@ -615,6 +636,31 @@ export const ErrorCode = {
   // ⛔ Es 500 y no 422 a propósito (doctrina de `BusinessException.internal`): el actor no hizo nada
   // mal y **no hay nada que pueda corregir** — si dispara, se arregla la BD, no la petición.
   AUDIT_WRITE_FAILED: 'AUDIT_WRITE_FAILED',
+
+  // ── COLOCACIÓN EN BÓVEDA (v1.79/v1.79.1/v1.79.3 · API_CONTRACT §0 y §M4-VAULT.5/.10) ──────────
+  // 422 — `POST /admin/vault-placements/:id/confirm`: el cajón no sirve. `details.reason`:
+  // `not_found | inactive | not_customer_custody | not_customer_drawer` (+ `customerDrawers`) |
+  // `location_required` (+ `pickedCount`, v1.79.3). Se valida ANTES de reclamar ⇒ no escribió nada.
+  LOCATION_NOT_AVAILABLE: 'LOCATION_NOT_AVAILABLE',
+  // 409 — la colocación ya no está `pending` (los cuatro verbos). `details`: `{status:'placed',
+  // location:{id,label,zone}}` | `{status:'cancelled', cancelReason}`. Un helper, ⛔ cuatro copias.
+  PLACEMENT_NOT_PENDING: 'PLACEMENT_NOT_PENDING',
+  // 409 — `confirm` sobre una colocación `pending` sin «preparado». `details: { preparation }`.
+  PLACEMENT_NOT_PREPARED: 'PLACEMENT_NOT_PREPARED',
+  // 409 — `PATCH …/prep-items/:id` con el pedido ya preparado. `details: { preparedAt }`.
+  PREPARATION_CLOSED: 'PREPARATION_CLOSED',
+  // 409 — `POST …/prepared` con ≥1 carta colocable sin marcar. `details: { pendingCount }`.
+  PREPARATION_INCOMPLETE: 'PREPARATION_INCOMPLETE',
+  // 409 — `PATCH …/prep-items/:id` a `picked|missing` sobre una carta bloqueada. `details: { reason }`.
+  PREP_ITEM_BLOCKED: 'PREP_ITEM_BLOCKED',
+
+  // ── DECKS-META (Fase 1, API_CONTRACT §13 / DECKS_META_ARCH.md §7) ─────────────────────────────
+  // 404 — `GET /decks-meta/:slug` con un slug que no corresponde a ningún deck publicado.
+  DECK_NOT_FOUND: 'DECK_NOT_FOUND',
+  // 422 — `POST /decks-meta/paste` con texto vacío o sin NINGUNA línea de carta válida (el parser no
+  // pudo extraer una sola línea). Distinto de VALIDATION_ERROR (forma del body): el body es válido,
+  // pero su contenido no es una lista parseable. API_CONTRACT §13.
+  DECK_LIST_UNPARSEABLE: 'DECK_LIST_UNPARSEABLE',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

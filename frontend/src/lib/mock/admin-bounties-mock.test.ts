@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -188,6 +188,14 @@ describe('`sort`: ninguna opción ofrecida puede ser inerte', () => {
     const key = variantControlsKey('c-charizard', 'raw', 'raw:NM', 'holofoil');
     const before = mockVariantControlsStore.get(key)!.updatedAt;
     expect(mockAdminBounties({ ...ALL, sort: 'updated_desc' }).data[0]?.cardId).not.toBe('c-charizard');
+    // ⏱️ El reloj se CONGELA a un instante posterior a la fila más nueva de la semilla
+    // (`c-blastoise`, `2026-09-04T11:00Z`). `mockUpsertVariantControls` sella `updatedAt = new Date()`
+    // como `@updatedAt` de Prisma; si el reloj REAL de la corrida cayera ANTES de esa fecha semilla
+    // —CI con la hora movida, una re-corrida histórica, un reloj sesgado— la escritura NO sería la
+    // más nueva y este caso se pondría rojo por el reloj, no por el producto. Congelarlo hace que la
+    // aserción dependa solo de la lógica de orden, que es lo que promete medir.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T00:00:00.000Z'));
     try {
       mockUpsertVariantControls('c-charizard', 'holofoil', {
         productType: 'raw',
@@ -196,6 +204,7 @@ describe('`sort`: ninguna opción ofrecida puede ser inerte', () => {
       });
       expect(mockAdminBounties({ ...ALL, sort: 'updated_desc' }).data[0]?.cardId).toBe('c-charizard');
     } finally {
+      vi.useRealTimers();
       // El store es estado de módulo: se restaura para no fijar el orden de ejecución de nadie.
       mockVariantControlsStore.get(key)!.updatedAt = before;
     }

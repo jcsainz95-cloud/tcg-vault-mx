@@ -7,23 +7,26 @@ import {
   PokeTraceProvider,
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 
 /**
  * §4.27f-2 (P47-2, v1.46) — DURABILIDAD CROSS-DAY del override manual en la CAPA DE LECTURA.
  *
  * El fix del comparador `isBetterRef` (commit b16f03d) iza el tier manual por encima de `capturedDate`,
- * pero eso NO basta: si la fila manual NO llega a las candidatas de `pickBestRef`, el comparador nunca la
- * ve. El override manual se persiste con `capturedDate` FIJO y el barrido `tcgcsv_singles` añade ~1 fila
- * automática/día para la misma clave (sin purga). Tras ~32 días la fila manual cae FUERA del top-32
- * (`take: SAME_DAY_REF_CANDIDATES`) → el feed diario volvía a pisar el precio humano en silencio.
+ * pero eso NO basta: si la fila manual NO llega a las candidatas, el comparador nunca la ve. El override
+ * manual se persiste con `capturedDate` FIJO y el barrido `tcgcsv_singles` añade ~1 fila automática/día
+ * para la misma clave (sin purga).
  *
  * Estos tests fijan el escenario >32 días: `getReference`/`getReferenceByCardProduct` DEBEN devolver el
- * override manual VIEJO por encima de la automática fresca, porque la lectura une SIEMPRE las filas
- * manuales de la clave (lectura dirigida, sin cota de fecha) a las candidatas del bloque reciente.
+ * override manual VIEJO por encima de la automática fresca, porque la candidata manual SIEMPRE está en la
+ * ventana.
  *
- * El mock de Prisma modela fielmente las DOS lecturas: la capada (con `take`) devuelve las N automáticas
- * más frescas ordenadas `capturedDate desc` (la manual vieja QUEDA FUERA, como en la BD real); la
- * dirigida (sin `take`) devuelve solo las filas manuales.
+ * P-53 ALTO-4 (§3): `getReference` DELEGA en `getReferencesBatch` (ventana `COALESCE(evidenceDate,
+ * capturedDate)` vía `$queryRaw`, que conserva TODA fila manual: `is_manual OR …`) y
+ * `getReferenceByCardProduct` DELEGA en `getReferencesByCardProductBatch`, que lee SIN cota. En ninguno
+ * queda ya el `take: SAME_DAY_REF_CANDIDATES(=32)` por `capturedDate` crudo. La durabilidad cross-day del
+ * override manual ahora la garantiza que los métodos de lote no capan por `capturedDate` — no una lectura
+ * dirigida aparte. El mock refleja esas dos vías (poda por ventana + lectura de lote sin cota).
  */
 
 const MANUAL_DAY = new Date('2026-01-01T00:00:00Z');
@@ -69,9 +72,13 @@ function manualRow(over: Partial<any> = {}): any {
 }
 
 /**
- * Prisma mock fiel: distingue la lectura CAPADA (con `take`) de la DIRIGIDA de manuales (sin `take`).
- * - capada: ordena todas las filas por `capturedDate desc` y corta `take` (la manual vieja cae fuera).
- * - dirigida: filtra a `isManualOverride || source==='manual'` (modela `MANUAL_REF_PREDICATE`).
+ * Prisma mock que sirve las dos vías de delegación de P-53 ALTO-4 con las MISMAS filas:
+ *  - `$queryRaw` (ventana real de `getReferencesBatch`, vía de `getReference`): conserva la manual
+ *    perenne y la automática de frescura efectiva máxima por clave.
+ *  - `findMany` (vía de `getReferenceByCardProduct` → `getReferencesByCardProductBatch`): lee SIN cota,
+ *    así que devuelve TODAS las filas de la clave (incluida la manual). Si un cambio futuro reintroduce
+ *    un `take`, el mock lo modela (orden `capturedDate desc` + corte), de modo que la exclusión de la
+ *    manual vieja volvería a ser observable — el candado de regresión.
  */
 function build(allRows: any[]) {
   const findManyArgs: any[] = [];
@@ -79,14 +86,15 @@ function build(allRows: any[]) {
     priceReference: {
       findMany: jest.fn(async (args: any) => {
         findManyArgs.push(args);
-        if (args.take == null) {
-          return allRows.filter((r) => r.isManualOverride || r.source === 'manual');
+        if (args?.take != null) {
+          return [...allRows]
+            .sort((a, b) => b.capturedDate.getTime() - a.capturedDate.getTime())
+            .slice(0, args.take);
         }
-        return [...allRows]
-          .sort((a, b) => b.capturedDate.getTime() - a.capturedDate.getTime())
-          .slice(0, args.take);
+        return [...allRows];
       }),
     },
+    $queryRaw: makeRefsRawQuery(allRows),
   };
   const fx: any = { getCurrent: jest.fn(async () => null) }; // fx null ⇒ liveMxnCents = priceMxnCents.
   const svc = new PricingService(
@@ -103,7 +111,7 @@ function build(allRows: any[]) {
 describe('PricingService — override manual DURABLE cross-day (§4.27f-2 / P47-2, >32 días)', () => {
   it('getReference: el override manual de enero gana a 40 barridos automáticos más frescos', async () => {
     const rows = [manualRow(), ...automaticSweepRows()];
-    const { svc, findManyArgs } = build(rows);
+    const { svc } = build(rows);
     const info = await svc.getReference('c1', 'raw', 'raw:NM', 'normal');
     expect(info.status).toBe('priced');
     expect(info.referenceMxnCents).toBe(MANUAL_PRICE); // NO la automática fresca.
@@ -111,21 +119,17 @@ describe('PricingService — override manual DURABLE cross-day (§4.27f-2 / P47-
     // del override manual es `source === 'manual'` (arriba). El invariante money-safe (el override humano
     // gana cross-day a los barridos automáticos) queda cubierto por status/referenceMxnCents/source.
     expect(info.source).toBe('manual');
-    // La lectura hace DOS queries: una CAPADA (take 32, tier automático) y una DIRIGIDA (sin take,
-    // filas manuales). El manual sobrevive porque la dirigida no tiene cota de fecha.
-    const capped = findManyArgs.find((a) => a.take != null);
-    const directed = findManyArgs.find((a) => a.take == null);
-    expect(capped.take).toBe(32);
-    expect(directed).toBeDefined();
   });
 
-  it('getReference: sin la lectura dirigida, la capada excluiría la manual (control negativo del mock)', async () => {
+  it('getReference: la ventana de getReferencesBatch conserva la candidata manual perenne (no la capa por capturedDate)', async () => {
+    // Bajo delegación (P-53 ALTO-4) la durabilidad la garantiza que la ventana `$queryRaw` incluye TODA
+    // fila manual (`is_manual OR COALESCE(evidenceDate,capturedDate)=max_auto_date`), sin importar cuántos
+    // barridos automáticos más frescos se acumulen. Probamos la ventana directamente: la manual de enero
+    // sigue entre las candidatas que la poda entrega, y por eso `getReference` la elige.
     const rows = [manualRow(), ...automaticSweepRows()];
     const { svc } = build(rows);
-    // Confirmamos que el mock modela el hueco: la capada (take 32) NO trae la manual de enero.
-    const capped = await (svc as any).prisma.priceReference.findMany({ take: 32 });
-    expect(capped.some((r: any) => r.isManualOverride)).toBe(false);
-    // …y aún así getReference la recupera por la lectura dirigida.
+    const podadas: any[] = await (svc as any).prisma.$queryRaw({ sql: 'WITH filtered … max_auto_date …' });
+    expect(podadas.some((r: any) => r.isManualOverride)).toBe(true);
     const info = await svc.getReference('c1', 'raw', 'raw:NM', 'normal');
     expect(info.referenceMxnCents).toBe(MANUAL_PRICE);
   });

@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { getPendingPublish } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate, formatMoneyCents } from '@/lib/format';
-import type { PendingPublishRowDTO } from '@/types/contract';
+import type { PendingPublishRowDTO, ProductType } from '@/types/contract';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { Link } from '@/i18n/navigation';
@@ -48,6 +48,51 @@ function MissingCell({ row }: { row: PendingPublishRowDTO }) {
 }
 
 /**
+ * **QUÉ PIEZA es esta fila.** ⚠️ **El sellado pinta la CAJA, no el single ancla** (P-79c, contrato §M1).
+ *
+ * El defecto reportado era pintar `card.name` / `card.number` del **ancla** —que el propio diseño declaró
+ * que «deja de ser identidad» (`resolveAnchorCardId`, ARCHITECTURE §4.34a)— para una pieza
+ * `productType='sealed'`. `productType` es el discriminante (ya viaja en el DTO desde v1.51). Por eso:
+ *   - `sealed` **con** `sealedProductName` ⇒ nombre del sellado + marca «SELLADO»; ⛔ NUNCA número ni acabado.
+ *   - `sealed` **sin** nombre (legado) ⇒ «Sellado sin identificar» en tinta de atención; ⛔ **JAMÁS `card.name`**
+ *     —caer al ancla es *exactamente* el defecto—. Misma doctrina que `MissingCell` y que `total` ausente:
+ *     *ante un «no sé» no se pinta un valor que parezca bueno.*
+ *   - `raw` / `graded` ⇒ single: `card.name` + `setName · number · finish` (sin cambios).
+ *
+ * El `folio` (columna 1) identifica la fila de forma única en los tres casos, así que el sellado legado
+ * **sigue siendo accionable**: el operador va al folio, no al nombre.
+ */
+function PieceCell({ row }: { row: PendingPublishRowDTO }) {
+  const t = useTranslations('admin.m1.publishQueue');
+  const tSub = useTranslations('status.sealedSubtype');
+  if (row.productType === 'sealed') {
+    return (
+      <span className="flex flex-col">
+        {row.sealedProductName ? (
+          <span lang="en">{row.sealedProductName}</span>
+        ) : (
+          <span className="text-accent">{t('sealedUnidentified')}</span>
+        )}
+        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+          {row.card.setName} · <span className="text-accent">{t('sealedMark')}</span>
+          {/* §diseño §2.C/CA-5 · el SUBTIPO (Bundle/Booster Box/…) se pinta cuando el server lo
+              proyecta; ausente (backend anterior) ⇒ no se pinta nada (aditivo, retrocompatible). */}
+          {row.sealedSubtype ? ` · ${tSub(row.sealedSubtype).toUpperCase()}` : ''}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-col">
+      <span lang="en">{row.card.name}</span>
+      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+        {row.card.setName} · {row.card.number} · {row.finish}
+      </span>
+    </span>
+  );
+}
+
+/**
  * **COLA «LISTAS PARA PUBLICAR»** (contrato §M1 · `GET /admin/inventory/pending-publish`, fase 8).
  *
  * > *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
@@ -60,10 +105,19 @@ function MissingCell({ row }: { row: PendingPublishRowDTO }) {
  * hereda del costo de compra**. La pieza **sale sola** en cuanto no le falta nada —**sin botón**—,
  * *sin depender de que alguien se acuerde de apretarlo.*
  */
-export function PendingPublishQueue() {
+/**
+ * `productType` (opcional, §diseño §iii) — filtra la cola a un tipo de producto reusando el
+ * `?productType=` que el endpoint ya acepta (contrato §M1). M1 la monta SIN filtro (cola entera);
+ * M11 la monta con `productType="sealed"`. El `queryKey` incluye el filtro para no colisionar el
+ * caché entre la vista completa y la filtrada.
+ */
+export function PendingPublishQueue({ productType }: { productType?: ProductType } = {}) {
   const t = useTranslations('admin.m1.publishQueue');
   const locale = useLocale() as AppLocale;
-  const query = useQuery({ queryKey: ['pending-publish'], queryFn: getPendingPublish });
+  const query = useQuery({
+    queryKey: ['pending-publish', productType ?? 'all'],
+    queryFn: () => getPendingPublish({ productType }),
+  });
 
   /**
    * **EL TAMAÑO DEL TRABAJO PENDIENTE** (deuda D5 del techlead).
@@ -134,12 +188,7 @@ export function PendingPublishQueue() {
                     {row.folio}
                   </td>
                   <td className="px-3 py-3 align-top text-sm text-text">
-                    <span className="flex flex-col">
-                      <span lang="en">{row.card.name}</span>
-                      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
-                        {row.card.setName} · {row.card.number} · {row.finish}
-                      </span>
-                    </span>
+                    <PieceCell row={row} />
                   </td>
                   <td className="px-3 py-3 align-top">
                     <MissingCell row={row} />

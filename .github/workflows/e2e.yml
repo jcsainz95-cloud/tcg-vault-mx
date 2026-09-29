@@ -247,8 +247,30 @@ jobs:
           WH="$(./scripts/webhook-secret-preflight.sh resolve)"
           [ -n "$WH" ] || { echo "::error::el preflight del webhook no devolvió valor"; exit 1; }
           echo "STRIPE_WEBHOOK_SECRET=$WH" >> "$GITHUB_ENV"
+          # ⚠️ S-PII-CI (devops, 2026-09-17) — `PII_ENCRYPTION_KEY` / `PII_HMAC_KEY` van AQUÍ, y NO son
+          # opcionales en este job. MEDIDO: sin ellas la app cae a una clave EFÍMERA POR PROCESO
+          # (`PiiCryptoService`, aviso «PII_ENCRYPTION_KEY not set — using an EPHEMERAL random key»), y
+          # este job tiene DOS procesos que se pasan PII cifrada por la BD: el `seed:synthetic`
+          # (`ts-node`, proceso aparte) que CIFRA el RFC/CLABE del fixture, y la suite jest que los
+          # DESCIFRA al servir `/admin/users/:id` y `/users/me/kyc`. Con claves distintas el descifrado
+          # falla con `Unsupported state or unable to authenticate data` ⇒ **500** en esas rutas.
+          #
+          # SÍNTOMA EXACTO que esto cierra (medido contra la app + Postgres + s3-local reales,
+          # orden de runner LIMPIO = jest ordena por tamaño de fichero, `buylist-cycle` primero):
+          #   · sin estas dos  -> `Tests: 3 failed, 973 passed` — K-2, K-6 y §M6-K.5 de
+          #     `kyc-ine-links.e2e-spec.ts`, las tres con HTTP 500 sobre el customer2, que es
+          #     EXACTAMENTE lo que reporta CI en `production` (187b1d40). NO es el S3 (el PUT/GET
+          #     presignado y la subida del seed salen 200; medido).
+          #   · con estas dos  -> `Tests: 976 passed`.
+          # Es order-dependent SOLO porque cada `E2EHarness.create()` genera OTRA clave efímera: quien
+          # escribió el `billingProfile` del customer2 de último manda. Una clave ESTABLE compartida por
+          # el seed y por todas las instancias de app lo vuelve determinista y verde en cualquier orden.
+          # El arnés nativo (`scripts/stack-native.sh`) ya las fija desde 2026-09-11; este job no. Se
+          # generan por corrida (base64 de 32 bytes, `secrets-preflight.sh` las enmascara en el log) y
+          # viven en `$GITHUB_ENV`, así que las heredan los pasos de seed y de test que vienen después.
           ./scripts/secrets-preflight.sh github-env \
-            JWT_ACCESS_SECRET JWT_REFRESH_SECRET STRIPE_SECRET_KEY >> "$GITHUB_ENV"
+            JWT_ACCESS_SECRET JWT_REFRESH_SECRET STRIPE_SECRET_KEY \
+            PII_ENCRYPTION_KEY PII_HMAC_KEY >> "$GITHUB_ENV"
       - name: Guarda — el entorno E2E no puede escribir contra el proveedor de paga
         id: provider_guard
         run: ./scripts/check-e2e-provider-incapacitation.sh

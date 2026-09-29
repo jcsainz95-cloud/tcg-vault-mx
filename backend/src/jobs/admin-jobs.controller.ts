@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuditService } from '../modules/audit/audit.service';
@@ -15,6 +15,14 @@ import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
 import { PriceIngestJobService } from './price-ingest.service';
 import { SealedPriceIngestJobService } from './sealed-price-ingest.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
+import { DecksMetaRefreshService } from '../modules/decks-meta/decks-meta-refresh.service';
+
+/** Body opcional del disparo de `decks-meta-refresh` (DECKS-META Fase 2, §7): `dryRun?`. */
+class DecksMetaRefreshDto {
+  // `dryRun:true` corre el pipeline REAL sin escribir nada publicado (verificación en prod, §8);
+  // omitirlo respeta el dial `decks_meta_autofetch` (off ⇒ no-op).
+  @IsOptional() @IsBoolean() dryRun?: boolean;
+}
 
 /** Body opcional del disparo de `price-ingest` (excepción a la familia body-vacío, §M10-ops). */
 class PriceIngestDto {
@@ -53,6 +61,7 @@ export class AdminJobsController {
     private readonly priceIngest: PriceIngestJobService,
     private readonly sealedPriceIngest: SealedPriceIngestJobService,
     private readonly sealedRestockNotify: SealedRestockNotifyService,
+    private readonly decksMetaRefresh: DecksMetaRefreshService,
     private readonly audit: AuditService,
   ) {}
 
@@ -258,6 +267,39 @@ export class AdminJobsController {
         enqueued: result.enqueued,
         ...(result.reason ? { reason: result.reason } : {}),
         ...(result.notified != null ? { notified: result.notified } : {}),
+      },
+    });
+    return result;
+  }
+
+  /**
+   * DECKS-META Fase 2 (§7 / §8) — disparo manual del refresh semanal de decks meta desde Limitless.
+   * `{ dryRun:true }` corre el pipeline REAL (fetch→parse→match→canary) SIN escribir nada publicado
+   * (verificación en prod, ya que el sandbox bloquea el egress); sin `dryRun` respeta el dial
+   * `decks_meta_autofetch` (off ⇒ no-op). NO toca dinero (datos de catálogo/meta). super_admin,
+   * auditado (mismo patrón que los demás `POST /admin/jobs/*`). Res 202.
+   */
+  @Post('decks-meta-refresh')
+  @HttpCode(202)
+  async runDecksMetaRefresh(@Body() dto: DecksMetaRefreshDto, @CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.decksMetaRefresh.run({ dryRun: dto.dryRun });
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.decks_meta_refresh.run',
+      entityType: 'Job',
+      entityId: 'decks-meta-refresh',
+      after: {
+        skipped: result.skipped,
+        mode: result.mode,
+        ...(result.skipped
+          ? { reason: result.reason }
+          : {
+              verdict: result.report.verdict,
+              applied: result.report.applied,
+              deckCount: result.report.decks.length,
+              publishedSlugs: result.report.publishedSlugs,
+            }),
       },
     });
     return result;

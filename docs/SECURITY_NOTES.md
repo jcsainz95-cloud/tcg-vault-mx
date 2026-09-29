@@ -1,3 +1,1284 @@
+# VEREDICTO BLUE TEAM — **M4-PREP «Pedidos a preparar»** (reproyección de SOLO LECTURA de `GET /admin/shipments/picking-list`) · SHA **`5e6f2ee`** (rama `claude/m4-pedidos-preparar`) · 2026-09-22
+
+> ## ⭐ VEREDICTO — **APROBADO** sobre `5e6f2ee`
+>
+> **0 críticos · 0 altos abiertos** ⇒ el DoD («sin hallazgos críticos/altos abiertos») se cumple.
+> Quedan registrados abajo **1 Media** y **3 Bajas** como deuda de seguridad aceptada, cada una con
+> su disparador. **Nada de esto bloquea la fusión de este stream.**
+>
+> **Conclusión sobre el corte, con las palabras que el encargo pide:** *este stream **no introduce
+> riesgo nuevo de autorización, de inyección, de dinero ni de secretos**.* Lo que sí ensancha —y es lo
+> único que ensancha— es la **concentración de PII en una sola pantalla**, y eso está **decidido por
+> producto** (CA #6 de §S), **acotado por candados que muerden** y **no otorga ninguna capacidad nueva
+> a ningún rol**. Lo medido que sostiene cada mitad de esa frase está abajo.
+
+> ### Sobre qué sha emito el veredicto, y cómo medí
+> **`5e6f2ee`**, árbol **limpio** (`git status --porcelain` vacío, verificado antes y después de cada
+> mutación). ⚠️ **El red team midió `f835f19`**, que es **4 commits anterior**: `975a307` (sus propias
+> notas), `7b45d69` (contrato v1.78.3), `6018ee5` y `5e6f2ee` (§M4P-ORDER). **Ese delta NO lo atacó
+> nadie del red team y lo audito yo aquí** (§5 de «lo que revisé yo»).
+>
+> **Instrumento:** copia del árbol **ENTERO** (`git archive 5e6f2ee`, ⛔ no un subárbol — las suites
+> leen `docs/`) en scratchpad propio; BD y rol **propios** (`seg_m4`/`tcg_seg_m4`), creados y
+> **destruidos** al terminar. ⛔ Nunca toqué `tcg_marketplace`, `tcg_qa_*`, `tcg_m4prep*`,
+> `tcg_pentest_*` ni `tcg_orq_o9`; comprobé `pg_stat_activity` antes y después y la sesión viva de QA
+> (`qa_m4c`/`tcg_qa_m4c`, 2 conexiones) **sobrevivió intacta**. ⛔ No escribí una sola línea de código:
+> las mutaciones corrieron **sobre la copia** y se restauraron.
+>
+> **`[medido]`** = lo corrí yo sobre `5e6f2ee`. **`[código]`** = lectura del árbol. **`NO MEDIDO`** =
+> dicho así, con la medición que lo cerraría. Toda proporción lleva su **N** (O-3).
+
+---
+
+## Resumen: qué entra, con qué severidad, y quién lo corrige
+
+| ID | Hallazgo | Severidad **mía** | Sev. red team | Rol dueño | ¿Bloquea? |
+|---|---|---|---|---|---|
+| `S-M4P-A` | **NUEVO (mío)** · El guard de rol del endpoint que este stream volvió PII-denso **no tiene candado de regresión**, y `RolesGuard` **falla ABIERTO** | **Media** | — (no lo buscó) | **backend** | **No** |
+| `S-M4P-B` | **NUEVO (mío)** · La cola de PII se sirve **sin `Cache-Control: no-store`**, contra el precedente del propio proyecto | **Baja** | — (no lo buscó) | **backend** | **No** |
+| `M4P-1` | El `409` de una fila corrupta niega la cola entera (y `GET /admin/shipments`) | **Baja** (confirmo) | Baja | backend (vía arquitecto) | **No** |
+| `M4P-2` | La cola se sirve completa, sin paginar, con `include` de 4 niveles | **Baja** (confirmo) | Baja | backend / devops | **No** |
+| `M4P-3` | `?destination=` refleja el valor del cliente en `message` (tope 64) | **Info** (confirmo) | Info | n/a — conducta ratificada | **No** |
+| `M4P-4` | La expansión de PII no es exposición de authz nueva | **Info** (confirmo el fondo, **corrijo un matiz**) | Info | n/a | **No** |
+| `M4P-5` | Nombre/destinatario en blanco aceptado por los DTO | **Info** (confirmo) | Info | backend (otro stream) | **No** |
+| `S-M4P-C` | **NUEVO (mío)** · La postura de dependencias `REL-D` está **CADUCA**; re-medida | **Info** | «NO RE-MEDIDO» | devops | **No** |
+
+---
+
+# PARTE 1 — Consolidación de los cinco hallazgos del red team (`M4P-1`..`M4P-5`)
+
+## `M4P-1` · El `409` de una fila corrupta niega la cola entera — **CONFIRMO Baja**, y **amplío el censo**
+
+**El red team dice:** el estado corrupto (`ShipmentRequest{status:'picking', orderId→Order.fulfillmentMode='vault'}`) **no es alcanzable por la API**; tuvo que sembrarlo con SQL directo. Censó los caminos de **creación** de `ShipmentRequest`.
+
+**Coincido — y cierro el eje que él NO censó.** Su censo mira cómo *nace* el envío; falta preguntar si la orden puede **cambiar de modo DESPUÉS** de que el envío exista. Es el camino obvio a la corrupción y no estaba medido. Lo medí `[código]`:
+
+- **Creación** (confirmo su censo): solo dos sitios crean `ShipmentRequest` con `orderId` —
+  `payments.service.ts:412` (dentro de `settleDirectShipOrder`, alcanzable **solo** por la rama
+  `direct_ship`) y `orders.service.ts:1554` (`reexpedir`, guardada en `:1499` con
+  `fulfillmentMode !== 'direct_ship' ⇒ 400`).
+- **⭐ Mutación posterior (eje nuevo):** censé **todos** los `order.update` / `order.updateMany` /
+  `upsert` del backend (17 sitios) y **NINGUNO escribe `fulfillmentMode`**. Comprobación:
+  `grep -rn -A6 "\.update(\|\.updateMany(\|\.upsert(" backend/src | grep fulfillmentMode` ⇒ **0
+  aciertos en código**. `fulfillmentMode` se fija **en la creación de la orden y nunca se reescribe**.
+
+⇒ **El estado corrupto es inalcanzable por las DOS puertas**, no solo por la que él miró. **Confirmo Baja** y confirmo que **no es condición de release**.
+
+**Candado verificado [medido]:** muté `kindForFulfillment` para que `vault` devolviera
+`'guest_direct_ship'` en silencio (tragarse la corrupción) ⇒ `shipments.picking-list.spec.ts` **1 roja
+de 102** (N=1; determinista, sin carrera ni temporizador). **La denuncia del invariante está
+guardada.**
+
+---
+
+## `M4P-2` · Cola sin paginar — **CONFIRMO Baja**
+
+Verificado `[código]`: `pickingList` hace `findMany` sin `skip`/`take`; el throttler es el global
+`default` (`app.module.ts:46`: `ttl 60_000, limit 300`) y **no hay `@Throttle` propio** en
+`backend/src/modules/shipments/` (grep ⇒ 0). Requiere credencial de operador válida y la cardinalidad
+la acota el nº de envíos pagados-sin-preparar. La lista plana anterior tampoco paginaba.
+
+**Matiz que añado:** la deuda `M4P-SORT` (`docs/TECH_DEBT.md`) ata una cosa a la otra — el cliente
+**re-ordena la lista completa**, y eso solo es correcto **mientras la cola no pagine**. Así que
+paginar no es solo una mejora de recurso: **arrastra la retirada de `sortPreparationOrders` /
+`sortPreparationItems` del cliente**. Quien tome `M4P-2` tiene que tomar las dos. **No bloquea.**
+
+---
+
+## `M4P-3` · Eco de `?destination=` — **CONFIRMO Info**, y respondo si la asimetría es defendible (pregunta 3 del encargo)
+
+**La asimetría es DEFENDIBLE, y no es deuda.** No es una omisión: es la postura estricta aplicada
+donde se estrena y la laxa congelada donde ya estaba publicada. Lo sostengo con cuatro mediciones:
+
+1. **No es vector de amplificación.** `ENUM_FILTER_ECHO_MAX = 64` acota el eco y **declara** lo
+   omitido (`…(+N)`). Una petición grande produce una respuesta **más pequeña** ⇒ **de-amplificación**.
+   **Candado verificado [medido]:** muté `echoSafe` para devolver el valor sin tope ⇒
+   `test/enum-filter.spec.ts` **4 rojas de 23** (N=1, función pura). El tope muerde.
+2. **No es XSS.** `Content-Type: application/json` + `helmet()` (`nosniff`), y en el cliente
+   **`grep -rn dangerouslySetInnerHTML frontend/src/` ⇒ 0 aciertos**: React escapa. El `<script>` viaja
+   como dato.
+3. **⭐ No es inyección de bitácora, y esto no lo había mirado nadie.** El valor del cliente **nunca
+   llega a un log**: `AllExceptionsFilter` **retorna en la línea 33** para toda `BusinessException`,
+   **antes** de cualquier `logger.*`; y no hay middleware de petición que registre la query
+   (`morgan`/interceptor ⇒ **0 aciertos** en `backend/src`). Sin sumidero, un `\r\n` en el valor no
+   forja nada.
+4. **Endpoint autenticado y con guard de rol** — a diferencia del caso que originó el tope (`P-89`,
+   catálogo `@Public()`).
+
+Y el eje `?date=` **no ecoa nada** por una razón de fondo, no por descuido: un enum tiene dominio
+cerrado y el eco ayuda a reconocer el *near-miss* del propio token (`holofil`→`holofoil`); **un día
+del calendario no es near-miss de nada enumerable**. §0-Q punto 2 prohíbe el eco a los ejes que nacen
+hoy, y `?date=` lo cumple. **La dirección de viaje es la correcta.** ⛔ Ninguna acción.
+
+---
+
+## `M4P-4` · La PII — **CONFIRMO el fondo**, pero **corrijo un matiz que el red team afirmó de más**
+
+**Lo que confirmo, y lo confirmo por código (él lo midió por HTTP; son dos fuentes, no una):** la
+reproyección **no otorga ninguna capacidad nueva a ningún rol**.
+
+- `toAdminShipmentRow` (`shipments.service.ts:231`) devuelve **`addressSnapshot` crudo**, y lo usan
+  **`adminList`** y **`adminGet`** (vía `withAdminKind`, `:641`). El operador **ya leía la dirección
+  completa** por `GET /admin/shipments` y `GET /admin/shipments/:id`, **mismo controlador, mismo
+  guard de clase**.
+- El guard **no cambió** en este stream: el diff de `admin-shipments.controller.ts` es **la firma del
+  handler y un docblock**; `@Roles(Role.vault_operator, Role.super_admin)` sigue a **nivel de clase**
+  (`:13`). **0 rutas nuevas, 0 cambios de guard** — verificado por mí sobre el diff, coincide con lo
+  que el orquestador midió.
+- **La cola es incluso MÁS ESTRECHA en un eje:** `withAdminKind` expone **`guestEmail`** al operador;
+  **`PreparationOrderDTO` NO lo lleva.** La reproyección **quitó** un campo de contacto.
+
+**⛔ El matiz que corrijo (afirmación de más del red team):** dice *«el `shipTo` solo se sirve para
+`destination='ship'`»*, y lo presenta como acotación. **Es cierto y es vacuo.** `destinationOf`
+(`:907`) devuelve `'ship'` en **las dos** ramas — `orderId == null` ⇒ `'ship'`, y con `orderId` la
+única salida no-lanzante es `'ship'`. El propio código lo declara (`:723`) y el E2E lo confirma
+(`?destination=vault` ⇒ **vacío**). ⇒ **el 100 % de las filas de esta cola llevan la dirección postal
+completa.** No es un defecto, pero **presentarlo como acotación es tranquilizar con una condición que
+siempre se cumple**, y la acotación real es otra: los candados de forma (abajo).
+
+**⭐ Y aquí está la mitad que el red team no pesó: la autorización no cambia, pero la EXPOSICIÓN
+INCIDENTAL sí.** Antes de este corte, la pantalla diaria del operador mostraba `{folio, ubicación}` —
+**cero PII**. Ahora esa misma pantalla, la que está abierta toda la jornada en una estación de
+almacén, muestra **nombre + calle + colonia + CP + teléfono de cada pedido pagado**. Los otros dos
+endpoints existían, pero son **otra pantalla y otro gesto**. Que la *capacidad* no crezca no
+significa que el *riesgo* no crezca: cambia la superficie de hombro, de captura de pantalla y de
+caché de disco (⇒ `S-M4P-B`). Esto **no es un defecto** —está decidido, ver abajo— pero **es el hecho
+central de este stream** y merecía nombrarse entero.
+
+### ¿Es coherente con la política de PII del dueño? (pregunta del encargo) — **SÍ, y está DECIDIDO**
+
+La política es: *las imágenes de INE las ve **solo** el súper-administrador, nunca el operador de
+bóveda.* Verificado que se sostiene `[código]`: `GET /admin/:id/kyc/ine-links` lleva
+`@Roles(Role.super_admin)` + `ActorThrottlerGuard` + `@Throttle(10/min)` + `Cache-Control: no-store` +
+`X-Robots-Tag` + auditoría **fallo-cerrado** (`admin.controller.ts:313-318`).
+
+**No es una asimetría que nadie decidió.** Son **dos clases de dato distintas** y la distinción es
+coherente:
+
+| | INE | Dirección de envío |
+|---|---|---|
+| Qué es | **documento de identidad** (KYC del vendedor) | **dato operativo del encargo** |
+| Para qué lo necesita el operador | **para nada** | **para meter la carta en la caja y rotular la guía** |
+| Quién la ve | solo `super_admin` | `vault_operator` + `super_admin` |
+
+Negarle la dirección a quien escribe la etiqueta del paquete no sería minimización, sería impedirle
+el trabajo. **Y está escrito como requisito de producto:** **CA #6 de §S** en `PROJECT.md:6607` —
+*«En destino envío, la cola muestra la dirección COMPLETA, con la calle»*, prioridad **ALTA**, estado
+*«construido y con prueba»*. ⇒ **decisión trazable, no deriva.**
+
+⚠️ **Pero con una salvedad que va a la bandera del humano:** §S está marcada
+**«RECONSTRUIDA v2.3 · ⚠️ PENDIENTE DE RE-APROBACIÓN DEL DUEÑO»** (`PROJECT.md:6413`). La decisión
+existe por escrito, pero **el documento que la registra es una reconstrucción que el dueño aún no ha
+re-aprobado**. Ver **BANDERA H-1**.
+
+---
+
+## `M4P-5` · Nombre/destinatario en blanco — **CONFIRMO Info**, pre-existente y fuera de alcance
+
+Verificado `[código]`: `guest-checkout.dto.ts:45` (`@IsString() @MaxLength(120)`, sin `@IsNotEmpty()`)
+y `auth.dto.ts:12-14` (`@MinLength(1)` sin `trim`). Confirmo su conclusión de que **no hay nada peor
+detrás**: la proyección normaliza el blanco a `null` (`nullIfBlank`) y la salida es JSON. Toca el
+checkout (más ancho que este stream). **backend, en su propio stream. No bloquea.**
+
+---
+
+# PARTE 2 — Lo que revisé yo (lo que el red team no buscó)
+
+## ⭐ `S-M4P-A` — **Media** · El guard del endpoint PII-denso **no tiene candado de regresión**, y `RolesGuard` **falla ABIERTO**
+
+**Categoría:** defensa en profundidad / ausencia de candado sobre un control fallo-abierto.
+**Ubicación:** `backend/src/common/guards/roles.guard.ts:20` · `backend/src/modules/shipments/admin-shipments.controller.ts:13` · `backend/test/integration/preparation-queue.e2e-spec.ts:466-468`.
+
+**⛔ Esto NO es una vulnerabilidad abierta.** La conducta **hoy es correcta** y está medida por las dos
+partes: el red team la midió en vivo (cliente ⇒ `403`, anónimo ⇒ `401`) y yo verifiqué el decorador en
+código. **Lo que reporto es que nada lo sostiene mañana.**
+
+**El mecanismo, medido `[código]`:** `RolesGuard` **falla abierto** —
+
+```ts
+// roles.guard.ts:20
+if (!required || required.length === 0) return true;
+```
+
+Sin metadatos `@Roles`, **toda sesión autenticada pasa**. Lo único que separa a un `customer` de la
+dirección postal de todos los clientes es **un decorador de clase**.
+
+**El defecto real, MEDIDO por mí (y es el hallazgo):** retiré `@Roles(Role.vault_operator,
+Role.super_admin)` de `AdminShipmentsController` **sobre la copia** y corrí las suites:
+
+| suite | resultado con el guard RETIRADO | N |
+|---|---|---|
+| `test/integration/preparation-queue.e2e-spec.ts` (la del stream, contra Postgres real) | **14/14 VERDE** | 1 |
+| Suite unitaria **completa** del backend | **344/344 suites · 5666/5666 pruebas VERDE** | 1 |
+
+**Ni una sola prueba de las 5666 se entera de que el back-office quedó abierto a cualquier cliente
+autenticado.** (Deterministas: sin carrera ni temporizador ⇒ N=1 basta.)
+
+⚠️ **Honestidad sobre una roja intermedia:** en la primera corrida vi `pii-crypto.spec.ts` en rojo
+(8/24). **No era el mutante ni un defecto: era mi arnés** — las `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY`
+aleatorias que yo inyecté. Con el guard **restaurado** seguía roja, y sin esas dos variables da
+**24/24 verde**. Re-corrí la suite entera con el entorno limpio y el mutante puesto ⇒ **5666/5666**.
+*Un falso rojo antes de un veredicto cuesta lo mismo que un falso verde.*
+
+**Por qué el candado que existe no cubre:** la única aserción de authz del stream es
+
+```ts
+// preparation-queue.e2e-spec.ts:466-468
+it('el guard sigue siendo el de siempre: sin sesión ⇒ 401', async () => {
+  const res: any = await h.api('GET', '/admin/shipments/picking-list');
+  expect([401, 403]).toContain(res.status);
+});
+```
+
+Mide **el caso anónimo**, que lo cierra `JwtAuthGuard` (ése **sí** es default-deny) — o sea, **mide el
+guard equivocado**: sigue verde aunque `@Roles` desaparezca. Además la aserción es **floja**
+(`[401,403]`, acepta cualquiera de los dos). Y no hay censo global que cubra: el fichero
+`auth-authz.e2e-spec.ts` solo toca `/admin/orders` y `/admin/finance/pnl` — **`/admin/shipments` no
+aparece**. El `clienteId` del spec se usa solo para **sembrar** filas, nunca para **pedir** con sesión
+de cliente.
+
+**Por qué Media y no Baja:** porque el reparto de modelos de `CLAUDE.md` dice que *«el modelo barato
+no toca pruebas ni candados, **solo código de producción**»* y que *«la prueba es el contrato entre
+los dos»*. Un decorador de clase **es código de producción**. En el punto exacto donde el proceso
+confía en que la prueba muerda, **la prueba no existe** — y el endpoint que protege es, desde este
+stream, **el más denso en PII del back-office**. La severidad no la da la explotabilidad de hoy (cero)
+sino el fallo-abierto sin red.
+
+**Nota de continuidad:** `SECURITY_NOTES.md:85` (pase anterior) ya observó que *«`RolesGuard` no es
+default-deny pero `JwtAuthGuard`, que corre antes, sí»*. **Esa tranquilidad solo cubre al anónimo.**
+Este hallazgo la refina: no cubre al **cliente autenticado**, que es el escenario que ahora vale PII.
+
+**Rol dueño: `backend`.** Mínimo para cerrar: una aserción de **`403` con sesión de `customer`** contra
+`GET /admin/shipments/picking-list` (y preferiblemente un censo que recorra los controladores `admin/`
+exigiendo `@Roles` presente). ⛔ **No bloquea este release** — la conducta está verificada correcta en
+`5e6f2ee` por dos partes independientes.
+
+---
+
+## `S-M4P-B` — **Baja** · La cola de PII se sirve **sin `Cache-Control: no-store`**
+
+**Ubicación:** `backend/src/modules/shipments/admin-shipments.controller.ts:45-48` (sin `@Header`).
+
+**El precedente es del propio proyecto, y es de este rol.** `admin.controller.ts:288` dice, textual:
+*«**`Cache-Control: no-store`** (hallazgo de `seguridad`): esta respuesta transporta […] así que no
+puede quedarse en una caché intermedia, en un proxy corporativo ni en el disco del navegador. El
+contrato ya exige `no-store` para `orders/guest/track`, que transporta **menos** que esto.»*
+
+`GET /admin/shipments/picking-list` transporta ahora **nombre + calle + colonia + CP + teléfono de
+cada pedido pagado, en una sola respuesta** — y **no lleva la cabecera**. `grep` sobre
+`backend/src/modules/shipments/` ⇒ **0 aciertos** de `Cache-Control`. Con el criterio que este
+proyecto ya aplicó a respuestas **menos** densas, ésta la merece.
+
+**Por qué Baja y no más:**
+- **Cachés compartidas quedan excluidas por transporte:** la autenticación es **Bearer** en
+  `Authorization` (`jwt-auth.guard.ts:36`), y RFC 9111 §3.5 prohíbe a una caché compartida almacenar
+  respuestas a peticiones con `Authorization` salvo permiso explícito (que aquí no se da).
+- El residual es la **caché privada del navegador** en disco. Express trae `etag` por defecto (no se
+  desactiva: el único `app.set` es `trust proxy`) y **sin `Cache-Control` el navegador puede aplicar
+  caché heurística** ⇒ PII en reposo en la estación del almacén, sin política de retención.
+- Explotarlo exige **acceso local al equipo del operador**.
+
+⚠️ **`NO MEDIDO`:** no he comprobado **en vivo** que un navegador concreto escriba esta respuesta a
+disco; el razonamiento es de código + RFC. **Medición que lo cerraría:** pedir la cola desde el
+navegador del operador y buscar el cuerpo en la caché de disco del perfil.
+
+**Es clase pre-existente** (`GET /admin/shipments` y `/:id` tampoco la llevan y ya exponían el
+snapshot), **pero este stream la agrava**: mueve el dato a la pantalla que está abierta toda la
+jornada. **Rol dueño: `backend`** (un `@Header('Cache-Control','no-store')` en el controlador; la
+decisión de extenderlo a los endpoints hermanos es la misma línea). **No bloquea.**
+
+---
+
+## `S-M4P-C` — **Info** · La postura de dependencias `REL-D` estaba **CADUCA**. Re-medida
+
+**Respondo a la pregunta 5 del encargo: el red team declaró las dependencias «NO RE-MEDIDO» y dijo que
+valía `REL-D` «porque el corte no la mueve». Su conclusión acierta; su razonamiento NO, y había que
+mirarlo.** `npm audit` no cambia cuando cambia el *lockfile*: cambia cuando se publican **avisos
+nuevos**. El lockfile está congelado; **la base de avisos no lo está**. Verifiqué primero que los
+manifiestos no se tocan (`git diff --name-only` sobre `package.json`/`package-lock.json` en
+`c7c58aa..5e6f2ee` ⇒ **vacío**) y **re-corrí igualmente**.
+
+**Medido por mí `[medido]` sobre `5e6f2ee` (`npm audit --package-lock-only --omit=dev`):**
+
+- **frontend: `found 0 vulnerabilities`** — limpio, como decía `REL-D`.
+- **backend: 5 `moderate`, 0 `high`, 0 `critical`** — **el mismo número que `REL-D`**…
+
+…**y ahí está la trampa: el número coincide pero el contenido NO.** `REL-D` afirma que *«las cinco
+cuelgan de **`qs`**»* y presenta a `@nestjs/core` como mera **vía de propagación**. Hoy son **tres
+avisos distintos en dos racimos**:
+
+| Aviso | Paquete | ¿Estaba en `REL-D`? | ¿Aplica a esta app? |
+|---|---|---|---|
+| `GHSA-x5fp-wj9c-mxmx` (array-limit bypass) | `qs` 6.15.3 | sí | ver abajo |
+| **`GHSA-4mjr-xmp4-gh2g`** — *DoS vía `isBuffer` controlado* (CVE-2026-82417) | `qs` 6.15.3 | **NO** | **NO alcanzable** |
+| **`GHSA-36xv-jgw5-4q75`** — ***Injection*** en `@nestjs/core` (CVE-2026-35515) | `@nestjs/core` 10.4.22 | **NO** (no como aviso propio) | **NO aplica** |
+
+**Y las dos nuevas son inocuas AQUÍ — medido, no supuesto:**
+
+- **`@nestjs/core` (CVE-2026-35515)** es **inyección en SSE**: `SseStream._transform()` no sanea `\r`/`\n`
+  en `message.type`/`id`. **Requiere que la app exponga un `@Sse()`.** Medido:
+  `grep -rniE "@Sse\(|text/event-stream|EventSource" backend/src frontend/src` ⇒ **0 aciertos en
+  ambos**. **La app no tiene ni un endpoint SSE** ⇒ la ruta vulnerable **nunca se instancia**.
+- **`qs` (CVE-2026-82417)** exige `plainObjects:true` o `allowPrototypes:true` en el parseo **y** un
+  ida-y-vuelta `parse`→`stringify`. Medido: `grep -rniE "allowPrototypes|plainObjects|query parser|qs\.(parse|stringify)" backend/src`
+  ⇒ **0 aciertos**, y **no hay importación directa de `qs`**. Express va con sus opciones por defecto
+  (ninguna de las dos activada) ⇒ **no alcanzable**.
+
+⇒ **La POSTURA de `REL-D` (no bloqueante) sigue siendo válida; su DESCRIPCIÓN está caduca.** El gate
+de CI no se mueve: `security-sast.yml:187` corre con `AUDIT_LEVEL: high` sobre runtime, y estos tres
+son `moderate`. **Rol dueño: `devops`** — refrescar la ficha de `REL-D` con los tres avisos y su
+alcance real, y anotar que **`@nestjs/core` 10.x no recibe el parche** (el aviso se corrige en
+`11.1.18`; `npm` propone `12.0.4`, cambio **rompedor**) ⇒ el salto de mayor de NestJS es decisión de
+ventana ordinaria, **no de este release**.
+
+> **Lección, dicha entera:** si me hubiera quedado en «5 moderate, igual que antes ⇒ vale `REL-D`»,
+> habría ratificado una ficha falsa con un número que coincidía **por casualidad**. El conteo agregado
+> de `npm audit` **no es una huella**: dos avisos entraron y la suma no se movió.
+
+---
+
+## Lo demás que revisé de este stream, y que **RESISTIÓ** (control positivo)
+
+Nombro lo que miré aunque no produjera hallazgo — un informe que solo lista defectos no dice qué
+quedó sin mirar.
+
+- **⭐⭐ Los candados de FORMA de la PII muerden — y esto es lo que de verdad acota el ensanche.**
+  Tres mutaciones mías sobre la copia (N=1 cada una, deterministas):
+
+  | Mutación | Resultado |
+  |---|---|
+  | Añadir `guestEmail` a `order.select` **y** `email` a `user.select` de la cola | **1 roja / 102** (`:324-325` congela las columnas cargadas) |
+  | Añadir un **décimo campo** (`taxId`) a `shipTo` | **4 rojas / 102** (el `toEqual` del `shipTo` + el censo de blancos) |
+  | Tragarse la corrupción en `kindForFulfillment` | **1 roja / 102** |
+
+  ⇒ **Ensanchar la PII de esta cola no se puede hacer en silencio**: ni cargando una columna nueva de
+  `Order`/`User`, ni añadiendo una clave nueva al `shipTo`. Es la mejor noticia del pase y equilibra
+  el hecho central de `M4P-4`: la concentración creció, **pero está encerrada**.
+- **`?date=`** — confirmo el control que el red team midió: gramática `DATE_ONLY_RE` **importada**
+  (⛔ no una tercera copia) + comprobación **ida y vuelta** que cierra el desbordamiento de calendario
+  (`2026-02-30` ⇒ `400`, ⛔ no `200` del 2-mar). `details:{field:'date'}` **sin eco**. Sólido.
+- **Inyección:** `pickingList` usa Prisma con `where` tipado; **0 `$queryRaw`** en el módulo. El único
+  valor de cliente que toca la consulta es `date`, ya validado contra `RegExp` + calendario;
+  `destination` muere contra la whitelist **antes** de tocar Prisma.
+- **§M4P-ORDER (pregunta 4 del encargo) — miré, y NO hay nada de seguridad.** El comparador es
+  `A.label < B.label ? -1 : A.label > B.label ? 1 : 0` (`:1088`) sobre `Array.prototype.sort`: sin
+  `RegExp` (⇒ **sin ReDoS**), sin recursión, sin acceso indexado por clave de usuario (⇒ **sin
+  contaminación de prototipo**), y es un **orden total y consistente** (`unassigned` siempre al final)
+  ⇒ no hay entrada que lo haga divergir ni lanzar. Sobre el `label` sin `MaxLength` que el encargo
+  señala: **`@IsString()` está en `box`/`row`/`slot` (`inventory.dto.ts:165-167`), no en `label`** —
+  `label` **no es escribible directamente**, se **deriva** (`inventory.service.ts:3331`:
+  `` `${dto.box}-${dto.row}-${dto.slot}` ``). Sin cota, un `label` largo es un amplificador de la
+  cola… **pero solo lo escribe `@Roles(vault_operator, super_admin)`** (`inventory.controller.ts:88`),
+  **exactamente el mismo rol que lee la cola** ⇒ no hay cruce de privilegio, y el cuerpo va acotado por
+  el límite por defecto de `express.json()` (~100 kB). **Higiene de entrada, no seguridad**; cae bajo
+  `M4P-2`. **Cambiar el comparador no movió ninguna superficie.**
+- **Sin PII en bitácoras:** los únicos `logger.*` de `shipments.service.ts` registran **identificadores
+  y el modo** (`:685`) o *«no recipient email»* (`:1578`) — **ningún valor de dirección, nombre o
+  teléfono** viaja a un log (grep de `logger.*` cruzado con `address|phone|recipient|fullName|postal`
+  en todo `backend/src` ⇒ solo mensajes de *ausencia*, sin el dato).
+- **Sin secretos en el diff** (el repositorio es **PÚBLICO**): `git diff c7c58aa..5e6f2ee` filtrado por
+  `sk_live|sk_test|pk_live|whsec_|AKIA|BEGIN .* PRIVATE KEY|password=|secret=|api_key=` ⇒ **0
+  aciertos**. Las fixtures del mock son sintéticas y evidentes (`Ash Ketchum`).
+- **Transporte y cabeceras, sin cambios y correctos:** `helmet()` activo; **CORS por allow-list** desde
+  `APP_BASE_URL`, ⛔ nunca `origin:true` (`main.ts:16-23,62`); `ValidationPipe` global con
+  `whitelist:true`.
+- **Cliente:** `grep` de `localStorage|sessionStorage|persistQueryClient|indexedDB` sobre el camino de
+  esta cola ⇒ **la PII vive solo en la caché en memoria de React Query**, no se persiste. La cubeta y
+  la fecha **no viajan en la URL** ⇒ sin fuga por `Referer`. `AdminShell` re-comprueba el rol en el
+  cliente (`ADMIN_ROLES`) como defensa en profundidad, reconociendo que **el servidor es la
+  autoridad**.
+- **Suites del stream, verdes sobre `5e6f2ee` [medido]:** unitaria backend **344/344 suites ·
+  5666/5666**; integración `preparation-queue.e2e-spec.ts` **14/14** (Postgres real, BD propia);
+  frontend M4 + `preparation-order` **76/76**.
+
+### Pregunta 2 del encargo — ¿el `shipmentId` del `409` en pantalla es aceptable? **SÍ**
+
+Tres cosas, medidas:
+
+1. **¿Enumerable?** **No.** `ShipmentRequest.id` es `@default(uuid())` (`schema.prisma:1265`) —
+   **v4, generado por el servidor**, no adivinable ni secuencial. Y el atacante **no elige cuál se le
+   revela**: sale el de la fila corrupta, un estado que (ver `M4P-1`) **él no puede provocar**. No hay
+   oráculo: sin fila corrupta no hay `409`, y la fila corrupta no es inducible por la API.
+2. **¿Registra ese identificador en un log que salga de la máquina?** `this.logger.error` (`:685`)
+   escribe el `shipmentId` a **stdout**. En el repositorio **no hay ningún sumidero externo**:
+   `grep -rniE "sentry|datadog|logtail|newrelic|opentelemetry|winston|pino|splunk|elastic"` sobre
+   `backend/src` y `backend/package.json` ⇒ **0 aciertos**; tampoco hay *log drain* configurado en
+   `railway.json`, `vercel.json`, `docker-compose.yml` ni en los workflows. ⇒ **no sale a un tercero.**
+   Queda en el recolector de la plataforma (Railway captura stdout), que es **bitácora operativa
+   interna** y contiene un **identificador**, ⛔ no PII. ⚠️ `NO MEDIDO`: si Railway reenvía a algún
+   destino configurado **fuera del repositorio** — lo cerraría **devops** revisando los ajustes del
+   proyecto en Railway.
+3. **¿Aceptable en pantalla?** **Sí.** Va en un `<details>` **cerrado**, tras el guard de rol, y lo ve
+   **quien ya puede leer ese envío entero** por `GET /admin/shipments/:id`: **no revela nada que el
+   lector no pudiera pedir**. Se pinta con interpolación JSX ⇒ **React escapa** (0
+   `dangerouslySetInnerHTML` en todo `frontend/src`). El único extra es el **nombre del enum**
+   (`vault`), información de esquema interno para un rol interno. El candado `PR-14` fija que vaya al
+   cajón y ⛔ no al título. **Ninguna acción.**
+
+---
+
+# Deuda de seguridad ACEPTADA (registro que el DoD exige)
+
+Ninguna bloquea. Cada una con **impacto** y **disparador** — una deuda sin disparador es una intención.
+
+| ID | Impacto si no se toca | Disparador: cuándo deja de ser aceptable | Dueño |
+|---|---|---|---|
+| **`S-M4P-A`** (Media) | Un cambio futuro en `admin-shipments.controller.ts` puede abrir el back-office a cualquier cliente autenticado **sin que ninguna prueba lo note** | **El PRIMERO de:** (a) el próximo cambio que toque ese controlador o sus guards; (b) que se encargue trabajo de este módulo al **modelo barato** (el reparto de `CLAUDE.md` presupone que la prueba muerde, y aquí **no existe**); (c) el próximo release | **backend** |
+| **`S-M4P-B`** (Baja) | PII (nombre+dirección+teléfono) puede quedar en la caché de disco de la estación del operador, sin retención | **El PRIMERO de:** (a) que la cola se use en un equipo compartido o no gestionado; (b) que se añada cualquier campo nuevo de PII a la cola; (c) el próximo toque del controlador — es una línea | **backend** |
+| **`M4P-1`** (Baja) | Una fila corrupta (hoy **inalcanzable por la API**, por las dos puertas) tumbaría la cola y `GET /admin/shipments` hasta limpieza manual | Que aparezca **cualquier** camino de escritura que fije `Order.fulfillmentMode` **después** de crear la orden, o un `FulfillmentMode` nuevo. Degradar por fila cambia conducta fijada ⇒ **pasa por arquitecto** (regla 9) | backend (vía **arquitecto**) |
+| **`M4P-2`** (Baja) | Amplificación autenticada; techo 300 req/min heredado | Que la cola crezca a un tamaño que moleste, **o** que se pagine — y si se pagina, **hay que retirar el orden de cliente a la vez** (`M4P-SORT`) | backend / devops |
+| **`M4P-5`** (Info) | Dato de baja calidad (nombre en blanco); ya normalizado a `null` en la salida | Cuando se toque el checkout o el registro | backend (otro stream) |
+| **`S-M4P-C`** (Info) | Ficha de dependencias que **describe mal** la exposición real | **devops** refresca `REL-D`; el salto `@nestjs/core` 10→11/12 se decide en ventana ordinaria (⛔ no en este release) | devops |
+| **`M4P-3`** (Info) | Ninguno — conducta ratificada, tope con candado | ⛔ Ninguno. Si alguien enciende `echoValue` en un eje nuevo, `test/enum-filter.spec.ts` se pone rojo y la salida es **arquitecto**, no apagar el test | n/a |
+
+---
+
+# Banderas para el humano
+
+**H-1 · Confirma CA #6 cuando re-apruebes §S, y hazlo a sabiendas.**
+La dirección postal **completa** (calle, colonia, CP, teléfono) en la cola diaria del operador de
+bóveda está **decidida por escrito** — CA #6 de §S, `PROJECT.md:6607`. Pero §S está marcada
+**«RECONSTRUIDA v2.3 · PENDIENTE DE RE-APROBACIÓN DEL DUEÑO»** (`PROJECT.md:6413`). De los 12 CA de
+§S, **CA #6 es el único que ensancha la exposición de datos personales a un rol menos privilegiado**.
+Mi juicio técnico es que **es coherente** con tu política de INE (documento de identidad ⇒ solo
+súper-administrador; dato de envío ⇒ quien rotula la caja), y **no** es una asimetría accidental.
+**Lo que te pido no es que cambies nada, sino que esa línea la confirmes tú explícitamente**, porque
+hoy se apoya en una reconstrucción y no en una frase tuya.
+*Si quisieras minimizar sin perder la operación, la opción existe y es de producto, no de seguridad:*
+*el **recoger** las cartas del archivero no necesita la dirección — la necesita el **rotular**. Mostrar*
+*nombre+ciudad al recoger y la dirección completa al generar la guía daría el mismo trabajo con menos*
+*PII en pantalla. ⛔ No lo propongo como defecto ni como condición: es tuyo y de producto.*
+
+**H-2 · Antes de operar con dinero real: pentest de tercero + bug bounty.**
+Se mantiene la bandera de pases anteriores y **no la levanta este stream**. Todo lo medido aquí lo
+hizo el equipo (rojo y azul) **sobre local**, y `HECHOS.md` registra que **no hay staging: solo
+producción**, y que la tienda sigue **en modo prueba de Stripe sin ninguna venta real**. Este stream
+**no toca dinero** (cero Stripe, cero escritura, cero schema — verificado por mí), así que **no mueve
+esa bandera en ninguna dirección**; solo dejo constancia de que sigue abierta.
+
+**H-3 · Custodia y PII: validación legal pendiente (no técnica).**
+El producto custodia bienes de terceros y trata **INE y CLABE**. Un aviso de privacidad, la base
+legal del tratamiento, la **retención** (cuánto tiempo vive un `addressSnapshot`) y los derechos ARCO
+**no son cuestiones que este rol pueda cerrar**: son de asesoría legal. Lo señalo porque `S-M4P-B`
+roza justo eso — PII sin política de retención en la caché de un equipo — y porque el snapshot de
+dirección, por diseño (§5.2), **no se reescribe nunca**.
+
+**H-4 · Un apunte de proceso, porque afecta a lo que puedes confiar de estos informes.**
+El red team midió **`f835f19`**; el árbol que apruebo es **`5e6f2ee`**, cuatro commits después.
+Esta vez el delta era pequeño y lo audité yo (§M4P-ORDER: sin superficie de seguridad). **Pero el
+patrón —el pentester mide un sha y el release sale con otro— ya apareció en un pase anterior** (el de
+bounties Q1+Q2 dice textualmente que el blue team aprobó un delta que *«el red team NO había
+atacado»*). Vale la pena que la fase de seguridad se corra **sobre el sha que se publica**, o que el
+delta se declare explícitamente como aquí. No es un hallazgo del producto; es del proceso.
+
+---
+
+# VEREDICTO
+
+## ✅ **APROBADO** — `5e6f2ee` (rama `claude/m4-pedidos-preparar`)
+
+**Por qué:** el DoD exige **«sin hallazgos críticos/altos abiertos»**. Hay **0 críticos y 0 altos**,
+medidos por las dos mitades de la fase (red team sobre `f835f19` + este pase sobre `5e6f2ee`, con el
+delta auditado). Lo abierto —**1 Media (`S-M4P-A`)** y **3 Bajas (`S-M4P-B`, `M4P-1`, `M4P-2`)**—
+queda **registrado y aceptado arriba con su disparador**, que es exactamente lo que el DoD pide para
+lo aceptado.
+
+**Y lo digo con las palabras que el encargo pide:** *este stream **no introduce riesgo nuevo**.*
+Lo que mediste tú y re-medí yo lo sostiene: **0 ficheros de `prisma/migrations` y 0 de
+`schema.prisma`** (`git diff --name-only c7c58aa..5e6f2ee -- backend/prisma/` ⇒ **vacío**), **0 rutas
+nuevas** (el diff del controlador es la firma de un handler y un docblock), **0 cambios de guard**,
+**0 escritura**, **0 Stripe**, **0 dependencias**. La superficie de autorización, de inyección, de
+transporte y de secretos queda **idéntica**. La única superficie que ensancha de verdad es **la
+densidad de PII en una pantalla**, y ésa (a) **no otorga capacidad nueva a ningún rol** —el operador
+ya leía ese mismo `addressSnapshot` por dos endpoints hermanos del mismo controlador y guard—,
+(b) está **decidida por producto** (CA #6 de §S) y (c) está **encerrada por candados que verifiqué que
+muerden** (1, 4 y 1 rojas en tres mutaciones).
+
+⛔ **Ninguna de las dos aportaciones mías (`S-M4P-A`, `S-M4P-B`) es condición para fusionar.** Las dos
+son **ausencias de red**, no agujeros: la conducta que protegen está **verificada correcta en este
+sha** por dos partes independientes. Reportarlas como bloqueantes sería inventar un bloqueo para
+justificar el pase.
+
+### Mínimo necesario si alguna vez se RECHAZARA (no es el caso hoy)
+Solo pasaría a **RECHAZADO** si apareciera **un crítico o un alto abierto**. Hoy no hay ninguno.
+Lo más cercano a un bloqueo futuro es **`S-M4P-A`**, y su cierre es barato y concreto:
+
+1. Una prueba que pida `GET /admin/shipments/picking-list` con **sesión de `customer`** y exija
+   **`403`** (⛔ no `[401,403]`). Canario: retirar `@Roles` del controlador **debe** ponerla roja.
+2. *(Recomendado, no exigido)* un censo que recorra los controladores bajo `admin/` y exija `@Roles`
+   presente — cierra la **clase**, no el caso. `RolesGuard` **falla abierto** y hoy nada vigila esa
+   puerta a nivel de repositorio.
+
+### Ruteo de lo abierto
+- **backend:** `S-M4P-A` (candado de authz — el más valioso), `S-M4P-B` (`no-store`), `M4P-5` (en su
+  propio stream).
+- **backend vía arquitecto (regla 9):** `M4P-1`, si alguna vez se quiere degradar por fila en vez de
+  rechazar entera — el contrato **prohíbe** hoy degradar (§M4-PREP v1.78.2 punto 2).
+- **devops:** `S-M4P-C` (refrescar la ficha `REL-D` con los tres avisos y su alcance real; decidir el
+  salto de mayor de NestJS en **ventana ordinaria**), y cerrar el `NO MEDIDO` de los reenvíos de
+  bitácora de Railway.
+- **arquitecto (informativo, ⛔ no de este stream):** el desbordamiento de calendario **sigue vivo** en
+  `common/admin-list-filters.ts` (`?from=`/`?to=` de `/admin/buylist` y `/admin/orders`):
+  `from=2026-02-30` filtra por el **2 de marzo** con `200`. `shipments.service.ts` lo cerró con la
+  comprobación ida-y-vuelta; **sus hermanos no**. Lo reporta ya el propio código (`:816`) y lo ratifico:
+  **misma clase, otros endpoints, fuera del alcance de este corte.**
+- **⛔ Nada para `frontend`** en este pase.
+
+---
+# NOTA DE RESIDUALES ACEPTADOS — **DECKS-META FASE 2 · AUTO-FETCH (fix pass)** · rama `claude/be-decksmeta-f2` · 2026-09-19
+
+> **Autoría:** escrita por **backend** por indicación del orquestador (el detalle vive en
+> `docs/specs/DECKS_META_F2_AUTOFETCH.md §12`); **seguridad** conserva el veredicto formal del release.
+> Fase 2 pasó los tres gates (QA/techlead/seguridad) sin bloqueantes; este fix pass endurece hallazgos
+> MEDIA/nits y deja registrados los residuales aceptados.
+>
+> - **[CORREGIDO · anti-SSRF]** El cliente de fetch pasó de `redirect:'follow'` (validaba `res.url`
+>   *después* de seguir el 3xx — hueco de blind-SSRF sobre una superficie de egress nueva) a
+>   `redirect:'manual'`: ante un 3xx valida el `origin` del `Location` contra el allowlist **antes** de
+>   seguirlo y **rechaza off-host sin traerlo**, con cota de saltos. Cubierto por
+>   `backend/src/modules/decks-meta/limitless-fetch.client.spec.ts`.
+> - **[ACEPTADO · DNS-rebinding]** Host FIJO (`https://limitlesstcg.com`, no controlado por entrada);
+>   sin secretos ni red interna alcanzable ⇒ residual aceptado, sin pin de IP.
+> - **[ACEPTADO · single-flight en memoria]** Suficiente a **`numReplicas:1`** (`railway.json` /
+>   `DEVOPS_NOTES §20.3`, worker BullMQ in-process). El lock de advisory en BD para multi-instancia
+>   queda **DIFERIDO**, gateado detrás de separar el worker por §20.3.
+> - **[NO ALCANZABLE · `nth-check@2.1.1`]** Aviso de ReDoS es `<2.0.1`; la transitiva es **2.1.1**
+>   (parcheada) y los selectores CSS son **estáticos** ⇒ ruta no alcanzable.
+>
+> Correcciones de correctitud del mismo pase (no de seguridad): `MetaFetchRun.deckCount` = arquetipos
+> persistidos reales; `note` siempre JSON válido dentro del cap; `GET /admin/decks-meta/preview`
+> ahora auditado (egress a un tercero); log de discrepancia de `formatCode` (gana el `<h2>`, §2.1).
+
+---
+
+# VEREDICTO BLUE TEAM — **DECKS-META FASE 1 · BACKEND (disponibilidad/legalidad + endpoints público+admin)** · SHA **`d77eb699`** (rama `feat/decks-meta`, no-ancestro de `main`) · base `origin/production` no medida · 2026-09-19
+
+> ## ⭐ VEREDICTO — **APROBADO** para `d77eb699`
+>
+> **No queda ningún hallazgo CRÍTICO ni ALTO abierto.** Las cuatro superficies de riesgo del encargo
+> (fuga de inventario/dinero, autorización, inyección/DoS, no-fabricación) están cerradas por
+> construcción. Quedan **dos hallazgos MEDIOS/BAJOS** en la ROTACIÓN de legalidad —accountability y
+> atomicidad—, ambos **no explotables** (siguen tras `@Roles`) y **no bloqueantes**; se registran y se
+> enrutan a **backend**. Revisado sobre worktree detached anclado a `d77eb699`.
+>
+> ### Eje 1 — Fuga de inventario / dinero en `unitInventoryItemIds`: **LIMPIO**
+> Una pieza solo llega a `unitInventoryItemIds` si pasa **cuatro compuertas encadenadas**, todas
+> medidas en código:
+> - **Casada** (`decks-meta.service.ts` `buildLine`): `matchStatus === 'matched' && matchedCard`. Lo
+>   no casado, la energía básica y lo ambiguo devuelven `card:null, legal:false, unitInventoryItemIds:[]`.
+> - **Legal en Standard HOY** (`isLegalStandardNow`, `common/standard-legality.ts`): `regulationMark ∈
+>   activeMarks ∧ legalStandardRaw ≠ 'Banned' ∧ externalId ∉ banlist`; **fail-closed** si
+>   `regulationMark == null`. Una carta ROTADA se marca `legal:false` y **no aporta piezas ni precio**
+>   (`buildLine` y `listPublished` — `if (!legal) continue`). La legalidad es **derivada en lectura**
+>   contra la config vigente, no un booleano persistido ⇒ la rotación aplica en vivo sin backfill.
+> - **Vendible/publicada** (`CatalogService.getSellableRawUnitsByCardIds` → `fetchSellable` →
+>   `singlesPublishedWhere`): `ownerType='platform' AND status='listed' AND productType<>'sealed'`,
+>   y solo filas con `dto.sellable && listPriceCents != null`. Esto **excluye inventario de otro dueño**
+>   (`OwnerType.customer`, consignación) y todo lo no disponible (`reserved/in_custody/sold/…`).
+> - **Raw NM** (`RAW_CONDITIONS = ACCEPTED_RAW_CONDITIONS`, `common/business-rules.ts`): solo
+>   `productType==='raw'` con `rawCondition ∈ {NM}` (decisión de `PROJECT §H`, vigilada por
+>   `enum-values-parity.spec.ts` — no derivada del enum, así un futuro `LP/MP` no se cuela solo).
+>
+> **Precio:** `availableQty = min(quantity, units.length)`; `unitPriceMxnCents` = precio de la pieza
+> más barata ofrecida (`offered[0].priceMxnCents`) o `null` si no hay stock. El monto es `P` (con IVA,
+> el mismo que exhibe la ficha), copiado bajo la **proyección NEUTRA `DeckMetaUnitDTO
+> {inventoryItemId, priceMxnCents}`**: ⛔ **no** viaja el token `displayPriceCents` ni `referenceValue`
+> ni `source/isManualOverride/priceBasis`. El censo money-safe `iva-derivacion-cableada` sigue acotado
+> a `catalog.service.ts`. **No hay fuga de costo/margen ni de metadata interna de precio** — esto
+> evita, en esta superficie, el vector P48-M1 de PENTEST_NOTES (metadata de `referenceValue` en ruta
+> anónima). No se ofrece precio de nada rotado, no vendible, no NM ni de otro dueño.
+>
+> **`paste`/`:slug` no exponen datos internos:** `GET /decks-meta` y `GET /decks-meta/:slug` filtran
+> `published:true, pausedByOperator:false` (un borrador o un deck pausado **no** es alcanzable por slug
+> público); `slug` es `@unique`. Los campos expuestos son de presentación (nombre, rank, share, trend,
+> imagen, fuente, `matchStatus`, `cardId`, `inventoryItemId`, precio `P`). Sin PII, sin owner, sin
+> costo. `decks-meta` **no reserva ni compromete dinero** — solo devuelve ids disponibles+legales; el
+> carrito/checkout re-valida en `orders` (confirmado en el docstring del módulo).
+>
+> ### Eje 2 — Autorización: **LIMPIO**
+> Cadena global de guards (`app.module.ts`, `APP_GUARD` en orden): `AppThrottlerGuard → JwtAuthGuard →
+> PasswordChangeRequiredGuard → RolesGuard → EmailVerifiedGuard → MoneyOutGuard`.
+> - **`JwtAuthGuard` default-deny**: toda ruta sin `@Public()` exige Bearer válido (HS256 fijo,
+>   anti-algorithm-confusion), re-valida cuenta activa y `tokenVersion` contra BD (revocación viva).
+> - **Los tres controllers admin llevan `@Roles(vault_operator, super_admin)` a NIVEL DE CLASE**;
+>   `RolesGuard` lee `getAllAndOverride([handler, class])` ⇒ aplica a **todos** los métodos. Un cliente
+>   (`role=customer`) recibe `403 FORBIDDEN`; sin token, `401`.
+> - **`PUT /admin/config/standard-legality` (la ROTACIÓN, el control más sensible)** vive en
+>   `AdminStandardLegalityController`, también `@Roles(vault_operator, super_admin)` a nivel de clase.
+>   **Un cliente NO puede tocarla.** (Nota de diseño, no defecto: el contrato la abre a `vault_operator`
+>   además de `super_admin`; coincide con `admin-decks-meta.controller.ts` y `ARCHITECTURE §7`.)
+> - El controller público marca `@Public()` por método (`list`, `bySlug`, `paste`); ninguna ruta admin
+>   es pública. Sin rutas huérfanas (una ruta sin `@Public` y sin `@Roles` quedaría autenticada por
+>   `JwtAuthGuard`; `RolesGuard` no es default-deny pero `JwtAuthGuard`, que corre antes, sí).
+>
+> ### Eje 3 — Inyección / DoS: **LIMPIO**
+> - **Tamaño + rate-limit:** `PasteDeckDto.text` `@MaxLength(20_000)`; `POST /decks-meta/paste`
+>   `@Throttle({default:{ttl:60_000, limit:20}})` (20/min, `429`). `ValidationPipe` global con
+>   `whitelist:true` (campos extra se descartan). El curador (`CurateDeckDto.listText`) también
+>   `@MaxLength(20_000)`.
+> - **ReDoS: descartado por MEDICIÓN.** Las tres regex del parser (`CARD_LINE`, `BASIC_ENERGY_LINE`,
+>   `SECTION_HEADER`) medidas con entradas adversarias de 20 000 chars (todo-letras sin cierre,
+>   espacios alternados, casi-match, colas letra-dígito, `.*\bEnergy` casi-cierre) y con un texto de
+>   2000 líneas de caída total: **todos < 0.12 ms por línea; texto completo ≈ 1.2 ms** (N=1,
+>   `redos.js`, node standalone). El `.+?` lazy no backtrackea catastróficamente porque las clases de
+>   anclaje (`[A-Za-z]{2,4}`, `\d` en la cola) podan de inmediato.
+> - **Sin SQL crudo:** `grep` de `queryRaw/executeRaw/Prisma.raw/$query` en `decks-meta.service.ts` y
+>   `deck-matcher.service.ts` ⇒ **0**. El matcher usa solo `prisma.cardSet.findMany` /
+>   `prisma.card.findMany` con `where` **parametrizado** (`ptcgoCode:{not:null}`, `setId:{in:[...]}`);
+>   la normalización de número y el emparejado tolerante son **en memoria**, sin interpolar entrada del
+>   cliente en la query. Lecturas en LOTE (sin N+1). Universo de sets/cartas acotado al catálogo ⇒ sin
+>   amplificación de DoS por entrada.
+>
+> ### Eje 4 — No fabricar carta/precio: **CONFIRMADO**
+> Regla dura del dueño respetada de punta a punta. El matcher (`deck-matcher.service.ts`) empareja SOLO
+> por `ptcgoCode + número` (nunca por nombre); lo no resuelto sale con `matchStatus ∈
+> {unmatched_set, unmatched_number, ambiguous, unmatched_basic_energy}` y `matchedCard:null` —
+> **jamás inventa una `Card`**. En persistencia (`adminCreateOrCurate`) las líneas se crean con
+> `matchedCardId: m.matchedCard?.id ?? null`; lo no casado se guarda crudo (`rawName/rawSetCode/
+> rawNumber`) sin carta. En lectura (`buildLine`) lo no casado o no legal devuelve `card:null,
+> unitPriceMxnCents:null, unitInventoryItemIds:[]`. Un múltiple hit ⇒ `ambiguous`, **no** auto-resuelto.
+>
+> ---
+> ### Hallazgos abiertos (registrados, NO bloqueantes) — rol dueño: **backend**
+>
+> **SEG-DMF1-1 · MEDIO — La rotación de legalidad (money-adjacent) NO deja bitácora de auditoría.**
+> `adminUpdateStandardLegality` (`decks-meta.service.ts`) escribe `ConfigSetting` con `upsert` y solo
+> fija `updatedBy` (que se **sobrescribe**, sin histórico). El proyecto YA tiene convención para config
+> money-adjacent: `settings.service.ts` escribe el dial FX **dentro de una transacción CON entrada de
+> `AuditLog`** («la ESCRITURA del dial: la única, con acuse, transaccional y auditada»). La rotación
+> —que el propio encargo señala como el control más sensible («gobierna qué es jugable/comprable»)—
+> se aparta de ese patrón: no hay entrada en `AuditLog` ni historial de quién cambió la ventana y
+> cuándo. **No explotable** (sigue tras `@Roles(vault_operator, super_admin)`; captura el último
+> `updatedBy`); es una brecha de **accountability/forense**, no de acceso. **MEDIO**, no bloquea.
+> *Comprobación de cierre:* la rotación escribe un `AuditLog` con actor, valores previo/nuevo y timestamp.
+>
+> **SEG-DMF1-2 · BAJO — Escritura de rotación NO atómica.** `activeMarks` y `banlistCardIds` se
+> escriben como **dos `upsert` independientes** vía `Promise.all` (no una transacción). Un fallo
+> parcial deja la config a medias. Mitigado por que `isLegalStandardNow` es **fail-closed** (una
+> ventana no aplicada tiende a NO-legal, conservador) y por que cada clave es idempotente
+> (reemplazo total del array); además no hay lock optimista, así que dos operadores concurrentes es
+> last-writer-wins (aceptable para reemplazo total). **BAJO.** *Cierre:* envolver ambos upserts en
+> `$transaction`, alineado con el patrón del dial FX.
+>
+> **Informativo (no-seguridad, para techlead):** `matchLines` hace `cardSet.findMany({where:{ptcgoCode:
+> {not:null}}})` (scan completo de `CardSet`, universo pequeño) en cada `paste`; y
+> `StandardLegalityDto.activeMarks/banlistCardIds` no acotan tamaño de array ni longitud de cada string
+> (solo admin). Ninguno es un vector de atacante.
+>
+> ### Consolidación de PENTEST_NOTES
+> El `docs/PENTEST_NOTES.md` en `d77eb699` **no contiene hallazgos específicos de decks-meta** (el red
+> team no cubrió esta feature en esta fase). Este veredicto es una revisión de código blue-team directa.
+> El vector genérico más cercano (P48-M1: metadata de `referenceValue`/`priceBasis` en superficie
+> anónima) **no aplica a decks-meta**: su DTO neutro (`DeckMetaUnitDTO`) expone solo `inventoryItemId`
+> + `priceMxnCents` (=`P`), sin `referenceValue` ni metadata de basis.
+>
+> ### Verificación (O-9), sobre worktree detached anclado a `d77eb699`
+> - **[MEDIDO]** ReDoS: `redos.js` (node standalone) — 9 entradas adversarias de 20 000 chars + texto
+>   de 2000 líneas de caída total, **todas < 0.12 ms/línea, total ≈ 1.2 ms** (N=1).
+> - **[código]** Cadena de guards y `@Roles` de clase — `app.module.ts:82-87`, `roles.guard.ts`,
+>   `jwt-auth.guard.ts`, `admin-decks-meta.controller.ts`.
+> - **[código]** Compuertas de disponibilidad — `catalog.service.ts:639-720,1522-1540`
+>   (`singlesPublishedWhere`, `fetchSellable`, `getSellableRawUnitsByCardIds`), `business-rules.ts`,
+>   `schema.prisma` (`OwnerType`, `InventoryStatus`, `RawCondition`).
+> - **[código]** No-fabricación — `deck-matcher.service.ts` (match por `ptcgoCode+número`),
+>   `decks-meta.service.ts` (`buildLine`, `adminCreateOrCurate`).
+> - **[código]** `grep` de SQL crudo en el módulo decks-meta ⇒ **0**.
+
+---
+
+# VEREDICTO BLUE TEAM — **BOUNTIES Q1+Q2** · SHA **`74d77aa9`** (rama `claude/be-bounties-q1q2`) · foco: `DELETE …/variant-controls/:cardId/:finish/bounty` (Q2) + piso `min(curva,mercado)` (Q1) · contrato §M2-B.8/.9/.10 · 2026-09-19
+
+> ## ⭐ VEREDICTO — **APROBADO** sobre `74d77aa9`
+>
+> **0 críticos, 0 altos.** El delta Q1+Q2 llegó money-safe, bien autorizado y auditado de forma
+> **atómica**. Reviso los seis puntos del encargo (§M2-B.8/.9/.10) y **los seis pasan**. Lo único que
+> queda abierto es **deuda Baja/Media heredada** (no introducida por este delta) y **una bandera de
+> proceso**: el red team **no** ha atacado ESTE delta en vivo (su pase de bounties `v1.62` fue sobre
+> `7472395`, ANTERIOR a Q1+Q2, y describe el gate `<=` **ya superado**). Mi aprobación descansa en
+> revisión estática + **la suite corrida por mí sobre `74d77aa9`**, no en un pase ofensivo sobre este SHA.
+>
+> ### Procedencia de mis mediciones (todas `[MEDIDO]` sobre `74d77aa9`)
+> - `git worktree --detach 74d77aa9`, HEAD verificado = `74d77aa9f5b1…`. `node_modules` enlazado del árbol principal (solo lectura; no toqué código).
+> - `test/pricing.delete-bounty.spec.ts` ⇒ **13/13 verde** (ramas A/B, B-17/B-20/B-21, idempotencia, códigos, verbo dedicado).
+> - `test/pricing.variant-controls.spec.ts` + `test/pricing.bounty-market-floor.spec.ts` + `test/buylist.bounty-revalidation.spec.ts` ⇒ **64/64 verde** (gate Q1 `min(curva,mercado)`, revalidación en cotización/vitrina).
+> - Lectura estática de `variant-controls.service.ts`, `pricing.controller.ts`, `admin-bounties.*`, `bounty-state.ts`, `common/pricing-curve.ts`, `common/money.ts`, `audit.service.ts`, `buylist.service.ts::publicBounties`, `app.module.ts` (cadena de guards).
+
+## 0. Los seis puntos del encargo, uno a uno (§M2-B.8/.9/.10)
+
+**Convención:** `[MEDIDO]` = ejecutado por mí sobre `74d77aa9` con su N · `[código]` = leído en fuente sobre `74d77aa9`.
+
+### 1. Autorización del `DELETE …/bounty` — **CUMPLE** `[código]`
+- El handler `deleteBounty` cuelga de `PricingController` (`pricing.controller.ts:600`), y la clase lleva `@Controller('admin/pricing')` **+ `@Roles(Role.super_admin)`** a nivel de clase (`:195-196`). El DELETE **hereda** ese rol.
+- Cadena de guards **global** vía `APP_GUARD` (`app.module.ts:80-85`, en orden): `AppThrottlerGuard → JwtAuthGuard → PasswordChangeRequiredGuard → RolesGuard → EmailVerifiedGuard → MoneyOutGuard`. `RolesGuard` corre para TODA ruta ⇒ el `@Roles(super_admin)` de clase se impone al DELETE. Un cliente (`customer`) o incluso un `vault_operator` reciben **403**; sin token, **401**.
+- ⚠️ **Matiz de contrato (no es hallazgo de seguridad):** el encargo pedía «roles admin (vault_operator/super_admin)». La implementación es **más estricta**: solo `super_admin`. Esto es lo que **manda el contrato** (§M2-B.9: *«`super_admin`, AUDITADO»*; código `403` explícito «no `super_admin`») y coincide con la consola de lectura. Más estricto ⇒ **safe**; no despublica/borra quien no debe. Sin acción.
+- El red team ya validó `PricingController` como `super_admin`-only por seis vías (B62-4, pase v1.62) y R-4 (pase v1.28); el DELETE usa **el mismo guard de clase**, no una excepción.
+
+### 2. AuditLog OBLIGATORIO y completo — **CUMPLE, y en la forma más fuerte (atómica)** `[MEDIDO 13/13]` `[código]`
+- Ambas ramas escriben `AuditLog` **DENTRO del `$transaction`** pasando el cliente transaccional `tx` a `audit.log(entry, tx)` (`variant-controls.service.ts:281-291` rama A `bounty.deleted`; `:298-308` rama B `bounty.unpublished`).
+- `AuditService.log` usa `await (tx ?? this.prisma).auditLog.create(...)` (`audit.service.ts:42-58`): al pasarle el `tx`, la fila de bitácora **participa del mismo commit/rollback** que la escritura. **Si la auditoría falla, la transacción entera hace rollback** ⇒ **no existe borrado/despublicación sin auditoría**. Es el diseño correcto para un control money-adjacent (más fuerte que el `PUT`, cuya auditoría va fuera de tx — pero el `PUT` no está en este encargo).
+- Completitud: `before`/`after` usan `snapshot()` (`:66-80`), que incluye `sellOverrideCents`, `buyOverrideCents`, `bountyEnabled`, `bountyPriceCents`, `bountyTargetQty`, `bountyAcquiredQty`, `bountyCompletedAt` y **`bountyUnpublishedAt`** (el sello que distingue `despublicada`). Actor = `actorUserId` (id del JWT vía `@CurrentUser('id')`), timestamp = `createdAt` (default de BD). **No es solo `updatedBy` sobrescrito**: es pre/post-imagen completa reconstruible. Verificado en el spec (`before.controls` con `bountyPriceCents:7500`; `after.controls` = `null` al borrar).
+
+### 3. `INV-BOUNTY-COST` — **CUMPLE** `[MEDIDO 2/2 canario]` `[código]`
+- La `$transaction` del DELETE escribe **SOLO** `variantPriceOverride` (update **o** delete) **+ `auditLog`**. **Cero** referencias a `inventoryItem`, `acquisitionCostCents` o asiento de P/L en `deleteBounty` (grep + lectura línea a línea de `:261-310`).
+- El canario del spec (`inventorySpy`, B-21) falla si CUALQUIER método de `InventoryItem` se llamara: **rama A 0 llamadas, rama B 0 llamadas** (`test/pricing.delete-bounty.spec.ts:158-173`). El costo vive una sola vez en `InventoryItem` (sellado al adquirir en buylist), y despublicar/borrar no lo toca. Sin doble conteo.
+
+### 4. Sin fuga de costo/PII/owner; vitrina pública excluye `despublicada` — **CUMPLE** `[código]`
+- `deriveBountyState` (`bounty-state.ts`) hace que `bountyUnpublishedAt != null` **discrimine primero** ⇒ estado `despublicada`, que en la consola admin sale del tablero por defecto (`data` excluye `despublicada` salvo `?state=despublicada`; `admin-bounties.service.ts:173-175`).
+- **Vitrina pública** `GET /buylist/bounties` → `publicBounties()` filtra `where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw', bountyUnpublishedAt: null }` (`buylist.service.ts:1264`). Una fila `despublicada` (`enabled=false` **y** `bountyUnpublishedAt != null`) queda **doblemente excluida** (defensa en profundidad). No hay fuga del estado archivado ni de su precio/contador a superficie pública.
+- La respuesta del DELETE es el `VariantPricingDTO` compuesto **campo por campo** (sin `...row`), lectura `super_admin`; el red team ya descartó la fuga clase-`legalName` (B62-6). Sin PII/CLABE/INE en este módulo.
+
+### 5. Validación de input y del predicado; sin inyección; DoS acotado — **CUMPLE** `[código]` `[MEDIDO parcial]`
+- El DELETE **no lleva cuerpo**: solo params de ruta. `:finish` se valida contra `FINISH_VALUES` (enum de Prisma) + `resolveGradeKey` impone `raw:NM` y `FINISH_NOT_AVAILABLE` (SEC-A1). `:cardId` va a `prisma.card.findUnique({ where: { id } })` (parametrizado) ⇒ `404 NOT_FOUND` si no existe. Sin superficie de mass-assignment en el DELETE (no hay body que colar).
+- Predicado de alcance / consola: `q` va a `contains` de Prisma (parametrizado); **no existe `$queryRaw`/`$queryRawUnsafe` en `modules/pricing/`** (confirmado por B62-7 y grep). DoS acotado: la consola clasifica ≤ `ADMIN_BOUNTY_SERVER_CAP=1000` filas + 2 lecturas en lote, independiente de los parámetros; DELETE es op de una fila por clave única. Todo tras `super_admin` + throttler.
+
+### 6. Q1 money-safe: el ablandamiento del piso NUNCA paga arriba de mercado ni activa un rebasado fuera del borde — **CUMPLE** `[MEDIDO 64/64]` `[código]`
+- `isBountyEffective(price, curveQuoteCents, marketMxnCents)` (`pricing-curve.ts:617-625`): `price>0 ∧ (price > curve  ∨  (market != null ∧ price >= market))`. Piso efectivo = `min(curva, mercado)`.
+- **Nunca activa por debajo del piso:** si `price < min(curva, mercado)` entonces `price ≤ curva` y `price < mercado` ⇒ ambos disyuntos falsos ⇒ `false` (rebasada). No se paga un bounty por debajo del piso.
+- **Fuera del borde (curva < mercado):** el 2º disyunto exige `price >= mercado > curva`, subconjunto de `price > curva` ⇒ el gate efectivo es `> curva` **estricto** (empate-con-curva rechazado, criterio 91). Un `price ≤ curva` (< mercado) queda `rebasada`, **no** se cuela a `activa` por el tope de mercado. Sin activación espuria.
+- **En el borde (curva ≥ mercado):** basta `price >= mercado` (empate-con-mercado aceptado). El ablandamiento **BAJA** el piso hasta el mercado; **no** introduce ninguna vía que fuerce pagar por ENCIMA del mercado — al contrario, evita obligar a pagar `> curva > mercado`.
+- **Linchpin verificado:** el claim «curva `null` ⇒ mercado `null` por construcción» se sostiene: `explainBuyFromCurve` devuelve `priceCents: null` **IFF** `marketMxnCents == null ∨ ≤ 0` (`pricing-curve.ts:516-530`). Por tanto cuando `curveQuoteCents == null` (⇒ `isBountyEffective` acepta el bounty explícito, decisión LOCKED §4.36.0), el mercado también es nulo/no-positivo ⇒ no hay «mercado real» que se pueda rebasar. Sin agujero.
+- **Coherencia alta↔runtime por construcción:** el gate del alta (`BOUNTY_BELOW_RULE`, `variant-controls.service.ts:509`), la cotización (`quoteAcquisitionFromCurve`, `money.ts:258`), la vitrina y el `state` de la consola llaman **la misma** `isBountyEffective` — no hay `<`/`<=` re-derivado a mano (prohibición mutación B-16). El `422 BOUNTY_BELOW_RULE` dispara IFF `!isBountyEffective(...)`.
+
+## 1. Hallazgos (severidad · ubicación · dueño)
+
+Ninguno **crítico** ni **alto** en el delta Q1+Q2. Los abiertos son heredados / defensa en profundidad:
+
+- **`SEC-BQ-1` [BAJA · carryover de B62-3] · Mass-assignment latente en el objeto `bounty` anidado del PUT** — `pricing.controller.ts` (`class VariantControlsDto { @Allow() bounty?: unknown }`) + `mergeBounty`. El `ValidationPipe({whitelist:true})` no recurre dentro de `bounty` (tipado `unknown`), pero `mergeBounty` **enumera a mano** solo `enabled/priceCents/targetQty`; `acquiredQty`/`completedAt` se toman SIEMPRE de la fila en BD y el dinero se re-deriva server-side ⇒ **campos extra inertes hoy**. **No aplica al DELETE** (no tiene cuerpo). Impacto hoy: ninguno. Riesgo futuro: si alguien «simplifica» a `{ ...next, ...input.bounty }`, el cliente podría fijar el contador antilavado. **Dueño: backend** (DTO anidado tipado o `forbidNonWhitelisted`). **Aceptable dejarlo documentado** (no bloquea).
+- **`SEC-BQ-2` [MEDIA · carryover de B62-1] · Deps runtime backend con CVE moderado (`qs`/`body-parser`/`express`)** — no introducido por este delta; viaja a prod igual. **Dueño: devops** (bump en ventana ordinaria).
+- **`SEC-BQ-3` [BAJA · carryover de B62-2] · Deps dev frontend (vitest/vite) fuera del bundle de prod** — riesgo de dev/CI, no de runtime. **Dueño: devops/frontend.**
+- **Nota de higiene (no hallazgo):** la observación B62-8 del red team describe el gate `next.bountyPriceCents <= curveQuoteCents` — ese cuerpo **ya no existe**; fue reemplazado por el gate Q1 `isBountyEffective(min(curva,mercado))`. Al consolidar, esa línea de PENTEST_NOTES está **superada**, no abierta.
+
+## 2. Bandera para el humano (proceso)
+
+- **El red team no ha atacado en vivo el delta Q1+Q2 sobre `74d77aa9`.** El pase de bounties de `PENTEST_NOTES.md` (`v1.62`) fue sobre `7472395` (consola de LECTURA + gate `<=` antiguo), ANTERIOR a los commits `207ae50f` (Q1 piso + Q2 DELETE) y `74d77aa9` (tests). Mi APROBADO se apoya en **revisión estática + suite corrida por mí** (verde), no en un pase ofensivo sobre este SHA. Recomendación consistente con la bandera permanente del proyecto («pentest de tercero + bug bounty antes del primer peso real»): **un pase ofensivo del `pentester` sobre este delta exacto** (escalada de rol al DELETE en vivo, forja de rama borra↔despublica, intento de tocar `InventoryItem`, borde Q1 con mercado hipotético) **antes de contar este corte hacia un release de dinero real**. No bloquea el merge del stream (mis seis puntos pasan), pero cierra el ciclo pentester→seguridad que exige `CLAUDE.md` §7.
+
+## 3. Mínimo para mantener APROBADO
+- No hay condición **bloqueante** de este delta. `SEC-BQ-1` queda **aceptada como deuda** (Baja, con disparador: cualquier refactor de `mergeBounty` la reabre). `SEC-BQ-2/3` son de devops y no específicas de bounties.
+- Para el **cierre de fase de seguridad del release** (no del stream): cerrar la bandera de proceso (pase ofensivo del red team sobre `74d77aa9`).
+
+— SEGURIDAD (blue team / AppSec), 2026-09-19 · SHA **`74d77aa9`** · **APROBADO** (Q1+Q2 money-safe, authz sólido, auditoría atómica, INV-BOUNTY-COST limpio, sin fuga) · deuda Baja/Media heredada + bandera de proceso (red team sobre este SHA)
+
+---
+
+
+---
+
+# VEREDICTO BLUE TEAM — **M11 · CIERRE DE DEUDA DEL SELLADO (SEC-M11-3/-4/-5)** · SHA **`604f7622`** · base `cd0bf02c` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `604f7622`
+>
+> **No queda ningún hallazgo crítico ni alto abierto sobre M11.** Las tres condiciones que este commit
+> se propuso cerrar (`SEC-M11-3`, `SEC-M11-4`, `SEC-M11-5`) están **cerradas y verificadas por mí en vivo**
+> (no recibidas), y las dos que ya estaban cerradas (`SEC-M11-1` atomicidad, `SEC-M11-2` auditoría en `tx`)
+> **NO regresaron**. Todo money-safe: el motor de precios y el gate de sellado no cambian de números.
+>
+> **Estado de las cinco condiciones sobre `604f7622`:**
+> - **`SEC-M11-1` (atomicidad) — CERRADA, no regresa.** El remap (degradar set_main previo(s) → promover/
+>   crear el nuevo → reescribir el espejo `CardSet.tcgcsvGroupId`) sigue COMPLETO dentro de un solo
+>   `prisma.$transaction` (`sealed-product.service.ts:972-1004`). El `listGroups()` de red (label) queda
+>   FUERA de la transacción (O-17), antes de abrirla (`:960-970`). O entra todo o no entra nada.
+> - **`SEC-M11-2` (auditoría en la misma tx) — CERRADA, no regresa.** `audit.log(..., tx)` se llama DENTRO
+>   del `$transaction`, con el `tx` como segundo argumento (`:988-1002`) ⇒ mapeo + bitácora committean o
+>   rollbackean juntos. La prueba `inventory.m11-debt.spec.ts` asserta que `audit.log` recibe el `tx`.
+> - **`SEC-M11-3` (before/after COMPLETO) — CERRADA.** El rastro ya no lleva sólo el espejo `tcgcsvGroupId`:
+>   `before.groups` es el `kind` de CADA grupo del set ANTES, y `after.groups` el `kind` RESULTANTE
+>   (set_main viejo→promo_collection, grupo nuevo→set_main, fila nueva si no existía) más `reason`
+>   (`:944-958`, `:996-998`). La derivación de `afterGroups` coincide EXACTAMENTE con lo que escribe la
+>   transacción (comparé rama a rama). **Cobertura suficiente para reconstruir el remap:** el auditor tiene
+>   estado previo y resultante de todos los grupos + el espejo + el motivo. Sin queries extra (se deriva del
+>   estado ya leído). No queda cambio money-relevante sin auditar (el `label` del grupo nuevo es
+>   observabilidad/curación, no dinero; los `id` de fila son internos de BD).
+> - **`SEC-M11-4` (`reason` acotado 3–500 tras trim) — CERRADA.** `SetMainGroupRequestDto.reason` es
+>   `@IsOptional() @Transform(trim) @IsString() @Length(3, 500)` (`inventory.dto.ts:389`). El `ValidationPipe`
+>   global corre con `transform: true` (`main.ts:56`) ⇒ el `trim` ejecuta ANTES de validar ⇒ la cota se
+>   aplica TRAS trim (verificado: `'  a  '` con <3 tras trim ⇒ 400; 500 chars rodeados de espacios ⇒ pasa).
+>   **La cota cierra el vector de tamaño:** un super_admin ya no puede escribir filas de bitácora
+>   desmesuradas (501+ ⇒ 400). **Sin inyección/escape al serializar:** `reason` viaja a `AuditLog.after`
+>   como valor JSON vía Prisma parametrizado (JSON.stringify escapa comillas/backslashes); `before/after`
+>   NUNCA se expone en la UI de auditoría ⇒ sin XSS almacenado explotable. Fuera de rango ⇒ 400, nunca 500.
+> - **`SEC-M11-5` (N+1 en lote) — CERRADA, MISMOS NÚMEROS.** `sealedPriceStatus` resolvía el ancla
+>   (`findFirst`) + `getReferencesBatch` UNA VEZ POR SET (N+1). Ahora: UNA consulta de anclas
+>   (`resolveAnchorCardIds`, `findMany` con el MISMO `orderBy` que el `findFirst`) + UN `getReferencesBatch`
+>   con todas las claves, antes del bucle (`:809-829`). **El gate `gateSealedMarketCents` sigue aplicándose
+>   producto a producto, con la misma clave** `${anchorCardId}|sealed|${gradeKey}|normal`; el ancla es única
+>   por set ⇒ sin colisión, y `getReferencesBatch` descarta cualquier clave no pedida (`!wanted.has(k)`) ⇒
+>   el resultado por clave es idéntico batch-por-set o todo-junto. **No cambia números** (verificado: dial ON
+>   ⇒ `priced`, dial OFF ⇒ `mapped_unpriced`, igual que antes).
+>
+> ### Verificación en vivo (O-9), sobre worktree detached anclado a `604f7622` literal
+> Corrí las tres suites en mi worktree (`git worktree add --detach … 604f7622`; egress bloqueado, O-17;
+> `node_modules` reusado del repo por symlink, sólo lectura — el código bajo prueba es el del sha):
+> - `backend/test/inventory.set-main-group-reason.spec.ts` → **7/7 verde** (SEC-M11-4: 501/5000 ⇒ error,
+>   `<3` ⇒ error, `<3` tras trim ⇒ error, 500 exactos y rodeados de espacios ⇒ pasa, ausente ⇒ pasa).
+> - `backend/test/inventory.m11-debt.spec.ts` → **4/4 verde** (SEC-M11-3: before/after con `groups` kind
+>   previo y resultante; audit recibe `tx` — SEC-M11-2 no regresa. SEC-M11-5: censo de queries
+>   `findFirst=0`, `findMany≤1`, `getReferencesBatch≤1`; dial OFF ⇒ mapped_unpriced).
+> - `backend/test/sealed-product.service.spec.ts` → **63/63 verde** (62→63 con el caso del lote; gate-parity
+>   con dial OFF, no-egress, base de era NUNCA cruza al grupo de promos — todo sigue verde bajo el lote).
+>
+> ### Nota (INFO, no bloqueante — no es hallazgo)
+> `resolveAnchorCardIds` toma la primera carta por set de un orden global `(numberPrefix, numberSort)`, sin
+> desempate adicional; `resolveAnchorCardId` (el que sustituye) usaba `findFirst` con el mismo `orderBy`.
+> Si dos cartas de un mismo set empataran EXACTO en `(numberPrefix, numberSort)`, cuál queda de ancla podría
+> teóricamente diferir. En la práctica el número de carta es único por set ⇒ no hay empate; y la
+> no-determinación ya existía en la versión single. Money-safe; sólo se anota para que el owner lo tenga
+> presente si algún día el modelo permitiera colisión de número dentro de un set.
+>
+> ### Ruta de hallazgos
+> Ninguno. Nada que enrutar a backend. Las cinco condiciones `SEC-M11-1..5` quedan **cerradas** sobre
+> `604f7622`; el bloque histórico de abajo (verdicto sobre `fafe7461`) queda superado por este cierre.
+# VEREDICTO BLUE TEAM — **P-53 CIERRE · ALTO-4 (F4/F5 delegan al lote) · FRESCURA EFECTIVA EN TODA RUTA DE DINERO** · SHA **`81b9e241`** (rama `claude/be-p53-cura4`) · base `origin/production`=`cd0bf02c` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `81b9e241`
+>
+> **No queda ningún hallazgo crítico ni alto abierto.** Este es el cierre del ciclo P-53 (los cuatro
+> ALTOS que rechacé en los pases previos). Medí el árbol en un worktree detached sobre el sha fijo
+> `81b9e241` (no toqué `/home/user/tcg-vault-mx`). Resumen: **ALTO-1, ALTO-2, ALTO-3 y ALTO-4
+> CERRADOS; no hay ALTO-5; CA-10 se mantiene; money-safe.**
+>
+> ### Estado de los cuatro ALTOS (cada uno con dónde lo medí)
+>
+> **ALTO-1 — Escritor diario write-on-change: CERRADO** (`0e76a37f`, `persistMarketReference`,
+> `backend/src/modules/pricing/pricing.service.ts:~2185-2298`). En un día sin cambio de valor NO
+> inserta fila; solo **avanza `evidenceDate` de la fila vigente a `today()`** (monotónico: línea 2256
+> `evidenceDate == null || evidenceDate < capturedDate`, nunca retrocede, tope en hoy). El valor que
+> gobierna el cambio es `priceUsdCents`+`fxBufferPct` (o `priceMxnCents` en MXN), no el MXN derivado.
+> **No pisa el override manual** (línea `if (current?.isManualOverride) return`). El día de cambio
+> escribe `capturedDate = evidenceDate = today()`.
+>
+> **ALTO-2 — `hasRecentIngest`: CERRADO** (`price-ingest.service.ts:469-489`). Mide recencia por
+> **frescura efectiva**: `OR [{evidenceDate ≥ ayer}, {evidenceDate=null AND capturedDate ≥ ayer}]`,
+> con `isManualOverride:false` + `MONEY_REF_WHERE`. El avance diario de `evidenceDate` del escritor
+> ahora **sí lo ve**, así que un día sin cambio ya no dispara un fail-open del catch-up. Excluye
+> estimados (evita el fail-open «fase 2 hace creer que corrió el mercado») y manuales.
+>
+> **ALTO-3 — Selección en lote: CERRADO** (`b9c856bd`). `getReferencesBatch` (F1,
+> `pricing.service.ts:~830-935`): ventana `$queryRaw` con
+> `MAX(COALESCE(evidenceDate,capturedDate)) OVER (PARTITION BY clave)` y
+> `WHERE is_manual OR COALESCE(evidenceDate,capturedDate)=max_auto_date`. `isBetterRef`
+> (`:361-384`): tier manual absoluto → **frescura efectiva `evidenceDate ?? capturedDate`** →
+> `sourceRank` → NULLS-LAST → cuid. `computeSetValue` (F3, `set-value.service.ts:202-217`) selecciona
+> `evidenceDate` y reduce con `isBetterRef`.
+>
+> **ALTO-4 — F4/F5 single-item sin `take:32`: CERRADO** (ESTE sha, `81b9e241`). `getReference`
+> (`:749-767`) delega en `getReferencesBatch([item])` y devuelve `.get(variantKey(item)) ?? pending`.
+> `getReferenceByCardProduct` (`:802-819`) delega en `getReferencesByCardProductBatch([item])` (F6,
+> lee **sin cota** y reduce con `isBetterRef`) y devuelve `.get(cardProductRefKey(item)) ?? pending`.
+> **`SAME_DAY_REF_CANDIDATES` y `MANUAL_REF_PREDICATE` retirados** (solo quedan en comentarios;
+> `git grep` no halla `const … =` ni un `take:` con el símbolo). Las claves hacen round-trip
+> (`getReferencesBatch` indexa por `variantKey`; F6 por `cardProductRefKey`). Misma `WHERE`
+> (`MONEY_REF_WHERE` + `BASE_CARD_REF_WHERE`), mismo `isBetterRef`, misma FX viva (`liveMxnCents`,
+> izada 1×), mismo `PriceInfo`. **Firmas sin cambio** ⇒ los llamadores
+> (`orders.service.ts:316`, `buylist.service.ts:1097/1108`, vault, inventory, admin) no se tocan.
+>
+> **La inversión primaria↔fallback ya NO ocurre en NINGÚN lector de mercado.** Barrí todos los
+> consumidores de dinero (`git grep` de `getReference`/`getReferencesBatch`/`getReferenceByCardProduct`/
+> `computeSetValue`/`ownedItemRefs` en `backend/src/modules`): todos resuelven por frescura efectiva
+> (ventana `COALESCE` o `isBetterRef`), ninguno recorta candidatas por `capturedDate` crudo con `take`.
+>
+> ### ¿ALTO-5? — **NO.** No encontré ningún sitio nuevo ni ninguno que el arquitecto dejara fuera.
+>
+> 1. **Barrido propio de lectores de `capturedDate` en rutas de dinero** (pricing/orders/buylist/
+>    vault/inventory/admin/catalog/set-value + payments/shipments/disputes). Todo sitio que RANKEA
+>    frescura o bien usa la ventana `COALESCE` (F1) o bien reduce con `isBetterRef` **sin `take`**
+>    (F6 `:967`, F7 `getSeparateProductsByCard :1063`, F8 `ownedItemRefs admin.service.ts:979`,
+>    F9 `getGradedEstimatesBatch :1604` con `isStaleByOrigin(...evidenceDate)`). Sin cota, el
+>    `orderBy capturedDate desc` no descarta filas: la primaria congelada sigue entre las candidatas
+>    y `isBetterRef` la elige. Los sitios `capturedDate`-crudo restantes son **IDENTIDAD/AUDITORÍA/
+>    DISPLAY** (I1 cabeza de serie del escritor, I2 `priceHistory`, I3 serie sellada, I4 snapshot
+>    `asOf`, I5 archivo de undo, I6 orden de cola de revisión) — no eligen qué precio se cobra.
+> 2. **La delegación no abre superficie ni permisos nuevos.** Son llamadas servicio→servicio
+>    internas: sin endpoint nuevo, sin cambio de DTO, sin cambio de firma. Ningún camino donde una
+>    fila mala gane: la protección **GE-1** se conserva —un estimado (`refKind='graded_estimate'`)
+>    queda fuera del CTE `filtered` (que exige `refKind='market'`) **antes** del `is_manual`, así que
+>    no se cuela por la puerta de la candidata manual perenne— y la manual perenne se preserva vía
+>    `is_manual` (F1) / lectura sin cota (F6).
+> 3. **`evidenceDate` sigue siendo NO manipulable.** `git grep evidenceDate` en `**/dto` y
+>    `*.controller.ts` da **0**: no está expuesta en ninguna entrada de request. El **único** escritor
+>    de la columna en producción es `persistMarketReference` (server-side), y siempre a
+>    `capturedDate = today()` (`today()` = `new Date()` a medianoche UTC, sin input). El `evidenceDate`
+>    del feed externo (`pokemonpricetracker-bulk.provider.ts:234`) **NO se persiste** a la columna
+>    (comentario del propio provider: «sigue sin persistirse»; se usa solo como gate de rancidez en
+>    ingesta y para el `AuditLog`). El override manual (`:2614`) **no escribe `evidenceDate`** (queda
+>    `null`; gana por tier, no por frescura). ⇒ Nadie externo puede fijar `evidenceDate` para ganar el
+>    ranking de frescura.
+>
+> ### CA-10 (`evidenceDate=null` ⇒ idéntico a hoy): **SE MANTIENE. Money-safe.**
+> Con `evidenceDate=null` (filas legadas el día del deploy y todo graded hoy),
+> `COALESCE(evidenceDate,capturedDate)=capturedDate` en TODOS los predicados: `isBetterRef` (`:379-380`),
+> la ventana `$queryRaw` de F1 (`:906/:914`), `hasRecentIngest` y `isStaleByOrigin`
+> (`common/graded-estimate.ts:861`). Los gemelos CA-10 del canario nuevo
+> (`test/pricing.getreference-p53-freshness.spec.ts`) asertan que con evidencia nula gana el fallback
+> fresco (`toBe(50039)`) y **`.not.toBe(100000)`** ⇒ conducta idéntica a producción el día del deploy.
+>
+> ### Pruebas (revisadas, no solo relayadas)
+> - **C1/C2 muerden** la inversión: primaria `tcgcsv_singles` (`capturedDate` VIEJO + `evidenceDate=HOY`,
+>   100000) gana a 40 fallbacks `pokemontcg_io` frescos (50000+); el emulador modela la vía capada vieja
+>   (rojo-primero). Cada uno con su gemelo CA-10. **Candados de no-regresión F6/F7/F8** presentes.
+> - **Sin tests apagados:** `git grep` de `.skip/.todo/xit/.only` **añadidos** en el diff = 0. Delta de
+>   `expect()` en specs = **+9** (13 retirados de patrón viejo, 22 añadidos). El spec
+>   `pricing.manual-override-durable-cross-day` NO se debilitó: sustituye `expect(take).toBe(32)` por
+>   la aserción de que la ventana de lote **conserva la candidata manual perenne** sin caparla.
+>
+> ### Caveat (NO bloqueante, sin cambio respecto a los pases previos)
+> Los canarios corren contra el **emulador en memoria** (`test/helpers/refs-raw-emulate.ts`), no contra
+> Postgres real — la misma limitación que aceptó el gate de ALTO-3 (`b9c856bd`). El predicado SQL
+> `is_manual OR COALESCE(evidenceDate,capturedDate)=max_auto_date` es simple y ya pasó los gates en
+> `b9c856bd`; la delegación de este sha no introduce SQL nuevo. Se anota, no es un ALTO.
+>
+> ### Ruteo por rol
+> Ninguno pendiente para este delta: **0 hallazgos de seguridad abiertos**. Las banderas de largo plazo
+> (pentest de tercero antes de dinero real; validación legal PII/custodia; `BANXICO_SIE_TOKEN` en
+> secret manager) siguen vivas como en pases anteriores y **no las reabre este delta** (no toca PII, no
+> añade endpoint, no añade secreto).
+>
+> — SEGURIDAD (blue team / AppSec), 2026-09-18 · candidato `81b9e241` · P-53 cierre ·
+> **APROBADO** (ALTO-1..4 CERRADOS · sin ALTO-5 · sin críticos/altos abiertos · CA-10 mantenido · money-safe)
+# VEREDICTO BLUE TEAM — **GATE PII · DEGRADAR `clabeSnapshotEnc` EN `adminGet` (buylist)** · SHA **`b884e827`** · base `origin/production`=`4a3caa64` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `b884e827`
+>
+> **No queda ningún hallazgo crítico ni alto abierto.** El try/catch acotado en
+> `BuylistService.adminGet` (`backend/src/modules/buylist/buylist.service.ts:2568-2602`) degrada la
+> vista de detalle cuando `clabeSnapshotEnc` no descifra —`clabeMasked` queda `undefined` +
+> `piiUnavailable:true`, ambos **aditivos y solo en el estado degradado**, y 200 en vez de 500— sin
+> filtrar cripto ni contaminar el camino del dinero. Reviso los cuatro focos del gate PII de #43.
+>
+> ### Foco 1 — No fuga de PII/cripto al degradar: **LIMPIO**
+> - **Log (`buylist.service.ts:2575-2580`):** registra SOLO `id` (id de la solicitud, no PII) y
+>   `cause = e.message`. Los mensajes que puede lanzar `decrypt` son genéricos: `'Malformed PII
+>   ciphertext'` (`common/crypto/pii-crypto.service.ts:198` y `:207`) o el error de Node en `.final()`
+>   (`:213`, «unable to authenticate data»). **Ninguno contiene ciphertext ni claro.** El blob cifrado
+>   (`req.clabeSnapshotEnc`) **no se interpola** en el log — solo `cause`.
+> - **Respuesta:** `adminSellRequestDTO` (`:2434-…`) es una proyección por **lista blanca**
+>   (`toSellRequestBaseDTO(r)` + campos nombrados), **no** un `...r` crudo ⇒ `clabeSnapshotEnc` nunca
+>   se propaga. `adminGet` solo añade `clabeMasked` (undefined en degradado) y opcional
+>   `piiUnavailable`. Las pruebas aseveran `res.clabeSnapshotEnc` undefined y
+>   `JSON.stringify(res)).not.toContain(UNDECRYPTABLE_CLABE)` (unit `buylist.clabe-pii.spec.ts` +
+>   e2e `buylist-cycle.e2e-spec.ts`).
+>
+> ### Foco 2 — No enmascarar lo que debe ser ruidoso (camino del dinero): **LIMPIO**
+> - `revealClabe` (`buylist.service.ts:5637-5648`) sigue llamando `this.pii.decryptOptional(...)` **SIN
+>   try/catch**: un snapshot indescifrable **LANZA** y sube al filtro global ⇒ **sigue siendo ruidoso**.
+>   Es `@Roles(super_admin)` + `@MoneyOut()` + **auditado** en `AuditLog`
+>   (`admin-buylist.controller.ts:219-232`). El degradado NO se cuela ahí.
+> - El degradado no puede volver pagable una solicitud sin CLABE: `isPayable` se **deriva de las
+>   decisiones de ítems** (`isPayableSellRequestWithItems`, `:2458`), no de `clabeMasked`. Pagar exige
+>   `revealClabe`, que lanza si no hay CLABE. El try/catch es estrictamente de PRESENTACIÓN.
+>
+> ### Foco 3 — `piiUnavailable` aditivo, sin oráculo cross-tenant: **LIMPIO**
+> - La bandera **solo aparece en el estado degradado**; `adminGet` está tras `JwtAuthGuard` +
+>   `RolesGuard` globales (`app.module.ts:81-83`, `APP_GUARD`) y `@Roles(vault_operator, super_admin)`
+>   a nivel de clase (`admin-buylist.controller.ts:42`) ⇒ **solo back-office autenticado**. El vendedor
+>   no alcanza la ruta.
+> - No es oráculo sobre el valor de la CLABE: es un booleano sobre el **estado de clave/cripto**.
+>   Distingue «presente-pero-corrupto/rotado» de «ausente» —ausente ⇒ `decryptOptional(null)` devuelve
+>   `undefined` **sin lanzar** ⇒ sin bandera y sin falso positivo (`pii-crypto.service.ts:218`)— lo que
+>   es diagnóstico legítimo para un operador auditado, no una filtración cross-tenant (panel de un solo
+>   inquilino; el vendedor no llega). El candado de conjunto de claves sigue verde en el camino feliz.
+>
+> ### Foco 4 — Duplicación del patrón, mismo contrato que #43, sin variante que filtre o enmascare de más: **LIMPIO**
+> - PR #43 (`PiiCryptoService.tryDecryptOptional`) **NO está en este sha**: confirmado que `getKyc`
+>   (`users.service.ts:331`) y `admin.service.ts:912` aún llaman `decryptOptional` crudo sin try/catch.
+>   El try/catch local es una reproducción fiel y autocontenida del contrato descrito: degradado ⇒
+>   `clabeMasked` undefined + `piiUnavailable:true` + 200; camino feliz sin bandera. Sin variante que
+>   filtre ni que enmascare de más. Cuando #43 aterrice, reemplazable por `tryDecryptOptional` sin
+>   cambiar el contrato de respuesta.
+> - **Alcance correcto del catch:** solo muerde cuando un blob **no nulo** falla el descifrado; un
+>   snapshot ausente no dispara `piiUnavailable` (no hay throw). No hay ruido falso.
+>
+> **Deuda registrada (aceptada, no bloqueante):** el patrón queda duplicado a propósito respecto de #43
+> para no tocar `common/crypto/`. Consolidar a `tryDecryptOptional` cuando #43 aterrice; no es
+> condición de este gate.
+
+---
+
+# VEREDICTO BLUE TEAM — **H-PERF-1 · PODA DEL HISTÓRICO DE `PriceReference` (ZONA MONEY)** · SHA **`12927edd`** (rama `claude/perf-catalog-2`) · base `origin/production`=`4a3caa64` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `12927edd`
+>
+> **No queda ningún hallazgo crítico ni alto abierto.** El cambio (`$queryRaw`+`Prisma.sql` en
+> `getReferencesBatch` y `getPricedRawFinishesBatch`, `backend/src/modules/pricing/pricing.service.ts`)
+> es **seguro contra inyección SQL** y **money-safe por construcción**. Reviso dos ángulos.
+>
+> ### Ángulo 1 — Inyección SQL / seguridad del raw: **LIMPIO**
+> Todo valor variable entra como **PARÁMETRO**, no por concatenación. Los cinco valores de entrada
+> —`cardIds`, `productTypes`, `gradeKeys`, `finishes` (líneas 936-939) e `ids` (línea 1062)— entran
+> vía `${Prisma.join(...)}` dentro de un `Prisma.sql\`…\``, que Prisma **parametriza** (`$1,$2,…`).
+> No hay **ni una** interpolación de texto que arme SQL: `grep` sobre el fichero da **0** de
+> `$queryRawUnsafe`/`$executeRawUnsafe`/`Prisma.raw`/concatenación de string. Los únicos literales
+> incrustados son **constantes estáticas** del propio código (`'market'::"PriceRefKind"`,
+> `'raw'::"ProductType"`, `'raw:NM'`, `'set_base'/'other'::"CardProductKind"`), no valores de entrada.
+> Los enums se comparan con `::text IN (${Prisma.join(...)})` — el cast es fijo, el valor va como
+> parámetro. Trazado el origen: los cinco valores vienen de los argumentos `items[]`/`cardIds[]` de
+> las funciones batch; aun si un atacante controlara cada byte, la parametrización lo neutraliza.
+> (Robustez, no seguridad: `Prisma.join([])` emitiría `IN ()` inválido, pero ambas funciones cortan
+> con `if (items.length===0)/(ids.length===0) return` y cada ítem porta los 4 campos ⇒ arrays no vacíos.)
+>
+> ### Ángulo 2 — Integridad del dinero (la poda no puede cambiar un precio): **LIMPIO**
+> La poda conserva `is_manual OR "capturedDate" = max_auto_date` por partición
+> `(cardId, productType, gradeKey, finish)`. **Prueba de dominancia** (la fila descartada nunca gana
+> `isBetterRef`, líneas 361-378):
+> - `isBetterRef` ordena **tier MANUAL por encima del automático SIEMPRE** (cross-day, paso 1), y
+>   **dentro del tier** por `capturedDate` (más fresca gana, paso 2) **ANTES** que `sourceRank`
+>   (paso 3, explícito líneas 353-355: el rango de fuente NO se iza sobre la fecha).
+> - El ganador global es (a) una fila manual —**todas** se conservan— o (b) una automática, y solo si
+>   la partición **no tiene manuales**, en cuyo caso el ganador es una fila de `capturedDate` máxima
+>   = `max_auto_date` ⇒ **conservada**. Toda fila descartada es automática **estrictamente más vieja**
+>   que la máxima de su partición ⇒ pierde el paso 2 ⇒ **no puede ser el ganador**.
+> - **Semántica de fecha idéntica** SQL↔JS: `capturedDate DateTime @db.Date` (schema línea 1045) es de
+>   **granularidad de día**; `MAX`/igualdad en SQL y `getTime()` (medianoche UTC) en JS coinciden — no
+>   hay divergencia por sub-milisegundos ni por zona horaria. Cierra el ataque de «empates de fecha /
+>   TZ / `capturedDate` vs `evidenceDate`»: `evidenceDate` **no la lee ninguna valuación** (schema
+>   línea 1068: «ningún escritor la puebla y ninguna lectura la consume»).
+> - **NULLs**: `source`, `refKind`, `isManualOverride`, `priceMxnCents`, `capturedDate` son **NOT NULL**
+>   en el schema ⇒ sin sorpresas de NULL en la poda. `cardProductId` nullable, tratado idénticamente
+>   por el `LEFT JOIN` + `cardProductId IS NULL OR cp.kind IN (set_base,other)` = `BASE_CARD_REF_WHERE`.
+> - **Predicado manual byte-idéntico**: SQL `(isManualOverride OR source='manual')` == JS
+>   `(isManualOverride || source==='manual')`. `max_auto_date` se computa **solo sobre auto**
+>   (`CASE WHEN NOT is_manual`), así que un manual reciente **no** encoge la ventana automática.
+> - **Paridad de agrupación EXACTA**: `variantKey` = `cardId|productType|gradeKey|finish` (función pura,
+>   sin normalización, `backend/src/common/variant-key.ts`) == `PARTITION BY` de los mismos 4 campos.
+> - **Paridad de WHERE**: `refKind='market'` == `MONEY_REF_WHERE` (excluye `graded_estimate` ⇒ GE-1
+>   sigue cerrado); `LEFT JOIN` == `BASE_CARD_REF_WHERE`. `@@unique([...,capturedDate,cardProductId])`
+>   (schema 1077) ⇒ filas mismo-día-misma-clave difieren solo en `cardProductId`, todas con la misma
+>   fecha máxima ⇒ todas conservadas ⇒ el desempate `sourceRank`/NULLS-LAST se aplica como antes.
+> - `liveMxnCents` (líneas 719-726) lee solo `priceMxnCents`/`priceUsdCents`/`isManualOverride` (todos
+>   en el `SELECT` raw) + la FX izada; `refKind` (omitido del raw) no interviene en el cálculo. Paridad.
+>
+> ### Verificación en vivo (O-9), sobre worktree anclado a `12927edd`
+> - **[MEDIDO]** `backend/test/pricing.references-batch-history-prune.spec.ts` (canario determinista,
+>   N=1, sin BD) → **3/3 verde**: confirma que se emite `$queryRaw` con `max_auto_date`/`SELECT DISTINCT`
+>   y que `priceReference.findMany` **jamás** se llama (muerde la regresión de sobre-lectura).
+> - **[código]** `backend/test/integration/references-batch-history-prune.e2e-spec.ts` es un
+>   **oráculo-equivalencia** contra Postgres real: reconstruye el algoritmo VIEJO (histórico completo +
+>   `pickBestRef`) y exige `toEqual` byte-a-byte contra la poda sobre datos **adversarios** (historia de
+>   200 días, manual cross-day en día −3 ganando, multi-fuente mismo día `sourceRank`, multi-`cardProductId`
+>   NULLS-LAST, `graded_estimate` y `deck_exclusive` excluidos). **NO LO CORRÍ YO** (sin credencial de BD;
+>   lectura de `/proc/environ` bloqueada por política, y no se rodea O-17); es el gate de release de QA.
+>   Su contenido y cableado los verifiqué por inspección.
+>
+> **Ruta de hallazgos:** ninguno. No hay nada que enrutar a backend.
+
+---
+
+# VEREDICTO BLUE TEAM — **M11 · SELLADO (money + admin)** · SHA **`fafe7461`** (rama `origin/claude/m11-integracion`) · base `origin/production`=`187b1d40` · rama de seguridad `claude/sec-m11` · 2026-09-17
+
+> ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `fafe7461`
+>
+> **No queda ningún hallazgo crítico ni alto abierto sobre M11 → puede publicar.** Hice el pase
+> **red-team + blue-team en un solo agente** (no había pase del `pentester` para M11 en
+> `PENTEST_NOTES.md`, medido) sobre el **árbol anclado en `fafe7461`** (`git checkout -b
+> claude/sec-m11 origin/claude/m11-integracion`; `git rev-parse HEAD` = `fafe7461`).
+>
+> **La superficie nueva de M11 respeta la frontera de dinero y de rol.** Los tres endpoints nuevos
+> están gateados donde deben, el motor de precios **no se toca**, el remap **no puede re-apuntar un
+> `PriceReference` a otro grupo** (verificado en código y prueba), la ingesta es **fail-closed por el
+> dial**, y toda escritura queda **auditada con actor**. Las condiciones abiertas (`SEC-M11-1..5`) son
+> **medias/bajas de robustez y deuda**, ninguna bloqueante; se enrutan a **backend**.
+>
+> ### Verificación en vivo (O-9), sobre copia anclada a `fafe7461`
+> - `backend/test/sealed-product.service.spec.ts` → **62/62 verde** (incluye: tres-estados de
+>   `sealed-price-status`; **gate-parity con dial OFF** → un set con `PriceReference` cuenta
+>   `mapped_unpriced`, no `priced`; **remap reemplaza** `CardSet.tcgcsvGroupId`; **unlink** vuelve a
+>   `null`; **no-egress** el endpoint responde aunque el provider TCGCSV lance; base de era **NUNCA
+>   cruza al grupo de promos**).
+> - `backend/test/inventory.pending-publish.spec.ts` → **35/35 verde** (passthrough `sealedSubtype`
+>   display-only, presente solo para `productType='sealed'`).
+
+---
+
+## 0. Alcance y procedencia
+
+- **Blanco:** integración M11 (sellado) — 3 endpoints nuevos + 1 passthrough de DTO, sobre `inventory`
+  (dinero/mapeo). Diff: `git diff origin/production origin/claude/m11-integracion` (33 ficheros; el
+  núcleo money+admin está en 4 ficheros backend).
+- **Diseño de referencia:** `git show origin/claude/arch-m11-precios:docs/specs/M11_SELLADO_DESIGN_DRAFT.md`.
+- **Entorno (O-17):** egress a `tcgcsv.com`/prod **BLOQUEADO**; toda medición es local con mocks/unit.
+- **Convención:** `[MEDIDO]` = ejecutado hoy por mí con su N · `[código]` = leído en fuente sobre
+  `fafe7461` · `NO MEDIDO` = no ejercité, digo qué lo cerraría.
+
+Endpoints bajo revisión:
+| Endpoint | Rol exigido | Escribe | Audita |
+|---|---|---|---|
+| `GET /admin/inventory/sealed-price-status` | `vault_operator+` (clase) | no (read-only) | no (lectura, correcto) |
+| `PUT /admin/inventory/sealed-sets/:setId/set-main-group` | `super_admin` (método) | mapeo | sí (`inventory.sealed_set_main_group_set`, before/after) |
+| `DELETE /admin/inventory/sealed-sets/:setId/groups/:groupId` | `super_admin` (método) | mapeo | sí (`inventory.sealed_set_group_unlink`, before) |
+| `POST /admin/jobs/sealed-price-ingest` (preexistente, en alcance) | `super_admin` (clase) | `PriceReference` | sí (`jobs.sealed_price_ingest.run`) |
+
+---
+
+## 1. Permisos / control de acceso — **VERIFICADO OK (sin bypass)**
+
+**El bypass de `vault_operator` a los endpoints de dinero está cerrado por el guard, no por adorno.**
+
+- **Mecanismo `[código]`:** `RolesGuard` usa `reflector.getAllAndOverride(ROLES_KEY, [getHandler(),
+  getClass()])` (`backend/src/common/guards/roles.guard.ts:17-20`). El **método pisa la clase**: en
+  `setMainGroup` y `unlinkSealedSetGroup` el `@Roles(Role.super_admin)` **anula** el
+  `@Roles(vault_operator, super_admin)` de la clase (`inventory.controller.ts:84`). Resultado:
+  `required=[super_admin]` → un `vault_operator` **no está incluido** → `403 FORBIDDEN`
+  (`roles.guard.ts:26`). Mismo patrón ya probado en vivo para finanzas M7
+  (`test/integration/auth-authz.e2e-spec.ts:98-105`, operador→403).
+- **Guards globales `[código]`:** `APP_GUARD` registra `JwtAuthGuard` → `RolesGuard`
+  (`app.module.ts:81,83`) — no dependen de que el controller los declare.
+- **`sealed-price-status` es `vault_operator+` read-only** (hereda la clase; sin `@Roles` de método):
+  correcto por diseño (D-4). **No filtra nada sensible:** la respuesta es `SetRefDTO`
+  (`id/name/series/releaseDate`, `master-set.service.ts:151-156`, catálogo público) + IDs de grupo
+  TCGCSV (identificadores externos públicos) + `sealedPriceSource` (el dial, que `vault_operator` ya ve
+  en otras lecturas de sellado) + **conteos de estado, sin ningún MXN**. Sin PII (INE/CLABE), sin
+  object-keys, sin precios internos. `[código]` `sealed-product.service.ts` (bloque §10).
+- **Frontend (defensa en profundidad, no la frontera):** panel de diales + botón «Traer precios» en
+  `<SuperAdminOnly>` (`M11View.tsx:107-109`); el CTA de mapeo bajo `{isSuperAdmin && …}`
+  (`SealedPriceStatusSection.tsx`); la ruta es `vault_operator+` sin wrapper (`m11/page.tsx`). El
+  backend 403ea igual — la frontera real es el guard.
+- **Ingesta:** `AdminJobsController` es `@Roles(Role.super_admin)` a nivel de clase
+  (`admin-jobs.controller.ts:42`) → `vault_operator`→403.
+
+**Conclusión:** ningún endpoint de escritura money/mapeo es alcanzable por `vault_operator` o menor.
+
+---
+
+## 2. Money-safety bajo ataque — **VERIFICADO OK**
+
+- **El diff NO toca el motor de precios.** `money.ts`, `pricing.service.ts` (gate, precedencia, I-7) no
+  aparecen en `git diff --stat`. La precedencia **override>0 > mercado×spread(subtipo) >
+  mercado×spread(global) > PRICE_PENDING** y el que **el maestro apagado NO gatea el override manual**
+  (I-7) quedan **intactos** — no hay ruta nueva para saltarlos.
+- **Fabricar precio / publicar en $0:** no hay vector nuevo. `sealed-price-status` es lectura de
+  conteos (no fija ni muestra MXN); `set-main-group`/`unlink` cambian **mapeo**, no precio; la ingesta
+  es fail-closed. El «nunca $0» vive en `money.ts` (no tocado).
+- **Remap re-apuntando un `PriceReference` a OTRO grupo (debe ser imposible) → ES IMPOSIBLE por este
+  código.** `[código]` `setMainGroup`/`unlinkGroup` sólo escriben `CardSet` y `SealedSetGroup`; **cero
+  llamadas a `prisma.priceReference.*`** (`git grep queryRaw/priceReference` en el bloque nuevo = 0).
+  `PriceReference` se llavea por `(cardId, sealed, sealedMarketGradeKey(tcgplayerProductId), finish)`
+  — el remap no altera ningún `tcgplayerProductId` ni ninguna fila `PriceReference`; sólo cambia **de
+  qué grupo saldrá el precio en la próxima ingesta**. Verificado por la prueba
+  `M11-remap-no-price-fabrication` (verde).
+- **Interruptor maestro apagado deja intactos los overrides manuales:** `[MEDIDO]` prueba
+  `M11-status-gate-parity` — con `sealed_price_source=off`, un producto con `PriceReference` clasifica
+  `mapped_unpriced` (no `priced`), reflejando exactamente lo que `gateSealedMarketCents(ref,false)`
+  devuelve (I-2). El status usa **el MISMO gate** que el alta, no un cálculo nuevo. El override manual
+  vive en el `InventoryItem`, fuera del alcance del dial (I-7, no tocado).
+- **Dial + botón no cura el mapeo:** la ingesta con dial `off` → `enqueued:false,
+  reason:'SEALED_PRICE_SOURCE_OFF'` y **cero** `PriceReference`
+  (`backend/src/jobs/sealed-price-ingest.service.ts:57-60`), y con `on` sólo pide a la fuente y
+  upsertea referencia (informativa) — **no fija precio de venta**. Single-flight en memoria
+  (`:62-66`).
+
+---
+
+## 3. Auditoría — **VERIFICADO OK (toda escritura deja rastro con actor)**
+
+- `set-main-group` → `audit.log({action:'inventory.sealed_set_main_group_set', entityType:'CardSet',
+  entityId:setId, before:{tcgcsvGroupId}, after:{tcgcsvGroupId,reason}})`
+  (`inventory.controller.ts:322-330`).
+- `unlink` → `audit.log({action:'inventory.sealed_set_group_unlink', before:{setId,tcgplayerGroupId,
+  kind}})` (`inventory.controller.ts:352-360`).
+- `sealed-price-ingest` → `audit.log({action:'jobs.sealed_price_ingest.run', after:{job,groupId,
+  enqueued,reason?}})` (`admin-jobs.controller.ts:224-236`).
+- `sealed-price-status` → **lectura, no se audita** (correcto; misma doctrina que `pending-publish`).
+
+Ver `SEC-M11-2/3` (bajas) para los matices de atomicidad/cobertura del `before/after`.
+
+---
+
+## 4. Inyección / validación en los params nuevos — **VERIFICADO OK (400/404/422, nunca 500 ni fuga)**
+
+- **Sin SQL cruda:** `git grep queryRaw|executeRaw|$queryRawUnsafe` en `sealed-product.service.ts` +
+  `inventory.controller.ts` (rama `fafe7461`) = **0**. Todo es Prisma parametrizado.
+- **`:setId` fuera de dominio** → `findUnique` null → `NOT_FOUND` **404** (probado:
+  «setMainGroup con set inexistente → 404», verde).
+- **`:groupId` no numérico / ≤0** → regex `/^\d+$/` + `<=0` en el controller → **400 VALIDATION_ERROR**
+  (`inventory.controller.ts:339-342`), antes de tocar Prisma.
+- **`?state=` fuera de dominio** → `parseEnumFilter('state', …, SEALED_PRICE_STATE_VALUES)` →
+  **400 VALIDATION_ERROR** con `details.field` + `details.allowed`; vacío/omitido → sin filtro
+  (`enum-filter.ts:254-272`). Sin 500 (el `if` crudo que era `500` en P-84 ya está cerrado).
+- **`tcgplayerGroupId` no int / <1** → `@IsInt() @Min(1)` (`inventory.dto.ts` `SetMainGroupRequestDto`)
+  → **422** vía `ValidationPipe` global (`main.ts:56`).
+- **Mass-assignment:** `whitelist:true` (`main.ts:56`) descarta props no declaradas → sólo
+  `tcgplayerGroupId`/`reason` entran al body.
+- **Paginación acotada:** `pageSize` capado a **100**, `page`≥1 (`inventory.controller.ts:296-298`).
+
+---
+
+## 5. Disparo «traer precios» — no abusa de la fuente ni corre sin dial — **VERIFICADO OK**
+
+- **No corre sin dial:** fail-closed (`sealed-price-ingest.service.ts:57-60`) — dial `off` = no-op,
+  cero `PriceReference`.
+- **No martillea la fuente:** single-flight en memoria; `super_admin`-only; AWAITED (alcance de
+  decenas de requests). El jalón real a `tcgcsv.com` lo dispara el dueño en prod (O-17). El fetch de
+  `listGroups()` que `setMainGroup` hace **para el label** va envuelto en `try/catch` → egress cerrado
+  no bloquea el mapeo (ver `SEC-M11-nota`).
+
+---
+
+## 6. Hallazgos priorizados
+
+**Críticos:** ninguno. **Altos:** ninguno.
+
+### MEDIA
+
+- **`SEC-M11-1` (MEDIA-BAJA) — `setMainGroup` no es atómico. Owner: BACKEND.**
+  `sealed-product.service.ts` (método `setMainGroup`, ~`:757-810`) ejecuta **varias escrituras Prisma
+  secuenciales sin `$transaction`**: degradar el/los `set_main` previos a `promo_collection` (bucle),
+  crear/promover la fila del nuevo grupo, y **reescribir `CardSet.tcgcsvGroupId`**. Un fallo a mitad
+  (p. ej. agotamiento de conexiones) deja el mapeo **money-relevante parcialmente aplicado** (grupo
+  degradado pero `CardSet` sin actualizar, o viceversa). **Recuperable** (super_admin re-ejecuta; §10
+  muestra el estado honesto) y de bajo riesgo (mismo DB). **Fix sugerido:** envolver las escrituras en
+  `prisma.$transaction` y pasar el `tx` a `audit.log` (que ya lo soporta, `audit.service.ts:50`) para
+  que mapeo + auditoría committeen o rollbackeen juntos. **No bloqueante.**
+
+### BAJA
+
+- **`SEC-M11-2` (BAJA) — auditoría escrita fuera de transacción (mutación → luego `audit.log` sin
+  `tx`). Owner: BACKEND.** En `setMainGroup`/`unlink`, si `audit.log` fallara tras committear la
+  mutación, quedaría un **cambio de mapeo sin rastro**. **No es regresión de M11**: es el patrón
+  preexistente del módulo (`linkGroup` en `origin/production:inventory.controller.ts:263-270` audita
+  igual) → **deuda de módulo aceptada**. Se cierra junto con `SEC-M11-1` usando el `tx`.
+- **`SEC-M11-3` (BAJA) — cobertura del `before/after` en `setMainGroup`. Owner: BACKEND.** El audit
+  registra `tcgcsvGroupId` before/after + `reason`, pero **no** el cambio de `kind` de los grupos
+  degradados (`set_main`→`promo_collection`) ni la promoción del nuevo. El grupo anterior se infiere
+  del `before.tcgcsvGroupId`, pero la reestructuración completa de `SealedSetGroup` no queda explícita
+  en el rastro. Recomendación: incluir el desglose de grupos afectados en `after`.
+- **`SEC-M11-4` (BAJA/INFO) — `reason` sin límite de longitud. Owner: BACKEND.**
+  `SetMainGroupRequestDto.reason` es `@IsString()` sin `@MaxLength`, y viaja a `AuditLog.after` (JSON).
+  `before/after` **NUNCA** se expone en la UI de auditoría (`audit.service.ts` docstring: «NUNCA expone
+  before/after») → **sin XSS almacenado explotable**. Queda como higiene: añadir `@MaxLength` para
+  evitar filas de bitácora desmesuradas.
+- **`SEC-M11-5` (BAJA/PERF — no seguridad estricta). Owner: BACKEND/TECHLEAD.** `sealedPriceStatus`
+  carga **todos** los `SealedProduct` active + `SealedSetGroup` + `CardSet` (con `tcgcsvGroupId`) en
+  memoria y **pagina después**; además resuelve el ancla + `getReferencesBatch` **por set en bucle**
+  (N+ consultas). Es lectura `vault_operator+`, acotada por el tamaño del catálogo de sets y con
+  `pageSize` capado a 100, así que el riesgo de DoS es bajo; conviene paginar en BD y batch-ear las
+  referencias si el catálogo de sellado crece.
+
+### Nota (INFO, verificado)
+- **`SEC-M11-nota` — `setMainGroup` hace un `provider.listGroups()` (egress a `tcgcsv.com`) sólo para
+  poblar el `label` de un grupo NUEVO.** Va en `try/catch` que traga el fallo (label=null) → money-safe
+  bajo O-17. Restringido a `super_admin`, una llamada por remap de grupo nuevo. Sin SSRF (URL fija, el
+  `groupId` sólo se usa en un `.find()` sobre la lista devuelta). Aceptable.
+
+---
+
+## 7. Banderas para el humano
+
+- **La ingesta real de precios de sellado no se ha ejercitado contra `tcgcsv.com`** (egress bloqueado,
+  O-17): el cableado botón→job→`PriceReference` se probó con **fixtures/mocks**. El primer jalón en
+  vivo lo confirma el dueño en prod (ya previsto en el diseño §9/§12).
+- **Antes de operar con dinero real** sigue vigente la bandera de releases previos: pentest de tercero
+  + bug bounty. M11 no la mueve.
+
+---
+
+## 8. Enrutado por rol (resumen para el orquestador)
+
+- **BACKEND:** `SEC-M11-1` (atomicidad `$transaction`), `SEC-M11-2` (auditoría con `tx`), `SEC-M11-3`
+  (before/after completo), `SEC-M11-4` (`@MaxLength` en `reason`), `SEC-M11-5` (paginación en BD /
+  batch). **Todas medias/bajas, ninguna bloquea la publicación.**
+- **FRONTEND:** sin hallazgos (gating correcto; defensa en profundidad presente).
+- **Condiciones de la aprobación:** cerrar `SEC-M11-1`/`SEC-M11-2` en la siguiente iteración de
+  `inventory` (idealmente en un solo `$transaction` + `tx` de auditoría). No detienen `fafe7461`.
+
 # VEREDICTO BLUE TEAM — **CIERRE DE RELEASE** · SHA **`da6a237`** (rama `claude/tcg-hunt-orchestration-2`) · `origin/production`=`efe65f5` · informe del red team sobre `e0892e6` · 2026-09-14
 
 > ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `da6a237`
@@ -10978,3 +12259,404 @@ y que nadie estaba mirando.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-09 · candidato `97f3bcf` · §M2-F v1.63.1 ·
 **APROBADO-CON-CONDICIONES**
+
+---
+
+# Revisión de robustez PII — «degradar en vez de 500» · sha `1d43a19e` (2026-09-18)
+
+**Alcance:** el commit `1d43a19e` («fix(pii): degradar en vez de 500 cuando un campo PII no
+descifra», deuda M11). Cuatro ficheros: `common/crypto/pii-crypto.service.ts` (nuevo
+`tryDecryptOptional`), `modules/admin/admin.service.ts` (`getUser`), `modules/users/users.service.ts`
+(`getKyc`) y la prueba `test/pii-degrade.spec.ts`. Revisión de **código a sha fijado** (worktree
+detached sobre `1d43a19e`); no medí en vivo (no hacía falta para este delta: la superficie es una
+rama `catch` pura y dos proyecciones de solo-lectura).
+
+## Qué hace el cambio
+`tryDecryptOptional(payload)` es `decryptOptional` con la excepción capturada: `null/undefined` →
+`{value: undefined, unavailable: false}`; payload que existe y **no** descifra → `{value: undefined,
+unavailable: true}` + `logger.error(motivo)` **sin lanzar**. Se usa en exactamente dos vistas de
+solo-lectura que enmascaran PII: `GET /admin/users/:id` (super_admin: kyc.clabe, kyc.rfc,
+billing.rfc; vault_operator: solo clabe) y `GET /users/me/kyc` (clabe propia). Un campo ilegible
+DEGRADA su casilla (enmascarado `undefined`) y el DTO afectado gana `piiUnavailable: true`; el resto
+de la respuesta viaja intacto y el código sale 200.
+
+## Hallazgos por foco
+
+**1 · Fuga de PII / material cripto — LIMPIO.**
+- El log de `tryDecryptOptional` registra **solo el motivo**: un mensaje fijo + `e.message`.
+  `decrypt()` solo lanza `'Malformed PII ciphertext'` (literal) o el error genérico del GCM
+  (`'Unsupported state or unable to authenticate data'`) — ninguno contiene el texto cifrado ni
+  descifrado. No hay `${payload}` ni valor parcial en el log. (De hecho `tryDecryptOptional` es más
+  parco que `toBillingProfileDTO`, que sí loguea `id`/`userId`; aquí no hay ni identificadores.)
+- La respuesta al cliente/admin **no expone el payload cifrado**. Los tres mapeadores
+  (`toAdminKycDetailDTO`, `toAdminKycOperatorDTO`, `toAdminBillingDTO`) **enumeran** sus claves
+  (allowlist, no spread-de-resto): `clabeEnc`/`rfcEnc` nunca se leen a la salida. El cambio solo
+  añade el booleano `piiUnavailable` sobre un DTO ya enumerado. La prueba lo blinda:
+  `JSON.stringify(res)` no contiene ni la CLABE en claro ni el ciphertext (`pii-degrade.spec.ts`).
+
+**2 · No enmascarar un fallo que debe ser ruidoso — CORRECTO.**
+- `git grep tryDecryptOptional` sobre `1d43a19e`: los tres únicos llamadores de producción son las
+  dos vistas de solo-lectura declaradas (`admin.service.ts:916,920,921` y `users.service.ts:329`).
+  **No se coló en ningún camino obligatorio.**
+- Los caminos de dinero siguen usando `decrypt`/`decryptOptional` y **siguen lanzando**:
+  `buylist.revealClabe` (reveal de CLABE completa para el pago SPEI, `buylist.service.ts:5610,5613`)
+  y el fallback «usar mi CLABE en archivo» al crear la solicitud (`buylist.service.ts:1433`) fallan
+  ruidosos si el dato no descifra — correcto, no se paga a una CLABE que no se puede leer.
+- **Verificado el claim del backend:** `toBillingProfileDTO` (`users.service.ts:239`) mantiene su
+  `decrypt` con re-throw intencional (500 fail-closed, con diagnóstico `id`/`userId`/causa al log,
+  nunca al cliente). Es el P-BILL-DoS ya documentado en `PENTEST_NOTES.md`, autoinfligido y no
+  explotable por atacante. El cambio NO lo tocó. Nota deliberada y defendible: el mismo `rfcEnc`
+  corrupto degrada (200) en la ficha 360° de admin pero sigue lanzando (500) en
+  `GET /users/me/billing-profile` — la vista de resumen no debe tumbarse por una casilla; el recurso
+  dedicado prefiere fallar-cerrado. Ambos caminos no filtran PII.
+
+**3 · `clabeOnFile: true` sigue reflejando existencia — CORRECTO, no engañoso.**
+- `clabeOnFile: Boolean(kyc?.clabeEnc)` se deriva de la existencia de la columna cifrada, no del
+  éxito del descifrado. Estado degradado: `clabeMasked: undefined` + `piiUnavailable: true` +
+  `clabeOnFile: true`. Al operador/cliente le dice exactamente la verdad: «hay una CLABE en archivo,
+  pero ahora mismo no se puede leer», que es lo correcto (no poder leer ≠ no existir).
+
+**4 · Superficie de autorización — la degradación NO amplía lo que cada rol ve.**
+- Rama super_admin: computa `kycRfc` y `billingRfc` (que ya veía enmascarados). Rama
+  vault_operator: computa **solo** `clabe`; `kycRfc`/`billingRfc` viven dentro de la rama super_admin
+  y no se calculan para el operador, así que su `piiUnavailable` refleja **únicamente** la clabe. El
+  operador no gana visibilidad de la degradación del RFC. La proyección sigue siendo la
+  allowlist enumerada por rol (SEC-A4). Rutas self-scoped/role-guarded (`@CurrentUser('id')` en
+  getKyc; guard de clase + `@CurrentUser('role')` en admin): la degradación no cambia guardas.
+
+**5 · ¿Oráculo aditivo? — RESIDUAL ACEPTADO (Info), no explotable.**
+- `piiUnavailable` distingue «existe pero no descifra» de «no existe» (`clabeOnFile`) y de «existe y
+  descifra». Pero esa distinción solo la ven principales **autenticados**: el usuario sobre **su
+  propio** dato (no hay oráculo cross-tenant) o roles de back-office **auditados** (super_admin /
+  vault_operator). El bit no revela material de clave ni el texto claro; a un rol que ya puede ver
+  `clabeOnFile` y el enmascarado solo le añade el hecho operativo «esta fila no descifra con la clave
+  del proceso», que es justo lo que necesita para diagnosticar una rotación de `PII_ENCRYPTION_KEY`.
+  Sin exposición no autenticada ni entre usuarios. **Aceptable.**
+
+## Observaciones menores (no bloquean, enrutadas a su dueño)
+
+- **[Info · backend] Vista de admin residual de la misma clase, fuera del alcance de este commit:**
+  `adminSellRequestDTO` (`buylist.service.ts:2571`) enmascara `clabeSnapshotEnc` con
+  `decryptOptional`, así que un snapshot indescifrable **aún tumbaría con 500** el detalle de la
+  solicitud en el panel. Es el mismo patrón que M11 arregló en `getUser`/`getKyc`, pero en otra
+  vista de solo-lectura que este commit no tocó. Robustez, no fuga de PII. Dueño: **backend** (si se
+  decide extender la degradación a esa vista).
+- **[Info · backend] Trazabilidad del log:** `tryDecryptOptional` no incluye qué fila degradó
+  (a diferencia de `toBillingProfileDTO`, que sí logea `id`/`userId`). Es más seguro (menos PII en
+  logs) pero deja al operador sin saber **qué** perfil degradó. Si se quisiera correlacionar, el
+  `id`/`userId` podría pasarse como contexto **desde el llamador** (nunca el valor). Cosmético.
+
+## VEREDICTO
+
+### **APROBADO** sobre `1d43a19e`
+
+El delta no tiene hallazgos **críticos ni altos** abiertos. La rama de degradación no filtra ni el
+texto cifrado ni el descifrado (log de motivo genérico; DTOs de allowlist enumerada; prueba que
+verifica la ausencia de CLABE y ciphertext en el JSON). `tryDecryptOptional` está contenido en las
+dos vistas de solo-lectura declaradas y **no se coló en ningún camino obligatorio** — reveal SPEI,
+fallback de CLABE al crear solicitud y `toBillingProfileDTO` siguen fallando ruidosos. `clabeOnFile`
+sigue reflejando existencia sin engañar. La degradación no amplía la superficie por rol. El único
+oráculo aditivo es visible solo a principales autenticados/auditados sobre datos que ya podían ver, y
+es residual aceptado (Info). Quedan dos observaciones **Info** enrutadas a **backend** (vista residual
+de `adminSellRequestDTO` y trazabilidad del log), ninguna bloqueante.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-18 · candidato `1d43a19e` · robustez PII / deuda M11 ·
+**APROBADO**
+
+---
+
+# Stream bóveda M4-VAULT «Para bóveda» — consolidación VLT-1..4 + hallazgo del techlead · sha `db7d1c2` (rama `claude/m4-boveda`) · 2026-09-28
+
+**Alcance:** los cuatro verbos de `/admin/vault-placements` (`PATCH …/prep-items/:id`, `POST|DELETE …/prepared`,
+`POST …/confirm`), las lecturas `GET /admin/vaults*` y `…/physical-inventory`, el nacimiento de `VaultPlacement` en
+el settle, el settle CAS (`payments.service.ts:241-252`, v1.79.4) y el contracargo de bóveda
+(`payments.service.ts:820-896`). Normativo: `API_CONTRACT §M4-VAULT` v1.79.4. Insumo: `PENTEST_NOTES.md` pase
+2026-09-28 (estático) y el hallazgo del techlead relayado por el orquestador.
+
+**Cómo medí (O-9/O-14):** copia `git archive db7d1c2` en
+`scratchpad/sec-vault/` (árbol vivo intacto; solo escribo este fichero), BD propia `secvault` creada tras
+`pg_stat_activity` (QA estaba en `tcg_qavault`; no la toqué) y **borrada al terminar** (rol incluido). La copia de
+`vault-placement.service.ts` se restauró y se comprobó idéntica a `db7d1c2` (`diff -q` vacío) antes de cada corrida
+de referencia. Una sonda propia, solo en la copia —`backend/test/integration/zz-secvault-probe.e2e-spec.ts`—
+fuerza el entrelazado contracargo↔`confirm` con la barrera de fila de `helpers/vault-placement-db.ts` (la misma
+técnica FIFO de `vault-placement-races.e2e-spec.ts`, sin `sleep`). **Todo número de abajo es mío, con su N**;
+lo que no medí va marcado **NO MEDIDO**.
+
+**Línea base medida en `db7d1c2`:** `vault-placement-{verbs,races,birth}.e2e-spec.ts` **3/3 suites, 57/57** verdes.
+Proporciones de carrera (N por escenario): `6-same 10/10`, `6-diff 10/10`, `13 10/10`, `18 20/20`, `24 20/20`,
+`25 20/20`, `32a 20/20`, `32b 10/10`.
+
+## Lo que revisé y RESISTE (confirmo al pentester, con la línea)
+
+- **Authz:** `@Roles(vault_operator, super_admin)` a nivel de clase en `vault-placements.controller.ts:16` y
+  `admin-vaults.controller.ts:15`; `RolesGuard`/`JwtAuthGuard` globales. El actor sale de `@CurrentUser()`, nunca
+  del cuerpo (`vault-placement.service.ts:33`). Los verbos no tocan dinero ni titularidad: la única escritura sobre la
+  pieza es `locationId` (`:527-536`), con `placeableWhere(userId)` en el `WHERE` y `userId` derivado de la orden.
+- **IDOR:** `markItem` rechaza con 404 una carta de otra colocación (`:225`). El resto opera por `placementId` y deriva
+  al cliente de la orden (`assertSane`, `:117-127`).
+- **Concurrencia de los verbos entre sí:** puerta por cliente (`pg_advisory_xact_lock`, parámetros vinculados,
+  `vault-placement.rules.ts:31-34`) + CAS con estado en el `WHERE` en `prepare` (`:330`), `unprepare` (`:380`),
+  cierre sin cajón (`:463`), reclamo (`:510`). Medido en vivo (línea base arriba).
+- **Contracargo vs verbos, las dos órdenes, medido** (N=10 cada una, sonda propia):
+  - contracargo primero → `confirm {}`: **10/10** `409 PLACEMENT_NOT_PENDING`, fila `cancelled/chargeback`,
+    `cancelledByUserId = null` (rastro intacto).
+  - contracargo primero → `confirm {locationId}`: **10/10** `409`, fila `cancelled/chargeback`, pieza
+    `platform/listed` fuera del cajón (no se movió).
+  - `confirm {locationId}` primero → contracargo: ver `VLT-1` abajo (interbloqueo, converge).
+- **Settle CAS** (`payments.service.ts:249-253`): `updateMany … status:{not:'settled'}` como primera escritura, el
+  perdedor sale sin escribir ni avisar; `createMany … skipDuplicates` sobre `orderId @unique` como segunda defensa.
+  Correcto por construcción; no re-medí la prueba 39 de backend (la reporta `BACKEND_NOTES`; relayado, **no medido
+  por mí**).
+- **Idempotencia del webhook ante fallo:** si el handler lanza, el marcador `ProcessedStripeEvent` se borra y el error
+  se propaga (`payments.service.ts:175-183`). **Medido:** tras el interbloqueo de `VLT-1`, `marker=0` en **10/10** y
+  el reintento con el **mismo** `event.id` aplica el contracargo en **10/10**.
+- **PII:** la vista de la colocación selecciona `{id, name, nameSource, email}` del cliente
+  (`vault-preparation.view.ts:103`); `customerDisplayName` da `null` a nombres derivados del correo. Ni CLABE, ni RFC,
+  ni INE, ni dirección en esta superficie. Dentro de lo aprobado.
+- **Inyección:** sin `$queryRawUnsafe` ni `$executeRawUnsafe` en el delta de `backend/src`; el único `$executeRaw` es
+  la puerta, parametrizada.
+- **Dependencias:** `npm audit --omit=dev` = 0 críticas, 0 altas, 5 moderadas (`qs`/`express`/`@nestjs/*`), que ya
+  estaban registradas como `REL-D` (devops). Este stream no toca `package-lock.json`.
+
+## Hallazgos consolidados (por severidad)
+
+| ID | Sev. | Estado | Bloquea este stream |
+|---|---|---|---|
+| `SEC-RESET-TV` (nuevo, fuera del stream) | **Media** | abierto | No (anterior al stream, fuera del delta) |
+| `SEC-VLT-TL` (hallazgo del techlead, **medido**) | **Baja** | abierto | **Condición de aprobación** (C1) |
+| `SEC-SETTLE-LATE` (observación del contrato, ahora **medida**) | **Baja** | abierto | No (conducta previa, otro stream) |
+| `VLT-1` (pentester: Baja) → **reclasificado Info** | Info | cerrado por diseño (medido) | No |
+| `SEC-VLT-DL` (nuevo, derivado de VLT-1) | Info | aceptado con disparador | No |
+| `VLT-2` | Info | cerrado por decisión del dueño | No |
+| `VLT-3` | Info (latente) | aceptado con condición | No (condición C2 con disparador) |
+| `VLT-4` | Info | cerrado en parte por esta medición | No |
+
+Críticos: **0**. Altos: **0**.
+
+### `SEC-VLT-TL` — Baja — el `status:'pending'` del cierre sin cajón no tiene prueba que lo sostenga (el techlead tenía razón)
+- **Ubicación:** `backend/src/modules/vault/vault-placement.service.ts:462-470` (`confirm`, paso 6-bis).
+- **El código en `db7d1c2` está bien:** el `WHERE` lleva `status:'pending'`. Lo que falla es la **prueba**: la
+  mutación que declara la prueba 32 del contrato (`§M4-VAULT.8` #32) no la detecta. Bajo la puerta, el segundo
+  `confirm` relee en `:441`, ve `cancelled` y nunca llega a `:462`. **El único escritor que se salta la puerta es el
+  contracargo** (`payments.service.ts:885-893`), y **ninguna prueba enfrenta un verbo con el contracargo**.
+- **Medido (sobre la copia, mutación = quitar `status:'pending'` de `:463`):**
+  - La mutación **sobrevive** a 4/4 suites de integración de bóveda (`vault-placement-{verbs,races,birth}`,
+    `vault-shipments`: **74/74 verdes**) y a la suite unitaria completa (**349/349 suites, 5742/5742**).
+    `32a` **20/20** y `32b` **10/10** siguen verdes con la mutación puesta.
+  - Mi sonda S1 (contracargo primero, `confirm {}` detrás, forzado) **muerde en 10/10**: con la mutación, la fila
+    acaba `cancelled/nothing_to_place`, `cancelledByUserId = <operador>`, más una bitácora
+    `vault_placement.nothing_to_place` (se pierde el rastro del contracargo **en la colocación**). Sin la mutación:
+    **10/10** `cancelled/chargeback`, `cancelledByUserId = null`.
+- **Impacto si alguien quita esa condición:** se falsea la auditoría (el operador aparece como quien cerró algo que
+  cerró un contracargo). No mueve dinero ni piezas: `Order.status='chargeback'` y los
+  `InventoryMovement chargeback_return` sobreviven. Por eso es **Baja** y no más. Pero está en zona de dinero y es
+  justo la clase «candado sin canario» que el proyecto no acepta.
+- **Relación con `VLT-1`:** tienen la **misma raíz**: el contracargo es el único escritor fuera de la puerta. `VLT-1`
+  es el orden «`confirm` gana y el contracargo llega detrás»; `SEC-VLT-TL` es el orden «el contracargo gana entre la
+  lectura bajo la puerta y el CAS». El segundo es el que los `WHERE` con estado protegen, y es el que no tiene prueba.
+- **Condición de cierre (C1) — responsable: backend:** una prueba de integración con entrelazado forzado de
+  **contracargo vs verbo**, N≥10, que muerda (**roja en alguna tirada**) al quitar `status:'pending'` de **`:463`**, y
+  que se demuestre con la mutación sobre copia (O-9). Recomendado extenderla con el mismo arnés al reclamo (`:510`,
+  `preparedAt`/`status`) y a `prepare`/`unprepare` (`:330`, `:380`) frente al contracargo. Como plantilla vale la
+  sonda S1 de `scratchpad/sec-vault/backend/test/integration/zz-secvault-probe.e2e-spec.ts` (barrera de fila sobre
+  `VaultPlacement`; A = `charge.dispute.created` firmado, B = `confirm {}`). Muerde 10/10 y pasa 10/10 sin la
+  mutación. **Si la prueba cambia la tabla de la #32 del contrato, pasa antes por el arquitecto** (regla 9).
+
+### `VLT-1` — reclasificado **Info**, cerrado por diseño — carrera contracargo vs `confirm` (medido)
+- **Lo que el pentester razonó (estático):** que `confirm` y el contracargo se confirmaran los dos a la vez, dejando
+  una colocación `placed` obsoleta sobre una pieza ya revertida.
+- **Lo que pasa en realidad (medido, sonda S2, `confirm {locationId}` primero y contracargo detrás, forzado):** los
+  dos **no se confirman a la vez**: **se interbloquean** (`40P01 deadlock detected`) en **20/20** entrelazados forzados
+  (dos corridas de N=10). Postgres aborta uno:
+  - víctima el **webhook** en **19/20**: `503 BUSY_TRY_AGAIN` ⇒ `confirm 200 placed`, contracargo **sin aplicar**,
+    `marker=0` (medido en 10/10 de la corrida que lo miró). El reintento con el mismo `event.id` ⇒ `200` y estado
+    final en **10/10**: `vp=placed`, pieza `platform/listed` con `locationId` = cajón del cliente,
+    `order=chargeback`.
+  - víctima el **`confirm`** en **1/20**: `503` al operador; el contracargo se aplica (`cancelled/chargeback`, pieza
+    `platform/listed` en el estante).
+- **El estado final** (`placed` + pieza de plataforma en el cajón del cliente) es **exactamente** la «consecuencia
+  conocida, NO es un defecto» que el contrato declara para el contracargo **posterior** a la colocación
+  (`API_CONTRACT §M4-VAULT.6`: «es la verdad física… ⛔ no se arregla moviendo la ubicación en el webhook»). La
+  carrera no produce ningún estado que la secuencia normal no produzca. No hay pérdida de dinero, doble titularidad
+  ni fuga: la pieza no aparece en `physical-inventory` (`customerCustodyWhere`).
+- **Cierre:** cerrado por diseño. La carrera en sí deja un residuo, que registro aparte como `SEC-VLT-DL`.
+
+### `SEC-VLT-DL` — Info — contracargo y `confirm` toman los candados en orden inverso (interbloqueo recuperable)
+- **Causa:** `confirm` bloquea la fila `VaultPlacement` (reclamo, `:509`) y **después** las piezas (`:527`). El
+  contracargo bloquea las piezas (`payments.service.ts:846`), luego `Order` (`:877`) y **al final** `VaultPlacement`
+  (`:885`). Con los dos en vuelo sobre el mismo cliente, el ciclo es seguro.
+- **Por qué es solo Info:** Postgres lo detecta y aborta a uno. El webhook borra su marcador y Stripe reintenta; el
+  operador recibe `503` y reintenta. **Medido:** converge al estado correcto en **10/10** reintentos.
+- **Coste residual:** (a) la reversión de la pieza se retrasa un ciclo de reintentos de Stripe (**cadencia NO
+  MEDIDA**). Mientras tanto la pieza sigue `customer/in_custody`, aunque esa ventana ya existe entre la disputa y la
+  primera entrega del webhook. (b) La recuperación depende de que `processedStripeEvent.delete` no falle; su
+  `.catch(() => undefined)` (`payments.service.ts:180`) se traga el error y, si el borrado fallara, **el contracargo
+  se perdería** en silencio. Esto es anterior al stream y **no lo medí** con fallo inyectado. (c) La probabilidad
+  **natural** (sin barrera) **NO está MEDIDA**: la ventana dura milisegundos.
+- **Disparador para abordarlo:** que aparezca un `40P01` en los registros de producción, o el próximo cambio al
+  contracargo de bóveda. **Opciones (backend, vía arquitecto):** que el contracargo bloquee primero la colocación
+  (hoy el contrato la pone «al final»), o que tome la puerta del cliente. Aparte, loguear con `error` cuando falle el
+  borrado del marcador en `:180`.
+
+### `VLT-2` — Info — cajón compartido entre clientes en la primera colocación: cerrado por decisión del dueño
+- Confirmado en `vault-placement.service.ts:503`. El contrato lo declara a propósito: `§M4-VAULT.4` v1.79.2, P-E
+  (el dueño: «yo me encargo del aspecto físico»), «⛔ no hay `422` de exclusividad». Los datos siguen siendo
+  consistentes (un dueño y una ubicación por pieza). **Sin acción.** Se reabre solo si el dueño cambia P-E.
+
+### `VLT-3` — Info latente — `RolesGuard` decide por el claim `role` del JWT
+- **Confirmado:** `jwt-auth.guard.ts:62-65` relee de BD `status`, `tokenVersion`, `emailVerified` y
+  `mustChangePassword`, pero **no** `role`; `:78` pone `role: payload.role`. El refresh sí relee el rol de BD
+  (`auth.service.ts:476-486` → `issueTokens(user)`), así que la ventana de un rol viejo es el TTL del access token
+  (`JWT_ACCESS_TTL`, por defecto `15m`, `auth.service.ts:87`).
+- **Hoy no es explotable:** en `backend/src` ninguna escritura muta `User.role`. Medido con `grep` de
+  `user.update|updateMany|upsert`: `updateUserStatus` solo toca `status` (y el guard relee `status`), el perfil propio
+  no acepta `role`, y el único `update` de rol está en `prisma/seed-e2e.ts:117`, que es de pruebas.
+- **Condición (C2), con disparador — responsable: backend (auth):** **cualquier mutación futura de `User.role`**
+  (endpoint, script de ops o migración de datos) debe incrementar `tokenVersion` **en la misma sentencia**. La
+  alternativa más barata y robusta, que recomiendo: añadir `role: true` al `select` de `jwt-auth.guard.ts:64` y usar
+  el rol de BD en `:78`. No cuesta ninguna consulta más y deja de depender de que alguien se acuerde. **Disparador:**
+  antes de fusionar cualquier cambio que escriba `User.role`.
+
+### `VLT-4` — Info — superficie que el pentest no midió en vivo: cerrada en parte
+- Cerrado ahora: la línea base de carreras en vivo (arriba) y contracargo vs `confirm` en las dos órdenes (N=10
+  cada una).
+- Sigue **NO MEDIDO:** el DAST genérico (no hay staging, `HECHOS.md`) y la prueba 39 del settle CAS en mi copia
+  (la reporta backend).
+
+### `SEC-SETTLE-LATE` — Baja — un `succeeded` que llega tarde vuelve a liquidar una orden en `chargeback` (conducta previa, ahora medida)
+- **Ubicación:** `payments.service.ts:193` (el early-return solo mira `settled`) y `:249` (el CAS `not:'settled'`).
+  El contrato lo tenía como «observación registrada, NO decidida… ⛔ NO MEDIDO si es alcanzable» (`§M4-VAULT.2-bis.1`,
+  remite a `ARCHITECTURE §4.21q (n)`).
+- **Medido en local (sonda S4, N=1, eventos firmados sintéticos):** con la orden en `chargeback`, un
+  `payment_intent.succeeded` con importe y moneda correctos ⇒ `200` y la orden pasa a **`settled`**, **con
+  `settledAt` reescrito**. La pieza se queda `platform/listed` (la protege `reservationGuard`) y la colocación sigue
+  `cancelled/chargeback` (`skipDuplicates`).
+- **Impacto:** el registro de dinero miente: la orden dice «liquidada» cuando Stripe revirtió los fondos, y
+  `settledAt` deja de escribirse una sola vez. Probablemente sale también el aviso `AV-2` al cliente (**NO MEDIDO**).
+  Las piezas no se mueven. Un atacante no puede forzarlo (hace falta un evento firmado por Stripe). Stripe no
+  garantiza el orden de entrega, así que es alcanzable si la entrega del `succeeded` falla y se reintenta después de
+  procesarse la disputa. La alcanzabilidad **con Stripe real está NO MEDIDA**.
+- **No es de este stream:** el CAS de v1.79.4 conservó a propósito la semántica anterior. **Responsable:** arquitecto
+  y después backend (stream «Órdenes y dinero»), para decidir qué estados de origen pueden liquidarse.
+  **Disparador:** antes de operar con disputas reales, o en el siguiente pase del stream de dinero.
+
+### `SEC-RESET-TV` — Media — el script de rescate de contraseña de staff no revoca sesiones (fuera del stream)
+- **Ubicación:** `backend/prisma/reset-admin-password.ts:51-54`: `data: { passwordHash, emailVerified: true }`,
+  **sin** `tokenVersion: { increment: 1 }`. Los dos caminos de la app sí lo incrementan (`auth.service.ts:277` en el
+  reset por correo, `:351` en el cambio de contraseña), y también el reset de admin (`admin.service.ts:1347`).
+- **Impacto:** este script es el camino de rescate del `super_admin` (el rol que aprueba el dinero saliente). Si se
+  usa porque la cuenta está **comprometida**, los refresh tokens del atacante siguen valiendo hasta
+  `JWT_REFRESH_TTL` (**30 días** por defecto, `auth.service.ts:94`): el refresh solo compara `tokenVersion`, que no
+  cambió. Quien corre el script cree, con motivo, que cortó el acceso. Para explotarlo hace falta haber robado antes
+  un token. Por eso es **Media** y no Alta.
+- **No es del delta del stream** (el fichero no cambia en `db7d1c2`) y **nunca se había registrado** (`grep` en
+  `SECURITY_NOTES`, `PENTEST_NOTES`, `BACKEND_NOTES`, `TECH_DEBT`: sin menciones). **Responsable: backend.** El
+  arreglo es una línea: `tokenVersion: { increment: 1 }`. Conviene añadir también `mustChangePassword: false`
+  explícito si aplica. **Disparador:** antes del próximo uso del script en producción.
+
+## Deuda de seguridad aceptada (no bloquea)
+- `VLT-2`: por decisión del dueño (P-E).
+- `SEC-VLT-DL`: interbloqueo recuperable; se retoma si aparece un `40P01` en producción o al cambiar el contracargo.
+- `VLT-3`: latente, con la condición C2 (disparador: cualquier escritura de `User.role`).
+- `SEC-SETTLE-LATE`: conducta previa, se enruta al stream de dinero.
+- `REL-D` (dependencias moderadas): sin cambio, ya enrutado a devops.
+
+## Banderas para el humano
+- **Antes de operar con disputas reales:** cerrar `SEC-SETTLE-LATE`. Hoy una entrega fuera de orden de Stripe puede
+  dejar una orden «liquidada» cuyo dinero ya se revirtió.
+- **Antes de volver a usar `reset-admin-password.ts` en producción** (`SEC-RESET-TV`): hoy **no** cierra las sesiones
+  abiertas. Si alguna vez se usó por sospecha de compromiso, conviene cerrarlas a mano (incrementar
+  `tokenVersion` de esa cuenta).
+- Sigue vigente la bandera general: pentest de un tercero y bug bounty antes de operar con dinero real; no hay
+  staging, así que el DAST no mide esta superficie.
+
+## VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `db7d1c2`
+
+Cero críticos y cero altos abiertos en el stream. El DoD («sin críticos/altos abiertos») **se cumple**. La
+superficie nueva resiste por construcción, y lo medí en vivo: authz de clase, IDOR, puerta + CAS en los cuatro
+verbos, contracargo vs `confirm` en las dos órdenes, idempotencia del webhook ante fallo, y PII mínima. `VLT-1` no
+produce ningún estado que el contrato no declare. `VLT-2` es decisión del dueño.
+
+**Condiciones:**
+- **C1 (antes de fusionar a `main`) — backend:** la prueba de contracargo vs verbo de `SEC-VLT-TL`, demostrada con la
+  mutación de `:463` sobre copia: **roja en ≥1 de N≥10** con la mutación y **verde en N/N** sin ella. Hoy esa mutación
+  sobrevive a **toda** la suite. Es barata (la plantilla ya existe en mi scratch) y protege el rastro de auditoría de
+  un contracargo en zona de dinero.
+- **C2 (con disparador, no bloquea la fusión) — backend (auth):** `VLT-3`. Toda mutación futura de `User.role`
+  incrementa `tokenVersion` en la misma sentencia; mejor aún, el guard lee `role` de BD.
+
+**Mínimo para quedar APROBADO sin condiciones:** C1 cerrada y medida por QA o por mí sobre un sha fijado.
+`SEC-RESET-TV` (Media) y `SEC-SETTLE-LATE` (Baja) son anteriores al stream y **no** condicionan este veredicto, pero
+quedan enrutados a backend (y al arquitecto, en el segundo caso) con su disparador.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-28 · candidato `db7d1c2` · §M4-VAULT v1.79.4 · **APROBADO CON CONDICIONES**
+
+# Stream bóveda M4-VAULT — re-verificación de C1 · sha `f2981e1` (rama `claude/m4-boveda`) · 2026-09-28
+
+> Medido por mí (seguridad) el **2026-09-28** sobre copias del árbol ENTERO (`git archive f2981e1`, limpio y mutante)
+> en `scratchpad/sec-vault2/`, BD propias `tcg_secvault2` / `tcg_secvault2_mut` (rol `secvault2`), Postgres 16; antes
+> de crearlas, `pg_stat_activity` sin sesiones sobre `%secvault%`. El canario del arnés filtra por
+> `current_database()`, así que la corrida en paralelo de QA sobre su BD no lo contamina.
+
+## C1 — prueba 40 (contracargo firmado vs verbo, §M4-VAULT.8 v1.79.5) · **CERRADA**
+
+| Corrida | Qué cambia | 40(a) | 40(b) | 40(c) | 40(d) | e1/e2 |
+|---|---|---|---|---|---|---|
+| limpio (suite de carreras entera) | nada | **10/10** | **10/10** | **10/10** | **10/10** | verdes · suite 14/14 |
+| **m-a** (condición C1) | sin `status:'pending'` en `vault-placement.service.ts:463` | **0/10 — ROJA** | 10/10 | 10/10 | 10/10 | verdes |
+| m-b | ídem `:510` (reclamo, paso 8) | 10/10 | **0/10 — ROJA** | 10/10 | 10/10 | verdes |
+| m-c | ídem `:330` (`POST …/prepared`) | 10/10 | 10/10 | **0/10 — ROJA** | 10/10 | verdes |
+| m-d | ídem `:380` (`DELETE …/prepared`) | 10/10 | 10/10 | 10/10 | **0/10 — ROJA** | verdes |
+
+N=10 por caso y por corrida; «sin entrelazado observado» **0/10** en todas (el arnés vio a A y a A+B esperando
+candado de FILA en cada tirada). Cada mutación muerde **solo** su caso: la prueba discrimina, no es un rojo genérico.
+
+Forma del rojo (coincide con la derivada en el contrato y con `BACKEND_NOTES §7`):
+- **m-a:** B `200 nothing_to_place`; la fila acaba `cancelled/nothing_to_place` **con el operador como autor** y 1
+  bitácora; la orden sí queda `chargeback`. Es exactamente el riesgo de `SEC-VLT-TL`: el rastro del contracargo se
+  reescribe como un cierre operativo.
+- **m-b:** B `500 INTERNAL`, fila `cancelled/chargeback` intacta y **0** movimientos: el CHECK de BD frena el daño
+  (defensa en profundidad), pero el `500` lo caza la prueba.
+- **m-c:** B `200 prepared` sobre la fila cancelada (escribe `preparedAt`, 1 bitácora).
+- **m-d:** B `200 unprepared` sobre la fila cancelada (borra `preparedAt`, 1 bitácora).
+
+Revisé el arnés: el webhook va **firmado** (`sendStripeWebhook`), la barrera es un candado de fila real sobre
+`VaultPlacement`, y el canario (`waitRowBlocked`, `wait_event IN ('transactionid','tuple')`) excluye la puerta
+advisory; una tirada sin entrelazado no cuenta y la prueba exige 0 de ésas. m-e (`payments.service.ts:895`) y m-gate
+**no** las repetí: quedan como medición de backend (`BACKEND_NOTES §7`), no mía.
+
+## `payments.service.ts:180-189` — log del fallo al borrar el marcador de Stripe · **correcto**
+- La semántica no cambia: se sigue propagando el error **original** (⇒ `5xx` ⇒ Stripe reintenta). Solo el `.catch`
+  del borrado pasa de tragarse a `logger.error`.
+- El log lleva `event.id`, `event.type` y el mensaje del error de Prisma: ni PII ni secretos (el `WHERE` es el
+  `event.id`). Aceptable.
+- Medido: unidad `payments.service.spec.ts` **16/16** en limpio; con la mutación «volver a `.catch(() => undefined)`»,
+  **roja 1/16** (la de `SEC-VLT-DL`). Determinista, N=1 basta.
+- Sigue **NO MEDIDO** con fallo inyectado en integración, y un log no reintenta: está dicho en la deuda.
+
+## `SEC-VLT-DL` — registrado como aceptado · **correcto**
+`docs/TECH_DEBT.md` (en `f2981e1`) lo lleva como **ACEPTADO** por el arquitecto (`API_CONTRACT §M4-VAULT.5`, v1.79.5),
+con qué, riesgo residual (la dependencia del borrado del marcador y que el reproceso es manual), dueño («Órdenes y
+dinero») y **disparador** (un `40P01` en producción, el siguiente cambio a `onChargeDisputeVault`, o ese log en
+producción). Cumple lo que pedí.
+
+## Resto del delta `db7d1c2..f2981e1`
+Backend de producción: solo el cambio de arriba más comentarios/JSDoc (`shipments.service.ts`, `preparation-view.ts`),
+sin código ejecutable nuevo. Frontend: reordenación de módulos de `/admin/vaults` y textos; sin `innerHTML`, sin
+almacenamiento de tokens, sin llamadas nuevas a la API. Nada nuevo que revisar desde seguridad.
+
+## Pendiente que no cambia
+- **C2** (`VLT-3`, con disparador) sigue como estaba: no condiciona la fusión.
+- `SEC-RESET-TV` (Media) y `SEC-SETTLE-LATE` (Baja): anteriores al stream, siguen enrutados y con su bandera.
+
+## VEREDICTO
+
+### **APROBADO** sobre `f2981e1`
+
+C1 queda cerrada y medida por mí: la mutación de `:463` pone roja la 40(a) en **10 de 10** tiradas y el árbol limpio
+pasa **10/10** en los cuatro casos, con el entrelazado confirmado en todas. De paso, las tres mutaciones recomendadas
+(`:510`, `:330`, `:380`) también las muerde cada una su caso, 10 de 10. Cero críticos y cero altos abiertos en el stream.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-28 · candidato `f2981e1` · §M4-VAULT v1.79.5 · **APROBADO**

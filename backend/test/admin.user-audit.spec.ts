@@ -147,10 +147,30 @@ describe('AuditService.listForUser — proyección por rol', () => {
 });
 
 describe('AdminUsersController.userAudit — normaliza scope y respeta rol', () => {
-  it('scope inválido cae a target; pasa el rol del actor a listForUser', async () => {
+  // ⭐ `EQ-D1` (2026-09-16): antes un `?scope=` fuera de dominio **clampaba a `target`** en silencio
+  // (§0-Q punto 6 lo prohíbe). Ahora ⇒ `400 VALIDATION_ERROR`, y ⛔ NO se llama a `listForUser`.
+  it('scope inválido ⇒ 400 (ya NO clampa a target — `EQ-D1`)', async () => {
     const auditMock = { log: jest.fn(), listForUser: jest.fn(async () => ({ data: [], page: 1, pageSize: 20, total: 0 })) };
     const ctrl = new AdminUsersController({} as any, auditMock as any);
-    await ctrl.userAudit('u1', Role.vault_operator, 'garbage', '1', '20');
+    // El `throw` de `parseEnumFilter` es SÍNCRONO (antes de cualquier `await`): se captura así.
+    let err: any;
+    try {
+      await ctrl.userAudit('u1', Role.vault_operator, 'garbage', '1', '20');
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { field: 'scope', allowed: ['target', 'actor', 'both'] },
+    });
+    expect(auditMock.listForUser).not.toHaveBeenCalled();
+  });
+
+  // Vacío/ausente ≡ el default declarado `target` (§0-Q punto 6, fila 1): eso SÍ se conserva.
+  it('scope vacío ⇒ default `target`; pasa el rol del actor a listForUser', async () => {
+    const auditMock = { log: jest.fn(), listForUser: jest.fn(async () => ({ data: [], page: 1, pageSize: 20, total: 0 })) };
+    const ctrl = new AdminUsersController({} as any, auditMock as any);
+    await ctrl.userAudit('u1', Role.vault_operator, '', '1', '20');
     expect(auditMock.listForUser).toHaveBeenCalledWith({
       userId: 'u1',
       scope: 'target',

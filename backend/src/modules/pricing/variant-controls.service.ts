@@ -3,6 +3,7 @@ import { Card, Finish, ProductType, VariantPriceOverride } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { MAX_CENTS, quoteAcquisitionFromCurve } from '../../common/money';
+import { isBountyEffective } from '../../common/pricing-curve';
 import { AuditService } from '../audit/audit.service';
 import { PricingService } from './pricing.service';
 import { VariantPricingDTO, composeVariantPricing, resolveMarketReference } from './variant-pricing';
@@ -72,6 +73,9 @@ function snapshot(row: VariantPriceOverride | null) {
     bountyTargetQty: row.bountyTargetQty,
     bountyAcquiredQty: row.bountyAcquiredQty,
     bountyCompletedAt: row.bountyCompletedAt ? row.bountyCompletedAt.toISOString() : null,
+    // v2.2 (Q2, §M2-B.9): el sello que distingue `despublicada` de `apagada`. Viaja en el before/after
+    // de auditoría para que la pre-imagen del borrado/despublicado se pueda reconstruir.
+    bountyUnpublishedAt: row.bountyUnpublishedAt ? row.bountyUnpublishedAt.toISOString() : null,
   };
 }
 
@@ -141,6 +145,8 @@ export class VariantControlsService {
       bountyTargetQty: existing?.bountyTargetQty ?? null,
       bountyAcquiredQty: existing?.bountyAcquiredQty ?? 0,
       bountyCompletedAt: existing?.bountyCompletedAt ?? null,
+      // v2.2 (Q2, §M2-B.9): omitido conserva; re-publicar (enabled:true) lo LIMPIA en `mergeBounty`.
+      bountyUnpublishedAt: existing?.bountyUnpublishedAt ?? null,
     };
     await this.mergeBounty(next, input, card, productType, finish);
 
@@ -152,7 +158,10 @@ export class VariantControlsService {
       next.bountyPriceCents == null &&
       next.bountyTargetQty == null &&
       next.bountyAcquiredQty === 0 &&
-      next.bountyCompletedAt == null;
+      next.bountyCompletedAt == null &&
+      // v2.2 (Q2): una fila DESPUBLICADA nunca es «vacía» (siempre trae historia); el guard es
+      // explícito para que el sello no pueda quedar huérfano en una fila que se borra por lo demás.
+      next.bountyUnpublishedAt == null;
 
     let row: VariantPriceOverride | null;
     if (empty) {
@@ -183,6 +192,124 @@ export class VariantControlsService {
     });
 
     // ---- Estado RESUELTO tras el write (mismo DTO que lee el binder, §DTOs) ----
+    const pricing = await this.resolvePricing(card, productType, gradeKey, finish, row);
+    return { cardId: card.id, productType, gradeKey, finish, pricing };
+  }
+
+  /**
+   * DELETE /admin/pricing/variant-controls/:cardId/:finish/bounty — **ELIMINAR un bounty** (Q2, v2.2,
+   * `super_admin`, AUDITADO). Contrato §M2-B.9 / ARCHITECTURE §4.36.6b.
+   *
+   * **El SERVIDOR ramifica por historia de compra, no el cliente** (el cliente pide *eliminar*, el
+   * servidor elige *borrar* o *despublicar*):
+   *  - **Rama A · BORRAR** (`bountyAcquiredQty===0 ∧ bountyCompletedAt==null`, nunca se compró nada):
+   *    limpia TODOS los campos de bounty; si la fila queda sin `sellOverrideCents`/`buyOverrideCents`
+   *    se **borra físicamente** (reusa la lógica de fila-vacía del `update`). AuditLog `bounty.deleted`.
+   *  - **Rama B · DESPUBLICAR** (`acquiredQty>0 ∨ completedAt!=null`, ya se compró algo): **conserva**
+   *    `priceCents`/`targetQty`/`acquiredQty`/`completedAt`, pone `enabled=false` +
+   *    `bountyUnpublishedAt=now()` (estado derivado `despublicada`). AuditLog `bounty.unpublished`.
+   *
+   * ⛔ Acotado al sub-recurso `bounty`: **NO toca** `sellOverrideCents`/`buyOverrideCents` (mutación
+   * B-20). **NO toca `InventoryItem` ni el P/L** — el costo vive una sola vez en inventario
+   * (INV-BOUNTY-COST, §M2-B.10 / mutación B-21): la tx escribe SOLO `VariantPriceOverride` + `AuditLog`.
+   * Idempotente en la rama B (una fila ya `despublicada` ⇒ no-op, `200`).
+   */
+  async deleteBounty(
+    cardIdParam: string,
+    finishParam: string,
+    actorUserId: string,
+  ): Promise<VariantControlsResponse> {
+    // ---- Identidad (bounty es raw-only; `resolveGradeKey` valida FINISH_NOT_AVAILABLE + raw:NM) ----
+    if (!FINISH_VALUES.includes(finishParam as Finish)) {
+      throw invalid(`invalid finish '${finishParam}'`, { field: 'finish', allowed: FINISH_VALUES });
+    }
+    const finish = finishParam as Finish;
+    const productType: ProductType = 'raw';
+
+    const card = await this.prisma.card.findUnique({ where: { id: cardIdParam } });
+    if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
+
+    const gradeKey = this.resolveGradeKey(card, productType, finish, undefined);
+
+    const existing = await this.prisma.variantPriceOverride.findUnique({
+      where: { cardId_productType_gradeKey_finish: { cardId: card.id, productType, gradeKey, finish } },
+    });
+
+    // ---- ¿Hay bounty EN ALCANCE? (§M2-B.0: historia de bounty) ----
+    const inScope =
+      existing != null &&
+      (existing.bountyEnabled ||
+        existing.bountyPriceCents != null ||
+        existing.bountyCompletedAt != null ||
+        existing.bountyAcquiredQty > 0 ||
+        existing.bountyUnpublishedAt != null);
+    if (!existing || !inScope) {
+      throw BusinessException.notFound('BOUNTY_NOT_FOUND', 'This variant has no bounty to delete');
+    }
+
+    // ---- Idempotencia de la rama B: una fila YA despublicada ⇒ no-op, sigue `despublicada` ----
+    if (existing.bountyUnpublishedAt != null) {
+      const pricing = await this.resolvePricing(card, productType, gradeKey, finish, existing);
+      return { cardId: card.id, productType, gradeKey, finish, pricing };
+    }
+
+    const hasHistory = existing.bountyAcquiredQty > 0 || existing.bountyCompletedAt != null;
+    const hasOtherOverrides = existing.sellOverrideCents != null || existing.buyOverrideCents != null;
+
+    // ---- La escritura + su auditoría, en UNA transacción (aislamiento INV-BOUNTY-COST) ----
+    let row: VariantPriceOverride | null = null;
+    await this.prisma.$transaction(async (tx) => {
+      if (!hasHistory) {
+        // Rama A · BORRAR: limpia todos los campos de bounty. Si no quedan overrides, borra la fila.
+        if (hasOtherOverrides) {
+          row = await tx.variantPriceOverride.update({
+            where: { id: existing.id },
+            data: {
+              bountyEnabled: false,
+              bountyPriceCents: null,
+              bountyTargetQty: null,
+              bountyAcquiredQty: 0,
+              bountyCompletedAt: null,
+              bountyUnpublishedAt: null,
+              updatedBy: actorUserId,
+            },
+          });
+        } else {
+          await tx.variantPriceOverride.delete({ where: { id: existing.id } });
+          row = null;
+        }
+        await this.audit.log(
+          {
+            actorUserId,
+            action: 'bounty.deleted',
+            entityType: 'VariantPriceOverride',
+            entityId: existing.id,
+            before: { cardId: card.id, productType, gradeKey, finish, controls: snapshot(existing) },
+            after: { cardId: card.id, productType, gradeKey, finish, controls: snapshot(row) },
+          },
+          tx,
+        );
+      } else {
+        // Rama B · DESPUBLICAR: conserva el registro/historia; apaga + sella `bountyUnpublishedAt`.
+        row = await tx.variantPriceOverride.update({
+          where: { id: existing.id },
+          data: { bountyEnabled: false, bountyUnpublishedAt: new Date(), updatedBy: actorUserId },
+        });
+        await this.audit.log(
+          {
+            actorUserId,
+            action: 'bounty.unpublished',
+            entityType: 'VariantPriceOverride',
+            entityId: existing.id,
+            before: { cardId: card.id, productType, gradeKey, finish, controls: snapshot(existing) },
+            after: { cardId: card.id, productType, gradeKey, finish, controls: snapshot(row) },
+          },
+          tx,
+        );
+      }
+    });
+
+    // ---- Estado RESUELTO tras el borrado/despublicado (mismo DTO que lee el binder) ----
     const pricing = await this.resolvePricing(card, productType, gradeKey, finish, row);
     return { cardId: card.id, productType, gradeKey, finish, pricing };
   }
@@ -283,6 +410,7 @@ export class VariantControlsService {
       bountyTargetQty: number | null;
       bountyAcquiredQty: number;
       bountyCompletedAt: Date | null;
+      bountyUnpublishedAt: Date | null;
     },
     input: VariantControlsInput,
     card: Card,
@@ -362,27 +490,34 @@ export class VariantControlsService {
         { field: 'bounty.targetQty', ...(b.targetQty !== undefined ? { value: b.targetQty } : {}) },
       );
     }
-    // v2.0 (P-48, §4.36.6 / criterio 91) — GATE «CREAR/EDITAR» del bounty, contra la CURVA vigente.
-    // ENDURECIDO de `<` a `<=`: se rechaza también el EMPATE. Sin este ajuste un bounty EXACTAMENTE
-    // igual a la curva pasaría el alta y sería INVISIBLE en ejecución (el predicado de runtime exige
-    // estrictamente mayor), una incoherencia entre alta y runtime. Reversible en dato (subir $0.01).
-    // Curva `pending` (sin mercado) ⇒ se ACEPTA: el bounty es SIEMPRE precio explícito y es justo el
-    // caso donde más se necesita.
+    // v2.2 (Q1, §M2-B.8 / §4.36.6) — GATE «CREAR/EDITAR» del bounty contra el PISO EFECTIVO
+    // `min(curva, mercado)`. Se llama a la MISMA `isBountyEffective` que la cotización, la vitrina y el
+    // estado de la consola: el `422 BOUNTY_BELOW_RULE` dispara IFF `isBountyEffective(...) === false`,
+    // así la coherencia alta↔runtime es POR CONSTRUCCIÓN (⛔ prohibido re-derivar el gate con `<`/`<=`
+    // a mano — es la mutación B-16). En el tramo normal (`curva < mercado`) sigue exigiendo `> curva`
+    // (empate-con-curva rechazado); en el borde (`curva ≥ mercado`) basta IGUALAR el mercado
+    // (empate-con-mercado aceptado), que es lo único que impide forzar un precio > mercado. Curva
+    // `pending` (⇒ mercado null) ⇒ se ACEPTA: el bounty es precio explícito y es donde más se necesita.
     const curve = await this.pricing.loadPricingCurve();
     const ref = await this.pricing.getReference(card.id, productType, 'raw:NM', finish);
     // v1.62.2: MISMO estrechamiento money-safe que emite `market` (`resolveMarketReference`), para que
     // el gate del alta y la respuesta resuelta no puedan mirar dos mercados distintos.
     const referenceMxnCents = resolveMarketReference(ref).referenceMxnCents;
-    const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
-    if (curveQuoteCents != null && next.bountyPriceCents <= curveQuoteCents) {
+    // Una sola llamada devuelve `curveQuoteCents` Y `marketMxnCents` (§4.36.6): los dos que el gate y
+    // su `details` necesitan, del mismo cuerpo que corre en runtime.
+    const acq = quoteAcquisitionFromCurve(referenceMxnCents, curve);
+    if (!isBountyEffective(next.bountyPriceCents, acq.curveQuoteCents, acq.marketMxnCents)) {
       throw BusinessException.validation(
         'BOUNTY_BELOW_RULE',
-        'bounty.priceCents must be STRICTLY GREATER than the current curve quote for this variant',
-        { curveQuoteCents, priceCents: next.bountyPriceCents },
+        'bounty.priceCents must beat the effective floor min(curve, market) for this variant',
+        { curveQuoteCents: acq.curveQuoteCents, marketMxnCents: acq.marketMxnCents, priceCents: next.bountyPriceCents },
       );
     }
     if (!next.bountyEnabled) next.bountyCompletedAt = null; // re-armado: ya no está "completado"
     next.bountyEnabled = true;
+    // v2.2 (Q2, §M2-B.9): (re)publicar LIMPIA el sello de despublicación (vuelve a la vitrina y al
+    // tablero). ⚠️ NO reinicia `bountyAcquiredQty`/`bountyCompletedAt` — no se borra historia de dinero.
+    next.bountyUnpublishedAt = null;
   }
 
   /** Estado resuelto de la consola tras el write (reglas + referencia + fila nueva → DTO). */
