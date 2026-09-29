@@ -43,6 +43,7 @@ import { SellCartContents } from './SellCartContents';
 // §37.1 (P-61): en escritorio el carrito vuelve a ser el cajón; la barra inferior conserva a la
 // vista cuánto llevas. La requisitos de cuenta suben a la cabecera con el cajón cerrado.
 import { SellCartBar } from './SellCartBar';
+import { CartTotalFigure } from './CartTotalFigure';
 import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
 // v1.51.4 (D43): el mínimo de compra del cotizador. Se pide AL MONTAR esta vista (el cotizador),
 // no se guarda en un store de vida larga: el contrato lo norma por la caché pública de 5 minutos.
@@ -594,13 +595,17 @@ export function BuylistView() {
               </ul>
               <div className="flex items-baseline justify-between gap-3 pt-3">
                 <span className="text-[13px] font-medium text-text">{t('quote.money.cardsValue')}</span>
-                {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
-                  <BuylistPendingLineLabel className="text-[13px]" />
-                ) : (
-                  <span className="tabular text-[18px] font-medium text-text">
-                    {formatMoneyCents(totalEstimatedCents, locale)}
-                  </span>
-                )}
+                {/* §37.1b: la MISMA función que el cajón y la barra (antes este bloque copiaba dos de
+                    las tres ramas y omitía la del «—»). El CTA que abre este modal está apagado
+                    mientras se recotiza, así que esa rama es hoy inalcanzable aquí — pero la cifra
+                    sale de un solo sitio, no de una copia que diverja a la próxima. */}
+                <CartTotalFigure
+                  noFreshPrice={requoting || requoteFailed}
+                  totalEstimatedCents={totalEstimatedCents}
+                  pendingCardCount={pendingCardCount}
+                  size="summary"
+                  testIdScope="sell-request"
+                />
               </div>
               {/* §23.3h: el paso de crear también es un bloque de dinero, así que explica su
                   propia aritmética — mismo texto, misma vez, con el conteo interpolado. */}

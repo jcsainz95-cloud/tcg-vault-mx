@@ -16,20 +16,23 @@ export interface CartTotalFigureProps {
   pendingCardCount: number;
   /**
    * `hero` = la cifra de 26 px del bloque de dinero del cajón; `bar` = el escalón de 20 px de la
-   * `SellCartBar` (§37.1b: «la barra informa, el cajón decide»). Solo cambia el TAMAÑO.
+   * `SellCartBar` (§37.1b: «la barra informa, el cajón decide»); `summary` = los 18 px del resumen
+   * del modal de solicitud. Solo cambia el TAMAÑO.
    */
-  size: 'hero' | 'bar';
-  /** Prefijo de `data-testid`: las dos superficies conviven en el DOM y cada una se nombra. */
-  testIdScope: 'sell-cart' | 'sell-cart-bar';
+  size: 'hero' | 'bar' | 'summary';
+  /** Prefijo de `data-testid`: las superficies conviven en el DOM y cada una se nombra. */
+  testIdScope: 'sell-cart' | 'sell-cart-bar' | 'sell-request';
 }
 
 /**
- * **§37.1b (P-61) — la cifra del total de la lista de venta, UNA sola función para las dos
- * superficies** (bloque de dinero del cajón y barra inferior de escritorio).
+ * **§37.1b (P-61) — la cifra del total de la lista de venta, UNA sola función para las tres
+ * superficies** (bloque de dinero del cajón, barra inferior de escritorio y resumen del modal de
+ * solicitud).
  *
- * ⛔ Que la barra tenga su propia lógica de total es el defecto que esta extracción cierra: dos
- * copias de las tres ramas acaban divergiendo (una pinta la cifra vieja mientras la otra pinta
- * «—») y el vendedor ve dos totales distintos del mismo carrito. Las ramas son, en este orden:
+ * ⛔ Que una superficie tenga su propia lógica de total es el defecto que esta extracción cierra:
+ * las copias de las tres ramas acaban divergiendo (una pinta la cifra vieja mientras otra pinta
+ * «—», o una omite la rama del «—») y el vendedor ve dos totales distintos del mismo carrito. Las
+ * ramas son, en este orden:
  *
  * 1. recotizando o recotización fallida ⇒ «—» en `muted` (lo desconocido no se afirma, §32.4);
  * 2. TODO pendiente (total 0 con líneas sin precio) ⇒ la versalita, nunca `MX$0.00` (§23.3h);
@@ -47,7 +50,7 @@ export function CartTotalFigure({
 }: CartTotalFigureProps) {
   const locale = useLocale() as AppLocale;
   const tSellCart = useTranslations('sellCart');
-  const sizeClass = size === 'hero' ? 'text-[26px]' : 'text-[20px]';
+  const sizeClass = size === 'hero' ? 'text-[26px]' : size === 'bar' ? 'text-[20px]' : 'text-[18px]';
 
   if (noFreshPrice) {
     return (

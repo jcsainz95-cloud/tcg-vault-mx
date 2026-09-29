@@ -1287,6 +1287,28 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
     expect(within(screen.getByTestId('sell-cart-money')).getByTestId('buylist-pending-label')).toBeInTheDocument();
   });
 
+  it('el total del modal de solicitud es la MISMA función que cajón y barra (cifra idéntica; todo pendiente ⇒ versalita)', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+    const drawerFigure = screen.getByTestId('sell-cart-total').textContent;
+    expect(drawerFigure).toBe('MX$24,250.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
+    await screen.findByText('Resumen de tu venta');
+    // Mismo `CartTotalFigure` (mutación: devolver al modal su propio ternario ⇒ no existe el testid).
+    expect(screen.getByTestId('sell-request-total').textContent).toBe(drawerFigure);
+  });
+
+  it('… y con TODAS las líneas sin precio el modal ni se abre: el CTA está apagado por el mínimo (la versalita del modal es inalcanzable)', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Zapdos', 'Holofoil');
+    openCart();
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeDisabled();
+    expect(screen.queryByText('Resumen de tu venta')).not.toBeInTheDocument();
+  });
+
   it('P61-5 · cerrar el cajón con Esc devuelve el foco al botón de la barra', async () => {
     forceDesktop();
     renderWithProviders(<BuylistView />, 'es');
