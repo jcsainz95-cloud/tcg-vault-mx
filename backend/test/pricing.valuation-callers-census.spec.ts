@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { stripComments } from './helpers/strip-comments';
+import { countIdentUses, identCensus, methodBody } from './helpers/ident-census';
 
 /**
  * v1.80.1 (API_CONTRACT §M2-SK **SK-5**, candado **VK-6**) — **censo CERRADO de quién toca la llave de
@@ -24,28 +25,17 @@ import { stripComments } from './helpers/strip-comments';
 const SRC = join(__dirname, '..', 'src');
 const IDENT = /\b(?:tryGradeKeyFor|tryBuildGradeKey)\b/g;
 
-/** Nº de apariciones de la llave de cola en el CÓDIGO (sin comentarios) de un texto fuente. */
+/**
+ * Nº de apariciones de la llave de cola en el CÓDIGO (sin comentarios) de un texto fuente.
+ * v1.80.2.2: el recorrido y el conteo viven en `helpers/ident-census.ts` (patrón VK-6 compartido con
+ * BC-9(b) y el candado de `quoteAcquisitionFromCurve`); aquí solo queda la regex de ESTE censo.
+ */
 export function countQueueKeyUses(source: string): number {
-  return (stripComments(source).match(IDENT) ?? []).length;
-}
-
-function walk(dir: string): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) out.push(...walk(p));
-    else if (p.endsWith('.ts') && !p.endsWith('.spec.ts')) out.push(p);
-  }
-  return out;
+  return countIdentUses(source, IDENT);
 }
 
 function census(): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const f of walk(SRC)) {
-    const n = countQueueKeyUses(readFileSync(f, 'utf8'));
-    if (n > 0) out[relative(SRC, f).split(sep).join('/')] = n;
-  }
-  return out;
+  return identCensus(SRC, IDENT);
 }
 
 /**
@@ -76,12 +66,12 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
     why: 'Checkout: el sellado retorna antes por `getSealedMarketRef` + gate; la llamada es la rama raw/graduada.',
   },
   'modules/inventory/inventory.service.ts': {
-    n: 5,
+    n: 4,
     why:
       'Import + publicación (lote con rama sellada propia; `derivePublishSalePrice` retorna antes para sellado) + ' +
-      're-publicación por variante (casa filas con la clave de COLA — uso legítimo) + export .xlsx ' +
-      '(`exportGradeKey`). ⚠️ El export cae a `\'sealed\'` para sellado SIN mapeo: REPORTADO al arquitecto en ' +
-      'BACKEND_NOTES SK-5, fuera del alcance de esta rev.',
+      're-publicación por variante (casa filas con la clave de COLA — uso legítimo). ⭐ v1.80.2.2 (errata ' +
+      '«séptimo lector», `M2-SK-5-7`): el export .xlsx YA NO está aquí — `exportGradeKey` se retiró y ' +
+      '`exportInventoryXlsx` valúa por la PUERTA (aserción por método abajo).',
   },
   'modules/inventory/inventory-position.adapter.ts': {
     n: 1,
@@ -146,6 +136,22 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
         cents: true,
       });
     }
+  });
+
+  /**
+   * ⭐ v1.80.2.2 (errata «séptimo lector», `M2-SK-5-7`) — aserción POR MÉTODO: `inventory.service.ts`
+   * sigue en la lista (publicación/re-publicación usan la llave de cola con razón), pero el cuerpo de
+   * `exportInventoryXlsx` es un lector de patrimonio y NO puede usarla: valúa por la puerta de SK-5.
+   */
+  it('exportInventoryXlsx (séptimo lector) tiene 0 usos de la llave de cola y pasa por la PUERTA', () => {
+    const src = readFileSync(join(SRC, 'modules/inventory/inventory.service.ts'), 'utf8');
+    const body = methodBody(stripComments(src), 'async exportInventoryXlsx(');
+    expect(body.length).toBeGreaterThan(200); // el ancla existe y el cuerpo no está vacío
+    expect(countQueueKeyUses(body)).toBe(0);
+    expect(/\bvaluationKeyFor\(/.test(body)).toBe(true);
+    expect(/\bvaluationCentsOf\(/.test(body)).toBe(true);
+    // `exportGradeKey` (la llave propia del export) se retiró: ni definición ni llamada en el fichero.
+    expect(/\bexportGradeKey\b/.test(stripComments(src))).toBe(false);
   });
 
   describe('CANARIO — el escáner muerde (y no vigila prosa)', () => {

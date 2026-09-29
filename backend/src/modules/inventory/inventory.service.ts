@@ -20,6 +20,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { BusinessException } from '../../common/business.exception';
+import { variantKey } from '../../common/variant-key';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { tryBuildGradeKey, GradeKeyInput, sealedMarketGradeKey } from '../pricing/pricing.types';
 import * as ExcelJS from 'exceljs';
@@ -3199,28 +3200,39 @@ export class InventoryService {
     });
 
     // Referencias de mercado EN LOTE (sin N+1) — misma llave que getReferencesBatch.
-    // v1.53 (§4.40.4b, MONEY): `null` = pieza `graded` sin identidad de slab ⇒ NO entra al lote de
-    // referencias y sus columnas de dinero salen vacías. Se calcula UNA vez, alineado por índice con
-    // `items` (antes se recalculaba dos veces por fila).
-    const gradeKeys = items.map((it) => this.exportGradeKey(it));
-    const refReqs = items.flatMap((it, i) => {
-      const gk = gradeKeys[i];
-      return gk == null
-        ? []
-        : [{ cardId: it.cardId, productType: it.productType, finish: it.finish, gradeKey: gk }];
-    });
+    // ⭐ v1.80.2.2 (API_CONTRACT §M2-SK SK-5, errata «séptimo lector», ancla `M2-SK-5-7`; MONEY) — el
+    // export es un LECTOR DE PATRIMONIO y valúa por la MISMA puerta que los otros seis (holdings,
+    // holdingDetail, custodyValue, `/admin/vaults`, ownedItemRefs, inventoryValue):
+    //  - `valuationKeyFor` decide QUÉ fila: sellado mapeado ⇒ `sealed:tcg:<id>` bajo acabado `normal`
+    //    (la fila de mercado del producto vive ahí, sea cual sea el `finish` de la pieza); sellado SIN
+    //    mapeo ⇒ `null` — ⛔ jamás la fila de COLA `'sealed'`, que puede ser el precio de OTRA caja
+    //    anclada a la misma `Card`; graduada sin identidad de slab ⇒ `null` (v1.53 §4.40.4b).
+    //  - `valuationCentsOf` decide CUÁNTO: el gate del dial (`tcgcsv` solo con el dial encendido,
+    //    `manual` sobrevive, `<= 0` ⇒ nada), el mismo que `/vault/sealed`.
+    // `null` ⇒ la pieza NO entra al lote y sus columnas de mercado/compra salen VACÍAS, que es la verdad.
+    // Antes (`exportGradeKey`, retirado) el sellado sin mapeo salía con la fila legada de otra caja, el
+    // mapeado se buscaba con el `finish` de la pieza y el dial no se aplicaba (ARCHITECTURE §4.50.6 D-SK-4).
+    // Se calcula UNA vez, alineado por índice con `items`.
+    const keys = items.map((it) => this.pricing.valuationKeyFor(it));
+    const refReqs = keys.flatMap((k) => (k ? [k] : []));
     const refs = refReqs.length
       ? await this.pricing.getReferencesBatch(refReqs)
       : new Map<string, PriceInfo>();
+    // El dial del sellado, UNA vez por export y solo si hay sellado que gatear.
+    const sourceOn = items.some((it) => it.productType === 'sealed')
+      ? (await this.pricing.loadSealedSpreads()).sourceOn
+      : false;
 
-    // Overrides M-30 (compra/venta) EN LOTE por (cardId, productType, gradeKey, finish).
+    // Overrides M-30 (compra/venta) EN LOTE por la MISMA llave de variante que las referencias
+    // (`variantKey`, P-30 H2: prohibida la interpolación a mano). Por lectura no existe fila M-30 con
+    // `productType:'sealed'` (`variant-controls.service.ts:123` acota el write a raw/graded).
     const cardIds = [...new Set(items.map((it) => it.cardId))];
     const overrides = cardIds.length
       ? await this.prisma.variantPriceOverride.findMany({ where: { cardId: { in: cardIds } } })
       : [];
     const ovByKey = new Map<string, VariantPriceOverride>();
     for (const o of overrides) {
-      ovByKey.set(`${o.cardId}|${o.productType}|${o.gradeKey}|${o.finish}`, o);
+      ovByKey.set(variantKey(o), o);
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -3245,12 +3257,13 @@ export class InventoryService {
       const it = items[idx];
       // v1.53 (§4.40.4b): sin clave no hay mercado ni override que casar — las columnas salen vacías,
       // que es la verdad. Antes salían con el valor de un PSA 10.
-      const gk = gradeKeys[idx];
-      const refKey = gk == null ? null : `${it.cardId}|${it.productType}|${gk}|${it.finish}`;
+      // v1.80.2.2 (SK-5): la llave es la de VALUACIÓN (sellado ⇒ bajo `normal`) y el monto pasa por el
+      // gate de `valuationCentsOf` (dial); la COLUMNA `finish` de abajo sigue siendo la de la pieza.
+      const k = keys[idx];
+      const refKey = k == null ? null : variantKey(k);
       const market = refKey == null ? undefined : refs.get(refKey);
       const ov = refKey == null ? undefined : ovByKey.get(refKey);
-      const marketCents =
-        market && market.status === 'priced' ? market.referenceMxnCents ?? null : null;
+      const marketCents = this.pricing.valuationCentsOf(it, market, sourceOn);
       const buyCents = ov?.buyOverrideCents ?? null;
       // H-1 (E5-bis): con `??`, un `listPriceCents = 0` ENMASCARABA el `sellOverrideCents` de la
       // variante y el reporte enseñaba $0 donde el sistema cobra el override. Misma precedencia, con
@@ -3282,21 +3295,10 @@ export class InventoryService {
     return Buffer.from(out as ArrayBuffer);
   }
 
-  /** gradeKey del item para casar `PriceReference`/`VariantPriceOverride` (sellado → clave de mercado). */
-  private exportGradeKey(it: {
-    productType: ProductType;
-    rawCondition: string | null;
-    gradingCompany: string | null;
-    gradeValue: string | null;
-    tcgplayerProductId: number | null;
-  }): string | null {
-    if (it.productType === 'sealed' && it.tcgplayerProductId != null) {
-      return sealedMarketGradeKey(it.tcgplayerProductId);
-    }
-    // v1.53 (§4.40.4b, MONEY) — EXPORT = lectura pura: sin identidad de slab no hay clave y las
-    // columnas de mercado/compra/venta salen vacías. Antes salían con el valor de un PSA 10.
-    return tryBuildGradeKey(it);
-  }
+  // v1.80.2.2: `exportGradeKey` (la llave propia del export) se RETIRÓ — errata «séptimo lector»
+  // (`M2-SK-5-7`): valuaba el sellado sin mapeo con la fila de cola `'sealed'`, el mapeado con el
+  // `finish` de la pieza y sin el gate del dial. El export valúa por `PricingService.valuationKeyFor`
+  // + `valuationCentsOf` como los otros seis lectores de patrimonio (censo VK-6, aserción por método).
 
   /** Condición legible por tipo: raw→rawCondition, sealed→sealedCondition, graded→empresa+grado. */
   private exportCondition(it: {
