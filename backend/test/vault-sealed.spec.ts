@@ -75,6 +75,8 @@ function build(items: any[], refs: Map<string, any>) {
     // v1.80.1 (SK-5): `sealedTab` valúa por la puerta REAL (`valuationKeyFor` + `valuationCentsOf` +
     // `gateSealedMarketCents` de producción, con `<= 0 ⇒ null`).
     ...REAL_VALUATION_GATE,
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
   return { prisma, pricing, svc: new VaultService(prisma, pricing) };
 }

@@ -109,7 +109,7 @@ function servicio(ordenes: OrdenFake[]) {
   };
   const service = new AdminService(
     prisma as unknown as PrismaService,
-    { sealedMarketGradeKeyForItem: () => null, tryGradeKeyFor: () => null, getReferencesBatch: async () => new Map() } as unknown as PricingService,
+    { sealedMarketGradeKeyForItem: () => null, tryGradeKeyFor: () => null, getReferencesBatch: async () => new Map(), sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService,
     new PiiCryptoService(new ConfigService({})),
     {} as never,
   );

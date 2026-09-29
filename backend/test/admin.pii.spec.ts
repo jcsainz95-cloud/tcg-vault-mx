@@ -94,6 +94,8 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
       ...REAL_VALUATION_GATE,
       fxSnapshotSafe: jest.fn().mockResolvedValue(null),
       liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
+      // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+      sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
     return {
       prisma,

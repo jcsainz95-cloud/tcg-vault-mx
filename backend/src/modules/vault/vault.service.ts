@@ -18,6 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { variantKey } from '../../common/variant-key';
 import { CardDTO, toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
@@ -175,10 +176,9 @@ export class VaultService {
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
 
-    // v1.80.1 (SK-5): el dial del sellado se iza UNA vez por petición, y solo si hay sellado que gatear.
-    const sourceOn = items.some((i) => i.productType === 'sealed')
-      ? (await this.pricing.loadSealedSpreads()).sourceOn
-      : false;
+    // v1.80.1 (SK-5): el dial del sellado se iza UNA vez por petición, y solo si hay sellado que gatear
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
 
     let totalValueMxnCents = 0;
     let pendingPriceCount = 0;
@@ -399,7 +399,9 @@ export class VaultService {
     // H-1 (v1.24): el mercado del sellado solo cuenta con el dial ENCENDIDO (`sourceOn`), igual que
     // catálogo/Compra/grid — para que la VALUACIÓN coincida con ellos (con off el ref TCGCSV es inerte,
     // §4.23a). Antes esta valuación no gateaba por dial (divergía cuando `sealed_price_source=off`).
-    const { sourceOn } = await this.pricing.loadSealedSpreads();
+    // v1.80.2.2 (D-4): el mismo helper que los otros lectores (aquí todo es sellado: una lectura si hay
+    // piezas; con la bóveda vacía no hay nada que gatear y no se lee el dial).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
 
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
@@ -422,7 +424,8 @@ export class VaultService {
     const rows = [...groups.values()].map((members) => {
       const rep = members[0];
       const k = this.pricing.valuationKeyFor(rep);
-      const rawRef = k ? refs.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`) : undefined;
+      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
+      const rawRef = k ? refs.get(variantKey(k)) : undefined;
       // H-1 (v1.24): gate ÚNICO del mercado (dial + priced). Con off / no mapeado → null → pending.
       // v1.80.1 (SK-5): el gate vive dentro de `valuationCentsOf` (rama sellado = `gateSealedMarketCents`).
       const marketCents = this.pricing.valuationCentsOf(rep, rawRef, sourceOn);
@@ -512,8 +515,8 @@ export class VaultService {
     if (!item) throw BusinessException.notFound();
     if (item.ownerUserId !== userId) throw BusinessException.forbidden('FORBIDDEN');
     // v1.80.1 (SK-5) — MISMA puerta que el listado (y que `/vault/sealed` para el sellado).
-    const sourceOn =
-      item.productType === 'sealed' ? (await this.pricing.loadSealedSpreads()).sourceOn : false;
+    // v1.80.2.2 (D-4): un solo cuerpo, `sealedSourceOnFor` (lote de una pieza).
+    const sourceOn = await this.pricing.sealedSourceOnFor([item]);
     const referenceValue = await this.valuate(item, sourceOn);
     // v1.22-2 / N-15 (§4.22a-6): displayFinishes del detalle usa los acabados priceados de la carta.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch([item.cardId]);

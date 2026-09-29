@@ -1244,6 +1244,21 @@ export class PricingService {
   }
 
   /**
+   * ⭐ v1.80.2.2 (D-4 del techlead, 2026-09-29) — **el dial del sellado para un LOTE de lectores de
+   * patrimonio, UNA lectura por petición y solo si hay sellado que gatear.** Es el `sourceOn` que
+   * consume `valuationCentsOf` (SK-5) en los siete lectores (holdings, holdingDetail, `/vault/sealed`,
+   * custodyValue, `/admin/vaults`, ownedItemRefs, inventoryValue, y el export `.xlsx`).
+   *
+   * Antes este cuerpo (`items.some(sealed) ? (await loadSealedSpreads()).sourceOn : false`) estaba
+   * copiado seis veces; un lector nuevo lo copiaría por séptima vez o, peor, leería el dial de otra
+   * forma. Sin sellado en el lote ⇒ `false` sin tocar `ConfigSetting` (el valor no se usa: la rama raw/
+   * graduada de `valuationCentsOf` ignora `sourceOn`). El candado de forma vive en VK-6.
+   */
+  async sealedSourceOnFor(items: readonly { productType: ProductType }[]): Promise<boolean> {
+    return items.some((i) => i.productType === 'sealed') ? (await this.loadSealedSpreads()).sourceOn : false;
+  }
+
+  /**
    * v1.44-graded-estimate (§4.38c/d) — CONFIG del «gancho de grading» izada UNA vez por request
    * (espejo de `loadSealedSpreads`, pago mínimo de BE-25). Lectura FAIL-CLOSED en dos niveles:
    *

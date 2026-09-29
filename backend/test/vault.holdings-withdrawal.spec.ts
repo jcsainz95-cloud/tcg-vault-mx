@@ -64,6 +64,8 @@ describe('VaultService.holdings — estado de retiro (v1.17)', () => {
         .mockResolvedValue({ status: 'priced', referenceMxnCents: 12500, capturedDate: '2026-08-13' }),
       // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
       getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+      // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+      sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
     const svc = new VaultService(prisma as PrismaService, pricing);
     return { svc, prisma };
@@ -147,7 +149,7 @@ describe('VaultService.costBasisCents — excluye withdrawn (v1.17)', () => {
     const prisma: any = {
       inventoryItem: { aggregate: jest.fn().mockResolvedValue({ _sum: { acquisitionCostCents: 400000 } }) },
     };
-    const svc = new VaultService(prisma as PrismaService, {} as PricingService);
+    const svc = new VaultService(prisma as PrismaService, { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService);
     const res = await svc.costBasisCents('u1');
     expect(res).toBe(400000);
     const where = prisma.inventoryItem.aggregate.mock.calls[0][0].where;

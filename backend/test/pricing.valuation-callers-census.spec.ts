@@ -39,6 +39,15 @@ function census(): Record<string, number> {
 }
 
 /**
+ * D-1: llave de variante interpolada A MANO — cuatro `${…}` unidos por `|` dentro de una plantilla.
+ * Es la forma exacta que `common/variant-key.ts` centralizó (P-30 H2) y que los lectores repetían.
+ */
+const MANUAL_KEY = /\$\{[^}]*\}\|\$\{[^}]*\}\|\$\{[^}]*\}\|\$\{[^}]*\}/g;
+export function countManualKeys(code: string): number {
+  return (code.match(MANUAL_KEY) ?? []).length;
+}
+
+/**
  * LA LISTA CERRADA. Cada entrada: nº de apariciones en código + **por qué puede usar la llave de cola**.
  * Leídas una a una el 2026-09-28 (backend, lectura de código; NO MEDIDO por HTTP salvo donde se dice).
  */
@@ -152,6 +161,53 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
     expect(/\bvaluationCentsOf\(/.test(body)).toBe(true);
     // `exportGradeKey` (la llave propia del export) se retiró: ni definición ni llamada en el fichero.
     expect(/\bexportGradeKey\b/.test(stripComments(src))).toBe(false);
+    // D-1 / D-4 (abajo) también aplican al séptimo lector.
+    expect(countManualKeys(body)).toBe(0);
+    expect(/\bvariantKey\(/.test(body)).toBe(true);
+    expect(/\bsealedSourceOnFor\(/.test(body)).toBe(true);
+    expect(/\bloadSealedSpreads\b/.test(body)).toBe(false);
+  });
+
+  /**
+   * ⭐ v1.80.2.2 — **D-1 (techlead, Media)**: los lectores de SK-5 llaveaban a mano el `Map` del lote
+   * (`${cardId}|${productType}|${gradeKey}|${finish}`) mientras el PRODUCTOR (`getReferencesBatch`)
+   * llavea con `variantKey()`. Si `variantKey` cambia de forma, un lector a mano deja de encontrar su
+   * fila y el patrimonio cae a `pending` EN SILENCIO (ningún error: solo un número más bajo). Candado:
+   * en los lectores hay CERO llaves de cuatro componentes a mano y SÍ `variantKey(`; y el productor
+   * sigue llaveando con `variantKey(` — así productor y consumidor no pueden divergir por forma.
+   */
+  it('D-1 · los lectores de patrimonio llavean el lote con `variantKey(` y NUNCA a mano (0 llaves `a|b|c|d` interpoladas)', () => {
+    for (const f of SK5_READERS) {
+      const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
+      expect({ f, manual: countManualKeys(code), variantKey: /\bvariantKey\(/.test(code) }).toEqual({
+        f,
+        manual: 0,
+        variantKey: true,
+      });
+    }
+    const producer = methodBody(
+      stripComments(readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8')),
+      'async getReferencesBatch(',
+    );
+    expect(/\bvariantKey\(/.test(producer)).toBe(true);
+    expect(countManualKeys(producer)).toBe(0);
+  });
+
+  /**
+   * ⭐ v1.80.2.2 — **D-4 (techlead, Baja)**: «el dial del sellado, una vez por petición y solo si hay
+   * sellado» estaba copiado seis veces (`items.some(sealed) ? (await loadSealedSpreads()).sourceOn :
+   * false`). Ahora vive UNA vez en `PricingService.sealedSourceOnFor(items)`; los lectores de SK-5 no
+   * leen `loadSealedSpreads` directamente.
+   */
+  it('D-4 · los lectores de patrimonio izan el dial con `sealedSourceOnFor(` y NO con `loadSealedSpreads`', () => {
+    for (const f of SK5_READERS) {
+      const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
+      expect({ f, direct: /\bloadSealedSpreads\b/.test(code), helper: /\bsealedSourceOnFor\(/.test(code) }).toEqual({
+        f,
+        direct: false,
+        helper: true,
+      });
+    }
   });
 
   describe('CANARIO — el escáner muerde (y no vigila prosa)', () => {
@@ -172,6 +228,18 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
 
     it('la misma palabra en un COMENTARIO no cuenta', () => {
       expect(countQueueKeyUses('// antes: this.pricing.tryGradeKeyFor(item)\n/* tryBuildGradeKey(x) */\nconst a = 1;')).toBe(0);
+    });
+
+    it('D-1 · una llave a mano inyectada en vault.service.ts SE VE; la misma en un comentario, NO', () => {
+      const line = '    const __k = refs.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`);';
+      const inject = (s: string) => vaultSrc.replace(/async holdings\(userId: string\) \{/, (m) => `${m}\n${s}`);
+      const mutated = inject(line);
+      expect(mutated).not.toBe(vaultSrc);
+      const base = countManualKeys(stripComments(vaultSrc));
+      expect(countManualKeys(stripComments(mutated))).toBe(base + 1);
+      expect(countManualKeys(stripComments(inject(`    // ${line.trim()}`)))).toBe(base);
+      // Tres componentes no son la llave de variante (no se confunde con otras plantillas).
+      expect(countManualKeys('`${a}|${b}|${c}`')).toBe(0);
     });
   });
 });

@@ -44,6 +44,8 @@ function build(over: {
     // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
     ...REAL_VALUATION_GATE,
     getReferencesBatch: jest.fn().mockResolvedValue(over.refs ?? new Map()),
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
   // VaultService solo lo usa `AdminVaultsService.sealed` (no `list`); stub vacío para estos tests.
   const vault = { sealedTab: jest.fn() } as unknown as VaultService;

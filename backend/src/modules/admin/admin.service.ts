@@ -25,6 +25,7 @@ import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
+import { variantKey } from '../../common/variant-key';
 import { toAddressDTO } from '../users/address-dto';
 import {
   netRevenueCents,
@@ -1008,7 +1009,8 @@ export class AdminService {
     // displayFinishes — DERIVADO de los `refs` YA cargados (sin query extra ni N+1).
     const pricedByCard = new Map<string, Set<Finish>>();
     for (const r of refs) {
-      const key = `${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`;
+      // D-1 (v1.80.2.2): productor y consumidor del `Map` con la MISMA `variantKey` (P-30 H2), nunca a mano.
+      const key = variantKey(r);
       const cur = latest.get(key);
       if (cur == null || isBetterRef(r, cur)) latest.set(key, r);
       if (r.productType === 'raw' && r.gradeKey === 'raw:NM' && r.priceMxnCents > 0) {
@@ -1024,10 +1026,9 @@ export class AdminService {
     // vigente (izada UNA vez), en paridad con getReference/getReferencesBatch. Overrides manuales y
     // precios nativos en MXN quedan congelados (los distingue `liveMxnCents`).
     const fx = await this.pricing.fxSnapshotSafe();
-    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear.
-    const sourceOn = items.some((i) => i.productType === 'sealed')
-      ? (await this.pricing.loadSealedSpreads()).sourceOn
-      : false;
+    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
     return items.map((item) => {
       // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — por la ÚNICA puerta de valuación, la misma que
       // «Mi bóveda» del cliente: la ficha 360° y lo que ve el cliente cuadran.
@@ -1035,7 +1036,7 @@ export class AdminService {
       //    `pending`; antes se resolvía `graded:PSA:10`, el grado MÁS CARO).
       //  - sellado: su `sealed:tcg:<id>` con el gate de dial; sin mapeo ⇒ `pending`. ⛔ Nunca `'sealed'`.
       const key = this.pricing.valuationKeyFor(item);
-      const r = key ? latest.get(`${key.cardId}|${key.productType}|${key.gradeKey}|${key.finish}`) : undefined;
+      const r = key ? latest.get(variantKey(key)) : undefined;
       const ref: PriceInfo | undefined = r
         ? {
             status: 'priced',
@@ -1624,10 +1625,9 @@ export class AdminService {
     const keys = keyOf.flatMap((k) => (k ? [k] : []));
     const refs = keys.length ? await this.pricing.getReferencesBatch(keys) : new Map<string, PriceInfo>();
     // SK-5 (efecto declarado en §4.50.1-bis): el sellado gana el gate de dial de `/vault/sealed` — la
-    // fuente `tcgcsv` solo cuenta con el dial encendido; el override manual sobrevive. UNA lectura.
-    const sourceOn = items.some((i) => i.productType === 'sealed')
-      ? (await this.pricing.loadSealedSpreads()).sourceOn
-      : false;
+    // fuente `tcgcsv` solo cuenta con el dial encendido; el override manual sobrevive. UNA lectura
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
 
     const emptyBucket = () => ({
       atReferenceCents: 0,
@@ -1641,7 +1641,8 @@ export class AdminService {
       bucket.pieceCount += 1;
       bucket.atCostCents += item.acquisitionCostCents ?? 0;
       const k = keyOf[i];
-      const ref = k ? refs.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`) : undefined;
+      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
+      const ref = k ? refs.get(variantKey(k)) : undefined;
       // `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`. ⛔ Sin `?? 'sealed'`.
       const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
       if (cents != null) bucket.atReferenceCents += cents;
@@ -1662,10 +1663,9 @@ export class AdminService {
     const items = await this.prisma.inventoryItem.findMany({
       where: { ownerType: 'customer' },
     });
-    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear.
-    const sourceOn = items.some((i) => i.productType === 'sealed')
-      ? (await this.pricing.loadSealedSpreads()).sourceOn
-      : false;
+    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
     let totalCustodyValueCents = 0;
     for (const item of items) {
       // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — VALOR DE CUSTODIA por la ÚNICA puerta de

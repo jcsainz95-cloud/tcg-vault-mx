@@ -73,6 +73,8 @@ function pricingWithRealKeys(over: Record<string, unknown> = {}): PricingService
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     fxSnapshotSafe: jest.fn(async () => null),
     ...over,
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
 }
 

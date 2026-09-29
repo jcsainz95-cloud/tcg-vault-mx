@@ -5,6 +5,7 @@ import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { VaultService } from './vault.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { variantKey } from '../../common/variant-key';
 import { compareByDisplayName, customerDisplayName } from './customer-display-name';
 
 /**
@@ -130,10 +131,9 @@ export class AdminVaultsService {
     // legada `'sealed'` (clave de COLA: puede ser el precio de otra caja anclada a la misma `Card`).
     const keyOf = pieces.map((p) => this.pricing.valuationKeyFor(p));
     const refs = await this.pricing.getReferencesBatch(keyOf.flatMap((k) => (k ? [k] : [])));
-    // El dial del sellado, UNA vez por petición y solo si hay sellado que gatear.
-    const sourceOn = pieces.some((p) => p.productType === 'sealed')
-      ? (await this.pricing.loadSealedSpreads()).sourceOn
-      : false;
+    // El dial del sellado, UNA vez por petición y solo si hay sellado que gatear (v1.80.2.2 D-4: un
+    // solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(pieces);
 
     const agg = new Map<
       string,
@@ -145,7 +145,8 @@ export class AdminVaultsService {
       const a = agg.get(userId) ?? { pieceCount: 0, totalValueMxnCents: 0, pendingPriceCount: 0 };
       a.pieceCount += 1;
       const k = keyOf[i];
-      const ref = k ? refs.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`) : undefined;
+      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
+      const ref = k ? refs.get(variantKey(k)) : undefined;
       const cents = this.pricing.valuationCentsOf(p, ref, sourceOn);
       if (cents != null) {
         a.totalValueMxnCents += cents;

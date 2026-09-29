@@ -48,6 +48,8 @@ describe('VaultService.holdings — identidad de sellado (BLOQ-2a)', () => {
         .fn()
         .mockResolvedValue({ status: 'priced', referenceMxnCents: 92681, capturedDate: '2026-08-13' }),
       getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+      // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+      sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
     return { svc: new VaultService(prisma as PrismaService, pricing), prisma, pricing };
   }

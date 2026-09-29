@@ -82,6 +82,8 @@ function buildList(users: any[], pieces: any[]) {
     getReferencesBatch: jest.fn().mockResolvedValue(
       new Map([['c1|raw|raw_NM|normal', { status: 'priced', referenceMxnCents: 100 }]]),
     ),
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
   const vault = { sealedTab: jest.fn().mockResolvedValue({ groups: [] }) } as unknown as VaultService;
   return { prisma, svc: new AdminVaultsService(prisma, pricing, vault) };
@@ -190,6 +192,8 @@ function buildMasterSet(user: any) {
     ...REAL_VALUATION_GATE,
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
   return { prisma, svc: new MasterSetService(prisma, pricing) };
 }

@@ -31,6 +31,8 @@ function buildPricing(refs: Map<string, any>, sourceOn = true): PricingService {
   return {
     getReferencesBatch: jest.fn(async () => refs),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn })),
+    // D-4: el helper real, que delega en el `loadSealedSpreads` doblado de arriba (una lectura).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     tryGradeKeyFor: PricingService.prototype.tryGradeKeyFor,
     gateSealedMarketCents: PricingService.prototype.gateSealedMarketCents,
     valuationKeyFor: PricingService.prototype.valuationKeyFor,

@@ -36,7 +36,7 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
     };
     service = new AdminService(
       prisma as unknown as PrismaService,
-      {} as PricingService,
+      { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,
     );

@@ -3218,10 +3218,9 @@ export class InventoryService {
     const refs = refReqs.length
       ? await this.pricing.getReferencesBatch(refReqs)
       : new Map<string, PriceInfo>();
-    // El dial del sellado, UNA vez por export y solo si hay sellado que gatear.
-    const sourceOn = items.some((it) => it.productType === 'sealed')
-      ? (await this.pricing.loadSealedSpreads()).sourceOn
-      : false;
+    // El dial del sellado, UNA vez por export y solo si hay sellado que gatear (D-4: `sealedSourceOnFor`,
+    // el mismo cuerpo que los otros seis lectores; por debajo es `loadSealedSpreads()` una vez).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
 
     // Overrides M-30 (compra/venta) EN LOTE por la MISMA llave de variante que las referencias
     // (`variantKey`, P-30 H2: prohibida la interpolación a mano). Por lectura no existe fila M-30 con
