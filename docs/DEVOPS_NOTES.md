@@ -825,7 +825,10 @@ Validaciones estáticas corridas (reales):
       `https://api.tudominio.com/api/v1/webhooks/stripe`.
 - [ ] Habilitar eventos: `payment_intent.succeeded`, `payment_intent.payment_failed`,
       `payment_intent.canceled`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`,
-      `charge.dispute.funds_reinstated`.
+      `charge.dispute.funds_reinstated`, **`charge.refund.updated`** y **`refund.updated`** (estos dos, desde
+      §M4-SHIP v1.80.5: **paso de la ventana de despliegue**, ver §69.1; en un endpoint ya creado se añaden con
+      *Update details > Select events*). Fuente única de la lista: `security/stripe-webhook-events.txt`
+      (la vigila `scripts/check-stripe-webhook-events.sh`).
 - [ ] Copiar el **`whsec_…`** a `STRIPE_WEBHOOK_SECRET` en Railway (11.D [RW]) y **redeploy** del backend.
       (El backend preserva el raw body en esa ruta — ver §3; no pongas un proxy que lo altere.)
 
@@ -12591,3 +12594,111 @@ los números al lado. **NO MEDIDO:** si alguna plantilla de PR del repo sugiere 
 sobre HTML remoto— y **nadie lo ha inventariado**. No es de esta PR ni la bloquea. Dueños: **seguridad**
 (inventario de terceros en runtime) y **backend** (dueño de `decks-meta`). Lo registra el orquestador
 como pendiente; yo no toco esas rutas.
+
+## §69 · §M4-SHIP v1.80.5 — lo que le toca a devops en el despliegue (2026-09-29, rama `claude/envio-preparar`)
+
+Encargo: `API_CONTRACT §M4-SHIP.14` fila **devops** («suscribir `charge.refund.updated`; seed del dial por entorno; consulta de
+residuo con credencial de solo lectura») + rollback de `M-61`. Cada punto dice **qué medí** y qué no.
+
+### 69.1 · Webhook: `charge.refund.updated` (y `refund.updated`) — paso del DUEÑO en la ventana de despliegue
+
+**Medido (2026-09-29):** los eventos se suscriben **a mano en el dashboard de Stripe**; ni un script ni un workflow los registra.
+`grep -rn "enabled_events\|stripe listen\|webhook_endpoints" scripts .github security` ⇒ 0 resultados; la única lista es §11.G de estas notas.
+El backend hoy maneja 7 eventos (`backend/src/modules/payments/payments.service.ts:148-168`); el contrato añade dos con **el mismo
+manejador** (`API_CONTRACT §9`, «⭐ v1.80 — `charge.refund.updated`… y `refund.updated`»). **NO MEDIDO:** qué eventos tiene suscritos hoy el
+endpoint real (no hay acceso al dashboard desde aquí; no se pide la clave): se lee en el dashboard, en el paso de abajo.
+
+**Paso exacto (dueño, dashboard de Stripe; una vez por endpoint: staging en modo prueba y producción):**
+1. Developers > Webhooks > el endpoint `…/api/v1/webhooks/stripe` > **Update details** (o *Add events*).
+2. *Select events* > marcar **`charge.refund.updated`** y **`refund.updated`** (los 7 anteriores ya deben estar) > guardar.
+3. **No** se cambia el `whsec_…` ni hace falta redeploy: el secreto del endpoint no cambia al editar sus eventos.
+4. Verificación (ventana): en el mismo endpoint, la lista de eventos muestra los 9; y tras el primer reembolso real de un caso, la fila
+   del libro pasa de `submitted` a `succeeded` (sin este evento se queda en `submitted` para siempre).
+
+**Por qué es paso de ventana y no de CI:** sin la suscripción el despliegue pasa todos los gates y el evento no llega jamás (la clase de
+§32: cambio de configuración que ningún gate ve). SEC-SHIP-B4 (`SECURITY_NOTES`): norma operativa **«nunca reembolsar desde el panel de Stripe»**;
+un reembolso hecho ahí llega sin `metadata.paymentRefundId` y el backend solo lo registra en log.
+
+**Candado nuevo (CI):** `scripts/check-stripe-webhook-events.sh` (job `stripe-webhook-events`, en el `needs` de `ci-ok`) falla si el backend
+maneja un `case '<evento de Stripe>'` que no está en `security/stripe-webhook-events.txt` (fuente única de la lista) o si un evento del
+manifiesto falta en la lista de §11.G. Canario `scripts/check-stripe-webhook-events-canary.sh` (5 casos: 2 verdes y 3 rojos, incl. extractor
+ciego), corrido 3/3 verde. **Límite honesto:** comprueba que la lista **documentada** crece con el backend; **no** puede ver el dashboard. Que el
+dueño haya marcado el evento se verifica con el paso 4. El fixture de webhooks del harness E2E no existe como fichero (los E2E forjan sus
+eventos en cada spec), por eso el candado lee el código del backend y no un fixture.
+
+### 69.2 · Diales nuevos — de quién es cada cosa (medido en `API_CONTRACT`)
+
+| Cosa | ¿Dial? | Valor inicial | Dueño |
+|---|---|---|---|
+| `operator_refund_cap_24h_cents` (tope del operador en 24 h) | **sí**, `ConfigSetting` | **500000** (MX$5,000; decisión D-3 del dueño, `HECHOS.md`) | backend: default en `settings.constants.ts` / `seed.ts` |
+| `case_refund_hard_multiplier` (bloqueo de reembolso de caso > k×R) | **sí**, `ConfigSetting`, entero 2–50 | **5** | backend (ídem) |
+| Confirmación reforzada a 2×R | **no**: constante | 2 | backend (`API_CONTRACT §M4-SHIP.15.5`: «El `2` es la constante») |
+| Plazo de 7 días de «Por reponer» | **no**: constante derivada, sin columna ni job | 7×24 h (`REPLACEMENT_CASE_DUE_MS`, `API_CONTRACT` ~línea 18904) | backend |
+
+**Devops no añade variables de entorno para ninguno** (ninguno va por entorno: son filas de `ConfigSetting`); `.env.example` no cambia por esto.
+**Regla §11.0/§32:** `seed.ts` usa `update: {}`, así que en un entorno ya sembrado (producción) el `seed` **no** cambia filas existentes; para
+una clave **nueva** el comportamiento es el de la clave **ausente**, que `settings.service.ts` resuelve al **default de código** (medido:
+comentario «Una clave AUSENTE en la tabla … resuelve al default», `settings.service.ts:161`). Por tanto: **sin `PUT` ni `UPDATE` en la
+ventana** mientras backend ponga los dos defaults en `SETTING_DEFAULTS` (500000 y 5). **NO MEDIDO todavía** (backend está construyendo
+en paralelo; `grep operator_refund_cap backend` ⇒ 0 hoy): verificar tras aterrizar que ambas claves están en `SETTING_DEFAULTS` y en el DTO.
+Si el dueño quiere otro valor, lo edita en M10 (auditado); **`UPDATE` directo a la base sigue prohibido (§32.3)**. Post-deploy:
+`GET /admin/settings` debe traer los dos con 500000 y 5 (si falta uno, el binario desplegado no es el que creemos: parar).
+
+### 69.3 · Residuo pre-despliegue de `M-61`: `scripts/vault-full-refund-residue.sh`
+
+**Qué mide:** cuántas órdenes `fulfillmentMode='vault'` con `status='refunded'` existen **sin** haber pasado por el cierre de M-61 (`fullRefundClosedAt`).
+Son el residuo del hueco: antes de M-61 un reembolso total de una compra a bóveda no devolvía la carta. **Ningún script las toca** (`API_CONTRACT`
+bloque v1.80.4); se listan y las resuelve el súper-admin a mano.
+**Cuándo:** **ANTES** de fusionar `main → production` (fase PRE, cifra que el dueño lee al decidir) y, si se quiere la cifra «sin sello», **después** de
+`migrate deploy` (fase POST). Es estable después del despliegue (el código nuevo siempre escribe el sello); lo irrecuperable es solo la foto previa.
+**Cómo (usuario de solo lectura, nunca la credencial de la app):**
+```sql
+-- una vez, como admin de la base (contraseña generada, NO en el repo):
+CREATE ROLE residuo_ro LOGIN PASSWORD '<generada>';
+GRANT CONNECT ON DATABASE <base> TO residuo_ro;
+GRANT USAGE ON SCHEMA public TO residuo_ro;
+GRANT SELECT ON "Order" TO residuo_ro;
+```
+```bash
+export DATABASE_URL_RO='postgresql://residuo_ro:…@<host>:<puerto>/<base>'   # en TU shell; no se pega en ningún fichero ni chat
+./scripts/vault-full-refund-residue.sh --target prod --list
+unset DATABASE_URL_RO
+```
+(o que lo corra el dueño donde la credencial ya vive; `DROP ROLE residuo_ro` al terminar). **Cómo se lee:** imprime la huella del host (no el host), la fase
+(PRE/POST según exista la columna), el **RESIDUO** y una fila lista para pegar en la tabla de abajo; con `--list`, los 8 primeros caracteres de cada id.
+rc=0 = midió (léelo: **0 ⇒ nada que hacer; >0 ⇒** los ids completos se sacan desde tu terminal, se listan en `BACKEND_NOTES` y el súper-admin los resuelve con
+`reclaim-vault` / `chargeback-inventory`; **no** bloquea solo, lo decide el dueño antes de fusionar). rc=2 = **NO CONCLUYENTE** (sin URL, sin `psql`, rol que
+puede escribir, host que contradice `--target`, SQL falló): nunca es «0».
+**Probado (2026-09-29, N=1 por caso, consulta determinista) contra un Postgres 16 local desechable:** PRE con 1 orden `vault refunded` ⇒ 1; con la columna añadida y sin
+sello ⇒ 1; con sello ⇒ 0; un rol con escritura ⇒ rc=2 «TIENE privilegio de escritura»; `--target prod` contra host local ⇒ rc=2. **NO MEDIDO contra producción**
+(egress bloqueado, sin credencial). **Una sola fuente:** el literal es el del contrato; la consulta dueña es la de backend (`BACKEND_NOTES`): si difieren, manda la de backend y se corrige el script.
+
+| fecha UTC | fase | objetivo/huella | residuo |
+|---|---|---|---|
+| *(sin medir todavía en producción — 2026-09-29)* | | | |
+
+### 69.4 · Migración `M-61` — despliegue y rollback
+
+**Qué trae** (`API_CONTRACT §M4-SHIP.2`, .15, .17, .18; **el SQL real lo escribe backend y aún no existe: `ls backend/prisma/migrations | tail -1` ⇒ `20260928120000_m60_…` — NO MEDIDO**): tablas nuevas
+(`PaymentRefund`, `ManualRefund`, `ReplacementCase`…), columnas nuevas (`Order.fullRefundClosedAt`, `KycProfile.clabeUpdatedAt`, `VaultPlacementItem.missingReason`, columnas de reembolso en
+`ReplacementCase`…), CHECKs e índices únicos parciales, **un backfill** (`UPDATE "VaultPlacementItem" SET "missingReason"='not_found' WHERE "prepStatus"='missing'`, antes de su CHECK), y **dos enums
+existentes que ganan valores**: `MovementReason + replacement, refund_return` y `VaultPlacementCancelReason + full_refund`.
+
+**Antes:** snapshot de la BD de producción (Railway > Postgres > Backups), regla de oro de §11.F; `./scripts/rollback-safety-probe.sh <sha-anterior>` contra la BD viva.
+**Aplicación:** `prisma migrate deploy` (corre al arrancar el contenedor). Falla ⇒ rollback **atómico** de esa migración, Railway mantiene el deploy anterior (patrón §26.4).
+**Ojo con `ALTER TYPE … ADD VALUE`:** si Postgres exige que corra fuera de transacción, backend lo separa en su migración; si no, un valor nuevo no se puede **usar** en la misma tx que lo crea.
+
+**Rollback — qué revierte y qué NO (leer con §46.3: «aditiva» ⇏ «reversible»):**
+
+| Elemento | ¿Se revierte con el redeploy del código anterior? | Notas |
+|---|---|---|
+| Tablas y columnas nuevas | **Quedan** y son inertes para el código viejo (no las conoce; las columnas son nullable o con default) | No se borran: borrarlas destruye el libro de reembolsos ya escrito. |
+| `MovementReason` / `VaultPlacementCancelReason` ganan valores | **NO se pueden quitar** (Postgres no permite `DROP VALUE` de un enum) | Inertes para el código viejo **salvo** que ya haya filas con `refund_return`/`full_refund`/`replacement`: su cliente Prisma viejo **falla al leerlas** (valor de enum desconocido). Por eso el rollback de código **después** de un reembolso total de bóveda no es «solo redeploy»: revisar filas nuevas antes. |
+| **CHECKs nuevos sobre tablas que el código viejo SÍ escribe** | **⚠ Pueden romper al código viejo** | `rollback-safety-probe.sh` mira solo `NOT NULL` sin default, **no CHECKs**: su verde no cubre esto. Caso concreto: `VaultPlacementItem` CHECK `missingReason IS NOT NULL ⇔ prepStatus='missing'` (`API_CONTRACT` v1.80.1) y el código de producción escribe `prepStatus: target` (`origin/production:backend/src/modules/vault/vault-placement.service.ts:258-261`); si `target` es `'missing'` (el valor existe en `schema.prisma`, `origin/production` línea 165; **NO MEDIDO** que ese camino lo emita), el código viejo violaría el CHECK al marcar «no la encontré». Medir con la migración ya escrita: correr el probe y, además, `grep` de CHECKs añadidos sobre tablas preexistentes. |
+| Backfill `missingReason='not_found'` | Queda | Es dato correcto para el código viejo (antes `missing` solo significaba «no la encontré»). |
+| Diales nuevos (`ConfigSetting`) | Quedan, inertes | El código viejo no los lee. |
+| Suscripción del webhook a `charge.refund.updated`/`refund.updated` | **No la revierte el redeploy** | Con el código viejo, esos eventos llegan y caen en el `default` (`Evento no manejado`, log `debug`, 200): inocuo. Se puede dejar. |
+
+**Procedimiento de rollback:** (1) `./scripts/rollback-safety-probe.sh <sha-anterior>` — verde ⇒ (2) Railway *Redeploy* del deploy previo y Vercel *Promote* del build previo; rojo, o
+hay filas con los valores de enum nuevos / un CHECK que el código viejo violaría ⇒ **hay un paso de datos antes del redeploy**: no se improvisa, se escala a backend y se decide con el dueño
+(restaurar el snapshot solo si hay corrupción, y perdiendo lo escrito desde entonces, incl. reembolsos). El dinero ya devuelto por Stripe **no se revierte** con nada de esto.

@@ -586,6 +586,18 @@ jobs:
   # el mismo problema una capa más arriba. Barato: sin red, sin Docker, ~2 s.
   # Ver DEVOPS_NOTES §49.
   # ---------------------------------------------------------------------------
+  # M4-SHIP: los eventos del webhook se suscriben A MANO en el dashboard de Stripe; este job falla si el
+  # backend maneja un evento que no esta en security/stripe-webhook-events.txt / DEVOPS_NOTES §11.G.
+  stripe-webhook-events:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Todo evento que maneja el backend esta en la lista de suscripcion del endpoint
+        run: ./scripts/check-stripe-webhook-events.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-stripe-webhook-events-canary.sh
+
   stripe-webhook-failclosed:
     runs-on: ubuntu-latest
     steps:
@@ -725,7 +737,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording]
     if: always()
     runs-on: ubuntu-latest
     steps:
