@@ -83,6 +83,31 @@ const PORTFOLIO_HISTORY_RANGE_DEFAULT: PortfolioHistoryRange = '1m';
  * aditivo/retrocompatible), así que quedan `?` aquí; lo que el tipo garantiza es que los **comunes**
  * están en LAS DOS ramas.
  */
+/** ⭐ v1.80.7 (§3): por qué una pieza no es retirable; `null` ⇔ retirable. */
+export type WithdrawableReason = 'pending' | 'replacing' | 'not_in_custody' | 'in_withdrawal' | 'origin_refunded' | null;
+
+/**
+ * ⭐ v1.80.7 (§3) — UN cuerpo para `withdrawable` y `withdrawableReason`, evaluado EN ESTE ORDEN (la primera condición
+ * que falla nombra el motivo): `pending` ⇔ `ownershipStatus ≠ 'settled'` · `replacing` ⇔ `status ≠ 'in_custody'` con
+ * caso «Por reponer» abierto · `not_in_custody` ⇔ `status ≠ 'in_custody'` sin caso · `in_withdrawal` ⇔ envío activo ·
+ * `origin_refunded` ⇔ la quinta condición de §5 (`originsBeingRefunded`). Es la proyección de los rechazos de
+ * `classifyItems` (`ITEM_NOT_SETTLED` / `ITEM_NOT_IN_CUSTODY` / `ITEM_IN_ANOTHER_SHIPMENT` / `ITEM_ORIGIN_REFUNDED`),
+ * ⛔ no una segunda regla. Invariante: `withdrawable === (withdrawableReasonOf(...) === null)`.
+ */
+export function withdrawableReasonOf(p: {
+  ownershipStatus: OwnershipStatus | null;
+  status: InventoryStatus;
+  hasOpenCase: boolean;
+  shipmentState: ShipmentStatus | null;
+  originRefunding: boolean;
+}): WithdrawableReason {
+  if (p.ownershipStatus !== 'settled') return 'pending';
+  if (p.status !== 'in_custody') return p.hasOpenCase ? 'replacing' : 'not_in_custody';
+  if (p.shipmentState !== null) return 'in_withdrawal';
+  if (p.originRefunding) return 'origin_refunded';
+  return null;
+}
+
 export interface HoldingDTO {
   inventoryItemId: string;
   folio: string;
@@ -99,6 +124,12 @@ export interface HoldingDTO {
   activeShipmentId: string | null;
   /** v1.17.1: flag AUTORITATIVO anti doble-retiro (mismo criterio read/write que `classifyItems`). */
   withdrawable: boolean;
+  /**
+   * ⭐ v1.80.7 (§3, aditivo, clave siempre presente): POR QUÉ `withdrawable` es `false`. Invariante
+   * `withdrawable === (withdrawableReason === null)`; es la proyección de los rechazos de `classifyItems`
+   * (`withdrawableReasonOf`, un cuerpo, evaluado en orden).
+   */
+  withdrawableReason: WithdrawableReason;
   referenceValue: PriceInfo;
   /**
    * ⭐ v1.80.1 (§M4-SHIP.15.8): caso «Por reponer» ABIERTO de esta pieza («la estamos reponiendo»). ⛔ Sin actor, sin
@@ -217,12 +248,16 @@ export class VaultService {
       // (shipments.service): settled + EN CUSTODIA + sin envío activo. El `status==='in_custody'`
       // es imprescindible: la query filtra `status != 'withdrawn'`, pero un item `settled` puede
       // estar `lost`/`damaged` (sigue en la bóveda) y NO debe ser retirable.
-      const withdrawable =
-        item.ownershipStatus === 'settled' &&
-        item.status === 'in_custody' &&
-        shipmentState === null &&
-        !refunding.has(item.id);
       const openCase = openCaseByItem.get(item.id);
+      // ⭐ v1.80.7: el motivo y el flag salen del MISMO cuerpo (`withdrawableReasonOf`), en el orden del contrato.
+      const withdrawableReason = withdrawableReasonOf({
+        ownershipStatus: item.ownershipStatus,
+        status: item.status,
+        hasOpenCase: !!openCase,
+        shipmentState,
+        originRefunding: refunding.has(item.id),
+      });
+      const withdrawable = withdrawableReason === null;
       // v1.42 (BLOQ-2a, §4.34a): identidad de sellado presente SOLO para productType='sealed' (ausente en
       // raw/graded; aditivo/retrocompatible). `card` se conserva (pertenencia al set + fallback). Reusa el
       // MISMO resolver de cascada de `/vault/sealed` para no pintar la caja como la carta ancla («Tropius»).
@@ -255,6 +290,7 @@ export class VaultService {
         shipmentState,
         activeShipmentId,
         withdrawable,
+        withdrawableReason,
         // v2.1.6 (S48-M2): el cliente NO es `vault_operator+`, así que la PROCEDENCIA no viaja. Su
         // bóveda es superficie autenticada pero no operativa: el dueño de la carta necesita el VALOR
         // y su frescura, no de qué feed salió ni si alguien lo fijó a mano.

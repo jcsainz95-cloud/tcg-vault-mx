@@ -835,9 +835,13 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     expect(sh.body.error.code).toBe('ITEM_ORIGIN_REFUNDED');
     const q = await db.quoteShipment(tok, { inventoryItemIds: [a.vo.pieces[0].id], addressId: addr.id });
     expect(q.body.ineligible).toEqual(expect.arrayContaining([expect.objectContaining({ inventoryItemId: a.vo.pieces[0].id, reason: 'origin_refunded' })]));
-    expect((await db.holdings(tok)).body.data.find((x: any) => x.inventoryItemId === a.vo.pieces[0].id).withdrawable).toBe(false);
+    // ⭐ v1.80.7 (punto 13): el MOTIVO viaja con el flag (`withdrawableReason:'origin_refunded'`); con la fila `failed` ⇒ `{true, null}`.
+    const holding = async () => (await db.holdings(tok)).body.data.find((x: any) => x.inventoryItemId === a.vo.pieces[0].id);
+    expect(await holding()).toMatchObject({ withdrawable: false, withdrawableReason: 'origin_refunded' });
     await h.prisma.paymentRefund.update({ where: { id: row.id }, data: { status: 'failed', failedAt: new Date(), failureCode: 'x' } });
-    expect((await db.holdings(tok)).body.data.find((x: any) => x.inventoryItemId === a.vo.pieces[0].id).withdrawable).toBe(true);
+    expect(await holding()).toMatchObject({ withdrawable: true, withdrawableReason: null });
+    // el invariante en TODAS las filas de la bóveda: `withdrawable === (withdrawableReason === null)`
+    for (const x of (await db.holdings(tok)).body.data) expect(x.withdrawable).toBe(x.withdrawableReason === null);
     const ok = await db.createShipment(tok, { inventoryItemIds: [a.vo.pieces[0].id], addressId: addr.id });
     expect(ok.status).toBe(201);
     // retiro ya creado (picking, picked) ⇒ fila viva ⇒ `prepared` 409 {pendingFullRefund:true}, sin sello
