@@ -5,9 +5,10 @@ import { M4View } from './M4View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type {
-  PreparationItemDTO,
   PreparationOrderDTO,
+  ShipPreparationItemDTO,
   ShipPreparationOrderDTO,
+  ShipPreparationStateDTO,
   VaultPreparationOrderDTO,
 } from '@/types/contract';
 // Los catálogos se leen directos para el candado de §35.6a-f (la versalita la pone el CSS, no la
@@ -46,7 +47,7 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
   it('lista la COLA ADMIN de envíos de clientes (GET /admin/shipments), no los propios', async () => {
     const spy = vi.spyOn(api, 'getAdminShipments');
     const ownSpy = vi.spyOn(api, 'getShipments');
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
 
     // Los tres envíos de clientes del fixture admin (shp-7002 sale también en picking → findAll).
     expect(await screen.findByText('shp-7001')).toBeInTheDocument();
@@ -59,7 +60,7 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
 
   it('filtra por estado re-consultando con ?status=', async () => {
     const spy = vi.spyOn(api, 'getAdminShipments');
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     await screen.findByText('shp-7001');
 
     fireEvent.change(screen.getByLabelText('Filtrar por estado'), { target: { value: 'picking' } });
@@ -69,11 +70,13 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
     await waitFor(() => expect(screen.queryByText('shp-7001')).not.toBeInTheDocument());
   });
 
-  it('monta «Pedidos a preparar» (GET /admin/shipments/picking-list) y ya NO la lista plana de piezas', async () => {
+  it('monta «Pedidos por preparar» (GET /admin/shipments/picking-list) y ya NO la lista plana de piezas', async () => {
     const spy = vi.spyOn(api, 'getAdminPreparationQueue');
     renderWithProviders(<M4View />, 'es');
 
-    expect(await screen.findByRole('heading', { name: 'Pedidos a preparar' })).toBeInTheDocument();
+    // v1.80 (§37.16, criterio 215): «por preparar», y la cola de envíos es OTRA pestaña.
+    expect(await screen.findByRole('heading', { name: 'Pedidos por preparar', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByText('Pedidos a preparar')).not.toBeInTheDocument();
     // Sin `?destination` la cola trae las DOS cubetas (CA #8).
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ destination: undefined }));
     // El renombrado es de cara al operador: la palabra «picking» no se le enseña.
@@ -89,12 +92,12 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
       createdAt: '2026-08-13T09:30:00Z',
       items: [],
     });
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     await screen.findAllByText('shp-7002');
 
-    // shp-7002 (picking) admite captura de guía.
-    const captureButtons = screen.getAllByRole('button', { name: 'Capturar guía' });
-    fireEvent.click(captureButtons[1]);
+    // shp-7002 (picking) admite captura de guía (el 409 «sin preparar» lo decide el servidor, §37.6).
+    const row = screen.getByTestId('shipment-row-shp-7002');
+    fireEvent.click(within(row).getByRole('button', { name: 'Capturar guía' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Captura de guía' });
     fireEvent.change(within(dialog).getByLabelText('Paquetería'), { target: { value: 'DHL' } });
@@ -104,7 +107,8 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
     await waitFor(() =>
       expect(trackSpy).toHaveBeenCalledWith('shp-7002', { carrier: 'DHL', trackingNumber: 'MX123' }),
     );
-    expect(await screen.findByText('Guía guardada para shp-7002.')).toBeInTheDocument();
+    // v1.80 (§37.16 `guide.saved`): confirma con el ref (retiro ⇒ id) y dice que sale de la lista.
+    expect(await screen.findByText('Guía guardada para shp-7002. Sale de la lista.')).toBeInTheDocument();
   });
 });
 
@@ -113,10 +117,13 @@ describe('M4View · cambio de estado manual (F4)', () => {
     const spy = vi
       .spyOn(api, 'updateAdminShipmentStatus')
       .mockResolvedValue({ id: 'shp-7001', status: 'entregado' });
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     await screen.findByText('shp-7001');
 
     fireEvent.click(screen.getByRole('button', { name: 'Marcar entregado' }));
+    // v1.80 (§37.6, S9): entregado es irreversible desde esta pantalla ⇒ confirmación con el ref.
+    const dialog = await screen.findByRole('dialog', { name: /¿Marcar .* como entregado\?/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Marcar entregado' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith('shp-7001', 'entregado'));
     expect(await screen.findByText('Estado actualizado (shp-7001).')).toBeInTheDocument();
@@ -126,15 +133,16 @@ describe('M4View · cambio de estado manual (F4)', () => {
     const spy = vi
       .spyOn(api, 'updateAdminShipmentStatus')
       .mockResolvedValue({ id: 'shp-7003', status: 'cancelado' });
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     await screen.findByText('shp-7003');
 
-    // Botones "Cancelar" (ghost) por-envío: shp-7002 (picking) y shp-7003 (solicitado).
+    // v1.80 (§37.6): «Cancelar» SOLO en `solicitado` (shp-7003); un envío pagado no se cancela a mano.
     const cancelButtons = screen.getAllByRole('button', { name: 'Cancelar' });
-    fireEvent.click(cancelButtons[cancelButtons.length - 1]); // shp-7003
+    expect(cancelButtons).toHaveLength(1);
+    fireEvent.click(cancelButtons[0]); // shp-7003
 
-    const dialog = await screen.findByRole('dialog', { name: 'Cancelar envío' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar envío' }));
+    const dialog = await screen.findByRole('dialog', { name: /¿Cancelar la solicitud .*\?/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar solicitud' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith('shp-7003', 'cancelado'));
   });
@@ -158,7 +166,7 @@ describe('M4View · cambio de estado manual (F4)', () => {
       pageSize: 20,
       total: 1,
     });
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     await screen.findByText('shp-done');
 
     expect(screen.queryByRole('button', { name: 'Marcar entregado' })).not.toBeInTheDocument();
@@ -205,7 +213,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
       pageSize: 20,
       total: 1,
     });
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
 
     const parties = await screen.findByTestId('shipment-parties-shp-9001');
     expect(parties).toHaveTextContent('Para Misty Waterflower · Guadalajara, JAL · CP 44100 · Tel 3331234567');
@@ -251,7 +259,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
       pageSize: 20,
       total: 3,
     });
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     expect(await screen.findByTestId('shipment-parties-shp-9003')).toHaveTextContent('Para Brock Harrison');
     expect(screen.getByTestId('shipment-parties-shp-9004')).toHaveTextContent('Para Erika Celadon');
     const both = screen.getByTestId('shipment-parties-shp-9005');
@@ -274,14 +282,15 @@ describe('M4View · destinatario y dirección (F9)', () => {
             country: 'MX',
             phone: '5555123456',
           },
-          customer: { id: 'u-778', name: 'jcsainz95', email: 'jcsainz95@example.com' },
+          // v1.80 (§M4-SHIP.10): `customer` es `CustomerRefDTO` (userId, fullName, email).
+          customer: { userId: 'u-778', fullName: 'jcsainz95', email: 'jcsainz95@example.com' },
         } as never,
       ],
       page: 1,
       pageSize: 20,
       total: 1,
     });
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
 
     const parties = await screen.findByTestId('shipment-parties-shp-9002');
     /*
@@ -301,7 +310,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
   });
 
   it('sin snapshot ni destinatario (fixture actual): cada dato ausente es «—» y nunca el userId', async () => {
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     const parties = await screen.findByTestId('shipment-parties-shp-7001');
     expect(parties).toHaveTextContent('Sin destinatario registrado');
     expect(parties).toHaveTextContent('—, — · CP — · Tel —');
@@ -334,7 +343,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
       pageSize: 20,
       total: 1,
     });
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
 
     const parties = await screen.findByTestId('shipment-parties-shp-9010');
     expect(parties).toHaveTextContent('Calle Av. Insurgentes Sur 1234, Depto 5B, Del Valle');
@@ -357,7 +366,10 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
     orderNumber: 'TCG-000999',
     destination: 'ship',
     requestedAt: '2026-09-01T10:00:00Z',
-    customer: { lastName: 'Oak', fullName: 'Samuel Oak' },
+    kind: 'guest_direct_ship',
+    customer: { userId: 'u-oak', email: 'samuel@example.com', lastName: 'Oak', fullName: 'Samuel Oak' },
+    // v1.80 (§M4-SHIP.3): sello y conteos del servidor; se recomputan sobre `items` (o los de `over`).
+    preparation: shipPrep(over.items ?? [item()]),
     // §M4-VAULT v1.79: `shipTo` es OBLIGATORIO en la rama 'ship' de la unión.
     shipTo: {
       recipientName: 'Samuel Oak',
@@ -386,8 +398,24 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
     ...over,
   });
 
-  const item = (over: Partial<PreparationItemDTO> = {}): PreparationItemDTO => ({
+  /** Estado de preparación de ENVÍO (v1.80): conteos derivados de las marcas, cifra del servidor = 0. */
+  const shipPrep = (items: ShipPreparationItemDTO[]): ShipPreparationStateDTO => ({
+    status: 'in_progress',
+    refundPreviewCents: 0,
+    total: items.length,
+    pending: items.filter((i) => i.prepStatus === 'pending' && i.availability.kind === 'available').length,
+    picked: items.filter((i) => i.prepStatus === 'picked').length,
+    missing: items.filter((i) => i.prepStatus === 'missing').length,
+    blocked: items.filter((i) => i.availability.kind === 'blocked').length,
+  });
+
+  const item = (over: Partial<ShipPreparationItemDTO> = {}): ShipPreparationItemDTO => ({
     shipmentItemId: 'sit-a',
+    prepStatus: 'pending',
+    missingReason: null,
+    prepMarkedBy: null,
+    availability: { kind: 'available' },
+    refund: { kind: 'refundable', amountCents: 50000 },
     inventoryItemId: 'inv-a',
     folio: 'INV-000900',
     quantity: 1,
@@ -483,7 +511,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   });
 
   it('CLIENTE: el APELLIDO va destacado junto al nombre completo (archivero alfabético)', async () => {
-    serve([order({ shipmentId: 'shp-cli', customer: { lastName: 'Waterflower', fullName: 'Misty Waterflower' } })]);
+    serve([order({ shipmentId: 'shp-cli', customer: { userId: 'u-x', email: 'x@example.com', lastName: 'Waterflower', fullName: 'Misty Waterflower' } })]);
     renderWithProviders(<M4View />, 'es');
 
     const who = within(await screen.findByTestId('prep-order-shp-cli')).getByTestId('prep-customer-shp-cli');
@@ -492,7 +520,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   });
 
   it('`lastName` NULL (§6.A: el apellido es derivado y frágil): degrada con elegancia — nunca «null»', async () => {
-    serve([order({ shipmentId: 'shp-sinap', customer: { lastName: null, fullName: 'Misty' } })]);
+    serve([order({ shipmentId: 'shp-sinap', customer: { userId: 'u-x', email: 'x@example.com', lastName: null, fullName: 'Misty' } })]);
     renderWithProviders(<M4View />, 'es');
 
     const who = within(await screen.findByTestId('prep-order-shp-sinap')).getByTestId('prep-customer-shp-sinap');
@@ -848,7 +876,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   it('P-4b · el NOMBRE COMPLETO no es secundario: es con lo que se caza un apellido derivado mal', async () => {
     // «último token» sobre un nombre mexicano normal entrega el apellido MATERNO (§35.6): el
     // archivero lo espera en la S de «Sainz» y el sistema propone la O de «Ortega».
-    serve([order({ shipmentId: 'shp-ap', customer: { lastName: 'Ortega', fullName: 'Juan Carlos Sainz Ortega' } })]);
+    serve([order({ shipmentId: 'shp-ap', customer: { userId: 'u-x', email: 'x@example.com', lastName: 'Ortega', fullName: 'Juan Carlos Sainz Ortega' } })]);
     renderWithProviders(<M4View />, 'es');
 
     const who = await screen.findByTestId('prep-customer-shp-ap');
@@ -932,7 +960,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
    * decirlo ella misma, o el candado gana por inercia.*
    */
   it('§35.6a · `fullName` null: marca + frase que nombran la ausencia, y ⛔ nunca «null»', async () => {
-    serve([order({ shipmentId: 'shp-sinnombre', customer: { lastName: null, fullName: null } })]);
+    serve([order({ shipmentId: 'shp-sinnombre', customer: { userId: 'u-x', email: 'x@example.com', lastName: null, fullName: null } })]);
     renderWithProviders(<M4View />, 'es');
 
     const who = await screen.findByTestId('prep-customer-shp-sinnombre');
@@ -947,7 +975,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   });
 
   it('§35.6a (EN) · el mismo bloque en inglés, con el vocabulario que §33 ya fijó', async () => {
-    serve([order({ shipmentId: 'shp-noname', customer: { lastName: null, fullName: null } })]);
+    serve([order({ shipmentId: 'shp-noname', customer: { userId: 'u-x', email: 'x@example.com', lastName: null, fullName: null } })]);
     renderWithProviders(<M4View />, 'en');
 
     const block = await screen.findByTestId('prep-fullname-missing-shp-noname');
@@ -962,7 +990,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
    * como cero**, así que reciclarlo para nombrar a una persona la dibuja como un importe en blanco.
    */
   it('PR-7 · con `fullName` null el bloque de la persona NO contiene ningún em dash', async () => {
-    serve([order({ shipmentId: 'shp-nodash', customer: { lastName: null, fullName: null } })]);
+    serve([order({ shipmentId: 'shp-nodash', customer: { userId: 'u-x', email: 'x@example.com', lastName: null, fullName: null } })]);
     renderWithProviders(<M4View />, 'es');
 
     const who = await screen.findByTestId('prep-customer-shp-nodash');
@@ -976,7 +1004,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
    * averías, y una tarjeta que parece rota se salta.
    */
   it('PR-8 · con `fullName` null NO se pinta además «Apellido no identificado» (ES y EN)', async () => {
-    serve([order({ shipmentId: 'shp-una', customer: { lastName: null, fullName: null } })]);
+    serve([order({ shipmentId: 'shp-una', customer: { userId: 'u-x', email: 'x@example.com', lastName: null, fullName: null } })]);
     const { unmount } = renderWithProviders(<M4View />, 'es');
     expect(await screen.findByTestId('prep-customer-shp-una')).not.toHaveTextContent(
       'Apellido no identificado',
@@ -992,7 +1020,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   it('PR-8 (contraparte) · con apellido ausente PERO nombre completo presente, «Apellido no identificado» SÍ se pinta', async () => {
     // La regla es de exclusión mutua, ⛔ no de retirada: sin este caso, «arreglar» PR-8 borrando la
     // rama entera dejaría el candado verde y el aviso útil perdido.
-    serve([order({ shipmentId: 'shp-solo-ap', customer: { lastName: null, fullName: 'Misty' } })]);
+    serve([order({ shipmentId: 'shp-solo-ap', customer: { userId: 'u-x', email: 'x@example.com', lastName: null, fullName: 'Misty' } })]);
     renderWithProviders(<M4View />, 'es');
 
     const who = await screen.findByTestId('prep-customer-shp-solo-ap');
@@ -1007,7 +1035,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
    * esta misma pantalla, y por eso §35.6a-f exige **dos nodos de bloque**.
    */
   it('PR-9 · marca y frase son bloques separados: el texto accesible NO queda pegado', async () => {
-    serve([order({ shipmentId: 'shp-sep', customer: { lastName: null, fullName: null } })]);
+    serve([order({ shipmentId: 'shp-sep', customer: { userId: 'u-x', email: 'x@example.com', lastName: null, fullName: null } })]);
     renderWithProviders(<M4View />, 'es');
 
     const block = await screen.findByTestId('prep-fullname-missing-shp-sep');
@@ -1024,7 +1052,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
    * (la dirección) y P-4b (el nombre completo).
    */
   it('PR-10 · la frase NO lleva `text-muted`, y la marca va en `accent` (la escalada es información)', async () => {
-    serve([order({ shipmentId: 'shp-tono', customer: { lastName: null, fullName: null } })]);
+    serve([order({ shipmentId: 'shp-tono', customer: { userId: 'u-x', email: 'x@example.com', lastName: null, fullName: null } })]);
     renderWithProviders(<M4View />, 'es');
 
     const block = await screen.findByTestId('prep-fullname-missing-shp-tono');
@@ -1048,7 +1076,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
   it('v1.78.1 · la cadena vacía (servidor no conforme) se lee como AUSENCIA, no como nombre vacío', async () => {
     // ⛔ El contrato PROHÍBE `""` como marca de ausencia; si llega igual, la lectura segura es
     // tratarla como ausente — nunca pintar un hueco invisible.
-    serve([order({ shipmentId: 'shp-vacio', customer: { lastName: null, fullName: '   ' } })]);
+    serve([order({ shipmentId: 'shp-vacio', customer: { userId: 'u-x', email: 'x@example.com', lastName: null, fullName: '   ' } })]);
     renderWithProviders(<M4View />, 'es');
 
     const who = await screen.findByTestId('prep-customer-shp-vacio');
@@ -1254,7 +1282,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
     // Mismo aviso: ⛔ ni lista ni vacío. Y la cabecera sigue ahí.
     expect(await screen.findByTestId('prep-conflict')).toBeInTheDocument();
     expect(screen.queryByText('Nada que enviar por ahora.')).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Pedidos a preparar' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Pedidos por preparar', level: 2 })).toBeInTheDocument();
   });
 
   it('v1.78.2 · un error que NO es 409 sigue siendo el banner genérico con su «Reintentar» intacto', async () => {
@@ -1278,12 +1306,16 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
     expect(screen.queryByTestId('prep-conflict')).not.toBeInTheDocument();
   });
 
-  it('P-10 · «Pedidos a preparar» se monta ARRIBA de la cola de envíos', async () => {
+  it('P-10 (v1.80 · §37.2) · «Preparar» es la pestaña por defecto y la cola de envíos vive en la suya', async () => {
     renderWithProviders(<M4View />, 'es');
 
-    const prep = await screen.findByRole('heading', { name: 'Pedidos a preparar' });
-    const cola = screen.getByRole('heading', { name: 'Cola de envíos de clientes' });
-    expect(prep.compareDocumentPosition(cola) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // La hoja de trabajo se ve al entrar; la cola administrativa ⛔ no compite por el scroll de pie.
+    expect(await screen.findByRole('heading', { name: 'Pedidos por preparar', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Cola de envíos de clientes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Preparar/ })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(screen.getByRole('tab', { name: /Envíos/ }));
+    expect(await screen.findByRole('heading', { name: 'Cola de envíos de clientes' })).toBeInTheDocument();
   });
 
   it('ERROR de la cola: banner con «Reintentar» que vuelve a consultar (§8.1)', async () => {
