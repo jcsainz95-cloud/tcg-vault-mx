@@ -24444,3 +24444,158 @@ PasswordAttemptsService at index [5] is available in the AdminModule context` �
 (`admin.user-create`, `admin.kyc-review`, `admin.pii`, `admin.contract-shapes`, `pii-degrade`): verdes dentro de
 un lote de **8/8 suites, 100/100**. **NO MEDIDO**: la suite unitaria completa (357 suites) y la de integración
 (`auth-password-attempts*`: no toqué el almacén ni el servicio de política, solo el reloj de la spec unitaria).
+
+# C7 rev v1.80.1 — SEC-C7-MINT, C7-R (QA IMPORTANTE 1), script de rescate y dos cierres de 114aecf (backend · 2026-09-29)
+
+Encargo: `API_CONTRACT` changelog v1.80.1 (`POST /auth/login`, `POST /auth/refresh`, tabla C7, pruebas C7-19…C7-23,
+«Script de rescate» `#reset-admin-password-script`) y `ARCHITECTURE §4.57.3/.4/.5/.8/.10`. Rama `claude/paquete-seguridad`,
+base `f602dca` (HEAD compartido avanzó a `940be1c` por devops mientras trabajaba; ninguno de sus ficheros se cruza con los míos).
+⛔ Sin schema, sin migración, sin env nueva, sin cambio de shape: **frontend no cambia** (medido: los `Object.keys(...)`
+de las e2e de login/refresh/reset-password siguen verdes con la lista exacta).
+
+| Bloque | sha | Ficheros |
+|---|---|---|
+| 1 · C7-R: memoria = caché de Redis + reposición en el Lua; `bump` de ventana fija (C7-22) | `668b6f8` | `backend/src/modules/auth/login-attempt.store.ts`, `password-attempts.constants.ts`, `backend/test/auth.c7-store.spec.ts`, `backend/test/helpers/fake-redis-attempt-store.ts` (nuevo), `backend/test/integration/auth-password-attempts-redis.e2e-spec.ts` |
+| 2 · SEC-C7-MINT: `jti = sid`, `refresh` hereda, legado, tope agregado (C7-19/20/21; C7-22 a nivel de servicio) | `d1fbbf8` | `backend/src/modules/auth/auth.service.ts`, `password-attempts.service.ts`, `device-token.service.ts`, `backend/test/auth.c7-mint.spec.ts` (nuevo), `backend/test/auth.c7-cache.spec.ts` (nuevo), `backend/test/helpers/auth-c7-world.ts` (nuevo), `backend/test/integration/auth-password-attempts.e2e-spec.ts` |
+| 3 · Script de rescate levanta el candado (C7-23) | `ff3ecc4` | `backend/prisma/reset-admin-password.ts`, `backend/prisma/reset-admin-password.c7.spec.ts` (nuevo), `backend/test/integration/reset-admin-password-lock.e2e-spec.ts` (nuevo) |
+| 4 · `env.validation` secretos iguales; guard `typ`/`tv` estrictos | `3c03f36` | `backend/src/config/env.validation.ts`, `backend/src/common/guards/jwt-auth.guard.ts`, `backend/test/env.validation.spec.ts`, `backend/test/jwt-auth.guard.typ.spec.ts` (nuevo) |
+| 5 · Deuda con fecha (sid legado) | `7cf48e5` | `docs/TECH_DEBT.md` («C7-LEGACY-SID») |
+
+## 1 · Dónde vive cada cosa (v1.80.1)
+
+- **`sid`** — `AuthService.issueTokens(user, sid = randomUUID())` (`auth.service.ts`): claim `sid` **solo en el refresh
+  token** (el access no lo necesita: no emite dispositivos). El par devuelto sigue siendo `{ accessToken, refreshToken }`:
+  el `sid` **no** viaja en el objeto para que el `...tokens` de las cuatro respuestas no gane campos.
+  - `login` / `google`: `sid = randomUUID()` → `issueTokens(user, sid)` + `devices.issue(user.id, sid)`.
+  - `refresh`: `AuthService.sessionIdOf(payload)` (estática, pura): `sid` del token si es string no vacío; si no,
+    `"legacy:" + sub + ":" + iat`; sin `iat` numérico ⇒ `null` ⇒ `401` (no hay de dónde derivar la sesión). Emite el
+    **mismo dispositivo** con `exp` renovado y el par nuevo hereda el `sid`.
+  - `reset-password`: `devices.issue(userId)` sin `jti` ⇒ aleatorio (no hay sesión). `register` y `change-password`
+    crean un `sid` nuevo por `issueTokens` (sin `deviceToken`; el siguiente `refresh` lo trae con ese `sid`).
+- **`DeviceTokenService.issue(userId, jti = randomUUID())`** (`device-token.service.ts`): `jti` vacío ⇒ `Error`.
+- **Tope agregado** (`password-attempts.constants.ts`: `DEVICE_AGGREGATE_KEY_PREFIX = 'auth-pwdevagg:v1:'`,
+  `DEVICE_ROUTE_CAP = 30`, `DEVICE_ROUTE_WINDOW_MS = 24 h`; `PasswordAttemptsService.deviceRouteAllowed(userId)` =
+  `store.bump(aggKey, 24 h) <= 30`). En `login` (`auth.service.ts`), **después** de verificar el token y **antes** de
+  elegir cubo: `if (viaDevice && user) viaDevice = await this.attempts.deviceRouteAllowed(user.id)`. Al pasarse, el
+  intento va al cubo de la cuenta (no hay 429 propio). Lo limpia `clearForUser` (reset-password, reset por admin) y el
+  script; ⛔ el acierto solo limpia el cubo usado.
+- **`passwordAttemptKeysForUser(pii, { id, email })`** (`password-attempts.service.ts`, función pura exportada): las tres
+  claves enumerables de una cuenta (`auth-pw` por `blindIndex(normalizeEmail)`, `auth-cp:v1:<id>`, `auth-pwdevagg:v1:<id>`).
+  El servicio y el script la comparten: es lo que el contrato pide con «nada duplicado a mano».
+- **Almacén** (`login-attempt.store.ts`): interfaz `LoginAttemptStore` gana `bump(key, ttlMs)`. Interfaz nueva
+  `PrimaryLoginAttemptStore` (la que ve `ResilientLoginAttemptStore`): `acquireSync(key, pending)` y
+  `bumpSync(key, ttl, pending)` devuelven además la **foto** (`{ failures, lockMs }` / `{ count, windowMs }`).
+  `MemoryLoginAttemptStore` guarda por clave `{ failures, failExpiresAt, lockExpiresAt, unsynced, resetPending }` (y
+  `{ count, windowExpiresAt, unsynced, resetPending }` para ventanas), con `syncAcquire/syncBump` (Redis manda),
+  `takePending*`/`giveBackPending*` (lo pendiente se entrega una sola vez; si la reposición no llega, vuelve) y
+  `markReset` (reset que Redis no vio). `ResilientLoginAttemptStore.acquire/bump`: si `degraded` ⇒ memoria; si no,
+  `takePending` → Redis con plazo 250 ms → `sync` (o `markDown` + `giveBack` + memoria). `reset`: Redis `DEL` y la foto
+  desaparece; si falla, `markReset`. `claimOnce` sigue siendo mejor esfuerzo (no entra en la caché).
+- **Lua** (`ACQUIRE_LUA`): 7 `ARGV` (`ttl, libres, base, tope, extra, lockRestanteMs, borrar`), en este orden: `DEL` si
+  `borrar`; `INCRBY extra` + `PEXPIRE`; `SET lock PX lockRest` solo si `lockRest > PTTL` (nunca acorta); después la
+  reserva de siempre. Al bloquear devuelve también `f` (`{0, pttl, f}`) para que la foto sea completa. `BUMP_LUA`:
+  `DEL` si `borrar`; `SET 0 PX ttl NX` + `INCRBY extra`; `SET 0 PX ttl NX`; `INCR`; devuelve `{n, pttl}`.
+- **`loginAttemptRedisKeys(k, prefix)`** y **`withTimeout`** exportados (los usa el script).
+- **Script** (`prisma/reset-admin-password.ts`): `clearPasswordLock(user, env, opts)` exportada, nunca lanza; la llama
+  `resetStaffPassword` **después** del `update`. `resetStaffPassword(prisma, env, hash?, opts?)` con
+  `opts.log` (por defecto `console.log`) y `opts.redisClient` (por defecto `createLoginAttemptRedisClient`). El retorno
+  sigue siendo `{ email, role }` (la spec «intacta» hace `toEqual` estricto). Plazo total conectar+`DEL`: 2 s
+  (`LOCK_CLEAR_TIMEOUT_MS`); `quit` con 500 ms y `disconnect` de respaldo. Necesita `PII_HMAC_KEY` del servicio (y en
+  no-local `PII_ENCRYPTION_KEY`, porque `PiiCryptoService` exige las dos: si faltan, el candado no se limpia y lo dice).
+- **`env.validation.ts`**: `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` (ambos string no vacío) ⇒ `Error` en **todo**
+  entorno. **`jwt-auth.guard.ts`**: `payload.typ !== undefined || typeof sub !== 'string' || typeof tv !== 'number'` ⇒
+  `401`; comparación `payload.tv !== user.tokenVersion` sin `?? 0`.
+
+## 2 · Rojo antes → verde después
+
+- **Rojo medido sobre `f602dca` + las specs nuevas** (`red-unit.txt` del scratchpad): `env.validation` **2/3 rojas**
+  (iguales en production / en local); `jwt-auth.guard.typ` **4/5 rojas** (el control pasaba); `auth.c7-mint`,
+  `auth.c7-cache`, `auth.c7-store` y `reset-admin-password.c7` **no compilan** (API que no existía: `bump`,
+  `PrimaryLoginAttemptStore`, `DEVICE_*`, `loginAttemptRedisKeys`, `RedisLike`). El rojo **conductual** de C7-19…C7-23 lo
+  dan las mutaciones de §3 (reintroducen el defecto de `8ea245f` y la spec muerde).
+- **Verde después (árbol vivo a `7cf48e5`, unitarias de auth + guard + env + script + admin.user-management + app.module):**
+  **22/22 suites, 227/227 pruebas** (`green-unit.txt`; base en `f602dca` para las mismas rutas: 16 suites, 171). Después de
+  corregir dos aserciones **mías** mal contadas (un 6.º `acquire` sin vencer el candado no cuenta: f = 5, no 6) el
+  `auth.c7-store` quedó **32/32**.
+- **Integración contra Postgres/Redis propios** (`postgresql://127.0.0.1:55801/tcg_seg_c7`, `redis://127.0.0.1:56801`,
+  `E2E_STRICT_INFRA=true`): `auth-password-attempts` (24, con C7-19/20/21 por HTTP), `auth-password-attempts-redis` (30,
+  con el Lua real de reposición y `bump`), `reset-admin-password-lock` (1) ⇒ **3/3 suites, 55/55**. Base en `f602dca`:
+  2 suites, 45/45.
+- **`tsc --noEmit` exit 0 · `eslint` sobre los 19 ficheros tocados exit 0.**
+- **Suite unitaria completa sobre copia del árbol ENTERO (`git archive 7cf48e5`, O-9):** **362/362 suites, 5940/5940 pruebas** (195 s, `--maxWorkers=2`, `full-unit.txt` del scratchpad). Sin rojos, sin skips nuevos..
+
+## 3 · Mutaciones (copia del árbol entero por mutación, `git archive 7cf48e5`; N y proporción)
+
+Arnés: `mutate.sh` copia el árbol entero (`git archive <sha> | tar -x`), enlaza `node_modules`, aplica UN parche (python con
+`assert old in s`) y corre la spec N veces. Cada fila dice qué prueba mordió (leído en `run-1.log`). Control limpio en la
+misma copia sin parche: **verde 2/2** sobre las seis specs (82/82).
+
+| Mutación (contrato) | Parche | Spec | Proporción | Qué mordió |
+|---|---|---|---|---|
+| C7-19: `randomUUID()` en `refresh` | `sessionIdOf(payload)` → `randomUUID()` | `auth.c7-mint` | **roja 5/5** (N=5) | C7-19 «usuario 1…5/5» (el 6.º llegó a argon2) y las tres de C7-21 |
+| C7-20 (a): quitar el `bump` | línea `deviceRouteAllowed` borrada | `auth.c7-mint` | **roja 3/3** | C7-20 (el 31.º dio 200) |
+| C7-20 (b): el acierto limpia el agregado | `clear(bucket, aggKey)` en login | `auth.c7-mint` | **roja 3/3** | C7-20 (el 31.º dio 200) |
+| C7-20 (c): ventana deslizante | memoria `windowExpiresAt = now + ttl` siempre | `auth.c7-mint` + `auth.c7-store` | **roja 3/3** | sobre `7cf48e5` solo mordió el almacén («la ventana se fija al crear»); la C7-20 del servicio seguía verde porque a +24 h ningún candado de cuenta sobrevive. Corregida en `8210af6` (re-bloquea la cuenta antes del +24 h): **roja 3/3** solo con `auth.c7-mint` (muerde C7-20: el 34.º con jti dio 429 en vez de 200); control limpio de la misma spec en copia de `8210af6`: **verde 2/2** |
+| C7-21: `sid` legado sin `sub` | `legacy:${iat}` | `auth.c7-mint` | **roja 3/3** | «dos usuarios con el mismo iat ⇒ jti distintos» y «3 refresh ⇒ mismo jti» |
+| C7-21: `sid` nuevo por reproducción | `randomUUID()` en la rama legado | `auth.c7-mint` | **roja 3/3** | las dos de C7-21 |
+| C7-22 (a): memoria desde 0 al caer (código de `8ea245f`) | sin `syncAcquire(photo)` | `auth.c7-cache` + `auth.c7-store` | **roja 5/5** (N=5) | C7-22 corridas 1–3/3 (10 a argon2), la de caché (`:201` sustituida), el agregado, y tres del almacén |
+| C7-22 (b): no reponer al volver | `acquireSync(key, NO_PENDING_ACQUIRE)` | `auth.c7-cache` + `auth.c7-store` | **roja 5/5** (N=5) | C7-22 corridas 1–3/3 (el 7.º dio 401), reset en memoria, y dos del almacén |
+| C7-22 (c): reponer sin `borrar` | `takePendingAcquire` devuelve `borrar: false` | `auth.c7-cache` + `auth.c7-store` | **roja 5/5** (N=5) | «un reset hecho en modo memoria se repone al volver Redis (borrar)» |
+| C7-23: no borrar | `del(...keys)` quitado | `reset-admin-password.c7` | **roja 3/3** | «seis claves», «DEL falla», «normaliza» |
+| C7-23: fallar si Redis no contesta | `catch` relanza | `reset-admin-password.c7` | **roja 3/3** | puerto cerrado, agujero negro, «DEL falla» |
+| C7-23: clave con el correo sin normalizar | `passwordAttemptKeysForUser` sin `normalizeEmail` | `reset-admin-password.c7` | **roja 3/3** | «Admin@TCG.local y admin@tcg.local borran las mismas claves» |
+| Guard: sin comprobación de `typ` | condición sin `payload.typ` | `jwt-auth.guard.typ` | **roja 3/3** | refresh como Bearer ⇒ 401; `typ: device` ⇒ 401 |
+| Guard: volver a `tv ?? 0` | `?? 0` restaurado y `tv` no exigido | `jwt-auth.guard.typ` | **roja 3/3** | «sin tv contra tokenVersion = 0 ⇒ 401» |
+| `env.validation`: sin la regla | comparación → `false` | `env.validation` | **roja 3/3** | «iguales en production» e «iguales en test/development» |
+
+## 4 · Decisiones que el contrato no fijaba (para arquitecto/techlead)
+
+- **`sid` no va en el objeto que devuelve `issueTokens`**: si fuera un tercer campo del par, el `...tokens` de las
+  respuestas lo colaría en el cuerpo y las e2e de shape (`Object.keys(...)` exacto) se pondrían rojas — y el contrato
+  dice «el front no lo lee». Los llamadores generan el `sid` y lo pasan dos veces (par y dispositivo).
+- **`sessionIdOf` devuelve `null` sin `iat` numérico ⇒ `401`.** Un refresh sin `sid` y sin `iat` no lo emitió nunca
+  `issueTokens` (jsonwebtoken pone `iat` siempre salvo `noTimestamp`); tratarlo como legado fabricaría un cubo
+  `legacy:<sub>:undefined` compartido por todos los tokens raros de esa cuenta. Mismo criterio que `typ`/`tv` (SEC-C7-RT).
+- **La reposición entrega lo pendiente UNA vez (`takePending` pone `unsynced = 0` antes de llamar a Redis) y lo devuelve
+  si la llamada falla.** Sin eso, dos peticiones simultáneas de la misma clave al volver Redis repondrían el mismo
+  `extra` dos veces. Un comando que Redis ejecutó pero contestó tarde sí queda contado dos veces (aceptado, §4.57.5).
+- **Lo pendiente de una clave que nadie vuelve a tocar no se repone** (no hay barrido de fondo). Es la misma pérdida que
+  §4.57.5 ya aceptaba para la memoria; la nota del almacén lo dice. Si se quiere cerrar, un `onModuleDestroy`/barrido
+  periódico que recorra `unsynced > 0` — decisión del arquitecto (añade una operación fuera del camino del login).
+- **`markReset` marca también la ventana de `bump`** para la misma clave (las claves de cuenta y de agregado son
+  disjuntas por prefijo, así que en la práctica solo aplica al agregado cuando `clearForUser` corre en modo memoria).
+  Cuesta una entrada de mapa por reset en modo memoria, acotada por el tope de 50 000.
+- **`change-password` NO limpia el agregado.** El contrato se contradice (§5 abajo); seguí la fila «Tope agregado» y
+  `ARCHITECTURE §4.57.10.1 b`, que listan exactamente tres vías (reset-password, reset por admin, script).
+- **`env.validation` rechaza secretos iguales también en local.** Medido antes: `test/integration/setup.ts`
+  (`e2e_access_secret` / `e2e_refresh_secret`), `.env.example` (dos `CHANGE_ME_…` distintos), `stack-native.sh`
+  (generados), `ci.yml`/`e2e.yml` (preflight de secretos) — ningún fixture tenía los dos iguales; no hubo que arreglar
+  ninguno. Los unitarios que construyen `ConfigService` a mano no pasan por `validateEnv`.
+- **El guard rechaza cualquier `typ` presente**, no solo `'refresh'`/`'device'`: `issueTokens` nunca pone `typ` en el
+  access, así que «tiene `typ`» ya significa «no es un access nuestro».
+- **`test/helpers/auth-c7-world.ts`** duplica el `makeWorld` de `auth.c7-policy.spec.ts` en vez de extraerlo de allí: esa
+  spec la midió QA sobre `178c705` y no quise moverla en el mismo pase. Candidata a unificar (deuda menor, no anotada
+  como bloqueante).
+
+## 5 · Discrepancias con el contrato (para el arquitecto — ⛔ no toqué `API_CONTRACT.md`)
+
+1. **C7-20, aritmética:** «7 logins correctos ⇒ 7 `jti`… 29 fallos repartidos (≤ 4 por `jti`, ninguno pone candado de
+   dispositivo)». Con 5 libres, el **5.º** fallo de un cubo ya pone candado, así que «≤ 4 por `jti`» con 7 `jti` da como
+   mucho **28** fallos, no 29. La prueba usa **8** logins (8 `jti`, 4×7 + 1 = 29) y así el 30.º es el correcto y el
+   31.º pasa del tope, como manda el resto de la fila. Propuesta: cambiar «7» por «8» (o «29» por «28» y renumerar).
+2. **Quién limpia el agregado:** la fila «Qué lo limpia» dice «*estos tres últimos y `reset-password` limpian también
+   `auth-cp` y el agregado*», y «los tres últimos» de esa lista son reset por admin, **`change-password`** y el script.
+   La fila «Tope agregado» y `ARCHITECTURE §4.57.10.1 b` dicen «reset-password, reset por admin y el script; ⛔ no el
+   acierto», sin `change-password`. Implementé lo segundo (`change-password` limpia `auth-cp` + cuenta, como en v1.80,
+   y **no** el agregado). Si el arquitecto quiere que `change-password` también lo limpie, es una línea en
+   `changePassword` (`clear(cpKey, accountKey, aggKey)`) y una aserción nueva.
+3. **C7-23, «f = 6 + candado»:** con la escalera del contrato, 6 fallos seguidos dejan f = 5 (el 6.º está bloqueado y
+   no cuenta). La prueba de integración vence el candado a mano entre el 5.º y el 6.º para tener f = 6 y 120 s; no
+   cambia lo que se demuestra.
+
+## 6 · NO MEDIDO
+
+- El Lua de reposición contra el Redis **de Railway** (solo contra Redis 7 local); `maxmemory-policy` sigue siendo de devops (§4.57.9).
+- Réplicas > 1 (`N-C7-6`): la convergencia al volver Redis se razona, no se midió con dos procesos.
+- La e2e completa de Playwright (frontend no cambia; QA decide si la corre).
+- El script contra la BD real (`railway run`): solo con Prisma doble + Redis real.
