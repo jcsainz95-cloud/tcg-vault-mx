@@ -2,7 +2,37 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.2**).
+>
+> **Changelog v1.80.2 — 💰⭐⭐ «POR REPONER» TRAS LAS RESPUESTAS D-5..D-10: EL MONTO DEL REEMBOLSO LO CAPTURA EL DUEÑO, LO
+> QUE NO CABE EN EL COBRO DE STRIPE VA A UNA CUBETA NUEVA «REEMBOLSOS MANUALES (SPEI)», Y EL CASO VENCE A LOS 7 DÍAS
+> (2026-09-29, arquitecto; base v1.80.1, vigente entera salvo lo que esta rev toca). Origen: `HECHOS.md`, última fila
+> («"Por reponer" — respuestas a D-5..D-10»). 💰 **ZONA DE DINERO ⇒ tres veredictos + seguridad** (nace un segundo canal
+> de dinero saliente y un segundo punto que revela la CLABE en claro). Schema: **se sigue ampliando `M-61` en la misma
+> migración** — no construida: medido 2026-09-29, Grep `PaymentRefund|ReplacementCase|missingReason|ManualRefund` en
+> `backend/` ⇒ **0 ficheros**. Norma: [§M4-SHIP.15.5](#M4-SHIP-15) (reescrita), §M4-SHIP.15.12 y §M4-SHIP.15.13 (nuevas).**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | 💰⭐⭐ **El reembolso de un caso ya no se calcula: lo CAPTURA el `super_admin`** (retiro **y** compra a bóveda). `POST /admin/replacement-cases/:id/refund` pasa a `{ amountCents, reason, expectedStripeCents, expectedManualCents, confirmAboveReference? }`. Entero ≥ 1, **motivo obligatorio** (3–500). Referencias que ve al capturar (y que quedan congeladas en el caso): **lo pagado** por la carta y **el mercado** de la valuación de «Mi bóveda» si existe. ⛔ Muere `RefundBasis` (`basis`, `marketValueCents`, `marketCapturedDate` salen de `PaymentRefund`; las referencias viven en el caso) | §M4-SHIP.15.5, §M4-SHIP.2 | **Sí, backend y frontend** · 🔒 seguridad |
+> | **2** | 💰⭐ **Topes contra el error de dedo** sobre `R = max(lo pagado, mercado)`: más de **2×R** ⇒ confirmación reforzada (`422 CASE_REFUND_CONFIRMATION_REQUIRED` si falta `confirmAboveReference:true`); más de **k×R** ⇒ bloqueado (`422 CASE_REFUND_ABOVE_LIMIT`), `k` = dial nuevo `case_refund_hard_multiplier` (seed **5**, rango 2–50, lo edita el súper-admin en M10). Previsualización del servidor: `GET /admin/replacement-cases/:id/refund-preview?amountCents=` (⛔ la pantalla no reparte) | §M4-SHIP.15.5 | **Sí, backend y frontend** |
+> | **3** | 💰⭐⭐ **Lo que excede el cobro ⇒ SPEI manual.** Parte por Stripe = `min(monto, remanente reembolsable de la orden de origen)`; el resto crea un registro en la tabla nueva **`ManualRefund`** (cubeta **«Reembolsos manuales (SPEI)»**, solo `super_admin`). Remanente 0 ⇒ **todo** a SPEI. Sustituye `D-7` y el `409 exceeds_charge` de v1.80.1. `compensationCents` **se queda** (es la naturaleza fiscal del peso, no el canal) y lo lleva también la fila SPEI | §M4-SHIP.15.5, §M4-SHIP.15.13, §M4-SHIP.2 | **Sí, backend y frontend** · 🔒 seguridad |
+> | **4** | 💰 **Cubeta SPEI:** `GET /admin/manual-refunds`, `GET …/:id/reveal-clabe` (auditado, solo `pending`), `POST …/:id/paid` (`speiReference` = clave de rastreo), `POST …/:id/cancel` (nota obligatoria). Estados `pending → paid \| cancelled`; quién marcó, cuándo, y el índice ciego de la CLABE a la que se pagó (`paidClabeHmac`). ⛔ La CLABE **no** se copia a la fila: se lee cifrada de `KycProfile` al revelar | §M4-SHIP.15.13 | **Sí, backend y frontend** · 🔒 seguridad |
+> | **5** | 💰 **Stripe rechazó la parte de tarjeta** (`case_refund` `failed`) ⇒ `POST /admin/refunds/:refundId/to-manual` (solo `super_admin`) la pasa a la cubeta SPEI con el mismo importe y componentes | §M4-SHIP.15.13 | **Sí, backend y frontend** |
+> | **6** | ⭐ **Plazo de 7 días:** `dueAt = openedAt + 7×24 h` y `overdue` **derivados** (⛔ ningún job escribe, ⛔ ninguna columna). Rojo en «Por reponer»; cuentan en `summary.toReplaceOverdue` y `workQueue.toPrepare.toReplaceOverdue`. ⛔ Nada se reembolsa solo | §M4-SHIP.15.12, §M4-SHIP.11 | **Sí, backend y frontend** |
+> | **7** | Avisos **`AV-14`** (te vamos a depositar por transferencia; si no hay CLABE registrada, cómo registrarla) y **`AV-15`** (ya te depositamos, con clave de rastreo) | §M4-SHIP.15.7, §R.3 | **Sí, backend** |
+> | **8** | Candado **`C-MREF-1`** (sitios exactos que crean o pagan `ManualRefund`) y pruebas **PS-30…PS-40**; PS-26/PS-27 **reescritas**, PS-28 ampliada | §M4-SHIP.8, §M4-SHIP.12 | **Sí, backend** |
+> | **9** | Respuestas D-5..D-10 registradas; **D-9** (esperar y mandar todo junto) **confirmada**; D-8/D-10 = sus defaults. Preguntas nuevas **D-11** (comprobante) y **D-12** (topes de captura), con default que no bloquea | §M4-SHIP.13 | **No** |
+> | **10** | ⭐ **Hallazgo de QA (sobre `6695e9e`): el cliente registrado no veía su envío.** `GET /orders/:orderId` gana `fulfillmentMode`, `publicStatus` (el **mismo** cuerpo que el seguimiento del invitado, extraído) y `shipment` (estado, paquetería, guía, fechas, destinatario/ciudad, `missingCount`), e `items[].replacement`; `GET /orders` gana `publicStatus`. La pantalla titula con `publicStatus`, ⛔ nunca con `status` («LIQUIDADA»). Pruebas **PO-1…PO-8** | [§M4-SHIP.16](#M4-SHIP-16), §4 | **Sí, backend y frontend** |
+>
+> **Nuevos códigos de error:** `422 CASE_REFUND_CONFIRMATION_REQUIRED`, `422 CASE_REFUND_ABOVE_LIMIT`, `409
+> MANUAL_REFUND_NOT_PENDING`, `422 CLABE_NOT_ON_FILE`, `409 REFUND_NOT_CONVERTIBLE`. Cambia de forma: `409
+> REFUND_PREVIEW_STALE` en el verbo del caso trae `{stripeCents, manualCents}`. Se retira el motivo `exceeds_charge`
+> de `CASE_REFUND_NOT_AVAILABLE`. (Van a `common/error-codes.ts` en el mismo commit que el verbo.)
+>
+> **Lo que NO cambia:** reponer / «apareció» / anular (§M4-SHIP.15.4, .10), el nacimiento de los casos, la espera de la
+> guía (§M4-SHIP.15.6), la cadena de reposición, el envío **directo** entero, el tope del operador (el reembolso de caso
+> sigue siendo solo `super_admin` y sin tope, D-8), `C-REF-1` (cinco sitios, sin cambio).
 >
 > **Changelog v1.80.1 — 💰⭐⭐ APARTADO «POR REPONER»: LA CARTA DE BÓVEDA QUE FALTA **O LLEGA DAÑADA** NO SE REEMBOLSA
 > AL PREPARAR — SE REPONE (O, EN UN RETIRO, SE PAGA A VALOR DE MERCADO). «DAÑADA» = «FALTANTE» EN TODOS LOS FLUJOS
@@ -8610,6 +8640,10 @@ Err `403/404`.
 
 Tras `settled`, los items aparecen en la bóveda con `ownershipStatus=settled`. En `pending` ya están en la bóveda con `ownershipStatus=pending`.
 
+> ⭐ **v1.80.2 — aditivo:** `fulfillmentMode`, `publicStatus`, `shipment: CustomerOrderShipmentDTO | null` e
+> `items[].replacement`. La pantalla del cliente titula con `publicStatus`. Norma entera y pruebas:
+> [§M4-SHIP.16](#M4-SHIP-16).
+
 ### POST /api/v1/orders/:orderId/request-invoice — `customer`
 CFDI en MVP **sin PAC**: no timbra. Marca la orden como "factura solicitada" y la UI muestra la instrucción de enviar los datos fiscales por correo (timbrado manual). Timbrado real = fase 2.
 Req: `{}` (usa el `BillingProfile` en archivo) → Res `200`: `{ orderId, invoiceRequested: true, instructions: "SEND_FISCAL_DATA_BY_EMAIL" }`.
@@ -17128,6 +17162,13 @@ arquitecto; citas por símbolo y fichero). Ninguno resultó falso.
 > admite un cuarto sitio) · **.11** (`toReplace`) · **.12** (PS-18…PS-29) · **.13** (respuestas y preguntas nuevas) ·
 > **.14** (quién hace qué) · **.15** (NUEVA: el apartado entero). Lo demás de v1.80 queda **intacto**, en particular
 > **todo el envío directo** (D-1).
+>
+> ⭐⭐ **v1.80.2 (2026-09-29) — respuestas D-5..D-10.** Qué cambia, por sitio: **.2** (muere `RefundBasis`; el caso guarda
+> el monto capturado y sus referencias; tabla nueva `ManualRefund`; dial `case_refund_hard_multiplier`) · **.4** (el
+> retiro ya no «paga a mercado») · **.8** (`C-MREF-1`) · **.11** (`toReplaceOverdue`, `manualRefundsPending`) · **.12**
+> (PS-26/27 reescritas, PS-30…PS-40) · **.13** (respuestas y D-11/D-12) · **.14** · **.15.5** (reescrita: monto
+> capturado y reparto Stripe/SPEI) · **.15.7** (`AV-14`, `AV-15`) · **.15.8** (`refundContext` sustituye `refundOptions`;
+> `dueAt`/`overdue`) · **.15.11** (pantallas) · **.15.12** (NUEVA: plazo) · **.15.13** (NUEVA: cubeta SPEI).
 
 ##### M4-SHIP.1 — Los hechos de partida (medidos)
 
@@ -17161,8 +17202,8 @@ enum PaymentRefundKind {
   order_full       // M3, súper-admin: el remanente de la orden (§M3)
   case_refund      // v1.80.1 — cierra un caso «Por reponer» sin reposición (súper-admin, §M4-SHIP.15.5)
 }
-// v1.80.1 — sobre qué se calcula un `case_refund`. Clase E.
-enum RefundBasis { paid  market }
+// ~~v1.80.1 — `enum RefundBasis { paid  market }`~~ ⛔ v1.80.2: ELIMINADO (el monto lo captura el súper-admin; las
+// referencias viven en el caso, §M4-SHIP.15.5). No llegó a construirse.
 enum PaymentRefundStatus {
   requested  // el hecho está registrado; Stripe aún no confirmó (o falló de forma transitoria)
   submitted  // Stripe aceptó el reembolso (hay `stripeRefundId`), aún no `succeeded`
@@ -17211,15 +17252,17 @@ model PaymentRefund {
   shippingCents       Int
   shippingIvaCents    Int
   processingFeeCents  Int
-  // v1.80.1 — lo que un `case_refund` a valor de MERCADO paga POR ENCIMA de lo cobrado por esa carta: no es devolución
-  // de venta (no lleva IVA de la venta); es compensación. 0 en toda otra fila (CHECK). §M4-SHIP.15.5.
+  // v1.80.1 — lo que un `case_refund` paga POR ENCIMA de lo cobrado por esa carta: no es devolución de venta (no
+  // lleva IVA de la venta); es compensación. 0 en toda otra fila (CHECK). §M4-SHIP.15.5.
+  // ⭐ v1.80.2: se CONSERVA — es la naturaleza fiscal del peso, no el canal; la fila SPEI (`ManualRefund`) la lleva igual.
   compensationCents   Int                 @default(0)
-  // v1.80.1 — solo `case_refund`: el caso que cierra (a lo más UNA fila por caso) y la base del cálculo.
+  // v1.80.1 — solo `case_refund`: el caso que cierra (a lo más UNA fila de Stripe por caso).
   replacementCaseId   String?             @unique
   replacementCase     ReplacementCase?    @relation(fields: [replacementCaseId], references: [id], onDelete: Restrict)
-  basis               RefundBasis?
-  marketValueCents    Int?                // la valuación congelada al pedirlo (solo basis=market)
-  marketCapturedDate  DateTime?           // `capturedDate` de la referencia usada (solo basis=market)
+  // ⛔ v1.80.2: `basis`, `marketValueCents`, `marketCapturedDate` ELIMINADOS de esta tabla (las referencias del monto
+  // capturado se congelan en `ReplacementCase.refund*`: el monto se reparte entre DOS filas de dos tablas y su
+  // contexto es uno).
+  manualRefund        ManualRefund?       // v1.80.2 — solo si esta fila `failed` se pasó a SPEI (§M4-SHIP.15.13)
   // QUIÉN: de la sesión. ⛔ Nunca del cuerpo.
   requestedByUserId   String
   requestedByRole     Role
@@ -17290,16 +17333,95 @@ model ReplacementCase {
   replacementInventoryItemId String?                           // replaced: la pieza que se le dio · found: = original (⛔ sin @unique: una pieza «encontrada» puede volver a faltar otro día; lo que impide dar una pieza a dos casos es el CAS de la pieza, §M4-SHIP.15.4)
   replacementInventoryItem   InventoryItem?          @relation("CaseReplacement", fields: [replacementInventoryItemId], references: [id], onDelete: Restrict)
   replacementShipmentItemId  String?                 @unique   // replaced dentro del paquete: la línea nueva
-  refund                     PaymentRefund?                    // refunded: su fila `case_refund`
+  refund                     PaymentRefund?                    // refunded: su fila `case_refund` (⭐ v1.80.2: puede NO haberla si todo fue a SPEI)
   voidNote                   String?                           // voided: texto del súper-admin
+  // ⭐ v1.80.2 — REEMBOLSO CAPTURADO (todo NULL ⇔ status≠refunded; CHECK). Congelado en el acto, de la sesión y del
+  // servidor. Es EL hecho «cuánto se le debe»; el libro y la cubeta SPEI son CÓMO se paga.
+  refundAmountCents          Int?                              // lo que capturó el súper-admin (≥ 1)
+  refundReason               String?                           // motivo obligatorio, 3–500 tras trim
+  refundPaidRefCents         Int?                              // referencia «lo pagado» = Q (§M4-SHIP.15.5) al capturar
+  refundMarketRefCents       Int?                              // referencia de mercado al capturar; null ⇔ sin mercado
+  refundMarketRefDate        DateTime?                         // `capturedDate` de esa referencia (⇔ refundMarketRefCents)
+  refundAboveRefConfirmed    Boolean?                          // true ⇔ superó 2×R y se confirmó (reforzada)
+  manualRefunds              ManualRefund[]                    // v1.80.2 — su parte SPEI (0, 1 o 2 filas: excedente y/o Stripe fallido)
 
-  @@index([status, openedAt])          // la cola «Por reponer» (lo más viejo primero)
+  @@index([status, openedAt])          // la cola «Por reponer» (lo más viejo primero; también sirve «vencidos», §M4-SHIP.15.12)
   @@index([shipmentRequestId, status]) // «¿este retiro tiene casos abiertos?» (guía, §M4-SHIP.15.6)
   @@index([customerUserId, status])    // «Qué debe haber» y «Mi bóveda»
 }
 // + relaciones inversas: InventoryItem.caseAsOriginal / caseAsReplacement · OrderItem.replacementCases
 //   · ShipmentRequest.replacementCases
+
+// ───────────── v1.80.2 — cubeta «Reembolsos manuales (SPEI)» (§M4-SHIP.15.13) ─────────────
+enum ManualRefundSource {
+  case_excess    // la parte de un reembolso de caso que no cabe en el cobro de Stripe (o todo, si el remanente es 0)
+  stripe_failed  // una fila `case_refund` que Stripe rechazó en definitiva, pasada a SPEI por el súper-admin
+}
+enum ManualRefundStatus {
+  pending    // hay que pagarla por fuera
+  paid       // el súper-admin la marcó pagada (terminal)
+  cancelled  // el súper-admin la canceló con nota (terminal)
+}
+model ManualRefund {
+  id                  String              @id @default(uuid())
+  // LA regla «una vez»: `case-spei:<caseId>` (case_excess) · `refund-spei:<paymentRefundId>` (stripe_failed).
+  idempotencyKey      String              @unique
+  source              ManualRefundSource
+  status              ManualRefundStatus  @default(pending)
+  // A QUIÉN y POR QUÉ. ⛔ Sin nombre, CLABE ni correo copiados: se leen VIVOS de User/KycProfile (una fuente de PII).
+  customerUserId      String
+  customer            User                @relation(fields: [customerUserId], references: [id], onDelete: Restrict)
+  replacementCaseId   String
+  replacementCase     ReplacementCase     @relation(fields: [replacementCaseId], references: [id], onDelete: Restrict)
+  paymentRefundId     String?             @unique   // solo stripe_failed: la fila de Stripe que sustituye
+  paymentRefund       PaymentRefund?      @relation(fields: [paymentRefundId], references: [id], onDelete: Restrict)
+  orderId             String?                       // la orden de origen (para ver el dinero de esa orden junto; M3)
+  order               Order?              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  // IMPORTE y componentes CONGELADOS (misma identidad que el libro; envío siempre 0 aquí). ⛔ Nunca se re-derivan.
+  amountCents         Int
+  merchandiseCents    Int
+  merchandiseIvaCents Int
+  processingFeeCents  Int
+  compensationCents   Int
+  // QUIÉN la creó (sesión).
+  createdAt           DateTime            @default(now())
+  createdByUserId     String
+  // PAGO (todo NULL ⇔ status≠paid; CHECK).
+  paidAt              DateTime?
+  paidByUserId        String?
+  speiReference       String?                       // clave de rastreo SPEI (1–30, [A-Za-z0-9]) — es el comprobante verificable (CEP de Banxico)
+  paidNote            String?                       // opcional, ≤ 500
+  paidClabeHmac       String?                       // KycProfile.clabeHmac AL MARCAR (índice ciego; ⛔ nunca la CLABE)
+  // CANCELACIÓN (todo NULL ⇔ status≠cancelled; CHECK).
+  cancelledAt         DateTime?
+  cancelledByUserId   String?
+  cancelNote          String?                       // obligatoria, 3–500
+  // SELLOS de aviso (§M4-SHIP.15.7).
+  announcedNotifiedAt DateTime?                     // AV-14
+  paidNotifiedAt      DateTime?                     // AV-15
+
+  @@index([status, createdAt])        // la cubeta (lo más viejo primero) y el conteo del tablero
+  @@index([customerUserId])
+  @@index([orderId])
+}
+// + relaciones inversas: User.manualRefunds · Order.manualRefunds · ReplacementCase.manualRefunds · PaymentRefund.manualRefund
 ```
+
+⭐ **v1.80.2 — CHECKs añadidos a `M-61`** (y los de v1.80.1 que tocaban `basis` se **sustituyen**, abajo):
+- `ReplacementCase`: `status='refunded'` ⇔ (`refundAmountCents`, `refundReason`, `refundPaidRefCents`,
+  `refundAboveRefConfirmed` **NOT NULL**) · `refundAmountCents >= 1` · `(refundMarketRefCents IS NULL) =
+  (refundMarketRefDate IS NULL)`.
+- `ManualRefund`: `amountCents > 0` · componentes `>= 0` · `amountCents = merchandiseCents + processingFeeCents +
+  compensationCents` · `source='stripe_failed'` ⇔ `paymentRefundId IS NOT NULL` · `status='paid'` ⇔ (`paidAt`,
+  `paidByUserId`, `speiReference` **NOT NULL**) · `status='cancelled'` ⇔ (`cancelledAt`, `cancelledByUserId`,
+  `cancelNote` **NOT NULL**) · a lo más **una** `case_excess` por caso: índice único parcial `ON
+  "ManualRefund"("replacementCaseId") WHERE source='case_excess'` (además de `idempotencyKey @unique`: dos candados
+  para el mismo hecho, uno de negocio y uno de forma, como `orderItemId`/`idempotencyKey` en el libro).
+- `PaymentRefund` — **sustituye** el renglón v1.80.1: `kind='case_refund'` ⇔ (`replacementCaseId`, `orderItemId` **NOT
+  NULL**) · `compensationCents > 0` ⇒ `kind='case_refund'`. (Las condiciones sobre `basis`/`marketValueCents` mueren con
+  las columnas.)
+- **Dial nuevo** `case_refund_hard_multiplier` (`ConfigSetting`, entero, **2–50**, seed **5**), regla de propagación
+  §11.0 de ARCHITECTURE; lo edita el súper-admin en M10, auditado como todo dial.
 
 ⭐ **v1.80.1 — CHECKs añadidos a `M-61`:**
 - `VaultPlacementItem`: `missingReason IS NOT NULL` ⇔ `prepStatus='missing'`. **Backfill en la misma migración, ANTES del
@@ -17314,9 +17436,10 @@ model ReplacementCase {
   `replacementInventoryItemId = originalInventoryItemId AND missingReason='not_found'` · `status='replaced'` ⇒
   `replacementInventoryItemId <> originalInventoryItemId` · `replacementShipmentItemId IS NOT NULL` ⇒ `status='replaced'`
   · `status='voided'` ⇔ `voidNote IS NOT NULL`.
-- `PaymentRefund`: `kind='case_refund'` ⇔ (`replacementCaseId`, `orderItemId`, `basis` **NOT NULL**) ·
-  `kind='case_refund'` ⇒ `shipmentItemId IS NULL AND orderId IS NOT NULL` · `compensationCents > 0` ⇒ `kind='case_refund'
-  AND basis='market'` · `basis='market'` ⇔ `marketValueCents IS NOT NULL` · la identidad pasa a **`amountCents =
+- `PaymentRefund`: ~~`kind='case_refund'` ⇔ (`replacementCaseId`, `orderItemId`, `basis` **NOT NULL**)~~ ·
+  `kind='case_refund'` ⇒ `shipmentItemId IS NULL AND orderId IS NOT NULL` · ~~`compensationCents > 0` ⇒ `kind='case_refund'
+  AND basis='market'` · `basis='market'` ⇔ `marketValueCents IS NOT NULL`~~ (⭐ v1.80.2: tachado, sustituido por el
+  bloque «CHECKs añadidos a `M-61`» de v1.80.2, abajo del schema) · la identidad pasa a **`amountCents =
   merchandiseCents + shippingCents + processingFeeCents + compensationCents`** (sustituye a la de v1.80).
 - *`orderItemId @unique` sigue valiendo para `case_refund`:* una carta se reembolsa **una** vez en su vida, venga por donde
   venga (`item_missing` o `case_refund`). Es el candado que impide reembolsar una carta que ya se reembolsó por otro camino.
@@ -17475,8 +17598,9 @@ dos cartas, **MX$500.00** y **MX$300.00**, envío **MX$150.00**, comisión de co
 se devuelve es lo que el cliente pagó por la carta, no lo que vale hoy* — **decisión del dueño D-2**.~~
 ⭐ **v1.80.1 — Retiro de bóveda (sustituye el párrafo tachado; D-2 del dueño):** la carta que falta o llega dañada
 **no se reembolsa al preparar**: abre un caso «Por reponer» (§M4-SHIP.15). Si no se consigue reponer, el súper-admin la
-reembolsa **al valor de mercado actual** (`case_refund`, `basis:'market'`), contra el cobro de la orden con que el
-cliente la compró (origen, §M4-SHIP.3) — fórmula en §M4-SHIP.15.5. El cobro del retiro (`ShipmentRequest.totalCents`)
+reembolsa ~~**al valor de mercado actual** (`case_refund`, `basis:'market'`)~~ ⭐ **v1.80.2: por el monto que él
+captura** (con lo pagado y el mercado como referencias), contra el cobro de la orden con que el cliente la compró
+(origen, §M4-SHIP.3) hasta lo que quede reembolsable, y **el resto por SPEI manual** — norma en §M4-SHIP.15.5. El cobro del retiro (`ShipmentRequest.totalCents`)
 se reembolsa **solo** si al final no sale ninguna carta (`shipment_fee`, §M4-SHIP.15.6).
 **Envío directo: sin cambio** — `item_missing` con la fórmula de arriba (D-1: MX$314.58).
 
@@ -17694,6 +17818,12 @@ User.email`; en un retiro, el dueño del retiro). Una fila que quedó `requested
   /admin/replacement-cases/:id/refund` + `closeWithdrawalIfEmpty` (§M4-SHIP.15.6), y este último **solo** llamado desde
   `…/refund` y `…/void`, los dos **`@MoneyOut()`** (solo `super_admin`). El candado verifica también quién llama a
   `closeWithdrawalIfEmpty`. La lista se actualiza **en el mismo commit** que el verbo; un sexto ⇒ rojo.
+- ⭐ **v1.80.2 — candado hermano `C-MREF-1` (lo escribe backend):** prueba estática que enumera todos los sitios que
+  **crean** filas `ManualRefund` y exige exactamente **dos**: `POST /admin/replacement-cases/:id/refund` y `POST
+  /admin/refunds/:refundId/to-manual`; y todos los que escriben `status:'paid'|'cancelled'` y exige exactamente `POST
+  /admin/manual-refunds/:id/paid` y `…/cancel`. Los cuatro, **`@MoneyOut()`** (solo `super_admin`). Y el único lector de
+  `KycProfile.clabeEnc` que devuelve la CLABE en claro fuera de buylist es `GET /admin/manual-refunds/:id/reveal-clabe`.
+  Un sitio de más ⇒ rojo. *El operador no toca esta cubeta de ninguna forma* (ni lectura: es dinero y PII bancaria).
 - ⭐ **v1.80.1 — el operador y el apartado:** el operador **abre** casos (al preparar/colocar) y **repone**, pero ⛔
   **no reembolsa desde el apartado** (D-8 al dueño). Reponer **no es dinero saliente** y no cuenta contra el tope: la
   pérdida ya ocurrió y quedó firmada al **marcar** (la pieza original pasa a merma con el operador que la marcó como
@@ -17761,7 +17891,9 @@ User.email`; en un retiro, el dueño del retiro). Una fila que quedó `requested
 
 - **Lo mínimo útil: un contador DERIVADO, consultado.** `GET /api/v1/admin/shipments/picking-list/summary` (operador+;
   `Cache-Control: no-store`) ⇒ `{ ship: number; vault: number; oldestRequestedAt: string | null; stuckRefunds: number
-  }` (⭐ v1.80.1: **+ `toReplace: number`** = casos `open`; **+ `oldestOpenCaseAt: string | null`**) — `ship` = envíos
+  }` (⭐ v1.80.1: **+ `toReplace: number`** = casos `open`; **+ `oldestOpenCaseAt: string | null`**) (⭐ v1.80.2: **+
+  `toReplaceOverdue: number`** = casos `open` con `overdue` (§M4-SHIP.15.12); **+ `manualRefundsPending: number |
+  null`** = filas `ManualRefund` `pending` — **`null` para `vault_operator`**, el número solo lo ve el súper-admin) — `ship` = envíos
   `picking` sin preparar, `vault` = colocaciones `pending`, `stuckRefunds` = filas del libro
   `requested` con más de 10 min o `failed` sin revisar. **Un cuerpo** con la cola (mismas fuentes). La pantalla admin lo
   pide al cargar, al volver el foco y cada **60 s** con la pestaña visible, y pinta un **badge** en «Pedidos por
@@ -17770,7 +17902,9 @@ User.email`; en un retiro, el dueño del retiro). Una fila que quedó `requested
   ruido y PII en un buzón; una tabla de avisos sería una segunda fuente de «hay pedidos» (misma doctrina que §R.2). Un
   contador derivado **no puede mentir**. *Por qué no push/websocket:* infraestructura nueva para ahorrar ≤ 60 s.
 - **Tablero:** `workQueue.toPrepare: { ship: number; vault: number }` con **el mismo** cuerpo (⭐ v1.80.1: **+
-  `toReplace: number`**, mismo cuerpo que el `summary`). ⛔ `workQueue.shipments` **no
+  `toReplace: number`**, mismo cuerpo que el `summary`) (⭐ v1.80.2: **+ `toReplaceOverdue: number`**; y
+  **`workQueue.manualRefunds: { pending: number; pendingCents: number; oldestCreatedAt: string | null } | null`** —
+  `null` para `vault_operator`; la tarjeta «Reembolsos por pagar (SPEI)» solo se pinta al súper-admin). ⛔ `workQueue.shipments` **no
   cambia de cifra** (sigue contando `solicitado|picking|guia`: envíos vivos, no «por preparar»); la tarjeta «Pedidos por
   preparar» lee `toPrepare`. Visible para `vault_operator` (conteos).
 - **Hoja de preparación imprimible — ENTRA (solo frontend, cero endpoint):** página de impresión con la **misma**
@@ -17820,9 +17954,30 @@ con N y autor, copia del árbol entero con su sha). Cada una se entrega **con su
 | **PS-23** 💰 | **Reponer — una pieza, un caso:** dos casos del mismo cliente o de clientes distintos reponen **la misma** candidata a la vez (N≥10) ⇒ exactamente uno `200`, el otro `422 not_platform_available`; la pieza tiene **un** dueño. Y reponer vs. **una compra** de la misma pieza `listed` (N≥10) ⇒ nunca los dos | quitar `status IN (in_stock, listed)` del `WHERE` del CAS de la candidata |
 | **PS-24** 💰 | **Reponer — efectos:** retiro en `picking` ⇒ línea nueva `picked` en el mismo envío, original pasa a **plataforma** (`lost|damaged`, movimiento con el actor), repuesta `in_custody` del cliente, caso `replaced`; colocación ⇒ repuesta al **cajón del cliente** (reglas de §M4-VAULT.5 paso 7; cliente sin cajón ⇒ el que elija). La original **nunca** queda `listed`/`in_stock` | dejar la original a nombre del cliente |
 | **PS-25** | **«Apareció»:** caso `not_found` + la **misma** pieza ⇒ `found`, pieza `lost → in_custody` del cliente, la línea del retiro vuelve a `picked`; caso `damaged` + la misma pieza ⇒ `422 same_piece_damaged` | permitir `found` con `damaged` |
-| **PS-26** 💰 | **Reembolso de mercado:** retiro, referencia `priced` 80000 del acabado de la pieza, origen con `P=50000` ⇒ fila `case_refund` `amountCents=80000`, componentes de venta = los de `item_missing` sobre `P` + `compensationCents = 80000 − (P + comisión)`; identidad del CHECK **±0**; `marketValueCents` y fecha congelados. Referencia `pending` ⇒ `409 market_unavailable` y `basis:'paid'` aceptado. Operador ⇒ `403 MONEY_OUT_FORBIDDEN` (auditado) | calcular con el precio de lista de la pieza; aceptar `market` sin referencia |
-| **PS-27** 💰 | **Tope de lo cobrado:** mercado > remanente del cobro de origen ⇒ `409 exceeds_charge {marketCents, maxCents}`, cero escrituras; concurrente con un M3 total sobre la misma orden (N≥10) ⇒ `Σ ≤ total` siempre | quitar el candado de fila `Order` del verbo |
-| **PS-28** 💰 | **Cierre del retiro por el apartado:** retiro con **todas** faltantes, se reembolsa el último caso ⇒ en el **mismo** acto `shipment_fee` + envío `cancelado` + `AV-12` de las dos filas; si en cambio se **repone** una ⇒ ni `shipment_fee` ni cierre | no emitir `shipment_fee` desde el apartado |
+| ~~**PS-26**~~ | ~~Reembolso de mercado…~~ ⛔ **v1.80.2: reescrita abajo** (ya no hay base «mercado» calculada) | — |
+| ~~**PS-27**~~ | ~~Tope de lo cobrado ⇒ `409 exceeds_charge`…~~ ⛔ **v1.80.2: reescrita abajo** (el excedente va a SPEI, no se rechaza) | — |
+| **PS-28** 💰 | **Cierre del retiro por el apartado:** retiro con **todas** faltantes, se reembolsa el último caso ⇒ en el **mismo** acto `shipment_fee` + envío `cancelado` + `AV-12` de las dos filas; si en cambio se **repone** una ⇒ ni `shipment_fee` ni cierre. ⭐ v1.80.2: **y** si el último caso va **todo** a SPEI (remanente 0) el cierre ocurre igual (`shipment_fee` por Stripe contra el cobro **del retiro**, `ManualRefund` por la carta); `expectedStripeCents` = `shipment_fee` | no emitir `shipment_fee` desde el apartado; condicionar el cierre a que exista fila `case_refund` |
+
+⭐ **v1.80.2 — pruebas del monto capturado y de la cubeta SPEI.** Mismas reglas (barrera, N≥10, proporción con N y
+autor, copia del árbol entero con su sha, mutación demostrada roja). Fixture común **F-SPEI**: orden `vault`
+`IVA_INCLUSIVE` con **dos** cartas `P₁=50000` (la del caso) y `P₂=30000`, sin envío, `F` del dial ⇒ `Q = P₁ +
+floor(F·P₁/G)`; mercado `priced` de la pieza = `M`; reloj **inyectado**.
+
+| # | Qué asevera | Mutación que la pone roja |
+|---|---|---|
+| **PS-26** 💰 (v1.80.2) | **Monto capturado, todo por Stripe:** `amountCents = Q + 10000` con remanente de sobra ⇒ **una** fila `case_refund` de `Q+10000` con los componentes **exactos** de `item_missing` sobre `P₁` + `compensationCents = 10000`; **cero** `ManualRefund`; el caso congela `refundAmountCents`, `refundReason`, `refundPaidRefCents = Q`, `refundMarketRefCents = M` y su fecha; identidad **±0**. Operador ⇒ `403 MONEY_OUT_FORBIDDEN` (auditado). Sin `reason` / `reason` de 2 caracteres / `amountCents` `0`, `-1`, `1.5`, `"100"` ⇒ `400`, cero escrituras | tomar el monto de `M` o de `Q` en vez del cuerpo; aceptar `reason` vacío |
+| **PS-27** 💰 (v1.80.2) | **Excedente ⇒ SPEI:** con un `item_missing`/M3 previo que deja remanente `max < A` ⇒ fila Stripe = **`max`**, `ManualRefund(case_excess, pending)` = **`A − max`**; `stripe.amount + manual.amount = A` **±0** y **componente a componente** `stripe + manual = comp(A)` **±0**; Stripe recibe `amount = max` exacto. **Carrera** con un M3 total sobre la misma orden (barrera en la fila `Order`, N≥10) ⇒ en **todas**: `Σ Stripe no fallidas ≤ totalCents` **y** `Stripe + SPEI del caso = A` | quitar el candado de fila `Order` del verbo ⇒ `Σ > total` en ≥1 tirada; mandar `A` entero a Stripe |
+| **PS-30** 💰 | **Remanente 0 ⇒ todo a SPEI:** orden `settled` con remanente 0 ⇒ **cero** filas del libro, **cero** llamadas a Stripe, un `ManualRefund` = `A` con `comp(A)`; el caso queda `refunded` | tope de Stripe = `Q` en vez de `max` (crea fila Stripe que Stripe rechaza) |
+| **PS-31** 💰 | **Topes de captura:** `R = max(Q, M)`. `A = 2R` ⇒ `200` sin confirmar; `A = 2R + 1` sin `confirmAboveReference` ⇒ `422 CASE_REFUND_CONFIRMATION_REQUIRED {referenceCents: R, confirmAboveCents: 2R}`, cero escrituras; con `true` ⇒ `200` y `refundAboveRefConfirmed = true`; `A = k·R + 1` (dial `k=5`) **con** `true` ⇒ `422 CASE_REFUND_ABOVE_LIMIT {limitCents}`; subir el dial a 6 ⇒ `200`. Con `M = 3Q` y `A = 4Q` ⇒ `200` **sin** confirmar (el mercado cuenta en `R`). Sin mercado ⇒ `R = Q` | `R = Q` (ignorar el mercado) ⇒ `4Q` pide confirmación; `k` fijo en código ⇒ el cambio de dial no surte |
+| **PS-32** 💰 | **Paridad preview ↔ verbo:** para 20 montos (incluidos `max−1`, `max`, `max+1`, `2R`, `2R+1`) `GET …/refund-preview?amountCents=A` devuelve exactamente el `{stripeCents, manualCents, confirmation}` que el `POST` acepta; `expected*` distinto ⇒ `409 REFUND_PREVIEW_STALE {stripeCents, manualCents}`, cero escrituras; entre preview y `POST` un M3 parcial cambia `max` ⇒ `409` con las cifras nuevas | ignorar `expectedManualCents` |
+| **PS-33** 💰 | **Marcar pagada:** `pending` + `speiReference` válida ⇒ `paid`, `paidByUserId` = sesión, `paidClabeHmac` = `KycProfile.clabeHmac` **en ese momento** (null si no hay), `AV-15` una vez; repetir con la **misma** referencia ⇒ `200 already_paid`, sin escribir ni avisar; con **otra** ⇒ `409 MANUAL_REFUND_NOT_PENDING`; `paid` vs `cancel` concurrentes (N≥10) ⇒ exactamente uno gana; operador ⇒ `403`; `speiReference` con espacios, `>30` o símbolos ⇒ `400` | quitar `status:'pending'` del `WHERE` del CAS ⇒ `paid` y `cancelled` los dos en ≥1 tirada |
+| **PS-34** 🔒 | **CLABE:** `GET /admin/manual-refunds` y su detalle **nunca** llevan 18 dígitos seguidos (se escanea el JSON serializado) — solo `clabeMasked`; `reveal-clabe` solo `super_admin`, solo `pending` (`paid`/`cancelled` ⇒ `409 MANUAL_REFUND_NOT_PENDING`), **una** bitácora `manual_refund.reveal_clabe` por llamada; sin CLABE registrada ⇒ `422 CLABE_NOT_ON_FILE`; ⛔ la tabla `ManualRefund` no tiene columna de CLABE (prueba de esquema) | devolver `clabe` en claro en el DTO de lista; no auditar el reveal |
+| **PS-35** 💰 | **Stripe falló ⇒ SPEI:** `case_refund` `failed` ⇒ `POST /admin/refunds/:id/to-manual` crea `ManualRefund(stripe_failed)` con **el mismo** importe y componentes; repetir ⇒ `200` con la **misma** fila; sobre una fila `requested`/`submitted`/`succeeded` ⇒ `409 REFUND_NOT_CONVERTIBLE {status}`; sobre `item_missing`/`shipment_fee`/`order_full` ⇒ `409 REFUND_NOT_CONVERTIBLE {kind}`; operador ⇒ `403`. Invariante `INV-MR-1` verde tras cada paso | permitir `requested` ⇒ el mismo dinero por Stripe (reintento) **y** por SPEI |
+| **PS-36** | **Plazo derivado:** reloj en `openedAt + 7d − 1 ms` ⇒ `overdue:false`; en `+ 7d` exacto ⇒ `true`; `dueAt` = `openedAt + 604800000 ms`; `summary.toReplaceOverdue` y `workQueue.toPrepare.toReplaceOverdue` cuentan **solo** `open` vencidos (un `replaced` de hace 30 días no cuenta); pasar el reloj **no escribe nada** (conteo de filas y `updatedAt` idénticos) y **no crea** filas del libro ni `ManualRefund` | `>` en vez de `>=` (el borde); contar casos cerrados; 8 días |
+| **PS-37** | **`C-MREF-1`** verde con los sitios exactos; añadir un `manualRefund.create` en otro servicio ⇒ rojo; un `@Roles(vault_operator)` en cualquiera de los cuatro verbos ⇒ rojo | (la mutación **es** la prueba: se entrega demostrada) |
+| **PS-38** 💰 | **Cancelar:** `pending` + nota ⇒ `cancelled` con actor; sin nota ⇒ `400`; ya `paid` ⇒ `409 MANUAL_REFUND_NOT_PENDING`; el caso **no** se reabre (sigue `refunded`) y su DTO muestra la fila cancelada; `workQueue.manualRefunds.pending` baja en 1 | reabrir el caso al cancelar; dejar cancelar una `paid` |
+| **PS-39** | **Avisos:** caso con parte SPEI y cliente **con** CLABE ⇒ un `AV-14` (monto SPEI, sin CLABE en el cuerpo) y, si hubo parte Stripe, su `AV-12`; cliente **sin** CLABE ⇒ `AV-14` con el enlace a registrar su CLABE (`/cuenta#kyc`); `paid` ⇒ **un** `AV-15` con la clave de rastreo; `cancel` ⇒ ⛔ ningún aviso; los sellos impiden duplicados en dos llamadas simultáneas (N≥10) | mandar `AV-15` al crear; no reclamar el sello |
+| **PS-40** 💰 | **M7:** una `ManualRefund` `pending` **no** resta en el periodo; al marcarla `paid` resta en el periodo de `paidAt` sus componentes de venta y muestra `compensationCents` en el renglón «compensaciones por carta perdida»; una `cancelled` nunca resta; la fila Stripe fallida y su sustituta SPEI **no** restan dos veces | contar `pending`; contar por `createdAt` |
 | **PS-29** 💰 | **Cadena:** pieza repuesta que vuelve a faltar en otro retiro ⇒ su caso tiene el `originOrderItemId` **del caso que repuso**; un contracargo de esa orden de origen alcanza a la **repuesta** (vuelve a plataforma) y no deja al cliente con la carta y el dinero | `resolveOrigin` sin la cadena ⇒ `no_origin_order` / el contracargo no la toca |
 
 ##### M4-SHIP.13 — Lo que decide el dueño (con su valor por defecto; ⛔ no bloquea construir)
@@ -17855,6 +18010,28 @@ con N y autor, copia del árbol entero con su sha). Cada una se entrega **con su
 | **D-9** | Un retiro con una carta **por reponer**: ¿**esperamos** a tenerla para mandar el paquete completo, o **mandamos lo demás** ya y la repuesta se queda en su bóveda (y la pide después)? | **Esperar**: el paquete sale completo cuando la repones o la reembolsas; al cliente se le avisa que su envío se retrasa (`AV-13`) | un verbo «mandar sin esta carta» (el caso se desliga del envío; la repuesta va al cajón) y la pregunta de quién paga el segundo envío |
 | **D-10** | Compra **a bóveda** con una carta por reponer: ¿le **avisamos** al cliente cuando pasa? | **No** (ya decidiste no avisar al guardar): en «Mi bóveda» ve «la estamos reponiendo» y no puede pedir su retiro; **sí** se le avisa si al final se le reembolsa (`AV-12`) | un aviso más (`AV-13` con otra plantilla) |
 
+⭐ **v1.80.2 — respuestas del dueño a D-5..D-10 (2026-09-29, `HECHOS.md` última fila; no se re-preguntan):**
+
+| # | Respuesta | Qué se construye |
+|---|---|---|
+| **D-5** + **D-6** | *«yo busco lo que vale y capturo»* (retiro **y** compra a bóveda) | Monto **capturado** por el súper-admin, con lo pagado y el mercado como referencias (§M4-SHIP.15.5). Mueren las «bases» `paid`/`market` |
+| **D-7** | *«se genera un reembolso que haga lo SPEI manual yo; tenemos que aventarlos a una cubeta nueva»* | Excedente sobre lo reembolsable del cobro ⇒ `ManualRefund` en la cubeta «Reembolsos manuales (SPEI)» (§M4-SHIP.15.13) |
+| **D-8** | (no preguntada ⇒ default) | Reponer: operador y súper-admin. Reembolsar desde el apartado: **solo** súper-admin |
+| **D-9** | *«esperar y mandar todo junto»* | **Confirmado** el default: la guía de un retiro espera a sus casos (§M4-SHIP.15.6), sin cambio |
+| **D-10** | (no preguntada ⇒ default) | Sin aviso al abrir un caso de compra a bóveda |
+| **(plazo)** | *7 días, luego vencido y aviso en el tablero; nada se reembolsa solo* | `dueAt`/`overdue` derivados; rojo en la lista; conteo en el tablero (§M4-SHIP.15.12) |
+
+⭐ **v1.80.2 — preguntas NUEVAS al dueño, en llano (con valor por defecto; ⛔ ninguna bloquea construir):**
+
+| # | Pregunta | Por defecto | Si dice otra cosa, cambia… |
+|---|---|---|---|
+| **D-11** | Cuando marques un reembolso por transferencia como **pagado**, ¿te basta con escribir la **clave de rastreo** del SPEI (con ella se descarga el comprobante oficial en la página del Banco de México) y una nota opcional, o quieres poder **subir la foto o el PDF** del comprobante? | **Clave de rastreo + nota.** Subir archivos hoy solo existe para la INE, con candados de seguridad propios; abrirlo a comprobantes es un pase aparte | un propósito de subida nuevo en `uploads` (privado, solo súper-admin) + revisión de seguridad |
+| **D-12** | Para protegerte de un **error de dedo** al capturar el monto: si escribes **más del doble** de la referencia (lo que el cliente pagó o lo que vale hoy, la que sea mayor) te pedimos **confirmar escribiendo el monto otra vez**; si escribes **más de 5 veces** la referencia, **no te deja** (ese «5» lo puedes cambiar tú en Ajustes). ¿Te parecen bien esos números? | **2× confirma, 5× bloquea** | el «2» es una constante (una línea); el «5» es un ajuste que ya editas tú |
+
+⚠️ **Nota para el dueño (no es pregunta de diseño):** la parte que pagues **por encima de lo que el cliente pagó** por la
+carta no es una devolución de venta sino una **compensación** por la carta perdida. El sistema la separa en su propio
+renglón y **no** le resta IVA; cómo se registra ante el SAT lo confirma **tu contador**.
+
 ##### M4-SHIP.14 — Qué cambia para quién
 
 | Rol | Qué |
@@ -17875,6 +18052,25 @@ con N y autor, copia del árbol entero con su sha). Cada una se entrega **con su
 | **ux-ui** | Copys: el apartado, cada estado del caso, identidad que no coincide, sin candidatas, mercado vs. lo pagado (y las dos cifras de `exceeds_charge`), retiro en espera, `AV-13` (es/en), el estado del cliente «la estamos reponiendo» |
 | **seguridad / pentester** | El vector de reponer (marcar «no la encontré», reponer, quedarse la original); `@MoneyOut` del reembolso del apartado; `C-REF-1` a cuatro; el contracargo con la cadena de reposición (PS-29) |
 | **product-owner** | Registrar en `PROJECT.md` las respuestas D-1..D-4, «dañada = faltante» y, cuando lleguen, D-5..D-10 |
+
+⭐ **v1.80.2 — lo que añaden el monto capturado, la cubeta SPEI y el plazo (todo lo de arriba sigue):**
+
+| Rol | Qué |
+|---|---|
+| **backend** (modelo fuerte: `payments`, `vault`, `inventory`, `shipments`) | `M-61`: quitar `RefundBasis`/`basis`/`marketValueCents`/`marketCapturedDate`; `ReplacementCase.refund*`; tabla `ManualRefund` + enums + CHECKs + índice parcial; seed del dial `case_refund_hard_multiplier`. `caseRefundComponents(X)` en `common/money.ts` (un cuerpo, monótono; el SPEI = diferencia). Reescribir `…/refund`; `…/refund-preview`; controlador `admin-manual-refunds` en **`payments`** (lista, detalle, reveal, paid, cancel) y `…/refunds/:id/to-manual`; `dueAt`/`overdue` en la proyección (reloj inyectable) y los conteos de `summary`/`workQueue`; `AV-14`, `AV-15`; `manualRefunds` en el detalle M3; M7 lee `ManualRefund` `paid` por `paidAt`; `C-MREF-1`; PS-26/27 reescritas, PS-28 ampliada, PS-30…PS-40 con mutación demostrada. ⚠️ **Medir antes**: si el lector de M7 ya separa `compensationCents` (M-61 no construida ⇒ se escribe junto) |
+| **frontend** | Detalle del caso (solo súper-admin): campo de **monto** en MX$ con **las dos referencias a la vista** (lo pagado; el mercado con su fecha, o «sin referencia de mercado»), **motivo** obligatorio, y la previsualización del servidor «MX$A por tarjeta + MX$B por transferencia»; confirmación **reforzada** (volver a escribir el monto) cuando el servidor la pide; bloqueo con el límite cuando excede. Lista «Por reponer» con **vencidos en rojo** y «vence en n días». Página nueva **«Reembolsos manuales (SPEI)»** (solo súper-admin, badge) y tarjeta del tablero. «Pasar a transferencia» en un reembolso de caso rechazado por Stripe. M10: el dial nuevo. Tipos 1:1 |
+| **ux-ui** | Copys: captura del monto y sus referencias; reparto tarjeta/transferencia; confirmación reforzada y límite; vencido; cubeta SPEI (estados, CLABE enmascarada, «revelar CLABE», sin CLABE ⇒ «pídele que la registre en su cuenta»); `AV-14`/`AV-15` (es/en) |
+| **seguridad / pentester** | Segundo canal de dinero saliente (SPEI) y segundo reveal de CLABE: `@MoneyOut` de los cuatro verbos, `C-MREF-1`, que el operador no vea la cubeta ni por conteo, reveal solo `pending` y auditado, doble pago (Stripe + SPEI) por `to-manual` (PS-35), el monto capturado como vector (un súper-admin comprometido paga lo que quiera: lo acota el dial y la bitácora; no más) |
+| **product-owner** | Registrar D-5..D-10 en `PROJECT.md` |
+| **devops** | Seed del dial por entorno. ⛔ Nada de Stripe nuevo (no hay webhook nuevo) |
+
+⭐ **v1.80.2 — hallazgo de QA (§M4-SHIP.16), independiente del apartado y sin dinero:** **backend** extrae
+`publicStatus`/`activeShipment` a un cuerpo compartido de `orders`, proyecta `shipment`/`publicStatus`/`fulfillmentMode`
+e `items[].replacement` en `GET /orders/:orderId` y `publicStatus` en `GET /orders`, con PO-1…PO-7. **frontend** titula
+el detalle y la lista con `publicStatus`, pinta el bloque de envío y escribe PO-8 (Playwright). **ux-ui**: rótulos
+(reusa los del seguimiento del invitado) y el bloque de envío. *Se puede construir y desplegar antes que el apartado:
+solo lee columnas que ya existen (salvo `items[].refund`/`replacement` y `shipment.missingCount`, que dependen de
+`M-61`: si §M4-SHIP.16 se entrega antes, van `null`/`0` y se cablean con la migración — el orquestador decide el orden).*
 
 ##### <a id="M4-SHIP-15"></a>M4-SHIP.15 — 💰 Apartado «Por reponer»: la carta de BÓVEDA que falta o llega dañada (v1.80.1, **NORMATIVA**, **DINERO**)
 
@@ -17899,7 +18095,8 @@ tiene guardada con nosotros), así que lo debido es la carta; en un directo es u
             │
             ├── replace {otra pieza misma identidad} ──► replaced  (original → plataforma = merma; repuesta → cliente)
             ├── replace {la MISMA pieza, solo not_found} ► found   (original lost → in_custody del cliente)
-            ├── refund {basis} (súper-admin) ──────────► refunded (original → plataforma; fila case_refund → Stripe → AV-12)
+            ├── refund {amountCents, reason} (súper-admin) ► refunded (original → plataforma; hasta lo reembolsable: case_refund → Stripe → AV-12;
+            │                                                            el resto: ManualRefund(pending) → cubeta SPEI → AV-14 … paid → AV-15)   ⭐ v1.80.2
             └── void {note} (súper-admin; solo si la orden de origen ya no está liquidada o no existe) ► voided
 ```
 
@@ -18016,57 +18213,156 @@ ShipPreparationStateDTO }` (el tercero, en un retiro: dice si la guía ya se pue
 **Errores:** `400` · `403` · `404` · `409 CASE_NOT_OPEN` · `409 CASE_ORIGIN_NOT_SETTLED` · `409 CONFLICT` · `422
 REPLACEMENT_NOT_ELIGIBLE` · `422 LOCATION_NOT_AVAILABLE`.
 
-###### M4-SHIP.15.5 — 💰 `POST /api/v1/admin/replacement-cases/:caseId/refund` — reembolsar sin reposición (**solo `super_admin`**, `@MoneyOut()`)
+###### M4-SHIP.15.5 — 💰 `POST /api/v1/admin/replacement-cases/:caseId/refund` — reembolsar sin reposición, **por el monto que captura el súper-admin** (**solo `super_admin`**, `@MoneyOut()`; ⭐ **reescrita en v1.80.2**)
 
-**Req:** `{ basis: RefundBasis; expectedRefundCents: number }` — `expectedRefundCents` **obligatorio**: nadie
-reembolsa una cifra que no vio (misma regla que §M4-SHIP.5). El operador ⇒ `403 MONEY_OUT_FORBIDDEN` (auditado por
-`MoneyOutGuard`, H5) — D-8.
+> **Qué cambió y por qué:** v1.80.1 calculaba el importe (bases `paid|market`) y rechazaba con `409 exceeds_charge` lo
+> que no cabía en el cobro. El dueño (`HECHOS.md`, D-5..D-7): *«yo busco lo que vale y capturo»* y *«se genera un
+> reembolso que haga lo SPEI manual yo; tenemos que aventarlos a una cubeta nueva»*. ⇒ **El monto es un dato que
+> captura una persona con nombre**, acotado contra el error de dedo, y el sistema solo decide **por qué canal** sale cada
+> peso. Todo lo de v1.80.1 de esta subsección que no se repite aquí queda **derogado** (el texto viejo está tachado al
+> final, como registro).
 
-**Bases permitidas (tabla normativa; las respuestas del dueño la cambian sin schema):**
+**Req:**
+```ts
+{
+  amountCents: number;             // entero, 1 ≤ A ≤ 2147483647. Lo que se le debe al cliente, TOTAL (tarjeta + transferencia)
+  reason: string;                  // OBLIGATORIO, 3–500 tras trim(): de dónde sale la cifra («TCGplayer NM 2026-09-29», …)
+  expectedStripeCents: number;     // entero ≥ 0: lo que sale por TARJETA en este acto (el caso + `shipment_fee` si cierra)
+  expectedManualCents: number;     // entero ≥ 0: lo que va a la cubeta SPEI
+  confirmAboveReference?: boolean; // OBLIGATORIO `true` si A > 2×R (confirmación reforzada, abajo)
+}
+```
+Los dos `expected*` son la confirmación de lo que el súper-admin vio en la previsualización (*nadie reembolsa una cifra
+que no vio*, §M4-SHIP.5). El operador ⇒ `403 MONEY_OUT_FORBIDDEN` (auditado por `MoneyOutGuard`, H5) — D-8.
+Validación de `400` (`details:{field}`): no entero, `≤ 0`, fuera de rango, string numérica, `reason` ausente o de longitud
+fuera de 3–500 tras `trim`, `expected*` negativos o no enteros. `whitelist` descarta llaves extra (⛔ un `basis` que
+llegue se ignora).
 
-| `source` | `market` | `paid` |
-|---|---|---|
-| `withdrawal` | ✅ la del botón (D-2) si hay referencia | ✅ **solo** si no hay referencia (D-6) **o** si el mercado excede lo que se puede devolver (`exceeds_charge`, D-7) |
-| `vault_purchase` | ⛔ `basis_not_allowed` (D-5) | ✅ (D-5) |
+**Referencias (lo que el súper-admin ve al capturar, y lo que queda congelado en el caso):** sobre las columnas
+**persistidas** de la orden de origen, como §M4-SHIP.4 (⛔ nunca el precio de lista, ⛔ nunca el dial vivo).
+- `Q` (**lo pagado por la carta**) = `P + floor(F × P / G)` — **la fórmula de `item_missing`**, un cuerpo. Se muestra
+  como «Pagó MX$Q (carta MX$P + su parte de la comisión)».
+- `M` (**mercado hoy**) = `marketValueOf(original)`: **la misma** función que da `referenceValue` a esa pieza en
+  `GET /vault/holdings`, **extraída a un cuerpo** (⛔ no una segunda valuación). `status ≠ priced` ⇒ `null` («sin
+  referencia de mercado»). Se muestra con su `capturedDate`.
+- `R` (**referencia de los topes**) = `max(Q, M ?? 0)`.
+- ⛔ Ni `Q` ni `M` son el monto. Son la vista y el ancla de los topes. Se congelan en `ReplacementCase.refundPaidRefCents`,
+  `refundMarketRefCents`, `refundMarketRefDate`.
 
-**Cifras** (sobre las columnas **persistidas** de la orden de origen, como §M4-SHIP.4; ⛔ nunca el precio de lista):
-- `Q` (**lo pagado por la carta**) = `P + floor(F × P / G)` — **la fórmula de `item_missing`**, un cuerpo.
-- `M` (**mercado actual**) = `marketValueOf(original)`: **la misma** función que hoy da `referenceValue` a esa pieza en
-  `GET /vault/holdings` (`tryGradeKeyFor` + referencia del **acabado**; sellado por su referencia de §3), **extraída a un
-  cuerpo** que usan los dos — ⛔ no una segunda valuación. `status ≠ priced` (sin referencia, o slab sin identidad) ⇒
-  «sin mercado».
-- `A` = `M` (market) o `Q` (paid). `max` = `Order.totalCents − Σ amountCents` de sus filas **no fallidas**, **bajo el
-  candado** de la orden (INV-SP-2). `A > max` ⇒ `409 CASE_REFUND_NOT_AVAILABLE {reason:'exceeds_charge', marketCents,
-  maxCents}` — *Stripe no devuelve más de lo que se cobró en ese pago* (D-7).
-- **Componentes** (la identidad del CHECK se cumple **±0**; `r` = `ivaRatePct` de la orden de origen):
-  - `A ≤ Q` (devolución de venta, total o parcial): `fee = floor(A × floor(F·P/G) / Q)`, `merchandise = A − fee`,
-    `merchandiseIva = merchandise − taxBaseCentsOf(merchandise, r)`, `shipping = 0`, `compensation = 0`.
-  - `A > Q` (el mercado subió): los componentes **exactos** de `item_missing` sobre `P` + **`compensation = A − Q`**
-    (sin IVA de venta: no es devolución de lo vendido, es compensación por la carta perdida). ⚠️ **Tratamiento fiscal
-    de la compensación: ⛔ NO DECIDIDO por el arquitecto** — M7/IVA la muestran como **renglón propio**
-    («compensaciones por carta perdida»), ⛔ nunca restando IVA; que el contador del dueño lo confirme es parte de D-7.
-- Solo órdenes `IVA_INCLUSIVE` (misma convención de §M4-SHIP.4) ⇒ si no, `legacy_convention`. Sin origen ⇒
-  `no_origin_order` (se puede reponer o anular, no reembolsar).
+**Topes contra el error de dedo (normativos; D-12 al dueño):**
 
-**Algoritmo:** candados como §M4-SHIP.15.4 paso 2 → `status ≠ open` ⇒ `refunded` ⇒ `200` idempotente
-`already_resolved` con su fila; otro ⇒ `409 CASE_NOT_OPEN` → base permitida (tabla) → original: CAS a plataforma
-(§M4-SHIP.15.2; `count ≠ 1` ⇒ `409 CONFLICT`) → orden de origen `FOR UPDATE`, `status ≠ settled` ⇒ `409
-CASE_ORIGIN_NOT_SETTLED` → cifras y `max` → **cierre** (§M4-SHIP.15.6) → `planCents = A (+ shipment_fee)` ≠
-`expectedRefundCents` ⇒ `409 REFUND_PREVIEW_STALE {refundCents}` → libro: `createMany` de `case_refund` (`idempotencyKey
-= 'case:<caseId>'`, `orderId`, `orderItemId = originOrderItemId`, `replacementCaseId`, `basis`, `marketValueCents`,
-`marketCapturedDate`, componentes, actor y rol) [+ `shipment_fee`] → CAS del caso `open → refunded` → bitácora
-(`replacement_case.refunded` + una `payment_refund.requested` por fila) → **commit** → `executeRefund` por fila
-(§M4-SHIP.7, sin cambio) → `AV-12` (§M4-SHIP.15.7).
-⛔ Sin tope (súper-admin, como §M4-SHIP.8). `orderItemId @unique` impide reembolsar una carta que ya se reembolsó por
-cualquier camino (`P2002` ⇒ `409 CONFLICT`).
+| Condición | Resultado |
+|---|---|
+| `A ≤ 2·R` | pasa |
+| `2·R < A ≤ k·R` | exige `confirmAboveReference: true`; si falta ⇒ **`422 CASE_REFUND_CONFIRMATION_REQUIRED {referenceCents: R, confirmAboveCents: 2R, limitCents: kR}`**, cero escrituras. La pantalla abre un **segundo** diálogo que exige **volver a escribir el monto** (⛔ no un simple «sí») y reenvía con `true`. Queda `refundAboveRefConfirmed = true` |
+| `A > k·R` | **`422 CASE_REFUND_ABOVE_LIMIT {referenceCents, limitCents}`** — ⛔ no se puede confirmar. Si el monto es legítimo, el dueño sube el dial en M10 (auditado) y vuelve |
+
+`k` = dial **`case_refund_hard_multiplier`** (entero 2–50, seed 5), leído dentro del acto. El `2` es la constante
+`CASE_REFUND_CONFIRM_MULTIPLIER`, definida **una** vez. *Por qué múltiplos de la referencia y no un tope en pesos:* un
+cero de más es ×10 sea la carta de MX$50 o de MX$50,000; un tope absoluto o estorba a las gradeadas caras o no protege
+a las baratas. *Por qué `max(Q, M)`:* si la carta subió, capturar su precio de hoy no debe parecer un error.
+
+**Reparto por canal (lo decide el servidor; ⛔ la pantalla no reparte):**
+- `max` = `Order.totalCents − Σ amountCents` de las filas **no fallidas** del libro sobre la orden de origen, **bajo su
+  candado** (INV-SP-2).
+- **`stripe = min(A, max)`**, **`manual = A − stripe`**. `max = 0` ⇒ **todo** a SPEI: ⛔ ninguna fila del libro, ⛔
+  ninguna llamada a Stripe.
+- El **cierre** del retiro (§M4-SHIP.15.6: `shipment_fee`) va **siempre** por Stripe contra el cobro **del retiro**
+  (otro cobro, con su propio remanente) y se suma a `expectedStripeCents`.
+- *Por qué el excedente no se rechaza (como en v1.80.1):* decisión del dueño. *Por qué no todo a SPEI:* devolver a la
+  tarjeta es trabajo cero para el dueño y deja rastro en Stripe; solo lo que Stripe **no puede** devolver pasa a mano.
+
+**Componentes (naturaleza fiscal, independiente del canal) — `caseRefundComponents(X)`, un cuerpo en
+`common/money.ts`** (`r` = `ivaRatePct` de la orden de origen, `fQ = floor(F·P/G)`):
+- `X ≤ Q` (devolución de venta, total o parcial): `fee = floor(X × fQ / Q)`, `merchandise = X − fee`, `merchandiseIva =
+  merchandise − taxBaseCentsOf(merchandise, r)`, `compensation = 0`.
+- `X > Q`: los componentes **exactos** de `item_missing` sobre `P` + **`compensation = X − Q`** (sin IVA de venta).
+- **Fila Stripe** = `caseRefundComponents(stripe)`. **Fila SPEI** = `caseRefundComponents(A) −
+  caseRefundComponents(stripe)`, **componente a componente**. La función es **monótona** en cada componente (`fee` sube
+  a lo más 1 por centavo porque `fQ ≤ Q`; el IVA sube 0 o 1) ⇒ ningún componente de la fila SPEI es negativo, y la suma
+  de las dos filas es `caseRefundComponents(A)` **±0** (PS-27). *Por qué este orden:* a la tarjeta regresa primero lo que
+  salió de ella (la venta); lo que la tarjeta no alcanza es, por construcción, lo último: la compensación.
+- ⚠️ **Compensación: tratamiento fiscal ⛔ NO DECIDIDO** — M7/IVA la muestran como **renglón propio** («compensaciones
+  por carta perdida»), ⛔ nunca restando IVA; lo confirma el contador del dueño (nota de §M4-SHIP.13).
+- Solo órdenes `IVA_INCLUSIVE` ⇒ si no, `409 CASE_REFUND_NOT_AVAILABLE {reason:'legacy_convention'}`. Sin origen ⇒
+  `{reason:'no_origin_order'}` (se puede reponer o anular; sin `Q` no hay referencia ni tope — y `INV-RC-6` dice que no
+  debería existir).
+
+**Previsualización — `GET /api/v1/admin/replacement-cases/:caseId/refund-preview?amountCents=A`** (`@Roles(super_admin)`,
+lectura, sin candados, `Cache-Control: no-store`, sin bitácora). Mismo cuerpo que el verbo hasta el paso 9 (sin
+escribir). `A` ausente ⇒ devuelve solo las referencias (`amountCents: null`, cifras de reparto `null`), para pintar la
+pantalla antes de capturar.
+```ts
+export interface CaseRefundPreviewDTO {
+  amountCents: number | null;
+  paidReferenceCents: number;                               // Q
+  market: { cents: number; capturedDate: string } | null;   // M
+  referenceCents: number;                                   // R
+  confirmAboveCents: number;                                // 2R
+  limitCents: number;                                       // kR
+  confirmation: 'none' | 'reinforced' | 'blocked' | null;   // null ⇔ amountCents null
+  stripeAvailableCents: number;                             // max
+  caseStripeCents: number | null; shipmentFeeCents: number; // shipmentFeeCents = 0 si no cierra
+  stripeCents: number | null;                               // = caseStripe + shipmentFee → lo que va en expectedStripeCents
+  manualCents: number | null;                               // → expectedManualCents
+  closesShipment: boolean;
+  customerHasClabe: boolean;                                // Boolean(KycProfile.clabeEnc) — ⛔ nunca la CLABE ni su máscara aquí
+}
+```
+Errores: `400` · `403` · `404` · `409 CASE_NOT_OPEN` · `409 CASE_ORIGIN_NOT_SETTLED` · `409 CASE_REFUND_NOT_AVAILABLE`.
+⛔ Una preview **no** reserva nada: manda el `POST` y sus `expected*`.
+
+**Algoritmo del `POST` — en este orden:**
+1. Cuerpo ⇒ `400`. Caso inexistente ⇒ `404`.
+2. `$transaction` + candados como §M4-SHIP.15.4 paso 2 (puerta del cliente → envío → caso → piezas → orden de origen
+   → libro).
+3. `status ≠ open`: `refunded` ⇒ **`200` idempotente** `outcome:'already_resolved'` con sus filas (⛔ sin comparar el
+   cuerpo: el doble clic no debe dar error); otro ⇒ `409 CASE_NOT_OPEN`.
+4. Origen: nulo ⇒ `409 CASE_REFUND_NOT_AVAILABLE {reason:'no_origin_order'}`; convención ⇒ `{reason:'legacy_convention'}`.
+5. Original: CAS a plataforma (§M4-SHIP.15.2; `count ≠ 1` ⇒ `409 CONFLICT`).
+6. Orden de origen `FOR UPDATE`; `status ≠ settled` ⇒ `409 CASE_ORIGIN_NOT_SETTLED` (el camino es anular).
+7. `Q`, `M`, `R`, `k` ⇒ topes ⇒ `422` (rollback).
+8. `max`, `stripe`, `manual`; cierre (§M4-SHIP.15.6) ⇒ `shipmentFee`.
+9. `expectedStripeCents ≠ stripe + shipmentFee` **o** `expectedManualCents ≠ manual` ⇒ **`409 REFUND_PREVIEW_STALE
+   {stripeCents, manualCents}`** (las del servidor), cero escrituras.
+10. Escrituras: `stripe > 0` ⇒ fila `case_refund` (`idempotencyKey = 'case:<caseId>'`, `orderId`, `orderItemId =
+    originOrderItemId`, `replacementCaseId`, componentes, actor y rol, `reason` = el del cuerpo) · `manual > 0` ⇒
+    `ManualRefund{ source:'case_excess', idempotencyKey:'case-spei:<caseId>', customerUserId, replacementCaseId,
+    orderId, componentes (diferencia), createdByUserId }` · [+ `shipment_fee` y envío `cancelado`, §M4-SHIP.15.6] · CAS
+    del caso `open → refunded` con `resolvedAt/By` y los seis `refund*`.
+11. Bitácora dentro de la tx: `replacement_case.refunded` (`after:{ amountCents, reason, paidRefCents, marketRefCents,
+    marketRefDate, aboveRefConfirmed, stripeCents, manualCents, refundId, manualRefundId }`), **una**
+    `payment_refund.requested` por fila del libro, y `manual_refund.created` (`entityType='ManualRefund'`, `after:{
+    amountCents, source, caseId, orderId }` — ⛔ sin CLABE ni nombre).
+12. **Commit.** Después: `executeRefund` por fila del libro (§M4-SHIP.7, sin cambio) → `AV-12` de las filas aceptadas →
+    `AV-14` de la fila SPEI (§M4-SHIP.15.7).
+
+⛔ Sin tope de 24 h (súper-admin, §M4-SHIP.8). `orderItemId @unique` sigue impidiendo reembolsar **por Stripe** una carta
+que ya se reembolsó por otro camino (`P2002` ⇒ `409 CONFLICT`); `case-spei:<caseId>` y el índice parcial impiden dos
+excedentes del mismo caso.
 
 **Res `200`:** `{ outcome: 'refunded' | 'already_resolved'; case: ReplacementCaseDTO; refunds: PaymentRefundDTO[];
-shipment?: { status: ShipmentStatus; closed: boolean } }`.
+manualRefunds: ManualRefundDTO[]; shipment?: { status: ShipmentStatus; closed: boolean } }`.
+**Errores:** `400` · `403 MONEY_OUT_FORBIDDEN` · `404` · `409 CASE_NOT_OPEN` · `409 CASE_ORIGIN_NOT_SETTLED` · `409
+CASE_REFUND_NOT_AVAILABLE {reason: 'no_origin_order'|'legacy_convention'}` · `409 REFUND_PREVIEW_STALE` · `409 CONFLICT`
+· `422 CASE_REFUND_CONFIRMATION_REQUIRED` · `422 CASE_REFUND_ABOVE_LIMIT`.
 
-**Ejemplo para el dueño (cifras de ejemplo):** el cliente compró a su bóveda una carta en **MX$500** y la pidió en un
-retiro; no está y no la conseguimos. Hoy vale **MX$800** ⇒ se le devuelven **MX$800**: lo que pagó por ella (MX$500 +
-su parte de la comisión) como devolución de la venta, y el resto como compensación. Si hoy valiera **MX$350** ⇒ MX$350
-(D-6). Si la referencia no existe ⇒ lo que pagó.
+**Ejemplo para el dueño (cifras de ejemplo; la comisión real sale del dial):** el cliente compró a su bóveda una carta
+de **MX$500** (pagó **MX$524.30** con su parte de la comisión). No la conseguimos. Tú encuentras que hoy vale
+**MX$800** y capturas **MX$800** con el motivo «TCGplayer NM hoy».
+- Si en esa compra quedan al menos MX$800 por devolver ⇒ **MX$800 a su tarjeta**; nada a mano.
+- Si solo quedan **MX$600** (p. ej. ya le devolvimos otra carta de esa compra) ⇒ **MX$600 a su tarjeta** y **MX$200**
+  aparecen en «Reembolsos manuales (SPEI)» para que se los transfieras.
+- Si en esa compra ya no queda nada ⇒ los **MX$800** van a la cubeta SPEI.
+- Si por error escribes **MX$1,700** ⇒ te pide confirmar escribiéndolo otra vez (más del doble de MX$800); si escribes
+  **MX$8,000** ⇒ no te deja (más de 5 veces).
+
+<details><summary>Texto de v1.80.1 derogado (registro)</summary>
+
+~~**Req:** `{ basis: RefundBasis; expectedRefundCents: number }`. Bases `withdrawal`: `market` si hay referencia, `paid`
+si no hay o si el mercado excede lo que se puede devolver; `vault_purchase`: solo `paid`. `A` = `M` o `Q`. `A > max` ⇒
+`409 CASE_REFUND_NOT_AVAILABLE {reason:'exceeds_charge', marketCents, maxCents}` (D-7).~~
+</details>
 
 ###### M4-SHIP.15.6 — El retiro espera a sus casos (D-9) y se cierra solo
 
@@ -18084,7 +18380,9 @@ su parte de la comisión) como devolución de la venta, y el resto como compensa
   **mismo** acto: fila `shipment_fee` (§M4-SHIP.4) y `updateMany({ where: { id, status:'picking' }, data: { status:
   'cancelado' } })` — el mismo cierre de §M4-SHIP.5 paso 12 (sin `AV-6`; el cliente recibe `AV-12`). `replace`/`found`
   **nunca** cierran (dejan una línea `picked`). Sus filas del libro cuentan en `C-REF-1` como el sitio del verbo que lo
-  llama.
+  llama. ⭐ v1.80.2: el cierre **no depende** del canal del caso — un caso resuelto **todo por SPEI** (sin fila
+  `case_refund`) también cierra el retiro si era el último (PS-28).
+- ⭐ **v1.80.2 — D-9 confirmada por el dueño** (*«esperar y mandar todo junto»*): esta subsección queda como está.
 - **«Qué debe haber» y el tablero:** un retiro preparado con casos abiertos **no** cuenta en `summary.ship` (ya está
   preparado) y sus casos cuentan en `summary.toReplace`.
 
@@ -18096,8 +18394,12 @@ su parte de la comisión) como devolución de la venta, y el resto como compensa
 | `replaced` / `found` | ⛔ sin aviso propio: el siguiente es `AV-4` (guía) | ⛔ sin aviso |
 | `refunded` | **`AV-12`** de sus filas (plantilla con variante `case_refund`: «no pudimos reponer tu carta; te devolvemos MX$X»; y si hubo cierre, que el retiro no sale) | **`AV-12`** (ídem) |
 | `voided` | ⛔ sin aviso (el dinero lo resolvió la disputa o M3, que ya avisan) | ⛔ ídem |
+| ⭐ v1.80.2 — `refunded` con parte **SPEI** | **`AV-14`** (nuevo): «no pudimos reponer tu carta; te vamos a depositar **MX$B por transferencia**» (+ «y MX$A regresan a tu tarjeta», si hubo parte Stripe). **Con** CLABE registrada: «a tu CLABE terminación ****1234» (máscara, `maskClabe`). **Sin** CLABE: «regístrala en tu cuenta» con enlace a `/cuenta#kyc` (pantalla que ya existe: `KycSection`, `PUT /users/me/kyc`). Post-commit, sello `ManualRefund.announcedNotifiedAt` | ídem |
+| ⭐ v1.80.2 — `ManualRefund` → `paid` | **`AV-15`** (nuevo): «te depositamos MX$B, clave de rastreo XXXX» (con ella el cliente descarga el CEP de Banxico). Post-commit, sello `ManualRefund.paidNotifiedAt` | ídem |
+| ⭐ v1.80.2 — `ManualRefund` → `cancelled` | ⛔ sin aviso automático (cancelar es decisión del dueño con nota; si hay que explicarle algo al cliente, lo hace él) | ídem |
 
-Destinatario: el dueño del caso (`User.email` de `customerUserId`). ⛔ Nunca actor, costos ni `failureCode`.
+Destinatario: el dueño del caso (`User.email` de `customerUserId`). ⛔ Nunca actor, costos ni `failureCode`. ⭐ v1.80.2:
+⛔ nunca la CLABE en claro, ⛔ nunca el motivo interno (`reason`) ni las referencias de mercado.
 
 ###### M4-SHIP.15.8 — Lecturas
 
@@ -18123,13 +18425,22 @@ export interface ReplacementCaseDTO {
   replacement: { inventoryItemId: string; folio: string } | null;
   refund: PaymentRefundDTO | null;
   voidNote: string | null;
-  // SOLO para super_admin (null para el operador): lo que el botón pagaría HOY, ya calculado por el servidor.
-  refundOptions: Array<
-    | { basis: RefundBasis; allowed: true; amountCents: number; closesShipment: boolean; planCents: number;
-        market?: { cents: number; capturedDate: string } }
-    | { basis: RefundBasis; allowed: false; reason: 'basis_not_allowed' | 'market_unavailable' | 'no_origin_order'
-        | 'legacy_convention' | 'exceeds_charge'; marketCents?: number; maxCents?: number }
-  > | null;
+  // ~~refundOptions (v1.80.1)~~ ⛔ v1.80.2: sustituido por `refundContext` (el monto ya no se calcula, se captura).
+  // ⭐ v1.80.2 — PLAZO (§M4-SHIP.15.12), derivado en la proyección con el reloj del servidor. Para TODOS los roles.
+  dueAt: string;                       // openedAt + 7×24 h
+  overdue: boolean;                    // status==='open' ∧ now ≥ dueAt  (false en cerrados)
+  // ⭐ v1.80.2 — SOLO super_admin (null para el operador):
+  refundContext:                       // lo que la pantalla de captura necesita ANTES de escribir un monto
+    | { available: true; paidReferenceCents: number; market: { cents: number; capturedDate: string } | null;
+        referenceCents: number; confirmAboveCents: number; limitCents: number; stripeAvailableCents: number;
+        closesShipment: boolean; customerHasClabe: boolean }
+    | { available: false; reason: 'no_origin_order' | 'legacy_convention' | 'origin_not_settled' }
+    | null;                            // null ⇔ operador, o caso no `open`
+  refundCapture: {                     // null ⇔ no `refunded`. Operador: null (es dinero)
+    amountCents: number; reason: string; paidReferenceCents: number;
+    market: { cents: number; capturedDate: string } | null; aboveReferenceConfirmed: boolean;
+  } | null;
+  manualRefunds: ManualRefundDTO[] | null;   // null para el operador; [] si no hubo parte SPEI (§M4-SHIP.15.13)
 }
 export interface ReplacementCandidateDTO {
   inventoryItemId: string; folio: string; status: 'in_stock' | 'listed'; currentLocation: LocationView;
@@ -18143,9 +18454,11 @@ export interface ReplacementCandidateDTO {
   de conteo de candidatas agrupada por identidad, `customerDrawers` en lote, y la valuación **solo** si el que pide es
   `super_admin`).
 - **`GET /api/v1/admin/replacement-cases/:id`** (operador+) — `ReplacementCaseDTO & { candidates:
-  ReplacementCandidateDTO[] }` (hasta 50, por etiqueta de ubicación y folio). `planCents` de `refundOptions` = el
-  `expectedRefundCents` que el servidor aceptaría ahora (⛔ la pantalla no suma).
-- **`summary`** y **`workQueue.toPrepare`**: `toReplace` (§M4-SHIP.11).
+  ReplacementCandidateDTO[] }` (hasta 50, por etiqueta de ubicación y folio). ~~`planCents` de `refundOptions`~~ ⭐
+  v1.80.2: el reparto de un monto concreto lo da `…/refund-preview` (§M4-SHIP.15.5) (⛔ la pantalla no reparte).
+- ⭐ v1.80.2 — la lista gana `?overdue=true` (solo `open` vencidos). El orden `open` por `openedAt` asc. ya pone los
+  vencidos arriba (vencer depende solo de `openedAt`): ⛔ no hace falta otro orden.
+- **`summary`** y **`workQueue.toPrepare`**: `toReplace` (§M4-SHIP.11) (⭐ v1.80.2: + `toReplaceOverdue`).
 - **Cubeta ENVÍO:** líneas de un retiro con `refund.kind='to_replacement'|'replacement'` (§M4-SHIP.3) y
   `preparation.openReplacements`.
 - **«Qué debe haber»:** `physical.state='to_replace'` y `counts.toReplace` (§M4-VAULT.11).
@@ -18164,6 +18477,7 @@ export interface ReplacementCandidateDTO {
 | M3 `order_full` (súper-admin) | Candado de fila `Order` en los dos ⇒ `Σ ≤ total` | tras un M3 total el caso ve la orden `refunded` ⇒ se **anula** |
 | Compra concurrente de la candidata `listed` | La reserva y el CAS de reposición escriben la **misma** fila con el estado en el `WHERE` ⇒ uno gana | una pieza, un dueño (PS-23) |
 | El cliente pide **otro retiro** de la original | `withdrawable=false` (no está `in_custody`) ⇒ `422 ITEM_NOT_IN_CUSTODY` (§5, sin cambio) | no se retira lo que no tenemos |
+| ⭐ v1.80.2 — **Contracargo** (o M3 total) de la orden de origen **después** de un caso `refunded` con `ManualRefund` `pending` | ⛔ El sistema **no** la cancela sola (cancelar es decisión del dueño con nota). La cubeta muestra `origin.orderStatus` y, si ya no es `settled`, un aviso rojo «la compra de origen está en disputa / reembolsada: revisa antes de pagar». `paid` **no** se bloquea (el dueño puede tener razones), pero la bitácora `manual_refund.paid` registra `originOrderStatus` | nunca un pago a ciegas; la decisión queda con nombre |
 
 ###### M4-SHIP.15.10 — `POST /api/v1/admin/replacement-cases/:caseId/void` — anular (**solo `super_admin`**, `@MoneyOut()`)
 
@@ -18181,14 +18495,207 @@ Idempotente: ya `voided` ⇒ `200 already_resolved`.
   `summary.toReplace` (mismo sondeo de 60 s). Fila: cliente (nombre y apellido; correo de segunda línea), carta con
   imagen, acabado y condición, folio, motivo, de dónde viene («Retiro · <fecha>» / «Compra <orderNumber>»), antigüedad,
   candidatas disponibles. Detalle: candidatas con **«Reponer con esta»** (si el destino es `drawer`, el cajón
-  preseleccionado del cliente), **«Apareció»** (solo `not_found`), y —**solo súper-admin**— **«Reembolsar valor de
-  mercado (MX$X)»** / «Reembolsar lo pagado (MX$Y)» según `refundOptions`, con confirmación que muestra la cifra;
+  preseleccionado del cliente), **«Apareció»** (solo `not_found`), y —**solo súper-admin**— ~~«Reembolsar valor de
+  mercado (MX$X)» / «Reembolsar lo pagado (MX$Y)» según `refundOptions`~~ ⭐ v1.80.2: **«Reembolsar»** abre la captura:
+  a la vista **lo pagado** (MX$Q) y **el mercado** (MX$M, con su fecha, o «sin referencia de mercado»); campo de
+  **monto**; **motivo** obligatorio; debajo, la previsualización del servidor («MX$A a su tarjeta · MX$B por
+  transferencia», y «no tiene CLABE registrada: le pediremos que la registre» si `customerHasClabe=false`); el botón de
+  confirmar muestra la cifra total; si el servidor pide confirmación reforzada, segundo diálogo que exige **volver a
+  escribir el monto**; si lo bloquea, el límite y «puedes cambiarlo en Ajustes». Un caso `refunded` muestra lo capturado,
+  el motivo, las referencias congeladas y sus filas (tarjeta y SPEI, con estado y enlace a la cubeta).
   «Anular» solo si la orden de origen ya no está liquidada. Cerrados: filtro «resueltos».
+- ⭐ **v1.80.2 — Vencidos:** en la lista «Por reponer», un caso `overdue` va **en rojo** con «Vencido hace n días»; los
+  demás muestran «Vence en n días». Filtro «Solo vencidos» (`?overdue=true`). El badge de la pestaña sigue siendo
+  `toReplace`; si hay vencidos, el badge va en rojo con `toReplaceOverdue` al lado.
 - **Tarjeta de un retiro (Envío):** la carta faltante/dañada dice «Por reponer →» (enlace al caso) y la guía queda
   deshabilitada con «Esperando reposición (n)».
 - **Tarjeta de bóveda:** «No la encontré» / «Llegó dañada», como en envío.
-- **Tablero:** la tarjeta «Pedidos por preparar» suma `toReplace`.
+- **Tablero:** la tarjeta «Pedidos por preparar» suma `toReplace` (⭐ v1.80.2: y muestra en rojo «n vencidos» con
+  `toReplaceOverdue`, enlazando a «Por reponer» filtrado). ⭐ v1.80.2: tarjeta nueva **«Reembolsos por pagar (SPEI)»**
+  (**solo súper-admin**): `workQueue.manualRefunds.pending`, suma `pendingCents` y antigüedad del más viejo; enlaza a la
+  cubeta.
+- ⭐ **v1.80.2 — Cubeta «Reembolsos manuales (SPEI)»:** página propia del back-office, **solo súper-admin** (⛔ ni en el
+  menú del operador), en el grupo de dinero junto a «Pedidos» (M3), con badge `summary.manualRefundsPending`. Detalle y
+  verbos en §M4-SHIP.15.13. También se llega desde el caso y desde el detalle M3 de la orden de origen.
 - Los textos: ux-ui (§M4-SHIP.14).
+
+###### M4-SHIP.15.12 — ⭐ Plazo de 7 días: «vencido» es un hecho DERIVADO (v1.80.2, **NORMATIVA**)
+
+**Fuente:** `HECHOS.md`, última fila (e): *«Plazo para reponer: 7 días, luego el caso se marca vencido y avisa en el
+tablero; nada se reembolsa solo.»*
+
+- `REPLACEMENT_CASE_DUE_MS = 7 × 24 × 3600 × 1000` — **una** constante (un solo lugar; cambiarla es una línea).
+  `dueAt = openedAt + REPLACEMENT_CASE_DUE_MS`; **`overdue ⇔ status = 'open' ∧ now ≥ dueAt`**. Siete períodos de 24 h
+  desde el instante de apertura, ⛔ no «7 días de calendario» en ninguna zona horaria (sin ambigüedad de medianoche ni de
+  horario de verano).
+- ⛔ **Ningún job, ninguna columna, ningún estado nuevo.** `ReplacementCaseStatus` **no** gana `overdue`. *Por qué:* un
+  estado que escribe un temporizador es un segundo escritor del caso que compite con reponer/reembolsar bajo candado, y
+  puede quedarse viejo si el job no corre; un hecho derivado de `openedAt` y del reloj **no puede mentir** (misma
+  doctrina que el contador de §M4-SHIP.11 y la campana de §R.2).
+- **Quién lo calcula:** el servidor, en la proyección (`ReplacementCaseDTO.dueAt/overdue`) y en los conteos (`summary.
+  toReplaceOverdue`, `workQueue.toPrepare.toReplaceOverdue`: `status='open' AND "openedAt" <= now() − interval '7
+  days'`, que sirve el índice `[status, openedAt]`). **Un cuerpo** para la constante y el predicado; el reloj es
+  **inyectable** (PS-36). ⛔ La pantalla no calcula vencimientos: pinta `overdue` y `dueAt`.
+- ⛔ **Nada ocurre solo al vencer:** ni reembolso, ni anulación, ni aviso al cliente, ni correo al dueño. Vencer solo
+  **se ve** (rojo en la lista, conteo en el tablero). Un caso vencido se resuelve con los mismos verbos que uno en plazo.
+
+###### M4-SHIP.15.13 — 💰 Cubeta «Reembolsos manuales (SPEI)» (v1.80.2, **NORMATIVA**, **DINERO SALIENTE**)
+
+**Fuente:** `HECHOS.md`, última fila (c): *«se genera un reembolso que haga lo SPEI manual yo; tenemos que aventarlos a
+una cubeta nueva»*. **Qué es:** la lista de lo que el dueño **debe transferir a mano** a un cliente, y el registro de
+que lo hizo. ⛔ **El sistema no transfiere**: no hay integración bancaria (como el SPEI de buylist, §M5, que también es
+manual).
+
+**Medido (2026-09-29, arquitecto) — qué datos bancarios existen y cómo se protegen:**
+- La CLABE vive **cifrada** en `KycProfile.clabeEnc` (AES-256-GCM, `PiiCryptoService`) con índice ciego
+  `KycProfile.clabeHmac` (`schema.prisma:486-489`). Es **opcional** (`String?`): la tiene quien la registró (buylist o
+  «Mi cuenta» → `KycSection.tsx`, `PUT /users/me/kyc`).
+- Nombre legal: `KycProfile.legalName String?` (`schema.prisma:483`); si no hay, `customerDisplayName(User)`.
+- Máscara: `maskClabe` (`common/crypto/pii-mask.ts:10`). Hoy el **único** punto que devuelve la CLABE en claro es `GET
+  /admin/buylist/:id/reveal-clabe` (`@Roles(super_admin)`, `@MoneyOut()`, auditado `buylist.reveal_clabe`,
+  `admin-buylist.controller.ts:219-232`).
+- ⛔ `uploads` solo admite `kyc_ine` (`uploads.service.ts:161`) ⇒ subir un comprobante **no** existe (D-11).
+
+**Decisión de PII:** `ManualRefund` **no copia** ni la CLABE ni el nombre ni el correo: guarda `customerUserId` y los lee
+**vivos** al proyectar. *Por qué:* una copia cifrada más de la CLABE es una segunda fuente de PII bancaria con su propio
+ciclo de retención; y si el cliente la **corrige** (p. ej. porque `AV-14` le pidió registrarla), la vigente es la que
+sirve. Lo que sí se congela **al pagar** es `paidClabeHmac` (el índice ciego de la CLABE vigente en ese instante):
+permite probar después **a qué** CLABE se pagó sin guardar la CLABE.
+
+```ts
+export type ManualRefundSource = 'case_excess' | 'stripe_failed';
+export type ManualRefundStatus = 'pending' | 'paid' | 'cancelled';
+export interface ManualRefundDTO {
+  id: string; source: ManualRefundSource; status: ManualRefundStatus;
+  amountCents: number;
+  components: { merchandiseCents: number; merchandiseIvaCents: number; processingFeeCents: number; compensationCents: number };
+  customer: CustomerRefDTO;                           // §M4-SHIP.10: { userId, fullName, email }
+  beneficiaryName: string | null;                     // KycProfile.legalName ?? customerDisplayName(User) — VIVO
+  clabeOnFile: boolean;                               // Boolean(KycProfile.clabeEnc) — VIVO
+  clabeMasked: string | null;                         // maskClabe(…) — ⛔ NUNCA la CLABE entera en este DTO
+  case: { id: string; source: ReplacementCaseSource; card: PreparationItemDTO['card']; folio: string; reason: string };
+  origin: { orderId: string; orderNumber: string | null; orderStatus: OrderStatus } | null;   // orderStatus ≠ settled ⇒ aviso rojo (§M4-SHIP.15.9)
+  paymentRefundId: string | null;                     // stripe_failed: la fila de tarjeta que sustituye
+  createdAt: string; createdBy: { userId: string; name: string | null };
+  paidAt: string | null; paidBy: { userId: string; name: string | null } | null;
+  speiReference: string | null; paidNote: string | null;
+  paidToCurrentClabe: boolean | null;                 // paid: paidClabeHmac === KycProfile.clabeHmac vigente (⛔ nunca el hmac en el DTO)
+  cancelledAt: string | null; cancelledBy: { userId: string; name: string | null } | null; cancelNote: string | null;
+}
+```
+
+**Endpoints — todos `@Roles(super_admin)` + `@MoneyOut()` (el operador ⇒ `403 MONEY_OUT_FORBIDDEN`, auditado);
+controlador en `payments` (`admin-manual-refunds.controller.ts`):**
+
+| Verbo | Qué | Reglas |
+|---|---|---|
+| `GET /api/v1/admin/manual-refunds` | La cubeta | `?status=pending\|paid\|cancelled` (clase L; defecto `pending`), `?q=` (gramática de §M3: nombre/correo del cliente, número de orden, folio, `speiReference`), `?page=`. Orden: `pending` por `createdAt` asc. (lo más viejo primero); los demás por su sello desc. Res `{ data: ManualRefundDTO[], page, pageSize, total, pendingCents }`. Sin N+1 (una consulta con relaciones + `KycProfile` en lote; `clabeMasked`: ver la nota de abajo) |
+| `GET /api/v1/admin/manual-refunds/:id` | Detalle | `ManualRefundDTO` |
+| `GET /api/v1/admin/manual-refunds/:id/reveal-clabe` | La CLABE en claro para copiarla a la banca | **Solo `status='pending'`** (si no ⇒ `409 MANUAL_REFUND_NOT_PENDING {status}`); sin CLABE ⇒ `422 CLABE_NOT_ON_FILE`. Descifra `KycProfile.clabeEnc` del `customerUserId`. **Una** bitácora `manual_refund.reveal_clabe` por llamada (`entityType='ManualRefund'`, ⛔ sin la CLABE en `after`). `Cache-Control: no-store`. Res `{ clabe: string; beneficiaryName: string | null }` |
+| `POST /api/v1/admin/manual-refunds/:id/paid` | Marcar pagada | Req `{ speiReference: string; note?: string }` — `speiReference` 1–30, `^[A-Za-z0-9]+$` (clave de rastreo SPEI); `note` ≤ 500. `$transaction` + `SELECT … FOR UPDATE` de la fila. `paid` con **la misma** `speiReference` ⇒ **`200 already_paid`**, sin escribir; otro estado ⇒ `409 MANUAL_REFUND_NOT_PENDING {status}`. CAS `where { id, status:'pending' }` → `{ status:'paid', paidAt: now, paidByUserId: sesión, speiReference, paidNote, paidClabeHmac: KycProfile.clabeHmac ?? null }`. Bitácora `manual_refund.paid` (`after:{ amountCents, speiReference, originOrderStatus }`). Post-commit `AV-15`. Res `ManualRefundDTO` |
+| `POST /api/v1/admin/manual-refunds/:id/cancel` | Cancelar | Req `{ note: string }` 3–500 (obligatoria). Mismo candado; `cancelled` ⇒ `200 already_cancelled`; `paid` ⇒ `409 MANUAL_REFUND_NOT_PENDING`. CAS → `cancelled` + actor + nota. Bitácora `manual_refund.cancelled`. ⛔ Sin aviso. ⛔ **No reabre el caso** (los estados del caso son terminales, §M4-SHIP.15.3): la deuda queda registrada como cancelada **con nombre y motivo**, y se ve en el caso y en el detalle M3. *Para qué existe:* el dueño lo resolvió de otra forma (efectivo, crédito acordado, el cliente renunció) o se capturó por error — en ese caso lo correcto es cancelar **y** dejarlo dicho en la nota |
+| `POST /api/v1/admin/refunds/:refundId/to-manual` | Pasar a SPEI una fila de tarjeta que Stripe rechazó | Solo `kind='case_refund'` (si no ⇒ `409 REFUND_NOT_CONVERTIBLE {kind}`) y `status='failed'` (si no ⇒ `409 REFUND_NOT_CONVERTIBLE {status}` — *una `requested` todavía puede salir por Stripe con el reintento: convertirla sería pagar dos veces*). Candados: fila del libro `FOR UPDATE` → orden. Crea `ManualRefund{ source:'stripe_failed', idempotencyKey:'refund-spei:<refundId>', paymentRefundId, customerUserId: caso.customerUserId, replacementCaseId, orderId, amountCents y componentes = los de la fila }`; ya existe ⇒ `200` con **la misma** fila. Bitácora `manual_refund.created` (`source:'stripe_failed'`). Post-commit `AV-14`. Res `ManualRefundDTO`. ⛔ La fila del libro **se queda `failed`** (no se borra ni se re-etiqueta): el hecho «Stripe la rechazó» es verdad |
+
+⚠️ **Nota sobre `clabeMasked` sin descifrar:** hoy `maskClabe` recibe la CLABE **en claro** (medido `pii-mask.ts:10`)
+⇒ enmascarar exige descifrar. Mismo régimen que `GET /users/me/kyc` y la ficha 360° (que ya devuelven `clabeMasked`):
+se descifra **en memoria** para enmascarar, ⛔ nunca se devuelve ni se registra en claro, y **no** se audita como un
+reveal. ⛔ NO MEDIDO por el arquitecto si esas dos lecturas descifran o guardan la máscara aparte: backend lo mide y usa
+**el mismo** camino que ellas (⛔ no un tercero).
+
+**Invariantes (normativos):**
+- `INV-MR-1` — por caso `refunded`: `refundAmountCents = Σ amountCents` de su `case_refund` **no fallida** + `Σ
+  amountCents` de sus `ManualRefund` **no canceladas**, **salvo** mientras exista una `case_refund` `failed` sin
+  `ManualRefund(stripe_failed)` — ese hueco es visible (`summary.stuckRefunds`) y lo cierra `to-manual`. Una
+  `ManualRefund` `cancelled` es una decisión registrada, no un hueco.
+- `INV-MR-2` — nunca el mismo peso por dos canales: una fila `case_refund` tiene **a lo más una** `ManualRefund`
+  (`paymentRefundId @unique`) y **solo** si está `failed` (terminal: Stripe no la reintenta).
+- `INV-MR-3` — la CLABE en claro sale **solo** por los dos `reveal-clabe` (buylist y éste), los dos `super_admin`,
+  auditados (`C-MREF-1`).
+- `INV-MR-4` — una `ManualRefund` solo pasa `pending → paid | cancelled`; ⛔ nada vuelve a `pending`.
+
+**Lo que ve el resto:**
+- **Caso** (`ReplacementCaseDTO.manualRefunds`, solo súper-admin) y **detalle M3** de la orden de origen (aditivo:
+  `manualRefunds: ManualRefundDTO[]`, solo súper-admin; `refundedCents` de M3 **no** las suma — es lo devuelto **por
+  Stripe**; se añade `manualRefundedCents` = Σ `paid`).
+- **Cliente:** su retiro / su bóveda muestran la carta como «reembolsada» con el total capturado cuando el caso es
+  `refunded` (`HoldingDTO`/`items[].replacement` gana `refund: { amountCents: number; byTransferCents: number;
+  transferStatus: 'pending' | 'paid' | null } | null` — ⛔ sin CLABE, sin motivo, sin referencias, sin actor).
+- **M7:** una `ManualRefund` resta **en el periodo de `paidAt`** y **solo** `paid`: componentes de venta como devolución
+  (mismo lector que el libro) y `compensationCents` en el renglón «compensaciones por carta perdida». ⛔ `pending` y
+  `cancelled` no restan. La `case_refund` `failed` no resta (regla del libro) ⇒ su sustituta SPEI no duplica (PS-40).
+
+##### <a id="M4-SHIP-16"></a>M4-SHIP.16 — ⭐ El cliente REGISTRADO ve su envío en el detalle del pedido (v1.80.2, **NORMATIVA**; hallazgo de QA)
+
+**El hallazgo (medido por QA contra el stack sobre `6695e9e`, relayado por el orquestador; ⛔ el arquitecto no corrió
+el stack):** el cliente **con cuenta** no ve en ninguna pantalla la guía, la paquetería ni el estado del envío de su
+pedido de **envío directo**. `/orders/<id>` —a donde llevan los avisos `AV-4/5/6` de un pedido— muestra «LIQUIDADA»
+incluso después de «Tu envío quedó cancelado». El **invitado** sí lo ve (`/pedido?token=`, §4-G.3). Contradice
+`D-AVISO-2` / §R (el correo es best-effort; **el dato siempre está en la pantalla**) y el comentario de
+`shipment-notice.templates.ts:71` («enlace a la superficie donde el dato SIEMPRE está»).
+**Medido por el arquitecto en el código (2026-09-29, worktree `claude/envio-preparar`):** `orders.service.ts:1758-1796 ·
+getOrder` carga `items` y **ningún** `ShipmentRequest`, y devuelve `status: order.status` crudo. La derivación del
+estado público existe **solo** para el invitado: `guest-checkout.service.ts:595 · publicStatus` y `:630 ·
+activeShipment`. ⛔ NO MEDIDO por el arquitecto qué ruta pone hoy el enlace de `AV-4/5/6` en `6695e9e` (en este worktree
+`shipment-notice.templates.ts:73` apunta a `cuenta/pedidos`, la lista): el diseño no depende de ello.
+
+**Norma — `GET /api/v1/orders/:orderId` (`customer`) gana, aditivo:**
+```ts
+export interface CustomerOrderDetailAdditions {
+  fulfillmentMode: 'vault' | 'direct_ship';
+  publicStatus: GuestOrderPublicStatus;     // §4-G.5 ENTERO (incluida la regla v1.80 «reembolsado» de §M4-SHIP.10), MISMO cuerpo que el invitado
+  shipment: CustomerOrderShipmentDTO | null; // null ⇔ fulfillmentMode='vault', o direct_ship aún sin envío (ventana webhook→creación)
+  // items[] gana (además de `refund` de §M4-SHIP.10):
+  //   replacement: { status: ReplacementCaseStatus; reason: MissingReason;
+  //                  refund: { amountCents: number; byTransferCents: number; transferStatus: 'pending' | 'paid' | null } | null } | null
+  //   — el caso más reciente con originOrderItemId = esa línea (compra a bóveda; y retiro de una carta de esa compra).
+}
+export interface CustomerOrderShipmentDTO {
+  id: string;                               // el folio que el correo le da para escribir a soporte (es SU envío)
+  status: ShipmentStatus;
+  carrier: string | null;
+  trackingNumber: string | null;
+  requestedAt: string; pickingAt: string | null; shippedAt: string | null; deliveredAt: string | null;
+  shipTo: { recipientName: string; city: string; state: string; postalCode: string };  // de addressSnapshot; es SU dirección
+  missingCount: number;                     // cartas de este envío que no salen (reembolsadas; §M4-SHIP.5)
+}
+```
+- **Un cuerpo, dos superficies:** `publicStatus(orderStatus, shipmentStatus)` y `activeShipment(shipments)` se **extraen**
+  de `guest-checkout.service.ts` a un módulo compartido de `orders` (p. ej. `order-public-status.ts`) y los usan
+  `guest/track` **y** `GET /orders/:orderId`. ⛔ Ninguna segunda tabla de mapeo. La regla v1.80 (`refundedCents ===
+  totalCents` ⇒ `reembolsado`) vive **dentro** de ese cuerpo, no en cada llamador.
+- **Envío vigente:** `activeShipment` (el más reciente no `cancelado`; si todos lo están, el más reciente) — la misma
+  regla del invitado, que ya cubre la re-expedición.
+- **Carga:** `include: { shipmentRequests: { orderBy: { requestedAt: 'desc' } } }` en la **misma** consulta, `select`
+  explícito de las columnas del DTO + las líneas `ShipmentItem.prepStatus` para `missingCount`, y **una** consulta de
+  casos por los `OrderItem.id` de la orden. ⛔ Sin N+1.
+- **Lista cerrada (lo que ⛔ NO sale en `shipment`):** `shippingCostCents`, `shippingCostIvaCents`, `trackingNoticeSentAt`
+  y todo sello, `stripePaymentIntentId` del envío, `preparedBy*`, `prepMarkedBy*`, actores, `addressSnapshot` crudo
+  (`line1/line2/neighborhood/phone` no hacen falta para seguir un paquete). Se construye con **lista blanca** (⛔ nunca
+  un spread de la fila; lección de `toAdminShipmentRow` y `avisos.seals-out-of-dto.spec.ts`).
+- **`GET /api/v1/orders`** (lista), aditivo: `publicStatus` y `fulfillmentMode` por fila (mismo cuerpo; los envíos de
+  la página en **una** consulta por `orderId in […]`). ⛔ NO MEDIDO por el arquitecto qué rótulo pinta hoy la lista:
+  se añade para que ninguna de las dos pantallas titule con el `status` crudo.
+- **Pantalla (frontend):** el detalle del pedido **titula con `publicStatus`** (mismas etiquetas i18n que el
+  seguimiento del invitado), ⛔ **nunca** con `status` («LIQUIDADA» es un término interno de dinero). Con `shipment`:
+  paquetería, **número de guía** (copiable), fechas del progreso `pagado → preparando → guía → enviado → entregado`
+  (§4-G.5), destinatario y ciudad; las cartas con `refund` se muestran «no salió · te devolvimos MX$X» y las de un caso
+  «la estamos reponiendo» / «reembolsada». `vault` ⇒ «en tu bóveda» y enlace a «Mi bóveda», sin bloque de envío.
+  Envío `cancelado` ⇒ el rótulo sale de `publicStatus` (`reembolsado` o `en_revision`), ⛔ nunca «liquidada».
+- **Lo que NO cambia:** `status` sigue en la respuesta (lo leen otras pantallas); `403/404` igual; `items[].card` sigue
+  siendo la forma tolerante del histórico (§4); `GET /shipments/:id` (retiros) no cambia.
+
+**Pruebas que DEBEN fallar (las escribe el modelo fuerte primero; hoy PO-1 está roja contra `main`):**
+
+| # | Qué asevera | Mutación que la pone roja |
+|---|---|---|
+| **PO-1** | Cliente con cuenta, pedido `direct_ship`: tras `setTracking` ⇒ `GET /orders/:id` trae `shipment.carrier`/`trackingNumber` = los capturados y `publicStatus:'guia'`; tras `enviado` ⇒ `'enviado'` + `shippedAt`; tras `entregado` ⇒ `'entregado'` + `deliveredAt` | quitar `shipment` de la proyección (⇒ roja hoy, que es el hallazgo) |
+| **PO-2** | Envío cerrado por «no sale nada» con todo reembolsado ⇒ `publicStatus:'reembolsado'`; contracargo de un directo (envío `cancelado`, orden `chargeback`) ⇒ `'en_revision'`; en **ningún** caso el `publicStatus` de una orden con envío `cancelado` es `pagado`/`preparando` | calcular el rótulo con `order.status` a secas; olvidar la regla v1.80 |
+| **PO-3** | **Paridad:** para 12 combinaciones (orden × envío de §4-G.5 + la regla v1.80) el `status` de `POST /orders/guest/track` y el `publicStatus` de `GET /orders/:id` son **idénticos** | una segunda tabla de mapeo con una fila distinta (p. ej. `cancelado ⇒ 'cancelado'`) |
+| **PO-4** | **Lista cerrada:** las claves de `shipment` son **exactamente** las del DTO (se compara el conjunto); ninguna de `shippingCostCents`, `trackingNoticeSentAt`, `line1`, `phone` aparece en el JSON serializado | `…shipmentRow` (spread) ⇒ filtra `shippingCostCents` |
+| **PO-5** | Re-expedición: envío A `cancelado` (más viejo) + envío B `picking` ⇒ `shipment.id = B`, `publicStatus:'preparando'`; todos cancelados ⇒ el más reciente | tomar el primero por `requestedAt asc` |
+| **PO-6** | Orden `vault` ⇒ `shipment: null`, `fulfillmentMode:'vault'`; línea con caso `open` (compra a bóveda) ⇒ `items[].replacement.status:'open'`; caso `refunded` con parte SPEI `pending` ⇒ `refund.byTransferCents > 0`, `transferStatus:'pending'`; ⛔ sin `reason` interno, sin CLABE, sin actor | proyectar el caso sin filtrar campos |
+| **PO-7** | Orden ajena ⇒ `403`, sin cuerpo de envío (sin cambio, se re-asevera con envío presente) | quitar la guarda de dueño |
+| **PO-8** (frontend, Playwright contra el stack) | `/orders/<id>` de un directo con guía muestra paquetería y número de guía; tras un cierre por «no sale nada» el rótulo es «Reembolsado», ⛔ nunca «Liquidada» | titular con `status` |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
@@ -24941,6 +25448,12 @@ cuelga de `User`). ⇒ para el invitado **no existe el pendiente**, no es que no
 > se le avisa al cliente»*), con la decisión del dueño del 2026-09-29. Texto: ux-ui.
 > ⭐ **v1.80.1:** pasa a **trece** con `AV-13`. `AV-12` gana la variante `case_refund` (reembolso que cierra un caso
 > «Por reponer», §M4-SHIP.15.7) — mismo sello por fila, otra plantilla.
+> ⭐ **v1.80.2:** pasa a **quince** con `AV-14` y `AV-15` (filas abajo).
+
+| # | Aviso | Disparador | Destinatario | Motor / sello |
+|---|---|---|---|---|
+| **AV-14** | ⭐ **v1.80.2 — Te vamos a depositar por transferencia** (monto SPEI; si hubo parte a tarjeta, cuánto; CLABE **enmascarada** si la tiene, o cómo registrarla en `/cuenta#kyc` si no) | `POST /admin/replacement-cases/:id/refund` con parte SPEI, y `POST /admin/refunds/:id/to-manual`, **post-commit** (§M4-SHIP.15.7) | el dueño del caso (`User.email`) | ⭐ **SELLO** `ManualRefund.announcedNotifiedAt`, reclamado con `updateMany … announcedNotifiedAt: null` |
+| **AV-15** | ⭐ **v1.80.2 — Ya te depositamos** (monto y clave de rastreo) | `POST /admin/manual-refunds/:id/paid`, **post-commit** | ídem | ⭐ **SELLO** `ManualRefund.paidNotifiedAt`, ídem. ⛔ Nunca al cancelar |
 
 ⭐ **Lectura que hay que hacer en voz alta, porque cambia el presupuesto: de los once, OCHO no estrenan ni una
 columna.** Su «una sola vez» **ya está construida y medida** — son las guardas `count === 1`, los `sealOnceTx` y los

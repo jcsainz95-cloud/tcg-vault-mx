@@ -4,6 +4,22 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.2 — «POR REPONER» TRAS D-5..D-10: EL MONTO LO CAPTURA EL DUEÑO, LO QUE NO CABE EN STRIPE VA A LA CUBETA
+> «REEMBOLSOS MANUALES (SPEI)», EL CASO VENCE A LOS 7 DÍAS; Y EL CLIENTE REGISTRADO VE SU ENVÍO** (2026-09-29, arquitecto.
+> Base: **v1.80.1, vigente entera salvo lo que esta rev toca**. Origen: `HECHOS.md`, última fila, y un hallazgo de QA
+> sobre `6695e9e` relayado por el orquestador. `API_CONTRACT` sube a **v1.80.2**; norma en `API_CONTRACT §M4-SHIP.15.5`,
+> `.15.12`, `.15.13` y `.16`. 💰 **DINERO ⇒ tres veredictos + seguridad** (segundo canal de dinero saliente, segundo
+> reveal de CLABE). `M-61` se sigue ampliando en la misma migración — no construida: Grep
+> `PaymentRefund|ReplacementCase|missingReason|ManualRefund` en `backend/` ⇒ 0 ficheros, medido 2026-09-29.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | Reembolso de caso = **monto capturado** por el súper-admin, motivo obligatorio, referencias (lo pagado, el mercado) congeladas en el caso; topes 2×/k× de la referencia (dial `case_refund_hard_multiplier`) | §4.57 (m), §11 `M-61` | **Sí** · 🔒 seguridad |
+> | **2** | Excedente sobre lo reembolsable del cobro ⇒ tabla `ManualRefund` (cubeta SPEI, solo súper-admin); sustituye el `409 exceeds_charge` (D-7) | §4.57 (m), §5, §11 | **Sí** · 🔒 seguridad |
+> | **3** | Plazo de 7 días **derivado** (sin job, sin columna, sin estado) | §4.57 (m) | **Sí** |
+> | **4** | El cliente registrado ve su envío en `GET /orders/:orderId`; un solo cuerpo de «estado público» para invitado y cliente | §4.57 (n) | **Sí** (backend, frontend) |
+>
+> ---
 > **Rev v1.80.1 — APARTADO «POR REPONER»: LA CARTA DE BÓVEDA QUE FALTA O LLEGA DAÑADA SE REPONE (O, EN UN RETIRO, SE
 > PAGA A VALOR DE MERCADO); «DAÑADA» = «FALTANTE» EN TODOS LOS FLUJOS** (2026-09-29, arquitecto. Base: **v1.80, vigente
 > entera salvo lo que esta rev toca**. Origen: respuestas del dueño a D-1..D-4 (`HECHOS.md`, última fila) y su
@@ -25368,6 +25384,9 @@ diseño la hace **visible** (la línea sale `blocked` y no se envía) y la guard
 decidir qué pasa con ese retiro es de «Órdenes y dinero».
 ⭐ **v1.80.1 — D-1..D-4 contestadas** (`HECHOS.md`): D-1 y D-3 = su valor por defecto; D-2 y D-4 abren el apartado de
 (l). Preguntas nuevas D-5..D-10 en `API_CONTRACT §M4-SHIP.13`, todas con valor por defecto que no bloquea construir.
+⭐ **v1.80.2 — D-5..D-10 contestadas** (`HECHOS.md`): monto capturado (D-5/D-6), cubeta SPEI (D-7), D-9 confirmada,
+D-8/D-10 defaults, plazo de 7 días ⇒ (m). Abiertas, con default: **D-11** (¿basta la clave de rastreo como
+comprobante?) y **D-12** (¿2× confirma, 5× bloquea?). Fiscal de la compensación: lo confirma el contador del dueño.
 **Recuperar una `lost` que aparece** queda resuelto **solo dentro de un caso** («apareció», `lost → in_custody` del
 cliente); fuera de un caso sigue sin verbo (H10).
 
@@ -25393,10 +25412,10 @@ retiro con casos open ──✗── guía (409 SHIPMENT_HAS_OPEN_REPLACEMENTS)
 | La original **sigue a nombre del cliente**, `lost|damaged`, mientras el caso está abierto | Pasarla a plataforma al abrir el caso | Se le **debe** esa carta: así «Mi bóveda» la sigue mostrando («la estamos reponiendo») y no la puede retirar (`withdrawable` exige `in_custody`), sin un estado nuevo en `InventoryStatus`. Pasarla a plataforma la haría desaparecer de su bóveda antes de que nadie hiciera nada — contra la intención del dueño de «buscarla y reemplazarla» sin drama |
 | **Identidad exacta** de nueve campos (`sameIdentity`) | Misma carta a secas; «igual o mejor» | «Misma carta/variante/condición» es lo pedido; distinta condición o grado es **otro valor**. «Mejor» sería regalar inventario sin decisión del dueño |
 | Reponer: **operador+**, sin tope, sin dinero | Solo súper-admin; contar contra el tope | La pérdida ocurrió y se firmó **al marcar** (merma con autor). Reponer **cumple** la deuda con una pieza de la misma identidad; no crea valor nuevo que abusar. El vector (marcar «no la encontré» y quedarse la original) es el mismo de v1.80 y se ve igual: merma firmada + bitácora |
-| Reembolso desde el apartado: **solo súper-admin** (`@MoneyOut`) | El operador dentro del tope | El dueño: *«déjame el botón»*. Y el importe de mercado **no es un dato cobrado**, lo calcula el sistema: más discrecional que `item_missing`. Si el dueño lo abre al operador (D-8), es el mismo tope de §M4-SHIP.8 |
-| Mercado = **la misma** valuación de «Mi bóveda» (`marketValueOf`, extraída) | Precio de lista de la tienda; una valuación nueva | Una sola fuente de «cuánto vale la carta de este cliente»: la que él ve. Dos valuaciones divergirían |
-| Lo que el mercado paga **por encima** de lo cobrado por la carta = **`compensationCents`** (sin IVA de venta) | Todo como mercancía | Una devolución de venta no puede devolver más IVA del que se cobró; el excedente es compensación por pérdida. ⛔ Tratamiento fiscal **no decidido** aquí: renglón propio en M7, a confirmar por el contador (D-7) |
-| El cobro máximo es el **remanente de la orden de origen** | Otro pago; transferencia automática | Stripe solo devuelve contra un cobro y hasta su monto. Pagar por fuera (SPEI) es otro canal de dinero saliente ⇒ decisión del dueño (D-7) |
+| Reembolso desde el apartado: **solo súper-admin** (`@MoneyOut`) | El operador dentro del tope | El dueño: *«déjame el botón»*. Y el importe ~~de mercado~~ (⭐ v1.80.2: **capturado**) **no es un dato cobrado**: más discrecional que `item_missing`. D-8 quedó en su default |
+| Mercado = **la misma** valuación de «Mi bóveda» (`marketValueOf`, extraída) | Precio de lista de la tienda; una valuación nueva | Una sola fuente de «cuánto vale la carta de este cliente»: la que él ve. Dos valuaciones divergirían. ⭐ v1.80.2: ya no es el monto, es **referencia** y ancla de los topes |
+| Lo que se paga **por encima** de lo cobrado por la carta = **`compensationCents`** (sin IVA de venta) | Todo como mercancía | Una devolución de venta no puede devolver más IVA del que se cobró; el excedente es compensación por pérdida. ⛔ Tratamiento fiscal **no decidido** aquí: renglón propio en M7, a confirmar por el contador. ⭐ v1.80.2: se **conserva** y la lleva también la fila SPEI (naturaleza del peso ≠ canal) |
+| ~~El cobro máximo es el **remanente de la orden de origen**~~ ⭐ v1.80.2: lo que excede el remanente va a **SPEI manual** (m) | ~~Otro pago; transferencia automática~~ | Stripe solo devuelve contra un cobro y hasta su monto. El dueño decidió (D-7) pagar el resto él por SPEI desde una cubeta |
 | El retiro **espera** a sus casos (la guía se bloquea) | Mandar lo demás y dejar la repuesta en la bóveda | Paquete completo, sin segundo envío ni la pregunta de quién lo paga. Es D-9 al dueño, con esto de valor por defecto |
 | Anular **solo** si la orden de origen ya no está liquidada | Anular libre para el súper-admin | Anular es cerrar una deuda sin carta ni dinero; solo es correcto si el dinero ya lo resolvió otro camino (contracargo, M3 total). Si no, sería el «excluir sin reembolso» que §M4-SHIP.5 prohíbe |
 | **Cadena de reposición** en `resolveOrigin` y `currentPieceOf` | Dar a la repuesta una `OrderItem` ficticia | Una línea de orden es un hecho de venta; inventarla falsearía M7. La cadena deja el hecho donde está (el caso) y lo leen los tres lectores de dinero con **un** cuerpo |
@@ -25421,11 +25440,71 @@ por preparar». Misma serialización que (j).
 nombre de un cliente (no debe contarse dos veces: al nacer el caso y al pasar a plataforma), y si `GET /vault/holdings`
 la lista y la valúa. Lo mide backend y lo reporta antes de tocar esos lectores.
 
+**(m) 💰 v1.80.2 — Monto capturado, cubeta «Reembolsos manuales (SPEI)» y plazo de 7 días.** Norma entera:
+`API_CONTRACT §M4-SHIP.15.5`, `.15.12`, `.15.13`. Origen: `HECHOS.md`, última fila (D-5..D-10).
+
+*El cambio de fondo:* el importe de un caso deja de ser una **fórmula** y pasa a ser un **dato capturado por una
+persona con nombre** («yo busco lo que vale y capturo»). Eso mueve la protección de sitio: ya no se defiende la fórmula,
+se defiende **la captura** (motivo obligatorio, referencias congeladas a la vista, topes contra el error de dedo,
+confirmación con la cifra del servidor, bitácora). Y el sistema gana un **segundo canal de dinero saliente**, manual:
+lo que Stripe no puede devolver lo transfiere el dueño y lo registra.
+
+```
+refund {A, reason, expected*} ─► topes sobre R = max(Q, M) ─► reparto: stripe = min(A, remanente) · manual = A − stripe
+                                                              │                         │
+                                             PaymentRefund(case_refund) → Stripe      ManualRefund(pending) → cubeta SPEI
+                                                    │ failed ──to-manual──────────────► ManualRefund(stripe_failed)
+                                                                                         │ reveal-clabe (auditado) → banca del dueño
+                                                                                         └ paid {clave de rastreo} → AV-15 · cancel {nota}
+```
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| Monto **capturado** con **motivo obligatorio**; las referencias (`Q` lo pagado, `M` el mercado) se muestran y se **congelan en el caso** | Seguir calculando (mercado/pagado) y dejar un «ajuste manual» | Decisión del dueño. Congelar las referencias junto al monto permite a cualquiera, después, ver **contra qué** se decidió la cifra sin re-derivar una valuación que ya cambió |
+| Referencias y monto viven en **`ReplacementCase`**, no en `PaymentRefund` | Dejar `basis/marketValueCents` en el libro | El monto se reparte entre **dos filas de dos tablas** (Stripe y SPEI) y su contexto es **uno**: el caso. En el libro sería contexto duplicado o parcial. `RefundBasis` muere antes de construirse |
+| Topes **relativos** a `R = max(Q, M)`: >2× confirma (volver a escribir el monto), >k× bloquea (dial, seed 5) | Tope absoluto en pesos; sin tope | Un cero de más es ×10 a cualquier precio; un tope absoluto estorba a las gradeadas caras o no protege a las baratas. `max(Q, M)` para que capturar el precio de hoy de una carta que subió no parezca error. El `k` es dial para que el dueño resuelva el caso legítimo raro sin código |
+| **Reparto por el servidor**: `stripe = min(A, remanente de la orden de origen)`, resto SPEI; remanente 0 ⇒ todo SPEI | Todo a SPEI; rechazar el excedente (v1.80.1) | Devolver a tarjeta es trabajo cero para el dueño y deja rastro; solo lo que Stripe **no puede** devolver se hace a mano. Rechazar era lo que el dueño corrigió |
+| Componentes por **una** función monótona `caseRefundComponents(X)`; fila SPEI = `f(A) − f(stripe)` | Prorratear cada componente por proporción | La diferencia de una función monótona nunca da un componente negativo y la suma es `f(A)` **±0**; un prorrateo con redondeo por fila no garantiza ninguna de las dos. A la tarjeta regresa primero la venta; la compensación queda al final |
+| Tabla **propia** `ManualRefund` | Una fila más de `PaymentRefund` con `kind='manual'` | `PaymentRefund` tiene un ciclo **de Stripe** (`requested/submitted/succeeded/failed`, `stripeRefundId`, webhooks, reintento, `C-REF-1`, `INV-SP-2` sobre el cobro). Un pago SPEI no tiene nada de eso y tiene lo que aquel no (clave de rastreo, CLABE, quién marcó, cancelar). Meterlo ahí obligaría a cada lector del libro a excluirlo y rompería `INV-SP-2` (Σ ≤ cobro) |
+| La CLABE **no se copia**: se lee cifrada de `KycProfile` al revelar; al pagar se congela solo `paidClabeHmac` | Snapshot cifrado de la CLABE en la fila (como `SellRequest.clabeSnapshotEnc`) | Una copia más de PII bancaria es otra fuente con su retención; y si `AV-14` le pide al cliente registrarla o corregirla, la vigente es la que sirve. El índice ciego prueba después **a qué** CLABE se pagó sin guardarla. (En buylist el snapshot tiene sentido: la CLABE es parte de la oferta que el vendedor aceptó; aquí no hay oferta) |
+| Reveal **solo en `pending`**, auditado por llamada | Reveal sin precondición (como el de buylist) | Tras pagar o cancelar no hay para qué ver la CLABE en claro; cada lectura innecesaria de PII es riesgo sin beneficio |
+| Clave de rastreo **obligatoria** al marcar pagada; comprobante-archivo **no** (D-11) | Subir imagen/PDF | La clave de rastreo **es** el comprobante verificable (el CEP de Banxico se obtiene con ella). `uploads` solo admite `kyc_ine` con candados propios (medido `uploads.service.ts:161`): abrir otro propósito es un pase con seguridad |
+| `cancel` **no reabre** el caso | Volver el caso a `open` | Los estados del caso son terminales (§M4-SHIP.15.3) y la pieza ya pasó a plataforma. Cancelar una deuda manual es una decisión del dueño **con nota**, visible en el caso y en M3 — no un deshacer |
+| Stripe `failed` ⇒ `to-manual` **solo** desde `failed` | Convertir también `requested` | Una `requested` todavía puede salir por el reintento: convertirla pagaría el mismo peso dos veces (`INV-MR-2`) |
+| **Solo súper-admin** ve y opera la cubeta (ni conteo al operador) | Conteo visible al operador (como `toReplace`) | Es dinero saliente y PII bancaria; el operador no tiene nada que hacer con ella |
+| Plazo = hecho **derivado** (`overdue ⇔ open ∧ now ≥ openedAt + 7×24 h`), una constante | Job que escribe `overdue`; estado nuevo | Un temporizador que escribe es un segundo escritor del caso que compite con reponer/reembolsar bajo candado y puede quedarse viejo si no corre; un derivado no puede mentir (doctrina de §4.54 / `API_CONTRACT §R.2`). 7×24 h y no «7 días de calendario»: sin ambigüedad de zona horaria |
+| Vencer **no hace nada** más que verse | Reembolsar solo; avisar al cliente | Decisión del dueño: *«nada se reembolsa solo»* |
+
+**Invariantes nuevos:** `INV-MR-1` (monto capturado = Stripe no fallida + SPEI no cancelada, salvo el hueco visible de
+una `failed` sin convertir) · `INV-MR-2` (nunca el mismo peso por dos canales) · `INV-MR-3` (la CLABE en claro sale solo
+por los dos `reveal-clabe`, súper-admin, auditados; candado `C-MREF-1`) · `INV-MR-4` (`pending → paid | cancelled`, sin
+vuelta). Texto exacto en `API_CONTRACT §M4-SHIP.15.13`.
+
+**Para seguridad (qué cambia en la política de dinero saliente, §7):** nace un **segundo canal** (SPEI manual), pero
+**no** un segundo originador: la fila SPEI solo nace de dos verbos `@MoneyOut` (el reembolso del caso y `to-manual`) y
+solo se marca pagada con otro `@MoneyOut`. El vector nuevo es **el monto capturado**: un súper-admin puede pagar lo que
+decida; lo acotan el dial (`k×R`), la confirmación reforzada, el motivo obligatorio y la bitácora con las referencias
+congeladas — ⛔ nada más, y así se declara.
+
+**(n) v1.80.2 — El cliente registrado ve su envío (hallazgo de QA).** Norma: `API_CONTRACT §M4-SHIP.16`.
+El seguimiento del **invitado** (§4.21e, `API_CONTRACT §4-G.3/4-G.5`) derivaba un estado público y proyectaba guía y
+fechas; el detalle del pedido del cliente **con cuenta** no cargaba el envío (`orders.service.ts:1758-1796`, medido
+2026-09-29) y titulaba con `Order.status` (un estado **de dinero**: «liquidada»). Resultado: los avisos de envío
+(`AV-4/5/6`) mandaban a una pantalla sin el dato, contra `D-AVISO-2` (*el correo es best-effort; la pantalla es donde
+el dato siempre está*).
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **Un** cuerpo `publicStatus`/`activeShipment` extraído de `guest-checkout.service.ts` y usado por las dos superficies | Una segunda tabla de mapeo para el cliente | Dos mapeos del mismo hecho divergen (ya pasó con la regla v1.80 «reembolsado», que solo vivía en el del invitado). PO-3 asevera la paridad |
+| Proyección **mínima con lista blanca** (estado, paquetería, guía, fechas, destinatario/ciudad, `missingCount`) | Devolver la fila `ShipmentRequest` | La fila trae costos del carrier, sellos de aviso y la dirección cruda; la lección de `avisos.seals-out-of-dto.spec.ts` es que un spread publica lo que nadie decidió publicar |
+| El cliente ve más que el invitado (destinatario completo, CP) pero no la dirección de calle | Toda la dirección | Es su propia dirección, pero para seguir un paquete no hace falta; la calle ya está en su libreta de direcciones |
+| Titular con `publicStatus`, conservar `status` | Cambiar el significado de `status` | `status` lo leen otras pantallas (y es la verdad del dinero); añadir es aditivo y no rompe a nadie |
+
 ---
 
 ## 5. Decisiones transversales
 
-- **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
+- **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist; ⭐ v1.80.2: y los **reembolsos manuales** de casos «Por reponer» que no caben en el cobro de Stripe, tabla `ManualRefund`, §4.57 (m)). Ninguna vista de usuario muestra saldo. El sistema **nunca** transfiere solo: todo SPEI lo ejecuta el súper-admin fuera y lo registra.
 - **Montos:** enteros en centavos MXN; IVA siempre desglosado y persistido en `Order.ivaCents` para M7/CFDI.
 - **P&L (M7) — ingreso y costo de envío son cosas distintas (v1.4-finance):** el envío aporta al P&L por **dos** lados: un **ingreso** (`ShipmentRequest.shippingFeeCents`, lo que el cliente paga) y un **costo** (`ShipmentRequest.shippingCostCents`, lo que la plataforma paga a la paquetería, M-16). El P&L los suma/resta por separado: `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`. Ambos importes de un mismo envío se acotan al periodo por **`pickingAt`** (envíos liquidados: `status ∈ {picking, guia, enviado, entregado}`), garantizando que ingreso y costo del envío caigan en el mismo periodo. Antes de v1.4-finance el P&L solo contaba el ingreso, sobreestimando la ganancia. Response/CSV en `API_CONTRACT §M7` (`shippingCents`→`shippingRevenueCents` + nuevo `shippingCostCents`).
 
@@ -28612,6 +28691,15 @@ decisión D-3 del dueño; propuesto `500000`) con la regla de propagación §11.
   del importe suma `compensationCents`. Forma normativa: `API_CONTRACT §M4-SHIP.2`. Revertir: igual que arriba (con
   filas en `ReplacementCase` o en el libro, rollback de código conservando tablas; ⛔ un `ADD VALUE` de enum no se quita
   sin recrear el tipo).
+- ⭐ **v1.80.2 — y se sigue ampliando en la MISMA migración** (no construida: Grep `PaymentRefund|ReplacementCase|
+  missingReason|ManualRefund` en `backend/` ⇒ 0 ficheros, 2026-09-29): **fuera** `RefundBasis` y `PaymentRefund.basis,
+  marketValueCents, marketCapturedDate` (nunca existieron en una BD); `ReplacementCase + refundAmountCents,
+  refundReason, refundPaidRefCents, refundMarketRefCents, refundMarketRefDate, refundAboveRefConfirmed` (nullable,
+  CHECK con `status='refunded'`); enums `ManualRefundSource`, `ManualRefundStatus`; tabla **`ManualRefund`**
+  (`idempotencyKey @unique`, `paymentRefundId @unique`, índice único parcial `case_excess` por caso, CHECKs de identidad
+  del importe y de sellos por estado; ⛔ **sin columna de CLABE**); seed `ConfigSetting case_refund_hard_multiplier = 5`.
+  Forma normativa: `API_CONTRACT §M4-SHIP.2`. Revertir: igual que arriba — con filas en `ManualRefund` ⛔ no se borra
+  (es registro de dinero que salió o se debe).
 
 ### v1.68-stream-b (**M-53**: la reserva conoce a su orden y a su vencimiento — **DDL ADITIVO, nullable, SIN backfill**, §4.48.2)
 
