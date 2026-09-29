@@ -3,7 +3,33 @@
 > **Cómo se usa (regla O-5):** un pendiente **afirma su fecha de medición o no afirma nada**. Antes de enrutar
 > trabajo a partir de uno, **se re-mide** (el comando o `fichero:línea` de la columna «Comprobación» es por dónde
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
-> Última limpieza: **2026-09-11 ~08:30 UTC** (orquestador, sesión 2, tras fusionar Stream A + andamiaje de CI a `main`). Cuerpos de los ítems: **verbatim**, sin reescribir.
+> Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
+> anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
+
+## Recuento del backlog 2026-09-29 (cierre de la sesión 4, sobre production `a2da420`) — punto de partida de la sesión 5
+
+> Ramas vivas y sus veredictos: `TRASPASO.md §2`. Todo lo de esta tabla lleva **fecha de medición** y
+> **comprobación**; antes de enrutar trabajo desde una fila, **se re-mide** (O-5, O-18: mide también las ramas vivas).
+
+| # | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| P-REL-1 | Fusionar los cinco frentes en una rama de release desde `production` con la regla `#M1-merge-rule` (v1.80.7.2) y abrir **un solo** PR → `production` (qué entra, BD, rollback, pasos del dueño, condiciones abiertas) | orquestador + backend (fusión de `inventory`) + arquitecto (cabecera del contrato consolidada) | 2026-09-29 | PR abierto, CI verde, DAST verde |
+| P-REL-2 | Gate de release: QA E2E completa sobre el stack fusionado; pentester **en vivo**; seguridad consolida; O-9 del orquestador | qa, pentester, seguridad | 2026-09-29 | tres veredictos sobre el sha del release |
+| P-REL-3 | E2E `realOnly` de la cubeta SPEI (revelar → pagar / cancelar): hoy `frontend/e2e/m4-ship.spec.ts` es 100 % mocks y ahí vivió BLOQ-1 | frontend (+ devops el censo) | 2026-09-29 (QA sobre 59a0c1f) | un spec realOnly verde contra el stack real |
+| P-SHIP-57d | PS-57d y `applyStripeOutcome` sin lectura sin candado (v1.80.7.2 D-a), notas `INT_COPY3`, PS-57c rama inalcanzable | backend | 2026-09-29 (en curso al cierre) | `git log origin/claude/envio-preparar` muestra el commit; integración 55/55 |
+| P-SHIP-C1-3 | Condiciones de seguridad del stream de envío antes de `sk_live_`: C1 override de `qs` ^6.16.0; C2 códigos `REFUND_FAILURE_DISPUTE_CODES` contra Stripe prueba; C3 consulta B13 con usuario RO | backend (C1, C2) + dueño (C3) | 2026-09-29 (seguridad sobre 59a0c1f) | `npm audit --omit=dev` limpio; nota en BACKEND_NOTES; resultado de B13 = 0 |
+| P-SEG-C2bis | Citar el run de `dast-release` en el primer push a production con `blocking=false` | devops | 2026-09-29 | número de run en DEVOPS_NOTES |
+| P-SEG-HDR-2 | CSP completa (ZAP 10038/10055) antes de `sk_live_` | frontend + devops | 2026-09-29 | ZAP 10038 a FAIL |
+| P-PANT-FLAKE | 1 prueba vitest roja en 1 de 3 tiradas bajo carga en `1a58ca0`, no identificada | orquestador | 2026-09-29 | vitest N=5 con load < 4: 5/5 o nombre de la prueba |
+| P-SKY-C | Fase C dirección (colonia de lista por CP, SEPOMEX, libreta, M-62a) | backend + frontend + devops | 2026-09-29 (diseño v1.81.1 aprobado) | PS de §M4-SHIP.19 verdes; despliegue propio |
+| P-SKY-D | Fase D Skydropx; **antes**, PS-SBX-1…12 en sandbox con resultados redactados | backend (fuerte) + frontend + ux-ui + devops | 2026-09-29 (diseño) | `env \| grep -c SKYDROPX` ≥ 3 y `curl` 200 a sb-pro |
+| P-SKY-Q | Preguntas 88–91 de PROJECT §T (cargo extra, mes contable, tarifa vencida, paquete devuelto): se construye con defaults | product-owner / dueño | 2026-09-29 | fila de HECHOS b011b1b |
+| P-SKY-PRIV | Aviso de privacidad por datos a Skydropx; apagar avisos propios de Skydropx; medir doble seguro (T6) | dueño (texto: product-owner) | 2026-09-29 | texto publicado; captura del panel |
+| P-TIENDA-VIVO | Probar la tienda en vivo como invitado y registrado con la tarjeta de prueba; avisar al dueño de los pedidos de prueba | tester-e2e | 2026-09-29: sin acceso desde la sesión 4 (000) | informe con capturas |
+| P-BOVEDA-LIQ | «Mi bóveda» suma al portafolio y etiqueta LIQUIDADA piezas cuya compra está en reembolso (observación de QA, no medida contra el contrato) | product-owner / ux-ui decide | 2026-09-29 (QA sobre 59a0c1f) | decisión escrita en PROJECT o DESIGN_SYSTEM |
+| P-M1-BITACORA | Bitácora `inventory.item_updated` con before/after en el PATCH (§M4-SHIP.17.1 (2)) | backend (en la fusión de `inventory`) | 2026-09-29 | spec que lea la bitácora tras el PATCH |
+| P-OUTCOME | `outcome` aditivo en `paid`/`cancel` de la cubeta SPEI: declararlo en el contrato o quitarlo | arquitecto | 2026-09-29 (QA MENOR 2) | línea en §M4-SHIP.17.3 |
+| P-DEUDA | Deuda anotada con disparador: TECH_DEBT SHIP-D1…D8, SHIP-FD-a/b/c, T-2…T-6, DIN-D1, C7-LEGACY-SID (borrar la rama legado 30 d tras publicar), D-SHIP-8 | rol dueño de cada una | 2026-09-29 | cierre según cada entrada |
 
 ## Recuento del backlog 2026-09-25 (sobre production 47e4efa) — sustituye al índice del 2026-09-11 como punto de partida
 
