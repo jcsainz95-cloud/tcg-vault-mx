@@ -8184,3 +8184,35 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   (commit `8f48d28`). Juez: las 4 suites de esas vistas, **48/48**.
 - **Comprobación:** `rg -n "^function asApiError" frontend/src` ⇒ **0**; `rg -c "import \{ asApiError" frontend/src`
   ⇒ **5**.
+
+### SHIP-D-c (techlead sobre `59a0c1f`) · contar interbloqueos con `pg_stat_database.deadlocks` + espera de 1,5 s es frágil (backend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** backend. **Severidad:** Baja. **No bloqueante.** (Nombre con prefijo para no chocar con el `D-c` de enums de
+  §5106.)
+- **Qué es:** PS-57c, PS-61b (`backend/test/integration/full-refund-vault.e2e-spec.ts`) y PS-36b
+  (`replacement-cases.e2e-spec.ts`) aseveran `delta === 0` sobre `SELECT deadlocks FROM pg_stat_database WHERE datname =
+  current_database()` leído antes y después de la carrera, con un `setTimeout(1500)` antes de la segunda lectura
+  (medido con `rg -n pg_stat_database`: tres contadores en esos dos ficheros, 2026-09-29). En PG ≥ 15 las estadísticas acumuladas viven en memoria
+  compartida y se publican de forma diferida (`stats_fetch_consistency`, vaciado periódico por backend): 1,5 s es una
+  espera empírica, no una garantía; y el contador es **de la base entera**, así que cualquier otra suite corriendo a la
+  vez contra la misma base lo mueve.
+- **Por qué no rompe hoy:** la aserción que decide es la de cada tirada (cero `503`/`500`, que es como un `40P01` llega
+  al cliente) y la suite corre con `--runInBand` (`package.json · test:integration`, `jest-integration.config.js ·
+  maxWorkers: 1`). El Δ es redundante con ella: la mutación M-17 de PS-57c salió con Δ=10 **y** `503` en las 10.
+- **Corrección:** el Δ pasa a **registro informativo** (se imprime en `[PS-RACE …]`, no se asevera) y la aserción queda en
+  la señal por tirada (cero `5xx`, cero `40P01` en el cuerpo). Mantener `--runInBand` como requisito explícito de la suite.
+- **Disparador:** un rojo de Δ sin `5xx` en la misma corrida, o correr la integración en paralelo.
+- **Comprobación de cierre:** `rg -n "expect\(delta\)" backend/test/integration` ⇒ **0**, y el Δ sigue impreso.
+
+### D-SHIP-8 · orden `vault` en `chargeback` con `chargebackNeedsManual = true` y la disputa ya cerrada: ningún verbo baja el flag (backend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** arquitecto (decidir el desenlace) → backend. **Severidad:** Baja. **No bloqueante.** Observación de
+  `ARCHITECTURE §9 D-SHIP-8` (v1.80.7.2); ⛔ sin trabajo en este corte.
+- **Qué es:** el cierre por reembolso total (M3 o `charge.refunded`) sobre una orden `vault` en `chargeback` pone
+  `chargebackNeedsManual = true` en su primera pasada (§18.2, tabla del sello). En bóveda el flag lo baja
+  `onChargeDisputeClosed` (`payments.service.ts:1007-1036`, rama no directa ⇒ `false`). Si la disputa **ya se cerró**
+  antes de ese cierre, el flag queda `true` y `POST /admin/orders/:id/chargeback-inventory` responde `400` porque solo
+  acepta un directo o una `vault` **`refunded`** (`orders.service.ts:1561-1567`, medido 2026-09-29 en `claude/envio-preparar`).
+- **Preexistente:** el webhook `charge.refunded` ya llegaba a ese estado; PS-57d (v1.80.7.2) solo iguala la confirmación de
+  M3 al webhook. ⛔ NO MEDIDO si Stripe permite en la práctica un reembolso confirmado después de una disputa cerrada.
+- **Disparador:** una fila así en la cola de M3 (`workQueue`/`chargebackNeedsManual`) sin verbo que la resuelva.
+- **Comprobación de cierre:** una prueba de integración que llegue a ese estado (disputa cerrada → `retry` de M3) y un
+  verbo que baje el flag con `200`, o una decisión del arquitecto que declare el estado inalcanzable y una prueba que lo asevere.
