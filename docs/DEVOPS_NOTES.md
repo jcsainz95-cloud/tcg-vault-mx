@@ -826,7 +826,7 @@ Validaciones estáticas corridas (reales):
 - [ ] Habilitar eventos: `payment_intent.succeeded`, `payment_intent.payment_failed`,
       `payment_intent.canceled`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`,
       `charge.dispute.funds_reinstated`, **`charge.refund.updated`** y **`refund.updated`** (estos dos, desde
-      §M4-SHIP v1.80.5: **paso de la ventana de despliegue**, ver §69.1; en un endpoint ya creado se añaden con
+      §M4-SHIP v1.80.5: **paso de la ventana de despliegue**, ver §71.1; en un endpoint ya creado se añaden con
       *Update details > Select events*). Fuente única de la lista: `security/stripe-webhook-events.txt`
       (la vigila `scripts/check-stripe-webhook-events.sh`).
 - [ ] Copiar el **`whsec_…`** a `STRIPE_WEBHOOK_SECRET` en Railway (11.D [RW]) y **redeploy** del backend.
@@ -12696,12 +12696,12 @@ política (no corrí ZAP aquí); riesgo residual: 10021 sobre assets `_next/stat
 por `headers()`. El primer `dast-release` sobre un SHA con esto lo mide.
 
 **Rollback:** revertir el commit (las dos líneas vuelven a WARN).
-## §69 · §M4-SHIP v1.80.5 — lo que le toca a devops en el despliegue (2026-09-29, rama `claude/envio-preparar`)
+## §71 · §M4-SHIP v1.80.5 — lo que le toca a devops en el despliegue (2026-09-29, rama `claude/envio-preparar`)
 
 Encargo: `API_CONTRACT §M4-SHIP.14` fila **devops** («suscribir `charge.refund.updated`; seed del dial por entorno; consulta de
 residuo con credencial de solo lectura») + rollback de `M-61`. Cada punto dice **qué medí** y qué no.
 
-### 69.1 · Webhook: `charge.refund.updated` (y `refund.updated`) — paso del DUEÑO en la ventana de despliegue
+### 71.1 · Webhook: `charge.refund.updated` (y `refund.updated`) — paso del DUEÑO en la ventana de despliegue
 
 **Medido (2026-09-29):** los eventos se suscriben **a mano en el dashboard de Stripe**; ni un script ni un workflow los registra.
 `grep -rn "enabled_events\|stripe listen\|webhook_endpoints" scripts .github security` ⇒ 0 resultados; la única lista es §11.G de estas notas.
@@ -12727,7 +12727,7 @@ ciego), corrido 3/3 verde. **Límite honesto:** comprueba que la lista **documen
 dueño haya marcado el evento se verifica con el paso 4. El fixture de webhooks del harness E2E no existe como fichero (los E2E forjan sus
 eventos en cada spec), por eso el candado lee el código del backend y no un fixture.
 
-### 69.2 · Diales nuevos — de quién es cada cosa (medido en `API_CONTRACT`)
+### 71.2 · Diales nuevos — de quién es cada cosa (medido en `API_CONTRACT`)
 
 | Cosa | ¿Dial? | Valor inicial | Dueño |
 |---|---|---|---|
@@ -12745,7 +12745,7 @@ en paralelo; `grep operator_refund_cap backend` ⇒ 0 hoy): verificar tras aterr
 Si el dueño quiere otro valor, lo edita en M10 (auditado); **`UPDATE` directo a la base sigue prohibido (§32.3)**. Post-deploy:
 `GET /admin/settings` debe traer los dos con 500000 y 5 (si falta uno, el binario desplegado no es el que creemos: parar).
 
-### 69.3 · Residuo pre-despliegue de `M-61`: `scripts/vault-full-refund-residue.sh`
+### 71.3 · Residuo pre-despliegue de `M-61`: `scripts/vault-full-refund-residue.sh`
 
 **Qué mide:** cuántas órdenes `fulfillmentMode='vault'` con `status='refunded'` existen **sin** haber pasado por el cierre de M-61 (`fullRefundClosedAt`).
 Son el residuo del hueco: antes de M-61 un reembolso total de una compra a bóveda no devolvía la carta. **Ningún script las toca** (`API_CONTRACT`
@@ -12778,7 +12778,7 @@ sello ⇒ 1; con sello ⇒ 0; un rol con escritura ⇒ rc=2 «TIENE privilegio d
 |---|---|---|---|
 | *(sin medir todavía en producción — 2026-09-29)* | | | |
 
-### 69.4 · Migración `M-61` — despliegue y rollback
+### 71.4 · Migración `M-61` — despliegue y rollback
 
 **Qué trae** (`API_CONTRACT §M4-SHIP.2`, .15, .17, .18; **el SQL real lo escribe backend y aún no existe: `ls backend/prisma/migrations | tail -1` ⇒ `20260928120000_m60_…` — NO MEDIDO**): tablas nuevas
 (`PaymentRefund`, `ManualRefund`, `ReplacementCase`…), columnas nuevas (`Order.fullRefundClosedAt`, `KycProfile.clabeUpdatedAt`, `VaultPlacementItem.missingReason`, columnas de reembolso en
@@ -12805,3 +12805,16 @@ hay filas con los valores de enum nuevos / un CHECK que el código viejo violar�
 (restaurar el snapshot solo si hay corrupción, y perdiendo lo escrito desde entonces, incl. reembolsos). El dinero ya devuelto por Stripe **no se revierte** con nada de esto.
 
 **2026-09-29 (devops, BLOQ-3 de QA sobre c20451f):** baseline del censo E2E regenerado con motivo: `mockOnly` 113/24 -> 121/25 por `frontend/e2e/m4-ship.spec.ts` (8 palabras = import + prosa + 6 llamadas; 12 casos). Gate rc=0 y canario 14/14 tras el cambio. Deuda: cuando el seed real siembre reembolsos/casos/transferencias, el censo baja y se regenera.
+
+**2026-09-29 (devops, fusión `claude/release-s5` sobre 6fd5507):** censo E2E rojo al fusionar `claude/paquete-dinero`:
+`mockOnly` 121/25 -> 126/26 por `frontend/e2e/admin-m2-sealed-unmapped.spec.ts` (§M2-SK, cf30bfb). Medido: en
+`origin/claude/paquete-dinero` (650a4ed) el censo **ya estaba rojo** (113 -> 118) y el baseline no se tocó allí (último
+cambio en esa rama: 05de0c9, M4-VAULT). Las 5 palabras = import :3 + prosa :13 + **3 llamadas** (:40 :57 :82): 3 casos que
+no miden contra el stack real. Legítimos por la política del censo (§66): dependen de la fila `ppe-sealed-unmapped` de la
+semilla del mock y el seed real no siembra un sellado sin mapear; el 422 `SEALED_MARKET_KEY_REQUIRED` (SK-3) y SK-2 los
+mide `backend/test/integration/sealed-market-key.e2e-spec.ts` contra Postgres real. Baseline regenerado con motivo;
+canario sobre copia (`mockOnly` falso en el spec, y en un spec nuevo) -> rojo rc=1 (126->127, 126->128). DEUDA: sembrar
+un sellado sin mapear en el seed real; ese día el censo baja y se regenera.
+**Renumeración (mismo commit):** la fusión dejó dos «§69»; la segunda (§M4-SHIP v1.80.5) pasa a **§71** —no §70, que ya
+era SEC-HDR-1— con sus 71.1–71.4 y la referencia de la checklist de Stripe (§71.1). Quedan fuera de este commit, apuntando
+aún a «§69.1/§69.4» de M4-SHIP: `scripts/check-ci-ok.sh:55` (devops) y `TRASPASO.md:80` (orquestador).
