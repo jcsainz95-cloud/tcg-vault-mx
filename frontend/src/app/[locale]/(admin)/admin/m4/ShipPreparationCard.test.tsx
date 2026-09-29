@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { PreparationQueue } from './PreparationQueue';
+import { moneyOutLimitDetailsOf } from './ShipPreparationCard';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { ShipPreparationItemDTO, ShipPreparationOrderDTO, ShipPreparationStateDTO } from '@/types/contract';
@@ -268,6 +269,45 @@ describe('PS-UI-4 · `409 REFUND_PREVIEW_STALE` reabre con la cifra nueva y ⛔ 
     expect(c).toHaveTextContent('ahora son MX$310.00');
     // Sin nueva pulsación: sigue habiendo exactamente una llamada.
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('v1.80.7 · `403 MONEY_OUT_LIMIT_EXCEEDED` trae `{capCents, usedCents, requestedCents}` tipados y el copy va SIN cifra (§37.4)', () => {
+  it('el pie dice la frase de §37.4 y ⛔ ninguna de las tres cifras aparece; hubo UN solo POST', async () => {
+    const items = [item('a', { prepStatus: 'missing', missingReason: 'not_found' })];
+    serve(shipOrder(items, { refundPreviewCents: 31458 }));
+    const spy = vi.spyOn(api, 'prepareShipment').mockRejectedValue(
+      new ApiClientError(403, {
+        code: 'MONEY_OUT_LIMIT_EXCEEDED',
+        message: 'cap',
+        details: { capCents: 91457, usedCents: 60000, requestedCents: 31458 },
+      }),
+    );
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
+
+    const c = await card();
+    fireEvent.click(within(c).getByRole('button', { name: 'Pedido preparado' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByTestId('ship-prepare-confirm'));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(c).toHaveTextContent('Este reembolso supera lo que puedes devolver en 24 horas. No se preparó nada y el intento quedó en bitácora.'),
+    );
+    expect(c).not.toHaveTextContent('914.57');
+    expect(c).not.toHaveTextContent('600.00');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('`moneyOutLimitDetailsOf`: los tres enteros ⇒ tipados; falta uno ⇒ null (no se inventan cifras)', () => {
+    expect(moneyOutLimitDetailsOf({ capCents: 91457, usedCents: 60000, requestedCents: 31458 })).toEqual({
+      capCents: 91457,
+      usedCents: 60000,
+      requestedCents: 31458,
+    });
+    expect(moneyOutLimitDetailsOf({ capCents: 91457, usedCents: 60000 })).toBeNull();
+    expect(moneyOutLimitDetailsOf({ capCents: '91457', usedCents: 60000, requestedCents: 31458 })).toBeNull();
+    expect(moneyOutLimitDetailsOf(undefined)).toBeNull();
   });
 });
 

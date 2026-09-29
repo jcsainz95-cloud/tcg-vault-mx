@@ -577,11 +577,9 @@ export async function setDecksMetaDial(
 // ---------- Bóveda / portafolio ----------
 export async function getHoldings(): Promise<HoldingsResponse> {
   if (!config.useMocks) return apiRequest<HoldingsResponse>('/vault/holdings');
-  // MOCK §3 v1.80.1: `replacement` (caso «Por reponer» abierto / reembolsado) se deriva del servidor falso.
-  const data = fx.mockHoldings.map((h) => {
-    const replacement = m4ship.mockHoldingReplacementOf(h.inventoryItemId);
-    return replacement ? { ...h, replacement, withdrawable: false } : h;
-  });
+  // MOCK §3 v1.80.1/v1.80.7: `replacement` (caso «Por reponer») y `withdrawable`+`withdrawableReason` se
+  // derivan del servidor falso con UN cuerpo (invariante `withdrawable === (withdrawableReason === null)`).
+  const data = fx.mockHoldings.map((h) => ({ ...h, ...m4ship.mockHoldingWithdrawabilityOf(h) }));
   return delay({ data, portfolio: fx.mockPortfolio });
 }
 

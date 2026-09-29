@@ -983,6 +983,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: true,
+    withdrawableReason: null,
   },
   {
     inventoryItemId: 'inv-1006',
@@ -996,10 +997,11 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'pending',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, capturedDate: '2026-08-13' },
-    // Pending → no retirable (aún no liquidada), sin envío activo.
+    // Pending → no retirable (aún no liquidada), sin envío activo. v1.80.7: el motivo viaja con el flag.
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: false,
+    withdrawableReason: 'pending',
   },
   {
     inventoryItemId: 'inv-1008',
@@ -1021,6 +1023,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: 'enviado',
     activeShipmentId: 'shp-7001',
     withdrawable: false,
+    withdrawableReason: 'in_withdrawal',
   },
   {
     inventoryItemId: 'inv-1010',
@@ -1037,6 +1040,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: true,
+    withdrawableReason: null,
   },
 ];
 
@@ -1685,6 +1689,8 @@ export const mockKyc: KycInfoDTO = {
   // v1.15: sin CLABE ni INE en archivo por defecto (el checklist los marca como pendientes).
   clabeOnFile: false,
   ineOnFile: false,
+  // v1.80.7: clave siempre presente; `null` ⇔ fecha desconocida (o sin CLABE).
+  clabeUpdatedAt: null,
 };
 
 /**
@@ -1722,7 +1728,11 @@ export function mockApplyClientKycUpdate(input: {
   ineBackUploadKey?: string;
 }): KycInfoDTO {
   if (input.clabe) {
-    mockKyc.clabeMasked = `****${input.clabe.slice(-4)}`;
+    const nextMask = `****${input.clabe.slice(-4)}`;
+    // v1.80.7 (§M4-SHIP.17.3, `setClabe`): la fecha se sella SOLO cuando la CLABE cambia de verdad; repetir
+    // la misma es cero escrituras (PS-46). El mock solo ve la máscara, así que compara por ella.
+    if (!mockKyc.clabeOnFile || mockKyc.clabeMasked !== nextMask) mockKyc.clabeUpdatedAt = new Date().toISOString();
+    mockKyc.clabeMasked = nextMask;
     mockKyc.clabeOnFile = true;
   }
   const hasIneKey = !!(input.ineFrontUploadKey || input.ineBackUploadKey);
@@ -2325,6 +2335,7 @@ export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
       shipmentState: null,
       activeShipmentId: null,
       withdrawable: true,
+      withdrawableReason: null,
     },
   ],
   // §M4-VAULT v1.79.3 (H-1): cuenta con el nombre FABRICADO del correo (`nameSource='derived'`,
@@ -2343,6 +2354,7 @@ export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
       shipmentState: null,
       activeShipmentId: null,
       withdrawable: true,
+      withdrawableReason: null,
     },
   ],
 };

@@ -27,6 +27,7 @@ const BASE_KYC: KycInfoDTO = {
   clabeMasked: undefined,
   clabeOnFile: false,
   ineOnFile: false,
+  clabeUpdatedAt: null,
 };
 
 /** Sesión de cliente verificada (requisito para VENDER; el cotizador es público). */

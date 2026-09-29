@@ -10,6 +10,7 @@
  * Los ids de piezas y clientes son los de `fixtures.ts` (Ash, Misty, Ana, Bruno, Gary).
  */
 import type {
+  HoldingDTO,
   AdminOrderDetailDTO,
   AdminRefundRowDTO,
   AdminRefundsFilters,
@@ -53,6 +54,7 @@ import type {
   VoidCaseResponse,
 } from '@/types/contract';
 import { ApiFixtureError, ApiFixtureNotFound } from './fixtures';
+import { withdrawabilityOf } from './holding-withdrawable';
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // Actores y constantes del servidor falso
@@ -1691,6 +1693,30 @@ export function mockHoldingReplacementOf(inventoryItemId: string): import('@/typ
         }
       : null;
   return { status: c.status, reason: c.missingReason, refund };
+}
+
+/**
+ * ⭐ v1.80.7 (§3): `withdrawable` + `withdrawableReason` + `replacement` de un holding, derivados del estado vivo
+ * del servidor falso (caso abierto ⇒ la pieza está `lost|damaged`; fila `order_full` viva sobre la compra de
+ * origen ⇒ `origin_refunded`). UN cuerpo (`withdrawabilityOf`), como `vault.service`.
+ */
+export function mockHoldingWithdrawabilityOf(h: HoldingDTO): Pick<HoldingDTO, 'withdrawable' | 'withdrawableReason' | 'replacement'> {
+  const replacement = mockHoldingReplacementOf(h.inventoryItemId);
+  const replacementOpen = replacement?.status === 'open';
+  const piece = vaultPieces.find((p) => p.inventoryItemId === h.inventoryItemId);
+  const origin = piece ? origins[piece.orderId] : undefined;
+  const originRefunded = !!origin && origin.status === 'settled' && origin.pendingFullRefund;
+  return {
+    ...withdrawabilityOf({
+      ownershipStatus: h.ownershipStatus,
+      // Con caso abierto la pieza ya no está `in_custody` (está `lost|damaged` del cliente).
+      status: replacementOpen ? 'lost' : h.status,
+      shipmentState: h.shipmentState,
+      replacementOpen,
+      originRefunded,
+    }),
+    ...(replacement ? { replacement } : {}),
+  };
 }
 
 /** Lo que §M4-SHIP.10 añade a cada FILA de la lista M3 (`customer`, `refundedCents`) + el estado vivo. */

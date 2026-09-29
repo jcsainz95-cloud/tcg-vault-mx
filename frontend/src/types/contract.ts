@@ -536,6 +536,13 @@ export interface KycInfoDTO {
   // omite `ineUploadKeys`; el backend trata el INE en archivo como "provisto" para el umbral AML.
   ineOnFile: boolean;
   /**
+   * ⭐ v1.80.7 (§M6 `GET /users/me/kyc`, clave SIEMPRE presente; normativo desde v1.80.3, SEC-SHIP-A3,
+   * §M4-SHIP.17.3): último cambio (o primer registro) de la CLABE, sellado SOLO por `setClabe`.
+   * `null` ⇔ «fecha de cambio desconocida» (CLABE anterior a `M-61`, o sin CLABE). La cuenta pinta
+   * «CLABE actualizada el …» (`DESIGN_SYSTEM §37.9d`); con `null` no pinta nada.
+   */
+  clabeUpdatedAt: string | null;
+  /**
    * ⭐ v1.69 (P-78, contrato §M6-K.5 / §1): presente **si y solo si** `kycStatus === 'rejected'`.
    * Es el texto LITERAL que escribió el `super_admin` al rechazar, y es lo que cierra el ciclo:
    * sin él el cliente lee «rechazada» y no sabe qué corregir. ⛔ No se recorta, no se traduce.
@@ -806,6 +813,15 @@ export interface GroupedListingDetailResponse {
 }
 
 // ---- Bóveda / portafolio (contrato §3) ----
+/** ⭐ v1.80.7 (§3): motivo de `withdrawable:false`; `null` ⇔ retirable. */
+export type WithdrawableReason =
+  | 'pending'
+  | 'replacing'
+  | 'not_in_custody'
+  | 'in_withdrawal'
+  | 'origin_refunded'
+  | null;
+
 export interface HoldingDTO {
   inventoryItemId: string;
   folio: string;
@@ -847,6 +863,18 @@ export interface HoldingDTO {
   // si `ownershipStatus='settled' && shipmentState=null` (mismo criterio del backend). Evita descubrir
   // el 409/422 al intentar.
   withdrawable: boolean;
+  /**
+   * ⭐ v1.80.7 (§3, ADITIVO, clave siempre presente): POR QUÉ `withdrawable` es `false`. Invariante del
+   * contrato: **`withdrawable === (withdrawableReason === null)`**. Sale del MISMO cuerpo que calcula el
+   * flag (`vault.service`), en este orden (la primera condición que falla nombra el motivo):
+   *   `pending` ⇔ `ownershipStatus ≠ 'settled'` · `replacing` ⇔ `status ≠ 'in_custody'` ∧ caso «Por reponer»
+   *   abierto · `not_in_custody` ⇔ `status ≠ 'in_custody'` sin caso · `in_withdrawal` ⇔ `shipmentState ≠ null`
+   *   · `origin_refunded` ⇔ la compra de origen se está reembolsando (`ITEM_ORIGIN_REFUNDED`).
+   * Es la PROYECCIÓN de los rechazos de `classifyItems` (⛔ no una segunda regla). El front pinta el chip
+   * «Compra en reembolso» (§37.10d) SOLO con `origin_refunded`; `replacing` ya tiene su copy; los otros
+   * tres solo apagan RETIRAR con su hint de siempre.
+   */
+  withdrawableReason: WithdrawableReason;
   /**
    * v1.80.1 (§3 / §M4-SHIP.15.8): la pieza tiene un caso «Por reponer» abierto (no la encontramos o
    * llegó dañada al prepararla; sigue siendo del cliente mientras se repone). `withdrawable` es
@@ -1686,6 +1714,13 @@ export interface RefundPreviewStaleDetails {
 export interface RefundNotAvailableDetails {
   lines: { shipmentItemId: string; reason: 'order_not_settled' | 'legacy_convention' | 'no_origin_order' | 'exceeds_charge' }[];
 }
+/**
+ * `403 MONEY_OUT_LIMIT_EXCEEDED` (§0 v1.80 · ⭐ v1.80.7): los tres `details` son NORMATIVOS (PS-4/PS-4b los
+ * aseveran con igualdad exacta) y los ve el OPERADOR (personal interno: el criterio 201 protege al cliente y
+ * no aplica). `usedCents` es la SUMA de filas anteriores del actor en 24 h (`kind ≠ order_full`, `status ≠
+ * failed`). Pintar cifras es opcional; el copy lo fija ux-ui (`DESIGN_SYSTEM §37.4`: hoy sin cifra).
+ * ⛔ Ningún `customer` recibe este código.
+ */
 export interface MoneyOutLimitExceededDetails {
   capCents: number;
   usedCents: number;

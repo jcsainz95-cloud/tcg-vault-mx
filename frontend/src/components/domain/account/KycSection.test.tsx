@@ -14,7 +14,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 function kyc(partial: Partial<KycInfoDTO> = {}): KycInfoDTO {
-  return { kycStatus: 'none', clabeOnFile: false, ineOnFile: false, ...partial };
+  return { kycStatus: 'none', clabeOnFile: false, ineOnFile: false, clabeUpdatedAt: null, ...partial };
 }
 
 beforeEach(() => {

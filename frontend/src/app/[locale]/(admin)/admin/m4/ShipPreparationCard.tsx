@@ -16,6 +16,7 @@ import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
 import type {
   MissingReason,
+  MoneyOutLimitExceededDetails,
   PreparationItemStatus,
   PreparationOrderDTO,
   RefundNotAvailableDetails,
@@ -68,6 +69,23 @@ interface ShownError {
   offerUnprepare?: boolean;
   retry?: () => void;
   links?: { href: string; label: string }[];
+  /**
+   * ⭐ v1.80.7: los `details` NORMATIVOS del `403 MONEY_OUT_LIMIT_EXCEEDED` (`{capCents, usedCents,
+   * requestedCents}`), tipados y retenidos. ⛔ NO se pintan: el copy de §37.4 va sin cifra hasta que ux-ui
+   * lo fije (contrato §M4-SHIP.5 paso 6: «pintar cifras es opcional y el copy lo decide ux-ui»).
+   */
+  moneyOut?: MoneyOutLimitExceededDetails | null;
+}
+
+/**
+ * Lee los tres `details` del `403 MONEY_OUT_LIMIT_EXCEEDED` (§0 v1.80.7, normativos: PS-4/PS-4b los aseveran
+ * con igualdad exacta). `null` si el cuerpo no trae los tres enteros — la pantalla no inventa cifras.
+ */
+export function moneyOutLimitDetailsOf(details: Record<string, unknown> | undefined): MoneyOutLimitExceededDetails | null {
+  if (!details) return null;
+  const { capCents, usedCents, requestedCents } = details as Partial<MoneyOutLimitExceededDetails>;
+  if (![capCents, usedCents, requestedCents].every((v) => typeof v === 'number' && Number.isInteger(v))) return null;
+  return { capCents: capCents!, usedCents: usedCents!, requestedCents: requestedCents! };
 }
 
 /** Una línea `missing` que TODAVÍA no tiene fila ni caso: es lo que el preparado va a mover. */
@@ -347,7 +365,8 @@ export function ShipPreparationCard({
         return;
       }
       if (err?.status === 403 && err.code === 'MONEY_OUT_LIMIT_EXCEEDED') {
-        setFooterError({ text: ts('error.limitExceeded') });
+        // §37.4: sin cifra (el tope es un dial). Los `details` viajan tipados por si ux-ui decide pintarlos.
+        setFooterError({ text: ts('error.limitExceeded'), moneyOut: moneyOutLimitDetailsOf(err.details) });
         return;
       }
       if (err?.status === 409 && err.code === 'REFUND_NOT_AVAILABLE') {
