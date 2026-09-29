@@ -15,7 +15,8 @@
 > | **1** | **Una cabecera, cinco frentes.** Las revs de cada rama quedan debajo, verbatim, separadas por rama: `arreglos-operador` (v1.79.6/v1.79.7: sin fila propia aquí; `D-SHIP-5`/`D-SHIP-6` cerradas, §9) · `paquete-seguridad` (v1.80⟨C7⟩, v1.80.1⟨C7⟩, v1.80.1.1) · P-71 (v1.80⟨P-71⟩; atribuida a `paquete-pantallas`, NO MEDIDO) · `paquete-dinero` (v1.80⟨dinero⟩, v1.80.1⟨dinero⟩, v1.80.2⟨dinero⟩, v1.80.2.2; v1.80.2.1 y v1.80.2.3 solo en el contrato y en §4.50 / §9 `INV-P2`) · `envio-preparar` (v1.80⟨envío⟩ … v1.80.7.2) | esta cabecera | **No** |
 > | **2** | ⚠️ **Tres `§4.57` homónimas, ⛔ no renumeradas** (el código las cita: 84 menciones de `4.57` en 32 ficheros de `backend/`, medido 2026-09-29): **§4.57 (C7)** subsecciones `4.57.0`…`4.57.10.4`; **§4.57 (P-71)** subsecciones `4.57.1`…`4.57.6` (⚠️ chocan con las de C7); **§4.57 (envío)** subsecciones por **letra** `(a)`…`(u)`. Cita con letra ⇒ envío; con decimal ⇒ C7 si el texto trata de auth/`deviceToken`, P-71 si trata de `ptcgoCode`/«Buscar set». Nota en el propio §4.57 | §4.57 | **No** |
 > | **3** | Números de rev homónimos (`v1.80` ×4, `v1.80.1` ×3, `v1.80.2` ×2) se leen con sufijo ⟨rama⟩; las notas «se renumera al fusionar» quedan superadas | `API_CONTRACT` cabecera punto 2 | **No** |
-> | **4** | §9: `INV-P2` sigue **ABIERTA** en la rama de release (`ItemVerb` sin `'price'`, `item-location.rules.ts:66`, leído 2026-09-29); `D-SHIP-5`/`D-SHIP-6` anotadas como cerradas por `7e803bd` (reportado por backend) | §9 | **No** (lo cierra la regla de fusión de `API_CONTRACT §M1`) |
+> | **4** | §9: ~~`INV-P2` sigue **ABIERTA** en la rama de release (`ItemVerb` sin `'price'`, `item-location.rules.ts:66`, leído 2026-09-29)~~ ✅ **`INV-P2` CERRADA en `b8a3e4ce`** (`item-location.rules.ts:71` = `'move' \| 'mark' \| 'status' \| 'price'`; prueba `backend/test/inventory.patch-price-guard.spec.ts`; leído 2026-09-29 por el arquitecto, sha NO MEDIDO por él; detalle en §9 y `API_CONTRACT` cabecera v1.80.8-release punto 5); `D-SHIP-5`/`D-SHIP-6` anotadas como cerradas por `7e803bd` (reportado por backend) | §9 | **No** (~~lo cierra~~ lo cerró la regla de fusión de `API_CONTRACT §M1`) |
+> | **v1.80.8.3** | 🔒💰 `charge.refunded` total lleva a `refunded` desde `CHARGE_REFUNDED_SOURCE_STATUSES = pending, failed, settled`; `failAndRelease` pasa a CAS `status:'pending'`. Supera el `WHERE status IN (settled, refunded)` de M5 (v1.80.5 fila 3 y §4.57 (q) fila M5, tachados). Norma: `API_CONTRACT` rev v1.80.8.3 | §4.57 (v) | **Sí** (backend) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -194,7 +195,7 @@
 > |---|---|---|---|
 > | **1** | 🔒💰 A5: el reclamo de bóveda es **idempotente por pieza** (el sello gobierna solo `needsManual`/bitácora/`AV-3`); `DELETE …/prepared` de un retiro re-corre la rama; verbo `reclaim-vault` (`super_admin`, `confirmUnpacked`); guarda del retiro `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` + `422 ITEM_ORIGIN_REFUNDED` en `classifyItems`; la confirmación nunca rechaza | §4.57 (q) | **Sí** (backend, frontend) · 🔒 seguridad |
 > | **2** | 🔒💰 A6: la devuelta queda plataforma **`picking` congelada** (⛔ no `in_stock`): fuera de los cuatro caminos de publicación sin código nuevo; `chargeback-inventory` para `vault refunded` = mismo cuerpo que el directo `refunded` | §4.57 (q), §4.57 (p) fila corregida | **Sí** (backend) |
-> | **3** | 🔒 M5: orden de llegada webhook/M3 independiente (`Order → refunded WHERE status IN (settled, refunded)`, `count 1` con `refunded` = éxito) | §4.57 (q) | **Sí** (backend) |
+> | **3** | 🔒 M5: orden de llegada webhook/M3 independiente (~~`Order → refunded WHERE status IN (settled, refunded)`, `count 1` con `refunded` = éxito~~ ⭐ **superado por v1.80.8.3, ver §4.57 (v)**: webhook con `CHARGE_REFUNDED_SOURCE_STATUSES = pending, failed, settled`; M3 con `status:'settled'`) | §4.57 (q), §4.57 (v) | **Sí** (backend) |
 > | **4** | B7, B9, B10, B11 cerradas en contrato; B8 deuda aceptada con disparador | §4.57 (q) | **Sí** (backend, frontend: B10) |
 >
 > **Rev v1.80.4 — 💰 D-13/D-14 CONTESTADAS Y EL REEMBOLSO TOTAL DE UNA COMPRA A BÓVEDA DESHACE LA VENTA** (2026-09-29,
@@ -26514,7 +26515,7 @@ cierran con guardas y un estado que ya existe, ⛔ sin re-preguntar al dueño y 
 | A5 (b) guarda | `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` en `prepared`/`tracking`/`→guia`/`→enviado` del retiro (origen ≠ `settled` **o** fila `order_full` no fallida), `422 ITEM_ORIGIN_REFUNDED` en `classifyItems` (⇒ `withdrawable`) | Solo `status ≠ settled` | La ventana peligrosa es **antes** de `refunded` (fila `requested` horas por un error transitorio): sin mirar la fila del libro, el retiro se prepara en la ventana. Y la condición va en `classifyItems` para que lectura y escritura no diverjan (§5 lo exige) |
 | A5 (c) confirmación | Nunca rechaza; re-clasifica bajo candado; lo en caja cae en `in_packed_withdrawal` y lo reclama (a) | Rechazar también en la confirmación | El dinero ya salió en Stripe: abortar dejaría la fila del libro sin registrar; con (b) la carta no sale y con (a) se reclama |
 | A6 | **Opción (b): `picking` congelada**, el estado que ya usan §4.21c-bis y §M4-SHIP.17.2 | (a) Predicado `pendingConfirmation` (último movimiento `refund_return` ∧ flag de la orden) en el `WHERE` de los cuatro caminos de publicación + `422 ITEM_PENDING_CONFIRMATION` | El candado ya existe y está probado: la allowlist `{in_stock, listed}` de `PUBLISHABLE_ORIGIN_STATUSES`/`claimListed` excluye `picking` en los cuatro caminos **sin una línea nueva**, y `mark`/`adjust`/`bulk-remove` también. (a) metía un `JOIN` a movimientos y a `Order` dentro de la selección server-side de `publish-all` y de `tryAutoPublish` — cuatro sitios nuevos para una regla, en la zona que §4.36.5b-bis ya mostró que deriva. Y `chargeback-inventory` para `vault refunded` pasa a ser **el mismo cuerpo** que para un directo `refunded` (`picking → listed` / `picking → lost`). Coste: `picking` en una pieza que físicamente está en el cajón de un cliente — la misma licencia que ya toma el directo congelado; `move` de M1 la admite y no la publica |
-| M5 | `Order → refunded WHERE status IN (settled, refunded)`; `count 1` con `refunded` = éxito; `AV-3` lo manda quien sella | `WHERE status='settled'` estricto | Con el webhook ganando (Stripe lo emite antes de responder a M3), el `count 0` dejaba un `409` por un reembolso que sí salió y la fila `requested` hasta un `retry` |
+| M5 | ~~`Order → refunded WHERE status IN (settled, refunded)`; `count 1` con `refunded` = éxito~~ ⭐ **superado por v1.80.8.3 — ver (v) más abajo** (webhook: `CHARGE_REFUNDED_SOURCE_STATUSES = pending, failed, settled`; M3: `status:'settled'`); `AV-3` lo manda quien sella | `WHERE status='settled'` estricto | Con el webhook ganando (Stripe lo emite antes de responder a M3), el `count 0` dejaba un `409` por un reembolso que sí salió y la fila `requested` hasta un `retry` *(el porqué del origen vigente está en (v))* |
 | B10 | `confirmPiecesWithCustomer` + `422 REFUND_CONFIRMATION_REQUIRED` en la tx1 | Deuda hasta el primer reembolso real | La clasificación ya corre en la tx1 (para el `409`): el coste es un campo, un código y una casilla — y es dinero saliente con la carta en manos del cliente |
 | B7, B9, B11 | Una línea cada una en el contrato | — | B7: el `WHERE` es la garantía, no la lectura. B9: el rol se hereda; decirlo evita que alguien lo «arregle» hacia el otro lado sin saber por qué. B11: con (a) el atajo pasa de «ya se selló» a «no hay nada reclamable» |
 | B8 | Deuda aceptada con disparador (segundo operador o tasa anómala) | `reviewedAt` ahora | Es la decisión D-13 del dueño con un solo operador; el cierre barato está escrito para cuando aplique |
@@ -27443,7 +27444,7 @@ Riesgos técnicos:
 > mío**: así llama `PROJECT §R.2` a la **regla de canal de tres cláusulas**; se cita, no se renumera. *(`D-AVISO-2`
 > —sellar y luego enviar, §4.54.3— sí es mío, y por eso lleva la palabra entera y no el prefijo corto.)*
 
-- **🟡 ABIERTA (v1.80.2.3, 2026-09-29) — `INV-P2`: `PATCH /admin/inventory/items/:id { listPriceCents }` ESCRIBE PRECIO
+- **✅ CERRADA en `b8a3e4ce` (2026-09-29)** ~~🟡 ABIERTA (v1.80.2.3, 2026-09-29)~~ **— `INV-P2`: `PATCH /admin/inventory/items/:id { listPriceCents }` ESCRIBE PRECIO
   DE VENTA EN PIEZAS DE CLIENTES EN CUSTODIA Y EN PIEZAS DADAS DE BAJA.** **Dueño: backend** (`inventory`).
   **Medida por QA en stack real sobre `fae5a44`** (re-medición, informe al orquestador); **mecanismo verificado por el
   arquitecto** leyendo `inventory.service.ts:2351-2409` sobre `42b0fc3`: el camino no publicante de `updateItem` es
@@ -27457,10 +27458,18 @@ Riesgos técnicos:
   de `item-location.rules.ts`, que **no existe en esta rama** (medido `42b0fc3`); se construye sobre `main` con el
   hotfix ya fusionado. Frontend ya acotado (`42b0fc3`, `SealedUnmappedModal.tsx:76-78`). ⛔ **El arquitecto no lo
   corrige.**
-  ⭐ **v1.80.8-release (2026-09-29, estado en la rama de release):** sigue **ABIERTA**. Leído en el árbol de
+  ~~⭐ **v1.80.8-release (2026-09-29, estado en la rama de release):** sigue **ABIERTA**. Leído en el árbol de
   `claude/release-s5` a mitad de la fusión de `envio-preparar` (⛔ sha NO MEDIDO, sin Bash): `item-location.rules.ts:66`
   declara `ItemVerb = 'move' | 'mark' | 'status'` — **sin `'price'`**. Su cierre es la [regla de fusión SEC-SHIP-A1 de
-  §M1](API_CONTRACT.md#M1-merge-rule) (quien añade `'price'` es el trabajo del stream de dinero) sobre el árbol fusionado.
+  §M1](API_CONTRACT.md#M1-merge-rule) (quien añade `'price'` es el trabajo del stream de dinero) sobre el árbol fusionado.~~
+  ✅ **Cerrada en `b8a3e4ce` (2026-09-29, arquitecto, condición R-1 del techlead;** árbol leído = el que el orquestador
+  identifica como `b8a3e4ce`, ⛔ sha NO MEDIDO por el arquitecto**).** Leído: `item-location.rules.ts:71` declara
+  `ItemVerb = 'move' | 'mark' | 'status' | 'price'`; `MARKABLE_PLATFORM_STATUSES` declarada solo en
+  `item-location.rules.ts:68` (ninguna en `inventory.service.ts`; cero marcadores de conflicto en
+  `backend/src/modules/inventory/`); existe `backend/test/inventory.patch-price-guard.spec.ts` (INV-SP-8); PS-42b
+  invertida en `backend/test/integration/full-refund-vault.e2e-spec.ts:872-921` (`409 CONFLICT`, precio de la reservada
+  intacto). Dónde quedó cada punto y sus cifras/mutaciones: `BACKEND_NOTES` «Release s5» §1–§3 y §8 (autor backend; ⛔
+  cifras NO MEDIDAS por el arquitecto).
 
 > **⭐ v1.80 — IDS `D-SHIP-*` (stream «Preparar envíos», §4.57).** Espacio de nombres propio. Todas **derivadas de
 > LEER** el código del worktree `claude/envio-preparar` (production `a2da420` + `86485a7`) el 2026-09-29; ⛔ **NO

@@ -167,14 +167,34 @@
 > conducta para volver a un contrato ambiguo. Norma en §M4-SHIP.15.13 (filas `paid` y `cancel`) y §M4-SHIP.17.3 punto
 > 4. **Trabajo:** frontend puede tiparlo (`types/contract.ts`), opcional; backend nada.
 >
-> **5 · Estado que esta consolidación NO cierra (medido en el árbol de release a mitad de la fusión, 2026-09-29,
-> ⛔ sha NO MEDIDO, sin Bash):**
-> - `item-location.rules.ts:66`: `ItemVerb = 'move' | 'mark' | 'status'` — **sin `'price'`** ⇒ INV-SP-8 (v1.80.2.3)
->   **no está construido** en esta rama; `ARCHITECTURE §9 INV-P2` sigue **ABIERTA**. Lo cierra la regla de fusión.
-> - `inventory.service.ts` tiene **marcadores de conflicto** en `updateItem`/`markItem` (`:2420`, `:2803`, `:2822`,
+> **5 · ~~Estado que esta consolidación NO cierra~~ ✅ CERRADO en `b8a3e4ce`** (texto original tachado, no borrado:
+> era la foto a mitad de la fusión, 2026-09-29, ⛔ sha NO MEDIDO, sin Bash):
+> - ~~`item-location.rules.ts:66`: `ItemVerb = 'move' | 'mark' | 'status'` — **sin `'price'`** ⇒ INV-SP-8 (v1.80.2.3)
+>   **no está construido** en esta rama; `ARCHITECTURE §9 INV-P2` sigue **ABIERTA**. Lo cierra la regla de fusión.~~
+> - ~~`inventory.service.ts` tiene **marcadores de conflicto** en `updateItem`/`markItem` (`:2420`, `:2803`, `:2822`,
 >   `:2851`) y además declara `MARKABLE_PLATFORM_STATUSES` local (`:402`) — exactamente lo que la regla de fusión
->   manda borrar. Es trabajo de **backend** con esa regla; ⛔ el contrato no cambia.
-> - PS-42b `:818` debe **invertirse** en el árbol fusionado (regla de fusión, D-d del techlead).
+>   manda borrar. Es trabajo de **backend** con esa regla; ⛔ el contrato no cambia.~~
+> - ~~PS-42b `:818` debe **invertirse** en el árbol fusionado (regla de fusión, D-d del techlead).~~
+>
+> ✅ **Estado en `b8a3e4ce` (2026-09-29, arquitecto, condición R-1 del techlead).** Leído por el arquitecto en el árbol
+> de `claude/release-s5` que el orquestador identifica como `b8a3e4ce` (⛔ sha NO MEDIDO por el arquitecto: sin Bash).
+> Los tres puntos de arriba están **cerrados**:
+> - **INV-SP-8 construido:** `backend/src/modules/inventory/item-location.rules.ts:71` declara `ItemVerb = 'move' |
+>   'mark' | 'status' | 'price'`; prueba `backend/test/inventory.patch-price-guard.spec.ts` (existe; casos según
+>   `BACKEND_NOTES` «Release s5» §2: `:135-248` y `:250-271` — rangos reportados por backend, ⛔ no releídos). ⇒
+>   `ARCHITECTURE §9 INV-P2` **cerrada**.
+> - **Sin marcadores de conflicto ni allowlist local:** `rg '^(<<<<<<<|=======|>>>>>>>)|MARKABLE_PLATFORM_STATUSES'`
+>   sobre `backend/src/modules/inventory/` ⇒ **cero** marcadores; `MARKABLE_PLATFORM_STATUSES` solo en
+>   `item-location.rules.ts` (declaración `:68`, uso `:125`, comentario `:50`); ninguna en `inventory.service.ts`.
+>   Candado estático que lo sostiene: `backend/test/inventory.move-mark-guards.spec.ts:452-457` (reportado por backend,
+>   `BACKEND_NOTES` «Release s5» §1 y §4; ⛔ no releído).
+> - **PS-42b invertida:** `backend/test/integration/full-refund-vault.e2e-spec.ts:872-921` — leído: la carrera exige
+>   `res.a 200`, `res.b 409 CONFLICT`, pieza `reserved/customer` del comprador y `listPriceCents === seeded` (semilla
+>   `55_500 + i`, `:904-906`, no nula). Cifras (10/10 con N=10; mutaciones M3/M4 0/10 con N=10): `BACKEND_NOTES`
+>   «Release s5» §7 y §8, autor backend, ⛔ NO MEDIDAS por el arquitecto.
+> - Dónde quedó cada punto de la regla de fusión: `BACKEND_NOTES` «Release s5» §1 (tabla punto por punto), §2
+>   (INV-SP-8), §3 (PS-42b) y §8 (pendientes cerrados).
+> ⛔ Sin cambio de norma ni de conducta: esta anotación solo corrige el **estado** que la cabecera afirmaba.
 >
 > **6 · Anclas y enums:** ⛔ ninguna ancla renombrada (`#M1-merge-rule`, `#M1-patch-price-guard`, `#M4-SHIP*`,
 > `#M2-*` intactas); ⛔ ninguna línea canónica de §0 «Enums» tocada.
@@ -18017,6 +18037,7 @@ volver a ser el agujero de arriba (backend, `BACKEND_NOTES` «Release s5» §11,
    | `failAndRelease` (`payment_failed`/`canceled`) | `failed`, con `update` por `id` tras una lectura **sin candado** de `pending` (`:622-624`) | **Sí:** lee `pending`, el `charge.refunded` confirma `refunded`, y el `update` lo pisa con `failed` ⇒ el `succeeded` tardío liquida. (Pisa `settled` igual contra el settle: defecto previo de la clase `REL-B`) | **CAS:** `updateMany({ where: { id, status: 'pending' }, data: { status: 'failed' } })`; ⛔ libera piezas **solo si `count 1`**; `count 0` ⇒ `return` sin escribir nada más |
    | Barrido de reservas (`orders.service.ts:1175-1182`) y sustitución (`:1035-1042`) | `failed`, `update` por `id` | Solo si el PI quedó `canceled` (`closePaymentIntent`, `:909-917`, precondición de los dos); un PI con cargo reembolsado está `succeeded` y no se cancela ⇒ **no alcanzable** (propiedad de Stripe, ⛔ NO MEDIDA con Stripe real) | Sin cambio en esta errata |
    | `onChargeDispute` / `onChargeDisputeClosed` | `chargeback` / `settled` por `id` | Sí (disputa sobre un cargo reembolsado), pero **no entrega custodia**: el contracargo devuelve piezas a plataforma y `won` no mueve piezas; un `succeeded` posterior sobre `settled`/`chargeback` es no-op | Sin cambio (observación, fuera de esta errata) |
+   | ⭐ *(fila añadida 2026-09-29, condición R-1 del techlead sobre `b8a3e4ce`; faltaba en la tabla)* `OrdersService.releaseReservation` (`orders.service.ts:889-899`; escritura `:896`) | `failed`, con `update` por `id` dentro de una tx, **sin** condición de estado; el `catch` de `:898` se traga cualquier error | Llamadores leídos: (a) `attachPaymentIntent` `:1309`, cuando `createPaymentIntent` **lanzó** (el cliente nunca recibe `clientSecret` ⇒ nadie confirma ese PI); (b) barrido legado de invitado `guest-checkout.service.ts:493`, tras elegir `status:'pending'` **sin candado** (`:461-467`) y solo si `closePaymentIntent` cerró el PI (`:480-492`) o no hay PI. Un PI `canceled` o inexistente no tiene cargo que reembolsar ⇒ **no alcanzable** con cargo reembolsado (backend lo dio por inalcanzable; ⛔ **NO MEDIDO con Stripe real** — misma propiedad de Stripe que la fila del barrido) | **Decisión del arquitecto: SÍ pasa a CAS** `updateMany({ where: { id, status: 'pending' }, data: { status: 'failed' } })`, liberando piezas **solo si `count 1`** (mismo patrón que `failAndRelease`). **Deuda de backend, ⛔ NO bloquea el release** (techlead TD-4). Por qué: la invariante «nadie saca una orden de `refunded`/`settled` hacia un estado liquidable» no debe descansar en una propiedad de Stripe ni en que el llamador haya leído `pending` sin candado; es la clase `REL-B`, y `failed` es liquidable. Misma deuda, misma pasada: la sustitución `:1042` (`update` por `id`) y el barrido `:1181` (condicionado por el `order.status` leído **fuera** de la tx, `:1180`) — se recomienda un único helper `failPendingOrder(tx, id) → count` para los tres. Prueba que la cierra: unitaria con la orden en `refunded`/`settled` ⇒ `count 0`, orden intacta y piezas sin liberar; mutación = volver al `update` por `id` ⇒ rojo |
 3. **`onFullRefund` sobre una orden nunca liquidada:** sello sí, `chargebackNeedsManual` no, `AV-3` sin variante `vault`
    (§M4-SHIP.18.2 bloque v1.80.8.3). Piezas `reserved`: `SSL-R1`, sin cambio.
 
