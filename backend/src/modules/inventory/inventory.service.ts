@@ -53,6 +53,18 @@ import { toCardDTO } from '../catalog/catalog.service';
 import { PublishReevaluationResult, VariantPublishRef } from './inventory-publish.port';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
 import { AuditService } from '../audit/audit.service';
+import {
+  activeWithdrawalsOf,
+  customerDrawersOf,
+  lockCustomerVaultGate,
+  VAULT_VERB_TX_OPTIONS,
+} from '../vault/vault-placement.rules';
+import {
+  assertMoveDestination,
+  assertOperable,
+  GuardedItem,
+  inActiveWithdrawalError,
+} from './item-location.rules';
 
 /** `P-84` · clase **E** (§4.37): los tres ejes de enum de `GET /admin/inventory/items`, DERIVADOS
  * del schema — ni una lista escrita a mano. */
@@ -2661,49 +2673,135 @@ export class InventoryService {
     return { inventoryItemId: id, outcome: 'published', missing: [] };
   }
 
+  /**
+   * `POST /admin/inventory/items/:id/move` — con GUARDAS de estado y de zona (`item-location.rules.ts`).
+   *
+   * Una sola transacción: lectura, guardas, `update` condicionado al estado LEÍDO y `InventoryMovement`
+   * (antes eran dos sentencias sueltas: un fallo entre ambas dejaba un movimiento sin mudanza). La
+   * pieza de cliente toma la **puerta del cliente** (`lockCustomerVaultGate`, la misma del `confirm`)
+   * antes de calcular sus cajones: así el `move` y una colocación del mismo cliente no deciden sobre
+   * una lectura que el otro está cambiando.
+   *
+   * Devuelve la fila de back-office **más** `location: { id, label, zone }` (aditivo) para que la UI
+   * pinte la ubicación nueva sin otra consulta.
+   */
   async moveItem(id: string, dto: MoveItemDto, actorUserId: string) {
-    const item = await this.getItem(id);
-    await this.prisma.inventoryMovement.create({
-      data: {
-        itemId: id,
-        fromLocationId: item.locationId,
-        toLocationId: dto.toLocationId,
-        fromStatus: item.status,
-        toStatus: item.status,
-        reason: MovementReason.move,
-        actorUserId,
-        note: dto.note,
-      },
-    });
-    const moved = await this.prisma.inventoryItem.update({
-      where: { id },
-      data: { locationId: dto.toLocationId },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const item = await this.readGuardedItem(tx, id);
+      const kind = assertOperable(item, 'move');
+      if (kind === 'customer') {
+        await lockCustomerVaultGate(tx, item.ownerUserId!);
+        await this.assertNotInActiveWithdrawal(tx, id);
+      }
+      const loc = await tx.vaultLocation.findUnique({ where: { id: dto.toLocationId } });
+      const drawers =
+        kind === 'customer'
+          ? ((await customerDrawersOf(tx, [item.ownerUserId!])).get(item.ownerUserId!) ?? [])
+          : [];
+      assertMoveDestination(kind, loc, drawers);
+      await this.guardedItemUpdate(tx, item, { locationId: dto.toLocationId });
+      await tx.inventoryMovement.create({
+        data: {
+          itemId: id,
+          fromLocationId: item.locationId,
+          toLocationId: dto.toLocationId,
+          fromStatus: item.status,
+          toStatus: item.status,
+          reason: MovementReason.move,
+          actorUserId,
+          note: dto.note,
+        },
+      });
+    }, VAULT_VERB_TX_OPTIONS);
     // ⚠️ v1.51 (fase 8, §4.39m.2) — **DISPARADOR (b): al fijar/mover ubicación.** Éste es el momento
-    // en que a una pieza convertida deja de faltarle lo único que le faltaba. Va DESPUÉS del update
+    // en que a una pieza convertida deja de faltarle lo único que le faltaba. Va DESPUÉS del commit
     // (la ubicación es el hecho; publicar es la consecuencia) y es best-effort — ver `tryAutoPublish`.
     await this.tryAutoPublish(id, 'move');
     // S49-R4: proyectado. Se relee para que el `status` refleje una publicación que acaba de ocurrir.
-    return toAdminInventoryItemRow(
-      (await this.prisma.inventoryItem.findUnique({ where: { id } })) ?? moved,
-    );
+    const after = await this.prisma.inventoryItem.findUnique({
+      where: { id },
+      include: { location: true },
+    });
+    if (!after) throw BusinessException.notFound();
+    return {
+      ...toAdminInventoryItemRow(after),
+      location: after.location
+        ? { id: after.location.id, label: after.location.label, zone: after.location.zone }
+        : null,
+    };
   }
 
+  /**
+   * `POST /admin/inventory/items/:id/mark` — perdida/dañada, con la guarda de estado de
+   * `item-location.rules.ts` (⛔ nunca `reserved`/`picking`: pedido vivo o cobrado). Misma
+   * transacción y misma escritura condicionada que `moveItem`.
+   */
   async markItem(id: string, dto: MarkItemDto, actorUserId: string) {
-    const item = await this.getItem(id);
     const status: InventoryStatus = dto.mark === 'lost' ? 'lost' : 'damaged';
-    await this.prisma.inventoryMovement.create({
-      data: {
-        itemId: id,
-        fromStatus: item.status,
-        toStatus: status,
-        reason: dto.mark === 'lost' ? MovementReason.lost : MovementReason.damaged,
-        actorUserId,
-        note: dto.note,
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const item = await this.readGuardedItem(tx, id);
+      const kind = assertOperable(item, 'mark');
+      if (kind === 'customer') await this.assertNotInActiveWithdrawal(tx, id);
+      const row = await this.guardedItemUpdate(tx, item, { status });
+      await tx.inventoryMovement.create({
+        data: {
+          itemId: id,
+          fromStatus: item.status,
+          toStatus: status,
+          reason: dto.mark === 'lost' ? MovementReason.lost : MovementReason.damaged,
+          actorUserId,
+          note: dto.note,
+        },
+      });
+      return row;
     });
     // S49-R4: proyectado.
-    return toAdminInventoryItemRow(await this.prisma.inventoryItem.update({ where: { id }, data: { status } }));
+    return toAdminInventoryItemRow(updated);
+  }
+
+  /** Lee lo que las guardas de `move`/`mark` necesitan (404 si no existe). */
+  private async readGuardedItem(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<GuardedItem & { id: string; locationId: string | null }> {
+    const item = await tx.inventoryItem.findUnique({ where: { id } });
+    if (!item) throw BusinessException.notFound();
+    return item;
+  }
+
+  /** Una pieza de cliente en un retiro ya cobrado se opera desde el envío, no desde M1. */
+  private async assertNotInActiveWithdrawal(tx: Prisma.TransactionClient, id: string): Promise<void> {
+    if ((await activeWithdrawalsOf(tx, [id])).has(id)) throw inActiveWithdrawalError();
+  }
+
+  /**
+   * Escritura CONDICIONADA al estado y dueño LEÍDOS (TOCTOU): si un checkout, un settle o un
+   * contracargo cambió la pieza entre la lectura y aquí, el `update` no encuentra la fila (`P2025`)
+   * y se responde `409 CONFLICT` — la transacción se revierte entera, sin movimiento.
+   */
+  private async guardedItemUpdate(
+    tx: Prisma.TransactionClient,
+    item: GuardedItem & { id: string },
+    data: Prisma.InventoryItemUncheckedUpdateInput,
+  ) {
+    try {
+      // PROJECTION-EXEMPT: helper privado dentro de la `$transaction`; `moveItem`/`markItem`
+      // proyectan con `toAdminInventoryItemRow` antes de responder.
+      return await tx.inventoryItem.update({
+        where: {
+          id: item.id,
+          status: item.status,
+          ownerType: item.ownerType,
+          ownerUserId: item.ownerUserId,
+        },
+        data,
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw BusinessException.conflict('CONFLICT', 'Item changed while operating on it; reload and retry');
+      }
+      throw e;
+    }
   }
 
   // ---------------- v1.20 §4.20e — Ajuste por levantamiento físico ----------------
