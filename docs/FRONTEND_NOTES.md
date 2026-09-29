@@ -18349,3 +18349,71 @@ deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
 - M3 `t(reasonKey)` sin respaldo ⇒ 1/19 roja («matchStatus desconocido…»).
 - M4 `rejected = matched && !src` (todo sin imagen se llama «rechazada») ⇒ 1/19 roja («casada sin imageUrl…»).
 - Restaurado ⇒ 19/19.
+
+## §81 · **Arreglos del recorrido del operador** — huecos 1, 7, 9, 12 y 15 (2026-09-29, rama `claude/arreglos-operador`, base production `a2da420`)
+
+Origen: auditoría E2E del recorrido del operador (tester-e2e, 2026-09-29). Solo los huecos que no tocan dinero ni contrato.
+
+| Hueco | Qué cambia | Dónde | Candado |
+|---|---|---|---|
+| **1** · ubicar una carta vendida | «Mover de ubicación» se habilita también en `picking` (⛔ solo mover: merma/publicar siguen en `in_stock\|listed`). En `picking` los destinos son **solo `platform_stock` activos**. Al mover se invalida también `['admin-preparation-queue']`. | `m1/ItemDetailModal.tsx` (`canMove`, `moveTargets`) | `m1/ItemDetailModal.test.tsx` |
+| **1** · «Ubicar» en «Pedidos a preparar» | Cada carta de la tarjeta de **ENVÍO DIRECTO** (`orderId !== null`; sin ubicar **y** ubicadas) trae «Ubicar» — ⛔ **nunca en un retiro de bóveda** (§81.1). Diálogo con selector de `GET /admin/locations` filtrado a `platform_stock` activo, `POST /admin/inventory/items/:id/move`, y tras el 200 se **reescribe la tarjeta en caché** (`setQueriesData` sobre `['admin-preparation-queue']`, `currentLocation = {kind:'assigned', label}`) con la etiqueta de la ubicación **elegida** (§81.1), sin otra ida a `picking-list`. Foco inicial en «Cancelar». | `m4/LocateItemControl.tsx` (nuevo), `m4/PreparationQueue.tsx` | `m4/M4View.operator-gaps.test.tsx` |
+| **7** · «Ver ficha» | Operador ⇒ «Ver bóveda» a `/admin/vaults/:userId` (M6 es `superAdminOnly`). Súper-admin ⇒ sigue «Ver ficha» a M6. | `m4/M4View.tsx` (`useRole`) | ídem + `M4View.test.tsx` F9 |
+| **9** · «Neto: MX$NaN» | El backend **omite** `salesPeriod.netAmountCents` al no-súper (`admin.service.ts` · `dashboard`, leído). Sin el campo la línea no se pinta. ⛔ No se deriva del bruto. | `AdminDashboard.tsx` | `AdminDashboard.test.tsx` (hueco 9) |
+| **12** · «Calle Calle Río Lerma» | El rótulo `admin.m4.street` pasa de «Calle/Street» a «Dirección/Address»: la calle capturada suele empezar por «Calle». | `messages/*.json` | `M4View.test.tsx` F9 |
+| **15** · confirmar enviado/entregado | «Marcar enviado» y «Marcar entregado» abren un diálogo **neutro** (botón primario, no acento) con foco en «Cancelar»; el cuerpo solo afirma lo medido (la tabla `TRANSITIONS` del backend no tiene vuelta atrás). «Cancelar envío» no cambia. | `m4/M4View.tsx` (`advanceTarget`) | `M4View.operator-gaps.test.tsx` + `M4View.test.tsx` F4 |
+
+**Foco en «Cancelar»:** `Modal` enfoca su contenedor en un `useEffect`; el efecto del padre corre después del del hijo, así que el `useEffect` del consumidor que enfoca el `ref` de «Cancelar» gana. No se tocó `Modal` (compartido).
+
+**Nota para el arquitecto (no bloqueante):** `DashboardSalesPeriodDTO.netAmountCents` está tipado como `number` obligatorio, pero el backend lo omite para `vault_operator`. El front ya se defiende; el contrato debería declararlo opcional/enmascarado por rol.
+
+**Mutaciones (sobre copia en scratchpad, N=1 cada una, deterministas):** 10/10 muerden — `canMove` sin `picking`, filtro de zona en M1, escritura de caché del «Ubicar», filtro de zona del «Ubicar», control retirado, guarda del neto, enlace siempre a M6, «Marcar …» directo sin diálogo, foco sin mover, rótulo «Calle».
+
+### §81.1 · Rechazo de QA y condiciones del techlead sobre `6695e9e` (2026-09-29)
+
+- **Bloqueante QA — «Ubicar» en un retiro de bóveda.** QA midió contra el stack que «Ubicar» se pintaba también en las
+  tarjetas de «Retiro de bóveda» y movía una carta **del cliente** (`in_custody`, cajón `customer_custody`) al estante:
+  200 y `ownerType=customer` en `platform_stock` (rompe §M4-VAULT: un cliente = un cajón). Arreglo:
+  `PreparationQueue.tsx` pasa `canLocate={order.orderId !== null}` a cada carta; solo el envío directo monta
+  `LocateItemControl`. `PreparationItemDTO` no trae `ownerType`: el discriminador es `orderId`, que el contrato
+  (§M4-PREP) declara `null` exactamente en el retiro y poblado en el envío directo (pieza de plataforma vendida).
+  Candado: «⛔ un RETIRO DE BÓVEDA NO ofrece «Ubicar»…» (cola mixta retiro + directo, con control positivo).
+  Mutación `canLocate={true}` ⇒ rojo (N=1, determinista).
+- **C-1 — comentarios que afirmaban una guarda inexistente.** `m1/ItemDetailModal.tsx` y `m4/LocateItemControl.tsx`
+  ahora dicen lo medido: production `a2da420` **no restringe** estado ni zona en `move`/`mark`; las guardas llegan en
+  esta rama en `backend/src/modules/inventory/item-location.rules.ts` (`assertOperable`, `assertMoveDestination`,
+  `inActiveWithdrawalError`). Hasta desplegarse, los filtros del front son la única barrera.
+- **QA menor 4/5 — respuesta del move.** La respuesta de production es la fila de `toAdminInventoryItemRow`
+  (`locationId`, **sin** `location`); el backend de esta rama le añade `location`. Front y back se publican por
+  separado, así que **la etiqueta sale de la ubicación ELEGIDA** (variable de la mutación), no de la respuesta, en
+  los dos sitios: M4 (tarjeta) y M1 (aviso «Item movido a {label}.», que con la respuesta real salía «Item movido
+  a .»). Las pruebas corren con las **dos** formas (`it.each`); mutación «leer `res.location`» ⇒ rojo en «sin
+  location» en ambos (N=1, determinista). ⚠️ El mock de `lib/api.ts · moveInventoryItem` devuelve `location`
+  (= forma nueva); no se tocó (zona compartida).
+- **QA menor 6 — E2E obsoleto.** `e2e/admin.spec.ts` «spreads del sellado (T-1)» iba a M2; el editor vive en M11
+  (`SealedDialsPanel` 5.3, dentro de «Ajustes avanzados», plegado y `super_admin`). Ahora recorre el camino del dueño
+  (enlace `sealedSpreads.movedToM11` de M2 ⇒ `/es/admin/m11` ⇒ abre «Ajustes avanzados») y conserva íntegro el
+  invariante (fila editable UPC/Collection + bicondicional vacío ⇔ «usa el global»). Corrido en mock: 1/1 verde.
+- **Deuda del techlead** registrada en `docs/TECH_DEBT.md` (OPG-D1 mover duplicado, OPG-D2 diálogos gemelos en
+  `M4View`, OPG-D3 clave `street`).
+
+
+### §81.2 · Hallazgos de QA sobre `4ca6c45` (2026-09-29, rama `claude/arreglos-operador`)
+
+Medido en la UI por QA tras aprobar `4ca6c45`; prueba en rojo primero, luego el arreglo (vitest, N=1, deterministas).
+
+| Hallazgo | Qué cambia | Dónde | Prueba (roja antes → verde después) |
+|---|---|---|---|
+| **IMPORTANTE** · cajones de custodia ofrecidos a una pieza `in_stock`/`listed` (backend: `422 LOCATION_NOT_AVAILABLE reason=not_platform_stock`, y el banner pintaba el inglés del servidor) | `moveTargets` filtra a `platform_stock` **activo** para **toda** pieza de plataforma (antes solo en `picking`). `canMove` solo es cierto en `in_stock\|listed\|picking`, estados de pieza de plataforma; una de cliente (`in_custody`) no entra en la sección. | `m1/ItemDetailModal.tsx` (`moveTargets`) | `m1/ItemDetailModal.test.tsx` «en `in_stock`/`listed` ofrece mover SOLO a stock de plataforma activo…» (2 rojas: ofrecía `loc-2..5`; ahora `['loc-2']`, y un estante inactivo tampoco) |
+| ídem · mensaje traducido | Claves nuevas `error.LOCATION_NOT_AVAILABLE` (base) y `error.LOCATION_NOT_AVAILABLE_WITH_DETAILS` (`select` ICU sobre `reason`: `not_platform_stock`, `not_customer_custody`, `not_customer_drawer`, `inactive`, `not_found`, `location_required`) en `es` y `en`; entrada `LOCATION_NOT_AVAILABLE` en `DETAILED_ERRORS` de `useErrorMessage` que pasa `{ reason }` solo si es uno de esos seis (si no, `null` ⇒ base traducida; nunca un `select` sin rama ni el inglés). ⚠️ `components/ui/QueryState.tsx` es zona compartida: cambio aditivo (una entrada + una lista), sin tocar el mecanismo §26. | `components/ui/QueryState.tsx`, `messages/{es,en}.json` | `components/ui/QueryState.test.tsx` (2 rojas: pintaba «Location not available: …»; ahora seis motivos en castellano + caída a la base) y `m1/ItemDetailModal.test.tsx` «un `422 LOCATION_NOT_AVAILABLE` del move se pinta TRADUCIDO…» (1 roja) |
+| **MENOR** · comentarios obsoletos («la respuesta real del move NO trae `location`») | Desde `6e3b1b7` el backend de esta rama sí devuelve `location`; production `a2da420` sigue sin ella. Los comentarios dicen ahora las dos formas y por qué la etiqueta sigue saliendo de la ubicación **elegida** (front y back se publican por separado). Sin cambio de conducta. | `m1/ItemDetailModal.tsx` (`mutationFn`), `m4/LocateItemControl.tsx` (cabecera y `onSuccess`) | — (comentario); las pruebas `it.each(['sin location','con location'])` ya cubren las dos formas |
+| **MENOR (preexistente)** · «Merma» y «Editar precio» sobre una pieza en `picking` (backend: `422 ITEM_NOT_ADJUSTABLE`) | Reglas de pantalla del contrato (§M1 v1.79.6 «5»): «Merma» solo en `in_stock\|listed` (`markable`, el mismo predicado que `removableCount`; ⛔ nunca `picking` ni `reserved`); «Editar precio» no en piezas **vendidas** (`sold` = `picking`, `shipped`, `delivered`; el contrato norma `picking`, las otras dos son la misma pieza más tarde) — el precio se sigue **leyendo** (span, no botón). Sobre `reserved` el precio no está normado: sin cambio. `in_stock`/`listed` no cambian. | `m1/VariantDrawer.tsx` (`markable`, `sold`) | `m1/VariantDrawer.test.tsx` «una pieza VENDIDA … NO ofrece «Merma» ni «Editar precio»; `reserved` tampoco merma; `in_stock` sí» (1 roja) |
+
+**Corrido (2026-09-29):** vitest de las 5 suites tocadas/candados (`ItemDetailModal`, `QueryState`, `VariantDrawer`,
+`error-audience`, `i18n-parity`) 115/115; vitest `m1/` + `m4/` completos 274/274 (23 ficheros); `tsc --noEmit` 0 errores;
+`next lint` limpio; Playwright en mocks `e2e/admin.spec.ts` + `e2e/inventory-stream-b.spec.ts` 23/23 (humo: ningún spec
+E2E abre el detalle de pieza de M1 — medido con grep —, la cobertura del arreglo es vitest).
+
+**Contrato:** mientras se hacía este pase el arquitecto publicó **v1.79.6** (`dde785b`): `LOCATION_NOT_AVAILABLE` lo emite también
+`move` con `reason:'not_platform_stock'` y §M1 «5 · Reglas de pantalla» norma exactamente lo de arriba. `frontend/src/types/contract.ts ·
+LocationNotAvailableDetails` incorpora `not_platform_stock`. No queda solicitud abierta al arquitecto por este pase.

@@ -1383,14 +1383,20 @@ export class ShipmentsService {
    */
   private async resolveRecipient(
     shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId'>,
-  ): Promise<{ email: string; locale: string | null; orderNumber: string | null } | null> {
+  ): Promise<{
+    email: string;
+    locale: string | null;
+    orderNumber: string | null;
+    /** `Order.id` solo para el titular registrado (CTA al detalle); `null` para invitado/bóveda. */
+    orderId: string | null;
+  } | null> {
     if (shipment.userId) {
       const user = await this.prisma.user.findUnique({
         where: { id: shipment.userId },
         select: { email: true, locale: true, anonymizedAt: true },
       });
       if (!user || user.anonymizedAt) return null;
-      return { email: user.email, locale: user.locale, orderNumber: null };
+      return { email: user.email, locale: user.locale, orderNumber: null, orderId: null };
     }
     if (shipment.orderId) {
       const order = await this.prisma.order.findUnique({
@@ -1408,6 +1414,7 @@ export class ShipmentsService {
           email: order.guestEmail,
           locale: order.locale ?? order.user?.locale ?? null,
           orderNumber: order.orderNumber,
+          orderId: null,
         };
       }
       if (!order.user || order.user.anonymizedAt) return null;
@@ -1415,6 +1422,7 @@ export class ShipmentsService {
         email: order.user.email,
         locale: order.locale ?? order.user.locale,
         orderNumber: order.orderNumber,
+        orderId: shipment.orderId,
       };
     }
     return null;
@@ -1497,6 +1505,7 @@ export class ShipmentsService {
       const msg = build(to.locale, {
         shipmentId: id,
         orderNumber: to.orderNumber,
+        orderId: to.orderId,
       });
       await this.mail.send({ ...msg, to: to.email });
     } catch (e) {

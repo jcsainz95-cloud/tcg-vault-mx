@@ -1499,7 +1499,7 @@
       "itemCount": "{count, plural, one {# ítem} other {# ítems}}",
       "recipient": "Para",
       "recipientMissing": "Sin destinatario registrado",
-      "street": "Calle",
+      "street": "Dirección",
       "customer": "Cliente",
       "postalCode": "CP",
       "phone": "Tel",
@@ -1510,7 +1510,13 @@
         "changed": "Estado actualizado ({id}).",
         "cancelTitle": "Cancelar envío",
         "cancelConfirm": "Cancelar envío",
-        "cancelBody": "¿Cancelar el envío {id}? Esta acción no se puede revertir."
+        "cancelBody": "¿Cancelar el envío {id}? Esta acción no se puede revertir.",
+        "enviadoTitle": "Marcar como enviado",
+        "enviadoConfirm": "Marcar enviado",
+        "enviadoBody": "¿Marcar el envío {id} como enviado? Desde aquí no se puede regresar al paso anterior.",
+        "entregadoTitle": "Marcar como entregado",
+        "entregadoConfirm": "Marcar entregado",
+        "entregadoBody": "¿Marcar el envío {id} como entregado? Desde aquí no se puede regresar al paso anterior."
       },
       "prep": {
         "title": "Pedidos a preparar",
@@ -1648,8 +1654,22 @@
             "title": "Nada que llevar a bóveda por ahora.",
             "body": "No hay compras pagadas esperando su cajón."
           }
+        },
+        "locate": {
+          "action": "Ubicar",
+          "actionAria": "Ubicar la carta con folio {folio}",
+          "title": "Ubicar carta",
+          "folio": "Folio",
+          "current": "Ubicación actual:",
+          "none": "Sin ubicar",
+          "target": "Ubicación en stock de plataforma",
+          "targetPlaceholder": "Elige la ubicación",
+          "noLocations": "No hay ubicaciones activas de stock de plataforma. Créalas en M1 · Inventario.",
+          "confirm": "Guardar ubicación",
+          "error": "No se pudo guardar la ubicación."
         }
-      }
+      },
+      "viewCustomerVault": "Ver bóveda"
     },
     "m5": {
       "title": "M5 · Buylist",
@@ -3887,6 +3907,8 @@
     "ITEM_NOT_APPROVED": "Solo un ítem aprobado puede convertirse a inventario.",
     "CLABE_UNAVAILABLE": "No hay CLABE disponible para esta solicitud (ni snapshot ni KYC).",
     "ITEM_NOT_ADJUSTABLE": "Esta pieza no se puede ajustar en su estado actual.",
+    "LOCATION_NOT_AVAILABLE": "Esa ubicación no sirve como destino. No se guardó nada: actualiza la lista de ubicaciones y elige otra.",
+    "LOCATION_NOT_AVAILABLE_WITH_DETAILS": "{reason, select, not_platform_stock {Una pieza de la tienda solo puede ir a un estante de stock de plataforma, no a un cajón de custodia de clientes.} not_customer_custody {Una carta de un cliente solo puede ir a un cajón de custodia de clientes, no a un estante de la tienda.} not_customer_drawer {Ese cajón no es del cliente dueño de la carta: elige uno de sus cajones.} inactive {Esa ubicación está desactivada.} not_found {Esa ubicación ya no existe.} location_required {Hay cartas tomadas y falta elegir el cajón.} other {Esa ubicación no sirve como destino.}} No se guardó nada: actualiza la lista de ubicaciones y elige otra.",
     "ALREADY_AUTHENTICATED": "Ya tienes una sesión iniciada: continúa con tu cuenta.",
     "PAYMENT_PROVIDER_UNAVAILABLE": "No pudimos contactar al procesador de pago. Inténtalo de nuevo en unos minutos.",
     "ORDER_ALREADY_CLAIMED": "No fue posible vincular este pedido.",

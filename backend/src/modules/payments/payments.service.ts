@@ -95,6 +95,7 @@ export class PaymentsService {
         ...orderSettledTemplate(
           {
             orderNumber: order.orderNumber ?? '',
+            orderId: order.id,
             items: order.items.map((oi) => {
               const snap = readFrozenCardFacts(oi.cardSnapshot);
               return {
@@ -668,7 +669,12 @@ export class PaymentsService {
       }
       return {
         ...orderRefundedTemplate(
-          { orderNumber: order.orderNumber ?? '', totalCents: order.totalCents },
+          {
+            orderNumber: order.orderNumber ?? '',
+            // Invitado ⇒ `null` ⇒ sin CTA: el detalle del pedido exige sesión.
+            orderId: order.guestEmail ? null : order.id,
+            totalCents: order.totalCents,
+          },
           recipient.locale,
         ),
         to: recipient.email,

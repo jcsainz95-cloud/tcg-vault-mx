@@ -447,12 +447,25 @@ test.describe('admin · M8 disputas', () => {
  * exista). El vínculo vacío ⇔ «usa el global» se afirma como bicondicional, sin asumir cuál de los
  * dos lados toca hoy.
  */
-test.describe('admin · M2 spreads del sellado (T-1)', () => {
+/*
+ * ⚠️ 2026-09-29 (QA menor 6): el editor se MUDÓ de M2 a M11 (decisión D-2, `m11/sections/
+ * SealedDialsPanel.tsx` 5.3 «Márgenes de venta», dentro de «Ajustes avanzados», plegado y solo
+ * `super_admin` — el `admin` del seed lo es). M2 conserva solo un deep-link (`M2View.tsx`,
+ * `sealedSpreads.movedToM11`). La prueba sigue midiendo el MISMO invariante —fila editable para
+ * UPC y Collection + bicondicional vacío ⇔ «usa el global»— en la superficie donde vive hoy, y
+ * además que el camino desde M2 lleve hasta ella.
+ */
+test.describe('admin · M11 spreads del sellado (T-1)', () => {
   test('@real hay fila editable para UPC y Collection, y el vacío dice que cae al global', async ({
     page,
   }) => {
     await loginAs(page, 'admin');
+    // El camino del dueño: quien busca los spreads en M2 encuentra el enlace a M11.
     await page.goto('/es/admin/m2');
+    await page.getByRole('link', { name: t('es', 'admin.m2.sealedSpreads.movedToM11') }).click();
+    await expect(page).toHaveURL(/\/es\/admin\/m11$/);
+    // «Ajustes avanzados» está plegado por defecto: se abre como lo abre el dueño.
+    await page.getByText(t('es', 'admin.m11.advanced.title'), { exact: true }).click();
 
     const usesGlobal = /Usa el global \(\d+(\.\d+)?%\)/;
     for (const subtype of ['UPC', 'Collection']) {

@@ -23,6 +23,7 @@ import type {
 } from '@/types/contract';
 import { AgeStamp, CardInfo, DASH, LABEL } from './prep-shared';
 import { VaultPlacementCard, type QueueNotice } from './VaultPlacementCard';
+import { LocateItemControl } from './LocateItemControl';
 
 /**
  * **«Pedidos a preparar»** — la hoja de trabajo del operador (contrato **§M4-PREP** v1.78 ·
@@ -539,7 +540,17 @@ function PreparationCard({
         </p>
         <ul className="flex flex-col gap-3">
           {sortPreparationItems(order.items).map((item) => (
-            <PreparationItem key={item.shipmentItemId} item={item} t={t} />
+            <PreparationItem
+              key={item.shipmentItemId}
+              item={item}
+              t={t}
+              // ⛔⛔ «Ubicar» SOLO en ENVÍO DIRECTO (`orderId !== null` ⇒ pieza de la plataforma
+              // vendida). En un RETIRO DE BÓVEDA (`orderId === null`) la carta es DEL CLIENTE
+              // (`in_custody`, cajón `customer_custody`): moverla al estante rompe §M4-VAULT.
+              // `PreparationItemDTO` no trae `ownerType`; `orderId` es el discriminador del contrato
+              // (§M4-PREP: «null en un RETIRO DE BÓVEDA»). Candado: M4View.operator-gaps.test.tsx.
+              canLocate={order.orderId !== null}
+            />
           ))}
         </ul>
       </div>
@@ -547,7 +558,15 @@ function PreparationCard({
   );
 }
 
-function PreparationItem({ item, t }: { item: PreparationItemDTO; t: Translator }) {
+function PreparationItem({
+  item,
+  t,
+  canLocate,
+}: {
+  item: PreparationItemDTO;
+  t: Translator;
+  canLocate: boolean;
+}) {
   const { card, currentLocation } = item;
   // CA #11: «UNASSIGNED» ya no viaja como código — y tampoco se pinta.
   // ⭐ v1.78.2: `LocationView` es unión discriminada ⇒ `kind === 'assigned'` **basta** (ahí `label`
@@ -584,6 +603,13 @@ function PreparationItem({ item, t }: { item: PreparationItemDTO; t: Translator 
              ubicación real: es una excepción que se atiende, no una nota al pie. Su carta va al final
              del pedido, que es donde el recorrido la encuentra. */
           <span className="text-sm text-accent">{t('unassigned')}</span>
+        )}
+        {/* Hueco 1 (2026-09-29): ubicar o corregir la ubicación de la carta VENDIDA desde aquí.
+            Solo envío directo — en un retiro la carta es del cliente (ver `canLocate`). */}
+        {canLocate && (
+          <div className="mt-1">
+            <LocateItemControl item={item} />
+          </div>
         )}
       </div>
       <CardInfo card={card} folio={item.folio} quantity={item.quantity} t={t} />

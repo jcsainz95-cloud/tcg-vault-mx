@@ -77,6 +77,7 @@ const LOS_ONCE: Record<string, (locale: string) => Omit<MailMessage, 'to'>[]> = 
     orderTpl.orderSettledTemplate(
       {
         orderNumber: 'TCG-1001',
+        orderId: 'ord-1',
         items: [{ name: 'Charizard VMAX', setName: 'Darkness Ablaze', number: '020' }],
         totalCents: 148000,
       },
@@ -84,7 +85,7 @@ const LOS_ONCE: Record<string, (locale: string) => Omit<MailMessage, 'to'>[]> = 
     ),
   ],
   'AV-3 · reembolso': (l) => [
-    orderTpl.orderRefundedTemplate({ orderNumber: 'TCG-1001', totalCents: 148000 }, l),
+    orderTpl.orderRefundedTemplate({ orderNumber: 'TCG-1001', orderId: 'ord-1', totalCents: 148000 }, l),
   ],
   'AV-4 · guía al comprador': (l) => [
     shipmentTpl.shipmentGuideTemplate(

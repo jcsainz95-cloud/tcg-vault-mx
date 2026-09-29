@@ -1499,7 +1499,7 @@
       "itemCount": "{count, plural, one {# item} other {# items}}",
       "recipient": "To",
       "recipientMissing": "No recipient on file",
-      "street": "Street",
+      "street": "Address",
       "customer": "Customer",
       "postalCode": "ZIP",
       "phone": "Phone",
@@ -1510,7 +1510,13 @@
         "changed": "Status updated ({id}).",
         "cancelTitle": "Cancel shipment",
         "cancelConfirm": "Cancel shipment",
-        "cancelBody": "Cancel shipment {id}? This action cannot be undone."
+        "cancelBody": "Cancel shipment {id}? This action cannot be undone.",
+        "enviadoTitle": "Mark as shipped",
+        "enviadoConfirm": "Mark shipped",
+        "enviadoBody": "Mark shipment {id} as shipped? It can't be moved back to the previous step from here.",
+        "entregadoTitle": "Mark as delivered",
+        "entregadoConfirm": "Mark delivered",
+        "entregadoBody": "Mark shipment {id} as delivered? It can't be moved back to the previous step from here."
       },
       "prep": {
         "title": "Orders to prepare",
@@ -1648,8 +1654,22 @@
             "title": "Nothing to take to the vault for now.",
             "body": "No paid purchases are waiting for their drawer."
           }
+        },
+        "locate": {
+          "action": "Locate",
+          "actionAria": "Set location for folio {folio}",
+          "title": "Set card location",
+          "folio": "Folio",
+          "current": "Current location:",
+          "none": "No location yet",
+          "target": "Platform stock location",
+          "targetPlaceholder": "Pick a location",
+          "noLocations": "There are no active platform stock locations. Create them in M1 · Inventory.",
+          "confirm": "Save location",
+          "error": "We couldn't save the location."
         }
-      }
+      },
+      "viewCustomerVault": "View vault"
     },
     "m5": {
       "title": "M5 · Buylist",
@@ -3887,6 +3907,8 @@
     "ITEM_NOT_APPROVED": "Only an approved item can be converted to inventory.",
     "CLABE_UNAVAILABLE": "No CLABE available for this request (no snapshot and no KYC record).",
     "ITEM_NOT_ADJUSTABLE": "This piece can't be adjusted in its current status.",
+    "LOCATION_NOT_AVAILABLE": "That location can't be used as a destination. Nothing was saved: refresh the list of locations and pick another one.",
+    "LOCATION_NOT_AVAILABLE_WITH_DETAILS": "{reason, select, not_platform_stock {A store-owned piece can only go to a platform stock shelf, not to a customer custody drawer.} not_customer_custody {A customer's card can only go to a customer custody drawer, not to a store shelf.} not_customer_drawer {That drawer doesn't belong to the card's owner: pick one of their drawers.} inactive {That location is deactivated.} not_found {That location no longer exists.} location_required {There are picked cards and a drawer still has to be chosen.} other {That location can't be used as a destination.}} Nothing was saved: refresh the list of locations and pick another one.",
     "ALREADY_AUTHENTICATED": "You already have a session: continue with your account.",
     "PAYMENT_PROVIDER_UNAVAILABLE": "We couldn't reach the payment processor. Try again in a few minutes.",
     "ORDER_ALREADY_CLAIMED": "We couldn't link this order.",

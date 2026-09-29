@@ -324,3 +324,73 @@ describe('⭐⭐ D-AV-1 — la captura de guía NO regresa el estado (ARCHITECTU
     expect(filaEntregada.status).toBe('guia'); // ⇐ la regresión que `D-AV-1` describía
   });
 });
+
+// =================================================================================================
+/**
+ * ⭐ CTA de los avisos de envío (cableado de `16a3170`; QA IMPORTANTE 2, B3 y B5). `resolveRecipient`
+ * decide el `orderId` del botón: pedido de REGISTRADO ⇒ `orders/<Order.id>`; pedido de INVITADO ⇒
+ * ⛔ sin botón (el detalle exige sesión); retiro de bóveda ⇒ `shipments/<id>`. Antes de este bloque,
+ * cruzar esas dos ramas no ponía rojo nada.
+ */
+describe('CTA — el botón del aviso de envío según quién recibe', () => {
+  // Sin `APP_PUBLIC_URL` no hay CTA para NADIE (appUrl ⇒ undefined), y la prueba del invitado
+  // pasaría por la razón equivocada: se fija un origen para que la ausencia signifique algo.
+  const savedOrigin = process.env.APP_PUBLIC_URL;
+  beforeAll(() => {
+    process.env.APP_PUBLIC_URL = 'https://tienda.example';
+  });
+  afterAll(() => {
+    if (savedOrigin === undefined) delete process.env.APP_PUBLIC_URL;
+    else process.env.APP_PUBLIC_URL = savedOrigin;
+  });
+  const body = (m: MailMessage) => `${m.html}\n${m.text}`;
+  const ORDER_SHIPMENT = { ...VAULT_SHIPMENT, id: 'shp-9', userId: null, orderId: 'ord-1' };
+
+  it('B5 — pedido de REGISTRADO ⇒ CON botón a `orders/<Order.id>`', async () => {
+    const { svc, sent } = buildHarness({
+      shipment: { ...ORDER_SHIPMENT },
+      order: {
+        orderNumber: 'TCG-1001',
+        guestEmail: null,
+        locale: 'es',
+        user: { email: 'ash@pallet.mx', locale: 'es', anonymizedAt: null },
+        fulfillmentMode: 'direct_ship',
+      },
+      mail: 'ok',
+    });
+    await svc.setTracking('shp-9', 'DHL', 'TRK-1');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('ash@pallet.mx');
+    expect(body(sent[0])).toContain('orders/ord-1');
+    expect(body(sent[0])).not.toContain('shipments/shp-9');
+  });
+
+  it.each([
+    ['invitado puro', null],
+    ['invitado que reclamó el pedido', { email: 'cuenta@correo.mx', locale: 'es', anonymizedAt: null }],
+  ])('B3 — pedido de %s ⇒ ⛔ SIN botón (ni al pedido ni al envío)', async (_n, user) => {
+    const { svc, sent } = buildHarness({
+      shipment: { ...ORDER_SHIPMENT },
+      order: {
+        orderNumber: 'TCG-1001',
+        guestEmail: 'guest@correo.mx',
+        locale: 'es',
+        user,
+        fulfillmentMode: 'direct_ship',
+      },
+      mail: 'ok',
+    });
+    await svc.setTracking('shp-9', 'DHL', 'TRK-1');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('guest@correo.mx');
+    expect(body(sent[0])).not.toContain('orders/');
+    expect(body(sent[0])).not.toContain('shipments/');
+  });
+
+  it('retiro de bóveda ⇒ botón a `shipments/<id>`', async () => {
+    const { svc, sent } = buildHarness({ shipment: { ...VAULT_SHIPMENT }, user: USER, mail: 'ok' });
+    await svc.setTracking('shp-1', 'DHL', 'TRK-1');
+    expect(body(sent[0])).toContain('shipments/shp-1');
+    expect(body(sent[0])).not.toContain('orders/');
+  });
+});

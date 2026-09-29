@@ -82,12 +82,19 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const [toLocationId, setToLocationId] = useState('');
   const [moveNote, setMoveNote] = useState('');
   const move = useMutation({
-    mutationFn: () => moveInventoryItem(itemId!, { toLocationId, note: moveNote || undefined }),
+    // El destino viaja como VARIABLE de la mutación: el aviso de éxito lee su etiqueta de ahí
+    // (`move.variables`), no de la respuesta. La respuesta del move trae `location` desde `6e3b1b7`
+    // (backend de esta rama, `inventory.service.ts · moveItem`); production `a2da420` aún sirve la
+    // fila de `toAdminInventoryItemRow` (solo `locationId`) y con ella pintaba «Item movido a .».
+    // Front y back se publican por separado: la etiqueta elegida vale con las dos formas.
+    mutationFn: (vars: { toLocationId: string; note?: string }) => moveInventoryItem(itemId!, vars),
     onSuccess: () => {
       setToLocationId('');
       setMoveNote('');
       void qc.invalidateQueries({ queryKey: ['admin-inventory'] });
       void qc.invalidateQueries({ queryKey: ['admin-inventory-item', itemId] });
+      // Una pieza en `picking` vive también en «Pedidos a preparar» (M4): su ubicación cambió allí.
+      void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
     },
   });
 
@@ -127,6 +134,37 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const canPublish = item?.status === 'in_stock';
   const canUnlist = item?.status === 'listed';
   const canOperate = item?.status === 'in_stock' || item?.status === 'listed';
+  /**
+   * Hueco 1 (auditoría del operador, 2026-09-29) — una carta VENDIDA en preparación (`picking`) tiene
+   * que poder ubicarse o corregirse: sin esto el operador no tenía ningún camino en la UI para decir
+   * dónde está una pieza «Sin ubicar» de un pedido cobrado
+   * (`POST /admin/inventory/items/:id/move` sobre `picking` → 200, medido por el orquestador).
+   * ⛔ SOLO «Mover de ubicación»: la merma sigue restringida a `canOperate`.
+   *
+   * **Destinos: solo `platform_stock` activos, para TODA pieza de plataforma** (QA IMPORTANTE sobre
+   * `4ca6c45`, 2026-09-29): hasta entonces el filtro de zona solo se aplicaba en `picking`, y en
+   * `in_stock`/`listed` el selector ofrecía cajones de «Custodia de clientes», que el backend rechaza
+   * con `422 LOCATION_NOT_AVAILABLE reason=not_platform_stock`. Una pieza de la tienda —vendida o
+   * no— vive en un estante de la tienda; los cajones de custodia son de un cliente concreto y se
+   * asignan por la colocación (§M4-VAULT), nunca desde aquí. `canMove` solo es cierto en
+   * `in_stock|listed|picking`, que son estados de pieza de PLATAFORMA; una pieza de cliente
+   * (`in_custody`) no entra en esta sección.
+   *
+   * ⚠️ **Quién restringe de verdad (C-1 del techlead, 2026-09-29).** El backend de production
+   * (`a2da420`) **NO restringe hoy** ni el estado de la pieza ni la zona del destino en `move`/`mark`:
+   * QA movió una carta de cliente al estante con 200. Las guardas llegan en esta rama
+   * (`claude/arreglos-operador`): `backend/src/modules/inventory/item-location.rules.ts` —
+   * `assertOperable` (plataforma: `move` en `in_stock|listed|reserved|picking`, `mark` solo en
+   * `in_stock|listed` ⇒ si no, `422 ITEM_NOT_ADJUSTABLE`) y `assertMoveDestination` (pieza de
+   * plataforma ⇒ solo `platform_stock` activo, si no `422 LOCATION_NOT_AVAILABLE`). Con ese backend
+   * desplegado, el backend rechaza y **este filtro es presentación**; hasta entonces es la única
+   * barrera, y por eso no se relaja.
+   */
+  const isPicking = item?.status === 'picking';
+  const canMove = canOperate || isPicking;
+  const moveTargets = locations.filter(
+    (l) => l.id !== item?.location?.id && l.zone === 'platform_stock' && l.isActive,
+  );
 
   return (
     <>
@@ -201,7 +239,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
             )}
             {move.isSuccess && (
               <Banner variant="success" role="status">
-                {t('move.success', { label: move.data?.location?.label ?? '' })}
+                {t('move.success', { label: locationLabel(move.variables?.toLocationId) })}
               </Banner>
             )}
             {mark.isSuccess && (
@@ -263,8 +301,8 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
               </section>
             )}
 
-            {/* Mover de ubicación */}
-            {canOperate && (
+            {/* Mover de ubicación (también en `picking`: hueco 1) */}
+            {canMove && (
               <section className="flex flex-col gap-3 rounded-lg border border-border p-3">
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
                   <ArrowRightLeft size={16} aria-hidden /> {t('move.title')}
@@ -272,9 +310,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <Select
                   label={t('move.target')}
                   placeholder={t('move.targetPlaceholder')}
-                  options={locations
-                    .filter((l) => l.id !== item.location?.id)
-                    .map((l) => ({ value: l.id, label: `${l.label} · ${t(`zone.${l.zone}`)}` }))}
+                  options={moveTargets.map((l) => ({ value: l.id, label: `${l.label} · ${t(`zone.${l.zone}`)}` }))}
                   value={toLocationId}
                   onChange={(e) => setToLocationId(e.target.value)}
                 />
@@ -291,7 +327,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <div>
                   <Button
                     variant="secondary"
-                    onClick={() => move.mutate()}
+                    onClick={() => move.mutate({ toLocationId, note: moveNote || undefined })}
                     disabled={!toLocationId || move.isPending}
                     loading={move.isPending}
                   >

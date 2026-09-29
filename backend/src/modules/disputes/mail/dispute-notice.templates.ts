@@ -61,7 +61,9 @@ function blocksFor(
   tail: string,
 ): { blocks: string[]; url?: string; lines: string[] } {
   const en = l === 'en';
-  const url = appUrl('cuenta/aclaraciones', l);
+  // `vault`: las aclaraciones del cliente se listan en `WithdrawalsList` (bóveda). ⚠️ Antes
+  // `cuenta/aclaraciones` ⇒ 404. Candado: `test/mail-links.frontend-routes.spec.ts`.
+  const url = appUrl('vault', l);
   const ctaLabel = en ? 'SEE MY CLAIM' : 'VER MI ACLARACIÓN';
   const resolutionLabel = en ? 'What we decided' : 'Lo que decidimos';
   const blocks = [

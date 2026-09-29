@@ -2,7 +2,64 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.79.5**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.79.7**).
+>
+> **Changelog v1.79.7 — ERRATA §M1 (sobre v1.79.6): `mark` ES SOLO DE PLATAFORMA, Y EL `status` DEL `PATCH` GANA LA MISMA
+> GUARDA (2026-09-29, arquitecto; base v1.79.6, vigente entera salvo lo que esta rev toca).** Origen: backend aterrizó en
+> esta rama (`c01f62d`, `451b508`, `7e803bd`) los puntos **D-SHIP-5** y **D-SHIP-6** del diseño §M4-SHIP **v1.80.3**
+> (§M4-SHIP.17.1, SEC-SHIP-A1, puntos (1) y (2); vive en el worktree `claude/envio-preparar`) por orden del orquestador, y
+> dejó en `BACKEND_NOTES` «M1 · D-SHIP-5 y D-SHIP-6 … 2026-09-29» la discrepancia: v1.79.6 §M1 **transcribía `6e3b1b7`**,
+> donde `mark` admitía la pieza de cliente en custodia liquidada fuera de retiro; ese texto queda superado. Regla de
+> conflicto: el diseño aprobado por seguridad manda sobre una errata que solo transcribía código. Esta rev **describe lo
+> construido; ⛔ no cambia conducta ni pide código**: sin código de error nuevo, sin schema, sin migración, sin endpoint
+> nuevo. Leído para escribirla: `item-location.rules.ts:107-126` (`assertOperable` con overloads `'mark' | 'status'` ⇒
+> siempre `'platform'`; la rama de cliente existe **solo** para `'move'`), `inventory.service.ts:2414-2443` (`updateItem`,
+> camino no publicante con `status`) y `:2757-2783` (`markItem`, sin consulta de retiro), y la sección citada de
+> `BACKEND_NOTES`.
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐ **`mark` ⇒ solo plataforma `in_stock \| listed`.** Toda pieza de **cliente** (en retiro o no, `settled` o `pending`) ⇒ **`422 ITEM_NOT_ADJUSTABLE`** `details: { status, ownerType }`; `mark` **ya no consulta retiros** (ni `ShipmentItem` ni puerta del cliente). **`409 ITEM_IN_ANOTHER_SHIPMENT` lo emite solo `move`.** Por qué (§M4-SHIP.17.1 (1)): marcar `lost` la carta de un cliente fuera de un caso la saca de «Por reponer» **sin abrir deuda** (`ReplacementCase`); la incidencia de custodia se registra en el palomeo del retiro/colocación, que abre su caso. Corrige tabla 1 (fila `customer`/`mark`) y tabla 2 (paso 3 de `mark`) de v1.79.6, y la entrada de `ITEM_NOT_ADJUSTABLE` en §0 | §0, §M1 | **No** (construido y probado en `7e803bd`) |
+> | **2** | ⭐ **`PATCH /admin/inventory/items/:id` con `status` (camino no publicante) gana la guarda de `move`/`mark`:** `$transaction` → lectura → `assertOperable(item,'status')` (**mismo allowlist que `mark`**: plataforma `in_stock \| listed`) → escritura **condicionada** al estado y dueño leídos (mismo CAS; `P2025` ⇒ **`409 CONFLICT`**). `status` igual al leído (`in_stock → in_stock`) **no escribe `status`**; ⛔ **sin `InventoryMovement`**; sin `status` en el cuerpo ⇒ camino plano de siempre; `status:'listed'` desde no-`listed` ⇒ pipeline v1.51 **sin cambio**; pieza de cliente ⇒ `422` (el `409 ITEM_IN_ANOTHER_SHIPMENT` **no es alcanzable** desde el `PATCH`). Hasta `4ca6c45` existían `lost → in_stock`, `picking → in_stock` e `in_custody → in_stock` por este verbo (medido por backend); invariante **INV-SP-7**: `lost \| damaged` no vuelve a `in_stock \| listed` por ningún verbo del operador | §M1 (nueva sección **7**), §0 | **No** (construido y probado en `7e803bd`) |
+> | **3** | **Pendiente registrado, del stream que construya §M1 v1.80.3 (⛔ no de este hotfix):** la bitácora `inventory.item_updated` con `before`/`after` que pide §M4-SHIP.17.1 (2). Hoy el controller escribe `inventory.update` sin diff (medido por backend 2026-09-29) | §M1 sección 7 | **No** (no es de esta rama) |
+>
+> **Lo que NO cambia:** todo v1.79.6 salvo las dos celdas y la entrada de §0 corregidas; `move` entero (tabla 1 fila
+> `customer`/`move`, destino, puerta, `409`, `location` en la respuesta, `201`); `adjustments` y `bulk-remove`; el
+> pipeline v1.51 del `PATCH` hacia `listed`; los cuatro códigos de error, todos existentes. Pruebas que lo fijan
+> (**cifras de backend**, `BACKEND_NOTES` sección citada, N=1 por corrida, deterministas): `test/inventory.move-mark-guards.spec.ts`
+> **42/42** (3 rojas contra `4ca6c45`: 2 cambian de signo + 1 nuevo), `test/inventory.patch-status-guard.spec.ts` (nuevo)
+> **21/21** (18/21 rojas contra `4ca6c45`), `test/integration/inventory-move-mark-guards.e2e-spec.ts` **17/17** contra
+> Postgres 16 (el caso `mark` cliente en retiro pasa de `409` a `422`; +1 `mark` cliente fuera de retiro; +8 del `PATCH`,
+> incl. que un rechazo no escribe `certNumber`). Mutaciones **3/3 muertas**: (M1) rama `customer` de vuelta en
+> `assertOperable` para `mark` ⇒ 3 rojas; (M2) sin `assertOperable(item,'status')` en `updateItem` ⇒ 14/21 rojas unitarias
+> y 6 rojas e2e; (M3) escritura del `PATCH` sin condición ⇒ 3 rojas. ⚠️ `tsc --noEmit` **NO MEDIDO** por backend en esa
+> corrida (bloqueo del entorno); los ficheros compilan bajo `ts-jest`.
+>
+> **Changelog v1.79.6 — ERRATA §M1: `move` Y `mark` TIENEN GUARDAS DE ESTADO Y DE ZONA; EL CONTRATO LAS ESCRIBE TAL CUAL
+> BACKEND LAS CONSTRUYÓ (2026-09-29, arquitecto; base v1.79.5, vigente entera salvo lo que esta rev toca).** Origen: QA
+> aprobó `4ca6c45` (rama `claude/arreglos-operador`) con un IMPORTANTE para el arquitecto: `6e3b1b7` construyó
+> `backend/src/modules/inventory/item-location.rules.ts` y `moveItem`/`markItem` de `inventory.service.ts`, y §M1 seguía
+> describiendo los dos verbos en una línea, sin errores ni forma de respuesta (`BACKEND_NOTES` «M1 · guardas de `move` y
+> `mark`» lo dejó como pendiente del arquitecto). Esta rev **describe lo construido; ⛔ no cambia conducta**: sin código
+> de error nuevo (los cuatro ya están en `common/error-codes.ts`), sin schema, sin migración, sin endpoint nuevo. Leído
+> para escribirla: `item-location.rules.ts` entero; `inventory.service.ts` `moveItem`, `markItem`, `readGuardedItem`,
+> `guardedItemUpdate`; `inventory.controller.ts` `move`/`mark`; `dto/inventory.dto.ts` `MoveItemDto`;
+> `vault/vault-placement.rules.ts` `ACTIVE_WITHDRAWAL_STATUSES`, `lockCustomerVaultGate`; `prisma/schema.prisma`
+> `VaultLocation`; `test/inventory.move-mark-guards.spec.ts`; `test/integration/inventory-move-mark-guards.e2e-spec.ts`;
+> `frontend/.../admin/m1/ItemDetailModal.tsx` y `VariantDrawer.tsx`.
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐ **§M1 `move`/`mark` ganan su tabla:** qué estados admite cada verbo según el dueño de la pieza, qué destino admite el `move`, en qué orden se evalúan las guardas y qué escribe cada rechazo (**nada**: una transacción por verbo). Cuatro errores, todos existentes: `422 ITEM_NOT_ADJUSTABLE` (`details: { status, ownerType }`), `409 ITEM_IN_ANOTHER_SHIPMENT`, `422 LOCATION_NOT_AVAILABLE`, `409 CONFLICT` (escritura condicionada al estado leído: carrera `move` ‖ `mark` ‖ checkout ‖ settle ‖ contracargo) | §M1 | **No** (ya construido y probado en `6e3b1b7`) |
+> | **2** | **`422 LOCATION_NOT_AVAILABLE` gana `reason: 'not_platform_stock'`** (solo lo emite `move`: pieza de plataforma con destino fuera de `platform_stock`) y en `move` **`not_found` nombra un `toLocationId` inexistente** (antes, según backend: `500` por FK). **§0 amplía los emisores** de `LOCATION_NOT_AVAILABLE` y de `ITEM_NOT_ADJUSTABLE`, que hasta hoy se declaraban solo para `confirm` y `adjustments` | §0, §M1 | **No** |
+> | **3** | **Forma y código de respuesta, fijados:** `move` ⇒ **`201`** con la fila admin **más `location: { id, label, zone } \| null`** (ADITIVO); `mark` ⇒ **`201`** con la fila admin. **Decisión: `201`, no `200`** — es lo construido (sin `@HttpCode`, `inventory.controller.ts` `move`/`mark`), lo que fija la suite e2e (tres aserciones `toBe(201)`), el front consume `res.ok` (cualquier 2xx), y el verbo **persiste una fila nueva** (`InventoryMovement`) igual que `adjustments`, que también responde `201`. Normar `200` sería un cambio de conducta sin valor para nadie | §M1 | **No** |
+> | **4** | **`toLocationId` ⛔ NO se valida como UUID en el DTO** (decisión: no se norma). Medido: **0** usos de `@IsUUID` en `backend/src/modules`; `VaultLocation.id` es `String @default(uuid())` **sin `@db.Uuid`**, así que un id malformado **no** rompe la consulta (no hay `P2023`): cae en **`422 not_found`**, con nombre. Un `400` separaría «malformado» de «inexistente» y **el remedio del operador es el mismo** (volver a elegir cajón). Si algún día `VaultLocation.id` pasa a `@db.Uuid`, este punto se reabre | §M1 | **No** |
+> | **5** | **Regla de pantalla (frontend): «Merma» y «Editar precio» ⛔ no se ofrecen sobre una pieza `picking`.** Medido 2026-09-29: `VariantDrawer.tsx` pinta los dos controles en **toda** fila, sin mirar `status`; `ItemDetailModal.tsx` ya restringe la merma a `in_stock \| listed` y ofrece «Mover» también en `picking` (solo a `platform_stock` activo), que es lo correcto | §M1 «Reglas de pantalla» | **Solo frontend** (`VariantDrawer.tsx`) |
+>
+> **Lo que NO cambia:** todo v1.79.5; el `confirm` de §M4-VAULT.5 (sus `reason` y su orden); `adjustments` y `bulk-remove`;
+> la doctrina de §M4-VAULT.4 regla 4 (el `move` de cliente **consolida** cajones del mismo cliente; la **primera** colocación
+> es del `confirm`); `solicitado` (retiro sin pagar) **sigue sin bloquear** (`ACTIVE_WITHDRAWAL_STATUSES = picking | guia |
+> enviado`, la misma constante del `confirm`).
 >
 > **Changelog v1.79.5 — §M4-VAULT: EL RIVAL REAL DE LOS CAS ES EL CONTRACARGO, DOS CONTEOS CON NOMBRE, Y DOS ERRATAS
 > (2026-09-28, arquitecto; base v1.79.4, vigente entera salvo lo que esta rev toca). Origen: gates del stream bóveda
@@ -5720,12 +5777,15 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
 - **`422 LOCATION_NOT_AVAILABLE` (v1.79 — NUEVO):** en `POST /admin/vault-placements/:id/confirm`, el cajón elegido no sirve para colocar: `details: { reason: 'not_found' | 'inactive' | 'not_customer_custody' }`. Se valida **antes** de reclamar la colocación ⇒ un `422` **no escribió nada**. Ver [§M4-VAULT.5](#M4-VAULT).
   ⭐ **v1.79.1:** gana `reason: 'not_customer_drawer'` — el cliente **ya tiene** cajón (o varios, anomalía) y el `locationId` pedido **no es uno de ellos** («un cliente = un cajón»). ~~`details: { reason: 'not_customer_drawer', customerDrawerIds: string[] }`~~ ⭐ **v1.79.3 (H-5):** `details: { reason: 'not_customer_drawer', customerDrawers: CustomerDrawerRef[] }` (§M4-VAULT.4: id, label, zona, `customerPieceCount`; mismo orden que `multiple_drawers`). Se valida bajo la puerta del cliente y **antes** de reclamar ⇒ no escribió nada.
   ⭐ **v1.79.3 (H-4):** gana `reason: 'location_required'` — el cuerpo **no trae** `locationId` y el pedido preparado tiene **≥1** carta `prepStatus='picked'` (hay algo que guardar ⇒ hace falta cajón). `details: { reason: 'location_required', pickedCount: number }`. Bajo la puerta, antes de reclamar ⇒ no escribió nada.
+  ⭐ **v1.79.6 — lo emite TAMBIÉN `POST /admin/inventory/items/:id/move` (§M1)**, con el mismo código y la misma forma de `details`, y **gana `reason: 'not_platform_stock'`** — la pieza es de **plataforma** y el `toLocationId` no es de zona `platform_stock` (⛔ solo `move` lo emite; el `confirm` solo coloca en custodia y nunca lo produce). En `move`: `not_found` = el `toLocationId` **no existe** (⛔ no hay validación de UUID en el DTO: un id malformado cae aquí, no en `400`); `inactive`, `not_customer_custody` y `not_customer_drawer` (+ `customerDrawers`, misma forma que el `confirm`) significan **lo mismo** que en el `confirm` y se calculan con la **misma** `customerDrawersOf`. ⛔ `location_required` **no** aplica al `move` (`toLocationId` es obligatorio). Se valida **dentro de la transacción y antes del `update`** ⇒ un `422` **no escribió nada**. Tabla por dueño y destino en §M1.
 - **`409 PLACEMENT_NOT_PREPARED` (v1.79.1 — NUEVO):** en `POST /admin/vault-placements/:id/confirm`, la colocación sigue `pending` pero **no se ha dado por preparada** (CA #21 de §S: colocar va **después** de preparar). `details: { preparation: VaultPreparationStateDTO }` *(⭐ v1.79.3, H-3: errata — decía `PreparationStateDTO`, que no existe; el tipo es el de §M4-VAULT.3)*. No escribió nada. Ver [§M4-VAULT.10](#M4-VAULT-10).
 - **`409 PREPARATION_CLOSED` (v1.79.1 — NUEVO):** en `PATCH /admin/vault-placements/:id/prep-items/:placementItemId`, el pedido **ya se dio por preparado**: las marcas por carta quedan fijas. `details: { preparedAt }`. No escribió nada. ⭐ **v1.79.2:** fijas **hasta que se deshaga «preparado»** (`DELETE /admin/vault-placements/:id/prepared`, [§M4-VAULT.10](#M4-VAULT-10)); el remedio que la pantalla ofrece ante este `409` es ese verbo.
 - **`409 PREPARATION_INCOMPLETE` (v1.79.1 — NUEVO):** en `POST /admin/vault-placements/:id/prepared`, queda al menos una carta **preparable** sin palomear ni marcar faltante (CA #7 de §S). `details: { pendingCount }`. No escribió nada.
 - **`409 PREP_ITEM_BLOCKED` (v1.79.1 — NUEVO):** en `PATCH …/prep-items/:placementItemId` con `status: 'picked' | 'missing'`, la carta **no se puede colocar** (`placeability.kind === 'blocked'`). `details: { reason: VaultPlacementBlockReason }`. Volver a `pending` **nunca** da este error.
 - **`409 PLACEMENT_NOT_PENDING` (v1.79 — NUEVO):** en `POST /admin/vault-placements/:id/confirm`, la colocación ya no está pendiente: ~~`details: { status: 'placed', locationId } | …`~~ ⭐ **v1.79.3 (H-2):** `details: { status: 'placed', location: { id, label, zone: 'customer_custody' } } | { status: 'cancelled', cancelReason }` — el cajón donde quedó, **nombrable** (misma forma que `VaultPlacementDTO.location`). ⭐ **v1.79.1:** lo emiten **también** `PATCH …/prep-items/:placementItemId` y `POST …/prepared` sobre una colocación `placed`/`cancelled`, con el mismo `details`. ⭐ **v1.79.2:** y `DELETE …/prepared` (deshacer «preparado») — es el `409` que recibe quien pierde la carrera contra un `confirm`. ⚠️ **Ya colocada en el MISMO cajón NO es `409`**: es `200` idempotente (`outcome:'already_placed'`) — doble clic y el perdedor de una carrera al mismo cajón. El `409` también lo produce **una carrera** a cajones distintos: se declara para que no se lea como defecto. Ver [§M4-VAULT.5](#M4-VAULT).
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
+  ⭐ **v1.79.6 — lo emiten TAMBIÉN `POST /admin/inventory/items/:id/move` y `…/mark` (§M1)** cuando el **estado** de la pieza no admite el verbo: `details: { status, ownerType }`. El allowlist del **`mark` de plataforma es el mismo de aquí** (`in_stock | listed`: marcar perdida es el mismo hecho que `perdida`/`danada` del ajuste); el de **`move` es más ancho** (`in_stock | listed | reserved | picking`: la pieza sigue físicamente en un estante y al operador le hace falta poder decir dónde); y ~~los dos verbos admiten la pieza de cliente en custodia liquidada~~ ⭐ **v1.79.7 (D-SHIP-5): solo `move` admite la pieza de cliente** en custodia liquidada (`ownerType='customer' ∧ ownershipStatus='settled' ∧ status='in_custody'`) **fuera de un retiro cobrado**; **`mark` rechaza TODA pieza de cliente con este `422`** (en retiro o no, `settled` o `pending`), sin consultar retiros — la frase «`mark` + reposición para custodia de clientes» de la entrada v1.20 de arriba **queda retirada**: la incidencia sobre una carta en custodia se registra en el palomeo del retiro/colocación, que abre su caso de reposición (§M4-SHIP.17.1 (1), v1.80.3). Una pieza de cliente **`pending`** (apartada en un pedido sin pagar) ⇒ este `422` en los dos verbos. ⛔ Nunca `reserved`/`picking` en `mark` (pedido vivo o cobrado), nunca un estado terminal en ninguno de los dos. Se evalúa **antes** de cualquier escritura ⇒ no escribió nada. Tabla en §M1.
+  ⭐ **v1.79.7 (D-SHIP-6) — lo emite TAMBIÉN `PATCH /admin/inventory/items/:id` cuando el cuerpo trae `status` y el `PATCH` NO publica** (todo `status` salvo el paso a `listed` desde no-`listed`, que sigue por el pipeline v1.51 con `ITEM_NOT_PUBLISHABLE`): mismo allowlist que `mark` (plataforma `in_stock | listed`), `details: { status, ownerType }`; con él, `lost | damaged | picking | in_custody | reserved | … → in_stock` **dejan de existir** por este verbo (INV-SP-7). Se evalúa dentro de la transacción y antes de la escritura ⇒ **ningún campo del `PATCH` se escribe**. §M1 sección 7.
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
 - **`422 ITEM_NOT_OFFERED` (v1.51.20 — NUEVO; DINERO Y PROPIEDAD AJENA):** en `PATCH /admin/buylist/items/:itemId/decision`
   **dentro del ciclo de oferta** (`offerSentAt IS NOT NULL`), se manda **`decision:"approve"`** sobre una línea cuyo
@@ -10575,7 +10635,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     sirven los drill-downs de las pestañas Sellado (P-25) y Gradeadas (P-20). Solo REDUCEN el conjunto ya
     autorizado por rol.
 - `GET /api/v1/admin/inventory/items/:id` — detalle + historial de movimientos.
-- `PATCH /api/v1/admin/inventory/items/:id` — editar (grado, `certNumber`, `sealedSubtype`, `listPriceCents` manual, ubicación, etc.). **No** hay campos de foto de producto (v1.2). **No** edita el mapeo TCGCSV (v1.19; ver abajo).
+- `PATCH /api/v1/admin/inventory/items/:id` — editar (grado, `certNumber`, `sealedSubtype`, `listPriceCents` manual, ubicación, etc.). **No** hay campos de foto de producto (v1.2). **No** edita el mapeo TCGCSV (v1.19; ver abajo). ⭐ **v1.79.7 (D-SHIP-6):** cuando el cuerpo trae `status` y el `PATCH` **no publica** (todo salvo el paso a `listed`), el `status` pasa por la **misma guarda de estado y dueño de `move`/`mark`** (solo plataforma `in_stock | listed`, escritura condicionada): `422 ITEM_NOT_ADJUSTABLE` / `409 CONFLICT`. Tabla en la **sección 7** del bloque v1.79.6 de `move`/`mark`, más abajo en este mismo §M1.
   > ### ⚠️ v1.51 — SE CIERRA EL BYPASS DE PUBLICACIÓN (BREAKING chico). Desviación **INV-P1**, ARCHITECTURE §9/§4.39(m.4).
   > **Hoy este endpoint es un `update` plano** (`inventory.service.ts:1729-1752`): valida el `certNumber` de una
   > gradeada y **nada más**. **NO** corre `assertPublishableGuards` (`:1226`), **NO** corre `resolvePublishSalePrice`
@@ -10664,7 +10724,139 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - `sealedMarketRef?: PriceInfo` — **valor de referencia de mercado** del producto sellado (`source: "tcgcsv"`, MXN con FX+colchón, `capturedDate` del último ingest). `null`/omitido si el item no está mapeado o aún no hay ingest. En listados se resuelve por lote (`getReferencesBatch`, sin N+1).
   - **Semántica (PROJECT 3e):** es **informativo** — una sugerencia junto al campo `listPriceCents`. NO cambia la regla de publicación (el sellado publica SOLO con precio manual), NO se usa para valuar ni vender, y NO aparece en la superficie pública. El **mapeo se edita únicamente** por `PUT /admin/pricing/sealed/items/:itemId/mapping` (§M2, `super_admin`); `PATCH .../items/:id` lo ignora.
 - `POST /api/v1/admin/inventory/items/:id/move` — Req `{ toLocationId, note? }` → registra `InventoryMovement`.
-- `POST /api/v1/admin/inventory/items/:id/mark` — Req `{ mark: "lost" | "damaged", note }` → `status` y movimiento; disponible para reposición (M7/tope M10).
+- `POST /api/v1/admin/inventory/items/:id/mark` — Req `{ mark: "lost" | "damaged", note }` → `status` y movimiento; disponible para reposición (M7/tope M10). ⭐ **v1.79.7 (D-SHIP-5): solo piezas de PLATAFORMA `in_stock | listed`**; toda pieza de cliente ⇒ `422 ITEM_NOT_ADJUSTABLE` (sección 1 y 2 abajo, corregidas).
+  > ### ⭐ v1.79.6 — ERRATA: `move` y `mark` TIENEN GUARDAS DE ESTADO Y DE ZONA (construidas en `6e3b1b7`; aquí se escriben tal cual están)
+  > **⭐ v1.79.7 (D-SHIP-5 y D-SHIP-6, construidos en `7e803bd`):** las celdas marcadas **v1.79.7** de las tablas 1 y 2
+  > corrigen esta errata (`mark` **solo plataforma**; `409 ITEM_IN_ANOTHER_SHIPMENT` **solo `move`**), y la **sección 7**
+  > añade el `status` del `PATCH …/items/:id`, que gana la misma guarda. Lo demás de esta sección sigue vigente tal cual.
+  > **Por qué existen (medido por techlead y QA sobre `16a3170`):** ninguno de los dos verbos miraba el estado de la
+  > pieza ni la zona del destino. El API aceptaba **mover la carta de un cliente, en un retiro cobrado, al estante de
+  > tienda** (`platform_stock`) y **marcar perdida una pieza en `picking` de un pedido ya cobrado**. Las dos son
+  > escrituras sobre algo que **no es del operador decidir desde M1**: su salida va por el flujo dueño (órdenes M3,
+  > retiros M4). Las reglas viven en **un** fichero (`inventory/item-location.rules.ts`, un cuerpo por regla:
+  > `assertOperable`, `assertMoveDestination`, `inActiveWithdrawalError`) y el servicio solo las aplica.
+  >
+  > **1 · Qué admite cada verbo, según el dueño de la pieza.**
+  >
+  > | Pieza (`ownerType`) | `move` admite (`status`) | Destino admitido (`toLocationId`) | `mark` admite (`status`) |
+  > |---|---|---|---|
+  > | **`platform`** | `in_stock · listed · reserved · picking` — la pieza **sigue en un estante** (en `picking` de un pedido directo el operador la lleva a la mesa de empaque, que es estante) | **solo `platform_stock`** activo | `in_stock · listed` — **el mismo allowlist del ajuste del binder** (§0 `ITEM_NOT_ADJUSTABLE`, `bulk-remove`) |
+  > | **`customer`** | solo en **custodia liquidada**: `status='in_custody' ∧ ownershipStatus='settled' ∧ ownerUserId ≠ null`, y **fuera de un retiro cobrado** (`ShipmentRequest.status ∈ picking \| guia \| enviado`; `solicitado` **no** bloquea, misma constante `ACTIVE_WITHDRAWAL_STATUSES` del `confirm`) | **solo un cajón `customer_custody` que YA es de ese cliente** según `customerDrawersOf` (§M4-VAULT.4). ⛔ Un cajón vacío o ajeno **no**: §M4-VAULT.4 regla 4 reserva este `move` para **consolidar** cajones del mismo cliente; la **primera** colocación (cliente sin cajón) es del `confirm` | ~~igual que `move` (custodia liquidada, fuera de retiro cobrado) — es la vía «`mark` + reposición para custodia de clientes» de §0~~ ⭐ **v1.79.7 (D-SHIP-5): ⛔ NINGUNA pieza de cliente**, en retiro o no, `settled` o `pending` ⇒ `422 ITEM_NOT_ADJUSTABLE` `details: { status, ownerType }`. `mark` **no consulta retiros** (ni `ShipmentItem` ni puerta del cliente: `assertOperable(item,'mark')` devuelve siempre `'platform'`, `item-location.rules.ts:114-126`). Por qué: marcar `lost` la carta de un cliente fuera de un caso la sacaba de «Por reponer» sin abrir deuda; la incidencia de custodia se registra en el palomeo del retiro/colocación, que abre su caso (§M4-SHIP.17.1 (1)) |
+  > | terminal (`shipped · delivered · lost · damaged · withdrawn`), o cliente `pending`, o cualquier otro | ⛔ | — | ⛔ |
+  >
+  > **2 · Orden de evaluación y qué escribe cada rechazo (NADA: cada verbo es UNA `$transaction`).**
+  >
+  > | Paso | `move` | `mark` |
+  > |---|---|---|
+  > | 1 | pieza no existe ⇒ **`404 NOT_FOUND`** | igual |
+  > | 2 | estado no admitido para el verbo/dueño (tabla 1) ⇒ **`422 ITEM_NOT_ADJUSTABLE`** `details: { status, ownerType }` | igual |
+  > | 3 | *(solo pieza de cliente)* toma la **puerta del cliente** (`lockCustomerVaultGate`, la misma del `confirm` §M4-VAULT.5: así el `move` y una colocación del mismo cliente no deciden sobre una lectura que el otro está cambiando); luego, en retiro cobrado ⇒ **`409 ITEM_IN_ANOTHER_SHIPMENT`** | ~~*(solo pieza de cliente)* en retiro cobrado ⇒ `409 ITEM_IN_ANOTHER_SHIPMENT` (sin puerta)~~ ⭐ **v1.79.7 (D-SHIP-5): — (no hay paso 3):** la pieza de cliente ya cayó en el paso 2 con `422`; **`mark` nunca emite `409 ITEM_IN_ANOTHER_SHIPMENT`** (ese código lo emite **solo `move`**). Fijado por `inventory.move-mark-guards.spec.ts` con `not.toHaveBeenCalled` sobre la lectura de retiros (backend, 2026-09-29) |
+  > | 4 | destino: **`422 LOCATION_NOT_AVAILABLE`** `details: { reason }` — `not_found` (el `toLocationId` **no existe**; ⛔ el DTO **no** valida UUID, ver 4) · `inactive` · `not_platform_stock` (⭐ NUEVO: pieza de plataforma, zona ≠ `platform_stock`) · `not_customer_custody` (pieza de cliente, zona ≠ `customer_custody`) · `not_customer_drawer` (+ `customerDrawers: CustomerDrawerRef[]`, misma forma que el `confirm`, H-5). **Mismo código y mismos `reason` que el `confirm`**, más `not_platform_stock`, que solo aquí tiene sentido | — |
+  > | 5 | **`update` CONDICIONADO** a `{ id, status, ownerType, ownerUserId }` **tal como se leyeron**: si un checkout, un settle, un contracargo o el otro verbo cambió la pieza entre la lectura y aquí, el `update` no encuentra la fila (`P2025`) ⇒ **`409 CONFLICT`** («reload and retry»), **la transacción se revierte entera, sin movimiento**. Es el `409` que recibe quien pierde la carrera **`move` ‖ `mark`** sobre la misma pieza | igual (la carrera `mark` ‖ `move`, o `mark` ‖ checkout que la reserva) |
+  > | 6 | `InventoryMovement { fromLocationId, toLocationId, fromStatus = toStatus = status, reason: 'move', actorUserId, note }` **en la misma transacción** *(antes eran dos sentencias sueltas: un fallo entre ambas dejaba un movimiento sin mudanza)* | `InventoryMovement { fromStatus, toStatus: 'lost' \| 'damaged', reason: 'lost' \| 'damaged', actorUserId, note }` en la misma transacción |
+  > | 7 | **después del commit**, `tryAutoPublish(id, 'move')` — disparador (b) de v1.51, best-effort, **sin cambios** — y **relectura** de la pieza (el `status` puede haber pasado a `listed` en ese instante) | — |
+  >
+  > Transacción del `move` con `VAULT_VERB_TX_OPTIONS` (`maxWait 10 s`, `timeout 30 s`: la puerta puede hacerlo esperar a
+  > otro verbo del mismo cliente). Auditoría (controller, sin cambios): `inventory.move`, `inventory.mark_lost` /
+  > `inventory.mark_damaged`.
+  >
+  > **3 · Respuesta (forma y código, fijados).**
+  > - `move` ⇒ **`201`**: la **fila admin** de la pieza (la misma proyección que una fila de `GET /admin/inventory/items`,
+  >   `toAdminInventoryItemRow`, **releída tras el auto-publish**) **más `location: { id, label, zone } | null`** (⭐
+  >   ADITIVO: la UI pinta la ubicación nueva sin otra consulta; `null` es inalcanzable tras un `move` que acaba de
+  >   escribir `locationId`, se declara por la forma del tipo).
+  > - `mark` ⇒ **`201`**: la fila admin de la pieza ya con `status: 'lost' | 'damaged'` (**sin** `location`).
+  > - **Decisión `201` y no `200`:** es lo construido (sin `@HttpCode` en `inventory.controller.ts` `move`/`mark`) y lo
+  >   que la suite e2e fija (`inventory-move-mark-guards.e2e-spec.ts`, tres aserciones `toBe(201)`); el front consume
+  >   `res.ok` (`lib/api.ts`, cualquier 2xx); y el verbo **persiste una fila nueva** (`InventoryMovement`), igual que
+  >   `adjustments`, que también responde `201`. Normarlo `200` sería un cambio de conducta sin valor para nadie.
+  >
+  > **4 · `toLocationId`: ⛔ NO se valida como UUID en el DTO (decisión).** `MoveItemDto.toLocationId` es `@IsString()`
+  > (vacío/ausente ⇒ `400 VALIDATION_ERROR`, como cualquier DTO). Medido 2026-09-29: **0** usos de `@IsUUID` en
+  > `backend/src/modules` (no es convención del proyecto) y `VaultLocation.id` es `String @default(uuid())` **sin
+  > `@db.Uuid`** ⇒ un id malformado **no** rompe la consulta (no hay `P2023`) y cae en **`422 LOCATION_NOT_AVAILABLE
+  > reason:'not_found'`**, con nombre. Un `400` separaría «malformado» de «inexistente» y **el remedio del operador es el
+  > mismo**: volver a elegir cajón de la lista de `GET /admin/locations`. Si `VaultLocation.id` pasa algún día a
+  > `@db.Uuid`, este punto **se reabre** (entonces sí haría falta la validación para no producir `500`).
+  >
+  > **5 · Reglas de pantalla (frontend; §M1 «Inventario»).** La pantalla ofrece **solo lo que el backend acepta** — el
+  > backend rechaza de todas formas, así que esto es presentación, no barrera:
+  > - **«Mover de ubicación»:** la pantalla lo ofrece en **`in_stock | listed | picking`** de plataforma; en **`picking`**
+  >   la lista de destinos es **solo `platform_stock` activo** (una carta vendida que aún no sale sigue en el stock de la
+  >   tienda, no en la custodia de un cliente). *(Medido 2026-09-29: `ItemDetailModal.tsx` `canMove`/`moveTargets` ya es
+  >   exactamente esto.)* El backend admite además **`reserved`**; que la pantalla **no** lo ofrezca ⛔ **no es un hueco**
+  >   (nadie lo pidió; una pieza apartada en un pedido sin pagar rara vez cambia de estante) y esta rev no lo norma.
+  >   ⚠️ **Destinos para una pieza de PLATAFORMA en cualquier estado: solo `platform_stock` activo** — es lo único que el
+  >   backend acepta (`not_platform_stock` / `inactive`). *(Medido 2026-09-29: `ItemDetailModal.tsx` `moveTargets` aplica
+  >   ese filtro **solo** en `picking`; en `in_stock`/`listed` la lista incluye cajones `customer_custody`, que el backend
+  >   rechaza con `422 not_platform_stock` ⇒ **trabajo frontend**, pequeño: el filtro de zona deja de depender de
+  >   `isPicking`. Las piezas del detalle de M1 son de plataforma —el drawer las pide con `ownerType=platform`—; si algún
+  >   día ese modal abre una pieza de cliente, los destinos son sus cajones de `customerDrawers`, no el estante.)*
+  > - **«Merma» / marcar perdida-dañada:** solo en **`in_stock | listed`** de plataforma (= `ITEM_NOT_ADJUSTABLE` y
+  >   `bulk-remove`; es el mismo predicado de `removableCount`). ⛔ **Nunca sobre `picking`** (pedido cobrado: la pieza
+  >   es del comprador) ni `reserved`. *(Medido 2026-09-29: `ItemDetailModal.tsx` ya restringe; `VariantDrawer.tsx` pinta
+  >   el botón «Merma de …» en **toda** fila ⇒ **trabajo frontend**.)* ⭐ **v1.79.7 (D-SHIP-5): ⛔ tampoco sobre NINGUNA
+  >   pieza de cliente** (ningún estado): si alguna pantalla abre una pieza `ownerType='customer'`, «Merma» no se ofrece.
+  >   *(Las piezas del detalle de M1 son de plataforma —el drawer las pide con `ownerType=platform`—, así que hoy esto no
+  >   añade trabajo frontend; queda normado para cuando un modal abra una pieza de cliente.)*
+  > - **«Estado» del `PATCH` (`status:'in_stock'`, despublicar):** la pantalla lo ofrece **solo** sobre plataforma
+  >   `in_stock | listed` (sección 7), y ante `422 ITEM_NOT_ADJUSTABLE` / `409 CONFLICT` muestra el error **con nombre** y
+  >   recarga la pieza (mismo patrón que `move`/`mark`). **NO MEDIDO** en esta rev qué pantallas mandan `status` en el
+  >   `PATCH`; si alguna lo ofrece fuera de ese allowlist, es trabajo frontend del stream que construya §M1 v1.80.3.
+  > - **«Editar precio» (`PATCH …/items/:id` `listPriceCents`):** ⛔ **no se ofrece sobre una pieza `picking`** — está
+  >   vendida y cobrada; su precio ya es el de la línea del pedido, y un override nuevo cambia un número que nadie va a
+  >   usar y confunde al operador. *(Medido 2026-09-29: `VariantDrawer.tsx` lo ofrece en toda fila ⇒ **trabajo
+  >   frontend**.)* ⚠️ Sobre `reserved` (pedido vivo sin pagar) esta rev **no norma nada**: si la línea del pedido toma
+  >   `listPriceCents` al reservar o al liquidar es un hecho del stream «Órdenes y dinero», **NO MEDIDO** aquí; hasta que
+  >   se mida, la pantalla queda como está.
+  > - Los errores de arriba se muestran **con nombre** (patrón `useErrorMessage('operator')`): `ITEM_IN_ANOTHER_SHIPMENT`
+  >   manda al envío; `not_customer_drawer` nombra los cajones del cliente (`customerDrawers`, como en el `confirm`);
+  >   `CONFLICT` pide recargar la pieza.
+  >
+  > **6 · Pruebas que fijan lo de arriba (backend, medido por backend 2026-09-29 sobre `6c90907`; N=1 por mutación,
+  > deterministas):** `test/inventory.move-mark-guards.spec.ts` (41 casos) y
+  > `test/integration/inventory-move-mark-guards.e2e-spec.ts` (8, contra Postgres 16); 15/15 mutaciones muertas (sin guarda
+  > de estado, sin chequeo de retiro, sin zona, sin cajón propio, `mark` sobre `picking`, `update` sin condición, sin
+  > puerta, destino inactivo, sin `location` en la respuesta, cliente `pending` admitido, movimiento fuera de la
+  > transacción, `P2025` sin mapear…). Detalle en `BACKEND_NOTES` «M1 · guardas de `move` y `mark`».
+  > ⭐ **v1.79.7 (cifras de backend, `BACKEND_NOTES` «M1 · D-SHIP-5 y D-SHIP-6», medido 2026-09-29 sobre `7e803bd`;
+  > N=1 por corrida, deterministas):** `inventory.move-mark-guards.spec.ts` pasa a **42/42** (3/3 rojas contra
+  > `4ca6c45`: 2 casos cambian de signo + 1 nuevo, D-SHIP-5); `inventory.patch-status-guard.spec.ts` (nuevo) **21/21**
+  > (18/21 rojas contra `4ca6c45`; las 3 verdes son «lo que no cambia»: sin `status`, `listed` por el pipeline, `404`);
+  > e2e `inventory-move-mark-guards.e2e-spec.ts` **17/17** contra Postgres 16 (el `mark` cliente en retiro pasa de `409`
+  > a `422`, +1 `mark` cliente fuera de retiro, +8 del `PATCH`). Mutaciones **3/3 muertas**: (M1) rama `customer` de
+  > vuelta en `assertOperable` para `mark` ⇒ 3 rojas; (M2) sin `assertOperable(item,'status')` en `updateItem` ⇒ 14/21
+  > rojas unitarias y 6 rojas e2e; (M3) escritura del `PATCH` sin condición ⇒ 3 rojas (CAS, `in_stock → in_stock`,
+  > TOCTOU). ⚠️ `tsc --noEmit` **NO MEDIDO** por backend en esa corrida.
+  >
+  > **7 · ⭐ v1.79.7 (D-SHIP-6) — el `status` del `PATCH …/items/:id` gana la MISMA guarda (camino no publicante).**
+  > Hasta `4ca6c45` un `PATCH { status:'in_stock' }` iba por el `update({ where: { id } })` plano ⇒ **existían**
+  > `lost → in_stock` (se borraba la merma firmada), `picking → in_stock` (una pieza vendida y cobrada volvía al estante)
+  > e `in_custody → in_stock` (la carta de un cliente pasaba a ser de la tienda). Medido por backend; cerrado en
+  > `7e803bd` (`inventory.service.ts:2414-2443`). **Invariante INV-SP-7:** `lost | damaged` no vuelve a
+  > `in_stock | listed` por ningún verbo del operador.
+  >
+  > | Cuerpo del `PATCH` | Camino | Admite | Si no |
+  > |---|---|---|---|
+  > | **sin `status`** | plano (`update` por `id`), **sin cambio** | cualquier pieza (edición de campos, como siempre) | errores de siempre (`400`, `404`, `422 PRODUCT_*`, `certNumber`…) |
+  > | `status:'listed'` desde un estado **≠ `listed`** | **pipeline v1.51, sin cambio** (`assertPublishableGuards` + `resolvePublishSalePrice` + `claimListed`) | plataforma `in_stock` | `422 ITEM_NOT_PUBLISHABLE` / `422 PRICE_PENDING` (sin cambio) |
+  > | **cualquier otro `status`** (`in_stock`; o `listed` cuando ya es `listed`) | ⭐ **guardado:** `$transaction` (`VAULT_VERB_TX_OPTIONS`) → lectura → `assertOperable(item,'status')` → escritura **condicionada** a `{ id, status, ownerType, ownerUserId }` leídos — el **mismo CAS** de `move`/`mark` | **solo plataforma `in_stock · listed`** (el allowlist de `mark`). `listed → in_stock` **despublica**; `status` igual al leído (`in_stock → in_stock`, `listed → listed`) **no escribe `status`**, solo los demás campos | estado/dueño no admitido ⇒ **`422 ITEM_NOT_ADJUSTABLE`** `details: { status, ownerType }`; la pieza cambió entre lectura y escritura (`P2025`) ⇒ **`409 CONFLICT`** («reload and retry») |
+  >
+  > - **Todo o nada:** los demás campos del mismo `PATCH` van en **esa** escritura condicionada; si la guarda rechaza,
+  >   **tampoco se escriben** (fijado contra Postgres: `certNumber` queda `null`).
+  > - ⛔ **Sin `InventoryMovement`** para `listed ↔ in_stock`: es visibilidad de catálogo, no un hecho físico ni de
+  >   titularidad (ARCHITECTURE §4.57 (o) del diseño v1.80.3). El único movimiento que escribe el `PATCH` sigue siendo
+  >   ninguno.
+  > - **Pieza de cliente ⇒ `422 ITEM_NOT_ADJUSTABLE`** en cualquier estado. **`409 ITEM_IN_ANOTHER_SHIPMENT` NO es
+  >   alcanzable desde el `PATCH`** (no consulta retiros, igual que `mark`).
+  > - `404 NOT_FOUND` si la pieza no existe; `403` y `400 VALIDATION_ERROR` como siempre.
+  > - Respuesta: **`200`** con la fila admin (`toAdminInventoryItemRow`), sin cambio de forma.
+  > - **Errores nuevos para el consumidor del `PATCH` (aditivos):** `422 ITEM_NOT_ADJUSTABLE` y `409 CONFLICT`, además de
+  >   los de v1.51. Ambos ya en `common/error-codes.ts`; el front los muestra con nombre (`useErrorMessage('operator')`).
+  > - ⏳ **Pendiente del stream que construya §M1 v1.80.3 (⛔ NO de esta rama/hotfix; anotado 2026-09-29):** la bitácora
+  >   `inventory.item_updated` con `before`/`after` que pide §M4-SHIP.17.1 (2). Medido por backend 2026-09-29: el
+  >   controller sigue escribiendo `inventory.update` **sin diff**. Comprobación cuando se cierre: una entrada de
+  >   auditoría con `before.status`/`after.status` por cada `PATCH` que cambie `status`.
 - Ubicaciones: `GET /api/v1/admin/locations`, `POST /api/v1/admin/locations` (`{ zone, box, row, slot }`).
   ⭐ v1.79.5: la forma de la respuesta (`{ data: VaultLocationDTO[] }`, con `isActive`) se declara en §M4-VAULT.4.
 

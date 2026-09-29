@@ -1391,9 +1391,14 @@ export type ConfirmVaultPlacementResponse =
 export type PlacementNotPendingDetails =
   | { status: 'placed'; location: { id: string; label: string; zone: 'customer_custody' } }
   | { status: 'cancelled'; cancelReason: VaultPlacementCancelReason };
-/** `422 LOCATION_NOT_AVAILABLE` — v1.79.3: + `location_required`; H-5 `customerDrawers`. */
+/**
+ * `422 LOCATION_NOT_AVAILABLE` — v1.79.3: + `location_required`; H-5 `customerDrawers`.
+ * v1.79.6: lo emite TAMBIÉN `POST /admin/inventory/items/:id/move` (§M1) con `not_platform_stock`
+ * (pieza de plataforma, destino fuera de `platform_stock`; solo `move` lo produce). `location_required`
+ * no aplica al `move`.
+ */
 export type LocationNotAvailableDetails =
-  | { reason: 'not_found' | 'inactive' | 'not_customer_custody' }
+  | { reason: 'not_found' | 'inactive' | 'not_customer_custody' | 'not_platform_stock' }
   | { reason: 'not_customer_drawer'; customerDrawers: CustomerDrawerRef[] }
   | { reason: 'location_required'; pickedCount: number };
 

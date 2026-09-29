@@ -104,9 +104,14 @@ export function AdminDashboard() {
                   <span data-testid="sales-gross">
                     {t('salesGross')}: {formatMoneyCents(query.data.salesPeriod.grossAmountCents, locale)}
                   </span>
-                  <span data-testid="sales-net">
-                    {t('salesNet')}: {formatMoneyCents(query.data.salesPeriod.netAmountCents, locale)}
-                  </span>
+                  {/* Hueco 9 (2026-09-29): el backend OMITE `netAmountCents` al no-súper-admin (el neto
+                      es la cifra del P&L, `admin.service.ts` · `dashboard`). Sin el campo la línea no
+                      se pinta: nunca «MX$NaN». ⛔ No se deriva del bruto (sería otra definición de neto). */}
+                  {Number.isFinite(query.data.salesPeriod.netAmountCents) && (
+                    <span data-testid="sales-net">
+                      {t('salesNet')}: {formatMoneyCents(query.data.salesPeriod.netAmountCents, locale)}
+                    </span>
+                  )}
                 </span>
               }
             />
