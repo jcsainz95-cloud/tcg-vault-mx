@@ -8080,3 +8080,46 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Corrección:** renombrar a `address` en ambos idiomas y en el consumidor; el control de paridad i18n es el juez.
 - **Disparador:** el próximo cambio de copys de M4.
 - **Comprobación de cierre:** `rg -n "\"street\"" frontend/messages` ⇒ **0**.
+
+## Backend · 2026-09-29 · QA + techlead sobre `16a3170`/`6695e9e` — correos y `move`/`mark` (rama `claude/arreglos-operador`)
+
+### MAIL-URL1 · Tres constructores de URL del front y dos variables de entorno para el MISMO origen (backend · zona compartida, 2026-09-29)
+- **Dueño del código:** **backend**. **Dueño de la decisión:** **arquitecto** (toca `common/` y la configuración).
+- **Severidad:** Media. **No bloqueante.** Hoy los enlaces llegan bien *si las dos variables valen lo mismo*.
+- **Qué es (medido 2026-09-29 sobre `89c07f5`, `grep` en `backend/src`):**
+  - `appUrl` (`modules/buylist/mail-shell.ts:495`) y su gemelo `buylistPortalUrl`
+    (`modules/buylist/buylist-mail.templates.ts:1125`) — leen **`APP_PUBLIC_URL`**; sin ella, **sin CTA**.
+  - `AuthService.buildFrontendLink` (`modules/auth/auth.service.ts:67`) — lee **`APP_BASE_URL.split(',')[0]`**
+    (la lista de CORS), con respaldo `http://localhost:3000`.
+  - `GuestOrderMailService.buildTrackingUrl` (`modules/orders/guest-order-mail.service.ts:38`) — la misma
+    derivación de `APP_BASE_URL`, copiada.
+- **Riesgo:** alguien reordena la lista de CORS (o `APP_PUBLIC_URL` y `APP_BASE_URL` divergen entre entornos) y los
+  enlaces de verificación/reset/seguimiento apuntan a otro origen que los de pedidos y buylist, sin que nada falle.
+  Dos reglas de locale distintas (`normalizeLocale` vs `user.locale ?? DEFAULT_LOCALE`).
+- **Propuesta (al arquitecto):** un solo `frontendUrl(path, locale, query?)` en `common/`, con una sola variable
+  dedicada (la de `appUrl`), y los cuatro sitios lo llaman. `test/mail-links.frontend-routes.spec.ts` ya barre los
+  constructores: se le añade que no exista otro.
+- **Disparador:** el próximo cambio de dominio/entorno, o antes de separar CORS de la URL pública.
+
+### MAIL-CTA2 · La regla «invitado sin CTA / registrado con CTA» está escrita dos veces (backend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** **backend**.
+- **Severidad:** Baja. **No bloqueante.** Las dos copias coinciden hoy y tienen candado (`avisos.orders.spec.ts` y
+  `avisos.shipments.spec.ts`, bloques «CTA —», B2..B5 muertas, `89c07f5`).
+- **Qué es:** `payments.service.ts` (reembolso: `orderId: order.guestEmail ? null : order.id`) y
+  `shipments.service.ts` · `resolveRecipient` (rama invitado `orderId: null`, rama registrado `orderId`) deciden por
+  separado lo mismo: *«¿el destinatario puede abrir `orders/<id>`?»*. AV-2 lo decide implícitamente (solo se manda al
+  registrado).
+- **Riesgo:** una tercera superficie (p. ej. un aviso de disputa de pedido) copia la regla con otra condición.
+- **Propuesta:** una función `orderCtaIdFor(order)` junto a los templates de pedido, que usen los tres.
+- **Disparador:** el siguiente aviso con CTA al detalle del pedido.
+
+### MAIL-NOTE8 · La nota del movimiento de liquidación dice «guest order» sin mirar quién compró (backend · Órdenes y dinero, 2026-09-29) — QA menor 8
+- **Dueño:** **backend**.
+- **Severidad:** Baja. **No bloqueante.** Es texto de bitácora (`InventoryMovement.note`), no dinero ni cliente.
+- **Qué es:** `payments.service.ts` · `settleDirectShipOrder` escribe `guest order <n> settled (direct_ship)` y
+  `shipments.service.ts` · `updateStatus` escribe `guest shipment <id> <to>` para **todo** `direct_ship`.
+  *Medido 2026-09-29:* hoy el único creador de pedidos `direct_ship` es `guest-checkout.service.ts` (nacen con
+  `userId=null` y `guestEmail`), así que la nota es inexacta solo en los **reclamados** después; QA lo reporta también
+  en registrados — ⛔ NO MEDIDO por mí un camino que cree `direct_ship` de registrado.
+- **Propuesta:** `direct_ship order <n> settled` (el modo, que es el discriminador canónico, §4.21d), sin afirmar quién.
+- **Disparador:** cuando exista `direct_ship` para registrados, o al tocar esas notas.
