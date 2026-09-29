@@ -118,7 +118,9 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     [null, '/admin', 'Resumen', 'Overview', false],
     ['Día a día', '/admin/m5', 'Solicitudes de venta', 'Sell requests', false],
     ['Día a día', '/admin/m3', 'Ventas', 'Sales', false],
-    ['Día a día', '/admin/m4', 'Preparar y enviar', 'Pick & ship', false],
+    // «Pedidos por preparar»: elección del dueño (HECHOS.md, 2026-09-29) sobre el «Preparar y
+    // enviar» que proponía §37.2b. Menú y `h1` salen de la MISMA clave (`admin.modules.m4`).
+    ['Día a día', '/admin/m4', 'Pedidos por preparar', 'Orders to prepare', false],
     ['Día a día', '/admin/m8', 'Disputas', 'Disputes', false],
     ['Existencias', '/admin/m1', 'Inventario', 'Inventory', false],
     ['Existencias', '/admin/m11', 'Sellado', 'Sealed', false],
@@ -164,13 +166,18 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
 });
 
 describe('§37.2 · P66-2 — el `h1` de cada página es su rótulo del menú, carácter por carácter', () => {
-  it.each(ADMIN_MENU_ITEMS.map((i) => [i.href, i.key] as const))('%s', async (href, key) => {
+  // En los DOS idiomas: un `h1` que leyera otra clave (o un literal) coincidiría en `es` por
+  // casualidad y divergiría en `en` — el candado solo muerde si mide los dos.
+  const CASES = (['es', 'en'] as const).flatMap((locale) =>
+    ADMIN_MENU_ITEMS.map((i) => [locale, i.href, i.key] as const),
+  );
+  it.each(CASES)('%s %s', async (locale, href, key) => {
     const Page = PAGES[href];
     expect(Page, `falta la página de ${href} en el mapa del candado`).toBeDefined();
     pathState.pathname = href;
-    renderWithProviders(<Page />, 'es');
+    renderWithProviders(<Page />, locale);
     const h1 = await screen.findByRole('heading', { level: 1 });
-    expect(h1.textContent).toBe(MODULES_ES[key]);
+    expect(h1.textContent).toBe((locale === 'es' ? MODULES_ES : MODULES_EN)[key]);
   });
 });
 

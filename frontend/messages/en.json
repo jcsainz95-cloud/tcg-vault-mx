@@ -1229,7 +1229,7 @@
       "m1": "Inventory",
       "m2": "Catalog & pricing",
       "m3": "Sales",
-      "m4": "Pick & ship",
+      "m4": "Orders to prepare",
       "m5": "Sell requests",
       "m6": "Users",
       "m7": "Finance",
@@ -1486,7 +1486,6 @@
       "pageInfo": "Page {page} of {totalPages}"
     },
     "m4": {
-      "title": "Pick & ship",
       "tracking": {
         "capture": "Capture tracking",
         "title": "Tracking capture",

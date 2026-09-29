@@ -1229,7 +1229,7 @@
       "m1": "Inventario",
       "m2": "Catálogo y precios",
       "m3": "Ventas",
-      "m4": "Preparar y enviar",
+      "m4": "Pedidos por preparar",
       "m5": "Solicitudes de venta",
       "m6": "Usuarios",
       "m7": "Finanzas",
@@ -1486,7 +1486,6 @@
       "pageInfo": "Página {page} de {totalPages}"
     },
     "m4": {
-      "title": "Preparar y enviar",
       "tracking": {
         "capture": "Capturar guía",
         "title": "Captura de guía",
