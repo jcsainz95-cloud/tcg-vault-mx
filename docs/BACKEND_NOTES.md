@@ -26234,3 +26234,39 @@ cambio) sobre la misma BD: 4/5** (PS-43 rojo 1 vez). Sobre BD recién migrada: m
 rojas son de preparación/libro de un directo (`prepare` sin fila `item_missing`; `PREPARATION_INCOMPLETE` en vez de
 `PREPARATION_HAS_BLOCKED_LINES`), caminos que este cambio no toca. Causa **NO MEDIDA**; misma clase que §10.2 (estado de
 BD compartida) o carrera propia de la suite. **Pendiente abierto** (backend): medirla N≥10 en BD usada vs limpia.
+
+## 13 · M-1 de QA sobre `b8a3e4ce`: el PATCH publicante escribía el precio y DESPUÉS perdía el CAS (2026-09-29, commit `81696fb8`)
+
+**El defecto (venía de v1.51, fase 8), medido:** en `updateItem`, camino publicante (`resultingStatus==='listed'` desde un
+estado no `listed`), los campos del body (incluido `listPriceCents`) se escribían con `inventoryItem.update({ where: { id } })`
+y **después** corría `claimListed` (el `updateMany` condicionado a `ownerType=platform` + `status ∈ {in_stock, listed}`). Si un
+checkout reservaba la pieza entre la lectura y la escritura, el CAS perdía ⇒ `422 ITEM_NOT_PUBLISHABLE`, pero el precio ya
+estaba escrito sobre una pieza `reserved`. Contradice INV-SP-8 (`#M1-patch-price-guard`: todo o nada).
+
+**Medición antes del arreglo:** `test/integration/inventory-patch-publish-race.e2e-spec.ts`, barrera de candado de fila
+(`helpers/row-lock-barrier.ts`: la prueba toma `FOR UPDATE`, el PATCH se para en su primera escritura —comprobado en
+`pg_stat_activity`—, la prueba hace `in_stock → reserved` y suelta). **10/10 rojas con N=10** (`422 … → reserved/45678`: el
+precio nuevo escrito). Control con la misma barrera y sin reserva: 10/10 verdes.
+
+**Arreglo:** `claimListed(item, lineListPriceCents?, fields = {})` — los campos viajan en el **mismo** `updateMany`
+condicionado que pone `listed`. Una sola escritura: si el CAS pierde, no se escribe nada. Los caminos de lote no pasan
+`fields` (sin cambio). Conducta visible sin cambio (mismos códigos, misma respuesta). ⛔ El contrato no cambia.
+
+**Cifras (árbol vivo, `81696fb8`):**
+| Medición | Resultado |
+|---|---|
+| Carrera tras el arreglo | 10/10 verdes (N=10); control 10/10 (N=10) |
+| Mutación 1 (volver al orden viejo: `update` por `id` + `claimListed` sin campos), copia entera `git archive HEAD` | carrera **10/10 rojas** (N=10); unitaria `inventory.graded-cert.spec.ts` roja |
+| Mutación 2 (no pasar `fields` a `claimListed`) | unitaria `graded-cert` roja (el `certNumber` no viaja) |
+| Unitaria completa | 380 suites / 6396 pruebas verdes |
+| Integración: race + move-mark-guards + pending-publish-seed + full-refund-vault + enum-query-axes | 5 suites / 487 verdes |
+
+`inventory.graded-cert.spec.ts` «PATCH que publica una gradeada aportando el certNumber» aseveraba la forma vieja (`update`
+llamado); ahora asevera `update` **no** llamado y un único `updateMany` con `{ certNumber, status: 'listed' }` y el `where`
+condicionado.
+
+**Del mismo pase:** M-2 (comentarios `/cuenta#kyc` ⇒ `/account#kyc` en `test/integration/setup.ts` y
+`replacement-cases.e2e-spec.ts`); TD-5 del techlead (comentarios que contradecían la norma vigente):
+`payments.service.ts · onChargeRefunded` (origen `CHARGE_REFUNDED_SOURCE_STATUSES`, v1.80.8.3),
+`refund-ledger.service.ts` cabecera (M3: `onFullRefund` y después `WHERE status='settled'`), y `readGuardedItem` /
+`guardedItemUpdate` en `inventory.service.ts` (también los usa el PATCH no publicante). Solo comentarios.
