@@ -1,7 +1,7 @@
+import { OrderRefundService } from '../src/modules/orders/order-refund.service';
 import { AdminOrdersController } from '../src/modules/orders/admin-orders.controller';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { StripeService } from '../src/modules/payments/stripe.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
 
@@ -26,9 +26,9 @@ function build() {
   const ctrl = new AdminOrdersController(
     {} as OrdersService,
     prisma as PrismaService,
-    {} as StripeService,
     { log: jest.fn() } as unknown as AuditService,
     {} as GuestOrderMailService,
+    {} as OrderRefundService,
   );
   return { ctrl, prisma };
 }

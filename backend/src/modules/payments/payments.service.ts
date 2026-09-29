@@ -11,10 +11,9 @@ import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
 // LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
-import {
-  orderRefundedTemplate,
-  orderSettledTemplate,
-} from '../orders/mail/order-notice.templates';
+import { orderRefundedTemplate, orderSettledTemplate } from '../orders/mail/order-notice.templates';
+import { FullRefundService } from './refunds/full-refund.service';
+import { RefundLedgerService } from './refunds/refund-ledger.service';
 
 /**
  * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
@@ -36,6 +35,10 @@ export class PaymentsService {
     // ⛔ **un fallo de correo NUNCA puede hacer que el webhook de Stripe responda != 2xx** (un 5xx
     // haría que Stripe reintentara un settle ya aplicado). Candado `C-AV-10`.
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // ⭐ v1.80 (§M4-SHIP.7/.17.2/.18): el cierre por reembolso total y el libro. `@Optional()` por el mismo
+    // motivo que el correo: los tests unitarios legacy construyen este servicio a mano.
+    @Optional() private readonly fullRefund?: FullRefundService,
+    @Optional() private readonly ledger?: RefundLedgerService,
   ) {}
 
   /**
@@ -157,6 +160,11 @@ export class PaymentsService {
           break;
         case 'charge.refunded':
           await this.onChargeRefunded(event.data.object as Stripe.Charge);
+          break;
+        // ⭐ v1.80 (§9): concilia UNA fila del libro por `metadata.paymentRefundId` (mismo manejador).
+        case 'charge.refund.updated':
+        case 'refund.updated':
+          await this.onRefundUpdated(event.data.object as Stripe.Refund);
           break;
         case 'charge.dispute.created':
           await this.onChargeDispute(event.data.object as Stripe.Dispute);
@@ -621,36 +629,89 @@ export class PaymentsService {
   }
 
   /**
-   * charge.refunded → Order `refunded`. A1 (VENTAS FINALES): el reembolso NO re-agrega el
-   * item al inventario (no auto-revert); es un remedio excepcional del super_admin ya
-   * autorizado (money-out).
-   * M2: distingue reembolso PARCIAL vs TOTAL (`amount_refunded` vs `amount`); solo el
-   * reembolso total transiciona la orden a `refunded`.
+   * `charge.refund.updated` / `refund.updated` (⭐ v1.80, §9) — el `Refund` trae `metadata.paymentRefundId`:
+   * `succeeded` ⇒ la fila pasa a `succeeded`; `failed|canceled` ⇒ `failed` + bitácora. Sin metadata ⇒ solo log.
+   */
+  async onRefundUpdated(refund: Stripe.Refund): Promise<void> {
+    if (!this.ledger) {
+      this.logger.warn('refund.updated ignorado: RefundLedgerService no disponible');
+      return;
+    }
+    await this.ledger.onRefundUpdated({
+      id: refund.id,
+      status: refund.status ?? null,
+      metadata: (refund.metadata ?? {}) as Record<string, string>,
+    });
+  }
+
+  /**
+   * charge.refunded → Order `refunded`. M2: distingue reembolso PARCIAL vs TOTAL (`amount_refunded` vs
+   * `amount`); solo el reembolso total transiciona la orden a `refunded`.
+   *
+   * ⭐ v1.80.3/.4/.5 (§M4-SHIP.17.2, §M4-SHIP.18.2/.3) — el TOTAL corre `onFullRefund` EN LA MISMA tx del
+   * webhook: directo ⇒ cierra el envío vivo; bóveda ⇒ deshace la venta (reclamo por pieza, idempotente);
+   * PI de un RETIRO ⇒ cierra el retiro. Independiente del ORDEN DE LLEGADA (SEC-SHIP-M5): con la orden ya
+   * `refunded` por M3 la pasada re-clasifica y solo reclama lo que M3 no pudo. `Order → refunded` con
+   * `status IN (settled, refunded)`. `AV-3` lo manda quien escribió el sello, y solo si la regla de §9 lo
+   * permite (fila `order_full` no fallida, o ninguna fila del libro).
    */
   async onChargeRefunded(charge: Stripe.Charge): Promise<void> {
     const pi = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
     if (!pi) return;
-    const order = await this.prisma.order.findUnique({ where: { stripePaymentIntentId: pi } });
-    if (!order) return;
-
     const amount = charge.amount ?? 0;
     const amountRefunded = charge.amount_refunded ?? 0;
     const fullyRefunded = amount > 0 && amountRefunded >= amount;
+    const order = await this.prisma.order.findUnique({ where: { stripePaymentIntentId: pi } });
+    if (!order) {
+      // ¿El cobro de un RETIRO? Total ⇒ el retiro vivo se cierra (§M4-SHIP.17.2, rama retiro).
+      const shipment = await this.prisma.shipmentRequest.findUnique({ where: { stripePaymentIntentId: pi }, select: { id: true } });
+      if (!shipment || !fullyRefunded || !this.fullRefund) return;
+      await this.prisma.$transaction(async (tx) => {
+        await this.fullRefund!.onFullRefund(tx, { shipmentRequestId: shipment.id }, 'charge_refunded', null);
+      });
+      return;
+    }
     if (!fullyRefunded) {
-      // M2: reembolso parcial → no cambia el estado terminal de la orden (queda registrado
-      // en Stripe; la conciliación fina de importes parciales es de M7/Finanzas).
+      // M2: reembolso parcial → no cambia el estado terminal de la orden (queda registrado en Stripe; la
+      // conciliación por fila es `charge.refund.updated`).
       this.logger.log(
         `Order ${order.id}: reembolso PARCIAL (${amountRefunded}/${amount}); sin cambio de estado.`,
       );
       return;
     }
-    if (order.status === 'refunded') return;
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: { status: 'refunded', refundedAt: new Date() },
-    });
-    // ⭐ `AV-3` (§R.3) — POST-COMMIT y best-effort. Destinatario: `guestEmail ?? user.email` (§R.5:
-    // *el reembolso le toca a los dos*). ⛔ Nunca a una cuenta anonimizada (§R.5.a).
+    if (!this.fullRefund) {
+      // Modo legado (tests unitarios sin el servicio): el estado, con el CAS en el `WHERE`, y `AV-3` una vez.
+      if (order.status === 'refunded') return;
+      await this.prisma.order.updateMany({ where: { id: order.id, status: 'settled' }, data: { status: 'refunded', refundedAt: new Date() } });
+      await this.notifyOrderRefunded(order);
+      return;
+    }
+    const transitioned = await this.prisma.$transaction(
+      async (tx) => {
+        // El cierre toma sus candados (envíos → piezas → Order) y sella; `Order → refunded` va después, bajo
+        // el mismo candado de fila que la pasada ya tomó. Independiente del orden de llegada (SEC-SHIP-M5).
+        await this.fullRefund!.onFullRefund(tx, { orderId: order.id }, 'charge_refunded', null);
+        const moved = await tx.order.updateMany({
+          where: { id: order.id, status: 'settled' },
+          data: { status: 'refunded', refundedAt: new Date() },
+        });
+        return moved.count === 1;
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+    // ⭐ `AV-3` (§R.3) — POST-COMMIT y best-effort; una vez: quien hizo la TRANSICIÓN `settled → refunded`
+    // (M3 en su tx de confirmación o este webhook, el que llegue primero; el otro no manda nada).
+    if (transitioned) await this.notifyOrderRefunded(order);
+  }
+
+  /**
+   * ⭐ `AV-3` (§R.3) — TE DEVOLVIMOS TU DINERO, solo con reembolso TOTAL. Destinatario: `guestEmail ??
+   * user.email` (§R.5: *el reembolso le toca a los dos*). ⛔ Nunca a una cuenta anonimizada (§R.5.a).
+   * ⭐ v1.80 (§9): sale SOLO si la orden tiene fila `order_full` no fallida o ninguna fila del libro (con
+   * filas de carta faltante el cliente ya recibió `AV-12`). Variante `vault` (§M4-SHIP.18.6).
+   */
+  private async notifyOrderRefunded(order: Order): Promise<void> {
+    if (this.ledger && !(await this.ledger.av3Allowed(order.id))) return;
     await this.safeNotify(order.id, async () => {
       const recipient = order.guestEmail
         ? { email: order.guestEmail, locale: order.locale }
@@ -668,7 +729,7 @@ export class PaymentsService {
       }
       return {
         ...orderRefundedTemplate(
-          { orderNumber: order.orderNumber ?? '', totalCents: order.totalCents },
+          { orderNumber: order.orderNumber ?? '', totalCents: order.totalCents, vault: order.fulfillmentMode === 'vault' },
           recipient.locale,
         ),
         to: recipient.email,

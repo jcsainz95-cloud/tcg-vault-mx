@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { matchesWhere } from './helpers/prisma-where';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -72,6 +73,7 @@ function buildHarness(opts: {
     user: { findUnique: jest.fn().mockResolvedValue(opts.user ?? null) },
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
   };
+  withM61Defaults(tx);
   const mail: MailPort | undefined =
     opts.mail === null || opts.mail === undefined
       ? undefined
@@ -96,6 +98,11 @@ const VAULT_SHIPMENT = {
   userId: 'user-1',
   orderId: null,
   status: 'picking',
+  // ⭐ v1.80 (§M4-SHIP.6): la guía exige «preparado» y cero casos `open` EN EL `WHERE`; el fake modela ambos.
+  preparedAt: new Date('2026-09-29T00:00:00.000Z'),
+  preparedByUserId: 'op-1',
+  replacementCases: [],
+  stripePaymentIntentId: null,
   carrier: null,
   trackingNumber: null,
   trackingNoticeSentAt: null,
@@ -136,8 +143,10 @@ describe('⭐⭐ C-AV-3 — DOS correos de envío y NINGUNO al entregar (criteri
   });
 
   it('`cancelado` sí manda (AV-6), y desde `cancelado` no se sale ⇒ no puede haber un segundo', async () => {
+    // ⭐ v1.80 (§M4-SHIP.9): un envío PAGADO (`picking|guia`) ya no se cancela a mano; el único `cancelado`
+    // manual que queda es el de un `solicitado` (no pagado), que sigue mandando `AV-6` una vez.
     const { svc, sent } = buildHarness({
-      shipment: { ...VAULT_SHIPMENT, status: 'guia' },
+      shipment: { ...VAULT_SHIPMENT, status: 'solicitado', preparedAt: null, preparedByUserId: null },
       user: USER,
       mail: 'ok',
     });

@@ -7,10 +7,10 @@ import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StripeService } from '../payments/stripe.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
-import { ChargebackInventoryDto, RefundDto } from './dto/orders.dto';
+import { ChargebackInventoryDto, ReclaimVaultDto, RefundDto } from './dto/orders.dto';
+import { OrderRefundService } from './order-refund.service';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { maskEmail } from './guest-privacy';
 import { DAY_MS, GUEST_TRACKING_MAX_AGE_DAYS } from './guest-checkout.constants';
@@ -29,9 +29,9 @@ export class AdminOrdersController {
   constructor(
     private readonly orders: OrdersService,
     private readonly prisma: PrismaService,
-    private readonly stripe: StripeService,
     private readonly audit: AuditService,
     private readonly guestMail: GuestOrderMailService,
+    private readonly refunds: OrderRefundService,
   ) {}
 
   @Get()
@@ -138,11 +138,14 @@ export class AdminOrdersController {
         paymentMethodLast4: true,
       },
     });
+    // ⭐ v1.80.4 (§M4-SHIP.18.6) — `vaultPieces`, DERIVADO en la lectura (un cuerpo con el cierre).
+    const vaultPieces = extra?.fulfillmentMode === 'vault' ? await this.refunds.vaultPieces(id) : undefined;
     return {
       ...detail,
       ...(extra ?? {}),
       isGuestOrder: extra?.guestEmail != null,
       claimedAt: extra?.claimedAt ?? undefined,
+      ...(vaultPieces ? { vaultPieces } : {}),
     };
   }
 
@@ -197,7 +200,7 @@ export class AdminOrdersController {
     @Body() dto: ChargebackInventoryDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.orders.resolveChargebackInventory(id, dto.outcome);
+    const res = await this.orders.resolveChargebackInventory(id, dto.outcome, new Date(), user.id);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -215,11 +218,14 @@ export class AdminOrdersController {
   }
 
   /**
-   * A1 — Reembolso admin. POLÍTICA DEL HUMANO: VENTAS FINALES, sin reembolso voluntario.
-   * Este endpoint es EXCEPCIONAL (super_admin, money-out ya autorizado y auditado) y NO
-   * auto-revierte el item al inventario: `onChargeRefunded` marca la orden `refunded` pero
-   * NO re-agrega la carta. Úsese solo para casos excepcionales (obligación legal, error de
-   * cobro), no como remedio de disputa (esa es la recompra de M8).
+   * A1 — Reembolso admin. POLÍTICA DEL HUMANO: VENTAS FINALES, sin reembolso voluntario. Este endpoint es
+   * EXCEPCIONAL (super_admin, money-out ya autorizado y auditado).
+   *
+   * ⭐ v1.80 (§M3, §M4-SHIP.7): reembolsa LO QUE QUEDA (`totalCents − Σ` filas no fallidas del libro), con
+   * fila `order_full` y Stripe con `amount`; la cabecera `Idempotency-Key` se acepta y ⛔ ya no se usa (la
+   * idempotencia es la llave del libro). 🔒 v1.80.3: cierra el envío vivo de un directo en su tx.
+   * 💰 v1.80.4/.5: en una orden `vault` DESHACE la venta al confirmar (§M4-SHIP.18). Norma y candados:
+   * `OrderRefundService.requestFullRefund`.
    */
   @Post(':id/refund')
   @MoneyOut()
@@ -227,37 +233,24 @@ export class AdminOrdersController {
     @Param('id') id: string,
     @Body() dto: RefundDto,
     @CurrentUser() user: { id: string; role: Role },
-    @Headers('idempotency-key') idempotencyKey?: string,
+    @Headers('idempotency-key') _idempotencyKey?: string,
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id } });
-    if (!order) throw BusinessException.notFound();
-    if (!order.stripePaymentIntentId) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Order has no payment intent');
-    }
-    // SEC-M3: guardia de estado — solo se reembolsa una orden `settled`. Evita reembolsos
-    // sobre órdenes ya reembolsadas/en contracargo/pendientes y transiciones inconsistentes.
-    if (order.status !== 'settled') {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Only a settled order can be refunded', {
-        status: order.status,
-      });
-    }
-    // SEC-M3: idempotencia obligatoria hacia Stripe. Si el cliente no envía
-    // `Idempotency-Key`, se deriva una determinista por orden para que reintentos no
-    // generen reembolsos duplicados.
-    const idem = idempotencyKey ?? `refund-${order.id}`;
-    const refundId = await this.stripe.refund(order.stripePaymentIntentId, idem);
-    await this.prisma.order.update({
-      where: { id },
-      data: { status: 'refunded', refundedAt: new Date() },
-    });
-    await this.audit.log({
-      actorUserId: user.id,
-      actorRole: user.role,
-      action: 'order.refund',
-      entityType: 'Order',
-      entityId: id,
-      after: { reason: dto.reason, refundId },
-    });
-    return { orderId: id, status: 'refunded', refundId };
+    return this.refunds.requestFullRefund(id, dto, user);
+  }
+
+  /**
+   * 🔒 v1.80.5/.6 (§M4-SHIP.18.10) — re-correr el reclamo de una compra a bóveda ya cerrada por reembolso
+   * total. `super_admin`; custodia, ⛔ no dinero (sin `@MoneyOut`); auditado SIEMPRE
+   * (`order.vault_reclaim_requested`).
+   */
+  @Post(':id/reclaim-vault')
+  @Roles(Role.super_admin)
+  @HttpCode(200)
+  async reclaimVault(
+    @Param('id') id: string,
+    @Body() dto: ReclaimVaultDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.refunds.reclaimVault(id, dto, user);
   }
 }

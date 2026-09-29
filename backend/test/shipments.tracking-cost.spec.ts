@@ -1,4 +1,5 @@
 import { plainToInstance } from 'class-transformer';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { matchesWhere } from './helpers/prisma-where';
 import { validate } from 'class-validator';
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
@@ -24,6 +25,10 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
     const fila: Record<string, unknown> = {
       id: 'ship1',
       status: 'picking',
+      // ⭐ v1.80 (§M4-SHIP.6): la guía exige «preparado» y cero casos abiertos EN EL `WHERE` del avance.
+      preparedAt: new Date('2026-09-29T00:00:00.000Z'),
+      preparedByUserId: 'op-1',
+      replacementCases: [],
       carrier: null,
       trackingNumber: null,
       trackingNoticeSentAt: null,
@@ -46,6 +51,7 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
         }),
       },
     };
+    withM61Defaults(prisma);
     const svc = new ShipmentsService(
       prisma as PrismaService,
       {} as SettingsService,
@@ -98,7 +104,13 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
     // `TRANSITIONS` (`s ∈ PRE_GUIA ⇔ 'guia' ∈ TRANSITIONS[s]`), y de `solicitado` **no** se salta a
     // `guia` — hay que pasar por `picking` primero. Capturar una etiqueta sobre un `solicitado` ya
     // daba `409` antes de este pase; aquí solo se comprueba que la derivación no inventó estados.
-    expect(avance.where).toEqual({ id: 'ship1', status: { in: ['picking'] } });
+    // ⭐ v1.80 (§M4-SHIP.6): el avance exige «preparado» y cero casos abiertos EN EL `WHERE` (no en una lectura).
+    expect(avance.where).toEqual({
+      id: 'ship1',
+      status: { in: ['picking'] },
+      preparedAt: { not: null },
+      replacementCases: { none: { status: 'open' } },
+    });
     // La escritura de la etiqueta es la CONDICIONAL, y casó: la fila venía sin etiqueta.
     expect(condicional.data).toEqual({
       carrier: 'DHL',
@@ -210,6 +222,7 @@ describe('SEC-C1 — proyección de cliente NO expone shippingCostCents', () => 
         ...overrides,
       },
     };
+    withM61Defaults(prisma);
     const svc = new ShipmentsService(
       prisma as PrismaService,
       {} as SettingsService,

@@ -71,6 +71,8 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       order: {
         findUnique: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
+        // ⭐ v1.80: `charge.refunded` escribe `refunded` con el estado en el `WHERE`.
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       // `REL-B`/`REL-C`: las dos escrituras de envío del webhook llevan ahora su precondición de
       // estado en el `WHERE` (`updateMany` + `count`), no en el `if` sobre la lectura previa.
@@ -306,13 +308,15 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled' });
     await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 40000 } as any);
     expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('M2/A1: reembolso TOTAL → refunded, SIN re-agregar item al inventario', async () => {
     prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled' });
     await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 100000 } as any);
-    expect(prisma.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'refunded' }) }),
+    // ⭐ v1.80 (REL-B, SEC-SHIP-M5): la transición lleva el estado en el `WHERE` (`updateMany`), ⛔ no `update` plano.
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'o1', status: 'settled' }, data: expect.objectContaining({ status: 'refunded' }) }),
     );
     // A1: VENTAS FINALES → el item NO se revierte al inventario en el refund.
     expect(prisma._tx.inventoryItem.update).not.toHaveBeenCalled();
