@@ -103,6 +103,14 @@ function build(target: Row, opts: { activeWithdrawal?: boolean } = {}) {
         return data;
       }),
     },
+    // Regla de fusión `#M1-merge-rule` (v1.80.7.2): el `updateItem` fusionado conserva la bitácora
+    // `inventory.item_updated` de `envio-preparar` (before/after) cuando cambia `status`, en la MISMA tx.
+    auditLog: {
+      create: jest.fn(async ({ data }: any) => {
+        log.push(`audit${inTx ? '@tx' : ''}`);
+        return data;
+      }),
+    },
   });
   const tx = client(true);
   const prisma: any = client(false);
@@ -142,6 +150,17 @@ describe('PATCH {status:"in_stock"} — pieza de PLATAFORMA (D-SHIP-6)', () => {
     );
     // ⛔ Sin `InventoryMovement` para `listed ↔ in_stock` (visibilidad de catálogo, no movimiento físico).
     expect(log.some((l) => l.startsWith('movement'))).toBe(false);
+    // Bitácora `inventory.item_updated` (before/after), dentro de la tx, después de la escritura.
+    expect(log.filter((l) => l.endsWith('@tx'))).toEqual(['read@tx', 'update@tx', 'audit@tx']);
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'inventory.item_updated',
+        entityType: 'InventoryItem',
+        entityId: 'p',
+        before: { status: 'listed' },
+        after: { status: 'in_stock', fields: ['status'] },
+      }),
+    });
   });
 
   it('in_stock → in_stock NO escribe `status`; los demás campos sí, en la misma escritura', async () => {
@@ -152,6 +171,8 @@ describe('PATCH {status:"in_stock"} — pieza de PLATAFORMA (D-SHIP-6)', () => {
     const call = tx.inventoryItem.update.mock.calls[0][0];
     expect(call.data).toEqual({ certNumber: 'C-1' });
     expect(call.where).toMatchObject({ id: 'p', status: 'in_stock', ownerType: 'platform' });
+    // `status` no cambia ⇒ sin bitácora de cambio de estado.
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 
   it('listed → in_stock con otros campos: TODO en una sola escritura transaccional (todo o nada)', async () => {

@@ -17,6 +17,7 @@ import { StripeService } from '../payments/stripe.service';
 import { OrdersService, OwnReservation } from './orders.service';
 import { RESERVATION_TX_OPTIONS, lockReservationGate, reservedUntilFrom } from './reservation';
 import { OrderAccessTokenService } from './order-access-token.service';
+import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { GuestQuoteDto, GuestResendLinkDto, GuestSessionDto } from './dto/guest-checkout.dto';
 import { maskEmail, maskPostalCode, maskRecipientName, normalizeEmail } from './guest-privacy';
@@ -345,8 +346,9 @@ export class GuestCheckoutService {
     const order = await this.prisma.order.findUnique({
       where: { id: token.orderId },
       include: {
-        items: { include: { inventoryItem: { include: { card: { include: { set: true } } } } } },
+        items: { include: { inventoryItem: { include: { card: { include: { set: true } } } }, refund: true } },
         shipmentRequests: { orderBy: { requestedAt: 'desc' } },
+        refunds: true,
       },
     });
     // Defensa: un token vivo sin pedido (borrado) se trata igual que un token inventado.
@@ -592,43 +594,13 @@ export class GuestCheckoutService {
    * público NO es una columna: se deriva. `chargeback` NO se nombra hacia el invitado
    * (`en_revision`): decir "contracargo" en una vista sin autenticar da información operativa.
    */
-  publicStatus(orderStatus: OrderStatus, shipmentStatus?: ShipmentStatus | null): GuestOrderPublicStatus {
-    switch (orderStatus) {
-      case 'pending':
-        return 'pendiente_pago';
-      case 'failed':
-        return 'cancelado';
-      case 'refunded':
-        return 'reembolsado';
-      case 'chargeback':
-        return 'en_revision';
-      case 'settled':
-        break;
-    }
-    switch (shipmentStatus) {
-      case 'solicitado':
-      case 'picking':
-        return 'preparando';
-      case 'guia':
-        return 'guia';
-      case 'enviado':
-        return 'enviado';
-      case 'entregado':
-        return 'entregado';
-      case 'cancelado':
-        return 'en_revision';
-      default:
-        // Ventana entre el webhook y la creación del envío.
-        return 'pagado';
-    }
+  publicStatus(orderStatus: OrderStatus, shipmentStatus?: ShipmentStatus | null, money?: { refundedCents: number; totalCents: number }): GuestOrderPublicStatus {
+    // ⭐ v1.80.2 (§M4-SHIP.16): EXTRAÍDO a `order-public-status.ts` — el MISMO cuerpo que `GET /orders/:orderId`.
+    return publicStatus(orderStatus, shipmentStatus, money);
   }
 
-  /**
-   * Envío VIGENTE del pedido: el más reciente no cancelado (si todos están cancelados, el más
-   * reciente). Invariante de aplicación: a lo más un envío ACTIVO por orden.
-   */
   private activeShipment(shipments: ShipmentRequest[]): ShipmentRequest | undefined {
-    return shipments.find((s) => s.status !== 'cancelado') ?? shipments[0];
+    return activeShipment(shipments);
   }
 
   /**
@@ -640,6 +612,7 @@ export class GuestCheckoutService {
     order: Order & {
       items: {
         unitPriceCents: number;
+        refund?: { status: string; amountCents: number; missingReason: string | null; submittedAt: Date | null; succeededAt: Date | null } | null;
         inventoryItem: {
           finish: string;
           productType: string;
@@ -651,17 +624,21 @@ export class GuestCheckoutService {
         };
       }[];
       shipmentRequests: ShipmentRequest[];
+      refunds?: { status: string; amountCents: number }[];
     },
     tokenExpiresAt: Date,
   ) {
     const shipment = this.activeShipment(order.shipmentRequests);
     const address = (order.shippingAddressSnapshot ?? {}) as Partial<GuestAddressSnapshot>;
     const deliveredAt = shipment?.deliveredAt ?? null;
+    // v1.80 (§M4-SHIP.10): lo devuelto POR STRIPE (`submitted|succeeded`) y la regla «todo devuelto ⇒ reembolsado».
+    const refundedCents = refundedCentsOf(order.refunds ?? []);
 
     return {
       // Identificador LEGIBLE. El uuid interno (`order.id`) está PROHIBIDO aquí (§4-G.3).
       orderNumber: order.orderNumber ?? '',
-      status: this.publicStatus(order.status, shipment?.status),
+      status: this.publicStatus(order.status, shipment?.status, { refundedCents, totalCents: order.totalCents }),
+      refundedCents,
       placedAt: order.createdAt,
       paidAt: order.settledAt ?? undefined,
       // Confirma al comprador QUÉ correo usó, sin revelarlo (el enlace puede reenviarse).
@@ -678,6 +655,9 @@ export class GuestCheckoutService {
         gradeValue: oi.inventoryItem.gradeValue ?? undefined,
         imageSmallUrl: oi.inventoryItem.card.imageSmallUrl ?? undefined,
         unitPriceCents: oi.unitPriceCents,
+        // v1.80 (§M4-SHIP.10): la carta que no salió y se devolvió — solo filas aceptadas por Stripe. ⛔ Sin actor,
+        // `failureCode` ni componentes.
+        refund: clientRefundOf(oi.refund),
       })),
       breakdown: {
         subtotalCents: order.subtotalCents,

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, fireEvent } from '@testing-library/react';
-import { renderWithIntl } from '@/test/render';
+import { renderWithProviders } from '@/test/render';
 import { AdminShell } from './AdminShell';
 import { setStoredUser } from '@/lib/session';
 import type { UserDTO } from '@/types/contract';
@@ -25,7 +25,8 @@ vi.mock('@/i18n/navigation', () => ({
 }));
 
 const logout = vi.fn().mockResolvedValue(undefined);
-vi.mock('@/lib/api', () => ({ logout: () => logout() }));
+// v1.80: el menú sondea el contador de «Pedidos por preparar» (`usePickingSummary`); aquí no hay backend ⇒ rechaza.
+vi.mock('@/lib/api', () => ({ logout: () => logout(), getPickingListSummary: () => Promise.reject(new Error('no backend')) }));
 
 const operator: UserDTO = { id: 'u-op', email: 'op@tcghunt.mx', name: 'Op', role: 'vault_operator', locale: 'es' };
 
@@ -46,7 +47,7 @@ describe('AdminShell · contraseña temporal bloquea el panel', () => {
     async (path) => {
       currentPath = path;
       setStoredUser({ ...operator, mustChangePassword: true });
-      renderWithIntl(<AdminShell>panel</AdminShell>, 'es');
+      renderWithProviders(<AdminShell>panel</AdminShell>, 'es');
       await waitFor(() =>
         expect(replace).toHaveBeenCalledWith(
           `/admin/account/password?next=${encodeURIComponent(path)}&reason=required`,
@@ -60,7 +61,7 @@ describe('AdminShell · contraseña temporal bloquea el panel', () => {
     currentPath = '/admin/m4';
     currentSearch = 'status=guia';
     setStoredUser({ ...operator, mustChangePassword: true });
-    renderWithIntl(<AdminShell>panel</AdminShell>, 'es');
+    renderWithProviders(<AdminShell>panel</AdminShell>, 'es');
     await waitFor(() =>
       expect(replace).toHaveBeenCalledWith(
         '/admin/account/password?next=%2Fadmin%2Fm4%3Fstatus%3Dguia&reason=required',
@@ -72,14 +73,14 @@ describe('AdminShell · contraseña temporal bloquea el panel', () => {
   it('en /admin/account/password con la bandera activa pinta la página dentro del shell', async () => {
     currentPath = '/admin/account/password';
     setStoredUser({ ...operator, mustChangePassword: true });
-    renderWithIntl(<AdminShell>panel</AdminShell>, 'es');
+    renderWithProviders(<AdminShell>panel</AdminShell>, 'es');
     expect(await screen.findByText('panel')).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
   });
 
   it('sin la bandera el operador ve el panel; el drawer lleva «Mi cuenta» y «Cerrar sesión» al pie (§33.2)', async () => {
     setStoredUser({ ...operator, mustChangePassword: false });
-    renderWithIntl(<AdminShell>panel</AdminShell>, 'es');
+    renderWithProviders(<AdminShell>panel</AdminShell>, 'es');
     expect(await screen.findByText('panel')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Menú' }));
     const links = screen.getAllByRole('link', { name: 'Mi cuenta' });

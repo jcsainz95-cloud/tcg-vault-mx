@@ -1,0 +1,15 @@
+# Eventos a los que DEBE estar suscrito el endpoint del webhook de Stripe (prod y staging).
+# Fuente unica; la vigila scripts/check-stripe-webhook-events.sh (CI, job stripe-webhook-events):
+#   - todo evento que el backend maneje (`case '<evento>':` en backend/src) tiene que estar aqui;
+#   - todo evento de aqui tiene que estar en la lista de docs/DEVOPS_NOTES.md §11.G (el paso del dueno).
+# Un evento por linea. Lineas con # y vacias se ignoran.
+payment_intent.succeeded
+payment_intent.payment_failed
+payment_intent.canceled
+charge.refunded
+charge.dispute.created
+charge.dispute.closed
+charge.dispute.funds_reinstated
+# M4-SHIP (API_CONTRACT §9, v1.80): conciliacion de la fila del libro de reembolsos.
+charge.refund.updated
+refund.updated

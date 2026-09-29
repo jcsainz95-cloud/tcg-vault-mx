@@ -16,17 +16,14 @@ import { Banner } from '@/components/ui/Banner';
 import { sortPreparationItems, sortPreparationOrders } from '@/lib/preparation-order';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type {
-  PreparationDestination,
-  PreparationItemDTO,
-  ShipPreparationOrderDTO,
-} from '@/types/contract';
-import { AgeStamp, CardInfo, DASH, LABEL } from './prep-shared';
+import type { PreparationDestination, ShipPreparationOrderDTO } from '@/types/contract';
+import { Link } from '@/i18n/navigation';
+import { LABEL } from './prep-shared';
 import { VaultPlacementCard, type QueueNotice } from './VaultPlacementCard';
-import { LocateItemControl } from './LocateItemControl';
+import { ShipPreparationCard } from './ShipPreparationCard';
 
 /**
- * **«Pedidos a preparar»** — la hoja de trabajo del operador (contrato **§M4-PREP** v1.78 ·
+ * **«Pedidos por preparar»** — la hoja de trabajo del operador (contrato **§M4-PREP** v1.78 ·
  * `GET /admin/shipments/picking-list`, `PROJECT.md` §«Pedidos a preparar», CA #6/#8/#9/#11).
  *
  * **Una tarjeta = UN pedido**, no una fila por pieza: el operador arma un paquete completo, y la
@@ -37,14 +34,15 @@ import { LocateItemControl } from './LocateItemControl';
  * ⚠️ La ruta interna sigue diciendo `picking-list` (decisión del arquitecto, §M4-PREP). El
  * renombrado es de cara al operador: en pantalla **no aparece la palabra «picking»**.
  *
- * La tarjeta de **ENVÍO** sigue siendo de SOLO LECTURA (⛔ sin casillas: §M4-VAULT.10.1, §35.11).
- * ⭐ **§M4-VAULT (v1.79):** la cubeta «Para bóveda» deja de estar vacía y su tarjeta
- * (`VaultPlacementCard`, `DESIGN_SYSTEM §36`) sí tiene verbos: palomear, «Pedido preparado»,
- * «Deshacer preparado» y «Confirmar colocación».
+ * ⭐ **§M4-VAULT (v1.79):** la cubeta «Para bóveda» tiene su tarjeta con verbos
+ * (`VaultPlacementCard`, `DESIGN_SYSTEM §36`): palomear, «Pedido preparado», «Deshacer preparado» y
+ * «Confirmar colocación». ⭐ **§M4-SHIP (v1.80, `DESIGN_SYSTEM §37`):** la tarjeta de **ENVÍO** deja de
+ * ser de solo lectura (`ShipPreparationCard`): palomear con «Llegó dañada», «Pedido preparado» con la
+ * cifra del servidor, «Deshacer preparado» y «Capturar guía».
  */
 
 /** Cubeta elegida por el operador (CA #8). `''` = ambas (⇒ `?destination` ausente). */
-type Bucket = '' | PreparationDestination;
+export type Bucket = '' | PreparationDestination;
 
 const BUCKETS: { value: Bucket; labelKey: 'filterAll' | 'filterVault' | 'filterShip' }[] = [
   { value: '', labelKey: 'filterAll' },
@@ -52,11 +50,18 @@ const BUCKETS: { value: Bucket; labelKey: 'filterAll' | 'filterVault' | 'filterS
   { value: 'vault', labelKey: 'filterVault' },
 ];
 
-export function PreparationQueue() {
+export function PreparationQueue({
+  onCaptureGuide,
+  initialBucket = '',
+}: {
+  /** §37.3a: «Capturar guía» del paso 2 abre el MISMO diálogo de `admin.m4.tracking.*` que la cola de envíos. */
+  onCaptureGuide: (order: ShipPreparationOrderDTO) => void;
+  initialBucket?: Bucket;
+}) {
   const t = useTranslations('admin.m4.prep');
-  const tm4 = useTranslations('admin.m4');
+  const ts = useTranslations('admin.m4.prep.ship');
   const locale = useLocale() as AppLocale;
-  const [bucket, setBucket] = useState<Bucket>('');
+  const [bucket, setBucket] = useState<Bucket>(initialBucket);
   /**
    * §36.8 — el AVISO DE RESULTADO (o de «ya no está pendiente», §36.9) queda ENCIMA de la lista:
    * la tarjeta sale de ella y el resultado no puede irse con ella. El último sustituye al anterior;
@@ -162,9 +167,18 @@ export function PreparationQueue() {
           <p className="text-sm text-muted">{t('hint')}</p>
         </div>
         <div className="flex flex-col gap-1.5">
-          <span id="prep-bucket-label" className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
-            {t('filterLabel')}
-          </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span id="prep-bucket-label" className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              {t('filterLabel')}
+            </span>
+            {/* §37.11c — la hoja imprimible: la misma cola, en papel, sin precios ni correos ni teléfonos. */}
+            <Link
+              href={{ pathname: '/admin/m4/print', query: bucket ? { destination: bucket } : undefined }}
+              className="inline-flex min-h-[44px] items-center border border-text px-3.5 text-[10px] font-medium uppercase tracking-label text-text hover:bg-text hover:text-primary-fg print:hidden"
+            >
+              {ts('print.cta')}
+            </Link>
+          </div>
           <div className="flex flex-wrap gap-2" role="group" aria-labelledby="prep-bucket-label">
             {BUCKETS.map((b) => {
               const active = bucket === b.value;
@@ -318,7 +332,7 @@ export function PreparationQueue() {
               {orders.map((order) =>
                 order.destination === 'ship' ? (
                   <li key={`ship-${order.shipmentId}`}>
-                    <PreparationCard order={order} locale={locale} t={t} tm4={tm4} />
+                    <ShipPreparationCard order={order} locale={locale} onNotice={pushNotice} onCaptureGuide={onCaptureGuide} />
                   </li>
                 ) : (
                   <li key={`vault-${order.placementId}`}>
@@ -331,288 +345,5 @@ export function PreparationQueue() {
         )}
       </QueryState>
     </section>
-  );
-}
-
-type Translator = ReturnType<typeof useTranslations>;
-
-function PreparationCard({
-  order,
-  locale,
-  t,
-  tm4,
-}: {
-  order: ShipPreparationOrderDTO;
-  locale: AppLocale;
-  t: Translator;
-  tm4: Translator;
-}) {
-  /**
-   * ⭐ §M4-PREP **v1.78.1** — `customer.fullName` es `string | null`, y `null` es la **única** marca
-   * de ausencia. ⛔ La cadena vacía está **PROHIBIDA** por el contrato; si llegara igual (servidor no
-   * conforme) se lee como ausencia, que es la lectura segura: ⛔ nunca se pinta un hueco invisible.
-   */
-  const fullNameMissing = order.customer.fullName === null || order.customer.fullName.trim() === '';
-  const fullName = order.customer.fullName?.trim() ?? '';
-  const lastName = order.customer.lastName?.trim();
-  // La dirección solo existe (y solo se pinta) en destino ENVÍO — CA #6. v1.79: obligatoria en esta rama.
-  const shipTo = order.shipTo;
-
-  return (
-    <article
-      data-testid={`prep-order-${order.shipmentId}`}
-      /* P-9 / §35.10: sin nombre, un lector de pantalla anuncia «artículo» N veces seguidas. El
-         nombre es el folio — o «Retiro de bóveda», que es lo que ocupa su lugar cuando no hay orden. */
-      aria-labelledby={`prep-ref-${order.shipmentId}`}
-      className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4"
-    >
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col items-start gap-1.5">
-          {/* Destino de un vistazo (DECISIÓN #1): es del PEDIDO, nunca de la carta. */}
-          {/* P-5 / §2.4: **los dos destinos van en `primary`**. El verde es el ÚNICO color positivo
-              del sistema (§2.1: confirmado/liquidado) y gastarlo en un destino —que no es un estado—
-              diluye la señal que sostiene la confianza en las pantallas de dinero. Los distingue **la
-              palabra** en versalitas: el color nunca es el portador del significado. */}
-          <Badge tone="primary" shape="outline">
-            {t(`destination.${order.destination}`)}
-          </Badge>
-          <div className="flex flex-wrap items-baseline gap-2">
-            {/* Folio del pedido; en un RETIRO DE BÓVEDA no hay orden ⇒ se dice lo que es, no un hueco. */}
-            {order.orderNumber ? (
-              <span id={`prep-ref-${order.shipmentId}`} className="tabular text-lg font-semibold text-text">
-                {order.orderNumber}
-              </span>
-            ) : (
-              <span id={`prep-ref-${order.shipmentId}`} className="font-serif text-lg text-text">
-                {t('withdrawal')}
-              </span>
-            )}
-            <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
-              {t('shipmentRef')} <span className="tabular">{order.shipmentId}</span>
-            </span>
-          </div>
-        </div>
-        {/* Antigüedad legible (CA #9) + la fecha absoluta al lado. P-7 / PR-5: nunca una línea en blanco. */}
-        <AgeStamp iso={order.requestedAt} locale={locale} t={t} />
-      </header>
-
-      {/*
-        * **Plano 1 · quién** (§35.3). El APELLIDO manda porque es la llave del archivero alfabético.
-        *
-        * ⭐ **§35.6a-e — UNA ausencia, UNA frase: las dos de este plano son MUTUAMENTE EXCLUYENTES.**
-        * `lastNameUnknown` («no supe partir el nombre — míralo tú debajo») **solo tiene sentido si hay
-        * nombre completo debajo**; sin él apunta a un remedio que no está en la tarjeta, y además
-        * **afirma de más** (insinúa que el sistema tiene el nombre y falló al derivarlo, cuando el
-        * hecho es más duro: nunca lo hubo). Y hay una razón de operación por encima de las dos: **dos
-        * líneas de ausencia apiladas se cuentan como dos averías**, y una tarjeta que parece rota se
-        * salta. ⇒ la condición del apellido es «no hay apellido **pero sí** nombre completo».
-        */}
-      <div data-testid={`prep-customer-${order.shipmentId}`} className="flex flex-col gap-0.5">
-        {lastName ? (
-          <p className="font-serif text-2xl leading-tight text-text">{lastName}</p>
-        ) : (
-          !fullNameMissing && (
-            <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
-              {t('lastNameUnknown')}
-            </p>
-          )
-        )}
-        {fullNameMissing ? (
-          /*
-           * ⭐⭐ **§35.6a — LA AUSENCIA SE NOMBRA, y ⛔ NO se pinta con un guion.** Cierra la no
-           * conformidad que este código llevaba marcada `PENDIENTE-UX` (§M4-PREP v1.78.1 prohíbe el
-           * «—» mudo). ux-ui va **más lejos que el contrato** y prohíbe el guion **del todo** aquí, con
-           * tres motivos que no son de gusto: (1) en este sistema el em dash **ya está ocupado por el
-           * dinero** —«precio pendiente», §16.3a— y **se lee como cero**; (2) §32.4-H4 pide «—» porque
-           * su sujeto es **una cifra que ocuparía columna**, y esto es **una línea de prosa sin
-           * retícula** (precedente §25.7(c): versalita + oración, sin glifo de valor); (3) un guion
-           * **no distingue las dos causas** —derivación fallida vs. dato que nunca se capturó—, que son
-           * averías distintas.
-           *
-           * **El hecho que el copy transmite:** *no es que el cliente no tenga nombre — es que la
-           * tienda no lo guardó.* Comprador invitado con `addressSnapshot` en el formato viejo de ocho
-           * campos; el operador tiene el pedido, la dirección y las cartas, y lo único que le falta es
-           * **a nombre de quién** empaqueta. Leerlo como «hueco del registro» y no como «cliente
-           * anónimo» lleva a dos conductas distintas.
-           *
-           * **Tonos, y la escalada ES información** (§35.6a-d): la marca va en `accent` —*el dato no
-           * existe y no hay de dónde sacarlo*, misma semántica que «Sin ubicar»— y ⛔ **no** en `muted`
-           * como `lastNameUnknown`, que significa *el dato está debajo y lo cazas a ojo*. La frase va en
-           * **tinta**: §10 prohíbe `muted` para información esencial, y ésta lo es — es lo único que
-           * impide rotular el paquete a nombre de nadie.
-           *
-           * ⛔ Y lo que la frase NO dice es lo más importante que tiene: no manda a buscar el nombre a
-           * ninguna parte, porque **no existe hoy pantalla que lo recupere** (`guestEmail` no se pinta
-           * en ninguna vista de `(admin)`, medido por ux-ui). Mandar a un camino no medido sería la
-           * misma falta que §35.8 le corrigió al vacío de bóveda.
-           */
-          <div data-testid={`prep-fullname-missing-${order.shipmentId}`} className="flex flex-col gap-0.5">
-            {/*
-              * §35.6a-f · **dos nodos de BLOQUE**, uno tras otro: la separación entre marca y frase
-              * ⛔ **no puede venir de un `gap`** — el texto accesible concatena los nodos sin el aire
-              * del CSS y produce cadenas pegadas. Es el defecto «ParaAsh Ketchum» de esta misma
-              * pantalla, convertido en norma. Candado: **PR-9**.
-              *
-              * Las versalitas las pone el CSS (`uppercase`), ⛔ **no** la cadena en mayúsculas: hay
-              * lectores de pantalla que deletrean la caja alta.
-              */}
-            <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
-              {t('nameMissing.tag')}
-            </p>{' '}
-            {/*
-              * ⚠️ **Ese `{' '}` entre dos bloques no es decorativo, y tampoco es un rodeo del test.**
-              * `textContent` **no inserta separador entre elementos de bloque**: dos `<p>` seguidos
-              * concatenan «…registradoLa dirección…». Para un lector que recorre el documento eso no
-              * es un problema (los bloques se enuncian por separado), pero **sí** lo es para todo
-              * consumidor que aplane el nodo a una cadena — que es justo lo que hace el candado
-              * **PR-9**, y lo que hace el cálculo de nombre accesible si algún día este bloque se
-              * usa como tal. §35.6a-f lo dice literal: *el espacio que separa dos palabras tiene que
-              * existir en el DOM, no en la hoja de estilo*. En un contenedor flex un nodo de texto
-              * con solo espacios **no se renderiza como ítem** ⇒ coste visual **cero**.
-              */}
-            <p className="text-sm text-text">{t('nameMissing.body')}</p>
-          </div>
-        ) : (
-          /* P-4b / §35.6: `text-text`, ⛔ ya no `muted`. El apellido grande de arriba es **derivado**
-             («último token»), y en México eso entrega el apellido **materno** cuando el archivero se
-             ordena por el **paterno**. El nombre completo es el ÚNICO dato con el que el operador
-             caza ese error a ojo ⇒ no puede pintarse como secundario. ⛔ El TAMAÑO del apellido no se
-             toca: esa jerarquía está ratificada. */
-          <p className="text-sm text-text">{fullName}</p>
-        )}
-      </div>
-
-      {shipTo && (
-        /*
-         * ⭐ **P-4 / §35.5 — ESTA DIRECCIÓN SE TRANSCRIBE A MANO, y por eso NO puede ir en `muted`.**
-         * En este sistema **no hay impresión de etiquetas**: el operador copia la calle, el CP y el
-         * teléfono de la pantalla al paquete o a la ventanilla del transportista. Un dato que se lee
-         * **dígito a dígito** no se pinta en el tono de lo secundario — la diferencia entre `muted` y
-         * `text-text` aquí no es estética, es **la probabilidad de equivocar un CP**.
-         *
-         * La regla que invierte lo que había: **el VALOR pesa más que su RÓTULO.** «Destinatario»,
-         * «CP» y «Tel» son rótulos (mono 11px `muted`, se leen una vez en la vida); lo que sigue va
-         * en `text-text` con `tabular` (se lee cada vez). Candado: **PR-4**.
-         *
-         * ⛔ NO va en un <address>: el HTML reserva ese elemento para los datos de contacto DEL
-         * artículo/documento, no para la dirección postal de un tercero.
-         */
-        <div
-          data-testid={`prep-address-${order.shipmentId}`}
-          className="flex flex-col gap-1 text-sm text-text"
-        >
-          {/* `recipientName` es nullable (snapshots de 8 campos anteriores a v1.67): si no viene, la
-              línea NO se pinta vacía — el bloque «cliente» de arriba ya nombra a la persona. Una
-              línea «Destinatario: —» parecería una avería (§35.3). */}
-          {shipTo.recipientName && (
-            /* ⚠️ El espacio entre rótulo y valor es un `{' '}` REAL, no un `gap` de flex: con el
-               hueco pintado por CSS el texto accesible queda pegado («ParaAsh Ketchum») y un lector
-               de pantalla lo lee así. El aire visual puede venir del layout; **la separación de
-               palabras, no**. */
-            <p>
-              <span className={LABEL}>{tm4('recipient')}</span>{' '}
-              <span>{shipTo.recipientName}</span>
-            </p>
-          )}
-          {/* CA #6: la CALLE completa y en su propia línea, primera del bloque — es el dato que la
-              pantalla anterior omitía y el que hace la dirección utilizable. `line2`/`neighborhood`
-              son nullable ⇒ se filtran en vez de dejar comas colgando. */}
-          <p>
-            {[shipTo.line1, shipTo.line2, shipTo.neighborhood]
-              .map((p) => p?.trim())
-              .filter((p): p is string => Boolean(p))
-              .join(', ') || DASH}
-          </p>
-          <p>
-            {shipTo.city}, {shipTo.state} · <span className={LABEL}>{tm4('postalCode')}</span>{' '}
-            <span className="tabular">{shipTo.postalCode}</span> · {shipTo.country}
-          </p>
-          <p>
-            <span className={LABEL}>{tm4('phone')}</span>{' '}
-            <span className="tabular">{shipTo.phone}</span>
-          </p>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-3 border-t border-border pt-3">
-        <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
-          {t('itemCount', { count: order.items.length })}
-        </p>
-        <ul className="flex flex-col gap-3">
-          {sortPreparationItems(order.items).map((item) => (
-            <PreparationItem
-              key={item.shipmentItemId}
-              item={item}
-              t={t}
-              // ⛔⛔ «Ubicar» SOLO en ENVÍO DIRECTO (`orderId !== null` ⇒ pieza de la plataforma
-              // vendida). En un RETIRO DE BÓVEDA (`orderId === null`) la carta es DEL CLIENTE
-              // (`in_custody`, cajón `customer_custody`): moverla al estante rompe §M4-VAULT.
-              // `PreparationItemDTO` no trae `ownerType`; `orderId` es el discriminador del contrato
-              // (§M4-PREP: «null en un RETIRO DE BÓVEDA»). Candado: M4View.operator-gaps.test.tsx.
-              canLocate={order.orderId !== null}
-            />
-          ))}
-        </ul>
-      </div>
-    </article>
-  );
-}
-
-function PreparationItem({
-  item,
-  t,
-  canLocate,
-}: {
-  item: PreparationItemDTO;
-  t: Translator;
-  canLocate: boolean;
-}) {
-  const { card, currentLocation } = item;
-  // CA #11: «UNASSIGNED» ya no viaja como código — y tampoco se pinta.
-  // ⭐ v1.78.2: `LocationView` es unión discriminada ⇒ `kind === 'assigned'` **basta** (ahí `label`
-  // es `string` obligatorio). ⛔ Se retira el `&& Boolean(currentLocation.label)` que había aquí:
-  // era la segunda de las ramas defensivas que el tipo flojo obligaba a escribir.
-  const located = currentLocation.kind === 'assigned';
-
-  return (
-    <li
-      data-testid={`prep-item-${item.shipmentItemId}`}
-      className="flex flex-col gap-2 border-t border-border pt-3 first:border-t-0 first:pt-0 sm:flex-row sm:gap-4"
-    >
-      {/*
-        * ⭐⭐ **P-3 / §35.4 — LA UBICACIÓN VA PRIMERO Y FORMA COLUMNA.** Es lo único de esta pantalla
-        * que el operador usa **mientras camina**, y era el dato **menos visible** de la tarjeta:
-        * último renglón, mono 11px, `muted`, detrás del folio.
-        *
-        * ⚠️ **No era un problema de contraste** —`muted` sobre papel da ~4.8:1 y cumple AA (§10)—
-        * **era de jerarquía**: `muted` es por definición el tono de lo **secundario**, y la ubicación
-        * es **el criterio de orden de la lista**. *Lo que ordena una lista tiene que formar columna*:
-        * enterrada al final de un párrafo, el orden existe pero no se ve, y el operador vuelve a
-        * recorrer la tarjeta entera por cada carta. ⛔ Y **no se trunca nunca**: es corta y es una
-        * llave. Candado: **PR-3** (la ubicación se renderiza ANTES que el folio en el DOM).
-        */}
-      <div
-        data-testid={`prep-location-${item.shipmentItemId}`}
-        className="flex shrink-0 flex-col gap-0.5 sm:w-32"
-      >
-        <span className={LABEL}>{t('location')}</span>
-        {located ? (
-          <span className="tabular text-sm text-text">{currentLocation.label}</span>
-        ) : (
-          /* «Sin ubicar» en bermellón —*esto te va a costar trabajo*— y **al mismo tamaño** que una
-             ubicación real: es una excepción que se atiende, no una nota al pie. Su carta va al final
-             del pedido, que es donde el recorrido la encuentra. */
-          <span className="text-sm text-accent">{t('unassigned')}</span>
-        )}
-        {/* Hueco 1 (2026-09-29): ubicar o corregir la ubicación de la carta VENDIDA desde aquí.
-            Solo envío directo — en un retiro la carta es del cliente (ver `canLocate`). */}
-        {canLocate && (
-          <div className="mt-1">
-            <LocateItemControl item={item} />
-          </div>
-        )}
-      </div>
-      <CardInfo card={card} folio={item.folio} quantity={item.quantity} t={t} />
-    </li>
   );
 }

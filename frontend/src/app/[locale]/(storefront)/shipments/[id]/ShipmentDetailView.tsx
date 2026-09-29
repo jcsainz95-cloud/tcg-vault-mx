@@ -14,6 +14,7 @@ import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { AmountBreakdown, type BreakdownView } from '@/components/ui/AmountBreakdown';
 import { QueryState } from '@/components/ui/QueryState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
+import { OrderItemStatusLine } from '@/components/domain/OrderItemStatusLine';
 import { useShipmentClientSteps } from '@/lib/pipelines';
 
 /** Lee un campo string de un `addressSnapshot` de forma tolerante (forma abierta del contrato §5). */
@@ -147,6 +148,8 @@ export function ShipmentDetailView({ shipmentId }: { shipmentId: string }) {
                         <p className="mt-1 truncate font-mono text-[11px] text-muted" lang="en">
                           {it.card.setName} · {it.card.number}
                         </p>
+                        {/* §37.7 / §37.8f: la carta que no salió o que se está reponiendo lo dice aquí. */}
+                        <OrderItemStatusLine refund={it.refund} replacement={it.replacement} className="mt-1.5" />
                       </div>
                       {it.finish && <FinishBadge finish={it.finish} />}
                       <span className="tabular shrink-0 font-mono text-[11px] text-muted">{it.folio}</span>

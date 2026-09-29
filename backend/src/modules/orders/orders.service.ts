@@ -1,16 +1,23 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   InventoryItem,
   Card,
   CardSet,
   Finish,
   MarketBracket,
+  MissingReason,
   MovementReason,
   Order,
   OrderItem,
+  PreparationItemStatus,
   Prisma,
+  ReplacementCaseStatus,
+  ShipmentRequest,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CurrentPiece, currentPiecesOf } from '../payments/refunds/origin';
+import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
@@ -219,7 +226,58 @@ export class OrdersService {
     private readonly settings: SettingsService,
     private readonly stripe: StripeService,
     private readonly catalog: CatalogService,
+    // ⭐ v1.80.2 (§M4-SHIP.16): lo que el CLIENTE ve de las transferencias SPEI de un caso reembolsado. `@Optional()`:
+    // los unitarios construyen el servicio a mano.
+    @Optional() private readonly manual?: ManualRefundService,
   ) {}
+
+  /**
+   * ⭐ v1.80.2 (§M4-SHIP.16) — `CustomerOrderShipmentDTO`: LISTA BLANCA (⛔ nunca un spread de la fila). Fuera, por
+   * contrato: costos, sellos de aviso, `stripePaymentIntentId`, `preparedBy*`, actores y el `addressSnapshot` crudo.
+   */
+  private toCustomerOrderShipment(s: ShipmentRequest & { items: { prepStatus: PreparationItemStatus }[] }) {
+    const a = (s.addressSnapshot ?? {}) as Partial<Record<'recipientName' | 'city' | 'state' | 'postalCode', string>>;
+    return {
+      id: s.id,
+      status: s.status,
+      carrier: s.carrier,
+      trackingNumber: s.trackingNumber,
+      requestedAt: s.requestedAt.toISOString(),
+      pickingAt: s.pickingAt ? s.pickingAt.toISOString() : null,
+      shippedAt: s.shippedAt ? s.shippedAt.toISOString() : null,
+      deliveredAt: s.deliveredAt ? s.deliveredAt.toISOString() : null,
+      shipTo: { recipientName: a.recipientName ?? '', city: a.city ?? '', state: a.state ?? '', postalCode: a.postalCode ?? '' },
+      missingCount: s.items.filter((i) => i.prepStatus === 'missing').length,
+    };
+  }
+
+  /**
+   * ⭐ v1.80.2 (§M4-SHIP.16) — `items[].replacement` del cliente: el caso MÁS RECIENTE con `originOrderItemId` = esa
+   * línea (compra a bóveda; y el retiro de una carta de esa compra), con lo que se le debe si se reembolsó. ⛔ Sin
+   * `reason` interno, sin CLABE, sin actor. UNA consulta de casos por los `OrderItem.id` de la orden.
+   */
+  private async replacementsByOrderItem(orderItemIds: string[]) {
+    const out = new Map<string, { status: ReplacementCaseStatus; reason: MissingReason; refund: { amountCents: number; byTransferCents: number; transferStatus: CustomerTransferView['transferStatus'] } | null }>();
+    if (orderItemIds.length === 0) return out;
+    const cases = await this.prisma.replacementCase.findMany({
+      where: { originOrderItemId: { in: orderItemIds } },
+      select: { id: true, originOrderItemId: true, status: true, missingReason: true, refundAmountCents: true, openedAt: true },
+      orderBy: [{ openedAt: 'desc' }, { id: 'desc' }],
+    });
+    const latest = new Map<string, (typeof cases)[number]>();
+    for (const c of cases) if (!latest.has(c.originOrderItemId as string)) latest.set(c.originOrderItemId as string, c);
+    const refundedIds = [...latest.values()].filter((c) => c.status === 'refunded').map((c) => c.id);
+    const transfers = refundedIds.length > 0 && this.manual ? await this.manual.customerTransferViews(this.prisma, refundedIds) : new Map<string, CustomerTransferView>();
+    for (const [oiId, c] of latest) {
+      const tv = transfers.get(c.id);
+      out.set(oiId, {
+        status: c.status,
+        reason: c.missingReason,
+        refund: c.status === 'refunded' ? { amountCents: c.refundAmountCents ?? 0, byTransferCents: tv?.byTransferCents ?? 0, transferStatus: tv?.transferStatus ?? null } : null,
+      });
+    }
+    return out;
+  }
 
   /** Resuelve el precio de venta de un item; lanza PRICE_PENDING si no vendible. */
   private async salePriceOf(
@@ -1469,6 +1527,7 @@ export class OrdersService {
     orderId: string,
     outcome: 'recuperada' | 'no_recuperada' | 'reexpedir',
     now = new Date(),
+    actorUserId?: string,
   ): Promise<{
     orderId: string;
     outcome: string;
@@ -1496,10 +1555,14 @@ export class OrdersService {
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
       if (!order) throw BusinessException.notFound();
-      if (order.fulfillmentMode !== 'direct_ship') {
+      // ⭐ v1.80.4/.5 (§M4-SHIP.18.7): también una orden `vault` `refunded` (cartas devueltas por el reembolso
+      // total, plataforma `picking` CONGELADAS). Es EL MISMO cuerpo que sobre un directo `refunded`; lo único
+      // que cambia es cómo se hallan los objetivos (abajo).
+      const isVaultRefunded = order.fulfillmentMode === 'vault' && order.status === 'refunded';
+      if (order.fulfillmentMode !== 'direct_ship' && !isVaultRefunded) {
         throw BusinessException.badRequest(
           'VALIDATION_ERROR',
-          'Only a direct_ship order can have a frozen piece from a chargeback',
+          'Only a direct_ship order (or a refunded vault order) can have a frozen piece',
         );
       }
 
@@ -1508,6 +1571,11 @@ export class OrdersService {
       // `count===0` ⇒ `409`, que ES la regla de idempotencia de §M3.
       // Si algo posterior lanza, la transacción REVIERTE y el flag vuelve a `true`: un desenlace
       // rechazado (p. ej. `reexpedir` sin disputa ganada) NO consume la decisión.
+      // 🔒 v1.80.7 (techlead, medido con PS-61b): en BÓVEDA las piezas se toman `FOR UPDATE` ANTES del claim sobre
+      // `Order` — el orden normativo de §M4-SHIP.18.2 (envíos → piezas → `Order`) que siguen `reclaim-vault` y
+      // `unprepare`. Con el claim primero, `reclaim-vault` (piezas → `Order`) contra este verbo (`Order` → piezas)
+      // interbloqueaba (`40P01` ⇒ `503`). El claim sigue siendo quien DECIDE (`count 1`); solo cambia el orden.
+      const vaultFrozen = isVaultRefunded ? await this.vaultReclaimTargets(tx, order.id) : null;
       const claimed = await tx.order.updateMany({
         where: { id: orderId, chargebackNeedsManual: true },
         data: { chargebackNeedsManual: false },
@@ -1519,15 +1587,22 @@ export class OrdersService {
         );
       }
 
-      // Piezas CONGELADAS del pedido: las que siguen comprometidas con la venta.
-      const frozen = await tx.inventoryItem.findMany({
-        where: {
-          id: { in: order.items.map((oi) => oi.inventoryItemId) },
-          status: { in: ['picking', 'shipped'] },
-        },
-      });
+      // Piezas CONGELADAS del pedido: las que siguen comprometidas con la venta. Bóveda (v1.80.6, SEC-SHIP-M6):
+      // las piezas plataforma `picking` con `refund_return` posterior al sello de ESTA orden y ningún movimiento
+      // posterior que cambie de estado (`isVaultReclaimTarget`), bajo `FOR UPDATE` (id asc.), tomadas ARRIBA.
+      const frozen = vaultFrozen
+        ? vaultFrozen
+        : await tx.inventoryItem.findMany({
+            where: {
+              id: { in: order.items.map((oi) => oi.inventoryItemId) },
+              status: { in: ['picking', 'shipped'] },
+            },
+          });
 
       if (outcome === 'reexpedir') {
+        if (isVaultRefunded) {
+          throw BusinessException.conflict('CONFLICT', 'A vault purchase has no shipment to re-ship');
+        }
         // Re-expedir solo tiene sentido si la disputa se GANÓ (los fondos volvieron).
         if (order.status !== 'settled' || order.disputeOutcome !== 'won') {
           throw BusinessException.conflict(
@@ -1588,8 +1663,11 @@ export class OrdersService {
           // muestra una pieza sin precio — PROJECT §A). ⚠ I1: el veredicto viene del pre-escaneo de
           // FUERA de la transacción; aquí NO se toca `this.prisma`/`this.pricing` (segunda conexión).
           const toStatus = sellableStatusByItem.get(item.id) ?? 'in_stock';
+          // 🔒 v1.80.6 (PS-61): una objetivo YA en su estado de venta (la confirmó una pasada anterior: `recuperada`
+          // no escribe movimiento) se deja como está — cero movimientos, cero escrituras.
+          if (isVaultRefunded && item.status === toStatus) continue;
           const moved = await tx.inventoryItem.updateMany({
-            where: { id: item.id, status: item.status },
+            where: { id: item.id, status: isVaultRefunded ? 'picking' : item.status, ...(isVaultRefunded ? { ownerType: 'platform' } : {}) },
             data: {
               status: toStatus,
               ownerType: 'platform',
@@ -1597,16 +1675,25 @@ export class OrdersService {
               ownershipStatus: null,
             },
           });
-          if (moved.count !== 1) continue;
-          await tx.inventoryMovement.create({
-            data: {
-              itemId: item.id,
-              fromStatus: item.status,
-              toStatus,
-              reason: MovementReason.chargeback_return,
-              note: `chargeback resolved (recuperada) order ${order.orderNumber ?? order.id}`,
-            },
-          });
+          if (moved.count !== 1) {
+            // 🔒 v1.80.5 (§18.7): bajo FOR UPDATE, una objetivo que no esté plataforma `picking` es violación de
+            // invariante ⇒ 409 CONFLICT, rollback ENTERO (⛔ no «se omite»).
+            if (isVaultRefunded) throw BusinessException.conflict('CONFLICT', 'A frozen piece changed under lock');
+            continue;
+          }
+          // ⭐ v1.80.5: en bóveda `recuperada` NO escribe movimiento (publicar es visibilidad; la vuelta física ya
+          // quedó como `refund_return`, §M4-SHIP.17.1 (2)). En el directo sigue su `chargeback_return`.
+          if (!isVaultRefunded) {
+            await tx.inventoryMovement.create({
+              data: {
+                itemId: item.id,
+                fromStatus: item.status,
+                toStatus,
+                reason: MovementReason.chargeback_return,
+                note: `chargeback resolved (recuperada) order ${order.orderNumber ?? order.id}`,
+              },
+            });
+          }
           recovered.push(item.id);
         }
         return {
@@ -1617,7 +1704,38 @@ export class OrdersService {
         };
       }
 
-      // `no_recuperada`: SIN movimiento de inventario. La pieza se queda donde está (terminal de
+      // 🔒 v1.80.3/.5 (§M4-SHIP.17.2, §18.7) — `no_recuperada` de una orden `refunded` (este origen, no una
+      // disputa): cada pieza `picking` ⇒ `lost` + movimiento con actor (MERMA FIRMADA: las cartas nunca salieron
+      // del almacén; si no están, es merma con nombre, no una venta).
+      if (order.status === 'refunded') {
+        const lost: string[] = [];
+        for (const item of frozen) {
+          // (una objetivo ya `lost` la confirmó una pasada anterior; la que no está `picking` ni `lost` es CONFLICT abajo)
+          if (item.status === 'lost' || (!isVaultRefunded && item.status !== 'picking')) continue;
+          const moved = await tx.inventoryItem.updateMany({
+            where: { id: item.id, status: 'picking', ownerType: 'platform' },
+            data: { status: 'lost' },
+          });
+          if (moved.count !== 1) {
+            if (isVaultRefunded) throw BusinessException.conflict('CONFLICT', 'A frozen piece changed under lock');
+            continue;
+          }
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: item.id,
+              fromStatus: 'picking',
+              toStatus: 'lost',
+              reason: MovementReason.lost,
+              actorUserId: actorUserId ?? null,
+              note: `reembolso total ${order.orderNumber ?? order.id} · no recuperada`,
+            },
+          });
+          lost.push(item.id);
+        }
+        return { orderId: order.id, outcome, inventoryItemIds: lost, chargebackNeedsManual: false as const };
+      }
+
+      // `no_recuperada` de una DISPUTA: SIN movimiento de inventario. La pieza se queda donde está (terminal de
       // venta). NO se marca `lost`/`damaged`: no fue merma de almacén y ensuciaría los reportes.
       return {
         orderId: order.id,
@@ -1636,6 +1754,47 @@ export class OrdersService {
    *
    * Solo trabaja para `recuperada`: es el único desenlace que mueve inventario por precio.
    */
+  /**
+   * 🔒 v1.80.6 (§M4-SHIP.18.7, SEC-SHIP-M6) — `isVaultReclaimTarget(p, order)`: piezas de la compra (vigentes por
+   * la cadena) que son plataforma `picking` con un `refund_return` con `createdAt ≥ fullRefundClosedAt` y ningún
+   * movimiento posterior que cambie de estado (un `move` picking→picking NO la saca del conjunto). `FOR UPDATE`, id asc.
+   */
+  private async vaultReclaimTargets(tx: Prisma.TransactionClient, orderId: string) {
+    const order = await tx.order.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { fullRefundClosedAt: true, items: { select: { id: true, inventoryItemId: true } } },
+    });
+    if (!order.fullRefundClosedAt) return [];
+    const chains = await currentPiecesOf(tx, order.items);
+    const ids = [...chains.values()]
+      .filter((c): c is Extract<CurrentPiece, { kind: 'piece' }> => c.kind === 'piece')
+      .map((c) => c.inventoryItemId)
+      .sort();
+    if (ids.length === 0) return [];
+    await tx.$queryRaw`SELECT id FROM "InventoryItem" WHERE id = ANY(${ids}::text[]) ORDER BY id FOR UPDATE`;
+    const [pieces, moves] = await Promise.all([
+      tx.inventoryItem.findMany({ where: { id: { in: ids } } }),
+      tx.inventoryMovement.findMany({ where: { itemId: { in: ids } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
+    ]);
+    const sealAt = order.fullRefundClosedAt.getTime();
+    // 🔒 v1.80.6 (§18.7, PS-61): el objetivo se elige por el ANCLA (`refund_return` ≥ sello, sin cambio de estado
+    // posterior), ⛔ NO por «está `picking`»: el `WHERE` del CAS es la garantía — una objetivo que alguien puso
+    // `in_stock` por fuera es violación de invariante (`409 CONFLICT`, rollback), no una pieza que se omite.
+    return pieces.filter((p) => {
+      if (p.ownerType !== 'platform') return false;
+      const list = moves.filter((m) => m.itemId === p.id);
+      let idx = -1;
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        if (list[i].reason === 'refund_return' && list[i].createdAt.getTime() >= sealAt) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) return false;
+      return !list.slice(idx + 1).some((m) => m.fromStatus !== m.toStatus);
+    });
+  }
+
   private async prescanSellableStatus(
     orderId: string,
     outcome: 'recuperada' | 'no_recuperada' | 'reexpedir',
@@ -1682,6 +1841,8 @@ export class OrdersService {
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
+        // ⭐ v1.80.2 (§M4-SHIP.16): los envíos y el libro de la página en la MISMA consulta (⛔ sin N+1).
+        include: { shipmentRequests: { orderBy: { requestedAt: 'desc' }, select: { status: true } }, refunds: { select: { status: true, amountCents: true } } },
       }),
       this.prisma.order.count({ where: { userId } }),
     ]);
@@ -1697,6 +1858,10 @@ export class OrdersService {
       createdAt: o.createdAt,
       settledAt: o.settledAt,
       orderNumber: o.orderNumber,
+      // ⭐ v1.80.2 (§M4-SHIP.16): el rótulo público (el MISMO cuerpo que el invitado) para que ninguna pantalla titule
+      // con el `status` crudo («LIQUIDADA» es un término interno de dinero).
+      fulfillmentMode: o.fulfillmentMode,
+      publicStatus: publicStatus(o.status, activeShipment(o.shipmentRequests ?? [])?.status, { refundedCents: refundedCentsOf(o.refunds ?? []), totalCents: o.totalCents }),
       ...(o.status === 'pending' && reservedUntil.has(o.id)
         ? { reservedUntil: reservedUntil.get(o.id) }
         : {}),
@@ -1758,10 +1923,19 @@ export class OrdersService {
   async getOrder(userId: string, orderId: string, isAdmin = false) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: true },
+      // ⭐ v1.80.2 (§M4-SHIP.16): envíos (con sus líneas para `missingCount`) y el libro en la MISMA consulta.
+      include: {
+        items: { include: { refund: true } },
+        shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { items: { select: { prepStatus: true } } } },
+        refunds: true,
+      },
     });
     if (!order) throw BusinessException.notFound();
     if (!isAdmin && order.userId !== userId) throw BusinessException.forbidden('FORBIDDEN');
+    // (`?? []`: los dobles de las suites legacy devuelven la fila sin relaciones.)
+    const shipment = order.fulfillmentMode === 'direct_ship' ? activeShipment(order.shipmentRequests ?? []) : undefined;
+    const refundedCents = refundedCentsOf(order.refunds ?? []);
+    const replacements = await this.replacementsByOrderItem(order.items.map((i) => i.id));
     const breakdown: BreakdownDTO = this.breakdownOf(order);
     // v1.68 (§4-R.5, ADITIVO): `reservedUntil` SOLO con `status:'pending'`.
     const reservedUntil =
@@ -1784,7 +1958,18 @@ export class OrdersService {
       orderNumber: order.orderNumber,
       ...(reservedUntil ? { reservedUntil } : {}),
       breakdown,
-      items: this.toHistoricItemPreviews(order.items, facts, cardsById),
+      // ⭐ v1.80.2 (§M4-SHIP.16): el cliente REGISTRADO ve su envío y titula con `publicStatus` (el MISMO cuerpo que
+      // el invitado). `shipment: null` ⇔ `vault`, o `direct_ship` aún sin envío (ventana webhook→creación).
+      fulfillmentMode: order.fulfillmentMode,
+      publicStatus: publicStatus(order.status, shipment?.status, { refundedCents, totalCents: order.totalCents }),
+      shipment: shipment ? this.toCustomerOrderShipment(shipment) : null,
+      // v1.80 (§M4-SHIP.10): lo devuelto por Stripe; por carta, la fila aceptada y el caso «Por reponer».
+      refundedCents,
+      items: this.toHistoricItemPreviews(order.items, facts, cardsById).map((p, idx) => ({
+        ...p,
+        refund: clientRefundOf(order.items[idx].refund),
+        replacement: replacements.get(order.items[idx].id) ?? null,
+      })),
       cfdiStatus: order.cfdiStatus,
       invoiceRequested: order.invoiceRequested,
       stripePaymentIntentId: order.stripePaymentIntentId,

@@ -95,11 +95,33 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
   let spy: jest.SpyInstance;
 
   const envios: string[] = [];
+  const piezas: string[] = [];
   const solicitudes: string[] = [];
 
   /** Un envío de bóveda SIN piezas, en `picking`: el estado desde el que se captura una guía. */
   async function nuevoEnvio(sufijo: string): Promise<string> {
     const id = `av-sello-${RUN}-${sufijo}`;
+    // v1.80 §M4-SHIP.5: `enviado` exige al menos una línea `picked` DISPONIBLE (si no ⇒ 409 nothing_to_ship) y la
+    // guía exige «preparado» (sello entero, CHECK `ShipmentRequest_prepared_seal_chk`). El retiro nace con UNA carta
+    // de customer2 en custodia, palomeada, y ya preparado — lo que el operador habría dejado antes de la guía.
+    const card = await h.prisma.card.findFirstOrThrow({ select: { id: true } });
+    const pieza = await h.prisma.inventoryItem.create({
+      data: {
+        folio: `AVS-${RUN}-${sufijo}`,
+        cardId: card.id,
+        productType: 'raw',
+        rawCondition: 'NM',
+        finish: 'normal',
+        acquisitionType: 'compra',
+        acquisitionCostCents: 1000,
+        status: 'in_custody',
+        ownerType: 'customer',
+        ownerUserId: customer2Id,
+        ownershipStatus: 'settled',
+      },
+      select: { id: true },
+    });
+    piezas.push(pieza.id);
     await h.prisma.shipmentRequest.create({
       data: {
         id,
@@ -113,6 +135,9 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
         // ⛔ NOT NULL y sin DEFAULT desde D56 (`IVA-3(e)`): omitirla revienta, y debe reventar.
         priceConvention: 'IVA_INCLUSIVE',
         pickingAt: new Date(),
+        preparedAt: new Date(),
+        preparedByUserId: customer2Id,
+        items: { create: [{ inventoryItemId: pieza.id, prepStatus: 'picked', prepMarkedAt: new Date(), prepMarkedByUserId: customer2Id }] },
       },
     });
     envios.push(id);
@@ -221,6 +246,10 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
     if (envios.length > 0) {
       await h.prisma.shipmentItem.deleteMany({ where: { shipmentRequestId: { in: envios } } });
       await h.prisma.shipmentRequest.deleteMany({ where: { id: { in: envios } } });
+    }
+    if (piezas.length > 0) {
+      await h.prisma.inventoryMovement.deleteMany({ where: { itemId: { in: piezas } } });
+      await h.prisma.inventoryItem.deleteMany({ where: { id: { in: piezas } } });
     }
     if (solicitudes.length > 0) {
       await h.prisma.sellRequest.deleteMany({ where: { id: { in: solicitudes } } });
@@ -496,8 +525,13 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
      * es exactamente por qué esto se fuerza en vez de tirar los dados.)
      */
     it('⭐⭐ ENTRELAZADO FORZADO `AV-6`: dos `PATCH {cancelado}` sobre la misma lectura ⇒ UN correo', async () => {
+      // v1.80 §M4-SHIP.9: un envío PAGADO (`picking|guia`) ya no se cancela a mano (409 PAID_SHIPMENT_NOT_CANCELLABLE);
+      // el único `cancelado` del operador es sobre un `solicitado` sin cobrar. La carrera se mide ahí.
       const id = await nuevoEnvio('b4');
-      await capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-B4`);
+      await h.prisma.shipmentRequest.update({
+        where: { id },
+        data: { status: 'solicitado', pickingAt: null, preparedAt: null, preparedByUserId: null, stripePaymentIntentId: null },
+      });
       bandeja.length = 0;
 
       const [a, b] = await dosPatchSobreLaMismaLectura(id, 'cancelado');

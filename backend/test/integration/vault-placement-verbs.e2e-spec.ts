@@ -105,11 +105,12 @@ describe('§M4-VAULT — verbos, cola y vista física (Postgres real)', () => {
       expect((await vaultRow(pf.placement.id)).customer.fullName).toBe('María de la Luz Pérez Gómez');
       const phys = await db.physical(der.id);
       expect(phys.body.owner).toEqual({ userId: der.id, name: null, email: der.email });
-      // asimetría declarada: la tarjeta `ship` no aplica la regla
+      // ⭐ v1.80 (§M4-SHIP.3 «Fuente del cliente», PS-16): la asimetría de v1.79.2 queda superada — la tarjeta `ship`
+      // también titula con `customerDisplayName(User)` ⇒ un `derived` es `null` (y el correo de segunda línea).
       const piece = await db.mkPiece(der.id, db.shopLocationId);
       const sh = await db.mkWithdrawal(der.id, piece.id, 'picking');
       const ship = (await db.queue('?destination=ship')).body.data.find((r: any) => r.shipmentId === sh.id);
-      expect(ship.customer.fullName).toBe('juan.perez95');
+      expect(ship.customer).toMatchObject({ userId: der.id, email: der.email, fullName: null, lastName: null });
     });
 
     it('invariante — una colocación pendiente con orden `direct_ship` ⇒ 409 CONFLICT de la cola ENTERA', async () => {
@@ -514,18 +515,74 @@ describe('§M4-VAULT — verbos, cola y vista física (Postgres real)', () => {
       ).rejects.toThrow(/placed_requires_prepared/);
     });
 
-    it('19 — carta missing ⇒ resultado missing, SIN movimiento, locationId intacto; la vista física la dice missing', async () => {
+    it('19 / PS-20 — carta missing ⇒ resultado missing CON caso «Por reponer» (v1.80.1): pieza `lost` a nombre del cliente, movimiento con el actor, locationId intacto; la vista física la dice to_replace', async () => {
       const u = await db.mkUser('Falta Una');
       const x = await db.mkDrawer();
-      const { placement, pieces } = await db.mkPlacement(u.id, 2, { marks: ['picked', 'missing'], prepared: true });
+      const { placement, pieces, items } = await db.mkPlacement(u.id, 2, { marks: ['picked', 'missing'], prepared: true });
       const res = await db.confirm(placement.id, { locationId: x.id });
       expect(res.body.outcome).toBe('placed');
       const r = Object.fromEntries(res.body.items.map((i: any) => [i.inventoryItemId, i.result]));
       expect(r).toEqual({ [pieces[0].id]: 'moved', [pieces[1].id]: 'missing' });
-      expect(await db.movements([pieces[1].id])).toHaveLength(0);
-      expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: pieces[1].id } })).locationId).toBe(db.shopLocationId);
+      const missingRes = res.body.items.find((i: any) => i.inventoryItemId === pieces[1].id);
+      expect(missingRes).toMatchObject({ result: 'missing', missingReason: 'not_found', caseId: expect.any(String) });
+      // ⭐ v1.80.1: la merma con firma (movimiento `lost` del operador) — pero la carta SIGUE siendo del cliente.
+      const mv = await db.movements([pieces[1].id]);
+      expect(mv).toHaveLength(1);
+      expect(mv[0]).toMatchObject({ reason: 'lost', fromStatus: 'in_custody', toStatus: 'lost', actorUserId: db.operatorId });
+      const piece = await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: pieces[1].id } });
+      expect(piece).toMatchObject({ status: 'lost', ownerType: 'customer', ownerUserId: u.id, ownershipStatus: 'settled', locationId: db.shopLocationId });
+      const kase = await h.prisma.replacementCase.findUniqueOrThrow({ where: { id: missingRes.caseId } });
+      expect(kase).toMatchObject({
+        source: 'vault_purchase',
+        status: 'open',
+        placementItemId: items.find((i) => i.inventoryItemId === pieces[1].id)!.id,
+        customerUserId: u.id,
+        originalInventoryItemId: pieces[1].id,
+        missingReason: 'not_found',
+        openedByUserId: db.operatorId,
+      });
+      expect(kase.originOrderItemId).not.toBeNull();
       const phys = await db.physical(u.id);
-      expect(phys.body.items.find((i: any) => i.inventoryItemId === pieces[1].id).physical.state).toBe('missing');
+      const st = phys.body.items.find((i: any) => i.inventoryItemId === pieces[1].id).physical;
+      expect(st).toMatchObject({ state: 'to_replace', caseId: kase.id, reason: 'not_found', source: 'vault_purchase' });
+      expect(phys.body.counts).toMatchObject({ total: 1, toReplace: 1 });
+    });
+
+    it('PS-20 — marcar `missing` sin `missingReason` ⇒ 400 {field:\'missingReason\'}; con `damaged` ⇒ 200 y la pieza sale `damaged` al colocar; deshacer preparado ANTES de colocar ⇒ cero casos', async () => {
+      const u = await db.mkUser('Dañada Veinte');
+      const x = await db.mkDrawer();
+      const { placement, pieces, items } = await db.mkPlacement(u.id, 2);
+      const bad = await db.mark(placement.id, items[1].id, { status: 'missing' });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error).toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'missingReason' } });
+      const bad2 = await db.mark(placement.id, items[1].id, { status: 'picked', missingReason: 'damaged' });
+      expect(bad2.status).toBe(400);
+      expect(bad2.body.error.details.field).toBe('missingReason');
+      const ok = await db.mark(placement.id, items[1].id, { status: 'missing', missingReason: 'damaged' });
+      expect(ok.status).toBe(200);
+      expect(ok.body.item).toMatchObject({ prepStatus: 'missing', missingReason: 'damaged' });
+      // cambiar de motivo ES un cambio (deja bitácora con el motivo nuevo)
+      const chg = await db.mark(placement.id, items[1].id, { status: 'missing', missingReason: 'not_found' });
+      expect(chg.body.changed).toBe(true);
+      expect((await db.mark(placement.id, items[1].id, { status: 'missing', missingReason: 'damaged' })).body.changed).toBe(true);
+      const marks = await db.audits(placement.id, 'vault_placement.item_missing');
+      expect(marks.map((l) => (l.after as any).missingReason)).toEqual(['damaged', 'not_found', 'damaged']);
+      await db.mark(placement.id, items[0].id, 'picked');
+      expect((await db.prepare(placement.id)).status).toBe(200);
+      // deshacer preparado antes de colocar: la marca sigue corregible y NO hay caso
+      expect((await db.unprepare(placement.id)).status).toBe(200);
+      expect(await h.prisma.replacementCase.count({ where: { customerUserId: u.id } })).toBe(0);
+      expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: pieces[1].id } })).status).toBe('in_custody');
+      expect((await db.prepare(placement.id)).status).toBe(200);
+      const res = await db.confirm(placement.id, { locationId: x.id });
+      expect(res.status).toBe(200);
+      const piece = await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: pieces[1].id } });
+      expect(piece).toMatchObject({ status: 'damaged', ownerType: 'customer', ownerUserId: u.id, locationId: db.shopLocationId });
+      const kase = await h.prisma.replacementCase.findFirstOrThrow({ where: { originalInventoryItemId: pieces[1].id } });
+      expect(kase).toMatchObject({ status: 'open', missingReason: 'damaged', source: 'vault_purchase' });
+      // ⛔ cero dinero
+      expect(await h.prisma.paymentRefund.count({ where: { orderId: placement.orderId } })).toBe(0);
+      expect(await h.prisma.manualRefund.count({ where: { customerUserId: u.id } })).toBe(0);
     });
 
     it('19 / 30 — TODAS missing, cliente nuevo, confirm {} ⇒ 200 nothing_to_place sin cajón; sellos de colocación NULL; preparedAt intacto; 0 movimientos; sigue sin cajón; la vista física dice missing', async () => {
@@ -547,13 +604,17 @@ describe('§M4-VAULT — verbos, cola y vista física (Postgres real)', () => {
         placedByUserId: null,
       });
       expect(row.preparedAt).toEqual(prep);
-      expect(await db.movements(pieces.map((p) => p.id))).toHaveLength(0);
+      // ⭐ v1.80.1 (PS-20): el cierre directo 6-bis TAMBIÉN abre un caso por carta (movimiento `lost` cada una).
+      expect(await db.movements(pieces.map((p) => p.id))).toHaveLength(2);
+      expect(res.body.items.every((i: any) => typeof i.caseId === 'string' && i.missingReason === 'not_found')).toBe(true);
+      expect(await h.prisma.replacementCase.count({ where: { customerUserId: u.id, status: 'open', source: 'vault_purchase' } })).toBe(2);
       const logs = await db.audits(placement.id);
       expect(logs.map((l) => l.action)).toEqual(['vault_placement.nothing_to_place']);
       expect(logs[0].after).toMatchObject({ locationId: null, requestedLocationId: null });
       const phys = await db.physical(u.id);
       expect(phys.body.drawer).toEqual({ kind: 'none' });
-      expect(phys.body.items.map((i: any) => i.physical.state)).toEqual(['missing', 'missing']);
+      expect(phys.body.items.map((i: any) => i.physical.state)).toEqual(['to_replace', 'to_replace']);
+      expect(phys.body.counts).toMatchObject({ total: 0, toReplace: 2 });
       // doble clic en un cierre sin cajón ⇒ 409 {cancelled, nothing_to_place} (⛔ no 200)
       const again = await db.confirm(placement.id, {});
       expect(again.status).toBe(409);
@@ -638,7 +699,7 @@ describe('§M4-VAULT — verbos, cola y vista física (Postgres real)', () => {
       expect(st[inDrawer.id]).toEqual({ state: 'in_drawer', drawer: { id: x.id, label: x.label, zone: 'customer_custody' } });
       expect(st[sinUbicar.id]).toEqual({ state: 'unlocated', reason: 'no_location' });
       expect(st[enTienda.id]).toEqual({ state: 'unlocated', reason: 'not_in_customer_drawer' });
-      expect(res.body.counts).toEqual({ total: 7, inDrawer: 2, pendingPlacement: 1, missing: 1, inWithdrawal: 1, unlocated: 2 });
+      expect(res.body.counts).toEqual({ total: 7, inDrawer: 2, pendingPlacement: 1, missing: 1, inWithdrawal: 1, unlocated: 2, toReplace: 0 });
       // orden: missing, unlocated, in_drawer, pending_placement, in_withdrawal
       const states = res.body.items.map((i: any) => i.physical.state);
       expect(states).toEqual(['missing', 'unlocated', 'unlocated', 'in_drawer', 'in_drawer', 'pending_placement', 'in_withdrawal']);

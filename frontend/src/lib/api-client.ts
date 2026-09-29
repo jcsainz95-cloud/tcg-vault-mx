@@ -17,6 +17,14 @@ export class ApiClientError extends Error {
   }
 }
 
+/**
+ * `e` como `ApiClientError` o `null`. Un solo sitio (antes copiado en cinco vistas admin de §M4-SHIP): cada
+ * traducción de errores por verbo arranca con `const err = asApiError(e)` y ramifica por `status` + `code`.
+ */
+export function asApiError(e: unknown): ApiClientError | null {
+  return e instanceof ApiClientError ? e : null;
+}
+
 const TOKEN_KEY = 'tcg.accessToken';
 // WS-B: el refresh token (TTL 30d, contrato §1) vive junto al access token (TTL 15m) para
 // poder renovar la sesión sin re-login. Se persiste en persistSession y se limpia en logout

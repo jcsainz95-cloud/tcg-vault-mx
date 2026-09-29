@@ -15,8 +15,13 @@ import { PasswordAttemptsService } from '../src/modules/auth/password-attempts.s
  */
 const pii = new PiiCryptoService(new ConfigService({}));
 
+// 🔒 v1.80.7 (`C-CLABE-1`): el borrado suave anonimiza la CLABE por `UsersService.eraseClabe`; el doble registra la llamada.
+const users = { eraseClabe: jest.fn(async (..._a: unknown[]) => undefined) };
+
 function svc(prisma: any, uploads: any = { deleteObject: jest.fn() }, attempts?: PasswordAttemptsService) {
-  return new AdminService(prisma as PrismaService, {} as PricingService, pii, uploads, undefined, attempts);
+  const s = new AdminService(prisma as PrismaService, {} as PricingService, pii, uploads, undefined, attempts);
+  (s as unknown as { users: typeof users }).users = users;
+  return s;
 }
 
 /**
@@ -145,10 +150,16 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
       user: { id: 'u1', status: 'active', kycProfile: { id: 'k', ineFrontKey: 'ine/f', ineBackKey: null } },
       counts: { order: 2 },
     });
+    users.eraseClabe.mockClear();
     const res = await svc(prisma).deleteUser('u1', 'admin');
     expect(res).toEqual({ userId: 'u1', mode: 'soft' });
     // No hard-delete.
     expect(prisma.user.delete).not.toHaveBeenCalled();
+    // 🔒 v1.80.7: la CLABE la anula el módulo dueño, dentro de la MISMA tx (mutación: escribir `clabeEnc: null` aquí ⇒ el censo C-CLABE-1 rojo).
+    expect(users.eraseClabe).toHaveBeenCalledTimes(1);
+    expect(users.eraseClabe).toHaveBeenCalledWith(tx, 'u1');
+    expect((tx.kycProfile.update as jest.Mock).mock.calls[0][0].data).not.toHaveProperty('clabeEnc');
+    expect((tx.kycProfile.update as jest.Mock).mock.calls[0][0].data).not.toHaveProperty('clabeHmac');
     // Anonimización de la cuenta.
     const userData = (tx.user.update as jest.Mock).mock.calls[0][0].data;
     expect(userData.status).toBe('deleted');
@@ -161,7 +172,7 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
     expect(userData.anonymizedAt).toBeInstanceOf(Date);
     // PII sensible borrada; filas económicas NO se tocan (no hay order.delete).
     const kycData = (tx.kycProfile.update as jest.Mock).mock.calls[0][0].data;
-    expect(kycData).toMatchObject({ clabeEnc: null, clabeHmac: null, rfcEnc: null, legalName: null, ineFrontKey: null, ineBackKey: null });
+    expect(kycData).toMatchObject({ rfcEnc: null, legalName: null, ineFrontKey: null, ineBackKey: null }); // la CLABE la anula `users.eraseClabe` (v1.80.7, C-CLABE-1)
     expect(tx.billingProfile.deleteMany).toHaveBeenCalled();
     expect(tx.address.deleteMany).toHaveBeenCalled();
   });
@@ -206,7 +217,7 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
     expect(kycData.ineBackKey).toBeNull();
     expect(kycData).not.toHaveProperty('ineFrontKey');
     // El resto de la PII sí se anonimiza: lo que no se pudo hacer es UNA cosa, no todas.
-    expect(kycData).toMatchObject({ clabeEnc: null, rfcEnc: null, legalName: null });
+    expect(kycData).toMatchObject({ rfcEnc: null, legalName: null }); // la CLABE la anula `users.eraseClabe` (v1.80.7)
   });
 
   it('re-DELETE sobre cuenta ya soft-deleted → no-op idempotente { mode: "soft" }', async () => {

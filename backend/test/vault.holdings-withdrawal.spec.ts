@@ -1,4 +1,5 @@
 import { VaultService } from '../src/modules/vault/vault.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -67,7 +68,7 @@ describe('VaultService.holdings — estado de retiro (v1.17)', () => {
       // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
       sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
-    const svc = new VaultService(prisma as PrismaService, pricing);
+    const svc = new VaultService(withM61Defaults(prisma) as PrismaService, pricing);
     return { svc, prisma };
   }
 

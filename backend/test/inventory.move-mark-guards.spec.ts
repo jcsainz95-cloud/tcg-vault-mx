@@ -4,6 +4,8 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { BusinessException } from '../src/common/business.exception';
+import { readdirSync, readFileSync, statSync } from 'fs';
+import { join, relative } from 'path';
 import { assertOperable } from '../src/modules/inventory/item-location.rules';
 
 /**
@@ -385,5 +387,107 @@ describe('mark (perdida / dañada)', () => {
     expect(tx.inventoryItem.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ id: 'p', status: 'listed' }) }),
     );
+  });
+});
+
+// =============================================================================================
+/**
+ * 🔒 v1.80.7.2 — CANDADO ESTÁTICO de la regla de fusión SEC-SHIP-A1 (API_CONTRACT §M1 `#M1-merge-rule`).
+ * Tres streams (hotfix v1.79.7 · dinero v1.80.2.3 · envío v1.80.7) construyeron la misma guarda; al
+ * fusionar quedaron DOS allowlists vivos (`item-location.rules.ts` y uno local en `inventory.service.ts`).
+ * La regla: `item-location.rules.ts` es el ÚNICO cuerpo de guardas y `MARKABLE_PLATFORM_STATUSES` se
+ * DECLARA una sola vez en `backend/src`, ahí. Y `markItem`/`updateItem` no llevan guarda en línea
+ * (`ownerType !== 'platform'`): la delegan en `assertOperable`.
+ * ⛔ No se busca el literal `['in_stock','listed']`: aparece además en `dto/inventory.dto.ts` (`@IsIn`),
+ * `PUBLISHABLE_ORIGIN_STATUSES` y `ADJUSTABLE_ORIGIN_STATUSES`, que son OTROS predicados (fuera de la regla).
+ */
+describe('candado estático — un solo cuerpo de guardas (#M1-merge-rule)', () => {
+  const SRC = join(__dirname, '..', 'src');
+  function tsFiles(dir: string): string[] {
+    return readdirSync(dir).flatMap((e) => {
+      const full = join(dir, e);
+      if (statSync(full).isDirectory()) return tsFiles(full);
+      return e.endsWith('.ts') && !e.endsWith('.spec.ts') ? [full] : [];
+    });
+  }
+  /** Cuerpo `{…}` de un método `async <name>(…)` por conteo de llaves (la firma puede llevar `{…}`). */
+  function methodBody(src: string, name: string): string {
+    const start = src.indexOf(`async ${name}(`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    let i = src.indexOf('(', start);
+    let depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === '(') depth++;
+      else if (src[i] === ')' && --depth === 0) break;
+    }
+    const open = src.indexOf('{', i);
+    depth = 0;
+    for (let j = open; j < src.length; j++) {
+      if (src[j] === '{') depth++;
+      else if (src[j] === '}' && --depth === 0) return src.slice(open, j + 1);
+    }
+    throw new Error(`cuerpo de ${name} sin cerrar`);
+  }
+
+  /** Nº de DECLARACIONES de `MARKABLE_PLATFORM_STATUSES` en un texto. */
+  const declCount = (text: string) =>
+    [...text.matchAll(/\b(?:const|let|var)\s+MARKABLE_PLATFORM_STATUSES\b/g)].length;
+  /**
+   * Quita comentarios (`// …` y `/* … *\/`) antes de mirar el código: `updateItem` NOMBRA `assertOperable(` en su
+   * comentario de la regla de fusión, y sin esto borrar la llamada dejaba el candado verde (medido en la mutación
+   * de la fusión release-s5). Aproximado a propósito: no hay `//` dentro de cadenas en estos dos métodos.
+   */
+  const stripComments = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  /** Lo que el candado exige de un cuerpo de método: sin guarda en línea, sin allowlist, delega. */
+  const bodyShape = (raw: string) => {
+    const body = stripComments(raw);
+    return {
+      inline: /ownerType\s*!==\s*'platform'/.test(body),
+      allowlist: body.includes('MARKABLE_PLATFORM_STATUSES'),
+      delegates: /assertOperable\(/.test(body),
+    };
+  };
+  const CLEAN = { inline: false, allowlist: false, delegates: true };
+
+  it('`MARKABLE_PLATFORM_STATUSES` se DECLARA una sola vez en backend/src, en item-location.rules.ts', () => {
+    const hits = tsFiles(SRC).flatMap((f) =>
+      Array.from({ length: declCount(readFileSync(f, 'utf8')) }, () => relative(SRC, f)),
+    );
+    expect(hits).toEqual([join('modules', 'inventory', 'item-location.rules.ts')]);
+  });
+
+  it('`markItem` y `updateItem` no llevan guarda en línea: llaman a `assertOperable`', () => {
+    const src = readFileSync(join(SRC, 'modules', 'inventory', 'inventory.service.ts'), 'utf8');
+    for (const name of ['markItem', 'updateItem']) {
+      expect({ name, ...bodyShape(methodBody(src, name)) }).toEqual({ name, ...CLEAN });
+    }
+  });
+
+  // Canario: los detectores MUERDEN. Es la forma exacta del allowlist local y de la guarda en línea que
+  // `envio-preparar` traía en `inventory.service.ts` antes de la regla (`:389` y `updateItem`/`markItem`).
+  it('canario — una segunda declaración y una guarda en línea SE DETECTAN', () => {
+    const local =
+      "const MARKABLE_PLATFORM_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];\n" +
+      "export const MARKABLE_PLATFORM_STATUSES = ['in_stock', 'listed'];";
+    expect(declCount(local)).toBe(2);
+    const svc = `class S {
+  async updateItem(id: string, dto: { a?: { b: number } }) {
+    if (current.ownerType !== 'platform' || !MARKABLE_PLATFORM_STATUSES.includes(current.status)) {
+      throw new Error('x');
+    }
+  }
+  async markItem(id: string) { assertOperable(item, 'mark'); }
+}`;
+    expect(bodyShape(methodBody(svc, 'updateItem'))).toEqual({ inline: true, allowlist: true, delegates: false });
+    expect(bodyShape(methodBody(svc, 'markItem'))).toEqual(CLEAN);
+    // La llamada borrada y solo NOMBRADA en un comentario NO cuenta como delegar.
+    const commented = `class S {
+  async updateItem(id: string) {
+    // readGuardedItem → assertOperable(item, 'status') → guardedItemUpdate
+    /* assertOperable(item, 'price') */
+    return id;
+  }
+}`;
+    expect(bodyShape(methodBody(commented, 'updateItem')).delegates).toBe(false);
   });
 });

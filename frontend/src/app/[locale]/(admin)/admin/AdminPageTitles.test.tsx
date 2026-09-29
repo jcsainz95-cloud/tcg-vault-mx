@@ -46,7 +46,9 @@ import M2BountiesPage from './m2/bounties/page';
 // eslint-disable-next-line import/first
 import M3Page from './m3/page';
 // eslint-disable-next-line import/first
-import M4Page from './m4/page';
+import { M4View } from './m4/M4View';
+// eslint-disable-next-line import/first
+import { parseM4Tab } from './m4/tabs';
 // eslint-disable-next-line import/first
 import M5Page from './m5/page';
 // eslint-disable-next-line import/first
@@ -65,6 +67,19 @@ import M11Page from './m11/page';
 import M12Page from './m12/page';
 // eslint-disable-next-line import/first
 import VaultsPage from './vaults/page';
+// eslint-disable-next-line import/first
+import ManualRefundsPage from './manual-refunds/page';
+// eslint-disable-next-line import/first
+import OperatorRefundsPage from './refunds/page';
+
+/**
+ * Fusión release-s5: `m4/page.tsx` pasó a componente de SERVIDOR asíncrono (lee `?tab=`), que el render
+ * de cliente de la prueba no monta. Se mide lo que esa página devuelve sin `?tab=`: la misma vista con la
+ * misma pestaña por defecto (`parseM4Tab(undefined)`).
+ */
+function M4Page() {
+  return <M4View initialTab={parseM4Tab(undefined)} />;
+}
 
 /** La página que sirve cada `href` del menú (la misma que monta el App Router). */
 const PAGES: Record<string, ComponentType> = {
@@ -83,6 +98,8 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/m11': M11Page,
   '/admin/m12': M12Page,
   '/admin/vaults': VaultsPage,
+  '/admin/manual-refunds': ManualRefundsPage,
+  '/admin/refunds': OperatorRefundsPage,
 };
 
 const MODULES_ES = es.admin.modules as Record<string, string>;
@@ -118,6 +135,11 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     [null, '/admin', 'Resumen', 'Overview', false],
     ['Día a día', '/admin/m5', 'Solicitudes de venta', 'Sell requests', false],
     ['Día a día', '/admin/m3', 'Ventas', 'Sales', false],
+    // Fusión release-s5 (decisión del orquestador, 2026-09-29): se queda la posición que trae envío
+    // (§37.9, «junto a» Ventas; `AdminSidebar.tsx`), las dos con `superAdminOnly` ⇒ SÚPER. La
+    // propuesta C3 de ux-ui (moverlas a «Administración») queda pendiente del dueño.
+    ['Día a día', '/admin/manual-refunds', 'Reembolsos manuales (SPEI)', 'Manual refunds (SPEI)', true],
+    ['Día a día', '/admin/refunds', 'Reembolsos de operadores', 'Operator refunds', true],
     // «Pedidos por preparar»: elección del dueño (HECHOS.md, 2026-09-29) sobre el «Preparar y
     // enviar» que proponía §37.2b. Menú y `h1` salen de la MISMA clave (`admin.modules.m4`).
     ['Día a día', '/admin/m4', 'Pedidos por preparar', 'Orders to prepare', false],

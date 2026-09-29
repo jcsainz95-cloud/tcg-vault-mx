@@ -12,6 +12,7 @@ import {
   Prisma,
   ProductType,
   RawCondition,
+  Role,
   SealedCondition,
   SealedSubtype,
   VariantPriceOverride,
@@ -653,7 +654,7 @@ export class InventoryService {
    */
   private async resolveCreation(
     dtoIn: CreateItemDto | BatchInventoryItemInput,
-    actorUserId?: string,
+    _actorUserId?: string,
   ): Promise<{
     card: Card;
     finish: Finish;
@@ -2360,7 +2361,7 @@ export class InventoryService {
     return { ...toAdminInventoryItemRow(item), ...relations };
   }
 
-  async updateItem(id: string, dto: UpdateItemDto) {
+  async updateItem(id: string, dto: UpdateItemDto, actor?: { id: string; role: Role }) {
     const current = await this.getItem(id);
     // v1.2 (M-12): la invariante "gradeada publicada exige certNumber" también rige en el
     // UPDATE, no solo en el alta. `createItem` valida vía validateProductShape; aquí revalidamos
@@ -2414,31 +2415,50 @@ export class InventoryService {
     // la resolución, como el override por línea del `bulk-publish`.
     const publishing = resultingStatus === 'listed' && current.status !== 'listed';
     if (!publishing) {
-      if (patch.status === undefined) {
-        // Sin cambio de estado: edición de campos, como siempre.
+      // 🔒 v1.80.7.2 — REGLA DE FUSIÓN SEC-SHIP-A1 (API_CONTRACT §M1 `#M1-merge-rule`), camino NO publicante:
+      // la estructura de `envio-preparar` (una transacción, bitácora `inventory.item_updated` con `before/after`
+      // cuando cambia `status`) re-cableada al cuerpo único de guardas del hotfix (`item-location.rules.ts`):
+      // `readGuardedItem` → UNA llamada `assertOperable(item, 'status' | 'price')` (mismo allowlist de plataforma
+      // `in_stock | listed`: un `422 ITEM_NOT_ADJUSTABLE`, `details` únicos) → `guardedItemUpdate`
+      // (CAS sobre `{id, status, ownerType, ownerUserId}` leídos; `P2025` ⇒ `409 CONFLICT`) con TODO el `PATCH`.
+      //  - `status` (v1.80.3 §M4-SHIP.17.1 (2), D-SHIP-6, INV-SP-7): `lost|damaged|picking|in_custody → in_stock`
+      //    ya no existe; `in_stock → in_stock` NO escribe `status` (PS-42b: un `status` igual al leído reescrito
+      //    sin guarda devolvía a `in_stock` una pieza que un checkout acababa de reservar).
+      //  - `listPriceCents` (v1.80.2.3 `#M1-patch-price-guard`, INV-SP-8): el precio de venta SOLO se escribe
+      //    sobre plataforma `in_stock | listed`; cliente en cualquier estado, `reserved`, vendida o terminal ⇒
+      //    `422`, y NINGÚN campo del mismo `PATCH` se escribe (todo o nada).
+      //  - Cuerpo SOLO de identidad (`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`) ⇒ como hoy,
+      //    sin guarda (v1.80.2.3 p.2: es la vía de reparación de identidad, también sobre piezas de cliente).
+      // ⛔ Sin `InventoryMovement`: `listed ↔ in_stock` y re-preciar son visibilidad/valor, no un hecho físico
+      // (ARCHITECTURE §4.57 (o)). El precio solo no gana bitácora nueva (v1.80.2.3 p.4: la del controller basta).
+      const guardedVerb: 'status' | 'price' | null =
+        patch.status !== undefined ? 'status' : patch.listPriceCents !== undefined ? 'price' : null;
+      if (guardedVerb === null) {
         // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
         return toAdminInventoryItemRow(
           await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
         );
       }
-      // 🔒 v1.80.3 §M4-SHIP.17.1 (2) (SEC-SHIP-A1, D-SHIP-6) — **el `status` del `PATCH` gana la
-      // guarda de estado y de dueño de `move`/`mark`.** Hasta aquí `{status:'in_stock'}` iba por el
-      // `update({ where: { id } })` plano de arriba ⇒ **sí existía** un `lost → in_stock` (se
-      // borraba la merma firmada), un `picking → in_stock` (una pieza vendida y cobrada volvía al
-      // estante) y un `in_custody → in_stock` (la carta de un cliente pasaba a ser de la tienda).
-      // Norma: solo plataforma `in_stock | listed` (`item-location.rules.ts`, verbo `status`);
-      // lectura → guarda (`422 ITEM_NOT_ADJUSTABLE`) → escritura CONDICIONADA a lo leído
-      // (`guardedItemUpdate`: `P2025` ⇒ `409 CONFLICT`), con los demás campos del mismo `PATCH` en
-      // la MISMA escritura (todo o nada). `in_stock → in_stock` no escribe `status`.
-      // ⛔ Sin `InventoryMovement`: `listed ↔ in_stock` es visibilidad de catálogo, no un hecho
-      // físico ni de titularidad (ARCHITECTURE §4.57 (o)). Invariante INV-SP-7: `lost | damaged`
-      // no vuelve a `in_stock | listed` por ningún verbo del operador.
       const updated = await this.prisma.$transaction(async (tx) => {
         const item = await this.readGuardedItem(tx, id);
-        assertOperable(item, 'status');
+        assertOperable(item, guardedVerb);
         const { status: nextStatus, ...fields } = patch;
-        const data = nextStatus === item.status ? fields : patch;
-        return this.guardedItemUpdate(tx, item, data);
+        const statusChanges = nextStatus !== undefined && nextStatus !== item.status;
+        const row = await this.guardedItemUpdate(tx, item, statusChanges ? patch : fields);
+        if (statusChanges) {
+          await tx.auditLog.create({
+            data: {
+              actorUserId: actor?.id ?? null,
+              actorRole: actor?.role ?? null,
+              action: 'inventory.item_updated',
+              entityType: 'InventoryItem',
+              entityId: id,
+              before: { status: item.status } as Prisma.InputJsonValue,
+              after: { status: nextStatus, fields: Object.keys(patch) } as Prisma.InputJsonValue,
+            },
+          });
+        }
+        return row;
       }, VAULT_VERB_TX_OPTIONS);
       return toAdminInventoryItemRow(updated);
     }

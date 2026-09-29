@@ -6,8 +6,13 @@ import {
   Finish,
   FulfillmentMode,
   InventoryItem,
+  MissingReason,
   MovementReason,
+  NameSource,
+  PaymentRefund,
+  PreparationItemStatus,
   Prisma,
+  ReplacementCaseStatus,
   ShipmentItem,
   ShipmentRequest,
   ShipmentStatus,
@@ -31,7 +36,6 @@ import { runSerializable } from '../../common/serializable-retry';
 import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   LocationView,
-  lastNameOf,
   locationViewOf,
   nullIfBlank,
   preparationCardOf,
@@ -46,6 +50,11 @@ import {
   shipmentGuideTemplate,
   shipmentShippedTemplate,
 } from './mail/shipment-notice.templates';
+import { CustomerRefDTO, ShipPreparationItemDTO, ShipPreparationStateDTO, ShipmentPrepService } from './shipment-prep.service';
+import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
+import { customerDisplayName } from '../vault/customer-display-name';
+import { originsBeingRefunded } from '../payments/refunds/origin';
 
 /** `P-84` · clase **E** (§4.37): estados de envío filtrables, DERIVADOS del schema. */
 const SHIPMENT_STATUS_FILTER_VALUES: readonly ShipmentStatus[] = Object.values(ShipmentStatus);
@@ -101,6 +110,8 @@ export interface PreparationItemDTO {
  */
 export interface ShipPreparationOrderDTO {
   shipmentId: string;
+  /** ⭐ v1.80 (§M4-SHIP.3) — la misma derivación de §M4 (retiro vs directo). */
+  kind: 'vault_withdrawal' | 'guest_direct_ship';
   orderId: string | null;
   orderNumber: string | null;
   destination: 'ship';
@@ -113,7 +124,8 @@ export interface ShipPreparationOrderDTO {
    * `orderId`, `orderNumber`, `shipTo.recipientName`): `""` renderiza como un hueco invisible, no se
    * distingue de un nombre vacío legítimo y obliga a cada consumidor a escribir `if (!x)`.
    */
-  customer: { lastName: string | null; fullName: string | null };
+  // ⭐ v1.80 (§M4-SHIP.3) — EL COMPRADOR (⛔ no el destinatario): `userId`/`email` (null ⇔ invitado).
+  customer: { userId: string | null; email: string | null; lastName: string | null; fullName: string | null };
   shipTo: {
     recipientName: string | null;
     line1: string;
@@ -125,7 +137,9 @@ export interface ShipPreparationOrderDTO {
     country: string;
     phone: string;
   };
-  items: PreparationItemDTO[];
+  /** ⭐ v1.80 (§M4-SHIP.3) — la preparación (marcas, conteos, `refundPreviewCents` del servidor). */
+  preparation: ShipPreparationStateDTO;
+  items: ShipPreparationItemDTO[];
 }
 
 /**
@@ -135,7 +149,7 @@ export interface ShipPreparationOrderDTO {
 export type PreparationOrderDTO = ShipPreparationOrderDTO | VaultPreparationOrderDTO;
 
 /** El join a `Order` que §M4-PREP necesita: el folio legible y el discriminador de destino. */
-type PreparationOrderJoin = { orderNumber: string | null; fulfillmentMode: FulfillmentMode } | null;
+type PreparationOrderJoin = { orderNumber: string | null; fulfillmentMode: FulfillmentMode; userId?: string | null; guestEmail?: string | null; user?: { name: string; nameSource?: NameSource | null; email?: string } | null } | null;
 
 /** `ShipmentItem` con la pieza, su carta (+set) y su ubicación resueltas (§M4-PREP). */
 type PreparationShipmentItem = ShipmentItem & {
@@ -149,13 +163,29 @@ type PreparationShipmentItem = ShipmentItem & {
 type PreparationShipmentRow = ShipmentRequest & {
   items: PreparationShipmentItem[];
   order?: PreparationOrderJoin;
-  user?: { name: string } | null;
+  user?: { name: string; nameSource?: NameSource | null; email?: string } | null;
 };
 
 /** ShipmentItem con la carta (y su set) resueltos, para el ClientShipmentItemDTO (v1.17). */
 type EnrichedShipmentItem = ShipmentItem & {
   inventoryItem: InventoryItem & { card: Card & { set: CardSet | null } };
+  // ⭐ v1.80.1 (§M4-SHIP.15.8): el caso «Por reponer» que ABRIÓ esta línea (retiro), con su fila Stripe si la hubo.
+  replacementCase?: { id: string; status: ReplacementCaseStatus; missingReason: MissingReason; refundAmountCents: number | null } | null;
+  // v1.80 (§M4-SHIP.10): la fila del libro de esta línea (solo `submitted|succeeded` viaja al cliente).
+  refund?: PaymentRefund | null;
 };
+
+/** El `include` de las lecturas del CLIENTE (`listMine`/`getMine`): carta, caso y filas del libro. */
+const CLIENT_SHIPMENT_INCLUDE = {
+  items: {
+    include: {
+      inventoryItem: { include: { card: { include: { set: true } } } },
+      replacementCase: { select: { id: true, status: true, missingReason: true, refundAmountCents: true } },
+      refund: true,
+    },
+  },
+  refunds: true,
+} satisfies Prisma.ShipmentRequestInclude;
 
 /**
  * v2.1.9 (S49-R4) — **lista blanca de `ShipmentRequest` para las respuestas de BACK-OFFICE.**
@@ -207,7 +237,17 @@ export class ShipmentsService {
     // que en `buylist` y en `orders`: los tests unitarios legacy construyen el servicio a mano, y el
     // envío es **best-effort** (⛔ jamás puede hacer fallar el `PATCH`/`POST` que lo dispara).
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // ⭐ v1.80 (§M4-SHIP): la cubeta ENVÍO interactiva y las guardas de la guía/enviado. `@Optional()` por el
+    // mismo motivo que el correo (tests unitarios legacy construyen el servicio a mano).
+    @Optional() private readonly prep?: ShipmentPrepService,
+    // ⭐ v1.80.2 (§M4-SHIP.15.13): lo que el CLIENTE ve de las transferencias de un caso reembolsado.
+    @Optional() private readonly manual?: ManualRefundService,
   ) {}
+
+  private requirePrep(): ShipmentPrepService {
+    if (!this.prep) throw new Error('ShipmentPrepService no disponible');
+    return this.prep;
+  }
 
   /**
    * ⭐ El desglose del retiro de bóveda. La tarifa EXHIBIDA `E = round(F × (1 + t·r))` lleva su IVA
@@ -268,6 +308,9 @@ export class ShipmentsService {
    */
   private async classifyItems(userId: string, ids: string[]) {
     const items = await this.prisma.inventoryItem.findMany({ where: { id: { in: ids } } });
+    // 🔒💰 v1.80.5 (SEC-SHIP-A5 (b)) — quinta condición, POR LOTE (⛔ sin N+1): la orden de origen de la pieza
+    // está `settled` y sin fila `order_full` no fallida. Sin origen (`no_origin_order`) ⇒ no bloquea (H8).
+    const refunding = await this.originsBeingRefunded(userId, items.map((i) => i.id));
     const eligibleItemIds: string[] = [];
     const ineligible: { inventoryItemId: string; reason: string }[] = [];
     for (const id of ids) {
@@ -286,9 +329,18 @@ export class ShipmentsService {
         ineligible.push({ inventoryItemId: id, reason: 'ITEM_NOT_IN_CUSTODY' });
         continue;
       }
+      if (refunding.has(id)) {
+        ineligible.push({ inventoryItemId: id, reason: 'origin_refunded' });
+        continue;
+      }
       eligibleItemIds.push(id);
     }
     return { eligibleItemIds, ineligible };
+  }
+
+  /** 🔒💰 v1.80.5 — un cuerpo con `HoldingDTO.withdrawable` y la guarda del retiro (`origin.ts`). */
+  async originsBeingRefunded(userId: string, inventoryItemIds: string[]): Promise<Set<string>> {
+    return originsBeingRefunded(this.prisma, userId, inventoryItemIds);
   }
 
   async quote(userId: string, inventoryItemIds: string[], addressId: string) {
@@ -321,7 +373,9 @@ export class ShipmentsService {
         ? 'ITEM_NOT_SETTLED'
         : reasons.has('ITEM_NOT_IN_CUSTODY')
           ? 'ITEM_NOT_IN_CUSTODY'
-          : 'NOT_FOUND';
+          : reasons.has('origin_refunded')
+            ? 'ITEM_ORIGIN_REFUNDED'
+            : 'NOT_FOUND';
       throw BusinessException.validation(code, 'Some items are not eligible', { ineligible });
     }
 
@@ -439,11 +493,13 @@ export class ShipmentsService {
    * ADMIN (`adminGet`/`adminList`) siguen devolviendo la fila cruda con el costo.
    */
   private toClientShipment<
-    T extends ShipmentRequest & { items: EnrichedShipmentItem[] },
-  >(s: T) {
+    T extends ShipmentRequest & { items: EnrichedShipmentItem[]; refunds?: PaymentRefund[] },
+  >(s: T, transfers: Map<string, CustomerTransferView> = new Map()) {
     return {
       id: s.id,
       status: s.status,
+      // v1.80 (§M4-SHIP.10): lo devuelto POR STRIPE (`submitted|succeeded`) sobre el cobro de este retiro (`shipment_fee`).
+      refundedCents: (s.refunds ?? []).filter((r) => r.status === 'submitted' || r.status === 'succeeded').reduce((a, r) => a + r.amountCents, 0),
       addressSnapshot: s.addressSnapshot,
       shippingFeeCents: s.shippingFeeCents,
       ivaCents: s.ivaCents,
@@ -458,13 +514,21 @@ export class ShipmentsService {
       shippedAt: s.shippedAt,
       deliveredAt: s.deliveredAt,
       // v1.17: items enriquecidos (folio + acabado + carta) para la vista de rastreo.
-      items: s.items.map((si) => this.toClientShipmentItem(si)),
+      items: s.items.map((si) => this.toClientShipmentItem(si, transfers)),
     };
   }
 
-  /** v1.17 — ClientShipmentItemDTO (API_CONTRACT §5). Sin costos internos ni PII. */
-  private toClientShipmentItem(si: EnrichedShipmentItem) {
+  /**
+   * v1.17 — ClientShipmentItemDTO (API_CONTRACT §5). Sin costos internos ni PII.
+   * v1.80 (§M4-SHIP.10): + `refund` (solo filas `submitted|succeeded`; ⛔ sin actor, `failureCode` ni componentes).
+   * ⭐ v1.80.1/.2 (§M4-SHIP.15.8/.15.13): + `replacement` — el caso de esta línea (`status`, `reason`) y, si se
+   * reembolsó, `{ amountCents, byTransferCents, transferStatus }` (⛔ sin CLABE, motivo, referencias ni actor).
+   */
+  private toClientShipmentItem(si: EnrichedShipmentItem, transfers: Map<string, CustomerTransferView> = new Map()) {
     const card = si.inventoryItem.card;
+    const rf = si.refund && (si.refund.status === 'submitted' || si.refund.status === 'succeeded') ? si.refund : null;
+    const cs = si.replacementCase ?? null;
+    const tv = cs ? transfers.get(cs.id) : undefined;
     return {
       inventoryItemId: si.inventoryItemId,
       folio: si.inventoryItem.folio,
@@ -476,6 +540,17 @@ export class ShipmentsService {
         number: card.number,
         imageSmallUrl: card.imageSmallUrl,
       },
+      refund: rf ? { amountCents: rf.amountCents, reason: rf.missingReason, refundedAt: (rf.succeededAt ?? rf.submittedAt)?.toISOString() ?? null } : null,
+      replacement: cs
+        ? {
+            status: cs.status,
+            reason: cs.missingReason,
+            refund:
+              cs.status === 'refunded'
+                ? { amountCents: cs.refundAmountCents ?? 0, byTransferCents: tv?.byTransferCents ?? 0, transferStatus: tv?.transferStatus ?? null }
+                : null,
+          }
+        : null,
     };
   }
 
@@ -490,24 +565,28 @@ export class ShipmentsService {
     const rows = await this.prisma.shipmentRequest.findMany({
       where: { userId },
       orderBy: { requestedAt: 'desc' },
-      include: {
-        items: { include: { inventoryItem: { include: { card: { include: { set: true } } } } } },
-      },
+      include: CLIENT_SHIPMENT_INCLUDE,
     });
-    return { data: rows.map((r) => this.toClientShipment(r)) };
+    const transfers = await this.transfersOf(rows.flatMap((r) => r.items));
+    return { data: rows.map((r) => this.toClientShipment(r, transfers)) };
   }
 
   async getMine(userId: string, id: string) {
     const shipment = await this.prisma.shipmentRequest.findUnique({
       where: { id },
-      include: {
-        items: { include: { inventoryItem: { include: { card: { include: { set: true } } } } } },
-      },
+      include: CLIENT_SHIPMENT_INCLUDE,
     });
     // Comparación de dueño POSITIVA: `null !== :sessionUser` siempre, así que un envío directo de
     // invitado no es legible por ningún cliente (riesgo #1 de M-25).
     if (!userId || !shipment || shipment.userId !== userId) throw BusinessException.notFound();
-    return this.toClientShipment(shipment);
+    return this.toClientShipment(shipment, await this.transfersOf(shipment.items));
+  }
+
+  /** Las transferencias SPEI (vista del cliente) de los casos `refunded` de estas líneas — una consulta. */
+  private async transfersOf(items: EnrichedShipmentItem[]): Promise<Map<string, CustomerTransferView>> {
+    const caseIds = items.flatMap((i) => (i.replacementCase?.status === 'refunded' ? [i.replacementCase.id] : []));
+    if (caseIds.length === 0 || !this.manual) return new Map();
+    return this.manual.customerTransferViews(this.prisma, caseIds);
   }
 
   // ---------------- Admin M4 ----------------
@@ -518,8 +597,28 @@ export class ShipmentsService {
     pageSize: number,
     userId?: string,
     kind?: string,
+    q?: string,
   ) {
     const where: Prisma.ShipmentRequestWhereInput = {};
+    // ⭐ v1.80 (§M4-SHIP.10) — `?q=` (gramática de §M3: trim, vacío ≡ ausente, ≤ 200 ⇒ 400): contains
+    // insensible OR sobre `Order.orderNumber`, `Order.guestEmail`, `User.name`/`User.email` (del retiro Y de la
+    // orden), `addressSnapshot.recipientName` (ruta JSON, parametrizado) e `id` exacto. ⛔ SQL crudo concatenado.
+    const qq = (q ?? '').trim();
+    if (qq.length > 200) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'q too long (max 200)', { field: 'q' });
+    }
+    if (qq.length > 0) {
+      where.OR = [
+        { id: qq },
+        { order: { orderNumber: { contains: qq, mode: 'insensitive' } } },
+        { order: { guestEmail: { contains: qq, mode: 'insensitive' } } },
+        { user: { name: { contains: qq, mode: 'insensitive' } } },
+        { user: { email: { contains: qq, mode: 'insensitive' } } },
+        { order: { user: { name: { contains: qq, mode: 'insensitive' } } } },
+        { order: { user: { email: { contains: qq, mode: 'insensitive' } } } },
+        { addressSnapshot: { path: ['recipientName'], string_contains: qq } },
+      ];
+    }
     // `P-84` — aquí había un `status as never`: valor crudo al `where`, Prisma revienta y el filtro
     // global lo convierte en **`500 INTERNAL`** (medido por HTTP: `?status=banana` ⇒ `500`).
     // Clase **E**: derivado de `ShipmentStatus`.
@@ -543,12 +642,38 @@ export class ShipmentsService {
         take: pageSize,
         include: {
           items: true,
-          order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true } },
+          order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true } },
         },
       }),
       this.prisma.shipmentRequest.count({ where }),
     ]);
-    return { data: data.map((s) => this.withAdminKind(s)), page, pageSize, total };
+    const rows = [];
+    for (const s of data) rows.push({ ...this.withAdminKind(s), ...(await this.adminIdentity(s)) });
+    return { data: rows, page, pageSize, total };
+  }
+
+  /**
+   * ⭐ v1.80 (§M4-SHIP.10), aditivo: `customer` (fuente de §M4-SHIP.3; `null` ⇔ invitado), `preparedAt`,
+   * `preparedBy`, `missingCount`.
+   */
+  private async adminIdentity(s: ShipmentRequest & { items: { prepStatus: PreparationItemStatus }[]; order?: { userId: string | null } | null }): Promise<{
+    customer: CustomerRefDTO | null;
+    preparedAt: string | null;
+    preparedBy: { userId: string; name: string | null } | null;
+    missingCount: number;
+  }> {
+    const buyerId = s.userId ?? s.order?.userId ?? null;
+    const buyer = buyerId ? await this.prisma.user.findUnique({ where: { id: buyerId }, select: { email: true, name: true, nameSource: true } }) : null;
+    const customer: CustomerRefDTO | null = buyerId && buyer ? { userId: buyerId, fullName: customerDisplayName(buyer), email: buyer.email } : null;
+    const preparedBy = s.preparedByUserId
+      ? { userId: s.preparedByUserId, name: nullIfBlank((await this.prisma.user.findUnique({ where: { id: s.preparedByUserId }, select: { name: true } }))?.name ?? null) }
+      : null;
+    return {
+      customer,
+      preparedAt: s.preparedAt ? s.preparedAt.toISOString() : null,
+      preparedBy,
+      missingCount: s.items.filter((i) => i.prepStatus === 'missing').length,
+    };
   }
 
   async adminGet(id: string) {
@@ -556,11 +681,25 @@ export class ShipmentsService {
       where: { id },
       include: {
         items: { include: { inventoryItem: { include: { card: true, location: true } } } },
-        order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true } },
+        order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true } },
       },
     });
     if (!shipment) throw BusinessException.notFound();
-    return this.withAdminKind(shipment);
+    // ⭐ v1.80 (§M4-SHIP.10) — el detalle gana además `refunds: PaymentRefundDTO[]` e `items[].prepStatus/missingReason`.
+    const refundRows = await this.prisma.paymentRefund.findMany({
+      where: { OR: [{ shipmentRequestId: id }, { shipmentItem: { shipmentRequestId: id } }] },
+      orderBy: { createdAt: 'asc' },
+    });
+    const requesterIds = [...new Set(refundRows.map((r) => r.requestedByUserId))];
+    const requesters = requesterIds.length ? await this.prisma.user.findMany({ where: { id: { in: requesterIds } }, select: { id: true, name: true } }) : [];
+    const names = new Map(requesters.map((u) => [u.id, nullIfBlank(u.name)]));
+    const refunds: PaymentRefundDTO[] = refundRows.map((r) => RefundLedgerService.toDto(r, names.get(r.requestedByUserId) ?? null));
+    return {
+      ...this.withAdminKind(shipment),
+      ...(await this.adminIdentity(shipment)),
+      refunds,
+      items: shipment.items.map((si) => ({ ...si, prepStatus: si.prepStatus, missingReason: si.missingReason })),
+    };
   }
 
   /**
@@ -695,11 +834,12 @@ export class ShipmentsService {
             inventoryItem: { include: { card: { include: { set: true } }, location: true } },
           },
         },
-        order: { select: { orderNumber: true, fulfillmentMode: true } },
-        user: { select: { name: true } },
+        order: { include: { user: { select: { id: true, name: true, nameSource: true, email: true } } } },
+        user: { select: { id: true, name: true, nameSource: true, email: true } },
       },
     });
-    const shipRows = shipments.map((s) => this.toPreparationOrder(s));
+    const shipRows: ShipPreparationOrderDTO[] = [];
+    for (const sh of shipments) shipRows.push(await this.toPreparationOrder(sh));
     // ⭐ v1.79 (§M4-VAULT.3) — la SEGUNDA fuente: las colocaciones pendientes (cubeta `vault`). La
     // proyección y las reglas (`P`, `customerDrawers`, preparación) viven en `modules/vault/`: esta
     // cola solo LEE. Mismo `?date=` aplicado a `VaultPlacement.createdAt`.
@@ -841,37 +981,26 @@ export class ShipmentsService {
   }
 
   /** §M4-PREP — proyecta UN `ShipmentRequest` en `picking` a su renglón de «Pedidos a preparar». */
-  private toPreparationOrder(s: PreparationShipmentRow): ShipPreparationOrderDTO {
+  private async toPreparationOrder(s: PreparationShipmentRow): Promise<ShipPreparationOrderDTO> {
     const destination = this.destinationOf(s);
     const snapshot = ShipmentsService.addressSnapshotOf(s.addressSnapshot);
-    // Con cuenta ⇒ `User.name` (NOT NULL en schema); invitado ⇒ el nombre CONGELADO en el snapshot.
-    // ⚠️ **v1.78.1 + `B-1`: la fuente se elige por QUIÉN es el envío y DESPUÉS se normaliza.**
-    // Con cuenta ⇒ `User.name`; invitado ⇒ el `recipientName` congelado en el snapshot (que
-    // `addressSnapshotOf` ya devolvió normalizado). `nullIfBlank` cierra el caso que `??` no veía:
-    // la fuente **existe VACÍA** (`""` / `"   "`).
-    //
-    // ⛔ **NO hay respaldo de una fuente a la otra**, y es deliberado: `s.user ? … : …` y no
-    // `nullIfBlank(s.user?.name) ?? snapshot.recipientName`. Un envío con cuenta cuyo `User.name`
-    // esté en blanco **no** hereda el `recipientName` del snapshot — el destinatario **puede ser
-    // otra persona** (un retiro se manda a quien el cliente diga), así que rellenar con él sería
-    // **inventar una atribución** en la pantalla del operador. El contrato nombra UNA fuente por
-    // caso y no autoriza ninguna cascada. Preferimos la ausencia declarada a un nombre plausible.
-    const fullName = nullIfBlank(s.user ? s.user.name : snapshot.recipientName);
-    const items = s.items.map((si) => ShipmentsService.toPreparationItem(si));
+    // ⭐ v1.80 (§M4-SHIP.3) — la rama `ship` es INTERACTIVA: marcas, disponibilidad, reembolso y el comprador
+    // (⛔ no el destinatario) los proyecta `ShipmentPrepService` (un cuerpo con los verbos).
+    const prep = this.requirePrep();
+    const view = await prep.buildView(this.prisma, s as unknown as Parameters<ShipmentPrepService['buildView']>[1]);
+    const customer = prep.customerOf(s as unknown as Parameters<ShipmentPrepService['customerOf']>[0]);
+    const items = [...view.items];
     items.sort(ShipmentsService.byLocation);
     return {
       shipmentId: s.id,
+      kind: view.kind,
       orderId: s.orderId,
-      // Un RETIRO DE BÓVEDA vive en esta cola y no tiene orden: `orderNumber` es `null`, y la
-      // referencia SIEMPRE presente para trazar el renglón es `shipmentId`. `nullIfBlank` porque un
-      // folio en blanco es la misma ausencia que ninguna orden, y ⛔ no se sirve con otra grafía.
       orderNumber: nullIfBlank(s.order?.orderNumber),
       destination,
       requestedAt: s.requestedAt.toISOString(),
-      customer: { lastName: lastNameOf(fullName), fullName },
-      // CA #6 — la dirección COMPLETA, CON la calle que la fila plana omitía. ⭐ v1.79: OBLIGATORIA
-      // en la rama `ship` (la única que proyecta este método; la `vault` no lleva dirección).
+      customer,
       shipTo: snapshot,
+      preparation: view.preparation,
       items,
     };
   }
@@ -998,10 +1127,15 @@ export class ShipmentsService {
     return A.label < B.label ? -1 : A.label > B.label ? 1 : 0;
   }
 
+  /**
+   * ⭐ v1.80 (§M4-SHIP.9) — se QUITA «cancelar» a mano un envío PAGADO: `picking` y `guia` ya no admiten
+   * `cancelado` (decisión del dueño 2026-09-29). Se conservan los cierres AUTOMÁTICOS (pago fallido, contracargo,
+   * cierre por «no sale nada», `closeShipmentsOnFullRefund`) porque no pasan por esta tabla.
+   */
   private static TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
     solicitado: ['picking', 'cancelado'],
-    picking: ['guia', 'cancelado'],
-    guia: ['enviado', 'cancelado'],
+    picking: ['guia'],
+    guia: ['enviado'],
     enviado: ['entregado'],
     entregado: [],
     cancelado: [],
@@ -1049,6 +1183,12 @@ export class ShipmentsService {
   async updateStatus(id: string, to: ShipmentStatus) {
     const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
     if (!shipment) throw BusinessException.notFound();
+    // ⭐ v1.80 (§M4-SHIP.9) — un envío PAGADO no se cancela a mano: `picking|guia` ⇒ 409 con nombre.
+    if (to === 'cancelado' && (shipment.status === 'picking' || shipment.status === 'guia')) {
+      throw BusinessException.conflict('PAID_SHIPMENT_NOT_CANCELLABLE', 'A paid shipment cannot be cancelled by hand', {
+        status: shipment.status,
+      });
+    }
     const allowed = ShipmentsService.TRANSITIONS[shipment.status] ?? [];
     if (!allowed.includes(to)) {
       throw BusinessException.conflict(
@@ -1056,113 +1196,126 @@ export class ShipmentsService {
         `Invalid transition ${shipment.status} -> ${to}`,
       );
     }
+    // ⭐ v1.80 (§M4-SHIP.9) — cancelar un `solicitado` (no pagado) cancela PRIMERO su PaymentIntent: si Stripe
+    // dice que ya está cobrado o en proceso (se desambigua como B3 con `getPaymentIntentStatus`) ⇒ 409, sin
+    // escribir. Hoy un `solicitado` cancelado a mano podía cobrarse después y el pago quedaba sin envío.
+    if (to === 'cancelado' && shipment.status === 'solicitado' && shipment.stripePaymentIntentId) {
+      await this.cancelPaymentIntentOrThrow(shipment.stripePaymentIntentId, shipment.status);
+    }
     const data: Prisma.ShipmentRequestUpdateManyMutationInput = { status: to };
     if (to === 'picking') data.pickingAt = new Date();
     if (to === 'enviado') data.shippedAt = new Date();
     if (to === 'entregado') data.deliveredAt = new Date();
 
-    // v1.21-guest-checkout (§M4) — RAMIFICACIÓN OBLIGATORIA por RUTA DE FULFILLMENT. La máquina de
-    // estados, el picking list y la captura de guía son IDÉNTICOS para los dos tipos; lo único que
-    // cambia es qué le pasa al `InventoryItem` en las transiciones terminales:
-    //   · Retiro de bóveda: v1.17 SIN CAMBIO ALGUNO — solo `entregado` toca el item
-    //     (`in_custody → withdrawn`, reason `withdrawal`).
-    //   · Envío directo: DOS transiciones, ambas por `status` (el item es `ownerType='platform'`
-    //     todo el tiempo): `enviado` ⇒ `picking → shipped`; `entregado` ⇒ `shipped → delivered`.
-    //     NUNCA `withdrawn` (nunca estuvo en bóveda).
-    //
-    // v1.21.2 (D4): el discriminador es `Order.fulfillmentMode`, NO `orderId != null`. `orderId`
-    // dice de DÓNDE VIENE el envío; el COMPORTAMIENTO lo decide el modo de fulfillment, que es el
-    // único discriminador canónico del sistema (ARCHITECTURE §4.21d).
+    // v1.21-guest-checkout (§M4) — RAMIFICACIÓN OBLIGATORIA por RUTA DE FULFILLMENT (D4): el discriminador es
+    // `Order.fulfillmentMode`, NO `orderId != null`. Retiro: solo `entregado` toca el item (`in_custody →
+    // withdrawn`). Directo: `enviado` ⇒ `picking → shipped`; `entregado` ⇒ `shipped → delivered`.
     const isDirectShip = await this.isDirectShipFulfillment(shipment);
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      // ⭐⭐ `REL-B` — LA PRECONDICIÓN DE ESTADO VIVE EN EL `WHERE`, no en el `if` de arriba.
-      // `count === 1` ⇔ esta petición fue la que movió el envío de `shipment.status` a `to`.
-      // ⛔ Nunca `update({ where: { id } })`: eso escribe aunque otro ya haya hecho la transición,
-      // y entonces el aviso de más abajo sale N veces por un hecho que ocurrió UNA.
-      const claimed = await tx.shipmentRequest.updateMany({
-        where: { id, status: shipment.status },
-        data,
-      });
-      if (claimed.count !== 1) {
-        // ⭐ §R.4.c cláusula 4 — **EL PERDEDOR NO RECIBE `409` SI EL ENVÍO QUEDÓ DONDE PEDÍA.**
-        // Se RELEE (instantánea nueva: bajo `READ COMMITTED` cada sentencia ve lo ya commiteado):
-        //   · `status === to`  ⇒ `200` idempotente con la fila actual, ⛔ SIN correo. Dos operadores
-        //     que pulsan «Enviar» a la vez querían lo mismo y lo consiguieron; convertir eso en un
-        //     error en pantalla castiga al operador por la latencia de la red.
-        //   · cualquier otro estado ⇒ `409`, el mismo de una transición ilegal (§M4).
-        const actual = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
-        if (actual.status === to) return { gane: false, row: toAdminShipmentRow(actual) };
-        throw BusinessException.conflict('CONFLICT', `Invalid transition ${actual.status} -> ${to}`);
-      }
-      const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
-
-      if (isDirectShip && (to === 'enviado' || to === 'entregado')) {
-        const fromStatus = to === 'enviado' ? 'picking' : 'shipped';
-        const toStatus = to === 'enviado' ? 'shipped' : 'delivered';
-        const shipmentItems = await tx.shipmentItem.findMany({
-          where: { shipmentRequestId: id },
-          select: { inventoryItemId: true },
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        // ⭐ v1.80 (§M4-SHIP.5/.6) — el CANDADO DE LA FILA del envío, primera sentencia: serializa con el
+        // preparado, la guía, el cierre por reembolso total y el contracargo de un directo.
+        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
+        // ⭐ v1.80 (§M4-SHIP.6) — las guardas de la guía / enviado, bajo el candado (un cuerpo en `prep`):
+        // `SHIPMENT_NOT_PREPARED`, `SHIPMENT_HAS_OPEN_REPLACEMENTS`, `ORDER_NOT_SETTLED` (directo),
+        // `WITHDRAWAL_LINE_ORIGIN_REFUNDED` (retiro), `nothing_to_ship` (v1.80.6).
+        if ((to === 'guia' || to === 'enviado') && this.prep) {
+          await this.prep.assertCanAdvance(tx, id, to);
+        }
+        // ⭐⭐ `REL-B` — LA PRECONDICIÓN DE ESTADO VIVE EN EL `WHERE`, no en el `if` de arriba. ⭐ v1.80: y
+        // `→guia` exige `preparedAt` TAMBIÉN en el `WHERE` (la condición no puede vivir solo en una lectura).
+        const claimed = await tx.shipmentRequest.updateMany({
+          where: { id, status: shipment.status, ...(to === 'guia' ? { preparedAt: { not: null } } : {}) },
+          data,
         });
-        for (const si of shipmentItems) {
-          // Guardia POSITIVA + idempotente: solo avanza la pieza que está en el estado previo
-          // esperado (un reintento o una pieza ya movida por otro flujo no duplica movimiento).
-          const moved = await tx.inventoryItem.updateMany({
-            where: { id: si.inventoryItemId, status: fromStatus },
-            data: { status: toStatus },
+        if (claimed.count !== 1) {
+          // ⭐ §R.4.c cláusula 4 — EL PERDEDOR NO RECIBE `409` SI EL ENVÍO QUEDÓ DONDE PEDÍA.
+          const actual = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
+          if (actual.status === to) return { gane: false, row: toAdminShipmentRow(actual) };
+          if (to === 'guia' && actual.status === 'picking' && actual.preparedAt === null) {
+            throw BusinessException.conflict('SHIPMENT_NOT_PREPARED', 'Shipment is not prepared');
+          }
+          throw BusinessException.conflict('CONFLICT', `Invalid transition ${actual.status} -> ${to}`);
+        }
+        const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
+
+        if (isDirectShip && (to === 'enviado' || to === 'entregado')) {
+          const fromStatus = to === 'enviado' ? 'picking' : 'shipped';
+          const toStatus = to === 'enviado' ? 'shipped' : 'delivered';
+          // ⭐ v1.80: una faltante ya es `lost/damaged` — se excluye por legibilidad y defensa en profundidad.
+          const shipmentItems = await tx.shipmentItem.findMany({
+            where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
+            select: { inventoryItemId: true },
           });
-          if (moved.count !== 1) continue;
-          await tx.inventoryMovement.create({
-            data: {
-              itemId: si.inventoryItemId,
-              fromStatus,
-              toStatus,
-              // `sale`: la pieza sale por una VENTA con envío directo, no por un retiro de bóveda
-              // (`withdrawal` mentiría en los reportes de custodia).
-              reason: MovementReason.sale,
-              note: `guest shipment ${id} ${to}`,
-            },
+          for (const si of shipmentItems) {
+            // Guardia POSITIVA + idempotente: solo avanza la pieza que está en el estado previo esperado.
+            const moved = await tx.inventoryItem.updateMany({
+              where: { id: si.inventoryItemId, status: fromStatus },
+              data: { status: toStatus },
+            });
+            if (moved.count !== 1) continue;
+            await tx.inventoryMovement.create({
+              data: {
+                itemId: si.inventoryItemId,
+                fromStatus,
+                toStatus,
+                // `sale`: la pieza sale por una VENTA con envío directo, no por un retiro de bóveda.
+                reason: MovementReason.sale,
+                note: `guest shipment ${id} ${to}`,
+              },
+            });
+          }
+          return { gane: true, row: toAdminShipmentRow(updated) }; // S49-R4
+        }
+
+        if (!isDirectShip && to === 'entregado') {
+          // 🔴 v1.80 (§M4-SHIP.6, corrige H1): `withdrawn` SOLO desde `in_custody` del dueño del retiro (guarda
+          // en el `WHERE`) y movimiento solo si `count = 1`; una faltante (`lost`, del cliente o de plataforma)
+          // ⛔ jamás pasa a `withdrawn` al entregar el resto.
+          const shipmentItems = await tx.shipmentItem.findMany({
+            where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
+            select: { inventoryItemId: true },
           });
+          for (const si of shipmentItems) {
+            const moved = await tx.inventoryItem.updateMany({
+              where: { id: si.inventoryItemId, status: 'in_custody', ownerType: 'customer', ownerUserId: shipment.userId },
+              // Solo cambia `status`; conserva ownerType/ownerUserId/ownershipStatus.
+              data: { status: 'withdrawn' },
+            });
+            if (moved.count !== 1) continue;
+            await tx.inventoryMovement.create({
+              data: {
+                itemId: si.inventoryItemId,
+                fromStatus: 'in_custody',
+                toStatus: 'withdrawn',
+                reason: MovementReason.withdrawal,
+                note: `shipment ${id} delivered`,
+              },
+            });
+          }
         }
         return { gane: true, row: toAdminShipmentRow(updated) }; // S49-R4
-      }
-
-      if (!isDirectShip && to === 'entregado') {
-        const shipmentItems = await tx.shipmentItem.findMany({
-          where: { shipmentRequestId: id },
-          select: { inventoryItemId: true },
-        });
-        for (const si of shipmentItems) {
-          const item = await tx.inventoryItem.findUnique({
-            where: { id: si.inventoryItemId },
-          });
-          if (!item) continue;
-          // Idempotencia: si ya está retirado, no dupliques el movimiento.
-          if (item.status === 'withdrawn') continue;
-          await tx.inventoryItem.update({
-            where: { id: si.inventoryItemId },
-            // Solo cambia `status`; conserva ownerType/ownerUserId/ownershipStatus.
-            data: { status: 'withdrawn' },
-          });
-          await tx.inventoryMovement.create({
-            data: {
-              itemId: si.inventoryItemId,
-              fromStatus: item.status,
-              toStatus: 'withdrawn',
-              reason: MovementReason.withdrawal,
-              note: `shipment ${id} delivered`,
-            },
-          });
-        }
-      }
-      return { gane: true, row: toAdminShipmentRow(updated) }; // S49-R4
-    });
-    // v1.74 (§R) — `AV-5`/`AV-6`, POST-COMMIT y best-effort: el correo cuelga del hecho, y el hecho
-    // no cuelga del correo. ⛔ Un fallo del proveedor no revierte la transición ni tumba el `PATCH`.
-    // ⭐ §R.4.c cláusula 2 — **avisa el GANADOR del CAS y nadie más.** El perdedor idempotente sale
-    // por aquí con `gane: false`: no omite un correo suyo, es que **no ocurrió ningún hecho suyo**.
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+    // v1.74 (§R) — `AV-5`/`AV-6`, POST-COMMIT y best-effort; avisa el GANADOR del CAS y nadie más.
     if (result.gane) await this.notifyStatus(shipment, to);
     return result.row;
+  }
+
+  /** §M4-SHIP.9 — cancelar el PI de un `solicitado`; cobrado/en proceso/desconocido ⇒ `409 PAID_SHIPMENT_NOT_CANCELLABLE`. */
+  private async cancelPaymentIntentOrThrow(paymentIntentId: string, status: ShipmentStatus): Promise<void> {
+    const notCancellable = () =>
+      BusinessException.conflict('PAID_SHIPMENT_NOT_CANCELLABLE', 'The payment was already captured or is in progress', { status });
+    try {
+      const r = await this.stripe.cancelPaymentIntent(paymentIntentId);
+      if (r.status !== 'canceled') throw notCancellable();
+    } catch (e) {
+      if (e instanceof BusinessException) throw e;
+      const st = await this.stripe.getPaymentIntentStatus(paymentIntentId);
+      if (st !== 'canceled') throw notCancellable();
+    }
   }
 
   /**
@@ -1267,78 +1420,75 @@ export class ShipmentsService {
         { status: shipment.status },
       );
     }
-    // Lo que se escribe SIEMPRE, cambie o no la etiqueta. ⛔ **`status` ya NO va aquí** (`REL-C`):
-    // el avance de estado tiene su propia escritura, con su propia precondición en el motor. El
-    // sello tampoco: va solo en la escritura condicional de abajo, la que reinicia el ciclo.
+    // Lo que se escribe SIEMPRE, cambie o no la etiqueta. ⛔ `status` NO va aquí (`REL-C`).
     const data = {
       carrier,
       trackingNumber,
-      // v1.4-finance: opcional y editable; si se omite, no se modifica (default de columna 0).
       ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
-      // ⭐ §M10-IVA.8 / `IVA-11(c)`: el crédito se CAPTURA junto al bruto y se congela con él.
       ...(shippingCostIvaCents !== undefined ? { shippingCostIvaCents } : {}),
     };
-    // ⭐⭐ `REL-C` — **EL AVANCE DE ESTADO, Y SU PRECONDICIÓN ES UN CONJUNTO, NO UNA LECTURA.**
-    // `advances` se calculó sobre `shipment.status`, leído ANTES y sin candado: si entre la lectura
-    // y la escritura otro operador completó `guia → enviado`, escribir `status:'guia'` dentro de
-    // `data` **REGRESABA EL ESTADO** y volvía a abrir el camino a `enviado` — o sea, un **segundo
-    // `AV-5`**. *(El pentester lo marcó BAJA con `0/25` porque su arnés serializaba la cadena; con
-    // el entrelazado forzado sale **ROJO 10/10**: un `0/25` no era una defensa, era un instrumento
-    // que no llegaba.)*
-    //
-    // El `WHERE` no lleva «el estado que leí» sino **los estados desde los que este avance es
-    // legal**, que es un predicado estable y lo evalúa el motor en el instante de escribir. ⇒ esta
-    // escritura **no puede retroceder nada**: `guia`, `enviado`, `entregado` y `cancelado` no casan.
-    // Y eso es justo lo que hace cierta la premisa de `notifyStatus`: el grafo de estados es
-    // ACÍCLICO, así que `guia → enviado` ocurre **como mucho una vez** en la vida de la fila.
-    if (advances) {
-      await this.prisma.shipmentRequest.updateMany({
-        where: { id, status: { in: [...ShipmentsService.PRE_GUIA] } },
-        data: { status: 'guia' },
-      });
-    }
-    // ⭐⭐ §R.4.b + `D-AVISO-2` bajo concurrencia — el ciclo del aviso se reinicia por VALOR, no por
-    // evento, y **la comparación la hace el MOTOR en el mismo `UPDATE`** que escribe la etiqueta
-    // (ver el docstring): `count === 1` ⇔ *esta* petición fue la que dejó la etiqueta distinta, y
-    // por tanto la única con derecho a limpiar el pestillo. ⛔ Nunca un `if` sobre una lectura
-    // previa: bajo N concurrentes las N leerían el valor viejo y las N se creerían «el cambio».
-    // ⚠️ Las ramas `: null` son obligatorias — Prisma traduce `{ not: v }` a `col <> v`, que en SQL
-    // NO casa con `NULL`, y el primer `setTracking` de un envío tiene las dos columnas en `NULL`.
-    // ⚠️ `status: { not: 'cancelado' }` (`REL-C`): el 409 de arriba se decidió sobre la lectura
-    // previa, así que una cancelación simultánea se le colaba. Sin esta rama, la etiqueta aterrizaba
-    // sobre un envío que ya no sale — la **cola falsa** que este método dice impedir.
-    const relabelled = await this.prisma.shipmentRequest.updateMany({
-      where: {
-        id,
-        status: { not: 'cancelado' },
-        OR: [
-          { carrier: null },
-          { carrier: { not: carrier } },
-          { trackingNumber: null },
-          { trackingNumber: { not: trackingNumber } },
-        ],
+    const relabelled = await this.prisma.$transaction(
+      async (tx) => {
+        // ⭐ v1.80 (§M4-SHIP.6) — candado de la fila y las guardas de la guía bajo él (un cuerpo en `prep`).
+        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
+        if (advances && this.prep) await this.prep.assertCanAdvance(tx, id, 'guia');
+        // ⭐⭐ `REL-C` — EL AVANCE DE ESTADO, Y SU PRECONDICIÓN ES UN CONJUNTO, NO UNA LECTURA. ⭐ v1.80: y la
+        // guía exige `preparedAt` y cero casos `open` TAMBIÉN en el `WHERE` (§M4-SHIP.6, §M4-SHIP.15.6).
+        if (advances) {
+          const moved = await tx.shipmentRequest.updateMany({
+            where: {
+              id,
+              status: { in: [...ShipmentsService.PRE_GUIA] },
+              preparedAt: { not: null },
+              replacementCases: { none: { status: 'open' } },
+            },
+            data: { status: 'guia' },
+          });
+          if (moved.count !== 1) {
+            const actual = await tx.shipmentRequest.findUniqueOrThrow({ where: { id }, include: { replacementCases: { where: { status: 'open' }, select: { id: true } } } });
+            if (actual.status === 'picking' && actual.preparedAt === null) {
+              throw BusinessException.conflict('SHIPMENT_NOT_PREPARED', 'Shipment is not prepared');
+            }
+            if (actual.status === 'picking' && actual.replacementCases.length > 0) {
+              throw BusinessException.conflict('SHIPMENT_HAS_OPEN_REPLACEMENTS', 'Withdrawal has open replacement cases', {
+                caseIds: actual.replacementCases.map((c) => c.id),
+              });
+            }
+            if (!ShipmentsService.GUIA_OR_LATER.includes(actual.status)) {
+              throw BusinessException.conflict('CONFLICT', `Cannot capture a tracking label on a ${actual.status} shipment`, { status: actual.status });
+            }
+          }
+        }
+        // ⭐⭐ §R.4.b + `D-AVISO-2` bajo concurrencia — la comparación la hace el MOTOR en el mismo `UPDATE`.
+        const relabelled = await tx.shipmentRequest.updateMany({
+          where: {
+            id,
+            status: { not: 'cancelado' },
+            OR: [
+              { carrier: null },
+              { carrier: { not: carrier } },
+              { trackingNumber: null },
+              { trackingNumber: { not: trackingNumber } },
+            ],
+          },
+          data: { ...data, trackingNoticeSentAt: null },
+        });
+        if (relabelled.count !== 1) {
+          await tx.shipmentRequest.updateMany({
+            where: { id, status: { not: 'cancelado' } },
+            data,
+          });
+        }
+        return relabelled.count;
       },
-      data: { ...data, trackingNoticeSentAt: null },
-    });
-    if (relabelled.count !== 1) {
-      // La etiqueta no cambió (o la cambió otra petición simultánea): se escriben los costos del
-      // transportista igual —una re-captura idempotente que los trae es legítima— ⛔ SIN tocar el
-      // sello y ⛔ sin tocar el estado.
-      await this.prisma.shipmentRequest.updateMany({
-        where: { id, status: { not: 'cancelado' } },
-        data,
-      });
-    }
+      { maxWait: 10_000, timeout: 30_000 },
+    );
     // S49-R4: proyectado (antes devolvía la entidad `ShipmentRequest` cruda).
     const row = toAdminShipmentRow(
       await this.prisma.shipmentRequest.findUniqueOrThrow({ where: { id } }),
     );
-    // ⛔ POST-COMMIT y best-effort: el sello se reclama FUERA de la escritura de negocio. Meterlo
-    // dentro haría que un fallo del correo pudiera revertir la captura de una etiqueta ya comprada.
-    // ⚠️ Y **solo avisa quien escribió la etiqueta** (`relabelled.count === 1`). Antes se llamaba
-    // siempre y el sello lo filtraba; ya no basta, porque con la guarda de `cancelado` una captura
-    // puede no escribir NADA — y entonces el correo anunciaría una guía que no está en la fila.
-    if (relabelled.count === 1) {
+    // ⛔ POST-COMMIT y best-effort; ⚠️ solo avisa quien escribió la etiqueta (`relabelled === 1`).
+    if (relabelled === 1) {
       await this.claimAndNotify(id, 'trackingNoticeSentAt', shipment, (l, p) =>
         shipmentGuideTemplate({ ...p, carrier, trackingNumber }, l),
       );

@@ -189,6 +189,10 @@ export const SettingKey = {
   // Formato pokemontcg.io `yyyy/MM/dd`. ConfigSetting de primera clase: expuesto en el DTO de
   // M10 (`catalogSyncFromDate`), legible y editable por GET/PUT /admin/settings.
   CATALOG_SYNC_FROM_DATE: 'catalog_sync_from_date',
+  // v1.80 (§M4-SHIP.8, D-3): tope de reembolsos de 24 h por OPERADOR (`vault_operator`); el súper-admin no tiene.
+  OPERATOR_REFUND_CAP_24H_CENTS: 'operator_refund_cap_24h_cents',
+  // v1.80.2 (§M4-SHIP.15.5, D-12): múltiplo `k` de la referencia por encima del cual un reembolso de caso se BLOQUEA.
+  CASE_REFUND_HARD_MULTIPLIER: 'case_refund_hard_multiplier',
   // ===== v1.51 (M-46, §4.39l / API_CONTRACT §M10) — LOS DIEZ DIALES DEL CICLO DE ADQUISICIÓN =====
   // `PROJECT.md` §P.10 es el ORIGEN ÚNICO de estos números. Todos viven en `ConfigSetting`, se editan
   // SIN REDEPLOY, quedan AUDITADOS y aplican a solicitudes NUEVAS. Los DIEZ se exponen en el DTO de
@@ -349,6 +353,8 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SEALED_PRICE_SOURCE]: 'off',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
+  [SettingKey.OPERATOR_REFUND_CAP_24H_CENTS]: 500000, // MX$5,000 — decisión del dueño D-3 (2026-09-29)
+  [SettingKey.CASE_REFUND_HARD_MULTIPLIER]: 5, // 5× la referencia ⇒ bloqueado — D-12 («Sí, así»)
   // v2.0 (P-48, §4.36.2 / M-41.7): SEED = los diales de PROJECT §N.2 VERBATIM. NO se DERIVA de las
   // reglas viejas: la forma vieja (modos excluyentes por rareza/tier/acabado) y la nueva (una función
   // del mercado) son INCONMENSURABLES — cualquier «conversión» sería una interpretación inventada, y el
@@ -1057,6 +1063,8 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
   [SettingKey.CATALOG_SYNC_FROM_DATE]: (v) =>
     typeof v === 'string' && /^\d{4}\/\d{2}\/\d{2}$/.test(v) ? null : 'must be a date string yyyy/MM/dd',
+  [SettingKey.OPERATOR_REFUND_CAP_24H_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.CASE_REFUND_HARD_MULTIPLIER]: (v) => (isInt(v) && v >= 2 && v <= 50 ? null : 'must be an integer in [2, 50]'),
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */
@@ -1099,6 +1107,8 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   // v1.1: frontera por defecto del sync de catálogo M2 (API_CONTRACT §M10).
   // ConfigSetting de primera clase: legible por GET y editable por PUT (validador yyyy/MM/dd).
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,
+  operatorRefundCap24hCents: SettingKey.OPERATOR_REFUND_CAP_24H_CENTS,
+  caseRefundHardMultiplier: SettingKey.CASE_REFUND_HARD_MULTIPLIER,
   // v1.51 (M-46, §M10): los DIEZ diales del ciclo de adquisición del buylist. Se exponen en el GET y
   // se editan por este PUT (mismo patrón que el resto de `ConfigSetting`): sin redeploy y auditados.
   // ⚠️ NO se expone ninguno de los DOS retirados (`buylistShippingThresholdCents` de D31 y el

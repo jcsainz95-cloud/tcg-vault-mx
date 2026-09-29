@@ -140,9 +140,21 @@ describe('vitrina — `bountyPriceCents` publicado ES lo que se paga (§M2-B.11 
     const { data } = await svc.publicBounties();
     expect(data).toHaveLength(1);
     expect(data[0].bountyPriceCents).toBe(1000);
-    // Ningún campo delata el tope (misma forma del DTO).
+    // Ningún campo delata el tope (misma forma del DTO). `setPtcgoCode`: P-71 punto 6 (`PublicBountyDTO` lo gana,
+    // stream de pantallas); esta lista es anterior a P-71 y se completa en release-s5 — la forma sigue cerrada.
     expect(Object.keys(data[0]).sort()).toEqual(
-      ['cardId', 'bountyPriceCents', 'finish', 'name', 'number', 'rarity', 'remainingQty', 'setName', 'targetQty'].sort(),
+      [
+        'cardId',
+        'bountyPriceCents',
+        'finish',
+        'name',
+        'number',
+        'rarity',
+        'remainingQty',
+        'setName',
+        'setPtcgoCode',
+        'targetQty',
+      ].sort(),
     );
     expect(JSON.stringify(data)).not.toContain('1200');
   });

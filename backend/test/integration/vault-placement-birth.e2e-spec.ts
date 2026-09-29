@@ -450,10 +450,12 @@ describe('M-59 · nacimiento de la colocación en bóveda (Postgres real)', () =
 
     it('marca por carta a medias ⇒ VaultPlacementItem_prep_mark_chk; completa pasa', async () => {
       expect(await sql(updItem(`"prepStatus"='picked'`))).toBe('VaultPlacementItem_prep_mark_chk');
-      expect(await sql(updItem(`"prepStatus"='missing', "prepMarkedAt"=now()`))).toBe('VaultPlacementItem_prep_mark_chk');
+      // v1.80: `missing` ⇔ `missingReason` (CHECK `missing_reason_chk`); con motivo, lo que sigue mordiendo es el sello a medias.
+      expect(await sql(updItem(`"prepStatus"='missing', "missingReason"='not_found', "prepMarkedAt"=now()`))).toBe('VaultPlacementItem_prep_mark_chk');
       expect(await sql(updItem(`"prepMarkedAt"=now(), "prepMarkedByUserId"=${U}`))).toBe('VaultPlacementItem_prep_mark_chk');
       expect(await sql(updItem(`"prepStatus"='picked', "prepMarkedAt"=now(), "prepMarkedByUserId"=${U}`))).toBe('OK');
-      expect(await sql(updItem(`"prepStatus"='missing', "prepMarkedAt"=now(), "prepMarkedByUserId"=${U}`))).toBe('OK');
+      expect(await sql(updItem(`"prepStatus"='missing', "prepMarkedAt"=now(), "prepMarkedByUserId"=${U}`))).toBe('VaultPlacementItem_missing_reason_chk');
+      expect(await sql(updItem(`"prepStatus"='missing', "missingReason"='not_found', "prepMarkedAt"=now(), "prepMarkedByUserId"=${U}`))).toBe('OK');
     });
 
     it('`orderId` es único: una segunda colocación para la misma orden es imposible', async () => {

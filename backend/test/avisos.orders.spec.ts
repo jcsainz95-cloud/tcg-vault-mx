@@ -59,6 +59,12 @@ function buildPayments(opts: {
     order: {
       findUnique: jest.fn().mockImplementation(async () => (opts.order ? { ...row } : null)),
       update: jest.fn().mockImplementation(async ({ data }) => Object.assign(row, data)),
+      // ⭐ v1.80: `charge.refunded` escribe con el estado en el `WHERE` (`status: 'settled'`), como el settle.
+      updateMany: jest.fn().mockImplementation(async ({ where, data }) => {
+        if (where?.status !== undefined && typeof where.status === 'string' && row.status !== where.status) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      }),
     },
     user: { findUnique: jest.fn().mockResolvedValue(opts.user ?? null) },
     processedStripeEvent: { create: jest.fn(), delete: jest.fn() },

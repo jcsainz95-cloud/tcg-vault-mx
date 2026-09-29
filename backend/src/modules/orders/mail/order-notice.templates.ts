@@ -178,6 +178,8 @@ export interface OrderRefundedParams {
   orderId: string | null;
   /** ⭐ `Order.totalCents` persistido: `AV-3` sale **solo con reembolso TOTAL** (§R.3). */
   totalCents: number;
+  /** ⭐ v1.80.4 (§M4-SHIP.18.6, §R.3) — variante `vault`: la compra se deshace y sus cartas salen de «Mi bóveda». */
+  vault?: boolean;
 }
 
 /**
@@ -200,9 +202,13 @@ export function orderRefundedTemplate(
   const l = normalizeLocale(locale);
   const en = l === 'en';
   const title = en ? 'We refunded your order' : 'Te reembolsamos tu pedido';
-  const intro = en
-    ? `We refunded order ${params.orderNumber} in full.`
-    : `Reembolsamos completo tu pedido ${params.orderNumber}.`;
+  const intro = params.vault
+    ? en
+      ? `We refunded order ${params.orderNumber} in full. The cards of that purchase are no longer in your vault: the sale was undone.`
+      : `Reembolsamos completo tu pedido ${params.orderNumber}. Las cartas de esa compra ya no están en tu bóveda: la venta se deshizo.`
+    : en
+      ? `We refunded order ${params.orderNumber} in full.`
+      : `Reembolsamos completo tu pedido ${params.orderNumber}.`;
   const bankNote = en
     ? 'Your bank decides when it shows up; it usually takes a few business days.'
     : 'Tu banco decide cuándo aparece; suele tardar unos días hábiles.';

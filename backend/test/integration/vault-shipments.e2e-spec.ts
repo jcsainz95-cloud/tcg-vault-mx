@@ -211,7 +211,7 @@ describe('E2E — Bóveda/portafolio y retiros', () => {
       expect(mine.body.addressSnapshot.recipientName).toBe('Ana Destinataria');
     });
 
-    it('v1.67 §M4: GET /admin/shipments/:id y la cola traen recipientName del snapshot (sin `customer`)', async () => {
+    it('v1.67/v1.80 §M4-SHIP.10: GET /admin/shipments/:id y la cola traen recipientName del snapshot y `customer` del dueño del retiro', async () => {
       const adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
       const si = await h.prisma.shipmentItem.findFirst({
         where: { inventoryItemId: itemId.custSettled, shipmentRequest: { status: 'solicitado' } },
@@ -221,12 +221,14 @@ describe('E2E — Bóveda/portafolio y retiros', () => {
       expect(detail.body.kind).toBe('vault_withdrawal');
       expect(detail.body.recipientName).toBe('Ana Destinataria');
       expect(detail.body.addressSnapshot.recipientName).toBe('Ana Destinataria');
-      expect(detail.body).not.toHaveProperty('customer');
+      // v1.80 §M4-SHIP.10: `customer` (dueño del retiro) es ADITIVO en `/:id` y en la lista; el destinatario sigue
+      // saliendo del snapshot (⛔ nunca en cascada de una fuente a la otra).
+      expect(detail.body.customer).toEqual({ userId: expect.any(String), fullName: 'E2E Customer', email: 'customer@e2e.local' });
       const list = await h.api('GET', '/admin/shipments?status=solicitado&pageSize=100', { token: adminToken });
       expect(list.status).toBe(200);
       const row = (list.body.data as any[]).find((s) => s.id === si!.shipmentRequestId);
       expect(row.recipientName).toBe('Ana Destinataria');
-      expect(row).not.toHaveProperty('customer');
+      expect(row.customer).toEqual(detail.body.customer);
     });
   });
 
@@ -309,6 +311,12 @@ describe('E2E — Bóveda/portafolio y retiros', () => {
       let item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId.custSettled } });
       expect(item!.status).toBe('in_custody');
 
+      // v1.80 §M4-SHIP.5: la guía exige «preparado» (línea palomeada + sello).
+      const line = await h.prisma.shipmentItem.findFirst({ where: { shipmentRequestId: shipmentId } });
+      const mk = await h.api('PATCH', `/admin/shipments/${shipmentId}/prep-items/${line!.id}`, { token: adminToken, json: { status: 'picked' } });
+      expect(mk.status).toBeLessThan(300);
+      const prep = await h.api('POST', `/admin/shipments/${shipmentId}/prepared`, { token: adminToken, json: { expectedRefundCents: 0 } });
+      expect(prep.status).toBeLessThan(300);
       // guia (tracking) → enviado → entregado (admin).
       const tr = await h.api('POST', `/admin/shipments/${shipmentId}/tracking`, {
         token: adminToken,

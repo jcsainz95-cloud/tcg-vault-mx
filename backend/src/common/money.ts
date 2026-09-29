@@ -885,3 +885,202 @@ export function grossUpTotal(grossUpBaseCents: number, fee: StripeFeeConfig): nu
 export function usdToMxnCents(priceUsdCents: number, rate: number, bufferPct: number): number {
   return clampCents(Math.round(priceUsdCents * rate * (1 + bufferPct / 100)));
 }
+
+// =====================================================================================================
+// §M4-SHIP.4 (v1.80) / §M4-SHIP.15.5 (v1.80.2) — 💰 EL IMPORTE EXACTO DE UN REEMBOLSO (lo calcula el
+// servidor; ⛔ jamás llega en el cuerpo). Sobre las columnas PERSISTIDAS de la orden de origen (⛔ nunca el
+// dial vivo, ⛔ nunca el precio de lista de hoy). Solo filas `IVA_INCLUSIVE` (`ivaIsIncluded`): la identidad
+// `amount = merchandise + shipping + processingFee + compensation` solo es exacta con el IVA DENTRO.
+// =====================================================================================================
+
+/** Los componentes CONGELADOS de una fila del libro `PaymentRefund` (identidad del CHECK de M-61). */
+export interface RefundComponents {
+  amountCents: number;
+  merchandiseCents: number;
+  merchandiseIvaCents: number;
+  shippingCents: number;
+  shippingIvaCents: number;
+  processingFeeCents: number;
+  compensationCents: number;
+}
+
+/** Las columnas de `Order` que la fórmula lee. `S`, `E`, `F`, `r`, `total`, `ivaCents`. */
+export interface RefundOrderMoney {
+  subtotalCents: number;
+  shippingFeeCents: number;
+  processingFeeCents: number;
+  ivaCents: number;
+  ivaRatePct: number;
+  totalCents: number;
+  priceConvention: PriceConvention;
+}
+
+/** `Σ floor(F·Pᵢ/G) ≤ F` ⇒ la suma de reembolsos por carta nunca excede lo cobrado (⛔ nunca `ceil`). */
+export function itemFeeShareCents(o: Pick<RefundOrderMoney, 'subtotalCents' | 'shippingFeeCents' | 'processingFeeCents'>, unitPriceCents: number): number {
+  const G = o.subtotalCents + o.shippingFeeCents;
+  if (G <= 0 || unitPriceCents <= 0) return 0;
+  return Math.floor((o.processingFeeCents * unitPriceCents) / G);
+}
+
+/**
+ * `item_missing` (§M4-SHIP.4): UNA carta ⇒ `P + floor(F × P / G)`. Mercancía `P` (IVA dentro), IVA de
+ * mercancía `P − taxBaseCentsOf(P, r)`, envío `0`, comisión `floor(F × P / G)`.
+ * Ejemplo del dueño (D-1): `S=80000, E=15000, F=4617, P=30000` ⇒ `30000 + 1458 = 31458` (MX$314.58).
+ */
+export function itemMissingRefundComponents(o: RefundOrderMoney, unitPriceCents: number): RefundComponents {
+  const fee = itemFeeShareCents(o, unitPriceCents);
+  const merchandise = unitPriceCents;
+  return {
+    amountCents: merchandise + fee,
+    merchandiseCents: merchandise,
+    merchandiseIvaCents: merchandise - taxBaseCentsOf(merchandise, o.ivaRatePct),
+    shippingCents: 0,
+    shippingIvaCents: 0,
+    processingFeeCents: fee,
+    compensationCents: 0,
+  };
+}
+
+/**
+ * `order_remaining` (§M4-SHIP.4): un DIRECTO del que NO sale ninguna carta ⇒ `totalCents − Σ amountCents`
+ * de las filas no fallidas. Mercancía `0` · envío `E` · IVA de envío = el RESIDUAL `ivaCents − Σ
+ * merchandiseIvaCents` (§4.44.j.1: el envío absorbe el centavo) · comisión `amount − E`.
+ * Identidad exacta al cerrar: `Σ amountCents = totalCents` y `Σ IVA = ivaCents`, ±0 (PS-3).
+ */
+export function orderRemainingRefundComponents(
+  o: RefundOrderMoney,
+  nonFailedRows: { amountCents: number; merchandiseIvaCents: number }[],
+): RefundComponents {
+  const refunded = nonFailedRows.reduce((a, r) => a + r.amountCents, 0);
+  const refundedIva = nonFailedRows.reduce((a, r) => a + r.merchandiseIvaCents, 0);
+  const amount = o.totalCents - refunded;
+  const shipping = o.shippingFeeCents;
+  return {
+    amountCents: amount,
+    merchandiseCents: 0,
+    merchandiseIvaCents: 0,
+    shippingCents: shipping,
+    shippingIvaCents: o.ivaCents - refundedIva,
+    processingFeeCents: amount - shipping,
+    compensationCents: 0,
+  };
+}
+
+/** `shipment_fee` (§M4-SHIP.4): el cobro PROPIO de un RETIRO cuando no sale ninguna carta. */
+export function shipmentFeeRefundComponents(s: {
+  totalCents: number;
+  shippingFeeCents: number;
+  ivaCents: number;
+  processingFeeCents: number;
+}): RefundComponents {
+  return {
+    amountCents: s.totalCents,
+    merchandiseCents: 0,
+    merchandiseIvaCents: 0,
+    shippingCents: s.shippingFeeCents,
+    shippingIvaCents: s.ivaCents,
+    processingFeeCents: s.processingFeeCents,
+    compensationCents: 0,
+  };
+}
+
+/**
+ * `order_full` (§M3 v1.80, §M4-SHIP.4): el REMANENTE de la orden ⇒ `totalCents − Σ` no fallidas, con el
+ * remanente de cada componente. Para `IVA_EXCLUSIVE` el IVA persistido se reparte proporcionalmente y se
+ * mete DENTRO de mercancía y envío, así la identidad del CHECK se cumple igual (una prueba por convención).
+ * El remanente de mercancía absorbe lo que no es envío ni comisión (p. ej. compensaciones ya pagadas).
+ */
+export function orderFullRefundComponents(
+  o: RefundOrderMoney,
+  nonFailedRows: { amountCents: number; shippingCents: number; processingFeeCents: number }[],
+): RefundComponents {
+  const refunded = nonFailedRows.reduce((a, r) => a + r.amountCents, 0);
+  const refundedShipping = nonFailedRows.reduce((a, r) => a + r.shippingCents, 0);
+  const refundedFee = nonFailedRows.reduce((a, r) => a + r.processingFeeCents, 0);
+  const amount = o.totalCents - refunded;
+  const inclusive = ivaIsIncluded(o.priceConvention);
+  const G = o.subtotalCents + o.shippingFeeCents;
+  // Envío BRUTO (IVA dentro): en inclusiva ya lo lleva; en exclusiva se le suma su parte del IVA persistido.
+  const grossShipping = inclusive
+    ? o.shippingFeeCents
+    : o.shippingFeeCents + (G > 0 ? Math.round((o.ivaCents * o.shippingFeeCents) / G) : 0);
+  const shipping = Math.max(0, Math.min(amount, grossShipping - refundedShipping));
+  const fee = Math.max(0, Math.min(amount - shipping, o.processingFeeCents - refundedFee));
+  const merchandise = amount - shipping - fee;
+  return {
+    amountCents: amount,
+    merchandiseCents: merchandise,
+    merchandiseIvaCents: merchandise - taxBaseCentsOf(merchandise, o.ivaRatePct),
+    shippingCents: shipping,
+    shippingIvaCents: shipping - taxBaseCentsOf(shipping, o.ivaRatePct),
+    processingFeeCents: fee,
+    compensationCents: 0,
+  };
+}
+
+/** Lo que el súper-admin ve al capturar un reembolso de caso: `Q = P + floor(F·P/G)` («lo pagado»). */
+export interface CaseRefundContext {
+  /** `OrderItem.unitPriceCents` de la carta. */
+  unitPriceCents: number;
+  /** `Q`: lo pagado por la carta (la fórmula de `item_missing`, un cuerpo). */
+  paidCents: number;
+  /** `fQ = floor(F·P/G)`. */
+  feeShareCents: number;
+  ivaRatePct: number;
+}
+
+export function caseRefundContextOf(o: RefundOrderMoney, unitPriceCents: number): CaseRefundContext {
+  const fQ = itemFeeShareCents(o, unitPriceCents);
+  return { unitPriceCents, paidCents: unitPriceCents + fQ, feeShareCents: fQ, ivaRatePct: o.ivaRatePct };
+}
+
+/**
+ * `caseRefundComponents(X)` (§M4-SHIP.15.5), UN cuerpo, MONÓTONO en cada componente:
+ *  - `X ≤ Q` (devolución de venta, total o parcial): `fee = floor(X × fQ / Q)`, `merchandise = X − fee`,
+ *    `merchandiseIva = merchandise − taxBase(merchandise, r)`, `compensation = 0`.
+ *  - `X > Q`: los componentes EXACTOS de `item_missing` sobre `P` + `compensation = X − Q` (sin IVA de venta).
+ * La fila SPEI = `caseRefundComponents(A) − caseRefundComponents(stripe)` componente a componente: como la
+ * función es monótona, ningún componente de la fila SPEI es negativo y la suma es `caseRefundComponents(A)` ±0.
+ */
+export function caseRefundComponents(x: number, ctx: CaseRefundContext): RefundComponents {
+  if (x <= 0) {
+    return { amountCents: 0, merchandiseCents: 0, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0 };
+  }
+  const Q = ctx.paidCents;
+  if (x <= Q) {
+    const fee = Q > 0 ? Math.floor((x * ctx.feeShareCents) / Q) : 0;
+    const merchandise = x - fee;
+    return {
+      amountCents: x,
+      merchandiseCents: merchandise,
+      merchandiseIvaCents: merchandise - taxBaseCentsOf(merchandise, ctx.ivaRatePct),
+      shippingCents: 0,
+      shippingIvaCents: 0,
+      processingFeeCents: fee,
+      compensationCents: 0,
+    };
+  }
+  const P = ctx.unitPriceCents;
+  return {
+    amountCents: x,
+    merchandiseCents: P,
+    merchandiseIvaCents: P - taxBaseCentsOf(P, ctx.ivaRatePct),
+    shippingCents: 0,
+    shippingIvaCents: 0,
+    processingFeeCents: ctx.feeShareCents,
+    compensationCents: x - Q,
+  };
+}
+
+/** `a − b` componente a componente (la fila SPEI de un reembolso de caso, §M4-SHIP.15.5). */
+export function subtractRefundComponents(a: RefundComponents, b: RefundComponents): RefundComponents {
+  return {
+    amountCents: a.amountCents - b.amountCents,
+    merchandiseCents: a.merchandiseCents - b.merchandiseCents,
+    merchandiseIvaCents: a.merchandiseIvaCents - b.merchandiseIvaCents,
+    shippingCents: a.shippingCents - b.shippingCents,
+    shippingIvaCents: a.shippingIvaCents - b.shippingIvaCents,
+    processingFeeCents: a.processingFeeCents - b.processingFeeCents,
+    compensationCents: a.compensationCents - b.compensationCents,
+  };
+}

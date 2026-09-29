@@ -25320,3 +25320,570 @@ tiene camino real en el backend. **NO MEDIDO:** la pantalla de M2 que lo ofrece 
    buylist-pay-verdicts, checkout-reservation-owner, preparation-queue, enum-query-axes` ⇒ **rojo igual en el árbol
    base `1971291` sin este cambio y con él** (N=1 cada uno). Sola, verde (N=2). Dependencia de orden de la prueba.
    Integración completa del árbol con SK-5 sobre BD virgen: 54/55 suites, 1165 verdes, esa 1 roja.
+# §M4-SHIP · «Pedidos por preparar»: preparar envíos, la carta que falta, «Por reponer», la cubeta SPEI y el reembolso total de bóveda (v1.80.5 + errata v1.80.6 · backend · 2026-09-29)
+
+> Contrato: `API_CONTRACT §M4-SHIP` **v1.80.5 con la errata v1.80.6** (commit `290f27f`: predicados `reclaimedBy`/
+> `isVaultReclaimTarget` anclados a `refund_return` con `createdAt ≥ fullRefundClosedAt`, `closed_nothing_to_ship` de un
+> retiro con todas las líneas `blocked`, guarda `409 CONFLICT {reason:'nothing_to_ship'}`, `inventoryItemIds?` en
+> `reclaim-vault`). Copys de los correos que emite backend: `DESIGN_SYSTEM v4.9 §37` (`f0962d5`). Rama
+> `claude/envio-preparar`, worktree `/home/user/tcg-envio`. Cuatro commits, uno por bloque: `811e06a` (M-61 + fórmula),
+> `e843041` (preparación, libro, tope, M3 bóveda §18, webhooks), `482eae5` (apartado «Por reponer», cubeta SPEI,
+> `setClabe`, cadena del contracargo, §16), `19972b5` (SEC-SHIP-A1, pruebas §18, tablero/merma/M3/M7, enlaces de correo).
+> Lo medido lo medí yo en este entorno (Postgres 16 propio en `:55441`, Redis propio en `:56441`, doble de Stripe con
+> estado); lo que no pude medir va marcado **NO MEDIDO**.
+
+## 1. Migración `M-61` — `20260929120000_m61_shipment_prep_refunds` (una sola, aditiva)
+
+- Enums nuevos: `MissingReason`, `PaymentRefundKind`, `PaymentRefundStatus`, `ReplacementCaseSource`,
+  `ReplacementCaseStatus`, `ManualRefundSource`, `ManualRefundStatus`; `MovementReason` gana `replacement` y
+  `refund_return`; `VaultPlacementCancelReason` gana `full_refund`.
+- Columnas: `ShipmentRequest.preparedAt/preparedByUserId`; `ShipmentItem.prepStatus/prepMarkedAt/prepMarkedByUserId/
+  missingReason`; `VaultPlacementItem.missingReason` (**backfill `not_found`** sobre marcas `missing` previas: **0 filas**
+  aquí); `Order.fullRefundClosedAt`; `KycProfile.clabeUpdatedAt` (nace `NULL`: «fecha de cambio desconocida»).
+- Tablas: `PaymentRefund` (el libro; llaves `item:<shipmentItemId>` · `order-rest:<orderId>` · `ship-fee:<shipmentRequestId>`
+  · `order-full:<orderId>` · `case:<caseId>`; `orderItemId @unique`, `shipmentItemId @unique`, `replacementCaseId @unique`),
+  `ReplacementCase` (un nodo exacto: `shipmentItemId` xor `placementItemId`; índice parcial **un caso `open` por pieza**),
+  `ManualRefund` (`case-spei:<caseId>` · `refund-spei:<paymentRefundId>` · `reissue:<manualRefundId>`; índices parciales
+  «una viva por caso+source» y «una viva por fila de Stripe»; `reissuedFromId @unique`).
+- Todos los `CHECK` de §M4-SHIP.2 (forma por `kind`, identidad `amount = merchandise + shipping + fee + compensation`,
+  `compensation = 0 ⇔ kind ≠ case_refund`, `submitted|succeeded ⇒ stripeRefundId`, `failed ⇒ failedAt`; en el caso:
+  `open ⇔ sin resolución`, `found ⇒ misma pieza ∧ not_found`, `replacementShipmentItemId ⇒ replaced`, `refunded ⇔ los
+  seis refund*`; en SPEI: `paid ⇔ paidAt/paidBy`, `cancelled ⇔ cancelledAt/By/nota`).
+- Diales: `operator_refund_cap_24h_cents` (seed **500000**, D-3) y `case_refund_hard_multiplier` (seed **5**, entero 2–50,
+  D-12). `CASE_REFUND_CONFIRM_MULTIPLIER = 2`, `REPLACEMENT_CASE_DUE_MS = 7×24 h`, `CLABE_RECENT_CHANGE_MS = 72 h`,
+  `REFUND_ATTEMPT_LEASE_MS = 5 min`, `STUCK_REFUND_AFTER_MS = 10 min` — una constante cada una
+  (`vault/replacement-case.rules.ts`, `payments/refunds/refund-ledger.service.ts`).
+- **Drift preexistente, no mío:** `prisma migrate diff` reporta `RenameIndex PriceReference_variant_capturedDate_key`
+  desde antes de `HEAD` (medido sobre `c4d378b` antes de tocar nada).
+
+## 2. Qué se construyó (por módulo) y las decisiones que el contrato dejaba abiertas
+
+**`common/money.ts`** — `itemMissingRefundComponents` (`P + floor(F·P/G)`, IVA dentro), `orderRemainingRefundComponents`
+(el centavo residual del IVA va al envío), `shipmentFeeRefundComponents`, `orderFullRefundComponents` (también
+`IVA_EXCLUSIVE`, con el IVA persistido repartido DENTRO para que la identidad del `CHECK` se cumpla),
+`caseRefundContextOf` + `caseRefundComponents(X)` (monótona; `X > Q` ⇒ compensación) y `subtractRefundComponents` (la fila
+SPEI = diferencia, ±0 por construcción). `common/refund-math.spec.ts`: `31458`, `52430+31458+15729 = 99617`, ±0 para 200
+montos.
+
+**`shipments/shipment-prep.service.ts`** — `PATCH …/prep-items/:id` (CAS sobre `prepStatus` **y** `missingReason`),
+`POST …/prepared` (el algoritmo de §M4-SHIP.5 entero: tope del operador con `pg_advisory_xact_lock` por actor, plan del
+servidor, `REFUND_PREVIEW_STALE`, CAS por pieza, casos «Por reponer» en retiros, sello CAS, cierre `cancelado`,
+post-commit `executeRefund` + `AV-12`/`AV-13`), `DELETE …/prepared` (conserva marcas; en un retiro llama a `onFullRefund
+('unprepared', onlyItemIds)` por cada orden de origen con sello ⇒ `reclaimed[]` en la respuesta), `assertCanAdvance`
+(**las guardas de dinero van primero**: `WITHDRAWAL_LINE_ORIGIN_REFUNDED` / `ORDER_NOT_SETTLED`, luego
+`SHIPMENT_NOT_PREPARED`, `SHIPMENT_HAS_OPEN_REPLACEMENTS`, `nothing_to_ship`), `summary` (`toReplace`,
+`toReplaceOverdue`, `stuckRefunds`, `manualRefundsPending` solo súper-admin).
+- *Decisión:* los conteos de preparación cuentan **`blocked` por disponibilidad** aunque la línea esté `picked` (una
+  carta reclamada por un reembolso total no va a salir); la marca se conserva. Es lo que hace que un retiro vacío por
+  reclamo se titule «Nada que enviar» (PS-66) y que `PREPARATION_HAS_BLOCKED_LINES` **no** cuente bloqueadas cuyo origen
+  ya no está `settled`.
+- *Decisión:* `closed_nothing_to_ship` en un retiro con todas las líneas `blocked` emite `shipment_fee` **desde
+  `prepared`** (v1.80.6, PS-66); `closeWithdrawalIfEmpty` sigue siendo exclusivo de `refund`/`void` del apartado.
+
+**`payments/refunds/`** — `refund-ledger.service.ts` (`createRows` + bitácora `payment_refund.requested` por fila;
+`executeRefund` con **reclamo de 5 min**, `list` paginado por `metadata.refundId` cuando `attemptCount > 1`, clasificación
+definitivo/transitorio de `StripeService.classifyRefundError`; `retry` — el operador no reintenta `order_full` ni
+`case_refund`; **AV-12 un correo por destinatario y acto** — el `case_refund` y la `shipment_fee` de su cierre van
+juntos; `AV-3` lo manda **quien hace la transición `settled → refunded`**, sea la confirmación de M3 o el webhook: es
+equivalente a «quien escribe el sello» en bóveda y evita el doble correo del directo, donde el sello se escribe en la
+tx1); `full-refund.service.ts` (`onFullRefund` despacha por `fulfillmentMode` y **lanza** ante lo que no tiene rama;
+`reclaimVaultOnFullRefund` idempotente por pieza, destino `picking`, `ownershipStatus` en el CAS, `in_packed_withdrawal`
+sin `unpackedConfirmed`, sello por tabla de §18.2, colocación `pending` ⇒ `cancelled/full_refund`);
+`manual-refund.service.ts` (la cubeta; `revealToken = base64url(HMAC(k, 'mr-reveal:v1:' + id + ':' + clabeHmac))` con
+`PiiCryptoService.domainHmac` — la misma llave del índice ciego, ⛔ ningún secreto nuevo, ⛔ nada persistido; `paid` bajo
+`ManualRefund → KycProfile → Order`; `reissue`; `toManual` con la orden `FOR UPDATE` y `REFUND_FAILURE_DISPUTE_CODES`);
+`refund-reports.service.ts` (`operator-summary`, `shrinkage` con `toStatus ∈ {lost,damaged} ∧ fromStatus ∉ {lost,damaged}`);
+`origin.ts` (`resolveOriginsBatch`: la adquisición **más reciente** entre casos `replaced` y compras, empate ⇒ compra;
+`currentPiecesOf` con tope 16 y ciclo/bifurcación ⇒ `ambiguous`; `originsBeingRefunded`).
+- *Decisión:* las plantillas `AV-12…AV-16` viven en `payments/refunds/mail/refund-notice.templates.ts` (el contrato
+  sugería `shipments/`): el hecho que avisan es del libro. Copys y enlaces por `DESIGN_SYSTEM §37.7/§37.8f/§37.9d`.
+- *Decisión (v1.80.6, PS-61 M6):* `returned` en `vaultPieces` ⇔ hay `refund_return ≥ sello`, **y se queda** aunque la
+  pieza cambie después (`recuperada` ⇒ `listed` sin movimiento; `no_recuperada` ⇒ `lost` con movimiento);
+  `pendingConfirmation ⇔ sigue picking ∧ needsManual`.
+- **`REFUND_FAILURE_DISPUTE_CODES = ['charge_disputed', 'charge_already_refunded_or_disputed']`** — **NO MEDIDO** en modo
+  prueba real de Stripe MX (aquí no hay `STRIPE_SECRET_KEY` de prueba; el doble responde `charge_disputed`). PS-48 fija
+  la conducta con el doble; queda por medir en la ventana con claves.
+
+**`orders/`** — `order-refund.service.ts` (M3 total: `requestFullRefund` con `confirmPiecesWithCustomer`,
+`VAULT_PIECE_IN_PACKED_WITHDRAWAL` **solo en tx1**; `reclaimVault` §18.10 con `inventoryItemIds` 1–50 solo con
+`confirmUnpacked`, ids ajenos ⇒ `400 {field:'inventoryItemIds'}`); `orders.service.ts` (`chargeback-inventory` para
+`vault refunded`: objetivos por el **ancla** `refund_return ≥ sello`, **⛔ no por «está picking»** — el `WHERE` del CAS es
+la garantía (`409 CONFLICT` y rollback si alguien la puso `in_stock` por fuera); una objetivo ya en su estado de venta
+la dejó una pasada anterior y se omite; `recuperada` de bóveda **no** escribe movimiento; `no_recuperada` ⇒ `lost`
+firmada); `order-public-status.ts` (**un cuerpo** para el invitado y el cliente registrado: `publicStatus`,
+`activeShipment`, `refundedCentsOf`, `clientRefundOf`; la regla v1.80 «todo devuelto por Stripe ⇒ `reembolsado`» vive
+dentro); `GET /orders/:id` gana `fulfillmentMode`, `publicStatus`, `shipment` (lista blanca), `refundedCents`,
+`items[].refund`, `items[].replacement` (con `refund.transferStatus` derivado de la fila SPEI vigente); `GET /orders`
+gana `publicStatus`/`fulfillmentMode`; M3 lista gana `customer`/`refundedCents`/`q` sobre `recipientName`; M3 detalle
+gana `customer`, `refunds`, `items[].refund`, `shipments`, `vaultPlacement`, `manualRefunds`/`manualRefundedCents`
+(solo súper-admin) y `vaultPieces` (bóveda).
+
+**`vault/`** — `replacement-case.service.ts` + `admin-replacement-cases.controller.ts` (lista/detalle/candidatas hasta 50,
+`replace`/«apareció», `refund-preview`, `refund`, `void`; orden de candados **puerta del cliente → envío → caso → piezas
+(id asc) → orden de origen → libro**); `vault-placement.service.ts` (`missingReason` obligatorio con `missing`; el caso
+nace en `confirm` y en el 6-bis; CAS de la pieza con `P` en el `WHERE` ⇒ `lost|damaged` a nombre del cliente,
+movimiento con el actor = **la merma con firma**); `vault-physical-inventory.service.ts` (`to_replace` primero,
+`counts.toReplace` fuera de `total`); `vault.service.ts` (`marketValueOf` extraído — **la misma** valuación que «Mi
+bóveda» da `M`; `HoldingDTO.replacement`; `withdrawable` gana la quinta condición vía `originsBeingRefunded`).
+- *Medido (§M4-SHIP.15.2 «NO MEDIDO por el arquitecto»):* **(a)** M7 hoy **no** leía merma por movimiento; la merma por
+  actor nace en este stream con la regla «entrada a `lost|damaged` una vez» (`shrinkageWhere`): el nacimiento del caso
+  cuenta, el traspaso `replacement` no (PS-49 verde). **(b)** `GET /vault/holdings` **sí lista y sí valúa** una pieza
+  `lost|damaged` del cliente (no filtra por `status`, solo `≠ withdrawn`): se deja así a propósito — es la carta que se
+  le debe («la estamos reponiendo», `withdrawable:false`).
+
+**`users/` + `buylist/`** — `UsersService.setClabe(tx, userId, clabe, actor)`: **el único escritor** de `clabeEnc|
+clabeHmac|clabeUpdatedAt` (`FOR UPDATE` de la fila; índice ciego igual ⇒ nada; distinto ⇒ escribe, bitácora
+`kyc.clabe_changed {previousMasked,newMasked}` y `AV-16` post-commit vía `notifyClabeChanged`). `PUT /users/me/kyc` y el
+alta de buylist lo usan (el `upsert` del INE ya **no** lleva la CLABE). `GET /users/me/kyc` gana `clabeUpdatedAt`.
+
+**`inventory/`** — SEC-SHIP-A1 **en este worktree** (el contrato decía «en `claude/arreglos-operador` o donde el
+orquestador decida»; esa rama no existe aquí): `mark` solo plataforma `in_stock|listed` con el estado en el `WHERE`
+(`ITEM_NOT_ADJUSTABLE {status, ownerType}` para el resto, incluida la carta de un cliente fuera de un caso — D-14 = «por
+ahora no»); `PATCH {status:'in_stock'}` con la misma guarda, escritura condicionada y todos los campos en la misma tx,
+bitácora `inventory.item_updated` con `before/after`; ⛔ sin `InventoryMovement` para `listed ↔ in_stock`.
+~~**Instrucción de fusión (techlead R3 sobre `c20451f`):** «manda `item-location.rules.ts` y la copia en línea se
+borra»…~~ 🔒 **Sustituida (2026-09-29) por la regla única de `API_CONTRACT v1.80.7.2`, §M1
+[«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule)** (y `ARCHITECTURE §9 D-SHIP-7`, que la cita): la instrucción
+anterior citaba v1.80.7 p.9 y contradecía lo que el contrato decía entonces; **ya no se sigue**. Qué queda, qué sale, en qué
+orden fusionan los tres streams (hotfix · dinero · envío) y qué pruebas se re-corren sobre el **árbol fusionado** (PS-41,
+PS-41b, PS-42, **PS-42b invertida**, PS-64, INV-SP-8 y las suites del hotfix) está **solo** allí — ⛔ no se copia aquí para
+no tener dos textos. ⛔ Esta rama (`claude/envio-preparar`) **no** hace la fusión: la hace la sesión que fusione los tres
+streams. El hueco que la copia
+en línea tenía (un `PATCH {status}` igual al leído caía en el `update` plano y re-escribía `status` ⇒ pisaba una reserva)
+quedó cerrado aquí (PS-42b, §M4-SHIP-TL más abajo).
+
+**`admin/`** — `workQueue.toPrepare {ship, vault, toReplace, toReplaceOverdue, stuckRefunds}` (el mismo cuerpo que el
+`summary`), `workQueue.manualRefunds` y `workQueue.operatorRefunds` (`null` para el operador), `GET
+/admin/finance/shrinkage`; P&L e IVA restan lo devuelto (libro `submitted|succeeded` por `submittedAt`; SPEI `paid` por
+`paidAt`): `refundsCents` (mercancía + envío **netos**), `refundedFeesCents`, `compensationsCents` (renglón propio, ⛔
+nunca restando IVA), `ivaRefundedCents`/`ivaNetCents`; `profitCents` resta los tres. `exportCsv(pnl)` gana las tres
+columnas **antes** de `profitCents` (mismo orden que el objeto).
+
+## 3. Lo que difiere del contrato o el contrato no fijaba — para el arquitecto (regla 9)
+
+1. **P&L/IVA:** el contrato manda restar (§M4-SHIP v1.80 tabla de backend, PS-40) pero **no nombra los campos** del DTO.
+   Puse `refundsCents`, `refundedFeesCents`, `compensationsCents` (P&L) e `ivaRefundedCents`, `ivaNetCents` (IVA),
+   aditivos; `pnl-iva-neutral` sigue verde sobre las seis cifras heredadas. **Pido que el arquitecto ratifique (o
+   renombre) esos cinco nombres en §M7.**
+2. **`C-CLABE-1` con una excepción declarada:** `AdminService.deleteUser` (borrado suave, C20/PII) **anula** `clabeEnc/
+   clabeHmac` (`null`, nunca un valor). El candado la tolera explícitamente (solo nulos, sin `clabeUpdatedAt`). No es
+   un cambio de CLABE (con CLABE nula, `paid` ⇒ `422 CLABE_NOT_ON_FILE`), pero el texto de §M4-SHIP.8 dice «cualquier
+   otro escritor ⇒ rojo»: que el arquitecto lo bendiga o pida que la anonimización pase por un verbo de `users`.
+3. **`POST /shipments` con una carta reclamada:** PS-55/PS-63 esperan `422 ITEM_NOT_IN_CUSTODY`; medido: `classifyItems`
+   responde `422 NOT_FOUND`, porque la pieza ya **no es del cliente** (regla M-25 «no revelar»). Las dos cierran la
+   puerta; las pruebas aceptan ambas. Que el arquitecto elija si M-25 manda (mi lectura) o si hay que buscar por `id`.
+4. **Operador ⇒ `403 MONEY_OUT_FORBIDDEN` auditado en la cubeta y en `refund`/`void`:** para que sea `MoneyOutGuard`
+   quien conteste (y audite), esos verbos llevan `@Roles(operador+)` de clase + `@MoneyOut()` (como M3), ⛔ no
+   `@Roles(super_admin)` — con éste el guard de roles contestaría `FORBIDDEN` **sin** bitácora. El efecto es el del
+   contrato (solo `super_admin` pasa); lo anoto porque el texto dice `@Roles(super_admin)`.
+5. **`found` no escribe `replacementShipmentItemId`** (el `CHECK` de M-61 solo lo admite con `replaced`; la línea que
+   vuelve a `picked` es la misma). Coherente con el schema del contrato, no con la frase «guarda su id» de §15.4 paso 7.
+6. **`REPLACEMENT_CASE` y `RawCondition`:** el schema solo tiene `NM`, así que PS-22 no puede medir «otra condición»;
+   mide acabado, carta y ambos.
+7. **Webhook bajo candado ⇒ `503 BUSY_TRY_AGAIN`:** en la carrera M3-confirmación vs `charge.refunded` (PS-57), cuando
+   la fila `Order` está tomada, el webhook responde `503` (Stripe reintenta) y el invariante se cumple igual (un
+   movimiento por carta, una bitácora, un `AV-3`) — es conducta previa del webhook, no nueva.
+8. **`vaultPieces`/`chargeback-inventory` (v1.80.6 M6):** `returned` es permanente desde el ancla; la selección de
+   objetivos no filtra por `picking`; una objetivo ya confirmada se omite (idempotencia entre pasadas). Es mi lectura
+   de «una objetivo forzada a `in_stock` ⇒ 409» **y** «una pasada nueva solo toca la nueva» a la vez.
+9. **`inventory` SEC-SHIP-A1 aquí** (punto 2 del §2 «inventory»): conflicto de merge previsible con `arreglos-operador` —
+    🔒 **se resuelve con la regla única de `API_CONTRACT v1.80.7.2` §M1 [«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule)**
+    (sustituye la lectura anterior de v1.80.7 p.9; ver §2 «inventory»). La aplica la sesión que fusione los tres streams.
+10. **La cola de preparación no se cae por una fila sin dueño ni pedido** (`d030c85`): `buildView` llamaba
+    `resolveOriginsBatch(db, row.userId as string, …)` y una `ShipmentRequest` con `userId` **y** `orderId` nulos (inexpresable
+    por la API; la fixture `B-1` de `preparation-queue` la escribe por SQL) tumbaba **toda** la cola con `500`
+    (`PrismaClientValidationError`). Ahora esa fila va **sin origen** (`no_origin_order`, H8) y la cola responde. Medido:
+    `preparation-queue.e2e-spec.ts` 5 rojas → 17/17. No cambia el contrato; lo anoto porque es conducta ante corrupción.
+11. **`AV-6` legado se mide sobre un `solicitado`** (`avisos-sellos.e2e-spec.ts`): con §M4-SHIP.9 (`picking|guia → cancelado`
+    ⇒ `409 PAID_SHIPMENT_NOT_CANCELLABLE`, y `TRANSITIONS` ya no los admite) la carrera «dos `PATCH {cancelado}` sobre la
+    misma lectura» solo existe sobre un `solicitado` sin cobrar. Es lo que el contrato dice; lo anoto para QA porque la
+    prueba cambió de fixture, no de aserto (un correo, dos `200`). Las demás suites legadas que cambiaron (guest-checkout,
+    vault-shipments, iva-price-convention, vault-placement-birth) solo se alinearon a v1.80: la guía exige «preparado»,
+    `customer` es aditivo en `AdminShipmentDTO`, el CSV del P&L trae las tres columnas de lo devuelto, `missing` ⇔
+    `missingReason`.
+12. **Candados que las carreras no distinguen (mutaciones equivalentes, con la razón):** (a) ~~el `FOR UPDATE` de la orden
+    de origen en `ReplacementCaseService.refund` (`lockOriginOrder`) — equivalente~~ **CORREGIDO (techlead R1 sobre
+    `c20451f`): NO es equivalente.** PS-27b/PS-27c seguían 10/10 sin él solo porque M3 toma las piezas que el caso también
+    toma; pero `lockCase` lee la orden ANTES de esperar la pieza y hay escritores de `Order.status` que no tocan la pieza
+    del caso ni dejan fila del libro (`charge.dispute.created` de bóveda; `charge.refunded` desde el panel de Stripe). Sin la
+    relectura bajo `FOR UPDATE`, el reembolso del caso decidía con `settled` caduco y creaba `case_refund`/SPEI sobre un
+    cargo disputado ⇒ doble pago. La caza es **PS-27d** (contracargo encolado primero reteniendo `Order`, N=10): con M12
+    aplicada **0/10**; con el código, **10/10**. Razón escrita en `lockOriginOrder`. (b) el CAS `replacementCases: none open` de `shipments.service` en `→guia`: la
+    guarda primaria es `prep.assertCanAdvance` (quitarla: PS-21 rojo); el CAS es la segunda capa. (c) `paid` sin el `FOR
+    UPDATE` de la fila pero con el CAS `status:'pending'`: PS-33/PS-33b siguen 10/10 (el CAS basta); quitar candado + CAS +
+    guarda ⇒ PS-33b **0/10**. Techlead: si prefiere una sola capa, es decisión suya; yo dejé las dos.
+
+## 4. Mediciones B13/B14 (§18.9 / §18.11)
+
+- **B13** — `SELECT count(*) FROM "Order" WHERE "fulfillmentMode"='vault' AND status='refunded' AND "fullRefundClosedAt"
+  IS NULL`: **NO MEDIDO en producción** (sin usuario de solo lectura aquí). En mi BD de pruebas el conteo varía con las
+  fixtures (una PS pone `refunded` sin cierre a propósito). **Antes de desplegar** la corre el dueño o un usuario de solo
+  lectura; esperado **0** (`HECHOS`: sin ventas reales); si > 0 ⇒ arquitecto (esas órdenes no tienen verbo:
+  `reclaim-vault ⇒ 409 not_closed`).
+- **B14** — `AdminService.inventoryValue()` (`admin.service.ts:1671`): `where: { ownerType: 'platform', status: { in:
+  ['in_stock', 'listed', 'reserved'] } }` ⇒ **no cuenta `picking`**: la carta congelada por el reclamo **no** infla
+  `atReferenceCents` hasta `no_recuperada`. Sin cambio de M7.
+- `IVA_EXCLUSIVE` liquidadas en esta BD: 1 de 15 (fixture de otra suite); `REFUND_NOT_AVAILABLE {legacy_convention}` la
+  cubre (PS-15).
+
+## 5. Pruebas y cifras (medidas por mí, 2026-09-29, sobre `37fd85a` salvo donde se indica)
+
+| Suite | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, sobre `37fd85a`) | **354/354 suites · 5837/5837 pruebas** |
+| `test/integration/shipments-prep.e2e-spec.ts` (PS-1…PS-17, PS-43…45, PS-50/51) | 19/19 (`5cf99e3`) |
+| `test/integration/replacement-cases.e2e-spec.ts` (PS-18…PS-39 salvo PS-20/37, PS-46…48, PS-53/54) | 26/26 (`37fd85a`) |
+| `test/integration/full-refund-vault.e2e-spec.ts` (PS-55…PS-66, PS-41/42/49/52, PS-40) | 13/13 (`5cf99e3`) |
+| `test/integration/orders-public-status.e2e-spec.ts` (PO-1…PO-7) | 4/4 (`5cf99e3`) |
+| `test/integration/vault-placement-verbs/races` (PS-20, `to_replace`, `customer` v1.80) | 47/47 (`5cf99e3`) |
+| `test/refunds.candados.spec.ts` (C-REF-1, C-MREF-1, C-CLABE-1, C-FULLREF-1, lease > timeout, PS-62) | 17/17 |
+| Legadas que tocó el stream (`d030c85`): preparation-queue 17/17 · guest-checkout · vault-shipments · iva-price-convention · vault-placement-birth · avisos-sellos 15/15 | 6/6 suites verdes |
+| Resto de la integración (22 suites de `driver.sh`, sobre `19972b5`; las 6 de arriba se re-midieron sobre `d030c85`) | verde salvo las 6 que se alinearon |
+
+Carreras (barrera de fila, entrelazado observado en las N tiradas, N=10, autor: backend, `int-core-final` + `int-rc-final`):
+PS-1 10/10 · PS-4 10/10 · PS-6 10/10 · PS-7 10/10 · PS-11 10/10 · PS-44 10/10 · PS-51 10/10 · PS-21 10/10 · PS-23 (dos
+casos) 10/10 · PS-23 (vs compra) 10/10 · PS-27 10/10 · **PS-27b** (M3 primero) 10/10 · **PS-27c** (dos casos, misma orden)
+10/10 · PS-33 10/10 · **PS-33b** (cancel primero) 10/10 · PS-47 10/10 · PS-57 (M3 vs webhook) 10/10 · PS-57 (webhook ×2)
+10/10 · PS-41 10/10 · **PS-41b** (reserva primero) 10/10 · PS-65 10/10 · VP-6/13/18/24/25/32/40 (vault-placement-races)
+todas N/N. Las «b/c» son el **otro orden** de la misma carrera: el escritor rival se encola primero y el verbo decide con
+una lectura caduca; son las que distinguen las mutaciones que el orden original no distinguía (abajo).
+
+### Mutaciones (sobre COPIA del árbol ENTERO, `git archive HEAD` + `node_modules` enlazado; O-9)
+
+Ronda 1 (`mutate.py`, HEAD `19972b5`), 14 mutaciones: **8 rojas** (M5 C-CLABE-1 · M6 PS-61 · M7 PS-63 · M8 PS-66 · M9 PS-55 ·
+M10 PS-57 · M13 PS-36 · M14 PS-31), **6 verdes** que se investigaron una a una:
+
+| Ronda 1 verde | Qué era | Qué se hizo | Ronda 2/3 (`5cf99e3`) |
+|---|---|---|---|
+| M1 PS-21 | quitar el CAS `none open` de `shipments.service` | era la 2.ª capa (§3.12b) ⇒ mutar la guarda primaria (M1b) y las dos (M1c) | **M1b roja · M1c roja** |
+| M2 PS-23 | quitar `status` del CAS de la candidata | la carrera vuelca `ownerType`, así que no distingue; lo mide PS-22 (`not_platform_available`) | **M2b roja** (`PS-22\|PS-23`) |
+| M3 PS-33 | quitar `status:'pending'` del CAS de `paid` | el `FOR UPDATE` + relectura lo cubre; y sin el candado, el CAS lo cubre (M3b verde, §3.12c) ⇒ nueva carrera **PS-33b** | **M3c roja** (PS-33b 0/10) |
+| M4 PS-47 | `if (false && …)` | rompía la compilación (narrowing) ⇒ 0 pruebas: error del arnés, no del código; re-mutado `expected = body.revealToken` | **M4b roja** |
+| M11 PS-41 | quitar `status` del WHERE del CAS de `mark` | la carrera original siempre dejaba ganar a `mark`; nueva carrera **PS-41b** (reserva primero) | **M11b roja** (PS-41b 0/10) |
+| M12 PS-27 | quitar el `FOR UPDATE` de la orden en el reembolso del caso | PS-27b y PS-27c siguen 10/10 sin él porque M3 toma las piezas que el caso también toma; **no es equivalente**: el contracargo de bóveda y el `charge.refunded` del panel cambian `Order.status` sin tocar la pieza ni el libro ⇒ nueva carrera **PS-27d** (techlead R1) | **M12c roja** (PS-27d 0/10 con la mutación; PS-27/27b/27c 10/10 con ella — solo PS-27d la caza) |
+
+Total: **14 de 14** mutaciones distinguidas por al menos una prueba (M12 dejó de ser «equivalente» con PS-27d; ver
+§M4-SHIP-TL más abajo). `mut-report.txt`, `mut2-report.txt`, `mut3-report.txt` y las salidas por mutación quedaron en el scratchpad
+del stream hasta la limpieza (se borran al cerrar; las cifras están aquí y en el resumen del encargo).
+
+## 6. Lo que el frontend necesita (DTOs y códigos)
+
+- Cola ENVÍO: `ShipPreparationOrderDTO` (`kind`, `customer`, `preparation`, `items[].{prepStatus, missingReason,
+  prepMarkedBy, availability, refund}`), `PATCH prep-items {status, missingReason?}`, `POST prepared
+  {expectedRefundCents}` ⇒ `{outcome:'prepared'|'closed_nothing_to_ship'|'already_prepared', refunds, cases?}`,
+  `DELETE prepared` ⇒ `{outcome, reclaimed?}`; `GET picking-list/summary`.
+- Apartado: `ReplacementCaseDTO` (+ `candidates` en detalle), `CaseRefundPreviewDTO`, verbos `replace`
+  `{inventoryItemId, locationId?}`, `refund {amountCents, reason, expectedStripeCents, expectedManualCents,
+  confirmAboveReference?}`, `void {note}`.
+- Cubeta SPEI: `ManualRefundDTO` (con `clabeUpdatedAt`, `clabeChangedRecently`, `reissuedFromId/AsId`), `reveal-clabe`
+  ⇒ `{clabe, beneficiaryName, clabeUpdatedAt, clabeChangedRecently, revealToken}`, `paid {revealToken, speiReference?,
+  note?, confirmRecentClabeChange?, confirmOriginNotSettled?}`, `cancel {note}`, `reissue {note}`, `POST
+  /admin/refunds/:id/to-manual`.
+- M3: `POST …/refund {reason, confirmPiecesWithCustomer?}` (`409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`, `422
+  REFUND_CONFIRMATION_REQUIRED {vaultPieces}`), `POST …/reclaim-vault {note, confirmUnpacked?, inventoryItemIds?}`,
+  `vaultPieces[]` en el detalle, `chargeback-inventory` sobre `vault refunded`.
+- Cliente: `GET /orders/:id` (`publicStatus`, `shipment`, `refundedCents`, `items[].refund/replacement`), `GET /orders`
+  (`publicStatus`), `GET /shipments/:id` (`refundedCents`, `items[].refund/replacement`), `HoldingDTO.replacement` y
+  `withdrawable`, `GET /users/me/kyc.clabeUpdatedAt`, `422 ITEM_ORIGIN_REFUNDED` / `ineligible[].reason='origin_refunded'`.
+- Códigos nuevos en `common/error-codes.ts`: los de §0 v1.80–v1.80.5 (`PREPARATION_*`, `PREP_ITEM_*`, `REFUND_*`,
+  `MONEY_OUT_LIMIT_EXCEEDED`, `SHIPMENT_HAS_OPEN_REPLACEMENTS`, `CASE_*`, `REPLACEMENT_NOT_ELIGIBLE`, `MANUAL_REFUND_*`,
+  `CLABE_NOT_ON_FILE`, `CLABE_CHANGED_SINCE_REVEAL`, `ORDER_NOT_SETTLED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`,
+  `ITEM_ORIGIN_REFUNDED`, `VAULT_PIECE_IN_PACKED_WITHDRAWAL`, `REFUND_CONFIRMATION_REQUIRED`, `ITEM_NOT_ADJUSTABLE`).
+- Enlaces de correo: `/orders/{id}` (pedido) y `/vault?tab=withdrawals` (retiro); `AV-14` sin CLABE ⇒ `/cuenta#kyc`.
+
+
+# §M4-SHIP-TL · Gate del techlead sobre `c20451f` (R1/R2/R3 + deuda (a)) y errata `API_CONTRACT v1.80.7` (backend · 2026-09-29)
+
+> Rama `claude/envio-preparar`, worktree `/home/user/tcg-envio`, base `ea615c3` (errata v1.80.7 del arquitecto sobre
+> `4fcc6b6`/`c20451f`). Postgres 16 propio en `:55447`, Redis en `:56447`; lo medido lo medí yo (autor: backend); las
+> proporciones llevan su N. Mutaciones sobre **COPIA del árbol ENTERO** (`tar` del worktree + `node_modules` enlazado, O-9).
+> Cada punto: **rojo antes → verde después**, fichero, prueba, mutación.
+
+## 1. R1 (Alta, dinero) — M12 NO era equivalente: `lockOriginOrder` es la única relectura de `Order`
+
+- **Antes:** §3.12(a) y la tabla de mutaciones decían que quitar el `FOR UPDATE` de la orden en `refund` era «equivalente»
+  porque PS-27b/PS-27c seguían 10/10. Era cierto para esos rivales (M3 toma las piezas que el caso también toma) y falso en
+  general: `lockCase` (`replacement-case.service.ts` · `load`) lee la orden **antes** de esperar la pieza, y el
+  contracargo de bóveda (`payments.service.ts · onChargeDisputeVault`: `updateMany` que NO alcanza la pieza `lost|damaged`
+  del caso, luego `order.update({status:'chargeback'})`) y el `charge.refunded` del panel de Stripe (sin `PaymentRefund` ⇒ la
+  vista previa no caduca) cambian `Order.status` sin serializar con nada de lo que el caso toma antes.
+- **Prueba (falla primero):** **PS-27d** (`test/integration/replacement-cases.e2e-spec.ts`): `charge.dispute.created`
+  encolado PRIMERO reteniendo `Order`, luego `POST …/refund`; N=10. Con M12 aplicada (copia): **0/10** — el caso queda
+  `refunded` con fila `case_refund` y la orden `chargeback` (doble pago). Con el código: **10/10** — `200` el webhook,
+  `409 CASE_ORIGIN_NOT_SETTLED` el caso, 0 filas, 0 SPEI, 0 llamadas a Stripe, caso `open`; PS-27/27b/27c siguen 10/10
+  bajo M12 (solo PS-27d la caza).
+- **Código:** sin cambio de conducta; `lockOriginOrder` gana el porqué (comentario). §3.12(a) y la tabla, corregidas arriba.
+
+## 2. R2 (Media) — `void` tomaba `caso → Order → piezas`; ahora `piezas → Order` como todos
+
+- **Antes:** `void` (`replacement-case.service.ts`) pedía `Order` (paso «¿viable?») y después la pieza; `refund`/`replace`,
+  M3 tx1 (`order-refund.service.ts`), `reclaim-vault`/`unprepare` (`full-refund.service.ts`) y el webhook de disputa van
+  piezas → `Order`. Rival real medido: **`reclaim-vault`** sobre una orden ya `refunded` (donde `void` sí es viable). M3
+  **no** sirve de rival: sobre una orden no `settled` contesta `422` antes de tomar candado alguno, y sobre una `settled`
+  es `void` quien contesta `409 CASE_NOT_VOIDABLE` antes de tocar la pieza (primera versión de PS-36b: Δ deadlocks = 0
+  por eso, no por el candado).
+- **Prueba:** **PS-36b** (`replacement-cases.e2e-spec.ts`): `mkSpei` + `charge.refunded` total (orden `refunded`, sellada,
+  la pieza del caso `open_case` sin tocar), barrera en la pieza del caso, `reclaim-vault` encolado primero vs `void`; N=10;
+  `pg_stat_database.deadlocks` antes/después. Con el orden viejo (copia): **0/10**, Δ deadlocks > 0 y un `503
+  BUSY_TRY_AGAIN` por tirada. Con el reorden: **10/10**, Δ = 0, los dos `200`, caso `voided`, pieza `lost` de plataforma.
+- **Código:** `lockPieces` antes de `lockOriginOrder` en `void` (comentario con el porqué).
+
+## 3. R3 — SEC-SHIP-A1 dos veces: el hueco del `PATCH {status}` igual al leído, cerrado; la fusión, invertida
+
+- **Antes:** `updateItem` (`inventory.service.ts`) guardaba solo el cambio de `status` **distinto** al leído; con `status`
+  igual (`in_stock→in_stock`, `listed→listed`) caía en el `update` plano y **re-escribía `status`** ⇒ una pieza que un checkout
+  acababa de poner `reserved` volvía a `in_stock`: reserva perdida. `item-location.rules.ts` del hotfix ya decía
+  «`in_stock → in_stock` no escribe `status`».
+- **Prueba (falla primero):** **PS-42b** (`full-refund-vault.e2e-spec.ts`): (a) espía sobre `inventoryItem.update`: un
+  `PATCH {status:'in_stock', listPriceCents}` sobre una `in_stock` no lleva `status` en `data`; (b) carrera reserva
+  (`in_stock → reserved`, encolada primero) vs `PATCH` con lectura caduca, N=10. Con el código viejo (copia): **0/10** (la
+  pieza vuelve a `in_stock` con dueño). Con el fix: **10/10** (`reserved` del comprador, `listPriceCents` escrito).
+- **Código:** el `update` plano quita `status` del `data` (`const { status: _sameStatus, ...fields } = patch`).
+- **Fusión (b):** §2 «inventory» corregido: manda `item-location.rules.ts` de `arreglos-operador`; la copia en línea se
+  borra. **(c)** PS-41/PS-41b/PS-42/PS-42b/PS-64 y la suite de `arreglos-operador` se re-corren sobre el árbol fusionado.
+
+## 4. Deuda (a) / v1.80.7 puntos 12 y 18 — el tope acumulado tiene prueba determinista: **PS-4b**
+
+- `operatorUsedCents` (`refund-ledger.service.ts`) es SQL ⇒ integración. **PS-4b** (`shipments-prep.e2e-spec.ts`), con las
+  cifras del contrato: operador NUEVO (usado absoluto 0), filas por SQL con `createdAt` explícito — `item_missing`
+  `requested` 10000 + `submitted` 20000 + `succeeded` 30000 **cuentan**; `failed` 40000, `order_full` del súper-admin 50000,
+  `succeeded` a −25 h 60000 y una de OTRO operador 70000 **no** ⇒ `operatorUsedCents = 60000`, `operator-summary.capUsedCents
+  = 60000`; `cap = 91457` ⇒ `403 {capCents: 91457, usedCents: 60000, requestedCents: 31458}`, 0 filas, 1 bitácora; `cap =
+  91458` ⇒ `200`; el siguiente `prepared` ⇒ `403 {usedCents: 91458}`. Mutación «`if (planCents > cap)`» (copia): **ROJA**
+  (el primer 403 no ocurre). PS-4: su `usedNow` ahora lleva la ventana de 24 h (el MISMO predicado que el tope), así que
+  `used0` ya no depende de filas viejas de otra corrida.
+
+## 5. v1.80.7 punto 17 🔴 — la confirmación de M3 adopta el orden del webhook (`onFullRefund` ANTES de `Order → refunded`)
+
+- **Antes:** `applyStripeOutcome` (`refund-ledger.service.ts`) hacía `Order → refunded` y después `onFullRefund`
+  (envíos → piezas → `Order`): sostenía `Order` mientras pedía el retiro. `prepared` de un retiro (envío → piezas → órdenes de
+  origen) sostenía el retiro mientras pedía `Order` ⇒ ciclo.
+- **Prueba (falla primero):** **PS-57c** (`full-refund-vault.e2e-spec.ts`): orden `vault` con dos cartas, retiro `picking`
+  sin preparar con una, M3 tx1 (transitorio) ⇒ fila `requested`; barrera en la fila del retiro, `prepared` encolado primero
+  vs `retry` (doble `succeeded`); N=10; contador de `deadlocks`. Con el orden viejo (copia): **0/10**, Δ > 0 y un `503`.
+  Con el orden del webhook: **10/10**, Δ = 0; desenlaces: `prepared` `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` + pieza
+  `returned` **10/10**, `prepared` `200` + `in_packed_withdrawal` **0/10** (con la fila `requested` ya creada, el taller
+  siempre ve la orden en devolución); `retry` `200`, fila `succeeded`, orden `refunded`, sello, un `AV-3`.
+- **Código:** (1) CAS de la fila; (2) lectura sin candado de `Order.status` (∉ {settled, refunded} ⇒ log error, fin); (3)
+  `onFullRefund`; (4) `Order → refunded` bajo ese candado (`count 1` con `refunded` = éxito); (5) `AV-3` quien transicionó.
+  PS-57 (a/b/inversa/carreras) siguen verdes.
+- **Medido además (encargo): `chargeback-inventory` vs `reclaim-vault`.** `resolveChargebackInventory`
+  (`orders.service.ts`) hacía el claim sobre `Order` y DESPUÉS `vaultReclaimTargets` (piezas `FOR UPDATE`); `reclaim-vault`
+  va piezas → `Order`. **PS-61b** (`full-refund-vault.e2e-spec.ts`): orden `vault` `refunded` sellada por el webhook
+  (`chargebackNeedsManual: true`), barrera en una pieza devuelta, `reclaim-vault` encolado primero vs `chargeback-inventory
+  (recuperada)`, N=10. Con el orden viejo (copia): **0/10**, Δ > 0, un `503`. **Reordenado igual** (en bóveda las piezas se
+  toman antes del claim; el claim sigue decidiendo): **10/10**, Δ = 0, los dos `200`, piezas `listed`, `needsManual=false`.
+
+## 6. v1.80.7 punto 19 — `UsersService.eraseClabe` + `constantTimeEquals`
+
+- `UsersService.eraseClabe(tx, userId)`: solo nulos (`clabeEnc` ∧ `clabeHmac`), sin `clabeUpdatedAt`, sin `AV-16`, sin
+  bitácora propia. `AdminService.deleteUser` (borrado suave) lo llama dentro de su tx (`UsersModule` importado en
+  `AdminModule`; `@Optional()` por los unitarios que construyen el servicio a mano, y `deleteUser` exige que esté).
+  **C-CLABE-1** (`refunds.candados.spec.ts`): censo = **dos** sitios en `users.service.ts`, **cero** fuera; la excepción
+  declarada en `admin.service.ts` desaparece. Mutación «`deleteUser` escribe `clabeEnc: null` directo» ⇒ **ROJA**.
+- `PiiCryptoService.constantTimeEquals` (el mismo cuerpo que `blindIndexEquals`, con el nombre de lo que compara) y `paid`
+  (`manual-refund.service.ts`) lo usa para el `revealToken`. Unitaria en `pii-crypto.spec.ts` (igual/distinto/longitud/
+  nulo/vacío) y censo en `refunds.candados.spec.ts` («`paid` compara con `constantTimeEquals`, ⛔ nunca `===`/`!==`»).
+  Mutación «`expected !== body.revealToken`» ⇒ **ROJA**.
+
+## 7. v1.80.7 punto 13 — `HoldingDTO.withdrawableReason`
+
+- `withdrawableReasonOf` (`vault.service.ts`, exportada): un cuerpo para el flag y el motivo, en el orden del contrato
+  (`pending` → `replacing`/`not_in_custody` → `in_withdrawal` → `origin_refunded` → `null`); `withdrawable =
+  (withdrawableReason === null)`. Clave siempre presente en `GET /vault/holdings`.
+- Unitaria `test/vault.withdrawable-reason.spec.ts` (los cinco motivos, el orden, «caso abierto sin `lost|damaged` no es
+  `replacing`», y sobre `holdings` el invariante con el DTO). PS-65 ampliada (`{false, 'origin_refunded'}` con la fila
+  `order_full` viva; `{true, null}` con la fila `failed`; el invariante en todas las filas). Mutación «sin la quinta
+  condición» ⇒ unitaria y PS-65 **ROJAS**.
+- **Frontend (contrato):** el chip «Compra en reembolso» solo con `origin_refunded`; `replacing` ya tiene su copy.
+
+## 8. v1.80.7 punto 3 — PS-55/PS-63 fijan `422 NOT_FOUND`
+
+`classifyItems` (`shipments.service.ts`) contesta `NOT_FOUND` a una pieza que ya no es del cliente (M-25); las dos pruebas
+dejan de aceptar `ITEM_NOT_IN_CUSTODY`. Mutación «buscar por `id` sin `ownerUserId`» ⇒ `ITEM_NOT_IN_CUSTODY` ⇒ **ROJAS**.
+
+## 9. v1.80.7 punto 15 — el `429` del login, medido y cerrado
+
+- **Medido (auth-throttle e2e, `E2E_ENABLE_THROTTLER=true`, login ×6):** el throttler de Nest (`@nestjs/throttler` 6) SÍ
+  ponía `Retry-After: n` en la respuesta, pero `AllExceptionsFilter` devolvía como `details` el objeto crudo del framework
+  (`{statusCode, message}`): la cifra no llegaba al front. Con el filtro de `ea615c3` la aserción nueva
+  (`Retry-After: n ∧ details.retryAfterSeconds === n`) es **ROJA** (mutación M-429 sobre la copia); con el cierre, verde.
+- **Cierre:** `all-exceptions.filter.ts · rateLimitDetails(res)`: en un `429` de `HttpException`, `details = {
+  retryAfterSeconds: n }` si la respuesta lleva `Retry-After: n` (entero > 0), si no `{}`. Un `RATE_LIMITED` de negocio
+  (`auth.service.ts`, sin ventana) sigue con `details {}`. Unitaria `test/rate-limited-shape.spec.ts` (con cabecera,
+  cabecera como texto, sin cabecera, `0`, negocio).
+
+## 10. Cifras (medidas por mí, 2026-09-29)
+
+| Suite | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, árbol vivo con todos los cambios; tras el segundo pase) | **5924/5924** (primer pase: 356/356 suites · 5858/5858) |
+| Integración completa sobre COPIA del árbol entero (`jest --runInBand` de `test/integration/`, 55 suites) | primer pase (`copy`): 52/55 suites — rojas PS-39 (entorno: `APP_PUBLIC_URL`), PS-16 (mi PS-4b la empujó a la página 2) y `C-EQ-1` (preexistente en `ea615c3`); las tres cerradas en el segundo pase. Segundo pase (`copy3`): **55/55 suites · 1 267/1 267** (medido por backend el 2026-09-29 sobre copia del árbol entero de `0e979de`, HEAD de la errata v1.80.7.2; ver §12). *Del orquestador, no mío:* 55/55 suites, 1 281 verdes + 2 skip sobre `cfb43b3` |
+
+Carreras nuevas (N=10, autor backend): **PS-27d** 10/10 · **PS-36b** 10/10 (Δ deadlocks 0) · **PS-42b** 10/10 · **PS-57c**
+10/10 (Δ 0; 409+returned 10/10, 200+in_packed 0/10) · **PS-61b** 10/10 (Δ 0). Determinista: **PS-4b** verde.
+
+### Mutaciones (copia del árbol entero; `mutate.py` en el scratchpad hasta la limpieza)
+
+| Mutación | Qué | Prueba | Resultado (copia del árbol entero, 11/11 ROJAS) |
+|---|---|---|---|
+| M12 | quitar la relectura de `Order` en `refund` | PS-27 / PS-27b / PS-27c / **PS-27d** | **ROJA** — PS-27 10/10, PS-27b 10/10, PS-27c 10/10 (no la distinguen), **PS-27d 0/10** (caso `refunded` con fila y Stripe llamado sobre una orden `chargeback`) |
+| M-void | `void` de vuelta a `Order → piezas` | PS-36b | **ROJA** — 0/10, Δ deadlocks = 10, `503 BUSY_TRY_AGAIN` en `void` en las 10 |
+| M-R3 | el `update` plano vuelve a escribir `status` | PS-42b | **ROJA** (1 failed) |
+| M-cap | `if (planCents > cap)` | PS-4b | **ROJA** (el primer 403 no ocurre) |
+| M-17 | `Order → refunded` antes de `onFullRefund` | PS-57c | **ROJA** — 0/10, Δ deadlocks = 10 (la víctima fue la tx de confirmación: `retry` 200 con la fila aún `requested` y la orden `settled`) |
+| M-61b | el claim de `Order` antes de las piezas | PS-61b | **ROJA** — 0/10, Δ deadlocks = 10, `503` en `chargeback-inventory` |
+| M-clabe | `deleteUser` escribe `clabeEnc: null` directo | C-CLABE-1 | **ROJA** (1 failed / 18) |
+| M-cte | `paid` compara con `!==` | censo `constantTimeEquals` | **ROJA** (1 failed / 18) |
+| M-3 | `classifyItems` sin `ownerUserId` | PS-55 / PS-63 | **ROJA** (2 failed) |
+| M-429 | el filtro devuelve el `details` crudo | unitaria 429 + auth-throttle e2e | **ROJA** (unitaria 2 failed / 4; e2e 1 failed / 1) — es la medición de que el cierre hacía falta |
+| M-13 | sin la quinta condición en `withdrawableReasonOf` | unitaria + PS-65 | **ROJA** (unitaria 2 failed / 15; PS-65 1 failed) |
+
+## 11. Segundo pase (mismo día): veredicto de QA sobre `c20451f` (BLOQ-1, BLOQ-2 a/b, IMP-1, MENOR) + errata `v1.80.7.1`
+
+- **BLOQ-1 (dinero saliente) — `POST /admin/manual-refunds/:id/paid` y `/cancel` devolvían `{outcome, manualRefund}`** y el
+  contrato (§M4-SHIP.17.3 paso 4: «Res `ManualRefundDTO`») y el frontend esperan el DTO ⇒ la pantalla del súper-admin
+  moría (`customer.fullName` de `undefined`). **Ahora la respuesta ES el `ManualRefundDTO`** y `outcome`
+  (`paid|already_paid` / `cancelled|already_cancelled`) viaja como **campo aditivo** (`ManualRefundDTO & { outcome }`),
+  igual que `reissue`/`to-manual` devuelven el DTO. Pruebas (primero rojas): PS-33/PS-54 y PS-38 exigen
+  `{ id, status, customer: { userId, fullName, email } }` en la raíz y **ausencia** de `manualRefund`. *Para el
+  arquitecto:* `outcome` no está en el DTO del contrato; lo dejé aditivo porque PS-33/PS-38 lo aseveran y el front lo
+  ignora — si prefiere solo el DTO, es quitar una clave.
+- **BLOQ-2(a) — `C-EQ-1` (`enum-query-axes.e2e-spec.ts`) rojo por 13 `@Query` sin clase.** Clasificados por §0-Q punto 3
+  / §4.37 (v1.80.7.1 §M4-SHIP.1 decide E/E/E/E/L), ⛔ sin debilitar el candado: **cuatro** a `NO_ENUM_POR_RUTA`
+  (`shrinkage::from/to`, `refunds::from/to` — fechas; `replacement-cases::overdue` — booleano;
+  `replacement-cases/:id/refund-preview::amountCents` — entero) y **siete filas nuevas del `REGISTRO`**, con fixture
+  propio (`sembrarFixture` (h), `ShipPrepDb`) que discrimina: `replacement-cases::state` (**L**, `open|closed`,
+  `REPLACEMENT_CASE_STATE_VALUES`), `replacement-cases::source` (**E**, `ReplacementCaseSource`), `manual-refunds::status`
+  (**E**, `ManualRefundStatus`), `refunds::requestedByRole` (**E**, `Role`), `refunds::kind` (**E**, `PaymentRefundKind`),
+  `refunds::status` (**E**, `PaymentRefundStatus`), `finance/shrinkage::reason` (**L**, `lost|damaged`,
+  `SHRINKAGE_REASON_VALUES`). Trinquete: `REGISTRO` 44 → **51**, pendientes 11 → **18** (a propósito: es la conversación
+  que el trinquete exige; bajan a 11 cuando el arquitecto escriba las filas). Paridad L a dos bandas: entradas nuevas para
+  `?state=` (línea de §M4-SHIP.15.13) y `?reason=` (línea de §M4-SHIP.17.5).
+- **D-EQ-4 (medido, para que el arquitecto escriba las filas de §0-Q punto 4):** el descubrimiento de `C-EQ-1` **sí ve**
+  los ejes `?kind=`/`?status=` de `GET /admin/refunds`, `?status=` de `GET /admin/manual-refunds` y `?state=`/`?source=` de
+  `GET /admin/replacement-cases` (eran huérfanos exactos del rojo). Su conformidad HTTP con §0-Q, medida por las seis
+  propiedades del candado sobre las siete filas (vacío/espacios ⇒ `200`; `filtra` con datos que discriminan `valid` ≠ base
+  ≠ `alterno`; basura ⇒ `400 VALIDATION_ERROR {field, allowed}` con `allowed` = el dominio derivado): ver la tabla de
+  cierre de esta sección. Clases medidas: `refunds::kind` E · `refunds::status` E · `manual-refunds::status` E ·
+  `replacement-cases::state` L · `replacement-cases::source` E — coinciden con v1.80.7.1 §M4-SHIP.1.
+- **BLOQ-2(b) — `?missing=` ↔ `enum MissingReason` (v1.80.7.1 punto 1):** ⛔ sin renombrar el enum. La entrada `missing`
+  de la lista L gana `homonimosDeNombre: [{ enum: 'MissingReason', porque }]` y la prueba (3) pasa a: **(a)** todo enum
+  que case la regex de nombre está declarado (la regex **no cambia**) y **(b)** los valores del declarado, leídos de
+  `schema.prisma` en disco, son **disjuntos** del literal. Mutación: añadir `location` a `enum MissingReason` en una copia
+  del schema ⇒ **ROJA** (ver tabla).
+- **IMP-2 / v1.80.7.1 punto 2 — banda 3 UNIVERSAL en `enum-values-parity.spec.ts`:** parsea **todos** los `enum X {…}` del
+  schema (55), compara con la línea `^X\s+=` de §0 (con continuaciones `|`) y exige que los sin línea sean **exactamente**
+  `SIN_LINEA_CANONICA` (NameSource, PriceConvention, PriceRefKind, CardProductKind, PendingPriceStatus, MetaDeckSource,
+  MetaCardGroup, MetaMatchStatus). **Medido antes de escribirla (2026-09-29, sobre `7a860cd`): 0 discrepancias y los 8 sin
+  línea son exactamente esos** — ningún enum preexistente discrepa; nada que reportar al arquitecto en esta banda.
+  Además, **una sola declaración** (§4.37): `MISSING_REASON_VALUES`, `PREPARATION_ITEM_STATUS_VALUES`,
+  `PAYMENT_REFUND_KIND_VALUES`, `PAYMENT_REFUND_STATUS_VALUES`, `MANUAL_REFUND_STATUS_VALUES` viven en
+  `common/enum-values.ts` (tres bandas) y los consumidores (`vault-placement.service.ts`, `shipment-prep.service.ts`,
+  `admin-refunds.controller.ts`, `manual-refund.service.ts`; también `SOURCE_VALUES` de `replacement-case.service.ts`) las
+  importan.
+- **IMP-1 — `Math.ceil` en `itemFeeShareCents` (`common/money.ts`) no lo cazaban `refund-math.spec.ts` ni PS-2** (cocientes
+  enteros: `4617·30000/95000 = 1458.0`). Ahora: `P=30001 ⇒ 1458` (ceil 1459) y la propiedad Σ ≤ F con cifras que
+  discriminan (`G=3, F=100`, tres cartas de 1 centavo ⇒ 33+33+33 = 99 ≤ 100; con ceil 102 > F). Mutación ⇒ **ROJA**.
+- **MENOR — los 5 avisos `no-unused-vars`** (`buylist.dto.ts` `IsObject`, `inventory.service.ts` `actorUserId` →
+  `_actorUserId`, `sealed-product.service.ts` `normalizeSetName`, `buylist.guide-transit.spec.ts` `matches` → `_matches`,
+  `inventory.m11-debt.spec.ts` `Prisma`): `npm run lint` ⇒ **0 problemas**.
+- **PS-39 era dependiente del entorno, no del código:** `appUrl` (`mail-shell.ts`) construye los CTA con
+  **`APP_PUBLIC_URL`** (no `APP_BASE_URL`); sin ella el correo degrada el CTA a texto y PS-39 (AV-14 «regístrala en tu
+  cuenta» ⇒ `/cuenta#kyc`) sale roja (medido: roja aquí en `ea615c3` y en mi árbol; verde en QA, que la exporta).
+  `test/integration/setup.ts` fija un default local (`http://localhost:3000`), como hace con el resto de variables.
+- **PS-16 (mía, del pase anterior):** los 8 directos de PS-4b empujaron el envío de PS-16 a la página 2 (la lista va
+  `requestedAt asc`, `pageSize=100`). PS-16 ahora **recorre las páginas** (mide que `?q=` por destinatario ENCUENTRA el
+  envío, no en qué página cae) y PS-4b siembra con 3 directos (dos líneas por directo) en vez de 6.
+
+### Cifras del segundo pase (medidas por mí, 2026-09-29)
+
+| Qué | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, árbol vivo) | **5924/5924** |
+| `test/integration/enum-query-axes.e2e-spec.ts` (`C-EQ-1`) sobre el árbol vivo | **429/429** (antes: 2 rojas en `ea615c3`, 3 en la corrida completa) |
+| `replacement-cases` · `shipments-prep` · `full-refund-vault` sobre el árbol vivo | 28/28 · 20/20 · 16/16 |
+| `npm run lint` | **0 problemas** (eran 5 avisos) |
+| Integración completa sobre COPIA fresca del árbol entero (`copy3`, 55 suites) | **55/55 suites · 1 267/1 267** (medido por backend el 2026-09-29 sobre copia del árbol entero de `0e979de`, HEAD de la errata v1.80.7.2; ver §12). *Del orquestador, no mío:* 55/55 suites, 1 281 verdes + 2 skip sobre `cfb43b3` |
+
+Mutaciones v2 (copia `copy3`, restaurada tras cada una; `mutate2.py` en el scratchpad hasta la limpieza) — **6/6 ROJAS**:
+
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| IMP-1: `Math.ceil` en `itemFeeShareCents` | `refund-math.spec.ts` | **ROJA** (2 failed / 10) |
+| BLOQ-1: `paid` vuelve a envolver `{outcome, manualRefund}` | PS-33 | **ROJA** |
+| BLOQ-2(b): `location` entra a `enum MissingReason` (copia del schema) | `C-EQ-1` prueba (3) de L | **ROJA** (1 failed) |
+| banda 3 universal: `MovementReason` + `teleport` (enum SIN derivada en código) | `enum-values-parity` | **ROJA** (1 failed) |
+| banda 3 universal: `enum SinLinea {a b}` nuevo sin línea en §0 | `enum-values-parity` | **ROJA** (2 failed) |
+| `C-EQ-1`: `?kind=` de `GET /admin/refunds` valida y TIRA el valor (QA-M3 sobre el eje nuevo) | `C-EQ-1` «filtra» | **ROJA** (1 failed) |
+
+## 12. Errata `v1.80.7.2` punto 2 (D-a del techlead sobre `59a0c1f`) — la confirmación de M3 cierra aunque haya contracargo
+
+Rama `claude/envio-preparar`, 2026-09-29. ⛔ El punto 1 de la errata (regla de fusión única de guardas de inventario,
+§M1 `#M1-merge-rule`) **no** se hace en esta rama: lo hace la sesión que fusione los tres streams. Aquí solo se corrige la
+cita en §2 «inventory» y en §7 punto 9.
+
+- **Código** (`payments/refunds/refund-ledger.service.ts · applyStripeOutcome`): se quitó la lectura **sin candado** de
+  `Order.status` que cortaba antes de `onFullRefund` (antes `:301-305`). Ahora, como el webhook `charge.refunded`
+  (`payments.service.ts · onChargeRefunded`): (1) CAS de la fila → (3) `onFullRefund` (envíos → piezas → `Order FOR
+  UPDATE`, sello) → (4) `Order → refunded` con `WHERE status='settled'` → si `count 0`, relectura **bajo el candado que (3)
+  tomó**: `refunded` ⇒ éxito sin log (M5); **`chargeback` ⇒ `logger.warn`** «cierre por reembolso total hecho (sello,
+  revisión manual, colocación); su estado chargeback se conserva y no hay AV-3»; otro ⇒ `logger.error` (invariante).
+  `AV-3` solo con `count 1`. Docblock y comentario corregidos (ya no dicen «la orden no se toca»).
+- **PS-57d** (`test/integration/full-refund-vault.e2e-spec.ts`): **(seq)** disputa commit → `retry` ⇒ fila `succeeded`,
+  orden `chargeback`, sello puesto, flag `true`, cero `refund_return`, un `chargeback_return`, colocación
+  `cancelled/chargeback`, una bitácora `order.full_refund_closed`, cero `AV-3`; y un `charge.refunded` posterior ⇒ la foto
+  entera (orden, piezas, movimientos, bitácoras, colocación, filas del libro) **idéntica** (`toEqual`). **(race, N=10)**
+  `forced` con barrera en `Order`, A = disputa (encolada primero), B = `retry` ⇒ ambos `200` y la misma foto; `inter === N`.
+  **Unitaria** `test/refund-ledger.confirm.spec.ts` (6 casos): `chargeback` ⇒ `warn`, no `error`; `onFullRefund` antes de
+  `Order → refunded`; `count 1` ⇒ AV-3; `refunded` ⇒ silencio; `failed`/`pending` ⇒ `error`.
+- **Rojo antes (medido sobre `a703f2d`, commit de pruebas `cc0570e`):** (seq) `seal=null, flag=false, closed=0` y el
+  `log error` «la orden … está chargeback; … la orden no se toca» (falso: la colocación sí la había cancelado la disputa);
+  unitaria 1/6 roja. **Verde después** (`3849421`): PS-57d, PS-57 y PS-57c verdes.
+- **Supuesto «desde `settled` solo se llega a `refunded` o `chargeback`» — censo con `rg`** (`rg -U "\.order\.(update|
+  updateMany|upsert|create)\(\{[^;]*?status:" src`, 2026-09-29): escritores de `Order.status` = `settled` (pago, `WHERE
+  status ≠ settled`, `payments.service.ts:268-270`/`:427-430`; disputa ganada `:1018-1021`), `refunded` (webhook
+  `:687`/`:696-697`, M3 `refund-ledger.service.ts:312-313`, los tres `WHERE status='settled'`), `chargeback` (disputa
+  directa `:869-872`, bóveda `:971-973`, disputa perdida `:1028-1031` — por `id`, sin estado en el `WHERE`) y **`failed`**
+  (cuatro: `payments.service.ts:604` tras leer `status === 'pending'` sin candado; `orders.service.ts:896`
+  `releaseReservation`, **sin** guarda de estado — la llaman `attachPaymentIntent` al fallar Stripe sobre una orden recién
+  creada `pending` y el barrido legado de invitados tras cancelar el PI; `:1042` `supersedeOwnOrder`, tras confirmar el PI
+  `canceled`; `:1181` barrido, con `order.status === 'pending'` leído). **Ninguno de los `failed` lleva el estado en el
+  `WHERE`:** lo que impide que toquen una orden `settled` es que su PI está `succeeded` y `closePaymentIntent` no puede
+  cancelarlo (⇒ 409/skip), no la base. El supuesto se sostiene hoy por esa vía; si algún día se rompe, lo caza el `log
+  error` de la rama «otro estado». `create` solo escribe `pending`.
+- **PS-57c (nota (c) del encargo):** la rama «`prepared` 200 + `in_packed`» salió 0/20 en QA y 0/10 aquí: **es
+  inalcanzable con ese fixture** — la fila `order_full` `requested` (tx1 de M3) existe antes de la carrera y `prepared` la
+  mira bajo candado (`shipment-prep.service.ts:721-745` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED`). **Elegí simplificar**:
+  la prueba asevera la única rama alcanzable (409 con ese código, pieza `returned`, `preparedAt` nulo) 10/10; «preparado
+  ANTES de la fila ⇒ la confirmación deja la carta intacta» ya lo mide PS-63. Commit `ff942ca`.
+- **Pendiente para el arquitecto (nota (d)):** `outcome` (`paid|already_paid` / `cancelled|already_cancelled`) viaja como
+  campo **aditivo** en la respuesta de `POST /admin/manual-refunds/:id/paid` y `/cancel` (§11, BLOQ-1) y **no está
+  declarado** en el `ManualRefundDTO` del contrato (§M4-SHIP.17.3). Hay que declararlo (o decidir quitarlo); ⛔ no lo
+  escribo yo.
+
+### Mutaciones (copias del árbol entero `git archive ff942ca`, una por mutación, `node_modules` enlazado)
+
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| (a) el código de hoy: lectura previa sin candado ⇒ `log error` y fin | PS-57d (seq) · unitaria | **ROJA** (seq) 2/2 corridas: `seal=null, flag=false, closed=0`; `charge.refunded` posterior **sí** escribe (sella el webhook: dos semánticas); (race) 10/10 verde, como predice el contrato (la lectura previa ve `settled` porque la disputa aún no hizo commit); unitaria 3/6 rojas |
+| (b) semántica (a) del techlead: tras el `FOR UPDATE` de la pasada, `chargeback` ⇒ salir sin escribir (`full-refund.service.ts`, solo `trigger='m3'`) | PS-57d (seq + race) | **ROJA** — (seq) 2/2 corridas `seal=null`; (race) **0/10** verdes, N=10 (sello `null` en las 10), `inter` 10/10. Unitaria verde (la simula con doble de `onFullRefund`: no la ve, la ve la integración) |
+| (c) `logger.error` en vez de `warn` para `chargeback` | unitaria | **ROJA** (1/6) |
+
+### Cifras (medidas por mí, 2026-09-29)
+
+| Qué | Resultado |
+|---|---|
+| `npm run typecheck` · `npm run lint` (copia del árbol entero de `0e979de`) | limpio · **0 problemas** |
+| Unitaria completa (`npx jest`, misma copia) | **357/357 suites · 5 930/5 930** (5 924 + los 6 de `refund-ledger.confirm.spec.ts`) |
+| Integración completa (`--runInBand`, 55 suites, misma copia, base Postgres 16 **nueva** por corrida) | **2/3 corridas verdes (N=3):** 55/55 · 1 267/1 267 dos veces; la tercera 54/55 · 1 265/1 267 — rojas las 2 de `buylist-intake-concurrency` (barrera «esperaba 2 bloqueadas en `SellRequestItem`», el flake abierto **P-BUYLIST-CONC-FLAKE**). No es de este diff: `git diff --stat cfb43b3 HEAD -- backend/` = solo `refund-ledger.service.ts` y dos pruebas |
+| `cfb43b3` (base del orquestador) sobre copia, misma máquina | 55/55 · **1 266/1 266** (= mi HEAD − PS-57d). *Del orquestador:* 1 281 + 2 skip sobre ese mismo sha — la diferencia de 15 es de entorno (⚠️ NO MEDIDO cuál; los 2 skip son `stripe-in-tx-pool` sin `connection_limit=5`, que aquí sí corren) |
+| PS-57d (race) | **10/10 en cada una de 4 corridas** (N=10 por corrida, 40/40), `inter` 10/10 |
+| PS-57c | 10/10 en 4 corridas, Δ deadlocks 0 |
+
+⚠️ **Hallazgo lateral para el dueño de `buylist` (no es de este stream, no lo toqué):** tras el rojo de
+`buylist-intake-concurrency`, **la base queda envenenada**: esa suite sale **0/10** sobre la base de la corrida roja y
+**10/10** sobre una limpia — y el cruce lo confirma (código de `cfb43b3` sobre la base envenenada 0/3; código de HEAD
+sobre una limpia 3/3). O sea, su `afterAll` no deja la base como la encontró cuando la ronda revienta. Mecanismo ⚠️ NO
+MEDIDO (el alta se rechaza antes de insertar `SellRequestItem`). Relevante para P-BUYLIST-CONC-FLAKE: un rojo arrastra
+los siguientes si la base se reutiliza.

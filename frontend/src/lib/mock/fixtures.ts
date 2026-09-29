@@ -998,6 +998,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: true,
+    withdrawableReason: null,
   },
   {
     inventoryItemId: 'inv-1006',
@@ -1011,10 +1012,11 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'pending',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, capturedDate: '2026-08-13' },
-    // Pending → no retirable (aún no liquidada), sin envío activo.
+    // Pending → no retirable (aún no liquidada), sin envío activo. v1.80.7: el motivo viaja con el flag.
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: false,
+    withdrawableReason: 'pending',
   },
   {
     inventoryItemId: 'inv-1008',
@@ -1036,6 +1038,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: 'enviado',
     activeShipmentId: 'shp-7001',
     withdrawable: false,
+    withdrawableReason: 'in_withdrawal',
   },
   {
     inventoryItemId: 'inv-1010',
@@ -1052,6 +1055,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: true,
+    withdrawableReason: null,
   },
 ];
 
@@ -1700,6 +1704,8 @@ export const mockKyc: KycInfoDTO = {
   // v1.15: sin CLABE ni INE en archivo por defecto (el checklist los marca como pendientes).
   clabeOnFile: false,
   ineOnFile: false,
+  // v1.80.7: clave siempre presente; `null` ⇔ fecha desconocida (o sin CLABE).
+  clabeUpdatedAt: null,
 };
 
 /**
@@ -1737,7 +1743,11 @@ export function mockApplyClientKycUpdate(input: {
   ineBackUploadKey?: string;
 }): KycInfoDTO {
   if (input.clabe) {
-    mockKyc.clabeMasked = `****${input.clabe.slice(-4)}`;
+    const nextMask = `****${input.clabe.slice(-4)}`;
+    // v1.80.7 (§M4-SHIP.17.3, `setClabe`): la fecha se sella SOLO cuando la CLABE cambia de verdad; repetir
+    // la misma es cero escrituras (PS-46). El mock solo ve la máscara, así que compara por ella.
+    if (!mockKyc.clabeOnFile || mockKyc.clabeMasked !== nextMask) mockKyc.clabeUpdatedAt = new Date().toISOString();
+    mockKyc.clabeMasked = nextMask;
     mockKyc.clabeOnFile = true;
   }
   const hasIneKey = !!(input.ineFrontUploadKey || input.ineBackUploadKey);
@@ -1979,152 +1989,11 @@ export const mockAdminShipments: AdminShipmentDTO[] = [
   },
 ];
 
-/**
- * MOCK: **«Pedidos a preparar»** — hoja de trabajo AGRUPADA por pedido (contrato **§M4-PREP** ·
- * `GET /admin/shipments/picking-list`). Un elemento = UN pedido/envío a preparar.
- *
- * ⚠️ **Las dos filas son `destination: 'ship'`, y eso NO es un descuido del fixture.** Medido por el
- * arquitecto (§M4-PREP, 2026-09-22): bajo el modelo actual **todo** `ShipmentRequest` es físicamente
- * un envío a domicilio —retiro de bóveda **o** envío directo— y las órdenes con
- * `fulfillmentMode='vault'` **no generan** `ShipmentRequest`. ⛔ Una fila `destination:'vault'` aquí
- * sería un dato que el backend **no puede producir**: enseñaría a leer verde una cubeta vacía.
- *
- * El orden del array es DELIBERADAMENTE el contrario al normativo (`requestedAt` asc, CA #9): el
- * mock hace de servidor y ordena en `getAdminPreparationQueue`, y la vista lo vuelve a garantizar.
- */
-export const mockPreparationQueue: PreparationOrderDTO[] = [
-  {
-    // ENVÍO DIRECTO — tiene orden, así que tiene folio.
-    shipmentId: 'shp-7004',
-    orderId: 'ord-5001',
-    orderNumber: 'TCG-000123',
-    destination: 'ship',
-    requestedAt: '2026-08-13T16:45:00Z',
-    customer: { lastName: 'Ketchum', fullName: 'Ash Ketchum' },
-    shipTo: {
-      recipientName: 'Ash Ketchum',
-      line1: 'Av. Insurgentes Sur 1234',
-      line2: 'Depto 5B',
-      neighborhood: 'Del Valle',
-      city: 'Ciudad de México',
-      state: 'CDMX',
-      postalCode: '03100',
-      country: 'MX',
-      phone: '5551239876',
-    },
-    items: [
-      {
-        shipmentItemId: 'sit-9004-1',
-        inventoryItemId: 'inv-1012',
-        folio: 'INV-000112',
-        quantity: 1,
-        card: {
-          name: 'Charizard',
-          setName: 'Base Set',
-          finish: 'holofoil',
-          conditionLabel: 'PSA 9',
-          imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png',
-        },
-        currentLocation: { kind: 'assigned', label: 'C01-F01-S02' },
-      },
-    ],
-  },
-  {
-    // RETIRO DE BÓVEDA — `orderId` null ⇒ `orderNumber` null. NO es un hueco: es un retiro.
-    // `lastName` null: `fullName` de un solo token, el apellido no se puede derivar (§6.A).
-    shipmentId: 'shp-7002',
-    orderId: null,
-    orderNumber: null,
-    destination: 'ship',
-    requestedAt: '2026-08-13T09:30:00Z',
-    customer: { lastName: null, fullName: 'Misty' },
-    shipTo: {
-      // Snapshot legado de ocho campos (anterior a v1.67): sin `recipientName`.
-      recipientName: null,
-      line1: 'Calle Falsa 123',
-      line2: null,
-      neighborhood: null,
-      city: 'Guadalajara',
-      state: 'JAL',
-      postalCode: '44100',
-      country: 'MX',
-      phone: '3331234567',
-    },
-    items: [
-      {
-        shipmentItemId: 'sit-9002-1',
-        inventoryItemId: 'inv-1001',
-        folio: 'INV-000101',
-        quantity: 1,
-        card: {
-          name: 'Zapdos',
-          setName: 'Base Set',
-          finish: 'normal',
-          conditionLabel: 'NM',
-          imageSmallUrl: 'https://images.pokemontcg.io/base1/16.png',
-        },
-        currentLocation: { kind: 'assigned', label: 'C03-F02-S15' },
-      },
-      {
-        shipmentItemId: 'sit-9002-2',
-        inventoryItemId: 'inv-1008',
-        folio: 'INV-000108',
-        quantity: 1,
-        card: {
-          // Catálogo sin miniatura (`imageSmallUrl` es nullable por contrato) ⇒ pozo de papel.
-          name: 'Machamp',
-          setName: 'Base Set',
-          finish: 'reverse_holo',
-          conditionLabel: 'LP',
-          imageSmallUrl: null,
-        },
-        // Pieza SIN ubicación asignada: el front pinta copy legible, ⛔ nunca "UNASSIGNED".
-        currentLocation: { kind: 'unassigned' },
-      },
-    ],
-  },
-  {
-    // ⭐ §M4-PREP v1.78.1 — EL CASO QUE NINGUNA FIXTURE RECORRÍA: `customer.fullName` **null**.
-    // Envío directo de un INVITADO (`userId == null`) cuyo `addressSnapshot` es de los de OCHO
-    // campos (anteriores a v1.67) ⇒ no hay `recipientName` de donde sacar el nombre ⇒ `fullName`
-    // es `null`, y `lastName` lo es **por construcción** (se deriva de `fullName`).
-    // ⛔ La cadena vacía está PROHIBIDA como marca de ausencia: aquí va `null`, no `''`.
-    // *Un tipo nullable sin fixture que lo recorra es un tipo que nadie probó.*
-    shipmentId: 'shp-7005',
-    orderId: 'ord-5002',
-    orderNumber: 'TCG-000124',
-    destination: 'ship',
-    requestedAt: '2026-08-12T08:15:00Z',
-    customer: { lastName: null, fullName: null },
-    shipTo: {
-      recipientName: null,
-      line1: 'Blvd. Adolfo López Mateos 500',
-      line2: null,
-      neighborhood: null,
-      city: 'León',
-      state: 'GTO',
-      postalCode: '37000',
-      country: 'MX',
-      phone: '4779876543',
-    },
-    items: [
-      {
-        shipmentItemId: 'sit-9005-1',
-        inventoryItemId: 'inv-1014',
-        folio: 'INV-000114',
-        quantity: 1,
-        card: {
-          name: 'Blastoise',
-          setName: 'Base Set',
-          finish: 'holofoil',
-          conditionLabel: 'NM',
-          imageSmallUrl: 'https://images.pokemontcg.io/base1/2.png',
-        },
-        currentLocation: { kind: 'assigned', label: 'C02-F01-S08' },
-      },
-    ],
-  },
-];
+// MOCK §M4-SHIP: la cubeta ENVÍO de «Pedidos por preparar» (antes `mockPreparationQueue`, aquí) vive
+// ahora en `mock/m4-ship.ts` como SERVIDOR FALSO con estado (marcas, `preparation`, `refund` por carta,
+// casos «Por reponer», libro de reembolsos). Sus filas siguen siendo `shp-7004` (directo, Ash),
+// `shp-7002` (retiro, Misty) y `shp-7005` (directo de invitado sin nombre), más `shp-7006` (retiro preparado
+// con un caso abierto). `mockAdminShipments` sigue siendo la lista administrativa que las acompaña.
 
 export const mockDashboard: DashboardDTO = {
   profitPeriodCents: 1284000,
@@ -2481,6 +2350,7 @@ export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
       shipmentState: null,
       activeShipmentId: null,
       withdrawable: true,
+      withdrawableReason: null,
     },
   ],
   // §M4-VAULT v1.79.3 (H-1): cuenta con el nombre FABRICADO del correo (`nameSource='derived'`,
@@ -2499,6 +2369,7 @@ export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
       shipmentState: null,
       activeShipmentId: null,
       withdrawable: true,
+      withdrawableReason: null,
     },
   ],
 };
@@ -3456,6 +3327,9 @@ export const mockAdminOrders: AdminOrderDTO[] = [
   { id: 'ord-9001', userId: 'u-777', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z', cfdiStatus: 'registrado' },
   { id: 'ord-9002', userId: 'u-778', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
   { id: 'ord-9003', userId: 'u-779', status: 'chargeback', totalCents: 231000, createdAt: '2026-08-09T12:00:00Z' },
+  // §M4-SHIP.18: compra a BÓVEDA ya reembolsada entera (por webhook) con una carta en caja y otra
+  // devuelta pendiente de confirmación física — alimenta `vaultPieces`, «Reclamar» y `chargeback-inventory`.
+  { id: 'ord-9004', userId: 'u-778', status: 'refunded', totalCents: 47400, createdAt: '2026-09-20T12:00:00Z', settledAt: '2026-09-20T12:02:00Z', cfdiStatus: 'registrado' },
 ];
 
 // MOCK: `evidenceContact` viene de la API (contrato §7/§M8) y la UI **renderiza el que recibe**;

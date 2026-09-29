@@ -9,6 +9,9 @@ import { VaultPlacementsController } from './vault-placements.controller';
 import { PricingModule } from '../pricing/pricing.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { PortfolioSnapshotJobService } from '../../jobs/portfolio-snapshot.service';
+import { ShipmentsModule } from '../shipments/shipments.module';
+import { ReplacementCaseService } from './replacement-case.service';
+import { AdminReplacementCasesController } from './admin-replacement-cases.controller';
 
 /**
  * VaultModule — bóveda/portafolio del cliente. Aloja también el job
@@ -22,15 +25,17 @@ import { PortfolioSnapshotJobService } from '../../jobs/portfolio-snapshot.servi
  * (`GET /admin/vaults/:userId/physical-inventory`, VaultPhysicalInventoryService).
  */
 @Module({
-  imports: [PricingModule, InventoryModule],
+  // v1.80.1 (§M4-SHIP.15): `ShipmentsModule` para proyectar `preparation` del retiro al reponer (sin ciclo: shipments no importa vault).
+  imports: [PricingModule, InventoryModule, ShipmentsModule],
   providers: [
     VaultService,
     AdminVaultsService,
     PortfolioSnapshotJobService,
     VaultPlacementService,
     VaultPhysicalInventoryService,
+    ReplacementCaseService,
   ],
-  controllers: [VaultController, AdminVaultsController, VaultPlacementsController],
+  controllers: [VaultController, AdminVaultsController, VaultPlacementsController, AdminReplacementCasesController],
   exports: [VaultService, PortfolioSnapshotJobService],
 })
 export class VaultModule {}

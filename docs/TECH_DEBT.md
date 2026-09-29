@@ -8264,3 +8264,180 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Disparador:** añadir un método público a `PricingService` que consuman los lectores.
 - **Comprobación de cierre:** `grep -rln "as unknown as PricingService\|: PricingService = {" backend/test` no lista
   suites con dobles literales; todas usan la fábrica.
+## Backend · 2026-09-29 · gate del techlead sobre `c20451f` (§M4-SHIP, rama `claude/envio-preparar`)
+
+> Deuda **no bloqueante** anotada a petición del techlead (rechazo de `c20451f`; los tres bloqueantes R1/R2/R3 y la deuda
+> (a) del tope se cerraron en el mismo pase: `BACKEND_NOTES §M4-SHIP-TL`). Medido el **2026-09-29** sobre el worktree
+> encima de `ea615c3`. Dueño de todo lo de abajo: **backend** (stream «Órdenes y dinero» / «Inventario y vault»).
+
+### SHIP-D1 · El nacimiento del caso «Por reponer» está escrito dos veces (retiro y colocación)
+- **Dónde:** `backend/src/modules/shipments/shipment-prep.service.ts:548-651` (retiro: `prepare`, `replacementCase.create`
+  en `:612`) ↔ `backend/src/modules/vault/vault-placement.service.ts:651-734` (colocación: `confirm`, `create` en `:682`).
+  Los dos hacen: CAS de la pieza a `lost|damaged` a nombre del cliente, movimiento con actor (la merma con firma), fila
+  `ReplacementCase` con su nodo (`shipmentItemId` xor `placementItemId`), bitácora y `AV-13`.
+- **Impacto:** un cambio de regla del caso (p. ej. `dueAt`, la identidad que congela, el copy del `AV-13`) hay que hacerlo
+  en dos sitios; ya divergen en detalles menores (nota del movimiento, forma del `after` de la bitácora).
+- **Corrección:** `openReplacementCase(tx, { piece, node, missingReason, actor })` en `vault/replacement-case.rules.ts` (o
+  un `ReplacementCaseService.open`), llamado por los dos verbos; la suite `replacement-cases.e2e-spec.ts` (PS-18/PS-19 y
+  el 6-bis) es el juez.
+- **Disparador:** el próximo cambio a lo que se escribe al abrir un caso, o un tercer punto de nacimiento.
+- **Comprobación de cierre:** `rg -n "replacementCase\.create\(" backend/src` ⇒ **1** sitio.
+
+### SHIP-D2 · La cola de preparación hace N+1 por tarjeta y duplica el `include` de `SHIP_PREP_INCLUDE`
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts:842` (`for (const sh of shipments) shipRows.push(await
+  this.toPreparationOrder(sh))`) y `:990` (`prep.buildView(this.prisma, s as unknown as …)` por fila); el `include` de
+  `:826-838` repite a mano el de `SHIP_PREP_INCLUDE` (`shipment-prep.service.ts:136`) y el tipo se fuerza con dos
+  `as unknown as` (`:990-991`).
+- **Impacto:** con K envíos en cola, K rondas de `buildView` (cada una con sus lecturas de origen/libro/casos); dos
+  `include` que pueden divergir (uno tipa `ShipRow`, el otro se castea).
+- **Corrección:** `loadRows(db, where)` en `ShipmentPrepService` que use `SHIP_PREP_INCLUDE` y devuelva `ShipRow[]`;
+  `buildViews(db, rows)` por lote (`resolveOriginsBatch` ya es por lote); `shipments.service` deja de castear.
+- **Disparador:** la cola tarda > 1 s con ≥ 50 envíos, o el próximo campo nuevo en el `include`.
+- **Comprobación de cierre:** `rg -c "as unknown as" backend/src/modules/shipments/shipments.service.ts` ⇒ **0**; un solo
+  literal `include` para la fila de preparación.
+
+### SHIP-D3 · `@Optional()` con `throw` en tiempo de ejecución: el servicio dice que es opcional y luego exige que esté
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts:242-249` (`prep?`, `manual?` + `requirePrep()` que lanza);
+  **y ahora también** `backend/src/modules/admin/admin.service.ts` (`users?: UsersService`, `deleteUser` lanza si falta —
+  añadido en este pase por `eraseClabe`, v1.80.7 punto 19, siguiendo el mismo patrón para no romper 27 construcciones
+  manuales del servicio en los unitarios).
+- **Impacto:** el tipo miente: en producción son dependencias duras; solo los unitarios legacy que construyen el servicio
+  a mano las omiten. Un módulo mal cableado se descubre en la primera petición, no al arrancar.
+- **Corrección:** dependencias requeridas; los unitarios que construyen a mano pasan un doble (patrón `usersStubM61`).
+- **Disparador:** el próximo `@Optional()` nuevo, o el próximo unitario nuevo de esos servicios.
+- **Comprobación de cierre:** `rg -n "@Optional\(\) private readonly (prep|manual|users)" backend/src/modules` ⇒ **0**.
+
+### SHIP-D4 · `@Body() body: unknown` sin DTO en `prep-items`/`prepared`
+- **Dónde:** `backend/src/modules/shipments/admin-shipments.controller.ts:90` (`markItem`) y `:99` (`prepare`); la forma se
+  valida a mano dentro de `ShipmentPrepService` (`markItem`/`prepare`).
+- **Impacto:** los demás verbos del controlador validan con `class-validator`; aquí los `400` se construyen a mano y el
+  contrato del cuerpo no se lee del tipo.
+- **Corrección:** `PrepItemDto { status, missingReason? }` y `PreparedDto { expectedRefundCents }` en `shipments/dto/`,
+  con los mismos códigos (`400 VALIDATION_ERROR {field}`); PS-2/PS-3 y PS-26 (cuerpos malos) son el juez.
+- **Disparador:** el próximo campo en cualquiera de los dos cuerpos.
+- **Comprobación de cierre:** `rg -n "@Body\(\) body: unknown" backend/src/modules/shipments` ⇒ **0**.
+
+### SHIP-D5 · `nonePicked` / `anyPickedAvailable` son el mismo predicado escrito dos veces
+- **Dónde:** `backend/src/modules/shipments/shipment-prep.service.ts:365-367`: `closes = lines.length > 0 && nonePicked
+  && !anyPickedAvailable`; `anyPickedAvailable` ⇒ `!nonePicked` por construcción (una línea `picked ∧ available` no cumple
+  ninguna rama de `nonePicked`).
+- **Impacto:** legibilidad; invita a «arreglar» uno sin el otro.
+- **Corrección:** `const closes = lines.length > 0 && lines.every(isNotShippable)` con `isNotShippable` nombrado.
+- **Disparador:** el próximo cambio a la regla de cierre (`closed_nothing_to_ship`).
+- **Comprobación de cierre:** PS-66 y PS-18 verdes con un solo predicado.
+
+### SHIP-D6 · `C-FULLREF-1` censa APARICIONES (6 llamadas en 4 ficheros), no LLAMADORES
+- **Dónde:** `backend/test/refunds.candados.spec.ts:206-213`: `census(/\.onFullRefund\(/g)` ⇒ `{orders: 2, ledger: 1,
+  payments: 2, shipment-prep: 1}`; la prosa dice «cinco llamadores» (M3, `reclaim-vault`, confirmación, webhook,
+  `unprepare`).
+- **Impacto:** un refactor que junte las dos ramas del webhook en una llamada (o que parta una en dos) pone el candado rojo
+  sin que cambie el conjunto de llamadores; y al revés, un llamador nuevo dentro de un fichero ya censado con el mismo
+  conteo (quitando otro) pasaría.
+- **Corrección:** censar por **función llamadora** (`callSpans` + nombre del método que la contiene), como ya hace
+  `C-CLABE-1` con `setClabe`/`eraseClabe`.
+- **Disparador:** el próximo cambio a un llamador de `onFullRefund`.
+- **Comprobación de cierre:** el aserto lista nombres de funciones, no conteos por fichero.
+
+### SHIP-D7 · `blindIndexEquals` para comparar un token — **CERRADO en este pase**
+- **Qué era:** `manual-refund.service.ts:390` comparaba el `revealToken` con `blindIndexEquals` (nombre de índice ciego).
+- **Cierre (v1.80.7 punto 19):** `PiiCryptoService.constantTimeEquals` (mismo cuerpo), usado en `paid`; unitaria en
+  `pii-crypto.spec.ts` y censo en `refunds.candados.spec.ts` (mutar a `!==` ⇒ rojo, medido).
+
+### SHIP-D8 · `toBeLessThan(300)` en las fixtures de integración
+- **Dónde:** 14 sitios: `backend/test/integration/full-refund-vault.e2e-spec.ts` (9), `guest-checkout.e2e-spec.ts` (2),
+  `vault-shipments.e2e-spec.ts` (2), `orders-public-status.e2e-spec.ts` (1) — `expect(r.status).toBeLessThan(300)` sobre
+  pasos de fixture (publicar, mover, marcar).
+- **Impacto:** un verbo que pasara de `201` a `200` (o a `204`) no se notaría; y un `2xx` con cuerpo distinto tampoco.
+- **Corrección:** aseverar el código exacto que el contrato fija para cada verbo (`201` en `POST` que crea, `200` en el
+  resto) — o un helper `expectOk(r, 200 | 201)` con el código explícito.
+- **Disparador:** el próximo cambio de código de estado en un verbo de M1/M4.
+- **Comprobación de cierre:** `rg -c "toBeLessThan\(300\)" backend/test/integration` ⇒ **0**.
+
+## Frontend · 2026-09-29 · §M4-SHIP — deuda del techlead sobre `c20451f`, medida en este pase (rama `claude/envio-preparar`, base `ea615c3`)
+
+### SHIP-FD-a · El servidor falso de `m4-ship.ts` reimplementa la fórmula del dinero — **PARCIALMENTE CERRADO en este pase** (frontend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** frontend. **Severidad:** Media (es un mock: no toca dinero real, pero es el juez de las pantallas que sí
+  lo pintan). **No bloqueante.**
+- **Qué es:** `frontend/src/lib/mock/m4-ship.ts` (1 744 líneas, medido 2026-09-29) lleva estado **y** fórmula:
+  `item_missing` (`:191`, `itemMissingCents`), el tope del operador (`:74` `MOCK_OPERATOR_REFUND_CAP_CENTS`,
+  `:257` `operatorUsedCents`), el reparto Stripe/SPEI y los topes de caso (`:621` `caseReferences`, `:1221`
+  `caseRefundPlan`). Una fórmula en dos sitios diverge: **ya había divergido** — la fila SPEI salía con IVA `0` y
+  comisión `0` (`m4-ship.ts:1286,1300-1303` y `:1484` en `c20451f`).
+- **Lo cerrado en este pase (medido):** los `components` ya NO se calculan a mano. Nace `lib/mock/refund-math.ts`
+  (espejo de `backend/src/common/money.ts`, sección refund: `itemMissingRefundComponents`, `orderRemaining…`,
+  `caseRefundContextOf`, `caseRefundComponents`, `subtractRefundComponents`) con **los vectores dorados de
+  `backend/src/common/refund-math.spec.ts`** repetidos en `refund-math.test.ts` (31458 = 30000 + 1458, IVA 4138;
+  52430 + 31458 + 15729 = 99617; PS-26/27 con 200 montos). `case_excess` = `caseRefundComponents(A) −
+  caseRefundComponents(stripe)` y `stripe_failed` copia la fila (como `replacement-case.service:804-806` y
+  `manual-refund.service:597`). Prueba de mock `m4-ship-refund-components.test.ts`: **rojo antes 1/2** (`pr-8002` daba
+  `{40000, 0, 0, 0}`), **verde después 2/2** (`{32000, 4414, 1533, 6467}`).
+- **Lo que queda abierto:** el mock sigue calculando el tope (`operatorUsedCents`), `Q`/`R`/los multiplicadores y el
+  reparto `min(A, disponible)` con su propio código. No se comparte código con el backend (carpetas distintas; regla
+  de propiedad): el candado es la **copia de vectores dorados**, que se pone roja aquí cuando el spec del servidor
+  cambie sus cifras.
+- **Dirección:** (1) mover `caseReferences`/`caseRefundPlan`/`operatorUsedCents` a `refund-math.ts` (fórmula pura,
+  sin estado) y que `m4-ship.ts` solo lleve estado; (2) un fichero de vectores dorados (`refund-vectors.json`) leído
+  por **las dos** suites (`backend/src/common/refund-math.spec.ts` y `frontend/src/lib/mock/refund-math.test.ts`) —
+  requiere una zona compartida fuera de `backend/` y `frontend/` ⇒ pasa por el **arquitecto**.
+- **Disparador:** el siguiente cambio a la fórmula del contrato (§M4-SHIP.4 / .15.5) o al tope (§M4-SHIP.8).
+- **Comprobación de cierre:** `rg -n "Math.floor|taxBase|\* 100\) / \(100" frontend/src/lib/mock/m4-ship.ts` ⇒ **0**
+  (toda aritmética de dinero vive en `refund-math.ts`), y las dos suites leen el mismo fichero de vectores.
+
+### SHIP-FD-b · `ShipPreparationCard.tsx` mide 1 184 líneas: cuatro mutaciones y su mapeo de errores en un componente de ~650 (frontend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** frontend. **Severidad:** Media. **No bloqueante.** Hermana de **VLT-D7** (`VaultPlacementCard`).
+- **Qué es:** `frontend/src/app/[locale]/(admin)/admin/m4/ShipPreparationCard.tsx` (1 184 líneas, medido 2026-09-29;
+  1 169 en `c20451f` + 15 de la tipificación del `403` de este pase). `ShipPreparationCard` (`:96-745`) contiene las
+  cuatro `useMutation` (`mark :220`, `prepare :271`, `unprepare :420`, `retry :452`), la traducción de errores por
+  verbo (la tabla de §37.4–§37.6: `REFUND_PREVIEW_STALE`, `PREPARATION_INCOMPLETE`, `MONEY_OUT_LIMIT_EXCEEDED`,
+  `REFUND_NOT_AVAILABLE`, `PREPARATION_HAS_BLOCKED_LINES`, `ORDER_NOT_SETTLED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`…),
+  el parcheo de la caché (`patchShip`) y los planos de la tarjeta; debajo, `ErrorLine :747`, `ShipItemRow :765`,
+  `PrepareDialog :1061`.
+- **Impacto:** la lógica de errores (la parte con más ramas y la que toca el contrato) está mezclada con el marcado;
+  cada código nuevo del contrato crece el componente.
+- **Corrección:** extraer `useShipPreparation(order, onNotice)` → `{ mark, prepare, unprepare, retry, busy,
+  rowErrors, footerError, confirm }` y una tabla `shipErrorOf(err, ts)` pura (probable en unitaria sin render); mover
+  `ShipItemRow` y `PrepareDialog` a ficheros propios. Sin cambio de conducta: `ShipPreparationCard.test.tsx` (11
+  casos) y `e2e/m4-ship.spec.ts` son el juez.
+- **Disparador:** el próximo código de error nuevo sobre la tarjeta de envío, o el próximo verbo nuevo.
+- **Comprobación de cierre:** `wc -l ShipPreparationCard.tsx` < 500 y `rg -c "useMutation\(" ShipPreparationCard.tsx`
+  ⇒ **0**.
+
+### SHIP-FD-c · `asApiError` copiado en 5 vistas — **CERRADO en este pase** (frontend, 2026-09-29)
+- **Qué era:** la misma función de 3 líneas en `ShipPreparationCard.tsx`, `VaultPlacementCard.tsx`,
+  `ReplacementCaseView.tsx`, `M3OrderDetailView.tsx` y `ManualRefundDetailView.tsx`.
+- **Cierre:** vive en `frontend/src/lib/api-client.ts` (`export function asApiError`); las cinco vistas la importan
+  (commit `8f48d28`). Juez: las 4 suites de esas vistas, **48/48**.
+- **Comprobación:** `rg -n "^function asApiError" frontend/src` ⇒ **0**; `rg -c "import \{ asApiError" frontend/src`
+  ⇒ **5**.
+
+### SHIP-D-c (techlead sobre `59a0c1f`) · contar interbloqueos con `pg_stat_database.deadlocks` + espera de 1,5 s es frágil (backend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** backend. **Severidad:** Baja. **No bloqueante.** (Nombre con prefijo para no chocar con el `D-c` de enums de
+  §5106.)
+- **Qué es:** PS-57c, PS-61b (`backend/test/integration/full-refund-vault.e2e-spec.ts`) y PS-36b
+  (`replacement-cases.e2e-spec.ts`) aseveran `delta === 0` sobre `SELECT deadlocks FROM pg_stat_database WHERE datname =
+  current_database()` leído antes y después de la carrera, con un `setTimeout(1500)` antes de la segunda lectura
+  (medido con `rg -n pg_stat_database`: tres contadores en esos dos ficheros, 2026-09-29). En PG ≥ 15 las estadísticas acumuladas viven en memoria
+  compartida y se publican de forma diferida (`stats_fetch_consistency`, vaciado periódico por backend): 1,5 s es una
+  espera empírica, no una garantía; y el contador es **de la base entera**, así que cualquier otra suite corriendo a la
+  vez contra la misma base lo mueve.
+- **Por qué no rompe hoy:** la aserción que decide es la de cada tirada (cero `503`/`500`, que es como un `40P01` llega
+  al cliente) y la suite corre con `--runInBand` (`package.json · test:integration`, `jest-integration.config.js ·
+  maxWorkers: 1`). El Δ es redundante con ella: la mutación M-17 de PS-57c salió con Δ=10 **y** `503` en las 10.
+- **Corrección:** el Δ pasa a **registro informativo** (se imprime en `[PS-RACE …]`, no se asevera) y la aserción queda en
+  la señal por tirada (cero `5xx`, cero `40P01` en el cuerpo). Mantener `--runInBand` como requisito explícito de la suite.
+- **Disparador:** un rojo de Δ sin `5xx` en la misma corrida, o correr la integración en paralelo.
+- **Comprobación de cierre:** `rg -n "expect\(delta\)" backend/test/integration` ⇒ **0**, y el Δ sigue impreso.
+
+### D-SHIP-8 · orden `vault` en `chargeback` con `chargebackNeedsManual = true` y la disputa ya cerrada: ningún verbo baja el flag (backend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** arquitecto (decidir el desenlace) → backend. **Severidad:** Baja. **No bloqueante.** Observación de
+  `ARCHITECTURE §9 D-SHIP-8` (v1.80.7.2); ⛔ sin trabajo en este corte.
+- **Qué es:** el cierre por reembolso total (M3 o `charge.refunded`) sobre una orden `vault` en `chargeback` pone
+  `chargebackNeedsManual = true` en su primera pasada (§18.2, tabla del sello). En bóveda el flag lo baja
+  `onChargeDisputeClosed` (`payments.service.ts:1007-1036`, rama no directa ⇒ `false`). Si la disputa **ya se cerró**
+  antes de ese cierre, el flag queda `true` y `POST /admin/orders/:id/chargeback-inventory` responde `400` porque solo
+  acepta un directo o una `vault` **`refunded`** (`orders.service.ts:1561-1567`, medido 2026-09-29 en `claude/envio-preparar`).
+- **Preexistente:** el webhook `charge.refunded` ya llegaba a ese estado; PS-57d (v1.80.7.2) solo iguala la confirmación de
+  M3 al webhook. ⛔ NO MEDIDO si Stripe permite en la práctica un reembolso confirmado después de una disputa cerrada.
+- **Disparador:** una fila así en la cola de M3 (`workQueue`/`chargebackNeedsManual`) sin verbo que la resuelva.
+- **Comprobación de cierre:** una prueba de integración que llegue a ese estado (disputa cerrada → `retry` de M3) y un
+  verbo que baje el flag con `200`, o una decisión del arquitecto que declare el estado inalcanzable y una prueba que lo asevere.

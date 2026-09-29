@@ -232,6 +232,44 @@ import type {
   DecksMetaDialDTO,
   DecksMetaDialUpdateRequest,
 } from '@/types/contract';
+// §M4-SHIP v1.80.6 — tipos 1:1 con el contrato (bloque propio para que el diff se lea solo).
+import type {
+  AdminOrderDetailDTO,
+  AdminRefundsFilters,
+  AdminRefundsResponse,
+  CaseRefundPreviewDTO,
+  CaseRefundRequest,
+  CaseRefundResponse,
+  ChargebackInventoryRequest,
+  ChargebackInventoryResponse,
+  ManualRefundDTO,
+  ManualRefundNoteRequest,
+  ManualRefundsFilters,
+  ManualRefundsResponse,
+  MarkManualRefundPaidRequest,
+  MissingReason,
+  OperatorRefundSummaryResponse,
+  PaymentRefundDTO,
+  PickingListSummaryDTO,
+  PrepareShipmentRequest,
+  PrepareShipmentResponse,
+  ReclaimVaultRequest,
+  ReclaimVaultResponse,
+  RefundOrderRequest,
+  ReplaceCaseRequest,
+  ReplaceCaseResponse,
+  ReplacementCaseDTO,
+  ReplacementCaseDetailDTO,
+  ReplacementCasesFilters,
+  RevealManualRefundClabeResponse,
+  SetShipPrepItemRequest,
+  SetShipPrepItemResponse,
+  UnprepareShipmentResponse,
+  VoidCaseRequest,
+  VoidCaseResponse,
+  GuestOrderPublicStatus,
+} from '@/types/contract';
+import * as m4ship from './mock/m4-ship';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
@@ -545,7 +583,10 @@ export async function setDecksMetaDial(
 // ---------- Bóveda / portafolio ----------
 export async function getHoldings(): Promise<HoldingsResponse> {
   if (!config.useMocks) return apiRequest<HoldingsResponse>('/vault/holdings');
-  return delay({ data: fx.mockHoldings, portfolio: fx.mockPortfolio });
+  // MOCK §3 v1.80.1/v1.80.7: `replacement` (caso «Por reponer») y `withdrawable`+`withdrawableReason` se
+  // derivan del servidor falso con UN cuerpo (invariante `withdrawable === (withdrawableReason === null)`).
+  const data = fx.mockHoldings.map((h) => ({ ...h, ...m4ship.mockHoldingWithdrawabilityOf(h) }));
+  return delay({ data, portfolio: fx.mockPortfolio });
 }
 
 /**
@@ -1199,9 +1240,57 @@ function mockCheckoutSessionOutcome(
 
 export async function getOrders(): Promise<Paginated<OrderSummaryDTO>> {
   if (!config.useMocks) return apiRequest<Paginated<OrderSummaryDTO>>('/orders');
-  const data = fx.mockOrders.map((o) => mockProjectOrder(o));
+  // MOCK §M4-SHIP.16: la lista trae `publicStatus`/`fulfillmentMode` por fila (el mismo cuerpo que el invitado),
+  // y el pedido DIRECTO con guía (`ord-9005`) aparece con los demás.
+  const directShip: OrderSummaryDTO = {
+    id: MOCK_DIRECT_SHIP_ORDER.id,
+    orderNumber: MOCK_DIRECT_SHIP_ORDER.orderNumber,
+    status: 'settled',
+    totalCents: 99617,
+    createdAt: '2026-09-25T09:58:00Z',
+    settledAt: '2026-09-25T10:00:00Z',
+  };
+  const data = [directShip, ...fx.mockOrders].map((o) => mockPublicStatusOf(mockProjectOrder(o)));
   return delay({ data, page: 1, pageSize: 20, total: data.length });
 }
+
+/**
+ * MOCK §4-G.5 — `publicStatus` derivado de `status` (+ envío) como lo hace el servidor. `ord-9005` es el
+ * pedido DIRECTO con guía que sirve el hallazgo de QA (§M4-SHIP.16: el cliente registrado ve su envío).
+ */
+function mockPublicStatusOf<T extends { id: string; status: OrderSummaryDTO['status'] }>(
+  order: T,
+): T & { publicStatus: GuestOrderPublicStatus; fulfillmentMode: 'vault' | 'direct_ship' } {
+  const byStatus: Record<OrderSummaryDTO['status'], GuestOrderPublicStatus> = {
+    pending: 'pendiente_pago',
+    settled: 'pagado',
+    failed: 'cancelado',
+    refunded: 'reembolsado',
+    chargeback: 'en_revision',
+  };
+  const fulfillmentMode = order.id === MOCK_DIRECT_SHIP_ORDER.id ? 'direct_ship' : 'vault';
+  const publicStatus: GuestOrderPublicStatus =
+    order.id === MOCK_DIRECT_SHIP_ORDER.id && order.status === 'settled' ? 'guia' : byStatus[order.status];
+  return { ...order, publicStatus, fulfillmentMode };
+}
+
+/** MOCK §M4-SHIP.16 — el pedido de ENVÍO DIRECTO del cliente registrado, ya con guía (PO-8). */
+export const MOCK_DIRECT_SHIP_ORDER = {
+  id: 'ord-9005',
+  orderNumber: 'TCG-009005',
+  shipment: {
+    id: 'shp-7008',
+    status: 'guia' as const,
+    carrier: 'Estafeta',
+    trackingNumber: 'EST-778899001',
+    requestedAt: '2026-09-25T10:00:00Z',
+    pickingAt: '2026-09-25T10:00:05Z',
+    shippedAt: null,
+    deliveredAt: null,
+    shipTo: { recipientName: 'Ash Ketchum', city: 'Ciudad de México', state: 'CDMX', postalCode: '03100' },
+    missingCount: 1,
+  },
+};
 
 /**
  * MOCK v1.68 (§4-R.5): `reservedUntil` viaja SOLO con `status: 'pending'` y sale del simulador
@@ -1222,6 +1311,30 @@ export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
   // tiene que poder producir lo que el backend puede producir de verdad; servir siempre el
   // blob completo es lo que dejó pasar la línea muda hasta que QA la sirvió a mano.
   if (orderId === fx.mockOrderDetailLegacy.id) return delay(fx.mockOrderDetailLegacy);
+  // MOCK §M4-SHIP.16: el pedido DIRECTO con guía y una carta que no salió («te devolvimos MX$314.58»).
+  if (orderId === MOCK_DIRECT_SHIP_ORDER.id) {
+    const detail: OrderDetailDTO = {
+      ...fx.mockOrderDetail,
+      id: orderId,
+      orderNumber: MOCK_DIRECT_SHIP_ORDER.orderNumber,
+      status: 'settled',
+      createdAt: '2026-09-25T09:58:00Z',
+      settledAt: '2026-09-25T10:00:00Z',
+      fulfillmentMode: 'direct_ship',
+      publicStatus: 'guia',
+      shipment: MOCK_DIRECT_SHIP_ORDER.shipment,
+      items: [
+        { ...fx.mockOrderDetail.items[0], refund: null },
+        {
+          inventoryItemId: 'inv-1013',
+          card: { cardId: 'c-pikachu', name: 'Pikachu', setName: 'Base Set', number: '58', productType: 'raw', rawCondition: 'NM', imageSmallUrl: 'https://images.pokemontcg.io/base1/58.png' },
+          unitPriceCents: 30_000,
+          refund: { amountCents: 31_458, reason: 'not_found', refundedAt: '2026-09-25T12:00:00Z' },
+        },
+      ],
+    };
+    return delay(detail);
+  }
   // v1.68: el detalle hereda `status`/`orderNumber` de la fila del listado cuando existe, para que
   // un `pending` de `/orders` no aterrice en un detalle `settled` (misma fuente, misma verdad).
   const summary = fx.mockOrders.find((o) => o.id === orderId);
@@ -1232,7 +1345,8 @@ export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
       ? { status: summary.status, orderNumber: summary.orderNumber ?? null, settledAt: summary.settledAt }
       : {}),
   };
-  return delay(mockProjectOrder(detail));
+  // MOCK §M4-SHIP.16: compra a BÓVEDA ⇒ `shipment: null` y el estado público del mismo cuerpo.
+  return delay(mockPublicStatusOf({ ...mockProjectOrder(detail), shipment: null }));
 }
 
 // ---------- Direcciones (contrato §1 — envío, solo MX) ----------
@@ -1413,24 +1527,39 @@ export async function createShipment(
 
 export interface AdminShipmentsFilters {
   status?: string;
+  /** v1.80 (§M4-SHIP.10): número de pedido, correo, nombre del cliente o destinatario; `id` exacto. */
+  q?: string;
   page?: number;
   pageSize?: number;
 }
 
 /**
  * COLA ADMIN de envíos de CLIENTES (contrato §M4 · GET /admin/shipments, `vault_operator+`).
- * Distinta de getShipments() (los envíos del PROPIO usuario). Paginada; filtro `?status=`.
+ * Distinta de getShipments() (los envíos del PROPIO usuario). Paginada; filtros `?status=` y `?q=`.
  */
 export async function getAdminShipments(
   filters: AdminShipmentsFilters = {},
 ): Promise<Paginated<AdminShipmentDTO>> {
   if (!config.useMocks) {
     return apiRequest<Paginated<AdminShipmentDTO>>('/admin/shipments', {
-      query: { status: filters.status, page: filters.page, pageSize: filters.pageSize },
+      query: { status: filters.status, q: filters.q?.trim() || undefined, page: filters.page, pageSize: filters.pageSize },
     });
   }
-  let data = [...fx.mockAdminShipments];
+  // MOCK §M4-SHIP.10: cada fila gana `customer`, `preparedAt`, `missingCount`… del servidor falso vivo,
+  // y su `status` es el vivo (el preparado puede haberla cerrado).
+  let data = fx.mockAdminShipments.map((s) => {
+    const live = m4ship.mockShipStatusOf(s.id);
+    return { ...s, ...(m4ship.mockShipAdminAdditions(s.id) ?? {}), ...(live ? { status: live } : {}) };
+  });
   if (filters.status) data = data.filter((s) => s.status === filters.status);
+  const q = filters.q?.trim().toLowerCase();
+  if (q) {
+    data = data.filter((s) =>
+      s.id === filters.q?.trim() ||
+      [s.orderNumber, s.guestEmail, s.customer?.fullName, s.customer?.email, s.addressSnapshot?.recipientName]
+        .some((v) => typeof v === 'string' && v.toLowerCase().includes(q)),
+    );
+  }
   return delay(paginate(data, filters));
 }
 
@@ -1464,7 +1593,9 @@ export async function getAdminPreparationQueue(
   // a mano) y tres copias de una regla es la forma exacta de que dos se queden atrás sin que nadie
   // lo note. ⛔ Un servidor falso que ordena «a su manera» no puede equivocarse igual que el real.
   // MOCK §M4-VAULT: las dos fuentes (envíos + colocaciones pendientes), como el servidor.
-  const all: PreparationOrderDTO[] = [...fx.mockPreparationQueue, ...fx.mockVaultPreparationQueue()];
+  // MOCK §M4-SHIP: la cubeta ENVÍO sale del servidor falso VIVO (`mock/m4-ship`), con marcas,
+  // `preparation` y `refund` por carta; `fixtures.mockPreparationQueue` queda como semilla de forma.
+  const all: PreparationOrderDTO[] = [...m4ship.mockShipPreparationQueue(), ...fx.mockVaultPreparationQueue()];
   return delay(
     sortPreparationOrders(all.filter((o) => !filters.destination || o.destination === filters.destination)),
   );
@@ -1554,6 +1685,259 @@ export async function getAdminVaultPhysicalInventory(userId: string): Promise<Cu
   }
 }
 
+// ---------- §M4-SHIP · cubeta ENVÍO: palomear, preparado, deshacer, reintento, contador (operador+) ----------
+
+/** `PATCH /admin/shipments/:shipmentId/prep-items/:shipmentItemId` (§M4-SHIP.5). `missingReason` ⇔ `missing`. */
+export async function setShipPrepItem(
+  shipmentId: string,
+  shipmentItemId: string,
+  status: PreparationItemStatus,
+  missingReason?: MissingReason,
+): Promise<SetShipPrepItemResponse> {
+  const body: SetShipPrepItemRequest = status === 'missing' ? { status, missingReason } : { status };
+  if (!config.useMocks) {
+    return apiRequest<SetShipPrepItemResponse>(`/admin/shipments/${shipmentId}/prep-items/${shipmentItemId}`, {
+      method: 'PATCH',
+      body,
+    });
+  }
+  try {
+    return await delay(m4ship.mockSetShipPrepItem(shipmentId, shipmentItemId, status, missingReason));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * `POST /admin/shipments/:shipmentId/prepared` — dar por preparado y reembolsar lo que falta (§M4-SHIP.5).
+ * `expectedRefundCents` = la cifra que el operador VIO (`preparation.refundPreviewCents`), ⛔ nunca sumada aquí.
+ */
+export async function prepareShipment(shipmentId: string, expectedRefundCents: number): Promise<PrepareShipmentResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PrepareShipmentResponse>(`/admin/shipments/${shipmentId}/prepared`, {
+      method: 'POST',
+      body: { expectedRefundCents } satisfies PrepareShipmentRequest,
+    });
+  }
+  try {
+    return await delay(m4ship.mockPrepareShipment(shipmentId, expectedRefundCents));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `DELETE /admin/shipments/:shipmentId/prepared` — deshacer «preparado» (§M4-SHIP.5; v1.80.5: `reclaimed`). */
+export async function unprepareShipment(shipmentId: string): Promise<UnprepareShipmentResponse> {
+  if (!config.useMocks) {
+    return apiRequest<UnprepareShipmentResponse>(`/admin/shipments/${shipmentId}/prepared`, { method: 'DELETE' });
+  }
+  try {
+    return await delay(m4ship.mockUnprepareShipment(shipmentId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `POST /admin/refunds/:refundId/retry` — reintentar un reembolso atorado (§M4-SHIP.5, operador+). */
+export async function retryRefund(refundId: string): Promise<PaymentRefundDTO> {
+  if (!config.useMocks) {
+    return apiRequest<PaymentRefundDTO>(`/admin/refunds/${refundId}/retry`, { method: 'POST', body: {} });
+  }
+  try {
+    return await delay(m4ship.mockRetryRefund(refundId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `GET /admin/shipments/picking-list/summary` — el contador DERIVADO del badge (§M4-SHIP.11, `no-store`). */
+export async function getPickingListSummary(): Promise<PickingListSummaryDTO> {
+  if (!config.useMocks) return apiRequest<PickingListSummaryDTO>('/admin/shipments/picking-list/summary');
+  return delay(m4ship.mockPickingListSummary(fx.mockVaultPreparationQueue().length));
+}
+
+// ---------- §M4-SHIP.15 · apartado «Por reponer» ----------
+
+export async function getReplacementCases(filters: ReplacementCasesFilters = {}): Promise<Paginated<ReplacementCaseDTO>> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<ReplacementCaseDTO>>('/admin/replacement-cases', {
+      query: {
+        state: filters.state,
+        source: filters.source,
+        q: filters.q?.trim() || undefined,
+        overdue: filters.overdue ? 'true' : undefined,
+        page: filters.page,
+      },
+    });
+  }
+  return delay(m4ship.mockReplacementCases(filters));
+}
+
+export async function getReplacementCase(caseId: string): Promise<ReplacementCaseDetailDTO> {
+  if (!config.useMocks) return apiRequest<ReplacementCaseDetailDTO>(`/admin/replacement-cases/${caseId}`);
+  try {
+    return await delay(m4ship.mockReplacementCase(caseId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `POST /admin/replacement-cases/:id/replace` — reponer o «apareció» (§M4-SHIP.15.4, operador+). */
+export async function replaceCase(caseId: string, body: ReplaceCaseRequest): Promise<ReplaceCaseResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ReplaceCaseResponse>(`/admin/replacement-cases/${caseId}/replace`, { method: 'POST', body });
+  }
+  try {
+    return await delay(m4ship.mockReplaceCase(caseId, body));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `GET /admin/replacement-cases/:id/refund-preview?amountCents=` (§M4-SHIP.15.5, SOLO super_admin). */
+export async function getCaseRefundPreview(caseId: string, amountCents: number | null): Promise<CaseRefundPreviewDTO> {
+  if (!config.useMocks) {
+    return apiRequest<CaseRefundPreviewDTO>(`/admin/replacement-cases/${caseId}/refund-preview`, {
+      query: { amountCents: amountCents ?? undefined },
+    });
+  }
+  try {
+    return await delay(m4ship.mockCaseRefundPreview(caseId, amountCents));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `POST /admin/replacement-cases/:id/refund` — 💰 reembolsar por el monto capturado (SOLO super_admin). */
+export async function refundCase(caseId: string, body: CaseRefundRequest): Promise<CaseRefundResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CaseRefundResponse>(`/admin/replacement-cases/${caseId}/refund`, { method: 'POST', body });
+  }
+  try {
+    return await delay(m4ship.mockRefundCase(caseId, body));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `POST /admin/replacement-cases/:id/void` — anular (§M4-SHIP.15.10, SOLO super_admin). */
+export async function voidCase(caseId: string, body: VoidCaseRequest): Promise<VoidCaseResponse> {
+  if (!config.useMocks) {
+    return apiRequest<VoidCaseResponse>(`/admin/replacement-cases/${caseId}/void`, { method: 'POST', body });
+  }
+  try {
+    return await delay(m4ship.mockVoidCase(caseId, body.note));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+// ---------- §M4-SHIP.15.13 / .17 · cubeta «Reembolsos manuales (SPEI)» — SOLO super_admin ----------
+
+export async function getManualRefunds(filters: ManualRefundsFilters = {}): Promise<ManualRefundsResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ManualRefundsResponse>('/admin/manual-refunds', {
+      query: { status: filters.status, q: filters.q?.trim() || undefined, page: filters.page },
+    });
+  }
+  try {
+    return await delay(m4ship.mockManualRefunds(filters));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+export async function getManualRefund(id: string): Promise<ManualRefundDTO> {
+  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}`);
+  try {
+    return await delay(m4ship.mockManualRefund(id));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** La CLABE en claro para copiarla a la banca (auditado; solo `pending`). ⛔ Nunca se persiste en estado global. */
+export async function revealManualRefundClabe(id: string): Promise<RevealManualRefundClabeResponse> {
+  if (!config.useMocks) return apiRequest<RevealManualRefundClabeResponse>(`/admin/manual-refunds/${id}/reveal-clabe`);
+  try {
+    return await delay(m4ship.mockRevealManualRefundClabe(id));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** Marcar pagada (D-11: quién y cuándo; clave de rastreo y nota opcionales). Lleva el `revealToken`. */
+export async function markManualRefundPaid(id: string, body: MarkManualRefundPaidRequest): Promise<ManualRefundDTO> {
+  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}/paid`, { method: 'POST', body });
+  try {
+    return await delay(m4ship.mockMarkManualRefundPaid(id, body));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+export async function cancelManualRefund(id: string, body: ManualRefundNoteRequest): Promise<ManualRefundDTO> {
+  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}/cancel`, { method: 'POST', body });
+  try {
+    return await delay(m4ship.mockCancelManualRefund(id, body.note));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `POST /admin/manual-refunds/:id/reissue` (SEC-SHIP-M4): otra igual desde una cancelada. */
+export async function reissueManualRefund(id: string, body: ManualRefundNoteRequest): Promise<ManualRefundDTO> {
+  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}/reissue`, { method: 'POST', body });
+  try {
+    return await delay(m4ship.mockReissueManualRefund(id, body.note));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `POST /admin/refunds/:refundId/to-manual` — pasar a SPEI una fila de tarjeta que Stripe rechazó. */
+export async function refundToManual(refundId: string): Promise<ManualRefundDTO> {
+  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/refunds/${refundId}/to-manual`, { method: 'POST', body: {} });
+  try {
+    return await delay(m4ship.mockRefundToManual(refundId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+// ---------- §M4-SHIP.17.5 · la vista del súper-admin sobre los reembolsos ----------
+
+export async function getAdminRefunds(filters: AdminRefundsFilters = {}): Promise<AdminRefundsResponse> {
+  if (!config.useMocks) {
+    return apiRequest<AdminRefundsResponse>('/admin/refunds', {
+      query: {
+        requestedByRole: filters.requestedByRole,
+        actorUserId: filters.actorUserId,
+        kind: filters.kind,
+        status: filters.status,
+        from: filters.from,
+        to: filters.to,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
+  }
+  try {
+    return await delay(m4ship.mockAdminRefunds(filters));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+export async function getOperatorRefundSummary(): Promise<OperatorRefundSummaryResponse> {
+  if (!config.useMocks) return apiRequest<OperatorRefundSummaryResponse>('/admin/refunds/operator-summary');
+  try {
+    return await delay(m4ship.mockOperatorRefundSummary());
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
 /**
  * Captura de guía (M4, `vault_operator+`): asigna carrier + trackingNumber y avanza a `guia`
  * (contrato §M4 · POST /admin/shipments/:id/tracking).
@@ -1572,6 +1956,13 @@ export async function saveShipmentTracking(
   }
   // MOCK: pendiente de backend real — actualiza el envío en memoria y lo avanza a `guia`.
   // Refleja el cambio también en la cola ADMIN (mockAdminShipments) para la vista M4.
+  // MOCK §M4-SHIP.6: la guía EXIGE «preparado» (y cero casos abiertos en un retiro; origen `settled`).
+  try {
+    m4ship.mockAssertShipmentCanAdvance(shipmentId, 'guia');
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+  m4ship.mockSetShipStatus(shipmentId, 'guia');
   const adminIdx = fx.mockAdminShipments.findIndex((s) => s.id === shipmentId);
   if (adminIdx >= 0) {
     fx.mockAdminShipments[adminIdx] = {
@@ -1612,8 +2003,9 @@ export async function saveShipmentTracking(
  */
 export const SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   solicitado: ['picking', 'cancelado'],
-  picking: ['guia', 'cancelado'],
-  guia: ['enviado', 'cancelado'],
+  // v1.80 (§M4-SHIP.9): un envío PAGADO no se cancela a mano (`409 PAID_SHIPMENT_NOT_CANCELLABLE`).
+  picking: ['guia'],
+  guia: ['enviado'],
   enviado: ['entregado'],
   entregado: [],
   cancelado: [],
@@ -1638,7 +2030,15 @@ export async function updateAdminShipmentStatus(
   // MOCK: espeja la tabla TRANSITIONS del backend (transición ilegal → 409 CONFLICT).
   const idx = fx.mockAdminShipments.findIndex((s) => s.id === id);
   if (idx < 0) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
-  const current = fx.mockAdminShipments[idx].status;
+  const current = m4ship.mockShipStatusOf(id) ?? fx.mockAdminShipments[idx].status;
+  // MOCK §M4-SHIP.6/.9: las guardas de guía, enviado y «cancelar pagado» van ANTES de la tabla.
+  if (to !== 'solicitado' && to !== 'picking') {
+    try {
+      m4ship.mockAssertShipmentCanAdvance(id, to);
+    } catch (e) {
+      throw translateFixtureError(e);
+    }
+  }
   const allowed = SHIPMENT_TRANSITIONS[current] ?? [];
   if (!allowed.includes(to)) {
     throw new ApiClientError(409, {
@@ -1646,6 +2046,7 @@ export async function updateAdminShipmentStatus(
       message: `Invalid transition ${current} -> ${to}`,
     });
   }
+  m4ship.mockSetShipStatus(id, to);
   fx.mockAdminShipments[idx] = { ...fx.mockAdminShipments[idx], status: to };
   // Espeja el estado también en "mis envíos" (mockShipments) si el mismo id existe ahí.
   const mine = fx.mockShipments.findIndex((s) => s.id === id);
@@ -2801,7 +3202,26 @@ export async function changePassword(input: ChangePasswordRequest): Promise<Chan
 // ---------- Admin ----------
 export async function getDashboard(): Promise<DashboardDTO> {
   if (!config.useMocks) return apiRequest<DashboardDTO>('/admin/dashboard');
-  return delay(fx.mockDashboard);
+  // MOCK §M4-SHIP.11/.17.5: `toPrepare` (con bóveda y «Por reponer»), `manualRefunds` y
+  // `operatorRefunds` salen del MISMO cuerpo que el `summary`; los dos últimos son `null` para el operador.
+  const summary = m4ship.mockPickingListSummary(fx.mockVaultPreparationQueue().length);
+  const isSuper = m4ship.mockCallerRole() === 'super_admin';
+  const pending = isSuper ? m4ship.mockManualRefunds({ status: 'pending' }) : null;
+  const ops = isSuper ? m4ship.mockOperatorRefundSummary().operators[0] : null;
+  return delay({
+    ...fx.mockDashboard,
+    workQueue: {
+      ...fx.mockDashboard.workQueue,
+      toPrepare: { ship: summary.ship, vault: summary.vault, toReplace: summary.toReplace, toReplaceOverdue: summary.toReplaceOverdue },
+      stuckRefunds: summary.stuckRefunds,
+      manualRefunds: pending
+        ? { pending: pending.total, pendingCents: pending.pendingCents, oldestCreatedAt: pending.data[0]?.createdAt ?? null }
+        : null,
+      operatorRefunds: ops
+        ? { last24hCount: ops.refunds.last24h.count, last24hCents: ops.refunds.last24h.cents, last30dCents: ops.refunds.last30d.cents }
+        : null,
+    },
+  });
 }
 
 export interface AdminInventoryFilters {
@@ -4599,7 +5019,9 @@ export async function getAdminOrders(
   if (filters.maxCents != null) data = data.filter((o) => o.totalCents <= filters.maxCents!);
   // El ORDEN (`createdAt desc`, recientes primero) lo aplica el server; el mock respeta el orden
   // de los fixtures (no re-ordena).
-  return delay(paginate(data, filters));
+  // MOCK §M4-SHIP.10: cada fila gana `customer` y `refundedCents` (y su estado vivo) del servidor falso.
+  const rows = data.map((o) => ({ ...o, ...m4ship.mockAdminOrderRowAdditions(o.id) }) as AdminOrderDTO);
+  return delay(paginate(rows, filters));
 }
 
 /**
@@ -4607,25 +5029,64 @@ export async function getAdminOrders(
  * `super_admin`, money-out, Idempotency-Key). Política VENTAS FINALES: solo por error de
  * la plataforma; NO re-agrega el item al inventario. Err 403 MONEY_OUT_FORBIDDEN.
  */
-export async function refundOrder(orderId: string, reason: string): Promise<RefundOrderResponse> {
+export async function refundOrder(orderId: string, body: RefundOrderRequest): Promise<RefundOrderResponse> {
   if (!config.useMocks) {
     return apiRequest<RefundOrderResponse>(`/admin/orders/${orderId}/refund`, {
       method: 'POST',
-      body: { reason },
-      // Clave estable por orden: reintentos del mismo refund no duplican el movimiento.
+      body,
+      // Clave estable por orden: reintentos del mismo refund no duplican el movimiento. v1.80: el
+      // backend la sigue aceptando y ya no la usa (la idempotencia es la llave del libro).
       headers: { 'Idempotency-Key': `refund-${orderId}` },
     });
   }
   const order = fx.mockAdminOrders.find((o) => o.id === orderId);
   if (!order) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Order not found' });
-  if (order.status !== 'settled') {
-    throw new ApiClientError(422, {
-      code: 'VALIDATION_ERROR',
-      message: 'Only a settled order can be refunded',
-    });
+  // MOCK §M3 v1.80.4/.5: precondiciones de bóveda (`409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`,
+  // `422 REFUND_CONFIRMATION_REQUIRED`), el remanente y el reclamo al confirmar.
+  try {
+    const res = m4ship.mockRefundOrderTotal(orderId, body);
+    order.status = 'refunded';
+    return await delay(res);
+  } catch (e) {
+    throw translateFixtureError(e);
   }
-  order.status = 'refunded';
-  return delay({ orderId, status: 'refunded', refundId: `re_mock_${orderId}` });
+}
+
+/** Detalle M3 (`GET /admin/orders/:id`), v1.80: identidad, reembolsos, envíos y `vaultPieces` (§M4-SHIP.10/.18.6). */
+export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDTO> {
+  if (!config.useMocks) return apiRequest<AdminOrderDetailDTO>(`/admin/orders/${orderId}`);
+  const order = fx.mockAdminOrders.find((o) => o.id === orderId);
+  if (!order) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Order not found' });
+  const additions = m4ship.mockAdminOrderDetailAdditions(orderId);
+  const items: AdminOrderDetailDTO['items'] = fx.mockOrderDetail.items.map(({ refund: _r, ...it }) => {
+    void _r;
+    return { ...it, refund: null };
+  });
+  return delay({ ...order, breakdown: order.breakdown ?? fx.mockOrderDetail.breakdown, items, ...additions, id: orderId });
+}
+
+/** `POST /admin/orders/:id/chargeback-inventory` (§M3, operador+; v1.80.4: también `vault` `refunded`). */
+export async function chargebackInventory(orderId: string, body: ChargebackInventoryRequest): Promise<ChargebackInventoryResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ChargebackInventoryResponse>(`/admin/orders/${orderId}/chargeback-inventory`, { method: 'POST', body });
+  }
+  try {
+    return await delay(m4ship.mockChargebackInventory(orderId, body));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `POST /admin/orders/:id/reclaim-vault` (§M4-SHIP.18.10, SOLO super_admin; custodia, ⛔ no dinero). */
+export async function reclaimVault(orderId: string, body: ReclaimVaultRequest): Promise<ReclaimVaultResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ReclaimVaultResponse>(`/admin/orders/${orderId}/reclaim-vault`, { method: 'POST', body });
+  }
+  try {
+    return await delay(m4ship.mockReclaimVault(orderId, body));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 export async function getAdminDisputes(): Promise<DisputeDTO[]> {

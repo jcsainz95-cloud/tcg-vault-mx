@@ -8,6 +8,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 // v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
 import { GATE_ADDRESS_ID, buylistGateMocks, withMinimumOff } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
+import { usersStubM61 } from './helpers/m61-mock-defaults';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { BatchQuoteDto, BUYLIST_QUOTE_BATCH_MAX } from '../src/modules/buylist/dto/buylist.dto';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -111,7 +112,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       prisma as PrismaService,
       pricingCotiza(),
       settingsHighCaps(),
-      {} as UsersService,
+      (usersStubM61() as unknown as UsersService),
       pii,
     );
   }
@@ -145,9 +146,10 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
     expect(res).not.toHaveProperty('clabe');
   });
 
-  it('con `clabe` en el body: comportamiento actual intacto (persiste clabeEnc+clabeHmac)', async () => {
+  it('con `clabe` en el body: se persiste por `users.setClabe` (🔒 v1.80.3, el ÚNICO escritor — `C-CLABE-1`)', async () => {
     const prisma = buildPrisma({ u1: null });
-    const res = await svc(prisma).createRequest(
+    const users = usersStubM61();
+    const res = await new BuylistService(prisma as PrismaService, pricingCotiza(), settingsHighCaps(), users as unknown as UsersService, pii).createRequest(
       'u1',
       [{ cardId: 'c', productType: 'raw' as any }],
       VALID_CLABE,
@@ -155,10 +157,15 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       GATE_ADDRESS_ID,
     );
     expect(res.status).toBe('cotizada');
+    // ⛔ El `upsert` de KYC ya NO lleva la CLABE (ni cifrada ni su índice): eso lo hace `setClabe` bajo candado.
     const upsertCreate = prisma.kycProfile.upsert.mock.calls[0][0].create;
-    expect(upsertCreate.clabeHmac).toBe(pii.clabeBlindIndex(VALID_CLABE));
-    expect(upsertCreate.clabeEnc).not.toContain(VALID_CLABE);
-    expect(pii.decrypt(upsertCreate.clabeEnc)).toBe(VALID_CLABE);
+    expect(upsertCreate).not.toHaveProperty('clabeEnc');
+    expect(upsertCreate).not.toHaveProperty('clabeHmac');
+    expect(users.setClabe).toHaveBeenCalledTimes(1);
+    expect(users.setClabe.mock.calls[0][1]).toBe('u1');
+    expect(users.setClabe.mock.calls[0][2]).toBe(VALID_CLABE);
+    // `AV-16` post-commit: se delega SIEMPRE (con `null` no manda nada).
+    expect(users.notifyClabeChanged).toHaveBeenCalledTimes(1);
     // Snapshot = la CLABE del body, cifrada.
     const snap = prisma.sellRequest.create.mock.calls[0][0].data.clabeSnapshotEnc;
     expect(pii.decrypt(snap)).toBe(VALID_CLABE);
@@ -245,7 +252,7 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
       prisma as PrismaService,
       pricing,
       settingsHighCaps(),
-      {} as UsersService,
+      (usersStubM61() as unknown as UsersService),
       pii,
     );
     return { svc, escalatePending, prisma };

@@ -9,6 +9,12 @@ import {
   SealedCondition,
   SealedGroupKind,
   SealedSubtype,
+  ReplacementCaseSource,
+  MissingReason,
+  PreparationItemStatus,
+  PaymentRefundKind,
+  PaymentRefundStatus,
+  ManualRefundStatus,
 } from '@prisma/client';
 
 /**
@@ -127,3 +133,19 @@ export const PENDING_PRICE_CONTEXT_VALUES = Object.values(PendingPriceContext);
  * `enum SealedGroupKind` sobre columna persistida.
  */
 export const SEALED_GROUP_KIND_VALUES = Object.values(SealedGroupKind);
+
+/**
+ * v1.80.1 (M-61, §M4-SHIP.15.8) — `ReplacementCaseSource`, clase **E**: dominio de `?source=` de
+ * `GET /admin/replacement-cases`. Derivado del enum de Prisma; entra a la paridad a tres bandas.
+ */
+export const REPLACEMENT_CASE_SOURCE_VALUES = Object.values(ReplacementCaseSource);
+
+// ⭐ v1.80.7.1 (§4.37 «una sola declaración», QA IMP-2): los cinco enums de M-59/M-61 que `src/` VALIDA (cuerpos de
+// `prep-items` y del palomeo de colocación; filtros `?kind=`/`?status=` de `GET /admin/refunds` y `?status=` de
+// `GET /admin/manual-refunds`). Antes cada consumidor derivaba `Object.values(...)` por su cuenta. Tres bandas en
+// `test/enum-values-parity.spec.ts`.
+export const MISSING_REASON_VALUES = Object.values(MissingReason);
+export const PREPARATION_ITEM_STATUS_VALUES = Object.values(PreparationItemStatus);
+export const PAYMENT_REFUND_KIND_VALUES = Object.values(PaymentRefundKind);
+export const PAYMENT_REFUND_STATUS_VALUES = Object.values(PaymentRefundStatus);
+export const MANUAL_REFUND_STATUS_VALUES = Object.values(ManualRefundStatus);

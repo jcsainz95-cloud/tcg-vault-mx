@@ -3,13 +3,18 @@ import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import { mockInventory, mockLocations } from '@/lib/mock/fixtures';
-import type { AdminShipmentDTO, InventoryItemDTO, ShipPreparationOrderDTO } from '@/types/contract';
+import type { AdminShipmentDTO, InventoryItemDTO, ShipPreparationItemDTO, ShipPreparationOrderDTO } from '@/types/contract';
 import { M4View } from './M4View';
 
 /**
  * Arreglos del recorrido del operador (auditoría 2026-09-29, production a2da420):
  * huecos 1 (ubicar desde «Pedidos a preparar»), 7 («Ver ficha» del operador), 15 (confirmar
  * «Marcar enviado/entregado»). El 12 («Calle Calle») vive en `M4View.test.tsx` (F9).
+ *
+ * Fusión release-s5 (con `envio-preparar`, §M4-SHIP): la cola de envíos es la pestaña «Envíos»
+ * (`initialTab="envios"`) y la confirmación de enviado/entregado es la de §37.6 (S9), con su copy
+ * (`¿Marcar {ref} como …?`). La conducta que fijan estas pruebas no cambia: el operador no ve M6, enviado
+ * y entregado piden confirmación con el foco en «Cancelar», y «Ubicar» solo existe en envío directo.
  */
 
 // Rol mutable por prueba: el operador es el caso que la auditoría midió roto.
@@ -74,7 +79,7 @@ function onlyShipments(rows: AdminShipmentDTO[]) {
 describe('M4View · hueco 7: «Ver ficha» según rol', () => {
   it('operador ⇒ enlaza a la bóveda del cliente (/admin/vaults/:userId), nunca a M6', async () => {
     onlyShipments([shipment({ id: 'shp-op' })]);
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     const parties = await screen.findByTestId('shipment-parties-shp-op');
     expect(within(parties).getByRole('link', { name: 'Ver bóveda' })).toHaveAttribute('href', '/admin/vaults/u-42');
     expect(parties.querySelector('a[href*="/admin/m6"]')).toBeNull();
@@ -83,7 +88,7 @@ describe('M4View · hueco 7: «Ver ficha» según rol', () => {
   it('súper-admin ⇒ conserva «Ver ficha» a M6', async () => {
     role.isSuperAdmin = true;
     onlyShipments([shipment({ id: 'shp-sa' })]);
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     const parties = await screen.findByTestId('shipment-parties-shp-sa');
     expect(within(parties).getByRole('link', { name: 'Ver ficha' })).toHaveAttribute(
       'href',
@@ -96,12 +101,12 @@ describe('M4View · hueco 15: «Marcar enviado/entregado» confirman', () => {
   it('«Marcar enviado» abre un diálogo neutro con el foco en «Cancelar»; cancelar NO cambia nada', async () => {
     onlyShipments([shipment({ id: 'shp-g', status: 'guia' })]);
     const spy = vi.spyOn(api, 'updateAdminShipmentStatus');
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     await screen.findByTestId('shipment-parties-shp-g');
 
     fireEvent.click(screen.getByRole('button', { name: 'Marcar enviado' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Marcar como enviado' });
-    expect(dialog).toHaveTextContent('¿Marcar el envío shp-g como enviado?');
+    const dialog = await screen.findByRole('dialog', { name: '¿Marcar shp-g como enviado?' });
+    expect(dialog).toHaveTextContent('El cliente recibe un correo de que su paquete salió.');
     const cancel = within(dialog).getByRole('button', { name: 'Cancelar' });
     await waitFor(() => expect(cancel).toHaveFocus());
     expect(spy).not.toHaveBeenCalled();
@@ -116,11 +121,11 @@ describe('M4View · hueco 15: «Marcar enviado/entregado» confirman', () => {
     const spy = vi
       .spyOn(api, 'updateAdminShipmentStatus')
       .mockResolvedValue({ id: 'shp-g', status: 'enviado' });
-    renderWithProviders(<M4View />, 'es');
+    renderWithProviders(<M4View initialTab="envios" />, 'es');
     await screen.findByTestId('shipment-parties-shp-g');
 
     fireEvent.click(screen.getByRole('button', { name: 'Marcar enviado' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Marcar como enviado' });
+    const dialog = await screen.findByRole('dialog', { name: '¿Marcar shp-g como enviado?' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Marcar enviado' }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith('shp-g', 'enviado'));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -129,24 +134,43 @@ describe('M4View · hueco 15: «Marcar enviado/entregado» confirman', () => {
   it('«Marcar entregado» también confirma, con el foco en «Cancelar» (en)', async () => {
     onlyShipments([shipment({ id: 'shp-e', status: 'enviado' })]);
     const spy = vi.spyOn(api, 'updateAdminShipmentStatus');
-    renderWithProviders(<M4View />, 'en');
+    renderWithProviders(<M4View initialTab="envios" />, 'en');
     await screen.findByTestId('shipment-parties-shp-e');
 
     fireEvent.click(screen.getByRole('button', { name: 'Mark delivered' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Mark as delivered' });
+    const dialog = await screen.findByRole('dialog', { name: 'Mark shp-e as delivered?' });
     await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus());
     expect(spy).not.toHaveBeenCalled();
   });
 });
 
 describe('M4View · hueco 1: «Ubicar» una carta de un pedido de envío', () => {
+  // v1.80 (§M4-SHIP.3): cada carta trae su marca, disponibilidad y línea de dinero; la tarjeta, su sello.
+  const shipItem = (over: Partial<ShipPreparationItemDTO>): ShipPreparationItemDTO => ({
+    shipmentItemId: 'si-1',
+    inventoryItemId: 'inv-1001',
+    folio: 'INV-000101',
+    quantity: 1,
+    card: { name: 'Charizard', setName: 'Base Set', finish: 'normal', conditionLabel: 'NM', imageSmallUrl: null },
+    currentLocation: { kind: 'unassigned' },
+    prepStatus: 'pending',
+    missingReason: null,
+    prepMarkedBy: null,
+    availability: { kind: 'available' },
+    refund: { kind: 'refundable', amountCents: 50000 },
+    ...over,
+  });
+  const prepState = { status: 'in_progress', refundPreviewCents: 0, total: 1, pending: 1, picked: 0, missing: 0, blocked: 0 } as const;
+
   const order: ShipPreparationOrderDTO = {
     shipmentId: 'shp-p',
     orderId: 'ord-p',
     orderNumber: 'TCG-000777',
     destination: 'ship',
+    kind: 'guest_direct_ship',
     requestedAt: '2026-09-01T10:00:00Z',
-    customer: { lastName: 'Oak', fullName: 'Samuel Oak' },
+    customer: { userId: 'u-oak', email: 'samuel@example.com', lastName: 'Oak', fullName: 'Samuel Oak' },
+    preparation: prepState,
     shipTo: {
       recipientName: 'Samuel Oak',
       line1: 'Calle Laboratorio 1',
@@ -158,16 +182,7 @@ describe('M4View · hueco 1: «Ubicar» una carta de un pedido de envío', () =>
       country: 'MX',
       phone: '5550000000',
     },
-    items: [
-      {
-        shipmentItemId: 'si-1',
-        inventoryItemId: 'inv-1001',
-        folio: 'INV-000101',
-        quantity: 1,
-        card: { name: 'Charizard', setName: 'Base Set', finish: 'normal', conditionLabel: 'NM', imageSmallUrl: null },
-        currentLocation: { kind: 'unassigned' },
-      },
-    ],
+    items: [shipItem({})],
   } as ShipPreparationOrderDTO;
 
   /**
@@ -206,6 +221,7 @@ describe('M4View · hueco 1: «Ubicar» una carta de un pedido de envío', () =>
     shipmentId: 'shp-w',
     orderId: null,
     orderNumber: null,
+    kind: 'vault_withdrawal',
     items: [
       {
         ...order.items[0],

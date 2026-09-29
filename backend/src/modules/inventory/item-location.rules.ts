@@ -5,7 +5,7 @@ import type { CustomerDrawerRef } from '../vault/vault-placement.rules';
 /**
  * item-location.rules.ts — las guardas de ESTADO, de DUEÑO y de ZONA de los verbos de pieza de M1:
  * `POST /admin/inventory/items/:id/move`, `POST /admin/inventory/items/:id/mark` y el cambio de
- * `status` de `PATCH /admin/inventory/items/:id`.
+ * `status` y el `listPriceCents` de `PATCH /admin/inventory/items/:id`.
  *
  * *Por qué existen (medido por techlead y QA sobre `16a3170`):* ninguno de los dos verbos miraba el
  * estado de la pieza ni la zona del destino. El API aceptaba **mover la carta DE UN CLIENTE, en un
@@ -44,6 +44,11 @@ import type { CustomerDrawerRef } from '../vault/vault-placement.rules';
  *    §M4-SHIP.17.1 (2) (D-SHIP-6) e invariante INV-SP-7: una pieza `lost | damaged` no vuelve a
  *    `in_stock | listed` por ningún verbo del operador. El `status:'listed'` sigue por el pipeline de
  *    publicación de v1.51 (`claimListed`, ya guardado en su `WHERE`).
+ *  - **`price`** (el `listPriceCents` del `PATCH`, v1.80.2.3 `#M1-patch-price-guard`, INV-SP-8): **el
+ *    mismo allowlist** que `mark`/`status` — solo plataforma `in_stock | listed`. Cliente en cualquier
+ *    estado, `reserved` (su línea ya congeló `unitPriceCents`), vendida o terminal ⇒ `422`. Un solo
+ *    allowlist para los tres verbos: `MARKABLE_PLATFORM_STATUSES` se declara SOLO aquí
+ *    (regla de fusión `#M1-merge-rule`; candado estático en `inventory.move-mark-guards.spec.ts`).
  *  - Estado no admitido ⇒ `422 ITEM_NOT_ADJUSTABLE` (`details: { status, ownerType }`): la pieza no
  *    se opera desde M1 porque su salida va por el flujo dueño (órdenes, retiros, casos).
  */
@@ -63,7 +68,7 @@ export const MOVABLE_PLATFORM_STATUSES: readonly InventoryStatus[] = [
 export const MARKABLE_PLATFORM_STATUSES: readonly InventoryStatus[] = ['in_stock', 'listed'];
 
 /** Verbos de pieza de M1 que pasan por estas guardas. */
-export type ItemVerb = 'move' | 'mark' | 'status';
+export type ItemVerb = 'move' | 'mark' | 'status' | 'price';
 
 /** Lo que las guardas leen de la pieza. */
 export interface GuardedItem {
@@ -94,6 +99,7 @@ const VERB_PAST: Record<ItemVerb, string> = {
   move: 'moved',
   mark: 'marked',
   status: 'status-changed',
+  price: 're-priced',
 };
 
 function notAdjustable(item: GuardedItem, verb: ItemVerb): BusinessException {
@@ -108,10 +114,10 @@ function notAdjustable(item: GuardedItem, verb: ItemVerb): BusinessException {
  * ¿Qué clase de pieza se opera? Lanza `ITEM_NOT_ADJUSTABLE` si su estado no admite el verbo.
  * - `move` ⇒ `'platform' | 'customer'`; `customer` ⇒ el llamador además DEBE comprobar el retiro
  *   activo y el cajón.
- * - `mark` / `status` ⇒ siempre `'platform'` (D-SHIP-5/6: **no hay rama de cliente**; toda pieza
- *   ajena cae en `ITEM_NOT_ADJUSTABLE` sin mirar retiros ni puertas).
+ * - `mark` / `status` / `price` ⇒ siempre `'platform'` (D-SHIP-5/6 y v1.80.2.3: **no hay rama de
+ *   cliente**; toda pieza ajena cae en `ITEM_NOT_ADJUSTABLE` sin mirar retiros ni puertas).
  */
-export function assertOperable(item: GuardedItem, verb: 'mark' | 'status'): 'platform';
+export function assertOperable(item: GuardedItem, verb: 'mark' | 'status' | 'price'): 'platform';
 export function assertOperable(item: GuardedItem, verb: 'move'): 'platform' | 'customer';
 export function assertOperable(item: GuardedItem, verb: ItemVerb): 'platform' | 'customer';
 export function assertOperable(item: GuardedItem, verb: ItemVerb): 'platform' | 'customer' {

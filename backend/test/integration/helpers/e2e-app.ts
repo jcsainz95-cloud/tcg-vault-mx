@@ -108,8 +108,66 @@ export class TestStripeService extends StripeService {
     };
   }
 
-  async refund(_paymentIntentId: string, _idempotencyKey?: string): Promise<string> {
-    return `re_e2e_${randomUUID().replace(/-/g, '')}`;
+  /**
+   * ⭐ v1.80 (§M4-SHIP.12) — DOBLE DE STRIPE CON ESTADO para los reembolsos: impone lo que impone Stripe
+   * (⛔ no reembolsar más de lo cobrado por PI; idempotencia por llave) y CUENTA llamadas
+   * (`refundCreateCalls`). Guionizable: `refundOutcome` = `'ok'` (pending) · `'succeeded'` ·
+   * `'transient'` (lanza un error de red: la fila debe quedar `requested`) · `'definitive'` (lanza
+   * `StripeInvalidRequestError`: la fila debe pasar a `failed`). `refundDelayMs` retarda la llamada.
+   */
+  public refundOutcome: 'ok' | 'succeeded' | 'transient' | 'definitive' = 'ok';
+  public refundDelayMs = 0;
+  public readonly refundCreateCalls: { paymentIntentId: string; amountCents: number; idempotencyKey: string }[] = [];
+  public readonly refundListCalls: string[] = [];
+  /** Lo cobrado por PI (para el tope «no más de lo cobrado»). Sin fila ⇒ sin tope (PI desconocido). */
+  public readonly chargedByIntent = new Map<string, number>();
+  public readonly refundsByIntent = new Map<string, { id: string; status: string; metadata: Record<string, string>; amountCents: number }[]>();
+  private readonly refundByIdempotencyKey = new Map<string, { id: string; status: string }>();
+
+  async createRefund(params: {
+    paymentIntentId: string;
+    amountCents: number;
+    idempotencyKey: string;
+    metadata: Record<string, string>;
+  }): Promise<{ id: string; status: string }> {
+    if (this.refundDelayMs > 0) await new Promise((r) => setTimeout(r, this.refundDelayMs));
+    this.refundCreateCalls.push({ paymentIntentId: params.paymentIntentId, amountCents: params.amountCents, idempotencyKey: params.idempotencyKey });
+    if (this.refundOutcome === 'transient') {
+      throw new Stripe.errors.StripeConnectionError({ message: 'e2e: network down', type: 'api_connection_error' } as any);
+    }
+    if (this.refundOutcome === 'definitive') {
+      throw new Stripe.errors.StripeInvalidRequestError({ message: 'e2e: charge_disputed', type: 'invalid_request_error', code: 'charge_disputed' } as any);
+    }
+    const replay = this.refundByIdempotencyKey.get(params.idempotencyKey);
+    if (replay) return replay;
+    const charged = this.chargedByIntent.get(params.paymentIntentId);
+    const already = (this.refundsByIntent.get(params.paymentIntentId) ?? []).reduce((a, r) => a + r.amountCents, 0);
+    if (charged !== undefined && already + params.amountCents > charged) {
+      throw new Stripe.errors.StripeInvalidRequestError({ message: `e2e: refund ${params.amountCents} exceeds remaining ${charged - already}`, type: 'invalid_request_error', code: 'charge_already_refunded' } as any);
+    }
+    const id = `re_e2e_${randomUUID().replace(/-/g, '')}`;
+    const status = this.refundOutcome === 'succeeded' ? 'succeeded' : 'pending';
+    const rec = { id, status, metadata: params.metadata, amountCents: params.amountCents };
+    this.refundsByIntent.set(params.paymentIntentId, [...(this.refundsByIntent.get(params.paymentIntentId) ?? []), rec]);
+    this.refundByIdempotencyKey.set(params.idempotencyKey, { id, status });
+    return { id, status };
+  }
+
+  async listRefunds(paymentIntentId: string): Promise<{ id: string; status: string; metadata: Record<string, string> }[]> {
+    this.refundListCalls.push(paymentIntentId);
+    return (this.refundsByIntent.get(paymentIntentId) ?? []).map((r) => ({ id: r.id, status: r.status, metadata: r.metadata }));
+  }
+
+  /** Simula que la memoria de idempotencia de Stripe (24 h) caducó. */
+  expireIdempotencyMemory(): void {
+    this.refundByIdempotencyKey.clear();
+  }
+
+  /** Siembra un reembolso «hecho en Stripe» sin metadata (o con la de una fila) — para PS-10/PS-50. */
+  seedStripeRefund(paymentIntentId: string, rec: { id?: string; status?: string; metadata?: Record<string, string>; amountCents: number }) {
+    const r = { id: rec.id ?? `re_e2e_${randomUUID().replace(/-/g, '')}`, status: rec.status ?? 'succeeded', metadata: rec.metadata ?? {}, amountCents: rec.amountCents };
+    this.refundsByIntent.set(paymentIntentId, [...(this.refundsByIntent.get(paymentIntentId) ?? []), r]);
+    return r;
   }
 
   /**

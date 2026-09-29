@@ -238,3 +238,91 @@ describe('M1 PATCH status — guarda de estado y de dueño (Postgres real, D-SHI
     expect(await state(p.id)).toMatchObject({ status: 'lost', certNumber: 'E2E-OK' });
   });
 });
+
+// =============================================================================================
+// ⭐ INV-SP-8 (API_CONTRACT §M1 errata v1.80.2.3 `#M1-patch-price-guard`; regla de fusión `#M1-merge-rule`):
+// `listPriceCents` del `PATCH` SOLO sobre plataforma `in_stock | listed` (`assertOperable(item, 'price')`, mismo
+// allowlist que `mark`/`status`). Antes: un `update({ where: { id } })` plano escribía un precio de venta en la carta
+// de un cliente en custodia o en una pieza dada de baja, con `200`. Aquí se mide contra el motor que el `422` no
+// escribe NADA (ni el precio ni la identidad del mismo PATCH) y que la escritura condicionada acepta las permitidas.
+describe('M1 PATCH listPriceCents — INV-SP-8 (Postgres real)', () => {
+  let h: E2EHarness;
+  let db: VaultPlacementDb;
+  const SEEDED = 777;
+
+  beforeAll(async () => {
+    h = await E2EHarness.create();
+    db = new VaultPlacementDb(h, `${RUN}sp`);
+    await db.init();
+  });
+
+  afterAll(async () => {
+    if (h) {
+      await h.prisma.auditLog.deleteMany({ where: { entityType: 'InventoryItem', entityId: { in: db.items } } });
+      await db.limpiar();
+      await h.close();
+    }
+  });
+
+  const patch = (id: string, json: Record<string, unknown>) =>
+    h.api('PATCH', `/admin/inventory/items/${id}`, { token: db.opToken, json });
+  const state = (id: string) =>
+    h.prisma.inventoryItem.findUniqueOrThrow({
+      where: { id },
+      select: { status: true, ownerType: true, ownerUserId: true, certNumber: true, listPriceCents: true },
+    });
+  const priced = async (id: string) => {
+    await h.prisma.inventoryItem.update({ where: { id }, data: { listPriceCents: SEEDED } });
+    return id;
+  };
+
+  it('1 · cliente `in_custody` + {listPriceCents} ⇒ 422 {in_custody, customer}; releída, precio intacto', async () => {
+    const u = await db.mkUser('Precio Cliente');
+    const drawer = await db.mkDrawer();
+    const [piece] = await db.seedInDrawer(u.id, drawer.id, 1);
+    await priced(piece.id);
+    const r = await patch(piece.id, { listPriceCents: 12345 });
+    expect(r.status).toBe(422);
+    expect(r.body.error).toMatchObject({ code: 'ITEM_NOT_ADJUSTABLE', details: { status: 'in_custody', ownerType: 'customer' } });
+    expect(await state(piece.id)).toMatchObject({ status: 'in_custody', ownerType: 'customer', listPriceCents: SEEDED });
+  });
+
+  it.each(['withdrawn', 'reserved', 'picking', 'shipped', 'delivered', 'lost', 'damaged'])(
+    '2/5/6 · plataforma `%s` + {listPriceCents} ⇒ 422 {status, platform}; precio intacto',
+    async (status) => {
+      const p = await db.mkPiece(null, db.shopLocationId, { status });
+      await priced(p.id);
+      const r = await patch(p.id, { listPriceCents: 12345 });
+      expect(r.status).toBe(422);
+      expect(r.body.error).toMatchObject({ code: 'ITEM_NOT_ADJUSTABLE', details: { status, ownerType: 'platform' } });
+      expect(await state(p.id)).toMatchObject({ status, listPriceCents: SEEDED });
+    },
+  );
+
+  it.each(['in_stock', 'listed'])('3/4 · plataforma `%s` + {listPriceCents} ⇒ 200, precio escrito, `status` sin cambio', async (status) => {
+    const p = await db.mkPiece(null, db.shopLocationId, { status });
+    await priced(p.id);
+    const r = await patch(p.id, { listPriceCents: 12345 });
+    expect(r.status).toBe(200);
+    expect(await state(p.id)).toMatchObject({ status, listPriceCents: 12345 });
+  });
+
+  it('7 · todo o nada: cliente + {listPriceCents, certNumber} ⇒ 422 y `certNumber` intacto', async () => {
+    const u = await db.mkUser('Precio Todo o Nada');
+    const drawer = await db.mkDrawer();
+    const [piece] = await db.seedInDrawer(u.id, drawer.id, 1);
+    await priced(piece.id);
+    const r = await patch(piece.id, { listPriceCents: 12345, certNumber: 'E2E-X' });
+    expect(r.status).toBe(422);
+    expect(await state(piece.id)).toMatchObject({ certNumber: null, listPriceCents: SEEDED });
+  });
+
+  it('8 · lo que NO cambia: cliente + {certNumber} (sin precio) ⇒ 200, identidad escrita', async () => {
+    const u = await db.mkUser('Precio Identidad');
+    const drawer = await db.mkDrawer();
+    const [piece] = await db.seedInDrawer(u.id, drawer.id, 1);
+    const r = await patch(piece.id, { certNumber: 'E2E-ID' });
+    expect(r.status).toBe(200);
+    expect(await state(piece.id)).toMatchObject({ status: 'in_custody', ownerType: 'customer', certNumber: 'E2E-ID' });
+  });
+});

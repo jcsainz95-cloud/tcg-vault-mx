@@ -18463,6 +18463,20 @@ token en `logout` ⇒ 2 rojas; en `clearClientSession` ⇒ 4 rojas; no mandarlo 
 ## Copy final del 429 de login (2026-09-29, DESIGN_SYSTEM v4.9 §37.13)
 
 `auth.tooManyAttempts`/`tooManyAttemptsNoTime` sustituidas por `auth.login.rateLimited` (sin cifra) y `auth.login.rateLimitedRetryIn` (`{minutes, plural, one {# minuto} other {# minutos}}`), es/en. Se usa la segunda solo si `details.retryAfterSeconds` es usable (`retryAfterMinutes`, ceil a minutos); el cliente API no expone la cabecera `Retry-After` (solo `details`), así que no se lee. Pruebas en `AuthForm.test.tsx` (con cifra 3 min/1 min, ES singular, sin cifra); mutación medida: intercambiar las dos claves ⇒ 4 rojas (N=1, determinista).
+
+### Errata v1.80.8.1 (contrato) / §37.13 v4.9.1 — el 429 se elige por `error.code` (2026-09-29, rama `claude/release-s5`)
+
+- `AuthForm` guarda `{ minutes, code }` del 429. `perAccount = mode === 'login' && code === 'TOO_MANY_PASSWORD_ATTEMPTS'`
+  ⇒ `auth.login.rateLimited*` + enlace `/forgot-password`. Cualquier otro 429 (`RATE_LIMITED`, código desconocido; login
+  o registro) ⇒ `auth.rateLimitedByIp` / `auth.rateLimitedByIpRetryIn`, sin enlace. El status 429 decide *que* hay aviso,
+  no *cuál*. Minutos = `retryAfterMinutes` para los dos.
+- `GoogleSignInButton`: un 429 ya no cae en el genérico `error.RATE_LIMITED`; pinta `auth.rateLimitedByIp*` (Banner
+  warning, `role="alert"`, sin enlace).
+- Retirada `auth.register.rateLimited` de es/en.
+- Pruebas: `AuthForm.rateLimited.test.tsx` (los casos que fijaban enlace y «con este correo» con `RATE_LIMITED` pasan a
+  `TOO_MANY_PASSWORD_ATTEMPTS`; `RATE_LIMITED` exige lo contrario) + F-C7-4; `GoogleSignInButton.test.tsx` (429).
+  Mutaciones (N=1, deterministas, sobre copia): ramificar por status (`perAccount = mode==='login' && !!rateLimited`)
+  ⇒ 5 rojas; solo el enlace por `mode === 'login'` ⇒ 5 rojas.
 ## §81 · **Paquete de pantallas** — Vender en computadora (P-61, DESIGN_SYSTEM §37.1) y menú del panel sin códigos (P-66 I2, §37.2) (2026-09-28, rama `claude/paquete-pantallas`, base `82ea0f3`)
 
 ### §37.1 · P-61 — el carrito vuelve a ser cajón en escritorio
@@ -18703,3 +18717,161 @@ párrafo; vivía en el resumen del pase anterior):**
    la paginación deja de importar: hoy el cliente pide `pageSize=100` de **todas** las selladas de la carta y filtra
    `tcgplayerProductId == null` en memoria; si hay más de 100, la lista se corta y T-1 bloquea el precio. También
    valdría `ownerType=platform&status=in_stock,listed` (multi-estado) para que el conjunto viniera ya acotado.
+## §81 · **§M4-SHIP «Pedidos por preparar» (v1.80.6)** — palomeo de envío, reembolso por carta, «Por reponer», cubeta SPEI, M3 detalle y el pedido del cliente (2026-09-29, rama `claude/envio-preparar`, base `b011b1b`; contrato `290f27f`, diseño `f0962d5`)
+
+Fuentes: `API_CONTRACT.md §M4-SHIP.1–.18` (v1.80.6, errata B12/M7), `PROJECT.md §S.10` (criterios 215–233),
+`DESIGN_SYSTEM.md §37` (v4.9). Los copys son la tabla de claves de **§37.16** tal cual (573 claves nuevas; paridad
+es/en 3916/3916 medida con `i18n-parity.test.ts`; sin NBSP: `grep` de ` ` en los dos catálogos = 0).
+
+### Commits (todos acotados a `frontend/` y a este fichero)
+
+| SHA | Bloque |
+|---|---|
+| `9fc1757` | Base: DTOs del contrato en `types/contract.ts`, **servidor mock con estado** `lib/mock/m4-ship.ts` (replica §M4-SHIP.4/.5/.7/.15/.17/.18 y sus códigos 409/422/403), 20 funciones nuevas en `lib/api.ts`, catálogo es/en, `hooks/usePickingSummary.ts`, `ui/Textarea.tsx` |
+| `8bada0c` | M4: pestañas `?tab=preparar\|reponer\|envios`, `ShipPreparationCard`, `ShipmentsQueue`, hoja imprimible `m4/print` |
+| `ea278e9` | «Por reponer»: `ReplacementCasesPanel`, `ReplacementCaseCard`, `m4/reponer/[caseId]` |
+| `47d28c2` | `admin/manual-refunds` (lista + detalle) y `admin/refunds` (resumen por operador + libro) |
+| `4e61b2f` | M3: `m3/[orderId]` (detalle, reclamar, chargeback-inventory), `RefundOrderDialog`, `VaultPiecesList`; menú y tablero |
+| `dee8f34` | Cliente: `OrderShipmentBlock`, `OrderItemStatusLine`, `OrderDetailView`/`OrdersView`/`VaultView`/`WithdrawalsList`/`ShipmentDetailView`; `AuthForm` 429 |
+| *(este)* | `e2e/m4-ship.spec.ts` + esta sección |
+
+### Decisiones de implementación
+
+1. **Un fake server con estado, no fixtures sueltos.** `lib/mock/m4-ship.ts` guarda órdenes de origen, envíos con
+   marcas, libro de reembolsos, casos, transferencias y piezas de bóveda, y **recalcula** `refundPreviewCents`
+   (`unitPrice + floor(processingFee·unitPrice/(subtotal+envío))`, §M4-SHIP.4: Pikachu 30 000 sobre `ord-5001` ⇒
+   **31 458**) y los conteos en cada verbo. Así los tests de pantalla miden contra la semántica del contrato (topes
+   2×/5×, `REFUND_PREVIEW_STALE`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`, `nothing_to_ship`…) sin backend. `resetMockM4Ship()`
+   deja cada test limpio; en Playwright se reinicia con cada carga completa.
+2. **S1/S2 (§37.0): la pantalla no produce cifras de dinero.** La fila, el conteo vivo y el botón del diálogo repiten
+   `refundPreviewCents`; el `POST /prepared` lleva esa cifra como `expectedRefundCents`; un `409 REFUND_PREVIEW_STALE`
+   reabre el diálogo con `details.refundCents` y ⛔ nunca reintenta solo (`ShipPreparationCard.test` PS-UI-4: 1 POST).
+   El único input de dinero es la captura del caso (§37.8d), con las dos referencias a la vista, el reparto del servidor
+   (`GET …/refund-preview`, debounce 400 ms) y re-escritura sin pegar por encima de 2× (`onPaste` → `preventDefault`).
+3. **Un preparado sin dinero ni casos NO manda aviso a la cola.** Medido en Playwright: el aviso (`prep-notice`) toma el
+   foco y le robaba el foco a la línea de paso, que es lo que §36.12 pide (mismo trato que la tarjeta de bóveda). El
+   aviso queda para lo que mueve dinero, abre casos o cierra el retiro (`closed_nothing_to_ship`, v1.80.6).
+4. **PR-3 se conserva en la fila de envío:** la columna de ubicación es el primer hijo del `<li>` (el renglón ES el
+   flex-row); estado, dinero y error viven en la columna de contenido.
+5. **S5 (CLABE):** solo existe en el estado local de `ManualRefundDetailView` (`useState`, se limpia al pagar, al
+   ocultar y al desmontar), en un solo `<output>`; ⛔ ni `title`, ni `aria-label`, ni URL, ni cache de TanStack. La lista
+   solo trae `clabeMasked`. Candado PS-UI-7: `document.body.innerHTML` sin `\d{18}` antes y después.
+6. **S6 (súper-admin):** `SuperAdminOnly` envuelve SPEI y «Reembolsos de operadores»; en «Por reponer» los verbos
+   «Reembolsar»/«Anular» no se pintan al operador (PS-UI-6); tablero: `manualRefunds`/`operatorRefunds` `null` ⇒ la
+   tarjeta no existe; el menú pinta el badge SPEI solo si `manualRefundsPending !== null`.
+7. **El contador es el aviso (§M4-SHIP.11):** `usePickingSummary` (una sola `queryKey`, `refetchInterval` 60 s solo
+   con pestaña visible, `refetchOnWindowFocus`) alimenta menú, pestañas y tablero; todo verbo que cambia la cola lo
+   invalida. Sin campana ni sonido.
+8. **Cliente (§37.12):** el mapeo `publicStatus → status.tracking.*` se importa de `pedido/tracking-status.ts` (⛔ no
+   se copia); `OrderShipmentBlock` pinta la lista cerrada del contrato (sin calle ni teléfono). `OrderItemStatusLine`
+   es el mismo componente en pedido, retiro, detalle de retiro y «Mi bóveda».
+9. **Renombre §37.16 / criterio 215:** `admin.modules.m4 = «M4 · Pedidos por preparar»`, `admin.m4.title` y
+   `admin.m4.prep.title = «Pedidos por preparar»`. El `<h1>` y el `<h2>` comparten nombre: los tests buscan por
+   `level`. ⚠️ El encargo pedía «sin M-n en textos visibles»; §37.16 fija normativamente el prefijo «M4 ·» en el menú y
+   la mención «Pedidos (M3)» en dos copys de error. Seguí §37.16 (es la fuente de copys) y lo dejo señalado.
+
+### Mediciones (2026-09-29, árbol `dee8f34` + spec)
+
+- `npx tsc --noEmit`: limpio. `eslint` sobre todos los ficheros tocados: limpio.
+- **vitest completo:** `182 ficheros · 2108 pruebas` ⇒ tras corregir `AdminShell*.test` (el menú ahora usa
+  `useQuery`, hacía falta el `QueryClientProvider` y el export `getPickingListSummary` en su mock de `@/lib/api`)
+  **0 rojas** en los ficheros tocados (`AdminShell`, `AdminShell.mustChange`, `ShipPreparationCard`: 19/19). La
+  corrida completa previa a ese arreglo: 2104/2108 (las 4 rojas eran exactamente esas).
+- **Nuevas pruebas unitarias (41):** `ShipPreparationCard.test` 9 (PS-UI-3/4/5, guía/deshacer, «Nada que enviar»),
+  `ShipmentsQueue.test` 8 (PS-UI-10, 409 por código, quién es quién, búsqueda), `ReplacementCaseView.test` 7
+  (PS-UI-6/9/11), `ManualRefundDetailView.test` 5 (PS-UI-7/8/6), `RefundOrderDialog.test` 3 (PS-UI-14),
+  `OrderDetailView.shipment.test` 5 (PS-UI-1 ×9 estados + «Tu envío»), `AuthForm.rateLimited.test` 4 (PS-UI-13).
+  Adaptadas al DTO v1.80 y a las pestañas: `M4View.test` (60/60), `VaultPlacementCard.test` (25/25), `M3View.test`
+  (6/6), `AdminSidebar.test`, `AdminDashboard.test`.
+- **Censo E2E** (`src/test/e2e-harness.test.ts`) + paridad i18n: 57/57. El spec nuevo declara `mockOnly` en sus 6
+  casos (usa folios del fixture).
+- **Playwright con mocks, `e2e/m4-ship.spec.ts`:** 6 flujos × 2 anchos (390×844 y 1280×800) = **12/12** en la
+  tercera corrida (build de producción `.next-e2e-mock`); las dos primeras corridas dejaron los dos hallazgos de la
+  decisión 3 (foco) y un `getByLabel` no exacto en el diálogo de guía. Flujos: palomeo→preparado→guía; faltante→
+  reembolso 314.58→preparado; «Por reponer» reponer con pieza; «Por reponer» reembolsar; SPEI revelar→pagada; M3
+  reclamar con casilla por carta.
+- **Specs existentes de las pantallas tocadas** (`m4-preparation`, `m4-vault-placement`, `vault`, `orders-resume`,
+  `shipments`, `stream-a-navigation`, `--workers 2`): **41/41 pasadas, 2 saltadas** (`@real`), tras adaptar dos
+  aserciones al rótulo compartido h1/h2 (`level: 2`) y reescribir P-10 de `m4-preparation` a las pestañas (la cola ya
+  no comparte scroll: «Preparar» es la pestaña por defecto y la cola solo aparece al pedirla);
+  `m4-vault-placement` 14/14 en su re-corrida. Una corrida anterior con 9 specs a la vez perdió el servidor de mocks a
+  mitad (`ERR_CONNECTION_REFUSED` en 27 casos: no es defecto de pantalla; con 2 workers no volvió a pasar, N=2).
+- **Dos rojas que NO son de este encargo** (medidas en esa corrida, no re-medidas sobre la base `b011b1b`):
+  `account.spec.ts:287` espera cinco entradas en el header y recibe seis — la sexta es «Meta Battle Decks» (§78,
+  `claude/fe-decksmeta-f1`); `admin.spec.ts:451` busca «Spread de UPC» en M2 y los spreads del sellado se movieron a
+  M11 (`admin.m2.movedToM11`). Ninguna toca ficheros de §M4-SHIP.
+
+### Lo que NO se pudo cablear (solicitudes al arquitecto)
+
+- ~~**`HoldingDTO` sin motivo de `withdrawable:false`.**~~ **Resuelto por la errata v1.80.7 (`withdrawableReason`; cableado en §81.1).** §37.10d pide el chip «Compra en reembolso» en «Mi bóveda», pero
+  `GET /vault/holdings` solo da `withdrawable:false`; el motivo `origin_refunded` vive en `quote.ineligible[]`. Las
+  claves `vault.item.originRefunded*` están en el catálogo y `error.ITEM_ORIGIN_REFUNDED` sí se pinta en el `POST`.
+  Petición: `withdrawableReason?: 'pending' | 'in_withdrawal' | 'origin_refunded' | 'replacing'` en `HoldingDTO`.
+- ~~**`KycInfoDTO` sin `clabeUpdatedAt`.**~~ **Resuelto por la errata v1.80.7 (la línea del DTO estaba desactualizada; cableado en §81.1).** `account.kyc.clabeUpdatedAt` («CLABE actualizada el…») existe en el catálogo
+  pero la cuenta del cliente no puede pintarla.
+- **`Retry-After` no llega al cliente HTTP** (`api-client` solo expone `code/details`). El 429 usa
+  `details.retryAfterSeconds` si viene; si no, la frase sin minutos (§37.13). Si `C7` fija minutos, que los mande en
+  `details`.
+- ~~**`403 MONEY_OUT_LIMIT_EXCEEDED`** sin `details` tipados en el contrato para la tarjeta de envío~~ **Resuelto por la errata v1.80.7 (punto 16: `details {capCents, usedCents, requestedCents}` normativos; tipados en §81.1).** Se sigue pintando la frase
+  genérica `error.limitExceeded` (§37.4, sin cifra) hasta que ux-ui fije el copy con cifras.
+
+### §81.1 · Errata **v1.80.7** del contrato (2026-09-29, rama `claude/envio-preparar`, base `ea615c3`; `DESIGN_SYSTEM §37`)
+
+Cinco puntos del changelog de 19 tocan al front (13, 14, 16 y la deuda (a)/(b)/(c) del techlead). Todo con su prueba;
+las cifras son medidas en este pase (vitest por fichero; ⛔ sin Playwright completo: QA tenía un stack levantado).
+
+| Punto | Antes (rojo) | Después (verde) | Dónde |
+|---|---|---|---|
+| **13 · `HoldingDTO.withdrawableReason`** | «Mi bóveda» no podía distinguir `origin_refunded` (§81 «Lo que NO se pudo cablear») | Tipo `WithdrawableReason` (clave siempre presente); el hint del botón RETIRAR y el chip salen del motivo: `origin_refunded` ⇒ chip **«Compra en reembolso»** + su frase (§37.10d); `replacing` ⇒ «La estamos reponiendo»; `pending`/`not_in_custody`/`in_withdrawal` conservan su copy. Mock: `lib/mock/holding-withdrawable.ts` (**UN cuerpo** para flag + motivo, en el orden del contrato) y `m4-ship.mockHoldingWithdrawabilityOf` (deriva `replacing` del caso abierto y `origin_refunded` de la fila `order_full` viva de la orden de origen) | `types/contract.ts`, `vault/VaultView.tsx` (`withdrawableHintKey`), `lib/api.ts` (`getHoldings`), fixtures |
+| · pruebas | — | `holding-withdrawable.test.ts` **14/14**: cinco motivos, orden (`pending` manda; `in_withdrawal` antes que `origin_refunded`), invariante `withdrawable === (withdrawableReason === null)` sobre la función pura, los fixtures y el `GET /vault/holdings` del mock; `VaultView.test.tsx` **+8** (uno por motivo, `null`, `replacing` sin `replacement`, helper) ⇒ **19/19** | commit `3dc5f3e`, `2785d73` |
+| **14 · `KycInfoDTO.clabeUpdatedAt`** | La cuenta no podía pintar «CLABE actualizada el …» (clave i18n huérfana desde §81) | `clabeUpdatedAt: string \| null` obligatorio; `KycSection` la pinta bajo la CLABE enmascarada con `formatDate`; `null` (o sin CLABE) ⇒ nada. El mock sella la fecha solo cuando la máscara cambia (PS-46) | `KycSection.tsx`; `KycSection.test.tsx` **+4** (es/en, `null`, sin CLABE) ⇒ **13/13**; `i18n-parity` **45/45**. Commit `aba5eaa` |
+| **16 · `403 MONEY_OUT_LIMIT_EXCEEDED`** | `details` sin leer; copy genérico | `moneyOutLimitDetailsOf(err.details)` tipa los tres enteros (normativos, PS-4/PS-4b) y los retiene en `ShownError.moneyOut` **sin pintarlos**: §37.4 va sin cifra hasta que ux-ui fije el copy. Prueba: el pie dice la frase de §37.4, ⛔ ni `914.57` ni `600.00` en la tarjeta, un solo `POST`; el lector devuelve `null` si falta un campo o no es entero | `ShipPreparationCard.tsx`; `ShipPreparationCard.test.tsx` **+2** ⇒ **11/11**. Commit `3dc5f3e` |
+| **Deuda (c) · `asApiError` ×5** | Cinco copias | `lib/api-client.ts` exporta `asApiError`; las cinco vistas lo importan; juez: 4 suites **48/48** | Commit `8f48d28`; `TECH_DEBT` SHIP-FD-c (cerrado) |
+| **Deuda (a) · el mock reimplementa la fórmula** | `m4-ship.ts:1286,1300-1303,1484` daban la fila SPEI con **IVA 0 y comisión 0** | `lib/mock/refund-math.ts` (espejo de `money.ts`) + `refund-math.test.ts` con **los vectores dorados** de `backend/src/common/refund-math.spec.ts` (31458/4138/1458; 52430+31458+15729=99617; PS-26/27 ×200 montos; el caso `stripe < Q`) **7/7**. `case_excess` = `caseRefundComponents(A) − caseRefundComponents(stripe)`, `stripe_failed` copia la fila. `m4-ship-refund-components.test.ts`: **rojo antes 1/2** (`pr-8002` ⇒ `{40000,0,0,0}`), **verde después 2/2** (`{32000,4414,1533,6467}`), medido cambiando el fichero por su copia de `HEAD` y volviéndolo a poner | Commit `85923df`; `TECH_DEBT` SHIP-FD-a (parcial: el tope y `Q/R` siguen en el mock; dirección: vectores compartidos vía arquitecto) |
+| **Deuda (b) · `ShipPreparationCard` 1 184 líneas** | — | **No se paga en este pase** (no cabe con juez suficiente): registrada como SHIP-FD-b con `useShipPreparation` + `shipErrorOf` como dirección y `wc -l < 500` como cierre | `TECH_DEBT` |
+
+**Una precisión sobre el encargo.** El resumen del encargo decía `origin_refunded` ⇒ «Ya no está en tu bóveda: este
+pedido se reembolsó». Esa frase es, en §37.10d, la del **pedido `vault` ya reembolsado** (la carta ya no es suya y
+**desaparece** de «Mi bóveda»); para una carta que **sigue siendo suya** con la compra **en** reembolso, el diseño y el
+contrato (§3 v1.80.7: «chip «Compra en reembolso» (§37.10d) solo con `origin_refunded`») fijan el chip **«Compra en
+reembolso»** + «Esta carta viene de una compra que se está reembolsando…». Se cableó lo que dicen diseño y contrato;
+la prueba de `VaultView` asevera que «Ya no está en tu bóveda» **no** aparece en esa tarjeta.
+
+**Cierre medido:** `tsc --noEmit` limpio; `eslint` limpio en los 18 ficheros tocados; suites que consumen el mock
+`m4-ship` (`m4/`, `m3/`, `manual-refunds/`, `lib/mock/`, `vault/`, `shipments/`, `orders/`): **26 ficheros, 325/325**.
+Playwright `e2e/m4-ship.spec.ts` con mocks (build de producción privado, puerto `3117`, `--workers 2`): **12/12 pasadas**, 1.9 min, N=1.
+
+### §81.2 · El mock no calcula IVA — candado `§M10-IVA.3` rojo por `85923df` (2026-09-29, base `cfb43b3`)
+
+**El defecto (medido por el orquestador sobre copia del árbol entero de `cfb43b3`, vitest completo 1 roja de 2145;
+reproducido por mí en copia):** `src/test/frontend-never-multiplies.test.ts` > «sumar o restar el IVA a un importe»
+⇒ `['src/lib/mock/refund-math.ts']`. La línea era `shippingIvaCents: o.ivaCents - refundedIva` de
+`orderRemainingRefundComponents`, que el mock **ni siquiera usaba** (solo su prueba). En el pase de `85923df` corrí
+solo las suites tocadas, no la completa: por eso no la vi.
+
+**Opción elegida: (1), que el mock no calcule IVA.** Descarté la (2) —excluir `refund-math.ts` del candado— porque
+es exactamente la forma en que el propio candado dice que la regla se pierde, y porque la (1) cabía:
+- `lib/mock/refund-math.ts` ya no tiene `taxBaseCentsOf` ni `orderRemainingRefundComponents`. El IVA de la mercancía
+  se **lee** de `GOLDEN_MERCHANDISE_IVA_CENTS` (tabla `r → mercancía → IVA`, copiada de lo que produce
+  `backend/src/common/money.ts`; 30000→4138 es literal de `refund-math.spec.ts`, 32000→4414 y 35000→4828 de las
+  pruebas del mock sobre `ord-4103`/`ord-4102`). Un importe sin vector responde **`501 MOCK_GOLDEN_VECTOR_MISSING`**
+  en vez de inventar la cifra. Lo que queda en el espejo es reparto de centavos sin IVA (comisión `floor(F·P/G)`,
+  compensación `X − Q`) y la resta componente a componente de filas ya congeladas.
+- `itemMissingAmountCents` (solo el importe) para que `itemMissingCents` del mock no dependa de la tabla.
+- **Limitación aceptada del mock:** un reembolso de caso **parcial** (`X ≤ Q`, o un Stripe corto) con un monto que
+  no esté sembrado da 501 en modo mocks. Ninguna prueba ni E2E lo ejerce hoy (e2e usa MX$500 > Q; las unitarias 500
+  y 900 > Q). Si hace falta otro, se siembra su vector. El servidor real no tiene esta limitación.
+- `refund-math.test.ts`: nueva prueba de que **cada `unitPriceCents` sembrado en `m4-ship.ts`** tiene vector, y de
+  que un faltante da 501. PS-3 («faltan todas», 99617) se retiró del espejo: vive en el spec del backend. La
+  propiedad «×200 montos» pasa a los montos sembrados (4 × 5).
+
+**El candado se ENDURECIÓ, no se aflojó.** Al medir se vio que el patrón `1\s*\+\s*\w*[Ii]vaRate` exige el `1`
+pegado al `+` y **no veía `(100 + ivaRatePct)`** —la base gravable en porcentaje de `taxBaseCentsOf`—. Patrón nuevo
+`/\b100\s*\+\s*\w*[Ii]vaRate/` + su entrada en el canario (`* 100 / (100 + ivaRatePct)` inyectado en la ventana
+ciega de `StorefrontHeader.tsx`). Única ocurrencia fuera de tests/simuladores: el `refund-math.ts` viejo.
+**Mutación (copia de `frontend/` en scratchpad, estática ⇒ determinista):** con el `refund-math.ts` de `cfb43b3`
+el candado da **2 rojas** (`100 + r` y «restar el IVA»); quitándole solo `orderRemaining`, **1 roja** (`100 + r`).
+
+**Cierre medido:** `npx vitest run` completo **185/185 ficheros, 2149/2149** (2145 + 1 patrón + 1 canario + 2 netas
+en `refund-math.test.ts`); `tsc --noEmit` limpio; `npm run lint` limpio; Playwright `e2e/m4-ship.spec.ts` con mocks
+(build privado, puerto `3917`): **12/12**, N=1.

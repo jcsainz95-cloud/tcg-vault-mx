@@ -74,7 +74,12 @@ import {
   Finish,
   InventoryStatus,
   KycStatus,
+  ManualRefundStatus,
   OrderStatus,
+  PaymentRefundKind,
+  PaymentRefundStatus,
+  ReplacementCaseSource,
+  Role,
   OwnerType,
   PendingPriceContext,
   PendingPriceReason,
@@ -88,6 +93,9 @@ import {
   VaultZone,
 } from '@prisma/client';
 import { E2EHarness } from './helpers/e2e-app';
+import { ShipPrepDb } from './helpers/ship-prep-db';
+import { REPLACEMENT_CASE_STATE_VALUES } from '../../src/modules/vault/replacement-case.service';
+import { SHRINKAGE_REASON_VALUES } from '../../src/modules/admin/admin.controller';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { censusQueryAxes } from '../helpers/query-axis-census';
 import {
@@ -574,6 +582,20 @@ const REGISTRO: readonly AxisRow[] = [
   // `alterno: 'ship'` recupera la discriminación. El fixture siembra el envío en `picking` del
   // bloque (g-bis) para que «hay datos SIN filtrar» sea cierto.
   { route: 'GET /admin/shipments/picking-list', param: 'destination', clazz: 'L', allowed: PREPARATION_DESTINATION_VALUES, valid: 'vault', alterno: 'ship', auth: 'admin', echoValue: false },
+  // ⭐ **§M4-SHIP (v1.80.x) — QA BLOQ-2(a) sobre `c20451f`: los SIETE ejes de dominio cerrado del stream «Pedidos por
+  // preparar», huérfanos en `C-EQ-1` desde que nacieron.** Clase por §0-Q punto 3 / §4.37 (v1.80.7.1 §M4-SHIP.1 las
+  // decide E/E/E/E/L): **E** si el dominio ES un enum de Prisma (`ReplacementCaseSource`, `ManualRefundStatus`, `Role`,
+  // `PaymentRefundKind`, `PaymentRefundStatus`, derivados en `enum-values.ts`); **L** si es un literal computado sin enum
+  // detrás (`?state=open|closed`: `closed ⇔ status ≠ open`; `?reason=lost|damaged` de la merma: dos valores de
+  // `InventoryStatus`, no un enum propio). ⚠️ Ninguno tiene fila en §0-Q punto 4 (`D-EQ-4`, ARCHITECTURE §9): el
+  // arquitecto la escribe con esta medición delante ⇒ `filaEn0Q: 'PENDIENTE-ARQUITECTO'`. Fixture propio: (h) abajo.
+  { route: 'GET /admin/replacement-cases', param: 'state', clazz: 'L', allowed: REPLACEMENT_CASE_STATE_VALUES, valid: 'closed', alterno: 'open', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/replacement-cases', param: 'source', clazz: 'E', allowed: Object.values(ReplacementCaseSource), valid: 'vault_purchase', alterno: 'withdrawal', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/manual-refunds', param: 'status', clazz: 'E', allowed: Object.values(ManualRefundStatus), valid: 'cancelled', alterno: 'pending', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/refunds', param: 'requestedByRole', clazz: 'E', allowed: Object.values(Role), valid: 'super_admin', alterno: 'vault_operator', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/refunds', param: 'kind', clazz: 'E', allowed: Object.values(PaymentRefundKind), valid: 'shipment_fee', alterno: 'order_remaining', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/refunds', param: 'status', clazz: 'E', allowed: Object.values(PaymentRefundStatus), valid: 'failed', alterno: 'requested', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/finance/shrinkage', param: 'reason', clazz: 'L', allowed: SHRINKAGE_REASON_VALUES, valid: 'damaged', alterno: 'lost', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/users/:id/audit', path: (c) => `/admin/users/${c.userId}/audit`, param: 'scope', clazz: 'R', allowed: USER_AUDIT_SCOPE_VALUES, valid: 'actor', alterno: 'both', auth: 'admin', echoValue: false },
   // ⚠️ `valid: 'price_desc'` y no `'price_asc'`: los dos sellados del fixture comparten `createdAt`
   // (mismo `createMany`), así que `newest` (default) = orden de inserción = price ASC ⇒ `price_asc`
@@ -696,7 +718,14 @@ const CEQ1_VAULT_CUSTOMER_EMAILS = ['ceq1-vault-aaa@ceq1.local', 'ceq1-vault-zzz
 //    no tiene campo de texto que marcar).
 const CEQ1_SNAPSHOT_CENTS = [990_010, 990_020, 990_030];
 
+/** ⭐ (h) §M4-SHIP — el helper del stream que sembró los siete ejes; se limpia por ids en `limpiarFixture`. */
+let prep: ShipPrepDb | null = null;
+
 async function limpiarFixture(h: E2EHarness): Promise<void> {
+  if (prep) {
+    await prep.cleanup();
+    prep = null;
+  }
   await h.prisma.dispute.deleteMany({ where: { description: { startsWith: 'CEQ1-' } } });
   // ⚠️ El envío `guest_direct_ship` (`EQ-D1` · `?kind=`) cuelga de un Order con `onDelete: Restrict`,
   //    así que el envío se borra ANTES que su orden.
@@ -948,6 +977,54 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
     skipDuplicates: true,
   });
 
+  // (h) ⭐ §M4-SHIP (QA BLOQ-2(a)) — los siete ejes del stream «Pedidos por preparar», con DATOS que discriminen:
+  //     `?state=`/`?source=` (tres casos: dos `open` de fuentes distintas y uno `voided`), `?status=` de la cubeta
+  //     (una SPEI `pending` y una `cancelled`), `?requestedByRole=`/`?kind=`/`?status=` del libro (dos filas que
+  //     difieren en los tres ejes a la vez) y `?reason=` de la merma (una entrada a `lost` y otra a `damaged`).
+  //     Se siembra con el mismo helper que las suites del stream (`ShipPrepDb`, limpieza por ids); `RUN` único.
+  const db = new ShipPrepDb(h, `ceq1${Date.now().toString(36)}`);
+  prep = db;
+  await db.init();
+  const uShip = await db.mkUser('CEQ1 cliente por reponer');
+  const drawer = await db.mkDrawer();
+  const vo = await db.mkVaultOrder(uShip.id, { prices: [50000, 30000, 10000], placement: 'pending', locationId: drawer.id });
+  const w = await db.mkWithdrawal(uShip.id, [vo.pieces[0].id], 'picking');
+  const placementItems = await h.prisma.vaultPlacementItem.findMany({ where: { placementId: vo.placement!.id } });
+  const pItem = (i: number) => placementItems.find((it) => it.inventoryItemId === vo.pieces[i].id)!;
+  await h.prisma.inventoryItem.update({ where: { id: vo.pieces[0].id }, data: { status: 'lost' } });
+  await h.prisma.inventoryItem.update({ where: { id: vo.pieces[1].id }, data: { status: 'damaged' } });
+  await h.prisma.inventoryItem.update({ where: { id: vo.pieces[2].id }, data: { status: 'lost' } });
+  const ahora = new Date();
+  const caseOpenWithdrawal = await h.prisma.replacementCase.create({
+    data: { source: 'withdrawal', shipmentRequestId: w.shipment.id, shipmentItemId: w.lines[0].id, customerUserId: uShip.id, originalInventoryItemId: vo.pieces[0].id, missingReason: 'not_found', originOrderItemId: vo.orderItems[0].id, openedAt: ahora, openedByUserId: db.operatorId, status: 'open' },
+  });
+  const caseOpenVault = await h.prisma.replacementCase.create({
+    data: { source: 'vault_purchase', placementItemId: pItem(1).id, customerUserId: uShip.id, originalInventoryItemId: vo.pieces[1].id, missingReason: 'damaged', originOrderItemId: vo.orderItems[1].id, openedAt: ahora, openedByUserId: db.operatorId, status: 'open' },
+  });
+  const caseVoided = await h.prisma.replacementCase.create({
+    data: { source: 'vault_purchase', placementItemId: pItem(2).id, customerUserId: uShip.id, originalInventoryItemId: vo.pieces[2].id, missingReason: 'not_found', originOrderItemId: vo.orderItems[2].id, openedAt: ahora, openedByUserId: db.operatorId, status: 'voided', resolvedAt: ahora, resolvedByUserId: db.adminId, voidNote: 'CEQ1 fixture' },
+  });
+  void caseOpenWithdrawal;
+  const mr = (k: string, caseId: string, extra: Record<string, unknown>) => ({
+    idempotencyKey: `case-spei:ceq1:${caseId}:${k}`, source: 'case_excess' as const, customerUserId: uShip.id, replacementCaseId: caseId, orderId: vo.order.id,
+    amountCents: 1000, merchandiseCents: 1000, merchandiseIvaCents: 0, processingFeeCents: 0, compensationCents: 0, createdByUserId: db.adminId, ...extra,
+  });
+  await h.prisma.manualRefund.create({ data: mr('p', caseVoided.id, { status: 'pending' }) });
+  await h.prisma.manualRefund.create({ data: mr('c', caseOpenVault.id, { status: 'cancelled', cancelledAt: ahora, cancelledByUserId: db.adminId, cancelNote: 'CEQ1 fixture' }) });
+  await h.prisma.paymentRefund.create({
+    data: { idempotencyKey: `ceq1:rest:${vo.order.id}`, kind: 'order_remaining', orderId: vo.order.id, amountCents: 1000, merchandiseCents: 1000, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0, status: 'requested', requestedByUserId: db.operatorId, requestedByRole: 'vault_operator' },
+  });
+  await h.prisma.paymentRefund.create({
+    data: { idempotencyKey: `ceq1:fee:${w.shipment.id}`, kind: 'shipment_fee', shipmentRequestId: w.shipment.id, amountCents: 2000, merchandiseCents: 0, merchandiseIvaCents: 0, shippingCents: 2000, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0, status: 'failed', failedAt: ahora, failureCode: 'ceq1', requestedByUserId: db.adminId, requestedByRole: 'super_admin' },
+  });
+  const merma = [await db.mkPiece({ status: 'lost' }), await db.mkPiece({ status: 'damaged' })];
+  await h.prisma.inventoryMovement.createMany({
+    data: [
+      { itemId: merma[0].id, fromStatus: 'in_stock', toStatus: 'lost', reason: 'lost', actorUserId: db.operatorId, note: 'CEQ1 merma' },
+      { itemId: merma[1].id, fromStatus: 'in_stock', toStatus: 'damaged', reason: 'damaged', actorUserId: db.operatorId, note: 'CEQ1 merma' },
+    ],
+  });
+
   return { setId: set.id, userId: cliente.id };
 }
 
@@ -1143,7 +1220,16 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
     expect(pendientes).toEqual([
       // ⭐ `EQ-D1` lote 2 (este pase): 5 ejes de ORDEN/RANGO cuya CONDUCTA ya conforma pero cuya fila
       // de §0-Q punto 4 sigue pendiente del arquitecto (regla 9).
+      // ⭐ §M4-SHIP (QA BLOQ-2(a), v1.80.7.1 `D-EQ-4`): los SIETE ejes del stream «Pedidos por preparar» — clase
+      // decidida (§M4-SHIP.1: E/E/E/E/L + `?reason=` L), conducta medida aquí, fila de §0-Q punto 4 pendiente.
+      'GET /admin/finance/shrinkage?reason=',
       'GET /admin/inventory/master-sets?sort=',
+      'GET /admin/manual-refunds?status=',
+      'GET /admin/refunds?kind=',
+      'GET /admin/refunds?requestedByRole=',
+      'GET /admin/refunds?status=',
+      'GET /admin/replacement-cases?source=',
+      'GET /admin/replacement-cases?state=',
       // ⛔ `GET /admin/shipments/picking-list?destination=` estuvo aquí en v1.78 y **SALIÓ en
       // v1.78.1**: el arquitecto escribió su fila en §0-Q punto 4 (`API_CONTRACT.md:5231`). Es el
       // movimiento que esta lista existe para hacer visible — una pendiente se cierra **por el
@@ -1284,8 +1370,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // sale del registro; lo que cambia es **quién debe algo**. Los dos números se leen juntos a
     // propósito: 44 fijo y 12→11 dice «se pagó una deuda», y 44→45 diría «entró un eje».
     // ⛔ Subir cualquiera de los dos sin una fila nueva justificada arriba es lo que esto impide.
-    expect(REGISTRO.length).toBe(44);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(11);
+    // ⭐ 44 → **51** y 11 → **18** (§M4-SHIP, QA BLOQ-2(a) sobre `c20451f`): SIETE ejes nuevos con clase decidida
+    // (v1.80.7.1 §M4-SHIP.1) y SIN fila en §0-Q (`D-EQ-4`). Subir el literal es a propósito la conversación que el
+    // trinquete exige: los 18 pendientes bajan a 11 cuando el arquitecto escriba las siete filas — ⛔ no retirándolos.
+    expect(REGISTRO.length).toBe(51);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que
@@ -1315,9 +1404,14 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `GET /admin/settings/iva-transfer/preview`. **El arquitecto los autorizó CON su costo
     // contabilizado**, y ése es el punto: subir un tope no es gratis ni silencioso — se paga
     // nombrando la ruta, la clase medida de cada eje y la rev que lo autoriza.
+    // ⭐ **38 → 44 (§M4-SHIP v1.80.x, QA BLOQ-2(a) sobre `c20451f`):** seis ejes SIN enum detrás, cada uno con su
+    // clase medida y su línea del contrato: `GET /admin/finance/shrinkage?from=&to=` (fechas, §M4-SHIP.17.5),
+    // `GET /admin/refunds?from=&to=` (fechas, §M4-SHIP.17.5), `GET /admin/replacement-cases?overdue=` (bandera
+    // booleana, §M4-SHIP.15.13) y `GET /admin/replacement-cases/:id/refund-preview?amountCents=` (entero,
+    // §M4-SHIP.15.5). Los SIETE de dominio cerrado del mismo stream NO vienen aquí: van al `REGISTRO` (E/L).
     // ⛔ `NO_ENUM_TRANSVERSAL` **NO se toca**: su `toEqual` de 14 nombres queda igual (la exención
     // es de ESTA ruta, no del nombre).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(38);
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(44);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`
@@ -1410,6 +1504,28 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         // «Query: `?missing=location|price&acquisitionType=&setId=&page=&pageSize=`»
         re: /Query: `\?missing=([a-z|]+)&/,
         enunciado: /enum\s+\w*Missing\w*\s*\{/,
+        // ⭐ v1.80.7.1 (BLOQ-2(b), §4.37 «homónimo = mismo DOMINIO, no mismo nombre»): `enum MissingReason { not_found
+        // damaged }` (M-61) casa la regex de NOMBRE pero nombra *por qué una carta física no sale*, mientras `?missing=`
+        // nombra *qué le falta a una fila para publicarse*: dominios DISJUNTOS. Excepción NOMBRADA con aserción: sus
+        // valores en `schema.prisma` (en disco) ∩ el literal = ∅ — el día que alguien añada `location`|`price` al enum,
+        // la excepción muere sola y el eje se reclasifica. ⛔ No se renombra un enum de BD para contentar una regex.
+        homonimosDeNombre: [{ enum: 'MissingReason', porque: 'motivo persistido de una carta que no sale (not_found|damaged), no el modo de consulta location|price' }],
+      },
+      {
+        // ⭐ §M4-SHIP — `?state=` de `GET /admin/replacement-cases`: clase L, computado (`closed ⇔ status ≠ open`).
+        // Línea del endpoint: «`?state=open|closed` (clase L; defecto `open`)».
+        param: 'state',
+        literal: REPLACEMENT_CASE_STATE_VALUES,
+        re: /`\?state=([a-z|]+)` \(clase L; defecto `open`\)/,
+        enunciado: /enum\s+\w*ReplacementCaseState\w*\s*\{/,
+      },
+      {
+        // ⭐ §M4-SHIP — `?reason=` de `GET /admin/finance/shrinkage`: clase L, dos valores de `InventoryStatus` (la
+        // ENTRADA a merma), sin enum propio. Línea del endpoint: «`?from=&to=&actorUserId=&reason=lost|damaged`».
+        param: 'reason (merma)',
+        literal: SHRINKAGE_REASON_VALUES,
+        re: /`\?from=&to=&actorUserId=&reason=([a-z|]+)/,
+        enunciado: /enum\s+\w*ShrinkageReason\w*\s*\{/,
       },
       {
         param: 'axis',
@@ -1459,10 +1575,21 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
       expect([...l.literal].sort()).toEqual(delContrato.sort());
     });
 
-    it.each(L.map((l) => [l.param, l] as const))('`?%s=` — ⛔ no existe enum homónimo en `schema.prisma`', (_p, l) => {
+    it.each(L.map((l) => [l.param, l] as const))('`?%s=` — ⛔ no existe enum homónimo (de DOMINIO) en `schema.prisma`; los homónimos de NOMBRE van declarados y son disjuntos', (_p, l) => {
       // Si existe la columna, existe la clase E y el literal es el bug de `SealedSubtype`/`upc`
-      // esperando a repetirse (§4.37: «lo que L NO autoriza»).
-      expect(l.enunciado.test(schema)).toBe(false);
+      // esperando a repetirse (§4.37: «lo que L NO autoriza»). ⭐ v1.80.7.1: la regex de nombre es la heurística;
+      // (a) todo enum que la case tiene que estar DECLARADO en `homonimosDeNombre` (⛔ la regex no cambia), y
+      // (b) los valores de cada declarado, leídos del schema EN DISCO, son disjuntos del literal — una excepción
+      // sin aserción sería una lista blanca. Mutación: añadir `location` a `enum MissingReason` en una copia ⇒ rojo.
+      const declarados = (l.homonimosDeNombre ?? []).map((x) => x.enum);
+      const casan = [...schema.matchAll(/^enum\s+(\w+)\s*\{/gm)].map((m) => m[1]).filter((name) => l.enunciado.test(`enum ${name} {`));
+      expect(casan.filter((name) => !declarados.includes(name))).toEqual([]);
+      for (const name of declarados) {
+        const block = new RegExp(`^enum\\s+${name}\\s*\\{([\\s\\S]*?)^\\}`, 'm').exec(schema);
+        if (!block) throw new Error(`homónimo declarado ${name} no existe en schema.prisma: retira la excepción`);
+        const valores = block[1].split('\n').map((v) => v.replace(/\/\/.*$/, '').trim()).filter((v) => v.length > 0 && !v.startsWith('@@'));
+        expect(valores.filter((v) => (l.literal as readonly string[]).includes(v))).toEqual([]);
+      }
     });
   });
 });

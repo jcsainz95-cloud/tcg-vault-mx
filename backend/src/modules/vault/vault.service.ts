@@ -6,6 +6,7 @@ import {
   GradingCompany,
   InventoryItem,
   InventoryStatus,
+  MissingReason,
   OwnershipStatus,
   Prisma,
   ProductType,
@@ -22,6 +23,7 @@ import { variantKey } from '../../common/variant-key';
 import { CardDTO, toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+import { originsBeingRefunded } from '../payments/refunds/origin';
 
 // v1.17: etapas de un envío ACTIVO (subconjunto expuesto en HoldingDTO.shipmentState).
 // `entregado` no aparece (el item ya es `withdrawn` y sale de holdings) y `cancelado`
@@ -82,6 +84,31 @@ const PORTFOLIO_HISTORY_RANGE_DEFAULT: PortfolioHistoryRange = '1m';
  * aditivo/retrocompatible), así que quedan `?` aquí; lo que el tipo garantiza es que los **comunes**
  * están en LAS DOS ramas.
  */
+/** ⭐ v1.80.7 (§3): por qué una pieza no es retirable; `null` ⇔ retirable. */
+export type WithdrawableReason = 'pending' | 'replacing' | 'not_in_custody' | 'in_withdrawal' | 'origin_refunded' | null;
+
+/**
+ * ⭐ v1.80.7 (§3) — UN cuerpo para `withdrawable` y `withdrawableReason`, evaluado EN ESTE ORDEN (la primera condición
+ * que falla nombra el motivo): `pending` ⇔ `ownershipStatus ≠ 'settled'` · `replacing` ⇔ `status ≠ 'in_custody'` con
+ * caso «Por reponer» abierto · `not_in_custody` ⇔ `status ≠ 'in_custody'` sin caso · `in_withdrawal` ⇔ envío activo ·
+ * `origin_refunded` ⇔ la quinta condición de §5 (`originsBeingRefunded`). Es la proyección de los rechazos de
+ * `classifyItems` (`ITEM_NOT_SETTLED` / `ITEM_NOT_IN_CUSTODY` / `ITEM_IN_ANOTHER_SHIPMENT` / `ITEM_ORIGIN_REFUNDED`),
+ * ⛔ no una segunda regla. Invariante: `withdrawable === (withdrawableReasonOf(...) === null)`.
+ */
+export function withdrawableReasonOf(p: {
+  ownershipStatus: OwnershipStatus | null;
+  status: InventoryStatus;
+  hasOpenCase: boolean;
+  shipmentState: ShipmentStatus | null;
+  originRefunding: boolean;
+}): WithdrawableReason {
+  if (p.ownershipStatus !== 'settled') return 'pending';
+  if (p.status !== 'in_custody') return p.hasOpenCase ? 'replacing' : 'not_in_custody';
+  if (p.shipmentState !== null) return 'in_withdrawal';
+  if (p.originRefunding) return 'origin_refunded';
+  return null;
+}
+
 export interface HoldingDTO {
   inventoryItemId: string;
   folio: string;
@@ -98,7 +125,19 @@ export interface HoldingDTO {
   activeShipmentId: string | null;
   /** v1.17.1: flag AUTORITATIVO anti doble-retiro (mismo criterio read/write que `classifyItems`). */
   withdrawable: boolean;
+  /**
+   * ⭐ v1.80.7 (§3, aditivo, clave siempre presente): POR QUÉ `withdrawable` es `false`. Invariante
+   * `withdrawable === (withdrawableReason === null)`; es la proyección de los rechazos de `classifyItems`
+   * (`withdrawableReasonOf`, un cuerpo, evaluado en orden).
+   */
+  withdrawableReason: WithdrawableReason;
   referenceValue: PriceInfo;
+  /**
+   * ⭐ v1.80.1 (§M4-SHIP.15.8): caso «Por reponer» ABIERTO de esta pieza («la estamos reponiendo»). ⛔ Sin actor, sin
+   * cifras de mercado, sin candidatas. `refund` queda `null` mientras el caso está abierto (v1.80.2: un caso
+   * `refunded` manda la original a plataforma y sale de «Mi bóveda»; la cifra la ve el cliente en su pedido/retiro).
+   */
+  replacement: { status: 'open'; reason: MissingReason; since: string; refund: null } | null;
   // v1.42 (BLOQ-2a): identidad de sellado — presente SOLO para `productType='sealed'`.
   sealedProductId?: string | null;
   sealedProductName?: string;
@@ -179,6 +218,17 @@ export class VaultService {
     // v1.80.1 (SK-5): el dial del sellado se iza UNA vez por petición, y solo si hay sellado que gatear
     // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
     const sourceOn = await this.pricing.sealedSourceOnFor(items);
+    // ⭐ v1.80.1 (§M4-SHIP.15.8): casos «Por reponer» ABIERTOS de estas piezas — UNA consulta.
+    const openCases = itemIds.length
+      ? await this.prisma.replacementCase.findMany({
+          where: { originalInventoryItemId: { in: itemIds }, status: 'open' },
+          select: { originalInventoryItemId: true, missingReason: true, openedAt: true },
+        })
+      : [];
+    const openCaseByItem = new Map(openCases.map((c) => [c.originalInventoryItemId, c]));
+    // 🔒 v1.80.5 (SEC-SHIP-A5 (b), §5): quinta condición de `classifyItems`, el MISMO cuerpo — la carta cuya compra de
+    // origen se está reembolsando (orden no `settled` o con fila `order_full` no fallida) NO es retirable.
+    const refunding = await originsBeingRefunded(this.prisma, userId, itemIds);
 
     let totalValueMxnCents = 0;
     let pendingPriceCount = 0;
@@ -186,6 +236,8 @@ export class VaultService {
     // sin tipo una rama podía perder un requerido y la otra no — y el test solo mira la que eligió.
     const data: HoldingDTO[] = [];
     for (const item of items) {
+      // v1.6-finish / v1.53 / v1.80.1 (SK-5): valúa con `valuate` — el MISMO cuerpo que `marketValueOf` (el `M` del
+      // reembolso de un caso «Por reponer», §M4-SHIP.15.5); aquí con el dial del sellado izado UNA vez por petición.
       const referenceValue = await this.valuate(item, sourceOn);
       if (referenceValue.status === 'priced' && referenceValue.referenceMxnCents != null) {
         totalValueMxnCents += referenceValue.referenceMxnCents;
@@ -200,10 +252,16 @@ export class VaultService {
       // (shipments.service): settled + EN CUSTODIA + sin envío activo. El `status==='in_custody'`
       // es imprescindible: la query filtra `status != 'withdrawn'`, pero un item `settled` puede
       // estar `lost`/`damaged` (sigue en la bóveda) y NO debe ser retirable.
-      const withdrawable =
-        item.ownershipStatus === 'settled' &&
-        item.status === 'in_custody' &&
-        shipmentState === null;
+      const openCase = openCaseByItem.get(item.id);
+      // ⭐ v1.80.7: el motivo y el flag salen del MISMO cuerpo (`withdrawableReasonOf`), en el orden del contrato.
+      const withdrawableReason = withdrawableReasonOf({
+        ownershipStatus: item.ownershipStatus,
+        status: item.status,
+        hasOpenCase: !!openCase,
+        shipmentState,
+        originRefunding: refunding.has(item.id),
+      });
+      const withdrawable = withdrawableReason === null;
       // v1.42 (BLOQ-2a, §4.34a): identidad de sellado presente SOLO para productType='sealed' (ausente en
       // raw/graded; aditivo/retrocompatible). `card` se conserva (pertenencia al set + fallback). Reusa el
       // MISMO resolver de cascada de `/vault/sealed` para no pintar la caja como la carta ancla («Tropius»).
@@ -236,10 +294,14 @@ export class VaultService {
         shipmentState,
         activeShipmentId,
         withdrawable,
+        withdrawableReason,
         // v2.1.6 (S48-M2): el cliente NO es `vault_operator+`, así que la PROCEDENCIA no viaja. Su
         // bóveda es superficie autenticada pero no operativa: el dueño de la carta necesita el VALOR
         // y su frescura, no de qué feed salió ni si alguien lo fijó a mano.
         referenceValue: toPublicPriceInfo(referenceValue),
+        replacement: openCase
+          ? { status: 'open', reason: openCase.missingReason, since: openCase.openedAt.toISOString(), refund: null }
+          : null,
         // v1.42 (BLOQ-2a): campos de sellado (solo sealed; {} en raw/graded).
         ...sealedFields,
       });
@@ -248,6 +310,27 @@ export class VaultService {
       data,
       portfolio: { totalValueMxnCents, pendingPriceCount, currency: 'MXN' as const },
     };
+  }
+
+  /**
+   * ⭐ v1.80.1 (§M4-SHIP.15.5) — `marketValueOf(pieza)`: LA valuación de «Mi bóveda», extraída a un cuerpo para que el
+   * reembolso de un caso «Por reponer» (`M`, mercado hoy) use **la misma** y ⛔ no una segunda. v1.53 (§4.40.4b,
+   * MONEY): sin identidad de slab NO HAY REFERENCIA ⇒ `pending` (antes se valuaba como un PSA 10, lo que inflaba el
+   * patrimonio del cliente y el pasivo de custodia). v1.6-finish: contra la referencia del ACABADO de la pieza.
+   */
+  async marketValueOf(item: Parameters<PricingService['valuationKeyFor']>[0]): Promise<PriceInfo> {
+    // Fusión release-s5: `envio-preparar` extrajo este cuerpo del listado ANTES de SK-5 (v1.80.1) y D-4 (v1.80.2.2);
+    // el listado ganó después `valuate` + el dial del sellado. Para que siga siendo UNA valuación (la regla de
+    // §M4-SHIP.15.5) se delega en `valuate` con el dial de un lote de una pieza — como `holdingDetail`.
+    const sourceOn = await this.pricing.sealedSourceOnFor([item]);
+    return this.valuate(item, sourceOn);
+  }
+
+  /** `M` del reembolso de un caso (§M4-SHIP.15.5): `{cents, capturedDate}` si `priced`, si no `null`. */
+  async marketRefOf(item: Parameters<VaultService['marketValueOf']>[0]): Promise<{ cents: number; capturedDate: string } | null> {
+    const ref = await this.marketValueOf(item);
+    if (ref.status !== 'priced' || ref.referenceMxnCents == null) return null;
+    return { cents: ref.referenceMxnCents, capturedDate: ref.capturedDate ?? '' };
   }
 
   /**

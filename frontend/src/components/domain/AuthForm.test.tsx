@@ -208,7 +208,9 @@ describe('AuthForm — 429 TOO_MANY_PASSWORD_ATTEMPTS (v1.80, C7)', () => {
     expect(alert).toHaveTextContent(
       'Demasiados intentos con este correo. Vuelve a intentarlo en 3 minutos, o restablece tu contraseña.',
     );
-    const link = within(alert).getByRole('link', { name: 'restablece tu contraseña' });
+    // Fusión release-s5: el enlace es la clave propia `auth.login.rateLimitedResetLink` (DESIGN_SYSTEM §37.13),
+    // no un tramo enriquecido de la frase.
+    const link = within(alert).getByRole('link', { name: 'Restablecer contraseña' });
     expect(link).toHaveAttribute('href', '/forgot-password');
     expect(alert.textContent).not.toMatch(/bloquead/i);
     expect(push).not.toHaveBeenCalled();
@@ -222,7 +224,7 @@ describe('AuthForm — 429 TOO_MANY_PASSWORD_ATTEMPTS (v1.80, C7)', () => {
     expect(alert).toHaveTextContent(
       'Too many attempts with this email. Try again in 1 minute, or reset your password.',
     );
-    expect(within(alert).getByRole('link', { name: 'reset your password' })).toHaveAttribute(
+    expect(within(alert).getByRole('link', { name: 'Reset password' })).toHaveAttribute(
       'href',
       '/forgot-password',
     );

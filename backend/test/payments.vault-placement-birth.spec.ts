@@ -1,4 +1,5 @@
 import { PaymentsService } from '../src/modules/payments/payments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
@@ -67,6 +68,9 @@ function makeHarness() {
       create: rec('vaultPlacementItem.create'),
     },
   };
+  // v1.80.1 (§M4-SHIP.15.9): el contracargo `vault` resuelve la pieza VIGENTE por la cadena de casos (`replacementCase`,
+  // `orderItem`): delegados INERTES para las pruebas que no miden eso (se miden contra Postgres real).
+  withM61Defaults(tx);
   let inTx = false;
   const prisma: any = {
     order: { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },

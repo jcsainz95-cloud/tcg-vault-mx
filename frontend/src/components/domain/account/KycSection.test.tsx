@@ -14,7 +14,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 function kyc(partial: Partial<KycInfoDTO> = {}): KycInfoDTO {
-  return { kycStatus: 'none', clabeOnFile: false, ineOnFile: false, ...partial };
+  return { kycStatus: 'none', clabeOnFile: false, ineOnFile: false, clabeUpdatedAt: null, ...partial };
 }
 
 beforeEach(() => {
@@ -105,5 +105,39 @@ describe('KycSection · los cuatro estados tienen salida (§34.8)', () => {
     renderWithProviders(<KycSection />, 'es');
     await screen.findByText('Sin INE en tu expediente');
     expect(getKyc).toHaveBeenCalled();
+  });
+});
+
+/**
+ * ⭐ v1.80.7 (`DESIGN_SYSTEM §37.9d` · contrato §M6 `clabeUpdatedAt`, clave siempre presente): bajo la CLABE
+ * enmascarada, «CLABE actualizada el {date}»; `null` ⇒ ⛔ nada (fecha desconocida no se inventa).
+ */
+describe('KycSection · v1.80.7 · «CLABE actualizada el …»', () => {
+  it('con `clabeUpdatedAt` ⇒ la fecha, formateada, bajo la CLABE enmascarada', async () => {
+    getKyc.mockResolvedValue(kyc({ clabeMasked: '****1234', clabeOnFile: true, clabeUpdatedAt: '2026-09-27T15:04:05Z' }));
+    renderWithProviders(<KycSection />, 'es');
+    const line = await screen.findByTestId('kyc-clabe-updated-at');
+    expect(line).toHaveTextContent('CLABE actualizada el 27 sep 2026');
+  });
+
+  it('en inglés, la misma línea con su copy', async () => {
+    getKyc.mockResolvedValue(kyc({ clabeMasked: '****1234', clabeOnFile: true, clabeUpdatedAt: '2026-09-27T15:04:05Z' }));
+    renderWithProviders(<KycSection />, 'en');
+    expect(await screen.findByTestId('kyc-clabe-updated-at')).toHaveTextContent('CLABE updated on Sep 27, 2026');
+  });
+
+  it('`clabeUpdatedAt: null` con CLABE en archivo ⇒ NO se pinta ninguna fecha', async () => {
+    getKyc.mockResolvedValue(kyc({ clabeMasked: '****1234', clabeOnFile: true, clabeUpdatedAt: null }));
+    renderWithProviders(<KycSection />, 'es');
+    expect(await screen.findByText('****1234')).toBeInTheDocument();
+    expect(screen.queryByTestId('kyc-clabe-updated-at')).not.toBeInTheDocument();
+    expect(screen.queryByText(/CLABE actualizada el/)).not.toBeInTheDocument();
+  });
+
+  it('sin CLABE en archivo ⇒ nada, aunque llegara una fecha residual', async () => {
+    getKyc.mockResolvedValue(kyc({ clabeOnFile: false, clabeUpdatedAt: '2026-09-27T15:04:05Z' }));
+    renderWithProviders(<KycSection />, 'es');
+    expect(await screen.findByText('Sin CLABE registrada')).toBeInTheDocument();
+    expect(screen.queryByTestId('kyc-clabe-updated-at')).not.toBeInTheDocument();
   });
 });

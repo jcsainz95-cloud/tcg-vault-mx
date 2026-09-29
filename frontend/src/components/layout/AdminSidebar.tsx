@@ -4,11 +4,18 @@ import { useTranslations } from 'next-intl';
 import { Link, usePathname } from '@/i18n/navigation';
 import { useRole } from '@/lib/role';
 import { cn } from '@/lib/cn';
+import { usePickingSummary } from '@/hooks/usePickingSummary';
+import type { PickingListSummaryDTO } from '@/types/contract';
 
 export interface Item {
   href: string;
   key: string;
   superAdminOnly?: boolean;
+  /**
+   * v1.80 (§M4-SHIP.11 · `DESIGN_SYSTEM §37.11b`): el badge del menú es el contador DERIVADO del
+   * `summary`. `null` ⇒ sin badge (cero o dato que el rol no recibe). El número ES el aviso.
+   */
+  badge?: (s: PickingListSummaryDTO) => { count: number; overdue?: boolean } | null;
 }
 
 /**
@@ -30,7 +37,26 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
     items: [
       { href: '/admin/m5', key: 'm5' },
       { href: '/admin/m3', key: 'm3' },
-      { href: '/admin/m4', key: 'm4' },
+      // v1.80.2 (§37.9): la cubeta SPEI y la vigilancia de reembolsos de operador (§37.11b, D-13) son del
+      // súper-admin y solo de él. `manualRefundsPending` es `null` para el operador ⇒ sin badge.
+      // Fusión release-s5: se conserva la posición que trae envío («junto a» Ventas, §37.9); el grupo de
+      // dinero en el que vivía ya no existe en el menú de §37.2b — su grupo final lo decide ux-ui/dueño.
+      {
+        href: '/admin/manual-refunds',
+        key: 'manualRefunds',
+        superAdminOnly: true,
+        badge: (s) => (s.manualRefundsPending ? { count: s.manualRefundsPending } : null),
+      },
+      { href: '/admin/refunds', key: 'refunds', superAdminOnly: true },
+      // v1.80 «Pedidos por preparar»: badge = envíos + bóveda + por reponer (§M4-SHIP.11).
+      {
+        href: '/admin/m4',
+        key: 'm4',
+        badge: (s) => {
+          const count = s.ship + s.vault + s.toReplace;
+          return count > 0 ? { count, overdue: s.toReplaceOverdue > 0 } : null;
+        },
+      },
       { href: '/admin/m8', key: 'm8' },
     ],
   },
@@ -113,6 +139,13 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const t = useTranslations('admin');
   const pathname = usePathname();
   const { isSuperAdmin } = useRole();
+  const summary = usePickingSummary();
+
+  function badgeFor(item: Item) {
+    if (!item.badge || !summary.data) return null;
+    if (item.superAdminOnly && !isSuperAdmin) return null;
+    return item.badge(summary.data);
+  }
 
   return (
     <nav className="flex flex-col gap-6 px-[22px] pb-8 pt-6">
@@ -127,6 +160,12 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
             {g.items.map((item) => {
               const active = isActiveHref(pathname, item.href);
               const locked = item.superAdminOnly && !isSuperAdmin;
+              const badge = badgeFor(item);
+              const badgeLabel = badge
+                ? item.key === 'manualRefunds'
+                  ? t('modules.manualRefundsBadge', { count: badge.count })
+                  : `${t('modules.m4Badge', { count: badge.count })}${badge.overdue ? ` · ${t('modules.m4BadgeOverdue')}` : ''}`
+                : null;
               return (
                 <li key={item.href}>
                   <Link
@@ -144,6 +183,19 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
                     title={locked ? t('masked') : undefined}
                   >
                     <span>{t(`modules.${item.key}`)}</span>
+                    {badge && badgeLabel && (
+                      <span
+                        data-testid={`nav-badge-${item.key}`}
+                        aria-label={badgeLabel}
+                        title={badgeLabel}
+                        className={cn(
+                          'tabular ml-auto font-mono text-[11px] leading-none',
+                          badge.overdue ? 'text-accent' : 'text-on-ink-muted',
+                        )}
+                      >
+                        {badge.count}
+                      </span>
+                    )}
                     {item.superAdminOnly && (
                       <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-on-ink-muted">
                         {t('superAdminTag')}
