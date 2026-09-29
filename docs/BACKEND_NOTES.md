@@ -28,6 +28,98 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.58 — ⭐⭐ **v1.80.2.2: séptimo lector de SK-5 (export `.xlsx`), BC-9 en tres partes y deuda D-1/D-2/D-4 del techlead** (2026-09-29)
+
+> Contrato v1.80.2.2 — §M2-SK SK-5 errata «séptimo lector» (ancla `M2-SK-5-7`) y §M2-B.11 punto 7 BC-9 (ancla
+> `M2-B11-BC9`) + punto 8; ARCHITECTURE §4.50.6 (D-SK-4, D-BC-1). Deuda del techlead sobre `a3cde51`: D-1, D-2, D-4
+> (D-3 = D-BC-1, D-5 = D-SK-4). Zona de dinero (`inventory`, `buylist`, `pricing`, `vault`, `admin`). Sin schema,
+> sin migración, sin endpoint nuevo, sin campo en DTO, sin cabecera nueva en el `.xlsx`. Rama `claude/paquete-dinero`,
+> cuatro commits sobre `b8edfa7`: `b338886` (punto 1), `cd696a3` (punto 2 + D-2), `2cf50c6` (D-1 + D-4), y el de
+> estas notas.
+
+### 0.58.1 — Qué cambió, por punto
+
+1. **Export `.xlsx` = séptimo lector de patrimonio (`b338886`).** `inventory.service.ts` `exportInventoryXlsx`: la
+   llave de cada fila sale de `PricingService.valuationKeyFor(it)` (`:3216`; sellado mapeado ⇒ `sealed:tcg:<id>` bajo
+   `normal`, sin mapeo ⇒ `null`, graduada sin slab ⇒ `null`), `refs` y `ovByKey` se llavean con `variantKey()`
+   (`:3234`, `:3263`), el monto pasa por `valuationCentsOf(it, ref, sourceOn)` (`:3265`) y el dial se iza una vez por
+   export (`:3223`). `exportGradeKey` **retirado** (`:3297`, queda la nota de por qué). Columnas y cabeceras intactas;
+   `buyMxn`/`sellMxn` con la misma regla (`ov?.buyOverrideCents`; `firstPresentAmount(listPriceCents,
+   sellOverrideCents)`).
+2. **BC-9 en tres partes (`cd696a3`).** `buylist.service.ts` `publicBounties` (`:1324-1335`): por fila
+   `q = quoteAcquisitionWithGuard(referenceMxnCents, curve, r)`; presente ⇔ `q.basis === 'bounty' ∧
+   premiumFloorGuard(rareza, q.guardBasis) === 'ok'`; publica `q.priceCents`. Se retiran la composición manual
+   (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + `quoteAcquisitionFromCurve` ×2) y sus imports.
+   `variant-pricing.ts` `composeVariantPricing` (`:197-200`): `effective = buy.basis === 'bounty'`;
+   `payoutCents = effective && !buyGuarded ? buy.priceCents : null`; `cappedByMarket` sin cambio. Desde `src`, fuera de
+   `common/money.ts`, ya no se importa `bountyPayoutCents` ni `bountyGuardBasis`; `isBountyEffective` queda en sus dos
+   llamadores (`variant-controls.service.ts` gate del alta; `buylist.service.ts` `positionAndSuggestion`).
+3. **D-1 / D-4 (`2cf50c6`).** `PricingService.sealedSourceOnFor(items)` (`pricing.service.ts:1257`) = «dial del
+   sellado, una lectura por petición y solo si hay sellado»; lo consumen los siete lectores (`admin.service.ts:1031,
+   1630, 1668`; `vault.service.ts:181, 404, 519`; `admin-vaults.service.ts:136`; export `:3223`). Los lectores llavean
+   el lote con `variantKey()` (`admin.service.ts:1013` productor de `ownedItemRefs`, `:1039`, `:1645`;
+   `vault.service.ts:428`; `admin-vaults.service.ts:149`). `/vault/sealed` (`:404`) pasa de leer el dial siempre a
+   leerlo solo si hay piezas (con la bóveda sellada vacía no hay nada que gatear; la respuesta no cambia).
+4. **D-2 (`cd696a3`).** El candado léxico de `pricing.bounty-guard.spec.ts` es ahora un censo cerrado al patrón VK-6:
+   `quoteAcquisitionFromCurve` aparece en código solo en `common/money.ts` (2) y `variant-controls.service.ts` (2), y
+   fuera de `money.ts` ninguna llamada lleva tercer argumento. Instrumento compartido nuevo:
+   `backend/test/helpers/ident-census.ts` (`walkSources`, `countIdentUses`, `identCensus`, `methodBody`,
+   `topLevelBody`, `callArgCounts`), usado por VK-6, BC-9(b) y este candado — una copia del recorrido, no tres.
+
+### 0.58.2 — Decisiones que el contrato dejaba abiertas (para QA/techlead/arquitecto)
+
+- **Censo de `isBountyEffective` (BC-9(b)):** el contrato dice «solo en un censo cerrado de **dos** llamadores». El
+  identificador aparece en código en **cuatro** ficheros: la definición (`common/pricing-curve.ts`, 1), el peldaño 1
+  (`common/money.ts`, import + uso = 2) y los dos llamadores del contrato (`variant-controls.service.ts` 2,
+  `buylist.service.ts` 2; import + uso cada uno, porque el censo cuenta imports como VK-6). La lista cerrada del spec
+  lleva los cuatro con su razón; «dos llamadores» = los dos fuera de `common/`. No es discrepancia, es la forma
+  concreta del censo.
+- **Presencia en la vitrina con `=== 'ok'`** (antes `!== 'premium_at_floor'`): es la forma del contrato; `GuardVerdict`
+  solo tiene esos dos valores, así que la conducta es idéntica.
+- **El export iza el dial con `sealedSourceOnFor(items)`** (D-4) y no con `loadSealedSpreads()` directo como dice
+  literalmente la errata: por debajo es la misma lectura, una vez, y solo si el export trae sellado. Matiz: un export
+  sin sellado hace **cero** lecturas del dial (la errata dice «una vez por export»; el valor no se usaría).
+- **`ovByKey` para sellado busca bajo `finish:'normal'`** (la llave de valuación), no bajo el `finish` de la pieza.
+  Por lectura no hay fila M-30 con `productType:'sealed'` (`variant-controls.service.ts:123-125` acota el write a
+  `raw`/`graded`), así que ninguna celda `Compra`/`Venta` cambia. **NO MEDIDO** en la BD de producción.
+- **Doble del export (nota de fixture del contrato):** `valuationKeyFor`/`valuationCentsOf`/`tryGradeKeyFor`/
+  `gateSealedMarketCents`/`sealedSourceOnFor` se toman de `PricingService.prototype`; solo `getReferencesBatch` y
+  `loadSealedSpreads` están doblados. Trece dobles más ganaron `sealedSourceOnFor` (delegan en su
+  `loadSealedSpreads` doblado): la causa única medida fue `sealedSourceOnFor is not a function` (130/130).
+- **Lo que queda apuntado en `TECH_DEBT.md`:** tres llaves de variante a mano fuera de SK-5 (`inventory.service.ts:1656`,
+  `master-set.service.ts:1044`, `price-ingest.service.ts:1018`), fuera del alcance de D-1.
+
+### 0.58.3 — Pruebas y mediciones (autor: backend; 2026-09-29; sobre copias del árbol entero, N=1 por mutación —
+todas deterministas: escaneo de fuente o cálculo puro)
+
+| Punto | Rojo antes (sobre el sha previo) | Verde después | Mutaciones (muerden / total) |
+|---|---|---|---|
+| 1 SK-5 export | VK-8a (800 en vez de vacía), VK-8b (vacía en vez de 2500), VK-8c ×3 (2500 con dial apagado; 0 lecturas del dial), VK-6 censo (5≠4) y VK-6 por método — 7 rojas | `inventory.export-xlsx.spec.ts` 16/16, `pricing.valuation-callers-census.spec.ts` 10/10 | llave `'sealed'` ⇒ VK-8a; `it.finish` ⇒ VK-8b; sin gate ⇒ VK-8c; `exportGradeKey` restaurado ⇒ VK-6 ×2 — **4/4** |
+| 2 BC-9 | BC-9(b) 4 rojas + inversión de `money.bounty-cap.spec.ts:246` + inversión de `pricing.bounty-guard.spec.ts:310` + censo D-2 (buylist con 3 usos) — 8 rojas; BC-9(c) verde (12 casos × vitrina y composer) | los tres specs + VK-6: 97/97 | peldaño 1 a mano en `publicBounties` ⇒ BC-9(b) 5 rojas; publicar `r.bountyPriceCents` ⇒ 6 rojas (1000/400/1200, 701/500, 650/500, chase sana, BC-10, «publica 1000»); filtrar sin `guardBasis` ⇒ 3 rojas (BG-6 retenida aparece, ×2 en `bounty-guard`); composer sin guardarraíl ⇒ 2 rojas (BG-6 composer + consola); tercer argumento en `variant-controls` ⇒ D-2 roja — **5/5** |
+| 3 D-1/D-4 | D-1, D-4 y la aserción por método del export rojas; `pricing.sealed-source-on.spec.ts` no compilaba | 33/33 en los tres specs; 121/121 en los 12 specs del ripple | llave a mano en `admin-vaults` ⇒ D-1; copia de `loadSealedSpreads` en `holdings` ⇒ D-4; helper que siempre lee ⇒ «sin sellado» roja; helper que siempre da `false` ⇒ «con sellado» ×2 rojas — **4/4** |
+
+- **Unitaria completa** (`npx jest`, árbol de `2cf50c6`): **360/360 suites, 5967/5967 pruebas** (base 359/5923: +1
+  suite, +44 pruebas). `tsc --noEmit` limpio; `eslint` sin errores (1 aviso preexistente, `inventory.service.ts:644`).
+- **Vecinas de bounty/composer/vitrina** (15 specs: `pricing-curve.spec.ts` BC-7, `buylist.bounties`,
+  `buylist.bounty-revalidation`, `admin-bounties.*`, `pricing.bounty-market-floor`, `master-set.*`, …): 315/315 sin editar.
+- **Integración** (Postgres propio en `:55822`, Redis en `:56822`, migraciones al día; sin MinIO — el seed avisa
+  que no sube las imágenes del INE, que no intervienen): ver el resumen final del pase; `sk5-valuation.e2e-spec.ts`
+  7/7 medido primero como validación del arnés.
+- BC-1…BC-12 y BG-1…BG-8 restantes **sin editar** (solo las dos inversiones que manda el contrato); BC-7
+  (`pricing-curve.spec.ts`) intacto.
+
+### 0.58.4 — ⚠️ Para el arquitecto (no cambié el contrato)
+
+1. **VK-6 en el contrato dice «`inventory.service.ts` baja de 5 a 4 usos»** — así quedó (import + publicación +
+   re-publicación + … = 4), con la razón reescrita sin la advertencia del export.
+2. **La errata «séptimo lector» describe el dial con `loadSealedSpreads()` «una vez por export»**; con D-4 la lectura
+   va por `sealedSourceOnFor`, que es `loadSealedSpreads()` una vez **si hay sellado** y cero veces si no. Si el
+   contrato quiere fijar «exactamente una» también para exports sin sellado, hay que decirlo; hoy VK-8c fija «una» con
+   sellado presente.
+3. **BC-9(b) «dos llamadores» de `isBountyEffective`:** el censo cerrado lleva cuatro ficheros (definición, `money.ts`
+   y los dos llamadores). Si el contrato prefiere un censo que excluya `common/`, es un cambio de redacción, no de
+   código.
+
 ## 0.57 — ⭐⭐ **v1.80.2 §M2-B.11 punto 8: el tope del bounty no se salta el guardarraíl premium** (2026-09-29)
 
 > Contrato v1.80.2 §M2-B.11 punto 8 (ancla `M2-B11-8`) · ARCHITECTURE §4.36.5(a), §4.36.6e (fila v1.80.2). Zona de

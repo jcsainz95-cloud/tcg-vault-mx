@@ -8064,3 +8064,56 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   `CHECK (coverMatchStatus IS DISTINCT FROM 'unmatched_basic_energy')`, con prueba de migración que lo fije.
 - **Comprobación de cierre:** existe la migración con los `CHECK` aprobada por el arquitecto; un `INSERT` que viole
   cada invariante falla con `23514` en la integración.
+
+## Backend · 2026-09-29 · paquete dinero v1.80.2.2 (techlead D-1…D-5 sobre `a3cde51`; ARCHITECTURE §4.50.6 D-SK-4 / D-BC-1)
+
+> Medido por backend el 2026-09-29 sobre `2cf50c6` (rama `claude/paquete-dinero`): unitaria completa **360/360 suites,
+> 5967/5967 pruebas**; mutaciones sobre copias del árbol entero, N=1 (deterministas). Detalle en `BACKEND_NOTES` §0.58.
+
+### Cerradas en este pase (con su comprobación)
+
+- **D-SK-4 (ARCHITECTURE §4.50.6) = D-5 techlead (Media) = SEC-DIN-1 seguridad (Baja) — CERRADA (`b338886`).** El export
+  `.xlsx` valúa por `valuationKeyFor` + `valuationCentsOf`; `exportGradeKey` retirado. **Comprobación:** VK-8a/b/c
+  verdes (`backend/test/inventory.export-xlsx.spec.ts`, rojas sobre `b8edfa7`: 800 / vacía / 2500); VK-6 con
+  `inventory.service.ts` en 4 usos y aserción por método; mutaciones 4/4 muerden.
+- **D-BC-1 (§4.50.6) = D-3 techlead (Media) — CERRADA (`cd696a3`).** `publicBounties` y `composeVariantPricing` consumen
+  `quoteAcquisitionWithGuard(m, curva, fila)`; cero `bountyPayoutCents`/`bountyGuardBasis` fuera de `common/money.ts`.
+  **Comprobación:** BC-9(b) (`money.bounty-cap.spec.ts`), BC-9(c) por valor (`pricing.bounty-cap.spec.ts`, 12 casos ×
+  vitrina y composer), inversiones de `money.bounty-cap.spec.ts:246` y `pricing.bounty-guard.spec.ts:310`; mutaciones
+  5/5 muerden (incluidas las tres del contrato).
+- **D-1 techlead (Media) — CERRADA (`2cf50c6`).** Los cuatro lectores SK-5 (`admin.service.ts:1013,1039,1645`,
+  `vault.service.ts:428`, `admin-vaults.service.ts:149`) y el export llavean el lote con `variantKey()`.
+  **Comprobación:** VK-6 «D-1» (0 llaves de cuatro componentes a mano en los lectores, `variantKey(` presente, el
+  productor `getReferencesBatch` llavea con `variantKey(`; canario +1/prosa); mutación 1/1.
+- **D-2 techlead (Baja) — CERRADA (`cd696a3`).** El candado de `pricing.bounty-guard.spec.ts` es un censo cerrado al
+  patrón VK-6 (comentarios fuera, imports contados, ≤ 2 argumentos fuera de `money.ts`), con el instrumento compartido
+  `test/helpers/ident-census.ts` que también usan VK-6 y BC-9(b). **Comprobación:** mutación (tercer argumento en
+  `variant-controls.service.ts`) 1/1.
+- **D-4 techlead (Baja) — CERRADA (`2cf50c6`).** `PricingService.sealedSourceOnFor(items)` sustituye a las 6 copias (y a
+  la lectura incondicional de `vault.service.ts` `/vault/sealed`). **Comprobación:** VK-6 «D-4» (los lectores no llaman
+  a `loadSealedSpreads`), `test/pricing.sealed-source-on.spec.ts` (sin sellado ⇒ `false` sin leer; con sellado ⇒ el
+  dial, una vez); mutaciones 2/2.
+
+### Lo que queda
+
+### DIN-D1 · Tres llaves de variante siguen interpoladas a mano FUERA de los lectores SK-5 (backend · Inventario y vault / Catálogo y precios, 2026-09-29)
+- **Dueño:** backend. **Severidad:** Baja. **No bloqueante.**
+- **Qué es (medido 2026-09-29 sobre `2cf50c6`, `grep` de `${…}|${…}|${…}|${…}` en `src/`):**
+  `inventory.service.ts:1656` (re-publicación por variante), `master-set.service.ts:1044` (binder `resolveBuyables`) y
+  `price-ingest.service.ts:1018` (barrido de cola del ingest) llavean a mano el `Map` que produce
+  `getReferencesBatch` con `variantKey()`. Fuera del alcance de D-1 (los cuatro lectores de patrimonio). Un cambio de
+  forma de `variantKey` las dejaría sin `ref` **en silencio**: no es dinero mal (la publicación cae a `no_market`/
+  pendiente, el binder a «sin mercado», el ingest a no-match), pero es el mismo patrón que D-1 cerró.
+  (`pricing.service.ts:407` es otra llave —lleva `cardProductId`— y `sealed-graded.service.ts:270` agrupa slabs: **no**
+  son llaves de variante; se anotan para que nadie las «arregle».)
+- **Disparador:** tocar cualquiera de esos tres métodos, o cualquier cambio en `common/variant-key.ts`.
+- **Dirección:** `variantKey({ cardId, productType, gradeKey, finish })` en las tres y extender el censo
+  `countManualKeys` de VK-6 (`pricing.valuation-callers-census.spec.ts`) de los lectores SK-5 a todo `src/` con lista
+  cerrada.
+- **Comprobación de cierre:** el censo de `countManualKeys` sobre `src/` devuelve `{}` salvo la definición en
+  `variant-key.ts`; la prueba está roja con el código de hoy.
+
+### DIN-D2 · Los candados de forma son léxicos — límite conocido, aceptado por el contrato; NO es deuda nueva (backend, 2026-09-29)
+- El contrato (§M2-B.11 punto 8, v1.80.2.1) ya lo declara «límite conocido, no bloqueante»: un alias o `...args` esquiva
+  a `ident-census`/`callArgCounts`; los canarios cubren la reintroducción literal y la revisión cubre el resto. Se anota
+  aquí solo para que el próximo candado de forma no lo redescubra. **Sin disparador.**
