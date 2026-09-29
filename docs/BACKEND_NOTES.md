@@ -28,7 +28,11 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
-## 0.55 — **P-71: el código corto del set («TWM») se publica, y «Buscar set» lo encuentra** (2026-09-28, contrato v1.80, `ARCHITECTURE §4.57`)
+## 0.59 — **P-71: el código corto del set («TWM») se publica, y «Buscar set» lo encuentra** (2026-09-28, contrato v1.80, `ARCHITECTURE §4.57`)
+
+> **Renumerada 2026-09-29 (TD-10 del techlead sobre `b8a3e4ce`):** esta sección se llamaba «§0.55», igual que la del
+> tope del bounty (más abajo), que conserva el número porque es a la que citan `API_CONTRACT` y §0.57 (`§0.55.3`). Un
+> informe anterior al 2026-09-29 que diga «§0.55 P-71» se refiere a esta.
 
 > Propiedad: **backend**. Rama `claude/paquete-pantallas`, base `ffef230`. ⛔ Sin schema, sin migración, sin
 > endpoint nuevo, cero dinero: proyección de `CardSet.ptcgoCode`, que el sync ya guardaba.
@@ -26041,7 +26045,11 @@ medido durante las corridas de integración 1.25 (4 CPU). Logs en `scratchpad/ba
 | Integración de las suites que usan `ShipPrepDb` + guardas (`full-refund-vault`, `replacement-cases`, `shipments-prep`, `orders-public-status`, `inventory-move-mark-guards`) | **5/5 suites verdes**; PS-42b **10/10 con N=10** | backend (`integ-touched.log`) |
 | `enum-query-axes.e2e-spec.ts` (también usa `ShipPrepDb`) | **3 rojas de 429** (`pending-publish?acquisitionType=`, `?missing=`, `?productType=` ⇒ «FIXTURE VACÍO»: la cola sin filtro vuelve vacía). **Preexistente, no de este pase:** con los tres ficheros de prueba de `6fd55074` sobre la misma BD, las **mismas 3** rojas (`integ-enum-base.log`). Causa **NO MEDIDA** (hipótesis: estado de la BD compartida, piezas del fixture resueltas con precio). Pendiente abierto abajo | backend |
 
-**Pendiente abierto (medido 2026-09-29 sobre `0d370d96`):** `enum-query-axes.e2e-spec.ts` — 3 rojas «FIXTURE VACÍO» en
+> ✅ **CERRADO en §10.2** (2026-09-29, sobre `550bc371`): causa raíz = PS-64 de `full-refund-vault` deja `listed` la
+> única pieza de la cola y `enum-query-axes` no re-sembraba; arreglo en la víctima (re-siembra en `beforeAll`), 0/3 → 3/3
+> (N=3). Lo de abajo es el texto original del pendiente, conservado. (Anotado por TD-10 del techlead sobre `b8a3e4ce`.)
+
+**(Histórico) Pendiente abierto (medido 2026-09-29 sobre `0d370d96`):** `enum-query-axes.e2e-spec.ts` — 3 rojas «FIXTURE VACÍO» en
 `GET /admin/inventory/pending-publish` (arriba). Comprobación que lo cerraría: correrla sola contra una BD recién
 migrada (sin restos de otras suites); si sigue roja, es del fixture o del código de la cola, y es de backend.
 

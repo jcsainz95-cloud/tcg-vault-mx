@@ -8441,3 +8441,184 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Disparador:** una fila así en la cola de M3 (`workQueue`/`chargebackNeedsManual`) sin verbo que la resuelva.
 - **Comprobación de cierre:** una prueba de integración que llegue a ese estado (disputa cerrada → `retry` de M3) y un
   verbo que baje el flag con `200`, o una decisión del arquitecto que declare el estado inalcanzable y una prueba que lo asevere.
+
+---
+
+## Backend · 2026-09-29 · release s5 (7b9c196e)
+
+> Deuda **no bloqueante** del release s5, anotada por backend a petición del orquestador (DoD). Fuentes: veredicto del
+> techlead sobre `b8a3e4ce` (TD-1…TD-10), `SECURITY_NOTES` «Release s5 · 7b9c196e» (S5-1, C1, C2, PS-4) y
+> `BACKEND_NOTES` Release s5 §10.2/§12. **Cada `fichero:línea` se re-leyó el 2026-09-29** en el worktree
+> `claude/release-s5` (`HEAD` `1a5954ff`; `git diff 7b9c196e HEAD -- backend` vacío ⇒ las líneas valen para `7b9c196e`).
+> Dueño de todo: **backend**, salvo donde se dice que decide antes el arquitecto. ⛔ Ningún cambio de código en este pase.
+>
+> **Prioridad:** P1 = dinero (TD-2, TD-3, TD-4); P2 = antes de `sk_live_` sin ser dinero directo (S5-1a, C1, C2);
+> P3 = limpieza/consistencia (TD-1, TD-6, TD-7, PS-4, flake `shipments-prep`, `publish-all`). TD-10 se cerró en este
+> mismo pase (abajo).
+
+### RS5-TD-4 · P1 💰 · `failed` escrito con `update` por `id`, sin CAS, en tres sitios (**antes de `sk_live_`**)
+- **Dónde:** `backend/src/modules/orders/orders.service.ts:889-899` (`releaseReservation`: `tx.order.update({ where: { id:
+  orderId }, data: { status: 'failed' } })` en `:896`, envuelto en `.catch(() => undefined)` en `:898`); sustitución
+  `supersedeOwnOrder` `:1042`; barrido de reservas `:1181`, cuyo guardia `order.status === 'pending'` (`:1180`) es una
+  lectura **fuera** de la transacción (`findUnique` en `:1152`).
+- **Riesgo:** ninguno de los tres condiciona la escritura al estado. Hoy solo escriben `failed` cuando Stripe no creó el
+  PI (`:1309`) o cuando `closePaymentIntent` lo dejó `canceled`; la invariante «nadie saca una orden de
+  `settled`/`refunded` hacia un estado liquidable» descansa en que **un PI `canceled` nunca se cobra** — propiedad de
+  Stripe **NO MEDIDA contra Stripe real** (seguridad, §1 de su veredicto). Si falla, con dinero real sería un reembolso
+  **y** una entrega. Además el `.catch` de `:898` traga cualquier error del `update` (un `P2025` o un fallo de BD no se ve).
+- **Disparador:** antes de `sk_live_` (condición de seguridad, Baja); o cualquier nuevo llamador que escriba `failed`.
+- **Cómo se cierra:** helper único `failPendingOrder(tx, orderId) → count` (propuesta del arquitecto, `API_CONTRACT` fila
+  R-1) = `tx.order.updateMany({ where: { id, status: 'pending' }, data: { status: 'failed' } })`; los tres sitios lo
+  llaman; el barrido deja de decidir con la lectura de `:1152`. Qué hace cada llamador con `count 0` lo fija el contrato.
+- **Prueba que lo demuestra:** unitaria/integración roja hoy: orden `settled` (y `refunded`) + `releaseReservation` / sustitución
+  / barrido ⇒ el estado **no cambia** y `count === 0`. Mutación: volver a `update` por `id` ⇒ rojo. Candado estático:
+  `rg -n "data: \{ status: 'failed' \}" backend/src/modules/orders` ⇒ solo dentro de `failPendingOrder`.
+
+### RS5-TD-2 · P1 💰 · Rama «modo legado» de `onChargeRefunded` (lectura sin candado; inalcanzable en producción)
+- **Dónde:** `backend/src/modules/payments/payments.service.ts:711-720` (`if (!this.fullRefund) { … }`). El servicio se
+  inyecta `@Optional()` (`:42`). La variante del correo AV-3 en `:719` se decide con `order.status` leído **sin candado**
+  en `:693` (`findUnique` fuera de transacción).
+- **Riesgo:** bajo. Seguridad midió que en producción **no corre**: `PaymentsModule` siempre provee `FullRefundService`
+  (`payments.module.ts:19`) y ningún otro módulo provee `PaymentsService`. Aun en la rama, la escritura es CAS con
+  `CHARGE_REFUNDED_SOURCE_STATUSES`. El riesgo real es de mantenimiento: una segunda ruta del hecho «`charge.refunded`
+  total» que las pruebas unitarias ejercitan (8 ficheros hacen `new PaymentsService(`, `rg -l`) y que puede divergir de
+  la de producción sin que nada lo note.
+- **Disparador:** el próximo cambio a `onChargeRefunded` o a la lista de estados de origen.
+- **Cómo se cierra:** quitar la rama y hacer `fullRefund` obligatorio en el tipo (sin `@Optional()`), dando a las unitarias
+  un doble de `FullRefundService`; o, si alguna unitaria lo impide, que la rama lance en vez de escribir.
+- **Prueba que lo demuestra:** `rg -n "Modo legado" backend/src/modules/payments/payments.service.ts` ⇒ **0**; la suite
+  unitaria de `payments` y la integración `full-refund-vault` verdes con el doble.
+
+### RS5-TD-3 · P1 💰 · «Fue liquidada alguna vez» escrito como negación, y `status:'settled'` literal en M3
+- **Dónde:** `backend/src/modules/payments/refunds/full-refund.service.ts:374`
+  (`!isSettleableOrderStatus(head.status)` ⇒ `needsManual = true`); `backend/src/modules/payments/refunds/refund-ledger.service.ts:314`
+  (`where: { id: row.orderId, status: 'settled' }`, literal). Las listas viven en
+  `backend/src/modules/payments/settleable-order-statuses.ts:20` (`SETTLEABLE_ORDER_STATUSES`) y `:40`
+  (`CHARGE_REFUNDED_SOURCE_STATUSES`).
+- **Riesgo:** el predicado positivo «fue liquidada» (`settled|chargeback|refunded`) se deduce de «no es liquidable»
+  (`pending|failed`). Un `OrderStatus` nuevo que no sea liquidable y **nunca** se haya liquidado caería en «liquidada» y
+  abriría un falso pendiente perpetuo de `chargebackNeedsManual` (el caso que el comentario de `:370-373` describe). El
+  literal de `:314` es una tercera lista del mismo dominio fuera del fichero de listas (nota: seguridad reportó TD-3 como
+  «NO LOCALIZADO»; esta es su referencia).
+- **Disparador:** añadir un valor a `OrderStatus`, o tocar el orden del cierre M3/webhook.
+- **Cómo se cierra:** constante positiva `EVER_SETTLED_ORDER_STATUSES` (o `wasEverSettled()`) en
+  `settleable-order-statuses.ts`, usada en `:374`; `:314` usa una constante con nombre del mismo fichero. Candado de
+  exhaustividad: todo `OrderStatus` está en exactamente una de {liquidable, liquidada alguna vez} (o en una lista
+  explícita de excluidos).
+- **Prueba que lo demuestra:** unitaria que recorre `Object.values(OrderStatus)` y falla si alguno no está clasificado
+  (mutación: añadir un valor al enum en la copia ⇒ rojo); `rg -n "status: 'settled'" backend/src/modules/payments/refunds` ⇒ 0.
+
+### RS5-S5-1a · P2 · Tope absoluto de vida de la sesión: el refresh se renueva sin fin (**antes de `sk_live_`; diseño del arquitecto primero**)
+- **Dónde:** `backend/src/modules/auth/auth.service.ts:93-114` (`issueTokens`: refresh `expiresIn` 30 d **desde ahora**,
+  hereda `sid`) y `:530-567` (`refresh()`: valida `typ`, `tv`, estado; no compara ninguna fecha de nacimiento de la
+  sesión). LOW-1 del pentester, ampliado por seguridad.
+- **Riesgo:** Baja hoy (requiere XSS o el dispositivo; tokens en `localStorage`, `SEC-HDR-2` abierta). Un refresh robado
+  se encadena indefinidamente hasta que suba `tokenVersion`; con un `super_admin`, sesión perpetua con dinero saliente.
+- **Disparador:** antes de `sk_live_` (condición S5-1 de seguridad).
+- **Cómo se cierra:** ⛔ **backend no empieza sin el contrato**: el arquitecto fija la forma del claim de nacimiento
+  (viaja con el `sid`), N días y si N es menor para el personal. Luego `refresh()` rechaza `401` pasado N desde el login.
+  La pieza (b) (`SEC-HDR-2`, CSP) es de frontend, no de esta entrada.
+- **Prueba que lo demuestra:** unitaria con reloj falso: refresh encadenado hasta N−ε ⇒ `200`; más allá de N ⇒ `401`.
+  Mutación: quitar la comprobación ⇒ la segunda aserción se pone roja.
+
+### RS5-C1 · P2 · `qs` < 6.16.0 (y `body-parser`/`express`/`multer`) (**antes de `sk_live_`**)
+- **Dónde:** `backend/package.json:74` `"qs": "^6.15.3"` (y `:73` `multer`, `:75` `express`, `:76` `body-parser`).
+- **Riesgo:** 6 moderadas de `npm audit --omit=dev` (medido por seguridad sobre copia de `7b9c196e`); seguridad las da
+  **no alcanzables** hoy (no se usa `qs.stringify` ni `@Sse`).
+- **Disparador:** antes de `sk_live_`, o si aparece uso de `qs.stringify`/`@Sse`.
+- **Cómo se cierra:** subir `qs` ≥ 6.16.0 y las dependencias arrastradas; regenerar lockfile.
+- **Prueba que lo demuestra:** `npm audit --omit=dev` en `backend/` ⇒ 0 moderadas de `qs`/`body-parser`/`express`/`multer`;
+  suites unitaria e integración completas verdes (subidas/`multer` incluidas).
+
+### RS5-C2 · P2 💰 · Códigos reales de Stripe MX para reembolso sobre cargo disputado — **NO MEDIDO**
+- **Dónde:** `backend/src/modules/vault/replacement-case.rules.ts:20` (`REFUND_FAILURE_DISPUTE_CODES =
+  ['charge_disputed', 'charge_already_refunded_or_disputed']`), consumido en
+  `backend/src/modules/payments/refunds/manual-refund.service.ts:588`. `BACKEND_NOTES:25407` lo marca NO MEDIDO.
+- **Riesgo:** si Stripe MX devuelve otro `failure_code`, una fila fallida por disputa no se reconoce como tal y va por la
+  rama genérica (destino SPEI/cola distinto del previsto). No se sabe si pasa: nadie lo ha medido contra Stripe.
+- **Disparador:** antes de `sk_live_` (condición C2 de seguridad).
+- **Cómo se cierra:** backend mide con una `sk_test_` real (cargo disputado con la tarjeta de prueba de disputa → reembolso)
+  y registra el `failure_code` observado; el arquitecto decide la lista. Sin credencial de prueba en este entorno ⇒ la
+  medición la hace quien la tenga (sin pedir el valor por chat).
+- **Prueba que lo demuestra:** el `failure_code` observado citado en `BACKEND_NOTES` con fecha, y una unitaria de
+  `manual-refund` parametrizada con ese código ⇒ rama «disputa».
+
+### RS5-TD-1 · P3 · Dos bitácoras para un mismo `PATCH /admin/inventory/items/:id` (arquitecto → backend)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:2458-2469` (`inventory.item_updated`, dentro de la
+  transacción, solo cuando cambia `status`, con `before/after`) y `backend/src/modules/inventory/inventory.controller.ts:646-652`
+  (`inventory.update`, **después** del commit, fuera de la transacción, sin `before/after`, en todo `PATCH`).
+- **Riesgo:** un `PATCH` con cambio de `status` deja **dos** filas para un hecho; la del controller va fuera de la
+  transacción (si falla tras el commit, el cambio queda sin esa fila y el cliente ve error con el cambio hecho — NO MEDIDO
+  que ocurra). Quien consulte la bitácora tiene que saber cuál mirar.
+- **Disparador:** el próximo reporte/consulta de auditoría sobre inventario, o el próximo verbo que audite en los dos sitios.
+- **Cómo se cierra:** el arquitecto decide una sola acción por hecho; backend la escribe dentro de la transacción
+  (`audit.log(entry, tx)`) y quita la otra.
+- **Prueba que lo demuestra:** integración: `PATCH {status}` ⇒ exactamente **1** fila de auditoría para ese `entityId`;
+  `PATCH {listPriceCents}` ⇒ la que decida el contrato.
+
+### RS5-TD-6 · P3 · `PATCH` con `status` **y** precio solo evalúa el verbo `status`
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:2444-2445` (`guardedVerb = patch.status !== undefined ?
+  'status' : patch.listPriceCents !== undefined ? 'price' : null`) → `assertOperable(item, guardedVerb)` en `:2454`.
+- **Riesgo:** hoy **ninguno de conducta**: `assertOperable` usa el mismo allowlist (`MARKABLE_PLATFORM_STATUSES`,
+  `item-location.rules.ts:68`) para `status` y `price` (`:125`). Solo cambia el texto del `422` («status-changed» en
+  vez de «re-priced»). Se rompe el día que las reglas de `price` y `status` diverjan: un `PATCH` con los dos se saltaría
+  la de precio.
+- **Disparador:** cualquier cambio a `assertOperable` que distinga `status` de `price`.
+- **Cómo se cierra:** evaluar **cada** verbo presente (`for (const v of verbs) assertOperable(item, v)`).
+- **Prueba que lo demuestra:** unitaria con un `assertOperable` espía: `PATCH {status, listPriceCents}` ⇒ se llama con
+  `'status'` **y** con `'price'`. Mutación: volver al ternario ⇒ rojo.
+
+### RS5-TD-7 · P3 · `InventoryService.markItem` abre su transacción sin `VAULT_VERB_TX_OPTIONS`
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:2797-2817` (`this.prisma.$transaction(async (tx) => …)` sin
+  opciones), mientras `moveItem` (`:2769`) y el `PATCH` (`:2472`) pasan `VAULT_VERB_TX_OPTIONS`
+  (`vault/vault-placement.rules.ts:37`, `{ maxWait: 10_000, timeout: 30_000 }`). Relacionado: `shipment-prep.service.ts:487`,
+  `:691`, `:791` repiten el literal en vez de importar la constante.
+- **Riesgo:** con contención (carrera `mark` vs checkout), `markItem` usa los valores por defecto de Prisma (menores) y
+  puede fallar por timeout donde sus verbos hermanos esperan. NO MEDIDO que ocurra.
+- **Disparador:** un `P2028`/timeout en `mark` en logs o en PS-41/PS-42.
+- **Cómo se cierra:** pasar `VAULT_VERB_TX_OPTIONS` en `markItem`; `shipment-prep` importa la constante.
+- **Prueba que lo demuestra:** candado estático: todo `$transaction` de `inventory.service.ts`/`vault/`/`shipments/` que
+  toque piezas pasa `VAULT_VERB_TX_OPTIONS` (`rg -n "maxWait: 10_000" backend/src/modules` ⇒ solo en `vault-placement.rules.ts`).
+
+### RS5-PS-4 · P3 · Parametrizar PS-4 con `refundOutcome ∈ {ok, succeeded}` (deuda menor, seguridad)
+- **Dónde:** `backend/test/integration/shipments-prep.e2e-spec.ts:243-292` (PS-4 corre la carrera del tope solo con
+  `refundOutcome = 'ok'`, `:67`); el doble ya admite `'succeeded'` (`test/integration/helpers/e2e-app.ts:118`, `:149`).
+- **Riesgo:** bajo. Seguridad midió la variante `succeeded` en su copia **10/10 (N=10, autor: seguridad)** y la mutación
+  del candado **0/10 (N=10, autor: seguridad)**; la variante no quedó en el repo, así que nada impide que retroceda.
+- **Disparador:** cualquier cambio al predicado del tope (`refund-ledger.service.ts`, `lockOperatorRefundGate` `:187`).
+- **Cómo se cierra:** `it.each(['ok', 'succeeded'])` sobre la carrera de PS-4.
+- **Prueba que lo demuestra:** la propia PS-4 parametrizada, N=10 por valor; mutación (comentar `lockOperatorRefundGate`)
+  ⇒ rojo en los **dos** valores.
+
+### RS5-FLAKE · P3 · `shipments-prep` intermitente sobre BD usada — causa **NO MEDIDA**
+- **Dónde:** `backend/test/integration/shipments-prep.e2e-spec.ts` (rojas vistas: PS-43, PS-50, PS-51; `prepare` sin fila
+  `item_missing`, `PREPARATION_INCOMPLETE` en vez de `PREPARATION_HAS_BLOCKED_LINES`). Registro: `BACKEND_NOTES` Release s5 §12
+  («`shipments-prep` intermitente»).
+- **Medido:** backend sobre BD usada `tcg_sl_fix`: 4/5 (N=5) con y sin el cambio de v1.80.8.3; sobre BD recién migrada 5/5
+  (N=5) en ambos. QA la midió **11/11 verde (N=11, autor: QA**, relayado por el orquestador; no lo medí yo). Con un fallo de
+  ~20 %, 11/11 por suerte tiene ~8,6 % ⇒ no la da por cerrada.
+- **Riesgo:** un rojo de gate que no es conducta (manda a investigar lo que no está roto), o tapa uno que sí lo es.
+- **Disparador:** el próximo rojo de `shipments-prep` en integración completa.
+- **Cómo se cierra:** medir N≥20 en BD usada vs limpia; si solo falla en BD usada, localizar qué suite anterior deja el
+  estado (sonda como en §10.2) y re-sembrar en la víctima.
+- **Prueba que lo demuestra:** N≥20 verdes sobre BD usada tras la integración completa, con la proporción anotada.
+
+### RS5-PUBLISH-LOC · P3 · `publish-all` publica piezas sin ubicación — **NO MEDIDO si es conducta querida (pregunta al arquitecto)**
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:1478-1494` (`assertPublishableGuards`, compartido por
+  `bulkPublish` `:1319` y `publishAll` `:1994`: no mira `locationId`) vs `:2688-2692` (`reevaluateOne`: `locationId == null`
+  ⇒ `missing_location`, no publica) y `:1738` (la cola de pendientes cuenta «sin ubicación» como lo que falta).
+- **Medido (lectura + corrida, `BACKEND_NOTES` Release s5 §10.2):** PS-64 (`full-refund-vault.e2e-spec.ts:763`) llama
+  `publish-all` global y deja `E2E-STK-0001` `listed` con `locationId: null`.
+- **Riesgo:** una pieza a la venta que el operador no sabe dónde está: el comprador paga y la preparación no la encuentra.
+  Dos caminos de publicar con reglas distintas sobre ubicación.
+- **Disparador:** respuesta del arquitecto.
+- **Cómo se cierra:** el arquitecto decide si «sin ubicación» bloquea publicar en `publish-all`/`bulk-publish`; si sí,
+  la guarda va en `assertPublishableGuards` (un solo sitio) con el código que fije el contrato.
+- **Prueba que lo demuestra:** integración: pieza `in_stock` con precio y sin `locationId` + `publish-all` ⇒ sigue `in_stock`
+  y sale en su resultado con el motivo contratado. Mutación: quitar la guarda ⇒ `listed` ⇒ rojo.
+
+### RS5-TD-10 · ✅ CERRADA en este pase (2026-09-29) · `BACKEND_NOTES`
+- Dos `## 0.55`: la de P-71 (antes `BACKEND_NOTES.md:31`) pasa a **§0.59** con nota de renumeración; la del tope del
+  bounty conserva §0.55 porque es la que citan `API_CONTRACT` y §0.57 (`§0.55.3`). Release s5 §9: su «Pendiente abierto»
+  lleva ahora «CERRADO en §10.2».
+- **Comprobación:** `grep -c "^## 0.55 " docs/BACKEND_NOTES.md` ⇒ **1**.
