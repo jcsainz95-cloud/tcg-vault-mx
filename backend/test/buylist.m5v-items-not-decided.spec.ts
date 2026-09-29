@@ -10,6 +10,7 @@
  * la tarjeta del tablero**, que es la mutación #11 de QA — la que sobrevivió a 3.873 pruebas.
  */
 import { SellItemStatus } from '@prisma/client';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { ConfigService } from '@nestjs/config';
 import {
   SELL_ITEM_VERDICT_STATES,
@@ -137,7 +138,7 @@ describe('⚠️⚠️ §11 / §M5-V.8(7) — la tarjeta del tablero SUMA `appro
       inventoryItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const svc = new AdminService(
-      prisma as unknown as PrismaService,
+      withM61Defaults(prisma) as unknown as PrismaService,
       {} as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,

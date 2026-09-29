@@ -233,7 +233,11 @@ export class ShipmentPrepService {
       }),
       kind === 'guest_direct_ship'
         ? resolveDirectOriginsBatch(db, row.orderId as string, pieceIds)
-        : resolveOriginsBatch(db, row.userId as string, pieceIds),
+        : row.userId
+          ? resolveOriginsBatch(db, row.userId, pieceIds)
+          : // Fila sin dueño ni pedido (inexpresable por la API; solo por SQL/fixture): sin origen, y la cola
+            // NO se cae por ella (H8: la corrupción se ve por otra vía, no tumbando el tablero entero).
+            Promise.resolve(new Map<string, OriginRef | null>()),
       (async () => {
         const ids = [...new Set(row.items.map((i) => i.prepMarkedByUserId).filter((x): x is string => !!x))];
         if (ids.length === 0) return new Map<string, string | null>();

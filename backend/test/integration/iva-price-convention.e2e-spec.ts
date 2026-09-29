@@ -718,14 +718,16 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       expect(csv.status).toBe(200);
       const [, fila] = csv.text.trim().split('\n');
       // ⭐ D56 (§M10-IVA.8): el CSV gana `shippingCostMissingCount`, en el MISMO orden que el objeto.
+      // ⭐ v1.80.2 (§M4-SHIP.11): y las tres columnas de lo devuelto, ADITIVAS antes de `profitCents`.
       expect(csv.text.trim().split('\n')[0]).toBe(
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-          'shippingCostMissingCount,profitCents',
+          'shippingCostMissingCount,refundsCents,refundedFeesCents,compensationsCents,profitCents',
       );
       expect(fila).toBe(
         `pnl,${json.body.incomeCents},${json.body.shippingRevenueCents},${json.body.cogsCents},` +
           `${json.body.stripeFeesCents},${json.body.shippingCostCents},` +
-          `${json.body.shippingCostMissingCount},${json.body.profitCents}`,
+          `${json.body.shippingCostMissingCount},${json.body.refundsCents},${json.body.refundedFeesCents},` +
+          `${json.body.compensationsCents},${json.body.profitCents}`,
       );
     });
 

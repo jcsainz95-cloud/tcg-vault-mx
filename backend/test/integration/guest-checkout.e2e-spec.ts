@@ -567,6 +567,12 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     });
 
     it('captura de guía ⇒ el invitado ve `guia` y el número de rastreo en su enlace (criterio 50)', async () => {
+      // v1.80 §M4-SHIP.5: la guía exige el retiro/envío «preparado» (línea palomeada + sello del operador).
+      const line = await h.prisma.shipmentItem.findFirst({ where: { shipmentRequestId: shipmentId } });
+      const mk = await h.api('PATCH', `/admin/shipments/${shipmentId}/prep-items/${line!.id}`, { token: adminToken, json: { status: 'picked' } });
+      expect(mk.status).toBeLessThan(300);
+      const prep = await h.api('POST', `/admin/shipments/${shipmentId}/prepared`, { token: adminToken, json: { expectedRefundCents: 0 } });
+      expect(prep.status).toBeLessThan(300);
       const res = await h.api('POST', `/admin/shipments/${shipmentId}/tracking`, {
         token: adminToken,
         json: { carrier: 'Estafeta', trackingNumber: 'EST-E2E-0001', shippingCostCents: 14900 },

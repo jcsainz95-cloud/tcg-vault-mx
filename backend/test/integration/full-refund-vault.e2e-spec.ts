@@ -670,7 +670,29 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     }
     expect(report('PS-41', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
     expect(inter).toBe(N);
-    // Mutación: (a) aceptar `picking` en MARKABLE; (b) rama customer en `mark`; (c) quitar `status` del WHERE del CAS ⇒ la carrera gana en ≥1 tirada.
+    // El OTRO orden (PS-41b): la reserva se encola PRIMERO y `mark` decide con una lectura caduca (`listed`) ⇒ su CAS
+    // (`status = lo leído`) tiene que dar `count 0` ⇒ 409 CONFLICT, y la pieza queda `reserved` del comprador.
+    // Es el orden que muerde la mutación (c): sin `status` en el WHERE, `mark` pisaría la reserva (`lost` con dueño).
+    const outcomesB: string[] = [];
+    let interB = 0;
+    for (let i = 0; i < N; i += 1) {
+      const p = await db.mkPiece({ status: 'listed' });
+      const buyer = await db.mkUser(`PS41b comprador ${i}`);
+      const reserve = async (): Promise<R> => {
+        const n = await h.prisma.$transaction(async (tx) => (await tx.inventoryItem.updateMany({ where: { id: p.id, ownerType: 'platform', status: 'listed' }, data: { status: 'reserved', ownerType: 'customer', ownerUserId: buyer.id, ownershipStatus: 'pending' } })).count);
+        return { status: n === 1 ? 200 : 409, body: { outcome: n === 1 ? 'reserved' : undefined, error: n === 1 ? undefined : { code: 'NOT_AVAILABLE' } } };
+      };
+      const res = await db.forced(() => db.holdRow('InventoryItem', p.id), reserve, () => db.invMark(p.id, { mark: 'lost', note: 'carrera b' }));
+      if (res.interleaved) interB += 1;
+      const piece = await db.piece(p.id);
+      const bad = piece.status === 'lost' && piece.ownerUserId !== null;
+      const both = res.a.status === 200 && res.b.status < 300;
+      const markWon = res.b.status < 300;
+      outcomesB.push(`${code(res.a)},${code(res.b)},piece=${piece.status}${bad || both || markWon ? ',VIOLATION' : ''}`);
+    }
+    expect(report('PS-41b', outcomesB, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(interB).toBe(N);
+    // Mutación: (a) aceptar `picking` en MARKABLE; (b) rama customer en `mark`; (c) quitar `status` del WHERE del CAS ⇒ PS-41b gana en ≥1 tirada.
   });
 
   // ================================================================ PS-65 — la carta de una compra en devolución

@@ -531,7 +531,31 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     }
     expect(report('PS-27', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
     expect(inter).toBe(N);
-    // Mutación: quitar el candado de fila `Order` del verbo ⇒ Σ > total en ≥1 tirada; mandar `A` entero a Stripe.
+    // El OTRO orden (PS-27b): el M3 total se encola PRIMERO; el reembolso del caso tiene que LEER el estado de la orden
+    // DESPUÉS del candado (ya `refunded`/cerrada ⇒ 409 CASE_ORIGIN_NOT_SETTLED o CONFLICT), nunca con la lectura caduca
+    // `settled` de antes de la barrera. Σ Stripe ≤ total y el caso NO queda `refunded`.
+    const outcomesB: string[] = [];
+    let interB = 0;
+    for (let i = 0; i < N; i += 1) {
+      const t = await mkSpei(60000, { name: `PS27b ${i}` });
+      const a = Q + 10000;
+      const pvi = await db.casePreview(t.caseId, a);
+      const res = await db.forced(
+        () => db.holdRow('Order', t.vo.order.id),
+        () => db.m3Refund(t.vo.order.id, { reason: 'carrera b', confirmPiecesWithCustomer: true }),
+        () => db.caseRefund(t.caseId, refundBody(pvi, a)),
+      );
+      if (res.interleaved) interB += 1;
+      const rows = await db.refunds({ orderId: t.vo.order.id, status: { not: 'failed' } });
+      const sum = rows.reduce((acc, x) => acc + x.amountCents, 0);
+      const k = await db.kase(t.caseId);
+      const caseRows = rows.filter((x) => x.replacementCaseId === t.caseId).length + (await db.manualRows({ replacementCaseId: t.caseId })).length;
+      const ok = res.a.status < 300 && res.b.status >= 400 && sum <= t.vo.order.totalCents && k.status !== 'refunded' && caseRows === 0;
+      outcomesB.push(`${code(res.a)},${code(res.b)},Σ=${sum}/${t.vo.order.totalCents},case=${k.status}${ok ? '' : ',VIOLATION'}`);
+    }
+    expect(report('PS-27b', outcomesB, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(interB).toBe(N);
+    // Mutación: quitar el candado de fila `Order` del verbo ⇒ Σ > total o caso `refunded` sobre una orden ya devuelta en ≥1 tirada.
   });
 
   it('PS-30 💰 — remanente 0 ⇒ todo a SPEI: cero filas del libro, cero Stripe, un ManualRefund = A con comp(A); el caso queda `refunded`', async () => {

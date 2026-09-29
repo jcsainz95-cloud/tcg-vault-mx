@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { Role } from '@prisma/client';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -108,7 +109,7 @@ function servicio(ordenes: OrdenFake[]) {
     vaultItem: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const service = new AdminService(
-    prisma as unknown as PrismaService,
+    withM61Defaults(prisma) as unknown as PrismaService,
     { sealedMarketGradeKeyForItem: () => null, tryGradeKeyFor: () => null, getReferencesBatch: async () => new Map() } as unknown as PricingService,
     new PiiCryptoService(new ConfigService({})),
     {} as never,
