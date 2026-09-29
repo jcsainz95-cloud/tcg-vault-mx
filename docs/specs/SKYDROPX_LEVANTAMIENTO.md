@@ -532,3 +532,26 @@ tarifa en vivo en el checkout.
    - «entregado» (pregunta 14, X2).
 5. **Antes de lanzar:** arreglar E1. Con más correos automáticos, más clientes llegarían a una página que no existe.
 6. **Aparte:** E2 (mostrar la guía en `/orders`).
+
+### 12.3 Decisiones del dueño sobre avisos al cliente (2026-09-29, anotadas en `HECHOS.md`)
+
+1. **Liga de rastreo solo si Skydropx la da.** Si no, se queda como hoy: **clave de rastreo + paquetería**.
+   Nunca se arma una URL por nuestra cuenta. Esto sustituye el punto 2 de §12.2 (la lista de URLs por
+   paquetería queda **descartada**).
+   - **Lo que se sabe (medido 2026-09-29):** hay un indicio y no está confirmado. Un cliente no oficial
+     (Docxter) lee `packages[].attributes.tracking_url_provider` (la URL de rastreo de la paquetería) y
+     `label_url`. Su ejemplo en `docs/SHIPMENTS.md:110,134` trae el campo en `null` en un caso y con URL de
+     FedEx en otro. La referencia oficial que compiló el dueño **no lo menciona**.
+   - Skydropx tiene además una página pública, `rastreo.skydropx.com`. Si acepta una guía por URL es
+     **NO MEDIDO**.
+   - **Se cierra con:** la primera guía de sandbox (leer el paquete) o la colección OpenAPI oficial.
+   - **Diseño:** el campo puede venir `null` ⇒ el correo y las páginas muestran la liga **cuando existe** y, si
+     no, solo clave y paquetería.
+2. **Correo de «Entregado» automático** cuando Skydropx confirma la entrega (`delivered`, §8.3). **Reabre el
+   criterio 210 / §R.7**, que hoy prohíbe correos en `entregado`: lo reescriben el PO y el arquitecto. Queda
+   **pendiente de decidir** qué pasa con `delivered_to_branch` (entregado en sucursal, §8.3): ¿también manda
+   «Entregado»? Pregunta 14 respondida; X2 cerrada.
+3. **⚠️ Riesgo de correos duplicados (NO MEDIDO):** según la página de Skydropx, la cuenta puede mandar **sus
+   propias notificaciones** de estado al cliente por **correo o WhatsApp** («Mis envíos»). Si están
+   activadas, el cliente recibiría dos avisos por cada cambio. **Se cierra con:** revisar esa configuración en
+   el panel. Propuesta: apagarlas y dejar solo los correos de TCG Hunt.
