@@ -141,6 +141,14 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
       }),
     },
     inventoryMovement: { create: jest.fn(async () => ({})) },
+    // Bitácora del servicio (`inventory.item_updated`, `#M1-merge-rule`): se registra en `writes` para que
+    // la AUSENCIA en el camino publicante (§ (4b)) se lea contra un espía que sí la ve en el no publicante.
+    auditLog: {
+      create: jest.fn(async ({ data }: any) => {
+        writes.push(`audit:${data.action}`);
+        return data;
+      }),
+    },
     pendingPriceEntry: {
       findMany: jest.fn(async () => {
         writes.push('pendingPriceEntry.findMany');
@@ -461,6 +469,56 @@ describe('⚠️⚠️ (4) el bypass del PATCH, CERRADO', () => {
     ]);
     await svc.updateItem('a', { status: 'listed', gradeValue: '9' } as UpdateItemDto);
     expect(prisma.inventoryItem.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================================
+// 🔒 `#M1-merge-rule` (v1.80.7.2) — la bitácora `inventory.item_updated` (before/after) es del camino NO
+// publicante de `updateItem`. El camino PUBLICANTE (`→ listed` desde un estado que no era `listed`) sigue el
+// pipeline de v1.51 (`assertPublishableGuards` + `claimListed`) y NO la escribe (BACKEND_NOTES «Release s5» §6).
+// Antes esto solo lo sostenía cómo estaba escrito el código; estas pruebas lo fijan. El `$transaction` de este
+// arnés corre sobre el MISMO cliente, así que el espía ve también las escrituras hechas dentro de una tx.
+describe('🔒 (4b) `PATCH → listed` (camino PUBLICANTE) NO escribe `inventory.item_updated`', () => {
+  const actor = { id: 'op-1', role: 'operador' } as any;
+
+  it('ancla: el MISMO arnés SÍ ve la bitácora en el camino NO publicante (`listed → in_stock`)', async () => {
+    const { svc, prisma, writes } = build([
+      item({ id: 'a', locationId: 'loc-1', priced: true, status: 'listed' }),
+    ]);
+    await svc.updateItem('a', { status: 'in_stock' } as UpdateItemDto, actor);
+    expect(writes).toContain('audit:inventory.item_updated');
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('`in_stock → listed` con precio resoluble: publica y NO escribe la bitácora', async () => {
+    const { svc, prisma, rows, writes } = build([item({ id: 'a', locationId: 'loc-1', priced: true })]);
+    const res: any = await svc.updateItem('a', { status: 'listed' } as UpdateItemDto, actor);
+    expect(res.status).toBe('listed');
+    expect(rows[0].status).toBe('listed');
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(writes.filter((w) => w.startsWith('audit:'))).toEqual([]);
+  });
+
+  it('`in_stock → listed` con `listPriceCents` y campo de identidad: publica y NO escribe la bitácora', async () => {
+    const { svc, prisma, rows } = build([item({ id: 'a', locationId: 'loc-1' })]);
+    const res: any = await svc.updateItem(
+      'a',
+      { status: 'listed', listPriceCents: 77_700, gradeValue: '9' } as UpdateItemDto,
+      actor,
+    );
+    expect(res.status).toBe('listed');
+    expect(rows[0]).toMatchObject({ status: 'listed', listPriceCents: 77_700 });
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('`in_stock → listed` sin precio ⇒ `422 PRICE_PENDING` y tampoco bitácora', async () => {
+    const { svc, prisma, rows } = build([item({ id: 'a', locationId: 'loc-1' })]);
+    const e = (await svc
+      .updateItem('a', { status: 'listed' } as UpdateItemDto, actor)
+      .catch((x) => x)) as BusinessException;
+    expect(e.code).toBe('PRICE_PENDING');
+    expect(rows[0].status).toBe('in_stock');
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 });
 

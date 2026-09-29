@@ -118,6 +118,8 @@ export class ShipPrepDb {
       rawCondition: 'NM';
       finish: 'normal' | 'holofoil';
       acquisitionCostCents: number | null;
+      /** Semilla del precio de venta (M1). Sin ella la pieza nace con `null` (default del schema). */
+      listPriceCents: number | null;
     }> = {},
   ) {
     const k = this.next();
@@ -135,6 +137,7 @@ export class ShipPrepDb {
         ownerType: over.ownerType ?? 'platform',
         ownerUserId: over.ownerUserId ?? null,
         ownershipStatus: over.ownershipStatus === undefined ? null : over.ownershipStatus,
+        ...(over.listPriceCents !== undefined ? { listPriceCents: over.listPriceCents } : {}),
       },
     });
     this.items.push(it.id);

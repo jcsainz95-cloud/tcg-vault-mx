@@ -877,8 +877,10 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     // que INV-SP-8 prohíbe (precio de venta escrito en una pieza que no es de plataforma en venta). En el árbol fusionado
     // el PATCH pasa por `readGuardedItem` → `assertOperable(item,'status')` → `guardedItemUpdate` (CAS sobre
     // `{id, status, ownerType, ownerUserId}` leídos): la reserva gana ⇒ `count 0`/`P2025` ⇒ `409 CONFLICT`, nada escrito.
-    // Primera mitad RE-ANCLADA a conducta (el espía sobre `h.prisma.inventoryItem.update` no ve las escrituras del
-    // cliente de la tx, NO MEDIDO que las vea): `{status:'in_stock', listPriceCents}` sobre `in_stock` ⇒ 200, precio
+    // Primera mitad RE-ANCLADA a conducta (MEDIDO 2026-09-29, BACKEND_NOTES «Release s5» §8: un espía sobre
+    // `h.prisma.inventoryItem.update` NO ve las escrituras del cliente de la tx interactiva — 0 llamadas durante el PATCH
+    // con el precio escrito en BD, y 0 para un `tx.inventoryItem.update` propio; 1 para una llamada directa):
+    // `{status:'in_stock', listPriceCents}` sobre `in_stock` ⇒ 200, precio
     // escrito, `status` sigue `in_stock` y SIN bitácora de cambio de estado. Que `data` no lleve `status` lo fija la
     // unitaria gemela (`inventory.patch-status-guard.spec.ts`, «in_stock → in_stock NO escribe `status`»).
     const same = await db.mkPiece({ status: 'in_stock' });
@@ -893,11 +895,15 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     // carrera: la reserva (CAS `in_stock → reserved`) se encola PRIMERO en la fila; el PATCH decide con la lectura caduca
     // `in_stock` y NO debe pisarla ni escribirle precio. Mutación (contrato): quitar `status`/`ownerType` del `where` de
     // `guardedItemUpdate` ⇒ precio escrito sobre la reservada en ≥1 tirada ⇒ rojo.
+    // La semilla de precio es NO nula y distinta del `1000 + i` del PATCH: con la semilla `null` de antes, «precio INTACTO»
+    // comparaba `null` con `null` y un escritor que ANULARA el precio de la reservada salía verde (medido: mutación M4 de
+    // BACKEND_NOTES «Release s5» §8).
     const outcomes: string[] = [];
     let inter = 0;
     for (let i = 0; i < N; i += 1) {
-      const p = await db.mkPiece({ status: 'in_stock' });
+      const p = await db.mkPiece({ status: 'in_stock', listPriceCents: 55_500 + i });
       const seeded = (await db.piece(p.id)).listPriceCents;
+      expect(seeded).toBe(55_500 + i);
       const buyer = await db.mkUser(`PS42b comprador ${i}`);
       const reserve = async (): Promise<R> => {
         const n = await h.prisma.$transaction(async (tx) => (await tx.inventoryItem.updateMany({ where: { id: p.id, ownerType: 'platform', status: 'in_stock' }, data: { status: 'reserved', ownerType: 'customer', ownerUserId: buyer.id, ownershipStatus: 'pending' } })).count);
