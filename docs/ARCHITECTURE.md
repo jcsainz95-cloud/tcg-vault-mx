@@ -4,6 +4,19 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.4 — 💰 D-13/D-14 CONTESTADAS Y EL REEMBOLSO TOTAL DE UNA COMPRA A BÓVEDA DESHACE LA VENTA** (2026-09-29,
+> arquitecto. Base: **v1.80.3, vigente entera salvo lo que esta rev toca**. Origen: `HECHOS.md`, fila «Reembolsos de
+> operador — D-13 y D-14»; hueco leído por el orquestador en `origin/production:…/admin-orders.controller.ts` ~l.213-262
+> — ⛔ NO MEDIDO por el arquitecto. `API_CONTRACT` sube a **v1.80.4**; norma en `API_CONTRACT §M4-SHIP.18`. Porqué:
+> **§4.57 (p)**. `M-61` suma `Order.fullRefundClosedAt`, `MovementReason + refund_return`, `VaultPlacementCancelReason +
+> full_refund`, y **pierde** `PaymentRefund.adminNotifiedAt`.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | D-13 ⇒ sin correo `AVA-1` (solo panel); D-14 ⇒ sin verbo «abrir caso desde inventario» | §4.57 (p) | **Sí** (menos: no se construye) |
+> | **2** | 💰 Reembolso total de una orden `vault` ⇒ cartas en custodia vuelven a plataforma `in_stock` con `refund_return`, colocación `pending` cancelada (`full_refund`), `needsManual` + `chargeback-inventory` | §4.57 (p), §11 `M-61` | **Sí** (backend, frontend) · 🔒 seguridad |
+> | **3** | 💰 Un despachador `onFullRefund` + sello `Order.fullRefundClosedAt` + candado `C-FULLREF-1` | §4.57 (p) | **Sí** (backend) |
+>
 > **Rev v1.80.3 — 🔒💰 CIERRE DE LA REVISIÓN DE SEGURIDAD DEL DISEÑO §M4-SHIP (4 altos + 4 medios) Y D-11/D-12**
 > (2026-09-29, arquitecto. Base: **v1.80.2, vigente entera salvo lo que esta rev toca**. Origen: `SECURITY_NOTES`,
 > revisión de diseño del 2026-09-29 sobre `ff57390`, CON CONDICIONES; `HECHOS.md`, última fila. `API_CONTRACT` sube a
@@ -25397,6 +25410,8 @@ comprobante?) y **D-12** (¿2× confirma, 5× bloquea?). Fiscal de la compensaci
 ⭐ **v1.80.3 — D-11** (*«Solo marcar si se realizó y quién»*: clave de rastreo **opcional**) y **D-12** (*«Sí, así»*)
 contestadas. Nuevas, con default: **D-13** (aviso por reembolso de operador: por evento / resumen diario) y **D-14**
 (abrir un caso «Por reponer» desde el inventario, fuera de un retiro) — ver (o).
+⭐ **v1.80.4 — D-13** (*«Solo verlo en el panel»*: sin `AVA-1`) y **D-14** (*«Por ahora no»*: sin verbo) contestadas —
+ver (p). No quedan preguntas abiertas de este stream.
 **Recuperar una `lost` que aparece** queda resuelto **solo dentro de un caso** («apareció», `lost → in_custody` del
 cliente); fuera de un caso sigue sin verbo (H10).
 
@@ -25527,7 +25542,7 @@ cierran **sin re-preguntar al dueño** lo ya decidido; dos preguntas nuevas (D-1
 | A2 piezas congeladas | Quedan `picking`; `chargeback-inventory` gana `no_recuperada ⇒ lost` para órdenes `refunded` | Devolverlas a la venta en el mismo acto | Pudieron ir ya a una caja; re-listar sin confirmación física es la lección de §4.21c-bis |
 | A3 | Un escritor de CLABE (`setClabe`) con fecha, bitácora y aviso; `revealToken` que ata la CLABE revelada; confirmación reforzada si cambió tras la deuda o < 72 h | Re-autenticación para cambiar la CLABE; copiar la CLABE a la fila al crear la deuda | La re-autenticación no protege del robo de contraseña (el vector nombrado) y añade una pantalla nueva; la copia sería una segunda fuente de PII bancaria y congelaría una CLABE que el cliente puede tener que corregir (§4.57 (m)). Lo que sí cierra el vector: **el dueño se entera** (fecha a la vista + confirmación) y **el cliente se entera** (`AV-16`), y la evidencia (`paidClabeHmac`) es la de la CLABE que se vio. Token **sin estado** (HMAC con la llave del índice ciego, prefijo de dominio): nada nuevo que guardar ni que rotar |
 | A4 | `to-manual` exige la orden `settled` bajo candado **y** rechaza códigos de fallo de disputa | Solo el color rojo en la cubeta | El motivo más probable del `failed` es la disputa; el webhook de la disputa puede llegar después del rechazo, por eso también el código |
-| M1 | Tres lecturas (libro filtrable, resumen por operador, merma por actor) + contador + `AVA-1` por evento (D-13) | Solo la bitácora | Con la separación de poderes perdida, el control compensatorio es **mirar**; sin vista especificada no existía. La merma cuenta la **entrada** a `lost/damaged` una vez (resuelve de paso el «no contar dos veces» de (l)) |
+| M1 | Tres lecturas (libro filtrable, resumen por operador, merma por actor) + contador + ~~`AVA-1` por evento (D-13)~~ (⭐ v1.80.4: `AVA-1` retirado, D-13 = panel) | Solo la bitácora | Con la separación de poderes perdida, el control compensatorio es **mirar**; sin vista especificada no existía. La merma cuenta la **entrada** a `lost/damaged` una vez (resuelve de paso el «no contar dos veces» de (l)) |
 | M2 | Reclamo por lease (`attemptStartedAt`) + búsqueda paginada | `FOR UPDATE` durante la llamada a Stripe | §4.50: sostener candados durante red agota el pool |
 | M3 | `resolveOrigin` = evento de adquisición más reciente; `currentPieceOf` solo por la **misma** compra, con tope y ciclo; revertir solo si la pieza sigue siendo de esa compra | Precedencia fija del caso sobre la compra | La re-compra de una repuesta atribuía el dinero a la orden disputada |
 | M4 | `reissue` (fila nueva que cita la cancelada) + `transferStatus:'cancelled'` visible al cliente | «Cancelar = definitivo» aceptado por el dueño; reabrir la fila cancelada | Reabrir mentiría sobre un hecho (se canceló); la aceptación dejaba una deuda impagable por un clic equivocado. Coste: `paymentRefundId` pierde `@unique` y la unicidad pasa a índices parciales «vivas» |
@@ -25538,7 +25553,32 @@ de Stripe), `INV-MR-4` (re-emitir crea, no reabre). **Candado nuevo:** `C-CLABE-
 
 **Zonas compartidas que suma:** `users` (`setClabe`, `GET/PUT /users/me/kyc`), `buylist` (su escritura de CLABE pasa a
 `setClabe`), `inventory` (`mark`, `updateItem` — **también tocadas por `claude/arreglos-operador`**: el orquestador
-serializa), `orders` (M3 y `chargeback-inventory`), `admin` (tablero, M7 merma), `mail` (`AV-16`, `AVA-1`).
+serializa), `orders` (M3 y `chargeback-inventory`), `admin` (tablero, M7 merma), `mail` (`AV-16`, ~~`AVA-1`~~).
+
+**(p) 💰 v1.80.4 — D-13/D-14 y el reembolso total de una compra a bóveda.** Norma entera y PS-55…PS-62:
+`API_CONTRACT §M4-SHIP.18`. Aquí, el porqué.
+
+*El hueco, en una línea:* §M3 decía «el reembolso total **no** re-agrega la carta» y §M4-VAULT.6 decía «el reembolso
+total **no** cancela la colocación (coherente con A1)». En un **directo** eso era verdad a medias (v1.80.3 ya cierra el
+envío); en **bóveda** dejaba al cliente con la carta **en su bóveda, retirable, y con su dinero**. Leído por el
+orquestador en producción (`admin-orders.controller.ts` ~l.213-262); ⛔ NO MEDIDO por el arquitecto.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| D-13: sin `AVA-1` ni `adminNotifiedAt` | Correo por evento (el default de v1.80.3) | Lo decidió el dueño. La vigilancia queda en las lecturas; quitar el correo quita una columna, un CHECK, un sello y una prueba de carrera |
+| El reembolso total de `vault` **deshace la venta** | Mantener «el cliente conserva la carta» (A1) | `PROJECT §H` admite dos causas del reembolso total —cobro duplicado, inventario fantasma—; en ninguna el cliente debe quedarse con la carta. «Conserva la carta» es el remedio de la **disputa de condición** (recompra tras la entrega), que no pasa por aquí. Se pide al product-owner registrarlo en `PROJECT.md` |
+| Vuelve a plataforma **`in_stock`** + `needsManual`, y un humano confirma con `chargeback-inventory` | Volver a `listed` como el contracargo | Una de las dos causas es **inventario fantasma**: re-listar vendería otra vez lo que quizá no existe. Reusa el mecanismo de §4.21c-bis (piezas pendientes de confirmación física + un endpoint que las resuelve) — un mecanismo, no dos |
+| Movimiento propio `refund_return` | Reusar `chargeback_return` | Son hechos distintos; los reportes que leen contracargos contarían reembolsos. Coste: un valor de enum en `M-61`, que ya se amplía |
+| Motivo propio `full_refund` en la colocación | Reusar `chargeback` | Idem: la cola y la bitácora dirían «contracargo» de algo que no lo fue |
+| En bóveda, el cierre corre al **confirmar** el reembolso | Correr en la tx que crea la fila (como el directo) | En el directo, cerrar antes es el fallo **seguro** (no sale mercancía). En bóveda, quitar la carta antes de que Stripe acepte es el fallo **inseguro**: con un `failed`, el cliente quedaría sin carta y sin dinero |
+| M3 rechaza (`409`) si una carta está en un retiro **preparado o con guía** | Revertir igual y marcar la línea bloqueada | La carta está en una caja: cambiar al dueño en el sistema no la saca de ella. El webhook no puede rechazar ⇒ ahí la pieza no se toca y queda en `needsManual` |
+| Un despachador `onFullRefund` + sello `Order.fullRefundClosedAt` | Idempotencia por escritura (como el directo) | En bóveda, tras la primera pasada la carta ya es de la plataforma; una segunda pasada (webhook tardío) la vería «fuera del cliente» y re-abriría `needsManual` sobre una orden ya resuelta |
+| `vaultPieces` **derivado** en el detalle de M3 | Guardar la lista de piezas devueltas | Dos verdades; la clasificación es un cuerpo (`classifyVaultPiece`) que usan el cierre y la lectura |
+| Casos «Por reponer» `open` de la orden: **no** se anulan solos | Anular en el cierre | `void` es `@MoneyOut` y puede emitir `shipment_fee` (`closeWithdrawalIfEmpty`); un webhook no debe originar dinero. Queda visible (`open_case`) y lo anula el súper-admin |
+| ⛔ `onChargeDisputeVault` no cambia | Unificar contracargo y reembolso en un cuerpo ahora | Fuera del alcance mínimo, y el contracargo tiene su propio residual aceptado (`SEC-VLT-DL`) cuyo disparador es «el siguiente cambio a `onChargeDisputeVault`»: tocarlo aquí lo activaría |
+
+**Zonas compartidas que suma:** `orders` (M3, `chargeback-inventory`, detalle), `payments` (`onChargeRefunded`),
+`inventory` (`MovementReason`), `vault` (`VaultPlacement`, lecturas), `prisma/` (`M-61`). `mail`: solo copy de `AV-3`.
 
 ---
 
@@ -28747,6 +28787,12 @@ decisión D-3 del dueño; propuesto `500000`) con la regla de propagación §11.
   del importe y de sellos por estado; ⛔ **sin columna de CLABE**); seed `ConfigSetting case_refund_hard_multiplier = 5`.
   Forma normativa: `API_CONTRACT §M4-SHIP.2`. Revertir: igual que arriba — con filas en `ManualRefund` ⛔ no se borra
   (es registro de dinero que salió o se debe).
+- 💰 **v1.80.4 — y se sigue ampliando en la MISMA migración** (no construida; ⚠️ el arquitecto no re-midió hoy: backend
+  confirma con Grep `PaymentRefund|ReplacementCase|ManualRefund` en `backend/` antes de escribirla): `Order +
+  fullRefundClosedAt` (nullable); `MovementReason + refund_return`; `VaultPlacementCancelReason + full_refund` (enum de
+  `M-59`, ya construido en `20260925120000_m59_vault_placement` ⇒ `ALTER TYPE … ADD VALUE`); **fuera** `PaymentRefund.adminNotifiedAt` y su CHECK (D-13).
+  Sin CHECK nuevo; sin backfill automático (consulta de residuo de solo lectura antes de desplegar, `API_CONTRACT`
+  bloque v1.80.4 de `M-61`). Revertir: rollback de código; los `ADD VALUE` no se quitan sin recrear el tipo.
 
 ### v1.68-stream-b (**M-53**: la reserva conoce a su orden y a su vencimiento — **DDL ADITIVO, nullable, SIN backfill**, §4.48.2)
 

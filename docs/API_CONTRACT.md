@@ -2,7 +2,29 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.3**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.4**).
+>
+> **Changelog v1.80.4 — 💰 REVISIÓN MÍNIMA DE §M4-SHIP: D-13 Y D-14 CONTESTADAS, Y EL REEMBOLSO TOTAL DE UNA COMPRA A
+> BÓVEDA DESHACE LA VENTA (2026-09-29, arquitecto; base v1.80.3, vigente entera salvo lo que esta rev toca).** 💰 **ZONA
+> DE DINERO ⇒ tres veredictos + seguridad.** Origen: `HECHOS.md` (fila «Reembolsos de operador — D-13 y D-14») y un
+> hueco leído por el orquestador en `origin/production:backend/src/modules/orders/admin-orders.controller.ts` ~l.213-262
+> (⛔ NO MEDIDO por el arquitecto: sin Bash y fuera de este worktree; se toma su lectura). Schema: **se sigue ampliando
+> `M-61`** (no construida) con `Order.fullRefundClosedAt`, `MovementReason + refund_return`, `VaultPlacementCancelReason +
+> full_refund`, y **pierde** `PaymentRefund.adminNotifiedAt`. Norma entera: **[§M4-SHIP.18](#M4-SHIP-18)** (nueva).
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | **D-13** *«Solo verlo en el panel»* ⇒ **se retira el correo interno `AVA-1`** y su sello `PaymentRefund.adminNotifiedAt`. Se quedan `GET /admin/refunds`, `GET /admin/refunds/operator-summary`, `GET /admin/finance/shrinkage`, `workQueue.operatorRefunds` y la vista «Reembolsos de operadores» | §M4-SHIP.17.5, §M4-SHIP.18.1, §R.3 | **Sí** (menos trabajo: backend y ux-ui dejan de construir `AVA-1`) |
+> | **2** | **D-14** *«Por ahora no»* ⇒ **sin** botón ni verbo para abrir «Por reponer» desde inventario; la deuda de custodia nace solo en el palomeo | §M4-SHIP.17.1, §M4-SHIP.18.1 | **No** |
+> | **3** | 💰⭐⭐ **El reembolso total (M3 o `charge.refunded` total) de una orden `vault` deshace la venta:** cada carta vigente de la compra que sigue en custodia del cliente vuelve a la plataforma **`in_stock` (⛔ no a la venta)** con movimiento firmado `refund_return`; la colocación `pending` se cancela con motivo nuevo **`full_refund`**; la orden queda en `chargebackNeedsManual` y un humano confirma con `chargeback-inventory` (`recuperada` ⇒ a la venta; `no_recuperada` ⇒ `lost` firmada). «Mi bóveda» y «Qué debe haber» dejan de mostrarla **sin estado nuevo** (se derivan de la titularidad) | §M4-SHIP.18, §M3, §M4-VAULT.6 | **Sí, backend y frontend** · 🔒 seguridad |
+> | **4** | 💰 En bóveda el cierre corre al **confirmar** el reembolso (`submitted`/webhook), ⛔ no al crear la fila: si Stripe lo rechaza, el cliente conserva su carta | §M4-SHIP.18.3 | **Sí, backend** |
+> | **5** | 💰 M3 total sobre una orden `vault` con una carta **dentro de un retiro ya preparado o con guía** ⇒ **`409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`** (deshacer el preparado primero); por webhook no se puede rechazar ⇒ la pieza no se toca y queda en `needsManual` | §M4-SHIP.18.4, §0 | **Sí, backend y frontend** |
+> | **6** | Un despachador, `onFullRefund`, y un sello `Order.fullRefundClosedAt` (idempotencia M3 ↔ webhook); candado **`C-FULLREF-1`** | §M4-SHIP.18.2 | **Sí, backend** |
+> | **7** | Pruebas **PS-55…PS-62** (cada una con su mutación); PS-49 pierde su mutación (b) (`AVA-1`) | §M4-SHIP.18.8 | **Sí, backend** |
+>
+> **Nuevo código de error:** `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`. **Lo que NO cambia:** el directo de §M4-SHIP.17.2
+> (salvo que su entrada pasa por `onFullRefund` y sella la orden), el contracargo de bóveda (`onChargeDisputeVault`,
+> `listed` + `chargeback_return`), el apartado «Por reponer», el tope del operador, `C-REF-1`, `C-MREF-1`.
 >
 > **Changelog v1.80.3 — 🔒💰 CIERRE DE LA REVISIÓN DE SEGURIDAD DEL DISEÑO §M4-SHIP v1.80.2 (`SECURITY_NOTES`, sección del
 > 2026-09-29 sobre `ff57390`, veredicto CON CONDICIONES): LOS 4 ALTOS Y LOS 4 MEDIOS ENTRAN AL CONTRATO; D-11 Y D-12
@@ -18,7 +40,7 @@
 > | **2** | 🔒💰 **SEC-SHIP-A2** (alto) | Un directo solo se prepara, lleva guía o se envía con la orden **`settled`** bajo candado (**`409 ORDER_NOT_SETTLED`**). M3 total y `charge.refunded` total **cierran el envío vivo** en su propia transacción (un cuerpo, `closeShipmentsOnFullRefund`); las piezas `picking` quedan congeladas y las resuelve `chargeback-inventory` (que gana `no_recuperada ⇒ lost` para este origen) | §M3, §M4-SHIP.6, §M4-SHIP.9, §M4-SHIP.17.2 | **Sí, backend y frontend** |
 > | **3** | 🔒💰 **SEC-SHIP-A3** (alto) | Todo cambio de CLABE pasa por **un** escritor (`setClabe`): sella `KycProfile.clabeUpdatedAt`, bitácora `kyc.clabe_changed` (sin la CLABE) y aviso **`AV-16`** al correo de la cuenta con la máscara vieja y la nueva. El reveal devuelve un **`revealToken`** que ata la CLABE revelada; `paid` lo exige (**`409 CLABE_CHANGED_SINCE_REVEAL`**) y pide confirmación reforzada si la CLABE cambió tras crear la deuda o hace < 72 h (**`422 MANUAL_REFUND_CONFIRMATION_REQUIRED`**) | §KYC, §M4-SHIP.15.13, §M4-SHIP.17.3 | **Sí, backend y frontend** · ux-ui (`AV-16`) |
 > | **4** | 🔒💰 **SEC-SHIP-A4** (alto) | `to-manual` toma la orden de origen `FOR UPDATE` y exige `settled` (**`409 CASE_ORIGIN_NOT_SETTLED`**), y rechaza un `failed` cuyo código de Stripe es de disputa aunque la orden aún diga `settled`; `paid` con origen ≠ `settled` exige `confirmOriginNotSettled:true` (mismo `422` de la fila 3) | §M4-SHIP.15.13, §M4-SHIP.17.4 | **Sí, backend y frontend** |
-> | **5** | 🔒 **SEC-SHIP-M1** (medio) | La vista del súper-admin existe: `GET /admin/refunds` (filtrable por rol y actor), `GET /admin/refunds/operator-summary` (24 h / 7 d / 30 d, tasa de faltantes, merma y reposiciones propias por operador), `GET /admin/finance/shrinkage` (merma por actor), `workQueue.operatorRefunds`; aviso interno **`AVA-1`** por reembolso de operador (**D-13** al dueño: por evento o resumen diario) | §M4-SHIP.11, §M7, §M4-SHIP.17.5 | **Sí, backend y frontend** |
+> | **5** | 🔒 **SEC-SHIP-M1** (medio) | La vista del súper-admin existe: `GET /admin/refunds` (filtrable por rol y actor), `GET /admin/refunds/operator-summary` (24 h / 7 d / 30 d, tasa de faltantes, merma y reposiciones propias por operador), `GET /admin/finance/shrinkage` (merma por actor), `workQueue.operatorRefunds`; ~~aviso interno **`AVA-1`** por reembolso de operador (**D-13** al dueño: por evento o resumen diario)~~ ⭐ v1.80.4: **retirado** (D-13 = «Solo verlo en el panel») | §M4-SHIP.11, §M7, §M4-SHIP.17.5 | **Sí, backend y frontend** |
 > | **6** | 🔒💰 **SEC-SHIP-M2** (medio) | `executeRefund`: **reclamo de la fila** antes de Stripe (lease `attemptStartedAt`, **`409 REFUND_ATTEMPT_IN_PROGRESS`**) y búsqueda **paginada** en Stripe | §M4-SHIP.7, §M4-SHIP.17.6 | **Sí, backend** |
 > | **7** | 🔒💰 **SEC-SHIP-M3** (medio) | `resolveOrigin` = el **evento de adquisición más reciente** (caso `replaced` o compra); `currentPieceOf` sigue solo `replaced` **de esa misma compra**, con tope de profundidad y detección de ciclo ⇒ `needsManual` | §M4-SHIP.3, §M4-SHIP.15.9, §M4-SHIP.17.7 | **Sí, backend** |
 > | **8** | 🔒💰 **SEC-SHIP-M4** (medio) | Cancelar una `ManualRefund` deja de ser un callejón: **`POST /admin/manual-refunds/:id/reissue`** (súper-admin, `@MoneyOut`) crea una fila nueva desde una cancelada; el cliente ve `transferStatus:'cancelled'` | §M4-SHIP.15.13, §M4-SHIP.17.8 | **Sí, backend y frontend** |
@@ -5908,6 +5930,11 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
 - ⭐ 💰 **v1.80.3 — `409 MANUAL_REFUND_NOT_CANCELLED` (NUEVO):** `POST /admin/manual-refunds/:id/reissue` sobre una fila
   que no está `cancelled`, o que ya tiene una re-emisión viva. `details: { status: ManualRefundStatus; activeManualRefundId?:
   string }`. No escribió nada. [§M4-SHIP.17.8](#M4-SHIP-17).
+- 💰 **v1.80.4 — `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL` (NUEVO):** `POST /admin/orders/:id/refund` (M3 total) sobre una
+  orden `vault` con alguna carta vigente de la compra **dentro de un retiro vivo ya preparado** (`preparedAt ≠ null`) o
+  en `guia` — la carta está en una caja. `details: { items: { inventoryItemId: string; shipmentId: string;
+  shipmentStatus: ShipmentStatus }[] }`. No escribió nada (ni fila del libro). Se resuelve deshaciendo el preparado
+  (`DELETE /admin/shipments/:id/prepared`) o, en `guia`, esperando a que salga. [§M4-SHIP.18.4](#M4-SHIP-18).
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
 - **`422 ITEM_NOT_OFFERED` (v1.51.20 — NUEVO; DINERO Y PROPIEDAD AJENA):** en `PATCH /admin/buylist/items/:itemId/decision`
   **dentro del ciclo de oferta** (`offerSentAt IS NOT NULL`), se manda **`decision:"approve"`** sobre una línea cuyo
@@ -6141,7 +6168,7 @@ VaultZone           = platform_stock | customer_custody
 OrderStatus         = pending | settled | failed | refunded | chargeback
 ShipmentStatus      = solicitado | picking | guia | enviado | entregado | cancelado
 VaultPlacementStatus = pending | placed | cancelled  // v1.79 (M-59, §M4-VAULT): ciclo de la colocación en bóveda de una orden `vault` liquidada. Clase E (espeja schema.prisma · enum VaultPlacementStatus). ⛔ Ningún filtro de query lo consume hoy.
-VaultPlacementCancelReason = chargeback | nothing_to_place  // v1.79 (M-59, §M4-VAULT.5/.6): por qué una colocación terminó sin colocar. Clase E.
+VaultPlacementCancelReason = chargeback | nothing_to_place  // v1.79 (M-59, §M4-VAULT.5/.6): por qué una colocación terminó sin colocar. Clase E. ⭐ v1.80.4 (M-61, NO construida): gana `full_refund` (§M4-SHIP.18.5) — el valor entra a ESTA lista en el mismo commit que la migración, para no poner roja la paridad con `schema.prisma` antes de tiempo.
 PreparationItemStatus = pending | picked | missing  // v1.79.1 (M-59 ampliada, §M4-VAULT.10): marca de preparación de UNA carta de un pedido de bóveda. Clase E (espeja schema.prisma · enum PreparationItemStatus). Dominio del CUERPO de `PATCH …/prep-items/:placementItemId` (fuera del dominio ⇒ `400 VALIDATION_ERROR`, `details:{field:'status', allowed}`). ⛔ Ningún filtro de query lo consume ⇒ no entra a la paridad a tres bandas. ⭐ v1.80: también lo usa `ShipmentItem.prepStatus` (§M4-SHIP) y el cuerpo de `PATCH /admin/shipments/:id/prep-items/:shipmentItemId` — mismo enum, ⛔ no se duplica.
 MissingReason       = not_found | damaged  // v1.80 (M-61, §M4-SHIP): por qué una carta de un ENVÍO no sale. Clase E. `not_found` ⇒ la pieza pasa a `lost`; `damaged` ⇒ a `damaged`. Dominio del cuerpo de `PATCH /admin/shipments/:id/prep-items/:shipmentItemId` (`missingReason`). ⛔ Ningún filtro de query. ⭐ v1.80.1: UN SOLO modelo de motivo — también `VaultPlacementItem.missingReason` y el cuerpo de `PATCH /admin/vault-placements/:id/prep-items/:placementItemId` (§M4-SHIP.15.2). «Dañada» se trata exactamente igual que «faltante» en todo flujo (decisión del dueño 2026-09-29).
 PaymentRefundKind   = item_missing | order_remaining | shipment_fee | order_full | case_refund  // v1.80 (M-61, §M4-SHIP.2): qué reembolsa una fila del libro. Clase E. ⛔ Ningún filtro de query. ⭐ v1.80.1: + `case_refund` (reembolso que cierra un caso «Por reponer», §M4-SHIP.15.5).
@@ -15146,8 +15173,11 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Los tres desenlaces dejan **`chargebackNeedsManual=false`** y un `AuditLog`
   (`action: 'order.chargeback_inventory'`, con `outcome` y `note` en `after`).
   Res `200`: `{ orderId, outcome, inventoryItemIds: string[], shipmentId?: string, chargebackNeedsManual: false }`.
+  💰 **v1.80.4 — también para una orden `vault` `refunded`** (cartas devueltas por el reembolso total, §M4-SHIP.18.7):
+  `recuperada` ⇒ `in_stock → listed` (o se queda `in_stock` si su precio no resuelve), ⛔ sin movimiento;
+  `no_recuperada` ⇒ `in_stock → lost` + `InventoryMovement{reason:'lost', actorUserId, note}`; `reexpedir` ⇒ `409`.
   Err: `404 NOT_FOUND`; `400 VALIDATION_ERROR` (`note` ausente/corta, `outcome` inválido, o la orden no es
-  `direct_ship`); **`409 CONFLICT`** si el `outcome` no aplica al estado actual — `reexpedir` con la orden todavía
+  `direct_ship` — ⭐ v1.80.4: ni `vault` en estado `refunded`); **`409 CONFLICT`** si el `outcome` no aplica al estado actual — `reexpedir` con la orden todavía
   en `chargeback`, o **cualquier** `outcome` sobre una orden con `chargebackNeedsManual=false` (ya resuelta). Esto
   último **es** la regla de idempotencia: repetir un `outcome` ya aplicado devuelve `409` y **no** duplica
   movimientos de inventario ni envíos.
@@ -15177,6 +15207,13 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     piezas `picking` congeladas y `chargebackNeedsManual=true` (las resuelve `chargeback-inventory`). *Sin esto, un
     pedido reembolsado entero seguía en la cola y se podía enviar.* ⛔ Sin `AV-6` (el cliente recibe el aviso del
     reembolso).
+  - 💰⭐⭐ **v1.80.4 — en una orden `vault`, M3 total DESHACE LA VENTA (sustituye, para bóveda, al «NO re-agrega el item»
+    de arriba).** Las cartas vigentes de la compra que siguen en custodia del cliente vuelven a la plataforma **`in_stock`**
+    (⛔ no `listed`) con movimiento `refund_return`; la colocación `pending` se cancela (`full_refund`); la orden queda en
+    `chargebackNeedsManual`. Corre en la tx que **confirma** el reembolso (⛔ no en la que crea la fila). Precondición
+    nueva: **`409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`**. Norma: [§M4-SHIP.18](#M4-SHIP-18). *Sin esto, el cliente se
+    quedaba con la carta en su bóveda (retirable) **y** con el dinero.*
+  - ⭐ **v1.80.4 — el detalle de M3 de una orden `vault` gana `vaultPieces`** (derivado, §M4-SHIP.18.6).
   - ⭐ **v1.80 — la lista y el detalle de M3 ganan identidad y reembolsos:** ver [§M4-SHIP.10](#M4-SHIP).
 
 ### M4 — Retiros / envíos (`vault_operator+`)
@@ -16620,8 +16657,11 @@ sobre la **misma** fila, y el `CHECK` `placed ⇒ preparedAt NOT NULL`). Tabla e
   piezas vuelven a `listed` **con `locationId` = el cajón del cliente**. Es la **verdad física** (ahí están) y la
   próxima venta las buscará ahí; devolverlas al estante es trabajo del operador con `move` de M1. ⛔ No se «arregla»
   moviendo la ubicación en el webhook: sería afirmar un movimiento que nadie hizo.
-- **Reembolso total** (`onChargeRefunded`): ⛔ **no** cancela la colocación — coherente con **A1** (el reembolso no
-  re-agrega la pieza al inventario: sigue siendo del cliente en custodia y **necesita** cajón).
+- ~~**Reembolso total** (`onChargeRefunded`): ⛔ **no** cancela la colocación — coherente con **A1** (el reembolso no
+  re-agrega la pieza al inventario: sigue siendo del cliente en custodia y **necesita** cajón).~~ 💰 **v1.80.4 —
+  RETIRADO: era el hueco.** Dejaba al cliente con la carta en su bóveda (retirable) **y** con el dinero. Ahora el
+  reembolso total (M3 o `charge.refunded`) **cancela** la colocación `pending` con `cancelReason:'full_refund'` y
+  devuelve las cartas a la plataforma `in_stock` — [§M4-SHIP.18](#M4-SHIP-18).
 - ⭐ **v1.79.1 — la carta marcada `missing`:** su pieza **no cambia en nada** (sigue `in_custody` del cliente, en el
   estante donde el sistema creía que estaba). **Se registra y se detiene** (encargo del dueño vía orquestador): ⛔ sin
   reembolso parcial (CA #16), ⛔ sin aviso al cliente (CA #15), ⛔ sin `lost`, ⛔ sin mover. *Consecuencias conocidas,
@@ -17277,6 +17317,11 @@ arquitecto; citas por símbolo y fichero). Ninguno resultó falso.
 > **.5** (paso 5 y 9 del preparado) · **.6** (`ORDER_NOT_SETTLED` en guía/enviado) · **.7** (`executeRefund`) · **.8**
 > (la vista del punto (7) ya existe) · **.11** (`operatorRefunds`) · **.12** (PS-41…PS-54) · **.13** (D-11, D-12
 > contestadas; D-13, D-14 nuevas) · **.15.9** (`currentPieceOf`) · **.15.13** (`paid`, `to-manual`, `reissue`).
+>
+> 💰⭐ **v1.80.4 (2026-09-29) — D-13/D-14 contestadas y el reembolso total de bóveda.** Norma entera en
+> **[§M4-SHIP.18](#M4-SHIP-18)** (nueva); por sitio: **§M3** (M3 total en `vault`, `chargeback-inventory`) · **§M4-VAULT.6**
+> (el «no cancela la colocación» se retira) · **.13** (D-13, D-14) · **.15.9** (fila M3) · **.17.1** (D-14) · **.17.2**
+> (entrada por `onFullRefund`) · **.17.5** (sin `AVA-1`) · **.17.9** (PS-49) · **§R.3** (`AVA-1` fuera).
 
 ##### M4-SHIP.1 — Los hechos de partida (medidos)
 
@@ -17537,7 +17582,7 @@ model PaymentRefund {
   // … lo de arriba …
   attemptCount      Int       @default(0)   // SEC-SHIP-M2: intentos de hablar con Stripe (el reclamo lo incrementa)
   attemptStartedAt  DateTime?               // SEC-SHIP-M2: reclamo (lease) del intento en curso; null ⇔ nadie lo tiene
-  adminNotifiedAt   DateTime?               // SEC-SHIP-M1: sello de AVA-1 (solo filas requestedByRole='vault_operator')
+  // ~~adminNotifiedAt DateTime?  // SEC-SHIP-M1: sello de AVA-1~~ ⭐ v1.80.4: ELIMINADA (D-13: sin AVA-1, §M4-SHIP.18.1)
 }
 model ManualRefund {
   // … lo de arriba …
@@ -17558,10 +17603,27 @@ model KycProfile {
   ("replacementCaseId", source) WHERE status <> 'cancelled'`** (a lo más **una viva** por caso y canal: la re-emisión
   cabe, dos vivas no) · **`CREATE UNIQUE INDEX … ON "ManualRefund"("paymentRefundId") WHERE status <> 'cancelled' AND
   "paymentRefundId" IS NOT NULL`** (sustituye al `@unique`) · `PaymentRefund`: `attemptCount >= 0` ·
-  `"adminNotifiedAt" IS NOT NULL ⇒ "requestedByRole" = 'vault_operator'`.
+  ~~`"adminNotifiedAt" IS NOT NULL ⇒ "requestedByRole" = 'vault_operator'`~~ (⭐ v1.80.4: se va con su columna).
 - **Sin backfill** (tablas no construidas; `KycProfile.clabeUpdatedAt` nace `NULL` para las CLABE ya registradas —
   «fecha de cambio desconocida», que la cubeta pinta así y **no** dispara la confirmación reforzada por sí sola;
   §M4-SHIP.17.3).
+
+💰 **v1.80.4 — lo que suma `M-61` por el reembolso total de bóveda** (misma migración; razón en §M4-SHIP.18):
+```prisma
+// enums EXISTENTES que ganan UN valor cada uno (ALTER TYPE … ADD VALUE; fuera de transacción si Postgres lo exige):
+enum MovementReason             { /* … los de hoy … */ replacement  refund_return }  // la carta vuelve a la plataforma por un reembolso TOTAL (§M4-SHIP.18.4)
+enum VaultPlacementCancelReason { chargeback  nothing_to_place  full_refund }       // la colocación se cancela porque la compra se reembolsó entera (§M4-SHIP.18.5)
+model Order {
+  // … lo de hoy …
+  fullRefundClosedAt DateTime?   // sello de onFullRefund: se escribe UNA vez, bajo el candado de la fila (§M4-SHIP.18.2)
+}
+```
+- **Sin CHECK nuevo** (el `CHECK 3` de `M-59` —`cancelled` ⇒ `cancelledAt`, `cancelReason` NOT NULL— ya cubre `full_refund`;
+  `cancelledByUserId` sigue libre: el súper-admin en M3, `NULL` por webhook). **Sin backfill automático.** ⚠️ **NO
+  MEDIDO** por el arquitecto si ya existe alguna compra a bóveda reembolsada entera: backend lo comprueba con
+  `SELECT count(*) FROM "Order" WHERE "fulfillmentMode"='vault' AND status='refunded'` contra producción con usuario de
+  solo lectura (o el dueño) **antes** de desplegar; si da > 0, esas órdenes son el residuo del hueco y se listan en
+  `BACKEND_NOTES` para que el súper-admin las resuelva a mano (⛔ ningún script las toca solo).
 
 ⭐ **v1.80.1 — CHECKs añadidos a `M-61`:**
 - `VaultPlacementItem`: `missingReason IS NOT NULL` ⇔ `prepStatus='missing'`. **Backfill en la misma migración, ANTES del
@@ -18218,6 +18280,14 @@ floor(F·P₁/G)`; mercado `priced` de la pieza = `M`; reloj **inyectado**.
 | **D-13** | Cuando un **operador** reembolsa una carta que no encontró, ¿quieres que te llegue **un correo cada vez** («Juan reembolsó MX$314.58 del pedido TCG-1234: carta Pikachu, no la encontró») o **un resumen al día** con todos los del día anterior? En cualquiera de los dos casos lo ves también en el tablero y en «Reembolsos de operadores» | **Un correo cada vez.** Son pocos (solo cartas que faltan) y así ves el patrón el mismo día | resumen diario: un job que corre una vez al día y un sello por día en vez de por fila (§M4-SHIP.17.5) |
 | **D-14** | Si en un conteo de inventario ves que **falta o está dañada la carta de un cliente** que está guardada en su bóveda (no en un retiro ni recién comprada), hoy el sistema **no te deja marcarla** desde el inventario: el problema aparece —y se abre el caso «Por reponer»— cuando el cliente pide su retiro y la palomeas. ¿Te basta así, o quieres un botón para **abrir el caso «Por reponer» desde el inventario** en ese momento? | **Así (sin botón).** Marcarla perdida sin caso era justo el agujero que encontró seguridad (la deuda con el cliente desaparecía) | un verbo nuevo «abrir caso desde custodia» con su propio origen en `ReplacementCase` — un pase de diseño propio |
 
+⭐ **v1.80.4 — respuestas del dueño a D-13 y D-14 (2026-09-29, `HECHOS.md`, fila «Reembolsos de operador — D-13 y
+D-14»; no se re-preguntan):**
+
+| # | Respuesta, literal | Qué se construye |
+|---|---|---|
+| **D-13** | *«Solo verlo en el panel»* | ⛔ **Sin** correo interno `AVA-1` (ni por evento ni resumen diario) y ⛔ sin `PaymentRefund.adminNotifiedAt`. Se quedan: `GET /admin/refunds`, `GET /admin/refunds/operator-summary`, `GET /admin/finance/shrinkage`, `workQueue.operatorRefunds` y la vista «Reembolsos de operadores» (§M4-SHIP.17.5) |
+| **D-14** | *«Por ahora no»* | ⛔ **Sin** botón ni verbo para abrir «Por reponer» desde inventario. La deuda de una carta de custodia nace solo en el palomeo del retiro o de la colocación (§M4-SHIP.17.1) |
+
 🔒 **v1.80.3 — lo que el dueño debe saber (no son preguntas):**
 - **Para marcar pagada una transferencia, antes hay que «Revelar CLABE» en esa misma pantalla.** No escribes nada más:
   la pantalla recuerda qué CLABE te mostró. Si el cliente **cambió su CLABE** después de que la viste, el sistema no
@@ -18683,7 +18753,7 @@ export interface ReplacementCandidateDTO {
 | **Contracargo de bóveda** de la orden de origen, caso `open` | La original (`lost|damaged` del cliente) **no** cumple la guarda de §M4-SHIP.7 (D-SHIP-2) ⇒ `needsManual`, como hoy. Los verbos del apartado ven la orden no `settled` bajo su candado ⇒ `409 CASE_ORIGIN_NOT_SETTLED` ⇒ el súper-admin **anula** | ⛔ nunca reponer ni reembolsar a quien disputó |
 | **Contracargo de bóveda** tras un `replaced` | ⭐ **Corrección exigida:** `onChargeDisputeVault` resuelve la pieza de cada `OrderItem` con **`currentPieceOf(orderItem)`** (sigue la cadena de casos `replaced` hasta la pieza vigente, un cuerpo con `resolveOrigin`) ⇒ revierte la **repuesta** (cliente `in_custody` → plataforma, la regla de hoy). 🔒 **v1.80.3 (SEC-SHIP-M3):** la cadena sigue **solo** casos `replaced` **de esa misma `OrderItem`**, con tope de profundidad y detección de ciclo (⇒ `needsManual`), y la pieza vigente solo se revierte si `resolveOrigin(pieza) = esa OrderItem` (si el cliente la **re-compró**, ya es de otra compra) — §M4-SHIP.17.7 | ⛔ nunca «la carta repuesta y el dinero» (PS-29, PS-52) |
 | Contracargo **durante** un `replace` | Los dos toman piezas → orden en ese orden. Si el contracargo leyó la cadena antes del commit de `replace`, su CAS sobre la original cuenta 0 ⇒ `needsManual` (⚠️ **residual declarado**, visible, ⛔ no silencioso). Si `replace` ve la orden ya en disputa ⇒ `409`, rollback | nunca estado falso; lo peor queda en `needsManual` |
-| M3 `order_full` (súper-admin) | Candado de fila `Order` en los dos ⇒ `Σ ≤ total` | tras un M3 total el caso ve la orden `refunded` ⇒ se **anula** |
+| M3 `order_full` (súper-admin) | Candado de fila `Order` en los dos ⇒ `Σ ≤ total` | tras un M3 total el caso ve la orden `refunded` ⇒ se **anula** (💰 v1.80.4: el cierre de bóveda **no** lo anula solo — `void` es `@MoneyOut` y puede emitir `shipment_fee`; lo deja visible en `vaultPieces` como `open_case`, §M4-SHIP.18.4) |
 | Compra concurrente de la candidata `listed` | La reserva y el CAS de reposición escriben la **misma** fila con el estado en el `WHERE` ⇒ uno gana | una pieza, un dueño (PS-23) |
 | El cliente pide **otro retiro** de la original | `withdrawable=false` (no está `in_custody`) ⇒ `422 ITEM_NOT_IN_CUSTODY` (§5, sin cambio) | no se retira lo que no tenemos |
 | ⭐ v1.80.2 — **Contracargo** (o M3 total) de la orden de origen **después** de un caso `refunded` con `ManualRefund` `pending` | ⛔ El sistema **no** la cancela sola (cancelar es decisión del dueño con nota). La cubeta muestra `origin.orderStatus` y, si ya no es `settled`, un aviso rojo «la compra de origen está en disputa / reembolsada: revisa antes de pagar». `paid` **no** se bloquea (el dueño puede tener razones), pero la bitácora `manual_refund.paid` registra `originOrderStatus` | nunca un pago a ciegas; la decisión queda con nombre |
@@ -18943,7 +19013,7 @@ vendida se re-publicaba.
    carta de un cliente fuera de un caso es exactamente el vector (3) — la pieza deja de ser retirable y **ningún**
    lector de deuda (`ReplacementCase`) la ve. La incidencia de custodia se registra **solo** en el palomeo del retiro o
    de la colocación, que abre su caso. Si el dueño quiere hacerlo antes del retiro, es **D-14** (un verbo propio que
-   **abre el caso**, ⛔ no `mark`). ⇒ **Backend:** en `assertOperable(item, 'mark')` la rama `customer` lanza
+   **abre el caso**, ⛔ no `mark`). ⭐ **v1.80.4 — D-14 = *«Por ahora no»*: ese verbo NO se construye** (§M4-SHIP.18.1). ⇒ **Backend:** en `assertOperable(item, 'mark')` la rama `customer` lanza
    `ITEM_NOT_ADJUSTABLE` (y sobra `assertNotInActiveWithdrawal` en `markItem`). Frontend: sin el botón sobre piezas de
    cliente.
 2. **`PATCH … {status:'in_stock'}` — solo plataforma `in_stock | listed`**: lectura → guarda (`422
@@ -18995,8 +19065,13 @@ vendida se re-publicaba.
      (`entityType='ShipmentRequest'`, `after:{ trigger:'m3'|'charge_refunded', orderId|shipmentRequestId,
      frozenItemIds }`).
    - Envío ya `cancelado | enviado | entregado` ⇒ no-op (idempotente: el webhook que llega tras M3 no hace nada).
+   - 💰 **v1.80.4 — el punto de entrada es `onFullRefund`** (despachador por `fulfillmentMode`, §M4-SHIP.18.2), que
+     además sella `Order.fullRefundClosedAt`; la rama **directo** de arriba **no cambia de conducta**. La rama **`vault`**
+     (que aquí no existía: una orden de bóveda no tiene envío que cerrar y sus cartas se quedaban con el cliente) es
+     `reclaimVaultOnFullRefund`, §M4-SHIP.18.
 3. **Residual declarado:** si la fila `order_full` termina `failed` (Stripe la rechaza), el envío ya quedó cerrado y la
-   orden sigue `settled` con el cobro sin devolver. Es un fallo **seguro** (no sale mercancía sin que el dinero esté
+   orden sigue `settled` con el cobro sin devolver. ⭐ v1.80.4: **solo en el directo** — en bóveda el cierre corre al
+   confirmar el reembolso (§M4-SHIP.18.3), así que un `failed` deja la carta con su dueño. Es un fallo **seguro** (no sale mercancía sin que el dinero esté
    resuelto) y **visible** (`summary.stuckRefunds`, detalle M3); lo resuelve el súper-admin. ⛔ No se re-abre el envío
    solo.
 
@@ -19105,12 +19180,14 @@ Todos **`@Roles(super_admin)`**, lectura, `Cache-Control: no-store`, sin bitáco
    arquitecto si M7 ya tiene un lector de merma que haya que reusar (seguridad: «grep ⇒ 0, NO MEDIDO a fondo»): backend
    lo mide; si existe, este endpoint lo **extrae**, ⛔ no crea un segundo.
 4. **Tablero:** `workQueue.operatorRefunds` (§M4-SHIP.11), `null` para el operador.
-5. **Aviso interno `AVA-1`** (fuera de los once de §R: destinatario **interno**): post-commit del `prepared` que creó
+5. ⭐ **v1.80.4 — RETIRADO (D-13 = *«Solo verlo en el panel»*).** El dueño se entera por los puntos 1–4; ⛔ sin correo,
+   ⛔ sin columna `adminNotifiedAt`, ⛔ sin job. Texto anterior, tachado por completo:
+   ~~**Aviso interno `AVA-1`** (fuera de los once de §R: destinatario **interno**): post-commit del `prepared` que creó
    filas con `requestedByRole='vault_operator'`, **un** correo por acto a cada usuario `super_admin` activo: operador,
    pedido, cartas, motivo (no la encontré / dañada), importe, enlace al detalle M3. Sello `PaymentRefund.adminNotifiedAt`
    reclamado con `updateMany({ where: { id: { in: <filas del acto> }, requestedByRole:'vault_operator', adminNotifiedAt:
    null } })` ⇒ una vez. ⛔ Sin datos bancarios. **D-13** al dueño: por defecto así; si elige «resumen diario», el sello
-   pasa a un job diario que reclama las filas del día (⛔ no ambos).
+   pasa a un job diario que reclama las filas del día (⛔ no ambos).~~
 6. **Recomendado, NO exigido (queda como deuda con disparador):** tope por cliente/correo en 30 d para faltantes. Se
    activa si `operator-summary` muestra una tasa anómala.
 
@@ -19186,7 +19263,7 @@ dueño con nota), pero ya **no** es silencioso: su pantalla lo dice.
 | **PS-46** 🔒 | `PUT /users/me/kyc` con CLABE nueva ⇒ `clabeUpdatedAt` puesto, **una** bitácora `kyc.clabe_changed` cuyo JSON **no** contiene 18 dígitos seguidos, **un** `AV-16` con las dos máscaras; misma CLABE ⇒ cero escrituras y cero avisos; primera CLABE por buylist ⇒ lo mismo. **`C-CLABE-1`** verde con `setClabe` como único escritor | escribir `clabeEnc` desde el servicio de buylist sin `setClabe` ⇒ `C-CLABE-1` rojo y sin `clabeUpdatedAt` |
 | **PS-47** 💰🔒 | Reveal ⇒ token; `PUT kyc` con otra CLABE ⇒ `paid` con el token viejo ⇒ `409 CLABE_CHANGED_SINCE_REVEAL`, cero escrituras; re-reveal ⇒ `paid` sin confirmar ⇒ `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required:['recent_clabe_change']}`; con `true` ⇒ `200` y `paidClabeHmac` = el de la CLABE **revelada**. Carrera `paid` vs `PUT kyc` (barrera en la fila `KycProfile`, N≥10) ⇒ en **todas**: o `409` o `paidClabeHmac` = hmac del token | (a) no comparar el token ⇒ `paid` con CLABE distinta; (b) leer `clabeHmac` antes del candado ⇒ `paidClabeHmac` ≠ revelada en ≥1 tirada |
 | **PS-48** 💰 | `case_refund` `failed` + orden `chargeback` ⇒ `to-manual` `409 CASE_ORIGIN_NOT_SETTLED`, cero `ManualRefund`; `failureCode='charge_disputed'` con orden `settled` ⇒ ídem; `paid` de una `pending` cuya orden pasó a `chargeback` sin `confirmOriginNotSettled` ⇒ `422 … {required:['origin_not_settled']}`; con `true` ⇒ `200` y la bitácora lo registra | quitar el `FOR UPDATE`+chequeo de la orden en `to-manual` ⇒ `ManualRefund` creada |
-| **PS-49** 🔒 | Fixture de dos operadores: `operator-summary` da las sumas 24 h/7 d/30 d, `capUsedCents` **igual** al `usedCents` del tope, `missingRatePct` y `selfReplaced30d` exactos; `/finance/shrinkage?actorUserId=` cuenta la original de un caso **una** vez (nacimiento), ⛔ no en su traspaso `replacement`; operador ⇒ `403` en los tres; **un** `AVA-1` por acto aunque se llame dos veces (N≥10 simultáneas) | (a) contar `toStatus ∈ {lost,damaged}` sin excluir `fromStatus` ⇒ doble conteo; (b) no reclamar `adminNotifiedAt` ⇒ dos correos |
+| **PS-49** 🔒 | Fixture de dos operadores: `operator-summary` da las sumas 24 h/7 d/30 d, `capUsedCents` **igual** al `usedCents` del tope, `missingRatePct` y `selfReplaced30d` exactos; `/finance/shrinkage?actorUserId=` cuenta la original de un caso **una** vez (nacimiento), ⛔ no en su traspaso `replacement`; operador ⇒ `403` en los tres; ~~**un** `AVA-1` por acto aunque se llame dos veces (N≥10 simultáneas)~~ ⭐ v1.80.4: **cero** correos internos al preparar con filas de operador (D-13) | (a) contar `toStatus ∈ {lost,damaged}` sin excluir `fromStatus` ⇒ doble conteo; ~~(b) no reclamar `adminNotifiedAt` ⇒ dos correos~~ (v1.80.4: retirada con `AVA-1`) |
 | **PS-50** 💰 | Doble de Stripe con **25** reembolsos sobre el PI y el de la fila en el lugar 23; `attemptCount = 1` previo y llave expirada ⇒ `retry` lo **encuentra** (cero `refunds.create`) | buscar en una sola página ⇒ crea otro |
 | **PS-51** 💰 | Dos `retry` simultáneos con la llave de Stripe expirada (barrera tras el reclamo, N≥10) ⇒ exactamente **una** llamada `refunds.create` por tirada; el otro `409 REFUND_ATTEMPT_IN_PROGRESS` | quitar el reclamo ⇒ dos `create` en ≥1 tirada |
 | **PS-52** 💰 | **Re-compra:** X→Y (caso C1, origen O1); contracargo de O1 ⇒ Y a plataforma; U re-compra Y en O2 ⇒ `resolveOrigin(Y) = O2`; un segundo evento de disputa de O1 ⇒ Y **no** se toca. **Ciclo** forzado por fixture (A→B→A) ⇒ `needsManual`, cero escrituras | (a) precedencia del caso sobre la compra ⇒ origen O1; (b) quitar `originOrderItemId` del filtro de la cadena ⇒ Y revertida por O1 |
@@ -19206,10 +19283,178 @@ ya **no** deja salir el envío), B5 (tope por operador × N operadores), B6 (cub
 |---|---|
 | **backend** (modelo fuerte: `inventory`, `orders`, `payments`, `shipments`, `users`) | En `claude/arreglos-operador` (o donde el orquestador decida): `mark` sin rama de cliente; `PATCH` de estado con guarda y CAS. En este stream: `M-61` ampliada (columnas, índices parciales, CHECKs); `PREPARATION_HAS_BLOCKED_LINES`; `ORDER_NOT_SETTLED` en los cuatro verbos; `closeShipmentsOnFullRefund` (M3 con orden de candados nuevo + webhook) y `chargeback-inventory` para órdenes `refunded`; `setClabe` + `AV-16` + `C-CLABE-1`; `revealToken`, `paid` nuevo, `to-manual` con orden y códigos de disputa (medir el código real); vista de M1 (tres endpoints, `workQueue`, `AVA-1`); lease + paginación en `executeRefund`; `resolveOrigin`/`currentPieceOf`; `reissue`; PS-41…PS-54 con mutación demostrada; los seis códigos en `common/error-codes.ts` |
 | **frontend** | Sin «Marcar perdida» en piezas de cliente ni fuera de `in_stock|listed`; `LOCATION_NOT_AVAILABLE not_platform_stock`; `ORDER_NOT_SETTLED`/`PREPARATION_HAS_BLOCKED_LINES` con nombre; cubeta SPEI: «Marcar pagada» en la vista del reveal con el token, clave de rastreo **opcional**, casillas reforzadas, «CLABE cambiada el …», «Re-emitir»; «Reembolsos de operadores» (resumen + libro filtrable) y merma por actor en M7; tarjeta del tablero; «CLABE actualizada el …» en la cuenta del cliente; `transferStatus:'cancelled'`; tipos 1:1 |
-| **ux-ui** | Copys: `AV-16` y `AVA-1` (es/en), las casillas reforzadas, «la CLABE cambió desde que la viste», «Re-emitir», transferencia cancelada vista por el cliente, «Reembolsos de operadores» |
+| **ux-ui** | Copys: `AV-16` ~~y `AVA-1`~~ (es/en; ⭐ v1.80.4: `AVA-1` retirado), las casillas reforzadas, «la CLABE cambió desde que la viste», «Re-emitir», transferencia cancelada vista por el cliente, «Reembolsos de operadores» |
 | **seguridad** | Re-revisión de este diseño (A1…A4, M1…M4) antes de construir la parte afectada |
-| **devops** | Nada nuevo de infraestructura; si D-13 = resumen diario, el job diario |
-| **product-owner** | Registrar D-11/D-12 y, cuando lleguen, D-13/D-14 en `PROJECT.md` |
+| **devops** | Nada nuevo de infraestructura (⭐ v1.80.4: D-13 = panel ⇒ ⛔ sin job diario) |
+| **product-owner** | Registrar D-11/D-12 ~~y, cuando lleguen,~~ y D-13/D-14 (⭐ v1.80.4: ya contestadas) en `PROJECT.md` |
+
+⭐ **v1.80.4 — la fila de backend de arriba pierde «`AVA-1`» y la columna `adminNotifiedAt`** (D-13). Lo que añade el
+reembolso total de bóveda está en §M4-SHIP.18.9.
+
+##### <a id="M4-SHIP-18"></a>M4-SHIP.18 — 💰 v1.80.4: D-13/D-14, y el reembolso total de una compra a BÓVEDA deshace la venta (**NORMATIVA**, **DINERO**)
+
+> **Fuente:** `HECHOS.md`, fila «Reembolsos de operador — D-13 y D-14 (2026-09-29)»; y el hueco que el arquitecto
+> señaló como *posible* en v1.80.3 y el orquestador **leyó** en `origin/production:backend/src/modules/orders/
+> admin-orders.controller.ts` ~l.213-262: el reembolso total de M3 pone la orden `refunded` y, por comentario explícito,
+> «NO re-agrega la carta». ⛔ **NO MEDIDO por el arquitecto** (sin Bash; ese fichero no es de este worktree): se toma
+> la lectura del orquestador. Lo que sí leyó el arquitecto, en este contrato: §M3 («**NO** re-agrega el item al
+> inventario») y §M4-VAULT.6 («Reembolso total ⛔ no cancela la colocación — coherente con A1»). Los dos textos, juntos,
+> **son** el hueco en bóveda. Por qué y alternativas: `ARCHITECTURE §4.57 (p)`.
+
+###### M4-SHIP.18.1 — D-13 y D-14
+
+- **D-13 (*«Solo verlo en el panel»*):** `AVA-1` **no se construye**; `PaymentRefund.adminNotifiedAt` sale de `M-61`
+  (con su CHECK); PS-49 pierde su mutación (b). La vigilancia del súper-admin son las tres lecturas y el contador de
+  §M4-SHIP.17.5 (puntos 1–4), **sin cambio**. ⛔ Ni correo, ni job.
+- **D-14 (*«Por ahora no»*):** sin verbo «abrir caso desde custodia». `mark` sigue **sin** rama de cliente
+  (§M4-SHIP.17.1 (1)). *Consecuencia conocida, ya declarada:* una carta de cliente que falta en un conteo se registra
+  cuando el cliente pide su retiro (palomeo ⇒ caso). Si el dueño cambia de idea, es un pase de diseño propio.
+
+###### M4-SHIP.18.2 — Un despachador y un sello
+
+**`onFullRefund(tx, target, trigger, actorUserId | null)`** — **el único** punto de entrada del cierre por reembolso
+total. `target = { orderId } | { shipmentRequestId }`; `trigger = 'm3' | 'charge_refunded'`; `actorUserId` = sesión
+del súper-admin (M3) o `null` (webhook).
+- **Llamadores (exactos):** M3 `POST /admin/orders/:id/refund` y el webhook `charge.refunded` **total**
+  (`amount_refunded = amount` del cargo). ⛔ Ningún otro.
+- **Despacho:** PI de un **retiro** (`ShipmentRequest.stripePaymentIntentId`) ⇒ `closeShipmentsOnFullRefund` rama retiro
+  (§M4-SHIP.17.2, sin cambio). Orden `fulfillmentMode='direct_ship'` ⇒ `closeShipmentsOnFullRefund` rama directo (sin
+  cambio). Orden **`vault`** ⇒ **`reclaimVaultOnFullRefund`** (abajo). Cualquier otro modo ⇒ **lanza** + `log error`
+  (⛔ nunca cae por defecto en una rama: ARCHITECTURE §4.21d).
+- **Sello `Order.fullRefundClosedAt`** (solo con `target.orderId`): **después** de tomar los candados de la rama (orden
+  de §M4-SHIP.17.2: envíos → piezas → `Order`), con la fila `Order` ya `FOR UPDATE`: `fullRefundClosedAt ≠ null` ⇒
+  **no-op completo** (la segunda llegada —M3 y luego su webhook, o un reintento de Stripe— no escribe nada, ni
+  `needsManual`). Si es `null`: se hace el trabajo de la rama y se escribe `fullRefundClosedAt = now` **en la misma tx**.
+  *Por qué un sello y no la idempotencia de cada escritura:* en bóveda, tras la primera pasada las cartas ya son de la
+  plataforma; una segunda pasada las vería «fuera del cliente» y volvería a poner `chargebackNeedsManual=true` sobre una
+  orden que un humano ya resolvió.
+- **Candado estático `C-FULLREF-1`** (lo escribe backend): `closeShipmentsOnFullRefund` y `reclaimVaultOnFullRefund`
+  solo se llaman desde `onFullRefund`; `onFullRefund` solo desde M3 `refund` y `onChargeRefunded`; y el despacho
+  cubre los modos de `FulfillmentMode` exactos (un modo nuevo sin rama ⇒ rojo). Un llamador de más ⇒ rojo.
+
+###### M4-SHIP.18.3 — Cuándo corre en bóveda: al CONFIRMAR el reembolso, no al pedirlo
+
+| Rama | Tx donde corre el cierre | Por qué |
+|---|---|---|
+| Directo (§M4-SHIP.17.2) | La que **crea** la fila `order_full` | Mientras el reembolso vuela, el paquete **no debe salir**; si Stripe lo rechaza, el envío cerrado es un fallo **seguro** |
+| **Bóveda (nuevo)** | La que **confirma**: en M3, la tx que escribe `submitted` y `Order → refunded` (`WHERE status='settled'`); en el webhook, la tx de `charge.refunded` total | Quitarle la carta al cliente **antes** de saber que el dinero salió sería el fallo **inseguro**: si la fila termina `failed`, el cliente se quedaría sin carta y sin dinero |
+
+*Ventana entre pedir y confirmar* (segundos; horas si la fila queda `requested` por un error transitorio): la carta
+sigue siendo del cliente y puede pedir su retiro. Si al confirmar ya está en una caja o salió, cae en las filas
+«no se toca» de §M4-SHIP.18.4 y queda en `needsManual` — ⚠️ **residual declarado, visible** (`summary.stuckRefunds` y la
+cola `needsManual`), ⛔ nunca silencioso.
+
+###### M4-SHIP.18.4 — `reclaimVaultOnFullRefund(tx, order, trigger, actorUserId)`: qué pasa con cada carta
+
+**Precondición solo en M3** (en la tx que **crea** la fila del libro, antes de crearla, tomando los retiros y las piezas
+en el orden de abajo; la rama misma corre después, en la tx de confirmación, §18.3): si alguna carta vigente de
+la compra está en un retiro **vivo** (`solicitado|picking|guia`) con `preparedAt ≠ null` o en `guia` ⇒ **`409
+VAULT_PIECE_IN_PACKED_WITHDRAWAL {items}`**, cero escrituras. *Por qué rechazar y no decidir solos:* la carta está en una
+caja; quitársela al cliente en el sistema no la saca de la caja, y el paquete saldría igual. El súper-admin deshace el
+preparado (`DELETE /admin/shipments/:id/prepared`, que ya existe) o, con guía comprada, espera a que salga. El webhook
+**no** puede rechazar (el dinero ya salió en Stripe): ahí la carta cae en la fila «en caja» de la tabla.
+
+**Candados** (el orden de §M4-SHIP.17.2, ⛔ ninguno nuevo): (a) lectura **sin** candado de las `OrderItem`, de
+`p = currentPieceOf(oi)` para cada una (§M4-SHIP.17.7 (2)) y de los retiros vivos que contienen esas `p`; (b) esos
+retiros `FOR UPDATE` (id asc.); (c) las piezas `FOR UPDATE` (id asc.); (d) `Order` `FOR UPDATE` y el sello (§18.2);
+(e) tras (c), **se re-lee** qué retiros vivos contienen cada `p`: uno que no estaba en (b) ⇒ esa carta cae en «en caja»
+(conservador: no se escribe sobre una pieza cuyo retiro no tenemos tomado). (f) La colocación se escribe **al final**
+(§18.5), como en el contracargo.
+
+**Por carta** — `p = currentPieceOf(oi)`; si la cadena da `needsManual` (ciclo, tope, >1) ⇒ fila «ambigua». Si
+`resolveOrigin(p, order.userId) ≠ oi` (el cliente la **re-compró**: la otra compra responde por ella) ⇒ fila «de otra
+compra». Si no, por su estado **bajo candado**:
+
+| Estado de `p` | Efecto | `vaultPieces[].state` |
+|---|---|---|
+| Cliente `in_custody` (`ownerUserId = order.userId`, `ownershipStatus='settled'`), sin retiro vivo, **o** en un retiro vivo `solicitado\|picking` con `preparedAt = null` | CAS `updateMany({ where: { id, ownerType:'customer', ownerUserId, status:'in_custody' }, data: { ownerType:'platform', ownerUserId:null, ownershipStatus:null, status:'in_stock' } })` (**`locationId` intacto**: es la verdad física) + `InventoryMovement{ reason:'refund_return', fromStatus:'in_custody', toStatus:'in_stock', fromLocationId = toLocationId = locationId, actorUserId, note: 'reembolso total <orderNumber>' }`. `count 0` ⇒ fila «ambigua». En un retiro vivo: el retiro **no se toca**; la línea pasa a **`blocked`** por la regla de disponibilidad de §M4-SHIP.3 (ya no es del cliente) ⇒ no se palomea, no sale, y **no** dispara `409 PREPARATION_HAS_BLOCKED_LINES` (su origen ya no está `settled`) | `returned` |
+| Cliente `in_custody` en un retiro vivo **preparado** o en **`guia`** (solo por webhook, o el retiro de (e)) | ⛔ **no se toca** + `log warn` | `in_packed_withdrawal` |
+| `withdrawn`, o en un retiro `enviado\|entregado` | ⛔ no se toca: la carta ya la tiene el cliente | `already_withdrawn` |
+| Cliente `lost\|damaged` con caso «Por reponer» `open` | ⛔ no se toca; el caso **sigue `open`** y ya es anulable (orden no `settled`, §M4-SHIP.15.10) | `open_case` |
+| Plataforma (p. ej. ya revertida por un contracargo previo) | nada | `not_customer` |
+| Cadena ambigua / CAS `count 0` | nada + `log error` | `ambiguous` |
+| Re-comprada en otra orden | nada | `other_purchase` |
+
+**Después del bucle:** `Order.chargebackNeedsManual = true` **siempre** que la orden tenga ≥ 1 `OrderItem` (un humano
+confirma dónde está físicamente cada carta de una compra reembolsada entera: con inventario fantasma, «devuelta» no
+significa «está en el estante»). Bitácora **`order.full_refund_closed`** (`entityType='Order'`, `actorUserId`, `after:{
+trigger, returnedItemIds, untouched: { inventoryItemId, state }[], placementCancelled: boolean }`). ⛔ Sin `AV-6`; el
+cliente recibe `AV-3` (con su variante `vault`, §R.3).
+
+⛔ **`onChargeDisputeVault` no cambia en esta rev** (sigue `listed` + `chargeback_return`). *Por qué distinto destino:*
+en el contracargo el motivo es el banco, la carta existe y está en su cajón; en el reembolso total uno de los dos
+motivos que admite `PROJECT §H` es **inventario fantasma** — devolverla a la venta sería vender otra vez algo que quizá
+no existe.
+
+###### M4-SHIP.18.5 — La colocación pendiente
+
+Al final de la tx de la rama: `tx.vaultPlacement.updateMany({ where: { orderId, status:'pending' }, data: {
+status:'cancelled', cancelledAt: now, cancelledByUserId: actorUserId, cancelReason:'full_refund' } })`. `count 0` (ya
+`placed` o ya `cancelled`) **no** es error. Siempre, sin importar cómo salió cada carta (tras un reembolso total, nada de
+esa compra se coloca a nombre del cliente). Los cuatro verbos de colocación ven `409 PLACEMENT_NOT_PENDING {status:
+'cancelled', cancelReason:'full_refund'}`. Una colocación ya **`placed`** no cambia: las cartas devueltas quedan con
+`locationId` = el cajón del cliente (la verdad física, igual que tras un contracargo, §M4-VAULT.6); devolverlas al
+estante es `move` de M1 (el frontend lo sugiere al confirmar `recuperada`).
+
+###### M4-SHIP.18.6 — Lo que se ve (⛔ ningún estado nuevo: todo se deriva de la titularidad)
+
+- **«Mi bóveda»** (`GET /vault/holdings`, portafolio, `withdrawable`): una carta `returned` ya no es del cliente ⇒
+  **desaparece** sola; pedir su retiro ⇒ `422 ITEM_NOT_IN_CUSTODY` (§5, sin cambio). Las `open_case` siguen como hoy
+  («la estamos reponiendo») hasta que se anule el caso.
+- **«Qué debe haber»** (§M4-VAULT.11): el conjunto es `in_custody` del cliente ⇒ una `returned` sale de `items` y de
+  `counts`; la colocación cancelada saca su `pending_placement`. ⛔ Sin `PhysicalState` nuevo. *Consecuencia conocida:*
+  hasta el `move`, el cajón del cliente tiene una carta que ya no debe estar ahí — es la verdad física, y «Qué debe
+  haber» es justo la herramienta que la hace visible.
+- **Cola «Para bóveda»:** la colocación cancelada sale de la cola.
+- **Detalle de M3** (`GET /admin/orders/:id`), aditivo, **solo órdenes `vault`**: `vaultPieces: { orderItemId: string;
+  inventoryItemId: string; folio: string; cardName: string; state: 'in_custody' | 'returned' | 'in_packed_withdrawal' |
+  'already_withdrawn' | 'open_case' | 'not_customer' | 'ambiguous' | 'other_purchase'; pendingConfirmation: boolean
+  }[]`. **Derivado en la lectura** con la misma clasificación de §18.4 (un cuerpo, `classifyVaultPiece`; `in_custody`
+  solo aparece antes del reembolso); `pendingConfirmation` ⇔ `returned` ∧ pieza plataforma `in_stock` ∧ su último
+  movimiento es `refund_return` ∧ `chargebackNeedsManual`. ⛔ Sin columna: no hay dos verdades.
+- **Cliente:** `AV-3` con variante `vault` (§R.3). Su historial de pedidos ya dice «reembolsado».
+
+###### M4-SHIP.18.7 — `chargeback-inventory` para una orden `vault` `refunded`
+
+Precondición ampliada: `direct_ship` (como hoy) **o** `vault` con `status='refunded'` ∧ `chargebackNeedsManual`. Cartas
+objetivo = las `vaultPieces` con `pendingConfirmation` (bajo `FOR UPDATE`, id asc.; CAS con `ownerType:'platform',
+status:'in_stock'` en el `WHERE`; una que el operador ya publicó cuenta 0 y se omite).
+- **`recuperada`** ⇒ cada objetivo `in_stock → listed` por el pipeline de publicación de v1.51 (precio que no resuelve ⇒
+  se queda `in_stock`). ⛔ Sin `InventoryMovement` (§M4-SHIP.17.1 (2): publicar es visibilidad, no movimiento).
+- **`no_recuperada`** ⇒ cada objetivo `in_stock → lost` + `InventoryMovement{ reason:'lost', actorUserId: sesión, note }`
+  — **merma firmada**, entra en `/finance/shrinkage` **una** vez (`fromStatus='in_stock'`).
+- **`reexpedir`** ⇒ `409 CONFLICT` (una compra a bóveda no tiene envío que re-expedir).
+- **Mixto** (unas están, otras no): `recuperada` y luego `mark` de M1 sobre la que falta (plataforma `in_stock|listed` ⇒
+  `lost` con actor, §M4-SHIP.17.1 (1)). ⛔ Sin desenlace por carta en este endpoint.
+- Las cartas **no** objetivo (`open_case`, `already_withdrawn`, …) no se tocan; la `note` registra lo que el humano
+  decidió sobre ellas. Mismo cierre que hoy: `chargebackNeedsManual=false`, bitácora `order.chargeback_inventory`,
+  repetir ⇒ `409`.
+
+###### M4-SHIP.18.8 — Pruebas que DEBEN fallar (PS-55…PS-62)
+
+| # | Qué asevera | Mutación que la pone roja |
+|---|---|---|
+| **PS-55** 💰 | Orden `vault` `settled`, colocación `placed`, carta `in_custody` sin retiro. M3 total ⇒ tras la tx de confirmación: pieza plataforma `in_stock`, `ownerUserId null`, `locationId` = el cajón; **un** movimiento `refund_return` con el actor; `chargebackNeedsManual=true`; `fullRefundClosedAt` puesto; `GET /vault/holdings` ya no la lista; `POST /shipments` con ella ⇒ `422 ITEM_NOT_IN_CUSTODY`; el catálogo **no** la lista | (a) no llamar a la rama `vault` desde `onFullRefund` ⇒ la carta sigue en «Mi bóveda» (**el hueco**); (b) escribir `listed` en vez de `in_stock` ⇒ aparece en el catálogo |
+| **PS-56** 💰 | Colocación `pending` + M3 total ⇒ `cancelled`, `cancelReason='full_refund'`, `cancelledByUserId` = súper-admin; `confirm` ⇒ `409 PLACEMENT_NOT_PENDING {cancelReason:'full_refund'}`; con la colocación `placed` ⇒ sigue `placed` y la tx **no** aborta | (a) omitir la cancelación ⇒ sigue `pending` en la cola; (b) quitar `status:'pending'` del `WHERE` ⇒ el `CHECK` de `cancelled` aborta la tx sobre una `placed` |
+| **PS-57** 💰 | `charge.refunded` total simulado sobre una orden `vault` ⇒ mismos efectos que PS-55 con `actorUserId null`. Secuencia M3 → `chargeback-inventory recuperada` → webhook tardío ⇒ el webhook **no** escribe (flag sigue `false`, **un** movimiento `refund_return` por carta, **una** bitácora `order.full_refund_closed`). Dos entregas simultáneas del webhook (barrera en `Order`, N≥10) ⇒ en **todas** las tiradas, un movimiento por carta | quitar la comprobación del sello ⇒ el webhook tardío vuelve a poner `chargebackNeedsManual=true` |
+| **PS-58** 💰 | M3 total con Stripe que **rechaza** (fila `failed`) ⇒ la carta sigue cliente `in_custody`, colocación `pending`, orden `settled`, `fullRefundClosedAt null` | mover `reclaimVaultOnFullRefund` a la tx que crea la fila ⇒ el cliente queda sin carta y sin dinero |
+| **PS-59** 💰 | Carta en un retiro `picking` **preparado** ⇒ M3 `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`, cero filas del libro, cero movimientos. Tras `DELETE …/prepared` ⇒ M3 `200`, pieza `returned`, su línea `blocked`; `prepared` del retiro ⇒ **sin** `409 PREPARATION_HAS_BLOCKED_LINES` y la línea no pasa a `withdrawn` en `entregado`. Por webhook con el retiro preparado ⇒ pieza intacta, `vaultPieces[].state='in_packed_withdrawal'`, flag `true` | (a) quitar la precondición ⇒ M3 `200` con la carta en la caja; (b) en la rama, tratar «preparado» como «sin preparar» ⇒ pieza revertida por webhook |
+| **PS-60** 💰 | **Cadena:** X faltó, se repuso con Y (caso C1, origen `oi`) ⇒ M3 total revierte **Y**, no toca X (ya merma de plataforma). **Re-compra:** Y re-comprada en O2 ⇒ M3 de O1 **no** toca Y (`other_purchase`). **Caso abierto:** original `lost` con caso `open` ⇒ intacta, caso sigue `open`, `void` ⇒ `200` | (a) usar `oi.inventoryItemId` en vez de `currentPieceOf` ⇒ Y se queda con el cliente; (b) quitar la comprobación de `resolveOrigin` ⇒ Y de O2 revertida |
+| **PS-61** | `chargeback-inventory` sobre `vault` `refunded`: `recuperada` ⇒ `in_stock → listed`, cero movimientos nuevos; `no_recuperada` ⇒ `lost` + movimiento `lost` con actor y `/finance/shrinkage` la cuenta **una** vez; `reexpedir` ⇒ `409`; sobre `vault` `settled` ⇒ `400`; repetir ⇒ `409` | dejar la validación «solo `direct_ship`» ⇒ `400` y las cartas `in_stock` para siempre |
+| **PS-62** | **`C-FULLREF-1`** verde con los llamadores exactos; un `FulfillmentMode` sin rama ⇒ `onFullRefund` lanza | llamar a `reclaimVaultOnFullRefund` desde otro sitio (o quitar el `throw` del despacho) ⇒ rojo |
+
+Mismas reglas que PS-1…PS-54: mutación demostrada **sobre copia del árbol entero**, con proporción y N en las carreras.
+
+###### M4-SHIP.18.9 — Quién hace qué
+
+| Rol | Qué |
+|---|---|
+| **backend** (modelo fuerte: `orders`, `payments`, `inventory`, `vault`) | `M-61`: `Order.fullRefundClosedAt`, `MovementReason + refund_return`, `VaultPlacementCancelReason + full_refund`; **quitar** `adminNotifiedAt` y su CHECK. `onFullRefund` (despacho + sello) llamado desde M3 y `onChargeRefunded`; `reclaimVaultOnFullRefund` en la tx de confirmación; precondición `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL` en M3; `classifyVaultPiece` (un cuerpo para el cierre y para `vaultPieces`); `chargeback-inventory` para `vault` `refunded`; `C-FULLREF-1`; ⛔ no construir `AVA-1`; PS-55…PS-62 con mutación demostrada; el código en `common/error-codes.ts`. **Medir antes de desplegar:** la consulta de residuo de `M-61` (§ bloque v1.80.4) con usuario de solo lectura |
+| **frontend** | M3: manejar `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL` (nombrar el retiro con enlace, y «deshacer preparado»); `vaultPieces` en el detalle y en el formulario de `chargeback-inventory` de una orden `vault` (qué cartas se confirman, sugerencia de `move` al estante); `cancelReason:'full_refund'` con nombre en la cola «Para bóveda»; ⛔ nada de `AVA-1`; tipos 1:1 |
+| **ux-ui** | Copys: `VAULT_PIECE_IN_PACKED_WITHDRAWAL`, estados de `vaultPieces`, «colocación cancelada: pedido reembolsado», variante `vault` de `AV-3` (es/en); retirar `AVA-1` |
+| **seguridad** | Revisión del cambio de conducta de dinero: reembolso total de bóveda (quién pierde qué si falla cada paso), sello, `C-FULLREF-1` |
+| **devops** | Nada de infraestructura |
+| **product-owner** | Registrar D-13/D-14 en `PROJECT.md`, y que un reembolso total de una compra a bóveda **saca la carta de la bóveda del cliente** (hoy `PROJECT §H` no lo dice; la decisión se toma aquí porque las dos causas que admite —cobro duplicado, inventario fantasma— la exigen; si el dueño quisiera lo contrario, se pregunta) |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
@@ -25970,10 +26215,15 @@ cuelga de `User`). ⇒ para el invitado **no existe el pendiente**, no es que no
 | **AV-15** | ⭐ **v1.80.2 — Ya te depositamos** (monto y clave de rastreo) | `POST /admin/manual-refunds/:id/paid`, **post-commit** | ídem | ⭐ **SELLO** `ManualRefund.paidNotifiedAt`, ídem. ⛔ Nunca al cancelar. 🔒 v1.80.3 (D-11): sin clave de rastreo si no se capturó |
 | **AV-16** | 🔒 **v1.80.3 — Se actualizó la CLABE de tu cuenta** (máscara anterior o «no tenías», máscara nueva, fecha; «si no fuiste tú, escríbenos»). ⛔ Nunca la CLABE entera | `setClabe` cuando el índice ciego **cambia**, **post-commit** (§M4-SHIP.17.3) | `User.email` de la cuenta | Sin sello: la igualdad del índice ciego hace idempotente el reintento; dos cambios distintos son dos avisos |
 
-> 🔒 **v1.80.3 — `AVA-1` (aviso INTERNO, fuera de los avisos al cliente):** «El operador X reembolsó MX$Y» a cada
+> ~~🔒 **v1.80.3 — `AVA-1` (aviso INTERNO, fuera de los avisos al cliente):** «El operador X reembolsó MX$Y» a cada
 > `super_admin` activo, por acto de `prepared` con filas de operador; sello `PaymentRefund.adminNotifiedAt`
 > (§M4-SHIP.17.5; D-13 puede cambiarlo a resumen diario). No cuenta en la campana del cliente ni en la regla de
-> `D-AVISO-2` más que por su sello.
+> `D-AVISO-2` más que por su sello.~~ ⭐ **v1.80.4 — `AVA-1` RETIRADO** (D-13 = *«Solo verlo en el panel»*). ⛔ No se
+> construye; el id `AVA-1` queda **reservado** (no se reutiliza para otro aviso).
+>
+> 💰 **v1.80.4 — `AV-3` (reembolso total) gana variante `vault`:** cuando la orden es `vault`, el cuerpo añade «las cartas
+> de este pedido dejan de estar en tu bóveda» con la lista de las que se devolvieron (§M4-SHIP.18.6). Mismo disparador,
+> mismo sello, mismo destinatario; solo copy (ux-ui).
 
 ⭐ **Lectura que hay que hacer en voz alta, porque cambia el presupuesto: de los once, OCHO no estrenan ni una
 columna.** Su «una sola vez» **ya está construida y medida** — son las guardas `count === 1`, los `sealOnceTx` y los
