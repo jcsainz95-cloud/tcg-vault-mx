@@ -187,7 +187,7 @@ describe('GradedEstimatesSection · escalones de costo de gradeo (§M2 / §O.2.1
     renderWithProviders(<GradedEstimatesSection />, 'es');
 
     expect(await screen.findByText(/La feature está apagada/)).toBeInTheDocument();
-    expect(screen.getByText(/Se enciende y se apaga en M10/)).toBeInTheDocument();
+    expect(screen.getByText(/Se enciende y se apaga en «Configuración»/)).toBeInTheDocument();
   });
 
   it('R5 · esta pantalla es de ADMIN: el cálculo se configura aquí, jamás se le enseña al cliente', async () => {

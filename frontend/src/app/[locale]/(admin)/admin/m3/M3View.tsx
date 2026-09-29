@@ -31,6 +31,7 @@ const M3_PAGE_SIZE = 25;
 
 export function M3View() {
   const t = useTranslations('admin.m3');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tt = useTranslations('admin.m3.table');
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
@@ -140,7 +141,7 @@ export function M3View() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m3')}</h1>
       {!isSuperAdmin && <Banner variant="warning">{te('MONEY_OUT_FORBIDDEN')}</Banner>}
       {refundDone && (
         <Banner variant="success" role="status">

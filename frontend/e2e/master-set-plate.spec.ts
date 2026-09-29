@@ -324,18 +324,20 @@ test.describe('§24.5 · el monograma', () => {
       return { box, fontSize, glyphs };
     };
 
-    // 640 → 3 columnas ⇒ placa ~181px · 1024 → 4 columnas en la MISMA columna estrecha del
-    // cotizador ⇒ placa ~116px (más pequeña que en móvil: es el hallazgo I-2 de QA sobre §24.4,
-    // reportado a ux-ui). Sirven justo por eso: son dos placas de tamaños muy distintos.
+    // Dos placas de tamaño MUY distinto, medidas en Chromium con mocks (2026-09-28, tras P-61):
+    // 640 ⇒ ~181 px · 1280 ⇒ ~270 px. Hasta P-61 el par era 640/1024 (~181 vs ~116 px: el cotizador
+    // compartía el ancho con la columna fija del carrito, hallazgo I-2 de QA sobre §24.4). Desde §37.1
+    // el cotizador va a todo el ancho y a 1024 la placa mide ~206 px — solo ~25 px más que a 640, por
+    // debajo del umbral de 30 que hace que la prueba pruebe algo. Se cambia el VIEWPORT, no el umbral.
     await page.setViewportSize({ width: 640, height: 900 });
     await openSetIndex(page);
     await settleLogos(page);
-    const wide = await measure();
+    const narrow = await measure();
 
-    await page.setViewportSize({ width: 1024, height: 900 });
+    await page.setViewportSize({ width: 1280, height: 900 });
     await openSetIndex(page);
     await settleLogos(page);
-    const narrow = await measure();
+    const wide = await measure();
 
     // Las placas miden distinto de verdad (si no, la prueba no probaría nada).
     expect(Math.abs(wide.box.width - narrow.box.width)).toBeGreaterThan(30);

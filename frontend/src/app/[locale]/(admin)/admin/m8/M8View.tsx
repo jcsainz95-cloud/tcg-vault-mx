@@ -23,6 +23,7 @@ const RESOLVED = new Set(['resuelta_recompra', 'rechazada']);
 
 export function M8View() {
   const t = useTranslations('admin.m8');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
   const { isSuperAdmin } = useRole();
@@ -76,7 +77,7 @@ export function M8View() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m8')}</h1>
 
       <QueryState
         isLoading={query.isLoading}

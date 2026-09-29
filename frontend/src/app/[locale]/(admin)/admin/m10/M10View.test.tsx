@@ -320,6 +320,6 @@ describe('M10View · Config y bitácora', () => {
     // Pero los per-carta de raw/graded siguen aquí.
     expect(screen.getByLabelText(/Proveedor de referencia por-carta \(raw\)/)).toBeInTheDocument();
     // Y hay un deep-link a M11 para quien busque los controles del sellado aquí.
-    expect(screen.getByText(/se editan ahora en M11/)).toBeInTheDocument();
+    expect(screen.getByText(/se editan ahora en «Sellado»/)).toBeInTheDocument();
   });
 });

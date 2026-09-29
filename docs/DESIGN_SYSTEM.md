@@ -4,7 +4,15 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.8** — **§36.17 NUEVA: las dos cifras de bóveda tienen nombre propio** (2026-09-28, `API_CONTRACT
+> Estado: **v4.9** — **§37 NUEVA: paquete de pantallas P-61 · P-66 (menú) · P-71** (2026-09-28). **§37.1 (P-61):** en
+> escritorio el carrito de Vender deja de ser columna fija de 360 px y pasa a **cajón lateral bajo demanda** (el
+> `SellCartDrawer` que ya existe) con una **barra inferior fija** que conserva lo que el panel daba siempre a la vista
+> (conteo y valor); la llamada a iniciar sesión y la nota de la guía **se reubican con regla de «exactamente un
+> anfitrión»**. **§37.2 (P-66 I2):** el menú del panel **deja de rotular por código**: nombres en ES/EN, cuatro grupos
+> por tarea, **título de página = rótulo del menú**, y barrido de las referencias «M10», «M11 · Sellado»… en copy.
+> **§37.3 (P-71):** el código corto del set («TWM 130») en cabecera del binder, tejas, ficha y carrito de venta —
+> **el dato no llega hoy al frontend** (medido): petición de contrato al arquitecto. **Cero tokens nuevos.**
+> Antes: **v4.8** — **§36.17 NUEVA: las dos cifras de bóveda tienen nombre propio** (2026-09-28, `API_CONTRACT
 > §M4-VAULT.11` y §M1 v1.79.5). La lista de clientes dice **«{n} a su nombre»** (`pieceCount`) y «Qué debe haber» dice
 > **«{n} deben estar en bóveda»** (`counts.total`), con **una** ayuda breve en la vista física que explica por qué la
 > segunda puede ser menor; ⛔ nunca el mismo sustantivo para las dos. Se revisan los dos textos que frontend escribió
@@ -1742,6 +1750,11 @@ página legal que vea un comprador:
 - Es público (sin sesión). Al "Crear solicitud" pide login/registro y luego KYC/CLABE/INE según topes.
 
 ### 7.15 Navegación
+> ⚠ **v4.9 (§37.2):** el **sidebar del panel** ya no se rotula ni se agrupa por códigos M1–M12. Los grupos y
+> nombres vigentes están en **§37.2**; la lista «Operación: M1, M4, M5, M8 · …» de abajo queda **superseded**.
+> *(Lo demás que este apartado afirma del panel —buscador global, barra inferior en `< lg`— sigue siendo P-66 I5 y
+> no se decide aquí.)*
+>
 > ⚠ **v4.1 (§33.1–33.2):** la **lista de entradas con sesión** de este apartado queda **superseded**. Con sesión
 > el header pinta **cinco** entradas —Comprar · Vender · Mi bóveda · **Compras y ventas** · **Mi cuenta**— y
 > **ya no pinta el nombre ni «Cerrar sesión»** (viven en «Mi cuenta»). El panel gana **«Mi cuenta»** en el topbar
@@ -4062,6 +4075,10 @@ que `MasterSetBinder` (que ya comparte — hoy el problema era solo el ancho dis
    casos especiales.
 
 ### 18.4 Carrito flotante: `SellCartFab` + `SellCartDrawer` (P-16)
+
+> ⚠ **v4.9 (§37.1, P-61):** en `≥ lg` el carrito vuelve a ser **este cajón** (el sheet lateral de 400 px de (b)), y
+> el panel fijo de 360 px que P-42 puso en su lugar **se retira**. El disparador de escritorio no es el FAB sino la
+> **barra inferior** de §37.1. En `< lg` nada cambia.
 
 **El carrito deja de ser columna.** Contenido interno del carrito (requisitos de venta, líneas,
 total, CTAs, «Vaciar») **sin cambios funcionales**; solo cambia el contenedor y las líneas ganan el
@@ -16082,7 +16099,7 @@ cuenta», a un toque. Filas de 44px, `border-b` de regla, como hoy.
 
 - **Sidebar (`AdminSidebar.tsx`): sin entrada nueva.** «Mi cuenta» **no es un módulo** y no lleva código M-n; meterla
   entre M1–M10 la haría parecer una cola de trabajo. *(P-66 I2 —los códigos que no ordenan— sigue abierto y fuera
-  de este stream.)*
+  de este stream.)* **v4.9:** I2 se diseña en **§37.2**; «Mi cuenta» sigue fuera del sidebar.
 - **Topbar (`AdminTopbar.tsx`), extremo derecho, `≥ sm`:** `rol legible` · `ES | EN` · **«Mi cuenta»** · «Cerrar
   sesión». «Mi cuenta» es un `Link` a `/admin/account` con la misma piel que «Cerrar sesión» (11px 500 uppercase
   muted → text en hover, `focus-visible:shadow-focus`), **área táctil 44px** (P-66 I5: los objetivos del topbar
@@ -19352,3 +19369,338 @@ cambió, basta con cotejar.)*
   «Tus piezas entran a tu bóveda al pagar», `es.json:449`).
 - ⛔ Restar en el cliente para pintar «{n} reservadas»: no hay campo, y la resta mezclaría causas no medidas.
 - ⛔ Cambiar la columna de «Valor estimado»: sigue sumando el mismo perímetro que «a su nombre», y eso es coherente.
+
+---
+
+## 37. Paquete de pantallas — Vender en escritorio (P-61), menú del panel (P-66 I2) y código corto del set (P-71) (v4.9, 2026-09-28)
+
+**Nada de esta sección toca dinero:** no cambia ninguna cifra, ningún cálculo ni ningún CTA de pago; mueve
+contenedores, cambia rótulos y pinta un dato de catálogo. **Cero tokens nuevos, cero pares de contraste nuevos**
+(todo usa `text`, `muted`, `accent`, `ink`/`on-ink` ya verificados en §10 y §17.2).
+
+**Medido en el árbol (worktree `claude/paquete-pantallas`, 2026-09-28), no supuesto:**
+
+| Hecho | Dónde |
+|---|---|
+| En `≥ lg` el carrito de Vender es un `<aside>` sticky dentro de `lg:grid-cols-[minmax(0,1fr)_360px]`; el drawer y el FAB **solo se montan en `< lg`** (`isDesktopCart = useMediaQuery('(min-width: 1024px)')`) | `BuylistView.tsx:136`, `:328`, `:378-411`, `:418`, `:513` |
+| El panel fijo lleva `SellRequirementsPanel` (con sesión ausente: banner «Inicia sesión o crea cuenta para vender» + enlaces) y la nota de la guía (`quote.shippingNote`) | `SellCartContents.tsx:158`, `:165`, `:376`; `SellRequirementsPanel.tsx:26-47` |
+| La regla «exactamente una nota de la guía visible» decide el anfitrión con `isDesktopCart \|\| drawerOpen` | `BuylistView.tsx:170-174` |
+| El contenido de la página vive en `max-w-7xl` (1280 px), con columna de etiqueta vertical de 40 px y `.gutter` de 32 px en `≥ lg` | `(storefront)/layout.tsx:22`, `BuylistView.tsx:271`, `globals.css:166-170` |
+| El binder usa `grid-cols-2 sm:3 lg:4 xl:5`, `gap-x-6` — por **viewport**, no por contenedor | `MasterSetBinder.tsx:512`, `:531` |
+| El menú rotula por código («M1 · Inventario» … «M12 · Meta Battle Decks», «M2 · Bounties») en 4 grupos | `es.json:1215-1237`, `en.json:1215-1237`, `AdminSidebar.tsx:14-59` |
+| `ptcgoCode` **no aparece en `frontend/src/types/contract.ts`** ni en ningún DTO de catálogo/binder; el único «código de set» que llega al frontend es el `setCode` crudo de Limitless en decks-meta | `grep ptcgoCode frontend/src` = 0; `contract.ts:5113,5129,5254` |
+
+---
+
+### 37.1 P-61 · Vender en computadora — el catálogo a todo el ancho y el carrito bajo demanda
+
+**El problema, en números (aritmética sobre las clases medidas; ⚠ NO MEDIDO en navegador):** a 1280 px el binder
+dispone de 1280 − 40 − 360 − 64 = **816 px** para 5 columnas ⇒ tejas de **≈144 px**. A 1024 px, 560 px para 4
+columnas ⇒ **≈122 px**. Sin la columna del carrito: **≈216 px** a 1280 y **≈212 px** a 1024 — el objetivo de
+§18.2 (≥ 200 px), que es el tamaño del binder de inventario de M1 que el dueño puso de ejemplo. Es **+50 % de ancho y
+≈2.2× de área** por carta. *(Medición que lo cerraría: `getBoundingClientRect().width` de una teja a 1280×800 y
+1024×768, antes y después.)*
+
+**Decisión: el carrito vuelve a ser cajón en escritorio, y una barra inferior conserva lo que el panel daba siempre
+a la vista.** El dueño pidió «pop-up»; un modal centrado taparía las cartas que el vendedor está comparando con su
+lista. El cajón lateral de 400 px de §18.4b **ya existe y ya está probado** (focus trap, `Esc`, overlay, retorno de
+foco): solo se deja de impedir que se monte en `≥ lg`. Lo que P-42 ganó —**ver siempre cuánto llevas**— no se
+pierde: lo lleva la barra.
+
+#### (a) Breakpoints
+
+| Viewport | Catálogo | Carrito cerrado | Carrito abierto |
+|---|---|---|---|
+| `< lg` (< 1024) | sin cambios | **FAB** 56×56 (§18.4a) | bottom sheet ~92vh (§18.4b) |
+| `≥ lg` (≥ 1024) | **una sola columna**, todo el ancho | **barra inferior fija** `SellCartBar` (nueva, (b)) | **sheet lateral derecho 400 px** (min 360 / max 440) con overlay de tinta — el mismo `SellCartDrawer` |
+
+- Se **retira** el contenedor `lg:grid lg:grid-cols-[minmax(0,1fr)_360px]` y el `<aside>` del panel fijo. `<main>`
+  queda como única columna (vuelve §18.1 punto 4). `pb-24` (96 px) se conserva: cubre la barra de 64 px.
+- **Sin `useMediaQuery` para decidir el contenedor.** Hay **un solo** `SellCartDrawer` para todos los tamaños (el
+  componente ya cambia de forma por CSS en `lg:`). Los dos disparadores se montan siempre y se esconden por CSS:
+  FAB `lg:hidden`, barra `hidden lg:flex`. Así no hay destello al hidratar, ni DOM de carrito duplicado, ni dos focus
+  traps (`display:none` los saca del árbol de accesibilidad).
+- Agregar desde la grilla **no abre** el cajón (§18.4a, sin cambios); el CTA de un bounty **sí** lo abre, también en
+  escritorio.
+
+#### (b) `SellCartBar` — la barra inferior de escritorio (componente nuevo)
+
+- `fixed inset-x-0 bottom-0 z-40`, fondo papel `--color-bg`, `border-t border-border-strong`, **sin sombra** (§4.3),
+  **alto 64 px**. El contenido interior se alinea con la columna del catálogo: `mx-auto max-w-7xl`, respetando la
+  columna de etiqueta vertical de 40 px y el `.gutter`.
+- **Izquierda:** eyebrow `TU LISTA` (`cartTitle`) + `{count} carta(s)` (`cartCount`) o, vacío, la frase
+  `cartBar.empty` en `text-muted`.
+- **Centro-derecha (solo con líneas):** etiqueta mono en versalitas `VALOR DE TUS CARTAS` (`quote.money.cardsValue`)
+  + cifra mono `tabular-nums` **20 px** en tinta (un escalón bajo el héroe de 26 px del cajón: la barra informa, el
+  cajón decide). **Las tres ramas son EXACTAMENTE las del bloque de dinero** (`SellCartContents.tsx:336-352`):
+  recotizando o recotización fallida ⇒ «—» en `muted`; todo pendiente ⇒ la versalita `BuylistPendingLineLabel`;
+  si no, el importe. ⛔ Que la barra tenga su propia lógica de total es el defecto: **se extrae un solo componente o
+  helper** (`CartTotalFigure` o similar) que usan los dos. ⛔ Nunca `MX$0.00` con carrito vacío: vacío ⇒ no hay cifra.
+- **Sin sesión** (`sellReq.ready && !sellReq.isAuthenticated`), antes del botón: `cartBar.loginHint` en mono 11 px
+  `text-text` + enlace `loginCta` («Iniciar sesión», `/login?next=/buylist`, subrayado `border-accent` como hoy).
+  ⛔ Sin «Crear cuenta» aquí: la barra no tiene sitio para dos enlaces más el botón a 1024 px; el banner completo
+  (con los dos) vive en la cabecera y en el cajón — ver (c).
+- **Derecha:** botón `primary` (tinta) `cartBar.open` «Ver lista», `min-h-[44px]`, **siempre activo** (vacío da
+  acceso a los requisitos, igual que el FAB). `aria-haspopup="dialog"`, `aria-expanded={drawerOpen}`,
+  `aria-controls` al id del diálogo.
+- ⛔ La barra **no** pinta el faltante del mínimo, ni la nota de la guía, ni el botón «Enviar solicitud». Enviar
+  exige abrir el cajón, que es donde viven el mínimo, la nota y los requisitos: la decisión se toma **con todo a la
+  vista**, no desde un atajo.
+- **Contenedor:** `<section aria-label={cartBar.region}>`. ⛔ Nada de `aria-live` en la cifra: el anuncio al
+  agregar ya lo hace el `role="status"` de `addedLine`; anunciar también el total sería doble.
+- **Sin animación** al cambiar la cifra (§17.3).
+
+#### (c) Las dos cosas que no pueden esconderse — reubicadas, con la regla de «exactamente un anfitrión»
+
+El panel fijo cargaba dos mensajes que el vendedor primerizo necesita **antes** de invertir tiempo (restricción del
+cuerpo de P-61). Se reubican con la **misma** regla que ya gobierna la nota de la guía (§23.3g-bis, v2.3.8):
+**siempre exactamente una instancia visible, y la decide `BuylistView`, que es el único que ve la pantalla entera.**
+
+**1 · La nota de la guía** («Nosotros ponemos la guía… no pagas nada de tu bolsillo»). La fórmula se **simplifica**
+—se quita `isDesktopCart`—:
+
+```
+shippingNoteHost = requestOpen ? 'createStep' : drawerOpen ? 'cart' : 'header'
+```
+
+| Situación | Quién pinta la nota |
+|---|---|
+| Cajón cerrado (cualquier tamaño) | la **cabecera** (`surface="buylist-header"`, tinta `text-sm`, ya existe) |
+| Cajón abierto (cualquier tamaño) | el **bloque de dinero** del cajón |
+| Paso de crear abierto | **el suyo** (`BuylistKycForm`) |
+
+La fila «Panel fijo lateral (escritorio)» de la tabla de `BuylistView.tsx:155-160` **desaparece**. ⛔ No se pone una
+versión corta en la barra: sería la regla de D16 en letra chica (§23.3c) y una segunda instancia visible.
+
+**2 · La llamada a iniciar sesión / requisitos de cuenta** (`SellRequirementsPanel`). Nuevo anfitrión en la
+cabecera **solo en `≥ lg`**:
+
+```
+requirementsHost = drawerOpen ? 'cart' : 'header'   // la instancia 'header' lleva `hidden lg:block`
+```
+
+- **Posición en la cabecera:** después de la nota de la guía y antes del enlace «Guía de envío seguro», `mt-5
+  max-w-[640px]`. Es el mismo componente, sin cambios (banner `warning` sin sesión · aviso de correo sin verificar ·
+  checklist con sesión).
+- **En `< lg` no cambia nada**: el cajón cerrado desmonta su contenido (`SellCartDrawer` devuelve `null`), y la
+  instancia de cabecera está oculta por CSS ⇒ cero duplicados. *(Que en móvil el banner solo se vea al abrir el
+  cajón es el comportamiento actual; P-61 es de escritorio y no lo reabre.)*
+- La barra (b) lleva además el **recordatorio corto** sin sesión: la cabecera se va con el scroll y la barra no.
+  No es una copia del banner (otra frase, otra función: el banner explica, la barra recuerda).
+
+#### (d) Foco y teclado
+
+- Orden de tabulación de la página: cabecera (incluido el banner de requisitos) → vitrina de bounties → binder →
+  pie de página → **barra** (o FAB en `< lg`). Igual que el FAB: el disparador fijo va **después** del contenido
+  (§18.8), sin `tabindex` positivos.
+- **Retorno de foco:** al cerrar el cajón, el foco vuelve **al disparador que lo abrió** — la barra en `≥ lg`, el
+  FAB en `< lg`. Si lo abrió el CTA de un bounty, vuelve a **ese** CTA. `returnFocusRef` deja de ser fijo al FAB.
+- Dentro del cajón, nada cambia (§18.4b): cerrar → requisitos → líneas → total → CTA → vaciar.
+
+#### (e) Textos nuevos (propiedad de frontend; se copian sin interpretar)
+
+| Clave | ES | EN |
+|---|---|---|
+| `buylist.cartBar.region` | «Resumen de tu lista de venta» | “Your sell list summary” |
+| `buylist.cartBar.empty` | «Vacía. Elige cartas del catálogo para agregarlas.» | “Empty. Pick cards from the catalog to add them.” |
+| `buylist.cartBar.open` | «Ver lista» | “View list” |
+| `buylist.cartBar.loginHint` | «Para enviar tu solicitud necesitas cuenta.» | “You need an account to submit your request.” |
+
+Se **reutilizan** sin cambio: `cartTitle`, `cartCount`, `quote.money.cardsValue`, `loginCta`,
+`cartDrawer.ariaLabel`, `cartDrawer.close`. ⛔ Ninguna cadena nueva lleva cifras ni habla de envío.
+
+#### (f) Qué NO hacer
+
+- ⛔ Modal centrado para el carrito (tapa las cartas que se están comparando).
+- ⛔ Panel plegable que al abrirse **empuja** la grilla (reflujo de 200 tejas a mitad de lectura; es el salto que H1
+  eliminó).
+- ⛔ Dos `SellCartDrawer` o dos `SellCartContents` montados a la vez.
+- ⛔ Recordar abierto/cerrado entre visitas: el cajón nace cerrado siempre (la lista sí persiste, §33.11).
+
+#### (g) Candados sugeridos (frontend los escribe con la pantalla; QA mide a 1280×800 y 1024×768)
+
+- **P61-1** a `≥ lg` no existe `aside` de carrito ni la clase `lg:grid-cols-[minmax(0,1fr)_360px]`; la teja mide
+  ≥ 200 px de ancho.
+- **P61-2** con cajón cerrado hay **exactamente una** `[data-testid="buylist-shipping-note"]` visible
+  (`data-note-surface="buylist-header"`); con cajón abierto, exactamente una (`cart-money`).
+- **P61-3** sin sesión, a `≥ lg` con cajón cerrado, el banner `loginToSellTitle` está visible en la cabecera **y**
+  `cartBar.loginHint` en la barra; al abrir el cajón, el banner de cabecera se desmonta.
+- **P61-4** con líneas recotizando, barra y cajón pintan «—» los dos (mutación: dar a la barra su propio cálculo del
+  total ⇒ rojo).
+- **P61-5** cerrar el cajón con `Esc` devuelve el foco al botón de la barra (y al FAB en `< lg`).
+
+---
+
+### 37.2 P-66 I2 · El menú del panel — nombres, no códigos
+
+**Alcance:** solo los **rótulos del menú**, los **grupos** y los **títulos de página** (`h1`). Lo demás de P-66 (B1
+M5, B3 identificadores, I1 dashboard, I3–I6) queda fuera. **Respeta las respuestas del dueño del 2026-09-08**
+(`PENDIENTES.md`, P-66): la etiqueta **«SÚPER» se queda** en las filas de súper-admin; y **«beta cerrada» se
+corrige ya** (el dueño no dictó texto: se propone en (d)).
+
+#### (a) Reglas
+
+1. **El código M-n deja de verse.** Sobrevive solo en la **ruta** (`/admin/m5`) y en la **clave i18n**
+   (`admin.modules.m5`): renombrar rutas no gana nada y rompe enlaces guardados.
+2. **Título de la página = rótulo del menú, carácter por carácter.** Medido en P-66: difieren en 6 de 12. Si una
+   página necesita más contexto, va en el **subtítulo**, no en el `h1`.
+3. **Nombres de tarea, en el vocabulario del dueño.** Él buscó las solicitudes de venta **por ese nombre** y no las
+   encontró bajo «Buylist» (P-66 I2) ⇒ «Solicitudes de venta». Él llama «Ventas» a M3 y «Config» a M10 (respuestas
+   del 2026-09-08).
+4. **Grupos por lo que se hace, no por el área técnica.** El grupo de trabajo diario va primero.
+
+#### (b) El menú
+
+`Resumen` va solo arriba, sin rótulo de grupo. Dentro de cada grupo, por frecuencia de uso conocida.
+
+| Grupo (clave → ES / EN) | Entrada | Ruta | ES (menú = `h1`) | EN (menú = `h1`) | SÚPER |
+|---|---|---|---|---|---|
+| — | dashboard | `/admin` | **Resumen** | **Overview** | |
+| `daily` → **Día a día** / **Daily work** | m5 | `/admin/m5` | **Solicitudes de venta** | **Sell requests** | |
+| | m3 | `/admin/m3` | **Ventas** | **Sales** | |
+| | m4 | `/admin/m4` | **Preparar y enviar** | **Pick & ship** | |
+| | m8 | `/admin/m8` | **Disputas** | **Disputes** | |
+| `stock` → **Existencias** / **Stock** | m1 | `/admin/m1` | **Inventario** | **Inventory** | |
+| | m11 | `/admin/m11` | **Sellado** | **Sealed** | |
+| | vaults | `/admin/vaults` | **Bóvedas de clientes** | **Customer vaults** | |
+| `storefront` → **Tienda** / **Storefront** | m2 | `/admin/m2` | **Catálogo y precios** | **Catalog & pricing** | ✓ |
+| | m2Bounties | `/admin/m2/bounties` | **Bounties** | **Bounties** | ✓ |
+| | m12 | `/admin/m12` | **Meta Battle Decks** | **Meta Battle Decks** | |
+| `administration` → **Administración** / **Administration** | m7 | `/admin/m7` | **Finanzas** | **Finance** | ✓ |
+| | m9 | `/admin/m9` | **Reportes** | **Reports** | ✓ |
+| | m6 | `/admin/m6` | **Usuarios** | **Users** | ✓ |
+| | m10 | `/admin/m10` | **Configuración** | **Settings** | ✓ |
+
+**Por qué así (lo que no es obvio):**
+
+- **«Preparar y enviar»** y no «Retiros»: M4 es hoy, sobre todo, «Pedidos a preparar» (§35) y la cola de envíos;
+  «Retiros» nombraba una sola de sus tres colas. Verbo porque es trabajo físico.
+- **«Existencias»** como grupo y no «Inventario»: un grupo «Inventario» con una entrada «Inventario» dentro se lee
+  como error. «Sellado» sigue su propio nombre (su `h1` ya es «Sellado», `es.json:2878`).
+- **«Tienda»**: los tres destinos deciden **qué ve y qué paga** el cliente en la tienda (precios, bounties, decks).
+  «Meta Battle Decks» conserva el nombre que el dueño aprobó al renombrarlo (PR #56).
+- **«Administración»** agrupa exactamente las cuatro entradas de súper-admin de dinero y cuentas: cuando entre el
+  operador (el dueño dijo «pronto»), su menú útil son los tres primeros grupos.
+- **«Resumen»** y no «Dashboard»: el resto del menú está en español; «Inicio» se confundiría con la home de la
+  tienda.
+- Se **conserva** el mecanismo de ruta activa (`isActiveHref`, «gana la más específica»): el orden nuevo no lo toca.
+
+#### (c) Barrido de copy — las referencias a códigos que quedarían colgando
+
+Un texto que dice «se enciende en **M10**» cuando el menú ya no dice «M10» manda al operador a buscar algo que no
+existe. **Va en el mismo pase que el menú, no después.** Sustitución: el código (con o sin «· nombre») pasa al
+**nombre nuevo** de la tabla (b), entre comillas latinas si va dentro de frase.
+
+Medido en `es.json` (2026-09-28; `en.json` en las mismas claves — frontend coteja): `1223-1236` (menú), `1267`,
+`1393`, `1400`, `1455`, `1483`, `1655`, `1927`, `1941`, `2210`, `2216`, `2219`, `2249`, `2257`, `2267`, `2292`,
+`2669`, `2947`, `3129`, `3135`, `3165-3172` (líneas largas, revisar), `3238`, `3282`, `3446`.
+Ejemplos: «Se enciende y se apaga en M10 · Config.» → «Se enciende y se apaga en «Configuración».» · «…viven ahora en
+M11 · Sellado.» → «…viven ahora en «Sellado».» · «…entra a reposición (M7).» → «…entra a reposición («Finanzas»).» ·
+«…en M2 · Precios › Capturar estimado a mano.» → «…en «Catálogo y precios» › Capturar estimado a mano.»
+**Comprobación barata:** `grep -nE '\bM1?[0-9]\b' frontend/messages/{es,en}.json` = **0** tras el pase.
+
+#### (d) «Beta cerrada» y las metas N/X/Y/Z en M9 (el texto que el dueño pidió corregir)
+
+Las metas **no existen** (respuesta del dueño) y la tienda **está en producción**. Se dice eso, sin álgebra:
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m9.metrics.title` | «Actividad de la tienda» | “Store activity” |
+| `admin.m9.metrics.subtitle` | «Conteos en el rango de fechas elegido.» | “Counts for the selected date range.” |
+| `admin.m9.goalsUnset` | «Todavía no hay metas fijadas: se muestran solo los conteos.» | “No goals set yet: showing counts only.” |
+
+⛔ No se toca aquí la tarjeta «Progreso de lanzamiento» del Resumen (I1: decisión de product-owner) ni el futuro de
+M9 (P-67).
+
+#### (e) Qué NO hacer
+
+- ⛔ Dejar el código como prefijo «discreto» (gris, mono): sigue empujando el nombre y sigue sin ordenar nada.
+- ⛔ Iconos para compensar: el sidebar los quitó a propósito (dirección 5a).
+- ⛔ Renombrar rutas o claves i18n.
+- ⛔ Quitar «SÚPER» (decisión del dueño).
+
+#### (f) Candados sugeridos
+
+- **P66-1** ningún rótulo de `admin.modules.*` casa con `/^M\d/`.
+- **P66-2** para cada entrada del menú, el `h1` de su página es igual a `t('admin.modules.<key>')` (una prueba por
+  ruta; mutación: volver a «M3 · Ventas / órdenes» ⇒ rojo).
+- **P66-3** el `grep` de (c) da 0 en `es.json` y en `en.json`.
+
+---
+
+### 37.3 P-71 · El código corto del set junto a las cartas
+
+**Lo que pidió el dueño (2026-09-09):** *«en los sets cuando estamos viendo las imágenes pongamos el código chico que
+viene en las cartas»*. Es la sigla impresa en el cartón (TWM, SVI, POR…), la que usan los jugadores y las listas.
+
+#### (a) ⛔ El dato NO llega hoy al frontend — petición al arquitecto (regla 9)
+
+Medido: `CardSet.ptcgoCode` se guarda (`PENDIENTES.md` P-71; `schema.prisma`) y lo usa el emparejador de decks, pero
+**ningún DTO de catálogo ni de binder lo publica**: no está en `CardDTO`, `SetRefDTO`, `SetPartDTO`,
+`MasterSetSummaryDTO`, `CardSetDTO` ni `BuylistSetDTO` (`contract.ts:166-201`, `:304-309`, `:588-631`,
+`:1932-1969`, `:2212-2219`). **Sin cambio de contrato, esta sección no se puede implementar.** Lo que el diseño
+necesita (nombres a criterio del arquitecto):
+
+| Superficie | DTO | Campo que hace falta |
+|---|---|---|
+| Cabecera del binder (cotizador, M1, bóveda de cliente) | `SetRefDTO` (el `set` de `MasterSetBinderResponse`) | `ptcgoCode: string \| null` |
+| Separador de parte en masters combinados (Celebrations) | `SetPartDTO` | `ptcgoCode: string \| null` |
+| Tejas de Compra, ficha de carta | `CardDTO` | `setPtcgoCode: string \| null` |
+| Índice de sets (tejas + «Buscar set») | `MasterSetSummaryDTO` y `BuylistSetDTO` | `ptcgoCode: string \| null` |
+
+- **Clave siempre presente, valor nullable** (mismo patrón que `logoUrl`, §24): la ausencia es **normal y
+  permanente** para promos y sets viejos.
+- Cadena vacía o de solo espacios ⇒ `null` en el servidor. Mayúsculas tal como vienen del proveedor.
+- **Un solo nombre para el mismo hecho:** decks-meta ya usa `setCode` para el código **crudo de Limitless**
+  (`contract.ts:5113`). Si el de catálogo se llamara también `setCode`, dos fuentes distintas tendrían el mismo
+  nombre. De ahí la sugerencia `ptcgoCode` / `setPtcgoCode` — decide el arquitecto.
+- Las celdas del binder **no** necesitan campo: heredan el código del `set` o de su `part`.
+
+⚠ **Lo que hay que medir antes de prometerlo al dueño (NO MEDIDO):** cuántos sets tienen el código, y si los
+**recientes** —los que el dueño nombra— lo traen igual al impreso. Indicios de que puede faltar o diferir: el mock
+de decks-meta modela `MEG` como «set sin ptcgoCode en catálogo» y `DEVOPS_NOTES.md:3020` busca Pitch Black por
+`ptcgoCode='ME05'`. Consulta de solo lectura que lo cierra:
+`SELECT name, "releaseDate", "ptcgoCode" FROM "CardSet" ORDER BY "releaseDate" DESC NULLS LAST LIMIT 15;` más
+`SELECT count(*) FILTER (WHERE "ptcgoCode" IS NOT NULL), count(*) FROM "CardSet";`. Si los recientes vienen vacíos
+o con otra sigla, la pantalla **no lo arregla**: es una decisión de datos (¿captura manual?) para product-owner.
+
+#### (b) Formato
+
+- **`TWM 130`**: código + espacio **no separable** + número, tal como los jugadores escriben una lista. Mono
+  (`font-mono`), mayúsculas tal como llegan, `tabular-nums`, `lang="en"`.
+- Sin código ⇒ **se omite** y queda lo de hoy (`#130`). ⛔ Nunca un guion, «N/A» ni una sigla deducida del nombre o
+  del `externalId` («sv6» no es un código impreso). Misma regla que el precio: sin dato, no se finge.
+- **Una sola forma en toda la tienda:** la línea de decks-meta hoy pinta `{set} · {number}` («TWM · 130»,
+  `decksMeta.detail.cardCode`, `es.json:4151`, usada en `DeckAvailability.tsx:125`). Se alinea a `TWM 130` en el mismo pase (una clave, ES/EN).
+
+#### (c) Dónde se pinta, con qué jerarquía
+
+| Superficie | Dónde exactamente | Forma |
+|---|---|---|
+| **Cabecera del binder** (el caso que pidió el dueño) | Junto al nombre del set, en la misma línea base: «Twilight Masquerade  **TWM**» | mono 13 px, `text-muted`, `tracking-label`; separado del nombre por 12 px de aire (sin «·»). Nunca más grande que el nombre |
+| **Separador de parte** (masters combinados) | Tras la etiqueta de la parte: «Classic Collection  **{código de esa parte}**» (no medí qué código trae `cel25c`) | igual que la cabecera, a la escala del separador |
+| **Teja del binder** (cotizador, M1, bóveda) y **teja de Compra** | En la línea de número, sustituye a `#130`: «**TWM 130** · REVERSE HOLO» | mono 10 px, **mismo color que hoy el número**; el acabado sigue en `text-text` (§18.2) |
+| **Ficha de carta** | En la línea del set: «Twilight Masquerade · **TWM 130**» | mono, tamaño de la línea |
+| **Índice de sets** | Bajo el nombre, en la teja de §24.3 | mono 11 px `text-muted` |
+| **«Buscar set»** | Casa también por código, sin distinguir mayúsculas («por» encuentra Perfect Order) | — |
+| **Línea del carrito de venta** | Primer elemento de la línea mono: «**TWM 130** · Estimado c/u MX$… · RH · ×2» | mono 10 px `text-muted`; la línea ya hace `flex-wrap` |
+
+- En la teja se repite el código en cada carta aunque todas sean del mismo set: **es a propósito** — es como viene
+  impreso, y la carta se identifica sola cuando sale del binder (carrito, ficha, captura de pantalla).
+- **Fuera de este pase:** carrito de **compra**, checkout y pedidos. Sus líneas son hechos **congelados**
+  (`FrozenCardFacts`, §5.2 del contrato): añadir un campo ahí es otra conversación, con dinero cerca.
+- La línea del carrito de venta que entra por un **bounty** no trae el dato (`PublicBountyDTO`): se omite, sin
+  error. Si se quiere, es un campo más para el arquitecto (no bloquea).
+
+#### (d) Accesibilidad y contraste
+
+- Texto real (no imagen, no `::before`), leído en su orden. ⛔ Sin `aria-hidden`: es información.
+- ⛔ Sin `title`/tooltip para «explicar» la sigla: el nombre del set está al lado en cabecera, ficha e índice.
+- Colores ya verificados: `muted` sobre papel ~4.8:1, `text` ~15:1 (§10). **Cero pares nuevos.**
+
+#### (e) Candados sugeridos
+
+- **P71-1** con `ptcgoCode: null`, la teja pinta `#130` y **ningún** «—» ni «null» (mutación: pintar
+  `code ?? '—'` ⇒ rojo).
+- **P71-2** con código, la teja pinta `TWM 130` y la cabecera del binder `TWM`.
+- **P71-3** «Buscar set» con `por` encuentra el set de código `POR`.

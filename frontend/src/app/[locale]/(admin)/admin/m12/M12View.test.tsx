@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, getDefaultNormalizer } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { M12View } from './M12View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { DecksMetaRefreshReport, DecksMetaPreviewResponse } from '@/types/contract';
+
+/** v1.80 (P-71): el código se pinta «TWM 130» con espacio NO separable; el normalizador por defecto lo colapsaría. */
+const KEEP_NBSP = { normalizer: getDefaultNormalizer({ collapseWhitespace: false }) };
 
 // El rol de back-office se controla por test (patrón de DecksMetaDialControl.test).
 const roleState = vi.hoisted(() => ({ role: 'super_admin' as 'super_admin' | 'vault_operator' }));
@@ -262,12 +265,12 @@ describe('M12View · columna Portada (decks-portada)', () => {
       deck({ cover: { setCode: 'TWM', number: '130', matchStatus: 'matched', cardId: 'c1', imageUrl: OUR_IMG } }),
     ]);
     expect(screen.getAllByText('Portada').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('TWM-130').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('TWM\u00A0130', KEEP_NBSP).length).toBeGreaterThan(0);
     expect(screen.getAllByText('casada').length).toBeGreaterThan(0);
     const srcs = imgSrcs();
     expect(srcs.length).toBeGreaterThan(0);
     expect(srcs.every((s) => s === OUR_IMG)).toBe(true);
-    expect(screen.getAllByAltText('Portada de Dragapult ex: TWM-130').length).toBeGreaterThan(0);
+    expect(screen.getAllByAltText('Portada de Dragapult ex: TWM\u00A0130', KEEP_NBSP).length).toBeGreaterThan(0);
   });
 
   // 🔒 PRUEBA PRINCIPAL: si una URL de Limitless llega a pintarse (porque el backend la mandó por
@@ -280,8 +283,8 @@ describe('M12View · columna Portada (decks-portada)', () => {
         cover: { setCode: 'OBF', number: '125', matchStatus: 'unmatched_number', cardId: null, imageUrl: null },
       }),
     ]);
-    expect(screen.getAllByText('TWM-130').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('OBF-125').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('TWM\u00A0130', KEEP_NBSP).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('OBF\u00A0125', KEEP_NBSP).length).toBeGreaterThan(0);
     const srcs = imgSrcs();
     expect(srcs.filter((s) => /limitless/i.test(s))).toEqual([]);
     // Y ninguna imagen de otra fuente se cuela: sin imagen propia, queda el pozo vacío.
@@ -291,8 +294,8 @@ describe('M12View · columna Portada (decks-portada)', () => {
     expect(screen.getAllByText(/imagen rechazada \(no es de nuestro catálogo\)/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/sin imagen en el catálogo/)).toBeNull();
     // a11y (QA menor 3): sin `<img>` no hay `alt`, pero la celda sigue teniendo nombre accesible.
-    expect(screen.getAllByText('Portada de Dragapult ex: TWM-130').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Portada de Charizard ex: OBF-125').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Portada de Dragapult ex: TWM\u00A0130', KEEP_NBSP).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Portada de Charizard ex: OBF\u00A0125', KEEP_NBSP).length).toBeGreaterThan(0);
   });
 
   it('casada sin imageUrl (legítimo): «sin imagen en el catálogo», NO «rechazada»', async () => {

@@ -116,6 +116,77 @@
 > **Lo que NO cambia:** el tope por IP de todos los endpoints de auth; la respuesta y el tiempo del `401
 > INVALID_CREDENTIALS` (el hash dummy sigue); `403 USER_BLOCKED`; `POST /auth/google` y `register` **no** entran al
 > contador por cuenta (razón en `ARCHITECTURE §4.57.2` #12 y #13); `forgot-password` (siempre `200`, 3/h por correo).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.80**).
+>
+> **Changelog v1.80 — P-71: EL CÓDIGO CORTO DEL SET («TWM») SE PUBLICA, Y «BUSCAR SET» LO ENCUENTRA (2026-09-28,
+> arquitecto; base v1.79.5, vigente entera salvo lo que esta rev toca). Origen: petición del dueño (2026-09-09, *«el
+> código chico que viene en las cartas»*), diseñada por ux-ui en `DESIGN_SYSTEM §37.3` (v4.9), que pidió el dato
+> (regla 9). Diseño y razones: `ARCHITECTURE §4.57`. ⛔ **Sin schema, sin migración, sin backfill** (la columna
+> `CardSet.ptcgoCode String?` ya existe — `schema.prisma:612`, leído hoy — y la escribe `catalog-sync.service.ts:1294,1304`
+> en cada sync de set). ⛔ **Sin endpoint nuevo, sin código de error nuevo, sin permiso nuevo, CERO DINERO** (clase (P)
+> presentación, §5.2.2). ADITIVO: ningún campo existente cambia de tipo ni de valor.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | **`CardDTO` gana `setPtcgoCode: string \| null`** — el código del set **de esa carta**. Sale del **mismo** `toCardDTO` que ya emite `setName` ⇒ lo ganan **todos** los emisores de `CardDTO` a la vez (Compra, ficha, `/buylist/cards`, bóveda, admin…) | §DTOs `CardDTO` | **Sí, backend y frontend** |
+> | **2** | **`MasterSetBinderResponse.set` pasa a `MasterSetRefDTO = SetRefDTO & { ptcgoCode: string \| null }`** (tipo NUEVO con nombre). ⛔ **`SetRefDTO` NO cambia**: lo emiten otras cinco superficies (gráfica del set, cuatro de sellado) que no pintan cartas con número | §DTOs `MasterSetRefDTO` | **Sí, backend y frontend** |
+> | **3** | **`SetPartDTO` gana `ptcgoCode: string \| null`** — el código **de esa parte**, no el del principal | §DTOs `SetPartDTO` | **Sí, backend y frontend** |
+> | **4** | **`MasterSetSummaryDTO` gana `ptcgoCode: string \| null`** (los cuatro consumidores; la fila plegada emite el **del principal**, mismo patrón que `logoUrl`) | §DTOs, §M1 índice | **Sí, backend y frontend** |
+> | **5** | **`BuylistSetDTO` gana `ptcgoCode: string \| null`** (`GET /buylist/sets`, fuente client-side del índice del cotizador). ⛔ **`CardSetDTO` (`GET /catalog/sets`) NO lo gana** | §6 `GET /buylist/sets` | **Sí, backend y frontend** |
+> | **6** | **`PublicBountyDTO` gana `setPtcgoCode: string \| null`** (la línea del carrito de venta que entra por un bounty) | §6 `GET /buylist/bounties` | **Sí, backend y frontend** (independiente de 1–5: puede ir después sin romper nada) |
+> | **7** | ⭐ **«Buscar set» casa también por código**: el `?q=` de los **tres** índices de master set (`GET /admin/inventory/master-sets`, `GET /admin/vaults/:userId/master-sets`, `GET /vault/master-sets`) pasa de «`name` contiene `q`» a «`name` **o** `ptcgoCode` contiene `q`», sin distinguir mayúsculas. El índice del **cotizador** filtra en el cliente con la **misma** regla | §M1 índice, §3 bóveda | **Sí, backend y frontend** |
+>
+> **Reglas del valor (normativas, iguales en los seis campos):**
+> - **Clave SIEMPRE presente; ausencia = `null`.** ⛔ Nunca `ptcgoCode?:`, nunca omitida, nunca `""`. Mismo patrón y misma
+>   razón que `logoUrl` (v1.52): el `?` compila igual si el campo desaparece. La ausencia es **normal y permanente**
+>   (promos, sets viejos, sets que el proveedor no codifica) y también es lo que rinde un set cuyo proveedor aún no
+>   publicó código; el contrato **no** distingue ambos orígenes y el cliente **no** debe intentarlo.
+> - **Una sola normalización, en el servidor:** `trim()`; vacío o solo espacios ⇒ `null`. ⛔ **No** se pasa a
+>   mayúsculas ni se «corrige»: sale **tal como lo guardó el sync** (el matcher de decks-meta hace su propia clave de
+>   emparejado en mayúsculas; esa **no** se reusa para exhibir — `ARCHITECTURE §4.57.3`).
+> - ⛔ **Jamás un código deducido** del nombre ni del `externalId` (`sv6` no es un código impreso). Sin dato ⇒ `null`.
+> - **Nombre:** `ptcgoCode` donde el objeto es el set; `setPtcgoCode` donde el objeto es una carta (como `setId`/`setName`).
+>   ⛔ **No** `setCode`: decks-meta ya usa ese nombre para el código **crudo de Limitless** (`MetaDeckLine.setCode`),
+>   que es **otra fuente** — dos hechos distintos no comparten nombre. ⚠️ **Excepción ya escrita y aún no construida:**
+>   `substitute.setCode` de `MetaDeckLineDTO` (§13, **Fase 3**, «ausente en Fase 1») sería **nuestro** código de
+>   catálogo con el nombre de Limitless. **Queda renombrado a `setPtcgoCode` en el contrato desde esta rev.** Hoy
+>   nadie lo emite (leído: el tipo existe en `decks-meta.dto.ts:20` y `contract.ts:5113`, sin ningún constructor), así
+>   que **no hay cambio de cable**; los dos tipos dormidos se renombran **en el pase que construya la Fase 3**, ⛔ no en
+>   el de P-71 (es otro módulo y otro stream).
+> - `CardDTO.setPtcgoCode` sale de la **misma relación** que `setName`: si un emisor no carga el set, ambos salen `null`.
+>   Las superficies que §37.3 pinta **sí** lo cargan (prueba P71-B7).
+>
+> **Dónde NO se añade, deliberadamente:** `SetRefDTO` (gráfica de valor del set y sellado), `CardSetDTO`
+> (`GET /catalog/sets`, chips de texto), `GET /catalog/facets`, `GET /admin/catalog/remote-sets`, y **los hechos
+> congelados** de líneas de compra (`FrozenCardFacts`, `OrderItemCardDTO`, `HistoricalOrderItemCardDTO`, §5.2): añadir
+> un hecho congelado es otra conversación, con dinero cerca. `MasterSetCardCellDTO` **no** gana campo: la celda hereda
+> el código de `set` o de su `parts[]` por `partSetId`. Exponer cualquiera de estos después es aditivo, sin migración.
+>
+> **Pruebas que deben fallar hoy (y la mutación que cada una mata):**
+>
+> | # | Prueba | Mata la mutación |
+> |---|---|---|
+> | **P71-B1** | `toCardDTO` con `set.ptcgoCode` = `'TWM'` ⇒ `'TWM'`; `null` ⇒ `null`; `''` ⇒ `null`; `'   '` ⇒ `null`; `' TWM '` ⇒ `'TWM'`; `'twm'` ⇒ `'twm'` (sin mayúsculas). Y `Object.hasOwn(dto,'setPtcgoCode')` en el caso `null` | `setPtcgoCode: card.set?.ptcgoCode ?? null` (sin normalizar) ⇒ rojo en `''`; `.toUpperCase()` ⇒ rojo en `'twm'`; clave omitida ⇒ rojo en `hasOwn` |
+> | **P71-B2** | Índice de master sets (`index()`): cada fila trae la **clave** `ptcgoCode` (`hasOwn`, valor `=== null` estricto cuando la columna es `null` **o** `''`); la fila **plegada** de un combinado trae el código **del principal** aunque el subset tenga otro | quitar `ptcgoCode` del `select` (rinde `undefined`) ⇒ rojo; heredar el del subset ⇒ rojo |
+> | **P71-B3** | Binder: `set.ptcgoCode` = el del set; en un combinado con códigos **distintos** por parte (fixture `CEL` / `CLC`), `parts[i].ptcgoCode` = el **de cada parte** | poner el del principal en todas las partes ⇒ rojo |
+> | **P71-B4** | `GET /buylist/sets`: clave presente en cada elemento, `''` ⇒ `null`. Y `GET /catalog/sets` **no** trae `ptcgoCode` (decisión «dónde NO») | emitir `s.ptcgoCode` crudo ⇒ rojo en `''` |
+> | **P71-B5** | ⭐ **Búsqueda por código — integración contra Postgres real** (§5.4: el `mode:'insensitive'` sobre columna nullable es del motor, no del mock): set `name:'Twilight Masquerade', ptcgoCode:'TWM'` + set con `ptcgoCode:null`. `?q=twm` y `?q=TwM` ⇒ devuelve TWM; `?q=twilight` ⇒ sigue devolviéndolo (nombre intacto); `?q=zzz` ⇒ `total:0` sin `500` por el `null`. En los **tres** endpoints del índice | quitar la rama `ptcgoCode` del `OR` ⇒ rojo en `twm`; `equals` en vez de `contains` ⇒ sin rojo (aceptable, ver §4.57.4) |
+> | **P71-B6** | `GET /buylist/bounties`: cada elemento trae `setPtcgoCode` (clave presente; `''` ⇒ `null`) | clave omitida ⇒ rojo |
+> | **P71-B7** | Las superficies de §37.3 cargan el set: con un set `ptcgoCode:'TWM'`, `GET /buylist/cards?setId=` y el `card` de la ficha (`GroupedListingDetailResponse.card`) traen `setPtcgoCode:'TWM'` (⛔ no `null`) | un emisor que llame `toCardDTO` sin `include:{set:true}` ⇒ rojo |
+> | **P71-F1** | (ux-ui) teja con `setPtcgoCode:null` pinta `#130` y **ningún** «—»/«null»/«undefined» | `code ?? '—'` ⇒ rojo |
+> | **P71-F2** | (ux-ui) con código, teja `TWM 130` y cabecera del binder `TWM` (en los **cuatro** modos: `platform`, `user_vault_admin`, `user_vault_self`, `quoter`) | olvidar mapear `BuylistSetDTO.ptcgoCode` al componer el índice/cabecera del cotizador ⇒ rojo en `quoter` |
+> | **P71-F3** | (ux-ui) «Buscar set» con `por` en modo `quoter` encuentra el set de código `POR` cuyo nombre no contiene «por»; un set con `ptcgoCode:null` no revienta el filtro | filtrar solo por `name` ⇒ rojo |
+>
+> **Lo que NO se sabe (NO MEDIDO) — y bloquea prometerle al dueño, no construir:** cuántos sets de producción tienen
+> código, y si los **recientes** (MEG, Pitch Black…) lo traen **igual al impreso**. Indicios en contra: el mock de
+> decks-meta modela `MEG` como «set sin ptcgoCode» y `DEVOPS_NOTES.md:3020` busca Pitch Black por `ptcgoCode='ME05'`
+> (un código de ese estilo no es la sigla que imprime el cartón). La consulta de **solo lectura** que lo cierra, para
+> que la corra **el dueño** donde la credencial ya vive: `ARCHITECTURE §4.57.6`. Si salen vacíos o distintos, la
+> pantalla **no** lo arregla: omite el código (P71-F1) y la captura manual es decisión de product-owner.
+>
+> **Lo que NO cambia:** `SetRefDTO` y sus cinco emisores; `CardSetDTO`; el matcher de decks-meta y `MetaDeckLine.setCode`;
+> la ingesta (`upsertSet` sigue guardando el valor crudo del proveedor); el plegado de combinados y su interacción con
+> `?q=` (heredada, ver `§4.57.4`); ningún precio, ninguna escritura.
 >
 > **Changelog v1.79.5 — §M4-VAULT: EL RIVAL REAL DE LOS CAS ES EL CONTRACARGO, DOS CONTEOS CON NOMBRE, Y DOS ERRATAS
 > (2026-09-28, arquitecto; base v1.79.4, vigente entera salvo lo que esta rev toca). Origen: gates del stream bóveda
@@ -6322,7 +6393,13 @@ PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, sourc
 CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix: string,
                  rarity, supertype, subtypes: string[],
                  setId, setName, imageSmallUrl, imageLargeUrl,
-                 availableFinishes: Finish[], displayFinishes: Finish[] }
+                 availableFinishes: Finish[], displayFinishes: Finish[],
+                 setPtcgoCode: string | null }                        // v1.80 (P-71)
+// v1.80 (P-71, ARCHITECTURE §4.57) — setPtcgoCode = código corto IMPRESO del set de esta carta («TWM»), de
+//   `CardSet.ptcgoCode`. Clave SIEMPRE presente; `null` = sin código (normal y permanente) o set no cargado por el
+//   emisor (mismo origen que `setName: null`). Normalizado en servidor: trim, vacío ⇒ null, SIN cambiar mayúsculas.
+//   ⛔ Nunca deducido del nombre ni del externalId. ⛔ No confundir con `MetaDeckLineDTO.setCode` (crudo de Limitless).
+//   Presentación pura (P): no entra en ningún cálculo, no se congela en líneas de compra (§5.2).
 // v1.51-b — CUIDADO: el objeto `card` de una LÍNEA DE COMPRA (`/checkout/quote`, `/checkout/guest/quote`,
 //   `GET /orders/:orderId`) **NO es un CardDTO**: es un snapshot congelado de 8 campos + `imageSmallUrl:
 //   string | null` resuelta en lectura. Tiparlo como CardDTO es exactamente el defecto que v1.51-b corrige
@@ -6830,8 +6907,13 @@ MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, num
                          imageSmallUrl?: string, availableFinishes: Finish[], displayFinishes: Finish[],
                          countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean,
                          marketReferenceMxnCents?: number | null /* DEPRECADO v1.27: usar variants[].marketReferenceMxnCents */ }
-MasterSetBinderResponse = { set: SetRefDTO, printedTotal: number | null, catalogCardCount: number,
+MasterSetBinderResponse = { set: MasterSetRefDTO, printedTotal: number | null, catalogCardCount: number,
                             cells: MasterSetCardCellDTO[] }
+// v1.80 (P-71, ARCHITECTURE §4.57) — la cabecera del BINDER es un tipo con nombre propio: SetRefDTO + el código
+//   corto del set. ⛔ SetRefDTO NO cambia (lo emiten la gráfica de valor y cuatro superficies de sellado que no pintan
+//   cartas con número). Mismas reglas del valor que CardDTO.setPtcgoCode. En un master combinado = el del PRINCIPAL.
+//   Antes de v1.80 el campo `set` era `SetRefDTO` a secas: el cambio es aditivo (un campo más).
+MasterSetRefDTO = SetRefDTO & { ptcgoCode: string | null }           // v1.80 (P-71)
 // ===== v1.20-master-set-everywhere: contrato ÚNICO por scope + completitud por VARIANTE =====
 // Un solo shape para 3 vistas; cambia el ALCANCE de la agregación, no la forma:
 //   scope="platform"   → inventario de PLATAFORMA (M1, `GET /admin/inventory/master-sets[...]`; regla on-hand v1.16).
@@ -7062,7 +7144,8 @@ MasterSetBinderResponse += { scope: MasterSetScope, owner?: VaultOwnerRefDTO }
 // etiqueta del separador ("Classic Collection"); en el principal `label` = su propio `name`. `catalogCardCount` de
 // la parte = nº de Card de ESE set-id (para que el front pueda mostrar el desglose por bloque).
 SetPartDTO = { setId: string, name: string, label?: string, isPrimary: boolean, order: number,
-               catalogCardCount: number }
+               catalogCardCount: number,
+               ptcgoCode: string | null }                             // v1.80 (P-71): el de ESTA parte, no el del principal
 // `partSetId`/`partLabel` en la celda: a qué parte REAL pertenece la carta (su CardSet local) y la etiqueta del
 // bloque. Presentes SOLO en un master combinado (cuando `parts` viene); el front agrupa las celdas por `partSetId`
 // y pinta el separador con `partLabel`. En un set normal se OMITEN (la celda es del único set). NO cambian la
@@ -7080,6 +7163,11 @@ MasterSetBinderResponse += { parts?: SetPartDTO[], canonicalSetId?: string }
 // set-ids REALES plegados (principal + subsets); presente SOLO en masters combinados. CA-70: N subsets, suma todas.
 // CA-71: si el principal NO está importado, el subset NO se pliega (aparece como su propio set, sin romper el conteo).
 MasterSetSummaryDTO += { partSetIds?: string[] }
+// v1.80 (P-71, ARCHITECTURE §4.57): código corto del set para la teja del índice. Mismas reglas que
+//   CardDTO.setPtcgoCode. Sale de la MISMA fila CardSet de la query (1) del índice (cero queries nuevas). La fila
+//   PLEGADA de un combinado emite el del PRINCIPAL (como logoUrl). En modo cotizador el front lo toma de
+//   BuylistSetDTO.ptcgoCode al componer la teja.
+MasterSetSummaryDTO += { ptcgoCode: string | null }
 // ----- Lista de clientes con bóveda (GET /admin/vaults) -----
 // totalValueMxnCents usa la MISMA base de valuación del portafolio (§3): referencia del ACABADO de cada pieza
 // (PriceReference vigente); piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
@@ -9669,8 +9757,14 @@ Sets que tienen **cartas importadas** (para poblar el dropdown de set del cotiza
 Res `200`: `{ data: BuylistSetDTO[] }` (datos en inglés; `year` derivado de `releaseDate`).
 ```ts
 // v1.53 (DT-Gd) — se DECLARA con nombre. Cero cambios de shape: es lo que este endpoint ya sirve desde v1.52.
-BuylistSetDTO = CardSetDTO & { logoUrl: string | null }   // logoUrl REQUERIDO (clave siempre presente), NO `logoUrl?`
+// (forma v1.53–v1.79.5: `CardSetDTO & { logoUrl: string | null }` — logoUrl REQUERIDO, clave siempre presente, NO `logoUrl?`)
+BuylistSetDTO = CardSetDTO & { logoUrl: string | null, ptcgoCode: string | null }   // v1.80 (P-71) — forma VIGENTE
 ```
+- **`ptcgoCode: string | null` (v1.80, P-71, ADITIVO — ARCHITECTURE §4.57):** código corto impreso del set. Reglas del
+  valor: Changelog v1.80 (clave siempre presente, trim, vacío ⇒ `null`, sin cambiar mayúsculas, nunca deducido). Igual
+  que `logoUrl`, **no es opcional de implementar**: el cotizador compone sus tejas **y su cabecera de binder** desde
+  aquí, y su «Buscar set» filtra en el cliente por `name` **o** `ptcgoCode` (contiene, sin distinguir mayúsculas; un
+  `null` no casa con nada). ⛔ `CardSetDTO` (`GET /catalog/sets`) **no** lo gana.
 - **⚠️ v1.53 (DT-Gd) — NO es `CardSetDTO`, y el `&` no es cosmético.** `GET /catalog/sets` sirve `CardSetDTO` **sin**
   `logoUrl`; este sirve `BuylistSetDTO` **con** él y **de clave siempre presente**. **El `?` está prohibido**: un
   `logoUrl?: string | null` hace que `fetchQuoterIndex` **compile igual si el campo desaparece** de la respuesta, que
@@ -10009,8 +10103,9 @@ Res `200` (`PublicBountiesResponse`): `{ data: PublicBountyDTO[] }`
     "bountyPriceCents": 250000, "targetQty": 3, "remainingQty": 2 }
 ] }
 ```
-- `PublicBountyDTO = { cardId, name, number, setName, imageSmallUrl?, rarity?, finish: Finish,
-  bountyPriceCents: number, targetQty: number | null, remainingQty: number | null }` —
+- `PublicBountyDTO = { cardId, name, number, setName, setPtcgoCode: string | null, imageSmallUrl?, rarity?,
+  finish: Finish, bountyPriceCents: number, targetQty: number | null, remainingQty: number | null }` —
+  **v1.80 (P-71):** `setPtcgoCode` con las mismas reglas que `CardDTO.setPtcgoCode` (la consulta ya carga `card.set`) —
   `remainingQty = targetQty − bountyAcquiredQty` (piso 0; `null` si sin objetivo). Dato motivacional («quedan 2»),
   **no** compromiso contractual de compra; el flujo de venta sigue siendo el normal (quote → solicitud → recepción
   → verificación → pago). Un bounty completado/apagado **desaparece** de la lista (el cliente que ya cotizó
@@ -11084,7 +11179,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 > (1 `InventoryItem` por pieza física): todo es agregación de lectura + lote de escritura. Ver ARCHITECTURE §4.17.
 
 - `GET /api/v1/admin/inventory/master-sets` — **(NUEVO)** índice de sets con resumen agregado para inventariar.
-  Query: `?q=` (filtro por nombre de set, opcional), `?page=1&pageSize=20` (paginado; default `pageSize=20`),
+  Query: `?q=` (filtro por nombre de set, opcional — **v1.80 (P-71): por nombre O por `ptcgoCode`**, ambos «contiene»
+  sin distinguir mayúsculas; un set con `ptcgoCode` `null` solo casa por nombre; aplica igual a
+  `GET /admin/vaults/:userId/master-sets` y `GET /vault/master-sets`, que comparten `index()`), `?page=1&pageSize=20` (paginado; default `pageSize=20`),
   `?sort=` (`release_desc` default | `completion_asc` | `pieces_desc`). **Solo inventario de PLATAFORMA.**
   Res `200` (`MasterSetIndexResponse`): `{ data: MasterSetSummaryDTO[], page, pageSize, total }`.
   - **Sin N+1 (patrón `set-value.service.ts`):** query fija — (1) página de `CardSet`; (2) `Card.groupBy({ by:[setId] })`
@@ -24732,7 +24829,7 @@ tenga 60/40/5 disponibles (nunca se oculta por incompleto). Res `200`:
   "unitPriceMxnCents": 61500, // "desde" de la carta (salePriceCents); null si pending/faltante
   "unitInventoryItemIds": ["…","…","…"],  // hasta availableQty, cheapest-first — el add-to-cart de jalón
   "substitute": {             // opcional (Fase 3): otra impresión de la misma carta en stock
-    "cardId": "…", "name": "Dragapult ex", "setCode": "SVI", "number": "…",
+    "cardId": "…", "name": "Dragapult ex", "setPtcgoCode": "SVI", "number": "…",  // v1.80 (P-71): era `setCode`; es NUESTRO código de catálogo, no el de Limitless
     "availableQty": 2, "unitPriceMxnCents": 58000, "unitInventoryItemIds": ["…","…"]
   }
 }

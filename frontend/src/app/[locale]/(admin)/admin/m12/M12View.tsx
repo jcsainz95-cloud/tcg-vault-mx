@@ -33,6 +33,7 @@ import { DeckCoverCell } from './DeckCoverCell';
  */
 export function M12View() {
   const t = useTranslations('admin.decksMetaRefresh');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const locale = useLocale() as AppLocale;
 
   const run = useMutation({ mutationFn: getDecksMetaPreview });
@@ -45,7 +46,7 @@ export function M12View() {
   return (
     <div className="flex flex-col gap-10">
       <div className="flex flex-col gap-1">
-        <h1 className="text-h1 font-bold">{t('moduleTitle')}</h1>
+        <h1 className="text-h1 font-bold">{tModules('m12')}</h1>
         <p className="max-w-[70ch] text-sm text-muted">{t('moduleSubtitle')}</p>
       </div>
 

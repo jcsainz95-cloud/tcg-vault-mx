@@ -119,6 +119,12 @@ export interface CardDTO {
   subtypes: string[];
   setId: string;
   setName: string | null;
+  /**
+   * v1.80 (P-71, ARCHITECTURE §4.57) — código corto IMPRESO del set de esta carta («TWM»), de
+   * `CardSet.ptcgoCode` normalizado por `publicPtcgoCode`. Clave SIEMPRE presente; `null` = sin código
+   * (normal y permanente) o set no cargado por el emisor (misma relación que `setName`).
+   */
+  setPtcgoCode: string | null;
   imageSmallUrl: string | null;
   imageLargeUrl: string | null;
   availableFinishes: Finish[];
@@ -220,6 +226,25 @@ export interface ListingDTO {
 }
 
 /**
+ * v1.80 (P-71, ARCHITECTURE §4.57.3) — la ÚNICA normalización del código corto del set para EXHIBIRLO.
+ * La usan TODOS los emisores de v1.80 (`CardDTO.setPtcgoCode`, `MasterSetRefDTO`, `SetPartDTO`,
+ * `MasterSetSummaryDTO`, `BuylistSetDTO`, `PublicBountyDTO`).
+ *
+ *  - `trim()`; vacío o solo espacios ⇒ `null` (nunca `""`).
+ *  - ⛔ NO pasa a mayúsculas: sale tal como lo guardó el sync (un valor raro se ve, no se esconde).
+ *  - ⛔ NO deduce nada del nombre ni del `externalId` (`sv6` no es un código impreso): sin dato ⇒ `null`.
+ *  - ⛔ NO es la clave de emparejado de decks-meta (`deck-matcher.service.ts`, `trim().toUpperCase()`):
+ *    aquélla COMPARA, ésta EXHIBE. Dos funciones, dos propósitos.
+ *
+ * Vive en `catalog/` junto a `toCardDTO` (⛔ no en `common/`: no se abre zona compartida).
+ */
+export function publicPtcgoCode(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const trimmed = raw.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
  * @param pricedFinishes v1.22-2 / N-15 (§4.22a-6): acabados de ESTA carta con `hasPricedRef`
  *   (PriceReference raw `raw:NM`, `priceMxnCents > 0`), de `PricingService.getPricedRawFinishesBatch`.
  *   El llamador lo pasa para computar `displayFinishes` (supresión del acabado ESPURIO en premium de
@@ -248,6 +273,8 @@ export function toCardDTO(
     subtypes: (card.subtypes as string[] | null) ?? [],
     setId: card.setId,
     setName: card.set?.name ?? null,
+    // v1.80 (P-71): misma relación que `setName` ⇒ si el emisor no cargó el set, ambos `null`.
+    setPtcgoCode: publicPtcgoCode(card.set?.ptcgoCode),
     imageSmallUrl: card.imageSmallUrl,
     imageLargeUrl: card.imageLargeUrl,
     availableFinishes,
@@ -1930,7 +1957,8 @@ export class CatalogService {
   async listSetsWithImportedCards() {
     const sets = await this.prisma.cardSet.findMany({
       where: { cards: { some: {} } },
-      select: { id: true, name: true, series: true, releaseDate: true, logoUrl: true },
+      // v1.80 (P-71): `ptcgoCode` de la MISMA fila (cero queries nuevas).
+      select: { id: true, name: true, series: true, releaseDate: true, logoUrl: true, ptcgoCode: true },
     });
     // `releaseDate` viene de pokemontcg.io como `yyyy/MM/dd`, por lo que la comparación
     // lexicográfica de strings equivale a la cronológica con la fecha completa.
@@ -1945,6 +1973,9 @@ export class CatalogService {
         year: yearFromReleaseDate(s.releaseDate),
         // v1.52 (M-47, §4.39.6): clave SIEMPRE presente; ausencia = `null` explícito, nunca omitida.
         logoUrl: s.logoUrl ?? null,
+        // v1.80 (P-71, §4.57): fuente del índice Y de la cabecera del COTIZADOR (modo `quoter`). Clave
+        // SIEMPRE presente; una sola normalización (`publicPtcgoCode`). ⛔ `GET /catalog/sets` NO lo trae.
+        ptcgoCode: publicPtcgoCode(s.ptcgoCode),
       }))
       .sort((a, b) => {
         if (a.releaseDate && b.releaseDate) {

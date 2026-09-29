@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { minWidthQuery } from '@/lib/breakpoints';
 import { BuylistView } from './BuylistView';
 import * as api from '@/lib/api';
 import { setStoredUser } from '@/lib/session';
@@ -141,7 +142,10 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     );
 
     openCart();
-    expect(screen.getByText('Valor de tus cartas')).toBeInTheDocument();
+    // §37.1b: la barra de escritorio también rotula «Valor de tus cartas» (oculta por CSS en
+    // `< lg`, presente en jsdom) — el bloque de dinero se busca DENTRO del cajón.
+    const drawer = screen.getByRole('dialog');
+    expect(within(drawer).getByText('Valor de tus cartas')).toBeInTheDocument();
     expect(screen.getByText('Estimado c/u:')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
   });
@@ -702,7 +706,9 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
     expect(within(lines).getByTestId('sell-cart-line-subtotal-dash')).toHaveTextContent('—');
     expect(within(lines).getByTestId('sell-cart-line-unit-dash')).toHaveTextContent('—');
     expect(lines).not.toHaveTextContent('MX$');
-    expect(screen.getAllByLabelText('Actualizando los precios de tu lista')).toHaveLength(1);
+    // Un solo aria-label DENTRO del cajón (el total, no las líneas). La barra de escritorio pinta
+    // su propio «—» con la misma función (§37.1b), fuera del diálogo.
+    expect(within(screen.getByRole('dialog')).getAllByLabelText('Actualizando los precios de tu lista')).toHaveLength(1);
     const cta = screen.getByRole('button', { name: 'Enviar solicitud (1)' });
     expect(cta).toBeDisabled();
     expect(cta).toHaveAttribute('aria-busy', 'true');
@@ -1066,45 +1072,333 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
 });
 
 /**
- * P-42 · el carrito de venta en DESKTOP es un PANEL FIJO a la par del grid (no un drawer que
- * abre/cierra). El layout se decide con `matchMedia('(min-width: 1024px)')`; en jsdom el poly
- * devuelve `matches:false` (móvil) salvo que el test lo mockee a `true`.
+ * §37.1 (P-61) · VENDER EN COMPUTADORA — el catálogo a todo el ancho y el carrito bajo demanda.
+ *
+ * P-42 hacía del carrito un PANEL FIJO de 360 px en `≥ lg`, elegido con `useMediaQuery`: el binder
+ * perdía un tercio del ancho (tejas de ≈144 px a 1280). Ahora hay UN solo `SellCartDrawer` para
+ * todos los tamaños, y los dos disparadores (FAB `lg:hidden`, `SellCartBar` `hidden lg:flex`) se
+ * montan SIEMPRE y los esconde el CSS. jsdom no aplica CSS: por eso aquí FAB y barra conviven en
+ * el DOM, y por eso el «escritorio» se simula forzando `matchMedia` — para demostrar que el
+ * resultado NO depende de él (nada decide el contenedor por JS).
+ *
+ * El ancho de la teja (≥ 200 px) y la visibilidad real por breakpoint los mide Playwright
+ * (`e2e/buylist-desktop-cart.spec.ts`), que sí pinta CSS.
  */
-describe('BuylistView · P-42 carrito fijo (desktop) + sombreado', () => {
-  /** Fuerza el media query de desktop; devuelve un restaurador. */
-  function forceDesktop(): () => void {
-    const original = window.matchMedia;
-    window.matchMedia = ((query: string) => ({
-      matches: query.includes('min-width: 1024px'),
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    })) as unknown as typeof window.matchMedia;
-    return () => {
-      window.matchMedia = original;
-    };
+describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () => {
+  /** Simula `≥ lg`. `vi.spyOn` (no asignación): el `restoreAllMocks` del `beforeEach` lo deshace. */
+  function forceDesktop() {
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === minWidthQuery('lg'),
+          media: query,
+          onchange: null,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+        }) as unknown as MediaQueryList,
+    );
   }
 
-  it('en desktop el carrito se ve SIEMPRE lado a lado (sin FAB ni drawer): total y CTA visibles sin abrir nada', async () => {
-    const restore = forceDesktop();
-    try {
-      asVerifiedCustomer();
-      renderWithProviders(<BuylistView />, 'es');
-      await addCard('Charizard');
+  const NOTE_SELECTOR = '[data-testid="buylist-shipping-note"]';
 
-      // No hay FAB ni drawer en desktop: el carrito es un panel persistente.
-      expect(screen.queryByTestId('sell-cart-fab')).not.toBeInTheDocument();
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      // El total y el CTA de enviar están a la vista SIN necesidad de abrir el carrito.
-      expect(screen.getByText('Valor de tus cartas')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
-    } finally {
-      restore();
+  it('P61-1 · en escritorio no hay panel fijo: ni `aside` de carrito ni la columna de 360 px; FAB y barra montados, un solo cajón', async () => {
+    forceDesktop();
+    asVerifiedCustomer();
+    const { container } = renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+
+    expect(container.querySelector('aside')).toBeNull();
+    expect(container.innerHTML).not.toContain('lg:grid-cols-[minmax(0,1fr)_360px]');
+    // El contenedor lo decide el CSS: los dos disparadores existen aun con `matchMedia` de
+    // escritorio, cada uno con su clase de breakpoint.
+    const fab = screen.getByTestId('sell-cart-fab');
+    const bar = screen.getByTestId('sell-cart-bar');
+    expect(fab.className).toMatch(/(^|\s)lg:hidden(\s|$)/);
+    expect(bar.className).toMatch(/(^|\s)hidden(\s|$)/);
+    expect(bar.className).toMatch(/(^|\s)lg:flex(\s|$)/);
+    // Cerrado: no hay diálogo; el total NO se ve sin abrir el cajón salvo en la barra.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Enviar solicitud/ })).not.toBeInTheDocument();
+    // Abierto desde la barra: exactamente UN diálogo y UN bloque de dinero.
+    fireEvent.click(within(bar).getByRole('button', { name: 'Ver lista' }));
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getAllByTestId('sell-cart-money')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
+  });
+
+  it('P61-1 · la barra: conteo + «Valor de tus cartas» + cifra; vacía, la frase y SIN cifra; «Ver lista» siempre activo con aria de diálogo', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    const bar = screen.getByRole('region', { name: 'Resumen de tu lista de venta' });
+    // Vacía: la frase, ninguna cifra (⛔ MX$0.00 con la lista vacía).
+    expect(within(bar).getByText('Vacía. Elige cartas del catálogo para agregarlas.')).toBeInTheDocument();
+    expect(bar.textContent).not.toMatch(/MX\$/);
+    const open = within(bar).getByRole('button', { name: 'Ver lista' });
+    expect(open).toBeEnabled();
+    expect(open).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(open).toHaveAttribute('aria-expanded', 'false');
+    // Sin aria-live en la barra: el anuncio al agregar es el `role="status"` de addedLine.
+    expect(bar.querySelector('[aria-live]')).toBeNull();
+
+    await addCard('Charizard');
+    expect(within(bar).getByText('Tu lista')).toBeInTheDocument();
+    expect(within(bar).getByText('1 carta(s)')).toBeInTheDocument();
+    expect(within(bar).getByText('Valor de tus cartas')).toBeInTheDocument();
+    expect(within(bar).getByTestId('sell-cart-bar-total')).toHaveTextContent('MX$24,250.00');
+    // ⛔ La barra no pinta faltante, ni nota de la guía, ni «Enviar solicitud».
+    expect(within(bar).queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument();
+    expect(bar.querySelector(NOTE_SELECTOR)).toBeNull();
+    expect(within(bar).queryByRole('button', { name: /Enviar solicitud/ })).not.toBeInTheDocument();
+
+    fireEvent.click(open);
+    const dialog = screen.getByRole('dialog');
+    expect(open).toHaveAttribute('aria-expanded', 'true');
+    expect(open.getAttribute('aria-controls')).toBe(dialog.id);
+    expect(dialog.id).not.toBe('');
+  });
+
+  it('P61-2 · EXACTAMENTE una nota de la guía: cabecera con el cajón cerrado, bloque de dinero con el cajón abierto (también con `matchMedia` de escritorio)', async () => {
+    forceDesktop();
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+
+    let notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveAttribute('data-note-surface', 'buylist-header');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver lista' }));
+    notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveAttribute('data-note-surface', 'cart-money');
+    expect(within(screen.getByTestId('sell-cart-money')).getByTestId('buylist-shipping-note')).toBe(notes[0]);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveAttribute('data-note-surface', 'buylist-header');
+  });
+
+  it('P61-3 · sin sesión y cajón cerrado: banner de requisitos en la cabecera (solo `lg`) + recordatorio en la barra; al abrir, el de cabecera se desmonta', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+
+    const headerReq = await screen.findByTestId('buylist-header-requirements');
+    expect(headerReq.className).toMatch(/(^|\s)hidden(\s|$)/);
+    expect(headerReq.className).toMatch(/(^|\s)lg:block(\s|$)/);
+    expect(within(headerReq).getByText('Inicia sesión o crea cuenta para vender')).toBeInTheDocument();
+    expect(within(headerReq).getByRole('link', { name: 'Crear cuenta' })).toBeInTheDocument();
+
+    const bar = screen.getByTestId('sell-cart-bar');
+    expect(within(bar).getByText('Para enviar tu solicitud necesitas cuenta.')).toBeInTheDocument();
+    expect(within(bar).getByRole('link', { name: 'Iniciar sesión' })).toHaveAttribute('href', '/login?next=/buylist');
+    // ⛔ Sin «Crear cuenta» en la barra (no cabe a 1024 px; vive en la cabecera y el cajón).
+    expect(within(bar).queryByRole('link', { name: 'Crear cuenta' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(bar).getByRole('button', { name: 'Ver lista' }));
+    expect(screen.queryByTestId('buylist-header-requirements')).not.toBeInTheDocument();
+    // Exactamente UNA instancia del banner: la del cajón.
+    const banners = screen.getAllByText('Inicia sesión o crea cuenta para vender');
+    expect(banners).toHaveLength(1);
+    expect(screen.getByRole('dialog')).toContainElement(banners[0]);
+  });
+
+  it('P61-3 · con sesión, la barra NO lleva el recordatorio de cuenta', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    expect(within(screen.getByTestId('sell-cart-bar')).queryByTestId('sell-cart-bar-login')).not.toBeInTheDocument();
+  });
+
+  it('P61-4 · recotizando, barra y cajón pintan «—» los DOS; al volver el batch, los dos la MISMA cifra', async () => {
+    asVerifiedCustomer();
+    window.localStorage.setItem(
+      'tcg.sellCart',
+      JSON.stringify({
+        lines: [
+          {
+            id: 'line-1',
+            card: { id: 'c-charizard', name: 'Charizard', number: '4' },
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: 'normal',
+            quote: {
+              rarity: 'Rare Holo',
+              finish: 'normal',
+              priceBasis: 'market',
+              quote: { status: 'cotizada', quotedPriceCents: 100000, currency: 'MXN' },
+              referencePrice: { status: 'priced', priceMxnCents: 200000 },
+              paymentNotice: 'PAY_AFTER_RECEIPT',
+            },
+            quantity: 1,
+          },
+        ],
+        updatedAt: Date.now() - 1000,
+      }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const batch = vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => {
+      await gate;
+      return {
+        results: items.map((it, index) => ({
+          index,
+          cardId: it.cardId,
+          ok: true as const,
+          rarity: 'Rare Holo',
+          finish: it.finish ?? ('normal' as const),
+          priceBasis: 'market' as const,
+          quote: { status: 'cotizada' as const, quotedPriceCents: 125000, currency: 'MXN' as const },
+          referencePrice: { status: 'priced' as const, priceMxnCents: 250000 },
+          paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+        })),
+      };
+    });
+    renderWithProviders(<BuylistView />, 'es');
+    await screen.findByText('Tu lista de venta se conservó: 1 carta(s).');
+    await waitFor(() => expect(batch).toHaveBeenCalled());
+
+    const bar = screen.getByTestId('sell-cart-bar');
+    // La barra NO afirma la cifra persistida (MX$1,000.00) mientras recotiza.
+    expect(within(bar).getByTestId('sell-cart-bar-total-requoting')).toHaveTextContent('—');
+    expect(bar.textContent).not.toMatch(/MX\$/);
+    fireEvent.click(within(bar).getByRole('button', { name: 'Ver lista' }));
+    expect(screen.getByTestId('sell-cart-total-requoting')).toHaveTextContent('—');
+
+    release();
+    await waitFor(() => expect(screen.queryByTestId('sell-cart-total-requoting')).not.toBeInTheDocument());
+    expect(within(bar).queryByTestId('sell-cart-bar-total-requoting')).not.toBeInTheDocument();
+    const drawerFigure = screen.getByTestId('sell-cart-total').textContent;
+    expect(drawerFigure).toBe('MX$1,250.00');
+    expect(within(bar).getByTestId('sell-cart-bar-total').textContent).toBe(drawerFigure);
+  });
+
+  it('P61-4 · con TODAS las líneas sin precio, barra y cajón pintan la versalita (nunca MX$0.00)', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Zapdos', 'Holofoil');
+    const barMoney = screen.getByTestId('sell-cart-bar-money');
+    expect(within(barMoney).getByTestId('buylist-pending-label')).toBeInTheDocument();
+    expect(barMoney.textContent).not.toMatch(/MX\$/);
+    fireEvent.click(screen.getByRole('button', { name: 'Ver lista' }));
+    expect(within(screen.getByTestId('sell-cart-money')).getByTestId('buylist-pending-label')).toBeInTheDocument();
+  });
+
+  it('el total del modal de solicitud es la MISMA función que cajón y barra (cifra idéntica; todo pendiente ⇒ versalita)', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+    const drawerFigure = screen.getByTestId('sell-cart-total').textContent;
+    expect(drawerFigure).toBe('MX$24,250.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
+    await screen.findByText('Resumen de tu venta');
+    // Mismo `CartTotalFigure` (mutación: devolver al modal su propio ternario ⇒ no existe el testid).
+    expect(screen.getByTestId('sell-request-total').textContent).toBe(drawerFigure);
+  });
+
+  it('… y con TODAS las líneas sin precio el modal ni se abre: el CTA está apagado por el mínimo (la versalita del modal es inalcanzable)', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Zapdos', 'Holofoil');
+    openCart();
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeDisabled();
+    expect(screen.queryByText('Resumen de tu venta')).not.toBeInTheDocument();
+  });
+
+  it('§37.1d · FAB y barra van DESPUÉS del pie del layout en el DOM (portal al final de <body>), nunca dentro de <main>', () => {
+    asVerifiedCustomer();
+    // El pie pertenece al layout, hermano POSTERIOR de la vista: escritos dentro de la vista, los
+    // disparadores quedarían antes del pie y el orden de tabulación sería pie ← barra.
+    renderWithProviders(
+      <div>
+        <main>
+          <BuylistView />
+        </main>
+        <footer data-testid="layout-footer">
+          <a href="#pie">Términos</a>
+        </footer>
+      </div>,
+      'es',
+    );
+    const footer = screen.getByTestId('layout-footer');
+    for (const id of ['sell-cart-fab', 'sell-cart-bar'] as const) {
+      const el = screen.getByTestId(id);
+      // eslint-disable-next-line no-bitwise
+      expect(footer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING, `${id} tras el pie`).toBeTruthy();
+      expect(el.closest('main'), `${id} fuera de <main>`).toBeNull();
     }
+    // Y el cajón sigue abriéndose desde la barra portada (los refs cruzan el portal).
+    fireEvent.click(screen.getByTestId('sell-cart-bar-open'));
+    expect(screen.getByRole('dialog', { name: /Carrito de venta/ })).toBeInTheDocument();
+  });
+
+  it('P61-5 · cerrar el cajón con Esc devuelve el foco al botón de la barra', async () => {
+    forceDesktop();
+    renderWithProviders(<BuylistView />, 'es');
+    const open = within(screen.getByTestId('sell-cart-bar')).getByRole('button', { name: 'Ver lista' });
+    open.focus();
+    fireEvent.click(open);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(document.activeElement).not.toBe(open);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(open);
+  });
+
+  it('P61-5 · … y al FAB cuando lo abrió el FAB (`< lg`)', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    const fab = screen.getByTestId('sell-cart-fab');
+    fab.focus();
+    fireEvent.click(fab);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(fab);
+  });
+
+  it('P61-5 · si lo abrió el CTA de un bounty, el foco vuelve a ESE CTA', async () => {
+    vi.spyOn(api, 'getPublicBounties').mockResolvedValue({
+      data: [
+        {
+          cardId: 'c-charizard',
+          name: 'Charizard',
+          number: '4',
+          setName: 'Base Set', setPtcgoCode: null,
+          finish: 'normal',
+          bountyPriceCents: 3_000_000,
+          targetQty: null,
+          remainingQty: null,
+        },
+      ],
+    });
+    vi.spyOn(api, 'batchQuote').mockResolvedValue({
+      results: [
+        {
+          index: 0,
+          cardId: 'c-charizard',
+          ok: true as const,
+          rarity: 'Rare Holo',
+          finish: 'normal' as const,
+          priceBasis: 'market' as const,
+          quote: { status: 'cotizada' as const, quotedPriceCents: 3_000_000, currency: 'MXN' as const },
+          referencePrice: { status: 'priced' as const, priceMxnCents: 6_000_000 },
+          paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+        },
+      ],
+    });
+    renderWithProviders(<BuylistView />, 'es');
+    const cta = await screen.findByRole('button', { name: 'Cotizar esta carta' });
+    cta.focus();
+    fireEvent.click(cta);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(cta);
   });
 
   it('tras AGREGAR, la teja de esa (carta, acabado) se destaca como «En el carrito» (sombreado)', async () => {
@@ -1284,43 +1578,9 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     expect(cta.getAttribute('aria-describedby')).toContain('sell-cart-minimum');
   });
 
-  /**
-   * §23.14.6-7.3 — **ESCRITORIO: la cabecera NO monta la nota.** El carrito es un panel fijo
-   * siempre a la vista, así que la única razón de ser de la instancia de la cabecera —cubrir el
-   * caso en que el carrito no se ve— desaparece. Este es el caso exacto que a 1280px daba DOS.
-   *
-   * `useMediaQuery` lee `matchMedia`; jsdom lo tiene poly-rellenado con `matches:false` (móvil),
-   * así que el escritorio se simula devolviendo `true` para el query del panel fijo.
-   */
-  it('§23.3g-bis · en ESCRITORIO la nota la pinta el bloque de dinero y la cabecera no se monta', async () => {
-    asVerifiedCustomer();
-    // ⚠️ `vi.spyOn`, NO una asignación directa: `window` es COMPARTIDO por todos los tests del
-    // fichero, así que reescribir `matchMedia` a mano dejaría el resto de la suite en modo
-    // escritorio (sin FAB) y los rojos aparecerían en tests que no tocan nada de esto. El
-    // `vi.restoreAllMocks()` del `beforeEach` deshace el espía; una asignación no se deshace.
-    vi.spyOn(window, 'matchMedia').mockImplementation(
-      (query: string) =>
-        ({
-          matches: query.includes('1024'),
-          media: query,
-          onchange: null,
-          addEventListener: () => {},
-          removeEventListener: () => {},
-          addListener: () => {},
-          removeListener: () => {},
-          dispatchEvent: () => false,
-        }) as unknown as MediaQueryList,
-    );
-
-    renderWithProviders(<BuylistView />, 'es');
-    // El panel fijo no necesita abrirse: ya está en pantalla (y no hay FAB que pulsar).
-    await waitFor(() => {
-      const notes = screen.getAllByTestId('buylist-shipping-note');
-      expect(notes).toHaveLength(1);
-      expect(notes[0]).toHaveAttribute('data-note-surface', 'cart-money');
-    });
-    expect(screen.queryByTestId('sell-cart-fab')).not.toBeInTheDocument();
-  });
+  // §37.1c (P-61): el caso «ESCRITORIO: la cabecera NO monta la nota» (panel fijo de P-42) se
+  // retiró con el panel. En escritorio la regla es la misma que en móvil —cabecera con el cajón
+  // cerrado, bloque de dinero con el cajón abierto— y la fija P61-2 (describe «P-61»).
 
   /**
    * §23.14.6-8 — **el carrito explica su propia aritmética.** Este es, literalmente, el caso que
@@ -1421,5 +1681,64 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     expect(screen.queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument();
     // Ni un número inventado: el bloque de dinero sigue con UN solo monto.
     expect(screen.getByTestId('sell-cart-money').textContent?.match(/MX\$/g) ?? []).toHaveLength(1);
+  });
+});
+
+/**
+ * v1.80 (P-71, §37.3c): la línea del carrito de venta abre con «TWM 130 · Estimado c/u …» cuando la
+ * carta trae código; sin código la línea queda como antes (sin número, sin «—»).
+ */
+describe('BuylistView · P-71 código del set en la línea del carrito de venta', () => {
+  function bountyWith(code: string | null) {
+    vi.spyOn(api, 'getPublicBounties').mockResolvedValue({
+      data: [
+        {
+          cardId: 'c-dragapult',
+          name: 'Dragapult ex',
+          number: '130',
+          setName: 'Twilight Masquerade',
+          setPtcgoCode: code,
+          finish: 'normal',
+          bountyPriceCents: 3_000_000,
+          targetQty: null,
+          remainingQty: null,
+        },
+      ],
+    });
+    vi.spyOn(api, 'batchQuote').mockResolvedValue({
+      results: [
+        {
+          index: 0,
+          cardId: 'c-dragapult',
+          ok: true as const,
+          rarity: 'Double Rare',
+          finish: 'normal' as const,
+          priceBasis: 'market' as const,
+          quote: { status: 'cotizada' as const, quotedPriceCents: 3_000_000, currency: 'MXN' as const },
+          referencePrice: { status: 'priced' as const, priceMxnCents: 6_000_000 },
+          paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+        },
+      ],
+    });
+  }
+
+  it('con código: la línea empieza por «TWM 130»', async () => {
+    bountyWith('TWM');
+    renderWithProviders(<BuylistView />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Cotizar esta carta' }));
+    const lines = await screen.findByTestId('sell-cart-lines');
+    const code = within(lines).getByTestId('card-code');
+    expect(code.textContent).toBe('TWM\u00A0130');
+    // Es el PRIMER elemento de la línea mono.
+    expect(code.parentElement?.firstElementChild).toBe(code);
+  });
+
+  it('sin código: la línea no pinta código ni «—»/«null»', async () => {
+    bountyWith(null);
+    renderWithProviders(<BuylistView />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Cotizar esta carta' }));
+    const lines = await screen.findByTestId('sell-cart-lines');
+    expect(within(lines).queryByTestId('card-code')).toBeNull();
+    expect(lines.textContent).not.toMatch(/null|undefined|#130/);
   });
 });

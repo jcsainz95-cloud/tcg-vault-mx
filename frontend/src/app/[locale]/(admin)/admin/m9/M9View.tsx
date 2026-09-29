@@ -31,6 +31,7 @@ const METRICS: { metric: MetricKey; goal: GoalKey; icon: React.ReactNode }[] = [
 
 export function M9View() {
   const t = useTranslations('admin.m9');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tc = useTranslations('common');
 
   const [from, setFrom] = useState('');
@@ -58,7 +59,7 @@ export function M9View() {
 
   return (
     <div className="flex flex-col gap-10">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m9')}</h1>
 
       {/* Selector de rango de fechas */}
       <section className="flex flex-col gap-3">

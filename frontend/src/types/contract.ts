@@ -181,6 +181,10 @@ export interface CardDTO {
   subtypes: string[];
   setId: string;
   setName: string;
+  // v1.80 (P-71, ARCHITECTURE §4.57): código corto IMPRESO del set de esta carta («TWM»). Clave SIEMPRE
+  // presente; `null` = sin código (normal y permanente) o set no cargado. Tal como lo guardó el sync
+  // (sin mayúsculas forzadas). ⛔ Nunca deducido del nombre ni del externalId. Se pinta «TWM 130».
+  setPtcgoCode: string | null;
   imageSmallUrl: string;
   imageLargeUrl: string;
   // v1.6-finish: acabados en que existe la carta (derivados de tcgplayer.prices al importar).
@@ -659,6 +663,8 @@ export interface CardSetDTO {
  */
 export interface BuylistSetDTO extends CardSetDTO {
   logoUrl: string | null;
+  /** v1.80 (P-71): código corto del set; mismas reglas que `CardDTO.setPtcgoCode`. */
+  ptcgoCode: string | null;
 }
 
 // v1.1: facetas dinámicas de "Compra" (contrato GET /catalog/facets).
@@ -2002,6 +2008,9 @@ export interface MasterSetSummaryDTO {
   // cotizador se quedaría sin logo. Lo pinta `MasterSetIndex` (DESIGN_SYSTEM §24: placa de tinta
   // + monograma cuando es `null`). ⛔ PROHIBIDO construir la URL por plantilla desde el `setId`.
   logoUrl: string | null;
+  // v1.80 (P-71): código corto del set para la teja del índice (fila plegada = el del PRINCIPAL).
+  // Requerido por la misma razón que `logoUrl`: el modo `quoter` lo compone desde `BuylistSetDTO`.
+  ptcgoCode: string | null;
 }
 
 // Ordenamiento del índice (contrato §M1). `release_desc` es el default.
@@ -2252,10 +2261,18 @@ export interface SetPartDTO {
   isPrimary: boolean;
   order: number;
   catalogCardCount: number;
+  /** v1.80 (P-71): el código de ESTA parte, no el del principal. */
+  ptcgoCode: string | null;
 }
 
+/**
+ * v1.80 (P-71): cabecera del BINDER = `SetRefDTO` + el código corto del set (en un combinado, el del
+ * PRINCIPAL). ⛔ `SetRefDTO` no cambia: lo emiten superficies que no pintan cartas con número.
+ */
+export type MasterSetRefDTO = SetRefDTO & { ptcgoCode: string | null };
+
 export interface MasterSetBinderResponse {
-  set: SetRefDTO;
+  set: MasterSetRefDTO;
   printedTotal: number | null;
   catalogCardCount: number;
   cells: MasterSetCardCellDTO[];
@@ -2572,6 +2589,8 @@ export interface PublicBountyDTO {
   name: string;
   number: string;
   setName: string;
+  /** v1.80 (P-71): código corto del set de la carta; mismas reglas que `CardDTO.setPtcgoCode`. */
+  setPtcgoCode: string | null;
   imageSmallUrl?: string;
   rarity?: string;
   finish: Finish;

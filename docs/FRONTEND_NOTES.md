@@ -18463,3 +18463,119 @@ token en `logout` ⇒ 2 rojas; en `clearClientSession` ⇒ 4 rojas; no mandarlo 
 ## Copy final del 429 de login (2026-09-29, DESIGN_SYSTEM v4.9 §37.13)
 
 `auth.tooManyAttempts`/`tooManyAttemptsNoTime` sustituidas por `auth.login.rateLimited` (sin cifra) y `auth.login.rateLimitedRetryIn` (`{minutes, plural, one {# minuto} other {# minutos}}`), es/en. Se usa la segunda solo si `details.retryAfterSeconds` es usable (`retryAfterMinutes`, ceil a minutos); el cliente API no expone la cabecera `Retry-After` (solo `details`), así que no se lee. Pruebas en `AuthForm.test.tsx` (con cifra 3 min/1 min, ES singular, sin cifra); mutación medida: intercambiar las dos claves ⇒ 4 rojas (N=1, determinista).
+## §81 · **Paquete de pantallas** — Vender en computadora (P-61, DESIGN_SYSTEM §37.1) y menú del panel sin códigos (P-66 I2, §37.2) (2026-09-28, rama `claude/paquete-pantallas`, base `82ea0f3`)
+
+### §37.1 · P-61 — el carrito vuelve a ser cajón en escritorio
+
+- **Un solo `SellCartDrawer` para todos los tamaños.** Se retiró `useMediaQuery` de `BuylistView` (el hook
+  sigue existiendo: lo usa `FeaturedCarousel`), el `lg:grid-cols-[minmax(0,1fr)_360px]` y el `<aside>` del
+  panel fijo de P-42. Los dos disparadores se montan siempre y los esconde el CSS: FAB `lg:hidden`
+  (`SellCartFab`), barra `hidden lg:flex` (`SellCartBar`, nueva, en la carpeta de la ruta).
+- **Una sola función para el total:** `buylist/CartTotalFigure.tsx` tiene las tres ramas (recotizando/fallida
+  ⇒ «—» · todo pendiente ⇒ versalita · importe) y la usan el bloque de dinero del cajón (`size="hero"`, 26 px)
+  y la barra (`size="bar"`, 20 px). `testIdScope` distingue las dos superficies (`sell-cart-total*` /
+  `sell-cart-bar-total*`), porque en jsdom conviven en el DOM.
+- **Anfitriones (regla de «exactamente uno», decidida en `BuylistView`):**
+  `shippingNoteHost = requestOpen ? 'createStep' : drawerOpen ? 'cart' : 'header'` (sin `isDesktopCart`);
+  `requirementsHost = drawerOpen ? 'cart' : 'header'`, con la instancia de cabecera en `hidden lg:block`
+  (`data-testid="buylist-header-requirements"`), después de la nota y antes de «Guía de envío seguro».
+- **Retorno de foco:** `openerRef` (en `BuylistView`) apunta al disparador que abrió el cajón y se fija ANTES
+  de abrir (el cajón lo lee al montarse). FAB y barra fijan su propio botón; el CTA del bounty captura
+  `document.activeElement` al pulsarlo (antes del `await` del batch) y, si el clic no lo enfocó (Safari),
+  cae al disparador visible de su tamaño (`matchMedia` solo para ESO, nunca para elegir contenedor).
+  `SellCartDrawer.returnFocusRef` se ensanchó a `RefObject<HTMLElement | null>` y ganó `id` (para el
+  `aria-controls` de la barra).
+- **Decisión propia, fuera del texto de §37.1:** la barra es `fixed` de 64 px y el pie legal del layout va
+  DESPUÉS de la vista, así que al final del scroll lo taparía. `globals.css` reserva 64 px al `body` en `≥ lg`
+  solo mientras existe la barra (`body:has([data-sell-cart-bar])`). Sin JS ni tocar el layout.
+- **Medido en navegador** (`next build` + `next start` con mocks, Chromium; `getBoundingClientRect().width` de
+  las 5 primeras tejas de Base Set): antes (`82ea0f3`) **144 px** a 1280×800 y **122 px** a 1024×768, con
+  `aside`=1; después **216 px** y **212 px**, `aside`=0, barra visible y FAB oculto. Coincide con la
+  aritmética de §37.1.
+- **Candados:** vitest P61-1…P61-5 en `BuylistView.test.tsx` (describe «P-61»); Playwright P61-1 (ancho ≥ 200
+  px a 1280 y 1024, barra de 64 px pegada al borde, FAB oculto; FAB visible y barra oculta a 390), P61-3 y
+  P61-5 en `e2e/buylist.spec.ts`. Sin `mockOnly` nuevos (usa `openBaseSet`, env-agnóstico). Los helpers
+  `openCart` de `buylist.spec.ts` y `sell-cart-persist.spec.ts` pulsan el disparador VISIBLE; las aserciones
+  sobre «Valor de tus cartas» se acotan al cajón (la barra también lo rotula).
+
+### §37.2 · P-66 I2 — menú por nombre
+
+- `AdminSidebar`: grupos `daily` / `stock` / `storefront` / `administration` en el orden de §37.2b, «Resumen»
+  solo arriba sin rótulo (`groupKey: null`). Se exporta `ADMIN_MENU_ITEMS` (lista plana en orden) para el
+  candado. Se retiraron las claves de grupo `operation` / `pricing` / `finance` (solo las usaba el menú).
+- **El `h1` de cada página lee `admin.modules.<key>`** (una sola fuente, no dos cadenas iguales que puedan
+  divergir). Las claves `admin.<módulo>.title` se conservan con el mismo texto que el menú porque siguen
+  alimentando toasts y `aria-label` de pestañas (M1, M5, M11) y las usan specs E2E.
+- Barrido de copy: `grep -nE '\bM1?[0-9]\b' messages/{es,en}.json` = **0 / 0**. Ninguna referencia resultó
+  legítima. ES usa «…» y EN “…” para el nombre dentro de frase. SÚPER y «Meta Battle Decks» intactos.
+- M9: «Actividad de la tienda» / “Store activity” + subtítulo y `goalsUnset` de §37.2d.
+- **Candados:** `src/app/[locale]/(admin)/admin/AdminPageTitles.test.tsx` — P66-1, P66-2 (una prueba por ruta,
+  renderizando el `page.tsx` real), P66-3 (el grep, en prueba), el orden/grupos/SÚPER del menú en es y en,
+  y los textos de M9.
+
+## §82 · **P-71 — código corto del set («TWM 130»)** + reubicación del E2E de spreads (2026-09-28, rama `claude/paquete-pantallas`, base `924a75d`; contrato v1.80, backend `72d4372`)
+
+- **Tipos (`contract.ts`), sin `?`:** `CardDTO.setPtcgoCode`, `MasterSetRefDTO = SetRefDTO & { ptcgoCode }`
+  (cabecera del binder; `SetRefDTO` no cambia), `SetPartDTO.ptcgoCode`, `MasterSetSummaryDTO.ptcgoCode`,
+  `BuylistSetDTO.ptcgoCode`, `PublicBountyDTO.setPtcgoCode`. El compilador obligó a decidir el valor en cada
+  composición cliente (índice y binder del cotizador) — mismo candado que `logoUrl`.
+- **Una sola función** `lib/setCode.ts`: `formatCardCode(code, number)` ⇒ `TWM 130` o `#130`
+  (nunca «—»/«null»; vacío/espacios ⇒ sin código; sin mayúsculas forzadas); `setMatchesQuery(name, code, q)`
+  ⇒ «Buscar set» por nombre **o** código, sin distinguir mayúsculas. Componente `domain/CardCode.tsx`.
+- **Superficies (§37.3c):** cabecera del binder (`binder-set-code`, mono 13 px muted, 12 px de aire, misma
+  línea base); separador de parte con el código **de esa parte** (`part-set-code`); tejas del binder en los
+  cuatro modos (la celda hereda `set.ptcgoCode` o, en combinados, el de su parte por `partSetId`); teja del
+  índice (`index-set-code`, bajo el nombre); teja de Compra (`CatalogTile`, `ListingCard`); ficha
+  (`CardDetailView`) y pop-up de detalle del cotizador (`CardDetailModal`); línea del carrito de venta
+  (primer elemento de la línea mono, solo con código). El binder pasa el código al alta del carrito
+  (`onAddToSellCart(cell, variant, setPtcgoCode)`); el bounty lo trae en `PublicBountyDTO`.
+  `QuoterCardRef.setPtcgoCode` es opcional: las listas guardadas antes de P-71 no lo tienen y se pintan sin él.
+- **Fuera de este pase (§37.3c):** carrito de compra, checkout y pedidos (hechos congelados). Las tejas de
+  bounty (vitrina y tablero del home) no están en la tabla de §37.3 y siguen con `#130`.
+- **Decks:** `decksMeta.detail.cardCode` y `substitute.use/usePending` pasan a `{set} {number}`; el
+  ensayo M12 (`DeckCoverCell`) pinta la portada con `formatCardCode` («TWM 130», antes «TWM-130»).
+- **Mock:** `MockCardSetRow.ptcgoCode` es columna requerida: SSP, TWM, SVI, CEL, CLC, SSH y `base1` = `null`
+  (el cotizador de las pruebas ejercita `#4`). `mockCatalogSetDTO` descarta la columna (`GET /catalog/sets` no
+  la emite). El `?q=` del índice mock usa `setMatchesQuery`.
+- **Candados:** `master-set/P71SetCode.test.tsx` (P71-F1 y F2 en los cuatro modos, F3, índice, alta con código,
+  formato); combinado CEL/CLC en `MasterSet.test.tsx`; `CatalogTile.test.tsx`; línea del carrito en
+  `BuylistView.test.tsx`. Los E2E de `master-set.spec.ts` leen el número del renglón `card-code` sin depender
+  de si lleva código.
+- **E2E de spreads (T-1):** `admin.spec.ts` entraba a `/admin/m2`, pero el editor está en «Sellado» (M11) ›
+  «Ajustes avanzados» › «Márgenes de venta». La spec va ahora ahí (abre el acordeón), mide lo mismo (fila
+  editable de UPC y Collection, bicondicional vacío ⇔ «usa el global») y además afirma que M2 ya no lo tiene.
+- **Corrección de §81:** el E2E `master-set-plate` «I-2» quedó rojo por P-61 (placa a 1024 = 206 px vs 181 a
+  640: diferencia 25 < 30). El §81 dijo que pasaba y no era cierto. Se cambió el par de viewports a 640/1280
+  (181 vs 270 px, medido en Chromium), no el umbral.
+
+## §83 · **Deuda del techlead sobre `8655e9a` + menores de QA + nombre de M4** (2026-09-29, rama `claude/paquete-pantallas`, base `a2406cf`)
+
+Todo frontend, sin dinero. Cada punto se **midió antes de tocar** (fichero:línea de `8655e9a`); lo que no
+existía se dice, no se «arregla».
+
+| Punto | Medido en `8655e9a` | Qué cambió |
+|---|---|---|
+| **M4 = «Pedidos por preparar» / «Orders to prepare»** (dueño, `HECHOS.md` a2406cf) | `es.json:1232` «Preparar y enviar», `en.json:1232` «Pick & ship»; el `h1` de `/admin/m4` sale de `tModules('m4')` (`M4View.tsx:192`) ⇒ una sola clave. `admin.m4.title` repetía el literal y **nadie la leía** (`grep m4.title src e2e` = 0, huérfana desde `924a75d`). | Clave cambiada en ES/EN; `admin.m4.title` retirada; la tabla de §37.2b en `AdminPageTitles.test` fija el literal nuevo. **El `h2` de la cola (`admin.m4.prep.title`, «Pedidos a preparar») no se tocó**: no está en la decisión; queda casi igual que el `h1` en la misma página — si molesta, es de ux-ui. |
+| **(a) `uppercase` sobre el código** | `CardDetailView.tsx:314` — la línea «Set · TWM 130 · rareza» entera en `uppercase`. En tejas, modal y carrito no había `uppercase` sobre el código. **También** `DeckAvailability.tsx:145` (decks-meta) lo forzaba. | Ficha: la línea sigue en versalitas, el código va en `CardCode` con `normal-case` (§37.3b «tal como llegan»). Decks-meta: sin `uppercase`. Candados en `CardDetailView.test` y `DeckDetailView.test`. |
+| **(b) dos formateadores** | `formatCardCode` (`setCode.ts`) **y** la plantilla i18n `decksMeta.detail.cardCode` = `"{set} {number}"` (`es.json:4157`, usada solo en `DeckAvailability.tsx:125`). | Decks-meta usa `CardCode`; clave retirada en ES/EN. Un formateador. |
+| **(c) NBSP invisible** | `NBSP` ya era constante con comentario (`setCode.ts:15`) pero su valor era el U+00A0 **pegado**; ídem en tres tests. | `' '` (escape visible) y el porqué en el comentario. `grep -P '\xC2\xA0' src messages e2e` = **0**. |
+| **(d) SetCode ×3** | Tres `<span lang="en" data-testid=… className="font-mono … tracking-label text-muted">` inline: `MasterSetBinder.tsx:441-449` (cabecera), `:657-661` (parte), `MasterSetIndex.tsx:243-250` (índice). | `components/domain/SetCode.tsx` (sigla sola; `CardCode` sigue siendo «código + número»). Mismos `data-testid`: P71-F1/F2 verdes sin tocarlos. |
+| **(e) total del modal** | `BuylistView.tsx:587-594`: ternario propio = copia de la rama «todo pendiente» de `CartTotalFigure` **sin** la rama «—». **No calcula distinto** (misma suma); es una tercera copia. Además la rama «versalita» del modal es **inalcanzable**: con todo pendiente el CTA está `disabled` por el mínimo (medido en test). | El modal usa `CartTotalFigure` (`size='summary'`, `testIdScope='sell-request'`). Candados: cifra idéntica a la del cajón; CTA apagado con todo pendiente. Efecto visual: la cifra pasa a mono (como cajón y barra). |
+| **(f) breakpoints mágicos** | `BuylistView.tsx:162` `matchMedia('(min-width: 1024px)')`; `BuylistView.test.tsx:1092` `query.includes('1024')`. `tailwind.config.ts` no redefine `screens`. Los `1024×768`/`1280×800` de los E2E son **viewports de medición** (§37.1g), no umbrales: no se tocan. | `lib/breakpoints.ts` (`BREAKPOINTS`, `minWidthQuery`) + `breakpoints.test.ts`: paridad con `resolveConfig` de Tailwind, con la tabla de §4.4 y grep = 0 de `min-width: Npx` en `src` sin tests. |
+| **(g) comentarios del estado anterior** | `BuylistView.tsx:34`, `:109-111`, `:139-146`, `:171`, `:190-192`, `:383-386`; `SellCartContents.tsx:76`; `SellCartBar.tsx:31` — narraban `aside`, columna fija de 360 px, `useMediaQuery`, «panel fijo». | Reescritos para describir lo que hay. El origen de la regla «exactamente una nota» (§23.3g-bis) se conserva pero dice que el panel fijo **existía entonces**. `SellCartContents.tsx:188` «columna fija a la izquierda» es la miniatura de la línea, no el carrito: se queda. |
+| **(h) P66-2 solo en `es`** | `AdminPageTitles.test.tsx:166-175`. | Corre por ruta en `es` **y** `en` (30 casos). Mutación: `h1` con literal español ⇒ cae solo `en /admin/m4`. |
+| **(i) barra después del pie (§37.1d)** | FAB y barra se escribían dentro de la vista (`BuylistView.tsx:531-548`); el `<footer>` es del layout (`(storefront)/layout.tsx`) ⇒ en el DOM iban **antes** del pie, y el orden de tabulación es el del DOM. | `components/ui/BodyPortal.tsx` (portal al final de `<body>`, monta tras hidratar — mismo patrón que `Toaster`; el sitio lo reserva `pb-24`). Candados: vitest (pie hermano posterior; FAB y barra tras él y fuera de `<main>`; el cajón abre desde la barra portada; mutación fragmento-en-vez-de-portal ⇒ rojo) y E2E en `buylist.spec` (DOM: `footer` precede a la barra; teclado: Tab desde el último enlace del pie entra en la barra a 1280 y en el FAB a 390). |
+
+**Coste dicho de (i):** el HTML del servidor no trae FAB ni barra; aparecen en el primer efecto del cliente.
+Sin salto de layout (espacio reservado). Si algún día importa el primer pintado, la alternativa es un
+«slot» en el layout después del pie — sigue siendo portal, solo cambia el destino.
+
+**Suites (este pase, sobre el árbol vivo de la rama, medidas por frontend):** `tsc --noEmit` limpio ·
+`next lint` sin avisos · vitest completo **178/178 ficheros, 2133/2133 pruebas** · Playwright con mocks
+(`buylist`, `admin`, `master-set`, build + start de producción) **52/52, 0 saltados**, incluidos los dos casos
+nuevos de §37.1d. Mutaciones hechas (una tirada cada una, deterministas): `h1` con literal español ⇒ cae solo
+`en /admin/m4`; fragmento en vez de `BodyPortal` ⇒ cae el candado del orden del DOM.
+
+**Commits:** `b06bec9` (M4 + P66-2 en `en`) · `6949e13` (NBSP) · `4aa9b12` (SetCode + `normal-case`) ·
+`2dbf5af` (un formateador) · `5e4ef3e` (total del modal) · `b61de76` (breakpoints) · el del portal y los
+comentarios (g)+(i), y este de notas.

@@ -94,6 +94,8 @@ describe('publicBounties — vitrina pública READ-ONLY (contrato §6)', () => {
       name: 'Pikachu ex',
       number: '104',
       setName: 'Surging Sparks',
+      // v1.80 (P-71): clave SIEMPRE presente; el fixture no trae `set.ptcgoCode` ⇒ `null`.
+      setPtcgoCode: null,
       imageSmallUrl: 'https://img/x.png',
       rarity: 'Special Illustration Rare',
       finish: 'holofoil',
