@@ -12702,3 +12702,5 @@ existentes que ganan valores**: `MovementReason + replacement, refund_return` y 
 **Procedimiento de rollback:** (1) `./scripts/rollback-safety-probe.sh <sha-anterior>` — verde ⇒ (2) Railway *Redeploy* del deploy previo y Vercel *Promote* del build previo; rojo, o
 hay filas con los valores de enum nuevos / un CHECK que el código viejo violaría ⇒ **hay un paso de datos antes del redeploy**: no se improvisa, se escala a backend y se decide con el dueño
 (restaurar el snapshot solo si hay corrupción, y perdiendo lo escrito desde entonces, incl. reembolsos). El dinero ya devuelto por Stripe **no se revierte** con nada de esto.
+
+**2026-09-29 (devops, BLOQ-3 de QA sobre c20451f):** baseline del censo E2E regenerado con motivo: `mockOnly` 113/24 -> 121/25 por `frontend/e2e/m4-ship.spec.ts` (8 palabras = import + prosa + 6 llamadas; 12 casos). Gate rc=0 y canario 14/14 tras el cambio. Deuda: cuando el seed real siembre reembolsos/casos/transferencias, el censo baja y se regenera.
