@@ -1868,6 +1868,34 @@ export interface InventoryItemDTO {
   listPriceCents?: number;
   acquisitionType?: AcquisitionType;
   acquisitionCostCents?: number;
+  // v1.23-sealed (contrato §M1, read-only en M1; solo `productType='sealed'`): mapeo curado al producto
+  // TCGplayer/TCGCSV (`null`/omitidos si NO mapeado, M-23) y su referencia informativa. ⛔ El mapeo NO se
+  // edita por `PATCH /admin/inventory/items/:id` — solo por `PUT /admin/pricing/sealed/items/:itemId/mapping`.
+  // §M2-SK: una pieza sellada SIN `tcgplayerProductId` no tiene clave de mercado ⇒ su precio es
+  // `listPriceCents` (SK-4) o ligarla a su presentación; nunca un override bajo `'sealed'` (SK-3).
+  tcgplayerProductId?: number | null;
+  tcgplayerGroupId?: number | null;
+  sealedMarketRef?: PriceInfo | null;
+}
+
+// ⭐ §M2 (v1.23-sealed) · `PUT /admin/pricing/sealed/items/:itemId/mapping` (`super_admin`, auditado):
+// asigna, actualiza o quita el mapeo de UN item. `tcgplayerProductId: null` DESMAPEA (limpia también
+// `tcgplayerGroupId`); con valor, `tcgplayerGroupId` es OBLIGATORIO (el fetch de precios es por grupo) y
+// ambos enteros positivos. `applyToSiblings` (default false) copia el mapeo a los demás items `sealed`
+// SIN mapeo con el mismo `(cardId, sealedSubtype)`; nunca pisa mapeos existentes. Err: 404 NOT_FOUND
+// (item), 422 VALIDATION_ERROR (no es sealed / groupId ausente con productId / no enteros positivos).
+// Es «Ligar a su presentación» de §M2-SK: la cura de raíz del sellado sin mapear.
+export interface SealedItemMappingRequest {
+  tcgplayerProductId: number | null;
+  tcgplayerGroupId?: number;
+  applyToSiblings?: boolean;
+}
+
+export interface SealedItemMappingResponse {
+  inventoryItemId: string;
+  tcgplayerProductId: number | null;
+  tcgplayerGroupId: number | null;
+  siblingsUpdated: number;
 }
 
 /**
@@ -2069,12 +2097,23 @@ export interface VariantPriceFaceDTO {
 // explícito SIGUE siendo efectivo: en ese caso NO hay aviso, §21.9c).
 export interface VariantBountyDTO {
   enabled: boolean;
+  /** Lo CONFIGURADO por el admin. ⚠️ v1.80: lo que se paga es `payoutCents`. */
   priceCents: number | null;
   targetQty: number | null;
   acquiredQty: number;
   completedAt: string | null;
   effective: boolean;
   curveQuoteCents: number | null;
+  // ⭐ v1.80 (§M2-B.11, ADITIVOS, INFORMATIVOS — no cambian `state` ni alerta):
+  //   `payoutCents` = lo que se paga HOY = bountyPayoutCents(priceCents, mercado) si `effective`;
+  //   `null` si no (un bounty no efectivo no paga nada). Se conserva: `buy.source === 'bounty'` ⇒
+  //   `payoutCents === buy.effectiveCents`.
+  //   `cappedByMarket` = `effective ∧ payoutCents < priceCents`.
+  // ⭐⭐ v1.80.2 (§M2-B.11 punto 8): bounty efectivo RETENIDO por el guardarraíl (topado + curva en el
+  //   bin + premium) ⇒ `buy.source='pending'`, `buy.effectiveCents=null`, `buy.premiumAtFloor=true`,
+  //   `payoutCents=null`, `cappedByMarket=false`; `state` sigue `activa`.
+  payoutCents: number | null;
+  cappedByMarket: boolean;
 }
 
 export interface VariantPricingDTO {
