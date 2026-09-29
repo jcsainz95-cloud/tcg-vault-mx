@@ -2,7 +2,27 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.8.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.8.2**).
+>
+> **Rev v1.80.8.2 — ERRATA: EL ENLACE A REGISTRAR LA CLABE ES `/account#kyc`, NO `/cuenta#kyc` (2026-09-29, arquitecto).**
+> ⛔ **Sin schema, sin endpoint, sin cambio de conducta:** solo el literal de ruta que el contrato fijaba para el correo.
+>
+> - **La contradicción (medida por backend en `claude/release-s5`, HEAD `5321b8c6`; el arquitecto no tiene Bash:
+>   sha NO MEDIDO por él).** PS-39, la fila `refunded` con parte SPEI de §M4-SHIP.15 y la fila `AV-14` del catálogo de
+>   avisos fijaban el enlace `/cuenta#kyc` (correos AV-14/15/16, `refund-notice.templates.ts`). Pero la pantalla que el
+>   propio contrato nombra —`KycSection`— vive en **`/account`**: `frontend/src/app/[locale]/(storefront)/account/page.tsx`,
+>   `AccountView.tsx:119` (`SectionShell id="kyc"`), y `PendingsBell.tsx:22` ya enlaza `/account#kyc`. `/cuenta` no
+>   existe (404) y el candado `mail-links.frontend-routes.spec.ts` lo pone rojo. El contrato se equivocó de literal: la
+>   pantalla manda (existe y es la que el contrato cita), no el literal.
+> - **⭐ LA REGLA:** el enlace a registrar la CLABE en todo correo es **`/account#kyc`** (con el prefijo de locale que
+>   ponga el constructor de enlaces de correo, igual que el resto de enlaces). Se corrige en las tres filas, con lo
+>   superado tachado: fila PS-39 (tabla de pruebas), fila «v1.80.2 — `refunded` con parte SPEI» (tabla de avisos) y
+>   fila `AV-14` (catálogo de avisos). Backend ya lo aplicó en `5321b8c6` (reportado por backend; NO MEDIDO por el arquitecto).
+> - **Otras apariciones de `cuenta` como ruta (revisadas, no se tocan):** las menciones a `cuenta/pedidos` en el
+>   resumen de v1.80.x (hueco 5, «fuera de contrato») y en la nota de medición sobre `shipment-notice.templates.ts:73` son
+>   **registro de un bug de código ya enrutado a backend**, no literales normativos del contrato. En
+>   `ARCHITECTURE.md` no hay ninguna ruta `/cuenta` (la única coincidencia es «plan/cuenta», prosa).
+> - **Frontend nada. Backend nada** (ya hecho). QA: el candado `mail-links.frontend-routes.spec.ts` debe quedar verde.
 >
 > **Rev v1.80.8.1 — ERRATA: EL CLIENTE DISTINGUE LOS DOS `429` DEL LOGIN (2026-09-29, arquitecto).** ⛔ **No cambia
 > el servidor:** sin schema, sin endpoint, sin código nuevo, backend nada. Cambia **qué pinta el cliente**.
@@ -20137,7 +20157,7 @@ floor(F·P₁/G)`; mercado `priced` de la pieza = `M`; reloj **inyectado**.
 | **PS-36** | **Plazo derivado:** reloj en `openedAt + 7d − 1 ms` ⇒ `overdue:false`; en `+ 7d` exacto ⇒ `true`; `dueAt` = `openedAt + 604800000 ms`; `summary.toReplaceOverdue` y `workQueue.toPrepare.toReplaceOverdue` cuentan **solo** `open` vencidos (un `replaced` de hace 30 días no cuenta); pasar el reloj **no escribe nada** (conteo de filas y `updatedAt` idénticos) y **no crea** filas del libro ni `ManualRefund` | `>` en vez de `>=` (el borde); contar casos cerrados; 8 días |
 | **PS-37** | **`C-MREF-1`** verde con los sitios exactos; añadir un `manualRefund.create` en otro servicio ⇒ rojo; un `@Roles(vault_operator)` en cualquiera de los cuatro verbos ⇒ rojo | (la mutación **es** la prueba: se entrega demostrada) |
 | **PS-38** 💰 | **Cancelar:** `pending` + nota ⇒ `cancelled` con actor; sin nota ⇒ `400`; ya `paid` ⇒ `409 MANUAL_REFUND_NOT_PENDING`; el caso **no** se reabre (sigue `refunded`) y su DTO muestra la fila cancelada; `workQueue.manualRefunds.pending` baja en 1 | reabrir el caso al cancelar; dejar cancelar una `paid` |
-| **PS-39** | **Avisos:** caso con parte SPEI y cliente **con** CLABE ⇒ un `AV-14` (monto SPEI, sin CLABE en el cuerpo) y, si hubo parte Stripe, su `AV-12`; cliente **sin** CLABE ⇒ `AV-14` con el enlace a registrar su CLABE (`/cuenta#kyc`); `paid` ⇒ **un** `AV-15` con la clave de rastreo; `cancel` ⇒ ⛔ ningún aviso; los sellos impiden duplicados en dos llamadas simultáneas (N≥10) | mandar `AV-15` al crear; no reclamar el sello |
+| **PS-39** | **Avisos:** caso con parte SPEI y cliente **con** CLABE ⇒ un `AV-14` (monto SPEI, sin CLABE en el cuerpo) y, si hubo parte Stripe, su `AV-12`; cliente **sin** CLABE ⇒ `AV-14` con el enlace a registrar su CLABE (~~`/cuenta#kyc`~~ ⭐ v1.80.8.2: **`/account#kyc`**); `paid` ⇒ **un** `AV-15` con la clave de rastreo; `cancel` ⇒ ⛔ ningún aviso; los sellos impiden duplicados en dos llamadas simultáneas (N≥10) | mandar `AV-15` al crear; no reclamar el sello |
 | **PS-40** 💰 | **M7:** una `ManualRefund` `pending` **no** resta en el periodo; al marcarla `paid` resta en el periodo de `paidAt` sus componentes de venta y muestra `compensationCents` en el renglón «compensaciones por carta perdida»; una `cancelled` nunca resta; la fila Stripe fallida y su sustituta SPEI **no** restan dos veces | contar `pending`; contar por `createdAt` |
 | **PS-29** 💰 | **Cadena:** pieza repuesta que vuelve a faltar en otro retiro ⇒ su caso tiene el `originOrderItemId` **del caso que repuso**; un contracargo de esa orden de origen alcanza a la **repuesta** (vuelve a plataforma) y no deja al cliente con la carta y el dinero | `resolveOrigin` sin la cadena ⇒ `no_origin_order` / el contracargo no la toca |
 
@@ -20604,7 +20624,7 @@ si no hay o si el mercado excede lo que se puede devolver; `vault_purchase`: sol
 | `replaced` / `found` | ⛔ sin aviso propio: el siguiente es `AV-4` (guía) | ⛔ sin aviso |
 | `refunded` | **`AV-12`** de sus filas (plantilla con variante `case_refund`: «no pudimos reponer tu carta; te devolvemos MX$X»; y si hubo cierre, que el retiro no sale) | **`AV-12`** (ídem) |
 | `voided` | ⛔ sin aviso (el dinero lo resolvió la disputa o M3, que ya avisan) | ⛔ ídem |
-| ⭐ v1.80.2 — `refunded` con parte **SPEI** | **`AV-14`** (nuevo): «no pudimos reponer tu carta; te vamos a depositar **MX$B por transferencia**» (+ «y MX$A regresan a tu tarjeta», si hubo parte Stripe). **Con** CLABE registrada: «a tu CLABE terminación ****1234» (máscara, `maskClabe`). **Sin** CLABE: «regístrala en tu cuenta» con enlace a `/cuenta#kyc` (pantalla que ya existe: `KycSection`, `PUT /users/me/kyc`). Post-commit, sello `ManualRefund.announcedNotifiedAt` | ídem |
+| ⭐ v1.80.2 — `refunded` con parte **SPEI** | **`AV-14`** (nuevo): «no pudimos reponer tu carta; te vamos a depositar **MX$B por transferencia**» (+ «y MX$A regresan a tu tarjeta», si hubo parte Stripe). **Con** CLABE registrada: «a tu CLABE terminación ****1234» (máscara, `maskClabe`). **Sin** CLABE: «regístrala en tu cuenta» con enlace a ~~`/cuenta#kyc`~~ ⭐ v1.80.8.2: **`/account#kyc`** (pantalla que ya existe: `KycSection`, `PUT /users/me/kyc`). Post-commit, sello `ManualRefund.announcedNotifiedAt` | ídem |
 | ⭐ v1.80.2 — `ManualRefund` → `paid` | **`AV-15`** (nuevo): «te depositamos MX$B, clave de rastreo XXXX» (con ella el cliente descarga el CEP de Banxico). Post-commit, sello `ManualRefund.paidNotifiedAt` | ídem |
 | ⭐ v1.80.2 — `ManualRefund` → `cancelled` | ⛔ sin aviso automático (cancelar es decisión del dueño con nota; si hay que explicarle algo al cliente, lo hace él) | ídem |
 
@@ -28446,7 +28466,7 @@ cuelga de `User`). ⇒ para el invitado **no existe el pendiente**, no es que no
 
 | # | Aviso | Disparador | Destinatario | Motor / sello |
 |---|---|---|---|---|
-| **AV-14** | ⭐ **v1.80.2 — Te vamos a depositar por transferencia** (monto SPEI; si hubo parte a tarjeta, cuánto; CLABE **enmascarada** si la tiene, o cómo registrarla en `/cuenta#kyc` si no) | `POST /admin/replacement-cases/:id/refund` con parte SPEI, y `POST /admin/refunds/:id/to-manual`, **post-commit** (§M4-SHIP.15.7) | el dueño del caso (`User.email`) | ⭐ **SELLO** `ManualRefund.announcedNotifiedAt`, reclamado con `updateMany … announcedNotifiedAt: null` |
+| **AV-14** | ⭐ **v1.80.2 — Te vamos a depositar por transferencia** (monto SPEI; si hubo parte a tarjeta, cuánto; CLABE **enmascarada** si la tiene, o cómo registrarla en ~~`/cuenta#kyc`~~ ⭐ v1.80.8.2: **`/account#kyc`** si no) | `POST /admin/replacement-cases/:id/refund` con parte SPEI, y `POST /admin/refunds/:id/to-manual`, **post-commit** (§M4-SHIP.15.7) | el dueño del caso (`User.email`) | ⭐ **SELLO** `ManualRefund.announcedNotifiedAt`, reclamado con `updateMany … announcedNotifiedAt: null` |
 | **AV-15** | ⭐ **v1.80.2 — Ya te depositamos** (monto y clave de rastreo) | `POST /admin/manual-refunds/:id/paid`, **post-commit** | ídem | ⭐ **SELLO** `ManualRefund.paidNotifiedAt`, ídem. ⛔ Nunca al cancelar. 🔒 v1.80.3 (D-11): sin clave de rastreo si no se capturó |
 | **AV-16** | 🔒 **v1.80.3 — Se actualizó la CLABE de tu cuenta** (máscara anterior o «no tenías», máscara nueva, fecha; «si no fuiste tú, escríbenos»). ⛔ Nunca la CLABE entera | `setClabe` cuando el índice ciego **cambia**, **post-commit** (§M4-SHIP.17.3) | `User.email` de la cuenta | Sin sello: la igualdad del índice ciego hace idempotente el reintento; dos cambios distintos son dos avisos |
 
