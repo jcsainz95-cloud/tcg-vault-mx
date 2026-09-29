@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { buildPasswordChangeRedirect, homeForRole, passwordRouteForRole, safeNext as safeNextOf } from '@/lib/account-routes';
+import { retryAfterMinutes, TOO_MANY_PASSWORD_ATTEMPTS } from '@/lib/password-attempts';
 import type { UserDTO } from '@/types/contract';
 
 export function AuthForm({
@@ -30,6 +31,8 @@ export function AuthForm({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  // v1.80 (C7): minutos del candado de `429 TOO_MANY_PASSWORD_ATTEMPTS` (null = sin cifra usable).
+  const [lockMinutes, setLockMinutes] = useState<number | null>(null);
 
   // Solo se honra un `next` interno (empieza con "/") para evitar open redirect.
   const safeNext = safeNextOf(next);
@@ -79,7 +82,10 @@ export function AuthForm({
         redirectAfterAuth(res.user);
       }
     } catch (err) {
+      // ⛔ v1.80 (C7): con `429 TOO_MANY_PASSWORD_ATTEMPTS` NO se reintenta solo (ni temporizador ni
+      // cuenta atrás que re-envíe): se pinta el aviso y el usuario decide — esperar o restablecer.
       setErrorCode(err instanceof ApiClientError ? err.code : 'INTERNAL');
+      setLockMinutes(err instanceof ApiClientError ? retryAfterMinutes(err.details) : null);
       setLoading(false);
     }
   }
@@ -103,10 +109,28 @@ export function AuthForm({
             {t('inactivityLogout')}
           </Banner>
         )}
-        {errorCode && (
-          <Banner variant="danger" role="alert">
-            {tErr.has(errorCode) ? tErr(errorCode) : tErr('INTERNAL')}
+        {errorCode === TOO_MANY_PASSWORD_ATTEMPTS ? (
+          /*
+           * v1.80 (C7, contrato §0): copy propio del login — minutos + enlace a restablecer, porque
+           * aquí restablecer la contraseña TAMBIÉN levanta el candado (a diferencia de RATE_LIMITED).
+           * ⛔ Nunca «tu cuenta está bloqueada»: afirmaría que la cuenta existe.
+           */
+          <Banner variant="warning" role="alert">
+            {t.rich(lockMinutes === null ? 'login.rateLimited' : 'login.rateLimitedRetryIn', {
+              minutes: lockMinutes ?? 0,
+              reset: (chunks) => (
+                <Link href="/forgot-password" className="underline">
+                  {chunks}
+                </Link>
+              ),
+            })}
           </Banner>
+        ) : (
+          errorCode && (
+            <Banner variant="danger" role="alert">
+              {tErr.has(errorCode) ? tErr(errorCode) : tErr('INTERNAL')}
+            </Banner>
+          )
         )}
       </div>
       <div className="[&>*]:mt-8">

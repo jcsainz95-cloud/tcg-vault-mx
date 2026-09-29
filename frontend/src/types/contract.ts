@@ -431,6 +431,35 @@ export interface AuthResponse {
   user: UserDTO;
   accessToken: string;
   refreshToken: string;
+  /**
+   * v1.80 (C7, contrato §1 «Límite de intentos por cuenta»): «dispositivo conocido». `login` y
+   * `google` lo traen SIEMPRE; `register` no (por eso es opcional en el tipo compartido). No
+   * autentica: solo elige el contador de intentos del siguiente `POST /auth/login`.
+   */
+  deviceToken?: string;
+}
+
+/** POST /auth/login — Req (v1.80: +`deviceToken?`, string ≤ 2048, el último que recibió este navegador). */
+export interface LoginRequest {
+  email: string;
+  password: string;
+  deviceToken?: string;
+}
+
+/** POST /auth/refresh {refreshToken} → 200 (v1.80: +`deviceToken`, aditivo). */
+export interface RefreshResponse {
+  accessToken: string;
+  refreshToken: string;
+  deviceToken: string;
+}
+
+/**
+ * `details` de `429 TOO_MANY_PASSWORD_ATTEMPTS` (v1.80, C7; `POST /auth/login` por cuenta y
+ * `POST /auth/change-password` por usuario). Mismo número que la cabecera `Retry-After`.
+ * ⛔ El front no reintenta solo. Copy: `max(1, ceil(retryAfterSeconds / 60))` minutos.
+ */
+export interface TooManyPasswordAttemptsDetails {
+  retryAfterSeconds: number;
 }
 
 // ---- Verificación de correo + recuperación self-service (contrato §1, v1.5) ----
@@ -446,11 +475,13 @@ export interface ResendVerificationResponse {
 export interface ForgotPasswordResponse {
   ok: true;
 }
-// POST /auth/reset-password {token, password} → { ok: true }
-// (422 RESET_TOKEN_INVALID, 400 VALIDATION_ERROR). NO devuelve tokens: el usuario
-// re-inicia sesión con la nueva contraseña.
+// POST /auth/reset-password {token, password} → { ok: true, deviceToken }
+// (422 RESET_TOKEN_INVALID, 400 VALIDATION_ERROR). NO devuelve sesión: el usuario
+// re-inicia sesión con la nueva contraseña. v1.80 (C7): +`deviceToken` (quien pulsó el
+// enlace probó control del buzón) — con él, su login no queda atrapado por un atacante.
 export interface ResetPasswordSelfResponse {
   ok: true;
+  deviceToken: string;
 }
 
 // ---- Cambiar la propia contraseña, desde dentro (contrato §1, v1.67 · Stream A · P-75) ----

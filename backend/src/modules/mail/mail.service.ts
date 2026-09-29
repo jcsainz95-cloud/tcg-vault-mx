@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { MAIL_PORT, MailPort } from './mail.port';
-import { emailVerificationTemplate, passwordResetTemplate } from './mail.templates';
+import { emailVerificationTemplate, passwordLockAlertTemplate, passwordResetTemplate } from './mail.templates';
 import { greetingName, NameSourceLike } from './greeting-name';
 
 /**
@@ -27,6 +27,17 @@ export class MailService {
     link: string,
   ): Promise<void> {
     const msg = passwordResetTemplate(link, greetingName(user), user.locale);
+    await this.mail.send({ ...msg, to: user.email });
+  }
+
+  /** v1.80 (C7): aviso de candado por intentos fallidos — solo staff, máx. 1/24 h (lo decide el llamador). */
+  async sendPasswordLockAlert(user: {
+    email: string;
+    name: string;
+    nameSource?: NameSourceLike | null;
+    locale?: string | null;
+  }): Promise<void> {
+    const msg = passwordLockAlertTemplate(greetingName(user), user.locale);
     await this.mail.send({ ...msg, to: user.email });
   }
 }

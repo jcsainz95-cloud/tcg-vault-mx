@@ -1,7 +1,7 @@
 import { config } from './config';
 import { getStoredUser, patchStoredUser, setStoredUser } from './session';
 import { buildPasswordChangeRedirect } from './account-routes';
-import type { ApiError } from '@/types/contract';
+import type { ApiError, RefreshResponse } from '@/types/contract';
 
 export class ApiClientError extends Error {
   code: string;
@@ -46,9 +46,45 @@ export function setRefreshToken(token: string | null) {
 }
 
 /**
+ * v1.80 (C7, contrato §1 «Límite de intentos por cuenta», ARCHITECTURE §4.57.4): el `deviceToken`
+ * es el «dispositivo conocido». NO autentica: solo le dice al backend qué contador de intentos usar
+ * en `POST /auth/login`, para que un atacante que golpea la cuenta desde fuera no deje al dueño sin
+ * poder entrar desde SU navegador. Una entrada por navegador, se sobrescribe con cada respuesta que
+ * lo traiga (`login`, `google`, `refresh`, `reset-password`).
+ *
+ * ⛔ NO es credencial de sesión y por eso NO lo tocan `clearClientSession` ni `logout`: borrarlo al
+ * salir (o al limpiar por un `401`) le quitaría al dueño su puerta justo antes de volver a entrar.
+ *
+ * `localStorage` puede lanzar (modo privado de Safari, cuota llena, almacenamiento bloqueado): el
+ * token es una mejora, no un requisito, así que un fallo se traga y el login sigue sin él.
+ */
+const DEVICE_TOKEN_KEY = 'tcg.deviceToken';
+
+export function getDeviceToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(DEVICE_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Guarda el `deviceToken` si la respuesta trae uno (string no vacío); si no, no toca nada. */
+export function storeDeviceToken(token: unknown): void {
+  if (typeof window === 'undefined') return;
+  if (typeof token !== 'string' || token === '') return;
+  try {
+    window.localStorage.setItem(DEVICE_TOKEN_KEY, token);
+  } catch {
+    /* almacenamiento no disponible: se sigue sin dispositivo conocido */
+  }
+}
+
+/**
  * Limpia por completo la sesión local (access token + refresh token + user) y notifica a
  * los `useSession` montados (vía setStoredUser). Se usa cuando el refresh falla / la sesión
  * ya no es de fiar: la app queda deslogueada y el flujo normal lleva al login.
+ * ⛔ No borra el `deviceToken` (v1.80, C7): no es de la sesión, es del navegador.
  */
 export function clearClientSession() {
   setToken(null);
@@ -80,7 +116,10 @@ function applyQuery(url: URL, query: RequestOptions['query']) {
   }
 }
 
-/** Contrato §1: POST /auth/refresh { refreshToken } → { accessToken, refreshToken }. */
+/**
+ * Contrato §1: POST /auth/refresh { refreshToken } → { accessToken, refreshToken, deviceToken }
+ * (v1.80: +`deviceToken`, que se guarda aparte con `storeDeviceToken`).
+ */
 interface TokenPair {
   accessToken: string;
   refreshToken: string;
@@ -120,10 +159,13 @@ async function refreshTokens(): Promise<TokenPair | null> {
       body: JSON.stringify({ refreshToken }),
     });
     if (!res.ok) return null; // 401 → refresh inválido/expirado
-    const payload = (await res.json().catch(() => null)) as Partial<TokenPair> | null;
+    const payload = (await res.json().catch(() => null)) as Partial<RefreshResponse> | null;
     if (!payload?.accessToken || !payload?.refreshToken) return null;
     setToken(payload.accessToken);
     setRefreshToken(payload.refreshToken);
+    // v1.80 (C7): así el navegador con sesión abierta el día del despliegue recibe su dispositivo
+    // conocido en el siguiente refresco, sin esperar a un login.
+    storeDeviceToken(payload.deviceToken);
     return { accessToken: payload.accessToken, refreshToken: payload.refreshToken };
   } catch {
     return null; // error de red → tratar como fallo de refresh (no bloquear indefinidamente)

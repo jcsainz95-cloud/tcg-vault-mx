@@ -12660,3 +12660,292 @@ pasa **10/10** en los cuatro casos, con el entrelazado confirmado en todas. De p
 (`:510`, `:330`, `:380`) también las muerde cada una su caso, 10 de 10. Cero críticos y cero altos abiertos en el stream.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-28 · candidato `f2981e1` · §M4-VAULT v1.79.5 · **APROBADO**
+
+# Paquete de seguridad — SEC-RESET-TV + DAST de release bloqueante + C7 · sha `8ea245f` (rama `claude/paquete-seguridad`) · 2026-09-29
+
+> Alcance `c4d378b..8ea245f`: `4d3ba5f` (SEC-RESET-TV), `9da6f13` (DAST de release, `report_only: false`),
+> `ffe0f7b` (contrato v1.80), `cf32dc9` + `c885b89` + `8ea245f` (C7 backend/frontend/notas).
+> **Medido por mí (seguridad) el 2026-09-29** sobre una copia del árbol (`git archive 8ea245f`; `backend/src` y
+> `backend/prisma` comparados con `diff -r` contra el sha: idénticos) en `scratchpad/sec-seg/`, con Postgres 16 propio
+> (`/var/lib/postgresql/secseg2e9d`, puerto 55439; `pg_stat_activity` sin sesiones `%secseg%` antes de crear las BD
+> `tcg_secseg_2e9d` y `tcg_secseg_2e9d_it`) y Redis propio (puerto 56389). Servicios parados al terminar.
+> **No hubo pase del pentester sobre este delta** (el último de `PENTEST_NOTES` es M4-VAULT `db7d1c2`): los ataques de
+> abajo los hice yo y van marcados como míos.
+
+## 1. Lo que medí
+
+| # | Ataque / verificación | Resultado | N |
+|---|---|---|---|
+| A1 | Fuerza bruta contra UNA cuenta rotando `X-Forwarded-For` en cada intento (la serie A de la condición C7) | `401×5`, el 6.º **`429 TOO_MANY_PASSWORD_ATTEMPTS`** con `Retry-After: 60` y `details.retryAfterSeconds: 60`; los intentos 7 y 8 también `429` (~10 ms, sin `argon2`); la contraseña **correcta** sin `deviceToken` ⇒ `429` | 1 serie de 8 + las de A2 |
+| A2 | Enumeración por respuesta: 6 intentos contra cuenta existente vs inexistente | **Una sola secuencia** en las dos (estado, código, `Retry-After`) | 10 + 10 |
+| A3 | Enumeración por tiempo, intento 1 (sin candado) | existente 498 ms vs inexistente 567 ms de mediana: dentro del ruido de `argon2` (rango 316–692 ms) | 12 + 12 |
+| A4 | Enumeración por tiempo en el intento que PONE el candado (el 5.º: la bitácora solo se escribe si la cuenta existe) | diferencia 5.º−4.º: +20 ms existente vs −9 ms inexistente (medianas), con dispersión de ±150 ms por `argon2`. **Sin oráculo observable a N=20**; cada muestra le cuesta al atacante poner un candado | 20 + 20, intercalado |
+| A5 | Tiempo del `429` | 11.2 ms existente vs 11.5 ms inexistente (medianas) | 10 + 10 |
+| A6 | Atomicidad: 25 fallos **simultáneos** contra un correo nuevo, almacén **Redis** | **5×401 / 20×429 en 10/10** corridas | 10 |
+| A7 | Mutación sobre la copia: `await` entre «mirar candado» y «reservar» en `MemoryLoginAttemptStore.acquire` | `C7-4` **roja en 10/10** corridas de la prueba; restaurado y comparado con el sha | 10 |
+| A8 | Redis caído a mitad (lo apago): 10 fallos seguidos | `401×5`, luego `429×5`: **ni fail-open ni fail-closed** | 1 |
+| A9 | `deviceToken` como refresh / access como refresh / `deviceToken` como `Bearer` en `/users/me` | `401` / `401` / `401` | 1 |
+| A10 | Cuenta bloqueada + contraseña correcta + el `deviceToken` **del atacante** (otra cuenta) | `429` (se ignora, se usa el cubo de la cuenta) | 1 |
+| A11 | Cuenta bloqueada + contraseña correcta + el `refreshToken` de la víctima como `deviceToken` | `429` (no se confunde de dominio) | 1 |
+| A12 | Cuenta bloqueada + contraseña correcta + el `deviceToken` **legítimo** del dueño | `200` (la puerta del dueño funciona) | 1 |
+| A13 | Exención de Google: 10 `POST /auth/google` con token basura, luego login con contraseña | `200`: Google no toca el contador de la cuenta | 1 |
+| A14 | ⭐ **Acuñar `deviceToken` con un refresh token** y adivinar por el cubo de cada uno (hallazgo `SEC-C7-MINT`, abajo) | **30/30 intentos fallidos llegan a `argon2` y ninguno recibe `429`**; el cubo de la cuenta queda intacto | **3/3** series |
+| A15 | Los `deviceToken` acuñados **sobreviven a la revocación**: el dueño hace `logout` (`tokenVersion +1`) y el cubo de la cuenta está en `429` | refresh tras logout `401`, pero los 3 acuñados siguen abriendo cubos nuevos (`401`, `argon2` alcanzado) | **3/3** |
+| A16 | Suites en la copia: unit `auth.c7-*` + `reset-admin-password.spec` + `auth.login-timing` | **87/87**, 6 suites | 1 |
+| A17 | Integración `auth-password-attempts*.e2e-spec` (incluye C7-12 directo contra MI Redis, C7-8 a–d, C7-15, C7-16) | **45/45**, 2 suites | 1 |
+| A18 | Mutación sobre la copia: quitar `tokenVersion: { increment: 1 }` del script de rescate | `reset-admin-password.spec` **roja 2/6** (super_admin y vault_operator); restaurado | 1 (determinista) |
+
+## 2. Hallazgos
+
+### `SEC-C7-MINT` — MEDIA · **bloquea el cierre de C7 (y por tanto el dinero real); no bloquea la fusión** · backend (diseño: arquitecto)
+- **Qué:** `POST /auth/refresh` emite un `deviceToken` con **`jti` nuevo en cada llamada**
+  (`auth.service.ts:531-533` → `device-token.service.ts:48-52`, `randomUUID()`), y cada `jti` es un cubo nuevo con 5
+  intentos libres (`password-attempts.service.ts` `deviceKey`). Quien tiene un refresh token robado (y `refresh`
+  admite 20/min por IP, `auth.controller.ts:59`) acuña cubos sin límite y adivina la contraseña real **sin que el
+  contador por cuenta vea nada**. Y como el `deviceToken` no se liga a `tokenVersion` (decisión §4.57.4) y vive 90
+  días, **puede almacenar cubos antes de que lo echen** y seguir adivinando después del `logout` o de un reset.
+- **Evidencia:** A14 (30/30 a `argon2`, 0 `429`, 3/3) y A15 (3/3). Script: `scratchpad/sec-seg/t9-refresh-mint.mjs`,
+  `t10-post-revoke.mjs`.
+- **Por qué importa:** es justo la amenaza que `ARCHITECTURE §4.57.2 #14` nombra para `change-password` («una sesión
+  robada adivinando la contraseña real para poder cambiarla y quedarse la cuenta»). Allí el contador por `userId` la
+  corta a ~34 intentos/día. Por esta vía no hay ningún tope, salvo el de IP, que es lo que `C6` todavía no ha
+  medido. Y `§4.57.4` afirma que al ladrón le queda «un contador de 5 intentos libres + retroceso»: **medido, es
+  falso**. Le quedan todos los que quiera.
+- **Por qué Media y no Alta:** exige robar antes un refresh token (XSS en `localStorage` o acceso al dispositivo), y
+  frente a `c4d378b` **no es una regresión**: antes no había ningún límite por cuenta. El control nuevo mejora mucho
+  el caso principal (A1, A6) y falla en este.
+- **Arreglo (lo decide el arquitecto, porque toca §4.57.4 del contrato).** Opciones, en mi orden de preferencia:
+  1. **No acuñar un `jti` nuevo en `refresh`.** Si el cuerpo trae un `deviceToken` válido de ese `sub`, se reemite
+     con el **mismo** `jti`. Si no trae ninguno, se emite uno solo por cadena de refresh (p. ej. `jti` derivado
+     por HMAC de un identificador de sesión en el refresh token).
+  2. O un **tope agregado por cuenta** sobre los fallos por vía dispositivo (p. ej. 20 fallos en 24 h entre todos
+     los `jti`), que al superarse cae al cubo de la cuenta.
+
+  Cualquiera de las dos cierra A15 **solo si** el tope no depende de cuántos `jti` tenga el atacante.
+- **Condición de cierre:** prueba nueva que **falle hoy**. Con un refresh token, acuñar ≥ 4 `deviceToken`, hacer 5
+  fallos con cada uno, y exigir `429` antes de llegar a `argon2` más de *T* veces (*T* = el tope que fije el
+  arquitecto). N=5, 5/5. Mutación: volver a `randomUUID()` en `refresh` ⇒ roja. Yo re-mido A14/A15 sobre el sha
+  del arreglo.
+
+### `SEC-HDR-1` — MEDIA · anterior a este delta · frontend (o devops vía `vercel.json`)
+- **Qué:** la vitrina (Next.js) **no manda ni `X-Frame-Options` ni `frame-ancestors`**. Lo leí en el código:
+  `frontend/next.config.mjs` no tiene `headers()`, `frontend/src/middleware.ts` solo tiene `next-intl` y
+  `vercel.json` solo tiene `ignoreCommand`. Coincide con el WARN `10020` (x5) que sale en todos los barridos
+  (`DEVOPS_NOTES §69.2`). La API sí los lleva (helmet), pero el WARN es de la vitrina.
+- **Impacto:** la sesión vive en `localStorage` del mismo origen. Un iframe en un sitio hostil carga **ya
+  autenticado** el panel `(admin)` del dueño, que es donde se aprueba el dinero saliente ⇒ clickjacking sobre
+  acciones de dinero. En producción **NO LO HE MEDIDO**: lo cierra `curl -sI https://<vitrina-prod>/es` en una
+  ventana autorizada.
+- **Arreglo:** `headers()` en `next.config.mjs` con `X-Frame-Options: DENY` y
+  `Content-Security-Policy: frame-ancestors 'none'` para todas las rutas. Después, devops sube `10020` a **FAIL** en
+  `security/zap/baseline.conf`.
+- **Disparador:** antes de `sk_live_`. Es barato y conviene hacerlo en el siguiente pase de frontend.
+
+### Bajas (deuda con disparador; coinciden con lo que el techlead dejó como deuda)
+- **`SEC-C7-RT` (Baja, backend):** `refresh()` no exige `typ === 'refresh'`, y `(payload.tv ?? 0)`
+  (`auth.service.ts:526`, y el guard en `jwt-auth.guard.ts:70`) acepta como versión 0 un token sin `tv`. **Medido:**
+  no se puede explotar con la configuración actual (A9), porque cada tipo de token se firma con una llave distinta.
+  Pero `env.validation.ts:79-87` **no impide** que `JWT_ACCESS_SECRET == JWT_REFRESH_SECRET`. Si coinciden, un
+  access sirve como refresh y un refresh sirve como access.
+  - **Arreglo:** exigir `typ === 'refresh'` en `refresh()`, rechazar `typ === 'refresh'` en el guard, que falte
+    `tv` ⇒ `401`, y en `env.validation` rechazar los dos secretos iguales.
+  - **Disparador:** siguiente pase de `auth`.
+- **`SEC-C7-RDEG` (Baja, backend):** si Redis está caído, `reset()` solo limpia la memoria
+  (`login-attempt.store.ts`, rama `if (this.degraded) return`). Un candado que ya estaba en Redis reaparece cuando
+  Redis vuelve, ≤ 60 min. Solo afecta a la disponibilidad: la puerta del dispositivo y el reset por correo siguen
+  funcionando.
+  - **Disparador:** un `warn` de `LoginAttemptStore` en producción, o réplicas > 1 (`N-C7-6`).
+- **`SEC-C7-OPT` (Baja, backend):** `@Optional()` en `AdminService.passwordAttempts` (`admin.service.ts:625`). Si
+  alguien rompe el cableado, el reset por admin deja de levantar el candado **sin avisar**. Hoy lo protege
+  `C7-8(b)` por HTTP (verde en A17).
+  - **Arreglo:** quitar `@Optional()` y adaptar la construcción manual de las pruebas.
+- **`SEC-C7-SCRIPT` (Baja, backend):** `prisma/reset-admin-password.ts` revoca las sesiones (bien, ver §3) pero
+  **no levanta el candado C7**. Si el dueño lo usa porque un atacante le tiene el login bloqueado, sigue en `429`
+  hasta 60 min. Le quedan como salida su `deviceToken` y el reset por correo.
+  - **Arreglo:** que el script borre `tcg:auth:{f,l}:<blindIndex>` si hay `REDIS_URL`, o al menos que lo diga al
+    terminar.
+  - **Disparador:** antes del próximo uso del script en producción.
+- **`SEC-HDR-3` (Info, aceptado):** el WARN `10010` («cookie sin HttpOnly», x5) es `NEXT_LOCALE`. `next-intl`
+  4.13.6 lo pone por defecto: `localeCookie ?? true`, `sameSite: 'lax'`, sin `httpOnly`
+  (`node_modules/next-intl/dist/esm/development/routing/config.js`, **LEÍDO**). Solo lleva `es`/`en` y el front no
+  usa cookies de sesión (los JWT van en `localStorage`), así que **se acepta**. Que sea esa cookie y no otra **NO
+  LO HE MEDIDO** en el artefacto de ZAP (la descarga está bloqueada, §69.2). Opcional para frontend:
+  `localeCookie: false`, que con `localeDetection: false` no sirve para nada.
+
+## 3. SEC-RESET-TV (`4d3ba5f`) · **CERRADO**
+`reset-admin-password.ts` escribe `passwordHash`, `tokenVersion: { increment: 1 }`, `emailVerified` y
+`mustChangePassword: false` en **una sola** `update`. Nunca imprime la contraseña y rechaza a quien no es staff.
+Prueba unitaria **6/6**, y la mutación la muerde (A18). Retiro la bandera «antes de volver a usar el script» de mi
+veredicto del 2026-09-28; queda `SEC-C7-SCRIPT` (Baja), que es otra cosa.
+
+## 4. DAST de release (`9da6f13`) — las decisiones de `DEVOPS_NOTES §69.5`
+1. **Confirmo lo retirado.** `deploy.yml:493` `report_only: false` es exactamente lo que decidí en «Decisión sobre
+   `report_only`». Además, el valor por defecto de `workflow_call` y de `workflow_dispatch` ya era `false`
+   (`security-dast.yml:80-83,104-108`), y `check-dast-report-only-expiry.sh` queda como anti-regresión. **C2-bis
+   sigue abierta solo por su segunda mitad:** citar por número el **primer run de `dast-release` sobre
+   `production` que lleve este commit**, con `blocking=false`. Eso solo existe cuando el dueño fusione. Si sale rojo
+   por un hallazgo real, el hallazgo va a su dueño y **no** se vuelve a `report_only` (sin cambio).
+2. **¿Puerta previa? Sí, pero desde `sk_live_`.** Mientras Stripe siga en modo prueba acepto la alarma
+   *posterior*: 19/19 barridos verdes, el blanco es un stack efímero y no producción, y no hay dinero real en
+   juego. **Antes de habilitar `sk_live_`**, C5 (`check-candidate-checks.sh`) exige además un run verde de
+   `security-dast.yml` (`scan_profile: full`) sobre el **sha candidato de `main`**, citado en el cuerpo de la
+   solicitud de fusión `main → production`. Cuesta ~17 min por candidato, y lo considero el precio de publicar
+   dinero real. **Dueño:** devops (cablearlo en C5); el dueño solo decide si lo adelanta.
+3. **Los WARN recurrentes:**
+   - **anti-clickjacking `10020`** ⇒ es `SEC-HDR-1` (Media). Se sube a **FAIL** en `baseline.conf` en el mismo
+     cambio en que frontend ponga la cabecera. Hoy no, porque pondría rojo todo barrido.
+   - **CSP `10038`/`10055`** ⇒ `SEC-HDR-2` (Media, deuda con disparador). Como los tokens viven en
+     `localStorage`, un XSS equivale a tomar la cuenta, y la CSP es la segunda barrera. Se hace en dos pasos:
+     (a) antes de `sk_live_`, una CSP base en la vitrina: `frame-ancestors 'none'; object-src 'none';
+     base-uri 'self'; form-action 'self'`, más `connect-src` restringido a la API y a Stripe, y `10038` pasa a
+     FAIL; (b) `script-src` con *nonce* en el siguiente pase de frontend. Hoy no hay ningún XSS conocido (40012,
+     40014 y 40026 están en FAIL y salen verdes).
+   - **cookie sin HttpOnly `10010`** ⇒ aceptada (`SEC-HDR-3`, arriba). Se queda en WARN.
+
+## 5. C7 — cómo queda la condición heredada
+La comprobación de cierre que escribí («serie A con XFF rotatorio ⇒ `429` antes del 11.º; mutar el límite ⇒
+rojo») **se cumple**: A1, A6 y A7. Acepto las dos exclusiones del arquitecto:
+- **`google`:** no hay secreto que adivinar, y contar por un correo sin verificar dejaría bloquear cualquier
+  cuenta. Lo medí en A13.
+- **`register`:** no adivina nada.
+
+`trust proxy = 1` está fijado y probado (C7-18 en A16). Aun así, **C7 NO queda cerrada para dinero real mientras
+`SEC-C7-MINT` siga abierto**, porque el control no aguanta en el escenario de sesión robada que su propio diseño
+nombra. `C6` (el edge de Railway) sigue abierta y sin cambios: C7 no cubre *password spraying* ni *credential
+stuffing* (§4.57.1), y para eso el eje sigue siendo la IP.
+
+## Banderas para el humano
+- **Antes de `sk_live_`:** cerrar `SEC-C7-MINT`, `SEC-HDR-1` y la CSP base (`SEC-HDR-2a`), cablear el DAST como
+  puerta previa (§4.2) y cerrar `C6`. Siguen vigentes el pentest de un tercero y el bug bounty.
+- **Primer push a `production` con este commit:** hay que citar el número del run de `dast-release` con
+  `blocking=false`. Con eso se cierra C2-bis.
+- `N-C7-1` y `N-C7-2` (que haya Redis en producción y su `maxmemory-policy`) siguen sin medir. Sin Redis, el
+  contador vive en la memoria del proceso: se pierde al reiniciar y cuenta por réplica.
+
+## VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `8ea245f`
+
+Cero críticos y cero altos. El paquete **mejora** la postura frente a `c4d378b`: SEC-RESET-TV queda cerrado,
+el DAST de release bloquea y el login tiene por fin un límite por cuenta que medí atómico (10/10), sin oráculo de
+existencia y sin fallar abierto ni cerrado cuando Redis cae. Puede fusionarse y publicarse **en modo prueba**.
+
+**Condiciones:**
+- **C-MINT (backend + arquitecto; bloquea dinero real, no la fusión):** cerrar `SEC-C7-MINT` con la prueba y la
+  mutación descritas en §2. Yo re-mido A14/A15 sobre el sha del arreglo.
+- **C2-bis (devops, en el primer push a `production`):** citar el run de `dast-release` con `blocking=false`.
+- **C-HDR (frontend + devops; antes de `sk_live_`):** `SEC-HDR-1` + CSP base, y los WARN `10020`/`10038`
+  pasan a FAIL.
+
+**Mínimo para quedar APROBADO sin condiciones:** `SEC-C7-MINT` cerrado y medido por mí o por QA sobre un sha fijado,
+y el run de C2-bis citado. Las bajas (`SEC-C7-RT`, `-RDEG`, `-OPT`, `-SCRIPT`) quedan como deuda con su disparador.
+
+# Re-medición C7 v1.80.1 — cierre de C-MINT y C-HDR · sha `2ef3f50` (rama `claude/paquete-seguridad`) · 2026-09-29
+
+> Alcance `8ea245f..2ef3f50` (delta que me dio el orquestador; sha **fijado** `2ef3f50`): `114aecf` (refresh exige
+> `typ`/`tv`), `178c705` (C7-3 reloj falso), `bf2a486` (`@Optional` fuera), `74a81bc`+`d1fbbf8`+`668b6f8` (C7 v1.80.1:
+> `jti = sid`, tope agregado 30/24 h, C7-R), `ff3ecc4` (script limpia el candado), `3c03f36` (env secretos iguales +
+> guard `typ`/`tv`), `6d59712`+`940be1c` (SEC-HDR-1 cabeceras + ZAP 10020/10021 a FAIL), `7cf48e5`/`8210af6` (deuda/test).
+> **Medido por mí (seguridad) el 2026-09-29** sobre una copia del árbol ENTERO (`git -C /home/user/tcg-seg archive
+> 2ef3f50 | tar -x`) en mi ruta exclusiva `scratchpad/seg-seg-2ef3f50` (O-8), backend compilado desde esa copia
+> (`nest build`, `node_modules` enlazado del worktree; `schema.prisma` idéntico por `diff`), con **Postgres 16 propio**
+> (`/var/lib/postgresql/seg-seg2`, puerto 55450, BD `tcg_seg_2e9d` y `tcg_seg_2e9d_it`) y **Redis propio** (puerto 56450).
+> Servicios parados y datos borrados al terminar. Sin pase nuevo del pentester sobre este delta: los ataques de abajo
+> los repetí yo (A14/A15) y van marcados como míos. Insumo de backend: `BACKEND_NOTES §«C7 rev v1.80.1»`.
+
+## 1. Lo que medí (sobre `2ef3f50`)
+
+| # | Ataque / verificación | Resultado | N |
+|---|---|---|---|
+| A14′ | **Acuñar `deviceToken` con un refresh robado** y adivinar (6 refrescos × 5 intentos = 30) | `jti = sid` heredado ⇒ **un solo cubo**: **5 llegan a `argon2`, 25 `429`**; cubo de la cuenta intacto (`401` sin device); contraseña correcta con device fresco `200` | **3/3** series |
+| A14-agg | Tope agregado 30/24 h con **sesiones distintas** (40 `deviceToken` de 40 logins, 1 intento fallido c/u) | **35 a `argon2`** (30 por vía dispositivo + 5 del cubo de cuenta) **luego `429`**; secuencia idéntica | **3/3** series |
+| A15′ | Supervivencia tras `logout`: el dueño cierra sesión (`tokenVersion +1`), atacante sigue con el device acuñado | `logout 204`, `refresh` tras logout `401`, cubo de cuenta `429`, los devices acuñados **siguen abriendo** (`401`) — **pero acotado** | **3/3** series |
+| A15-bound | Un device que sobrevive al logout, 12 intentos seguidos | **5 `argon2` → 7 `429`**: el cubo único bloquea en 5 (ya no es ilimitado) | **3/3** series |
+| C7-4′ | Atomicidad: 25 fallos **simultáneos** contra cuenta nueva (Redis real) | **5×`401` / 20×`429`** | **5/5** corridas |
+| C7-R | Fallback por timeout + reposición (unit `auth.c7-cache`/`auth.c7-store` + integración `auth-password-attempts-redis`, Lua real, timeout 250 ms, foto) | verdes (ver A-unit/A-int) | — |
+| A-unit | Unit `auth.c7-mint` + `auth.c7-cache` + `auth.c7-store` + `jwt-auth.guard.typ` + `env.validation` + `reset-admin-password.c7` | **82/82, 6 suites** | 1 |
+| A-int | Integración `auth-password-attempts` + `auth-password-attempts-redis` + `reset-admin-password-lock` (Postgres+Redis propios) | **55/55, 3 suites** | 1 |
+| A-mut1 | Mutación sobre copia entera: `refresh` vuelve a `randomUUID()` (defecto de `8ea245f`) | `auth.c7-mint` **roja: 8 fallan** (determinista) | 1 |
+| A-mut2 | Mutación sobre copia entera: la memoria olvida la foto de Redis (`syncAcquire` con `failures: 0`, defecto C7-22a) | `auth.c7-cache`+`auth.c7-store` **rojas: 7 fallan** (determinista) | 1 |
+| A-hdr | SEC-HDR-1: `next build` + `next start` **y** artefacto `standalone/server.js` + `curl -I` | **X-Frame-Options: DENY, CSP frame-ancestors 'none', X-Content-Type-Options: nosniff** en `/`, `/es`, `/es/admin` y **404 real** (`/es/…-xyz`) | 1 |
+| A-zap | `security/zap/baseline.conf` reglas 10020 y 10021 | ambas **FAIL** (líneas 88/89), con nota anti-regresión | 1 |
+| A-enum | Enumeración por respuesta (cuerpo del `429`) y por tiempo (existente vs inexistente) | cuerpo del `429` idéntico; mediana existente 250 ms vs inexistente 245 ms — dentro del ruido de `argon2` | 12+12 |
+| A-time | Timing en el intento que PONE el candado (5.º) | dif. mediana `+4.9 ms` (existente) vs `−4.1 ms` (inexistente): **sin oráculo observable** | 20+20 |
+
+## 2. Hallazgos
+
+### `SEC-C7-MINT` — **CERRADO** sobre `2ef3f50` (medido por mí)
+El arreglo tomó **las dos** opciones que propuse (§2 del veredicto de `8ea245f`): (1) `refresh` **no acuña `jti`
+nuevo** — hereda el `sid` del refresh token (`auth.service.ts:565` `sessionIdOf` → `issueTokens(user, sid)` →
+`devices.issue(user.id, sid)`), legado determinista (`legacy:<sub>:<iat>`); y (2) **tope agregado** 30 fallos/24 h por
+vía dispositivo (`password-attempts.constants.ts:51-53`, `deviceRouteAllowed` bumpea antes de elegir cubo,
+`auth.service.ts:421`). Medido: A14′ pasa de **30/30 a `argon2`** (en `8ea245f`) a **5/30**; A15-bound demuestra que un
+device que sobrevive al logout está **acotado a 5 por cubo**, no ilimitado; y A14-agg acota el total por cuenta a **~35
+intentos/24 h** (30 dispositivo + 5 cuenta), en línea con los ~34/día que `ARCHITECTURE §4.57.2 #14` cita para
+`change-password`. La condición de cierre («prueba que falle hoy + mutación `randomUUID` roja») se cumple: A-mut1.
+**Residual aceptado (por diseño §4.57.4):** el `deviceToken` no está ligado a `tokenVersion`, así que sobrevive al
+`logout`/reset y vive 90 días; ya no es un agujero porque el tope agregado lo acota. Queda como la deuda `C7-LEGACY-SID`
+(TECH_DEBT, borrar la rama de refresh legado 30 días tras el despliegue).
+
+### `SEC-HDR-1` — **CERRADO** sobre `2ef3f50` (medido por mí)
+La vitrina sirve `X-Frame-Options: DENY` + `Content-Security-Policy: frame-ancestors 'none'` + `X-Content-Type-Options:
+nosniff` + `Referrer-Policy` en **todas** las rutas (`next.config.mjs headers()` con `source: '/:path*'`), verificado en
+el artefacto de producción (`standalone/server.js`) sobre `/`, `/es`, `/es/admin` y un 404 real. ZAP `baseline.conf`
+sube 10020 y 10021 a **FAIL** con nota anti-regresión. Queda pendiente la **CSP completa** (`SEC-HDR-2`: `script-src`
+con nonce, `connect-src`, `object-src`, etc.) como deuda con disparador «antes de `sk_live_`» — hoy `next.config` solo
+trae la directiva `frame-ancestors`.
+
+### Bajas de mi veredicto anterior — estado sobre `2ef3f50`
+- **`SEC-C7-RT` — CERRADO** (`114aecf`+`3c03f36`): `refresh()` exige `typ === 'refresh'` y `tv` numérico; el guard
+  rechaza cualquier `typ` presente y compara `tv` estricto (sin `?? 0`); `env.validation` rechaza
+  `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` en todo entorno. Verde en A-unit; mutaciones de backend (guard/env)
+  reproducidas por él, y las suites `jwt-auth.guard.typ`/`env.validation` verdes en mi copia.
+- **`SEC-C7-OPT` — CERRADO** (`bf2a486`): `PasswordAttemptsService` deja de ser `@Optional()` en `AdminService`.
+- **`SEC-C7-SCRIPT` — CERRADO** (`ff3ecc4`): `reset-admin-password.ts` levanta el candado C7 en Redis con las mismas
+  claves del backend (`clearPasswordLock`); verde en `reset-admin-password-lock.e2e-spec` (A-int) y `reset-admin-password.c7` (A-unit).
+- **`SEC-C7-RDEG` — mitigado por C7-R**: la memoria es ahora caché de Redis con reposición en el mismo Lua, y un reset
+  hecho en modo memoria se marca (`markReset`) y se repone con `borrar` al volver Redis — cubierto por las mutaciones
+  «reponer sin borrar» y «no reponer al volver» (rojas en backend; A-mut2 muerde la variante gemela). No lo reduje a
+  cero con dos procesos (`N-C7-6`): la convergencia con réplicas > 1 sigue **NO MEDIDA**.
+
+## 3. Discrepancia 2 de backend (¿`change-password` limpia el agregado?) — recomendación al arquitecto
+Backend implementó que `changePassword` limpia `auth-cp` + el cubo de cuenta pero **NO** el tope agregado
+(`auth.service.ts:386` `clear(cpKey, accountKey)`), siguiendo `ARCHITECTURE §4.57.10.1 b` y la fila «Tope agregado»
+(reset-password, reset por admin, script). La fila «Qué lo limpia» del contrato se contradice al incluir
+`change-password` entre los que limpian el agregado. **Mi lectura (blue team): no es una vulnerabilidad, y no limpiarlo
+es la opción conservadora** — el único efecto de no limpiarlo es que los intentos legítimos del dueño por vía dispositivo
+siguen contados ≤ 24 h tras cambiar la contraseña (nit de disponibilidad, no de seguridad; el dueño no queda bloqueado
+porque los cubos son disjuntos). **Recomendación:** que el arquitecto **alinee el contrato a la implementación** (quitar
+`change-password` de la lista que limpia el agregado). No bloquea.
+
+## 4. C2-bis (devops · ventana de despliegue) — sin cambio
+Sigue abierta **solo** por su segunda mitad: citar por número el **primer run de `dast-release` sobre `production`** que
+lleve este commit, con `blocking=false`. Ese run **solo existe cuando el dueño fusione** `main → production`, así que es
+condición de la ventana de despliegue, no del código. `deploy.yml` con `report_only: false` ya lo confirmé en el
+veredicto de `8ea245f` y no cambió en este delta.
+
+## VEREDICTO
+
+### **APROBADO** sobre `2ef3f50`
+
+Cero críticos y cero altos. Las dos condiciones que bloqueaban **dinero real** en mi veredicto anterior están
+**cerradas y medidas por mí** sobre el sha fijado `2ef3f50`: `SEC-C7-MINT` (A14′ 5/30 vs 30/30; A15-bound acotado a 5;
+tope agregado ~35/24 h; mutación `randomUUID` roja) y `SEC-HDR-1` (cabeceras en el artefacto de producción; ZAP
+10020/10021 en FAIL). Además cierran cuatro bajas (`SEC-C7-RT`, `-OPT`, `-SCRIPT`, y `-RDEG` mitigada por C7-R). La
+atomicidad se mantiene (5/5) y no hay oráculo de enumeración ni de timing (N=20+20). Puede fusionarse y publicarse **en
+modo prueba**.
+
+**Condición que queda (no es hallazgo de código; es de la ventana de despliegue):**
+- **C2-bis (devops, primer push a `production`):** citar el run de `dast-release` con `blocking=false`.
+
+**Deuda con disparador (no bloquea):** `SEC-HDR-2` (CSP completa) y el pre-gate DAST `full` sobre el sha candidato,
+ambos **antes de `sk_live_`**; `C7-LEGACY-SID` (borrar rama legado 30 d tras despliegue); `N-C7-6` (convergencia con
+réplicas > 1, no medida); `N-C7-1`/`N-C7-2` (Redis en producción y su `maxmemory-policy`).
+
+**Banderas para el humano (antes de operar con dinero real / `sk_live_`):** cerrar `C6` (rate-limit de borde en
+Railway — fuera de este stream), la CSP completa (`SEC-HDR-2`), cablear el DAST `full` como pre-gate; y siguen
+vigentes el **pentest de un tercero** y el **bug bounty** antes de custodiar dinero/PII reales.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · candidato `2ef3f50` · contrato v1.80.1 · **APROBADO**
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · candidato `8ea245f` · contrato v1.80 · **APROBADO CON CONDICIONES**

@@ -18417,3 +18417,49 @@ E2E abre el detalle de pieza de M1 — medido con grep —, la cobertura del arr
 **Contrato:** mientras se hacía este pase el arquitecto publicó **v1.79.6** (`dde785b`): `LOCATION_NOT_AVAILABLE` lo emite también
 `move` con `reason:'not_platform_stock'` y §M1 «5 · Reglas de pantalla» norma exactamente lo de arriba. `frontend/src/types/contract.ts ·
 LocationNotAvailableDetails` incorpora `not_platform_stock`. No queda solicitud abierta al arquitecto por este pase.
+## §81 · **C7 — límite de intentos por cuenta: `deviceToken` y el `429 TOO_MANY_PASSWORD_ATTEMPTS`** (2026-09-28, rama `claude/paquete-seguridad`, base `ffe0f7b`; `API_CONTRACT` v1.80 §1 «Límite de intentos por cuenta», `ARCHITECTURE §4.57`)
+
+**Qué hace el front:**
+- **`deviceToken` («dispositivo conocido»)** en `localStorage['tcg.deviceToken']` (`src/lib/api-client.ts`:
+  `getDeviceToken` / `storeDeviceToken`, ambos con `try/catch`: si el almacenamiento lanza, se entra sin
+  dispositivo). Se guarda desde las **cuatro** respuestas que lo traen: `login` y `google` (vía
+  `persistSession`), `refresh` (dentro de `refreshTokens`, fuera de `apiRequest`) y `reset-password`. Una
+  respuesta sin token (`register`, backend anterior) **no borra** el existente.
+- **Se manda en cada `POST /auth/login`** si existe (`LoginRequest` en `types/contract.ts`); si no hay, la clave
+  no viaja.
+- ⛔ **No lo borran ni `logout` ni `clearClientSession`** (limpieza por `401`). No es credencial de sesión: borrarlo
+  al salir le quitaría al dueño su puerta justo antes de volver a entrar (`ARCHITECTURE §4.57.4`).
+- **Login con `429 TOO_MANY_PASSWORD_ATTEMPTS`:** `AuthForm` pinta `auth.tooManyAttempts` (banner `warning`) con
+  `{minutes} = max(1, ceil(retryAfterSeconds / 60))` (`src/lib/password-attempts.ts`) y **enlace a
+  `/forgot-password`** dentro del propio texto (etiqueta ICU `<reset>`), porque aquí restablecer también levanta
+  el candado. Sin `details` usable: `auth.tooManyAttemptsNoTime` (sin cifra; no se inventa). **No hay reintento
+  automático** ni cuenta atrás que reenvíe.
+- **Cambio de contraseña con el mismo `429`:** `PasswordForm` usa `error.TOO_MANY_PASSWORD_ATTEMPTS_WITH_DETAILS`
+  resuelto por `useErrorMessage` (entrada nueva en `DETAILED_ERRORS` de `QueryState.tsx`); base sin cifra
+  `error.TOO_MANY_PASSWORD_ATTEMPTS` como red.
+- Copys: los del arquitecto, literal (ux-ui puede pulirlos). ⛔ Ninguno dice «bloqueada»/«locked». Los dos copys
+  «sin cifra» son **míos** (red para un backend que no mande `details`), pendientes de visto de ux-ui.
+
+**Pruebas:** F-C7-1 y F-C7-3 en `AuthForm.test.tsx`; F-C7-2 (+ logout, logout con red caída, limpieza por `401`,
+`clearClientSession`, `localStorage` que lanza) en `src/lib/device-token.test.ts`; fórmula de minutos en
+`password-attempts.test.ts` (61 s y 121 s existen para que `round`/`floor` no pasen); `PasswordForm.test.tsx`.
+
+**Mutaciones medidas (sobre copia en scratchpad, no en el árbol vivo; deterministas, N=1 cada una):** borrar el
+token en `logout` ⇒ 2 rojas; en `clearClientSession` ⇒ 4 rojas; no mandarlo en login ⇒ 2; no guardarlo en refresh
+⇒ 1; pintar el genérico en vez del copy C7 ⇒ 3; reintento con `setTimeout(retryAfterSeconds)` ⇒ 1 (F-C7-3);
+`Math.round` ⇒ 2 y `Math.floor` ⇒ 3 en la fórmula. (`Math.round` **sobrevivía** a F-C7-1 sola — 150 s redondea a
+3 igual — y por eso existe `password-attempts.test.ts`.)
+
+**E2E:** no se añadió ninguna Playwright; el censo `scripts/check-e2e-skip-census.sh` no se toca.
+
+## SEC-HDR-1 — cabeceras anti-clickjacking (2026-09-29, sobre f602dca)
+
+- **Medido antes:** `next.config.mjs` sin `headers()`, `src/middleware.ts` solo next-intl, `vercel.json` (raíz) solo `ignoreCommand`. La sesión vive en localStorage ⇒ el admin se cargaba autenticado en un iframe hostil.
+- **Cambio:** `headers()` en `frontend/next.config.mjs`, `source: '/:path*'`: `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'` (SOLO esa directiva; la CSP completa es SEC-HDR-2), `Referrer-Policy: strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`.
+- **Prueba:** `src/lib/security-headers.test.ts` (4 pruebas; rojas por ausencia antes, verdes después). Verificado además con `next build && next start` + `curl -I` en `/`, `/es`, `/es/admin` y un 404.
+- **Iframes propios:** `grep -rn "<iframe" frontend/src` = 0 resultados; nada nuestro embebe páginas nuestras ni terceros. `frame-ancestors` restringe quién nos embebe, no a quién embebemos.
+- **Para devops:** `security/zap/baseline.conf:88` lista `10020 WARN`; según seguridad debe pasar a FAIL en el mismo cambio. No lo toqué (es de devops). 10021 (nosniff, línea 89) también queda resuelto para la vitrina.
+
+## Copy final del 429 de login (2026-09-29, DESIGN_SYSTEM v4.9 §37.13)
+
+`auth.tooManyAttempts`/`tooManyAttemptsNoTime` sustituidas por `auth.login.rateLimited` (sin cifra) y `auth.login.rateLimitedRetryIn` (`{minutes, plural, one {# minuto} other {# minutos}}`), es/en. Se usa la segunda solo si `details.retryAfterSeconds` es usable (`retryAfterMinutes`, ceil a minutos); el cliente API no expone la cabecera `Retry-After` (solo `details`), así que no se lee. Pruebas en `AuthForm.test.tsx` (con cifra 3 min/1 min, ES singular, sin cifra); mutación medida: intercambiar las dos claves ⇒ 4 rojas (N=1, determinista).

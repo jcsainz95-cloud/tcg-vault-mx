@@ -8123,3 +8123,25 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   en registrados — ⛔ NO MEDIDO por mí un camino que cree `direct_ship` de registrado.
 - **Propuesta:** `direct_ship order <n> settled` (el modo, que es el discriminador canónico, §4.21d), sin afirmar quién.
 - **Disparador:** cuando exista `direct_ship` para registrados, o al tocar esas notas.
+## Backend · 2026-09-29 · C7 rev v1.80.1 (SEC-C7-MINT)
+
+### C7-LEGACY-SID · La rama «refresh legado sin `sid`» de `AuthService.refresh()` tiene fecha de caducidad (backend · Cuentas y acceso, 2026-09-29)
+- **Dueño:** **backend** (`src/modules/auth/auth.service.ts`, `AuthService.sessionIdOf`; pruebas C7-21 en
+  `test/auth.c7-mint.spec.ts` y `test/integration/auth-password-attempts.e2e-spec.ts`).
+- **Severidad:** Baja. **No bloqueante.** Deuda **con fecha**, ordenada por el arquitecto (`ARCHITECTURE §4.57.4`,
+  «Sunset»).
+- **Qué es (medido 2026-09-29):** desde v1.80.1 todo refresh token lleva el claim `sid` (uuid de sesión) y el
+  `deviceToken` que `refresh` devuelve usa `jti = sid`. Los refresh tokens emitidos **antes** del despliegue de esta
+  rev no lo llevan y viven ≤ `JWT_REFRESH_TTL` (30 d, `auth.service.ts` `issueTokens`). Para no dejar fuera a los
+  navegadores con sesión abierta el día del despliegue, `sessionIdOf` deriva para ellos `sid = "legacy:" + sub +
+  ":" + iat` (determinista: reproducir el token da el mismo cubo; el par nuevo ya lleva `sid`).
+- **Riesgo de dejarla:** ninguno funcional; es código muerto a los 30 días que sigue ofreciendo una segunda forma
+  de `sid` (con `sub`+`iat`) que nadie emite ya. Cuanto más tiempo viva, más parece «diseño» y menos «migración».
+- **Fecha para borrarla:** **30 días después del despliegue a producción de v1.80.1** (fecha exacta: la del merge a
+  `production` + 30 d; la anota devops en `DEVOPS_NOTES` al desplegar). ⛔ **No antes**: un refresh legado válido
+  seguiría entrando con `401` y ese usuario tendría que volver a iniciar sesión.
+- **Cómo se borra:** `sessionIdOf` pasa a exigir `typeof payload.sid === 'string' && payload.sid.length > 0` (si no,
+  `401`, como `typ`/`tv`); se retiran las pruebas C7-21 «legado» (las dos de `auth.c7-mint.spec.ts` y la de HTTP) y
+  se conserva «sin `sid` ⇒ 401» como prueba nueva (misma forma que `auth.refresh-typ.spec.ts`).
+- **Comprobación de cierre:** `grep -n "legacy:" backend/src` no devuelve nada; un refresh firmado sin `sid` ⇒
+  `401` en `auth.refresh-typ.spec.ts`.

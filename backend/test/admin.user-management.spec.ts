@@ -4,6 +4,7 @@ import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { PasswordAttemptsService } from '../src/modules/auth/password-attempts.service';
 
 /**
  * v1.3.1 (M6, API_CONTRACT §M6 / ARCHITECTURE §4.7bis) — gestión de usuarios por admin:
@@ -14,19 +15,44 @@ import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
  */
 const pii = new PiiCryptoService(new ConfigService({}));
 
-function svc(prisma: any, uploads: any = { deleteObject: jest.fn() }) {
-  return new AdminService(prisma as PrismaService, {} as PricingService, pii, uploads);
+function svc(prisma: any, uploads: any = { deleteObject: jest.fn() }, attempts?: PasswordAttemptsService) {
+  return new AdminService(prisma as PrismaService, {} as PricingService, pii, uploads, undefined, attempts);
+}
+
+/**
+ * SEC-C7-OPT (2026-09-29): `PasswordAttemptsService` ya NO es `@Optional()` en DI. Aquí se construye
+ * a mano, así que se pasa un doble explícito (el comportamiento real del candado lo prueba
+ * `auth.c7-policy.spec` C7-8(b) con el servicio de verdad, y el cableado `app.module.spec`).
+ */
+function attemptsStub() {
+  return { clearForUser: jest.fn(async () => undefined) } as unknown as PasswordAttemptsService & {
+    clearForUser: jest.Mock;
+  };
 }
 
 describe('AdminService.resetPassword', () => {
-  it('genera temp, la hashea con argon2, revoca sesiones y fuerza cambio (sin exponer claro)', async () => {
+  it('sin PasswordAttemptsService cableado ⇒ falla en seco ANTES de leer o escribir (no hay reset a medias)', async () => {
+    const prisma: any = {
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'u1', status: 'active' }), update: jest.fn() },
+    };
+    await expect(svc(prisma).resetPassword('u1')).rejects.toThrow(/PasswordAttemptsService is not wired/);
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('genera temp, la hashea con argon2, revoca sesiones, fuerza cambio (sin exponer claro) y levanta el candado', async () => {
     const prisma: any = {
       user: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'u1', status: 'active' }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'u1', status: 'active', email: 'u1@test' }),
         update: jest.fn(async () => ({})),
       },
     };
-    const res = await svc(prisma).resetPassword('u1');
+    const attempts = attemptsStub();
+    const res = await svc(prisma, undefined, attempts).resetPassword('u1');
+    // C7 (§M6): el reset por admin levanta el candado de la cuenta, DESPUÉS de persistir el hash.
+    expect(attempts.clearForUser).toHaveBeenCalledTimes(1);
+    expect(attempts.clearForUser).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1', email: 'u1@test' }));
+    expect(attempts.clearForUser.mock.invocationCallOrder[0]).toBeGreaterThan(prisma.user.update.mock.invocationCallOrder[0]);
 
     expect(res.userId).toBe('u1');
     expect(res.mustChangePassword).toBe(true);
@@ -48,13 +74,17 @@ describe('AdminService.resetPassword', () => {
     const prisma: any = {
       user: { findUnique: jest.fn().mockResolvedValue({ id: 'u1', status: 'deleted' }), update: jest.fn() },
     };
-    await expect(svc(prisma).resetPassword('u1')).rejects.toMatchObject({ code: 'USER_DELETED' });
+    const attempts = attemptsStub();
+    await expect(svc(prisma, undefined, attempts).resetPassword('u1')).rejects.toMatchObject({ code: 'USER_DELETED' });
     expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(attempts.clearForUser).not.toHaveBeenCalled();
   });
 
   it('usuario inexistente → NOT_FOUND', async () => {
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() } };
-    await expect(svc(prisma).resetPassword('nope')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const attempts = attemptsStub();
+    await expect(svc(prisma, undefined, attempts).resetPassword('nope')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(attempts.clearForUser).not.toHaveBeenCalled();
   });
 });
 

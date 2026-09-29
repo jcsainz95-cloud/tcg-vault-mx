@@ -9,6 +9,8 @@ import {
   setRefreshToken,
   getToken,
   clearClientSession,
+  getDeviceToken,
+  storeDeviceToken,
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
@@ -120,6 +122,7 @@ import type {
   ResendVerificationResponse,
   ForgotPasswordResponse,
   ResetPasswordSelfResponse,
+  LoginRequest,
   ChangePasswordRequest,
   ChangePasswordResponse,
   BillingProfileDTO,
@@ -2510,6 +2513,9 @@ function persistSession(res: AuthResponse): AuthResponse {
   // request daba 401 y la sesión se caía a media corrida; el interceptor de api-client
   // lo canjea por un TokenPair nuevo (POST /auth/refresh) y reintenta.
   setRefreshToken(res.refreshToken);
+  // v1.80 (C7): `login` y `google` traen el `deviceToken` («dispositivo conocido»); `register` no.
+  // Vive aparte de la sesión: ni `logout` ni `clearClientSession` lo borran.
+  storeDeviceToken(res.deviceToken);
   // Además del token, guardamos el usuario para que el header (y demás UI) pueda
   // reflejar la sesión de forma reactiva sin re-consultar al backend.
   setStoredUser(res.user);
@@ -2551,6 +2557,8 @@ function mockAuthResponse(over: Partial<AuthResponse['user']> = {}): AuthRespons
     },
     accessToken: 'mock.session.token',
     refreshToken: 'mock.refresh.token',
+    // MOCK: el backend real firma un JWT de 90 días (contrato §1 v1.80); aquí basta un marcador.
+    deviceToken: 'mock.device.token',
   };
 }
 
@@ -2567,7 +2575,11 @@ export const MOCK_TEMP_PASSWORD_EMAILS: Record<string, Role> = {
 
 export async function login(input: { email: string; password: string }): Promise<AuthResponse> {
   if (!config.useMocks) {
-    return persistSession(await apiRequest<AuthResponse>('/auth/login', { method: 'POST', body: input }));
+    // v1.80 (C7): cada login manda el último `deviceToken` de este navegador, si hay. Uno ajeno,
+    // caducado o mal firmado el backend lo ignora sin error; sin él se usa el contador de la cuenta.
+    const deviceToken = getDeviceToken();
+    const body: LoginRequest = deviceToken ? { ...input, deviceToken } : { ...input };
+    return persistSession(await apiRequest<AuthResponse>('/auth/login', { method: 'POST', body }));
   }
   const tempRole = MOCK_TEMP_PASSWORD_EMAILS[input.email.toLowerCase()];
   if (tempRole) {
@@ -2698,10 +2710,14 @@ export async function resetPassword(input: {
   password: string;
 }): Promise<ResetPasswordSelfResponse> {
   if (!config.useMocks) {
-    return apiRequest<ResetPasswordSelfResponse>('/auth/reset-password', {
+    const res = await apiRequest<ResetPasswordSelfResponse>('/auth/reset-password', {
       method: 'POST',
       body: input,
     });
+    // v1.80 (C7): quien completó el reset probó control del buzón; con este token su próximo login
+    // no queda atrapado por un atacante que siga golpeando la cuenta.
+    storeDeviceToken(res.deviceToken);
+    return res;
   }
   // MOCK: token vacío o con "invalid"/"expired" → 422 del contrato; si no, éxito.
   await delay(undefined, 400);
@@ -2711,7 +2727,7 @@ export async function resetPassword(input: {
       message: 'Reset token invalid or expired',
     });
   }
-  return { ok: true };
+  return { ok: true, deviceToken: 'mock.device.token' };
 }
 
 /**

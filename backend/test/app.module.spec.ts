@@ -11,6 +11,9 @@ import {
   InventoryPublishPort,
 } from '../src/modules/inventory/inventory-publish.port';
 import { PriceIngestService } from '../src/modules/pricing/price-ingest.service';
+import { AdminService } from '../src/modules/admin/admin.service';
+import { AuthService } from '../src/modules/auth/auth.service';
+import { PasswordAttemptsService } from '../src/modules/auth/password-attempts.service';
 
 /**
  * Smoke test del grafo de DI: compila AppModule completo (todos los módulos,
@@ -101,6 +104,30 @@ describe('AppModule (DI graph)', () => {
     // Consumidor (c) — el barrido de precios, cuando el precio se vuelve resoluble.
     const ingest = moduleRef.get(PriceIngestService, { strict: false });
     expect((ingest as unknown as { inventoryPublish?: unknown }).inventoryPublish).toBe(port);
+    await moduleRef.close();
+  });
+
+  /**
+   * SEC-C7-OPT (2026-09-29, C7 v1.80 §M6) — **el reset por admin tiene que recibir
+   * `PasswordAttemptsService`**: es la vía para que el dueño desbloquee a un operador con el candado
+   * puesto. `AdminModule` lo obtiene importando `AuthModule` (que lo exporta). Antes el parámetro
+   * llevaba `@Optional()`, así que sacar `AuthModule` de los imports **compilaba y pasaba el smoke de
+   * DI** con el reset sin levantar el candado, en silencio. Ya no lleva `@Optional()` (arrancar sin
+   * él falla), y esta aserción deja la identidad del cableado medida: el que recibe `AdminService`
+   * es EL MISMO singleton que usa `AuthService` (un doble o una segunda instancia con otro almacén
+   * limpiaría un contador que nadie mira).
+   */
+  it('`AdminService.passwordAttempts` es el `PasswordAttemptsService` de `AuthModule` (no es best-effort)', async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(PrismaService)
+      .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
+      .compile();
+    const attempts = moduleRef.get(PasswordAttemptsService, { strict: false });
+    expect(attempts).toBeInstanceOf(PasswordAttemptsService);
+    const admin = moduleRef.get(AdminService, { strict: false });
+    expect((admin as unknown as { passwordAttempts?: unknown }).passwordAttempts).toBe(attempts);
+    const auth = moduleRef.get(AuthService, { strict: false });
+    expect((auth as unknown as { attempts?: unknown }).attempts).toBe(attempts);
     await moduleRef.close();
   });
 });
