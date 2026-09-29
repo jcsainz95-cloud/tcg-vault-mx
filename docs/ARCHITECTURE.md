@@ -18046,6 +18046,18 @@ El resto del `PATCH` **no cambia** — en particular `listPriceCents`, que es el
 `convert-to-inventory` **no** acepta `listPriceCents`), no retira una perilla de M1 que ya existía.
 **Dueño: backend.** Desviación **INV-P1** en §9.
 
+> ⭐ **ERRATA v1.80.2.3 (2026-09-29) — «`listPriceCents` no cambia» decía QUÉ se edita, no SOBRE QUÉ piezas.** QA
+> midió en stack real (`fae5a44`) que el camino no publicante del `PATCH` escribe `listPriceCents` en piezas de
+> **clientes en custodia** y en piezas **dadas de baja** (`inventory.service.ts:2403-2409` sobre `42b0fc3`: `update`
+> por `id`, sin `ownerType` ni `status`). **Norma:** `listPriceCents` **solo** sobre `platform ∧ {in_stock, listed}` —
+> el **único allowlist** de M1 (`adjustments`, `bulk-remove`, `mark`, y el `status` del `PATCH` de v1.79.7); lo demás
+> ⇒ `422 ITEM_NOT_ADJUSTABLE { status, ownerType }` sin escribir nada. `reserved` **fuera**, con medición de que no es
+> por dinero (la línea congela `unitPriceCents` al reservar, `orders.service.ts:377-408` + `:796-817`; `payments/` no
+> relee) sino por no tener dos allowlists. La identidad (`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`)
+> **sigue sin guarda**: es reparación física, también de custodia. Contrato: `API_CONTRACT §M1` errata v1.80.2.3
+> (tabla, mecánica —`assertOperable(item,'price')` sobre `item-location.rules.ts` del hotfix— y prueba **INV-SP-8**).
+> **Dueño: backend**, después de que el hotfix `claude/arreglos-operador` esté en `main`. Desviación **INV-P2** en §9.
+
 #### ⚠️⚠️ (m.5) v1.51.18 — EL SEAM DE PUBLICACIÓN: **un puerto de DISPARO, no de escritura**
 
 *(Escalada de backend al cerrar la fase 8. **No cortó (a) y (c) por tamaño**: los dos necesitan **el mismo seam que no
@@ -26186,6 +26198,20 @@ Riesgos técnicos:
 > mío**: así llama `PROJECT §R.2` a la **regla de canal de tres cláusulas**; se cita, no se renumera. *(`D-AVISO-2`
 > —sellar y luego enviar, §4.54.3— sí es mío, y por eso lleva la palabra entera y no el prefijo corto.)*
 
+- **🟡 ABIERTA (v1.80.2.3, 2026-09-29) — `INV-P2`: `PATCH /admin/inventory/items/:id { listPriceCents }` ESCRIBE PRECIO
+  DE VENTA EN PIEZAS DE CLIENTES EN CUSTODIA Y EN PIEZAS DADAS DE BAJA.** **Dueño: backend** (`inventory`).
+  **Medida por QA en stack real sobre `fae5a44`** (re-medición, informe al orquestador); **mecanismo verificado por el
+  arquitecto** leyendo `inventory.service.ts:2351-2409` sobre `42b0fc3`: el camino no publicante de `updateItem` es
+  `update({ where: { id }, data: patch })` (`:2406-2408`) — ni `ownerType` ni `status` en el `WHERE`. Hermana de
+  **INV-P1** (§4.39 m.4: el mismo `update` plano, visto desde la publicación) y de **D-SHIP-6** (v1.79.7, hotfix: el
+  mismo `update` plano, visto desde el `status`). No vende nada (el checkout reserva solo `platform ∧ {listed,
+  in_stock}`, `orders.service.ts:804`) pero deja un precio nuestro en patrimonio ajeno o en una pieza que no existe, y
+  responde `200`. **Cierra con** `API_CONTRACT §M1` errata v1.80.2.3: `assertOperable(item,'price')` sobre el
+  allowlist único `platform ∧ {in_stock, listed}` + escritura condicionada (CAS de v1.79.7), `422 ITEM_NOT_ADJUSTABLE
+  { status, ownerType }` sin escribir nada; prueba **INV-SP-8** roja primero, 3 mutaciones. ⚠️ **Secuencia:** depende
+  de `item-location.rules.ts`, que **no existe en esta rama** (medido `42b0fc3`); se construye sobre `main` con el
+  hotfix ya fusionado. Frontend ya acotado (`42b0fc3`, `SealedUnmappedModal.tsx:76-78`). ⛔ **El arquitecto no lo
+  corrige.**
 - **🔴 ABIERTA / ⛔ BLOQUEANTE (v1.76) — `D-AV-4`: `PATCH /admin/shipments/:id/status` MANDA DE 3 A 10 CORREOS POR
   UNA TRANSICIÓN ÚNICA, Y ESTE DOCUMENTO DECÍA QUE NO PODÍA.** **Dueño: backend** (`shipments`).
   **Medido EN VIVO por el pentester el 2026-09-14** (`PENTEST_NOTES · REL-B`, **Alta**): `AV-5` **13/13 trials con

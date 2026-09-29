@@ -2,7 +2,39 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.2.2**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.2.3**).
+>
+> **Changelog v1.80.2.3 — ERRATA §M1: EL PRECIO DE VENTA DEL `PATCH …/items/:id` SOLO SE ESCRIBE SOBRE PIEZAS DE
+> PLATAFORMA EN VENTA (2026-09-29, arquitecto; base v1.80.2.2, vigente entera salvo lo que esta errata toca). Origen:
+> QA, re-medición en stack real sobre `fae5a44`: `PATCH /admin/inventory/items/:id { listPriceCents }` escribe precio
+> de venta en piezas de **clientes en custodia** (`customer/in_custody`) y en piezas **dadas de baja**
+> (`platform/withdrawn`). Mecanismo, verificado por el arquitecto leyendo `inventory.service.ts:2351-2409` sobre
+> `42b0fc3`: el camino **no publicante** de `updateItem` termina en `update({ where: { id }, data: patch })`
+> (`:2406-2408`) sin mirar `ownerType` ni `status`. ⛔ Sin schema, sin migración, sin endpoint, sin campo en DTO, sin
+> código de error nuevo (`ITEM_NOT_ADJUSTABLE` ya existe, `common/error-codes.ts:206`).**
+>
+> | # | Qué cambia | Dónde | ¿Genera código? |
+> |---|---|---|---|
+> | **1** | ⭐ **Candado de servidor:** `listPriceCents` en el `PATCH` **solo** sobre piezas `ownerType='platform'` con `status ∈ {in_stock, listed}` — el **mismo allowlist** de `mark`, de `adjustments`, de `bulk-remove` y del `status` del `PATCH` (v1.79.7 §M1 sección 7, rama `claude/arreglos-operador`). Cualquier otra pieza (cliente en cualquier estado; plataforma `reserved`, `picking`, `shipped`, `delivered`, `lost`, `damaged`, `withdrawn`) ⇒ **`422 ITEM_NOT_ADJUSTABLE` `details: { status, ownerType }`**, **sin escribir ningún campo** del mismo `PATCH`. Campos de identidad (`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`) **siguen como hoy** | [§M1 `PATCH …/items/:id`, errata v1.80.2.3](#M1-patch-price-guard) | **Sí, backend (pequeño)**: un verbo más en `assertOperable` (`'price'`) y su aplicación en `updateItem`; prueba **INV-SP-8** que debe estar **roja** primero |
+> | **2** | **`reserved` queda FUERA, y se dice por qué con medición:** la línea del pedido **no** toma `listPriceCents` al liquidar (se congela en `OrderItem.unitPriceCents` al reservar, misma transacción: `orders.service.ts:377-408` + `:796-817`; `payments/` **0** referencias a `listPriceCents`/`salePriceOf`/`resolveSaleDecision`; contrato: «el precio de venta ya se congela en `OrderItem.unitPriceCents`»). Se excluye **no por dinero** sino por **un solo allowlist** compartido con `mark`/`status` y con el predicado de pantalla (`isPlatformOnSale`, M2). Cierra el «NO MEDIDO» de v1.79.7 §M1 sección 5 | §M1 errata v1.80.2.3, punto 3 | No (es la misma guarda) |
+> | **3** | `422 ITEM_NOT_ADJUSTABLE` gana un emisor más en el catálogo §0 | §0 errores, fila `ITEM_NOT_ADJUSTABLE` | No (documental) |
+>
+> **Qué cambia para quién:** *Cliente* — su patrimonio en custodia ya no puede recibir un precio de venta desde M1 (no era
+> vendible de todas formas, pero el número quedaba escrito en su pieza). *Operador* — sobre una pieza que no es de
+> plataforma en venta recibe un `422` con nombre en vez de un `200` que no significaba nada; sobre una `reserved`
+> (pedido vivo sin pagar) recibe el mismo `422` y reintenta cuando venza la reserva (`reservedUntil`; barrido
+> `orders.service.ts:1073`). *Frontend* — nada nuevo: el modal de M2 ya acota a ese predicado (`42b0fc3`,
+> `SealedUnmappedModal.tsx:76-78`) y `ItemDetailModal.tsx:129` (`canOperate`) también; `VariantDrawer.tsx:432` ofrece
+> «editar precio» en toda fila (ya señalado como trabajo frontend pequeño en v1.79.7 §M1 sección 5; el backend rechaza
+> igual). *Dueño / devops* — nada.
+>
+> ⚠️ **Secuencia con el hotfix `claude/arreglos-operador` (v1.79.7):** `assertOperable` y `item-location.rules.ts`
+> **no existen en esta rama** (medido sobre `42b0fc3`: `backend/src/modules/inventory/**/item-location.rules.ts` ⇒
+> ningún fichero; `rg assertOperable backend/src` ⇒ 0). Este trabajo backend **cuelga de ese fichero**: se hace **sobre
+> `main` con el hotfix ya fusionado** (o rebasado sobre él). Hacerlo antes obligaría a crear una segunda
+> `assertOperable` y el merge sería un conflicto seguro.
+>
+> ⚠️ *Numeración:* cuelga de la v1.80.2.2 de esta rama; se renumera con ella al fusionar si hace falta.
 >
 > **Changelog v1.80.2.2 — ERRATA (dos decisiones del techlead sobre `a3cde51`, veredicto APROBADO CON DEUDA; 2026-09-29,
 > arquitecto; base v1.80.2.1, vigente entera salvo lo que esta errata toca). ⛔ Sin schema, sin migración, sin endpoint,
@@ -5845,7 +5877,7 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
 - **`409 PREPARATION_INCOMPLETE` (v1.79.1 — NUEVO):** en `POST /admin/vault-placements/:id/prepared`, queda al menos una carta **preparable** sin palomear ni marcar faltante (CA #7 de §S). `details: { pendingCount }`. No escribió nada.
 - **`409 PREP_ITEM_BLOCKED` (v1.79.1 — NUEVO):** en `PATCH …/prep-items/:placementItemId` con `status: 'picked' | 'missing'`, la carta **no se puede colocar** (`placeability.kind === 'blocked'`). `details: { reason: VaultPlacementBlockReason }`. Volver a `pending` **nunca** da este error.
 - **`409 PLACEMENT_NOT_PENDING` (v1.79 — NUEVO):** en `POST /admin/vault-placements/:id/confirm`, la colocación ya no está pendiente: ~~`details: { status: 'placed', locationId } | …`~~ ⭐ **v1.79.3 (H-2):** `details: { status: 'placed', location: { id, label, zone: 'customer_custody' } } | { status: 'cancelled', cancelReason }` — el cajón donde quedó, **nombrable** (misma forma que `VaultPlacementDTO.location`). ⭐ **v1.79.1:** lo emiten **también** `PATCH …/prep-items/:placementItemId` y `POST …/prepared` sobre una colocación `placed`/`cancelled`, con el mismo `details`. ⭐ **v1.79.2:** y `DELETE …/prepared` (deshacer «preparado») — es el `409` que recibe quien pierde la carrera contra un `confirm`. ⚠️ **Ya colocada en el MISMO cajón NO es `409`**: es `200` idempotente (`outcome:'already_placed'`) — doble clic y el perdedor de una carrera al mismo cajón. El `409` también lo produce **una carrera** a cajones distintos: se declara para que no se lea como defecto. Ver [§M4-VAULT.5](#M4-VAULT).
-- **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
+- **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e. ⭐ **v1.80.2.3:** lo emite **también** `PATCH /admin/inventory/items/:id` cuando el cuerpo trae **`listPriceCents`** y la pieza no es de plataforma `in_stock | listed` (`details: { status, ownerType }`, **nada escrito**); mismo allowlist que el `status` del `PATCH` (v1.79.7). Ver [§M1 errata v1.80.2.3](#M1-patch-price-guard).
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
 - **`422 ITEM_NOT_OFFERED` (v1.51.20 — NUEVO; DINERO Y PROPIEDAD AJENA):** en `PATCH /admin/buylist/items/:itemId/decision`
   **dentro del ciclo de oferta** (`offerSentAt IS NOT NULL`), se manda **`decision:"approve"`** sobre una línea cuyo
@@ -10804,6 +10836,105 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **Solo aplica a `productType='graded'`** (se ignora en `raw`/`sealed`, misma semántica que `gradeValue`/`certNumber`).
   > **No cambia ningún precio por sí mismo**: al completar la identidad, la pieza pasa a resolver la referencia del
   > grado **que realmente es**.
+- <a id="M1-patch-price-guard"></a>**`PATCH /api/v1/admin/inventory/items/:id` — ⭐ ERRATA v1.80.2.3: EL PRECIO DE
+  VENTA SOLO SE ESCRIBE SOBRE PIEZAS DE PLATAFORMA EN VENTA** *(tercera nota sobre el mismo endpoint; las de v1.51 y
+  v1.53 siguen aplicando; y aplica junto con la sección 7 de v1.79.7 —el `status`—, que llega a `main` con el hotfix
+  `claude/arreglos-operador`)*:
+  > **Defecto (QA, stack real, `fae5a44`; mecanismo verificado por el arquitecto en `42b0fc3`):** con un cuerpo
+  > **sin `status`** (o con `status` igual al actual) el `PATCH` va por el camino plano de `updateItem`
+  > (`inventory.service.ts:2403-2409`: `update({ where: { id }, data: patch })`) y **escribe `listPriceCents` en
+  > cualquier pieza**: una carta de un cliente en custodia (`customer/in_custody`) o una pieza dada de baja
+  > (`platform/withdrawn`) reciben un precio de venta. El precio no vende nada (el checkout reserva solo
+  > `platform ∧ {listed, in_stock}`, `orders.service.ts:804`) pero **queda escrito en una pieza que no es nuestra o
+  > que ya no existe**, y el `200` le dice al operador que hizo algo válido. La frase de v1.51 «`listPriceCents` sigue
+  > siendo editable aquí» era sobre **qué** se edita; nunca dijo **sobre qué piezas**, y el código tomó «cualquiera».
+  >
+  > **1 · Norma — el allowlist de «pieza nuestra, en venta», UNO para todo M1.** `listPriceCents` se acepta
+  > **solo** si la pieza es `ownerType='platform'` **y** `status ∈ {in_stock, listed}`. Es el **mismo predicado** de
+  > `adjustments` (§0 `ITEM_NOT_ADJUSTABLE`), `bulk-remove`, `mark` y del `status` del `PATCH` (v1.79.7 sección 7,
+  > `MARKABLE_PLATFORM_STATUSES`). Cualquier otra pieza ⇒ **`422 ITEM_NOT_ADJUSTABLE` `details: { status, ownerType }`**
+  > y **no se escribe ningún campo** del mismo `PATCH` (todo o nada, como en v1.79.7).
+  >
+  > | Pieza | `PATCH { listPriceCents }` (sin `status`, o `status` igual al actual) |
+  > |---|---|
+  > | `platform` · `in_stock` | **`200`**, escribe `listPriceCents` (fila admin, como hoy). No publica (M1: el precio no cambia el `status`) |
+  > | `platform` · `listed` | **`200`**, escribe `listPriceCents` — **re-precia una pieza publicada**; el catálogo y el checkout la leen viva (peldaño 1 de la precedencia de venta, `orders.service.ts:276-278`) |
+  > | `platform` · `reserved` | ⛔ **`422 ITEM_NOT_ADJUSTABLE`** `{ status:'reserved', ownerType:'platform' }` — ver punto 3 |
+  > | `platform` · `picking · shipped · delivered` (vendida) | ⛔ `422 ITEM_NOT_ADJUSTABLE` — es del comprador; su precio es el de la línea del pedido |
+  > | `platform` · `lost · damaged · withdrawn` (terminal) | ⛔ `422 ITEM_NOT_ADJUSTABLE` — no existe para vender |
+  > | `customer` · **cualquier estado** (`in_custody`, `picking`, `reserved`, …) | ⛔ `422 ITEM_NOT_ADJUSTABLE` `{ status, ownerType:'customer' }` — es patrimonio del cliente, no tiene precio de venta nuestro |
+  >
+  > **2 · Qué campos guarda y cuáles no (decisión, con su razón).**
+  > - **Guardados por este allowlist:** `listPriceCents` (esta errata) y `status` (v1.79.7). Son los dos campos del
+  >   `PATCH` que **tocan dinero o visibilidad de venta**.
+  > - **NO guardados — siguen como hoy, sobre cualquier pieza:** `certNumber`, `gradeValue`, `gradingCompany`,
+  >   `sealedSubtype`. Son **identidad física** de la pieza; no cambian ningún precio por sí mismos (v1.53 arriba) y
+  >   son la **vía de reparación** de piezas que nacieron sin identidad de slab (§4.40.5b), **también** cuando la pieza
+  >   ya es de un cliente: su patrimonio en `/vault` se valúa por la identidad **real**, y negar la reparación dejaría
+  >   ese número en `pending` para siempre. Ampliar la guarda a la identidad sería otra decisión; **no se toma aquí**.
+  > - *Medido sobre `42b0fc3` (`inventory.dto.ts:129-151`):* `UpdateItemDto` acepta exactamente `certNumber,
+  >   sealedSubtype, gradeValue, gradingCompany, listPriceCents, status`. ⚠️ El `cardProductId?` que v1.51 declara en
+  >   este `PATCH` **no está en el DTO** — discrepancia documental que se anota y **no** resuelve esta errata (si
+  >   entra algún día, es identidad: fuera de la guarda, como los anteriores).
+  >
+  > **3 · `reserved` queda fuera, y no es por dinero — se mide para que nadie lo reabra por miedo.** Un pedido vivo
+  > **no relee `listPriceCents`**: la línea se congela en `OrderItem.unitPriceCents` en `buildLines`
+  > (`orders.service.ts:377-408`) dentro de la **misma transacción** que pasa la pieza a `reserved` (`reserveItems`,
+  > `:796-817`); el cobro trabaja sobre los congelados de la orden (`payments/`: **0** referencias a `listPriceCents`,
+  > `salePriceOf` o `resolveSaleDecision`, medido 2026-09-29). Así que permitir `reserved` **no** cambiaría lo que se
+  > cobra. Se excluye porque **un allowlist es uno**: `mark`, `status`, `adjustments`, `bulk-remove` y el predicado de
+  > pantalla (`isPlatformOnSale`, `SealedUnmappedModal.tsx:76-78`) ya dicen `{in_stock, listed}`, y un segundo
+  > allowlist «solo para precio» es un sitio más que puede divergir. Coste real: el operador recibe `422
+  > { status:'reserved' }` durante los minutos que vive la reserva (`reservedUntil`; si vence, el barrido de
+  > `orders.service.ts:1073` la devuelve a `listed`/`in_stock` y el `PATCH` entra). Cierra el «NO MEDIDO» de v1.79.7
+  > §M1 sección 5 («si la línea del pedido toma `listPriceCents` al reservar o al liquidar»): **no lo toma**; la
+  > pantalla ofrece «Editar precio» **solo** sobre plataforma `in_stock | listed`.
+  >
+  > **4 · Mecánica — la misma guarda y el mismo CAS que el `status` (v1.79.7 sección 7); nada nuevo que pueda
+  > divergir.** Cuando el cuerpo trae `listPriceCents` y el `PATCH` **no** publica (`status` ausente, o igual al
+  > actual): `$transaction` (`VAULT_VERB_TX_OPTIONS`) → lectura → **`assertOperable(item, 'price')`** (verbo nuevo en
+  > `item-location.rules.ts`, **mismo allowlist** `MARKABLE_PLATFORM_STATUSES`, devuelve `'platform'`, sin rama de
+  > cliente — como `mark`/`status`) → escritura **condicionada** a `{ id, status, ownerType, ownerUserId }` leídos; la
+  > pieza cambió entre lectura y escritura (`P2025`) ⇒ **`409 CONFLICT`** («reload and retry»). Si el cuerpo trae
+  > **`status` y `listPriceCents`**, **una sola** llamada a la guarda basta (mismo allowlist): un `422`, `details`
+  > únicos, nada escrito. Cuando el `PATCH` **publica** (`status:'listed'` desde ≠ `listed`) **no cambia nada**: el
+  > pipeline de v1.51 ya corre `assertPublishableGuards` (plataforma `in_stock`) **antes de escribir**
+  > (`inventory.service.ts:2410-2412`) y rechaza con `422 ITEM_NOT_PUBLISHABLE`; ahí `listPriceCents` **alimenta** la
+  > resolución de precio (v1.51) y nunca llega a una pieza ajena. ⛔ Sin `InventoryMovement` (re-preciar no es un hecho
+  > físico), sin auditoría nueva (la del controller sigue igual).
+  >
+  > **5 · Prueba que debe estar ROJA primero — invariante INV-SP-8 (hermana de INV-SP-7, v1.79.7):** *«ninguna pieza
+  > que no sea de plataforma en venta recibe `listPriceCents` desde M1»*. Fichero unitario nuevo
+  > **`backend/test/inventory.patch-price-guard.spec.ts`** (mismo patrón que `inventory.patch-status-guard.spec.ts`
+  > del hotfix) y casos e2e contra Postgres en **`backend/test/integration/inventory-move-mark-guards.e2e-spec.ts`**
+  > (el fichero del hotfix; se le añaden, no se crea otro). Casos mínimos, cada uno con el `details` afirmado:
+  > 1. `customer/in_custody` + `{ listPriceCents: 12345 }` ⇒ **`422 ITEM_NOT_ADJUSTABLE`** `{ status:'in_custody',
+  >    ownerType:'customer' }` y, releída, `listPriceCents` **intacto** (e2e).
+  > 2. `platform/withdrawn` + `{ listPriceCents }` ⇒ **`422`** `{ status:'withdrawn', ownerType:'platform' }`.
+  > 3. `platform/in_stock` + `{ listPriceCents }` ⇒ **`200`**, `listPriceCents` escrito, `status` sigue `in_stock`.
+  > 4. `platform/listed` + `{ listPriceCents }` ⇒ **`200`** (re-precio de una publicada).
+  > 5. `platform/reserved` + `{ listPriceCents }` ⇒ **`422`** `{ status:'reserved', ownerType:'platform' }`.
+  > 6. `platform/picking`, `shipped`, `delivered`, `lost`, `damaged` ⇒ **`422`** (tabla, un `it.each`).
+  > 7. **Todo o nada:** `customer/in_custody` + `{ listPriceCents, certNumber:'X' }` ⇒ `422` y `certNumber` intacto.
+  > 8. **Lo que no cambia:** `customer/in_custody` + `{ certNumber:'X' }` (sin precio) ⇒ **`200`**, `certNumber`
+  >    escrito (la identidad sigue sin guarda, punto 2); `platform/in_stock` + `{ status:'listed', listPriceCents }`
+  >    ⇒ pipeline v1.51, sin cambio.
+  > 9. **TOCTOU:** la pieza pasa a `reserved` entre la lectura y la escritura ⇒ **`409 CONFLICT`**, nada escrito
+  >    (mismo montaje que el caso CAS del `status`).
+  >
+  > **Mutaciones que deben poner la suite en rojo (N=1 por mutación, deterministas):** (M1) quitar
+  > `assertOperable(item,'price')` ⇒ 1, 2, 5, 6, 7 rojas; (M2) meter `reserved` en el allowlist de `'price'` ⇒ 5 roja;
+  > (M3) escritura sin condición ⇒ 9 roja. Sobre `42b0fc3` (+ hotfix fusionado) los casos 1, 2, 5, 6 y 7 tienen que
+  > estar **rojos** antes de tocar `updateItem`; si alguno sale verde, la prueba no mide lo que dice.
+  >
+  > **6 · Trabajo resultante.** **Backend (pequeño), después de que el hotfix esté en `main`:**
+  > `inventory/item-location.rules.ts` (verbo `'price'` en `ItemVerb`, overload que devuelve `'platform'`, `VERB_PAST`),
+  > `inventory/inventory.service.ts` `updateItem` (camino no publicante con `listPriceCents` ⇒ transacción + guarda +
+  > CAS, compartiendo el cuerpo que v1.79.7 ya escribió para `status`), las dos suites del punto 5. **Frontend:** nada
+  > nuevo (M2 ya acotado en `42b0fc3`; la fila de `VariantDrawer.tsx` ya estaba anotada en v1.79.7 sección 5).
+  > **Al fusionar ambos streams:** las secciones 7 (v1.79.7) y esta se leen como **una sola guarda con dos campos**;
+  > si `assertOperable` acaba con un solo verbo `'edit'` para `status` y `price`, el contrato no cambia — lo que se
+  > fija es la conducta de la tabla del punto 1, no el nombre del verbo.
 - **Sellado — referencia de mercado TCGCSV (v1.19, READ-ONLY en M1):** para items `productType=sealed`, `GET /admin/inventory/items` (cada fila) y `GET .../items/:id` exponen además:
   - `tcgplayerProductId?: number` y `tcgplayerGroupId?: number` — mapeo curado al producto de TCGplayer/TCGCSV (`null`/omitidos si no mapeado; M-23).
   - `sealedMarketRef?: PriceInfo` — **valor de referencia de mercado** del producto sellado (`source: "tcgcsv"`, MXN con FX+colchón, `capturedDate` del último ingest). `null`/omitido si el item no está mapeado o aún no hay ingest. En listados se resuelve por lote (`getReferencesBatch`, sin N+1).
