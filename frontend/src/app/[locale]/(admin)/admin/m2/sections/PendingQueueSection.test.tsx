@@ -305,3 +305,133 @@ describe('§M2-SK · «Fijar el precio de esta pieza» → PATCH /admin/inventor
     expect(patch).not.toHaveBeenCalled();
   });
 });
+
+/*
+ * ⭐ techlead T-1 (2026-09-29) — el «Fijar el precio de esta pieza» tocaba CADA pieza sellada sin mapeo
+ * de la carta: vendidas (`picking`/`shipped`/`delivered`), terminales (`lost`/`damaged`/`withdrawn`) y
+ * piezas de CLIENTES en custodia (`ownerType='customer'`). Un precio de venta sobre una pieza que no es
+ * nuestra o que ya salió no es un precio: es un dato falso en la fila de otro. El conjunto queda acotado
+ * al MISMO predicado que los ajustes de inventario (`contract.ts:~2689`): `ownerType='platform'` ∧
+ * `status ∈ {in_stock, listed}`. Las que no aplican se DICEN («N piezas no se tocan»), no se esconden.
+ */
+describe('§M2-SK · T-1: el precio de pieza solo toca piezas de PLATAFORMA en venta (in_stock | listed)', () => {
+  it('fixture in_stock/platform + picking/platform + in_stock/customer ⇒ solo la primera recibe PATCH; las otras se listan como «no se tocan»', async () => {
+    vi.spyOn(api, 'getPendingPrices').mockResolvedValue(queue([SEALED_UNMAPPED_ROW]));
+    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({
+      data: [
+        sealedPiece('a'),
+        sealedPiece('b', { status: 'picking' }),
+        sealedPiece('c', { ownerType: 'customer', status: 'in_custody' }),
+      ],
+      page: 1,
+      pageSize: 100,
+      total: 3,
+    });
+    const patch = vi
+      .spyOn(api, 'updateInventoryItem')
+      .mockImplementation(async (id, input) => sealedPiece(id, { listPriceCents: input.listPriceCents }));
+    renderWithProviders(<PendingQueueSection />, 'es');
+
+    fireEvent.click(
+      await within(await rowOf('Twilight Masquerade ETB')).findByRole('button', { name: T.sealedUnmapped.pricePiece }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    // La que sí aplica, con su dueño y estado visibles.
+    const priceable = await within(dialog).findByRole('list', { name: T.sealedUnmapped.pieces });
+    expect(within(priceable).getByText(/INV-a/)).toBeInTheDocument();
+    expect(within(priceable).getByText(new RegExp(T.sealedUnmapped.ownerPlatform))).toBeInTheDocument();
+    expect(within(priceable).getByText(new RegExp(es.status.inventory.in_stock))).toBeInTheDocument();
+    expect(within(priceable).queryByText(/INV-b/)).toBeNull();
+    expect(within(priceable).queryByText(/INV-c/)).toBeNull();
+    // Las que NO se tocan se dicen, con su dueño/estado (no se esconden).
+    expect(within(dialog).getByText(/2 piezas no se tocan/)).toBeInTheDocument();
+    const skipped = within(dialog).getByRole('list', { name: /2 piezas no se tocan/ });
+    expect(within(skipped).getByText(/INV-b/)).toBeInTheDocument();
+    expect(within(skipped).getByText(new RegExp(es.status.inventory.picking))).toBeInTheDocument();
+    expect(within(skipped).getByText(/INV-c/)).toBeInTheDocument();
+    expect(within(skipped).getByText(new RegExp(T.sealedUnmapped.ownerCustomer))).toBeInTheDocument();
+
+    const confirm = within(dialog).getByRole('button', { name: /Fijar en 1 pieza/ });
+    fireEvent.change(within(dialog).getByLabelText(T.sealedUnmapped.priceLabel), { target: { value: '1800' } });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch).toHaveBeenCalledWith('a', { listPriceCents: 180000 });
+    expect(await within(dialog).findByRole('status')).toHaveTextContent('1 pieza');
+  });
+
+  it('todas las piezas sin mapeo son vendidas o de clientes ⇒ nada que fijar: se dice y el botón queda bloqueado', async () => {
+    vi.spyOn(api, 'getPendingPrices').mockResolvedValue(queue([SEALED_UNMAPPED_ROW]));
+    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({
+      data: [sealedPiece('b', { status: 'shipped' }), sealedPiece('c', { ownerType: 'customer', status: 'in_custody' })],
+      page: 1,
+      pageSize: 100,
+      total: 2,
+    });
+    const patch = vi.spyOn(api, 'updateInventoryItem');
+    renderWithProviders(<PendingQueueSection />, 'es');
+
+    fireEvent.click(
+      await within(await rowOf('Twilight Masquerade ETB')).findByRole('button', { name: T.sealedUnmapped.pricePiece }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByText(T.sealedUnmapped.noPriceable)).toBeInTheDocument();
+    expect(within(dialog).getByText(/2 piezas no se tocan/)).toBeInTheDocument();
+    // NO es el «sin piezas» de la fila legada: sí hay piezas sin mapeo, solo que ninguna es nuestra en venta.
+    expect(within(dialog).queryByText(T.sealedUnmapped.noPieces)).toBeNull();
+    const confirm = within(dialog).getByRole('button', { name: /Fijar en 0 piezas/ });
+    fireEvent.change(within(dialog).getByLabelText(T.sealedUnmapped.priceLabel), { target: { value: '1800' } });
+    expect(confirm).toBeDisabled();
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  /*
+   * T-1 (2): `pageSize=100` sin mirar `total` es un cap silencioso (misma clase que FE-21). Si el
+   * servidor dice que hay más piezas de las que llegaron, el conjunto que se pintó NO es el conjunto
+   * que se tocaría: se avisa y NO se fija precio a ciegas.
+   */
+  it('total > piezas recibidas ⇒ aviso «la lista se cortó» y el precio NO se fija (botón bloqueado, sin PATCH)', async () => {
+    vi.spyOn(api, 'getPendingPrices').mockResolvedValue(queue([SEALED_UNMAPPED_ROW]));
+    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({
+      data: [sealedPiece('a'), sealedPiece('b')],
+      page: 1,
+      pageSize: 100,
+      total: 150,
+    });
+    const patch = vi.spyOn(api, 'updateInventoryItem');
+    renderWithProviders(<PendingQueueSection />, 'es');
+
+    fireEvent.click(
+      await within(await rowOf('Twilight Masquerade ETB')).findByRole('button', { name: T.sealedUnmapped.pricePiece }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText(/INV-a/);
+    const alert = within(dialog).getByRole('alert');
+    expect(alert).toHaveTextContent(T.sealedUnmapped.truncatedTitle);
+    expect(alert).toHaveTextContent('2');
+    expect(alert).toHaveTextContent('150');
+    const confirm = within(dialog).getByRole('button', { name: /Fijar en 2 piezas/ });
+    fireEvent.change(within(dialog).getByLabelText(T.sealedUnmapped.priceLabel), { target: { value: '1800' } });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('total == piezas recibidas ⇒ sin aviso de corte', async () => {
+    vi.spyOn(api, 'getPendingPrices').mockResolvedValue(queue([SEALED_UNMAPPED_ROW]));
+    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({
+      data: [sealedPiece('a'), sealedPiece('b')],
+      page: 1,
+      pageSize: 100,
+      total: 2,
+    });
+    renderWithProviders(<PendingQueueSection />, 'es');
+    fireEvent.click(
+      await within(await rowOf('Twilight Masquerade ETB')).findByRole('button', { name: T.sealedUnmapped.pricePiece }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText(/INV-a/);
+    expect(within(dialog).queryByText(T.sealedUnmapped.truncatedTitle)).toBeNull();
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+});

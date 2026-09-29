@@ -18425,3 +18425,52 @@ Restaurado ⇒ todo verde; `api.ts` y `fixtures.ts` de la copia iguales a `HEAD`
   jsdom con filas inyectadas (`BountiesView.test.tsx`) y en el canario del composer.
 - `useTranslations` con plural ICU en `sealedUnmapped.*`: el helper `e2e/utils/i18n.t` no interpola plurales, por eso
   el spec Playwright casa los botones por regex (`/^Ligar \d+ pieza/`, `/^Fijar en \d+ pieza/`).
+
+### T-1 (techlead, Media, «antes del deploy a prod») · el precio de pieza solo toca PLATAFORMA EN VENTA y nunca una lista cortada (2026-09-29, sobre `fae5a44`)
+
+**Defecto (techlead, `SealedUnmappedModal.tsx:53-63` y `:130`, medido en `fae5a44`):** «Fijar el precio de esta pieza»
+hacía `PATCH listPriceCents` a **cada** pieza sellada sin mapeo de la carta: incluidas **vendidas** (`picking`/`shipped`/
+`delivered`), **terminales** (`lost`/`damaged`/`withdrawn`) y **piezas de clientes** en custodia (`ownerType='customer'`).
+Y `:88` pedía `pageSize=100` sin mirar `total` (cap silencioso, misma clase que FE-21).
+
+**Cambio (`SealedUnmappedModal.tsx`):**
+- `isPlatformOnSale(i)` = `ownerType==='platform' ∧ status ∈ {in_stock, listed}` — el **mismo** predicado que los ajustes de
+  inventario (`types/contract.ts` «Solo piezas ownerType=platform con status ∈ {in_stock, listed} son ajustables», ~2689;
+  `CellDrawer.tsx:522` usa el mismo). `splitPriceable(unmapped)` parte el conjunto sin mapeo en `priceable` / `skipped`.
+- El `PATCH` va solo a `priceable`; el botón cuenta `priceable`; la lista pinta **folio · dueño · estado** (`PieceRow`) y
+  las excluidas se **dicen** en su propia lista («N piezas no se tocan: vendidas, en proceso, dadas de baja o de
+  clientes»). Si no queda ninguna, `noPriceable` (distinto del `noPieces` de la fila legada: sí hay piezas, no son nuestras
+  en venta) y botón bloqueado.
+- **Corte de lista:** `truncated = data.total > data.length` ⇒ `Banner` de alerta «La lista se cortó» (`shown`/`total`) y
+  el precio **no se fija** (botón bloqueado aunque el valor sea válido). Se pinta también en modo «Ligar» (honestidad del
+  conteo), pero ahí no bloquea: `applyToSiblings` lo resuelve el servidor sobre el conjunto entero.
+- «Ligar a su presentación» no cambia: mapear no es dinero y el servidor aplica el mapeo a los hermanos sin mapeo.
+- Claves nuevas `admin.m2.pending.sealedUnmapped.{ownerPlatform,ownerCustomer,skipped,noPriceable,truncatedTitle,
+  truncatedBody}` (es/en) y `priceLead` dice ahora «de la plataforma y en venta». Copy de frontend, pendiente de ux-ui.
+
+**Pruebas (rojo primero) — `PendingQueueSection.test.tsx`, describe «T-1» (+4):** fixture `in_stock/platform` +
+`picking/platform` + `in_custody/customer` ⇒ **1** `PATCH` (`'a'`, 180000), dueño/estado visibles, «2 piezas no se
+tocan» con `INV-b`/`INV-c`; todas excluidas ⇒ `noPriceable` + «Fijar en 0 piezas» bloqueado, 0 `PATCH`; `total:150` con
+2 recibidas ⇒ alerta con «2» y «150», botón bloqueado, 0 `PATCH`; `total == recibidas` ⇒ sin alerta.
+Rojo antes del cambio: **4/4 rojas, 6/6 existentes verdes** (el test de «CADA pieza» existente sigue verde: sus piezas
+`a`/`b` son `in_stock`/`platform`). Verde después: **10/10**.
+
+**Gates (2026-09-29, `frontend/`):** `tsc --noEmit` exit 0; `eslint` (modal + test) exit 0; `vitest run "admin/m2/"
+"sealed-unmapped-mock" "i18n-parity"` ⇒ **12 ficheros, 337/337**. Playwright con mocks, solo
+`e2e/admin-m2-sealed-unmapped.spec.ts` (`E2E_DEV_SERVER=1`, `E2E_MOCK_PORT=3311`; el build de producción no cabe en el
+presupuesto de 3 min con carga ~13) ⇒ **3/3, 56.9 s** — el spec no cambió: la pieza de la semilla `inv-1009` es
+`in_stock`/`platform` y `total == data.length`, así que el flujo de precio sigue igual. Mutaciones adicionales: no se corrieron (QA está
+midiendo sobre una copia de `fae5a44` y la carga era ~13; el rojo-antes de las 4 pruebas es la evidencia de que muerden
+sobre el código sin el cambio).
+
+**Nota para el arquitecto (no estaba en el fichero: `grep` sobre §81 y sobre todo este documento da 0 antes de este
+párrafo; vivía en el resumen del pase anterior):**
+1. El contrato llama a la salida «Fijar el precio de **esta** pieza» (singular), pero la fila de la cola agrupa una **clase**
+   de piezas (`cardId`+`sealedSubtype`) sin `inventoryItemId`, así que la pantalla fija el precio de **cada** pieza sin
+   mapeo de la clase. Con T-1 el conjunto queda **acotado a piezas de plataforma en venta** (`in_stock | listed`), que es
+   lo que puede recibir un precio de venta; las demás se listan como «no se tocan». Si el contrato quiere de verdad
+   «esta pieza» (una sola), la fila necesitaría `inventoryItemId` o la cola debería desagrupar.
+2. Falta un **filtro de servidor «sin mapear»** en `GET /admin/inventory/items` (p. ej. `sealedMapped=false`) y, con él,
+   la paginación deja de importar: hoy el cliente pide `pageSize=100` de **todas** las selladas de la carta y filtra
+   `tcgplayerProductId == null` en memoria; si hay más de 100, la lista se corta y T-1 bloquea el precio. También
+   valdría `ownerType=platform&status=in_stock,listed` (multi-estado) para que el conjunto viniera ya acotado.

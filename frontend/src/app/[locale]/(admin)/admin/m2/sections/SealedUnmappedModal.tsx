@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ExternalLink } from 'lucide-react';
@@ -33,13 +33,19 @@ import { pesosToCents, sanitizeDecimalInput, isSaveableRuleValue } from './share
  *       `(cardId, sealedSubtype)` reciben el mismo mapeo; nunca se pisa un mapeo existente). Es la cura
  *       de raíz: desde el siguiente barrido la pieza se valúa bajo `sealed:tcg:<productId>`.
  *   (2) **Fijar el precio de esta pieza** — `PATCH /admin/inventory/items/:id { listPriceCents }` en
- *       CADA pieza sin mapeo de la fila (SK-4: precedencia #1 de §K; vive en la fila de la pieza ⇒ no
- *       puede cruzarse con otro producto). NO publica: publicar sigue siendo un acto aparte (M1).
+ *       cada pieza sin mapeo de la fila **que sea de la plataforma y esté en venta** (techlead T-1,
+ *       2026-09-29: `ownerType='platform'` ∧ `status ∈ {in_stock, listed}`, el MISMO predicado que los
+ *       ajustes de inventario, `contract.ts` «Solo piezas ownerType=platform con status ∈ {in_stock,
+ *       listed} son ajustables»). Vendidas, en proceso, terminales y piezas de clientes en custodia NO
+ *       reciben precio: se listan aparte como «N piezas no se tocan». (SK-4: precedencia #1 de §K; vive
+ *       en la fila de la pieza ⇒ no puede cruzarse con otro producto). NO publica (M1).
  *
  * La fila de la cola no trae `inventoryItemId` (agrupa una CLASE de piezas), así que las piezas se
- * resuelven aquí con `GET /admin/inventory/items?cardId=&productType=sealed` y se filtran a las que
- * NO tienen `tcgplayerProductId` y comparten `sealedSubtype` con la fila. Sin piezas ⇒ se dice (fila
- * legada anterior a P-79(d): la pieza ya está mapeada y la cierra el siguiente barrido).
+ * resuelven aquí con `GET /admin/inventory/items?cardId=&productType=sealed&pageSize=100` y se filtran
+ * a las que NO tienen `tcgplayerProductId` y comparten `sealedSubtype` con la fila. Sin piezas ⇒ se
+ * dice (fila legada anterior a P-79(d): la pieza ya está mapeada y la cierra el siguiente barrido).
+ * Si el servidor dice `total > data.length`, la lista se CORTÓ (cap de 100, misma clase que FE-21): se
+ * avisa y el precio NO se fija a ciegas, porque el conjunto en pantalla no es el conjunto real.
  */
 
 export type SealedUnmappedMode = 'link' | 'price';
@@ -62,6 +68,41 @@ export function unmappedPiecesFor(
   );
 }
 
+/**
+ * T-1: una pieza recibe precio de venta desde aquí SOLO si es de la plataforma y está en venta. Es el
+ * predicado de «ajustable» del contrato (`ownerType=platform` ∧ `status ∈ {in_stock, listed}`): una pieza
+ * vendida/en proceso/terminal o de un cliente en custodia no es nuestra para ponerle precio.
+ */
+export function isPlatformOnSale(i: Pick<InventoryItemDTO, 'ownerType' | 'status'>): boolean {
+  return i.ownerType === 'platform' && (i.status === 'in_stock' || i.status === 'listed');
+}
+
+/** Partición del conjunto sin mapeo para «Fijar el precio»: las que se tocan y las que NO (y se dicen). */
+export function splitPriceable(unmapped: InventoryItemDTO[]): {
+  priceable: InventoryItemDTO[];
+  skipped: InventoryItemDTO[];
+} {
+  const priceable: InventoryItemDTO[] = [];
+  const skipped: InventoryItemDTO[] = [];
+  for (const i of unmapped) (isPlatformOnSale(i) ? priceable : skipped).push(i);
+  return { priceable, skipped };
+}
+
+/** Una pieza en la lista: folio · dueño · estado · precio de pieza si lo tiene. Dueño y estado SIEMPRE visibles (T-1). */
+function PieceRow({ piece: p }: { piece: InventoryItemDTO }) {
+  const t = useTranslations('admin.m2.pending.sealedUnmapped');
+  const tStatus = useTranslations('status.inventory');
+  const locale = useLocale() as AppLocale;
+  return (
+    <li className="flex flex-wrap items-center gap-2">
+      <span className="tabular text-text">{p.folio}</span>
+      <span>· {p.ownerType === 'platform' ? t('ownerPlatform') : t('ownerCustomer')}</span>
+      <span>· {tStatus(p.status)}</span>
+      {p.listPriceCents != null && <span className="tabular">· {formatMoneyCents(p.listPriceCents, locale)}</span>}
+    </li>
+  );
+}
+
 function displayName(e: PendingPriceEntryDTO): string {
   if (e.sealedProductName) return e.sealedProductName;
   return e.cardName ?? e.card?.name ?? e.cardId;
@@ -77,11 +118,12 @@ export function SealedUnmappedModal({ entry, mode, onClose }: SealedUnmappedModa
   const t = useTranslations('admin.m2.pending.sealedUnmapped');
   const tPending = useTranslations('admin.m2.pending');
   const tc = useTranslations('common');
-  const tStatus = useTranslations('status.inventory');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const getError = useErrorMessage('operator');
   const name = displayName(entry);
+  const piecesLabelId = useId();
+  const skippedLabelId = useId();
 
   const pieces = useQuery({
     queryKey: ['sealed-unmapped-pieces', entry.cardId],
@@ -91,6 +133,11 @@ export function SealedUnmappedModal({ entry, mode, onClose }: SealedUnmappedModa
     () => (pieces.data ? unmappedPiecesFor(entry, pieces.data.data) : []),
     [entry, pieces.data],
   );
+  const { priceable, skipped } = useMemo(() => splitPriceable(unmapped), [unmapped]);
+  // T-1 (2): cap silencioso (FE-21). `total` lo dice el servidor; si llegó menos, el conjunto está cortado.
+  const fetchedCount = pieces.data?.data.length ?? 0;
+  const totalCount = pieces.data?.total ?? 0;
+  const truncated = pieces.data != null && totalCount > fetchedCount;
   const setId = unmapped[0]?.card.setId ?? null;
 
   // ---- (1) Ligar a su presentación ---------------------------------------------------------------
@@ -124,11 +171,13 @@ export function SealedUnmappedModal({ entry, mode, onClose }: SealedUnmappedModa
   const [priceDone, setPriceDone] = useState<{ count: number; cents: number } | null>(null);
   // S-L1 money-safe: vacío o mal formado ("1.2.3") castearía a NaN→0 ⇒ MX$0. Mismo guard que el override.
   const priceInvalid = !isSaveableRuleValue(priceValue);
+  // T-1: solo plataforma en venta, y nunca sobre una lista cortada.
+  const canPrice = priceable.length > 0 && !priceInvalid && !truncated;
   const price = useMutation({
     mutationFn: async () => {
       const listPriceCents = pesosToCents(priceValue);
-      await Promise.all(unmapped.map((p) => updateInventoryItem(p.id, { listPriceCents })));
-      return { count: unmapped.length, cents: listPriceCents };
+      await Promise.all(priceable.map((p) => updateInventoryItem(p.id, { listPriceCents })));
+      return { count: priceable.length, cents: listPriceCents };
     },
     onSuccess: (done) => {
       setPriceDone(done);
@@ -170,12 +219,8 @@ export function SealedUnmappedModal({ entry, mode, onClose }: SealedUnmappedModa
                 {t('linkConfirm', { count: unmapped.length })}
               </Button>
             ) : (
-              <Button
-                disabled={unmapped.length === 0 || priceInvalid}
-                loading={price.isPending}
-                onClick={() => unmapped.length > 0 && !priceInvalid && price.mutate()}
-              >
-                {t('priceConfirm', { count: unmapped.length })}
+              <Button disabled={!canPrice} loading={price.isPending} onClick={() => canPrice && price.mutate()}>
+                {t('priceConfirm', { count: priceable.length })}
               </Button>
             )}
           </>
@@ -189,6 +234,11 @@ export function SealedUnmappedModal({ entry, mode, onClose }: SealedUnmappedModa
           error={pieces.error}
           onRetry={() => pieces.refetch()}
         >
+          {truncated && !finished && (
+            <Banner variant="warning" role="alert" title={t('truncatedTitle')}>
+              <p>{t('truncatedBody', { shown: fetchedCount, total: totalCount })}</p>
+            </Banner>
+          )}
           {unmapped.length === 0 && !finished ? (
             <div className="flex flex-col gap-2">
               <Banner variant="info" role="status">
@@ -241,21 +291,42 @@ export function SealedUnmappedModal({ entry, mode, onClose }: SealedUnmappedModa
             </Banner>
           ) : (
             <>
-              <p className="text-sm text-muted">{t('priceLead', { name, count: unmapped.length })}</p>
-              <div className="flex flex-col gap-1">
-                <span className="eyebrow">{t('pieces')}</span>
-                <ul className="flex flex-col gap-1 font-mono text-[11px] text-muted">
-                  {unmapped.map((p) => (
-                    <li key={p.id} className="flex flex-wrap items-center gap-2">
-                      <span className="tabular text-text">{p.folio}</span>
-                      <span>· {tStatus(p.status)}</span>
-                      {p.listPriceCents != null && (
-                        <span className="tabular">· {formatMoneyCents(p.listPriceCents, locale)}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <p className="text-sm text-muted">{t('priceLead', { name, count: priceable.length })}</p>
+              {priceable.length === 0 ? (
+                <Banner variant="info" role="status">
+                  <p>{t('noPriceable')}</p>
+                </Banner>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <span className="eyebrow" id={piecesLabelId}>
+                    {t('pieces')}
+                  </span>
+                  <ul
+                    aria-labelledby={piecesLabelId}
+                    className="flex flex-col gap-1 font-mono text-[11px] text-muted"
+                  >
+                    {priceable.map((p) => (
+                      <PieceRow key={p.id} piece={p} />
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {/* T-1: las que NO se tocan se dicen con su dueño/estado; no se esconden. */}
+              {skipped.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted" id={skippedLabelId}>
+                    {t('skipped', { count: skipped.length })}
+                  </span>
+                  <ul
+                    aria-labelledby={skippedLabelId}
+                    className="flex flex-col gap-1 font-mono text-[11px] text-muted opacity-70"
+                  >
+                    {skipped.map((p) => (
+                      <PieceRow key={p.id} piece={p} />
+                    ))}
+                  </ul>
+                </div>
+              )}
               <Input
                 label={t('priceLabel')}
                 type="text"
