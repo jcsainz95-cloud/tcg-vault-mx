@@ -12866,3 +12866,213 @@ Las Bajas quedan como deuda aceptada con su disparador. El veredicto de segurida
 fase completa (pentester + seguridad) sobre el código construido.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-29 · diseño `ff57390` · §M4-SHIP v1.80.2 / ARCHITECTURE §4.57 · **CON CONDICIONES**
+
+---
+
+# Re-revisión de DISEÑO — §M4-SHIP v1.80.4 (`API_CONTRACT` §M4-SHIP.17 + **.18**) + `ARCHITECTURE §4.57 (p)` · sha **`0e1faf6`** (rama `claude/envio-preparar`, worktree `/home/user/tcg-envio`) · 2026-09-29
+
+> ## ⭐ VEREDICTO SOBRE EL DISEÑO — **CON CONDICIONES** (2 altas de diseño + 1 media, todas en §M4-SHIP.18; §M4-SHIP.17 y D-13/D-14 quedan CERRADOS)
+>
+> Lo que v1.80.4 **acierta** es lo difícil: el cierre de bóveda corre al **confirmar** el reembolso (un `failed` deja al
+> cliente con su carta), la pieza vuelve `in_stock` y no a la venta, la cadena de reposición y la re-compra se
+> respetan, el sello hace idempotente el par M3 ↔ webhook, y el despacho por `fulfillmentMode` lanza en vez de caer por
+> defecto. Lo que **no resiste** son dos bordes del mismo diseño: **(A5)** la pasada es de **un solo tiro** (el sello la
+> vuelve no-op) pero deja deliberadamente piezas sin tocar (`in_packed_withdrawal`) que **ningún verbo** puede reclamar
+> después, y el retiro que las contiene **no tiene guarda** — es el único camino de «carta y dinero» que encontré, y es
+> **permanente**; **(A6)** la devuelta queda `in_stock`, que es exactamente el estado que `publish-all`, `bulk-publish`
+> y `PATCH {status:'listed'}` publican, así que el control «`in_stock`, no `listed`» que justifica media sección se
+> vacía por tres caminos ya existentes (y §18.7 lo admite de pasada). Los dos se cierran con guardas, no con
+> re-preguntar al dueño.
+
+**Qué es esta revisión y qué no (O-1):** revisión de **diseño** sobre `docs/API_CONTRACT.md` (§M4-SHIP.17 entero, §M4-SHIP.18
+entero, changelog v1.80.4, y por referencia §M3 l.15194-15206, §M1 `publish-all` l.11200-11202, §5 `POST /shipments`
+l.9485, §M4-SHIP.15.4, §M4-SHIP.7, §M4-SHIP.11 l.18141) y `docs/ARCHITECTURE.md §4.57 (p)` (l.25558-25581), todo en
+`0e1faf6` (`refs/heads/claude/envio-preparar` leído del worktree). ⛔ **Sin Bash en este pase** (el clasificador de la
+herramienta no respondió; no lo forcé: la máquina estaba saturada) ⇒ nada ejecutado, nada reproducido; ⛔ no releí código
+de production (la lectura del hueco original es del orquestador y así lo declara el propio contrato, §18 «Fuente»).
+Todo lo de abajo es lectura con sección/línea. La fase de seguridad **completa** (pentester + seguridad) sigue siendo
+obligatoria sobre el código construido, por release.
+
+## 0. Cierre de las condiciones de v1.80.2 (mi sección anterior) — **CERRADAS en contrato**
+
+| Condición | Dónde se cierra | Juicio |
+|---|---|---|
+| **A1** verbos de inventario sin guarda | §17.1: `mark` solo plataforma `in_stock\|listed` **en el `WHERE`**; `PATCH` con guarda + CAS; `PREPARATION_HAS_BLOCKED_LINES`; `INV-SP-7`; PS-41/42/43 | **Cerrada.** Acepto la desviación respecto a mi (b): `listed ↔ in_stock` **sin** `InventoryMovement` — el argumento («publicar es visibilidad; ningún camino de publicación escribe movimiento; uno solo daría dos verdades») es correcto y el vector (`lost → in_stock` sin regreso) deja de existir porque ya no hay transición física por ese verbo |
+| **A2** pedido reembolsado sigue enviable | §17.2: `ORDER_NOT_SETTLED` en `prepared`/`tracking`/`→guia`/`→enviado` bajo `FOR UPDATE`; `closeShipmentsOnFullRefund` desde M3 y webhook; PS-44 | **Cerrada** para el **directo**. ⚠️ El **retiro** no recibe guarda equivalente — es parte de **A5** abajo |
+| **A3** CLABE cambia antes del SPEI | §17.3: `setClabe` único escritor + `clabeUpdatedAt` + bitácora sin CLABE + `AV-16`; `revealToken` HMAC atado al `clabeHmac` revelado; `paid` lo recalcula bajo `FOR UPDATE` y exige confirmaciones; `C-CLABE-1`; PS-46/47 | **Cerrada.** El token reusa la llave del índice ciego con prefijo de dominio (sin secreto nuevo, nada persistido, no se registra): correcto. Determinista y sin caducidad es aceptable porque lo que prueba es «la CLABE que vi», no «cuándo» |
+| **A4** `to-manual` en disputa | §17.4: orden de origen `FOR UPDATE` + `settled`; `REFUND_FAILURE_DISPUTE_CODES` (NO MEDIDO el valor, declarado; PS-48 lo fija con el doble) | **Cerrada** |
+| **M1** detección del reembolso del operador | §17.5 (1)–(4): libro filtrable, `operator-summary` (con `capUsedCents` = **el mismo** predicado del tope y `selfReplaced30d` para B6), merma por actor, tarjeta del tablero. (5) `AVA-1` **retirado** por D-13 | **Cerrada** en su parte de lectura; la parte de aviso la decidió el dueño (ver §2 y B8) |
+| **M2** reintento sin paginar / doble `create` | §17.6: lease CAS `attemptStartedAt` fuera de tx larga, paginación `limit:100` + `has_more`; PS-50/51 (N≥10) | **Cerrada** |
+| **M3** origen y ciclo | §17.7: evento de adquisición **más reciente**; `currentPieceOf` solo `replaced` **de la misma compra**, visitados + `REPLACEMENT_CHAIN_MAX_DEPTH=16`; pertenencia por `resolveOrigin`; PS-52 | **Cerrada** |
+| **M4** cancelar SPEI definitivo y mudo | §17.8: `reissue` (`@MoneyOut`, llave `reissue:<id>`, sin segundo `AV-14`), `INV-MR-2` «a lo más una viva», `transferStatus:'cancelled'` visible; PS-53 | **Cerrada** |
+
+Las Bajas B1–B6 siguen como deuda aceptada con su disparador (§17.10 las recoge sin cambio; B3 se pide ya para `C-CLABE-1`).
+
+## 1. Lo que revisé de v1.80.4 y RESISTE (con su sitio)
+
+| Control | Dónde | Por qué resiste |
+|---|---|---|
+| **Bóveda cierra al confirmar, no al pedir** | §18.3, PS-58 | Es la decisión correcta y la más importante del pase: `failed` ⇒ el cliente conserva carta y orden `settled`. En el directo el fallo seguro es el inverso y §17.2 (3) lo declara |
+| **Vuelve `in_stock`, no `listed`** + `needsManual` + humano confirma | §18.4, §18.7, §4.57 (p) fila 3 | Intención correcta (inventario fantasma). ⚠️ El **estado elegido** la vacía: **A6** |
+| **M3 rechaza con la carta en caja** (`409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`, cero escrituras) | §18.4 precondición, PS-59 | Un cambio de dueño en el sistema no saca la carta de la caja; rechazar y pedir `DELETE …/prepared` es lo honesto. ⚠️ Solo cubre el camino M3 en la tx1: **A5** |
+| **Sello `fullRefundClosedAt` bajo `Order FOR UPDATE`, tras los candados de la rama** | §18.2, PS-57 (N≥10) | M3 → webhook tardío y dos webhooks simultáneos: una sola escritura por carta; se suma a la deduplicación por `event.id` (`processedStripeEvent`, ya leída en mi pase anterior) y a la firma del webhook. ⚠️ El orden **webhook → M3** no está escrito: **M5** |
+| **Despacho por `fulfillmentMode` que lanza** + `C-FULLREF-1` | §18.2, PS-62 | Sin rama por defecto (§4.21d); llamadores enumerados con mutación. Vale la Baja B3 (SQL crudo no lo rodea porque no hay tabla nueva que insertar: el candado es de llamadores, no de escrituras) |
+| **Cadena y re-compra** | §18.4 «Por carta», PS-60 | `currentPieceOf` + `resolveOrigin ≠ oi ⇒ other_purchase`: O2 pagó por Y; O1 no la toca. Correcto en ambos sentidos (reembolsar O2 sí la reclama) |
+| **`open_case` no se toca y no se anula solo** | §18.4 fila `open_case`, §4.57 (p) fila 9, §M4-SHIP.15.4 paso 6 | `replace`/`found` toman la orden de origen `FOR UPDATE` y exigen `settled` ⇒ `409 CASE_ORIGIN_NOT_SETTLED` con rollback: tras el reembolso total **no** se le repone ni se le «aparece» la carta al cliente. `void` sigue `@MoneyOut` (puede emitir `shipment_fee`): un webhook no origina dinero. **Este era el vector «caso abierto ⇒ reposición gratis» y está cerrado por §15.4** |
+| **Reembolso parcial + retiro** (pregunta del encargo) | §M3 l.15194-15198, l.261/319 («reembolso parcial … PLANEADO») | **No existe** parcial en M3: `order_full` = `totalCents − Σ no fallidas`, `remaining ≤ 0 ⇒ 409`. Los parciales que existen son `case_refund` (la pieza ya es `lost\|damaged`) y `item_missing`/`order_remaining` (directo). No hay camino «parcial y me quedo la carta» en bóveda por diseño |
+| **`Σ ≤ totalCents` sigue mandando** | §M4-SHIP.5 paso 9, §18 no lo toca | El reembolso total de bóveda no crea filas nuevas del libro: solo cambia lo que pasa con las piezas |
+| **Colocación `pending` cancelada con `status:'pending'` en el `WHERE`** | §18.5, PS-56 (b) | Una `placed` no cambia; el `CHECK` de `cancelled` aborta si alguien quita el filtro |
+| **`vaultPieces` derivado, un cuerpo (`classifyVaultPiece`)** | §18.6 | Sin columna, sin dos verdades; `pendingConfirmation` es predicado, no estado |
+| **D-14: sin verbo** | §18.1, §17.1 (1) | No añade superficie; la consecuencia (la deuda nace en el palomeo) está declarada dos veces |
+| **Autorización de los verbos** | M3 `refund` `super_admin` + `@MoneyOut` (§M3, PS-12 intacta); webhook `actorUserId=null` con firma; `DELETE …/prepared` operador+; `void` `super_admin` `@MoneyOut` | Sin cambio de perímetro: el único origen de dinero saliente sigue siendo el súper-admin o Stripe firmado |
+
+## 2. `AVA-1` retirado (D-13) — ¿se pierde rastro de auditoría?
+
+**No.** El correo era **notificación**, no registro. El rastro es: cada `PaymentRefund` con `actorUserId` +
+`requestedByRole` (§M4-SHIP.2), la bitácora del acto de preparar, `GET /admin/refunds` filtrable por actor/rol/fecha,
+`operator-summary` (24 h / 7 d / 30 d, `capUsedCents`, `missingRatePct`, `selfReplaced30d`), `/finance/shrinkage` por actor,
+y `workQueue.operatorRefunds`. Quitar `adminNotifiedAt` quita una columna, un CHECK y una prueba de carrera: limpio.
+**Lo que sí cambia es la naturaleza del control:** pasa de **detectivo activo** (llega solo) a **pasivo** (hay que abrir
+el panel). Es decisión del dueño y se registra como deuda **B8** con disparador, no como hallazgo.
+
+## 3. Hallazgos nuevos, priorizados
+
+### ALTA — condiciones de diseño (bloquean construir §M4-SHIP.18.2/.18.4/.18.7)
+
+**SEC-SHIP-A5 · La pasada de reclamo es de un solo tiro, deja piezas sin tocar a propósito, y no hay verbo que las reclame después ni guarda que impida que salgan: «carta y dinero», permanente.**
+- **Evidencia (contrato):** (1) §18.2: `fullRefundClosedAt ≠ null ⇒ no-op completo`. (2) §18.4 filas `in_packed_withdrawal`
+  (por webhook, o el retiro de (e)) y `already_withdrawn`: «⛔ no se toca». (3) §18.7: los objetivos de
+  `chargeback-inventory` son **solo** las `pendingConfirmation` (= `returned`); «las cartas **no** objetivo
+  (`open_case`, `already_withdrawn`, …) no se tocan; la `note` registra lo que el humano decidió» — es decir, para una
+  `in_packed_withdrawal` el humano **anota**, no actúa. (4) `mark` rechaza piezas de cliente (§17.1 (1)); `PATCH` solo
+  plataforma (§17.1 (2)). ⇒ **No existe verbo** que devuelva a plataforma una pieza que la pasada dejó `in_custody`.
+  (5) El retiro que la contiene no tiene guarda: `PREPARATION_HAS_BLOCKED_LINES` mira solo líneas `blocked` (§17.1 (4)) y
+  la pieza intacta **no** está bloqueada; `tracking`/`→guia`/`→enviado` exigen `settled` **solo en un directo** (§17.2
+  (1)); `POST /shipments` exige solo `in_custody` (§5 l.9485), sin mirar la orden de origen.
+- **Caminos (dos, y uno no necesita el panel de Stripe):**
+  - **(i) M3 con confirmación diferida:** tx1 pasa la precondición (ningún retiro preparado) y crea la fila; Stripe da un
+    error **transitorio** ⇒ fila `requested` «horas» (§18.3 lo dice). En esas horas el cliente pide el retiro y el operador
+    lo **prepara** (cola normal). `retry` confirma ⇒ la rama corre en la tx de confirmación, ⛔ **sin** re-evaluar la
+    precondición («solo en M3, en la tx que crea la fila», §18.4) ⇒ fila «en caja» ⇒ intacta + `needsManual` + **sello**.
+    El retiro sigue: guía, enviado, `withdrawn`. El cliente tiene la carta y el dinero. El súper-admin ve
+    `in_packed_withdrawal` en `vaultPieces`… y no tiene verbo.
+  - **(ii) `charge.refunded` total desde el panel** (B4, contra la norma operativa) con un retiro preparado: idéntico.
+  - Y aunque el súper-admin deshaga el preparado (`DELETE …/prepared`) **antes** de que salga: la pieza sigue `in_custody`,
+    la orden `refunded` y el sello puesto ⇒ nunca se reclama; el cliente puede pedir **otro** retiro más tarde
+    (`in_custody` ⇒ `withdrawable`).
+- **Por qué Alta:** es el único camino de «carta y dinero» del diseño, no requiere colusión, el residual de §18.3 se
+  declara «visible» pero **no resoluble** (visible sin verbo es una cola que no se vacía), y la lección del contrato
+  (§4.21c-bis, §M4-SHIP.17.2) es justo que «congelado sin desenlace = para siempre».
+- **Condición de cierre (arquitecto → backend):**
+  (a) **Idempotencia por pieza, no no-op total:** la rama corre **siempre** la clasificación + CAS por pieza (una ya
+  plataforma ⇒ `not_customer`, cero escrituras; una `in_custody` cuyo retiro **ya no** está preparado ⇒ se reclama). El
+  sello sigue existiendo pero gobierna **solo** lo que no debe repetirse: `chargebackNeedsManual=true`, la bitácora
+  `order.full_refund_closed` y `AV-3` se escriben **una vez** (o `needsManual` solo si esta pasada escribió algo). Esto
+  además vuelve innecesario distinguir «M3 y luego webhook» de «webhook y luego M3» (M5).
+  **Alternativa** si se prefiere conservar el no-op: `chargeback-inventory` sobre `vault refunded` gana un objetivo
+  «`in_packed_withdrawal` cuyo retiro ya no está preparado ni con guía» y lo reclama (mismo CAS, mismo movimiento
+  `refund_return`); y un verbo `super_admin` para re-correr la rama (`POST /admin/orders/:id/reclaim-vault`).
+  (b) **Guarda del retiro — el análogo de A2:** `prepared`, `tracking`, `→guia` y `→enviado` de un **retiro** toman la(s)
+  orden(es) de origen de sus líneas `picked` (`resolveOrigin`, ya calculado para §17.1 (4)) `FOR UPDATE`/`FOR SHARE`;
+  alguna `refunded`, o con fila `order_full` `requested|submitted` ⇒ **`409 WITHDRAWAL_LINE_ORIGIN_REFUNDED {items}`**,
+  cero escrituras (la carta no sale mientras el humano decide). `POST /shipments` rechaza la pieza con origen `refunded`
+  (`422 ITEM_ORIGIN_REFUNDED`) para que ni siquiera entre a la cola. `entregado` no se guarda (ya salió).
+  (c) **Re-evaluar la precondición en la confirmación de M3** (no solo en tx1): si en la tx de confirmación hay retiro
+  preparado ⇒ **no** se rechaza (el dinero ya salió) pero con (b) el retiro no puede avanzar y con (a) se reclama en
+  cuanto se deshaga el preparado.
+  (d) **PS-63** (con mutación): fixture «tx1 → retiro preparado → confirmación» ⇒ pieza intacta, `in_packed_withdrawal`,
+  `tracking` ⇒ `409`; `DELETE …/prepared` ⇒ re-pasada (webhook tardío o verbo) ⇒ pieza `returned`, **un** movimiento;
+  `POST /shipments` con ella ⇒ `422`. Mutación: dejar el no-op total ⇒ la pieza queda del cliente; quitar la guarda ⇒
+  guía `200`.
+
+**SEC-SHIP-A6 · La devuelta queda `in_stock`, que es exactamente lo que los tres caminos de publicación publican: el control «no a la venta hasta confirmar» se vacía antes de nacer.**
+- **Evidencia (contrato):** §18.4 CAS ⇒ `status:'in_stock'` plataforma. `publish-all` selecciona **server-side** `ownerType=platform ∧
+  status ∈ {in_stock, listed}`, **sin cap** (§M1 l.11200-11203); `bulk-publish` misma allowlist
+  (`PUBLISHABLE_ORIGIN_STATUSES`, l.11205); `PATCH … {status:'listed'}` sigue «por el pipeline de v1.51» para plataforma
+  `in_stock|listed` (§17.1 (2)). Y §18.7 lo reconoce como conducta normal: «una que el operador **ya publicó** cuenta 0 y se
+  omite». ⛔ NO MEDIDO qué otros verbos disparan `tryAutoPublish` (l.16518 nombra uno existente); si `move` de M1 lo
+  dispara, el «move al estante» que el frontend sugiere (§18.5) la publicaría **antes** de `recuperada`.
+- **Efecto:** la razón de ser de `in_stock` (§4.57 (p) fila 3: «re-listar vendería otra vez lo que quizá no existe») no la
+  sostiene ningún candado: un `publish-all` de rutina (o el operador desde M1) la pone a la venta; se vende; al preparar
+  «no la encontré» ⇒ `item_missing` del operador (dentro del tope) ⇒ el dinero sale de nuevo por un fantasma que el
+  propio sistema acababa de marcar como «pendiente de confirmar». No es robo; es el control central del cambio que nace
+  roto en zona de dinero, y la analogía con §4.21c-bis es **imperfecta** (allí las piezas quedan `picking` **congeladas**,
+  que no es publicable; aquí quedan en el estado publicable por excelencia).
+- **Condición de cierre (arquitecto → backend), dos opciones, una sola:**
+  (a) **Respetar «sin columna»:** los tres caminos de publicación (`PATCH listed`, `bulk-publish`, `publish-all`) y
+  `tryAutoPublish` **excluyen** las piezas con `pendingConfirmation` (predicado de §18.6, calculado en el `WHERE`/filtro
+  server-side: último `InventoryMovement.reason='refund_return'` ∧ su orden de origen `chargebackNeedsManual`) ⇒ `422
+  ITEM_PENDING_CONFIRMATION` en el `PATCH`, y contador `pendingConfirmation` en el resumen de los lotes; **o**
+  (b) **Estado congelado como en el directo:** la devuelta queda plataforma con un estado **no publicable** (el mismo
+  `picking` congelado de §4.21c-bis, o `reserved` sin reserva) y `recuperada` la lleva a `listed`; `no_recuperada` a
+  `lost`. Menos código, más coherente con §17.2, pero rompe «`in_stock` = está en el estante» en «Qué debe haber».
+  (c) Quitar de §18.7 la frase «una que el operador ya publicó cuenta 0 y se omite» como conducta admitida.
+  (d) **PS-64** (con mutación): orden `vault` `refunded` con devueltas ⇒ `publish-all` ⇒ **0** publicadas y el contador las
+  nombra; `PATCH listed` ⇒ `422`; tras `recuperada` ⇒ `listed`. Mutación: quitar la exclusión ⇒ `listed` sin confirmar.
+
+### MEDIA — debe entrar al contrato antes de construir
+
+**SEC-SHIP-M5 · El orden «webhook antes que la confirmación de M3» no está escrito, y M3 escribe `Order → refunded WHERE status='settled'`.**
+§18.2 enumera «M3 y luego su webhook, o un reintento de Stripe». Pero Stripe emite `charge.refunded` al aceptar el
+reembolso, **antes** de que M3 reciba su respuesta y abra la tx de confirmación; bajo carga el webhook puede ganar. Si
+gana: reclama, sella, y (como hoy) pone la orden `refunded`. La tx de M3 llega: fila del libro `requested → submitted`
+(CAS, bien), sello ≠ null ⇒ rama no-op (bien), y `Order → refunded WHERE status='settled'` ⇒ **count 0** — el contrato no
+dice si eso es éxito o error. Si es error/rollback, el súper-admin recibe un fallo por un reembolso que **sí** salió, la
+fila se queda `requested` y solo un `retry` (paginado) la concilia; y `AV-3` podría ir dos veces si su sello es el estado
+de la orden (§R.3: `if (order.status === 'refunded') return` — cubre el caso, pero conviene decirlo).
+**Cierre:** una frase en §18.2: la tx de confirmación de M3 es **independiente del orden de llegada** — `Order` ya
+`refunded` con sello ⇒ **éxito** (la fila del libro pasa a `submitted`/`succeeded` igual; `200`); PS-57 gana la secuencia
+inversa (webhook → M3) y la carrera tx2-de-M3 vs webhook con barrera en `Order` (N≥10): siempre un movimiento por carta,
+una bitácora, un `AV-3`, y M3 `200`. Con **A5 (a)** este punto casi se resuelve solo; aun así debe quedar escrito.
+**Dueño:** arquitecto → backend.
+
+### BAJA — deuda aceptable con disparador
+
+| # | Hallazgo | Disparador / cierre | Dueño |
+|---|---|---|---|
+| SEC-SHIP-B7 | El CAS del reclamo (§18.4) exige `ownerType:'customer', ownerUserId, status:'in_custody'` pero **no** `ownershipStatus:'settled'`, aunque la clasificación sí lo pide. Hoy no hay pieza `in_custody` con `ownershipStatus ≠ settled` para una orden `settled`, pero el `WHERE` es la garantía, no la lectura (doctrina de §15.4) | Con la construcción: añadir `ownershipStatus:'settled'` al `WHERE` | backend |
+| SEC-SHIP-B8 | Con `AVA-1` retirado (D-13), la detección del reembolso del operador es **pasiva** y `workQueue.operatorRefunds` son ventanas **rodantes** (`last24hCount/Cents`, `last30dCents`, l.18141): un reembolso que el dueño no mira en 24 h desaparece del contador y en 30 d del importe; no hay «sin revisar» | Al dar de alta un segundo operador, o si `operator-summary` muestra tasa anómala; cierre barato: `last30dCount` + «desde tu última visita» (o un `reviewedAt` en `PaymentRefund` que el dueño marque) — ⛔ no un correo, el dueño ya lo descartó | arquitecto / dueño |
+| SEC-SHIP-B9 | `chargeback-inventory` es `vault_operator+` (l.15162): el «humano que confirma» de §18.7 para una compra reembolsada por el súper-admin es el **operador**. `recuperada` (⇒ `listed`) y `no_recuperada` (⇒ `lost` firmada) quedan en la misma persona que marca faltantes; lo contiene la firma (`InventoryMovement.actorUserId`) + `/finance/shrinkage` por actor + `selfReplaced30d` (B6). Debe **decirse** en §18.7 (hoy hereda el rol sin nombrarlo) | Si la merma por actor crece; alternativa: `no_recuperada` sobre `vault refunded` solo `super_admin` | arquitecto |
+| SEC-SHIP-B10 | M3 total sobre una orden `vault` con piezas `already_withdrawn` u `open_case` sale sin confirmación explícita: el súper-admin se entera **después** por `untouched` en la bitácora. Es su decisión legítima («disputa de condición») pero es dinero saliente con la carta en manos del cliente | Antes del primer reembolso real de bóveda; cierre: el detalle M3 (`vaultPieces`, ya especificado) se muestra en el diálogo y, si hay `already_withdrawn`, `refund` exige `confirmPiecesWithCustomer:true` (patrón de §17.3 paso 7), auditado | arquitecto → frontend/backend |
+| SEC-SHIP-B11 | El sello se lee **después** de tomar `FOR UPDATE` sobre retiros y piezas (§18.4 (b)–(d)); un webhook tardío tras `recuperada` → venta a otro cliente bloquea brevemente filas que ya son de otro. No es fallo (no escribe); es contención. Cierre: lectura rápida del sello **antes** de (b) como atajo, ⛔ sin sustituir la comprobación bajo candado | Con la construcción | backend |
+
+## 4. Las mutaciones PS-55…PS-62 — ¿muerden lo que importa?
+
+**Sí en el núcleo:** PS-55 (a) es exactamente el hueco original y (b) el `listed` prohibido; PS-56 (b) usa el CHECK como
+juez; PS-57 mata el sello; PS-58 mueve la rama a la tx equivocada (la mutación más valiosa del pase: es la que
+dejaría al cliente sin carta y sin dinero); PS-59 (a)/(b) la precondición y el trato de «preparado»; PS-60 (a)/(b) la cadena
+y la re-compra; PS-62 el candado. **Lo que no cubren, y deben cubrir tras el cierre:** **PS-63** (A5: pieza intacta ⇒
+reclamable después y retiro sin guía), **PS-64** (A6: los tres caminos de publicación la omiten), PS-57 ampliada (M5:
+orden inverso), y una línea en PS-60: `replace`/`found` sobre el `open_case` de una orden `refunded` ⇒ `409
+CASE_ORIGIN_NOT_SETTLED` (hoy lo garantiza §15.4 paso 6 pero ninguna PS de v1.80.4 lo asevera para este origen).
+PS-61 «recuperada tras publicar cuenta 0» deja de tener sentido con A6 (a).
+
+## 5. Banderas para el humano
+
+- **Antes de operar reembolsos reales de compras a bóveda:** el `product-owner` debe registrar en `PROJECT.md` que un
+  reembolso total **saca la carta de la bóveda del cliente** (§18.9 lo pide; §H hoy no lo dice). Es una regla de
+  custodia que el cliente debe poder leer en los términos **antes** de que se aplique.
+- **«Nunca reembolsar desde el panel de Stripe»** (B4) pesa más desde v1.80.4: el webhook no puede rechazar, y hasta
+  cerrar A5 el panel es el camino más corto a «carta y dinero».
+- La **detección** del reembolso del operador es ahora pasiva por decisión del dueño (D-13): que sepa que el contador del
+  tablero se vacía a las 24 h (B8).
+
+## 6. VEREDICTO
+
+**CON CONDICIONES** sobre el diseño en **`0e1faf6`** (§M4-SHIP v1.80.4 + ARCHITECTURE §4.57 (p)). ⛔ **El diseño NO puede
+pasar a construcción entero.** Mínimo para APROBADO (una v1.80.5 del arquitecto):
+1. **A5** — reclamo idempotente **por pieza** (el sello gobierna solo `needsManual`/bitácora/`AV-3`) **o** un verbo que
+   reclame las `in_packed_withdrawal` cuando el retiro deje de estar preparado; **guarda del retiro** (`409
+   WITHDRAWAL_LINE_ORIGIN_REFUNDED` en `prepared`/`tracking`/`→guia`/`→enviado`, `422` en `POST /shipments`); PS-63 con
+   mutación.
+2. **A6** — las devueltas **no son publicables** hasta `recuperada` (exclusión en los tres caminos + `tryAutoPublish`, o
+   estado congelado); quitar la frase de §18.7; PS-64 con mutación.
+3. **M5** — orden de llegada webhook/M3 explícito en §18.2; PS-57 ampliada.
+
+**Lo que SÍ puede pasar a construcción ya**, porque A5/A6/M5 no cambian su cuerpo: §M4-SHIP.17 entero (los cierres
+A1–A4, M1–M4 de v1.80.3, ya validados en §0), §M4-SHIP.18.1 (D-13: quitar `AVA-1`/`adminNotifiedAt`; D-14), §18.3 (el
+momento del cierre), §18.5 (colocación), §18.6 (`vaultPieces`/`classifyVaultPiece`), y el despacho + `C-FULLREF-1` de
+§18.2 **salvo la semántica del sello**. Deben esperar: la semántica no-op de §18.2, las filas «no se toca» de §18.4 y
+§18.7. Las Bajas B7–B11 quedan como deuda aceptada con su disparador.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · diseño `0e1faf6` · §M4-SHIP v1.80.4 / ARCHITECTURE §4.57 (p) · **CON CONDICIONES** (A5, A6, M5)
