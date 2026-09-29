@@ -18397,3 +18397,23 @@ Origen: auditoría E2E del recorrido del operador (tester-e2e, 2026-09-29). Solo
 - **Deuda del techlead** registrada en `docs/TECH_DEBT.md` (OPG-D1 mover duplicado, OPG-D2 diálogos gemelos en
   `M4View`, OPG-D3 clave `street`).
 
+
+### §81.2 · Hallazgos de QA sobre `4ca6c45` (2026-09-29, rama `claude/arreglos-operador`)
+
+Medido en la UI por QA tras aprobar `4ca6c45`; prueba en rojo primero, luego el arreglo (vitest, N=1, deterministas).
+
+| Hallazgo | Qué cambia | Dónde | Prueba (roja antes → verde después) |
+|---|---|---|---|
+| **IMPORTANTE** · cajones de custodia ofrecidos a una pieza `in_stock`/`listed` (backend: `422 LOCATION_NOT_AVAILABLE reason=not_platform_stock`, y el banner pintaba el inglés del servidor) | `moveTargets` filtra a `platform_stock` **activo** para **toda** pieza de plataforma (antes solo en `picking`). `canMove` solo es cierto en `in_stock\|listed\|picking`, estados de pieza de plataforma; una de cliente (`in_custody`) no entra en la sección. | `m1/ItemDetailModal.tsx` (`moveTargets`) | `m1/ItemDetailModal.test.tsx` «en `in_stock`/`listed` ofrece mover SOLO a stock de plataforma activo…» (2 rojas: ofrecía `loc-2..5`; ahora `['loc-2']`, y un estante inactivo tampoco) |
+| ídem · mensaje traducido | Claves nuevas `error.LOCATION_NOT_AVAILABLE` (base) y `error.LOCATION_NOT_AVAILABLE_WITH_DETAILS` (`select` ICU sobre `reason`: `not_platform_stock`, `not_customer_custody`, `not_customer_drawer`, `inactive`, `not_found`, `location_required`) en `es` y `en`; entrada `LOCATION_NOT_AVAILABLE` en `DETAILED_ERRORS` de `useErrorMessage` que pasa `{ reason }` solo si es uno de esos seis (si no, `null` ⇒ base traducida; nunca un `select` sin rama ni el inglés). ⚠️ `components/ui/QueryState.tsx` es zona compartida: cambio aditivo (una entrada + una lista), sin tocar el mecanismo §26. | `components/ui/QueryState.tsx`, `messages/{es,en}.json` | `components/ui/QueryState.test.tsx` (2 rojas: pintaba «Location not available: …»; ahora seis motivos en castellano + caída a la base) y `m1/ItemDetailModal.test.tsx` «un `422 LOCATION_NOT_AVAILABLE` del move se pinta TRADUCIDO…» (1 roja) |
+| **MENOR** · comentarios obsoletos («la respuesta real del move NO trae `location`») | Desde `6e3b1b7` el backend de esta rama sí devuelve `location`; production `a2da420` sigue sin ella. Los comentarios dicen ahora las dos formas y por qué la etiqueta sigue saliendo de la ubicación **elegida** (front y back se publican por separado). Sin cambio de conducta. | `m1/ItemDetailModal.tsx` (`mutationFn`), `m4/LocateItemControl.tsx` (cabecera y `onSuccess`) | — (comentario); las pruebas `it.each(['sin location','con location'])` ya cubren las dos formas |
+| **MENOR (preexistente)** · «Merma» y «Editar precio» sobre una pieza en `picking` (backend: `422 ITEM_NOT_ADJUSTABLE`) | Reglas de pantalla del contrato (§M1 v1.79.6 «5»): «Merma» solo en `in_stock\|listed` (`markable`, el mismo predicado que `removableCount`; ⛔ nunca `picking` ni `reserved`); «Editar precio» no en piezas **vendidas** (`sold` = `picking`, `shipped`, `delivered`; el contrato norma `picking`, las otras dos son la misma pieza más tarde) — el precio se sigue **leyendo** (span, no botón). Sobre `reserved` el precio no está normado: sin cambio. `in_stock`/`listed` no cambian. | `m1/VariantDrawer.tsx` (`markable`, `sold`) | `m1/VariantDrawer.test.tsx` «una pieza VENDIDA … NO ofrece «Merma» ni «Editar precio»; `reserved` tampoco merma; `in_stock` sí» (1 roja) |
+
+**Corrido (2026-09-29):** vitest de las 5 suites tocadas/candados (`ItemDetailModal`, `QueryState`, `VariantDrawer`,
+`error-audience`, `i18n-parity`) 115/115; vitest `m1/` + `m4/` completos 274/274 (23 ficheros); `tsc --noEmit` 0 errores;
+`next lint` limpio; Playwright en mocks `e2e/admin.spec.ts` + `e2e/inventory-stream-b.spec.ts` 23/23 (humo: ningún spec
+E2E abre el detalle de pieza de M1 — medido con grep —, la cobertura del arreglo es vitest).
+
+**Contrato:** mientras se hacía este pase el arquitecto publicó **v1.79.6** (`dde785b`): `LOCATION_NOT_AVAILABLE` lo emite también
+`move` con `reason:'not_platform_stock'` y §M1 «5 · Reglas de pantalla» norma exactamente lo de arriba. `frontend/src/types/contract.ts ·
+LocationNotAvailableDetails` incorpora `not_platform_stock`. No queda solicitud abierta al arquitecto por este pase.
