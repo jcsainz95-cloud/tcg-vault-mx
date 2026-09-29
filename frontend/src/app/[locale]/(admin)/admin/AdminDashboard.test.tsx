@@ -91,3 +91,24 @@ describe('AdminDashboard · §M10-IVA.7 ventas BRUTAS y NETAS', () => {
     expect(Object.keys(mockDashboard.salesPeriod)).not.toContain('amountCents');
   });
 });
+
+/**
+ * **Hueco 9 (auditoría del operador, 2026-09-29) — «Neto: MX$NaN».** El backend OMITE
+ * `salesPeriod.netAmountCents` al `vault_operator` (`admin.service.ts` · `dashboard`: solo el súper
+ * recibe el P&L). Sin el campo la línea del neto no se pinta; nunca «NaN», y el bruto sigue.
+ */
+describe('AdminDashboard · hueco 9: neto ausente para el operador', () => {
+  it('sin `netAmountCents` no pinta la línea del neto ni «NaN»; el bruto sigue', async () => {
+    const api = await import('@/lib/api');
+    const { netAmountCents: _omit, ...operatorSales } = mockDashboard.salesPeriod;
+    void _omit;
+    vi.spyOn(api, 'getDashboard').mockResolvedValue({
+      ...mockDashboard,
+      salesPeriod: { count: operatorSales.count, grossAmountCents: operatorSales.grossAmountCents },
+    } as never);
+    const { container } = renderWithProviders(<AdminDashboard />, 'es');
+    expect(await screen.findByTestId('sales-gross')).toHaveTextContent('15,919.98');
+    expect(screen.queryByTestId('sales-net')).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/NaN/);
+  });
+});

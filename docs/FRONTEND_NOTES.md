@@ -18349,3 +18349,22 @@ deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
 - M3 `t(reasonKey)` sin respaldo ⇒ 1/19 roja («matchStatus desconocido…»).
 - M4 `rejected = matched && !src` (todo sin imagen se llama «rechazada») ⇒ 1/19 roja («casada sin imageUrl…»).
 - Restaurado ⇒ 19/19.
+
+## §81 · **Arreglos del recorrido del operador** — huecos 1, 7, 9, 12 y 15 (2026-09-29, rama `claude/arreglos-operador`, base production `a2da420`)
+
+Origen: auditoría E2E del recorrido del operador (tester-e2e, 2026-09-29). Solo los huecos que no tocan dinero ni contrato.
+
+| Hueco | Qué cambia | Dónde | Candado |
+|---|---|---|---|
+| **1** · ubicar una carta vendida | «Mover de ubicación» se habilita también en `picking` (⛔ solo mover: merma/publicar siguen en `in_stock\|listed`). En `picking` los destinos son **solo `platform_stock` activos**. Al mover se invalida también `['admin-preparation-queue']`. | `m1/ItemDetailModal.tsx` (`canMove`, `moveTargets`) | `m1/ItemDetailModal.test.tsx` |
+| **1** · «Ubicar» en «Pedidos a preparar» | Cada carta de la tarjeta de ENVÍO (sin ubicar **y** ubicadas) trae «Ubicar»: diálogo con selector de `GET /admin/locations` filtrado a `platform_stock` activo, `POST /admin/inventory/items/:id/move`, y con la respuesta se **reescribe la tarjeta en caché** (`setQueriesData` sobre `['admin-preparation-queue']`, `currentLocation = {kind:'assigned', label}`) sin otra ida a `picking-list`. Si la respuesta no trae `location`, se invalida la cola. Foco inicial en «Cancelar». | `m4/LocateItemControl.tsx` (nuevo), `m4/PreparationQueue.tsx` | `m4/M4View.operator-gaps.test.tsx` |
+| **7** · «Ver ficha» | Operador ⇒ «Ver bóveda» a `/admin/vaults/:userId` (M6 es `superAdminOnly`). Súper-admin ⇒ sigue «Ver ficha» a M6. | `m4/M4View.tsx` (`useRole`) | ídem + `M4View.test.tsx` F9 |
+| **9** · «Neto: MX$NaN» | El backend **omite** `salesPeriod.netAmountCents` al no-súper (`admin.service.ts` · `dashboard`, leído). Sin el campo la línea no se pinta. ⛔ No se deriva del bruto. | `AdminDashboard.tsx` | `AdminDashboard.test.tsx` (hueco 9) |
+| **12** · «Calle Calle Río Lerma» | El rótulo `admin.m4.street` pasa de «Calle/Street» a «Dirección/Address»: la calle capturada suele empezar por «Calle». | `messages/*.json` | `M4View.test.tsx` F9 |
+| **15** · confirmar enviado/entregado | «Marcar enviado» y «Marcar entregado» abren un diálogo **neutro** (botón primario, no acento) con foco en «Cancelar»; el cuerpo solo afirma lo medido (la tabla `TRANSITIONS` del backend no tiene vuelta atrás). «Cancelar envío» no cambia. | `m4/M4View.tsx` (`advanceTarget`) | `M4View.operator-gaps.test.tsx` + `M4View.test.tsx` F4 |
+
+**Foco en «Cancelar»:** `Modal` enfoca su contenedor en un `useEffect`; el efecto del padre corre después del del hijo, así que el `useEffect` del consumidor que enfoca el `ref` de «Cancelar» gana. No se tocó `Modal` (compartido).
+
+**Nota para el arquitecto (no bloqueante):** `DashboardSalesPeriodDTO.netAmountCents` está tipado como `number` obligatorio, pero el backend lo omite para `vault_operator`. El front ya se defiende; el contrato debería declararlo opcional/enmascarado por rol.
+
+**Mutaciones (sobre copia en scratchpad, N=1 cada una, deterministas):** 10/10 muerden — `canMove` sin `picking`, filtro de zona en M1, escritura de caché del «Ubicar», filtro de zona del «Ubicar», control retirado, guarda del neto, enlace siempre a M6, «Marcar …» directo sin diálogo, foco sin mover, rótulo «Calle».

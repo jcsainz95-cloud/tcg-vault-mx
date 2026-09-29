@@ -88,6 +88,8 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
       setMoveNote('');
       void qc.invalidateQueries({ queryKey: ['admin-inventory'] });
       void qc.invalidateQueries({ queryKey: ['admin-inventory-item', itemId] });
+      // Una pieza en `picking` vive también en «Pedidos a preparar» (M4): su ubicación cambió allí.
+      void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
     },
   });
 
@@ -127,6 +129,21 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const canPublish = item?.status === 'in_stock';
   const canUnlist = item?.status === 'listed';
   const canOperate = item?.status === 'in_stock' || item?.status === 'listed';
+  /**
+   * Hueco 1 (auditoría del operador, 2026-09-29) — una carta VENDIDA en preparación (`picking`) tiene
+   * que poder ubicarse o corregirse: sin esto el operador no tenía ningún camino en la UI para decir
+   * dónde está una pieza «Sin ubicar» de un pedido cobrado. El backend ya lo acepta
+   * (`POST /admin/inventory/items/:id/move` sobre `picking` → 200, medido por el orquestador).
+   * ⛔ SOLO «Mover de ubicación»: la merma sigue restringida a `canOperate` (en `picking` responde 422
+   * y tocaría un pedido pagado). Destinos: solo `platform_stock` activos — una carta vendida que aún no
+   * sale sigue en el stock de la tienda, no en la custodia de un cliente.
+   */
+  const isPicking = item?.status === 'picking';
+  const canMove = canOperate || isPicking;
+  const moveTargets = locations.filter(
+    (l) =>
+      l.id !== item?.location?.id && (!isPicking || (l.zone === 'platform_stock' && l.isActive)),
+  );
 
   return (
     <>
@@ -263,8 +280,8 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
               </section>
             )}
 
-            {/* Mover de ubicación */}
-            {canOperate && (
+            {/* Mover de ubicación (también en `picking`: hueco 1) */}
+            {canMove && (
               <section className="flex flex-col gap-3 rounded-lg border border-border p-3">
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
                   <ArrowRightLeft size={16} aria-hidden /> {t('move.title')}
@@ -272,9 +289,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <Select
                   label={t('move.target')}
                   placeholder={t('move.targetPlaceholder')}
-                  options={locations
-                    .filter((l) => l.id !== item.location?.id)
-                    .map((l) => ({ value: l.id, label: `${l.label} · ${t(`zone.${l.zone}`)}` }))}
+                  options={moveTargets.map((l) => ({ value: l.id, label: `${l.label} · ${t(`zone.${l.zone}`)}` }))}
                   value={toLocationId}
                   onChange={(e) => setToLocationId(e.target.value)}
                 />

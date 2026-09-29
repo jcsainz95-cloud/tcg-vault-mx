@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import {
@@ -21,6 +21,7 @@ import { useShipmentSteps } from '@/lib/pipelines';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
 import { Link } from '@/i18n/navigation';
+import { useRole } from '@/lib/role';
 import type { AdminShipmentDTO, ShipmentStatus, ShipmentTrackingRequest } from '@/types/contract';
 import { PreparationQueue } from './PreparationQueue';
 
@@ -111,6 +112,9 @@ export function M4View() {
   const getError = useErrorMessage('operator');
   const qc = useQueryClient();
   const steps = useShipmentSteps();
+  // Hueco 7 (2026-09-29): M6 es solo de `super_admin`; el operador que pulsaba «Ver ficha» caía en
+  // «Acceso restringido». Al operador se le lleva al detalle que SÍ puede abrir: la bóveda del cliente.
+  const { isSuperAdmin } = useRole();
 
   // Cola ADMIN de envíos de clientes (contrato §M4 · GET /admin/shipments?status=).
   const [statusFilter, setStatusFilter] = useState('');
@@ -149,8 +153,19 @@ export function M4View() {
 
   // --- Cambio de estado manual (contrato §M4 · PATCH /admin/shipments/:id/status) ---
   const [statusChanged, setStatusChanged] = useState<string | null>(null);
-  // `cancelado` es destructivo → confirma antes; las transiciones hacia adelante son directas.
+  // `cancelado` es destructivo → confirma antes (diálogo en acento).
   const [cancelTarget, setCancelTarget] = useState<AdminShipmentDTO | null>(null);
+  /**
+   * Hueco 15 (2026-09-29): «Marcar enviado» y «Marcar entregado» también confirman. Avisan al cliente
+   * por correo y no hay transición de vuelta: un clic de más no debe dispararlos. Diálogo NEUTRO
+   * (no destructivo) con el foco en «Cancelar».
+   */
+  const [advanceTarget, setAdvanceTarget] = useState<{ shipment: AdminShipmentDTO; to: 'enviado' | 'entregado' } | null>(null);
+  const advanceCancelRef = useRef<HTMLButtonElement>(null);
+  // El efecto del padre corre después del de `Modal` (que enfoca su contenedor) ⇒ el foco queda en «Cancelar».
+  useEffect(() => {
+    if (advanceTarget) advanceCancelRef.current?.focus();
+  }, [advanceTarget]);
 
   const statusMutation = useMutation({
     mutationFn: ({ id, to }: { id: string; to: ShipmentStatus }) =>
@@ -160,6 +175,7 @@ export function M4View() {
       void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
       setStatusChanged(vars.id);
       setCancelTarget(null);
+      setAdvanceTarget(null);
     },
   });
 
@@ -225,7 +241,7 @@ export function M4View() {
             {t('statusActions.changed', { id: statusChanged })}
           </Banner>
         )}
-        {statusMutation.isError && !cancelTarget && (
+        {statusMutation.isError && !cancelTarget && !advanceTarget && (
           <Banner variant="danger" role="alert" title={tc('errorTitle')}>
             {getError(statusMutation.error)}
           </Banner>
@@ -277,7 +293,10 @@ export function M4View() {
                             statusMutation.variables?.id === s.id &&
                             statusMutation.variables?.to === to
                           }
-                          onClick={() => changeStatus(s.id, to)}
+                          onClick={() => {
+                            statusMutation.reset();
+                            setAdvanceTarget({ shipment: s, to: to as 'enviado' | 'entregado' });
+                          }}
                         >
                           {t(`statusActions.${to}`)}
                         </Button>
@@ -305,6 +324,8 @@ export function M4View() {
                     {t('phone')} <span className="tabular">{snap(s, 'phone') ?? DASH}</span>
                   </p>
                   <p>
+                    {/* Hueco 12 (2026-09-29): el rótulo era «Calle» y la calle capturada suele empezar
+                        por «Calle …» ⇒ «Calle Calle Río Lerma». El rótulo pasa a «Dirección». */}
                     <span className="font-medium text-text">{t('street')}</span>{' '}
                     <span className="text-text">{streetOf(s) ?? DASH}</span>
                   </p>
@@ -314,12 +335,21 @@ export function M4View() {
                     {s.userId && (
                       <>
                         {' · '}
-                        <Link
-                          href={{ pathname: '/admin/m6', query: { user: s.userId } }}
-                          className="font-mono text-xs uppercase text-accent hover:text-text"
-                        >
-                          {tm6('view')}
-                        </Link>
+                        {isSuperAdmin ? (
+                          <Link
+                            href={{ pathname: '/admin/m6', query: { user: s.userId } }}
+                            className="font-mono text-xs uppercase text-accent hover:text-text"
+                          >
+                            {tm6('view')}
+                          </Link>
+                        ) : (
+                          <Link
+                            href={`/admin/vaults/${s.userId}`}
+                            className="font-mono text-xs uppercase text-accent hover:text-text"
+                          >
+                            {t('viewCustomerVault')}
+                          </Link>
+                        )}
                       </>
                     )}
                   </p>
@@ -395,6 +425,38 @@ export function M4View() {
           {trackingMutation.isError && (
             <Banner variant="danger" role="alert" title={tc('errorTitle')}>
               {getError(trackingMutation.error)}
+            </Banner>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={advanceTarget !== null}
+        onClose={() => setAdvanceTarget(null)}
+        title={advanceTarget ? t(`statusActions.${advanceTarget.to}Title`) : ''}
+        footer={
+          <>
+            <Button ref={advanceCancelRef} variant="ghost" onClick={() => setAdvanceTarget(null)}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              loading={statusMutation.isPending}
+              onClick={() => advanceTarget && changeStatus(advanceTarget.shipment.id, advanceTarget.to)}
+            >
+              {advanceTarget ? t(`statusActions.${advanceTarget.to}Confirm`) : ''}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {advanceTarget && (
+            <p className="text-sm text-text">
+              {t(`statusActions.${advanceTarget.to}Body`, { id: advanceTarget.shipment.id })}
+            </p>
+          )}
+          {statusMutation.isError && advanceTarget && (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+              {getError(statusMutation.error)}
             </Banner>
           )}
         </div>

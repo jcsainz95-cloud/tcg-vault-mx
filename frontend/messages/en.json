@@ -1499,7 +1499,7 @@
       "itemCount": "{count, plural, one {# item} other {# items}}",
       "recipient": "To",
       "recipientMissing": "No recipient on file",
-      "street": "Street",
+      "street": "Address",
       "customer": "Customer",
       "postalCode": "ZIP",
       "phone": "Phone",
@@ -1510,7 +1510,13 @@
         "changed": "Status updated ({id}).",
         "cancelTitle": "Cancel shipment",
         "cancelConfirm": "Cancel shipment",
-        "cancelBody": "Cancel shipment {id}? This action cannot be undone."
+        "cancelBody": "Cancel shipment {id}? This action cannot be undone.",
+        "enviadoTitle": "Mark as shipped",
+        "enviadoConfirm": "Mark shipped",
+        "enviadoBody": "Mark shipment {id} as shipped? It can't be moved back to the previous step from here.",
+        "entregadoTitle": "Mark as delivered",
+        "entregadoConfirm": "Mark delivered",
+        "entregadoBody": "Mark shipment {id} as delivered? It can't be moved back to the previous step from here."
       },
       "prep": {
         "title": "Orders to prepare",
@@ -1648,8 +1654,22 @@
             "title": "Nothing to take to the vault for now.",
             "body": "No paid purchases are waiting for their drawer."
           }
+        },
+        "locate": {
+          "action": "Locate",
+          "actionAria": "Set location for folio {folio}",
+          "title": "Set card location",
+          "folio": "Folio",
+          "current": "Current location:",
+          "none": "No location yet",
+          "target": "Platform stock location",
+          "targetPlaceholder": "Pick a location",
+          "noLocations": "There are no active platform stock locations. Create them in M1 · Inventory.",
+          "confirm": "Save location",
+          "error": "We couldn't save the location."
         }
-      }
+      },
+      "viewCustomerVault": "View vault"
     },
     "m5": {
       "title": "M5 · Buylist",

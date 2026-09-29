@@ -23,6 +23,7 @@ import type {
 } from '@/types/contract';
 import { AgeStamp, CardInfo, DASH, LABEL } from './prep-shared';
 import { VaultPlacementCard, type QueueNotice } from './VaultPlacementCard';
+import { LocateItemControl } from './LocateItemControl';
 
 /**
  * **«Pedidos a preparar»** — la hoja de trabajo del operador (contrato **§M4-PREP** v1.78 ·
@@ -585,6 +586,10 @@ function PreparationItem({ item, t }: { item: PreparationItemDTO; t: Translator 
              del pedido, que es donde el recorrido la encuentra. */
           <span className="text-sm text-accent">{t('unassigned')}</span>
         )}
+        {/* Hueco 1 (2026-09-29): ubicar o corregir la ubicación de la carta vendida desde aquí. */}
+        <div className="mt-1">
+          <LocateItemControl item={item} />
+        </div>
       </div>
       <CardInfo card={card} folio={item.folio} quantity={item.quantity} t={t} />
     </li>

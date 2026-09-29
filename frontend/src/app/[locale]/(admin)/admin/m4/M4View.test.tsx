@@ -117,6 +117,9 @@ describe('M4View · cambio de estado manual (F4)', () => {
     await screen.findByText('shp-7001');
 
     fireEvent.click(screen.getByRole('button', { name: 'Marcar entregado' }));
+    // Hueco 15: ya no dispara directo — pide confirmación.
+    const dialog = await screen.findByRole('dialog', { name: 'Marcar como entregado' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Marcar entregado' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith('shp-7001', 'entregado'));
     expect(await screen.findByText('Estado actualizado (shp-7001).')).toBeInTheDocument();
@@ -210,13 +213,17 @@ describe('M4View · destinatario y dirección (F9)', () => {
     const parties = await screen.findByTestId('shipment-parties-shp-9001');
     expect(parties).toHaveTextContent('Para Misty Waterflower · Guadalajara, JAL · CP 44100 · Tel 3331234567');
     // S3-ENVIO-DIR: la calle/número del destino SÍ se pinta (el operador no puede enviar sin verla).
-    expect(parties).toHaveTextContent('Calle Calle Falsa 123');
+    // Hueco 12: el rótulo es «Dirección» ⇒ ya no «Calle Calle Falsa 123».
+    expect(parties).toHaveTextContent('Dirección Calle Falsa 123');
+    expect(parties).not.toHaveTextContent('Calle Calle');
     // Sin `customer` en el DTO: «—» (nunca omitido en silencio), y el enlace a la ficha por id.
     expect(parties).toHaveTextContent('Cliente — · —');
-    expect(within(parties).getByRole('link', { name: 'Ver ficha' })).toHaveAttribute(
+    // Hueco 7: el operador (rol por defecto del contexto, no súper) va a la bóveda del cliente, no a M6.
+    expect(within(parties).getByRole('link', { name: 'Ver bóveda' })).toHaveAttribute(
       'href',
-      expect.stringContaining('/admin/m6?user=u-777'),
+      '/admin/vaults/u-777',
     );
+    expect(within(parties).queryByRole('link', { name: 'Ver ficha' })).not.toBeInTheDocument();
     expect(screen.queryByText('u-777')).not.toBeInTheDocument();
     expect(parties).not.toHaveTextContent('Sin destinatario registrado');
   });
@@ -306,7 +313,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
     expect(parties).toHaveTextContent('Sin destinatario registrado');
     expect(parties).toHaveTextContent('—, — · CP — · Tel —');
     // S3-ENVIO-DIR: sin snapshot la calle también es «—», nunca omitida en silencio.
-    expect(parties).toHaveTextContent('Calle —');
+    expect(parties).toHaveTextContent('Dirección —');
     expect(screen.queryByText('u-777')).not.toBeInTheDocument();
   });
 
@@ -337,7 +344,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
     renderWithProviders(<M4View />, 'es');
 
     const parties = await screen.findByTestId('shipment-parties-shp-9010');
-    expect(parties).toHaveTextContent('Calle Av. Insurgentes Sur 1234, Depto 5B, Del Valle');
+    expect(parties).toHaveTextContent('Dirección Av. Insurgentes Sur 1234, Depto 5B, Del Valle');
   });
 });
 
