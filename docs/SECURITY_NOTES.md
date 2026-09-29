@@ -13192,3 +13192,146 @@ quedan como deuda con disparador. La fase de seguridad completa (pentester + seg
 release, sigue siendo obligatoria: aquí no se ha ejecutado nada.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-29 · diseño `3498766` · §M4-SHIP v1.80.5 / ARCHITECTURE §4.57 (q) · **APROBADO** (M6, M7 al contrato; B12–B14 deuda)
+
+---
+
+# Veredicto de seguridad sobre el CÓDIGO — stream §M4-SHIP «Preparar envíos» · sha FIJADO **`59a0c1f`** (rama `claude/envio-preparar`) · 2026-09-29
+
+> **En una línea:** las carreras de dinero que el pentester dejó sin disparar (`SHIP-P4`) las disparé en vivo con N≥10 y
+> **aguantan**: 0 violaciones, 0 interbloqueos, y la mutación que quita el candado del tope sale **0/10**. La CLABE
+> completa no aparece en ninguna respuesta (salvo `reveal-clabe`), correo, bitácora, fila ni salida del servidor. **Sin
+> hallazgos críticos ni altos.** `SHIP-P1` baja a **Baja** (medí que no se alcanza) y se corrige antes de `sk_live_`.
+> **APROBADO CON CONDICIONES**: nada bloquea fusionar a `main`; tres condiciones antes de operar con dinero real.
+
+**Qué es este pase (O-1):** qué medí yo en vivo y qué solo consolido.
+- **Medido por mí, `[VIVO]`:** copia del árbol ENTERO (`git archive 59a0c1f`) en mi ruta exclusiva del scratchpad;
+  Postgres 16 propio (`/var/lib/postgresql/seg-envio`, `:58441`), Redis propio (`:58442`); la app Nest real por HTTP
+  (`E2EHarness`) con el doble de Stripe con estado (tope por lo cobrado, idempotencia por llave) y la firma de webhook
+  **real** (`constructEvent`). Todo se borró al terminar (datos, scratchpad, procesos).
+- **Consolidado, no re-medido:** diseño (`0e1faf6`, `3498766` + M6/M7/B12 cerradas en v1.80.6), el pase estático del
+  pentester sobre `c20451f`, lo que QA midió sobre `c20451f` y las mediciones y mutaciones de backend en `BACKEND_NOTES
+  §M4-SHIP-TL` / v1.80.7 / segundo pase (autor: backend; N=10 cada una).
+- ⚠️ **Transparencia:** `node_modules` de la copia es un enlace al del worktree vivo, y corrí `prisma generate` una
+  vez. El `schema.prisma` de `59a0c1f` es **idéntico** al del worktree (`diff` vacío), así que el cliente generado es el
+  mismo; no toqué ningún fichero versionado. Al terminar, el árbol vivo tiene `docs/API_CONTRACT.md` modificado **y sin
+  commitear (+37/−3)**. **No es mío**: estaba así cuando cerré. El orquestador debe averiguar de quién es (O-14).
+
+## 1. Réplica independiente de las suites de dinero (sobre la copia `59a0c1f`)
+
+`full-refund-vault` + `replacement-cases` + `shipments-prep`: **3/3 suites, 64/64 pruebas**. Cada carrera con barrera
+de fila salió **10/10 (N=10)**:
+
+- **Por reponer, casos y SPEI:** PS-21, PS-23 (casos / compra), PS-27, PS-27b, PS-27c, **PS-27d** (el R1 del techlead),
+  PS-36b (Δ interbloqueos 0), PS-33, PS-33b, PS-47.
+- **Reembolso total de bóveda:** PS-57 (M3 contra webhook), PS-57 (dos webhooks), **PS-57c** (Δ 0; 409 + `returned`
+  10/10), PS-61b (Δ 0), PS-41, PS-41b, PS-42b, PS-65.
+- **Preparar el envío:** PS-1, **PS-4**, PS-6, PS-7, PS-51, PS-11, PS-44.
+
+Esto confirma lo que reportaron backend y QA sobre este sha: **ahora es medición mía**.
+
+## 2. `SHIP-P4` — las carreras de dinero, disparadas en vivo SIN barrera (reparto en abanico, N≥10)
+
+Las PS de backend fuerzan un entrelazado de **dos** actores con barrera. Yo añadí la forma que un atacante o un doble
+clic producen de verdad: **muchas peticiones a la vez sobre el mismo recurso, sin barrera**. Las pruebas vivieron solo
+en la copia y se borraron con ella. **No hay ninguna prueba nueva en el repo.**
+
+| Id | Qué se disparó | Invariante | Resultado |
+|---|---|---|---|
+| **SEG-CAP** | Por ronda: **dos operadores nuevos** (lo usado parte de 0). Cada uno lanza **4 `prepared` concurrentes** de 31458 (8 a la vez), con un tope de 2×31458+100 | Cada operador exactamente 2×`200` y 2×`403 MONEY_OUT_LIMIT_EXCEEDED`; Σ usado = 62916 ≤ tope por operador; Stripe = 4 llamadas nuevas | **10/10 (N=10 rondas, 80 actos)**, Δ interbloqueos **0** |
+| **SEG-CAP · mutación** | Mismo disparo, con la línea `lockOperatorRefundGate` comentada (copia) | — | **0/10**: cada operador 4 `200`, usado 125832 (el doble del tope), 8 llamadas a Stripe. **Además, la PS-4 de backend también la caza: 0/10 en dos corridas.** El candado del tope sí se prueba |
+| **SEG-PAID-a** | Por ronda: **5× `paid` (misma referencia) + 5× `cancel`** concurrentes sobre una `ManualRefund` recién revelada | Un solo ganador; solo `200`/`409` (0×5xx); bitácora y `AV-15` = 1 si ganó `paid`, 0 si no; después, el verbo contrario da `409` | **10/10 (N=10)**. Ganó `paid` 6/10 y `cancel` 4/10: se observaron **los dos órdenes** |
+| **SEG-PAID-b** | Por ronda: **10× `paid` con referencias distintas** | 1×`paid`, 9×`409 MANUAL_REFUND_NOT_PENDING`, 1 bitácora, 1 `AV-15` | **10/10 (N=10)**, Δ interbloqueos **0** |
+| **SEG-M3WH-1** | M3 con fallo transitorio (fila `requested`). Después, **a la vez**: `retry` (Stripe `succeeded`) + 4 `charge.refunded` (2 con id distinto y 2 con el **mismo** `event.id`) | Un reembolso en Stripe por PI; un `refund_return` por carta; un sello (`order.full_refund_closed`); un `AV-3`; orden `refunded`; 0×500 | **10/10 (N=10)**, 0×503, Δ interbloqueos **0** |
+| **SEG-M3WH-2** | Reembolso **hecho en el panel** de Stripe (sembrado en el doble) + **a la vez** M3 + 3 `charge.refunded` | Un solo reembolso en Stripe; un `refund_return` por carta; orden `refunded`; 0×500 | **10/10 (N=10)**. M3 respondió `409 CONFLICT` en las 10: leyó `settled` sin candado y perdió **bajo** el candado, así que el entrelazado sí ocurrió. Ninguna fila `order_full` y ningún segundo reembolso |
+
+**Límites de estas mediciones (dichos enteros):**
+- **Stripe es el doble del arnés, no Stripe real.** Cumple las dos propiedades de las que depende el dinero (no
+  reembolsar más de lo cobrado e idempotencia por llave), pero las respuestas de error reales de Stripe MX no están
+  medidas (condición C2).
+- **Un solo proceso Node.** La serialización es de Postgres (`FOR UPDATE`, candado de sesión *advisory*, CAS). Nada
+  depende de memoria del proceso, así que no espero diferencia con varias réplicas. **NO MEDIDO con varias réplicas.**
+- **SEG-M3WH-2 solo vio un orden** (el webhook llegó primero las 10 veces). El orden inverso con el mismo candado lo
+  cubren PS-57 y la secuencia inversa de PS-57, que repliqué 10/10.
+
+## 3. La CLABE en claro — medido
+
+- **SEG-CLABE `[VIVO]`**: recorrí el ciclo `list` → `get` → `reveal-clabe` → `paid`. Luego el cliente cambió su CLABE
+  (`PUT /users/me/kyc`, que dispara `AV-16`), y leí `GET /users/me/kyc`, el detalle M3, la ficha 360°, el caso,
+  `GET /orders/:id` y `holdings`. Sumé **11 respuestas, 2 correos** (`AV-15`, `AV-16`), **9 bitácoras** y las filas
+  `ManualRefund`. Ni la CLABE vieja ni la nueva aparecen: **A=false, B=false**, y ninguna secuencia de 18 dígitos.
+  `reveal-clabe` responde con `Cache-Control: no-store` (verificado en la cabecera).
+- **Salida del servidor:** busqué las dos CLABE y cualquier secuencia de 18 dígitos en toda la salida de las cuatro
+  corridas (incluye líneas `ERROR`/`WARN` de Nest de `RefundLedgerService`/`PaymentsService`): **0 coincidencias**.
+  - En código, ningún `logger.*` interpola la CLABE ni `kyc`.
+  - El único log de cuerpo de correo es `NoopMailAdapter` (nivel `debug`), y los correos solo llevan la máscara.
+  - `revealClabe` audita sin la CLABE ni el token.
+  - El DTO de `clabe` (`@Length(18,18)`) y `CLABE_INVALID` no repiten el valor recibido.
+- **Resto del delta desde el pase del pentester (`c20451f..59a0c1f`), revisado:**
+  - `eraseClabe` escribe solo nulos (el censo C-CLABE-1 lo vigila).
+  - `constantTimeEquals` usa `timingSafeEqual` y devuelve `false` si las longitudes no coinciden.
+  - El filtro del `429` solo añade `retryAfterSeconds`; los demás `details` no cambian.
+  - `paid`/`cancel` devuelven el DTO: sin CLABE, verificado en SEG-CLABE.
+
+## 4. Decisiones sobre los hallazgos del pentester
+
+| Id | Severidad del pentester → la mía | Decisión | Dueño |
+|---|---|---|---|
+| **SHIP-P1** (`qs`/`body-parser`/`express`) | Media → **Baja** | Hoy **no es alcanzable** (detalle debajo de la tabla). **No bloquea la fusión**. Sí se cierra **antes de la primera `sk_live_`** (**C1**): el arreglo es barato, sin cambio mayor, y la dependencia está a un cambio de configuración de ser alcanzable | **backend** (`backend/package.json`: `overrides.qs` a `^6.16.0` + lockfile), y devops mantiene `npm audit` en el gate |
+| **(nuevo)** `@nestjs/core` ≤ 11.1.17, GHSA-36xv-jgw5-4q75 (6.º aviso de `npm audit`, el pentester no lo desglosó) | **Info** | Inyección en **SSE**. `grep` de `@Sse` / `text/event-stream` en `backend/src`: **0**. No alcanzable. El arreglo exige saltar de versión mayor de Nest (10 → 11.1.18+) | Deuda: se aborda **si se introduce SSE** o en la próxima subida de Nest (**backend**) |
+| **SHIP-P2** (`multer`) | Baja → **Baja** | Confirmo que no es alcanzable (no hay rutas multipart). Se cierra con la subida de C1 | backend |
+| **SHIP-P3** (`revealToken` no caduca) | Info → **Info, aceptado** | El token no es credencial: `paid` exige **además** el JWT de `super_admin` y `@MoneyOut`. El token solo **ata** la CLABE revelada a la que se paga (una CLABE distinta ⇒ `CLABE_CHANGED_SINCE_REVEAL`, medido en PS-47 10/10). Uno viejo solo sirve para pagar a la **misma** CLABE que sigue vigente, que es lo correcto. **Disparador para ponerle caducidad:** que revelar y pagar dejen de ser el mismo rol (un «pagador» distinto de quien revela), o que el token salga del navegador del súper-admin | arquitecto (solo si llega el disparador) |
+| **SHIP-P4** (carreras sin disparar) | Info → **CERRADO** | Disparadas en vivo (§2) | — |
+
+**Por qué `SHIP-P1` no es alcanzable hoy:** Express 4.22 llama a `qs.parse(str, {allowPrototypes: true})` sin `comma`.
+El salto del límite de arrays (GHSA-x5fp) exige `comma: true`. El `isBuffer` (GHSA-4mjr) exige además un
+`qs.stringify` del objeto ya parseado, y `grep` de `from 'qs'` / `stringify(req.query` en `backend/src` da **0**.
+El `limit` global de 300/min sigue aplicando.
+
+## 5. Condiciones (numeradas, con dueño) — ninguna bloquea fusionar a `main`
+
+1. **C1 · antes de la primera `sk_live_`** — *backend*: subir `qs` a ≥ 6.16.0 (override), y con ello `body-parser` /
+   `express` / `multer`. **Comprobación:** `npm audit --omit=dev` sin los avisos de `qs`/`multer`; la suite unitaria
+   sigue verde.
+2. **C2 · en la ventana con claves de prueba de Stripe, antes de `sk_live_`** — *backend* mide y *arquitecto* decide si
+   hay diferencia: `REFUND_FAILURE_DISPUTE_CODES` (`charge_disputed`, `charge_already_refunded_or_disputed`) está **NO
+   MEDIDO** contra Stripe MX real (`BACKEND_NOTES §M4-SHIP` §2). Si el código real es otro, un reembolso sobre un
+   cargo disputado se clasificaría mal y podría acabar enviándose por `to-manual` (SPEI) además del contracargo.
+   **Comprobación:** respuesta real de `refunds.create` sobre un cargo disputado en modo prueba, anotada en
+   `BACKEND_NOTES`.
+3. **C3 · antes de desplegar** — *dueño* (o un usuario de solo lectura; no por chat): la consulta B13 (`Order` `vault`
+   `refunded` con `fullRefundClosedAt IS NULL`), con 0 esperado. Si da > 0 ⇒ *arquitecto* (esas órdenes no tienen
+   verbo).
+
+## 6. Deuda de seguridad aceptada (no bloquea)
+
+- **`@nestjs/core` SSE**: ver §4. Disparador: introducir `@Sse` o subir Nest.
+- **`SHIP-P3`**: ver §4. Disparador: separar el rol que revela del que paga.
+- **El tope es por operador** (diseño D-3): con *k* operadores, el techo diario es *k*×tope. Medido: cada operador
+  queda acotado por separado (SEG-CAP), y es lo que fija el contrato, no un bypass. **Disparador:** un tercer operador
+  o un P&L con devoluciones anómalas ⇒ añadir un tope global (arquitecto).
+- **Sin cambios desde `3498766`:** B8 (detección pasiva del reembolso del operador), B12 (`confirmUnpacked` por pieza,
+  ya aditivo en v1.80.6), B14 (medido por backend: `inventoryValue` no cuenta `picking`), y los avisos operativos de
+  abajo.
+
+## 7. Banderas para el humano
+
+- **Pentest de un tercero + bug bounty antes de operar con dinero real.** Este stream abre dinero saliente (Stripe y
+  SPEI) y datos bancarios. Todas las mediciones de arriba son internas y con el doble de Stripe.
+- **Regla operativa (se mantiene de `3498766`):** ningún paquete sale del local hasta que el sistema diga `enviado`.
+  **Nunca** reembolsar desde el panel de Stripe: medido, no deja «carta y dinero» (SEG-M3WH-2), pero sí deja una carta
+  que hay que reclamar a mano.
+- **Validación legal (se mantiene):** custodia y reembolso por SPEI a CLABE de terceros, y la retención de la CLABE
+  tras el borrado de cuenta (`eraseClabe` la anula, verificado en código).
+
+## 8. VEREDICTO
+
+**APROBADO CON CONDICIONES** sobre el código en **`59a0c1f`** (rama `claude/envio-preparar`).
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 2** (`SHIP-P1`, `SHIP-P2`) · **Info 2** (`@nestjs/core` SSE, `SHIP-P3`).
+  `SHIP-P4`: cerrado en vivo.
+- **Fusionar a `main`: sí**, sin condiciones de seguridad.
+- **Operar con `sk_live_`:** tras **C1** (backend: subir `qs`), **C2** (backend + arquitecto: medir los códigos de
+  disputa de Stripe en modo prueba) y **C3** (dueño: consulta B13 = 0).
+- Además, pentest de un tercero antes del dinero real.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · código `59a0c1f` · §M4-SHIP · **APROBADO CON CONDICIONES** (C1–C3 antes de `sk_live_`; nada bloquea el merge)
