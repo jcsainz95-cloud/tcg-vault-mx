@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.3 — 🔒💰 CIERRE DE LA REVISIÓN DE SEGURIDAD DEL DISEÑO §M4-SHIP (4 altos + 4 medios) Y D-11/D-12**
+> (2026-09-29, arquitecto. Base: **v1.80.2, vigente entera salvo lo que esta rev toca**. Origen: `SECURITY_NOTES`,
+> revisión de diseño del 2026-09-29 sobre `ff57390`, CON CONDICIONES; `HECHOS.md`, última fila. `API_CONTRACT` sube a
+> **v1.80.3**; norma en `API_CONTRACT §M4-SHIP.17` y §M1. Porqué: **§4.57 (o)**. Desviaciones nuevas **`D-SHIP-5`**
+> (`mark` sobre piezas de cliente en `claude/arreglos-operador`) y **`D-SHIP-6`** (`PATCH` de estado sin guarda) en §9.
+> `M-61` suma columnas en `PaymentRefund`, `ManualRefund` y **`KycProfile.clabeUpdatedAt`**.)
+>
 > **Rev v1.80.2 — «POR REPONER» TRAS D-5..D-10: EL MONTO LO CAPTURA EL DUEÑO, LO QUE NO CABE EN STRIPE VA A LA CUBETA
 > «REEMBOLSOS MANUALES (SPEI)», EL CASO VENCE A LOS 7 DÍAS; Y EL CLIENTE REGISTRADO VE SU ENVÍO** (2026-09-29, arquitecto.
 > Base: **v1.80.1, vigente entera salvo lo que esta rev toca**. Origen: `HECHOS.md`, última fila, y un hallazgo de QA
@@ -25387,6 +25394,9 @@ decidir qué pasa con ese retiro es de «Órdenes y dinero».
 ⭐ **v1.80.2 — D-5..D-10 contestadas** (`HECHOS.md`): monto capturado (D-5/D-6), cubeta SPEI (D-7), D-9 confirmada,
 D-8/D-10 defaults, plazo de 7 días ⇒ (m). Abiertas, con default: **D-11** (¿basta la clave de rastreo como
 comprobante?) y **D-12** (¿2× confirma, 5× bloquea?). Fiscal de la compensación: lo confirma el contador del dueño.
+⭐ **v1.80.3 — D-11** (*«Solo marcar si se realizó y quién»*: clave de rastreo **opcional**) y **D-12** (*«Sí, así»*)
+contestadas. Nuevas, con default: **D-13** (aviso por reembolso de operador: por evento / resumen diario) y **D-14**
+(abrir un caso «Por reponer» desde el inventario, fuera de un retiro) — ver (o).
 **Recuperar una `lost` que aparece** queda resuelto **solo dentro de un caso** («apareció», `lost → in_custody` del
 cliente); fuera de un caso sigue sin verbo (H10).
 
@@ -25468,7 +25478,7 @@ refund {A, reason, expected*} ─► topes sobre R = max(Q, M) ─► reparto: s
 | Tabla **propia** `ManualRefund` | Una fila más de `PaymentRefund` con `kind='manual'` | `PaymentRefund` tiene un ciclo **de Stripe** (`requested/submitted/succeeded/failed`, `stripeRefundId`, webhooks, reintento, `C-REF-1`, `INV-SP-2` sobre el cobro). Un pago SPEI no tiene nada de eso y tiene lo que aquel no (clave de rastreo, CLABE, quién marcó, cancelar). Meterlo ahí obligaría a cada lector del libro a excluirlo y rompería `INV-SP-2` (Σ ≤ cobro) |
 | La CLABE **no se copia**: se lee cifrada de `KycProfile` al revelar; al pagar se congela solo `paidClabeHmac` | Snapshot cifrado de la CLABE en la fila (como `SellRequest.clabeSnapshotEnc`) | Una copia más de PII bancaria es otra fuente con su retención; y si `AV-14` le pide al cliente registrarla o corregirla, la vigente es la que sirve. El índice ciego prueba después **a qué** CLABE se pagó sin guardarla. (En buylist el snapshot tiene sentido: la CLABE es parte de la oferta que el vendedor aceptó; aquí no hay oferta) |
 | Reveal **solo en `pending`**, auditado por llamada | Reveal sin precondición (como el de buylist) | Tras pagar o cancelar no hay para qué ver la CLABE en claro; cada lectura innecesaria de PII es riesgo sin beneficio |
-| Clave de rastreo **obligatoria** al marcar pagada; comprobante-archivo **no** (D-11) | Subir imagen/PDF | La clave de rastreo **es** el comprobante verificable (el CEP de Banxico se obtiene con ella). `uploads` solo admite `kyc_ine` con candados propios (medido `uploads.service.ts:161`): abrir otro propósito es un pase con seguridad |
+| Clave de rastreo ~~**obligatoria**~~ (⭐ v1.80.3, D-11 del dueño: **opcional**; lo obligatorio es quién y cuándo, y que se haya revelado la CLABE, (o)) al marcar pagada; comprobante-archivo **no** (D-11) | Subir imagen/PDF | La clave de rastreo **es** el comprobante verificable (el CEP de Banxico se obtiene con ella). `uploads` solo admite `kyc_ine` con candados propios (medido `uploads.service.ts:161`): abrir otro propósito es un pase con seguridad |
 | `cancel` **no reabre** el caso | Volver el caso a `open` | Los estados del caso son terminales (§M4-SHIP.15.3) y la pieza ya pasó a plataforma. Cancelar una deuda manual es una decisión del dueño **con nota**, visible en el caso y en M3 — no un deshacer |
 | Stripe `failed` ⇒ `to-manual` **solo** desde `failed` | Convertir también `requested` | Una `requested` todavía puede salir por el reintento: convertirla pagaría el mismo peso dos veces (`INV-MR-2`) |
 | **Solo súper-admin** ve y opera la cubeta (ni conteo al operador) | Conteo visible al operador (como `toReplace`) | Es dinero saliente y PII bancaria; el operador no tiene nada que hacer con ella |
@@ -25499,6 +25509,36 @@ el dato siempre está*).
 | Proyección **mínima con lista blanca** (estado, paquetería, guía, fechas, destinatario/ciudad, `missingCount`) | Devolver la fila `ShipmentRequest` | La fila trae costos del carrier, sellos de aviso y la dirección cruda; la lección de `avisos.seals-out-of-dto.spec.ts` es que un spread publica lo que nadie decidió publicar |
 | El cliente ve más que el invitado (destinatario completo, CP) pero no la dirección de calle | Toda la dirección | Es su propia dirección, pero para seguir un paquete no hace falta; la calle ya está en su libreta de direcciones |
 | Titular con `publicStatus`, conservar `status` | Cambiar el significado de `status` | `status` lo leen otras pantallas (y es la verdad del dinero); añadir es aditivo y no rompe a nadie |
+
+**(o) 🔒💰 v1.80.3 — Cierre de la revisión de seguridad del diseño (`SECURITY_NOTES`, 2026-09-29, sobre `ff57390`,
+CON CONDICIONES).** Norma entera y pruebas PS-41…PS-54: `API_CONTRACT §M4-SHIP.17`. Aquí, el porqué.
+
+*El diagnóstico de seguridad, dicho en una línea:* el núcleo resistía; fallaban **los bordes** — verbos viejos que el
+diseño daba por guardados (`mark`, `PATCH` de estado), un pedido reembolsado que seguía enviable justo cuando se quitó
+«Cancelar», una CLABE editable sin rastro antes de un pago manual, y `to-manual` sobre un cargo en disputa. Todos se
+cierran **sin re-preguntar al dueño** lo ya decidido; dos preguntas nuevas (D-13, D-14) llevan valor por defecto.
+
+| Hallazgo | Decisión | Alternativa descartada | Por qué |
+|---|---|---|---|
+| A1 `mark` | Solo plataforma `in_stock\|listed`; **ninguna** pieza de cliente | Mantener `mark` sobre custodia de cliente fuera de retiros (lo que hizo `claude/arreglos-operador` siguiendo el texto de §0) | `lost` sobre una carta de cliente **sin caso** borra la deuda: ningún lector de «Por reponer» la ve y el cliente no puede retirarla. La deuda con nombre nace **solo** en el palomeo (que abre el caso). Si hace falta antes del retiro, es un verbo que **abre el caso** (D-14), ⛔ no `mark` |
+| A1 `PATCH` de estado | Guarda de origen + CAS; **sin** `InventoryMovement` para `listed↔in_stock`; bitácora con `before/after` | Añadir `MovementReason` `publish/unpublish` y un movimiento (lo que pedía seguridad a la letra) | El libro de movimientos registra cambios **físicos o de titularidad**; ninguno de los caminos de publicación (lote, «publicar todo», auto-publicación) escribe movimiento. Que solo el `PATCH` lo hiciera daría **dos verdades** sobre el mismo hecho. El vector (un `lost → in_stock` sin movimiento de regreso) desaparece porque el verbo ya **no** tiene transición física. ⚠️ Si seguridad insiste, la alternativa cuesta un valor de enum en `M-61` y **los tres** caminos de publicación: se hace entero o no se hace |
+| A1 (c) línea bloqueada | `409 PREPARATION_HAS_BLOCKED_LINES` si su orden sigue `settled` | Contarla para el cierre (v1.80) | Contarla convertía «alguien movió la pieza» en «pedido cobrado, nada enviado, nada devuelto». Tras las guardas ya no tiene camino de nacimiento: es invariante, y se rompe ruidosamente |
+| A2 | Guarda `ORDER_NOT_SETTLED` **y** cierre automático `closeShipmentsOnFullRefund` en la tx de M3 / `charge.refunded` | Solo la guarda | Con solo la guarda, el envío quedaría `picking` para siempre (sin «Cancelar» a mano): limbo. El cierre reusa el patrón del contracargo de un directo (piezas congeladas + `chargebackNeedsManual` + `chargeback-inventory`) — un mecanismo, no dos. ⚠️ M3 cambia su orden de candados a envío → orden para no interbloquear con el preparado |
+| A2 piezas congeladas | Quedan `picking`; `chargeback-inventory` gana `no_recuperada ⇒ lost` para órdenes `refunded` | Devolverlas a la venta en el mismo acto | Pudieron ir ya a una caja; re-listar sin confirmación física es la lección de §4.21c-bis |
+| A3 | Un escritor de CLABE (`setClabe`) con fecha, bitácora y aviso; `revealToken` que ata la CLABE revelada; confirmación reforzada si cambió tras la deuda o < 72 h | Re-autenticación para cambiar la CLABE; copiar la CLABE a la fila al crear la deuda | La re-autenticación no protege del robo de contraseña (el vector nombrado) y añade una pantalla nueva; la copia sería una segunda fuente de PII bancaria y congelaría una CLABE que el cliente puede tener que corregir (§4.57 (m)). Lo que sí cierra el vector: **el dueño se entera** (fecha a la vista + confirmación) y **el cliente se entera** (`AV-16`), y la evidencia (`paidClabeHmac`) es la de la CLABE que se vio. Token **sin estado** (HMAC con la llave del índice ciego, prefijo de dominio): nada nuevo que guardar ni que rotar |
+| A4 | `to-manual` exige la orden `settled` bajo candado **y** rechaza códigos de fallo de disputa | Solo el color rojo en la cubeta | El motivo más probable del `failed` es la disputa; el webhook de la disputa puede llegar después del rechazo, por eso también el código |
+| M1 | Tres lecturas (libro filtrable, resumen por operador, merma por actor) + contador + `AVA-1` por evento (D-13) | Solo la bitácora | Con la separación de poderes perdida, el control compensatorio es **mirar**; sin vista especificada no existía. La merma cuenta la **entrada** a `lost/damaged` una vez (resuelve de paso el «no contar dos veces» de (l)) |
+| M2 | Reclamo por lease (`attemptStartedAt`) + búsqueda paginada | `FOR UPDATE` durante la llamada a Stripe | §4.50: sostener candados durante red agota el pool |
+| M3 | `resolveOrigin` = evento de adquisición más reciente; `currentPieceOf` solo por la **misma** compra, con tope y ciclo; revertir solo si la pieza sigue siendo de esa compra | Precedencia fija del caso sobre la compra | La re-compra de una repuesta atribuía el dinero a la orden disputada |
+| M4 | `reissue` (fila nueva que cita la cancelada) + `transferStatus:'cancelled'` visible al cliente | «Cancelar = definitivo» aceptado por el dueño; reabrir la fila cancelada | Reabrir mentiría sobre un hecho (se canceló); la aceptación dejaba una deuda impagable por un clic equivocado. Coste: `paymentRefundId` pierde `@unique` y la unicidad pasa a índices parciales «vivas» |
+
+**Invariante nuevo `INV-SP-7`:** ninguna pieza `lost|damaged` vuelve a `in_stock|listed` por un verbo del operador
+(la única salida de `lost` es «apareció» dentro de un caso). **Reescritos:** `INV-MR-2` (a lo más **una viva** por fila
+de Stripe), `INV-MR-4` (re-emitir crea, no reabre). **Candado nuevo:** `C-CLABE-1`.
+
+**Zonas compartidas que suma:** `users` (`setClabe`, `GET/PUT /users/me/kyc`), `buylist` (su escritura de CLABE pasa a
+`setClabe`), `inventory` (`mark`, `updateItem` — **también tocadas por `claude/arreglos-operador`**: el orquestador
+serializa), `orders` (M3 y `chargeback-inventory`), `admin` (tablero, M7 merma), `mail` (`AV-16`, `AVA-1`).
 
 ---
 
@@ -26299,6 +26339,13 @@ Riesgos técnicos:
 - **ℹ️ Observación (v1.80, no de este stream):** `inventory.service.ts · markItem` no tiene guarda de estado (marca
   `lost` cualquier pieza, también `in_custody` de un cliente o `picking` de un pedido pagado). Para «Inventario y
   vault». ⛔ NO MEDIDO si la pantalla lo permite hoy.
+  🔒 **v1.80.3 — elevada a norma (SEC-SHIP-A1, `API_CONTRACT §M1` y §M4-SHIP.17.1).** Estado leído el 2026-09-29:
+  **(a)** `claude/arreglos-operador` (leída en `/home/user/tcg-hotfix`, `refs/heads` = `4ca6c45`) ya guarda `move` y
+  `mark` (`item-location.rules.ts`), **pero** deja `mark` permitido sobre piezas de **cliente** `in_custody` fuera de un
+  retiro — **`D-SHIP-5`, desviación respecto al contrato v1.80.3** (`MARKABLE`: solo plataforma). Dueño: backend.
+  Cierra: **PS-41 (b)**. **(b)** `updateItem` con `status:'in_stock'` escribe sin guarda de origen
+  (`inventory.service.ts:2403-2407`, este worktree) — **`D-SHIP-6`**, no cubierta por esa rama. Dueño: backend. Cierra:
+  **PS-42**.
 
 - **🔴 ABIERTA / ⛔ BLOQUEANTE (v1.76) — `D-AV-4`: `PATCH /admin/shipments/:id/status` MANDA DE 3 A 10 CORREOS POR
   UNA TRANSICIÓN ÚNICA, Y ESTE DOCUMENTO DECÍA QUE NO PODÍA.** **Dueño: backend** (`shipments`).
