@@ -102,7 +102,7 @@ Marcas: 🟢 automático sin tocar · 🟡 un clic del operador · ⚪ sigue man
 | C10 | **Saldo prepago visible en el admin** + alerta cuando baje de un mínimo | Sin saldo **no se genera ninguna guía**. Este es el modo de fallo más probable. | 🟢 |
 | C11 | **Validar el CP contra cobertura** antes de cobrar | Evita cobrar un envío que ninguna paquetería cubre. | 🟢 |
 | C12 | **Reintentos y cola**: si Skydropx no responde, el envío queda «guía pendiente» y una tarea reintenta | El pago del cliente nunca depende de que Skydropx esté arriba. | 🟢 |
-| C13 | **Reglas de paquetería**: lista permitida (p. ej. solo Estafeta/DHL/FedEx), y criterio de elección (más barata, más rápida, o la más barata con ≤ N días) | Elimina la elección manual en cada guía. | 🟢 con regla |
+| C13 | ~~Elección automática~~ **SUSTITUIDA el 2026-09-29: la elige el operador (§11.5 F3).** Queda como **preferencia preseleccionada**. **Reglas de paquetería**: lista permitida (p. ej. solo Estafeta/DHL/FedEx), y criterio de elección (más barata, más rápida, o la más barata con ≤ N días) | Elimina la elección manual en cada guía. | 🟢 con regla |
 
 ### 3.2 Específicas de la compra de invitado
 
@@ -128,6 +128,7 @@ Marcas: 🟢 automático sin tocar · 🟡 un clic del operador · ⚪ sigue man
 ## 4. El flujo «lo más automático posible»
 
 ```
+(⚠ SUSTITUIDO el 2026-09-29 por §11.5 F3: la guía se cotiza y se elige a mano al preparar)
 Cliente paga ─► webhook Stripe ─► envío en picking ─► [tarea] cotiza + compra guía con la regla C13
                                                         │  (si falla: «guía pendiente», reintento C12)
                                                         ▼
@@ -163,7 +164,7 @@ es seguro que sale» para el buylist. Es el mismo dilema.
 ## 6. Preguntas para el dueño (que el PO debe cerrar, no asumir)
 
 1. **Tarifa al cliente:** ¿se queda fija en MX$175 y absorbemos la diferencia, o pasamos a tarifa real o por zona?
-2. **¿Cuándo se compra la guía?** Al pagar, o al empacar con un clic (§4).
+2. ~~**¿Cuándo se compra la guía?** Al pagar, o al empacar con un clic (§4).~~ **Respondida el 2026-09-29:** al preparar, eligiendo el operador la opción en la plataforma (§11.5 F3).
 3. **Paqueterías permitidas** y regla de elección: más barata, más rápida, o combinación.
 4. **Seguro:** ¿siempre, nunca, o arriba de qué valor? ¿Quién paga la prima?
 5. **Recolección** diaria automática, o llevar a sucursal.
@@ -399,6 +400,8 @@ reembolso de retiro, P&L, M4 sin margen, webhook solo para Stripe, y ninguna int
      más baratas en ninguna cotización.
    - **Pendiente T7:** cobertura y precio de 99minutos a los 10 destinos. En la prueba nunca quedó entre las 3
      más baratas y es «Next Day».
+3. **La paquetería la elige el operador en la plataforma**, entre las opciones con sus costos, con la preferida
+   (99minutos) preseleccionada. Ver F3.
 
 ### 11.5 Cómo quedan los flujos con la iniciativa (propuesta para el PO; nada decidido salvo §11.4)
 
@@ -413,17 +416,37 @@ reembolso de retiro, P&L, M4 sin margen, webhook solo para Stripe, y ninguna int
 - Lo demás sigue igual: solicitud → pago de $203 + comisión → `picking` → cubeta de envío.
 - **Hueco que sigue:** no hay reembolso de retiro (H6).
 
-**F3 · Preparar y generar guía (operador), en la tarjeta de la cubeta de envío.**
-1. Palomear cartas → «preparado». Es lo ya diseñado en §S y todavía sin construir: **esta iniciativa depende
-   de eso, o hay que poner el botón antes**.
-2. **«Generar guía»**. El sistema:
-   - elige el **empaque estándar**: sobre (1 kg) o caja;
-   - aplica la **regla de paquetería**: 99minutos si cubre el CP; si no, el respaldo;
-   - manda **seguro** con valor declarado y **Carta Porte** fija;
-   - muestra **cobrado · costo · seguro · margen** antes de confirmar.
-3. Al confirmar, compra la guía y guarda paquetería, número, costo, IVA, seguro y PDF. Si la guía tarda,
-   pasa por «guía en proceso» (R5). Luego `guia` y el correo de guía, que ya existe.
-4. **Imprime la etiqueta.** Deja de transcribirse la dirección a mano (reabre §S.2, X3).
+**F3 · Preparar, cotizar y elegir la guía (operador), en la tarjeta de la cubeta de envío.**
+> **Decisión del dueño (2026-09-29):** la paquetería **la elige el operador dentro de la plataforma**, entre
+> las opciones con sus costos, con la **preferida preseleccionada**. Sustituye la «regla automática» de C13
+> y §10.2. La compra automática sin elegir queda como posible fase posterior, **no** en el alcance inicial.
+
+1. **Palomear cartas → «preparado».** Es lo ya diseñado en §S y todavía sin construir: **esta iniciativa
+   depende de eso, o hay que poner el botón antes**.
+2. **«Cotizar envío».** El sistema elige el **empaque estándar** (sobre de 1 kg o caja), marca **seguro**
+   con valor declarado y cotiza en Skydropx. La cotización es asíncrona: segundos, con indicador de espera.
+3. **Lista de opciones**, ordenada por precio. Cada fila trae:
+   - paquetería y servicio;
+   - **precio con IVA y seguro incluidos**;
+   - días hábiles;
+   - **dónde se entrega**: la sucursal de siempre, otra sucursal o recolección;
+   - **margen del envío**: cobrado sin IVA − costo neto.
+
+   Encima de la lista: pedido, destinatario, destino, empaque y **lo cobrado al cliente** ($203 / $175 sin IVA).
+4. **Preseleccionada la preferida:** 99minutos ★ si cubre el CP; si no, la siguiente según la preferencia del
+   dueño. **Se ocultan** las opciones de sucursal a sucursal (PuntoPost y similares), porque se promete entrega a
+   domicilio (M8). Hay un enlace a «ver todas las opciones».
+5. **Validaciones antes de comprar:**
+   - **saldo suficiente** en Skydropx;
+   - **tarifa vigente**: si pasaron más de 24 h, se re-cotiza sola y avisa si cambió el precio (R4).
+6. **«Comprar guía con la opción elegida».** El sistema:
+   - compra la guía con **Carta Porte** fija;
+   - guarda paquetería, número, costo, IVA, seguro, PDF, **qué opción se eligió, cuál era la recomendada, quién
+     eligió y cuándo** (bitácora de auditoría);
+   - si la guía tarda, pasa por «guía en proceso» (R5); luego `guia` y el correo de guía, que ya existe.
+
+   **Si la compra falla** (`error_detail`), muestra el error y deja **elegir otra opción** sin perder el pedido.
+7. **Imprimir la etiqueta.** Deja de transcribirse la dirección a mano (reabre §S.2, X3).
 
 **F4 · Llevar a sucursal.** Nueva vista **«Salida de hoy»**: «99minutos, Periférico Sur 4249: N paquetes» y,
 si hubo respaldo, su propio grupo. **Sin recolección**, por la decisión del dueño.
@@ -458,7 +481,7 @@ tarifa en vivo en el checkout.
 
 | # | Qué | Quién | Bloquea |
 |---|---|---|---|
-| T7 | Cobertura y precio de **99minutos** a los 10 destinos | Dueño (panel) | La regla de paquetería |
+| T7 | Cobertura y precio de **99minutos** a los 10 destinos | Dueño (panel) | Qué se preselecciona y con qué respaldo. Ya no bloquea: el operador elige entre lo que devuelva la cotización |
 | T3 | Confirmar en el mapa las 3 sucursales y su distancia | Dueño | F4 |
 | T4 | Precios sin promo | Dueño, al acabarse la promo | Margen real (X1) |
 | T1, T2, T6 | Seguro por valor, clave SAT, seguro automático vía API | Dueño / sandbox | F3 |
