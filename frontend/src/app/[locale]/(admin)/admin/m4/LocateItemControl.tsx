@@ -29,8 +29,9 @@ import type { PreparationItemDTO, PreparationOrderDTO } from '@/types/contract';
  *
  * ⛔ No toca dinero ni el estado de la pieza: solo `locationId` (+ el `InventoryMovement` que registra
  * el backend). Tras el 200 se **reescribe la tarjeta en caché** (`currentLocation`) con la etiqueta de
- * la ubicación **elegida** — ⚠️ la respuesta real del move es la fila de `toAdminInventoryItemRow`
- * (`locationId`, SIN `location`), así que la etiqueta no sale de ella.
+ * la ubicación **elegida**, no con la respuesta: el backend de esta rama (`6e3b1b7`,
+ * `inventory.service.ts · moveItem`) ya devuelve `location`, pero production `a2da420` aún sirve la
+ * fila de `toAdminInventoryItemRow` (solo `locationId`), y front y back se publican por separado.
  */
 export function LocateItemControl({ item }: { item: PreparationItemDTO }) {
   const t = useTranslations('admin.m4.prep.locate');
@@ -62,7 +63,7 @@ export function LocateItemControl({ item }: { item: PreparationItemDTO }) {
   const move = useMutation({
     mutationFn: (to: string) => moveInventoryItem(item.inventoryItemId, { toLocationId: to }),
     onSuccess: (_res, to) => {
-      // La etiqueta es la de la ubicación ELEGIDA (la respuesta no trae `location`, ver arriba).
+      // La etiqueta es la de la ubicación ELEGIDA (vale con y sin `location` en la respuesta, ver arriba).
       const label = (locations.data ?? []).find((l) => l.id === to)?.label?.trim();
       if (label) {
         qc.setQueriesData<PreparationOrderDTO[]>({ queryKey: ['admin-preparation-queue'] }, (prev) =>
