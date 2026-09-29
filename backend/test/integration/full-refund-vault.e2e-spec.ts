@@ -97,9 +97,10 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     expect((await db.holdings(tok)).body.data.map((x: any) => x.inventoryItemId)).not.toContain(vo.pieces[0].id);
     const sh = await db.createShipment(tok, { inventoryItemIds: [vo.pieces[0].id], addressId: addr.id });
     expect(sh.status).toBe(422);
-    // (medido: `classifyItems` responde `NOT_FOUND` a una pieza que ya no es del cliente — regla M-25; el contrato
-    //  nombra `ITEM_NOT_IN_CUSTODY`. Enrutado al arquitecto en BACKEND_NOTES; las dos cierran la puerta.)
-    expect(['ITEM_NOT_IN_CUSTODY', 'NOT_FOUND']).toContain(sh.body.error.code);
+    // 🔒 v1.80.7 (punto 3): una pieza que ya NO es del cliente no se explica — `NOT_FOUND` manda (regla M-25);
+    // `ITEM_NOT_IN_CUSTODY` queda para lo que SÍ es suyo y no está `in_custody`. Mutación: `classifyItems` busca por
+    // `id` sin `ownerUserId` ⇒ `ITEM_NOT_IN_CUSTODY` ⇒ rojo.
+    expect(sh.body.error.code).toBe('NOT_FOUND');
     expect((await db.piece(vo.pieces[0].id)).status).not.toBe('listed');
     expect(av3()).toHaveLength(1);
     expect(av3()[0].text).toMatch(/bóveda|vault/i);
@@ -421,7 +422,7 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     const addr = await db.mkAddress(a.u.id);
     const sh = await db.createShipment(tok, { inventoryItemIds: [a.vo.pieces[0].id], addressId: addr.id });
     expect(sh.status).toBe(422);
-    expect(['ITEM_NOT_IN_CUSTODY', 'NOT_FOUND']).toContain(sh.body.error.code);
+    expect(sh.body.error.code).toBe('NOT_FOUND'); // v1.80.7 punto 3 (M-25): ya no es suya ⇒ no se explica
 
     // Variante `guia`: webhook con el retiro en guía
     const g = await placedVault('PS63g');
