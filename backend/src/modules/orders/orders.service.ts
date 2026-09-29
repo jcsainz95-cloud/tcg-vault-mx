@@ -1571,6 +1571,11 @@ export class OrdersService {
       // `count===0` ⇒ `409`, que ES la regla de idempotencia de §M3.
       // Si algo posterior lanza, la transacción REVIERTE y el flag vuelve a `true`: un desenlace
       // rechazado (p. ej. `reexpedir` sin disputa ganada) NO consume la decisión.
+      // 🔒 v1.80.7 (techlead, medido con PS-61b): en BÓVEDA las piezas se toman `FOR UPDATE` ANTES del claim sobre
+      // `Order` — el orden normativo de §M4-SHIP.18.2 (envíos → piezas → `Order`) que siguen `reclaim-vault` y
+      // `unprepare`. Con el claim primero, `reclaim-vault` (piezas → `Order`) contra este verbo (`Order` → piezas)
+      // interbloqueaba (`40P01` ⇒ `503`). El claim sigue siendo quien DECIDE (`count 1`); solo cambia el orden.
+      const vaultFrozen = isVaultRefunded ? await this.vaultReclaimTargets(tx, order.id) : null;
       const claimed = await tx.order.updateMany({
         where: { id: orderId, chargebackNeedsManual: true },
         data: { chargebackNeedsManual: false },
@@ -1584,9 +1589,9 @@ export class OrdersService {
 
       // Piezas CONGELADAS del pedido: las que siguen comprometidas con la venta. Bóveda (v1.80.6, SEC-SHIP-M6):
       // las piezas plataforma `picking` con `refund_return` posterior al sello de ESTA orden y ningún movimiento
-      // posterior que cambie de estado (`isVaultReclaimTarget`), bajo `FOR UPDATE` (id asc.).
-      const frozen = isVaultRefunded
-        ? await this.vaultReclaimTargets(tx, order.id)
+      // posterior que cambie de estado (`isVaultReclaimTarget`), bajo `FOR UPDATE` (id asc.), tomadas ARRIBA.
+      const frozen = vaultFrozen
+        ? vaultFrozen
         : await tx.inventoryItem.findMany({
             where: {
               id: { in: order.items.map((oi) => oi.inventoryItemId) },

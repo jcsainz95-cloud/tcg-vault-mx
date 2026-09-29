@@ -229,6 +229,89 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     // Mutación: (a) no-op total del sello ⇒ PS-63 roja; (b) `WHERE status='settled'` estricto ⇒ la inversa da 409; (c) sin leer el sello bajo candado ⇒ dos AV-3 en ≥1 tirada.
   });
 
+  it('PS-57c 🔴💰 — un solo orden de candados entre la confirmación de M3 (`retry`) y el taller (`prepared` de un retiro con una carta de la orden), barrera en la fila del retiro (N≥10): cero 40P01/503/500; `prepared` 409 y la pieza `returned`, o `prepared` 200 y `in_packed_withdrawal`; `retry` 200, fila `succeeded`, orden `refunded`, sello, un AV-3', async () => {
+    // v1.80.7 punto 17 (techlead): `applyStripeOutcome` hacía `Order → refunded` ANTES de `onFullRefund` (que toma
+    // envíos → piezas → `Order`): sostenía `Order` mientras pedía el retiro; `prepared` (envío → piezas → `Order`)
+    // sostenía el retiro mientras pedía `Order` ⇒ `40P01`. Ahora la confirmación sigue el orden del webhook.
+    // Mutación: volver a `Order → refunded` antes de `onFullRefund` ⇒ `deadlocks` sube y un 503 en ≥1 tirada.
+    const deadlocks = async () => Number((await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(`SELECT deadlocks AS n FROM pg_stat_database WHERE datname = current_database()`))[0].n);
+    const before = await deadlocks();
+    const outcomes: string[] = [];
+    let inter = 0;
+    let prepared409 = 0;
+    let prepared200 = 0;
+    for (let i = 0; i < N; i += 1) {
+      bandeja = [];
+      const t = await placedVault(`PS57c ${i}`);
+      const w = await db.mkWithdrawal(t.u.id, [t.vo.pieces[0].id], 'picking', { picked: true });
+      h.stripe.refundOutcome = 'transient';
+      expect((await m3(t.vo.order.id)).status).toBe(200); // tx1: fila `requested`; el retiro sin preparar no da 409
+      const rw = (await fullRow(t.vo.order.id))[0];
+      expect(rw.status).toBe('requested');
+      h.stripe.refundOutcome = 'succeeded';
+      const res = await db.forced(
+        () => db.holdRow('ShipmentRequest', w.shipment.id),
+        () => db.prepare(w.shipment.id, 0, db.adminToken), // A: el taller, PRIMERO en la cola del retiro
+        () => db.retry(rw.id, db.adminToken), // B: la confirmación; con el orden viejo llega sosteniendo `Order`
+      );
+      if (res.interleaved) inter += 1;
+      const piece = await db.piece(t.vo.pieces[0].id);
+      const order = await db.order(t.vo.order.id);
+      const row = (await fullRow(t.vo.order.id))[0];
+      const ws = await db.shipment(w.shipment.id);
+      const no5xx = res.a.status < 500 && res.b.status < 500;
+      const returned = piece.ownerType === 'platform' && piece.status === 'picking' && (await moves([piece.id], 'refund_return')).length === 1;
+      const packed = piece.ownerType === 'customer' && piece.status === 'in_custody' && ws.preparedAt !== null && order.chargebackNeedsManual === true;
+      const branchA = res.a.status === 409 && returned;
+      const branchB = res.a.status === 200 && packed;
+      if (branchA) prepared409 += 1;
+      if (branchB) prepared200 += 1;
+      const ok = no5xx && res.b.status === 200 && row.status === 'succeeded' && order.status === 'refunded' && order.fullRefundClosedAt !== null && av3().length === 1 && (branchA || branchB);
+      outcomes.push(`${code(res.a)},${code(res.b)},piece=${piece.status}/${piece.ownerType},order=${order.status},row=${row.status},av3=${av3().length}${ok ? '' : ',VIOLATION'}`);
+    }
+    h.stripe.refundOutcome = 'ok';
+    await new Promise((r) => setTimeout(r, 1500));
+    const delta = (await deadlocks()) - before;
+    // eslint-disable-next-line no-console
+    console.log(`[PS-RACE PS-57c] deadlocks Δ=${delta} · prepared 409+returned ${prepared409}/${N} · prepared 200+in_packed ${prepared200}/${N}`);
+    expect(report('PS-57c', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(inter).toBe(N);
+    expect(delta).toBe(0);
+  });
+
+  it('PS-61b — `chargeback-inventory` (recuperada) vs `reclaim-vault` sobre la misma orden `vault` `refunded` sellada, barrera en una pieza devuelta (N≥10): mismo orden (piezas → Order) ⇒ cero interbloqueos, nunca 5xx, los dos 200 y las piezas `listed`', async () => {
+    // Techlead (v1.80.7, encargo): `resolveChargebackInventory` reclamaba `Order` (el claim) y DESPUÉS tomaba las piezas;
+    // `reclaim-vault`/`unprepare` toman piezas → `Order`. Con el reclamo encolado primero en la pieza y el claim ya
+    // hecho ⇒ `40P01` ⇒ 503. Mutación: devolver el claim antes de `vaultReclaimTargets` ⇒ `deadlocks` sube.
+    const deadlocks = async () => Number((await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(`SELECT deadlocks AS n FROM pg_stat_database WHERE datname = current_database()`))[0].n);
+    const before = await deadlocks();
+    const outcomes: string[] = [];
+    let inter = 0;
+    for (let i = 0; i < N; i += 1) {
+      const t = await placedVault(`PS61b ${i}`);
+      expect((await db.chargeRefunded(t.vo.pi, t.vo.order.totalCents)).status).toBe(200);
+      expect(await db.order(t.vo.order.id)).toMatchObject({ status: 'refunded', chargebackNeedsManual: true });
+      const res = await db.forced(
+        () => db.holdRow('InventoryItem', t.vo.pieces[0].id),
+        () => db.reclaimVault(t.vo.order.id, { note: 'carrera 61b' }), // A: piezas → Order, PRIMERO en la cola
+        () => db.chargebackInventory(t.vo.order.id, 'recuperada'), // B: con el orden viejo llega sosteniendo `Order`
+      );
+      if (res.interleaved) inter += 1;
+      const order = await db.order(t.vo.order.id);
+      const pieces = await Promise.all(t.vo.pieces.map((p) => db.piece(p.id)));
+      const no5xx = res.a.status < 500 && res.b.status < 500;
+      const ok = no5xx && res.a.status === 200 && res.b.status === 200 && order.chargebackNeedsManual === false && pieces.every((p) => p.status === 'listed' && p.ownerType === 'platform');
+      outcomes.push(`${code(res.a)},${code(res.b)},needsManual=${order.chargebackNeedsManual},pieces=${pieces.map((p) => p.status).join('/')}${ok ? '' : ',VIOLATION'}`);
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+    const delta = (await deadlocks()) - before;
+    // eslint-disable-next-line no-console
+    console.log(`[PS-RACE PS-61b] deadlocks Δ=${delta}`);
+    expect(report('PS-61b', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(inter).toBe(N);
+    expect(delta).toBe(0);
+  });
+
   // ================================================================ PS-59 / PS-63 / PS-66 — el retiro preparado
 
   it('PS-59 💰 — carta en un retiro `picking` PREPARADO ⇒ M3 409 VAULT_PIECE_IN_PACKED_WITHDRAWAL (cero filas); tras deshacer ⇒ 200, pieza `returned`, línea `blocked`; `prepared` sin 409; no pasa a `withdrawn`; por webhook ⇒ intacta, `in_packed_withdrawal`, flag', async () => {

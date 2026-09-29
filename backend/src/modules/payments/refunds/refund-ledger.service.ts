@@ -293,6 +293,17 @@ export class RefundLedgerService {
         },
       });
       if (cas.count !== 1 || row.kind !== 'order_full' || !row.orderId) return { notify: false };
+      // 🔒 v1.80.7 (§M4-SHIP.18.2 M5, punto 17 · techlead) — EL ORDEN DEL WEBHOOK, un solo orden en los dos escritores:
+      // (2) lectura SIN candado del estado (∉ {settled, refunded} ⇒ log error, fin); (3) `onFullRefund` toma envíos →
+      // piezas → `Order FOR UPDATE` y sella; (4) `Order → refunded` BAJO ese mismo candado. Antes (4) iba antes de (3):
+      // esta tx sostenía `Order` mientras pedía el retiro, y `prepared` de un retiro (envío → piezas → `Order`) sostenía
+      // el retiro mientras pedía `Order` ⇒ `40P01`. La caza: PS-57c (barrera en el retiro, N=10, `deadlocks` Δ=0).
+      const o = await tx.order.findUniqueOrThrow({ where: { id: row.orderId }, select: { status: true } });
+      if (o.status !== 'settled' && o.status !== 'refunded') {
+        this.logger.error(`order_full ${row.id}: la orden ${row.orderId} está ${o.status}; la fila conserva su estado nuevo y la orden no se toca.`);
+        return { notify: false };
+      }
+      await this.fullRefund.onFullRefund(tx, { orderId: row.orderId }, 'm3', actor?.id ?? null);
       // `Order → refunded` con `status IN (settled, refunded)`: `count 1` con la orden ya `refunded` es ÉXITO (el
       // webhook llegó antes, SEC-SHIP-M5). Quien hace la TRANSICIÓN `settled → refunded` manda `AV-3` (una vez).
       const transitioned = await tx.order.updateMany({
@@ -300,13 +311,12 @@ export class RefundLedgerService {
         data: { status: 'refunded', refundedAt: now },
       });
       if (transitioned.count === 0) {
-        const o = await tx.order.findUniqueOrThrow({ where: { id: row.orderId }, select: { status: true } });
-        if (o.status !== 'refunded') {
-          this.logger.error(`order_full ${row.id}: la orden ${row.orderId} está ${o.status}; la fila conserva su estado nuevo y la orden no se toca.`);
+        const after = await tx.order.findUniqueOrThrow({ where: { id: row.orderId }, select: { status: true } });
+        if (after.status !== 'refunded') {
+          this.logger.error(`order_full ${row.id}: la orden ${row.orderId} pasó a ${after.status} bajo candado; la fila conserva su estado nuevo y la orden no se toca.`);
           return { notify: false };
         }
       }
-      await this.fullRefund.onFullRefund(tx, { orderId: row.orderId }, 'm3', actor?.id ?? null);
       return { notify: transitioned.count === 1 };
     });
     if (result.notify && row.orderId) await this.sendOrderRefundedNotice(row.orderId);
