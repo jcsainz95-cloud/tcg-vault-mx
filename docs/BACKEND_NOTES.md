@@ -24228,3 +24228,32 @@ mueren; detalle en el informe del commit.
 - **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
   `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
 
+
+# Hotfix — los CTA de los correos al cliente llevaban a rutas inexistentes (404) (2026-09-29)
+
+**Defecto medido:** los avisos §R al cliente usaban `appUrl('cuenta/pedidos'|'boveda/envios'|'cuenta/identidad'|'cuenta/aclaraciones')`.
+Ninguna de esas carpetas existe en `frontend/src/app/[locale]/` ⇒ el botón del correo daba 404 a clientes reales.
+
+| Aviso | Antes | Ahora (ruta real del storefront) |
+|---|---|---|
+| AV-2 pedido liquidado (`orders/mail/order-notice.templates.ts`) | `cuenta/pedidos` | `orders/<Order.id>` |
+| AV-3 reembolso | `cuenta/pedidos` | `orders/<Order.id>` si es registrado; **invitado ⇒ sin CTA** (el detalle exige sesión) |
+| AV-4/5/6 envío de un **pedido** (`shipments/mail/shipment-notice.templates.ts`) | `cuenta/pedidos` | `orders/<Order.id>` si es registrado; **invitado ⇒ sin CTA** |
+| AV-4/5/6 retiro de **bóveda** | `boveda/envios` | `shipments/<ShipmentRequest.id>` |
+| AV-1 rechazo de identidad (`admin/mail/kyc-notice.templates.ts`) | `cuenta/identidad` | `account` (ahí vive `KycSection`) |
+| AV-10/11 disputas (`disputes/mail/dispute-notice.templates.ts`) | `cuenta/aclaraciones` | `vault` (las aclaraciones se listan en `WithdrawalsList`) |
+
+- Parámetros nuevos: `OrderSettledParams.orderId: string`, `OrderRefundedParams.orderId: string | null`,
+  `ShipmentNoticeParams.orderId?: string | null` (lo resuelve `ShipmentsService.resolveRecipient`: solo para el titular
+  registrado del pedido). El envío de un pedido va al detalle del **pedido**, no al del envío: `GET /shipments/:id`
+  compara `shipment.userId`, que en un envío de pedido es `null`.
+- Los demás enlaces al front ya eran correctos y ahora quedan bajo el mismo candado: `pedido?token=` (invitado),
+  `verify-email`, `reset-password`, `buylist/requests/<id>`.
+- **Candado:** `backend/test/mail-links.frontend-routes.spec.ts` lee el árbol de páginas del front (grupos `(x)` fuera,
+  `[param]` = segmento dinámico) y (1) renderiza cada aviso (exhaustivo sobre los exports `*Template`) exigiendo que todo
+  enlace exista, y (2) barre `backend/src` buscando `appUrl('…')`, `${origin}/${locale}/…` y `buildFrontendLink(…, '…')`.
+  ⚠️ Lee `../frontend`: corre sobre el árbol ENTERO (O-9). Mutaciones (N=1 cada una, deterministas): volver a
+  `boveda/envios` ⇒ 7 rojas; `cuenta/pedidos` ⇒ 5; `cuenta/identidad` ⇒ 4; `pedido` → `seguimiento` en el correo de
+  invitado ⇒ 1 (barrido estático); quitar `(storefront)/vault` del front ⇒ 5. Base: 28/28.
+- **Consecuencia para frontend:** renombrar/mover `orders/[orderId]`, `shipments/[id]`, `account`, `vault`, `pedido`,
+  `verify-email`, `reset-password` o `buylist/requests/[id]` pone rojo este test del backend. Es a propósito.

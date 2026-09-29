@@ -59,6 +59,14 @@ function orderFooterWhy(en: boolean): string {
     : 'Recibes este correo porque hiciste un pedido con nosotros.';
 }
 
+/**
+ * El detalle del pedido en el storefront: `frontend/src/app/[locale]/(storefront)/orders/[orderId]`.
+ * Candado: `test/mail-links.frontend-routes.spec.ts` falla si la ruta deja de existir en el front.
+ */
+function orderDetailUrl(orderId: string | null, l: Locale): string | undefined {
+  return orderId ? appUrl(`orders/${encodeURIComponent(orderId)}`, l) : undefined;
+}
+
 export interface OrderNoticeItem {
   name: string;
   setName: string;
@@ -67,6 +75,11 @@ export interface OrderNoticeItem {
 
 export interface OrderSettledParams {
   orderNumber: string;
+  /**
+   * `Order.id` — el CTA abre **el detalle del pedido** (`/<locale>/orders/<id>`, la ruta real del
+   * storefront). ⚠️ Antes apuntaba a `cuenta/pedidos`, que **no existe** en el front (404 medido).
+   */
+  orderId: string;
   items: OrderNoticeItem[];
   /** ⭐ `Order.totalCents` **persistido**. ⛔ Jamás una suma recalculada desde un dial vivo. */
   totalCents: number;
@@ -104,7 +117,7 @@ export function orderSettledTemplate(
   const finalSale = en
     ? 'All sales are final: no refunds on request, except for a damaged/wrong card or a platform error.'
     : 'Ventas finales: no hay reembolso a solicitud, salvo carta dañada/equivocada o error de la plataforma.';
-  const url = appUrl('cuenta/pedidos', l);
+  const url = orderDetailUrl(params.orderId, l);
   const ctaLabel = en ? 'SEE MY ORDER' : 'VER MI PEDIDO';
   const lineas = params.items.map((i) => `${i.name} — ${i.setName} #${i.number}`);
   const blocks = [
@@ -157,6 +170,12 @@ export function orderSettledTemplate(
 
 export interface OrderRefundedParams {
   orderNumber: string;
+  /**
+   * `Order.id` **solo si el destinatario es el titular registrado**; `null` para un pedido de
+   * invitado ⇒ **sin CTA** (el detalle `/orders/<id>` exige sesión y el invitado no tiene cuenta;
+   * mandarlo ahí sería otro callejón sin salida). El correo sale igual, sin botón.
+   */
+  orderId: string | null;
   /** ⭐ `Order.totalCents` persistido: `AV-3` sale **solo con reembolso TOTAL** (§R.3). */
   totalCents: number;
 }
@@ -189,7 +208,7 @@ export function orderRefundedTemplate(
     : 'Tu banco decide cuándo aparece; suele tardar unos días hábiles.';
   const totalLabel = en ? 'REFUNDED' : 'TE DEVOLVIMOS';
   const total = money(params.totalCents, l);
-  const url = appUrl('cuenta/pedidos', l);
+  const url = orderDetailUrl(params.orderId, l);
   const ctaLabel = en ? 'SEE MY ORDER' : 'VER MI PEDIDO';
   const blocks = [
     eyebrowRow(en ? 'YOUR ORDER' : 'TU PEDIDO', params.orderNumber),
