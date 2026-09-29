@@ -619,10 +619,14 @@ export class AdminService {
     // v1.74 (§R): `@Optional()` — los tests unitarios construyen este servicio a mano, y el envío es
     // best-effort: ⛔ un fallo del correo NO puede hacer fallar `PATCH /admin/users/:id/kyc`.
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
-    // v1.80 (C7, §M6): el reset por admin LEVANTA el candado de intentos de la cuenta. `@Optional()`
-    // solo porque los tests unitarios construyen este servicio a mano (posición tras `mail`); en la
-    // app lo provee `AuthModule` (importado por `AdminModule`) y lo prueba C7-8(b) por HTTP real.
-    @Optional() private readonly passwordAttempts?: PasswordAttemptsService,
+    // v1.80 (C7, §M6): el reset por admin LEVANTA el candado de intentos de la cuenta. Lo provee
+    // `AuthModule` (importado por `AdminModule`); lo prueba C7-8(b) por HTTP real y el arranque lo
+    // asevera `app.module.spec` («es el mismo singleton que usa AuthService»).
+    // SEC-C7-OPT (2026-09-29): SIN `@Optional()` — con él, sacar `AuthModule` de los imports
+    // compilaba y el reset dejaba de levantar el candado en silencio. El `?` de TypeScript queda
+    // solo porque va detrás de `mail?` (posición) y los unitarios construyen a mano; en DI es
+    // obligatorio, y `resetPassword` se niega a correr sin él (no hay rama muda).
+    private readonly passwordAttempts?: PasswordAttemptsService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -1335,6 +1339,12 @@ export class AdminService {
    * loguea/audita (el AuditLog solo guarda action + actor + target).
    */
   async resetPassword(id: string): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
+    // SEC-C7-OPT: se comprueba ANTES de escribir nada. Sin servicio no hay reset «a medias» (hash
+    // nuevo persistido, candado puesto, contraseña temporal nunca devuelta): se falla en seco.
+    const attempts = this.passwordAttempts;
+    if (!attempts) {
+      throw new Error('AdminService.resetPassword: PasswordAttemptsService is not wired (AdminModule must import AuthModule)');
+    }
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: { id: true, status: true, email: true },
@@ -1356,7 +1366,7 @@ export class AdminService {
       },
     });
     // v1.80 (C7): es la vía para que el dueño desbloquee a un operador (contrato §M6).
-    await this.passwordAttempts?.clearForUser(user);
+    await attempts.clearForUser(user);
     return { userId: id, tempPassword, mustChangePassword: true };
   }
 
