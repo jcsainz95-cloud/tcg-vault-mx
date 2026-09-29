@@ -62,6 +62,13 @@ beforeAll(async () => {
 function makeWorld(
   opts: { audit?: { log: jest.Mock }; store?: MemoryLoginAttemptStore; google?: GoogleTokenVerifier } = {},
 ) {
+  // 2026-09-29 (QA IMPORTANTE 2 sobre 8ea245f): reloj FALSO por defecto. Con `Date.now` real, C7-3
+  // exigía `retry: 60` y bajo carga salía 59 (`ceil((lockExpiresAt - now) / 1000)` con ≥ 1 s entre el
+  // 5.º intento y el 6.º). El reloj no avanza salvo que la prueba lo mueva (`clock.t += …`), así
+  // que el `Retry-After` es exactamente el candado recién puesto. Una prueba que pase su propio
+  // `store` trae su propio reloj (C7-15 staff).
+  const clock = { t: Date.now() };
+  const store = opts.store ?? new MemoryLoginAttemptStore(() => clock.t);
   const users = new Map<string, FakeUser>();
   const prisma = {
     user: {
@@ -83,7 +90,7 @@ function makeWorld(
       }),
     },
   };
-  const deps: C7Deps = makeC7Deps({ config, audit: opts.audit, store: opts.store });
+  const deps: C7Deps = makeC7Deps({ config, audit: opts.audit, store });
   const tokens = {
     issue: jest.fn(async () => 'CLEAR'),
     consume: jest.fn(async () => null as string | null),
@@ -121,7 +128,7 @@ function makeWorld(
     users.set(u.id, u);
     return u;
   };
-  return { svc, prisma, deps, tokens, addUser, users };
+  return { svc, prisma, deps, tokens, addUser, users, clock };
 }
 
 /** Resultado normalizado de un intento: lo que ve el cliente + llamadas a argon2 del paso. */
@@ -197,6 +204,17 @@ describe('C7-3 — anti-enumeración: misma secuencia para existente, inexistent
     expect(seqs.missing).toEqual(seqs.existing);
     expect(seqs.googleOnly).toEqual(seqs.existing);
     expect(seqs.blocked).toEqual(seqs.existing);
+  });
+
+  it('el Retry-After sale del reloj inyectado, no de Date.now (a los 30 s del candado dice 30; a los 60 s se abre)', async () => {
+    const { svc, addUser, clock } = makeWorld();
+    const u = addUser();
+    for (let i = 0; i < 5; i++) await attempt(svc, { email: u.email, password: BAD });
+    await expect(attempt(svc, { email: u.email, password: BAD })).resolves.toMatchObject({ status: 429, details: { retryAfterSeconds: 60 } });
+    clock.t += 30_000;
+    await expect(attempt(svc, { email: u.email, password: BAD })).resolves.toMatchObject({ status: 429, details: { retryAfterSeconds: 30 } });
+    clock.t += 30_000;
+    await expect(attempt(svc, { email: u.email, password: BAD })).resolves.toMatchObject({ status: 401 });
   });
 });
 
