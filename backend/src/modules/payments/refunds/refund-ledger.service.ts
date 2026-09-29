@@ -266,9 +266,14 @@ export class RefundLedgerService {
   }
 
   /**
-   * La tx de CONFIRMACIÓN: CAS de la fila `requested → submitted|succeeded`; si es `order_full` y el CAS ganó,
-   * `Order → refunded` con `status IN (settled, refunded)` (`count 1` con `refunded` = ÉXITO: el webhook llegó
-   * antes, SEC-SHIP-M5) y `onFullRefund(tx, { orderId }, 'm3', actor)`. `AV-3` lo manda quien escribió el sello.
+   * La tx de CONFIRMACIÓN (§M4-SHIP.18.2 M5, norma v1.80.7.2), el mismo orden que el webhook `charge.refunded`:
+   * (1) CAS de la fila `requested → submitted|succeeded`; si es `order_full` y el CAS ganó, (3)
+   * `onFullRefund(tx, { orderId }, 'm3', actor)` (envíos → piezas → `Order FOR UPDATE`, sello) SIN mirar
+   * `Order.status` — el cierre por reembolso total procede aunque la orden esté en `chargeback`, como en el
+   * webhook; (4) `Order → refunded` con `WHERE status='settled'` bajo ese mismo candado; y DESPUÉS de (4), la
+   * relectura bajo candado clasifica: `count 1` ⇒ transicionó ⇒ `AV-3` post-commit (5); `refunded` ⇒ éxito (el
+   * webhook llegó antes, SEC-SHIP-M5); `chargeback` ⇒ `log warn` (cierre hecho, estado conservado, sin `AV-3`);
+   * cualquier otro ⇒ `log error` (invariante: desde `settled` solo se llega a `refunded` o `chargeback`).
    */
   private async applyStripeOutcome(
     row: PaymentRefund,
@@ -294,27 +299,35 @@ export class RefundLedgerService {
       });
       if (cas.count !== 1 || row.kind !== 'order_full' || !row.orderId) return { notify: false };
       // 🔒 v1.80.7 (§M4-SHIP.18.2 M5, punto 17 · techlead) — EL ORDEN DEL WEBHOOK, un solo orden en los dos escritores:
-      // (2) lectura SIN candado del estado (∉ {settled, refunded} ⇒ log error, fin); (3) `onFullRefund` toma envíos →
-      // piezas → `Order FOR UPDATE` y sella; (4) `Order → refunded` BAJO ese mismo candado. Antes (4) iba antes de (3):
-      // esta tx sostenía `Order` mientras pedía el retiro, y `prepared` de un retiro (envío → piezas → `Order`) sostenía
-      // el retiro mientras pedía `Order` ⇒ `40P01`. La caza: PS-57c (barrera en el retiro, N=10, `deadlocks` Δ=0).
-      const o = await tx.order.findUniqueOrThrow({ where: { id: row.orderId }, select: { status: true } });
-      if (o.status !== 'settled' && o.status !== 'refunded') {
-        this.logger.error(`order_full ${row.id}: la orden ${row.orderId} está ${o.status}; la fila conserva su estado nuevo y la orden no se toca.`);
-        return { notify: false };
-      }
+      // (3) `onFullRefund` toma envíos → piezas → `Order FOR UPDATE` y sella; (4) `Order → refunded` BAJO ese mismo
+      // candado. Antes (4) iba antes de (3): esta tx sostenía `Order` mientras pedía el retiro, y `prepared` de un
+      // retiro (envío → piezas → `Order`) sostenía el retiro mientras pedía `Order` ⇒ `40P01`. La caza: PS-57c.
+      // 🔒💰 v1.80.7.2 (D-a del techlead sobre `59a0c1f`) — el paso (2), una lectura SIN candado de `Order.status` que
+      // cortaba antes de (3) si la orden no estaba `settled|refunded`, SE QUITÓ: una lectura sin candado no decide
+      // nada (la orden podía pasar a `chargeback` entre ella y el `FOR UPDATE`, y entonces la pasada SÍ escribía y el
+      // log mentía), y el cierre por reembolso total procede aunque haya contracargo — igual que el webhook
+      // (`payments.service.ts · onChargeRefunded`): un hecho de Stripe, una consecuencia. La caza: PS-57d.
       await this.fullRefund.onFullRefund(tx, { orderId: row.orderId }, 'm3', actor?.id ?? null);
-      // `Order → refunded` con `status IN (settled, refunded)`: `count 1` con la orden ya `refunded` es ÉXITO (el
-      // webhook llegó antes, SEC-SHIP-M5). Quien hace la TRANSICIÓN `settled → refunded` manda `AV-3` (una vez).
+      // `count 1` ⇒ esta tx hizo la TRANSICIÓN `settled → refunded` y manda `AV-3` (una vez).
       const transitioned = await tx.order.updateMany({
         where: { id: row.orderId, status: 'settled' },
         data: { status: 'refunded', refundedAt: now },
       });
       if (transitioned.count === 0) {
+        // Relectura BAJO el candado de fila que (3) ya tomó (`FOR UPDATE` en el paso (d) de la pasada): clasifica.
         const after = await tx.order.findUniqueOrThrow({ where: { id: row.orderId }, select: { status: true } });
-        if (after.status !== 'refunded') {
-          this.logger.error(`order_full ${row.id}: la orden ${row.orderId} pasó a ${after.status} bajo candado; la fila conserva su estado nuevo y la orden no se toca.`);
-          return { notify: false };
+        if (after.status === 'chargeback') {
+          this.logger.warn(
+            `order_full ${row.id}: orden ${row.orderId} en contracargo: cierre por reembolso total hecho (sello, revisión ` +
+              `manual, colocación); su estado chargeback se conserva y no hay AV-3; mismo desenlace que charge.refunded.`,
+          );
+        } else if (after.status !== 'refunded') {
+          // Invariante: desde `settled` solo se llega a `refunded` o `chargeback` (y de `chargeback` a `settled` al
+          // ganar la disputa). Un estado distinto aquí es un escritor que la norma no conoce.
+          this.logger.error(
+            `order_full ${row.id}: la orden ${row.orderId} está ${after.status} bajo candado tras el cierre por reembolso ` +
+              `total (inesperado: desde settled solo se llega a refunded o chargeback); la fila conserva su estado nuevo.`,
+          );
         }
       }
       return { notify: transitioned.count === 1 };
