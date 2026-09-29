@@ -26044,3 +26044,89 @@ medido durante las corridas de integración 1.25 (4 CPU). Logs en `scratchpad/ba
 **Pendiente abierto (medido 2026-09-29 sobre `0d370d96`):** `enum-query-axes.e2e-spec.ts` — 3 rojas «FIXTURE VACÍO» en
 `GET /admin/inventory/pending-publish` (arriba). Comprobación que lo cerraría: correrla sola contra una BD recién
 migrada (sin restos de otras suites); si sigue roja, es del fixture o del código de la cola, y es de backend.
+
+## 10 · P-REL-3 (cubeta SPEI sembrada) y `enum-query-axes` «FIXTURE VACÍO» (2026-09-29, sobre `550bc371`)
+
+Logs: `scratchpad/backend-prel3/logs/` (sesión `1afd7c0b…`). Load máximo medido durante las corridas: 1.59 (4 CPU).
+
+### 10.1 · La semilla de la cubeta SPEI (`seedE2E` paso 13)
+
+**Por qué:** en local no había forma de obtener un `ManualRefund` sin Stripe (solo nace del reembolso de un caso
+`case_excess` o de una fila de Stripe fallida `stripe_failed`). Frontend lo midió leyendo el código en `6fd55074`.
+
+- **Constantes:** `backend/prisma/e2e-fixtures.ts` `E2E_SPEI_FIXTURE` (`:544`). Cliente propio y desechable
+  `spei.refund@e2e.local` / `SpeiRefund123!`, nombre `Ana Transferencia E2E` (`nameSource='user'`), `emailVerified`;
+  orden `TCG-E2E-SPEI-0001`; filas `e2e:mr-pay` (MX$535.00 = 500.00 + 15.00 + 20.00, IVA dentro 68.97) y
+  `e2e:mr-cancel` (MX$315.00 = 300.00 + 9.00 + 6.00, IVA dentro 41.38).
+- **Siembra:** `backend/prisma/seed-e2e.ts` `seedSpeiBucket` (`:1098`), llamada al final de `seedE2E` (`:1075`). Deja lo
+  que el producto habría dejado tras `POST /admin/replacement-cases/:id/refund` con todo a SPEI: orden de bóveda
+  `settled`, `IVA_INCLUSIVE` con `ivaTransferPct: 100` (⇒ nunca `origin_not_settled`; y el candado M-50 de
+  `iva-price-convention` exige el dial archivado en toda `IVA_INCLUSIVE` — la primera versión sin él lo puso rojo, medido
+  en la integración completa) → colocación `placed` → línea `missing` por carta → caso `vault_purchase`
+  **`refunded`** con la captura completa → pieza original en plataforma `lost`/`damaged` (como `originalToPlatform`) →
+  `ManualRefund` `case_excess` `pending`, ya anunciada (`announcedNotifiedAt` sellado ⇒ sin `AV-14` por sembrar).
+- **Idempotente con ids ESTABLES** (todo por clave única y `upsert` que restaura). Cada siembra: borra el `KycProfile`
+  del cliente (sin CLABE; la clave PII es del proceso), borra toda fila del cliente fuera de las dos claves fijas
+  (re-emisiones, soltando antes `reissuedFromId`) **antes** de devolver las dos a `pending` con todos los sellos de
+  pago/cancelación y `paidNotifiedAt` a `null`.
+- **Diferencia con el encargo, a favor del schema:** el encargo decía `amountCents = merchandise + iva + fee +
+  compensation`; el CHECK `ManualRefund_amount_identity_chk` (migración M-61) es `amountCents = merchandiseCents +
+  processingFeeCents + compensationCents` — el IVA va **dentro** de la mercancía (`merchandiseIvaCents` es informativo).
+  Se sembró según el CHECK (la otra forma no entra en la BD).
+- **`setClabe` no valida el nombre** (medido: `users.service.ts:78-116` solo exige `^\d{18}$`), así que no hay
+  requisito de nombre que cumplir; el nombre es el `beneficiaryName` de la cubeta mientras no haya `legalName`.
+- **Lo que el E2E de frontend tiene que saber (medido en la prueba de abajo):** tras `PUT /users/me/kyc {clabe}`,
+  `clabeUpdatedAt > createdAt` ⇒ `clabeChangedRecently: true` ⇒ `POST …/paid` exige `confirmRecentClabeChange: true`
+  (si no, `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required:['recent_clabe_change']}`); `speiReference` solo admite
+  `^[A-Za-z0-9]{1,30}$` (con guion ⇒ `400`); `paid` necesita el `revealToken` de `GET …/reveal-clabe`.
+
+**Prueba:** `backend/test/integration/seed-spei-bucket.e2e-spec.ts` (3 casos): (1) forma de la siembra (importes que
+cuadran, todos > 0, caso `refunded`, origen `settled`, sin KYC); (2) dos siembras seguidas ⇒ **el mismo estado, ids
+incluidos**; (3) **N=3 ciclos** por HTTP — el cliente pone su CLABE, el súper-admin revela y paga una, cancela y
+re-emite la otra — y una siembra lo devuelve todo al estado de (2): **3/3**. Además, por la CLI (`npm run
+seed:synthetic` dos veces seguidas): estado de las dos filas, casos, piezas y KYC **idéntico** (`cli-state-1/2.txt`).
+Canarios (sobre copia): sin el borrado de re-emisiones ⇒ la re-siembra revienta con `P2002 (replacementCaseId,source)`
+(índice parcial de filas vivas) — rojo; sin `paidClabeHmac: null` ⇒ rojo (queda el HMAC de la pagada); sin borrar el
+`KycProfile` ⇒ rojo (`kyc` no nulo). Una corrida por mutación (deterministas). Primera versión de la prueba: si la
+siembra del `afterAll` fallaba, jest no cerraba la app y se colgaba (medido en la mutación A1) ⇒ `try/finally`.
+
+### 10.2 · `enum-query-axes.e2e-spec.ts` — 3 rojas «FIXTURE VACÍO»: causa raíz y arreglo
+
+- **BD recién migrada y sembrada** (`tcg_fresh_b`, creada para medir y borrada después): **3/3 corridas verdes, 429/429**
+  (N=3). Luego no era código de la cola.
+- **Qué la envenena (medido con una sonda sobre `GET /admin/inventory/pending-publish` tras cada suite):** la cola de
+  «listas para publicar» del seed tiene **una** pieza, `E2E-STK-0001` (plataforma `in_stock`, sin caja).
+  `full-refund-vault` **PS-64** llama `POST /admin/inventory/publish-all` **global** (el verbo real, a propósito: prueba
+  que ningún camino publica una pieza congelada) y la deja **`listed`**: tras esa suite, `platform in_stock = 0` y la cola
+  vacía. `inventory-move-mark-guards` también la encontró así; `replacement-cases`, `shipments-prep` y
+  `orders-public-status` la restauran porque re-siembran. `enum-query-axes` **no re-sembraba** (solo `ensureSeeded`, que
+  siembra una BD vacía) ⇒ medía lo que dejó la suite anterior.
+- **Misma clase que P-BUYLIST-CONC-FLAKE** (estado de la BD compartida que deja otra corrida y la víctima no restaura),
+  **no el mismo mecanismo**: aquí no hace falta un rojo previo — PS-64 verde basta.
+- **Arreglo (en la víctima):** `enum-query-axes` re-siembra en su `beforeAll` (`seedE2E`), como las demás suites
+  (`enum-query-axes.e2e-spec.ts:1041-1046`). No se tocó PS-64: su `publish-all` global es la prueba.
+- **Medición cruzada, N=3 ciclos «`full-refund-vault` → `enum-query-axes`» sobre la BD compartida:** sin el arreglo (copia
+  con el fichero de `550bc371`) **0/3 verdes** (3 rojas cada vez, las mismas tres); con el arreglo **3/3 verdes**
+  (429/429 cada vez).
+- **NO MEDIDO:** en la corrida por lotes del §9 salió una **cuarta** roja (`GET /admin/vaults?sort=`, N=1); no volvió a
+  salir en ninguna de las 9 corridas posteriores de esta suite. Se deja anotada, sin causa.
+- **Observación para el arquitecto (NO MEDIDO si es conducta querida):** `publish-all` publicó `E2E-STK-0001` **sin
+  ubicación** (`listed`, `locationId: null`), mientras la cola de pendientes trata «sin ubicación» como lo que le falta
+  para publicarse. No cambié nada; lo anoto porque es la misma pieza.
+
+### 10.3 · Cifras (árbol vivo, `550bc371` + este commit)
+
+| Qué | Resultado | Quién |
+|---|---|---|
+| `tsc --noEmit` (incluye `test/` y `prisma/`) | 0 errores | backend (`tsc.log`) |
+| Unitaria completa | **380/380 suites · 6393/6393** | backend (`unit-full.log`) |
+| Integración COMPLETA (66 suites), con la 1.ª versión de la siembra (sin `ivaTransferPct`) | 64/66 suites · 1420/1423: `iva-price-convention` 1 roja (la del dial, **mía**, arreglada abajo) y `settle-late` 2 rojas (**preexistentes**, abajo) | backend (`integ-full.log`) |
+| Tras añadir `ivaTransferPct: 100`: `iva-price-convention` · `seed-spei-bucket` · `enum-query-axes` | 39/39 · 3/3 · 429/429 | backend (`re-*.log`, `cyc-fix-enum-*.log`) |
+| La integración completa **no** se repitió tras ese cambio de un campo | NO MEDIDO | — |
+
+**Pendiente abierto (medido 2026-09-29):** `settle-late.e2e-spec.ts` — 2 rojas en «RESIDUAL — barrido de reservas sobre
+una orden `refunded` sin liquidar»: `refundFull` responde `200` pero la orden sigue `pending` (se esperaba `refunded`,
+`:409`). **Preexistente:** mismas 2 rojas sobre BD recién migrada **con la siembra de `550bc371`** (`fresh-base-settle-late.log`)
+y con la de este commit (`fresh-mine-settle-late.log`). Causa NO MEDIDA; es camino de dinero (reembolso total de una orden
+sin liquidar) y es de backend. Comprobación que lo cerraría: bisecar entre la última corrida verde conocida de esa suite y
+`550bc371`.
