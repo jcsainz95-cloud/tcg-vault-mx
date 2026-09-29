@@ -8622,3 +8622,113 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   bounty conserva §0.55 porque es la que citan `API_CONTRACT` y §0.57 (`§0.55.3`). Release s5 §9: su «Pendiente abierto»
   lleva ahora «CERRADO en §10.2».
 - **Comprobación:** `grep -c "^## 0.55 " docs/BACKEND_NOTES.md` ⇒ **1**.
+
+---
+
+## Frontend · 2026-09-29 · release s5 (7b9c196e)
+
+> Deuda **no bloqueante** del release s5, anotada por frontend a petición del orquestador (DoD). Fuentes: veredicto del
+> techlead sobre `b8a3e4ce` (TD-8, TD-9 mitad frontend, TD-11) y `SECURITY_NOTES` «Release s5 · 7b9c196e» (S5-1 pieza b).
+> **Cada `fichero:línea` se re-leyó el 2026-09-29** en el worktree `claude/release-s5` (`HEAD` `3bd744a9`;
+> `git diff --name-only 7b9c196e HEAD -- frontend docs/DESIGN_SYSTEM.md` ⇒ 0 ficheros ⇒ las líneas valen para `7b9c196e`).
+> Dueño de todo: **frontend**. ⛔ Ningún cambio de código en este pase.
+>
+> **Prioridad:** P2 = antes de `sk_live_` (RS5-FE-HDR2); P3 = consistencia/limpieza (RS5-FE-TD8, RS5-FE-TD11, RS5-FE-TD9).
+
+### RS5-FE-HDR2 · P2 · `SEC-HDR-2`: CSP completa de la vitrina (pieza **(b)** de S5-1; **antes de `sk_live_`**)
+- **Dónde:** `frontend/next.config.mjs:69-77` (`headers()`, `source: '/:path*'`); la única directiva CSP es
+  `frame-ancestors 'none'` en `:75`. Los tokens viven en `localStorage`: `frontend/src/lib/api-client.ts:28`
+  (`tcg.accessToken`), `:32` (`tcg.refreshToken`, 30 d), `:36-53` (lectura/escritura). Candado actual:
+  `frontend/src/lib/security-headers.test.ts` (solo SEC-HDR-1). Terceros que la CSP tiene que admitir, medidos:
+  `@stripe/stripe-js` (`components/domain/StripePaymentModal.tsx:4,30`) y el script de Google Identity inyectado
+  (`components/domain/GoogleSignInButton.tsx:113`, `https://accounts.google.com/gsi/client`). `dangerouslySetInnerHTML`
+  fuera de pruebas: **0** (`rg`).
+- **Riesgo:** Baja hoy (no se conoce XSS; DAST 40012/40014/40026 en FAIL y verdes, según seguridad). Pero sin
+  `script-src` un XSS lee `localStorage` y se lleva el refresh; con un `super_admin` y sin la pieza (a) (tope de vida,
+  `RS5-S5-1a` de backend) es una sesión perpetua con dinero saliente.
+- **Disparador:** antes de `sk_live_` (condición S5-1 de seguridad); o cualquier `dangerouslySetInnerHTML`/script de
+  tercero nuevo.
+- **Cómo se cierra:** CSP base en `headers()` (`default-src 'self'`, `object-src 'none'`, `base-uri 'self'`,
+  `form-action 'self'`, `connect-src` = API + Stripe + Google, `frame-src` Stripe + Google, `img-src` con los hosts de
+  `next-image-remote-patterns`) y `script-src` con **nonce** por petición (middleware de Next 15 + `headers()` para el
+  resto); `'unsafe-inline'` prohibido en `script-src`. Primero en `Content-Security-Policy-Report-Only` sobre staging,
+  luego enforce. Devops sube la regla DAST `10038` a FAIL (fuera de esta ruta). ⚠ Mover los tokens a cookie `httpOnly`
+  sería el cierre de fondo, pero cambia el contrato de auth ⇒ solicitud al arquitecto, no parte de esta entrada.
+- **Prueba que lo demuestra:** `security-headers.test.ts` amplía a: CSP contiene `script-src` sin `'unsafe-inline'`
+  ni `*`, `object-src 'none'`, `frame-ancestors 'none'` (mutación: quitar `script-src` ⇒ rojo); E2E Playwright que
+  recorre login (Google), checkout (Stripe) y panel sin ningún `securitypolicyviolation` en consola; DAST `10038`
+  verde en FAIL.
+
+### RS5-FE-TD8 · P3 · El banner del 429 por IP está escrito dos veces y ya divergió (TD-8, techlead)
+- **Dónde:** `frontend/src/components/domain/AuthForm.tsx:133-151` (banner con `ref`/`tabIndex={-1}` y foco en
+  `:110-112`) vs `frontend/src/components/domain/GoogleSignInButton.tsx:180-188` (mismo `Banner warning role="alert"`
+  con `auth.rateLimitedByIp*`, **sin foco**). `retryAfterMinutes` vive en `frontend/src/lib/password-attempts.ts:12`
+  (módulo nombrado por el tope por **correo**) pero sirve también a `RATE_LIMITED` por IP
+  (`GoogleSignInButton.tsx:9,96`; `AuthForm.tsx:99`).
+- **Riesgo:** Baja. La divergencia ya es un incumplimiento: `DESIGN_SYSTEM §37.13` (`DESIGN_SYSTEM.md:20640`, «login,
+  registro y Google»; `:20650` y `:20654`, «foco al banner al aparecer») exige foco también en Google, y hoy un usuario
+  de lector de pantalla no lo recibe ahí. Solo `AuthForm.rateLimited.test.tsx:47,73` asevera `toHaveFocus()`;
+  `GoogleSignInButton.test.tsx` no. Cada cambio de copy/forma del 429 hay que hacerlo dos veces.
+- **Disparador:** el próximo cambio a §37.13 o a los códigos 429 del contrato; o un tercer punto de entrada con 429.
+- **Cómo se cierra:** `RateLimitBanner({ code, mode, minutes })` compartido en `components/domain/` (elige clave por
+  `code` como la tabla de v1.80.8.1, pinta enlace solo con `TOO_MANY_PASSWORD_ATTEMPTS` en login, y lleva el foco);
+  `AuthForm` y `GoogleSignInButton` lo usan. `retryAfterMinutes` se mueve a un módulo neutro (p. ej.
+  `lib/rate-limit.ts`) y `password-attempts.ts` conserva solo la constante del código.
+- **Prueba que lo demuestra:** `GoogleSignInButton.test.tsx` con `429 RATE_LIMITED` ⇒ el banner `toHaveFocus()` (hoy
+  rojo); unitaria de `RateLimitBanner` con la tabla code×mode. Candado estático: `rg -n "rateLimitedByIp" frontend/src
+  --glob '!*.test.*'` ⇒ solo el componente compartido (hoy 2 ficheros de producción).
+
+### RS5-FE-TD11 · P3 · `DASH`, `ErrorLine` y `UnprepareDialog` duplicados en el panel (TD-11, techlead)
+- **Dónde (`frontend/src/app/[locale]/(admin)/admin/`):** `m4/prep-shared.tsx:18` **exporta** `DASH`, pero la
+  redeclaran `m4/ShipmentsQueue.tsx:47`, `m4/print/PrintSheetView.tsx:18` y `m4/reponer/[caseId]/ReplacementCaseView.tsx:38`
+  (los tres ya importan de `prep-shared`: `:26`, `:16`, `:34`). Fuera de M4, medido además: `refunds/OperatorRefundsView.tsx:20`,
+  `m3/[orderId]/M3OrderDetailView.tsx:26`, `manual-refunds/ManualRefundsView.tsx:19`,
+  `manual-refunds/[id]/ManualRefundDetailView.tsx:24` ⇒ **8** declaraciones para una constante.
+  `ErrorLine`: `m4/ShipPreparationCard.tsx:754` y `m4/VaultPlacementCard.tsx:612`, **ya divergen** (la de envío pinta
+  `error.links`, la de bóveda no), y cada fichero declara su propio `interface ShownError` (`:64` y `:78`).
+  `UnprepareDialog`: `ShipPreparationCard.tsx:1164` y `VaultPlacementCard.tsx:764`, 37 líneas idénticas salvo el nombre
+  del traductor (`ts`/`tv`; `diff` medido).
+- **Riesgo:** Baja. Un arreglo de a11y/copy en uno no llega al otro (`ErrorLine` ya lo muestra: si un error de bóveda
+  gana enlaces, no se pintan). Relacionada con `SHIP-FD-b` (`ShipPreparationCard.tsx` 1 200 líneas, medido hoy).
+- **Disparador:** el próximo cambio a la forma del error por fila o al diálogo de «Deshacer preparado» (§37.5); o que
+  un error de bóveda necesite enlace.
+- **Cómo se cierra:** `DASH` solo desde `prep-shared.tsx` (o `lib/format`, si se quiere para M3/manual-refunds —zona
+  compartida, coordinar); `ShownError`, `ErrorLine` y `UnprepareDialog({ t, … })` a `m4/prep-shared.tsx` y las dos
+  tarjetas los importan.
+- **Prueba que lo demuestra:** sin cambio de conducta: `ShipPreparationCard.test.tsx`, `VaultPlacementCard.test.tsx`
+  y `e2e/m4-ship.spec.ts`/`e2e/m4-preparation.spec.ts` verdes. Candado estático: `rg -n "^const DASH" frontend/src` ⇒ 0
+  (solo el `export`), `rg -n "^function (ErrorLine|UnprepareDialog)" frontend/src/app` ⇒ 0 fuera de `prep-shared.tsx`.
+
+### RS5-FE-TD9 · P3 · Citas «§37.x» que hoy son `DESIGN_SYSTEM §38` (TD-9, mitad frontend)
+- **Qué es:** el paquete P-61 / P-66 I2 / P-71 se escribió como §37 y se renumeró a **§38** al fusionarse con «Pedidos
+  por preparar», que conserva §37 (`DESIGN_SYSTEM.md:19453-19459`, nota de numeración: «§37.1 (P-61)», «§37.2 (menú /
+  P-66)», «§37.3 (P-71)» se leen §38.1/§38.2/§38.3). El código no se actualizó, así que **el mismo número cita dos
+  secciones distintas**: `m4/tabs.ts:2`, `m4/M4View.tsx:169`, `m4/page.tsx:5` usan §37.2 bien (pestañas de M4), mientras
+  `components/layout/AdminSidebar.tsx:22,27,43,133`, los `h1` de cada vista (`m1/M1View.tsx:94` y 13 más, «§37.2: h1 =
+  rótulo del menú») y `AdminPageTitles.test.tsx:11,18,109,121,133,159,190,206` lo usan para el menú (§38.2).
+- **Medido (2026-09-29, `rg` sobre `frontend/src` + `frontend/e2e`, excluyendo `m4`):** menú «§37.2…» **27** líneas;
+  P-61 «§37.1a-d» **50** (p. ej. `buylist/BuylistView.tsx:35`, `e2e/buylist.spec.ts:556` en un título de prueba);
+  P-71 «§37.3…» **27** (p. ej. `lib/setCode.ts:2`, `master-set/P71SetCode.test.tsx:20`) ⇒ **≈104 líneas en 66 ficheros**
+  (heurística por patrón: puede haber algún falso positivo; el recuento del techlead, «~20», se quedaba corto). Dentro
+  de `m4` hay 19 citas §37.1-3 que **sí** son §37. `docs/FRONTEND_NOTES.md` tiene 33 menciones `§3[78].[123]` sin
+  revisar.
+- **Riesgo:** Baja. Sin efecto en conducta; un lector (o un agente) que sigue «§37.3c» desde `SetCode.tsx` llega a
+  «La tarjeta de ENVÍO se vuelve interactiva» y decide sobre la regla equivocada. Los títulos de prueba con el número
+  viejo hacen que un reporte de QA cite la sección equivocada.
+- **Disparador:** cuando ux-ui fije las anclas estables (su mitad de TD-9); tocar cualquiera de esos ficheros antes
+  ⇒ corregir sus citas en el mismo commit.
+- **Cómo se cierra:** tras las anclas de ux-ui, reescritura mecánica: fuera de `m4`, `§37.1[a-d]?` + P-61 ⇒ `§38.1…`,
+  `§37.2[a-d]?` (menú/h1/P-66) ⇒ `§38.2…`, `§37.3[a-d]?` + P-71 ⇒ `§38.3…`; mismas reglas en `FRONTEND_NOTES`. Sin cambio
+  de código ni de conducta.
+- **Prueba que lo demuestra:** `rg -n "§37\.[123]([a-d]|\b)" frontend/src frontend/e2e --glob '!**/m4/**' --glob
+  '!**/m4-*'` ⇒ **0**; `npm test` y la lista de títulos de Playwright (`--list`) sin cambios de número de casos.
+
+### RS5-FE-LECCIÓN · ✅ cerrado en `7b9c196e` · Un aviso añadido «reusando copy» no tiene respaldo de diseño por reusar copy
+- **Qué pasó:** `ea6b72a3` (ux-pulido) añadió en el resumen del checkout con cuenta un segundo
+  `<p>{t('afterPayment')}</p>` («reusa el copy existente; no se inventa texto nuevo»). `DESIGN_SYSTEM §15.3`
+  (`DESIGN_SYSTEM.md:2569-2570`) fija **tres** notas al margen, «no se añade ni se quita ninguna», y PROJECT 48b iguala
+  los avisos del invitado (que pinta una). Resultado: el aviso salía **dos veces**. Lo cazó el gate de release (B-3b);
+  `7b9c196e` lo retiró (`CheckoutView.tsx:344`, comentario ⛔) y dejó candado.
+- **Lección (frontend):** reusar una clave de i18n no es respaldo: **cada bloque visible nuevo necesita su § en
+  `DESIGN_SYSTEM`**; si no está, se pide a ux-ui antes de pintar, igual que un campo nuevo se pide al arquitecto.
+- **Prueba que lo sostiene:** `frontend/e2e/checkout.spec.ts:41` (`checkout.afterPayment` ⇒ `toHaveCount(1)`).
