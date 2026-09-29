@@ -52,7 +52,7 @@ process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'e2e_access_sec
 process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'e2e_refresh_secret';
 process.env.DEFAULT_LOCALE = process.env.DEFAULT_LOCALE || 'es';
 // Origen público del portal para los CTA de los correos (`appUrl`, `mail-shell.ts`): sin él las plantillas degradan el
-// CTA a texto y PS-39 (AV-14 «regístrala en tu cuenta» ⇒ `/cuenta#kyc`) depende de que quien corre la suite lo exporte
+// CTA a texto y PS-39 (AV-14 «regístrala en tu cuenta» ⇒ `/account#kyc`) depende de que quien corre la suite lo exporte
 // (medido: roja aquí, verde en QA). Default local, nunca un origen real.
 process.env.APP_PUBLIC_URL = process.env.APP_PUBLIC_URL || 'http://localhost:3000';
 

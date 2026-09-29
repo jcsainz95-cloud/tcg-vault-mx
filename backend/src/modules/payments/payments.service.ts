@@ -679,7 +679,9 @@ export class PaymentsService {
    * webhook: directo ⇒ cierra el envío vivo; bóveda ⇒ deshace la venta (reclamo por pieza, idempotente);
    * PI de un RETIRO ⇒ cierra el retiro. Independiente del ORDEN DE LLEGADA (SEC-SHIP-M5): con la orden ya
    * `refunded` por M3 la pasada re-clasifica y solo reclama lo que M3 no pudo. `Order → refunded` con
-   * `status IN (settled, refunded)`. `AV-3` lo manda quien escribió el sello, y solo si la regla de §9 lo
+   * `status IN CHARGE_REFUNDED_SOURCE_STATUSES` (`pending, failed, settled`; v1.80.8.3, supera el
+   * `IN (settled, refunded)` de M5): `refunded` ⇒ `count 0` no-op, `chargeback` se conserva. `AV-3` lo
+   * manda quien hizo la TRANSICIÓN, y solo si la regla de §9 lo
    * permite (fila `order_full` no fallida, o ninguna fila del libro).
    */
   async onChargeRefunded(charge: Stripe.Charge): Promise<void> {

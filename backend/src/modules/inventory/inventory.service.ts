@@ -1942,8 +1942,17 @@ export class InventoryService {
    * MISMO UPDATE (updateMany + count). Cierra el TOCTOU: si entre lectura y escritura la pieza salió
    * de {in_stock, listed} (p. ej. un checkout la reservó), count=0 → ITEM_NOT_PUBLISHABLE y NO se
    * re-abre a un segundo comprador (anti double-sell). Persiste el override manual POR LÍNEA si vino.
+   *
+   * `fields` (solo el `PATCH` publicante): los demás campos del body viajan en ESTE MISMO `UPDATE`
+   * condicionado — todo o nada (INV-SP-8, `#M1-patch-price-guard`). Si el CAS pierde, no se escribe
+   * ninguno (M-1 del gate de QA sobre `b8a3e4ce`: antes iban en un `update` por `id` previo y el
+   * precio quedaba escrito sobre la pieza que un checkout acababa de reservar).
    */
-  private async claimListed(item: PublishableItem, lineListPriceCents?: number): Promise<void> {
+  private async claimListed(
+    item: PublishableItem,
+    lineListPriceCents?: number,
+    fields: Prisma.InventoryItemUpdateManyMutationInput = {},
+  ): Promise<void> {
     const claimed = await this.prisma.inventoryItem.updateMany({
       where: {
         id: item.id,
@@ -1951,6 +1960,7 @@ export class InventoryService {
         status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
       },
       data: {
+        ...fields,
         status: 'listed',
         ...(lineListPriceCents != null ? { listPriceCents: lineListPriceCents } : {}),
       },
@@ -2485,11 +2495,11 @@ export class InventoryService {
         ...(resolved.pendingPriceEntryId ? { pendingPriceEntryId: resolved.pendingPriceEntryId } : {}),
       });
     }
-    // Los campos no-status primero; el `listed` lo pone `claimListed` con su guarda atómica.
-    if (Object.keys(fields).length > 0) {
-      await this.prisma.inventoryItem.update({ where: { id }, data: fields });
-    }
-    await this.claimListed(resulting, patch.listPriceCents);
+    // 🔒 Campos y `listed` en UNA sola escritura condicionada (`claimListed`): si un checkout reservó la
+    // pieza entre la lectura de arriba y aquí, el CAS no casa ⇒ `422 ITEM_NOT_PUBLISHABLE` y NADA
+    // escrito (INV-SP-8, todo o nada). ⛔ No volver a un `update` por `id` previo: ese orden escribía el
+    // precio y LUEGO perdía el CAS (M-1 de QA; candado `inventory-patch-publish-race.e2e-spec.ts`).
+    await this.claimListed(resulting, patch.listPriceCents, fields);
     return toAdminInventoryItemRow({ ...resulting, status: 'listed' });
   }
 
@@ -2806,7 +2816,10 @@ export class InventoryService {
     return toAdminInventoryItemRow(updated);
   }
 
-  /** Lee lo que las guardas de `move`/`mark` necesitan (404 si no existe). */
+  /**
+   * Lee lo que las guardas de `move`/`mark` y del `PATCH` no publicante (`status`/`price`, regla de fusión
+   * `#M1-merge-rule`) necesitan (404 si no existe).
+   */
   private async readGuardedItem(
     tx: Prisma.TransactionClient,
     id: string,
@@ -2824,7 +2837,8 @@ export class InventoryService {
   /**
    * Escritura CONDICIONADA al estado y dueño LEÍDOS (TOCTOU): si un checkout, un settle o un
    * contracargo cambió la pieza entre la lectura y aquí, el `update` no encuentra la fila (`P2025`)
-   * y se responde `409 CONFLICT` — la transacción se revierte entera, sin movimiento.
+   * y se responde `409 CONFLICT` — la transacción se revierte entera, sin movimiento ni campo escrito.
+   * Lo usan `move`, `mark` y el `PATCH` no publicante (`#M1-merge-rule`); el publicante usa `claimListed`.
    */
   private async guardedItemUpdate(
     tx: Prisma.TransactionClient,
@@ -2832,7 +2846,7 @@ export class InventoryService {
     data: Prisma.InventoryItemUncheckedUpdateInput,
   ) {
     try {
-      // PROJECTION-EXEMPT: helper privado dentro de la `$transaction`; `moveItem`/`markItem`
+      // PROJECTION-EXEMPT: helper privado dentro de la `$transaction`; `moveItem`/`markItem`/`updateItem`
       // proyectan con `toAdminInventoryItemRow` antes de responder.
       return await tx.inventoryItem.update({
         where: {

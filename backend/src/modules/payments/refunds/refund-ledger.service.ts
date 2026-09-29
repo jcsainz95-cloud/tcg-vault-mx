@@ -11,8 +11,9 @@
  *    0. RECLAMO (lease, SEC-SHIP-M2) fuera de toda tx larga; 1. `attemptCount > 1` ⇒ búsqueda PAGINADA en
  *    Stripe por `metadata.paymentRefundId`; 2. si no ⇒ `refunds.create` con `amount` y la llave del libro;
  *    3. CAS `where { id, status:'requested' }` → `submitted|succeeded`; definitivo ⇒ `failed`; transitorio ⇒
- *    se queda `requested` y libera el reclamo. Para `order_full`, la tx de confirmación escribe también
- *    `Order → refunded` (`WHERE status IN (settled, refunded)`, SEC-SHIP-M5) y llama `onFullRefund` (§18.2).
+ *    se queda `requested` y libera el reclamo. Para `order_full`, la tx de confirmación llama `onFullRefund`
+ *    (§18.2) y DESPUÉS, bajo su candado, escribe `Order → refunded` con `WHERE status = 'settled'` (M3, v1.80.8.3;
+ *    supera el `IN (settled, refunded)` de SEC-SHIP-M5): `count 0` ⇒ relectura bajo candado y clasifica.
  *  - `AV-12` post-commit, best-effort, con sello `customerNotifiedAt` reclamado por `updateMany`.
  *  - El TOPE del operador (§M4-SHIP.8): `lockOperatorRefundGate` + `usedCents` en 24 h rodantes.
  */

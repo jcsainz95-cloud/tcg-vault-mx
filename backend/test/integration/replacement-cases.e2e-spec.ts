@@ -1120,9 +1120,9 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     bandeja = [];
     expect((await db.caseRefund(s.caseId, refundBody(pv, Q))).status).toBe(200);
     expect(av14()).toHaveLength(1);
-    // El contrato (PS-39, §M4-SHIP.15.7) dice `/cuenta#kyc`, «pantalla que ya existe: `KycSection`»; esa pantalla vive
-    // en `/account` (`AccountView.tsx`, `SectionShell id="kyc"`) y `/cuenta` es un 404 (candado
-    // `mail-links.frontend-routes.spec.ts`). Se asevera el destino real; la errata del literal va al arquitecto.
+    // El contrato (PS-39, §M4-SHIP.15.7, errata v1.80.8.2) dice `/account#kyc`: la pantalla `KycSection` vive en
+    // `/account` (`AccountView.tsx`, `SectionShell id="kyc"`) y `/cuenta` es un 404 (candado
+    // `mail-links.frontend-routes.spec.ts`).
     expect(av14()[0].html).toMatch(/\/account#kyc/);
     expect(av12()).toHaveLength(0);
     // Mutación: mandar AV-15 al crear; no reclamar el sello ⇒ 10 correos.
