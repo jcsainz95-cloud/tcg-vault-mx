@@ -18349,3 +18349,101 @@ deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
 - M3 `t(reasonKey)` sin respaldo ⇒ 1/19 roja («matchStatus desconocido…»).
 - M4 `rejected = matched && !src` (todo sin imagen se llama «rechazada») ⇒ 1/19 roja («casada sin imageUrl…»).
 - Restaurado ⇒ 19/19.
+
+## §81 · **§M4-SHIP «Pedidos por preparar» (v1.80.6)** — palomeo de envío, reembolso por carta, «Por reponer», cubeta SPEI, M3 detalle y el pedido del cliente (2026-09-29, rama `claude/envio-preparar`, base `b011b1b`; contrato `290f27f`, diseño `f0962d5`)
+
+Fuentes: `API_CONTRACT.md §M4-SHIP.1–.18` (v1.80.6, errata B12/M7), `PROJECT.md §S.10` (criterios 215–233),
+`DESIGN_SYSTEM.md §37` (v4.9). Los copys son la tabla de claves de **§37.16** tal cual (573 claves nuevas; paridad
+es/en 3916/3916 medida con `i18n-parity.test.ts`; sin NBSP: `grep` de ` ` en los dos catálogos = 0).
+
+### Commits (todos acotados a `frontend/` y a este fichero)
+
+| SHA | Bloque |
+|---|---|
+| `9fc1757` | Base: DTOs del contrato en `types/contract.ts`, **servidor mock con estado** `lib/mock/m4-ship.ts` (replica §M4-SHIP.4/.5/.7/.15/.17/.18 y sus códigos 409/422/403), 20 funciones nuevas en `lib/api.ts`, catálogo es/en, `hooks/usePickingSummary.ts`, `ui/Textarea.tsx` |
+| `8bada0c` | M4: pestañas `?tab=preparar\|reponer\|envios`, `ShipPreparationCard`, `ShipmentsQueue`, hoja imprimible `m4/print` |
+| `ea278e9` | «Por reponer»: `ReplacementCasesPanel`, `ReplacementCaseCard`, `m4/reponer/[caseId]` |
+| `47d28c2` | `admin/manual-refunds` (lista + detalle) y `admin/refunds` (resumen por operador + libro) |
+| `4e61b2f` | M3: `m3/[orderId]` (detalle, reclamar, chargeback-inventory), `RefundOrderDialog`, `VaultPiecesList`; menú y tablero |
+| `dee8f34` | Cliente: `OrderShipmentBlock`, `OrderItemStatusLine`, `OrderDetailView`/`OrdersView`/`VaultView`/`WithdrawalsList`/`ShipmentDetailView`; `AuthForm` 429 |
+| *(este)* | `e2e/m4-ship.spec.ts` + esta sección |
+
+### Decisiones de implementación
+
+1. **Un fake server con estado, no fixtures sueltos.** `lib/mock/m4-ship.ts` guarda órdenes de origen, envíos con
+   marcas, libro de reembolsos, casos, transferencias y piezas de bóveda, y **recalcula** `refundPreviewCents`
+   (`unitPrice + floor(processingFee·unitPrice/(subtotal+envío))`, §M4-SHIP.4: Pikachu 30 000 sobre `ord-5001` ⇒
+   **31 458**) y los conteos en cada verbo. Así los tests de pantalla miden contra la semántica del contrato (topes
+   2×/5×, `REFUND_PREVIEW_STALE`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`, `nothing_to_ship`…) sin backend. `resetMockM4Ship()`
+   deja cada test limpio; en Playwright se reinicia con cada carga completa.
+2. **S1/S2 (§37.0): la pantalla no produce cifras de dinero.** La fila, el conteo vivo y el botón del diálogo repiten
+   `refundPreviewCents`; el `POST /prepared` lleva esa cifra como `expectedRefundCents`; un `409 REFUND_PREVIEW_STALE`
+   reabre el diálogo con `details.refundCents` y ⛔ nunca reintenta solo (`ShipPreparationCard.test` PS-UI-4: 1 POST).
+   El único input de dinero es la captura del caso (§37.8d), con las dos referencias a la vista, el reparto del servidor
+   (`GET …/refund-preview`, debounce 400 ms) y re-escritura sin pegar por encima de 2× (`onPaste` → `preventDefault`).
+3. **Un preparado sin dinero ni casos NO manda aviso a la cola.** Medido en Playwright: el aviso (`prep-notice`) toma el
+   foco y le robaba el foco a la línea de paso, que es lo que §36.12 pide (mismo trato que la tarjeta de bóveda). El
+   aviso queda para lo que mueve dinero, abre casos o cierra el retiro (`closed_nothing_to_ship`, v1.80.6).
+4. **PR-3 se conserva en la fila de envío:** la columna de ubicación es el primer hijo del `<li>` (el renglón ES el
+   flex-row); estado, dinero y error viven en la columna de contenido.
+5. **S5 (CLABE):** solo existe en el estado local de `ManualRefundDetailView` (`useState`, se limpia al pagar, al
+   ocultar y al desmontar), en un solo `<output>`; ⛔ ni `title`, ni `aria-label`, ni URL, ni cache de TanStack. La lista
+   solo trae `clabeMasked`. Candado PS-UI-7: `document.body.innerHTML` sin `\d{18}` antes y después.
+6. **S6 (súper-admin):** `SuperAdminOnly` envuelve SPEI y «Reembolsos de operadores»; en «Por reponer» los verbos
+   «Reembolsar»/«Anular» no se pintan al operador (PS-UI-6); tablero: `manualRefunds`/`operatorRefunds` `null` ⇒ la
+   tarjeta no existe; el menú pinta el badge SPEI solo si `manualRefundsPending !== null`.
+7. **El contador es el aviso (§M4-SHIP.11):** `usePickingSummary` (una sola `queryKey`, `refetchInterval` 60 s solo
+   con pestaña visible, `refetchOnWindowFocus`) alimenta menú, pestañas y tablero; todo verbo que cambia la cola lo
+   invalida. Sin campana ni sonido.
+8. **Cliente (§37.12):** el mapeo `publicStatus → status.tracking.*` se importa de `pedido/tracking-status.ts` (⛔ no
+   se copia); `OrderShipmentBlock` pinta la lista cerrada del contrato (sin calle ni teléfono). `OrderItemStatusLine`
+   es el mismo componente en pedido, retiro, detalle de retiro y «Mi bóveda».
+9. **Renombre §37.16 / criterio 215:** `admin.modules.m4 = «M4 · Pedidos por preparar»`, `admin.m4.title` y
+   `admin.m4.prep.title = «Pedidos por preparar»`. El `<h1>` y el `<h2>` comparten nombre: los tests buscan por
+   `level`. ⚠️ El encargo pedía «sin M-n en textos visibles»; §37.16 fija normativamente el prefijo «M4 ·» en el menú y
+   la mención «Pedidos (M3)» en dos copys de error. Seguí §37.16 (es la fuente de copys) y lo dejo señalado.
+
+### Mediciones (2026-09-29, árbol `dee8f34` + spec)
+
+- `npx tsc --noEmit`: limpio. `eslint` sobre todos los ficheros tocados: limpio.
+- **vitest completo:** `182 ficheros · 2108 pruebas` ⇒ tras corregir `AdminShell*.test` (el menú ahora usa
+  `useQuery`, hacía falta el `QueryClientProvider` y el export `getPickingListSummary` en su mock de `@/lib/api`)
+  **0 rojas** en los ficheros tocados (`AdminShell`, `AdminShell.mustChange`, `ShipPreparationCard`: 19/19). La
+  corrida completa previa a ese arreglo: 2104/2108 (las 4 rojas eran exactamente esas).
+- **Nuevas pruebas unitarias (41):** `ShipPreparationCard.test` 9 (PS-UI-3/4/5, guía/deshacer, «Nada que enviar»),
+  `ShipmentsQueue.test` 8 (PS-UI-10, 409 por código, quién es quién, búsqueda), `ReplacementCaseView.test` 7
+  (PS-UI-6/9/11), `ManualRefundDetailView.test` 5 (PS-UI-7/8/6), `RefundOrderDialog.test` 3 (PS-UI-14),
+  `OrderDetailView.shipment.test` 5 (PS-UI-1 ×9 estados + «Tu envío»), `AuthForm.rateLimited.test` 4 (PS-UI-13).
+  Adaptadas al DTO v1.80 y a las pestañas: `M4View.test` (60/60), `VaultPlacementCard.test` (25/25), `M3View.test`
+  (6/6), `AdminSidebar.test`, `AdminDashboard.test`.
+- **Censo E2E** (`src/test/e2e-harness.test.ts`) + paridad i18n: 57/57. El spec nuevo declara `mockOnly` en sus 6
+  casos (usa folios del fixture).
+- **Playwright con mocks, `e2e/m4-ship.spec.ts`:** 6 flujos × 2 anchos (390×844 y 1280×800) = **12/12** en la
+  tercera corrida (build de producción `.next-e2e-mock`); las dos primeras corridas dejaron los dos hallazgos de la
+  decisión 3 (foco) y un `getByLabel` no exacto en el diálogo de guía. Flujos: palomeo→preparado→guía; faltante→
+  reembolso 314.58→preparado; «Por reponer» reponer con pieza; «Por reponer» reembolsar; SPEI revelar→pagada; M3
+  reclamar con casilla por carta.
+- **Specs existentes de las pantallas tocadas** (`m4-preparation`, `m4-vault-placement`, `vault`, `orders-resume`,
+  `shipments`, `stream-a-navigation`, `--workers 2`): **41/41 pasadas, 2 saltadas** (`@real`), tras adaptar dos
+  aserciones al rótulo compartido h1/h2 (`level: 2`) y reescribir P-10 de `m4-preparation` a las pestañas (la cola ya
+  no comparte scroll: «Preparar» es la pestaña por defecto y la cola solo aparece al pedirla);
+  `m4-vault-placement` 14/14 en su re-corrida. Una corrida anterior con 9 specs a la vez perdió el servidor de mocks a
+  mitad (`ERR_CONNECTION_REFUSED` en 27 casos: no es defecto de pantalla; con 2 workers no volvió a pasar, N=2).
+- **Dos rojas que NO son de este encargo** (medidas en esa corrida, no re-medidas sobre la base `b011b1b`):
+  `account.spec.ts:287` espera cinco entradas en el header y recibe seis — la sexta es «Meta Battle Decks» (§78,
+  `claude/fe-decksmeta-f1`); `admin.spec.ts:451` busca «Spread de UPC» en M2 y los spreads del sellado se movieron a
+  M11 (`admin.m2.movedToM11`). Ninguna toca ficheros de §M4-SHIP.
+
+### Lo que NO se pudo cablear (solicitudes al arquitecto)
+
+- **`HoldingDTO` sin motivo de `withdrawable:false`.** §37.10d pide el chip «Compra en reembolso» en «Mi bóveda», pero
+  `GET /vault/holdings` solo da `withdrawable:false`; el motivo `origin_refunded` vive en `quote.ineligible[]`. Las
+  claves `vault.item.originRefunded*` están en el catálogo y `error.ITEM_ORIGIN_REFUNDED` sí se pinta en el `POST`.
+  Petición: `withdrawableReason?: 'pending' | 'in_withdrawal' | 'origin_refunded' | 'replacing'` en `HoldingDTO`.
+- **`KycInfoDTO` sin `clabeUpdatedAt`.** `account.kyc.clabeUpdatedAt` («CLABE actualizada el…») existe en el catálogo
+  pero la cuenta del cliente no puede pintarla.
+- **`Retry-After` no llega al cliente HTTP** (`api-client` solo expone `code/details`). El 429 usa
+  `details.retryAfterSeconds` si viene; si no, la frase sin minutos (§37.13). Si `C7` fija minutos, que los mande en
+  `details`.
+- **`403 MONEY_OUT_LIMIT_EXCEEDED`** sin `details` tipados en el contrato para la tarjeta de envío: se pinta la frase
+  genérica `error.limitExceeded`.
