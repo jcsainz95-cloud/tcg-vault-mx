@@ -2,7 +2,23 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.80**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.1**).
+>
+> **Changelog v1.80.1 — C7 TRAS EL VEREDICTO DE SEGURIDAD: UN DISPOSITIVO POR SESIÓN, LA MEMORIA CUENTA SIEMPRE, Y EL
+> SCRIPT DE RESCATE LEVANTA EL CANDADO** (2026-09-29, arquitecto; base v1.80, vigente entera salvo lo que esta rev toca).
+> Origen: `SECURITY_NOTES` 2026-09-29 sobre `8ea245f` (`SEC-C7-MINT` Media —bloquea dinero real, no la fusión—,
+> `SEC-C7-SCRIPT`, `SEC-C7-RDEG`) y el «IMPORTANTE 1» de QA. Razón entera: `ARCHITECTURE §4.57.10`. ⛔ **Sin schema, sin
+> migración, sin variable de entorno nueva, sin endpoint nuevo, sin código de error nuevo, sin cambio de shape: el
+> frontend NO cambia.** Todo es de **backend**.
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ El `jti` del `deviceToken` es el **`sid` de la sesión** (claim nuevo del refresh token, opaco). `POST /auth/refresh` devuelve el **mismo** dispositivo con `exp` renovado: N refrescos ⇒ **un** cubo, no N | §1 `/auth/refresh`, «Límite de intentos por cuenta» | **Sí, backend** |
+> | **2** | ⭐ **Tope agregado por cuenta** de intentos por vía dispositivo: **30 en 24 h** (todos los `jti`); al superarlo el intento va al cubo de la cuenta | §1 «Límite de intentos por cuenta» | **Sí, backend** |
+> | **3** | ⭐ Un plazo de Redis vencido **ya no** regala una segunda escalera: la memoria es caché de Redis + lo no visto, y se repone | §1 «Límite de intentos por cuenta» (Almacén) | **Sí, backend** |
+> | **4** | `prisma/reset-admin-password.ts` **levanta el candado C7**; contrato del script | §1 «Script de rescate» | **Sí, backend** (script) |
+> | **5** | ⛔ El `deviceToken` **sigue sin ligarse a `tokenVersion`** (decisión razonada, `ARCHITECTURE §4.57.10.1 c`) | §1 | **No** |
+> | **6** | Pruebas **`C7-19…C7-23`** y sus mutaciones | §1 «Límite de intentos por cuenta» | **Solo pruebas** |
 >
 > **Changelog v1.80 — C7: LÍMITE DE INTENTOS DE CONTRASEÑA POR CUENTA, Y UNA PUERTA QUE EL ATACANTE NO PUEDE CERRAR
 > (2026-09-28, arquitecto; base v1.79.5, vigente entera salvo lo que esta rev toca). Origen: condición **C7** del
@@ -7279,7 +7295,7 @@ Err: `401 INVALID_CREDENTIALS`, `403 USER_BLOCKED`, **`429 TOO_MANY_PASSWORD_ATT
 > **v1.80 (C7):** antes de verificar la contraseña pasa por el **límite de intentos por cuenta** — orden, reglas y
 > pruebas en [«Límite de intentos por cuenta»](#auth-password-attempts) más abajo. `deviceToken` (opcional, string
 > ≤ 2048): el último que este navegador recibió; uno ajeno, caducado o mal firmado **se ignora sin error**. El `200`
-> trae siempre uno nuevo.
+> trae siempre uno nuevo (**v1.80.1:** su `jti` es el `sid` de la sesión recién creada).
 Nota: una cuenta creada solo con Google tiene `passwordHash=null`; este endpoint la rechaza con `401 INVALID_CREDENTIALS` (no revela que es cuenta Google) hasta que el usuario fije contraseña.
 > **v1.5:** el login **NO** exige `emailVerified` (un usuario sin verificar sí puede entrar y navegar). El objeto
 > `user` incluye `emailVerified` para que el front decida el banner. `403 USER_BLOCKED` sigue aplicando a
@@ -7311,6 +7327,13 @@ Nota: el login Google **no exime KYC** — la buylist sigue exigiendo **CLABE** 
 Req: `{ refreshToken }` → Res `200`: `{ accessToken, refreshToken, deviceToken }`. Err: `401`.
 > **v1.80:** +`deviceToken` (aditivo) — así los navegadores con sesión abierta el día del despliegue reciben su
 > dispositivo conocido en el siguiente refresco, sin esperar a un login.
+> ⭐ **v1.80.1 (`SEC-C7-MINT`, `ARCHITECTURE §4.57.10.1`):** el `deviceToken` que devuelve es **el mismo dispositivo con
+> `exp` renovado**, no uno nuevo: su `jti` es el **`sid`** que viaja en el refresh token (claim interno; el front no lo
+> lee ni lo manda), y el refresh token nuevo **hereda** ese `sid`. Efecto normativo: **N llamadas con un mismo refresh
+> token, o con su cadena, devuelven N `deviceToken` con el MISMO `jti`** ⇒ un solo cubo de intentos. ⛔ El cuerpo
+> **no** acepta `deviceToken` (no hace falta: la identidad va en el refresh token). Refresh tokens emitidos **antes**
+> de esta rev (sin `sid`, viven ≤ 30 d): `sid = "legacy:" + sub + ":" + iat`, determinista — reproducir el mismo token
+> da el mismo `jti`. Prueba `C7-19`, `C7-21`.
 
 ### POST /api/v1/auth/logout — `customer+`
 Res `204`.
@@ -7413,25 +7436,31 @@ que las pruebas tienen que demostrar.
 |---|---|
 | Clave del login | `blindIndex("auth-pw:v1:" + normalizeEmail(email))` — **la misma** `normalizeEmail` que usa la búsqueda del usuario (`common/validation/credentials.ts`) |
 | Clave de `change-password` | `"auth-cp:v1:" + userId` |
-| Clave del dispositivo | `"auth-pwdev:v1:" + deviceToken.jti` |
+| Clave del dispositivo | `"auth-pwdev:v1:" + deviceToken.jti` — **v1.80.1:** `jti` = **`sid` de la sesión** (`login`/`google`: nuevo; `refresh`: el heredado; `reset-password`: aleatorio) |
+| ⭐ Tope agregado por vía dispositivo (v1.80.1) | Clave `"auth-pwdevagg:v1:" + userId`. **30 intentos en 24 h** (ventana **fija** desde el primero), contados con `bump` **antes** de `argon2`, **fallidos o no**, solo cuando el `deviceToken` es válido y de esa cuenta. **Al superarlo, el intento usa el cubo de la cuenta** (no es un `429` propio). Lo limpian `reset-password`, reset por admin y el script de rescate; ⛔ **no** el acierto |
 | Intentos libres | **5** (el 5.º ya deja puesto el candado) |
 | Candado tras el intento `f ≥ 5` | `min(60 s · 2^(f−5), 3600 s)` ⇒ 60 s, 2, 4, 8, 16, 32, **60 min** (tope) |
 | Olvido del contador | **2 h** sin intentos (TTL deslizante, renovado en cada intento) |
 | Intento durante el candado | `429`; ⛔ **no cuenta y no alarga** el candado |
 | Qué cuenta | **Cada intento**, reservado **antes** de `argon2`, en **una** operación atómica con la comprobación del candado |
-| Qué lo limpia | login correcto (solo el cubo usado), `reset-password` completado, `POST /admin/users/:id/reset-password`, `change-password` correcto. ⛔ **`forgot-password` NO** |
+| Qué lo limpia | login correcto (solo el cubo usado; ⛔ nunca el agregado), `reset-password` completado, `POST /admin/users/:id/reset-password`, `change-password` correcto, y (v1.80.1) el **script de rescate** `reset-admin-password` — estos tres últimos y `reset-password` limpian también `auth-cp` y el **agregado**. ⛔ **`forgot-password` NO** |
 | Qué responde con candado | `429 TOO_MANY_PASSWORD_ATTEMPTS`, `Retry-After`, `details.retryAfterSeconds`. Igual para cuenta existente, inexistente, solo-Google y bloqueada; **ninguna** llega a `argon2` |
 | Rol | **Sin diferencias por rol. Sin excepción para `super_admin`** |
-| Almacén | Redis (cliente propio, plazo **250 ms** por operación) con respaldo en memoria si Redis falla; memoria si no hay `REDIS_URL`; **siempre memoria bajo `NODE_ENV=test`**. ⛔ El candado **no** se apaga en test |
+| Almacén | Redis (cliente propio, plazo **250 ms** por operación) con respaldo en memoria si Redis falla **o vence el plazo**; memoria si no hay `REDIS_URL`; **siempre memoria bajo `NODE_ENV=test`**. ⛔ El candado **no** se apaga en test. ⭐ **v1.80.1:** la memoria es **caché de la última respuesta de Redis** por clave, más lo que Redis no vio (`unsynced`, candado restante, `reset` pendiente): al caer arranca **de la foto**, no de cero, y la primera operación que Redis vuelve a contestar **repone** lo no visto en el mismo Lua de la reserva. **Invariante `C7-R`:** el presupuesto de una clave es **uno**, conteste Redis o no (`ARCHITECTURE §4.57.5`, §4.57.10.2) |
 
-**Orden en `login` (normativo):** normalizar → buscar usuario → verificar `deviceToken` → elegir cubo (el del
-dispositivo **solo** si el token es válido **y** su `sub` es el `id` del usuario encontrado; si no, el de la cuenta)
-→ **reservar** (o `429`) → `argon2` (dummy si no hay hash) → `401` | limpiar el cubo usado → `403 USER_BLOCKED` si
-aplica → `200` con `deviceToken` nuevo. ⚠️ El acierto por la vía del dispositivo **no** limpia el cubo de la cuenta.
+**Orden en `login` (normativo):** normalizar → buscar usuario → verificar `deviceToken` → **(v1.80.1) si el token es
+válido y de esa cuenta, `bump` del agregado; si pasa de 30, se ignora el token** → elegir cubo (el del dispositivo
+**solo** si el token es válido, su `sub` es el `id` del usuario encontrado **y** el agregado no se pasó; si no, el de
+la cuenta) → **reservar** (o `429`) → `argon2` (dummy si no hay hash) → `401` | limpiar el cubo usado (⛔ nunca el
+agregado) → `403 USER_BLOCKED` si aplica → `200` con `deviceToken` nuevo (`jti` = `sid` de la sesión nueva). ⚠️ El
+acierto por la vía del dispositivo **no** limpia el cubo de la cuenta.
 
 **`deviceToken`:** JWT HS256 `{ typ: "device", sub, jti, iat, exp }`, **90 días**, llave
 `HKDF-SHA256(JWT_REFRESH_SECRET, info = "tcg-hunt/device-token/v1")`. **No autentica** (solo elige el contador); no
-vale como access ni como refresh; no se liga a `tokenVersion` (cerrar sesión no lo tira).
+vale como access ni como refresh; no se liga a `tokenVersion` (cerrar sesión no lo tira; **v1.80.1: ratificado**,
+razón en `ARCHITECTURE §4.57.10.1 c`). **v1.80.1:** `jti` = **`sid` de la sesión**; el refresh token gana el claim
+`sid` (uuid; interno, el front no lo lee) que `refresh` hereda de token en token. **Un dispositivo por sesión:**
+`refresh` no acuña, renueva.
 
 **Efectos laterales al poner un candado** (solo en la transición «sin candado → con candado»), **todos sin `await`**,
 después de responder: `logger.warn` (sin correo; 12 caracteres del HMAC, fallos, segundos, vía); `AuditLog { action:
@@ -7472,11 +7501,36 @@ concurrencia se reportan como proporción con su N).
 | **C7-16** | `change-password`: 5 × `422 CURRENT_PASSWORD_INCORRECT` ⇒ el 6.º `429` sin `argon2` (no `401`). Con el login del mismo usuario bloqueado por un atacante, `change-password` con la actual correcta ⇒ `200` | compartir cubo con el login |
 | **C7-17** | `Owner@X.COM` y `owner@x.com` comparten contador; y la prueba corre bajo `NODE_ENV=test` **sin** ninguna variable que lo encienda (canario: el candado está vivo en la suite) | clave desde el correo sin normalizar; o saltar el candado en test |
 | **C7-18** | `app.get('trust proxy') === 1` y el tracker del throttler por IP es la **última** entrada de `X-Forwarded-For` (sub-condición de C7 en `SECURITY_NOTES`) | `trust proxy = true` |
+| **C7-19** (v1.80.1) | ⭐ **`SEC-C7-MINT`.** Login de un usuario nuevo ⇒ refresh token `R0` y `deviceToken` `D0`. **4** llamadas a `/auth/refresh` (2 reproduciendo `R0`, 2 encadenadas) ⇒ 4 `deviceToken` cuyo `jti` decodificado es **el mismo** entre sí, igual al `jti` de `D0` e igual al claim `sid` de `R0`. Un atacante bloquea la cuenta (5 fallos sin token ⇒ `429`). Después: 5 fallos con el 1.º `deviceToken` ⇒ `401×5`; 1 fallo con **cada** uno de los otros 3 ⇒ `429×3`; espía de `argon2` = **exactamente 5**. **N = 5 usuarios, se exige 5/5** | volver a `randomUUID()` en `refresh` (o `issue(user.id)` sin `sid`) ⇒ el 6.º llega a `argon2` |
+| **C7-20** (v1.80.1) | **Tope agregado.** 7 logins correctos **sin** token ⇒ 7 `deviceToken` con 7 `jti` distintos. Atacante bloquea la cuenta. 29 fallos repartidos (≤ 4 por `jti`, ninguno pone candado de dispositivo) ⇒ `401×29`, todos a `argon2`. El 30.º, contraseña **correcta** con un `jti` ⇒ `200`. El 31.º, con cualquier `jti` y contraseña correcta ⇒ **`429`** sin `argon2` (fue al cubo de la cuenta). Reloj falso **+24 h** ⇒ contraseña correcta con `jti` ⇒ `200` (la ventana venció). Y `reset-password` completado ⇒ el agregado no existe | (a) quitar el `bump`; (b) que el acierto limpie el agregado (el 31.º daría `200`); (c) ventana deslizante (a +24 h desde el primero seguiría bloqueado) |
+| **C7-21** (v1.80.1) | **Legado.** Un refresh token firmado en la prueba con `JWT_REFRESH_SECRET`, `typ: 'refresh'`, `tv` vigente y **sin `sid`** ⇒ 3 `refresh` reproduciéndolo ⇒ 3 `deviceToken` con el **mismo** `jti`; dos usuarios con refresh legado del **mismo `iat`** ⇒ `jti` **distintos**; el refresh token que devuelve **ya lleva `sid`** y su siguiente `refresh` conserva el `jti` | derivar el `sid` legado sin `sub`; o `sid` nuevo por reproducción |
+| **C7-22** (v1.80.1) | ⭐ **QA IMPORTANTE 1 — invariante `C7-R`.** Almacén Redis **simulado** (o real con proxy que retrasa): contesta los intentos 1–3; desde el 4.º **tarda más que el plazo** (vence) ⇒ 4.º y 5.º `401`, 6.º `429`; espía de `argon2` = **5, no 10**. Reloj falso **+30 s**, Redis contesta otra vez **con su estado viejo** (`f = 3`, sin candado) ⇒ el 7.º **sigue `429`** y en Redis quedan `f = 5` y el candado (se repuso en un solo Lua: `primary.calls` sube en 1). Un `reset` hecho en modo memoria ⇒ al volver Redis, sus claves **no existen** (cierra `SEC-C7-RDEG`). Repetido con Redis caído de verdad (C7-13) ⇒ misma cuenta. **N = 3, 3/3.** ⚠️ La prueba «con Redis sano usa Redis (no la memoria)» (`auth.c7-store.spec.ts:201`) afirma lo contrario del diseño y **se sustituye** por: con Redis sano, tras `acquire`, la memoria tiene `failures = 1` (foto) y un `acquire` con Redis vencido devuelve `failures = 2` | (a) memoria desde 0 al caer (el código de `8ea245f`) ⇒ 10 a `argon2`; (b) no reponer al volver ⇒ el 7.º `401`; (c) reponer sin `borrar` ⇒ el reset se pierde |
+| **C7-23** (v1.80.1) | **Script de rescate.** Cuenta staff con `f = 6` + candado en Redis (más `auth-cp` y `auth-pwdevagg` con valor) y `REDIS_URL` ⇒ tras `resetStaffPassword` las **seis** claves no existen y el login con la contraseña nueva ⇒ `200` sin esperar. Sin `REDIS_URL` ⇒ termina OK y la salida dice que el candado **no** se limpió. Con Redis inaccesible (puerto cerrado) ⇒ termina OK en < 3 s, la contraseña **ya** cambió, y avisa. Las claves se calculan con `normalizeEmail` + `blindIndex` + las constantes de `password-attempts.constants.ts` (la prueba compara contra `PasswordAttemptsService.accountKey`) | no borrar; fallar el script cuando Redis no contesta; derivar la clave con el correo sin normalizar |
 
 **Pruebas de frontend:** (F-C7-1) `AuthForm` con `429 TOO_MANY_PASSWORD_ATTEMPTS` y `retryAfterSeconds: 150` pinta
 «3 min» y el enlace a restablecer; (F-C7-2) el `deviceToken` se guarda desde las cuatro respuestas, se manda en el
 login y **sobrevive** a `logout` y a la limpieza por `401`; (F-C7-3) no hay reintento automático tras el `429`.
 Mutación de F-C7-2: borrar el token en `logout` ⇒ rojo.
+**v1.80.1 — el frontend NO cambia:** sigue guardando el `deviceToken` de las cuatro respuestas (el de `refresh` es el
+mismo dispositivo con `exp` renovado: sobrescribirlo es correcto), sigue mandando `{ refreshToken }` a solas, y no lee
+`sid`.
+
+### <a id="reset-admin-password-script"></a>Script de rescate `backend/prisma/reset-admin-password.ts` (v1.80.1, contrato del script, **NORMATIVO**)
+No es un endpoint: se ejecuta con la consola de Railway contra la BD y el Redis reales (`railway run --service backend
+-e NEW_ADMIN_PASSWORD='…' npx ts-node prisma/reset-admin-password.ts`). Quien puede correrlo **ya es el dueño**; razón
+de cada regla en `ARCHITECTURE §4.57.10.3`.
+
+| | Regla |
+|---|---|
+| Entrada | `NEW_ADMIN_PASSWORD` (obligatoria, ≥ 12), `ADMIN_EMAIL` (opcional; cae a `SEED_ADMIN_EMAIL`, luego `admin@tcg.local`), y del entorno del servicio: `REDIS_URL` (opcional), `PII_HMAC_KEY` (la del backend) |
+| A quién | Solo `super_admin` / `vault_operator`; cualquier otro rol ⇒ error y **sin cambios** |
+| Escritura (SEC-RESET-TV, intacta) | **Una** `update`: `passwordHash` (argon2), `tokenVersion +1`, `emailVerified = true`, `mustChangePassword = false` |
+| ⭐ Candado C7 (v1.80.1) | **Después** de la escritura, si hay `REDIS_URL`: borra `tcg:auth:{f,l}:<blindIndex("auth-pw:v1:" + normalizeEmail(email))>`, `tcg:auth:{f,l}:auth-cp:v1:<id>` y `tcg:auth:{f,l}:auth-pwdevagg:v1:<id>` (seis claves), con las **mismas** funciones y constantes que el backend (⛔ nada duplicado a mano). Cliente propio con plazo (mismo perfil que `createLoginAttemptRedisClient`), cerrado al terminar |
+| Si no hay `REDIS_URL` | Termina **OK** e imprime: «candado de intentos NO limpiado (sin REDIS_URL): espera ≤ 60 min o entra con un dispositivo conocido» |
+| Si Redis no contesta | Termina **OK** (la contraseña ya cambió) e imprime el aviso anterior con el motivo. ⛔ **El candado nunca hace fallar el script** |
+| Salida | Correo y rol afectados, y si el candado se limpió o no. ⛔ **Nunca** la contraseña, ni las claves de Redis con su HMAC completo |
+| Límite escrito | Si la API está en **modo memoria** en ese instante (`ARCHITECTURE §4.57.10.2`), su memoria repone el candado al volver Redis (≤ 60 min). El script lo dice en la salida; el dueño tiene su `deviceToken` |
+| Pruebas | `reset-admin-password.spec.ts` (6 casos, intacta) + **`C7-23`** |
 
 ### Contraseña temporal OBLIGATORIA — `403 PASSWORD_CHANGE_REQUIRED` (v1.67, **decisión del dueño 2026-09-11**)
 > *«Que obligue a cambiarla.»* Hasta v1.66.2 `mustChangePassword` **no bloqueaba nada** (medido: ningún guard lo
