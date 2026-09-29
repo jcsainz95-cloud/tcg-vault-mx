@@ -45,9 +45,16 @@ export class DeviceTokenService {
     return this.cachedKey.key;
   }
 
-  issue(userId: string): Promise<string> {
+  /**
+   * v1.80.1 (`SEC-C7-MINT`, §4.57.10.1 a): `jti` = el `sid` de la SESIÓN cuando hay una
+   * (`login`/`google`: nuevo; `refresh`: el heredado del refresh token) — así N refrescos devuelven
+   * el mismo dispositivo con `exp` renovado, no N cubos. Sin `jti` (reset-password: no hay sesión)
+   * se acuña uno aleatorio.
+   */
+  issue(userId: string, jti: string = randomUUID()): Promise<string> {
+    if (typeof jti !== 'string' || jti.length === 0) throw new Error('deviceToken: jti must be a non-empty string');
     return this.jwt.signAsync(
-      { typ: 'device', sub: userId, jti: randomUUID() },
+      { typ: 'device', sub: userId, jti },
       { secret: this.key(), algorithm: 'HS256', expiresIn: DEVICE_TOKEN_TTL },
     );
   }

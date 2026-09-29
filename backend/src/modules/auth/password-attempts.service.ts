@@ -10,10 +10,30 @@ import { LOGIN_ATTEMPT_STORE, LoginAttemptStore } from './login-attempt.store';
 import {
   ACCOUNT_KEY_DOMAIN,
   CHANGE_PASSWORD_KEY_PREFIX,
+  DEVICE_AGGREGATE_KEY_PREFIX,
   DEVICE_KEY_PREFIX,
+  DEVICE_ROUTE_CAP,
+  DEVICE_ROUTE_WINDOW_MS,
   LOCK_MAIL_KEY_PREFIX,
   PASSWORD_LOCK_MAIL_EVERY_MS,
 } from './password-attempts.constants';
+
+/**
+ * Las tres claves de cubo de una CUENTA (las que se pueden enumerar desde el usuario; los cubos de
+ * dispositivo van por `jti` y no). Función pura, exportada para que el script de rescate
+ * (`prisma/reset-admin-password.ts`) derive EXACTAMENTE las mismas claves con las mismas funciones
+ * y constantes que el backend (contrato «Script de rescate»: ⛔ nada duplicado a mano).
+ */
+export function passwordAttemptKeysForUser(
+  pii: Pick<PiiCryptoService, 'blindIndex'>,
+  user: { id: string; email: string },
+): { account: string; changePassword: string; deviceAggregate: string } {
+  return {
+    account: pii.blindIndex(ACCOUNT_KEY_DOMAIN + normalizeEmail(user.email)),
+    changePassword: CHANGE_PASSWORD_KEY_PREFIX + user.id,
+    deviceAggregate: DEVICE_AGGREGATE_KEY_PREFIX + user.id,
+  };
+}
 
 /** Por dónde entró el intento que puso el candado (`AuditLog.after.via`, contrato §1). */
 export type PasswordLockVia = 'account' | 'device' | 'change_password';
@@ -64,15 +84,32 @@ export class PasswordAttemptsService {
   ) {}
 
   accountKey(email: string): string {
-    return this.pii.blindIndex(ACCOUNT_KEY_DOMAIN + normalizeEmail(email));
+    return passwordAttemptKeysForUser(this.pii, { id: '', email }).account;
   }
 
   changePasswordKey(userId: string): string {
-    return CHANGE_PASSWORD_KEY_PREFIX + userId;
+    return passwordAttemptKeysForUser(this.pii, { id: userId, email: '' }).changePassword;
   }
 
   deviceKey(jti: string): string {
     return DEVICE_KEY_PREFIX + jti;
+  }
+
+  /** v1.80.1: clave del tope agregado por vía dispositivo de una cuenta (§4.57.10.1 b). */
+  deviceAggregateKey(userId: string): string {
+    return passwordAttemptKeysForUser(this.pii, { id: userId, email: '' }).deviceAggregate;
+  }
+
+  /**
+   * v1.80.1 — cuenta UN intento por vía dispositivo de esa cuenta (`bump` atómico, ventana fija de
+   * 24 h) y dice si el intento puede seguir por esa vía. `false` cuando se pasa de
+   * `DEVICE_ROUTE_CAP`: el `login` ignora entonces el `deviceToken` y usa el cubo de la cuenta.
+   * Se llama ANTES de argon2 y solo cuando el token es válido y de esa cuenta (no es un oráculo
+   * nuevo: quien tiene un `deviceToken` de X ya sabe que X existe).
+   */
+  async deviceRouteAllowed(userId: string): Promise<boolean> {
+    const n = await this.store.bump(this.deviceAggregateKey(userId), DEVICE_ROUTE_WINDOW_MS);
+    return n <= DEVICE_ROUTE_CAP;
   }
 
   /** Reserva un intento en `key`, o lanza `429 TOO_MANY_PASSWORD_ATTEMPTS` sin contar nada. */
@@ -94,12 +131,16 @@ export class PasswordAttemptsService {
   }
 
   /**
-   * Levanta el candado de una cuenta por una vía que PRUEBA algo (reset por correo, reset por admin):
-   * limpia el cubo del login de su correo y el de `change-password` de su id. Los cubos de
-   * dispositivo no se pueden enumerar (van por `jti`) y no hace falta: son del dueño.
+   * Levanta el candado de una cuenta por una vía que PRUEBA algo más fuerte que una sesión (reset
+   * por correo, reset por admin; el script de rescate hace lo mismo directo en Redis): limpia el
+   * cubo del login de su correo, el de `change-password` de su id y (v1.80.1) el tope agregado por
+   * vía dispositivo. Los cubos de dispositivo no se pueden enumerar (van por `jti`) y no hace
+   * falta: son del dueño. ⛔ El acierto NO pasa por aquí: limpiar el agregado al entrar le
+   * regalaría al ladrón de un dispositivo otros 30 por cada login del dueño (§4.57.10.1 b).
    */
   async clearForUser(user: { id: string; email: string }): Promise<void> {
-    await this.clear(this.accountKey(user.email), this.changePasswordKey(user.id));
+    const k = passwordAttemptKeysForUser(this.pii, user);
+    await this.clear(k.account, k.changePassword, k.deviceAggregate);
   }
 
   /**

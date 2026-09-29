@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthProvider, AuthTokenType, NameSource, Prisma, Role, User, UserStatus } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { AuditService } from '../audit/audit.service';
@@ -82,7 +83,16 @@ export class AuthService {
     return `${origin}/${locale}/${path}?token=${encodeURIComponent(clearToken)}`;
   }
 
-  async issueTokens(user: Pick<User, 'id' | 'email' | 'role' | 'tokenVersion'>): Promise<TokenPair> {
+  /**
+   * v1.80.1 (`SEC-C7-MINT`, `ARCHITECTURE §4.57.4`): `sid` es la identidad de la SESIÓN (uuid). Viaja
+   * en el refresh token (claim `sid`, opaco para el front) y es el `jti` del `deviceToken`. Sin
+   * `sid` se crea uno nuevo (login, google, register, change-password); `refresh` pasa el heredado.
+   * ⛔ No se devuelve en el par: el `...tokens` de las respuestas no debe ganar campos (shape intacto).
+   */
+  async issueTokens(
+    user: Pick<User, 'id' | 'email' | 'role' | 'tokenVersion'>,
+    sid: string = randomUUID(),
+  ): Promise<TokenPair> {
     // v1.3.1: el JWT lleva `tv` (tokenVersion). El guard/refresh lo comparan contra el valor
     // vigente en BD y rechazan los tokens con versión previa → revocación de sesiones tras
     // reset de contraseña / soft-delete (que incrementan User.tokenVersion).
@@ -94,7 +104,7 @@ export class AuthService {
       expiresIn: this.config.get<string>('JWT_ACCESS_TTL') ?? '15m',
     });
     const refreshToken = await this.jwt.signAsync(
-      { ...payload, typ: 'refresh' },
+      { ...payload, typ: 'refresh', sid },
       {
         secret: this.config.get<string>('JWT_REFRESH_SECRET'),
         algorithm: 'HS256',
@@ -404,8 +414,12 @@ export class AuthService {
     const accountKey = this.attempts.accountKey(email);
     const user = await this.prisma.user.findUnique({ where: { email } });
     const device = await this.devices.verify(dto.deviceToken);
-    const viaDevice = device !== null && user !== null && device.userId === user.id;
-    const bucket = viaDevice ? this.attempts.deviceKey(device.jti) : accountKey;
+    let viaDevice = device !== null && user !== null && device.userId === user.id;
+    // v1.80.1 (§4.57.10.1 b): tope agregado por cuenta de intentos por vía dispositivo — `bump`
+    // atómico ANTES de argon2, fallidos o no, solo con token válido y de esta cuenta. Al pasarse
+    // de 30/24 h el token se ignora y el intento va al cubo de la cuenta (no es un 429 propio).
+    if (viaDevice && user) viaDevice = await this.attempts.deviceRouteAllowed(user.id);
+    const bucket = viaDevice && device ? this.attempts.deviceKey(device.jti) : accountKey;
     const gate = await this.attempts.reserve(bucket);
     this.attempts.notifyLock(gate, { via: viaDevice ? 'device' : 'account', accountKey, user });
 
@@ -434,8 +448,10 @@ export class AuthService {
     if (user.status === UserStatus.blocked || user.status === UserStatus.deleted) {
       throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
     }
-    const tokens = await this.issueTokens(user);
-    return { user: this.publicUser(user), ...tokens, deviceToken: await this.devices.issue(user.id) };
+    // v1.80.1: UNA identidad por sesión (§4.57.4): el `sid` viaja en el refresh y es el `jti` del dispositivo.
+    const sid = randomUUID();
+    const tokens = await this.issueTokens(user, sid);
+    return { user: this.publicUser(user), ...tokens, deviceToken: await this.devices.issue(user.id, sid) };
   }
 
   /**
@@ -504,19 +520,23 @@ export class AuthService {
     if (user.status === UserStatus.blocked || user.status === UserStatus.deleted) {
       throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
     }
-    const tokens = await this.issueTokens(user);
+    const sid = randomUUID();
+    const tokens = await this.issueTokens(user, sid);
     // v1.80 (C7): mismo shape que /auth/login ⇒ también trae `deviceToken`. Google NO entra al
-    // contador por cuenta (§4.57.2 #12): no hay contraseña que adivinar.
-    return { user: this.publicUser(user), ...tokens, deviceToken: await this.devices.issue(user.id) };
+    // contador por cuenta (§4.57.2 #12): no hay contraseña que adivinar. v1.80.1: `jti` = `sid`.
+    return { user: this.publicUser(user), ...tokens, deviceToken: await this.devices.issue(user.id, sid) };
   }
 
   async refresh(refreshToken: string): Promise<TokenPair & { deviceToken: string }> {
     try {
-      const payload = await this.jwt.verifyAsync<{ sub?: unknown; typ?: unknown; tv?: unknown }>(refreshToken, {
-        secret: this.config.get<string>('JWT_REFRESH_SECRET'),
-        // S-B4: solo se acepta HS256 al verificar (evita algorithm-confusion).
-        algorithms: ['HS256'],
-      });
+      const payload = await this.jwt.verifyAsync<{ sub?: unknown; typ?: unknown; tv?: unknown; sid?: unknown; iat?: unknown }>(
+        refreshToken,
+        {
+          secret: this.config.get<string>('JWT_REFRESH_SECRET'),
+          // S-B4: solo se acepta HS256 al verificar (evita algorithm-confusion).
+          algorithms: ['HS256'],
+        },
+      );
       // SEC-C7-RT (2026-09-29): la firma no basta. `env.validation` no impide que los dos secretos
       // JWT coincidan, y un `{ typ: "device" }` firmado con la llave de refresh tal cual verifica
       // igual (C7-10). Solo entra lo que `issueTokens` emitió como refresh: `typ === 'refresh'` y
@@ -537,11 +557,29 @@ export class AuthService {
       }
       // v1.80 (C7): +deviceToken — los navegadores con sesión abierta el día del despliegue reciben
       // su dispositivo conocido en el siguiente refresco, sin esperar a un login (§4.57.4).
-      const tokens = await this.issueTokens(user);
-      return { ...tokens, deviceToken: await this.devices.issue(user.id) };
+      // v1.80.1 (SEC-C7-MINT): el dispositivo es el MISMO con `exp` renovado: `jti` = el `sid` que
+      // trae el refresh token, y el par nuevo lo hereda. Antes cada refresco acuñaba un `jti` nuevo
+      // y con él 5 intentos libres (seguridad: 30/30 a argon2). Tokens emitidos antes de esta rev
+      // (sin `sid`, viven ≤ 30 d): `sid = "legacy:" + sub + ":" + iat`, determinista — reproducir
+      // el mismo token da el mismo cubo. Sunset de la rama legado: TECH_DEBT (30 d tras el despliegue).
+      const sid = AuthService.sessionIdOf(payload);
+      if (sid === null) throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid refresh token');
+      const tokens = await this.issueTokens(user, sid);
+      return { ...tokens, deviceToken: await this.devices.issue(user.id, sid) };
     } catch (e) {
       if (e instanceof BusinessException) throw e;
       throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or expired refresh token');
     }
+  }
+
+  /**
+   * v1.80.1: el `sid` de un refresh token ya verificado. Con claim `sid` (string no vacío) ⇒ ése;
+   * sin él (legado) ⇒ `"legacy:" + sub + ":" + iat`; sin `iat` numérico no hay de dónde derivar la
+   * sesión ⇒ `null` (401). Función pura y estática: la prueba C7-21 fija la fórmula.
+   */
+  static sessionIdOf(payload: { sub?: unknown; sid?: unknown; iat?: unknown }): string | null {
+    if (typeof payload.sid === 'string' && payload.sid.length > 0) return payload.sid;
+    if (typeof payload.sub !== 'string' || typeof payload.iat !== 'number') return null;
+    return `legacy:${payload.sub}:${payload.iat}`;
   }
 }

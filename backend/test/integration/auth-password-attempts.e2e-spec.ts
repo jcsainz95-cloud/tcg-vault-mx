@@ -10,6 +10,7 @@
  * `auth-password-attempts-redis.e2e-spec.ts`.
  */
 import { randomUUID } from 'crypto';
+import { JwtService } from '@nestjs/jwt';
 import { AuthTokenType, Role, UserStatus } from '@prisma/client';
 
 jest.mock('argon2', () => {
@@ -292,5 +293,74 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
     const shout = `${local.toUpperCase()}@${domain.toUpperCase()}`;
     for (let i = 0; i < 5; i++) expect((await login(i % 2 ? shout : u.email, BAD)).status).toBe(401);
     expect((await login(u.email, GOOD)).status).toBe(429);
+  });
+
+  // ── v1.80.1 (SEC-C7-MINT): el dispositivo es la sesión, por HTTP ─────────────────────────────
+  const decode = (t: string) => new JwtService({}).decode(t) as Record<string, unknown>;
+
+  it('C7-19 (por HTTP) — 4 refrescos (2 reproduciendo R0, 2 encadenados) ⇒ 4 deviceToken con el MISMO jti = sid de R0; con la cuenta bloqueada, 5 fallos con el 1.º ⇒ 401×5 y 1 con cada otro ⇒ 429×3; argon2 = 5', async () => {
+    const u = await newUser();
+    const first = await login(u.email, GOOD);
+    expect(first.status).toBe(200);
+    const R0 = first.body.refreshToken as string;
+    const sid = decode(R0).sid as string;
+    expect(typeof sid).toBe('string');
+    expect(decode(first.body.deviceToken as string).jti).toBe(sid);
+    const refresh = (t: string) => h.api('POST', '/auth/refresh', { json: { refreshToken: t } });
+    const r1 = await refresh(R0);
+    const r2 = await refresh(R0);
+    const r3 = await refresh(r1.body.refreshToken as string);
+    const r4 = await refresh(r3.body.refreshToken as string);
+    const devices = [r1, r2, r3, r4].map((r) => {
+      expect(r.status).toBe(200);
+      expect(Object.keys(r.body).sort()).toEqual(['accessToken', 'deviceToken', 'refreshToken']);
+      expect(decode(r.body.refreshToken as string).sid).toBe(sid);
+      return r.body.deviceToken as string;
+    });
+    for (const d of devices) expect(decode(d).jti).toBe(sid);
+    await lockOut(u.email);
+    verifySpy.mockClear();
+    for (let i = 0; i < 5; i++) expect((await login(u.email, BAD, devices[0])).status).toBe(401);
+    for (const d of devices.slice(1)) {
+      const r = await login(u.email, BAD, d);
+      expect(r.status).toBe(429);
+      expect(r.body.error.code).toBe('TOO_MANY_PASSWORD_ATTEMPTS');
+    }
+    expect(verifySpy).toHaveBeenCalledTimes(5);
+  });
+
+  it('C7-20 (por HTTP) — tope agregado: 29 fallos por 8 dispositivos ⇒ 401×29; el 30.º correcto ⇒ 200; el 31.º correcto ⇒ 429 sin argon2', async () => {
+    const u = await newUser();
+    const devices: string[] = [];
+    for (let i = 0; i < 8; i++) devices.push((await login(u.email, GOOD)).body.deviceToken as string);
+    expect(new Set(devices.map((d) => decode(d).jti)).size).toBe(8);
+    await lockOut(u.email);
+    verifySpy.mockClear();
+    for (let i = 0; i < 29; i++) expect((await login(u.email, BAD, devices[i % 8])).status).toBe(401);
+    expect(verifySpy).toHaveBeenCalledTimes(29);
+    expect((await login(u.email, GOOD, devices[0])).status).toBe(200);
+    verifySpy.mockClear();
+    const r = await login(u.email, GOOD, devices[3]);
+    expect(r.status).toBe(429);
+    expect(r.body.error.code).toBe('TOO_MANY_PASSWORD_ATTEMPTS');
+    expect(verifySpy).not.toHaveBeenCalled();
+  });
+
+  it('C7-21 (por HTTP) — un refresh legado (sin sid) reproducido 3 veces ⇒ el mismo jti; el par nuevo lleva sid y lo conserva', async () => {
+    const u = await newUser();
+    const legacy = await new JwtService({}).signAsync(
+      { sub: u.id, email: u.email, role: u.role, tv: u.tokenVersion, typ: 'refresh' },
+      { secret: process.env.JWT_REFRESH_SECRET, algorithm: 'HS256', expiresIn: '30d' },
+    );
+    expect(decode(legacy).sid).toBeUndefined();
+    const refresh = (t: string) => h.api('POST', '/auth/refresh', { json: { refreshToken: t } });
+    const rs = [await refresh(legacy), await refresh(legacy), await refresh(legacy)];
+    for (const r of rs) expect(r.status).toBe(200);
+    const jtis = rs.map((r) => decode(r.body.deviceToken as string).jti);
+    expect(new Set(jtis).size).toBe(1);
+    expect(jtis[0]).toBe(`legacy:${u.id}:${decode(legacy).iat}`);
+    expect(decode(rs[0].body.refreshToken as string).sid).toBe(jtis[0]);
+    const chained = await refresh(rs[0].body.refreshToken as string);
+    expect(decode(chained.body.deviceToken as string).jti).toBe(jtis[0]);
   });
 });
