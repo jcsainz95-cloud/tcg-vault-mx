@@ -284,3 +284,59 @@ tercero. Toca dinero, así que lleva **triple veredicto** y modelo fuerte.
    ajuste cae en el mes del envío o en el mes del cargo?).
 4. **Preguntas nuevas para el dueño:** (11) ¿el cargo extra se le cobra al cliente o se absorbe? (12) ¿en qué
    mes cae el ajuste? (13) si la tarifa del retiro venció y la guía sale más cara (R4), ¿quién absorbe?
+
+---
+
+## 10. Resultados de la prueba en el panel (añadido 2026-09-29)
+
+> **Fuente:** `SKYDROPX_PRUEBA_PANEL_RESULTADOS.md`. Lo midió una sesión de Claude en el Chrome del dueño,
+> **2026-09-28, 23:10–23:34 CST**, con la cuenta de producción. Solo cotizó. **El orquestador no repitió la
+> medición**: lo de abajo es análisis de esos datos. Donde hay una cuenta, el orquestador la rehízo.
+
+### 10.1 Lo que queda medido
+
+| # | Hallazgo | Consecuencia |
+|---|---|---|
+| M1 | **Los precios traen el IVA incluido** («Incluye IVA»; nunca «+ IVA»). El desglose da la línea de IVA: Paquetexpress $51.25 = envío $50.00 (IVA $6.90 dentro) + gestión $1.25. | **Cierra §8.4 (panel).** El IVA es exactamente 16/116 del envío más el combustible, **sin** la tarifa de gestión. Cuenta del orquestador: 50 × 16/116 = 6.90 ✓ y (52.11 − 1.27) × 16/116 = 7.01 ✓. Para el P&L: `shippingCostCents` = total pagado y `shippingCostIvaCents` = la línea de IVA, **si la API la expone**. Que la API la dé es **NO MEDIDO**. Si no la da, hay que calcularla con esa regla. |
+| M2 | **Peso mínimo 1 kg y solo kilos enteros** (panel). | El sobre de cartas (≈0.3 kg) **se cobra como 1 kg de todos modos**. **H1 se simplifica:** no hace falta pesar cartas; basta con **empaques estándar** de peso fijo. La API acepta decimales según la referencia (**NO MEDIDO** si redondea). |
+| M3 | **El tipo de empaque es obligatorio desde la cotización y cambia el resultado.** ampm solo aparece con «Caja de cartón». | El empaque se decide **antes de cotizar**. Cada empaque estándar lleva su código de empaque de Skydropx. |
+| M4 | **No hubo zona extendida en ningún destino**, ni en San Cristóbal (13 servicios revisados). | Riesgo bajo de cargos por zona en destinos urbanos. **NO MEDIDO** en zonas rurales de verdad. |
+| M5 | **Los 10 CPs se aceptaron** y el panel ofrece las **colonias de cada CP**, por ejemplo 16 en 77500. | **Refuerza R1:** la colonia debe ser obligatoria y conviene **elegirla de una lista por CP**, no escribirla a mano. Con texto libre, «Centro» contra «Cancún Centro» puede no cuadrar. |
+| M6 | **SOS Protección está activada «Automáticamente para todos los envíos»** en la cuenta: **+$25.00 por guía**, casi 50 % sobre $51.25. | **Decisión del dueño (pregunta 4).** Hoy cada guía del panel cuesta $76.25 y no $51.25. Si ese ajuste de cuenta aplica también a las guías creadas por API es **NO MEDIDO**. Si aplica, la regla de seguro por valor (C8) no se cumpliría. |
+| M7 | **La recolección depende del servicio, y el dato «con/sin recolección» cambió en minutos** para el mismo destino. J&T, Imile y Yaslan la dan solo «vía soporte» y con mínimos (5, 15 y 10 paquetes). J&T «Sin recolección», 99minutos y PuntoPost son **solo sucursal**. | La regla de paquetería debe **filtrar por «con recolección»** si no quieres vueltas. **No se puede confiar en una lista fija:** el sistema debe leer ese dato **en cada cotización**. Si la API lo expone es **NO MEDIDO**. |
+| M8 | **PuntoPost a $1.19 es de sucursal a sucursal**: el destinatario lo recoge en un punto. | **Queda fuera** del envío a domicilio que se promete al invitado y en el retiro (`PROJECT.md` v1.5: «envío directo a domicilio»). El precio de $1.19 es anómalo (¿promo o error?) y **no se usa para decidir nada**. |
+
+### 10.2 Lo que la prueba NO permite decidir todavía
+
+**Los precios están distorsionados por una promoción** («50 envíos a $50 MXN c/u»). Paquetexpress, J&T y ampm
+salieron **idénticos, $51.25**, para el sobre de 1 kg y la caja de 5 kg, y para CDMX y Tijuana por igual. Eso
+no es una tarifa: es la promo. La regla de paquetería del §3 (C13) se decidía por **cuánto cambia el precio
+entre paqueterías y destinos**, y esa variación **no se midió**. Referencias fuera de la promo que sí se vieron:
+FedEx Express Saver **$52.11–$52.96** con 2 a 8 días, e Imile Express **$85.61** con 2 días.
+
+**Mientras dure la promo** (50 envíos), el precio es igual en todas, así que lo que decide es **tiempo y
+recolección**:
+
+| Servicio | Días (medidos) | Recolección | Para nosotros |
+|---|---|---|---|
+| ampm · Plataformas | **1–2** en el centro del país; 3–7 en sur y norte | Sí, al día siguiente; solo con caja | El más rápido en el centro |
+| Paquetexpress · Nacional | 3–5 | Sí (casi siempre) | El más parejo: entre las 3 más baratas en 9 de 10 destinos (en MTY no, **NO MEDIDO** si ahí salía) |
+| FedEx · Express Saver | 2–8 | Sí | +$1–2 por combustible |
+| J&T · Sin recolección | 6 | **No**, hay que llevarlo | Descartar si no quieres vueltas |
+
+**Propuesta provisional para el PO (sin decidir):** paquetería por defecto **Paquetexpress Nacional con
+recolección**, y **ampm** cuando sea caja y dé 1–2 días. Se re-decide con precios reales al acabarse la promo.
+
+**El margen de hoy tampoco es representativo:** cobramos MX$175 y la guía cuesta $51.25 (+$25 de seguro
+automático) **solo mientras dure la promo**.
+
+### 10.3 Pendientes que deja la prueba (dueño)
+
+| # | Qué | Cierra | Dónde |
+|---|---|---|---|
+| T1 | Cuánto cuesta el seguro con $2,500 y $10,000 declarados | Pregunta 4, C8 | «Completa el envío», sin crear el envío |
+| T2 | Clave SAT de contenido para cartas | H4 | Misma pantalla, bloque de contenido |
+| T3 | Sucursal más cercana a 14210 de Paquetexpress, J&T y ampm | C7, pregunta 5 | Mapas de cada paquetería |
+| T4 | **Precios sin promo** de Paquetexpress, J&T y ampm (sobre y caja, 3 destinos: CDMX, MTY, TIJ) | **C13, la regla de paquetería** | Al terminarse la promo |
+| T5 | Costo y horario de la recolección | C7 | Solo visible al crear el primer envío real |
+| T6 | Si «SOS Protección automática» aplica a las guías hechas por API | M6 | Prueba en sandbox o soporte (api@skydropx.com) |
