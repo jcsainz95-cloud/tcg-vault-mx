@@ -73,7 +73,7 @@ export interface SellCartContentsProps {
    *
    * ⚠️ **La decisión NO se toma aquí y es deliberado:** la regla es *«exactamente una nota
    * visible por pantalla»*, y eso solo se puede decidir donde se conoce **el layout completo** —
-   * si el carrito es panel fijo, si el drawer está abierto, si el modal de crear está encima—.
+   * si el cajón está abierto, si el modal de crear está encima—.
    * Un componente que decidiera por su cuenta volvería a producir el caso de v2.3.7: dos párrafos
    * idénticos a 600px de distancia, que el vendedor no lee como énfasis sino como *«esta página
    * está rota»*. `BuylistView` es el único que ve la pantalla entera; aquí solo se obedece.

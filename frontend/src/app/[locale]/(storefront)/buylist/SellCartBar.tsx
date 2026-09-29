@@ -27,9 +27,9 @@ export interface SellCartBarProps {
 /**
  * **§37.1b (P-61) — la barra inferior de la lista de venta en escritorio (`≥ lg`).**
  *
- * En escritorio el carrito volvió a ser el `SellCartDrawer` (el catálogo recupera todo el
- * ancho); lo que el panel fijo de P-42 daba —ver siempre cuánto llevas— lo conserva esta barra.
- * Es un DISPARADOR, no un segundo carrito:
+ * En escritorio el carrito es el `SellCartDrawer` (el catálogo tiene todo el ancho) y, cerrado,
+ * esconde la lista; esta barra conserva a la vista lo único que hace falta ver siempre: cuánto
+ * llevas. Es un DISPARADOR, no un segundo carrito:
  * - izquierda: `TU LISTA` + conteo, o la frase de vacío;
  * - centro-derecha (solo con líneas): `VALOR DE TUS CARTAS` + la cifra de `CartTotalFigure`, la
  *   MISMA función que el bloque de dinero del cajón (las tres ramas no se copian aquí);

@@ -1310,6 +1310,33 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
     expect(screen.queryByText('Resumen de tu venta')).not.toBeInTheDocument();
   });
 
+  it('§37.1d · FAB y barra van DESPUÉS del pie del layout en el DOM (portal al final de <body>), nunca dentro de <main>', () => {
+    asVerifiedCustomer();
+    // El pie pertenece al layout, hermano POSTERIOR de la vista: escritos dentro de la vista, los
+    // disparadores quedarían antes del pie y el orden de tabulación sería pie ← barra.
+    renderWithProviders(
+      <div>
+        <main>
+          <BuylistView />
+        </main>
+        <footer data-testid="layout-footer">
+          <a href="#pie">Términos</a>
+        </footer>
+      </div>,
+      'es',
+    );
+    const footer = screen.getByTestId('layout-footer');
+    for (const id of ['sell-cart-fab', 'sell-cart-bar'] as const) {
+      const el = screen.getByTestId(id);
+      // eslint-disable-next-line no-bitwise
+      expect(footer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING, `${id} tras el pie`).toBeTruthy();
+      expect(el.closest('main'), `${id} fuera de <main>`).toBeNull();
+    }
+    // Y el cajón sigue abriéndose desde la barra portada (los refs cruzan el portal).
+    fireEvent.click(screen.getByTestId('sell-cart-bar-open'));
+    expect(screen.getByRole('dialog', { name: /Carrito de venta/ })).toBeInTheDocument();
+  });
+
   it('P61-5 · cerrar el cajón con Esc devuelve el foco al botón de la barra', async () => {
     forceDesktop();
     renderWithProviders(<BuylistView />, 'es');

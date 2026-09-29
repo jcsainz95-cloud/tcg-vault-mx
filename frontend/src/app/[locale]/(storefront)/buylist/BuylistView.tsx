@@ -16,6 +16,7 @@ import type {
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Modal } from '@/components/ui/Modal';
+import { BodyPortal } from '@/components/ui/BodyPortal';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
 import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
 import { BuylistShippingNote } from '@/components/domain/BuylistShippingNote';
@@ -31,7 +32,8 @@ import { useSellRequirements } from '@/hooks/useSellRequirements';
 import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 // v1.28 (P-22): vitrina «Top Bounties» arriba de la página Vender, antes del selector de set.
 import { TopBountiesShelf } from '@/components/domain/TopBountiesShelf';
-// v1.29 Stream C (P-16, §18.4): el carrito deja de ser columna lateral — FAB + drawer flotante.
+// §18.4 (P-16) + §37.1 (P-61): el carrito es un cajón bajo demanda en todos los tamaños; sus
+// disparadores fijos son el FAB (`< lg`) y la `SellCartBar` (`≥ lg`), montados vía `BodyPortal`.
 import { SellCartFab } from '@/components/domain/SellCartFab';
 import { SellCartDrawer } from '@/components/domain/SellCartDrawer';
 // v1.29 Stream C (P-14, §18.5): las líneas del resumen usan el FinishMark compartido.
@@ -109,8 +111,9 @@ export function BuylistView() {
   const [createdId, setCreatedId] = useState<string | null>(null);
 
   // --- Carrito de venta: varias cartas en UNA sola solicitud. P-16 (§18.4): vive en un
-  // DRAWER flotante disparado por el FAB (cerrado por defecto; agregar desde la grilla NO
-  // lo abre — solo el CTA de bounty, intención explícita de vender ESA carta). Al cerrar,
+  // cajón (`SellCartDrawer`) disparado por el FAB en `< lg` o por la barra en `≥ lg` (cerrado por
+  // defecto; agregar desde la grilla NO lo abre — solo el CTA de bounty, intención explícita de
+  // vender ESA carta). Al cerrar,
   // el foco regresa al disparador que lo abrió (§37.1d). Estado y totales: useSellCart (TL-C3). ---
   const {
     cart,
@@ -138,12 +141,11 @@ export function BuylistView() {
   const drawerId = useId();
 
   /**
-   * §37.1 (P-61) · UN solo cajón para todos los tamaños. P-42 decidía el CONTENEDOR con
-   * `useMediaQuery` (panel fijo en `≥ lg`, cajón en `< lg`) y la columna fija de 360 px le quitaba
-   * al binder un tercio del ancho (tejas de ≈144 px a 1280). Ahora el `SellCartDrawer` se monta
-   * igual en todos los tamaños (su forma cambia por CSS en `lg:`) y los DOS disparadores —FAB
-   * `lg:hidden`, `SellCartBar` `hidden lg:flex`— se montan siempre y se esconden por CSS: sin
-   * destello al hidratar, sin DOM de carrito duplicado, sin dos focus traps.
+   * §37.1 (P-61) · UN solo cajón para todos los tamaños. El `SellCartDrawer` se monta igual en
+   * todos los tamaños (su forma cambia por CSS en `lg:`) y los DOS disparadores —FAB `lg:hidden`,
+   * `SellCartBar` `hidden lg:flex`— se montan siempre y se esconden por CSS. ⛔ El contenedor
+   * nunca se decide por JS (`useMediaQuery`): sin destello al hidratar, sin DOM de carrito
+   * duplicado, sin dos focus traps. El catálogo tiene todo el ancho (teja ≥ 200 px, P61-1).
    *
    * §37.1d · Retorno de foco: `openerRef` apunta al disparador que ABRIÓ el cajón (barra, FAB o el
    * CTA del bounty) y se fija ANTES de abrir, porque el cajón lo lee al montarse.
@@ -170,9 +172,9 @@ export function BuylistView() {
    * **§23.3g-bis (v2.3.8) — EXACTAMENTE UNA nota de servicio del envío visible por pantalla.**
    *
    * La tabla de §23.3g dice **dónde puede** ir la nota; le faltaba decir **cuántas se ven a la
-   * vez**. A 1280px `/buylist` acabó mostrando **dos párrafos idénticos de cuatro líneas**
-   * —cabecera y panel fijo del carrito— porque cada instancia se autorizó en una sección
-   * distinta y **nadie miró las dos juntas**.
+   * vez**. A 1280px `/buylist` llegó a mostrar **dos párrafos idénticos de cuatro líneas**
+   * —cabecera y el panel fijo de escritorio que existía entonces (hoy no hay panel fijo)— porque
+   * cada instancia se autorizó en una sección distinta y **nadie miró las dos juntas**.
    *
    * **Por qué dos copias idénticas SÍ son un defecto**, aunque el texto sea correcto: dos
    * párrafos iguales a 600px de distancia y con el mismo peso visual son **la firma de un error
@@ -189,8 +191,8 @@ export function BuylistView() {
    * | Cajón abierto (cualquier tamaño) | el **bloque de dinero** del cajón |
    * | Paso de crear abierto | **el suyo** (`BuylistKycForm`) |
    *
-   * §37.1c (P-61): la fila «Panel fijo lateral (escritorio)» desapareció con el panel, y con ella
-   * `isDesktopCart` de la fórmula. ⛔ Nada de versión corta en la barra: sería una segunda
+   * §37.1c (P-61): no hay fila para escritorio porque el cajón es el mismo en todos los tamaños:
+   * la fórmula no mira el viewport. ⛔ Nada de versión corta en la barra: sería una segunda
    * instancia visible (y la regla de D16 en letra chica, §23.3c).
    *
    * ⚠️ **La decisión vive AQUÍ y en un solo sitio**, porque es la única capa que ve la pantalla
@@ -383,9 +385,9 @@ export function BuylistView() {
             elegido (MasterSetBinder). Una sola barra de búsqueda, la del grid que se usa. */}
 
         {/* §37.1a (P-61): el catálogo es UNA sola columna a todo el ancho, en todos los tamaños
-            (vuelve §18.1 punto 4). Se retiró el `lg:grid` de dos columnas y el `<aside>` del panel
-            fijo de P-42: le quitaba 360 px al binder. `pb-24` (96 px) cubre la barra de 64 px en
-            `≥ lg` y el FAB en `< lg`: nunca tapan la última fila de tejas. */}
+            (§18.1 punto 4): sin columna de carrito la teja llega a ≥ 200 px (P61-1). `pb-24`
+            (96 px) reserva el sitio de la barra de 64 px en `≥ lg` y del FAB en `< lg`: nunca
+            tapan la última fila de tejas. */}
         <main className="gutter min-w-0 pb-24 pt-8">
             {lastAdded && (
               <p role="status" className="mb-3 font-mono text-[11px] text-success">
@@ -524,11 +526,15 @@ export function BuylistView() {
           )}
         </section>
 
-        {/* FAB del carrito (§18.4a): fijo abajo-derecha, en el flujo de tabulación DESPUÉS
-            del contenido principal (§18.8, sin tabindex positivos). Siempre presente (vacío
-            da acceso a los requisitos de venta); el badge se omite con carrito vacío.
-            §37.1a (P-61): FAB (`lg:hidden`) y barra (`hidden lg:flex`) se montan SIEMPRE y los
-            esconde el CSS; los dos van al final del orden de tabulación (§37.1d). */}
+      </div>
+
+      {/* Los dos disparadores fijos del carrito, al FINAL de <body> (`BodyPortal`): §37.1d / §18.8
+          quieren el orden cabecera → vitrina → binder → PIE → disparador, sin tabindex positivos, y
+          el pie pertenece al layout, no a esta vista — escritos aquí quedarían antes del pie.
+          FAB (§18.4a, `lg:hidden`) y barra (§37.1b, `hidden lg:flex`) se montan SIEMPRE y los
+          esconde el CSS. Siempre presentes (vacío da acceso a los requisitos de venta); el badge
+          del FAB se omite con carrito vacío. */}
+      <BodyPortal>
         <SellCartFab
           ref={fabRef}
           count={cartCount}
@@ -547,7 +553,7 @@ export function BuylistView() {
           dialogId={drawerId}
           onOpen={() => openDrawerFrom(barButtonRef.current)}
         />
-      </div>
+      </BodyPortal>
 
       <Modal open={guideOpen} onClose={() => setGuideOpen(false)} title={t('shippingGuideLink')}>
         <SafeShippingGuide onUnderstood={() => setGuideOpen(false)} />

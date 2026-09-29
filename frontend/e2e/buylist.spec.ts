@@ -613,6 +613,43 @@ test.describe('buylist · P-61 carrito bajo demanda en escritorio (§37.1)', () 
     await expect(page.getByText(t('es', 'buylist.loginToSellTitle')).filter({ visible: true })).toHaveCount(1);
   });
 
+  /**
+   * §37.1d · orden de tabulación: cabecera → vitrina → binder → PIE → disparador fijo. El pie es
+   * del layout, así que el disparador solo queda detrás si vive fuera de la vista (portal al final
+   * de <body>). Se mide en el DOM y con el teclado: Tab desde el último enlace del pie.
+   */
+  test('§37.1d · a 1280, el pie va ANTES de la barra en el DOM y Tab desde el pie entra en la barra', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/es/buylist');
+    const bar = page.getByTestId('sell-cart-bar');
+    await expect(bar).toBeVisible();
+    const order = await page.evaluate(() => {
+      const footer = document.querySelector('footer');
+      const el = document.querySelector('[data-testid="sell-cart-bar"]');
+      if (!footer || !el) return 'missing';
+      // eslint-disable-next-line no-bitwise
+      return footer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING ? 'after-footer' : 'before-footer';
+    });
+    expect(order).toBe('after-footer');
+    await page.locator('footer a').last().focus();
+    await page.keyboard.press('Tab');
+    const focusedIn = await page.evaluate(
+      () => document.activeElement?.closest('[data-testid="sell-cart-bar"]')?.getAttribute('data-testid') ?? null,
+    );
+    expect(focusedIn).toBe('sell-cart-bar');
+  });
+
+  test('§37.1d · a 390, Tab desde el último enlace del pie cae en el FAB', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/es/buylist');
+    await expect(page.getByTestId('sell-cart-fab')).toBeVisible();
+    await page.locator('footer a').last().focus();
+    await page.keyboard.press('Tab');
+    await expect(page.getByTestId('sell-cart-fab')).toBeFocused();
+  });
+
   test('P61-5 · a 1280, Esc cierra el cajón y el foco vuelve a «Ver lista»', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/es/buylist');
