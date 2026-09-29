@@ -243,7 +243,7 @@ tercero. Toca dinero, así que lleva **triple veredicto** y modelo fuerte.
 | `created` | `guia` (cuando ya hay número) | Correo de guía (ya existe) |
 | `picked_up`, `in_transit`, `last_mile` | `enviado` | Correo de salida (ya existe); piezas `picking → shipped` |
 | `delivered` | `entregado` | Piezas `delivered`/`withdrawn`; **correo nuevo** (H5) |
-| `delivered_to_branch` | ¿`entregado`? ¿estado nuevo? | **Decisión:** el cliente aún no lo tiene en la mano |
+| `delivered_to_branch` | **No** pasa a `entregado`. Estado o hito nuevo: lo decide el arquitecto | **Decidido 2026-09-29:** correo aparte «tu paquete está en sucursal» |
 | `delivery_attempt` | sin cambio | Correo al cliente + alerta al admin |
 | `exception`, `retained` | sin cambio | Alerta al admin |
 | `in_return`, `destroyed` | sin cambio | Alerta al admin. **Decisión:** ¿reexpedir o reembolsar? (pregunta 8) |
@@ -549,8 +549,8 @@ tarifa en vivo en el checkout.
      no, solo clave y paquetería.
 2. **Correo de «Entregado» automático** cuando Skydropx confirma la entrega (`delivered`, §8.3). **Reabre el
    criterio 210 / §R.7**, que hoy prohíbe correos en `entregado`: lo reescriben el PO y el arquitecto. Queda
-   **pendiente de decidir** qué pasa con `delivered_to_branch` (entregado en sucursal, §8.3): ¿también manda
-   «Entregado»? Pregunta 14 respondida; X2 cerrada.
+   **decidido el 2026-09-29:** con `delivered_to_branch` (entregado en sucursal) se manda un **correo aparte,
+   «tu paquete está en sucursal»**, y el envío **no** pasa a `entregado`. «Entregado» sale solo con `delivered` Pregunta 14 respondida; X2 cerrada.
 3. **⚠️ Riesgo de correos duplicados (NO MEDIDO):** según la página de Skydropx, la cuenta puede mandar **sus
    propias notificaciones** de estado al cliente por **correo o WhatsApp** («Mis envíos»). Si están
    activadas, el cliente recibiría dos avisos por cada cambio. **Se cierra con:** revisar esa configuración en
