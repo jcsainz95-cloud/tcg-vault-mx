@@ -8038,3 +8038,60 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   `CHECK (coverMatchStatus IS DISTINCT FROM 'unmatched_basic_energy')`, con prueba de migración que lo fije.
 - **Comprobación de cierre:** existe la migración con los `CHECK` aprobada por el arquitecto; un `INSERT` que viole
   cada invariante falla con `23514` en la integración.
+
+## Frontend · 2026-09-29 · §M4-SHIP — deuda del techlead sobre `c20451f`, medida en este pase (rama `claude/envio-preparar`, base `ea615c3`)
+
+### SHIP-FD-a · El servidor falso de `m4-ship.ts` reimplementa la fórmula del dinero — **PARCIALMENTE CERRADO en este pase** (frontend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** frontend. **Severidad:** Media (es un mock: no toca dinero real, pero es el juez de las pantallas que sí
+  lo pintan). **No bloqueante.**
+- **Qué es:** `frontend/src/lib/mock/m4-ship.ts` (1 744 líneas, medido 2026-09-29) lleva estado **y** fórmula:
+  `item_missing` (`:191`, `itemMissingCents`), el tope del operador (`:74` `MOCK_OPERATOR_REFUND_CAP_CENTS`,
+  `:257` `operatorUsedCents`), el reparto Stripe/SPEI y los topes de caso (`:621` `caseReferences`, `:1221`
+  `caseRefundPlan`). Una fórmula en dos sitios diverge: **ya había divergido** — la fila SPEI salía con IVA `0` y
+  comisión `0` (`m4-ship.ts:1286,1300-1303` y `:1484` en `c20451f`).
+- **Lo cerrado en este pase (medido):** los `components` ya NO se calculan a mano. Nace `lib/mock/refund-math.ts`
+  (espejo de `backend/src/common/money.ts`, sección refund: `itemMissingRefundComponents`, `orderRemaining…`,
+  `caseRefundContextOf`, `caseRefundComponents`, `subtractRefundComponents`) con **los vectores dorados de
+  `backend/src/common/refund-math.spec.ts`** repetidos en `refund-math.test.ts` (31458 = 30000 + 1458, IVA 4138;
+  52430 + 31458 + 15729 = 99617; PS-26/27 con 200 montos). `case_excess` = `caseRefundComponents(A) −
+  caseRefundComponents(stripe)` y `stripe_failed` copia la fila (como `replacement-case.service:804-806` y
+  `manual-refund.service:597`). Prueba de mock `m4-ship-refund-components.test.ts`: **rojo antes 1/2** (`pr-8002` daba
+  `{40000, 0, 0, 0}`), **verde después 2/2** (`{32000, 4414, 1533, 6467}`).
+- **Lo que queda abierto:** el mock sigue calculando el tope (`operatorUsedCents`), `Q`/`R`/los multiplicadores y el
+  reparto `min(A, disponible)` con su propio código. No se comparte código con el backend (carpetas distintas; regla
+  de propiedad): el candado es la **copia de vectores dorados**, que se pone roja aquí cuando el spec del servidor
+  cambie sus cifras.
+- **Dirección:** (1) mover `caseReferences`/`caseRefundPlan`/`operatorUsedCents` a `refund-math.ts` (fórmula pura,
+  sin estado) y que `m4-ship.ts` solo lleve estado; (2) un fichero de vectores dorados (`refund-vectors.json`) leído
+  por **las dos** suites (`backend/src/common/refund-math.spec.ts` y `frontend/src/lib/mock/refund-math.test.ts`) —
+  requiere una zona compartida fuera de `backend/` y `frontend/` ⇒ pasa por el **arquitecto**.
+- **Disparador:** el siguiente cambio a la fórmula del contrato (§M4-SHIP.4 / .15.5) o al tope (§M4-SHIP.8).
+- **Comprobación de cierre:** `rg -n "Math.floor|taxBase|\* 100\) / \(100" frontend/src/lib/mock/m4-ship.ts` ⇒ **0**
+  (toda aritmética de dinero vive en `refund-math.ts`), y las dos suites leen el mismo fichero de vectores.
+
+### SHIP-FD-b · `ShipPreparationCard.tsx` mide 1 184 líneas: cuatro mutaciones y su mapeo de errores en un componente de ~650 (frontend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** frontend. **Severidad:** Media. **No bloqueante.** Hermana de **VLT-D7** (`VaultPlacementCard`).
+- **Qué es:** `frontend/src/app/[locale]/(admin)/admin/m4/ShipPreparationCard.tsx` (1 184 líneas, medido 2026-09-29;
+  1 169 en `c20451f` + 15 de la tipificación del `403` de este pase). `ShipPreparationCard` (`:96-745`) contiene las
+  cuatro `useMutation` (`mark :220`, `prepare :271`, `unprepare :420`, `retry :452`), la traducción de errores por
+  verbo (la tabla de §37.4–§37.6: `REFUND_PREVIEW_STALE`, `PREPARATION_INCOMPLETE`, `MONEY_OUT_LIMIT_EXCEEDED`,
+  `REFUND_NOT_AVAILABLE`, `PREPARATION_HAS_BLOCKED_LINES`, `ORDER_NOT_SETTLED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`…),
+  el parcheo de la caché (`patchShip`) y los planos de la tarjeta; debajo, `ErrorLine :747`, `ShipItemRow :765`,
+  `PrepareDialog :1061`.
+- **Impacto:** la lógica de errores (la parte con más ramas y la que toca el contrato) está mezclada con el marcado;
+  cada código nuevo del contrato crece el componente.
+- **Corrección:** extraer `useShipPreparation(order, onNotice)` → `{ mark, prepare, unprepare, retry, busy,
+  rowErrors, footerError, confirm }` y una tabla `shipErrorOf(err, ts)` pura (probable en unitaria sin render); mover
+  `ShipItemRow` y `PrepareDialog` a ficheros propios. Sin cambio de conducta: `ShipPreparationCard.test.tsx` (11
+  casos) y `e2e/m4-ship.spec.ts` son el juez.
+- **Disparador:** el próximo código de error nuevo sobre la tarjeta de envío, o el próximo verbo nuevo.
+- **Comprobación de cierre:** `wc -l ShipPreparationCard.tsx` < 500 y `rg -c "useMutation\(" ShipPreparationCard.tsx`
+  ⇒ **0**.
+
+### SHIP-FD-c · `asApiError` copiado en 5 vistas — **CERRADO en este pase** (frontend, 2026-09-29)
+- **Qué era:** la misma función de 3 líneas en `ShipPreparationCard.tsx`, `VaultPlacementCard.tsx`,
+  `ReplacementCaseView.tsx`, `M3OrderDetailView.tsx` y `ManualRefundDetailView.tsx`.
+- **Cierre:** vive en `frontend/src/lib/api-client.ts` (`export function asApiError`); las cinco vistas la importan
+  (commit `8f48d28`). Juez: las 4 suites de esas vistas, **48/48**.
+- **Comprobación:** `rg -n "^function asApiError" frontend/src` ⇒ **0**; `rg -c "import \{ asApiError" frontend/src`
+  ⇒ **5**.
