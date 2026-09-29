@@ -375,7 +375,6 @@ export class ShipPrepDb {
     return this.h.api('GET', '/admin/shipments/picking-list/summary', { token });
   }
 
-  /** Simula el webhook `charge.refunded` TOTAL de un PI. */
   // colocaciones (§M4-VAULT.10 / .5)
   vpMark(placementId: string, itemId: string, json: unknown, token = this.opToken): Promise<R> {
     return this.h.api('PATCH', `/admin/vault-placements/${placementId}/prep-items/${itemId}`, { token, json });
@@ -443,10 +442,65 @@ export class ShipPrepDb {
   kase(id: string) {
     return this.h.prisma.replacementCase.findUniqueOrThrow({ where: { id } });
   }
+  // inventario M1 (§M4-SHIP.17.1 / PS-64)
+  invMark(id: string, json: unknown, token = this.opToken): Promise<R> {
+    return this.h.api('POST', `/admin/inventory/items/${id}/mark`, { token, json });
+  }
+  invPatch(id: string, json: unknown, token = this.opToken): Promise<R> {
+    return this.h.api('PATCH', `/admin/inventory/items/${id}`, { token, json });
+  }
+  invMove(id: string, toLocationId: string, token = this.opToken): Promise<R> {
+    return this.h.api('POST', `/admin/inventory/items/${id}/move`, { token, json: { toLocationId } });
+  }
+  publishAll(json: Record<string, unknown> = {}, token = this.adminToken): Promise<R> {
+    return this.h.api('POST', '/admin/inventory/publish-all', { token, json });
+  }
+  bulkPublish(ids: string[], token = this.adminToken): Promise<R> {
+    return this.h.api('POST', '/admin/inventory/items/bulk-publish', { token, json: { items: ids.map((inventoryItemId) => ({ inventoryItemId })) } });
+  }
+  // cliente: retiros
+  createShipment(token: string, json: unknown): Promise<R> {
+    return this.h.api('POST', '/shipments', { token, json });
+  }
+  quoteShipment(token: string, json: unknown): Promise<R> {
+    return this.h.api('POST', '/shipments/quote', { token, json });
+  }
+  clientOrders(token: string): Promise<R> {
+    return this.h.api('GET', '/orders', { token });
+  }
+  guestTrack(token: string): Promise<R> {
+    return this.h.api('POST', '/orders/guest/track', { json: { token } });
+  }
+  // súper-admin: M3, tablero, M7
+  adminOrder(id: string, token = this.adminToken): Promise<R> {
+    return this.h.api('GET', `/admin/orders/${id}`, { token });
+  }
+  adminOrders(qs = '', token = this.adminToken): Promise<R> {
+    return this.h.api('GET', `/admin/orders${qs}`, { token });
+  }
+  dashboard(token = this.adminToken): Promise<R> {
+    return this.h.api('GET', '/admin/dashboard', { token });
+  }
+  pnl(qs = '', token = this.adminToken): Promise<R> {
+    return this.h.api('GET', `/admin/finance/pnl${qs}`, { token });
+  }
+  shrinkage(qs = '', token = this.adminToken): Promise<R> {
+    return this.h.api('GET', `/admin/finance/shrinkage${qs}`, { token });
+  }
+  operatorSummary(token = this.adminToken): Promise<R> {
+    return this.h.api('GET', '/admin/refunds/operator-summary', { token });
+  }
+  adminRefunds(qs = '', token = this.adminToken): Promise<R> {
+    return this.h.api('GET', `/admin/refunds${qs}`, { token });
+  }
+  vaultPlacementRow(id: string) {
+    return this.h.prisma.vaultPlacement.findUniqueOrThrow({ where: { id } });
+  }
   manualRows(where: Record<string, unknown>) {
     return this.h.prisma.manualRefund.findMany({ where, orderBy: { createdAt: 'asc' } });
   }
 
+  /** Simula el webhook `charge.refunded` TOTAL de un PI. */
   chargeRefunded(pi: string, amount: number, refunded = amount) {
     return this.h.sendStripeWebhook({ type: 'charge.refunded', data: { object: { id: `ch_${pi}`, object: 'charge', payment_intent: pi, amount, amount_refunded: refunded } } });
   }
@@ -568,8 +622,12 @@ export class ShipPrepDb {
     await p.replacementCase.deleteMany({ where: { OR: [{ originalInventoryItemId: { in: itemIds } }, { customerUserId: { in: this.users } }] } });
     await p.vaultPlacementItem.deleteMany({ where: { placement: { orderId: { in: orderIds } } } });
     await p.vaultPlacement.deleteMany({ where: { orderId: { in: orderIds } } });
-    await p.shipmentItem.deleteMany({ where: { OR: [{ shipmentRequestId: { in: shipmentIds } }, { inventoryItemId: { in: itemIds } }] } });
-    await p.shipmentRequest.deleteMany({ where: { OR: [{ id: { in: shipmentIds } }, { orderId: { in: orderIds } }] } });
+    // (también los retiros que el CLIENTE creó por HTTP durante la corrida: no pasan por `mkWithdrawal`)
+    const mine = await p.shipmentRequest.findMany({ where: { OR: [{ id: { in: shipmentIds } }, { orderId: { in: orderIds } }, { userId: { in: this.users } }] }, select: { id: true } });
+    const allShipmentIds = [...new Set([...shipmentIds, ...mine.map((s) => s.id)])];
+    await p.paymentRefund.deleteMany({ where: { shipmentRequestId: { in: allShipmentIds } } });
+    await p.shipmentItem.deleteMany({ where: { OR: [{ shipmentRequestId: { in: allShipmentIds } }, { inventoryItemId: { in: itemIds } }] } });
+    await p.shipmentRequest.deleteMany({ where: { id: { in: allShipmentIds } } });
     await p.orderAccessToken.deleteMany({ where: { orderId: { in: orderIds } } });
     await p.orderItem.deleteMany({ where: { orderId: { in: orderIds } } });
     await p.order.deleteMany({ where: { id: { in: orderIds } } });

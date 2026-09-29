@@ -1658,8 +1658,11 @@ export class OrdersService {
           // muestra una pieza sin precio — PROJECT §A). ⚠ I1: el veredicto viene del pre-escaneo de
           // FUERA de la transacción; aquí NO se toca `this.prisma`/`this.pricing` (segunda conexión).
           const toStatus = sellableStatusByItem.get(item.id) ?? 'in_stock';
+          // 🔒 v1.80.6 (PS-61): una objetivo YA en su estado de venta (la confirmó una pasada anterior: `recuperada`
+          // no escribe movimiento) se deja como está — cero movimientos, cero escrituras.
+          if (isVaultRefunded && item.status === toStatus) continue;
           const moved = await tx.inventoryItem.updateMany({
-            where: { id: item.id, status: item.status, ...(isVaultRefunded ? { ownerType: 'platform' } : {}) },
+            where: { id: item.id, status: isVaultRefunded ? 'picking' : item.status, ...(isVaultRefunded ? { ownerType: 'platform' } : {}) },
             data: {
               status: toStatus,
               ownerType: 'platform',
@@ -1702,7 +1705,8 @@ export class OrdersService {
       if (order.status === 'refunded') {
         const lost: string[] = [];
         for (const item of frozen) {
-          if (item.status !== 'picking') continue;
+          // (una objetivo ya `lost` la confirmó una pasada anterior; la que no está `picking` ni `lost` es CONFLICT abajo)
+          if (item.status === 'lost' || (!isVaultRefunded && item.status !== 'picking')) continue;
           const moved = await tx.inventoryItem.updateMany({
             where: { id: item.id, status: 'picking', ownerType: 'platform' },
             data: { status: 'lost' },
@@ -1768,8 +1772,11 @@ export class OrdersService {
       tx.inventoryMovement.findMany({ where: { itemId: { in: ids } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
     ]);
     const sealAt = order.fullRefundClosedAt.getTime();
+    // 🔒 v1.80.6 (§18.7, PS-61): el objetivo se elige por el ANCLA (`refund_return` ≥ sello, sin cambio de estado
+    // posterior), ⛔ NO por «está `picking`»: el `WHERE` del CAS es la garantía — una objetivo que alguien puso
+    // `in_stock` por fuera es violación de invariante (`409 CONFLICT`, rollback), no una pieza que se omite.
     return pieces.filter((p) => {
-      if (p.ownerType !== 'platform' || p.status !== 'picking') return false;
+      if (p.ownerType !== 'platform') return false;
       const list = moves.filter((m) => m.itemId === p.id);
       let idx = -1;
       for (let i = list.length - 1; i >= 0; i -= 1) {

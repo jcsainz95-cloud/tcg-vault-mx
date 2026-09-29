@@ -64,13 +64,16 @@ export interface ShipmentNoticeParams {
   shipmentId: string;
   /** Número de pedido, si el envío fulfilla uno. `null` en un retiro de bóveda. */
   orderNumber?: string | null;
+  /** v1.80 (hueco 5 de §M4-SHIP.10 / N-8): el DETALLE del pedido (`/orders/{id}`); ⛔ nunca la lista. */
+  orderId?: string | null;
   carrier?: string | null;
   trackingNumber?: string | null;
 }
 
 /** Enlace a la superficie donde el dato SIEMPRE está (la red de seguridad de `D-AVISO-2`). */
 function shipmentUrl(params: ShipmentNoticeParams, locale: Locale): string | undefined {
-  return params.orderNumber ? appUrl('cuenta/pedidos', locale) : appUrl('boveda/envios', locale);
+  // N-8 (DESIGN_SYSTEM §37): `/orders/{id}` (pedido) · `/vault?tab=withdrawals` (retiro).
+  return params.orderNumber ? appUrl(params.orderId ? `orders/${params.orderId}` : 'orders', locale) : appUrl('vault?tab=withdrawals', locale);
 }
 
 /** Eyebrow: el folio del envío, o el número de pedido si lo hay. Ya en MAYÚSCULAS (§31.2). */

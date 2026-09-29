@@ -394,7 +394,7 @@ export class FullRefundService {
           action: 'order.vault_reclaimed',
           entityType: 'Order',
           entityId: orderId,
-          after: { trigger, returnedItemIds: reclaimedNow, untouched, unpackedConfirmed: opts.unpackedConfirmed === true },
+          after: { trigger, returnedItemIds: reclaimedNow, untouched, unpackedConfirmed: opts.unpackedConfirmed === true, inventoryItemIds: opts.unpackedItemIds ?? null },
         },
       });
     }
@@ -466,8 +466,10 @@ export class FullRefundService {
         }
       }
       if (idx < 0) continue;
-      const later = list.slice(idx + 1).some((m) => m.fromStatus !== m.toStatus);
-      if (!later) out.add(id);
+      // 🔒 v1.80.6 (M6, PS-61): `returned` ⇔ hay un `refund_return` ≥ sello — y se QUEDA aunque después la pieza cambie
+      // de estado (`recuperada` ⇒ listed sin movimiento; `no_recuperada` ⇒ lost con movimiento). `pendingConfirmation`
+      // (⇔ sigue `picking` ∧ needsManual) es lo que dice si aún hay algo que confirmar. ⛔ Nada de «último movimiento».
+      out.add(id);
     }
     return out;
   }

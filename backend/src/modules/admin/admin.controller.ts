@@ -26,6 +26,8 @@ import { AuditService } from '../audit/audit.service';
 import { UserAuditScope, USER_AUDIT_SCOPE_VALUES } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { parseAdminListFilters } from '../../common/admin-list-filters';
+import { RefundReportsService } from '../payments/refunds/refund-reports.service';
 
 export class UpdateKycDto {
   @IsIn(['none', 'pending', 'verified', 'rejected']) kycStatus!: string;
@@ -425,7 +427,26 @@ export class AdminUsersController {
 @Controller('admin/finance')
 @Roles(Role.super_admin)
 export class AdminFinanceController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly refundReports: RefundReportsService,
+  ) {}
+
+  /** 🔒 v1.80.3 (§M4-SHIP.17.5 (3)) — la MERMA POR ACTOR: la ENTRADA a `lost|damaged` se cuenta UNA vez. */
+  @Get('shrinkage')
+  @Header('Cache-Control', 'no-store')
+  shrinkage(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('actorUserId') actorUserId?: string,
+    @Query('reason') reason?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '25',
+  ) {
+    const f = parseAdminListFilters({ page, pageSize, from, to });
+    const r = parseEnumFilter('reason', reason, ['lost', 'damaged'] as const);
+    return this.refundReports.shrinkage({ from: f.dateRange?.gte, to: f.dateRange?.lte, actorUserId: actorUserId || undefined, reason: r, page: f.page, pageSize: f.pageSize });
+  }
 
   @Get('pnl')
   pnl(@Query('from') from?: string, @Query('to') to?: string) {

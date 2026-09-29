@@ -14,6 +14,10 @@ import { OrderRefundService } from './order-refund.service';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { maskEmail } from './guest-privacy';
 import { DAY_MS, GUEST_TRACKING_MAX_AGE_DAYS } from './guest-checkout.constants';
+import { RefundLedgerService } from '../payments/refunds/refund-ledger.service';
+import { ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { customerDisplayName } from '../vault/customer-display-name';
+import { refundedCentsOf } from './order-public-status';
 
 /**
  * M3 — Ventas / órdenes. vault_operator (lectura); super_admin (reembolso, money-out).
@@ -32,6 +36,8 @@ export class AdminOrdersController {
     private readonly audit: AuditService,
     private readonly guestMail: GuestOrderMailService,
     private readonly refunds: OrderRefundService,
+    private readonly ledger: RefundLedgerService,
+    private readonly manual: ManualRefundService,
   ) {}
 
   @Get()
@@ -91,6 +97,8 @@ export class AdminOrdersController {
         { userId: f.q },
         { user: { name: { contains: f.q, mode: 'insensitive' } } },
         { user: { email: { contains: f.q, mode: 'insensitive' } } },
+        // v1.80 (§M4-SHIP.10): el destinatario del envío (ruta JSON, parametrizado — ⛔ SQL crudo).
+        { shippingAddressSnapshot: { path: ['recipientName'], string_contains: f.q } },
       ];
     }
     const [data, total] = await Promise.all([
@@ -99,6 +107,8 @@ export class AdminOrdersController {
         orderBy: { createdAt: 'desc' },
         skip: (p - 1) * ps,
         take: ps,
+        // v1.80 (§M4-SHIP.10): `customer` y `refundedCents` en la MISMA consulta (⛔ sin N+1).
+        include: { user: { select: { id: true, name: true, nameSource: true, email: true } }, refunds: { select: { status: true, amountCents: true } } },
       }),
       this.prisma.order.count({ where }),
     ]);
@@ -107,7 +117,13 @@ export class AdminOrdersController {
     // `shippingAddressSnapshot`) ya viajan en la fila; el back-office está protegido por rol y el
     // correo del comprador es dato de contacto operativo (mismo criterio que AdminSellerRef.email).
     return {
-      data: data.map((o) => ({ ...o, isGuestOrder: o.guestEmail != null })),
+      data: data.map(({ user, refunds, ...o }) => ({
+        ...o,
+        isGuestOrder: o.guestEmail != null,
+        // v1.80 (§M4-SHIP.10): `CustomerRefDTO | null` (`null` ⇔ invitado) y lo devuelto por Stripe.
+        customer: user ? { userId: user.id, fullName: customerDisplayName(user), email: user.email } : null,
+        refundedCents: refundedCentsOf(refunds ?? []), // (`?? []`: dobles legacy sin relaciones)
+      })),
       page: p,
       pageSize: ps,
       total,
@@ -120,7 +136,7 @@ export class AdminOrdersController {
    * venir `null` — el front de M3 debe tolerarlo y etiquetar "invitado".
    */
   @Get(':id')
-  async get(@Param('id') id: string) {
+  async get(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     const detail = await this.orders.getOrder('', id, true);
     const extra = await this.prisma.order.findUnique({
       where: { id },
@@ -136,15 +152,45 @@ export class AdminOrdersController {
         disputeOutcome: true,
         paymentMethodBrand: true,
         paymentMethodLast4: true,
+        fullRefundClosedAt: true,
+        // v1.80 (§M4-SHIP.10): el comprador, el libro, los envíos y la colocación — en la MISMA consulta.
+        user: { select: { id: true, name: true, nameSource: true, email: true } },
+        refunds: { orderBy: { createdAt: 'asc' }, include: { orderItem: { select: { inventoryItemId: true } } } },
+        shipmentRequests: { orderBy: { requestedAt: 'asc' }, select: { id: true, status: true, userId: true, requestedAt: true, preparedAt: true, carrier: true, trackingNumber: true } },
+        vaultPlacement: { select: { id: true, status: true } },
       },
     });
     // ⭐ v1.80.4 (§M4-SHIP.18.6) — `vaultPieces`, DERIVADO en la lectura (un cuerpo con el cierre).
     const vaultPieces = extra?.fulfillmentMode === 'vault' ? await this.refunds.vaultPieces(id) : undefined;
+    if (!extra) throw BusinessException.notFound();
+    const { user: buyer, refunds: rows, shipmentRequests, vaultPlacement, ...cols } = extra;
+    const refundDtos = await this.ledger.toDtos(rows);
+    // ⭐ v1.80.2 (§M4-SHIP.15.13): las transferencias SPEI de los casos de esta orden — SOLO súper-admin (dinero y PII).
+    const manualRows = user.role === Role.super_admin ? await this.prisma.manualRefund.findMany({ where: { orderId: id }, select: { id: true, status: true, amountCents: true } }) : null;
+    const manualRefunds = manualRows ? await this.manual.dtosByIds(manualRows.map((m) => m.id)) : undefined;
     return {
       ...detail,
-      ...(extra ?? {}),
-      isGuestOrder: extra?.guestEmail != null,
-      claimedAt: extra?.claimedAt ?? undefined,
+      ...cols,
+      isGuestOrder: extra.guestEmail != null,
+      claimedAt: extra.claimedAt ?? undefined,
+      customer: buyer ? { userId: buyer.id, fullName: customerDisplayName(buyer), email: buyer.email } : null,
+      refunds: refundDtos,
+      // `items[].refund: PaymentRefundDTO | null` (§M4-SHIP.10 M3, cualquier estado): la fila de ESA carta.
+      items: (detail.items as { inventoryItemId: string }[]).map((it) => {
+        const i = rows.findIndex((r) => r.orderItem?.inventoryItemId === it.inventoryItemId);
+        return { ...it, refund: i >= 0 ? refundDtos[i] : null };
+      }),
+      shipments: shipmentRequests.map((s) => ({
+        id: s.id,
+        status: s.status,
+        kind: s.userId ? 'vault_withdrawal' : 'guest_direct_ship',
+        requestedAt: s.requestedAt.toISOString(),
+        preparedAt: s.preparedAt ? s.preparedAt.toISOString() : null,
+        carrier: s.carrier,
+        trackingNumber: s.trackingNumber,
+      })),
+      vaultPlacement: vaultPlacement ?? null,
+      ...(manualRefunds ? { manualRefunds, manualRefundedCents: manualRows!.filter((m) => m.status === 'paid').reduce((a, m) => a + m.amountCents, 0) } : {}),
       ...(vaultPieces ? { vaultPieces } : {}),
     };
   }

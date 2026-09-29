@@ -490,6 +490,7 @@ export class RefundLedgerService {
           });
         const params: Av12Params = {
           reference: first.order?.orderNumber ?? first.shipmentRequestId ?? key,
+          orderId: first.order?.id ?? null,
           orderNumber: first.order?.orderNumber ?? null,
           cards,
           nothingShips,
@@ -549,7 +550,7 @@ export class RefundLedgerService {
       }
       await this.mail.send({
         ...orderRefundedTemplate(
-          { orderNumber: order.orderNumber ?? '', totalCents: order.totalCents, vault: order.fulfillmentMode === 'vault' },
+          { orderId, orderNumber: order.orderNumber ?? '', totalCents: order.totalCents, vault: order.fulfillmentMode === 'vault' },
           recipient.locale,
         ),
         to: recipient.email,

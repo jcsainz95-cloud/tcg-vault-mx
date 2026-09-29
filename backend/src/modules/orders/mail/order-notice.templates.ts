@@ -66,6 +66,8 @@ export interface OrderNoticeItem {
 }
 
 export interface OrderSettledParams {
+  /** v1.80 (hueco 5 de §M4-SHIP.10 / N-8): el enlace va al DETALLE del pedido, ⛔ nunca a la lista. */
+  orderId?: string | null;
   orderNumber: string;
   items: OrderNoticeItem[];
   /** ⭐ `Order.totalCents` **persistido**. ⛔ Jamás una suma recalculada desde un dial vivo. */
@@ -104,7 +106,7 @@ export function orderSettledTemplate(
   const finalSale = en
     ? 'All sales are final: no refunds on request, except for a damaged/wrong card or a platform error.'
     : 'Ventas finales: no hay reembolso a solicitud, salvo carta dañada/equivocada o error de la plataforma.';
-  const url = appUrl('cuenta/pedidos', l);
+  const url = appUrl(params.orderId ? `orders/${params.orderId}` : 'orders', l);
   const ctaLabel = en ? 'SEE MY ORDER' : 'VER MI PEDIDO';
   const lineas = params.items.map((i) => `${i.name} — ${i.setName} #${i.number}`);
   const blocks = [
@@ -156,6 +158,8 @@ export function orderSettledTemplate(
 }
 
 export interface OrderRefundedParams {
+  /** v1.80 (hueco 5 / N-8): enlace al detalle del pedido. */
+  orderId?: string | null;
   orderNumber: string;
   /** ⭐ `Order.totalCents` persistido: `AV-3` sale **solo con reembolso TOTAL** (§R.3). */
   totalCents: number;
@@ -195,7 +199,7 @@ export function orderRefundedTemplate(
     : 'Tu banco decide cuándo aparece; suele tardar unos días hábiles.';
   const totalLabel = en ? 'REFUNDED' : 'TE DEVOLVIMOS';
   const total = money(params.totalCents, l);
-  const url = appUrl('cuenta/pedidos', l);
+  const url = appUrl(params.orderId ? `orders/${params.orderId}` : 'orders', l);
   const ctaLabel = en ? 'SEE MY ORDER' : 'VER MI PEDIDO';
   const blocks = [
     eyebrowRow(en ? 'YOUR ORDER' : 'TU PEDIDO', params.orderNumber),

@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { AdminService } from '../src/modules/admin/admin.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
@@ -87,7 +88,8 @@ const envio = (e: Partial<EnvioFake> = {}): EnvioFake => ({
  * aparte, en su propio bloque. *La neutralidad se afirma de lo que existía; lo nuevo se prueba nuevo.*
  */
 function seisCifras(p: Awaited<ReturnType<AdminService['pnl']>>) {
-  const { shippingCostMissingCount: _nuevo, ...heredadas } = p;
+  // (v1.80: lo devuelto es ADITIVO y con 0 filas vale 0 — la neutralidad de las SEIS heredadas sigue midiéndose igual.)
+  const { shippingCostMissingCount: _nuevo, refundsCents: _r, refundedFeesCents: _f, compensationsCents: _c, ...heredadas } = p;
   return heredadas;
 }
 
@@ -123,7 +125,7 @@ function servicio(ordenes: OrdenFake[], envios: EnvioFake[]) {
     shipmentRequest: { findMany: jest.fn().mockResolvedValue(envios) },
   };
   const service = new AdminService(
-    prisma as unknown as PrismaService,
+    withM61Defaults(prisma) as unknown as PrismaService,
     {} as PricingService,
     new PiiCryptoService(new ConfigService({})),
     {} as any,
@@ -219,12 +221,12 @@ describe('P&L — DEPLOY 1 (§4.44.j): neutralidad demostrada + `D-IVA-5`', () =
       // ⭐ D56: el CSV gana `shippingCostMissingCount` **en el mismo orden que el objeto**.
       expect(header).toBe(
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-          'shippingCostMissingCount,profitCents',
+          'shippingCostMissingCount,refundsCents,refundedFeesCents,compensationsCents,profitCents',
       );
       const missing = envios.filter((e) => e.shippingCostCents === 0).length;
       expect(row).toBe(
         `pnl,${esperado.incomeCents},${esperado.shippingRevenueCents},${esperado.cogsCents},` +
-          `${esperado.stripeFeesCents},${esperado.shippingCostCents},${missing},${esperado.profitCents}`,
+          `${esperado.stripeFeesCents},${esperado.shippingCostCents},${missing},0,0,0,${esperado.profitCents}`,
       );
     });
   });

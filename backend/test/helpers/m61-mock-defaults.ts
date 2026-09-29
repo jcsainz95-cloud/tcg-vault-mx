@@ -15,7 +15,11 @@ export function withM61Defaults<T extends Record<string, any>>(db: T): T {
   d.orderItem.findMany ??= jest.fn(async () => []);
   d.paymentRefund ??= {};
   d.paymentRefund.findMany ??= jest.fn(async () => []);
-  d.paymentRefund.aggregate ??= jest.fn(async () => ({ _sum: { amountCents: 0 } }));
+  d.paymentRefund.aggregate ??= jest.fn(async () => ({ _sum: { amountCents: 0 }, _count: { _all: 0 } }));
+  d.manualRefund ??= {};
+  d.manualRefund.findMany ??= jest.fn(async () => []);
+  d.manualRefund.count ??= jest.fn(async () => 0);
+  d.manualRefund.aggregate ??= jest.fn(async () => ({ _sum: { amountCents: 0 }, _count: { _all: 0 } }));
   d.user ??= {};
   d.user.findMany ??= jest.fn(async () => []);
   d.user.findUnique ??= jest.fn(async () => null);

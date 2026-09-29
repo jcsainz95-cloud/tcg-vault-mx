@@ -36,6 +36,8 @@ import {
 // v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { ShipmentPrepService } from '../shipments/shipment-prep.service';
+import { ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { kycRejectedTemplate } from './mail/kyc-notice.templates';
 import {
   MIN_PASSWORD_LENGTH,
@@ -618,6 +620,10 @@ export class AdminService {
     // v1.74 (§R): `@Optional()` — los tests unitarios construyen este servicio a mano, y el envío es
     // best-effort: ⛔ un fallo del correo NO puede hacer fallar `PATCH /admin/users/:id/kyc`.
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // ⭐ v1.80 (§M4-SHIP.11): `workQueue.toPrepare` (el MISMO cuerpo que `picking-list/summary`) y las cubetas de
+    // dinero del súper-admin. `@Optional()`: los unitarios construyen el servicio a mano.
+    @Optional() private readonly prep?: ShipmentPrepService,
+    @Optional() private readonly manualRefunds?: ManualRefundService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -1560,11 +1566,18 @@ export class AdminService {
       if (s.shippingCostCents === 0) shippingCostMissingCount += 1;
       stripeFeesCents += s.processingFeeCents;
     }
-    // ⛔ `profitCents` NO cambia de fórmula. Lo que cambia es que sus dos términos de envío están
-    // ahora en la **MISMA base (neta)**: antes uno era neto y el otro bruto, y eso restaba una
-    // pérdida que no existía.
+    // ⭐ v1.80 / v1.80.2 (§M4-SHIP, PS-40) — EL DINERO QUE VUELVE resta en el periodo en que SALIÓ: las filas del
+    // libro aceptadas por Stripe (`submitted|succeeded`, por `submittedAt`) y las transferencias SPEI `paid` (por
+    // `paidAt`; ⛔ `pending` y `cancelled` no restan; la fila Stripe `failed` no resta y su sustituta SPEI no duplica).
+    // Componentes de venta NETOS (IVA fuera, como el ingreso); la comisión devuelta deja de compensar el costo de
+    // Stripe (se resta aparte); la compensación por carta perdida es RENGLÓN PROPIO (tratamiento fiscal ⛔ no
+    // decidido, §M4-SHIP.15.5). ⛔ NO MEDIDO por el arquitecto la forma del DTO: campos ADITIVOS, enrutados en
+    // BACKEND_NOTES.
+    const refunds = await this.refundsInPeriod(createdAt);
+    // ⛔ `profitCents` conserva sus cinco términos y resta lo devuelto (antes un reembolso parcial NO restaba nada).
     const profitCents =
-      incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents;
+      incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents -
+      refunds.refundsCents - refunds.refundedFeesCents - refunds.compensationsCents;
     return {
       incomeCents,
       shippingRevenueCents,
@@ -1572,7 +1585,68 @@ export class AdminService {
       stripeFeesCents,
       shippingCostCents,
       shippingCostMissingCount,
+      refundsCents: refunds.refundsCents,
+      refundedFeesCents: refunds.refundedFeesCents,
+      compensationsCents: refunds.compensationsCents,
       profitCents,
+    };
+  }
+
+  /**
+   * ⭐ v1.80.2 — un cuerpo para el P&L y el IVA: lo devuelto en el periodo. `refundsCents` = mercancía + envío NETOS;
+   * `refundedFeesCents` = comisión devuelta; `compensationsCents` = compensaciones por carta perdida; `ivaRefundedCents`
+   * = el IVA que iba dentro de lo devuelto.
+   */
+  private async refundsInPeriod(period?: Prisma.DateTimeFilter) {
+    const [stripeRows, speiRows] = await Promise.all([
+      this.prisma.paymentRefund.findMany({
+        where: { status: { in: ['submitted', 'succeeded'] }, ...(period ? { submittedAt: period } : {}) },
+        select: { merchandiseCents: true, merchandiseIvaCents: true, shippingCents: true, shippingIvaCents: true, processingFeeCents: true, compensationCents: true },
+      }),
+      this.prisma.manualRefund.findMany({
+        where: { status: 'paid', ...(period ? { paidAt: period } : {}) },
+        select: { merchandiseCents: true, merchandiseIvaCents: true, processingFeeCents: true, compensationCents: true },
+      }),
+    ]);
+    const acc = { refundsCents: 0, refundedFeesCents: 0, compensationsCents: 0, ivaRefundedCents: 0 };
+    for (const r of stripeRows) {
+      acc.refundsCents += r.merchandiseCents - r.merchandiseIvaCents + r.shippingCents - r.shippingIvaCents;
+      acc.refundedFeesCents += r.processingFeeCents;
+      acc.compensationsCents += r.compensationCents;
+      acc.ivaRefundedCents += r.merchandiseIvaCents + r.shippingIvaCents;
+    }
+    for (const r of speiRows) {
+      acc.refundsCents += r.merchandiseCents - r.merchandiseIvaCents;
+      acc.refundedFeesCents += r.processingFeeCents;
+      acc.compensationsCents += r.compensationCents;
+      acc.ivaRefundedCents += r.merchandiseIvaCents;
+    }
+    return acc;
+  }
+
+  /**
+   * ⭐ v1.80…v1.80.3 (§M4-SHIP.11, .17.5) — `workQueue.toPrepare` (+ `toReplace`, `toReplaceOverdue`, `stuckRefunds`,
+   * el MISMO cuerpo que `GET /admin/shipments/picking-list/summary`), y SOLO para `super_admin`: `manualRefunds`
+   * (la cubeta SPEI) y `operatorRefunds` (24 h / 30 d de filas con `requestedByRole='vault_operator'`). Para
+   * `vault_operator` las dos van `null`.
+   */
+  private async workQueueAdditions(role: Role) {
+    if (!this.prep) return {};
+    const isSuperAdmin = role === Role.super_admin;
+    const now = new Date();
+    const summary = await this.prep.summary(role, now);
+    const toPrepare = { ship: summary.ship, vault: summary.vault, toReplace: summary.toReplace, toReplaceOverdue: summary.toReplaceOverdue, stuckRefunds: summary.stuckRefunds };
+    if (!isSuperAdmin) return { toPrepare, manualRefunds: null, operatorRefunds: null };
+    const opWhere = { requestedByRole: Role.vault_operator, status: { not: 'failed' as const } };
+    const [manualRefunds, last24h, last30d] = await Promise.all([
+      this.manualRefunds ? this.manualRefunds.pendingSummary() : Promise.resolve(null),
+      this.prisma.paymentRefund.aggregate({ where: { ...opWhere, createdAt: { gte: new Date(now.getTime() - 24 * 3600 * 1000) } }, _count: { _all: true }, _sum: { amountCents: true } }),
+      this.prisma.paymentRefund.aggregate({ where: { ...opWhere, createdAt: { gte: new Date(now.getTime() - 30 * 24 * 3600 * 1000) } }, _sum: { amountCents: true } }),
+    ]);
+    return {
+      toPrepare,
+      manualRefunds,
+      operatorRefunds: { last24hCount: last24h._count._all, last24hCents: last24h._sum.amountCents ?? 0, last30dCents: last30d._sum.amountCents ?? 0 },
     };
   }
 
@@ -1717,7 +1791,9 @@ export class AdminService {
       settledAt: o.settledAt,
       status: o.status,
     }));
-    return { ivaCollectedCents, byOrder };
+    // ⭐ v1.80 (§M4-SHIP): el IVA que iba DENTRO de lo devuelto (libro por `submittedAt`, SPEI `paid` por `paidAt`).
+    const { ivaRefundedCents } = await this.refundsInPeriod(settledAt);
+    return { ivaCollectedCents, ivaRefundedCents, ivaNetCents: ivaCollectedCents - ivaRefundedCents, byOrder };
   }
 
   async exportCsv(report: string, from?: string, to?: string): Promise<string> {
@@ -1727,9 +1803,9 @@ export class AdminService {
       // CSV cuyo orden de columnas no es el del DTO es dos contratos para una cifra.
       return (
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-        'shippingCostMissingCount,profitCents\n' +
+        'shippingCostMissingCount,refundsCents,refundedFeesCents,compensationsCents,profitCents\n' +
         `pnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},` +
-        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.profitCents}\n`
+        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents}\n`
       );
     }
     if (report === 'iva') {
@@ -2034,10 +2110,12 @@ export class AdminService {
         grossAmountCents: salesPeriod.grossAmountCents,
       },
       workQueue: {
+        // ⛔ `shipments` NO cambia de cifra (envíos vivos, no «por preparar»).
         shipments: shipmentsQueue,
         buylist: buylistQueue,
         disputes: disputesQueue,
         pendingPrices,
+        ...(await this.workQueueAdditions(role)),
       },
       buylistPeriod: { count: buylistPeriodCount, amountCents: buylistPeriodAgg._sum.approvedTotalCents ?? 0 },
       dataHealth: {

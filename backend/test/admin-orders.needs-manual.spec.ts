@@ -38,6 +38,9 @@ describe('GET /admin/orders?needsManual', () => {
       { log: jest.fn() } as unknown as AuditService,
       {} as GuestOrderMailService,
       {} as OrderRefundService,
+      // v1.80 (§M4-SHIP.10): el libro (`refunds`, `refundedCents`) y la cubeta SPEI del detalle — inertes aquí.
+      { toDtos: jest.fn(async () => []) } as never,
+      { dtosByIds: jest.fn(async () => []) } as never,
     );
     return { ctrl, prisma };
   }

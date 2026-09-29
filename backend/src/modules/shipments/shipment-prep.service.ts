@@ -306,11 +306,13 @@ export class ShipmentPrepService {
         setName: p.card.set?.name ?? null,
       };
     });
+    // Los conteos: la DISPONIBILIDAD manda sobre la marca (§M4-SHIP.18.4, PS-63/PS-66): una línea `picked` cuya pieza
+    // fue reclamada por un reembolso total cuenta `blocked` (no va a salir), ⛔ no `picked`. La marca se conserva.
     const counts: Counts = { total: lines.length, pending: 0, picked: 0, missing: 0, blocked: 0 };
     for (const l of lines) {
-      if (l.prepStatus === 'picked') counts.picked += 1;
+      if (!l.available && l.prepStatus !== 'missing') counts.blocked += 1;
+      else if (l.prepStatus === 'picked') counts.picked += 1;
       else if (l.prepStatus === 'missing') counts.missing += 1;
-      else if (!l.available) counts.blocked += 1;
       else counts.pending += 1;
     }
     const openCaseIds = cases.filter((c) => c.status === 'open').map((c) => c.id);

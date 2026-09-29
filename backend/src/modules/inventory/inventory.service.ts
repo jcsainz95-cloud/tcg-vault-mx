@@ -12,6 +12,7 @@ import {
   Prisma,
   ProductType,
   RawCondition,
+  Role,
   SealedCondition,
   SealedSubtype,
   VariantPriceOverride,
@@ -384,6 +385,8 @@ type PublishPriceDerivation =
  * conjunto de status de origen permitido; hoy solo describe el error `PRICE_PENDING` por-línea.
  */
 const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
+/** 🔒 v1.80.3 (SEC-SHIP-A1): los ÚNICOS estados de plataforma que `mark` y `PATCH {status:'in_stock'}` pueden tocar. */
+const MARKABLE_PLATFORM_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
 
 /**
  * [v1.20 §4.20e] Allowlist de status AJUSTABLES por levantamiento físico. Solo una pieza de
@@ -2347,7 +2350,7 @@ export class InventoryService {
     return { ...toAdminInventoryItemRow(item), ...relations };
   }
 
-  async updateItem(id: string, dto: UpdateItemDto) {
+  async updateItem(id: string, dto: UpdateItemDto, actor?: { id: string; role: Role }) {
     const current = await this.getItem(id);
     // v1.2 (M-12): la invariante "gradeada publicada exige certNumber" también rige en el
     // UPDATE, no solo en el alta. `createItem` valida vía validateProductShape; aquí revalidamos
@@ -2401,6 +2404,35 @@ export class InventoryService {
     // la resolución, como el override por línea del `bulk-publish`.
     const publishing = resultingStatus === 'listed' && current.status !== 'listed';
     if (!publishing) {
+      // 🔒 v1.80.3 (SEC-SHIP-A1, §M4-SHIP.17.1 (2)) — `{status:'in_stock'}` SOLO sobre plataforma `in_stock | listed`:
+      // lectura → guarda (`422 ITEM_NOT_ADJUSTABLE`) → escritura CONDICIONADA (`count 0` ⇒ `409 CONFLICT`), con los
+      // demás campos del mismo PATCH en la MISMA transacción (todo o nada). ⛔ Sin `InventoryMovement` para
+      // `listed ↔ in_stock` (visibilidad de catálogo, no un hecho físico). INV-SP-7: una `lost|damaged` no vuelve.
+      if (patch.status !== undefined && patch.status !== current.status) {
+        if (current.ownerType !== 'platform' || !MARKABLE_PLATFORM_STATUSES.includes(current.status)) {
+          throw BusinessException.validation('ITEM_NOT_ADJUSTABLE', `item status '${current.status}' (${current.ownerType}) cannot be set to '${patch.status}'`, {
+            status: current.status,
+            ownerType: current.ownerType,
+          });
+        }
+        const before = { status: current.status };
+        await this.prisma.$transaction(async (tx) => {
+          const cas = await tx.inventoryItem.updateMany({ where: { id, ownerType: 'platform', status: current.status }, data: patch });
+          if (cas.count !== 1) throw BusinessException.conflict('CONFLICT', 'Item changed concurrently');
+          await tx.auditLog.create({
+            data: {
+              actorUserId: actor?.id ?? null,
+              actorRole: actor?.role ?? null,
+              action: 'inventory.item_updated',
+              entityType: 'InventoryItem',
+              entityId: id,
+              before: before as Prisma.InputJsonValue,
+              after: { status: patch.status, fields: Object.keys(patch) } as Prisma.InputJsonValue,
+            },
+          });
+        });
+        return toAdminInventoryItemRow(await this.prisma.inventoryItem.findUniqueOrThrow({ where: { id } }));
+      }
       // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
       return toAdminInventoryItemRow(
         await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
@@ -2689,21 +2721,42 @@ export class InventoryService {
     );
   }
 
+  /**
+   * 🔒 v1.80.3 (SEC-SHIP-A1, API_CONTRACT §M4-SHIP.17.1) — `mark` SOLO sobre plataforma `in_stock | listed`, con la
+   * guarda en el `WHERE` del CAS. Todo lo demás ⇒ `422 ITEM_NOT_ADJUSTABLE {status, ownerType}`: una `picking` es
+   * de un pedido cobrado (marcarla borraría un directo sin reembolso), una `lost|damaged` ya es merma firmada
+   * (INV-SP-7), y una carta de CLIENTE `in_custody` fuera de un caso es el vector (3): la deuda desaparecería de
+   * «Por reponer» — la incidencia de custodia se registra SOLO en el palomeo del retiro o de la colocación (D-14 =
+   * «por ahora no»). `count 0` ⇒ `409 CONFLICT` (la carrera con el checkout que la reserva).
+   */
   async markItem(id: string, dto: MarkItemDto, actorUserId: string) {
     const item = await this.getItem(id);
     const status: InventoryStatus = dto.mark === 'lost' ? 'lost' : 'damaged';
-    await this.prisma.inventoryMovement.create({
-      data: {
-        itemId: id,
-        fromStatus: item.status,
-        toStatus: status,
-        reason: dto.mark === 'lost' ? MovementReason.lost : MovementReason.damaged,
-        actorUserId,
-        note: dto.note,
-      },
+    if (item.ownerType !== 'platform' || !MARKABLE_PLATFORM_STATUSES.includes(item.status)) {
+      throw BusinessException.validation('ITEM_NOT_ADJUSTABLE', `item status '${item.status}' (${item.ownerType}) cannot be marked`, {
+        status: item.status,
+        ownerType: item.ownerType,
+      });
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const cas = await tx.inventoryItem.updateMany({
+        where: { id, ownerType: 'platform', status: item.status },
+        data: { status },
+      });
+      if (cas.count !== 1) throw BusinessException.conflict('CONFLICT', 'Item changed concurrently');
+      await tx.inventoryMovement.create({
+        data: {
+          itemId: id,
+          fromStatus: item.status,
+          toStatus: status,
+          reason: dto.mark === 'lost' ? MovementReason.lost : MovementReason.damaged,
+          actorUserId,
+          note: dto.note,
+        },
+      });
     });
     // S49-R4: proyectado.
-    return toAdminInventoryItemRow(await this.prisma.inventoryItem.update({ where: { id }, data: { status } }));
+    return toAdminInventoryItemRow(await this.prisma.inventoryItem.findUniqueOrThrow({ where: { id } }));
   }
 
   // ---------------- v1.20 §4.20e — Ajuste por levantamiento físico ----------------

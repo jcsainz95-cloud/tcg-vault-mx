@@ -1647,6 +1647,7 @@ export class ShipmentsService {
       const msg = build(to.locale, {
         shipmentId: id,
         orderNumber: to.orderNumber,
+        orderId: shipment.orderId,
       });
       await this.mail.send({ ...msg, to: to.email });
     } catch (e) {

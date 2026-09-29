@@ -217,3 +217,23 @@ describe('SEC-SHIP-M2 — el reclamo del intento dura MÁS que la peor llamada a
     expect(REFUND_ATTEMPT_LEASE_MS).toBeGreaterThan(StripeService.TIMEOUT_MS * (1 + retries));
   });
 });
+
+describe('PS-62 — el despachador `onFullRefund` LANZA ante lo que no tiene rama (⛔ nunca un no-op silencioso)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { FullRefundService } = require('../src/modules/payments/refunds/full-refund.service');
+  const svc = new FullRefundService();
+  const txWith = (order: unknown) => ({ order: { findUnique: jest.fn(async () => order) } }) as never;
+
+  it('un `FulfillmentMode` sin rama ⇒ lanza', async () => {
+    await expect(svc.onFullRefund(txWith({ id: 'o1', fulfillmentMode: 'teleport' }), { orderId: 'o1' }, 'm3', null)).rejects.toThrow(/fulfillmentMode/i);
+  });
+
+  it('`unprepared` / `reclaim` con un directo (o con un envío como objetivo) ⇒ lanza: solo reclaman bóveda', async () => {
+    await expect(svc.onFullRefund(txWith({ id: 'o1', fulfillmentMode: 'direct_ship' }), { orderId: 'o1' }, 'unprepared', 'u')).rejects.toThrow(/only reclaims vault/);
+    await expect(svc.onFullRefund(txWith(null), { shipmentRequestId: 's1' }, 'reclaim', 'u')).rejects.toThrow(/only reclaims vault/);
+  });
+
+  it('una orden inexistente ⇒ lanza (⛔ no «no había nada que hacer»)', async () => {
+    await expect(svc.onFullRefund(txWith(null), { orderId: 'nope' }, 'm3', null)).rejects.toThrow(/not found/);
+  });
+});

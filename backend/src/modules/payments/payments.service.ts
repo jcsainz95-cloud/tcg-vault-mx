@@ -98,6 +98,7 @@ export class PaymentsService {
         // columna, y un correo que renderizara «la orden» lo filtraría solo (criterio 209).
         ...orderSettledTemplate(
           {
+            orderId: order.id,
             orderNumber: order.orderNumber ?? '',
             items: order.items.map((oi) => {
               const snap = readFrozenCardFacts(oi.cardSnapshot);
@@ -730,7 +731,7 @@ export class PaymentsService {
       }
       return {
         ...orderRefundedTemplate(
-          { orderNumber: order.orderNumber ?? '', totalCents: order.totalCents, vault: order.fulfillmentMode === 'vault' },
+          { orderId: order.id, orderNumber: order.orderNumber ?? '', totalCents: order.totalCents, vault: order.fulfillmentMode === 'vault' },
           recipient.locale,
         ),
         to: recipient.email,

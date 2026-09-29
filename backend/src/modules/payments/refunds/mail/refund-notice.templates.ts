@@ -62,8 +62,10 @@ export interface RefundedCardLine {
 export interface Av12Params {
   /** Número de pedido o folio del retiro (lo que el cliente reconoce). */
   reference: string;
-  /** `null` ⇒ es un retiro de bóveda (el enlace va a «Mi bóveda › envíos»). */
+  /** `null` ⇒ es un retiro de bóveda (el enlace va a «Mi bóveda › retiros»). */
   orderNumber: string | null;
+  /** v1.80 (hueco 5 / N-8): el DETALLE del pedido (`/orders/{id}`), ⛔ nunca la lista. */
+  orderId?: string | null;
   cards: RefundedCardLine[];
   /** Cierre: no sale nada y se devolvió todo (incluye el envío). */
   nothingShips: boolean;
@@ -112,7 +114,8 @@ export function refundNoticeTemplate(params: Av12Params, locale?: string | null)
     : 'Tu banco decide cuándo aparece; suele tardar unos días hábiles.';
   const totalLabel = en ? 'REFUNDED' : 'TE DEVOLVIMOS';
   const total = money(params.totalCents, l);
-  const url = params.orderNumber ? appUrl('cuenta/pedidos', l) : appUrl('boveda/envios', l);
+  // N-8 (DESIGN_SYSTEM §37.7): `/orders/{id}` para un pedido; `/vault?tab=withdrawals` para un retiro. ⛔ Ningún enlace a lista.
+  const url = params.orderNumber ? appUrl(params.orderId ? `orders/${params.orderId}` : 'orders', l) : appUrl('vault?tab=withdrawals', l);
   const ctaLabel = params.orderNumber ? (en ? 'SEE MY ORDER' : 'VER MI PEDIDO') : en ? 'SEE MY SHIPMENT' : 'VER MI ENVÍO';
   const blocks = [
     eyebrowRow(params.orderNumber ? (en ? 'YOUR ORDER' : 'TU PEDIDO') : en ? 'YOUR SHIPMENT' : 'TU ENVÍO', params.reference),
@@ -156,7 +159,7 @@ export function replacementPendingTemplate(params: Av13Params, locale?: string |
   const plan = en
     ? 'We are getting you an identical one. Your shipment leaves complete as soon as we have it; if we cannot get one, we will refund its value to you.'
     : 'Te estamos consiguiendo una idéntica. Tu envío sale completo en cuanto la tengamos; si no la conseguimos, te devolvemos su valor.';
-  const url = appUrl('boveda/envios', l);
+  const url = appUrl('vault?tab=withdrawals', l);
   const blocks = [
     eyebrowRow(en ? 'YOUR SHIPMENT' : 'TU ENVÍO', params.shipmentId),
     headingRow(title, 22),
