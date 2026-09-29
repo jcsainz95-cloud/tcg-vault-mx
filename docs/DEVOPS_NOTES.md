@@ -12778,31 +12778,81 @@ sello ⇒ 1; con sello ⇒ 0; un rol con escritura ⇒ rc=2 «TIENE privilegio d
 |---|---|---|---|
 | *(sin medir todavía en producción — 2026-09-29)* | | | |
 
-### 71.4 · Migración `M-61` — despliegue y rollback
+### 71.4 · Migración `M-61` — despliegue y rollback (rollback MEDIDO el 2026-09-29)
 
-**Qué trae** (`API_CONTRACT §M4-SHIP.2`, .15, .17, .18; **el SQL real lo escribe backend y aún no existe: `ls backend/prisma/migrations | tail -1` ⇒ `20260928120000_m60_…` — NO MEDIDO**): tablas nuevas
-(`PaymentRefund`, `ManualRefund`, `ReplacementCase`…), columnas nuevas (`Order.fullRefundClosedAt`, `KycProfile.clabeUpdatedAt`, `VaultPlacementItem.missingReason`, columnas de reembolso en
-`ReplacementCase`…), CHECKs e índices únicos parciales, **un backfill** (`UPDATE "VaultPlacementItem" SET "missingReason"='not_found' WHERE "prepStatus"='missing'`, antes de su CHECK), y **dos enums
-existentes que ganan valores**: `MovementReason + replacement, refund_return` y `VaultPlacementCancelReason + full_refund`.
+**Qué trae** (`backend/prisma/migrations/20260929120000_m61_shipment_prep_refunds/migration.sql`, en `claude/release-s5` 1a5954ff): 3 tablas nuevas
+(`PaymentRefund`, `ReplacementCase`, `ManualRefund`), columnas nuevas nullable o con default (`Order.fullRefundClosedAt`, `KycProfile.clabeUpdatedAt`,
+`ShipmentRequest.preparedAt/preparedByUserId`, `ShipmentItem.prepStatus/prepMarkedAt/prepMarkedByUserId/missingReason`, `VaultPlacementItem.missingReason`),
+7 enums nuevos, **dos enums existentes que ganan valores** (`MovementReason + replacement, refund_return`; `VaultPlacementCancelReason + full_refund`),
+un backfill (`missingReason='not_found'` donde `prepStatus='missing'`) y CHECKs. **Cuatro CHECKs caen sobre tablas que ya existían:**
+`VaultPlacementItem_missing_reason_chk` (:248), `ShipmentRequest_prepared_seal_chk` (:236), `ShipmentItem_prep_mark_chk` y `ShipmentItem_missing_reason_chk`.
 
-**Antes:** snapshot de la BD de producción (Railway > Postgres > Backups), regla de oro de §11.F; `./scripts/rollback-safety-probe.sh <sha-anterior>` contra la BD viva.
+**Antes:** snapshot de la BD de producción (Railway > Postgres > Backups), regla de oro de §11.F.
 **Aplicación:** `prisma migrate deploy` (corre al arrancar el contenedor). Falla ⇒ rollback **atómico** de esa migración, Railway mantiene el deploy anterior (patrón §26.4).
-**Ojo con `ALTER TYPE … ADD VALUE`:** si Postgres exige que corra fuera de transacción, backend lo separa en su migración; si no, un valor nuevo no se puede **usar** en la misma tx que lo crea.
 
-**Rollback — qué revierte y qué NO (leer con §46.3: «aditiva» ⇏ «reversible»):**
+#### Rollback, para el dueño (en llano)
 
-| Elemento | ¿Se revierte con el redeploy del código anterior? | Notas |
+Volver a la versión anterior **no es solo apretar «Redeploy»**. La versión anterior tiene un botón («no está», al preparar un pedido de bóveda) que la base
+nueva rechaza: si se vuelve atrás sin más, ese botón da **error 500** y la carta no se puede marcar ni desmarcar. Se arregla quitando **una sola regla**
+de la base antes del redeploy. Nada se borra: los reembolsos, los casos «Por reponer» y las transferencias SPEI se quedan guardados, la versión vieja
+simplemente no los muestra, y reaparecen al volver a la versión nueva.
+
+1. **Medir** (solo lee; vale un usuario de solo lectura): `./scripts/rollback-m61.sh --check` con `DATABASE_URL` exportada en tu terminal
+   (nunca en un fichero ni en el chat; `unset DATABASE_URL` al terminar). Imprime una **huella** de la base y un veredicto.
+   - `rc=0` ⇒ se puede volver atrás después del paso 2.
+   - `rc=1` ⇒ **NO volver atrás todavía**: hay filas con valores nuevos (`refund_return`, `replacement`, `full_refund`) que la versión vieja **no sabe
+     leer**; las pantallas que las lean dan 500 (medido: ficha de la pieza y los verbos de una colocación cancelada por reembolso total). Postgres no
+     permite quitar un valor de un enum y reescribir movimientos es decisión tuya con backend: se escala, no se improvisa.
+   - `rc=2` ⇒ no concluyente (sin URL, sin `psql`, SQL que falló): no es «seguro».
+   También dice cuánto trabajo de dinero quedaría **abierto e invisible** mientras dure el rollback (reembolsos `requested/submitted/failed`, casos
+   abiertos, SPEI pendientes). No se pierde, pero nadie lo verá ni lo avanzará hasta volver a la versión nueva.
+   (`./scripts/rollback-safety-probe.sh <sha-anterior>` sigue valiendo para columnas `NOT NULL` sin default, pero **no mira CHECKs**: su verde no cubre esto.)
+2. **Quitar la regla** (solo si el paso 1 dio `rc=0`): `./scripts/rollback-m61.sh --apply --confirm <huella>`. Pide escribir `VOLVER ATRAS M-61` en una
+   terminal interactiva; sin terminal, o con otra huella, no escribe nada. Hace **un** `ALTER TABLE "VaultPlacementItem" DROP CONSTRAINT IF EXISTS
+   "VaultPlacementItem_missing_reason_chk"` en una transacción con `lock_timeout` de 5 s. Idempotente. Necesita la credencial dueña de la tabla (la de la app).
+3. **Redeploy** del código anterior: Railway *Redeploy* del deploy previo + Vercel *Promote* del build previo. Su `migrate deploy` dice «No pending
+   migrations» (medido) porque la fila de M-61 en `_prisma_migrations` **se queda**.
+
+**Qué NO se toca, y por qué:** las tablas y columnas nuevas (son el libro de reembolsos; la versión vieja las ignora); los otros tres CHECKs (miran
+columnas que la versión vieja no conoce ni escribe — medido abajo); los valores de enum (no se pueden quitar); y **la fila de M-61 en
+`_prisma_migrations` (⛔ NO borrarla)**: sin ella, la versión nueva intenta re-crear M-61 al arrancar y **falla** (medido: `P3018`, `type "MissingReason"
+already exists`) — y la cabecera de la migración sugiere ese `DELETE` solo como parte de la reversa TOTAL que tira las tablas, que aquí no se hace.
+El dinero ya devuelto por Stripe **no se revierte** con nada de esto. La suscripción del webhook a `charge.refund.updated`/`refund.updated` puede
+quedarse: con la versión vieja cae en «evento no manejado» y responde 200.
+
+**Volver a avanzar (roll-forward):** `./scripts/rollback-m61.sh --reforward --confirm <huella>` (frase `AVANZAR M-61`) **ANTES** de publicar otra vez
+la versión nueva. En una transacción: pone `missingReason='not_found'` a las cartas que la versión vieja marcó «no está» sin motivo, limpia el motivo
+de las que desmarcó, y re-añade el CHECK idéntico al de M-61 (lo compara con `pg_get_constraintdef`). Ese orden es a propósito: mientras corre, el
+botón «no está» de la versión vieja vuelve a dar 500 (falla cerrado, sin dato malo), y la versión nueva nunca ve una carta «no está» sin motivo — su
+`confirm` lo necesita para abrir el caso «Por reponer».
+
+**Medido el 2026-09-29** (devops; Postgres 16 local, BD propia `devops_rb61`; migraciones del árbol de `claude/release-s5` 1a5954ff hasta M-61; backend
+de `origin/production` a2da420 **vivo** con `ts-node src/main.ts` en su worktree y su cliente Prisma; verbos por HTTP con el operador del seed):
+
+| Medición | Sin paso de DDL (canario) | Tras `--apply` |
 |---|---|---|
-| Tablas y columnas nuevas | **Quedan** y son inertes para el código viejo (no las conoce; las columnas son nullable o con default) | No se borran: borrarlas destruye el libro de reembolsos ya escrito. |
-| `MovementReason` / `VaultPlacementCancelReason` ganan valores | **NO se pueden quitar** (Postgres no permite `DROP VALUE` de un enum) | Inertes para el código viejo **salvo** que ya haya filas con `refund_return`/`full_refund`/`replacement`: su cliente Prisma viejo **falla al leerlas** (valor de enum desconocido). Por eso el rollback de código **después** de un reembolso total de bóveda no es «solo redeploy»: revisar filas nuevas antes. |
-| **CHECKs nuevos sobre tablas que el código viejo SÍ escribe** | **⚠ Pueden romper al código viejo** | `rollback-safety-probe.sh` mira solo `NOT NULL` sin default, **no CHECKs**: su verde no cubre esto. Caso concreto: `VaultPlacementItem` CHECK `missingReason IS NOT NULL ⇔ prepStatus='missing'` (`API_CONTRACT` v1.80.1) y el código de producción escribe `prepStatus: target` (`origin/production:backend/src/modules/vault/vault-placement.service.ts:258-261`); si `target` es `'missing'` (el valor existe en `schema.prisma`, `origin/production` línea 165; **NO MEDIDO** que ese camino lo emita), el código viejo violaría el CHECK al marcar «no la encontré». Medir con la migración ya escrita: correr el probe y, además, `grep` de CHECKs añadidos sobre tablas preexistentes. |
-| Backfill `missingReason='not_found'` | Queda | Es dato correcto para el código viejo (antes `missing` solo significaba «no la encontré»). |
-| Diales nuevos (`ConfigSetting`) | Quedan, inertes | El código viejo no los lee. |
-| Suscripción del webhook a `charge.refund.updated`/`refund.updated` | **No la revierte el redeploy** | Con el código viejo, esos eventos llegan y caen en el `default` (`Evento no manejado`, log `debug`, 200): inocuo. Se puede dejar. |
+| `PATCH …/prep-items/:id {status:'missing'}` (marcar «no está») | **500** `VaultPlacementItem_missing_reason_chk` — **3/3** | 200 — **3/3** |
+| Regresar a `pending` una carta que la versión nueva dejó `missing`+`not_found` | **500**, mismo CHECK — **3/3** | 200 — **3/3** |
+| Palomear (`picked`) y «dar por preparado» | 200 — 3/3 | 200 — 3/3 |
+| Suite de integración de a2da420 entera (51 suites, 1137 pruebas) | **15 rojas** en 3 suites de colocación; **las 34** violaciones del log son de ese CHECK, **ninguna** de los otros tres | vault 0 rojas; 1 suite roja ajena (abajo) |
+| Misma suite sobre BD **sin** M-61 (línea base) | 51/51 suites, 1135 + 2 skip | — |
+| Fila con `refund_return` / colocación `full_refund` leída por la versión vieja | — | **500** (`Value 'refund_return' not found in enum`) — N=1 cada una; `--check` las cuenta y sale `rc=1` |
 
-**Procedimiento de rollback:** (1) `./scripts/rollback-safety-probe.sh <sha-anterior>` — verde ⇒ (2) Railway *Redeploy* del deploy previo y Vercel *Promote* del build previo; rojo, o
-hay filas con los valores de enum nuevos / un CHECK que el código viejo violaría ⇒ **hay un paso de datos antes del redeploy**: no se improvisa, se escala a backend y se decide con el dueño
-(restaurar el snapshot solo si hay corrupción, y perdiendo lo escrito desde entonces, incl. reembolsos). El dinero ya devuelto por Stripe **no se revierte** con nada de esto.
+Roll-forward, medido: con cartas dejadas por la versión vieja (1 «no está» sin motivo + 1 motivo sobrante), re-añadir el CHECK **a pelo** falla
+(«violated by some row»: por eso normaliza); `--reforward` ⇒ 1 + 1 normalizadas, CHECK idéntico, rc=0; segunda corrida ⇒ 0 + 0 (idempotente); la versión
+vieja vuelve a dar 500 al marcar (el CHECK muerde); `migrate deploy` del código nuevo ⇒ «No pending migrations»; y 4 suites de integración del código
+nuevo sobre esa BD (`vault-placement-verbs`, `vault-placement-races`, `replacement-cases`, `full-refund-vault`) ⇒ **92/92**.
+Candados del script, medidos: sin `--confirm`, huella ajena, sin TTY, frase distinta ⇒ rc=2 y el CHECK sigue (verificado con `--check`); `--apply`
+repetido ⇒ rc=0 sin cambio; con un rol de solo lectura `--check` funciona (misma huella) y `--apply` ⇒ rc=2 «no es dueño».
+**NO MEDIDO:** contra producción (sin credencial, egress bloqueado; lo corre el dueño donde vive la credencial); cómo trata la versión nueva un retiro
+que la vieja avanzó después de que la nueva lo marcara «preparado» (el script solo lo cuenta).
+**Rojo ajeno a M-61 (enrutado a backend):** en la corrida tras `--apply`, `buylist-cycle.e2e-spec.ts` 4 rojas: la prueba crea una dirección
+«Calle Nueva 456» que no borra y la relee con `address.findFirst` **sin `orderBy`** (`backend/test/integration/buylist-cycle.e2e-spec.ts:75`, también en
+1a5954ff); con dos direcciones el orden físico decide. `Address` no la toca M-61; sobre la BD base la misma spec pasó 72/72 con el mismo residuo.
+
+| fecha UTC | modo | huella | enum nuevos |
+|---|---|---|---|
+| *(sin correr en producción — 2026-09-29)* | | | |
 
 **2026-09-29 (devops, BLOQ-3 de QA sobre c20451f):** baseline del censo E2E regenerado con motivo: `mockOnly` 113/24 -> 121/25 por `frontend/e2e/m4-ship.spec.ts` (8 palabras = import + prosa + 6 llamadas; 12 casos). Gate rc=0 y canario 14/14 tras el cambio. Deuda: cuando el seed real siembre reembolsos/casos/transferencias, el censo baja y se regenera.
 
