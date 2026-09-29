@@ -55,6 +55,14 @@ import type {
 } from '@/types/contract';
 import { ApiFixtureError, ApiFixtureNotFound } from './fixtures';
 import { withdrawabilityOf } from './holding-withdrawable';
+import {
+  caseRefundComponents,
+  caseRefundContextOf,
+  itemMissingRefundComponents,
+  manualRefundComponentsOf,
+  subtractRefundComponents,
+  type RefundComponents,
+} from './refund-math';
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
 // Actores y constantes del servidor falso
@@ -179,10 +187,9 @@ const ORIGIN_ORDERS: Record<string, MockOriginOrder> = {
 };
 let origins: Record<string, MockOriginOrder> = clone(ORIGIN_ORDERS);
 
-/** `item_missing`: `P + floor(F × P / G)` sobre columnas persistidas (§M4-SHIP.4). */
+/** `item_missing`: `P + floor(F × P / G)` sobre columnas persistidas (§M4-SHIP.4) — el espejo `refund-math`, un cuerpo. */
 function itemMissingCents(o: MockOriginOrder, unitPriceCents: number): number {
-  const G = o.subtotalCents + o.shippingFeeCents;
-  return unitPriceCents + Math.floor((o.processingFeeCents * unitPriceCents) / G);
+  return itemMissingRefundComponents(o, unitPriceCents).amountCents;
 }
 /** Σ Stripe no fallidas sobre la orden. */
 function refundedOnOrder(orderId: string): number {
@@ -204,6 +211,8 @@ interface MockRefundRow extends PaymentRefundDTO {
   item: { folio: string; cardName: string } | null;
   /** Stripe transitorio en el primer intento: la fila se queda `requested` hasta `retry`. */
   stripeTransientOnce?: boolean;
+  /** Componentes CONGELADOS de la fila (M-61); `toManual` los copia tal cual (`stripe_failed`). */
+  components?: RefundComponents;
 }
 
 function seedRefunds(): MockRefundRow[] {
@@ -957,6 +966,7 @@ export function mockPrepareShipment(shipmentId: string, expectedRefundCents: num
       const origin = origins[m.originOrderId!];
       const row: MockRefundRow = {
         id: nextId('pr'), kind: 'item_missing', status: 'requested', amountCents: itemMissingCents(origin, m.unitPriceCents),
+        components: itemMissingRefundComponents(origin, m.unitPriceCents),
         missingReason: item.missingReason, requestedAt: now, requestedBy: { ...actor, role: mockCallerRole() },
         submittedAt: null, succeededAt: null, failedAt: null, failureCode: null,
         orderId: origin.id, shipmentRequestId: s.dto.shipmentId, shipmentItemId: item.shipmentItemId, orderItemInventoryId: item.inventoryItemId,
@@ -1285,10 +1295,15 @@ export function mockRefundCase(caseId: string, body: CaseRefundRequest): CaseRef
   const created: MockRefundRow[] = [];
   const createdManual: MockManualRefund[] = [];
   const Q = plan.paidReferenceCents;
-  const compensation = Math.max(0, body.amountCents - Q);
+  // §M4-SHIP.15.5 (como `replacement-case.service`): fila Stripe = `caseRefundComponents(stripe)`, fila SPEI =
+  // `caseRefundComponents(A) − caseRefundComponents(stripe)` componente a componente (monótona ⇒ sin negativos).
+  const ctx = caseRefundContextOf(origin, c.unitPriceCents);
+  const compA = caseRefundComponents(body.amountCents, ctx);
+  const compStripe = caseRefundComponents(plan.caseStripeCents!, ctx);
+  const compManual = subtractRefundComponents(compA, compStripe);
   if (plan.caseStripeCents! > 0) {
     const row: MockRefundRow = {
-      id: nextId('pr'), kind: 'case_refund', status: 'requested', amountCents: plan.caseStripeCents!, missingReason: null,
+      id: nextId('pr'), kind: 'case_refund', status: 'requested', amountCents: plan.caseStripeCents!, missingReason: null, components: compStripe,
       requestedAt: now, requestedBy: { ...MOCK_SUPER, role: 'super_admin' }, submittedAt: null, succeededAt: null, failedAt: null, failureCode: null,
       orderId: origin.id, shipmentRequestId: null, shipmentItemId: null, orderItemInventoryId: c.original.inventoryItemId, replacementCaseId: c.id,
       customerUserId: c.customer.userId, orderNumber: origin.orderNumber, item: { folio: c.original.folio, cardName: c.original.card.name },
@@ -1298,11 +1313,9 @@ export function mockRefundCase(caseId: string, body: CaseRefundRequest): CaseRef
     c.refund = toRefundDTO(row);
   }
   if (plan.manualCents! > 0) {
-    const stripePart = plan.caseStripeCents!;
-    const manualCompensation = Math.max(0, compensation - Math.max(0, stripePart - Q));
     const m: MockManualRefund = {
       id: nextId('mr'), source: 'case_excess', status: 'pending', amountCents: plan.manualCents!,
-      components: { merchandiseCents: plan.manualCents! - manualCompensation, merchandiseIvaCents: 0, processingFeeCents: 0, compensationCents: manualCompensation },
+      components: manualRefundComponentsOf(compManual),
       customer: c.customer, case: { id: c.id, source: c.source, card: c.original.card, folio: c.original.folio, reason },
       paymentRefundId: null, createdAt: now, createdBy: MOCK_SUPER, paidAt: null, paidBy: null, speiReference: null, paidNote: null,
       cancelledAt: null, cancelledBy: null, cancelNote: null, reissuedFromId: null, reissuedAsId: null,
@@ -1481,9 +1494,14 @@ export function mockRefundToManual(refundId: string): ManualRefundDTO {
   if (origin && origin.status !== 'settled') throw new ApiFixtureError(409, 'CASE_ORIGIN_NOT_SETTLED', 'Origin not settled', { originStatus: origin.status });
   if (r.failureCode === 'charge_disputed') throw new ApiFixtureError(409, 'CASE_ORIGIN_NOT_SETTLED', 'Charge disputed', { originStatus: 'settled', reason: 'charge_disputed' });
   const c = cases.find((x) => x.id === r.replacementCaseId)!;
+  // `manual-refund.service.toManual`: la transferencia COPIA los componentes congelados de la fila fallida. Una fila
+  // sembrada sin ellos se desglosa con el mismo cuerpo (`caseRefundComponents` sobre su orden de origen).
+  const rowComponents = r.components ?? (origin ? caseRefundComponents(r.amountCents, caseRefundContextOf(origin, c.unitPriceCents)) : null);
   const m: MockManualRefund = {
     id: nextId('mr'), source: 'stripe_failed', status: 'pending', amountCents: r.amountCents,
-    components: { merchandiseCents: r.amountCents, merchandiseIvaCents: 0, processingFeeCents: 0, compensationCents: 0 },
+    components: rowComponents
+      ? manualRefundComponentsOf(rowComponents)
+      : { merchandiseCents: r.amountCents, merchandiseIvaCents: 0, processingFeeCents: 0, compensationCents: 0 },
     customer: c.customer, case: { id: c.id, source: c.source, card: c.original.card, folio: c.original.folio, reason: c.refundCapture?.reason ?? '' },
     paymentRefundId: r.id, createdAt: nowIso(), createdBy: MOCK_SUPER, paidAt: null, paidBy: null, speiReference: null, paidNote: null,
     cancelledAt: null, cancelledBy: null, cancelNote: null, reissuedFromId: null, reissuedAsId: null,
