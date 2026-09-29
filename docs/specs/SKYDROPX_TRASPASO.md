@@ -3,6 +3,9 @@
 > **Este fichero es el prompt.** El dueño lo pega tal cual en una sesión nueva sobre este repo. Lo redactó el
 > 2026-09-29 la sesión que hizo el levantamiento. **No lleva estado de memoria: lleva rutas y SHAs.** Todo lo
 > que afirma se puede comprobar en el fichero y la línea que cita.
+>
+> ⚠️ **Revisado el 2026-09-29 por la sesión de orquestación en curso: lee §7 antes de ejecutar §4.** Tres
+> encargos de §4 ya están hechos o diseñados en ramas vivas, y el orden de §4 cambia (§7.3).
 
 ---
 
@@ -148,3 +151,66 @@ dio `EGRESS_BLOCKED` en todos los dominios `*.skydropx.com`.
 - No se generan guías reales ni se gasta saldo en pruebas. Todo en **sandbox**. El saldo de producción medido
   el 2026-09-28 era $965.16.
 - No se re-pregunta nada de §3.
+
+## 7 · Revisión por la sesión de orquestación en curso (2026-09-29) — lee esto antes de ejecutar §4
+
+> Lo escribió el orquestador de la sesión `01Wq9Vk9iBAySfKoHBUSS583`, a petición del dueño («dale una revisada
+> … que podamos integrarlo de la mejor manera»). Medido contra las **ramas vivas** de esa sesión, que este
+> traspaso no conocía. Cada afirmación trae dónde se midió; lo no medido se marca.
+
+### 7.1 Tres encargos de §4 que YA están hechos o diseñados (O-5: no se rehacen)
+
+| Encargo de §4 | Estado medido | Dónde | Lo que queda |
+|---|---|---|---|
+| **E1 / H7** enlaces rotos en correos | **HECHO** en `claude/arreglos-operador` (commit `16a3170`, en `4ca6c45`), con candado `backend/test/mail-links.frontend-routes.spec.ts`. Registrado ⇒ `orders/:orderId`; retiro ⇒ `shipments/:id`; **invitado ⇒ sin botón** (no lleva la liga con token) | `backend/src/modules/shipments/mail/shipment-notice.templates.ts` fn `shipmentUrl` (leído en `4ca6c45`) | Decisión de producto chica: si el invitado recibe su liga `/pedido?token=…` en el correo (§4 lo propone; el arreglo eligió «sin CTA»). Va al PO del bloque Skydropx, no a un arreglo previo |
+| **«¿preparado es estado o hito?»** (§4 paso 2) | **RESUELTO** en el diseño §M4-SHIP: hito dentro de `picking`, sello `preparedAt`/`preparedByUserId` en `ShipmentRequest`; `POST …/tracking` y el paso a `guia` **exigen** «preparado» | `/home/user/tcg-envio/docs/API_CONTRACT.md:15258-15259, 15881` (rama `claude/envio-preparar`, `17193a7` + v1.80.4 pendiente de empujar) | Nada. El botón «Cotizar envío / comprar guía» (§11.5 F3) cuelga de ese hito, tal como §11.3 preveía |
+| **E2** `/orders` sin guía | **DISEÑADO, no construido**: §M4-SHIP.16 expone `publicStatus`/`shipment` en `GET /orders/:id` para el registrado | `API_CONTRACT.md:8739` (envio) | Se construye con §M4-SHIP, no aparte |
+
+### 7.2 Lo que choca con el trabajo en curso y cómo se ordena
+
+1. **Misma zona compartida.** Skydropx toca `shipments`, `orders`, `payments` = stream «Órdenes y dinero», el
+   **mismo** que §M4-SHIP (palomeo de envíos + reembolsos + «Por reponer»), diseñado hasta v1.80.4 y **aún sin
+   construir**. Regla CLAUDE.md: un stream a la vez en esa zona. **Orden:** se construye §M4-SHIP primero;
+   Skydropx se diseña en paralelo (solo docs) y se construye encima. Skydropx **depende** de «preparado» (7.1),
+   así que el orden no es solo de disciplina: es de dependencia.
+2. **Criterio 210 sigue vigente en el diseño §M4-SHIP** («exactamente dos correos y ninguno al entregar»,
+   `API_CONTRACT.md:26296-26305` envio; y el encabezado de `shipment-notice.templates.ts`, «NO HAY PLANTILLA DE
+   ENTREGADO», con canario `test/avisos.shipments.spec.ts` C-AV-3). La decisión 5 de §3 lo reabre. El PO lo
+   reescribe **una sola vez** (Entregado + «en sucursal»), y backend tendrá que invertir el canario C-AV-3, no
+   apagarlo.
+3. **El levantamiento se contradice a sí mismo** en un punto: §11.5 F5 dice `delivered` ⇒ «**sin correo** (X2)»
+   y §12.3.2 dice correo de «Entregado» automático. **Manda §12.3.2** (decisión del dueño, posterior). El PO lo
+   deja escrito.
+4. **Dirección (colonia obligatoria de lista por CP + libreta endurecida)** toca `users` (stream «Cuentas y
+   acceso») y el DTO del checkout de invitado (`orders`). Va como **paso aparte y previo** a la construcción de
+   Skydropx, con el arquitecto serializando el contrato. No se mete en el mismo commit que la guía.
+5. **D1 (`shippingCostIvaCents` no se manda desde M4)** sigue **abierto**: en `claude/arreglos-operador`
+   `grep shippingCostIvaCents frontend/src` solo da `types/contract.ts` y `lib/mock/fixtures.ts` (medido
+   2026-09-29). Con Skydropx el costo llega solo (F8), así que el arreglo manual es de **transición**. Es
+   chico y de frontend: se enruta al paquete de pantallas de la sesión en curso, no a Skydropx.
+
+### 7.3 Orden de integración propuesto (sustituye al de §4 donde difieran)
+
+| Fase | Qué | Quién | Puede arrancar |
+|---|---|---|---|
+| **A · Diseño** | PO: bloque «Envíos con Skydropx» en `PROJECT.md` (con 7.1 y 7.2 ya resueltos, solo las preguntas abiertas de verdad). Arquitecto: extiende **§M4-SHIP** con las secciones Skydropx (schema, ajustes, cliente, rastreo por consulta periódica, mapeo §8.3, «guía en proceso», «en sucursal») como versión v1.81 sobre la rama de diseño de envíos, para que sea **un solo modelo** de envío. Seguridad revisa el diseño (tercero externo, PII, secretos) | PO, arquitecto, seguridad | **Ya**, en paralelo con la construcción del lote actual — pero **después** de que seguridad cierre la re-revisión de v1.80.4 (O-14: un diseño no se cambia mientras lo miden) |
+| **B · Construir §M4-SHIP** | Palomeo, preparado, reembolsos, «Por reponer», §M4-SHIP.16 | backend + frontend (modelo fuerte), triple veredicto | Cuando seguridad apruebe v1.80.4 |
+| **C · Dirección** | Colonia obligatoria de lista por CP; libreta al nivel del invitado | arquitecto (contrato) → backend + frontend | Tras B (zona `users`/`orders`) |
+| **D · Skydropx** | Cliente servidor (token 2 h, 2 req/s, reintentos), cotizar/elegir/comprar, etiqueta PDF, rastreo, correos «Entregado» y «en sucursal», «Salida de hoy», costos y cargos extra al P&L, ajustes F9 | backend + frontend + devops; ux-ui antes | Tras A, B y C, con red y sandbox abiertos (7.4) |
+| **E · Gates y botón** | QA con E2E F1–F8, techlead, pentester + seguridad; O-9 del orquestador; PR a `production` con qué entra, qué pasa con la BD y cómo se revierte | gates, orquestador, dueño | Tras D |
+
+### 7.4 Peticiones al dueño (O-6), con su medición
+
+| Petición | Medición que la justifica | Cuándo hace falta |
+|---|---|---|
+| Abrir la red del entorno a `sb-pro.skydropx.com` y `pro.skydropx.com` | §5 (403 en el túnel, 2026-09-29). **Re-medición por esta sesión: en curso** al escribir esto; se anota el resultado en `PENDIENTES.md` al arrancar la fase D | Fase D (no antes) |
+| Credenciales de **sandbox** en Railway / secretos de GitHub, nunca por chat | Repo público (`HECHOS.md`) | Fase D |
+| URL de la **colección OpenAPI oficial** | §8.4 / §12.3: sin ella no hay webhooks ni `tracking_url_provider` confirmado; el rastreo arranca por consulta periódica | Fase A (mejora el diseño) — no bloquea |
+| Apagar los avisos propios de Skydropx al cliente | §12.3.3 (**NO MEDIDO** si están activos) | Antes de la primera guía real |
+
+### 7.5 Comprobación (O-5)
+
+Todo lo de 7.1 y 7.2 se midió el **2026-09-29** sobre `claude/arreglos-operador` `4ca6c45` y
+`claude/envio-preparar` `17193a7` (+ v1.80.4 en árbol). Antes de enrutar trabajo desde esta sección, **re-mide**:
+`git log --oneline -1` de cada rama y los `grep` citados. Si §M4-SHIP ya está fusionado a `production`, la
+fase B está hecha y se salta.
