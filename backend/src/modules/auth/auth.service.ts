@@ -512,18 +512,26 @@ export class AuthService {
 
   async refresh(refreshToken: string): Promise<TokenPair & { deviceToken: string }> {
     try {
-      const payload = await this.jwt.verifyAsync(refreshToken, {
+      const payload = await this.jwt.verifyAsync<{ sub?: unknown; typ?: unknown; tv?: unknown }>(refreshToken, {
         secret: this.config.get<string>('JWT_REFRESH_SECRET'),
         // S-B4: solo se acepta HS256 al verificar (evita algorithm-confusion).
         algorithms: ['HS256'],
       });
+      // SEC-C7-RT (2026-09-29): la firma no basta. `env.validation` no impide que los dos secretos
+      // JWT coincidan, y un `{ typ: "device" }` firmado con la llave de refresh tal cual verifica
+      // igual (C7-10). Solo entra lo que `issueTokens` emitió como refresh: `typ === 'refresh'` y
+      // `tv` NUMÉRICO. Antes `(tv ?? 0)` convertía «sin tv» en «versión 0» y casaba con cuentas
+      // que nunca revocaron sesión.
+      if (payload.typ !== 'refresh' || typeof payload.tv !== 'number' || typeof payload.sub !== 'string') {
+        throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid refresh token');
+      }
       const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
       if (
         !user ||
         user.status === UserStatus.blocked ||
         user.status === UserStatus.deleted ||
         // v1.3.1: revocación por versión — un refresh con `tv` previo (reset/soft-delete) ya no vale.
-        (payload.tv ?? 0) !== user.tokenVersion
+        payload.tv !== user.tokenVersion
       ) {
         throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid refresh token');
       }
