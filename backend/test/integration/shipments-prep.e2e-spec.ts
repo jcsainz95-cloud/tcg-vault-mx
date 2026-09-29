@@ -305,14 +305,14 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
     const opToken = await h.login(op.email, E2E_USERS.operator.password);
     const now = Date.now();
     const H = 60 * 60 * 1000;
-    // Cada `item_missing` cuelga de su propia línea (`orderItemId`/`shipmentItemId` son @unique): un directo por fila.
-    const fx = await Promise.all([0, 1, 2, 3, 4, 5].map(() => db.mkDirect()));
+    // Cada `item_missing` cuelga de su propia línea (`orderItemId`/`shipmentItemId` son @unique): dos filas por directo.
+    const fx = await Promise.all([0, 1, 2].map(() => db.mkDirect()));
     const missing = (i: number, amount: number, extra: Record<string, unknown>) => ({
       idempotencyKey: `ps4b:${op.id}:${i}`,
       kind: 'item_missing' as const,
-      orderId: fx[i].order.id,
-      orderItemId: fx[i].orderItems[0].id,
-      shipmentItemId: fx[i].lines.find((l) => l.inventoryItemId === fx[i].orderItems[0].inventoryItemId)!.id,
+      orderId: fx[i >> 1].order.id,
+      orderItemId: fx[i >> 1].orderItems[i & 1].id,
+      shipmentItemId: fx[i >> 1].lines.find((l) => l.inventoryItemId === fx[i >> 1].orderItems[i & 1].inventoryItemId)!.id,
       missingReason: 'not_found' as const,
       amountCents: amount,
       merchandiseCents: amount,
@@ -333,9 +333,9 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
       missing(2, 30000, { status: 'succeeded', ...stripe('ok'), succeededAt: new Date(now) }),
       // NO cuentan
       missing(3, 40000, { status: 'failed', failedAt: new Date(now), failureCode: 'x' }),
-      { idempotencyKey: `ps4b:${op.id}:full`, kind: 'order_full', orderId: fx[4].order.id, amountCents: 50000, merchandiseCents: 50000, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0, status: 'succeeded', ...stripe('full'), succeededAt: new Date(now), requestedByUserId: db.adminId, requestedByRole: 'super_admin' },
-      missing(5, 60000, { status: 'succeeded', ...stripe('25h', now - 25 * H), succeededAt: new Date(now - 25 * H), createdAt: new Date(now - 25 * H) }),
-      { idempotencyKey: `ps4b:${op.id}:otro`, kind: 'order_remaining', orderId: fx[4].order.id, amountCents: 70000, merchandiseCents: 70000, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0, status: 'succeeded', ...stripe('otro'), succeededAt: new Date(now), requestedByUserId: db.operatorId, requestedByRole: 'vault_operator' },
+      { idempotencyKey: `ps4b:${op.id}:full`, kind: 'order_full', orderId: fx[2].order.id, amountCents: 50000, merchandiseCents: 50000, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0, status: 'succeeded', ...stripe('full'), succeededAt: new Date(now), requestedByUserId: db.adminId, requestedByRole: 'super_admin' },
+      missing(4, 60000, { status: 'succeeded', ...stripe('25h', now - 25 * H), succeededAt: new Date(now - 25 * H), createdAt: new Date(now - 25 * H) }),
+      { idempotencyKey: `ps4b:${op.id}:otro`, kind: 'order_remaining', orderId: fx[2].order.id, amountCents: 70000, merchandiseCents: 70000, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0, status: 'succeeded', ...stripe('otro'), succeededAt: new Date(now), requestedByUserId: db.operatorId, requestedByRole: 'vault_operator' },
     ];
     for (const data of rows) await h.prisma.paymentRefund.create({ data: data as any });
     const ledger = h.app.get(RefundLedgerService);
@@ -731,10 +731,21 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
     const d2 = await db.mkDirect({ userId: derived.id });
     const q2 = await db.queue();
     expect(q2.body.data.find((x: any) => x.shipmentId === d2.shipment.id).customer).toEqual({ userId: derived.id, email: derived.email, lastName: null, fullName: null });
-    const list = await h.api('GET', `/admin/shipments?q=${encodeURIComponent('Destinatario Directo')}&pageSize=100`, { token: db.opToken });
-    expect(list.status).toBe(200);
-    expect(list.body.data.map((s: any) => s.id)).toContain(d.shipment.id);
-    expect(list.body.data.find((s: any) => s.id === d.shipment.id).customer).toEqual({ userId: buyer.id, fullName: 'Ana Compradora', email: buyer.email });
+    // La lista va `requestedAt asc` y TODOS los directos de esta suite comparten destinatario: se recorren las páginas
+    // (⛔ no se acota `q`): lo que se mide es que `?q=` por destinatario ENCUENTRA el envío, no en qué página cae.
+    const findByRecipient = async (id: string) => {
+      for (let page = 1; page <= 20; page += 1) {
+        const list = await h.api('GET', `/admin/shipments?q=${encodeURIComponent('Destinatario Directo')}&page=${page}&pageSize=100`, { token: db.opToken });
+        expect(list.status).toBe(200);
+        const hit = list.body.data.find((s: any) => s.id === id);
+        if (hit) return hit;
+        if (list.body.data.length < 100) return null;
+      }
+      return null;
+    };
+    const hit = await findByRecipient(d.shipment.id);
+    expect(hit).not.toBeNull();
+    expect(hit.customer).toEqual({ userId: buyer.id, fullName: 'Ana Compradora', email: buyer.email });
     const tooLong = await h.api('GET', `/admin/shipments?q=${'a'.repeat(201)}`, { token: db.opToken });
     expect(tooLong.status).toBe(400);
     // el detalle admin trae refunds e items con marcas
