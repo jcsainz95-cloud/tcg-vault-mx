@@ -24360,3 +24360,87 @@ M17b saltar en test · M18 `trust proxy = true`; extra: M19 sin `Retry-After`, M
 - **N-C7-3** (ritmo de `argon2.verify` en el contenedor de producción): NO MEDIDO. Solo indicativo, **local** (4
   CPU, máquina cargada por otros agentes): ~159 ms por `verify` en serie y ~10,6 `verify`/s con 20 en paralelo.
 - N-C7-1, N-C7-2, N-C7-6: de devops (sin cambios).
+
+# Deuda C7 tras 8ea245f — SEC-C7-RT, QA IMPORTANTE 2 (C7-3 intermitente) y SEC-C7-OPT (backend · 2026-09-29)
+
+Tres encargos sobre la rama `claude/paquete-seguridad`, base `1b82970`. ⛔ No toqué `SEC-C7-MINT`, el respaldo de
+Redis por plazo ni `reset-admin-password` (en diseño con el arquitecto). Sin Postgres ni Redis: todo unitario.
+
+| Punto | sha | Ficheros |
+|---|---|---|
+| 1 · SEC-C7-RT (`refresh()` exige `typ` y `tv`) | `114aecf` | `backend/src/modules/auth/auth.service.ts` (`refresh`, ~`:513-547`), `backend/test/auth.refresh-typ.spec.ts` (nuevo) |
+| 2 · C7-3 intermitente (reloj falso en `makeWorld`) | `178c705` | `backend/test/auth.c7-policy.spec.ts` (`makeWorld` `:65-71`, `:131`; C7-3 nuevo `it` `:209-219`) |
+| 3 · SEC-C7-OPT (sin `@Optional()`) | `bf2a486` | `backend/src/modules/admin/admin.service.ts` (constructor `:614-630`, guardia de `resetPassword` `:1342-1346`, `clearForUser` `:1369`), `backend/test/app.module.spec.ts` (`:110-132`), `backend/test/admin.user-management.spec.ts` |
+
+## 1 · SEC-C7-RT — `refresh()` ya no acepta ni un access ni un `deviceToken` ni un refresh sin `tv`
+
+**Qué cambió (`auth.service.ts` `refresh`)**: tras verificar la firma, `typ !== 'refresh' || typeof tv !== 'number'
+|| typeof sub !== 'string'` ⇒ `401 UNAUTHENTICATED` **antes de tocar la BD**; y la comparación con `tokenVersion` es
+estricta (`payload.tv !== user.tokenVersion`), sin `?? 0`. Mismo código y mensaje `401` que el resto de rechazos.
+
+**Prueba en rojo antes → verde después** (`auth.refresh-typ.spec.ts`, 7 casos): sobre `1b82970` + la spec
+(antes de `114aecf`) **3 en rojo de 7**, exactamente los tres que debían morder:
+- con `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` (lo que `env.validation` permite), un **access** presentado como
+  refresh devolvía sesión ⇒ ahora `401`;
+- un `{ typ: "device" }` firmado con `JWT_REFRESH_SECRET` **tal cual** (el caso «con la llave de refresh tal cual» de
+  C7-10) verificaba, y `tv ?? 0` casaba con `tokenVersion = 0` ⇒ ahora `401`;
+- un refresh bien firmado **sin `tv`** contra una cuenta con `tokenVersion = 0` ⇒ ahora `401`.
+Los otros cuatro (control positivo, revocación por `tv`, `deviceToken` real con llave HKDF, `tv` como string) ya
+eran verdes y siguen. Tras el arreglo: **7/7**; suites de auth (7 ficheros): **87/87**.
+
+**Mutaciones (copia de `178c705`, `git archive`, N=5 cada una):** **sin `typ`** (quitar `payload.typ !== 'refresh' ||`) ⇒ spec **roja 5/5** · **volver a `(payload.tv ?? 0)`** (quitar `typeof tv !== 'number'` y restaurar el `?? 0`) ⇒ spec **roja 5/5**. Limpia en la misma copia: **verde 5/5**.
+
+**⚠ Riesgo para el arquitecto (no lo cambio yo, zona `config/`):** `env.validation.ts:78-87` exige que **existan**
+`JWT_ACCESS_SECRET` y `JWT_REFRESH_SECRET` y que midan ≥ 32, pero **no impide que sean iguales**. Con este cambio,
+aunque coincidan, un access ya no vale como refresh (`typ`). Lo que **sigue abierto** si coinciden: el **guard**
+(`common/guards/jwt-auth.guard.ts:49-70`, zona compartida, fuera de este encargo) no rechaza `typ === 'refresh'` y
+mantiene `(payload.tv ?? 0)` ⇒ un **refresh** presentado como `Bearer` entraría. Dos cierres posibles, ambos del
+arquitecto: (a) `env.validation` rechaza secretos iguales; (b) el guard exige `typ` ausente/`'access'` y `tv`
+numérico (simetría con `refresh()`). Recomiendo los dos.
+
+## 2 · QA IMPORTANTE 2 — C7-3 exigía `retry: 60` con reloj real
+
+**Causa medida en el código**: `MemoryLoginAttemptStore.acquire` (`login-attempt.store.ts`) calcula
+`retryAfterSeconds = ceil((lockExpiresAt − now) / 1000)` con el reloj del almacén. Con `Date.now`, si entre el 5.º
+intento (que pone el candado de 60 000 ms) y el 6.º pasa **≥ 1 s** (carga, argon2 de otras pruebas), sale **59**.
+
+**Qué cambió**: `makeWorld` crea por defecto `new MemoryLoginAttemptStore(() => clock.t)` con `clock = { t: Date.now() }`
+congelado y devuelve `clock`. Una prueba que pasa su propio `store` conserva su reloj (C7-15 staff ya lo hacía).
+**Nuevo `it` en C7-3** que demuestra el cableado (con `Date.now` real no cambiaría): a `+30 s` el `429` dice **30**;
+a `+60 s` el candado se abre (`401`).
+
+**Cifras**: `auth.c7-policy.spec.ts` (39 pruebas) sobre copia de `178c705`, máquina cargada (load ≈ 18, tres lotes jest a la vez): **verde 10/10** (N=10). No tengo medición propia del 59 con reloj real: el dato es de QA sobre `8ea245f`. **Mutación «Retry-After fijo en 0»** (`acquire` devuelve `retryAfterSeconds: 0` en la
+rama bloqueada; copia de `178c705`): **verde 0/5, roja 5/5** (N=5; C7-3 espera `retry: 60` y el nuevo `it` espera 60→30, y C7-1 exige `≥ 1`) — la prueba sigue mordiendo.
+
+## 3 · SEC-C7-OPT — `PasswordAttemptsService` deja de ser `@Optional()` en `AdminService`
+
+**Medido antes de cambiar nada** (copia de `178c705` + la aserción nueva de `app.module.spec`; mutación «`AdminModule`
+sin `AuthModule` en `imports`», `@Optional()` todavía presente; N=5): el smoke `compiles the full module graph`
+**verde 5/5** —el silencio que denunciaba seguridad— y la aserción nueva **roja 5/5**.
+
+**Qué cambió**:
+- `admin.service.ts`: sin `@Optional()`. El `?` de TypeScript **se queda**, y no por gusto: va detrás de `mail?`
+  (`MAIL_PORT`, `@Optional()` legítimo de v1.74) y TS no admite un parámetro obligatorio tras uno opcional; los
+  ~28 unitarios que construyen `AdminService` a mano con 4 argumentos siguen compilando (`tsc` exit 0). En DI es
+  obligatorio: `AdminModule` importa `AuthModule`, que lo exporta.
+- `resetPassword` **se niega a correr sin el servicio, ANTES de leer o escribir** (`throw` con el nombre del módulo
+  que falta). Lo puse al principio a propósito: si fallara después del `update`, quedaría un reset a medias (hash
+  nuevo persistido, candado puesto, contraseña temporal nunca devuelta).
+- `app.module.spec.ts`: aserción de arranque — `AdminService.passwordAttempts` **es el mismo singleton** que recibe
+  `AuthService.attempts` (un doble o una segunda instancia con otro almacén limpiaría un contador que nadie mira).
+- `admin.user-management.spec.ts`: la construcción manual pasa un doble explícito; asevera `clearForUser` **después**
+  del `update` y con `{ id, email }`; caso nuevo «sin servicio ⇒ falla en seco sin tocar la BD». C7-8(b) en
+  `auth.c7-policy.spec` sigue con el servicio real.
+
+**Medido después** (copia de `bf2a486`, misma mutación, N=5): el arranque entero cae —
+`Nest can't resolve dependencies of the AdminService (…, MAIL_PORT, ?). Please make sure that the argument
+PasswordAttemptsService at index [5] is available in the AdminModule context` — smoke **rojo 5/5**, aserción
+**roja 5/5**, suite roja 5/5. Ya no hay modo mudo.
+
+## 4 · Verificación en el worktree a `bf2a486`
+
+`tsc --noEmit` exit 0 · `eslint` sobre los 6 ficheros tocados exit 0 · `test/auth.*.spec.ts` + `admin.user-management`
++ `app.module`: **14/14 suites, 153/153 pruebas** · muestra de unitarios que construyen `AdminService` a mano
+(`admin.user-create`, `admin.kyc-review`, `admin.pii`, `admin.contract-shapes`, `pii-degrade`): verdes dentro de
+un lote de **8/8 suites, 100/100**. **NO MEDIDO**: la suite unitaria completa (357 suites) y la de integración
+(`auth-password-attempts*`: no toqué el almacén ni el servicio de política, solo el reloj de la spec unitaria).
