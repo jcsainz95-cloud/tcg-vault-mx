@@ -116,7 +116,12 @@ describe('C7-20 — tope agregado por cuenta: 30 intentos por vía dispositivo e
     expect(verifySpy).not.toHaveBeenCalled();
 
     // Ventana FIJA desde el primero: a t0 + 24 h venció, aunque el último bump fue ~35 s después de t0.
+    // A +24 h ningún candado de cuenta sobrevive (tope 60 min, contador 2 h): el atacante lo vuelve a
+    // poner ANTES de la comprobación, para que «ir al cubo de la cuenta» siga siendo observable (429).
+    // Con ventana deslizante (mutación c) el agregado seguiría en 33 > 30 ⇒ cubo de la cuenta ⇒ 429.
     clock.t = t0 + DEVICE_ROUTE_WINDOW_MS + 1000;
+    for (let i = 0; i < 5; i++) await attempt(svc, { email: u.email, password: BAD });
+    expect((await attempt(svc, { email: u.email, password: GOOD })).status).toBe(429);
     expect((await attempt(svc, { email: u.email, password: GOOD, deviceToken: devices[2] })).status).toBe(200);
 
     // reset-password completado ⇒ el agregado no existe (un bump lo encuentra vacío: vuelve a 1).
