@@ -2,7 +2,21 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-28 (rev **v1.80.2**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.2.1**).
+>
+> **Changelog v1.80.2.1 — ERRATA de v1.80.2 §M2-B.11 punto 8: el contrato describe lo construido (2026-09-29,
+> arquitecto; base v1.80.2, vigente entera salvo lo que esta errata toca). Origen: `BACKEND_NOTES` §0.57.4 (backend,
+> commit `aff3bb1`), tres puntos levantados sobre el contrato. ⛔ Sin schema, sin migración, sin endpoint, sin campo en
+> DTO, sin código de error. ⛔ Ninguna conducta cambia: la errata ratifica la construida.**
+>
+> | # | Qué cambia | Dónde | ¿Genera código? |
+> |---|---|---|---|
+> | **1** | **Contradicción del contrato, resuelta a favor de lo construido.** v1.80.2 pedía a la vez «el resultado de `quoteAcquisitionFromCurve` gana `guardBasis`» y «BC-1…BC-12 sin editarse»; BC-5 (`money.bounty-cap.spec.ts`) y E2 (`money.pricing-curve.spec.ts`) afirman la forma exacta con `toEqual` ⇒ imposibles a la vez. **Se normará la función hermana `quoteAcquisitionWithGuard`** (`money.ts:358-373`): llama a `quoteAcquisitionFromCurve` (la precedencia sigue en **un** cuerpo) y solo añade `guardBasis`. Conducta idéntica a la del texto anterior (verificado por lectura: `basis==='bounty'` ⇔ ganó el peldaño 1, `money.ts:290-297`). Candado de forma: ningún `quoteAcquisitionFromCurve(m, curva, controles)` fuera de `money.ts` (`pricing.bounty-guard.spec.ts:303-320`, con canario) | [§M2-B.11 punto 8](#M2-B11-8) | No |
+> | **2** | **BG-5: la mutación asignada era equivalente.** Sin mercado presente no hay tope ⇒ `bountyGuardBasis` responde `'bounty'` sin leer `curveBasis` ⇒ «`curveBasis` `'floor'` si la curva es `pending`» no puede cambiar ninguna salida. Se reasigna a dos que existen y muerden (medidas por backend) | §M2-B.11 punto 8, BG-5 | No |
+> | **3** | **Consecuencia nombrada y aceptada:** una solicitud con una línea retenida exige INE (compuerta I2, [§M5-I](#M5-I)), igual que cualquier `precio_pendiente` | §M2-B.11 punto 8 | No |
+> | **4** | Ratifica la escala de la integración (`bounty-guard.e2e-spec.ts`: bounty 150000, mercado BG-8 200000) | §M2-B.11 punto 8 | No |
+>
+> ⚠️ *Numeración:* cuelga de la v1.80.2 de esta rama; se renumera con ella al fusionar si hace falta.
 >
 > **Changelog v1.80.2 — DINERO: EL TOPE DEL BOUNTY NO SE CALCULA CONTRA UN MERCADO QUE EL GUARDARRAÍL PREMIUM YA
 > DECLARÓ ROTO (2026-09-28, arquitecto; base v1.80.1, vigente entera salvo lo que esta rev toca). Origen:
@@ -12659,10 +12673,28 @@ export function bountyGuardBasis(bountyPriceCents: number, marketMxnCents: numbe
                                  curveBasis: PriceBasis): PriceBasis {
   return bountyPayoutCents(bountyPriceCents, marketMxnCents) < bountyPriceCents ? curveBasis : 'bounty';
 }
-// quoteAcquisitionFromCurve: el resultado gana un campo INTERNO `guardBasis: PriceBasis` (⛔ no viaja en ningún DTO):
-//   peldaño 1 ⇒ bountyGuardBasis(bounty, marketMxnCents, <basis de resolveBuyFromCurve>); peldaños 2-4 ⇒ = basis.
-// Todo llamador de COMPRA: premiumFloorGuard(rarityCanonical, q.guardBasis)   // antes: q.basis
+// v1.80.2.1 (errata): `quoteAcquisitionFromCurve` NO cambia de forma (BC-5 / E2 la fijan con toEqual). Hermana:
+export interface AcquisitionQuoteResult extends CurvePriceResult { guardBasis: PriceBasis }  // INTERNO, ⛔ ningún DTO
+export function quoteAcquisitionWithGuard(marketMxnCents: number | null, curve: PricingCurve,
+                                          controls?: VariantPriceControls | null): AcquisitionQuoteResult;
+//   q = quoteAcquisitionFromCurve(m, curve, controls)          // la precedencia vive en UN solo cuerpo
+//   guardBasis = q.basis === 'bounty'                          // ⇔ ganó el peldaño 1
+//     ? bountyGuardBasis(controls.bountyPriceCents, m, resolveBuyFromCurve(m, curve).basis)
+//     : q.basis                                                // peldaños 2-4
+// Todo llamador de COMPRA con controles: quoteAcquisitionWithGuard(...) y
+//   premiumFloorGuard(rarityCanonical, q.guardBasis)   // antes: q.basis  (decideBuyLine vía resolvePendingReason)
+// Vitrina (`publicBounties`): ya compone el pago con bountyPayoutCents sobre filas efectivas (BC-9) ⇒ compone el
+//   veredicto con bountyGuardBasis(bounty, m, quoteAcquisitionFromCurve(m, curve).basis) — misma función, mismo basis.
 ```
+
+- ⭐ **v1.80.2.1 — por qué función hermana y no campo** (errata, `BACKEND_NOTES` §0.57.4 (1)). El texto de v1.80.2 se
+  contradecía: un campo más en el resultado de `quoteAcquisitionFromCurve` pone rojas BC-5 (9 filas) y E2 (2 casos),
+  que el mismo texto exigía intactas. La hermana es **equivalente en conducta** (mismo cuerpo de precedencia, misma
+  regla del peldaño 1, peldaños 2-4 idénticos) y deja a `quoteAcquisitionFromCurve` como la ven sus lectores de
+  **dos** argumentos (vitrina, `variant-controls.service.ts:508`), donde el bounty no puede ganar y `guardBasis`
+  sería `= basis`. **Candado normativo:** `pricing.bounty-guard.spec.ts` «candado» — ninguna llamada a
+  `quoteAcquisitionFromCurve` con **tercer argumento** fuera de `common/money.ts`, con canario. *Límite conocido, no
+  bloqueante:* el escáner es léxico (un alias o `...args` lo esquiva); la revisión lo cubre.
 
 - **Por qué basta la curva:** si el bounty se topó, el mercado es **presente** (H-1) ⇒ la curva resolvió `market` o
   `floor`, nunca `pending`. `floor` en una chase es exactamente la señal de §4.36.5 («su dato de mercado está mal»).
@@ -12683,6 +12715,14 @@ export function bountyGuardBasis(bountyPriceCents: number, marketMxnCents: numbe
   esquina de ≈1 % del catálogo (volumen del guardarraíl, §4.36.5a).
 - **AML:** la línea retenida entra al mes con **$0** (como toda pendiente); el dinero que sale al aprobarla lo liga
   AML-1 (ARCHITECTURE §4.36.6a). Sin cambio de mecanismo.
+- ⭐ **v1.80.2.1 — INE (consecuencia nombrada, ACEPTADA; `BACKEND_NOTES` §0.57.4 (3)).** Una solicitud con una línea
+  retenida **exige INE** (`422 INE_REQUIRED` si no hay INE ni en el request ni en archivo), porque la compuerta I2
+  ([§M5-I](#M5-I)) dispara ante **cualquier** línea `precio_pendiente`. Es la conducta correcta, no un efecto
+  colateral: ese endurecimiento existe porque una línea sin precio aporta **$0** a `T` y una carta cara colaría bajo el
+  umbral — y la línea retenida es exactamente eso: una chase cuyo monto real **no es** el MX$1 del mercado roto sino lo
+  que el operador fije (con un bounty configurado de, p. ej., MX$9,000). «El monto era pequeño» es la lectura del dato
+  en el que el guardarraíl no confía. ⛔ Sin excepción por bounty; sin código. Para el vendedor es idéntico a una chase
+  sin bounty con la curva en el bin (misma frase del punto 8).
 - **Pregunta al dueño, no bloqueante** (ARCHITECTURE §4.36.6e, pregunta 3). Valor por defecto: **esta regla**.
 
 **Pruebas que deben FALLAR si se implementa mal** (las escribe backend, modelo fuerte; mutaciones sobre copia del
@@ -12690,8 +12730,8 @@ export function bountyGuardBasis(bountyPriceCents: number, marketMxnCents: numbe
 resolvió `floor` o `market` según el caso — sin esa precondición la prueba puede pasar en vacío):
 
 - **BG-1 el caso de backend** (unidad, seam de compra): rareza premium, mercado 100, curva `floor`, bounty 900000 ⇒
-  `precio_pendiente`, `quotedPriceCents = null`. Precondición: `quoteAcquisitionFromCurve` sigue devolviendo
-  `priceCents 100`, `basis 'bounty'` (BC-5 intacta), `guardBasis 'floor'`. *Mutación:* pasar `q.basis` al guardarraíl
+  `precio_pendiente`, `quotedPriceCents = null`. Precondición (v1.80.2.1): `quoteAcquisitionWithGuard` devuelve
+  `priceCents 100`, `basis 'bounty'`, `guardBasis 'floor'` (y `quoteAcquisitionFromCurve` conserva la forma de BC-5). *Mutación:* pasar `q.basis` al guardarraíl
   (conducta de `c77ebc8`) ⇒ cotiza 100 ⇒ roja. **La expectativa «MX$1» de `pricing.premium-floor-guard.spec.ts` se
   invierte a esta** (cambio de expectativa, lo hace backend con modelo fuerte y lo anota).
 - **BG-2 sin premium no se retiene:** mismos números, rareza no premium ⇒ cotiza **100** `bounty`. *Mutación:* retener
@@ -12701,8 +12741,13 @@ resolvió `floor` o `market` según el caso — sin esa precondición la prueba 
   de `<` en `bountyGuardBasis` ⇒ roja (empate).
 - **BG-4 tope con mercado sano no se retiene:** premium, mercado 100000 (curva `market`), bounty 120000 ⇒ **100000**
   `bounty`. *Mutación:* retener todo bounty topado premium sin mirar la curva ⇒ roja.
-- **BG-5 sin mercado no se retiene:** premium, mercado `null` ⇒ **900000**; mercado `0` ⇒ **900000**. *Mutación:*
-  `curveBasis` por defecto `'floor'` cuando la curva es `pending` ⇒ roja.
+- **BG-5 sin mercado no se retiene:** premium, mercado `null` ⇒ **900000**; mercado `0` ⇒ **900000**. Precondición:
+  la curva resolvió `pending`. *Mutaciones (v1.80.2.1):* (a) decidir «topado» a mano **sin H-1** en
+  `bountyGuardBasis` (`mercado != null && mercado < bounty` en vez de `bountyPayoutCents(...) < bounty`) ⇒ mercado `0`
+  ve `pending` ⇒ roja (caso `0`); (b) `guardBasis = curveBasis` en todo el peldaño 1 ⇒ roja (ambos casos). Medidas por
+  backend, N=1, deterministas (`BACKEND_NOTES` §0.57.3). ⛔ *Retirada:* «`curveBasis` `'floor'` cuando la curva es
+  `pending`» — **mutante equivalente**: la curva de compra es `pending` solo sin mercado presente
+  (`explainBuyFromCurve`), y sin mercado presente no hay tope ⇒ `bountyGuardBasis` no lee `curveBasis`.
 - **BG-6 ⭐⭐ todas las superficies, una conducta** (integración, Postgres real, por HTTP; carta premium, mercado 100,
   bounty 900000, **más** una variante sana con bounty efectivo como canario de no-vaciar): `POST /buylist/quote` y
   `/quote/batch` ⇒ `precio_pendiente`; `GET /buylist/bounties` ⇒ la retenida **ausente** y la sana **presente**;
@@ -12717,6 +12762,13 @@ resolvió `floor` o `market` según el caso — sin esa precondición la prueba 
   se **cierra** y la cotización da **900000** `bounty` (ya no topa). *Mutación:* que la retención se persista en vez de
   derivarse ⇒ sigue pendiente ⇒ roja.
 - **Canarios que siguen verdes sin editarse:** BC-1…BC-12 y la tabla de 12 casos de `isBountyEffective` (BC-7).
+- ⭐ **v1.80.2.1 — escala de la integración, ratificada.** BG-6…BG-8 corren con bounty retenido **150000** (no 900000) y
+  mercado de BG-8 **200000** (no 1000000): con MX$9,000 BG-7/BG-8 chocan con los topes de la configuración de E2E
+  (`prisma/e2e-fixtures.ts:428-430`; qué compuerta exacta dispara: **NO MEDIDO** por el arquitecto, afirmado por
+  backend), y con bounty 150000 un mercado de 1000000 haría que la curva rebasara al bounty. Lo que se prueba se
+  conserva y la prueba lo afirma como precondición contra la curva VIVA: bounty > mercado roto + curva `floor` +
+  premium (BG-6/7); curva < bounty < mercado (BG-8). Las cifras 900000/1000000 siguen valiendo para las pruebas de
+  unidad.
 
 ---
 
