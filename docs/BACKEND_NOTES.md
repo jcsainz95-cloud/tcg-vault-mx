@@ -24349,9 +24349,16 @@ alta de buylist lo usan (el `upsert` del INE ya **no** lleva la CLABE). `GET /us
 orquestador decida»; esa rama no existe aquí): `mark` solo plataforma `in_stock|listed` con el estado en el `WHERE`
 (`ITEM_NOT_ADJUSTABLE {status, ownerType}` para el resto, incluida la carta de un cliente fuera de un caso — D-14 = «por
 ahora no»); `PATCH {status:'in_stock'}` con la misma guarda, escritura condicionada y todos los campos en la misma tx,
-bitácora `inventory.item_updated` con `before/after`; ⛔ sin `InventoryMovement` para `listed ↔ in_stock`. **Si el
-orquestador fusiona `arreglos-operador`, este fichero choca en `markItem`/`updateItem`: hay que quedarse con esta versión
-(la del contrato v1.80.3) y añadir `move` de aquella.**
+bitácora `inventory.item_updated` con `before/after`; ⛔ sin `InventoryMovement` para `listed ↔ in_stock`.
+**Instrucción de fusión (corregida por el techlead R3 sobre `c20451f`; `API_CONTRACT v1.80.7` nota de fusión §M1 /
+`ARCHITECTURE §9 D-SHIP-7`): al fusionar `claude/arreglos-operador` (2d13c75) MANDA `item-location.rules.ts` de aquella
+rama — las guardas de estado/dueño/zona de `move`/`mark`/`status` en un cuerpo (`assertOperable`, `MARKABLE_PLATFORM_STATUSES`,
+«`in_stock → in_stock` no escribe `status`») — y la copia EN LÍNEA de este stream (`MARKABLE_PLATFORM_STATUSES` local y las
+guardas de `markItem`/`updateItem` en `inventory.service.ts`) SE BORRA a favor de esas reglas; lo que este stream aporta y
+aquella rama no tiene es la bitácora `inventory.item_updated` y el `PATCH` con todos los campos en la misma tx. Sobre el
+árbol fusionado se re-corren PS-41, PS-41b, PS-42, PS-42b, PS-64 y la suite de `arreglos-operador`.** El hueco que la copia
+en línea tenía (un `PATCH {status}` igual al leído caía en el `update` plano y re-escribía `status` ⇒ pisaba una reserva)
+quedó cerrado aquí (PS-42b, §M4-SHIP-TL más abajo).
 
 **`admin/`** — `workQueue.toPrepare {ship, vault, toReplace, toReplaceOverdue, stuckRefunds}` (el mismo cuerpo que el
 `summary`), `workQueue.manualRefunds` y `workQueue.operatorRefunds` (`null` para el operador), `GET
@@ -24387,7 +24394,8 @@ columnas **antes** de `profitCents` (mismo orden que el objeto).
 8. **`vaultPieces`/`chargeback-inventory` (v1.80.6 M6):** `returned` es permanente desde el ancla; la selección de
    objetivos no filtra por `picking`; una objetivo ya confirmada se omite (idempotencia entre pasadas). Es mi lectura
    de «una objetivo forzada a `in_stock` ⇒ 409» **y** «una pasada nueva solo toca la nueva» a la vez.
-9. **`inventory` SEC-SHIP-A1 aquí** (punto 2 del §2 «inventory»): conflicto de merge previsible con `arreglos-operador`.
+9. **`inventory` SEC-SHIP-A1 aquí** (punto 2 del §2 «inventory»): conflicto de merge previsible con `arreglos-operador` —
+    **resuelto por el contrato v1.80.7 (punto 9 / D-SHIP-7): en la fusión manda `item-location.rules.ts` del hotfix** (ver §2).
 10. **La cola de preparación no se cae por una fila sin dueño ni pedido** (`d030c85`): `buildView` llamaba
     `resolveOriginsBatch(db, row.userId as string, …)` y una `ShipmentRequest` con `userId` **y** `orderId` nulos (inexpresable
     por la API; la fixture `B-1` de `preparation-queue` la escribe por SQL) tumbaba **toda** la cola con `500`
@@ -24400,11 +24408,14 @@ columnas **antes** de `profitCents` (mismo orden que el objeto).
     vault-shipments, iva-price-convention, vault-placement-birth) solo se alinearon a v1.80: la guía exige «preparado»,
     `customer` es aditivo en `AdminShipmentDTO`, el CSV del P&L trae las tres columnas de lo devuelto, `missing` ⇔
     `missingReason`.
-12. **Candados que las carreras no distinguen (mutaciones equivalentes, con la razón):** (a) el `FOR UPDATE` de la orden de
-    origen en `ReplacementCaseService.refund` (`lockOriginOrder`) — PS-27, PS-27b (M3 primero) y PS-27c (dos casos de la
-    misma orden) siguen 10/10 sin él, porque `lockCase` toma **antes** la puerta del cliente (`lockCustomerVaultGate`) y M3
-    toma las piezas de la orden, que el caso también toma; sigue en el código como defensa en profundidad y porque es el
-    orden de candados que fija el contrato. (b) el CAS `replacementCases: none open` de `shipments.service` en `→guia`: la
+12. **Candados que las carreras no distinguen (mutaciones equivalentes, con la razón):** (a) ~~el `FOR UPDATE` de la orden
+    de origen en `ReplacementCaseService.refund` (`lockOriginOrder`) — equivalente~~ **CORREGIDO (techlead R1 sobre
+    `c20451f`): NO es equivalente.** PS-27b/PS-27c seguían 10/10 sin él solo porque M3 toma las piezas que el caso también
+    toma; pero `lockCase` lee la orden ANTES de esperar la pieza y hay escritores de `Order.status` que no tocan la pieza
+    del caso ni dejan fila del libro (`charge.dispute.created` de bóveda; `charge.refunded` desde el panel de Stripe). Sin la
+    relectura bajo `FOR UPDATE`, el reembolso del caso decidía con `settled` caduco y creaba `case_refund`/SPEI sobre un
+    cargo disputado ⇒ doble pago. La caza es **PS-27d** (contracargo encolado primero reteniendo `Order`, N=10): con M12
+    aplicada **0/10**; con el código, **10/10**. Razón escrita en `lockOriginOrder`. (b) el CAS `replacementCases: none open` de `shipments.service` en `→guia`: la
     guarda primaria es `prep.assertCanAdvance` (quitarla: PS-21 rojo); el CAS es la segunda capa. (c) `paid` sin el `FOR
     UPDATE` de la fila pero con el CAS `status:'pending'`: PS-33/PS-33b siguen 10/10 (el CAS basta); quitar candado + CAS +
     guarda ⇒ PS-33b **0/10**. Techlead: si prefiere una sola capa, es decisión suya; yo dejé las dos.
@@ -24456,10 +24467,10 @@ M10 PS-57 · M13 PS-36 · M14 PS-31), **6 verdes** que se investigaron una a una
 | M3 PS-33 | quitar `status:'pending'` del CAS de `paid` | el `FOR UPDATE` + relectura lo cubre; y sin el candado, el CAS lo cubre (M3b verde, §3.12c) ⇒ nueva carrera **PS-33b** | **M3c roja** (PS-33b 0/10) |
 | M4 PS-47 | `if (false && …)` | rompía la compilación (narrowing) ⇒ 0 pruebas: error del arnés, no del código; re-mutado `expected = body.revealToken` | **M4b roja** |
 | M11 PS-41 | quitar `status` del WHERE del CAS de `mark` | la carrera original siempre dejaba ganar a `mark`; nueva carrera **PS-41b** (reserva primero) | **M11b roja** (PS-41b 0/10) |
-| M12 PS-27 | quitar el `FOR UPDATE` de la orden en el reembolso del caso | PS-27b y PS-27c siguen 10/10 sin él: la puerta del cliente y las piezas serializan antes (§3.12a) | **M12b verde — equivalente, documentada** |
+| M12 PS-27 | quitar el `FOR UPDATE` de la orden en el reembolso del caso | PS-27b y PS-27c siguen 10/10 sin él porque M3 toma las piezas que el caso también toma; **no es equivalente**: el contracargo de bóveda y el `charge.refunded` del panel cambian `Order.status` sin tocar la pieza ni el libro ⇒ nueva carrera **PS-27d** (techlead R1) | **M12c roja** (PS-27d 0/10 con la mutación; PS-27/27b/27c 10/10 con ella — solo PS-27d la caza) |
 
-Total: 13 de 14 mutaciones distinguidas por al menos una prueba; la 14.ª (M12) es una capa redundante con razón
-escrita. `mut-report.txt`, `mut2-report.txt`, `mut3-report.txt` y las salidas por mutación quedaron en el scratchpad
+Total: **14 de 14** mutaciones distinguidas por al menos una prueba (M12 dejó de ser «equivalente» con PS-27d; ver
+§M4-SHIP-TL más abajo). `mut-report.txt`, `mut2-report.txt`, `mut3-report.txt` y las salidas por mutación quedaron en el scratchpad
 del stream hasta la limpieza (se borran al cerrar; las cifras están aquí y en el resumen del encargo).
 
 ## 6. Lo que el frontend necesita (DTOs y códigos)
@@ -24486,3 +24497,229 @@ del stream hasta la limpieza (se borran al cerrar; las cifras están aquí y en 
   `CLABE_NOT_ON_FILE`, `CLABE_CHANGED_SINCE_REVEAL`, `ORDER_NOT_SETTLED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`,
   `ITEM_ORIGIN_REFUNDED`, `VAULT_PIECE_IN_PACKED_WITHDRAWAL`, `REFUND_CONFIRMATION_REQUIRED`, `ITEM_NOT_ADJUSTABLE`).
 - Enlaces de correo: `/orders/{id}` (pedido) y `/vault?tab=withdrawals` (retiro); `AV-14` sin CLABE ⇒ `/cuenta#kyc`.
+
+
+# §M4-SHIP-TL · Gate del techlead sobre `c20451f` (R1/R2/R3 + deuda (a)) y errata `API_CONTRACT v1.80.7` (backend · 2026-09-29)
+
+> Rama `claude/envio-preparar`, worktree `/home/user/tcg-envio`, base `ea615c3` (errata v1.80.7 del arquitecto sobre
+> `4fcc6b6`/`c20451f`). Postgres 16 propio en `:55447`, Redis en `:56447`; lo medido lo medí yo (autor: backend); las
+> proporciones llevan su N. Mutaciones sobre **COPIA del árbol ENTERO** (`tar` del worktree + `node_modules` enlazado, O-9).
+> Cada punto: **rojo antes → verde después**, fichero, prueba, mutación.
+
+## 1. R1 (Alta, dinero) — M12 NO era equivalente: `lockOriginOrder` es la única relectura de `Order`
+
+- **Antes:** §3.12(a) y la tabla de mutaciones decían que quitar el `FOR UPDATE` de la orden en `refund` era «equivalente»
+  porque PS-27b/PS-27c seguían 10/10. Era cierto para esos rivales (M3 toma las piezas que el caso también toma) y falso en
+  general: `lockCase` (`replacement-case.service.ts` · `load`) lee la orden **antes** de esperar la pieza, y el
+  contracargo de bóveda (`payments.service.ts · onChargeDisputeVault`: `updateMany` que NO alcanza la pieza `lost|damaged`
+  del caso, luego `order.update({status:'chargeback'})`) y el `charge.refunded` del panel de Stripe (sin `PaymentRefund` ⇒ la
+  vista previa no caduca) cambian `Order.status` sin serializar con nada de lo que el caso toma antes.
+- **Prueba (falla primero):** **PS-27d** (`test/integration/replacement-cases.e2e-spec.ts`): `charge.dispute.created`
+  encolado PRIMERO reteniendo `Order`, luego `POST …/refund`; N=10. Con M12 aplicada (copia): **0/10** — el caso queda
+  `refunded` con fila `case_refund` y la orden `chargeback` (doble pago). Con el código: **10/10** — `200` el webhook,
+  `409 CASE_ORIGIN_NOT_SETTLED` el caso, 0 filas, 0 SPEI, 0 llamadas a Stripe, caso `open`; PS-27/27b/27c siguen 10/10
+  bajo M12 (solo PS-27d la caza).
+- **Código:** sin cambio de conducta; `lockOriginOrder` gana el porqué (comentario). §3.12(a) y la tabla, corregidas arriba.
+
+## 2. R2 (Media) — `void` tomaba `caso → Order → piezas`; ahora `piezas → Order` como todos
+
+- **Antes:** `void` (`replacement-case.service.ts`) pedía `Order` (paso «¿viable?») y después la pieza; `refund`/`replace`,
+  M3 tx1 (`order-refund.service.ts`), `reclaim-vault`/`unprepare` (`full-refund.service.ts`) y el webhook de disputa van
+  piezas → `Order`. Rival real medido: **`reclaim-vault`** sobre una orden ya `refunded` (donde `void` sí es viable). M3
+  **no** sirve de rival: sobre una orden no `settled` contesta `422` antes de tomar candado alguno, y sobre una `settled`
+  es `void` quien contesta `409 CASE_NOT_VOIDABLE` antes de tocar la pieza (primera versión de PS-36b: Δ deadlocks = 0
+  por eso, no por el candado).
+- **Prueba:** **PS-36b** (`replacement-cases.e2e-spec.ts`): `mkSpei` + `charge.refunded` total (orden `refunded`, sellada,
+  la pieza del caso `open_case` sin tocar), barrera en la pieza del caso, `reclaim-vault` encolado primero vs `void`; N=10;
+  `pg_stat_database.deadlocks` antes/después. Con el orden viejo (copia): **0/10**, Δ deadlocks > 0 y un `503
+  BUSY_TRY_AGAIN` por tirada. Con el reorden: **10/10**, Δ = 0, los dos `200`, caso `voided`, pieza `lost` de plataforma.
+- **Código:** `lockPieces` antes de `lockOriginOrder` en `void` (comentario con el porqué).
+
+## 3. R3 — SEC-SHIP-A1 dos veces: el hueco del `PATCH {status}` igual al leído, cerrado; la fusión, invertida
+
+- **Antes:** `updateItem` (`inventory.service.ts`) guardaba solo el cambio de `status` **distinto** al leído; con `status`
+  igual (`in_stock→in_stock`, `listed→listed`) caía en el `update` plano y **re-escribía `status`** ⇒ una pieza que un checkout
+  acababa de poner `reserved` volvía a `in_stock`: reserva perdida. `item-location.rules.ts` del hotfix ya decía
+  «`in_stock → in_stock` no escribe `status`».
+- **Prueba (falla primero):** **PS-42b** (`full-refund-vault.e2e-spec.ts`): (a) espía sobre `inventoryItem.update`: un
+  `PATCH {status:'in_stock', listPriceCents}` sobre una `in_stock` no lleva `status` en `data`; (b) carrera reserva
+  (`in_stock → reserved`, encolada primero) vs `PATCH` con lectura caduca, N=10. Con el código viejo (copia): **0/10** (la
+  pieza vuelve a `in_stock` con dueño). Con el fix: **10/10** (`reserved` del comprador, `listPriceCents` escrito).
+- **Código:** el `update` plano quita `status` del `data` (`const { status: _sameStatus, ...fields } = patch`).
+- **Fusión (b):** §2 «inventory» corregido: manda `item-location.rules.ts` de `arreglos-operador`; la copia en línea se
+  borra. **(c)** PS-41/PS-41b/PS-42/PS-42b/PS-64 y la suite de `arreglos-operador` se re-corren sobre el árbol fusionado.
+
+## 4. Deuda (a) / v1.80.7 puntos 12 y 18 — el tope acumulado tiene prueba determinista: **PS-4b**
+
+- `operatorUsedCents` (`refund-ledger.service.ts`) es SQL ⇒ integración. **PS-4b** (`shipments-prep.e2e-spec.ts`), con las
+  cifras del contrato: operador NUEVO (usado absoluto 0), filas por SQL con `createdAt` explícito — `item_missing`
+  `requested` 10000 + `submitted` 20000 + `succeeded` 30000 **cuentan**; `failed` 40000, `order_full` del súper-admin 50000,
+  `succeeded` a −25 h 60000 y una de OTRO operador 70000 **no** ⇒ `operatorUsedCents = 60000`, `operator-summary.capUsedCents
+  = 60000`; `cap = 91457` ⇒ `403 {capCents: 91457, usedCents: 60000, requestedCents: 31458}`, 0 filas, 1 bitácora; `cap =
+  91458` ⇒ `200`; el siguiente `prepared` ⇒ `403 {usedCents: 91458}`. Mutación «`if (planCents > cap)`» (copia): **ROJA**
+  (el primer 403 no ocurre). PS-4: su `usedNow` ahora lleva la ventana de 24 h (el MISMO predicado que el tope), así que
+  `used0` ya no depende de filas viejas de otra corrida.
+
+## 5. v1.80.7 punto 17 🔴 — la confirmación de M3 adopta el orden del webhook (`onFullRefund` ANTES de `Order → refunded`)
+
+- **Antes:** `applyStripeOutcome` (`refund-ledger.service.ts`) hacía `Order → refunded` y después `onFullRefund`
+  (envíos → piezas → `Order`): sostenía `Order` mientras pedía el retiro. `prepared` de un retiro (envío → piezas → órdenes de
+  origen) sostenía el retiro mientras pedía `Order` ⇒ ciclo.
+- **Prueba (falla primero):** **PS-57c** (`full-refund-vault.e2e-spec.ts`): orden `vault` con dos cartas, retiro `picking`
+  sin preparar con una, M3 tx1 (transitorio) ⇒ fila `requested`; barrera en la fila del retiro, `prepared` encolado primero
+  vs `retry` (doble `succeeded`); N=10; contador de `deadlocks`. Con el orden viejo (copia): **0/10**, Δ > 0 y un `503`.
+  Con el orden del webhook: **10/10**, Δ = 0; desenlaces: `prepared` `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` + pieza
+  `returned` **10/10**, `prepared` `200` + `in_packed_withdrawal` **0/10** (con la fila `requested` ya creada, el taller
+  siempre ve la orden en devolución); `retry` `200`, fila `succeeded`, orden `refunded`, sello, un `AV-3`.
+- **Código:** (1) CAS de la fila; (2) lectura sin candado de `Order.status` (∉ {settled, refunded} ⇒ log error, fin); (3)
+  `onFullRefund`; (4) `Order → refunded` bajo ese candado (`count 1` con `refunded` = éxito); (5) `AV-3` quien transicionó.
+  PS-57 (a/b/inversa/carreras) siguen verdes.
+- **Medido además (encargo): `chargeback-inventory` vs `reclaim-vault`.** `resolveChargebackInventory`
+  (`orders.service.ts`) hacía el claim sobre `Order` y DESPUÉS `vaultReclaimTargets` (piezas `FOR UPDATE`); `reclaim-vault`
+  va piezas → `Order`. **PS-61b** (`full-refund-vault.e2e-spec.ts`): orden `vault` `refunded` sellada por el webhook
+  (`chargebackNeedsManual: true`), barrera en una pieza devuelta, `reclaim-vault` encolado primero vs `chargeback-inventory
+  (recuperada)`, N=10. Con el orden viejo (copia): **0/10**, Δ > 0, un `503`. **Reordenado igual** (en bóveda las piezas se
+  toman antes del claim; el claim sigue decidiendo): **10/10**, Δ = 0, los dos `200`, piezas `listed`, `needsManual=false`.
+
+## 6. v1.80.7 punto 19 — `UsersService.eraseClabe` + `constantTimeEquals`
+
+- `UsersService.eraseClabe(tx, userId)`: solo nulos (`clabeEnc` ∧ `clabeHmac`), sin `clabeUpdatedAt`, sin `AV-16`, sin
+  bitácora propia. `AdminService.deleteUser` (borrado suave) lo llama dentro de su tx (`UsersModule` importado en
+  `AdminModule`; `@Optional()` por los unitarios que construyen el servicio a mano, y `deleteUser` exige que esté).
+  **C-CLABE-1** (`refunds.candados.spec.ts`): censo = **dos** sitios en `users.service.ts`, **cero** fuera; la excepción
+  declarada en `admin.service.ts` desaparece. Mutación «`deleteUser` escribe `clabeEnc: null` directo» ⇒ **ROJA**.
+- `PiiCryptoService.constantTimeEquals` (el mismo cuerpo que `blindIndexEquals`, con el nombre de lo que compara) y `paid`
+  (`manual-refund.service.ts`) lo usa para el `revealToken`. Unitaria en `pii-crypto.spec.ts` (igual/distinto/longitud/
+  nulo/vacío) y censo en `refunds.candados.spec.ts` («`paid` compara con `constantTimeEquals`, ⛔ nunca `===`/`!==`»).
+  Mutación «`expected !== body.revealToken`» ⇒ **ROJA**.
+
+## 7. v1.80.7 punto 13 — `HoldingDTO.withdrawableReason`
+
+- `withdrawableReasonOf` (`vault.service.ts`, exportada): un cuerpo para el flag y el motivo, en el orden del contrato
+  (`pending` → `replacing`/`not_in_custody` → `in_withdrawal` → `origin_refunded` → `null`); `withdrawable =
+  (withdrawableReason === null)`. Clave siempre presente en `GET /vault/holdings`.
+- Unitaria `test/vault.withdrawable-reason.spec.ts` (los cinco motivos, el orden, «caso abierto sin `lost|damaged` no es
+  `replacing`», y sobre `holdings` el invariante con el DTO). PS-65 ampliada (`{false, 'origin_refunded'}` con la fila
+  `order_full` viva; `{true, null}` con la fila `failed`; el invariante en todas las filas). Mutación «sin la quinta
+  condición» ⇒ unitaria y PS-65 **ROJAS**.
+- **Frontend (contrato):** el chip «Compra en reembolso» solo con `origin_refunded`; `replacing` ya tiene su copy.
+
+## 8. v1.80.7 punto 3 — PS-55/PS-63 fijan `422 NOT_FOUND`
+
+`classifyItems` (`shipments.service.ts`) contesta `NOT_FOUND` a una pieza que ya no es del cliente (M-25); las dos pruebas
+dejan de aceptar `ITEM_NOT_IN_CUSTODY`. Mutación «buscar por `id` sin `ownerUserId`» ⇒ `ITEM_NOT_IN_CUSTODY` ⇒ **ROJAS**.
+
+## 9. v1.80.7 punto 15 — el `429` del login, medido y cerrado
+
+- **Medido (auth-throttle e2e, `E2E_ENABLE_THROTTLER=true`, login ×6):** el throttler de Nest (`@nestjs/throttler` 6) SÍ
+  ponía `Retry-After: n` en la respuesta, pero `AllExceptionsFilter` devolvía como `details` el objeto crudo del framework
+  (`{statusCode, message}`): la cifra no llegaba al front. Con el filtro de `ea615c3` la aserción nueva
+  (`Retry-After: n ∧ details.retryAfterSeconds === n`) es **ROJA** (mutación M-429 sobre la copia); con el cierre, verde.
+- **Cierre:** `all-exceptions.filter.ts · rateLimitDetails(res)`: en un `429` de `HttpException`, `details = {
+  retryAfterSeconds: n }` si la respuesta lleva `Retry-After: n` (entero > 0), si no `{}`. Un `RATE_LIMITED` de negocio
+  (`auth.service.ts`, sin ventana) sigue con `details {}`. Unitaria `test/rate-limited-shape.spec.ts` (con cabecera,
+  cabecera como texto, sin cabecera, `0`, negocio).
+
+## 10. Cifras (medidas por mí, 2026-09-29)
+
+| Suite | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, árbol vivo con todos los cambios; tras el segundo pase) | **5924/5924** (primer pase: 356/356 suites · 5858/5858) |
+| Integración completa sobre COPIA del árbol entero (`jest --runInBand` de `test/integration/`, 55 suites) | primer pase (`copy`): 52/55 suites — rojas PS-39 (entorno: `APP_PUBLIC_URL`), PS-16 (mi PS-4b la empujó a la página 2) y `C-EQ-1` (preexistente en `ea615c3`); las tres cerradas en el segundo pase. Segundo pase (`copy3`): **INT_COPY3** |
+
+Carreras nuevas (N=10, autor backend): **PS-27d** 10/10 · **PS-36b** 10/10 (Δ deadlocks 0) · **PS-42b** 10/10 · **PS-57c**
+10/10 (Δ 0; 409+returned 10/10, 200+in_packed 0/10) · **PS-61b** 10/10 (Δ 0). Determinista: **PS-4b** verde.
+
+### Mutaciones (copia del árbol entero; `mutate.py` en el scratchpad hasta la limpieza)
+
+| Mutación | Qué | Prueba | Resultado (copia del árbol entero, 11/11 ROJAS) |
+|---|---|---|---|
+| M12 | quitar la relectura de `Order` en `refund` | PS-27 / PS-27b / PS-27c / **PS-27d** | **ROJA** — PS-27 10/10, PS-27b 10/10, PS-27c 10/10 (no la distinguen), **PS-27d 0/10** (caso `refunded` con fila y Stripe llamado sobre una orden `chargeback`) |
+| M-void | `void` de vuelta a `Order → piezas` | PS-36b | **ROJA** — 0/10, Δ deadlocks = 10, `503 BUSY_TRY_AGAIN` en `void` en las 10 |
+| M-R3 | el `update` plano vuelve a escribir `status` | PS-42b | **ROJA** (1 failed) |
+| M-cap | `if (planCents > cap)` | PS-4b | **ROJA** (el primer 403 no ocurre) |
+| M-17 | `Order → refunded` antes de `onFullRefund` | PS-57c | **ROJA** — 0/10, Δ deadlocks = 10 (la víctima fue la tx de confirmación: `retry` 200 con la fila aún `requested` y la orden `settled`) |
+| M-61b | el claim de `Order` antes de las piezas | PS-61b | **ROJA** — 0/10, Δ deadlocks = 10, `503` en `chargeback-inventory` |
+| M-clabe | `deleteUser` escribe `clabeEnc: null` directo | C-CLABE-1 | **ROJA** (1 failed / 18) |
+| M-cte | `paid` compara con `!==` | censo `constantTimeEquals` | **ROJA** (1 failed / 18) |
+| M-3 | `classifyItems` sin `ownerUserId` | PS-55 / PS-63 | **ROJA** (2 failed) |
+| M-429 | el filtro devuelve el `details` crudo | unitaria 429 + auth-throttle e2e | **ROJA** (unitaria 2 failed / 4; e2e 1 failed / 1) — es la medición de que el cierre hacía falta |
+| M-13 | sin la quinta condición en `withdrawableReasonOf` | unitaria + PS-65 | **ROJA** (unitaria 2 failed / 15; PS-65 1 failed) |
+
+## 11. Segundo pase (mismo día): veredicto de QA sobre `c20451f` (BLOQ-1, BLOQ-2 a/b, IMP-1, MENOR) + errata `v1.80.7.1`
+
+- **BLOQ-1 (dinero saliente) — `POST /admin/manual-refunds/:id/paid` y `/cancel` devolvían `{outcome, manualRefund}`** y el
+  contrato (§M4-SHIP.17.3 paso 4: «Res `ManualRefundDTO`») y el frontend esperan el DTO ⇒ la pantalla del súper-admin
+  moría (`customer.fullName` de `undefined`). **Ahora la respuesta ES el `ManualRefundDTO`** y `outcome`
+  (`paid|already_paid` / `cancelled|already_cancelled`) viaja como **campo aditivo** (`ManualRefundDTO & { outcome }`),
+  igual que `reissue`/`to-manual` devuelven el DTO. Pruebas (primero rojas): PS-33/PS-54 y PS-38 exigen
+  `{ id, status, customer: { userId, fullName, email } }` en la raíz y **ausencia** de `manualRefund`. *Para el
+  arquitecto:* `outcome` no está en el DTO del contrato; lo dejé aditivo porque PS-33/PS-38 lo aseveran y el front lo
+  ignora — si prefiere solo el DTO, es quitar una clave.
+- **BLOQ-2(a) — `C-EQ-1` (`enum-query-axes.e2e-spec.ts`) rojo por 13 `@Query` sin clase.** Clasificados por §0-Q punto 3
+  / §4.37 (v1.80.7.1 §M4-SHIP.1 decide E/E/E/E/L), ⛔ sin debilitar el candado: **cuatro** a `NO_ENUM_POR_RUTA`
+  (`shrinkage::from/to`, `refunds::from/to` — fechas; `replacement-cases::overdue` — booleano;
+  `replacement-cases/:id/refund-preview::amountCents` — entero) y **siete filas nuevas del `REGISTRO`**, con fixture
+  propio (`sembrarFixture` (h), `ShipPrepDb`) que discrimina: `replacement-cases::state` (**L**, `open|closed`,
+  `REPLACEMENT_CASE_STATE_VALUES`), `replacement-cases::source` (**E**, `ReplacementCaseSource`), `manual-refunds::status`
+  (**E**, `ManualRefundStatus`), `refunds::requestedByRole` (**E**, `Role`), `refunds::kind` (**E**, `PaymentRefundKind`),
+  `refunds::status` (**E**, `PaymentRefundStatus`), `finance/shrinkage::reason` (**L**, `lost|damaged`,
+  `SHRINKAGE_REASON_VALUES`). Trinquete: `REGISTRO` 44 → **51**, pendientes 11 → **18** (a propósito: es la conversación
+  que el trinquete exige; bajan a 11 cuando el arquitecto escriba las filas). Paridad L a dos bandas: entradas nuevas para
+  `?state=` (línea de §M4-SHIP.15.13) y `?reason=` (línea de §M4-SHIP.17.5).
+- **D-EQ-4 (medido, para que el arquitecto escriba las filas de §0-Q punto 4):** el descubrimiento de `C-EQ-1` **sí ve**
+  los ejes `?kind=`/`?status=` de `GET /admin/refunds`, `?status=` de `GET /admin/manual-refunds` y `?state=`/`?source=` de
+  `GET /admin/replacement-cases` (eran huérfanos exactos del rojo). Su conformidad HTTP con §0-Q, medida por las seis
+  propiedades del candado sobre las siete filas (vacío/espacios ⇒ `200`; `filtra` con datos que discriminan `valid` ≠ base
+  ≠ `alterno`; basura ⇒ `400 VALIDATION_ERROR {field, allowed}` con `allowed` = el dominio derivado): ver la tabla de
+  cierre de esta sección. Clases medidas: `refunds::kind` E · `refunds::status` E · `manual-refunds::status` E ·
+  `replacement-cases::state` L · `replacement-cases::source` E — coinciden con v1.80.7.1 §M4-SHIP.1.
+- **BLOQ-2(b) — `?missing=` ↔ `enum MissingReason` (v1.80.7.1 punto 1):** ⛔ sin renombrar el enum. La entrada `missing`
+  de la lista L gana `homonimosDeNombre: [{ enum: 'MissingReason', porque }]` y la prueba (3) pasa a: **(a)** todo enum
+  que case la regex de nombre está declarado (la regex **no cambia**) y **(b)** los valores del declarado, leídos de
+  `schema.prisma` en disco, son **disjuntos** del literal. Mutación: añadir `location` a `enum MissingReason` en una copia
+  del schema ⇒ **ROJA** (ver tabla).
+- **IMP-2 / v1.80.7.1 punto 2 — banda 3 UNIVERSAL en `enum-values-parity.spec.ts`:** parsea **todos** los `enum X {…}` del
+  schema (55), compara con la línea `^X\s+=` de §0 (con continuaciones `|`) y exige que los sin línea sean **exactamente**
+  `SIN_LINEA_CANONICA` (NameSource, PriceConvention, PriceRefKind, CardProductKind, PendingPriceStatus, MetaDeckSource,
+  MetaCardGroup, MetaMatchStatus). **Medido antes de escribirla (2026-09-29, sobre `7a860cd`): 0 discrepancias y los 8 sin
+  línea son exactamente esos** — ningún enum preexistente discrepa; nada que reportar al arquitecto en esta banda.
+  Además, **una sola declaración** (§4.37): `MISSING_REASON_VALUES`, `PREPARATION_ITEM_STATUS_VALUES`,
+  `PAYMENT_REFUND_KIND_VALUES`, `PAYMENT_REFUND_STATUS_VALUES`, `MANUAL_REFUND_STATUS_VALUES` viven en
+  `common/enum-values.ts` (tres bandas) y los consumidores (`vault-placement.service.ts`, `shipment-prep.service.ts`,
+  `admin-refunds.controller.ts`, `manual-refund.service.ts`; también `SOURCE_VALUES` de `replacement-case.service.ts`) las
+  importan.
+- **IMP-1 — `Math.ceil` en `itemFeeShareCents` (`common/money.ts`) no lo cazaban `refund-math.spec.ts` ni PS-2** (cocientes
+  enteros: `4617·30000/95000 = 1458.0`). Ahora: `P=30001 ⇒ 1458` (ceil 1459) y la propiedad Σ ≤ F con cifras que
+  discriminan (`G=3, F=100`, tres cartas de 1 centavo ⇒ 33+33+33 = 99 ≤ 100; con ceil 102 > F). Mutación ⇒ **ROJA**.
+- **MENOR — los 5 avisos `no-unused-vars`** (`buylist.dto.ts` `IsObject`, `inventory.service.ts` `actorUserId` →
+  `_actorUserId`, `sealed-product.service.ts` `normalizeSetName`, `buylist.guide-transit.spec.ts` `matches` → `_matches`,
+  `inventory.m11-debt.spec.ts` `Prisma`): `npm run lint` ⇒ **0 problemas**.
+- **PS-39 era dependiente del entorno, no del código:** `appUrl` (`mail-shell.ts`) construye los CTA con
+  **`APP_PUBLIC_URL`** (no `APP_BASE_URL`); sin ella el correo degrada el CTA a texto y PS-39 (AV-14 «regístrala en tu
+  cuenta» ⇒ `/cuenta#kyc`) sale roja (medido: roja aquí en `ea615c3` y en mi árbol; verde en QA, que la exporta).
+  `test/integration/setup.ts` fija un default local (`http://localhost:3000`), como hace con el resto de variables.
+- **PS-16 (mía, del pase anterior):** los 8 directos de PS-4b empujaron el envío de PS-16 a la página 2 (la lista va
+  `requestedAt asc`, `pageSize=100`). PS-16 ahora **recorre las páginas** (mide que `?q=` por destinatario ENCUENTRA el
+  envío, no en qué página cae) y PS-4b siembra con 3 directos (dos líneas por directo) en vez de 6.
+
+### Cifras del segundo pase (medidas por mí, 2026-09-29)
+
+| Qué | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, árbol vivo) | **5924/5924** |
+| `test/integration/enum-query-axes.e2e-spec.ts` (`C-EQ-1`) sobre el árbol vivo | **429/429** (antes: 2 rojas en `ea615c3`, 3 en la corrida completa) |
+| `replacement-cases` · `shipments-prep` · `full-refund-vault` sobre el árbol vivo | 28/28 · 20/20 · 16/16 |
+| `npm run lint` | **0 problemas** (eran 5 avisos) |
+| Integración completa sobre COPIA fresca del árbol entero (`copy3`, 55 suites) | **INT_COPY3** |
+
+Mutaciones v2 (copia `copy3`, restaurada tras cada una; `mutate2.py` en el scratchpad hasta la limpieza) — **6/6 ROJAS**:
+
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| IMP-1: `Math.ceil` en `itemFeeShareCents` | `refund-math.spec.ts` | **ROJA** (2 failed / 10) |
+| BLOQ-1: `paid` vuelve a envolver `{outcome, manualRefund}` | PS-33 | **ROJA** |
+| BLOQ-2(b): `location` entra a `enum MissingReason` (copia del schema) | `C-EQ-1` prueba (3) de L | **ROJA** (1 failed) |
+| banda 3 universal: `MovementReason` + `teleport` (enum SIN derivada en código) | `enum-values-parity` | **ROJA** (1 failed) |
+| banda 3 universal: `enum SinLinea {a b}` nuevo sin línea en §0 | `enum-values-parity` | **ROJA** (2 failed) |
+| `C-EQ-1`: `?kind=` de `GET /admin/refunds` valida y TIRA el valor (QA-M3 sobre el eje nuevo) | `C-EQ-1` «filtra» | **ROJA** (1 failed) |

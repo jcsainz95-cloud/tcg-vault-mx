@@ -8039,6 +8039,95 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Comprobación de cierre:** existe la migración con los `CHECK` aprobada por el arquitecto; un `INSERT` que viole
   cada invariante falla con `23514` en la integración.
 
+## Backend · 2026-09-29 · gate del techlead sobre `c20451f` (§M4-SHIP, rama `claude/envio-preparar`)
+
+> Deuda **no bloqueante** anotada a petición del techlead (rechazo de `c20451f`; los tres bloqueantes R1/R2/R3 y la deuda
+> (a) del tope se cerraron en el mismo pase: `BACKEND_NOTES §M4-SHIP-TL`). Medido el **2026-09-29** sobre el worktree
+> encima de `ea615c3`. Dueño de todo lo de abajo: **backend** (stream «Órdenes y dinero» / «Inventario y vault»).
+
+### SHIP-D1 · El nacimiento del caso «Por reponer» está escrito dos veces (retiro y colocación)
+- **Dónde:** `backend/src/modules/shipments/shipment-prep.service.ts:548-651` (retiro: `prepare`, `replacementCase.create`
+  en `:612`) ↔ `backend/src/modules/vault/vault-placement.service.ts:651-734` (colocación: `confirm`, `create` en `:682`).
+  Los dos hacen: CAS de la pieza a `lost|damaged` a nombre del cliente, movimiento con actor (la merma con firma), fila
+  `ReplacementCase` con su nodo (`shipmentItemId` xor `placementItemId`), bitácora y `AV-13`.
+- **Impacto:** un cambio de regla del caso (p. ej. `dueAt`, la identidad que congela, el copy del `AV-13`) hay que hacerlo
+  en dos sitios; ya divergen en detalles menores (nota del movimiento, forma del `after` de la bitácora).
+- **Corrección:** `openReplacementCase(tx, { piece, node, missingReason, actor })` en `vault/replacement-case.rules.ts` (o
+  un `ReplacementCaseService.open`), llamado por los dos verbos; la suite `replacement-cases.e2e-spec.ts` (PS-18/PS-19 y
+  el 6-bis) es el juez.
+- **Disparador:** el próximo cambio a lo que se escribe al abrir un caso, o un tercer punto de nacimiento.
+- **Comprobación de cierre:** `rg -n "replacementCase\.create\(" backend/src` ⇒ **1** sitio.
+
+### SHIP-D2 · La cola de preparación hace N+1 por tarjeta y duplica el `include` de `SHIP_PREP_INCLUDE`
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts:842` (`for (const sh of shipments) shipRows.push(await
+  this.toPreparationOrder(sh))`) y `:990` (`prep.buildView(this.prisma, s as unknown as …)` por fila); el `include` de
+  `:826-838` repite a mano el de `SHIP_PREP_INCLUDE` (`shipment-prep.service.ts:136`) y el tipo se fuerza con dos
+  `as unknown as` (`:990-991`).
+- **Impacto:** con K envíos en cola, K rondas de `buildView` (cada una con sus lecturas de origen/libro/casos); dos
+  `include` que pueden divergir (uno tipa `ShipRow`, el otro se castea).
+- **Corrección:** `loadRows(db, where)` en `ShipmentPrepService` que use `SHIP_PREP_INCLUDE` y devuelva `ShipRow[]`;
+  `buildViews(db, rows)` por lote (`resolveOriginsBatch` ya es por lote); `shipments.service` deja de castear.
+- **Disparador:** la cola tarda > 1 s con ≥ 50 envíos, o el próximo campo nuevo en el `include`.
+- **Comprobación de cierre:** `rg -c "as unknown as" backend/src/modules/shipments/shipments.service.ts` ⇒ **0**; un solo
+  literal `include` para la fila de preparación.
+
+### SHIP-D3 · `@Optional()` con `throw` en tiempo de ejecución: el servicio dice que es opcional y luego exige que esté
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts:242-249` (`prep?`, `manual?` + `requirePrep()` que lanza);
+  **y ahora también** `backend/src/modules/admin/admin.service.ts` (`users?: UsersService`, `deleteUser` lanza si falta —
+  añadido en este pase por `eraseClabe`, v1.80.7 punto 19, siguiendo el mismo patrón para no romper 27 construcciones
+  manuales del servicio en los unitarios).
+- **Impacto:** el tipo miente: en producción son dependencias duras; solo los unitarios legacy que construyen el servicio
+  a mano las omiten. Un módulo mal cableado se descubre en la primera petición, no al arrancar.
+- **Corrección:** dependencias requeridas; los unitarios que construyen a mano pasan un doble (patrón `usersStubM61`).
+- **Disparador:** el próximo `@Optional()` nuevo, o el próximo unitario nuevo de esos servicios.
+- **Comprobación de cierre:** `rg -n "@Optional\(\) private readonly (prep|manual|users)" backend/src/modules` ⇒ **0**.
+
+### SHIP-D4 · `@Body() body: unknown` sin DTO en `prep-items`/`prepared`
+- **Dónde:** `backend/src/modules/shipments/admin-shipments.controller.ts:90` (`markItem`) y `:99` (`prepare`); la forma se
+  valida a mano dentro de `ShipmentPrepService` (`markItem`/`prepare`).
+- **Impacto:** los demás verbos del controlador validan con `class-validator`; aquí los `400` se construyen a mano y el
+  contrato del cuerpo no se lee del tipo.
+- **Corrección:** `PrepItemDto { status, missingReason? }` y `PreparedDto { expectedRefundCents }` en `shipments/dto/`,
+  con los mismos códigos (`400 VALIDATION_ERROR {field}`); PS-2/PS-3 y PS-26 (cuerpos malos) son el juez.
+- **Disparador:** el próximo campo en cualquiera de los dos cuerpos.
+- **Comprobación de cierre:** `rg -n "@Body\(\) body: unknown" backend/src/modules/shipments` ⇒ **0**.
+
+### SHIP-D5 · `nonePicked` / `anyPickedAvailable` son el mismo predicado escrito dos veces
+- **Dónde:** `backend/src/modules/shipments/shipment-prep.service.ts:365-367`: `closes = lines.length > 0 && nonePicked
+  && !anyPickedAvailable`; `anyPickedAvailable` ⇒ `!nonePicked` por construcción (una línea `picked ∧ available` no cumple
+  ninguna rama de `nonePicked`).
+- **Impacto:** legibilidad; invita a «arreglar» uno sin el otro.
+- **Corrección:** `const closes = lines.length > 0 && lines.every(isNotShippable)` con `isNotShippable` nombrado.
+- **Disparador:** el próximo cambio a la regla de cierre (`closed_nothing_to_ship`).
+- **Comprobación de cierre:** PS-66 y PS-18 verdes con un solo predicado.
+
+### SHIP-D6 · `C-FULLREF-1` censa APARICIONES (6 llamadas en 4 ficheros), no LLAMADORES
+- **Dónde:** `backend/test/refunds.candados.spec.ts:206-213`: `census(/\.onFullRefund\(/g)` ⇒ `{orders: 2, ledger: 1,
+  payments: 2, shipment-prep: 1}`; la prosa dice «cinco llamadores» (M3, `reclaim-vault`, confirmación, webhook,
+  `unprepare`).
+- **Impacto:** un refactor que junte las dos ramas del webhook en una llamada (o que parta una en dos) pone el candado rojo
+  sin que cambie el conjunto de llamadores; y al revés, un llamador nuevo dentro de un fichero ya censado con el mismo
+  conteo (quitando otro) pasaría.
+- **Corrección:** censar por **función llamadora** (`callSpans` + nombre del método que la contiene), como ya hace
+  `C-CLABE-1` con `setClabe`/`eraseClabe`.
+- **Disparador:** el próximo cambio a un llamador de `onFullRefund`.
+- **Comprobación de cierre:** el aserto lista nombres de funciones, no conteos por fichero.
+
+### SHIP-D7 · `blindIndexEquals` para comparar un token — **CERRADO en este pase**
+- **Qué era:** `manual-refund.service.ts:390` comparaba el `revealToken` con `blindIndexEquals` (nombre de índice ciego).
+- **Cierre (v1.80.7 punto 19):** `PiiCryptoService.constantTimeEquals` (mismo cuerpo), usado en `paid`; unitaria en
+  `pii-crypto.spec.ts` y censo en `refunds.candados.spec.ts` (mutar a `!==` ⇒ rojo, medido).
+
+### SHIP-D8 · `toBeLessThan(300)` en las fixtures de integración
+- **Dónde:** 14 sitios: `backend/test/integration/full-refund-vault.e2e-spec.ts` (9), `guest-checkout.e2e-spec.ts` (2),
+  `vault-shipments.e2e-spec.ts` (2), `orders-public-status.e2e-spec.ts` (1) — `expect(r.status).toBeLessThan(300)` sobre
+  pasos de fixture (publicar, mover, marcar).
+- **Impacto:** un verbo que pasara de `201` a `200` (o a `204`) no se notaría; y un `2xx` con cuerpo distinto tampoco.
+- **Corrección:** aseverar el código exacto que el contrato fija para cada verbo (`201` en `POST` que crea, `200` en el
+  resto) — o un helper `expectOk(r, 200 | 201)` con el código explícito.
+- **Disparador:** el próximo cambio de código de estado en un verbo de M1/M4.
+- **Comprobación de cierre:** `rg -c "toBeLessThan\(300\)" backend/test/integration` ⇒ **0**.
+
 ## Frontend · 2026-09-29 · §M4-SHIP — deuda del techlead sobre `c20451f`, medida en este pase (rama `claude/envio-preparar`, base `ea615c3`)
 
 ### SHIP-FD-a · El servidor falso de `m4-ship.ts` reimplementa la fórmula del dinero — **PARCIALMENTE CERRADO en este pase** (frontend · Órdenes y dinero, 2026-09-29)
