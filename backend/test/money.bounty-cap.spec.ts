@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { bountyPayoutCents, quoteAcquisitionFromCurve, VariantPriceControls } from '../src/common/money';
 import { DEFAULT_PRICING_CURVE, PricingCurve } from '../src/common/pricing-curve';
+import { stripComments } from './helpers/strip-comments';
+import { callArgCounts, countIdentUses, identCensus, methodBody, topLevelBody } from './helpers/ident-census';
 
 /**
  * v1.80 — TOPE DE PAGO DEL BOUNTY (API_CONTRACT §M2-B.11, ARCHITECTURE §4.36.6e; decisión del dueño
@@ -243,14 +245,121 @@ describe('BC-9 — candado de forma: un solo tope (§M2-B.11 punto 3)', () => {
     expect(bountyMinOffenders([{ ...fake, src: '// Math.min(bounty, market)\n/* Math.min(bountyX, m) */' }])).toEqual([]);
   });
 
-  it('la vitrina, el peldaño 1 y el composer LLAMAN a `bountyPayoutCents`', () => {
-    const read = (rel: string) => fs.readFileSync(path.join(SRC_ROOT, rel), 'utf8');
+  /**
+   * ⭐ v1.80.2.2 — INVERTIDA (BC-9 redactado de nuevo, errata D-3): antes afirmaba que la vitrina, el
+   * peldaño 1 y el composer LLAMAN a `bountyPayoutCents`. Ahora la llama SOLO el peldaño 1
+   * (`quoteAcquisitionFromCurve`); la vitrina y el composer consumen `quoteAcquisitionWithGuard` y NO
+   * la tocan (BC-9(b), abajo, cierra el censo entero).
+   */
+  it('SOLO `quoteAcquisitionFromCurve` llama a `bountyPayoutCents`; la vitrina y el composer NO', () => {
+    const read = (rel: string) => stripComments(fs.readFileSync(path.join(SRC_ROOT, rel), 'utf8'));
+    const publicBody = methodBody(read('modules/buylist/buylist.service.ts'), 'async publicBounties(');
+    expect(publicBody).not.toMatch(/\bbountyPayoutCents\b/);
+    expect(read('modules/pricing/variant-pricing.ts')).not.toMatch(/\bbountyPayoutCents\b/);
+    const q = topLevelBody(read('common/money.ts'), 'export function quoteAcquisitionFromCurve(');
+    expect(q).toMatch(/bountyPayoutCents\(/);
+  });
+});
+
+// ============================================================================================
+// BC-9(b) — ⭐ v1.80.2.2 (API_CONTRACT §M2-B.11 punto 7, ancla `M2-B11-BC9`; errata D-3): UN SOLO
+// COMPOSITOR del peldaño 1. Fuera de `common/money.ts` hay CERO apariciones en código de
+// `bountyPayoutCents` y de `bountyGuardBasis` (con o sin paréntesis: `.map(bountyPayoutCents)` también
+// cuenta); `isBountyEffective` aparece SOLO en un censo cerrado con razón escrita; y los cuerpos de
+// `publicBounties` y `composeVariantPricing` consumen `quoteAcquisitionWithGuard(` con TRES argumentos.
+// Por qué este candado y no uno «publicado == pagado» sobre la forma manual: la divergencia que motivó
+// D-3 (la cotización clampa, `money.ts:292`; la vitrina no clampaba) es INOBSERVABLE por valor mientras
+// `bountyPriceCents ≤ MAX_CENTS` al escribir — la única forma de que no pueda ocurrir es que no exista un
+// segundo compositor. Mismo autómata que VK-6 (`helpers/ident-census.ts` + `strip-comments.ts`).
+// ============================================================================================
+
+const PAYOUT_IDENT = /\bbountyPayoutCents\b/g;
+const GUARD_BASIS_IDENT = /\bbountyGuardBasis\b/g;
+const EFFECTIVE_IDENT = /\bisBountyEffective\b/g;
+const WITH_GUARD_IDENT = /\bquoteAcquisitionWithGuard\b/g;
+
+/** Censo CERRADO de `isBountyEffective` en código: nº de apariciones + por qué puede estar ahí. */
+const EFFECTIVE_ALLOWED: Record<string, { n: number; why: string }> = {
+  'common/pricing-curve.ts': { n: 1, why: 'DEFINICIÓN (§M2-B.8 Q1: quién es efectivo).' },
+  'common/money.ts': {
+    n: 2,
+    why: 'Import + el peldaño 1 de `quoteAcquisitionFromCurve` (el ÚNICO compositor: decide y paga).',
+  },
+  'modules/pricing/variant-controls.service.ts': {
+    n: 2,
+    why:
+      'Import + el gate `422 BOUNTY_BELOW_RULE` del alta (Q1): decide SI se acepta el bounty, no CUÁNTO se paga ' +
+      '(llama a `quoteAcquisitionFromCurve` con DOS argumentos: ahí el bounty no puede ganar).',
+  },
+  'modules/buylist/buylist.service.ts': {
+    n: 2,
+    why:
+      'Import + `positionAndSuggestion` («bounty vivo» para el consejo de posición de la mesa de decisión): ' +
+      'no publica ni paga. ⛔ `publicBounties` NO la usa: consume `quoteAcquisitionWithGuard`.',
+  },
+};
+
+describe('BC-9(b) — un solo compositor del peldaño 1 (v1.80.2.2, §M2-B.11 punto 7)', () => {
+  const read = (rel: string) => fs.readFileSync(path.join(SRC_ROOT, rel), 'utf8');
+
+  it('`bountyPayoutCents` en código: SOLO `common/money.ts` (definición + peldaño 1 + `bountyGuardBasis`)', () => {
+    expect(identCensus(SRC_ROOT, PAYOUT_IDENT)).toEqual({ 'common/money.ts': 3 });
+  });
+
+  it('`bountyGuardBasis` en código: SOLO `common/money.ts` (definición + `quoteAcquisitionWithGuard`)', () => {
+    expect(identCensus(SRC_ROOT, GUARD_BASIS_IDENT)).toEqual({ 'common/money.ts': 2 });
+  });
+
+  it('`isBountyEffective` en código: EXACTAMENTE el censo cerrado (un llamador nuevo ⇒ rojo)', () => {
+    const expected = Object.fromEntries(Object.entries(EFFECTIVE_ALLOWED).map(([f, { n }]) => [f, n]));
+    expect(identCensus(SRC_ROOT, EFFECTIVE_IDENT)).toEqual(expected);
+    for (const [f, { why }] of Object.entries(EFFECTIVE_ALLOWED)) {
+      expect({ f, len: why.trim().length > 20 }).toEqual({ f, len: true });
+    }
+  });
+
+  it('`publicBounties` y `composeVariantPricing` consumen `quoteAcquisitionWithGuard(` con TRES argumentos', () => {
+    const publicBody = methodBody(stripComments(read('modules/buylist/buylist.service.ts')), 'async publicBounties(');
+    const composerBody = topLevelBody(
+      stripComments(read('modules/pricing/variant-pricing.ts')),
+      'export function composeVariantPricing(',
+    );
+    for (const [name, body] of [
+      ['publicBounties', publicBody],
+      ['composeVariantPricing', composerBody],
+    ] as const) {
+      const argCounts = callArgCounts(body, 'quoteAcquisitionWithGuard');
+      expect({ name, calls: argCounts.length > 0, args: argCounts }).toEqual({ name, calls: true, args: argCounts.map(() => 3) });
+      // …y ninguna de las tres reglas puras a mano en esos cuerpos.
+      expect({ name, manual: countIdentUses(body, PAYOUT_IDENT) + countIdentUses(body, GUARD_BASIS_IDENT) + countIdentUses(body, EFFECTIVE_IDENT) }).toEqual({ name, manual: 0 });
+    }
+    // El identificador de la hermana SÍ vive en esos dos ficheros (import + uso), no solo en `money.ts`.
+    const withGuard = identCensus(SRC_ROOT, WITH_GUARD_IDENT);
+    expect(withGuard['modules/buylist/buylist.service.ts']).toBeGreaterThanOrEqual(2);
+    expect(withGuard['modules/pricing/variant-pricing.ts']).toBeGreaterThanOrEqual(2);
+  });
+
+  it('🐤 canario: el peldaño 1 re-montado a mano en `publicBounties` SE VE; la misma línea en un comentario, NO', () => {
     const buylist = read('modules/buylist/buylist.service.ts');
-    const publicBody = buylist.slice(buylist.indexOf('async publicBounties('), buylist.indexOf('async createRequest('));
-    expect(publicBody).toMatch(/bountyPayoutCents\(/);
-    expect(read('modules/pricing/variant-pricing.ts')).toMatch(/bountyPayoutCents\(/);
-    const money = read('common/money.ts');
-    const q = money.slice(money.indexOf('export function quoteAcquisitionFromCurve('));
-    expect(q.slice(0, q.indexOf('\n}\n'))).toMatch(/bountyPayoutCents\(/);
+    const inject = (line: string) => buylist.replace(/async publicBounties\(\)[^{]*\{/, (m) => `${m}\n${line}`);
+    const manual =
+      "    const __c = isBountyEffective(1, 1, 1) ? bountyPayoutCents(r.bountyPriceCents as number, m) : bountyGuardBasis(1, 1, 'floor');";
+    const mutated = inject(manual);
+    expect(mutated).not.toBe(buylist); // el ancla existe: la mutación se aplicó de verdad
+    const orig = methodBody(stripComments(buylist), 'async publicBounties(');
+    const body = methodBody(stripComments(mutated), 'async publicBounties(');
+    for (const ident of [PAYOUT_IDENT, GUARD_BASIS_IDENT, EFFECTIVE_IDENT]) {
+      expect(countIdentUses(body, ident)).toBe(countIdentUses(orig, ident) + 1);
+    }
+    // …también SIN paréntesis (`.map(bountyPayoutCents)` es usarla)
+    expect(countIdentUses('xs.map(bountyPayoutCents);', PAYOUT_IDENT)).toBe(1);
+    // …y en prosa no cuenta.
+    const commented = inject(`    // ${manual.trim()}\n    /* ${manual.trim()} */`);
+    const bodyC = methodBody(stripComments(commented), 'async publicBounties(');
+    for (const ident of [PAYOUT_IDENT, GUARD_BASIS_IDENT, EFFECTIVE_IDENT]) {
+      expect(countIdentUses(bodyC, ident)).toBe(countIdentUses(orig, ident));
+    }
+    // El contador de argumentos distingue 3 de 2.
+    expect(callArgCounts('quoteAcquisitionWithGuard(m, curve, r); quoteAcquisitionWithGuard(m, f(a, b))', 'quoteAcquisitionWithGuard')).toEqual([3, 2]);
   });
 });

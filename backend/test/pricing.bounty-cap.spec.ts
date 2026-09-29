@@ -8,7 +8,8 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { buildGradeKey, tryBuildGradeKey } from '../src/modules/pricing/pricing.types';
-import { DEFAULT_PRICING_CURVE, PricingCurve } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, PricingCurve, premiumFloorGuard, resolveBuyFromCurve } from '../src/common/pricing-curve';
+import { quoteAcquisitionWithGuard } from '../src/common/money';
 import { variantKey } from '../src/common/variant-key';
 
 /**
@@ -211,5 +212,96 @@ describe('consola — orden por lo que se paga (espejo exacto de la vitrina)', (
     const svc = consoleOf([...rows, m30({ id: 'vpo-C', cardId: 'C', bountyPriceCents: 2500 })], { ...markets, C: 20000 }, CURVE_20);
     const res = await svc.list({ page: 1, pageSize: 20, sort: 'price_desc' });
     expect(res.data.map((d) => d.cardId)).toEqual(['B', 'C', 'A']);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// BC-9(c) — ⭐ v1.80.2.2 (API_CONTRACT §M2-B.11 punto 7, ancla `M2-B11-BC9`; errata D-3):
+// PUBLICADO == PAGADO, POR VALOR. Para CADA fila de la tabla del punto 6, más una fila con
+// `buyOverrideCents` presente y bounty rebasado, más la chase retenida de BG-6 (premium, mercado 1,
+// bounty 9000, curva en el bin), la vitrina publica EXACTAMENTE `quoteAcquisitionWithGuard(m, curva,
+// fila).priceCents` y la fila está presente ⇔ `basis === 'bounty'` ∧ `premiumFloorGuard(rareza,
+// guardBasis) === 'ok'`; en el composer, `bounty.payoutCents === (buy.source === 'bounty' ?
+// buy.effectiveCents : null)` y `cappedByMarket === (payoutCents != null && payoutCents < priceCents)`.
+// Verde sobre la forma manual de v1.80.2.1 y sobre la de v1.80.2.2 (conducta idéntica): su valor son las
+// mutaciones que nombra el contrato (publicar `r.bountyPriceCents`; filtrar solo por `isBountyEffective`
+// sin `guardBasis`; derivar `payoutCents` con `bountyPayoutCents` ignorando el guardarraíl).
+// ---------------------------------------------------------------------------------------------
+
+/** Curva «cara» de BC-5: 40 % plano, bin $1 ⇒ mercado 1000 cotiza 400. */
+const CURVE_CARO: PricingCurve = { ...DEFAULT_PRICING_CURVE, buy: { binCents: 100, points: [{ marketCents: 100000, pctBp: 4000 }] } };
+/** Curva «barata» de BC-5: el BIN domina ⇒ mercado 500 cotiza 700. */
+const CURVE_BARATO: PricingCurve = { ...DEFAULT_PRICING_CURVE, buy: { binCents: 700, points: [{ marketCents: 100000, pctBp: 4000 }] } };
+const CHASE = 'Special Illustration Rare'; // premium en el catálogo canónico
+const BULK = 'Common';
+
+interface Bc9Case {
+  glosa: string;
+  market: number | null;
+  curve: PricingCurve;
+  rarity: string;
+  controls: { bountyPriceCents: number; bountyEnabled?: boolean; buyOverrideCents?: number | null };
+  /** Lo que el contrato dice que se paga/publica (`null` ⇒ la fila NO se publica). Redundante a propósito con la fórmula. */
+  publica: number | null;
+}
+
+const BC9_CASES: Bc9Case[] = [
+  // La tabla del punto 6 (BC-5), fila a fila.
+  { glosa: 'sin mercado ⇒ bounty', market: null, curve: CURVE_CARO, rarity: BULK, controls: { bountyPriceCents: 5000 }, publica: 5000 },
+  { glosa: 'mercado degenerado ⇒ ausente ⇒ bounty (H-1)', market: 0, curve: CURVE_CARO, rarity: BULK, controls: { bountyPriceCents: 5000 }, publica: 5000 },
+  { glosa: 'bounty < mercado', market: 1000, curve: CURVE_CARO, rarity: BULK, controls: { bountyPriceCents: 401 }, publica: 401 },
+  { glosa: 'empate con mercado', market: 1000, curve: CURVE_CARO, rarity: BULK, controls: { bountyPriceCents: 1000 }, publica: 1000 },
+  { glosa: 'bounty > mercado ⇒ mercado (NO la curva)', market: 1000, curve: CURVE_CARO, rarity: BULK, controls: { bountyPriceCents: 1200 }, publica: 1000 },
+  { glosa: 'barato: bounty > bin > mercado ⇒ mercado', market: 500, curve: CURVE_BARATO, rarity: BULK, controls: { bountyPriceCents: 701 }, publica: 500 },
+  { glosa: 'barato: bin > bounty > mercado ⇒ mercado', market: 500, curve: CURVE_BARATO, rarity: BULK, controls: { bountyPriceCents: 650 }, publica: 500 },
+  { glosa: 'barato: bounty = mercado', market: 500, curve: CURVE_BARATO, rarity: BULK, controls: { bountyPriceCents: 500 }, publica: 500 },
+  { glosa: 'NO efectivo ⇒ la curva, sin tope ⇒ FUERA de la vitrina', market: 1000, curve: CURVE_CARO, rarity: BULK, controls: { bountyPriceCents: 400 }, publica: null },
+  // + override presente y bounty rebasado (peldaño 2 gana en la cotización; la vitrina no lo publica).
+  { glosa: 'buyOverride 5000 + bounty rebasado ⇒ `override`, FUERA', market: 1000, curve: CURVE_CARO, rarity: BULK, controls: { bountyPriceCents: 400, buyOverrideCents: 5000 }, publica: null },
+  // + la chase retenida de BG-6: premium, mercado 1, bounty 9000, curva en el bin ⇒ retenida, FUERA.
+  { glosa: 'BG-6: chase topada contra el bin ⇒ RETENIDA, FUERA', market: 100, curve: DEFAULT_PRICING_CURVE, rarity: CHASE, controls: { bountyPriceCents: 900000 }, publica: null },
+  // Control: la misma chase con mercado sano se publica topada.
+  { glosa: 'chase con mercado sano (curva `market`) ⇒ topada, PRESENTE', market: 100000, curve: DEFAULT_PRICING_CURVE, rarity: CHASE, controls: { bountyPriceCents: 120000 }, publica: 100000 },
+];
+
+const showcaseRowOf = (cardId: string, c: Bc9Case) => ({
+  ...m30({ id: `vpo-${cardId}`, cardId, bountyEnabled: c.controls.bountyEnabled ?? true, bountyPriceCents: c.controls.bountyPriceCents, buyOverrideCents: c.controls.buyOverrideCents ?? null }),
+  card: { name: `Carta ${cardId}`, number: '1', rarity: c.rarity, rarityCanonical: c.rarity, imageSmallUrl: null, set: { name: 'Set' } },
+});
+
+describe('BC-9(c) — publicado == pagado, POR VALOR (v1.80.2.2, §M2-B.11 punto 7)', () => {
+  it('precondición anti-vacuidad: la fila BG-6 cae al bin (`floor`) y la de mercado sano resuelve `market`', () => {
+    expect(resolveBuyFromCurve(100, DEFAULT_PRICING_CURVE).basis).toBe('floor');
+    expect(resolveBuyFromCurve(100000, DEFAULT_PRICING_CURVE).basis).toBe('market');
+  });
+
+  it.each(BC9_CASES.map((c) => [c.glosa, c] as const))('vitrina · %s', async (_g, c) => {
+    const row = showcaseRowOf('x', c);
+    const svc = buylistOf([row], c.market == null ? {} : { x: c.market }, c.curve);
+    const { data } = await svc.publicBounties();
+    // La fórmula del contrato, con la MISMA fila (VariantPriceOverride ya es un VariantPriceControls).
+    const q = quoteAcquisitionWithGuard(c.market, c.curve, row);
+    const presente = q.basis === 'bounty' && premiumFloorGuard(c.rarity, q.guardBasis) === 'ok';
+    expect({ presente: data.length === 1, publica: data[0]?.bountyPriceCents ?? null }).toEqual({
+      presente,
+      publica: presente ? q.priceCents : null,
+    });
+    // …y contra la tabla (no solo contra la fórmula, para que una fórmula rota no valide una vitrina rota).
+    expect(data[0]?.bountyPriceCents ?? null).toBe(c.publica);
+  });
+
+  it.each(BC9_CASES.map((c) => [c.glosa, c] as const))('composer · %s', (_g, c) => {
+    const override = m30({ bountyEnabled: c.controls.bountyEnabled ?? true, bountyPriceCents: c.controls.bountyPriceCents, buyOverrideCents: c.controls.buyOverrideCents ?? null });
+    const dto = composeVariantPricing(c.market == null ? null : priced(c.market), c.curve, override, c.rarity);
+    const b = dto.bounty!;
+    expect(b.payoutCents).toBe(dto.buy.source === 'bounty' ? dto.buy.effectiveCents : null);
+    expect(b.cappedByMarket).toBe(b.payoutCents != null && b.payoutCents < b.priceCents!);
+    // Y lo que paga el composer es lo que paga la cotización (misma fórmula, misma fila).
+    const q = quoteAcquisitionWithGuard(c.market, c.curve, override);
+    const guarded = premiumFloorGuard(c.rarity, q.guardBasis) === 'premium_at_floor';
+    expect(dto.buy.effectiveCents).toBe(guarded ? null : q.priceCents);
+    expect(b.payoutCents).toBe(q.basis === 'bounty' && !guarded ? q.priceCents : null);
+    // …y contra la tabla.
+    expect(b.payoutCents).toBe(c.publica);
   });
 });

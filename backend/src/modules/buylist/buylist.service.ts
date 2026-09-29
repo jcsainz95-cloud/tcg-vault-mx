@@ -25,15 +25,11 @@ import { UsersService, isValidClabe } from '../users/users.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
 // v2.0 (P-48, §4.36): la CURVA de compra sustituye a la tabla por rareza/acabado. UN solo cuerpo de
-// precedencia (`quoteAcquisitionFromCurve`) para quote, batch, createRequest y la vitrina de bounties.
-import {
-  AcquisitionQuoteResult,
-  PriceBasis,
-  bountyGuardBasis,
-  bountyPayoutCents,
-  quoteAcquisitionFromCurve,
-  quoteAcquisitionWithGuard,
-} from '../../common/money';
+// precedencia (`quoteAcquisitionFromCurve`, dentro de `money.ts`) para quote, batch, createRequest y la
+// vitrina de bounties. v1.80.2.2 (BC-9): desde aquí SOLO se entra por `quoteAcquisitionWithGuard` —
+// las reglas puras del peldaño 1 (`bountyPayoutCents`, `bountyGuardBasis`) no se importan fuera de
+// `money.ts` (censo cerrado en `test/money.bounty-cap.spec.ts`).
+import { AcquisitionQuoteResult, PriceBasis, quoteAcquisitionWithGuard } from '../../common/money';
 import {
   MarketBracket as MarketBracketType,
   PendingReason,
@@ -1299,10 +1295,19 @@ export class BuylistService implements OnModuleInit {
         finish: r.finish,
       })),
     );
-    // v1.80 (§M2-B.11): ORDEN NORMATIVO seleccionar → mercado en lote → FILTRAR no efectivos →
-    // CALCULAR EL PAGO → ordenar POR EL PAGO desc → top 50. `bountyPriceCents` de la vitrina ES lo
-    // que se paga (`bountyPayoutCents` = `min(bounty, mercado)`; sin mercado, el bounty): el monto
-    // configurado por encima del mercado ⛔ no sale por esta ruta, y ningún campo dice que hubo tope.
+    // v1.80 (§M2-B.11): ORDEN NORMATIVO seleccionar → mercado en lote → COTIZAR cada fila → FILTRAR
+    // (no efectivas y retenidas) → ordenar POR EL PAGO desc → top 50. `bountyPriceCents` de la vitrina
+    // ES lo que se paga: el monto configurado por encima del mercado ⛔ no sale por esta ruta, y ningún
+    // campo dice que hubo tope.
+    //
+    // ⭐ v1.80.2.2 (§M2-B.11 punto 7 BC-9 y punto 8; errata D-3 del techlead): la vitrina es un
+    // «llamador de COMPRA con controles» y consume `quoteAcquisitionWithGuard(mercado, curva, fila)` —
+    // la MISMA puerta que `/buylist/quote`, `createRequest` y el composer. Antes re-montaba a mano el
+    // peldaño 1 (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + dos llamadas de dos
+    // argumentos a `quoteAcquisitionFromCurve`): línea a línea el cuerpo de la hermana copiado, y ya
+    // divergía en una cosa (la cotización clampa, `money.ts`; la vitrina no). Con UN compositor no
+    // puede divergir. Por fila: `basis === 'bounty'` ⇔ el bounty ganó el peldaño 1 (efectivo);
+    // `priceCents` = lo que se paga (ya clampeado, una sola vez); `guardBasis` ⇒ `premiumFloorGuard`.
     const rows = candidates
       .map((r) => {
         // P-30 H2 (§4.39e): misma fuente que el PRODUCTOR del map (`getReferencesBatch`).
@@ -1315,35 +1320,19 @@ export class BuylistService implements OnModuleInit {
           }),
         );
         const referenceMxnCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-        return { r, referenceMxnCents };
+        // La fila M-30 (`VariantPriceOverride`) YA es un `VariantPriceControls`: misma fila, misma puerta.
+        return { r, q: quoteAcquisitionWithGuard(referenceMxnCents, curve, r) };
       })
-      .filter(({ r, referenceMxnCents }) => {
-        // MISMO cuerpo de precedencia que la cotización ⇒ el número publicado ES el que se paga.
-        const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
-        // Q1 (§M2-B.8): el piso efectivo es `min(curva, mercado)`; `referenceMxnCents` es ese mercado.
-        return isBountyEffective(r.bountyPriceCents, curveQuoteCents, referenceMxnCents);
-      })
-      .map(({ r, referenceMxnCents }) => ({
-        r,
-        referenceMxnCents,
-        // MISMA función que el peldaño 1 de `quoteAcquisitionFromCurve`, MISMO mercado (candado BC-9).
-        payoutCents: bountyPayoutCents(r.bountyPriceCents as number, referenceMxnCents),
-      }))
-      // ⭐⭐ v1.80.2 (§M2-B.11 punto 8): tras calcular el pago y ANTES de ordenar/cortar, FUERA las filas
-      // que el guardarraíl retiene: una chase con bounty topado contra un mercado que cayó al bin
-      // cotizaría `precio_pendiente`, y criterio 91 prohíbe publicar un número que no se paga. Mismo
-      // veredicto que `decideBuyLine` (`bountyGuardBasis` + `premiumFloorGuard`, sin re-derivarlo).
+      // Presente ⇔ el bounty ganó el peldaño 1 Y el guardarraíl no lo retiene. Un bounty rebasado (Q1)
+      // cae a los peldaños 2-4 y no es bounty. ⭐⭐ v1.80.2 (punto 8): una chase con bounty topado contra
+      // un mercado que cayó al bin cotizaría `precio_pendiente`, y criterio 91 prohíbe publicar un
+      // número que no se paga — mismo veredicto que `decideBuyLine` (`guardBasis` + `premiumFloorGuard`).
+      // El filtro va ANTES de ordenar/cortar para no dejar huecos silenciosos en la vitrina.
       .filter(
-        ({ r, referenceMxnCents }) =>
-          premiumFloorGuard(
-            r.card.rarityCanonical ?? r.card.rarity,
-            bountyGuardBasis(
-              r.bountyPriceCents as number,
-              referenceMxnCents,
-              quoteAcquisitionFromCurve(referenceMxnCents, curve).basis,
-            ),
-          ) !== 'premium_at_floor',
+        ({ r, q }) =>
+          q.basis === 'bounty' && premiumFloorGuard(r.card.rarityCanonical ?? r.card.rarity, q.guardBasis) === 'ok',
       )
+      .map(({ r, q }) => ({ r, payoutCents: q.priceCents as number }))
       // Orden por LO QUE SE PAGA (el `orderBy` del query ordena por lo configurado y ya no basta);
       // desempate estable: el orden del query (`updatedAt` desc), que `sort` conserva.
       .sort((a, b) => b.payoutCents - a.payoutCents)

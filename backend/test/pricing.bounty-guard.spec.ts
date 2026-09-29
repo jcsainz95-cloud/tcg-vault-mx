@@ -13,6 +13,8 @@ import { buildGradeKey, tryBuildGradeKey } from '../src/modules/pricing/pricing.
 import { DEFAULT_PRICING_CURVE, resolveBuyFromCurve } from '../src/common/pricing-curve';
 import { bountyGuardBasis, quoteAcquisitionWithGuard, VariantPriceControls } from '../src/common/money';
 import { variantKey } from '../src/common/variant-key';
+import { stripComments } from './helpers/strip-comments';
+import { callArgCounts, countIdentUses, identCensus, methodBody, topLevelBody } from './helpers/ident-census';
 
 /**
  * v1.80.2 — EL TOPE DEL BOUNTY NO SE SALTA EL GUARDARRAÍL PREMIUM (API_CONTRACT §M2-B.11 punto 8,
@@ -264,57 +266,73 @@ describe('BG-6 (vitrina, sin infra)', () => {
 
 // ---------------------------------------------------------------------------------------------
 // Candado de forma: ningún llamador de COMPRA puede obtener el monto con controles sin `guardBasis`.
+//
+// ⭐ v1.80.2.2 (D-2 del techlead, 2026-09-29): convertido al patrón VK-6 — censo CERRADO de quién
+// toca `quoteAcquisitionFromCurve` en CÓDIGO (comentarios fuera, imports contados; instrumento
+// compartido `helpers/ident-census.ts`, el mismo que BC-9(b) en `money.bounty-cap.spec.ts`), más la
+// aserción de que fuera de `money.ts` ninguna llamada lleva TERCER argumento (controles). Antes era un
+// escaneo léxico del árbol entero que solo miraba el nº de argumentos: un llamador nuevo de DOS
+// argumentos no lo ponía rojo; ahora sí, hasta que se añada con su razón.
 // ---------------------------------------------------------------------------------------------
 
 const SRC_ROOT = path.resolve(__dirname, '..', 'src');
-function listSourceFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...listSourceFiles(full));
-    else if (e.name.endsWith('.ts') && !e.name.endsWith('.spec.ts')) out.push(full);
-  }
-  return out;
-}
-/** Llamadas `quoteAcquisitionFromCurve(a, b, c)` con TERCER argumento (controles) fuera de `money.ts`. */
-function controlledCallsOutsideMoney(files: { file: string; src: string }[]): string[] {
-  const out: string[] = [];
-  for (const { file, src } of files) {
-    if (file.endsWith(path.join('common', 'money.ts'))) continue;
-    const re = /quoteAcquisitionFromCurve\s*\(/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(src)) !== null) {
-      let depth = 1;
-      let commas = 0;
-      let i = m.index + m[0].length;
-      while (i < src.length && depth > 0) {
-        const c = src[i];
-        if (c === '(' || c === '[' || c === '{') depth += 1;
-        else if (c === ')' || c === ']' || c === '}') depth -= 1;
-        else if (c === ',' && depth === 1) commas += 1;
-        i += 1;
-      }
-      if (commas >= 2) out.push(`${path.relative(SRC_ROOT, file)}@${m.index}`);
-    }
-  }
-  return out;
-}
+const FROM_CURVE_IDENT = /\bquoteAcquisitionFromCurve\b/g;
+
+/** LA LISTA CERRADA: nº de apariciones en código + por qué puede llamar a la versión SIN guardBasis. */
+const FROM_CURVE_ALLOWED: Record<string, { n: number; why: string }> = {
+  'common/money.ts': {
+    n: 2,
+    why: 'DEFINICIÓN (el ÚNICO cuerpo de la precedencia de compra) + la llamada interna de `quoteAcquisitionWithGuard`.',
+  },
+  'modules/pricing/variant-controls.service.ts': {
+    n: 2,
+    why:
+      'Import + el gate `422 BOUNTY_BELOW_RULE` del alta (Q1): llamada de DOS argumentos (sin controles) para ' +
+      'obtener `curveQuoteCents`/`marketMxnCents`; ahí el bounty no puede ganar y `guardBasis` sería `= basis`.',
+  },
+};
 
 describe('candado — los llamadores de COMPRA con controles pasan por `quoteAcquisitionWithGuard`', () => {
-  const files = listSourceFiles(SRC_ROOT).map((file) => ({ file, src: fs.readFileSync(file, 'utf8') }));
-  it('el escáner ve el árbol y los llamadores conocidos usan la versión con guardBasis', () => {
-    expect(files.length).toBeGreaterThan(50);
-    const read = (rel: string) => fs.readFileSync(path.join(SRC_ROOT, rel), 'utf8');
-    expect(read('modules/buylist/buylist.service.ts')).toMatch(/quoteAcquisitionWithGuard\(/);
-    expect(read('modules/pricing/variant-pricing.ts')).toMatch(/quoteAcquisitionWithGuard\(/);
-    expect(read('modules/buylist/buylist.service.ts')).toMatch(/bountyGuardBasis\(/);
+  const read = (rel: string) => stripComments(fs.readFileSync(path.join(SRC_ROOT, rel), 'utf8'));
+
+  it('censo CERRADO de `quoteAcquisitionFromCurve` en código (un llamador nuevo ⇒ rojo hasta que traiga su razón)', () => {
+    const expected = Object.fromEntries(Object.entries(FROM_CURVE_ALLOWED).map(([f, { n }]) => [f, n]));
+    expect(identCensus(SRC_ROOT, FROM_CURVE_IDENT)).toEqual(expected);
+    for (const [f, { why }] of Object.entries(FROM_CURVE_ALLOWED)) {
+      expect({ f, len: why.trim().length > 20 }).toEqual({ f, len: true });
+    }
   });
-  it('ningún `quoteAcquisitionFromCurve(m, curve, controles)` fuera de money.ts', () => {
-    expect(controlledCallsOutsideMoney(files)).toEqual([]);
+
+  it('fuera de money.ts, NINGUNA llamada a `quoteAcquisitionFromCurve` lleva tercer argumento (controles)', () => {
+    for (const f of Object.keys(FROM_CURVE_ALLOWED).filter((x) => x !== 'common/money.ts')) {
+      const counts = callArgCounts(read(f), 'quoteAcquisitionFromCurve');
+      expect({ f, calls: counts.length > 0, max: Math.max(...counts) }).toEqual({ f, calls: true, max: 2 });
+    }
   });
-  it('🐤 canario: una llamada con controles SÍ se detecta; una de dos argumentos no', () => {
-    const f = path.join(SRC_ROOT, 'modules', 'x.ts');
-    expect(controlledCallsOutsideMoney([{ file: f, src: 'quoteAcquisitionFromCurve(m, curve, override)' }])).toHaveLength(1);
-    expect(controlledCallsOutsideMoney([{ file: f, src: 'quoteAcquisitionFromCurve(m, f(a, b))' }])).toEqual([]);
+
+  /**
+   * ⭐ v1.80.2.2 — INVERTIDA (errata D-3): antes afirmaba que `buylist.service.ts` contiene
+   * `bountyGuardBasis(` (la vitrina re-montaba el veredicto a mano). Ahora el cuerpo de `publicBounties`
+   * contiene `quoteAcquisitionWithGuard(` y NO `bountyGuardBasis(`; el composer, igual.
+   */
+  it('los llamadores conocidos usan la versión con guardBasis: `publicBounties` y `composeVariantPricing`', () => {
+    const publicBody = methodBody(read('modules/buylist/buylist.service.ts'), 'async publicBounties(');
+    expect(publicBody).toMatch(/\bquoteAcquisitionWithGuard\(/);
+    expect(publicBody).not.toMatch(/\bbountyGuardBasis\(/);
+    const composer = topLevelBody(read('modules/pricing/variant-pricing.ts'), 'export function composeVariantPricing(');
+    expect(composer).toMatch(/\bquoteAcquisitionWithGuard\(/);
+    expect(composer).not.toMatch(/\bbountyGuardBasis\(/);
+  });
+
+  it('🐤 canario: una llamada con controles SÍ se detecta; una de dos argumentos no; en un comentario, nada', () => {
+    expect(callArgCounts('quoteAcquisitionFromCurve(m, curve, override)', 'quoteAcquisitionFromCurve')).toEqual([3]);
+    expect(callArgCounts('quoteAcquisitionFromCurve(m, f(a, b))', 'quoteAcquisitionFromCurve')).toEqual([2]);
+    expect(countIdentUses('// quoteAcquisitionFromCurve(m, curve, o)\n/* quoteAcquisitionFromCurve */', FROM_CURVE_IDENT)).toBe(0);
+    // Un import también cuenta (primer síntoma de un llamador nuevo).
+    expect(countIdentUses("import { quoteAcquisitionFromCurve } from '../../common/money';", FROM_CURVE_IDENT)).toBe(1);
+    // …y una inyección en un fichero que NO está en la lista pondría el censo rojo.
+    const vault = read('modules/vault/vault.service.ts');
+    expect(countIdentUses(vault, FROM_CURVE_IDENT)).toBe(0);
+    expect(countIdentUses(`${vault}\nconst __c = quoteAcquisitionFromCurve(1, curve);`, FROM_CURVE_IDENT)).toBe(1);
   });
 });

@@ -58,6 +58,33 @@ export function topLevelBody(code: string, anchor: string): string {
   return sliceFrom(code, anchor, /\n(?:export|function|const|let|var|class|interface|type|declare|enum)\b/);
 }
 
+/**
+ * Nº de argumentos de CADA llamada `fnName(...)` en `code` (paréntesis/corchetes/llaves balanceados;
+ * las comas de profundidad 1 separan argumentos). `[]` si no hay llamadas. Pásale código ya sin
+ * comentarios (`stripComments`) si no quieres contar la prosa.
+ */
+export function callArgCounts(code: string, fnName: string): number[] {
+  const out: number[] = [];
+  const re = new RegExp(`\\b${fnName}\\s*\\(`, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(code)) !== null) {
+    let depth = 1;
+    let commas = 0;
+    let nonBlank = false;
+    let i = m.index + m[0].length;
+    while (i < code.length && depth > 0) {
+      const c = code[i];
+      if (c === '(' || c === '[' || c === '{') depth += 1;
+      else if (c === ')' || c === ']' || c === '}') depth -= 1;
+      else if (c === ',' && depth === 1) commas += 1;
+      if (depth > 0 && !/\s/.test(c)) nonBlank = true;
+      i += 1;
+    }
+    out.push(nonBlank ? commas + 1 : 0);
+  }
+  return out;
+}
+
 function sliceFrom(code: string, anchor: string, boundary: RegExp): string {
   const at = code.indexOf(anchor);
   if (at < 0) throw new Error(`ancla no encontrada: ${anchor}`);
