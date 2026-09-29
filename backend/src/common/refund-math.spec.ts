@@ -5,6 +5,7 @@
  * Mutaciones que la ponen roja: `ceil` en la comisión; IVA con el dial vivo; `X > Q` sin compensación.
  */
 import {
+  itemFeeShareCents,
   RefundOrderMoney,
   caseRefundComponents,
   caseRefundContextOf,
@@ -123,5 +124,22 @@ describe('PS-26/PS-27 💰 — `caseRefundComponents(X)`: monótona, y el repart
         expect(spei.amountCents).toBe(spei.merchandiseCents + spei.processingFeeCents + spei.compensationCents);
       }
     }
+  });
+});
+
+describe('IMP-1 (QA sobre `c20451f`) — `floor` vs `ceil` se DISTINGUEN: cociente F·P/G no entero y Σ por carta ≤ F', () => {
+  it('P=30001 ⇒ floor(4617·30001/95000)=1458 (ceil daría 1459)', () => {
+    // 4617·30001/95000 = 1458.0486…: la fixture de PS-2 (30000 ⇒ 1458.0 exacto) no separa floor de ceil; ésta sí.
+    expect(itemFeeShareCents(ORDER, 30001)).toBe(1458);
+    expect(itemMissingRefundComponents(ORDER, 30001)).toMatchObject({ merchandiseCents: 30001, processingFeeCents: 1458, amountCents: 31459 });
+  });
+
+  it('Σ floor(F·Pᵢ/G) ≤ F con cifras que discriminan: tres cartas de 1 centavo, G=3, F=100 ⇒ 33+33+33 = 99 ≤ 100 (con ceil: 34·3 = 102 > F)', () => {
+    const o = { subtotalCents: 3, shippingFeeCents: 0, processingFeeCents: 100 };
+    const shares = [1, 1, 1].map((p) => itemFeeShareCents(o, p));
+    expect(shares).toEqual([33, 33, 33]);
+    const sum = shares.reduce((a, b) => a + b, 0);
+    expect(sum).toBe(99);
+    expect(sum).toBeLessThanOrEqual(o.processingFeeCents);
   });
 });
