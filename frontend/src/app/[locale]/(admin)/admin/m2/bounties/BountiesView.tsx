@@ -31,6 +31,7 @@ import {
   BOUNTY_CHIP_ORDER,
   BOUNTY_SORTS,
   bountyDeleteOutcome,
+  bountyPayout,
   bountyPremium,
   bountyRowKey,
   hasAttentionRows,
@@ -824,6 +825,7 @@ function BountyTableRow({
   const known = isKnownBountyState(row.state);
   const attention = row.state === 'rebasada' || row.state === 'invalida';
   const premium = bountyPremium(row.state, priceCents, curveQuoteCents);
+  const payout = bountyPayout(row);
   const { targetQty, acquiredQty, remainingQty } = row.progress;
 
   // ⛔ Un `state` que esta pantalla no conozca se pinta NEUTRO, **nunca `ACTIVO`**: en esta tabla el
@@ -884,6 +886,27 @@ function BountyTableRow({
         ) : (
           <span {...(row.state === 'invalida' ? { 'aria-label': t('row.noPriceAria') } : {})}>
             {t('row.noPrice')}
+          </span>
+        )}
+        {/* ⭐ §M2-B.11 punto 8 — LO QUE SE PAGA, solo cuando difiere de lo configurado. `priceCents`
+            arriba es la oferta del dueño; `payoutCents` es lo que sale hoy. Topado por mercado ⇒ se
+            dice la cifra y la razón; retenido por el guardarraíl ⇒ «PENDIENTE», porque el `state`
+            sigue `activa` y sin esta línea la fila prometería una vitrina en la que no está. Si paga
+            lo configurado, no se repite la cifra. La pantalla obedece los dos campos; no recalcula. */}
+        {payout.kind === 'pays' && payout.capped && priceCents != null && (
+          <span
+            className="mt-0.5 block font-mono text-[11px] uppercase tracking-[0.06em] text-accent"
+            aria-label={t('row.payoutCappedAria', { price: money(priceCents), amount: money(payout.cents) })}
+          >
+            {t('row.payoutCapped', { amount: money(payout.cents) })}
+          </span>
+        )}
+        {payout.kind === 'retained' && (
+          <span
+            className="mt-0.5 block font-mono text-[11px] uppercase tracking-[0.06em] text-accent"
+            aria-label={t('row.payoutRetainedAria')}
+          >
+            {t('row.payoutRetained')}
           </span>
         )}
       </td>

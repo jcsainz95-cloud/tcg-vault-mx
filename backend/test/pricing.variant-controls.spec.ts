@@ -500,6 +500,9 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualiza
       effective: true,
       curveQuoteCents: 4000,
       completedAt: null,
+      // v1.80 (§M2-B.11): mercado $100 > bounty $75 ⇒ paga el bounty entero; no hubo tope.
+      payoutCents: 7500,
+      cappedByMarket: false,
     });
   });
 });

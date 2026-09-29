@@ -73,7 +73,7 @@ describe('H1 — asevera monto/moneda antes de liquidar', () => {
     await svc.onPaymentSucceeded(pi());
     expect(tx.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'o1', status: { not: 'settled' } },
+        where: { id: 'o1', status: { in: ['pending', 'failed'] } }, // v1.80 §M4-VAULT.2-bis.2
         data: expect.objectContaining({ status: 'settled' }),
       }),
     );
@@ -137,7 +137,7 @@ describe('H1 — asevera monto/moneda antes de liquidar', () => {
     await svc.onPaymentSucceeded(pi({ amount: 999999, amount_received: 100000 }));
     expect(tx.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'o1', status: { not: 'settled' } },
+        where: { id: 'o1', status: { in: ['pending', 'failed'] } }, // v1.80 §M4-VAULT.2-bis.2
         data: expect.objectContaining({ status: 'settled' }),
       }),
     );

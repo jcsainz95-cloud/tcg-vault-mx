@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { buildGradeKey, tryBuildGradeKey, sealedMarketGradeKey } from '../src/modules/pricing/pricing.types';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
 
 /**
  * v1.28 (P-24, §4.26f / API_CONTRACT §M7, ADITIVO) — `GET /admin/finance/inventory-value` gana
@@ -12,8 +13,8 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
  *  - INVARIANTE del contrato: top-level = Σ del breakdown (los campos previos NO cambian de
  *    semántica; el dashboard sigue espejando el top-level).
  *  - Valuación por pieza money-safe: sin precio ⇒ excluida del total + `pendingPriceCount`
- *    (nunca 0 inventado). Sellado por `sealedMarketRef` (norma §4.26f) con fallback al gradeKey
- *    legacy `'sealed'` (override manual preexistente). Graded por su referencia de grado.
+ *    (nunca 0 inventado). Sellado SOLO por `sealedMarketRef` (norma §4.26f); v1.70 (§M2-SK SK-2)
+ *    retira el fallback al gradeKey legacy `'sealed'` (clave de cola, no de precio). Graded por su referencia de grado.
  *  - Referencias en UN lote (getReferencesBatch), no una query por pieza.
  *  - CSV `report=inventory` gana columnas espejo ADITIVAS AL FINAL.
  */
@@ -39,9 +40,16 @@ function buildHarness(items: any[], refsByKey: Record<string, number>) {
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: (i: any) => buildGradeKey(i),
     tryGradeKeyFor: (i: any) => tryBuildGradeKey(i),
+    // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
+    ...REAL_VALUATION_GATE,
+    // SK-5: dial ENCENDIDO — estas pruebas no son del dial (ese lo cubren VK-2/VK-5); con él encendido la
+    // valuación del sellado es la de antes de SK-5 para refs sin `source`.
+    loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: true })),
     sealedMarketGradeKeyForItem: (i: any) =>
       i.tcgplayerProductId != null ? sealedMarketGradeKey(i.tcgplayerProductId) : null,
     getReferencesBatch,
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
   const service = new AdminService(
     prisma as PrismaService,
@@ -124,27 +132,45 @@ describe('inventoryValue — breakdown P-24 (top-level = Σ breakdown)', () => {
     expect(h.getReferencesBatch).toHaveBeenCalledTimes(1);
   });
 
-  it('sellado NO mapeado con override manual LEGACY (gradeKey `sealed`) conserva su valuación (fallback)', async () => {
+  // ⚠️ v1.70 (P-83 · API_CONTRACT §M2-SK norma **SK-2**) — **se RETIRA el fallback a `'sealed'`.**
+  // Estos dos casos afirmaban lo contrario («conserva su valuación (fallback)» / «cae al legacy»):
+  // el contrato los invierte. `'sealed'` no identifica al producto (un ETB y un blíster anclados a la
+  // misma `Card` comparten fila), así que sumar esa fila al total es valuar una caja con el precio de
+  // otra. Efecto declarado: esas piezas pasan de `atReferenceCents` a `pendingPriceCount`.
+  it("SK-2: sellado NO mapeado con fila legada bajo 'sealed' ⇒ PENDIENTE, jamás suma al total", async () => {
     const h = buildHarness(
       [raw({ cardId: 'c-tin', productType: 'sealed', tcgplayerProductId: null, acquisitionCostCents: 0 })],
       { 'c-tin|sealed|sealed|normal': 80000 },
     );
     const res = await h.service.inventoryValue();
-    expect(res.breakdown.sealed.atReferenceCents).toBe(80000);
-    expect(res.breakdown.sealed.pendingPriceCount).toBe(0);
+    expect(res.breakdown.sealed.atReferenceCents).toBe(0);
+    expect(res.breakdown.sealed.pendingPriceCount).toBe(1);
+    expect(res.atReferenceCents).toBe(0);
+    expect(res.pendingPriceCount).toBe(1);
+    // Ni siquiera se PIDE la llave de cola: una lectura de dinero no la consulta. Sin clave de
+    // mercado no hay nada que pedir al lote (mismo idioma que la graduada sin identidad).
+    expect(h.getReferencesBatch).not.toHaveBeenCalled();
   });
 
-  it('sellado mapeado SIN ingest cae al legacy y, si tampoco hay, cuenta pendiente (nunca 0 inventado)', async () => {
+  it("SK-2: sellado MAPEADO sin ingest NO cae al legacy 'sealed' — cuenta pendiente (nunca 0 ni precio ajeno)", async () => {
     const h = buildHarness(
       [
         raw({ cardId: 'c-a', productType: 'sealed', tcgplayerProductId: 1, acquisitionCostCents: 0 }),
         raw({ cardId: 'c-b', productType: 'sealed', tcgplayerProductId: 2, acquisitionCostCents: 0 }),
+        raw({ cardId: 'c-c', productType: 'sealed', tcgplayerProductId: 3, acquisitionCostCents: 0 }),
       ],
-      { 'c-a|sealed|sealed|normal': 12345 }, // c-a: sin mercado pero con legacy · c-b: nada
+      {
+        'c-a|sealed|sealed|normal': 12345, // c-a: sin mercado, solo la fila legada ⇒ pendiente
+        'c-c|sealed|sealed:tcg:3|normal': 7000, // c-c: su mercado ⇒ valuada
+        'c-c|sealed|sealed|normal': 99999, //       …y la legada NO gana ni se suma
+      },
     );
     const res = await h.service.inventoryValue();
-    expect(res.breakdown.sealed.atReferenceCents).toBe(12345);
-    expect(res.breakdown.sealed.pendingPriceCount).toBe(1);
+    expect(res.breakdown.sealed.atReferenceCents).toBe(7000);
+    expect(res.breakdown.sealed.pendingPriceCount).toBe(2);
+    // Ninguna clave pedida al lote es la de cola.
+    const asked = (h.getReferencesBatch.mock.calls as any[]).flatMap(([ks]) => ks as any[]);
+    expect(asked.some((k) => k.productType === 'sealed' && k.gradeKey === 'sealed')).toBe(false);
   });
 
   it('inventario vacío → breakdown en ceros y top-level en ceros (sin llamar al lote)', async () => {

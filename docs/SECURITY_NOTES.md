@@ -1,3 +1,144 @@
+# VEREDICTO BLUE TEAM — **FRENTE B · PAQUETE DINERO** (tope del bounty · SEC-SETTLE-LATE · SSL-R1 · SK-5 · guardarraíl BG · errata v1.80.2.1) · SHA **`a3cde51`** (rama `claude/paquete-dinero`) · 2026-09-29
+
+> ## VEREDICTO — **APROBADO** sobre `a3cde51` (con una condición de PROCESO, no de código)
+>
+> **0 críticos · 0 altos · 0 medios abiertos.** 2 Bajas + 3 Info, todas no bloqueantes, registradas abajo.
+> **Condición de proceso:** `docs/PENTEST_NOTES.md` **no tiene pase del red team sobre este rango** (último pase de
+> dinero: Bounties Q1+Q2 sobre `2a2a9ed7`). Este veredicto es solo blue team. Por `CLAUDE.md` §7 la fase de seguridad
+> del **release** exige pentester + seguridad; antes de promover a `production`, un pase del pentester sobre este
+> SHA (o el candidato de release que lo contenga) con foco en el ciclo cotización→solicitud→oferta con bounty topado.
+
+**Alcance.** Commits `c77ebc8`, `2fb61f1`, `a1095df`, `5776f74`, `aff3bb1`, `a3cde51` (código en `common/money.ts`,
+`buylist.service.ts`, `variant-pricing.ts`, `admin-bounties.service.ts`, `payments.service.ts`,
+`settleable-order-statuses.ts`, `pricing.service.ts`, `admin.service.ts`, `admin-vaults.service.ts`, `vault.service.ts`).
+Medido: `git diff --stat 7d96f50 a3cde51 -- '*.controller.ts' backend/prisma` ⇒ **vacío**: ningún controller, guard,
+DTO de entrada ni schema cambió en el rango.
+
+**Lo que medí yo (copia del árbol ENTERO `git archive a3cde51`, ruta propia de scratchpad, 2026-09-29):**
+- Unitarias del rango: `money.bounty-cap`, `pricing.bounty-cap`, `pricing.bounty-guard`, `pricing.premium-floor-guard`,
+  `payments.settle-late`, `payments.settle-cas`, `pricing.valuation-key`, `pricing.valuation-callers-census`,
+  `src/modules/payments` ⇒ **9/9 suites, 148/148 verdes** (N=1; deterministas, sin carrera).
+- **Mutación** (alias + spread, ver SEC-DIN-2) en `variant-pricing.ts`: el candado léxico «ningún
+  `quoteAcquisitionFromCurve(m, curve, controles)` fuera de money.ts» **siguió verde** (esquivado, confirmado); la prueba
+  de conducta BG-6 consola **se puso roja** (muerde). N=1, determinista. Copia restaurada y verificada con `diff`.
+- **NO MEDIDO por mí:** las integraciones con Postgres (BC/BG/SL/VK e2e); las acepto como reporte de backend
+  (`BACKEND_NOTES` §0.55–§0.57 y «SK-5»).
+
+## 1. Las preguntas del encargo, una a una
+
+**1.1 ¿Se puede hacer que la tienda pague de más con el tope del bounty?** — **No.** `bountyPayoutCents`
+(`common/money.ts:258`) es `min(bounty, mercado)` con mercado presente ⇔ `> 0`; si no, el bounty. Para toda entrada,
+pago_nuevo ≤ pago_anterior (antes pagaba el bounty completo): el cambio es **monótono hacia pagar menos**.
+- *Manipular el mercado al alza* (fuente externa de baja liquidez): el techo sube como máximo **hasta el bounty**
+  que fijó `super_admin`; nunca por encima. *A la baja*: paga menos al vendedor (daño al vendedor, no a la tienda), y
+  en chase premium con curva en el bin la línea queda **retenida** (BG) en vez de pagarse.
+- *Borrar el mercado* (H-1: ausente o `<= 0`) ⇒ paga el bounty completo = decisión del dueño (`HECHOS.md`), y es el
+  mismo monto que ya pagaba antes de v1.80. Ver SEC-DIN-5 (Info).
+- *Rareza:* no entra al monto (criterio 84); `bountyGuardBasis` no recibe rareza; `premiumFloorGuard` solo puede
+  **suprimir** el precio (`pricing-curve.ts:566,592`).
+- *Acabado/producto elegido por el vendedor:* acabado validado contra la carta (`buylist.service.ts:1115`); en la rama
+  `productId` el override/bounty **no aplica** (`effectiveOverride = null`, `:1111`). El bounty es por variante.
+- *Carrera cotización→solicitud→oferta:* la oferta **re-deriva** con la curva vigente por `decideBuyLine`
+  (`buylist.service.ts:3514`, `:3603`); el pago sale de `offeredPriceCents`. Un mercado que baja entre cotizar y
+  ofertar baja la oferta. El camino legado (`offerSentAt IS NULL`) sigue acotado a `quoted × 2` + tope AML
+  (`:5880`, `:5915-5930`): con quote topado, la cota es menor. Un override del operador sobre línea retenida pide motivo
+  y, sobre el tope de operador, queda `pending_authorization` (`:3505-3507`; sin cambio en el rango).
+- *Vitrina/cotizador/consola:* los tres usan el mismo `bountyPayoutCents` con el mismo mercado; la vitrina filtra
+  retenidas antes de ordenar/cortar (`:1336-1346`). El número publicado es el que se paga.
+
+**1.2 ¿Liquidación tardía / doble pago?** — **Cerrado.** `SETTLEABLE_ORDER_STATUSES = ['pending','failed']`
+(`payments/settleable-order-statuses.ts:21`), lista positiva y cerrada contra el enum (`schema.prisma:168-174`: 5
+valores, los 3 restantes no liquidan). El early-return (`payments.service.ts:211`) es su negación exacta y el CAS usa
+la misma constante en las dos ramas (`:278`, `:438`). Un `succeeded` tardío sobre `refunded`/`chargeback` ⇒ 0
+escrituras, 0 avisos. Un reembolso concurrente gana por el CAS (re-evaluación del `WHERE` bajo READ COMMITTED). El
+reembolso propio exige `settled` (`admin-orders.controller.ts:239`, `@MoneyOut`). Idempotencia por
+`ProcessedStripeEvent` sin cambio. `failed` sigue liquidable (prueba 38 (ii)): correcto, el dinero entró.
+
+**1.3 ¿Algún camino esquiva el guardarraíl? ¿El candado léxico es explotable desde entrada externa?** — **No es
+explotable desde fuera; es riesgo de desarrollador** (SEC-DIN-2). La entrada externa (`/buylist/quote`, `/batch`,
+`/requests`) no elige qué función se llama ni aporta los controles: el override/bounty se lee de BD
+(`VariantPriceOverride`, escritura solo `super_admin`, `pricing.controller.ts:196-197`); mercado y acabado se derivan
+del servidor (SEC-A1). Los dos llamadores con controles (`buylist.service.ts:1128`, `variant-pricing.ts:182`) usan
+`quoteAcquisitionWithGuard`; los otros dos llamadores de `quoteAcquisitionFromCurve` pasan **2 argumentos**
+(`buylist.service.ts:1322,1343`, `variant-controls.service.ts:508`) y no pueden devolver `bounty`.
+
+**1.4 ¿El sellado se valúa con dos llaves distintas en algún lector?** — **En los seis lectores de patrimonio +
+`sealedTab`, no:** todos pasan por `valuationKeyFor`/`valuationCentsOf` (`pricing.service.ts:2895-2934`). Venta de
+sellado (checkout `orders.service.ts:284-296`, catálogo, publicación `inventory.service.ts:1440,1599`) usa
+`sealedMarketGradeKeyForItem` + `normal` + `gateSealedMarketCents` = misma llave y mismo gate. **Excepción:** el
+export `.xlsx` (SEC-DIN-1).
+
+**1.5 Autorización de los endpoints tocados** (sin cambios de guard en el rango; leída la clase):
+`GET /buylist/bounties` público, sin PII, emite el pago; `GET /admin/pricing/bounties` `super_admin`
+(`admin-bounties.controller.ts:63-64`); `/admin/finance/inventory-value|custody-value` `super_admin`
+(`admin.controller.ts:425-442`); `/admin/vaults` y ficha 360° `vault_operator|super_admin`; `GET /vault/holdings/:id`
+con chequeo de dueño antes de valuar (`vault.service.ts:513`). `tcgplayerProductId` entra a `select` pero no a DTO
+(por lectura).
+
+## 2. Hallazgos (priorizados)
+
+### SEC-DIN-1 · **Baja** · El export `.xlsx` de inventario valúa el sellado con otra llave (séptimo lector fuera de SK-5)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:3286-3299` (`exportGradeKey`) y su uso `:3205-3214`,
+  `:3249-3258` (refKey con `it.finish`, sin gate de dial).
+- **Qué:** sellado **sin mapeo** ⇒ `tryBuildGradeKey` = `'sealed'` (fila legada: puede ser el precio de **otra caja**
+  anclada a la misma `Card`); sellado **mapeado** ⇒ busca con `it.finish` en vez de `normal` (columna vacía si difiere)
+  y sin `gateSealedMarketCents` (el dial `off` no apaga `tcgcsv`). El override de venta también se busca bajo `'sealed'`.
+- **Evidencia:** por lectura (backend lo reportó en «SK-5 · Discrepancias 1»; yo lo confirmé en el código de `a3cde51`).
+  **NO MEDIDO por HTTP.**
+- **Impacto:** solo lectura, solo inventario de plataforma, solo `vault_operator|super_admin`; ningún import lo
+  relee (`git grep` sin lector de `.xlsx`). No mueve dinero; puede inducir a un operador a fijar a mano un precio con un
+  mercado ajeno. No explotable externamente.
+- **Dueño:** backend (el arquitecto decide si entra al censo como lector de `valuationKeyFor`). **Disparador:** antes de
+  que el export se use para decisiones de precio de sellado, o en la próxima pasada por `inventory`.
+
+### SEC-DIN-2 · **Baja** · El candado de forma de BG es léxico: alias o `...args` lo esquivan (confirmado por mutación)
+- **Dónde:** `backend/test/pricing.bounty-guard.spec.ts:278-300`.
+- **Evidencia:** mutación en copia (`import { quoteAcquisitionFromCurve as qa }` + `qa(..._args)` con controles en
+  `variant-pricing.ts`) ⇒ «ningún `quoteAcquisitionFromCurve(m, curve, controles)`» **verde**; BG-6 consola **roja**. N=1,
+  determinista. Es decir: para los llamadores **conocidos** muerde la prueba de conducta; un **llamador nuevo** con alias
+  no lo vería ninguna de las dos.
+- **Impacto:** no explotable desde entrada externa (ver 1.3). Riesgo de regresión del desarrollador, cubierto hoy por
+  revisión (lo declara el contrato, `API_CONTRACT.md:12696-12697`).
+- **Dueño:** backend. Endurecimiento sugerido (no obligatorio): convertirlo en candado de **tipos**, p. ej. que
+  `quoteAcquisitionFromCurve` exportada no acepte controles y la de tres argumentos sea privada de `money.ts`.
+  **Disparador:** el siguiente llamador de COMPRA nuevo.
+
+### SEC-DIN-3 · **Info** · SSL-R1 (piezas `reserved` de una orden `refunded` sin liquidar) — confirmo Baja, no bloqueante
+- Ya registrado en `docs/TECH_DEBT.md` (SSL-R1, `a1095df`) con dueño, comprobación y disparador. Solo alcanzable con
+  un reembolso desde el panel de Stripe sobre una orden `pending` (el nuestro exige `settled`). Riesgo: inventario
+  atrapado, no dinero. **NO MEDIDO por mí:** si un `charge.dispute.created` sobre una orden aún `pending` deja el mismo
+  residual; que el dueño de SSL-R1 lo incluya al cerrarlo.
+
+### SEC-DIN-4 · **Info** · Con SK-5 el mapeo de sellado ya valúa bóvedas de CLIENTE; `applyToSiblings` cruza dueños
+- `sealed-pricing.controller.ts:36-37,112` (`super_admin`, auditado). Por lectura de backend (**NO MEDIDO** por mí):
+  `applyToSiblings` copia el mapeo a piezas sin mapear de **cualquier dueño** con el mismo `(cardId, sealedSubtype)`.
+  Un mapeo equivocado cambia el patrimonio que ve el cliente y el pasivo de custodia. No mueve dinero. Dueño: backend
+  (confirmar que cada pieza hermana queda en `audit.log`).
+
+### SEC-DIN-5 · **Info** · El techo del bounty depende de que exista mercado
+- Sin mercado (caída de fuente, dato `<= 0`) se paga el bounty completo (`money.ts:258`). Es decisión del dueño y no
+  paga más que antes de v1.80; se deja para que sepa que un apagón de la fuente de precios **quita el techo** de todos
+  los bounties a la vez. Mitigación existente: tope de operador y AML en la oferta.
+
+## 3. Deuda de seguridad aceptada (este rango)
+| Id | Sev. | Impacto | Dueño | Disparador |
+|---|---|---|---|---|
+| SEC-DIN-1 | Baja | Export muestra mercado de otra caja para sellado sin mapeo | backend | Uso del export para precio de sellado / próxima pasada por `inventory` |
+| SEC-DIN-2 | Baja | Un llamador nuevo con alias esquivaría el guardarraíl sin prueba roja | backend | Siguiente llamador de COMPRA |
+| SSL-R1 | Baja | Piezas atrapadas en `reserved` | backend + arquitecto | Primer reembolso desde el panel de Stripe |
+
+## 4. Banderas para el humano
+- **Falta el pase del red team** sobre este rango (condición del veredicto). Sin él la fase de seguridad del release no
+  está completa.
+- Sigue vigente la bandera de pentest de tercero + bug bounty antes de operar con dinero real a volumen.
+- SEC-DIN-5: si la fuente de precios cae, los bounties vuelven a pagar lo configurado. Es lo que decidiste; se nombra.
+
+## 5. Mínimo para mantener APROBADO
+Nada de código. Proceso: pase del pentester sobre el SHA del release que contenga `a3cde51`. Si ese pase abre un
+crítico/alto, este veredicto cae.
+
+---
+
 # VEREDICTO BLUE TEAM — **M4-PREP «Pedidos a preparar»** (reproyección de SOLO LECTURA de `GET /admin/shipments/picking-list`) · SHA **`5e6f2ee`** (rama `claude/m4-pedidos-preparar`) · 2026-09-22
 
 > ## ⭐ VEREDICTO — **APROBADO** sobre `5e6f2ee`

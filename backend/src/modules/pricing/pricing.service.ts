@@ -1244,6 +1244,21 @@ export class PricingService {
   }
 
   /**
+   * ⭐ v1.80.2.2 (D-4 del techlead, 2026-09-29) — **el dial del sellado para un LOTE de lectores de
+   * patrimonio, UNA lectura por petición y solo si hay sellado que gatear.** Es el `sourceOn` que
+   * consume `valuationCentsOf` (SK-5) en los ocho lectores (holdings, holdingDetail, `/vault/sealed`,
+   * custodyValue, `/admin/vaults`, ownedItemRefs, inventoryValue y el export `.xlsx`).
+   *
+   * Antes este cuerpo (`items.some(sealed) ? (await loadSealedSpreads()).sourceOn : false`) estaba
+   * copiado seis veces; un lector nuevo lo copiaría por séptima vez o, peor, leería el dial de otra
+   * forma. Sin sellado en el lote ⇒ `false` sin tocar `ConfigSetting` (el valor no se usa: la rama raw/
+   * graduada de `valuationCentsOf` ignora `sourceOn`). El candado de forma vive en VK-6.
+   */
+  async sealedSourceOnFor(items: readonly { productType: ProductType }[]): Promise<boolean> {
+    return items.some((i) => i.productType === 'sealed') ? (await this.loadSealedSpreads()).sourceOn : false;
+  }
+
+  /**
    * v1.44-graded-estimate (§4.38c/d) — CONFIG del «gancho de grading» izada UNA vez por request
    * (espejo de `loadSealedSpreads`, pago mínimo de BE-25). Lectura FAIL-CLOSED en dos niveles:
    *
@@ -2875,5 +2890,61 @@ export class PricingService {
    */
   tryGradeKeyFor(item: LooseGradeKeyInput): string | null {
     return tryBuildGradeKey(item);
+  }
+
+  /**
+   * v1.80.1 (API_CONTRACT §M2-SK **SK-5**, ARCHITECTURE §4.50.1-bis, **MONEY**) — **QUÉ fila de precio
+   * valúa esta pieza.** Es la ÚNICA puerta de los seis lectores de patrimonio (holdings, holdingDetail,
+   * custodyValue, `/admin/vaults`, `ownedItemRefs`, `inventoryValue`); el censo VK-6
+   * (`test/pricing.valuation-callers-census.spec.ts`) impide esquivarla.
+   *
+   * - sellado **mapeado** ⇒ `sealed:tcg:<id>` con acabado **`normal`** (la fila de mercado del producto se
+   *   escribe siempre en `normal`, sea cual sea el `finish` de la pieza);
+   * - sellado **sin mapeo** ⇒ `null`. ⛔ **Jamás `'sealed'`**: esa es la llave de COLA (SK-2) y no
+   *   identifica al producto — un ETB y un blíster anclados a la misma `Card` comparten fila, así que
+   *   valuar con ella es valuar una caja con el precio de otra;
+   * - raw / graduada ⇒ exactamente `tryBuildGradeKey` (esta rev no cambia su llave).
+   *
+   * `null` ⇒ **no hay referencia** ⇒ la pieza no suma y cuenta como pendiente. Ningún `??` lo rellena.
+   */
+  valuationKeyFor(
+    item: LooseGradeKeyInput & { cardId: string; finish: Finish; tcgplayerProductId: number | null },
+  ): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish } | null {
+    if (item.productType === 'sealed') {
+      return item.tcgplayerProductId != null
+        ? {
+            cardId: item.cardId,
+            productType: 'sealed',
+            gradeKey: sealedMarketGradeKey(item.tcgplayerProductId),
+            finish: 'normal',
+          }
+        : null;
+    }
+    // Por el envoltorio (no `tryBuildGradeKey` directo): es la MISMA función, y así un doble de pruebas
+    // que fije `tryGradeKeyFor` sigue gobernando la clave raw/graduada de esta puerta.
+    const gradeKey = this.tryGradeKeyFor(item);
+    return gradeKey == null
+      ? null
+      : { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish };
+  }
+
+  /**
+   * v1.80.1 (SK-5, **MONEY**) — **CUÁNTO cuenta** la fila que eligió `valuationKeyFor`.
+   *
+   * - sellado ⇒ `gateSealedMarketCents(ref, sourceOn)`: el MISMO gate que `/vault/sealed` (H-1). El
+   *   override manual sobrevive al dial; la fuente `tcgcsv` solo con el dial encendido; `<= 0` ⇒ `null`.
+   *   Va aquí dentro para que «Mis piezas» y «Sellado» no digan dos cosas de la misma caja.
+   * - raw / graduada ⇒ la condición de siempre (`priced ∧ != null`). ⛔ No se unifica con el gate del
+   *   sellado: eso sería otro cambio de dinero (§4.50.1-bis punto 3).
+   *
+   * `sourceOn` sale de `loadSealedSpreads()` UNA vez por petición (el llamador lo iza).
+   */
+  valuationCentsOf(
+    item: { productType: ProductType },
+    ref: PriceInfo | undefined,
+    sourceOn: boolean,
+  ): number | null {
+    if (item.productType === 'sealed') return this.gateSealedMarketCents(ref, sourceOn);
+    return ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
   }
 }

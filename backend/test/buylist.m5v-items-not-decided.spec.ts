@@ -138,7 +138,7 @@ describe('⚠️⚠️ §11 / §M5-V.8(7) — la tarjeta del tablero SUMA `appro
     };
     const svc = new AdminService(
       prisma as unknown as PrismaService,
-      {} as PricingService,
+      { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,
     );

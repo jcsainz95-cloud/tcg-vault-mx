@@ -58,7 +58,10 @@ vi.mock('@/i18n/navigation', () => ({
 // obedece y no deduce.
 // ---------------------------------------------------------------------------
 
-function pricing(over: Partial<NonNullable<VariantPricingDTO['bounty']>>): VariantPricingDTO {
+function pricing(
+  over: Partial<NonNullable<VariantPricingDTO['bounty']>>,
+  buyOver: Partial<VariantPricingDTO['buy']> = {},
+): VariantPricingDTO {
   const face = {
     suggestedCents: null,
     overrideCents: null,
@@ -67,7 +70,7 @@ function pricing(over: Partial<NonNullable<VariantPricingDTO['bounty']>>): Varia
     premiumAtFloor: false,
   };
   return {
-    buy: face,
+    buy: { ...face, ...buyOver },
     sell: face,
     bounty: {
       enabled: true,
@@ -77,6 +80,9 @@ function pricing(over: Partial<NonNullable<VariantPricingDTO['bounty']>>): Varia
       completedAt: null,
       effective: false,
       curveQuoteCents: 95000,
+      // ⭐ v1.80 (§M2-B.11): aditivos. Por defecto «no paga» (no efectivo); cada test lo sobreescribe.
+      payoutCents: null,
+      cappedByMarket: false,
       ...over,
     },
   };
@@ -93,6 +99,11 @@ interface RowSpec {
   targetQty?: number | null;
   acquiredQty?: number;
   finish?: Finish;
+  // ⭐ §M2-B.11 punto 8: lo que se paga hoy (aditivo) y la cara de COMPRA que lo acompaña.
+  effective?: boolean;
+  payoutCents?: number | null;
+  cappedByMarket?: boolean;
+  buy?: Partial<VariantPricingDTO['buy']>;
 }
 
 function makeRow(spec: RowSpec): AdminBountyRowDTO {
@@ -114,14 +125,20 @@ function makeRow(spec: RowSpec): AdminBountyRowDTO {
       remainingQty: targetQty != null ? Math.max(0, targetQty - acquiredQty) : null,
     },
     updatedAt: '2026-09-01T12:00:00.000Z',
-    pricing: pricing({
-      enabled: spec.enabled ?? true,
-      priceCents: spec.priceCents === undefined ? 90000 : spec.priceCents,
-      curveQuoteCents: spec.curveQuoteCents === undefined ? 95000 : spec.curveQuoteCents,
-      completedAt: spec.completedAt ?? null,
-      targetQty,
-      acquiredQty,
-    }),
+    pricing: pricing(
+      {
+        enabled: spec.enabled ?? true,
+        priceCents: spec.priceCents === undefined ? 90000 : spec.priceCents,
+        curveQuoteCents: spec.curveQuoteCents === undefined ? 95000 : spec.curveQuoteCents,
+        completedAt: spec.completedAt ?? null,
+        targetQty,
+        acquiredQty,
+        ...(spec.effective !== undefined ? { effective: spec.effective } : {}),
+        ...(spec.payoutCents !== undefined ? { payoutCents: spec.payoutCents } : {}),
+        ...(spec.cappedByMarket !== undefined ? { cappedByMarket: spec.cappedByMarket } : {}),
+      },
+      spec.buy ?? {},
+    ),
   };
 }
 
@@ -1574,5 +1591,111 @@ describe('⭐ el estado `despublicada`: se puede ver con el filtro, con su badge
     expect(
       screen.getByRole('button', { name: T_EN.counts.despublicada.replace('{count}', '1') }),
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * ⭐ §M2-B.11 punto 8 (v1.80 / v1.80.2) — la consola enseña LO QUE SE PAGA junto a lo configurado.
+ * `bounty.priceCents` sigue siendo lo configurado; `payoutCents`/`cappedByMarket` (aditivos) dicen lo
+ * que se paga hoy. El dueño tiene que ver: con bounty MX$1,200 y mercado MX$1,000 se pagan MX$1,000
+ * («topado por mercado»); y que una chase retenida por el guardarraíl está «pendiente».
+ */
+describe('⭐ §M2-B.11 punto 8 — PAGAMOS enseña lo que se paga, no solo lo configurado', () => {
+  it('bounty 120000 y mercado 100000: se pagan MX$1,000.00 y se dice «topado por mercado»', async () => {
+    serve(
+      response({
+        data: [
+          makeRow({
+            id: 'c-capped',
+            name: 'Charizard ex',
+            state: 'activa',
+            priceCents: 120000,
+            curveQuoteCents: 95000,
+            effective: true,
+            payoutCents: 100000,
+            cappedByMarket: true,
+            buy: { effectiveCents: 100000, source: 'bounty' },
+          }),
+        ],
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0, despublicada: 0 },
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Charizard ex')).closest('tr')!;
+    // Lo configurado sigue a la vista…
+    expect(within(row).getByText('MX$1,200.00')).toBeInTheDocument();
+    // …y lo que se paga, con su razón.
+    expect(
+      within(row).getByText(T.row.payoutCapped.replace('{amount}', 'MX$1,000.00')),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByLabelText(
+        T.row.payoutCappedAria.replace('{price}', 'MX$1,200.00').replace('{amount}', 'MX$1,000.00'),
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('bounty por debajo del mercado (no topado): NO se añade ninguna línea de tope', async () => {
+    serve(
+      response({
+        data: [
+          makeRow({
+            id: 'c-plain',
+            name: 'Pikachu ex',
+            state: 'activa',
+            priceCents: 120000,
+            effective: true,
+            payoutCents: 120000,
+            cappedByMarket: false,
+            buy: { effectiveCents: 120000, source: 'bounty' },
+          }),
+        ],
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Pikachu ex')).closest('tr')!;
+    expect(within(row).getByText('MX$1,200.00')).toBeInTheDocument();
+    expect(within(row).queryByText(/topado por mercado/i)).toBeNull();
+    expect(within(row).queryByText(T.row.payoutRetained)).toBeNull();
+  });
+
+  it('chase RETENIDA por el guardarraíl (activa, payoutCents null, premiumAtFloor): «pendiente», no «se paga»', async () => {
+    serve(
+      response({
+        data: [
+          makeRow({
+            id: 'c-retained',
+            name: 'Umbreon VMAX',
+            state: 'activa',
+            priceCents: 900000,
+            curveQuoteCents: 100,
+            effective: true,
+            payoutCents: null,
+            cappedByMarket: false,
+            buy: { effectiveCents: null, source: 'pending', premiumAtFloor: true },
+          }),
+        ],
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Umbreon VMAX')).closest('tr')!;
+    // Lo configurado se sigue viendo (es lo que ordena `price_desc`, §M2-B.11).
+    expect(within(row).getByText('MX$9,000.00')).toBeInTheDocument();
+    expect(within(row).getByText(T.row.payoutRetained)).toBeInTheDocument();
+    expect(within(row).getByLabelText(T.row.payoutRetainedAria)).toBeInTheDocument();
+    expect(within(row).queryByText(/topado por mercado/i)).toBeNull();
+  });
+
+  it('rebasado (no efectivo, payoutCents null): ni tope ni «pendiente» — el estado ya lo dice', async () => {
+    serve(
+      response({
+        data: [makeRow({ id: 'c-outbid', name: 'Gengar VMAX', state: 'rebasada', priceCents: 50000, effective: false })],
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Gengar VMAX')).closest('tr')!;
+    expect(within(row).getByText(T.state.rebasada)).toBeInTheDocument();
+    expect(within(row).queryByText(/topado por mercado/i)).toBeNull();
+    expect(within(row).queryByText(T.row.payoutRetained)).toBeNull();
   });
 });

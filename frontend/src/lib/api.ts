@@ -194,6 +194,9 @@ import type {
   SealedSetsResponse,
   SealedSetDetailResponse,
   SealedCatalogResponse,
+  // §M2-SK «Ligar a su presentación»: mapeo por pieza (PUT /admin/pricing/sealed/items/:itemId/mapping).
+  SealedItemMappingRequest,
+  SealedItemMappingResponse,
   // v1.39 (P-38): entidad `SealedProduct` persistida — alta dedicada de sellado.
   SealedProductListResponse,
   SealedSyncRequest,
@@ -3353,6 +3356,69 @@ export async function linkSealedSetGroup(
 }
 
 /**
+ * §M2-SK «Ligar a su presentación» — mapeo de UNA pieza sellada a su producto TCGCSV (contrato §M2
+ * v1.23-sealed · `PUT /admin/pricing/sealed/items/:itemId/mapping`, `super_admin`, auditado).
+ * Es la CURA DE RAÍZ del sellado sin mapear: con mapeo, la pieza pasa a valuarse bajo
+ * `sealed:tcg:<productId>` en el siguiente barrido. `applyToSiblings:true` copia el mapeo a las demás
+ * piezas sin mapeo del mismo `(cardId, sealedSubtype)` — nunca pisa un mapeo existente. Money-safe:
+ * mapear JAMÁS fija ni cambia un precio.
+ */
+export async function updateSealedItemMapping(
+  itemId: string,
+  req: SealedItemMappingRequest,
+): Promise<SealedItemMappingResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedItemMappingResponse>(
+      `/admin/pricing/sealed/items/${encodeURIComponent(itemId)}/mapping`,
+      { method: 'PUT', body: req },
+    );
+  }
+  // MOCK: las MISMAS validaciones que el servidor (contrato §M2): item sellado; `tcgplayerGroupId`
+  // obligatorio con `productId`; ambos enteros positivos; `null` desmapea y limpia el grupo.
+  const item = mockFindInventoryItem(itemId);
+  const isPosInt = (n: unknown) => typeof n === 'number' && Number.isInteger(n) && n > 0;
+  if (item.productType !== 'sealed') {
+    throw new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'item is not sealed' });
+  }
+  if (req.tcgplayerProductId !== null) {
+    if (!isPosInt(req.tcgplayerProductId) || !isPosInt(req.tcgplayerGroupId)) {
+      throw new ApiClientError(422, {
+        code: 'VALIDATION_ERROR',
+        message: 'tcgplayerProductId and tcgplayerGroupId must be positive integers',
+      });
+    }
+  }
+  const productId = req.tcgplayerProductId;
+  const groupId = productId === null ? null : (req.tcgplayerGroupId as number);
+  const apply = (target: InventoryItemDTO) => {
+    if (productId === null) {
+      delete target.tcgplayerProductId;
+      delete target.tcgplayerGroupId;
+    } else {
+      target.tcgplayerProductId = productId;
+      target.tcgplayerGroupId = groupId;
+    }
+  };
+  apply(item);
+  let siblingsUpdated = 0;
+  if (req.applyToSiblings && productId !== null) {
+    for (const other of fx.mockInventory) {
+      if (other.id === item.id || other.productType !== 'sealed') continue;
+      if (other.card.id !== item.card.id || other.sealedSubtype !== item.sealedSubtype) continue;
+      if (other.tcgplayerProductId != null) continue; // nunca pisa un mapeo existente
+      apply(other);
+      siblingsUpdated += 1;
+    }
+  }
+  return delay({
+    inventoryItemId: item.id,
+    tcgplayerProductId: productId,
+    tcgplayerGroupId: groupId,
+    siblingsUpdated,
+  });
+}
+
+/**
  * M11 §9 — Dispara la ingesta de la referencia de mercado del sellado (contrato §M10-ops ·
  * `POST /admin/jobs/sealed-price-ingest`, `super_admin`, `202`). NO fija precio: pide al backend
  * consultar TCGCSV y upsertear `PriceReference` para los sellados MAPEADOS. `groupId?` acota a un
@@ -4699,6 +4765,20 @@ export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: 
         ),
       );
     }
+  }
+  // MOCK: §M2-SK SK-3 — el servidor EXIGE clave de mercado para un override de sellado. `gradeKey:
+  // 'sealed'` (la constante legada) es una pieza SIN mapeo: escribir dinero bajo esa llave no lo lee
+  // nadie y no distingue un producto de otro. Se replica aquí para que Playwright (modo mocks) vea el
+  // mismo rechazo que el backend si la pantalla ofreciera el botón equivocado.
+  if (input.productType === 'sealed' && input.gradeKey === 'sealed') {
+    throw translateFixtureError(
+      new fx.ApiFixtureError(
+        422,
+        'SEALED_MARKET_KEY_REQUIRED',
+        'sealed override requires a market key: map the piece to its presentation or price the piece itself',
+        { gradeKey: 'sealed', remedy: 'map_or_price_the_piece' },
+      ),
+    );
   }
   // MOCK: resuelve la entrada pendiente asociada a esa carta/gradeKey/acabado.
   const finish = input.finish ?? 'normal';

@@ -102,7 +102,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     // v1.79.4: el CAS del settle — estado en el WHERE.
     expect(tx.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'o1', status: { not: 'settled' } },
+        where: { id: 'o1', status: { in: ['pending', 'failed'] } }, // v1.80 §M4-VAULT.2-bis.2
         data: expect.objectContaining({ status: 'settled' }),
       }),
     );

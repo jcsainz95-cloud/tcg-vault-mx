@@ -13,6 +13,32 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-09-28 · SEC-SETTLE-LATE (sobre `2fb61f1`)
+
+### SSL-R1 · Piezas `reserved` de una orden `refunded` SIN liquidar nunca se sueltan: el barrido las salta en cada pasada (backend · API_CONTRACT §M4-VAULT.2-bis.2 «Residual», 2026-09-28)
+- **Dueño:** **backend** (`src/modules/orders/orders.service.ts#sweepExpiredReservations` + `closePaymentIntent`).
+  **Dueño de la decisión** de qué hacer con la pieza: **arquitecto** (y el dueño si toca dinero/inventario vendible).
+- **Severidad:** Baja. **No bloqueante** (declarado así por el contrato v1.80). Nuestro reembolso exige `settled`
+  (`admin-orders.controller.ts:239`); solo se llega aquí con un reembolso hecho **desde el panel de Stripe** sobre una
+  orden aún `pending`.
+- **Qué es (medido 2026-09-28 sobre `2fb61f1`, autor backend, Postgres real, N=1 por variante,
+  `test/integration/settle-late.e2e-spec.ts` «RESIDUAL»):** orden `vault` `pending` con 2 piezas `reserved` vencidas ⇒
+  `charge.refunded` total ⇒ `refunded`; el `succeeded` tardío ya no las mueve (v1.80). El barrido selecciona
+  `reserved ∧ reservedByOrderId ≠ null ∧ reservedUntil < now` sin mirar el estado de la orden y, por B3, solo suelta
+  si el PI queda `canceled`. Un PI reembolsado está `succeeded` ⇒ cancelar lanza ⇒ `closed:false` ⇒ se salta. Con el
+  doble en modo Stripe real (`throws-succeeded`): **siguen `reserved` tras dos pasadas**, y cada pasada (cada 15 min)
+  loguea `error`. Contraste (doble que sí cancela, irreal aquí): las soltaría a `listed`.
+- **Riesgo:** cartas únicas atrapadas en `reserved` para siempre (fuera de venta) y ruido de `error` perpetuo en el
+  barrido, que entrena a ignorarlo.
+- **Dirección (⛔ no decidida):** ⛔ «liberar y ya» no vale: soltar a `listed` devuelve a la venta una carta que el
+  cliente puede tener ya, según por qué se reembolsó. Opciones a decidir: excluir del barrido las órdenes no `pending`
+  y llevar las piezas a una cola de revisión humana (como `chargebackNeedsManual`), o una transición explícita al
+  recibir `charge.refunded` sobre una orden `pending`.
+- **Comprobación de cierre:** la prueba «RESIDUAL — Stripe real» de `settle-late.e2e-spec.ts` cambia de aserción a la
+  conducta decidida (y se pone roja con el código de hoy); ⛔ ninguna pieza queda `reserved` por una orden `refunded`
+  tras una pasada del barrido; el barrido deja de loguear `error` por esas órdenes.
+- **Disparador:** el **primer reembolso hecho fuera de la app** (panel de Stripe) sobre una orden sin liquidar.
+
 ## Backend · 2026-09-25 · gates arreglos-rápidos (sobre `3806fec`)
 
 > Los identificadores llevan el sufijo «(arreglos-rápidos)» porque `TD-1`/`TD-2` ya existen más abajo (cerrados, de
@@ -8145,3 +8171,96 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   se conserva «sin `sid` ⇒ 401» como prueba nueva (misma forma que `auth.refresh-typ.spec.ts`).
 - **Comprobación de cierre:** `grep -n "legacy:" backend/src` no devuelve nada; un refresh firmado sin `sid` ⇒
   `401` en `auth.refresh-typ.spec.ts`.
+## Backend · 2026-09-29 · paquete dinero v1.80.2.2 (techlead D-1…D-5 sobre `a3cde51`; ARCHITECTURE §4.50.6 D-SK-4 / D-BC-1)
+
+> Medido por backend el 2026-09-29 sobre `2cf50c6` (rama `claude/paquete-dinero`): unitaria completa **360/360 suites,
+> 5967/5967 pruebas**; mutaciones sobre copias del árbol entero, N=1 (deterministas). Detalle en `BACKEND_NOTES` §0.58.
+
+### Cerradas en este pase (con su comprobación)
+
+- **D-SK-4 (ARCHITECTURE §4.50.6) = D-5 techlead (Media) = SEC-DIN-1 seguridad (Baja) — CERRADA (`b338886`).** El export
+  `.xlsx` valúa por `valuationKeyFor` + `valuationCentsOf`; `exportGradeKey` retirado. **Comprobación:** VK-8a/b/c
+  verdes (`backend/test/inventory.export-xlsx.spec.ts`, rojas sobre `b8edfa7`: 800 / vacía / 2500); VK-6 con
+  `inventory.service.ts` en 4 usos y aserción por método; mutaciones 4/4 muerden.
+- **D-BC-1 (§4.50.6) = D-3 techlead (Media) — CERRADA (`cd696a3`).** `publicBounties` y `composeVariantPricing` consumen
+  `quoteAcquisitionWithGuard(m, curva, fila)`; cero `bountyPayoutCents`/`bountyGuardBasis` fuera de `common/money.ts`.
+  **Comprobación:** BC-9(b) (`money.bounty-cap.spec.ts`), BC-9(c) por valor (`pricing.bounty-cap.spec.ts`, 12 casos ×
+  vitrina y composer), inversiones de `money.bounty-cap.spec.ts:246` y `pricing.bounty-guard.spec.ts:310`; mutaciones
+  5/5 muerden (incluidas las tres del contrato).
+- **D-1 techlead (Media) — CERRADA (`2cf50c6`).** Los cuatro lectores SK-5 (`admin.service.ts:1013,1039,1645`,
+  `vault.service.ts:428`, `admin-vaults.service.ts:149`) y el export llavean el lote con `variantKey()`.
+  **Comprobación:** VK-6 «D-1» (0 llaves de cuatro componentes a mano en los lectores, `variantKey(` presente, el
+  productor `getReferencesBatch` llavea con `variantKey(`; canario +1/prosa); mutación 1/1.
+- **D-2 techlead (Baja) — CERRADA (`cd696a3`).** El candado de `pricing.bounty-guard.spec.ts` es un censo cerrado al
+  patrón VK-6 (comentarios fuera, imports contados, ≤ 2 argumentos fuera de `money.ts`), con el instrumento compartido
+  `test/helpers/ident-census.ts` que también usan VK-6 y BC-9(b). **Comprobación:** mutación (tercer argumento en
+  `variant-controls.service.ts`) 1/1.
+- **D-4 techlead (Baja) — CERRADA (`2cf50c6`).** `PricingService.sealedSourceOnFor(items)` sustituye a las 6 copias (y a
+  la lectura incondicional de `vault.service.ts` `/vault/sealed`). **Comprobación:** VK-6 «D-4» (los lectores no llaman
+  a `loadSealedSpreads`), `test/pricing.sealed-source-on.spec.ts` (sin sellado ⇒ `false` sin leer; con sellado ⇒ el
+  dial, una vez); mutaciones 2/2.
+
+### Lo que queda
+
+### DIN-D1 · Tres llaves de variante siguen interpoladas a mano FUERA de los lectores SK-5 (backend · Inventario y vault / Catálogo y precios, 2026-09-29)
+- **Dueño:** backend. **Severidad:** Baja. **No bloqueante.**
+- **Qué es (medido 2026-09-29 sobre `2cf50c6`, `grep` de `${…}|${…}|${…}|${…}` en `src/`):**
+  `inventory.service.ts:1656` (re-publicación por variante), `master-set.service.ts:1044` (binder `resolveBuyables`) y
+  `price-ingest.service.ts:1018` (barrido de cola del ingest) llavean a mano el `Map` que produce
+  `getReferencesBatch` con `variantKey()`. Fuera del alcance de D-1 (los cuatro lectores de patrimonio). Un cambio de
+  forma de `variantKey` las dejaría sin `ref` **en silencio**: no es dinero mal (la publicación cae a `no_market`/
+  pendiente, el binder a «sin mercado», el ingest a no-match), pero es el mismo patrón que D-1 cerró.
+  (`pricing.service.ts:407` es otra llave —lleva `cardProductId`— y `sealed-graded.service.ts:270` agrupa slabs: **no**
+  son llaves de variante; se anotan para que nadie las «arregle».)
+- **Disparador:** tocar cualquiera de esos tres métodos, o cualquier cambio en `common/variant-key.ts`.
+- **Dirección:** `variantKey({ cardId, productType, gradeKey, finish })` en las tres y extender el censo
+  `countManualKeys` de VK-6 (`pricing.valuation-callers-census.spec.ts`) de los lectores SK-5 a todo `src/` con lista
+  cerrada.
+- **Comprobación de cierre:** el censo de `countManualKeys` sobre `src/` devuelve `{}` salvo la definición en
+  `variant-key.ts`; la prueba está roja con el código de hoy.
+
+### DIN-D2 · Los candados de forma son léxicos — límite conocido, aceptado por el contrato; NO es deuda nueva (backend, 2026-09-29)
+- El contrato (§M2-B.11 punto 8, v1.80.2.1) ya lo declara «límite conocido, no bloqueante»: un alias o `...args` esquiva
+  a `ident-census`/`callArgCounts`; los canarios cubren la reintroducción literal y la revisión cubre el resto. Se anota
+  aquí solo para que el próximo candado de forma no lo redescubra. **Sin disparador.**
+
+### T-2 · `ident-census.ts`: `callArgCounts` parcialmente cerrada; quedan genéricos y `methodBody` (backend, 2026-09-29, re-revisión techlead sobre `fae5a44`)
+- **Cerrado hoy (2026-09-29):** `backend/test/helpers/ident-census.ts` `callArgCounts` ya no cuenta la coma final
+  (`trailingComma: "all"` de `.prettierrc` daba 3 en una llamada de 2 argumentos partida en líneas ⇒ rojo falso) y
+  salta cadenas `'…'`/`"…"`/`` `…` `` con escapes. Canario en `test/money.bounty-cap.spec.ts` (final del último `it`,
+  «T-2»): `g(\n a,\n b,\n)` ⇒ `[2]` y una llamada con comas/paréntesis dentro de cadenas ⇒ `[3]`.
+- **Abierto 1:** `callArgCounts` no reconoce genéricos (`f<A, B>(x)`; la coma de `<A, B>` no está en un par
+  balanceado que el contador conozca) — solo cuenta si la llamada lleva `<…>` ANTES del `(` que ancla la regex, y el
+  ancla `\bfn\s*\(` ni siquiera casa con `fn<T>(`; y dentro de los argumentos, `<` de comparación es ambiguo.
+- **Abierto 2:** `ident-census.ts:52-54` `methodBody` no reconoce como frontera un miembro sin modificador
+  (`foo(...) {` a secas, o decorador) ⇒ el cuerpo del método anterior se extiende hasta el siguiente miembro con
+  modificador y puede contar usos ajenos.
+- **Disparador:** escribir un candado nuevo que use `methodBody` sobre un método seguido de un miembro sin
+  modificador, o `callArgCounts` sobre una función genérica.
+- **Comprobación de cierre:** canario de `methodBody` con un miembro sin modificador entre dos con modificador (el
+  cuerpo termina en él), y canario `callArgCounts('f<A, B>(x, y)', 'f')` ⇒ `[2]`.
+
+### T-3 · `money.bounty-cap.spec.ts` recorre y quita comentarios por su cuenta (backend, 2026-09-29)
+- `backend/test/money.bounty-cap.spec.ts:128,143,172`: segundo recorrido de ficheros y quitacomentarios propios en
+  lugar de `walkSources`/`stripComments` de `test/helpers/ident-census.ts`. Dos implementaciones del mismo recorrido
+  divergen en silencio (un fichero o forma de comentario que una ve y la otra no).
+- **Disparador:** tocar esos tres bloques o cambiar `walkSources`/`stripComments`.
+- **Comprobación de cierre:** `grep -n "readdirSync\|replace(/\\\\/\\\\*" backend/test/money.bounty-cap.spec.ts` sin
+  resultados y la suite en verde con las mismas cifras de aserciones.
+
+### T-4 · «basis==='bounty' ⇒ monto no nulo» solo vive en `money.ts` (backend, 2026-09-29)
+- `backend/src/modules/buylist/buylist.service.ts:1335`: `q.priceCents as number`. El invariante lo garantiza
+  `money.ts` pero el tipo no lo expresa; un cambio allí lo rompería con un `null` que el `as` esconde.
+- **Propuesta:** unión discriminada en `AcquisitionQuoteResult` (`{ basis: 'bounty'; priceCents: number } | { basis:
+  …; priceCents: number | null }`) para que el estrechamiento por `basis` haga innecesario el cast.
+- **Disparador:** tocar `AcquisitionQuoteResult` o `buylist.service.ts` cerca de `:1335`.
+- **Comprobación de cierre:** `grep -n "priceCents as number" backend/src/modules/buylist/buylist.service.ts` sin
+  resultados y `tsc` limpio.
+
+### T-6 · 13 dobles de `PricingService` hechos a mano (backend, 2026-09-29)
+- 13 suites construyen a mano su doble de `PricingService`; cada método nuevo del servicio obliga a tocarlas todas o
+  a que una quede con un doble desfasado que no falla.
+- **Propuesta:** fábrica compartida de dobles en `backend/test/helpers/` (p. ej. `makePricingDouble(overrides)`).
+- **Disparador:** añadir un método público a `PricingService` que consuman los lectores.
+- **Comprobación de cierre:** `grep -rln "as unknown as PricingService\|: PricingService = {" backend/test` no lista
+  suites con dobles literales; todas usan la fábrica.

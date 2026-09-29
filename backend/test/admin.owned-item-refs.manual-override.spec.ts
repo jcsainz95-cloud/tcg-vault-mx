@@ -4,6 +4,7 @@ import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
 
 /**
  * §4.27f-2 (P47-2, v1.46) — la ficha 360° admin (`ownedItemRefs`) usa `isBetterRef`, NO «la primera
@@ -86,8 +87,12 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
     const pricing = {
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
+      ...REAL_VALUATION_GATE,
       fxSnapshotSafe: jest.fn().mockResolvedValue(null),
       liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
+      // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+      sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
     return new AdminService(prisma as PrismaService, pricing, pii, {} as never);
   }

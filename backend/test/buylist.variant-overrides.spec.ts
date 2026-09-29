@@ -270,7 +270,10 @@ describe('createRequest — snapshot de la regla aplicada + topes intactos', () 
 
   it('los topes NO cambian: un monto bounty por encima del cap → 422 BUYLIST_LIMIT_EXCEEDED', async () => {
     const { svc } = buildSvc({
-      referenceMxnCents: 10000,
+      // v1.80 (§M2-B.11): el mercado TOPA el pago del bounty ⇒ para que el bounty de MX$2,500 se pague
+      // entero (y rebase el cap de MX$1,000) el mercado tiene que estar por ENCIMA del bounty. Con el
+      // mercado de antes (MX$100) el pago sería MX$100 y el cap no se tocaría.
+      referenceMxnCents: 300_000,
       settings: buildSettings({ capPerRequest: 100_000 }),
       overridesByKey: { [K]: { bountyEnabled: true, bountyPriceCents: 250_000 } },
     });

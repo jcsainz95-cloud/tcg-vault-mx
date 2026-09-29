@@ -57,6 +57,51 @@
 > | **1** | `CardSet.ptcgoCode` (ya guardado) se proyecta a seis DTOs con **una** normalización (`trim`, vacío ⇒ `null`) | §4.57.1–.3 | **Sí, backend y frontend** |
 > | **2** | «Buscar set» casa por nombre **o** código (servidor en tres índices; cliente en el cotizador) | §4.57.4 | **Sí, backend y frontend** |
 > | **3** | Qué NO se sabe de los datos de producción, y la consulta de solo lectura que lo mide | §4.57.6 | **No** (medición del dueño) |
+> **Rev v1.80.2.2 — ERRATA: DOS DECISIONES DEL TECHLEAD SOBRE `a3cde51` (2026-09-29, arquitecto. Base: **v1.80.2.1,
+> vigente entera salvo lo que esta errata toca**. `API_CONTRACT` sube a **v1.80.2.2**. ⛔ Sin schema, sin migración, sin
+> endpoint, sin campo, sin código de error.)**
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | **D-3:** la vitrina y el composer dejan de copiar a mano el peldaño 1 del bounty y **consumen `quoteAcquisitionWithGuard`**; BC-9 se redacta en tres partes (tope único, compositor único, publicado == pagado por valor). La línea «tres llamadores» de v1.80 queda como historia: el tope tiene **un** llamador (`quoteAcquisitionFromCurve`) | §4.36.6e (fila nueva), §4.50.6 (D-BC-1) | **Sí, backend (pequeño)** |
+> | **2** | **D-5 / SEC-DIN-1:** el export `.xlsx` de inventario es el **séptimo** lector de patrimonio; entra a SK-5 ahora (no es deuda) | §4.50.1-bis (nota), §4.50.6 (D-SK-4) | **Sí, backend (pequeño)** |
+>
+> ---
+> **Rev v1.80.2 — DINERO: EL GUARDARRAÍL PREMIUM VUELVE A MORDER CUANDO EL BOUNTY SE TOPA CONTRA UN MERCADO ROTO**
+> (2026-09-28, arquitecto. Base: **v1.80.1, vigente entera salvo lo que esta rev toca**. Origen: `BACKEND_NOTES`
+> §0.55.3, commit `c77ebc8`. `API_CONTRACT` sube a **v1.80.2**; norma y pruebas BG-1…BG-8 en `§M2-B.11` punto 8.
+> ⛔ **Sin schema, sin migración, sin endpoint, sin campo, sin código de error nuevo.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ Bounty **topado** + curva en el **bin** + rareza premium ⇒ `premium_at_floor` (pendiente), como sin bounty. `bountyGuardBasis` en `money.ts` | §4.36.5 (a), §4.36.6e | **Sí, backend** |
+> | **2** | Pregunta 3 al dueño, **no bloqueante**, con el valor por defecto ya aplicado | §4.36.6e | No |
+>
+> ---
+> **Rev v1.80.1 — DINERO: LA CAJA DEL CLIENTE YA NO SE VALÚA CON LA LLAVE DE COLA** (2026-09-28, arquitecto. Base:
+> **v1.80, vigente entera salvo lo que esta rev toca**. Origen: `BACKEND_NOTES` «P-83 › Discrepancia con el contrato»,
+> sonda HTTP de backend, **N=1**. `API_CONTRACT` sube a **v1.80.1**; norma y candados en `§M2-SK` **SK-5** (VK-1…VK-7).
+> ⛔ **Sin schema, sin migración, sin endpoint, sin campo, sin código de error nuevo.**)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | Errata de v1.70: `inventoryValue` **no** era la única lectura que caía a `'sealed'`; había cinco más, una de ellas el patrimonio que ve el cliente | §4.50.1-bis, §4.50.6 (D-SK-3) | No (documental) |
+> | **2** | ⭐⭐ Una función de valuación por pieza (`valuationKeyFor` + `valuationCentsOf`) para los **seis** lectores de patrimonio; sellado sin mapeo ⇒ «Precio pendiente»; mapeado ⇒ su `sealed:tcg:<id>` con el gate de dial de `/vault/sealed` | §4.50.1-bis | **Sí, backend** (frontend nada) |
+> | **3** | Dos preguntas **no bloqueantes** al dueño, en llano, con valor por defecto ya aplicado | §4.50.1-bis | No |
+>
+> ---
+> **Rev v1.80 — DINERO: `SEC-SETTLE-LATE` SE CIERRA Y EL BOUNTY SE TOPA AL MERCADO** (2026-09-28, arquitecto. Base:
+> **v1.79.5, vigente entera salvo lo que esta rev toca**. Origen: `SEC-SETTLE-LATE` (seguridad, medido en local, N=1) y
+> la decisión del dueño del 2026-09-28 sobre bounties (`HECHOS.md`, última fila). `API_CONTRACT` sube a **v1.80**; norma y
+> pruebas en `§M4-VAULT.2-bis.2` (SL-1…SL-7) y `§M2-B.11` (BC-1…BC-12). ⛔ **Sin schema, sin migración, sin endpoint,
+> sin código de error nuevo.** Si otra rama ya usó «v1.80», se renumera al fusionar.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ El settle liquida solo desde **`pending`/`failed`** (constante cerrada `SETTLEABLE_ORDER_STATUSES`, early-return = negación exacta del CAS); `refunded`/`chargeback` + `succeeded` tardío ⇒ `200` sin escribir ni avisar | §4.21q (p) | **Sí, backend** |
+> | **2** | ⭐⭐ Un bounty efectivo paga **`min(bounty, mercado)`**; sin mercado, el bounty. Una función pura (`bountyPayoutCents`), tres llamadores; `isBountyEffective` intacta; ⛔ no retroactivo sobre lo congelado | §4.36.6e | **Sí, backend** (+ frontend aditivo en la consola) |
+> | **3** | Dos preguntas **no bloqueantes** al dueño con valor por defecto ya aplicado (sin mercado; cartas baratas) | §4.36.6e | **No** |
+> | **4** | ⚠️ `PROJECT.md` no transcribe aún la decisión del 2026-09-28 (medido: `grep 2026-09-28 PROJECT.md` ⇒ 0). Se enruta a **product-owner** (criterio 91 / §N.6) | §4.36.6e | **No** |
 >
 > ---
 > **Rev v1.79.5 — «PARA BÓVEDA» TRAS LOS GATES: EL RIVAL DE LOS CAS ES EL CONTRACARGO** (2026-09-28, arquitecto. Base:
@@ -7169,12 +7214,33 @@ importe correcto ⇒ `200`, `Order.status='settled'`, **`settledAt` reescrito**.
 `cancelled/chargeback` (`skipDuplicates`). Lo que sí queda falso es el registro de dinero («liquidada» con los fondos
 revertidos). ⛔ NO MEDIDO: `AV-2` en ese camino y la alcanzabilidad con Stripe real. **Disparador:** antes de operar con
 disputas reales, o el siguiente pase de ese stream. Quien lo decida revisa a la vez la prueba 38 (ii) (`API_CONTRACT
-§M4-VAULT.8`), que canda la liquidación desde `failed`.
+§M4-VAULT.8`), que canda la liquidación desde `failed`. ⭐ **v1.80: DECIDIDA en (p) abajo.**
 
 ⚠️ **Riesgo residual anotado para «Órdenes y dinero» (de `SEC-VLT-DL`, no de este stream):** tras un fallo del handler
 del webhook, el borrado del marcador `ProcessedStripeEvent` se traga su propio error (`payments.service.ts`,
 `.catch(() => undefined)`); si ese borrado fallara, Stripe no reintentaría y **el contracargo se perdería en silencio**
 (seguridad, ⛔ NO MEDIDO con fallo inyectado). Mínimo propuesto: log nivel `error` en ese `catch`.
+
+**(p) v1.80 — `SEC-SETTLE-LATE` decidida: el settle liquida solo desde `pending` y `failed`.** Norma, tabla de estados y
+pruebas SL-1…SL-7 en `API_CONTRACT §M4-VAULT.2-bis.2`. Stream «Órdenes y dinero» (`payments`).
+
+La pregunta de diseño no era «¿qué estados excluyo?» sino **«¿qué significa que un `succeeded` llegue?»**. Significa
+«Stripe cobró este PaymentIntent en algún momento». Eso autoriza a liquidar solo si **nada posterior al cobro** ha
+pasado ya en nuestra orden. `refunded` y `chargeback` son hechos **posteriores** a un cobro (Stripe no reembolsa ni
+disputa lo que no cobró) ⇒ si ya están, el `succeeded` es viejo. `failed` **no** es posterior: es un intento anterior
+fallido sobre el mismo PaymentIntent, y el `succeeded` es el reintento que sí cobró.
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| Lista **cerrada** positiva `['pending','failed']` | Seguir con la negativa `not: 'settled'` + excepciones (`notIn: ['settled','refunded','chargeback']`) | Con lista negativa, un estado nuevo del enum se vuelve liquidable **por omisión**; con la positiva, por omisión **no** se liquida y el canario SL-6 obliga a decidirlo. En código de dinero, el valor por omisión tiene que ser el que no mueve dinero |
+| `failed` **sí** se liquida (38 (ii) intacta) | Estrechar a `pending` | Un `succeeded` tras `payment_failed` del mismo PI es un cobro real (reintento de tarjeta). Negarse dejaría dinero cobrado sin orden liquidada, que solo se arregla con reembolso manual. Lo de las piezas en ese camino es conducta previa, auditada |
+| `refunded`/`chargeback` ⇒ `200` no-op con `logger.warn` | `409`/`500` para que Stripe reintente; o fila de `AuditLog` | Un no-`2xx` haría que Stripe reintente **para siempre** un evento que nunca va a aplicar. `AuditLog` sería una escritura del perdedor y un `action` nuevo para un hecho que ya vive en Stripe |
+| Early-return y CAS leen **la misma constante** | Dos listas «que coinciden» | Dos listas son dos sitios donde divergir; la mutación que lo prueba (early-return nuevo, CAS viejo) solo la muerde la carrera SL-4 — por eso la forma también se canda en SL-5 |
+| ⛔ No tocar el contracargo | Hacerle CAS también | Su `update` por `id` gana **después** de un settle (orden correcto) y el CAS del settle pierde **después** de un contracargo; el hueco era de un solo lado. Mover el contracargo reabre `SEC-VLT-DL` (§4.21q (o)) |
+
+**Residual declarado:** reembolso hecho **desde el panel de Stripe** sobre una orden aún `pending` ⇒ piezas `reserved`
+por una orden `refunded`; ⛔ NO MEDIDO si el barrido de §4-R.4 las suelta. Backend lo mide y lo anota; no bloquea
+(nuestro reembolso exige `settled`, `admin-orders.controller.ts:239`).
 
 ---
 
@@ -14221,6 +14287,11 @@ de rareza del sistema y tiene exactamente **tres** consumidores legítimos:
 deliberadas del admin y **no se corrigen** (§4.36.6). Con `basis='pending'` no hace falta: ya no se publica ni se
 cotiza por la vía normal.
 
+> ⭐⭐ **v1.80.2 — la exención del bounty se acota a lo que la justificaba.** Desde v1.80 un bounty **topado** paga el
+> **mercado**, no lo que el admin decidió (§4.36.6e). En esa esquina el guardarraíl de COMPRA evalúa el **basis de la
+> curva** (`bountyGuardBasis`, `money.ts`): si cayó al bin en una chase ⇒ `premium_at_floor`. Bounty sin topar (paga lo
+> decidido) ⇒ la exención sigue. Norma y BG-1…BG-8: `API_CONTRACT §M2-B.11` punto 8.
+
 **Por qué funciona.** Que una chase resuelva al piso solo puede significar que su dato de mercado está **mal**
 (ausente, aplanado o absurdo). El guardarraíl convierte un error de dinero silencioso en una **cola visible**. Volumen
 medido sobre un master set completo: **≈3 de 333** cartas — no es una alarma ruidosa, por eso puede bloquear la
@@ -14468,7 +14539,8 @@ storefront, ficha, checkout y binder, y **no** enmascara el `sellOverrideCents` 
 
 **Bounty revalidado contra la regla vigente (decisión 9/§N.6, criterios 90/91).** El bounty es la **sección de ofertas**
 del dueño: vive en la escala de **compra** (30–50 % del mercado), está **siempre** por debajo del mercado y **nunca se
-compara contra el mercado** — solo **contra la curva de compra**. El hueco: hoy `BOUNTY_BELOW_RULE` se valida **solo al
+compara contra el mercado** — solo **contra la curva de compra**. *(⚠️ Superado dos veces: v2.2/Q1 metió el mercado como
+**piso** de efectividad, y **v1.80 lo mete como TECHO del pago** — §4.36.6e. Esta frase queda como historia.)* El hueco: hoy `BOUNTY_BELOW_RULE` se valida **solo al
 crear** (`variant-controls.service.ts:301-315`); si después sube el mercado y la curva rebasa al bounty, la «oferta»
 publicada **paga menos que la tarifa normal** y aun así sigue publicada y ganando la precedencia #1.
 
@@ -14758,6 +14830,63 @@ por ocho acuerdos tácitos explícitos (la proyección que a backend le pareció
 > de credencial no tiene ninguna razón para viajar en la respuesta de «cambiar estado»**, y ninguna auditoría previa
 > lo había visto porque **el contrato no declaraba esa forma**. Es el argumento de la regla en un solo caso: el
 > problema nunca fue el campo, fue que **nadie había declarado cuáles eran los campos**.
+
+#### 4.36.6e ⭐⭐ Tope de pago del bounty: `min(bounty, mercado)` (v1.80, decisión del dueño 2026-09-28, NORMATIVO, DINERO)
+
+Norma completa, tabla y pruebas BC-1…BC-12: `API_CONTRACT §M2-B.11`. Aquí, el porqué.
+
+**Dos preguntas distintas que el diseño anterior mezclaba en una.** Desde v2.0 el bounty tenía **una** relación con el
+resto del precio: *¿gana el peldaño 1?* (`isBountyEffective`, contra la curva; desde Q1 también contra el mercado como
+**piso**). La decisión del dueño añade la segunda: *¿cuánto paga cuando gana?* — con el mercado como **techo**. Se
+mantienen **separadas a propósito**: la primera decide visibilidad, alta y `state`; la segunda solo el monto. Fundirlas
+(p. ej. «un bounty por encima del mercado deja de ser efectivo») habría hecho **desaparecer** de la vitrina justo los
+bounties más generosos y cambiado el `state` de la consola, que el dueño pidió no tocar («no bloquear ni avisar»).
+
+```
+COMPRA:  bounty VÁLIDO ⇒ paga min(bounty, mercado)   >  buyOverrideCents (ABSOLUTO)  >  CURVA  >  pendiente
+                         (sin mercado ⇒ el bounty)
+```
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| El tope va **dentro** de `quoteAcquisitionFromCurve` (una función pura `bountyPayoutCents` en `money.ts`) | Topar en cada llamador; o al pagar | Ya es **el único cuerpo** de la precedencia de compra (cotización, lote, solicitud, oferta derivada, consola). Topar al **pagar** reescribiría un monto congelado (`offeredPriceCents`, D2/D9) y el vendedor habría aceptado otra cifra |
+| `bountyPayoutCents` en `money.ts`, ⛔ no en `pricing-curve.ts` | Junto a `isBountyEffective` | La presencia del mercado es H-1 (`isPresentAmount`, en `money.ts`); `pricing-curve.ts` no puede importarlo (dependencia única `money → pricing-curve`) y repetir el `> 0` a mano es como nació H-1 |
+| **Mismo** mercado que la curva (`referenceMxnCents` de la variante) | Otro «mercado» (sin colchón FX, de otro proveedor, el de venta) | Un segundo mercado es la «quinta proyección del mismo dinero» (canon *mercado-de-la-variante*); la consola ya pinta ése como «Mercado», así que el dueño ve el mismo número que topa |
+| `basis` sigue `bounty` al topar | `market`, o un valor nuevo de `PriceBasis` | El bounty **ganó**; solo pagó menos. Con `market` la línea dejaría de contar para `bountyAcquiredQty` y el objetivo del bounty no se cumpliría nunca. Un valor nuevo de enum toca paridad schema↔contrato y la serie §N.8 por un dato derivable (`quoted == market ∧ basis bounty`) |
+| Sin mercado ⇒ **se paga el bounty** (por defecto) | No cotizar (`precio_pendiente`); pagar la curva | Sin mercado la curva ya es `pending` y el bounty es **el único precio** que alguien decidió; es el caso para el que el dueño más usa bounties. No cotizar contradice «no bloquear»; la curva no existe. ⛔ No se inventa un mercado. **Pregunta al dueño, no bloqueante** (abajo) |
+| Vitrina publica **lo que se paga**, sin decir que hubo tope | Publicar el configurado; o marcar «topado» en público | Criterio 91: *el número publicado es el que se paga*. Publicar el configurado lo rompe. Marcarlo en público publica política interna (misma doctrina que los topes KYC) y no le da al vendedor nada que pueda usar |
+| Consola: `payoutCents` + `cappedByMarket` **informativos**; `state` igual | Nuevo `state` `topada`; entrar al grupo de atención | «No se avisa al dueño por ese motivo». Pero **ver** cuánto paga no es un aviso: sin el número, el dueño configuraría 1200 creyendo que paga 1200 (la ceguera sobre dinero que motivó D52) |
+| ⛔ No retroactivo: nada congelado se reescribe | Backfill de `quotedPriceCents` | La oferta **ya** se deriva al ofertar con reglas vigentes (§4.39h); el tope entra por ahí sin tocar historia. Un backfill reescribiría la cifra que el vendedor vio |
+| El override manual (variante y oferta) ⛔ no se topa | Topar todo pago de compra | La decisión es sobre el bounty. El override es absoluto (criterio 89) y el de la oferta exige motivo (148(a)): son actos humanos deliberados |
+| ⭐ **v1.80.2.2 (errata D-3):** la vitrina y el composer **consumen `quoteAcquisitionWithGuard(mercado, curva, fila)`** — presente ⇔ `basis==='bounty'` ∧ guardarraíl `ok`; publican `priceCents`. Fuera de `money.ts`: **cero** usos de `bountyPayoutCents`/`bountyGuardBasis`; `isBountyEffective` solo en el censo cerrado de dos (gate del alta; consejo de posición) | Mantener la copia manual del peldaño 1 (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + `quoteAcquisitionFromCurve(m, curve)` ×2) con un candado nuevo «publicado == pagado» | La copia manual **es** el cuerpo de la hermana con la firma abierta; ya divergía en el `clampCents` (`money.ts:292` vs `buylist.service.ts:1330`), inobservable hoy porque `bountyPriceCents ≤ MAX_CENTS` al escribir — y por eso un candado por valor **no puede morderla**. Lo único que garantiza publicado == pagado por construcción es que exista **un** compositor. Conducta idéntica; el techlead lo midió y yo había normado lo construido sin preguntar si era la forma mínima (`API_CONTRACT §M2-B.11` BC-9 y punto 8) |
+| ⭐⭐ **v1.80.2:** bounty **topado** en una chase cuya curva cayó al bin ⇒ **pendiente** (`premium_at_floor`), igual que sin bounty | (a) Pagar el mercado topado (v1.80 literal: MX$1 por una chase con bounty de MX$9,000); (b) pagar el bounty completo; (c) tratar ese mercado como ausente (⇒ (b)) | (a) usa como **dinero** el dato que §4.36.5 existe para no creer: publica y congela un número absurdo, y el vendedor lo ve. (b)/(c) pueden pagar **por encima** del mercado real, que es justo lo que el dueño prohibió — y no hay forma de saberlo con el dato roto. Pendiente es el error **recuperable** de §N.0: no se paga nada que no se pueda justificar, la cola lo hace visible y el operador fija el precio con motivo al ofertar. «No se bloquea por ese motivo» habla del tope; aquí el motivo es el mercado roto, que ya bloqueaba sin bounty. La exención de §4.36.5 existía porque el monto **era** la decisión del admin; con tope, deja de serlo |
+
+**Efecto en los topes AML (§4.36.6a):** el tope **baja o deja igual** montos de compra, nunca los sube ⇒ los acumulados
+AML solo pueden bajar. Sin cambio de mecanismo.
+
+**`PROJECT.md` (regla de conflicto):** la decisión está en `HECHOS.md` (fuente del dueño, «no se re-pregunta») pero **no**
+en `PROJECT.md` (medido: `grep -n 2026-09-28 PROJECT.md` ⇒ sin resultados). No contradice ningún criterio vigente —
+criterio 91 exige que publicado = pagado, y se cumple— pero §N.6 y criterio 91 describen el pago del bounty como «su
+monto». **Se enruta a product-owner** para transcribirla. No bloquea el diseño.
+
+**Preguntas al dueño — NO bloqueantes, cada una con el valor por defecto que ya está normado:**
+
+1. **Carta sin precio de mercado.** *«Si pones un bounty a una carta de la que no tenemos precio de mercado, no hay
+   con qué compararlo. Por ahora pagamos tu bounty completo. ¿Te parece, o prefieres que en ese caso no se cotice hasta
+   que haya precio?»* — Por defecto: **se paga el bounty**.
+2. **Cartas baratas donde nuestra tarifa normal ya es mayor que el mercado.** *«En algunas cartas muy baratas, lo que
+   pagamos normalmente (el mínimo por carta) es más que su precio de mercado. Si a una de esas le pones un bounty,
+   con la regla nueva el bounty paga el precio de mercado — o sea, **menos** de lo que pagarías sin bounty. Ejemplo:
+   mercado $5, nuestra tarifa normal $7, bounty $8 ⇒ se pagan $5. ¿Así lo quieres, o en ese caso prefieres pagar la
+   tarifa normal ($7)?»* — Por defecto: **se paga el mercado** (lectura literal; coherente con Q1, que ya paga $5 a un
+   bounty de $5 en esa carta).
+3. ⭐ **v1.80.2 — Carta cara cuyo precio de mercado se ve roto.** *«A veces el precio de mercado que nos llega de una
+   carta cara viene mal — por ejemplo, una carta que vale miles aparece a $1. El sistema ya detecta eso y no cotiza la
+   carta hasta que alguien la revise. Si esa carta tiene un bounty, con la regla nueva ("nunca más que el mercado") le
+   ofreceríamos al vendedor **$1** en vez de tu bounty de **$9,000**. Lo que hacemos por ahora: la tratamos como si no
+   tuviera bounty — queda en "precio pendiente", te aparece en la cola de precios, y si alguien la trae, el operador
+   pone el precio a mano (puede ser tus $9,000) dejando el motivo. ¿Te parece, o prefieres que en ese caso se pague tu
+   bounty completo aunque no podamos confirmar que no esté por encima del mercado real?»* — Por defecto: **pendiente**.
 
 #### 4.36.6a Topes AML del buylist — SÍ están en el alcance de este cambio (v2.1.6, NORMATIVO)
 
@@ -17969,6 +18098,18 @@ El resto del `PATCH` **no cambia** — en particular `listPriceCents`, que es el
 **precede a este ciclo**: D10 prohíbe capturar precio de venta **dentro del ciclo de buylist** (por eso
 `convert-to-inventory` **no** acepta `listPriceCents`), no retira una perilla de M1 que ya existía.
 **Dueño: backend.** Desviación **INV-P1** en §9.
+
+> ⭐ **ERRATA v1.80.2.3 (2026-09-29) — «`listPriceCents` no cambia» decía QUÉ se edita, no SOBRE QUÉ piezas.** QA
+> midió en stack real (`fae5a44`) que el camino no publicante del `PATCH` escribe `listPriceCents` en piezas de
+> **clientes en custodia** y en piezas **dadas de baja** (`inventory.service.ts:2403-2409` sobre `42b0fc3`: `update`
+> por `id`, sin `ownerType` ni `status`). **Norma:** `listPriceCents` **solo** sobre `platform ∧ {in_stock, listed}` —
+> el **único allowlist** de M1 (`adjustments`, `bulk-remove`, `mark`, y el `status` del `PATCH` de v1.79.7); lo demás
+> ⇒ `422 ITEM_NOT_ADJUSTABLE { status, ownerType }` sin escribir nada. `reserved` **fuera**, con medición de que no es
+> por dinero (la línea congela `unitPriceCents` al reservar, `orders.service.ts:377-408` + `:796-817`; `payments/` no
+> relee) sino por no tener dos allowlists. La identidad (`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`)
+> **sigue sin guarda**: es reparación física, también de custodia. Contrato: `API_CONTRACT §M1` errata v1.80.2.3
+> (tabla, mecánica —`assertOperable(item,'price')` sobre `item-location.rules.ts` del hotfix— y prueba **INV-SP-8**).
+> **Dueño: backend**, después de que el hotfix `claude/arreglos-operador` esté en `main`. Desviación **INV-P2** en §9.
 
 #### ⚠️⚠️ (m.5) v1.51.18 — EL SEAM DE PUBLICACIÓN: **un puerto de DISPARO, no de escritura**
 
@@ -24048,7 +24189,8 @@ para lo primero y no puede servir para lo segundo. Las cuatro normas (SK-1…SK-
 2. **Ningún lector de dinero cae a `'sealed'`.** Es `§4.40.4(b)` aplicado sin excepción: `null` ⇒ **no hay
    referencia** ⇒ `PRICE_PENDING` / «—», jamás un default. El `gk ? … : undefined` de backend **se ratifica**: no
    era una omisión, era lo correcto, y ahora tiene una razón escrita en vez de una ausencia.
-3. ⭐ **La única excepción viva SE RETIRA, y es el cambio que hay que desplegar.** `admin.inventoryValue()`
+3. ⭐ **La única excepción viva SE RETIRA, y es el cambio que hay que desplegar.** *(⚠️ Errata v1.80.1: no era la
+   única — ver §4.50.1-bis.)* `admin.inventoryValue()`
    (`admin.service.ts:1188`, `:1233`) hoy **sí** cae a `'sealed'` ⇒ **un ETB puede estar sumando el precio de un
    blíster en el total de valuación del dueño**. Backend lo citó como «precedente del fallback, pero solo en lectura
    agregada»; **lo retiro, y por su propio vecino**: dos líneas más abajo, la graduada sin identidad de slab **no
@@ -24068,6 +24210,68 @@ para lo primero y no puede servir para lo segundo. Las cuatro normas (SK-1…SK-
 consultas —**solo `SELECT`**— ya están escritas en `docs/BACKEND_NOTES.md` P-79(d). **Cierra:** correrlas contra la
 BD de producción y anotar el número con fecha. **No bloquea esta decisión**, y ésa es una propiedad buscada: las dos
 salidas que M2 ofrecerá (mapear, o fijar el precio de la pieza) son money-safe **con censo o sin él**.
+
+#### 4.50.1-bis (v1.80.1) — el punto 3 estaba mal contado: seis lectores, una función
+
+**La errata, dicha sin adorno.** El punto 3 afirmó que `inventoryValue` era «la única excepción viva». No lo medí:
+lo deduje de los sitios que ya tenían rama de sellado. Backend lo refutó con datos (`BACKEND_NOTES` P-83,
+«Discrepancia»; sonda HTTP, **N=1**): `tryBuildGradeKey` devuelve `'sealed'` para **todo** sellado, así que cualquier
+lector que la llame sin rama propia cae a la llave de cola. Cinco lo hacen, y **uno es el patrimonio del cliente**
+(«Mi bóveda»). Medidos por HTTP: holdings, holdingDetail, custody-value. **NO MEDIDO** por HTTP (lectura de código):
+`/admin/vaults` y la ficha 360°. Gana el dato (O-2).
+
+**Por qué NO se cambia `tryBuildGradeKey('sealed') ⇒ null`** (la opción corta que backend planteó): esa función es
+también la que produce la llave de **cola** —justo el uso legítimo de `'sealed'` que SK-2 preserva— y tiene ~15
+llamadores que no he medido uno a uno. Cambiarla arregla seis lectores a cambio de un riesgo sin censo en la cola y
+en la publicación. *Se arregla donde está el defecto, no donde es más corto escribirlo.*
+
+> ⭐ **v1.80.2.2 — «seis» estaba mal contado por segunda vez.** Hay un **séptimo** lector: el export `.xlsx` de
+> inventario (`inventory.service.ts` `exportGradeKey`). Backend lo encontró al escribir las razones del censo VK-6 y lo
+> reportó (como el contrato le pedía); yo lo dejé en una nota de backend y no en el contrato, y lo levantaron el
+> techlead (D-5) y seguridad (SEC-DIN-1). **Entra a SK-5 ahora, no como deuda:** la puerta existe, el censo existe, y
+> SK-2 dice «sin excepción». El razonamiento de abajo no cambia; la cuenta sí. Norma, tabla (fila 7) y candados
+> VK-6 (modificada) / VK-8a-d: `API_CONTRACT §M2-SK SK-5`, errata «séptimo lector». Desviación: §4.50.6 **D-SK-4**.
+
+**La decisión: una sola puerta para valuar patrimonio.** `PricingService.valuationKeyFor` (qué fila buscar) y
+`PricingService.valuationCentsOf` (cuánto cuenta esa fila). Firmas y tabla de lectores en `API_CONTRACT §M2-SK SK-5`.
+Tres razones de diseño:
+
+1. **La regla estaba escrita cinco veces y acertada cuatro.** `/vault/sealed`, catálogo, grid, bulk-publish y
+   `inventoryValue` hacen a mano `productType==='sealed' ? sealedMarketGradeKeyForItem : tryGradeKeyFor`; los seis
+   lectores defectuosos simplemente no lo copiaron. Una función quita la posibilidad de olvidarse, y el censo VK-6
+   quita la de esquivarla.
+2. **El gate de dial va DENTRO**, porque el cliente ve la misma caja en dos pestañas y `/vault/sealed` ya gatea
+   (H-1). Sin él, con el dial apagado, «Mis piezas» y «Sellado» dirían dos cosas de la misma caja. *Dos verdades del
+   mismo dinero son peores que una mala* (§4.38l.4.4A). Efecto colateral declarado: `inventoryValue` también gana el
+   gate. **NO MEDIDO:** el valor de `sealed_price_source` en producción; encendido ⇒ el gate no mueve ningún número hoy.
+3. **Raw y graduada no cambian ni un centavo.** La rama no-sellada de `valuationCentsOf` es la condición de hoy
+   (`priced ∧ != null`), no la de `gateSealedMarketCents` (`<= 0 ⇒ null`). Unificarlas sería otro cambio de dinero
+   y no se mete de contrabando en éste.
+
+**Efecto en las cifras (dirección medida por backend; magnitud NO MEDIDA en producción):**
+- **Cliente, caja sin ligar:** si existe fila legada `'sealed'` en su `Card`, hoy ve **un número que puede ser el de
+  otra caja**; pasa a «Precio pendiente» y sale de su total. Si no existe, ya veía «Precio pendiente»: nada cambia.
+- **Cliente, caja ligada:** hoy se busca bajo `'sealed'` ⇒ normalmente «Precio pendiente» aunque la pestaña
+  «Sellado» le muestre precio; pasa a **su** mercado ⇒ su total **puede subir**, y cuadra con «Sellado».
+- **Dueño, valor de custodia:** baja por lo primero, puede subir por lo segundo. `custody-value` no trae contador de
+  pendientes: las piezas excluidas **no se ven** en esa cifra. No lo añado en esta rev (sería campo nuevo); queda
+  anotado abajo.
+- **Medición que da la magnitud** (solo `SELECT`, producción): contar `"InventoryItem"` con `"ownerType"='customer'`
+  ∧ `"productType"='sealed'`, separado por `"tcgplayerProductId" IS NULL` / `IS NOT NULL`; y cuántas `Card` de las
+  primeras tienen `PriceReference` con `"gradeKey"='sealed'`. Dueño: devops, o el dueño donde vive la credencial.
+
+**Para el dueño, en llano (no bloquean; el valor por defecto ya está aplicado):**
+
+1. *«Algunas cajas selladas de clientes que no están ligadas a su presentación exacta van a dejar de mostrar un
+   valor en "Mi bóveda" y van a decir "Precio pendiente — Lo fijaremos pronto". Hoy muestran un número, pero ese
+   número puede ser el precio de otra caja distinta anclada a la misma carta. El total de bóveda de esos clientes
+   bajará.»* **Por defecto:** se aplica — es la regla de SK-2 que ya aprobaste («ningún precio sale de la llave
+   genérica»), cumplida donde el código no la cumplía. **Lo que sí te pregunto:** la frase «Lo fijaremos pronto» es
+   una promesa. Para esas cajas solo se cumple si alguien del equipo las liga a su presentación. ¿La dejamos, o
+   prefieres que ux-ui escriba otra para este caso? (Cambiarla es copy de ux-ui/frontend, no de esta rev.)
+   **NO MEDIDO:** que el endpoint de mapeo de M2 acepte piezas de cliente (y no solo de inventario propio).
+2. *«La cifra de "valor en custodia" que ves en finanzas no dice cuántas piezas quedaron fuera por no tener precio.»*
+   ¿Quieres ese contador? **Por defecto:** no se añade ahora; es un campo nuevo y se diseña aparte si lo pides.
 
 #### 4.50.2 `P-80` — Stripe dentro de la transacción: la pregunta del fondo ya tenía respuesta en el código publicado
 
@@ -24215,6 +24419,7 @@ los dos carriles y que el salto sea **visible en el resumen**. Tabla normativa e
 |---|---|---|---|
 | **backend** (`users`/`admin`) | **C10 entero**: guard de tope por `actorUserId` (reusando el mecanismo de `C7`), cabeceras `no-store` + `X-Robots-Tag`, y **un solo** TTL efectivo usado en firma + cuerpo + bitácora (+ `ttlClamped`/`ttlRequested`). Los **tres candados** de la sección | `§M6-K.2.0/.2.1/.2.3/.2.5` | No (§M6-K aún no existe en código) |
 | **backend** (`admin`) | **SK-2**: retirar el fallback a `'sealed'` de `admin.inventoryValue()` (`admin.service.ts:1188,1233`). Test: sellado **no mapeado** ⇒ suma a `pendingPriceCount`, **nunca** a `atReferenceCents` | `§M2-SK` | **Sí** |
+| **backend** (`pricing`, `vault`, `admin`) — **v1.80.1** | **SK-5**: `valuationKeyFor` + `valuationCentsOf` en `PricingService`; los seis lectores (holdings, holdingDetail, custodyValue, `/admin/vaults`, `ownedItemRefs`, `inventoryValue`) pasan por ellas; candados **VK-1…VK-7** con mutación por lector | `§M2-SK SK-5` | **Sí** |
 | **backend** (`pricing`) | **SK-3**: `POST /admin/pricing/override` con `productType:'sealed'` ∧ `gradeKey:'sealed'` ⇒ **`422 SEALED_MARKET_KEY_REQUIRED`** | `§M2-SK`, §0 Errores | **Sí** |
 | **backend** (`orders`) | **R-10**: el reuso relee el estado del PI; `canceled` ⇒ **sustitución**, nunca `200 reused` con el `clientSecret` viejo | `§4-R.9` | **Sí** |
 | **backend** (`buylist`) | **Nada.** §M5-S ya se comporta como el contrato dice ahora. *(Si algo hubiera que hacer, sería no tocarlo.)* | `§M5-S` | No |
@@ -24228,6 +24433,9 @@ los dos carriles y que el salto sea **visible en el resumen**. Tabla normativa e
 | # | Desviación | Dónde | Dueño | Estado |
 |---|---|---|---|---|
 | **D-SK-1** | `admin.inventoryValue()` valúa el sellado **no mapeado** cayendo a la llave `'sealed'`, que **no identifica producto** ⇒ el total puede sumar el precio de otra presentación. Contradice a su propio vecino (`:1190-1192`), que para la graduada sin identidad cae a `pendingPriceCount` | `admin.service.ts:1188`, `:1233` | **backend** | **Abierta.** Cierra con SK-2 |
+| **D-SK-3** (v1.80.1) | Cinco lectores de patrimonio valúan el sellado con `tryGradeKeyFor` ⇒ llave `'sealed'`: sin mapeo suman el precio de una fila que no identifica producto; mapeados no encuentran su `sealed:tcg:<id>`. Incluye «Mi bóveda» del cliente. Medido por HTTP (backend, N=1) en los tres primeros | `vault.service.ts:187,493`; `admin.service.ts:1691,1029`; `admin-vaults.service.ts:128,142` | **backend** | **Abierta.** Cierra con SK-5 |
+| **D-SK-4** (v1.80.2.2) | **Séptimo lector:** el export `.xlsx` de inventario valúa el sellado con otra llave — sin mapeo cae a `'sealed'` (precio de otra caja); mapeado busca con `it.finish` en vez de `normal` y sin el gate del dial. Mismo patrón que D-SK-3, en un lector de solo lectura para admin (`ownerType:'platform'`). Reportado por backend (`BACKEND_NOTES` «Discrepancias» 1) y en la razón de VK-6; levantado por techlead (D-5) y seguridad (SEC-DIN-1). Por lectura, **NO MEDIDO** por HTTP | `inventory.service.ts:3286-3299` (`exportGradeKey`), uso en `:3205-3214`, `:3249-3258` | **backend** | **Abierta.** Cierra con `API_CONTRACT §M2-SK SK-5` errata «séptimo lector» (VK-6 modificada + VK-8a-d) |
+| **D-BC-1** (v1.80.2.2) | La vitrina (`publicBounties`) y el composer (`composeVariantPricing`) re-montan a mano el peldaño 1 del bounty (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + `quoteAcquisitionFromCurve(m, curve)` ×2) en vez de consumir `quoteAcquisitionWithGuard`; la vitrina no aplica `clampCents`. Conducta hoy idéntica (divergencia inalcanzable por la validación de escritura); forma que el contrato v1.80.2.1 normaba y que esta errata retira. Levantado por techlead (D-3) | `buylist.service.ts:1320-1346`; `variant-pricing.ts:193-204` | **backend** | **Abierta.** Cierra con `API_CONTRACT §M2-B.11` BC-9 (b)+(c) y punto 8 (v1.80.2.2) |
 | **D-SK-2** | `POST /admin/pricing/override` acepta escribir dinero bajo `'sealed'` para una pieza sin mapeo: la fila **no la lee nadie** y **no identifica al producto** | `pricing.controller.ts` (ruta de override) | **backend** | **Abierta.** Cierra con SK-3 |
 | **D-PI-1** | El reuso devuelve el `clientSecret` de un PI **cancelado** sin mirar su estado ⇒ callejón sin salida para el cliente | `orders.service.ts:933-935` | **backend** | **Abierta.** Cierra con R-10 |
 | **D-M5S-1** | §M5-S del contrato normaba **dos** ramas y el código tiene **tres** (preexistente desde v1.68) | `buylist.service.ts` (`throwStepRejected`) | **arquitecto** | ✅ **Cerrada en v1.70**: el contrato se alinea con el código (§4.50.3) |
@@ -26611,6 +26819,20 @@ Riesgos técnicos:
 > mío**: así llama `PROJECT §R.2` a la **regla de canal de tres cláusulas**; se cita, no se renumera. *(`D-AVISO-2`
 > —sellar y luego enviar, §4.54.3— sí es mío, y por eso lleva la palabra entera y no el prefijo corto.)*
 
+- **🟡 ABIERTA (v1.80.2.3, 2026-09-29) — `INV-P2`: `PATCH /admin/inventory/items/:id { listPriceCents }` ESCRIBE PRECIO
+  DE VENTA EN PIEZAS DE CLIENTES EN CUSTODIA Y EN PIEZAS DADAS DE BAJA.** **Dueño: backend** (`inventory`).
+  **Medida por QA en stack real sobre `fae5a44`** (re-medición, informe al orquestador); **mecanismo verificado por el
+  arquitecto** leyendo `inventory.service.ts:2351-2409` sobre `42b0fc3`: el camino no publicante de `updateItem` es
+  `update({ where: { id }, data: patch })` (`:2406-2408`) — ni `ownerType` ni `status` en el `WHERE`. Hermana de
+  **INV-P1** (§4.39 m.4: el mismo `update` plano, visto desde la publicación) y de **D-SHIP-6** (v1.79.7, hotfix: el
+  mismo `update` plano, visto desde el `status`). No vende nada (el checkout reserva solo `platform ∧ {listed,
+  in_stock}`, `orders.service.ts:804`) pero deja un precio nuestro en patrimonio ajeno o en una pieza que no existe, y
+  responde `200`. **Cierra con** `API_CONTRACT §M1` errata v1.80.2.3: `assertOperable(item,'price')` sobre el
+  allowlist único `platform ∧ {in_stock, listed}` + escritura condicionada (CAS de v1.79.7), `422 ITEM_NOT_ADJUSTABLE
+  { status, ownerType }` sin escribir nada; prueba **INV-SP-8** roja primero, 3 mutaciones. ⚠️ **Secuencia:** depende
+  de `item-location.rules.ts`, que **no existe en esta rama** (medido `42b0fc3`); se construye sobre `main` con el
+  hotfix ya fusionado. Frontend ya acotado (`42b0fc3`, `SealedUnmappedModal.tsx:76-78`). ⛔ **El arquitecto no lo
+  corrige.**
 - **🔴 ABIERTA / ⛔ BLOQUEANTE (v1.76) — `D-AV-4`: `PATCH /admin/shipments/:id/status` MANDA DE 3 A 10 CORREOS POR
   UNA TRANSICIÓN ÚNICA, Y ESTE DOCUMENTO DECÍA QUE NO PODÍA.** **Dueño: backend** (`shipments`).
   **Medido EN VIVO por el pentester el 2026-09-14** (`PENTEST_NOTES · REL-B`, **Alta**): `AV-5` **13/13 trials con

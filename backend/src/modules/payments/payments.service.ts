@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
 import { clearReservation, releaseReservationData, reservationGuard } from '../orders/reservation';
 import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
+import { SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
 // LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -74,9 +75,10 @@ export class PaymentsService {
    * la primera garantiza que **ningún pedido reciba dos confirmaciones** (criterio **206**, que falla
    * por exceso); la segunda, que no se intente escribir a un pedido sin dueño.
    * ⛔ **Y no se le escribe a una cuenta anonimizada** (§R.5.a).
-   * **Una sola vez, sin columna:** el early-return por `status === 'settled'` del settle ⇒ un
+   * **Una sola vez, sin columna:** el early-return por estado no liquidable del settle ⇒ un
    * reintento SECUENCIAL no duplica; ⭐ v1.79.4: bajo CONCURRENCIA lo garantiza el CAS del settle
-   * (`order.updateMany` con `status: { not: 'settled' }` en el `WHERE`) — el perdedor no llega aquí.
+   * (`order.updateMany` con `status: { in: SETTLEABLE_ORDER_STATUSES }` en el `WHERE`, v1.80) — el
+   * perdedor no llega aquí; y un `succeeded` tardío sobre `refunded`/`chargeback` tampoco (early-return).
    */
   private async notifyOrderSettled(order: Order & { items: OrderItem[] }): Promise<void> {
     if (order.guestEmail || !order.userId) return;
@@ -200,7 +202,22 @@ export class PaymentsService {
       include: { items: true },
     });
     if (order) {
-      if (order.status === 'settled') return;
+      // ⭐⭐ v1.80 (§M4-VAULT.2-bis.2, `SEC-SETTLE-LATE`) — early-return = NEGACIÓN EXACTA del CAS de abajo
+      // (misma constante `SETTLEABLE_ORDER_STATUSES`, ⛔ nunca dos listas). Solo `pending`/`failed` se
+      // liquidan. `settled` = reentrega (silencio). `refunded`/`chargeback` = hechos POSTERIORES a un
+      // cobro ⇒ este `succeeded` es viejo: `200`, ⛔ cero escrituras, ⛔ cero avisos, ⛔ cero `audit.log`;
+      // la única huella es este `warn`. Va ANTES de H1 (un tardío no es un descuadre). El marcador
+      // `ProcessedStripeEvent` de este event.id queda: reintentarlo nunca aplicaría. Bajo carrera decide
+      // el CAS; esto es el atajo secuencial (ahorra `getCardDetails` y el ruido de H1).
+      if (!isSettleableOrderStatus(order.status)) {
+        if (order.status === 'refunded' || order.status === 'chargeback') {
+          this.logger.warn(
+            `SEC-SETTLE-LATE: payment_intent.succeeded ignorado — orden ${order.orderNumber ?? order.id} ` +
+              `en ${order.status} (PI ${pi.id})`,
+          );
+        }
+        return;
+      }
       // H1 (money-safety) — DEFENSA EN PROFUNDIDAD antes de liquidar: el monto y la moneda del
       // PaymentIntent DEBEN coincidir con lo que la orden cobró (`totalCents`, en MXN). Aunque el
       // PaymentIntent lo crea el servidor (`attachPaymentIntent`, importe derivado del breakdown),
@@ -254,10 +271,12 @@ export class PaymentsService {
         // `succeeded` concurrentes (event.id distintos) lo pasan las dos; la segunda espera aquí el
         // candado de fila de la primera y, bajo READ COMMITTED, Postgres RE-EVALÚA el `WHERE` sobre la
         // versión confirmada ⇒ `settled` ⇒ 0 filas. `updateMany` y no `update`: sin fila, `update` lanza
-        // `P2025` ⇒ 500 ⇒ Stripe reintentaría un settle ya aplicado. `not: 'settled'` es la negación
-        // EXACTA del early-return (⛔ no `'pending'`: estrecharlo cambiaría qué pagos se liquidan).
+        // `P2025` ⇒ 500 ⇒ Stripe reintentaría un settle ya aplicado. El predicado es la negación
+        // EXACTA del early-return. ⭐⭐ v1.80 (§M4-VAULT.2-bis.2): el predicado es la lista CERRADA
+        // `SETTLEABLE_ORDER_STATUSES` (`pending`/`failed`) — un contracargo o reembolso confirmado mientras
+        // esta entrega esperaba el candado ⇒ 0 filas ⇒ perdedor (prueba SL-4).
         const won = await tx.order.updateMany({
-          where: { id: order.id, status: { not: 'settled' } },
+          where: { id: order.id, status: { in: [...SETTLEABLE_ORDER_STATUSES] } },
           data: { status: 'settled', settledAt: now },
         });
         if (won.count === 0) return false; // perdedor: ⛔ nada más en esta tx
@@ -398,7 +417,7 @@ export class PaymentsService {
    *    (mismo PaymentIntent). Repetirlo aquí lo contaría DOS VECES en el P&L de M7 (§4.21b).
    *  - Se capturan marca + últimos 4 de la tarjeta (único dato de pago que se persiste).
    *
-   * Idempotente: el early-return por `status==='settled'` (secuencial), ⭐ v1.79.4 el CAS del settle
+   * Idempotente: el early-return por estado no liquidable (secuencial; v1.80 lista cerrada), ⭐ v1.79.4 el CAS del settle
    * (concurrente: el perdedor no escribe ni avisa), la guardia `status:'reserved'` de cada pieza y la
    * búsqueda del envío activo hacen que un reintento de Stripe no duplique nada.
    * El correo es POST-COMMIT y BEST-EFFORT: su fallo NO revierte el pago ni falla el webhook.
@@ -415,8 +434,9 @@ export class PaymentsService {
     const settled = await this.prisma.$transaction(async (tx) => {
       // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el MISMO CAS que la rama `vault` (ver `onPaymentSucceeded`):
       // primera escritura, estado en el `WHERE`, `count === 0` ⇒ el perdedor no escribe nada más.
+      // v1.80 (§M4-VAULT.2-bis.2): mismo predicado, misma constante que el early-return.
       const won = await tx.order.updateMany({
-        where: { id: order.id, status: { not: 'settled' } },
+        where: { id: order.id, status: { in: [...SETTLEABLE_ORDER_STATUSES] } },
         data: {
           status: 'settled',
           settledAt: now,

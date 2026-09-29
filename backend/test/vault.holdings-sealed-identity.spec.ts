@@ -2,6 +2,7 @@ import { VaultService } from '../src/modules/vault/vault.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
 
 /**
  * v1.42 (BLOQ-2a, §4.34a) — `GET /vault/holdings` pinta el SELLADO con su identidad real (mata «Tropius»
@@ -38,12 +39,19 @@ describe('VaultService.holdings — identidad de sellado (BLOQ-2a)', () => {
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('sealed:tcg:42'),
       tryGradeKeyFor: jest.fn().mockReturnValue('sealed:tcg:42'),
+      // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
+      ...REAL_VALUATION_GATE,
+      // SK-5: dial ENCENDIDO — estas pruebas no son del dial (ese lo cubren VK-2/VK-5); con él encendido la
+      // valuación del sellado es la de antes de SK-5 para refs sin `source`.
+      loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: true })),
       getReference: jest
         .fn()
         .mockResolvedValue({ status: 'priced', referenceMxnCents: 92681, capturedDate: '2026-08-13' }),
       getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+      // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+      sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
-    return { svc: new VaultService(prisma as PrismaService, pricing), prisma };
+    return { svc: new VaultService(prisma as PrismaService, pricing), prisma, pricing };
   }
 
   const sealedItem = (over: Record<string, unknown> = {}) => ({
@@ -58,6 +66,8 @@ describe('VaultService.holdings — identidad de sellado (BLOQ-2a)', () => {
     ownershipStatus: 'settled',
     status: 'in_custody',
     sealedProductId: 'sp_1',
+    // v1.80.1 (SK-5): caja MAPEADA (la clave `sealed:tcg:42` que el doble ya fijaba sale de aquí).
+    tcgplayerProductId: 42,
     sealedProductName: 'Obsidian Flames Elite Trainer Box',
     sealedImageUrl: 'http://img/etb.jpg',
     sealedSubtype: 'etb',
@@ -67,8 +77,10 @@ describe('VaultService.holdings — identidad de sellado (BLOQ-2a)', () => {
   });
 
   it('un holding sellado pinta el ETB (nombre e imagen), NO la carta ancla Tropius', async () => {
-    const { svc } = makeService([sealedItem()]);
+    const { svc, pricing } = makeService([sealedItem()]);
     const res = await svc.holdings('u1');
+    // SK-5: la caja se valúa con SU mercado (`sealed:tcg:<id>`, `normal`), nunca con la llave de cola.
+    expect(pricing.getReference).toHaveBeenCalledWith('c1', 'sealed', 'sealed:tcg:42', 'normal');
     const h = res.data[0] as any;
     expect(h.productType).toBe('sealed');
     expect(h.sealedProductId).toBe('sp_1');

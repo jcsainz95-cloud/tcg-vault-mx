@@ -18,6 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { variantKey } from '../../common/variant-key';
 import { CardDTO, toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
@@ -175,21 +176,17 @@ export class VaultService {
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
 
+    // v1.80.1 (SK-5): el dial del sellado se iza UNA vez por petición, y solo si hay sellado que gatear
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
+
     let totalValueMxnCents = 0;
     let pendingPriceCount = 0;
     // v2.1.9 (T-2): ANOTADO con el tipo del contrato. Con el spread condicional de sellado más abajo,
     // sin tipo una rama podía perder un requerido y la otra no — y el test solo mira la que eligió.
     const data: HoldingDTO[] = [];
     for (const item of items) {
-      // v1.53 (§4.40.4b, MONEY) — BÓVEDA (lectura): sin identidad de slab NO HAY REFERENCIA ⇒ el
-      // holding sale `pending` y NO suma al valor de la bóveda. Antes se valuaba como un PSA 10, lo
-      // que inflaba el patrimonio que el cliente ve y el pasivo de custodia que el admin agrega.
-      const gradeKey = this.pricing.tryGradeKeyFor(item);
-      // v1.6-finish: valúa contra la referencia del ACABADO del holding (no un precio único por carta).
-      const referenceValue: PriceInfo =
-        gradeKey == null
-          ? { status: 'pending' }
-          : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
+      const referenceValue = await this.valuate(item, sourceOn);
       if (referenceValue.status === 'priced' && referenceValue.referenceMxnCents != null) {
         totalValueMxnCents += referenceValue.referenceMxnCents;
       } else {
@@ -391,16 +388,20 @@ export class VaultService {
     })) as (InventoryItem & { card: Card & { set?: CardSet | null } })[];
 
     // Lote de referencias de MERCADO del sellado (`sealed:tcg:<productId>`, finish normal).
+    // v1.80.1 (SK-5): por la MISMA puerta que «Mis piezas» (`valuationKeyFor`), para que las dos pestañas
+    // no puedan divergir sobre la misma caja. Sin mapeo ⇒ sin clave ⇒ fuera del lote.
     const refs = await this.pricing.getReferencesBatch(
       items.flatMap((i) => {
-        const gk = this.pricing.sealedMarketGradeKeyForItem(i);
-        return gk ? [{ cardId: i.cardId, productType: 'sealed' as const, gradeKey: gk, finish: 'normal' as const }] : [];
+        const k = this.pricing.valuationKeyFor(i);
+        return k ? [k] : [];
       }),
     );
     // H-1 (v1.24): el mercado del sellado solo cuenta con el dial ENCENDIDO (`sourceOn`), igual que
     // catálogo/Compra/grid — para que la VALUACIÓN coincida con ellos (con off el ref TCGCSV es inerte,
     // §4.23a). Antes esta valuación no gateaba por dial (divergía cuando `sealed_price_source=off`).
-    const { sourceOn } = await this.pricing.loadSealedSpreads();
+    // v1.80.2.2 (D-4): el mismo helper que los otros lectores (aquí todo es sellado: una lectura si hay
+    // piezas; con la bóveda vacía no hay nada que gatear y no se lee el dial).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
 
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
@@ -422,10 +423,12 @@ export class VaultService {
     let pendingPriceCount = 0;
     const rows = [...groups.values()].map((members) => {
       const rep = members[0];
-      const gk = this.pricing.sealedMarketGradeKeyForItem(rep);
-      const rawRef = gk ? refs.get(`${rep.cardId}|sealed|${gk}|normal`) : undefined;
+      const k = this.pricing.valuationKeyFor(rep);
+      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
+      const rawRef = k ? refs.get(variantKey(k)) : undefined;
       // H-1 (v1.24): gate ÚNICO del mercado (dial + priced). Con off / no mapeado → null → pending.
-      const marketCents = this.pricing.gateSealedMarketCents(rawRef, sourceOn);
+      // v1.80.1 (SK-5): el gate vive dentro de `valuationCentsOf` (rama sellado = `gateSealedMarketCents`).
+      const marketCents = this.pricing.valuationCentsOf(rep, rawRef, sourceOn);
       const priced = marketCents != null;
       const marketRef: PriceInfo = priced ? toPublicPriceInfo(rawRef!) : { status: 'pending' };
       const count = members.length;
@@ -479,6 +482,28 @@ export class VaultService {
     return { data: rows, totalValueMxnCents, pendingPriceCount, currency: 'MXN' as const };
   }
 
+  /**
+   * v1.80.1 (API_CONTRACT §M2-SK **SK-5**, **MONEY**) — la referencia de UNA pieza de la bóveda, por la
+   * única puerta de valuación (`valuationKeyFor` + `valuationCentsOf`). La comparten `holdings` y
+   * `holdingDetail` para que la fila y su detalle no puedan divergir.
+   *
+   * - raw/graduada: la clave y el criterio de siempre (v1.6-finish: el ACABADO del holding; v1.53
+   *   §4.40.4b: sin identidad de slab ⇒ `pending`, jamás un PSA 10).
+   * - sellado: SU mercado (`sealed:tcg:<id>`, `normal`) con el gate de dial de `/vault/sealed`; sin
+   *   mapeo ⇒ `pending`. ⛔ Nunca la fila legada `'sealed'`, que puede ser el precio de OTRA caja.
+   *
+   * `null` en cualquiera de las dos ⇒ `{ status: 'pending' }` (no suma, cuenta como pendiente).
+   */
+  private async valuate(
+    item: Parameters<PricingService['valuationKeyFor']>[0],
+    sourceOn: boolean,
+  ): Promise<PriceInfo> {
+    const key = this.pricing.valuationKeyFor(item);
+    if (key == null) return { status: 'pending' };
+    const ref = await this.pricing.getReference(key.cardId, key.productType, key.gradeKey, key.finish);
+    return this.pricing.valuationCentsOf(item, ref, sourceOn) == null ? { status: 'pending' } : ref;
+  }
+
   async holdingDetail(userId: string, inventoryItemId: string) {
     const item = await this.prisma.inventoryItem.findUnique({
       where: { id: inventoryItemId },
@@ -489,13 +514,10 @@ export class VaultService {
     });
     if (!item) throw BusinessException.notFound();
     if (item.ownerUserId !== userId) throw BusinessException.forbidden('FORBIDDEN');
-    // v1.53 (§4.40.4b, MONEY) — mismo criterio que el listado: sin identidad de slab, `pending`.
-    const gradeKey = this.pricing.tryGradeKeyFor(item);
-    // v1.6-finish: valúa contra la referencia del ACABADO del holding.
-    const referenceValue: PriceInfo =
-      gradeKey == null
-        ? { status: 'pending' }
-        : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
+    // v1.80.1 (SK-5) — MISMA puerta que el listado (y que `/vault/sealed` para el sellado).
+    // v1.80.2.2 (D-4): un solo cuerpo, `sealedSourceOnFor` (lote de una pieza).
+    const sourceOn = await this.pricing.sealedSourceOnFor([item]);
+    const referenceValue = await this.valuate(item, sourceOn);
     // v1.22-2 / N-15 (§4.22a-6): displayFinishes del detalle usa los acabados priceados de la carta.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch([item.cardId]);
     return {

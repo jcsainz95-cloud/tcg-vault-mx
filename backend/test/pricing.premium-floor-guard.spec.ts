@@ -408,8 +408,26 @@ describe('E4 — guardarraíl del eje de COMPRA (§4.36.5, simetría money-safe)
     expect(q.priceBasis).toBe('override');
   });
 
-  it('un BOUNTY también lo desactiva', async () => {
+  it('un BOUNTY sin tope desactiva el guardarraíl; TOPADO contra el bin en una chase ⇒ precio_pendiente (v1.80.2)', async () => {
+    // ⭐⭐ EXPECTATIVA INVERTIDA en v1.80.2 (API_CONTRACT §M2-B.11 punto 8, prueba BG-1; BACKEND_NOTES
+    // §0.57). Hasta v1.80.1 esta prueba afirmaba que una chase con mercado corrupto de MX$1 y bounty de
+    // MX$9,000 cotizaba **MX$1** (`basis bounty`): la lectura literal del tope, reportada al arquitecto
+    // en §0.55.3 (commit `c77ebc8`). La norma nueva: el bounty TOPADO paga el mercado, así que el
+    // guardarraíl evalúa el basis de la CURVA (aquí `floor`) ⇒ NO se cotiza.
     const { svc } = buylistFor(CHASE, 100, { bountyEnabled: true, bountyPriceCents: 900000 });
+    const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
+    expect(q.quote.status).toBe('precio_pendiente');
+    expect(q.quote.quotedPriceCents).toBeNull();
+    expect(q.priceBasis).toBe('pending');
+    // …y un bounty SIN tope (bounty 250 < mercado 300, curva aún en el bin) sigue exento: paga lo decidido.
+    const { svc: sinTope } = buylistFor(CHASE, 300, { bountyEnabled: true, bountyPriceCents: 250 });
+    const q2 = await sinTope.publicQuote('c1', 'raw', 'NM', 'normal');
+    expect(q2.quote.quotedPriceCents).toBe(250);
+    expect(q2.priceBasis).toBe('bounty');
+  });
+
+  it('un BOUNTY sin mercado (curva pendiente) paga el bounty completo y no dispara el guardarraíl', async () => {
+    const { svc } = buylistFor(CHASE, null, { bountyEnabled: true, bountyPriceCents: 900000 });
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
     expect(q.quote.quotedPriceCents).toBe(900000);
     expect(q.priceBasis).toBe('bounty');

@@ -340,6 +340,8 @@ describe('MasterSetBinder · badge de bounty rebasado (P-48, §21.9c)', () => {
               completedAt: null,
               effective,
               curveQuoteCents: 95_000,
+              payoutCents: null,
+              cappedByMarket: false,
             },
           },
         },

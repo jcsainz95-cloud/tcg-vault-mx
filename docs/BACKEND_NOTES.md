@@ -81,6 +81,385 @@ Postgres real). La conducta heredada «el `q` se aplica **antes** del plegado de
 
 **Para frontend:** el campo llega `null` con frecuencia (promos, sets viejos, y quizá recientes: `N-P71-1/2`
 de `ARCHITECTURE §4.57.6`, **NO MEDIDO** en producción). Condicionar por verdad (`code ? … : '#130'`).
+## 0.58 — ⭐⭐ **v1.80.2.2: séptimo lector de SK-5 (export `.xlsx`), BC-9 en tres partes y deuda D-1/D-2/D-4 del techlead** (2026-09-29)
+
+> Contrato v1.80.2.2 — §M2-SK SK-5 errata «séptimo lector» (ancla `M2-SK-5-7`) y §M2-B.11 punto 7 BC-9 (ancla
+> `M2-B11-BC9`) + punto 8; ARCHITECTURE §4.50.6 (D-SK-4, D-BC-1). Deuda del techlead sobre `a3cde51`: D-1, D-2, D-4
+> (D-3 = D-BC-1, D-5 = D-SK-4). Zona de dinero (`inventory`, `buylist`, `pricing`, `vault`, `admin`). Sin schema,
+> sin migración, sin endpoint nuevo, sin campo en DTO, sin cabecera nueva en el `.xlsx`. Rama `claude/paquete-dinero`,
+> cuatro commits sobre `b8edfa7`: `b338886` (punto 1), `cd696a3` (punto 2 + D-2), `2cf50c6` (D-1 + D-4), y el de
+> estas notas.
+
+### 0.58.1 — Qué cambió, por punto
+
+1. **Export `.xlsx` = séptimo lector de patrimonio (`b338886`).** `inventory.service.ts` `exportInventoryXlsx`: la
+   llave de cada fila sale de `PricingService.valuationKeyFor(it)` (`:3216`; sellado mapeado ⇒ `sealed:tcg:<id>` bajo
+   `normal`, sin mapeo ⇒ `null`, graduada sin slab ⇒ `null`), `refs` y `ovByKey` se llavean con `variantKey()`
+   (`:3234`, `:3263`), el monto pasa por `valuationCentsOf(it, ref, sourceOn)` (`:3265`) y el dial se iza una vez por
+   export (`:3223`). `exportGradeKey` **retirado** (`:3297`, queda la nota de por qué). Columnas y cabeceras intactas;
+   `buyMxn`/`sellMxn` con la misma regla (`ov?.buyOverrideCents`; `firstPresentAmount(listPriceCents,
+   sellOverrideCents)`).
+2. **BC-9 en tres partes (`cd696a3`).** `buylist.service.ts` `publicBounties` (`:1324-1335`): por fila
+   `q = quoteAcquisitionWithGuard(referenceMxnCents, curve, r)`; presente ⇔ `q.basis === 'bounty' ∧
+   premiumFloorGuard(rareza, q.guardBasis) === 'ok'`; publica `q.priceCents`. Se retiran la composición manual
+   (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + `quoteAcquisitionFromCurve` ×2) y sus imports.
+   `variant-pricing.ts` `composeVariantPricing` (`:197-200`): `effective = buy.basis === 'bounty'`;
+   `payoutCents = effective && !buyGuarded ? buy.priceCents : null`; `cappedByMarket` sin cambio. Desde `src`, fuera de
+   `common/money.ts`, ya no se importa `bountyPayoutCents` ni `bountyGuardBasis`; `isBountyEffective` queda en sus dos
+   llamadores (`variant-controls.service.ts` gate del alta; `buylist.service.ts` `positionAndSuggestion`).
+3. **D-1 / D-4 (`2cf50c6`).** `PricingService.sealedSourceOnFor(items)` (`pricing.service.ts:1257`) = «dial del
+   sellado, una lectura por petición y solo si hay sellado»; lo consumen los siete lectores (`admin.service.ts:1031,
+   1630, 1668`; `vault.service.ts:181, 404, 519`; `admin-vaults.service.ts:136`; export `:3223`). Los lectores llavean
+   el lote con `variantKey()` (`admin.service.ts:1013` productor de `ownedItemRefs`, `:1039`, `:1645`;
+   `vault.service.ts:428`; `admin-vaults.service.ts:149`). `/vault/sealed` (`:404`) pasa de leer el dial siempre a
+   leerlo solo si hay piezas (con la bóveda sellada vacía no hay nada que gatear; la respuesta no cambia).
+4. **D-2 (`cd696a3`).** El candado léxico de `pricing.bounty-guard.spec.ts` es ahora un censo cerrado al patrón VK-6:
+   `quoteAcquisitionFromCurve` aparece en código solo en `common/money.ts` (2) y `variant-controls.service.ts` (2), y
+   fuera de `money.ts` ninguna llamada lleva tercer argumento. Instrumento compartido nuevo:
+   `backend/test/helpers/ident-census.ts` (`walkSources`, `countIdentUses`, `identCensus`, `methodBody`,
+   `topLevelBody`, `callArgCounts`), usado por VK-6, BC-9(b) y este candado — una copia del recorrido, no tres.
+
+### 0.58.2 — Decisiones que el contrato dejaba abiertas (para QA/techlead/arquitecto)
+
+- **Censo de `isBountyEffective` (BC-9(b)):** el contrato dice «solo en un censo cerrado de **dos** llamadores». El
+  identificador aparece en código en **cuatro** ficheros: la definición (`common/pricing-curve.ts`, 1), el peldaño 1
+  (`common/money.ts`, import + uso = 2) y los dos llamadores del contrato (`variant-controls.service.ts` 2,
+  `buylist.service.ts` 2; import + uso cada uno, porque el censo cuenta imports como VK-6). La lista cerrada del spec
+  lleva los cuatro con su razón; «dos llamadores» = los dos fuera de `common/`. No es discrepancia, es la forma
+  concreta del censo.
+- **Presencia en la vitrina con `=== 'ok'`** (antes `!== 'premium_at_floor'`): es la forma del contrato; `GuardVerdict`
+  solo tiene esos dos valores, así que la conducta es idéntica.
+- **El export iza el dial con `sealedSourceOnFor(items)`** (D-4) y no con `loadSealedSpreads()` directo como dice
+  literalmente la errata: por debajo es la misma lectura, una vez, y solo si el export trae sellado. Matiz: un export
+  sin sellado hace **cero** lecturas del dial (la errata dice «una vez por export»; el valor no se usaría).
+- **`ovByKey` para sellado busca bajo `finish:'normal'`** (la llave de valuación), no bajo el `finish` de la pieza.
+  Por lectura no hay fila M-30 con `productType:'sealed'` (`variant-controls.service.ts:123-125` acota el write a
+  `raw`/`graded`), así que ninguna celda `Compra`/`Venta` cambia. **NO MEDIDO** en la BD de producción.
+- **Doble del export (nota de fixture del contrato):** `valuationKeyFor`/`valuationCentsOf`/`tryGradeKeyFor`/
+  `gateSealedMarketCents`/`sealedSourceOnFor` se toman de `PricingService.prototype`; solo `getReferencesBatch` y
+  `loadSealedSpreads` están doblados. Trece dobles más ganaron `sealedSourceOnFor` (delegan en su
+  `loadSealedSpreads` doblado): la causa única medida fue `sealedSourceOnFor is not a function` (130/130).
+- **Lo que queda apuntado en `TECH_DEBT.md`:** tres llaves de variante a mano fuera de SK-5 (`inventory.service.ts:1656`,
+  `master-set.service.ts:1044`, `price-ingest.service.ts:1018`), fuera del alcance de D-1.
+
+### 0.58.3 — Pruebas y mediciones (autor: backend; 2026-09-29; sobre copias del árbol entero, N=1 por mutación —
+todas deterministas: escaneo de fuente o cálculo puro)
+
+| Punto | Rojo antes (sobre el sha previo) | Verde después | Mutaciones (muerden / total) |
+|---|---|---|---|
+| 1 SK-5 export | VK-8a (800 en vez de vacía), VK-8b (vacía en vez de 2500), VK-8c ×3 (2500 con dial apagado; 0 lecturas del dial), VK-6 censo (5≠4) y VK-6 por método — 7 rojas | `inventory.export-xlsx.spec.ts` 16/16, `pricing.valuation-callers-census.spec.ts` 10/10 | llave `'sealed'` ⇒ VK-8a; `it.finish` ⇒ VK-8b; sin gate ⇒ VK-8c; `exportGradeKey` restaurado ⇒ VK-6 ×2 — **4/4** |
+| 2 BC-9 | BC-9(b) 4 rojas + inversión de `money.bounty-cap.spec.ts:246` + inversión de `pricing.bounty-guard.spec.ts:310` + censo D-2 (buylist con 3 usos) — 8 rojas; BC-9(c) verde (12 casos × vitrina y composer) | los tres specs + VK-6: 97/97 | peldaño 1 a mano en `publicBounties` ⇒ BC-9(b) 5 rojas; publicar `r.bountyPriceCents` ⇒ 6 rojas (1000/400/1200, 701/500, 650/500, chase sana, BC-10, «publica 1000»); filtrar sin `guardBasis` ⇒ 3 rojas (BG-6 retenida aparece, ×2 en `bounty-guard`); composer sin guardarraíl ⇒ 2 rojas (BG-6 composer + consola); tercer argumento en `variant-controls` ⇒ D-2 roja — **5/5** |
+| 3 D-1/D-4 | D-1, D-4 y la aserción por método del export rojas; `pricing.sealed-source-on.spec.ts` no compilaba | 33/33 en los tres specs; 121/121 en los 12 specs del ripple | llave a mano en `admin-vaults` ⇒ D-1; copia de `loadSealedSpreads` en `holdings` ⇒ D-4; helper que siempre lee ⇒ «sin sellado» roja; helper que siempre da `false` ⇒ «con sellado» ×2 rojas — **4/4** |
+
+- **Unitaria completa** (`npx jest`, árbol de `2cf50c6`): **360/360 suites, 5967/5967 pruebas** (base 359/5923: +1
+  suite, +44 pruebas). `tsc --noEmit` limpio; `eslint` sin errores (1 aviso preexistente, `inventory.service.ts:644`).
+- **Vecinas de bounty/composer/vitrina** (15 specs: `pricing-curve.spec.ts` BC-7, `buylist.bounties`,
+  `buylist.bounty-revalidation`, `admin-bounties.*`, `pricing.bounty-market-floor`, `master-set.*`, …): 315/315 sin editar.
+- **Integración** (Postgres propio en `:55822`, Redis en `:56822`, migraciones al día; sin MinIO — el seed avisa
+  que no sube las imágenes del INE, que no intervienen): ver el resumen final del pase; `sk5-valuation.e2e-spec.ts`
+  7/7 medido primero como validación del arnés.
+- BC-1…BC-12 y BG-1…BG-8 restantes **sin editar** (solo las dos inversiones que manda el contrato); BC-7
+  (`pricing-curve.spec.ts`) intacto.
+
+### 0.58.4 — ⚠️ Para el arquitecto (no cambié el contrato)
+
+1. **VK-6 en el contrato dice «`inventory.service.ts` baja de 5 a 4 usos»** — así quedó (import + publicación +
+   re-publicación + … = 4), con la razón reescrita sin la advertencia del export.
+2. **La errata «séptimo lector» describe el dial con `loadSealedSpreads()` «una vez por export»**; con D-4 la lectura
+   va por `sealedSourceOnFor`, que es `loadSealedSpreads()` una vez **si hay sellado** y cero veces si no. Si el
+   contrato quiere fijar «exactamente una» también para exports sin sellado, hay que decirlo; hoy VK-8c fija «una» con
+   sellado presente.
+3. **BC-9(b) «dos llamadores» de `isBountyEffective`:** el censo cerrado lleva cuatro ficheros (definición, `money.ts`
+   y los dos llamadores). Si el contrato prefiere un censo que excluya `common/`, es un cambio de redacción, no de
+   código.
+
+## 0.57 — ⭐⭐ **v1.80.2 §M2-B.11 punto 8: el tope del bounty no se salta el guardarraíl premium** (2026-09-29)
+
+> Contrato v1.80.2 §M2-B.11 punto 8 (ancla `M2-B11-8`) · ARCHITECTURE §4.36.5(a), §4.36.6e (fila v1.80.2). Zona de
+> dinero (`pricing`/`buylist`). Sin schema, sin migración, sin endpoint, sin campo en DTO, sin código de error.
+> **Sustituye a §0.55.3** (la consecuencia que allí reporté es la que el arquitecto normó aquí).
+
+### 0.57.1 — La forma del cambio
+
+- **`bountyGuardBasis(bounty, mercado, curveBasis)`** (`backend/src/common/money.ts`, junto a `bountyPayoutCents`):
+  `bountyPayoutCents(bounty, mercado) < bounty ? curveBasis : 'bounty'`. Devuelve un basis, no un monto, y no
+  recibe rareza (criterio 84). «Topado» se decide con `bountyPayoutCents` (el único tope, BC-9), así que la
+  presencia H-1 (mercado `<= 0` ⇒ ausente) viene gratis.
+- **`quoteAcquisitionWithGuard(mercado, curva, controles)`** (mismo fichero): llama a `quoteAcquisitionFromCurve` y
+  añade el campo interno **`guardBasis`** (tipo `AcquisitionQuoteResult`). Peldaño 1 ⇒ `bountyGuardBasis(bounty,
+  mercado, resolveBuyFromCurve(mercado, curva).basis)`; peldaños 2–4 ⇒ `= basis`. ⛔ No viaja en ningún DTO.
+  ⚠️ Es una función hermana y no un campo del resultado de `quoteAcquisitionFromCurve` — ver 0.57.4 (1).
+- **Llamadores de COMPRA** — todos evalúan el guardarraíl con `guardBasis`, nunca con `basis`:
+  - `decideBuyLine` (`buylist.service.ts`) ⇒ `resolvePendingReason(quote.guardBasis, rareza)`. De ahí salen
+    `/quote`, `/quote/batch`, `createRequest` (escala a la cola `premium_at_floor`, contexto `buylist`) y la
+    derivación de la oferta (`offerDerivedPriceCents = null` ⇒ el operador pone precio con motivo, 148(a)).
+  - `composeVariantPricing` (consola `/admin/pricing/bounties`, variant-controls y binder de master-set) ⇒
+    `premiumFloorGuard(rareza, buy.guardBasis)`. Fila retenida: `buy.source='pending'`, `buy.effectiveCents=null`,
+    `buy.premiumAtFloor=true`, `bounty.payoutCents=null`, `bounty.cappedByMarket=false`; `bounty.effective` intacto
+    ⇒ `state` sigue **`activa`** (`deriveBountyState` no se tocó).
+  - `publicBounties` (vitrina): tras calcular el pago y **antes** de ordenar/cortar a 50, filtra
+    `premiumFloorGuard(rareza, bountyGuardBasis(bounty, mercado, basis-de-la-curva)) === 'premium_at_floor'`.
+- **Lo que no cambia:** `isBountyEffective`, `bountyPayoutCents`, `quoteAcquisitionFromCurve` (forma y conducta:
+  BC-5 intacta), guardarraíl de VENTA, override. `/quote` y `/quote/batch` siguen READ-ONLY.
+- **Cierre:** la retención se **deriva** en cada resolución, no se persiste. Cuando el mercado se corrige, la
+  siguiente `createRequest` de esa variante cierra la entrada (`settlePendingForVariant(null, …, 'buylist')`) y
+  el bounty vuelve a pagar (BG-8).
+
+### 0.57.2 — Pruebas
+
+| Prueba | Dónde |
+|---|---|
+| `bountyGuardBasis` pura, BG-1…BG-5 (seam real `publicQuote`), peldaños 2–4, BG-6 sin infra (consola y vitrina, incl. «el filtro va antes del corte a 50»), candado de forma (ningún `quoteAcquisitionFromCurve(m, curva, controles)` fuera de `money.ts`, con canario) | `backend/test/pricing.bounty-guard.spec.ts` |
+| BG-6 (quote, batch, vitrina, solicitud + cola, consola), BG-7 (oferta), BG-8 (cierre) — Postgres real, por HTTP | `backend/test/integration/bounty-guard.e2e-spec.ts` |
+
+**Expectativa invertida (modelo fuerte, anotada):** `pricing.premium-floor-guard.spec.ts`, caso E4 «un BOUNTY…»:
+afirmaba que la chase con mercado MX$1 y bounty MX$9,000 cotizaba **MX$1** (`bounty`), la conducta de `c77ebc8`
+fijada en §0.55.3. Ahora afirma `precio_pendiente` / `quotedPriceCents null` / `priceBasis pending` (BG-1), y añade
+el caso sin tope (bounty 250 < mercado 300, curva en el bin ⇒ paga 250 `bounty`, exención vigente). BC-1…BC-12 y
+la tabla de 12 casos de `isBountyEffective` **no se editaron**.
+
+**Escala en integración (desviación declarada):** bounty retenido **150000** (contrato: 900000) y mercado de BG-8
+**200000** (contrato: 1000000). Con MX$9,000 la solicitud de BG-8 y la oferta de BG-7 chocan con el tope AML por
+solicitud del seed (MX$3,000); y con bounty 150000 un mercado de 1000000 haría que la curva pagara más que el
+bounty (rebasado ⇒ `market`). Se conserva lo que se prueba: bounty > mercado roto (topa), curva en el bin, rareza
+premium; y en BG-8 curva < bounty < mercado (efectivo, sin tope). Las precondiciones se afirman contra la curva
+VIVA (`GET /admin/pricing/curve`).
+
+**INE en la integración:** una línea `precio_pendiente` exige INE en el intake (Fase 0.3, ya existente), así que
+el spec pone INE en archivo al vendedor y lo restaura en `afterAll`. Ver 0.57.4 (3).
+
+### 0.57.3 — Mediciones (autor: backend; 2026-09-29)
+
+- **Rojo contra `5776f74`** (copia del árbol entero `git archive 5776f74` + los specs nuevos; Postgres propio):
+  - Unidad (ts-jest sin diagnóstico para que los símbolos nuevos lleguen `undefined` y no tumben el fichero):
+    rojos **por conducta** BG-1 seam (`cotizada` en vez de `precio_pendiente`), BG-6 consola, BG-6 vitrina (×2)
+    y E4 invertida. BG-3/BG-4 salen rojos solo porque su precondición llama a `quoteAcquisitionWithGuard`
+    (inexistente): **ese rojo es vacuo** y no lo cuento.
+  - Integración: **7/8 rojos por conducta** (quote, batch, vitrina publica 100, solicitud `cotizada`, consola,
+    oferta sale con derivado 100, BG-8 sin entrada que cerrar); verde solo la precondición de la curva.
+  - **BG-2, BG-3, BG-4, BG-5 son verdes contra `5776f74` por diseño**: prueban que NO se retiene de más, y
+    `5776f74` nunca retiene. Su mordida es la de las mutaciones de abajo, no la del rojo previo.
+- **Mutaciones** (copia del árbol entero con este cambio; deterministas, N=1 cada una; línea base de la copia
+  45/45 unidad y 8/8 integración):
+
+| Mutación | Resultado |
+|---|---|
+| `decideBuyLine` con `quote.basis` (conducta `c77ebc8`) | muerta: BG-1, E4 |
+| retener bounty topado con curva `floor` sin `premiumFloorGuard` | muerta: BG-2 |
+| `guardBasis = basis de la curva` en todo el peldaño 1 | muerta: BG-3 (×2), BG-5 (×2), E4 (×2) |
+| `<=` en `bountyGuardBasis` | muerta: BG-3 empate y 8 más |
+| retener todo bounty topado premium sin mirar la curva | muerta: BG-4, vitrina, pura |
+| `bountyGuardBasis` sin H-1 (`mercado != null && mercado < bounty`) | muerta: BG-5 mercado 0, pura |
+| **`curveBasis` = `'floor'` cuando la curva es `pending` (la del contrato para BG-5)** | **sobrevive — mutante equivalente**, ver 0.57.4 (2) |
+| vitrina sin el filtro | muerta: BG-6 vitrina (unidad ×2, integración) |
+| consola con `buy.basis` | muerta: BG-6 consola (unidad, integración) |
+| `createRequest` sin escalar | muerta: BG-6 solicitud, BG-8 |
+| oferta derivada sin guardarraíl (`quote.priceCents`) | muerta: BG-7 |
+| la retención no se cierra (solo se escribe con razón) | muerta: BG-8 |
+
+- **Suites (árbol vivo):** unidad completa **359/359 suites, 5923/5923**; integración buylist/pricing (14 suites:
+  `bounty-cap`, `bounty-guard`, `buylist*`, `admin-bounties`, `pricing-*`, `pending-publish-seed`) **226/226**;
+  `tsc --noEmit` limpio; `eslint` de los ficheros tocados limpio.
+
+### 0.57.4 — ⚠️ Para el arquitecto (no cambié el contrato)
+
+1. **`guardBasis` no puede ser un campo del resultado de `quoteAcquisitionFromCurve` sin editar BC-5.** El contrato
+   pide ambas cosas: «el resultado gana un campo INTERNO `guardBasis`» y «BC-1…BC-12 siguen verdes **sin
+   editarse**». BC-5 (`test/money.bounty-cap.spec.ts`) afirma con `toEqual` la forma exacta
+   `{priceCents, basis, marketMxnCents, curveQuoteCents}` en sus 9 filas (y E2 de `money.pricing-curve.spec.ts`,
+   dos casos, igual). Un campo nuevo las pone rojas. Implementé la función hermana `quoteAcquisitionWithGuard`
+   (misma precedencia, un solo cuerpo; solo añade el basis del guardarraíl) y un candado que impide llamar a
+   `quoteAcquisitionFromCurve` **con controles** fuera de `money.ts`. BG-1 afirma su precondición sobre la
+   hermana. Si el arquitecto prefiere el campo, hay que autorizar a editar la forma de BC-5/E2.
+2. **La mutación que el contrato asigna a BG-5 es equivalente.** «`curveBasis` por defecto `'floor'` cuando la
+   curva es `pending`» no puede cambiar ninguna salida: la curva de compra es `pending` **solo** sin mercado
+   presente (`explainBuyFromCurve`, `mercado == null || <= 0`), y sin mercado presente `bountyPayoutCents`
+   devuelve el bounty ⇒ `bountyGuardBasis` responde `'bounty'` sin leer `curveBasis`. Medido: sobrevive. BG-5 sí
+   mata la mutación vecina que no es equivalente (quitar H-1 de `bountyGuardBasis`).
+3. **Consecuencia no nombrada (no es contradicción):** una solicitud con una línea retenida **exige INE**, porque
+   el intake exige INE ante cualquier línea `precio_pendiente` (Fase 0.3). El punto 8 dice «idéntico a una chase
+   sin bounty con la curva en el bin», y así es — pero para el vendedor significa que una chase con bounty y
+   mercado roto le pide INE aunque el monto fuera pequeño. Lo dejo dicho por si el dueño lo pregunta.
+
+## 0.56 — ⭐⭐ **v1.80 §M4-VAULT.2-bis.2: `SEC-SETTLE-LATE` — el pago solo se liquida desde `pending` o `failed`** (2026-09-28)
+
+> Contrato v1.80 §M4-VAULT.2-bis.2 · ARCHITECTURE §4.21q (p). Zona de dinero (`payments`). Sin schema, sin
+> migración, sin endpoint, sin código de error.
+
+### 0.56.1 — La forma del cambio
+
+- **Una constante, un predicado:** `SETTLEABLE_ORDER_STATUSES = ['pending','failed'] as const satisfies
+  readonly OrderStatus[]` en `backend/src/modules/payments/settleable-order-statuses.ts`, con
+  `isSettleableOrderStatus(status)` (la única forma de preguntarlo). La leen **tres** sitios y ningún otro: el
+  early-return de `onPaymentSucceeded` (negado) y el CAS `tx.order.updateMany({ where: { id, status: { in:
+  [...SETTLEABLE_ORDER_STATUSES] } } })` en las ramas `vault` y `settleDirectShipOrder`.
+- **El early-return va antes de H1** (un tardío no es un descuadre: ⛔ no audita `order.settle_amount_mismatch`)
+  y antes del reparto por `fulfillmentMode` (⛔ no llama a `getCardDetails`).
+- **La única huella del tardío** es `logger.warn('SEC-SETTLE-LATE: payment_intent.succeeded ignorado — orden
+  <orderNumber ?? id> en <status> (PI <pi>)')`, **solo** en `refunded`/`chargeback`; `settled` sale en silencio.
+  El perdedor del CAS no loguea nada (no sabe contra quién perdió). Marcador `ProcessedStripeEvent`: queda.
+- ⛔ No se tocó: `onChargeDispute*`, `onChargeDisputeClosed`, `failAndRelease`, `createMany … skipDuplicates`.
+
+### 0.56.2 — Medido ANTES del arreglo (sobre `cb4ee3e`, Postgres real, webhook firmado, N=1 por caso)
+
+El contrato marcaba ⛔ NO MEDIDO si salía `AV-2` por el camino tardío. **Sale**, y hay algo peor en `direct_ship`:
+
+| Caso (tardío = `succeeded` con otro event.id) | Antes de v1.80 |
+|---|---|
+| `vault` settled → contracargo → tardío | orden vuelve a `settled`, **`AV-2` enviado** |
+| `vault` settled → reembolso total → tardío | `settled`, **`AV-2` enviado** |
+| `direct_ship` (reg./inv.) settled → contracargo → tardío | `settled` + **`ShipmentRequest` NUEVO en `picking`** (el contracargo había cancelado el anterior) + confirmación de invitado / `AV-2` |
+| `direct_ship` (reg./inv.) `pending` → contracargo → tardío | lo anterior **y** la pieza que el contracargo había devuelto a `listed` se **re-congela en `picking`** (rama «recuperada» del settle) |
+
+Es decir: con Stripe entregando fuera de orden, una carta contracargada volvía a la cola de envío. Desde v1.80
+los cuatro casos son no-op (SL-1…SL-3, abajo).
+
+### 0.56.3 — Pruebas (primero en rojo, luego verdes)
+
+| Prueba | Fichero | Rojo sobre `cb4ee3e` | Verde |
+|---|---|---|---|
+| **38 (iii) enmendada** (`where` exacto `{ id, status: { in: ['pending','failed'] } }`, literal) | `test/payments.settle-cas.spec.ts` | 3/3 ramas | ✓ |
+| 38 (iii) literal en las otras tres specs que la afirmaban | `test/payments.service.spec.ts`, `test/payments.vault-placement-birth.spec.ts`, `src/modules/payments/h1-settle-amount.spec.ts` | — (cambio de literal) | ✓ |
+| **38 (ii) intacta** + control positivo `failed` en el fichero nuevo | `test/integration/vault-placement-birth.e2e-spec.ts`, `test/integration/settle-late.e2e-spec.ts` | verde (conducta que se conserva) | ✓ |
+| **SL-5** tabla de 5 estados × 3 ramas (unidad) + warn con id si no hay `orderNumber` + tardío antes de H1 | `test/payments.settle-late.spec.ts` | 18 rojas (las 21 de la corrida incluyen las 3 de 38 (iii)) | ✓ |
+| **SL-6** canario de lista cerrada (una fila por valor de `Object.values(OrderStatus)`) | ídem | — (nace con la constante) | ✓ |
+| **SL-1** `vault` contracargo → tardío (`settledAt` al ms, colocación igual) | `test/integration/settle-late.e2e-spec.ts` | rojo | ✓ |
+| **SL-2** `refunded` → tardío, 3 variantes | ídem | 3 rojas | ✓ |
+| **SL-3** `direct_ship` en `chargeback`, 4 variantes (reg./inv. × tras liquidar / sin liquidar) | ídem | 4 rojas | ✓ |
+| **SL-4** carrera con barrera de fila, N=10 por rama (`vault`, `direct_ship` reg., `direct_ship` inv.) | ídem | 0/10 verdes en cada rama | ✓ |
+| **SL-7** `dispute.closed(won)` conserva `settledAt`; luego tardío ⇒ no-op sin warn | ídem | verde (regresión) | ✓ |
+
+**«Cero escrituras» se mide con `xmin`:** la foto de SL-1…SL-3 incluye `xmin` de `Order`, `InventoryItem`,
+`VaultPlacement(Item)` y `ShipmentRequest`; cualquier `UPDATE` —aunque reescriba el mismo valor— lo cambia. Así
+«la tarjeta no se reescribió» no depende de que el doble de Stripe devuelva otra tarjeta.
+**`AV-2`:** el arnés no trae bandeja propia; la spec espía `mail.send`, `guestMail.sendConfirmation` y
+`logger.warn` **de la instancia viva** de `PaymentsService` (`h.app.get(PaymentsService)`), y
+`h.stripe.getCardDetails`. SL-1 lo mide directamente (no depende de SL-5).
+
+**SL-4, el arnés:** la barrera abre una tx, `SELECT … FOR UPDATE` + `UPDATE "Order" SET status='chargeback'`
+sin confirmar; se lanza el `succeeded` y se espera a verlo en `pg_stat_activity` con `wait_event_type='Lock'` y
+`query ILIKE '%UPDATE%"Order"%'`; se confirma la barrera. **Canario:** una tirada en la que el webhook respondió
+sin haberse visto esperando la fila cuenta como `INVALIDA` (⛔ no como verde) y la prueba exige 10/10 válidas.
+
+### 0.56.4 — Mediciones (autor: backend; sobre copia del árbol ENTERO `git archive HEAD` + mis ficheros)
+
+- **SL-4 verde:** 5 corridas × N=10 ⇒ **50/50 válidas y 50/50 verdes en cada una de las tres ramas**, 0 inválidas.
+- **Mutaciones** (cada una sobre la copia, suites de unidad de payments + `settle-late` + `vault-placement-birth`):
+
+| Mutación | Qué se pone rojo |
+|---|---|
+| M1 CAS **y** early-return a `not: 'settled'` (lo de v1.79.4) | SL-1, SL-2 ×3, SL-3 ×4, SL-4 ×3 (**0/10 verdes por rama, 2 corridas ⇒ 20/20 rojas**), residual ×2; unidad 25 |
+| M2 añadir `'refunded'` a la constante | SL-2 ×3, residual ×2; SL-5/SL-6/38 (iii) en unidad (17) |
+| M3 arreglar solo `vault` (early-return no aplica a `direct_ship` + CAS `direct_ship` viejo) | SL-2 direct_ship ×2, SL-3 ×4, SL-4 direct_ship ×2 (0/10 c/u) |
+| M4 early-return con la lista nueva, **CAS con `not: 'settled'`** en las dos ramas | en integración **solo SL-4** ×3 (**0/10 válidas-verdes por rama, 2 corridas ⇒ 20/20 rojas**); en unidad 38 (iii) + SL-5 (13) |
+| M5a quitar `'failed'` | 38 (ii) ×2 (integración), SL-5, SL-6, 38 (iii) (14) |
+| M5b añadir `'chargeback'` | SL-1, SL-3 ×4, SL-4 ×3, SL-5, SL-6 (23 en unidad) |
+| M5c early-return con lista propia `['pending','failed','refunded']` (CAS intacto) | SL-5 `refunded` ×3; SL-2 ×3 y residual ×2 (por el `warn`) |
+| M5d early-return con lista propia `['pending']` | SL-5 `failed` ×3; 38 (ii) ×2 |
+| M6 añadir `disputed` al enum `OrderStatus` + `prisma generate` | SL-6 ×2 |
+| M7 `onChargeDisputeClosed(won)` con `settledAt: new Date()` | SL-7 |
+| MCAN (canario) early-return que sale siempre | SL-4 ×3: **10/10 `INVALIDA`** por rama ⇒ rojo por el canario (sin él habría sido verde falso) |
+
+### 0.56.5 — ⭐ Residual declarado: el barrido de reservas y una orden `refunded` sin liquidar (MEDIDO)
+
+**Predicado leído** (`OrdersService.sweepExpiredReservations`, `orders.service.ts:1069`): selecciona piezas
+`status='reserved' ∧ reservedByOrderId ≠ null ∧ reservedUntil < now` **sin mirar el estado de la orden**; por
+orden, B3: `closePaymentIntent` y solo si queda `canceled` libera (`reservationGuard(orden)` ⇒ `listed`); la orden
+solo pasa a `failed` si seguía `pending`.
+
+**Medido** (Postgres real, `settle-late.e2e-spec.ts` «RESIDUAL», N=1 por variante): orden `vault` `pending` con 2
+piezas `reserved` vencidas ⇒ `charge.refunded` total (reembolso desde el panel, sin liquidar) ⇒ `refunded` ⇒
+tardío no-op ⇒ barrido:
+- **Con el doble en modo Stripe real** (`cancelOutcome='throws-succeeded'`: un PI reembolsado está `succeeded` y
+  cancelarlo lanza): **NO las suelta**, dos pasadas seguidas. Quedan `reserved` por una orden `refunded` para
+  siempre, y el barrido lo reintenta y loguea `error` en **cada** pasada (cada 15 min).
+- Contraste con el doble que sí cancela (irreal para un PI reembolsado): las soltaría a `listed`; la orden sigue
+  `refunded`.
+
+⇒ **Las piezas no se sueltan.** El contrato dice que en ese caso «se registra en `TECH_DEBT.md` con disparador
+"primer reembolso fuera de la app"»; mi encargo me limitó a `payments/`, sus pruebas y estas notas, así que **no
+lo escribí** — queda para el orquestador (propuesta de texto en el informe). Cuidado al arreglarlo: soltar una
+pieza de una orden reembolsada es devolver a la venta una carta cuyo cliente puede tenerla ya (depende de por
+qué se reembolsó); no es «liberar y ya».
+
+### 0.56.6 — Para QA / seguridad
+
+- Re-medir la sonda S4 de seguridad (N≥10) sobre este sha: `chargeback` + `succeeded` con importe correcto ⇒
+  `200`, sigue `chargeback`, `settledAt` sin reescribir, `logger.warn SEC-SETTLE-LATE` en el log.
+- Frontend: nada.
+
+## 0.55 — ⭐⭐ **v1.80 §M2-B.11: TOPE DE PAGO DEL BOUNTY — se paga `min(bounty, mercado)`** (2026-09-28)
+
+> Contrato v1.80 §M2-B.11 · ARCHITECTURE §4.36.6e · `HECHOS.md` (dos filas del 2026-09-28): «el bounty nunca
+> paga más que el precio de mercado»; sin mercado ⇒ bounty completo; carta barata ⇒ se paga el mercado aunque la
+> tarifa normal pague más (sin piso). Zona de dinero.
+
+### 0.55.1 — La forma del cambio
+
+- **`bountyPayoutCents(bounty, mercado)`** (`backend/src/common/money.ts`, junto a `quoteAcquisitionFromCurve`):
+  `isPresentAmount(mercado) ? Math.min(bounty, mercado) : bounty`. Enteros, sin redondeo. Un mercado `<= 0` es
+  ausente (H-1) ⇒ se paga el bounty, jamás MX$0.
+- **Peldaño 1 de `quoteAcquisitionFromCurve`**: único cambio, `priceCents = clampCents(bountyPayoutCents(...))`.
+  `basis` sigue `bounty`; `marketMxnCents` y `curveQuoteCents` sin cambio. De ahí salen cotización, lote,
+  `createRequest` (congela `quotedPriceCents`) y la **oferta derivada** (`offerDerivedPriceCents`, con el mercado
+  del momento de ofertar).
+- **Override** (`buyOverrideCents`, peldaño 2) y override del operador al ofertar: **no se topan**.
+- `isBountyEffective`, `422 BOUNTY_BELOW_RULE`, `state` de la consola: **intactos** (la tabla de 12 casos de
+  `src/common/pricing-curve.spec.ts` no se editó — canario BC-7).
+- **Vitrina** (`publicBounties`): seleccionar → mercado en lote → filtrar no efectivos → **calcular el pago** →
+  ordenar por el pago desc (desempate: el orden del query, `updatedAt` desc; `sort` es estable) → top 50.
+  `bountyPriceCents` publicado = lo que se paga. Misma forma; ningún campo delata el tope.
+- **`VariantPricingDTO.bounty`** gana `payoutCents: number | null` (`bountyPayoutCents` si `effective`, si no
+  `null`) y `cappedByMarket: boolean` (`payoutCents < priceCents`; empate ⇒ `false`). `priceCents` sigue siendo
+  lo configurado. Para toda fila efectiva `payoutCents === buy.effectiveCents`.
+- **Consola** (`admin-bounties.service.ts`): `price_desc` y el orden dentro de grupo de `attention_first` usan
+  `payoutCents ?? bountyPriceCents`.
+- **No retroactivo**: sin migración ni backfill; lo congelado (`quotedPriceCents`, `offeredPriceCents`,
+  `approvedPriceCents`, `acquisitionCostCents`) no se toca.
+- Docblock de `money.ts` corregido (decía «el bounty NUNCA se compara contra el mercado»).
+
+### 0.55.2 — Pruebas
+
+| Prueba | Dónde |
+|---|---|
+| BC-1..BC-6, BC-9 (candado de forma: único `Math.min` sobre bounty en `src/`, comentarios blanqueados, con canario) | `backend/test/money.bounty-cap.spec.ts` |
+| composer / vitrina / consola sin infra (BC-8 y BC-10 en unidad) | `backend/test/pricing.bounty-cap.spec.ts` |
+| BC-8, BC-10, BC-11, BC-12 (Postgres real, por HTTP) | `backend/test/integration/bounty-cap.e2e-spec.ts` |
+
+Montos de la integración **×100** respecto al contrato (MX$1,200 / MX$1,000): con MX$12 la solicitud no pasa el
+mínimo de MX$500 ni el neto mínimo de oferta. BC-10 usa para B mercado 400000 en vez de 10000×100: con la curva
+del seed (50 % en el tramo alto) el B del contrato **no es efectivo**; el B elegido conserva la propiedad que la
+prueba necesita (configurado menor que A, pago mayor).
+
+**Pruebas existentes que cambiaron de expectativa** (afirmaban la conducta anterior, bounty > mercado pagaba el
+bounty): `pricing.bounty-market-floor.spec.ts` (650 y 701 sobre mercado 500 ⇒ pagan 500),
+`buylist.bounty-revalidation.spec.ts` (3 casos: mercado $10 < bounty $50 ⇒ paga $10),
+`pricing.variant-controls.spec.ts` (DTO con los dos campos nuevos), `pricing.premium-floor-guard.spec.ts` (ver
+0.55.3), `buylist.variant-overrides.spec.ts` (el caso de tope por solicitud necesitaba mercado > bounty para que
+el bounty se pague entero).
+
+Mutaciones (sobre copia del árbol entero; todas deterministas): 16 unitarias y 6 de integración, **todas
+muertas** — incluidas `Math.max`, `market != null` en vez de `isPresentAmount`, topar contra la curva, topar solo
+si curva < mercado, `basis: 'market'` al topar, topar el override, vitrina publicando/ordenando por lo
+configurado, `Math.min` a mano en la vitrina, consola ordenando por lo configurado, y reescribir
+`quotedPriceCents` al ofertar.
+
+### 0.55.3 — ⚠️ Para el arquitecto: una consecuencia que el contrato no nombra
+
+> ⛔ **Superada por §0.57 (v1.80.2, 2026-09-29):** el arquitecto normó esta esquina (bounty topado + curva en el
+> bin + premium ⇒ `precio_pendiente`) y la expectativa «MX$1» se invirtió. Lo de abajo queda como historia.
+
+**Guardarraíl premium + bounty.** El guardarraíl (§4.36.5) no dispara con basis `bounty`, y el contrato no lo
+cambia. Pero ahora el **monto** sale del mercado: una chase con un mercado corrupto de MX$1 (justo el dato que
+el guardarraíl existe para no creer) y un bounty de MX$9,000 **cotiza y publica MX$1** en vez de MX$9,000
+(antes) o `pendiente`. Lo implementé literal (mercado presente ⇔ `> 0`) y lo dejé fijado en
+`pricing.premium-floor-guard.spec.ts`. Si el arquitecto quiere otra cosa (p. ej. no topar cuando el
+guardarraíl dispararía sobre la curva), es una decisión de contrato, no mía.
+
+### 0.55.4 — Para frontend
+
+`VariantPricingDTO.bounty.payoutCents` / `cappedByMarket` son aditivos. La vitrina no cambia de forma. La marca
+visual del tope en la consola es de ux-ui.
 
 ## 0.54 — ⭐⭐ **P-53 ALTO-4: F4/F5 dejan de capar la ventana por `capturedDate` crudo (frescura efectiva en TODA ruta de dinero)** (2026-09-18)
 
@@ -24809,3 +25188,135 @@ misma copia sin parche: **verde 2/2** sobre las seis specs (82/82).
 whitespace = sin filtro. Cumple la convención transversal de `q` de `API_CONTRACT.md` (texto libre, `trim`, vacío =
 ausente), redactada para `/admin/buylist` y `/admin/orders`; §M-P71 no dice nada propio sobre normalización de `q`,
 así que el arquitecto puede fijar en una errata que la regla también aplica a los tres índices de master set.
+# P-83 · **MONEY** — `'sealed'` es clave de COLA, nunca de PRECIO (§M2-SK, v1.70 · backend · 2026-09-28, medido)
+
+Contrato: `API_CONTRACT.md` §M2-SK (normas SK-1…SK-4) y §0 `SEALED_MARKET_KEY_REQUIRED`; diseño: `ARCHITECTURE.md`
+§4.50.1. Rama `claude/paquete-dinero`. Implementado **lo que el reparto asigna a backend** (SK-2 en `inventoryValue`,
+SK-3); SK-1 (cero migración) y SK-4 (la vía `listPriceCents` ya existía) no llevan código.
+
+## Qué cambió
+- **SK-3** — `POST /admin/pricing/override` (`pricing.controller.ts`, justo tras `isCanonicalGradeKey` y **antes**
+  del `findUnique` de la carta): `productType:'sealed'` ∧ `gradeKey:'sealed'` ⇒ **`422 SEALED_MARKET_KEY_REQUIRED`**,
+  `details: { gradeKey: 'sealed', remedy: 'map_or_price_the_piece' }`. Código nuevo en `common/error-codes.ts`.
+  `isCanonicalGradeKey` **no se tocó**: `'sealed'` sigue siendo canónica para la COLA (pendientes, `PendingPriceEntry`).
+- **SK-2** — `admin.inventoryValue()`: retirado el fallback a `'sealed'` (antes pedía ambas claves al lote y hacía
+  `mercado ?? legacy`, **también para piezas MAPEADAS** sin referencia bajo su `sealed:tcg:<id>`). Ahora: sin clave de
+  mercado, o sin referencia bajo ella ⇒ `pendingPriceCount`. Efecto declarado por el contrato: el total **baja** y los
+  pendientes **suben** en la cuantía de las filas legadas que antes se sumaban.
+
+## Decisiones que el contrato no fijaba
+- **Orden de la guarda SK-3:** va antes de la búsqueda de la carta porque se decide solo con el body (un `cardId`
+  inexistente + `'sealed'` responde `422 SEALED_MARKET_KEY_REQUIRED`, no `404`). No se consulta BD para rechazar.
+- **Sin bitácora del intento bloqueado:** el contrato no la pide (la de `GRADED_*` sale de §O.8, que es de graduadas).
+- **Datos existentes:** ni backfill ni borrado (SK-1). Las filas `PriceReference(productType='sealed', gradeKey='sealed')`
+  que existan quedan **inertes** para `inventoryValue`; el censo sigue siendo el de P-79(d) (solo `SELECT`), NO MEDIDO
+  en producción.
+
+## Pruebas (rojo primero, medido)
+- `test/pricing.sealed-market-key-required.spec.ts` (8): 5 rojas contra el código previo, 3 controles verdes.
+- `test/admin.inventory-value-breakdown.spec.ts`: los dos casos que afirmaban el fallback se **invierten** (SK-2);
+  rojos contra el código previo.
+- `test/pricing.graded-intent.spec.ts`: dos casos usaban `sealed`/`'sealed'` como ejemplo de «no graduada»; pasan a
+  `sealed:tcg:4242` (con `'sealed'` hoy reciben el 422, que es la norma).
+- `test/pricing.m44-no-degrade.spec.ts`: la lista «claves legítimas siguen pasando» incluía `['sealed','sealed']`;
+  sale de la lista (sigue siendo canónica para la cola, pero el override responde 422). Lo cazó la suite completa.
+- `test/integration/sealed-market-key.e2e-spec.ts` (3, Postgres real, por HTTP): sobre de error y CERO filas escritas;
+  control mapeado `200`; delta de `inventory-value` con fila legada (no suma) y mapeada sin ref (pendiente).
+
+## ⚠️ Discrepancia con el contrato (para el arquitecto — NO la cambié)
+§M2-SK SK-2 dice que `inventoryValue` es **«la ÚNICA excepción viva»**. **Medido 2026-09-28 (Postgres propio,
+sonda HTTP no commiteada):** con una pieza sellada **de cliente** sin mapeo y una fila legada `'sealed'` de MX$800,
+- `GET /vault/holdings` ⇒ `referenceValue {status:'priced', referenceMxnCents: 80000}` (`vault.service.ts` `holdings`,
+  `tryGradeKeyFor(item)` ⇒ `'sealed'` ⇒ `getReference(cardId,'sealed','sealed',finish)`);
+- `GET /vault/holdings/:id` ⇒ lo mismo (`holdingDetail`);
+- `GET /admin/finance/custody-value` ⇒ `105000 → 185000` (`admin.service.ts` `custodyValue`).
+Por lectura de código (NO MEDIDO por HTTP) el mismo patrón está en `admin-vaults.service.ts` (valuación en lote de
+bóvedas) y `admin.service.ts` `ownedItemRefs` (ficha 360° de usuario). La causa común: `tryBuildGradeKey` devuelve
+`'sealed'` para sellado, y esos lectores no tratan el sellado aparte (los cinco «gemelos» que el contrato ratifica sí).
+Además, para una pieza de cliente **mapeada** estos lectores leen `'sealed'` y **no** su `sealed:tcg:<id>`.
+No lo toqué: cambia el patrimonio que ve el **cliente** y el reparto de §M2-SK no lo asigna; decide el arquitecto
+(¿`tryBuildGradeKey('sealed')` ⇒ `null` en lectura, o cada lector resuelve `sealedMarketGradeKeyForItem`?).
+
+# SK-5 · **MONEY** — una sola llave de valuación por pieza; los seis lectores de patrimonio la usan (§M2-SK SK-5, v1.80.1 · backend · 2026-09-28, medido)
+
+Contrato: `API_CONTRACT.md` §M2-SK **SK-5** (tabla de lectores, VK-1…VK-7); diseño: `ARCHITECTURE.md` §4.50.1-bis.
+Rama `claude/paquete-dinero`, medido sobre `1971291` + este cambio. Cierra la «Discrepancia» de P-83 (arriba).
+
+## Qué cambió
+- **`PricingService.valuationKeyFor(item)`** — sellado mapeado ⇒ `{cardId,'sealed','sealed:tcg:<id>','normal'}`
+  (finish `normal` aunque la pieza traiga otro); sellado sin mapeo ⇒ `null` (⛔ nunca `'sealed'`); raw/graduada ⇒
+  `tryGradeKeyFor(item)` (misma clave que antes). Llama al envoltorio `this.tryGradeKeyFor`, no a `tryBuildGradeKey`
+  directo: es la misma función, y así los dobles de prueba que fijan `tryGradeKeyFor` siguen gobernando la clave.
+- **`PricingService.valuationCentsOf(item, ref, sourceOn)`** — sellado ⇒ `gateSealedMarketCents` (el gate de
+  `/vault/sealed`: manual sobrevive al dial, `tcgcsv` solo con dial on, `<= 0` ⇒ `null`); raw/graduada ⇒
+  `priced ∧ != null` (sin cambio de un centavo).
+- **Seis lectores** por esas dos funciones: `vault.holdings`, `vault.holdingDetail` (comparten un `valuate()` privado),
+  `admin.custodyValue`, `adminVaults.list`, `admin.ownedItemRefs`, `admin.inventoryValue`. **Opcional del contrato,
+  hecho:** `vault.sealedTab` (`/vault/sealed` y, por delegación, `/admin/vaults/:userId/sealed`) también pasa por
+  ellas — una regla, un sitio; su número no cambia (su clave y su gate ya eran éstos).
+- `sourceOn` sale de `loadSealedSpreads()` **una vez por petición y solo si hay alguna pieza sellada** (sin sellado no
+  se lee el dial: cero consultas nuevas en bóvedas solo-raw).
+- `tcgplayerProductId` entra al `select` de `admin-vaults` y al de `ownedItems` (`ADMIN_USER_DETAIL_SELECT`) y al
+  tipo de `ownedItemRefs`. ⛔ No viaja a ningún DTO.
+- `tryBuildGradeKey('sealed')` **no cambió** (llave de cola, SK-2).
+
+## Decisiones que el contrato no fijaba
+- **`null` de `valuationCentsOf` ⇒ `referenceValue: {status:'pending'}`** en los lectores que emiten `PriceInfo`. Para
+  raw/graduada esto solo difiere de antes en un caso patológico: una fila `priced` **sin** `referenceMxnCents`, que
+  antes se emitía tal cual (`priced` sin cifra) y ya contaba como pendiente; ahora sale `pending`. Ningún total cambia.
+- **Efecto de `inventoryValue` declarado por §4.50.1-bis:** ahora gatea por dial. Con `sealed_price_source=off`, una
+  caja de plataforma mapeada cuyo único mercado es `tcgcsv` pasa de `atReferenceCents` a `pendingPriceCount`.
+  **NO MEDIDO** el valor del dial en producción.
+- Pruebas unitarias de los lectores: sus dobles de `PricingService` ganan `REAL_VALUATION_GATE`
+  (`test/helpers/valuation-gate.ts`): los **métodos reales** del prototipo, no stubs. Donde el doble valuaba sellado
+  se le añadió `loadSealedSpreads` con dial **on** (esas pruebas no son del dial; el dial lo cubren VK-2/VK-5), y el
+  fixture de `vault.holdings-sealed-identity.spec.ts` gana `tcgplayerProductId: 42` (la clave `sealed:tcg:42` que su
+  doble ya fijaba) + una aserción nueva: la caja se busca bajo `sealed:tcg:42`/`normal`. `vault-sealed.spec.ts`
+  sustituye su copia del gate por el real (el real además trata `<= 0` como sin mercado). Ninguna aserción se relajó.
+
+## Pruebas (rojo primero, medido)
+- `test/pricing.valuation-key.spec.ts` — **VK-1/VK-2** (20). Contra `c77ebc8`: no compila (las funciones no existían).
+- `test/pricing.valuation-callers-census.spec.ts` — **VK-6** (9): censo CERRADO por fichero y nº de apariciones del
+  identificador en código (comentarios fuera con `helpers/strip-comments.ts`; cuenta también referencias sin
+  paréntesis e imports), cada entrada con su razón; los tres ficheros de SK-5 no pueden figurar y deben llamar a las
+  dos funciones; canario (llamada inyectada en `vault.service.ts` se ve; comentario no cuenta). Rojo contra el
+  código previo (5 de 9: `vault.service.ts` 2, `admin-vaults.service.ts` 2, `admin.service.ts` 4 usos).
+- `test/integration/sk5-valuation.e2e-spec.ts` — **VK-3, VK-4, VK-5, VK-7** (7), Postgres real por HTTP, **fixture
+  propio** (set, 2 cartas, clientes y piezas por corrida). Contra el código previo: **5 rojas / 2 verdes** (las verdes:
+  VK-7 control y el 6º lector de VK-3, que SK-2 ya había arreglado en `inventoryValue`).
+- **Mutaciones** (copia del árbol ENTERO `git archive 1971291` + este cambio, BD propia; deterministas, N=1 cada una):
+  - VK-3, una por lector, revirtiendo SU clave a `tryGradeKeyFor`: **6/6 muerden**, y cada una en SU aserción
+    (holdings `:218`, holdingDetail `:222`, custody `:224`, `/admin/vaults` `:226`, ficha 360° `:229`,
+    inventory-value `:237`). Todas ponen también rojo VK-4.
+  - VK-1 `'sealed'` en la rama sin mapeo ⇒ rojo (unit + 2 e2e); VK-1 `item.finish` en la mapeada ⇒ rojo (unit).
+  - VK-2 gate cambiado por `status==='priced'` ⇒ rojo (2 unit + VK-5 dial off).
+  - VK-6 llamada nueva a `tryGradeKeyFor` en `vault.service.ts` ⇒ rojo (2 del censo).
+- Suites: unit **358/358 suites, 5902/5902**; `tsc --noEmit` limpio; eslint 0 errores (5 avisos previos, ninguno
+  de estos ficheros). Integración completa sobre BD **virgen**: ver «Discrepancias» (una roja, **preexistente**).
+
+## N-MEDICIÓN pedida por el arquitecto — ¿el mapeo de M2 acepta piezas de CLIENTE? **Sí (medido)**
+Sonda HTTP no commiteada, Postgres propio, **N=1, backend, 2026-09-28**: caja sellada de cliente sin mapeo ⇒
+aparece en `GET /admin/pricing/sealed/unmapped` (`true`); `PUT /admin/pricing/sealed/items/:id/mapping`
+`{tcgplayerProductId, tcgplayerGroupId}` ⇒ **`200`**; «Mi bóveda» pasa de `{status:'pending'}` a
+`{status:'priced', referenceMxnCents: 111100}` (con una ref manual bajo `sealed:tcg:<id>`). Por código
+(`sealed-mapping.service.ts` `listUnmapped`/`updateMapping`): ninguno filtra por `ownerType`. ⇒ «Lo fijaremos pronto»
+tiene camino real en el backend. **NO MEDIDO:** la pantalla de M2 que lo ofrece para piezas de cliente (frontend).
+⚠️ Por lectura (NO MEDIDO): `applyToSiblings` copia el mapeo a piezas `sealed` sin mapeo con el mismo
+`(cardId, sealedSubtype)` **de cualquier dueño** (cliente y plataforma).
+
+## ⚠️ Discrepancias / hallazgos para el arquitecto (NO los arreglé)
+1. **Export `.xlsx` de inventario cae a `'sealed'`** (fuera de los seis lectores): `inventory.service.ts`
+   `exportGradeKey` devuelve `tryBuildGradeKey(it)` = `'sealed'` para sellado **sin mapeo**, y las columnas de
+   mercado/compra/venta del export salen con la fila legada `'sealed'` (el precio de otra caja). Solo plataforma
+   (`ownerType:'platform'`). Además, para sellado **mapeado** busca con `it.finish`, no `normal`. Por lectura, **NO
+   MEDIDO** por HTTP. Candidato natural a `valuationKeyFor`. Está en el censo VK-6 con esta nota.
+2. **`price-sync` (job) pide `'sealed'` para sellado** — por lectura es uso de **cola** (sincroniza/escala por
+   variante), no valúa patrimonio; lo dejo en el censo como legítimo. Resto de la lista del contrato: confirmados por
+   lectura detrás de rama de sellado o sin sellado posible. Además de la lista del contrato, el censo encontró
+   `inventory.service.ts` re-publicación por variante (clave de cola, legítimo) y el export (punto 1).
+3. **Rojo PREEXISTENTE en integración, no de SK-5:** `enum-query-axes.e2e-spec.ts` › `GET /admin/vaults?sort= ⇒
+   conforme` sale rojo cuando corre detrás de cierta secuencia de suites. Medido: BD virgen + secuencia
+   `buylist-cycle, vault-placement-races, fx-mode, seed-idempotency, pricing-visibility, seed-account-fixtures,
+   buylist-pay-verdicts, checkout-reservation-owner, preparation-queue, enum-query-axes` ⇒ **rojo igual en el árbol
+   base `1971291` sin este cambio y con él** (N=1 cada uno). Sola, verde (N=2). Dependencia de orden de la prueba.
+   Integración completa del árbol con SK-5 sobre BD virgen: 54/55 suites, 1165 verdes, esa 1 roja.

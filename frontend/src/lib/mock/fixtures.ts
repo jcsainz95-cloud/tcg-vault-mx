@@ -3795,6 +3795,25 @@ export let mockPendingPrices: PendingPriceEntryDTO[] = [
     sealedSubtype: 'blister',
     card: { id: 'c-sealed-sv08-box', name: 'Surging Sparks', number: '', setName: 'Surging Sparks' },
   },
+  // §M2-SK: sellado SIN MAPEAR (`gradeKey === 'sealed'`, la constante legada = clave de COLA, nunca de
+  // precio). Es la pieza inv-1009 (sv06 ETB, sin `tcgplayerProductId`). M2 le ofrece DOS salidas —«Ligar
+  // a su presentación» y «Fijar el precio de esta pieza»— y NUNCA el «Fijar precio» de mercado, que el
+  // servidor (y el mock de `overridePrice`) rechaza con 422 SEALED_MARKET_KEY_REQUIRED (SK-3).
+  {
+    id: 'ppe-sealed-unmapped',
+    cardId: 'c-sealed-sv06-etb',
+    productType: 'sealed',
+    gradeKey: 'sealed',
+    finish: 'normal',
+    context: 'inventory',
+    status: 'open',
+    reason: 'no_market',
+    createdAt: '2026-09-20T09:00:00Z',
+    sealedProductId: null,
+    sealedProductName: 'Twilight Masquerade ETB',
+    sealedSubtype: 'etb',
+    card: { id: 'c-sealed-sv06-etb', name: 'Twilight Masquerade ETB', number: '', setName: 'Twilight Masquerade' },
+  },
 ];
 export function resolveMockPending(id: string) {
   mockPendingPrices = mockPendingPrices.filter((p) => p.id !== id);
@@ -4919,12 +4938,39 @@ export function mockVariantPricing(
     row.bountyPriceCents > 0 &&
     (curveQuoteCents == null || row.bountyPriceCents > curveQuoteCents);
 
+  // ⭐ v1.80 (§M2-B.11): el bounty se paga TOPADO por el mercado — `payoutCents = min(bounty, mercado)`
+  // si hay mercado presente (> 0); sin mercado no hay tope y se paga el bounty (punto 2). `cappedByMarket`
+  // = efectivo ∧ payout < bounty. ⭐⭐ v1.80.2 (punto 8): si además se topó, la curva cayó al bin
+  // (`floor`) y la rareza es premium, el guardarraíl RETIENE la línea: `buy.source='pending'`,
+  // `premiumAtFloor=true`, `payoutCents=null`, `cappedByMarket=false` (el `state` sigue `activa`).
+  const marketCents = mockMarketReferenceForVariant(cardId, finish);
+  const rawPayout =
+    bountyEffective && row?.bountyPriceCents != null
+      ? marketCents != null && marketCents > 0
+        ? Math.min(row.bountyPriceCents, marketCents)
+        : row.bountyPriceCents
+      : null;
+  const cappedRaw = rawPayout != null && row?.bountyPriceCents != null && rawPayout < row.bountyPriceCents;
+  const bountyRetained = cappedRaw && premiumAtFloorFor(cardId, buySuggested.basis);
+  const payoutCents = bountyRetained ? null : rawPayout;
+  const cappedByMarket = bountyRetained ? false : cappedRaw;
+
   const buy: import('@/types/contract').VariantPricingDTO['buy'] = (() => {
     if (bountyEffective && row?.bountyPriceCents != null) {
+      if (bountyRetained) {
+        return {
+          suggestedCents: buySuggested.cents,
+          overrideCents: row.buyOverrideCents,
+          effectiveCents: null,
+          source: 'pending' as const,
+          premiumAtFloor: true,
+        };
+      }
       return {
         suggestedCents: buySuggested.cents,
         overrideCents: row.buyOverrideCents,
-        effectiveCents: row.bountyPriceCents,
+        // Se conserva: `buy.source === 'bounty'` ⇒ `bounty.payoutCents === buy.effectiveCents`.
+        effectiveCents: payoutCents,
         source: 'bounty' as const,
         premiumAtFloor: false,
       };
@@ -4982,6 +5028,8 @@ export function mockVariantPricing(
             completedAt: row.bountyCompletedAt,
             effective: bountyEffective,
             curveQuoteCents,
+            payoutCents,
+            cappedByMarket,
           },
         }
       : {}),

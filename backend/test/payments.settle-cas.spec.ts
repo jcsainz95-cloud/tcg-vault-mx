@@ -8,12 +8,18 @@ import { MailMessage, MailPort } from '../src/modules/mail/mail.port';
 /**
  * ⭐⭐ API_CONTRACT §M4-VAULT.2-bis.1 (v1.79.4) — EL SETTLE ES UN CAS. Pruebas 36(a) y 38(iii) (unidad).
  *
- * `tx.order.updateMany({ where: { id, status: { not: 'settled' } }, data })` como PRIMERA escritura de
+ * `tx.order.updateMany({ where: { id, status: { in: ['pending','failed'] } }, data })` como PRIMERA escritura de
  * la transacción, en las DOS ramas (`vault` y `settleDirectShipOrder`). `count === 0` ⇒ el perdedor de
  * la carrera ⛔ no escribe nada más (ni piezas, ni movimientos, ni colocación, ni envío) y ⛔ no avisa
  * (ni `AV-2`, ni confirmación de invitado, ni auditoría de anomalías). La mitad Postgres real (la
  * carrera con entrelazado forzado y el trigger de re-liquidaciones) vive en
  * `test/integration/vault-placement-birth.e2e-spec.ts` (35, 37, 38).
+ *
+ * ⭐⭐ v1.80 (§M4-VAULT.2-bis.2, `SEC-SETTLE-LATE`) — **38 (iii) ENMENDADA:** el `WHERE` es exactamente
+ * `{ id, status: { in: ['pending','failed'] } }` (la constante `SETTLEABLE_ORDER_STATUSES`), ⛔ ya no
+ * `{ not: 'settled' }`. Lo demás de la 38 (iii) no cambia: primera escritura, y en `vault` el `data` es
+ * exactamente `{ status, settledAt }`. La tabla de estados (SL-5) y el canario de lista cerrada (SL-6)
+ * viven en `test/payments.settle-late.spec.ts`.
  */
 
 const piOf = (id: string, amount: number) => ({ id, amount, amount_received: amount, currency: 'mxn' }) as any;
@@ -105,14 +111,15 @@ describe.each<[string, Over]>([
   ['direct_ship registrado', { fulfillmentMode: 'direct_ship' }],
   ['direct_ship invitado', { fulfillmentMode: 'direct_ship', userId: null, guestEmail: 'g@x.mx' }],
 ])('settle %s', (_n, over) => {
-  it('38(iii) — la PRIMERA escritura de la tx es order.updateMany con where { id, status: { not: settled } }', async () => {
+  it('38(iii) v1.80 — la PRIMERA escritura de la tx es order.updateMany con where EXACTO { id, status: { in: [pending, failed] } }', async () => {
     const h = harness({ won: 1 });
     h.prisma.order.findUnique.mockResolvedValue(order(over));
     await h.svc.onPaymentSucceeded(piOf('pi_1', 1000));
     expect(h.tx.order.update).not.toHaveBeenCalled();
     expect(h.tx.order.updateMany).toHaveBeenCalledTimes(1);
     const arg = h.tx.order.updateMany.mock.calls[0][0];
-    expect(arg.where).toEqual({ id: 'o1', status: { not: 'settled' } });
+    // ⛔ literal, no la constante: si alguien ampliara la lista, esta aserción también lo diría.
+    expect(arg.where).toEqual({ id: 'o1', status: { in: ['pending', 'failed'] } });
     const firstWrite = h.ops.find((o) => !o.endsWith('findUnique') && !o.endsWith('findFirst'));
     expect(firstWrite).toBe('order.updateMany');
     if (over.fulfillmentMode === 'vault') {
