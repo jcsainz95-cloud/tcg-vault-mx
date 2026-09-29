@@ -18349,3 +18349,79 @@ deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
 - M3 `t(reasonKey)` sin respaldo ⇒ 1/19 roja («matchStatus desconocido…»).
 - M4 `rejected = matched && !src` (todo sin imagen se llama «rechazada») ⇒ 1/19 roja («casada sin imageUrl…»).
 - Restaurado ⇒ 19/19.
+
+## §81 · **M2 dinero: sellado sin mapear (dos salidas, §M2-SK) y «lo que se paga» en la consola de bounties (§M2-B.11 punto 8)** (2026-09-29, rama `claude/paquete-dinero`, base `b8edfa7`)
+
+### Qué
+1. **Cola de precio pendiente (`(admin)/admin/m2` › `PendingQueueSection`)**: una fila de sellado **sin mapear**
+   (`productType='sealed'` ∧ `gradeKey==='sealed'`) ya **no** ofrece el «Fijar precio» de mercado (terminaba en
+   `422 SEALED_MARKET_KEY_REQUIRED`, SK-3 / P-83). Ofrece las **dos salidas** de la tabla «Qué ofrece M2» del
+   contrato, las dos reales (`SealedUnmappedModal.tsx`):
+   - **«Ligar a su presentación»** → `PUT /admin/pricing/sealed/items/:itemId/mapping` con `applyToSiblings:true`
+     sobre la primera pieza sin mapeo de la fila (cliente nuevo `updateSealedItemMapping`, `api.ts`). El picker de
+     presentación es el mismo del alta (`m1/SealedProductPicker`, `listSealedProducts({setId})`). Mapear **no** fija
+     ni cambia precio; se dice cuántas piezas quedaron ligadas (`1 + siblingsUpdated`).
+   - **«Fijar el precio de esta pieza»** → `PATCH /admin/inventory/items/:id { listPriceCents }` en **cada** pieza sin
+     mapeo de la fila (SK-4, precedencia #1 de §K). **No publica** (publicar sigue en M1). Guard S-L1 idéntico al
+     override (`isSaveableRuleValue`/`sanitizeDecimalInput`).
+   - La fila de la cola **no trae `inventoryItemId`** (agrupa una clase de piezas): las piezas se resuelven con
+     `GET /admin/inventory/items?cardId=&productType=sealed&pageSize=100` filtradas a `tcgplayerProductId == null` y
+     mismo `sealedSubtype`. Sin piezas ⇒ se dice (fila legada anterior a P-79(d)) y se enlaza a Inventario › Sellado.
+   - Sellado **mapeado** (`sealed:tcg:<id>`), raw y graded: «Fijar precio» de mercado como antes.
+2. **Mock (`api.ts`)**: `overridePrice` replica SK-3 (`sealed` + `gradeKey:'sealed'` ⇒ 422 con
+   `details {gradeKey:'sealed', remedy:'map_or_price_the_piece'}`) y `updateSealedItemMapping` replica las
+   validaciones del contrato (404 item; 422 no-sealed / groupId ausente / no enteros positivos; `null` desmapea;
+   `applyToSiblings` nunca pisa un mapeo). Semilla nueva `ppe-sealed-unmapped` (pieza `inv-1009`, sv06 ETB).
+3. **Consola de bounties (`m2/bounties`)**: junto a lo configurado (`bounty.priceCents`) se pinta **lo que se paga**
+   cuando difiere: `payoutCents`+`cappedByMarket` ⇒ «Se pagan MX$X · topado por mercado» (con `aria-label` que
+   nombra oferta y mercado); chase **retenida** por el guardarraíl (`activa`, `effective`, `payoutCents:null`,
+   `buy.premiumAtFloor`) ⇒ «PENDIENTE · retenido». Si paga lo configurado no se repite la cifra. Función pura
+   `bountyPayout(row)` en `bounty-view-model.ts`: **obedece** los dos campos, no recalcula el tope (§28).
+   El composer del mock (`mockVariantPricing`) produce ahora `payoutCents`/`cappedByMarket` y la retención.
+
+### Tipos transcritos del contrato a `types/contract.ts` (no inventados; línea del contrato)
+- `VariantBountyDTO.payoutCents: number | null`, `cappedByMarket: boolean` (obligatorios; `API_CONTRACT.md:6924-6925`).
+- `InventoryItemDTO.tcgplayerProductId?`, `tcgplayerGroupId?`, `sealedMarketRef?` (`API_CONTRACT.md:10808-10809`).
+- `SealedItemMappingRequest` / `SealedItemMappingResponse` (`API_CONTRACT.md:15030-15036`).
+
+### Copy sin norma de ux-ui (redactado por frontend, tono §21/§28; pendiente de que ux-ui lo ratifique)
+`admin.m2.pending.sealedUnmapped.*` (es/en) y `admin.m2.bounties.row.payoutCapped|payoutCappedAria|payoutRetained|
+payoutRetainedAria`. El contrato deja ese copy a ux-ui (`API_CONTRACT.md:118`); no había texto en `DESIGN_SYSTEM.md`.
+
+### Pruebas (rojo primero, luego el cambio)
+- `sections/PendingQueueSection.test.tsx` (6): fila sin mapear ⇒ sin «Fijar precio», con las dos salidas; mapeada/raw
+  ⇒ «Fijar precio»; ligar ⇒ `updateSealedItemMapping('a', {…, applyToSiblings:true})` y «2 piezas ligadas»; sin piezas ⇒
+  no llama al endpoint; precio ⇒ `PATCH` por pieza con `listPriceCents:180000`, nunca `overridePrice`; S-L1.
+- `lib/api.sealed-unmapped-mock.test.ts` (7): SK-3 en el mock, semilla, validaciones del mapeo, siblings.
+- `bounties/bounty-view-model.test.ts` (+6) y `bounties/BountiesView.test.tsx` (+4): 120000/100000 ⇒ «Se pagan
+  MX$1,000.00 · topado por mercado»; retenida ⇒ «PENDIENTE · retenido»; no topado / rebasado ⇒ ninguna línea extra.
+- Playwright con mocks: `e2e/admin-m2-sealed-unmapped.spec.ts` (3, `mockOnly`): fila sin mapear y mapeada; ligar
+  (picker → «Ligar 1 pieza» → estado «1 pieza ligada a … Elite Trainer Box»); precio (folio INV-000109 → MX$1,800.00).
+- `lib/mock/bounty-payout-mock.test.ts` (4): canario del composer del mock (nació de una mutación que no mordía, abajo).
+
+### Gates (2026-09-29, desde `frontend/`, sobre la rama `claude/paquete-dinero`)
+- `tsc --noEmit`: limpio. `eslint` sobre los ficheros tocados: limpio.
+- `vitest run` completa: **177/177 ficheros, 2082/2082 pruebas** (453 s), sobre el árbol con `ac33222` (antes del
+  canario del mock; el canario corre 4/4 aparte).
+- Playwright con mocks (`E2E_MOCK_PORT=3017`, bundle `.next-e2e-mock`): `admin-m2-sealed-unmapped.spec.ts` +
+  `admin-bounties.spec.ts` ⇒ **10/10** (3 nuevas + 7 existentes), 2.0 min.
+
+### Mutaciones (copia del árbol ENTERO en scratchpad, `git archive cd696a3`; deterministas ⇒ 1 tirada por mutación)
+| # | Mutación | Resultado |
+|---|---|---|
+| M1 | `isSealedUnmapped` ⇒ `false` (la cola vuelve a ofrecer «Fijar precio» en toda fila) | `PendingQueueSection.test`: **5/6 rojas** |
+| M2 | el mock de `overridePrice` deja de replicar SK-3 | `api.sealed-unmapped-mock.test`: **2/7 rojas** |
+| M3 | `bountyPayout` ignora `cappedByMarket` y la retención | `bounty-view-model.test` **2/50 rojas**, `BountiesView.test` **2/73 rojas** |
+| M4 | el composer del mock deja de topar (`payout = bounty`) | `admin-bounties-mock.test` **15/15 verdes** (no mordía: la semilla no tiene bounty > mercado) ⇒ se añadió `bounty-payout-mock.test.ts`; con él **1/4 roja** |
+| M5 | `buy.effectiveCents` vuelve a ser el bounty configurado (rompe `payout == effectiveCents`) | `bounty-payout-mock.test`: **1/4 roja** |
+Restaurado ⇒ todo verde; `api.ts` y `fixtures.ts` de la copia iguales a `HEAD` tras cada mutación.
+
+### Lo que NO se midió aquí (y qué lo cerraría)
+- La fila sin mapear contra el **stack real** (sembrar un sellado sin `tcgplayerProductId`, ver el `422` de SK-3 si se
+  forzara el override y el `PUT …/mapping` real): gate de QA con la plataforma levantada.
+- Semilla del mock con un bounty **topado** (bounty > mercado) para verlo en pantalla en modo mocks: no se añadió porque
+  cambiaría los conteos de `admin-bounties.spec.ts` y el candado de la semilla (`admin-bounties-mock.test.ts`); con la
+  regla nueva ningún bounty sembrado queda topado (pikachu 288000 > 250000; latias 950000 > 850000). El caso vive en
+  jsdom con filas inyectadas (`BountiesView.test.tsx`) y en el canario del composer.
+- `useTranslations` con plural ICU en `sealedUnmapped.*`: el helper `e2e/utils/i18n.t` no interpola plurales, por eso
+  el spec Playwright casa los botones por regex (`/^Ligar \d+ pieza/`, `/^Fijar en \d+ pieza/`).
