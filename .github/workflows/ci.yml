@@ -695,6 +695,14 @@ jobs:
       - name: Y el censo sabe ponerse rojo (canario)
         if: ${{ !cancelled() }}
         run: ./scripts/check-e2e-skip-census-canary.sh
+      # P-REL-3 (2026-09-29): el censo estático cuenta escotillas; esto vigila la
+      # que un spec que CONSUME su semilla (cubeta SPEI) no se salte en el E2E real.
+      # El comprobador corre en e2e-real.yml sobre el JSON de Playwright; aquí, en
+      # cada PR, su canario (salto / flaky tras reintento / 0 casos ⇒ rojo) y el
+      # cableado del paso (`--retries=0`, JSON, `--min 2`). DEVOPS_NOTES §72.
+      - name: Y un spec que consume su semilla no puede saltarse en verde (canario P-REL-3)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-e2e-must-run-canary.sh
 
   # ---------------------------------------------------------------------------
   # B-3 (2026-09-14): un script sin token no puede AFIRMAR qué secrets existen en

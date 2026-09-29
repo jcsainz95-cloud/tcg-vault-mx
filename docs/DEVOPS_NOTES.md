@@ -12818,3 +12818,25 @@ un sellado sin mapear en el seed real; ese día el censo baja y se regenera.
 **Renumeración (mismo commit):** la fusión dejó dos «§69»; la segunda (§M4-SHIP v1.80.5) pasa a **§71** —no §70, que ya
 era SEC-HDR-1— con sus 71.1–71.4 y la referencia de la checklist de Stripe (§71.1). Quedan fuera de este commit, apuntando
 aún a «§69.1/§69.4» de M4-SHIP: `scripts/check-ci-ok.sh:55` (devops) y `TRASPASO.md:80` (orquestador).
+
+## §72 · P-REL-3 — la cubeta SPEI contra el stack real CORRE en CI, una vez, y no puede saltarse en verde (2026-09-29, rama `claude/release-s5`)
+
+**Qué entra.** `frontend/e2e/m4-ship-spei-real.spec.ts` (frontend, 327b53df) conduce la cubeta «Reembolsos manuales (SPEI)» contra la API real y **consume** las dos filas `pending` del paso 13 de `backend/prisma/seed-e2e.ts` (`seedSpeiBucket`: `e2e:mr-pay`, `e2e:mr-cancel`). Sin fila, sus 2 casos se saltan (`skipIfSeedMissing`).
+
+**Qué había, medido sobre 327b53df (2026-09-29):**
+1. `e2e-real.yml` **no corría el spec**: el smoke solo ejecuta `SMOKE_SPECS` (checkout, guest-checkout, shipments, buylist). La siembra sí estaba: «Seed sintético» corre `seed:synthetic` = `ts-node prisma/seed-e2e.ts` (incluye el paso 13) una vez, sobre Postgres recién creado.
+2. **El reintento convierte un rojo en verde.** `frontend/playwright.config.ts:84` pone `retries: isCI ? 2 : 0`. Si un caso falla *después* de consumir su fila, el reintento no la encuentra, se salta, y Playwright 1.56.0 computa `flaky` (`computeTestCaseOutcome`: 1 unexpected + 1 skipped) ⇒ **rc=0**. Medido en un proyecto sintético (consume la fila y falla, `retries=2`, `E2E_EXPECT_NOT_MEASURED=0`): **5/5 rc=0** (N=5, devops). El reporter `not-measured.ts` tampoco lo ve: filtra `outcome() === 'skipped'`.
+3. Sin semilla: `skipped` ⇒ rc=0 salvo que se fije `E2E_EXPECT_NOT_MEASURED`.
+
+**Qué se cableó.**
+- `e2e-real.yml`, paso **«P-REL-3 cubeta SPEI (REAL)»** (tras el smoke; `if: !cancelled() && steps.seed.outcome == 'success'`): `npm run test:e2e -- m4-ship-spei-real.spec.ts --retries=0 --output=test-results-spei/artifacts --reporter=list,github,json,./e2e/reporters/not-measured.ts` con `E2E_EXPECT_NOT_MEASURED=0`, y después `scripts/check-e2e-must-run.sh --report test-results-spei/report.json --spec m4-ship-spei-real.spec.ts --min 2`. Aborta si alguien mete el spec también en `smoke_specs` (segunda corrida por siembra = salto). La línea del veredicto en el *Summary* dice si la cubeta corrió, falló o no corrió. `frontend/test-results-spei` va al artefacto `playwright-report-real`.
+- `scripts/check-e2e-must-run.sh`: por spec, ≥`--min` casos y cada uno `expected` con **un único** intento `passed`. Salto, flaky, reintento o 0 casos ⇒ rc=1; reporte ausente/roto ⇒ rc=2 (rojo en CI).
+- `scripts/check-e2e-must-run-canary.sh` (en `ci.yml`, job `e2e-skip-census`, cada PR): 19 comprobaciones sobre reportes sintéticos con la forma medida del reporter `json` + el cableado del paso. Mutaciones medidas sobre copia (2026-09-29): quitar `--retries=0`, `--min 1`, quitar `E2E_EXPECT_NOT_MEASURED`, meter el spec en el smoke por defecto, renombrar el paso, y un comprobador que nunca falla ⇒ **6/6 rojo**.
+- Medición real contra el comprobador (proyecto sintético, Playwright 1.56.0): pasa ⇒ 0; falla tras consumir con `retries=2` ⇒ Playwright 0 / **comprobador 1**; sin semilla ⇒ 1. `--list` en modo real selecciona los **2** casos del spec (`:119`, `:202`), coherente con `--min 2`.
+- Censo estático regenerado: `realOnly 14/4 → 16/5`, `skipIfSeedMissing 12/6 → 15/7` (motivo en `scripts/e2e-skip-census.baseline`).
+
+**NO MEDIDO.** Que el spec **pase** en un run de GitHub Actions (no puedo lanzar `e2e-real.yml` desde aquí; corre nightly, `workflow_dispatch` o `deploy.yml`). Lo cierra: un `workflow_dispatch` de `e2e-real.yml` sobre esta rama y mirar el paso P-REL-3 y el *Summary*. Si sale rojo por el producto, va a frontend/backend; si sale rojo por 429 de login, es límite del arnés (frontend).
+
+**Local (QA).** Cada corrida exige re-sembrar: `./scripts/stack-native.sh up --seed` (la siembra devuelve las filas a `pending`, `seed-e2e.ts:1085`). Para aplicar el mismo candado a mano: correr el spec con `PLAYWRIGHT_JSON_OUTPUT_NAME=/ruta/r.json --retries=0 --reporter=list,json` y pasar `r.json` a `scripts/check-e2e-must-run.sh`.
+
+**Rollback.** Revertir el commit: el paso desaparece de `e2e-real.yml` y el canario de `ci.yml` (van juntos: el canario comprueba el cableado, así que quitar uno sin el otro pone rojo `e2e-skip-census`).
