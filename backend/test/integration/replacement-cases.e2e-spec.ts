@@ -552,6 +552,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
       const caseRows = rows.filter((x) => x.replacementCaseId === t.caseId).length + (await db.manualRows({ replacementCaseId: t.caseId })).length;
       const ok = res.a.status < 300 && res.b.status >= 400 && sum <= t.vo.order.totalCents && k.status !== 'refunded' && caseRows === 0;
       outcomesB.push(`${code(res.a)},${code(res.b)},Σ=${sum}/${t.vo.order.totalCents},case=${k.status}${ok ? '' : ',VIOLATION'}`);
+      if (k.status === 'open') await db.caseVoid(t.caseId, { note: 'carrera b: orden devuelta entera' });
     }
     expect(report('PS-27b', outcomesB, (o) => !o.includes('VIOLATION'))).toBe(N);
     expect(interB).toBe(N);
@@ -592,6 +593,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
       const wins = [res.a, res.b].filter((x) => x.status === 200).length;
       const ok = sum <= vo.order.totalCents && wins === 1;
       outcomesC.push(`${code(res.a)},${code(res.b)},Σ=${sum}/${vo.order.totalCents}${ok ? '' : ',VIOLATION'}`);
+      for (const id of caseIds) if ((await db.kase(id)).status === 'open') await db.caseVoid(id, { note: 'carrera c: no cupo' });
     }
     expect(report('PS-27c', outcomesC, (o) => !o.includes('VIOLATION'))).toBe(N);
     expect(interC).toBe(N);
@@ -1248,9 +1250,12 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     const sumBefore = await prep.summary('super_admin', new Date(t0 + REPLACEMENT_CASE_DUE_MS - 1));
     const sumAfter = await prep.summary('super_admin', new Date(t0 + REPLACEMENT_CASE_DUE_MS));
     expect(sumAfter.toReplaceOverdue - sumBefore.toReplaceOverdue).toBe(1);
-    const list = await cases.list({ overdue: 'true' }, 'super_admin', new Date(t0 + REPLACEMENT_CASE_DUE_MS));
+    // (`q` = id exacto: la BD se comparte y otras pruebas dejan casos `open`; la primera página no basta.)
+    const list = await cases.list({ overdue: 'true', q: s.caseId }, 'super_admin', new Date(t0 + REPLACEMENT_CASE_DUE_MS));
     expect(list.data.map((c) => c.id)).toContain(s.caseId);
     expect(list.data.every((c) => c.overdue)).toBe(true);
+    const page = await cases.list({ overdue: 'true', pageSize: '100' }, 'super_admin', new Date(t0 + REPLACEMENT_CASE_DUE_MS));
+    expect(page.data.every((c) => c.overdue)).toBe(true);
     // un `replaced` de hace 30 días no cuenta
     const old = await mkSpei(60000, { name: 'PS36 viejo' });
     const cand = await db.mkPiece({ status: 'in_stock', cardId: old.card.id });
