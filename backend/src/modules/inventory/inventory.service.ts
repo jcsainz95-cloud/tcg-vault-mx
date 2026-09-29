@@ -2413,10 +2413,33 @@ export class InventoryService {
     // la resolución, como el override por línea del `bulk-publish`.
     const publishing = resultingStatus === 'listed' && current.status !== 'listed';
     if (!publishing) {
-      // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
-      return toAdminInventoryItemRow(
-        await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
-      );
+      if (patch.status === undefined) {
+        // Sin cambio de estado: edición de campos, como siempre.
+        // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
+        return toAdminInventoryItemRow(
+          await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
+        );
+      }
+      // 🔒 v1.80.3 §M4-SHIP.17.1 (2) (SEC-SHIP-A1, D-SHIP-6) — **el `status` del `PATCH` gana la
+      // guarda de estado y de dueño de `move`/`mark`.** Hasta aquí `{status:'in_stock'}` iba por el
+      // `update({ where: { id } })` plano de arriba ⇒ **sí existía** un `lost → in_stock` (se
+      // borraba la merma firmada), un `picking → in_stock` (una pieza vendida y cobrada volvía al
+      // estante) y un `in_custody → in_stock` (la carta de un cliente pasaba a ser de la tienda).
+      // Norma: solo plataforma `in_stock | listed` (`item-location.rules.ts`, verbo `status`);
+      // lectura → guarda (`422 ITEM_NOT_ADJUSTABLE`) → escritura CONDICIONADA a lo leído
+      // (`guardedItemUpdate`: `P2025` ⇒ `409 CONFLICT`), con los demás campos del mismo `PATCH` en
+      // la MISMA escritura (todo o nada). `in_stock → in_stock` no escribe `status`.
+      // ⛔ Sin `InventoryMovement`: `listed ↔ in_stock` es visibilidad de catálogo, no un hecho
+      // físico ni de titularidad (ARCHITECTURE §4.57 (o)). Invariante INV-SP-7: `lost | damaged`
+      // no vuelve a `in_stock | listed` por ningún verbo del operador.
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const item = await this.readGuardedItem(tx, id);
+        assertOperable(item, 'status');
+        const { status: nextStatus, ...fields } = patch;
+        const data = nextStatus === item.status ? fields : patch;
+        return this.guardedItemUpdate(tx, item, data);
+      }, VAULT_VERB_TX_OPTIONS);
+      return toAdminInventoryItemRow(updated);
     }
     // ⚠️ Las guardas corren sobre el estado **RESULTANTE**, en memoria y ANTES de escribir nada: una
     // gradeada que gana su `certNumber` en ESTE mismo PATCH debe poder publicarse, y una que falle
@@ -2735,13 +2758,16 @@ export class InventoryService {
    * `POST /admin/inventory/items/:id/mark` — perdida/dañada, con la guarda de estado de
    * `item-location.rules.ts` (⛔ nunca `reserved`/`picking`: pedido vivo o cobrado). Misma
    * transacción y misma escritura condicionada que `moveItem`.
+   * 🔒 v1.80.3 §M4-SHIP.17.1 (1) (D-SHIP-5): **solo plataforma `in_stock | listed`**. La rama de
+   * cliente (custodia liquidada fuera de retiro, y su consulta de retiro activo) se retiró: marcar
+   * `lost` la carta de un cliente fuera de un caso la sacaba de «Por reponer» sin abrir deuda. La
+   * incidencia de custodia se registra en el palomeo del retiro/colocación, que abre su caso.
    */
   async markItem(id: string, dto: MarkItemDto, actorUserId: string) {
     const status: InventoryStatus = dto.mark === 'lost' ? 'lost' : 'damaged';
     const updated = await this.prisma.$transaction(async (tx) => {
       const item = await this.readGuardedItem(tx, id);
-      const kind = assertOperable(item, 'mark');
-      if (kind === 'customer') await this.assertNotInActiveWithdrawal(tx, id);
+      assertOperable(item, 'mark');
       const row = await this.guardedItemUpdate(tx, item, { status });
       await tx.inventoryMovement.create({
         data: {

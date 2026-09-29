@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { BusinessException } from '../src/common/business.exception';
+import { assertOperable } from '../src/modules/inventory/item-location.rules';
 
 /**
  * Guardas de `move` y `mark` (M1). *El defecto, medido por techlead y QA sobre `16a3170`:* ninguno de
@@ -338,17 +339,43 @@ describe('mark (perdida / dañada)', () => {
     },
   );
 
-  it('cliente en custodia (fuera de retiro) ⇒ se marca: es la vía de la incidencia de custodia (§0)', async () => {
-    const { svc, rows } = build(customer('c', 'ana', 'drawer-ana-1'));
-    await svc.markItem('c', { mark: 'lost', note: 'n' }, 'op-1');
-    expect(rows[0].status).toBe('lost');
+  // 🔒 v1.80.3 §M4-SHIP.17.1 (1) (SEC-SHIP-A1, D-SHIP-5): `mark` es SOLO plataforma `in_stock|listed`.
+  // Marcar `lost` la carta de un cliente fuera de un caso es el vector (3): la pieza deja de ser
+  // retirable y ningún lector de deuda (`ReplacementCase`) la ve. La incidencia de custodia se
+  // registra SOLO en el palomeo del retiro/colocación, que abre su caso. Sin excepción.
+  it('⛔ (D-SHIP-5) cliente en custodia liquidada, fuera de retiro ⇒ 422 ITEM_NOT_ADJUSTABLE, sin escribir', async () => {
+    const { svc, rows, log } = build(customer('c', 'ana', 'drawer-ana-1'));
+    const e = await err(svc.markItem('c', { mark: 'lost', note: 'n' }, 'op-1'));
+    expect(e.code).toBe('ITEM_NOT_ADJUSTABLE');
+    expect(e.getStatus()).toBe(422);
+    expect(e.details).toMatchObject({ status: 'in_custody', ownerType: 'customer' });
+    expect(rows[0].status).toBe('in_custody');
+    expect(log).toEqual([]);
   });
 
-  it('⛔ cliente en un retiro cobrado ⇒ 409 ITEM_IN_ANOTHER_SHIPMENT', async () => {
-    const { svc, rows } = build(customer('c', 'ana', 'drawer-ana-1'), { activeWithdrawal: true });
+  it('⛔ (D-SHIP-5) cliente en un retiro cobrado ⇒ también 422 ITEM_NOT_ADJUSTABLE (ya no se consulta el retiro)', async () => {
+    const { svc, rows, tx } = build(customer('c', 'ana', 'drawer-ana-1'), { activeWithdrawal: true });
     const e = await err(svc.markItem('c', { mark: 'lost', note: 'n' }, 'op-1'));
-    expect(e.code).toBe('ITEM_IN_ANOTHER_SHIPMENT');
+    expect(e.code).toBe('ITEM_NOT_ADJUSTABLE');
+    expect(e.getStatus()).toBe(422);
     expect(rows[0].status).toBe('in_custody');
+    // La rama `customer` de `mark` no existe: no hay lectura de retiros ni puerta del cliente.
+    expect(tx.shipmentItem.findMany).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('⛔ (D-SHIP-5) `assertOperable(cliente, "mark")` lanza ITEM_NOT_ADJUSTABLE aunque sea custodia liquidada', () => {
+    const item = customer('c', 'ana', 'drawer-ana-1');
+    let thrown: unknown = null;
+    try {
+      assertOperable(item as any, 'mark');
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(BusinessException);
+    expect((thrown as BusinessException).code).toBe('ITEM_NOT_ADJUSTABLE');
+    // `move` conserva la rama de cliente (§M4-SHIP.17.1 (3): sin cambio de conducta).
+    expect(assertOperable(item as any, 'move')).toBe('customer');
   });
 
   it('movimiento y update en la MISMA transacción, condicionados al estado leído', async () => {
