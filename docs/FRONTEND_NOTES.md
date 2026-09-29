@@ -18434,3 +18434,35 @@ deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
 - **Corrección de §81:** el E2E `master-set-plate` «I-2» quedó rojo por P-61 (placa a 1024 = 206 px vs 181 a
   640: diferencia 25 < 30). El §81 dijo que pasaba y no era cierto. Se cambió el par de viewports a 640/1280
   (181 vs 270 px, medido en Chromium), no el umbral.
+
+## §83 · **Deuda del techlead sobre `8655e9a` + menores de QA + nombre de M4** (2026-09-29, rama `claude/paquete-pantallas`, base `a2406cf`)
+
+Todo frontend, sin dinero. Cada punto se **midió antes de tocar** (fichero:línea de `8655e9a`); lo que no
+existía se dice, no se «arregla».
+
+| Punto | Medido en `8655e9a` | Qué cambió |
+|---|---|---|
+| **M4 = «Pedidos por preparar» / «Orders to prepare»** (dueño, `HECHOS.md` a2406cf) | `es.json:1232` «Preparar y enviar», `en.json:1232` «Pick & ship»; el `h1` de `/admin/m4` sale de `tModules('m4')` (`M4View.tsx:192`) ⇒ una sola clave. `admin.m4.title` repetía el literal y **nadie la leía** (`grep m4.title src e2e` = 0, huérfana desde `924a75d`). | Clave cambiada en ES/EN; `admin.m4.title` retirada; la tabla de §37.2b en `AdminPageTitles.test` fija el literal nuevo. **El `h2` de la cola (`admin.m4.prep.title`, «Pedidos a preparar») no se tocó**: no está en la decisión; queda casi igual que el `h1` en la misma página — si molesta, es de ux-ui. |
+| **(a) `uppercase` sobre el código** | `CardDetailView.tsx:314` — la línea «Set · TWM 130 · rareza» entera en `uppercase`. En tejas, modal y carrito no había `uppercase` sobre el código. **También** `DeckAvailability.tsx:145` (decks-meta) lo forzaba. | Ficha: la línea sigue en versalitas, el código va en `CardCode` con `normal-case` (§37.3b «tal como llegan»). Decks-meta: sin `uppercase`. Candados en `CardDetailView.test` y `DeckDetailView.test`. |
+| **(b) dos formateadores** | `formatCardCode` (`setCode.ts`) **y** la plantilla i18n `decksMeta.detail.cardCode` = `"{set} {number}"` (`es.json:4157`, usada solo en `DeckAvailability.tsx:125`). | Decks-meta usa `CardCode`; clave retirada en ES/EN. Un formateador. |
+| **(c) NBSP invisible** | `NBSP` ya era constante con comentario (`setCode.ts:15`) pero su valor era el U+00A0 **pegado**; ídem en tres tests. | `' '` (escape visible) y el porqué en el comentario. `grep -P '\xC2\xA0' src messages e2e` = **0**. |
+| **(d) SetCode ×3** | Tres `<span lang="en" data-testid=… className="font-mono … tracking-label text-muted">` inline: `MasterSetBinder.tsx:441-449` (cabecera), `:657-661` (parte), `MasterSetIndex.tsx:243-250` (índice). | `components/domain/SetCode.tsx` (sigla sola; `CardCode` sigue siendo «código + número»). Mismos `data-testid`: P71-F1/F2 verdes sin tocarlos. |
+| **(e) total del modal** | `BuylistView.tsx:587-594`: ternario propio = copia de la rama «todo pendiente» de `CartTotalFigure` **sin** la rama «—». **No calcula distinto** (misma suma); es una tercera copia. Además la rama «versalita» del modal es **inalcanzable**: con todo pendiente el CTA está `disabled` por el mínimo (medido en test). | El modal usa `CartTotalFigure` (`size='summary'`, `testIdScope='sell-request'`). Candados: cifra idéntica a la del cajón; CTA apagado con todo pendiente. Efecto visual: la cifra pasa a mono (como cajón y barra). |
+| **(f) breakpoints mágicos** | `BuylistView.tsx:162` `matchMedia('(min-width: 1024px)')`; `BuylistView.test.tsx:1092` `query.includes('1024')`. `tailwind.config.ts` no redefine `screens`. Los `1024×768`/`1280×800` de los E2E son **viewports de medición** (§37.1g), no umbrales: no se tocan. | `lib/breakpoints.ts` (`BREAKPOINTS`, `minWidthQuery`) + `breakpoints.test.ts`: paridad con `resolveConfig` de Tailwind, con la tabla de §4.4 y grep = 0 de `min-width: Npx` en `src` sin tests. |
+| **(g) comentarios del estado anterior** | `BuylistView.tsx:34`, `:109-111`, `:139-146`, `:171`, `:190-192`, `:383-386`; `SellCartContents.tsx:76`; `SellCartBar.tsx:31` — narraban `aside`, columna fija de 360 px, `useMediaQuery`, «panel fijo». | Reescritos para describir lo que hay. El origen de la regla «exactamente una nota» (§23.3g-bis) se conserva pero dice que el panel fijo **existía entonces**. `SellCartContents.tsx:188` «columna fija a la izquierda» es la miniatura de la línea, no el carrito: se queda. |
+| **(h) P66-2 solo en `es`** | `AdminPageTitles.test.tsx:166-175`. | Corre por ruta en `es` **y** `en` (30 casos). Mutación: `h1` con literal español ⇒ cae solo `en /admin/m4`. |
+| **(i) barra después del pie (§37.1d)** | FAB y barra se escribían dentro de la vista (`BuylistView.tsx:531-548`); el `<footer>` es del layout (`(storefront)/layout.tsx`) ⇒ en el DOM iban **antes** del pie, y el orden de tabulación es el del DOM. | `components/ui/BodyPortal.tsx` (portal al final de `<body>`, monta tras hidratar — mismo patrón que `Toaster`; el sitio lo reserva `pb-24`). Candados: vitest (pie hermano posterior; FAB y barra tras él y fuera de `<main>`; el cajón abre desde la barra portada; mutación fragmento-en-vez-de-portal ⇒ rojo) y E2E en `buylist.spec` (DOM: `footer` precede a la barra; teclado: Tab desde el último enlace del pie entra en la barra a 1280 y en el FAB a 390). |
+
+**Coste dicho de (i):** el HTML del servidor no trae FAB ni barra; aparecen en el primer efecto del cliente.
+Sin salto de layout (espacio reservado). Si algún día importa el primer pintado, la alternativa es un
+«slot» en el layout después del pie — sigue siendo portal, solo cambia el destino.
+
+**Suites (este pase, sobre el árbol vivo de la rama, medidas por frontend):** `tsc --noEmit` limpio ·
+`next lint` sin avisos · vitest completo **178/178 ficheros, 2133/2133 pruebas** · Playwright con mocks
+(`buylist`, `admin`, `master-set`, build + start de producción) **52/52, 0 saltados**, incluidos los dos casos
+nuevos de §37.1d. Mutaciones hechas (una tirada cada una, deterministas): `h1` con literal español ⇒ cae solo
+`en /admin/m4`; fragmento en vez de `BodyPortal` ⇒ cae el candado del orden del DOM.
+
+**Commits:** `b06bec9` (M4 + P66-2 en `en`) · `6949e13` (NBSP) · `4aa9b12` (SetCode + `normal-case`) ·
+`2dbf5af` (un formateador) · `5e4ef3e` (total del modal) · `b61de76` (breakpoints) · el del portal y los
+comentarios (g)+(i), y este de notas.
