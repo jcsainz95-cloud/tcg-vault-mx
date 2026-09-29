@@ -276,4 +276,13 @@ export class PiiCryptoService {
     if (ba.length !== bb.length) return false;
     return timingSafeEqual(ba, bb);
   }
+
+  /**
+   * 🔒 v1.80.7 (punto 19) — comparación en tiempo constante de dos cadenas secretas (el `revealToken` de la cubeta
+   * SPEI contra el esperado). Es EL MISMO cuerpo que `blindIndexEquals`, con el nombre de lo que compara: un token no
+   * es un índice ciego. Nulos/vacíos ⇒ `false`; longitudes distintas ⇒ `false` (no hay nada que igualar).
+   */
+  constantTimeEquals(a?: string | null, b?: string | null): boolean {
+    return this.blindIndexEquals(a, b);
+  }
 }

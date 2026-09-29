@@ -65,6 +65,16 @@ export class UsersService {
    *     que el llamador mande `AV-16` **post-commit** (`notifyClabeChanged`).
    * La CLABE ya viene validada (`isValidClabe`) por el llamador; aquí se vuelve a comprobar por forma (un solo sitio).
    */
+  /**
+   * 🔒 v1.80.7 (punto 19, `C-CLABE-1`) — el SEGUNDO y último escritor de la CLABE: la anonimización del borrado suave
+   * de cuenta (C20/PII, `AdminService.deleteUser`). **Solo nulos** (`clabeEnc` ∧ `clabeHmac`), ⛔ sin `clabeUpdatedAt`
+   * (no es un cambio de CLABE), ⛔ sin `AV-16`, sin bitácora propia (la del borrado la escribe quien borra). Con CLABE
+   * nula, `paid` de la cubeta ⇒ `422 CLABE_NOT_ON_FILE`. Sin expediente ⇒ no-op (`count 0` no es error).
+   */
+  async eraseClabe(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    await tx.kycProfile.updateMany({ where: { userId }, data: { clabeEnc: null, clabeHmac: null } });
+  }
+
   async setClabe(
     tx: Prisma.TransactionClient,
     userId: string,

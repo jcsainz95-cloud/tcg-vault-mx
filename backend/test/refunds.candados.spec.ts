@@ -161,31 +161,44 @@ describe('C-MREF-1 — la cubeta SPEI: tres creadores, dos escritores de estado,
 });
 
 describe('C-CLABE-1 — el único escritor de la CLABE', () => {
-  it('`kycProfile.update|upsert|create*` que toque `clabeEnc|clabeHmac|clabeUpdatedAt` vive SOLO en `users.service.ts` (setClabe), UNA vez', () => {
+  it('🔒 v1.80.7 (punto 19): `kycProfile.update|upsert|create*` que toque `clabeEnc|clabeHmac|clabeUpdatedAt` vive SOLO en `users.service.ts`, EXACTAMENTE dos sitios (`setClabe` valores, `eraseClabe` solo nulos), CERO fuera; `deleteUser` llama a `eraseClabe`', () => {
     const spans = FILES.flatMap((f) =>
       callSpans(f.text, /kycProfile\.(update|updateMany|upsert|create|createMany)\(/g)
         .filter((s) => /clabeEnc|clabeHmac|clabeUpdatedAt/.test(s))
         .map((s) => ({ path: f.path, s })),
     );
-    // ⚠️ Excepción DECLARADA (medida 2026-09-29, enrutada al arquitecto en BACKEND_NOTES): el borrado SUAVE de una
-    // cuenta (`AdminService.deleteUser`, C20/PII) ANULA `clabeEnc`/`clabeHmac` (`null`, ⛔ nunca un valor). No es un
-    // cambio de CLABE (SEC-SHIP-A3: con CLABE nula, `paid` ⇒ `422 CLABE_NOT_ON_FILE`), es una anonimización.
-    const erasure = spans.filter((x) => x.path === 'modules/admin/admin.service.ts');
-    expect(erasure).toHaveLength(1);
-    expect(erasure[0].s).toMatch(/clabeEnc:\s*null/);
-    expect(erasure[0].s).toMatch(/clabeHmac:\s*null/);
-    expect(erasure[0].s).not.toMatch(/clabeUpdatedAt/);
-    expect(erasure[0].s).not.toMatch(/clabe(Enc|Hmac):\s*(?!null\b)\S/);
-    const writers = spans.filter((x) => x.path !== 'modules/admin/admin.service.ts').map((x) => x.path);
-    expect(writers).toEqual(['modules/users/users.service.ts']);
+    // ⛔ Ninguna excepción fuera del módulo dueño (antes había una declarada en `admin.service.ts`; v1.80.7 la sustituye
+    // por `UsersService.eraseClabe`). Mutación «`deleteUser` vuelve a escribir `clabeEnc: null` directo» ⇒ rojo aquí.
+    expect(spans.map((x) => x.path)).toEqual(['modules/users/users.service.ts', 'modules/users/users.service.ts']);
     const users = text('modules/users/users.service.ts');
+    const eraseClabe = users.slice(users.indexOf('async eraseClabe('), users.indexOf('async setClabe('));
     const setClabe = users.slice(users.indexOf('async setClabe('), users.indexOf('async notifyClabeChanged('));
+    // `eraseClabe`: SOLO nulos (`clabeEnc` ∧ `clabeHmac`), sin `clabeUpdatedAt`, sin AV-16.
+    expect(eraseClabe).toMatch(/clabeEnc:\s*null/);
+    expect(eraseClabe).toMatch(/clabeHmac:\s*null/);
+    expect(eraseClabe).not.toMatch(/clabeUpdatedAt/);
+    expect(eraseClabe).not.toMatch(/clabe(Enc|Hmac):\s*(?!null\b)\S/);
+    expect(eraseClabe).not.toMatch(/notifyClabeChanged|auditLog/);
+    // `setClabe`: valores + sello + candado de fila.
     expect(setClabe).toContain('clabeUpdatedAt: now');
     expect(setClabe).toContain('FOR UPDATE');
+    // El borrado suave anonimiza la CLABE POR el verbo del módulo dueño.
+    const admin = text('modules/admin/admin.service.ts');
+    const deleteUser = admin.slice(admin.indexOf('async deleteUser('));
+    expect(deleteUser).toMatch(/this\.users!?\.eraseClabe\(tx,/);
+    expect(admin).not.toMatch(/clabe(Enc|Hmac)\s*:\s*null/);
   });
 
   it('⛔ ningún SQL crudo escribe esas columnas', () => {
     expect(census(/\$(executeRaw|queryRaw)(Unsafe)?[^;]*"(clabeEnc|clabeHmac|clabeUpdatedAt)"/gs)).toEqual({});
+  });
+
+  it('🔒 v1.80.7 (punto 19): `paid` compara el `revealToken` con `PiiCryptoService.constantTimeEquals` — ⛔ nunca `===`/`!==`', () => {
+    const src = text('modules/payments/refunds/manual-refund.service.ts');
+    const paid = src.slice(src.indexOf('async paid('), src.indexOf('async cancel('));
+    expect(paid).toMatch(/this\.pii\.constantTimeEquals\(\s*expected,\s*body\.revealToken\s*\)/);
+    expect(paid).not.toMatch(/[!=]==?\s*body\.revealToken|body\.revealToken\s*[!=]==?/);
+    expect(paid).not.toMatch(/blindIndexEquals\([^)]*revealToken/);
   });
 });
 

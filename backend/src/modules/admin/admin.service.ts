@@ -27,6 +27,7 @@ import { parseEnumFilter } from '../../common/enum-filter';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
 import { toAddressDTO } from '../users/address-dto';
+import { UsersService } from '../users/users.service';
 import {
   netRevenueCents,
   netShippingCostCents,
@@ -624,6 +625,9 @@ export class AdminService {
     // dinero del súper-admin. `@Optional()`: los unitarios construyen el servicio a mano.
     @Optional() private readonly prep?: ShipmentPrepService,
     @Optional() private readonly manualRefunds?: ManualRefundService,
+    // 🔒 v1.80.7 (punto 19): la CLABE la borra su módulo dueño (`UsersService.eraseClabe`, `C-CLABE-1`). `@Optional()`
+    // por el mismo motivo que los de arriba; `deleteUser` exige que esté.
+    @Optional() private readonly users?: UsersService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -1439,13 +1443,14 @@ export class AdminService {
     }
 
     // SOFT delete: conserva filas económicas; anonimiza PII y revoca login.
+    if (!this.users) throw new Error('UsersService no disponible: el borrado suave anonimiza la CLABE por `eraseClabe`');
     await this.prisma.$transaction(async (tx) => {
       if (user.kycProfile) {
+        // 🔒 v1.80.7 (`C-CLABE-1`): la CLABE la anula su módulo dueño (solo nulos, sin `clabeUpdatedAt`, sin `AV-16`).
+        await this.users!.eraseClabe(tx, id);
         await tx.kycProfile.update({
           where: { userId: id },
           data: {
-            clabeEnc: null,
-            clabeHmac: null,
             rfcEnc: null,
             legalName: null,
             // ⭐ `C20` — las keys se anulan **solo si el objeto SE BORRÓ**. Con el borrado fallido, el

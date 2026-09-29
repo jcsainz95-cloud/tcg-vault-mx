@@ -387,7 +387,7 @@ export class ManualRefundService {
       }
       // 5. el token, contra el `clabeHmac` VIGENTE (tiempo constante).
       const expected = this.revealTokenOf(row.id, kyc.clabeHmac);
-      if (!this.pii.blindIndexEquals(expected, body.revealToken)) {
+      if (!this.pii.constantTimeEquals(expected, body.revealToken)) {
         throw BusinessException.conflict('CLABE_CHANGED_SINCE_REVEAL', 'The CLABE changed since it was revealed', {
           clabeUpdatedAt: kyc.clabeUpdatedAt ? kyc.clabeUpdatedAt.toISOString() : null,
         });
