@@ -18,7 +18,8 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { cn } from '@/lib/cn';
-import { displaySetCode, setMatchesQuery } from '@/lib/setCode';
+import { setMatchesQuery } from '@/lib/setCode';
+import { SetCode } from '@/components/domain/SetCode';
 import type { MasterSetViewMode } from './mode';
 // §24 — el POZO del logo vive en su propio módulo: lo consumen la retícula (tamaño `md`) y el
 // encabezado del binder (tamaño `sm`, §24.10), y así el binder no arrastra el índice entero.
@@ -240,15 +241,7 @@ export function MasterSetIndex({ mode, userId, onOpenSet, currentSetId }: Props)
                           </span>
                           {/* v1.80 (P-71, §37.3c): el código corto bajo el nombre, mono 11 px muted.
                               Sin código, nada (⛔ nunca una sigla deducida). */}
-                          {displaySetCode(s.ptcgoCode) && (
-                            <span
-                              lang="en"
-                              data-testid="index-set-code"
-                              className="font-mono text-[11px] tracking-label text-muted"
-                            >
-                              {s.ptcgoCode}
-                            </span>
-                          )}
+                          <SetCode code={s.ptcgoCode} className="text-[11px]" testId="index-set-code" />
                           {/* §24.3 — la META es donde aterriza la voz mono en versalitas: es la
                               etiqueta técnica (§3.1), no el nombre propio. */}
                           <span

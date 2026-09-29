@@ -39,7 +39,7 @@ import { FinishBand } from '@/components/domain/FinishMark';
 import { RarityLabel } from '@/components/domain/RarityLabel';
 import { CardDetailModal } from '@/components/domain/CardDetailModal';
 import { CardCode } from '@/components/domain/CardCode';
-import { displaySetCode } from '@/lib/setCode';
+import { SetCode } from '@/components/domain/SetCode';
 import { cn } from '@/lib/cn';
 import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 import { VariantPricingCompact } from './VariantPriceConsole';
@@ -414,7 +414,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
   const title = canonicalName ?? set.name;
   // v1.80 (P-71): el código del master. La respuesta manda (en un combinado es el del PRINCIPAL);
   // mientras carga, el de la teja del índice que se abrió.
-  const headerCode = displaySetCode(binder.data ? binder.data.set.ptcgoCode : set.ptcgoCode);
+  const headerCode = binder.data ? binder.data.set.ptcgoCode : set.ptcgoCode;
 
   return (
     <div className="flex flex-col gap-4">
@@ -438,15 +438,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
               <h2 lang="en" className="text-h2">
                 {title}
               </h2>
-              {headerCode && (
-                <span
-                  lang="en"
-                  data-testid="binder-set-code"
-                  className="font-mono text-[13px] tracking-label text-muted"
-                >
-                  {headerCode}
-                </span>
-              )}
+              <SetCode code={headerCode} className="text-[13px]" testId="binder-set-code" />
             </div>
           </div>
         </div>
@@ -654,11 +646,7 @@ function PartSeparator({ part, tileCount }: { part: SetPartDTO; tileCount: numbe
         {part.label ?? part.name}
       </h3>
       {/* v1.80 (P-71, §37.3c): el código de ESTA parte, a la escala del separador. */}
-      {displaySetCode(part.ptcgoCode) && (
-        <span lang="en" data-testid="part-set-code" className="font-mono text-xs tracking-label text-muted">
-          {part.ptcgoCode}
-        </span>
-      )}
+      <SetCode code={part.ptcgoCode} className="text-xs" testId="part-set-code" />
       <span className="h-px flex-1 bg-border" aria-hidden />
       <span className="font-mono tabular-nums text-[10px] uppercase tracking-wide text-muted">
         {t('partCardCount', { count: part.catalogCardCount })}
