@@ -8732,3 +8732,126 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Lección (frontend):** reusar una clave de i18n no es respaldo: **cada bloque visible nuevo necesita su § en
   `DESIGN_SYSTEM`**; si no está, se pide a ux-ui antes de pintar, igual que un campo nuevo se pide al arquitecto.
 - **Prueba que lo sostiene:** `frontend/e2e/checkout.spec.ts:41` (`checkout.afterPayment` ⇒ `toHaveCount(1)`).
+
+---
+
+## UX/UI · 2026-09-29 · release s5
+
+> Deuda **no bloqueante** del release s5, anotada por ux-ui a petición del orquestador (DoD). Fuente: veredicto del
+> techlead, **TD-9 mitad ux-ui** (la mitad frontend es `RS5-FE-TD9`, arriba). Dueño: **ux-ui** (salvo lo marcado
+> «solicitud»). ⛔ Ningún cambio a `DESIGN_SYSTEM.md` en este pase.
+> **Medido el 2026-09-29** con lectura/`rg` sobre el worktree `/home/user/tcg-release` (rama `claude/release-s5`).
+> El sha exacto **NO MEDIDO por ux-ui** (sin Bash); frontend midió `HEAD` `3bd744a9` y 0 ficheros cambiados en
+> `docs/DESIGN_SYSTEM.md` desde `7b9c196e` en su pase del mismo día. Todo `fichero:línea` de abajo se re-leyó en este pase.
+
+### RS5-UX-TD9 · P3 · §38 va antes que §37, el 429 del login vive dentro de «Pedidos por preparar», y «§37.x» nombra dos cosas
+
+- **Qué es (medido):**
+  1. **Orden del fichero:** `## 38.` (P-61 · P-66 I2 · P-71) está en `DESIGN_SYSTEM.md:19453` y `## 37.` («Pedidos por
+     preparar» — envíos) en `:19800`. La nota de `:19455-19459` lo reconoce («va antes de §37 por orden de fusión») y
+     `:22-23` y la tabla `§37.0-bis` C4 (`:19852`) dan la regla de lectura, pero un lector que busca «§37.3» por orden
+     numérico llega primero a `### 38.3` (`:19721`) o, si busca el literal, a «La tarjeta de ENVÍO» (`:19914`).
+  2. **El 429 del login fuera de sitio:** `### 37.13 El 429 del login (C7)` (`:20624-20669`) y sus filas de i18n
+     (`§37.16`, `:20902-20903`) viven dentro de «Pedidos por preparar», que no tiene nada de acceso. Su hogar natural es
+     §33 (cuenta del cliente: la contraseña es §33.7 `:16392` y ya lleva `account.password.rateLimited`, citada en
+     `:20669`; su i18n es §33.13 `:16736`). No hay sección de acceso/login propia (`rg "^###? .*(Login|Iniciar sesión|Auth)"`
+     ⇒ solo `:16649` y `:20624`). Citas vivas de «§37.13»: **23 en 10 ficheros** (`rg -c "§37\.13"`: `DESIGN_SYSTEM` 5,
+     `API_CONTRACT` 7, `FRONTEND_NOTES` 3, `TECH_DEBT` 2, `ARCHITECTURE` 1, y 5 ficheros de `frontend/src/components/domain/`:
+     `AuthForm.tsx`, `GoogleSignInButton.tsx`, `GoogleSignInButton.test.tsx`, `AuthForm.rateLimited.test.tsx`,
+     `AuthForm.test.tsx`, uno cada uno).
+  3. **Citas de otros roles a la sección equivocada** (`rg -n "§37\.[123]([a-d]|\b)"`, leídas una a una): **todas
+     significan §38.3 (P-71)** — `ARCHITECTURE.md:74` («Origen: `DESIGN_SYSTEM §37.3` (v4.9) pidió el dato»; el encargo
+     decía `:73`, la línea con la cita es `:74`) y `:26064`; `API_CONTRACT.md:327`, `:361`, `:379` (P71-B7). Hoy §37.3 es
+     «La tarjeta de ENVÍO se vuelve interactiva» (`:19914`).
+  4. **Dentro de `DESIGN_SYSTEM`** las 34 líneas con `§37.[1-3]` se revisaron: las citas a P-61/P-66/P-71 ya dicen §38
+     (`:1792-1793`, `:4119-4121`, `:16142`, `:27-33`); las que dicen §37.1/§37.2/§37.3 fuera de la nota de numeración
+     apuntan de verdad a «Pedidos por preparar» (p. ej. `:17830`, `:18202`, `:18349`, `:18813`, `:18865`, `:18969`,
+     `:19664`). Las únicas menciones «§37.x = P-61/66/71» son las **explicativas** de la renumeración (`:22-23`,
+     `:19455-19458`, `:19849-19852`) y se quedan.
+  5. **Frontend** (su `RS5-FE-TD9`, no re-medido por ux-ui): ≈104 líneas en 66 ficheros citan §37.1-3 por §38.1-3; más
+     33 menciones en `FRONTEND_NOTES.md`.
+- **Riesgo:** Bajo. Sin efecto en conducta ni en dinero. El riesgo es de **decisión**: quien sigue «§37.3c» desde
+  `SetCode.tsx` o desde `ARCHITECTURE:74` lee la regla de la tarjeta de envío. Y **cualquier renumeración futura repite
+  la clase**: por eso el cierre no es «cambiar números otra vez», sino anclas que no dependen del número.
+
+- **Anclas estables propuestas** (una por tema; se citan **por nombre**, con el número solo como ayuda):
+
+  | Ancla | Tema | Sección hoy | Subpartes (sufijo `.a`…`.d` = letra actual) |
+  |---|---|---|---|
+  | `DS-SELL-DESKTOP` | P-61 · Vender en computadora (catálogo a todo el ancho, carrito bajo demanda) | §38.1 (`:19479`) | `DS-SELL-DESKTOP.a` … `.d` |
+  | `DS-ADMIN-MENU` | P-66 I2 · menú del panel por nombres; regla «`h1` = rótulo del menú»; candados P66-1..3 | §38.2 (`:19618`) | `DS-ADMIN-MENU.a` … `.c` |
+  | `DS-SET-CODE` | P-71 · código corto del set junto a las cartas | §38.3 (`:19721`) | `DS-SET-CODE.a` … `.c` |
+  | `DS-M4-MENU-MERGE` | consolidación §37/§38 (C1–C4) | §37.0-bis (`:19841`) | `DS-M4-MENU-MERGE.C1` … `.C4` |
+  | `DS-M4-NAME` | nombre «Pedidos por preparar» (criterio 215) | §37.1 (`:19861`) | — |
+  | `DS-M4-TABS` | `/admin/m4`: tres pestañas | §37.2 (`:19885`) | — |
+  | `DS-M4-SHIP-CARD` | tarjeta de ENVÍO interactiva | §37.3 (`:19914`) | `DS-M4-SHIP-CARD.a` … `.c` |
+  | `DS-AUTH-429` | avisos 429 de acceso (login, registro, Google; `TOO_MANY_PASSWORD_ATTEMPTS` y `RATE_LIMITED`) | §37.13 (`:20624`) ⇒ **§33.17** | — |
+
+  **Forma en el documento:** `<a id="ds-set-code"></a>` en la línea anterior al encabezado (GitHub no soporta `{#id}`) y
+  el nombre visible en el propio encabezado: `### 38.3 [DS-SET-CODE] P-71 · …`. **Forma de cita** en código, pruebas y
+  docs: `DESIGN_SYSTEM [DS-SET-CODE.c]` (o `DS-SET-CODE.c` a secas en comentarios); `rg -n "DS-SET-CODE"` encuentra a la
+  vez la definición y todos los usos. Solo se anclan estos ocho temas (los que chocan hoy); el resto del documento sigue
+  citándose por número hasta que una renumeración lo justifique.
+
+- **Plan (ux-ui, un solo commit sobre `DESIGN_SYSTEM.md`):**
+  1. **No renumerar.** §37 sigue siendo «Pedidos por preparar» y §38 el paquete (C4 de §37.0-bis). Renumerar otra vez
+     invertiría el sentido de las ~104 citas de frontend y de las 34 internas: crearía la ambigüedad que se quiere quitar.
+  2. **Mover el bloque §38 entero** (`:19453-19799`) **detrás de §37.19** (último encabezado de nivel 2 del fichero), sin
+     tocar su texto salvo la nota de `:19455-19459`, que pierde la frase «va antes de §37 en el fichero» y gana las anclas.
+  3. **Sacar el 429 a §33.17** «El 429 de acceso — login, registro y Google» `[DS-AUTH-429]`, con el texto de §37.13
+     íntegro (incluidas las erratas v4.9.1 y los tachados), y sus filas `auth.login.rateLimited*`, `auth.rateLimitedByIp*`
+     de §37.16 (`:20902-20903`) a §33.13. En su sitio, `### 37.13` queda como **encabezado‑puente de una línea**
+     («Movido a §33.17 [DS-AUTH-429] el …»), para que las 23 citas «§37.13» no apunten a la nada y **§37.14–§37.19 no se
+     renumeren**. Elegí §33 y no una sección nueva: el aviso comparte forma, tono y clave hermana
+     (`account.password.rateLimited`, §33.7) con la cuenta; una §39 de una sola subsección sería otra isla.
+  4. Poner las ocho anclas de la tabla y una línea en §0 («Cómo leer…», `:910`) que diga que las anclas `DS-*` son la
+     forma de cita estable y el número es orientativo.
+  5. Actualizar las pocas citas **por línea** a `DESIGN_SYSTEM.md` ≥ `:19453`, que el movimiento deja obsoletas: 3 en total
+     (`rg -c "DESIGN_SYSTEM(\.md)?:(19[4-9][0-9]{2}|2[0-9]{4})"` ⇒ `TECH_DEBT.md` 2 — `RS5-FE-TD8` `:8668`, `RS5-FE-TD9`
+     `:8704` — y `API_CONTRACT.md` 1). Las de `TECH_DEBT` las rehace su dueño (frontend) al cerrar su entrada; la de
+     `API_CONTRACT`, el arquitecto.
+- **Solicitudes a otros roles** (no las toca ux-ui):
+  - **arquitecto:** `ARCHITECTURE.md:74` y `:26064`, `API_CONTRACT.md:327`, `:361`, `:379` ⇒ `DESIGN_SYSTEM [DS-SET-CODE]`;
+    las 7 citas de «§37.13» en `API_CONTRACT` y la de `ARCHITECTURE` ⇒ `[DS-AUTH-429]`; la cita por línea de `API_CONTRACT`.
+  - **frontend:** `RS5-FE-TD9` con las anclas (sustituye su regla «§37.x ⇒ §38.x» por «⇒ `DS-*`», que ya no depende del
+    número) y los 5 ficheros que citan «§37.13» ⇒ `DS-AUTH-429`; mismas reglas en `FRONTEND_NOTES.md`.
+- **Disparador:** el **primer pase de ux-ui sobre `DESIGN_SYSTEM.md` después de fusionar el release s5**, y en todo caso
+  **antes** de añadir una §39 o de editar §37/§38 (cualquier sección nueva agrava el desorden). ⛔ No durante el gate del
+  release (el árbol es del gate, O-14). Orden obligado: **ux-ui primero** (definir las anclas), luego arquitecto y
+  frontend en paralelo (ficheros disjuntos).
+- **Cómo se cierra / candado** (todo con `rg` sobre el árbol entero, re-medible):
+  1. **Orden:** `rg -n "^## [0-9]+\." docs/DESIGN_SYSTEM.md` devuelve los números **estrictamente crecientes** (hoy falla:
+     `38` en `:19453` antes de `37` en `:19800`).
+  2. **Anclas definidas una sola vez:** para cada una de las ocho, `rg -c '<a id="ds-…"></a>' docs/DESIGN_SYSTEM.md` ⇒ **1**.
+  3. **Cero citas huérfanas:** todo `DS-[A-Z0-9-]+` que aparece en `frontend/`, `docs/` resuelve a una de las ocho
+     (`rg -o "DS-[A-Z0-9-]+[A-Z0-9]" | sort -u` ⊆ lista de anclas).
+  4. **Cero citas ambiguas fuera de `m4`:** `rg -n "§37\.[123]([a-d]|\b)" frontend/src frontend/e2e --glob '!**/m4/**'
+     --glob '!**/m4-*'` ⇒ **0** (el candado de `RS5-FE-TD9`) **y** `rg -n "§37\.[123]([a-d]|\b)" docs/ARCHITECTURE.md
+     docs/API_CONTRACT.md` ⇒ **0** (hoy **5**: `ARCHITECTURE:74,:26064`, `API_CONTRACT:327,:361,:379`).
+  5. **El 429 fuera de M4:** `rg -n "§37\.13" frontend/src docs/API_CONTRACT.md docs/ARCHITECTURE.md` ⇒ **0** (hoy
+     1+1+1+1+1 en `frontend/src` y 7+1 en docs); en `DESIGN_SYSTEM` solo el encabezado‑puente.
+  6. **Dentro de `DESIGN_SYSTEM`:** `rg -n "§37\.[123]([a-d]|\b)" docs/DESIGN_SYSTEM.md` solo devuelve (a) citas que de
+     verdad son «Pedidos por preparar» y (b) las líneas explicativas de la renumeración (hoy `:22-23`, `:19455-19458`,
+     `:19849-19852`). Revisión a ojo con la lista en mano; no es automatizable sin falsos positivos, y lo digo.
+  7. Sin cambio de contenido: `git diff -w --stat` del commit de ux-ui ≈ movimiento (líneas añadidas ≈ borradas, salvo
+     anclas, puente de §37.13 y la línea de §0).
+
+### RS5-UX-Q1 · pregunta pendiente del dueño · Dónde va «Reembolsos manuales (SPEI)» en el menú del panel (C3 de §37.0-bis)
+
+- **Qué está decidido y qué no (medido):** `DESIGN_SYSTEM.md:19851` (C3) lo resolví como **consolidación de ux-ui, a
+  confirmar**: grupo **«Administración»**, justo **después de «Finanzas»**, con etiqueta **SÚPER**, porque §38.2 (b) dice
+  que «Administración agrupa exactamente las entradas de súper-admin de dinero y cuentas». La propia fila dice
+  «`HECHOS.md` no decide este punto». Lo superado era §37.2/§37.9: «en el grupo de dinero junto a «M3 · Órdenes»».
+- **Qué hay construido hoy** (según el encargo del orquestador; **NO MEDIDO por ux-ui** en `AdminSidebar.tsx`): la
+  entrada quedó **junto a «Ventas»**, como la trajo la rama de envío — es decir, la regla superada de §37.9, no C3.
+- **Pregunta al dueño (una, cerrada):** *«La entrada «Reembolsos manuales (SPEI)» —solo la ven los súper-admin— ¿la
+  quieres (a) en «Administración», después de «Finanzas», junto a lo demás de dinero y cuentas de súper-admin; o
+  (b) pegada a «Ventas», porque ahí nacen esos reembolsos?»* Recomendación de ux-ui: **(a)**; la cercanía a Ventas ya la
+  dan los enlaces desde el detalle del pedido (§37.9, §37.11a), que no cambian con ninguna de las dos respuestas.
+- **Riesgo mientras no se responda:** Bajo. Sin efecto en dinero ni en permisos (el operador no la ve en ningún caso,
+  S6). Solo divergencia documento ↔ código en el sitio del menú.
+- **Disparador:** respuesta del dueño (se anota en `HECHOS.md`, que es del orquestador).
+- **Cómo se cierra:** (a) ⇒ frontend mueve la entrada en `AdminSidebar.tsx` y C3 pierde «a confirmar»; (b) ⇒ ux-ui
+  reescribe C3 (y la nota de §38.2 (b)) a «junto a «Ventas»» y el código se queda. En ambos casos, candado: prueba del
+  sidebar que asevera el grupo y la posición de `admin.modules.manualRefunds` para `super_admin` y su ausencia para
+  `operator` (medir antes si ya existe en `AdminSidebar*.test.tsx` — **NO MEDIDO**).
