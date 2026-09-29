@@ -26,13 +26,21 @@ import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
 // v2.0 (P-48, §4.36): la CURVA de compra sustituye a la tabla por rareza/acabado. UN solo cuerpo de
 // precedencia (`quoteAcquisitionFromCurve`) para quote, batch, createRequest y la vitrina de bounties.
-import { CurvePriceResult, PriceBasis, bountyPayoutCents, quoteAcquisitionFromCurve } from '../../common/money';
+import {
+  AcquisitionQuoteResult,
+  PriceBasis,
+  bountyGuardBasis,
+  bountyPayoutCents,
+  quoteAcquisitionFromCurve,
+  quoteAcquisitionWithGuard,
+} from '../../common/money';
 import {
   MarketBracket as MarketBracketType,
   PendingReason,
   PricingCurve,
   isBountyEffective,
   marketBracketOf,
+  premiumFloorGuard,
   resolvePendingReason,
 } from '../../common/pricing-curve';
 // v1.53 (§4.40.3.1, MONEY): la lista blanca del buylist es una DECISIÓN DE PRODUCTO declarada
@@ -572,8 +580,11 @@ interface BuyLineDecision {
   gradeKey: string;
   /** Valor de MERCADO que entró al cálculo (de la variante correcta: set_base o producto separado). */
   referenceMxnCents: number | null;
-  /** Resultado crudo de la precedencia de compra (bounty > override > curva > pendiente). */
-  quote: CurvePriceResult;
+  /**
+   * Resultado crudo de la precedencia de compra (bounty > override > curva > pendiente), con el
+   * `guardBasis` INTERNO que ve el guardarraíl (v1.80.2, §M2-B.11 punto 8) — ⛔ no viaja en ningún DTO.
+   */
+  quote: AcquisitionQuoteResult;
   /** `null` = se cotiza. No-null = bloqueada: `no_market` o el guardarraíl `premium_at_floor`. */
   pendingReason: PendingReason | null;
   /** Monto FINAL a pagar por la línea; `null` ⇔ bloqueada. */
@@ -1114,12 +1125,16 @@ export class BuylistService implements OnModuleInit {
     // Precedencia NORMATIVA bounty VÁLIDO > override > curva > pendiente (un solo cuerpo, money.ts);
     // el bounty se revalida AQUÍ contra la curva vigente, no solo al crearlo (§4.36.6).
     // SEC-A1: mercado y acabado derivados server-side, jamás del DTO del cliente.
-    const quote = quoteAcquisitionFromCurve(referenceMxnCents, curve, effectiveOverride);
+    const quote = quoteAcquisitionWithGuard(referenceMxnCents, curve, effectiveOverride);
     // v2.0 (P-48, §4.36.5b) — GUARDARRAÍL del eje de COMPRA: una rareza PREMIUM que aterriza en el BIN
     // NO se cotiza. Pagar de menos es la MISMA pérdida irreversible que vender de menos (§N.0), y que
     // una chase resuelva al bin solo puede significar que su dato de mercado está mal. NO dispara con
-    // override ni bounty (decisiones deliberadas del admin).
-    const pendingReason = resolvePendingReason(quote.basis, card.rarityCanonical ?? card.rarity);
+    // override ni con un bounty que paga lo que el admin decidió.
+    // ⭐⭐ v1.80.2 (§M2-B.11 punto 8): el guardarraíl ve `guardBasis`, NO `basis`. Un bounty TOPADO paga
+    // el mercado ⇒ el guardarraíl evalúa el basis de la CURVA (chase + bin ⇒ `premium_at_floor`).
+    // `guardBasis === 'pending'` ⇔ `basis === 'pending'` (peldaño 1 topado ⇒ mercado presente ⇒ la
+    // curva resuelve), así que `no_market` sigue significando lo mismo.
+    const pendingReason = resolvePendingReason(quote.guardBasis, card.rarityCanonical ?? card.rarity);
     const quotedPriceCents = pendingReason == null ? quote.priceCents : null;
     return {
       finish: f,
@@ -1310,9 +1325,25 @@ export class BuylistService implements OnModuleInit {
       })
       .map(({ r, referenceMxnCents }) => ({
         r,
+        referenceMxnCents,
         // MISMA función que el peldaño 1 de `quoteAcquisitionFromCurve`, MISMO mercado (candado BC-9).
         payoutCents: bountyPayoutCents(r.bountyPriceCents as number, referenceMxnCents),
       }))
+      // ⭐⭐ v1.80.2 (§M2-B.11 punto 8): tras calcular el pago y ANTES de ordenar/cortar, FUERA las filas
+      // que el guardarraíl retiene: una chase con bounty topado contra un mercado que cayó al bin
+      // cotizaría `precio_pendiente`, y criterio 91 prohíbe publicar un número que no se paga. Mismo
+      // veredicto que `decideBuyLine` (`bountyGuardBasis` + `premiumFloorGuard`, sin re-derivarlo).
+      .filter(
+        ({ r, referenceMxnCents }) =>
+          premiumFloorGuard(
+            r.card.rarityCanonical ?? r.card.rarity,
+            bountyGuardBasis(
+              r.bountyPriceCents as number,
+              referenceMxnCents,
+              quoteAcquisitionFromCurve(referenceMxnCents, curve).basis,
+            ),
+          ) !== 'premium_at_floor',
+      )
       // Orden por LO QUE SE PAGA (el `orderBy` del query ordena por lo configurado y ya no basta);
       // desempate estable: el orden del query (`updatedAt` desc), que `sort` conserva.
       .sort((a, b) => b.payoutCents - a.payoutCents)

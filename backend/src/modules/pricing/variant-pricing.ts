@@ -1,5 +1,5 @@
 import { VariantPriceOverride } from '@prisma/client';
-import { PriceBasis, bountyPayoutCents, computeSalePriceFromCurve, quoteAcquisitionFromCurve } from '../../common/money';
+import { PriceBasis, bountyPayoutCents, computeSalePriceFromCurve, quoteAcquisitionWithGuard } from '../../common/money';
 import { PricingCurve, isBountyEffective, premiumFloorGuard } from '../../common/pricing-curve';
 import type { PriceSourceStr } from './pricing.types';
 // `import type` a propósito: el composer sigue siendo PURO y sin dependencias de infra — la
@@ -178,11 +178,14 @@ export function composeVariantPricing(
   const market = resolveMarketReference(marketRef);
   const referenceMxnCents = market.referenceMxnCents;
   // COMPRA — un solo cuerpo: el resultado trae el efectivo Y lo que daría la curva sola.
-  const buy = quoteAcquisitionFromCurve(referenceMxnCents, curve, override);
+  // ⭐⭐ v1.80.2 (§M2-B.11 punto 8): con `guardBasis` — el basis que ve el guardarraíl de COMPRA.
+  const buy = quoteAcquisitionWithGuard(referenceMxnCents, curve, override);
   // VENTA — efectivo A NIVEL VARIANTE (sellOverride > curva); el override por pieza no entra aquí.
   const sell = computeSalePriceFromCurve(referenceMxnCents, curve, override);
 
-  const buyGuarded = premiumFloorGuard(rarityCanonical, buy.basis) === 'premium_at_floor';
+  // v1.80.2: `buy.guardBasis`, NO `buy.basis` — un bounty topado contra un mercado que cayó al bin en
+  // una chase queda RETENIDO igual que en la cotización (misma decisión, mismo cuerpo).
+  const buyGuarded = premiumFloorGuard(rarityCanonical, buy.guardBasis) === 'premium_at_floor';
   const sellGuarded = premiumFloorGuard(rarityCanonical, sell.basis) === 'premium_at_floor';
 
   // MISMO predicado que el runtime y que la vitrina (prohibido duplicarlo, §4.36.6). El mercado que
@@ -193,8 +196,12 @@ export function composeVariantPricing(
     isBountyEffective(override.bountyPriceCents, buy.curveQuoteCents, buy.marketMxnCents);
   // v1.80 (§M2-B.11): el pago sale del MISMO cuerpo que el peldaño 1 (`bountyPayoutCents`), con el
   // MISMO mercado ⇒ coincide con `buy.effectiveCents` cuando `buy.source='bounty'`.
+  // v1.80.2 (§M2-B.11 punto 8): una fila RETENIDA por el guardarraíl no paga nada hoy ⇒ `payoutCents
+  // null` y `cappedByMarket false` (su `state` sigue `activa`: `effective` NO se toca).
   const bountyPayout =
-    bountyEffective && override ? bountyPayoutCents(override.bountyPriceCents as number, buy.marketMxnCents) : null;
+    bountyEffective && override && !buyGuarded
+      ? bountyPayoutCents(override.bountyPriceCents as number, buy.marketMxnCents)
+      : null;
 
   return {
     // v1.62.2 — el valor de mercado de ESTA variante, tal cual entró al cálculo de arriba.

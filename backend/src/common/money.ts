@@ -309,6 +309,70 @@ export function quoteAcquisitionFromCurve(
 }
 
 /**
+ * v1.80.2 (API_CONTRACT §M2-B.11 punto 8, ancla `M2-B11-8`; ARCHITECTURE §4.36.5(a), §4.36.6e) —
+ * **QUÉ `basis` VE EL GUARDARRAÍL PREMIUM cuando el bounty ganó el peldaño 1.**
+ *
+ * La exención del guardarraíl para `bounty` existía porque el monto ERA la decisión del admin. Con el
+ * tope (v1.80) un bounty **topado** paga el MERCADO — justo el dato en el que el guardarraíl existe para
+ * no confiar. En esa esquina el guardarraíl ve el basis **de la curva** de la variante; en cualquier
+ * otro caso (sin tope, empate, sin mercado / mercado `<= 0` por H-1) ve `'bounty'` y la exención sigue.
+ *
+ * Devuelve un BASIS, no un monto, y ⛔ NO recibe rareza ⇒ criterio 84 intacto: la rareza la sigue
+ * poniendo `premiumFloorGuard`. «Topado» se decide con `bountyPayoutCents` (el ÚNICO tope, BC-9), no con
+ * una comparación a mano.
+ */
+export function bountyGuardBasis(
+  bountyPriceCents: number,
+  marketMxnCents: number | null,
+  curveBasis: PriceBasis,
+): PriceBasis {
+  return bountyPayoutCents(bountyPriceCents, marketMxnCents) < bountyPriceCents ? curveBasis : 'bounty';
+}
+
+/** Resultado de COMPRA con el basis que debe ver el guardarraíl. `guardBasis` es INTERNO: ⛔ no viaja en DTO. */
+export interface AcquisitionQuoteResult extends CurvePriceResult {
+  /**
+   * Lo que se pasa a `premiumFloorGuard` / `resolvePendingReason` en TODO llamador de COMPRA (en vez de
+   * `basis`). Peldaño 1 (bounty) ⇒ `bountyGuardBasis(bounty, mercado, <basis de la curva>)`; peldaños
+   * 2–4 ⇒ `= basis`.
+   */
+  guardBasis: PriceBasis;
+}
+
+/**
+ * v1.80.2 — `quoteAcquisitionFromCurve` + `guardBasis`. Es la puerta que usan TODOS los llamadores de
+ * COMPRA que pasan controles (quote, batch, createRequest y la oferta derivada vía `decideBuyLine`, y la
+ * consola/binder vía `composeVariantPricing`); un candado de forma prohíbe llamar a
+ * `quoteAcquisitionFromCurve` con controles fuera de este fichero.
+ *
+ * ⚠️ Por qué es una función hermana y no un campo más del resultado de `quoteAcquisitionFromCurve`
+ * (que es lo que dibuja el contrato): BC-5 afirma con `toEqual` la forma EXACTA de ese resultado
+ * (`{priceCents, basis, marketMxnCents, curveQuoteCents}`) y el contrato exige que BC-1…BC-12 sigan
+ * verdes SIN editarse; un campo nuevo la pone roja. La precedencia sigue viviendo en UN solo cuerpo
+ * (`quoteAcquisitionFromCurve`); aquí solo se deriva el basis del guardarraíl. Discrepancia reportada al
+ * arquitecto (BACKEND_NOTES §0.57).
+ *
+ * El basis de la curva está a mano: es `resolveBuyFromCurve(mercado, curva).basis`, la MISMA resolución
+ * pura que el peldaño 3 (determinista; se re-evalúa aquí en vez de exponer un campo más).
+ */
+export function quoteAcquisitionWithGuard(
+  marketMxnCents: number | null,
+  curve: PricingCurve,
+  controls?: VariantPriceControls | null,
+): AcquisitionQuoteResult {
+  const q = quoteAcquisitionFromCurve(marketMxnCents, curve, controls);
+  const guardBasis =
+    q.basis === 'bounty'
+      ? bountyGuardBasis(
+          controls?.bountyPriceCents as number,
+          marketMxnCents,
+          resolveBuyFromCurve(marketMxnCents, curve).basis,
+        )
+      : q.basis;
+  return { ...q, guardBasis };
+}
+
+/**
  * v1.23-sealed-sales (§4.23b) — precio de VENTA del SELLADO por PRESENTACIÓN. Hermana de
  * `computeSalePriceForRarity`, keyeada por `SealedSubtype` en vez de rareza+acabado.
  * `source` = de dónde salió el precio (SealedSpreadSource del contrato).
