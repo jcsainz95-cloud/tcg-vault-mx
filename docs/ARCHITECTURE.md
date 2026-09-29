@@ -4,6 +4,23 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.1 — APARTADO «POR REPONER»: LA CARTA DE BÓVEDA QUE FALTA O LLEGA DAÑADA SE REPONE (O, EN UN RETIRO, SE
+> PAGA A VALOR DE MERCADO); «DAÑADA» = «FALTANTE» EN TODOS LOS FLUJOS** (2026-09-29, arquitecto. Base: **v1.80, vigente
+> entera salvo lo que esta rev toca**. Origen: respuestas del dueño a D-1..D-4 (`HECHOS.md`, última fila) y su
+> instrucción posterior *«Tenemos que igual considerar que la carta que tenemos está dañada, es el mismo caso para cuando
+> falta»*. `API_CONTRACT` sube a **v1.80.1**; norma entera en `API_CONTRACT §M4-SHIP.15`. 💰 **DINERO ⇒ tres veredictos +
+> seguridad.** `M-61` se **amplía** en la misma migración — no construida: `rg "PaymentRefund|missingReason" backend` ⇒ 0
+> ficheros, medido 2026-09-29.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | Faltante/dañada de **bóveda** (retiro y compra a bóveda) ⇒ caso `ReplacementCase` en vez de reembolso; el directo no cambia | §4.57 (l), `API_CONTRACT §M4-SHIP.15` | **Sí** (backend, frontend) |
+> | **2** | Resoluciones: reponer / apareció (operador+), reembolso a mercado o a lo pagado (solo súper-admin, `case_refund` + `compensationCents`), anular (súper-admin, solo sin orden liquidada) | §4.57 (l), §7 | **Sí** · 🔒 seguridad |
+> | **3** | Un retiro con casos abiertos no lleva guía; se cierra solo si todo acaba reembolsado | §4.57 (l) | **Sí** |
+> | **4** | Un solo modelo de motivo (`MissingReason`) también en `VaultPlacementItem`; la dañada es merma `damaged` | §4.57 (l), §11 `M-61` | **Sí** |
+> | **5** | Cadena de reposición: `resolveOrigin` y `currentPieceOf` (el contracargo alcanza a la repuesta) | §4.57 (l), (i) | **Sí** (backend) |
+>
+> ---
 > **Rev v1.80 — STREAM «PREPARAR ENVÍOS»: PALOMEAR Y PREPARAR EN ENVÍO, LA CARTA QUE FALTA SE REEMBOLSA (Y LA PUEDE
 > REEMBOLSAR EL OPERADOR), SIN «CANCELAR» EN ENVÍOS PAGADOS** (2026-09-29, arquitecto. Base: **v1.79.5, vigente entera
 > salvo lo que esta rev toca**. Origen: decisiones del dueño del 2026-09-29 (`HECHOS.md`) tras la auditoría E2E del
@@ -25334,7 +25351,8 @@ correo por pedido sería ruido y PII; un canal en vivo sería infraestructura nu
 - `INV-SP-3` — una `OrderItem` y una `ShipmentItem` tienen **a lo más una** fila `item_missing` (`@unique`).
 - `INV-SP-4` — línea con fila `item_missing` ⇒ su pieza **no** es del cliente y está `lost|damaged` (misma tx).
 - `INV-SP-5` — `amountCents = merchandise + shipping + processingFee` (**CHECK**).
-- `INV-SP-6` — el operador **no** crea filas del libro fuera de `prepared`/`retry` (`C-REF-1`).
+- `INV-SP-6` — el operador **no** crea filas del libro fuera de `prepared`/`retry` (`C-REF-1`). ⭐ v1.80.1: el candado
+  enumera **cinco** sitios exactos (+ reembolso del apartado y `closeWithdrawalIfEmpty`, los dos solo súper-admin).
 
 **(j) Zonas compartidas (para el orquestador).** `backend/prisma/` (`M-61`), `common/money.ts` (fórmula),
 `common/error-codes.ts`, `payments` (webhooks, contracargo de bóveda, Stripe), `orders` (M3), `shipments` (verbos, cola,
@@ -25348,6 +25366,60 @@ aparece** (no hay verbo `lost → in_stock`, `§M4-SHIP.1` H10): no entra; es de
 **contracargo de bóveda revierte a la plataforma una carta que va en un retiro `picking`** (conducta previa, H9): este
 diseño la hace **visible** (la línea sale `blocked` y no se envía) y la guarda nueva impide re-listar una `lost`, pero
 decidir qué pasa con ese retiro es de «Órdenes y dinero».
+⭐ **v1.80.1 — D-1..D-4 contestadas** (`HECHOS.md`): D-1 y D-3 = su valor por defecto; D-2 y D-4 abren el apartado de
+(l). Preguntas nuevas D-5..D-10 en `API_CONTRACT §M4-SHIP.13`, todas con valor por defecto que no bloquea construir.
+**Recuperar una `lost` que aparece** queda resuelto **solo dentro de un caso** («apareció», `lost → in_custody` del
+cliente); fuera de un caso sigue sin verbo (H10).
+
+**(l) 💰 v1.80.1 — Apartado «Por reponer» (`ReplacementCase`).** Norma entera: `API_CONTRACT §M4-SHIP.15`.
+
+*El cambio de fondo:* en la bóveda el cliente **es dueño** de la carta; lo que se le debe cuando no está (o está dañada)
+es **la carta**, no el dinero de una venta. Por eso la faltante de bóveda deja de ser un reembolso automático y pasa a
+ser **una deuda con nombre**, visible y con dueño de la resolución. El envío directo, que es un pedido que no pudimos
+surtir, sigue reembolsando al preparar (D-1).
+
+```
+retiro: POST …/shipments/:id/prepared ─┐                        ┌─► replace (operador+) ─► replaced  (repuesta → cliente; original → plataforma)
+                                        ├─► ReplacementCase(open)┼─► replace = misma pieza, solo not_found ─► found
+bóveda: POST …/vault-placements/:id/confirm ┘  original: lost|damaged,├─► refund (súper-admin) ─► refunded (case_refund → Stripe → AV-12)
+                                              SIGUE del cliente    └─► void (súper-admin, orden ya no liquidada) ─► voided
+retiro con casos open ──✗── guía (409 SHIPMENT_HAS_OPEN_REPLACEMENTS) · último caso reembolsado sin nada que enviar ⇒ shipment_fee + cancelado
+```
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **Tabla propia** `ReplacementCase`, una fila por carta, con **exactamente un** nodo de origen (`ShipmentItem` o `VaultPlacementItem`, CHECK) | Un estado más en `PreparationItemStatus` (`to_replace`) | La marca de preparación es **reversible y de estante**; el caso es **una deuda** con ciclo propio (quién la abrió, quién la cerró, con qué pieza o con qué dinero). Meterlo en la marca obligaría a `PATCH …/prep-items` a conocer dinero y reposición. Y un enum de estado de marca no puede decir «repuesta con la pieza X» |
+| Nace en el **acto que ya fija la marca**: `prepared` del retiro, `confirm` de la colocación | Nacer al marcar | Marcar se equivoca (§4.57 (b)); en bóveda «preparado» se deshace a propósito (decisión del dueño 2026-09-25) ⇒ el acto irreversible es colocar |
+| La original **sigue a nombre del cliente**, `lost|damaged`, mientras el caso está abierto | Pasarla a plataforma al abrir el caso | Se le **debe** esa carta: así «Mi bóveda» la sigue mostrando («la estamos reponiendo») y no la puede retirar (`withdrawable` exige `in_custody`), sin un estado nuevo en `InventoryStatus`. Pasarla a plataforma la haría desaparecer de su bóveda antes de que nadie hiciera nada — contra la intención del dueño de «buscarla y reemplazarla» sin drama |
+| **Identidad exacta** de nueve campos (`sameIdentity`) | Misma carta a secas; «igual o mejor» | «Misma carta/variante/condición» es lo pedido; distinta condición o grado es **otro valor**. «Mejor» sería regalar inventario sin decisión del dueño |
+| Reponer: **operador+**, sin tope, sin dinero | Solo súper-admin; contar contra el tope | La pérdida ocurrió y se firmó **al marcar** (merma con autor). Reponer **cumple** la deuda con una pieza de la misma identidad; no crea valor nuevo que abusar. El vector (marcar «no la encontré» y quedarse la original) es el mismo de v1.80 y se ve igual: merma firmada + bitácora |
+| Reembolso desde el apartado: **solo súper-admin** (`@MoneyOut`) | El operador dentro del tope | El dueño: *«déjame el botón»*. Y el importe de mercado **no es un dato cobrado**, lo calcula el sistema: más discrecional que `item_missing`. Si el dueño lo abre al operador (D-8), es el mismo tope de §M4-SHIP.8 |
+| Mercado = **la misma** valuación de «Mi bóveda» (`marketValueOf`, extraída) | Precio de lista de la tienda; una valuación nueva | Una sola fuente de «cuánto vale la carta de este cliente»: la que él ve. Dos valuaciones divergirían |
+| Lo que el mercado paga **por encima** de lo cobrado por la carta = **`compensationCents`** (sin IVA de venta) | Todo como mercancía | Una devolución de venta no puede devolver más IVA del que se cobró; el excedente es compensación por pérdida. ⛔ Tratamiento fiscal **no decidido** aquí: renglón propio en M7, a confirmar por el contador (D-7) |
+| El cobro máximo es el **remanente de la orden de origen** | Otro pago; transferencia automática | Stripe solo devuelve contra un cobro y hasta su monto. Pagar por fuera (SPEI) es otro canal de dinero saliente ⇒ decisión del dueño (D-7) |
+| El retiro **espera** a sus casos (la guía se bloquea) | Mandar lo demás y dejar la repuesta en la bóveda | Paquete completo, sin segundo envío ni la pregunta de quién lo paga. Es D-9 al dueño, con esto de valor por defecto |
+| Anular **solo** si la orden de origen ya no está liquidada | Anular libre para el súper-admin | Anular es cerrar una deuda sin carta ni dinero; solo es correcto si el dinero ya lo resolvió otro camino (contracargo, M3 total). Si no, sería el «excluir sin reembolso» que §M4-SHIP.5 prohíbe |
+| **Cadena de reposición** en `resolveOrigin` y `currentPieceOf` | Dar a la repuesta una `OrderItem` ficticia | Una línea de orden es un hecho de venta; inventarla falsearía M7. La cadena deja el hecho donde está (el caso) y lo leen los tres lectores de dinero con **un** cuerpo |
+| `MovementReason + replacement` | Reusar `adjustment`, `settle` o `sale` | Cada uno ya tiene lectores con otro sentido (levantamiento físico, liquidación, venta). Un traspaso de reposición contado como venta o como ajuste mentiría en M7 y en los reportes de ajuste |
+| «Dañada» = «faltante» con **un** enum `MissingReason` en envío **y** bóveda | Un enum por cubeta; o «dañada» solo en envío | Decisión del dueño 2026-09-29. Un motivo, un enum, una traducción; y lo único que cambia con él es el estado físico (`lost` vs. `damaged`) y que «apareció» solo cabe en `not_found` |
+
+**Invariantes nuevos:**
+- `INV-RC-1` — a lo más **un** caso `open` por pieza (índice único parcial) y a lo más un caso por nodo (`@unique`).
+- `INV-RC-2` — caso `open` ⇒ su original está `lost|damaged` **a nombre de su cliente** (misma tx que lo abre).
+- `INV-RC-3` — caso cerrado (`replaced|refunded|voided`) ⇒ su original es de **plataforma** y ⛔ nunca `in_stock|listed`
+  por este camino; `found` ⇒ la original volvió `in_custody` del cliente.
+- `INV-RC-4` — retiro con caso `open` ⇒ **sin guía** (`WHERE` de la guía).
+- `INV-RC-5` — una carta (`OrderItem`) se reembolsa **una** vez en su vida por cualquier camino (`orderItemId @unique`
+  en el libro, que ya existía).
+- `INV-RC-6` — toda pieza de cliente tiene origen de venta **directo o por cadena** (sustituye a H8).
+
+**Zonas compartidas que suma:** las de (j) + `vault` (`confirm`, palomeo, `physical-inventory`, holdings), `pricing`
+(extraer `marketValueOf` del cuerpo de holdings — ⛔ sin cambiar su conducta), y una pestaña más en `(admin)` «Pedidos
+por preparar». Misma serialización que (j).
+
+**Medir antes de construir (⛔ NO MEDIDO por el arquitecto):** cómo cuenta M7 la merma de una pieza `lost|damaged` a
+nombre de un cliente (no debe contarse dos veces: al nacer el caso y al pasar a plataforma), y si `GET /vault/holdings`
+la lista y la valúa. Lo mide backend y lo reporta antes de tocar esos lectores.
 
 ---
 
@@ -26000,6 +26072,8 @@ miente en la otra dirección cuesta lo mismo que uno que no mide.*
 | **M3 Reembolso (dinero saliente)** | — | ❌ (bloqueado + auditado) | ✅ |
 | 💰 **Reembolso de la carta que no sale al preparar un envío** (v1.80, `API_CONTRACT §M4-SHIP.8`) | — | ✅ **solo** vía `POST /admin/shipments/:id/prepared` (y su `retry`), con tope de 24 h y bitácora | ✅ (sin tope) |
 | M4 **cancelar a mano** un envío pagado (`picking`/`guia`) (v1.80) | — | ❌ `409 PAID_SHIPMENT_NOT_CANCELLABLE` | ❌ ídem |
+| «Por reponer»: ver casos, **reponer** / «apareció» (v1.80.1, `API_CONTRACT §M4-SHIP.15`) | — | ✅ (sin tope: no es dinero) | ✅ |
+| 💰 «Por reponer»: **reembolsar** (mercado o lo pagado) y **anular** (v1.80.1) | — | ❌ `403 MONEY_OUT_FORBIDDEN` (auditado; D-8 al dueño) | ✅ (sin tope) |
 | M4 Retiros/envíos (picking, guía, estados) | — | ✅ | ✅ |
 | M5 Buylist hasta **verificación** (recibir, verificar, decidir/ajustar) | — | ✅ | ✅ |
 | **M5 Pago SPEI (dinero saliente)** | — | ❌ (bloqueado + auditado) | ✅ |
@@ -28528,6 +28602,16 @@ decisión D-3 del dueño; propuesto `500000`) con la regla de propagación §11.
   cartas `pending`: habrá que palomearlos antes de capturar su guía (`INV-SP-1`).
 - **Reversible:** sí mientras el libro esté vacío (quitar columnas y tabla). Con filas en el libro ⛔ **no** se revierte
   borrando: son registro de dinero que salió; el rollback es de código, con la tabla conservada.
+- ⭐ **v1.80.1 — se amplía en la MISMA migración** (no construida; medido `rg "PaymentRefund|missingReason" backend` ⇒ 0
+  ficheros, 2026-09-29): enums `ReplacementCaseSource`, `ReplacementCaseStatus`, `RefundBasis`; valor nuevo
+  `PaymentRefundKind.case_refund`; **`MovementReason + replacement`** (`ALTER TYPE … ADD VALUE`: backend comprueba si su
+  versión de Postgres exige sacarlo de la transacción de la migración); tabla `ReplacementCase` (con índice único
+  **parcial** `open` por pieza); `VaultPlacementItem + missingReason` (**backfill `not_found`** de las marcas `missing`
+  previas **antes** del CHECK — ⛔ NO MEDIDO cuántas hay en producción; esperado 0 o datos de prueba); `PaymentRefund +
+  compensationCents (default 0), replacementCaseId @unique, basis, marketValueCents, marketCapturedDate`; la identidad
+  del importe suma `compensationCents`. Forma normativa: `API_CONTRACT §M4-SHIP.2`. Revertir: igual que arriba (con
+  filas en `ReplacementCase` o en el libro, rollback de código conservando tablas; ⛔ un `ADD VALUE` de enum no se quita
+  sin recrear el tipo).
 
 ### v1.68-stream-b (**M-53**: la reserva conoce a su orden y a su vencimiento — **DDL ADITIVO, nullable, SIN backfill**, §4.48.2)
 
