@@ -24350,13 +24350,14 @@ orquestador decida»; esa rama no existe aquí): `mark` solo plataforma `in_stoc
 (`ITEM_NOT_ADJUSTABLE {status, ownerType}` para el resto, incluida la carta de un cliente fuera de un caso — D-14 = «por
 ahora no»); `PATCH {status:'in_stock'}` con la misma guarda, escritura condicionada y todos los campos en la misma tx,
 bitácora `inventory.item_updated` con `before/after`; ⛔ sin `InventoryMovement` para `listed ↔ in_stock`.
-**Instrucción de fusión (corregida por el techlead R3 sobre `c20451f`; `API_CONTRACT v1.80.7` nota de fusión §M1 /
-`ARCHITECTURE §9 D-SHIP-7`): al fusionar `claude/arreglos-operador` (2d13c75) MANDA `item-location.rules.ts` de aquella
-rama — las guardas de estado/dueño/zona de `move`/`mark`/`status` en un cuerpo (`assertOperable`, `MARKABLE_PLATFORM_STATUSES`,
-«`in_stock → in_stock` no escribe `status`») — y la copia EN LÍNEA de este stream (`MARKABLE_PLATFORM_STATUSES` local y las
-guardas de `markItem`/`updateItem` en `inventory.service.ts`) SE BORRA a favor de esas reglas; lo que este stream aporta y
-aquella rama no tiene es la bitácora `inventory.item_updated` y el `PATCH` con todos los campos en la misma tx. Sobre el
-árbol fusionado se re-corren PS-41, PS-41b, PS-42, PS-42b, PS-64 y la suite de `arreglos-operador`.** El hueco que la copia
+~~**Instrucción de fusión (techlead R3 sobre `c20451f`):** «manda `item-location.rules.ts` y la copia en línea se
+borra»…~~ 🔒 **Sustituida (2026-09-29) por la regla única de `API_CONTRACT v1.80.7.2`, §M1
+[«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule)** (y `ARCHITECTURE §9 D-SHIP-7`, que la cita): la instrucción
+anterior citaba v1.80.7 p.9 y contradecía lo que el contrato decía entonces; **ya no se sigue**. Qué queda, qué sale, en qué
+orden fusionan los tres streams (hotfix · dinero · envío) y qué pruebas se re-corren sobre el **árbol fusionado** (PS-41,
+PS-41b, PS-42, **PS-42b invertida**, PS-64, INV-SP-8 y las suites del hotfix) está **solo** allí — ⛔ no se copia aquí para
+no tener dos textos. ⛔ Esta rama (`claude/envio-preparar`) **no** hace la fusión: la hace la sesión que fusione los tres
+streams. El hueco que la copia
 en línea tenía (un `PATCH {status}` igual al leído caía en el `update` plano y re-escribía `status` ⇒ pisaba una reserva)
 quedó cerrado aquí (PS-42b, §M4-SHIP-TL más abajo).
 
@@ -24395,7 +24396,8 @@ columnas **antes** de `profitCents` (mismo orden que el objeto).
    objetivos no filtra por `picking`; una objetivo ya confirmada se omite (idempotencia entre pasadas). Es mi lectura
    de «una objetivo forzada a `in_stock` ⇒ 409» **y** «una pasada nueva solo toca la nueva» a la vez.
 9. **`inventory` SEC-SHIP-A1 aquí** (punto 2 del §2 «inventory»): conflicto de merge previsible con `arreglos-operador` —
-    **resuelto por el contrato v1.80.7 (punto 9 / D-SHIP-7): en la fusión manda `item-location.rules.ts` del hotfix** (ver §2).
+    🔒 **se resuelve con la regla única de `API_CONTRACT v1.80.7.2` §M1 [«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule)**
+    (sustituye la lectura anterior de v1.80.7 p.9; ver §2 «inventory»). La aplica la sesión que fusione los tres streams.
 10. **La cola de preparación no se cae por una fila sin dueño ni pedido** (`d030c85`): `buildView` llamaba
     `resolveOriginsBatch(db, row.userId as string, …)` y una `ShipmentRequest` con `userId` **y** `orderId` nulos (inexpresable
     por la API; la fixture `B-1` de `preparation-queue` la escribe por SQL) tumbaba **toda** la cola con `500`
@@ -24625,7 +24627,7 @@ dejan de aceptar `ITEM_NOT_IN_CUSTODY`. Mutación «buscar por `id` sin `ownerUs
 | Suite | Resultado |
 |---|---|
 | Unitaria completa (`npx jest`, árbol vivo con todos los cambios; tras el segundo pase) | **5924/5924** (primer pase: 356/356 suites · 5858/5858) |
-| Integración completa sobre COPIA del árbol entero (`jest --runInBand` de `test/integration/`, 55 suites) | primer pase (`copy`): 52/55 suites — rojas PS-39 (entorno: `APP_PUBLIC_URL`), PS-16 (mi PS-4b la empujó a la página 2) y `C-EQ-1` (preexistente en `ea615c3`); las tres cerradas en el segundo pase. Segundo pase (`copy3`): **INT_COPY3** |
+| Integración completa sobre COPIA del árbol entero (`jest --runInBand` de `test/integration/`, 55 suites) | primer pase (`copy`): 52/55 suites — rojas PS-39 (entorno: `APP_PUBLIC_URL`), PS-16 (mi PS-4b la empujó a la página 2) y `C-EQ-1` (preexistente en `ea615c3`); las tres cerradas en el segundo pase. Segundo pase (`copy3`): **55/55 suites · 1 267/1 267** (medido por backend el 2026-09-29 sobre copia del árbol entero de `0e979de`, HEAD de la errata v1.80.7.2; ver §12). *Del orquestador, no mío:* 55/55 suites, 1 281 verdes + 2 skip sobre `cfb43b3` |
 
 Carreras nuevas (N=10, autor backend): **PS-27d** 10/10 · **PS-36b** 10/10 (Δ deadlocks 0) · **PS-42b** 10/10 · **PS-57c**
 10/10 (Δ 0; 409+returned 10/10, 200+in_packed 0/10) · **PS-61b** 10/10 (Δ 0). Determinista: **PS-4b** verde.
@@ -24711,7 +24713,7 @@ Carreras nuevas (N=10, autor backend): **PS-27d** 10/10 · **PS-36b** 10/10 (Δ 
 | `test/integration/enum-query-axes.e2e-spec.ts` (`C-EQ-1`) sobre el árbol vivo | **429/429** (antes: 2 rojas en `ea615c3`, 3 en la corrida completa) |
 | `replacement-cases` · `shipments-prep` · `full-refund-vault` sobre el árbol vivo | 28/28 · 20/20 · 16/16 |
 | `npm run lint` | **0 problemas** (eran 5 avisos) |
-| Integración completa sobre COPIA fresca del árbol entero (`copy3`, 55 suites) | **INT_COPY3** |
+| Integración completa sobre COPIA fresca del árbol entero (`copy3`, 55 suites) | **55/55 suites · 1 267/1 267** (medido por backend el 2026-09-29 sobre copia del árbol entero de `0e979de`, HEAD de la errata v1.80.7.2; ver §12). *Del orquestador, no mío:* 55/55 suites, 1 281 verdes + 2 skip sobre `cfb43b3` |
 
 Mutaciones v2 (copia `copy3`, restaurada tras cada una; `mutate2.py` en el scratchpad hasta la limpieza) — **6/6 ROJAS**:
 
@@ -24723,3 +24725,74 @@ Mutaciones v2 (copia `copy3`, restaurada tras cada una; `mutate2.py` en el scrat
 | banda 3 universal: `MovementReason` + `teleport` (enum SIN derivada en código) | `enum-values-parity` | **ROJA** (1 failed) |
 | banda 3 universal: `enum SinLinea {a b}` nuevo sin línea en §0 | `enum-values-parity` | **ROJA** (2 failed) |
 | `C-EQ-1`: `?kind=` de `GET /admin/refunds` valida y TIRA el valor (QA-M3 sobre el eje nuevo) | `C-EQ-1` «filtra» | **ROJA** (1 failed) |
+
+## 12. Errata `v1.80.7.2` punto 2 (D-a del techlead sobre `59a0c1f`) — la confirmación de M3 cierra aunque haya contracargo
+
+Rama `claude/envio-preparar`, 2026-09-29. ⛔ El punto 1 de la errata (regla de fusión única de guardas de inventario,
+§M1 `#M1-merge-rule`) **no** se hace en esta rama: lo hace la sesión que fusione los tres streams. Aquí solo se corrige la
+cita en §2 «inventory» y en §7 punto 9.
+
+- **Código** (`payments/refunds/refund-ledger.service.ts · applyStripeOutcome`): se quitó la lectura **sin candado** de
+  `Order.status` que cortaba antes de `onFullRefund` (antes `:301-305`). Ahora, como el webhook `charge.refunded`
+  (`payments.service.ts · onChargeRefunded`): (1) CAS de la fila → (3) `onFullRefund` (envíos → piezas → `Order FOR
+  UPDATE`, sello) → (4) `Order → refunded` con `WHERE status='settled'` → si `count 0`, relectura **bajo el candado que (3)
+  tomó**: `refunded` ⇒ éxito sin log (M5); **`chargeback` ⇒ `logger.warn`** «cierre por reembolso total hecho (sello,
+  revisión manual, colocación); su estado chargeback se conserva y no hay AV-3»; otro ⇒ `logger.error` (invariante).
+  `AV-3` solo con `count 1`. Docblock y comentario corregidos (ya no dicen «la orden no se toca»).
+- **PS-57d** (`test/integration/full-refund-vault.e2e-spec.ts`): **(seq)** disputa commit → `retry` ⇒ fila `succeeded`,
+  orden `chargeback`, sello puesto, flag `true`, cero `refund_return`, un `chargeback_return`, colocación
+  `cancelled/chargeback`, una bitácora `order.full_refund_closed`, cero `AV-3`; y un `charge.refunded` posterior ⇒ la foto
+  entera (orden, piezas, movimientos, bitácoras, colocación, filas del libro) **idéntica** (`toEqual`). **(race, N=10)**
+  `forced` con barrera en `Order`, A = disputa (encolada primero), B = `retry` ⇒ ambos `200` y la misma foto; `inter === N`.
+  **Unitaria** `test/refund-ledger.confirm.spec.ts` (6 casos): `chargeback` ⇒ `warn`, no `error`; `onFullRefund` antes de
+  `Order → refunded`; `count 1` ⇒ AV-3; `refunded` ⇒ silencio; `failed`/`pending` ⇒ `error`.
+- **Rojo antes (medido sobre `a703f2d`, commit de pruebas `cc0570e`):** (seq) `seal=null, flag=false, closed=0` y el
+  `log error` «la orden … está chargeback; … la orden no se toca» (falso: la colocación sí la había cancelado la disputa);
+  unitaria 1/6 roja. **Verde después** (`3849421`): PS-57d, PS-57 y PS-57c verdes.
+- **Supuesto «desde `settled` solo se llega a `refunded` o `chargeback`» — censo con `rg`** (`rg -U "\.order\.(update|
+  updateMany|upsert|create)\(\{[^;]*?status:" src`, 2026-09-29): escritores de `Order.status` = `settled` (pago, `WHERE
+  status ≠ settled`, `payments.service.ts:268-270`/`:427-430`; disputa ganada `:1018-1021`), `refunded` (webhook
+  `:687`/`:696-697`, M3 `refund-ledger.service.ts:312-313`, los tres `WHERE status='settled'`), `chargeback` (disputa
+  directa `:869-872`, bóveda `:971-973`, disputa perdida `:1028-1031` — por `id`, sin estado en el `WHERE`) y **`failed`**
+  (cuatro: `payments.service.ts:604` tras leer `status === 'pending'` sin candado; `orders.service.ts:896`
+  `releaseReservation`, **sin** guarda de estado — la llaman `attachPaymentIntent` al fallar Stripe sobre una orden recién
+  creada `pending` y el barrido legado de invitados tras cancelar el PI; `:1042` `supersedeOwnOrder`, tras confirmar el PI
+  `canceled`; `:1181` barrido, con `order.status === 'pending'` leído). **Ninguno de los `failed` lleva el estado en el
+  `WHERE`:** lo que impide que toquen una orden `settled` es que su PI está `succeeded` y `closePaymentIntent` no puede
+  cancelarlo (⇒ 409/skip), no la base. El supuesto se sostiene hoy por esa vía; si algún día se rompe, lo caza el `log
+  error` de la rama «otro estado». `create` solo escribe `pending`.
+- **PS-57c (nota (c) del encargo):** la rama «`prepared` 200 + `in_packed`» salió 0/20 en QA y 0/10 aquí: **es
+  inalcanzable con ese fixture** — la fila `order_full` `requested` (tx1 de M3) existe antes de la carrera y `prepared` la
+  mira bajo candado (`shipment-prep.service.ts:721-745` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED`). **Elegí simplificar**:
+  la prueba asevera la única rama alcanzable (409 con ese código, pieza `returned`, `preparedAt` nulo) 10/10; «preparado
+  ANTES de la fila ⇒ la confirmación deja la carta intacta» ya lo mide PS-63. Commit `ff942ca`.
+- **Pendiente para el arquitecto (nota (d)):** `outcome` (`paid|already_paid` / `cancelled|already_cancelled`) viaja como
+  campo **aditivo** en la respuesta de `POST /admin/manual-refunds/:id/paid` y `/cancel` (§11, BLOQ-1) y **no está
+  declarado** en el `ManualRefundDTO` del contrato (§M4-SHIP.17.3). Hay que declararlo (o decidir quitarlo); ⛔ no lo
+  escribo yo.
+
+### Mutaciones (copias del árbol entero `git archive ff942ca`, una por mutación, `node_modules` enlazado)
+
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| (a) el código de hoy: lectura previa sin candado ⇒ `log error` y fin | PS-57d (seq) · unitaria | **ROJA** (seq) 2/2 corridas: `seal=null, flag=false, closed=0`; `charge.refunded` posterior **sí** escribe (sella el webhook: dos semánticas); (race) 10/10 verde, como predice el contrato (la lectura previa ve `settled` porque la disputa aún no hizo commit); unitaria 3/6 rojas |
+| (b) semántica (a) del techlead: tras el `FOR UPDATE` de la pasada, `chargeback` ⇒ salir sin escribir (`full-refund.service.ts`, solo `trigger='m3'`) | PS-57d (seq + race) | **ROJA** — (seq) 2/2 corridas `seal=null`; (race) **0/10** verdes, N=10 (sello `null` en las 10), `inter` 10/10. Unitaria verde (la simula con doble de `onFullRefund`: no la ve, la ve la integración) |
+| (c) `logger.error` en vez de `warn` para `chargeback` | unitaria | **ROJA** (1/6) |
+
+### Cifras (medidas por mí, 2026-09-29)
+
+| Qué | Resultado |
+|---|---|
+| `npm run typecheck` · `npm run lint` (copia del árbol entero de `0e979de`) | limpio · **0 problemas** |
+| Unitaria completa (`npx jest`, misma copia) | **357/357 suites · 5 930/5 930** (5 924 + los 6 de `refund-ledger.confirm.spec.ts`) |
+| Integración completa (`--runInBand`, 55 suites, misma copia, base Postgres 16 **nueva** por corrida) | **2/3 corridas verdes (N=3):** 55/55 · 1 267/1 267 dos veces; la tercera 54/55 · 1 265/1 267 — rojas las 2 de `buylist-intake-concurrency` (barrera «esperaba 2 bloqueadas en `SellRequestItem`», el flake abierto **P-BUYLIST-CONC-FLAKE**). No es de este diff: `git diff --stat cfb43b3 HEAD -- backend/` = solo `refund-ledger.service.ts` y dos pruebas |
+| `cfb43b3` (base del orquestador) sobre copia, misma máquina | 55/55 · **1 266/1 266** (= mi HEAD − PS-57d). *Del orquestador:* 1 281 + 2 skip sobre ese mismo sha — la diferencia de 15 es de entorno (⚠️ NO MEDIDO cuál; los 2 skip son `stripe-in-tx-pool` sin `connection_limit=5`, que aquí sí corren) |
+| PS-57d (race) | **10/10 en cada una de 4 corridas** (N=10 por corrida, 40/40), `inter` 10/10 |
+| PS-57c | 10/10 en 4 corridas, Δ deadlocks 0 |
+
+⚠️ **Hallazgo lateral para el dueño de `buylist` (no es de este stream, no lo toqué):** tras el rojo de
+`buylist-intake-concurrency`, **la base queda envenenada**: esa suite sale **0/10** sobre la base de la corrida roja y
+**10/10** sobre una limpia — y el cruce lo confirma (código de `cfb43b3` sobre la base envenenada 0/3; código de HEAD
+sobre una limpia 3/3). O sea, su `afterAll` no deja la base como la encontró cuando la ronda revienta. Mecanismo ⚠️ NO
+MEDIDO (el alta se rechaza antes de insertar `SellRequestItem`). Relevante para P-BUYLIST-CONC-FLAKE: un rojo arrastra
+los siguientes si la base se reutiliza.
