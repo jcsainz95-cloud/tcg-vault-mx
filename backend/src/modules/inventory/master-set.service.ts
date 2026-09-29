@@ -471,16 +471,20 @@ export class MasterSetService implements OnModuleInit {
     // 404 temprano si el userId del scope no existe (vista (ii) admin). Vista (iii): siempre yo.
     const owner = await this.resolveOwner(scope, opts);
 
+    // §0 «Filtros de lista» (API_CONTRACT: `q` = texto libre, `trim`, vacío/whitespace = ausente): el SERVIDOR
+    // recorta, no confía en que el cliente lo haga (una llamada directa con " twm" debe encontrar el set).
+    const term = q.q?.trim();
+
     const sets = await this.prisma.cardSet.findMany({
       // v1.80 (P-71, §4.57.4): «Buscar set» casa por NOMBRE **o** por CÓDIGO corto, ambos «contiene» sin
       // distinguir mayúsculas. Un set con `ptcgoCode` NULL solo casa por nombre (ILIKE sobre NULL ⇒ no
       // casa, sin error — lo mide P71-B5 contra Postgres real). ⚠️ Se filtra ANTES del plegado de
       // combinados (conducta heredada, §4.57.4): no cambia en este pase.
-      where: q.q
+      where: term
         ? {
             OR: [
-              { name: { contains: q.q, mode: 'insensitive' } },
-              { ptcgoCode: { contains: q.q, mode: 'insensitive' } },
+              { name: { contains: term, mode: 'insensitive' } },
+              { ptcgoCode: { contains: term, mode: 'insensitive' } },
             ],
           }
         : {},

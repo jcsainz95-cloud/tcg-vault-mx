@@ -95,6 +95,11 @@ describe('P71-B5 — «Buscar set» por nombre O código en los tres índices (P
       expect(body.data.find((r) => r.setId === twmId)!.ptcgoCode).toBe('TWM');
     });
 
+    it.each([' twm', 'twm ', '  TwM  '])('?q=%j (con espacios) ⇒ el servidor recorta y devuelve el set TWM', async (q) => {
+      const body = await search(ep, q);
+      expect(body.data.map((r) => r.setId)).toContain(twmId);
+    });
+
     it('?q=twilight ⇒ sigue devolviéndolo por NOMBRE (la rama del nombre sigue intacta)', async () => {
       const body = await search(ep, 'twilight');
       expect(body.data.map((r) => r.setId)).toContain(twmId);

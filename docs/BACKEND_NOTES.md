@@ -24282,3 +24282,9 @@ mueren; detalle en el informe del commit.
 - **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
   `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
 
+
+## P-71 — `?q=` del índice de master sets se recorta en el servidor (2026-09-29)
+`MasterSetService.index` (`backend/src/modules/inventory/master-set.service.ts:476`) hace `q.q?.trim()`; vacío o solo
+whitespace = sin filtro. Cumple la convención transversal de `q` de `API_CONTRACT.md` (texto libre, `trim`, vacío =
+ausente), redactada para `/admin/buylist` y `/admin/orders`; §M-P71 no dice nada propio sobre normalización de `q`,
+así que el arquitecto puede fijar en una errata que la regla también aplica a los tres índices de master set.

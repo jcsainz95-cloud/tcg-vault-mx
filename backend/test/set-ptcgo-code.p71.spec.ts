@@ -209,6 +209,26 @@ describe('P71-B2 — índice de master sets: MasterSetSummaryDTO.ptcgoCode', () 
     });
   });
 
+  it('`?q=` con espacios alrededor se RECORTA en el servidor (llamada directa " twm ")', async () => {
+    const prisma = masterSetPrisma([]);
+    const svc = new MasterSetService(prisma, masterSetPricing());
+    await svc.index({ q: '  twm\t', page: 1, pageSize: 20, sort: 'release_desc' });
+    const where = (prisma.cardSet.findMany as unknown as jest.Mock).mock.calls[0][0].where;
+    expect(where).toEqual({
+      OR: [
+        { name: { contains: 'twm', mode: 'insensitive' } },
+        { ptcgoCode: { contains: 'twm', mode: 'insensitive' } },
+      ],
+    });
+  });
+
+  it('`?q=` solo whitespace = ausente (sin filtro)', async () => {
+    const prisma = masterSetPrisma([]);
+    const svc = new MasterSetService(prisma, masterSetPricing());
+    await svc.index({ q: '   ', page: 1, pageSize: 20, sort: 'release_desc' });
+    expect((prisma.cardSet.findMany as unknown as jest.Mock).mock.calls[0][0].where).toEqual({});
+  });
+
   it('sin `?q=` no hay filtro', async () => {
     const prisma = masterSetPrisma([]);
     const svc = new MasterSetService(prisma, masterSetPricing());
