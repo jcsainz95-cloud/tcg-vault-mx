@@ -173,11 +173,13 @@ describe('§M4-VAULT.3 · orden de la cola mezclada (envío + bóveda)', () => {
   const ship = (id: string, requestedAt = at): PreparationOrderDTO => ({
     destination: 'ship',
     shipmentId: id,
+    kind: 'vault_withdrawal',
     orderId: null,
     orderNumber: null,
     requestedAt,
-    customer: { lastName: null, fullName: null },
+    customer: { userId: null, email: null, lastName: null, fullName: null },
     shipTo: { recipientName: null, line1: 'x', city: 'x', state: 'x', postalCode: '1', country: 'MX', phone: '1' },
+    preparation: { status: 'in_progress', refundPreviewCents: 0, total: 0, pending: 0, picked: 0, missing: 0, blocked: 0 },
     items: [],
   });
   const vault = (id: string, requestedAt = at): PreparationOrderDTO => ({

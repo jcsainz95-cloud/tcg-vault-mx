@@ -171,7 +171,8 @@
         "reasonLabel": "Motivo",
         "body": "Sube otra vez tu INE —frente y reverso— y la revisamos de nuevo.",
         "since": "Rechazada el {date}."
-      }
+      },
+      "clabeUpdatedAt": "CLABE actualizada el {date}"
     },
     "password": {
       "title": "Contraseña",
@@ -632,6 +633,11 @@
     "withdrawalRequested": "Retiro solicitado. Aquí verás su avance.",
     "claimable": {
       "body": "Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento."
+    },
+    "item": {
+      "originRefunded": "Compra en reembolso",
+      "originRefundedBody": "Esta carta viene de una compra que se está reembolsando: no se puede retirar. Si el reembolso no procede, volverá a estar disponible.",
+      "replacingHint": "Esta carta se está reponiendo; no se puede retirar mientras tanto."
     }
   },
   "masterSet": {
@@ -1086,7 +1092,27 @@
     "cfdiStatusLabel": "Factura",
     "item": {
       "unknownCard": "Carta sin registro",
-      "unknownCardHint": "El registro de este pedido no guardó el nombre de esta carta. El importe cobrado no cambia."
+      "unknownCardHint": "El registro de este pedido no guardó el nombre de esta carta. El importe cobrado no cambia.",
+      "refund": "No salió · te devolvimos {amount}",
+      "refundReason": {
+        "not_found": "no la encontramos",
+        "damaged": "llegó dañada"
+      },
+      "replacing": "La estamos reponiendo",
+      "replacingBody": {
+        "not_found": "No la encontramos al prepararla. Te avisamos en cuanto la tengamos, o te devolvemos su valor.",
+        "damaged": "Llegó dañada al prepararla. Te avisamos en cuanto la tengamos, o te devolvemos su valor."
+      },
+      "replaced": "Repuesta con otra igual",
+      "caseRefunded": "Reembolsada · {amount}",
+      "byTransfer": "{amount} por transferencia · {status}",
+      "transferStatus": {
+        "pending": "pendiente",
+        "paid": "depositada",
+        "cancelled": "cancelada"
+      },
+      "transferCancelledHelp": "Si no sabes por qué, contáctanos.",
+      "originRefunded": "Ya no está en tu bóveda: este pedido se reembolsó."
     },
     "resume": {
       "cta": "Reanudar pago",
@@ -1095,6 +1121,29 @@
       "cartReplaced": "Tu carrito se sustituye por las piezas de este pedido.",
       "loading": "Recuperando…",
       "error": "No pudimos recuperar las piezas de este pedido. Inténtalo de nuevo."
+    },
+    "refundedPartial": "Te devolvimos {amount} de este pedido.",
+    "shipment": {
+      "title": "Tu envío",
+      "carrier": "Paquetería: {carrier}",
+      "tracking": "Guía: {number}",
+      "trackingNone": "Guía: todavía no",
+      "copy": "Copiar guía",
+      "copied": "Copiada",
+      "to": "Para {name} · {city}, {state} · CP {zip}",
+      "reference": "Referencia del envío: {id}",
+      "referenceHint": "Dala si nos escribes por este envío.",
+      "missing": "{count, plural, one {# carta de este envío no salió} other {# cartas de este envío no salieron}}; te devolvimos su dinero (ver abajo).",
+      "inVault": "En tu bóveda",
+      "seeVault": "Ver mi bóveda",
+      "inReview": "Estamos revisando este pedido. Si necesitas algo, escríbenos con tu número de pedido.",
+      "step": {
+        "pagado": "Pagado",
+        "preparando": "Preparando",
+        "guia": "Guía",
+        "enviado": "Enviado",
+        "entregado": "Entregado"
+      }
     }
   },
   "legal": {
@@ -1148,6 +1197,14 @@
       "temporaryLabel": "Contraseña temporal",
       "submit": "Guardar y continuar",
       "done": "Listo"
+    },
+    "login": {
+      "rateLimited": "Demasiados intentos con este correo. Espera unos minutos y vuelve a intentarlo, o restablece tu contraseña.",
+      "rateLimitedRetryIn": "Demasiados intentos con este correo. Vuelve a intentarlo en {minutes, plural, one {# minuto} other {# minutos}}, o restablece tu contraseña.",
+      "rateLimitedResetLink": "Restablecer contraseña"
+    },
+    "register": {
+      "rateLimited": "Demasiados intentos con este correo. Espera unos minutos y vuelve a intentarlo."
     }
   },
   "verifyEmail": {
@@ -1223,7 +1280,7 @@
       "m1": "M1 · Inventario",
       "m2": "M2 · Precios",
       "m3": "M3 · Órdenes",
-      "m4": "M4 · Retiros",
+      "m4": "M4 · Pedidos por preparar",
       "m5": "M5 · Buylist",
       "m6": "M6 · Usuarios",
       "m7": "M7 · Finanzas",
@@ -1233,7 +1290,12 @@
       "m11": "M11 · Sellado",
       "m12": "M12 · Meta Battle Decks",
       "vaults": "Bóvedas de clientes",
-      "m2Bounties": "M2 · Bounties"
+      "m2Bounties": "M2 · Bounties",
+      "m4Badge": "{count, plural, one {# pedido por preparar} other {# pedidos por preparar}}",
+      "m4BadgeOverdue": "con casos vencidos",
+      "manualRefunds": "Reembolsos manuales (SPEI)",
+      "manualRefundsBadge": "{count, plural, one {# transferencia pendiente} other {# transferencias pendientes}}",
+      "refunds": "Reembolsos de operadores"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
@@ -1261,7 +1323,21 @@
       "users": "Usuarios",
       "salesSettled": "Ventas liquidadas",
       "buylistPaid": "Buylist pagadas",
-      "withdrawals": "Retiros sin disputa"
+      "withdrawals": "Retiros sin disputa",
+      "toPrepare": {
+        "title": "Pedidos por preparar",
+        "detail": "{ship} envíos · {vault} bóveda · {toReplace} por reponer",
+        "overdue": "{count, plural, one {# vencido} other {# vencidos}}"
+      },
+      "manualRefunds": {
+        "title": "Reembolsos por pagar (SPEI)",
+        "detail": "{amount} por transferir · la más vieja hace {days, plural, one {# día} other {# días}}",
+        "detailNone": "Nada por transferir."
+      },
+      "operatorRefunds": {
+        "title": "Reembolsos de operadores",
+        "detail": "{count} en 24 h · {amount30d} en 30 días"
+      }
     },
     "m1": {
       "title": "M1 · Inventario y bóveda",
@@ -1461,7 +1537,9 @@
         "user": "Usuario",
         "status": "Estado",
         "total": "Total",
-        "date": "Fecha"
+        "date": "Fecha",
+        "customer": "Cliente",
+        "refunded": "Devuelto"
       },
       "refundDone": "Reembolso ejecutado para la orden {orderId}.",
       "refundReasonLabel": "Motivo del reembolso",
@@ -1477,10 +1555,121 @@
       },
       "prev": "Anterior",
       "next": "Siguiente",
-      "pageInfo": "Página {page} de {totalPages}"
+      "pageInfo": "Página {page} de {totalPages}",
+      "guest": "Invitado",
+      "nameMissing": "Sin nombre registrado",
+      "viewDetail": "Ver detalle",
+      "operatorRefundsLink": "Reembolsos de operadores",
+      "detail": {
+        "title": "Pedido {ref}",
+        "back": "Volver a órdenes",
+        "customer": "Cliente",
+        "mode": {
+          "vault": "Compra a bóveda",
+          "direct_ship": "Envío directo"
+        },
+        "items": "Cartas",
+        "itemRefunded": "Reembolsada · {amount} · {status}",
+        "needsManual": "Pendiente de confirmación humana",
+        "needsManualBody": "Hay cartas de este pedido cuyo paradero físico nadie ha confirmado. Resuélvelo abajo."
+      },
+      "shipments": {
+        "title": "Envíos de este pedido",
+        "none": "Este pedido no tiene envíos.",
+        "view": "Ver en Pedidos por preparar",
+        "prepared": "preparado el {date}",
+        "notPrepared": "sin preparar",
+        "tracking": "Guía {carrier} {number}"
+      },
+      "refunds": {
+        "title": "Reembolsos",
+        "none": "Sin reembolsos.",
+        "transfers": "Transferencias",
+        "transfersNone": "Sin transferencias.",
+        "byStripe": "Devuelto por Stripe: {amount}",
+        "byTransfer": "Transferido: {amount}",
+        "row": "{kind} · {amount} · {status} · {name} ({role}) · {date}",
+        "kind": {
+          "item_missing": "Carta que no salió",
+          "order_remaining": "Resto del pedido",
+          "shipment_fee": "Costo del retiro",
+          "order_full": "Pedido completo",
+          "case_refund": "Caso «Por reponer»"
+        },
+        "retry": "Reintentar",
+        "viewTransfer": "Ver transferencia"
+      },
+      "role": {
+        "super_admin": "súper-admin",
+        "vault_operator": "operador",
+        "customer": "cliente"
+      },
+      "vaultRefund": {
+        "body": "Al confirmarse el reembolso, las cartas de esta compra dejan de ser del cliente y vuelven a la plataforma en almacén (no a la venta) hasta que confirmes que están en el estante. El cliente recibe el correo de reembolso y deja de verlas en su bóveda.",
+        "directBody": "Se devuelve lo que queda del cobro. Si el envío sigue vivo, se cierra: sus cartas quedan congeladas hasta que confirmes dónde están.",
+        "remaining": "Queda por devolver: {amount}",
+        "piecesTitle": "Cartas de esta compra",
+        "state": {
+          "in_custody": "En su bóveda",
+          "returnedPending": "Devuelta · por confirmar",
+          "returned": "Devuelta",
+          "in_packed_withdrawal": "En una caja",
+          "already_withdrawn": "Ya la tiene el cliente",
+          "open_case": "Con caso «Por reponer»",
+          "not_customer": "Ya no era del cliente",
+          "ambiguous": "Revisar a mano",
+          "other_purchase": "De otra compra"
+        },
+        "stateBody": {
+          "returnedPending": "Volvió a la plataforma pero nadie ha confirmado que está en el estante. Confírmalo abajo.",
+          "returned": "Volvió a la plataforma.",
+          "in_packed_withdrawal": "Sigue a nombre del cliente porque estaba en un retiro ya preparado o con guía cuando se confirmó el reembolso. Ese retiro no puede salir con ella. Reclámala cuando la saques de la caja.",
+          "already_withdrawn": "Salió o se entregó antes del reembolso: no se toca.",
+          "open_case": "Faltaba o llegó dañada; su caso sigue abierto y ahora se puede anular.",
+          "not_customer": "Ya había vuelto a la plataforma (por ejemplo, por un contracargo).",
+          "ambiguous": "El sistema no pudo decidir qué pieza es hoy esta carta. No se tocó nada. Revísala en Inventario.",
+          "other_purchase": "El cliente la volvió a comprar en otro pedido: responde esa compra, no ésta."
+        },
+        "error": {
+          "inPackedWithdrawal": "{count, plural, one {Una carta de esta compra está} other {# cartas de esta compra están}} en una caja: retiro {ref} ya preparado o con guía. No se reembolsó nada. Deshaz el preparado de ese retiro en «Pedidos por preparar» y vuelve; con guía comprada, espera a que salga.",
+          "inPackedWithdrawalLink": "Ver retiro {ref} en Pedidos por preparar",
+          "nothingLeft": "No queda nada por devolver en este pedido."
+        },
+        "confirmPieces": "Sé que el cliente ya tiene {count, plural, one {esta carta} other {estas cartas}} en la mano ({items}) y reembolso de todos modos.",
+        "confirmPiecesMissing": "Falta confirmar lo de arriba.",
+        "reclaim": {
+          "cta": "Reclamar",
+          "ctaAll": "Reclamar lo que quede",
+          "title": "¿Reclamar {count, plural, one {esta carta} other {estas cartas}} para la plataforma?",
+          "body": "{items} {count, plural, one {sigue} other {siguen}} a nombre del cliente porque {count, plural, one {estaba} other {estaban}} en una caja. Al reclamarla{count, plural, one {} other {s}} {count, plural, one {vuelve} other {vuelven}} a la plataforma en almacén y el retiro sigue sin {count, plural, one {ella} other {ellas}}. Solo confírmalo si ya {count, plural, one {la} other {las}} sacaste de la caja.",
+          "pick": "Cartas que sacaste de la caja",
+          "pickHint": "Sin selección se reclaman todas las que estén en caja.",
+          "unpacked": "Saqué {count, plural, one {la carta} other {las cartas}} de la caja.",
+          "note": "Qué viste o hiciste",
+          "confirm": "Reclamar",
+          "done": "{count, plural, one {# carta volvió} other {# cartas volvieron}} a la plataforma. Confirma abajo dónde está cada una.",
+          "nothing": "No había nada que reclamar. Queda registrado que lo revisaste.",
+          "notClosed": "El reembolso todavía no se ha confirmado: no hay nada que reclamar. Reintenta el reembolso o espera a Stripe.",
+          "notVault": "Esta compra no es de bóveda."
+        },
+        "inventory": {
+          "title": "Confirmar dónde están",
+          "legend": "¿Dónde están las cartas devueltas?",
+          "legendDirect": "¿Dónde están las cartas congeladas?",
+          "recovered": "Recuperadas: están en el estante y vuelven a la venta",
+          "notRecovered": "No recuperadas: no aparecen; quedan como merma a mi nombre",
+          "reship": "Re-expedir: ganamos la disputa y el paquete vuelve a salir",
+          "recoveredHint": "Si siguen en el cajón del cliente, muévelas a un estante desde Inventario; publicarlas no las mueve.",
+          "note": "Qué viste en el estante",
+          "confirm": "Confirmar",
+          "done": "Confirmado: {outcome, select, recuperada {las cartas vuelven a la venta} no_recuperada {las cartas quedan como merma a tu nombre} other {el envío vuelve a salir}}.",
+          "conflict": "Una de las cartas cambió de estado mientras confirmabas. No se hizo nada. Actualiza y vuelve a intentarlo.",
+          "alreadyResolved": "Este pedido ya se resolvió antes. No se hizo nada."
+        }
+      }
     },
     "m4": {
-      "title": "M4 · Retiros / envíos",
+      "title": "Pedidos por preparar",
       "tracking": {
         "capture": "Capturar guía",
         "title": "Captura de guía",
@@ -1490,7 +1679,13 @@
         "shippingCostHint": "Costo real que la plataforma paga a la paquetería. Opcional.",
         "shippingCostInvalid": "Debe ser un monto mayor o igual a 0.",
         "save": "Guardar guía",
-        "saved": "Guía guardada para {id}."
+        "saved": "Guía guardada para {id}.",
+        "notPrepared": "Este envío todavía no está preparado: primero palomea sus cartas y dalo por preparado en «Preparar». No se guardó la guía.",
+        "openReplacements": "Este retiro tiene {count, plural, one {# carta que se está reponiendo} other {# cartas que se están reponiendo}}: sale completo cuando cada caso se resuelva. No se guardó la guía.",
+        "originRefunded": "{count, plural, one {Una carta de este retiro viene} other {# cartas de este retiro vienen}} de una compra que se está reembolsando: {items}. No se guardó la guía. Deshaz el preparado para que la carta vuelva a la plataforma, o pide al súper-admin que la reclame.",
+        "orderNotSettled": "El pedido de este envío ya no está liquidado ({status}): se reembolsó o está en disputa. No se guardó la guía. Lo resuelve el súper-admin en Pedidos (M3).",
+        "goToPrepare": "Ir a «Preparar»",
+        "goToReplace": "Ver en «Por reponer»"
       },
       "queueTitle": "Cola de envíos de clientes",
       "statusFilter": "Filtrar por estado",
@@ -1508,12 +1703,21 @@
         "entregado": "Marcar entregado",
         "cancelado": "Cancelar",
         "changed": "Estado actualizado ({id}).",
-        "cancelTitle": "Cancelar envío",
-        "cancelConfirm": "Cancelar envío",
-        "cancelBody": "¿Cancelar el envío {id}? Esta acción no se puede revertir."
+        "cancelTitle": "¿Cancelar la solicitud {ref}?",
+        "cancelConfirm": "Cancelar solicitud",
+        "cancelBody": "Se cancela la solicitud y su cobro pendiente en Stripe, y el cliente recibe un correo. Si el pago ya entró, no se cancelará y te lo diremos.",
+        "shippedTitle": "¿Marcar {ref} como enviado?",
+        "shippedBody": "Para {recipient}. El cliente recibe un correo de que su paquete salió. Confírmalo solo cuando la paquetería ya lo tenga.",
+        "shippedConfirm": "Marcar enviado",
+        "deliveredTitle": "¿Marcar {ref} como entregado?",
+        "deliveredBody": "Para {recipient}. No se envía correo. Las cartas de un retiro pasan a «retiradas» y dejan de estar en la bóveda del cliente; desde esta pantalla no hay vuelta atrás. Confírmalo con la entrega de la paquetería a la vista.",
+        "deliveredConfirm": "Marcar entregado",
+        "notCancellable": "Este envío ya está pagado y no se cancela a mano ({status}). No se cambió nada. Si una carta no sale, se marca al preparar; si hay que devolver todo, lo hace el súper-admin en Pedidos (M3).",
+        "nothingToShip": "Este retiro no tiene ninguna carta que enviar: todas volvieron a la plataforma. No se marcó como enviado. Avisa al súper-admin para cerrarlo.",
+        "recipientUnknown": "destinatario sin registrar"
       },
       "prep": {
-        "title": "Pedidos a preparar",
+        "title": "Pedidos por preparar",
         "hint": "Pedidos ya cobrados, listos para armar. Se atiende primero el más viejo.",
         "filterLabel": "Cubeta",
         "filterAll": "Ambas",
@@ -1584,8 +1788,10 @@
             "actionAria": "{action}: {card} · {folio}",
             "picked": "Tomada",
             "missing": "Faltante",
-            "missingBody": "Queda anotada como faltante. No se mueve al cajón. Esta pantalla no avisa al cliente ni hace reembolsos.",
-            "blocked": "No va al cajón"
+            "missingBody": "Queda anotada. No se mueve al cajón. Al confirmar la colocación se abrirá un caso «Por reponer» a nombre del cliente; esta pantalla no le avisa ni hace reembolsos.",
+            "blocked": "No va al cajón",
+            "damaged": "Llegó dañada",
+            "damagedTag": "Dañada"
           },
           "blockedReason": {
             "in_withdrawal": "Está en un retiro que el cliente ya pagó: sale con ese envío, no va al cajón.",
@@ -1648,6 +1854,340 @@
             "title": "Nada que llevar a bóveda por ahora.",
             "body": "No hay compras pagadas esperando su cajón."
           }
+        },
+        "ship": {
+          "step": {
+            "collect": "Paso 1 de 2 · Junta y palomea",
+            "pack": "Paso 2 de 2 · Empaca y captura la guía",
+            "waiting": "Paso 2 de 2 · Esperando reposición ({count})",
+            "nothingToShip": "Nada que enviar: se devolverá la tarifa",
+            "nothingToShipBody": "Todas las cartas de este retiro volvieron a la plataforma porque su compra se reembolsó. Al darlo por preparado se devuelve el cobro del retiro ({amount}) y el retiro se cierra."
+          },
+          "item": {
+            "damaged": "Llegó dañada",
+            "damagedTag": "Dañada",
+            "blocked": "No sale en este envío",
+            "blockedBody": "Ya no está disponible para este envío ({status}). No se palomea y no va en el paquete.",
+            "toReplacement": "Al dar el pedido por preparado se abrirá un caso «Por reponer» a nombre del cliente. La carta sigue siendo suya.",
+            "replacementLink": "Por reponer →",
+            "replacementStatus": {
+              "open": "abierto",
+              "replaced": "repuesta con {folio}",
+              "found": "apareció",
+              "refunded": "reembolsada",
+              "voided": "anulado"
+            },
+            "refundPreview": "Se le devolverán {amount} al dar el pedido por preparado (la carta más su parte de la comisión).",
+            "refundRequested": "Reembolso de {amount} pedido por {name} · {date}. Esperando a Stripe.",
+            "refundDone": "Reembolsada · {amount} · {date}.",
+            "refundFailed": "Stripe rechazó el reembolso de {amount}. Lo atiende el súper-admin en Pedidos (M3).",
+            "notRefundable": {
+              "order_not_settled": "El cobro de este pedido ya no está vivo (reembolsado o en disputa): esta carta no se puede devolver desde aquí. Lo atiende el súper-admin en Pedidos (M3).",
+              "legacy_convention": "Este pedido es de antes del cambio a precios con IVA incluido: no se reembolsa por carta desde aquí. Lo atiende el súper-admin en Pedidos (M3).",
+              "no_origin_order": "No encontramos la compra de la que salió esta carta: no se puede devolver su dinero desde aquí. Avisa al súper-admin.",
+              "exceeds_charge": "El reembolso de esta carta excedería lo cobrado en el pedido. Avisa al súper-admin."
+            },
+            "refundedLocked": "Esta carta ya se reembolsó ({status}); la marca es fija.",
+            "caseLocked": "Esta carta ya tiene un caso «Por reponer» ({status}); la marca es fija. Si aparece, márcala como «Apareció» en el caso.",
+            "noName": "una cuenta sin nombre"
+          },
+          "count": "{picked, plural, one {# tomada} other {# tomadas}} · {missing, plural, one {# faltante o dañada} other {# faltantes o dañadas}} · {pending} por palomear",
+          "countBlocked": "· {blocked, plural, one {# no sale} other {# no salen}}",
+          "countRefund": "Se devolverán {amount} al preparar.",
+          "prepare": {
+            "cta": "Pedido preparado",
+            "saving": "Guardando…",
+            "pending": "{pending, plural, one {Falta # carta} other {Faltan # cartas}} por palomear: márcalas como «La tengo», «No la encontré» o «Llegó dañada».",
+            "notRefundable": "Una carta marcada como faltante no se puede reembolsar desde aquí; el súper-admin resuelve ese pedido en M3. Si te equivocaste, deshaz la marca.",
+            "blockedSettled": "Este pedido tiene {count, plural, one {# carta que ya no está disponible} other {# cartas que ya no están disponibles}} y su cobro sigue vivo: no se puede dar por preparado sin que alguien responda por ese dinero. Avisa al súper-admin."
+          },
+          "prepared": {
+            "by": "Preparado por {name} · {date}",
+            "byNoName": "Preparado por una cuenta sin nombre · {date}"
+          },
+          "confirmRefund": {
+            "title": "Dar por preparado y devolver {amount}",
+            "line": "{card} · {folio} — {reason} — {amount}",
+            "reason": {
+              "not_found": "no la encontraron",
+              "damaged": "llegó dañada"
+            },
+            "body": "El importe lo calculó el servidor con lo que el cliente pagó por cada carta más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
+            "bodyNothingShips": "No sale ninguna carta: se devuelve todo lo cobrado —cartas, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
+            "signature": "Este reembolso queda a tu nombre y la carta pasa a merma con tu firma.",
+            "confirm": "Confirmar {amount} y preparar",
+            "cancel": "Cancelar"
+          },
+          "confirmCases": {
+            "title": "Dar por preparado y abrir {count, plural, one {# caso «Por reponer»} other {# casos «Por reponer»}}",
+            "line": "{card} · {folio} — {reason}",
+            "body": "No se devuelve dinero: la carta sigue siendo del cliente y se le debe. El retiro espera: sale completo cuando cada caso se resuelva (repuesta dentro, o reembolsada por el súper-admin). El cliente recibe un correo de que su envío se detiene.",
+            "confirm": "Preparar y abrir casos"
+          },
+          "result": {
+            "prepared": "Pedido {folio} preparado.",
+            "preparedRefund": "Pedido {folio} preparado. Reembolso de {amount} {stripeState, select, requested {pedido a Stripe} other {aceptado por Stripe}}: {count, plural, one {# carta no sale} other {# cartas no salen}}.",
+            "refundFailed": "Stripe rechazó un reembolso de {amount}. El pedido quedó preparado; el dinero lo resuelve el súper-admin en Pedidos (M3).",
+            "closed": "Pedido {folio}: no sale ninguna carta. Se devolvió todo lo cobrado ({amount}) y el envío se cerró. Sale de la lista.",
+            "preparedCases": "Retiro {ref} preparado con {count, plural, one {# caso abierto} other {# casos abiertos}}. Espera en «Por reponer»; la guía se podrá capturar cuando se resuelvan.",
+            "reclaimed": "{count, plural, one {# carta volvió} other {# cartas volvieron}} a la plataforma: su compra fue reembolsada. Ya no va en este retiro."
+          },
+          "error": {
+            "previewStale": "El importe cambió mientras confirmabas: ahora son {amount}. No se hizo nada. Revísalo y confirma otra vez.",
+            "limitExceeded": "Este reembolso supera lo que puedes devolver en 24 horas. No se preparó nada y el intento quedó en bitácora. Pide al súper-admin que prepare este pedido.",
+            "refundNotAvailable": "{count, plural, one {Una carta faltante} other {# cartas faltantes}} no se puede reembolsar desde aquí: {reason}. No se hizo nada. Lo atiende el súper-admin en Pedidos (M3).",
+            "blockedLines": "Este pedido tiene {count, plural, one {# carta que ya no está disponible} other {# cartas que ya no están disponibles}} y su cobro sigue vivo: no se puede dar por preparado sin que alguien responda por ese dinero. No se hizo nada. Avisa al súper-admin.",
+            "orderNotSettled": "El pedido de este envío ya no está liquidado ({status}): se reembolsó o está en disputa. No se prepara ni sale. Sale de la lista; el súper-admin lo resuelve en Pedidos (M3).",
+            "originRefunded": "{count, plural, one {Una carta de este retiro viene} other {# cartas de este retiro vienen}} de una compra que se está reembolsando: {items}. No se mete en la caja. No se hizo nada. Cuando el reembolso se confirme, la carta vuelve a la plataforma y el retiro sigue sin ella.",
+            "originRefundedItem": "{card} · {folio} · pedido {orderNumber}",
+            "originRefundedLink": "Ver pedido {orderNumber} en Pedidos (M3)",
+            "notInPreparation": "Este envío ya no está en preparación ({status}). No se cambió nada; sale de la lista.",
+            "conflict": "Una carta cambió mientras preparabas (alguien la movió o su compra se revirtió). No se hizo nada. Actualizamos la tarjeta: revísala y vuelve a intentarlo.",
+            "itemBlocked": "Esta carta ya no se puede palomear.",
+            "closed": "Este pedido ya se dio por preparado y sus marcas están fijas. Para corregir una carta, primero deshaz «preparado».",
+            "notFound": "Esta carta o este pedido ya no está en la cola.",
+            "incomplete": "Todavía {pendingCount, plural, one {falta # carta} other {faltan # cartas}} por palomear. Puede que alguien acabe de deshacer una marca."
+          },
+          "retry": {
+            "cta": "Reintentar reembolso",
+            "notRetryable": "Este reembolso ya no se puede reintentar ({status}).",
+            "inProgress": "Ya hay un intento en curso. Espera unos minutos.",
+            "forbidden": "Este reembolso solo lo reintenta el súper-admin."
+          },
+          "unprepare": {
+            "cta": "Deshacer preparado",
+            "title": "¿Deshacer «preparado»?",
+            "body": "Las marcas se quedan como están y vuelven a poder corregirse. Las cartas ya reembolsadas o con caso «Por reponer» quedan fijas: ese dinero o esa deuda ya salió. No se mueve ninguna carta. Para capturar la guía tendrás que darlo por preparado otra vez.",
+            "confirm": "Deshacer preparado",
+            "cancel": "Cancelar",
+            "done": "Listo: ya puedes corregir las marcas. Cuando termines, vuelve a darlo por preparado.",
+            "alreadyUndone": "Ya no estaba preparado: alguien lo deshizo antes. Puedes corregir las marcas.",
+            "notInPreparation": "No se pudo deshacer: el envío ya no está en preparación ({status}). Después de la guía no hay vuelta atrás desde esta pantalla."
+          },
+          "guide": {
+            "cta": "Capturar guía",
+            "waiting": "Este retiro espera {count, plural, one {# carta que se está reponiendo} other {# cartas que se están reponiendo}}. Cuando cada caso se resuelva, sale completo. Ver en «Por reponer».",
+            "saved": "Guía guardada para {ref}. Sale de la lista."
+          },
+          "print": {
+            "cta": "Imprimir hoja",
+            "one": "Imprimir este pedido",
+            "title": "Pedidos por preparar · hoja de preparación · {date}",
+            "by": "Impresa por {name}",
+            "noDrawer": "Todavía sin cajón",
+            "customer": "Cliente",
+            "address": "Dirección",
+            "drawer": "Cajón",
+            "check": "Casilla",
+            "back": "Volver a Pedidos por preparar",
+            "empty": "Nada que imprimir: la cola está vacía.",
+            "card": "Carta"
+          }
+        }
+      },
+      "tabs": {
+        "prepare": "Preparar",
+        "replace": "Por reponer",
+        "shipments": "Envíos",
+        "overdueSuffix": "· {count, plural, one {# vencido} other {# vencidos}}",
+        "withCount": "{label}, {count, plural, one {# pedido} other {# pedidos}}",
+        "withCases": "{label}, {count, plural, one {# caso} other {# casos}}"
+      },
+      "guest": "Invitado",
+      "preparedTag": "Preparado",
+      "preparedBy": "Preparado por {name} · {date}",
+      "missingCount": "{count, plural, one {# carta no sale} other {# cartas no salen}}",
+      "viewOrder": "Ver pedido",
+      "withdrawal": "Retiro de bóveda",
+      "nameMissing": "Sin nombre registrado",
+      "search": {
+        "label": "Buscar envío",
+        "hint": "Nombre, correo, número de pedido o destinatario",
+        "tooLong": "Máximo 200 caracteres.",
+        "empty": "Ningún envío coincide con «{q}»."
+      },
+      "replace": {
+        "title": "Por reponer",
+        "hint": "Cartas de bóveda que faltaron o llegaron dañadas: se le deben al cliente. Lo más viejo arriba.",
+        "filter": {
+          "state": "Estado",
+          "open": "Abiertos",
+          "closed": "Resueltos",
+          "overdueOnly": "Solo vencidos",
+          "sourceLabel": "Origen",
+          "source": {
+            "all": "Todos",
+            "withdrawal": "Retiros",
+            "vault_purchase": "Compras a bóveda"
+          }
+        },
+        "search": "Buscar caso",
+        "searchHint": "Cliente, correo, folio o número de pedido",
+        "count": "{count, plural, one {# caso} other {# casos}}",
+        "empty": {
+          "open": {
+            "title": "No hay cartas por reponer.",
+            "body": "Cuando al preparar un retiro o al colocar una compra falte o llegue dañada una carta, el caso aparecerá aquí."
+          },
+          "overdue": "Ningún caso abierto lleva más de 7 días.",
+          "closed": "Todavía no se ha resuelto ningún caso.",
+          "search": "Nada coincide con «{q}»."
+        },
+        "due": {
+          "in": "Vence en {count, plural, one {# día} other {# días}}",
+          "overdue": "Vencido hace {count, plural, one {# día} other {# días}}",
+          "date": "vence el {date}"
+        },
+        "identity": "Identidad exacta",
+        "identityDetail": {
+          "cardProduct": "producto {id}",
+          "sealed": "sellado {id} · {condition}"
+        },
+        "owed": "A quién se le debe",
+        "openedLine": "{reason} al {source, select, withdrawal {preparar el retiro} other {colocar la compra {orderNumber}}} · {name} · {date}",
+        "where": "Dónde está hoy",
+        "destination": {
+          "package": "Si se repone, va: al paquete del retiro",
+          "drawer": "Si se repone, va: al cajón del cliente"
+        },
+        "origin": "Compra {orderNumber} · {status}",
+        "originNone": "Sin compra de origen conocida",
+        "candidates": "{count, plural, =0 {Ninguna pieza igual disponible en la tienda} one {# pieza igual disponible} other {# piezas iguales disponibles}}",
+        "candidatesTitle": "Piezas iguales en la tienda",
+        "candidatesEmpty": {
+          "title": "Ninguna pieza igual en la tienda ahora mismo.",
+          "body": "Si entra una por compra o cotizador, aparecerá aquí. Si no llega, el súper-admin puede reembolsar el caso."
+        },
+        "candidate": {
+          "listPrice": "Precio de lista",
+          "noPrice": "sin precio"
+        },
+        "drawerLegend": "¿A qué cajón va la pieza repuesta?",
+        "drawerOwn": "Su cajón: {drawer}",
+        "drawerChoose": "Elige su cajón",
+        "drawerNone": "No hay cajones de clientes dados de alta. Crea uno en Inventario y vuelve aquí.",
+        "viewCase": "Ver caso",
+        "backToList": "Volver a «Por reponer»",
+        "resolution": "Resolución",
+        "resolvedBy": "por {name} · {date}",
+        "resolvedReplaced": "con la pieza {folio}",
+        "resolvedFound": "la misma pieza",
+        "action": {
+          "replace": "Reponer con esta pieza",
+          "found": "Apareció",
+          "refund": "Reembolsar",
+          "void": "Anular"
+        },
+        "confirmReplace": {
+          "title": "¿Reponer con {folio}?",
+          "body": "La pieza {folio} pasa a nombre del cliente y {destination, select, package {va al paquete de su retiro} other {se guarda en {drawer}}}. La original queda como merma de la tienda. No se devuelve dinero ni se avisa al cliente.",
+          "confirm": "Reponer"
+        },
+        "confirmFound": {
+          "title": "¿Apareció la misma carta?",
+          "body": "Solo si tienes en la mano la pieza {folio}, la misma que faltaba. Vuelve al cliente y {destination, select, package {a su retiro} other {a su cajón}}; el caso se cierra sin dinero.",
+          "confirm": "Sí, apareció"
+        },
+        "confirmVoid": {
+          "title": "¿Anular este caso?",
+          "body": "Anular cierra la deuda sin dar carta ni dinero. Solo procede porque la compra de origen {origin, select, none {no existe} other {ya no está liquidada ({status})}}: el dinero lo resolvió otro camino. La original pasa a la plataforma. Escribe por qué.",
+          "reason": "Motivo",
+          "confirm": "Anular caso"
+        },
+        "result": {
+          "replaced": "Caso resuelto: {card} repuesta con {folio}{destination, select, package { · va en el retiro {ref}} other { · guardada en {drawer}}}.",
+          "replacedCanShip": "El retiro ya puede llevar guía.",
+          "found": "Caso resuelto: la carta apareció y volvió al cliente.",
+          "voided": "Caso anulado. La original pasó a la plataforma.",
+          "voidedClosed": "El retiro se cerró y se devolvió su costo.",
+          "already": "Este caso ya estaba resuelto así. No se hizo nada nuevo."
+        },
+        "error": {
+          "notOpen": "Este caso ya se resolvió ({status}, {date}). No se cambió nada.",
+          "originNotSettled": "La compra de origen ya no está liquidada ({status}): reembolsada o en disputa. No se repone ni se reembolsa a quien ya recibió su dinero. No se hizo nada; lo que procede es anular el caso (súper-admin).",
+          "identityMismatch": "Esa pieza no es idéntica: cambia en {fields}. Solo vale la misma carta, variante, acabado y condición. No se hizo nada.",
+          "notAvailable": "Esa pieza ya no está disponible: alguien la compró, la reservó o la movió. Elige otra.",
+          "notFound": "Esa pieza ya no existe en el inventario. Elige otra.",
+          "samePieceDamaged": "Una carta dañada no «aparece»: repón con otra pieza igual o, si no hay, el súper-admin la reembolsa.",
+          "samePieceNotLost": "Esa pieza ya no está anotada como faltante: alguien la resolvió antes. Actualizamos el caso.",
+          "locationRequired": "Elige el cajón del cliente antes de reponer.",
+          "notVoidable": "No se puede anular: la compra de origen sigue liquidada, así que la deuda es real. Repón la carta o reembolsa el caso.",
+          "conflict": "La pieza cambió mientras resolvías el caso. No se hizo nada. Actualizamos el caso: revísalo y vuelve a intentarlo.",
+          "forbidden": "Esta acción es del súper-admin.",
+          "caseNotFound": "Este caso ya no existe."
+        },
+        "identityField": {
+          "cardId": "la carta",
+          "productType": "el tipo de producto",
+          "finish": "el acabado",
+          "cardProductId": "la variante",
+          "rawCondition": "la condición",
+          "gradingCompany": "la casa de grado",
+          "gradeValue": "el grado",
+          "sealedProductId": "el producto sellado",
+          "sealedCondition": "la condición del sellado"
+        },
+        "refund": {
+          "title": "Reembolsar sin reposición",
+          "paidRef": "Pagó {amount} por esta carta",
+          "paidRefHint": "(la carta más su parte de la comisión de cobro, según la compra {orderNumber})",
+          "marketRef": "Mercado hoy: {amount}",
+          "marketRefDate": "referencia del {date}",
+          "marketNone": "Sin referencia de mercado",
+          "amountLabel": "Monto a devolver (MX$)",
+          "amountHint": "Tú decides la cifra. Las dos referencias son solo para compararla.",
+          "reasonLabel": "De dónde sale la cifra",
+          "reasonCount": "{count} / 500",
+          "preview": "{stripe} regresan a su tarjeta · {manual} van por transferencia (cubeta SPEI).",
+          "previewAllCard": "Todo regresa a su tarjeta: {stripe}.",
+          "previewAllManual": "En esa compra ya no queda nada por devolver a la tarjeta: los {manual} van por transferencia.",
+          "previewCloses": "Es el último caso del retiro y no queda carta que enviar: también se devuelve el costo del envío ({amount}) y el retiro se cierra.",
+          "previewNoClabe": "El cliente no tiene CLABE registrada: le pediremos por correo que la registre.",
+          "previewLoading": "Calculando el reparto…",
+          "reinforcedHint": "Es más del doble de la referencia ({amount}): te pediremos escribir el monto otra vez.",
+          "blocked": "Supera el límite de esta pantalla ({limit}{k, select, none {} other {, {k} veces la referencia}}). No se puede confirmar. Si la cifra es correcta, sube el límite en Ajustes (M10) y vuelve.",
+          "confirm": "Reembolsar {amount}",
+          "cancel": "Cancelar",
+          "retype": {
+            "title": "Confirma el monto escribiéndolo otra vez",
+            "body": "{amount} es más del doble de la referencia ({reference}). Para seguir, escribe el monto exacto.",
+            "label": "Monto (MX$)",
+            "noPaste": "Escríbelo a mano",
+            "mismatch": "No coincide con {amount}."
+          },
+          "result": "Caso resuelto: reembolso de {amount} capturado. {stripe} {stripeState, select, requested {pedido a Stripe} none {} other {aceptado por Stripe}}{manual, select, none {} other { · {manualAmount} en «Reembolsos manuales (SPEI)»}}{closed, select, yes { · retiro cerrado y envío devuelto} other {}}.",
+          "resultLink": "Ver la cubeta SPEI",
+          "already": "Este caso ya se había reembolsado. No se hizo nada nuevo.",
+          "error": {
+            "previewStale": "El reparto cambió mientras confirmabas: ahora {stripe} a la tarjeta y {manual} por transferencia. No se hizo nada. Revísalo y confirma otra vez.",
+            "noOrigin": "No hay compra de origen: no se sabe contra qué cobro devolver. Puedes reponer la carta o anular el caso.",
+            "legacy": "La compra de origen es de antes del cambio a precios con IVA incluido: no se reembolsa por esta vía. Repón la carta o resuélvelo en Pedidos (M3).",
+            "amount": "Escribe un monto mayor que cero, en pesos y centavos.",
+            "reason": "Escribe de dónde sale la cifra (mínimo 3 caracteres)."
+          },
+          "unavailable": {
+            "no_origin_order": "Sin compra de origen: no se puede reembolsar desde aquí (repón o anula).",
+            "legacy_convention": "Compra de origen anterior al IVA incluido: no se reembolsa por esta vía.",
+            "origin_not_settled": "La compra de origen ya no está liquidada: el camino es anular."
+          }
+        },
+        "captured": {
+          "title": "Reembolso",
+          "amount": "Monto capturado",
+          "reason": "Motivo",
+          "refs": "Referencias al capturar",
+          "refsValue": "pagó {paid} · mercado {market} ({date})",
+          "refsNoMarket": "pagó {paid} · sin referencia de mercado",
+          "reinforced": "Confirmación reforzada",
+          "yes": "sí",
+          "no": "no",
+          "byCard": "Por tarjeta",
+          "none": "nada",
+          "byTransfer": "Por transferencia",
+          "pending": "pendiente de pagar",
+          "paidBy": "pagada por {name} · {date}",
+          "cancelled": "cancelada",
+          "viewBucket": "Ver en la cubeta SPEI"
         }
       }
     },
@@ -3698,6 +4238,174 @@
         "pendingIfEmpty": "Sin precio de mercado manual, la aportación queda deshabilitada; captúralo arriba para habilitarla.",
         "suggestion": "Referencia informativa (última conocida): {amount}. No fija el precio."
       }
+    },
+    "manualRefunds": {
+      "title": "Reembolsos manuales (SPEI)",
+      "hint": "Lo que hay que transferir a mano. El sistema no transfiere: aquí se registra que lo hiciste.",
+      "filter": {
+        "label": "Estado",
+        "pending": "Pendientes",
+        "paid": "Pagadas",
+        "cancelled": "Canceladas"
+      },
+      "search": "Buscar transferencia",
+      "searchHint": "Cliente, correo, pedido, folio o clave de rastreo",
+      "summary": "{count, plural, one {# pendiente} other {# pendientes}} · {amount} por transferir · la más vieja hace {days, plural, one {# día} other {# días}}",
+      "col": {
+        "beneficiary": "Beneficiario",
+        "amount": "Importe",
+        "why": "Por qué",
+        "purchase": "Compra",
+        "clabe": "CLABE",
+        "created": "Creada",
+        "status": "Estado"
+      },
+      "source": {
+        "case_excess": "Excedente del caso {card} · {folio}",
+        "stripe_failed": "Tarjeta rechazada por Stripe · caso {card} · {folio}"
+      },
+      "originNotSettled": "en disputa / reembolsada",
+      "noClabe": "Sin CLABE registrada",
+      "noName": "Sin nombre registrado",
+      "noOrigin": "Sin compra de origen",
+      "empty": {
+        "pending": "No hay transferencias por hacer.",
+        "paid": "Todavía no se ha marcado ninguna como pagada.",
+        "cancelled": "Ninguna cancelada.",
+        "search": "Nada coincide con «{q}»."
+      },
+      "view": "Ver",
+      "backToList": "Volver a la cubeta",
+      "detailTitle": "Transferencia {id}",
+      "case": "Caso",
+      "viewCase": "Ver caso",
+      "viewOrder": "Ver pedido",
+      "createdBy": "Creada por {name} · {date}",
+      "components": {
+        "title": "Componentes",
+        "merchandise": "Mercancía",
+        "merchandiseIva": "IVA de mercancía",
+        "fee": "Comisión",
+        "compensation": "Compensación por carta perdida"
+      },
+      "originBanner": "La compra de origen está {status, select, chargeback {en disputa} other {reembolsada}}: revisa antes de pagar. Al marcar pagada te pediremos confirmarlo.",
+      "reveal": {
+        "cta": "Revelar CLABE",
+        "hint": "Queda registrado que la viste.",
+        "copy": "Copiar CLABE",
+        "copied": "Copiada",
+        "beneficiary": "Beneficiario: {name}",
+        "beneficiaryNone": "Sin nombre legal registrado; usa el nombre de la cuenta: {name}",
+        "updatedAt": "CLABE registrada o cambiada el {date}",
+        "updatedUnknown": "Fecha de cambio desconocida (registrada antes de que se llevara)",
+        "changedRecently": "La CLABE cambió hace poco o después de generarse este reembolso. Antes de pagar, confirma con el cliente por otro medio que es suya.",
+        "aria": "CLABE del cliente",
+        "hide": "Ocultar CLABE"
+      },
+      "error": {
+        "clabeNotOnFile": "Este cliente no tiene CLABE registrada. Pídele que la registre en su cuenta (Mi cuenta → datos bancarios); ya le llegó un correo con ese enlace. Mientras, no se puede marcar pagada.",
+        "notPending": "Esta transferencia ya no está pendiente ({status}).",
+        "clabeChanged": "La CLABE cambió el {date}, después de que la viste. No se marcó pagada. Vuelve a revelarla y compárala con la que usaste.",
+        "clabeChangedUnknownDate": "La CLABE cambió después de que la viste. No se marcó pagada. Vuelve a revelarla y compárala con la que usaste.",
+        "confirmMissing": "Falta confirmar lo de arriba.",
+        "notFound": "Esta transferencia ya no existe."
+      },
+      "paid": {
+        "reference": "Clave de rastreo (opcional)",
+        "referenceHint": "La que te da tu banco al hacer el SPEI. Con ella el cliente descarga el comprobante de Banxico.",
+        "referenceInvalid": "Solo letras y números, hasta 30.",
+        "note": "Nota (opcional)",
+        "confirmClabe": "Verifiqué con el cliente por otro medio que la CLABE nueva es suya.",
+        "confirmOrigin": "Sé que la compra de origen está en disputa o reembolsada y pago de todos modos.",
+        "cta": "Marcar pagada · {amount}",
+        "title": "¿Marcar como pagada?",
+        "body": "Solo si ya hiciste la transferencia de {amount} a la CLABE que acabas de ver. Queda registrado quién y cuándo, y el cliente recibe un correo.",
+        "confirm": "Sí, ya la pagué",
+        "done": "Pagada. Registrado a tu nombre · {date}. Se avisó al cliente.",
+        "already": "Ya estaba pagada{sameKey, select, yes { con esa misma clave} other {}}. No se hizo nada nuevo."
+      },
+      "paidBy": "Pagada por {name} · {date}",
+      "trackingKey": "Clave de rastreo: {ref}",
+      "trackingKeyNone": "Sin clave de rastreo",
+      "clabeChangedAfter": "La CLABE del cliente cambió después de este pago.",
+      "cancelledBy": "Cancelada por {name} · {date}",
+      "cancel": {
+        "cta": "Cancelar",
+        "title": "¿Cancelar esta transferencia?",
+        "body": "El caso sigue reembolsado: cancelar no lo reabre ni devuelve nada. Queda registrado con tu nombre y tu nota. El cliente no recibe correo, pero en su cuenta verá «cancelada». Si te equivocaste, después puedes re-emitirla.",
+        "reason": "Motivo",
+        "confirm": "Cancelar transferencia",
+        "done": "Cancelada. Registrado a tu nombre.",
+        "already": "Ya estaba cancelada."
+      },
+      "reissue": {
+        "cta": "Re-emitir",
+        "title": "¿Re-emitir esta transferencia?",
+        "body": "Se crea una transferencia nueva por el mismo importe ({amount}) que cita a la cancelada. El cliente no recibe otro correo de aviso: ya sabe que le vamos a depositar.",
+        "reason": "Por qué se re-emite",
+        "confirm": "Re-emitir",
+        "done": "Re-emitida como {id}.",
+        "as": "Re-emitida como {id}",
+        "from": "Re-emisión de {id}",
+        "error": "No se puede re-emitir: {reason, select, alive {ya hay otra transferencia viva de este caso} other {esta transferencia no está cancelada ({status})}}."
+      },
+      "toManual": {
+        "cta": "Pasar a transferencia (SPEI)",
+        "title": "¿Pasar {amount} a transferencia?",
+        "body": "Stripe rechazó devolverlo a la tarjeta. Se crea una transferencia pendiente por el mismo importe en la cubeta SPEI y el cliente recibe el correo de «te vamos a depositar». La fila de Stripe se queda como rechazada.",
+        "confirm": "Pasar a SPEI",
+        "done": "En la cubeta SPEI: {link}.",
+        "notConvertibleStatus": "Este reembolso todavía puede salir por Stripe ({status}): pasarlo a transferencia sería pagar dos veces. Reintenta el reembolso o espera.",
+        "notConvertibleKind": "Solo los reembolsos de un caso «Por reponer» se pasan a transferencia.",
+        "originNotSettled": "La compra de origen está {status, select, chargeback {en disputa} other {reembolsada}}{disputed, select, yes { (Stripe rechazó por disputa)} other {}}: el banco ya está resolviendo ese dinero. No se crea nada."
+      }
+    },
+    "refunds": {
+      "title": "Reembolsos de operadores",
+      "hint": "Lo que cada operador ha devuelto al preparar envíos. Sin correo: el panel es el aviso.",
+      "generatedAt": "Calculado el {date} · tope por operador en 24 h: {cap}",
+      "summaryTitle": "Resumen por operador",
+      "summaryEmpty": "Ningún operador ha reembolsado.",
+      "col": {
+        "operator": "Operador",
+        "h24": "24 h",
+        "d7": "7 d",
+        "d30": "30 d",
+        "cap": "Usado del tope",
+        "prepared": "Pedidos preparados (30 d)",
+        "missing": "Faltantes (30 d)",
+        "shrinkage": "Merma (30 d)",
+        "selfReplaced": "Repuso lo que marcó",
+        "date": "Fecha",
+        "who": "Quién",
+        "order": "Pedido / retiro",
+        "card": "Carta",
+        "kind": "Tipo",
+        "amount": "Importe",
+        "status": "Estado"
+      },
+      "countAmount": "{count} · {amount}",
+      "capUsed": "{used} de {cap}",
+      "missingRate": "{missing} de {lines} · {pct} %",
+      "noLines": "sin líneas",
+      "shrinkage": "{pieces, plural, one {# pieza} other {# piezas}} · {amount}",
+      "inactive": "inactivo",
+      "ledgerTitle": "Libro de reembolsos",
+      "ledgerEmpty": "Ningún reembolso con estos filtros.",
+      "ledgerSum": "{count, plural, one {# fila} other {# filas}} · {amount} (sin las rechazadas)",
+      "filter": {
+        "role": "Rol",
+        "roleAll": "Todos",
+        "kind": "Tipo",
+        "kindAll": "Todos",
+        "status": "Estado",
+        "statusAll": "Todos",
+        "from": "Desde",
+        "to": "Hasta"
+      },
+      "retry": "Reintentar",
+      "retried": "Reintento pedido: {status}.",
+      "noName": "una cuenta sin nombre"
     }
   },
   "locale": {
@@ -3825,6 +4533,28 @@
     "bounty": {
       "active": "Bounty",
       "outbid": "Bounty rebasado"
+    },
+    "replacementCase": {
+      "open": "Abierto",
+      "replaced": "Repuesta",
+      "found": "Apareció",
+      "refunded": "Reembolsada",
+      "voided": "Anulado"
+    },
+    "missingReason": {
+      "not_found": "No la encontraron",
+      "damaged": "Llegó dañada"
+    },
+    "paymentRefund": {
+      "requested": "pedido a Stripe",
+      "submitted": "aceptado por Stripe",
+      "succeeded": "devuelto",
+      "failed": "rechazado por Stripe"
+    },
+    "manualRefund": {
+      "pending": "Pendiente",
+      "paid": "Pagada",
+      "cancelled": "Cancelada"
     }
   },
   "error": {
@@ -3934,7 +4664,8 @@
     "IVA_TRANSFER_ACK_REQUIRED": "Hay que ver el costo en pesos antes de guardar esta fracción. Vuelve a calcularlo y guarda desde ahí.",
     "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar.",
     "DECK_NOT_FOUND": "No encontramos ese deck. Puede que haya salido del top-10.",
-    "DECK_LIST_UNPARSEABLE": "No pudimos leer ninguna carta de tu lista. Revisa el formato (cantidad, set y número) e inténtalo de nuevo."
+    "DECK_LIST_UNPARSEABLE": "No pudimos leer ninguna carta de tu lista. Revisa el formato (cantidad, set y número) e inténtalo de nuevo.",
+    "ITEM_ORIGIN_REFUNDED": "Una carta de tu retiro viene de una compra que se está reembolsando y no se puede enviar. Quítala y vuelve a intentarlo."
   },
   "payment": {
     "title": "Pago",

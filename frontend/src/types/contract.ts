@@ -847,6 +847,14 @@ export interface HoldingDTO {
   // si `ownershipStatus='settled' && shipmentState=null` (mismo criterio del backend). Evita descubrir
   // el 409/422 al intentar.
   withdrawable: boolean;
+  /**
+   * v1.80.1 (§3 / §M4-SHIP.15.8): la pieza tiene un caso «Por reponer» abierto (no la encontramos o
+   * llegó dañada al prepararla; sigue siendo del cliente mientras se repone). `withdrawable` es
+   * `false` por la regla de siempre. ⛔ Sin actor, cifras de mercado ni candidatas.
+   * v1.80.2: con el caso `refunded` la carta se muestra «reembolsada» con su parte por transferencia.
+   * Opcional en el tipo: aditivo (un backend anterior no lo manda y la pieza se pinta como siempre).
+   */
+  replacement?: CustomerReplacementInfo | null;
 }
 
 export interface PortfolioSummary {
@@ -990,6 +998,10 @@ export interface OrderItemDTO {
   inventoryItemId: string;
   card: HistoricalOrderItemCardDTO;
   unitPriceCents: number;
+  /** v1.80 (§M4-SHIP.10): «no salió · te devolvimos MX$X». Solo filas `submitted|succeeded`. */
+  refund?: CustomerItemRefundInfo | null;
+  /** v1.80.2 (§M4-SHIP.16): el caso más reciente con `originOrderItemId` = esta línea. */
+  replacement?: CustomerReplacementInfo | null;
 }
 
 /**
@@ -1059,6 +1071,12 @@ export interface OrderSummaryDTO {
    * responde `200 reused` (no hay endpoint de «reanudar»: reanudar ES reintentar).
    */
   reservedUntil?: string;
+  /**
+   * v1.80.2 (§M4-SHIP.16), aditivo: el estado PÚBLICO (mismo cuerpo que el seguimiento del invitado,
+   * §4-G.5) y el modo. La lista titula con `publicStatus` cuando viene; ⛔ nunca «Liquidada» al cliente.
+   */
+  publicStatus?: GuestOrderPublicStatus;
+  fulfillmentMode?: FulfillmentMode;
 }
 
 export interface OrderDetailDTO {
@@ -1070,6 +1088,15 @@ export interface OrderDetailDTO {
   settledAt?: string;
   /** v1.68 (§4-R.5): solo con `status: 'pending'` (ver `OrderSummaryDTO.reservedUntil`). */
   reservedUntil?: string;
+  /**
+   * v1.80.2 (§M4-SHIP.16) — `CustomerOrderDetailAdditions`, aditivo: la pantalla titula con
+   * `publicStatus` (⛔ nunca con `status`: «LIQUIDADA» es un término interno de dinero) y pinta el
+   * bloque de envío con `shipment` (`null` ⇔ `vault`, o directo aún sin envío). Opcionales en el
+   * tipo: contra un backend anterior se cae al rótulo neutro, nunca a `status`.
+   */
+  fulfillmentMode?: FulfillmentMode;
+  publicStatus?: GuestOrderPublicStatus;
+  shipment?: CustomerOrderShipmentDTO | null;
   breakdown: BreakdownDTO;
   /**
    * v1.51-c: NO es la forma del quote. `card` es `HistoricalOrderItemCardDTO` (tolerante):
@@ -1139,6 +1166,10 @@ export interface ShipmentDTO {
     card: { id: string; name: string; setName: string; number: string; imageSmallUrl: string };
     productType?: ProductType;
     finish?: Finish;
+    // v1.80 (§M4-SHIP.10): la carta que no salió y se reembolsó (solo filas `submitted|succeeded`).
+    refund?: CustomerItemRefundInfo | null;
+    // v1.80.1 (§M4-SHIP.15.8): la carta que se está reponiendo / se repuso / se reembolsó por caso.
+    replacement?: CustomerReplacementInfo | null;
   }[];
 }
 
@@ -1203,7 +1234,23 @@ export interface AdminShipmentDTO {
   totalCents?: number;
   /** Costo real pagado a la paquetería (interno, v1.4-finance). */
   shippingCostCents?: number;
-  items?: { id?: string; inventoryItemId: string; folio?: string; card?: CardDTO }[];
+  items?: {
+    id?: string;
+    inventoryItemId: string;
+    folio?: string;
+    card?: CardDTO;
+    // v1.80 (§M4-SHIP.10): solo en `/:id`.
+    prepStatus?: PreparationItemStatus;
+    missingReason?: MissingReason | null;
+  }[];
+  // ---- v1.80 (§M4-SHIP.10), aditivo ----
+  /** EL COMPRADOR (§M4-SHIP.3). `null` ⇔ invitado (que ya trae `guestEmail` y `recipientName`). */
+  customer?: CustomerRefDTO | null;
+  preparedAt?: string | null;
+  preparedBy?: { userId: string; name: string | null } | null;
+  missingCount?: number;
+  /** Solo en `/:id`. */
+  refunds?: PaymentRefundDTO[];
 }
 
 // ---- «Pedidos a preparar» (contrato §M4-PREP v1.78 · GET /admin/shipments/picking-list) ----
@@ -1231,17 +1278,23 @@ export interface ShipPreparationOrderDTO {
   destination: 'ship';
   // --- identidad y traza ---
   shipmentId: string; // SIEMPRE presente — la referencia estable del renglón (ShipmentRequest.id)
+  // v1.80 (§M4-SHIP.3): retiro vs directo, la misma derivación de §M4.
+  kind: AdminShipmentKind;
   orderId: string | null; // null en un RETIRO DE BÓVEDA (no tiene orden); poblado en envío directo
   orderNumber: string | null; // folio legible "TCG-000123"; null cuando orderId es null (retiro)
   // --- antigüedad (CA #9: atender lo más viejo primero) ---
   requestedAt: string; // ISO; la cola ordena asc por defecto
-  // --- cliente ---
+  // --- cliente: EL COMPRADOR (v1.80, ⛔ no el destinatario, que es shipTo.recipientName) ---
   customer: {
+    userId: string | null; // null ⇔ invitado
+    email: string | null; // cuenta: User.email · invitado: Order.guestEmail
     lastName: string | null; // apellido DERIVADO del nombre (archivero alfabético). FRÁGIL — §6.A; NO bloquea
     // v1.78.1 — `| null`: la fuente del INVITADO puede faltar (snapshot de 8 campos anterior a v1.67).
     // ⛔ `""` PROHIBIDA como marca de ausencia: un hecho, una grafía (ver la nota de abajo).
     fullName: string | null; // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
   };
+  // v1.80 (§M4-SHIP.3): estado de preparación de la cubeta ENVÍO (sello y conteos del servidor).
+  preparation: ShipPreparationStateDTO;
   // --- dirección COMPLETA, CON la calle (CA #6). v1.79: obligatoria en esta rama ---
   shipTo: {
     recipientName: string | null; // ausente en snapshots de 8 campos anteriores a v1.67 ⇒ null
@@ -1254,8 +1307,8 @@ export interface ShipPreparationOrderDTO {
     country: string;
     phone: string;
   };
-  // --- las cartas del pedido ---
-  items: PreparationItemDTO[];
+  // --- las cartas del pedido (v1.80: con su marca, disponibilidad y lo que se reembolsaría) ---
+  items: ShipPreparationItemDTO[];
 }
 
 export interface VaultPreparationOrderDTO {
@@ -1291,7 +1344,8 @@ export interface VaultPreparationItemDTO {
 export type PreparationItemStatus = 'pending' | 'picked' | 'missing';
 // Enums de Prisma (clase E) — `VaultPlacementStatus` / `VaultPlacementCancelReason` (M-59).
 export type VaultPlacementStatus = 'pending' | 'placed' | 'cancelled';
-export type VaultPlacementCancelReason = 'chargeback' | 'nothing_to_place';
+// v1.80.4 (§M4-SHIP.18.5): + `full_refund` — la colocación se cancela porque la compra se reembolsó entera.
+export type VaultPlacementCancelReason = 'chargeback' | 'nothing_to_place' | 'full_refund';
 
 // Estado de preparación del pedido. Conteos sobre items[] (total = items.length). `blocked` cuenta
 // aparte y NO bloquea «preparado». `pending` cuenta SOLO colocables sin marcar.
@@ -1489,6 +1543,532 @@ export interface ShipmentTrackingRequest {
   carrier: string;
   trackingNumber: string;
   shippingCostCents?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §M4-SHIP v1.80.5 — «Pedidos por preparar», cubeta ENVÍO interactiva, el libro de reembolsos,
+// el apartado «Por reponer», la cubeta SPEI y el reembolso total de bóveda. Tipos 1:1 con el
+// contrato (docs/API_CONTRACT.md §M4-SHIP.1–.18, §M3, §5, §0). Ningún enum se transcribe con
+// valores de más: cada uno es el del schema `M-61`.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+// Enums de Prisma (clase E, `M-61`).
+/** Por qué una carta de un ENVÍO (o de una colocación) no sale. `damaged` ⇒ la pieza queda `damaged`. */
+export type MissingReason = 'not_found' | 'damaged';
+export type PaymentRefundKind = 'item_missing' | 'order_remaining' | 'shipment_fee' | 'order_full' | 'case_refund';
+export type PaymentRefundStatus = 'requested' | 'submitted' | 'succeeded' | 'failed';
+export type ReplacementCaseSource = 'withdrawal' | 'vault_purchase';
+export type ReplacementCaseStatus = 'open' | 'replaced' | 'found' | 'refunded' | 'voided';
+export type ManualRefundSource = 'case_excess' | 'stripe_failed';
+export type ManualRefundStatus = 'pending' | 'paid' | 'cancelled';
+
+/** §M4-SHIP.10 — `{ userId, fullName, email }`; `fullName` null ⇔ `customerDisplayName` derivado. */
+export interface CustomerRefDTO {
+  userId: string;
+  fullName: string | null;
+  email: string;
+}
+
+/** Una fila del libro de reembolsos (§M4-SHIP.3). ⛔ Sin componentes ni CLABE: es la proyección admin. */
+export interface PaymentRefundDTO {
+  id: string;
+  kind: PaymentRefundKind;
+  status: PaymentRefundStatus;
+  amountCents: number;
+  missingReason: MissingReason | null;
+  requestedAt: string;
+  requestedBy: { userId: string; name: string | null; role: Role };
+  submittedAt: string | null;
+  succeededAt: string | null;
+  failedAt: string | null;
+  failureCode: string | null;
+}
+
+/** §M4-SHIP.3 — referencia corta al caso que abrió una línea de retiro. */
+export interface ReplacementCaseRefDTO {
+  id: string;
+  status: ReplacementCaseStatus;
+  missingReason: MissingReason;
+  openedAt: string;
+  resolvedAt: string | null;
+  replacement: { inventoryItemId: string; folio: string } | null;
+}
+
+/** Disponibilidad de una carta de envío (un cuerpo para la cola y los tres verbos, §M4-SHIP.3). */
+export type ShipItemAvailability =
+  | { kind: 'available' }
+  | { kind: 'blocked'; reason: 'piece_not_available'; pieceStatus: InventoryStatus };
+
+/** Lo que se reembolsaría si se marca faltante — o lo que ya se reembolsó, o por qué no se puede. */
+export type ShipItemRefundInfo =
+  | { kind: 'refundable'; amountCents: number }
+  | { kind: 'refunded'; refund: PaymentRefundDTO }
+  | { kind: 'not_refundable'; reason: 'order_not_settled' | 'legacy_convention' | 'no_origin_order' }
+  // v1.80.1 — SOLO líneas de un RETIRO: nunca se reembolsan al preparar.
+  | { kind: 'to_replacement' }
+  | { kind: 'replacement'; case: ReplacementCaseRefDTO };
+
+export interface ShipPreparationItemDTO extends PreparationItemDTO {
+  prepStatus: PreparationItemStatus;
+  missingReason: MissingReason | null; // ⇔ prepStatus==='missing'
+  prepMarkedBy: { userId: string; name: string | null } | null;
+  availability: ShipItemAvailability;
+  refund: ShipItemRefundInfo;
+}
+
+export interface ShipPreparationCounts {
+  total: number;
+  pending: number;
+  picked: number;
+  missing: number;
+  blocked: number;
+}
+/**
+ * `refundPreviewCents` = EXACTAMENTE el `expectedRefundCents` que el servidor aceptaría ahora.
+ * ⛔ La pantalla no lo suma: lo lee (criterio 220).
+ */
+export type ShipPreparationStateDTO =
+  | ({ status: 'in_progress'; refundPreviewCents: number } & ShipPreparationCounts)
+  | ({
+      status: 'prepared';
+      preparedAt: string;
+      preparedBy: { userId: string; name: string | null };
+      openReplacements: number; // casos abiertos del retiro (0 en un directo). >0 ⇒ la guía espera
+    } & ShipPreparationCounts);
+
+/** `PATCH /admin/shipments/:id/prep-items/:shipmentItemId` (§M4-SHIP.5). */
+export interface SetShipPrepItemRequest {
+  status: PreparationItemStatus;
+  missingReason?: MissingReason; // obligatorio ⇔ status==='missing'
+}
+export interface SetShipPrepItemResponse {
+  changed: boolean;
+  item: ShipPreparationItemDTO;
+  preparation: ShipPreparationStateDTO;
+}
+
+/** `POST /admin/shipments/:id/prepared` (§M4-SHIP.5). `expectedRefundCents` SIEMPRE (0 si no falta nada). */
+export interface PrepareShipmentRequest {
+  expectedRefundCents: number;
+}
+export interface PrepareShipmentResponse {
+  outcome: 'prepared' | 'closed_nothing_to_ship' | 'already_prepared';
+  shipment: AdminShipmentDTO;
+  preparation: ShipPreparationStateDTO;
+  refunds: PaymentRefundDTO[]; // estado de cada fila TRAS llamar a Stripe
+  cases: ReplacementCaseRefDTO[]; // v1.80.1 — vacío en un directo
+}
+
+/** `DELETE /admin/shipments/:id/prepared` (§M4-SHIP.5). `reclaimed` solo en retiros y solo si reclamó. */
+export interface UnprepareShipmentResponse {
+  outcome: 'unprepared' | 'not_prepared';
+  shipment: AdminShipmentDTO;
+  preparation: ShipPreparationStateDTO;
+  reclaimed?: { orderId: string; inventoryItemIds: string[] }[];
+}
+
+/** `GET /admin/shipments/picking-list/summary` (§M4-SHIP.11) — el contador DERIVADO que la pantalla sondea. */
+export interface PickingListSummaryDTO {
+  ship: number;
+  vault: number;
+  oldestRequestedAt: string | null;
+  stuckRefunds: number;
+  toReplace: number;
+  oldestOpenCaseAt: string | null;
+  toReplaceOverdue: number;
+  manualRefundsPending: number | null; // null para `vault_operator`
+}
+
+// ---- `details` de los errores de la cubeta ENVÍO (§0 v1.80 / v1.80.1 / v1.80.5) ----
+export interface RefundPreviewStaleDetails {
+  refundCents: number;
+}
+export interface RefundNotAvailableDetails {
+  lines: { shipmentItemId: string; reason: 'order_not_settled' | 'legacy_convention' | 'no_origin_order' | 'exceeds_charge' }[];
+}
+export interface MoneyOutLimitExceededDetails {
+  capCents: number;
+  usedCents: number;
+  requestedCents: number;
+}
+export interface WithdrawalLineOriginRefundedDetails {
+  items: {
+    inventoryItemId: string;
+    folio?: string;
+    shipmentItemId?: string;
+    orderId?: string;
+    orderNumber?: string | null;
+    orderStatus?: OrderStatus;
+    pendingFullRefund?: boolean;
+  }[];
+}
+
+// ---- Apartado «Por reponer» (§M4-SHIP.15) ----
+export interface PieceIdentityDTO {
+  cardId: string;
+  productType: ProductType;
+  finish: Finish;
+  cardProductId: number | null;
+  rawCondition: RawCondition | null;
+  gradingCompany: GradingCompany | null;
+  gradeValue: string | null;
+  sealedProductId: string | null;
+  sealedCondition: SealedCondition | null;
+}
+
+export type CaseRefundContext =
+  | {
+      available: true;
+      paidReferenceCents: number;
+      market: { cents: number; capturedDate: string } | null;
+      referenceCents: number;
+      confirmAboveCents: number;
+      limitCents: number;
+      stripeAvailableCents: number;
+      closesShipment: boolean;
+      customerHasClabe: boolean;
+    }
+  | { available: false; reason: 'no_origin_order' | 'legacy_convention' | 'origin_not_settled' };
+
+export interface ReplacementCaseDTO {
+  id: string;
+  source: ReplacementCaseSource;
+  status: ReplacementCaseStatus;
+  missingReason: MissingReason;
+  customer: CustomerRefDTO;
+  original: {
+    inventoryItemId: string;
+    folio: string;
+    card: PreparationItemDTO['card'];
+    identity: PieceIdentityDTO;
+    pieceStatus: InventoryStatus;
+    currentLocation: LocationView;
+  };
+  origin: { orderId: string; orderNumber: string | null; orderStatus: OrderStatus } | null; // null ⇔ no_origin_order
+  shipment: { id: string; status: ShipmentStatus; preparedAt: string | null } | null; // solo withdrawal
+  placement: { id: string; orderNumber: string | null } | null; // solo vault_purchase
+  destination: 'package' | 'drawer'; // dónde iría una reposición AHORA
+  customerDrawers: CustomerDrawerRef[];
+  candidateCount: number;
+  openedAt: string;
+  openedBy: { userId: string; name: string | null };
+  resolvedAt: string | null;
+  resolvedBy: { userId: string; name: string | null } | null;
+  replacement: { inventoryItemId: string; folio: string } | null;
+  refund: PaymentRefundDTO | null;
+  voidNote: string | null;
+  // v1.80.2 — PLAZO derivado por el servidor (⛔ la pantalla no calcula vencimientos).
+  dueAt: string;
+  overdue: boolean;
+  // SOLO super_admin (null para el operador, o caso no `open`).
+  refundContext: CaseRefundContext | null;
+  refundCapture: {
+    amountCents: number;
+    reason: string;
+    paidReferenceCents: number;
+    market: { cents: number; capturedDate: string } | null;
+    aboveReferenceConfirmed: boolean;
+  } | null;
+  manualRefunds: ManualRefundDTO[] | null; // null para el operador; [] si no hubo parte SPEI
+}
+
+export interface ReplacementCandidateDTO {
+  inventoryItemId: string;
+  folio: string;
+  status: 'in_stock' | 'listed';
+  currentLocation: LocationView;
+  listPriceCents: number | null;
+}
+
+export type ReplacementCaseDetailDTO = ReplacementCaseDTO & { candidates: ReplacementCandidateDTO[] };
+
+export interface ReplacementCasesFilters {
+  state?: 'open' | 'closed';
+  source?: ReplacementCaseSource;
+  q?: string;
+  overdue?: boolean;
+  page?: number;
+}
+
+/** `POST /admin/replacement-cases/:id/replace` (§M4-SHIP.15.4, operador+). */
+export interface ReplaceCaseRequest {
+  inventoryItemId: string;
+  locationId?: string; // solo con destino `drawer`
+}
+export interface ReplaceCaseResponse {
+  outcome: 'replaced' | 'found' | 'already_resolved';
+  case: ReplacementCaseDTO;
+  preparation?: ShipPreparationStateDTO;
+}
+
+/** `POST /admin/replacement-cases/:id/refund` (§M4-SHIP.15.5, SOLO super_admin). */
+export interface CaseRefundRequest {
+  amountCents: number;
+  reason: string;
+  expectedStripeCents: number;
+  expectedManualCents: number;
+  confirmAboveReference?: boolean;
+}
+export interface CaseRefundResponse {
+  outcome: 'refunded' | 'already_resolved';
+  case: ReplacementCaseDTO;
+  refunds: PaymentRefundDTO[];
+  manualRefunds: ManualRefundDTO[];
+  shipment?: { status: ShipmentStatus; closed: boolean };
+}
+export interface CaseRefundPreviewDTO {
+  amountCents: number | null;
+  paidReferenceCents: number;
+  market: { cents: number; capturedDate: string } | null;
+  referenceCents: number;
+  confirmAboveCents: number;
+  limitCents: number;
+  confirmation: 'none' | 'reinforced' | 'blocked' | null;
+  stripeAvailableCents: number;
+  caseStripeCents: number | null;
+  shipmentFeeCents: number;
+  stripeCents: number | null;
+  manualCents: number | null;
+  closesShipment: boolean;
+  customerHasClabe: boolean;
+}
+export interface CaseRefundConfirmationRequiredDetails {
+  referenceCents: number;
+  confirmAboveCents: number;
+  limitCents: number;
+}
+export interface CaseRefundAboveLimitDetails {
+  referenceCents: number;
+  limitCents: number;
+}
+export interface CaseRefundPreviewStaleDetails {
+  stripeCents: number;
+  manualCents: number;
+}
+export interface ReplacementNotEligibleDetails {
+  reason: 'not_found' | 'not_platform_available' | 'identity_mismatch' | 'same_piece_damaged' | 'same_piece_not_lost';
+  mismatch?: string[];
+}
+
+/** `POST /admin/replacement-cases/:id/void` (§M4-SHIP.15.10, SOLO super_admin). */
+export interface VoidCaseRequest {
+  note: string;
+}
+export interface VoidCaseResponse {
+  outcome: 'voided' | 'already_resolved';
+  case: ReplacementCaseDTO;
+  shipment?: { status: ShipmentStatus; closed: boolean };
+}
+
+// ---- Cubeta «Reembolsos manuales (SPEI)» (§M4-SHIP.15.13 + §M4-SHIP.17.3/.8) ----
+export interface ManualRefundDTO {
+  id: string;
+  source: ManualRefundSource;
+  status: ManualRefundStatus;
+  amountCents: number;
+  components: { merchandiseCents: number; merchandiseIvaCents: number; processingFeeCents: number; compensationCents: number };
+  customer: CustomerRefDTO;
+  beneficiaryName: string | null; // VIVO: KycProfile.legalName ?? customerDisplayName(User)
+  clabeOnFile: boolean; // VIVO
+  clabeMasked: string | null; // ⛔ NUNCA la CLABE entera en este DTO
+  case: { id: string; source: ReplacementCaseSource; card: PreparationItemDTO['card']; folio: string; reason: string };
+  origin: { orderId: string; orderNumber: string | null; orderStatus: OrderStatus } | null;
+  paymentRefundId: string | null;
+  createdAt: string;
+  createdBy: { userId: string; name: string | null };
+  paidAt: string | null;
+  paidBy: { userId: string; name: string | null } | null;
+  speiReference: string | null;
+  paidNote: string | null;
+  paidToCurrentClabe: boolean | null;
+  cancelledAt: string | null;
+  cancelledBy: { userId: string; name: string | null } | null;
+  cancelNote: string | null;
+  // v1.80.3 (SEC-SHIP-A3 / M4)
+  clabeUpdatedAt: string | null; // null ⇒ «fecha de cambio desconocida» (CLABE anterior a M-61)
+  clabeChangedRecently: boolean;
+  reissuedFromId: string | null;
+  reissuedAsId: string | null;
+}
+export interface ManualRefundsFilters {
+  status?: ManualRefundStatus;
+  q?: string;
+  page?: number;
+}
+export interface ManualRefundsResponse extends Paginated<ManualRefundDTO> {
+  pendingCents: number;
+}
+/** `GET /admin/manual-refunds/:id/reveal-clabe` (v1.80.3): el token ata la CLABE revelada al `paid`. */
+export interface RevealManualRefundClabeResponse {
+  clabe: string;
+  beneficiaryName: string | null;
+  clabeUpdatedAt: string | null;
+  clabeChangedRecently: boolean;
+  revealToken: string;
+}
+/** `POST /admin/manual-refunds/:id/paid` (v1.80.3 / D-11: `speiReference` y `note` OPCIONALES). */
+export interface MarkManualRefundPaidRequest {
+  revealToken: string;
+  speiReference?: string;
+  note?: string;
+  confirmRecentClabeChange?: boolean;
+  confirmOriginNotSettled?: boolean;
+}
+export interface ManualRefundConfirmationRequiredDetails {
+  required: ('recent_clabe_change' | 'origin_not_settled')[];
+  clabeUpdatedAt?: string | null;
+  originStatus?: OrderStatus;
+}
+export interface ManualRefundNoteRequest {
+  note: string;
+}
+
+// ---- Vista del súper-admin sobre los reembolsos (§M4-SHIP.17.5) ----
+export type AdminRefundRowDTO = PaymentRefundDTO & {
+  order: { id: string; orderNumber: string | null } | null;
+  shipmentId: string | null;
+  customer: CustomerRefDTO | null;
+  item: { folio: string; cardName: string } | null;
+};
+export interface AdminRefundsFilters {
+  requestedByRole?: Role;
+  actorUserId?: string;
+  kind?: PaymentRefundKind;
+  status?: PaymentRefundStatus;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+export interface AdminRefundsResponse extends Paginated<AdminRefundRowDTO> {
+  sumCents: number;
+}
+export interface OperatorRefundSummaryDTO {
+  user: { userId: string; name: string | null; email: string; active: boolean };
+  refunds: {
+    last24h: { count: number; cents: number };
+    last7d: { count: number; cents: number };
+    last30d: { count: number; cents: number };
+  };
+  capUsedCents: number;
+  prepared30d: { shipments: number; lines: number; missingLines: number; missingRatePct: number | null };
+  shrinkage30d: { pieces: number; costCents: number; unknownCostPieces: number };
+  selfReplaced30d: number;
+}
+export interface OperatorRefundSummaryResponse {
+  generatedAt: string;
+  capCents: number;
+  operators: OperatorRefundSummaryDTO[];
+}
+
+// ---- Reembolso total de una compra a BÓVEDA (§M4-SHIP.18) ----
+/** Clase L derivada (⛔ no es enum de schema): la clasificación de cada carta de una compra a bóveda. */
+export type VaultPieceState =
+  | 'in_custody'
+  | 'returned'
+  | 'in_packed_withdrawal'
+  | 'already_withdrawn'
+  | 'open_case'
+  | 'not_customer'
+  | 'ambiguous'
+  | 'other_purchase';
+export interface VaultPieceDTO {
+  orderItemId: string;
+  inventoryItemId: string;
+  folio: string;
+  cardName: string;
+  state: VaultPieceState;
+  pendingConfirmation: boolean;
+}
+/** `POST /admin/orders/:id/refund` (§M3): v1.80.5 gana `confirmPiecesWithCustomer`. */
+export interface RefundOrderRequest {
+  reason: string;
+  confirmPiecesWithCustomer?: boolean;
+}
+export interface RefundConfirmationRequiredDetails {
+  required: ('pieces_with_customer')[];
+  items: { inventoryItemId: string; folio: string; state: 'already_withdrawn' }[];
+}
+export interface VaultPieceInPackedWithdrawalDetails {
+  items: { inventoryItemId: string; folio?: string; shipmentId: string; shipmentStatus?: ShipmentStatus }[];
+}
+/** `POST /admin/orders/:id/reclaim-vault` (§M4-SHIP.18.10, SOLO super_admin; custodia, ⛔ no dinero). */
+export interface ReclaimVaultRequest {
+  note: string;
+  confirmUnpacked?: boolean;
+  /** v1.80.6 (SEC-SHIP-B12): 1–50, SOLO con `confirmUnpacked:true`. Ausente ⇒ todas las de la orden. */
+  inventoryItemIds?: string[];
+}
+export interface ReclaimVaultResponse {
+  orderId: string;
+  reclaimed: string[];
+  untouched: { inventoryItemId: string; state: VaultPieceState }[];
+  chargebackNeedsManual: boolean;
+  vaultPieces: VaultPieceDTO[];
+}
+/** `POST /admin/orders/:id/chargeback-inventory` (§M3, operador+). */
+export interface ChargebackInventoryRequest {
+  outcome: 'recuperada' | 'no_recuperada' | 'reexpedir';
+  note: string;
+}
+export interface ChargebackInventoryResponse {
+  orderId: string;
+  outcome: ChargebackInventoryRequest['outcome'];
+  inventoryItemIds: string[];
+  shipmentId?: string;
+  chargebackNeedsManual: false;
+}
+
+/** Detalle M3 (`GET /admin/orders/:id`), aditivo v1.80 / v1.80.2 / v1.80.4 (§M4-SHIP.10, .15.13, .18.6). */
+export interface AdminOrderDetailDTO extends AdminOrderDTO {
+  orderNumber?: string | null;
+  fulfillmentMode?: FulfillmentMode;
+  isGuestOrder?: boolean;
+  chargebackNeedsManual?: boolean;
+  disputeOutcome?: 'won' | 'lost' | null;
+  customer?: CustomerRefDTO | null;
+  refundedCents?: number; // Σ Stripe `submitted|succeeded`
+  manualRefundedCents?: number; // Σ SPEI `paid` (solo super_admin)
+  refunds?: PaymentRefundDTO[];
+  manualRefunds?: ManualRefundDTO[]; // solo super_admin
+  items?: (Omit<OrderItemDTO, 'refund'> & { refund?: PaymentRefundDTO | null })[];
+  shipments?: {
+    id: string;
+    status: ShipmentStatus;
+    kind: AdminShipmentKind;
+    requestedAt: string;
+    preparedAt: string | null;
+    carrier: string | null;
+    trackingNumber: string | null;
+  }[];
+  vaultPlacement?: { id: string; status: VaultPlacementStatus } | null;
+  vaultPieces?: VaultPieceDTO[]; // solo órdenes `vault`
+}
+
+// ---- Cliente (§M4-SHIP.10 / .15.13 / .16) ----
+/** Lo que el cliente ve de un caso «Por reponer» sobre una línea suya. ⛔ Sin actor, motivo interno ni CLABE. */
+export interface CustomerReplacementInfo {
+  status: ReplacementCaseStatus;
+  reason: MissingReason;
+  refund: { amountCents: number; byTransferCents: number; transferStatus: 'pending' | 'paid' | 'cancelled' | null } | null;
+}
+/** `items[].refund` del cliente: solo filas `submitted|succeeded`. */
+export interface CustomerItemRefundInfo {
+  amountCents: number;
+  reason: MissingReason;
+  refundedAt: string;
+}
+export interface CustomerOrderShipmentDTO {
+  id: string;
+  status: ShipmentStatus;
+  carrier: string | null;
+  trackingNumber: string | null;
+  requestedAt: string;
+  pickingAt: string | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+  shipTo: { recipientName: string; city: string; state: string; postalCode: string };
+  missingCount: number;
 }
 
 // ---- Buylist (contrato §6) ----
@@ -1833,7 +2413,22 @@ export interface DashboardSalesPeriodDTO {
 export interface DashboardDTO {
   profitPeriodCents?: number;
   salesPeriod: DashboardSalesPeriodDTO;
-  workQueue: { shipments: number; buylist: number; disputes: number; pendingPrices: number };
+  workQueue: {
+    shipments: number;
+    buylist: number;
+    disputes: number;
+    pendingPrices: number;
+    /**
+     * v1.80 (§M4-SHIP.11): «Pedidos por preparar» INCLUYE bóveda — el mismo cuerpo que el `summary`.
+     * ⛔ `shipments` no cambia de cifra (envíos vivos). Opcionales: aditivos.
+     */
+    toPrepare?: { ship: number; vault: number; toReplace: number; toReplaceOverdue: number };
+    stuckRefunds?: number;
+    /** v1.80.2: SOLO super_admin (`null` para el operador). */
+    manualRefunds?: { pending: number; pendingCents: number; oldestCreatedAt: string | null } | null;
+    /** v1.80.3 (SEC-SHIP-M1): SOLO super_admin (`null` para el operador). */
+    operatorRefunds?: { last24hCount: number; last24hCents: number; last30dCents: number } | null;
+  };
   inventoryValueCents?: number;
   custodyValueCents?: number;
   buylistPeriod: { count: number; amountCents: number };
@@ -3253,6 +3848,14 @@ export interface RejectedSellItemDTO {
 export interface AdminOrderDTO extends OrderSummaryDTO {
   breakdown?: BreakdownDTO;
   cfdiStatus?: CfdiStatus;
+  // v1.21: pedidos de invitado en M3 (aditivo).
+  isGuestOrder?: boolean;
+  guestEmail?: string | null;
+  fulfillmentMode?: FulfillmentMode;
+  // v1.80 (§M4-SHIP.10), aditivo: quién es quién y lo devuelto por Stripe.
+  customer?: CustomerRefDTO | null;
+  refundedCents?: number;
+  chargebackNeedsManual?: boolean;
 }
 
 // POST /admin/orders/:id/refund (contrato §M3, super_admin, money-out).
