@@ -25973,8 +25973,9 @@ Segunda corrida tras el arreglo: verde (§7).
   `inventory.patch-status-guard.spec.ts:153-160` (unidad) y `full-refund-vault.e2e-spec.ts:824-826` (`listed → in_stock`,
   Postgres) y `:888` (igual al leído ⇒ 0 filas).
 - **No** en `→ listed` (camino publicante, `inventory.service.ts:2465` en adelante): ese camino sigue el pipeline de v1.51
-  (`assertPublishableGuards` + `claimListed`) y no escribe esta bitácora. ⚠️ Esto es **por construcción del código**;
-  **ninguna prueba fija la ausencia** en `→ listed` (`grep item_updated backend/test` solo encuentra los tres sitios de arriba).
+  (`assertPublishableGuards` + `claimListed`) y no escribe esta bitácora. Fijado desde el pase del §8 por
+  `backend/test/inventory.pending-publish.spec.ts:481-524` («(4b)»: ancla que ve la bitácora en `listed → in_stock` con el
+  mismo arnés + tres casos publicantes sin ella).
 
 ## 7 · Cifras
 
@@ -25996,15 +25997,50 @@ Mutaciones (sobre copia; la definición de cada una se reconstruye de su firma d
 | **M2** — reintroducir en `updateItem` el allowlist local + guarda en línea de envío | **2/95**: las dos pruebas del candado estático (declaración duplicada; `inline/allowlist: true, delegates: false`) | backend (`mut-M2.log`) |
 | **M3** — CAS de `guardedItemUpdate` sin el estado/dueño leído (la mutación que nombra PS-42b) | unidad **7/95 rojas** (TOCTOU de `move`, `mark`, `PATCH status`, `PATCH price`); PS-42b **0/10 con N=10** (`200` + precio `1000+i` escrito sobre la `reserved` del comprador) | backend (`mut-M3.log`, `mut-M3-ps42b.log`) |
 
-## 8 · Pendientes (medidos 2026-09-29 sobre `5321b8c6`)
+## 8 · Pendientes del §8 original: cerrados (pase 2026-09-29, sobre `6fd55074` + este commit)
 
-- **PS-42b — espía de tx NO MEDIDO.** La primera mitad de PS-42b ya no usa el espía sobre `h.prisma.inventoryItem.update`:
-  ese espía **no ve** (NO MEDIDO que las vea) las escrituras hechas con el cliente de la tx (`tx.inventoryItem.update`
-  dentro de `guardedItemUpdate`). Hoy «`data` no lleva `status`» lo fija solo la unitaria
-  (`inventory.patch-status-guard.spec.ts:166`). **Comprobación que lo cerraría:** una mutación que reescriba `status` igual al
-  leído dentro de la tx y ver si alguna prueba de integración se pone roja.
-- **PS-42b — semilla de precio nula.** Las piezas de la carrera nacen con `listPriceCents = null` (`integ-guards-1.log`:
-  `price=null` en las 10 tiradas), así que «precio INTACTO» compara `null` con `null`. La carrera sigue mordiendo porque el
-  `PATCH` escribe `1000+i` (M3: 0/10), pero una mutación que escribiera `null` no se distinguiría. **Arreglo propuesto:**
-  sembrar un `listPriceCents` no nulo y distinto de `1000+i` en `db.mkPiece` de esa carrera.
-- Sin prueba que fije la **ausencia** de `inventory.item_updated` en `→ listed` (§6).
+Los tres pendientes que dejó la fusión, cerrados. Mutaciones sobre **copia del árbol entero** (`cp -a` en
+`scratchpad/backend-ps42b/tree`, sesión `1afd7c0b…`), Postgres 16 + Redis de `stack-native.sh up --infra`; load máximo
+medido durante las corridas de integración 1.25 (4 CPU). Logs en `scratchpad/backend-ps42b/logs/`.
+
+1. **PS-42b — semilla de precio no nula (CERRADO).** `ShipPrepDb.mkPiece` acepta `listPriceCents` (aditivo, sin él nace
+   `null` como antes: `backend/test/integration/helpers/ship-prep-db.ts:122,140`). La carrera siembra `55_500 + i`
+   (distinto del `1000 + i` del `PATCH`) y asevera la semilla (`full-refund-vault.e2e-spec.ts:904-906`).
+   | Mutación | Prueba nueva | Prueba anterior (`6fd55074`) |
+   |---|---|---|
+   | **M3** — `guardedItemUpdate` con `where: { id }` (sin `status`/`ownerType`/`ownerUserId`) | **0/10 con N=10** (`200` + precio `1000+i` sobre la reservada) — `mut-M3-ps42b.log` | (ya roja: §7) |
+   | **M4** — en `updateItem`, si la tx acaba en `409 CONFLICT`, un `update` sin guarda escribe `listPriceCents: null` y relanza (la respuesta sigue siendo `409 CONFLICT`, la pieza sigue `reserved/customer`) | **0/10 con N=10** (`price=null,VIOLATION`) — `mut-M4-ps42b-new.log` | **10/10 verde con N=10** (`price=null` = semilla `null`) — `mut-M4-ps42b-old.log`: el hueco era real |
+   Un primer intento de M4 (anular el precio **antes** de la tx) no aísla el hueco: cambia la respuesta a `422
+   ITEM_NOT_ADJUSTABLE` y pone roja también la prueba vieja. Por eso M4 es la variante en la rama de `CONFLICT`.
+   Sin mutación, PS-42b **10/10 con N=10** en dos corridas (`integ-frv-new.log` en la copia; `integ-touched.log` en el árbol vivo).
+2. **`PATCH → listed` no escribe `inventory.item_updated` (CERRADO, unitaria).** `inventory.pending-publish.spec.ts:481-524`:
+   el arnés gana un espía `auditLog.create` (su `$transaction` corre sobre el mismo cliente, así que ve también lo escrito
+   dentro de una tx); **ancla** — `listed → in_stock` SÍ la escribe con ese arnés (la ausencia no es vacía); y
+   `in_stock → listed` con precio resoluble, con `listPriceCents` + `gradeValue`, y sin precio (`422 PRICE_PENDING`)
+   ⇒ `auditLog.create` **no llamado**. Canarios: **M5a** (bitácora forzada tras `claimListed`) ⇒ **2/39 rojas** (los
+   dos casos que publican; `mut-M5a.log`); **M5b** (bitácora forzada dentro de un `$transaction` al entrar al camino
+   publicante, antes de las guardas) ⇒ **3/39 rojas** (los tres; `mut-M5b.log`). Deterministas (sin carrera).
+3. **Espía de tx de PS-42b (MEDIDO: no ve).** Prueba temporal en la copia (borrada; `spy-tx.log`), contra la app Nest real:
+   con `jest.spyOn(h.prisma.inventoryItem, 'update')` y `jest.spyOn(h.prisma, '$transaction')`, un `PATCH
+   {status:'in_stock', listPriceCents:4321}` sobre `in_stock` ⇒ `200`, precio **4321 en BD**, `$transaction` **1**
+   llamada, `update` espiado **0** llamadas. Controles: una llamada directa `h.prisma.inventoryItem.update` ⇒ el espía
+   cuenta **1**; un `h.prisma.$transaction(tx => tx.inventoryItem.update(…))` propio ⇒ sigue en **1** (no la ve). O sea:
+   el delegado de la tx interactiva de Prisma 5 **no** es el objeto espiado; re-anclar la primera mitad a conducta fue
+   correcto. Mutación **M6** («reescribir `status` igual al leído dentro de la tx»: `guardedItemUpdate(tx, item, patch)`
+   siempre): integración `full-refund-vault` + `inventory-move-mark-guards` **46/46 verde** (`mut-M6-integ.log`: el valor
+   escrito es el mismo, no es observable en BD); unitaria **1/50 roja** — «in_stock → in_stock NO escribe `status`»
+   (`inventory.patch-status-guard.spec.ts`, `mut-M6-unit.log`). Esa unitaria es el único candado, y basta: la conducta que
+   protege (no pisar una reserva) la fija la carrera de PS-42b vía el CAS (M3).
+
+## 9 · Cifras del pase del §8 (árbol vivo, `6fd55074` + este commit)
+
+| Qué | Resultado | Quién |
+|---|---|---|
+| `tsc --noEmit` (incluye `test/`) | 0 errores | backend |
+| Unitaria completa | **380/380 suites · 6393/6393** (6389 + 4 nuevas de «(4b)») | backend (`unit-full.log`) |
+| Integración de las suites que usan `ShipPrepDb` + guardas (`full-refund-vault`, `replacement-cases`, `shipments-prep`, `orders-public-status`, `inventory-move-mark-guards`) | **5/5 suites verdes**; PS-42b **10/10 con N=10** | backend (`integ-touched.log`) |
+| `enum-query-axes.e2e-spec.ts` (también usa `ShipPrepDb`) | **3 rojas de 429** (`pending-publish?acquisitionType=`, `?missing=`, `?productType=` ⇒ «FIXTURE VACÍO»: la cola sin filtro vuelve vacía). **Preexistente, no de este pase:** con los tres ficheros de prueba de `6fd55074` sobre la misma BD, las **mismas 3** rojas (`integ-enum-base.log`). Causa **NO MEDIDA** (hipótesis: estado de la BD compartida, piezas del fixture resueltas con precio). Pendiente abierto abajo | backend |
+
+**Pendiente abierto (medido 2026-09-29 sobre `0d370d96`):** `enum-query-axes.e2e-spec.ts` — 3 rojas «FIXTURE VACÍO» en
+`GET /admin/inventory/pending-publish` (arriba). Comprobación que lo cerraría: correrla sola contra una BD recién
+migrada (sin restos de otras suites); si sigue roja, es del fixture o del código de la cola, y es de backend.
