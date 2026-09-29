@@ -5,7 +5,7 @@ import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-q
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { prepareShipment, retryRefund, setShipPrepItem, unprepareShipment } from '@/lib/api';
-import { ApiClientError } from '@/lib/api-client';
+import { asApiError } from '@/lib/api-client';
 import { useErrorMessage } from '@/components/ui/QueryState';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -44,10 +44,6 @@ import type { QueueNotice } from './VaultPlacementCard';
 type Translator = ReturnType<typeof useTranslations>;
 
 const QUEUE_KEY = ['admin-preparation-queue'] as const;
-
-function asApiError(e: unknown): ApiClientError | null {
-  return e instanceof ApiClientError ? e : null;
-}
 
 function patchShip(
   qc: QueryClient,

@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { PICKING_SUMMARY_KEY } from '@/hooks/usePickingSummary';
 import { chargebackInventory, getAdminOrder, reclaimVault, refundToManual, retryRefund } from '@/lib/api';
-import { ApiClientError } from '@/lib/api-client';
+import { asApiError } from '@/lib/api-client';
 import { useRole } from '@/lib/role';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { Banner } from '@/components/ui/Banner';
@@ -26,10 +26,6 @@ import { VaultPiecesList } from '../VaultPiecesList';
 const DASH = '—';
 const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
 const LABEL = `${TAG} text-muted`;
-
-function asApiError(e: unknown): ApiClientError | null {
-  return e instanceof ApiClientError ? e : null;
-}
 
 /**
  * **Detalle M3 de una orden** (`DESIGN_SYSTEM §37.10/§37.11a`). Cliente (el comprador), cartas, envíos de este

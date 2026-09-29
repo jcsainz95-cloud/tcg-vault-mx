@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
 import { PICKING_SUMMARY_KEY } from '@/hooks/usePickingSummary';
 import { cancelManualRefund, getManualRefund, markManualRefundPaid, reissueManualRefund, revealManualRefundClabe } from '@/lib/api';
-import { ApiClientError } from '@/lib/api-client';
+import { asApiError } from '@/lib/api-client';
 import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { Banner } from '@/components/ui/Banner';
@@ -25,10 +25,6 @@ const DASH = '—';
 const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
 const LABEL = `${TAG} text-muted`;
 const SPEI_REF_RE = /^[A-Za-z0-9]{1,30}$/;
-
-function asApiError(e: unknown): ApiClientError | null {
-  return e instanceof ApiClientError ? e : null;
-}
 
 /**
  * **Detalle de una transferencia** (`DESIGN_SYSTEM §37.9b` · contrato `§M4-SHIP.15.13` + `.17.3` + `.17.8`).

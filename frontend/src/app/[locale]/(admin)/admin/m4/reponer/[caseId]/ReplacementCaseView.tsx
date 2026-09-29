@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { PICKING_SUMMARY_KEY } from '@/hooks/usePickingSummary';
 import { getCaseRefundPreview, getLocations, getReplacementCase, refundCase, replaceCase, voidCase } from '@/lib/api';
-import { ApiClientError } from '@/lib/api-client';
+import { asApiError } from '@/lib/api-client';
 import { useRole } from '@/lib/role';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { Banner } from '@/components/ui/Banner';
@@ -36,10 +36,6 @@ import { pesosToCents } from '../../pesosToCents';
 
 type Translator = ReturnType<typeof useTranslations>;
 const DASH = '—';
-
-function asApiError(e: unknown): ApiClientError | null {
-  return e instanceof ApiClientError ? e : null;
-}
 
 /**
  * **El detalle de un caso «Por reponer»** (`DESIGN_SYSTEM §37.8c–§37.8e` · contrato `§M4-SHIP.15.4/.5/.10`).
