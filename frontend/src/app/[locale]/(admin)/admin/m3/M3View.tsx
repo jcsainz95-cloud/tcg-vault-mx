@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useLocale, useTranslations } from 'next-intl';
-import { getAdminOrders, refundOrder } from '@/lib/api';
+import { getAdminOrders } from '@/lib/api';
 import { useRole } from '@/lib/role';
+import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { AdminOrderDTO } from '@/types/contract';
 import { formatMoneyCents, formatDate } from '@/lib/format';
@@ -13,10 +14,10 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
-import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { RefundOrderDialog } from './RefundOrderDialog';
 
 /** Convierte pesos (texto) a centavos enteros; inválido/vacío → null (mismo helper que M5). */
 function pesosToCents(value: string): number | null {
@@ -33,14 +34,10 @@ export function M3View() {
   const t = useTranslations('admin.m3');
   const tt = useTranslations('admin.m3.table');
   const tm = useTranslations('admin');
-  const tc = useTranslations('common');
   const te = useTranslations('error');
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
-  const qc = useQueryClient();
-  const getError = useErrorMessage('operator');
   const [refundTarget, setRefundTarget] = useState<AdminOrderDTO | null>(null);
-  const [refundReason, setRefundReason] = useState('');
   const [refundDone, setRefundDone] = useState<string | null>(null);
 
   // --- Filtros + paginación server-side (v1.25-buylist-orders-pagination · GET /admin/orders) ---
@@ -90,57 +87,77 @@ export function M3View() {
       ? Math.max(1, Math.ceil(query.data.total / query.data.pageSize))
       : 1;
 
-  // Reembolso EXCEPCIONAL (contrato §M3 · POST /admin/orders/:id/refund, super_admin,
-  // money-out): exige `reason` (queda en bitácora) y refresca la cola al confirmar.
-  const refundMutation = useMutation({
-    mutationFn: (vars: { orderId: string; reason: string }) =>
-      refundOrder(vars.orderId, vars.reason),
-    onSuccess: (d) => {
-      closeRefund();
-      setRefundDone(d.orderId);
-      void qc.invalidateQueries({ queryKey: ['admin-orders'] });
-    },
-  });
-
+  // Reembolso TOTAL, excepcional (contrato §M3 · POST /admin/orders/:id/refund, super_admin, money-out):
+  // vive en `RefundOrderDialog` (§37.10: vaultPieces, confirmación de piezas, retiro empacado).
   function openRefund(order: AdminOrderDTO) {
     setRefundTarget(order);
-    setRefundReason('');
     setRefundDone(null);
-    refundMutation.reset();
   }
   function closeRefund() {
     setRefundTarget(null);
-    setRefundReason('');
+  }
+
+  // §37.11: la fila dice QUIÉN compró (nombre + correo; «Invitado» si no hay cuenta) y cuánto se le devolvió.
+  function customerCell(o: AdminOrderDTO) {
+    const name = o.customer?.fullName?.trim();
+    const email = o.customer?.email ?? o.guestEmail ?? null;
+    return (
+      <span className="flex flex-col">
+        <span>{name || (o.isGuestOrder || !o.customer ? t('guest') : t('nameMissing'))}</span>
+        {email && <span className="text-xs text-muted">{email}</span>}
+      </span>
+    );
   }
 
   const columns: Column<AdminOrderDTO>[] = [
-    { key: 'id', header: tt('order'), render: (o) => <span className="tabular font-medium">{o.id}</span> },
-    { key: 'user', header: tt('user'), render: (o) => <span className="tabular text-muted">{o.userId}</span> },
+    {
+      key: 'id',
+      header: tt('order'),
+      render: (o) => (
+        <Link href={`/admin/m3/${o.id}`} className="tabular font-medium underline underline-offset-4 hover:text-accent" data-testid={`m3-order-link-${o.id}`}>
+          {o.orderNumber ?? o.id}
+        </Link>
+      ),
+    },
+    { key: 'customer', header: tt('customer'), render: customerCell },
     { key: 'status', header: tt('status'), render: (o) => <StatusBadge domain="order" value={o.status} /> },
     { key: 'total', header: tt('total'), numeric: true, render: (o) => formatMoneyCents(o.totalCents, locale) },
+    {
+      key: 'refunded',
+      header: tt('refunded'),
+      numeric: true,
+      render: (o) => (o.refundedCents ? <span className="tabular">{formatMoneyCents(o.refundedCents, locale)}</span> : <span className="text-muted">—</span>),
+    },
     { key: 'date', header: tt('date'), render: (o) => formatDate(o.createdAt, locale) },
     {
       key: 'actions',
       header: '',
       align: 'right',
-      render: (o) =>
-        o.status === 'settled' ? (
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={!isSuperAdmin}
-            title={!isSuperAdmin ? tm('masked') : undefined}
-            onClick={() => openRefund(o)}
-          >
-            {t('refund')}
-          </Button>
-        ) : null,
+      render: (o) => (
+        <span className="flex items-center justify-end gap-2">
+          <Link href={`/admin/m3/${o.id}`} className="text-sm underline underline-offset-4 hover:text-accent">
+            {t('viewDetail')}
+          </Link>
+          {o.status === 'settled' && isSuperAdmin && (
+            <Button variant="destructive" size="sm" onClick={() => openRefund(o)}>
+              {t('refund')}
+            </Button>
+          )}
+        </span>
+      ),
     },
   ];
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h1 className="text-h1 font-bold">{t('title')}</h1>
+        {isSuperAdmin && (
+          <Link href="/admin/refunds" className="text-sm underline underline-offset-4 hover:text-accent" data-testid="m3-operator-refunds-link">
+            {t('operatorRefundsLink')}
+          </Link>
+        )}
+      </div>
       {!isSuperAdmin && <Banner variant="warning">{te('MONEY_OUT_FORBIDDEN')}</Banner>}
       {refundDone && (
         <Banner variant="success" role="status">
@@ -253,46 +270,15 @@ export function M3View() {
           ))}
       </QueryState>
 
-      <Modal
+      <RefundOrderDialog
+        order={refundTarget}
         open={!!refundTarget}
         onClose={closeRefund}
-        title={t('refund')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={closeRefund}>
-              {tc('cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={refundReason.trim() === ''}
-              loading={refundMutation.isPending}
-              onClick={() =>
-                refundTarget &&
-                refundMutation.mutate({ orderId: refundTarget.id, reason: refundReason.trim() })
-              }
-            >
-              {refundTarget && t('refundConfirm', { amount: formatMoneyCents(refundTarget.totalCents, locale) })}
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          <p>{t('refundQuestion')}</p>
-          <Input
-            label={t('refundReasonLabel')}
-            hint={t('refundReasonHint')}
-            type="text"
-            value={refundReason}
-            onChange={(e) => setRefundReason(e.target.value)}
-          />
-          <p className="text-xs text-muted">{tm('moneyOutNote')}</p>
-          {refundMutation.isError && (
-            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-              {getError(refundMutation.error)}
-            </Banner>
-          )}
-        </div>
-      </Modal>
+        onDone={(res) => {
+          closeRefund();
+          setRefundDone(res.orderId);
+        }}
+      />
     </div>
   );
 }

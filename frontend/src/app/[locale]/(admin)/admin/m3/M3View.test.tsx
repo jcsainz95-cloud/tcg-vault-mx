@@ -5,6 +5,15 @@ import { M3View } from './M3View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 
+// El `Link` de next-intl no resuelve bajo vitest; se stubea a un <a href> que preserva props.
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
 // El reembolso es money-out (super_admin): se fija el rol para ejercer el flujo.
 vi.mock('@/lib/role', () => ({
   useRole: () => ({ role: 'super_admin', setRole: () => {}, isSuperAdmin: true, canSwitchRole: false }),
@@ -17,7 +26,8 @@ beforeEach(() => {
 describe('M3View · Ventas / órdenes (refund)', () => {
   it('solo las órdenes settled muestran el botón Reembolsar', async () => {
     renderWithProviders(<M3View />, 'es');
-    expect((await screen.findAllByText('ord-9001')).length).toBeGreaterThan(0);
+    // v1.80 (§37.11): la fila titula con el FOLIO (`orderNumber`), enlazado al detalle; el id solo si no hay folio.
+    expect((await screen.findAllByText('TCG-009001')).length).toBeGreaterThan(0);
     // Fixture: solo ord-9001 está settled → tabla desktop + card mobile = 2 renders máx.
     const refundButtons = screen.getAllByRole('button', { name: 'Reembolsar' });
     expect(refundButtons.length).toBeLessThanOrEqual(2);
@@ -39,7 +49,8 @@ describe('M3View · Ventas / órdenes (refund)', () => {
     });
     fireEvent.click(within(dialog).getByRole('button', { name: /Reembolsar MX\$/ }));
 
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('ord-9001', 'cobro doble'));
+    // v1.80 (contrato §M3 · `RefundOrderRequest`): el cuerpo es `{ reason }` (+ `confirmPiecesWithCustomer` solo si el 422 lo pidió).
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('ord-9001', { reason: 'cobro doble' }));
     expect(
       await screen.findByText('Reembolso ejecutado para la orden ord-9001.'),
     ).toBeInTheDocument();
