@@ -14,6 +14,7 @@ import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { OrderItemStatusLine } from '@/components/domain/OrderItemStatusLine';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { Button } from '@/components/ui/Button';
@@ -368,7 +369,17 @@ export function VaultView() {
                     // (true solo si settled && sin envío activo). El hint accesible del botón
                     // deshabilitado distingue "en retiro" (envío activo) de "no liquidada".
                     const inWithdrawal = h.shipmentState !== null;
-                    const disabledHint = inWithdrawal ? t('inWithdrawalHint') : t('onlySettled');
+                    // v1.80.1/.80.2 (§37.8f): con caso «Por reponer» abierto la carta no se retira y se dice
+                    // por qué; v1.80.4 (§37.10d): compra de origen en reembolso ⇒ «Compra en reembolso».
+                    // ⚠️ «Compra en reembolso» (§37.10d) NO se puede pintar desde `holdings`: el contrato solo da
+                    // `withdrawable:false` sin motivo (el motivo `origin_refunded` vive en `quote.ineligible`).
+                    // Solicitud al arquitecto: un `withdrawableReason` en `HoldingDTO` (ver FRONTEND_NOTES).
+                    const replacing = h.replacement?.status === 'open';
+                    const disabledHint = inWithdrawal
+                      ? t('inWithdrawalHint')
+                      : replacing
+                        ? t('item.replacingHint')
+                        : t('onlySettled');
                     // v1.42 (BLOQ-2a): para sellado la identidad REAL viene RESUELTA server-side; se pinta
                     // la CAJA (sealedProductName/sealedImageUrl), no el single ancla («Charizard/Tropius»).
                     // raw/graded caen a la carta. Cascada money-safe: nombre nunca null (termina en card.name).
@@ -418,6 +429,9 @@ export function VaultView() {
                             <StatusBadge domain="ownership" value={h.ownershipStatus} />
                           )}
                         </div>
+                        {h.replacement && (
+                          <OrderItemStatusLine replacement={h.replacement} className="mt-2" />
+                        )}
 
                         {/* Retirar solo si `withdrawable` (v1.17: settled && sin envío activo) → navega a
                             /shipments con el ítem preseleccionado (?item=<inventoryItemId>). Si no es

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
 import { Link } from '@/i18n/navigation';
@@ -30,6 +30,13 @@ export function AuthForm({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  /**
+   * `C7` (DESIGN_SYSTEM §37.13): el 429 del login/registro es un tope POR CORREO y su texto no promete
+   * minutos salvo que el servidor los dé (`details.retryAfterSeconds`; el cliente HTTP no expone
+   * `Retry-After`). ⛔ Sin contador regresivo sin cifra; el botón no se apaga (el servidor es la puerta).
+   */
+  const [rateLimited, setRateLimited] = useState<{ minutes: number | null } | null>(null);
+  const rateLimitRef = useRef<HTMLDivElement>(null);
 
   // Solo se honra un `next` interno (empieza con "/") para evitar open redirect.
   const safeNext = safeNextOf(next);
@@ -59,6 +66,7 @@ export function AuthForm({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setErrorCode(null);
+    setRateLimited(null);
     setLoading(true);
     const form = new FormData(e.currentTarget);
     const email = String(form.get('email') ?? '');
@@ -79,10 +87,19 @@ export function AuthForm({
         redirectAfterAuth(res.user);
       }
     } catch (err) {
-      setErrorCode(err instanceof ApiClientError ? err.code : 'INTERNAL');
+      if (err instanceof ApiClientError && err.status === 429) {
+        const secs = err.details?.retryAfterSeconds;
+        setRateLimited({ minutes: typeof secs === 'number' && secs > 0 ? Math.max(1, Math.ceil(secs / 60)) : null });
+      } else {
+        setErrorCode(err instanceof ApiClientError ? err.code : 'INTERNAL');
+      }
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (rateLimited) rateLimitRef.current?.focus();
+  }, [rateLimited]);
 
   return (
     /*
@@ -102,6 +119,24 @@ export function AuthForm({
           <Banner variant="warning" role="status">
             {t('inactivityLogout')}
           </Banner>
+        )}
+        {rateLimited && (
+          <div ref={rateLimitRef} tabIndex={-1} className="outline-none" data-testid="auth-rate-limited">
+            <Banner variant="warning" role="alert">
+              <p>
+                {mode === 'register'
+                  ? t('register.rateLimited')
+                  : rateLimited.minutes !== null
+                    ? t('login.rateLimitedRetryIn', { minutes: rateLimited.minutes })
+                    : t('login.rateLimited')}
+              </p>
+              {mode === 'login' && (
+                <Link href="/forgot-password" className="mt-2 inline-block text-text underline underline-offset-4 hover:text-accent">
+                  {t('login.rateLimitedResetLink')}
+                </Link>
+              )}
+            </Banner>
+          </div>
         )}
         {errorCode && (
           <Banner variant="danger" role="alert">

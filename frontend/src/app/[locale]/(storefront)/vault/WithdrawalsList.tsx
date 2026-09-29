@@ -16,6 +16,7 @@ import { Banner } from '@/components/ui/Banner';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DisputeEvidenceContact } from '@/components/domain/DisputeEvidenceContact';
+import { OrderItemStatusLine } from '@/components/domain/OrderItemStatusLine';
 import { useShipmentSteps } from '@/lib/pipelines';
 
 /** Ventana de 7 días (desde `entregado`) para abrir disputa (contrato §7). */
@@ -197,12 +198,14 @@ export function WithdrawalsList() {
                         return (
                           <li
                             key={it.inventoryItemId}
-                            className="flex items-center gap-3 border-t border-border py-3 text-[13px] first:border-t-0"
+                            className="flex flex-wrap items-center gap-3 border-t border-border py-3 text-[13px] first:border-t-0"
                           >
                             <span className="tabular font-mono text-[11px] text-muted">{it.folio}</span>
                             <span className="min-w-0 flex-1 truncate text-text" lang="en">
                               {it.card.name}
                             </span>
+                            {/* §37.7 / §37.8f: la carta que no salió o que se está reponiendo lo dice aquí. */}
+                            <OrderItemStatusLine refund={it.refund} replacement={it.replacement} className="basis-full" />
                             <span
                               className="hidden truncate font-mono text-[11px] text-muted sm:block"
                               lang="en"
