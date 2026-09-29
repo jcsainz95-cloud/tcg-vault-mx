@@ -40,11 +40,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
         typeof raw === 'string'
           ? raw
           : ((raw as { message?: string | string[] }).message ?? exception.message);
+      // 🔒 v1.80.7 (§0 «429 RATE_LIMITED», norma de forma): con ventana conocida, `Retry-After: n` (la pone el
+      // throttler en la respuesta) Y `details.retryAfterSeconds = n` — el cliente HTTP del front solo lee
+      // `code`/`details`. Sin ventana ⇒ `details {}` y ⛔ ninguna cifra inventada. Medido (auth-throttle e2e): el
+      // throttler de Nest ponía la cabecera y este filtro devolvía `{statusCode, message}` como `details`.
+      const details: Record<string, unknown> = status === 429 ? this.rateLimitDetails(res) : typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
       return res.status(status).json({
         error: {
           code: this.mapStatusToCode(status),
           message: Array.isArray(message) ? message.join('; ') : message,
-          details: typeof raw === 'object' ? (raw as Record<string, unknown>) : {},
+          details,
         },
       });
     }
@@ -102,6 +107,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // eso es deliberado: si aquí viviera una segunda lista de códigos, el día que difieran habría un
     // error que se reintenta y no se traduce, o al revés. Una fuente, dos lectores.
     return isSerializationConflict(exception) ? 'reintentos-agotados' : null;
+  }
+
+  /** `{ retryAfterSeconds: n }` si la respuesta ya lleva `Retry-After: n` (entero > 0); si no, `{}`. */
+  private rateLimitDetails(res: Response): Record<string, unknown> {
+    const raw = typeof res.getHeader === 'function' ? res.getHeader('Retry-After') : undefined;
+    const n = Number(Array.isArray(raw) ? raw[0] : raw);
+    return Number.isInteger(n) && n > 0 ? { retryAfterSeconds: n } : {};
   }
 
   private mapStatusToCode(status: number): string {
