@@ -9,6 +9,7 @@ import {
   SealedCondition,
   SealedGroupKind,
   SealedSubtype,
+  ReplacementCaseSource,
 } from '@prisma/client';
 
 /**
@@ -127,3 +128,9 @@ export const PENDING_PRICE_CONTEXT_VALUES = Object.values(PendingPriceContext);
  * `enum SealedGroupKind` sobre columna persistida.
  */
 export const SEALED_GROUP_KIND_VALUES = Object.values(SealedGroupKind);
+
+/**
+ * v1.80.1 (M-61, §M4-SHIP.15.8) — `ReplacementCaseSource`, clase **E**: dominio de `?source=` de
+ * `GET /admin/replacement-cases`. Derivado del enum de Prisma; entra a la paridad a tres bandas.
+ */
+export const REPLACEMENT_CASE_SOURCE_VALUES = Object.values(ReplacementCaseSource);

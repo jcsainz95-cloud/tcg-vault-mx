@@ -12,6 +12,7 @@ import {
   SealedCondition,
   SealedGroupKind,
   SealedSubtype,
+  ReplacementCaseSource,
 } from '@prisma/client';
 import {
   ACQUISITION_TYPE_VALUES,
@@ -24,6 +25,7 @@ import {
   SEALED_CONDITION_VALUES,
   SEALED_GROUP_KIND_VALUES,
   SEALED_SUBTYPE_VALUES,
+  REPLACEMENT_CASE_SOURCE_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
 import { ACCEPTED_RAW_CONDITIONS } from '../src/common/business-rules';
@@ -90,6 +92,8 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   PendingPriceReason: ['no_market', 'premium_at_floor'],
   PendingPriceContext: ['buylist', 'catalog', 'inventory', 'portfolio'],
   SealedGroupKind: ['promo_collection', 'set_main'],
+  // v1.80.1 (M-61, §M4-SHIP.15.8): filtro `?source=` de `GET /admin/replacement-cases` ⇒ clase E.
+  ReplacementCaseSource: ['vault_purchase', 'withdrawal'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */
@@ -104,6 +108,7 @@ const PRISMA_ENUMS: Record<string, Record<string, string>> = {
   PendingPriceReason,
   PendingPriceContext,
   SealedGroupKind,
+  ReplacementCaseSource,
 };
 
 /** Las listas DERIVADAS que consume `src/`, por nombre. */
@@ -118,6 +123,7 @@ const DERIVED_VALUES: Record<string, readonly string[]> = {
   PendingPriceReason: PENDING_PRICE_REASON_VALUES,
   PendingPriceContext: PENDING_PRICE_CONTEXT_VALUES,
   SealedGroupKind: SEALED_GROUP_KIND_VALUES,
+  ReplacementCaseSource: REPLACEMENT_CASE_SOURCE_VALUES,
 };
 
 describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts ⇄ contrato', () => {
