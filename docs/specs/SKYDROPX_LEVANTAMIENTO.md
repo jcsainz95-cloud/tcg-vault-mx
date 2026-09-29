@@ -487,3 +487,48 @@ tarifa en vivo en el checkout.
 | T1, T2, T6 | Seguro por valor, clave SAT, seguro automático vía API | Dueño / sandbox | F3 |
 | — | Colección OpenAPI oficial (webhooks, recolección, forma de las tarifas) | Dueño (URL) | F5, R8 |
 | — | Si «preparado» se construye antes o junto con «Generar guía» | PO / arquitecto | F3 |
+
+---
+
+## 12. Cómo le llegan al cliente los datos de su guía (añadido 2026-09-29)
+
+> Medido por el orquestador sobre `1248e55`, que ya incluye production `a2da420`.
+
+### 12.1 Hoy
+
+| Momento | Canal | Qué lleva | Evidencia |
+|---|---|---|---|
+| El operador captura la guía | **Correo «Tu guía de envío»**, **una sola vez**. El sello `trackingNoticeSentAt` se reinicia solo si cambian la paquetería o el número | Paquetería y número de guía en texto copiable, la nota «la paquetería puede tardar unas horas en mostrar movimiento» y el botón **VER MI ENVÍO** | `shipment-notice.templates.ts:95-135`; `shipments.service.ts:1342` |
+| `enviado` | Correo «Tu paquete va en camino» | Repite paquetería y guía, y el mismo botón | `:143-175` |
+| `cancelado` | Correo «Tu envío quedó cancelado» | — | `:187-215` |
+| `entregado` | **Ninguno**, por decisión (criterio 210) | — | `shipments.service.ts:1539` |
+| Consulta del invitado | Página `/pedido?token=…` (el enlace vale 90 días) | Paquetería y guía **copiables**. «**Sin URL de rastreo inventada**»: no hay enlace a la paquetería | `pedido/PublicOrderTracking.tsx:127-139` |
+| Consulta de un retiro | `/shipments/[id]` y la lista de retiros en `/vault` | Paquetería y guía | `ShipmentDetailView.tsx:123-125`; `WithdrawalsList.tsx` |
+
+**A quién se manda** (`shipments.service.ts:1366-1383`, §R.5):
+- **retiro** → `User.email`;
+- **pedido** → `guestEmail` y, si no hay, el correo de la cuenta. Gana `guestEmail` aunque el pedido se haya reclamado.
+- Nunca se usa el correo del `addressSnapshot`, y nunca se escribe a una cuenta anonimizada.
+
+**Defectos que ya existen (no son de Skydropx):**
+- **E1:** el botón **VER MI ENVÍO** lleva a una ruta que no existe (H7). Al invitado se le manda a
+  `cuenta/pedidos`, aunque no tiene cuenta. **Su enlace correcto es el de `/pedido?token=…`.**
+- **E2:** **`/orders` no muestra la guía.** `grep trackingNumber` en `(storefront)/orders` = 0 resultados. Un
+  pedido de invitado que se reclama con cuenta solo se rastrea por el correo o por el enlace con token.
+- **E3:** **no hay otros canales:** ni WhatsApp ni SMS (`grep` de whatsapp/sms/twilio en `backend/src` = 0).
+
+### 12.2 Con Skydropx (propuesta para el PO)
+
+1. **El correo de guía sale solo al comprarla** en F3, con el mismo correo y el mismo sello de una sola vez.
+   Cambia el origen del dato, no el correo.
+2. **Enlace de rastreo real.** La regla «sin URL inventada» se puede levantar si Skydropx da una **página de
+   rastreo por guía**. **NO MEDIDO**: si la API la da. Si no la da, se usa la URL pública de cada paquetería, con
+   una lista fija en ajustes. Es decisión del PO.
+3. **Línea de tiempo en `/pedido` y `/shipments/[id]`** con los eventos de Skydropx: recolectado, en tránsito,
+   en reparto, intento fallido, entregado.
+4. **Correos nuevos que el dueño tiene que aprobar**, porque hoy la regla es mínima:
+   - «intento de entrega fallido»: el cliente tiene que actuar;
+   - «tu paquete regresa»;
+   - «entregado» (pregunta 14, X2).
+5. **Antes de lanzar:** arreglar E1. Con más correos automáticos, más clientes llegarían a una página que no existe.
+6. **Aparte:** E2 (mostrar la guía en `/orders`).
