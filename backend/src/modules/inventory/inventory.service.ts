@@ -643,7 +643,7 @@ export class InventoryService {
    */
   private async resolveCreation(
     dtoIn: CreateItemDto | BatchInventoryItemInput,
-    actorUserId?: string,
+    _actorUserId?: string,
   ): Promise<{
     card: Card;
     finish: Finish;

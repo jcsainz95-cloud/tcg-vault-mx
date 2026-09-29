@@ -9,7 +9,7 @@ import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { FxService } from '../pricing/fx.service';
 import { TcgcsvSealedBulkProvider } from '../pricing/providers/tcgcsv-sealed.provider';
 import { TcgcsvGroupRef, sealedMarketGradeKey } from '../pricing/pricing.types';
-import { normalizeSetName, setNameCandidates } from '../pricing/ppt-set-mapper.service';
+import { setNameCandidates } from '../pricing/ppt-set-mapper.service';
 import { matchTcgcsvGroupByName } from '../pricing/providers/tcgcsv-group-match';
 import { releaseYear } from '../pricing/ppt-sync-scope';
 import { SetRefDTO } from './master-set.service';
