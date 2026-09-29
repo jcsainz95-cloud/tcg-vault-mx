@@ -24274,15 +24274,18 @@ Ninguna de esas carpetas existe en `frontend/src/app/[locale]/` ⇒ el botón de
 | Pieza | `move` admite | Destino | `mark` admite |
 |---|---|---|---|
 | plataforma | `in_stock · listed · reserved · picking` | solo `platform_stock` | `in_stock · listed` (= ajuste del binder) |
-| cliente | `in_custody` + `settled`, **fuera** de retiro `picking/guia/enviado` | solo un cajón que **ya es suyo** (`customerDrawersOf`) | igual que `move` (§0: «`mark` + reposición para custodia») |
+| cliente | `in_custody` + `settled`, **fuera** de retiro `picking/guia/enviado` | solo un cajón que **ya es suyo** (`customerDrawersOf`) | ~~igual que `move` (§0: «`mark` + reposición para custodia»)~~ ⛔ **retirado el 2026-09-29 (D-SHIP-5, sección siguiente): ninguna pieza de cliente** |
 | terminal / otro | ⛔ | — | ⛔ |
 
 **Errores (todos existentes en el catálogo):**
 - estado no admitido ⇒ `422 ITEM_NOT_ADJUSTABLE` `details:{ status, ownerType }`;
-- pieza de cliente en retiro cobrado ⇒ `409 ITEM_IN_ANOTHER_SHIPMENT`;
+- pieza de cliente en retiro cobrado ⇒ `409 ITEM_IN_ANOTHER_SHIPMENT` (desde D-SHIP-5, **solo `move`**: `mark` ya no
+  llega a mirar el retiro porque rechaza toda pieza de cliente antes);
 - destino ⇒ `422 LOCATION_NOT_AVAILABLE` `details.reason`: `not_found` · `inactive` · `not_customer_custody` ·
-  `not_customer_drawer` (+ `customerDrawers`, misma forma que el `confirm`) · ⚠️ **`not_platform_stock` (NUEVO
-  `reason`, pendiente de que el arquitecto lo escriba en el contrato)**. Antes, un destino inexistente daba `500` (FK);
+  `not_customer_drawer` (+ `customerDrawers`, misma forma que el `confirm`) · `not_platform_stock` (`reason` nuevo:
+  **escrito en el contrato por el arquitecto en v1.79.6 §M1, `dde785b`**, junto con el campo `location`, el `201` y la
+  decisión de que `toLocationId` sigue `@IsString()` — un id malformado es `422 not_found`, no `400`). Antes, un destino
+  inexistente daba `500` (FK);
 - la pieza cambió entre la lectura y la escritura ⇒ `409 CONFLICT` (update condicionado a estado+dueño leídos).
 
 **Decisión leyendo el contrato:** la pieza de cliente **no** puede ir a un cajón vacío/ajeno: §M4-VAULT.4 regla 4 dice
@@ -24304,3 +24307,76 @@ propio, `mark` admitiendo `picking`, update sin condición de estado, sin puerta
 cliente `pending` admitido, movimiento fuera de la transacción, `P2025` sin mapear, y la de custodia de
 `inventory.pending-publish.spec.ts` (el intento de publicar no tumba el `move`), cuyo fixture pasó a un cajón del
 mismo cliente.
+
+## M1 · D-SHIP-5 y D-SHIP-6: `mark` solo plataforma; el `status` del `PATCH` gana la misma guarda (2026-09-29, rama `claude/arreglos-operador`, sobre `4ca6c45` + contrato `dde785b` v1.79.6)
+
+> **Fuente normativa:** diseño §M4-SHIP v1.80.3, **§M4-SHIP.17.1 (SEC-SHIP-A1)** puntos (1) y (2) —leído en el worktree
+> `claude/envio-preparar` (`/home/user/tcg-envio/docs/API_CONTRACT.md`, solo lectura)— que el orquestador etiquetó
+> **D-SHIP-5** y **D-SHIP-6**. Cita textual de (1): *«`mark` — solo plataforma `in_stock | listed`, guarda en el `WHERE`
+> del CAS; todo lo demás ⇒ `422 ITEM_NOT_ADJUSTABLE {status, ownerType}`. ⚠️ Divergencia deliberada con
+> `claude/arreglos-operador`: esa rama dejó `mark` permitido sobre una pieza de cliente `in_custody` fuera de un retiro
+> […] marcar `lost` la carta de un cliente fuera de un caso es exactamente el vector (3) — la pieza deja de ser retirable
+> y ningún lector de deuda (`ReplacementCase`) la ve. ⇒ Backend: en `assertOperable(item, 'mark')` la rama `customer`
+> lanza `ITEM_NOT_ADJUSTABLE` (y sobra `assertNotInActiveWithdrawal` en `markItem`)»*. Cita de (2): *«`PATCH …
+> {status:'in_stock'}` — solo plataforma `in_stock | listed`: lectura → guarda (`422 ITEM_NOT_ADJUSTABLE`) → escritura
+> condicionada `updateMany({ where: { id, ownerType:'platform', status: <leído> }, data })` (`count 0` ⇒ `409 CONFLICT`);
+> los demás campos del mismo `PATCH` en la misma transacción (todo o nada). `status:'listed'` sigue por el pipeline de
+> v1.51 (ya guardado). ⛔ Sin `InventoryMovement` para `listed ↔ in_stock`»*. Invariante **INV-SP-7**: `lost | damaged`
+> no vuelve a `in_stock | listed` por ningún verbo del operador.
+
+**Qué cambió (un cuerpo, `modules/inventory/item-location.rules.ts`; el servicio solo lo aplica):**
+
+| Verbo | Admite | Si no |
+|---|---|---|
+| `mark` | **solo plataforma `in_stock · listed`** | `422 ITEM_NOT_ADJUSTABLE {status, ownerType}` — **incluida toda pieza de cliente**, en retiro o no |
+| `PATCH {status:'in_stock'}` (verbo `status` de las reglas) | **solo plataforma `in_stock · listed`**; `listed → in_stock` despublica; `in_stock → in_stock` **no escribe `status`** | `422 ITEM_NOT_ADJUSTABLE {status, ownerType}`; pieza cambiada entre lectura y escritura ⇒ `409 CONFLICT` |
+| `PATCH {status:'listed'}` | sin cambio: pipeline v1.51 (`assertPublishableGuards` + `claimListed`) | `422 ITEM_NOT_PUBLISHABLE` / `PRICE_PENDING` (sin cambio) |
+| `PATCH` sin `status` | sin cambio: edición de campos con `update` plano | — |
+| `move` | **sin cambio** (§M4-SHIP.17.1 (3)) | — |
+
+- `assertOperable(item, verb)` gana el verbo `'status'` y **overloads**: `'mark' | 'status'` devuelven siempre
+  `'platform'`; la rama de cliente (`isCustomerCustody`) solo existe para `'move'`. `MARKABLE_PLATFORM_STATUSES` es el
+  allowlist de los dos.
+- `markItem`: se quitó `if (kind === 'customer') await this.assertNotInActiveWithdrawal(tx, id)`. **Consecuencia:**
+  `409 ITEM_IN_ANOTHER_SHIPMENT` ya solo lo emite `move` (una pieza de cliente en `mark` cae en `422` antes de mirar
+  retiros; sin lectura de `ShipmentItem` ni puerta del cliente — medido por el spec con `not.toHaveBeenCalled`).
+- `updateItem` (camino no publicante **con** `status`): `$transaction` (`VAULT_VERB_TX_OPTIONS`) → `readGuardedItem` →
+  `assertOperable(item,'status')` → `guardedItemUpdate` (el **mismo** `update` condicionado a `{id, status, ownerType,
+  ownerUserId}` leídos que usan `move`/`mark`; `P2025` ⇒ `409 CONFLICT`). Los demás campos del `PATCH` van en **esa**
+  escritura: si la guarda rechaza, tampoco se escriben (medido contra Postgres: `certNumber` queda `null`). El contrato
+  pide `updateMany` con `ownerType:'platform'`; `update` con filtro no único es la misma condición (y ya está probado
+  contra el motor por `move`/`mark`); no se duplicó la escritura.
+- ⛔ **Sin `InventoryMovement`** para `listed ↔ in_stock` (visibilidad de catálogo, no hecho físico; ARCHITECTURE
+  §4.57 (o) del diseño v1.80.3).
+- **No construido aquí (fuera del encargo, para el stream de envíos que construya §M1 v1.80.3):** la bitácora
+  `inventory.item_updated` con `before`/`after` (el controller sigue escribiendo `inventory.update` sin diff).
+
+**Discrepancias para el arquitecto (este árbol):** el contrato de esta rama (`dde785b`, v1.79.6 §M1, tabla 1 fila
+`customer`/`mark` y tabla 2 paso 3 de `mark`) todavía dice que `mark` admite la custodia liquidada fuera de retiro y
+que en retiro cobrado da `409`. Ese texto **documentaba lo construido en `6e3b1b7`** y queda superado por D-SHIP-5
+(v1.80.3 lo corrige en el otro worktree): hay que alinear §M1 aquí (`mark` ⇒ solo plataforma; `409` solo en `move`) y
+añadir la fila del `PATCH status:'in_stock'` (D-SHIP-6). El código sigue al diseño v1.80.3 por orden del orquestador
+(regla de conflicto: PROJECT/diseño aprobado por seguridad manda sobre la errata que solo transcribía el código).
+
+**Pruebas (rojo antes → verde después, mismo árbol, N=1 cada corrida, deterministas):**
+- `test/inventory.move-mark-guards.spec.ts`: 2 casos cambian de signo + 1 nuevo (D-SHIP-5) — **3/3 rojas** contra
+  `4ca6c45`, 42/42 verdes después.
+- `test/inventory.patch-status-guard.spec.ts` (nuevo, 21): **18/21 rojas** contra `4ca6c45` (las 3 verdes son «lo que
+  no cambia»: sin `status`, `listed` por el pipeline, y el `404`), 21/21 después.
+- `test/integration/inventory-move-mark-guards.e2e-spec.ts`: el caso de `mark` cliente en retiro pasa de `409` a
+  `422`, +1 caso `mark` cliente fuera de retiro, +1 `describe` del `PATCH` (8 casos, incl. que un rechazo no escribe
+  `certNumber`). Contra Postgres 16 propio (`/var/lib/postgresql/be-hotfix-guards`, 55434, `migrate deploy` limpio):
+  **17/17**; con `vault-placement-verbs.e2e-spec.ts` (usa `move`): 49/49.
+- `jest test/inventory`: 29 suites, **421/421** (base 399 + 22). Suite unitaria completa: **355/355 suites,
+  5905/5905** (base 354/5883). eslint sobre
+  los 4 ficheros tocados: 0 errores (1 aviso previo en `inventory.service.ts:655`, `actorUserId` sin usar, ya en HEAD).
+  ⚠️ `tsc --noEmit` **NO MEDIDO** en esta corrida: el clasificador de permisos del entorno lo bloqueó dos veces; los
+  ficheros tocados compilan bajo `ts-jest` (diagnósticos activos) en las suites de arriba.
+- **Mutaciones** (copia del árbol en scratchpad propio sin `frontend/`, restaurada y verificada `diff -q` al final; N=1,
+  deterministas): **3/3 muertas** — (M1) rama `customer` de vuelta en `assertOperable` para `mark` ⇒ 3 rojas; (M2) sin
+  `assertOperable(item,'status')` en `updateItem` ⇒ 14/21 rojas unitarias **y 6 rojas del e2e contra Postgres**; (M3)
+  escritura del `PATCH` sin condición (`update({ where: { id } })`) ⇒ 3 rojas (CAS, `in_stock → in_stock` y TOCTOU).
+
+**Para frontend:** «Marcar perdida/dañada» **no** se ofrece sobre piezas de cliente (ningún estado) ni sobre
+plataforma fuera de `in_stock|listed`; el `PATCH` a `in_stock` desde la pantalla debe esperar `422 ITEM_NOT_ADJUSTABLE`
+y `409 CONFLICT` además de los errores de v1.51.
