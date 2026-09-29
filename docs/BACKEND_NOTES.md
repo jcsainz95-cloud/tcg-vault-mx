@@ -26172,3 +26172,65 @@ ramas de `onChargeRefunded`) ⇒ `settle-late` **15/15 en 3/3** corridas (N=3); 
 arquitecto:** (1) ¿el webhook transiciona `pending → refunded`? (2) ¿y `failed → refunded`? (un `failed` es liquidable,
 así que el mismo `succeeded` tardío lo liquidaría); (3) sobre una `pending`, ¿`onFullRefund` debe sellar
 `fullRefundClosedAt` y poner `chargebackNeedsManual` (hoy lo hace; no hay colocación ni custodia que deshacer)?
+
+## 12 · v1.80.8.3 construida — `charge.refunded` total desde `pending|failed|settled`, `failAndRelease` con CAS, SL-8…SL-11 (2026-09-29)
+
+Errata del arquitecto `a77c7181` (`API_CONTRACT` §M4-SHIP.18.2 y §M4-VAULT.2-bis.2, bloques «v1.80.8.3»). Cierra el §11.
+Medido sobre BDs propias (`tcg_sl_fix`, `tcg_sl_fix2`, `tcg_sl_base`, borradas) en el Postgres compartido que dejó
+frontend arriba (⛔ no lo levanté ni lo apagué). Logs: `scratchpad/backend-settle-late/logs/`.
+
+**Código:**
+- `settleable-order-statuses.ts`: `CHARGE_REFUNDED_SOURCE_STATUSES = ['pending','failed','settled']` (literal, como el
+  contrato; la relación `= SETTLEABLE ∪ {settled}` la asevera SL-11).
+- `payments.service.ts`: `onChargeRefunded`, las dos ramas con esa lista — legada `:713-717` (AV-3 **solo** si
+  `count 1`; antes lo mandaba siempre) y con `fullRefund` `:728-740`; variante `vault` de AV-3 ⇔ `vault` ∧
+  `orderStatusUnderLock === 'settled'` (en la legada, sin candado, se usa el `status` leído). `failAndRelease` `:628`:
+  `updateMany where {id, status:'pending'}` y ⛔ libera piezas solo con `count 1`.
+- `full-refund.service.ts`: el `FOR UPDATE` de `Order` lee `status` en las dos ramas (`:201`, `:274`) ⇒
+  `FullRefundPassResult.orderStatusUnderLock` (`null` en retiro); vault 1.ª pasada `needsManual = items>0 ∧ status ∉
+  SETTLEABLE` (`:374`); `order.full_refund_closed` gana `after.statusAtClose` (`:398`).
+- **Escritores de `Order.status` (`rg "order\.(update|updateMany)\(" src`, confirmando la tabla del arquitecto):** los de
+  su tabla están, más **uno que no nombraba**: `OrdersService.releaseReservation` (`orders.service.ts:896`, `update` por
+  `id` a `failed`). Sus dos llamadores son la compensación de `attachPaymentIntent` (el PI **no** se creó ⇒ no hay cargo
+  que reembolsar) y el barrido legado de invitado **tras** `closePaymentIntent` (`guest-checkout.service.ts:480-495`) — la
+  misma clase que la fila «barrido de reservas» de su tabla (no alcanzable con cargo reembolsado; ⛔ NO MEDIDO con Stripe
+  real). Sin cambio; lo anoto para que la tabla quede completa.
+
+**Pruebas:**
+- Unitarias: `payments.service.spec.ts` M2/A1 (`where` con la lista) y B5 (`updateMany` `status:'pending'`) + caso nuevo
+  «CAS cuenta 0 ⇒ cero piezas liberadas»; `payments.settle-late.spec.ts:172` **SL-11** (tabla por `OrderStatus` + relación).
+- Integración (`settle-late.e2e-spec.ts`): **SL-8** `:450` (vault 2 piezas y directo invitado + un control `settled`
+  que conserva variante `vault` y `needsManual`), **SL-9** `:498` (directo; vault re-compra con O2 `settled` intacta
+  por `xmin`), **SL-10** `:536-680` (`failAndRelease` vs reembolso, ambas ramas; y `succeeded` vs reembolso sobre
+  `pending` en los dos órdenes de llegada, con reentrega del mismo `event.id` si no fue 2xx).
+- **Diferencia con el texto de SL-8, declarada:** «bitácora `order.full_refund_closed` con `statusAtClose`» se asevera
+  solo en la rama `vault`: la rama directo nunca escribió esa bitácora (solo `shipment.closed_by_full_refund` por envío
+  cerrado, y una `pending` no tiene envío). No añadí bitácora nueva al directo.
+
+**Cifras:**
+
+| Qué | Resultado |
+|---|---|
+| `settle-late` completa | **24/24 en 3/3 corridas** (N=3; era 13/15) |
+| SL-4 (sin cambio) | 10/10 válidas y verdes por rama, en las 3 |
+| SL-10 `failAndRelease` vs reembolso | vault **10/10**, directo **10/10** válidas y verdes, en las 3 |
+| SL-10 `succeeded` vs reembolso | primero el reembolso: 10/10 verdes, 0 con 5xx; primero el pago: 10/10 verdes, **10/10 con `503` del reembolso y reentrega** (acaba `settled → refunded` con las cartas reclamadas `refund_return`), en las 3 |
+| Mutación SL-8 (a) — `WHERE status:'settled'` (el código de `5321b8c6`) | rojas SL-8 ×2, SL-9 ×2 y SL-10 «primero el reembolso» **0/10** |
+| Mutación SL-8 (b) — `needsManual` sin mirar el estado | rojas SL-8 vault y SL-9 re-compra |
+| Mutación SL-9 — quitar `'failed'` de la lista | rojas SL-9 directo y re-compra |
+| Mutación SL-10 — `failAndRelease` vuelve a `update` por `id` | SL-10 fallo vault **0/10** y directo **0/10** (10/10 válidas) |
+| Mutación SL-11 (a) — `'chargeback'` en la lista | 2 rojas (tabla y relación) |
+| Mutación SL-11 (b) — `'chargeback'` en `SETTLEABLE` sin tocar la lista | la relación roja (y 15 más de SL-5/SL-6) |
+| `tsc --noEmit` | 0 errores |
+| Unitaria completa | **380/380 suites · 6396/6396** |
+| Integración completa (66 suites, load 6.83 al arrancar — acababa la unitaria — y 3.11 al terminar) | **65/66 · 1431/1432**: la roja, `shipments-prep` PS-50 (abajo) |
+
+Cada mutación: una corrida (las secuenciales son deterministas; las de carrera llevan su N=10 dentro), sobre copia del
+árbol entero, restaurada y borrada.
+
+**`shipments-prep` intermitente — ⛔ no atribuible a este cambio (medido):** sobre la BD usada `tcg_sl_fix`, mi árbol
+**4/5** en solitario (PS-51 rojo 1 vez) + PS-50 rojo en la integración completa; el árbol de **`a77c7181` (sin este
+cambio) sobre la misma BD: 4/5** (PS-43 rojo 1 vez). Sobre BD recién migrada: mi árbol **5/5**, `a77c7181` **5/5**. Las
+rojas son de preparación/libro de un directo (`prepare` sin fila `item_missing`; `PREPARATION_INCOMPLETE` en vez de
+`PREPARATION_HAS_BLOCKED_LINES`), caminos que este cambio no toca. Causa **NO MEDIDA**; misma clase que §10.2 (estado de
+BD compartida) o carrera propia de la suite. **Pendiente abierto** (backend): medirla N≥10 en BD usada vs limpia.
