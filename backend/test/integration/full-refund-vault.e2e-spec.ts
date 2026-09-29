@@ -230,17 +230,20 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     // Mutación: (a) no-op total del sello ⇒ PS-63 roja; (b) `WHERE status='settled'` estricto ⇒ la inversa da 409; (c) sin leer el sello bajo candado ⇒ dos AV-3 en ≥1 tirada.
   });
 
-  it('PS-57c 🔴💰 — un solo orden de candados entre la confirmación de M3 (`retry`) y el taller (`prepared` de un retiro con una carta de la orden), barrera en la fila del retiro (N≥10): cero 40P01/503/500; `prepared` 409 y la pieza `returned`, o `prepared` 200 y `in_packed_withdrawal`; `retry` 200, fila `succeeded`, orden `refunded`, sello, un AV-3', async () => {
+  it('PS-57c 🔴💰 — un solo orden de candados entre la confirmación de M3 (`retry`) y el taller (`prepared` de un retiro con una carta de la orden), barrera en la fila del retiro (N≥10): cero 40P01/503/500; `prepared` 409 WITHDRAWAL_LINE_ORIGIN_REFUNDED y la pieza `returned`; `retry` 200, fila `succeeded`, orden `refunded`, sello, un AV-3', async () => {
     // v1.80.7 punto 17 (techlead): `applyStripeOutcome` hacía `Order → refunded` ANTES de `onFullRefund` (que toma
     // envíos → piezas → `Order`): sostenía `Order` mientras pedía el retiro; `prepared` (envío → piezas → `Order`)
     // sostenía el retiro mientras pedía `Order` ⇒ `40P01`. Ahora la confirmación sigue el orden del webhook.
     // Mutación: volver a `Order → refunded` antes de `onFullRefund` ⇒ `deadlocks` sube y un 503 en ≥1 tirada.
+    // v1.80.7.2 (QA: la rama «prepared 200 + in_packed» salió 0/20): con ESTE fixture es INALCANZABLE — la fila
+    // `order_full` `requested` (tx1 de M3) existe ANTES de la carrera, y `prepared` la mira bajo candado
+    // (`shipment-prep.service.ts` · `WITHDRAWAL_LINE_ORIGIN_REFUNDED`) ⇒ 409 siempre. Se asevera la única rama
+    // alcanzable; «preparado ANTES de la fila ⇒ la confirmación deja la carta intacta» lo cubre PS-63.
     const deadlocks = async () => Number((await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(`SELECT deadlocks AS n FROM pg_stat_database WHERE datname = current_database()`))[0].n);
     const before = await deadlocks();
     const outcomes: string[] = [];
     let inter = 0;
     let prepared409 = 0;
-    let prepared200 = 0;
     for (let i = 0; i < N; i += 1) {
       bandeja = [];
       const t = await placedVault(`PS57c ${i}`);
@@ -262,19 +265,16 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
       const ws = await db.shipment(w.shipment.id);
       const no5xx = res.a.status < 500 && res.b.status < 500;
       const returned = piece.ownerType === 'platform' && piece.status === 'picking' && (await moves([piece.id], 'refund_return')).length === 1;
-      const packed = piece.ownerType === 'customer' && piece.status === 'in_custody' && ws.preparedAt !== null && order.chargebackNeedsManual === true;
-      const branchA = res.a.status === 409 && returned;
-      const branchB = res.a.status === 200 && packed;
+      const branchA = res.a.status === 409 && res.a.body?.error?.code === 'WITHDRAWAL_LINE_ORIGIN_REFUNDED' && returned && ws.preparedAt === null;
       if (branchA) prepared409 += 1;
-      if (branchB) prepared200 += 1;
-      const ok = no5xx && res.b.status === 200 && row.status === 'succeeded' && order.status === 'refunded' && order.fullRefundClosedAt !== null && av3().length === 1 && (branchA || branchB);
+      const ok = no5xx && res.b.status === 200 && row.status === 'succeeded' && order.status === 'refunded' && order.fullRefundClosedAt !== null && av3().length === 1 && branchA;
       outcomes.push(`${code(res.a)},${code(res.b)},piece=${piece.status}/${piece.ownerType},order=${order.status},row=${row.status},av3=${av3().length}${ok ? '' : ',VIOLATION'}`);
     }
     h.stripe.refundOutcome = 'ok';
     await new Promise((r) => setTimeout(r, 1500));
     const delta = (await deadlocks()) - before;
     // eslint-disable-next-line no-console
-    console.log(`[PS-RACE PS-57c] deadlocks Δ=${delta} · prepared 409+returned ${prepared409}/${N} · prepared 200+in_packed ${prepared200}/${N}`);
+    console.log(`[PS-RACE PS-57c] deadlocks Δ=${delta} · prepared 409+returned ${prepared409}/${N}`);
     expect(report('PS-57c', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
     expect(inter).toBe(N);
     expect(delta).toBe(0);
