@@ -18384,3 +18384,11 @@ token en `logout` ⇒ 2 rojas; en `clearClientSession` ⇒ 4 rojas; no mandarlo 
 3 igual — y por eso existe `password-attempts.test.ts`.)
 
 **E2E:** no se añadió ninguna Playwright; el censo `scripts/check-e2e-skip-census.sh` no se toca.
+
+## SEC-HDR-1 — cabeceras anti-clickjacking (2026-09-29, sobre f602dca)
+
+- **Medido antes:** `next.config.mjs` sin `headers()`, `src/middleware.ts` solo next-intl, `vercel.json` (raíz) solo `ignoreCommand`. La sesión vive en localStorage ⇒ el admin se cargaba autenticado en un iframe hostil.
+- **Cambio:** `headers()` en `frontend/next.config.mjs`, `source: '/:path*'`: `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'` (SOLO esa directiva; la CSP completa es SEC-HDR-2), `Referrer-Policy: strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`.
+- **Prueba:** `src/lib/security-headers.test.ts` (4 pruebas; rojas por ausencia antes, verdes después). Verificado además con `next build && next start` + `curl -I` en `/`, `/es`, `/es/admin` y un 404.
+- **Iframes propios:** `grep -rn "<iframe" frontend/src` = 0 resultados; nada nuestro embebe páginas nuestras ni terceros. `frame-ancestors` restringe quién nos embebe, no a quién embebemos.
+- **Para devops:** `security/zap/baseline.conf:88` lista `10020 WARN`; según seguridad debe pasar a FAIL en el mismo cambio. No lo toqué (es de devops). 10021 (nosniff, línea 89) también queda resuelto para la vitrina.
