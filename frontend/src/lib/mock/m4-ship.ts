@@ -58,6 +58,7 @@ import { withdrawabilityOf } from './holding-withdrawable';
 import {
   caseRefundComponents,
   caseRefundContextOf,
+  itemMissingAmountCents,
   itemMissingRefundComponents,
   manualRefundComponentsOf,
   subtractRefundComponents,
@@ -189,7 +190,7 @@ let origins: Record<string, MockOriginOrder> = clone(ORIGIN_ORDERS);
 
 /** `item_missing`: `P + floor(F × P / G)` sobre columnas persistidas (§M4-SHIP.4) — el espejo `refund-math`, un cuerpo. */
 function itemMissingCents(o: MockOriginOrder, unitPriceCents: number): number {
-  return itemMissingRefundComponents(o, unitPriceCents).amountCents;
+  return itemMissingAmountCents(o, unitPriceCents);
 }
 /** Σ Stripe no fallidas sobre la orden. */
 function refundedOnOrder(orderId: string): number {

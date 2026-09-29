@@ -2,16 +2,23 @@
  * Vectores DORADOS compartidos con `backend/src/common/refund-math.spec.ts` (§M4-SHIP.4 / .15.5): el espejo del
  * mock tiene que dar exactamente lo que da el servidor. Si el backend cambia la fórmula, cambia su spec, y esta
  * copia de los vectores se pone roja: ésa es la señal de que el espejo hay que realinearlo.
+ *
+ * ⛔ El espejo NO calcula IVA (§M10-IVA.3): el IVA de la mercancía sale de `GOLDEN_MERCHANDISE_IVA_CENTS`. Lo que
+ * era `orderRemainingRefundComponents` (cierre «faltan todas», PS-3) ya no vive en el front: el mock no lo usaba y
+ * su única operación era restar IVA; lo sigue midiendo `backend/src/common/refund-math.spec.ts`.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  GOLDEN_MERCHANDISE_IVA_CENTS,
   caseRefundComponents,
   caseRefundContextOf,
+  itemMissingAmountCents,
   itemMissingRefundComponents,
   manualRefundComponentsOf,
-  orderRemainingRefundComponents,
+  merchandiseIvaCentsOf,
   subtractRefundComponents,
-  taxBaseCentsOf,
   type RefundOrderMoney,
 } from './refund-math';
 
@@ -20,7 +27,7 @@ const ORDER: RefundOrderMoney = {
   subtotalCents: 80000,
   shippingFeeCents: 15000,
   processingFeeCents: 4617,
-  ivaCents: 95000 - taxBaseCentsOf(95000, 16),
+  ivaCents: 13103, // 95000 − round(95000·100/116), del servidor; ⛔ no se recalcula aquí
   ivaRatePct: 16,
   totalCents: 99617,
   priceConvention: 'IVA_INCLUSIVE',
@@ -30,6 +37,7 @@ describe('PS-2 (espejo) — `item_missing`: P + floor(F × P / G)', () => {
   it('falta la de MX$300 ⇒ 31458 exacto, con sus componentes (IVA dentro de la mercancía, envío 0)', () => {
     const c = itemMissingRefundComponents(ORDER, 30000);
     expect(c.amountCents).toBe(31458);
+    expect(itemMissingAmountCents(ORDER, 30000)).toBe(31458);
     expect(c.merchandiseCents).toBe(30000);
     expect(c.processingFeeCents).toBe(1458);
     expect(c.shippingCents).toBe(0);
@@ -45,21 +53,38 @@ describe('PS-2 (espejo) — `item_missing`: P + floor(F × P / G)', () => {
     expect(a).toBe(2430);
     expect(b).toBe(1458);
     expect(a + b).toBeLessThanOrEqual(ORDER.processingFeeCents);
+    expect(itemMissingAmountCents(ORDER, 50000)).toBe(52430);
   });
 });
 
-describe('PS-3 (espejo) — «faltan todas»: Σ amountCents = 99617 y Σ IVA = ivaCents, ±0', () => {
-  it('52430 + 31458 + cierre 15729 = 99617; el envío absorbe el centavo del IVA', () => {
-    const r1 = itemMissingRefundComponents(ORDER, 50000);
-    const r2 = itemMissingRefundComponents(ORDER, 30000);
-    const close = orderRemainingRefundComponents(ORDER, [r1, r2]);
-    expect(r1.amountCents).toBe(52430);
-    expect(close.amountCents).toBe(15729);
-    expect(close.shippingCents).toBe(15000);
-    expect(close.processingFeeCents).toBe(729);
-    expect(r1.amountCents + r2.amountCents + close.amountCents).toBe(ORDER.totalCents);
-    const iva = [r1, r2, close].reduce((a, c) => a + c.merchandiseIvaCents + c.shippingIvaCents, 0);
-    expect(iva).toBe(ORDER.ivaCents);
+describe('§M10-IVA.3 — el IVA del espejo se LEE de la tabla dorada, nunca se deriva', () => {
+  it('los vectores que fija el servidor y las pruebas del mock están en la tabla, literales', () => {
+    const t = GOLDEN_MERCHANDISE_IVA_CENTS[16];
+    expect(t[30000]).toBe(4138); // backend/src/common/refund-math.spec.ts (PS-2)
+    expect(t[32000]).toBe(4414); // pr-8002 · ord-4103 (m4-ship-refund-components.test.ts)
+    expect(t[35000]).toBe(4828); // rc-9001 · ord-4102
+    expect(t[50000]).toBe(6897);
+  });
+
+  it('⭐ cada `unitPriceCents` sembrado en el servidor falso tiene su vector (si no, el mock respondería 501)', () => {
+    const src = readFileSync(join(process.cwd(), 'src/lib/mock/m4-ship.ts'), 'utf8');
+    const precios = [...src.matchAll(/unitPriceCents:\s*([\d_]+)/g)].map((m) => Number(m[1].replace(/_/g, '')));
+    expect(precios.length).toBeGreaterThan(5);
+    const faltan = precios.filter((p) => GOLDEN_MERCHANDISE_IVA_CENTS[16][p] === undefined);
+    expect(faltan).toEqual([]);
+  });
+
+  it('⛔ un importe sin vector NO se inventa: 501 `MOCK_GOLDEN_VECTOR_MISSING`; mercancía 0 ⇒ IVA 0', () => {
+    expect(() => merchandiseIvaCentsOf(12345, 16)).toThrow(/sin vector dorado/);
+    let caught: unknown = null;
+    try {
+      merchandiseIvaCentsOf(12345, 16);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toMatchObject({ status: 501, code: 'MOCK_GOLDEN_VECTOR_MISSING', details: { merchandiseCents: 12345, ivaRatePct: 16 } });
+    expect(() => merchandiseIvaCentsOf(30000, 8)).toThrow(/sin vector dorado/);
+    expect(merchandiseIvaCentsOf(0, 16)).toBe(0);
   });
 });
 
@@ -68,8 +93,9 @@ describe('PS-26/PS-27 (espejo) — `caseRefundComponents(X)`: monótona, y el re
 
   it('X ≤ Q: devolución de venta parcial (comisión proporcional, sin compensación)', () => {
     const c = caseRefundComponents(26215, ctx);
-    expect(c.processingFeeCents).toBe(Math.floor((26215 * 2430) / 52430));
-    expect(c.merchandiseCents).toBe(26215 - c.processingFeeCents);
+    expect(c.processingFeeCents).toBe(1215);
+    expect(c.merchandiseCents).toBe(25000);
+    expect(c.merchandiseIvaCents).toBe(3448);
     expect(c.compensationCents).toBe(0);
     expect(c.amountCents).toBe(c.merchandiseCents + c.processingFeeCents + c.compensationCents);
   });
@@ -82,10 +108,9 @@ describe('PS-26/PS-27 (espejo) — `caseRefundComponents(X)`: monótona, y el re
     expect(c.processingFeeCents).toBe(2430);
   });
 
-  it('para 200 montos: la fila SPEI (A − stripe) no tiene componentes negativos y suma la de A ±0', () => {
-    for (let a = 1; a <= 200; a += 1) {
-      const A = a * 613;
-      for (const max of [0, 1, 26215, 52430, 52431, 60000]) {
+  it('sobre los montos sembrados: la fila SPEI (A − stripe) no tiene componentes negativos y suma la de A ±0', () => {
+    for (const A of [52430, 60000, 62430, 100000]) {
+      for (const max of [0, 26215, 52430, 52431, 60000]) {
         const stripe = Math.min(A, max);
         const whole = caseRefundComponents(A, ctx);
         const card = caseRefundComponents(stripe, ctx);
@@ -98,15 +123,13 @@ describe('PS-26/PS-27 (espejo) — `caseRefundComponents(X)`: monótona, y el re
   });
 
   it('la fila SPEI con Stripe corto (stripe < Q) LLEVA IVA y comisión — lo que el mock daba a 0 (deuda (a))', () => {
-    // A = 60000 sobre Q = 52430 con solo 26215 disponibles en Stripe.
+    // A = 60000 sobre Q = 52430 con solo 26215 disponibles en Stripe: IVA(50000) − IVA(25000) = 6897 − 3448.
     const spei = manualRefundComponentsOf(subtractRefundComponents(caseRefundComponents(60000, ctx), caseRefundComponents(26215, ctx)));
     expect(spei).toEqual({
-      merchandiseCents: 50000 - (26215 - 1215),
-      merchandiseIvaCents: (50000 - taxBaseCentsOf(50000, 16)) - (25000 - taxBaseCentsOf(25000, 16)),
-      processingFeeCents: 2430 - 1215,
+      merchandiseCents: 25000,
+      merchandiseIvaCents: 3449,
+      processingFeeCents: 1215,
       compensationCents: 7570,
     });
-    expect(spei.merchandiseIvaCents).toBeGreaterThan(0);
-    expect(spei.processingFeeCents).toBeGreaterThan(0);
   });
 });

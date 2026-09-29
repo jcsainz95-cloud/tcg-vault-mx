@@ -18473,3 +18473,38 @@ la prueba de `VaultView` asevera que «Ya no está en tu bóveda» **no** aparec
 **Cierre medido:** `tsc --noEmit` limpio; `eslint` limpio en los 18 ficheros tocados; suites que consumen el mock
 `m4-ship` (`m4/`, `m3/`, `manual-refunds/`, `lib/mock/`, `vault/`, `shipments/`, `orders/`): **26 ficheros, 325/325**.
 Playwright `e2e/m4-ship.spec.ts` con mocks (build de producción privado, puerto `3117`, `--workers 2`): **12/12 pasadas**, 1.9 min, N=1.
+
+### §81.2 · El mock no calcula IVA — candado `§M10-IVA.3` rojo por `85923df` (2026-09-29, base `cfb43b3`)
+
+**El defecto (medido por el orquestador sobre copia del árbol entero de `cfb43b3`, vitest completo 1 roja de 2145;
+reproducido por mí en copia):** `src/test/frontend-never-multiplies.test.ts` > «sumar o restar el IVA a un importe»
+⇒ `['src/lib/mock/refund-math.ts']`. La línea era `shippingIvaCents: o.ivaCents - refundedIva` de
+`orderRemainingRefundComponents`, que el mock **ni siquiera usaba** (solo su prueba). En el pase de `85923df` corrí
+solo las suites tocadas, no la completa: por eso no la vi.
+
+**Opción elegida: (1), que el mock no calcule IVA.** Descarté la (2) —excluir `refund-math.ts` del candado— porque
+es exactamente la forma en que el propio candado dice que la regla se pierde, y porque la (1) cabía:
+- `lib/mock/refund-math.ts` ya no tiene `taxBaseCentsOf` ni `orderRemainingRefundComponents`. El IVA de la mercancía
+  se **lee** de `GOLDEN_MERCHANDISE_IVA_CENTS` (tabla `r → mercancía → IVA`, copiada de lo que produce
+  `backend/src/common/money.ts`; 30000→4138 es literal de `refund-math.spec.ts`, 32000→4414 y 35000→4828 de las
+  pruebas del mock sobre `ord-4103`/`ord-4102`). Un importe sin vector responde **`501 MOCK_GOLDEN_VECTOR_MISSING`**
+  en vez de inventar la cifra. Lo que queda en el espejo es reparto de centavos sin IVA (comisión `floor(F·P/G)`,
+  compensación `X − Q`) y la resta componente a componente de filas ya congeladas.
+- `itemMissingAmountCents` (solo el importe) para que `itemMissingCents` del mock no dependa de la tabla.
+- **Limitación aceptada del mock:** un reembolso de caso **parcial** (`X ≤ Q`, o un Stripe corto) con un monto que
+  no esté sembrado da 501 en modo mocks. Ninguna prueba ni E2E lo ejerce hoy (e2e usa MX$500 > Q; las unitarias 500
+  y 900 > Q). Si hace falta otro, se siembra su vector. El servidor real no tiene esta limitación.
+- `refund-math.test.ts`: nueva prueba de que **cada `unitPriceCents` sembrado en `m4-ship.ts`** tiene vector, y de
+  que un faltante da 501. PS-3 («faltan todas», 99617) se retiró del espejo: vive en el spec del backend. La
+  propiedad «×200 montos» pasa a los montos sembrados (4 × 5).
+
+**El candado se ENDURECIÓ, no se aflojó.** Al medir se vio que el patrón `1\s*\+\s*\w*[Ii]vaRate` exige el `1`
+pegado al `+` y **no veía `(100 + ivaRatePct)`** —la base gravable en porcentaje de `taxBaseCentsOf`—. Patrón nuevo
+`/\b100\s*\+\s*\w*[Ii]vaRate/` + su entrada en el canario (`* 100 / (100 + ivaRatePct)` inyectado en la ventana
+ciega de `StorefrontHeader.tsx`). Única ocurrencia fuera de tests/simuladores: el `refund-math.ts` viejo.
+**Mutación (copia de `frontend/` en scratchpad, estática ⇒ determinista):** con el `refund-math.ts` de `cfb43b3`
+el candado da **2 rojas** (`100 + r` y «restar el IVA»); quitándole solo `orderRemaining`, **1 roja** (`100 + r`).
+
+**Cierre medido:** `npx vitest run` completo **185/185 ficheros, 2149/2149** (2145 + 1 patrón + 1 canario + 2 netas
+en `refund-math.test.ts`); `tsc --noEmit` limpio; `npm run lint` limpio; Playwright `e2e/m4-ship.spec.ts` con mocks
+(build privado, puerto `3917`): **12/12**, N=1.
