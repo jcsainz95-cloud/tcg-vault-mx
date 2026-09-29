@@ -637,6 +637,23 @@ export const ErrorCode = {
   // mal y **no hay nada que pueda corregir** — si dispara, se arregla la BD, no la petición.
   AUDIT_WRITE_FAILED: 'AUDIT_WRITE_FAILED',
 
+  // ── COLOCACIÓN EN BÓVEDA (v1.79/v1.79.1/v1.79.3 · API_CONTRACT §0 y §M4-VAULT.5/.10) ──────────
+  // 422 — `POST /admin/vault-placements/:id/confirm`: el cajón no sirve. `details.reason`:
+  // `not_found | inactive | not_customer_custody | not_customer_drawer` (+ `customerDrawers`) |
+  // `location_required` (+ `pickedCount`, v1.79.3). Se valida ANTES de reclamar ⇒ no escribió nada.
+  LOCATION_NOT_AVAILABLE: 'LOCATION_NOT_AVAILABLE',
+  // 409 — la colocación ya no está `pending` (los cuatro verbos). `details`: `{status:'placed',
+  // location:{id,label,zone}}` | `{status:'cancelled', cancelReason}`. Un helper, ⛔ cuatro copias.
+  PLACEMENT_NOT_PENDING: 'PLACEMENT_NOT_PENDING',
+  // 409 — `confirm` sobre una colocación `pending` sin «preparado». `details: { preparation }`.
+  PLACEMENT_NOT_PREPARED: 'PLACEMENT_NOT_PREPARED',
+  // 409 — `PATCH …/prep-items/:id` con el pedido ya preparado. `details: { preparedAt }`.
+  PREPARATION_CLOSED: 'PREPARATION_CLOSED',
+  // 409 — `POST …/prepared` con ≥1 carta colocable sin marcar. `details: { pendingCount }`.
+  PREPARATION_INCOMPLETE: 'PREPARATION_INCOMPLETE',
+  // 409 — `PATCH …/prep-items/:id` a `picked|missing` sobre una carta bloqueada. `details: { reason }`.
+  PREP_ITEM_BLOCKED: 'PREP_ITEM_BLOCKED',
+
   // ── DECKS-META (Fase 1, API_CONTRACT §13 / DECKS_META_ARCH.md §7) ─────────────────────────────
   // 404 — `GET /decks-meta/:slug` con un slug que no corresponde a ningún deck publicado.
   DECK_NOT_FOUND: 'DECK_NOT_FOUND',

@@ -31,12 +31,29 @@ function buildPayments(opts: {
   const guestSent: string[] = [];
   const row: Record<string, unknown> = { ...(opts.order ?? {}) };
   const tx = {
-    order: { update: jest.fn().mockImplementation(async ({ data }) => Object.assign(row, data)) },
+    order: {
+      update: jest.fn().mockImplementation(async ({ data }) => Object.assign(row, data)),
+      // v1.79.4 (§M4-VAULT.2-bis.1): el CAS del settle — evalúa el `status: { not }` del WHERE sobre
+      // la fila como lo haría Postgres (0 filas si ya está `settled`).
+      updateMany: jest.fn().mockImplementation(async ({ where, data }) => {
+        if (where?.status?.not !== undefined && row.status === where.status.not) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      }),
+    },
     inventoryItem: {
       findUnique: jest.fn().mockResolvedValue(null),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     inventoryMovement: { create: jest.fn() },
+    // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
+    // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
+    vaultPlacement: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
   const prisma: any = {
     order: {

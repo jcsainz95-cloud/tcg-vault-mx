@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
 # check-e2e-skip-census.sh — censo de salvaguardas de salto en la suite E2E de
-# frontend (mockOnly / needsSeed / harnessLimit / skipIfSeedMissing) contra un
-# BASELINE commiteado; rojo si alguna categoría CRECE sin nota · devops
+# frontend (mockOnly / needsSeed / harnessLimit / skipIfSeedMissing / realOnly)
+# contra un BASELINE commiteado; rojo si alguna categoría CRECE sin nota · devops
 # =============================================================================
 # DE DÓNDE VIENE (techlead N7, 2026-09-11)
 # ---------------------------------------------------------------------------
-# Cada `mockOnly`/`needsSeed`/`harnessLimit`/`skipIfSeedMissing` es un test que
+# Cada `mockOnly`/`needsSeed`/`harnessLimit`/`skipIfSeedMissing`/`realOnly` es un test que
 # en algún entorno NO mide. Son legítimos uno a uno y letales en conjunto: la
 # suite «verde» va midiendo menos sin que nadie lo vea. Esto no juzga cada
 # salvaguarda (eso es de frontend/QA): solo impide que el número suba en
@@ -16,6 +16,29 @@
 # la contienen, en frontend/e2e/**/*.ts (utilidades incluidas: el método es
 # uno solo y reproducible; el techlead contó 71/18 con otro método el
 # 2026-09-11 — este script fija EL método).
+#
+# LA QUINTA CLAVE: `realOnly` (devops, 2026-09-22, M-QA4)
+# ---------------------------------------------------------------------------
+# `realOnly` es el INVERSO de los otros cuatro (`test.skip(!IS_REAL, …)` en
+# `frontend/e2e/utils/auth.ts:227`): no se salta en el pase real de QA, se salta
+# en la CORRIDA DE MOCKS. Y la corrida de mocks es la que gatea CADA PR; el pase
+# real corre por stream/release. O sea: su ventana ciega es la más frecuente de
+# las cinco, no la menos.
+#
+# Entra al censo por el criterio que el propio script declara arriba — «cada uno
+# es un test que en algún entorno NO mide» — y por una razón operativa medida:
+# mientras estuvo fuera, convertir un `mockOnly` en un `realOnly` BAJABA el censo
+# y subía lo no medido en CI. El instrumento hecho para contar lo que no mide
+# tenía una gaveta que no veía. Cada clave lleva su propia línea y su propio
+# techo, así que contarla NO la castiga ni la mezcla: solo impide que crezca en
+# silencio, igual que las otras cuatro. Subirla sigue costando lo mismo que
+# subir cualquiera: un `--update --motivo` en el mismo diff.
+#
+# ⚠️ Lo que este script NO dice: que `realOnly` sea malo. El techlead ya zanjó
+# (2026-09-22, `frontend/e2e/m4-preparation.spec.ts:35`) que es preferible a
+# dejar la receta en un comentario — una quinta gaveta que ningún runner
+# enumera. Contarla es justo lo contrario de desalentarla: es reconocerla como
+# gaveta de primera clase, con techo propio.
 #
 # Uso:
 #   ./scripts/check-e2e-skip-census.sh                       (gate)
@@ -27,7 +50,7 @@ set -uo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR" || exit 2
 DIR="frontend/e2e"; BASELINE="scripts/e2e-skip-census.baseline"; UPDATE=0; MOTIVO=""
-CLAVES="mockOnly needsSeed harnessLimit skipIfSeedMissing"
+CLAVES="mockOnly needsSeed harnessLimit skipIfSeedMissing realOnly"
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir) DIR="$2"; shift 2 ;; --baseline) BASELINE="$2"; shift 2 ;;

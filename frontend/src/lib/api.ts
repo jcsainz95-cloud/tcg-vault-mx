@@ -1,4 +1,5 @@
 import { config } from './config';
+import { sortPreparationOrders } from './preparation-order';
 import {
   apiRequest,
   requestBlob,
@@ -62,7 +63,16 @@ import type {
   RejectedSellItemDTO,
   AdminOrderDTO,
   AdminShipmentDTO,
-  PickingListEntryDTO,
+  PreparationOrderDTO,
+  PreparationItemStatus,
+  SetVaultPrepItemRequest,
+  SetVaultPrepItemResponse,
+  PrepareVaultPlacementResponse,
+  UnprepareVaultPlacementResponse,
+  ConfirmVaultPlacementRequest,
+  ConfirmVaultPlacementResponse,
+  CustomerPhysicalInventoryDTO,
+  PreparationDestination,
   RefundOrderResponse,
   RevealClabeResponse,
   BuylistItemDecisionInput,
@@ -1419,17 +1429,123 @@ export async function getAdminShipments(
 }
 
 /**
- * Lista de picking ordenada por ubicación (contrato §M4 · GET /admin/shipments/picking-list).
- * Solo envíos en `picking`; `?date=` opcional (día de solicitud).
+ * **«Pedidos a preparar»** — hoja de trabajo AGRUPADA por pedido (contrato **§M4-PREP** v1.78 ·
+ * `GET /admin/shipments/picking-list`). Solo envíos en `picking`.
+ *
+ * ⚠️ **La RUTA sigue diciendo `picking-list` a propósito** (decisión del arquitecto en §M4-PREP: se
+ * conserva la ruta y solo cambia el DTO, para no mover el guard ni el ruteo). El renombrado es de
+ * cara al operador. ⛔ No se acuña `…/preparation-queue`.
+ *
+ * `?destination=vault|ship` (CA #8, las dos cubetas): ausente ⇒ ambas. `?date=` se conserva.
+ * Envelope `{ data }`, sin paginar. Orden normativo: `requestedAt` **asc** (CA #9).
+ *
+ * ⭐ **§M4-VAULT (v1.79):** la cubeta `vault` ya no viene vacía — cada compra a bóveda pagada nace
+ * con su `VaultPlacement` pendiente, y la fila es la rama `destination:'vault'` de la unión
+ * (`VaultPreparationOrderDTO`, sin `shipmentId` ni dirección).
  */
-export async function getAdminPickingList(date?: string): Promise<PickingListEntryDTO[]> {
+export async function getAdminPreparationQueue(
+  filters: { destination?: PreparationDestination; date?: string } = {},
+): Promise<PreparationOrderDTO[]> {
   if (!config.useMocks) {
-    const res = await apiRequest<{ data: PickingListEntryDTO[] }>('/admin/shipments/picking-list', {
-      query: { date },
+    const res = await apiRequest<{ data: PreparationOrderDTO[] }>('/admin/shipments/picking-list', {
+      query: { date: filters.date, destination: filters.destination },
     });
     return res.data;
   }
-  return delay([...fx.mockPickingList]);
+  // El mock hace de SERVIDOR: filtra la cubeta y devuelve el orden normativo (asc por requestedAt).
+  // ⭐ Usa **el mismo comparador que la vista** (`lib/preparation-order`) en vez del suyo propio: el
+  // techlead midió que había TRES fuentes para un mismo orden (servidor, vista y este `sort` escrito
+  // a mano) y tres copias de una regla es la forma exacta de que dos se queden atrás sin que nadie
+  // lo note. ⛔ Un servidor falso que ordena «a su manera» no puede equivocarse igual que el real.
+  // MOCK §M4-VAULT: las dos fuentes (envíos + colocaciones pendientes), como el servidor.
+  const all: PreparationOrderDTO[] = [...fx.mockPreparationQueue, ...fx.mockVaultPreparationQueue()];
+  return delay(
+    sortPreparationOrders(all.filter((o) => !filters.destination || o.destination === filters.destination)),
+  );
+}
+
+// ---------- §M4-VAULT · «Para bóveda»: palomear, preparado, colocar (operador+) ----------
+
+/** `PATCH /admin/vault-placements/:placementId/prep-items/:placementItemId` (§M4-VAULT.10). */
+export async function setVaultPrepItem(
+  placementId: string,
+  placementItemId: string,
+  status: PreparationItemStatus,
+): Promise<SetVaultPrepItemResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SetVaultPrepItemResponse>(
+      `/admin/vault-placements/${placementId}/prep-items/${placementItemId}`,
+      { method: 'PATCH', body: { status } satisfies SetVaultPrepItemRequest },
+    );
+  }
+  try {
+    return await delay(fx.mockSetVaultPrepItem(placementId, placementItemId, status));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `POST /admin/vault-placements/:placementId/prepared` — dar por preparado (§M4-VAULT.10). */
+export async function prepareVaultPlacement(placementId: string): Promise<PrepareVaultPlacementResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PrepareVaultPlacementResponse>(`/admin/vault-placements/${placementId}/prepared`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+  try {
+    return await delay(fx.mockPrepareVaultPlacement(placementId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `DELETE /admin/vault-placements/:placementId/prepared` — deshacer «preparado» (v1.79.2). */
+export async function unprepareVaultPlacement(placementId: string): Promise<UnprepareVaultPlacementResponse> {
+  if (!config.useMocks) {
+    return apiRequest<UnprepareVaultPlacementResponse>(`/admin/vault-placements/${placementId}/prepared`, {
+      method: 'DELETE',
+    });
+  }
+  try {
+    return await delay(fx.mockUnprepareVaultPlacement(placementId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * `POST /admin/vault-placements/:placementId/confirm` — colocar (§M4-VAULT.5). v1.79.3 (H-4):
+ * `locationId` OPCIONAL; quien llama lo omite cuando ninguna carta de `items[]` está `picked`.
+ * ⛔ El cuerpo no lleva actor ni fecha.
+ */
+export async function confirmVaultPlacement(
+  placementId: string,
+  body: ConfirmVaultPlacementRequest,
+): Promise<ConfirmVaultPlacementResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ConfirmVaultPlacementResponse>(`/admin/vault-placements/${placementId}/confirm`, {
+      method: 'POST',
+      body,
+    });
+  }
+  try {
+    return await delay(fx.mockConfirmVaultPlacement(placementId, body, fx.mockLocations));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** `GET /admin/vaults/:userId/physical-inventory` — «Qué debe haber» (§M4-VAULT.11, lectura pura). */
+export async function getAdminVaultPhysicalInventory(userId: string): Promise<CustomerPhysicalInventoryDTO> {
+  if (!config.useMocks) {
+    return apiRequest<CustomerPhysicalInventoryDTO>(`/admin/vaults/${userId}/physical-inventory`);
+  }
+  try {
+    return await delay(fx.mockPhysicalInventory(userId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /**
@@ -1501,7 +1617,7 @@ export const SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
  * Cambio de estado MANUAL de un envío (contrato §M4 · PATCH /admin/shipments/:id/status,
  * `vault_operator+`). Body `{ to }`. El backend solo acepta una transición LEGAL de la tabla
  * TRANSITIONS (una ilegal → `409 CONFLICT`). Al éxito, M4 invalida `['admin-shipments']` y
- * `['admin-picking-list']`.
+ * `['admin-preparation-queue']`.
  */
 export async function updateAdminShipmentStatus(
   id: string,
@@ -3628,6 +3744,8 @@ export async function createLocation(input: CreateLocationInput): Promise<VaultL
     id: `loc-new-${fx.mockLocations.length + 1}`,
     ...input,
     label: `${input.box}-${input.row}-${input.slot}`,
+    isActive: true,
+    createdAt: new Date().toISOString(),
   };
   fx.mockLocations.push(created);
   return delay(created);

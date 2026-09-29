@@ -18,6 +18,7 @@ import { Banner } from '@/components/ui/Banner';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DecksMetaDialControl } from './DecksMetaDialControl';
+import { DeckCoverCell } from './DeckCoverCell';
 
 /**
  * §13 Fase 2 — pantalla de OPERADOR para el ENSAYO (dry-run) del auto-fetch de decks del meta.
@@ -328,7 +329,7 @@ function MetaItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Columnas de la tabla por deck. En llano: nombre, rank, % del meta, cartas y casadas. */
+/** Columnas de la tabla por deck. En llano: nombre, rank, % del meta, cartas, casadas y portada. */
 function deckColumns(t: ReturnType<typeof useTranslations>): Column<DecksMetaDeckReport>[] {
   return [
     {
@@ -376,6 +377,12 @@ function deckColumns(t: ReturnType<typeof useTranslations>): Column<DecksMetaDec
       header: t('columns.matched'),
       align: 'right',
       render: (d) => <span className="tabular">{d.matched}/{d.total}</span>,
+    },
+    {
+      // rev `decks-portada`: portada de Limitless casada contra NUESTRO catálogo (miniatura propia).
+      key: 'cover',
+      header: t('columns.cover'),
+      render: (d) => <DeckCoverCell deck={d} />,
     },
   ];
 }

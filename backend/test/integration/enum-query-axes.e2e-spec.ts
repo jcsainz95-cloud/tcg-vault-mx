@@ -107,6 +107,8 @@ import { PRICING_BRACKETS_AXIS_VALUES } from '../../src/modules/admin/admin.cont
 import { VAULT_SEALED_SORT_VALUES } from '../../src/modules/vault/vault.service';
 // ⭐ `EQ-D1` — dominios de los ejes migrados en este pase (kind/scope/sort de catálogo).
 import { SHIPMENT_KIND_VALUES } from '../../src/modules/shipments/shipments.service';
+// ⭐ §M4-PREP (v1.78) — dominio de `?destination=` de «Pedidos a preparar».
+import { PREPARATION_DESTINATION_VALUES } from '../../src/modules/shipments/shipments.service';
 import { USER_AUDIT_SCOPE_VALUES } from '../../src/modules/audit/audit.service';
 import { SEALED_LIST_SORT_VALUES } from '../../src/modules/catalog/sealed-catalog.service';
 import { CATALOG_CARDS_SORT_VALUES } from '../../src/modules/catalog/catalog.service';
@@ -332,17 +334,22 @@ interface Ctx {
 }
 
 /**
- * ⭐ **EL REGISTRO — 43 filas: 26 que transcriben §0-Q punto 4 + 6 de la bóveda + 4 de `EQ-D1` lote 1 + 1 de `EQ-D2` + 1 de `EQ-D3` + 5 de `EQ-D1` LOTE 2.**
+ * ⭐ **EL REGISTRO — 44 filas: 26 que transcriben §0-Q punto 4 + 6 de la bóveda + 4 de `EQ-D1` lote 1 + 1 de `EQ-D2` + 1 de `EQ-D3` + 5 de `EQ-D1` LOTE 2 + 1 de `§M4-PREP`.**
  *
  * Las **26 transcritas** son las 24 de la tabla de §0-Q punto 4, el `?sort=` que esa tabla registra
  * en su última columna como «no es filtro: es ORDEN — punto 6», y el `?origin=` de `sealed-products`.
- * Las **6** de `EQ-D0` (la bóveda) y las **5** de `EQ-D1` LOTE 2 (este pase: `?sort=` del índice
+ * Las **6** de `EQ-D0` (la bóveda) y las **5** de `EQ-D1` LOTE 2 (`?sort=` del índice
  * master set ×3, `?sort=` de `/admin/vaults`, `?range=` de `/vault/portfolio/history`) son conducta
  * YA conforme cuya **fila de §0-Q todavía no existe**: van marcadas `filaEn0Q: 'PENDIENTE-ARQUITECTO'`
- * (11 en total). Las **4** de `EQ-D1` lote 1 (`?kind=`, `?scope=`, `?sort=` de los dos catálogos
- * públicos), la **1** de `EQ-D2` (`?state=` de `sealed-price-status`, M11 §10) y la **1** de `EQ-D3`
- * (`?productType=` de `pending-publish`, M11) SÍ tienen fila de §0-Q (el arquitecto la escribió) ⇒
- * van `transcrita`.
+ * (**11** en total). Las **4** de `EQ-D1` lote 1 (`?kind=`, `?scope=`, `?sort=` de los dos catálogos
+ * públicos), la **1** de `EQ-D2` (`?state=` de `sealed-price-status`, M11 §10), la **1** de `EQ-D3`
+ * (`?productType=` de `pending-publish`, M11) y la **1** de `§M4-PREP` (`?destination=` de
+ * `picking-list`, clase **L**) SÍ tienen fila de §0-Q (el arquitecto la escribió) ⇒ van `transcrita`.
+ *
+ * ⚠️ **La de §M4-PREP nació `PENDIENTE-ARQUITECTO` en v1.78 y pasó a `transcrita` en v1.78.1**, con
+ * el registro **del mismo tamaño**: la deuda se pagó escribiendo la fila del contrato
+ * (`API_CONTRACT.md:5231`), ⛔ no retirando el eje de aquí. Ése es justo el movimiento que las dos
+ * cifras del trinquete (44 fijo · pendientes 12→11) hacen legible.
  *
  * ⚠️ **`R3`: el conteo va fijado con un literal en el trinquete**, no escrito aquí y ya. Este
  * docstring decía «25 filas» cuando había 32 — y el pase entero defiende que *un número sí falla y
@@ -547,6 +554,26 @@ const REGISTRO: readonly AxisRow[] = [
   //    ⛔ Ninguno lleva `echoValue`: son ejes NUEVOS, no de los seis públicos legados (§0-Q punto 2).
   // ==========================================================================================
   { route: 'GET /admin/shipments', param: 'kind', clazz: 'R', allowed: SHIPMENT_KIND_VALUES, valid: 'vault_withdrawal', alterno: 'guest_direct_ship', auth: 'admin', echoValue: false },
+  // ⭐ **§M4-PREP (v1.78) — `?destination=` de «Pedidos a preparar»** (`GET …/picking-list`).
+  //
+  // Clase **L** y ⛔ no **R**: `PreparationDestination` es un **TIPO DE DTO**, no un subconjunto de
+  // ningún enum de Prisma — sus tokens (`vault`/`ship`) **no coinciden** con los de `FulfillmentMode`
+  // (`vault`/`direct_ship`), del que se DERIVA por un mapeo explícito del backend. Por eso ⛔ no entra
+  // en la paridad de enums y su dominio se toma de la constante del servicio, no del schema.
+  //
+  // `transcrita` (el default) desde **v1.78.1**: el arquitecto escribió la fila en la TABLA del
+  // registro de §0-Q punto 4 (`API_CONTRACT.md:5231`, medido 2026-09-22 — clase **L**, dominio
+  // «canónico en la línea del propio endpoint»). Nació `PENDIENTE-ARQUITECTO` en v1.78 porque esa
+  // fila no existía; dejó de serlo porque **existe**, no porque molestara.
+  //
+  // ⚠️ **`valid: 'vault'` y NO `'ship'`, y el motivo es una medición, no una preferencia:** bajo el
+  // modelo actual **toda** fila de esta cola es `destination='ship'` (las órdenes
+  // `fulfillmentMode='vault'` no generan `ShipmentRequest`), así que `?destination=ship` devuelve la
+  // cola ENTERA y la fila saldría **verde con y sin filtro** — el agujero exacto de `QA-M3`. Con
+  // `vault` el resultado **cambia** respecto de no filtrar (cubeta vacía a propósito) y
+  // `alterno: 'ship'` recupera la discriminación. El fixture siembra el envío en `picking` del
+  // bloque (g-bis) para que «hay datos SIN filtrar» sea cierto.
+  { route: 'GET /admin/shipments/picking-list', param: 'destination', clazz: 'L', allowed: PREPARATION_DESTINATION_VALUES, valid: 'vault', alterno: 'ship', auth: 'admin', echoValue: false },
   { route: 'GET /admin/users/:id/audit', path: (c) => `/admin/users/${c.userId}/audit`, param: 'scope', clazz: 'R', allowed: USER_AUDIT_SCOPE_VALUES, valid: 'actor', alterno: 'both', auth: 'admin', echoValue: false },
   // ⚠️ `valid: 'price_desc'` y no `'price_asc'`: los dos sellados del fixture comparten `createdAt`
   // (mismo `createMany`), así que `newest` (default) = orden de inserción = price ASC ⇒ `price_asc`
@@ -793,6 +820,23 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       shippingFeeCents: 9_900,
       priceConvention: 'IVA_EXCLUSIVE',
       carrier: 'CEQ1-fixture-c',
+    },
+  });
+
+  // (g-bis) ⭐ §M4-PREP — `GET /admin/shipments/picking-list?destination=`. La cola proyecta SOLO
+  //     `status='picking'` (fix QA #3) y los envíos de (e)/(g) están en `solicitado`/`entregado` ⇒
+  //     sin esta fila la cola sale VACÍA y la propiedad `filtra` no es observable (verde por
+  //     omisión). Es un RETIRO DE BÓVEDA (`orderId` null) ⇒ `destination='ship'`, que es lo que hace
+  //     que `?destination=vault` devuelva vacío y discrimine. Marca `CEQ1-` en `carrier` para que
+  //     `limpiarFixture` lo barra sin adivinar.
+  await h.prisma.shipmentRequest.create({
+    data: {
+      userId: cliente.id,
+      addressSnapshot: direccion,
+      status: 'picking',
+      shippingFeeCents: 9_900,
+      priceConvention: 'IVA_EXCLUSIVE',
+      carrier: 'CEQ1-fixture-picking',
     },
   });
 
@@ -1100,6 +1144,10 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       // ⭐ `EQ-D1` lote 2 (este pase): 5 ejes de ORDEN/RANGO cuya CONDUCTA ya conforma pero cuya fila
       // de §0-Q punto 4 sigue pendiente del arquitecto (regla 9).
       'GET /admin/inventory/master-sets?sort=',
+      // ⛔ `GET /admin/shipments/picking-list?destination=` estuvo aquí en v1.78 y **SALIÓ en
+      // v1.78.1**: el arquitecto escribió su fila en §0-Q punto 4 (`API_CONTRACT.md:5231`). Es el
+      // movimiento que esta lista existe para hacer visible — una pendiente se cierra **por el
+      // contrato**, no borrándola de aquí.
       'GET /admin/vaults/:userId/master-sets?sort=',
       'GET /admin/vaults/:userId/sealed?condition=',
       'GET /admin/vaults/:userId/sealed?sealedSubtype=',
@@ -1228,7 +1276,15 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // Las 5 del lote 2 van `PENDIENTE-ARQUITECTO` (su fila de §0-Q NO existe todavía) ⇒ el conteo de
     // pendientes SUBE de 6 a 11. Las de `EQ-D1` lote 1/`EQ-D2`/`EQ-D3` fueron `transcrita` (su fila la
     // escribió el arquitecto en aquel pase) y por eso NO subían el conteo de pendientes.
-    expect(REGISTRO.length).toBe(43);
+    // ⭐ **43 → 44 (§M4-PREP, v1.78):** `?destination=` de `GET /admin/shipments/picking-list`, el eje
+    // nuevo de «Pedidos a preparar». Entró `PENDIENTE-ARQUITECTO` (11 → 12) porque su fila en la
+    // tabla de §0-Q punto 4 no existía.
+    // ⭐ **v1.78.1 — vuelve a 11 SIN que `REGISTRO.length` se mueva:** el arquitecto escribió esa
+    // fila (`API_CONTRACT.md:5231`, clase **L**) ⇒ el eje pasa a `transcrita`. Ninguna fila entra ni
+    // sale del registro; lo que cambia es **quién debe algo**. Los dos números se leen juntos a
+    // propósito: 44 fijo y 12→11 dice «se pagó una deuda», y 44→45 diría «entró un eje».
+    // ⛔ Subir cualquiera de los dos sin una fila nueva justificada arriba es lo que esto impide.
+    expect(REGISTRO.length).toBe(44);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(11);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
@@ -1370,6 +1426,22 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         literal: VAULT_SEALED_SORT_VALUES,
         re: /`sort` default `([a-z_]+)`; también `([a-z_ |]+)`/,
         enunciado: /enum\s+\w*[Ss]ort\w*\s*\{/,
+      },
+      {
+        // ⭐ **§M4-PREP v1.78.1 — `?destination=` de «Pedidos a preparar».** Clase **L**: el canónico
+        // es la **línea del propio endpoint**, no §Enums, porque no hay enum que espejar. §M4-PREP:
+        // «`?destination=` — DOMINIO CANÓNICO (clase L, §0-Q punto 3): `vault|ship`.»
+        //
+        // ⚠️ La regex **incluye el nombre del eje**, y no solo la frase «DOMINIO CANÓNICO»: hoy esa
+        // frase aparece **una** vez en el contrato (medido 2026-09-22), pero el día que otro eje L
+        // la use, una regex que solo la buscara anclaría en la línea EQUIVOCADA **y seguiría verde**
+        // si los dominios coincidieran. Un candado que puede apuntar a otra línea no es un candado.
+        param: 'destination',
+        literal: PREPARATION_DESTINATION_VALUES,
+        re: /`\?destination=` — DOMINIO CANÓNICO \(clase L, §0-Q punto 3\): `([a-z|]+)`/,
+        // ⛔ Si mañana existe `enum PreparationDestination` (o cualquier homónimo), el literal deja
+        // de ser legítimo: sería clase E y esto es el bug de `SealedSubtype`/`upc` esperando.
+        enunciado: /enum\s+\w*[Dd]estination\w*\s*\{/,
       },
     ];
 

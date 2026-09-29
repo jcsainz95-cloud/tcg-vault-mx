@@ -702,6 +702,7 @@
     "driftChipAria": "{finish}: {count} off-catalog pieces",
     "driftNote": "off-catalog",
     "ownerVault": "{name}'s vault",
+    "ownerVaultNoName": "Vault of a customer with no name on file",
     "variantsTitle": "Slots by finish",
     "buyCta": "Add to cart · {price}",
     "buyAdded": "Added to your purchase cart.",
@@ -1480,7 +1481,6 @@
     },
     "m4": {
       "title": "M4 · Withdrawals / shipping",
-      "pickingList": "Picking list (by location)",
       "tracking": {
         "capture": "Capture tracking",
         "title": "Tracking capture",
@@ -1498,18 +1498,11 @@
       "queueEmpty": "No shipments match that filter.",
       "itemCount": "{count, plural, one {# item} other {# items}}",
       "recipient": "To",
-      "recipientMissing": "NO RECIPIENT (withdrawal prior to v1.67)",
+      "recipientMissing": "No recipient on file",
       "street": "Street",
       "customer": "Customer",
       "postalCode": "ZIP",
       "phone": "Phone",
-      "pickingHint": "Shipments in picking, sorted by vault location.",
-      "pickingEmpty": "Nothing to pick right now.",
-      "picking": {
-        "location": "Location",
-        "folio": "Folio",
-        "shipment": "Shipment"
-      },
       "statusActions": {
         "enviado": "Mark shipped",
         "entregado": "Mark delivered",
@@ -1518,6 +1511,144 @@
         "cancelTitle": "Cancel shipment",
         "cancelConfirm": "Cancel shipment",
         "cancelBody": "Cancel shipment {id}? This action cannot be undone."
+      },
+      "prep": {
+        "title": "Orders to prepare",
+        "hint": "Paid orders, ready to pull. Oldest goes first.",
+        "filterLabel": "Bucket",
+        "filterAll": "Both",
+        "filterShip": "Shipping only",
+        "filterVault": "Vault only",
+        "destination": {
+          "ship": "To ship",
+          "vault": "To vault"
+        },
+        "withdrawal": "Vault withdrawal",
+        "shipmentRef": "Shipment",
+        "requestedAt": "Requested",
+        "lastNameUnknown": "Last name not identified",
+        "unassigned": "No location yet",
+        "folio": "Folio",
+        "location": "Location",
+        "set": "Set",
+        "itemCount": "{count, plural, one {# card} other {# cards}}",
+        "orderCount": "{count, plural, one {# order} other {# orders}}",
+        "empty": {
+          "title": "Nothing to prepare right now.",
+          "body": "Paid orders show up here as they come in, oldest first."
+        },
+        "emptyShip": {
+          "title": "Nothing to ship right now.",
+          "body": "No paid orders are waiting to be shipped."
+        },
+        "nameMissing": {
+          "tag": "No name on file",
+          "body": "This order's address was saved without a recipient name: it's a gap in our records, not an anonymous customer. Identify the package by its folio."
+        },
+        "conflict": {
+          "title": "This queue can't be shown, and it isn't empty.",
+          "impact": "There are already-paid orders waiting, and they can't be seen from here.",
+          "body": "One order in this queue gives no way to tell where it goes: the data that decides its destination doesn't add up. That's why no bucket is shown, neither shipping nor vault — leaving that one row out would drop a paid order off the screen with nobody noticing.",
+          "action": "Tell the super-admin: this gets fixed in the data, not from this screen. Once it's fixed, reload.",
+          "technicalDetail": "Technical detail"
+        },
+        "vault": {
+          "step": {
+            "collect": "Step 1 of 2 · Collect and check off",
+            "place": "Step 2 of 2 · Take them to their drawer and confirm"
+          },
+          "drawer": {
+            "own": "Their drawer",
+            "ownBody": "Next to their other cards: they already have {count, plural, one {# card} other {# cards}} there.",
+            "multipleTag": "Cards in several drawers",
+            "multipleBody": "This customer should have a single drawer, but their cards are spread across {count} drawers. The system won't choose for you: when confirming, pick which one these cards go to. Merging them into one isn't done from this screen.",
+            "piecesThere": "{count, plural, one {# card there} other {# cards there}}",
+            "multipleLegend": "Which drawer do these cards go to?",
+            "newLabel": "Drawer",
+            "newBody": "None yet. This is their first purchase stored with us: when confirming, you choose the drawer and their next purchases will go there.",
+            "chooseLabel": "Choose their drawer",
+            "choosePlaceholder": "Not chosen",
+            "noneAvailable": "There are no customer drawers set up. Create one in Inventory → “{locations}”, with zone “{zone}”, and come back."
+          },
+          "nameMissing": {
+            "tag": "No name on file",
+            "body": "This account was created without a name: the customer hasn't given us one. Identify them by their email."
+          },
+          "orderRef": "Order",
+          "seeWhatShouldBe": "See what should be in their vault",
+          "item": {
+            "locationLabel": "Location · {zone}",
+            "pick": "I have it",
+            "miss": "Couldn't find it",
+            "undo": "Undo",
+            "actionAria": "{action}: {card} · {folio}",
+            "picked": "Picked",
+            "missing": "Missing",
+            "missingBody": "Recorded as missing. It isn't moved to the drawer. This screen doesn't notify the customer or issue refunds.",
+            "blocked": "Not for the drawer"
+          },
+          "blockedReason": {
+            "in_withdrawal": "It's in a withdrawal the customer already paid for: it leaves with that shipment, not to the drawer.",
+            "not_in_custody": "It's no longer held in the customer's vault, so it doesn't go to their drawer. No need to look for it."
+          },
+          "count": "{picked} picked · {missing} missing · {pending} to check",
+          "countBlocked": "{blocked} not for the drawer",
+          "prepare": {
+            "cta": "Order prepared",
+            "saving": "Saving…",
+            "pending": "{pending, plural, one {# card} other {# cards}} still to check: mark them “I have it” or “Couldn't find it”.",
+            "nothingPicked": "No card is picked: nothing will go into the drawer in the end."
+          },
+          "prepared": {
+            "by": "Prepared by {name} · {date}",
+            "byNoName": "Prepared by an account with no name · {date}"
+          },
+          "unprepare": {
+            "cta": "Undo prepared",
+            "title": "Undo “prepared”?",
+            "body": "Each card's marks stay as they are; they just become editable again. No card moves. To place it you'll have to mark it as prepared again.",
+            "confirm": "Undo prepared",
+            "cancel": "Cancel",
+            "done": "Done: you can fix the marks now. When you're finished, mark it as prepared again.",
+            "alreadyUndone": "It was no longer prepared: someone undid it first. You can fix the marks."
+          },
+          "place": {
+            "cta": "Confirm placement",
+            "ctaEmpty": "Close order without placing anything",
+            "summary": "{picked, plural, one {# card goes} other {# cards go}} into {drawer}.",
+            "summaryMissing": "{missing, plural, one {# missing card isn't moved} other {# missing cards aren't moved}}.",
+            "summaryEmpty": "No card is picked: the order closes and leaves the list. The missing ones stay recorded.",
+            "chooseFirst": "Choose a drawer to see where they go."
+          },
+          "result": {
+            "placed": "Order {folio} placed: {n, plural, one {# card} other {# cards}} in {drawer}.",
+            "placedMissing": "{m, plural, one {# missing card wasn't moved} other {# missing cards weren't moved}}.",
+            "placedSkipped": "{k, plural, one {# wasn't moved because it could no longer be placed} other {# weren't moved because they could no longer be placed}}.",
+            "nothingToPlace": "Order {folio} closed without placing anything: no card was ready for the drawer. The missing ones are still recorded under the customer's “What should be there”.",
+            "alreadyPlaced": "Order {folio}: already placed in that drawer. Nothing new was done."
+          },
+          "error": {
+            "itemBlocked": "This card can no longer be checked.",
+            "closed": "This order was already marked as prepared and its marks are locked. To fix a card, undo “prepared” first.",
+            "notFound": "This card or order is no longer in the queue.",
+            "incomplete": "{pendingCount, plural, one {# card is} other {# cards are}} still unchecked. Someone may have just undone a mark.",
+            "notPrepared": "This order is no longer prepared: someone undid “prepared”. Check the marks and mark it as prepared again.",
+            "notCustomerDrawer": "This customer already has a drawer and it isn't the one you chose: someone probably just placed another of their orders. We've refreshed the card with their drawer.",
+            "drawerUnavailable": "That drawer can no longer hold customer cards. Choose another.",
+            "locationRequired": "The screen was out of date: this order now has {pickedCount, plural, one {# picked card} other {# picked cards}}, so it can't be closed without placing them in a drawer. Nothing was done. We've refreshed the card: check it and confirm again.",
+            "locationRequiredNoCount": "The screen was out of date: this order now has picked cards, so it can't be closed without placing them in a drawer. Nothing was done. We've refreshed the card: check it and confirm again.",
+            "placed": "Someone else already placed this order. Nothing was changed; it leaves the list.",
+            "placedIn": "The order was placed in {drawer}.",
+            "chargeback": "This order was cancelled by a chargeback: its cards no longer belong to the customer. It leaves the list.",
+            "nothingToPlace": "This order was already closed without placing anything. It leaves the list.",
+            "placedUndo": "Couldn't undo: the order was already placed in its drawer. Once placed, there's no going back from this screen.",
+            "conflict": "This order has data that doesn't add up and can't be changed from here. Tell the super-admin."
+          },
+          "emptyVault": {
+            "title": "Nothing to take to the vault for now.",
+            "body": "No paid purchases are waiting for their drawer."
+          }
+        }
       }
     },
     "m5": {
@@ -1568,7 +1699,7 @@
         "rejectedAtLabel": "Rejected on",
         "returnUntil": "Return until {date} (at the seller's cost)",
         "abandonAt": "Abandonment from {date}",
-        "noDeadlines": "No deadlines recorded (rejection prior to v1.18).",
+        "noDeadlines": "No rejection date on file: the deadlines are counted from it, so this card has none.",
         "viewRequest": "View request {id}",
         "phase": {
           "return": "In return window",
@@ -2895,7 +3026,23 @@
         "share": "% of meta",
         "cardsParsed": "Cards read",
         "sumQuantity": "Total summed",
-        "matched": "Matched"
+        "matched": "Matched",
+        "cover": "Cover"
+      },
+      "cover": {
+        "matched": "matched",
+        "unmatched": "not matched",
+        "none": "no cover",
+        "notReported": "—",
+        "reason": {
+          "unmatched_set": "set not in catalog",
+          "unmatched_number": "number not in that set",
+          "ambiguous": "several candidate cards"
+        },
+        "noImage": "no image in the catalog",
+        "rejectedImage": "image rejected (not from our catalog)",
+        "reasonUnknown": "unrecognized reason ({status})",
+        "alt": "Cover of {deck}: {code}"
       },
       "deckError": "This deck couldn't be read: {error}",
       "sumOk": "≈ 60 cards",
@@ -3167,15 +3314,15 @@
       "sortLabel": "Sort by",
       "sort": {
         "value_desc": "Value (highest first)",
-        "pieces_desc": "Pieces (highest first)",
+        "pieces_desc": "In their name (highest first)",
         "name_asc": "Name (A–Z)"
       },
       "colName": "Customer",
       "colEmail": "Email",
-      "colPieces": "Pieces",
+      "colPieces": "In their name",
       "colValue": "Estimated value",
       "colPending": "No price",
-      "pieces": "{count, plural, one {# piece} other {# pieces}}",
+      "pieces": "{count, plural, other {# in their name}}",
       "open": "View vault",
       "back": "Customers",
       "emptyTitle": "No vaults",
@@ -3185,7 +3332,50 @@
       "next": "Next",
       "detailTabs": {
         "cards": "Cards",
-        "sealed": "Sealed"
+        "sealed": "Sealed",
+        "physical": "What should be there"
+      },
+      "physical": {
+        "tab": "What should be there",
+        "drawer": {
+          "own": "Their drawer",
+          "multiple": "This customer should have a single drawer, but their cards are in {count}:",
+          "none": "No drawer yet.",
+          "nonePending": "Their paid cards are still in the store, waiting to be placed."
+        },
+        "counts": {
+          "label": "Summary",
+          "missing": "missing",
+          "unlocated": "unlocated",
+          "inDrawer": "in their drawer",
+          "pendingPlacement": "to be placed",
+          "inWithdrawal": "{count, plural, one {in a withdrawal} other {in withdrawals}}",
+          "total": "{count, plural, other {should be in the vault}}",
+          "help": "This can be lower than what the customer list counts “in their name”: that also includes items reserved in orders not yet paid. Here, only what's paid and in our keeping counts."
+        },
+        "group": {
+          "missing": "Missing",
+          "unlocated": "Unlocated",
+          "in_drawer": "In their drawer",
+          "pending_placement": "To be placed",
+          "in_withdrawal": "In a withdrawal"
+        },
+        "row": {
+          "missing": "Marked missing by {name} on <d>{date}</d>, while preparing order {folio}. The system still counts it as the customer's.",
+          "missingNoName": "Marked missing by an account with no name on <d>{date}</d>, while preparing order {folio}. The system still counts it as the customer's.",
+          "noLocation": "The system has no location for this card.",
+          "notInCustomerDrawer": "The system has it in {location}, not in a customer drawer.",
+          "pendingPlacement": "Paid; still needs to go to their drawer (order {folio}).",
+          "prepPending": "not collected yet",
+          "prepPicked": "already collected",
+          "prepPrepared": "order prepared",
+          "inWithdrawal": "Leaves with the shipment the customer requested — {status}."
+        },
+        "empty": {
+          "title": "This customer has no cards stored with us.",
+          "body": "When they buy and keep cards in their vault, they'll show up here."
+        },
+        "notFound": "We couldn't find this customer."
       }
     },
     "inventory": {
@@ -3529,7 +3719,7 @@
     },
     "shipment": {
       "solicitado": "Requested",
-      "picking": "Picking",
+      "picking": "In preparation",
       "guia": "Label created",
       "enviado": "In transit",
       "entregado": "Delivered",

@@ -3,6 +3,7 @@ import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AdminVaultsService } from './admin-vaults.service';
 import { MasterSetService } from '../inventory/master-set.service';
+import { VaultPhysicalInventoryService } from './vault-physical-inventory.service';
 
 /**
  * AdminVaultsController (v1.20-master-set-everywhere, §4.20a/§4.20c) — vista (ii): admin viendo
@@ -16,6 +17,7 @@ export class AdminVaultsController {
   constructor(
     private readonly adminVaults: AdminVaultsService,
     private readonly masterSets: MasterSetService,
+    private readonly physical: VaultPhysicalInventoryService,
   ) {}
 
   /** GET /admin/vaults — lista de clientes con bóveda (valuación = misma base del portafolio §3). */
@@ -77,5 +79,15 @@ export class AdminVaultsController {
     @Query('sort') sort?: string,
   ) {
     return this.adminVaults.sealed(userId, { sealedSubtype, condition, sort });
+  }
+
+  /**
+   * ⭐ v1.79.1 (§M4-VAULT.11) — inventario FÍSICO esperado del cliente: su cajón y qué cartas deben
+   * estar ahí, con el estado físico de cada una. ⛔ Sin valuación (no llama a `pricing`). Mismo guard y
+   * mismo `404` que sus hermanas. Lectura pura.
+   */
+  @Get(':userId/physical-inventory')
+  physicalInventory(@Param('userId') userId: string) {
+    return this.physical.forCustomer(userId);
   }
 }

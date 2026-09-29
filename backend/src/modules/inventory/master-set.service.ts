@@ -9,6 +9,7 @@ import { hasManualPrice } from '../../common/money';
 // v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
 import { VariantPricingDTO, composeVariantPricing, resolveMarketReference } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
+import { customerDisplayName } from '../vault/customer-display-name';
 // v1.33 (P-27, §4.31): mapa curado padre→subset del MASTER SET COMBINADO. SOLO lectura de
 // presentación (money-safe): resuelve `externalId`→`CardSet.id` local por join; nunca fuente de verdad.
 import {
@@ -90,7 +91,8 @@ export interface MasterSetViewOptions {
 
 export interface VaultOwnerRefDTO {
   userId: string;
-  name: string;
+  /** ⭐ v1.79.3 (H-1): `null` SOLO en la vista admin (ii) con nombre fabricado del correo. */
+  name: string | null;
   email?: string;
 }
 
@@ -607,12 +609,15 @@ export class MasterSetService implements OnModuleInit {
     if (scope.kind !== 'user_vault') return null;
     const user = await this.prisma.user.findUnique({
       where: { id: scope.userId },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, nameSource: true, email: true },
     });
     if (!user) throw BusinessException.notFound('NOT_FOUND', 'User not found');
+    // ⭐ v1.79.3 (H-1): en la vista ADMIN (ii) —la que lleva `email`— el nombre sale por
+    // `customerDisplayName` (fabricado del correo ⇒ `null`). ⛔ La vista (iii) del propio cliente
+    // sigue con `User.name`: la frontera la decidió el contrato, no este método.
     return {
       userId: user.id,
-      name: user.name,
+      name: opts.includeOwnerEmail ? customerDisplayName(user) : user.name,
       ...(opts.includeOwnerEmail ? { email: user.email } : {}),
     };
   }

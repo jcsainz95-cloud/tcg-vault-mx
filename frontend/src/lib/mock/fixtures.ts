@@ -10,6 +10,18 @@
  */
 import { brandEmail } from '../brand';
 import type {
+  ConfirmVaultPlacementResponse,
+  CustomerDrawerRef,
+  CustomerPhysicalInventoryDTO,
+  PreparationItemStatus,
+  PrepareVaultPlacementResponse,
+  SetVaultPrepItemResponse,
+  UnprepareVaultPlacementResponse,
+  VaultPlacementDTO,
+  VaultPlacementItemResultDTO,
+  VaultPreparationItemDTO,
+  VaultPreparationOrderDTO,
+  VaultPreparationStateDTO,
   ClaimableOrderDTO,
   CardDTO,
   CardProductDTO,
@@ -48,7 +60,7 @@ import type {
   AdminBuylistDTO,
   AdminOrderDTO,
   AdminShipmentDTO,
-  PickingListEntryDTO,
+  PreparationOrderDTO,
   DisputeDTO,
   ClientDisputeDTO,
   ShipmentDTO,
@@ -1919,6 +1931,29 @@ export const mockAdminShipments: AdminShipmentDTO[] = [
     items: [{ inventoryItemId: 'inv-1001' }, { inventoryItemId: 'inv-1008' }],
   },
   {
+    // Envío DIRECTO de una orden (`fulfillmentMode='direct_ship'`): nace en `picking`, ya cobrado.
+    // Es el compañero de `shp-7004` en `mockPreparationQueue` (la hoja de «Pedidos a preparar»).
+    id: 'shp-7004',
+    userId: 'u-780',
+    status: 'picking',
+    carrier: null,
+    trackingNumber: null,
+    requestedAt: '2026-08-13T16:45:00Z',
+    items: [{ inventoryItemId: 'inv-1012' }],
+  },
+  {
+    // Envío DIRECTO de un INVITADO (`userId: null`, contrato §M4 v1.21) con snapshot LEGADO de ocho
+    // campos: sin `recipientName` ⇒ su `customer.fullName` en la cola de preparación es **null**
+    // (§M4-PREP v1.78.1). Compañero de `shp-7005` en `mockPreparationQueue`.
+    id: 'shp-7005',
+    userId: null,
+    status: 'picking',
+    carrier: null,
+    trackingNumber: null,
+    requestedAt: '2026-08-12T08:15:00Z',
+    items: [{ inventoryItemId: 'inv-1014' }],
+  },
+  {
     id: 'shp-7003',
     userId: 'u-779',
     status: 'solicitado',
@@ -1929,10 +1964,151 @@ export const mockAdminShipments: AdminShipmentDTO[] = [
   },
 ];
 
-/** MOCK: lista de picking por ubicación (contrato §M4 · GET /admin/shipments/picking-list). */
-export const mockPickingList: PickingListEntryDTO[] = [
-  { shipmentId: 'shp-7002', inventoryItemId: 'inv-1001', folio: 'INV-000101', location: 'C03-F02-S15' },
-  { shipmentId: 'shp-7002', inventoryItemId: 'inv-1008', folio: 'INV-000108', location: 'C03-F02-S16' },
+/**
+ * MOCK: **«Pedidos a preparar»** — hoja de trabajo AGRUPADA por pedido (contrato **§M4-PREP** ·
+ * `GET /admin/shipments/picking-list`). Un elemento = UN pedido/envío a preparar.
+ *
+ * ⚠️ **Las dos filas son `destination: 'ship'`, y eso NO es un descuido del fixture.** Medido por el
+ * arquitecto (§M4-PREP, 2026-09-22): bajo el modelo actual **todo** `ShipmentRequest` es físicamente
+ * un envío a domicilio —retiro de bóveda **o** envío directo— y las órdenes con
+ * `fulfillmentMode='vault'` **no generan** `ShipmentRequest`. ⛔ Una fila `destination:'vault'` aquí
+ * sería un dato que el backend **no puede producir**: enseñaría a leer verde una cubeta vacía.
+ *
+ * El orden del array es DELIBERADAMENTE el contrario al normativo (`requestedAt` asc, CA #9): el
+ * mock hace de servidor y ordena en `getAdminPreparationQueue`, y la vista lo vuelve a garantizar.
+ */
+export const mockPreparationQueue: PreparationOrderDTO[] = [
+  {
+    // ENVÍO DIRECTO — tiene orden, así que tiene folio.
+    shipmentId: 'shp-7004',
+    orderId: 'ord-5001',
+    orderNumber: 'TCG-000123',
+    destination: 'ship',
+    requestedAt: '2026-08-13T16:45:00Z',
+    customer: { lastName: 'Ketchum', fullName: 'Ash Ketchum' },
+    shipTo: {
+      recipientName: 'Ash Ketchum',
+      line1: 'Av. Insurgentes Sur 1234',
+      line2: 'Depto 5B',
+      neighborhood: 'Del Valle',
+      city: 'Ciudad de México',
+      state: 'CDMX',
+      postalCode: '03100',
+      country: 'MX',
+      phone: '5551239876',
+    },
+    items: [
+      {
+        shipmentItemId: 'sit-9004-1',
+        inventoryItemId: 'inv-1012',
+        folio: 'INV-000112',
+        quantity: 1,
+        card: {
+          name: 'Charizard',
+          setName: 'Base Set',
+          finish: 'holofoil',
+          conditionLabel: 'PSA 9',
+          imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png',
+        },
+        currentLocation: { kind: 'assigned', label: 'C01-F01-S02' },
+      },
+    ],
+  },
+  {
+    // RETIRO DE BÓVEDA — `orderId` null ⇒ `orderNumber` null. NO es un hueco: es un retiro.
+    // `lastName` null: `fullName` de un solo token, el apellido no se puede derivar (§6.A).
+    shipmentId: 'shp-7002',
+    orderId: null,
+    orderNumber: null,
+    destination: 'ship',
+    requestedAt: '2026-08-13T09:30:00Z',
+    customer: { lastName: null, fullName: 'Misty' },
+    shipTo: {
+      // Snapshot legado de ocho campos (anterior a v1.67): sin `recipientName`.
+      recipientName: null,
+      line1: 'Calle Falsa 123',
+      line2: null,
+      neighborhood: null,
+      city: 'Guadalajara',
+      state: 'JAL',
+      postalCode: '44100',
+      country: 'MX',
+      phone: '3331234567',
+    },
+    items: [
+      {
+        shipmentItemId: 'sit-9002-1',
+        inventoryItemId: 'inv-1001',
+        folio: 'INV-000101',
+        quantity: 1,
+        card: {
+          name: 'Zapdos',
+          setName: 'Base Set',
+          finish: 'normal',
+          conditionLabel: 'NM',
+          imageSmallUrl: 'https://images.pokemontcg.io/base1/16.png',
+        },
+        currentLocation: { kind: 'assigned', label: 'C03-F02-S15' },
+      },
+      {
+        shipmentItemId: 'sit-9002-2',
+        inventoryItemId: 'inv-1008',
+        folio: 'INV-000108',
+        quantity: 1,
+        card: {
+          // Catálogo sin miniatura (`imageSmallUrl` es nullable por contrato) ⇒ pozo de papel.
+          name: 'Machamp',
+          setName: 'Base Set',
+          finish: 'reverse_holo',
+          conditionLabel: 'LP',
+          imageSmallUrl: null,
+        },
+        // Pieza SIN ubicación asignada: el front pinta copy legible, ⛔ nunca "UNASSIGNED".
+        currentLocation: { kind: 'unassigned' },
+      },
+    ],
+  },
+  {
+    // ⭐ §M4-PREP v1.78.1 — EL CASO QUE NINGUNA FIXTURE RECORRÍA: `customer.fullName` **null**.
+    // Envío directo de un INVITADO (`userId == null`) cuyo `addressSnapshot` es de los de OCHO
+    // campos (anteriores a v1.67) ⇒ no hay `recipientName` de donde sacar el nombre ⇒ `fullName`
+    // es `null`, y `lastName` lo es **por construcción** (se deriva de `fullName`).
+    // ⛔ La cadena vacía está PROHIBIDA como marca de ausencia: aquí va `null`, no `''`.
+    // *Un tipo nullable sin fixture que lo recorra es un tipo que nadie probó.*
+    shipmentId: 'shp-7005',
+    orderId: 'ord-5002',
+    orderNumber: 'TCG-000124',
+    destination: 'ship',
+    requestedAt: '2026-08-12T08:15:00Z',
+    customer: { lastName: null, fullName: null },
+    shipTo: {
+      recipientName: null,
+      line1: 'Blvd. Adolfo López Mateos 500',
+      line2: null,
+      neighborhood: null,
+      city: 'León',
+      state: 'GTO',
+      postalCode: '37000',
+      country: 'MX',
+      phone: '4779876543',
+    },
+    items: [
+      {
+        shipmentItemId: 'sit-9005-1',
+        inventoryItemId: 'inv-1014',
+        folio: 'INV-000114',
+        quantity: 1,
+        card: {
+          name: 'Blastoise',
+          setName: 'Base Set',
+          finish: 'holofoil',
+          conditionLabel: 'NM',
+          imageSmallUrl: 'https://images.pokemontcg.io/base1/2.png',
+        },
+        currentLocation: { kind: 'assigned', label: 'C02-F01-S08' },
+      },
+    ],
+  },
 ];
 
 export const mockDashboard: DashboardDTO = {
@@ -1963,9 +2139,13 @@ export const mockDashboard: DashboardDTO = {
 };
 
 export const mockLocations: VaultLocationDTO[] = [
-  { id: 'loc-1', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S15', label: 'C03-F02-S15' },
-  { id: 'loc-2', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S16', label: 'C03-F02-S16' },
-  { id: 'loc-3', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S01', label: 'C10-F01-S01' },
+  { id: 'loc-1', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S15', label: 'C03-F02-S15', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  { id: 'loc-2', zone: 'platform_stock', box: 'C03', row: 'F02', slot: 'S16', label: 'C03-F02-S16', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  { id: 'loc-3', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S01', label: 'C10-F01-S01', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  // §M4-VAULT: dos cajones de cliente más, para que la anomalía `multiple_drawers` y la elección del
+  // cliente nuevo tengan de dónde escoger en modo mocks.
+  { id: 'loc-4', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S02', label: 'C10-F01-S02', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
+  { id: 'loc-5', zone: 'customer_custody', box: 'C11', row: 'F01', slot: 'S01', label: 'C11-F01-S01', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
 ];
 
 export const mockInventory: InventoryItemDTO[] = [
@@ -2283,6 +2463,24 @@ export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
       status: 'in_custody',
       referenceValue: { status: 'priced', referenceMxnCents: 9500, capturedDate: '2026-08-13' },
       // v1.17-withdrawal-lifecycle (stream de retiros): settled y sin retiro activo → retirable.
+      shipmentState: null,
+      activeShipmentId: null,
+      withdrawable: true,
+    },
+  ],
+  // §M4-VAULT v1.79.3 (H-1): cuenta con el nombre FABRICADO del correo (`nameSource='derived'`,
+  // P-73) y una carta en bóveda ⇒ «Bóvedas de clientes» la sirve con `name: null`.
+  'u-780': [
+    {
+      inventoryItemId: 'inv-3101',
+      folio: 'INV-000311',
+      card: cardById('c-pikachu'),
+      productType: 'raw',
+      rawCondition: 'NM',
+      finish: 'normal',
+      ownershipStatus: 'settled',
+      status: 'in_custody',
+      referenceValue: { status: 'priced', referenceMxnCents: 9500, capturedDate: '2026-08-13' },
       shipmentState: null,
       activeShipmentId: null,
       withdrawable: true,
@@ -2651,7 +2849,7 @@ export function mockVaultOwnerOf(userId: string): VaultOwnerRefDTO {
   if (!u || !(userId in mockVaultHoldingsByUser)) {
     throw new ApiFixtureNotFound(`User ${userId} has no vault`);
   }
-  return { userId: u.id, name: u.name, email: u.email };
+  return { userId: u.id, name: mockCustomerDisplayName(u.id, u.name), email: u.email };
 }
 
 /**
@@ -2679,7 +2877,7 @@ export function mockAdminVaults(params: {
     }
     return {
       userId,
-      name: user?.name ?? userId,
+      name: user ? mockCustomerDisplayName(userId, user.name) : null,
       email: user?.email ?? '',
       pieceCount: inVault.length,
       totalValueMxnCents,
@@ -2689,11 +2887,19 @@ export function mockAdminVaults(params: {
 
   if (params.q) {
     const q = params.q.toLowerCase();
-    rows = rows.filter((r) => r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q));
+    rows = rows.filter(
+      (r) => (r.name ?? '').toLowerCase().includes(q) || r.email.toLowerCase().includes(q),
+    );
   }
   rows.sort((a, b) => {
     if (sort === 'pieces_desc') return b.pieceCount - a.pieceCount;
-    if (sort === 'name_asc') return a.name.localeCompare(b.name);
+    // v1.79.3 (H-1, prueba 28): `null` al final, y entre ellos por correo.
+    if (sort === 'name_asc') {
+      if (a.name === null && b.name === null) return a.email < b.email ? -1 : a.email > b.email ? 1 : 0;
+      if (a.name === null) return 1;
+      if (b.name === null) return -1;
+      return a.name.localeCompare(b.name);
+    }
     return b.totalValueMxnCents - a.totalValueMxnCents; // value_desc default
   });
 
@@ -4448,7 +4654,11 @@ export const mockVaultSealed: VaultSealedResponse = {
 /** Vista admin de la bóveda sellada de un cliente (GET /admin/vaults/:userId/sealed). */
 export function mockAdminVaultSealed(userId: string): VaultSealedResponse {
   const u = mockAdminUsers.find((x) => x.id === userId);
-  const owner: VaultOwnerRefDTO = { userId, name: u?.name ?? userId, email: u?.email };
+  const owner: VaultOwnerRefDTO = {
+    userId,
+    name: u ? mockCustomerDisplayName(userId, u.name) : null,
+    email: u?.email,
+  };
   if (userId === 'u-777') {
     return { ...mockVaultSealed, owner };
   }
@@ -6545,4 +6755,406 @@ export function mockPendingPublish(): Paginated<PendingPublishRowDTO> {
     },
   ];
   return { data: rows, page: 1, pageSize: 20, total: rows.length };
+}
+
+
+// =====================================================================================
+// MOCK · §M4-VAULT — «Para bóveda»: colocación, palomeo y vista «Qué debe haber» (v1.79.3)
+// =====================================================================================
+
+/**
+ * MOCK de `customerDisplayName` (§M4-VAULT.3 v1.79.3): `nameSource === 'derived' ? null :
+ * nullIfBlank(name)`. En los fixtures la única cuenta `derived` es `u-780` (misma regla que usa la
+ * ficha 360° mock, `nameSource: id === 'u-780' ? 'derived' : …`).
+ */
+export function mockCustomerDisplayName(userId: string, name: string): string | null {
+  if (userId === 'u-780') return null;
+  const trimmed = name.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+const MOCK_OPERATOR = { userId: 'u-op1', name: 'Operador Bóveda' };
+
+const drawerAna: CustomerDrawerRef = { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody', customerPieceCount: 4 };
+const drawerBrunoA: CustomerDrawerRef = { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody', customerPieceCount: 1 };
+const drawerBrunoB: CustomerDrawerRef = { id: 'loc-4', label: 'C10-F01-S02', zone: 'customer_custody', customerPieceCount: 2 };
+
+function vaultItem(
+  id: string,
+  over: Partial<VaultPreparationItemDTO> & Pick<VaultPreparationItemDTO, 'folio' | 'card'>,
+): VaultPreparationItemDTO {
+  return {
+    placementItemId: id,
+    orderItemId: `oi-${id}`,
+    inventoryItemId: `inv-${id}`,
+    quantity: 1,
+    currentLocation: { kind: 'assigned', label: 'C03-F02-S15' },
+    currentZone: 'platform_stock',
+    prepStatus: 'pending',
+    placeability: { kind: 'placeable' },
+    ...over,
+  };
+}
+
+/**
+ * Estado de preparación CALCULADO como lo hace el servidor (§M4-VAULT.10): `pending` cuenta solo
+ * colocables sin marcar; una bloqueada cuenta en `blocked` sea cual sea su marca.
+ */
+export function mockPreparationOf(
+  items: VaultPreparationItemDTO[],
+  sealed: { preparedAt: string; preparedBy: { userId: string; name: string | null } } | null,
+): VaultPreparationStateDTO {
+  const counts = { total: items.length, pending: 0, picked: 0, missing: 0, blocked: 0 };
+  for (const i of items) {
+    if (i.placeability.kind === 'blocked') counts.blocked += 1;
+    else if (i.prepStatus === 'pending') counts.pending += 1;
+    else if (i.prepStatus === 'picked') counts.picked += 1;
+    else counts.missing += 1;
+  }
+  return sealed ? { status: 'prepared', ...sealed, ...counts } : { status: 'in_progress', ...counts };
+}
+
+/** Semilla de la cubeta `vault`. Deliberadamente en desorden de `requestedAt` (el mock ordena). */
+function vaultPlacementSeed(): VaultPreparationOrderDTO[] {
+  const ana = [
+    vaultItem('vpi-8001-1', {
+      folio: 'INV-000201',
+      card: { name: 'Mewtwo', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: 'https://images.pokemontcg.io/base1/10.png' },
+      currentLocation: { kind: 'assigned', label: 'C03-F02-S16' },
+      prepStatus: 'picked',
+    }),
+    vaultItem('vpi-8001-2', {
+      folio: 'INV-000202',
+      card: { name: 'Alakazam', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'PSA 8', imageSmallUrl: 'https://images.pokemontcg.io/base1/1.png' },
+    }),
+    vaultItem('vpi-8001-3', {
+      folio: 'INV-000203',
+      card: { name: 'Gyarados', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: null },
+      placeability: { kind: 'blocked', reason: 'in_withdrawal' },
+    }),
+  ];
+  const derived = [
+    vaultItem('vpi-8002-1', {
+      folio: 'INV-000204',
+      card: { name: 'Dragonite', setName: 'Fossil', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: null },
+      currentLocation: { kind: 'unassigned' },
+      currentZone: null,
+    }),
+  ];
+  const brunoSealed = { preparedAt: '2026-09-24T17:20:00Z', preparedBy: MOCK_OPERATOR };
+  const bruno = [
+    vaultItem('vpi-8003-1', {
+      folio: 'INV-000205',
+      card: { name: 'Raichu', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'LP', imageSmallUrl: 'https://images.pokemontcg.io/base1/14.png' },
+      prepStatus: 'picked',
+    }),
+    vaultItem('vpi-8003-2', {
+      folio: 'INV-000206',
+      card: { name: 'Ninetales', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: null },
+      prepStatus: 'missing',
+    }),
+  ];
+  return [
+    {
+      destination: 'vault',
+      placementId: 'vp-8001',
+      orderId: 'ord-6001',
+      orderNumber: 'TCG-000201',
+      requestedAt: '2026-08-12T15:00:00Z',
+      customer: { userId: 'u-777', email: 'ana@example.com', lastName: 'López', fullName: 'Ana López' },
+      suggestedLocation: { source: 'existing_customer_vault', location: drawerAna },
+      preparation: mockPreparationOf(ana, null),
+      items: ana,
+    },
+    {
+      // Cuenta `derived` ⇒ `fullName` null (§M4-VAULT.3 v1.79.2); cliente nuevo ⇒ `source:'none'`.
+      destination: 'vault',
+      placementId: 'vp-8002',
+      orderId: 'ord-6002',
+      orderNumber: 'TCG-000202',
+      requestedAt: '2026-08-14T10:00:00Z',
+      customer: { userId: 'u-780', email: 'jcsainz95@example.com', lastName: null, fullName: null },
+      suggestedLocation: { source: 'none' },
+      preparation: mockPreparationOf(derived, null),
+      items: derived,
+    },
+    {
+      // ANOMALÍA: dos cajones; ya preparado (paso 2).
+      destination: 'vault',
+      placementId: 'vp-8003',
+      orderId: 'ord-6003',
+      orderNumber: 'TCG-000203',
+      requestedAt: '2026-08-11T09:00:00Z',
+      customer: { userId: 'u-778', email: 'bruno@example.com', lastName: 'Díaz', fullName: 'Bruno Díaz' },
+      suggestedLocation: { source: 'multiple_drawers', locations: [drawerBrunoA, drawerBrunoB] },
+      preparation: mockPreparationOf(bruno, brunoSealed),
+      items: bruno,
+    },
+  ];
+}
+
+/** Estado vivo del servidor falso (los verbos lo mutan). Las pruebas lo reinician. */
+let mockVaultPlacements: VaultPreparationOrderDTO[] = vaultPlacementSeed();
+/** Sellos de colocación/cancelación de las que ya salieron de la cola (para el `409` y el idempotente). */
+const mockClosedPlacements = new Map<string, VaultPlacementDTO>();
+
+export function resetMockVaultPlacements(): void {
+  mockVaultPlacements = vaultPlacementSeed();
+  mockClosedPlacements.clear();
+}
+
+/** La cubeta `vault` pendiente (copia profunda: la vista nunca muta el estado del «servidor»). */
+export function mockVaultPreparationQueue(): VaultPreparationOrderDTO[] {
+  return structuredClone(mockVaultPlacements);
+}
+
+function placementDTOOf(o: VaultPreparationOrderDTO): VaultPlacementDTO {
+  const prepared = o.preparation.status === 'prepared' ? o.preparation : null;
+  return {
+    id: o.placementId,
+    orderId: o.orderId,
+    orderNumber: o.orderNumber,
+    status: 'pending',
+    createdAt: o.requestedAt,
+    preparedAt: prepared?.preparedAt ?? null,
+    preparedBy: prepared?.preparedBy ?? null,
+    placedAt: null,
+    placedBy: null,
+    location: null,
+    cancelledAt: null,
+    cancelReason: null,
+  };
+}
+
+/** `409 PLACEMENT_NOT_PENDING` o `404`, según si la colocación salió de la cola o nunca existió. */
+function notPendingOr404(placementId: string): never {
+  const closed = mockClosedPlacements.get(placementId);
+  if (!closed) throw new ApiFixtureNotFound(`VaultPlacement ${placementId} not found`);
+  const details =
+    closed.status === 'placed' && closed.location
+      ? { status: 'placed', location: closed.location }
+      : { status: 'cancelled', cancelReason: closed.cancelReason };
+  throw new ApiFixtureError(409, 'PLACEMENT_NOT_PENDING', `VaultPlacement ${placementId} is ${closed.status}`, details);
+}
+
+function findPending(placementId: string): VaultPreparationOrderDTO {
+  const o = mockVaultPlacements.find((p) => p.placementId === placementId);
+  if (!o) notPendingOr404(placementId);
+  return o;
+}
+
+/** MOCK de `PATCH …/prep-items/:placementItemId` (§M4-VAULT.10). */
+export function mockSetVaultPrepItem(
+  placementId: string,
+  placementItemId: string,
+  status: PreparationItemStatus,
+): SetVaultPrepItemResponse {
+  const o = findPending(placementId);
+  const item = o.items.find((i) => i.placementItemId === placementItemId);
+  if (!item) throw new ApiFixtureNotFound(`VaultPlacementItem ${placementItemId} not found`);
+  if (o.preparation.status === 'prepared') {
+    throw new ApiFixtureError(409, 'PREPARATION_CLOSED', 'Preparation is closed', {
+      preparedAt: o.preparation.preparedAt,
+    });
+  }
+  if (status !== 'pending' && item.placeability.kind === 'blocked') {
+    throw new ApiFixtureError(409, 'PREP_ITEM_BLOCKED', 'Item is blocked', { reason: item.placeability.reason });
+  }
+  const changed = item.prepStatus !== status;
+  item.prepStatus = status;
+  o.preparation = mockPreparationOf(o.items, null);
+  return structuredClone({ changed, item, preparation: o.preparation });
+}
+
+/** MOCK de `POST …/prepared`. */
+export function mockPrepareVaultPlacement(placementId: string): PrepareVaultPlacementResponse {
+  const o = findPending(placementId);
+  if (o.preparation.status === 'prepared') {
+    return structuredClone({ outcome: 'already_prepared', placement: placementDTOOf(o), preparation: o.preparation });
+  }
+  if (o.preparation.pending > 0) {
+    throw new ApiFixtureError(409, 'PREPARATION_INCOMPLETE', 'Preparation incomplete', {
+      pendingCount: o.preparation.pending,
+    });
+  }
+  o.preparation = mockPreparationOf(o.items, { preparedAt: new Date().toISOString(), preparedBy: MOCK_OPERATOR });
+  return structuredClone({ outcome: 'prepared', placement: placementDTOOf(o), preparation: o.preparation });
+}
+
+/** MOCK de `DELETE …/prepared` (v1.79.2). Las marcas por carta SE CONSERVAN. */
+export function mockUnprepareVaultPlacement(placementId: string): UnprepareVaultPlacementResponse {
+  const o = findPending(placementId);
+  const outcome = o.preparation.status === 'prepared' ? 'unprepared' : 'not_prepared';
+  o.preparation = mockPreparationOf(o.items, null);
+  return structuredClone({ outcome, placement: placementDTOOf(o), preparation: o.preparation });
+}
+
+/** MOCK de `POST …/confirm` (§M4-VAULT.5, v1.79.3 con `locationId` opcional). */
+export function mockConfirmVaultPlacement(
+  placementId: string,
+  body: { locationId?: string },
+  locations: { id: string; label: string; zone: string; isActive?: boolean }[],
+): ConfirmVaultPlacementResponse {
+  if (body.locationId !== undefined && (typeof body.locationId !== 'string' || body.locationId.trim() === '')) {
+    throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'locationId must be a non-blank string', { field: 'locationId' });
+  }
+  const closed = mockClosedPlacements.get(placementId);
+  if (closed?.status === 'placed' && closed.location && closed.location.id === body.locationId) {
+    return structuredClone({ outcome: 'already_placed', placement: closed });
+  }
+  const o = findPending(placementId);
+  if (o.preparation.status !== 'prepared') {
+    throw new ApiFixtureError(409, 'PLACEMENT_NOT_PREPARED', 'Placement is not prepared', { preparation: o.preparation });
+  }
+  const now = new Date().toISOString();
+  const picked = o.items.filter((i) => i.prepStatus === 'picked');
+  const results: VaultPlacementItemResultDTO[] = o.items.map((i) => {
+    if (i.prepStatus === 'missing') return { inventoryItemId: i.inventoryItemId, folio: i.folio, result: 'missing' };
+    if (i.placeability.kind === 'blocked') {
+      return { inventoryItemId: i.inventoryItemId, folio: i.folio, result: 'skipped', reason: i.placeability.reason };
+    }
+    if (i.prepStatus === 'pending') {
+      return { inventoryItemId: i.inventoryItemId, folio: i.folio, result: 'skipped', reason: 'not_picked' };
+    }
+    return { inventoryItemId: i.inventoryItemId, folio: i.folio, result: 'moved' };
+  });
+  const base = placementDTOOf(o);
+  const close = (placement: VaultPlacementDTO) => {
+    mockVaultPlacements = mockVaultPlacements.filter((p) => p.placementId !== placementId);
+    mockClosedPlacements.set(placementId, placement);
+  };
+  if (picked.length === 0) {
+    const placement: VaultPlacementDTO = { ...base, status: 'cancelled', cancelledAt: now, cancelReason: 'nothing_to_place' };
+    close(placement);
+    return structuredClone({ outcome: 'nothing_to_place', placement, items: results });
+  }
+  if (!body.locationId) {
+    throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'locationId required', {
+      reason: 'location_required',
+      pickedCount: picked.length,
+    });
+  }
+  const loc = locations.find((l) => l.id === body.locationId);
+  if (!loc) throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'not found', { reason: 'not_found' });
+  if (loc.isActive === false) throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'inactive', { reason: 'inactive' });
+  if (loc.zone !== 'customer_custody') {
+    throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'not customer custody', { reason: 'not_customer_custody' });
+  }
+  const s = o.suggestedLocation;
+  const drawers = s.source === 'existing_customer_vault' ? [s.location] : s.source === 'multiple_drawers' ? s.locations : [];
+  if (drawers.length > 0 && !drawers.some((d) => d.id === loc.id)) {
+    throw new ApiFixtureError(422, 'LOCATION_NOT_AVAILABLE', 'not customer drawer', {
+      reason: 'not_customer_drawer',
+      customerDrawers: drawers,
+    });
+  }
+  const placement: VaultPlacementDTO = {
+    ...base,
+    status: 'placed',
+    placedAt: now,
+    placedBy: MOCK_OPERATOR,
+    location: { id: loc.id, label: loc.label, zone: 'customer_custody' },
+  };
+  close(placement);
+  return structuredClone({ outcome: 'placed', placement, items: results });
+}
+
+/**
+ * MOCK de `GET /admin/vaults/:userId/physical-inventory` (§M4-VAULT.11). ⚠️ Estático: NO se
+ * recalcula con los verbos de la cola (un servidor falso que derivara la vista de su propia cola
+ * sería un segundo `physicalStateOf`; la regla es del servidor).
+ */
+export function mockPhysicalInventory(userId: string): CustomerPhysicalInventoryDTO {
+  const u = mockAdminUsers.find((x) => x.id === userId);
+  if (!u) throw new ApiFixtureNotFound(`User ${userId} not found`);
+  const owner = { userId, name: mockCustomerDisplayName(userId, u.name), email: u.email };
+  const card = (name: string, setName: string, conditionLabel = 'NM') => ({
+    name,
+    setName,
+    finish: 'holofoil' as const,
+    conditionLabel,
+    imageSmallUrl: null,
+  });
+  if (userId === 'u-777') {
+    return {
+      owner,
+      drawer: { kind: 'single', location: drawerAna },
+      counts: { total: 6, inDrawer: 2, pendingPlacement: 1, missing: 1, inWithdrawal: 1, unlocated: 1 },
+      items: [
+        {
+          inventoryItemId: 'inv-pi-1', folio: 'INV-000191', card: card('Venusaur', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C03-F02-S15' }, currentZone: 'platform_stock',
+          origin: { placementId: 'vp-7001', orderId: 'ord-5901', orderNumber: 'TCG-000181' },
+          physical: { state: 'missing', placementId: 'vp-7001', markedAt: '2026-08-20T12:00:00Z', markedBy: MOCK_OPERATOR },
+        },
+        {
+          inventoryItemId: 'inv-pi-2', folio: 'INV-000192', card: card('Clefairy', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C03-F02-S16' }, currentZone: 'platform_stock',
+          origin: null,
+          physical: { state: 'unlocated', reason: 'not_in_customer_drawer' },
+        },
+        {
+          inventoryItemId: 'inv-pi-3', folio: 'INV-000193', card: card('Charizard', 'Base Set', 'PSA 9'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S01' }, currentZone: 'customer_custody',
+          origin: { placementId: 'vp-7002', orderId: 'ord-5902', orderNumber: 'TCG-000182' },
+          physical: { state: 'in_drawer', drawer: { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody' } },
+        },
+        {
+          inventoryItemId: 'inv-pi-4', folio: 'INV-000194', card: card('Hitmonchan', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S01' }, currentZone: 'customer_custody',
+          origin: { placementId: 'vp-7002', orderId: 'ord-5902', orderNumber: 'TCG-000182' },
+          physical: { state: 'in_drawer', drawer: { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody' } },
+        },
+        {
+          inventoryItemId: 'inv-pi-5', folio: 'INV-000202', card: card('Alakazam', 'Base Set', 'PSA 8'),
+          currentLocation: { kind: 'assigned', label: 'C03-F02-S15' }, currentZone: 'platform_stock',
+          origin: { placementId: 'vp-8001', orderId: 'ord-6001', orderNumber: 'TCG-000201' },
+          physical: { state: 'pending_placement', placementId: 'vp-8001', prepStatus: 'pending', prepared: false },
+        },
+        {
+          inventoryItemId: 'inv-pi-6', folio: 'INV-000203', card: card('Gyarados', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C03-F02-S15' }, currentZone: 'platform_stock',
+          origin: { placementId: 'vp-8001', orderId: 'ord-6001', orderNumber: 'TCG-000201' },
+          physical: { state: 'in_withdrawal', shipmentId: 'shp-7002', shipmentStatus: 'picking' },
+        },
+      ],
+    };
+  }
+  if (userId === 'u-778') {
+    return {
+      owner,
+      drawer: { kind: 'multiple', locations: [drawerBrunoA, drawerBrunoB] },
+      counts: { total: 3, inDrawer: 3, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0 },
+      items: [
+        { inventoryItemId: 'inv-pi-7', folio: 'INV-000301', card: card('Pikachu', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S01' }, currentZone: 'customer_custody', origin: null,
+          physical: { state: 'in_drawer', drawer: { id: 'loc-3', label: 'C10-F01-S01', zone: 'customer_custody' } } },
+        { inventoryItemId: 'inv-pi-8', folio: 'INV-000302', card: card('Onix', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S02' }, currentZone: 'customer_custody', origin: null,
+          physical: { state: 'in_drawer', drawer: { id: 'loc-4', label: 'C10-F01-S02', zone: 'customer_custody' } } },
+        { inventoryItemId: 'inv-pi-9', folio: 'INV-000303', card: card('Vulpix', 'Base Set'),
+          currentLocation: { kind: 'assigned', label: 'C10-F01-S02' }, currentZone: 'customer_custody', origin: null,
+          physical: { state: 'in_drawer', drawer: { id: 'loc-4', label: 'C10-F01-S02', zone: 'customer_custody' } } },
+      ],
+    };
+  }
+  if (userId === 'u-780') {
+    return {
+      owner,
+      drawer: { kind: 'none' },
+      counts: { total: 1, inDrawer: 0, pendingPlacement: 1, missing: 0, inWithdrawal: 0, unlocated: 0 },
+      items: [
+        { inventoryItemId: 'inv-pi-10', folio: 'INV-000204', card: card('Dragonite', 'Fossil'),
+          currentLocation: { kind: 'unassigned' }, currentZone: null,
+          origin: { placementId: 'vp-8002', orderId: 'ord-6002', orderNumber: 'TCG-000202' },
+          physical: { state: 'pending_placement', placementId: 'vp-8002', prepStatus: 'pending', prepared: false } },
+      ],
+    };
+  }
+  return {
+    owner,
+    drawer: { kind: 'none' },
+    counts: { total: 0, inDrawer: 0, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0 },
+    items: [],
+  };
 }

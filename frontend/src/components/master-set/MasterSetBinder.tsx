@@ -431,7 +431,9 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
       {/* Dueño de la bóveda (scope user_vault; email solo en la vista admin). */}
       {mode === 'user_vault_admin' && owner && (
         <p className="font-mono text-xs text-muted">
-          {t('ownerVault', { name: owner.name })}
+          {/* §M4-VAULT.3 v1.79.3 (H-1): `name === null` (nombre fabricado del correo o en blanco) ⇒
+              ausencia con nombre (§36.4), ⛔ nunca el prefijo del correo presentado como nombre. */}
+          {owner.name?.trim() ? t('ownerVault', { name: owner.name.trim() }) : t('ownerVaultNoName')}
           {owner.email ? ` · ${owner.email}` : ''}
         </p>
       )}

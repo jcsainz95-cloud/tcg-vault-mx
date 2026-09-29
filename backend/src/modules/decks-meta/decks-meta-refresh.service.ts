@@ -2,7 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MetaDeckSource, MetaMatchStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DeckMatcherService, MatchedLine } from './deck-matcher.service';
+import { CoverMatch, CoverMatchStatus, DeckMatcherService, MatchedLine } from './deck-matcher.service';
+import { imageOf } from './deck-image';
 import { LimitlessFetchClient } from './limitless-fetch.client';
 import { parseHomeIndex, parseDeckListHtml, HomeLeader } from './limitless-html.parser';
 import { evaluateCanary, CanaryResult, DeckCanarySummary } from './canary';
@@ -135,9 +136,12 @@ export class DecksMetaRefreshService {
         urlsFetched.push(`list/${c.listId}`);
         const { lines } = parseDeckListHtml(html);
         const matched = await this.matcher.matchLines(lines);
+        // Portada (§12.4.2): casada APARTE con el mismo motor; NUNCA se mezcla con `matched` (las 60),
+        // así que no cuenta en sumQuantity/matched/total, canario, MetaDeckCard ni no-mapeadas.
+        const cover = await this.matchDeckCover(c, errors);
         const summary = summarize(c, matched);
-        const report = toDeckReport(c, matched, thresholds.cardsMin, thresholds.cardsMax);
-        parsedDecks.push({ leader: c, matched, summary });
+        const report = toDeckReport(c, matched, thresholds.cardsMin, thresholds.cardsMax, cover);
+        parsedDecks.push({ leader: c, matched, summary, cover });
         deckReports.push(report);
       } catch (e) {
         const msg = `list/${c.listId} (${c.name ?? '??'}): ${(e as Error).message}`;
@@ -217,6 +221,27 @@ export class DecksMetaRefreshService {
   }
 
   /**
+   * Casa la portada del arquetipo (si la home la trajo). La portada es PROCEDENCIA, nunca bloquea: un
+   * fallo al casarla (p. ej. error de BD en la lectura) se registra y el deck sigue SIN portada (las 4
+   * columnas null, invariante todo-null) — no convierte el deck en `error` ni toca el canario, pero
+   * el fallo SÍ se añade a `errors` (visible en el reporte y en el `note` del `MetaFetchRun`).
+   */
+  private async matchDeckCover(leader: HomeLeader, errors: string[]): Promise<DeckCover | null> {
+    if (!leader.cover) return null;
+    try {
+      const m = await this.matcher.matchCover(leader.cover);
+      return { setCode: leader.cover.setCode, number: leader.cover.number, matchStatus: m.matchStatus, card: m.card };
+    } catch (e) {
+      const msg = (e as Error).message;
+      // Forma EXACTA del contrato (API_CONTRACT §13 Admin fila 4b): `cover <SET>-<NÚM>: <msg>`. Es el
+      // único sitio donde queda el crudo: el reporte da `cover:null` y en vivo las 4 columnas van null.
+      errors.push(`cover ${leader.cover.setCode}-${leader.cover.number}: ${msg}`);
+      this.logger.warn(`portada ${leader.cover.setCode}-${leader.cover.number} (${leader.name ?? leader.archetypeId}): no se pudo casar (${msg}); el deck sigue sin portada.`);
+      return null;
+    }
+  }
+
+  /**
    * Persiste UN deck en su propia `$transaction` (patrón `adminCreateOrCurate` de Fase 1):
    * upsert deck (source=limitless) → `MetaDeckList` nueva e inmutable → cards → supersede → re-apuntar
    * `currentListId`. Respeta `pausedByOperator` (se salta) y «manual gana» (no pisa `source=manual`).
@@ -274,6 +299,12 @@ export class DecksMetaRefreshService {
           activeMarksSnapshot: [] as unknown as Prisma.InputJsonValue,
           sourceUrl: `https://limitlesstcg.com/decks/list/${p.leader.listId}`,
           sourceTournament: meta.sourceTournament ?? null,
+          // Portada (§12.4.3). Invariantes: setCode/number/matchStatus todos null o todos no-null;
+          // coverCardId ≠ null ⇒ matchStatus = matched (matchCover sólo devuelve carta si casó).
+          coverSetCode: p.cover?.setCode ?? null,
+          coverNumber: p.cover?.number ?? null,
+          coverMatchStatus: p.cover?.matchStatus ?? null,
+          coverCardId: p.cover?.card?.id ?? null,
           cards: {
             create: p.matched.map((m) => ({
               rawName: m.rawName,
@@ -383,6 +414,28 @@ interface ParsedDeck {
   leader: HomeLeader & { archetypeId: string; listId: string };
   matched: MatchedLine[];
   summary: DeckCanarySummary;
+  /** Portada casada (o `null` si la home no la trajo válida). NO forma parte de `matched`. */
+  cover: DeckCover | null;
+}
+
+/** Portada del arquetipo: crudo del `alt` + resultado del casado (§12.4.2). */
+interface DeckCover {
+  setCode: string;
+  number: string;
+  matchStatus: CoverMatch['matchStatus'];
+  card: CoverMatch['card'];
+}
+
+/**
+ * `decks[].cover` del ensayo (API_CONTRACT §13 Admin, ADITIVO). `imageUrl` = imagen de NUESTRO catálogo
+ * (`imageLargeUrl ?? imageSmallUrl`), nunca la de Limitless. Es procedencia: no altera verdict/checks/inBand.
+ */
+export interface DeckCoverReport {
+  setCode: string;
+  number: string;
+  matchStatus: CoverMatchStatus;
+  cardId: string | null;
+  imageUrl: string | null;
 }
 
 interface PersistOutcome {
@@ -404,6 +457,8 @@ export interface DeckReport {
   total: number;
   matchStatusBreakdown: Record<string, number>;
   inBand: boolean;
+  /** Portada (rev `decks-portada`). `null` ⇔ la home no trajo portada válida, o la lista falló (`error`). */
+  cover: DeckCoverReport | null;
   error?: string;
 }
 
@@ -451,6 +506,7 @@ function toDeckReport(
   matched: MatchedLine[],
   cardsMin: number,
   cardsMax: number,
+  cover: DeckCover | null,
 ): DeckReport {
   const breakdown: Record<string, number> = {};
   for (const m of matched) breakdown[m.matchStatus] = (breakdown[m.matchStatus] ?? 0) + 1;
@@ -467,6 +523,15 @@ function toDeckReport(
     total: matched.length,
     matchStatusBreakdown: breakdown,
     inBand: sumQuantity >= cardsMin && sumQuantity <= cardsMax,
+    cover: cover
+      ? {
+          setCode: cover.setCode,
+          number: cover.number,
+          matchStatus: cover.matchStatus,
+          cardId: cover.card?.id ?? null,
+          imageUrl: cover.card ? imageOf(cover.card) : null,
+        }
+      : null,
   };
 }
 
@@ -483,6 +548,7 @@ function errorDeckReport(leader: HomeLeader & { archetypeId: string; listId: str
     total: 0,
     matchStatusBreakdown: {},
     inBand: false,
+    cover: null,
     error,
   };
 }

@@ -30,13 +30,23 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   let processedIds: Set<string>;
 
   const makeTx = () => ({
-    order: { update: jest.fn().mockResolvedValue({}) },
+    // v1.79.4 (§M4-VAULT.2-bis.1): el settle escribe la orden con `updateMany` (CAS); el resto de
+    // los flujos (fallo, contracargo…) siguen con `update`.
+    order: { update: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     inventoryItem: {
       findUnique: jest.fn().mockResolvedValue({ id: 'item1', status: 'in_custody', ownerType: 'customer' }),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+    // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
+    // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
+    vaultPlacement: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     // Fix 4: por defecto la carta NO tiene envío enviado/entregado (sigue en bóveda).
     shipmentItem: { findFirst: jest.fn().mockResolvedValue(null) },
   });
@@ -89,8 +99,12 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     });
     await payments.onPaymentSucceeded(piOf('pi_1', 100000));
     const tx = prisma._tx;
-    expect(tx.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'settled' }) }),
+    // v1.79.4: el CAS del settle — estado en el WHERE.
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'o1', status: { not: 'settled' } },
+        data: expect.objectContaining({ status: 'settled' }),
+      }),
     );
     // v1.68 (§4-R.2 regla 2): la liquidación SOLO mueve la pieza reservada por ESTA orden (o legada)
     // y limpia dueño/vencimiento.
@@ -143,7 +157,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     expect(spy).toHaveBeenCalledTimes(1);
     // El transaccional de settled corre una sola vez.
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma._tx.order.update).toHaveBeenCalledTimes(1);
+    expect(prisma._tx.order.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it('fix QA #1: handler failure deletes idempotency mark and rethrows (Stripe retries)', async () => {
@@ -172,9 +186,29 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     });
     await payments.handleEvent(evt);
     expect(processedIds.has('evt_fail')).toBe(true);
-    expect(prisma._tx.order.update).toHaveBeenCalledWith(
+    expect(prisma._tx.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'settled' }) }),
     );
+  });
+
+  it('SEC-VLT-DL: si revertir la marca TAMBIÉN falla, se registra un error (antes: silencio) y se propaga el error ORIGINAL', async () => {
+    prisma.order.findUnique.mockRejectedValueOnce(new Error('DB down'));
+    prisma.processedStripeEvent.delete.mockRejectedValueOnce(new Error('delete failed'));
+    const logError = jest.spyOn((payments as any).logger, 'error').mockImplementation(() => undefined);
+    const evt = {
+      id: 'evt_lost',
+      type: 'charge.dispute.created',
+      data: { object: { object: 'dispute', payment_intent: 'pi_1' } },
+    } as any;
+
+    // Semántica sin cambio: el error que sube es el del HANDLER, no el del borrado.
+    await expect(payments.handleEvent(evt)).rejects.toThrow('DB down');
+    // La marca se quedó (el borrado falló) ⇒ el reintento se ignorará: eso es lo que ya no es silencioso.
+    expect(processedIds.has('evt_lost')).toBe(true);
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError.mock.calls[0][0]).toEqual(expect.stringContaining('evt_lost'));
+    expect(logError.mock.calls[0][0]).toEqual(expect.stringContaining('charge.dispute.created'));
+    expect(logError.mock.calls[0][0]).toEqual(expect.stringContaining('delete failed'));
   });
 
   it('already-settled order is not re-processed', async () => {

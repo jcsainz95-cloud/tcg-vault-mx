@@ -70,6 +70,43 @@ export function formatDate(iso: string | undefined, locale: AppLocale = 'es'): s
 }
 
 /**
+ * **Antigüedad legible** de un instante pasado: «hace 3 días» / «3 days ago» (CA #9 de «Pedidos a
+ * preparar» — el operador atiende lo más viejo primero y necesita leer la espera **de un vistazo**,
+ * no restar fechas mentalmente).
+ *
+ * ⚠️ **Esto NO contradice el criterio 154** (que prohíbe «en 2 días» en los **plazos** del buylist).
+ * Aquel prohíbe un **vencimiento futuro** relativo, porque el cliente tiene que poder confrontarlo
+ * con la fecha exacta de su correo. Esto es una **antigüedad pasada** en una cola **interna**, y la
+ * pantalla la pinta **junto a** la fecha absoluta (`formatDate`), nunca en su lugar.
+ *
+ * **Trunca, no redondea:** 3.9 días son «hace 3 días», jamás «hace 4». Una cola de trabajo que
+ * exagera la espera empuja a saltarse el orden. Escalón: minutos < 1 h, horas < 1 día, luego días.
+ * `numeric:'auto'` da «hoy»/«ayer»/«ahora» en vez de «hace 0 días».
+ *
+ * `now` es inyectable **solo para las pruebas** (la vista usa el reloj real). Entrada inválida o
+ * ausente ⇒ `''` — nunca un `Invalid Date` ni una antigüedad inventada.
+ */
+export function formatAge(
+  iso: string | null | undefined,
+  locale: AppLocale = 'es',
+  now: Date = new Date(),
+): string {
+  if (!iso) return '';
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return '';
+  const rtf = new Intl.RelativeTimeFormat(localeTag[locale], { numeric: 'auto' });
+  const seconds = Math.trunc((then.getTime() - now.getTime()) / 1_000);
+  // Un pedido recién entrado dice «ahora», no «este minuto» (que es lo que da la unidad `minute`
+  // con `numeric:'auto'` en el cero, y se lee como una etiqueta de calendario, no como una espera).
+  if (Math.abs(seconds) < 60) return rtf.format(seconds, 'second');
+  const minutes = Math.trunc(seconds / 60);
+  if (Math.abs(minutes) < 60) return rtf.format(minutes, 'minute');
+  const hours = Math.trunc(minutes / 60);
+  if (Math.abs(hours) < 24) return rtf.format(hours, 'hour');
+  return rtf.format(Math.trunc(hours / 24), 'day');
+}
+
+/**
  * **Fecha Y HORA explícitas, en `America/Mexico_City`** (DESIGN_SYSTEM §23.4.2 decisión 6,
  * criterio 154). Se usa en los plazos del ciclo de compra del buylist.
  *

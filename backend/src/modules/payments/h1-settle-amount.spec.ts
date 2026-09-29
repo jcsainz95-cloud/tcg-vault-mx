@@ -32,13 +32,22 @@ const pi = (over: { amount?: number; amount_received?: number; currency?: string
 
 function build(order: any = VAULT_ORDER) {
   const tx: any = {
-    order: { update: jest.fn().mockResolvedValue({}) },
+    // v1.79.4 (§M4-VAULT.2-bis.1): el settle escribe la orden con un CAS (`updateMany`).
+    order: { update: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     inventoryItem: {
       findUnique: jest.fn().mockResolvedValue({ id: 'item1', status: 'reserved', ownerType: 'customer' }),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+    // v1.79 (M-59, §M4-VAULT.2-bis/.6): la liquidación `vault` crea su colocación y el contracargo
+    // `vault` la cancela, en la MISMA tx. Dobles inertes: su forma la fija payments.vault-placement-birth.spec.ts.
+    vaultPlacement: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'vp1' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    vaultPlacementItem: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     shipmentItem: { findFirst: jest.fn().mockResolvedValue(null) },
     shipmentRequest: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
   };
@@ -62,8 +71,11 @@ describe('H1 — asevera monto/moneda antes de liquidar', () => {
   it('amount y currency correctos → liquida (status settled escrito), sin auditar descuadre', async () => {
     const { svc, tx, audit } = build();
     await svc.onPaymentSucceeded(pi());
-    expect(tx.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'settled' }) }),
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'o1', status: { not: 'settled' } },
+        data: expect.objectContaining({ status: 'settled' }),
+      }),
     );
     expect(audit.log).not.toHaveBeenCalled();
   });
@@ -72,7 +84,7 @@ describe('H1 — asevera monto/moneda antes de liquidar', () => {
     const { svc, prisma, tx, audit } = build();
     await svc.onPaymentSucceeded(pi({ amount: 999 }));
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.order.update).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'order.settle_amount_mismatch',
@@ -92,7 +104,7 @@ describe('H1 — asevera monto/moneda antes de liquidar', () => {
     const { svc, prisma, tx, audit } = build();
     await svc.onPaymentSucceeded(pi({ amount: 100000, currency: 'usd' }));
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.order.update).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'order.settle_amount_mismatch',
@@ -111,7 +123,7 @@ describe('H1 — asevera monto/moneda antes de liquidar', () => {
     // `amount` (solicitado) cuadra, pero solo se capturaron 60000: el dinero que entró NO cuadra.
     await svc.onPaymentSucceeded(pi({ amount: 100000, amount_received: 60000 }));
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.order.update).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'order.settle_amount_mismatch',
@@ -123,8 +135,11 @@ describe('H1 — asevera monto/moneda antes de liquidar', () => {
   it('amount_received cuadra aunque amount venga distinto → liquida (manda lo capturado)', async () => {
     const { svc, tx, audit } = build();
     await svc.onPaymentSucceeded(pi({ amount: 999999, amount_received: 100000 }));
-    expect(tx.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'settled' }) }),
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'o1', status: { not: 'settled' } },
+        data: expect.objectContaining({ status: 'settled' }),
+      }),
     );
     expect(audit.log).not.toHaveBeenCalled();
   });
@@ -133,6 +148,6 @@ describe('H1 — asevera monto/moneda antes de liquidar', () => {
     const { svc, prisma, tx } = build();
     await svc.onPaymentSucceeded(pi({ amount: 100000, amount_received: 0 }));
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.order.update).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
   });
 });

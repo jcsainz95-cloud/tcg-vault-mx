@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
-import { Archivo, JetBrains_Mono, Montserrat, Zen_Old_Mincho } from 'next/font/google';
+import { Archivo, JetBrains_Mono, Montserrat } from 'next/font/google';
+import localFont from 'next/font/local';
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, getTranslations } from 'next-intl/server';
@@ -13,11 +14,24 @@ import '../globals.css';
  * cuando Inter se declaraba solo por nombre): sin petición a Google en runtime,
  * sin FOUT y con las variables que consume tailwind.config.ts.
  */
-const serif = Zen_Old_Mincho({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
+/*
+ * P-FONTS-CJK: Zen Old Mincho es una familia CJK y `next/font/google` IGNORA `subsets: ['latin']`
+ * en ella: Google la trocea en ~122 tramos unicode-range por peso y los glifos latinos quedan
+ * repartidos en ~22 de ellos (`$`, `N`, `=`… cada uno en un tramo distinto). Medido: 366 woff2
+ * de esta familia en `.next/static/media` y 242 precargados por este layout. El sitio no tiene
+ * ni un carácter japonés, así que se sirve la MISMA familia recortada a latín (3 ficheros de
+ * ~16 KB), generada con `frontend/scripts/subset-zen-old-mincho.sh`. Licencia OFL al lado.
+ */
+const zenOldMincho = localFont({
+  src: [
+    { path: '../fonts/zen-old-mincho/zen-old-mincho-latin-400.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/zen-old-mincho/zen-old-mincho-latin-500.woff2', weight: '500', style: 'normal' },
+    { path: '../fonts/zen-old-mincho/zen-old-mincho-latin-600.woff2', weight: '600', style: 'normal' },
+  ],
   display: 'swap',
   variable: '--font-serif',
+  fallback: ['Georgia', 'Times New Roman', 'serif'],
+  adjustFontFallback: 'Times New Roman',
 });
 const sans = Archivo({
   subsets: ['latin'],
@@ -81,7 +95,7 @@ export default async function LocaleLayout({
   return (
     <html
       lang={locale}
-      className={`${serif.variable} ${sans.variable} ${mono.variable} ${brand.variable}`}
+      className={`${zenOldMincho.variable} ${sans.variable} ${mono.variable} ${brand.variable}`}
     >
       <head>
         {/* PERF — TODAS las imágenes de carta (catálogo, carrusel, carritos, bóveda, admin)

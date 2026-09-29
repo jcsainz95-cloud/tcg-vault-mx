@@ -148,6 +148,10 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await prisma.dispute.deleteMany({ where: { userId: { in: ids } } });
   await prisma.shipmentRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a ShipmentItem
   await prisma.sellRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a SellRequestItem
+  // v1.79 (M-59): la colocación en bóveda cuelga de la orden con FK `Restrict` (y sus filas por carta
+  // de `OrderItem`, también `Restrict`) ⇒ se borran ANTES que las órdenes de los usuarios del fixture.
+  await prisma.vaultPlacementItem.deleteMany({ where: { placement: { order: { userId: { in: ids } } } } });
+  await prisma.vaultPlacement.deleteMany({ where: { order: { userId: { in: ids } } } });
   await prisma.order.deleteMany({ where: { userId: { in: ids } } }); // cascada a OrderItem
   await prisma.kycProfile.deleteMany({ where: { userId: { in: ids } } });
   // v1.67.1 (2026-09-11, medido): el perfil de facturación lleva `rfcEnc` cifrado con la clave PII

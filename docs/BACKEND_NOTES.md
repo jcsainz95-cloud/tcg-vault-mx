@@ -23717,3 +23717,514 @@ lectura de config). Requieren diseño + prueba que falle primero:
 - `GET /catalog/facets`
 El índice debe recortar la parte de la lectura de `InventoryItem`. Si tras el deploy siguen ~10s, la
 cola restante es la Causa 2 (histórico de precio) — que necesita el arreglo enrutado arriba.
+
+---
+
+# §M4P-ORDER — la medición de charset que el contrato deja a deber (backend, 2026-09-22)
+
+> **Por qué está aquí y no solo en un informe (`M4P-ORDCH`, techlead):** §M4P-ORDER declara el orden de
+> las cartas por **unidades de código UTF-16** y dice, textual, que **si cambia lo que el operador ve
+> hoy está NO MEDIDO**, dejando la medición a *«quien cablee»*. La hice, pero vivía **solo en mi
+> informe** — y un informe no es un documento que alguien vaya a releer. *Una medición que no está en
+> `docs/` se evapora, y dentro de seis meses alguien vuelve a medirla o, peor, la supone.*
+
+## 1 · La medición pedida: etiquetas fuera del alfabeto seguro
+
+**Consulta (solo lectura):**
+```sql
+SELECT count(*) FROM "VaultLocation" WHERE label !~ '^[A-Z0-9-]+$';
+```
+
+| Fecha | Dónde | Filas totales | Fuera de `^[A-Z0-9-]+$` |
+|---|---|---|---|
+| 2026-09-22 | `tcg_m4prep` (desarrollo, backend) | 4 | **0** |
+| 2026-09-22 | `tcg_m4prep2` (desarrollo, backend) | 4 | **0** |
+
+Las etiquetas existentes son `C01-F01-S01` ×2 y `E2E-F01-S01` ×2. Ordenadas con **los dos**
+comparadores (unidades de código y `localeCompare`) dan **la misma salida** ⇒ sobre lo que hay, el
+cambio de §M4P-ORDER **no es observable**.
+
+> ⚠️ **ALCANCE, dicho sin adornos: son bases de DESARROLLO sembradas por el seed, ⛔ NO la de
+> producción.** La de producción **no la he medido** y no tengo acceso. La consulta de arriba es de
+> solo lectura y la puede correr el dueño en Railway. ⚠️ Y aunque saliera distinto de cero, **el
+> cambio entra igual**: el orden de esas filas hoy depende de la locale del host, es decir
+> **indefinido por contrato** — §M4P-ORDER *define lo indefinido*, no cambia lo definido.
+>
+> ⚠️ **Y no es un invariante, es una costumbre.** `VaultLocation.label` lo compone el backend como
+> `` `${box}-${row}-${slot}` `` desde `CreateLocationDto`, cuyos tres campos son `@IsString()` **a
+> secas**: sin charset, sin longitud, sin mayúsculas. Un acento, una `ñ`, una minúscula o un espacio
+> son **alcanzables por la ruta de alta soportada**.
+
+## 2 · ⭐ El dato que faltaba para `M4P-ORD3`: Postgres coincide, o no, **según la collation**
+
+`GET /admin/inventory/locations` ordena **en Postgres** (`orderBy: { label: 'asc' }`) ⇒ es una
+**tercera autoridad de orden** sobre el mismo campo, y la única que no sigue §M4P-ORDER. El techlead
+marcó **NO MEDIDO** si difiere de verdad. **Medido el 2026-09-22**, con las etiquetas discriminantes de
+los casos 3 y 4 del contrato:
+
+| Autoridad | Orden resultante | ¿= unidades de código? |
+|---|---|---|
+| Unidades de código (§M4P-ORDER) | `C01 < CZ < CÑ < c01` | — (es la norma) |
+| Postgres, collation **`C`** | `C01 < CZ < CÑ < c01` | ✅ **idéntico** |
+| Postgres, collation **`und-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario en 3 y 4** |
+| Postgres, collation **`en-US-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario en 3 y 4** |
+
+**La conclusión operable:** la divergencia **no es hipotética ni depende de los datos — depende de la
+configuración de la base**. Una base creada con collation `C`/`C.UTF-8` coincide; una creada con ICU o
+`en_US.UTF-8` **discrepa exactamente en los dos casos que el contrato usa como discriminantes**, que es
+el mismo desacuerdo que tiene `localeCompare`. *El «riesgo bajo» del orden en SQL descansa en un ajuste
+de infraestructura que nadie declaró.*
+
+**Mi base de desarrollo es `C.UTF-8`** (`SELECT datcollate FROM pg_database WHERE datname=current_database()`)
+⇒ por eso coincide, y por eso **medir aquí no responde por producción**. La consulta que lo cierra, de
+solo lectura:
+```sql
+SELECT datcollate, datctype FROM pg_database WHERE datname = current_database();
+```
+
+**Por qué importa aunque hoy no se note:** las dos autoridades ordenan **listas distintas** (la cola de
+preparación vs. el catálogo de ubicaciones), así que la discrepancia **no salta a la vista**: se ve como
+*«el archivero y la hoja de trabajo no van en el mismo orden»*, que un operador atribuye a la pantalla,
+no a una collation. Ficha: **`M4P-ORD3`** en `docs/TECH_DEBT.md`.
+
+---
+
+# §M4-VAULT · M-59 — la COLOCACIÓN en bóveda: schema y nacimiento (backend, fase 1 · 2026-09-25)
+
+> Contrato: `API_CONTRACT §M4-VAULT` v1.79.1 (.2, .2-bis, .6, .8). Arquitectura: `§4.21q`. Rama
+> `claude/m4-boveda`. **Fase 1 = solo schema + nacimiento + cancelación por contracargo.** Los verbos
+> (palomear / preparado / confirm / deshacer preparado), la cola de dos fuentes y la vista física son
+> **fase 2** y NO existen todavía (medido: `rg "vault-placements" backend/src` ⇒ 0).
+
+## 1 · Migración `20260925120000_m59_vault_placement`
+
+- **Qué crea:** enums `VaultPlacementStatus`, `VaultPlacementCancelReason`, `PreparationItemStatus`;
+  tablas `VaultPlacement` (`orderId @unique`, índice `(status, createdAt)`) y `VaultPlacementItem`
+  (`orderItemId @unique`, índices `placementId` e `inventoryItemId`); 5 FKs, **todas `Restrict`**; y los
+  **6 CHECKs** del contrato, con nombre propio (así el error dice cuál se violó):
+  `VaultPlacement_pending_seals_chk`, `_placed_seals_chk`, `_cancelled_seals_chk`,
+  `_prepared_seal_chk`, `_placed_requires_prepared_chk` (INV-VP-6) y `VaultPlacementItem_prep_mark_chk`.
+- **Aditiva:** ninguna tabla existente gana columna ni constraint; ningún enum existente cambia; cero
+  `UPDATE/DELETE/DROP`. Sin backfill (`HECHOS.md`: cero ventas reales).
+- **Paridad schema ↔ migraciones medida:** `prisma migrate diff --from-url <bd migrada> --to-schema-datamodel`
+  deja **solo** el `RenameIndex` de `PriceReference_variant_capturedDate_key`, que es deriva **previa** a
+  M-59 (sale igual sobre la base sin M-59) — no es de esta migración y no la toqué.
+- En `InventoryItem` se realinearon (solo espacios) las cuatro relaciones existentes al añadir
+  `vaultPlacementItems`: `git diff -w` sobre el schema no tiene ni una línea `-`.
+
+### Rollback (probado el 2026-09-25 sobre `tcg_vault59_mut`, con filas dentro)
+
+**Orden obligatorio: primero el CÓDIGO, luego el DDL.** El código de fase 1 escribe `VaultPlacement` en
+la transacción del settle: si se tiran las tablas con ese código vivo, **toda liquidación `vault` falla**
+(500 ⇒ Stripe reintenta, no se pierde dinero, pero no liquida). Con el artefacto anterior desplegado:
+```sql
+DROP TABLE "VaultPlacementItem";
+DROP TABLE "VaultPlacement";
+DROP TYPE "PreparationItemStatus";
+DROP TYPE "VaultPlacementCancelReason";
+DROP TYPE "VaultPlacementStatus";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20260925120000_m59_vault_placement';
+```
+Medido: tras la reversa, 0 tipos y 0 tablas; `prisma migrate deploy` la vuelve a aplicar y el diff contra
+el schema queda limpio. ⚠️ Pierde el rastro de colocaciones (quién/cuándo preparó y colocó, marcas de
+faltante). No toca dinero ni el estado de ninguna pieza.
+
+### Lo que el `Restrict` obliga a quien BORRA órdenes
+
+`VaultPlacement → Order` y `VaultPlacementItem → OrderItem/InventoryItem` son `Restrict` (el contrato lo
+fija). El código de producción **no borra** órdenes, `OrderItem` ni piezas (medido: `rg
+"order\.delete|orderItem\.delete|inventoryItem\.delete" backend/src` ⇒ 0), pero dos herramientas sí:
+- `prisma/seed-e2e.ts` (reset por usuario del fixture) — borra colocaciones antes que órdenes.
+- `prisma/reset-db-keep-users.ts` — `vaultPlacementItem` al nivel hoja y `vaultPlacement` antes que
+  `order`; candado nuevo en su spec (que exige que **estén** antes de comparar posiciones: el
+  `indexOf === -1` de las aserciones existentes pasaría en silencio).
+
+## 2 · El nacimiento (`payments.service.ts`)
+
+- **Dónde:** `createVaultPlacement(tx, order, now)`, llamado **solo** desde la rama `vault` de
+  `onPaymentSucceeded`, dentro de su `$transaction`, **después** del bucle de piezas. Único creador.
+- **`now` izado:** la rama escribía `settledAt: new Date()` en línea; ahora hay una constante `now` que
+  va a `Order.settledAt` **y** a `VaultPlacement.createdAt` (la prueba unitaria exige la **misma
+  referencia** de objeto, no dos relojes que coinciden).
+- **Mecanismo:** `vaultPlacement.createMany({ skipDuplicates })` ⇒ `ON CONFLICT DO NOTHING`;
+  id por `findUniqueOrThrow({ where: { orderId } })`; `vaultPlacementItem.createMany({ skipDuplicates })`
+  con **todas** las `OrderItem` (sin filtrar por estado de la pieza).
+- **Contracargo** (`onChargeDisputeVault`): al final de su tx, `updateMany({ orderId, status:'pending' }
+  → cancelled/chargeback, cancelledByUserId: null)`. `count 0` no es error. Contracargo ganado,
+  reembolso y `direct_ship` **no** tocan colocaciones (con prueba).
+- ⛔ **Cero dinero:** la escritura de la orden sigue siendo exactamente `{status, settledAt}` (prueba).
+
+## 3 · Pruebas y mutaciones
+
+- Unidad: `test/payments.vault-placement-birth.spec.ts` (13). Integración (Postgres real + webhook
+  firmado): `test/integration/vault-placement-birth.e2e-spec.ts` (14): nacimiento, reentrega secuencial,
+  **carrera con entrelazado forzado** (candado de fila sobre `Order` + `esperarBloqueoDeFila`, N=10),
+  atomicidad (trigger de prueba que revienta el `INSERT` por carta), `direct_ship`, contracargo y los 6
+  CHECKs con su control positivo.
+- Mutaciones (sobre copia del árbol, no el vivo): `create` a secas ⇒ carrera **0/10** verde (el perdedor
+  da 500 en las 10); quitar `skipDuplicates` de las filas por carta ⇒ **0/10**; colocación fuera de la tx
+  ⇒ rojo atomicidad; sin cancelación por contracargo ⇒ rojo F; sin `CHECK` 5 ⇒ rojo INV-VP-6.
+
+## 4 · ⚠️ Medido para el arquitecto (no lo cambié: toca el settle)
+
+**Bajo dos entregas CONCURRENTES del webhook, `VaultPlacement.createdAt ≠ Order.settledAt` al final:
+10/10 en la corrida aislada y 8/10 en la suite completa** (medición informativa de la prueba C, N=10 cada
+una; las 2 iguales son coincidencia de milisegundo entre los dos `now`, no ausencia del mecanismo). Causa, previa a M-59: la segunda entrega también pasa el
+`status === 'settled'` leído **fuera** de la tx y su `order.update` **re-escribe** `settledAt` con su
+propio `now`; la colocación conserva el de la primera (ON CONFLICT). Una sola colocación, sin 500 — pero
+el «un hecho, un instante» del .2-bis solo se cumple en el camino secuencial. Cerrarlo pide guardar el
+`order.update` del settle con el estado en el `WHERE` (decisión del arquitecto: cambia la conducta de una
+escritura de la tabla del dinero). **NO MEDIDO:** si esa misma carrera manda dos veces el correo `AV-2`
+(también cuelga de la lectura fuera de la tx).
+
+# §M4-VAULT · fase 2 — cola «Para bóveda», los cuatro verbos, vista física y H-1 (backend · 2026-09-25)
+
+> Contrato: `API_CONTRACT §M4-VAULT` **v1.79.3** (.3, .4, .5 con 6-bis, .10, .11, .12). Rama
+> `claude/m4-boveda`, commits `b6d5e43` (código + pruebas) y `ef7ce20` (arnés de carreras). ⛔ Sin schema:
+> `M-59` idéntico. ⛔ Cero dinero: ningún verbo lee ni escribe importes.
+
+## 1 · Dónde vive cada cosa
+
+| Pieza | Fichero | Nota |
+|---|---|---|
+| Reglas compartidas (puerta, `P`, retiros activos, `customerDrawers`, sugerencia) | `modules/vault/vault-placement.rules.ts` | Un cuerpo por regla; lo importan la cola, los verbos y la vista física |
+| Proyección de la fila `vault`, conteos, `VaultPlacementDTO`, invariantes | `modules/vault/vault-preparation.view.ts` | `loadVaultQueue` = la segunda fuente de la cola |
+| Los cuatro verbos | `modules/vault/vault-placement.service.ts` + `vault-placements.controller.ts` (`/admin/vault-placements`) | `POST`/`DELETE` con `@HttpCode(200)` |
+| Vista física | `modules/vault/vault-physical-inventory.service.ts`, ruta en `admin-vaults.controller.ts` | `physicalStateOf` exportada (pura) |
+| `customerDisplayName` + orden null-safe | `modules/vault/customer-display-name.ts` | H-1 |
+| Cola mezclada | `shipments.service.ts` · `pickingList` / `byRequestedAt` | La cola **lee**; `byLocation` sigue en el servicio (su guarda de residuo lo lee ahí) |
+| Ayudantes puros de proyección | `modules/shipments/preparation-view.ts` | `nullIfBlank`, `locationViewOf`, `conditionLabelOf`, `lastNameOf`, `preparationCardOf` — **movidos sin cambiar el cuerpo** para que `vault` los use sin ciclo de imports |
+| Códigos nuevos | `common/error-codes.ts` | `LOCATION_NOT_AVAILABLE`, `PLACEMENT_NOT_PENDING`, `PLACEMENT_NOT_PREPARED`, `PREPARATION_CLOSED`, `PREPARATION_INCOMPLETE`, `PREP_ITEM_BLOCKED` |
+
+- **Puerta del cliente:** `pg_advisory_xact_lock(79_125_059::int, hashtext(userId))` — namespace distinto del de
+  reservas (`63_120_959`), candado en `vault.placement-rules.spec.ts`. La toman los cuatro verbos (candado de forma:
+  4 llamadas).
+- **Cuerpos sin clase DTO** (`@Body() body: Record<string, unknown>`): el contrato fija `details` exactos para el `400`
+  (`{field:'status', allowed}`, `{field:'locationId'}`) y el `ValidationPipe` global no los da. Con metatipo `Object` la
+  pipe no valida ni recorta; valida el servicio. Llaves extra (`placedByUserId`, `placedAt`) se ignoran: el actor sale
+  de `@CurrentUser()` (prueba 11, medida por HTTP).
+- **`?action=` de la bitácora NO es dominio cerrado** (lo que .5 paso 11 pedía medir): `settings.controller.ts` ·
+  `auditLog` hace `where.action = action` libre. Las acciones nuevas (`vault_placement.placed | nothing_to_place |
+  prepared | unprepared | item_missing | item_missing_cleared`) se consultan sin registrarlas en ningún sitio (prueba
+  HTTP en `vault-placement-verbs.e2e-spec.ts`).
+
+## 2 · Decisiones de implementación que el contrato dejaba abiertas (para QA/techlead/frontend)
+
+1. **Conteos de `preparation` = partición de `items[]`** (suman `total`): `picked`/`missing` por su **marca** (aunque la
+   carta haya quedado bloqueada después), `pending` = colocable sin marcar, `blocked` = bloqueada **sin marcar**. Es lo
+   único coherente con «`pending` cuenta solo colocables sin marcar; una bloqueada con `pending` cuenta en `blocked`» y
+   con «se puede preparar ⇔ `pending === 0`». Las listas `picked/missing/blocked` de la bitácora de `prepared` /
+   `unprepared` usan la **misma** partición y son **ids de pieza** (`inventoryItemId`), igual que `moved/missing/…` del
+   `confirm`.
+2. **Orden de `items[]` en los resultados del `confirm`** y en la vista cargada por los verbos: por `folio` (unidades de
+   código). La cola ordena sus cartas con `byLocation` (§M4P-ORDER), sin cambio.
+3. **`fromLocationId` del `InventoryMovement` del `confirm`**: se lee la pieza en la misma tx justo antes del `updateMany`
+   con el `WHERE` del contrato (`…P, OR:[{locationId:null},{locationId:{not:target}}]`). El `move` de M1 no toma la puerta
+   (carrera benigna declarada en .5); si se colara entre la lectura y el `UPDATE`, el `from` podría ser el anterior.
+4. **Perder el CAS del `confirm` contra un «deshacer»** (solo alcanzable SIN la puerta — defensa en profundidad, mutación
+   m3) contesta `409 PLACEMENT_NOT_PREPARED` (la fila de la tabla), ⛔ no un `CONFLICT` genérico.
+5. **Vista física — «la marca más reciente»**: por `VaultPlacement.createdAt` desc, desempate `VaultPlacement.id` desc
+   (unidades de código). Dentro de `missing` / `unlocated` el orden es `card.name`, `folio`.
+6. **H-1 — orden de `GET /admin/vaults`**: con nombre, `localeCompare` (lo que ya había); `null` al final; desempate
+   **siempre** `email` (unidades de código) y `userId` — también entre nombres iguales (antes el empate quedaba al orden
+   de `Array.sort`).
+7. **`customerDisplayName` recibe `nameSource` opcional**: un llamador que no lo selecciona trata el nombre como no
+   fabricado. Las cinco fuentes lo seleccionan (candado por HTTP, prueba 27); la de fuente `ship` **no** (asimetría
+   declarada, candada en unidad).
+
+## 3 · Medido para el arquitecto (⛔ no alineado aquí, como pide .11)
+
+- **`pieceCount` de `GET /admin/vaults` ≠ `counts.total` de la vista física**, por construcción: la lista cuenta
+  `ownerType='customer' ∧ status ∉ NOT_ON_HAND` con **cualquier** titularidad (incluye `reserved`/`ownershipStatus=
+  'pending'`); la vista física cuenta `settled ∧ in_custody`. Medido por HTTP: un cliente con 1 pieza en custodia y 1
+  reservada ⇒ `pieceCount 2`, `counts.total 1` (prueba «MEDIDO» de `vault-placement-verbs.e2e-spec.ts`).
+
+## 4 · Pruebas
+
+- **Unidad** (nuevas): `vault.customer-display-name.spec.ts` (27/28 mitad unidad + candado «una función, cinco
+  fuentes»), `shipments.picking-list.vault.spec.ts` (fila `vault`, `P`, conteos, sugerencia, 26, invariantes, orden
+  mezclado), `vault.placement-rules.spec.ts` (reglas puras + candados de forma). Reescrito a propósito: el «`?destination=
+  vault` ⇒ VACÍO» de `shipments.picking-list.spec.ts` y el de `preparation-queue.e2e-spec.ts` (su premisa era el hueco).
+- **Integración**: `vault-placement-verbs.e2e-spec.ts` (32 casos: 4, 5, 7, 8, 9, 11, 12, 14–17, 19–23, 26–28, 30, 31,
+  33 sobre `placed`, 34, 403/404, invariante de la cola, `?action=`), `vault-placement-races.e2e-spec.ts` (6, 6/33, 13,
+  18, 24, 25, 32a, 32b; desde v1.79.5 también 40(a)–(e2), §7). Fixtures: `test/integration/helpers/vault-placement-db.ts`.
+- **Carreras** (entrelazado forzado: candado de fila del CAS o la propia puerta, comprobado en `pg_stat_activity`):
+  todas `k/N = N/N` — ver la tabla del informe de la corrida en §5.
+- **Carrera 25 con la mutación m3 (sin puerta)**: su orden «PATCH primero» usa **la propia puerta** como barrera; sin
+  puerta en el producto nada se bloquea en ella y la espera revienta. Es límite del arnés de esa prueba de regresión, no
+  del producto (el contrato no le pide m3).
+
+## 5 · Mutaciones (sobre copia del árbol ENTERO, `git archive` de `b6d5e43` + el arnés de `ef7ce20`, en
+`scratchpad/backend-vault59/mut-f2`; la copia tiene su propio `git` local para revertir entre mutaciones)
+
+| Mutación | Prueba que la muerde | Resultado |
+|---|---|---|
+| m1 — `confirm` sin paso 6 y sin `preparedAt` en su CAS | 24 (orden «deshacer primero») | **roja**: 10/20 tiradas ok; las 10 «deshacer primero» dan `500` (CHECK `INV-VP-6`) |
+| m2 — `DELETE` sin estado bajo la puerta y sin `status:'pending'` en su CAS | 24 (orden «confirm primero») | **roja**: 10/20; las 10 «confirm primero» dan `500` |
+| m3 — quitar SOLO la puerta (los 4 verbos) | 24 | **verde 20/20** (lo que el contrato predice: los dos CAS sobre la misma fila bastan) |
+| m3 | 13 | **roja 0/10**: en las 10 tiradas, dos `200` y el cliente queda con **dos** cajones |
+| m3 | 18 | **roja 0/20**: violación (preparada con una colocable `pending`) en las 20 |
+| m3 (control) | 32b | verde 10/10 (el `WHERE` del cierre directo basta sin puerta) |
+| m4 — quitar `status:'pending'` del `WHERE` del cierre directo (la mutación de la prueba 32) | 32b | ⚠️ **verde 10/10 — SOBREVIVE**: con la puerta, el segundo `confirm {}` relee bajo la puerta (paso 5), ve `cancelled` y contesta `409` antes de su CAS. Ver §6 |
+| m4 + m3 (sin `status` y sin puerta) | 32b | **roja 0/10**: dos `200 nothing_to_place` y **dos** bitácoras en las 10 |
+| m5 — `customerDrawers` sin filtro de zona | unidad (1) + integración 4, 5, 8, 12, 14, 19, 20, 23… | **roja** (11 integración) |
+| m6 — trampa del NULL (`NOT:{locationId}` en vez del `OR`) | 7 | **roja** (solo integración: un doble de Prisma no evalúa SQL) |
+| m7 — `sortRows` de vuelta a `a.name.localeCompare(b.name)` | 28 (unidad) | **roja** (2) |
+| m8 — `sealed` con `User.name` crudo | 27 (unidad) | **roja** |
+| m9 — `409 {placed}` con `locationId` en vez de `location` | 23/33 | **roja** (solo integración) |
+
+## 6 · ⚠️ Discrepancia con el contrato (para el arquitecto — NO la cambié)
+
+**Prueba 32, mutación declarada:** *«quitar `status:'pending'` del `WHERE` del cierre directo ⇒ (b) debe dar dos
+bitácoras en alguna tirada ⇒ roja»*. **Medido: no muerde (10/10 verde)** mientras exista la puerta del cliente, porque
+el paso 5 (relectura bajo la puerta) ya filtra el segundo `confirm {}`. Solo se pone roja quitando **también** la puerta
+(0/10). Es el mismo razonamiento que el contrato hace para m3 en la prueba 24 («los dos CAS sobre la misma fila
+bastan»), al revés: aquí la puerta basta sin el `WHERE`. El `WHERE` sigue siendo necesario como defensa en profundidad
+(es la única protección si alguien quita la puerta — medido: m4+m3 roja), pero la prueba 32 tal como está escrita **no
+lo discrimina**. Decisión del arquitecto: o se reescribe la mutación de la 32 como «m4 + sin puerta», o se acepta que
+el candado del `WHERE` del cierre directo sea la combinación.
+
+> ⭐ **Resuelto en v1.79.5 (arquitecto, `9b5b08f`):** la cláusula de mutación de la 32 se retiró del contrato; la 32
+> queda como **regresión de la puerta** (así lo dice ahora un comentario encima de 32a/32b en la suite) y la mutación
+> del `status` de los `WHERE` pasa a la **prueba 40** (§7), contra el contracargo.
+
+## 7 · Prueba 40 — contracargo vs verbo (v1.79.5 · backend · 2026-09-28)
+
+Cierra C1 de techlead + seguridad y la IMPORTANTE 3 de QA (sobre `db7d1c2`). Commits `982fddf` (prueba + log del
+marcador + limpiezas) y `8979202` (40(e) en dos `it`). ⛔ Sin cambios en los `WHERE` ni en el orden de candados.
+
+- **Dónde:** `vault-placement-races.e2e-spec.ts`, casos 40(a)–(d) (N=10, entrelazado forzado) y 40(e1)/(e2)
+  (secuencial, N=1). Webhook `charge.dispute.created` **firmado** (`E2EHarness.sendStripeWebhook`) con `event.id` propio
+  (se borra en `afterAll`).
+- **Canario del arnés:** `VaultPlacementDb.waitRowBlocked(n)` cuenta sesiones con `wait_event_type='Lock'` y
+  `wait_event IN ('transactionid','tuple')` — candado de **fila**, ⛔ no advisory (la puerta). Se exige ver a A y luego
+  a A+B esperando fila; una tirada sin eso se reporta como `SIN-ENTRELAZADO:` y la prueba exige **0** de ésas.
+- **Qué asierta (todas las tiradas):** webhook `200`; fila `cancelled/chargeback` con `cancelledByUserId NULL`;
+  `Order.status='chargeback'`; B `409 PLACEMENT_NOT_PENDING {status:'cancelled', cancelReason:'chargeback'}`; y por
+  caso: (a) `preparedAt` intacto, 0 bitácoras `nothing_to_place`; (b) 0 `InventoryMovement reason='move'`, piezas
+  `platform/listed` con su `locationId` de antes, 0 `placed`; (c) `preparedAt`/`preparedByUserId` NULL, 0 `prepared`;
+  (d) `preparedAt` intacto, 0 `unprepared`; (e1) `placed` intacta y piezas `platform/listed` **en el cajón**; (e2)
+  `nothing_to_place` conserva razón, autor y fecha.
+
+**Medido por mí** (copias del árbol ENTERO con `git archive`, BD propia `tcg_bevault3`/`tcg_bevault3_mut`, Postgres 16):
+
+| Corrida | SHA de la copia | Resultado |
+|---|---|---|
+| limpio | `982fddf` | 40a/b/c/d **10/10** cada una, sin entrelazado **0/10**; (e) verde |
+| limpio (repetición) | `8979202` | 40a/b/c/d **10/10** cada una, sin entrelazado **0/10**; e1, e2 verdes; suite de carreras 14/14 |
+| m-a — sin `status` en el cierre directo (`:463`) | `982fddf` | **40a roja 0/10** (B `200 nothing_to_place`, fila `nothing_to_place` con **operador** como autor, 1 bitácora); b/c/d 10/10 |
+| m-b — sin `status` en el paso 8 (`:510`) | `982fddf` | **40b roja 0/10** (B `500 INTERNAL`; la fila queda `cancelled/chargeback`, 0 movimientos); a/c/d 10/10 |
+| m-c — sin `status` en `POST …/prepared` (`:330`) | `982fddf` | **40c roja 0/10** (B `200 prepared` sobre la cancelada, `preparedAt` escrito, 1 bitácora); a/b/d 10/10 |
+| m-d — sin `status` en `DELETE …/prepared` (`:380`) | `982fddf` | **40d roja 0/10** (B `200 unprepared`, `preparedAt` borrado, 1 bitácora); a/b/c 10/10 |
+| m-e — sin `status` en el `WHERE` del contracargo (`payments.service.ts:895`) | `982fddf` / `8979202` | a–d 10/10; **e1 roja** (webhook `500`: el CHECK rechaza la placed cancelada) y **e2 roja** (reescribe a `chargeback`, autor `NULL`) — medidas por separado en `8979202` |
+| m-gate — quitar SOLO la puerta (`lockCustomerVaultGate` no-op) | `982fddf` | 40a/b/c/d **10/10 verdes** + (e) verde: lo que el contrato pide (el rival no toma la puerta) |
+
+«0/10» = 0 tiradas correctas de 10 (roja en las 10). Las filas `(m-b)`–`(m-e)` estaban **NO MEDIDAS** en el contrato;
+su forma de ponerse rojas coincide con la derivada allí.
+
+**Otros de este pase:**
+- **37 (QA menor 7):** ahora asierta marca/últimos 4 (`visa/4242`, del doble `getCardDetails` del harness); «una vez»
+  lo da `re === 0` (una segunda escritura sería `settled→settled` y el trigger la cuenta). Mutación m-37 (el settle
+  `direct_ship` sin marca, `8979202`): **roja 0/10** invitado y **0/10** registrado.
+- **Borrado del marcador de Stripe (`payments.service.ts`, tras fallo del handler):** su error ya no se traga en
+  silencio: `logger.error` con evento, tipo, causa y «requiere reproceso manual». Semántica sin cambio (se propaga el
+  error original). Unidad nueva en `payments.service.spec.ts`; mutación m-log (volver a `.catch(() => undefined)`):
+  **roja** (1 de 16). ⛔ Sigue NO MEDIDO con fallo inyectado en integración. Resto en `TECH_DEBT.md` `SEC-VLT-DL`.
+- **Techlead:** corregido el comentario falso de `shipments.service.ts` («`?destination=vault` devuelve VACÍO hoy») y
+  quitado el JSDoc duplicado de `preparation-view.ts`. Deuda D1–D4, D8 y SEC-VLT-DL en `docs/TECH_DEBT.md` (`d6af930`).
+
+# §M4-VAULT.2-bis.1 · el settle es un CAS (v1.79.4 · backend · 2026-09-25)
+
+> Cierra el hallazgo de la fase 1 (§M4-VAULT · M-59 §4 de arriba: `createdAt ≠ settledAt` bajo dos entregas
+> concurrentes). Commit `aa1fec7`, **separado** de la fase 2. Contrato: `API_CONTRACT §M4-VAULT.2-bis.1`, pruebas 35–39.
+
+- **Qué cambió:** en las dos ramas del settle (`onPaymentSucceeded` rama `vault` y `settleDirectShipOrder`) la primera
+  escritura de la tx es `tx.order.updateMany({ where: { id, status: { not: 'settled' } }, data })`. `count === 0` ⇒ la tx
+  devuelve `false` sin escribir nada más y, fuera, `return` antes de auditoría de anomalías, confirmación de invitado y
+  `AV-2`. `data` idéntico al de antes. Early-return, `skipDuplicates` y `ProcessedStripeEvent` sin cambio.
+- **Pruebas:** `test/payments.settle-cas.spec.ts` (36a, 38iii; tres variantes). `vault-placement-birth.e2e-spec.ts`: C
+  (35) pasa a aserción con un **trigger de prueba** que cuenta `UPDATE "Order"` `settled → settled` (se borra en
+  `afterAll`); H (37) repite la carrera en `direct_ship` registrado e invitado; I (38ii) `failed → settled`. 38(i) = la B
+  de siempre, verde.
+- **Rojo antes / verde después (N=10, entrelazado forzado, medido por mí):** 35 **0/10 → 10/10**; 37 invitado **0/10 →
+  10/10**; 37 registrado **0/10 → 10/10**. Unidad: 6/9 rojas antes, 9/9 después.
+- **36(b):** `E2EHarness` **no** captura correos (medido: no sobreescribe `MAIL_PORT`; `rg -i mail
+  test/integration/helpers/e2e-app.ts` sin captura) ⇒ «un `AV-2` / una confirmación» se prueba solo por la unidad 36(a),
+  como permite el contrato.
+
+**Mutaciones (copia del árbol entero, `git archive aa1fec7`):**
+
+| Mutación | Qué la muerde | Medido |
+|---|---|---|
+| s1 — quitar `status` del `WHERE` (rama `vault`) | 35 | **0/10 verdes** (roja en las 10). En una tirada `createdAt === settledAt` coincidió por milisegundo y el trigger contó igual `re=1`: sin el conteo esa tirada habría pasado. También 5 unitarias |
+| s2 — ídem en `settleDirectShipOrder` | 37 | **0/10** invitado y **0/10** registrado; 35 sigue 10/10 (muerde a quien arregle solo `vault`). 2 unitarias |
+| s3 — la rama `vault` sigue avisando tras `count 0` | 36(a) | roja (1 unitaria: `AV-2` enviado por el perdedor) |
+| s4 — `createVaultPlacement` con `create` a secas (la mutación de fase 1) | **ya no la muerde la integración** (C/35 17/17 verde: el perdedor no llega al `INSERT`) | **16 unitarias rojas** (`payments.vault-placement-birth.spec.ts`: la forma `createMany + skipDuplicates`). Es lo que la prueba 39 declara: la segunda defensa queda candada por forma |
+
+# Meta Battle Decks — arte de la teja: «la ex representativa del deck» (2026-09-25)
+
+> **Sustituida (2026-09-28)** por «Meta Battle Decks — portada del deck = la de Limitless (M-60)» más abajo: la regla
+> pasó a ser normativa (API_CONTRACT §13) y las reglas 2/2b se funden en un solo conjunto. Lo de aquí queda como historia.
+
+Pedido del dueño: «En las imágenes hay que poner la EX representativa del deck» / «No cualquier carta en los decks».
+El contrato no fija la regla (`imageUrl` de `GET /decks-meta`); es decisión de implementación. Código:
+`backend/src/modules/decks-meta/deck-image.ts` (`pickDeckImage(deckName, imageCardId, cards)`, función pura),
+pruebas en `deck-image.spec.ts`.
+
+**Medido antes de decidir:** Limitless trae el nombre del arquetipo SIN «ex» (`test/fixtures/limitless/home-index.html`:
+«Dragapult», «Basic Box», «Alakazam», «N's Zoroark», «Slowking», «Mega Excadrill»). El jalado automático
+(`decks-meta-refresh.service.ts`, upsert de `MetaDeck`) NO escribe `imageCardId`. La regla vieja tomaba la primera
+Pokémon casada en el orden en que Prisma devolvía las líneas (sin `orderBy`) ⇒ típicamente una básica.
+
+**Regla** (sólo líneas casadas, grupo Pokémon, con imagen de catálogo; nunca arte externo):
+1. `imageCardId` del admin, si sigue en la lista.
+2. La **ex** cuyo nombre aparece en el nombre del deck (palabras completas; si hay varias, la que aparece antes:
+   «Gardevoir ex / Jellicent ex» ⇒ Gardevoir ex; «Charizard Pidgeot» ⇒ Charizard ex).
+3. (2b) Si ninguna ex casa por nombre: la Pokémon NO-ex cuyo nombre aparece en el del deck («Alakazam» ⇒ Alakazam,
+   no Fezandipiti ex). Añadido al orden pedido porque los nombres de Limitless lo hacen necesario.
+4. La ex con más copias (sumando impresiones). 5. La Pokémon con más copias. 6. `null`.
+
+Normalización: minúsculas, sin acentos (NFD), apóstrofo tipográfico ⇒ recto, «ex»/«EX» suelto fuera; ex = nombre
+terminado en «ex» (cualquier caja) o `subtypes` con «ex». Coincidencia: nombre completo sin «ex» primero, luego la
+especie (última palabra: «Teal Mask Ogerpon ex» casa con «Ogerpon»). Desempates deterministas: posición más
+temprana en el nombre del deck (el primero nombrado); a igual posición, completa > especie (deck «Excadrill» ⇒
+«Excadrill ex», no «Mega Excadrill ex»); más copias; nombre ascendente.
+Varias impresiones de la misma carta: más copias en su línea, luego `externalId` ascendente.
+
+**Propuesta (no implementada, requiere arquitecto):** la home de Limitless ya trae la carta que Limitless usa como
+portada del arquetipo: `a.leader-image img[alt="TWM-130"]` (set+número; en el fixture: TWM-130, TWM-25, MEG-56,
+JTG-98, SCR-58, PBL-65). `limitless-html.parser.ts` no la extrae hoy. Casándola por `ptcgoCode`+`number` como el
+resto de líneas y guardándola en `imageCardId` (o en un campo nuevo, para no pisar la elección del admin) daría la
+portada exacta de la fuente sin heurística de nombres.
+
+**Aclaración (gate sobre `3806fec`, techlead menor):** la regla 1 (`imageCardId` del admin) NO lleva el filtro de
+grupo/estado de las demás: si alguna línea trae esa carta con imagen de catálogo, gana aunque sea entrenador o
+energía. Intencional — la elección explícita del operador manda sobre la heurística. Docstring de `deck-image.ts`
+alineado. `decks-meta.service.ts` reutiliza `imageOf` (exportado de `deck-image.ts`) en vez de repetir
+`imageLargeUrl ?? imageSmallUrl ?? null`.
+
+**Candado de servicio (QA IMPORTANTE 1):** `decks-meta.service.spec.ts` › «listPublished — arte de la teja»: deck
+«Alakazam» con Fezandipiti ex (1) y Dudunsparce ex (2) ⇒ exige Alakazam. Sin él, la mutación
+`pickDeckImage('', deck.imageCardId, cards)` en `listPublished` sobrevivía la suite unitaria entera (QA, 5266/5266).
+Con él cae (backend, 2026-09-25, copia del árbol con el cambio; recibe `dud.png`). Mutación determinista: N=1 basta.
+Deuda de la heurística: `docs/TECH_DEBT.md` «TD-2 (arreglos-rápidos)».
+
+---
+
+# P-BUYLIST-CONC-FLAKE — el rojo intermitente de `buylist-intake-concurrency` era un `503`, no la no-vacuidad (2026-09-25)
+
+**Síntoma.** `test/integration/buylist-intake-concurrency.e2e-spec.ts` salía rojo de vez en cuando en
+`expect(servidor).toEqual([])` (línea 161 de la versión anterior a `c36b492`).
+
+**Causa real (medida).** La respuesta era **`503 BUSY_TRY_AGAIN`**, no un `500` ni un fallo de la no-vacuidad. La versión
+anterior disparaba **4 altas simultáneas del mismo vendedor × 12 rondas** dentro de `runSerializable` (SERIALIZABLE,
+`SEC-A2`). Con 4 contendientes sobre el mismo predicado (el acumulado mensual AML), el SSI puede abortar a 3 por ronda y
+los reintentos vuelven a pelear entre sí; de vez en cuando una alta pierde los **5** intentos
+(`SERIALIZABLE_ATTEMPTS`), el helper propaga el `P2034` original y `AllExceptionsFilter.motivoTransitorio` lo traduce a
+`503` + `Retry-After: 1` (§0-T, desde `a5aa07e`). Es la «cola esperable» bajo carga que §0-T describe: conducta de
+producción correcta; lo frágil era la prueba, que apostaba a que la máquina no produjera esa cola.
+
+**Mediciones (autor · N):**
+| Qué | Resultado | Autor | N |
+|---|---|---|---|
+| CI de la PR #59 | 1 prueba roja de 1044, `503 BUSY_TRY_AGAIN`; verde al re-run | CI (registro de la PR) | 1 corrida |
+| Versión anterior, aislada en local, `connection_limit=5` como el CI | **1/30** rojas, la roja con `503 BUSY_TRY_AGAIN` | backend (`c36b492`) | 30 |
+| Presupuesto de intentos, versión 4×12 (histórico) | 3 intentos ⇒ **10/10 rojas**; 5 ⇒ **8/8 verdes** | backend (`dd3522b`, 2026-09-14) | 10 y 8 |
+
+⚠️ Con una tasa de ~1/30, un «verde» de pocas corridas no dice nada (0.97^10 ≈ 74 % de sacar 10/10 verdes con el
+intermitente dentro).
+
+**Arreglo (`c36b492`, solo prueba, cero producción).** Cada ronda FUERZA el entrelazado con
+`test/integration/helpers/row-lock-barrier.ts`: la prueba toma `SELECT … FROM "Card" … FOR UPDATE`, suelta **2** altas y
+comprueba en `pg_stat_activity` que las dos esperan en el `INSERT "SellRequestItem"` (la FK a `"Card"` pide
+`FOR KEY SHARE`), ya con el acumulado leído y su `SellRequest` insertada. Al soltar, el SSI tiene que abortar a una y su
+reintento corre sin rival ⇒ determinista. Aserciones endurecidas, ninguna relajada (cero `5xx`; 201 en todas; ≥1
+conflicto **por ronda**). El helper de barrera documenta ahora a este usuario y que la sentencia que espera puede ser
+cualquiera que pida candado sobre la fila (no solo `UPDATE`).
+
+**Lo que se pierde, dicho:** la prueba nueva ya no distingue 2 intentos de 5, así que **ningún candado de integración
+sostiene hoy `SERIALIZABLE_ATTEMPTS = 5`**. Queda un candado unitario barato del literal
+(`test/serializable-retry.spec.ts`, «el presupuesto es 5») y la propuesta de estrés fuera del gate en
+`docs/TECH_DEBT.md` «TD-1 (arreglos-rápidos)».
+
+⛔ NO MEDIDO: la proporción de `503` con ~50 altas simultáneas del mismo vendedor.
+
+# Meta Battle Decks — portada del deck = la de Limitless (M-60, rev `decks-portada`, 2026-09-28)
+
+Diseño: `ARCHITECTURE.md §12.4`; contrato: `API_CONTRACT.md §13` «Portada del deck (`imageUrl`) — regla normativa» y
+«Admin» (`decks[].cover` del ensayo). Rama `claude/decks-portada`. Implementado tal cual; sin discrepancias con el
+contrato que requieran al arquitecto (ver «Decisiones de implementación» para lo que el diseño dejaba abierto).
+
+## Qué hace, por pieza
+- **Parser** (`limitless-html.parser.ts`): `HomeLeader.cover: { setCode, number } | null`, leído SOLO de
+  `a.leader-image img[alt]` (trim), validado con `^([A-Za-z0-9](?:[A-Za-z0-9-]{0,8}[A-Za-z0-9])?)-([A-Za-z0-9]{1,8})$`
+  y longitud ≤ 20 (`parseCoverAlt`, exportada). El set empieza y TERMINA en alfanumérico (QA 5, 2026-09-28):
+  «TWM--25» ⇒ `null`, no set «TWM-». Número CRUDO («25»). El `src` no se lee. Si hay bloques y ninguna portada válida ⇒
+  `logger.warn` que empieza por «portada:» (no es check del canario).
+- **Matcher**: `DeckMatcherService.matchCover(cover) ⇒ { matchStatus, card }` delega en `matchLines` con una línea
+  sintética (`quantity:1`, `pokemon`, `isBasicEnergy:false`). `card` sólo si `matched`. `matchStatus` es
+  `CoverMatchStatus = Exclude<MetaMatchStatus, 'unmatched_basic_energy'>` (TD-c, también en `DeckCoverReport`);
+  si el motor devolviera `unmatched_basic_energy` (inalcanzable por construcción), `matchCover` LANZA y el refresh lo
+  trata como fallo de portada (abajo).
+- **Refresh** (`decks-meta-refresh.service.ts`): por deck, `matchDeckCover` aparte de `matched` (las 60). Modo vivo:
+  `persistDeck` escribe `coverSetCode/coverNumber/coverMatchStatus/coverCardId` en la `MetaDeckList` nueva. Ensayo:
+  `DeckReport.cover = { setCode, number, matchStatus, cardId, imageUrl } | null` (`imageUrl` = `imageOf` de NUESTRA
+  carta). Deck con `error` ⇒ `cover:null`. `GET /admin/decks-meta/preview` devuelve el reporte tal cual, así que el
+  campo llega al front sin tocar el controlador.
+- **Regla** (`deck-image.ts`): `pickDeckImage({ deckName, imageCardId, coverCard, cards })` (firma-objeto). Orden:
+  1 admin › 2 `coverCard` con imagen (sin filtro de grupo, no exige estar en las 60) › 3 nombre en UN conjunto con
+  desempate (posición, completa<especie, ex<no-ex, copias desc, clave asc) › 4 ex con más copias › 5 Pokémon con más
+  copias › `null`.
+- **Lectura** (`decks-meta.service.ts` `listPublished`): `include: { currentList: { include: { coverCard: true, … } } }`
+  y pasa `coverCard`. `getBySlug` y `paste`: sin cambio. `adminCreateOrCurate` NO escribe portada (nace null).
+
+## Migración M-60 — `20260928120000_m60_meta_deck_list_cover`
+Escrita a mano (equivale a lo que genera `prisma migrate diff`, medido: mismas dos sentencias salvo el orden de
+columnas). 4 columnas nullable en `MetaDeckList` + FK `MetaDeckList_coverCardId_fkey → Card(id) ON DELETE SET NULL ON
+UPDATE CASCADE`. Sin default, sin backfill, sin índice, sin enum nuevo. Número: M-59 lo usa otra rama
+(`20260925120000_m59_vault_placement`, dato del orquestador, NO MEDIDO por mí en esta rama); si al fusionar hay
+colisión de timestamp u orden, el orquestador lo reasigna — la migración no depende de M-59.
+
+**Rollback** (medido en BD propia dentro de `BEGIN … ROLLBACK`: deja 0 columnas `cover%`; tras el `ROLLBACK`, 4):
+```sql
+ALTER TABLE "MetaDeckList" DROP CONSTRAINT "MetaDeckList_coverCardId_fkey";
+ALTER TABLE "MetaDeckList" DROP COLUMN "coverCardId", DROP COLUMN "coverMatchStatus",
+  DROP COLUMN "coverNumber", DROP COLUMN "coverSetCode";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20260928120000_m60_meta_deck_list_cover';
+```
+y desplegar el backend anterior (no lee estas columnas). Sólo se pierde procedencia de portada, que el job reescribe.
+Sin la migración, el backend nuevo falla al escribir/leer `coverCard` ⇒ migración y código van juntos (la migración
+primero, como siempre: es aditiva y el código viejo la ignora).
+
+## Decisiones de implementación (lo que el diseño no fijaba)
+1. **Fallo al casar la portada ⇒ el deck sigue SIN portada** (las 4 columnas null, `cover:null` en el ensayo),
+   `logger.warn` **y una entrada en `errors[]` con la forma EXACTA `cover <SET>-<NÚM>: <msg>`** (API_CONTRACT §13 Admin
+   fila 4b, ARCHITECTURE §12.4.2; C-1 del techlead, cerrado 2026-09-28). El deck no pasa a `error`, ni cambian
+   `verdict`, `canary` ni `persistedCount`. `errors[]` viaja al `note` del `MetaFetchRun`, así que el fallo queda
+   también en la traza de la corrida. Motivo: §13 «la portada nunca bloquea». En la práctica `matchCover` hace las
+   mismas lecturas que `matchLines`, así que si falla la BD ya habría fallado la lista.
+2. **Nombre de la línea sintética:** `name` = `SET-NÚM` (no se persiste: la línea no sale de `matchCover`).
+3. **Aviso del parser**: `logger.warn` por corrida, no por bloque.
+
+## Pruebas (§12.4.6) y dónde viven
+| # | Fichero |
+|---|---|
+| P1, P2 (+aviso, +set terminado en guion), P3–P6, C-1, TD-c | `backend/test/decks-meta-portada.spec.ts` (P3–P6 y C-1 con el matcher REAL sobre catálogo en memoria; C-1 = `matchCover` lanza ⇒ deck sin portada, reporte igual y `errors == ['cover TWM-25: …']`) |
+| P7, S1 | `backend/src/modules/decks-meta/decks-meta.service.spec.ts` (el mock de S1 honra el `include`) |
+| D1–D7 | `backend/src/modules/decks-meta/deck-image.spec.ts` (las 19 previas: sólo cambia la forma de la llamada) |
+| matchCover | `deck-matcher.service.spec.ts` (`4`↔`004`, minúsculas, `unmatched_set/number`, `ambiguous`) |
+| forma M-60 | `backend/test/migration.m60-meta-deck-list-cover.spec.ts` |
+| integración | `backend/test/integration/decks-meta-persistence.e2e-spec.ts` › «portada del deck (M-60)»: `matchCover` contra BD real, `listPublished` lee la portada, `ON DELETE SET NULL`, curaduría ⇒ null |
+
+Todas deterministas (sin reloj ni carrera): N=1 por mutación. Las 18 mutaciones de la tabla §12.4.6 (y variantes)
+mueren; detalle en el informe del commit.
+
+## NO MEDIDO
+- Qué carta de NUESTRO catálogo es `TWM-25`: no hay BD con catálogo en este entorno (la BD de pruebas es propia y
+  vacía). Se mide en staging/prod con el ensayo: la columna «Portada» dirá `casada` y la miniatura.
+- Cuántas portadas de la home real casan hoy contra el catálogo de prod (depende de `ptcgoCode` de `MEG`/`JTG`/`PBL`).
+
+## Deuda anotada
+- **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
+  `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
+

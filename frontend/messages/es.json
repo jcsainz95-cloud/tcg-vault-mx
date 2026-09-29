@@ -702,6 +702,7 @@
     "driftChipAria": "{finish}: {count} piezas fuera de catálogo",
     "driftNote": "fuera de catálogo",
     "ownerVault": "Bóveda de {name}",
+    "ownerVaultNoName": "Bóveda de un cliente sin nombre registrado",
     "variantsTitle": "Casillas por acabado",
     "buyCta": "Agregar al carrito · {price}",
     "buyAdded": "Agregada al carrito de compra.",
@@ -1480,7 +1481,6 @@
     },
     "m4": {
       "title": "M4 · Retiros / envíos",
-      "pickingList": "Lista de picking (por ubicación)",
       "tracking": {
         "capture": "Capturar guía",
         "title": "Captura de guía",
@@ -1498,18 +1498,11 @@
       "queueEmpty": "Sin envíos con ese filtro.",
       "itemCount": "{count, plural, one {# ítem} other {# ítems}}",
       "recipient": "Para",
-      "recipientMissing": "SIN DESTINATARIO (retiro anterior a v1.67)",
+      "recipientMissing": "Sin destinatario registrado",
       "street": "Calle",
       "customer": "Cliente",
       "postalCode": "CP",
       "phone": "Tel",
-      "pickingHint": "Envíos en preparación (picking), ordenados por ubicación en bóveda.",
-      "pickingEmpty": "Nada que preparar por ahora.",
-      "picking": {
-        "location": "Ubicación",
-        "folio": "Folio",
-        "shipment": "Envío"
-      },
       "statusActions": {
         "enviado": "Marcar enviado",
         "entregado": "Marcar entregado",
@@ -1518,6 +1511,144 @@
         "cancelTitle": "Cancelar envío",
         "cancelConfirm": "Cancelar envío",
         "cancelBody": "¿Cancelar el envío {id}? Esta acción no se puede revertir."
+      },
+      "prep": {
+        "title": "Pedidos a preparar",
+        "hint": "Pedidos ya cobrados, listos para armar. Se atiende primero el más viejo.",
+        "filterLabel": "Cubeta",
+        "filterAll": "Ambas",
+        "filterShip": "Solo envío",
+        "filterVault": "Solo bóveda",
+        "destination": {
+          "ship": "Para enviar",
+          "vault": "Para bóveda"
+        },
+        "withdrawal": "Retiro de bóveda",
+        "shipmentRef": "Envío",
+        "requestedAt": "Solicitado",
+        "lastNameUnknown": "Apellido no identificado",
+        "unassigned": "Sin ubicar",
+        "folio": "Folio",
+        "location": "Ubicación",
+        "set": "Set",
+        "itemCount": "{count, plural, one {# carta} other {# cartas}}",
+        "orderCount": "{count, plural, one {# pedido} other {# pedidos}}",
+        "empty": {
+          "title": "Nada que preparar por ahora.",
+          "body": "Cuando entre un pedido cobrado aparecerá aquí, con el más viejo arriba."
+        },
+        "emptyShip": {
+          "title": "Nada que enviar por ahora.",
+          "body": "No hay pedidos cobrados esperando envío."
+        },
+        "nameMissing": {
+          "tag": "Sin nombre registrado",
+          "body": "La dirección de este pedido se guardó sin el nombre de quien recibe: es un hueco del registro, no un cliente anónimo. Identifica el paquete por su folio."
+        },
+        "conflict": {
+          "title": "La cola no se puede mostrar, y no está vacía.",
+          "impact": "Hay pedidos ya cobrados esperando y desde aquí no se ven.",
+          "body": "Un pedido de esta cola no permite saber a dónde va: los datos que deciden su destino no cuadran. Por eso no se muestra ninguna cubeta, ni envío ni bóveda — dejar fuera esa sola fila haría que un pedido cobrado desapareciera de la pantalla sin que nadie lo notara.",
+          "action": "Avisa al súper-admin: esto se corrige en los datos, no desde esta pantalla. Cuando esté corregido, vuelve a cargar.",
+          "technicalDetail": "Detalle técnico"
+        },
+        "vault": {
+          "step": {
+            "collect": "Paso 1 de 2 · Junta y palomea",
+            "place": "Paso 2 de 2 · Llévalas a su cajón y confirma"
+          },
+          "drawer": {
+            "own": "Su cajón",
+            "ownBody": "Junto a sus otras cartas: ya tiene {count, plural, one {# carta} other {# cartas}} ahí.",
+            "multipleTag": "Cartas en varios cajones",
+            "multipleBody": "Este cliente debería tener un solo cajón, pero sus cartas están repartidas en {count} cajones. El sistema no elige por ti: al confirmar, escoge a cuál van estas cartas. Juntarlas en uno solo no se hace desde esta pantalla.",
+            "piecesThere": "{count, plural, one {# carta ahí} other {# cartas ahí}}",
+            "multipleLegend": "¿A qué cajón van estas cartas?",
+            "newLabel": "Cajón",
+            "newBody": "Todavía no tiene. Es su primera compra guardada con nosotros: al confirmar, eliges tú el cajón y sus siguientes compras irán ahí.",
+            "chooseLabel": "Elige su cajón",
+            "choosePlaceholder": "Sin elegir",
+            "noneAvailable": "No hay cajones de clientes dados de alta. Crea uno en Inventario → «{locations}», con zona «{zone}», y vuelve aquí."
+          },
+          "nameMissing": {
+            "tag": "Sin nombre registrado",
+            "body": "Esta cuenta se creó sin nombre: el cliente no nos lo ha dado. Identifícalo por su correo."
+          },
+          "orderRef": "Pedido",
+          "seeWhatShouldBe": "Ver qué debe haber en su bóveda",
+          "item": {
+            "locationLabel": "Ubicación · {zone}",
+            "pick": "La tengo",
+            "miss": "No la encontré",
+            "undo": "Deshacer",
+            "actionAria": "{action}: {card} · {folio}",
+            "picked": "Tomada",
+            "missing": "Faltante",
+            "missingBody": "Queda anotada como faltante. No se mueve al cajón. Esta pantalla no avisa al cliente ni hace reembolsos.",
+            "blocked": "No va al cajón"
+          },
+          "blockedReason": {
+            "in_withdrawal": "Está en un retiro que el cliente ya pagó: sale con ese envío, no va al cajón.",
+            "not_in_custody": "Ya no está a nombre del cliente en bóveda, así que no va a su cajón. No hace falta buscarla."
+          },
+          "count": "{picked, plural, one {# tomada} other {# tomadas}} · {missing, plural, one {# faltante} other {# faltantes}} · {pending} por palomear",
+          "countBlocked": "{blocked, plural, one {# no va al cajón} other {# no van al cajón}}",
+          "prepare": {
+            "cta": "Pedido preparado",
+            "saving": "Guardando…",
+            "pending": "{pending, plural, one {Falta # carta} other {Faltan # cartas}} por palomear: márcalas como «La tengo» o «No la encontré».",
+            "nothingPicked": "Ninguna carta está tomada: al final no se guardará nada en el cajón."
+          },
+          "prepared": {
+            "by": "Preparado por {name} · {date}",
+            "byNoName": "Preparado por una cuenta sin nombre · {date}"
+          },
+          "unprepare": {
+            "cta": "Deshacer preparado",
+            "title": "¿Deshacer «preparado»?",
+            "body": "Las marcas de cada carta se quedan como están; solo vuelven a poder corregirse. No se mueve ninguna carta. Para colocar tendrás que darlo por preparado otra vez.",
+            "confirm": "Deshacer preparado",
+            "cancel": "Cancelar",
+            "done": "Listo: ya puedes corregir las marcas. Cuando termines, vuelve a darlo por preparado.",
+            "alreadyUndone": "Ya no estaba preparado: alguien lo deshizo antes. Puedes corregir las marcas."
+          },
+          "place": {
+            "cta": "Confirmar colocación",
+            "ctaEmpty": "Cerrar pedido sin guardar nada",
+            "summary": "Se guardan {picked, plural, one {# carta} other {# cartas}} en {drawer}.",
+            "summaryMissing": "{missing, plural, one {# faltante no se mueve} other {# faltantes no se mueven}}.",
+            "summaryEmpty": "Ninguna carta está tomada: el pedido se cierra y sale de la lista. Las faltantes siguen anotadas.",
+            "chooseFirst": "Elige un cajón para ver a dónde van."
+          },
+          "result": {
+            "placed": "Pedido {folio} colocado: {n, plural, one {# carta} other {# cartas}} en {drawer}.",
+            "placedMissing": "{m, plural, one {# faltante no se movió} other {# faltantes no se movieron}}.",
+            "placedSkipped": "{k, plural, one {# no se movió porque ya no se podía colocar} other {# no se movieron porque ya no se podían colocar}}.",
+            "nothingToPlace": "Pedido {folio} cerrado sin guardar nada: ninguna carta estaba para el cajón. Las faltantes siguen anotadas en «Qué debe haber» del cliente.",
+            "alreadyPlaced": "Pedido {folio}: ya estaba colocado en ese cajón. No se hizo nada nuevo."
+          },
+          "error": {
+            "itemBlocked": "Esta carta ya no se puede palomear.",
+            "closed": "Este pedido ya se dio por preparado y sus marcas están fijas. Para corregir una carta, primero deshaz «preparado».",
+            "notFound": "Esta carta o este pedido ya no está en la cola.",
+            "incomplete": "Todavía {pendingCount, plural, one {falta # carta} other {faltan # cartas}} por palomear. Puede que alguien acabe de deshacer una marca.",
+            "notPrepared": "Este pedido ya no está preparado: alguien deshizo «preparado». Revisa las marcas y vuelve a darlo por preparado.",
+            "notCustomerDrawer": "Este cliente ya tiene cajón y no es el que elegiste: seguramente otra persona acaba de guardar otro pedido suyo. Actualizamos la tarjeta con su cajón.",
+            "drawerUnavailable": "Ese cajón ya no sirve para guardar cartas de clientes. Elige otro.",
+            "locationRequired": "La pantalla estaba desactualizada: este pedido ahora tiene {pickedCount, plural, one {# carta tomada} other {# cartas tomadas}}, así que no se puede cerrar sin guardarlas en un cajón. No se hizo nada. Actualizamos la tarjeta: revísala y confirma otra vez.",
+            "locationRequiredNoCount": "La pantalla estaba desactualizada: este pedido ahora tiene cartas tomadas, así que no se puede cerrar sin guardarlas en un cajón. No se hizo nada. Actualizamos la tarjeta: revísala y confirma otra vez.",
+            "placed": "Otra persona ya colocó este pedido. No se cambió nada; sale de la lista.",
+            "placedIn": "El pedido quedó en {drawer}.",
+            "chargeback": "Este pedido se canceló por un contracargo: sus cartas ya no son del cliente. Sale de la lista.",
+            "nothingToPlace": "Este pedido ya se cerró sin guardar nada. Sale de la lista.",
+            "placedUndo": "No se pudo deshacer: el pedido ya se guardó en su cajón. Después de colocar ya no hay vuelta atrás desde esta pantalla.",
+            "conflict": "Este pedido tiene datos que no cuadran y no se puede tocar desde aquí. Avisa al súper-admin."
+          },
+          "emptyVault": {
+            "title": "Nada que llevar a bóveda por ahora.",
+            "body": "No hay compras pagadas esperando su cajón."
+          }
+        }
       }
     },
     "m5": {
@@ -1568,7 +1699,7 @@
         "rejectedAtLabel": "Rechazada el",
         "returnUntil": "Devolución hasta {date} (a costo del vendedor)",
         "abandonAt": "Abandono a partir de {date}",
-        "noDeadlines": "Sin plazos registrados (rechazo previo a v1.18).",
+        "noDeadlines": "Sin fecha de rechazo registrada: los plazos se cuentan desde ella, así que esta carta no tiene ninguno.",
         "viewRequest": "Ver solicitud {id}",
         "phase": {
           "return": "En plazo de devolución",
@@ -2895,7 +3026,23 @@
         "share": "% del meta",
         "cardsParsed": "Cartas leídas",
         "sumQuantity": "Total sumado",
-        "matched": "Casadas"
+        "matched": "Casadas",
+        "cover": "Portada"
+      },
+      "cover": {
+        "matched": "casada",
+        "unmatched": "no casada",
+        "none": "sin portada",
+        "notReported": "—",
+        "reason": {
+          "unmatched_set": "el set no está en el catálogo",
+          "unmatched_number": "ese número no existe en el set",
+          "ambiguous": "varias cartas candidatas"
+        },
+        "noImage": "sin imagen en el catálogo",
+        "rejectedImage": "imagen rechazada (no es de nuestro catálogo)",
+        "reasonUnknown": "motivo no reconocido ({status})",
+        "alt": "Portada de {deck}: {code}"
       },
       "deckError": "No se pudo leer este deck: {error}",
       "sumOk": "≈ 60 cartas",
@@ -3167,15 +3314,15 @@
       "sortLabel": "Ordenar por",
       "sort": {
         "value_desc": "Valor (mayor primero)",
-        "pieces_desc": "Piezas (mayor primero)",
+        "pieces_desc": "A su nombre (mayor primero)",
         "name_asc": "Nombre (A–Z)"
       },
       "colName": "Cliente",
       "colEmail": "Correo",
-      "colPieces": "Piezas",
+      "colPieces": "A su nombre",
       "colValue": "Valor estimado",
       "colPending": "Sin precio",
-      "pieces": "{count, plural, one {# pieza} other {# piezas}}",
+      "pieces": "{count, plural, other {# a su nombre}}",
       "open": "Ver bóveda",
       "back": "Clientes",
       "emptyTitle": "Sin bóvedas",
@@ -3185,7 +3332,50 @@
       "next": "Siguiente",
       "detailTabs": {
         "cards": "Cartas",
-        "sealed": "Sellado"
+        "sealed": "Sellado",
+        "physical": "Qué debe haber"
+      },
+      "physical": {
+        "tab": "Qué debe haber",
+        "drawer": {
+          "own": "Su cajón",
+          "multiple": "Este cliente debería tener un solo cajón, pero sus cartas están en {count}:",
+          "none": "Todavía no tiene cajón.",
+          "nonePending": "Sus cartas pagadas siguen en la tienda, esperando que se coloquen."
+        },
+        "counts": {
+          "label": "Resumen",
+          "missing": "{count, plural, one {faltante} other {faltantes}}",
+          "unlocated": "sin ubicar",
+          "inDrawer": "en su cajón",
+          "pendingPlacement": "por colocar",
+          "inWithdrawal": "{count, plural, one {en un retiro} other {en retiros}}",
+          "total": "{count, plural, one {debe estar en bóveda} other {deben estar en bóveda}}",
+          "help": "Puede ser menos de lo que la lista de clientes cuenta «a su nombre»: allí entra también lo reservado en pedidos que aún no se pagan. Aquí solo cuenta lo pagado que guardamos."
+        },
+        "group": {
+          "missing": "Faltantes",
+          "unlocated": "Sin ubicar",
+          "in_drawer": "En su cajón",
+          "pending_placement": "Por colocar",
+          "in_withdrawal": "En un retiro"
+        },
+        "row": {
+          "missing": "La marcó como faltante {name} el <d>{date}</d>, al preparar el pedido {folio}. El sistema la sigue contando como del cliente.",
+          "missingNoName": "La marcó como faltante una cuenta sin nombre el <d>{date}</d>, al preparar el pedido {folio}. El sistema la sigue contando como del cliente.",
+          "noLocation": "El sistema no tiene ubicación para esta carta.",
+          "notInCustomerDrawer": "El sistema la tiene en {location}, no en un cajón de cliente.",
+          "pendingPlacement": "Pagada; falta llevarla a su cajón (pedido {folio}).",
+          "prepPending": "aún sin juntar",
+          "prepPicked": "ya la juntaron",
+          "prepPrepared": "pedido preparado",
+          "inWithdrawal": "Sale con el envío que pidió el cliente — {status}."
+        },
+        "empty": {
+          "title": "Este cliente no tiene cartas guardadas con nosotros.",
+          "body": "Cuando compre y deje cartas en su bóveda, aparecerán aquí."
+        },
+        "notFound": "No encontramos a este cliente."
       }
     },
     "inventory": {
