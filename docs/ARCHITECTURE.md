@@ -4,6 +4,21 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.80.1.1 — C7 CONSTRUIDO: EL DOCUMENTO SE IGUALA A LO MEDIDO POR BACKEND** (2026-09-29, arquitecto. Base:
+> **v1.80.1, vigente entera salvo lo que esta errata toca**. Origen: `BACKEND_NOTES` «C7 rev v1.80.1 … 2026-09-29»,
+> §4 «Decisiones que el contrato no fijaba» y §5 «Discrepancias con el contrato». `API_CONTRACT` sube a **v1.80.1.1**.
+> ⛔ **Sin schema, sin migración, sin variable de entorno nueva, sin cambio de frontend, y ⛔ sin trabajo nuevo de
+> backend:** en los cinco puntos lo construido es lo correcto y el documento se corrige. Razón por punto: **§4.57.10.4**.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | `C7-20`: 7 × 4 = 28, no 29. La prueba usa **8** `jti` (4 × 7 + 1 = 29) y el contrato ahora lo dice | `API_CONTRACT §1` | **No** |
+> | **2** | **`change-password` NO limpia el agregado `auth-pwdevagg`** (sí cuenta + `auth-cp`). Las tres filas que se contradecían quedan iguales | §4.57.2 #7/#14, §4.57.3, §4.57.10.1 (b), `API_CONTRACT §1` | **No** (es lo construido) |
+> | **3** | `C7-23`: 6 fallos seguidos dejan `f = 5` (el 6.º no cuenta); la fila ya no exige un `f` concreto | `API_CONTRACT §1` | **No** |
+> | **4** | Cinco decisiones de backend **aceptadas y normadas**: `sid` interno (no en el objeto de `issueTokens`); refresh sin `sid` ni `iat` numérico ⇒ `401`; lo pendiente se entrega una vez y vuelve si falla; **sin barrido de fondo** para claves huérfanas (con disparador); el guard rechaza **cualquier `typ`** | §4.57.4, §4.57.5, §4.57.10.4, `API_CONTRACT §0` «Auth» | **No** |
+> | **5** | `D-C7-2/3/4` cerradas por backend (`d1fbbf8` / `668b6f8` / `ff3ecc4`; pendiente re-medición de QA/seguridad). `SEC-C7-RT` cerrada entera: secretos JWT iguales ⇒ arranque rechazado en todo entorno + guard estricto (`3c03f36`) | §4.57.8, §8, §9 | **No** |
+>
+> ---
 > **Rev v1.80.1 — C7 TRAS EL VEREDICTO DE SEGURIDAD: UN DISPOSITIVO POR SESIÓN, LA MEMORIA CUENTA SIEMPRE, Y EL SCRIPT
 > DE RESCATE LEVANTA EL CANDADO** (2026-09-29, arquitecto. Base: **v1.80, vigente entera salvo lo que esta rev toca**.
 > Origen: `SECURITY_NOTES` 2026-09-29 sobre `8ea245f` —`SEC-C7-MINT` (Media, bloquea dinero real), `SEC-C7-SCRIPT` y
@@ -25295,14 +25310,14 @@ fichero ya declara en su cabecera**.
 | **4** | **Intentos DURANTE el candado** | Se rechazan **sin contarse y sin alargar el candado** | Si contaran, un atacante mantendría el candado puesto **para siempre** con un intento cada minuto, gratis. Así, alargar el castigo le cuesta esperar |
 | **5** | **Qué responde** | **`429 TOO_MANY_PASSWORD_ATTEMPTS`** + cabecera `Retry-After` (segundos) + `details: { retryAfterSeconds }`. **Idéntico** para cuenta existente, inexistente, solo-Google y bloqueada. En estado de candado **nadie** llega a `argon2` | **Sin oráculo de existencia:** el contador de un correo que no existe crece **igual** que el de uno que existe (la clave sale del correo tecleado, no de la fila, y la reserva ocurre para los dos), así que la secuencia `401×5, 429` es la misma para los dos, y el `429` es igual de rápido para los dos. **Código propio y no `RATE_LIMITED`** porque **el remedio difiere** (doctrina del contrato: códigos por remedio, §4.56.2): contra el tope por IP solo cabe esperar; contra éste, **restablecer la contraseña también lo levanta** (#7), y el mensaje tiene que poder decirlo. ⛔ **No es un `401`** (el front lo trataría como credenciales malas y el usuario seguiría tecleando a ciegas) |
 | **6** | **Rol** | **Umbrales idénticos para todos los roles. Nadie está exento — tampoco el `super_admin`** | Cualquier conducta **previa a la autenticación** que dependa del rol **delata quién es staff**: si la cuenta del dueño se bloqueara al 3.º intento y la de un cliente al 5.º, bastaría con contar para encontrar al dueño. ⛔ Y la tentación contraria —«al dueño no lo bloquees, que es el dueño»— convierte la cuenta más valiosa en la única sin candado. Lo que el dueño recibe de más va **después** de la autenticación o fuera de la respuesta: aviso por correo (#10) y la puerta del dispositivo (#8) |
-| **7** | **Qué lo levanta** | (a) **Login correcto** por la vía normal; (b) **completar `reset-password`** (token consumido); (c) **`POST /admin/users/:id/reset-password`**; (d) **`change-password` correcto**; (e) **v1.80.1:** el **script de rescate** `prisma/reset-admin-password.ts` (§4.57.10.3). ⛔ **`forgot-password` NO lo levanta** | `forgot-password` lo puede pedir **cualquiera** para **cualquier** correo: si levantara el candado, el atacante lo pediría antes de cada ráfaga. Lo que lo levanta tiene que **probar algo**: la contraseña, el buzón, o ser el `super_admin` |
+| **7** | **Qué lo levanta** | (a) **Login correcto** por la vía normal; (b) **completar `reset-password`** (token consumido); (c) **`POST /admin/users/:id/reset-password`**; (d) **`change-password` correcto** (**v1.80.1.1:** levanta el candado de la cuenta y el de `auth-cp`, ⛔ **no** el agregado de dispositivos — §4.57.10.1 b); (e) **v1.80.1:** el **script de rescate** `prisma/reset-admin-password.ts` (§4.57.10.3). ⛔ **`forgot-password` NO lo levanta** | `forgot-password` lo puede pedir **cualquiera** para **cualquier** correo: si levantara el candado, el atacante lo pediría antes de cada ráfaga. Lo que lo levanta tiene que **probar algo**: la contraseña, el buzón, o ser el `super_admin` |
 | **8** | **Denegación contra la víctima** (que el atacante no deje al dueño fuera) | **Retroceso exponencial con tope (#3) + DISPOSITIVO CONOCIDO.** Cada login correcto (y `google`, `refresh`, `reset-password`) devuelve un `deviceToken`; el navegador lo guarda y lo manda en el siguiente login. Un `deviceToken` válido **de esa misma cuenta** hace que el intento **no mire el candado de la cuenta**: usa su **propio** contador (mismas reglas, 5 libres). ⛔ **CAPTCHA descartado** | Sin esto, el retroceso solo **no basta**, y lo digo con el mecanismo: un atacante con un script manda un intento cada vez que el candado expira y lo re-pone al instante ⇒ **el dueño queda fuera para siempre**. Y el reset tampoco lo salva: reinicia el contador, y el atacante lo vuelve a llenar en un segundo. La puerta del dispositivo es lo único que **el atacante no puede cerrar**: no tiene un `deviceToken` de la víctima (va firmado) y los intentos **suyos** no tocan el contador **del dispositivo** de ella. Patrón OWASP «device cookies». **Por qué no CAPTCHA:** exige un **tercero** (Turnstile/hCaptcha), una **cuenta y llaves que tendría que crear el dueño** (`O-6`: no se le pide lo que se puede evitar), cambiar la CSP, y una dependencia externa más que puede caerse — y una granja humana lo resuelve igual. El dispositivo conocido no pide nada a nadie. **v1.80.1 (§4.57.10.1):** el cubo del dispositivo es **por sesión** (`jti = sid`; `refresh` lo renueva, no lo multiplica) y hay un **tope agregado por cuenta**: **30 intentos por vía dispositivo en 24 h** sumando todos los `jti`; al superarlo el dispositivo deja de ser puerta y el intento va al cubo de la cuenta. Un `deviceToken` robado vale **un** cubo, y ese cubo tiene techo |
 | **9** | **Dónde vive el contador** | **Redis** (el mismo servicio de Railway; cliente **propio**, no el de BullMQ) — con **respaldo en memoria** del proceso | Redis sobrevive a los reinicios y a varias réplicas; la memoria no. El cliente es propio porque BullMQ **exige** `maxRetriesPerRequest: null` (reintentar para siempre), y un login **no puede esperar para siempre** (#11) |
 | **10** | **Aviso y bitácora** | (a) `logger.warn` estructurado **en cada candado nuevo** (nunca con el correo: con los 12 primeros caracteres del HMAC). (b) `AuditLog` `auth.password_lock` **solo si la cuenta existe**, **sin `await`** (se escribe después de responder). (c) **Correo al titular** solo si es **staff** (`super_admin`, `vault_operator`), **máx. 1 cada 24 h** por cuenta, también sin `await` | **Sin `await` es anti-enumeración, no descuido:** escribir la bitácora solo para cuentas que existen, **antes** de responder, añadiría unos milisegundos **solo** a las cuentas que existen — un oráculo por tiempo. **Solo cuentas existentes** porque un atacante que rota correos inventados llenaría la tabla. **Correo solo a staff** por decisión del arquitecto, **revisable por el dueño** (§4.57.9): a un cliente un correo de «alguien intentó entrar» le cuesta un susto sin darle ninguna acción que el propio mensaje de la pantalla no le dé, y convertiría el login en un **cañón de correos** hacia cualquier cliente. La bitácora es **detectiva y de mejor esfuerzo**: aquí no es la compuerta (la compuerta es el contador), así que no falla cerrada |
 | **11** | **Si Redis se cae** | **Ni fail-open ni fail-closed: se degrada a memoria.** Cada operación contra Redis tiene **250 ms** de plazo; si falla o vence, esa operación (y las siguientes durante 30 s) va al almacén en memoria, con las mismas reglas | **Fail-closed** (login `503` mientras Redis no conteste) convierte un parpadeo de Redis —que también sirve a BullMQ— en **tienda cerrada para todos**, dueño incluido. **Fail-open** (dejar pasar sin contar) apaga el control justo cuando algo va mal, y hoy el tope por IP **no se sabe si aguanta** (`C6`). Con `numReplicas: 1`, la memoria **es** un contador completo: lo único que se pierde es lo que Redis tenía antes de la caída. Un atacante **no puede provocar** la caída desde fuera (Redis va por red privada), así que la degradación no es un botón que él pulse. Si algún día hay réplicas > 1, la memoria cuenta por réplica (tope ×N durante la caída): aceptable como degradación temporal, y lo anota §4.57.9. **v1.80.1 (§4.57.10.2):** «se cae» incluye **un plazo de 250 ms vencido con Redis sano** (QA lo midió bajo carga 30–50: la memoria arrancaba de 0 ⇒ **10** a `argon2` en vez de 5). Ya no: la memoria es **caché de la última respuesta de Redis** más lo que Redis no vio, y al volver Redis eso se **repone**. El presupuesto es **uno** por clave, conteste Redis o no |
 | **12** | **`POST /auth/google`** | **FUERA** del contador por cuenta | No hay secreto que adivinar: el ID token lo firma Google y se verifica server-side. Un fallo es «firma inválida», no «contraseña equivocada de X», y el correo **ni siquiera es de fiar** hasta verificar la firma — contar por él dejaría que cualquiera con un token basura bloqueara la cuenta que quisiera. Sigue con su tope por IP. Y es, además, **otra puerta de escape** del cliente con cuenta de Google |
 | **13** | **`POST /auth/register`** | **FUERA** | El registro no adivina nada. Contar por correo no frena la creación masiva (cada alta usa un correo distinto). Su eje es la IP (`C6`) |
-| **14** | **`POST /auth/change-password`** | **Contador PROPIO por `userId`** (`auth-cp:v1:<userId>`), mismas reglas; `422 CURRENT_PASSWORD_INCORRECT` cuenta, `429 TOO_MANY_PASSWORD_ATTEMPTS` al superarlo | La amenaza aquí es **una sesión robada** adivinando la contraseña real (para poder cambiarla y quedarse la cuenta). **No comparte cubo con el login a propósito:** si lo compartiera, un atacante que bloquea el login del dueño desde fuera le impediría también **cambiar su contraseña desde dentro** — justo lo que haría el dueño al verse atacado. El éxito limpia **los dos** cubos (probó la contraseña) |
+| **14** | **`POST /auth/change-password`** | **Contador PROPIO por `userId`** (`auth-cp:v1:<userId>`), mismas reglas; `422 CURRENT_PASSWORD_INCORRECT` cuenta, `429 TOO_MANY_PASSWORD_ATTEMPTS` al superarlo | La amenaza aquí es **una sesión robada** adivinando la contraseña real (para poder cambiarla y quedarse la cuenta). **No comparte cubo con el login a propósito:** si lo compartiera, un atacante que bloquea el login del dueño desde fuera le impediría también **cambiar su contraseña desde dentro** — justo lo que haría el dueño al verse atacado. El éxito limpia **los dos** cubos (probó la contraseña); **v1.80.1.1:** ⛔ **no** el agregado de dispositivos (§4.57.10.1 b: quien cambia la contraseña ya está dentro, y limpiarlo regalaría 30 intentos a quien conserve un `deviceToken` viejo) |
 
 #### 4.57.3 El login, paso a paso (orden NORMATIVO)
 
@@ -25333,7 +25348,12 @@ login(dto, deviceToken?):
   esa cuenta, y quien tiene un `deviceToken` de X ya sabe que X existe. Para todos los demás el camino es idéntico al
   de v1.80. Y el agregado **no lo limpia el acierto** (si lo limpiara, cada entrada del dueño le regalaría al ladrón
   del dispositivo otros 30); lo limpian solo las vías que prueban algo más fuerte que una sesión: `reset-password`,
-  el reset por admin y el script de rescate (§4.57.10.3).
+  el reset por admin y el script de rescate (§4.57.10.3). **v1.80.1.1 — y ⛔ tampoco `change-password`**, aunque
+  pruebe la contraseña: quien lo ejecuta **ya está dentro** —el agregado no le cierra ninguna puerta que haya que
+  abrirle— y el `deviceToken` viejo **no muere** con el `tokenVersion +1` (§4.57.10.1 c), así que limpiar el agregado
+  ahí solo le devolvería 30 intentos a quien conserve ese token. `change-password` limpia cuenta + `auth-cp` (#14).
+  Lista cerrada de quién limpia el agregado: **`reset-password`, reset por admin, script**; es la que backend
+  construyó (`d1fbbf8`, `PasswordAttemptsService.clearForUser`).
 
 - ⚠️ **El acierto por la vía del dispositivo limpia SOLO el cubo del dispositivo**, no el de la cuenta. Si limpiara
   el de la cuenta, **cada vez que el dueño entra le regala al atacante 5 intentos libres**.
@@ -25361,6 +25381,12 @@ login(dto, deviceToken?):
   acuñaba un `jti` nuevo y, con él, 5 intentos libres — medido por seguridad: 30/30 a `argon2`, 3/3 series.
   ⛔ **`refresh` NO acepta `deviceToken` en el cuerpo** (se descartó: obligaría a cambiar el front, y un cuerpo sin
   token volvería a ser una acuñadora). La identidad va **en el refresh token**, que es lo único que `refresh` recibe.
+  **v1.80.1.1 — dónde vive el `sid` en el código (normado tras la construcción, `d1fbbf8`):** `issueTokens(user, sid)`
+  **recibe** el `sid` y sigue devolviendo **solo** `{ accessToken, refreshToken }`; el `sid` **no** es un tercer campo
+  del par (si lo fuera, el `...tokens` de las cuatro respuestas lo colaría en el cuerpo, y el front no debe leerlo).
+  El llamador (`login`/`google`/`refresh`) lo genera o lo hereda y lo pasa **dos veces**: al par y a
+  `DeviceTokenService.issue(userId, jti = sid)`. `refresh` lo obtiene con `AuthService.sessionIdOf(payload)` (pura):
+  `sid` si es string no vacío; si no, la rama legado de abajo; **sin `iat` numérico ⇒ `null` ⇒ `401`** (§4.57.10.4).
 - **Refresh tokens sin `sid` (emitidos antes de esta rev, viven ≤ `JWT_REFRESH_TTL` = 30 d):** `sid = "legacy:" +
   sub + ":" + iat` — **determinista**: reproducir el mismo token da el mismo `jti`; dos usuarios con el mismo `iat`
   dan `jti` distintos (lleva el `sub`; precedente de `userId` en clave: `auth-cp:v1:<userId>`). El par que devuelve
@@ -25437,6 +25463,17 @@ interface LoginAttemptStore {
     `unsynced`): falla hacia el lado seguro, como manda #2, y cuesta como mucho **un** intento por plazo vencido.
   - **Con réplicas > 1:** cada réplica repone **lo que ella contó**; la suma en Redis nunca supera los intentos reales.
     Durante la ventana sigue contando por réplica (`N-C7-6`), pero al volver Redis todo converge.
+  - **v1.80.1.1 — tres precisiones del mecanismo, normadas tras la construcción (`668b6f8`; razón en §4.57.10.4):**
+    (i) **lo pendiente se entrega UNA vez:** `takePending*` pone `unsynced = 0` (y `resetPending = false`) **antes**
+    de llamar a Redis; si la llamada falla o vence, `giveBackPending*` lo **devuelve** a la entrada. Sin esto, dos
+    peticiones simultáneas de la misma clave al volver Redis repondrían el mismo `extra` dos veces. Un comando que
+    Redis ejecutó pero contestó tarde sí queda contado dos veces (ya aceptado arriba). (ii) **La reposición ocurre
+    solo en la siguiente operación sobre ESA clave:** lo pendiente de una clave que **nadie vuelve a tocar** no se
+    repone nunca — ⛔ **no hay barrido de fondo** (ni `onModuleDestroy` ni temporizador). **Aceptado, con
+    disparador** (§4.57.10.4). (iii) `markReset` (un `reset` hecho en modo memoria) marca también la ventana de
+    `bump` de la misma clave; como las claves de cuenta y de agregado son disjuntas por prefijo, en la práctica solo
+    aplica al agregado cuando `clearForUser` corre en modo memoria. Cuesta una entrada del mapa por reset, dentro
+    del tope de 50 000.
   - ⚠️ La prueba «con Redis sano usa Redis (no la memoria)» de `auth.c7-store.spec.ts:201` afirma **lo contrario** de
     esta regla (memoria intacta con Redis sano): **se sustituye** por la de caché (`C7-22`, `API_CONTRACT §1`).
 - **Selección:** con `REDIS_URL` ⇒ Redis con respaldo en memoria (#11); sin `REDIS_URL` ⇒ memoria.
@@ -25487,14 +25524,29 @@ interface LoginAttemptStore {
 - **`D-C7-2`** (v1.80.1, **Media · bloquea dinero real**) — *`refresh` acuña un `jti` nuevo por llamada y cada `jti` es
   un cubo con 5 libres* (`auth.service.ts:533` → `device-token.service.ts:50`, leído 2026-09-29; medido por seguridad
   `SEC-C7-MINT` 30/30 a `argon2`, 3/3). Rol dueño: **backend**. Cierre: `C7-19`, `C7-20`, `C7-21` en verde y sus
-  mutaciones en rojo; seguridad re-mide A14/A15 sobre el sha del arreglo.
+  mutaciones en rojo; seguridad re-mide A14/A15 sobre el sha del arreglo. **Estado 2026-09-29 (v1.80.1.1): cerrada
+  por backend en `d1fbbf8`** (`C7-20 (c)` reforzada en `8210af6`) — **reportado por backend**: `C7-19` mutación roja
+  5/5 (N=5), `C7-20` (a)/(b)/(c) rojas 3/3, `C7-21` rojas 3/3 ×2; integración por HTTP 24/24 (`BACKEND_NOTES` §2–3).
+  ⚠️ **NO MEDIDO por el arquitecto ni por seguridad**: la re-medición de A14/A15 sobre `7cf48e5`+ es de seguridad.
 - **`D-C7-3`** (v1.80.1, **Importante · QA**) — *un plazo de Redis vencido con Redis sano abre una segunda escalera:
   la memoria arranca de 0* (`login-attempt.store.ts:265-273`, `run` → `viaMemory()` sobre un `Map` sin foto; leído
   2026-09-29; medido por QA 1 vez a carga 30–50: 10 a `argon2`). Rol dueño: **backend**. Cierre: `C7-22` en verde y
-  sus dos mutaciones en rojo; el `reset` en modo memoria repuesto cierra también `SEC-C7-RDEG`.
+  sus dos mutaciones en rojo; el `reset` en modo memoria repuesto cierra también `SEC-C7-RDEG`. **Estado 2026-09-29
+  (v1.80.1.1): cerrada por backend en `668b6f8`** — **reportado por backend**: `C7-22` (a)/(b)/(c) rojas 5/5 (N=5);
+  integración contra Redis real 30/30 (`auth-password-attempts-redis`). ⚠️ Pendiente la re-medición de QA bajo la
+  carga 30–50 con que lo encontró.
 - **`D-C7-4`** (v1.80.1, **Baja**) — *`prisma/reset-admin-password.ts` no levanta el candado C7*
   (`reset-admin-password.ts:79-87`: solo `passwordHash`, `tokenVersion`, `emailVerified`, `mustChangePassword`; leído
-  2026-09-29). Rol dueño: **backend**. Cierre: `C7-23` en verde y su mutación en rojo.
+  2026-09-29). Rol dueño: **backend**. Cierre: `C7-23` en verde y su mutación en rojo. **Estado 2026-09-29 (v1.80.1.1):
+  cerrada por backend en `ff3ecc4`** — **reportado por backend**: tres mutaciones rojas 3/3; integración 1/1. ⚠️ NO
+  MEDIDO contra el Redis de Railway (solo Redis 7 local).
+- **`SEC-C7-RT` — cierre completo (v1.80.1.1, registro):** la primera mitad (`refresh()` exige `typ`/`tv`/`sub`) la
+  cerró backend en `114aecf`; la segunda —las dos recomendaciones que backend elevó al arquitecto por ser zona
+  `config/` y `common/`— en **`3c03f36`**: `env.validation` rechaza `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` en
+  **todo** entorno (medido por backend antes de cambiarlo: ningún fixture de `test/integration/setup.ts`,
+  `.env.example`, `stack-native.sh`, `ci.yml`/`e2e.yml` tenía los dos iguales; nada que arreglar), y
+  `jwt-auth.guard.ts` exige la forma del access (`typ` **ausente**, `sub` string, `tv` number, comparación estricta).
+  Norma en `API_CONTRACT §0` «Auth». Mutaciones reportadas por backend: 3/3 rojas cada una.
 
 #### 4.57.9 ⚠️ NO MEDIDO en este pase (arquitecto) y lo que decide el dueño
 
@@ -25528,7 +25580,7 @@ estaba escrito.
 | | Decisión | Por qué, y qué se descartó |
 |---|---|---|
 | **(a)** | ⭐ **`jti` = `sid` de la sesión.** `issueTokens(user, sid?)` crea un `sid` (uuid) o hereda el que trae el refresh token, y lo mete en el refresh token (claim `sid`). `login`/`google` ⇒ `sid` nuevo y `deviceToken.jti = sid`; `refresh` ⇒ hereda el `sid` del refresh recibido y emite el `deviceToken` **con ese mismo `jti`** (renueva `exp`); `reset-password` ⇒ `jti` aleatorio (no hay sesión). Tokens legado sin `sid` ⇒ `sid = "legacy:" + sub + ":" + iat` (determinista; sunset a los 30 días). Tabla completa en §4.57.4 | Es la opción 1 de seguridad, resuelta sin tocar el front. **Descartado: que `refresh` acepte `deviceToken` en el cuerpo** para reemitirlo — obliga a cambiar el front, y un cuerpo *sin* token tendría que emitir algo: o un `jti` nuevo (la acuñadora otra vez) o nada (rompe la migración del día del despliegue). **Descartado: no emitir en `refresh`** — misma pérdida de migración, y el front ya lo guarda. **Descartado: `jti` = HMAC(`sub`, `tv`)** (un cubo por persona y versión) — dejaría que un dispositivo robado bloquee **todos** los navegadores del dueño a la vez; con un cubo por sesión, el ladrón solo bloquea la sesión que robó |
-| **(b)** | ⭐ **Tope agregado por cuenta: 30 intentos por vía dispositivo en 24 h**, ventana **fija** desde el primero, clave `auth-pwdevagg:v1:<userId>`, contados **antes** de `argon2` con `bump` (atómico), **fallidos o no**. Al superarlo, `viaDevice = false`: el intento va al cubo de la cuenta (⛔ no es un `429` propio: si la cuenta no está bloqueada, sigue entrando). Lo limpian `reset-password`, el reset por admin y el script de rescate; ⛔ **no** el acierto | Es la opción 2 de seguridad, como **red de seguridad** de (a): cierra A15 aunque el atacante tenga varios `jti` (varias sesiones robadas, o la rama legado), porque el tope **no depende de cuántos `jti` tenga**. **30** porque el dueño legítimo no falla 30 veces al día en sus dispositivos (y si lo hace, cae al cubo de la cuenta, que solo le estorba si además lo están atacando), y porque un `jti` solo ya da ~34/día: el tope no puede ser menor que un cubo sin volver inútil la puerta. **Cuenta intentos y no solo fallos** para que sea una reserva atómica como todo lo demás (#2) y no una segunda contabilidad tras `argon2`. **No lo limpia el acierto** por la misma razón de §4.57.3: limpiar regalaría 30 más por cada entrada del dueño |
+| **(b)** | ⭐ **Tope agregado por cuenta: 30 intentos por vía dispositivo en 24 h**, ventana **fija** desde el primero, clave `auth-pwdevagg:v1:<userId>`, contados **antes** de `argon2` con `bump` (atómico), **fallidos o no**. Al superarlo, `viaDevice = false`: el intento va al cubo de la cuenta (⛔ no es un `429` propio: si la cuenta no está bloqueada, sigue entrando). Lo limpian `reset-password`, el reset por admin y el script de rescate; ⛔ **no** el acierto y (**v1.80.1.1**) ⛔ **no `change-password`** — lista cerrada, §4.57.3 y §4.57.10.4 | Es la opción 2 de seguridad, como **red de seguridad** de (a): cierra A15 aunque el atacante tenga varios `jti` (varias sesiones robadas, o la rama legado), porque el tope **no depende de cuántos `jti` tenga**. **30** porque el dueño legítimo no falla 30 veces al día en sus dispositivos (y si lo hace, cae al cubo de la cuenta, que solo le estorba si además lo están atacando), y porque un `jti` solo ya da ~34/día: el tope no puede ser menor que un cubo sin volver inútil la puerta. **Cuenta intentos y no solo fallos** para que sea una reserva atómica como todo lo demás (#2) y no una segunda contabilidad tras `argon2`. **No lo limpia el acierto** por la misma razón de §4.57.3: limpiar regalaría 30 más por cada entrada del dueño |
 | **(c)** | ⛔ **NO se liga el `deviceToken` a `tokenVersion`.** Se descarta la recomendación | **Coste de ligarlo, medido en el código:** `logout` hace `tokenVersion +1` (`auth.service.ts:119-123`, v1.71: revoca *todas* las sesiones). Ligado, **cada cierre de sesión mata la puerta** y el siguiente login del dueño va por el cubo de la cuenta: si lo están atacando en ese momento, está fuera y su única salida es el correo. Es **exactamente** el escenario para el que existe #8. Arreglarlo exigiría que `logout` devolviera un `deviceToken` nuevo (`204` → `200` con cuerpo, cambio de contrato **y** de front, fuera del presupuesto de esta rev) — y ese token nuevo se lo llevaría igual quien tuviera la sesión robada: ganancia neta cero. **Ganancia de ligarlo, con (a)+(b) ya puestos:** tras un `reset-password` el ladrón conserva **un** cubo (el `jti` viejo; el dueño ya usa otro), con techo de 30/24 h. Su ritmo contra la contraseña **nueva** pasaría de ~34/día (solo cuenta) a ~64/día (cuenta + dispositivo): duplicar un ritmo que ya está bajo el umbral de `argon2` no vale la puerta del dueño. **Disparador para revisarlo:** si algún día hay revocación **por dispositivo** (tabla de sesiones), ligar el `deviceToken` a *esa* sesión y no a `tokenVersion` |
 
 **Prueba que debe fallar hoy (contrato `C7-19`):** con un refresh token de un login, **4** llamadas a `refresh` (2
@@ -25586,6 +25638,29 @@ memoria repone su candado al volver Redis (≤ 60 min); el script lo advierte en
 **Prueba que debe fallar hoy (contrato `C7-23`):** cuenta staff con candado en Redis + `REDIS_URL` ⇒ tras el script
 las seis claves no existen y el login con la contraseña nueva ⇒ `200` sin esperar. Mutación: no borrar ⇒ rojo; hacer
 fallar el script cuando Redis no contesta ⇒ rojo.
+
+##### 4.57.10.4 v1.80.1.1 — Lo que backend decidió al construir, y por qué se acepta tal cual (2026-09-29, arquitecto, NORMATIVO)
+
+> *Un plano nunca está completo; lo que se puede exigir es que cada hueco que el constructor rellenó quede escrito
+> con su razón, para que el siguiente no lo rellene distinto.* Origen: `BACKEND_NOTES` «C7 rev v1.80.1» §4 y §5.
+> Las cinco decisiones y las tres discrepancias se resuelven **a favor de lo construido**: ⛔ **ningún punto genera
+> trabajo de backend**. Cada fila dice qué se descartó y, donde aplica, el **disparador** que lo reabriría.
+
+| # | Decisión (backend) | Veredicto y razón | Descartado / disparador |
+|---|---|---|---|
+| **(a)** | **`sid` no viaja en el objeto de `issueTokens`** (`{ accessToken, refreshToken }` intacto; el llamador lo genera y lo pasa al par y al dispositivo) | **Aceptado.** El contrato dice que el front no lee `sid`; un tercer campo en el par lo colaría en las cuatro respuestas por `...tokens` y rompería las e2e de shape exacto. Que el `sid` se pase **dos veces** es el precio de no cambiar ningún cuerpo | Descartado: devolver `{ accessToken, refreshToken, sid }` y filtrarlo en cada controlador (cuatro sitios donde olvidarlo) |
+| **(b)** | **`sessionIdOf` ⇒ `null` ⇒ `401` si el refresh no trae `sid` ni `iat` numérico** | **Aceptado.** `issueTokens` nunca emitió un token sin `iat` (`jsonwebtoken` lo pone salvo `noTimestamp`): ese token no es nuestro. Tratarlo como legado fabricaría **un** cubo `legacy:<sub>:undefined` compartido por todos los tokens raros de la cuenta — una acuñadora pequeña. Mismo criterio que `typ`/`tv` (`SEC-C7-RT`): lo que no tiene la forma que emitimos, `401` | Descartado: `sid` aleatorio para ese caso (vuelve a ser `SEC-C7-MINT`) |
+| **(c)** | **Lo pendiente se entrega a Redis una sola vez** (`takePending*` vacía antes de llamar; `giveBackPending*` devuelve si falla) | **Aceptado.** Es lo que hace que la reposición sea idempotente bajo concurrencia: dos peticiones de la misma clave al volver Redis no reponen el mismo `extra` dos veces. La doble cuenta que queda (Redis ejecutó, contestó tarde) es la que §4.57.5 ya aceptaba: falla hacia el lado seguro y cuesta ≤ 1 intento por plazo vencido | — |
+| **(d)** | ⭐ **Lo pendiente de una clave que nadie vuelve a tocar NO se repone: sin barrido de fondo** | **Aceptado, con disparador.** Lo que se pierde es **solo** lo contado en memoria mientras Redis no contestaba, para claves que **ninguna petición posterior toca**. Para que un atacante lo explote necesita (1) provocar el modo memoria, (2) gastar intentos contra la cuenta X en esa ventana, y (3) que **nadie** —ni él— vuelva a tocar X hasta que la memoria olvide (2 h). Pero si él no vuelve a tocar X, lo perdido no le compra nada; y si vuelve, la primera operación repone. Lo único que queda «gratis» es una ráfaga que él **abandona**, que es exactamente la misma pérdida que §4.57.2 #11 aceptó para la memoria en v1.80. Un barrido añadiría una operación **fuera del camino del login**, con su propio plazo, su propio reloj y su propia prueba de carrera, para cerrar un hueco que no compra intentos | **Disparador:** si seguridad **mide** (no razona) que un atacante obtiene intentos extra contra una cuenta explotando la clave huérfana, se añade un barrido periódico de `unsynced > 0` (y `resetPending`) fuera del camino del login. Hasta entonces, ⛔ no se construye |
+| **(e)** | **El guard rechaza cualquier `typ` presente**, no solo `"refresh"`/`"device"` | **Aceptado y normado** en `API_CONTRACT §0` «Auth». `issueTokens` nunca pone `typ` en el access, así que «tiene `typ`» ya significa «no es un access nuestro». Una lista negra de valores (`refresh`, `device`) dejaría pasar el siguiente tipo de token que se invente | Descartado: `typ: "access"` explícito (cambiaría todos los access vivos el día del despliegue, sin ganancia) |
+| **(f)** | `markReset` marca también la ventana de `bump` de la misma clave | **Aceptado.** Precisión en §4.57.5 (iii). Coste acotado por el tope del mapa | — |
+| **(g)** | **`env.validation` rechaza secretos JWT iguales también en local/test** | **Aceptado.** Backend midió antes que ningún fixture los tenía iguales. Una regla que solo muerde en producción es una regla que la suite no ve | Descartado: solo en `production` |
+| **(h)** | `test/helpers/auth-c7-world.ts` duplica `makeWorld` de `auth.c7-policy.spec.ts` | **Aceptado como deuda menor** de backend (unificar cuando toque esa spec; no bloqueante) | — |
+
+**Las tres discrepancias del contrato (§5 de la nota de backend), resueltas:**
+1. **`C7-20`:** el contrato tenía la aritmética mal (7 × 4 = 28); la prueba de backend usa **8** `jti` y 29 fallos (4 × 7 + 1). Contrato corregido a 8. ⛔ Sin trabajo.
+2. **Quién limpia el agregado:** `change-password` **no** lo limpia (§4.57.3, §4.57.10.1 b, `API_CONTRACT` fila «Qué lo limpia», las tres iguales ya). Es lo que backend construyó. ⛔ Sin trabajo.
+3. **`C7-23`:** 6 fallos seguidos dejan `f = 5`; la prueba vence el candado a mano para llegar a 6. El contrato ya no exige un `f` concreto: lo que se demuestra es que las seis claves desaparecen. ⛔ Sin trabajo.
 
 ---
 
@@ -26285,6 +26360,10 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
     dispositivos conocidos; nadie queda fuera). Pendiente de devops: `N-C7-1`/`N-C7-2` (memoria y política de
     desalojo del Redis de Railway).
 - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
+  - ⭐ **v1.80.1.1 (`SEC-C7-RT`, `3c03f36`): tienen que ser DISTINTOS.** `env.validation` rechaza el arranque si son
+    iguales, en **todo** entorno (también local/test). Ambos siguen exigiendo ≥ 32 caracteres. La llave del
+    `deviceToken` se deriva de `JWT_REFRESH_SECRET` (§4.57.4), así que rotar ése invalida también los dispositivos
+    conocidos. Norma de forma de cada token en `API_CONTRACT §0` «Auth».
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`
 - `POKEMONTCG_IO_API_KEY`, `POKEMONPRICETRACKER_API_KEY`, `POKETRACE_API_KEY`
 - Object storage (**SOLO INE de KYC**, v1.2): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL`. **El set `S3_*` se conserva**, ahora justificado únicamente por `kyc_ine` (bucket **privado** + cifrado + retención `INE_RETENTION_DAYS`). No se usa para fotos de producto/inventario ni de disputa. (`S3_PUBLIC_BASE_URL` no aplica al INE, que es privado; se lee vía presign GET.)
@@ -26350,10 +26429,12 @@ Riesgos técnicos:
 > `POST /auth/change-password` (solo por IP: `auth.controller.ts:35-41,76`; leído 2026-09-28). Diseño y cierre en
 > §4.57; pruebas `C7-*` en `API_CONTRACT §1`. **Cerrada el 2026-09-29** para `C7-1…18` (QA + seguridad sobre `8ea245f`).
 >
-> **v1.80.1 — `D-C7-2` (Media, bloquea dinero real), `D-C7-3` (Importante, QA) y `D-C7-4` (Baja) — abiertas, backend:**
+> **v1.80.1 — `D-C7-2` (Media, bloquea dinero real), `D-C7-3` (Importante, QA) y `D-C7-4` (Baja) — backend:**
 > `refresh` acuña un cubo nuevo por llamada (`SEC-C7-MINT`); un plazo de Redis vencido abre una segunda escalera; el
 > script de rescate no levanta el candado. Diseño en §4.57.10, fichas en §4.57.8, pruebas `C7-19…23` en
-> `API_CONTRACT §1`.
+> `API_CONTRACT §1`. **Estado 2026-09-29 (v1.80.1.1): las tres cerradas por backend** en `d1fbbf8` / `668b6f8` /
+> `ff3ecc4` (más `8210af6` y `3c03f36`), **reportado por backend** con sus mutaciones (§4.57.8); **pendiente** la
+> re-medición de QA (carga 30–50) y de seguridad (A14/A15) para el veredicto sobre el sha fusionado.
 
 > El arquitecto **no corrige código** (CLAUDE.md): documenta la desviación y la enruta al **rol dueño**
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
