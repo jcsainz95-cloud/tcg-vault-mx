@@ -13764,3 +13764,197 @@ El `limit` global de 300/min sigue aplicando.
 - Además, pentest de un tercero antes del dinero real.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-29 · código `59a0c1f` · §M4-SHIP · **APROBADO CON CONDICIONES** (C1–C3 antes de `sk_live_`; nada bloquea el merge)
+
+---
+
+# Release s5 · 7b9c196e — veredicto de seguridad (blue team) · 2026-09-29
+
+> **En una línea:** sin críticos ni altos. Lo que la fusión cambió en zonas de dinero (v1.80.8.3, M-1/INV-SP-8)
+> lo repliqué y lo muté yo sobre una copia de `7b9c196e`, y aguanta. La carrera del tope del operador entre
+> reembolsos **exitosos** ya no es NO MEDIDO: la disparé con el doble de Stripe devolviendo `succeeded` (10/10, N=10), y
+> la mutación que quita el candado sale 0/10. **APROBADO CON CONDICIONES**: nada bloquea el botón (`main → production`
+> en modo prueba). Quedan condiciones **antes de `sk_live_`** y una **en la ventana de despliegue**.
+
+**Sobre qué sha:** código `7b9c196e` (rama `claude/release-s5`). El `HEAD` del árbol vivo es `33fe1dde`, que es
+`7b9c196e` más solo `docs/PENTEST_NOTES.md` (`git diff --stat 7b9c196e HEAD` = 1 fichero). No toqué el árbol vivo.
+
+**Qué medí yo `[VIVO]` y qué consolido:**
+- **Medido por mí:** copia del árbol ENTERO (`git archive 7b9c196e`) en `scratchpad/seg-rel-7b9c`. Base y rol propios
+  `seg_rel7b` (creados como `postgres`, igual que `psql_as_postgres`), Redis `db 9`, `migrate deploy` +
+  `seed:synthetic`. `node_modules` es un enlace al del worktree vivo, y **no** corrí `prisma generate`: el schema de
+  `33fe1dde` es el de `7b9c196e`. Carga baja (`loadavg` 0.2). Al terminar borré la base, el rol, la `db 9` (tenía
+  0 claves) y la copia. Los logs quedan en `scratchpad/seg-rel-7b9c-logs/`.
+- **Consolidado, no re-medido:** el pase EN VIVO del pentester y su cierre de los NO MEDIDOS (`PENTEST_NOTES`,
+  sección «Release s5 · 7b9c196e»), y las cifras de backend en `BACKEND_NOTES §11–§13`.
+- **CI en `7b9c196e`, consultado por mí en la API pública de GitHub** (los logs no los leí): CI `36636733282`,
+  Security SAST `36636733374` y E2E `36636733378` → `success`. **E2E real `36640481398`** (`workflow_dispatch`) →
+  `success`, con el paso 18 «P-REL-3 cubeta SPEI (REAL) — debe ejecutarse y pasar en su único intento» en `success`,
+  y los pasos 20–21 del «marcador del hueco de dinero» en `skipped`.
+
+## 1. El diff de la fusión (`a2da420..7b9c196e`), con lente de seguridad
+
+Del rango, **lo nuevo desde mis veredictos anteriores** (`2ef3f50` y `59a0c1f`, ambos ancestros de `7b9c196e`) son
+`38494211` (D-a), `c2cda0fd` (v1.80.8.3), `81696fb8` (M-1), la resolución de las fusiones (`5321b8c6`, `7a32b833`,
+`0df68ede`, `f2f10923`) y los cambios de texto `/account#kyc` y 429 por `code` (v1.80.8.1, solo cliente).
+La auth de C7 y la CLABE ya las medí en esos veredictos. Aquí las recorrí con el diff y no vi regresión.
+
+| Cambio | Lo que revisé | Resultado |
+|---|---|---|
+| **v1.80.8.3** `c2cda0fd`: `charge.refunded` total ⇒ `refunded` desde `pending\|failed\|settled` (`settleable-order-statuses.ts:40`); `failAndRelease` con CAS `status='pending'` (`payments.service.ts:628-629`); `onFullRefund` sin `needsManual` en órdenes nunca liquidadas (`full-refund.service.ts:374`) | Cierra el hueco SEC-SETTLE-LATE que reabrió la fusión `5321b8c6`: una orden `pending`/`failed` con el cargo reembolsado se quedaba **liquidable**, y el `succeeded` tardío la liquidaba con el dinero ya devuelto. Las dos ramas de `onChargeRefunded` usan **la misma lista**. `failAndRelease` ya no puede pisar un `refunded` con `failed`, que es liquidable | **`[VIVO]` `settle-late` 24/24 en 3/3 corridas** (incluye las carreras `succeeded` vs `charge.refunded` y `failAndRelease` vs `charge.refunded`, N=10 cada una). **Mutación** (la lista vuelve a `['settled']`, sobre la copia): **7 rojas de 24**, entre ellas «succeeded vs charge.refunded, primero el reembolso — N=10». El candado muerde |
+| **M-1 / INV-SP-8** `81696fb8`: el `PATCH` que publica escribe los campos **dentro** del `updateMany` condicionado de `claimListed` (`inventory.service.ts:1951-1974`, `:2502`) | Antes, un `update` por `id` escribía el precio y **después** perdía el CAS: el precio quedaba puesto sobre una pieza que un checkout acababa de reservar | **`[VIVO]` `inventory-patch-publish-race` 2/2 (N=10 cada una).** **Mutación** (volver al `update` por `id` previo): la prueba ⭐ sale **roja**. El pentester midió además, en vivo, que el operador sobre una pieza de cliente recibe `422` sin escribir nada |
+| **D-a** `38494211`: `applyStripeOutcome` ya no lee sin candado antes de cerrar (`refund-ledger.service.ts:~300-335`) | Una lectura sin candado ya no decide nada: el cierre va bajo `FOR UPDATE` y la clasificación se hace **después** | Sin hallazgo. Lo cubre PS-57d (backend, N=10) |
+| **Tope del operador** (`refund-ledger.service.ts:159-197`) | **Sin cambios** desde `59a0c1f` (`git diff 59a0c1f 7b9c196e` solo toca el orden de M3, líneas 11-18 y 270-335) | Ver §3 |
+| **429 por `code`** (v1.80.8.1) y `all-exceptions.filter.ts:43-52` | El filtro solo añade `retryAfterSeconds` desde la cabecera. v1.80.8.1 es una errata **del cliente** (elegir el aviso por `error.code`). No hay oráculo nuevo: el pentester midió el mismo `401 INVALID_CREDENTIALS` con cuenta que existe y que no | Sin hallazgo |
+| **`/account#kyc`** | Solo cambia la ruta del enlace de los correos (`APP_PUBLIC_URL` + ruta fija). No usa ninguna entrada del usuario | Sin hallazgo |
+| Rutas nuevas o cambiadas del rango (`admin-orders`, `admin-refunds`, `admin-manual-refunds`, `admin/users`, `inventory`, `pricing`) | `@Roles` / `@MoneyOut` leídos controlador por controlador. El dinero saliente (`:id/refund`, `to-manual`, todo `manual-refunds`) lleva `@MoneyOut`. `retry` es operador+ **sobre una fila ya contada en el tope** (`requested` cuenta, PS-4b), y `order_full`/`case_refund` solo para súper-admin, en el servicio | Sin hallazgo. Coincide con el barrido en vivo del pentester (§B) |
+
+**La deuda del techlead, evaluada como riesgo de seguridad:**
+- **TD-2 (rama legado de `onChargeRefunded` con lectura sin candado, `payments.service.ts:711-719`)** → **sin riesgo
+  en producción.** La rama solo corre si `FullRefundService` no está inyectado. `PaymentsModule` siempre lo provee
+  (`payments.module.ts:19`), y ningún otro módulo provee `PaymentsService` (`grep`). Aun en la rama legado, la
+  escritura es un CAS con la misma lista. Lo único que decide la lectura sin candado es la **variante del correo**
+  AV-3. Deuda de limpieza (backend): quitar la rama o hacerla inalcanzable por tipo. No bloquea.
+- **TD-4 (`releaseReservation` con `update` por `id`, sin CAS; también la sustitución `orders.service.ts:1042` y el
+  barrido `:1181`)** → **Baja, deuda antes de `sk_live_`.** Leí los tres llamadores. Solo escriben `failed` después
+  de que Stripe **no** creó el PI (`:1309`) o después de que `closePaymentIntent` lo dejó en `canceled` (`:909-924`,
+  que desambigua con `getPaymentIntentStatus`). Un PI `canceled` no tiene cargo, así que ni se liquida ni se
+  reembolsa. Hoy la invariante «nadie saca una orden de `settled`/`refunded` hacia un estado liquidable» descansa en
+  esa propiedad de Stripe, que está **NO MEDIDA contra Stripe real**. Coincido con el arquitecto (`API_CONTRACT`
+  fila R-1): hay que pasar a CAS. Pido que sea **antes de `sk_live_`**, no «algún día», porque con dinero real el
+  fallo sería un reembolso **y** una entrega. Dueño: backend, con la prueba y la mutación que ya describe el contrato.
+- **TD-3** → **NO LOCALIZADO**. No encontré su texto en el árbol (`TECH_DEBT`, `BACKEND_NOTES`, `PENDIENTES`,
+  contrato). No lo evalúo. Si toca dinero o autorización, que el orquestador me pase la referencia.
+
+## 2. LOW-1 e INFO-1 — decisiones
+
+**LOW-1 · refresh sin estado, sin uso único ni revocación por sesión** (`auth.service.ts:93-114`, `:530-567`).
+- **Confirmo el hallazgo y lo amplío** `[LEÍDO]`. El pentester dijo que un refresh robado «vive hasta su `exp`
+  (30 d)». **Es peor:** `refresh()` emite un par nuevo con `expiresIn` de 30 días **desde ahora**, hereda el `sid`, y
+  no existe un tope absoluto de la sesión (no hay `auth_time` ni fecha de nacimiento que se compare). Quien roba
+  **un** refresh puede **renovarlo sin fin** y sin que la víctima lo note, hasta que suba `tokenVersion` (logout,
+  cambio o reset de contraseña, bloqueo). El pentester midió en vivo que esa palanca funciona.
+- **Por qué sigue en Baja:** para robarlo hace falta un XSS (no se conoce ninguno; las reglas 40012/40014/40026 del
+  DAST están en FAIL y salen verdes) o el dispositivo. Con el dispositivo comprometido, rotar no salva a nadie.
+  Revocar por dispositivo fue **una decisión del dueño** (2026-09-14, `auth.service.ts:117-128`: «NO hay mecanismo
+  por-dispositivo… el dueño no lo pidió»), y no la reabro.
+- **Decisión: se ACEPTA en modo prueba y se EXIGE antes de `sk_live_` (condición S5-1).** Motivo: los tokens viven
+  en `localStorage` (`frontend/src/lib/api-client.ts:36-42`). La CSP de la vitrina hoy es **solo**
+  `frame-ancestors 'none'` (`frontend/next.config.mjs:75`), así que `SEC-HDR-2` (CSP base y `script-src` con nonce)
+  sigue abierta. Si un XSS aparece, el robo de un `super_admin` sería una sesión **perpetua con dinero saliente**.
+  Con eso, S5-1 tiene dos piezas:
+  - **(a)** un **tope absoluto de vida de la sesión**. Sin tabla y sin cambiar la decisión del dueño: un claim de
+    nacimiento de la sesión que viaja con el `sid` y un `refresh()` que rechaza pasado N días desde el login. El
+    arquitecto fija N y si es más corto para el personal.
+  - **(b)** cerrar `SEC-HDR-2`, que ya era condición antes de `sk_live_`.
+  - **Dueño:** arquitecto (contrato de la forma del token), luego backend (prueba roja: un refresh encadenado más
+    allá de N ⇒ `401`; mutación = quitar la comprobación ⇒ verde indebido), y frontend (b).
+  - La detección de reúso (familia de refresh) queda como **opción**, no como exigencia: necesita estado, y eso
+    toca la decisión del dueño.
+
+**INFO-1 · el operador lista el padrón (email, nombre, `role`, `kycStatus`)** (`admin.controller.ts:114-173`,
+`admin.service.ts` `listUsers`).
+- **Alcance confirmado leyendo el código:**
+  - La **lista** proyecta solo `id, email, name, role, status, createdAt, kycStatus`.
+  - La **ficha** del operador es la reducida de SEC-A4: direcciones (las necesita para enviar) y `clabeMasked`. Sin
+    RFC, sin `legalName`, sin CLABE en claro y sin INE (`ine-links` es solo súper-admin: el pentester midió `403`).
+  - Todas las escrituras son solo súper-admin.
+- **Decisión: ACEPTADO** (Info, deuda con disparador). Es el acceso mínimo para la función del operador (preparar
+  y enviar a esas personas). La paginación está acotada a 100 (medido por el pentester), así que no hay volcado de
+  una sola vez.
+- **Disparador para acotarla:** un operador que no sea de confianza directa del dueño, un tercer operador, o que el
+  aviso de privacidad no cubra ese acceso. En cualquiera de esos casos: lista solo con búsqueda (`q` obligatorio) y
+  bitácora de lectura del padrón. **Dueño:** arquitecto.
+
+**INFO-2 · el manifiesto de valores publicados hashea identificadores** → **ACEPTADO** como ruido de la
+herramienta. Devops auditó los literales uno a uno (`DEVOPS_NOTES §72.1`) y ninguno es una credencial. Deuda de
+devops. **Disparador:** que el ruido tape un literal real, es decir, que el manifiesto supere lo que se puede
+revisar a mano en un PR.
+
+## 3. La carrera del tope del operador entre reembolsos EXITOSOS — CERRADA por medición `[VIVO]`
+
+- **¿Existía una prueba?** **Sí, casi.** `PS-4` (`backend/test/integration/shipments-prep.e2e-spec.ts:243-292`) usa
+  el doble de Stripe del arnés con `refundOutcome = 'ok'`. Ese valor responde `pending`, y la fila queda
+  `submitted`, que **cuenta** en el tope. La prueba dispara dos `prepared` concurrentes del **mismo** operador con el
+  tope en `usado + 40000` y planes de 31458, con N=10. `PS-4b` fija, de forma determinista, que `requested`,
+  `submitted` y `succeeded` cuentan igual y que `failed` no. Lo que faltaba era correr la carrera con la fila en
+  `succeeded`.
+- **Lo que medí sobre la copia de `7b9c196e`:**
+  - `PS-4` tal cual: **10/10 (N=10)**, un `200` y un `403 MONEY_OUT_LIMIT_EXCEEDED` en cada tirada. Salieron los
+    dos órdenes.
+  - Mutación (`lockOperatorRefundGate` comentado en `refund-ledger.service.ts:187`): **0/10 en 2 corridas de 2**
+    (N=10 cada una). Siempre dos `200`.
+  - **Variante `succeeded`** (solo en mi copia; el doble devuelve `succeeded` durante la carrera y registro las filas
+    por tirada): **10/10 (N=10)**. Cada tirada dejó **exactamente una** fila `succeeded:31458`, y `usedCents` subió
+    de forma acumulativa (31458 → 314580). Cada tirada vio **todas** las filas `succeeded` anteriores y rechazó la
+    que rebasaba. Con la mutación: **0/10**, dos filas `succeeded` por tirada y 629160 usados, **el doble** del límite.
+  - La variante no quedó en el repo: vivió en la copia y se borró con ella.
+- **Decisión:** no exijo una prueba nueva antes del botón. `PS-4` + `PS-4b` en el repo ya muerden la clase (medido
+  arriba), y la diferencia entre `submitted` y `succeeded` no entra en el predicado del tope. **Opcional para
+  backend (deuda menor):** parametrizar `PS-4` con `refundOutcome ∈ {ok, succeeded}`.
+- **Qué queda sin medir:**
+  - **Stripe real.** La clase depende de que Stripe no deje la fila en un estado que el tope no cuente. La cubre C2
+    (abajo).
+  - **Varias réplicas.** NO MEDIDO. La puerta es `pg_advisory_xact_lock` en Postgres, no memoria del proceso, así
+    que no espero diferencia.
+
+## 4. Condiciones heredadas — estado sobre `7b9c196e`
+
+| Id | Qué | Estado medido hoy | Cuándo |
+|---|---|---|---|
+| **C1** | `qs` ≥ 6.16.0 (y con él `body-parser`/`express`/`multer`) | **ABIERTA.** `backend/package.json:74` `"qs": "^6.15.3"`. `npm audit --omit=dev` (copia de `7b9c196e`, backend): **6 moderadas**, las mismas que en `59a0c1f` (`qs` GHSA-x5fp/GHSA-4mjr, `body-parser`, `express`, `multer` GHSA-3pph, y `@nestjs/core` SSE). Frontend: 0. Sigue sin ser alcanzable (mismo razonamiento que `59a0c1f` §4; el rango no añade `qs.stringify` ni `@Sse`) | **antes de `sk_live_`** · backend |
+| **C2** | Códigos reales de Stripe MX para reembolso sobre cargo disputado (`REFUND_FAILURE_DISPUTE_CODES`) | **ABIERTA.** `BACKEND_NOTES:25403` sigue diciendo NO MEDIDO. Con una `sk_test_` real serviría además para el cierre de §3 contra Stripe real | **antes de `sk_live_`** · backend mide, arquitecto decide |
+| **C3** | Consulta B13 (`vault` + `refunded` + `fullRefundClosedAt IS NULL`) = 0 | **ABIERTA**, y el instrumento ya existe: `scripts/vault-full-refund-residue.sh` (solo `DATABASE_URL_RO`, `READ ONLY`, fases PRE y POST). **Corrijo mi texto de `59a0c1f`**, que decía «antes de desplegar» en §5 y «antes de `sk_live_`» en §8: lo único irrecuperable es la foto **PRE** (antes de la migración M-61); el conteo POST es estable después. Con la tienda en modo prueba (HECHOS 2026-09-10) no hay custodia pagada con dinero real en ese residuo | **Ventana de despliegue** (fase PRE, recomendada, **no bloquea el botón**). El resultado = 0 es exigible **antes de `sk_live_`**. Dueño del sistema (vía usuario RO o la corre él); si da > 0 ⇒ arquitecto |
+| **C2-bis** | Citar el primer run de `dast-release` sobre `production` que lleve el commit, con `blocking=false` | **ABIERTA solo por esa cita.** Solo existe cuando el dueño fusione | **Primer push a `production`** · devops |
+| `SEC-HDR-2` | CSP base + `script-src` con nonce en la vitrina | **ABIERTA** (`next.config.mjs:75`: solo `frame-ancestors`). Ahora además sostiene S5-1 | **antes de `sk_live_`** · frontend (+ devops para subir `10038` a FAIL) |
+| Pre-gate DAST `full` sobre el sha candidato | Ver el veredicto de `2ef3f50` | **ABIERTA** | **antes de `sk_live_`** · devops |
+
+## 5. Hallazgos consolidados sobre `7b9c196e`
+
+| Id | Severidad | Ubicación | Dueño | Cuándo |
+|---|---|---|---|---|
+| **LOW-1** (+ la ampliación de la renovación sin fin) → **S5-1** | Baja | `auth.service.ts:93-114, 530-567` | arquitecto → backend; frontend para `SEC-HDR-2` | antes de `sk_live_` |
+| **TD-4** (CAS en `releaseReservation` / sustitución / barrido) | Baja | `orders.service.ts:889-899, 1042, 1181` | backend | antes de `sk_live_` |
+| **C1** (`qs`/`multer`/`body-parser`/`express`) | Baja | `backend/package.json:72-77` | backend | antes de `sk_live_` |
+| `@nestjs/core` SSE (GHSA-36xv) | Info | — (`@Sse`: 0) | backend | deuda; disparador: introducir SSE o subir Nest |
+| **TD-2** (rama legado inalcanzable) | Info | `payments.service.ts:711-719` | backend | deuda de limpieza |
+| **INFO-1** (padrón para el operador) | Info, aceptado | `admin.controller.ts:114-173` | arquitecto si hay disparador | deuda con disparador |
+| **INFO-2** (manifiesto ruidoso) | Info, aceptado | `scripts/gen-published-secrets-manifest.sh` | devops | deuda con disparador |
+| id malformado ⇒ `500 INTERNAL` (lo midió el pentester en §H) | Info | — | backend | deuda: sin fuga (no hay stack ni cadenas sensibles), pero un `404`/`400` es la respuesta correcta y evita ruido en las alarmas |
+
+**Deuda de seguridad aceptada que sigue igual:** el tope es por operador (con *k* operadores el techo es *k*×tope),
+`SHIP-P3` (`revealToken` sin caducidad), `C7-LEGACY-SID`, `N-C7-1`, `N-C7-2` y `N-C7-6`. Todas conservan el
+disparador de sus veredictos.
+
+## 6. NO MEDIDO (dicho entero)
+- **Stripe real**, en tres puntos: el tope con respuestas reales (§3), los códigos de disputa (C2), y la propiedad
+  «un PI `canceled` nunca se cobra» en la que descansa TD-4.
+- **Varias réplicas del backend:** ni el tope ni SEC-SETTLE-LATE. Todo serializa en Postgres, pero no lo medí.
+- **La consulta B13 en producción** (C3): no tengo credencial y no se pide por chat.
+- **Los logs de los runs de GitHub:** leí la conclusión de cada paso por la API, no su salida.
+- **TD-3:** no localizado.
+
+## 7. Banderas para el humano
+- **Antes de dinero real (`sk_live_`):** pentest de un tercero y bug bounty. Siguen vigentes. Todo lo de arriba es
+  interno y con el doble de Stripe.
+- **En la ventana del botón (recomendado, no obligatorio):** correr `scripts/vault-full-refund-residue.sh --target
+  prod` en fase PRE, con un usuario de **solo lectura**, antes de que se aplique la migración. Es la única foto que
+  no se puede tomar después.
+- **Regla operativa (se mantiene):** nunca reembolsar desde el panel de Stripe; ningún paquete sale hasta que el
+  sistema diga `enviado`.
+- **Validación legal (se mantiene):** custodia, reembolso por SPEI a una CLABE y alcance de la PII que ve el
+  operador (INFO-1) en el aviso de privacidad.
+
+## 8. VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `7b9c196e`
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 3** (S5-1/LOW-1, TD-4, C1) **· Info 5.**
+- **Botón `main → production` (modo prueba): sí.** No hay condición de seguridad que lo bloquee.
+- **En el primer push a `production`:** C2-bis (devops cita el run de `dast-release` con `blocking=false`).
+- **Antes de `sk_live_`:** S5-1 (arquitecto → backend: tope absoluto de sesión; frontend: `SEC-HDR-2`), TD-4
+  (backend: CAS), C1 (backend: `qs`), C2 (backend + arquitecto: códigos de disputa en Stripe prueba), C3 = 0
+  (dueño, con usuario RO), pre-gate DAST `full` (devops) y `C6` (edge de Railway), más el pentest de un tercero.
+- **Mínimo para quedar APROBADO sin condiciones:** que se cite el run de C2-bis. El resto son condiciones de dinero
+  real, no de este release en modo prueba.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · código `7b9c196e` (rama `claude/release-s5`) · **APROBADO CON CONDICIONES** (nada bloquea el botón en modo prueba; S5-1, TD-4, C1, C2, C3 antes de `sk_live_`; C2-bis en el primer push a `production`)
