@@ -190,3 +190,97 @@ tercero. Toca dinero, así que lleva **triple veredicto** y modelo fuerte.
 **Secretos:** `client_id`/`client_secret` y el secreto del webhook van al almacén de secretos de Railway,
 **nunca por chat ni en el repositorio**, que es público (`HECHOS.md`). Para diseñar y probar basta el
 **sandbox**.
+
+---
+
+## 8. Contraste con la referencia oficial (añadido 2026-09-29)
+
+> El dueño entregó una referencia compilada de la doc oficial, guardada tal cual en
+> `docs/specs/SKYDROPX_API_REFERENCIA.md`. **Esta sección manda sobre §1–§5 donde choquen.** El orquestador no
+> la contrastó contra la fuente (la red sigue bloqueando los dominios de Skydropx). Lo que se afirma del
+> **código** sí está medido, sobre `2e587e8`.
+
+### 8.1 Lo que la referencia confirma
+
+- **Flujo:** cotizar (asíncrono, se consulta hasta `is_completed`) → elegir tarifa → crear envío. El envío
+  descuenta créditos. Es el flujo del §4.
+- **Límites y acceso:** token de 2 h, 2 req/s, sandbox en `sb-pro`.
+- **Seguro:** `package_protected` + `declared_value`, al cotizar o después con `/protect` (C8/V3).
+- **Cancelación** (C9), **saldo** (C10), **sucursales** (`/office_points`) y **cobertura de recolección** (C7).
+- **Cargos extra con endpoint propio** (`/finance/extra-charges`, p. ej. `ExtraCharge::Overweight`). Hacen
+  falta en el P&L (§9).
+- **Carta Porte: el hueco H4 es REAL.** `consignment_note` (código SAT del contenido) y `package_type`
+  (código de empaque) van en cada paquete y **«suelen ser obligatorios en la práctica»**. Se eligen una vez del
+  catálogo (`GET /shipments/consignment_notes`, `/packagings`) y quedan como ajuste.
+- **Dirección de origen como plantilla** (`address_templates`, `address_type: from`). Resuelve H2 del lado de
+  Skydropx; nosotros guardamos su `id` en un ajuste.
+
+### 8.2 Lo que la referencia corrige o agrega
+
+| # | Hallazgo | Consecuencia para nosotros | Medido en código |
+|---|---|---|---|
+| R1 | **La colonia (`area_level3`) y el municipio (`area_level2`) son OBLIGATORIOS al cotizar.** | **Nuestra colonia es OPCIONAL** en el invitado y en la libreta. Un pedido sin colonia **no se puede cotizar**, y el cliente ya pagó. Hay que **volverla obligatoria** (H3 crece). `city` hace de municipio: hay que verificar que el cliente escriba ahí el municipio (en CDMX, la alcaldía) y no «CDMX». | `orders/dto/guest-checkout.dto.ts:31` y `users/dto/users.dto.ts:42` (`@IsOptional() neighborhood`); `schema.prisma:569` (`neighborhood String?`) |
+| R2 | El destino exige `street1`, `name`, `company`, `phone`, `email`. `reference` y `further_information` (≤70, se imprime en la guía) son opcionales. | `company` no existe en nuestras direcciones; se llena con el nombre del destinatario. El `email` sale de `guestEmail` o `User.email`. **No hacen falta campos separados de número exterior/interior**: en MX el número va dentro de `street1`. Eso cierra la duda de H3. Campo nuevo **opcional**: «referencias» para el repartidor. | §2 de este documento |
+| R3 | **El origen exige `reference`, `email`, `company`** y admite RFC. | Van en la plantilla de origen: se capturan una vez. | — |
+| R4 | **Las tarifas valen 24 horas.** | Invitado: se liquida en minutos, así que da tiempo. Retiro: el envío se crea antes del pago y el pago puede tardar, así que **si la tarifa venció, se recotiza** y la guía puede costar distinto de lo cotizado. Hay que decidir quién absorbe esa diferencia. | — |
+| R5 | **La guía puede generarse asíncrona**: `master_tracking_number` llega `null` y aparece después. Los errores llegan en `error_detail`. | Estado intermedio **«guía en proceso»** en nuestro sistema. Hoy `guia` exige paquetería y número juntos (`setTracking`). No se puede marcar `guia` hasta tener el número. | `shipments.service.ts` `setTracking` |
+| R6 | **`POST /rate/shipments`: crear guía SIN cotizar**, con paquetería y servicio fijos. | El camino **más automático**: con una regla «siempre Estafeta Terrestre», la guía sale en una sola llamada al pagar. Se pierde comparar precios. | — |
+| R7 | **Estados de rastreo documentados:** `created`, `picked_up`, `in_transit`, `last_mile`, `delivery_attempt`, `delivered_to_branch`, `delivered`, `exception`, `in_return`, `canceled`, `destroyed`, `retained`. | Mapeo propuesto en §8.3. Cinco de ellos (intento, sucursal, excepción, devolución, retenido/destruido) **no tienen estado en nuestro sistema**. | `schema.prisma:177-184` |
+| R8 | **Webhooks: payload, eventos y firma NO documentados** en la referencia. | La firma HMAC-SHA512 del §1 viene de un cliente no oficial y **sigue sin confirmar**. **No se implementa el webhook sin la doc oficial.** Mientras, **polling** con `GET /shipments/{id}` desde una tarea programada: con 2 req/s alcanza de sobra para nuestro volumen (**NO MEDIDO**: volumen diario real). | — |
+| R9 | **Recolecciones: cuerpo de la petición no documentado** en la referencia. | C7 queda en fase 3 hasta tener la doc. | — |
+| R10 | **`external_shipments`**: registrar en Skydropx guías hechas FUERA de Skydropx, para rastrearlas. | Transición: las guías que el operador aún haga a mano también ganan rastreo automático. | — |
+| R11 | **Host dudoso**: la doc menciona `api-pro.skydropx.com`, pero los ejemplos usan `pro.skydropx.com`. | La URL base va en variable de entorno, nunca fija en el código. | — |
+| R12 | **La API clásica se apaga en abril de 2026** (ya pasó). | Cualquier ejemplo con `Authorization: Token token=` se descarta. | — |
+
+### 8.3 Mapeo de estados propuesto (para el arquitecto; no decidido)
+
+| Skydropx | Nuestro `ShipmentStatus` | Qué más pasa |
+|---|---|---|
+| `created` | `guia` (cuando ya hay número) | Correo de guía (ya existe) |
+| `picked_up`, `in_transit`, `last_mile` | `enviado` | Correo de salida (ya existe); piezas `picking → shipped` |
+| `delivered` | `entregado` | Piezas `delivered`/`withdrawn`; **correo nuevo** (H5) |
+| `delivered_to_branch` | ¿`entregado`? ¿estado nuevo? | **Decisión:** el cliente aún no lo tiene en la mano |
+| `delivery_attempt` | sin cambio | Correo al cliente + alerta al admin |
+| `exception`, `retained` | sin cambio | Alerta al admin |
+| `in_return`, `destroyed` | sin cambio | Alerta al admin. **Decisión:** ¿reexpedir o reembolsar? (pregunta 8) |
+| `canceled` | `cancelado` solo si lo canceló la tienda | Si lo canceló la paquetería, alerta |
+
+### 8.4 Lo que sigue sin confirmar y cómo se cierra
+
+| Qué | Por qué importa | Cómo se cierra |
+|---|---|---|
+| Nombre del campo de precio de la tarifa, y **si el `total` trae IVA incluido** | Sin eso no se puede calcular el IVA del costo para el P&L (§9) | Una cotización real en sandbox, o la colección OpenAPI oficial |
+| Webhooks: eventos, payload y firma | R8 | Colección OpenAPI oficial (referencia §9: botón «Copiar URL de la colección») |
+| Cuerpo de recolecciones | R9 | Ídem |
+| Si la recolección cuesta | Pregunta 5 | Panel de Skydropx o soporte (api@skydropx.com) |
+| Qué código Carta Porte corresponde a cartas coleccionables | H4 | `GET /shipments/consignment_notes` en sandbox, o el contador |
+
+---
+
+## 9. El dinero del envío: P&L y lo que ve el operador (añadido 2026-09-29)
+
+**Hoy** (medido sobre `2e587e8`):
+
+- **Ingreso** (lo que cobramos): en el retiro, `ShipmentRequest.shippingFeeCents`. En el invitado vive en el
+  **pedido** (`Order.shippingFeeCents`) y la fila del envío lleva 0 a propósito.
+- **Costo:** `shippingCostCents` (bruto, IVA incluido) − `shippingCostIvaCents` (IVA acreditable) = costo neto.
+- **P&L:** resta ingreso neto contra costo neto, y cuenta aparte los envíos sin costo capturado
+  (`admin/admin.service.ts:1519-1551`; `common/money.ts:740-752`).
+
+| # | Defecto actual | Efecto | Medido |
+|---|---|---|---|
+| D1 | La pantalla M4 **nunca manda `shippingCostIvaCents`** | El P&L resta el costo **con IVA** como si fuera neto ⇒ **ganancia subestimada** ≈ 13.8 % del costo por envío (16/116) | `M4View.tsx:134-135` (solo manda `shippingCostCents`) |
+| D2 | M4 **no muestra cobrado ni margen** del envío | El operador no ve si una guía le hace perder dinero. El servidor sí manda los datos (`toAdminShipmentRow`), pero la pantalla no los pinta. En el invitado el cobrado está en el pedido. | `shipments.service.ts:55-79`; `M4View.tsx` (sin `shippingFee`/`totalCents`) |
+| D3 | **No hay ajuste de costo posterior** | Un cargo extra (sobrepeso) de Skydropx no tiene dónde caer ⇒ P&L corto | `schema.prisma` `ShipmentRequest` (un solo costo) |
+
+**Con Skydropx (propuesta para el PO):**
+
+1. Al comprar la guía, el costo y su IVA se guardan **solos** desde la respuesta de Skydropx. Eso cierra D1,
+   pero depende de §8.4: saber si el `total` trae IVA.
+2. En M4, antes de confirmar la guía: **cobrado al cliente · costo de la guía · seguro · margen**, con alerta
+   si el margen sale negativo (D2).
+3. Una **tarea diaria** lee `/finance/extra-charges` y los suma al costo del envío como **ajustes** con
+   fecha propia. Así el P&L del mes en que llegó el cargo lo refleja (D3; decisión contable del dueño: ¿el
+   ajuste cae en el mes del envío o en el mes del cargo?).
+4. **Preguntas nuevas para el dueño:** (11) ¿el cargo extra se le cobra al cliente o se absorbe? (12) ¿en qué
+   mes cae el ajuste? (13) si la tarifa del retiro venció y la guía sale más cara (R4), ¿quién absorbe?
