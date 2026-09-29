@@ -63,7 +63,10 @@ for (const vp of VIEWPORTS) {
       await page.goto('/es/admin/m4');
 
       // PS-UI-2: el rótulo nuevo, y ⛔ ni «Pedidos a preparar» ni «picking» de cara al operador.
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText(t('es', 'admin.m4.title'));
+      // El h1 lee `admin.modules.m4` (la misma clave que el menú, `M4View.tsx`); `admin.m4.title` se borró en
+      // la fusión envio-preparar. El literal fija el rótulo aunque alguien cambie la clave.
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(t('es', 'admin.modules.m4'));
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pedidos por preparar');
       await expect(page.getByText('Pedidos a preparar', { exact: false })).toHaveCount(0);
       await expect(page.getByText(/picking/i)).toHaveCount(0);
 
@@ -132,7 +135,13 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByTestId('ship-step-shp-7004')).toHaveText(S('step.pack'));
       // La línea de dinero pasa a «reembolsada» con su estado; la fila queda fija (sin «Deshacer»).
       await expect(page.getByTestId('ship-refund-line-sit-9004-2')).toContainText('314.58');
-      await expect(pikachu.getByRole('button')).toHaveCount(0);
+      // Fila fija: ni «Deshacer» ni ningún verbo de palomeo (el grupo entero desaparece). El único botón que
+      // queda es «Ubicar» (hueco 1, arreglos-operador), que no toca el estado de preparación; contar 1 con ese
+      // nombre conserva el candado de «ningún otro botón en la fila».
+      await expect(pikachu.getByRole('button', { name: V('item.actionAria', { action: V('item.undo'), card: 'Pikachu', folio: 'INV-000113' }), exact: true })).toHaveCount(0);
+      await expect(pikachu.getByRole('group')).toHaveCount(0);
+      await expect(pikachu.getByRole('button')).toHaveCount(1);
+      await expect(pikachu.getByRole('button', { name: t('es', 'admin.m4.prep.locate.actionAria', { folio: 'INV-000113' }), exact: true })).toHaveCount(1);
       await expect(page.getByTestId('prep-notice')).toContainText('314.58');
 
       await expectNoHorizontalOverflow(page);

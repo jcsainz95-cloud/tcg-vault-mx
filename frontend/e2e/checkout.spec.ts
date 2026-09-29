@@ -37,6 +37,8 @@ test.describe('checkout · desglose y CFDI', () => {
     await expect(page.getByText(t('es', 'checkout.cfdiNotice'))).toBeVisible();
     // Titularidad pendiente hasta liquidar.
     await expect(page.getByText(t('es', 'checkout.afterPayment'))).toBeVisible();
+    // Una sola vez (B-3b): DESIGN_SYSTEM §15.3 fija tres notas y PROJECT 48b iguala los avisos del invitado.
+    await expect(page.getByText(t('es', 'checkout.afterPayment'))).toHaveCount(1);
 
     // Política de ventas finales visible + enlace a términos (decisión del humano).
     await expect(page.getByText(t('es', 'checkout.finalSaleNotice'))).toBeVisible();
