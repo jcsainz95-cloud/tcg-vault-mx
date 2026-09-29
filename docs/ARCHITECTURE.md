@@ -25772,10 +25772,30 @@ en la caja va con guía manual.
 
 **(i) Desviaciones detectadas (no las corrijo yo; van al rol dueño):** `D-SHIP-7` en §9.
 
+**(j) 🔒💰 v1.81.1 — lo que la revisión de seguridad del diseño cambió de REGLA (`SECURITY_NOTES` sobre `62d0c46`,
+APROBADO; norma en `API_CONTRACT §M4-SHIP.19.18`).** Cinco medias y ocho bajas; aquí solo las que mueven una regla de
+esta sección, con la alternativa que descarté. Las que son una frase de contrato (SEC-SDX-6/7/8/11/12/13) no tienen
+porqué arquitectónico y viven en §19.18.6.
+
+| Regla nueva | Alternativa descartada | Por qué |
+|---|---|---|
+| **Un plazo del cliente corre desde que la plataforma lo supo, no desde el sello del tercero** (SEC-SDX-1): `deliveredAt = max(occurredAt, observedAt)` para guía Skydropx; `carrierStatusAt` guarda la fecha del transportista | Cambiar `disputes` para que use `max(deliveredAt, deliveredNoticeSentAt)` | El lector (`disputes.service.ts:157-167`, medido) ya es un cuerpo con una semántica clara: «7 días desde `deliveredAt`». Corregir el **escritor** deja al lector intacto y hace que `entregado` a mano (`deliveredAt = now`) y Skydropx signifiquen lo mismo. Tocar al lector habría creado **dos** definiciones de «entregado» para un mismo plazo. Es (b) fila 6 llevada a su consecuencia: la precondición del correo es el evento, pero el **plazo** es nuestro |
+| **La llave de idempotencia nunca contiene el reloj del observador** (SEC-SDX-2): evento sintético con `status:<updated_at>` o `status` a secas, más el paso 2b «sin cambio ⇒ nada» | Comparar en memoria «¿cambió?» sin tabla | La tabla de eventos **es** la idempotencia (b fila 2); una llave con `now` la convertía en un contador de sondeos. El paso 2b es la misma guarda que `REL-B`: la precondición («es distinto a lo que hay») se evalúa bajo el candado, no antes. Lo que se pierde (dos intentos reales sin fecha se ven como uno) se dice en §19.18.2 |
+| **Toda escritura posterior a una llamada de red lleva el estado esperado en el `WHERE`, y `count 0` tiene rama escrita** (SEC-SDX-3): ambas ramas del paso 9 con `status:'picking'`; `count 0` ⇒ persistir la guía pagada con sello `auto_close` y cancelarla | «Deshacer el reclamo» también cuando la compra ganó | Es §4.57 (e) («primero el hecho registrado, luego el tercero») cerrado por el otro lado: cuando el tercero ya cobró, el hecho **se registra aunque el envío haya muerto** — un id de guía pagada que se descarta es dinero sin rastro. La invariante nueva, «ninguna guía viva sobre un `cancelado`», es asertable como conteo, y PS-83 la mide |
+| **Un estado del que no se puede salir tiene un verbo de salida, y el verbo busca antes de liberar** (SEC-SDX-4): `label/release` (`super_admin`, `@MoneyOut()`, 15 min, nota, replay idempotente y búsqueda por referencia antes del CAS) | Reusar `label/cancel {reason:'unknown'}`; o liberar automáticamente a los 15 min desde el job | `cancel` exige un id que aquí no existe (`not_provider`) y es operador+: era una remisión a un verbo que rechaza. Liberar solo desde el job es una decisión de dinero sin persona ni nota. La doctrina de §M4-SHIP.9 («se quita cancelar a mano») no se rompe: esto no cancela un envío, libera un reclamo **sin guía**, y antes intenta adoptarla |
+| **Una URL leída de una respuesta ajena es entrada no confiable y se valida al escribir, en un solo sitio** (SEC-SDX-5): `assertProviderUrl` + `providerUrlsFrom` + proxy con `redirect:'manual'`, tipo y tamaño; `C-SDX-7` | Validar en el proxy y en cada plantilla | Un `fetch` servidor→URL ajena es la definición de SSRF; validar al **escribir** convierte la columna en dato confiable para todos los lectores (correos, DTOs, proxy) sin que cada uno re-valide — el mismo argumento que `labelUrl` interna (g). La lista de hosts es env porque el host real de `label_url` es NO MEDIDO (puede ser un bucket) y no debe vivir en código (`C-SDX-1` por analogía) |
+| **Un evento fuera de orden no retrocede el estado del transportista** (SEC-SDX-9): CAS con `carrierStatusAt ≤ occurredAt`; `@@unique` con `providerShipmentId` (`M-62b`) | Ordenar en memoria antes de aplicar | El orden en memoria vale para una corrida; el CAS vale para dos corridas y para el webhook futuro. Es (b) fila 4 (la precondición va en el `WHERE`) aplicada a la columna cruda |
+
+**(k) Deuda con disparador que deja esta errata:** SEC-SDX-10 — un `delivered` del tercero mueve `in_custody →
+withdrawn` y **no hay camino de vuelta** (medido: `disputes.service.ts` no contiene `withdrawn`/`in_custody`).
+Disparador: la primera disputa «no me llegó» sobre una guía Skydropx ⇒ el arquitecto diseña la reversión como verbo de
+inventario del súper-admin (con prueba) o la descarta por escrito. `TECH_DEBT.md` (backend, a petición del techlead).
+
 **Zonas compartidas que toca:** `backend/prisma/` (`M-62`, dos partes), `backend/src/common/` (`money.ts`,
-`error-codes.ts`, `enum-values.ts`), `backend/src/config/env.validation.ts`, `backend/src/modules/users/` +
-`orders/` (fase C), `backend/src/jobs/scheduler.service.ts` (tres jobs), `frontend/src/lib/` y `frontend/src/components/`
-(selector de colonia, tipos). Un stream a la vez; fase C y D en commits distintos.
+`error-codes.ts`, `enum-values.ts`), `backend/src/config/env.validation.ts` (v1.81.1: + `SKYDROPX_URL_HOSTS`),
+`backend/src/modules/users/` + `orders/` (fase C), `backend/src/jobs/scheduler.service.ts` (tres jobs),
+`frontend/src/lib/` y `frontend/src/components/` (selector de colonia, tipos). Un stream a la vez; fase C y D en
+commits distintos.
 
 ---
 
@@ -28976,8 +28996,10 @@ al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto; backend lo confirma con `
   `shippingIvaSource`, `carrierStatus`, `carrierStatusAt`, `carrierPolledAt`, `labelProcessingSince`,
   `branchNoticeSentAt`, `deliveredNoticeSentAt`, `lastDeliveryAttemptAt`, `providerCanceledAt`, `providerCancelReason` +
   índices `[providerShipmentId]`, `[status, labelSource, carrierPolledAt]`, `[labelProcessingSince]`; tablas
-  **`ShipmentQuote`**, **`ShipmentCarrierEvent`** (con `providerShipmentId` propio y `@@unique([shipmentRequestId,
-  providerEventKey])`), **`ShipmentCostAdjustment`** (`providerChargeId @unique`, `@@index([chargedAt])`),
+  **`ShipmentQuote`** (`rawResponseJson` ya redactado; purga a 30 d por job, v1.81.1), **`ShipmentCarrierEvent`** (con
+  `providerShipmentId` propio y `@@unique([shipmentRequestId, providerShipmentId, providerEventKey])` — 🔒 v1.81.1
+  SEC-SDX-9: tres columnas, para que una guía re-emitida no choque con la historia de la cancelada),
+  **`ShipmentCostAdjustment`** (`providerChargeId @unique`, `@@index([chargedAt])`),
   **`ShippingPackage`** (`code @unique`); CHECKs de §19.2 (coherencia `labelSource`/`providerShipmentId`, sellos
   pareados, «guía en proceso» sin número, `deliveredNoticeSentAt` solo Skydropx, montos ≥ 0); seeds: dos
   `ShippingPackage` (`envelope`, `box`, **inactivas** hasta que el dueño capture el código de empaque) y los diez
