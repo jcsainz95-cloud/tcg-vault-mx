@@ -9,6 +9,9 @@
 > **Antecedente:** `PROJECT.md` D19 (`PROJECT.md:1040-1041`) dejó la integración con paquetería como
 > «**proyecto aparte**». Este es ese proyecto.
 
+> ⚠️ **Re-medido contra producción el 2026-09-29** (`a2da420`, 1277 commits por delante de `bb239c0`, sobre el que
+> se escribieron §2–§9). **§11 manda sobre todo lo anterior**, y ahí están las tres correcciones.
+
 ---
 
 ## 0. Resumen en cinco líneas
@@ -340,3 +343,124 @@ automático) **solo mientras dure la promo**.
 | T4 | **Precios sin promo** de Paquetexpress, J&T y ampm (sobre y caja, 3 destinos: CDMX, MTY, TIJ) | **C13, la regla de paquetería** | Al terminarse la promo |
 | T5 | Costo y horario de la recolección | C7 | Solo visible al crear el primer envío real |
 | T6 | Si «SOS Protección automática» aplica a las guías hechas por API | M6 | Prueba en sandbox o soporte (api@skydropx.com) |
+
+---
+
+## 11. Re-medición contra producción y flujos afectados (añadido 2026-09-29)
+
+> **Contra qué:** `origin/production` = **`a2da420`** (2026-09-28, «entrega conjunta»), que va **1277 commits
+> por delante** de `bb239c0`, sobre el que se escribieron §2–§9. `main` está atrasado: la rama ya trae
+> producción por merge. Lo re-midió un agente de solo lectura sobre un worktree de `a2da420`. El orquestador
+> verificó a mano: `common/money.ts:438-458`, `shipments.service.ts:1519-1540`, `PROJECT.md:6486-6492` y
+> `:6597-6603`.
+
+### 11.1 Qué sigue igual
+
+Siguen **ciertas en producción** las 16 afirmaciones de §2, §5 y §9: tarifa fija, dónde nace cada envío,
+máquina de estados, captura manual de la guía, M4 sin IVA del costo, sin peso ni medidas, sin origen, colonia
+opcional, libreta débil, enlaces de correo rotos (**también** en `order-notice.templates.ts:107,192`), sin
+reembolso de retiro, P&L, M4 sin margen, webhook solo para Stripe, y ninguna integración con paquetería.
+**«Entrega conjunta» NO es una función de envío**: es el nombre del PR #66 que publicó cuatro entregas juntas.
+`ShipmentRequest`, `ShipmentItem` y `ShipmentStatus` no cambiaron (las 6 migraciones nuevas no los tocan).
+
+### 11.2 Tres correcciones a este documento (regla O-2)
+
+| # | Lo que decía | Lo que es (medido) | Efecto |
+|---|---|---|---|
+| X1 | «Tarifa fija de MX$175» | El dial `shipping_fee_cents` = 17500 es el precio **sin IVA**. **El cliente paga MX$203** (`common/money.ts:438-458`, `shippingFeeDisplayCentsOf`) | Margen durante la promo, en neto: cobramos $175 sin IVA; la guía cuesta $51.25 + $25 de seguro = $76.25 con IVA. El IVA del envío es $6.90; el del seguro es **NO MEDIDO** |
+| X2 | H5: «no hay correo de entregado» como **hueco** | Es **deliberado**: `shipments.service.ts:1539`, «`entregado` … CERO correos (criterio 210 / §R.7)», con confirmación del dueño | H5 deja de ser hueco y pasa a **pregunta 14**: con la entrega confirmada por la paquetería, ¿se quiere ahora el correo? |
+| X3 | La guía impresa como mejora sin conflicto | `PROJECT.md:6490` lo excluye **por escrito**: «**Impresión de etiquetas: cero.** No existe y no se promete. … la dirección **se transcribe a mano**» (`DESIGN_SYSTEM §35.5`) | El **product-owner** tiene que **reabrir** esa exclusión de §S.2. Lo mismo con «la tarifa de MX$175» (`:6489`), si se toca |
+
+### 11.3 Lo nuevo en producción que cambia el diseño
+
+- **«Pedidos a preparar»** (arriba de M4): cola agrupada por pedido, en dos cubetas (`shipments.service.ts:644-999`;
+  `PreparationQueue.tsx`).
+  - **Cubeta de envío:** solo tarjetas de **lectura**, con dirección completa, cartas y ubicación.
+    **No tiene palomeo todavía**: está diseñado y sin construir (`PROJECT.md:6499-6508,6597-6609`).
+  - **La guía se sigue capturando** en la lista vieja de M4, abajo (`M4View.tsx:132-148`).
+  - **Cubeta de bóveda:** palomear → preparado → confirmar cajón (`VaultPlacement`). No lleva guía, no lleva
+    dinero y queda **fuera** de esta iniciativa.
+- **El producto ya dice cuál es el siguiente paso:** «envío ⇒ **guía**; bóveda ⇒ cambio de ubicación»
+  (`PROJECT.md:6601`). **El botón «Generar guía» encaja exactamente ahí**: después de «preparado», en la
+  tarjeta de la cubeta de envío.
+- **Pregunta abierta al arquitecto que esta iniciativa hereda:** «¿«preparado» es un estado nuevo de la
+  máquina de envíos o un hito dentro de `picking`?» (`PROJECT.md:6772-6775`). Hay que resolverla junto con
+  el estado «guía en proceso» (R5).
+
+### 11.4 Decisiones del dueño (2026-09-29, anotadas en `HECHOS.md`)
+
+1. **Todo paquete va asegurado** ($25 medidos con el valor por defecto).
+2. **Una sola paquetería preferente, con sucursal cerca: 99minutos.** Respaldo solo donde no cubra.
+   - Candidatas del orquestador, con direcciones de directorios web **sin confirmar** y distancias **NO MEDIDAS**:
+     - **99minutos:** Punto99, Av. Periférico Sur 4249, Jardines de la Montaña, 14210 (la misma colonia).
+     - **J&T:** Tekit 14, Cultura Maya, 14230.
+     - **Paquetexpress:** Periférico Sur 5561 Local B, Cantera Puente de Piedra, 14040 (también recoge).
+   - DHL tiene sucursal en la misma colonia (Carr. Picacho-Ajusco 160, Local 13A), pero no salió entre las 4
+     más baratas en ninguna cotización.
+   - **Pendiente T7:** cobertura y precio de 99minutos a los 10 destinos. En la prueba nunca quedó entre las 3
+     más baratas y es «Next Day».
+
+### 11.5 Cómo quedan los flujos con la iniciativa (propuesta para el PO; nada decidido salvo §11.4)
+
+**F1 · Compra de invitado (envío directo).**
+- El checkout exige **colonia elegida de la lista del CP** (R1/M5) y referencias opcionales.
+- La tarifa no cambia ($203) mientras el dueño no diga otra cosa.
+- Pago → `settleDirectShipOrder` crea el envío en `picking` → aparece en la **cubeta de envío**. Esto no cambia.
+
+**F2 · Retiro de bóveda.**
+- La libreta de direcciones se endurece al nivel del invitado: CP de 5 dígitos, teléfono de 10 y colonia
+  obligatoria (V1).
+- Lo demás sigue igual: solicitud → pago de $203 + comisión → `picking` → cubeta de envío.
+- **Hueco que sigue:** no hay reembolso de retiro (H6).
+
+**F3 · Preparar y generar guía (operador), en la tarjeta de la cubeta de envío.**
+1. Palomear cartas → «preparado». Es lo ya diseñado en §S y todavía sin construir: **esta iniciativa depende
+   de eso, o hay que poner el botón antes**.
+2. **«Generar guía»**. El sistema:
+   - elige el **empaque estándar**: sobre (1 kg) o caja;
+   - aplica la **regla de paquetería**: 99minutos si cubre el CP; si no, el respaldo;
+   - manda **seguro** con valor declarado y **Carta Porte** fija;
+   - muestra **cobrado · costo · seguro · margen** antes de confirmar.
+3. Al confirmar, compra la guía y guarda paquetería, número, costo, IVA, seguro y PDF. Si la guía tarda,
+   pasa por «guía en proceso» (R5). Luego `guia` y el correo de guía, que ya existe.
+4. **Imprime la etiqueta.** Deja de transcribirse la dirección a mano (reabre §S.2, X3).
+
+**F4 · Llevar a sucursal.** Nueva vista **«Salida de hoy»**: «99minutos, Periférico Sur 4249: N paquetes» y,
+si hubo respaldo, su propio grupo. **Sin recolección**, por la decisión del dueño.
+
+**F5 · Rastreo automático.** Una tarea consulta Skydropx (o recibe webhooks cuando esté la doc, R8):
+- `picked_up` / `in_transit` → **enviado**: correo de salida (ya existe) y piezas `shipped`;
+- `delivered` → **entregado**: piezas `delivered`/`withdrawn`, **sin correo** (X2) salvo que el dueño cambie;
+- `delivery_attempt` / `exception` / `in_return` → **alerta** al admin (§8.3).
+
+**F6 · Cancelación.** Cancelar un envío con guía **cancela la guía en Skydropx** (el saldo regresa). El
+reembolso al cliente sigue igual: pedido sí, retiro no (H6).
+
+**F7 · Lo que ve el cliente.** Invitado en `/pedido?token=…`; registrado en `/shipments`. Número de guía más
+eventos de rastreo. **Antes:** arreglar los enlaces rotos de los correos (H7, ahora también en
+`order-notice`).
+
+**F8 · Dinero.** El costo se guarda solo (envío + seguro, con su IVA). Una tarea diaria suma los **cargos
+extra**. El margen se ve en la tarjeta. El P&L deja de subestimar la ganancia (D1).
+
+**F9 · Configuración (admin, una vez).**
+- Dirección de origen como plantilla de Skydropx (CP 14210).
+- Paquetería preferente y respaldo.
+- Empaques estándar con sus códigos.
+- Código Carta Porte.
+- Alerta de saldo bajo.
+- Credenciales en los secretos de Railway.
+
+**Fuera de alcance:** cubeta de bóveda (no lleva guía), buylist (guía al vendedor; posible fase posterior),
+tarifa en vivo en el checkout.
+
+### 11.6 Lo que falta re-checar antes de pasar al PO
+
+| # | Qué | Quién | Bloquea |
+|---|---|---|---|
+| T7 | Cobertura y precio de **99minutos** a los 10 destinos | Dueño (panel) | La regla de paquetería |
+| T3 | Confirmar en el mapa las 3 sucursales y su distancia | Dueño | F4 |
+| T4 | Precios sin promo | Dueño, al acabarse la promo | Margen real (X1) |
+| T1, T2, T6 | Seguro por valor, clave SAT, seguro automático vía API | Dueño / sandbox | F3 |
+| — | Colección OpenAPI oficial (webhooks, recolección, forma de las tarifas) | Dueño (URL) | F5, R8 |
+| — | Si «preparado» se construye antes o junto con «Generar guía» | PO / arquitecto | F3 |
