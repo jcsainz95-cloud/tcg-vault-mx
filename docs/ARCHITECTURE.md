@@ -4,6 +4,19 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.6 — 🔒💰 ERRATA DE §M4-SHIP.18 TRAS EL VEREDICTO APROBADO DE SEGURIDAD SOBRE v1.80.5 (M6, M7, B12; B13/B14
+> COMO MEDICIONES)** (2026-09-29, arquitecto. Base: **v1.80.5, vigente entera salvo lo que esta errata toca**. Origen:
+> `SECURITY_NOTES`, sección final sobre `3498766`, APROBADO con tres ajustes no bloqueantes que entran antes de construir
+> §18.6/§18.7. `API_CONTRACT` sube a **v1.80.6**; norma en `API_CONTRACT §M4-SHIP.18` (.4, .5, .6, .7, .8, .9, .10, .11) y
+> §M4-SHIP.5/.6 (una frase cada una). Porqué: **§4.57 (r)**. ⛔ `M-61` **no cambia**; ningún código ni verbo nuevo.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | 🔒 M6: objetivos de `chargeback-inventory` (bóveda) y `returned`/`pendingConfirmation` anclados a `reclaimedBy` (existe `refund_return` con `createdAt ≥ fullRefundClosedAt`) + «ningún movimiento posterior que cambie de estado»; un `move` ya no saca a la pieza del conjunto | §4.57 (r) | **Sí** (backend) |
+> | **2** | 💰 M7: el retiro `picking` que el reclamo deja sin líneas `picked` se cierra con `prepared` (regla de §M4-SHIP.5 paso 5, `shipment_fee`); ⛔ no en la rama ni en `reclaim-vault`; `guia` queda como deuda B15 | §4.57 (r) | **Sí** (backend, frontend) |
+> | **3** | 🔒 B12: `reclaim-vault` gana `inventoryItemIds?` ⇒ `opts.unpackedItemIds` (solo desde ese verbo, `C-FULLREF-1`) | §4.57 (r) | **Sí** (backend, frontend) |
+> | **4** | B13 (órdenes `vault` `refunded` sin sello, esperado 0) y B14 (`inventory-value` vs plataforma `picking`) son **mediciones** de backend, anotadas con fecha | §4.57 (r) | **No** (medir) |
+>
 > **Rev v1.80.5 — 🔒💰 CIERRE DE LA RE-REVISIÓN DE SEGURIDAD DE §M4-SHIP v1.80.4 (A5, A6, M5; B7–B11 DECIDIDAS)**
 > (2026-09-29, arquitecto. Base: **v1.80.4, vigente entera salvo lo que esta rev toca**. Origen: `SECURITY_NOTES`,
 > sección «Re-revisión de DISEÑO — §M4-SHIP v1.80.4 … sha `0e1faf6` · 2026-09-29», CON CONDICIONES. `API_CONTRACT` sube a
@@ -25623,6 +25636,32 @@ con una carta cuya compra está en devolución (PS-65).
 
 **Zonas compartidas que suma respecto a (p):** `shipments` (guardas en `prepared`/`setTracking`/`updateStatus`, trigger
 en `unprepare`, `classifyItems`), `orders` (`reclaim-vault`, `confirmPiecesWithCustomer`). ⛔ `prisma/` no se toca.
+
+**(r) 🔒💰 v1.80.6 — Errata tras el veredicto APROBADO de seguridad sobre v1.80.5 (SEC-SHIP-M6, M7, B12; B13/B14 como
+mediciones).** Norma: `API_CONTRACT §M4-SHIP.18` (.4–.11) y §M4-SHIP.5/.6. Aquí, el porqué.
+
+*El diagnóstico, en una línea:* v1.80.5 cerró la custodia (ninguna carta queda del cliente sin verbo) y dejó dos bordes
+del lado de la plataforma: **(M6)** el conjunto «pendiente de confirmar» se definía por el **último** movimiento, y un
+verbo que el propio contrato sugiere (`move`) escribe un movimiento — una definición correcta el día del diseño y falsa
+al primer `move`; **(M7)** el reclamo bloquea líneas de un retiro pero no dice qué pasa con un retiro que se queda sin
+ninguna, con la tarifa cobrada. Los dos se cierran sin schema, sin verbo y sin código de error nuevo.
+
+| Hallazgo | Decisión | Alternativa descartada | Por qué |
+|---|---|---|---|
+| M6 «de esta orden» | `reclaimedBy(p, order)` ⇔ existe `refund_return` de `p` con `createdAt ≥ order.fullRefundClosedAt`; movimiento y sello con el mismo `now` de la tx | (a) columna `InventoryMovement.orderId` en `M-61`; (b) atar por `note` (`'reembolso total <orderNumber>'`) | (a) es un cambio de schema en un diseño que seguridad aprobó con «`M-61` no cambia», para un hecho que el sello ya fija en el tiempo. (b) es un texto libre como llave: la clase de defecto que §4.39c prohíbe (un copy que cambia rompe una consulta de dinero). El sello es un instante escrito una vez bajo candado; cualquier `refund_return` de esa pieza posterior a él vino de una pasada de esa orden (las pasadas de **otra** compra del mismo cliente caen antes en `other_purchase` por `resolveOrigin`) |
+| M6 objetivo | Plataforma `picking` ∧ `reclaimedBy` ∧ ningún movimiento posterior con `fromStatus ≠ toStatus` (un `move` es `picking → picking`) | «Último movimiento con `reason ≠ move`» | Enumerar los motivos que no cuentan es una lista que alguien tiene que recordar ampliar (un motivo nuevo sin cambio de estado volvería a romperla); «cambia de estado» es la propiedad que de verdad importa: la congelada sale de `picking` solo por `chargeback-inventory`, y cualquier salida deja `fromStatus ≠ toStatus`. Misma doctrina de exclusión, no enumeración, que §M5-T |
+| M6 `returned` | Plataforma ∧ `reclaimedBy`, sin cláusula de «después» | Conservar «último movimiento» solo para la vista | Es una proyección: dice «esta compra devolvió esta carta», y eso no deja de ser cierto porque después la movieran, la publicaran o la marcaran merma. Un predicado con dos lectores (§18.6 y §18.7) tiene que ser un cuerpo (`isVaultReclaimTarget`), y `returned` ⊇ objetivo |
+| M7 | El retiro `picking` que queda sin líneas `picked` (todas `blocked` con origen no `settled`, sin caso `open`) se cierra con **`prepared`**, por la regla que §M4-SHIP.5 paso 5 ya tenía y una frase contradecía | (a) `closeWithdrawalIfEmpty` dentro de `reclaimVaultOnFullRefund` (propuesta de seguridad); (b) cierre desde `reclaim-vault` | (a) obliga a que la rama origine dinero: por webhook el actor es `null` y `reclaim-vault` es «custodia, no dinero» (lo que seguridad aprobó); habría que hacerlo `@MoneyOut`, sumar un sexto sitio a `C-REF-1` y duplicar la lógica de importe. `prepared` ya tiene **todo**: el importe visto antes (`refundPreviewCents`, CA #16), el tope del operador, la bitácora, `AV-12`, y es el mismo cierre que un directo sin cartas. El retiro sigue **visible** en la cola (`summary.ship`) hasta que alguien lo cierre: no hay dinero escondido. Lo que M7 encontró era una **frase** (l.17993) que decía lo contrario de la regla; se corrige la frase. El retiro en `guia` que quede así es B15: solo lo produce un súper-admin a mano, sobre un retiro con guía ya comprada, y hasta el pase de diseño `→enviado` lo rechaza (`nothing_to_ship`) en vez de marcar enviado un paquete vacío |
+| B12 | `inventoryItemIds?` opcional; sin ids = todas | Obligar ids siempre | Con una sola carta (el caso común) obligar el id es fricción sin información; con varias, afirmar sobre una caja que no se abrió es afirmar en falso, y la afirmación es el único candado de esa fila. La validación de pertenencia va bajo candado, antes del bucle |
+| B13 / B14 | Mediciones de backend con fecha, no diseño | Diseñar ya el verbo para órdenes sin sello | Esperado 0 (`HECHOS`: sin ventas reales). Diseñar para un residuo que probablemente no existe es la clase de retrabajo que el reparto de modelos mide en 17 %. Si la medición da > 0, el cierre está escrito en §18.11 y vuelve al arquitecto |
+
+**Invariantes que quedan escritos:** ninguna pieza plataforma `picking` reclamada por reembolso total deja de ser
+objetivo de `chargeback-inventory` por un movimiento que no cambia de estado (PS-64 en el orden `move` → `recuperada`);
+un retiro `picking` sin nada que enviar tiene cierre con devolución de tarifa (PS-66); `confirmUnpacked` puede afirmarse
+carta por carta (PS-63 B12).
+
+**Zonas compartidas que suma respecto a (q):** ninguna nueva (`shipments`: la regla de cierre de `prepared` y la guarda
+`nothing_to_ship`; `orders`: `reclaim-vault`). ⛔ `prisma/` no se toca.
 
 ---
 
