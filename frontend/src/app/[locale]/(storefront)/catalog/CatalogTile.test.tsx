@@ -208,7 +208,7 @@ describe('CatalogTile · P-71 código corto del set', () => {
   it('con código: «Twilight Masquerade · TWM 130» (espacio no separable)', () => {
     const withCode = { ...card, setName: 'Twilight Masquerade', setPtcgoCode: 'TWM', number: '130' };
     renderWithIntl(<CatalogTile listing={listing({ card: withCode })} inCart={false} onAdd={vi.fn()} />, 'es');
-    expect(document.body.textContent).toContain('Twilight Masquerade · TWM 130');
+    expect(document.body.textContent).toContain('Twilight Masquerade · TWM\u00A0130');
     expect(document.body.textContent).not.toContain('#130');
   });
 

@@ -40,7 +40,8 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-const NBSP = ' ';
+/** Mismo valor que `NBSP` de `@/lib/setCode`, escrito aparte a propósito: la prueba mide el carácter, no la constante. */
+const NBSP = '\u00A0';
 /** El normalizador por defecto colapsa el NBSP a un espacio: aquí se mide el carácter real. */
 const KEEP_NBSP = { normalizer: getDefaultNormalizer({ collapseWhitespace: false }) };
 

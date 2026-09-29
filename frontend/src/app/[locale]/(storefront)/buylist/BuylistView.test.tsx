@@ -1678,7 +1678,7 @@ describe('BuylistView · P-71 código del set en la línea del carrito de venta'
     fireEvent.click(await screen.findByRole('button', { name: 'Cotizar esta carta' }));
     const lines = await screen.findByTestId('sell-cart-lines');
     const code = within(lines).getByTestId('card-code');
-    expect(code.textContent).toBe('TWM 130');
+    expect(code.textContent).toBe('TWM\u00A0130');
     // Es el PRIMER elemento de la línea mono.
     expect(code.parentElement?.firstElementChild).toBe(code);
   });

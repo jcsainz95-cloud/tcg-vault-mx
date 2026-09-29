@@ -11,8 +11,12 @@
  * pintar «  130» si un emisor viola la norma; no es una segunda normalización.
  */
 
-/** Espacio no separable (U+00A0): «TWM 130» nunca se parte en dos renglones. */
-export const NBSP = ' ';
+/**
+ * Espacio no separable (U+00A0): «TWM 130» nunca se parte en dos renglones. Va como escape y no como
+ * carácter pegado: en un editor los dos se ven igual y el literal invisible es el que se rompe sin
+ * que nadie lo note (un «guardar» que normaliza espacios lo convierte en un espacio normal).
+ */
+export const NBSP = '\u00A0';
 
 /** El código si es exhibible; `null` si no hay (o si un emisor mandara vacío). */
 export function displaySetCode(code: string | null | undefined): string | null {
