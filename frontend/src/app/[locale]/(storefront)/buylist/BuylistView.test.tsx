@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { minWidthQuery } from '@/lib/breakpoints';
 import { BuylistView } from './BuylistView';
 import * as api from '@/lib/api';
 import { setStoredUser } from '@/lib/session';
@@ -1089,7 +1090,7 @@ describe('BuylistView · P-61 carrito bajo demanda en escritorio (§37.1)', () =
     vi.spyOn(window, 'matchMedia').mockImplementation(
       (query: string) =>
         ({
-          matches: query.includes('1024'),
+          matches: query === minWidthQuery('lg'),
           media: query,
           onchange: null,
           addEventListener: () => {},

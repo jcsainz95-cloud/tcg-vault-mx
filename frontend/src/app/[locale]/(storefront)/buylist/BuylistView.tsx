@@ -44,6 +44,8 @@ import { SellCartContents } from './SellCartContents';
 // vista cuánto llevas. La requisitos de cuenta suben a la cabecera con el cajón cerrado.
 import { SellCartBar } from './SellCartBar';
 import { CartTotalFigure } from './CartTotalFigure';
+// §4.4: el umbral `lg` como token, no como `1024` a mano (mismo número que la clase `lg:`).
+import { minWidthQuery } from '@/lib/breakpoints';
 import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
 // v1.51.4 (D43): el mínimo de compra del cotizador. Se pide AL MONTAR esta vista (el cotizador),
 // no se guarda en un store de vida larga: el contrato lo norma por la caché pública de 5 minutos.
@@ -160,7 +162,7 @@ export function BuylistView() {
     const desktop =
       typeof window !== 'undefined' &&
       typeof window.matchMedia === 'function' &&
-      window.matchMedia('(min-width: 1024px)').matches;
+      window.matchMedia(minWidthQuery('lg')).matches;
     return desktop ? barButtonRef.current : fabRef.current;
   };
 
