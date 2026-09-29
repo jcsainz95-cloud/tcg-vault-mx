@@ -1,6 +1,6 @@
 import { OrderStatus } from '@prisma/client';
 import { PaymentsService } from '../src/modules/payments/payments.service';
-import { SETTLEABLE_ORDER_STATUSES } from '../src/modules/payments/settleable-order-statuses';
+import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES } from '../src/modules/payments/settleable-order-statuses';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
@@ -166,5 +166,35 @@ describe('⭐⭐ SL-6 — canario de lista CERRADA: todo valor de OrderStatus es
 
   it('la tabla de SL-5 cubre los mismos valores que el enum (una tabla nueva no se queda atrás)', () => {
     expect(Object.keys(TABLA).sort()).toEqual((Object.values(OrderStatus) as string[]).sort());
+  });
+});
+
+describe('🔒💰 SL-11 (v1.80.8.3) — canario de `CHARGE_REFUNDED_SOURCE_STATUSES`: todo OrderStatus decidido', () => {
+  // Desde qué estados un `charge.refunded` TOTAL lleva la orden a `refunded` (§M4-SHIP.18.2 bloque v1.80.8.3).
+  // Una fila EXPLÍCITA por valor del enum: un valor nuevo sin fila ⇒ rojo (se decide, ⛔ no se hereda).
+  const FUENTE_DE_REEMBOLSO_TOTAL: Record<string, 'sí' | 'no'> = {
+    pending: 'sí',
+    failed: 'sí',
+    settled: 'sí',
+    refunded: 'no',
+    chargeback: 'no',
+  };
+
+  it('cada valor del enum tiene fila, y la fila coincide con CHARGE_REFUNDED_SOURCE_STATUSES', () => {
+    const enumValues = Object.values(OrderStatus) as string[];
+    expect(enumValues.filter((v) => !(v in FUENTE_DE_REEMBOLSO_TOTAL))).toEqual([]);
+    for (const v of enumValues) {
+      expect([v, (CHARGE_REFUNDED_SOURCE_STATUSES as readonly string[]).includes(v)]).toEqual([
+        v,
+        FUENTE_DE_REEMBOLSO_TOTAL[v] === 'sí',
+      ]);
+    }
+    expect([...CHARGE_REFUNDED_SOURCE_STATUSES].sort()).toEqual(['failed', 'pending', 'settled']);
+  });
+
+  it('relación FIJA: CHARGE_REFUNDED_SOURCE_STATUSES = SETTLEABLE_ORDER_STATUSES ∪ {settled}', () => {
+    const union = [...new Set([...SETTLEABLE_ORDER_STATUSES, 'settled'])].sort();
+    expect([...new Set(CHARGE_REFUNDED_SOURCE_STATUSES)].sort()).toEqual(union);
+    expect(CHARGE_REFUNDED_SOURCE_STATUSES).toHaveLength(union.length); // sin repetidos
   });
 });

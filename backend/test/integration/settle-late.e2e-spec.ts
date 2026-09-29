@@ -85,7 +85,37 @@ function mkOrderFactory(h: E2EHarness, ctx: { userId: string; template: { cardId
     }
     return { order, items, pi, totalCents, mode, registered };
   }
-  return { mk, orderIds, itemIds };
+  /** v1.80.8.3 (SL-9): una orden `vault` `pending` NUEVA del cliente sobre piezas que YA existen (re-compra). */
+  async function mkOver(pieceIds: string[]) {
+    const k = (seq += 1);
+    const totalCents = 20000 + k;
+    const pi = `pi_sl80_${RUN}_${k}`;
+    const order = await h.prisma.order.create({
+      data: {
+        userId: ctx.userId,
+        fulfillmentMode: 'vault',
+        orderNumber: `SL80-${RUN}-${k}`,
+        status: 'pending',
+        subtotalCents: totalCents,
+        processingFeeCents: 0,
+        ivaCents: 0,
+        totalCents,
+        priceConvention: 'IVA_INCLUSIVE',
+        stripePaymentIntentId: pi,
+      },
+    });
+    orderIds.push(order.id);
+    for (const id of pieceIds) {
+      await h.prisma.inventoryItem.update({
+        where: { id },
+        data: { status: 'reserved', reservedByOrderId: order.id, ownerType: 'customer', ownerUserId: ctx.userId, ownershipStatus: 'pending' },
+      });
+      await h.prisma.orderItem.create({ data: { orderId: order.id, inventoryItemId: id, cardSnapshot: {}, unitPriceCents: 1 } });
+    }
+    const items = await h.prisma.inventoryItem.findMany({ where: { id: { in: pieceIds } } });
+    return { order, items, pi, totalCents, mode: 'vault' as Mode, registered: true };
+  }
+  return { mk, mkOver, orderIds, itemIds };
 }
 
 describe('SEC-SETTLE-LATE · el settle solo liquida desde pending/failed (Postgres real, webhook firmado)', () => {
@@ -157,8 +187,9 @@ describe('SEC-SETTLE-LATE · el settle solo liquida desde pending/failed (Postgr
     h.sendStripeWebhook({ type: 'charge.dispute.created', data: { object: { object: 'dispute', payment_intent: pi } } });
   const disputeClosed = (pi: string, status: 'won' | 'lost') =>
     h.sendStripeWebhook({ type: 'charge.dispute.closed', data: { object: { object: 'dispute', payment_intent: pi, status } } });
-  const refundFull = (o: { pi: string; totalCents: number }) =>
+  const refundFull = (o: { pi: string; totalCents: number }, id = evt()) =>
     h.sendStripeWebhook({
+      id,
       type: 'charge.refunded',
       data: { object: { object: 'charge', payment_intent: o.pi, amount: o.totalCents, amount_refunded: o.totalCents } },
     });
@@ -398,6 +429,252 @@ describe('SEC-SETTLE-LATE · el settle solo liquida desde pending/failed (Postgr
    * Si este comportamiento cambia, esta prueba se pone roja a propósito: el residual cambió y hay que
    * re-decidir (BACKEND_NOTES «SEC-SETTLE-LATE — residual del barrido»).
    */
+  // =====================================================================================================
+  // 🔒💰 v1.80.8.3 (§M4-SHIP.18.2 bloque v1.80.8.3, §M4-VAULT.2-bis.2 bloque v1.80.8.3) — `charge.refunded` TOTAL
+  // lleva a `refunded` desde `pending`, `failed` y `settled` (`CHARGE_REFUNDED_SOURCE_STATUSES`). El hueco que cierra
+  // (BACKEND_NOTES «Release s5» §11): en `5321b8c6` una `pending` reembolsada desde el panel se quedaba `pending` y el
+  // `succeeded` tardío la LIQUIDABA — carta y dinero.
+  // =====================================================================================================
+  const failed = (pi: string, id = evt()) =>
+    h.sendStripeWebhook({ id, type: 'payment_intent.payment_failed', data: { object: { id: pi, object: 'payment_intent' } } });
+  const av3 = () =>
+    av2.mock.calls.map(([m]) => m as { subject: string; text: string }).filter((m) => /Reembolso de tu pedido/.test(m.subject));
+  const esVariantVault = (m: { text: string }) => /bóveda|vault/.test(m.text);
+  const piezasSL = (o: { items: { id: string }[] }) =>
+    h.prisma.inventoryItem.findMany({
+      where: { id: { in: o.items.map((i) => i.id) } },
+      select: { status: true, reservedByOrderId: true },
+      orderBy: { id: 'asc' },
+    });
+
+  describe('🔒💰 SL-8 — `pending` + `charge.refunded` total + `succeeded` tardío (las dos ramas)', () => {
+    it.each<[string, Mode, boolean, number]>([
+      ['vault, 2 piezas', 'vault', true, 2],
+      ['direct_ship invitado', 'direct_ship', false, 1],
+    ])('%s ⇒ refunded, sellada, SIN needsManual, AV-3 sin variante vault; el tardío es no-op', async (_n, mode, registered, n) => {
+      const o = await fx.mk(n, mode, registered);
+      av2.mockClear();
+      expect((await refundFull(o)).status).toBe(200);
+      const ord = await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } });
+      expect(ord.status).toBe('refunded');
+      expect(ord.refundedAt).toBeInstanceOf(Date);
+      expect(ord.fullRefundClosedAt).toBeInstanceOf(Date);
+      expect(ord.chargebackNeedsManual).toBe(false);
+      expect(ord.settledAt).toBeNull();
+      if (mode === 'vault') {
+        // La bitácora del cierre solo la escribe la rama `vault` (§M4-SHIP.18.4); la rama directo no tiene envío que cerrar.
+        const log = await h.prisma.auditLog.findMany({ where: { entityId: o.order.id, action: 'order.full_refund_closed' } });
+        expect(log).toHaveLength(1);
+        expect(log[0].after).toMatchObject({ statusAtClose: 'pending', returnedItemIds: [] });
+      }
+      const avisos = av3();
+      expect(avisos).toHaveLength(1);
+      expect(esVariantVault(avisos[0])).toBe(false);
+      expect((await piezasSL(o)).map((p) => [p.status, p.reservedByOrderId])).toEqual(o.items.map(() => ['reserved', o.order.id]));
+
+      await tardioNoOp(o, { status: 'refunded', warn: 1 });
+      const fin = await foto(o);
+      expect((fin.order[0] as { settledAt: Date | null }).settledAt).toBeNull();
+      expect(fin.movements).toHaveLength(0);
+      expect(fin.placements).toHaveLength(0);
+      expect(fin.shipments).toHaveLength(0);
+    });
+
+    it('control: `settled` + `charge.refunded` total en `vault` ⇒ AV-3 CON variante vault y needsManual (sin cambio)', async () => {
+      const o = await fx.mk(1, 'vault');
+      expect((await pay(o)).status).toBe(200);
+      av2.mockClear();
+      expect((await refundFull(o)).status).toBe(200);
+      const ord = await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } });
+      expect([ord.status, ord.chargebackNeedsManual]).toEqual(['refunded', true]);
+      const log = await h.prisma.auditLog.findMany({ where: { entityId: o.order.id, action: 'order.full_refund_closed' } });
+      expect(log[0].after).toMatchObject({ statusAtClose: 'settled' });
+      const avisos = av3();
+      expect(avisos).toHaveLength(1);
+      expect(esVariantVault(avisos[0])).toBe(true);
+    });
+  });
+
+  describe('🔒💰 SL-9 — `failed` + `charge.refunded` total + `succeeded` tardío (las dos ramas)', () => {
+    it('direct_ship: las piezas liberadas a `listed` siguen `listed`; cero envío, cero movimientos', async () => {
+      const o = await fx.mk(1, 'direct_ship');
+      expect((await failed(o.pi)).status).toBe(200);
+      expect((await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } })).status).toBe('failed');
+      expect((await piezasSL(o)).map((p) => p.status)).toEqual(['listed']);
+      expect((await refundFull(o)).status).toBe(200);
+      expect((await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } })).status).toBe('refunded');
+      await tardioNoOp(o, { status: 'refunded', warn: 1 });
+      expect((await piezasSL(o)).map((p) => [p.status, p.reservedByOrderId])).toEqual([['listed', null]]);
+      expect(await h.prisma.shipmentRequest.count({ where: { orderId: o.order.id } })).toBe(0);
+      expect(await h.prisma.inventoryMovement.count({ where: { itemId: o.items[0].id } })).toBe(0);
+    });
+
+    it('vault, re-compra: la pieza la compró después el MISMO cliente en O2 (`settled`) ⇒ el reembolso de O1 no la toca', async () => {
+      const o1 = await fx.mk(1, 'vault');
+      expect((await failed(o1.pi)).status).toBe(200);
+      expect((await piezasSL(o1)).map((p) => p.status)).toEqual(['listed']);
+      const o2 = await fx.mkOver([o1.items[0].id]);
+      expect((await pay(o2)).status).toBe(200);
+      const o2Antes = await foto(o2);
+      expect((o2Antes.order[0] as { status: string }).status).toBe('settled');
+      expect((o2Antes.items[0] as { status: string; ownerUserId: string }).status).toBe('in_custody');
+
+      expect((await refundFull(o1)).status).toBe(200);
+      const ord1 = await h.prisma.order.findUniqueOrThrow({ where: { id: o1.order.id } });
+      expect([ord1.status, ord1.chargebackNeedsManual]).toEqual(['refunded', false]);
+      const log = await h.prisma.auditLog.findMany({ where: { entityId: o1.order.id, action: 'order.full_refund_closed' } });
+      expect(log[0].after).toMatchObject({ statusAtClose: 'failed', returnedItemIds: [] });
+      expect((log[0].after as { untouched: { state: string }[] }).untouched.map((u) => u.state)).toEqual(['other_purchase']);
+      await tardioNoOp(o1, { status: 'refunded', warn: 1 });
+      // O2 y su pieza, INTACTAS (xmin incluido).
+      expect(await foto(o2)).toEqual(o2Antes);
+      expect(await h.prisma.inventoryMovement.count({ where: { itemId: o1.items[0].id, reason: 'refund_return' } })).toBe(0);
+    });
+  });
+
+  /**
+   * 🔒💰 SL-10 — carrera `failAndRelease` vs `charge.refunded` (barrera de fila en `Order`, patrón de SL-4). La barrera
+   * hace de la tx del reembolso: toma la fila y la escribe a `refunded` SIN confirmar; el `payment_failed` lee `pending`
+   * confirmado y se le VE bloqueado en su escritura; al confirmar, su CAS (`status:'pending'`) pierde. Canario: una
+   * tirada sin espera observada ⇒ `INVALIDA` (⛔ no cuenta como verde).
+   */
+  async function carreraFallo(mode: Mode): Promise<string> {
+    const o = await fx.mk(1, mode);
+    const soltar = diferida();
+    const tomado = diferida();
+    const barrera = h.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${o.order.id} FOR UPDATE`;
+        await tx.$executeRaw`UPDATE "Order" SET status = 'refunded', "refundedAt" = now() WHERE id = ${o.order.id}`;
+        tomado.abrir();
+        await soltar.promesa;
+      },
+      { timeout: 30000 },
+    );
+    await tomado.promesa;
+    let terminado = false;
+    const r = failed(o.pi).finally(() => {
+      terminado = true;
+    });
+    const visto = await verBloqueadoEnOrder(() => terminado);
+    soltar.abrir();
+    await barrera;
+    const res = await r;
+    if (!visto) return 'INVALIDA';
+    const tras = await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } });
+    const p1 = await piezasSL(o);
+    const tardio = await pay(o);
+    const fin = await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } });
+    const p2 = await h.prisma.inventoryItem.findMany({ where: { id: { in: o.items.map((i) => i.id) } }, select: { status: true, ownerType: true } });
+    const envios = await h.prisma.shipmentRequest.count({ where: { orderId: o.order.id } });
+    const ok =
+      res.status === 200 &&
+      tras.status === 'refunded' &&
+      p1.every((p) => p.status === 'reserved' && p.reservedByOrderId === o.order.id) &&
+      tardio.status === 200 &&
+      fin.status === 'refunded' &&
+      fin.settledAt === null &&
+      p2.every((p) => p.status === 'reserved') &&
+      envios === 0;
+    return ok ? 'ok' : `KO(${res.status},${tras.status}→${fin.status},piezas=${p1.map((p) => p.status).join('/')}→${p2.map((p) => p.status).join('/')},env=${envios})`;
+  }
+
+  /**
+   * SL-10 (b) — `succeeded` vs `charge.refunded` sobre `pending`, entrelazado forzado: la barrera retiene `Order`
+   * (sin escribir), se encolan los dos webhooks en el orden pedido y se suelta. Puede haber `40P01`/`503` (orden de
+   * candados opuesto: el reembolso toma piezas → `Order`; el settle `Order` → piezas): se CUENTAN aparte y valen si la
+   * REENTREGA del mismo evento deja un estado válido. Válido ⇔ (`refunded`, cero custodia) o (`refunded` tras `settled`,
+   * con las cartas reclamadas `refund_return`). ⛔ Nunca `settled` con custodia del cliente y el cobro reembolsado.
+   */
+  async function carreraPagoReembolso(primero: 'pago' | 'reembolso'): Promise<{ r: string; reintentos: number }> {
+    const o = await fx.mk(1, 'vault');
+    const idPago = evt();
+    const idReembolso = evt();
+    const soltar = diferida();
+    const tomado = diferida();
+    const barrera = h.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${o.order.id} FOR UPDATE`;
+        tomado.abrir();
+        await soltar.promesa;
+      },
+      { timeout: 30000 },
+    );
+    await tomado.promesa;
+    const lanzar = (quien: 'pago' | 'reembolso') => (quien === 'pago' ? pay(o, idPago) : refundFull(o, idReembolso));
+    const segundo = primero === 'pago' ? 'reembolso' : 'pago';
+    const esperaFila = async (n: number) => {
+      const hasta = Date.now() + 10000;
+      while (Date.now() < hasta) {
+        const f = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+          `SELECT count(*) AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND state = 'active' AND query ILIKE '%"Order"%'`,
+        );
+        if (Number(f[0].n) >= n) return true;
+        await new Promise((res) => setTimeout(res, 25));
+      }
+      return false;
+    };
+    const a = lanzar(primero);
+    const vistoA = await esperaFila(1);
+    const b = lanzar(segundo);
+    const vistoB = await esperaFila(2);
+    soltar.abrir();
+    await barrera;
+    const [ra, rb] = await Promise.all([a, b]);
+    if (!vistoA || !vistoB) return { r: 'INVALIDA', reintentos: 0 };
+    let reintentos = 0;
+    // Reentrega (como Stripe) de lo que no respondió 2xx, con el MISMO event.id.
+    const pend: ('pago' | 'reembolso')[] = [];
+    if (ra.status >= 300) pend.push(primero);
+    if (rb.status >= 300) pend.push(segundo);
+    for (const quien of pend) {
+      for (let k = 0; k < 3; k += 1) {
+        reintentos += 1;
+        if ((await lanzar(quien)).status < 300) break;
+      }
+    }
+    const ord = await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } });
+    const p = await h.prisma.inventoryItem.findMany({ where: { id: { in: o.items.map((i) => i.id) } }, select: { status: true, ownerType: true, ownerUserId: true } });
+    const custodia = p.filter((x) => x.ownerType === 'customer' && x.status === 'in_custody').length;
+    const devueltas = await h.prisma.inventoryMovement.count({ where: { itemId: { in: o.items.map((i) => i.id) }, reason: 'refund_return' } });
+    const sinLiquidar = ord.status === 'refunded' && ord.settledAt === null && custodia === 0;
+    const liquidadaYReclamada = ord.status === 'refunded' && ord.settledAt !== null && custodia === 0 && devueltas === p.length;
+    const tag = `${primero}1:${ra.status}/${rb.status}${reintentos ? `+r${reintentos}` : ''}`;
+    return { r: sinLiquidar || liquidadaYReclamada ? `ok(${tag})` : `KO(${tag},${ord.status},settled=${ord.settledAt ? 'sí' : 'no'},custodia=${custodia},rr=${devueltas})`, reintentos };
+  }
+
+  describe('🔒💰 SL-10 — carreras sobre una orden `pending` (barrera de fila, N por caso)', () => {
+    it.each<[string, Mode]>([
+      ['vault', 'vault'],
+      ['direct_ship', 'direct_ship'],
+    ])(`failAndRelease vs charge.refunded, %s — N=${N_CARRERA}: en TODAS las tiradas válidas sigue refunded, nada liberado, el tardío no-op`, async (n, mode) => {
+      const resultados: string[] = [];
+      for (let t = 0; t < N_CARRERA; t += 1) resultados.push(await carreraFallo(mode));
+      const validas = resultados.filter((r) => r !== 'INVALIDA');
+      // eslint-disable-next-line no-console
+      console.log(`[SL-10 fallo ${n}] válidas ${validas.length}/${N_CARRERA} · verdes ${validas.filter((r) => r === 'ok').length}/${validas.length} · ${resultados.join(' ')}`);
+      expect(validas).toHaveLength(N_CARRERA);
+      expect(validas).toEqual(Array(N_CARRERA).fill('ok'));
+    });
+
+    it.each<['pago' | 'reembolso']>([['reembolso'], ['pago']])(
+      `succeeded vs charge.refunded, primero el %s — N=${N_CARRERA}: nunca settled con custodia; 40P01/503 aparte`,
+      async (primero) => {
+        const out: { r: string; reintentos: number }[] = [];
+        for (let t = 0; t < N_CARRERA; t += 1) out.push(await carreraPagoReembolso(primero));
+        const validas = out.filter((x) => x.r !== 'INVALIDA');
+        const conReintento = validas.filter((x) => x.reintentos > 0).length;
+        // eslint-disable-next-line no-console
+        console.log(
+          `[SL-10 pago/reembolso primero=${primero}] válidas ${validas.length}/${N_CARRERA} · verdes ${validas.filter((x) => x.r.startsWith('ok')).length}/${validas.length} · ` +
+            `con 40P01/503 y reentrega ${conReintento} · ${out.map((x) => x.r).join(' ')}`,
+        );
+        expect(validas).toHaveLength(N_CARRERA);
+        expect(validas.filter((x) => !x.r.startsWith('ok'))).toEqual([]);
+      },
+    );
+  });
+
   describe('RESIDUAL — barrido de reservas sobre una orden `refunded` sin liquidar (medición)', () => {
     async function refundedSinLiquidar() {
       const o = await fx.mk(2, 'vault');

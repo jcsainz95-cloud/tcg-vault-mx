@@ -23,3 +23,18 @@ export const SETTLEABLE_ORDER_STATUSES = ['pending', 'failed'] as const satisfie
 export function isSettleableOrderStatus(status: OrderStatus): boolean {
   return (SETTLEABLE_ORDER_STATUSES as readonly OrderStatus[]).includes(status);
 }
+
+/**
+ * 🔒💰 API_CONTRACT v1.80.8.3 (§M4-SHIP.18.2 bloque v1.80.8.3, §M4-VAULT.2-bis.2), ARCHITECTURE §4.57 (v).
+ *
+ * **Lista CERRADA de estados desde los que un `charge.refunded` TOTAL lleva la orden a `refunded`.** Es el `WHERE` de
+ * `Order → refunded` en las DOS ramas de `onChargeRefunded` (con y sin `fullRefund`). Relación FIJA (la asevera SL-11):
+ * `CHARGE_REFUNDED_SOURCE_STATUSES = SETTLEABLE_ORDER_STATUSES ∪ {'settled'}`.
+ *
+ *  - `pending` / `failed`: hay cargo cobrado (Stripe no reembolsa lo que no existe) ⇒ el `succeeded` de ese PI viene,
+ *    tarde. Dejarla liquidable haría que el tardío entregara custodia o creara el envío con el dinero ya devuelto.
+ *  - `settled`: el camino normal.
+ *  - ⛔ `refunded`: no-op (reentrega / M3 llegó antes). ⛔ `chargeback`: se conserva (v1.80.7.2).
+ * M3 (`refund-ledger`, paso (4)) NO usa esta lista: su tx1 exige `settled`.
+ */
+export const CHARGE_REFUNDED_SOURCE_STATUSES = ['pending', 'failed', 'settled'] as const satisfies readonly OrderStatus[];

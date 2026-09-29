@@ -12,7 +12,7 @@
  *
  * **El sello `Order.fullRefundClosedAt` (§18.2, SEC-SHIP-A5 (a)) YA NO ES UN NO-OP TOTAL:** en TODA pasada la
  * rama `vault` corre la clasificación y el CAS por pieza (idempotente por el `WHERE`); el sello decide SOLO lo
- * que no debe repetirse: `chargebackNeedsManual` (primera pasada: siempre; siguientes: solo si reclamó ≥1),
+ * que no debe repetirse: `chargebackNeedsManual` (primera pasada: si la orden fue liquidada alguna vez —v1.80.8.3—; siguientes: solo si reclamó ≥1),
  * la bitácora (`order.full_refund_closed` / `order.vault_reclaimed`) y el `AV-3` (una vez).
  *
  * **Llamadores exactos (`C-FULLREF-1`):** M3 `refund` / `retry` (vía `executeRefund`, la tx de confirmación),
@@ -23,8 +23,9 @@
  * El mismo que el preparado (§M4-SHIP.5) ⇒ M3, preparado y webhook se serializan sin interbloqueo.
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { OrderStatus, Prisma } from '@prisma/client';
 import { CurrentPiece, currentPiecesOf, resolveOriginsBatch } from './origin';
+import { isSettleableOrderStatus } from '../settleable-order-statuses';
 
 export type FullRefundTrigger = 'm3' | 'charge_refunded' | 'unprepared' | 'reclaim';
 export type FullRefundTarget = { orderId: string } | { shipmentRequestId: string };
@@ -75,6 +76,11 @@ export interface FullRefundPassResult {
   frozenItemIds: string[];
   chargebackNeedsManual: boolean;
   pieces: VaultPieceClassification[];
+  /**
+   * 🔒💰 v1.80.8.3 — el `Order.status` leído bajo el `FOR UPDATE` de la pasada (`null` en la rama retiro, que no toma
+   * la fila `Order`). `onChargeRefunded` decide con él la variante `vault` de `AV-3` (solo `settled`).
+   */
+  orderStatusUnderLock: OrderStatus | null;
 }
 
 type Tx = Prisma.TransactionClient;
@@ -189,11 +195,12 @@ export class FullRefundService {
         frozenItemIds: [],
         chargebackNeedsManual: false,
         pieces: [],
+        orderStatusUnderLock: null,
       };
     }
-    // `Order` FOR UPDATE y el sello (§18.2): se escribe UNA vez.
-    const [row] = await tx.$queryRaw<{ fullRefundClosedAt: Date | null; chargebackNeedsManual: boolean }[]>`
-      SELECT "fullRefundClosedAt", "chargebackNeedsManual" FROM "Order" WHERE id = ${target.orderId} FOR UPDATE`;
+    // `Order` FOR UPDATE y el sello (§18.2): se escribe UNA vez. v1.80.8.3: + `status` (`orderStatusUnderLock`).
+    const [row] = await tx.$queryRaw<{ fullRefundClosedAt: Date | null; chargebackNeedsManual: boolean; status: OrderStatus }[]>`
+      SELECT "fullRefundClosedAt", "chargebackNeedsManual", status FROM "Order" WHERE id = ${target.orderId} FOR UPDATE`;
     const sealedNow = row.fullRefundClosedAt === null;
     let needsManual = row.chargebackNeedsManual;
     if (closed.length > 0) needsManual = true;
@@ -214,6 +221,7 @@ export class FullRefundService {
       frozenItemIds: frozen,
       chargebackNeedsManual: needsManual,
       pieces: [],
+      orderStatusUnderLock: row.status,
     };
   }
 
@@ -263,9 +271,9 @@ export class FullRefundService {
     if (pieceIds.length > 0) {
       await tx.$queryRaw`SELECT id FROM "InventoryItem" WHERE id = ANY(${pieceIds}::text[]) ORDER BY id FOR UPDATE`;
     }
-    // (d) Order FOR UPDATE + sello.
-    const [head] = await tx.$queryRaw<{ fullRefundClosedAt: Date | null; chargebackNeedsManual: boolean }[]>`
-      SELECT "fullRefundClosedAt", "chargebackNeedsManual" FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+    // (d) Order FOR UPDATE + sello. v1.80.8.3: + `status` (`orderStatusUnderLock`, `statusAtClose`).
+    const [head] = await tx.$queryRaw<{ fullRefundClosedAt: Date | null; chargebackNeedsManual: boolean; status: OrderStatus }[]>`
+      SELECT "fullRefundClosedAt", "chargebackNeedsManual", status FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
     const firstPass = head.fullRefundClosedAt === null;
     const sealAt = firstPass ? now : (head.fullRefundClosedAt as Date);
     // (e) relectura de retiros: uno que no estaba en (b) ⇒ «en caja» (conservador).
@@ -359,7 +367,11 @@ export class FullRefundService {
     // Después del bucle: según el sello (tabla de §18.2).
     let needsManual = head.chargebackNeedsManual;
     if (firstPass) {
-      if (order.items.length > 0) needsManual = true;
+      // 🔒💰 v1.80.8.3 (§M4-SHIP.18.2, tabla del sello): solo una orden que fue LIQUIDADA alguna vez (estado bajo
+      // candado ∉ SETTLEABLE: `settled`/`chargeback`/`refunded`) tiene algo físico que confirmar. Una nunca liquidada
+      // (`pending`/`failed`) no tuvo custodia ni colocación, y `chargeback-inventory` no tendría verbo que bajara el
+      // flag (`409 no frozen piece`) ⇒ un falso pendiente perpetuo.
+      if (order.items.length > 0 && !isSettleableOrderStatus(head.status)) needsManual = true;
     } else if (reclaimedNow.length > 0) {
       needsManual = true;
     }
@@ -383,7 +395,7 @@ export class FullRefundService {
           action: 'order.full_refund_closed',
           entityType: 'Order',
           entityId: orderId,
-          after: { trigger, returnedItemIds: reclaimedNow, untouched, placementCancelled: placement.count === 1 },
+          after: { trigger, returnedItemIds: reclaimedNow, untouched, placementCancelled: placement.count === 1, statusAtClose: head.status },
         },
       });
     } else if (reclaimedNow.length > 0) {
@@ -408,6 +420,7 @@ export class FullRefundService {
       frozenItemIds: [],
       chargebackNeedsManual: needsManual,
       pieces: pieces.map((p) => ({ ...p, pendingConfirmation: p.state === 'returned' && needsManual })),
+      orderStatusUnderLock: head.status,
     };
   }
 

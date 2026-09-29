@@ -8,7 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
 import { clearReservation, releaseReservationData, reservationGuard } from '../orders/reservation';
 import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
-import { SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
+import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
 // LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -621,7 +621,12 @@ export class PaymentsService {
     if (order) {
       if (order.status !== 'pending') return;
       await this.prisma.$transaction(async (tx) => {
-        await tx.order.update({ where: { id: order.id }, data: { status: 'failed' } });
+        // 🔒💰 v1.80.8.3 (§M4-VAULT.2-bis.2, tabla de escritores): CAS con el estado en el `WHERE`, ⛔ nunca
+        // `update` por `id` tras la lectura sin candado de arriba — un `charge.refunded` (o un settle) confirmado
+        // entre medias sería PISADO con `failed`, que es liquidable ⇒ un `succeeded` tardío liquidaría una orden con
+        // el dinero devuelto. `count 0` ⇒ otro escritor ganó: ⛔ no se libera nada.
+        const moved = await tx.order.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed' } });
+        if (moved.count !== 1) return;
         for (const oi of order.items) {
           // v1.68 (§4-R.2 regla 2, candado R-2): SOLO libera lo PROPIO. Tras una sustitución O1→O2, el
           // `payment_intent.canceled` del PI de O1 llega después y NO debe soltar la pieza que O2
@@ -704,26 +709,36 @@ export class PaymentsService {
     if (!this.fullRefund) {
       // Modo legado (tests unitarios sin el servicio): el estado, con el CAS en el `WHERE`, y `AV-3` una vez.
       if (order.status === 'refunded') return;
-      await this.prisma.order.updateMany({ where: { id: order.id, status: 'settled' }, data: { status: 'refunded', refundedAt: new Date() } });
-      await this.notifyOrderRefunded(order);
+      // 🔒💰 v1.80.8.3: la MISMA lista que la rama con `fullRefund` (⛔ nunca dos listas).
+      const legacy = await this.prisma.order.updateMany({
+        where: { id: order.id, status: { in: [...CHARGE_REFUNDED_SOURCE_STATUSES] } },
+        data: { status: 'refunded', refundedAt: new Date() },
+      });
+      if (legacy.count === 1) await this.notifyOrderRefunded(order, order.fulfillmentMode === 'vault' && order.status === 'settled');
       return;
     }
-    const transitioned = await this.prisma.$transaction(
+    const outcome = await this.prisma.$transaction(
       async (tx) => {
         // El cierre toma sus candados (envíos → piezas → Order) y sella; `Order → refunded` va después, bajo
         // el mismo candado de fila que la pasada ya tomó. Independiente del orden de llegada (SEC-SHIP-M5).
-        await this.fullRefund!.onFullRefund(tx, { orderId: order.id }, 'charge_refunded', null);
+        const pass = await this.fullRefund!.onFullRefund(tx, { orderId: order.id }, 'charge_refunded', null);
+        // 🔒💰 v1.80.8.3 (§M4-SHIP.18.2): desde `pending`, `failed` y `settled` (⛔ ya no solo `settled`: una orden
+        // `pending`/`failed` que se queda así es LIQUIDABLE y el `succeeded` tardío la liquidaría con el dinero
+        // devuelto). `refunded` ⇒ `count 0` (no-op); `chargeback` ⇒ se conserva (v1.80.7.2).
         const moved = await tx.order.updateMany({
-          where: { id: order.id, status: 'settled' },
+          where: { id: order.id, status: { in: [...CHARGE_REFUNDED_SOURCE_STATUSES] } },
           data: { status: 'refunded', refundedAt: new Date() },
         });
-        return moved.count === 1;
+        return { transitioned: moved.count === 1, statusUnderLock: pass.orderStatusUnderLock };
       },
       { maxWait: 10_000, timeout: 30_000 },
     );
-    // ⭐ `AV-3` (§R.3) — POST-COMMIT y best-effort; una vez: quien hizo la TRANSICIÓN `settled → refunded`
+    // ⭐ `AV-3` (§R.3) — POST-COMMIT y best-effort; una vez: quien hizo la TRANSICIÓN a `refunded`
     // (M3 en su tx de confirmación o este webhook, el que llegue primero; el otro no manda nada).
-    if (transitioned) await this.notifyOrderRefunded(order);
+    // v1.80.8.3: variante `vault` ⇔ `vault` ∧ estado bajo candado `settled` (una nunca liquidada no tuvo bóveda).
+    if (outcome.transitioned) {
+      await this.notifyOrderRefunded(order, order.fulfillmentMode === 'vault' && outcome.statusUnderLock === 'settled');
+    }
   }
 
   /**
@@ -732,7 +747,7 @@ export class PaymentsService {
    * ⭐ v1.80 (§9): sale SOLO si la orden tiene fila `order_full` no fallida o ninguna fila del libro (con
    * filas de carta faltante el cliente ya recibió `AV-12`). Variante `vault` (§M4-SHIP.18.6).
    */
-  private async notifyOrderRefunded(order: Order): Promise<void> {
+  private async notifyOrderRefunded(order: Order, vaultVariant: boolean): Promise<void> {
     if (this.ledger && !(await this.ledger.av3Allowed(order.id))) return;
     await this.safeNotify(order.id, async () => {
       const recipient = order.guestEmail
@@ -757,7 +772,7 @@ export class PaymentsService {
             orderId: order.guestEmail ? null : order.id,
             totalCents: order.totalCents,
             // ⭐ v1.80.4 (§M4-SHIP.18.6): variante `vault` de `AV-3`.
-            vault: order.fulfillmentMode === 'vault',
+            vault: vaultVariant,
           },
           recipient.locale,
         ),

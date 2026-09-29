@@ -316,8 +316,12 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled' });
     await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 100000 } as any);
     // ⭐ v1.80 (REL-B, SEC-SHIP-M5): la transición lleva el estado en el `WHERE` (`updateMany`), ⛔ no `update` plano.
+    // 🔒💰 v1.80.8.3: el `WHERE` es `CHARGE_REFUNDED_SOURCE_STATUSES` (`pending`, `failed`, `settled`), ⛔ ya no solo `settled`.
     expect(prisma.order.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1', status: 'settled' }, data: expect.objectContaining({ status: 'refunded' }) }),
+      expect.objectContaining({
+        where: { id: 'o1', status: { in: ['pending', 'failed', 'settled'] } },
+        data: expect.objectContaining({ status: 'refunded' }),
+      }),
     );
     // A1: VENTAS FINALES → el item NO se revierte al inventario en el refund.
     expect(prisma._tx.inventoryItem.update).not.toHaveBeenCalled();
@@ -335,9 +339,11 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     });
     await payments.onPaymentCanceled('pi_1');
     const tx = prisma._tx;
-    expect(tx.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: { status: 'failed' } }),
+    // 🔒💰 v1.80.8.3: CAS con el estado en el `WHERE` (⛔ nunca `update` por `id`: pisaría un `refunded` confirmado).
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'o1', status: 'pending' }, data: { status: 'failed' } }),
     );
+    expect(tx.order.update).not.toHaveBeenCalled();
     expect(tx.inventoryItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         // v1.68 (candado R-2): solo libera lo PROPIO (o legado).
@@ -349,6 +355,23 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
         data: expect.objectContaining({ status: 'listed', ownershipStatus: null, reservedByOrderId: null }),
       }),
     );
+  });
+
+  it('B5 (v1.80.8.3): el CAS a `failed` cuenta 0 (otro escritor ganó: `refunded`/`settled`) ⇒ ⛔ no libera ninguna pieza', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'o1',
+      fulfillmentMode: 'vault',
+      status: 'pending',
+      items: [{ inventoryItemId: 'item1' }],
+    });
+    const tx = prisma._tx;
+    tx.order.updateMany.mockResolvedValueOnce({ count: 0 });
+    await payments.onPaymentCanceled('pi_1');
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'o1', status: 'pending' }, data: { status: 'failed' } }),
+    );
+    expect(tx.inventoryItem.updateMany).toHaveBeenCalledTimes(0);
+    expect(tx.order.update).not.toHaveBeenCalled();
   });
 
   it('B5: payment_intent.canceled de un envío solicitado → lo cancela (libera items)', async () => {
