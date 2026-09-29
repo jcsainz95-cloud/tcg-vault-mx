@@ -2,7 +2,38 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.8.2**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.8.3**).
+>
+> **Rev v1.80.8.3 — 🔒💰 ERRATA BLOQUEANTE: `charge.refunded` TOTAL LLEVA A `refunded` DESDE `pending`, `failed` Y
+> `settled` (2026-09-29, arquitecto).** ⛔ Sin schema, sin endpoint, sin código de error nuevo. Cambia **conducta de
+> dinero** en el webhook y en `failAndRelease`. Norma: [§M4-SHIP.18.2](#M4-SHIP-18) (bloque «v1.80.8.3») y
+> [§M4-VAULT.2-bis.2](#M4-VAULT-2bis2) (bloque «v1.80.8.3»). Porqué: `ARCHITECTURE §4.57 (v)`.
+>
+> - **La contradicción (medida por backend en `claude/release-s5`, `BACKEND_NOTES` «Release s5» §11; sha y cifras
+>   reportados por backend, ⛔ NO MEDIDOS por el arquitecto, que no tiene Bash).** §M4-SHIP.18.9 decía «`Order →
+>   refunded` con `status IN (settled, refunded)`» y el código de envío quedó con `status: 'settled'`
+>   (`payments.service.ts:707` y `:717`, leído por el arquitecto); §M4-VAULT.2-bis.2 «Residual» daba por hecho que el
+>   webhook lleva una orden `pending` a `refunded`. Al fusionar ganó la primera: una orden `vault` `pending`
+>   reembolsada desde el panel de Stripe se queda `pending`, y un `payment_intent.succeeded` tardío la **liquida** y
+>   pone sus cartas `in_custody` del cliente — **carta y dinero**, lo que `SEC-SETTLE-LATE` había cerrado
+>   (`settle-late.e2e-spec.ts` 13/15 en `5321b8c6`, 15/15 en `7a32b833`; N=1 por punto, suite determinista, autor backend).
+> - **⭐ LA REGLA:** una constante nueva, **`CHARGE_REFUNDED_SOURCE_STATUSES = ['pending','failed','settled']`**, junto a
+>   `SETTLEABLE_ORDER_STATUSES` y con la relación fija `= SETTLEABLE ∪ {settled}`; es el `WHERE` de `Order → refunded`
+>   en **las dos** ramas de `onChargeRefunded` (con y sin `fullRefund`). `refunded` ⇒ no-op; `chargeback` ⇒ se
+>   conserva (v1.80.7.2, sin cambio). M3 (`refund-ledger`, paso (4)) **sigue** con `status:'settled'`.
+> - **Y dos cosas que la regla arrastra:** (i) `onFullRefund` sobre una orden **nunca liquidada** (estado bajo candado ∈
+>   `SETTLEABLE`) sella `fullRefundClosedAt` pero ⛔ **no** sube `chargebackNeedsManual` (no hay nada físico que
+>   confirmar y ningún verbo lo bajaría); `AV-3` sale sin la variante `vault`. (ii) `failAndRelease` pasa a CAS
+>   (`updateMany where {id, status:'pending'}`, y solo libera si `count 1`): hoy es un `update` por `id` tras una lectura
+>   sin candado (`payments.service.ts:622-624`) que puede **pisar** `refunded` (o `settled`) con `failed` — y `failed`
+>   es liquidable, así que reabriría el mismo agujero por otro lado.
+> - **Qué se tacha:** §M4-SHIP.18.2, fila `chargebackNeedsManual` de la tabla del sello y la cita `IN ('settled',
+>   'refunded')` del bloque M5; §M4-SHIP.18.9, «`Order → refunded` con `status IN (settled, refunded)`»;
+>   §M4-VAULT.2-bis.2, «`failAndRelease` (su `status !== 'pending'` no cambia)» y la frase del «Residual» que lo dejaba
+>   sin norma.
+> - **Backend:** el código de arriba + la unitaria `payments.service.spec.ts:319-321` (pasa a la constante) + la B5
+>   (`:338`, pasa a `updateMany` con `status:'pending'`) + **SL-8…SL-11** nuevas (§M4-VAULT.2-bis.2). **Frontend nada.**
+>   **ux-ui nada** (`AV-3` sin variante ya existe). **Seguridad:** re-corre su sonda S4 sobre el camino `pending`.
 >
 > **Rev v1.80.8.2 — ERRATA: EL ENLACE A REGISTRAR LA CLABE ES `/account#kyc`, NO `/cuenta#kyc` (2026-09-29, arquitecto).**
 > ⛔ **Sin schema, sin endpoint, sin cambio de conducta:** solo el literal de ruta que el contrato fijaba para el correo.
@@ -17957,15 +17988,73 @@ if (won.count === 0) return false;          // perdedor: ⛔ nada más en esta t
   confirma antes, el CAS del settle re-evalúa su `WHERE` sobre la versión confirmada (`READ COMMITTED`) ⇒ `chargeback`
   ∉ lista ⇒ 0 filas ⇒ perdedor. (ii) Si el settle confirma antes, el contracargo lo pisa con `chargeback` — el orden
   correcto. ⛔ No se toca el contracargo en esta rev.
-- **Lo que queda como está:** todo lo de .2-bis.1 salvo el predicado; `onChargeDisputeClosed`; `failAndRelease` (su
-  `status !== 'pending'` no cambia).
+- **Lo que queda como está:** todo lo de .2-bis.1 salvo el predicado; `onChargeDisputeClosed`; ~~`failAndRelease` (su
+  `status !== 'pending'` no cambia)~~ 🔒💰 **v1.80.8.3: `failAndRelease` SÍ cambia** (bloque v1.80.8.3 abajo).
 
 **Residual declarado (⛔ NO bloquea):** una orden `pending` reembolsada **desde el panel de Stripe** (no por nuestra
 ruta) queda `refunded` con sus piezas `reserved` por ella; hasta hoy un `succeeded` tardío las movía a custodia (peor:
-el cliente se quedaba la carta con el dinero devuelto); desde v1.80 se quedan `reserved`. ⛔ **NO MEDIDO** qué hace el
+el cliente se quedaba la carta con el dinero devuelto); desde v1.80 se quedan `reserved`. ~~⛔ **NO MEDIDO** qué hace el
 barrido de reservas con piezas reservadas por una orden que ya no es `pending` (§4-R.4). **Comprobación** (backend):
 leer el predicado del barrido y decirlo en `BACKEND_NOTES`; si no las suelta, se registra en `TECH_DEBT.md` con
-disparador «primer reembolso fuera de la app».
+disparador «primer reembolso fuera de la app».~~ *(Hecho: medido por backend 2026-09-28, registrado como `SSL-R1` en
+`TECH_DEBT.md`; el barrido las salta en cada pasada.)*
+🔒💰 **v1.80.8.3 — la premisa del residual («el webhook la lleva a `refunded`») era NORMA IMPLÍCITA y no estaba
+escrita: se escribe.** La fusión `release-s5` se quedó con `status:'settled'` y este residual dejó de ser residual para
+volver a ser el agujero de arriba (backend, `BACKEND_NOTES` «Release s5» §11, `settle-late` 13/15, N=1 por punto).
+
+**Norma v1.80.8.3 (manda sobre el «Residual» de arriba):**
+
+1. **`charge.refunded` TOTAL lleva a `refunded` desde `pending`, `failed` y `settled`** —
+   `CHARGE_REFUNDED_SOURCE_STATUSES`, tabla y pseudocódigo en [§M4-SHIP.18.2](#M4-SHIP-18) bloque v1.80.8.3. Con eso,
+   `refunded` es un hecho posterior a un cobro y este settle lo trata como tal (fila `refunded` de la tabla de arriba).
+2. **¿Basta con que `refunded` sea terminal para el liquidador? — Sí para el liquidador, ⛔ no para el sistema.** El
+   liquidador ya respeta `refunded` en sus dos puntos (early-return `payments.service.ts:221` y CAS `:288`/`:448`, la
+   misma constante). Lo que falta es que **nadie saque la orden de `refunded` hacia un estado liquidable**. Escritores de
+   `Order.status` leídos por el arquitecto (`rg` NO corrido: sin Bash; backend lo confirma con `rg "order\.(update|updateMany)"`
+   al construir):
+   | Escritor | Qué escribe | ¿Puede pisar `refunded`? | v1.80.8.3 |
+   |---|---|---|---|
+   | `failAndRelease` (`payment_failed`/`canceled`) | `failed`, con `update` por `id` tras una lectura **sin candado** de `pending` (`:622-624`) | **Sí:** lee `pending`, el `charge.refunded` confirma `refunded`, y el `update` lo pisa con `failed` ⇒ el `succeeded` tardío liquida. (Pisa `settled` igual contra el settle: defecto previo de la clase `REL-B`) | **CAS:** `updateMany({ where: { id, status: 'pending' }, data: { status: 'failed' } })`; ⛔ libera piezas **solo si `count 1`**; `count 0` ⇒ `return` sin escribir nada más |
+   | Barrido de reservas (`orders.service.ts:1175-1182`) y sustitución (`:1035-1042`) | `failed`, `update` por `id` | Solo si el PI quedó `canceled` (`closePaymentIntent`, `:909-917`, precondición de los dos); un PI con cargo reembolsado está `succeeded` y no se cancela ⇒ **no alcanzable** (propiedad de Stripe, ⛔ NO MEDIDA con Stripe real) | Sin cambio en esta errata |
+   | `onChargeDispute` / `onChargeDisputeClosed` | `chargeback` / `settled` por `id` | Sí (disputa sobre un cargo reembolsado), pero **no entrega custodia**: el contracargo devuelve piezas a plataforma y `won` no mueve piezas; un `succeeded` posterior sobre `settled`/`chargeback` es no-op | Sin cambio (observación, fuera de esta errata) |
+3. **`onFullRefund` sobre una orden nunca liquidada:** sello sí, `chargebackNeedsManual` no, `AV-3` sin variante `vault`
+   (§M4-SHIP.18.2 bloque v1.80.8.3). Piezas `reserved`: `SSL-R1`, sin cambio.
+
+**Pruebas nuevas (backend, modelo fuerte; integración = Postgres real + webhook firmado; mutaciones sobre copia del
+árbol ENTERO, proporción con N):**
+
+- **SL-8 ⭐⭐ `pending` + `charge.refunded` total + `succeeded` tardío, las dos ramas** (es la «RESIDUAL» de hoy hecha
+  norma; `vault` con 2 piezas y `direct_ship` invitado). Tras el reembolso: `status='refunded'`, `refundedAt` puesto,
+  `fullRefundClosedAt` puesto, **`chargebackNeedsManual=false`**, bitácora `order.full_refund_closed` con
+  `statusAtClose:'pending'`, `AV-3` **1** sin variante `vault`, piezas `reserved` por la orden. Tras el tardío: `200`,
+  sigue `refunded`, `settledAt` nulo, **cero** `InventoryMovement`, **cero** `VaultPlacement`, **cero** `ShipmentRequest`,
+  `AV-2` 0, `warn` 1. *Mutaciones:* (a) `WHERE status:'settled'` (el código de `5321b8c6`) ⇒ roja; (b) subir
+  `chargebackNeedsManual` en la primera pasada sin mirar el estado ⇒ roja.
+- **SL-9 `failed` + `charge.refunded` total + `succeeded` tardío, las dos ramas.** `direct_ship`: las piezas liberadas a
+  `listed` por el `payment_failed` ⇒ tras el tardío siguen `listed`, **cero** envío creado, **cero** movimientos `settle`.
+  `vault`, variante **re-compra**: la pieza la compró después el **mismo** cliente en O2 (`settled`, `in_custody`) ⇒ el
+  reembolso de O1 ⛔ no la toca (`other_purchase`), O2 intacta. *Mutación:* quitar `'failed'` de la constante nueva ⇒
+  roja en `direct_ship` (envío creado).
+- **SL-10 carrera `failAndRelease` vs `charge.refunded`** (barrera de fila en `Order`, N ≥ 10, se reporta proporción):
+  mismo patrón que SL-4: orden `pending`; (1) la barrera toma la fila `Order` y la escribe a `refunded` **sin
+  confirmar** (hace de la tx del reembolso); (2) se lanza el `payment_failed`: su lectura previa ve `pending` confirmado
+  y se espera verlo **bloqueado en su escritura**; (3) la barrera confirma ⇒ en **todas** las tiradas válidas:
+  `status='refunded'`, **cero** piezas liberadas por el fallo, y un `succeeded` tardío después es no-op. Canario del
+  arnés como SL-4 (tirada sin espera observada ⇒ no cuenta, se reporta aparte). *Mutación:* volver al `update` por `id` ⇒
+  `failed` y el tardío liquida, en todas las tiradas válidas. **Y** la carrera `succeeded` vs `charge.refunded` sobre
+  `pending` (N ≥ 10): tiradas `40P01`/`503` se cuentan aparte y valen si la **reentrega** del mismo evento deja: o
+  (`refunded`, cero custodia) o (`settled` → `refunded` con las cartas reclamadas `refund_return`); ⛔ nunca `settled` con
+  custodia del cliente y el cobro reembolsado.
+- **SL-11 canario de la constante** (unidad): por **cada** `OrderStatus` una fila explícita `fuenteDeReembolsoTotal:
+  sí/no` (`pending`, `failed`, `settled` ⇒ sí; `refunded`, `chargeback` ⇒ no) y el aserto
+  `CHARGE_REFUNDED_SOURCE_STATUSES = SETTLEABLE_ORDER_STATUSES ∪ {'settled'}`. *Mutación:* añadir `'chargeback'` ⇒ roja
+  (y PS-57d); añadir un valor a `SETTLEABLE` sin tocar ésta ⇒ roja.
+
+**Pruebas que cambian:** `payments.service.spec.ts:319-321` (M2/A1) ⇒ el `where` pasa a
+`{ id: 'o1', status: { in: ['pending','failed','settled'] } }`; B5 `:338` ⇒ `updateMany` con
+`where: { id: 'o1', status: 'pending' }` y un caso nuevo `count 0 ⇒ inventoryItem.updateMany` **0**; la «RESIDUAL» de
+`settle-late.e2e-spec.ts` sigue igual (ya asume `pending → refunded`). ⛔ `refund-ledger.confirm.spec.ts:77` **no**
+cambia (M3 sigue `settled`).
 
 **Pruebas (las escribe backend, modelo fuerte; la 38 se enmienda así):**
 
@@ -21325,7 +21414,7 @@ la orden (como v1.80.5). ⛔ No acota el resto de la pasada (las piezas sin caja
   colocación de §18.5 (idempotente por su `status:'pending'`). El sello decide **solo**:
   | | `fullRefundClosedAt = null` (primera pasada) | `≠ null` (pasadas siguientes) |
   |---|---|---|
-  | `chargebackNeedsManual = true` | siempre que la orden tenga ≥ 1 `OrderItem` | **solo si esta pasada reclamó ≥ 1 pieza** (vuelve a abrir la cola: hay una carta nueva que confirmar físicamente; `chargeback-inventory` vuelve a aceptar la orden — su `409 ya resuelta` mira el flag, no la historia) |
+  | `chargebackNeedsManual = true` | ~~siempre que la orden tenga ≥ 1 `OrderItem`~~ 🔒💰 **v1.80.8.3:** si la orden tiene ≥ 1 `OrderItem` **y** su estado leído bajo el `FOR UPDATE` de (d) ∉ `SETTLEABLE_ORDER_STATUSES` (fue liquidada alguna vez: `settled`/`chargeback`); nunca liquidada (`pending`/`failed`) ⇒ ⛔ no se sube (ver bloque v1.80.8.3 abajo). *Rama directo: sin cambio* (solo lo sube un envío cerrado, y una orden sin liquidar no tiene envío) | **solo si esta pasada reclamó ≥ 1 pieza** (vuelve a abrir la cola: hay una carta nueva que confirmar físicamente; `chargeback-inventory` vuelve a aceptar la orden — su `409 ya resuelta` mira el flag, no la historia) |
   | Bitácora | `order.full_refund_closed` (`after:{ trigger, returnedItemIds, untouched, placementCancelled }`) | `order.vault_reclaimed` (`after:{ trigger, returnedItemIds, untouched }`), **solo si reclamó ≥ 1**; si no, ⛔ nada |
   | `AV-3` (variante `vault`) | una vez, post-commit (§R.3) | ⛔ nunca |
   | Escribe `fullRefundClosedAt = now` | sí, en la misma tx | no |
@@ -21339,8 +21428,9 @@ la orden (como v1.80.5). ⛔ No acota el resto de la pasada (las piezas sin caja
 - 🔒💰 **v1.80.5 (SEC-SHIP-M5) — independiente del ORDEN DE LLEGADA.** Stripe emite `charge.refunded` al aceptar el
   reembolso, **antes** de que M3 reciba su respuesta y abra la tx de confirmación; bajo carga el webhook gana. La tx de
   confirmación de M3 (y la de `retry`) es la misma en los dos órdenes: (1) CAS de la fila del libro `where { id, status:
-  'requested' }` → `submitted|succeeded` (independiente de la orden); (2) `Order → refunded` con `updateMany({ where: {
-  id, status: { in: ['settled','refunded'] } } })` — **`count 1` con la orden ya `refunded` es ÉXITO** (el webhook la
+  'requested' }` → `submitted|succeeded` (independiente de la orden); (2) `Order → refunded` con ~~`updateMany({ where: {
+  id, status: { in: ['settled','refunded'] } } })`~~ *(superado por v1.80.7: M3 usa `status:'settled'` y `count 0 ∧
+  refunded` = éxito; y por v1.80.8.3 para el webhook: `CHARGE_REFUNDED_SOURCE_STATUSES`)* — **`count 1` con la orden ya `refunded` es ÉXITO** (el webhook la
   puso; ⛔ no es error, no hay rollback, la respuesta es `200` con la fila `submitted|succeeded`); `count 0` (la orden
   está `chargeback`/`failed`) ⇒ `log error` y la fila del libro **conserva** su estado nuevo (el dinero salió: registrar
   es obligatorio), la orden no se toca; (3) `onFullRefund(...)` — que con el sello ya puesto por el webhook hace lo de
@@ -21396,6 +21486,53 @@ la orden (como v1.80.5). ⛔ No acota el resto de la pasada (las piezas sin caja
   piezas → `Order`: misma clase de ciclo, no señalada por el techlead. Backend lo mide con barrera (N≥10) al construir
   PS-57c; si hay ciclo, vuelve al arquitecto (probable cierre: el claim del flag se mueve **después** del `FOR UPDATE`
   de las piezas, con la misma semántica `409 ya resuelta`).
+- 🔒💰 **v1.80.8.3 — `charge.refunded` TOTAL: DESDE QUÉ ESTADOS SE LLEGA A `refunded` (errata bloqueante de la fusión
+  `release-s5`).** Este bloque **manda** sobre cualquier otra frase de §18 que diga «`settled → refunded`» a propósito
+  del **webhook** (M3 no cambia: su tx1 exige `settled`, `admin-orders.controller.ts:239`, y `settled` solo sale hacia
+  `refunded`/`chargeback`; su detector `count 0 ∧ otro ⇒ log error` se conserva porque es el que caza a un escritor
+  desconocido).
+  ```ts
+  // settleable-order-statuses.ts — MISMO fichero que SETTLEABLE_ORDER_STATUSES; lista CERRADA.
+  export const CHARGE_REFUNDED_SOURCE_STATUSES =
+    ['pending', 'failed', 'settled'] as const satisfies readonly OrderStatus[];
+  // Relación FIJA (la asevera SL-11): CHARGE_REFUNDED_SOURCE_STATUSES = SETTLEABLE_ORDER_STATUSES ∪ {'settled'}.
+
+  // onChargeRefunded, TOTAL — las DOS ramas (con `fullRefund` y la legada sin él), ⛔ nunca dos listas:
+  const moved = await tx.order.updateMany({
+    where: { id: order.id, status: { in: [...CHARGE_REFUNDED_SOURCE_STATUSES] } },
+    data:  { status: 'refunded', refundedAt: now },
+  });                                   // después de onFullRefund, bajo su candado de fila (v1.80.7, sin cambio)
+  // AV-3: post-commit, solo si moved.count === 1 (sin cambio); variante `vault` ⇔ fulfillmentMode='vault'
+  //       ∧ pass.orderStatusUnderLock === 'settled'  (una orden nunca liquidada no tuvo cartas en la bóveda).
+  ```
+  | Estado cuando llega `charge.refunded` total | Antes (`5321b8c6`) | **v1.80.8.3** | Por qué |
+  |---|---|---|---|
+  | `pending` | se queda `pending` ⚠️ | **`refunded`** | Hay cargo cobrado (Stripe no reembolsa un cargo que no existe) ⇒ el `succeeded` de ese PI **viene**, tarde. Dejarla `pending` la deja **liquidable**: el tardío la liquida y entrega custodia (bóveda) o crea el envío (`direct_ship`) con el dinero ya devuelto. `refunded` ∉ `SETTLEABLE` ⇒ el tardío es no-op (§M4-VAULT.2-bis.2) |
+  | `failed` | se queda `failed` ⚠️ | **`refunded`** | Mismo motivo, peor en `direct_ship`: `failed` es liquidable (prueba 38 (ii)) y `settleDirectShipOrder` **re-congela** piezas `listed` y crea el envío (`payments.service.ts:489-537`) ⇒ se enviaría un paquete pagado con dinero devuelto. Alcanzable si el `payment_failed` de un intento y el `succeeded` de otro del **mismo** PI llegan antes/después del reembolso (⛔ NO MEDIDO con Stripe real) |
+  | `settled` | `refunded` | **`refunded`** | Sin cambio |
+  | `refunded` | no-op | **no-op** (`count 0`, sin `AV-3`) | Reentrega / M3 llegó antes (M5) |
+  | `chargeback` | se conserva | **se conserva** | v1.80.7.2 sin cambio: el cierre corre, el estado de disputa no se pisa |
+  **Lo que REL-B / SEC-SHIP-M5 protegían sigue protegido, y por eso caben los dos invariantes:** REL-B = el estado va en
+  el `WHERE` (CAS, ⛔ nunca `update` por `id`) — se conserva; M5 = misma consecuencia en cualquier orden de llegada
+  webhook/M3 — M3 no cambia y `refunded` sigue siendo éxito; v1.80.7.2 = ⛔ nunca pisar `chargeback` con `refunded` —
+  `chargeback` ∉ la lista. Lo que **no** protegían era «solo desde `settled»`: era la lectura de M3 (cuya tx1 garantiza
+  `settled`) copiada al webhook, que no tiene precondición porque Stripe entrega en cualquier orden.
+  **`onFullRefund` sobre una orden nunca liquidada** (el `SELECT … FOR UPDATE` de `Order` en (d) —y el de la rama
+  directo— **añade `status`**, y la pasada lo devuelve como `orderStatusUnderLock`):
+  - **Sello `fullRefundClosedAt`: SÍ.** Es el registro de «este cobro se devolvió entero, cierre hecho» y lo que hace
+    idempotente la pasada (`AV-3` una vez, `reclaim-vault` deja de dar `not_closed`, B13 espera `refunded ⇒ sello`).
+  - **`chargebackNeedsManual`: ⛔ NO** (fila de la tabla del sello, arriba). No hay custodia, colocación ni envío que
+    confirmar (las piezas son de plataforma: `not_customer`, cero escrituras), y en una `vault refunded` sin objetivos
+    `chargeback-inventory recuperada` responde `409 CONFLICT` «no frozen piece» (`orders.service.ts:1656-1658`) ⇒ el flag
+    quedaría `true` sin verbo que lo baje — un falso pendiente perpetuo en la cola.
+  - **Bitácora `order.full_refund_closed`:** sí, y su `after` gana **`statusAtClose`** (el estado leído bajo candado), para
+    que la fila diga que se cerró una compra nunca liquidada.
+  - **Piezas `reserved` por esa orden:** ⛔ la pasada no las toca (siguen `reserved`): es `SSL-R1` en `TECH_DEBT.md`,
+    **sin cambio de severidad** (inventario fuera de venta y ruido del barrido; ⛔ no dinero ni custodia).
+  **Orden de candados y carrera con el `succeeded`:** `onFullRefund` toma piezas → `Order`; el settle toma `Order` (su CAS)
+  → piezas. Pueden interbloquear (`40P01`) — ⛔ no es nuevo (el webhook de dinero ya lo tenía) y **no** rompe el
+  invariante: el que muere responde ≠ 2xx, su marcador `ProcessedStripeEvent` se borra y Stripe reentrega; la reentrega
+  ve el estado confirmado (`refunded` ⇒ el settle es no-op; `settled` ⇒ el reembolso reclama la custodia). SL-10 lo mide.
 - **Candado estático `C-FULLREF-1`** (lo escribe backend): `closeShipmentsOnFullRefund` y `reclaimVaultOnFullRefund`
   solo se llaman desde `onFullRefund`; `onFullRefund` solo desde M3 `refund` y `onChargeRefunded` 🔒 v1.80.5: **y desde
   `unprepare` (rama retiro) y `reclaim-vault` — cuatro exactos**; y el despacho
@@ -21637,7 +21774,7 @@ Mismas reglas que PS-1…PS-54: mutación demostrada **sobre copia del árbol en
 
 | Rol | Qué |
 |---|---|
-| **backend** (modelo fuerte: `orders`, `payments`, `inventory`, `vault`, `shipments`) | `M-61`: `Order.fullRefundClosedAt`, `MovementReason + refund_return`, `VaultPlacementCancelReason + full_refund`; **quitar** `adminNotifiedAt` y su CHECK (🔒 v1.80.5: **sin cambio de schema**). `onFullRefund` (despacho + sello **por tabla de §18.2**, `opts`) llamado desde M3/`retry` (un cuerpo en `executeRefund`), `onChargeRefunded`, `unprepare` (retiro, `onlyItemIds`) y `reclaim-vault`; `reclaimVaultOnFullRefund` en la tx de confirmación, **idempotente por pieza**, destino **`picking`**, `ownershipStatus` en el CAS; `Order → refunded` con `status IN (settled, refunded)`; precondición `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL` **solo tx1** + `422 REFUND_CONFIRMATION_REQUIRED`; `classifyVaultPiece` (un cuerpo para el cierre y para `vaultPieces`); guarda `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` en los cuatro verbos del retiro; `422 ITEM_ORIGIN_REFUNDED` en `classifyItems` (por lote); `POST /admin/orders/:id/reclaim-vault`; `chargeback-inventory` para `vault` `refunded` (mismo cuerpo que el directo); `C-FULLREF-1` con cuatro llamadores; ⛔ no construir `AVA-1`; PS-55…PS-65 con mutación demostrada; los tres códigos nuevos en `common/error-codes.ts`. **Medir antes de desplegar:** la consulta de residuo de `M-61` (§ bloque v1.80.4) con usuario de solo lectura. 🔒 **v1.80.6:** `reclaimedBy` / `isVaultReclaimTarget` (un cuerpo, `createdAt ≥ fullRefundClosedAt`, mismo `now` en movimiento y sello; ⛔ nada de «último movimiento»); cierre del retiro vacío en `prepared` (paso 5 corregido, PS-66); `inventoryItemIds` en `reclaim-vault` + `opts.unpackedItemIds` en `C-FULLREF-1`; PS-61/63/64 ajustadas. **Mediciones (no diseño), anotadas en `BACKEND_NOTES` con fecha:** **B13** — `SELECT count(*) FROM "Order" WHERE "fulfillmentMode"='vault' AND status='refunded' AND "fullRefundClosedAt" IS NULL` en producción (usuario de solo lectura o el dueño) **antes** de desplegar; esperado **0** (`HECHOS`: sin ventas reales); si > 0 ⇒ vuelve al **arquitecto** (esas órdenes no tienen verbo: `reclaim-vault ⇒ 409 not_closed`) · **B14** — leer el `where` de `admin.inventoryValue()` (`GET /admin/finance/inventory-value`) y anotar si cuenta plataforma `picking`; si la cuenta, la congelada infla `atReferenceCents` hasta `no_recuperada`: excluir `picking` o etiquetarla «pendiente de confirmación» es un cambio de M7 que se propone, ⛔ no se hace solo |
+| **backend** (modelo fuerte: `orders`, `payments`, `inventory`, `vault`, `shipments`) | `M-61`: `Order.fullRefundClosedAt`, `MovementReason + refund_return`, `VaultPlacementCancelReason + full_refund`; **quitar** `adminNotifiedAt` y su CHECK (🔒 v1.80.5: **sin cambio de schema**). `onFullRefund` (despacho + sello **por tabla de §18.2**, `opts`) llamado desde M3/`retry` (un cuerpo en `executeRefund`), `onChargeRefunded`, `unprepare` (retiro, `onlyItemIds`) y `reclaim-vault`; `reclaimVaultOnFullRefund` en la tx de confirmación, **idempotente por pieza**, destino **`picking`**, `ownershipStatus` en el CAS; ~~`Order → refunded` con `status IN (settled, refunded)`~~ 🔒💰 **v1.80.8.3:** `Order → refunded` con `status IN CHARGE_REFUNDED_SOURCE_STATUSES` (`pending`, `failed`, `settled`) en el **webhook** y `status:'settled'` en M3 (bloque v1.80.8.3 de §18.2); precondición `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL` **solo tx1** + `422 REFUND_CONFIRMATION_REQUIRED`; `classifyVaultPiece` (un cuerpo para el cierre y para `vaultPieces`); guarda `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` en los cuatro verbos del retiro; `422 ITEM_ORIGIN_REFUNDED` en `classifyItems` (por lote); `POST /admin/orders/:id/reclaim-vault`; `chargeback-inventory` para `vault` `refunded` (mismo cuerpo que el directo); `C-FULLREF-1` con cuatro llamadores; ⛔ no construir `AVA-1`; PS-55…PS-65 con mutación demostrada; los tres códigos nuevos en `common/error-codes.ts`. **Medir antes de desplegar:** la consulta de residuo de `M-61` (§ bloque v1.80.4) con usuario de solo lectura. 🔒 **v1.80.6:** `reclaimedBy` / `isVaultReclaimTarget` (un cuerpo, `createdAt ≥ fullRefundClosedAt`, mismo `now` en movimiento y sello; ⛔ nada de «último movimiento»); cierre del retiro vacío en `prepared` (paso 5 corregido, PS-66); `inventoryItemIds` en `reclaim-vault` + `opts.unpackedItemIds` en `C-FULLREF-1`; PS-61/63/64 ajustadas. **Mediciones (no diseño), anotadas en `BACKEND_NOTES` con fecha:** **B13** — `SELECT count(*) FROM "Order" WHERE "fulfillmentMode"='vault' AND status='refunded' AND "fullRefundClosedAt" IS NULL` en producción (usuario de solo lectura o el dueño) **antes** de desplegar; esperado **0** (`HECHOS`: sin ventas reales); si > 0 ⇒ vuelve al **arquitecto** (esas órdenes no tienen verbo: `reclaim-vault ⇒ 409 not_closed`) · **B14** — leer el `where` de `admin.inventoryValue()` (`GET /admin/finance/inventory-value`) y anotar si cuenta plataforma `picking`; si la cuenta, la congelada infla `atReferenceCents` hasta `no_recuperada`: excluir `picking` o etiquetarla «pendiente de confirmación» es un cambio de M7 que se propone, ⛔ no se hace solo |
 | **frontend** | M3: manejar `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL` (nombrar el retiro con enlace, y «deshacer preparado») y 🔒 `422 REFUND_CONFIRMATION_REQUIRED` (diálogo con `vaultPieces` **antes** de reembolsar y casilla «Sé que el cliente ya tiene estas cartas y reembolso de todos modos»); `vaultPieces` en el detalle y en el formulario de `chargeback-inventory` de una orden `vault` (qué cartas se confirman, sugerencia de `move` al estante; 🔒 `in_packed_withdrawal` con botón «Reclamar» ⇒ `reclaim-vault`, con casilla «Saqué la(s) carta(s) de la caja» para `confirmUnpacked`; 🔒 v1.80.6 (B12): con >1 `in_packed_withdrawal`, una casilla **por carta** ⇒ `inventoryItemIds`); `cancelReason:'full_refund'` con nombre en la cola «Para bóveda»; 💰 v1.80.6 (M7): en la cola ENVÍO, un retiro con `blocked = total` y `picked = pending = 0` se titula «Nada que enviar: se devolverá la tarifa» y su botón «Preparado» muestra `refundPreviewCents` como en un directo sin cartas; 🔒 M4: `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` con la carta y la compra (enlace a M3), `reclaimed` en la respuesta de «deshacer preparado»; cliente: `422 ITEM_ORIGIN_REFUNDED` / `withdrawable:false` con copy («esta compra se está reembolsando»); ⛔ nada de `AVA-1`; tipos 1:1 |
 | **ux-ui** | Copys: `VAULT_PIECE_IN_PACKED_WITHDRAWAL`, 🔒 `WITHDRAWAL_LINE_ORIGIN_REFUNDED`, `ITEM_ORIGIN_REFUNDED`, `REFUND_CONFIRMATION_REQUIRED` y su casilla, «Reclamar» / «Saqué la carta de la caja» (🔒 v1.80.6: y su variante por carta), 💰 v1.80.6: «Nada que enviar: se devolverá la tarifa» (retiro vacío por reclamo), «n cartas volvieron a la plataforma», estados de `vaultPieces`, «colocación cancelada: pedido reembolsado», variante `vault` de `AV-3` (es/en); retirar `AVA-1` |
 | **seguridad** | Revisión del cambio de conducta de dinero: reembolso total de bóveda (quién pierde qué si falla cada paso), sello 🔒 por tabla, `C-FULLREF-1` con cuatro llamadores, `reclaim-vault {confirmUnpacked}` (súper-admin afirma un hecho físico) |

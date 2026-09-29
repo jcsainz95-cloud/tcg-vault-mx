@@ -26623,6 +26623,29 @@ webhook, en cualquier orden de llegada y con o sin contracargo (PS-57, PS-57c, P
 **Zonas compartidas:** `inventory` (fusión, un stream a la vez), `payments/refunds` (`applyStripeOutcome`). ⛔
 `prisma/` no se toca.
 
+**(v) 🔒💰 v1.80.8.3 — De qué estados sale `refunded` por el webhook (errata bloqueante de la fusión `release-s5`).**
+Norma: `API_CONTRACT` changelog v1.80.8.3, §M4-SHIP.18.2 (bloque v1.80.8.3) y §M4-VAULT.2-bis.2 (bloque v1.80.8.3).
+Aquí, el porqué.
+
+*Lo que aprendí de mí, dicho primero:* los dos textos eran míos y se escribieron en streams distintos el mismo día.
+§M4-SHIP.18.9 fijó el **origen** de la transición pensando en M3 (cuya tx1 garantiza `settled`); §M4-VAULT.2-bis.2
+**supuso** otro origen en un «Residual» sin escribirlo como norma. Una suposición que sostiene un invariante de dinero
+es norma, y si no se escribe, la primera fusión la borra sin que nadie la vea. Regla que me llevo: **cada transición de
+`Order.status` tiene su lista de orígenes escrita en un solo sitio, como constante, y los demás textos la citan**.
+
+| Punto | Decisión | Alternativa descartada | Por qué |
+|---|---|---|---|
+| Origen de `refunded` por `charge.refunded` total | `CHARGE_REFUNDED_SOURCE_STATUSES = pending, failed, settled` (= `SETTLEABLE ∪ {settled}`) | (a) `settled` solo (lo fusionado); (b) `pending, settled` (el candidato de backend) | (a) deja liquidable una orden cuyo cobro ya se devolvió: el `succeeded` tardío entrega custodia — carta y dinero. (b) deja el mismo agujero en `failed`, que es liquidable (38 (ii)) y en `direct_ship` re-congela piezas `listed` y crea el envío. La regla general: **todo estado liquidable debe ser fuente del reembolso total**, si no el liquidador puede deshacer el reembolso; por eso la relación con `SETTLEABLE` se fija con un canario (SL-11) y no se deja a la memoria |
+| M3 | Sigue `status:'settled'` | Usar la misma constante | La tx1 de M3 garantiza `settled`, y el detector `count 0 ∧ otro ⇒ log error` es el que caza a un escritor desconocido de `Order.status`; ampliar la lista lo silenciaría sin ganar nada. Dos llamadores con precondiciones distintas pueden tener dos predicados si **cada uno** es una constante con nombre |
+| `chargebackNeedsManual` en una orden nunca liquidada | No se sube; el sello sí | Subirlo como en la primera pasada de siempre | No hay nada físico que confirmar y `chargeback-inventory` contesta `409` sin objetivos: sería un pendiente eterno en la cola, que entrena a ignorarla. El sello sí, porque es lo que hace idempotente la pasada y deja rastro de que el cierre ocurrió |
+| `failAndRelease` | CAS `status:'pending'`, libera solo con `count 1` | Dejarlo (el liquidador ya respeta `refunded`) | «`refunded` es terminal para el liquidador» no basta: hace falta que ningún escritor saque la orden de `refunded` hacia algo liquidable, y `failAndRelease` lo hacía con un `update` por `id` tras una lectura sin candado. Es la clase `REL-B`; el mismo defecto le permitía pisar `settled` |
+| Piezas `reserved` de la orden reembolsada sin liquidar | Sin cambio (`SSL-R1`, deuda) | Liberarlas en la misma tx | No es dinero ni custodia; el `TECH_DEBT` ya registró por qué «liberar y ya» necesita decisión, y una errata bloqueante no es el sitio para decidir inventario vendible |
+
+**Invariante que queda escrito:** tras un `charge.refunded` total, ninguna entrega posterior de Stripe (ni `succeeded` ni
+`payment_failed`) puede llevar la orden a `settled` ni entregar custodia (SL-8, SL-9, SL-10).
+**Zonas compartidas:** `payments` (`settleable-order-statuses.ts`, `payments.service.ts`, `refunds/full-refund.service.ts`).
+⛔ `prisma/` no se toca.
+
 ---
 
 ## 5. Decisiones transversales
