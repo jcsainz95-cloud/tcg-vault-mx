@@ -1,4 +1,5 @@
 import { VaultService } from '../src/modules/vault/vault.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -62,7 +63,7 @@ describe('VaultService.holdings — estado de retiro (v1.17)', () => {
       // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
       getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     } as unknown as PricingService;
-    const svc = new VaultService(prisma as PrismaService, pricing);
+    const svc = new VaultService(withM61Defaults(prisma) as PrismaService, pricing);
     return { svc, prisma };
   }
 

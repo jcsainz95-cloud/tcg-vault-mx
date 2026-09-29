@@ -6,6 +6,7 @@ import {
   GradingCompany,
   InventoryItem,
   InventoryStatus,
+  MissingReason,
   OwnershipStatus,
   Prisma,
   ProductType,
@@ -21,6 +22,7 @@ import { parseEnumFilter } from '../../common/enum-filter';
 import { CardDTO, toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+import { originsBeingRefunded } from '../payments/refunds/origin';
 
 // v1.17: etapas de un envío ACTIVO (subconjunto expuesto en HoldingDTO.shipmentState).
 // `entregado` no aparece (el item ya es `withdrawn` y sale de holdings) y `cancelado`
@@ -98,6 +100,12 @@ export interface HoldingDTO {
   /** v1.17.1: flag AUTORITATIVO anti doble-retiro (mismo criterio read/write que `classifyItems`). */
   withdrawable: boolean;
   referenceValue: PriceInfo;
+  /**
+   * ⭐ v1.80.1 (§M4-SHIP.15.8): caso «Por reponer» ABIERTO de esta pieza («la estamos reponiendo»). ⛔ Sin actor, sin
+   * cifras de mercado, sin candidatas. `refund` queda `null` mientras el caso está abierto (v1.80.2: un caso
+   * `refunded` manda la original a plataforma y sale de «Mi bóveda»; la cifra la ve el cliente en su pedido/retiro).
+   */
+  replacement: { status: 'open'; reason: MissingReason; since: string; refund: null } | null;
   // v1.42 (BLOQ-2a): identidad de sellado — presente SOLO para `productType='sealed'`.
   sealedProductId?: string | null;
   sealedProductName?: string;
@@ -175,21 +183,27 @@ export class VaultService {
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
 
+    // ⭐ v1.80.1 (§M4-SHIP.15.8): casos «Por reponer» ABIERTOS de estas piezas — UNA consulta.
+    const openCases = itemIds.length
+      ? await this.prisma.replacementCase.findMany({
+          where: { originalInventoryItemId: { in: itemIds }, status: 'open' },
+          select: { originalInventoryItemId: true, missingReason: true, openedAt: true },
+        })
+      : [];
+    const openCaseByItem = new Map(openCases.map((c) => [c.originalInventoryItemId, c]));
+    // 🔒 v1.80.5 (SEC-SHIP-A5 (b), §5): quinta condición de `classifyItems`, el MISMO cuerpo — la carta cuya compra de
+    // origen se está reembolsando (orden no `settled` o con fila `order_full` no fallida) NO es retirable.
+    const refunding = await originsBeingRefunded(this.prisma, userId, itemIds);
+
     let totalValueMxnCents = 0;
     let pendingPriceCount = 0;
     // v2.1.9 (T-2): ANOTADO con el tipo del contrato. Con el spread condicional de sellado más abajo,
     // sin tipo una rama podía perder un requerido y la otra no — y el test solo mira la que eligió.
     const data: HoldingDTO[] = [];
     for (const item of items) {
-      // v1.53 (§4.40.4b, MONEY) — BÓVEDA (lectura): sin identidad de slab NO HAY REFERENCIA ⇒ el
-      // holding sale `pending` y NO suma al valor de la bóveda. Antes se valuaba como un PSA 10, lo
-      // que inflaba el patrimonio que el cliente ve y el pasivo de custodia que el admin agrega.
-      const gradeKey = this.pricing.tryGradeKeyFor(item);
-      // v1.6-finish: valúa contra la referencia del ACABADO del holding (no un precio único por carta).
-      const referenceValue: PriceInfo =
-        gradeKey == null
-          ? { status: 'pending' }
-          : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
+      // v1.6-finish / v1.53: valúa contra la referencia del ACABADO del holding — UN cuerpo (`marketValueOf`),
+      // el mismo que usa el reembolso de un caso «Por reponer» (§M4-SHIP.15.5, `M`).
+      const referenceValue = await this.marketValueOf(item);
       if (referenceValue.status === 'priced' && referenceValue.referenceMxnCents != null) {
         totalValueMxnCents += referenceValue.referenceMxnCents;
       } else {
@@ -206,7 +220,9 @@ export class VaultService {
       const withdrawable =
         item.ownershipStatus === 'settled' &&
         item.status === 'in_custody' &&
-        shipmentState === null;
+        shipmentState === null &&
+        !refunding.has(item.id);
+      const openCase = openCaseByItem.get(item.id);
       // v1.42 (BLOQ-2a, §4.34a): identidad de sellado presente SOLO para productType='sealed' (ausente en
       // raw/graded; aditivo/retrocompatible). `card` se conserva (pertenencia al set + fallback). Reusa el
       // MISMO resolver de cascada de `/vault/sealed` para no pintar la caja como la carta ancla («Tropius»).
@@ -243,6 +259,9 @@ export class VaultService {
         // bóveda es superficie autenticada pero no operativa: el dueño de la carta necesita el VALOR
         // y su frescura, no de qué feed salió ni si alguien lo fijó a mano.
         referenceValue: toPublicPriceInfo(referenceValue),
+        replacement: openCase
+          ? { status: 'open', reason: openCase.missingReason, since: openCase.openedAt.toISOString(), refund: null }
+          : null,
         // v1.42 (BLOQ-2a): campos de sellado (solo sealed; {} en raw/graded).
         ...sealedFields,
       });
@@ -251,6 +270,24 @@ export class VaultService {
       data,
       portfolio: { totalValueMxnCents, pendingPriceCount, currency: 'MXN' as const },
     };
+  }
+
+  /**
+   * ⭐ v1.80.1 (§M4-SHIP.15.5) — `marketValueOf(pieza)`: LA valuación de «Mi bóveda», extraída a un cuerpo para que el
+   * reembolso de un caso «Por reponer» (`M`, mercado hoy) use **la misma** y ⛔ no una segunda. v1.53 (§4.40.4b,
+   * MONEY): sin identidad de slab NO HAY REFERENCIA ⇒ `pending` (antes se valuaba como un PSA 10, lo que inflaba el
+   * patrimonio del cliente y el pasivo de custodia). v1.6-finish: contra la referencia del ACABADO de la pieza.
+   */
+  async marketValueOf(item: Parameters<PricingService['tryGradeKeyFor']>[0] & { cardId: string; productType: ProductType; finish: Finish }): Promise<PriceInfo> {
+    const gradeKey = this.pricing.tryGradeKeyFor(item);
+    return gradeKey == null ? { status: 'pending' } : this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
+  }
+
+  /** `M` del reembolso de un caso (§M4-SHIP.15.5): `{cents, capturedDate}` si `priced`, si no `null`. */
+  async marketRefOf(item: Parameters<VaultService['marketValueOf']>[0]): Promise<{ cents: number; capturedDate: string } | null> {
+    const ref = await this.marketValueOf(item);
+    if (ref.status !== 'priced' || ref.referenceMxnCents == null) return null;
+    return { cents: ref.referenceMxnCents, capturedDate: ref.capturedDate ?? '' };
   }
 
   /**

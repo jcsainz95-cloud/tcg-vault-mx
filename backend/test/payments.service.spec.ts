@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PaymentsService } from '../src/modules/payments/payments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
@@ -52,7 +53,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   });
 
   beforeEach(() => {
-    const tx = makeTx();
+    const tx = withM61Defaults(makeTx());
     processedIds = new Set<string>();
     prisma = {
       _tx: tx,

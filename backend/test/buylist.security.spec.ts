@@ -8,6 +8,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
 import { matchesWhere } from './helpers/prisma-where';
 import { UsersService } from '../src/modules/users/users.service';
+import { usersStubM61 } from './helpers/m61-mock-defaults';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
@@ -111,7 +112,7 @@ describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', 
       prisma as PrismaService,
       buildPricing(1_000_000), // referencia alta: un % daría 400,000c
       buildSettings(100_000_000),
-      {} as UsersService,
+      (usersStubM61() as unknown as UsersService),
       pii,
     );
 
@@ -160,7 +161,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
     };
     // v2.0 (P-48): sin mercado la línea queda `precio_pendiente` y dispara el gate de INE (Fase 0.3),
     // ruido ajeno a lo que este caso verifica (aislamiento serializable). Se le da mercado.
-    const svc = new BuylistService(prisma as PrismaService, buildPricing(1000), buildSettings(100_000_000), {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, buildPricing(1000), buildSettings(100_000_000), (usersStubM61() as unknown as UsersService), pii);
     await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], VALID_CLABE, undefined, GATE_ADDRESS_ID);
 
     expect(txOpts?.isolationLevel).toBe(Prisma.TransactionIsolationLevel.Serializable);
@@ -201,7 +202,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
       };
       // v2.0 (P-48): mercado $10 ⇒ curva de compra 30 % = 300c por solicitud. Tope mensual = 500c ⇒
       // la segunda (300+300=600) excede. (Antes: regla fija de bulk 50c con tope 80c.)
-      return new BuylistService(prisma as PrismaService, buildPricing(1000), buildSettings(500), {} as UsersService, pii);
+      return new BuylistService(prisma as PrismaService, buildPricing(1000), buildSettings(500), (usersStubM61() as unknown as UsersService), pii);
     }
 
     const item = [{ cardId: 'c', productType: 'raw' as any }];
@@ -255,7 +256,7 @@ describe('BuylistService.convertToInventory — SEC-A3 doble conversión', () =>
       },
       inventoryMovement: { create: jest.fn() },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, (usersStubM61() as unknown as UsersService), pii);
 
     const res1 = await svc.convertToInventory('sri-1', 'actor');
     const res2 = await svc.convertToInventory('sri-1', 'actor');
@@ -290,7 +291,7 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, (usersStubM61() as unknown as UsersService), pii);
     const res = await svc.paySpei('sr', 'SPEI-REF', 'admin');
     expect(res).toMatchObject({ status: 'pagada' });
     expect(prisma.sellRequest.updateMany).not.toHaveBeenCalled();
@@ -328,7 +329,7 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
       sellRequestItem: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, (usersStubM61() as unknown as UsersService), pii);
     const res = await svc.paySpei('sr', 'SPEI-REF', 'admin');
     expect(res).toMatchObject({ status: 'pagada' });
     // ⚠️⚠️ v1.61.1 · **B1** — el `where` se afirma EVALUÁNDOLO, no leyendo sus claves planas: se

@@ -9,8 +9,10 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { parseAdminListFilters } from '../../../common/admin-list-filters';
 import { parseEnumFilter } from '../../../common/enum-filter';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { MoneyOut } from '../../../common/decorators/money-out.decorator';
 import { NON_FAILED, RefundLedgerService } from './refund-ledger.service';
 import { RefundReportsService } from './refund-reports.service';
+import { ManualRefundService } from './manual-refund.service';
 
 const KIND_VALUES: readonly PaymentRefundKind[] = Object.values(PaymentRefundKind);
 const STATUS_VALUES: readonly PaymentRefundStatus[] = Object.values(PaymentRefundStatus);
@@ -23,7 +25,16 @@ export class AdminRefundsController {
     private readonly ledger: RefundLedgerService,
     private readonly prisma: PrismaService,
     private readonly reports: RefundReportsService,
+    private readonly manual: ManualRefundService,
   ) {}
+
+  /** 💰 `POST /admin/refunds/:id/to-manual` — pasar a SPEI una `case_refund` que Stripe rechazó (§M4-SHIP.17.4). */
+  @Post(':id/to-manual')
+  @HttpCode(200)
+  @MoneyOut()
+  toManual(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    return this.manual.toManual(id, user);
+  }
 
   /** 💰 `POST /admin/refunds/:id/retry` — reintentar una fila `requested` (operador+; `order_full`/`case_refund` solo súper-admin). */
   @Post(':id/retry')

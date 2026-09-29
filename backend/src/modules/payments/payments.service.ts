@@ -14,6 +14,7 @@ import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { orderRefundedTemplate, orderSettledTemplate } from '../orders/mail/order-notice.templates';
 import { FullRefundService } from './refunds/full-refund.service';
 import { RefundLedgerService } from './refunds/refund-ledger.service';
+import { currentPiecesOf, resolveOriginsBatch } from './refunds/origin';
 
 /**
  * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
@@ -890,8 +891,26 @@ export class PaymentsService {
   private async onChargeDisputeVault(order: Order & { items: OrderItem[] }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       let needsManual = false;
+      // ⭐ v1.80.1 / 🔒 v1.80.3 (SEC-SHIP-M3, §M4-SHIP.15.9): la pieza VIGENTE de cada línea sigue la cadena de casos
+      // `replaced` de ESA `OrderItem` (`currentPieceOf`, tope de profundidad y detección de ciclo ⇒ `needsManual`,
+      // cero escrituras); y solo se revierte si su origen (`resolveOrigin`) sigue siendo esta línea: si el cliente
+      // la RE-COMPRÓ, ya es de otra compra y no se toca. ⛔ Nunca «la carta repuesta y el dinero».
+      const current = await currentPiecesOf(tx, order.items);
+      const targetIds = [...current.values()].flatMap((c) => (c.kind === 'piece' ? [c.inventoryItemId] : []));
+      const origins = order.userId && targetIds.length > 0 ? await resolveOriginsBatch(tx, order.userId, targetIds) : new Map();
       for (const oi of order.items) {
-        const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
+        const cur = current.get(oi.id);
+        if (!cur || cur.kind === 'ambiguous') {
+          this.logger.error(`Contracargo ${order.id}: cadena de reposiciones ambigua en la línea ${oi.id} (${cur?.kind === 'ambiguous' ? cur.reason : 'sin cadena'}); gestión manual.`);
+          needsManual = true;
+          continue;
+        }
+        const origin = origins.get(cur.inventoryItemId) ?? null;
+        if (origin && origin.orderItemId !== oi.id) {
+          needsManual = true;
+          continue;
+        }
+        const item = await tx.inventoryItem.findUnique({ where: { id: cur.inventoryItemId } });
         if (!item) continue;
         // ¿La carta ya salió físicamente (enviada/entregada)? En el RETIRO DE BÓVEDA el estado
         // del InventoryItem no se mueve hasta la entrega, así que la señal canónica es un
@@ -900,7 +919,7 @@ export class PaymentsService {
         // —picking/shipped/delivered— y la decisión la toma el estado del envío, ver arriba.)
         const shippedOut = await tx.shipmentItem.findFirst({
           where: {
-            inventoryItemId: oi.inventoryItemId,
+            inventoryItemId: item.id,
             shipmentRequest: { status: { in: ['enviado', 'entregado'] } },
           },
         });
@@ -913,9 +932,13 @@ export class PaymentsService {
         // v1.68 (§4-R.2 regla 2): si la pieza está `reserved`, solo si es de ESTA orden (o legada); una
         // pieza reservada por OTRA orden no se toca (queda para gestión manual). Fuera de `reserved`
         // (lo normal: `in_custody` tras el settle) se revierte como hoy y se limpia dueño/vencimiento.
+        // ⭐ v1.80.1 (H9 / D-SHIP-2, PS-8): una pieza `lost|damaged` A NOMBRE DEL CLIENTE (caso «Por reponer»
+        // abierto) NO vuelve a la venta como buena: `status ∈ {in_custody, reserved}` en el WHERE ⇒ `count 0`
+        // ⇒ `needsManual` (el súper-admin anula el caso, §M4-SHIP.15.10).
         const reverted = await tx.inventoryItem.updateMany({
           where: {
-            id: oi.inventoryItemId,
+            id: item.id,
+            status: { in: ['in_custody', 'reserved'] },
             OR: [
               { status: { not: 'reserved' } },
               { reservedByOrderId: order.id },
@@ -936,11 +959,11 @@ export class PaymentsService {
         }
         await tx.inventoryMovement.create({
           data: {
-            itemId: oi.inventoryItemId,
+            itemId: item.id,
             fromStatus: item.status,
             toStatus: 'listed',
             reason: MovementReason.chargeback_return,
-            note: `chargeback order ${order.id}`,
+            note: `chargeback order ${order.id}${item.id !== oi.inventoryItemId ? ` · pieza repuesta de ${oi.inventoryItemId}` : ''}`,
           },
         });
       }

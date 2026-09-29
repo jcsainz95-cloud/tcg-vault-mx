@@ -73,6 +73,9 @@ describe('ShipmentsService — ClientShipmentDTO enriquecido (v1.17)', () => {
         number: '4',
         imageSmallUrl: 'http://img/small.png',
       },
+      // v1.80 (§M4-SHIP.10) / v1.80.1 (§M4-SHIP.15.8): la fila del libro y el caso de la línea — `null` sin ellos.
+      refund: null,
+      replacement: null,
     });
     // Scoping por usuario.
     expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ userId: 'u1' });

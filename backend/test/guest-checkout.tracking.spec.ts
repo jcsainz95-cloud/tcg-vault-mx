@@ -210,6 +210,8 @@ describe('POST /orders/guest/track — MINIMIZACIÓN DE DATOS (§4-G.3, criterio
       [
         'breakdown', 'claim', 'emailMasked', 'items', 'orderNumber', 'payment', 'placedAt',
         'paidAt', 'shipping', 'status', 'support', 'tokenExpiresAt',
+        // v1.80 (§M4-SHIP.10, aditivo): lo devuelto por Stripe (sin actor, sin `failureCode`, sin componentes).
+        'refundedCents',
       ].sort(),
     );
   });
@@ -243,6 +245,8 @@ describe('POST /orders/guest/track — MINIMIZACIÓN DE DATOS (§4-G.3, criterio
       [
         'finish', 'gradeValue', 'gradingCompany', 'imageSmallUrl', 'name', 'number',
         'productType', 'rawCondition', 'sealedSubtype', 'setName', 'unitPriceCents',
+        // v1.80 (§M4-SHIP.10, aditivo): `{ amountCents, reason, refundedAt } | null` — solo filas aceptadas por Stripe.
+        'refund',
       ].sort(),
     );
   });

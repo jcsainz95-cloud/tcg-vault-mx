@@ -14,6 +14,8 @@ import { E2EHarness } from './e2e-app';
 import { E2E_FOLIOS, E2E_USERS } from '../../../prisma/e2e-fixtures';
 import { diferida } from './row-lock-barrier';
 import { taxBaseCentsOf } from '../../../src/common/money';
+import { PiiCryptoService } from '../../../src/common/crypto/pii-crypto.service';
+import { E2E_USERS as USERS } from '../../../prisma/e2e-fixtures';
 
 /** El ejemplo del dueño (§M4-SHIP.4): dos cartas MX$500 + MX$300, envío MX$150, comisión MX$46.17. */
 export const OWNER_EXAMPLE = {
@@ -34,8 +36,9 @@ export class ShipPrepDb {
   readonly items: string[] = [];
   readonly shipments: string[] = [];
   readonly locations: string[] = [];
+  readonly cards: string[] = [];
   private seq = 0;
-  private template!: { cardId: string; shopLocationId: string };
+  private template!: { cardId: string; shopLocationId: string; setId: string };
   private passwordHash!: string | null;
   operatorId!: string;
   adminId!: string;
@@ -50,9 +53,9 @@ export class ShipPrepDb {
   async init(): Promise<void> {
     const base = await this.h.prisma.inventoryItem.findUniqueOrThrow({
       where: { folio: E2E_FOLIOS.listedCharizard },
-      select: { cardId: true, locationId: true },
+      select: { cardId: true, locationId: true, card: { select: { setId: true } } },
     });
-    this.template = { cardId: base.cardId, shopLocationId: base.locationId as string };
+    this.template = { cardId: base.cardId, shopLocationId: base.locationId as string, setId: base.card.setId };
     this.passwordHash = (await this.h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.customer.email } })).passwordHash;
     this.operatorId = (await this.h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.operator.email } })).id;
     this.adminId = (await this.h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.admin.email } })).id;
@@ -209,7 +212,7 @@ export class ShipPrepDb {
   /** Orden `vault` LIQUIDADA (F-SPEI por defecto: `P₁=50000`, `P₂=30000`, sin envío) con colocación y piezas `in_custody` del cliente. */
   async mkVaultOrder(
     userId: string,
-    opts: { prices?: readonly number[]; placement?: 'pending' | 'placed' | 'none'; locationId?: string | null; priceConvention?: 'IVA_INCLUSIVE' | 'IVA_EXCLUSIVE'; settledAt?: Date } = {},
+    opts: { prices?: readonly number[]; placement?: 'pending' | 'placed' | 'none'; locationId?: string | null; priceConvention?: 'IVA_INCLUSIVE' | 'IVA_EXCLUSIVE'; settledAt?: Date; cardIds?: readonly string[] } = {},
   ) {
     const k = this.next();
     const prices = opts.prices ?? [50000, 30000];
@@ -237,8 +240,8 @@ export class ShipPrepDb {
     this.h.stripe.chargedByIntent.set(pi, S + F);
     const pieces: Awaited<ReturnType<ShipPrepDb['mkPiece']>>[] = [];
     const orderItems: { id: string; inventoryItemId: string; unitPriceCents: number }[] = [];
-    for (const p of prices) {
-      const piece = await this.mkPiece({ status: 'in_custody', ownerType: 'customer', ownerUserId: userId, ownershipStatus: 'settled', locationId: opts.locationId === undefined ? this.template.shopLocationId : opts.locationId });
+    for (const [i, p] of prices.entries()) {
+      const piece = await this.mkPiece({ status: 'in_custody', ownerType: 'customer', ownerUserId: userId, ownershipStatus: 'settled', locationId: opts.locationId === undefined ? this.template.shopLocationId : opts.locationId, ...(opts.cardIds?.[i] ? { cardId: opts.cardIds[i] } : {}) });
       pieces.push(piece);
       orderItems.push(await this.h.prisma.orderItem.create({ data: { orderId: order.id, inventoryItemId: piece.id, cardSnapshot: { name: 'Charizard', setName: 'E2E Base Set', number: '4' }, unitPriceCents: p } }));
     }
@@ -285,6 +288,57 @@ export class ShipPrepDb {
     return { shipment: s, lines: s.items, pi };
   }
 
+  /**
+   * ⭐ v1.80.1 — una CARTA PROPIA del test con su referencia de MERCADO controlada (`M`): manual override `refKind:
+   * 'market'` (tier superior absoluto, §4.27f-2) para `raw:NM` normal. `null` ⇒ carta SIN referencia (⇒ `pending`).
+   */
+  async mkCard(marketMxnCents: number | null, name = 'Carta Caso') {
+    const k = this.next();
+    const card = await this.h.prisma.card.create({
+      data: { externalId: `sp-${this.run}-${k}`, setId: this.template.setId, name: `${name} ${k}`, number: String(k), rarity: 'Rare' },
+    });
+    this.cards.push(card.id);
+    if (marketMxnCents !== null) {
+      await this.h.prisma.priceReference.create({
+        data: {
+          cardId: card.id,
+          productType: 'raw',
+          gradeKey: 'raw:NM',
+          finish: 'normal',
+          source: 'manual',
+          refKind: 'market',
+          priceMxnCents: marketMxnCents,
+          capturedDate: new Date(new Date().toISOString().slice(0, 10)),
+          isManualOverride: true,
+          cardProductId: null,
+        },
+      });
+    }
+    return card;
+  }
+
+  /** CLABE cifrada en el expediente (por la MISMA rutina que el producto: `PiiCryptoService`), sin pasar por `setClabe`. */
+  async mkKyc(userId: string, clabe: string | null, extra: { legalName?: string; clabeUpdatedAt?: Date | null } = {}) {
+    const pii = this.h.app.get(PiiCryptoService);
+    return this.h.prisma.kycProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        legalName: extra.legalName ?? null,
+        ...(clabe ? { clabeEnc: pii.encrypt(clabe), clabeHmac: pii.clabeBlindIndex(clabe), clabeUpdatedAt: extra.clabeUpdatedAt === undefined ? null : extra.clabeUpdatedAt } : {}),
+      },
+      update: {
+        legalName: extra.legalName ?? null,
+        ...(clabe ? { clabeEnc: pii.encrypt(clabe), clabeHmac: pii.clabeBlindIndex(clabe), clabeUpdatedAt: extra.clabeUpdatedAt === undefined ? null : extra.clabeUpdatedAt } : {}),
+      },
+    });
+  }
+
+  /** Sesión del cliente sembrado por `mkUser` (misma contraseña que el `customer` del seed). */
+  loginCustomer(email: string): Promise<string> {
+    return this.h.login(email, USERS.customer.password);
+  }
+
   // ---------------------------------------------------------------- verbos (HTTP real)
 
   mark(shipmentId: string, lineId: string, json: unknown, token = this.opToken): Promise<R> {
@@ -322,6 +376,77 @@ export class ShipPrepDb {
   }
 
   /** Simula el webhook `charge.refunded` TOTAL de un PI. */
+  // colocaciones (§M4-VAULT.10 / .5)
+  vpMark(placementId: string, itemId: string, json: unknown, token = this.opToken): Promise<R> {
+    return this.h.api('PATCH', `/admin/vault-placements/${placementId}/prep-items/${itemId}`, { token, json });
+  }
+  vpPrepare(placementId: string, token = this.opToken): Promise<R> {
+    return this.h.api('POST', `/admin/vault-placements/${placementId}/prepared`, { token });
+  }
+  vpConfirm(placementId: string, json: Record<string, unknown> = {}, token = this.opToken): Promise<R> {
+    return this.h.api('POST', `/admin/vault-placements/${placementId}/confirm`, { token, json });
+  }
+  // apartado «Por reponer» (§M4-SHIP.15)
+  caseList(qs = '', token = this.opToken): Promise<R> {
+    return this.h.api('GET', `/admin/replacement-cases${qs}`, { token });
+  }
+  caseGet(id: string, token = this.opToken): Promise<R> {
+    return this.h.api('GET', `/admin/replacement-cases/${id}`, { token });
+  }
+  caseReplace(id: string, json: unknown, token = this.opToken): Promise<R> {
+    return this.h.api('POST', `/admin/replacement-cases/${id}/replace`, { token, json });
+  }
+  casePreview(id: string, amountCents?: number | string, token = this.adminToken): Promise<R> {
+    return this.h.api('GET', `/admin/replacement-cases/${id}/refund-preview${amountCents === undefined ? '' : `?amountCents=${amountCents}`}`, { token });
+  }
+  caseRefund(id: string, json: unknown, token = this.adminToken): Promise<R> {
+    return this.h.api('POST', `/admin/replacement-cases/${id}/refund`, { token, json });
+  }
+  caseVoid(id: string, json: unknown, token = this.adminToken): Promise<R> {
+    return this.h.api('POST', `/admin/replacement-cases/${id}/void`, { token, json });
+  }
+  // cubeta SPEI (§M4-SHIP.15.13)
+  mrList(qs = '', token = this.adminToken): Promise<R> {
+    return this.h.api('GET', `/admin/manual-refunds${qs}`, { token });
+  }
+  mrGet(id: string, token = this.adminToken): Promise<R> {
+    return this.h.api('GET', `/admin/manual-refunds/${id}`, { token });
+  }
+  mrReveal(id: string, token = this.adminToken): Promise<R> {
+    return this.h.api('GET', `/admin/manual-refunds/${id}/reveal-clabe`, { token });
+  }
+  mrPaid(id: string, json: unknown, token = this.adminToken): Promise<R> {
+    return this.h.api('POST', `/admin/manual-refunds/${id}/paid`, { token, json });
+  }
+  mrCancel(id: string, json: unknown, token = this.adminToken): Promise<R> {
+    return this.h.api('POST', `/admin/manual-refunds/${id}/cancel`, { token, json });
+  }
+  mrReissue(id: string, json: unknown, token = this.adminToken): Promise<R> {
+    return this.h.api('POST', `/admin/manual-refunds/${id}/reissue`, { token, json });
+  }
+  toManual(refundId: string, token = this.adminToken): Promise<R> {
+    return this.h.api('POST', `/admin/refunds/${refundId}/to-manual`, { token });
+  }
+  // cliente
+  putKyc(token: string, json: unknown): Promise<R> {
+    return this.h.api('PUT', '/users/me/kyc', { token, json });
+  }
+  holdings(token: string): Promise<R> {
+    return this.h.api('GET', '/vault/holdings', { token });
+  }
+  clientShipment(id: string, token: string): Promise<R> {
+    return this.h.api('GET', `/shipments/${id}`, { token });
+  }
+  clientOrder(id: string, token: string): Promise<R> {
+    return this.h.api('GET', `/orders/${id}`, { token });
+  }
+  kase(id: string) {
+    return this.h.prisma.replacementCase.findUniqueOrThrow({ where: { id } });
+  }
+  manualRows(where: Record<string, unknown>) {
+    return this.h.prisma.manualRefund.findMany({ where, orderBy: { createdAt: 'asc' } });
+  }
+
   chargeRefunded(pi: string, amount: number, refunded = amount) {
     return this.h.sendStripeWebhook({ type: 'charge.refunded', data: { object: { id: `ch_${pi}`, object: 'charge', payment_intent: pi, amount, amount_refunded: refunded } } });
   }
@@ -450,6 +575,8 @@ export class ShipPrepDb {
     await p.order.deleteMany({ where: { id: { in: orderIds } } });
     await p.inventoryMovement.deleteMany({ where: { itemId: { in: itemIds } } });
     await p.inventoryItem.deleteMany({ where: { id: { in: itemIds } } });
+    await p.priceReference.deleteMany({ where: { cardId: { in: this.cards } } });
+    await p.card.deleteMany({ where: { id: { in: this.cards } } });
     await p.vaultLocation.deleteMany({ where: { id: { in: this.locations } } });
     await p.auditLog.deleteMany({ where: { OR: [{ entityId: { in: [...orderIds, ...shipmentIds] } }, { actorUserId: { in: this.users } }] } });
     await p.processedStripeEvent.deleteMany({ where: { id: { startsWith: 'evt_e2e_' } } });

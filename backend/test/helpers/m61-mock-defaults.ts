@@ -24,3 +24,17 @@ export function withM61Defaults<T extends Record<string, any>>(db: T): T {
   d.$transaction ??= jest.fn(async (cb: (tx: unknown) => unknown) => cb(d));
   return db;
 }
+
+/**
+ * 🔒 v1.80.3 (SEC-SHIP-A3, `C-CLABE-1`) — doble mínimo de `UsersService` para los specs de buylist que antes pasaban
+ * `{}`: `createRequest` ya no escribe la CLABE por su cuenta, la delega a `users.setClabe` (el único escritor) y manda
+ * `AV-16` por `users.notifyClabeChanged`. `setClabe` resuelve `null` («misma CLABE, nada que escribir») salvo que el
+ * spec lo guionice.
+ */
+export function usersStubM61(over: Record<string, unknown> = {}) {
+  return {
+    setClabe: jest.fn(async (..._args: unknown[]) => null),
+    notifyClabeChanged: jest.fn(async (..._args: unknown[]) => undefined),
+    ...over,
+  };
+}

@@ -6,6 +6,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 // v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
 import { GATE_ADDRESS_ID, buylistGateMocks, withMinimumOff } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
+import { usersStubM61 } from './helpers/m61-mock-defaults';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
@@ -95,22 +96,23 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
 
   it('CLABE propia (mismo HMAC almacenado) → OK y snapshot CIFRADO', async () => {
     const { prisma } = buildPrisma(pii.clabeBlindIndex(CLABE_A));
-    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
+    const users = usersStubM61();
+    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), users as unknown as UsersService, pii);
     const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A, undefined, GATE_ADDRESS_ID);
     expect(res.status).toBe('cotizada');
     // Snapshot persistido cifrado, no en claro.
     const snap = prisma.sellRequest.create.mock.calls[0][0].data.clabeSnapshotEnc;
     expect(snap).not.toContain(CLABE_A);
     expect(pii.decrypt(snap)).toBe(CLABE_A);
-    // Se guardó el blind index, no la CLABE en claro.
-    const upsertCreate = prisma.kycProfile.upsert.mock.calls[0][0].create;
-    expect(upsertCreate.clabeHmac).toBe(pii.clabeBlindIndex(CLABE_A));
-    expect(upsertCreate.clabeEnc).not.toContain(CLABE_A);
+    // 🔒 v1.80.3 (`C-CLABE-1`): la CLABE la escribe `users.setClabe` (bajo candado, con su índice ciego); el `upsert`
+    // de aquí ya no la lleva. Misma CLABE ⇒ `setClabe` no escribe nada (lo mide `users.kyc-cycle.spec.ts`).
+    expect(prisma.kycProfile.upsert.mock.calls[0][0].create).not.toHaveProperty('clabeEnc');
+    expect(users.setClabe).toHaveBeenCalledWith(expect.anything(), 'u', CLABE_A, expect.objectContaining({ id: 'u' }));
   });
 
   it('CLABE de tercero (HMAC distinto) → CLABE_NOT_OWN_NAME', async () => {
     const { prisma } = buildPrisma(pii.clabeBlindIndex(CLABE_A));
-    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), (usersStubM61() as unknown as UsersService), pii);
     await expect(
       svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_B, undefined, GATE_ADDRESS_ID),
     ).rejects.toMatchObject({ code: 'CLABE_NOT_OWN_NAME' });
@@ -118,9 +120,12 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
 
   it('sin KYC previa: primera CLABE se acepta y fija el blind index', async () => {
     const { prisma } = buildPrisma(null);
-    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
+    const users = usersStubM61();
+    const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), users as unknown as UsersService, pii);
     const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A, undefined, GATE_ADDRESS_ID);
     expect(res.status).toBe('cotizada');
+    // La primera CLABE por buylist también pasa por el único escritor (PS-46).
+    expect(users.setClabe).toHaveBeenCalledWith(expect.anything(), 'u', CLABE_A, expect.objectContaining({ id: 'u' }));
   });
 });
 
@@ -132,7 +137,7 @@ describe('BuylistService.revealClabe — reveal on-demand para pagar', () => {
       },
       kycProfile: { findUnique: jest.fn() },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, (usersStubM61() as unknown as UsersService), pii);
     const res = await svc.revealClabe('sr');
     expect(res).toEqual({ sellRequestId: 'sr', clabe: CLABE_A });
   });
@@ -144,7 +149,7 @@ describe('BuylistService.revealClabe — reveal on-demand para pagar', () => {
       },
       kycProfile: { findUnique: jest.fn().mockResolvedValue({ clabeEnc: pii.encrypt(CLABE_B) }) },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, (usersStubM61() as unknown as UsersService), pii);
     const res = await svc.revealClabe('sr');
     expect(res.clabe).toBe(CLABE_B);
   });
@@ -165,7 +170,7 @@ describe('BuylistService.adminGet — nunca CLABE en claro', () => {
     };
     // v1.51.20 · BL-29: la proyección admin deriva `offerIssueDeadlineAt` y `offerReissueAlert` de
     // DOS diales, así que necesita un `SettingsService` aunque este spec solo mire la CLABE.
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, settings(), {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, settings(), (usersStubM61() as unknown as UsersService), pii);
     const res: any = await svc.adminGet('sr');
     expect(res.clabeMasked).toBe('**************4567');
     expect(res.clabeSnapshotEnc).toBeUndefined();
@@ -190,7 +195,7 @@ describe('BuylistService.adminGet — nunca CLABE en claro', () => {
         }),
       },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, settings(), {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, settings(), (usersStubM61() as unknown as UsersService), pii);
     // ANTES del arreglo esto RECHAZA (decryptOptional lanza ⇒ 500). Debe RESOLVER degradado.
     const res: any = await svc.adminGet('sr');
     expect(res.clabeMasked).toBeUndefined();

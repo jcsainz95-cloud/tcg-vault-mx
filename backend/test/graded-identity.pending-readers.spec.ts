@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { VaultService } from '../src/modules/vault/vault.service';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
@@ -125,7 +126,7 @@ describe('bóveda — una graduada sin identidad de slab NO se valúa como PSA 1
       inventoryItem: { findMany: jest.fn(async () => items) },
       shipmentItem: { findMany: jest.fn(async () => []) },
     };
-    return new VaultService(prisma as PrismaService, pricingWithRealKeys());
+    return new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys());
   }
 
   it('sale `pending` y NO suma al portafolio (antes sumaba MX$900 del grado más caro)', async () => {
@@ -146,7 +147,7 @@ describe('bóveda — una graduada sin identidad de slab NO se valúa como PSA 1
     const prisma: any = {
       inventoryItem: { findUnique: jest.fn(async () => ({ ...item, ownerUserId: 'u1', movements: [] })) },
     };
-    const svc = new VaultService(prisma as PrismaService, pricingWithRealKeys());
+    const svc = new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys());
     const res = await svc.holdingDetail('u1', 'i-sin');
     expect(res.referenceValue).toEqual({ status: 'pending' });
   });

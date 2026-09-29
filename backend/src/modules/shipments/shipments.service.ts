@@ -6,10 +6,13 @@ import {
   Finish,
   FulfillmentMode,
   InventoryItem,
+  MissingReason,
   MovementReason,
   NameSource,
+  PaymentRefund,
   PreparationItemStatus,
   Prisma,
+  ReplacementCaseStatus,
   ShipmentItem,
   ShipmentRequest,
   ShipmentStatus,
@@ -48,6 +51,7 @@ import {
   shipmentShippedTemplate,
 } from './mail/shipment-notice.templates';
 import { CustomerRefDTO, ShipPreparationItemDTO, ShipPreparationStateDTO, ShipmentPrepService } from './shipment-prep.service';
+import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { customerDisplayName } from '../vault/customer-display-name';
 import { originsBeingRefunded } from '../payments/refunds/origin';
@@ -165,7 +169,23 @@ type PreparationShipmentRow = ShipmentRequest & {
 /** ShipmentItem con la carta (y su set) resueltos, para el ClientShipmentItemDTO (v1.17). */
 type EnrichedShipmentItem = ShipmentItem & {
   inventoryItem: InventoryItem & { card: Card & { set: CardSet | null } };
+  // ⭐ v1.80.1 (§M4-SHIP.15.8): el caso «Por reponer» que ABRIÓ esta línea (retiro), con su fila Stripe si la hubo.
+  replacementCase?: { id: string; status: ReplacementCaseStatus; missingReason: MissingReason; refundAmountCents: number | null } | null;
+  // v1.80 (§M4-SHIP.10): la fila del libro de esta línea (solo `submitted|succeeded` viaja al cliente).
+  refund?: PaymentRefund | null;
 };
+
+/** El `include` de las lecturas del CLIENTE (`listMine`/`getMine`): carta, caso y filas del libro. */
+const CLIENT_SHIPMENT_INCLUDE = {
+  items: {
+    include: {
+      inventoryItem: { include: { card: { include: { set: true } } } },
+      replacementCase: { select: { id: true, status: true, missingReason: true, refundAmountCents: true } },
+      refund: true,
+    },
+  },
+  refunds: true,
+} satisfies Prisma.ShipmentRequestInclude;
 
 /**
  * v2.1.9 (S49-R4) — **lista blanca de `ShipmentRequest` para las respuestas de BACK-OFFICE.**
@@ -220,6 +240,8 @@ export class ShipmentsService {
     // ⭐ v1.80 (§M4-SHIP): la cubeta ENVÍO interactiva y las guardas de la guía/enviado. `@Optional()` por el
     // mismo motivo que el correo (tests unitarios legacy construyen el servicio a mano).
     @Optional() private readonly prep?: ShipmentPrepService,
+    // ⭐ v1.80.2 (§M4-SHIP.15.13): lo que el CLIENTE ve de las transferencias de un caso reembolsado.
+    @Optional() private readonly manual?: ManualRefundService,
   ) {}
 
   private requirePrep(): ShipmentPrepService {
@@ -471,11 +493,13 @@ export class ShipmentsService {
    * ADMIN (`adminGet`/`adminList`) siguen devolviendo la fila cruda con el costo.
    */
   private toClientShipment<
-    T extends ShipmentRequest & { items: EnrichedShipmentItem[] },
-  >(s: T) {
+    T extends ShipmentRequest & { items: EnrichedShipmentItem[]; refunds?: PaymentRefund[] },
+  >(s: T, transfers: Map<string, CustomerTransferView> = new Map()) {
     return {
       id: s.id,
       status: s.status,
+      // v1.80 (§M4-SHIP.10): lo devuelto POR STRIPE (`submitted|succeeded`) sobre el cobro de este retiro (`shipment_fee`).
+      refundedCents: (s.refunds ?? []).filter((r) => r.status === 'submitted' || r.status === 'succeeded').reduce((a, r) => a + r.amountCents, 0),
       addressSnapshot: s.addressSnapshot,
       shippingFeeCents: s.shippingFeeCents,
       ivaCents: s.ivaCents,
@@ -490,13 +514,21 @@ export class ShipmentsService {
       shippedAt: s.shippedAt,
       deliveredAt: s.deliveredAt,
       // v1.17: items enriquecidos (folio + acabado + carta) para la vista de rastreo.
-      items: s.items.map((si) => this.toClientShipmentItem(si)),
+      items: s.items.map((si) => this.toClientShipmentItem(si, transfers)),
     };
   }
 
-  /** v1.17 — ClientShipmentItemDTO (API_CONTRACT §5). Sin costos internos ni PII. */
-  private toClientShipmentItem(si: EnrichedShipmentItem) {
+  /**
+   * v1.17 — ClientShipmentItemDTO (API_CONTRACT §5). Sin costos internos ni PII.
+   * v1.80 (§M4-SHIP.10): + `refund` (solo filas `submitted|succeeded`; ⛔ sin actor, `failureCode` ni componentes).
+   * ⭐ v1.80.1/.2 (§M4-SHIP.15.8/.15.13): + `replacement` — el caso de esta línea (`status`, `reason`) y, si se
+   * reembolsó, `{ amountCents, byTransferCents, transferStatus }` (⛔ sin CLABE, motivo, referencias ni actor).
+   */
+  private toClientShipmentItem(si: EnrichedShipmentItem, transfers: Map<string, CustomerTransferView> = new Map()) {
     const card = si.inventoryItem.card;
+    const rf = si.refund && (si.refund.status === 'submitted' || si.refund.status === 'succeeded') ? si.refund : null;
+    const cs = si.replacementCase ?? null;
+    const tv = cs ? transfers.get(cs.id) : undefined;
     return {
       inventoryItemId: si.inventoryItemId,
       folio: si.inventoryItem.folio,
@@ -508,6 +540,17 @@ export class ShipmentsService {
         number: card.number,
         imageSmallUrl: card.imageSmallUrl,
       },
+      refund: rf ? { amountCents: rf.amountCents, reason: rf.missingReason, refundedAt: (rf.succeededAt ?? rf.submittedAt)?.toISOString() ?? null } : null,
+      replacement: cs
+        ? {
+            status: cs.status,
+            reason: cs.missingReason,
+            refund:
+              cs.status === 'refunded'
+                ? { amountCents: cs.refundAmountCents ?? 0, byTransferCents: tv?.byTransferCents ?? 0, transferStatus: tv?.transferStatus ?? null }
+                : null,
+          }
+        : null,
     };
   }
 
@@ -522,24 +565,28 @@ export class ShipmentsService {
     const rows = await this.prisma.shipmentRequest.findMany({
       where: { userId },
       orderBy: { requestedAt: 'desc' },
-      include: {
-        items: { include: { inventoryItem: { include: { card: { include: { set: true } } } } } },
-      },
+      include: CLIENT_SHIPMENT_INCLUDE,
     });
-    return { data: rows.map((r) => this.toClientShipment(r)) };
+    const transfers = await this.transfersOf(rows.flatMap((r) => r.items));
+    return { data: rows.map((r) => this.toClientShipment(r, transfers)) };
   }
 
   async getMine(userId: string, id: string) {
     const shipment = await this.prisma.shipmentRequest.findUnique({
       where: { id },
-      include: {
-        items: { include: { inventoryItem: { include: { card: { include: { set: true } } } } } },
-      },
+      include: CLIENT_SHIPMENT_INCLUDE,
     });
     // Comparación de dueño POSITIVA: `null !== :sessionUser` siempre, así que un envío directo de
     // invitado no es legible por ningún cliente (riesgo #1 de M-25).
     if (!userId || !shipment || shipment.userId !== userId) throw BusinessException.notFound();
-    return this.toClientShipment(shipment);
+    return this.toClientShipment(shipment, await this.transfersOf(shipment.items));
+  }
+
+  /** Las transferencias SPEI (vista del cliente) de los casos `refunded` de estas líneas — una consulta. */
+  private async transfersOf(items: EnrichedShipmentItem[]): Promise<Map<string, CustomerTransferView>> {
+    const caseIds = items.flatMap((i) => (i.replacementCase?.status === 'refunded' ? [i.replacementCase.id] : []));
+    if (caseIds.length === 0 || !this.manual) return new Map();
+    return this.manual.customerTransferViews(this.prisma, caseIds);
   }
 
   // ---------------- Admin M4 ----------------

@@ -1,17 +1,23 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   InventoryItem,
   Card,
   CardSet,
   Finish,
   MarketBracket,
+  MissingReason,
   MovementReason,
   Order,
   OrderItem,
+  PreparationItemStatus,
   Prisma,
+  ReplacementCaseStatus,
+  ShipmentRequest,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentPiece, currentPiecesOf } from '../payments/refunds/origin';
+import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
@@ -220,7 +226,58 @@ export class OrdersService {
     private readonly settings: SettingsService,
     private readonly stripe: StripeService,
     private readonly catalog: CatalogService,
+    // ⭐ v1.80.2 (§M4-SHIP.16): lo que el CLIENTE ve de las transferencias SPEI de un caso reembolsado. `@Optional()`:
+    // los unitarios construyen el servicio a mano.
+    @Optional() private readonly manual?: ManualRefundService,
   ) {}
+
+  /**
+   * ⭐ v1.80.2 (§M4-SHIP.16) — `CustomerOrderShipmentDTO`: LISTA BLANCA (⛔ nunca un spread de la fila). Fuera, por
+   * contrato: costos, sellos de aviso, `stripePaymentIntentId`, `preparedBy*`, actores y el `addressSnapshot` crudo.
+   */
+  private toCustomerOrderShipment(s: ShipmentRequest & { items: { prepStatus: PreparationItemStatus }[] }) {
+    const a = (s.addressSnapshot ?? {}) as Partial<Record<'recipientName' | 'city' | 'state' | 'postalCode', string>>;
+    return {
+      id: s.id,
+      status: s.status,
+      carrier: s.carrier,
+      trackingNumber: s.trackingNumber,
+      requestedAt: s.requestedAt.toISOString(),
+      pickingAt: s.pickingAt ? s.pickingAt.toISOString() : null,
+      shippedAt: s.shippedAt ? s.shippedAt.toISOString() : null,
+      deliveredAt: s.deliveredAt ? s.deliveredAt.toISOString() : null,
+      shipTo: { recipientName: a.recipientName ?? '', city: a.city ?? '', state: a.state ?? '', postalCode: a.postalCode ?? '' },
+      missingCount: s.items.filter((i) => i.prepStatus === 'missing').length,
+    };
+  }
+
+  /**
+   * ⭐ v1.80.2 (§M4-SHIP.16) — `items[].replacement` del cliente: el caso MÁS RECIENTE con `originOrderItemId` = esa
+   * línea (compra a bóveda; y el retiro de una carta de esa compra), con lo que se le debe si se reembolsó. ⛔ Sin
+   * `reason` interno, sin CLABE, sin actor. UNA consulta de casos por los `OrderItem.id` de la orden.
+   */
+  private async replacementsByOrderItem(orderItemIds: string[]) {
+    const out = new Map<string, { status: ReplacementCaseStatus; reason: MissingReason; refund: { amountCents: number; byTransferCents: number; transferStatus: CustomerTransferView['transferStatus'] } | null }>();
+    if (orderItemIds.length === 0) return out;
+    const cases = await this.prisma.replacementCase.findMany({
+      where: { originOrderItemId: { in: orderItemIds } },
+      select: { id: true, originOrderItemId: true, status: true, missingReason: true, refundAmountCents: true, openedAt: true },
+      orderBy: [{ openedAt: 'desc' }, { id: 'desc' }],
+    });
+    const latest = new Map<string, (typeof cases)[number]>();
+    for (const c of cases) if (!latest.has(c.originOrderItemId as string)) latest.set(c.originOrderItemId as string, c);
+    const refundedIds = [...latest.values()].filter((c) => c.status === 'refunded').map((c) => c.id);
+    const transfers = refundedIds.length > 0 && this.manual ? await this.manual.customerTransferViews(this.prisma, refundedIds) : new Map<string, CustomerTransferView>();
+    for (const [oiId, c] of latest) {
+      const tv = transfers.get(c.id);
+      out.set(oiId, {
+        status: c.status,
+        reason: c.missingReason,
+        refund: c.status === 'refunded' ? { amountCents: c.refundAmountCents ?? 0, byTransferCents: tv?.byTransferCents ?? 0, transferStatus: tv?.transferStatus ?? null } : null,
+      });
+    }
+    return out;
+  }
 
   /** Resuelve el precio de venta de un item; lanza PRICE_PENDING si no vendible. */
   private async salePriceOf(
@@ -1772,6 +1829,8 @@ export class OrdersService {
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
+        // ⭐ v1.80.2 (§M4-SHIP.16): los envíos y el libro de la página en la MISMA consulta (⛔ sin N+1).
+        include: { shipmentRequests: { orderBy: { requestedAt: 'desc' }, select: { status: true } }, refunds: { select: { status: true, amountCents: true } } },
       }),
       this.prisma.order.count({ where: { userId } }),
     ]);
@@ -1787,6 +1846,10 @@ export class OrdersService {
       createdAt: o.createdAt,
       settledAt: o.settledAt,
       orderNumber: o.orderNumber,
+      // ⭐ v1.80.2 (§M4-SHIP.16): el rótulo público (el MISMO cuerpo que el invitado) para que ninguna pantalla titule
+      // con el `status` crudo («LIQUIDADA» es un término interno de dinero).
+      fulfillmentMode: o.fulfillmentMode,
+      publicStatus: publicStatus(o.status, activeShipment(o.shipmentRequests ?? [])?.status, { refundedCents: refundedCentsOf(o.refunds ?? []), totalCents: o.totalCents }),
       ...(o.status === 'pending' && reservedUntil.has(o.id)
         ? { reservedUntil: reservedUntil.get(o.id) }
         : {}),
@@ -1848,10 +1911,19 @@ export class OrdersService {
   async getOrder(userId: string, orderId: string, isAdmin = false) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: true },
+      // ⭐ v1.80.2 (§M4-SHIP.16): envíos (con sus líneas para `missingCount`) y el libro en la MISMA consulta.
+      include: {
+        items: { include: { refund: true } },
+        shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { items: { select: { prepStatus: true } } } },
+        refunds: true,
+      },
     });
     if (!order) throw BusinessException.notFound();
     if (!isAdmin && order.userId !== userId) throw BusinessException.forbidden('FORBIDDEN');
+    // (`?? []`: los dobles de las suites legacy devuelven la fila sin relaciones.)
+    const shipment = order.fulfillmentMode === 'direct_ship' ? activeShipment(order.shipmentRequests ?? []) : undefined;
+    const refundedCents = refundedCentsOf(order.refunds ?? []);
+    const replacements = await this.replacementsByOrderItem(order.items.map((i) => i.id));
     const breakdown: BreakdownDTO = this.breakdownOf(order);
     // v1.68 (§4-R.5, ADITIVO): `reservedUntil` SOLO con `status:'pending'`.
     const reservedUntil =
@@ -1874,7 +1946,18 @@ export class OrdersService {
       orderNumber: order.orderNumber,
       ...(reservedUntil ? { reservedUntil } : {}),
       breakdown,
-      items: this.toHistoricItemPreviews(order.items, facts, cardsById),
+      // ⭐ v1.80.2 (§M4-SHIP.16): el cliente REGISTRADO ve su envío y titula con `publicStatus` (el MISMO cuerpo que
+      // el invitado). `shipment: null` ⇔ `vault`, o `direct_ship` aún sin envío (ventana webhook→creación).
+      fulfillmentMode: order.fulfillmentMode,
+      publicStatus: publicStatus(order.status, shipment?.status, { refundedCents, totalCents: order.totalCents }),
+      shipment: shipment ? this.toCustomerOrderShipment(shipment) : null,
+      // v1.80 (§M4-SHIP.10): lo devuelto por Stripe; por carta, la fila aceptada y el caso «Por reponer».
+      refundedCents,
+      items: this.toHistoricItemPreviews(order.items, facts, cardsById).map((p, idx) => ({
+        ...p,
+        refund: clientRefundOf(order.items[idx].refund),
+        replacement: replacements.get(order.items[idx].id) ?? null,
+      })),
       cfdiStatus: order.cfdiStatus,
       invoiceRequested: order.invoiceRequested,
       stripePaymentIntentId: order.stripePaymentIntentId,

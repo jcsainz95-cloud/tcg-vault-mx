@@ -458,19 +458,22 @@ export class RefundLedgerService {
         },
       });
       if (rows.length === 0) return;
-      // Un correo por destinatario y referencia (un acto ⇒ normalmente uno).
-      const groups = new Map<string, typeof rows>();
+      // UN correo por DESTINATARIO y acto (§M4-SHIP.15.7): el `case_refund` y la `shipment_fee` del cierre de su
+      // retiro van en el MISMO aviso («no pudimos reponer tu carta… y tu retiro no sale»).
+      const groups = new Map<string, { recipient: { email: string; locale: string | null }; rows: typeof rows }>();
       for (const r of rows) {
-        const key = r.orderId ?? (r.shipmentRequestId as string);
-        groups.set(key, [...(groups.get(key) ?? []), r]);
-      }
-      for (const [key, group] of groups) {
-        const first = group[0];
-        const recipient = await this.recipientOf(first);
+        const recipient = await this.recipientOf(r);
         if (!recipient) {
-          this.logger.warn(`AV-12 omitido para ${key}: sin destinatario`);
+          this.logger.warn(`AV-12 omitido para ${r.id}: sin destinatario`);
           continue;
         }
+        const g = groups.get(recipient.email) ?? { recipient, rows: [] };
+        g.rows.push(r);
+        groups.set(recipient.email, g);
+      }
+      for (const [, { recipient, rows: group }] of groups) {
+        const first = group.find((r) => r.orderId) ?? group[0];
+        const key = first.orderId ?? (first.shipmentRequestId as string);
         const nothingShips = group.some((r) => r.kind === 'order_remaining' || r.kind === 'shipment_fee');
         const isCase = group.some((r) => r.kind === 'case_refund');
         const cards = group

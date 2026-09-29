@@ -1,4 +1,5 @@
 import { VaultService } from '../src/modules/vault/vault.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -43,7 +44,7 @@ describe('VaultService.holdings — identidad de sellado (BLOQ-2a)', () => {
         .mockResolvedValue({ status: 'priced', referenceMxnCents: 92681, capturedDate: '2026-08-13' }),
       getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     } as unknown as PricingService;
-    return { svc: new VaultService(prisma as PrismaService, pricing), prisma };
+    return { svc: new VaultService(withM61Defaults(prisma) as PrismaService, pricing), prisma };
   }
 
   const sealedItem = (over: Record<string, unknown> = {}) => ({

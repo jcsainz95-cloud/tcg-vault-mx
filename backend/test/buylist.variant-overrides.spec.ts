@@ -6,6 +6,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 // v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
 import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
+import { usersStubM61 } from './helpers/m61-mock-defaults';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
@@ -146,7 +147,7 @@ function buildSvc(opts: Parameters<typeof buildPricing>[0] & { rarity?: string |
     prisma as PrismaService,
     p.pricing,
     opts.settings ?? buildSettings(),
-    {} as UsersService,
+    (usersStubM61() as unknown as UsersService),
     pii,
   );
   return { svc, prisma, ...p };

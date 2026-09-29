@@ -1418,7 +1418,9 @@ export class BuylistService implements OnModuleInit {
     //    Sin CLABE en archivo → 422 CLABE_REQUIRED. La CLABE en claro NUNCA se loguea ni se devuelve.
     let effectiveClabe: string;
     // Solo cuando `clabe` viene en el body se (re)persiste en la KYC; el fallback ya está en archivo.
-    let kycClabeFields: { clabeEnc: string; clabeHmac: string } | null = null;
+    // 🔒 v1.80.3 (SEC-SHIP-A3): la CLABE que viene en el body se escribe por `users.setClabe` (el ÚNICO escritor,
+    // `C-CLABE-1`): sella `clabeUpdatedAt`, deja bitácora y manda `AV-16` si el índice ciego cambia.
+    let clabeToSet: string | null = null;
     if (clabe != null && clabe !== '') {
       if (!isValidClabe(clabe)) {
         throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
@@ -1431,7 +1433,7 @@ export class BuylistService implements OnModuleInit {
         );
       }
       effectiveClabe = clabe;
-      kycClabeFields = { clabeEnc: this.pii.encrypt(clabe), clabeHmac: incomingHmac };
+      clabeToSet = clabe;
     } else {
       // FALLBACK: CLABE del propio usuario en archivo (misma vía que revealClabe, buylist.service.ts).
       const onFile = this.pii.decryptOptional(kyc?.clabeEnc);
@@ -1675,7 +1677,7 @@ export class BuylistService implements OnModuleInit {
     // Snapshot CIFRADO de la CLABE resuelta (de request o fallback) para el pago SPEI: usa la CLABE
     // vigente al crear la solicitud aunque el usuario cambie luego su KYC. NUNCA en claro/logueada.
     const clabeEnc = this.pii.encrypt(effectiveClabe);
-    // Persiste CLABE/INE en KYC. La CLABE solo se (re)escribe cuando vino en el body (`kycClabeFields`);
+    // Persiste CLABE/INE en KYC. La CLABE solo se (re)escribe cuando vino en el body (`clabeToSet`, vía `setClabe`);
     // en el fallback ya está en archivo. El INE se actualiza si vienen keys nuevas.
     // ⭐⭐ **v1.70 (`C17` / `SEC-PII-3`) — EL SEGUNDO CAMINO USA LA MISMA RUTINA QUE EL PRIMERO.**
     // Este `upsert` era el **otro** escritor de INE, y rompía DOS invariantes de v1.69 a la vez:
@@ -1687,11 +1689,15 @@ export class BuylistService implements OnModuleInit {
     //    `verified` sobre **un documento que nadie revisó**. (Y la rama `create` hacía lo contrario:
     //    ponía `pending` **aunque no viniera ni una key** — una CLABE no es una identidad.)
     // Ahora las dos ramas se fusionan con `ineSubmission.data`, que decide **lo mismo** que el `PUT`.
-    await this.prisma.kycProfile.upsert({
-      where: { userId },
-      create: { userId, ...(kycClabeFields ?? {}), ...ineSubmission.data },
-      update: { ...(kycClabeFields ?? {}), ...ineSubmission.data },
+    const clabeChange = await this.prisma.$transaction(async (tx) => {
+      await tx.kycProfile.upsert({
+        where: { userId },
+        create: { userId, ...ineSubmission.data },
+        update: { ...ineSubmission.data },
+      });
+      return clabeToSet ? this.users.setClabe(tx, userId, clabeToSet, { id: userId, role: Role.customer }) : null;
     });
+    await this.users.notifyClabeChanged(clabeChange);
     // Y el borrado de la imagen SUSTITUIDA, que este camino nunca hizo. Va después de persistir.
     // (Sin keys sustituidas no hay nada que borrar: la lista viene vacía por construcción.)
     if (ineSubmission.supersededKeys.length > 0) {

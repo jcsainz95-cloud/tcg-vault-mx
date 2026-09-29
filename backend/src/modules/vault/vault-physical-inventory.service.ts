@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PreparationItemStatus, VaultZone } from '@prisma/client';
+import { MissingReason, PreparationItemStatus, ReplacementCaseSource, VaultZone } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import {
@@ -24,7 +24,9 @@ export type PhysicalState =
   | { state: 'pending_placement'; placementId: string; prepStatus: PreparationItemStatus; prepared: boolean }
   | { state: 'missing'; placementId: string; markedAt: string; markedBy: { userId: string; name: string | null } }
   | { state: 'in_withdrawal'; shipmentId: string; shipmentStatus: 'picking' | 'guia' | 'enviado' }
-  | { state: 'unlocated'; reason: 'no_location' | 'not_in_customer_drawer' };
+  | { state: 'unlocated'; reason: 'no_location' | 'not_in_customer_drawer' }
+  // ⭐ v1.80.1 (§M4-SHIP.15.8): pieza del cliente con caso «Por reponer» ABIERTO (está `lost|damaged`, NO en el cajón).
+  | { state: 'to_replace'; caseId: string; reason: MissingReason; source: ReplacementCaseSource; openedAt: string };
 
 export interface PhysicalInventoryItemDTO {
   inventoryItemId: string;
@@ -49,12 +51,16 @@ export interface CustomerPhysicalInventoryDTO {
     missing: number;
     inWithdrawal: number;
     unlocated: number;
+    /** ⭐ v1.80.1: casos «Por reponer» abiertos del cliente. ⛔ NO entra en `total` (esa carta es justo la que NO está). */
+    toReplace: number;
   };
   items: PhysicalInventoryItemDTO[];
 }
 
 /** Rango de orden de §M4-VAULT.11: anomalías primero (missing, unlocated), luego in_drawer, pending, withdrawal. */
 const STATE_RANK: Record<PhysicalState['state'], number> = {
+  // ⭐ v1.80.1: «por reponer» va PRIMERO (antes que `missing`): la anomalía con dueño y trabajo pendiente.
+  to_replace: -1,
   missing: 0,
   unlocated: 1,
   in_drawer: 2,
@@ -87,6 +93,11 @@ export class VaultPhysicalInventoryService {
       include: { card: { include: { set: true } }, location: true },
     });
     const ids = pieces.map((p) => p.id);
+    // ⭐ v1.80.1 (§M4-VAULT.11): las piezas `lost|damaged` del cliente con caso ABIERTO — una consulta más.
+    const openCases = await this.prisma.replacementCase.findMany({
+      where: { customerUserId: userId, status: 'open', originalInventoryItem: { ownerType: 'customer', ownerUserId: userId, status: { in: ['lost', 'damaged'] } } },
+      include: { originalInventoryItem: { include: { card: { include: { set: true } }, location: true } } },
+    });
     const marks = ids.length
       ? await this.prisma.vaultPlacementItem.findMany({
           where: { inventoryItemId: { in: ids } },
@@ -124,6 +135,23 @@ export class VaultPhysicalInventoryService {
       [...latest.values()].filter((m) => m.prepStatus === 'missing').map((m) => m.prepMarkedByUserId),
     );
 
+    const toReplaceItems: (PhysicalInventoryItemDTO & { _placementCreatedAt: number | null })[] = openCases.map((c) => {
+      const p = c.originalInventoryItem;
+      const mark = latest.get(p.id);
+      const currentLocation = locationViewOf(p.location);
+      return {
+        inventoryItemId: p.id,
+        folio: p.folio,
+        card: preparationCardOf(p),
+        currentLocation,
+        currentZone: currentLocation.kind === 'unassigned' ? null : p.location!.zone,
+        origin: mark
+          ? { placementId: mark.placement.id, orderId: mark.placement.orderId, orderNumber: nullIfBlank(mark.placement.order.orderNumber) }
+          : null,
+        physical: { state: 'to_replace', caseId: c.id, reason: c.missingReason, source: c.source, openedAt: c.openedAt.toISOString() },
+        _placementCreatedAt: null,
+      };
+    });
     const items: (PhysicalInventoryItemDTO & { _placementCreatedAt: number | null })[] = pieces.map((p) => {
       const mark = latest.get(p.id);
       const currentLocation = locationViewOf(p.location);
@@ -145,6 +173,7 @@ export class VaultPhysicalInventoryService {
       };
     });
 
+    items.push(...toReplaceItems);
     items.sort((a, b) => {
       const r = STATE_RANK[a.physical.state] - STATE_RANK[b.physical.state];
       if (r !== 0) return r;
@@ -159,9 +188,10 @@ export class VaultPhysicalInventoryService {
       return codeUnits(a.card.name, b.card.name) || codeUnits(a.folio, b.folio);
     });
 
-    const counts = { total: items.length, inDrawer: 0, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0 };
+    const counts = { total: pieces.length, inDrawer: 0, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0, toReplace: 0 };
     for (const it of items) {
-      if (it.physical.state === 'in_drawer') counts.inDrawer += 1;
+      if (it.physical.state === 'to_replace') counts.toReplace += 1;
+      else if (it.physical.state === 'in_drawer') counts.inDrawer += 1;
       else if (it.physical.state === 'pending_placement') counts.pendingPlacement += 1;
       else if (it.physical.state === 'missing') counts.missing += 1;
       else if (it.physical.state === 'in_withdrawal') counts.inWithdrawal += 1;
