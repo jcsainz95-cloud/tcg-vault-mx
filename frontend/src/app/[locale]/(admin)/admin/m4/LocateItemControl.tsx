@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import type { InventoryItemDTO, PreparationItemDTO, PreparationOrderDTO } from '@/types/contract';
+import type { PreparationItemDTO, PreparationOrderDTO } from '@/types/contract';
 
 /**
  * **Hueco 1 (auditoría del operador, 2026-09-29) — «Ubicar» una carta de un pedido de ENVÍO.**
@@ -20,9 +20,17 @@ import type { InventoryItemDTO, PreparationItemDTO, PreparationOrderDTO } from '
  * (`GET /admin/locations`, la misma consulta `['locations']` que M1) y llama al endpoint EXISTENTE
  * `POST /admin/inventory/items/:id/move` (contrato §M1; el backend lo acepta en `picking`, medido 200).
  *
+ * ⛔⛔ **Solo se monta en tarjetas de ENVÍO DIRECTO** (`orderId !== null`, pieza de la plataforma
+ * vendida). En un **retiro de bóveda** (`orderId === null`) la carta es DEL CLIENTE (`in_custody`, en
+ * su cajón `customer_custody`): moverla al estante de la tienda rompe §M4-VAULT (un cliente = un
+ * cajón). QA lo midió contra el stack el 2026-09-29 (200 y `ownerType=customer` en `platform_stock`).
+ * La decisión de montarlo la toma `PreparationQueue` (`canLocate`); candado en
+ * `M4View.operator-gaps.test.tsx` («un RETIRO no ofrece Ubicar»).
+ *
  * ⛔ No toca dinero ni el estado de la pieza: solo `locationId` (+ el `InventoryMovement` que registra
- * el backend). Con la respuesta se **reescribe la tarjeta en caché** (`currentLocation`), sin esperar
- * a otra ida a `picking-list`.
+ * el backend). Tras el 200 se **reescribe la tarjeta en caché** (`currentLocation`) con la etiqueta de
+ * la ubicación **elegida** — ⚠️ la respuesta real del move es la fila de `toAdminInventoryItemRow`
+ * (`locationId`, SIN `location`), así que la etiqueta no sale de ella.
  */
 export function LocateItemControl({ item }: { item: PreparationItemDTO }) {
   const t = useTranslations('admin.m4.prep.locate');
@@ -37,7 +45,13 @@ export function LocateItemControl({ item }: { item: PreparationItemDTO }) {
   const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations, enabled: open });
   const currentLabel = item.currentLocation.kind === 'assigned' ? item.currentLocation.label : null;
   // Solo stock de plataforma activo: una carta vendida que aún no sale sigue en el stock de la tienda.
-  // La guarda real es el backend; filtrar aquí es presentación.
+  // ⚠️ C-1 (techlead, 2026-09-29): el backend de production (`a2da420`) NO restringe hoy la zona del
+  // destino ni el dueño de la pieza en `move` (QA: carta de cliente al estante ⇒ 200). La guarda llega
+  // en esta rama: `backend/src/modules/inventory/item-location.rules.ts` · `assertMoveDestination`
+  // (plataforma ⇒ solo `platform_stock` activo, si no `422 LOCATION_NOT_AVAILABLE`) y
+  // `assertOperable`/`inActiveWithdrawalError` (carta de cliente en un retiro cobrado ⇒ `409`). Con
+  // ese backend desplegado, este filtro —y el `canLocate` de `PreparationQueue`— son presentación;
+  // hasta entonces son la única barrera.
   const options = (locations.data ?? [])
     .filter((l) => l.zone === 'platform_stock' && l.isActive)
     .map((l) => ({
@@ -46,9 +60,10 @@ export function LocateItemControl({ item }: { item: PreparationItemDTO }) {
     }));
 
   const move = useMutation({
-    mutationFn: () => moveInventoryItem(item.inventoryItemId, { toLocationId }),
-    onSuccess: (res: InventoryItemDTO) => {
-      const label = res.location?.label?.trim();
+    mutationFn: (to: string) => moveInventoryItem(item.inventoryItemId, { toLocationId: to }),
+    onSuccess: (_res, to) => {
+      // La etiqueta es la de la ubicación ELEGIDA (la respuesta no trae `location`, ver arriba).
+      const label = (locations.data ?? []).find((l) => l.id === to)?.label?.trim();
       if (label) {
         qc.setQueriesData<PreparationOrderDTO[]>({ queryKey: ['admin-preparation-queue'] }, (prev) =>
           prev?.map((o) =>
@@ -65,7 +80,7 @@ export function LocateItemControl({ item }: { item: PreparationItemDTO }) {
           ),
         );
       } else {
-        // Respuesta sin ubicación (no debería ocurrir tras un move): se pide la cola al servidor.
+        // Ubicación elegida ya no está en la lista (no debería ocurrir): se pide la cola al servidor.
         void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
       }
       void qc.invalidateQueries({ queryKey: ['admin-inventory'] });
@@ -107,7 +122,7 @@ export function LocateItemControl({ item }: { item: PreparationItemDTO }) {
               {tc('cancel')}
             </Button>
             <Button
-              onClick={() => move.mutate()}
+              onClick={() => move.mutate(toLocationId)}
               disabled={!toLocationId || move.isPending}
               loading={move.isPending}
             >

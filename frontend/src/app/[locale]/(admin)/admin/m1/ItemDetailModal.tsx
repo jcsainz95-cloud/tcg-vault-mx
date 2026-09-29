@@ -82,7 +82,10 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const [toLocationId, setToLocationId] = useState('');
   const [moveNote, setMoveNote] = useState('');
   const move = useMutation({
-    mutationFn: () => moveInventoryItem(itemId!, { toLocationId, note: moveNote || undefined }),
+    // El destino viaja como VARIABLE de la mutación: el aviso de éxito lee su etiqueta de ahí
+    // (`move.variables`), porque la respuesta real del move NO trae `location` (solo `locationId`,
+    // `toAdminInventoryItemRow` en el backend) — antes pintaba «Item movido a .».
+    mutationFn: (vars: { toLocationId: string; note?: string }) => moveInventoryItem(itemId!, vars),
     onSuccess: () => {
       setToLocationId('');
       setMoveNote('');
@@ -132,11 +135,21 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   /**
    * Hueco 1 (auditoría del operador, 2026-09-29) — una carta VENDIDA en preparación (`picking`) tiene
    * que poder ubicarse o corregirse: sin esto el operador no tenía ningún camino en la UI para decir
-   * dónde está una pieza «Sin ubicar» de un pedido cobrado. El backend ya lo acepta
+   * dónde está una pieza «Sin ubicar» de un pedido cobrado
    * (`POST /admin/inventory/items/:id/move` sobre `picking` → 200, medido por el orquestador).
-   * ⛔ SOLO «Mover de ubicación»: la merma sigue restringida a `canOperate` (en `picking` responde 422
-   * y tocaría un pedido pagado). Destinos: solo `platform_stock` activos — una carta vendida que aún no
-   * sale sigue en el stock de la tienda, no en la custodia de un cliente.
+   * ⛔ SOLO «Mover de ubicación»: la merma sigue restringida a `canOperate`. Destinos: solo
+   * `platform_stock` activos — una carta vendida que aún no sale sigue en el stock de la tienda, no en
+   * la custodia de un cliente.
+   *
+   * ⚠️ **Quién restringe de verdad (C-1 del techlead, 2026-09-29).** El backend de production
+   * (`a2da420`) **NO restringe hoy** ni el estado de la pieza ni la zona del destino en `move`/`mark`:
+   * QA movió una carta de cliente al estante con 200. Las guardas llegan en esta rama
+   * (`claude/arreglos-operador`): `backend/src/modules/inventory/item-location.rules.ts` —
+   * `assertOperable` (plataforma: `move` en `in_stock|listed|reserved|picking`, `mark` solo en
+   * `in_stock|listed` ⇒ si no, `422 ITEM_NOT_ADJUSTABLE`) y `assertMoveDestination` (pieza de
+   * plataforma ⇒ solo `platform_stock` activo, si no `422 LOCATION_NOT_AVAILABLE`). Con ese backend
+   * desplegado, el backend rechaza y **este filtro es presentación**; hasta entonces es la única
+   * barrera, y por eso no se relaja.
    */
   const isPicking = item?.status === 'picking';
   const canMove = canOperate || isPicking;
@@ -218,7 +231,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
             )}
             {move.isSuccess && (
               <Banner variant="success" role="status">
-                {t('move.success', { label: move.data?.location?.label ?? '' })}
+                {t('move.success', { label: locationLabel(move.variables?.toLocationId) })}
               </Banner>
             )}
             {mark.isSuccess && (
@@ -306,7 +319,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <div>
                   <Button
                     variant="secondary"
-                    onClick={() => move.mutate()}
+                    onClick={() => move.mutate({ toLocationId, note: moveNote || undefined })}
                     disabled={!toLocationId || move.isPending}
                     loading={move.isPending}
                   >

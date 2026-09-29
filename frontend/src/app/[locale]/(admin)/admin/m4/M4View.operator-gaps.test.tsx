@@ -3,7 +3,7 @@ import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import { mockInventory, mockLocations } from '@/lib/mock/fixtures';
-import type { AdminShipmentDTO, ShipPreparationOrderDTO } from '@/types/contract';
+import type { AdminShipmentDTO, InventoryItemDTO, ShipPreparationOrderDTO } from '@/types/contract';
 import { M4View } from './M4View';
 
 /**
@@ -170,21 +170,77 @@ describe('M4View · hueco 1: «Ubicar» una carta de un pedido de envío', () =>
     ],
   } as ShipPreparationOrderDTO;
 
-  function setup() {
+  /**
+   * Las DOS formas reales de la respuesta de `POST /admin/inventory/items/:id/move`:
+   *  - `sin location`: la fila de `toAdminInventoryItemRow` (`locationId`, SIN `location`) — lo que
+   *    sirve el backend de production `a2da420`/`6695e9e` (QA, medido contra el stack 2026-09-29);
+   *  - `con location`: la misma fila + `location: {id,label,zone}` que el backend de esta rama añade
+   *    (`inventory.service.ts · moveItem`, 2026-09-29).
+   * Front y back se publican por separado (Vercel/Railway), así que la tarjeta tiene que pintarse
+   * bien con las dos: la etiqueta sale de la ubicación ELEGIDA, no de la respuesta.
+   */
+  function realMoveRow(locationId: string, withLocation: boolean): InventoryItemDTO {
+    const row: InventoryItemDTO = { ...mockInventory[0], id: 'inv-1001', status: 'picking' };
+    delete row.location;
+    const loc = mockLocations.find((l) => l.id === locationId)!;
+    return {
+      ...row,
+      locationId,
+      ...(withLocation ? { location: { id: loc.id, label: loc.label, zone: loc.zone } } : {}),
+    } as InventoryItemDTO;
+  }
+
+  function setup(withLocation = false) {
     vi.spyOn(api, 'getAdminShipments').mockResolvedValue({ data: [], page: 1, pageSize: 20, total: 0 });
     const queueSpy = vi.spyOn(api, 'getAdminPreparationQueue').mockResolvedValue([order]);
     vi.spyOn(api, 'getLocations').mockResolvedValue(mockLocations);
-    const moveSpy = vi.spyOn(api, 'moveInventoryItem').mockResolvedValue({
-      ...mockInventory[0],
-      id: 'inv-1001',
-      status: 'picking',
-      location: { id: 'loc-2', label: 'C03-F02-S16', zone: 'platform_stock' },
-    });
+    const moveSpy = vi
+      .spyOn(api, 'moveInventoryItem')
+      .mockResolvedValue(realMoveRow('loc-2', withLocation));
     return { queueSpy, moveSpy };
   }
 
-  it('«Sin ubicar» ⇒ «Ubicar» abre el selector (solo stock de plataforma), mueve y la tarjeta muestra la ubicación nueva', async () => {
-    const { queueSpy, moveSpy } = setup();
+  /** Un RETIRO DE BÓVEDA: `orderId === null`, la carta es DEL CLIENTE y está en su cajón. */
+  const withdrawal: ShipPreparationOrderDTO = {
+    ...order,
+    shipmentId: 'shp-w',
+    orderId: null,
+    orderNumber: null,
+    items: [
+      {
+        ...order.items[0],
+        shipmentItemId: 'si-w',
+        inventoryItemId: 'inv-cust-1',
+        folio: 'INV-000909',
+        currentLocation: { kind: 'assigned', label: 'C10-F01-S01' },
+      },
+    ],
+  };
+
+  it('⛔ un RETIRO DE BÓVEDA NO ofrece «Ubicar» (la carta es del cliente); el envío directo de al lado sí', async () => {
+    setup();
+    vi.spyOn(api, 'getAdminPreparationQueue').mockResolvedValue([withdrawal, order]);
+    renderWithProviders(<M4View />, 'es');
+    const custodyLoc = await screen.findByTestId('prep-location-si-w');
+    // La ubicación del cajón se sigue viendo (el operador la necesita para sacarla)…
+    expect(custodyLoc).toHaveTextContent('C10-F01-S01');
+    // …pero ningún control para moverla, ni en la celda ni en ninguna parte de la cola.
+    expect(within(custodyLoc).queryByRole('button')).toBeNull();
+    expect(screen.queryByTestId('prep-locate-si-w')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Ubicar la carta con folio INV-000909' })).toBeNull();
+    // Control positivo: la prueba no pasa por «no hay botones en ningún lado».
+    expect(
+      within(await screen.findByTestId('prep-location-si-1')).getByRole('button', {
+        name: 'Ubicar la carta con folio INV-000101',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ['sin location', false],
+    ['con location', true],
+  ])('«Sin ubicar» ⇒ «Ubicar» abre el selector (solo stock de plataforma), mueve y la tarjeta muestra la ubicación nueva (respuesta %s)', async (_shape, withLocation) => {
+    const { queueSpy, moveSpy } = setup(withLocation);
     renderWithProviders(<M4View />, 'es');
     const loc = await screen.findByTestId('prep-location-si-1');
     expect(loc).toHaveTextContent('Sin ubicar');
@@ -202,7 +258,8 @@ describe('M4View · hueco 1: «Ubicar» una carta de un pedido de envío', () =>
     fireEvent.click(save);
 
     await waitFor(() => expect(moveSpy).toHaveBeenCalledWith('inv-1001', { toLocationId: 'loc-2' }));
-    // La tarjeta se reescribe CON LA RESPUESTA (sin otra ida a picking-list).
+    // La tarjeta se reescribe con la etiqueta de la ubicación ELEGIDA (la respuesta real no trae
+    // `location`) y sin otra ida a picking-list.
     await waitFor(() => expect(screen.getByTestId('prep-location-si-1')).toHaveTextContent('C03-F02-S16'));
     expect(screen.getByTestId('prep-location-si-1')).not.toHaveTextContent('Sin ubicar');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

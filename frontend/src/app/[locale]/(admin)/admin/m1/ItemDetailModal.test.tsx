@@ -3,7 +3,7 @@ import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import { mockInventory, mockLocations } from '@/lib/mock/fixtures';
-import type { AdminInventoryItemDetailDTO, InventoryStatus } from '@/types/contract';
+import type { AdminInventoryItemDetailDTO, InventoryItemDTO, InventoryStatus } from '@/types/contract';
 import { ItemDetailModal } from './ItemDetailModal';
 
 beforeEach(() => {
@@ -25,12 +25,27 @@ function detail(status: InventoryStatus): AdminInventoryItemDetailDTO {
  * que poder ubicarse/corregirse desde el detalle de M1. SOLO «Mover de ubicación»: la merma no.
  */
 describe('ItemDetailModal · hueco 1: mover una pieza en `picking`', () => {
-  it('en `picking` ofrece «Mover de ubicación» (solo stock de plataforma) y NO la merma ni publicar', async () => {
+  /*
+   * Respuesta REAL del move, en sus DOS formas: `sin location` = la fila de `toAdminInventoryItemRow`
+   * (`locationId`, SIN `location`), lo que sirve production hoy (QA, medido contra el stack
+   * 2026-09-29 — la prueba anterior simulaba un `location` que ese backend no produce, y por eso no
+   * veía el aviso «Item movido a .»); `con location` = lo que añade el backend de esta rama
+   * (`inventory.service.ts · moveItem`). Front y back se publican por separado: valen las dos.
+   */
+  it.each([
+    ['sin location', false],
+    ['con location', true],
+  ])('en `picking` ofrece «Mover de ubicación» (solo stock de plataforma) y NO la merma ni publicar (respuesta %s)', async (_shape, withLocation) => {
     vi.spyOn(api, 'getAdminInventoryItem').mockResolvedValue(detail('picking'));
+    const row: InventoryItemDTO = { ...mockInventory[0], status: 'picking' };
+    delete row.location;
     const moveSpy = vi.spyOn(api, 'moveInventoryItem').mockResolvedValue({
-      ...detail('picking'),
-      location: { id: 'loc-2', label: 'C03-F02-S16', zone: 'platform_stock' },
-    });
+      ...row,
+      locationId: 'loc-2',
+      ...(withLocation
+        ? { location: { id: 'loc-2', label: 'C03-F02-S16', zone: 'platform_stock' as const } }
+        : {}),
+    } as InventoryItemDTO);
     renderWithProviders(
       <ItemDetailModal itemId="inv-1001" onClose={() => {}} locations={mockLocations} />,
       'es',
@@ -50,6 +65,9 @@ describe('ItemDetailModal · hueco 1: mover una pieza en `picking`', () => {
     await waitFor(() =>
       expect(moveSpy).toHaveBeenCalledWith('inv-1001', { toLocationId: 'loc-2', note: undefined }),
     );
+    // El aviso nombra la ubicación ELEGIDA — nunca «Item movido a .» con la etiqueta vacía.
+    const ok = await within(dialog).findByRole('status');
+    expect(ok).toHaveTextContent('Item movido a C03-F02-S16.');
   });
 
   it('en `in_stock` sigue ofreciendo mover (todas las zonas) y la merma — sin cambio', async () => {
