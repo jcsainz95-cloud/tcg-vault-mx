@@ -12,10 +12,11 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { MoneyOut } from '../../../common/decorators/money-out.decorator';
 import { NON_FAILED, RefundLedgerService } from './refund-ledger.service';
 import { RefundReportsService } from './refund-reports.service';
+import { PAYMENT_REFUND_KIND_VALUES, PAYMENT_REFUND_STATUS_VALUES } from '../../../common/enum-values';
 import { ManualRefundService } from './manual-refund.service';
 
-const KIND_VALUES: readonly PaymentRefundKind[] = Object.values(PaymentRefundKind);
-const STATUS_VALUES: readonly PaymentRefundStatus[] = Object.values(PaymentRefundStatus);
+const KIND_VALUES: readonly PaymentRefundKind[] = PAYMENT_REFUND_KIND_VALUES;
+const STATUS_VALUES: readonly PaymentRefundStatus[] = PAYMENT_REFUND_STATUS_VALUES;
 const ROLE_VALUES: readonly Role[] = Object.values(Role);
 
 @Controller('admin/refunds')

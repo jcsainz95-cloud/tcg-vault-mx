@@ -24,6 +24,7 @@ import {
   Role,
   ShipmentStatus,
 } from '@prisma/client';
+import { REPLACEMENT_CASE_SOURCE_VALUES } from '../../common/enum-values';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseAdminListFilters } from '../../common/admin-list-filters';
@@ -59,8 +60,10 @@ import {
 type Tx = Prisma.TransactionClient;
 type Db = Tx | PrismaService;
 
-const SOURCE_VALUES: readonly ReplacementCaseSource[] = Object.values(ReplacementCaseSource);
-const STATE_VALUES = ['open', 'closed'] as const;
+const SOURCE_VALUES: readonly ReplacementCaseSource[] = REPLACEMENT_CASE_SOURCE_VALUES;
+/** `?state=` de `GET /admin/replacement-cases` — clase L (§0-Q): `closed ⇔ status ≠ open`, computado, sin enum detrás. */
+export const REPLACEMENT_CASE_STATE_VALUES = ['open', 'closed'] as const;
+const STATE_VALUES = REPLACEMENT_CASE_STATE_VALUES;
 const CANDIDATE_STATUSES: readonly InventoryStatus[] = ['in_stock', 'listed'];
 const CANDIDATES_MAX = 50;
 

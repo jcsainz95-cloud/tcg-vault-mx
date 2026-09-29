@@ -15,6 +15,7 @@
  */
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ManualRefund, ManualRefundSource, ManualRefundStatus, OrderStatus, Prisma, ReplacementCaseSource, Role } from '@prisma/client';
+import { MANUAL_REFUND_STATUS_VALUES } from '../../../common/enum-values';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BusinessException } from '../../../common/business.exception';
 import { PiiCryptoService } from '../../../common/crypto/pii-crypto.service';
@@ -34,7 +35,7 @@ type Tx = Prisma.TransactionClient;
 /** Dominio de `revealToken` (§M4-SHIP.17.3 (3)): la MISMA llave del índice ciego, separada por prefijo. ⛔ Nada persistido. */
 export const MANUAL_REFUND_REVEAL_DOMAIN = 'mr-reveal:v1:';
 
-const STATUS_VALUES: readonly ManualRefundStatus[] = Object.values(ManualRefundStatus);
+const STATUS_VALUES: readonly ManualRefundStatus[] = MANUAL_REFUND_STATUS_VALUES;
 
 export interface ManualRefundDTO {
   id: string;
@@ -479,8 +480,8 @@ export class ManualRefundService {
       });
       return 'cancelled' as const;
     });
-    // ⛔ Sin aviso (decisión del dueño con nota); ⛔ no reabre el caso.
-    return { outcome, manualRefund: await this.get(id) };
+    // ⛔ Sin aviso (decisión del dueño con nota); ⛔ no reabre el caso. La respuesta ES el DTO (+ `outcome` aditivo, QA BLOQ-1).
+    return { ...(await this.get(id)), outcome };
   }
 
   // ================================================================ reissue (§M4-SHIP.17.8)

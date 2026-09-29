@@ -106,6 +106,8 @@ const ADMIN_USERS_QUERY_KEYS = ['q', 'status', 'kycStatus', 'page', 'pageSize'] 
  * **Declaración canónica: la línea del endpoint en `API_CONTRACT §M9`** (``axis?` (`sale | buy`;
  * omitido = ambos)`). Paridad a **dos bandas** —contrato ↔ este literal— sostenida por `C-EQ-1`.
  */
+/** `?reason=` de `GET /admin/finance/shrinkage` (§M4-SHIP.17.5) — clase L (§0-Q): dos valores de `InventoryStatus`, sin enum propio. */
+export const SHRINKAGE_REASON_VALUES = ['lost', 'damaged'] as const;
 export const PRICING_BRACKETS_AXIS_VALUES = ['sale', 'buy'] as const;
 
 /** M6 Usuarios: lista/ficha para vault_operator (limitado) + super_admin. */
@@ -444,7 +446,7 @@ export class AdminFinanceController {
     @Query('pageSize') pageSize = '25',
   ) {
     const f = parseAdminListFilters({ page, pageSize, from, to });
-    const r = parseEnumFilter('reason', reason, ['lost', 'damaged'] as const);
+    const r = parseEnumFilter('reason', reason, SHRINKAGE_REASON_VALUES);
     return this.refundReports.shrinkage({ from: f.dateRange?.gte, to: f.dateRange?.lte, actorUserId: actorUserId || undefined, reason: r, page: f.page, pageSize: f.pageSize });
   }
 

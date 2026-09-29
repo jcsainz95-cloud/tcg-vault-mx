@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { MissingReason, PreparationItemStatus, Prisma, Role } from '@prisma/client';
+import { MISSING_REASON_VALUES as MISSING_REASON_VALUES_SHARED, PREPARATION_ITEM_STATUS_VALUES } from '../../common/enum-values';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { nullIfBlank } from '../shipments/preparation-view';
@@ -72,9 +73,9 @@ export interface UnprepareVaultPlacementResponse {
 }
 
 /** Dominio del cuerpo de `PATCH …/prep-items` (clase E: DERIVADO del enum de Prisma, ⛔ lista a mano). */
-const PREP_STATUS_VALUES: readonly PreparationItemStatus[] = Object.values(PreparationItemStatus);
+const PREP_STATUS_VALUES: readonly PreparationItemStatus[] = PREPARATION_ITEM_STATUS_VALUES;
 /** ⭐ v1.80.1 (§M4-SHIP.15.2): UN solo modelo de motivo — el mismo enum que el palomeo de envío. */
-const MISSING_REASON_VALUES: readonly MissingReason[] = Object.values(MissingReason);
+const MISSING_REASON_VALUES: readonly MissingReason[] = MISSING_REASON_VALUES_SHARED;
 
 /** Una colocación ya cargada con su vista (bajo la puerta, por el mismo `tx`). */
 interface LoadedView {

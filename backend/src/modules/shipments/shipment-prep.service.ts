@@ -22,6 +22,7 @@ import {
   Role,
   ShipmentStatus,
 } from '@prisma/client';
+import { MISSING_REASON_VALUES, PREPARATION_ITEM_STATUS_VALUES } from '../../common/enum-values';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import {
@@ -418,12 +419,12 @@ export class ShipmentPrepService {
 
   async markItem(shipmentId: string, shipmentItemId: string, body: unknown, actor: RefundActor) {
     const b = (body ?? {}) as { status?: unknown; missingReason?: unknown };
-    const allowed = Object.values(PreparationItemStatus) as string[];
+    const allowed = PREPARATION_ITEM_STATUS_VALUES as string[];
     if (typeof b.status !== 'string' || !allowed.includes(b.status)) {
       throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid preparation status', { field: 'status', allowed });
     }
     const target = b.status as PreparationItemStatus;
-    const reasons = Object.values(MissingReason) as string[];
+    const reasons = MISSING_REASON_VALUES as string[];
     if (target === 'missing') {
       if (typeof b.missingReason !== 'string' || !reasons.includes(b.missingReason)) {
         throw BusinessException.badRequest('VALIDATION_ERROR', 'missingReason is required with status=missing', { field: 'missingReason', allowed: reasons });
