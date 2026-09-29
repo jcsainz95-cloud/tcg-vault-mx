@@ -12667,3 +12667,29 @@ este commit (hay que citarlo por número con `blocking=false`, como pide la cond
 
 **Rollback de este cambio:** revertir el commit. Antes del 2026-10-06 no rompe nada; desde esa fecha vuelve a
 poner `ci-ok` en rojo, y así tiene que ser.
+
+## §70 · SEC-HDR-1: ZAP 10020 y 10021 pasan de WARN a FAIL (2026-09-29, rama `claude/paquete-seguridad`)
+
+**Qué cambió.** `security/zap/baseline.conf:88` (10020, anti-clickjacking) y `:89` (10021, nosniff): `WARN` -> `FAIL`,
+con el motivo escrito en la línea. Frontend sirve las cabeceras desde `6d59712` (`frontend/next.config.mjs`
+`headers()`). 10038/10055 (CSP completa) **siguen en WARN**: son SEC-HDR-2, aparte.
+
+**Qué perfil aplica (medido leyendo el código, no ejecutando ZAP).** Hay **una sola** política: `baseline.conf` es
+el `-c` de `dast-ephemeral.sh:245`, `dast-zap-full.sh:39`, `dast-zap-baseline.sh:42`, y el `--policy` de
+`dast-gate.py` (`dast-ephemeral.sh:307`). No hay perfil separado para vitrina y backend. El blanco por defecto de
+ZAP es solo la vitrina (`dast-ephemeral.sh:67`, `ZAP_TARGETS=${FRONTEND_URL}`, `http://localhost:3010`).
+
+**Advertencia pedida: NO aplica el riesgo de orden.** El DAST (`security-dast.yml`, llamado por `deploy.yml`
+`dast-release` en cada push a `production`) escanea un stack **efímero levantado en el runner desde el SHA del run**
+(`next build` + `next start`), no la URL de Vercel. Por tanto ve las cabeceras en cuanto el SHA las contiene, sin
+depender de que Vercel haya publicado; no hace falta orden entre frontend y backend. Lo que sí es cierto: **el SHA
+que se escanee debe contener `6d59712`**. Un run sobre un SHA anterior (p. ej. `production` actual, si aún no
+recibió esta rama) daría 10020/10021 FAIL = rojo. Y la prueba puntual autorizada contra `tcghunt.mx` (§14.3) sí
+vería la cabecera ausente hasta que Vercel publique.
+
+**Candados.** `scripts/check-dast-gate-live.sh` no fija conteos de WARN/FAIL de reglas concretas (solo que el
+gate rojo con un FAIL sintético, 40018); no hubo nada que actualizar. **NO MEDIDO:** un barrido ZAP real con esta
+política (no corrí ZAP aquí); riesgo residual: 10021 sobre assets `_next/static` y 10020 en respuestas que no pasen
+por `headers()`. El primer `dast-release` sobre un SHA con esto lo mide.
+
+**Rollback:** revertir el commit (las dos líneas vuelven a WARN).
