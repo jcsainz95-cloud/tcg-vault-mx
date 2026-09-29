@@ -84,6 +84,32 @@
 | **Deuda gates 2026-09-11** | NO RE-MEDIDO ficha por ficha | Fichas BE-82..87, GA-D1..D7, DO-D1..D10 en `docs/TECH_DEBT.md` | Revisión aparte | Varias |
 
 
+## Actualización 2026-09-29 · Skydropx (sesión del levantamiento de envíos)
+
+### P-SKYDROPX · Integración de envíos con Skydropx: levantamiento listo, falta pasar por el equipo
+
+**Estado (medido 2026-09-29 sobre production `a2da420`):**
+- Levantamiento cerrado con el dueño: `docs/specs/SKYDROPX_LEVANTAMIENTO.md`, donde §11 y §12 mandan.
+- Seis decisiones suyas en `HECHOS.md` (filas «Envíos con Skydropx»).
+- **Cero código**: `grep -ri skydropx backend/src frontend/src` = 0.
+
+**Siguiente paso:** product-owner → arquitecto → ux-ui / devops → backend + frontend (stream «Órdenes y
+dinero»). **Prompt de arranque:** `docs/specs/SKYDROPX_TRASPASO.md`.
+
+**Arreglos previos, independientes de Skydropx:**
+- **E1/H7:** enlaces de correo rotos (`shipment-notice.templates.ts:73`, `order-notice.templates.ts:107,192`);
+- **D1:** M4 sin IVA del costo (`M4View.tsx:134-139`);
+- **E2:** `/orders` sin la guía.
+
+**Mediciones pendientes del dueño:** T1–T7, la colección OpenAPI y los avisos propios de Skydropx
+(`SKYDROPX_TRASPASO.md` §5).
+
+**Aviso:** `origin/main` = `bb239c0` va **1277 commits por detrás** de `origin/production` = `a2da420`
+(medido 2026-09-29).
+
+**Dueño:** orquestador. **Fecha de medición:** 2026-09-29. **Comprobación:** `git log --oneline -1
+origin/production`; `grep -c "Envíos con Skydropx" HECHOS.md` (= 6); `grep -rli skydropx backend/src frontend/src`.
+
 ## Actualización 2026-09-25 (orquestador, sesión 4) — lección: ramificar desde el head de una PR abierta
 
 ### P-RAMA-HEAD-PR · Empujar una rama nueva **en el mismo sha** que el head de una PR abierta contamina sus checks
