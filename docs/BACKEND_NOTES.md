@@ -24257,3 +24257,50 @@ Ninguna de esas carpetas existe en `frontend/src/app/[locale]/` ⇒ el botón de
   invitado ⇒ 1 (barrido estático); quitar `(storefront)/vault` del front ⇒ 5. Base: 28/28.
 - **Consecuencia para frontend:** renombrar/mover `orders/[orderId]`, `shipments/[id]`, `account`, `vault`, `pedido`,
   `verify-email`, `reset-password` o `buylist/requests/[id]` pone rojo este test del backend. Es a propósito.
+- ⭐ 2026-09-29 — **cableado con candado (QA IMPORTANTE 2):** las cuatro mutaciones que sobrevivían (B2 invitado con CTA en
+  el reembolso, B3 invitado con CTA en el envío, B4 AV-2 sin `Order.id`, B5 registrado sin CTA en el envío) mueren en
+  los bloques «CTA —» de `test/avisos.orders.spec.ts` y `test/avisos.shipments.spec.ts` (fijan `APP_PUBLIC_URL`: sin
+  origen no hay CTA para nadie y «sin enlace» no probaría nada). N=1 cada una, deterministas; base 40/40.
+  *Medido:* hoy el único creador de `direct_ship` es `guest-checkout` (`userId=null` + `guestEmail`) ⇒ la rama
+  «registrado» de `resolveRecipient` (B5) **no es alcanzable** en producción todavía; el candado la protege para cuando
+  lo sea. Deuda: `TECH_DEBT.md` MAIL-URL1 / MAIL-CTA2 / MAIL-NOTE8.
+
+## M1 · guardas de `move` y `mark` (2026-09-29, rama `claude/arreglos-operador`)
+
+> Medido por techlead y QA: `POST /admin/inventory/items/:id/move` y `…/mark` no miraban estado ni zona. El API
+> aceptaba mover la carta **de un cliente en un retiro cobrado** al estante de tienda y marcar perdida una pieza en
+> `picking` de un pedido cobrado. Reglas en `modules/inventory/item-location.rules.ts` (un cuerpo por regla).
+
+| Pieza | `move` admite | Destino | `mark` admite |
+|---|---|---|---|
+| plataforma | `in_stock · listed · reserved · picking` | solo `platform_stock` | `in_stock · listed` (= ajuste del binder) |
+| cliente | `in_custody` + `settled`, **fuera** de retiro `picking/guia/enviado` | solo un cajón que **ya es suyo** (`customerDrawersOf`) | igual que `move` (§0: «`mark` + reposición para custodia») |
+| terminal / otro | ⛔ | — | ⛔ |
+
+**Errores (todos existentes en el catálogo):**
+- estado no admitido ⇒ `422 ITEM_NOT_ADJUSTABLE` `details:{ status, ownerType }`;
+- pieza de cliente en retiro cobrado ⇒ `409 ITEM_IN_ANOTHER_SHIPMENT`;
+- destino ⇒ `422 LOCATION_NOT_AVAILABLE` `details.reason`: `not_found` · `inactive` · `not_customer_custody` ·
+  `not_customer_drawer` (+ `customerDrawers`, misma forma que el `confirm`) · ⚠️ **`not_platform_stock` (NUEVO
+  `reason`, pendiente de que el arquitecto lo escriba en el contrato)**. Antes, un destino inexistente daba `500` (FK);
+- la pieza cambió entre la lectura y la escritura ⇒ `409 CONFLICT` (update condicionado a estado+dueño leídos).
+
+**Decisión leyendo el contrato:** la pieza de cliente **no** puede ir a un cajón vacío/ajeno: §M4-VAULT.4 regla 4 dice
+que el `move` existe para **consolidar** cajones del mismo cliente; la **primera** colocación es del `confirm` (que
+toma la puerta del cliente). El `move` de cliente ahora toma **la misma puerta** (`lockCustomerVaultGate`).
+
+**Transacción:** lectura, guardas, `update` y `InventoryMovement` en **una** `$transaction` (antes, dos sentencias
+sueltas). `tryAutoPublish` sigue **después** del commit, best-effort, como antes.
+
+**Para frontend:** la respuesta del `move` añade `location: { id, label, zone } | null` (aditivo; el resto de la fila
+no cambia).
+
+**Pruebas:** `test/inventory.move-mark-guards.spec.ts` (41; 32 rojas contra el código anterior, las 9 verdes son los
+casos permitidos), `test/integration/inventory-move-mark-guards.e2e-spec.ts` (8; 8/8 rojas contra el backend de `6695e9e`, 8/8
+verdes contra Postgres 16). Suites (medido 2026-09-29 sobre `6c90907`): unitaria 354/354 suites, 5883/5883; integración
+completa contra un Postgres propio 52/52 suites, 1143 verdes + 2 `skip` ya existentes; `tsc` limpio; eslint 0 errores. Mutaciones (copia del árbol sin `frontend/`, N=1 cada una, deterministas): 15/15 muertas —
+sin guarda de estado, sin chequeo de retiro (move y mark), sin zona de plataforma, sin zona de custodia, sin cajón
+propio, `mark` admitiendo `picking`, update sin condición de estado, sin puerta, destino inactivo, sin `location`,
+cliente `pending` admitido, movimiento fuera de la transacción, `P2025` sin mapear, y la de custodia de
+`inventory.pending-publish.spec.ts` (el intento de publicar no tumba el `move`), cuyo fixture pasó a un cajón del
+mismo cliente.
