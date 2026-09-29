@@ -2,7 +2,41 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.7.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.7.2**).
+>
+> **Errata v1.80.7.2 — 🔒💰 DOS PUNTOS DEL VEREDICTO DEL TECHLEAD SOBRE `59a0c1f` (APROBADO CON DEUDA; C-1 condición
+> antes de fusionar, D-a deuda) (2026-09-29, arquitecto; base v1.80.7.1, vigente entera salvo lo que esta errata
+> toca).** ⛔ Sin schema (`M-61` no cambia), sin verbo, sin código de error, sin campo de DTO. Porqué: `ARCHITECTURE
+> §4.57 (u)`. Leído en este worktree (`claude/envio-preparar`, `59a0c1f` según el encargo; ⛔ sha NO MEDIDO por mí, sin
+> Bash), en `/home/user/tcg-hotfix` (`claude/arreglos-operador`, sha NO MEDIDO) y en `/home/user/tcg-dinero`
+> (`claude/paquete-dinero`, contrato v1.80.2.3; ⛔ el verbo `'price'` **no** está construido allí: `rg "INV-SP-8|'price'"`
+> sobre sus pruebas y `assertOperable` ⇒ 0, medido 2026-09-29).
+>
+> | # | Punto | Decisión | Dónde | ¿Código? |
+> |---|---|---|---|---|
+> | **1** 🔒 | **C-1 — la instrucción de fusión de SEC-SHIP-A1 se contradecía:** `BACKEND_NOTES:24353-24358/:24398` decía «manda `item-location.rules.ts` y la copia en línea **se borra**» citando v1.80.7 p.9; este contrato (p.9, §M1, §17.1) y `ARCHITECTURE D-SHIP-7` decían «`markItem`/`updateItem` = `envio-preparar`». Además el stream de dinero (v1.80.2.3) añade `'price'` a `assertOperable` **sobre main con el hotfix** | **UNA regla para los tres streams** (hotfix v1.79.7 · dinero v1.80.2.3 · envío v1.80.7), escrita **una vez** en §M1 ([«Regla de fusión SEC-SHIP-A1»](#M1-merge-rule)) y citada desde §17.1 y `D-SHIP-7`: **(i)** `item-location.rules.ts` es el **único cuerpo de guardas** (`assertOperable` con verbos `move\|mark\|status\|price`; `MARKABLE_PLATFORM_STATUSES` se exporta **solo** de ahí); **(ii)** el escritor condicionado es **`guardedItemUpdate`** del hotfix (CAS sobre `{id, status, ownerType, ownerUserId}` leídos); **(iii)** `moveItem` y **`markItem`** = hotfix (el `markItem` de este stream no aporta nada que el del hotfix no tenga: medido, sin bitácora, lectura fuera de la tx, CAS sin `ownerUserId`); **(iv)** `updateItem` = la **estructura** de este stream (bitácora `inventory.item_updated` con `before/after`, todo el `PATCH` en **una** tx) **re-cableada** a `readGuardedItem` + `assertOperable(item, 'status'\|'price')` + `guardedItemUpdate`; su `MARKABLE_PLATFORM_STATUSES` local (`inventory.service.ts:389`) **se borra**. PS-42b `:818` **se invierte** (D-d del techlead) | §M1 (regla nueva, sustituye la nota v1.80.7) · §M4-SHIP.17.1 punto 1 · `ARCHITECTURE §9 D-SHIP-7` | **Sí, en la fusión** (backend; orden y pruebas en la regla) · y **backend corrige `BACKEND_NOTES`** `:24353-24361` y `:24397-24398` para citar esta regla (⛔ no lo escribo yo: ruta de backend) |
+> | **2** 💰 | **D-a — `applyStripeOutcome` decidía con una lectura sin candado** (`refund-ledger.service.ts:301-305`): si la orden pasa a `chargeback` entre esa lectura y el `FOR UPDATE` de `onFullRefund`, la pasada **sí escribe** (sello `fullRefundClosedAt`, `chargebackNeedsManual`, cancela la colocación `pending`) y luego el log de `:316` dice «la orden no se toca» — **falso**. Y la prosa de §18.2 (M5) decía «cero escrituras» — **también falso**, y era mía | **Semántica (b): el cierre por reembolso total procede aunque la orden esté en `chargeback`, igual que el webhook** (`payments.service.ts:691-700`, que llama `onFullRefund` sin mirar `status`). **Sobra la lectura de (2)**: se quita. Tras (4), la relectura **bajo el candado que (3) ya tomó** clasifica: `refunded` ⇒ éxito; **`chargeback` ⇒ `log warn`** con la verdad (cierre hecho, estado `chargeback` conservado, sin `AV-3`); cualquier otro ⇒ `log error` (invariante: no alcanzable desde `settled`). ⛔ La alternativa (a) (comprobar bajo candado y no escribir) solo **aplaza** el mismo estado: el `charge.refunded` de ese reembolso llega después y el webhook sella igual ⇒ dos semánticas para un hecho, misma foto final | §M4-SHIP.18.2 (M5) · §18.8 **PS-57d** | **Sí, backend** (`applyStripeOutcome` + comentario/log; **PS-57d** — la variante secuencial es la que **falla hoy**) |
+>
+> **Trabajo de código resultante (rol · fichero · prueba que debe fallar primero):**
+> - **backend** 💰 · `backend/src/modules/payments/refunds/refund-ledger.service.ts` (`applyStripeOutcome`: quitar la lectura
+>   de `:301-305`; clasificar tras (4) bajo el candado de (3); `log warn` para `chargeback`; comentario de `:296-300` y
+>   docblock de `:268-272` corregidos) · **PS-57d** en `backend/test/integration/full-refund-vault.e2e-spec.ts`:
+>   **(seq, falla HOY)** orden `vault` `settled` con una carta `in_custody` y colocación `pending`; M3 tx1 `200` (fila
+>   `requested`, doble de Stripe transitorio); `charge.dispute.created` **commit**; luego `retry` (doble ⇒ `succeeded`) ⇒
+>   `200`, fila `succeeded`, orden **sigue `chargeback`**, **`fullRefundClosedAt ≠ null`**, `chargebackNeedsManual = true`,
+>   **una** bitácora `order.full_refund_closed`, **cero** `refund_return`, **un** `chargeback_return` por carta, colocación
+>   `cancelled` con `cancelReason:'chargeback'`, **cero** `AV-3`; hoy la lectura de `:301` corta antes y el sello queda
+>   `null` ⇒ **rojo**. Después, `charge.refunded` del mismo cobro ⇒ **cero** escrituras nuevas (convergencia con el
+>   webhook). **(race, N=10)** `forced` de `helpers/ship-prep-db.ts:591-611`: barrera = sesión con `SELECT … FROM "Order"
+>   WHERE id=$1 FOR UPDATE`; **A** = `charge.dispute.created` (se encola primero: toma las piezas y espera `Order`); **B** =
+>   `retry` (espera las piezas detrás de A); solo cuenta la tirada con `interleaved` ⇒ en **10/10**: cero
+>   `40P01`/`503`/`500`, y la misma foto que (seq). Se reporta la proporción con N. **Mutación:** semántica (a) (leer
+>   `status` tras el `FOR UPDATE` y salir sin escribir) ⇒ `fullRefundClosedAt = null` ⇒ rojo en seq **y** en 10/10 de
+>   race; y la de hoy (lectura previa sin candado) ⇒ rojo en seq. Unitaria en `refund-ledger`: estado final `chargeback`
+>   ⇒ `logger.warn` y **no** `logger.error`. PS-57, PS-57c siguen verdes.
+> - **backend (en la fusión, zona compartida `inventory`, un stream a la vez)** · la regla de §M1 [«Regla de fusión
+>   SEC-SHIP-A1»](#M1-merge-rule) entera, con su lista de pruebas sobre el **árbol fusionado**.
+> - **frontend:** nada.
 >
 > **Errata v1.80.7.1 — DOS PUNTOS DEL VEREDICTO DE QA SOBRE `c20451f` (BLOQ-2(b) `C-EQ-1` y IMP-2 paridad de §0)
 > (2026-09-29, arquitecto; base v1.80.7, vigente entera salvo lo que esta errata toca).** ⛔ Sin dinero, sin verbo,
@@ -39,7 +73,7 @@
 > | **6** | `RawCondition` solo `NM` ⇒ PS-22 no mide «otra condición» | **Aceptado:** PS-22 mide acabado, carta, grado, sellado y pares; la condición entra sola cuando el enum crezca | PS-22 | **No** |
 > | **7** | Webhook bajo candado ⇒ `503 BUSY_TRY_AGAIN` | **Ratificado:** conducta previa (§0-T); Stripe reentrega; la reentrega es idempotente por CAS + sello. Una tirada `503` de PS-57 cuenta si la reentrega deja los invariantes | §M4-SHIP.7 · §18.8 | **No** |
 > | **8** | `returned` permanente; objetivos sin filtrar por `picking`; ya confirmada ⇒ se omite | **Verificado contra §18.6/.7 v1.80.6: coincide.** Se **precisa** la regla de omisión (se omite ⇔ ya está en el estado que esta pasada le escribiría; cualquier otro ≠ `picking` ⇒ `409`) y el residuo aceptado | §M4-SHIP.18.7 · PS-61 | **No** |
-> | **9** | SEC-SHIP-A1 construido aquí y en `claude/arreglos-operador` | **Nota de fusión:** `markItem`/`updateItem` = `envio-preparar`; `move` (`item-location.rules.ts`) = `arreglos-operador`, con su `mark` sobre cliente **descartado** (`D-SHIP-5`) | §M1 (tabla) · §M4-SHIP.17.1 · `ARCHITECTURE §9 D-SHIP-7` | **Sí, en la fusión** (backend, encargo del orquestador; PS-41/42/64 + suite de `arreglos-operador` sobre el árbol fusionado) |
+> | **9** | SEC-SHIP-A1 construido aquí y en `claude/arreglos-operador` | ~~**Nota de fusión:** `markItem`/`updateItem` = `envio-preparar`; `move` (`item-location.rules.ts`) = `arreglos-operador`, con su `mark` sobre cliente **descartado** (`D-SHIP-5`)~~ 🔒 **Sustituida por v1.80.7.2 punto 1** ([regla de fusión única, §M1](#M1-merge-rule)): el cuerpo de guardas es `item-location.rules.ts`; los servicios lo llaman | §M1 (tabla) · §M4-SHIP.17.1 · `ARCHITECTURE §9 D-SHIP-7` | **Sí, en la fusión** (backend, encargo del orquestador; PS-41/42/64 + suite de `arreglos-operador` sobre el árbol fusionado) |
 > | **10** | Fila `ShipmentRequest` sin `userId` ni `orderId` ⇒ la cola responde | **Norma:** una fila corrupta degrada su tarjeta (`no_origin_order`, `log warn`), ⛔ nunca tumba la lista | §M4-SHIP.3 | **No** (construido, `preparation-queue` 17/17) |
 > | **11** | `AV-6` legado se mide sobre `solicitado` | **Ratificado en §R.3:** desde §M4-SHIP.9 es el único estado cancelable a mano; mismo aserto, otra fixture | §R.3 (fila `AV-6`) | **No** |
 > | **12** | Tope del operador **acumulado**: la mutación «`assertOperatorCap` ignora lo acumulado» no la cazan las unitarias | **Falta prueba:** PS-4 (carrera) distingue `used = 0` pero no las mutaciones de **ventana** ni de **actor**, y una suma no se sostiene solo con un aserto probabilístico ⇒ **PS-4b** (secuencial, determinista) + unitaria del `where` | §M4-SHIP.12 (PS-4b) · §M4-SHIP.5 paso 6 | **Sí, backend** (prueba que debe fallar primero; ver lista abajo) |
@@ -47,7 +81,7 @@
 > | **14** | `KycInfoDTO.clabeUpdatedAt` | **Ya era normativo desde v1.80.3** (§M4-SHIP.17.3) y está construido (`users.service.ts:418`); la línea del DTO en §M6 estaba desactualizada — se corrige | §M6 `GET /users/me/kyc` | **Frontend** pinta «CLABE actualizada el …» (`null` ⇒ nada) |
 > | **15** | 429 de `C7`: los minutos | **Norma de forma:** ventana conocida ⇒ `Retry-After: n` **y** `details.retryAfterSeconds = n`; desconocida ⇒ `details {}` y sin cifra | §0 «Códigos comunes» | **Backend:** medir si el `429` del throttler pasa hoy con esa forma; si no, cerrarlo (prueba abajo). Obligatorio para `C7` |
 > | **16** | `403 MONEY_OUT_LIMIT_EXCEEDED`: ¿cifras al operador? | **Se conservan** `details {capCents, usedCents, requestedCents}` (§0 ya los tipaba; PS-4 los asevera). El operador es **interno**: el criterio 201 protege al **cliente** y no aplica; ⛔ nada de esto llega a un `customer` | §0 · §M4-SHIP.5 paso 6 | **Frontend:** tipar `details`; pintar cifras es opcional y el copy lo decide ux-ui (`DESIGN_SYSTEM §37` N-1 queda contestada) |
-> | **17** 🔴 | (techlead) **Orden de candados de la tx de confirmación de M3:** `applyStripeOutcome` hace `Order → refunded` (`refund-ledger.service.ts:298`) **antes** de `onFullRefund` (`:309`, que toma envíos → piezas → `Order`) porque §18.2 (M5) numeraba (2)→(3) así; invierte el orden de §17.2 y el del webhook (`payments.service.ts:695-699`) ⇒ **ciclo posible** con `prepared` de un retiro (envío → piezas → `Order` de origen) | **Se corrige §18.2 (M5):** la tx de confirmación adopta **el orden del webhook** — (1) CAS de la fila; (2) lectura **sin** candado de `Order.status` (∉ `{settled, refunded}` ⇒ `log error`, fin, como hoy); (3) **`onFullRefund`** (envíos → piezas → `Order FOR UPDATE`, sello); (4) `Order → refunded` bajo ese mismo candado, `count 1` con `refunded` = éxito; (5) `AV-3` quien transicionó. **Un solo orden en los dos escritores** | §M4-SHIP.18.2 (M5) · §18.8 (**PS-57c**) | **Sí, backend** (`refund-ledger.service.ts · applyStripeOutcome`; PS-57c con barrera, N≥10, y su mutación = el orden de hoy ⇒ `40P01` en ≥1 tirada) |
+> | **17** 🔴 | (techlead) **Orden de candados de la tx de confirmación de M3:** `applyStripeOutcome` hace `Order → refunded` (`refund-ledger.service.ts:298`) **antes** de `onFullRefund` (`:309`, que toma envíos → piezas → `Order`) porque §18.2 (M5) numeraba (2)→(3) así; invierte el orden de §17.2 y el del webhook (`payments.service.ts:695-699`) ⇒ **ciclo posible** con `prepared` de un retiro (envío → piezas → `Order` de origen) | **Se corrige §18.2 (M5):** la tx de confirmación adopta **el orden del webhook** — (1) CAS de la fila; ~~(2) lectura **sin** candado de `Order.status` (∉ `{settled, refunded}` ⇒ `log error`, fin, como hoy)~~ (🔒💰 **v1.80.7.2 p.2: quitada**; clasificación tras (4) bajo candado); (3) **`onFullRefund`** (envíos → piezas → `Order FOR UPDATE`, sello); (4) `Order → refunded` bajo ese mismo candado, `count 1` con `refunded` = éxito; (5) `AV-3` quien transicionó. **Un solo orden en los dos escritores** | §M4-SHIP.18.2 (M5) · §18.8 (**PS-57c**) | **Sí, backend** (`refund-ledger.service.ts · applyStripeOutcome`; PS-57c con barrera, N≥10, y su mutación = el orden de hoy ⇒ `40P01` en ≥1 tirada) |
 > | **18** | (techlead) Tope acumulado: el predicado es SQL (`operatorUsedCents`), su sitio es integración | **PS-4b se reescribe como PS determinista con filas sembradas por SQL** (`requested`/`submitted`/`succeeded` en ventana cuentan; `failed`, `order_full`, > 24 h y otro operador no) y aserto de la **suma exacta** en `usedCents` del `403`; la primera mitad de PS-4 deja de depender del orden de la suite. La unitaria del `where` pasa a **opcional** | §M4-SHIP.12 (PS-4b) | **Sí, backend** (solo prueba) |
 > | **19** | (techlead) `C-CLABE-1`: la excepción funciona, pero lo limpio es un verbo del módulo dueño | **Sí:** nace **`UsersService.eraseClabe(tx, userId)`** (solo nulos, sin `clabeUpdatedAt`, sin `AV-16`); `AdminService.deleteUser` lo llama; el censo de `C-CLABE-1` vuelve a **un módulo** (`users.service.ts`) con **dos** sitios exactos y **cero** excepciones fuera. **Sustituye a la decisión del punto 2** (que queda como conducta transitoria hasta que el verbo exista). Y `PiiCryptoService` gana el alias **`constantTimeEquals`** para la comparación del `revealToken` en `paid` (`manual-refund.service.ts:390`): mismo cuerpo, nombre que dice lo que compara | §M4-SHIP.8 · §M4-SHIP.17.3 | **Sí, backend** (pequeño) |
 >
@@ -58,7 +92,7 @@
 > - **backend** · `backend/src/modules/vault/vault.service.ts` (`withdrawableReason`, un cuerpo con `withdrawable`) · PS-65 ampliada (`withdrawableReason:'origin_refunded'`) + unitaria de los cinco motivos y del invariante `withdrawable === (withdrawableReason === null)`.
 > - **backend** · PS-55/PS-63 (`full-refund-vault.e2e-spec.ts`): aserto único `422 NOT_FOUND` · mutación «`classifyItems` busca por `id` sin `ownerUserId`» ⇒ rojo.
 > - **backend** · `backend/src/common/filters/all-exceptions.filter.ts` (o donde nazca el `429`) **solo si la medición lo pide** · prueba: `429` del login ⇒ `Retry-After: n` ∧ `details.retryAfterSeconds === n`; `RATE_LIMITED` sin ventana ⇒ `details {}`.
-> - **backend (en la fusión con `arreglos-operador`)** · `inventory.service.ts` + `item-location.rules.ts` · PS-41 (a/b), PS-42, PS-64 y la suite de esa rama sobre el árbol fusionado.
+> - **backend (en la fusión con `arreglos-operador`)** · `inventory.service.ts` + `item-location.rules.ts` · PS-41 (a/b), PS-42, PS-64 y la suite de esa rama sobre el árbol fusionado. 🔒 **v1.80.7.2:** sustituido por la [regla de fusión única de §M1](#M1-merge-rule) (qué cuerpo, qué llamadores, qué pruebas).
 > - **frontend** · `types/contract.ts` (`withdrawableReason`, `details` de `MONEY_OUT_LIMIT_EXCEEDED`, `KycInfoDTO.clabeUpdatedAt`), «Mi bóveda» (chip `origin_refunded`), cuenta (`clabeUpdatedAt`) · unitaria del chip por motivo y de la fecha.
 >
 > **Changelog v1.80.6 — 🔒💰 ERRATA DE §M4-SHIP.18 TRAS EL VEREDICTO APROBADO DE SEGURIDAD SOBRE v1.80.5 (`SECURITY_NOTES`,
@@ -11099,15 +11133,58 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > (`inventory.service.ts:2403-2407` en este worktree, leído 2026-09-29) ⇒ **sí existía** un `lost → in_stock`. La rama
   > `claude/arreglos-operador` ya construyó las guardas de `move`/`mark` (`item-location.rules.ts`, leído en el worktree
   > `/home/user/tcg-hotfix`); esta tabla las **documenta** y **corrige una**: `mark` sobre pieza de cliente.
-  > 🔒 **v1.80.7 — NOTA DE FUSIÓN (SEC-SHIP-A1 está construido DOS veces):** `claude/envio-preparar` construyó `mark` y
-  > el `PATCH` según **esta** tabla en `inventory.service.ts` (`markItem`, `updateItem`; su `move` es el que ya había en
-  > ese árbol); `claude/arreglos-operador` tiene `item-location.rules.ts` (guardas de `move` **y** de `mark`, con `mark`
-  > permitido sobre pieza de cliente = `D-SHIP-5`). **Al fusionar manda esta tabla:** `markItem`/`updateItem` = versión de
-  > `envio-preparar` (la del contrato v1.80.3); `move` = versión de `arreglos-operador` (`item-location.rules.ts`, fila
-  > `move` de arriba); si esa regla trae un conjunto `MARKABLE` u otra guarda de `mark`, **se acota** a plataforma
-  > `in_stock|listed` o se descarta su rama `mark` — ⛔ nunca las dos guardas de `mark` conviviendo. Lo hace **backend**
-  > por encargo del orquestador (zona compartida `inventory`, un stream a la vez) y re-corre sobre el árbol fusionado
-  > **PS-41 (a/b), PS-42, PS-64** y la suite de `arreglos-operador`. `ARCHITECTURE §9 D-SHIP-7`.
+  > ~~🔒 **v1.80.7 — NOTA DE FUSIÓN** … «`markItem`/`updateItem` = versión de `envio-preparar`; `move` = versión de
+  > `arreglos-operador`» …~~ 🔒 **Sustituida por v1.80.7.2 (abajo).** Decía «la versión de un stream» cuando lo que
+  > había que fijar era **dónde vive la guarda**; `BACKEND_NOTES` leyó lo contrario («la copia en línea se borra») y las
+  > dos lecturas cabían en el texto. La regla de abajo es la única.
+  >
+  > <a id="M1-merge-rule"></a>
+  > ### 🔒 v1.80.7.2 — REGLA DE FUSIÓN SEC-SHIP-A1 (UNA para los tres streams: hotfix v1.79.7 · dinero v1.80.2.3 · envío v1.80.7)
+  > *Leído 2026-09-29:* `item-location.rules.ts` en `/home/user/tcg-hotfix` (verbos `move|mark|status`; `mark`/`status`
+  > ya sin rama de cliente, `:114-126` ⇒ `D-SHIP-5` **ya cerrada allí**); `inventory.service.ts` del hotfix (`markItem`
+  > `:2766-2786` y `updateItem` `:2435-2441` con `readGuardedItem` + `assertOperable` + `guardedItemUpdate`); en este
+  > worktree, `MARKABLE_PLATFORM_STATUSES` local (`inventory.service.ts:389`), `updateItem` `:2406-2445` (guarda en línea,
+  > bitácora, tx) y `markItem` `:2737-2765` (guarda en línea, **sin** bitácora, lectura **fuera** de la tx, CAS sin
+  > `ownerUserId`). Contrato de `claude/paquete-dinero` v1.80.2.3 §M1: `assertOperable(item,'price')` «sobre main con el
+  > hotfix» — ⛔ **no construido** allí al leer. ⛔ Shas NO MEDIDOS (sin Bash): el orquestador los fija antes de encargar.
+  >
+  > | Pieza del código | Queda en el árbol fusionado | Sale |
+  > |---|---|---|
+  > | **Cuerpo de guardas** | **`item-location.rules.ts`, único.** `ItemVerb = 'move' \| 'mark' \| 'status' \| 'price'` (`'price'` lo añade el stream de dinero); `mark`/`status`/`price` ⇒ solo `'platform'` con `MARKABLE_PLATFORM_STATUSES = ['in_stock','listed']`, **sin rama de cliente**; `move` como el hotfix. `MARKABLE_PLATFORM_STATUSES` se **exporta solo de aquí** | cualquier `MARKABLE_*`/allowlist `in_stock\|listed` declarado en otro fichero de `inventory/` (hoy: `inventory.service.ts:389`) |
+  > | **Escritor condicionado** | `guardedItemUpdate(tx, item, data)` del hotfix: `update` con `where {id, status, ownerType, ownerUserId}` **leídos**; `P2025` ⇒ `409 CONFLICT` | los `updateMany({ where: { id, ownerType:'platform', status } })` en línea de este stream (`:2420`, `:2747`) |
+  > | **`moveItem`** | hotfix | el `move` previo de este árbol |
+  > | **`markItem`** | **hotfix** (`readGuardedItem` → `assertOperable(item,'mark')` → `guardedItemUpdate` → `InventoryMovement`, todo en una tx) | el de este stream: **no aporta nada** que el del hotfix no tenga (medido arriba) |
+  > | **`updateItem`**, camino **no publicante** | **La estructura de este stream, re-cableada:** una `$transaction` (`VAULT_VERB_TX_OPTIONS`) → `readGuardedItem` → si el cuerpo trae `status` (igual o distinto al leído) **o** `listPriceCents` ⇒ **una** llamada `assertOperable(item, 'status')` o `assertOperable(item, 'price')` (mismo allowlist: un `422`, `details` únicos) → `status` igual al leído **no se escribe** → `guardedItemUpdate` con **todo** el `PATCH` (todo o nada) → bitácora `inventory.item_updated` con `before`/`after` **cuando cambia `status`** (v1.80.3; el precio solo no gana bitácora nueva, v1.80.2.3 p.4: la del controller basta). Cuerpo **solo con identidad** (`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`) ⇒ como hoy, sin guarda (v1.80.2.3 p.2) | la guarda en línea de `:2411-2417`, el `update` plano sin guarda de `:2440-2444` para cuerpos con `listPriceCents` |
+  > | **`updateItem`**, camino **publicante** (`status:'listed'` desde ≠ `listed`) | sin cambio (pipeline v1.51, `assertPublishableGuards` + `claimListed`) | — |
+  >
+  > **Orden de fusión:** hotfix ya en `main` (lo que el stream de dinero da por hecho) → el **primero** de dinero/envío que
+  > fusione aplica su parte de la tabla sobre `main`; el **segundo** la re-aplica sobre el resultado. Quien añade `'price'`
+  > es **dinero** (su contrato); si envío fusiona antes, su `updateItem` re-cableado llama solo a `'status'` y dinero añade
+  > la rama `listPriceCents`. ⛔ Nunca dos allowlists vivos a la vez en ningún commit de `main`.
+  > **Pruebas que se re-corren SOBRE EL ÁRBOL FUSIONADO** (un verde de cada rama por separado no cuenta):
+  > `inventory.patch-status-guard.spec.ts` y `inventory.move-mark-guards.spec.ts` (unitarias del hotfix) ·
+  > `integration/inventory-move-mark-guards.e2e-spec.ts` (hotfix; ahí añade dinero sus casos e2e) · **INV-SP-8**
+  > (`inventory.patch-price-guard.spec.ts` + e2e, dinero) · **PS-41, PS-41b, PS-42, PS-42b, PS-64**
+  > (`full-refund-vault.e2e-spec.ts`, este stream), con sus mutaciones sobre **copia del árbol entero**.
+  > ⭐ **PS-42b se INVIERTE en su aserto de carrera** (D-d del techlead): hoy `:818` exige `res.b.status < 300` **y**
+  > `piece.listPriceCents === 1000 + i` sobre una pieza que ya es `reserved` **del comprador** — es decir, certifica
+  > exactamente lo que INV-SP-8 prohíbe. En el árbol fusionado, con `interleaved`: **`res.b` = `409 CONFLICT`** (el CAS
+  > de `guardedItemUpdate` ve `status ≠` leído), pieza `reserved`/`customer`/`ownerUserId = buyer`, y
+  > **`listPriceCents` sin cambio** (el valor sembrado, ⛔ no `1000 + i`); N=10, `inter === N`. Mutación: quitar
+  > `status`/`ownerType` del `where` de `guardedItemUpdate` ⇒ precio escrito sobre la reservada en ≥1 tirada ⇒ rojo. La
+  > **primera mitad** de PS-42b (espía sobre `h.prisma.inventoryItem.update`) se **re-ancla** al escritor real
+  > (`guardedItemUpdate` corre sobre el cliente de la tx): ⚠️ NO MEDIDO si un espía sobre `h.prisma` ve las escrituras
+  > de `tx`; si no las ve, `writes.length ≥ 1` saldría rojo **por instrumento**, no por defecto. El aserto que se
+  > conserva es el de conducta: `{status:'in_stock', listPriceCents}` sobre `in_stock` ⇒ `200`, precio escrito, `status`
+  > sigue `in_stock` (su unitaria gemela ya está en `inventory.patch-status-guard.spec.ts` del hotfix).
+  > **Candado estático nuevo en la fusión** (en `inventory.move-mark-guards.spec.ts`, lo escribe backend): la
+  > **declaración** `MARKABLE_PLATFORM_STATUSES` aparece **una** vez en `backend/src`, en `item-location.rules.ts`; y
+  > los cuerpos de `markItem`/`updateItem` no contienen una guarda en línea (`ownerType !== 'platform'`) — una segunda
+  > declaración o una guarda en línea ⇒ rojo. ⛔ **No** por el literal `['in_stock','listed']`: medido, aparece además
+  > en `dto/inventory.dto.ts:150` (`@IsIn`), `PUBLISHABLE_ORIGIN_STATUSES` (`:387`) y `ADJUSTABLE_ORIGIN_STATUSES`
+  > (`:398`), que son otros predicados; unificar `ADJUSTABLE_ORIGIN_STATUSES` con éste **no** entra en esta regla.
+  > Lo hace **backend** por encargo del orquestador (zona compartida `inventory`, un stream a la vez). `ARCHITECTURE §9
+  > D-SHIP-7`, `§4.57 (u)`.
   >
   > | Verbo | Pieza admitida (estado **en el `WHERE`** del CAS: `id`, `status`, `ownerType`, `ownerUserId` leídos) | Destino / efecto | Si no |
   > |---|---|---|---|
@@ -19314,8 +19391,10 @@ vendida se re-publicaba.
    **abre el caso**, ⛔ no `mark`). ⭐ **v1.80.4 — D-14 = *«Por ahora no»*: ese verbo NO se construye** (§M4-SHIP.18.1). ⇒ **Backend:** en `assertOperable(item, 'mark')` la rama `customer` lanza
    `ITEM_NOT_ADJUSTABLE` (y sobra `assertNotInActiveWithdrawal` en `markItem`). Frontend: sin el botón sobre piezas de
    cliente. 🔒 **v1.80.7:** construido en `claude/envio-preparar` (`inventory.service.ts`); `claude/arreglos-operador`
-   tiene su propia versión (`item-location.rules.ts`). **Nota de fusión** en §M1 (tabla de verbos): manda esta versión
-   para `mark`/`PATCH`, la de aquella para `move`; `ARCHITECTURE §9 D-SHIP-7`.
+   tiene su propia versión (`item-location.rules.ts`). ~~Nota de fusión: manda esta versión para `mark`/`PATCH`, la de
+   aquella para `move`.~~ 🔒 **v1.80.7.2:** la conducta es la misma en las dos; lo que se fija es **dónde vive la
+   guarda** — [regla de fusión única de §M1](#M1-merge-rule): `item-location.rules.ts` es el cuerpo, los servicios lo
+   llaman; `ARCHITECTURE §9 D-SHIP-7`.
 2. **`PATCH … {status:'in_stock'}` — solo plataforma `in_stock | listed`**: lectura → guarda (`422
    ITEM_NOT_ADJUSTABLE`) → escritura **condicionada** `updateMany({ where: { id, ownerType:'platform', status: <leído>
    }, data })` (`count 0` ⇒ `409 CONFLICT`); los demás campos del mismo `PATCH` en la **misma** transacción (todo o
@@ -19693,19 +19772,45 @@ la orden (como v1.80.5). ⛔ No acota el resto de la pasada (las piezas sin caja
   de §M4-SHIP.17.2 y al que usa el webhook (`payments.service.ts:695-699`: rama primero, transición después), y forma
   **ciclo** con `POST …/prepared` de un retiro (envío → piezas → `Order` de origen): la confirmación sostiene `Order` y
   espera el envío; el preparado sostiene el envío y espera `Order` ⇒ interbloqueo (`40P01`, una de las dos muere).
+  🔒💰 **v1.80.7.2 (D-a del techlead sobre `59a0c1f`) — el paso (2) SE QUITA y la clasificación pasa a después de (4),
+  bajo el candado de (3). Ver el bloque que sigue a esta norma.**
   **Norma — la tx de confirmación (inline o `retry`) es, en este orden:** (1) CAS de la fila del libro `where { id,
-  status:'requested' }` → `submitted|succeeded`; (2) lectura **sin** candado de `Order.status`: ∉ `{settled, refunded}`
-  (`chargeback`/`failed`) ⇒ `log error`, la fila **conserva** su estado nuevo, la orden no se toca, fin; (3)
+  status:'requested' }` → `submitted|succeeded`; ~~(2) lectura **sin** candado de `Order.status`: ∉ `{settled, refunded}`
+  (`chargeback`/`failed`) ⇒ `log error`, la fila **conserva** su estado nuevo, la orden no se toca, fin;~~ (3)
   **`onFullRefund(tx, { orderId }, 'm3', actor)`** — toma envíos → piezas → **`Order FOR UPDATE`** y sella (§18.2);
   (4) `Order → refunded` con `updateMany({ where: { id, status:'settled' } })` **bajo ese mismo candado de fila**:
   `count 1` ⇒ transicionó; `count 0` con la orden ya `refunded` ⇒ **éxito** (el webhook llegó antes, M5); (5) `AV-3`
   post-commit lo manda **quien transicionó** (`count 1`). Es **exactamente** la secuencia del webhook ⇒ **un solo orden
   de candados para los dos escritores**, y ambos compatibles con `prepared` (envío → piezas → órdenes) y con el
-  apartado (puerta → envío → caso → piezas → orden). Sostiene: **PS-57c** (§18.8). *Por qué la lectura de (2) va sin
-  candado:* es la misma guarda de hoy (`count 0` ∧ `status ≠ refunded`), solo que antes de tomar nada; si un contracargo
-  la cambia entre (2) y (4), el CAS de (4) da `count 0` con `status ≠ refunded` ⇒ el mismo `log error`, y la rama de
-  (3) ya corrió sobre una orden que el contracargo también reclama por su lado (piezas ya de plataforma ⇒
-  `not_customer`, cero escrituras). ⛔ **NO MEDIDO por el arquitecto:** `chargeback-inventory` toma `Order` (el claim
+  apartado (puerta → envío → caso → piezas → orden). Sostiene: **PS-57c** (§18.8). ~~*Por qué la lectura de (2) va sin
+  candado:* … la rama de (3) ya corrió sobre una orden que el contracargo también reclama por su lado (piezas ya de
+  plataforma ⇒ `not_customer`, cero escrituras).~~ 🔴 **Falso, y era mío (v1.80.7.2):** «cero escrituras» vale solo
+  para las **piezas**; la pasada **sí** escribe el sello `fullRefundClosedAt`, `chargebackNeedsManual` y cancela la
+  colocación `pending` (`full-refund.service.ts:360-377`), y el `log error` de después dice «la orden no se toca».
+  **Norma v1.80.7.2 — semántica única del cierre por reembolso total ante un contracargo:**
+  - **El cierre procede aunque la orden esté (o pase a estar) en `chargeback`.** Es lo que ya hace el webhook
+    (`payments.service.ts:691-700`: `onFullRefund` sin mirar `status`, y `settled → refunded` después) y la tx de
+    confirmación **se iguala a él**: un hecho de Stripe («este cobro se devolvió entero») tiene **una** consecuencia,
+    la escriba quien la escriba. El paso (2) desaparece: una lectura sin candado no puede decidir nada, y bajo candado
+    solo serviría para **aplazar** lo que el `charge.refunded` de ese mismo reembolso escribirá igual.
+  - **Tras (4), relectura de `Order.status` bajo el candado que (3) ya tomó** (la fila está `FOR UPDATE` desde el paso
+    (d) de la pasada): `count 1` ⇒ transicionó (`AV-3`); `count 0` ∧ `refunded` ⇒ éxito (M5); **`count 0` ∧
+    `chargeback` ⇒ `log warn`** «orden `X` en contracargo: cierre por reembolso total hecho (sello, revisión manual,
+    colocación), su estado `chargeback` se conserva; mismo desenlace que `charge.refunded`» — **sin** `AV-3` (no hubo
+    transición); `count 0` ∧ cualquier otro ⇒ `log error` (invariante: desde `settled` solo se llega a `refunded` o
+    `chargeback`, y de `chargeback` a `settled` al ganar la disputa, `payments.service.ts:1017-1026`; ⚠️ NO MEDIDO que
+    no exista otro escritor de `Order.status` desde `settled`: backend lo confirma con `rg` al construir).
+  - **Qué queda escrito en ese caso** (lo asevera PS-57d): fila del libro `succeeded|submitted`; orden `chargeback`;
+    `fullRefundClosedAt` puesto; `chargebackNeedsManual = true`; piezas: **las del contracargo** (su
+    `chargeback_return`), ⛔ **cero** `refund_return` (la pasada las clasifica bajo candado ya de plataforma); colocación
+    cancelada por **quien llegó primero** (`cancelReason` `chargeback` o `full_refund`); una bitácora
+    `order.full_refund_closed`; cero `AV-3`. Un `charge.refunded` posterior ⇒ cero escrituras.
+  - **Residuo aceptado, con nombre:** en una orden `vault` en `chargeback`, `chargeback-inventory` responde `400`
+    (`orders.service.ts:1561-1567`: solo directo o `vault refunded`); el flag lo baja el cierre de la disputa
+    (`onChargeDisputeClosed`, rama bóveda ⇒ `false`). Si la disputa ya se cerró antes del `retry`, el flag queda
+    `true` sin verbo que lo baje. **No lo crea esta norma**: el webhook ya llega a ese estado hoy. Anotado como
+    `ARCHITECTURE §9 D-SHIP-8` (observación), ⛔ sin trabajo en este corte.
+  ⛔ **NO MEDIDO por el arquitecto:** `chargeback-inventory` toma `Order` (el claim
   del flag) **antes** de las piezas (`orders.service.ts:1575-1595`) mientras `reclaim-vault`/`unprepare` toman retiros →
   piezas → `Order`: misma clase de ciclo, no señalada por el techlead. Backend lo mide con barrera (N≥10) al construir
   PS-57c; si hay ciclo, vuelve al arquitecto (probable cierre: el claim del flag se mueve **después** del `FOR UPDATE`
@@ -19945,6 +20050,7 @@ Mismas reglas que PS-1…PS-54: mutación demostrada **sobre copia del árbol en
 |---|---|---|
 | **PS-57** (nota) | En las carreras de PS-57, una tirada en la que el webhook responde **`503 BUSY_TRY_AGAIN`** (la fila `Order` estaba tomada, §M4-SHIP.7) **cuenta como observada** si su reentrega (el arnés reenvía el mismo evento) deja los invariantes: un movimiento por carta, una bitácora, un `AV-3`, M3 `200`; y la tirada `503` en sí **cero** escrituras. Se reporta cuántas tiradas fueron `503` | — (es la regla de conteo; la mutación es la de PS-57 (c)) |
 | **PS-57c** 🔴💰 (v1.80.7, **backend: falta**) | **Un solo orden de candados entre la confirmación de M3 y el taller.** Orden `vault` `settled` con dos cartas; retiro `picking` sin preparar con **una** de ellas; M3 tx1 `200` con fila `requested` (doble de Stripe transitorio). **Barrera en la fila del retiro** (`ShipmentRequest FOR UPDATE`): `POST /admin/refunds/:id/retry` (confirmación, doble responde `succeeded`) vs `POST …/prepared` del retiro, N≥10 ⇒ en **todas** las tiradas: **cero** `40P01`, cero `503`, cero `500`; y o bien `prepared` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` (o `PREPARATION_HAS_BLOCKED_LINES` no: la bloqueada tiene origen `refunded`) y la pieza `returned`, o bien `prepared` `200` primero y la pieza `in_packed_withdrawal` con flag `true`; en los dos, `retry` `200`, fila `succeeded`, orden `refunded`, sello, **un** `AV-3`. Se reporta la proporción de cada desenlace con N | volver al orden de hoy (`Order → refunded` antes de `onFullRefund`) ⇒ interbloqueo en ≥1 tirada (`40P01` en el log de Postgres, y un `503`/`500` en una de las dos respuestas). Con barrera, la mutación es **determinista**: A sostiene `Order` y B el envío antes de soltar |
+| **PS-57d** 💰 (v1.80.7.2, **backend: falta**) | **Contracargo y confirmación de M3: una semántica con el webhook** (§18.2 M5, norma v1.80.7.2). Fixture: orden `vault` `settled`, una carta `in_custody`, colocación `pending`; M3 tx1 `200` con fila `requested` (doble de Stripe transitorio). **(seq — la que falla HOY)** `charge.dispute.created` hace commit; después `retry` (doble ⇒ `succeeded`) ⇒ `200`; fila `succeeded`; orden **`chargeback`**; **`fullRefundClosedAt ≠ null`**; `chargebackNeedsManual = true`; **un** `chargeback_return` por carta y **cero** `refund_return`; colocación `cancelled`/`chargeback`; **una** bitácora `order.full_refund_closed`; **cero** `AV-3`. Luego `charge.refunded` del mismo cobro ⇒ **cero** escrituras nuevas. **(race, N=10)** `forced` (`helpers/ship-prep-db.ts:591-611`), barrera = sesión con `SELECT … FROM "Order" WHERE id = $1 FOR UPDATE`; **A** = `charge.dispute.created` (se encola primero: toma las piezas y espera `Order`), **B** = `retry` (espera las piezas detrás de A); solo cuenta la tirada `interleaved` ⇒ en **10/10**: cero `40P01`/`503`/`500` y la misma foto que (seq). Se reporta la proporción con N. Unitaria (`refund-ledger`): estado final `chargeback` ⇒ `logger.warn`, **no** `logger.error` | (a) el código de hoy (lectura previa sin candado) ⇒ (seq) sello `null` ⇒ rojo; (b) semántica (a) del techlead (comprobar `status` tras el `FOR UPDATE` y salir sin escribir) ⇒ sello `null` en (seq) y en 10/10 de (race) ⇒ rojo; (c) `log error` en vez de `warn` para `chargeback` ⇒ rojo en la unitaria |
 
 ###### M4-SHIP.18.9 — Quién hace qué
 
