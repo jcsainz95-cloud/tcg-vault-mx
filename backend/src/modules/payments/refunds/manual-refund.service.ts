@@ -360,7 +360,7 @@ export class ManualRefundService {
     body: { revealToken: string; speiReference?: string | null; note?: string | null; confirmRecentClabeChange?: boolean; confirmOriginNotSettled?: boolean },
     actor: ManualRefundActor,
     now = new Date(),
-  ): Promise<{ outcome: 'paid' | 'already_paid'; manualRefund: ManualRefundDTO }> {
+  ): Promise<ManualRefundDTO & { outcome: 'paid' | 'already_paid' }> {
     const head = await this.prisma.manualRefund.findUnique({ where: { id }, select: { id: true } });
     if (!head) throw BusinessException.notFound('NOT_FOUND', 'Manual refund not found');
     const speiReference = nullIfBlank(body.speiReference ?? null);
@@ -445,12 +445,14 @@ export class ManualRefundService {
       return 'paid' as const;
     });
     if (outcome === 'paid') await this.notifyPaid(id);
-    return { outcome, manualRefund: await this.get(id) };
+    // QA BLOQ-1 sobre `c20451f`: la respuesta ES el `ManualRefundDTO` (§M4-SHIP.17.3 paso 4, como `reissue`/`to-manual`);
+    // `outcome` viaja como campo ADITIVO (`paid` | `already_paid`), ⛔ nunca envolviendo el DTO.
+    return { ...(await this.get(id)), outcome };
   }
 
   // ================================================================ cancel
 
-  async cancel(id: string, body: { note: string }, actor: ManualRefundActor, now = new Date()): Promise<{ outcome: 'cancelled' | 'already_cancelled'; manualRefund: ManualRefundDTO }> {
+  async cancel(id: string, body: { note: string }, actor: ManualRefundActor, now = new Date()): Promise<ManualRefundDTO & { outcome: 'cancelled' | 'already_cancelled' }> {
     const head = await this.prisma.manualRefund.findUnique({ where: { id }, select: { id: true } });
     if (!head) throw BusinessException.notFound('NOT_FOUND', 'Manual refund not found');
     const outcome = await this.prisma.$transaction(async (tx) => {

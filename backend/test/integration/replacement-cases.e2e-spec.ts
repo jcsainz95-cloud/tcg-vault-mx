@@ -959,7 +959,9 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     const r = await db.mrPaid(p.mr.id, { revealToken: token, speiReference: 'ABC123', note: 'pagado hoy' });
     expect(r.status).toBe(200);
     expect(r.body.outcome).toBe('paid');
-    expect(r.body.manualRefund).toMatchObject({ status: 'paid', speiReference: 'ABC123', paidNote: 'pagado hoy', paidBy: { userId: db.adminId }, paidToCurrentClabe: true });
+    // QA BLOQ-1: la respuesta ES el `ManualRefundDTO` (con `customer.fullName`, lo que pinta la pantalla del súper-admin); `outcome` es aditivo.
+    expect(r.body).toMatchObject({ id: p.mr.id, status: 'paid', speiReference: 'ABC123', paidNote: 'pagado hoy', paidBy: { userId: db.adminId }, paidToCurrentClabe: true, customer: { userId: p.u.id, fullName: expect.any(String), email: p.u.email } });
+    expect(r.body).not.toHaveProperty('manualRefund');
     const row = await h.prisma.manualRefund.findUniqueOrThrow({ where: { id: p.mr.id } });
     const kyc = await h.prisma.kycProfile.findUniqueOrThrow({ where: { userId: p.u.id } });
     expect(row.paidClabeHmac).toBe(kyc.clabeHmac);
@@ -969,6 +971,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     const again = await db.mrPaid(p.mr.id, { revealToken: token, speiReference: 'ABC123' });
     expect(again.status).toBe(200);
     expect(again.body.outcome).toBe('already_paid');
+    expect(again.body).toMatchObject({ id: p.mr.id, status: 'paid', customer: { fullName: expect.any(String) } });
     expect(av15()).toHaveLength(1);
     expect((await h.prisma.manualRefund.findUniqueOrThrow({ where: { id: p.mr.id } })).paidAt).toEqual(row.paidAt);
     const other = await db.mrPaid(p.mr.id, { revealToken: token, speiReference: 'OTRA1' });
@@ -980,7 +983,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     const tq = (await db.mrReveal(q.mr.id)).body.revealToken;
     const rq = await db.mrPaid(q.mr.id, { revealToken: tq });
     expect(rq.status).toBe(200);
-    expect(rq.body.manualRefund.speiReference).toBeNull();
+    expect(rq.body.speiReference).toBeNull();
     expect(av15()).toHaveLength(1); // (mkPending limpia la bandeja)
     expect(av15()[0].text).not.toMatch(/rastreo/i);
     // carrera paid vs cancel
@@ -1074,7 +1077,9 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     const r = await db.mrCancel(p.mr.id, { note: 'se pagó en efectivo en tienda' });
     expect(r.status).toBe(200);
     expect(r.body.outcome).toBe('cancelled');
-    expect(r.body.manualRefund).toMatchObject({ status: 'cancelled', cancelNote: 'se pagó en efectivo en tienda', cancelledBy: { userId: db.adminId } });
+    // QA BLOQ-1: la respuesta ES el `ManualRefundDTO` (+ `outcome`), no `{outcome, manualRefund}`.
+    expect(r.body).toMatchObject({ id: p.mr.id, status: 'cancelled', cancelNote: 'se pagó en efectivo en tienda', cancelledBy: { userId: db.adminId }, customer: { userId: p.u.id, fullName: expect.any(String) } });
+    expect(r.body).not.toHaveProperty('manualRefund');
     expect((await db.summary(db.adminToken)).body.manualRefundsPending).toBe(before - 1);
     expect((await db.mrCancel(p.mr.id, { note: 'otra' })).body.outcome).toBe('already_cancelled');
     const kase = await db.caseGet(p.caseId, db.adminToken);
