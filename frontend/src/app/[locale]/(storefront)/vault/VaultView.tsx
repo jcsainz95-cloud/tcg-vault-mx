@@ -68,8 +68,30 @@ function sortHoldings(rows: HoldingDTO[], key: SortKey, locale: string): Holding
  * inventario como renglones con folio, estado y valor de referencia, no como
  * tarjetas. Todo se separa con reglas de borde a borde.
  */
+/**
+ * ⭐ v1.80.7 (§3 / §37.10d): clave de `vault.*` del hint del botón RETIRAR apagado, por motivo. `in_withdrawal`
+ * y `pending` conservan su copy; `not_in_custody` cae al de siempre («solo liquidadas y sin envío activo»).
+ * `inWithdrawal` (derivado de `shipmentState`) sigue mandando si un backend anterior no manda el motivo.
+ */
+export function withdrawableHintKey(reason: HoldingDTO['withdrawableReason'], inWithdrawal: boolean): string {
+  switch (reason) {
+    case 'origin_refunded':
+      return 'item.originRefundedBody';
+    case 'replacing':
+      return 'item.replacingHint';
+    case 'in_withdrawal':
+      return 'inWithdrawalHint';
+    case 'pending':
+    case 'not_in_custody':
+      return 'onlySettled';
+    default:
+      return inWithdrawal ? 'inWithdrawalHint' : 'onlySettled';
+  }
+}
+
 export function VaultView() {
   const t = useTranslations('vault');
+  const tOrders = useTranslations('orders.item');
   const locale = useLocale() as AppLocale;
   const query = useQuery({ queryKey: ['holdings'], queryFn: getHoldings });
   const [sort, setSort] = useState<SortKey>('default');
@@ -369,17 +391,13 @@ export function VaultView() {
                     // (true solo si settled && sin envío activo). El hint accesible del botón
                     // deshabilitado distingue "en retiro" (envío activo) de "no liquidada".
                     const inWithdrawal = h.shipmentState !== null;
-                    // v1.80.1/.80.2 (§37.8f): con caso «Por reponer» abierto la carta no se retira y se dice
-                    // por qué; v1.80.4 (§37.10d): compra de origen en reembolso ⇒ «Compra en reembolso».
-                    // ⚠️ «Compra en reembolso» (§37.10d) NO se puede pintar desde `holdings`: el contrato solo da
-                    // `withdrawable:false` sin motivo (el motivo `origin_refunded` vive en `quote.ineligible`).
-                    // Solicitud al arquitecto: un `withdrawableReason` en `HoldingDTO` (ver FRONTEND_NOTES).
-                    const replacing = h.replacement?.status === 'open';
-                    const disabledHint = inWithdrawal
-                      ? t('inWithdrawalHint')
-                      : replacing
-                        ? t('item.replacingHint')
-                        : t('onlySettled');
+                    // ⭐ v1.80.7 (§3): el MOTIVO viaja con el flag (`withdrawableReason`, invariante
+                    // `withdrawable === (reason === null)`). El hint del botón apagado y el chip salen de él:
+                    // `origin_refunded` ⇒ chip «Compra en reembolso» + su frase (§37.10d); `replacing` ⇒ «La
+                    // estamos reponiendo» (§37.8f, vía `replacement`); `pending`/`not_in_custody`/`in_withdrawal`
+                    // conservan su copy de siempre (contrato §3: «los otros tres no cambian de copy»).
+                    const reason = h.withdrawableReason;
+                    const disabledHint = t(withdrawableHintKey(reason, inWithdrawal));
                     // v1.42 (BLOQ-2a): para sellado la identidad REAL viene RESUELTA server-side; se pinta
                     // la CAJA (sealedProductName/sealedImageUrl), no el single ancla («Charizard/Tropius»).
                     // raw/graded caen a la carta. Cascada money-safe: nombre nunca null (termina en card.name).
@@ -429,8 +447,19 @@ export function VaultView() {
                             <StatusBadge domain="ownership" value={h.ownershipStatus} />
                           )}
                         </div>
-                        {h.replacement && (
+                        {h.replacement ? (
                           <OrderItemStatusLine replacement={h.replacement} className="mt-2" />
+                        ) : reason === 'replacing' ? (
+                          // Motivo `replacing` sin `replacement` (backend anterior a v1.80.1): el chip, sin la frase.
+                          <span className="mt-2 font-mono text-[11px] uppercase tracking-[0.06em] text-accent" data-testid="item-replacing">
+                            {tOrders('replacing')}
+                          </span>
+                        ) : null}
+                        {reason === 'origin_refunded' && (
+                          <div className="mt-2 flex flex-col gap-1" data-testid="item-origin-refunded-chip">
+                            <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">{t('item.originRefunded')}</span>
+                            <p className="text-sm text-text">{t('item.originRefundedBody')}</p>
+                          </div>
                         )}
 
                         {/* Retirar solo si `withdrawable` (v1.17: settled && sin envío activo) → navega a
