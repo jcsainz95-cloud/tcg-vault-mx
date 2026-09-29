@@ -41,6 +41,17 @@ export const CHANGE_PASSWORD_KEY_PREFIX = 'auth-cp:v1:';
 export const DEVICE_KEY_PREFIX = 'auth-pwdev:v1:';
 export const LOCK_MAIL_KEY_PREFIX = 'auth-pwmail:v1:';
 
+/**
+ * v1.80.1 — tope AGREGADO por cuenta de intentos por vía dispositivo (`ARCHITECTURE §4.57.10.1 b`):
+ * clave `auth-pwdevagg:v1:<userId>`, **30 intentos en 24 h** (ventana FIJA desde el primero),
+ * contados con `bump` ANTES de argon2, fallidos o no, solo cuando el `deviceToken` es válido y de
+ * esa cuenta. Al superarlo el intento va al cubo de la cuenta (no es un 429 propio). Lo limpian
+ * `reset-password`, el reset por admin y el script de rescate; ⛔ no el acierto.
+ */
+export const DEVICE_AGGREGATE_KEY_PREFIX = 'auth-pwdevagg:v1:';
+export const DEVICE_ROUTE_CAP = 30;
+export const DEVICE_ROUTE_WINDOW_MS = 24 * 60 * 60_000;
+
 /** Prefijo de las claves en Redis (`tcg:auth:f:<k>` / `tcg:auth:l:<k>`, §4.57.5). */
 export const LOGIN_ATTEMPT_REDIS_PREFIX = 'tcg:auth:';
 

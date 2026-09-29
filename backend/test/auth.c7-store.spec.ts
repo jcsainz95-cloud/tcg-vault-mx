@@ -10,14 +10,16 @@ import {
   RedisLoginAttemptStore,
   ResilientLoginAttemptStore,
   createLoginAttemptRedisClient,
-  LoginAttemptStore,
+  PrimaryLoginAttemptStore,
   AcquireResult,
 } from '../src/modules/auth/login-attempt.store';
 import {
+  DEVICE_ROUTE_WINDOW_MS,
   PASSWORD_FAILURES_TTL_MS,
   PASSWORD_LOCK_MAX_MS,
   lockMsForFailures,
 } from '../src/modules/auth/password-attempts.constants';
+import { FakeRedisAttemptStore } from './helpers/fake-redis-attempt-store';
 
 const MIN = 60_000;
 
@@ -151,24 +153,20 @@ describe('almacén en memoria — reset, claimOnce y tope de claves', () => {
   });
 });
 
-/** Almacén que siempre falla / nunca responde — para el respaldo. */
-function brokenStore(mode: 'throw' | 'hang'): LoginAttemptStore & { calls: number } {
+/** Almacén que siempre falla / nunca responde — para el respaldo. Implementa la interfaz PRIMARIA entera. */
+function brokenStore(mode: 'throw' | 'hang'): PrimaryLoginAttemptStore & { calls: number } {
+  const fail = <T>(): Promise<T> =>
+    mode === 'throw' ? Promise.reject(new Error('down')) : new Promise<never>(() => undefined);
   const st = {
     calls: 0,
-    acquire() {
-      st.calls++;
-      return mode === 'throw' ? Promise.reject(new Error('down')) : new Promise<never>(() => undefined);
-    },
-    reset() {
-      st.calls++;
-      return mode === 'throw' ? Promise.reject(new Error('down')) : new Promise<never>(() => undefined);
-    },
-    claimOnce() {
-      st.calls++;
-      return mode === 'throw' ? Promise.reject(new Error('down')) : new Promise<never>(() => undefined);
-    },
+    acquire: () => (st.calls++, fail()),
+    acquireSync: () => (st.calls++, fail()),
+    bump: () => (st.calls++, fail()),
+    bumpSync: () => (st.calls++, fail()),
+    reset: () => (st.calls++, fail()),
+    claimOnce: () => (st.calls++, fail()),
   };
-  return st as unknown as LoginAttemptStore & { calls: number };
+  return st as unknown as PrimaryLoginAttemptStore & { calls: number };
 }
 
 describe('C7-13 (a nivel de almacén) — Redis que falla o no responde ⇒ memoria, ni fail-open ni fail-closed', () => {
@@ -198,24 +196,35 @@ describe('C7-13 (a nivel de almacén) — Redis que falla o no responde ⇒ memo
     expect(primary.calls).toBe(2);
   });
 
-  it('con Redis sano usa Redis (no la memoria)', async () => {
-    const memory = new MemoryLoginAttemptStore();
-    const primary = new MemoryLoginAttemptStore();
-    const s = new ResilientLoginAttemptStore(primary, memory);
-    await s.acquire('k');
-    await expect(primary.acquire('k')).resolves.toMatchObject({ failures: 2 });
-    await expect(memory.acquire('k')).resolves.toMatchObject({ failures: 1 });
+  // v1.80.1 (C7-22): aquí decía «con Redis sano usa Redis (no la memoria)» y afirmaba lo contrario del
+  // diseño (§4.57.5): la memoria es CACHÉ de la última respuesta de Redis. Se sustituye por orden del
+  // contrato (`API_CONTRACT §1` C7-22, «se sustituye por…»).
+  it('con Redis sano la memoria es la FOTO de Redis: tras acquire tiene failures = 1; un acquire con Redis vencido devuelve failures = 2 (C7-22)', async () => {
+    const c = fakeClock();
+    const redis = new FakeRedisAttemptStore(c.now);
+    const memory = new MemoryLoginAttemptStore(c.now);
+    const s = new ResilientLoginAttemptStore(redis, memory, undefined, 250, 30_000, c.now);
+    await expect(s.acquire('k')).resolves.toMatchObject({ allowed: true, failures: 1 });
+    expect(memory.peek('k')).toMatchObject({ failures: 1, unsynced: 0, resetPending: false });
+    redis.mode = 'hang';
+    await expect(s.acquire('k')).resolves.toMatchObject({ allowed: true, failures: 2 });
+    expect(memory.peek('k')).toMatchObject({ failures: 2, unsynced: 1 });
   });
 
-  it('reset limpia la memoria SIEMPRE y Redis si está', async () => {
-    const memory = new MemoryLoginAttemptStore();
-    const primary = new MemoryLoginAttemptStore();
-    const s = new ResilientLoginAttemptStore(primary, memory);
-    await memory.acquire('k');
-    await primary.acquire('k');
+  it('reset con Redis sano: DEL en Redis y la foto desaparece; con Redis caído: reset pendiente en memoria', async () => {
+    const c = fakeClock();
+    const redis = new FakeRedisAttemptStore(c.now);
+    const memory = new MemoryLoginAttemptStore(c.now);
+    const s = new ResilientLoginAttemptStore(redis, memory, undefined, 250, 30_000, c.now);
+    await s.acquire('k');
     await s.reset('k');
-    await expect(memory.acquire('k')).resolves.toMatchObject({ failures: 1 });
-    await expect(primary.acquire('k')).resolves.toMatchObject({ failures: 1 });
+    expect(redis.failures('k')).toBeNull();
+    expect(memory.peek('k')).toBeUndefined();
+    await expect(s.acquire('k')).resolves.toMatchObject({ failures: 1 });
+    redis.mode = 'throw';
+    await s.reset('k');
+    expect(memory.peek('k')).toMatchObject({ failures: 0, resetPending: true });
+    await expect(s.acquire('k')).resolves.toMatchObject({ failures: 1 });
   });
 
   it('cliente ioredis REAL contra un puerto que acepta y nunca contesta ⇒ memoria, sin colgar', async () => {
@@ -258,5 +267,111 @@ describe('C7-13 (a nivel de almacén) — Redis que falla o no responde ⇒ memo
     } finally {
       client.disconnect();
     }
+  });
+});
+
+describe('bump — contador de ventana FIJA (el agregado por vía dispositivo, §4.57.10.1 b)', () => {
+  it('memoria: cuenta desde 1, la ventana se fija al crear y NO se renueva; al vencer vuelve a 1', async () => {
+    const c = fakeClock();
+    const s = new MemoryLoginAttemptStore(c.now);
+    expect(await s.bump('agg', 1000)).toBe(1);
+    c.advance(600);
+    expect(await s.bump('agg', 1000)).toBe(2);
+    c.advance(399);
+    expect(await s.bump('agg', 1000)).toBe(3); // a 999 ms del primero: viva
+    c.advance(1); // 1000 ms desde el PRIMERO (una ventana deslizante seguiría viva: el último fue hace 1 ms)
+    expect(await s.bump('agg', 1000)).toBe(1);
+  });
+
+  it('memoria: reset borra la ventana', async () => {
+    const s = new MemoryLoginAttemptStore();
+    await s.bump('agg', DEVICE_ROUTE_WINDOW_MS);
+    await s.bump('agg', DEVICE_ROUTE_WINDOW_MS);
+    await s.reset('agg');
+    expect(await s.bump('agg', DEVICE_ROUTE_WINDOW_MS)).toBe(1);
+  });
+
+  it('resiliente: Redis manda; con Redis vencido sigue desde la foto; al volver repone lo no visto', async () => {
+    const c = fakeClock();
+    const redis = new FakeRedisAttemptStore(c.now);
+    const memory = new MemoryLoginAttemptStore(c.now);
+    const s = new ResilientLoginAttemptStore(redis, memory, undefined, 250, 30_000, c.now);
+    expect(await s.bump('agg', 60_000)).toBe(1);
+    expect(await s.bump('agg', 60_000)).toBe(2);
+    redis.mode = 'hang';
+    expect(await s.bump('agg', 60_000)).toBe(3); // memoria, desde la foto (2), no desde 0
+    expect(await s.bump('agg', 60_000)).toBe(4);
+    c.advance(30_000);
+    redis.mode = 'ok';
+    expect(await s.bump('agg', 60_000)).toBe(5); // 2 + extra 2 + 1
+    expect(redis.window('agg')).toMatchObject({ count: 5 });
+    expect(redis.replays).toEqual([{ key: 'agg', pending: { extra: 2, borrar: false } }]);
+  });
+});
+
+describe('C7-22 (a nivel de almacén) — la memoria es caché de Redis + lo no visto, y se repone en el mismo Lua', () => {
+  it('Redis contesta 1–3, vence 4–6 (4.º y 5.º permitidos, 6.º bloqueado); +30 s el 7.º sigue bloqueado y Redis queda con f = 5 y candado', async () => {
+    const c = fakeClock();
+    const redis = new FakeRedisAttemptStore(c.now);
+    const memory = new MemoryLoginAttemptStore(c.now);
+    const s = new ResilientLoginAttemptStore(redis, memory, undefined, 250, 30_000, c.now);
+    for (let i = 1; i <= 3; i++) await expect(s.acquire('k')).resolves.toMatchObject({ allowed: true, failures: i });
+    redis.mode = 'hang';
+    await expect(s.acquire('k')).resolves.toMatchObject({ allowed: true, failures: 4 });
+    await expect(s.acquire('k')).resolves.toMatchObject({ allowed: true, failures: 5, lockedNow: true, lockSeconds: 60 });
+    await expect(s.acquire('k')).resolves.toMatchObject({ allowed: false, retryAfterSeconds: 60 });
+    expect(redis.failures('k')).toBe(3);
+    expect(redis.lockPttl('k')).toBe(0);
+    const calls = redis.calls;
+    c.advance(30_000);
+    redis.mode = 'ok';
+    await expect(s.acquire('k')).resolves.toMatchObject({ allowed: false, retryAfterSeconds: 30 });
+    expect(redis.calls).toBe(calls + 1);
+    expect(redis.failures('k')).toBe(5);
+    expect(redis.lockPttl('k')).toBe(30_000);
+    // La foto vuelve a ser la de Redis: sin nada pendiente.
+    expect(memory.peek('k')).toMatchObject({ failures: 5, unsynced: 0, resetPending: false });
+    // Y la reposición NUNCA acorta un candado que Redis ya tenga: si Redis tuviera 50 s y la memoria 30 s, gana 50.
+    c.advance(30_000); // el candado vence en los dos
+    await expect(s.acquire('k')).resolves.toMatchObject({ allowed: true, failures: 6, lockSeconds: 120 });
+  });
+
+  it('el candado restante de la memoria no acorta uno más largo que Redis ya tenga', async () => {
+    const c = fakeClock();
+    const redis = new FakeRedisAttemptStore(c.now);
+    const memory = new MemoryLoginAttemptStore(c.now);
+    const s = new ResilientLoginAttemptStore(redis, memory, undefined, 250, 30_000, c.now);
+    for (let i = 0; i < 5; i++) await s.acquire('k'); // Redis: f = 5, candado 60 s
+    c.advance(60_000); // vence
+    await expect(s.acquire('k')).resolves.toMatchObject({ failures: 6, lockSeconds: 120 }); // Redis: f = 6, candado 120 s
+    expect(redis.lockPttl('k')).toBe(120_000);
+    redis.mode = 'hang';
+    await s.acquire('k'); // memoria: bloqueado (foto), nada que reponer salvo el candado restante (120 s)
+    // Mientras tanto OTRA réplica alargó el candado en Redis a 200 s.
+    redis.locks.set('k', c.now() + 200_000);
+    c.advance(30_000);
+    redis.mode = 'ok';
+    // La memoria trae 90 s restantes; Redis tiene 170 s ⇒ gana Redis (nunca se acorta).
+    await expect(s.acquire('k')).resolves.toMatchObject({ allowed: false, retryAfterSeconds: 170 });
+    expect(redis.lockPttl('k')).toBe(170_000);
+    expect(memory.peek('k')).toMatchObject({ failures: 6, lockExpiresAt: c.now() + 170_000 });
+  });
+
+  it('una reposición que Redis ejecuta pero contesta tarde se cuenta dos veces (lado seguro, §4.57.5), nunca cero', async () => {
+    const c = fakeClock();
+    const redis = new FakeRedisAttemptStore(c.now);
+    const memory = new MemoryLoginAttemptStore(c.now);
+    const s = new ResilientLoginAttemptStore(redis, memory, undefined, 250, 30_000, c.now);
+    await s.acquire('k');
+    redis.mode = 'hang';
+    await s.acquire('k'); // memoria: f = 2, unsynced 1
+    c.advance(30_000);
+    redis.mode = 'throw'; // vuelve a fallar en la primera reposición: lo pendiente se devuelve a la memoria
+    await expect(s.acquire('k')).resolves.toMatchObject({ failures: 3 });
+    expect(memory.peek('k')).toMatchObject({ failures: 3, unsynced: 2 });
+    c.advance(30_000);
+    redis.mode = 'ok';
+    await expect(s.acquire('k')).resolves.toMatchObject({ failures: 4 }); // 1 + extra 2 + 1
+    expect(redis.failures('k')).toBe(4);
   });
 });

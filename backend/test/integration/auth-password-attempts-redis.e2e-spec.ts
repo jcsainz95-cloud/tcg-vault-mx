@@ -168,4 +168,87 @@ describe('E2E — C7-12 / C7-4: almacén Redis del contador de intentos (directo
       expect(rs.filter((s) => s === 429)).toHaveLength(15);
     });
   });
+
+  // ── v1.80.1: el Lua con reposición (C7-22) y el bump de ventana fija (C7-20), contra Redis real ──
+  describe('C7-22 (Lua real) — acquireSync repone extra / candado restante / borrar ANTES de mirar el candado, en una ida y vuelta', () => {
+    it('f = 3 en Redis; pending { extra: 2, lockRestanteMs: 30 s } ⇒ bloqueado, f = 5, candado ≈ 30 s; la foto trae f', async () => {
+      if (!client) return;
+      const s = store();
+      const k = `sync-${randomUUID()}`;
+      for (let i = 0; i < 3; i++) await s.acquire(k);
+      const r = await s.acquireSync(k, { extra: 2, lockRestanteMs: 30_000, borrar: false });
+      expect(r.result).toMatchObject({ allowed: false, retryAfterSeconds: 30 });
+      expect(r.photo).toMatchObject({ failures: 5 });
+      expect(r.photo.lockMs).toBeGreaterThan(28_000);
+      expect(r.photo.lockMs).toBeLessThanOrEqual(30_000);
+      expect(await client.get(`${prefix}f:${k}`)).toBe('5');
+      expect(await client.pttl(`${prefix}l:${k}`)).toBeGreaterThan(28_000);
+    });
+
+    it('nunca acorta un candado que Redis ya tenga: con 120 s en Redis y 30 s restantes en memoria, sigue en 120 s', async () => {
+      if (!client) return;
+      const s = store();
+      const k = `sync-${randomUUID()}`;
+      for (let i = 0; i < 5; i++) await s.acquire(k); // f = 5, candado 60 s
+      await client.del(`${prefix}l:${k}`); // «vence»
+      await expect(s.acquire(k)).resolves.toMatchObject({ failures: 6, lockSeconds: 120 }); // candado 120 s
+      const r = await s.acquireSync(k, { extra: 0, lockRestanteMs: 30_000, borrar: false });
+      expect(r.result).toMatchObject({ allowed: false });
+      expect(await client.pttl(`${prefix}l:${k}`)).toBeGreaterThan(115_000);
+    });
+
+    it('borrar: 5 fallos + candado en Redis; pending { borrar: true } ⇒ DEL y reserva ⇒ f = 1, sin candado', async () => {
+      if (!client) return;
+      const s = store();
+      const k = `sync-${randomUUID()}`;
+      for (let i = 0; i < 5; i++) await s.acquire(k);
+      await expect(s.acquire(k)).resolves.toMatchObject({ allowed: false });
+      const r = await s.acquireSync(k, { extra: 0, lockRestanteMs: 0, borrar: true });
+      expect(r.result).toMatchObject({ allowed: true, failures: 1, lockedNow: false });
+      expect(r.photo).toEqual({ failures: 1, lockMs: 0 });
+      expect(await client.pttl(`${prefix}l:${k}`)).toBeLessThan(0);
+    });
+
+    it('sin nada pendiente, acquireSync === acquire (misma reserva)', async () => {
+      if (!client) return;
+      const s = store();
+      const k = `sync-${randomUUID()}`;
+      const r = await s.acquireSync(k, { extra: 0, lockRestanteMs: 0, borrar: false });
+      expect(r).toEqual({ result: { allowed: true, failures: 1, lockedNow: false, lockSeconds: 0 }, photo: { failures: 1, lockMs: 0 } });
+    });
+  });
+
+  describe('C7-20 (Redis) — bump: ventana FIJA (TTL solo al crear), reposición con extra/borrar, reset la borra', () => {
+    it('1, 2, 3 con el PTTL bajando (no se renueva); al vencer vuelve a 1; ninguna clave con «@»', async () => {
+      if (!client) return;
+      const s = store();
+      const k = `agg-${randomUUID()}`;
+      expect(await s.bump(k, 1500)).toBe(1);
+      const p1 = await client.pttl(`${prefix}f:${k}`);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(await s.bump(k, 1500)).toBe(2);
+      const p2 = await client.pttl(`${prefix}f:${k}`);
+      expect(p2).toBeLessThan(p1 - 200); // ventana fija: el 2.º bump NO la renovó
+      expect(await s.bump(k, 1500)).toBe(3);
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(await s.bump(k, 1500)).toBe(1);
+      await s.reset(k);
+      expect(await client.exists(`${prefix}f:${k}`)).toBe(0);
+    });
+
+    it('bumpSync: extra se suma antes del incremento; borrar reinicia; devuelve la ventana restante', async () => {
+      if (!client) return;
+      const s = store();
+      const k = `agg-${randomUUID()}`;
+      await s.bump(k, 60_000);
+      const a = await s.bumpSync(k, 60_000, { extra: 2, borrar: false });
+      expect(a.count).toBe(4);
+      expect(a.windowMs).toBeGreaterThan(55_000);
+      expect(a.windowMs).toBeLessThanOrEqual(60_000);
+      const b = await s.bumpSync(k, 60_000, { extra: 0, borrar: true });
+      expect(b.count).toBe(1);
+      const c = await s.bumpSync(k, 60_000, { extra: 3, borrar: true });
+      expect(c.count).toBe(4);
+    });
+  });
 });
