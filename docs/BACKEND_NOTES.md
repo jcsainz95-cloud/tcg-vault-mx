@@ -26130,3 +26130,45 @@ una orden `refunded` sin liquidar»: `refundFull` responde `200` pero la orden s
 y con la de este commit (`fresh-mine-settle-late.log`). Causa NO MEDIDA; es camino de dinero (reembolso total de una orden
 sin liquidar) y es de backend. Comprobación que lo cerraría: bisecar entre la última corrida verde conocida de esa suite y
 `550bc371`.
+
+## 11 · `settle-late` 2 rojas — BISECCIÓN Y CAUSA RAÍZ: choque de CONTRATO entre ramas (⛔ sin arreglar: va al arquitecto)
+
+Medido 2026-09-29 sobre worktrees de bisección propios (borrados) y BDs propias `tcg_settle_late_<sha>` (borradas),
+Postgres compartido que ya estaba arriba (no lo levanté ni lo apagué). Logs: `scratchpad/backend-settle-late/logs/`.
+
+**Bisección** (la suite entera, una corrida por punto; determinista):
+
+| Punto | Qué es | `settle-late` |
+|---|---|---|
+| `650a4ed3` (`origin/claude/paquete-dinero`, donde nació SEC-SETTLE-LATE) | dinero | **15/15** |
+| `7a32b833` (release-s5 antes de envío) | pantallas + dinero + hotfix | **15/15** |
+| `5321b8c6` (merge de `envio-preparar` 896fe8ea en release-s5) | + envío | **13/15** (las 2 rojas) |
+| `96418a88`, `0df68ede`, `f2f10923` | merges previos | sin `settle-late` (la suite nace con dinero) |
+| `ff83abf` (`envio-preparar`) | envío | sin `settle-late` (la suite no existe en esa rama) |
+
+**Causa:** en `5321b8c6` `onChargeRefunded` quedó con la versión de envío: `Order → refunded` con
+`updateMany({ where: { id, status: 'settled' } })` (`payments.service.ts:707` modo legado y `:717`). Dinero la tenía
+incondicional salvo `refunded`. Una orden **`pending`** reembolsada desde el panel de Stripe ya **no** pasa a `refunded`.
+
+**Consecuencia de dinero (medida con una sonda sobre `5321b8c6`, orden `vault` `pending` con 2 piezas):**
+`charge.refunded` total ⇒ `200`, orden **sigue `pending`** (`refundedAt null`), pero `onFullRefund` **sí** corrió
+(`fullRefundClosedAt` sellado, `chargebackNeedsManual: true`), piezas `reserved` del cliente. Luego un
+`payment_intent.succeeded` tardío ⇒ `200`, orden **`settled`**, las 2 piezas **`in_custody` del cliente** (2
+movimientos): **el cliente se queda las cartas Y el dinero devuelto** — exactamente lo que §M4-VAULT.2-bis.2 cerró
+(«hasta hoy un `succeeded` tardío las movía a custodia… desde v1.80 se quedan `reserved`»). Mismo sondeo sobre
+`7a32b833`: `refunded`, y el `succeeded` tardío no mueve nada.
+
+**Por qué no lo arreglo yo — el contrato dice las dos cosas:**
+- Envío fija el origen de la transición: tareas de backend de §M4-SHIP.18 (`API_CONTRACT.md:21640`) «`Order → refunded`
+  con `status IN (settled, refunded)`», y la unitaria de envío `test/payments.service.spec.ts:319-321` lo clava
+  (`where: { id: 'o1', status: 'settled' }`, REL-B / SEC-SHIP-M5).
+- Dinero da por hecho `pending → refunded` por el webhook del panel (§M4-VAULT.2-bis.2 «Residual declarado»,
+  `API_CONTRACT.md:17922` y `:17963-17967`), y `settle-late` RESIDUAL lo mide.
+
+**Candidato medido (en un worktree, ⛔ sin commit):** CAS del webhook `status: { in: ['settled','pending'] }` (las dos
+ramas de `onChargeRefunded`) ⇒ `settle-late` **15/15 en 3/3** corridas (N=3); las 5 suites de integración que mandan
+`charge.refunded` (`full-refund-vault`, `orders-public-status`, `replacement-cases`, `settle-late`, `shipments-prep`)
+**84/84**; unitaria **6392/6393** — la única roja es la de envío de arriba, que fija `'settled'`. **Preguntas para el
+arquitecto:** (1) ¿el webhook transiciona `pending → refunded`? (2) ¿y `failed → refunded`? (un `failed` es liquidable,
+así que el mismo `succeeded` tardío lo liquidaría); (3) sobre una `pending`, ¿`onFullRefund` debe sellar
+`fullRefundClosedAt` y poner `chargebackNeedsManual` (hoy lo hace; no hay colocación ni custodia que deshacer)?
