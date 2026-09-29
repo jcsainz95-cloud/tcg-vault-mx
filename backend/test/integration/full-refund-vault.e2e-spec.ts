@@ -695,6 +695,49 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     // Mutación: (a) aceptar `picking` en MARKABLE; (b) rama customer en `mark`; (c) quitar `status` del WHERE del CAS ⇒ PS-41b gana en ≥1 tirada.
   });
 
+  it('PS-42b 🔒 — `PATCH {status}` IGUAL al leído no escribe `status` (espía sobre `inventoryItem.update`); carrera PATCH `in_stock→in_stock` vs reserva encolada PRIMERO (N≥10) ⇒ la pieza sigue `reserved` del comprador', async () => {
+    // Techlead R3 sobre `c20451f`: `updateItem` solo guardaba el cambio de `status` DISTINTO al leído; con `status` igual
+    // caía en el `update` plano y re-escribía `status` ⇒ una reserva tomada entre la lectura y la escritura se perdía.
+    // Es la regla «`in_stock → in_stock` no escribe `status`» de `item-location.rules.ts` (hotfix `arreglos-operador`).
+    const same = await db.mkPiece({ status: 'in_stock' });
+    const spy = jest.spyOn(h.prisma.inventoryItem, 'update');
+    try {
+      const r = await db.invPatch(same.id, { status: 'in_stock', listPriceCents: 4321 });
+      expect(r.status).toBeLessThan(300);
+      const writes = spy.mock.calls.map((c) => (c[0] as { data: Record<string, unknown> }).data);
+      expect(writes.length).toBeGreaterThanOrEqual(1);
+      for (const w of writes) expect(w).not.toHaveProperty('status');
+      expect(writes.some((w) => w.listPriceCents === 4321)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await db.piece(same.id)).toMatchObject({ status: 'in_stock', listPriceCents: 4321 });
+    // el cambio real sigue pasando por la guarda y la escritura condicionada (PS-42), no por el plano
+    const listed = await db.mkPiece({ status: 'listed' });
+    expect((await db.invPatch(listed.id, { status: 'in_stock' })).status).toBeLessThan(300);
+    expect((await db.piece(listed.id)).status).toBe('in_stock');
+    // carrera: la reserva (CAS `in_stock → reserved`) se encola PRIMERO en la fila; el PATCH decide con la lectura caduca
+    // `in_stock` y NO debe pisarla. Mutación: volver a escribir `patch` entero en el `update` plano ⇒ `in_stock` con
+    // dueño en ≥1 tirada (reserva perdida).
+    const outcomes: string[] = [];
+    let inter = 0;
+    for (let i = 0; i < N; i += 1) {
+      const p = await db.mkPiece({ status: 'in_stock' });
+      const buyer = await db.mkUser(`PS42b comprador ${i}`);
+      const reserve = async (): Promise<R> => {
+        const n = await h.prisma.$transaction(async (tx) => (await tx.inventoryItem.updateMany({ where: { id: p.id, ownerType: 'platform', status: 'in_stock' }, data: { status: 'reserved', ownerType: 'customer', ownerUserId: buyer.id, ownershipStatus: 'pending' } })).count);
+        return { status: n === 1 ? 200 : 409, body: { outcome: n === 1 ? 'reserved' : undefined, error: n === 1 ? undefined : { code: 'NOT_AVAILABLE' } } };
+      };
+      const res = await db.forced(() => db.holdRow('InventoryItem', p.id), reserve, () => db.invPatch(p.id, { status: 'in_stock', listPriceCents: 1000 + i }));
+      if (res.interleaved) inter += 1;
+      const piece = await db.piece(p.id);
+      const ok = res.a.status === 200 && res.b.status < 300 && piece.status === 'reserved' && piece.ownerUserId === buyer.id && piece.listPriceCents === 1000 + i;
+      outcomes.push(`${code(res.a)},${code(res.b)},piece=${piece.status}/${piece.ownerType}${ok ? '' : ',VIOLATION'}`);
+    }
+    expect(report('PS-42b', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(inter).toBe(N);
+  });
+
   // ================================================================ PS-65 — la carta de una compra en devolución
 
   it('PS-65 💰🔒 — orden con fila `order_full` viva ⇒ `POST /shipments` 422 ITEM_ORIGIN_REFUNDED, `quote` origin_refunded, `withdrawable:false`; `failed` ⇒ elegible; retiro ya creado ⇒ `prepared` 409 {pendingFullRefund:true}; orden `refunded` sin cierre ⇒ 409 en los cuatro verbos; mixto nombra solo la afectada; carrera prepared vs M3 (N≥10)', async () => {

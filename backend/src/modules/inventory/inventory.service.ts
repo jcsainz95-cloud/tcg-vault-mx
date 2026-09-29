@@ -2433,9 +2433,14 @@ export class InventoryService {
         });
         return toAdminInventoryItemRow(await this.prisma.inventoryItem.findUniqueOrThrow({ where: { id } }));
       }
+      // 🔒 Techlead R3 sobre `c20451f` (= `item-location.rules.ts` del hotfix `claude/arreglos-operador`: «`in_stock →
+      // in_stock` no escribe `status`»): aquí `patch.status` es `undefined` o IGUAL al leído, y un `update` plano lo
+      // RE-ESCRIBIRÍA sin guarda — una pieza que un checkout acaba de poner `reserved` entre la lectura y esta escritura
+      // volvería a `in_stock|listed`: reserva perdida (PS-42b, N=10). Un `status` igual al leído no se escribe.
+      const { status: _sameStatus, ...fields } = patch;
       // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
       return toAdminInventoryItemRow(
-        await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
+        await this.prisma.inventoryItem.update({ where: { id }, data: fields }),
       );
     }
     // ⚠️ Las guardas corren sobre el estado **RESULTANTE**, en memoria y ANTES de escribir nada: una
