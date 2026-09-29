@@ -18436,14 +18436,40 @@ es/en 3916/3916 medida con `i18n-parity.test.ts`; sin NBSP: `grep` de ` ` en lo
 
 ### Lo que NO se pudo cablear (solicitudes al arquitecto)
 
-- **`HoldingDTO` sin motivo de `withdrawable:false`.** §37.10d pide el chip «Compra en reembolso» en «Mi bóveda», pero
+- ~~**`HoldingDTO` sin motivo de `withdrawable:false`.**~~ **Resuelto por la errata v1.80.7 (`withdrawableReason`; cableado en §81.1).** §37.10d pide el chip «Compra en reembolso» en «Mi bóveda», pero
   `GET /vault/holdings` solo da `withdrawable:false`; el motivo `origin_refunded` vive en `quote.ineligible[]`. Las
   claves `vault.item.originRefunded*` están en el catálogo y `error.ITEM_ORIGIN_REFUNDED` sí se pinta en el `POST`.
   Petición: `withdrawableReason?: 'pending' | 'in_withdrawal' | 'origin_refunded' | 'replacing'` en `HoldingDTO`.
-- **`KycInfoDTO` sin `clabeUpdatedAt`.** `account.kyc.clabeUpdatedAt` («CLABE actualizada el…») existe en el catálogo
+- ~~**`KycInfoDTO` sin `clabeUpdatedAt`.**~~ **Resuelto por la errata v1.80.7 (la línea del DTO estaba desactualizada; cableado en §81.1).** `account.kyc.clabeUpdatedAt` («CLABE actualizada el…») existe en el catálogo
   pero la cuenta del cliente no puede pintarla.
 - **`Retry-After` no llega al cliente HTTP** (`api-client` solo expone `code/details`). El 429 usa
   `details.retryAfterSeconds` si viene; si no, la frase sin minutos (§37.13). Si `C7` fija minutos, que los mande en
   `details`.
-- **`403 MONEY_OUT_LIMIT_EXCEEDED`** sin `details` tipados en el contrato para la tarjeta de envío: se pinta la frase
-  genérica `error.limitExceeded`.
+- ~~**`403 MONEY_OUT_LIMIT_EXCEEDED`** sin `details` tipados en el contrato para la tarjeta de envío~~ **Resuelto por la errata v1.80.7 (punto 16: `details {capCents, usedCents, requestedCents}` normativos; tipados en §81.1).** Se sigue pintando la frase
+  genérica `error.limitExceeded` (§37.4, sin cifra) hasta que ux-ui fije el copy con cifras.
+
+### §81.1 · Errata **v1.80.7** del contrato (2026-09-29, rama `claude/envio-preparar`, base `ea615c3`; `DESIGN_SYSTEM §37`)
+
+Cinco puntos del changelog de 19 tocan al front (13, 14, 16 y la deuda (a)/(b)/(c) del techlead). Todo con su prueba;
+las cifras son medidas en este pase (vitest por fichero; ⛔ sin Playwright completo: QA tenía un stack levantado).
+
+| Punto | Antes (rojo) | Después (verde) | Dónde |
+|---|---|---|---|
+| **13 · `HoldingDTO.withdrawableReason`** | «Mi bóveda» no podía distinguir `origin_refunded` (§81 «Lo que NO se pudo cablear») | Tipo `WithdrawableReason` (clave siempre presente); el hint del botón RETIRAR y el chip salen del motivo: `origin_refunded` ⇒ chip **«Compra en reembolso»** + su frase (§37.10d); `replacing` ⇒ «La estamos reponiendo»; `pending`/`not_in_custody`/`in_withdrawal` conservan su copy. Mock: `lib/mock/holding-withdrawable.ts` (**UN cuerpo** para flag + motivo, en el orden del contrato) y `m4-ship.mockHoldingWithdrawabilityOf` (deriva `replacing` del caso abierto y `origin_refunded` de la fila `order_full` viva de la orden de origen) | `types/contract.ts`, `vault/VaultView.tsx` (`withdrawableHintKey`), `lib/api.ts` (`getHoldings`), fixtures |
+| · pruebas | — | `holding-withdrawable.test.ts` **14/14**: cinco motivos, orden (`pending` manda; `in_withdrawal` antes que `origin_refunded`), invariante `withdrawable === (withdrawableReason === null)` sobre la función pura, los fixtures y el `GET /vault/holdings` del mock; `VaultView.test.tsx` **+8** (uno por motivo, `null`, `replacing` sin `replacement`, helper) ⇒ **19/19** | commit `3dc5f3e`, `2785d73` |
+| **14 · `KycInfoDTO.clabeUpdatedAt`** | La cuenta no podía pintar «CLABE actualizada el …» (clave i18n huérfana desde §81) | `clabeUpdatedAt: string \| null` obligatorio; `KycSection` la pinta bajo la CLABE enmascarada con `formatDate`; `null` (o sin CLABE) ⇒ nada. El mock sella la fecha solo cuando la máscara cambia (PS-46) | `KycSection.tsx`; `KycSection.test.tsx` **+4** (es/en, `null`, sin CLABE) ⇒ **13/13**; `i18n-parity` **45/45**. Commit `aba5eaa` |
+| **16 · `403 MONEY_OUT_LIMIT_EXCEEDED`** | `details` sin leer; copy genérico | `moneyOutLimitDetailsOf(err.details)` tipa los tres enteros (normativos, PS-4/PS-4b) y los retiene en `ShownError.moneyOut` **sin pintarlos**: §37.4 va sin cifra hasta que ux-ui fije el copy. Prueba: el pie dice la frase de §37.4, ⛔ ni `914.57` ni `600.00` en la tarjeta, un solo `POST`; el lector devuelve `null` si falta un campo o no es entero | `ShipPreparationCard.tsx`; `ShipPreparationCard.test.tsx` **+2** ⇒ **11/11**. Commit `3dc5f3e` |
+| **Deuda (c) · `asApiError` ×5** | Cinco copias | `lib/api-client.ts` exporta `asApiError`; las cinco vistas lo importan; juez: 4 suites **48/48** | Commit `8f48d28`; `TECH_DEBT` SHIP-FD-c (cerrado) |
+| **Deuda (a) · el mock reimplementa la fórmula** | `m4-ship.ts:1286,1300-1303,1484` daban la fila SPEI con **IVA 0 y comisión 0** | `lib/mock/refund-math.ts` (espejo de `money.ts`) + `refund-math.test.ts` con **los vectores dorados** de `backend/src/common/refund-math.spec.ts` (31458/4138/1458; 52430+31458+15729=99617; PS-26/27 ×200 montos; el caso `stripe < Q`) **7/7**. `case_excess` = `caseRefundComponents(A) − caseRefundComponents(stripe)`, `stripe_failed` copia la fila. `m4-ship-refund-components.test.ts`: **rojo antes 1/2** (`pr-8002` ⇒ `{40000,0,0,0}`), **verde después 2/2** (`{32000,4414,1533,6467}`), medido cambiando el fichero por su copia de `HEAD` y volviéndolo a poner | Commit `85923df`; `TECH_DEBT` SHIP-FD-a (parcial: el tope y `Q/R` siguen en el mock; dirección: vectores compartidos vía arquitecto) |
+| **Deuda (b) · `ShipPreparationCard` 1 184 líneas** | — | **No se paga en este pase** (no cabe con juez suficiente): registrada como SHIP-FD-b con `useShipPreparation` + `shipErrorOf` como dirección y `wc -l < 500` como cierre | `TECH_DEBT` |
+
+**Una precisión sobre el encargo.** El resumen del encargo decía `origin_refunded` ⇒ «Ya no está en tu bóveda: este
+pedido se reembolsó». Esa frase es, en §37.10d, la del **pedido `vault` ya reembolsado** (la carta ya no es suya y
+**desaparece** de «Mi bóveda»); para una carta que **sigue siendo suya** con la compra **en** reembolso, el diseño y el
+contrato (§3 v1.80.7: «chip «Compra en reembolso» (§37.10d) solo con `origin_refunded`») fijan el chip **«Compra en
+reembolso»** + «Esta carta viene de una compra que se está reembolsando…». Se cableó lo que dicen diseño y contrato;
+la prueba de `VaultView` asevera que «Ya no está en tu bóveda» **no** aparece en esa tarjeta.
+
+**Cierre medido:** `tsc --noEmit` limpio; `eslint` limpio en los 18 ficheros tocados; suites que consumen el mock
+`m4-ship` (`m4/`, `m3/`, `manual-refunds/`, `lib/mock/`, `vault/`, `shipments/`, `orders/`): **26 ficheros, 325/325**.
+Playwright `e2e/m4-ship.spec.ts` con mocks (build de producción privado, puerto `3117`, `--workers 2`): **12/12 pasadas**, 1.9 min, N=1.
