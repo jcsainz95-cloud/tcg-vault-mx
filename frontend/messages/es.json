@@ -4152,8 +4152,7 @@
         "trainer": "Entrenador",
         "energy": "Energía"
       },
-      "quantity": "×{qty}",
-      "cardCode": "{set}\u00a0{number}"
+      "quantity": "×{qty}"
     },
     "line": {
       "available": "Disponible",
