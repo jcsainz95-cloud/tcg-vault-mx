@@ -4,6 +4,22 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.7 — 🔒💰 RECONCILIACIÓN DE §M4-SHIP CON LO CONSTRUIDO + TRES HALLAZGOS DEL TECHLEAD** (2026-09-29,
+> arquitecto. Base: **v1.80.6, vigente entera salvo lo que esta errata toca**. Origen: `BACKEND_NOTES §M4-SHIP` §3 (11
+> puntos) + el tope acumulado medido por el orquestador, `FRONTEND_NOTES §81` (4 puntos) y el veredicto del techlead
+> sobre `c20451f` (orden de candados de la confirmación de M3, PS del tope, `eraseClabe`). `API_CONTRACT` sube a
+> **v1.80.7** (changelog con los 19 puntos y la lista de trabajo). Porqué de lo no mecánico: **§4.57 (s)**. ⛔ `M-61`
+> **no cambia**; un campo de lectura nuevo (`HoldingDTO.withdrawableReason`); ningún verbo ni código de error nuevo.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | 🔴 **Un solo orden de candados para la confirmación de M3 y el webhook:** `onFullRefund` (envíos → piezas → `Order`) **antes** de `Order → refunded`; lo construido tomaba `Order` primero (por la numeración de §18.2) y formaba ciclo con `prepared` de un retiro | §4.57 (s) · `API_CONTRACT §M4-SHIP.18.2` (M5), PS-57c | **Sí** (backend: `applyStripeOutcome` + PS-57c con barrera) |
+> | **2** | 💰 El tope acumulado del operador lo sostiene una PS **determinista** (filas sembradas por SQL, suma exacta), no solo la carrera de PS-4 | §4.57 (s) · `API_CONTRACT` PS-4b | **Sí** (backend: solo prueba) |
+> | **3** | 🔒 La CLABE la borra `UsersService.eraseClabe`; `C-CLABE-1` vuelve a un censo de un módulo sin excepciones; alias `constantTimeEquals` para el token de `paid` | §4.57 (s) · `API_CONTRACT §M4-SHIP.8`, §17.3 | **Sí** (backend, pequeño) |
+> | **4** | `HoldingDTO.withdrawableReason` (un cuerpo con `withdrawable`); `422 NOT_FOUND` para la carta que ya no es del cliente; `details` del `403 MONEY_OUT_LIMIT_EXCEEDED` al operador; forma del `429` (`Retry-After` + `details.retryAfterSeconds`) | §4.57 (s) · `API_CONTRACT §3, §5, §0` | **Sí** (backend pequeño + frontend) |
+> | **5** | Aceptados y descritos: nombres de P&L/IVA, decoradores de dinero, `found` sin `replacementShipmentItemId`, PS-22 sin «otra condición», webhook `503` bajo candado, regla de omisión de `chargeback-inventory`, fila corrupta en la cola, `AV-6` sobre `solicitado` | `API_CONTRACT` (changelog v1.80.7) | **No** |
+> | **6** | Nota de fusión SEC-SHIP-A1 (`envio-preparar` × `arreglos-operador`) | §9 **`D-SHIP-7`** · `API_CONTRACT §M1` | **Sí, en la fusión** (backend) |
+>
 > **Rev v1.80.6 — 🔒💰 ERRATA DE §M4-SHIP.18 TRAS EL VEREDICTO APROBADO DE SEGURIDAD SOBRE v1.80.5 (M6, M7, B12; B13/B14
 > COMO MEDICIONES)** (2026-09-29, arquitecto. Base: **v1.80.5, vigente entera salvo lo que esta errata toca**. Origen:
 > `SECURITY_NOTES`, sección final sobre `3498766`, APROBADO con tres ajustes no bloqueantes que entran antes de construir
@@ -25663,6 +25679,44 @@ carta por carta (PS-63 B12).
 **Zonas compartidas que suma respecto a (q):** ninguna nueva (`shipments`: la regla de cierre de `prepared` y la guarda
 `nothing_to_ship`; `orders`: `reclaim-vault`). ⛔ `prisma/` no se toca.
 
+**(s) 🔒💰 v1.80.7 — Reconciliación con lo construido (`BACKEND_NOTES §M4-SHIP` §3, `FRONTEND_NOTES §81`) y tres
+hallazgos del techlead sobre `c20451f`.** Norma: `API_CONTRACT` changelog v1.80.7 (19 puntos, con la lista de trabajo
+por rol/fichero/prueba) y las subsecciones que cita. Aquí, el porqué de cada decisión que no era mecánica. Regla de
+esta errata: **cuando lo construido es correcto y el contrato decía otra cosa, se corrige el contrato y se escribe por
+qué; cuando lo construido es un hueco, se marca trabajo con la prueba que debe fallar primero.** Nada se deja «aceptado
+tal cual» sin su razón.
+
+*Lo que aprendí de mí en este pase, dicho primero:* el hallazgo 🔴 del techlead (orden de candados) nace de una
+**numeración mía**: §18.2 (M5) listaba «(2) `Order → refunded`, (3) `onFullRefund`» como pasos de una tx, y backend los
+ejecutó en ese orden. La sección de al lado (§17.2) y el webhook fijaban el orden contrario. Un contrato que numera
+pasos dentro de una transacción está fijando un orden de candados, lo diga o no; la lección para el resto de este
+documento: **cada tx que toma más de una fila declara su orden de candados en una sola línea, y las demás secciones lo
+citan, no lo repiten**.
+
+| Punto | Decisión | Alternativa descartada | Por qué |
+|---|---|---|---|
+| **17** 🔴 Orden de candados en la confirmación de M3 | La tx de confirmación (inline o `retry`) adopta **el orden del webhook**: CAS de la fila → lectura sin candado de `Order.status` (guarda de hoy) → `onFullRefund` (envíos → piezas → `Order FOR UPDATE`, sello) → `Order → refunded` bajo ese mismo candado → `AV-3` quien transicionó. PS-57c con barrera lo sostiene | (a) dejar el orden construido y documentarlo; (b) hacer que `onFullRefund` tome `Order` **primero** en todos los llamadores | (a) forma ciclo con `prepared` de un retiro (envío → piezas → órdenes de origen): la confirmación sostiene `Order` y espera el envío, el preparado sostiene el envío y espera `Order`; Postgres lo resuelve matando a uno (`40P01`) y con dinero en vuelo «uno muere» significa una fila del libro `succeeded` cuya orden no transicionó. (b) cambia el orden de **cuatro** llamadores ya aprobados por seguridad y del apartado (puerta → envío → caso → piezas → orden), que también toma la orden al final. El webhook ya tenía el orden correcto: igualarse a él es el cambio mínimo y deja **un** orden para los dos escritores. La lectura sin candado del paso (2) no es una guarda nueva: es la de hoy (`count 0 ∧ status ≠ refunded ⇒ log error`), adelantada; lo que decide sigue siendo el CAS del paso (4). **NO MEDIDO:** `chargeback-inventory` toma `Order` (claim del flag) antes de las piezas — misma clase de ciclo contra `reclaim-vault`/`unprepare`; backend lo mide con barrera al construir PS-57c y, si hay ciclo, el claim se mueve tras el `FOR UPDATE` de las piezas |
+| **18** Tope acumulado | PS-4b **determinista**: filas sembradas por SQL con `createdAt` explícito (en ventana `requested/submitted/succeeded` cuentan; `failed`, `order_full`, > 24 h y otro operador no) y aserto de la **suma exacta** en `usedCents` del `403`; la primera mitad de PS-4 deja de depender del orden de la suite | (a) confiar en la carrera de PS-4; (b) exigir una unitaria de `refund-ledger` | (a) la carrera distingue «`usedCents = 0`» (los dos pasan) pero **no** una ventana mal puesta ni un filtro de actor mal puesto, y un aserto probabilístico no debe ser el único juez de una suma. (b) el predicado es SQL (`aggregate` con `where`): una unitaria solo puede aseverar la forma del `where`, no que Postgres sume lo que debe; el sitio de la verdad es integración, y una unitaria queda como opcional. Las cinco mutaciones del contrato dan cinco sumas distintas: cada una roja por igualdad, sin N |
+| **19** `eraseClabe` | Sí: `UsersService.eraseClabe(tx, userId)` (solo nulos, sin `clabeUpdatedAt`, sin `AV-16`); `deleteUser` lo llama; `C-CLABE-1` = dos sitios en un fichero, cero excepciones. Alias `constantTimeEquals` para el token de `paid` | Mantener la excepción por forma (punto 2 de backend) | La garantía del candado es «un módulo dueño de estas columnas». Una excepción por forma la sostiene hoy, pero es un precedente: la siguiente anonimización o «limpieza de PII» copiaría el patrón y el censo crecería por excepciones. Un verbo cuesta diez líneas y devuelve al candado su enunciado simple. El alias no cambia una instrucción: cambia lo que el siguiente lector entiende que se compara (un token con HMAC, no dos índices ciegos), y en código de dinero los nombres son parte de la guarda |
+| **3** Carta reclamada ⇒ `422 NOT_FOUND` | Manda la titularidad: lo que ya no es tuyo recibe el trato de un id ajeno; `ITEM_NOT_IN_CUSTODY` solo para lo que sí es tuyo y no está en custodia | Buscar por `id` sin `ownerUserId` y contestar `ITEM_NOT_IN_CUSTODY` | Le diría a un cliente que una pieza que ya no es suya **existe** y **en qué estado está** (reclamada, revendida…). La regla de todo id ajeno en este contrato es «no es tuyo = no existe»; una excepción para «fue tuyo» es un oráculo. Las pruebas aceptaban los dos códigos: un aserto con `or` no fija nada, por eso pasan a uno |
+| **4** Decoradores de dinero | Clase `@Roles(vault_operator, super_admin)` + método `@MoneyOut()` es **la** forma de «solo `super_admin`» en dinero | `@Roles(super_admin)` literal, como decía el texto | Con `@Roles(super_admin)` contesta `RolesGuard` un `403 FORBIDDEN` **mudo**; con `@MoneyOut()` contesta `MoneyOutGuard` con bitácora. El intento de un operador sobre dinero saliente es exactamente lo que la bitácora debe ver (H5). El texto del contrato describía el efecto y backend eligió la construcción que lo cumple; se eleva a regla para que nadie «simplifique» a `@Roles(super_admin)` en el siguiente verbo |
+| **8** Regla de omisión de `chargeback-inventory` | Se omite ⇔ ya está en el estado que esta pasada le escribiría; cualquier otro ≠ `picking` ⇒ `409`. Residuo (pieza sin precio forzada a `in_stock`) aceptado y escrito | `409` ante **cualquier** estado ≠ `picking` | `recuperada` en bóveda **no escribe movimiento** (decisión v1.80.5: publicar es visibilidad); sin rastro por pieza, el estado es la única evidencia de una pasada anterior, y un `409` ahí rompería la idempotencia entre pasadas que PS-61 exige (reclamo nuevo tras `recuperada`). El residuo no tiene camino de nacimiento por verbo del operador (PS-64) y su desenlace es el que la pasada daría: se acepta y se escribe, no se esconde |
+| **13** `withdrawableReason` | Clave siempre presente, `null` ⇔ `withdrawable`; **un cuerpo** con el flag; cinco motivos en orden fijo | Dejar el motivo en `quote.ineligible[]` (donde ya está) | «Mi bóveda» no llama a `quote` por pieza; el chip necesita el motivo en la misma lectura, y el motivo ya está calculado donde se calcula el flag. Un cuerpo garantiza que read/write no divergen (la regla de §5 desde v1.17.1); dos cuerpos con la misma lista de condiciones divergirían en la siguiente condición nueva |
+| **15** Forma del `429` | Ventana conocida ⇒ `Retry-After` **y** `details.retryAfterSeconds` (mismo entero); desconocida ⇒ `details {}` | Solo la cabecera (estándar HTTP) | El cliente HTTP del front no expone cabeceras (`api-client` lee `code/details`); una cabecera que la pantalla no ve es una promesa al aire. Dos vías con el mismo entero: la cabecera para clientes genéricos, `details` para el nuestro; y «sin ventana ⇒ sin cifra» evita el minuto inventado que §37.13 prohíbe |
+| **16** `details` del `403 MONEY_OUT_LIMIT_EXCEEDED` | Se conservan `{capCents, usedCents, requestedCents}`; el operador puede verlos | Acotar a `{scope:'operator_24h'}` | El criterio 201 protege al **cliente** de conocer umbrales de KYC; el operador es personal interno y el tope es un dial de M10. Ocultarle el tope no protege nada (el guard es la puerta, no el secreto) y le quita la única información accionable; PS-4 ya aseveraba los tres campos, así que acotarlos habría sido retrabajo contra una prueba verde |
+| **7** Webhook bajo candado ⇒ `503` | Ratificado (§0-T) | Esperar el candado dentro del webhook | Stripe reentrega; esperar alarga la ventana del handler y arriesga su timeout, que sí produce reentregas con estado a medias. El `503` es «no toqué nada, vuelve» — la respuesta honesta |
+| **10** Fila corrupta en la cola | Degrada su tarjeta (`no_origin_order`, `log warn`), nunca la lista | Dejar el `500` (la fila es inexpresable por la API) | Una lista que se cae entera por una fila es un instrumento que deja de medir justo cuando hay corrupción; H8 ya preveía `no_origin_order` para eso. Es la misma norma que «Qué debe haber» (§M4-VAULT.11): la herramienta que hace visible lo raro no puede romperse con lo raro |
+
+**Invariantes que quedan escritos:** un solo orden de candados para todo escritor del cierre por reembolso total
+(envíos → piezas → `Order`), medido contra el taller (PS-57c); el tope del operador es una suma verificada por igualdad
+(PS-4b); las columnas de la CLABE tienen un módulo dueño y dos verbos (`C-CLABE-1` sin excepciones);
+`withdrawable === (withdrawableReason === null)`.
+
+**Zonas compartidas que suma respecto a (r):** `payments/refunds` (`applyStripeOutcome`), `users` (`eraseClabe`),
+`admin` (`deleteUser`), `common/crypto` (alias), `vault` (`withdrawableReason`), `common/filters` (solo si la medición
+del `429` lo pide). Un stream a la vez sobre cada una; el orquestador serializa con la fusión de `arreglos-operador`
+(`inventory`, `D-SHIP-7`). ⛔ `prisma/` no se toca.
+
 ---
 
 ## 5. Decisiones transversales
@@ -26469,6 +26523,16 @@ Riesgos técnicos:
   Cierra: **PS-41 (b)**. **(b)** `updateItem` con `status:'in_stock'` escribe sin guarda de origen
   (`inventory.service.ts:2403-2407`, este worktree) — **`D-SHIP-6`**, no cubierta por esa rama. Dueño: backend. Cierra:
   **PS-42**.
+- **🟡 ABIERTA (v1.80.7) — `D-SHIP-7`: SEC-SHIP-A1 está construido DOS veces y las dos versiones chocan al fusionar.**
+  `claude/envio-preparar` (`c20451f`) construyó `markItem`/`updateItem` según `API_CONTRACT §M1`/§M4-SHIP.17.1 en
+  `inventory.service.ts` (reportado por backend en `BACKEND_NOTES §M4-SHIP` §2 «inventory»; ⛔ NO MEDIDO por el
+  arquitecto en ejecución). `claude/arreglos-operador` (`4ca6c45` al leerla) tiene `item-location.rules.ts` con guardas
+  de `move` **y** de `mark`, y su `mark` admite piezas de cliente (`D-SHIP-5`). **Norma de fusión** (`API_CONTRACT §M1`,
+  nota v1.80.7): `markItem`/`updateItem` = versión de `envio-preparar`; `move` = versión de `arreglos-operador`; toda
+  guarda de `mark` de aquella se **acota** a plataforma `in_stock|listed` o se descarta — ⛔ nunca dos guardas de `mark`
+  conviviendo. **Dueño: backend**, por encargo del orquestador (zona compartida `inventory`, un stream a la vez).
+  Cierra: **PS-41 (a/b), PS-42, PS-64** y la suite de `arreglos-operador`, todas verdes **sobre el árbol fusionado**
+  (un verde de cada rama por separado no cuenta).
 
 - **🔴 ABIERTA / ⛔ BLOQUEANTE (v1.76) — `D-AV-4`: `PATCH /admin/shipments/:id/status` MANDA DE 3 A 10 CORREOS POR
   UNA TRANSICIÓN ÚNICA, Y ESTE DOCUMENTO DECÍA QUE NO PODÍA.** **Dueño: backend** (`shipments`).

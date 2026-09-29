@@ -2,7 +2,47 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.6**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.7**).
+>
+> **Changelog v1.80.7 — 🔒💰 RECONCILIACIÓN DE §M4-SHIP CON LO CONSTRUIDO (`BACKEND_NOTES §M4-SHIP` §3 «Para el
+> arquitecto», 11 puntos + el tope acumulado que midió el orquestador; `FRONTEND_NOTES §81` «Solicitudes al arquitecto»,
+> 4 puntos) (2026-09-29, arquitecto; base v1.80.6, vigente entera salvo lo que esta errata toca).** 💰 **ZONA DE
+> DINERO.** Schema **`M-61` no cambia**. Ningún verbo nuevo, ningún código de error nuevo; **un** campo de lectura nuevo
+> (`HoldingDTO.withdrawableReason`). Cada punto se decide en una de dos formas: **aceptar y describir** (el contrato pasa
+> a decir lo que se construyó, con su porqué) o **trabajo pequeño** (con la prueba que debe fallar primero). Porqué de
+> las decisiones no mecánicas: `ARCHITECTURE §4.57 (s)`. Leído sobre el worktree `claude/envio-preparar` en `c20451f`.
+>
+> | # | Punto | Decisión | Dónde | ¿Código? |
+> |---|---|---|---|---|
+> | **1** | P&L/IVA: nombres de los campos aditivos | **Ratificados** tal como backend los construyó: `refundsCents`, `refundedFeesCents`, `compensationsCents` (P&L, `profitCents` resta los tres) · `ivaRefundedCents`, `ivaNetCents` (IVA). CSV de `pnl`: las tres antes de `profitCents` | §M7 · §M10-IVA.8 | **No** (construido; frontend M7 puede pintarlas, aditivo) |
+> | **2** | `C-CLABE-1` con excepción (`deleteUser` anula) | **Bendecida, con forma aseverada:** dos sitios exactos — `setClabe` (valores) y la anonimización del borrado suave (**solo nulos**, `clabeEnc` ∧ `clabeHmac`, sin `clabeUpdatedAt`, sin `AV-16`) | §M4-SHIP.8 | **Transitorio:** vale hasta que exista `eraseClabe` (punto **19**, que la sustituye); no se hace trabajo aparte |
+> | **3** | `POST /shipments` con una carta reclamada: `ITEM_NOT_IN_CUSTODY` vs `NOT_FOUND` | **`422 NOT_FOUND` manda** (no revelar: una pieza que ya no es tuya recibe el trato de un id ajeno). `ITEM_NOT_IN_CUSTODY` queda para lo que **sí** es del cliente y no está `in_custody` | §5 · §M4-SHIP.18.6 · PS-55/PS-63 | **Backend, mínimo:** PS-55/PS-63 dejan de aceptar los dos códigos y fijan `NOT_FOUND` |
+> | **4** | Verbos de dinero con `@Roles(operador+)` de clase + `@MoneyOut()` | **Ratificado y elevado a regla:** así se escribe «solo `super_admin`» en todo verbo de dinero (el `403 MONEY_OUT_FORBIDDEN` auditado lo da `MoneyOutGuard`; `@Roles(super_admin)` solo daría un `403` mudo) | §M4-SHIP.8 | **No** |
+> | **5** | `found` no escribe `replacementShipmentItemId` | **Aceptado:** el `CHECK` de `M-61` manda sobre la frase de §15.4 paso 7; se corrige la frase | §M4-SHIP.15.4 | **No** |
+> | **6** | `RawCondition` solo `NM` ⇒ PS-22 no mide «otra condición» | **Aceptado:** PS-22 mide acabado, carta, grado, sellado y pares; la condición entra sola cuando el enum crezca | PS-22 | **No** |
+> | **7** | Webhook bajo candado ⇒ `503 BUSY_TRY_AGAIN` | **Ratificado:** conducta previa (§0-T); Stripe reentrega; la reentrega es idempotente por CAS + sello. Una tirada `503` de PS-57 cuenta si la reentrega deja los invariantes | §M4-SHIP.7 · §18.8 | **No** |
+> | **8** | `returned` permanente; objetivos sin filtrar por `picking`; ya confirmada ⇒ se omite | **Verificado contra §18.6/.7 v1.80.6: coincide.** Se **precisa** la regla de omisión (se omite ⇔ ya está en el estado que esta pasada le escribiría; cualquier otro ≠ `picking` ⇒ `409`) y el residuo aceptado | §M4-SHIP.18.7 · PS-61 | **No** |
+> | **9** | SEC-SHIP-A1 construido aquí y en `claude/arreglos-operador` | **Nota de fusión:** `markItem`/`updateItem` = `envio-preparar`; `move` (`item-location.rules.ts`) = `arreglos-operador`, con su `mark` sobre cliente **descartado** (`D-SHIP-5`) | §M1 (tabla) · §M4-SHIP.17.1 · `ARCHITECTURE §9 D-SHIP-7` | **Sí, en la fusión** (backend, encargo del orquestador; PS-41/42/64 + suite de `arreglos-operador` sobre el árbol fusionado) |
+> | **10** | Fila `ShipmentRequest` sin `userId` ni `orderId` ⇒ la cola responde | **Norma:** una fila corrupta degrada su tarjeta (`no_origin_order`, `log warn`), ⛔ nunca tumba la lista | §M4-SHIP.3 | **No** (construido, `preparation-queue` 17/17) |
+> | **11** | `AV-6` legado se mide sobre `solicitado` | **Ratificado en §R.3:** desde §M4-SHIP.9 es el único estado cancelable a mano; mismo aserto, otra fixture | §R.3 (fila `AV-6`) | **No** |
+> | **12** | Tope del operador **acumulado**: la mutación «`assertOperatorCap` ignora lo acumulado» no la cazan las unitarias | **Falta prueba:** PS-4 (carrera) distingue `used = 0` pero no las mutaciones de **ventana** ni de **actor**, y una suma no se sostiene solo con un aserto probabilístico ⇒ **PS-4b** (secuencial, determinista) + unitaria del `where` | §M4-SHIP.12 (PS-4b) · §M4-SHIP.5 paso 6 | **Sí, backend** (prueba que debe fallar primero; ver lista abajo) |
+> | **13** | `HoldingDTO.withdrawableReason` | **Se añade** (clave siempre presente, `null` ⇔ `withdrawable`): `'pending' \| 'replacing' \| 'not_in_custody' \| 'in_withdrawal' \| 'origin_refunded'`, **un cuerpo** con `withdrawable` | §3 `GET /vault/holdings` · PS-65 | **Sí, backend** (pequeño) **+ frontend** (chip «Compra en reembolso», §37.10d) |
+> | **14** | `KycInfoDTO.clabeUpdatedAt` | **Ya era normativo desde v1.80.3** (§M4-SHIP.17.3) y está construido (`users.service.ts:418`); la línea del DTO en §M6 estaba desactualizada — se corrige | §M6 `GET /users/me/kyc` | **Frontend** pinta «CLABE actualizada el …» (`null` ⇒ nada) |
+> | **15** | 429 de `C7`: los minutos | **Norma de forma:** ventana conocida ⇒ `Retry-After: n` **y** `details.retryAfterSeconds = n`; desconocida ⇒ `details {}` y sin cifra | §0 «Códigos comunes» | **Backend:** medir si el `429` del throttler pasa hoy con esa forma; si no, cerrarlo (prueba abajo). Obligatorio para `C7` |
+> | **16** | `403 MONEY_OUT_LIMIT_EXCEEDED`: ¿cifras al operador? | **Se conservan** `details {capCents, usedCents, requestedCents}` (§0 ya los tipaba; PS-4 los asevera). El operador es **interno**: el criterio 201 protege al **cliente** y no aplica; ⛔ nada de esto llega a un `customer` | §0 · §M4-SHIP.5 paso 6 | **Frontend:** tipar `details`; pintar cifras es opcional y el copy lo decide ux-ui (`DESIGN_SYSTEM §37` N-1 queda contestada) |
+> | **17** 🔴 | (techlead) **Orden de candados de la tx de confirmación de M3:** `applyStripeOutcome` hace `Order → refunded` (`refund-ledger.service.ts:298`) **antes** de `onFullRefund` (`:309`, que toma envíos → piezas → `Order`) porque §18.2 (M5) numeraba (2)→(3) así; invierte el orden de §17.2 y el del webhook (`payments.service.ts:695-699`) ⇒ **ciclo posible** con `prepared` de un retiro (envío → piezas → `Order` de origen) | **Se corrige §18.2 (M5):** la tx de confirmación adopta **el orden del webhook** — (1) CAS de la fila; (2) lectura **sin** candado de `Order.status` (∉ `{settled, refunded}` ⇒ `log error`, fin, como hoy); (3) **`onFullRefund`** (envíos → piezas → `Order FOR UPDATE`, sello); (4) `Order → refunded` bajo ese mismo candado, `count 1` con `refunded` = éxito; (5) `AV-3` quien transicionó. **Un solo orden en los dos escritores** | §M4-SHIP.18.2 (M5) · §18.8 (**PS-57c**) | **Sí, backend** (`refund-ledger.service.ts · applyStripeOutcome`; PS-57c con barrera, N≥10, y su mutación = el orden de hoy ⇒ `40P01` en ≥1 tirada) |
+> | **18** | (techlead) Tope acumulado: el predicado es SQL (`operatorUsedCents`), su sitio es integración | **PS-4b se reescribe como PS determinista con filas sembradas por SQL** (`requested`/`submitted`/`succeeded` en ventana cuentan; `failed`, `order_full`, > 24 h y otro operador no) y aserto de la **suma exacta** en `usedCents` del `403`; la primera mitad de PS-4 deja de depender del orden de la suite. La unitaria del `where` pasa a **opcional** | §M4-SHIP.12 (PS-4b) | **Sí, backend** (solo prueba) |
+> | **19** | (techlead) `C-CLABE-1`: la excepción funciona, pero lo limpio es un verbo del módulo dueño | **Sí:** nace **`UsersService.eraseClabe(tx, userId)`** (solo nulos, sin `clabeUpdatedAt`, sin `AV-16`); `AdminService.deleteUser` lo llama; el censo de `C-CLABE-1` vuelve a **un módulo** (`users.service.ts`) con **dos** sitios exactos y **cero** excepciones fuera. **Sustituye a la decisión del punto 2** (que queda como conducta transitoria hasta que el verbo exista). Y `PiiCryptoService` gana el alias **`constantTimeEquals`** para la comparación del `revealToken` en `paid` (`manual-refund.service.ts:390`): mismo cuerpo, nombre que dice lo que compara | §M4-SHIP.8 · §M4-SHIP.17.3 | **Sí, backend** (pequeño) |
+>
+> **Trabajo de código resultante (rol · fichero · prueba que debe fallar primero):**
+> - **backend** 🔴 · `backend/src/modules/payments/refunds/refund-ledger.service.ts` (`applyStripeOutcome`: `onFullRefund` **antes** de `Order → refunded`) · **PS-57c** en `full-refund-vault.e2e-spec.ts`: barrera en la fila del retiro, `retry` (confirmación) de M3 vs `POST …/prepared` de un retiro con una carta de esa orden, N≥10 ⇒ **cero** `40P01`/`503`/`500` y, en cada tirada, o `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` o la pieza en `in_packed_withdrawal`; mutación = volver al orden de hoy ⇒ interbloqueo en ≥1 tirada. PS-57 (a/b, inversa) siguen verdes.
+> - **backend** · `backend/test/integration/shipments-prep.e2e-spec.ts` (**PS-4b**, determinista, filas sembradas por SQL) · mutación `usedCents = 0` / sin `requestedByUserId` / sin `createdAt` / sin `status ≠ failed` / sin `kind ≠ order_full` ⇒ cada una roja **sin carrera**. `refund-ledger.service.ts` no cambia si ya cumple.
+> - **backend** · `backend/src/modules/users/users.service.ts` (**`eraseClabe`**) + `backend/src/modules/admin/admin.service.ts` (`deleteUser` lo llama) + `backend/src/common/crypto/pii-crypto.service.ts` (`constantTimeEquals`) + `manual-refund.service.ts:390` · `refunds.candados.spec.ts` (`C-CLABE-1`): censo = **dos** sitios en `users.service.ts`, **cero** fuera; mutación «`deleteUser` vuelve a escribir `clabeEnc: null` directo» ⇒ rojo; unitaria: `paid` compara el token con `constantTimeEquals` (mutar a `===` ⇒ rojo).
+> - **backend** · `backend/src/modules/vault/vault.service.ts` (`withdrawableReason`, un cuerpo con `withdrawable`) · PS-65 ampliada (`withdrawableReason:'origin_refunded'`) + unitaria de los cinco motivos y del invariante `withdrawable === (withdrawableReason === null)`.
+> - **backend** · PS-55/PS-63 (`full-refund-vault.e2e-spec.ts`): aserto único `422 NOT_FOUND` · mutación «`classifyItems` busca por `id` sin `ownerUserId`» ⇒ rojo.
+> - **backend** · `backend/src/common/filters/all-exceptions.filter.ts` (o donde nazca el `429`) **solo si la medición lo pide** · prueba: `429` del login ⇒ `Retry-After: n` ∧ `details.retryAfterSeconds === n`; `RATE_LIMITED` sin ventana ⇒ `details {}`.
+> - **backend (en la fusión con `arreglos-operador`)** · `inventory.service.ts` + `item-location.rules.ts` · PS-41 (a/b), PS-42, PS-64 y la suite de esa rama sobre el árbol fusionado.
+> - **frontend** · `types/contract.ts` (`withdrawableReason`, `details` de `MONEY_OUT_LIMIT_EXCEEDED`, `KycInfoDTO.clabeUpdatedAt`), «Mi bóveda» (chip `origin_refunded`), cuenta (`clabeUpdatedAt`) · unitaria del chip por motivo y de la fecha.
 >
 > **Changelog v1.80.6 — 🔒💰 ERRATA DE §M4-SHIP.18 TRAS EL VEREDICTO APROBADO DE SEGURIDAD SOBRE v1.80.5 (`SECURITY_NOTES`,
 > sección final sobre `3498766`, APROBADO con tres ajustes no bloqueantes: M6, M7, B12; B13/B14 quedan como mediciones)
@@ -5686,6 +5726,15 @@
 { "error": { "code": "PRICE_PENDING", "message": "human-readable EN fallback", "details": {} } }
 ```
 - **Códigos comunes:** `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `422` (regla de negocio), `429 RATE_LIMITED`, **`503 BUSY_TRY_AGAIN`** (§0-T), `500 INTERNAL`.
+  🔒 **v1.80.7 — `429 RATE_LIMITED`, norma de FORMA (transversal):** cuando el emisor **conoce** la ventana, manda
+  **`Retry-After: <segundos>`** (cabecera) **y** `details: { retryAfterSeconds: <el mismo entero> }` — el cliente HTTP del
+  front solo lee `code`/`details`, así que la cabecera sola no llega a la pantalla. Cuando **no** la conoce, `details:
+  {}` y ⛔ ninguna cifra inventada. El front pinta minutos **solo** si viene `retryAfterSeconds` (`DESIGN_SYSTEM §37.13`,
+  PS-UI-13). Aplica ya al throttler global y a los `RATE_LIMITED` de negocio (`auth.service.ts:182`: sin ventana ⇒
+  `{}`), y es la forma **obligatoria** del backstop por identidad **`C7`** (`SECURITY_NOTES`) el día que se construya.
+  ⛔ **NO MEDIDO** si el `429` del throttler de Nest sale hoy por `AllExceptionsFilter` con esta forma: backend lo mide
+  y, si falta, lo cierra (prueba: `429` del login ⇒ `Retry-After: n` ∧ `details.retryAfterSeconds === n`; un
+  `RATE_LIMITED` sin ventana ⇒ `details` vacío).
 
 ##### <a id="0-T"></a>⚠️ §0-T — **`503 BUSY_TRY_AGAIN`: EL FALLO TRANSITORIO DEL MOTOR DEJA DE SER UN `500`** (v1.76, **NORMATIVO, TRANSVERSAL**; razón entera en `ARCHITECTURE §4.56.2`)
 
@@ -5922,7 +5971,10 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
   'exceeds_charge' }] }`. No escribió nada. Lo resuelve el súper-admin (§M4-SHIP.5 «Casos que esta vía no resuelve»).
 - 💰 **`403 MONEY_OUT_LIMIT_EXCEEDED` (v1.80 — NUEVO):** el operador superaría su **tope de reembolsos de 24 h**.
   `details: { capCents, usedCents, requestedCents }`. No escribió nada; el intento queda en bitácora
-  (`money_out.limit_blocked`). El súper-admin **no** tiene tope. [§M4-SHIP.8](#M4-SHIP).
+  (`money_out.limit_blocked`). El súper-admin **no** tiene tope. [§M4-SHIP.8](#M4-SHIP). ⭐ **v1.80.7:** los tres
+  `details` son **normativos** (PS-4 los asevera con igualdad exacta) y los ve el **operador**, que es personal interno:
+  el criterio **201** de `PROJECT` («ni topes ni umbrales») protege al **cliente** y no aplica aquí; ningún `customer`
+  recibe este código. Frontend los tipa y **puede** pintarlos; el copy es de ux-ui (§M4-SHIP.5 paso 6).
 - **`409 PAID_SHIPMENT_NOT_CANCELLABLE` (v1.80 — NUEVO):** `PATCH /admin/shipments/:id/status {to:'cancelado'}` sobre un
   envío **ya pagado** (`picking`/`guia`), o sobre un `solicitado` cuyo PaymentIntent resultó **ya cobrado o en
   proceso**. `details: { status }`. Decisión del dueño 2026-09-29. [§M4-SHIP.9](#M4-SHIP).
@@ -7734,7 +7786,7 @@ Req: `{ name?, phone?, locale? }` → Res `200`: **la misma forma que `GET /user
   es `change-password`/`logout`/`GET /users/me`).
 
 ### KYC (buylist)
-- `GET /api/v1/users/me/kyc` — `customer` → `{ kycStatus, clabeMasked?, clabeOnFile: boolean, ineOnFile: boolean, rejectionReason?, ineRequiredForTotal? }`. La CLABE se devuelve **enmascarada** (`clabeMasked` = `****1234`); nunca en claro por este endpoint.
+- `GET /api/v1/users/me/kyc` — `customer` → `{ kycStatus, clabeMasked?, clabeOnFile: boolean, ineOnFile: boolean, rejectionReason?, ineRequiredForTotal?, clabeUpdatedAt: string | null }`. La CLABE se devuelve **enmascarada** (`clabeMasked` = `****1234`); nunca en claro por este endpoint. ⭐ **v1.80.7 — `clabeUpdatedAt` (clave siempre presente):** normativo desde 🔒 v1.80.3 (SEC-SHIP-A3, §M4-SHIP.17.3) y construido (`users.service.ts:418`); esta línea del DTO no lo traía. `null` ⇔ «fecha de cambio desconocida» (CLABE anterior a `M-61`, o sin CLABE). Frontend lo pinta en la cuenta («CLABE actualizada el …», `DESIGN_SYSTEM §37`); con `null` no pinta nada.
   > ⚠️⚠️⚠️ **v1.69 (P-78, [`§M6-K.5`](#M6-K)) — LOS TRES NÚMEROS SE RETIRAN DE ESTE DTO. Decisión del dueño
   > (`HECHOS.md`, 2026-09-11): «los topes dejan de mostrarse al cliente — pantalla y mensaje de error».**
   > **Se van `ineThresholdCents`, `capPerMonthCents` y `monthUsedCents`** (medido: el código emite hoy
@@ -8192,6 +8244,22 @@ El valor del portafolio se calcula contra el **valor de referencia** (no el prec
   siempre (no está `in_custody`). Norma: [§M4-SHIP.15.8](#M4-SHIP-15).
 - **`activeShipmentId: string | null` (v1.17):** id de la `ShipmentRequest` activa (para **deep-link** desde el badge a la vista de rastreo `GET /shipments/:id`); `null` si `shipmentState=null`.
 - **`withdrawable: boolean` (v1.17; criterio único read/write reafirmado en v1.17.1):** flag **autoritativo** para que el front habilite/deshabilite el botón **RETIRAR**. `true` **solo si** `ownershipStatus='settled' && status='in_custody' && shipmentState=null`. Este flag de **lectura** aplica **exactamente el mismo criterio** que el backend usa al **crear** el retiro (`POST /shipments` → `classifyItems`, §5): read y write comparten regla de elegibilidad — no hay divergencia. Los items ya entregados quedan `status='withdrawn'` y **no aparecen** en holdings (se excluyen), por lo que nunca traen `withdrawable=true`; si se intenta retirarlos por llamada directa, el backend responde **`422 ITEM_NOT_IN_CUSTODY`** (§5). Expone la **regla anti doble-retiro** ANTES de intentar (el cliente ya no la descubre solo al recibir el error): un item `pending` daría `422 ITEM_NOT_SETTLED`, uno ya en envío `409 ITEM_IN_ANOTHER_SHIPMENT`, y uno ya entregado `422 ITEM_NOT_IN_CUSTODY`.
+- ⭐ **`withdrawableReason: 'pending' | 'replacing' | 'not_in_custody' | 'in_withdrawal' | 'origin_refunded' | null` (v1.80.7, ADITIVO, clave siempre presente):**
+  **por qué** `withdrawable` es `false`. Invariante: **`withdrawable === (withdrawableReason === null)`** (candado
+  unitario). Sale del **mismo cuerpo** que calcula `withdrawable` (`vault.service`), evaluado **en este orden** (la
+  primera condición que falla nombra el motivo): `pending` ⇔ `ownershipStatus ≠ 'settled'` · `replacing` ⇔ `status ≠
+  'in_custody'` ∧ `replacement ≠ null` (caso «Por reponer» abierto: la pieza está `lost|damaged` del cliente) ·
+  `not_in_custody` ⇔ `status ≠ 'in_custody'` sin caso abierto · `in_withdrawal` ⇔ `shipmentState ≠ null` ·
+  `origin_refunded` ⇔ la quinta condición de §5 (`originsBeingRefunded`: la compra de origen se está reembolsando).
+  Es la **proyección** de los rechazos de `classifyItems` (`ITEM_NOT_SETTLED` / `ITEM_NOT_IN_CUSTODY` /
+  `ITEM_IN_ANOTHER_SHIPMENT` / `ITEM_ORIGIN_REFUNDED`), ⛔ no una segunda regla: read y write siguen compartiendo una.
+  **Front:** chip «Compra en reembolso» (`DESIGN_SYSTEM §37.10d`) **solo** con `origin_refunded`; `replacing` ya tiene
+  su copy («la estamos reponiendo», v1.80.1); los otros tres no cambian de copy (el botón RETIRAR sigue apagado, como
+  hoy). *Por qué aquí y no en `quote.ineligible[]`:* «Mi bóveda» no llama a `quote` por pieza, y el motivo ya está
+  calculado donde se calcula el flag. Hoy (`vault.service.ts:220-224`, leído 2026-09-29) existe el flag y no el motivo
+  ⇒ **trabajo backend** (pequeño) + **frontend** (chip). Pruebas que deben fallar primero: **PS-65** ampliada (`GET
+  /vault/holdings` ⇒ `{ withdrawable:false, withdrawableReason:'origin_refunded' }`; con la fila `failed` ⇒ `{ true,
+  null }`) y una unitaria de `vault.service` con los cinco motivos, el orden y el invariante.
 - **Inclusión/exclusión y conteo del portafolio (v1.17):** `GET /vault/holdings` lista items del usuario `ownerType='customer' AND ownerUserId=:me AND status != 'withdrawn'`. (a) Items con **envío activo** (`solicitado/picking/guia/enviado`) **SÍ se listan** (marcados `shipmentState`, `withdrawable=false`) y **SÍ cuentan** en `portfolio.totalValueMxnCents` (siguen siendo del cliente hasta la entrega). (b) Items **`entregado`** → el item ya es `status='withdrawn'` (transición terminal de la máquina M4, ver §M4/§9) → **NO se listan** y **NO cuentan** en el portafolio (salieron de la bóveda). El **snapshot diario del portafolio** (`portfolio-snapshot`) usa la **misma** regla de inclusión (excluye `withdrawn`) para que la gráfica de tendencia sea consistente.
 
 ### GET /api/v1/vault/holdings/:inventoryItemId — `customer`
@@ -9544,6 +9612,15 @@ Res `201`: `{ shipmentId, status: "solicitado", breakdown: { "…": "BreakdownDT
   Este criterio **DEBE excluir** `status='withdrawn'` (item ya entregado, terminal) y **cualquier** estado que no sea `in_custody`. Es el **mismo** criterio que el flag de lectura `HoldingDTO.withdrawable` (§3): read y write comparten regla — no hay divergencia. Rechazos por-causa: `pending` ⇒ `422 ITEM_NOT_SETTLED`; ya con envío activo ⇒ `409 ITEM_IN_ANOTHER_SHIPMENT`; `withdrawn`/no-`in_custody` ⇒ `422 ITEM_NOT_IN_CUSTODY`.
   🔒💰 **v1.80.5 (SEC-SHIP-A5 (b)) — quinta condición, en el MISMO cuerpo (`classifyItems`):** `AND` la orden de origen de la pieza (`resolveOrigin(pieza, usuario)`, §M4-SHIP.3) está **`settled`** y **no** tiene fila `PaymentRefund{ kind:'order_full', status ≠ failed }`. Si no ⇒ **`422 ITEM_ORIGIN_REFUNDED`** (`quote`: `ineligible[].reason='origin_refunded'`; `HoldingDTO.withdrawable=false`). *Por qué aquí y no solo en la guía:* que la carta de una compra que se está reembolsando ni siquiera entre a la cola de preparación. Es transitorio: al confirmarse el reembolso la pieza deja de ser del cliente (§M4-SHIP.18.4) y sale de `holdings` sola. Sin origen (`no_origin_order`) ⇒ **no** bloquea (corrupción visible por otra vía, H8). Se resuelve **por lote** (una consulta para las `OrderItem`/órdenes de las piezas del usuario y una para los casos `replaced`), ⛔ sin N+1.
 Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), **`422 ITEM_NOT_IN_CUSTODY`** (v1.17.1 — incluye algún item `withdrawn` o cualquier `status != 'in_custody'`; guardarraíl anti doble-retiro/doble-cobro de un item ya entregado), `422 ADDRESS_NOT_MX`, **`422 RECIPIENT_NAME_REQUIRED`** (v1.67), `409 ITEM_IN_ANOTHER_SHIPMENT`, **`403 EMAIL_NOT_VERIFIED`** (v1.5 — retiro/envío es acción sensible; el `POST /shipments/quote` read-only **no** se bloquea).
+  🔒 **v1.80.7 — una pieza que ya NO es del cliente no se explica (`422 NOT_FOUND`):** `classifyItems` evalúa
+  **primero** la titularidad (`ownerType='customer' ∧ ownerUserId = usuario`); si falla ⇒ `ineligible[].reason =
+  'NOT_FOUND'` y `POST /shipments` ⇒ **`422 NOT_FOUND`** (`details.ineligible`), el **mismo** trato que un id ajeno o
+  inexistente — ⛔ no se revela por qué ni en qué estado está algo que no es tuyo. Aplica a la carta que un reembolso
+  total devolvió a la plataforma (§M4-SHIP.18.4: `ownerUserId null`) y a una repuesta que otro cliente compró después.
+  **`ITEM_NOT_IN_CUSTODY` queda para lo que SÍ es del cliente** y no está `in_custody` (`withdrawn`; `lost|damaged` con
+  caso «Por reponer» abierto). Es lo construido (`shipments.service.ts:316-331`); PS-55/PS-63 fijan `NOT_FOUND` (v1.80.7;
+  antes decían `ITEM_NOT_IN_CUSTODY` y las pruebas aceptaban los dos — dejan de hacerlo). *Por qué no buscar por `id` y
+  contestar `ITEM_NOT_IN_CUSTODY`:* le diría a un cliente que una pieza que ya no es suya existe y cuál es su estado.
 > **v1.67 (`M-52`, Stream A · P-73-B) — el `addressSnapshot` del retiro gana `recipientName` y pasa a NUEVE campos.**
 > Medido el 2026-09-11: `shipments.service.ts:183-192` congela ocho campos y **ninguno es un nombre** — `Address`
 > no lo tenía — ⇒ `:405` devolvía `recipientName: undefined` en **todo** retiro de bóveda y el paquete salía **sin
@@ -10982,6 +11059,15 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > (`inventory.service.ts:2403-2407` en este worktree, leído 2026-09-29) ⇒ **sí existía** un `lost → in_stock`. La rama
   > `claude/arreglos-operador` ya construyó las guardas de `move`/`mark` (`item-location.rules.ts`, leído en el worktree
   > `/home/user/tcg-hotfix`); esta tabla las **documenta** y **corrige una**: `mark` sobre pieza de cliente.
+  > 🔒 **v1.80.7 — NOTA DE FUSIÓN (SEC-SHIP-A1 está construido DOS veces):** `claude/envio-preparar` construyó `mark` y
+  > el `PATCH` según **esta** tabla en `inventory.service.ts` (`markItem`, `updateItem`; su `move` es el que ya había en
+  > ese árbol); `claude/arreglos-operador` tiene `item-location.rules.ts` (guardas de `move` **y** de `mark`, con `mark`
+  > permitido sobre pieza de cliente = `D-SHIP-5`). **Al fusionar manda esta tabla:** `markItem`/`updateItem` = versión de
+  > `envio-preparar` (la del contrato v1.80.3); `move` = versión de `arreglos-operador` (`item-location.rules.ts`, fila
+  > `move` de arriba); si esa regla trae un conjunto `MARKABLE` u otra guarda de `mark`, **se acota** a plataforma
+  > `in_stock|listed` o se descarta su rama `mark` — ⛔ nunca las dos guardas de `mark` conviviendo. Lo hace **backend**
+  > por encargo del orquestador (zona compartida `inventory`, un stream a la vez) y re-corre sobre el árbol fusionado
+  > **PS-41 (a/b), PS-42, PS-64** y la suite de `arreglos-operador`. `ARCHITECTURE §9 D-SHIP-7`.
   >
   > | Verbo | Pieza admitida (estado **en el `WHERE`** del CAS: `id`, `status`, `ownerType`, `ownerUserId` leídos) | Destino / efecto | Si no |
   > |---|---|---|---|
@@ -17845,6 +17931,12 @@ de titularse con el destinatario. ⛔ Nunca cascada de una fuente a otra (misma 
   empate: [§M4-SHIP.17.7](#M4-SHIP-17).
 - `not_refundable`: `order_not_settled` (la orden de origen ya no está `settled`: reembolsada, en contracargo…),
   `legacy_convention` (`priceConvention ≠ IVA_INCLUSIVE`, vía el **único** `switch` `ivaIsIncluded`), `no_origin_order`.
+- 🔒 **v1.80.7 — corrupción visible, ⛔ nunca `500`:** una `ShipmentRequest` con `userId` **y** `orderId` nulos es
+  inexpresable por la API (un retiro nace con `userId`; un directo, con `orderId`). Si existe (SQL a mano; la fixture
+  `B-1` de `preparation-queue` la escribe así), la cola **responde**: esa fila va **sin origen** (`no_origin_order`, H8;
+  sus líneas `not_refundable`) con `log warn` del id, y las demás tarjetas no se enteran. **Norma general de la cola:
+  una fila corrupta degrada SU tarjeta, no la lista.** Medido por backend (2026-09-29): antes `500`
+  (`PrismaClientValidationError` en `resolveOriginsBatch` con `userId` nulo); ahora `preparation-queue.e2e-spec.ts` 17/17.
 
 **Carga:** sin N+1 — una consulta por fuente como hoy + **una** de `PaymentRefund` por los `shipmentItemId` en juego +
 **una** de orígenes por los `inventoryItemId` de retiros. La deuda `M4P-SORT` aplica igual.
@@ -17948,6 +18040,16 @@ piezas (`InventoryItem`, por `id` ascendente) → órdenes (`Order`, por `id` as
    `kind ≠ order_full`, `status ≠ failed`, `createdAt > now − 24 h`; `usedCents + planCents > cap` ⇒ **`403
    MONEY_OUT_LIMIT_EXCEEDED`**, rollback, y **después** del rollback `AuditService.log({ action:'money_out.limit_blocked'
    … })`. *La puerta por operador es lo que impide que dos actos simultáneos del mismo operador pasen los dos el tope.*
+   🔒💰 **v1.80.7 — lo que el `403` trae y quién lo ve:** `details: { capCents, usedCents, requestedCents }` es
+   **normativo** (§0; PS-4 lo asevera con igualdad exacta). El operador es personal interno: el criterio **201** de
+   `PROJECT` («ni topes ni umbrales») protege al **cliente** y no aplica; el tope es el dial
+   `operator_refund_cap_24h_cents` de M10 y decirle al operador cuánto lleva es lo único accionable que se le puede dar
+   (parar antes de intentar, o pedirle el pedido al súper-admin). Frontend tipa `details` y **puede** pintar las
+   cifras; el copy lo decide ux-ui (`DESIGN_SYSTEM §37` N-1 deja de ser «el 403 no las trae»). ⛔ Nada de esto viaja a
+   un `customer` (no hay superficie de cliente con este código). **Tope ACUMULADO — qué lo sostiene:** `usedCents` es
+   una **suma** de filas anteriores del actor en 24 h; PS-4 (carrera) distingue «`usedCents = 0`» pero no las
+   mutaciones de **ventana** ni de **actor**, y una suma no se sostiene con un aserto probabilístico como único juez ⇒
+   **PS-4b** (§M4-SHIP.12, determinista, filas sembradas por SQL) es la prueba que la sostiene.
 7. `expectedRefundCents ≠ planCents` ⇒ **`409 REFUND_PREVIEW_STALE {refundCents: planCents}`**, sin escribir.
 8. **Piezas** (por `id` asc.), CAS con la disponibilidad en el `WHERE`:
    - directo: `updateMany({ where: { id, status:'picking', ownerType:'platform' }, data: { status: <lost|damaged> } })`;
@@ -18142,6 +18244,7 @@ User.email`; en un retiro, el dueño del retiro). Una fila que quedó `requested
 | 🔴 Contracargo de **bóveda** sobre la orden de origen de un retiro (no toma el candado del envío) | Antes ⇒ la pieza vuelve a plataforma ⇒ el CAS de pieza (paso 8) da `count 0` ⇒ `409 CONFLICT`, cero escrituras. Después ⇒ **hoy** su `WHERE` (H9) re-listaría la pieza `lost` ⇒ ⛔ **una carta que no tenemos a la venta**. **Corrección obligatoria:** el revertido del contracargo de bóveda exige `ownerType='customer' ∧ ownerUserId = order.userId ∧ status ∈ {in_custody, reserved(de esta orden)}` en su `WHERE`; con `count 0` sigue su regla de hoy (`needsManual`) | la pieza faltante se queda `lost` |
 | M3 `order_full` (súper-admin) | Candado de fila `Order` en los dos ⇒ el segundo ve la suma del primero. 🔒 **v1.80.3:** M3 toma **antes** la fila del envío (orden envío → orden, el mismo que el preparado ⇒ sin interbloqueo) y **cierra el envío vivo** en su tx (§M4-SHIP.17.2). Si M3 gana ⇒ el preparado ve `cancelado` ⇒ `409 SHIPMENT_NOT_IN_PREPARATION`; si el preparado gana ⇒ M3 ve sus filas y reembolsa el remanente, y cierra el envío ya preparado | `Σ ≤ totalCents` siempre; ⛔ nunca guía tras un M3 total |
 | 🔒 v1.80.3 — `charge.refunded` **total** (p. ej. desde el panel de Stripe) | El webhook corre el **mismo** `closeShipmentsOnFullRefund` en su tx, con el mismo orden de candados | el envío no sale |
+| 🔒 v1.80.7 — un webhook (`charge.refunded`, `charge.refund.updated`) llega **mientras** la fila `Order` (o la del envío) está tomada por la confirmación de M3, `retry` o `chargeback-inventory` | El webhook **ni espera indefinidamente ni escribe a medias**: responde **`503 BUSY_TRY_AGAIN`** (§0-T, `Retry-After: 1`) y Stripe lo reentrega; la reentrega corre el mismo cuerpo bajo el CAS y el sello (§18.2) ⇒ idempotente. Conducta **previa** del webhook (§9; medida 19/20 en la carrera del contracargo), ⛔ no nueva | un movimiento por carta, una bitácora, un `AV-3` — también cuando la entrega inicial fue `503`; **cero** escrituras en la tirada `503` (PS-57) |
 | `setTracking` / `PATCH →guia` | Escriben la fila del envío ⇒ serializan; exigen `preparedAt` en su `WHERE` (🔒 v1.80.3: y orden `settled` en un directo) | nunca guía sin preparado |
 
 ⭐ **v1.80.1:** en un retiro, «reembolso» en la fila del contracargo de bóveda se lee «caso abierto» (la pieza queda
@@ -18182,6 +18285,26 @@ User.email`; en un retiro, el dueño del retiro). Una fila que quedó `requested
   SEC-SHIP-M4). Candado hermano nuevo **`C-CLABE-1`**: el único escritor de `KycProfile.clabeEnc|clabeHmac|clabeUpdatedAt`
   es `setClabe` (§M4-SHIP.17.3); cualquier otro `kycProfile.update|upsert|create` que toque esas columnas (o SQL crudo
   sobre ellas) ⇒ rojo.
+  🔒 **v1.80.7 — borrar la CLABE también es del módulo `users`:** el borrado **suave** de cuenta (`DELETE
+  /admin/users/:id`, C20/PII) **anula** `clabeEnc` y `clabeHmac`. Hoy lo hace `AdminService.deleteUser` a mano y el
+  candado lo tolera como excepción (solo nulos, `refunds.candados.spec.ts:171-175`): **conducta transitoria**. Norma:
+  nace **`UsersService.eraseClabe(tx, userId)`** — `clabeEnc = null ∧ clabeHmac = null`, ⛔ no toca `clabeUpdatedAt`
+  (no es un cambio de CLABE: no hay valor nuevo; con CLABE nula `paid` ⇒ `422 CLABE_NOT_ON_FILE`), ⛔ sin `AV-16` (la
+  cuenta se está anonimizando), dentro de la tx de anonimización del llamador — y `deleteUser` lo llama. **`C-CLABE-1`
+  vuelve a un censo sin excepciones:** los `kycProfile.update|upsert|create*` que tocan esas columnas viven **solo** en
+  `users.service.ts`, en **dos** sitios exactos (`setClabe`, `eraseClabe`); cualquier sitio fuera de ese fichero ⇒ rojo
+  (mutación: `deleteUser` volviendo a escribir `clabeEnc: null` directo). *Por qué un verbo y no la excepción:* la
+  garantía del candado es «un módulo dueño de estas columnas»; una excepción por forma la sostiene hoy, pero la
+  siguiente anonimización la copiaría. Trabajo backend pequeño (v1.80.7 punto 19).
+  🔒💰 **v1.80.7 — cómo se escribe «solo `super_admin`» en un verbo de DINERO:** clase `@Roles(vault_operator,
+  super_admin)` + método **`@MoneyOut()`**, ⛔ nunca `@Roles(super_admin)` solo. Con `@MoneyOut()` es `MoneyOutGuard`
+  quien contesta al operador **`403 MONEY_OUT_FORBIDDEN` con bitácora** (H5); con `@Roles(super_admin)` contestaría
+  `RolesGuard` un `403 FORBIDDEN` **mudo**, y el intento de un operador sobre dinero saliente es justo lo que la
+  bitácora tiene que ver. Aplica a `…/replacement-cases/:id/refund` y `…/void`, a la cubeta SPEI entera
+  (`reveal-clabe`, `paid`, `cancel`, `reissue`), a `…/refunds/:id/to-manual` y a M3 total (que ya lo hacía así). Donde
+  este contrato escribe «`@Roles(super_admin)` + `@MoneyOut()`» se lee **esta** construcción. Las **lecturas** sin
+  `@MoneyOut()` (`refund-preview`, `GET /admin/refunds*`, `operator-summary`, `shrinkage`, la lista y el detalle de la
+  cubeta) siguen `@Roles(super_admin)` a secas: para una lectura, un `403` mudo es correcto.
 - ⭐ **v1.80.1 — el operador y el apartado:** el operador **abre** casos (al preparar/colocar) y **repone**, pero ⛔
   **no reembolsa desde el apartado** (D-8 al dueño). Reponer **no es dinero saliente** y no cuenta contra el tope: la
   pérdida ya ocurrió y quedó firmada al **marcar** (la pieza original pasa a merma con el operador que la marcó como
@@ -18288,7 +18411,8 @@ Mutaciones sobre **copia del árbol entero** con su sha (O-9).
 | **PS-1** 💰 | Dos `prepared` concurrentes con 1 faltante: una fila del libro, **una** llamada `refunds.create`, un `AV-12`, un sello; el perdedor `200 already_prepared` | **(m1)** quitar el candado de fila ⇒ el perdedor lee `preparedAt NULL`, su CAS de pieza cuenta 0 ⇒ `409 CONFLICT` en vez de `200 already_prepared` en ≥1 tirada. **(m2)** quitar a la vez el candado, la guarda de estado del CAS de pieza y `@unique(idempotencyKey)` ⇒ **dos** `refunds.create` en ≥1 tirada. Si (m2) no la pone roja, el arnés no entrelaza: se reporta |
 | **PS-2** 💰 | Importe: fixture de §M4-SHIP.4 ⇒ `31458` exacto; los componentes; `damaged` idéntico importe | `ceil` en la comisión; usar el precio de lista de hoy; usar el dial de IVA |
 | **PS-3** 💰 | «Faltan todas»: `Σ amountCents = totalCents` y `Σ IVA = ivaCents`, **±0**; envío `cancelado`; orden `refunded` tras el webhook; **cero** `AV-6`, **un** `AV-12`, **cero** `AV-3` | no emitir `order_remaining`; mandar `AV-3` con filas de carta faltante |
-| **PS-4** 💰 | Tope: operador a 1 centavo del tope ⇒ `403 MONEY_OUT_LIMIT_EXCEEDED`, cero escrituras, una bitácora `money_out.limit_blocked`; súper-admin sin tope. **Carrera** del mismo operador, dos actos que juntos exceden (N≥10) ⇒ nunca los dos | quitar `lockOperatorRefundGate` ⇒ los dos pasan en ≥1 tirada |
+| **PS-4** 💰 | Tope: operador a 1 centavo del tope ⇒ `403 MONEY_OUT_LIMIT_EXCEEDED`, cero escrituras, una bitácora `money_out.limit_blocked`; súper-admin sin tope. **Carrera** del mismo operador, dos actos que juntos exceden (N≥10) ⇒ nunca los dos. ⭐ v1.80.7: su primera mitad hoy calcula `cap = used0 + 31457` con `used0` = lo que la suite acumuló antes ⇒ **depende del orden**; la suma la asevera PS-4b | quitar `lockOperatorRefundGate` ⇒ los dos pasan en ≥1 tirada |
+| **PS-4b** 💰 (⭐ v1.80.7, **backend: falta**) | **El tope es una SUMA — determinista, sin carrera.** Fixture por SQL, con el actor = el operador de la prueba y `createdAt` explícito: filas `item_missing` `requested` (10 000), `submitted` (20 000) y `succeeded` (30 000) dentro de 24 h **cuentan**; una `failed` (40 000), una `order_full` del súper-admin (50 000), una `succeeded` con `createdAt = now − 25 h` (60 000) y una `succeeded` de **otro** operador (70 000) **no cuentan**. Con `cap = 60 000 + 31 457`: `prepared` con una faltante de `31 458` ⇒ **`403 {capCents: 91457, usedCents: 60000, requestedCents: 31458}`**, cero escrituras, una bitácora; con `cap = 60 000 + 31 458` ⇒ `200` y, a continuación, un segundo `prepared` de `31 458` ⇒ `403 {usedCents: 91458}`. `GET /admin/refunds/operator-summary` da la misma suma para ese actor (dos lectores, un cuerpo) | `usedCents = 0` (o sumar solo la fila en curso) ⇒ el primer `403` no ocurre; quitar `requestedByUserId` ⇒ `usedCents = 130000`; quitar `createdAt` ⇒ `120000`; quitar `status ≠ failed` ⇒ `100000`; quitar `kind ≠ order_full` ⇒ `110000`; `≥` por `>` ⇒ el «a 1 centavo» de PS-4 rojo. **Cada una roja por igualdad exacta**, sin carrera |
 | **PS-5** 💰 | `expectedRefundCents` distinto ⇒ `409 REFUND_PREVIEW_STALE` con el vigente, cero escrituras | ignorar el campo |
 | **PS-6** | Palomeo vs preparar (N≥10): des-palomear durante el preparado ⇒ nunca `preparedAt` con una disponible `pending` | quitar el candado de fila de `PATCH` |
 | **PS-7** | Guía sin preparar ⇒ `409 SHIPMENT_NOT_PREPARED`; carrera `DELETE …/prepared` vs `POST …/tracking` (N≥10) ⇒ nunca `guia` con `preparedAt NULL` | quitar `preparedAt` del `WHERE` de `setTracking` |
@@ -18312,7 +18436,7 @@ con N y autor, copia del árbol entero con su sha). Cada una se entrega **con su
 | **PS-19** 💰 | **Directo intacto:** el fixture de PS-2 con la carta `damaged` ⇒ `31458`, pieza `damaged` de plataforma, **cero** casos | enviar el directo al apartado (tratar `damaged` distinto de `not_found`) |
 | **PS-20** | **Colocación a bóveda:** marcar `missing` sin `missingReason` ⇒ `400`; con `damaged` ⇒ `200`; `confirm` ⇒ caso `open` (`vault_purchase`), pieza `damaged` a nombre del cliente, ⛔ **sin** `locationId` tocado, **cero** dinero; `DELETE …/prepared` **antes** de colocar ⇒ cero casos (la marca sigue corregible). Cierre directo 6-bis con todas `missing` ⇒ un caso por carta | no abrir el caso en el 6-bis (el camino sin cajón) |
 | **PS-21** | **La guía espera:** retiro preparado con un caso `open` ⇒ `POST …/tracking` y `PATCH →guia` `409 SHIPMENT_HAS_OPEN_REPLACEMENTS`, cero escritura. **Carrera** `replace` vs `tracking` (N≥10, barrera en la fila del envío): nunca `guia` con un caso `open`, y si la reposición ganó la repuesta **va** en el paquete (`entregado` ⇒ `withdrawn`) | quitar la condición de casos del `WHERE` de `setTracking` ⇒ guía con caso abierto |
-| **PS-22** 💰 | **Reponer — identidad:** candidata con otro acabado / otra condición / otro grado / otro `cardProductId` / otro sellado ⇒ `422 identity_mismatch` con `mismatch` exacto, cero escrituras; candidata `reserved`/`picking`/`in_custody` ⇒ `422 not_platform_available` | comparar solo `cardId` |
+| **PS-22** 💰 | **Reponer — identidad:** candidata con otro acabado / ~~otra condición~~ / otro grado / otro `cardProductId` / otro sellado ⇒ `422 identity_mismatch` con `mismatch` exacto, cero escrituras; candidata `reserved`/`picking`/`in_custody` ⇒ `422 not_platform_available`. ⭐ v1.80.7: `RawCondition` tiene **un** valor (`NM`, v1.1) ⇒ «otra condición» no es medible hoy; PS-22 mide acabado, carta, grado, sellado y **los pares**; `sameIdentity` compara los nueve campos igual, y la condición entra sola el día que el enum crezca | comparar solo `cardId` |
 | **PS-23** 💰 | **Reponer — una pieza, un caso:** dos casos del mismo cliente o de clientes distintos reponen **la misma** candidata a la vez (N≥10) ⇒ exactamente uno `200`, el otro `422 not_platform_available`; la pieza tiene **un** dueño. Y reponer vs. **una compra** de la misma pieza `listed` (N≥10) ⇒ nunca los dos | quitar `status IN (in_stock, listed)` del `WHERE` del CAS de la candidata |
 | **PS-24** 💰 | **Reponer — efectos:** retiro en `picking` ⇒ línea nueva `picked` en el mismo envío, original pasa a **plataforma** (`lost|damaged`, movimiento con el actor), repuesta `in_custody` del cliente, caso `replaced`; colocación ⇒ repuesta al **cajón del cliente** (reglas de §M4-VAULT.5 paso 7; cliente sin cajón ⇒ el que elija). La original **nunca** queda `listed`/`in_stock` | dejar la original a nombre del cliente |
 | **PS-25** | **«Apareció»:** caso `not_found` + la **misma** pieza ⇒ `found`, pieza `lost → in_custody` del cliente, la línea del retiro vuelve a `picked`; caso `damaged` + la misma pieza ⇒ `422 same_piece_damaged` | permitir `found` con `damaged` |
@@ -18608,7 +18732,12 @@ si viene, se **ignora** (queda en bitácora).
    CASE_ORIGIN_NOT_SETTLED {originStatus}`, **rollback de todo** (⛔ no se le repone una carta a quien disputó o ya
    recibió su dinero; ese caso se **anula**, §M4-SHIP.15.10).
 7. Movimientos (§M4-SHIP.15.2). CAS del caso `where { id, status:'open' }` → `{ status: replaced|found, resolvedAt,
-   resolvedByUserId, replacementInventoryItemId, replacementShipmentItemId }`.
+   resolvedByUserId, replacementInventoryItemId, replacementShipmentItemId }`. ⭐ **v1.80.7 — por camino:**
+   `replaced` ⇒ `replacementInventoryItemId = candidata`, `replacementShipmentItemId = la línea nueva del paso 5`
+   (solo con `package`; con `drawer`, `null`). **`found`** ⇒ `replacementInventoryItemId = original` y
+   **`replacementShipmentItemId = null`**: la línea que vuelve a `picked` es la **misma** `case.shipmentItemId`, no hay
+   línea nueva, y el `CHECK` de `M-61` lo exige (`replacementShipmentItemId IS NOT NULL ⇒ status='replaced'`). La frase
+   anterior («guarda su id») se lee solo para `replaced`.
 8. Bitácora dentro de la tx: `replacement_case.replaced` | `replacement_case.found` (`after:{ source, customerUserId,
    original:{id,folio}, replacement:{id,folio}, destination, locationId, requestedLocationId, shipmentItemId }`).
 9. ⛔ **Cero dinero, cero Stripe, cero tope.** ⛔ Sin aviso (retiro: el cliente recibirá `AV-4` con la guía; compra a
@@ -19142,7 +19271,9 @@ vendida se re-publicaba.
    de la colocación, que abre su caso. Si el dueño quiere hacerlo antes del retiro, es **D-14** (un verbo propio que
    **abre el caso**, ⛔ no `mark`). ⭐ **v1.80.4 — D-14 = *«Por ahora no»*: ese verbo NO se construye** (§M4-SHIP.18.1). ⇒ **Backend:** en `assertOperable(item, 'mark')` la rama `customer` lanza
    `ITEM_NOT_ADJUSTABLE` (y sobra `assertNotInActiveWithdrawal` en `markItem`). Frontend: sin el botón sobre piezas de
-   cliente.
+   cliente. 🔒 **v1.80.7:** construido en `claude/envio-preparar` (`inventory.service.ts`); `claude/arreglos-operador`
+   tiene su propia versión (`item-location.rules.ts`). **Nota de fusión** en §M1 (tabla de verbos): manda esta versión
+   para `mark`/`PATCH`, la de aquella para `move`; `ARCHITECTURE §9 D-SHIP-7`.
 2. **`PATCH … {status:'in_stock'}` — solo plataforma `in_stock | listed`**: lectura → guarda (`422
    ITEM_NOT_ADJUSTABLE`) → escritura **condicionada** `updateMany({ where: { id, ownerType:'platform', status: <leído>
    }, data })` (`count 0` ⇒ `409 CONFLICT`); los demás campos del mismo `PATCH` en la **misma** transacción (todo o
@@ -19237,7 +19368,11 @@ vendida se re-publicaba.
       avisar; si trae otra ⇒ `409 MANUAL_REFUND_NOT_PENDING {status}`. `cancelled` ⇒ `409 MANUAL_REFUND_NOT_PENDING`.
    4. `KycProfile` del cliente `FOR UPDATE` (serializa con `setClabe`); sin CLABE ⇒ `422 CLABE_NOT_ON_FILE`.
    5. Recalcula el token con el `clabeHmac` **vigente**; distinto (comparación de tiempo constante) ⇒ **`409
-      CLABE_CHANGED_SINCE_REVEAL {clabeUpdatedAt}`**, cero escrituras.
+      CLABE_CHANGED_SINCE_REVEAL {clabeUpdatedAt}`**, cero escrituras. ⭐ v1.80.7 (techlead): la comparación usa
+      **`PiiCryptoService.constantTimeEquals`** (alias, mismo cuerpo `timingSafeEqual` que `blindIndexEquals`): lo que
+      se compara aquí es un **token**, no un índice ciego, y el nombre debe decirlo (`manual-refund.service.ts:390`).
+      Unitaria: mutar a `===` ⇒ rojo (la prueba inyecta un `PiiCryptoService` que cuenta llamadas a
+      `constantTimeEquals`).
    6. Orden de origen (si `orderId`) `SELECT status … FOR SHARE`.
    7. Confirmaciones exigidas: `recent_clabe_change` ⇔ `clabeChangedRecently`; `origin_not_settled` ⇔ `orderId ≠ null ∧
       originStatus ≠ 'settled'`. Falta alguna `true` ⇒ **`422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required,
@@ -19510,6 +19645,29 @@ la orden (como v1.80.5). ⛔ No acota el resto de la pasada (las piezas sin caja
   la tabla de arriba (nada, salvo reclamar lo que el webhook no pudo). `AV-3` lo manda **quien escribió el sello**; el
   motor `if (order.status === 'refunded') return` de §R.3 sigue como segunda red. Carrera tx-de-M3 vs webhook
   simultáneos: barrera en `Order FOR UPDATE` ⇒ el segundo ve el sello. PS-57 (ampliada) lo mide en los dos órdenes.
+  🔴 **v1.80.7 — EL ORDEN DE LOS PASOS (2) Y (3) SE INVIERTE (hallazgo del techlead sobre `c20451f`).** Numerados
+  como estaban, backend hizo `Order → refunded` (**toma la fila `Order`**, `refund-ledger.service.ts:298`) **antes** de
+  `onFullRefund` (`:309`, que toma envíos → piezas → `Order`): eso es `Order → envío → piezas`, el orden **inverso** al
+  de §M4-SHIP.17.2 y al que usa el webhook (`payments.service.ts:695-699`: rama primero, transición después), y forma
+  **ciclo** con `POST …/prepared` de un retiro (envío → piezas → `Order` de origen): la confirmación sostiene `Order` y
+  espera el envío; el preparado sostiene el envío y espera `Order` ⇒ interbloqueo (`40P01`, una de las dos muere).
+  **Norma — la tx de confirmación (inline o `retry`) es, en este orden:** (1) CAS de la fila del libro `where { id,
+  status:'requested' }` → `submitted|succeeded`; (2) lectura **sin** candado de `Order.status`: ∉ `{settled, refunded}`
+  (`chargeback`/`failed`) ⇒ `log error`, la fila **conserva** su estado nuevo, la orden no se toca, fin; (3)
+  **`onFullRefund(tx, { orderId }, 'm3', actor)`** — toma envíos → piezas → **`Order FOR UPDATE`** y sella (§18.2);
+  (4) `Order → refunded` con `updateMany({ where: { id, status:'settled' } })` **bajo ese mismo candado de fila**:
+  `count 1` ⇒ transicionó; `count 0` con la orden ya `refunded` ⇒ **éxito** (el webhook llegó antes, M5); (5) `AV-3`
+  post-commit lo manda **quien transicionó** (`count 1`). Es **exactamente** la secuencia del webhook ⇒ **un solo orden
+  de candados para los dos escritores**, y ambos compatibles con `prepared` (envío → piezas → órdenes) y con el
+  apartado (puerta → envío → caso → piezas → orden). Sostiene: **PS-57c** (§18.8). *Por qué la lectura de (2) va sin
+  candado:* es la misma guarda de hoy (`count 0` ∧ `status ≠ refunded`), solo que antes de tomar nada; si un contracargo
+  la cambia entre (2) y (4), el CAS de (4) da `count 0` con `status ≠ refunded` ⇒ el mismo `log error`, y la rama de
+  (3) ya corrió sobre una orden que el contracargo también reclama por su lado (piezas ya de plataforma ⇒
+  `not_customer`, cero escrituras). ⛔ **NO MEDIDO por el arquitecto:** `chargeback-inventory` toma `Order` (el claim
+  del flag) **antes** de las piezas (`orders.service.ts:1575-1595`) mientras `reclaim-vault`/`unprepare` toman retiros →
+  piezas → `Order`: misma clase de ciclo, no señalada por el techlead. Backend lo mide con barrera (N≥10) al construir
+  PS-57c; si hay ciclo, vuelve al arquitecto (probable cierre: el claim del flag se mueve **después** del `FOR UPDATE`
+  de las piezas, con la misma semántica `409 ya resuelta`).
 - **Candado estático `C-FULLREF-1`** (lo escribe backend): `closeShipmentsOnFullRefund` y `reclaimVaultOnFullRefund`
   solo se llaman desde `onFullRefund`; `onFullRefund` solo desde M3 `refund` y `onChargeRefunded` 🔒 v1.80.5: **y desde
   `unprepare` (rama retiro) y `reclaim-vault` — cuatro exactos**; y el despacho
@@ -19632,8 +19790,9 @@ piezas: un `move` antes de `recuperada` dejaba la carta `picking` sin verbo, par
 ###### M4-SHIP.18.6 — Lo que se ve (⛔ ningún estado nuevo: todo se deriva de la titularidad)
 
 - **«Mi bóveda»** (`GET /vault/holdings`, portafolio, `withdrawable`): una carta `returned` ya no es del cliente ⇒
-  **desaparece** sola; pedir su retiro ⇒ `422 ITEM_NOT_IN_CUSTODY` (§5, sin cambio). Las `open_case` siguen como hoy
-  («la estamos reponiendo») hasta que se anule el caso.
+  **desaparece** sola; pedir su retiro ⇒ ~~`422 ITEM_NOT_IN_CUSTODY`~~ 🔒 **v1.80.7: `422 NOT_FOUND`** (§5: ya no es
+  del cliente ⇒ el trato de un id ajeno, sin explicar; `ITEM_NOT_IN_CUSTODY` es para lo que sí es suyo). Las `open_case`
+  siguen como hoy («la estamos reponiendo», `withdrawableReason:'replacing'`) hasta que se anule el caso.
 - **«Qué debe haber»** (§M4-VAULT.11): el conjunto es `in_custody` del cliente ⇒ una `returned` sale de `items` y de
   `counts`; la colocación cancelada saca su `pending_placement`. ⛔ Sin `PhysicalState` nuevo. *Consecuencia conocida:*
   hasta el `move`, el cajón del cliente tiene una carta que ya no debe estar ahí — es la verdad física, y «Qué debe
@@ -19692,6 +19851,18 @@ ahora, también lo son.
 - **`no_recuperada`** ⇒ cada objetivo ~~`in_stock → lost`~~ 🔒 **`picking → lost`** + `InventoryMovement{ reason:'lost',
   actorUserId: sesión, note }` — **merma firmada**, entra en `/finance/shrinkage` **una** vez (`fromStatus='picking'`).
   Idéntico al directo `refunded`.
+- 🔒 **v1.80.7 — idempotencia entre pasadas, PRECISADA (lo construido, PS-61):** los objetivos se eligen por el
+  **ancla** (`isVaultReclaimTarget`: `reclaimedBy` ∧ ningún movimiento posterior con `fromStatus ≠ toStatus`, ⛔ **sin**
+  la condición «está `picking`»), y es el **`WHERE` del CAS** (`status:'picking' ∧ ownerType:'platform'`) el que
+  decide por pieza: una objetivo que **ya está en el estado que esta pasada le escribiría** (`recuperada`: `listed` si
+  su precio resuelve, `in_stock` si no; `no_recuperada`: `lost`) la dejó una pasada anterior ⇒ **se omite** (cero
+  escrituras, cero movimientos: `recuperada` no deja rastro por pieza, así que el estado es la única evidencia);
+  cualquier **otro** estado ≠ `picking` ⇒ `count 0` ⇒ **`409 CONFLICT`, rollback entero**. *Residuo aceptado:* una
+  pieza **sin precio** forzada a `in_stock` por fuera es indistinguible de una confirmada antes — ningún verbo del
+  operador produce ese estado desde `picking` (PS-64) y el desenlace es el que la pasada le daría. Por eso PS-61 fija
+  su fixture del `409` **con precio resuelto** (su estado de venta sería `listed`, y `in_stock` ≠ `listed` ⇒ `409`).
+  `returned` en `vaultPieces` es **permanente** desde el ancla (§18.6) y `pendingConfirmation` sigue al estado: coincide
+  con lo construido (`full-refund.service.ts:441-475`, `orders.service.ts:1753-1791`).
 - **`reexpedir`** ⇒ `409 CONFLICT` (una compra a bóveda no tiene envío que re-expedir).
 - **Mixto** (unas están, otras no): `recuperada` y luego `mark` de M1 sobre la que falta (plataforma `in_stock|listed` ⇒
   `lost` con actor, §M4-SHIP.17.1 (1)). ⛔ Sin desenlace por carta en este endpoint.
@@ -19711,20 +19882,27 @@ ahora, también lo son.
 
 | # | Qué asevera | Mutación que la pone roja |
 |---|---|---|
-| **PS-55** 💰 | Orden `vault` `settled`, colocación `placed`, carta `in_custody` sin retiro. M3 total ⇒ tras la tx de confirmación: pieza plataforma ~~`in_stock`~~ 🔒 **`picking`**, `ownerUserId null`, `ownershipStatus null`, `locationId` = el cajón; **un** movimiento `refund_return` (`in_custody → picking`) con el actor; `chargebackNeedsManual=true`; `fullRefundClosedAt` puesto; `GET /vault/holdings` ya no la lista; `POST /shipments` con ella ⇒ `422 ITEM_NOT_IN_CUSTODY`; el catálogo **no** la lista | (a) no llamar a la rama `vault` desde `onFullRefund` ⇒ la carta sigue en «Mi bóveda» (**el hueco**); (b) 🔒 escribir `in_stock` (o `listed`) en vez de `picking` ⇒ PS-64 la publica (o aparece en el catálogo) |
+| **PS-55** 💰 | Orden `vault` `settled`, colocación `placed`, carta `in_custody` sin retiro. M3 total ⇒ tras la tx de confirmación: pieza plataforma ~~`in_stock`~~ 🔒 **`picking`**, `ownerUserId null`, `ownershipStatus null`, `locationId` = el cajón; **un** movimiento `refund_return` (`in_custody → picking`) con el actor; `chargebackNeedsManual=true`; `fullRefundClosedAt` puesto; `GET /vault/holdings` ya no la lista; `POST /shipments` con ella ⇒ ~~`422 ITEM_NOT_IN_CUSTODY`~~ 🔒 v1.80.7 **`422 NOT_FOUND`** (§5; aserto único, ⛔ ya no se aceptan los dos); el catálogo **no** la lista | (a) no llamar a la rama `vault` desde `onFullRefund` ⇒ la carta sigue en «Mi bóveda» (**el hueco**); (b) 🔒 escribir `in_stock` (o `listed`) en vez de `picking` ⇒ PS-64 la publica (o aparece en el catálogo) |
 | **PS-56** 💰 | Colocación `pending` + M3 total ⇒ `cancelled`, `cancelReason='full_refund'`, `cancelledByUserId` = súper-admin; `confirm` ⇒ `409 PLACEMENT_NOT_PENDING {cancelReason:'full_refund'}`; con la colocación `placed` ⇒ sigue `placed` y la tx **no** aborta | (a) omitir la cancelación ⇒ sigue `pending` en la cola; (b) quitar `status:'pending'` del `WHERE` ⇒ el `CHECK` de `cancelled` aborta la tx sobre una `placed` |
 | **PS-57** 💰 (🔒 ampliada) | `charge.refunded` total simulado sobre una orden `vault` ⇒ mismos efectos que PS-55 con `actorUserId null`. **Secuencia directa** M3 → `chargeback-inventory recuperada` → webhook tardío ⇒ el webhook **no** escribe (flag sigue `false`, **un** movimiento `refund_return` por carta, **una** bitácora `order.full_refund_closed`, **cero** `order.vault_reclaimed`, **un** `AV-3`). 🔒 **Secuencia inversa (M5)** webhook → tx de confirmación de M3 (`retry` con el doble de Stripe respondiendo `succeeded`) ⇒ M3/`retry` **`200`**, fila del libro `submitted|succeeded`, orden `refunded`, **un** movimiento por carta, **una** bitácora, **un** `AV-3`, el sello con el instante del webhook. 🔒 **Carrera** tx-de-M3 vs webhook simultáneos (barrera en `Order FOR UPDATE`, N≥10) y dos entregas simultáneas del webhook (N≥10) ⇒ en **todas** las tiradas: un movimiento por carta, una bitácora, un `AV-3`, M3 `200` | (a) volver al no-op total del sello ⇒ PS-63 roja (ésta sigue verde: la distingue PS-63); (b) `Order → refunded WHERE status='settled'` estricto (sin `'refunded'`) y tratar `count 0` como error ⇒ la inversa da `409`/rollback; (c) quitar la lectura del sello bajo candado ⇒ dos `AV-3` o dos bitácoras en ≥1 tirada |
 | **PS-58** 💰 | M3 total con Stripe que **rechaza** (fila `failed`) ⇒ la carta sigue cliente `in_custody`, colocación `pending`, orden `settled`, `fullRefundClosedAt null` | mover `reclaimVaultOnFullRefund` a la tx que crea la fila ⇒ el cliente queda sin carta y sin dinero |
 | **PS-59** 💰 | Carta en un retiro `picking` **preparado** ⇒ M3 `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`, cero filas del libro, cero movimientos. Tras `DELETE …/prepared` ⇒ M3 `200`, pieza `returned` (`picking` plataforma), su línea `blocked`; `prepared` del retiro ⇒ **sin** `409 PREPARATION_HAS_BLOCKED_LINES` ni `WITHDRAWAL_LINE_ORIGIN_REFUNDED` (la bloqueada no cuenta) y la línea no pasa a `withdrawn` en `entregado`. Por webhook con el retiro preparado ⇒ pieza intacta **en esa pasada**, `vaultPieces[].state='in_packed_withdrawal'`, flag `true` (lo que pasa después: PS-63) | (a) quitar la precondición ⇒ M3 `200` con la carta en la caja; (b) en la rama, tratar «preparado» como «sin preparar» sin `unpackedConfirmed` ⇒ pieza revertida por webhook |
 | **PS-60** 💰 | **Cadena:** X faltó, se repuso con Y (caso C1, origen `oi`) ⇒ M3 total revierte **Y**, no toca X (ya merma de plataforma). **Re-compra:** Y re-comprada en O2 ⇒ M3 de O1 **no** toca Y (`other_purchase`). **Caso abierto:** original `lost` con caso `open` ⇒ intacta, caso sigue `open`, `void` ⇒ `200`; 🔒 **y `replace` y `found` sobre ese caso ⇒ `409 CASE_ORIGIN_NOT_SETTLED {originStatus:'refunded'}`, cero escrituras** (§M4-SHIP.15.4 paso 6, aseverado para este origen) | (a) usar `oi.inventoryItemId` en vez de `currentPieceOf` ⇒ Y se queda con el cliente; (b) quitar la comprobación de `resolveOrigin` ⇒ Y de O2 revertida; (c) 🔒 quitar el `FOR UPDATE`+chequeo de la orden en `replace` ⇒ se le repone la carta a quien ya cobró el reembolso |
-| **PS-61** | `chargeback-inventory` sobre `vault` `refunded`: `recuperada` ⇒ ~~`in_stock → listed`~~ 🔒 `picking → listed`, cero movimientos nuevos; `no_recuperada` ⇒ `picking → lost` + movimiento `lost` con actor y `/finance/shrinkage` la cuenta **una** vez; `reexpedir` ⇒ `409`; sobre `vault` `settled` ⇒ `400`; repetir ⇒ `409`; 🔒 una objetivo forzada por fixture a `in_stock` ⇒ `409 CONFLICT` y rollback; tras `recuperada`, una pasada `reclaim` nueva que reclama otra carta ⇒ flag `true` otra vez y `recuperada` **solo** toca la nueva (la anterior sigue `listed`, cero movimientos sobre ella). 🔒 v1.80.6 (M6): tras `no_recuperada`, `vaultPieces[]` la sigue dando `returned` con `pendingConfirmation:false` (la pieza `lost` con `refund_return` ≥ sello) | dejar la validación «solo `direct_ship`» ⇒ `400` y las cartas `picking` para siempre; 🔒 seleccionar objetivos por `in_stock` ⇒ `recuperada` no encuentra nada; 🔒 v1.80.6: atar `reclaimedBy` a la `note` (o a `createdAt > sello` estricto) ⇒ la primera pasada no cuenta y `recuperada` no encuentra nada |
+| **PS-61** | `chargeback-inventory` sobre `vault` `refunded`: `recuperada` ⇒ ~~`in_stock → listed`~~ 🔒 `picking → listed`, cero movimientos nuevos; `no_recuperada` ⇒ `picking → lost` + movimiento `lost` con actor y `/finance/shrinkage` la cuenta **una** vez; `reexpedir` ⇒ `409`; sobre `vault` `settled` ⇒ `400`; repetir ⇒ `409`; 🔒 una objetivo forzada por fixture a `in_stock` (⭐ v1.80.7: **con precio resuelto** — su estado de venta sería `listed`; §18.7 «idempotencia precisada») ⇒ `409 CONFLICT` y rollback; tras `recuperada`, una pasada `reclaim` nueva que reclama otra carta ⇒ flag `true` otra vez y `recuperada` **solo** toca la nueva (la anterior sigue `listed`, cero movimientos sobre ella). 🔒 v1.80.6 (M6): tras `no_recuperada`, `vaultPieces[]` la sigue dando `returned` con `pendingConfirmation:false` (la pieza `lost` con `refund_return` ≥ sello) | dejar la validación «solo `direct_ship`» ⇒ `400` y las cartas `picking` para siempre; 🔒 seleccionar objetivos por `in_stock` ⇒ `recuperada` no encuentra nada; 🔒 v1.80.6: atar `reclaimedBy` a la `note` (o a `createdAt > sello` estricto) ⇒ la primera pasada no cuenta y `recuperada` no encuentra nada |
 | **PS-66** 💰 (🔒 v1.80.6, SEC-SHIP-M7) | **El retiro vacío por reclamo se cierra y devuelve su tarifa.** Retiro de **una** carta, `picking` sin preparar (creado antes de la tx1) ⇒ M3 total confirmado ⇒ línea `blocked`, retiro sigue `picking`, `fullRefundClosedAt` puesto; la cola lo lista con `preparation { blocked:1, picked:0, pending:0, refundPreviewCents: totalCents }`; `prepared {expectedRefundCents: 0}` ⇒ `409 REFUND_PREVIEW_STALE {refundCents: totalCents}`; `prepared {expectedRefundCents: totalCents}` ⇒ `200 outcome:'closed_nothing_to_ship'`, **una** fila `shipment_fee` (`shipmentRequestId` del retiro, `amountCents = totalCents`, contra el PI del retiro), envío `cancelado`, `AV-12` **una** vez, `preparation.blocked` **no** aparece en `shipment.prepared.after.missing`; sin `409 PREPARATION_HAS_BLOCKED_LINES` (origen `refunded`). **Variante `unprepared`:** el mismo retiro preparado antes de la tx1 (fixture de PS-63) → confirmación por `retry` → `DELETE …/prepared` reclama la carta ⇒ `prepared` de nuevo ⇒ el mismo cierre. **Tope:** con `role=vault_operator` la fila cuenta en `usedCents` (24 h). **Mixto** (otra línea `picked` de una compra `settled`) ⇒ `prepared` ⇒ `200 outcome:'prepared'`, **cero** `shipment_fee`, el retiro sigue vivo sin la bloqueada | (a) dejar la frase «un retiro nunca produce `closed_nothing_to_ship` en `prepared`» en código (excluir retiros del cierre del paso 5) ⇒ retiro `picking` para siempre con la tarifa cobrada; (b) contar la bloqueada como `picked` en la regla de cierre ⇒ no cierra; (c) cerrar sin `shipment_fee` ⇒ envío `cancelado` y el cliente sin su tarifa |
 | **PS-62** | **`C-FULLREF-1`** verde con los llamadores exactos (🔒 v1.80.5: **cuatro** — M3 `refund`/`retry` vía `executeRefund`, `onChargeRefunded`, `unprepare` rama retiro, `reclaim-vault`; y `unpackedConfirmed` solo desde `reclaim-vault`); un `FulfillmentMode` sin rama ⇒ `onFullRefund` lanza; `unprepare`/`reclaim-vault` con `target` de un directo ⇒ lanza | llamar a `reclaimVaultOnFullRefund` desde otro sitio (o quitar el `throw` del despacho) ⇒ rojo; 🔒 pasar `unpackedConfirmed:true` desde `unprepare` ⇒ rojo |
-| **PS-63** 💰🔒 (SEC-SHIP-A5 (a)+(c)) | **Reclamo por pieza, no de un tiro.** Fixture «tx1 → retiro preparado → confirmación»: M3 tx1 `200` (fila `requested`, doble de Stripe con error transitorio); el retiro con esa carta se prepara **antes** de la fila (fixture: la fila se crea después del `prepared` — la guarda de PS-65 no aplica aún); `retry` ⇒ `200`, fila `submitted`, orden `refunded`, sello puesto, la pieza **intacta** (`in_custody`), `vaultPieces[].state='in_packed_withdrawal'`, `untouched` la nombra, flag `true`, **un** `AV-3`. Luego: `POST …/tracking` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED {items:[esa]}`, envío sigue `picking` preparado. `DELETE …/prepared` ⇒ `200 unprepared` **+ `reclaimed:[{orderId, inventoryItemIds:[esa]}]`**: pieza plataforma `picking`, **un** movimiento `refund_return` (actor = el operador), su línea `blocked`, **una** bitácora `order.vault_reclaimed`, flag `true`, **cero** `AV-3` nuevos, `fullRefundClosedAt` **sin cambio**. Un webhook tardío después ⇒ **cero** escrituras. `prepared` de nuevo ⇒ `200` sin esa línea. `POST /shipments` con ella ⇒ `422 ITEM_NOT_IN_CUSTODY`. **Variante `guia`** (webhook con el retiro en `guia`): `→enviado` ⇒ `409`; `reclaim-vault` sin `confirmUnpacked` ⇒ `200` con `reclaimed:[]` y la pieza intacta; con `confirmUnpacked:true` + `note` ⇒ pieza `picking` plataforma, un movimiento, línea `blocked`, bitácora `order.vault_reclaimed` con `unpackedConfirmed:true`; `→enviado` ⇒ `200` sin esa carta; `entregado` no la pasa a `withdrawn`. **Idempotencia:** `reclaim-vault` repetido ⇒ `200 reclaimed:[]`, cero escrituras. 🔒 **v1.80.6 (B12) — por pieza:** orden con **dos** cartas en **dos** retiros distintos, ambos en `guia` (webhook con los dos preparados) ⇒ `reclaim-vault {confirmUnpacked:true, inventoryItemIds:[A]}` ⇒ `reclaimed:[A]`, **B intacta** (`in_packed_withdrawal`), bitácora con `inventoryItemIds:[A]`; `{confirmUnpacked:true, inventoryItemIds:[X]}` con X ajena a la orden ⇒ `400 VALIDATION_ERROR {field:'inventoryItemIds'}`, cero escrituras; `{inventoryItemIds:[A]}` sin `confirmUnpacked` ⇒ `400` | (a) 🔴 dejar el no-op total del sello ⇒ tras el `DELETE` la pieza sigue del cliente (**carta y dinero**); (b) quitar el trigger de `unprepare` ⇒ ídem hasta que alguien llame `reclaim-vault`; (c) poner `chargebackNeedsManual=true` en una pasada que no reclamó nada ⇒ el webhook tardío re-abre la cola; (d) mandar `AV-3` en toda pasada ⇒ dos correos; (e) en `reclaim-vault`, reclamar la de `guia` sin `confirmUnpacked` ⇒ la variante `guia` sin confirmar cambia la pieza; (f) 🔒 v1.80.6: ignorar `inventoryItemIds` ⇒ B reclamada |
+| **PS-63** 💰🔒 (SEC-SHIP-A5 (a)+(c)) | **Reclamo por pieza, no de un tiro.** Fixture «tx1 → retiro preparado → confirmación»: M3 tx1 `200` (fila `requested`, doble de Stripe con error transitorio); el retiro con esa carta se prepara **antes** de la fila (fixture: la fila se crea después del `prepared` — la guarda de PS-65 no aplica aún); `retry` ⇒ `200`, fila `submitted`, orden `refunded`, sello puesto, la pieza **intacta** (`in_custody`), `vaultPieces[].state='in_packed_withdrawal'`, `untouched` la nombra, flag `true`, **un** `AV-3`. Luego: `POST …/tracking` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED {items:[esa]}`, envío sigue `picking` preparado. `DELETE …/prepared` ⇒ `200 unprepared` **+ `reclaimed:[{orderId, inventoryItemIds:[esa]}]`**: pieza plataforma `picking`, **un** movimiento `refund_return` (actor = el operador), su línea `blocked`, **una** bitácora `order.vault_reclaimed`, flag `true`, **cero** `AV-3` nuevos, `fullRefundClosedAt` **sin cambio**. Un webhook tardío después ⇒ **cero** escrituras. `prepared` de nuevo ⇒ `200` sin esa línea. `POST /shipments` con ella ⇒ ~~`422 ITEM_NOT_IN_CUSTODY`~~ 🔒 v1.80.7 **`422 NOT_FOUND`** (aserto único). **Variante `guia`** (webhook con el retiro en `guia`): `→enviado` ⇒ `409`; `reclaim-vault` sin `confirmUnpacked` ⇒ `200` con `reclaimed:[]` y la pieza intacta; con `confirmUnpacked:true` + `note` ⇒ pieza `picking` plataforma, un movimiento, línea `blocked`, bitácora `order.vault_reclaimed` con `unpackedConfirmed:true`; `→enviado` ⇒ `200` sin esa carta; `entregado` no la pasa a `withdrawn`. **Idempotencia:** `reclaim-vault` repetido ⇒ `200 reclaimed:[]`, cero escrituras. 🔒 **v1.80.6 (B12) — por pieza:** orden con **dos** cartas en **dos** retiros distintos, ambos en `guia` (webhook con los dos preparados) ⇒ `reclaim-vault {confirmUnpacked:true, inventoryItemIds:[A]}` ⇒ `reclaimed:[A]`, **B intacta** (`in_packed_withdrawal`), bitácora con `inventoryItemIds:[A]`; `{confirmUnpacked:true, inventoryItemIds:[X]}` con X ajena a la orden ⇒ `400 VALIDATION_ERROR {field:'inventoryItemIds'}`, cero escrituras; `{inventoryItemIds:[A]}` sin `confirmUnpacked` ⇒ `400` | (a) 🔴 dejar el no-op total del sello ⇒ tras el `DELETE` la pieza sigue del cliente (**carta y dinero**); (b) quitar el trigger de `unprepare` ⇒ ídem hasta que alguien llame `reclaim-vault`; (c) poner `chargebackNeedsManual=true` en una pasada que no reclamó nada ⇒ el webhook tardío re-abre la cola; (d) mandar `AV-3` en toda pasada ⇒ dos correos; (e) en `reclaim-vault`, reclamar la de `guia` sin `confirmUnpacked` ⇒ la variante `guia` sin confirmar cambia la pieza; (f) 🔒 v1.80.6: ignorar `inventoryItemIds` ⇒ B reclamada |
 | **PS-64** 💰🔒 (SEC-SHIP-A6) | **Ningún camino publica una congelada.** Orden `vault` `refunded` con dos devueltas (`picking` plataforma): `publish-all` sin filtro ⇒ **0** publicadas, las dos siguen `picking` (⛔ no aparecen ni como `alreadyListed`); `bulk-publish` con sus ids ⇒ línea `ok:false` **`422 ITEM_NOT_PUBLISHABLE`** por cada una; `PATCH {status:'listed'}` ⇒ `422 ITEM_NOT_PUBLISHABLE`; `move` de M1 a un estante `platform_stock` ⇒ `200`, `locationId` cambia, **y sigue `picking`** (su `tryAutoPublish` no la publica); el barrido de precios (disparador (c)) sobre su carta ⇒ sigue `picking`; `mark` ⇒ `422 ITEM_NOT_ADJUSTABLE`; el catálogo no la lista. 🔒 **v1.80.6 (SEC-SHIP-M6) — EN ESTE ORDEN: primero el `move`, después `chargeback-inventory recuperada`.** Tras el `move`, `GET /admin/orders/:id` sigue dando las dos `returned` con `pendingConfirmation:true`; `recuperada` ⇒ las **dos** `listed` (o `in_stock` sin precio, y **entonces** el disparador (c) sí la publica al resolver), ⛔ no `409 CONFLICT` por «sin objetivos» | (a) reclamar a `in_stock` en vez de `picking` ⇒ `publish-all` publica **2**; (b) añadir `picking` a `PUBLISHABLE_ORIGIN_STATUSES` ⇒ ídem (y rompe PS de M1: se reporta); (c) 🔒 v1.80.6: seleccionar objetivos por «último movimiento = `refund_return`» sin filtrar `move` ⇒ `recuperada` no encuentra nada (o `409`) y las dos siguen `picking` |
-| **PS-65** 💰🔒 (SEC-SHIP-A5 (b)) | **La carta de una compra en devolución no entra a una caja ni sale.** Orden `vault` `settled` con fila `order_full` `requested` (fixture) ⇒ `POST /shipments` con su carta ⇒ `422 ITEM_ORIGIN_REFUNDED`, `quote` la lista en `ineligible` con `origin_refunded`, `GET /vault/holdings` la da `withdrawable:false`; fila `failed` ⇒ vuelve a ser elegible. Retiro `picking` ya con esa carta `picked` (creado antes de la fila) ⇒ `prepared` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED {items:[…pendingFullRefund:true]}`, cero escrituras, sin sello; con la orden puesta `refunded` por fixture **sin** cierre ⇒ `prepared`, `tracking`, `→guia`, `→enviado` ⇒ `409` (`pendingFullRefund:false`, `orderStatus:'refunded'`); `entregado` desde `enviado` ⇒ `200`. Retiro **mixto** (una carta de otra compra `settled`) ⇒ el `409` nombra solo la afectada. **Carrera** `prepared` vs M3 tx1 (barrera en la fila `Order` de origen, N≥10) ⇒ en todas: o `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED`, o `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL` — nunca un retiro preparado con una fila `order_full` viva sobre su carta | (a) quitar la guarda de `setTracking`/`updateStatus` para retiros ⇒ guía `200`; (b) mirar solo `status ≠ settled` sin la fila `order_full` ⇒ el retiro se prepara en la ventana; (c) quitar la condición de `classifyItems` ⇒ `POST /shipments` `201` y `withdrawable:true` (y si solo se quita en una de las dos ⇒ divergencia lectura/escritura, roja igual) |
+| **PS-65** 💰🔒 (SEC-SHIP-A5 (b)) | **La carta de una compra en devolución no entra a una caja ni sale.** Orden `vault` `settled` con fila `order_full` `requested` (fixture) ⇒ `POST /shipments` con su carta ⇒ `422 ITEM_ORIGIN_REFUNDED`, `quote` la lista en `ineligible` con `origin_refunded`, `GET /vault/holdings` la da `withdrawable:false` (⭐ v1.80.7: **y `withdrawableReason:'origin_refunded'`**); fila `failed` ⇒ vuelve a ser elegible (`withdrawable:true, withdrawableReason:null`). Retiro `picking` ya con esa carta `picked` (creado antes de la fila) ⇒ `prepared` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED {items:[…pendingFullRefund:true]}`, cero escrituras, sin sello; con la orden puesta `refunded` por fixture **sin** cierre ⇒ `prepared`, `tracking`, `→guia`, `→enviado` ⇒ `409` (`pendingFullRefund:false`, `orderStatus:'refunded'`); `entregado` desde `enviado` ⇒ `200`. Retiro **mixto** (una carta de otra compra `settled`) ⇒ el `409` nombra solo la afectada. **Carrera** `prepared` vs M3 tx1 (barrera en la fila `Order` de origen, N≥10) ⇒ en todas: o `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED`, o `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL` — nunca un retiro preparado con una fila `order_full` viva sobre su carta | (a) quitar la guarda de `setTracking`/`updateStatus` para retiros ⇒ guía `200`; (b) mirar solo `status ≠ settled` sin la fila `order_full` ⇒ el retiro se prepara en la ventana; (c) quitar la condición de `classifyItems` ⇒ `POST /shipments` `201` y `withdrawable:true` (y si solo se quita en una de las dos ⇒ divergencia lectura/escritura, roja igual) |
 
 Mismas reglas que PS-1…PS-54: mutación demostrada **sobre copia del árbol entero**, con proporción y N en las carreras.
+
+⭐ **v1.80.7 — dos precisiones y una prueba nueva:**
+
+| # | Qué asevera | Mutación que la pone roja |
+|---|---|---|
+| **PS-57** (nota) | En las carreras de PS-57, una tirada en la que el webhook responde **`503 BUSY_TRY_AGAIN`** (la fila `Order` estaba tomada, §M4-SHIP.7) **cuenta como observada** si su reentrega (el arnés reenvía el mismo evento) deja los invariantes: un movimiento por carta, una bitácora, un `AV-3`, M3 `200`; y la tirada `503` en sí **cero** escrituras. Se reporta cuántas tiradas fueron `503` | — (es la regla de conteo; la mutación es la de PS-57 (c)) |
+| **PS-57c** 🔴💰 (v1.80.7, **backend: falta**) | **Un solo orden de candados entre la confirmación de M3 y el taller.** Orden `vault` `settled` con dos cartas; retiro `picking` sin preparar con **una** de ellas; M3 tx1 `200` con fila `requested` (doble de Stripe transitorio). **Barrera en la fila del retiro** (`ShipmentRequest FOR UPDATE`): `POST /admin/refunds/:id/retry` (confirmación, doble responde `succeeded`) vs `POST …/prepared` del retiro, N≥10 ⇒ en **todas** las tiradas: **cero** `40P01`, cero `503`, cero `500`; y o bien `prepared` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` (o `PREPARATION_HAS_BLOCKED_LINES` no: la bloqueada tiene origen `refunded`) y la pieza `returned`, o bien `prepared` `200` primero y la pieza `in_packed_withdrawal` con flag `true`; en los dos, `retry` `200`, fila `succeeded`, orden `refunded`, sello, **un** `AV-3`. Se reporta la proporción de cada desenlace con N | volver al orden de hoy (`Order → refunded` antes de `onFullRefund`) ⇒ interbloqueo en ≥1 tirada (`40P01` en el log de Postgres, y un `503`/`500` en una de las dos respuestas). Con barrera, la mutación es **determinista**: A sostiene `Order` y B el envío antes de soltar |
 
 ###### M4-SHIP.18.9 — Quién hace qué
 
@@ -24249,7 +24427,16 @@ la decisión, pero las tres son condición de aceptación)*:
       **al final** (aditivo, sin reordenar columnas existentes).
     - **⚠️ Frontera money-safe, repetida aquí a propósito:** `guideActualCostCents` **NO entra en `payoutNetCents`**.
       M7 **lee**; el pago **no cambia**.
-- `GET /api/v1/admin/finance/inventory-value` → `{ atReferenceCents, atCostCents, pendingPriceCount }`.
+  - ⭐ 💰 **v1.80.7 (ADITIVO, `M-61` — lo devuelto RESTA; nombres ratificados tal como backend los construyó,
+    `admin.service.ts · refundsInPeriod`):** `Res += { refundsCents: number, refundedFeesCents: number,
+    compensationsCents: number }`. `refundsCents` = mercancía + envío devueltos **netos** de IVA (libro `PaymentRefund`
+    `submitted|succeeded` por `submittedAt` **más** cubeta SPEI `paid` por `paidAt`; ⛔ nunca `pending`/`cancelled`/
+    `failed`/`requested`, y la fila Stripe `failed` con su sustituta SPEI **no** resta dos veces — PS-40);
+    `refundedFeesCents` = comisión de procesamiento devuelta; `compensationsCents` = lo pagado **por encima** de lo
+    cobrado en un `case_refund` (renglón propio «compensaciones por carta perdida»; ⛔ nunca resta IVA: no es
+    devolución de venta). **Fórmula:** `profitCents = (la de v1.51.1) − refundsCents − refundedFeesCents −
+    compensationsCents`. El candado `pnl-iva-neutral` sigue verde sobre las seis cifras heredadas (las tres nuevas no
+    dependen del dial de IVA: usan el IVA **persistido** por fila). **Un cuerpo** con el reporte de IVA (abajo).
   - **v1.28 (P-24, ADITIVO):** gana **`breakdown: { raw: InventoryValueBucketDTO, sealed: InventoryValueBucketDTO,
     graded: InventoryValueBucketDTO }`** con `InventoryValueBucketDTO = { atReferenceCents, atCostCents,
     pieceCount, pendingPriceCount }`. Misma base de valuación actual por pieza (referencia del acabado; sellado
@@ -24261,7 +24448,11 @@ la decisión, pero las tres son condición de aceptación)*:
     (`raw_atReferenceCents,…` — aditivo al final de la cabecera).
 - `GET /api/v1/admin/finance/custody-value` → `{ totalCustodyValueCents }` (valor en custodia de clientes).
 - `GET /api/v1/admin/finance/iva` — `?from=&to=` → `{ ivaCollectedCents, byOrder: [{ orderId: string, ivaCents: number, settledAt: string, status: string }, ...] }` (para conciliación/CFDI). El identificador de orden en cada item se llama **`orderId`** (no `id`).
-- `GET /api/v1/admin/finance/export.csv` — `?report=pnl|iva|inventory&from=&to=` → CSV. **El CSV de `pnl` espeja el shape del response (v1.4-finance):** cabecera `report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents` (la columna `shippingCents` se renombra a `shippingRevenueCents` y se añade `shippingCostCents`).
+  - ⭐ 💰 **v1.80.7 (ADITIVO):** `Res += { ivaRefundedCents: number, ivaNetCents: number }` — `ivaRefundedCents` = Σ IVA
+    de mercancía y envío de lo devuelto en el periodo (**mismo cuerpo y misma base temporal** que las tres cifras del
+    P&L: `refundsInPeriod`); `ivaNetCents = ivaCollectedCents − ivaRefundedCents`. `byOrder` no cambia. ⛔ Cero postura
+    fiscal (§M10-IVA.8): son cifras para conciliar, no una afirmación sobre qué se acredita.
+- `GET /api/v1/admin/finance/export.csv` — `?report=pnl|iva|inventory&from=&to=` → CSV. **El CSV de `pnl` espeja el shape del response (v1.4-finance):** cabecera `report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents` (la columna `shippingCents` se renombra a `shippingRevenueCents` y se añade `shippingCostCents`). ⭐ v1.80.7: gana `refundsCents,refundedFeesCents,compensationsCents` **inmediatamente antes de `profitCents`** (mismo orden que el objeto; las columnas de buylist de v1.51.1 siguen al final).
 
 ### M8 — Disputas (`vault_operator+`; recompra `super_admin`)
 - `GET /api/v1/admin/disputes` — cola `?status=&userId=&page=`
@@ -25098,7 +25289,10 @@ como si no hubiera margen»*. **Razón entera y la corrección de mi recomendaci
   stripeFeesCents: number,
   shippingCostCents: number,           // ⚠️ NETO: Σ (shippingCostCents − shippingCostIvaCents)
   shippingCostMissingCount: number,    // ⭐ NUEVO: nº de envíos LIQUIDADOS del periodo con costo en 0
-  profitCents: number
+  refundsCents: number,                // ⭐ v1.80.7 (M-61): mercancía + envío devueltos, NETOS de IVA (libro + SPEI paid)
+  refundedFeesCents: number,           // ⭐ v1.80.7: comisión de procesamiento devuelta
+  compensationsCents: number,          // ⭐ v1.80.7: pagado por encima de lo cobrado (case_refund); renglón propio, sin IVA
+  profitCents: number                  // ⭐ v1.80.7: … − refundsCents − refundedFeesCents − compensationsCents (§M7)
 }
 ```
 
@@ -26523,7 +26717,7 @@ cuelga de `User`). ⇒ para el invitado **no existe el pendiente**, no es que no
 | **AV-3** | **Reembolso** | `onChargeRefunded`, **solo el reembolso TOTAL** (el parcial ⛔ no transiciona y ⛔ no avisa). ⭐ **v1.80:** y **solo** si el total no lo completó la vía de carta faltante (fila `order_full`, o ninguna fila del libro) — §9, §M4-SHIP.7 | `guestEmail ?? user.email` | **MOTOR**: `if (order.status === 'refunded') return` |
 | **AV-4** | **Guía al COMPRADOR** (transportista + número) | ⭐ **`ShipmentsService.setTracking` — ⛔ JAMÁS el cambio de estado.** Ver R.3.a | R.5 (envío) | ⭐ **SELLO** `trackingNoticeSentAt`: `setTracking` **no tiene ninguna guarda** (`D-AV-1`) |
 | **AV-5** | **Salida del envío (`enviado`)** | `ShipmentsService.updateStatus(to='enviado')` | R.5 (envío) | 🔴 **v1.76 — CORREGIDO.** ~~MOTOR: la tabla `TRANSITIONS`~~ **era FALSO** (medido: **13/13 trials duplicaron**, 3–10 correos). **MOTOR sí, pero el que hay que construir: `updateMany` con `status = 'guia'` en el `WHERE` + `count === 1`** ⇒ **R.4.c**. ⛔ Sigue **sin columna nueva**: `shippedAt` es el sello |
-| **AV-6** | **Envío cancelado** | `updateStatus(to='cancelado')` | R.5 (envío) | 🔴 **v1.76 — CORREGIDO.** ~~MOTOR: `TRANSITIONS['cancelado'] = []`~~ **era FALSO** (medido: **4/5 trials duplicaron**). Que `cancelado` sea terminal impide **salir**, ⛔ no impide que **N peticiones entren a la vez** ⇒ **R.4.c**. ⛔ Sin columna nueva |
+| **AV-6** | **Envío cancelado** | `updateStatus(to='cancelado')` | R.5 (envío) | 🔴 **v1.76 — CORREGIDO.** ~~MOTOR: `TRANSITIONS['cancelado'] = []`~~ **era FALSO** (medido: **4/5 trials duplicaron**). Que `cancelado` sea terminal impide **salir**, ⛔ no impide que **N peticiones entren a la vez** ⇒ **R.4.c**. ⛔ Sin columna nueva. ⭐ **v1.80.7 (ratificado):** desde §M4-SHIP.9 `cancelado` a mano existe **solo desde `solicitado`** (`picking\|guia` ⇒ `409 PAID_SHIPMENT_NOT_CANCELLABLE`, cero correo; los cierres automáticos no pasan por aquí ni mandan `AV-6`) ⇒ la carrera de R.4.c se mide sobre un `solicitado` **sin cobrar** (`avisos-sellos.e2e-spec.ts`: dos `PATCH {cancelado}` sobre la misma lectura ⇒ dos `200`, **un** correo). Mismo aserto, otra fixture |
 | **AV-7** | **Guía al VENDEDOR** (+ **el plazo para enviar**) | `BuylistService.adminGuide` (guarda `updateMany` + `count === 1`) | `SellRequest.user.email` | ⭐ **SELLO** `guideNoticeSentAt`: `adminGuide` es **re-capturable a propósito** («se corrige el número, no se mueve la fecha»). Ver R.4.b |
 | **AV-8** | **Acuse de recibido al VENDEDOR** | `BuylistService.receive` | `SellRequest.user.email` | **MOTOR**: `stepWhere('receive')` + `count === 1` + `sealOnceTx('receivedAt')`; la repetición idempotente **no transiciona** |
 | **AV-9** | **Buylist PAGADA** | `BuylistService.paySpei` | `SellRequest.user.email` | **MOTOR**: corto-circuito idempotente sobre la fila ya `pagada` (medido en `SEC-B1`) |
