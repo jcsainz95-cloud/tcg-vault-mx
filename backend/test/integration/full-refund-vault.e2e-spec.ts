@@ -280,6 +280,96 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     expect(delta).toBe(0);
   });
 
+  it('PS-57d 💰 — contracargo y confirmación de M3, UNA semántica con el webhook (v1.80.7.2, D-a): (seq) disputa commit → `retry` ⇒ cierre por reembolso total hecho con la orden `chargeback` (sello, flag, colocación, cero `refund_return`, cero AV-3) y `charge.refunded` después ⇒ cero escrituras; (race, N=10) disputa encolada primero en `Order` vs `retry` ⇒ misma foto, cero 40P01/503/500', async () => {
+    // §M4-SHIP.18.2 (M5), norma v1.80.7.2: la tx de confirmación NO lee `Order.status` sin candado (paso (2) quitado);
+    // `onFullRefund` corre siempre, como en el webhook, y la clasificación va DESPUÉS de (4), bajo el candado de (3).
+    // Mutaciones: (a) el código de hoy (lectura previa sin candado ⇒ fin) ⇒ (seq) sello `null` ⇒ rojo; (b) semántica
+    // (a) del techlead (leer `status` tras el `FOR UPDATE` y salir sin escribir) ⇒ sello `null` en (seq) y en (race).
+    const dispute = (pi: string) => h.sendStripeWebhook({ type: 'charge.dispute.created', data: { object: { object: 'dispute', payment_intent: pi } } });
+    /** Orden `vault` `settled`, UNA carta `in_custody`, colocación `pending`, y la fila `order_full` `requested` (tx1 de M3, Stripe transitorio). */
+    const armed = async (name: string) => {
+      const u = await db.mkUser(name);
+      const vo = await db.mkVaultOrder(u.id, { prices: [50000], placement: 'pending' });
+      h.stripe.refundOutcome = 'transient';
+      expect((await m3(vo.order.id)).status).toBe(200);
+      const row = (await fullRow(vo.order.id))[0];
+      expect(row.status).toBe('requested');
+      return { u, vo, row };
+    };
+    /** La foto final que asevera la norma v1.80.7.2 (la misma en seq y en race). `placementReason` = quien llegó primero. */
+    const photo = async (t: Awaited<ReturnType<typeof armed>>, placementReason: 'chargeback' | 'full_refund') => {
+      const order = await db.order(t.vo.order.id);
+      const row = (await fullRow(t.vo.order.id))[0];
+      const ids = t.vo.pieces.map((p) => p.id);
+      const refundReturns = (await moves(ids, 'refund_return')).length;
+      const chargebackReturns = (await moves(ids, 'chargeback_return')).length;
+      const placement = await db.vaultPlacementRow(t.vo.placement!.id);
+      const closed = (await db.audits(t.vo.order.id, 'order.full_refund_closed')).length;
+      const ok =
+        row.status === 'succeeded' &&
+        order.status === 'chargeback' &&
+        order.fullRefundClosedAt !== null &&
+        order.chargebackNeedsManual === true &&
+        refundReturns === 0 &&
+        chargebackReturns === t.vo.pieces.length &&
+        placement.status === 'cancelled' &&
+        placement.cancelReason === placementReason &&
+        closed === 1 &&
+        av3().length === 0;
+      return { ok, desc: `row=${row.status},order=${order.status},seal=${order.fullRefundClosedAt ? 'set' : 'null'},flag=${order.chargebackNeedsManual},refund_return=${refundReturns},chargeback_return=${chargebackReturns},placement=${placement.status}/${placement.cancelReason},closed=${closed},av3=${av3().length}` };
+    };
+
+    // (seq) — la que falla HOY: disputa COMMIT, después `retry`.
+    bandeja = [];
+    const s = await armed('PS57d seq');
+    expect((await dispute(s.vo.pi)).status).toBe(200);
+    expect(await db.order(s.vo.order.id)).toMatchObject({ status: 'chargeback', fullRefundClosedAt: null });
+    h.stripe.refundOutcome = 'succeeded';
+    const rt = await db.retry(s.row.id, db.adminToken);
+    expect(rt.status).toBe(200);
+    const seq = await photo(s, 'chargeback');
+    // eslint-disable-next-line no-console
+    console.log(`[PS-57d seq] ${seq.desc}`);
+    expect(seq.desc).toBe(
+      `row=succeeded,order=chargeback,seal=set,flag=true,refund_return=0,chargeback_return=${s.vo.pieces.length},placement=cancelled/chargeback,closed=1,av3=0`,
+    );
+    expect(seq.ok).toBe(true);
+    // …y el `charge.refunded` de ese mismo reembolso llega después ⇒ CERO escrituras (convergencia con el webhook).
+    const snap = async () => ({
+      order: await db.order(s.vo.order.id),
+      pieces: await Promise.all(s.vo.pieces.map((p) => db.piece(p.id))),
+      moves: await db.movements(s.vo.pieces.map((p) => p.id)),
+      audits: await db.audits(s.vo.order.id),
+      placement: await db.vaultPlacementRow(s.vo.placement!.id),
+      rows: await db.refunds({ orderId: s.vo.order.id }),
+    });
+    const before = await snap();
+    expect((await db.chargeRefunded(s.vo.pi, s.vo.order.totalCents)).status).toBe(200);
+    expect(await snap()).toEqual(before);
+    expect(av3()).toHaveLength(0);
+
+    // (race, N=10) — barrera en `Order`; A = disputa (toma la pieza, espera `Order`), B = `retry` (espera la pieza detrás de A).
+    const outcomes: string[] = [];
+    let inter = 0;
+    for (let i = 0; i < N; i += 1) {
+      bandeja = [];
+      const t = await armed(`PS57d race ${i}`);
+      h.stripe.refundOutcome = 'succeeded';
+      const res = await db.forced(
+        () => db.holdRow('Order', t.vo.order.id),
+        () => dispute(t.vo.pi),
+        () => db.retry(t.row.id, db.adminToken),
+      );
+      if (res.interleaved) inter += 1;
+      const p = await photo(t, 'chargeback');
+      const ok = res.a.status === 200 && res.b.status === 200 && p.ok;
+      outcomes.push(`${code(res.a)},${code(res.b)},${p.desc}${ok ? '' : ',VIOLATION'}`);
+    }
+    h.stripe.refundOutcome = 'ok';
+    expect(report('PS-57d-dispute-vs-retry', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(inter).toBe(N);
+  });
+
   it('PS-61b — `chargeback-inventory` (recuperada) vs `reclaim-vault` sobre la misma orden `vault` `refunded` sellada, barrera en una pieza devuelta (N≥10): mismo orden (piezas → Order) ⇒ cero interbloqueos, nunca 5xx, los dos 200 y las piezas `listed`', async () => {
     // Techlead (v1.80.7, encargo): `resolveChargebackInventory` reclamaba `Order` (el claim) y DESPUÉS tomaba las piezas;
     // `reclaim-vault`/`unprepare` toman piezas → `Order`. Con el reclamo encolado primero en la pieza y el claim ya
