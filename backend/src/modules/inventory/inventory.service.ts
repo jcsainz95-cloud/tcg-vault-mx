@@ -3294,11 +3294,6 @@ export class InventoryService {
     return Buffer.from(out as ArrayBuffer);
   }
 
-  // v1.80.2.2: `exportGradeKey` (la llave propia del export) se RETIRÓ — errata «séptimo lector»
-  // (`M2-SK-5-7`): valuaba el sellado sin mapeo con la fila de cola `'sealed'`, el mapeado con el
-  // `finish` de la pieza y sin el gate del dial. El export valúa por `PricingService.valuationKeyFor`
-  // + `valuationCentsOf` como los otros seis lectores de patrimonio (censo VK-6, aserción por método).
-
   /** Condición legible por tipo: raw→rawCondition, sealed→sealedCondition, graded→empresa+grado. */
   private exportCondition(it: {
     productType: ProductType;

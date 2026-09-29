@@ -361,5 +361,8 @@ describe('BC-9(b) — un solo compositor del peldaño 1 (v1.80.2.2, §M2-B.11 pu
     }
     // El contador de argumentos distingue 3 de 2.
     expect(callArgCounts('quoteAcquisitionWithGuard(m, curve, r); quoteAcquisitionWithGuard(m, f(a, b))', 'quoteAcquisitionWithGuard')).toEqual([3, 2]);
+    // T-2: coma final (prettier trailingComma:all) y comas dentro de cadenas no inflan la cuenta.
+    expect(callArgCounts('g(\n  a,\n  b,\n)', 'g')).toEqual([2]);
+    expect(callArgCounts("g('x, y', `p,q)`, \"a\\\"b,\")", 'g')).toEqual([3]);
   });
 });

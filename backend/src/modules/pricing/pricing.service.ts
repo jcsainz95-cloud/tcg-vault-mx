@@ -1246,8 +1246,8 @@ export class PricingService {
   /**
    * ⭐ v1.80.2.2 (D-4 del techlead, 2026-09-29) — **el dial del sellado para un LOTE de lectores de
    * patrimonio, UNA lectura por petición y solo si hay sellado que gatear.** Es el `sourceOn` que
-   * consume `valuationCentsOf` (SK-5) en los siete lectores (holdings, holdingDetail, `/vault/sealed`,
-   * custodyValue, `/admin/vaults`, ownedItemRefs, inventoryValue, y el export `.xlsx`).
+   * consume `valuationCentsOf` (SK-5) en los ocho lectores (holdings, holdingDetail, `/vault/sealed`,
+   * custodyValue, `/admin/vaults`, ownedItemRefs, inventoryValue y el export `.xlsx`).
    *
    * Antes este cuerpo (`items.some(sealed) ? (await loadSealedSpreads()).sourceOn : false`) estaba
    * copiado seis veces; un lector nuevo lo copiaría por séptima vez o, peor, leería el dial de otra

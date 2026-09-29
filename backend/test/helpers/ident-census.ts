@@ -71,15 +71,30 @@ export function callArgCounts(code: string, fnName: string): number[] {
     let depth = 1;
     let commas = 0;
     let nonBlank = false;
+    let lastSignificant = '';
     let i = m.index + m[0].length;
     while (i < code.length && depth > 0) {
       const c = code[i];
+      if (c === "'" || c === '"' || c === '`') {
+        // Cadena: se salta entera (sus comas/paréntesis no cuentan); es UN token no vacío.
+        i += 1;
+        while (i < code.length && code[i] !== c) i += code[i] === '\\' ? 2 : 1;
+        nonBlank = true;
+        lastSignificant = c;
+        i += 1;
+        continue;
+      }
       if (c === '(' || c === '[' || c === '{') depth += 1;
       else if (c === ')' || c === ']' || c === '}') depth -= 1;
       else if (c === ',' && depth === 1) commas += 1;
-      if (depth > 0 && !/\s/.test(c)) nonBlank = true;
+      if (depth > 0 && !/\s/.test(c)) {
+        nonBlank = true;
+        lastSignificant = c;
+      }
       i += 1;
     }
+    // Coma final (`"trailingComma": "all"` de prettier): no abre un argumento más.
+    if (lastSignificant === ',') commas -= 1;
     out.push(nonBlank ? commas + 1 : 0);
   }
   return out;

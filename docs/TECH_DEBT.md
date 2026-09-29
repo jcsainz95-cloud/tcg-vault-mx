@@ -8117,3 +8117,44 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - El contrato (§M2-B.11 punto 8, v1.80.2.1) ya lo declara «límite conocido, no bloqueante»: un alias o `...args` esquiva
   a `ident-census`/`callArgCounts`; los canarios cubren la reintroducción literal y la revisión cubre el resto. Se anota
   aquí solo para que el próximo candado de forma no lo redescubra. **Sin disparador.**
+
+### T-2 · `ident-census.ts`: `callArgCounts` parcialmente cerrada; quedan genéricos y `methodBody` (backend, 2026-09-29, re-revisión techlead sobre `fae5a44`)
+- **Cerrado hoy (2026-09-29):** `backend/test/helpers/ident-census.ts` `callArgCounts` ya no cuenta la coma final
+  (`trailingComma: "all"` de `.prettierrc` daba 3 en una llamada de 2 argumentos partida en líneas ⇒ rojo falso) y
+  salta cadenas `'…'`/`"…"`/`` `…` `` con escapes. Canario en `test/money.bounty-cap.spec.ts` (final del último `it`,
+  «T-2»): `g(\n a,\n b,\n)` ⇒ `[2]` y una llamada con comas/paréntesis dentro de cadenas ⇒ `[3]`.
+- **Abierto 1:** `callArgCounts` no reconoce genéricos (`f<A, B>(x)`; la coma de `<A, B>` no está en un par
+  balanceado que el contador conozca) — solo cuenta si la llamada lleva `<…>` ANTES del `(` que ancla la regex, y el
+  ancla `\bfn\s*\(` ni siquiera casa con `fn<T>(`; y dentro de los argumentos, `<` de comparación es ambiguo.
+- **Abierto 2:** `ident-census.ts:52-54` `methodBody` no reconoce como frontera un miembro sin modificador
+  (`foo(...) {` a secas, o decorador) ⇒ el cuerpo del método anterior se extiende hasta el siguiente miembro con
+  modificador y puede contar usos ajenos.
+- **Disparador:** escribir un candado nuevo que use `methodBody` sobre un método seguido de un miembro sin
+  modificador, o `callArgCounts` sobre una función genérica.
+- **Comprobación de cierre:** canario de `methodBody` con un miembro sin modificador entre dos con modificador (el
+  cuerpo termina en él), y canario `callArgCounts('f<A, B>(x, y)', 'f')` ⇒ `[2]`.
+
+### T-3 · `money.bounty-cap.spec.ts` recorre y quita comentarios por su cuenta (backend, 2026-09-29)
+- `backend/test/money.bounty-cap.spec.ts:128,143,172`: segundo recorrido de ficheros y quitacomentarios propios en
+  lugar de `walkSources`/`stripComments` de `test/helpers/ident-census.ts`. Dos implementaciones del mismo recorrido
+  divergen en silencio (un fichero o forma de comentario que una ve y la otra no).
+- **Disparador:** tocar esos tres bloques o cambiar `walkSources`/`stripComments`.
+- **Comprobación de cierre:** `grep -n "readdirSync\|replace(/\\\\/\\\\*" backend/test/money.bounty-cap.spec.ts` sin
+  resultados y la suite en verde con las mismas cifras de aserciones.
+
+### T-4 · «basis==='bounty' ⇒ monto no nulo» solo vive en `money.ts` (backend, 2026-09-29)
+- `backend/src/modules/buylist/buylist.service.ts:1335`: `q.priceCents as number`. El invariante lo garantiza
+  `money.ts` pero el tipo no lo expresa; un cambio allí lo rompería con un `null` que el `as` esconde.
+- **Propuesta:** unión discriminada en `AcquisitionQuoteResult` (`{ basis: 'bounty'; priceCents: number } | { basis:
+  …; priceCents: number | null }`) para que el estrechamiento por `basis` haga innecesario el cast.
+- **Disparador:** tocar `AcquisitionQuoteResult` o `buylist.service.ts` cerca de `:1335`.
+- **Comprobación de cierre:** `grep -n "priceCents as number" backend/src/modules/buylist/buylist.service.ts` sin
+  resultados y `tsc` limpio.
+
+### T-6 · 13 dobles de `PricingService` hechos a mano (backend, 2026-09-29)
+- 13 suites construyen a mano su doble de `PricingService`; cada método nuevo del servicio obliga a tocarlas todas o
+  a que una quede con un doble desfasado que no falla.
+- **Propuesta:** fábrica compartida de dobles en `backend/test/helpers/` (p. ej. `makePricingDouble(overrides)`).
+- **Disparador:** añadir un método público a `PricingService` que consuman los lectores.
+- **Comprobación de cierre:** `grep -rln "as unknown as PricingService\|: PricingService = {" backend/test` no lista
+  suites con dobles literales; todas usan la fábrica.
