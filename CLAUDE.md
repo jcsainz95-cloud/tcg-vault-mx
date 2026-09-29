@@ -241,6 +241,61 @@ mío**. O lo mido, o lo relayo diciendo **de quién es y con qué N**.
 **Comprobación:** toda proporción en un mensaje mío lleva su **N** y su autor. `5/5` sin N es una afirmación sin
 medición, y se trata como **NO MEDIDO**.
 
+### O-16 · La máquina es un recurso compartido: no lanzo más de DOS gates con navegador a la vez
+Tres gates de QA con Playwright más una mutación mía en paralelo pusieron la carga en **135** (4 CPU). Medido:
+`cat` y `grep` agotando 120 s de timeout; un `git commit` atascado **33 min** en el firmador; `curl` muriendo por
+timeout y leyéndose como «red bloqueada»; workers de jest muertos por SIGKILL; un rojo de integración por timeout de
+30 s que no era conducta.
+
+> *De dónde viene:* 2026-09-29, sesión 4. Los tres gates eran correctos uno a uno; juntos, ninguno midió bien y
+> yo tampoco.
+
+**Comprobación:** antes de lanzar un gate con E2E, `cat /proc/loadavg`; si el load supera ~2× CPUs, el gate espera.
+Ningún rojo por timeout con carga > 2× CPUs cuenta como rojo hasta repetirlo con carga baja.
+
+### O-17 · Un encargo cita la fila de HECHOS, no mi resumen
+Mi encargo al product-owner decía «tope MX$5,000 **por reembolso**» y «botón de mercado con tope MX$5,000».
+`HECHOS.md` decía «tope del operador **en 24 h**» y ningún tope en pesos para el caso. El PO siguió HECHOS y me
+lo señaló; de haber seguido mi encargo, `PROJECT.md` habría contradicho al dueño.
+
+> *De dónde viene:* 2026-09-29, sesión 4. Es O-11 aplicada a los encargos: lo que sé es lo que está en git, no lo
+> que recuerdo, y eso vale también para lo que le digo a un agente.
+
+**Comprobación:** toda cifra o decisión del dueño en un encargo lleva su fila de `HECHOS.md` citada (fecha y
+primeras palabras), o va marcada «de memoria, verificar contra HECHOS».
+
+### O-18 · Un traspaso mide las ramas vivas, no solo `production`
+El traspaso de Skydropx (escrito por otra sesión) mandaba hacer tres cosas ya hechas o diseñadas en ramas vivas
+de esta sesión: los enlaces de correo (hecho en `arreglos-operador`), «preparado» como hito o estado (resuelto
+en §M4-SHIP) y la guía en `/orders` (diseñado en §M4-SHIP.16). Es O-5 en otro recurso: un pendiente sin
+medición contra **todas** las ramas manda a rehacer.
+
+> *De dónde viene:* 2026-09-29, sesión 4. Se cazó porque el traspaso se revisó antes de ejecutarlo; la
+> revisión vive en el propio traspaso (`docs/specs/SKYDROPX_TRASPASO.md §7`).
+
+**Comprobación:** un traspaso o pendiente lista las ramas `claude/*` no fusionadas y dice, por cada encargo, si
+alguna ya lo contiene (`git log origin/<rama> --oneline | grep …`).
+
+### O-19 · `pkill` solo por PID: un patrón que está en mi propia línea de comando me mata a mí
+Ejecuté `pkill -f "git commit -q -m docs(…)"` dentro de un comando cuya propia línea contenía el patrón: murió el
+comando entero antes de hacer nada (exit 144). Un agente de QA hizo `pkill -f "next-server.*" -P 1`, que podía
+tumbar servidores de otros agentes; y un agente frontend se mató a sí mismo igual.
+
+> *De dónde viene:* 2026-09-29, sesión 4, tres veces en un día.
+
+**Comprobación:** `pgrep -fl` primero, revisar la lista, y `kill <pid>` sobre procesos propios. Nunca `pkill -f`
+por patrón amplio, y nunca sobre un servidor que no sea del propio agente (O-8).
+
+### O-20 · Las copias del scratchpad se borran cuando su agente termina
+Al llegar al 95 % de disco, 12 GB eran copias de árboles de gates ya terminados. Un disco lleno rompe cosas que
+no fallan de forma obvia: jest «Killed», `prisma generate` a medias, un rojo que parece de conducta.
+
+> *De dónde viene:* 2026-09-29, sesión 4. Medido con `du -sh scratchpad/*`: 17 GB, de los cuales 13 GB sin agente
+> vivo.
+
+**Comprobación:** cada encargo de gate o construcción incluye «borra tu copia al terminar (deja logs y capturas)»;
+al arrancar la sesión, `du -sh scratchpad/*` y borrado de lo que no tenga agente vivo.
+
 ## Arranque y traspaso de sesión
 - **Tres ficheros, tres papeles:** `HECHOS.md` (lo que el dueño estableció y lo medido de infraestructura; no
   se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y **comprobación**, y sus
