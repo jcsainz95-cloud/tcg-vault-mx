@@ -4,6 +4,23 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80 — STREAM «PREPARAR ENVÍOS»: PALOMEAR Y PREPARAR EN ENVÍO, LA CARTA QUE FALTA SE REEMBOLSA (Y LA PUEDE
+> REEMBOLSAR EL OPERADOR), SIN «CANCELAR» EN ENVÍOS PAGADOS** (2026-09-29, arquitecto. Base: **v1.79.5, vigente entera
+> salvo lo que esta rev toca**. Origen: decisiones del dueño del 2026-09-29 (`HECHOS.md`) tras la auditoría E2E del
+> operador sobre production `a2da420`. `API_CONTRACT` sube a **v1.80**; norma entera en `API_CONTRACT §M4-SHIP`.
+> 💰 **DINERO + cambio de la política de dinero saliente ⇒ tres veredictos y revisión de seguridad obligatoria.**
+> Schema **`M-61`**.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | Palomeo y «preparado» en la cubeta ENVÍO (sello en `ShipmentRequest`, marca en `ShipmentItem`); la guía exige preparado | §4.57 (b)(c), `API_CONTRACT §M4-SHIP.5–.6` | **Sí** (backend, frontend) |
+> | **2** | 💰 Libro `PaymentRefund` (llave de negocio única = llave de Stripe, componentes congelados, estado); Stripe fuera de la tx | §4.57 (d)(e) | **Sí** (backend, `M-61`) |
+> | **3** | 💰 El operador origina reembolsos **solo** por la carta que no sale al preparar, con tope de 24 h; M3 total sigue `super_admin` | §4.57 (f), §7 | **Sí** · 🔒 seguridad |
+> | **4** | Se quita «cancelar» a mano en `picking`/`guia`; `solicitado` cancela su PI primero; reparación del residuo **propuesta** | §4.57 (g) | **Sí** |
+> | **5** | Identidad del comprador en la cola de envíos y M3; aviso = contador derivado; `toPrepare` incluye bóveda | §4.57 (h) | **Sí** |
+> | **6** | Desviaciones nuevas `D-SHIP-1…4` (guardas que faltan y que este diseño exige) | §9 | **Sí** (backend) |
+>
+> ---
 > **Rev v1.79.5 — «PARA BÓVEDA» TRAS LOS GATES: EL RIVAL DE LOS CAS ES EL CONTRACARGO** (2026-09-28, arquitecto. Base:
 > **v1.79.4, vigente entera salvo lo que esta rev toca**. Origen: veredictos de QA, techlead y seguridad sobre
 > `db7d1c2`. `API_CONTRACT` sube a **v1.79.5**. ⛔ **Sin schema, sin migración, sin endpoint, sin código de error, sin
@@ -25223,6 +25240,117 @@ fichero ya declara en su cabecera**.
 
 ---
 
+### 4.57 WS «Preparar envíos» (Órdenes y dinero × Inventario y vault) — palomear en ENVÍO, la carta que falta se reembolsa, y el operador puede reembolsar (v1.80, `M-61`, NORMATIVO, 💰 **DINERO**)
+
+> **Producto:** decisiones del dueño del 2026-09-29 (`HECHOS.md`, última fila) + `PROJECT §S.5` (CA #7, #13, #15,
+> #16). **Contrato (conducta normativa entera, pruebas PS-1…PS-17): `API_CONTRACT §M4-SHIP`.** Aquí vive el **por qué**
+> y lo descartado. Medido por el arquitecto el 2026-09-29 sobre `claude/envio-preparar` (production `a2da420` +
+> `86485a7`). ⚠️ `PROJECT §S.5` dice que marcar y reembolsar son personas distintas; el dueño decidió después que el
+> operador también reembolsa ⇒ el product-owner actualiza `PROJECT.md`; el diseño sigue a `HECHOS.md`.
+
+**(a) El problema, en el modelo.** En envío no existía ningún nodo para decir «esta carta no está»: `ShipmentItem` era
+solo un vínculo, y las dos ramas terminales de `updateStatus` mueven **todas** las líneas (por eso §4.21q (j) lo dejó
+fuera). Además el único reembolso del sistema es **total** y **sin monto** (Stripe elige el importe), el operador puede
+**cancelar** un envío pagado dejando piezas en `picking` para siempre y el dinero sin tocar, y la cola no dice **de
+quién** es cada fila.
+
+**(b) El ciclo, dicho entero:**
+
+```
+ShipmentRequest(picking) ──PATCH prep-items──► ShipmentItem: pending → picked | missing(not_found|damaged)   (reversible, sin dinero)
+        │
+        └──POST prepared {expectedRefundCents}──► en UNA tx: piezas faltantes → lost|damaged (+movimiento)
+                                                  + filas PaymentRefund(requested) + preparedAt/By + bitácora
+                                                  [+ si no sale nada: cierre (order_remaining | shipment_fee) y envío → cancelado]
+                                  ── commit ──► Stripe (llave del libro) → submitted|succeeded|failed ──► AV-12
+        │
+        └──POST tracking / PATCH →guia  (exigen preparedAt) ──► enviado ──► entregado   (las faltantes ya no son de nadie que salga)
+```
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| Marca por carta **en `ShipmentItem`** (reusa `PreparationItemStatus`) + sello en `ShipmentRequest` | Tabla gemela `ShipmentPrepItem` (como `VaultPlacementItem`) | En bóveda la tabla existía porque **no había** nodo (la colocación era nueva). Aquí `ShipmentItem` **ya es** la línea física, nace con el envío, y no la lee nada como dinero. Una tabla aparte sería una segunda fila por carta que sincronizar |
+| **El dinero se mueve al PREPARAR**, no al marcar | Reembolsar en el `PATCH` que marca `missing` | Marcar es un gesto de estante y se equivoca; el dinero no se deshace. Al preparar hay un acto único, confirmado con la cifra, bajo un candado. «Deshacer preparado» reabre marcas **no reembolsadas** |
+| `missingReason` `not_found ⇒ lost` / `damaged ⇒ damaged` | Devolver la pieza a `in_stock` «por si solo faltaba ubicarla» | Si solo faltaba ubicarla, el camino es **ubicarla** (hueco 1 de la auditoría: mover una pieza en `picking` desde M1, que el backend ya permite) y palomearla. Marcar «no la encontré» es declarar una merma **con firma**. Ponerla `in_stock` sin ubicación la contaría como inventario vendible que nadie tiene |
+| La guía **exige** preparado | Dejarlo opcional (como hoy) | Sin esto un paquete sale con una carta faltante **sin reembolsar**. La condición va en el `WHERE` de `setTracking`/`updateStatus` (`REL-B/REL-C`) |
+| Estado «preparado» = **sello**, no un `ShipmentStatus` nuevo | `ShipmentStatus.preparado` | Mismo argumento que §4.21q (j): `ShipmentStatus` lo leen el P&L, el tablero, el anti-doble-retiro, `HoldingDTO`, la vista del invitado y `TRANSITIONS`; un valor nuevo obliga a todos a decidir |
+
+**(c) La puerta: el candado de la FILA del envío, no uno advisory.** En bóveda la regla cruzaba pedidos (un cliente = un
+cajón) y la puerta tenía que ser por cliente. Aquí todo lo que decide un acto vive en **un** envío, y sus rivales
+(`updateStatus`, `setTracking`, el contracargo de un directo) **escriben esa fila** ⇒ un `SELECT … FOR UPDATE` los pone en
+cola **sin que nadie los toque**. Orden de candados normativo: envío → piezas (id asc.) → órdenes (id asc.) → libro. El
+contracargo de bóveda (piezas → orden) es compatible con ese orden. **El rival que no toma la puerta** —y por eso el que
+muerde las pruebas (lección de §4.21q (o))— es el **contracargo de bóveda sobre la orden de origen de un retiro**.
+
+**(d) 💰 El libro `PaymentRefund`: por qué filas y no una columna acumulada.**
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| **Una fila por reembolso**, con `idempotencyKey @unique` = llave de negocio **y** de Stripe | `Order.partialRefundedCents` (el borrador de §M4-PREP) | Una columna acumulada es **la suma de hechos que no guarda** ⇒ no dice qué carta, quién ni cuándo, y **dos fuentes** en cuanto exista la fila de detalle que el operador y el cliente necesitan ver. La suma se calcula bajo candado |
+| `shipmentItemId @unique` **y** `orderItemId @unique` | Solo uno | Una carta puede viajar en dos envíos (re-expedición tras contracargo): la unicidad por `orderItemId` es la que impide reembolsarla dos veces |
+| **Componentes congelados** en la fila (mercancía, IVA, envío, comisión) | Re-derivarlos en M7 | Doctrina del snapshot (§5.2) e IVA (§4.44.j): la flecha va **precio → desglose, una vez**. El cierre (`order_remaining`) depende de las filas previas: re-derivarlo sería frágil |
+| Solo `IVA_INCLUSIVE` | Soportar las dos convenciones | La identidad `importe = mercancía + envío + comisión` es exacta con el IVA dentro; `HECHOS.md`: no hay ventas reales previas a D56. ⛔ NO MEDIDO el conteo de filas `IVA_EXCLUSIVE` liquidadas: lo mide backend |
+| Comisión por `floor(F·P/G)` y el residuo al cierre | `round`/`ceil` | `Σ floor ≤ F` ⇒ la suma por carta **nunca** excede lo cobrado; si no sale nada, el cierre devuelve el residuo ⇒ identidad **±0** |
+| El cobro de un retiro se reembolsa solo si **no sale ninguna** carta | Prorratearlo por carta | El envío es un servicio indivisible: si sale una carta, el paquete viajó. Si no sale nada, no hubo servicio |
+| La carta de un retiro se reembolsa **contra la orden en que se compró** | Contra el cobro del retiro | El cobro del retiro es el envío; el dinero de la carta está en su orden de origen (H8 de `§M4-SHIP.1`: toda carta de bóveda viene de una línea de orden `vault`) |
+
+**(e) 💰 Stripe fuera de la transacción, con el libro como «bandeja de salida».** La transacción **registra el hecho**
+(fila `requested`, piezas, sello) y **después** se llama a Stripe con la llave del libro. *Por qué no dentro:* §4.50
+ya midió lo que cuesta sostener conexión y candados durante una llamada de red (`stripe-in-tx-pool.e2e-spec.ts`), y aquí
+serían **N** llamadas bajo los candados de envío, piezas y órdenes. *Por qué no antes:* un reembolso sin fila es dinero
+que salió sin registro. Con la fila primero: un fallo transitorio deja `requested` y el **reintento** usa la misma llave
+**y** busca por `metadata.paymentRefundId` antes de crear (la memoria de idempotencia de Stripe caduca a las 24 h; el
+libro no). `failed` es terminal y va al súper-admin.
+
+**(f) 💰 El permiso — lo que cambia en la política de dinero (para seguridad).** Hasta hoy: *«el dinero que sale solo
+lo toca el súper-admin»* (§7). El dueño decidió que el operador también reembolse **la carta que falta**. Lo que
+sustituye a la separación de poderes: el reembolso **no es un verbo** que el operador invoque con un importe; es la
+**consecuencia** de un acto de preparación sobre un envío **en preparación**, con importe del servidor, una vez por
+línea, acotado a lo cobrado, con **tope de 24 h por operador** (dial) serializado por una puerta por operador, con la
+pieza pasada a merma **con su firma**, y con un candado estático (`C-REF-1`) que prohíbe un tercer camino de reembolso.
+*El vector de abuso real no es el importe —lo fija el servidor— sino la colusión: marcar «no la encontré», reembolsar al
+cliente y quedarse la carta.* Lo que lo hace visible: la merma firmada en M7, la bitácora por fila, y la vista del
+súper-admin. ⛔ **M3 total sigue `@MoneyOut`**: no tiene ninguno de esos límites.
+
+**(g) Quitar «cancelar» a mano en un envío pagado.** `cancelado` sale de `TRANSITIONS.picking/guia`; los tres
+escritores automáticos (pago fallido, contracargo, cierre por «no sale nada») no pasan por `TRANSITIONS` y **quedan**.
+`solicitado` se sigue pudiendo cancelar (no hay dinero) pero **cancela primero su PaymentIntent**: hoy, un `solicitado`
+cancelado a mano que el cliente paga después deja un cobro sin envío (`onPaymentSucceeded` solo avanza `solicitado`).
+**Residuo** (envíos cancelados a mano antes de v1.80): consulta de solo lectura y reparación propuesta en
+`API_CONTRACT §M4-SHIP.9` — re-abrir el directo como envío nuevo en `picking` (y el flujo nuevo reembolsa lo que falte);
+los retiros, caso por caso. ⛔ No ejecutada; esperado: solo datos de modo prueba.
+
+**(h) Identidad, aviso y tablero.** El comprador de un directo con cuenta es `Order.userId` (el envío nace con `userId
+null`) — la tarjeta dejaba de nombrar al comprador y nombraba al destinatario. `customerDisplayName` se extiende a la
+tarjeta `ship` (cierra la asimetría de §4.21q (l)). **Aviso de pedido nuevo = contador derivado y sondeado**: misma
+doctrina que la campana del cliente (§4.54, `API_CONTRACT §R.2`) — un pendiente que se deriva no puede quedar viejo; un
+correo por pedido sería ruido y PII; un canal en vivo sería infraestructura nueva para ahorrar ≤ 60 s. El tablero gana
+`toPrepare` (incluye bóveda) sin redefinir `shipments`.
+
+**(i) Invariantes nuevos (normativos):**
+- `INV-SP-1` — `ShipmentRequest.status ∈ {guia, enviado, entregado}` y nacido tras `M-61` ⇒ `preparedAt NOT NULL`
+  (lo garantiza el `WHERE` de `setTracking`/`updateStatus`; ⛔ no es `CHECK` porque los envíos previos no tienen sello).
+- `INV-SP-2` — `Σ amountCents` de las filas **no fallidas** de un cobro `≤` su `totalCents` (candado de fila del cobro).
+- `INV-SP-3` — una `OrderItem` y una `ShipmentItem` tienen **a lo más una** fila `item_missing` (`@unique`).
+- `INV-SP-4` — línea con fila `item_missing` ⇒ su pieza **no** es del cliente y está `lost|damaged` (misma tx).
+- `INV-SP-5` — `amountCents = merchandise + shipping + processingFee` (**CHECK**).
+- `INV-SP-6` — el operador **no** crea filas del libro fuera de `prepared`/`retry` (`C-REF-1`).
+
+**(j) Zonas compartidas (para el orquestador).** `backend/prisma/` (`M-61`), `common/money.ts` (fórmula),
+`common/error-codes.ts`, `payments` (webhooks, contracargo de bóveda, Stripe), `orders` (M3), `shipments` (verbos, cola,
+`updateStatus`, `setTracking`), `inventory` (piezas), `admin` (tablero, M7/IVA), `settings` (dial), frontend
+`src/types/contract.ts` y las pantallas `(admin)` M3/M4 y `(storefront)` pedidos/retiros/seguimiento. Cruza **tres**
+streams ⇒ se serializa entero; ⛔ NO MEDIDO si otra sesión tiene abiertas esas zonas (lo comprueba el orquestador).
+
+**(k) Abierto / no decidido aquí.** Las cuatro preguntas al dueño (`API_CONTRACT §M4-SHIP.13`: D-1 comisión, D-2 precio
+pagado vs. actual en retiros, D-3 tope, D-4 bóveda) con su valor por defecto. **Recuperar una pieza `lost` que
+aparece** (no hay verbo `lost → in_stock`, `§M4-SHIP.1` H10): no entra; es del stream «Inventario y vault» y se anota. Un
+**contracargo de bóveda revierte a la plataforma una carta que va en un retiro `picking`** (conducta previa, H9): este
+diseño la hace **visible** (la línea sale `blocked` y no se envía) y la guarda nueva impide re-listar una `lost`, pero
+decidir qué pasa con ese retiro es de «Órdenes y dinero».
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -25870,6 +25998,8 @@ miente en la otra dirección cuesta lo mismo que uno que no mide.*
 | M2 Precios (sync, override, FX, tabla rareza) | — | — | ✅ |
 | M3 Órdenes ver | — | ✅ (solo lectura) | ✅ |
 | **M3 Reembolso (dinero saliente)** | — | ❌ (bloqueado + auditado) | ✅ |
+| 💰 **Reembolso de la carta que no sale al preparar un envío** (v1.80, `API_CONTRACT §M4-SHIP.8`) | — | ✅ **solo** vía `POST /admin/shipments/:id/prepared` (y su `retry`), con tope de 24 h y bitácora | ✅ (sin tope) |
+| M4 **cancelar a mano** un envío pagado (`picking`/`guia`) (v1.80) | — | ❌ `409 PAID_SHIPMENT_NOT_CANCELLABLE` | ❌ ídem |
 | M4 Retiros/envíos (picking, guía, estados) | — | ✅ | ✅ |
 | M5 Buylist hasta **verificación** (recibir, verificar, decidir/ajustar) | — | ✅ | ✅ |
 | **M5 Pago SPEI (dinero saliente)** | — | ❌ (bloqueado + auditado) | ✅ |
@@ -25882,6 +26012,8 @@ miente en la otra dirección cuesta lo mismo que uno que no mide.*
 | M10 Bitácora (lectura) | — | ❌ | ✅ |
 
 Regla de oro: **el dinero que sale solo lo toca el súper-admin**; todo queda en bitácora.
+⭐ **v1.80 — una excepción, decidida por el dueño el 2026-09-29 y acotada (§4.57 (f)):** el operador origina el
+reembolso de la carta que no sale al preparar un envío. ⛔ No se extiende por analogía a ningún otro dinero saliente.
 
 **Invitado (sin cuenta) — v1.21-guest-checkout.** No es un `Role` (no hay fila `User`, no hay JWT, no hay rol que
 escalar): es la **ausencia** de sesión, y su superficie es una lista cerrada de endpoints `@Public()`
@@ -25987,6 +26119,33 @@ Riesgos técnicos:
 > **`C-AV-<n>`** son **los candados** (§R.9) y **`D-AV-<n>`** son **estas desviaciones**. ⛔ **Y `D-AVISO-1` NO es
 > mío**: así llama `PROJECT §R.2` a la **regla de canal de tres cláusulas**; se cita, no se renumera. *(`D-AVISO-2`
 > —sellar y luego enviar, §4.54.3— sí es mío, y por eso lleva la palabra entera y no el prefijo corto.)*
+
+> **⭐ v1.80 — IDS `D-SHIP-*` (stream «Preparar envíos», §4.57).** Espacio de nombres propio. Todas **derivadas de
+> LEER** el código del worktree `claude/envio-preparar` (production `a2da420` + `86485a7`) el 2026-09-29; ⛔ **NO
+> MEDIDAS en ejecución** — cada una trae la medición que la cierra, que es su prueba en `API_CONTRACT §M4-SHIP.12`.
+> **Dueño: backend.** Se corrigen **dentro** del stream (el diseño las exige), ⛔ no como deuda.
+
+- **🔴 ABIERTA (v1.80) — `D-SHIP-1`: `updateStatus → entregado` (retiro) escribe `withdrawn` sin guarda de estado.**
+  `shipments.service.ts · updateStatus`, rama `!isDirectShip && to === 'entregado'`: `findUnique` + `if (status ===
+  'withdrawn') continue` + `inventoryItem.update({ where: { id } })`. Con una carta faltante (`lost`, ya de la
+  plataforma) la pasaría a `withdrawn`. Norma: `updateMany` con `status:'in_custody' ∧ ownerType ∧ ownerUserId` en el
+  `WHERE`. Cierra: **PS-9**.
+- **🔴 ABIERTA (v1.80) — `D-SHIP-2`: el contracargo de bóveda re-lista una pieza que ya no es del cliente.**
+  `payments.service.ts · onChargeDisputeVault`: `WHERE { id, OR:[status ≠ reserved, reservedByOrderId = orden, null] }`
+  ⇒ una pieza `lost`/`damaged` (carta faltante reembolsada) volvería a `listed` de plataforma: **a la venta sin
+  existir**. Norma: exigir `ownerType='customer' ∧ ownerUserId = order.userId ∧ (status='in_custody' ∨ reserved de esta
+  orden)`; con `count 0`, la regla de hoy (`needsManual`). Cierra: **PS-8**.
+- **🔴 ABIERTA (v1.80) — `D-SHIP-3`: el reembolso de M3 escribe la orden sin estado en el `WHERE` y pide a Stripe «todo»
+  sin monto.** `admin-orders.controller.ts · refund`: `stripe.refund(pi, idem)` sin `amount` y `order.update({ where:
+  { id } })`. Con reembolsos parciales previos, el registro y Stripe divergirían. Norma: `API_CONTRACT §M3` v1.80
+  (remanente bajo candado, fila `order_full`). Cierra: **PS-11**.
+- **🟡 ABIERTA (v1.80) — `D-SHIP-4`: la tarjeta `ship` de un directo con cuenta titula con el destinatario.**
+  `settleDirectShipOrder` crea el envío con `userId: null` y `toPreparationOrder` usa `s.user ? User.name :
+  recipientName` ⇒ para un cliente con cuenta sale el nombre del **destinatario**. Norma: `API_CONTRACT §M4-SHIP.3`
+  «Fuente del cliente». Cierra: **PS-16**.
+- **ℹ️ Observación (v1.80, no de este stream):** `inventory.service.ts · markItem` no tiene guarda de estado (marca
+  `lost` cualquier pieza, también `in_custody` de un cliente o `picking` de un pedido pagado). Para «Inventario y
+  vault». ⛔ NO MEDIDO si la pantalla lo permite hoy.
 
 - **🔴 ABIERTA / ⛔ BLOQUEANTE (v1.76) — `D-AV-4`: `PATCH /admin/shipments/:id/status` MANDA DE 3 A 10 CORREOS POR
   UNA TRANSICIÓN ÚNICA, Y ESTE DOCUMENTO DECÍA QUE NO PODÍA.** **Dueño: backend** (`shipments`).
@@ -28354,6 +28513,21 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.80-preparar-envios (**M-61**: palomeo en envío + libro de reembolsos — **DDL ADITIVO + 3 enums + CHECKs + seed de un dial, SIN backfill**, §4.57)
+
+Forma normativa entera en `API_CONTRACT §M4-SHIP.2`. Resumen: enums `MissingReason`, `PaymentRefundKind`,
+`PaymentRefundStatus`; `ShipmentRequest` + `preparedAt`, `preparedByUserId`; `ShipmentItem` + `prepStatus` (enum
+existente `PreparationItemStatus`, default `pending`), `prepMarkedAt`, `prepMarkedByUserId`, `missingReason`; tabla
+`PaymentRefund` (`idempotencyKey @unique`, `orderItemId @unique`, `shipmentItemId @unique`, `stripeRefundId @unique`,
+componentes congelados, actor y rol, sellos por estado, `customerNotifiedAt`); `CHECK`s de sellos pareados, de «un cobro
+y solo uno», de forma por `kind` y de identidad del importe. Seed `ConfigSetting operator_refund_cap_24h_cents` (valor:
+decisión D-3 del dueño; propuesto `500000`) con la regla de propagación §11.0.
+- **Número:** `M-61` (⚠️ `M-60` ya es `decks-portada`, `BACKEND_NOTES`); lo confirma backend contra `migrations/`.
+- **Sin backfill:** `HECHOS.md` — la tienda no ha procesado ventas reales. Los envíos vivos nacen sin sello y sus
+  cartas `pending`: habrá que palomearlos antes de capturar su guía (`INV-SP-1`).
+- **Reversible:** sí mientras el libro esté vacío (quitar columnas y tabla). Con filas en el libro ⛔ **no** se revierte
+  borrando: son registro de dinero que salió; el rollback es de código, con la tabla conservada.
 
 ### v1.68-stream-b (**M-53**: la reserva conoce a su orden y a su vencimiento — **DDL ADITIVO, nullable, SIN backfill**, §4.48.2)
 
