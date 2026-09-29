@@ -4,6 +4,16 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.2.2 — ERRATA: DOS DECISIONES DEL TECHLEAD SOBRE `a3cde51` (2026-09-29, arquitecto. Base: **v1.80.2.1,
+> vigente entera salvo lo que esta errata toca**. `API_CONTRACT` sube a **v1.80.2.2**. ⛔ Sin schema, sin migración, sin
+> endpoint, sin campo, sin código de error.)**
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | **D-3:** la vitrina y el composer dejan de copiar a mano el peldaño 1 del bounty y **consumen `quoteAcquisitionWithGuard`**; BC-9 se redacta en tres partes (tope único, compositor único, publicado == pagado por valor). La línea «tres llamadores» de v1.80 queda como historia: el tope tiene **un** llamador (`quoteAcquisitionFromCurve`) | §4.36.6e (fila nueva), §4.50.6 (D-BC-1) | **Sí, backend (pequeño)** |
+> | **2** | **D-5 / SEC-DIN-1:** el export `.xlsx` de inventario es el **séptimo** lector de patrimonio; entra a SK-5 ahora (no es deuda) | §4.50.1-bis (nota), §4.50.6 (D-SK-4) | **Sí, backend (pequeño)** |
+>
+> ---
 > **Rev v1.80.2 — DINERO: EL GUARDARRAÍL PREMIUM VUELVE A MORDER CUANDO EL BOUNTY SE TOPA CONTRA UN MERCADO ROTO**
 > (2026-09-28, arquitecto. Base: **v1.80.1, vigente entera salvo lo que esta rev toca**. Origen: `BACKEND_NOTES`
 > §0.55.3, commit `c77ebc8`. `API_CONTRACT` sube a **v1.80.2**; norma y pruebas BG-1…BG-8 en `§M2-B.11` punto 8.
@@ -14795,6 +14805,7 @@ COMPRA:  bounty VÁLIDO ⇒ paga min(bounty, mercado)   >  buyOverrideCents (ABS
 | Consola: `payoutCents` + `cappedByMarket` **informativos**; `state` igual | Nuevo `state` `topada`; entrar al grupo de atención | «No se avisa al dueño por ese motivo». Pero **ver** cuánto paga no es un aviso: sin el número, el dueño configuraría 1200 creyendo que paga 1200 (la ceguera sobre dinero que motivó D52) |
 | ⛔ No retroactivo: nada congelado se reescribe | Backfill de `quotedPriceCents` | La oferta **ya** se deriva al ofertar con reglas vigentes (§4.39h); el tope entra por ahí sin tocar historia. Un backfill reescribiría la cifra que el vendedor vio |
 | El override manual (variante y oferta) ⛔ no se topa | Topar todo pago de compra | La decisión es sobre el bounty. El override es absoluto (criterio 89) y el de la oferta exige motivo (148(a)): son actos humanos deliberados |
+| ⭐ **v1.80.2.2 (errata D-3):** la vitrina y el composer **consumen `quoteAcquisitionWithGuard(mercado, curva, fila)`** — presente ⇔ `basis==='bounty'` ∧ guardarraíl `ok`; publican `priceCents`. Fuera de `money.ts`: **cero** usos de `bountyPayoutCents`/`bountyGuardBasis`; `isBountyEffective` solo en el censo cerrado de dos (gate del alta; consejo de posición) | Mantener la copia manual del peldaño 1 (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + `quoteAcquisitionFromCurve(m, curve)` ×2) con un candado nuevo «publicado == pagado» | La copia manual **es** el cuerpo de la hermana con la firma abierta; ya divergía en el `clampCents` (`money.ts:292` vs `buylist.service.ts:1330`), inobservable hoy porque `bountyPriceCents ≤ MAX_CENTS` al escribir — y por eso un candado por valor **no puede morderla**. Lo único que garantiza publicado == pagado por construcción es que exista **un** compositor. Conducta idéntica; el techlead lo midió y yo había normado lo construido sin preguntar si era la forma mínima (`API_CONTRACT §M2-B.11` BC-9 y punto 8) |
 | ⭐⭐ **v1.80.2:** bounty **topado** en una chase cuya curva cayó al bin ⇒ **pendiente** (`premium_at_floor`), igual que sin bounty | (a) Pagar el mercado topado (v1.80 literal: MX$1 por una chase con bounty de MX$9,000); (b) pagar el bounty completo; (c) tratar ese mercado como ausente (⇒ (b)) | (a) usa como **dinero** el dato que §4.36.5 existe para no creer: publica y congela un número absurdo, y el vendedor lo ve. (b)/(c) pueden pagar **por encima** del mercado real, que es justo lo que el dueño prohibió — y no hay forma de saberlo con el dato roto. Pendiente es el error **recuperable** de §N.0: no se paga nada que no se pueda justificar, la cola lo hace visible y el operador fija el precio con motivo al ofertar. «No se bloquea por ese motivo» habla del tope; aquí el motivo es el mercado roto, que ya bloqueaba sin bounty. La exención de §4.36.5 existía porque el monto **era** la decisión del admin; con tope, deja de serlo |
 
 **Efecto en los topes AML (§4.36.6a):** el tope **baja o deja igual** montos de compra, nunca los sube ⇒ los acumulados
@@ -24149,6 +24160,13 @@ también la que produce la llave de **cola** —justo el uso legítimo de `'seal
 llamadores que no he medido uno a uno. Cambiarla arregla seis lectores a cambio de un riesgo sin censo en la cola y
 en la publicación. *Se arregla donde está el defecto, no donde es más corto escribirlo.*
 
+> ⭐ **v1.80.2.2 — «seis» estaba mal contado por segunda vez.** Hay un **séptimo** lector: el export `.xlsx` de
+> inventario (`inventory.service.ts` `exportGradeKey`). Backend lo encontró al escribir las razones del censo VK-6 y lo
+> reportó (como el contrato le pedía); yo lo dejé en una nota de backend y no en el contrato, y lo levantaron el
+> techlead (D-5) y seguridad (SEC-DIN-1). **Entra a SK-5 ahora, no como deuda:** la puerta existe, el censo existe, y
+> SK-2 dice «sin excepción». El razonamiento de abajo no cambia; la cuenta sí. Norma, tabla (fila 7) y candados
+> VK-6 (modificada) / VK-8a-d: `API_CONTRACT §M2-SK SK-5`, errata «séptimo lector». Desviación: §4.50.6 **D-SK-4**.
+
 **La decisión: una sola puerta para valuar patrimonio.** `PricingService.valuationKeyFor` (qué fila buscar) y
 `PricingService.valuationCentsOf` (cuánto cuenta esa fila). Firmas y tabla de lectores en `API_CONTRACT §M2-SK SK-5`.
 Tres razones de diseño:
@@ -24351,6 +24369,8 @@ los dos carriles y que el salto sea **visible en el resumen**. Tabla normativa e
 |---|---|---|---|---|
 | **D-SK-1** | `admin.inventoryValue()` valúa el sellado **no mapeado** cayendo a la llave `'sealed'`, que **no identifica producto** ⇒ el total puede sumar el precio de otra presentación. Contradice a su propio vecino (`:1190-1192`), que para la graduada sin identidad cae a `pendingPriceCount` | `admin.service.ts:1188`, `:1233` | **backend** | **Abierta.** Cierra con SK-2 |
 | **D-SK-3** (v1.80.1) | Cinco lectores de patrimonio valúan el sellado con `tryGradeKeyFor` ⇒ llave `'sealed'`: sin mapeo suman el precio de una fila que no identifica producto; mapeados no encuentran su `sealed:tcg:<id>`. Incluye «Mi bóveda» del cliente. Medido por HTTP (backend, N=1) en los tres primeros | `vault.service.ts:187,493`; `admin.service.ts:1691,1029`; `admin-vaults.service.ts:128,142` | **backend** | **Abierta.** Cierra con SK-5 |
+| **D-SK-4** (v1.80.2.2) | **Séptimo lector:** el export `.xlsx` de inventario valúa el sellado con otra llave — sin mapeo cae a `'sealed'` (precio de otra caja); mapeado busca con `it.finish` en vez de `normal` y sin el gate del dial. Mismo patrón que D-SK-3, en un lector de solo lectura para admin (`ownerType:'platform'`). Reportado por backend (`BACKEND_NOTES` «Discrepancias» 1) y en la razón de VK-6; levantado por techlead (D-5) y seguridad (SEC-DIN-1). Por lectura, **NO MEDIDO** por HTTP | `inventory.service.ts:3286-3299` (`exportGradeKey`), uso en `:3205-3214`, `:3249-3258` | **backend** | **Abierta.** Cierra con `API_CONTRACT §M2-SK SK-5` errata «séptimo lector» (VK-6 modificada + VK-8a-d) |
+| **D-BC-1** (v1.80.2.2) | La vitrina (`publicBounties`) y el composer (`composeVariantPricing`) re-montan a mano el peldaño 1 del bounty (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + `quoteAcquisitionFromCurve(m, curve)` ×2) en vez de consumir `quoteAcquisitionWithGuard`; la vitrina no aplica `clampCents`. Conducta hoy idéntica (divergencia inalcanzable por la validación de escritura); forma que el contrato v1.80.2.1 normaba y que esta errata retira. Levantado por techlead (D-3) | `buylist.service.ts:1320-1346`; `variant-pricing.ts:193-204` | **backend** | **Abierta.** Cierra con `API_CONTRACT §M2-B.11` BC-9 (b)+(c) y punto 8 (v1.80.2.2) |
 | **D-SK-2** | `POST /admin/pricing/override` acepta escribir dinero bajo `'sealed'` para una pieza sin mapeo: la fila **no la lee nadie** y **no identifica al producto** | `pricing.controller.ts` (ruta de override) | **backend** | **Abierta.** Cierra con SK-3 |
 | **D-PI-1** | El reuso devuelve el `clientSecret` de un PI **cancelado** sin mirar su estado ⇒ callejón sin salida para el cliente | `orders.service.ts:933-935` | **backend** | **Abierta.** Cierra con R-10 |
 | **D-M5S-1** | §M5-S del contrato normaba **dos** ramas y el código tiene **tres** (preexistente desde v1.68) | `buylist.service.ts` (`throwStepRejected`) | **arquitecto** | ✅ **Cerrada en v1.70**: el contrato se alinea con el código (§4.50.3) |

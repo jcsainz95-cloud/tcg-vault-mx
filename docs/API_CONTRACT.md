@@ -2,7 +2,25 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.2.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.2.2**).
+>
+> **Changelog v1.80.2.2 — ERRATA (dos decisiones del techlead sobre `a3cde51`, veredicto APROBADO CON DEUDA; 2026-09-29,
+> arquitecto; base v1.80.2.1, vigente entera salvo lo que esta errata toca). ⛔ Sin schema, sin migración, sin endpoint,
+> sin campo en DTO, sin código de error. ⛔ Ningún número que hoy sea correcto cambia; cambia UNO que hoy es incorrecto
+> (el export `.xlsx`, punto 2).**
+>
+> | # | Qué cambia | Dónde | ¿Genera código? |
+> |---|---|---|---|
+> | **1** | ⭐ **D-3 (techlead, Media) — la vitrina y el composer dejan de re-montar a mano el peldaño 1 del bounty.** v1.80.2.1 NORMABA esa forma manual (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + dos llamadas de dos argumentos a `quoteAcquisitionFromCurve`, en `buylist.service.ts:1320-1346` y `variant-pricing.ts:193-204`). **Se retira esa norma**: `publicBounties` y `composeVariantPricing` **consumen `quoteAcquisitionWithGuard(mercado, curva, fila)`** — `basis==='bounty'` ⇔ efectivo, `priceCents` = lo que se paga (ya pasado por `clampCents`), `guardBasis` ⇒ `premiumFloorGuard`. **BC-9 se redacta de nuevo en tres partes** sin debilitarla: (a) el `Math.min` único (igual), (b) **cero** usos de `bountyPayoutCents`/`bountyGuardBasis` fuera de `money.ts` y censo cerrado de `isBountyEffective`, (c) publicado == pagado **por valor** con mutaciones que muerden. Divergencia que cierra por construcción: la cotización clampa y la vitrina no (`money.ts:292` vs `buylist.service.ts:1330`) — teórica hoy (`bountyPriceCents ≤ MAX_CENTS` al escribir, `variant-controls.service.ts:89`, por lectura), prohibida por criterio 91 | [§M2-B.11 punto 7 BC-9](#M2-B11-BC9) y [punto 8](#M2-B11-8) | **Sí, backend (pequeño)**: dos ficheros de `src`, una prueba nueva por valor, dos aserciones existentes que se INVIERTEN |
+> | **2** | ⭐ **D-5 (techlead, Media) / SEC-DIN-1 (seguridad, Baja) — el export `.xlsx` de inventario es el SÉPTIMO lector de patrimonio y entra al censo VK-6 AHORA.** `inventory.service.ts:3286-3299` (`exportGradeKey`) valúa el sellado con otra llave: sin mapeo cae a `'sealed'` (precio de otra caja); mapeado busca con `it.finish` en vez de `normal` y sin el gate del dial. Es el defecto de SK-5 en un lector más, de solo lectura y solo admin (`ownerType:'platform'`). Estaba en `BACKEND_NOTES` («Discrepancias» 1) y en la razón de VK-6 (`pricing.valuation-callers-census.spec.ts:83-84`); no en el contrato ni en `TECH_DEBT`. **Decisión: no es deuda, es alcance de SK-5**: el export usa `valuationKeyFor` + `valuationCentsOf`; `exportGradeKey` se retira; VK-6 baja `inventory.service.ts` de 5 a 4 usos y gana una aserción por método; **VK-8** (nueva) pone en rojo la llave `'sealed'`, el `finish` de la pieza y la ausencia de gate | [§M2-SK SK-5, errata «séptimo lector»](#M2-SK-5-7) | **Sí, backend (pequeño)**: un método, una fila del censo, tres casos nuevos que deben estar ROJOS sobre `a3cde51` |
+>
+> **Qué cambia para quién:** *Vendedor, cliente, frontend* — nada (mismos números en vitrina y consola; el export es de
+> admin). *Dueño* — en el `.xlsx` de inventario, una caja sellada **sin mapeo** deja de traer un precio de mercado que
+> era de otra caja (celda vacía, que es la verdad, igual que la graduada sin slab desde v1.53); una caja **mapeada**
+> con acabado distinto de `normal` pasa a traer su mercado; con el dial de sellado apagado, el mercado `tcgcsv` no sale
+> (igual que en `/vault/sealed`). *devops* — nada.
+>
+> ⚠️ *Numeración:* cuelga de la v1.80.2.1 de esta rama; se renumera con ella al fusionar si hace falta.
 >
 > **Changelog v1.80.2.1 — ERRATA de v1.80.2 §M2-B.11 punto 8: el contrato describe lo construido (2026-09-29,
 > arquitecto; base v1.80.2, vigente entera salvo lo que esta errata toca). Origen: `BACKEND_NOTES` §0.57.4 (backend,
@@ -11891,6 +11909,59 @@ donde el DTO lo tenga; su `referenceValue` es `{ status: 'pending' }`. ⛔ Ning�
 función es **opcional**, y deseable: una regla, un sitio.* Los lectores que hoy no seleccionan `tcgplayerProductId`
 (`admin-vaults.service.ts` `select`, el tipo de `ownedItemRefs`) lo añaden; ⛔ ningún campo nuevo en ningún DTO.
 
+<a id="M2-SK-5-7"></a>
+**⭐ ERRATA v1.80.2.2 — hay un SÉPTIMO lector, y entra ahora (D-5 techlead / SEC-DIN-1 seguridad; 2026-09-29).**
+«Seis» estaba mal contado por segunda vez: el export `.xlsx` de inventario (`GET /admin/inventory/export.xlsx`,
+`inventory.service.ts` `exportInventoryXlsx` + `exportGradeKey`, `:3205-3214`, `:3249-3258`, `:3286-3299`) valúa el
+sellado con **otra** llave. Backend lo reportó (`BACKEND_NOTES` «Discrepancias» 1, por lectura, **NO MEDIDO** por HTTP)
+y lo dejó anotado en la razón de VK-6; no lo puse en el contrato. Tres defectos, los tres del mismo patrón que SK-5 cerró:
+
+| Pieza | Hoy (`a3cde51`) | Norma (SK-5) |
+|---|---|---|
+| Sellado **sin mapeo** | `tryBuildGradeKey` ⇒ `'sealed'` ⇒ `refs.get('c|sealed|sealed|normal')` ⇒ la columna `Mercado` trae **la fila legada de otra caja** | `valuationKeyFor` ⇒ `null` ⇒ columna **vacía** (la verdad; mismo idioma que la graduada sin slab desde v1.53) |
+| Sellado **mapeado** | `sealed:tcg:<id>` con **`it.finish`** ⇒ si la pieza no es `normal`, no encuentra su fila ⇒ vacía teniendo mercado | `valuationKeyFor` ⇒ `sealed:tcg:<id>` + `finish:'normal'` ⇒ su mercado. (La **columna** `finish` del `.xlsx` sigue siendo el de la pieza: cambia la búsqueda, no el dato) |
+| Gate del dial | no se aplica: `tcgcsv` con dial apagado **sale** | `valuationCentsOf(it, ref, sourceOn)`: `manual` sobrevive, `tcgcsv` solo con dial encendido, `<= 0` ⇒ vacía |
+
+**Por qué entra ahora y no como deuda con disparador:** la función ya existe, la prueba del censo ya existe, el patrón
+es idéntico, y un lector que valúa con la llave de cola es exactamente lo que SK-2 prohíbe *«sin excepción»*. Registrar
+como deuda un incumplimiento de una norma dura, con la cura a una llamada de distancia, sería normar la excepción. Es
+**Baja** para seguridad (solo lectura, solo `super_admin`/`vault_operator`, solo `ownerType:'platform'`) y por eso el
+trabajo es **pequeño**, no por eso es diferible.
+
+**La forma (backend; el cuerpo es suyo):** en `exportInventoryXlsx`, `keys[i] = this.pricing.valuationKeyFor(it)` (la fila
+de `findMany` ya trae `cardId`, `productType`, `finish`, `tcgplayerProductId`, `rawCondition`, `gradingCompany`,
+`gradeValue`); `refReqs` y la clave de `refs`/`ovByKey` salen de **esa** llave (para sellado, `finish:'normal'`);
+`sourceOn` sale de `loadSealedSpreads()` **una vez por export**; `marketCents = this.pricing.valuationCentsOf(it, ref,
+sourceOn)`. **`exportGradeKey` se retira.** `buyMxn`/`sellMxn` no cambian de regla (`ov?.buyOverrideCents`;
+`firstPresentAmount(listPriceCents, sellOverrideCents)` — SK-4: el precio de la pieza sigue saliendo). Por lectura, no
+existe fila M-30 con `productType:'sealed'` (el write la acota a `raw`, `publicBounties:1251`; **NO MEDIDO**): si
+backend encuentra una, **lo reporta**, no la casa. ⛔ Ningún cambio de columnas ni de cabeceras del `.xlsx`.
+
+**Tabla de lectores, fila 7:**
+
+| Lector | Endpoint | Sellado mapeado | Sellado sin mapeo |
+|---|---|---|---|
+| `inventory.exportInventoryXlsx` | `GET /admin/inventory/export.xlsx` | `Mercado` = ref de `sealed:tcg:<id>` (acabado `normal`) si pasa el gate; si no, **vacía** | `Mercado` **vacía** (jamás la fila `'sealed'`); `Venta` = `listPriceCents` de la pieza si lo tiene |
+
+**Candados (deben estar ROJOS sobre `a3cde51` salvo los marcados «control»):**
+
+| # | Prueba | Nivel | Mutación que la pone roja |
+|---|---|---|---|
+| **VK-6** (modificada) | `inventory.service.ts` baja de **5 a 4** usos de la llave de cola y su `why` pierde la advertencia del export; **y** una aserción por método: el cuerpo de `exportInventoryXlsx` (desde `async exportInventoryXlsx(` hasta el siguiente método) tiene **0** usos de `tryGradeKeyFor`/`tryBuildGradeKey` y contiene `valuationKeyFor(` y `valuationCentsOf(` | unitaria (escaneo) | dejar `exportGradeKey` como está ⇒ el censo cuenta 5 ⇒ roja; y la aserción por método, roja |
+| **VK-8a** | `inventory.export-xlsx.spec.ts`: pieza `sealed`, `tcgplayerProductId: null`, `finish:'normal'`, `refs` con `c3|sealed|sealed|normal` priced 80000 ⇒ `marketMxn` **vacía** (`== null`), y `getReferencesBatch` **no** recibe ninguna petición con `gradeKey:'sealed'` | unitaria | usar `tryBuildGradeKey` para sellado ⇒ 800 ⇒ roja |
+| **VK-8b** | pieza `sealed` mapeada (`999`) con `finish:'holofoil'` (o cualquier `≠ normal`), ref `c2|sealed|sealed:tcg:999|normal` `source:'manual'` 250000 ⇒ `marketMxn` **2500** y la petición al lote lleva `finish:'normal'`; la celda `finish` sigue `holofoil` (control) | unitaria | buscar con `it.finish` ⇒ vacía ⇒ roja |
+| **VK-8c** | pieza mapeada, ref `source:'tcgcsv'` 250000 y `loadSealedSpreads` ⇒ `sourceOn:false` ⇒ `marketMxn` **vacía**; misma ref con `sourceOn:true` ⇒ 2500; ref `source:'manual'` con `sourceOn:false` ⇒ 2500 (control) | unitaria | omitir el gate (leer `referenceMxnCents` si `priced`) ⇒ 2500 con dial apagado ⇒ roja |
+| **VK-8d** (control) | los casos existentes del spec (raw sin precio ⇒ vacío; graded PSA 10; sellado mapeado `normal` ⇒ 2500; filtros; cabeceras; `creator`) siguen verdes | unitaria | — |
+
+*Nota de fixture:* el doble `buildPricing` del spec solo tiene `getReferencesBatch`; para que la prueba mida la regla y no
+el doble, `valuationKeyFor` y `valuationCentsOf` se toman **del prototipo real** (`PricingService.prototype…bind`), que
+solo dependen de `tryGradeKeyFor` y `gateSealedMarketCents` (puras), y `loadSealedSpreads` se dobla con el `sourceOn`
+del caso. **e2e:** no se exige (lector de solo lectura para admin; VK-3/VK-4 ya cubren la regla por HTTP en los lectores
+con dinero del cliente).
+
+**Reparto:** **backend** (`inventory`, y la fila del censo en `test/`) — un método, una fila, cuatro casos.
+**frontend** — nada. **devops** — nada. Razón: `ARCHITECTURE §4.50.6` (D-SK-4).
+
 **Por qué el gate de dial entra también (y no solo la llave):** la misma caja se enseña al cliente en dos pestañas
 («Mis piezas» y «Sellado»). `/vault/sealed` ya gatea por dial (H-1, v1.24: *«para que la VALUACIÓN coincida»*); si
 holdings no lo hiciera, con el dial apagado una pestaña diría MX$1,200 y la otra «Precio pendiente» **de la misma
@@ -11910,7 +11981,7 @@ contador de pendientes. Frontend no cambia nada.
 | **VK-3** | **El caso de la sonda**, por HTTP y Postgres real: caja de cliente sin mapeo + fila legada `'sealed'` MX$800 ⇒ holdings `pending` y `pendingPriceCount+1` y total sin esos 80000; holdingDetail `pending`; custody-value **no** sube 80000; `/admin/vaults` fila con `pendingPriceCount+1`; ficha 360° `pending` | e2e | revertir **cualquiera** de los seis lectores a `tryGradeKeyFor` (una mutación por lector, cada una debe poner roja SU aserción) |
 | **VK-4** | Caja de cliente **mapeada**, ref `sealed:tcg:<id>` MX$1,200 (manual) **y** fila legada `'sealed'` MX$800 en la misma `Card` ⇒ las cinco superficies dan **120000**, nunca 80000 | e2e | ídem VK-3 |
 | **VK-5** | **Paridad entre pestañas:** la misma caja mapeada ⇒ `holdings[i].referenceValue.referenceMxnCents === sealed.data[j].marketValue.referenceMxnCents`; con dial `off` y ref `tcgcsv` ⇒ **ambas** `pending` | e2e | quitar el gate de `valuationCentsOf` |
-| **VK-6** | **Censo de llamadores:** lista cerrada de los ficheros que llaman `tryGradeKeyFor(`/`tryBuildGradeKey(`; `vault.service.ts`, `admin-vaults.service.ts` y los métodos `custodyValue`/`ownedItemRefs`/`inventoryValue` de `admin.service.ts` **no** están en ella. Un llamador nuevo pone la prueba roja hasta que alguien lo añada **con su razón** | unitaria (escaneo de fuente) | añadir una llamada a `tryGradeKeyFor` en `vault.service.ts` |
+| **VK-6** | **Censo de llamadores:** lista cerrada de los ficheros que llaman `tryGradeKeyFor(`/`tryBuildGradeKey(`; `vault.service.ts`, `admin-vaults.service.ts` y los métodos `custodyValue`/`ownedItemRefs`/`inventoryValue` de `admin.service.ts` **no** están en ella. Un llamador nuevo pone la prueba roja hasta que alguien lo añada **con su razón**. ⭐ **v1.80.2.2:** `inventory.service.ts` pasa de 5 a **4** usos y `exportInventoryXlsx` gana aserción por método — ver [errata «séptimo lector»](#M2-SK-5-7) | unitaria (escaneo de fuente) | añadir una llamada a `tryGradeKeyFor` en `vault.service.ts` |
 | **VK-7** | Controles: raw y graduada con identidad dan **el mismo número que hoy** en las cinco superficies; graduada sin identidad sigue `pending` | e2e (control) | — (debe estar verde antes y después) |
 
 ⚠️ **VK-3/VK-4 deben medirse con fixture propio** (usuario, carta y caja creados por la prueba), no con datos de
@@ -11922,7 +11993,9 @@ sellado o no valúan patrimonio):** `orders.service.ts:308`, `catalog.service.ts
 `master-set.service.ts:1028,1042`, `inventory.service.ts:1445,1643`, `inventory-position.adapter.ts:68`,
 `sealed-graded.service.ts:394`, `buylist.service.ts:7718`, `price-sync.service.ts:49`,
 `price-ingest.service.ts:1001,1016`. VK-6 los deja en la lista cerrada **con su razón escrita**; si al escribirla
-backend encuentra uno que valúa sellado con `'sealed'`, **lo reporta**, no lo arregla en este pase.
+backend encuentra uno que valúa sellado con `'sealed'`, **lo reporta**, no lo arregla en este pase. ⭐ **v1.80.2.2:**
+backend lo hizo — encontró el export `.xlsx` (`inventory.service.ts:3286-3299`, que esta lista no tenía) y lo reportó;
+la respuesta está en la [errata «séptimo lector»](#M2-SK-5-7): entra a SK-5 ahora.
 
 **Reparto:** **backend** (`pricing`, `vault`, `admin`) — las dos funciones, los seis lectores, VK-1…VK-7.
 **frontend** — nada. **devops** — nada (cero migraciones, cero variables). Razón: `ARCHITECTURE §4.50.1-bis`.
@@ -12560,8 +12633,8 @@ cubrir ese hueco, y bloquear es lo que el dueño dijo que no; *usar la curva o e
 | Cotización pública (`POST /buylist/quote`, `/quote/batch`) | **Sí** | `decideBuyLine` → `quoteAcquisitionFromCurve` |
 | Crear la solicitud (`POST /buylist/requests`) — congela `quotedPriceCents` | **Sí** | mismo cuerpo (`decideBuyLine`) |
 | Derivar la oferta (`offerDerivedPriceCents`, al emitir) | **Sí** | mismo cuerpo, con el mercado **del momento de ofertar** (como hoy con cualquier movimiento de mercado) |
-| Vitrina pública (`GET /buylist/bounties`) | **Sí** | `bountyPayoutCents(bountyPriceCents, referenceMxnCents)` sobre las filas ya filtradas por `isBountyEffective` |
-| Consola / binder (`composeVariantPricing`) | **Sí** (`buy.effectiveCents`, `bounty.payoutCents`) | mismo cuerpo |
+| Vitrina pública (`GET /buylist/bounties`) | **Sí** | ⭐ **v1.80.2.2:** `quoteAcquisitionWithGuard(referenceMxnCents, curve, fila)` **por fila**: presente ⇔ `basis === 'bounty'` ∧ `premiumFloorGuard(rareza, guardBasis) === 'ok'`; publica `priceCents`. *(Antes: `bountyPayoutCents(...)` sobre filas filtradas a mano por `isBountyEffective` — forma retirada, ver punto 8)* |
+| Consola / binder (`composeVariantPricing`) | **Sí** (`buy.effectiveCents`, `bounty.payoutCents`) | mismo cuerpo — ⭐ **v1.80.2.2:** `bounty.payoutCents` **es** `buy.effectiveCents` cuando `buy.source === 'bounty'`, y `null` si no; `cappedByMarket` = `payoutCents != null ∧ payoutCents < bounty.priceCents`. Ninguna segunda llamada a `bountyPayoutCents` |
 | `offeredPriceCents` ya congelado, pago SPEI, `acquisitionCostCents` | ⛔ **No** | lo congelado **no se mueve jamás** (D2/D9); se paga lo ofertado |
 
 ⛔ **Prohibido un `Math.min(bounty…, market…)` fuera de `bountyPayoutCents`** (candado de forma BC-9). Cinco copias del
@@ -12636,9 +12709,43 @@ Va como pregunta **no bloqueante** al dueño (ARCHITECTURE §4.36.6e), con esta 
   el binder/consola da `bounty.priceCents = 1200`, `payoutCents = 1000`, `cappedByMarket = true`, `buy.effectiveCents =
   1000`. *Mutación:* topar solo en `quoteAcquisitionFromCurve` y dejar la vitrina publicando el configurado ⇒ roja
   (criterio 91: el número publicado es el que se paga).
-- **BC-9 candado de forma** (unidad/estático): en `backend/src` (sin specs), `bountyPayoutCents` es el **único** sitio con
-  un `Math.min` que involucre un monto de bounty; la vitrina y el composer lo **llaman**. *Mutación:* un `Math.min` a mano
-  en `publicBounties` ⇒ roja.
+<a id="M2-B11-BC9"></a>
+- **BC-9 candado de forma — ⭐ v1.80.2.2, redactado de nuevo en TRES partes (errata D-3; sustituye al texto de v1.80
+  «…la vitrina y el composer lo **llaman**»).** Las tres son estáticas sobre `backend/src` sin specs, con comentarios
+  blanqueados (mismo autómata que VK-6, `test/helpers/strip-comments.ts`), y cada una trae su canario:
+  - **(a) un solo tope** *(sin cambio)*: `bountyPayoutCents` es el **único** sitio con un `Math.min` que involucre un
+    monto de bounty. *Mutación:* un `Math.min` a mano en `publicBounties` ⇒ roja (canario existente,
+    `money.bounty-cap.spec.ts:236`).
+  - **(b) un solo compositor del peldaño 1** *(nuevo)*: fuera de `common/money.ts` hay **cero** apariciones en código
+    del identificador `bountyPayoutCents` y **cero** de `bountyGuardBasis` (con o sin paréntesis: `.map(bountyPayoutCents)`
+    también cuenta); `isBountyEffective` aparece **solo** en un censo cerrado de **dos** llamadores con razón escrita —
+    `variant-controls.service.ts` (1 uso: el gate `422 BOUNTY_BELOW_RULE` del alta, Q1, que decide *si se acepta*, no
+    *cuánto se paga*) y `buylist.service.ts` (1 uso: `positionAndSuggestion`, «bounty vivo» para el consejo de posición,
+    no publica ni paga) — y los cuerpos de `publicBounties` y `composeVariantPricing` contienen `quoteAcquisitionWithGuard(`
+    con **tres** argumentos. Un llamador nuevo de cualquiera de las tres ⇒ rojo hasta que se añada **con su razón**.
+    *Mutación:* re-montar el peldaño 1 a mano en `publicBounties` (`isBountyEffective(...)` + `bountyPayoutCents(...)`)
+    ⇒ roja. *Canario:* la misma línea dentro de un comentario ⇒ verde.
+  - **(c) publicado == pagado, POR VALOR** *(nuevo; unidad, sin infra; se extiende `pricing.bounty-cap.spec.ts`
+    «vitrina» y «composer»)*: para **cada** fila de la tabla del punto 6, más una fila con `buyOverrideCents` presente y
+    bounty rebasado, más la chase retenida de BG-6 (premium, mercado 1, bounty 9000, curva en el bin):
+    `data[i].bountyPriceCents === quoteAcquisitionWithGuard(mercado, curva, fila).priceCents` y la fila está **presente
+    ⇔** `basis === 'bounty'` ∧ `premiumFloorGuard(rareza, guardBasis) === 'ok'`; en el composer,
+    `bounty.payoutCents === (buy.source === 'bounty' ? buy.effectiveCents : null)` y
+    `cappedByMarket === (payoutCents != null && payoutCents < bounty.priceCents)`. *Mutaciones (cada una debe morder,
+    se reporta la proporción):* publicar `r.bountyPriceCents` ⇒ roja (fila 1000/400/1200); filtrar solo por
+    `isBountyEffective` sin `guardBasis` ⇒ roja (la retenida aparece); en el composer derivar `payoutCents` con
+    `bountyPayoutCents` ignorando el guardarraíl ⇒ roja (BG-6).
+  - ⚠️ **Dos aserciones existentes que se INVIERTEN** (las edita backend, modelo fuerte; el techlead revisa el diff):
+    `money.bounty-cap.spec.ts:246-255` («la vitrina, el peldaño 1 y el composer LLAMAN a `bountyPayoutCents`») pasa a
+    afirmar que **solo** `quoteAcquisitionFromCurve` la llama y que vitrina y composer **no**; y
+    `pricing.bounty-guard.spec.ts:310` (`buylist.service.ts` contiene `bountyGuardBasis(`) pasa a afirmar que el cuerpo
+    de `publicBounties` contiene `quoteAcquisitionWithGuard(` y **no** `bountyGuardBasis(`. Todo lo demás de BC-1…BC-12
+    y BG-1…BG-8 queda **sin editar** (BC-7 sigue siendo el canario de «quién es efectivo»).
+  - **Por qué (b) y no otro candado sobre la forma manual:** la divergencia que el techlead señaló —la cotización pasa
+    por `clampCents` (`money.ts:292`) y la vitrina no (`buylist.service.ts:1330`)— es **inobservable en caja negra**
+    mientras `bountyPriceCents ≤ MAX_CENTS` al escribir (`variant-controls.service.ts:89`, por lectura); una prueba de
+    valor no puede morderla. La única forma de que **no pueda** ocurrir es que no haya un segundo compositor. BC-8
+    (integración, tres superficies) sigue siendo el cierre de punta a punta.
 - **BC-10 orden de la vitrina por lo que se paga** (integración): A = bounty 5000 / mercado 2000 (paga 2000); B = bounty
   3000 / mercado 10000 (paga 3000, efectivo) ⇒ B antes que A. *Mutación:* ordenar por el configurado ⇒ roja. Y en la
   consola `?sort=price_desc`: mismo orden relativo.
@@ -12683,9 +12790,33 @@ export function quoteAcquisitionWithGuard(marketMxnCents: number | null, curve: 
 //     : q.basis                                                // peldaños 2-4
 // Todo llamador de COMPRA con controles: quoteAcquisitionWithGuard(...) y
 //   premiumFloorGuard(rarityCanonical, q.guardBasis)   // antes: q.basis  (decideBuyLine vía resolvePendingReason)
-// Vitrina (`publicBounties`): ya compone el pago con bountyPayoutCents sobre filas efectivas (BC-9) ⇒ compone el
-//   veredicto con bountyGuardBasis(bounty, m, quoteAcquisitionFromCurve(m, curve).basis) — misma función, mismo basis.
+// ⭐ v1.80.2.2 (errata D-3) — la vitrina y el composer TAMBIÉN son «llamador de COMPRA con controles»:
+//   Vitrina (`publicBounties`), por fila `r` (VariantPriceOverride, ya es un VariantPriceControls):
+//     q = quoteAcquisitionWithGuard(referenceMxnCents, curve, r)
+//     presente  ⇔ q.basis === 'bounty' && premiumFloorGuard(rareza, q.guardBasis) === 'ok'
+//     publica     q.priceCents            // = bountyPayoutCents(...) ya clampeado — una sola vez, en el peldaño 1
+//   Composer (`composeVariantPricing`), con el `buy` que ya calcula:
+//     effective   = buy.basis === 'bounty'                       // ⇔ isBountyEffective, por construcción
+//     payoutCents = effective && !buyGuarded ? buy.priceCents : null
+//     cappedByMarket = payoutCents != null && payoutCents < override.bountyPriceCents
+//   (Texto de v1.80.2.1 que esto SUSTITUYE: «la vitrina ya compone el pago con bountyPayoutCents sobre filas
+//    efectivas ⇒ compone el veredicto con bountyGuardBasis(bounty, m, quoteAcquisitionFromCurve(m, curve).basis)».)
 ```
+
+- ⭐ **v1.80.2.2 — por qué la vitrina y el composer consumen la hermana y no una forma manual con candado (errata,
+  decisión D-3 del techlead).** Las cuatro llamadas a mano (`isBountyEffective` + `bountyPayoutCents` +
+  `bountyGuardBasis` + `quoteAcquisitionFromCurve(m, curve)` ×2) son, línea a línea, **el cuerpo de
+  `quoteAcquisitionWithGuard` copiado con la firma abierta**: el mismo predicado, el mismo tope, el mismo basis de la
+  curva. Dos copias de un cuerpo de dinero son dos sitios donde puede divergir, y ya divergen en una cosa (el `clampCents`
+  de `money.ts:292` que `buylist.service.ts:1330` no aplica) — hoy inalcanzable, mañana no se sabe. v1.80.2.1 normó la
+  forma manual porque la hermana nació ese mismo día como consecuencia de BC-5, y describí lo construido sin volver a
+  preguntar si lo construido era la forma mínima; el techlead lo midió. La alternativa (mantener la forma manual y
+  añadir un candado «publicado == pagado») se descarta porque la divergencia a cerrar es inobservable por valor (ver
+  BC-9 (b)): **un candado que no puede morder el defecto que motiva no es un candado**. Conducta: **idéntica** en todos
+  los casos (BC-8, BC-10, BG-6 vitrina y consola siguen verdes sin editarse); el único número que podría diferir es uno
+  por encima de `MAX_CENTS`, que no puede escribirse. `isBountyEffective`, `bountyPayoutCents` y `bountyGuardBasis`
+  **siguen exportadas** (son las reglas puras con BC-1…BC-4, BC-7 y la tabla de `bountyGuardBasis`); lo que cambia es
+  **quién puede llamarlas desde `src`**: solo `money.ts`, más el censo cerrado de dos de `isBountyEffective`.
 
 - ⭐ **v1.80.2.1 — por qué función hermana y no campo** (errata, `BACKEND_NOTES` §0.57.4 (1)). El texto de v1.80.2 se
   contradecía: un campo más en el resultado de `quoteAcquisitionFromCurve` pone rojas BC-5 (9 filas) y E2 (2 casos),
