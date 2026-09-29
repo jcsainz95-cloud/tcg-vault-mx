@@ -12,6 +12,8 @@ import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { OWNER_EXAMPLE, R, ShipPrepDb } from './helpers/ship-prep-db';
 import { SettingKey } from '../../src/modules/settings/settings.constants';
+import { RefundLedgerService } from '../../src/modules/payments/refunds/refund-ledger.service';
+import { E2E_USERS } from '../../prisma/e2e-fixtures';
 
 const RUN = Date.now().toString(36);
 const N = 10;
@@ -239,8 +241,10 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
   // ================================================================ PS-4 — el tope del operador
 
   it(`PS-4 💰 — tope: operador a 1 centavo del tope ⇒ 403, cero escrituras, bitácora; súper-admin sin tope; carrera del mismo operador (N=${N}) ⇒ nunca los dos`, async () => {
+    // El MISMO predicado que `operatorUsedCents` (§M4-SHIP.8), ventana de 24 h incluida: sin ella, una fila vieja del
+    // operador (otra corrida sobre la misma BD) haría que `used0` no fuera lo que el tope ve y `usedCents` no cuadrara.
     const usedNow = async () =>
-      (await h.prisma.paymentRefund.aggregate({ where: { requestedByUserId: db.operatorId, status: { not: 'failed' }, kind: { not: 'order_full' } }, _sum: { amountCents: true } }))._sum.amountCents ?? 0;
+      (await h.prisma.paymentRefund.aggregate({ where: { requestedByUserId: db.operatorId, status: { not: 'failed' }, kind: { not: 'order_full' }, createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } }, _sum: { amountCents: true } }))._sum.amountCents ?? 0;
     try {
       // cap = usado + 31457 deja al operador a 1 centavo (el MISMO predicado que el tope, §M4-SHIP.5 paso 6).
       const used0 = await usedNow();
@@ -284,6 +288,92 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
       expect(k).toBe(N);
     } finally {
       await setCap(HUGE_CAP);
+    }
+  });
+
+  it('PS-4b 💰 (v1.80.7) — el tope es una SUMA, determinista: filas sembradas del actor `item_missing` requested 10000 + submitted 20000 + succeeded 30000 cuentan; `failed` 40000, `order_full` 50000, > 24 h 60000 y de OTRO operador 70000 no ⇒ `usedCents = 60000` exacto en `operatorUsedCents`, en el 403 y en `operator-summary`; a 1 centavo ⇒ 403, con el centavo ⇒ 200 y el siguiente ⇒ 403 {usedCents: 91458}', async () => {
+    // Deuda (a) del techlead / v1.80.7 puntos 12 y 18: el predicado es SQL (`aggregate`) ⇒ integración; PS-4 (carrera) y las
+    // unitarias de `prepare` no distinguen «ignorar lo acumulado». Operador NUEVO (usado absoluto = 0), filas por SQL
+    // con `createdAt` explícito. Mutaciones: `usedCents = 0` / `if (planCents > cap)` ⇒ el primer 403 no ocurre;
+    // sin `requestedByUserId` ⇒ 130000; sin `createdAt` ⇒ 120000; sin `status ≠ failed` ⇒ 100000; sin `kind ≠ order_full`
+    // ⇒ 110000; `>` por `≥` ⇒ el «con el centavo ⇒ 200» rojo. Cada una roja por igualdad exacta, sin carrera.
+    const seedOp = await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.operator.email } });
+    const op = await h.prisma.user.create({
+      data: { email: `sp.op4b.${Date.now().toString(36)}@e2e.local`, passwordHash: seedOp.passwordHash, name: 'Operador PS-4b', nameSource: 'user', role: 'vault_operator', emailVerified: true },
+    });
+    db.users.push(op.id);
+    const opToken = await h.login(op.email, E2E_USERS.operator.password);
+    const now = Date.now();
+    const H = 60 * 60 * 1000;
+    // Cada `item_missing` cuelga de su propia línea (`orderItemId`/`shipmentItemId` son @unique): un directo por fila.
+    const fx = await Promise.all([0, 1, 2, 3, 4, 5].map(() => db.mkDirect()));
+    const missing = (i: number, amount: number, extra: Record<string, unknown>) => ({
+      idempotencyKey: `ps4b:${op.id}:${i}`,
+      kind: 'item_missing' as const,
+      orderId: fx[i].order.id,
+      orderItemId: fx[i].orderItems[0].id,
+      shipmentItemId: fx[i].lines.find((l) => l.inventoryItemId === fx[i].orderItems[0].inventoryItemId)!.id,
+      missingReason: 'not_found' as const,
+      amountCents: amount,
+      merchandiseCents: amount,
+      merchandiseIvaCents: 0,
+      shippingCents: 0,
+      shippingIvaCents: 0,
+      processingFeeCents: 0,
+      compensationCents: 0,
+      requestedByUserId: op.id,
+      requestedByRole: 'vault_operator' as const,
+      ...extra,
+    });
+    const stripe = (k: string, at = now) => ({ stripeRefundId: `re_ps4b_${op.id}_${k}`, submittedAt: new Date(at) });
+    const rows: Record<string, unknown>[] = [
+      // CUENTAN: 10000 + 20000 + 30000 = 60000
+      missing(0, 10000, { status: 'requested' }),
+      missing(1, 20000, { status: 'submitted', ...stripe('s') }),
+      missing(2, 30000, { status: 'succeeded', ...stripe('ok'), succeededAt: new Date(now) }),
+      // NO cuentan
+      missing(3, 40000, { status: 'failed', failedAt: new Date(now), failureCode: 'x' }),
+      { idempotencyKey: `ps4b:${op.id}:full`, kind: 'order_full', orderId: fx[4].order.id, amountCents: 50000, merchandiseCents: 50000, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0, status: 'succeeded', ...stripe('full'), succeededAt: new Date(now), requestedByUserId: db.adminId, requestedByRole: 'super_admin' },
+      missing(5, 60000, { status: 'succeeded', ...stripe('25h', now - 25 * H), succeededAt: new Date(now - 25 * H), createdAt: new Date(now - 25 * H) }),
+      { idempotencyKey: `ps4b:${op.id}:otro`, kind: 'order_remaining', orderId: fx[4].order.id, amountCents: 70000, merchandiseCents: 70000, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, compensationCents: 0, status: 'succeeded', ...stripe('otro'), succeededAt: new Date(now), requestedByUserId: db.operatorId, requestedByRole: 'vault_operator' },
+    ];
+    for (const data of rows) await h.prisma.paymentRefund.create({ data: data as any });
+    const ledger = h.app.get(RefundLedgerService);
+    const d1 = await db.mkDirect();
+    const d2 = await db.mkDirect();
+    try {
+      expect(await ledger.operatorUsedCents(h.prisma, op.id)).toBe(60000);
+      const summary = await db.operatorSummary();
+      expect(summary.status).toBe(200);
+      expect(summary.body.operators.find((o: any) => o.user.userId === op.id)).toMatchObject({ capUsedCents: 60000 });
+      // a 1 centavo: cap = 60000 + 31457; una faltante de 31458 ⇒ 403 con la suma EXACTA, cero escrituras, una bitácora
+      await setCap(60000 + 31457);
+      await db.mark(d1.shipment.id, d1.lines[0].id, { status: 'picked' }, opToken);
+      await db.mark(d1.shipment.id, d1.lines[1].id, { status: 'missing', missingReason: 'not_found' }, opToken);
+      const r = await db.prepare(d1.shipment.id, 31458, opToken);
+      expect(r.status).toBe(403);
+      expect(r.body.error.code).toBe('MONEY_OUT_LIMIT_EXCEEDED');
+      expect(r.body.error.details).toEqual({ capCents: 91457, usedCents: 60000, requestedCents: 31458 });
+      expect(await db.refunds({ orderId: d1.order.id })).toHaveLength(0);
+      expect((await db.piece(d1.pieces[1].id)).status).toBe('picking');
+      expect((await db.shipment(d1.shipment.id)).preparedAt).toBeNull();
+      expect(await db.audits(d1.shipment.id, 'money_out.limit_blocked')).toHaveLength(1);
+      // con el centavo: cap = 60000 + 31458 ⇒ 200 (la suma es EXACTA, no una cota)
+      await setCap(60000 + 31458);
+      const ok = await db.prepare(d1.shipment.id, 31458, opToken);
+      expect(ok.status).toBe(200);
+      expect(ok.body.outcome).toBe('prepared');
+      expect(await ledger.operatorUsedCents(h.prisma, op.id)).toBe(91458);
+      // el siguiente acto del mismo operador ⇒ 403 {usedCents: 91458}
+      await db.mark(d2.shipment.id, d2.lines[0].id, { status: 'picked' }, opToken);
+      await db.mark(d2.shipment.id, d2.lines[1].id, { status: 'missing', missingReason: 'not_found' }, opToken);
+      const r2 = await db.prepare(d2.shipment.id, 31458, opToken);
+      expect(r2.status).toBe(403);
+      expect(r2.body.error.details).toEqual({ capCents: 91458, usedCents: 91458, requestedCents: 31458 });
+      expect((await db.operatorSummary()).body.operators.find((o: any) => o.user.userId === op.id)).toMatchObject({ capUsedCents: 91458 });
+    } finally {
+      await setCap(HUGE_CAP);
+      await h.prisma.paymentRefund.deleteMany({ where: { OR: [{ idempotencyKey: { startsWith: `ps4b:${op.id}:` } }, { orderId: { in: [d1.order.id, d2.order.id] } }] } });
     }
   });
 
