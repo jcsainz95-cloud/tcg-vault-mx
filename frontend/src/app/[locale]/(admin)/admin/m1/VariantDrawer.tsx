@@ -477,6 +477,15 @@ function PiecesSection({
                 const isHighlighted = highlighted.includes(piece.folio);
                 const publishable = piece.status === 'in_stock';
                 const listed = piece.status === 'listed';
+                // Reglas de pantalla del contrato (§M1 v1.79.6 «5»; QA menor sobre `4ca6c45`, 2026-09-29):
+                // - «Merma» solo en `in_stock|listed` (= `ITEM_NOT_ADJUSTABLE`, el mismo predicado que
+                //   `removableCount`); ⛔ nunca `picking` (el backend la rechazaba con 422) ni `reserved`.
+                // - «Editar precio» ⛔ no sobre una pieza VENDIDA (`picking`; y `shipped|delivered`, que
+                //   son la misma pieza más tarde): su precio ya es el de la línea del pedido. Se sigue
+                //   LEYENDO. Sobre `reserved` el contrato no norma nada y aquí no se cambia.
+                const markable = publishable || listed;
+                const sold =
+                  piece.status === 'picking' || piece.status === 'shipped' || piece.status === 'delivered';
                 return (
                   <li
                     key={piece.id}
@@ -557,6 +566,12 @@ function PiecesSection({
                           {tc('cancel')}
                         </Button>
                       </span>
+                    ) : sold ? (
+                      <span className="ml-auto font-mono tabular-nums text-xs text-text">
+                        {piece.listPriceCents != null
+                          ? formatMoneyCents(piece.listPriceCents, locale)
+                          : '—'}
+                      </span>
                     ) : (
                       <button
                         type="button"
@@ -608,15 +623,17 @@ function PiecesSection({
                           </button>
                         )
                       )}
-                      <button
-                        type="button"
-                        aria-label={t('markLoss', { folio: piece.folio })}
-                        title={t('markLossTitle')}
-                        className="flex h-8 w-8 items-center justify-center text-muted hover:text-accent"
-                        onClick={() => setLossItem(piece)}
-                      >
-                        <TriangleAlert size={15} />
-                      </button>
+                      {markable && (
+                        <button
+                          type="button"
+                          aria-label={t('markLoss', { folio: piece.folio })}
+                          title={t('markLossTitle')}
+                          className="flex h-8 w-8 items-center justify-center text-muted hover:text-accent"
+                          onClick={() => setLossItem(piece)}
+                        >
+                          <TriangleAlert size={15} />
+                        </button>
+                      )}
                     </span>
                   </li>
                 );
