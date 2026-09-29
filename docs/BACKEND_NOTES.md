@@ -25448,7 +25448,9 @@ anterior citaba v1.80.7 p.9 y contradecía lo que el contrato decía entonces; *
 orden fusionan los tres streams (hotfix · dinero · envío) y qué pruebas se re-corren sobre el **árbol fusionado** (PS-41,
 PS-41b, PS-42, **PS-42b invertida**, PS-64, INV-SP-8 y las suites del hotfix) está **solo** allí — ⛔ no se copia aquí para
 no tener dos textos. ⛔ Esta rama (`claude/envio-preparar`) **no** hace la fusión: la hace la sesión que fusione los tres
-streams. El hueco que la copia
+streams. ✅ **Aplicada en la fusión `claude/release-s5` (`5321b8c6`, 2026-09-29)** según la [regla de fusión
+SEC-SHIP-A1](API_CONTRACT.md#M1-merge-rule), punto por punto con fichero:línea en «Release s5 — fusión de backend» al
+final de este documento. El hueco que la copia
 en línea tenía (un `PATCH {status}` igual al leído caía en el `update` plano y re-escribía `status` ⇒ pisaba una reserva)
 quedó cerrado aquí (PS-42b, §M4-SHIP-TL más abajo).
 
@@ -25489,6 +25491,7 @@ columnas **antes** de `profitCents` (mismo orden que el objeto).
 9. **`inventory` SEC-SHIP-A1 aquí** (punto 2 del §2 «inventory»): conflicto de merge previsible con `arreglos-operador` —
     🔒 **se resuelve con la regla única de `API_CONTRACT v1.80.7.2` §M1 [«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule)**
     (sustituye la lectura anterior de v1.80.7 p.9; ver §2 «inventory»). La aplica la sesión que fusione los tres streams.
+    ✅ **Aplicada en `claude/release-s5` (`5321b8c6`, 2026-09-29)**: ver «Release s5 — fusión de backend» al final.
 10. **La cola de preparación no se cae por una fila sin dueño ni pedido** (`d030c85`): `buildView` llamaba
     `resolveOriginsBatch(db, row.userId as string, …)` y una `ShipmentRequest` con `userId` **y** `orderId` nulos (inexpresable
     por la API; la fixture `B-1` de `preparation-queue` la escribe por SQL) tumbaba **toda** la cola con `500`
@@ -25639,8 +25642,11 @@ del stream hasta la limpieza (se borran al cerrar; las cifras están aquí y en 
   (`in_stock → reserved`, encolada primero) vs `PATCH` con lectura caduca, N=10. Con el código viejo (copia): **0/10** (la
   pieza vuelve a `in_stock` con dueño). Con el fix: **10/10** (`reserved` del comprador, `listPriceCents` escrito).
 - **Código:** el `update` plano quita `status` del `data` (`const { status: _sameStatus, ...fields } = patch`).
-- **Fusión (b):** §2 «inventory» corregido: manda `item-location.rules.ts` de `arreglos-operador`; la copia en línea se
-  borra. **(c)** PS-41/PS-41b/PS-42/PS-42b/PS-64 y la suite de `arreglos-operador` se re-corren sobre el árbol fusionado.
+- ~~**Fusión (b):** §2 «inventory» corregido: manda `item-location.rules.ts` de `arreglos-operador`; la copia en línea se
+  borra. **(c)** PS-41/PS-41b/PS-42/PS-42b/PS-64 y la suite de `arreglos-operador` se re-corren sobre el árbol fusionado.~~
+  🔒 **Sustituida (2026-09-29) por la [regla de fusión SEC-SHIP-A1](API_CONTRACT.md#M1-merge-rule)** (`API_CONTRACT
+  v1.80.7.2` §M1; `ARCHITECTURE §9 D-SHIP-7`): qué cuerpo, qué llamadores, qué pruebas — incluida **PS-42b invertida** —
+  están solo allí. Aplicada en `claude/release-s5` (`5321b8c6`): ver «Release s5 — fusión de backend» al final.
 
 ## 4. Deuda (a) / v1.80.7 puntos 12 y 18 — el tope acumulado tiene prueba determinista: **PS-4b**
 
@@ -25887,3 +25893,118 @@ cita en §2 «inventory» y en §7 punto 9.
 sobre una limpia 3/3). O sea, su `afterAll` no deja la base como la encontró cuando la ronda revienta. Mecanismo ⚠️ NO
 MEDIDO (el alta se rechaza antes de insertar `SellRequestItem`). Relevante para P-BUYLIST-CONC-FLAKE: un rojo arrastra
 los siguientes si la base se reutiliza.
+
+---
+
+# Release s5 — fusión de backend (2026-09-29)
+
+Rama `claude/release-s5`, commit de fusión **`5321b8c6`** (envío-preparar sobre `7a32b833` = pantallas + dinero + hotfix).
+Qué se hizo en la parte de backend de la fusión. La regla que se aplicó vive **una sola vez** en el contrato:
+[«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule) (`API_CONTRACT v1.80.7.2` §M1, citada desde §M4-SHIP.17.1
+punto 1 y `ARCHITECTURE §9 D-SHIP-7`). Aquí solo se anota **dónde quedó cada punto** — ⛔ no se copia la regla.
+Líneas medidas sobre `5321b8c6`. Logs: `scratchpad/backend-merge-s5/` (sesión `1afd7c0b…`).
+
+## 1 · Regla `#M1-merge-rule`, punto por punto
+
+| Punto de la regla | Dónde quedó (fichero:línea en `5321b8c6`) |
+|---|---|
+| **(i)** `item-location.rules.ts` es el **único cuerpo de guardas**; verbos `move\|mark\|status\|price`; `MARKABLE_PLATFORM_STATUSES` se exporta solo de ahí | `backend/src/modules/inventory/item-location.rules.ts:68` (única declaración), `:71` (`ItemVerb` con `'price'`), `:120-133` (`assertOperable`; `mark\|status\|price` comparten el allowlist `in_stock\|listed`, solo `move` tiene rama de cliente) |
+| **(ii)** escritor condicionado = `guardedItemUpdate` del hotfix (CAS sobre `{id, status, ownerType, ownerUserId}` leídos; `P2025` ⇒ `409 CONFLICT`) | `backend/src/modules/inventory/inventory.service.ts:2829-2851`; lector `readGuardedItem` `:2810-2817` |
+| **(iii)** `moveItem` y `markItem` = hotfix | `inventory.service.ts:2732-2746` (`moveItem`: `readGuardedItem` → `assertOperable(item,'move')` → `guardedItemUpdate`), `:2787-2806` (`markItem`: ídem con `'mark'`) |
+| **(iv)** `updateItem` = **estructura** de `envio-preparar` (una tx, bitácora `inventory.item_updated` `before/after`) **re-cableada** a `readGuardedItem` + `assertOperable(item,'status'\|'price')` + `guardedItemUpdate` | `inventory.service.ts:2417-2464` (camino no publicante; comentario de la regla `:2418-2435`, verbo `:2436-2437`, tx `:2442-2462`) |
+| su `MARKABLE_PLATFORM_STATUSES` local (antes `inventory.service.ts:389` de envío) **se borra** | borrado; lo fija el candado estático «se DECLARA una sola vez» (`backend/test/inventory.move-mark-guards.spec.ts:452-457`) |
+| **PS-42b se invierte** (D-d del techlead) | `backend/test/integration/full-refund-vault.e2e-spec.ts:872-921` — §3 |
+
+Import en el servicio: `inventory.service.ts:64-69` (`assertMoveDestination`, `assertOperable`, `GuardedItem`,
+`inActiveWithdrawalError` desde `./item-location.rules`). La resolución del conflicto de `inventory.service.ts` (4 bloques)
+se hizo con `resolve_inv.py` sobre las dos versiones (`inv.ours.ts` / `inv.theirs.ts` en el scratchpad).
+
+## 2 · INV-SP-8 (`#M1-patch-price-guard`, v1.80.2.3) construido en la fusión
+
+El código de v1.80.2.3 (dinero) se construyó aquí, sobre el cuerpo único: `PATCH {listPriceCents}` solo sobre plataforma
+`in_stock|listed` (`assertOperable(item,'price')`), cliente en cualquier estado / `reserved` / vendida / terminal ⇒
+`422 ITEM_NOT_ADJUSTABLE`, **todo o nada** (ningún otro campo del mismo `PATCH` se escribe); cuerpo solo de identidad
+(`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`) sigue **sin** guarda. `status` y `listPriceCents` juntos ⇒
+**una** llamada con verbo `'status'` (mismo allowlist ⇒ un solo `422`, `details` únicos).
+Prueba nueva: `backend/test/inventory.patch-price-guard.spec.ts` (casos 1–9 en `:135-248`, más `assertOperable(item,'price')`
+puro en `:250-271`).
+
+## 3 · PS-42b invertida
+
+Antes certificaba lo que INV-SP-8 prohíbe (`res.b < 300` y precio `1000+i` escrito sobre una pieza ya `reserved` **del
+comprador**). Ahora (`full-refund-vault.e2e-spec.ts:872-921`): la reserva encolada primero gana, el `PATCH {status:'in_stock',
+listPriceCents}` con lectura caduca recibe **`409 CONFLICT`**, la pieza sigue `reserved/customer` del comprador y su precio
+**intacto**; N=10, `inter === N`. La primera mitad se re-ancló a conducta: `{status:'in_stock', listPriceCents}` sobre una
+`in_stock` ⇒ `200`, precio escrito, `status` sigue `in_stock` y **sin** bitácora `inventory.item_updated` (`:885-888`). Que
+`data` no lleve `status` lo fija la unitaria gemela `backend/test/inventory.patch-status-guard.spec.ts:166`.
+
+## 4 · Candado estático endurecido (ignora comentarios) + canario
+
+`backend/test/inventory.move-mark-guards.spec.ts:404-492` («candado estático — un solo cuerpo de guardas
+(#M1-merge-rule)»): (a) `MARKABLE_PLATFORM_STATUSES` se **declara** una sola vez en `backend/src`, en
+`item-location.rules.ts` (`:452-457`); (b) `markItem` y `updateItem` no llevan guarda en línea ni allowlist y **llaman**
+a `assertOperable(` (`:459-464`).
+**Endurecimiento:** `stripComments` (`:440`) quita `// …` y `/* … */` antes de mirar el cuerpo. Motivo, **medido** en la
+mutación M1 de la fusión: `updateItem` nombra `assertOperable(` en su comentario de la regla, así que borrar la llamada
+dejaba el candado **verde** (`mut-M1.log`: `PASS test/inventory.move-mark-guards.spec.ts`). Con el endurecimiento la
+misma mutación lo pone rojo (`mut-M1-lock.log`: 1/45, `delegates: false`).
+**Canario** (`:468-491`): una segunda declaración y una guarda en línea se detectan, y una llamada **solo nombrada en un
+comentario** (`//` y `/* */`) **no** cuenta como delegar (`delegates === false`). Aproximación declarada: no hay `//`
+dentro de cadenas en esos dos métodos.
+
+## 5 · Las 7 rojas de la primera corrida unitaria: causa raíz y arreglo
+
+Primera corrida unitaria completa sobre el árbol fusionado (`unit-full-1.log`): **377/380 suites, 6381/6388** — 7 rojas en
+3 suites. Ninguna era conducta: las tres son **pruebas de un stream que fijaban la forma de algo que otro stream cambió**.
+
+| Rojas | Suite (origen) | Causa raíz | Arreglo |
+|---|---|---|---|
+| 5 | `test/vault.withdrawable-reason.spec.ts` (nació en envío) | su doble de `PricingService` es anterior a D-4 (v1.80.2.2, dinero): `VaultService.holdings` (`src/modules/vault/vault.service.ts:220`) ya llama `this.pricing.sealedSourceOnFor(items)` ⇒ `TypeError: … is not a function` | el doble gana el helper **real** `sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor` (`backend/test/vault.withdrawable-reason.spec.ts:65-67`) |
+| 1 | `test/pricing.bounty-cap.spec.ts` (dinero) | lista **cerrada** de claves de `PublicBountyDTO`, anterior a P-71 punto 6 (pantallas), que añade `setPtcgoCode` | se añade `setPtcgoCode` a la lista; la forma sigue cerrada (`backend/test/pricing.bounty-cap.spec.ts:143-156`) |
+| 1 | `test/mail-links.frontend-routes.spec.ts` (candado de enlaces; ausente en envío) | las plantillas de envío `AV-14/15/16` construían `appUrl('cuenta' / 'cuenta#kyc')`: **ruta inexistente** en el front (la ruta es `(storefront)/account`) | enlaces **`cuenta` → `account`**: `backend/src/modules/payments/refunds/mail/refund-notice.templates.ts:208, :247, :286` |
+
+Segunda corrida tras el arreglo: verde (§7).
+
+## 6 · Bitácora `inventory.item_updated`: sí en el camino no publicante, no en `→ listed`
+
+- **Sí** en el camino **no publicante** de `updateItem`, dentro de la misma tx y después de la escritura condicionada, **solo
+  cuando `status` cambia** respecto al leído (`before: {status}`, `after: {status, fields}`):
+  `inventory.service.ts:2447-2460`. `in_stock → in_stock` o un `PATCH` solo de precio **no** la escriben. Fijado por
+  `inventory.patch-status-guard.spec.ts:153-160` (unidad) y `full-refund-vault.e2e-spec.ts:824-826` (`listed → in_stock`,
+  Postgres) y `:888` (igual al leído ⇒ 0 filas).
+- **No** en `→ listed` (camino publicante, `inventory.service.ts:2465` en adelante): ese camino sigue el pipeline de v1.51
+  (`assertPublishableGuards` + `claimListed`) y no escribe esta bitácora. ⚠️ Esto es **por construcción del código**;
+  **ninguna prueba fija la ausencia** en `→ listed` (`grep item_updated backend/test` solo encuentra los tres sitios de arriba).
+
+## 7 · Cifras
+
+| Qué | Resultado | Quién lo midió |
+|---|---|---|
+| Unitaria completa, 1.ª corrida (árbol fusionado, antes del §5) | 377/380 suites · 6381/6388 (7 rojas, §5) | backend (`unit-full-1.log`) |
+| Unitaria completa, 2.ª corrida | **380/380 suites · 6389/6389** | backend (`unit-full-2.log`) |
+| Unitaria completa sobre copia del árbol entero en `5321b8c` | **380/380 · 6389/6389** | orquestador |
+| Las 3 suites de guardas (`move-mark-guards`, `patch-status-guard`, `patch-price-guard`) | 3/3 · **95/95** | backend (`unit-inventory-guards.log`) |
+| Integración de guardas (`inventory-move-mark-guards.e2e-spec.ts` + `full-refund-vault.e2e-spec.ts`, Postgres 16 + Redis, pool `connection_limit=5`) | **2/2 suites · 46/46**; carreras PS-41b, PS-42b, PS-65 **10/10 con N=10** cada una, **una** corrida (load al final 3.43) | backend (`integ-guards-1.log`) |
+
+Mutaciones (sobre copia; la definición de cada una se reconstruye de su firma de fallo en el log):
+
+| Mutación | Resultado | Quién |
+|---|---|---|
+| **M1** — `updateItem` sin `assertOperable`, candado **sin** endurecer | **28/95 rojas** en `patch-price-guard` + `patch-status-guard`; `move-mark-guards` **verde** (el hueco del §4) | backend (`mut-M1.log`) |
+| **M1** con el candado endurecido | el candado estático muerde: **1/45** en `move-mark-guards` (`delegates: false`) | backend (`mut-M1-lock.log`) |
+| **M1** «sin `assertOperable` en `updateItem`», árbol `5321b8c` | **29/95 rojas** en las 3 suites de guardas (= 28 + el candado); restaurado **95/95** | orquestador |
+| **M2** — reintroducir en `updateItem` el allowlist local + guarda en línea de envío | **2/95**: las dos pruebas del candado estático (declaración duplicada; `inline/allowlist: true, delegates: false`) | backend (`mut-M2.log`) |
+| **M3** — CAS de `guardedItemUpdate` sin el estado/dueño leído (la mutación que nombra PS-42b) | unidad **7/95 rojas** (TOCTOU de `move`, `mark`, `PATCH status`, `PATCH price`); PS-42b **0/10 con N=10** (`200` + precio `1000+i` escrito sobre la `reserved` del comprador) | backend (`mut-M3.log`, `mut-M3-ps42b.log`) |
+
+## 8 · Pendientes (medidos 2026-09-29 sobre `5321b8c6`)
+
+- **PS-42b — espía de tx NO MEDIDO.** La primera mitad de PS-42b ya no usa el espía sobre `h.prisma.inventoryItem.update`:
+  ese espía **no ve** (NO MEDIDO que las vea) las escrituras hechas con el cliente de la tx (`tx.inventoryItem.update`
+  dentro de `guardedItemUpdate`). Hoy «`data` no lleva `status`» lo fija solo la unitaria
+  (`inventory.patch-status-guard.spec.ts:166`). **Comprobación que lo cerraría:** una mutación que reescriba `status` igual al
+  leído dentro de la tx y ver si alguna prueba de integración se pone roja.
+- **PS-42b — semilla de precio nula.** Las piezas de la carrera nacen con `listPriceCents = null` (`integ-guards-1.log`:
+  `price=null` en las 10 tiradas), así que «precio INTACTO» compara `null` con `null`. La carrera sigue mordiendo porque el
+  `PATCH` escribe `1000+i` (M3: 0/10), pero una mutación que escribiera `null` no se distinguiría. **Arreglo propuesto:**
+  sembrar un `listPriceCents` no nulo y distinto de `1000+i` en `db.mkPiece` de esa carrera.
+- Sin prueba que fije la **ausencia** de `inventory.item_updated` en `→ listed` (§6).
