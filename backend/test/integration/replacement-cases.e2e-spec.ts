@@ -600,6 +600,89 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     // Mutación: quitar el candado de fila `Order` del verbo ⇒ PS-27c: Σ Stripe > total (los dos 200) en ≥1 tirada.
   });
 
+  it('PS-27d 💰 — contracargo (`charge.dispute.created`) de la orden de origen encolado PRIMERO reteniendo `Order` (sin fila del libro ni tocar la pieza del caso); el reembolso del caso decide DESPUÉS del candado (N≥10) ⇒ 409 CASE_ORIGIN_NOT_SETTLED, cero `case_refund`, cero SPEI, cero Stripe', async () => {
+    // Techlead R1 sobre `c20451f`: `lockCase` lee la orden ANTES de esperar nada; el webhook de disputa de bóveda cambia
+    // `Order.status` SIN fila `PaymentRefund` (la vista previa no caduca) y SIN tocar la pieza `lost` del caso (no entra
+    // en su `updateMany`), así que ni la puerta del cliente ni las piezas serializan: SOLO la relectura bajo el
+    // `FOR UPDATE` de `Order` (`lockOriginOrder`) evita `case_refund`/SPEI sobre un cargo disputado. Mutación M12
+    // (quitar esa relectura en `refund`) ⇒ el caso queda `refunded` con fila y la orden `chargeback`: 0/10.
+    const outcomes: string[] = [];
+    let inter = 0;
+    for (let i = 0; i < N; i += 1) {
+      const t = await mkSpei(60000, { name: `PS27d ${i}` });
+      const a = Q + 10000;
+      const pvi = await db.casePreview(t.caseId, a);
+      expect(pvi.body.stripeCents).toBe(a);
+      const calls = h.stripe.refundCreateCalls.length;
+      const dispute = () => h.sendStripeWebhook({ type: 'charge.dispute.created', data: { object: { object: 'dispute', payment_intent: t.vo.pi } } });
+      const res = await db.forced(
+        () => db.holdRow('Order', t.vo.order.id),
+        dispute,
+        () => db.caseRefund(t.caseId, refundBody(pvi, a)),
+      );
+      if (res.interleaved) inter += 1;
+      const order = await db.order(t.vo.order.id);
+      const rows = await db.refunds({ orderId: t.vo.order.id, status: { not: 'failed' } });
+      const manual = await db.manualRows({ replacementCaseId: t.caseId });
+      const k = await db.kase(t.caseId);
+      const stripeCalls = h.stripe.refundCreateCalls.length - calls;
+      const ok =
+        res.a.status === 200 &&
+        order.status === 'chargeback' &&
+        res.b.status === 409 &&
+        res.b.body?.error?.code === 'CASE_ORIGIN_NOT_SETTLED' &&
+        rows.length === 0 &&
+        manual.length === 0 &&
+        stripeCalls === 0 &&
+        k.status === 'open';
+      outcomes.push(`${code(res.a)},${code(res.b)},order=${order.status},case=${k.status},rows=${rows.length},spei=${manual.length},stripe=${stripeCalls}${ok ? '' : ',VIOLATION'}`);
+      if (k.status === 'open') await db.caseVoid(t.caseId, { note: 'carrera d: contracargo' });
+    }
+    expect(report('PS-27d', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(inter).toBe(N);
+  });
+
+  it('PS-36b — `void` vs `reclaim-vault` sobre la misma orden `vault` ya `refunded` (sellada por el webhook), barrera en la PIEZA del caso (N≥10): `void` toma piezas → orden como todos ⇒ cero interbloqueos (`pg_stat_database.deadlocks` no sube), nunca 5xx; los dos 200 y el caso `voided`', async () => {
+    // Techlead R2 sobre `c20451f`: `void` tomaba `Order` (paso 3: «viable», la orden ya no está `settled`) y DESPUÉS la
+    // pieza; `reclaim-vault`/`unprepare`/M3 toman las piezas y DESPUÉS `Order`. Con el reclamo encolado primero en la
+    // pieza y `void` ya dueño de `Order` ⇒ `40P01` ⇒ uno de los dos `503 BUSY_TRY_AGAIN`. Con el orden normativo
+    // (piezas → orden), el reclamo pasa y `void` anula. (M3 no sirve de rival: sobre una orden no `settled` contesta
+    // 422 antes de tomar candado alguno, y sobre una `settled` es `void` quien contesta 409 antes de tomar la pieza.)
+    // Mutación: devolver `void` a `Order → piezas` ⇒ `deadlocks` sube y aparece un 503 en ≥1 tirada.
+    const deadlocks = async () => Number((await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(`SELECT deadlocks AS n FROM pg_stat_database WHERE datname = current_database()`))[0].n);
+    const before = await deadlocks();
+    const outcomes: string[] = [];
+    let inter = 0;
+    for (let i = 0; i < N; i += 1) {
+      const t = await mkSpei(60000, { name: `PS36b ${i}` });
+      // `charge.refunded` total desde el panel de Stripe: la orden queda `refunded` y sellada; la pieza del caso (`open_case`) no se toca.
+      expect((await db.chargeRefunded(t.vo.pi, t.vo.order.totalCents)).status).toBe(200);
+      const o0 = await db.order(t.vo.order.id);
+      expect(o0.status).toBe('refunded');
+      expect(o0.fullRefundClosedAt).not.toBeNull();
+      const res = await db.forced(
+        () => db.holdRow('InventoryItem', t.piece.id),
+        () => db.reclaimVault(t.vo.order.id, { note: 'carrera void' }), // A: piezas → Order, PRIMERO en la cola
+        () => db.caseVoid(t.caseId, { note: 'carrera void' }), // B: con el orden viejo llega sosteniendo `Order`
+      );
+      if (res.interleaved) inter += 1;
+      const k = await db.kase(t.caseId);
+      const piece = await db.piece(t.piece.id);
+      const no5xx = res.a.status < 500 && res.b.status < 500;
+      const ok = no5xx && res.a.status === 200 && res.b.status === 200 && k.status === 'voided' && piece.ownerType === 'platform' && piece.status === 'lost';
+      outcomes.push(`${code(res.a)},${code(res.b)},case=${k.status},piece=${piece.status}/${piece.ownerType}${ok ? '' : ',VIOLATION'}`);
+      if (k.status === 'open') await db.caseVoid(t.caseId, { note: 'carrera void: limpieza' });
+    }
+    // Las estadísticas se vuelcan con retraso (≤ 1 s en PG ≥ 15): se espera antes de leer el contador.
+    await new Promise((r) => setTimeout(r, 1500));
+    const delta = (await deadlocks()) - before;
+    // eslint-disable-next-line no-console
+    console.log(`[PS-RACE PS-36b] deadlocks Δ=${delta}`);
+    expect(report('PS-36b', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(inter).toBe(N);
+    expect(delta).toBe(0);
+  });
+
   it('PS-30 💰 — remanente 0 ⇒ todo a SPEI: cero filas del libro, cero Stripe, un ManualRefund = A con comp(A); el caso queda `refunded`', async () => {
     const s = await mkSpei(60000);
     await h.prisma.paymentRefund.create({

@@ -485,6 +485,16 @@ export class ReplacementCaseService {
     await tx.$queryRaw`SELECT id FROM "InventoryItem" WHERE id = ANY(${sorted}::text[]) ORDER BY id FOR UPDATE`;
   }
 
+  /**
+   * `Order` de origen `FOR UPDATE` y **relectura** de su `status`. ⛔ NO es redundante con la puerta del cliente ni con
+   * las piezas (techlead R1 sobre `c20451f`): `lockCase` lee la orden ANTES de esperar la pieza, y hay escritores de
+   * `Order.status` que NO tocan la pieza del caso ni dejan fila del libro — `charge.dispute.created` de bóveda
+   * (`payments.service.ts · onChargeDisputeVault`: la pieza `lost|damaged` no entra en su `updateMany`, luego
+   * `order.update({status:'chargeback'})`) y `charge.refunded` desde el panel de Stripe (sin `PaymentRefund` ⇒ la
+   * vista previa no caduca). Sin este candado, `refund` decidiría con el `settled` caduco de `load` y crearía
+   * `case_refund`/SPEI sobre un cargo ya disputado o devuelto: doble pago. La caza **PS-27d** (contracargo encolado
+   * primero reteniendo `Order`, N=10): quitar esta relectura ⇒ 0/10.
+   */
   private async lockOriginOrder(tx: Tx, c: CaseRow): Promise<OrderStatus | null> {
     if (!c.originOrderItem) return null;
     const rows = await tx.$queryRaw<{ status: OrderStatus }[]>`SELECT status FROM "Order" WHERE id = ${c.originOrderItem.order.id} FOR UPDATE`;
@@ -940,11 +950,14 @@ export class ReplacementCaseService {
         if (c.status === 'voided') return { outcome: 'already_resolved' as const, refundIds: [] as string[], shipment: await this.shipmentState(tx, c) };
         throw this.notOpen(c);
       }
+      // Piezas ANTES que la orden de origen (el orden normativo de la cabecera y el de `refund`/`replace`, M3 tx1 y el
+      // webhook de disputa). Techlead R2 sobre `c20451f`: con `Order → piezas` aquí, `void` (reteniendo `Order`) contra
+      // M3 (reteniendo las piezas) era un interbloqueo `40P01` ⇒ `503`. La caza: PS-36b (N=10, `pg_stat_database.deadlocks`).
+      await this.lockPieces(tx, [c.originalInventoryItem.id]);
       const originStatus = await this.lockOriginOrder(tx, c);
       if (originStatus === 'settled') {
         throw BusinessException.conflict('CASE_NOT_VOIDABLE', 'The origin order is still settled', { originStatus: 'settled' });
       }
-      await this.lockPieces(tx, [c.originalInventoryItem.id]);
       await this.originalToPlatform(tx, c, actor, `anulada · caso ${c.id}`);
       const closed = await tx.replacementCase.updateMany({
         where: { id: c.id, status: 'open' },
