@@ -29,6 +29,16 @@ export interface QueryStateProps {
  * operador lee «hay slabs publicados» y no sabe **cuántos** ni de **qué grado**; con ella, el
  * mensaje es el que §O.8 exige — «esta carta ya tiene N PSA 10 publicadas, eso es dinero real».
  */
+/** Los `reason` con rama propia en `error.LOCATION_NOT_AVAILABLE_WITH_DETAILS` (los dos catálogos). */
+const LOCATION_NOT_AVAILABLE_REASONS: readonly string[] = [
+  'not_platform_stock',
+  'not_customer_custody',
+  'not_customer_drawer',
+  'inactive',
+  'not_found',
+  'location_required',
+];
+
 const DETAILED_ERRORS: Record<
   string,
   (
@@ -139,6 +149,26 @@ const DETAILED_ERRORS: Record<
       from,
       allowedFrom: allowed.join(t('error.INVALID_TRANSITION_ALLOWED_FROM_JOIN')),
     };
+  },
+
+  /**
+   * `422 LOCATION_NOT_AVAILABLE` (contrato §M4-VAULT.5 para el `confirm` de colocación; y las
+   * guardas de `POST /admin/inventory/items/:id/move` en `item-location.rules.ts ·
+   * assertMoveDestination`). El motivo viaja en `details.reason`; el copy `_WITH_DETAILS` lo nombra
+   * con un `select` ICU (`not_platform_stock`, `not_customer_custody`, `not_customer_drawer`,
+   * `inactive`, `not_found`, `location_required`).
+   *
+   * QA (2026-09-29, sobre `4ca6c45`): el detalle de M1 pintaba «Location not available:
+   * not_platform_stock» — el inglés del servidor. Un `reason` desconocido (o ausente) devuelve
+   * `null` ⇒ base traducida: el `select` no recibe un valor que no tenga rama y no se inventa un
+   * motivo. Los seis `reason` son los de `LocationNotAvailableDetails` (contrato v1.79.6, que añade
+   * `not_platform_stock` para el `move`).
+   */
+  LOCATION_NOT_AVAILABLE: (d) => {
+    const reason = d.reason;
+    return typeof reason === 'string' && LOCATION_NOT_AVAILABLE_REASONS.includes(reason)
+      ? { reason }
+      : null;
   },
 
   BUYLIST_LIMIT_EXCEEDED: (d, _t, locale) => {

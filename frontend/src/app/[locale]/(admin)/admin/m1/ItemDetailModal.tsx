@@ -83,8 +83,10 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const [moveNote, setMoveNote] = useState('');
   const move = useMutation({
     // El destino viaja como VARIABLE de la mutación: el aviso de éxito lee su etiqueta de ahí
-    // (`move.variables`), porque la respuesta real del move NO trae `location` (solo `locationId`,
-    // `toAdminInventoryItemRow` en el backend) — antes pintaba «Item movido a .».
+    // (`move.variables`), no de la respuesta. La respuesta del move trae `location` desde `6e3b1b7`
+    // (backend de esta rama, `inventory.service.ts · moveItem`); production `a2da420` aún sirve la
+    // fila de `toAdminInventoryItemRow` (solo `locationId`) y con ella pintaba «Item movido a .».
+    // Front y back se publican por separado: la etiqueta elegida vale con las dos formas.
     mutationFn: (vars: { toLocationId: string; note?: string }) => moveInventoryItem(itemId!, vars),
     onSuccess: () => {
       setToLocationId('');
@@ -137,9 +139,16 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
    * que poder ubicarse o corregirse: sin esto el operador no tenía ningún camino en la UI para decir
    * dónde está una pieza «Sin ubicar» de un pedido cobrado
    * (`POST /admin/inventory/items/:id/move` sobre `picking` → 200, medido por el orquestador).
-   * ⛔ SOLO «Mover de ubicación»: la merma sigue restringida a `canOperate`. Destinos: solo
-   * `platform_stock` activos — una carta vendida que aún no sale sigue en el stock de la tienda, no en
-   * la custodia de un cliente.
+   * ⛔ SOLO «Mover de ubicación»: la merma sigue restringida a `canOperate`.
+   *
+   * **Destinos: solo `platform_stock` activos, para TODA pieza de plataforma** (QA IMPORTANTE sobre
+   * `4ca6c45`, 2026-09-29): hasta entonces el filtro de zona solo se aplicaba en `picking`, y en
+   * `in_stock`/`listed` el selector ofrecía cajones de «Custodia de clientes», que el backend rechaza
+   * con `422 LOCATION_NOT_AVAILABLE reason=not_platform_stock`. Una pieza de la tienda —vendida o
+   * no— vive en un estante de la tienda; los cajones de custodia son de un cliente concreto y se
+   * asignan por la colocación (§M4-VAULT), nunca desde aquí. `canMove` solo es cierto en
+   * `in_stock|listed|picking`, que son estados de pieza de PLATAFORMA; una pieza de cliente
+   * (`in_custody`) no entra en esta sección.
    *
    * ⚠️ **Quién restringe de verdad (C-1 del techlead, 2026-09-29).** El backend de production
    * (`a2da420`) **NO restringe hoy** ni el estado de la pieza ni la zona del destino en `move`/`mark`:
@@ -154,8 +163,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const isPicking = item?.status === 'picking';
   const canMove = canOperate || isPicking;
   const moveTargets = locations.filter(
-    (l) =>
-      l.id !== item?.location?.id && (!isPicking || (l.zone === 'platform_stock' && l.isActive)),
+    (l) => l.id !== item?.location?.id && l.zone === 'platform_stock' && l.isActive,
   );
 
   return (

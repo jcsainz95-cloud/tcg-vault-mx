@@ -3907,6 +3907,8 @@
     "ITEM_NOT_APPROVED": "Solo un ítem aprobado puede convertirse a inventario.",
     "CLABE_UNAVAILABLE": "No hay CLABE disponible para esta solicitud (ni snapshot ni KYC).",
     "ITEM_NOT_ADJUSTABLE": "Esta pieza no se puede ajustar en su estado actual.",
+    "LOCATION_NOT_AVAILABLE": "Esa ubicación no sirve como destino. No se guardó nada: actualiza la lista de ubicaciones y elige otra.",
+    "LOCATION_NOT_AVAILABLE_WITH_DETAILS": "{reason, select, not_platform_stock {Una pieza de la tienda solo puede ir a un estante de stock de plataforma, no a un cajón de custodia de clientes.} not_customer_custody {Una carta de un cliente solo puede ir a un cajón de custodia de clientes, no a un estante de la tienda.} not_customer_drawer {Ese cajón no es del cliente dueño de la carta: elige uno de sus cajones.} inactive {Esa ubicación está desactivada.} not_found {Esa ubicación ya no existe.} location_required {Hay cartas tomadas y falta elegir el cajón.} other {Esa ubicación no sirve como destino.}} No se guardó nada: actualiza la lista de ubicaciones y elige otra.",
     "ALREADY_AUTHENTICATED": "Ya tienes una sesión iniciada: continúa con tu cuenta.",
     "PAYMENT_PROVIDER_UNAVAILABLE": "No pudimos contactar al procesador de pago. Inténtalo de nuevo en unos minutos.",
     "ORDER_ALREADY_CLAIMED": "No fue posible vincular este pedido.",
