@@ -97,6 +97,7 @@ import { ShipPrepDb } from './helpers/ship-prep-db';
 import { REPLACEMENT_CASE_STATE_VALUES } from '../../src/modules/vault/replacement-case.service';
 import { SHRINKAGE_REASON_VALUES } from '../../src/modules/admin/admin.controller';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
+import { seedE2E } from '../../prisma/seed-e2e';
 import { censusQueryAxes } from '../helpers/query-axis-census';
 import {
   huerfanos,
@@ -1037,6 +1038,12 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
 
   beforeAll(async () => {
     h = await E2EHarness.create();
+    // ⚠️ RE-SIEMBRA, no `ensureSeeded` (que solo siembra una BD VACÍA). Medido 2026-09-29 (BACKEND_NOTES «Release s5»
+    // §10): tres ejes de `pending-publish` leen la ÚNICA pieza de esa cola que pone el seed (`E2E-STK-0001`, plataforma
+    // `in_stock` sin caja), y `full-refund-vault` PS-64 corre `POST /admin/inventory/publish-all` GLOBAL —el verbo real,
+    // a propósito— que la deja `listed`. Sin re-sembrar, esta suite medía lo que dejó la anterior: «FIXTURE VACÍO»
+    // 3/3 corridas tras PS-64, 3/3 verdes sobre BD recién sembrada.
+    await seedE2E(h.prisma);
     adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
     clienteToken = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
     ctx = await sembrarFixture(h);
