@@ -1141,8 +1141,10 @@
       "connecting": "Conectando…"
     },
     "forgotPassword": "¿Olvidaste tu contraseña?",
-    "tooManyAttempts": "Demasiados intentos con este correo. Vuelve a intentarlo en {minutes} min o <reset>restablece tu contraseña</reset>.",
-    "tooManyAttemptsNoTime": "Demasiados intentos con este correo. Vuelve a intentarlo más tarde o <reset>restablece tu contraseña</reset>.",
+    "login": {
+      "rateLimited": "Demasiados intentos con este correo. Espera unos minutos y vuelve a intentarlo, o <reset>restablece tu contraseña</reset>.",
+      "rateLimitedRetryIn": "Demasiados intentos con este correo. Vuelve a intentarlo en {minutes, plural, one {# minuto} other {# minutos}}, o <reset>restablece tu contraseña</reset>."
+    },
     "changePassword": {
       "title": "Crea tu contraseña definitiva",
       "body": "Entraste con una contraseña temporal. Para continuar, elige una nueva.",

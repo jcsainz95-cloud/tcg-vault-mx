@@ -18392,3 +18392,7 @@ token en `logout` ⇒ 2 rojas; en `clearClientSession` ⇒ 4 rojas; no mandarlo 
 - **Prueba:** `src/lib/security-headers.test.ts` (4 pruebas; rojas por ausencia antes, verdes después). Verificado además con `next build && next start` + `curl -I` en `/`, `/es`, `/es/admin` y un 404.
 - **Iframes propios:** `grep -rn "<iframe" frontend/src` = 0 resultados; nada nuestro embebe páginas nuestras ni terceros. `frame-ancestors` restringe quién nos embebe, no a quién embebemos.
 - **Para devops:** `security/zap/baseline.conf:88` lista `10020 WARN`; según seguridad debe pasar a FAIL en el mismo cambio. No lo toqué (es de devops). 10021 (nosniff, línea 89) también queda resuelto para la vitrina.
+
+## Copy final del 429 de login (2026-09-29, DESIGN_SYSTEM v4.9 §37.13)
+
+`auth.tooManyAttempts`/`tooManyAttemptsNoTime` sustituidas por `auth.login.rateLimited` (sin cifra) y `auth.login.rateLimitedRetryIn` (`{minutes, plural, one {# minuto} other {# minutos}}`), es/en. Se usa la segunda solo si `details.retryAfterSeconds` es usable (`retryAfterMinutes`, ceil a minutos); el cliente API no expone la cabecera `Retry-After` (solo `details`), así que no se lee. Pruebas en `AuthForm.test.tsx` (con cifra 3 min/1 min, ES singular, sin cifra); mutación medida: intercambiar las dos claves ⇒ 4 rojas (N=1, determinista).

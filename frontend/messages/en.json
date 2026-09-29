@@ -1141,8 +1141,10 @@
       "connecting": "Connecting…"
     },
     "forgotPassword": "Forgot your password?",
-    "tooManyAttempts": "Too many attempts for this email. Try again in {minutes} min or <reset>reset your password</reset>.",
-    "tooManyAttemptsNoTime": "Too many attempts for this email. Try again later or <reset>reset your password</reset>.",
+    "login": {
+      "rateLimited": "Too many attempts with this email. Wait a few minutes and try again, or <reset>reset your password</reset>.",
+      "rateLimitedRetryIn": "Too many attempts with this email. Try again in {minutes, plural, one {# minute} other {# minutes}}, or <reset>reset your password</reset>."
+    },
     "changePassword": {
       "title": "Create your permanent password",
       "body": "You signed in with a temporary password. Choose a new one to continue.",

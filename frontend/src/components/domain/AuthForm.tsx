@@ -116,7 +116,7 @@ export function AuthForm({
            * ⛔ Nunca «tu cuenta está bloqueada»: afirmaría que la cuenta existe.
            */
           <Banner variant="warning" role="alert">
-            {t.rich(lockMinutes === null ? 'tooManyAttemptsNoTime' : 'tooManyAttempts', {
+            {t.rich(lockMinutes === null ? 'login.rateLimited' : 'login.rateLimitedRetryIn', {
               minutes: lockMinutes ?? 0,
               reset: (chunks) => (
                 <Link href="/forgot-password" className="underline">

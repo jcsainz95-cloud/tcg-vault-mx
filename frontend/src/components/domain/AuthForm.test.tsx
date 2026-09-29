@@ -200,13 +200,13 @@ describe('AuthForm — 429 TOO_MANY_PASSWORD_ATTEMPTS (v1.80, C7)', () => {
     login.mockReset();
   });
 
-  it('F-C7-1 · ES: retryAfterSeconds 150 ⇒ «3 min» + enlace a restablecer, sin «bloqueada»', async () => {
+  it('F-C7-1 · ES: retryAfterSeconds 150 ⇒ «3 minutos» + enlace a restablecer, sin «bloqueada»', async () => {
     login.mockRejectedValue(locked(150));
     const { container } = renderWithIntl(<AuthForm mode="login" />, 'es');
     submitLogin(container);
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(
-      'Demasiados intentos con este correo. Vuelve a intentarlo en 3 min o restablece tu contraseña.',
+      'Demasiados intentos con este correo. Vuelve a intentarlo en 3 minutos, o restablece tu contraseña.',
     );
     const link = within(alert).getByRole('link', { name: 'restablece tu contraseña' });
     expect(link).toHaveAttribute('href', '/forgot-password');
@@ -214,13 +214,13 @@ describe('AuthForm — 429 TOO_MANY_PASSWORD_ATTEMPTS (v1.80, C7)', () => {
     expect(push).not.toHaveBeenCalled();
   });
 
-  it('F-C7-1 · EN: mismo copy y enlace; 1 s ⇒ «1 min» (nunca 0)', async () => {
+  it('F-C7-1 · EN: mismo copy y enlace; 1 s ⇒ «1 minute» (nunca 0)', async () => {
     login.mockRejectedValue(locked(1));
     const { container } = renderWithIntl(<AuthForm mode="login" />, 'en');
     submitLogin(container);
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(
-      'Too many attempts for this email. Try again in 1 min or reset your password.',
+      'Too many attempts with this email. Try again in 1 minute, or reset your password.',
     );
     expect(within(alert).getByRole('link', { name: 'reset your password' })).toHaveAttribute(
       'href',
@@ -229,13 +229,22 @@ describe('AuthForm — 429 TOO_MANY_PASSWORD_ATTEMPTS (v1.80, C7)', () => {
     expect(alert.textContent).not.toMatch(/locked/i);
   });
 
+  it('ES singular: 60 s ⇒ «1 minuto» (plural ICU, no «1 minutos»)', async () => {
+    login.mockRejectedValue(locked(60));
+    const { container } = renderWithIntl(<AuthForm mode="login" />, 'es');
+    submitLogin(container);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Demasiados intentos con este correo. Vuelve a intentarlo en 1 minuto, o restablece tu contraseña.',
+    );
+  });
+
   it('sin details usables no inventa cifra: copy sin minutos, con enlace', async () => {
     login.mockRejectedValue(locked());
     const { container } = renderWithIntl(<AuthForm mode="login" />, 'es');
     submitLogin(container);
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(
-      'Demasiados intentos con este correo. Vuelve a intentarlo más tarde o restablece tu contraseña.',
+      'Demasiados intentos con este correo. Espera unos minutos y vuelve a intentarlo, o restablece tu contraseña.',
     );
     expect(alert.textContent).not.toMatch(/\d/);
   });
