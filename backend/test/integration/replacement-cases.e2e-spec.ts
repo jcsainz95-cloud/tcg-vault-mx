@@ -555,7 +555,47 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     }
     expect(report('PS-27b', outcomesB, (o) => !o.includes('VIOLATION'))).toBe(N);
     expect(interB).toBe(N);
-    // Mutación: quitar el candado de fila `Order` del verbo ⇒ Σ > total o caso `refunded` sobre una orden ya devuelta en ≥1 tirada.
+    // DOS casos de la MISMA orden (PS-27c): cada reembolso calcula su plan (`stripeAvailable = total − devuelto`) BAJO
+    // el candado de la orden; el segundo ve las filas del primero ⇒ su vista previa caduca (409 REFUND_PREVIEW_STALE) y
+    // Σ Stripe ≤ total. Es el orden que muerde quitar el `FOR UPDATE` de la orden: los dos verían «nada devuelto».
+    const outcomesC: string[] = [];
+    let interC = 0;
+    for (let i = 0; i < N; i += 1) {
+      const u = await db.mkUser(`PS27c ${i}`);
+      const drawer = await db.mkDrawer();
+      const card = await db.mkCard(60000);
+      const vo = await db.mkVaultOrder(u.id, { prices: [50000, 30000, 10000], placement: 'pending', locationId: drawer.id, cardIds: [card.id, card.id, card.id] });
+      const placement = vo.placement!;
+      const items = await h.prisma.vaultPlacementItem.findMany({ where: { placementId: placement.id } });
+      const missing = items.filter((it) => it.inventoryItemId !== vo.pieces[2].id);
+      const picked = items.find((it) => it.inventoryItemId === vo.pieces[2].id)!;
+      for (const it of missing) expect((await db.vpMark(placement.id, it.id, { status: 'missing', missingReason: 'not_found' })).status).toBe(200);
+      expect((await db.vpMark(placement.id, picked.id, { status: 'picked' })).status).toBe(200);
+      expect((await db.vpPrepare(placement.id)).status).toBe(200);
+      const conf = await db.vpConfirm(placement.id, { locationId: drawer.id });
+      expect(conf.status).toBe(200);
+      const caseIds: string[] = conf.body.items.filter((x: any) => x.result === 'missing').map((x: any) => x.caseId);
+      expect(caseIds).toHaveLength(2);
+      const a = 60000; // = referencia (max(pagado, mercado)); a + a > total ⇒ el segundo NO cabe entero en Stripe
+      const p1 = await db.casePreview(caseIds[0], a);
+      const p2 = await db.casePreview(caseIds[1], a);
+      expect(p1.body.stripeCents).toBe(a);
+      expect(p2.body.stripeCents).toBe(a);
+      const res = await db.forced(
+        () => db.holdRow('Order', vo.order.id),
+        () => db.caseRefund(caseIds[0], refundBody(p1, a)),
+        () => db.caseRefund(caseIds[1], refundBody(p2, a)),
+      );
+      if (res.interleaved) interC += 1;
+      const rows = await db.refunds({ orderId: vo.order.id, status: { not: 'failed' } });
+      const sum = rows.reduce((acc, x) => acc + x.amountCents, 0);
+      const wins = [res.a, res.b].filter((x) => x.status === 200).length;
+      const ok = sum <= vo.order.totalCents && wins === 1;
+      outcomesC.push(`${code(res.a)},${code(res.b)},Σ=${sum}/${vo.order.totalCents}${ok ? '' : ',VIOLATION'}`);
+    }
+    expect(report('PS-27c', outcomesC, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(interC).toBe(N);
+    // Mutación: quitar el candado de fila `Order` del verbo ⇒ PS-27c: Σ Stripe > total (los dos 200) en ≥1 tirada.
   });
 
   it('PS-30 💰 — remanente 0 ⇒ todo a SPEI: cero filas del libro, cero Stripe, un ManualRefund = A con comp(A); el caso queda `refunded`', async () => {
@@ -876,7 +916,28 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     }
     expect(report('PS-33', outcomes, (o) => !o.includes('VIOLATION'))).toBe(N);
     expect(inter).toBe(N);
-    // Mutación: quitar `status:'pending'` del WHERE del CAS ⇒ `paid` y `cancelled` los dos en ≥1 tirada.
+    // El OTRO orden (PS-33b): `cancel` se encola PRIMERO y `paid` decide con una lectura caduca (`pending`) ⇒ el
+    // FOR UPDATE + relectura (y, detrás, el CAS `status:'pending'`) dan 409 MANUAL_REFUND_NOT_PENDING; queda `cancelled`.
+    // Es el orden que muerde quitar el candado y el `status` del CAS: `paid` pisaría una cancelada (y saldría AV-15).
+    const outcomesB: string[] = [];
+    let interB = 0;
+    for (let i = 0; i < N; i += 1) {
+      const m = await mkPending({ name: `PS33b ${i}` });
+      const tk = (await db.mrReveal(m.mr.id)).body.revealToken;
+      const res = await db.forced(
+        () => db.holdRow('ManualRefund', m.mr.id),
+        () => db.mrCancel(m.mr.id, { note: 'cancelada en carrera b' }),
+        () => db.mrPaid(m.mr.id, { revealToken: tk, speiReference: `RB${i}` }),
+      );
+      if (res.interleaved) interB += 1;
+      const st = (await h.prisma.manualRefund.findUniqueOrThrow({ where: { id: m.mr.id } })).status;
+      const wins = [res.a, res.b].filter((x) => x.status === 200 && ['paid', 'cancelled'].includes(x.body.outcome)).length;
+      const ok = wins === 1 && st === 'cancelled' && res.b.status === 409;
+      outcomesB.push(`${code(res.a)},${code(res.b)},status=${st}${ok ? '' : ',VIOLATION'}`);
+    }
+    expect(report('PS-33b', outcomesB, (o) => !o.includes('VIOLATION'))).toBe(N);
+    expect(interB).toBe(N);
+    // Mutación: quitar `status:'pending'` del WHERE del CAS (y el candado) ⇒ PS-33b: `paid` sobre `cancelled` en ≥1 tirada.
   });
 
   it('PS-34 🔒 — la lista y el detalle NUNCA llevan 18 dígitos seguidos; `reveal-clabe` solo súper-admin, solo `pending`, UNA bitácora por llamada; sin CLABE ⇒ 422; la tabla no tiene columna de CLABE', async () => {
