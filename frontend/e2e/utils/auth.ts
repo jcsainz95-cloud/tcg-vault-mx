@@ -91,6 +91,7 @@ const MOCK_FORM_CREDENTIALS: Record<SeedRole, { email: string; password: string 
   operator: { email: 'operador@example.com', password: 'secret123' },
   customerTemp: { email: 'temporal@example.com', password: 'cualquiera' },
   operatorTemp: { email: 'operador.temporal@example.com', password: 'temporal-op' },
+  speiCustomer: { email: 'cliente.spei@example.com', password: 'secret123' },
 };
 
 /**

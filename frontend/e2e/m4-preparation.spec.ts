@@ -64,7 +64,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 for (const vp of VIEWPORTS) {
-  test.describe(`admin · Pedidos a preparar · ${vp.name}`, () => {
+  test.describe(`admin · Pedidos por preparar · ${vp.name}`, () => {
     test.use({ viewport: vp.size });
 
     test.beforeEach(async ({ page }) => {
@@ -76,19 +76,26 @@ for (const vp of VIEWPORTS) {
      * sin paginar) y una de ejecución física. Manda la que se usa de pie: el operador que entra a
      * preparar ⛔ no puede tener que hacer scroll por una lista que no es la suya.
      */
-    test('la hoja de trabajo se pinta ARRIBA de la cola de envíos, y nada desborda', async ({ page }) => {
+    /**
+     * v1.80 (`DESIGN_SYSTEM §37.2`): la cola administrativa ya no comparte scroll con la hoja de trabajo — vive en
+     * su propia pestaña «Envíos». Lo que P-10 protegía (el operador de pie no hace scroll por una lista que no es
+     * la suya) se mide ahora como: «Preparar» es la pestaña por defecto y la cola solo aparece al pedirla.
+     */
+    test('la hoja de trabajo es la pestaña por defecto; la cola de envíos vive en la suya, y nada desborda', async ({ page }) => {
       needsSeed('la cola de preparación exige un ShipmentRequest en `picking`');
       await page.goto('/es/admin/m4');
 
-      const prep = page.getByRole('heading', { name: P('title') });
+      // El `<h1>` y el `<h2>` comparten rótulo (§37.16): el bloque de preparación es el de nivel 2.
+      const prep = page.getByRole('heading', { name: P('title'), level: 2 });
       const cola = page.getByRole('heading', { name: t('es', 'admin.m4.queueTitle') });
       await expect(prep).toBeVisible();
+      await expect(cola).toHaveCount(0);
+      await expect(page.getByRole('tab', { name: /Preparar/ })).toHaveAttribute('aria-selected', 'true');
+      await expectNoHorizontalOverflow(page);
+
+      await page.getByRole('tab', { name: /Envíos/ }).click();
       await expect(cola).toBeVisible();
-
-      const yPrep = (await prep.boundingBox())!.y;
-      const yCola = (await cola.boundingBox())!.y;
-      expect(yPrep, 'la herramienta de trabajo quedó debajo de la pantalla de administración').toBeLessThan(yCola);
-
+      await expect(prep).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
     });
 
@@ -266,7 +273,7 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByTestId('prep-conflict')).toBeVisible();
       expect(await page.locator('main').innerText()).not.toContain(P('emptyShip.title'));
       // La cabecera no desaparece: el operador sigue sabiendo en qué pantalla está.
-      await expect(page.getByRole('heading', { name: P('title') })).toBeVisible();
+      await expect(page.getByRole('heading', { name: P('title'), level: 2 })).toBeVisible();
 
       await expectNoHorizontalOverflow(page);
     });

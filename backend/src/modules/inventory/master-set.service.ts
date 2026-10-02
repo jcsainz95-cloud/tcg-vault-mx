@@ -10,6 +10,8 @@ import { hasManualPrice } from '../../common/money';
 import { VariantPricingDTO, composeVariantPricing, resolveMarketReference } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
 import { customerDisplayName } from '../vault/customer-display-name';
+// v1.80 (P-71, §4.57.3): la ÚNICA normalización del código corto del set (vive junto a `toCardDTO`).
+import { publicPtcgoCode } from '../catalog/catalog.service';
 // v1.33 (P-27, §4.31): mapa curado padre→subset del MASTER SET COMBINADO. SOLO lectura de
 // presentación (money-safe): resuelve `externalId`→`CardSet.id` local por join; nunca fuente de verdad.
 import {
@@ -157,6 +159,11 @@ export interface MasterSetSummaryDTO {
   // Sale de la MISMA fila `CardSet` de la query (1) del índice ⇒ cero queries nuevas, cero N+1.
   // NO existe `symbolUrl` aquí: se persiste en `CardSet` pero NO se expone en ningún DTO (§4.39.5).
   logoUrl: string | null;
+  // v1.80 (P-71, ARCHITECTURE §4.57) — código corto IMPRESO del set («TWM») para la teja del índice.
+  // Mismas reglas que `CardDTO.setPtcgoCode` (clave SIEMPRE presente, `null` = sin código, una sola
+  // normalización `publicPtcgoCode`). Sale de la MISMA fila `CardSet` de la query (1) del índice. La
+  // fila plegada de un combinado emite el DEL PRINCIPAL (mismo patrón que `logoUrl`).
+  ptcgoCode: string | null;
 }
 
 export interface MasterSetIndexResponse {
@@ -177,6 +184,13 @@ export interface SetRefDTO {
 }
 
 /**
+ * v1.80 (P-71, ARCHITECTURE §4.57.2) — cabecera del BINDER: `SetRefDTO` + el código corto del set.
+ * Tipo con NOMBRE PROPIO a propósito: ⛔ `SetRefDTO` NO cambia (lo emiten la gráfica de valor del set y
+ * el sellado, que no pintan cartas con número). En un master combinado = el del PRINCIPAL.
+ */
+export type MasterSetRefDTO = SetRefDTO & { ptcgoCode: string | null };
+
+/**
  * v1.33 (P-27, §4.31b / §DTOs) — una parte de un master set combinado (principal o subset). El binder
  * de un master combinado trae `parts[]` (una entrada por parte importada, en orden de bloque) para que
  * el front pinte el desglose/separador. `catalogCardCount` = nº de `Card` de ESE set-id real.
@@ -190,6 +204,8 @@ export interface SetPartDTO {
   /** Orden de bloque: principal = 0; subsets por su `order` (1, 2, …). */
   order: number;
   catalogCardCount: number;
+  /** v1.80 (P-71): código corto de ESTA parte (⛔ no el del principal). Clave siempre presente; `null` = sin código. */
+  ptcgoCode: string | null;
 }
 
 export interface MasterSetCardCellDTO {
@@ -248,7 +264,8 @@ export interface CardProductDTO {
 }
 
 export interface MasterSetBinderResponse {
-  set: SetRefDTO;
+  /** v1.80 (P-71): `MasterSetRefDTO` (= `SetRefDTO` + `ptcgoCode`). */
+  set: MasterSetRefDTO;
   printedTotal: number | null;
   catalogCardCount: number;
   cells: MasterSetCardCellDTO[];
@@ -290,9 +307,25 @@ export function expectedFinishes(available: Finish[] | null | undefined): Finish
  */
 interface ResolvedMasterSet {
   /** El `CardSet` PRINCIPAL (nombra al master, provee el `SetRefDTO`). */
-  primary: { id: string; name: string; series: string | null; releaseDate: string | null; printedTotal: number | null };
+  primary: {
+    id: string;
+    name: string;
+    series: string | null;
+    releaseDate: string | null;
+    printedTotal: number | null;
+    ptcgoCode: string | null;
+  };
   /** Partes importadas en orden de bloque (incluye el principal). Siempre ≥2 (si fuera 1 → null). */
-  parts: { setId: string; name: string; label: string; isPrimary: boolean; order: number; printedTotal: number | null }[];
+  parts: {
+    setId: string;
+    name: string;
+    label: string;
+    isPrimary: boolean;
+    order: number;
+    printedTotal: number | null;
+    /** v1.80 (P-71): código CRUDO de esta parte (se normaliza al emitir `SetPartDTO`). */
+    ptcgoCode: string | null;
+  }[];
   /** Set-ids locales reales de las partes, en orden de bloque. */
   partSetIds: string[];
   /** Presente SOLO si el `:setId` pedido era un SUBSET y se normalizó a su principal (el front actualiza URL). */
@@ -365,7 +398,16 @@ export class MasterSetService implements OnModuleInit {
     const partExt = partExternalIds(primaryExternalId); // [principal, ...subsets] en orden de bloque
     const cardSets = await this.prisma.cardSet.findMany({
       where: { externalId: { in: partExt } },
-      select: { id: true, externalId: true, name: true, series: true, releaseDate: true, printedTotal: true },
+      // v1.80 (P-71): `ptcgoCode` de cada parte (cero queries nuevas: misma fila).
+      select: {
+        id: true,
+        externalId: true,
+        name: true,
+        series: true,
+        releaseDate: true,
+        printedTotal: true,
+        ptcgoCode: true,
+      },
     });
     const byExternal = new Map(cardSets.map((s) => [s.externalId, s]));
 
@@ -382,6 +424,7 @@ export class MasterSetService implements OnModuleInit {
         isPrimary: true,
         order: 0,
         printedTotal: primary.printedTotal,
+        ptcgoCode: primary.ptcgoCode,
       },
     ];
     for (const ext of partExt) {
@@ -396,6 +439,7 @@ export class MasterSetService implements OnModuleInit {
         isPrimary: false,
         order: meta?.order ?? 1,
         printedTotal: cs.printedTotal,
+        ptcgoCode: cs.ptcgoCode,
       });
     }
     parts.sort((a, b) => a.order - b.order);
@@ -427,8 +471,23 @@ export class MasterSetService implements OnModuleInit {
     // 404 temprano si el userId del scope no existe (vista (ii) admin). Vista (iii): siempre yo.
     const owner = await this.resolveOwner(scope, opts);
 
+    // §0 «Filtros de lista» (API_CONTRACT: `q` = texto libre, `trim`, vacío/whitespace = ausente): el SERVIDOR
+    // recorta, no confía en que el cliente lo haga (una llamada directa con " twm" debe encontrar el set).
+    const term = q.q?.trim();
+
     const sets = await this.prisma.cardSet.findMany({
-      where: q.q ? { name: { contains: q.q, mode: 'insensitive' } } : {},
+      // v1.80 (P-71, §4.57.4): «Buscar set» casa por NOMBRE **o** por CÓDIGO corto, ambos «contiene» sin
+      // distinguir mayúsculas. Un set con `ptcgoCode` NULL solo casa por nombre (ILIKE sobre NULL ⇒ no
+      // casa, sin error — lo mide P71-B5 contra Postgres real). ⚠️ Se filtra ANTES del plegado de
+      // combinados (conducta heredada, §4.57.4): no cambia en este pase.
+      where: term
+        ? {
+            OR: [
+              { name: { contains: term, mode: 'insensitive' } },
+              { ptcgoCode: { contains: term, mode: 'insensitive' } },
+            ],
+          }
+        : {},
       // v1.33 (P-27): `externalId` para plegar subsets→principal por el mapa curado (§4.31c).
       // v1.52 (M-47, §4.39.5): `logoUrl` sale de ESTA misma fila ⇒ cero queries nuevas, cero N+1.
       select: {
@@ -439,6 +498,8 @@ export class MasterSetService implements OnModuleInit {
         releaseDate: true,
         printedTotal: true,
         logoUrl: true,
+        // v1.80 (P-71, §4.57): el código corto sale de ESTA misma fila ⇒ cero queries nuevas.
+        ptcgoCode: true,
       },
     });
     const setIds = sets.map((s) => s.id);
@@ -485,6 +546,9 @@ export class MasterSetService implements OnModuleInit {
         // v1.52 (M-47, §4.39.6): clave SIEMPRE presente; `?? null` porque la columna es `String?` y
         // Prisma rinde `null`, pero el `??` deja explícito que jamás se omite ni se emite `""`.
         logoUrl: s.logoUrl ?? null,
+        // v1.80 (P-71): clave SIEMPRE presente; una sola normalización. El plegado NO lo toca ⇒ la fila
+        // combinada conserva el del PRINCIPAL (mismo patrón que `logoUrl`).
+        ptcgoCode: publicPtcgoCode(s.ptcgoCode),
       };
     });
 
@@ -961,6 +1025,8 @@ export class MasterSetService implements OnModuleInit {
           isPrimary: p.isPrimary,
           order: p.order,
           catalogCardCount: cards.filter((c) => c.setId === p.setId).length,
+          // v1.80 (P-71): el código DE ESTA PARTE (⛔ no el del principal).
+          ptcgoCode: publicPtcgoCode(p.ptcgoCode),
         }))
       : undefined;
 
@@ -970,6 +1036,8 @@ export class MasterSetService implements OnModuleInit {
         name: setRef.name,
         series: setRef.series ?? undefined,
         releaseDate: setRef.releaseDate ?? undefined,
+        // v1.80 (P-71): `MasterSetRefDTO` — en un combinado, el del PRINCIPAL.
+        ptcgoCode: publicPtcgoCode(setRef.ptcgoCode),
       },
       printedTotal,
       catalogCardCount: cards.length,

@@ -131,4 +131,29 @@ describe('validateEnv — fail-fast por entorno', () => {
       expect(() => validateEnv(env)).toThrow(/PII_ENCRYPTION_KEY, PII_HMAC_KEY/);
     });
   });
+
+  /**
+   * C7 rev v1.80.1 (deuda anotada por backend en 114aecf, cerrada aquí): `JWT_ACCESS_SECRET` y
+   * `JWT_REFRESH_SECRET` NO pueden coincidir. Con secretos iguales, un token de un dominio verifica
+   * en el otro y solo `typ` los separa; la separación de dominio tiene que empezar en la llave.
+   * Se rechaza en TODO entorno (también local): un fixture con secretos iguales es un fixture roto.
+   */
+  describe('C7 v1.80.1 — JWT_ACCESS_SECRET === JWT_REFRESH_SECRET se rechaza en el arranque', () => {
+    it('iguales en production ⇒ aborta nombrando las dos', () => {
+      const env = fullEnv({ JWT_ACCESS_SECRET: 's'.repeat(40), JWT_REFRESH_SECRET: 's'.repeat(40) });
+      expect(() => validateEnv(env)).toThrow(/JWT_ACCESS_SECRET.*JWT_REFRESH_SECRET.*(differ|distinct|different|same)/);
+    });
+
+    it('iguales en test/development ⇒ aborta igual (un fixture con secretos iguales es un fixture roto)', () => {
+      for (const NODE_ENV of ['test', 'development', 'local']) {
+        expect(() => validateEnv({ NODE_ENV, JWT_ACCESS_SECRET: 'mismo', JWT_REFRESH_SECRET: 'mismo' })).toThrow(/JWT_ACCESS_SECRET/);
+      }
+    });
+
+    it('distintos ⇒ arranca; ausentes en local ⇒ arranca (no se inventa una igualdad con undefined)', () => {
+      expect(() => validateEnv(fullEnv())).not.toThrow();
+      expect(() => validateEnv({ NODE_ENV: 'test' })).not.toThrow();
+      expect(() => validateEnv({ NODE_ENV: 'test', JWT_ACCESS_SECRET: 'solo-uno' })).not.toThrow();
+    });
+  });
 });

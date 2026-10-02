@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
@@ -27,6 +28,7 @@ describe('ShipmentsService.create — rollback del PaymentIntent (A2 / BE-7)', (
         delete: jest.fn().mockResolvedValue({}),
       },
     };
+    withM61Defaults(prisma);
     // SEC-H2: el chequeo anti-doble-envío + creación van en una tx serializable; el mock
     // ejecuta el callback con el propio cliente mock como `tx`.
     prisma.$transaction = jest.fn((fn: any) => fn(prisma));

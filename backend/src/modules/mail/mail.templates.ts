@@ -118,3 +118,36 @@ export function passwordResetTemplate(link: string, name: string | null, locale?
     text: `${hi.text}\n\nRestablece tu contraseña de ${BRAND} (el enlace caduca en 1 hora):\n${link}\n\nSi no lo solicitaste, ignora este correo.`,
   };
 }
+
+/**
+ * v1.80 (C7, `ARCHITECTURE §4.57.2` #10) — aviso al titular STAFF (`super_admin`/`vault_operator`) de
+ * que su cuenta quedó con candado por intentos fallidos. Máx. 1 cada 24 h por cuenta (lo decide el
+ * llamador). ⛔ Sin enlaces, sin IP, sin conteos: nada que un tercero pueda usar si lee el buzón, y
+ * nada que parezca un phishing de «pulsa aquí». ES del contrato §1 (ux-ui fija el final).
+ */
+export function passwordLockAlertTemplate(name: string | null, locale?: string | null): MailMessage {
+  const l = normalizeLocale(locale);
+  const hi = greeting(l, name);
+  if (l === 'en') {
+    const body =
+      `There were several failed attempts to sign in to your ${BRAND} account. ` +
+      "If it was you, you don't need to do anything. If not, your password is still safe; " +
+      'if you want, change it from your account.';
+    return {
+      to: '',
+      subject: 'Failed sign-in attempts on your account',
+      html: layout('Failed sign-in attempts', `<p>${hi.html}</p><p>${body}</p>`),
+      text: `${hi.text}\n\n${body}`,
+    };
+  }
+  const body =
+    `Hubo varios intentos fallidos de entrar a tu cuenta de ${BRAND}. ` +
+    'Si fuiste tú, no tienes que hacer nada. Si no, tu contraseña sigue a salvo; ' +
+    'si quieres, cámbiala desde tu cuenta.';
+  return {
+    to: '',
+    subject: 'Intentos fallidos de entrar a tu cuenta',
+    html: layout('Intentos fallidos de entrar', `<p>${hi.html}</p><p>${body}</p>`),
+    text: `${hi.text}\n\n${body}`,
+  };
+}

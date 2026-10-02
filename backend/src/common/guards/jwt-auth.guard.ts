@@ -44,7 +44,7 @@ export class JwtAuthGuard implements CanActivate {
       throw new BusinessException('UNAUTHENTICATED', 401, 'Missing bearer token');
     }
     const token = auth.slice('Bearer '.length);
-    let payload: { sub: string; email?: string; role?: string; tv?: number };
+    let payload: { sub?: unknown; email?: string; role?: string; tv?: unknown; typ?: unknown };
     try {
       payload = await this.jwt.verifyAsync(token, {
         secret: this.config.get<string>('JWT_ACCESS_SECRET'),
@@ -53,6 +53,15 @@ export class JwtAuthGuard implements CanActivate {
       });
     } catch {
       throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or expired token');
+    }
+    // C7 rev v1.80.1 (deuda de backend en 114aecf, cerrada aquí; simétrico a `AuthService.refresh`,
+    // SEC-C7-RT): la firma no basta. Solo entra lo que `issueTokens` emitió como ACCESS: sin `typ`
+    // (un refresh lleva `typ: 'refresh'`, un dispositivo `typ: 'device'`), `sub` string y `tv`
+    // NUMÉRICO. Antes `(tv ?? 0)` convertía «sin tv» en «versión 0» y casaba con cuentas que nunca
+    // revocaron sesión; y un refresh firmado con el mismo secreto (env.validation ya lo impide,
+    // pero la defensa no depende de eso) valía como Bearer.
+    if (payload.typ !== undefined || typeof payload.sub !== 'string' || typeof payload.tv !== 'number') {
+      throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or revoked token');
     }
 
     // Revocación por versión + estado de cuenta (reset/soft-delete/bloqueo).
@@ -67,7 +76,7 @@ export class JwtAuthGuard implements CanActivate {
       !user ||
       user.status === UserStatus.blocked ||
       user.status === UserStatus.deleted ||
-      (payload.tv ?? 0) !== user.tokenVersion
+      payload.tv !== user.tokenVersion
     ) {
       throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or revoked token');
     }

@@ -38,7 +38,8 @@ interface Props {
    * Solo `quoter`: clic en una casilla de acabado ya cotizada agrega esa combinación
    * (carta, acabado) al carrito de VENTA del cotizador (BuylistView es dueño del carrito).
    */
-  onAddToSellCart?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
+  /** v1.80 (P-71): `setPtcgoCode` = código del set/parte de la celda (lo resuelve el binder). */
+  onAddToSellCart?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO, setPtcgoCode: string | null) => void;
   /**
    * v1.30 (§4.29), solo `quoter`: clic en «Agregar» de un PRODUCTO SEPARADO (deck_exclusive/promo)
    * lo agrega al carrito de VENTA como LÍNEA PROPIA por su `productId` (precio propio, no fusionado
@@ -49,6 +50,7 @@ interface Props {
     product: CardProductDTO,
     finish: Finish,
     quote: BuylistQuoteResponse,
+    setPtcgoCode: string | null,
   ) => void;
   /**
    * v1.28 (P-17, solo M1): drill-down POR VARIANTE. Si viene, el clic en una casilla del binder

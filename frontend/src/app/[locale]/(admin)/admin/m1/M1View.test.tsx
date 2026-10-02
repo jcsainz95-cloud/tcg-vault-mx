@@ -43,7 +43,7 @@ function fakeCard(i: number): CardDTO {
     supertype: 'Pokémon',
     subtypes: ['Basic'],
     setId: 'base1',
-    setName: 'Base Set',
+    setName: 'Base Set', setPtcgoCode: null,
     imageSmallUrl: `https://img.example/${i}.png`,
     imageLargeUrl: `https://img.example/${i}_hires.png`,
     availableFinishes: ['normal'],

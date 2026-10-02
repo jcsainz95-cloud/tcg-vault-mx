@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within, getDefaultNormalizer } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { ApiClientError } from '@/lib/api-client';
 import type {
@@ -198,7 +198,7 @@ describe('Master Set · Precio de mercado POR VARIANTE en el tile (P-15, v1.27)'
     // dato vive solo en el campo de celda. El tile debe seguir pintando ese valor durante la
     // ventana de deploy; el fallback se retira junto con el campo de celda (siguiente rev).
     vi.spyOn(api, 'getMasterSetBinder').mockResolvedValue({
-      set: { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999-01-09' },
+      set: { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999-01-09', ptcgoCode: null },
       printedTotal: 102,
       catalogCardCount: 1,
       scope: 'platform',
@@ -738,6 +738,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     name: 'Quoter Set',
     year: 2024,
     logoUrl: null,
+    ptcgoCode: null,
   };
 
   function mockOneSet() {
@@ -796,7 +797,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: 'https://images.pokemontcg.io/quoter/1.png',
       imageLargeUrl: 'https://images.pokemontcg.io/quoter/1_hires.png',
       availableFinishes: ['normal', 'reverse_holo'],
@@ -839,7 +840,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['normal', 'reverse_holo'],
@@ -871,7 +872,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: 'https://images.pokemontcg.io/quoter/2.png',
       imageLargeUrl: 'https://images.pokemontcg.io/quoter/2_hires.png',
       availableFinishes: ['normal'],
@@ -915,7 +916,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Energy',
       subtypes: ['Special'],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['holofoil', 'reverse_holo'],
@@ -955,7 +956,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     supertype: 'Trainer',
     subtypes: [],
     setId: 'set-quoter',
-    setName: 'Quoter Set',
+    setName: 'Quoter Set', setPtcgoCode: null,
     imageSmallUrl: '',
     imageLargeUrl: '',
     availableFinishes: ['normal', 'reverse_holo'],
@@ -1096,7 +1097,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
         supertype: 'Pokémon',
         subtypes: [],
         setId: 'set-quoter',
-        setName: 'Quoter Set',
+        setName: 'Quoter Set', setPtcgoCode: null,
         imageSmallUrl: '',
         imageLargeUrl: '',
         availableFinishes: ['normal'],
@@ -1110,7 +1111,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
         supertype: 'Pokémon',
         subtypes: [],
         setId: 'set-quoter',
-        setName: 'Quoter Set',
+        setName: 'Quoter Set', setPtcgoCode: null,
         imageSmallUrl: '',
         imageLargeUrl: '',
         availableFinishes: ['normal'],
@@ -1176,7 +1177,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['normal'],
@@ -1207,7 +1208,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['normal', 'reverse_holo'],
@@ -1253,7 +1254,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
       supertype: 'Pokémon',
       subtypes: [],
       setId: 'set-quoter',
-      setName: 'Quoter Set',
+      setName: 'Quoter Set', setPtcgoCode: null,
       imageSmallUrl: '',
       imageLargeUrl: '',
       availableFinishes: ['normal'],
@@ -1310,8 +1311,14 @@ describe('Master Set · Multi-parte / master combinado (P-27, v1.33)', () => {
       'cel25c',
     ]);
 
-    // Colisión de numeración entre partes: hay DOS "#1" (uno por bloque), desambiguados por el separador.
-    expect(screen.getAllByText('#1')).toHaveLength(2);
+    // Colisión de numeración entre partes: hay DOS "1" (uno por bloque), desambiguados por el separador.
+    // v1.80 (P-71): cada bloque hereda el código de SU parte — «CEL 1» y «CLC 1» (espacio no
+    // separable), nunca el del principal en las dos. El normalizador por defecto colapsaría el NBSP.
+    const keepNbsp = { normalizer: getDefaultNormalizer({ collapseWhitespace: false }) };
+    expect(screen.getAllByText('CEL\u00A01', keepNbsp)).toHaveLength(1);
+    expect(screen.getAllByText('CLC\u00A01', keepNbsp)).toHaveLength(1);
+    expect(within(principalSep.parentElement as HTMLElement).getByTestId('part-set-code')).toHaveTextContent('CEL');
+    expect(within(subsetSep.parentElement as HTMLElement).getByTestId('part-set-code')).toHaveTextContent('CLC');
     // Y una carta de cada parte, cada una bajo su nombre de bloque (texto exacto: "#1" ≠ "#10").
     expect(screen.getByText('Celebrations #1')).toBeInTheDocument();
     expect(screen.getByText('Classic Collection #1')).toBeInTheDocument();
@@ -1353,6 +1360,7 @@ describe('Master Set · Multi-parte / master combinado (P-27, v1.33)', () => {
           series: 'Sword & Shield',
           year: 2021,
           logoUrl: null,
+          ptcgoCode: null,
           catalogCardCount: 25,
           distinctCardsOwned: 0,
           completionPct: 0,

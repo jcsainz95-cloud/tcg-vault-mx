@@ -324,7 +324,7 @@ test.describe('admin · Para bóveda · cierre sin cajón · 390×844', () => {
     await close.click();
     await expect(c).toHaveCount(0);
     await expect(page.getByTestId('prep-notice')).toContainText(V('result.nothingToPlace', { folio: 'TCG-000202' }));
-    await expect(page.getByRole('heading', { name: P('title') })).toBeVisible();
+    await expect(page.getByRole('heading', { name: P('title'), level: 2 })).toBeVisible();
     await expectNoAppError(page, errors);
   });
 });

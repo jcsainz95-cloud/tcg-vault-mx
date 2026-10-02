@@ -80,8 +80,11 @@ describe('E2E — «Pedidos a preparar» (§M4-PREP) contra Postgres real', () =
     h.api('GET', `/admin/shipments/picking-list${qs}`, { token: adminToken }) as any;
 
   /** Solo las filas de ESTE fichero: la BD se comparte y otras suites dejan envíos en `picking`. */
-  const mias = (body: Fila): Prep[] =>
-    (body.data as Prep[]).filter((p) => p.items.some((i) => i.folio.startsWith(MARCA)));
+  const mias = (body: Fila): Prep[] => {
+    // Si la cola no respondió 200, que el fallo diga QUÉ respondió (no un `undefined.filter`).
+    if (!Array.isArray(body.data)) throw new Error(`picking-list sin \`data\`: ${JSON.stringify(body)}`);
+    return (body.data as Prep[]).filter((p) => p.items.some((i) => i.folio.startsWith(MARCA)));
+  };
 
   async function limpiar(): Promise<void> {
     await h.prisma.shipmentItem.deleteMany({

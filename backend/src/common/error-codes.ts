@@ -47,6 +47,11 @@ export const ErrorCode = {
   // 422 — POST /auth/change-password sobre `passwordHash IS NULL` (solo-Google): no hay actual que
   // probar y este endpoint NO crea contraseñas (remedio: forgot-password). ARCHITECTURE §4.47.3.
   PASSWORD_NOT_SET: 'PASSWORD_NOT_SET',
+  // 429 — v1.80 (C7, ARCHITECTURE §4.57): demasiados intentos de contraseña CONTRA LA MISMA CUENTA
+  // (`POST /auth/login`, por correo normalizado) o desde la misma sesión (`change-password`, por
+  // userId). Cabecera `Retry-After` + details { retryAfterSeconds }. Idéntico exista o no la cuenta.
+  // Distinto de RATE_LIMITED porque el remedio difiere: restablecer la contraseña también lo levanta.
+  TOO_MANY_PASSWORD_ATTEMPTS: 'TOO_MANY_PASSWORD_ATTEMPTS',
   // 422 — POST /shipments/quote | /shipments con un `addressId` cuya fila tiene `recipientName IS NULL`
   // (dirección anterior a M-52). Emisor: módulo `shipments` (Stream A · B5). details { field, addressId }.
   RECIPIENT_NAME_REQUIRED: 'RECIPIENT_NAME_REQUIRED',
@@ -167,6 +172,12 @@ export const ErrorCode = {
   // 409 y no 422: el body es sintácticamente impecable — el conflicto es con el ESTADO del recurso, y
   // lo que hay que cambiar es la INTENCIÓN, no el cuerpo.
   GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF: 'GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF',
+  // ⭐ v1.70 (P-83, API_CONTRACT §M2-SK norma SK-3 · §0) — 422. `POST /admin/pricing/override` con
+  // `productType:"sealed"` y `gradeKey:"sealed"` (la constante legada = pieza SIN mapeo). `'sealed'` es
+  // clave de COLA, nunca de PRECIO: la fila no la lee nadie (la publicación lee `sealed:tcg:<id>`) y no
+  // distingue un producto de otro. `details: { gradeKey: "sealed", remedy: "map_or_price_the_piece" }`.
+  // Remedio: mapear la pieza a su presentación (M2) o fijar `InventoryItem.listPriceCents` de ESA pieza.
+  SEALED_MARKET_KEY_REQUIRED: 'SEALED_MARKET_KEY_REQUIRED',
   // v1.50.3 (§4.38n.3 / §M2) — `GET /admin/pricing/graded-estimates/review` con una clave de config
   // PRESENTE-pero-INVÁLIDA de la que depende la coherencia (hoy `graded_estimate_max_raw_multiple`).
   //
@@ -661,6 +672,69 @@ export const ErrorCode = {
   // pudo extraer una sola línea). Distinto de VALIDATION_ERROR (forma del body): el body es válido,
   // pero su contenido no es una lista parseable. API_CONTRACT §13.
   DECK_LIST_UNPARSEABLE: 'DECK_LIST_UNPARSEABLE',
+
+  // ── §M4-SHIP (v1.80…v1.80.6 · API_CONTRACT §0) — «Pedidos por preparar», cubeta ENVÍO, el libro de
+  // reembolsos, el apartado «Por reponer», la cubeta SPEI y el reembolso total de bóveda ────────────
+  // 409 — un verbo de preparación de envío sobre un envío que NO está `picking`. `details: { status }`.
+  SHIPMENT_NOT_IN_PREPARATION: 'SHIPMENT_NOT_IN_PREPARATION',
+  // 409 — guía (`tracking` / `→guia`) sobre un envío `picking` sin «preparado». `details: { preparation }`.
+  SHIPMENT_NOT_PREPARED: 'SHIPMENT_NOT_PREPARED',
+  // 409 — cambiar la marca de una carta de envío que YA se reembolsó. `details: { refundId }`.
+  PREP_ITEM_REFUNDED: 'PREP_ITEM_REFUNDED',
+  // 409 💰 — el importe confirmado (`expectedRefundCents` / `expected*`) no es el vigente. `details: { refundCents }`.
+  REFUND_PREVIEW_STALE: 'REFUND_PREVIEW_STALE',
+  // 409 💰 — una carta faltante no se puede reembolsar por esta vía. `details: { lines: [{ shipmentItemId, reason }] }`.
+  REFUND_NOT_AVAILABLE: 'REFUND_NOT_AVAILABLE',
+  // 403 💰 — el operador superaría su tope de 24 h. `details: { capCents, usedCents, requestedCents }`.
+  MONEY_OUT_LIMIT_EXCEEDED: 'MONEY_OUT_LIMIT_EXCEEDED',
+  // 409 — `PATCH …/status {to:'cancelado'}` sobre un envío pagado (o `solicitado` ya cobrado). `details: { status }`.
+  PAID_SHIPMENT_NOT_CANCELLABLE: 'PAID_SHIPMENT_NOT_CANCELLABLE',
+  // 409 💰 — `retry` sobre una fila que no está `requested`. `details: { status }`.
+  REFUND_NOT_RETRYABLE: 'REFUND_NOT_RETRYABLE',
+  // 409 — cambiar la marca de una carta que ya abrió un caso «Por reponer». `details: { caseId, status }`.
+  PREP_ITEM_IN_REPLACEMENT: 'PREP_ITEM_IN_REPLACEMENT',
+  // 409 — guía de un retiro con casos `open`. `details: { caseIds }`.
+  SHIPMENT_HAS_OPEN_REPLACEMENTS: 'SHIPMENT_HAS_OPEN_REPLACEMENTS',
+  // 409 — verbo de resolución sobre un caso ya resuelto. `details: { status, resolvedAt }`.
+  CASE_NOT_OPEN: 'CASE_NOT_OPEN',
+  // 422 — la pieza propuesta no sirve para reponer. `details: { reason, mismatch? }`.
+  REPLACEMENT_NOT_ELIGIBLE: 'REPLACEMENT_NOT_ELIGIBLE',
+  // 409 💰 — el reembolso de un caso no está disponible. `details: { reason: 'no_origin_order' | 'legacy_convention' }`.
+  CASE_REFUND_NOT_AVAILABLE: 'CASE_REFUND_NOT_AVAILABLE',
+  // 409 — reponer/reembolsar/pasar a SPEI un caso cuya orden de origen ya no está `settled`. `details: { originStatus }`.
+  CASE_ORIGIN_NOT_SETTLED: 'CASE_ORIGIN_NOT_SETTLED',
+  // 409 — anular un caso cuya orden de origen SIGUE `settled`. `details: { originStatus }`.
+  CASE_NOT_VOIDABLE: 'CASE_NOT_VOIDABLE',
+  // 422 💰 — el monto capturado supera 2×R sin `confirmAboveReference:true`. `details: { referenceCents, confirmAboveCents, limitCents }`.
+  CASE_REFUND_CONFIRMATION_REQUIRED: 'CASE_REFUND_CONFIRMATION_REQUIRED',
+  // 422 💰 — el monto capturado supera k×R (dial). `details: { referenceCents, limitCents }`.
+  CASE_REFUND_ABOVE_LIMIT: 'CASE_REFUND_ABOVE_LIMIT',
+  // 409 💰 — verbo de la cubeta SPEI sobre una fila que no está `pending`. `details: { status }`.
+  MANUAL_REFUND_NOT_PENDING: 'MANUAL_REFUND_NOT_PENDING',
+  // 422 — `reveal-clabe` / `paid` sin CLABE registrada.
+  CLABE_NOT_ON_FILE: 'CLABE_NOT_ON_FILE',
+  // 409 💰 — `to-manual` sobre una fila que no es `case_refund` `failed`. `details: { kind } | { status }`.
+  REFUND_NOT_CONVERTIBLE: 'REFUND_NOT_CONVERTIBLE',
+  // 409 — `prepared` con líneas bloqueadas cuya orden de origen sigue `settled`. `details: { lines }`.
+  PREPARATION_HAS_BLOCKED_LINES: 'PREPARATION_HAS_BLOCKED_LINES',
+  // 409 💰 — preparar/guía/enviado de un DIRECTO cuya orden ya no está `settled`. `details: { orderStatus }`.
+  ORDER_NOT_SETTLED: 'ORDER_NOT_SETTLED',
+  // 409 💰 — `paid` con un `revealToken` que ya no corresponde a la CLABE vigente. `details: { clabeUpdatedAt }`.
+  CLABE_CHANGED_SINCE_REVEAL: 'CLABE_CHANGED_SINCE_REVEAL',
+  // 422 💰 — `paid` sin la confirmación reforzada que el estado exige. `details: { required, clabeUpdatedAt?, originStatus? }`.
+  MANUAL_REFUND_CONFIRMATION_REQUIRED: 'MANUAL_REFUND_CONFIRMATION_REQUIRED',
+  // 409 💰 — `retry` mientras otro intento de esa fila habla con Stripe. `details: { attemptStartedAt }`.
+  REFUND_ATTEMPT_IN_PROGRESS: 'REFUND_ATTEMPT_IN_PROGRESS',
+  // 409 💰 — `reissue` sobre una fila que no está `cancelled` o que ya tiene re-emisión viva.
+  MANUAL_REFUND_NOT_CANCELLED: 'MANUAL_REFUND_NOT_CANCELLED',
+  // 409 💰 — M3 total (tx1) sobre una orden `vault` con una carta en un retiro preparado o en `guia`. `details: { items }`.
+  VAULT_PIECE_IN_PACKED_WITHDRAWAL: 'VAULT_PIECE_IN_PACKED_WITHDRAWAL',
+  // 409 💰 — retiro: una línea `picked` disponible cuya compra de origen se está devolviendo. `details: { items }`.
+  WITHDRAWAL_LINE_ORIGIN_REFUNDED: 'WITHDRAWAL_LINE_ORIGIN_REFUNDED',
+  // 422 💰 — `POST /shipments` con una pieza cuya compra de origen se está devolviendo (`classifyItems`).
+  ITEM_ORIGIN_REFUNDED: 'ITEM_ORIGIN_REFUNDED',
+  // 422 💰 — M3 total con cartas ya en manos del cliente sin `confirmPiecesWithCustomer:true`. `details: { required, items }`.
+  REFUND_CONFIRMATION_REQUIRED: 'REFUND_CONFIRMATION_REQUIRED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

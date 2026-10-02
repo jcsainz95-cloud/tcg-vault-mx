@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
+import { CardCode } from '@/components/domain/CardCode';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -311,7 +312,11 @@ function Detail({
             {card.name}
           </h1>
           <p className="mt-3 font-mono text-xs uppercase tracking-[0.1em] text-muted" lang="en">
-            {card.setName} · #{card.number} · {card.rarity}
+            {/* v1.80 (P-71, §37.3c): «Twilight Masquerade · TWM 130 · rareza»; sin código, `#130`.
+                La línea va en versalitas; el código NO (`normal-case`): §37.3b, «mayúsculas tal
+                como llegan» — la sigla es la impresa en la carta, no la decide el CSS. */}
+            {card.setName} · <CardCode code={card.setPtcgoCode} number={card.number} className="normal-case" /> ·{' '}
+            {card.rarity}
           </p>
 
           {primary && (

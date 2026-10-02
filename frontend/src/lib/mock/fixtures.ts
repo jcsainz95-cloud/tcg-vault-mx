@@ -9,6 +9,7 @@
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
 import { brandEmail } from '../brand';
+import { setMatchesQuery } from '../setCode';
 import type {
   ConfirmVaultPlacementResponse,
   CustomerDrawerRef,
@@ -166,7 +167,7 @@ function yearOf(releaseDate?: string): number | undefined {
  * La columna es `string | null` **requerida** (la fila siempre la tiene; el valor puede ser
  * nulo), para que ninguna fixture pueda nacer sin decidir si ese set tiene logo o no.
  */
-export type MockCardSetRow = CardSetDTO & { logoUrl: string | null };
+export type MockCardSetRow = CardSetDTO & { logoUrl: string | null; ptcgoCode: string | null };
 
 // v1.52 (M-47, ARCHITECTURE §4.41 · DESIGN_SYSTEM §24): `logoUrl` CONVIVE con `null` de forma
 // PERMANENTE — hay sets que el proveedor nunca ilustra (promos, colecciones, sets viejos). El mock
@@ -174,21 +175,27 @@ export type MockCardSetRow = CardSetDTO & { logoUrl: string | null };
 // página del índice: CON logo (sv08, sv06, sv1, cel25) y SIN logo (cel25c, swsh1, base1 → `null`).
 // Si todos tuvieran logo, el monograma de §24.5 no se ejercitaría nunca en dev ni en Playwright y el
 // hueco solo aparecería en producción (es el modo exacto en que se escapó el bug de imagen del carrito).
+//
+// v1.80 (P-71): `ptcgoCode` es otra COLUMNA de la fila (`CardSet.ptcgoCode`), con la misma doctrina: la
+// fila siempre la tiene y el valor puede ser `null`. Los dos casos conviven a propósito: CON código
+// (SSP, TWM, SVI, CEL, CLC, SSH) y SIN código (`base1` → `null`, el caso de un set que el proveedor no
+// codifica). Base Set es el set del cotizador en las pruebas: así el caso `#4` (sin código) queda
+// ejercitado en dev y en Playwright, y el caso «TWM 130» lo ejercitan los sets modernos.
 export const mockSets: MockCardSetRow[] = [
-  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png' },
-  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv6/logo.png' },
-  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023, logoUrl: 'https://images.pokemontcg.io/sv1/logo.png' },
+  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png', ptcgoCode: 'SSP' },
+  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv6/logo.png', ptcgoCode: 'TWM' },
+  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023, logoUrl: 'https://images.pokemontcg.io/sv1/logo.png', ptcgoCode: 'SVI' },
   // v1.33-master-set-multipart (P-27): Celebrations es un master COMBINADO — principal `cel25`
   // (25 cartas) + subset `cel25c` "Classic Collection" (25 cartas) = 50. Ambos se importan como sets
   // REALES (el mapa es solo presentación); la numeración COLISIONA entre partes a propósito (dos "#1",
   // §4.31f) para ejercer el separador por bloque.
-  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: 'https://images.pokemontcg.io/cel25/logo.png' },
+  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: 'https://images.pokemontcg.io/cel25/logo.png', ptcgoCode: 'CEL' },
   // `logoUrl: null` (clave PRESENTE, valor nulo) = lo que manda el backend cuando el proveedor no
   // publica logo. Nunca `""`, nunca una URL de marcador: un placeholder se pintaría como si fuera
   // un logo y rompería §24.5.
-  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: null },
-  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020, logoUrl: null },
-  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999, logoUrl: null },
+  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: null, ptcgoCode: 'CLC' },
+  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020, logoUrl: null, ptcgoCode: 'SSH' },
+  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999, logoUrl: null, ptcgoCode: null },
 ].map((s) => ({ ...s, year: yearOf(s.releaseDate) }));
 
 /**
@@ -202,7 +209,8 @@ export const mockSets: MockCardSetRow[] = [
  * se **borra de verdad** aquí (mismo `Omit` por destructuring que `mockSellRequestDTO`).
  */
 export function mockCatalogSetDTO(row: MockCardSetRow): CardSetDTO {
-  const { logoUrl: _logoUrl, ...dto } = row;
+  // v1.80 (P-71): `GET /catalog/sets` tampoco emite `ptcgoCode` («dónde NO» del contrato).
+  const { logoUrl: _logoUrl, ptcgoCode: _ptcgoCode, ...dto } = row;
   return dto;
 }
 
@@ -309,6 +317,11 @@ export function foldSetsForDropdown<T extends CardSetDTO>(sets: T[]): T[] {
     });
 }
 
+/** v1.80 (P-71): `CardDTO.setPtcgoCode` sale de la MISMA fila del set que `setName` (proyección del mock). */
+function ptcgoCodeOfSet(setId: string): string | null {
+  return mockSets.find((s) => s.id === setId)?.ptcgoCode ?? null;
+}
+
 function card(
   id: string,
   name: string,
@@ -330,6 +343,7 @@ function card(
     subtypes,
     setId,
     setName,
+    setPtcgoCode: ptcgoCodeOfSet(setId),
     imageSmallUrl: `${img}/${number}.png`,
     imageLargeUrl: `${img}/${number}_hires.png`,
     // v1.6-finish: se sobre-escribe por CARD_FINISHES abajo; default seguro ["normal"].
@@ -391,6 +405,7 @@ function celebrationsCards(): CardDTO[] {
     subtypes: ['Basic'],
     setId,
     setName,
+    setPtcgoCode: ptcgoCodeOfSet(setId),
     imageSmallUrl: `${CEL}/${n}.png`,
     imageLargeUrl: `${CEL}/${n}_hires.png`,
     availableFinishes: ['holofoil'],
@@ -983,6 +998,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: true,
+    withdrawableReason: null,
   },
   {
     inventoryItemId: 'inv-1006',
@@ -996,10 +1012,11 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'pending',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, capturedDate: '2026-08-13' },
-    // Pending → no retirable (aún no liquidada), sin envío activo.
+    // Pending → no retirable (aún no liquidada), sin envío activo. v1.80.7: el motivo viaja con el flag.
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: false,
+    withdrawableReason: 'pending',
   },
   {
     inventoryItemId: 'inv-1008',
@@ -1021,6 +1038,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: 'enviado',
     activeShipmentId: 'shp-7001',
     withdrawable: false,
+    withdrawableReason: 'in_withdrawal',
   },
   {
     inventoryItemId: 'inv-1010',
@@ -1037,6 +1055,7 @@ export const mockHoldings: HoldingDTO[] = [
     shipmentState: null,
     activeShipmentId: null,
     withdrawable: true,
+    withdrawableReason: null,
   },
 ];
 
@@ -1685,6 +1704,8 @@ export const mockKyc: KycInfoDTO = {
   // v1.15: sin CLABE ni INE en archivo por defecto (el checklist los marca como pendientes).
   clabeOnFile: false,
   ineOnFile: false,
+  // v1.80.7: clave siempre presente; `null` ⇔ fecha desconocida (o sin CLABE).
+  clabeUpdatedAt: null,
 };
 
 /**
@@ -1722,7 +1743,11 @@ export function mockApplyClientKycUpdate(input: {
   ineBackUploadKey?: string;
 }): KycInfoDTO {
   if (input.clabe) {
-    mockKyc.clabeMasked = `****${input.clabe.slice(-4)}`;
+    const nextMask = `****${input.clabe.slice(-4)}`;
+    // v1.80.7 (§M4-SHIP.17.3, `setClabe`): la fecha se sella SOLO cuando la CLABE cambia de verdad; repetir
+    // la misma es cero escrituras (PS-46). El mock solo ve la máscara, así que compara por ella.
+    if (!mockKyc.clabeOnFile || mockKyc.clabeMasked !== nextMask) mockKyc.clabeUpdatedAt = new Date().toISOString();
+    mockKyc.clabeMasked = nextMask;
     mockKyc.clabeOnFile = true;
   }
   const hasIneKey = !!(input.ineFrontUploadKey || input.ineBackUploadKey);
@@ -1964,152 +1989,11 @@ export const mockAdminShipments: AdminShipmentDTO[] = [
   },
 ];
 
-/**
- * MOCK: **«Pedidos a preparar»** — hoja de trabajo AGRUPADA por pedido (contrato **§M4-PREP** ·
- * `GET /admin/shipments/picking-list`). Un elemento = UN pedido/envío a preparar.
- *
- * ⚠️ **Las dos filas son `destination: 'ship'`, y eso NO es un descuido del fixture.** Medido por el
- * arquitecto (§M4-PREP, 2026-09-22): bajo el modelo actual **todo** `ShipmentRequest` es físicamente
- * un envío a domicilio —retiro de bóveda **o** envío directo— y las órdenes con
- * `fulfillmentMode='vault'` **no generan** `ShipmentRequest`. ⛔ Una fila `destination:'vault'` aquí
- * sería un dato que el backend **no puede producir**: enseñaría a leer verde una cubeta vacía.
- *
- * El orden del array es DELIBERADAMENTE el contrario al normativo (`requestedAt` asc, CA #9): el
- * mock hace de servidor y ordena en `getAdminPreparationQueue`, y la vista lo vuelve a garantizar.
- */
-export const mockPreparationQueue: PreparationOrderDTO[] = [
-  {
-    // ENVÍO DIRECTO — tiene orden, así que tiene folio.
-    shipmentId: 'shp-7004',
-    orderId: 'ord-5001',
-    orderNumber: 'TCG-000123',
-    destination: 'ship',
-    requestedAt: '2026-08-13T16:45:00Z',
-    customer: { lastName: 'Ketchum', fullName: 'Ash Ketchum' },
-    shipTo: {
-      recipientName: 'Ash Ketchum',
-      line1: 'Av. Insurgentes Sur 1234',
-      line2: 'Depto 5B',
-      neighborhood: 'Del Valle',
-      city: 'Ciudad de México',
-      state: 'CDMX',
-      postalCode: '03100',
-      country: 'MX',
-      phone: '5551239876',
-    },
-    items: [
-      {
-        shipmentItemId: 'sit-9004-1',
-        inventoryItemId: 'inv-1012',
-        folio: 'INV-000112',
-        quantity: 1,
-        card: {
-          name: 'Charizard',
-          setName: 'Base Set',
-          finish: 'holofoil',
-          conditionLabel: 'PSA 9',
-          imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png',
-        },
-        currentLocation: { kind: 'assigned', label: 'C01-F01-S02' },
-      },
-    ],
-  },
-  {
-    // RETIRO DE BÓVEDA — `orderId` null ⇒ `orderNumber` null. NO es un hueco: es un retiro.
-    // `lastName` null: `fullName` de un solo token, el apellido no se puede derivar (§6.A).
-    shipmentId: 'shp-7002',
-    orderId: null,
-    orderNumber: null,
-    destination: 'ship',
-    requestedAt: '2026-08-13T09:30:00Z',
-    customer: { lastName: null, fullName: 'Misty' },
-    shipTo: {
-      // Snapshot legado de ocho campos (anterior a v1.67): sin `recipientName`.
-      recipientName: null,
-      line1: 'Calle Falsa 123',
-      line2: null,
-      neighborhood: null,
-      city: 'Guadalajara',
-      state: 'JAL',
-      postalCode: '44100',
-      country: 'MX',
-      phone: '3331234567',
-    },
-    items: [
-      {
-        shipmentItemId: 'sit-9002-1',
-        inventoryItemId: 'inv-1001',
-        folio: 'INV-000101',
-        quantity: 1,
-        card: {
-          name: 'Zapdos',
-          setName: 'Base Set',
-          finish: 'normal',
-          conditionLabel: 'NM',
-          imageSmallUrl: 'https://images.pokemontcg.io/base1/16.png',
-        },
-        currentLocation: { kind: 'assigned', label: 'C03-F02-S15' },
-      },
-      {
-        shipmentItemId: 'sit-9002-2',
-        inventoryItemId: 'inv-1008',
-        folio: 'INV-000108',
-        quantity: 1,
-        card: {
-          // Catálogo sin miniatura (`imageSmallUrl` es nullable por contrato) ⇒ pozo de papel.
-          name: 'Machamp',
-          setName: 'Base Set',
-          finish: 'reverse_holo',
-          conditionLabel: 'LP',
-          imageSmallUrl: null,
-        },
-        // Pieza SIN ubicación asignada: el front pinta copy legible, ⛔ nunca "UNASSIGNED".
-        currentLocation: { kind: 'unassigned' },
-      },
-    ],
-  },
-  {
-    // ⭐ §M4-PREP v1.78.1 — EL CASO QUE NINGUNA FIXTURE RECORRÍA: `customer.fullName` **null**.
-    // Envío directo de un INVITADO (`userId == null`) cuyo `addressSnapshot` es de los de OCHO
-    // campos (anteriores a v1.67) ⇒ no hay `recipientName` de donde sacar el nombre ⇒ `fullName`
-    // es `null`, y `lastName` lo es **por construcción** (se deriva de `fullName`).
-    // ⛔ La cadena vacía está PROHIBIDA como marca de ausencia: aquí va `null`, no `''`.
-    // *Un tipo nullable sin fixture que lo recorra es un tipo que nadie probó.*
-    shipmentId: 'shp-7005',
-    orderId: 'ord-5002',
-    orderNumber: 'TCG-000124',
-    destination: 'ship',
-    requestedAt: '2026-08-12T08:15:00Z',
-    customer: { lastName: null, fullName: null },
-    shipTo: {
-      recipientName: null,
-      line1: 'Blvd. Adolfo López Mateos 500',
-      line2: null,
-      neighborhood: null,
-      city: 'León',
-      state: 'GTO',
-      postalCode: '37000',
-      country: 'MX',
-      phone: '4779876543',
-    },
-    items: [
-      {
-        shipmentItemId: 'sit-9005-1',
-        inventoryItemId: 'inv-1014',
-        folio: 'INV-000114',
-        quantity: 1,
-        card: {
-          name: 'Blastoise',
-          setName: 'Base Set',
-          finish: 'holofoil',
-          conditionLabel: 'NM',
-          imageSmallUrl: 'https://images.pokemontcg.io/base1/2.png',
-        },
-        currentLocation: { kind: 'assigned', label: 'C02-F01-S08' },
-      },
-    ],
-  },
-];
+// MOCK §M4-SHIP: la cubeta ENVÍO de «Pedidos por preparar» (antes `mockPreparationQueue`, aquí) vive
+// ahora en `mock/m4-ship.ts` como SERVIDOR FALSO con estado (marcas, `preparation`, `refund` por carta,
+// casos «Por reponer», libro de reembolsos). Sus filas siguen siendo `shp-7004` (directo, Ash),
+// `shp-7002` (retiro, Misty) y `shp-7005` (directo de invitado sin nombre), más `shp-7006` (retiro preparado
+// con un caso abierto). `mockAdminShipments` sigue siendo la lista administrativa que las acompaña.
 
 export const mockDashboard: DashboardDTO = {
   profitPeriodCents: 1284000,
@@ -2466,6 +2350,7 @@ export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
       shipmentState: null,
       activeShipmentId: null,
       withdrawable: true,
+      withdrawableReason: null,
     },
   ],
   // §M4-VAULT v1.79.3 (H-1): cuenta con el nombre FABRICADO del correo (`nameSource='derived'`,
@@ -2484,6 +2369,7 @@ export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
       shipmentState: null,
       activeShipmentId: null,
       withdrawable: true,
+      withdrawableReason: null,
     },
   ],
 };
@@ -2654,6 +2540,9 @@ export function mockMasterSetIndex(
       // `MockCardSetRow.logoUrl` es `string | null` REQUERIDA, así que si desapareciera de la
       // fila esto NO compilaría — que es justo el candado que el `??` desactivaba.
       logoUrl: s.logoUrl,
+      // v1.80 (P-71): misma doctrina que `logoUrl` (columna requerida de la fila, sin `??`). La fila
+      // plegada de un combinado conserva el del PRINCIPAL (el pliegue de abajo no lo toca).
+      ptcgoCode: s.ptcgoCode,
       catalogCardCount,
       distinctCardsOwned,
       completionPct,
@@ -2705,7 +2594,8 @@ export function mockMasterSetIndex(
 
   if (params.q) {
     const q = params.q.toLowerCase();
-    summaries = summaries.filter((s) => s.name.toLowerCase().includes(q));
+    // v1.80 (P-71): por nombre O por código, «contiene» sin distinguir mayúsculas (contrato §M1).
+    summaries = summaries.filter((s) => setMatchesQuery(s.name, s.ptcgoCode, q));
   }
   summaries.sort((a, b) => {
     if (sort === 'completion_asc') return (a.variantCompletionPct ?? 0) - (b.variantCompletionPct ?? 0);
@@ -2827,11 +2717,13 @@ export function mockMasterSetBinder(
         isPrimary: id === group!.primary,
         order: idx,
         catalogCardCount: numberedCardsOfSet(id).length + (MASTER_SET_PROMO_CELLS[id]?.length ?? 0),
+        // v1.80 (P-71): el código de ESTA parte, no el del principal.
+        ptcgoCode: mockSets.find((s) => s.id === id)?.ptcgoCode ?? null,
       }))
     : undefined;
 
   return {
-    set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate },
+    set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate, ptcgoCode: set.ptcgoCode },
     printedTotal,
     catalogCardCount: cells.length,
     cells,
@@ -3435,6 +3327,9 @@ export const mockAdminOrders: AdminOrderDTO[] = [
   { id: 'ord-9001', userId: 'u-777', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z', cfdiStatus: 'registrado' },
   { id: 'ord-9002', userId: 'u-778', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
   { id: 'ord-9003', userId: 'u-779', status: 'chargeback', totalCents: 231000, createdAt: '2026-08-09T12:00:00Z' },
+  // §M4-SHIP.18: compra a BÓVEDA ya reembolsada entera (por webhook) con una carta en caja y otra
+  // devuelta pendiente de confirmación física — alimenta `vaultPieces`, «Reclamar» y `chargeback-inventory`.
+  { id: 'ord-9004', userId: 'u-778', status: 'refunded', totalCents: 47400, createdAt: '2026-09-20T12:00:00Z', settledAt: '2026-09-20T12:02:00Z', cfdiStatus: 'registrado' },
 ];
 
 // MOCK: `evidenceContact` viene de la API (contrato §7/§M8) y la UI **renderiza el que recibe**;
@@ -3773,6 +3668,25 @@ export let mockPendingPrices: PendingPriceEntryDTO[] = [
     sealedProductName: 'Mega Evolution Blister',
     sealedSubtype: 'blister',
     card: { id: 'c-sealed-sv08-box', name: 'Surging Sparks', number: '', setName: 'Surging Sparks' },
+  },
+  // §M2-SK: sellado SIN MAPEAR (`gradeKey === 'sealed'`, la constante legada = clave de COLA, nunca de
+  // precio). Es la pieza inv-1009 (sv06 ETB, sin `tcgplayerProductId`). M2 le ofrece DOS salidas —«Ligar
+  // a su presentación» y «Fijar el precio de esta pieza»— y NUNCA el «Fijar precio» de mercado, que el
+  // servidor (y el mock de `overridePrice`) rechaza con 422 SEALED_MARKET_KEY_REQUIRED (SK-3).
+  {
+    id: 'ppe-sealed-unmapped',
+    cardId: 'c-sealed-sv06-etb',
+    productType: 'sealed',
+    gradeKey: 'sealed',
+    finish: 'normal',
+    context: 'inventory',
+    status: 'open',
+    reason: 'no_market',
+    createdAt: '2026-09-20T09:00:00Z',
+    sealedProductId: null,
+    sealedProductName: 'Twilight Masquerade ETB',
+    sealedSubtype: 'etb',
+    card: { id: 'c-sealed-sv06-etb', name: 'Twilight Masquerade ETB', number: '', setName: 'Twilight Masquerade' },
   },
 ];
 export function resolveMockPending(id: string) {
@@ -4898,12 +4812,39 @@ export function mockVariantPricing(
     row.bountyPriceCents > 0 &&
     (curveQuoteCents == null || row.bountyPriceCents > curveQuoteCents);
 
+  // ⭐ v1.80 (§M2-B.11): el bounty se paga TOPADO por el mercado — `payoutCents = min(bounty, mercado)`
+  // si hay mercado presente (> 0); sin mercado no hay tope y se paga el bounty (punto 2). `cappedByMarket`
+  // = efectivo ∧ payout < bounty. ⭐⭐ v1.80.2 (punto 8): si además se topó, la curva cayó al bin
+  // (`floor`) y la rareza es premium, el guardarraíl RETIENE la línea: `buy.source='pending'`,
+  // `premiumAtFloor=true`, `payoutCents=null`, `cappedByMarket=false` (el `state` sigue `activa`).
+  const marketCents = mockMarketReferenceForVariant(cardId, finish);
+  const rawPayout =
+    bountyEffective && row?.bountyPriceCents != null
+      ? marketCents != null && marketCents > 0
+        ? Math.min(row.bountyPriceCents, marketCents)
+        : row.bountyPriceCents
+      : null;
+  const cappedRaw = rawPayout != null && row?.bountyPriceCents != null && rawPayout < row.bountyPriceCents;
+  const bountyRetained = cappedRaw && premiumAtFloorFor(cardId, buySuggested.basis);
+  const payoutCents = bountyRetained ? null : rawPayout;
+  const cappedByMarket = bountyRetained ? false : cappedRaw;
+
   const buy: import('@/types/contract').VariantPricingDTO['buy'] = (() => {
     if (bountyEffective && row?.bountyPriceCents != null) {
+      if (bountyRetained) {
+        return {
+          suggestedCents: buySuggested.cents,
+          overrideCents: row.buyOverrideCents,
+          effectiveCents: null,
+          source: 'pending' as const,
+          premiumAtFloor: true,
+        };
+      }
       return {
         suggestedCents: buySuggested.cents,
         overrideCents: row.buyOverrideCents,
-        effectiveCents: row.bountyPriceCents,
+        // Se conserva: `buy.source === 'bounty'` ⇒ `bounty.payoutCents === buy.effectiveCents`.
+        effectiveCents: payoutCents,
         source: 'bounty' as const,
         premiumAtFloor: false,
       };
@@ -4961,6 +4902,8 @@ export function mockVariantPricing(
             completedAt: row.bountyCompletedAt,
             effective: bountyEffective,
             curveQuoteCents,
+            payoutCents,
+            cappedByMarket,
           },
         }
       : {}),
@@ -5053,6 +4996,7 @@ export function mockPublicBounties(): import('@/types/contract').PublicBountiesR
       name: card.name,
       number: card.number,
       setName: card.setName,
+      setPtcgoCode: card.setPtcgoCode,
       imageSmallUrl: card.imageSmallUrl,
       rarity: card.rarity || undefined,
       finish: finish as Finish,

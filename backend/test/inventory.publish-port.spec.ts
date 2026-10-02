@@ -59,6 +59,17 @@ function item(o: ItemOpts) {
 function build(items: ReturnType<typeof item>[]) {
   const rows = items;
   const prisma: any = {
+    // `moveItem` corre en UNA transacción y valida el destino (guardas de `item-location.rules.ts`):
+    // las `loc-*` de este harness son estantes de tienda activos.
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    vaultLocation: {
+      findUnique: jest.fn(async ({ where }: any) => ({
+        id: where.id,
+        label: where.id.toUpperCase(),
+        zone: 'platform_stock',
+        isActive: true,
+      })),
+    },
     inventoryItem: {
       findMany: jest.fn(async ({ where }: any) =>
         where?.id?.in ? rows.filter((r) => where.id.in.includes(r.id)) : rows,

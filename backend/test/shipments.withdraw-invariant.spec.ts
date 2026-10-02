@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
@@ -42,6 +43,7 @@ describe('ShipmentsService — invariante de retiro (WS-H)', () => {
         delete: jest.fn().mockResolvedValue({}),
       },
     };
+    withM61Defaults(prisma);
     prisma.$transaction = jest.fn((fn: any) => fn(prisma));
     const settings: any = {
       getNumber: jest.fn().mockResolvedValue(17500),

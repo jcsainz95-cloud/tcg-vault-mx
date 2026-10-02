@@ -3,6 +3,7 @@
 import { useTranslations } from 'next-intl';
 import type { DecksMetaDeckReport } from '@/types/contract';
 import { CardImage } from '@/components/ui/CardImage';
+import { formatCardCode } from '@/lib/setCode';
 
 /**
  * rev `decks-portada` — celda «Portada» del ensayo M12 (§13 «Portada del deck», ARCHITECTURE §12.4.5).
@@ -23,7 +24,10 @@ export function DeckCoverCell({ deck }: { deck: DecksMetaDeckReport }) {
   if (cover === undefined) return <span className="text-muted">{t('notReported')}</span>;
   if (cover === null) return <span className="text-xs text-muted">{t('none')}</span>;
 
-  const code = `${cover.setCode}-${cover.number}`;
+  // v1.80 (P-71, §37.3b): UNA sola forma en toda la tienda — «TWM 130» (espacio no separable), la
+  // misma que la línea del deck y las tejas. (Es el código CRUDO de Limitless: aquí se exhibe, no se
+  // empareja.)
+  const code = formatCardCode(cover.setCode, cover.number);
   const matched = cover.matchStatus === 'matched';
   const src = matched && isOurCatalogImage(cover.imageUrl) ? cover.imageUrl : null;
   // TD-a: distinguir «el catálogo no tiene imagen» (imageUrl vacío, legítimo) de «el backend mandó una

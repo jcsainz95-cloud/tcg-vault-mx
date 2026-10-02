@@ -12,6 +12,7 @@ import {
   Prisma,
   ProductType,
   RawCondition,
+  Role,
   SealedCondition,
   SealedSubtype,
   VariantPriceOverride,
@@ -20,6 +21,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { BusinessException } from '../../common/business.exception';
+import { variantKey } from '../../common/variant-key';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { tryBuildGradeKey, GradeKeyInput, sealedMarketGradeKey } from '../pricing/pricing.types';
 import * as ExcelJS from 'exceljs';
@@ -53,6 +55,18 @@ import { toCardDTO } from '../catalog/catalog.service';
 import { PublishReevaluationResult, VariantPublishRef } from './inventory-publish.port';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
 import { AuditService } from '../audit/audit.service';
+import {
+  activeWithdrawalsOf,
+  customerDrawersOf,
+  lockCustomerVaultGate,
+  VAULT_VERB_TX_OPTIONS,
+} from '../vault/vault-placement.rules';
+import {
+  assertMoveDestination,
+  assertOperable,
+  GuardedItem,
+  inActiveWithdrawalError,
+} from './item-location.rules';
 
 /** `P-84` · clase **E** (§4.37): los tres ejes de enum de `GET /admin/inventory/items`, DERIVADOS
  * del schema — ni una lista escrita a mano. */
@@ -640,7 +654,7 @@ export class InventoryService {
    */
   private async resolveCreation(
     dtoIn: CreateItemDto | BatchInventoryItemInput,
-    actorUserId?: string,
+    _actorUserId?: string,
   ): Promise<{
     card: Card;
     finish: Finish;
@@ -1928,8 +1942,17 @@ export class InventoryService {
    * MISMO UPDATE (updateMany + count). Cierra el TOCTOU: si entre lectura y escritura la pieza salió
    * de {in_stock, listed} (p. ej. un checkout la reservó), count=0 → ITEM_NOT_PUBLISHABLE y NO se
    * re-abre a un segundo comprador (anti double-sell). Persiste el override manual POR LÍNEA si vino.
+   *
+   * `fields` (solo el `PATCH` publicante): los demás campos del body viajan en ESTE MISMO `UPDATE`
+   * condicionado — todo o nada (INV-SP-8, `#M1-patch-price-guard`). Si el CAS pierde, no se escribe
+   * ninguno (M-1 del gate de QA sobre `b8a3e4ce`: antes iban en un `update` por `id` previo y el
+   * precio quedaba escrito sobre la pieza que un checkout acababa de reservar).
    */
-  private async claimListed(item: PublishableItem, lineListPriceCents?: number): Promise<void> {
+  private async claimListed(
+    item: PublishableItem,
+    lineListPriceCents?: number,
+    fields: Prisma.InventoryItemUpdateManyMutationInput = {},
+  ): Promise<void> {
     const claimed = await this.prisma.inventoryItem.updateMany({
       where: {
         id: item.id,
@@ -1937,6 +1960,7 @@ export class InventoryService {
         status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
       },
       data: {
+        ...fields,
         status: 'listed',
         ...(lineListPriceCents != null ? { listPriceCents: lineListPriceCents } : {}),
       },
@@ -2347,7 +2371,7 @@ export class InventoryService {
     return { ...toAdminInventoryItemRow(item), ...relations };
   }
 
-  async updateItem(id: string, dto: UpdateItemDto) {
+  async updateItem(id: string, dto: UpdateItemDto, actor?: { id: string; role: Role }) {
     const current = await this.getItem(id);
     // v1.2 (M-12): la invariante "gradeada publicada exige certNumber" también rige en el
     // UPDATE, no solo en el alta. `createItem` valida vía validateProductShape; aquí revalidamos
@@ -2401,10 +2425,52 @@ export class InventoryService {
     // la resolución, como el override por línea del `bulk-publish`.
     const publishing = resultingStatus === 'listed' && current.status !== 'listed';
     if (!publishing) {
-      // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
-      return toAdminInventoryItemRow(
-        await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
-      );
+      // 🔒 v1.80.7.2 — REGLA DE FUSIÓN SEC-SHIP-A1 (API_CONTRACT §M1 `#M1-merge-rule`), camino NO publicante:
+      // la estructura de `envio-preparar` (una transacción, bitácora `inventory.item_updated` con `before/after`
+      // cuando cambia `status`) re-cableada al cuerpo único de guardas del hotfix (`item-location.rules.ts`):
+      // `readGuardedItem` → UNA llamada `assertOperable(item, 'status' | 'price')` (mismo allowlist de plataforma
+      // `in_stock | listed`: un `422 ITEM_NOT_ADJUSTABLE`, `details` únicos) → `guardedItemUpdate`
+      // (CAS sobre `{id, status, ownerType, ownerUserId}` leídos; `P2025` ⇒ `409 CONFLICT`) con TODO el `PATCH`.
+      //  - `status` (v1.80.3 §M4-SHIP.17.1 (2), D-SHIP-6, INV-SP-7): `lost|damaged|picking|in_custody → in_stock`
+      //    ya no existe; `in_stock → in_stock` NO escribe `status` (PS-42b: un `status` igual al leído reescrito
+      //    sin guarda devolvía a `in_stock` una pieza que un checkout acababa de reservar).
+      //  - `listPriceCents` (v1.80.2.3 `#M1-patch-price-guard`, INV-SP-8): el precio de venta SOLO se escribe
+      //    sobre plataforma `in_stock | listed`; cliente en cualquier estado, `reserved`, vendida o terminal ⇒
+      //    `422`, y NINGÚN campo del mismo `PATCH` se escribe (todo o nada).
+      //  - Cuerpo SOLO de identidad (`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`) ⇒ como hoy,
+      //    sin guarda (v1.80.2.3 p.2: es la vía de reparación de identidad, también sobre piezas de cliente).
+      // ⛔ Sin `InventoryMovement`: `listed ↔ in_stock` y re-preciar son visibilidad/valor, no un hecho físico
+      // (ARCHITECTURE §4.57 (o)). El precio solo no gana bitácora nueva (v1.80.2.3 p.4: la del controller basta).
+      const guardedVerb: 'status' | 'price' | null =
+        patch.status !== undefined ? 'status' : patch.listPriceCents !== undefined ? 'price' : null;
+      if (guardedVerb === null) {
+        // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
+        return toAdminInventoryItemRow(
+          await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
+        );
+      }
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const item = await this.readGuardedItem(tx, id);
+        assertOperable(item, guardedVerb);
+        const { status: nextStatus, ...fields } = patch;
+        const statusChanges = nextStatus !== undefined && nextStatus !== item.status;
+        const row = await this.guardedItemUpdate(tx, item, statusChanges ? patch : fields);
+        if (statusChanges) {
+          await tx.auditLog.create({
+            data: {
+              actorUserId: actor?.id ?? null,
+              actorRole: actor?.role ?? null,
+              action: 'inventory.item_updated',
+              entityType: 'InventoryItem',
+              entityId: id,
+              before: { status: item.status } as Prisma.InputJsonValue,
+              after: { status: nextStatus, fields: Object.keys(patch) } as Prisma.InputJsonValue,
+            },
+          });
+        }
+        return row;
+      }, VAULT_VERB_TX_OPTIONS);
+      return toAdminInventoryItemRow(updated);
     }
     // ⚠️ Las guardas corren sobre el estado **RESULTANTE**, en memoria y ANTES de escribir nada: una
     // gradeada que gana su `certNumber` en ESTE mismo PATCH debe poder publicarse, y una que falle
@@ -2429,11 +2495,11 @@ export class InventoryService {
         ...(resolved.pendingPriceEntryId ? { pendingPriceEntryId: resolved.pendingPriceEntryId } : {}),
       });
     }
-    // Los campos no-status primero; el `listed` lo pone `claimListed` con su guarda atómica.
-    if (Object.keys(fields).length > 0) {
-      await this.prisma.inventoryItem.update({ where: { id }, data: fields });
-    }
-    await this.claimListed(resulting, patch.listPriceCents);
+    // 🔒 Campos y `listed` en UNA sola escritura condicionada (`claimListed`): si un checkout reservó la
+    // pieza entre la lectura de arriba y aquí, el CAS no casa ⇒ `422 ITEM_NOT_PUBLISHABLE` y NADA
+    // escrito (INV-SP-8, todo o nada). ⛔ No volver a un `update` por `id` previo: ese orden escribía el
+    // precio y LUEGO perdía el CAS (M-1 de QA; candado `inventory-patch-publish-race.e2e-spec.ts`).
+    await this.claimListed(resulting, patch.listPriceCents, fields);
     return toAdminInventoryItemRow({ ...resulting, status: 'listed' });
   }
 
@@ -2661,49 +2727,142 @@ export class InventoryService {
     return { inventoryItemId: id, outcome: 'published', missing: [] };
   }
 
+  /**
+   * `POST /admin/inventory/items/:id/move` — con GUARDAS de estado y de zona (`item-location.rules.ts`).
+   *
+   * Una sola transacción: lectura, guardas, `update` condicionado al estado LEÍDO y `InventoryMovement`
+   * (antes eran dos sentencias sueltas: un fallo entre ambas dejaba un movimiento sin mudanza). La
+   * pieza de cliente toma la **puerta del cliente** (`lockCustomerVaultGate`, la misma del `confirm`)
+   * antes de calcular sus cajones: así el `move` y una colocación del mismo cliente no deciden sobre
+   * una lectura que el otro está cambiando.
+   *
+   * Devuelve la fila de back-office **más** `location: { id, label, zone }` (aditivo) para que la UI
+   * pinte la ubicación nueva sin otra consulta.
+   */
   async moveItem(id: string, dto: MoveItemDto, actorUserId: string) {
-    const item = await this.getItem(id);
-    await this.prisma.inventoryMovement.create({
-      data: {
-        itemId: id,
-        fromLocationId: item.locationId,
-        toLocationId: dto.toLocationId,
-        fromStatus: item.status,
-        toStatus: item.status,
-        reason: MovementReason.move,
-        actorUserId,
-        note: dto.note,
-      },
-    });
-    const moved = await this.prisma.inventoryItem.update({
-      where: { id },
-      data: { locationId: dto.toLocationId },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const item = await this.readGuardedItem(tx, id);
+      const kind = assertOperable(item, 'move');
+      if (kind === 'customer') {
+        await lockCustomerVaultGate(tx, item.ownerUserId!);
+        await this.assertNotInActiveWithdrawal(tx, id);
+      }
+      const loc = await tx.vaultLocation.findUnique({ where: { id: dto.toLocationId } });
+      const drawers =
+        kind === 'customer'
+          ? ((await customerDrawersOf(tx, [item.ownerUserId!])).get(item.ownerUserId!) ?? [])
+          : [];
+      assertMoveDestination(kind, loc, drawers);
+      await this.guardedItemUpdate(tx, item, { locationId: dto.toLocationId });
+      await tx.inventoryMovement.create({
+        data: {
+          itemId: id,
+          fromLocationId: item.locationId,
+          toLocationId: dto.toLocationId,
+          fromStatus: item.status,
+          toStatus: item.status,
+          reason: MovementReason.move,
+          actorUserId,
+          note: dto.note,
+        },
+      });
+    }, VAULT_VERB_TX_OPTIONS);
     // ⚠️ v1.51 (fase 8, §4.39m.2) — **DISPARADOR (b): al fijar/mover ubicación.** Éste es el momento
-    // en que a una pieza convertida deja de faltarle lo único que le faltaba. Va DESPUÉS del update
+    // en que a una pieza convertida deja de faltarle lo único que le faltaba. Va DESPUÉS del commit
     // (la ubicación es el hecho; publicar es la consecuencia) y es best-effort — ver `tryAutoPublish`.
     await this.tryAutoPublish(id, 'move');
     // S49-R4: proyectado. Se relee para que el `status` refleje una publicación que acaba de ocurrir.
-    return toAdminInventoryItemRow(
-      (await this.prisma.inventoryItem.findUnique({ where: { id } })) ?? moved,
-    );
+    const after = await this.prisma.inventoryItem.findUnique({
+      where: { id },
+      include: { location: true },
+    });
+    if (!after) throw BusinessException.notFound();
+    return {
+      ...toAdminInventoryItemRow(after),
+      location: after.location
+        ? { id: after.location.id, label: after.location.label, zone: after.location.zone }
+        : null,
+    };
   }
 
+  /**
+   * `POST /admin/inventory/items/:id/mark` — perdida/dañada, con la guarda de estado de
+   * `item-location.rules.ts` (⛔ nunca `reserved`/`picking`: pedido vivo o cobrado). Misma
+   * transacción y misma escritura condicionada que `moveItem`.
+   * 🔒 v1.80.3 §M4-SHIP.17.1 (1) (D-SHIP-5): **solo plataforma `in_stock | listed`**. La rama de
+   * cliente (custodia liquidada fuera de retiro, y su consulta de retiro activo) se retiró: marcar
+   * `lost` la carta de un cliente fuera de un caso la sacaba de «Por reponer» sin abrir deuda. La
+   * incidencia de custodia se registra en el palomeo del retiro/colocación, que abre su caso.
+   */
   async markItem(id: string, dto: MarkItemDto, actorUserId: string) {
-    const item = await this.getItem(id);
     const status: InventoryStatus = dto.mark === 'lost' ? 'lost' : 'damaged';
-    await this.prisma.inventoryMovement.create({
-      data: {
-        itemId: id,
-        fromStatus: item.status,
-        toStatus: status,
-        reason: dto.mark === 'lost' ? MovementReason.lost : MovementReason.damaged,
-        actorUserId,
-        note: dto.note,
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const item = await this.readGuardedItem(tx, id);
+      assertOperable(item, 'mark');
+      const row = await this.guardedItemUpdate(tx, item, { status });
+      await tx.inventoryMovement.create({
+        data: {
+          itemId: id,
+          fromStatus: item.status,
+          toStatus: status,
+          reason: dto.mark === 'lost' ? MovementReason.lost : MovementReason.damaged,
+          actorUserId,
+          note: dto.note,
+        },
+      });
+      return row;
     });
     // S49-R4: proyectado.
-    return toAdminInventoryItemRow(await this.prisma.inventoryItem.update({ where: { id }, data: { status } }));
+    return toAdminInventoryItemRow(updated);
+  }
+
+  /**
+   * Lee lo que las guardas de `move`/`mark` y del `PATCH` no publicante (`status`/`price`, regla de fusión
+   * `#M1-merge-rule`) necesitan (404 si no existe).
+   */
+  private async readGuardedItem(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<GuardedItem & { id: string; locationId: string | null }> {
+    const item = await tx.inventoryItem.findUnique({ where: { id } });
+    if (!item) throw BusinessException.notFound();
+    return item;
+  }
+
+  /** Una pieza de cliente en un retiro ya cobrado se opera desde el envío, no desde M1. */
+  private async assertNotInActiveWithdrawal(tx: Prisma.TransactionClient, id: string): Promise<void> {
+    if ((await activeWithdrawalsOf(tx, [id])).has(id)) throw inActiveWithdrawalError();
+  }
+
+  /**
+   * Escritura CONDICIONADA al estado y dueño LEÍDOS (TOCTOU): si un checkout, un settle o un
+   * contracargo cambió la pieza entre la lectura y aquí, el `update` no encuentra la fila (`P2025`)
+   * y se responde `409 CONFLICT` — la transacción se revierte entera, sin movimiento ni campo escrito.
+   * Lo usan `move`, `mark` y el `PATCH` no publicante (`#M1-merge-rule`); el publicante usa `claimListed`.
+   */
+  private async guardedItemUpdate(
+    tx: Prisma.TransactionClient,
+    item: GuardedItem & { id: string },
+    data: Prisma.InventoryItemUncheckedUpdateInput,
+  ) {
+    try {
+      // PROJECTION-EXEMPT: helper privado dentro de la `$transaction`; `moveItem`/`markItem`/`updateItem`
+      // proyectan con `toAdminInventoryItemRow` antes de responder.
+      return await tx.inventoryItem.update({
+        where: {
+          id: item.id,
+          status: item.status,
+          ownerType: item.ownerType,
+          ownerUserId: item.ownerUserId,
+        },
+        data,
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw BusinessException.conflict('CONFLICT', 'Item changed while operating on it; reload and retry');
+      }
+      throw e;
+    }
   }
 
   // ---------------- v1.20 §4.20e — Ajuste por levantamiento físico ----------------
@@ -3199,28 +3358,38 @@ export class InventoryService {
     });
 
     // Referencias de mercado EN LOTE (sin N+1) — misma llave que getReferencesBatch.
-    // v1.53 (§4.40.4b, MONEY): `null` = pieza `graded` sin identidad de slab ⇒ NO entra al lote de
-    // referencias y sus columnas de dinero salen vacías. Se calcula UNA vez, alineado por índice con
-    // `items` (antes se recalculaba dos veces por fila).
-    const gradeKeys = items.map((it) => this.exportGradeKey(it));
-    const refReqs = items.flatMap((it, i) => {
-      const gk = gradeKeys[i];
-      return gk == null
-        ? []
-        : [{ cardId: it.cardId, productType: it.productType, finish: it.finish, gradeKey: gk }];
-    });
+    // ⭐ v1.80.2.2 (API_CONTRACT §M2-SK SK-5, errata «séptimo lector», ancla `M2-SK-5-7`; MONEY) — el
+    // export es un LECTOR DE PATRIMONIO y valúa por la MISMA puerta que los otros seis (holdings,
+    // holdingDetail, custodyValue, `/admin/vaults`, ownedItemRefs, inventoryValue):
+    //  - `valuationKeyFor` decide QUÉ fila: sellado mapeado ⇒ `sealed:tcg:<id>` bajo acabado `normal`
+    //    (la fila de mercado del producto vive ahí, sea cual sea el `finish` de la pieza); sellado SIN
+    //    mapeo ⇒ `null` — ⛔ jamás la fila de COLA `'sealed'`, que puede ser el precio de OTRA caja
+    //    anclada a la misma `Card`; graduada sin identidad de slab ⇒ `null` (v1.53 §4.40.4b).
+    //  - `valuationCentsOf` decide CUÁNTO: el gate del dial (`tcgcsv` solo con el dial encendido,
+    //    `manual` sobrevive, `<= 0` ⇒ nada), el mismo que `/vault/sealed`.
+    // `null` ⇒ la pieza NO entra al lote y sus columnas de mercado/compra salen VACÍAS, que es la verdad.
+    // Antes (`exportGradeKey`, retirado) el sellado sin mapeo salía con la fila legada de otra caja, el
+    // mapeado se buscaba con el `finish` de la pieza y el dial no se aplicaba (ARCHITECTURE §4.50.6 D-SK-4).
+    // Se calcula UNA vez, alineado por índice con `items`.
+    const keys = items.map((it) => this.pricing.valuationKeyFor(it));
+    const refReqs = keys.flatMap((k) => (k ? [k] : []));
     const refs = refReqs.length
       ? await this.pricing.getReferencesBatch(refReqs)
       : new Map<string, PriceInfo>();
+    // El dial del sellado, UNA vez por export y solo si hay sellado que gatear (D-4: `sealedSourceOnFor`,
+    // el mismo cuerpo que los otros seis lectores; por debajo es `loadSealedSpreads()` una vez).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
 
-    // Overrides M-30 (compra/venta) EN LOTE por (cardId, productType, gradeKey, finish).
+    // Overrides M-30 (compra/venta) EN LOTE por la MISMA llave de variante que las referencias
+    // (`variantKey`, P-30 H2: prohibida la interpolación a mano). Por lectura no existe fila M-30 con
+    // `productType:'sealed'` (`variant-controls.service.ts:123` acota el write a raw/graded).
     const cardIds = [...new Set(items.map((it) => it.cardId))];
     const overrides = cardIds.length
       ? await this.prisma.variantPriceOverride.findMany({ where: { cardId: { in: cardIds } } })
       : [];
     const ovByKey = new Map<string, VariantPriceOverride>();
     for (const o of overrides) {
-      ovByKey.set(`${o.cardId}|${o.productType}|${o.gradeKey}|${o.finish}`, o);
+      ovByKey.set(variantKey(o), o);
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -3245,12 +3414,13 @@ export class InventoryService {
       const it = items[idx];
       // v1.53 (§4.40.4b): sin clave no hay mercado ni override que casar — las columnas salen vacías,
       // que es la verdad. Antes salían con el valor de un PSA 10.
-      const gk = gradeKeys[idx];
-      const refKey = gk == null ? null : `${it.cardId}|${it.productType}|${gk}|${it.finish}`;
+      // v1.80.2.2 (SK-5): la llave es la de VALUACIÓN (sellado ⇒ bajo `normal`) y el monto pasa por el
+      // gate de `valuationCentsOf` (dial); la COLUMNA `finish` de abajo sigue siendo la de la pieza.
+      const k = keys[idx];
+      const refKey = k == null ? null : variantKey(k);
       const market = refKey == null ? undefined : refs.get(refKey);
       const ov = refKey == null ? undefined : ovByKey.get(refKey);
-      const marketCents =
-        market && market.status === 'priced' ? market.referenceMxnCents ?? null : null;
+      const marketCents = this.pricing.valuationCentsOf(it, market, sourceOn);
       const buyCents = ov?.buyOverrideCents ?? null;
       // H-1 (E5-bis): con `??`, un `listPriceCents = 0` ENMASCARABA el `sellOverrideCents` de la
       // variante y el reporte enseñaba $0 donde el sistema cobra el override. Misma precedencia, con
@@ -3280,22 +3450,6 @@ export class InventoryService {
     // exceljs devuelve un ArrayBuffer-like; normalizamos a Buffer para res.send.
     const out = await workbook.xlsx.writeBuffer();
     return Buffer.from(out as ArrayBuffer);
-  }
-
-  /** gradeKey del item para casar `PriceReference`/`VariantPriceOverride` (sellado → clave de mercado). */
-  private exportGradeKey(it: {
-    productType: ProductType;
-    rawCondition: string | null;
-    gradingCompany: string | null;
-    gradeValue: string | null;
-    tcgplayerProductId: number | null;
-  }): string | null {
-    if (it.productType === 'sealed' && it.tcgplayerProductId != null) {
-      return sealedMarketGradeKey(it.tcgplayerProductId);
-    }
-    // v1.53 (§4.40.4b, MONEY) — EXPORT = lectura pura: sin identidad de slab no hay clave y las
-    // columnas de mercado/compra/venta salen vacías. Antes salían con el valor de un PSA 10.
-    return tryBuildGradeKey(it);
   }
 
   /** Condición legible por tipo: raw→rawCondition, sealed→sealedCondition, graded→empresa+grado. */

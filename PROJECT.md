@@ -10727,8 +10727,11 @@ total de bóveda (§S.10, §H, §D, §R.3 — v1.80.4 · 2026-09-29; decisiones 
    crea **una** pendiente por el **mismo** importe (repetir devuelve la misma); sobre una fila que Stripe **aún
    puede aceptar** ⇒ se rechaza (sería pagar dos veces).
 229. 💰 **Cubeta «Reembolsos manuales (SPEI)»: solo súper-admin; marcar pagada = quién y cuándo; CLABE protegida**
-   *(S.10.7; D-11)*: la página y su conteo **no existen para el operador** (ni en menú, ni por API, ni en el
-   tablero); lista lo pendiente **lo más viejo primero** con importe total y tarjeta en el tablero; **marcar
+   *(S.10.7; D-11)*: la página y su conteo **no existen para el operador** (sin acceso por página, sin acceso por
+   API y sin conteo ni tarjeta en el tablero). *(Precisión 2026-09-29, IMP-3 de QA sobre `c20451f`: «ni en
+   menú» significa **sin acceso ni conteo**; el sidebar del operador puede mostrar la entrada **gris, con etiqueta
+   SÚPER y sin conteo**, igual que M2/M7/M9 —patrón del panel, DESIGN_SYSTEM §37.1—; la página queda bloqueada y la
+   API responde 403. Aplica también a «Reembolsos de operadores».)* Lista lo pendiente **lo más viejo primero** con importe total y tarjeta en el tablero; **marcar
    pagada** exige haber **revelado la CLABE en esa pantalla** (auditado, solo pendientes; sin CLABE registrada
    ⇒ *«pídele que la registre»*), guarda **quién y cuándo**, y la **clave de rastreo y la nota son opcionales**;
    repetir con la misma clave ⇒ idempotente; **pagada vs cancelada a la vez** ⇒ solo una gana (N ≥ 10). Si la
@@ -12692,6 +12695,11 @@ promesa:**
    reembolso (súper-admin) son personas distintas a propósito»* (tachada, S.5); el *«es el único que toca dinero
    que sale»* del súper-admin y el *«no toca dinero»* del operador (acotados, Usuarios y roles); el conteo de
    **11** correos de §R.3 (ahora **15**, criterio 206).
+   **Precisión 2026-09-29 (IMP-3 de QA sobre `c20451f`; decide el product-owner, opción a)**: el criterio 229
+   «ni en menú» se lee como **sin acceso ni conteo**; las entradas «Reembolsos manuales (SPEI)» y «Reembolsos de
+   operadores» pueden aparecer al operador **grises, con etiqueta SÚPER y sin conteo**, por coherencia con
+   M2/M7/M9 y porque no revelan ningún dato. Sin trabajo de frontend. (SUPUESTO: si el dueño prefiere ocultarlas
+   del todo, se dice y pasa a trabajo frontend pequeño.)
    **Lo que NO toca**: el **criterio 210** (se reabre, si acaso, en la iniciativa Skydropx), la tarifa, la
    máquina de estados, las etiquetas, el contracargo.
    **Un SUPUESTO del product-owner, marcado en §H**: el *«tope por carta configurable»* de la decisión 8 se

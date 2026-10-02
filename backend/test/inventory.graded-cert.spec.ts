@@ -214,9 +214,14 @@ describe('InventoryService.updateItem — gradeada (certNumber)', () => {
       certNumber: 'PSA-99999999',
     } as UpdateItemDto);
     expect(res.status).toBe('listed');
-    // El certNumber del MISMO dto se persiste y la publicación es atómica.
-    expect(prisma.inventoryItem.update).toHaveBeenCalled();
-    expect(prisma.inventoryItem.updateMany).toHaveBeenCalled();
+    // El certNumber del MISMO dto se persiste EN LA MISMA escritura condicionada que publica (INV-SP-8,
+    // todo o nada; M-1 de QA sobre `b8a3e4ce`): ⛔ ningún `update` por `id` previo al CAS.
+    expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+    expect(prisma.inventoryItem.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith({
+      where: { id: 'inv-10', ownerType: 'platform', status: { in: ['in_stock', 'listed'] } },
+      data: { certNumber: 'PSA-99999999', status: 'listed' },
+    });
   });
 
   it('PATCH a una gradeada NO publicada (in_stock) sin cert → OK (la invariante solo aplica al publicar)', async () => {

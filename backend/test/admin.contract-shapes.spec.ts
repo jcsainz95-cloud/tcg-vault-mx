@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -18,7 +19,7 @@ describe('AdminService — shapes del contrato (M7 IVA / M9 launch-metrics)', ()
       ...overrides,
     };
     return new AdminService(
-      prisma as unknown as PrismaService,
+      withM61Defaults(prisma) as unknown as PrismaService,
       {} as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,

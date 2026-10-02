@@ -1,6 +1,7 @@
 import { VaultService, VAULT_SEALED_SORT_VALUES } from '../src/modules/vault/vault.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
 
 /**
  * v1.23-sealed-sales (§3 / §4.23g) — pestaña «Sellado» de la bóveda: agrega por producto+condición,
@@ -64,18 +65,18 @@ function build(items: any[], refs: Map<string, any>) {
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     // H-1 (v1.24): dial encendido EN RUNTIME (sourceOn:true) — el SEED del dial es `off` (fail-closed,
     // por contrato §M10); este test fija sourceOn:true para ejercer la valuación con el mercado activo.
-    // El gate es la misma expresión trivial que el método real `PricingService.gateSealedMarketCents`
-    // (no reimplementa la pura `computeSealedSalePrice`: `sealedTab` valúa por gate del mercado, no por spread).
+    // v1.80.1 (SK-5): el gate ya NO es una copia — es el método REAL `PricingService.gateSealedMarketCents`
+    // (vía `REAL_VALUATION_GATE`, abajo). `sealedTab` valúa por gate del mercado, no por spread.
     loadSealedSpreads: jest.fn(async () => ({
       spreadPctBySubtype: {},
       fallbackPct: 25,
       sourceOn: true,
     })),
-    gateSealedMarketCents: (ref: any, sourceOn: boolean) => {
-      if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
-      if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
-      return sourceOn ? ref.referenceMxnCents : null;
-    },
+    // v1.80.1 (SK-5): `sealedTab` valúa por la puerta REAL (`valuationKeyFor` + `valuationCentsOf` +
+    // `gateSealedMarketCents` de producción, con `<= 0 ⇒ null`).
+    ...REAL_VALUATION_GATE,
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
   return { prisma, pricing, svc: new VaultService(prisma, pricing) };
 }

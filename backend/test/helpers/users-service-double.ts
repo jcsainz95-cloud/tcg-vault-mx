@@ -37,6 +37,10 @@ export function usersServiceDouble(
       }),
     ),
     purgeSupersededIneObjects: jest.fn(async () => undefined),
+    // 🔒 v1.80.3 (SEC-SHIP-A3, `C-CLABE-1`): la CLABE también sale de `UsersService` (`setClabe` es el único
+    // escritor; `notifyClabeChanged` manda `AV-16` post-commit). `null` = «misma CLABE, nada que escribir».
+    setClabe: jest.fn(async () => null),
+    notifyClabeChanged: jest.fn(async () => undefined),
     ...overrides,
   } as unknown as UsersService;
 }

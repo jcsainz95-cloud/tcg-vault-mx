@@ -61,6 +61,7 @@ const HISTORY_PAGE_SIZE = 10;
 
 export function M6View() {
   const t = useTranslations('admin.m6');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
@@ -253,7 +254,7 @@ export function M6View() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-h1 font-bold">{t('title')}</h1>
+        <h1 className="text-h1 font-bold">{tModules('m6')}</h1>
         <p className="text-sm text-muted">{t('subtitle')}</p>
       </div>
 

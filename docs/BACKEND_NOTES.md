@@ -28,6 +28,443 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.59 — **P-71: el código corto del set («TWM») se publica, y «Buscar set» lo encuentra** (2026-09-28, contrato v1.80, `ARCHITECTURE §4.57`)
+
+> **Renumerada 2026-09-29 (TD-10 del techlead sobre `b8a3e4ce`):** esta sección se llamaba «§0.55», igual que la del
+> tope del bounty (más abajo), que conserva el número porque es a la que citan `API_CONTRACT` y §0.57 (`§0.55.3`). Un
+> informe anterior al 2026-09-29 que diga «§0.55 P-71» se refiere a esta.
+
+> Propiedad: **backend**. Rama `claude/paquete-pantallas`, base `ffef230`. ⛔ Sin schema, sin migración, sin
+> endpoint nuevo, cero dinero: proyección de `CardSet.ptcgoCode`, que el sync ya guardaba.
+
+**Una sola normalización:** `publicPtcgoCode(raw)` en `backend/src/modules/catalog/catalog.service.ts`, junto a
+`toCardDTO` (⛔ no en `common/`). `trim()`; vacío/espacios ⇒ `null`; **mayúsculas intactas** (`'twm'` sale
+`'twm'`); jamás deduce nada del `externalId` ni del nombre. **No** es la clave de emparejado de decks-meta
+(`deck-matcher.service.ts`, `trim().toUpperCase()`), que sigue como estaba.
+
+| Campo (clave SIEMPRE presente) | Emisor | Nota |
+|---|---|---|
+| `CardDTO.setPtcgoCode` | `toCardDTO` | misma relación que `setName`: emisor sin `include:{set:true}` ⇒ ambos `null` |
+| `MasterSetBinderResponse.set.ptcgoCode` (tipo nuevo `MasterSetRefDTO`) | `MasterSetService.binder` | combinado = el del **principal**. ⛔ `SetRefDTO` no cambia |
+| `SetPartDTO.ptcgoCode` | `binder` → `resolveMasterSet` (mismo `select`, +1 columna) | el **de cada parte** |
+| `MasterSetSummaryDTO.ptcgoCode` | `MasterSetService.index` (mismo `select`, +1 columna) | fila plegada = el del **principal** (el plegado no lo toca) |
+| `BuylistSetDTO.ptcgoCode` | `CatalogService.listSetsWithImportedCards` (`GET /buylist/sets`) | ⛔ `GET /catalog/sets` **no** lo trae (su builder arma el objeto campo a campo) |
+| `PublicBountyDTO.setPtcgoCode` | `BuylistService.publicBounties` | la consulta ya cargaba `card.set` |
+
+**«Buscar set»** (`?q=` de `GET /admin/inventory/master-sets`, `GET /admin/vaults/:userId/master-sets`,
+`GET /vault/master-sets` — los tres pasan por `index()`): `OR [name contains q insensitive, ptcgoCode contains q
+insensitive]`. Un set con código `NULL` solo casa por nombre (ILIKE sobre NULL no casa y no revienta — medido en
+Postgres real). La conducta heredada «el `q` se aplica **antes** del plegado de combinados» (§4.57.4) **no cambia**.
+
+**Pruebas** (P71-B1..B7 del contrato):
+- `backend/test/set-ptcgo-code.p71.spec.ts` — B1, B2, B3, B4, B6, B7 (31 casos). Los dobles de Prisma **respetan
+  `select`/`include`** (una columna no seleccionada no llega), así que «quitar `ptcgoCode` del `select`» y «emisor
+  sin `include:{set:true}`» se ven en unitario.
+- `backend/test/integration/set-ptcgo-code-search.e2e-spec.ts` — B5 contra Postgres real, por HTTP, en los **tres**
+  endpoints (`twm`/`TwM`/`TWM`/`wm` ⇒ TWM y no el de código null; `twilight` ⇒ sigue por nombre; `sin codigo` ⇒ el de
+  código null con `ptcgoCode:null`; `zzz` ⇒ `total:0`, sin 500). Fixture propio `P71-*`, limpiado en `afterAll`.
+  Antes de implementar: 15 rojos / 6 verdes de 21 (los verdes eran `twilight` y `zzz`, que ya pasaban por nombre).
+- Ajustadas dos aserciones de forma exacta que el campo nuevo tocaba: `test/catalog.group-dto-shape.spec.ts`
+  (conjunto de claves de `CardDTO`) y `test/buylist.bounties.spec.ts` (`toEqual` del elemento de la vitrina).
+
+**Mutaciones** (sobre copia del árbol, una tirada cada una — son deterministas, sin carrera ni reloj):
+
+| Mutación | Resultado |
+|---|---|
+| `setPtcgoCode: card.set?.ptcgoCode ?? null` (sin normalizar) | 3 rojos |
+| `.toUpperCase()` en `publicPtcgoCode` | 6 rojos |
+| clave omitida en `toCardDTO` cuando no hay código | 4 rojos |
+| quitar `ptcgoCode` del `select` del índice | rojo de compilación (`TS2339`): el tipo de Prisma lo caza antes que la prueba |
+| la fila plegada hereda el código del subset | 2 rojos |
+| todas las partes con el código del principal | 2 rojos |
+| `/buylist/sets` emite `s.ptcgoCode` crudo | 1 rojo |
+| bounties: clave omitida | 1 rojo |
+| `searchAllCards` sin `include:{set:true}` / ficha sin `include:{set:true}` | 1 rojo / 1 rojo |
+| quitar la rama `ptcgoCode` del `OR` (integración) | 12 rojos de 21 |
+| `equals` en vez de `contains` (integración) | 3 rojos (el caso `wm`); el contrato lo declara aceptable, la prueba es más estricta |
+
+**Para frontend:** el campo llega `null` con frecuencia (promos, sets viejos, y quizá recientes: `N-P71-1/2`
+de `ARCHITECTURE §4.57.6`, **NO MEDIDO** en producción). Condicionar por verdad (`code ? … : '#130'`).
+## 0.58 — ⭐⭐ **v1.80.2.2: séptimo lector de SK-5 (export `.xlsx`), BC-9 en tres partes y deuda D-1/D-2/D-4 del techlead** (2026-09-29)
+
+> Contrato v1.80.2.2 — §M2-SK SK-5 errata «séptimo lector» (ancla `M2-SK-5-7`) y §M2-B.11 punto 7 BC-9 (ancla
+> `M2-B11-BC9`) + punto 8; ARCHITECTURE §4.50.6 (D-SK-4, D-BC-1). Deuda del techlead sobre `a3cde51`: D-1, D-2, D-4
+> (D-3 = D-BC-1, D-5 = D-SK-4). Zona de dinero (`inventory`, `buylist`, `pricing`, `vault`, `admin`). Sin schema,
+> sin migración, sin endpoint nuevo, sin campo en DTO, sin cabecera nueva en el `.xlsx`. Rama `claude/paquete-dinero`,
+> cuatro commits sobre `b8edfa7`: `b338886` (punto 1), `cd696a3` (punto 2 + D-2), `2cf50c6` (D-1 + D-4), y el de
+> estas notas.
+
+### 0.58.1 — Qué cambió, por punto
+
+1. **Export `.xlsx` = séptimo lector de patrimonio (`b338886`).** `inventory.service.ts` `exportInventoryXlsx`: la
+   llave de cada fila sale de `PricingService.valuationKeyFor(it)` (`:3216`; sellado mapeado ⇒ `sealed:tcg:<id>` bajo
+   `normal`, sin mapeo ⇒ `null`, graduada sin slab ⇒ `null`), `refs` y `ovByKey` se llavean con `variantKey()`
+   (`:3234`, `:3263`), el monto pasa por `valuationCentsOf(it, ref, sourceOn)` (`:3265`) y el dial se iza una vez por
+   export (`:3223`). `exportGradeKey` **retirado** (`:3297`, queda la nota de por qué). Columnas y cabeceras intactas;
+   `buyMxn`/`sellMxn` con la misma regla (`ov?.buyOverrideCents`; `firstPresentAmount(listPriceCents,
+   sellOverrideCents)`).
+2. **BC-9 en tres partes (`cd696a3`).** `buylist.service.ts` `publicBounties` (`:1324-1335`): por fila
+   `q = quoteAcquisitionWithGuard(referenceMxnCents, curve, r)`; presente ⇔ `q.basis === 'bounty' ∧
+   premiumFloorGuard(rareza, q.guardBasis) === 'ok'`; publica `q.priceCents`. Se retiran la composición manual
+   (`isBountyEffective` + `bountyPayoutCents` + `bountyGuardBasis` + `quoteAcquisitionFromCurve` ×2) y sus imports.
+   `variant-pricing.ts` `composeVariantPricing` (`:197-200`): `effective = buy.basis === 'bounty'`;
+   `payoutCents = effective && !buyGuarded ? buy.priceCents : null`; `cappedByMarket` sin cambio. Desde `src`, fuera de
+   `common/money.ts`, ya no se importa `bountyPayoutCents` ni `bountyGuardBasis`; `isBountyEffective` queda en sus dos
+   llamadores (`variant-controls.service.ts` gate del alta; `buylist.service.ts` `positionAndSuggestion`).
+3. **D-1 / D-4 (`2cf50c6`).** `PricingService.sealedSourceOnFor(items)` (`pricing.service.ts:1257`) = «dial del
+   sellado, una lectura por petición y solo si hay sellado»; lo consumen los siete lectores (`admin.service.ts:1031,
+   1630, 1668`; `vault.service.ts:181, 404, 519`; `admin-vaults.service.ts:136`; export `:3223`). Los lectores llavean
+   el lote con `variantKey()` (`admin.service.ts:1013` productor de `ownedItemRefs`, `:1039`, `:1645`;
+   `vault.service.ts:428`; `admin-vaults.service.ts:149`). `/vault/sealed` (`:404`) pasa de leer el dial siempre a
+   leerlo solo si hay piezas (con la bóveda sellada vacía no hay nada que gatear; la respuesta no cambia).
+4. **D-2 (`cd696a3`).** El candado léxico de `pricing.bounty-guard.spec.ts` es ahora un censo cerrado al patrón VK-6:
+   `quoteAcquisitionFromCurve` aparece en código solo en `common/money.ts` (2) y `variant-controls.service.ts` (2), y
+   fuera de `money.ts` ninguna llamada lleva tercer argumento. Instrumento compartido nuevo:
+   `backend/test/helpers/ident-census.ts` (`walkSources`, `countIdentUses`, `identCensus`, `methodBody`,
+   `topLevelBody`, `callArgCounts`), usado por VK-6, BC-9(b) y este candado — una copia del recorrido, no tres.
+
+### 0.58.2 — Decisiones que el contrato dejaba abiertas (para QA/techlead/arquitecto)
+
+- **Censo de `isBountyEffective` (BC-9(b)):** el contrato dice «solo en un censo cerrado de **dos** llamadores». El
+  identificador aparece en código en **cuatro** ficheros: la definición (`common/pricing-curve.ts`, 1), el peldaño 1
+  (`common/money.ts`, import + uso = 2) y los dos llamadores del contrato (`variant-controls.service.ts` 2,
+  `buylist.service.ts` 2; import + uso cada uno, porque el censo cuenta imports como VK-6). La lista cerrada del spec
+  lleva los cuatro con su razón; «dos llamadores» = los dos fuera de `common/`. No es discrepancia, es la forma
+  concreta del censo.
+- **Presencia en la vitrina con `=== 'ok'`** (antes `!== 'premium_at_floor'`): es la forma del contrato; `GuardVerdict`
+  solo tiene esos dos valores, así que la conducta es idéntica.
+- **El export iza el dial con `sealedSourceOnFor(items)`** (D-4) y no con `loadSealedSpreads()` directo como dice
+  literalmente la errata: por debajo es la misma lectura, una vez, y solo si el export trae sellado. Matiz: un export
+  sin sellado hace **cero** lecturas del dial (la errata dice «una vez por export»; el valor no se usaría).
+- **`ovByKey` para sellado busca bajo `finish:'normal'`** (la llave de valuación), no bajo el `finish` de la pieza.
+  Por lectura no hay fila M-30 con `productType:'sealed'` (`variant-controls.service.ts:123-125` acota el write a
+  `raw`/`graded`), así que ninguna celda `Compra`/`Venta` cambia. **NO MEDIDO** en la BD de producción.
+- **Doble del export (nota de fixture del contrato):** `valuationKeyFor`/`valuationCentsOf`/`tryGradeKeyFor`/
+  `gateSealedMarketCents`/`sealedSourceOnFor` se toman de `PricingService.prototype`; solo `getReferencesBatch` y
+  `loadSealedSpreads` están doblados. Trece dobles más ganaron `sealedSourceOnFor` (delegan en su
+  `loadSealedSpreads` doblado): la causa única medida fue `sealedSourceOnFor is not a function` (130/130).
+- **Lo que queda apuntado en `TECH_DEBT.md`:** tres llaves de variante a mano fuera de SK-5 (`inventory.service.ts:1656`,
+  `master-set.service.ts:1044`, `price-ingest.service.ts:1018`), fuera del alcance de D-1.
+
+### 0.58.3 — Pruebas y mediciones (autor: backend; 2026-09-29; sobre copias del árbol entero, N=1 por mutación —
+todas deterministas: escaneo de fuente o cálculo puro)
+
+| Punto | Rojo antes (sobre el sha previo) | Verde después | Mutaciones (muerden / total) |
+|---|---|---|---|
+| 1 SK-5 export | VK-8a (800 en vez de vacía), VK-8b (vacía en vez de 2500), VK-8c ×3 (2500 con dial apagado; 0 lecturas del dial), VK-6 censo (5≠4) y VK-6 por método — 7 rojas | `inventory.export-xlsx.spec.ts` 16/16, `pricing.valuation-callers-census.spec.ts` 10/10 | llave `'sealed'` ⇒ VK-8a; `it.finish` ⇒ VK-8b; sin gate ⇒ VK-8c; `exportGradeKey` restaurado ⇒ VK-6 ×2 — **4/4** |
+| 2 BC-9 | BC-9(b) 4 rojas + inversión de `money.bounty-cap.spec.ts:246` + inversión de `pricing.bounty-guard.spec.ts:310` + censo D-2 (buylist con 3 usos) — 8 rojas; BC-9(c) verde (12 casos × vitrina y composer) | los tres specs + VK-6: 97/97 | peldaño 1 a mano en `publicBounties` ⇒ BC-9(b) 5 rojas; publicar `r.bountyPriceCents` ⇒ 6 rojas (1000/400/1200, 701/500, 650/500, chase sana, BC-10, «publica 1000»); filtrar sin `guardBasis` ⇒ 3 rojas (BG-6 retenida aparece, ×2 en `bounty-guard`); composer sin guardarraíl ⇒ 2 rojas (BG-6 composer + consola); tercer argumento en `variant-controls` ⇒ D-2 roja — **5/5** |
+| 3 D-1/D-4 | D-1, D-4 y la aserción por método del export rojas; `pricing.sealed-source-on.spec.ts` no compilaba | 33/33 en los tres specs; 121/121 en los 12 specs del ripple | llave a mano en `admin-vaults` ⇒ D-1; copia de `loadSealedSpreads` en `holdings` ⇒ D-4; helper que siempre lee ⇒ «sin sellado» roja; helper que siempre da `false` ⇒ «con sellado» ×2 rojas — **4/4** |
+
+- **Unitaria completa** (`npx jest`, árbol de `2cf50c6`): **360/360 suites, 5967/5967 pruebas** (base 359/5923: +1
+  suite, +44 pruebas). `tsc --noEmit` limpio; `eslint` sin errores (1 aviso preexistente, `inventory.service.ts:644`).
+- **Vecinas de bounty/composer/vitrina** (15 specs: `pricing-curve.spec.ts` BC-7, `buylist.bounties`,
+  `buylist.bounty-revalidation`, `admin-bounties.*`, `pricing.bounty-market-floor`, `master-set.*`, …): 315/315 sin editar.
+- **Integración** (Postgres propio en `:55822`, Redis en `:56822`, migraciones al día; sin MinIO — el seed avisa
+  que no sube las imágenes del INE, que no intervienen): ver el resumen final del pase; `sk5-valuation.e2e-spec.ts`
+  7/7 medido primero como validación del arnés.
+- BC-1…BC-12 y BG-1…BG-8 restantes **sin editar** (solo las dos inversiones que manda el contrato); BC-7
+  (`pricing-curve.spec.ts`) intacto.
+
+### 0.58.4 — ⚠️ Para el arquitecto (no cambié el contrato)
+
+1. **VK-6 en el contrato dice «`inventory.service.ts` baja de 5 a 4 usos»** — así quedó (import + publicación +
+   re-publicación + … = 4), con la razón reescrita sin la advertencia del export.
+2. **La errata «séptimo lector» describe el dial con `loadSealedSpreads()` «una vez por export»**; con D-4 la lectura
+   va por `sealedSourceOnFor`, que es `loadSealedSpreads()` una vez **si hay sellado** y cero veces si no. Si el
+   contrato quiere fijar «exactamente una» también para exports sin sellado, hay que decirlo; hoy VK-8c fija «una» con
+   sellado presente.
+3. **BC-9(b) «dos llamadores» de `isBountyEffective`:** el censo cerrado lleva cuatro ficheros (definición, `money.ts`
+   y los dos llamadores). Si el contrato prefiere un censo que excluya `common/`, es un cambio de redacción, no de
+   código.
+
+## 0.57 — ⭐⭐ **v1.80.2 §M2-B.11 punto 8: el tope del bounty no se salta el guardarraíl premium** (2026-09-29)
+
+> Contrato v1.80.2 §M2-B.11 punto 8 (ancla `M2-B11-8`) · ARCHITECTURE §4.36.5(a), §4.36.6e (fila v1.80.2). Zona de
+> dinero (`pricing`/`buylist`). Sin schema, sin migración, sin endpoint, sin campo en DTO, sin código de error.
+> **Sustituye a §0.55.3** (la consecuencia que allí reporté es la que el arquitecto normó aquí).
+
+### 0.57.1 — La forma del cambio
+
+- **`bountyGuardBasis(bounty, mercado, curveBasis)`** (`backend/src/common/money.ts`, junto a `bountyPayoutCents`):
+  `bountyPayoutCents(bounty, mercado) < bounty ? curveBasis : 'bounty'`. Devuelve un basis, no un monto, y no
+  recibe rareza (criterio 84). «Topado» se decide con `bountyPayoutCents` (el único tope, BC-9), así que la
+  presencia H-1 (mercado `<= 0` ⇒ ausente) viene gratis.
+- **`quoteAcquisitionWithGuard(mercado, curva, controles)`** (mismo fichero): llama a `quoteAcquisitionFromCurve` y
+  añade el campo interno **`guardBasis`** (tipo `AcquisitionQuoteResult`). Peldaño 1 ⇒ `bountyGuardBasis(bounty,
+  mercado, resolveBuyFromCurve(mercado, curva).basis)`; peldaños 2–4 ⇒ `= basis`. ⛔ No viaja en ningún DTO.
+  ⚠️ Es una función hermana y no un campo del resultado de `quoteAcquisitionFromCurve` — ver 0.57.4 (1).
+- **Llamadores de COMPRA** — todos evalúan el guardarraíl con `guardBasis`, nunca con `basis`:
+  - `decideBuyLine` (`buylist.service.ts`) ⇒ `resolvePendingReason(quote.guardBasis, rareza)`. De ahí salen
+    `/quote`, `/quote/batch`, `createRequest` (escala a la cola `premium_at_floor`, contexto `buylist`) y la
+    derivación de la oferta (`offerDerivedPriceCents = null` ⇒ el operador pone precio con motivo, 148(a)).
+  - `composeVariantPricing` (consola `/admin/pricing/bounties`, variant-controls y binder de master-set) ⇒
+    `premiumFloorGuard(rareza, buy.guardBasis)`. Fila retenida: `buy.source='pending'`, `buy.effectiveCents=null`,
+    `buy.premiumAtFloor=true`, `bounty.payoutCents=null`, `bounty.cappedByMarket=false`; `bounty.effective` intacto
+    ⇒ `state` sigue **`activa`** (`deriveBountyState` no se tocó).
+  - `publicBounties` (vitrina): tras calcular el pago y **antes** de ordenar/cortar a 50, filtra
+    `premiumFloorGuard(rareza, bountyGuardBasis(bounty, mercado, basis-de-la-curva)) === 'premium_at_floor'`.
+- **Lo que no cambia:** `isBountyEffective`, `bountyPayoutCents`, `quoteAcquisitionFromCurve` (forma y conducta:
+  BC-5 intacta), guardarraíl de VENTA, override. `/quote` y `/quote/batch` siguen READ-ONLY.
+- **Cierre:** la retención se **deriva** en cada resolución, no se persiste. Cuando el mercado se corrige, la
+  siguiente `createRequest` de esa variante cierra la entrada (`settlePendingForVariant(null, …, 'buylist')`) y
+  el bounty vuelve a pagar (BG-8).
+
+### 0.57.2 — Pruebas
+
+| Prueba | Dónde |
+|---|---|
+| `bountyGuardBasis` pura, BG-1…BG-5 (seam real `publicQuote`), peldaños 2–4, BG-6 sin infra (consola y vitrina, incl. «el filtro va antes del corte a 50»), candado de forma (ningún `quoteAcquisitionFromCurve(m, curva, controles)` fuera de `money.ts`, con canario) | `backend/test/pricing.bounty-guard.spec.ts` |
+| BG-6 (quote, batch, vitrina, solicitud + cola, consola), BG-7 (oferta), BG-8 (cierre) — Postgres real, por HTTP | `backend/test/integration/bounty-guard.e2e-spec.ts` |
+
+**Expectativa invertida (modelo fuerte, anotada):** `pricing.premium-floor-guard.spec.ts`, caso E4 «un BOUNTY…»:
+afirmaba que la chase con mercado MX$1 y bounty MX$9,000 cotizaba **MX$1** (`bounty`), la conducta de `c77ebc8`
+fijada en §0.55.3. Ahora afirma `precio_pendiente` / `quotedPriceCents null` / `priceBasis pending` (BG-1), y añade
+el caso sin tope (bounty 250 < mercado 300, curva en el bin ⇒ paga 250 `bounty`, exención vigente). BC-1…BC-12 y
+la tabla de 12 casos de `isBountyEffective` **no se editaron**.
+
+**Escala en integración (desviación declarada):** bounty retenido **150000** (contrato: 900000) y mercado de BG-8
+**200000** (contrato: 1000000). Con MX$9,000 la solicitud de BG-8 y la oferta de BG-7 chocan con el tope AML por
+solicitud del seed (MX$3,000); y con bounty 150000 un mercado de 1000000 haría que la curva pagara más que el
+bounty (rebasado ⇒ `market`). Se conserva lo que se prueba: bounty > mercado roto (topa), curva en el bin, rareza
+premium; y en BG-8 curva < bounty < mercado (efectivo, sin tope). Las precondiciones se afirman contra la curva
+VIVA (`GET /admin/pricing/curve`).
+
+**INE en la integración:** una línea `precio_pendiente` exige INE en el intake (Fase 0.3, ya existente), así que
+el spec pone INE en archivo al vendedor y lo restaura en `afterAll`. Ver 0.57.4 (3).
+
+### 0.57.3 — Mediciones (autor: backend; 2026-09-29)
+
+- **Rojo contra `5776f74`** (copia del árbol entero `git archive 5776f74` + los specs nuevos; Postgres propio):
+  - Unidad (ts-jest sin diagnóstico para que los símbolos nuevos lleguen `undefined` y no tumben el fichero):
+    rojos **por conducta** BG-1 seam (`cotizada` en vez de `precio_pendiente`), BG-6 consola, BG-6 vitrina (×2)
+    y E4 invertida. BG-3/BG-4 salen rojos solo porque su precondición llama a `quoteAcquisitionWithGuard`
+    (inexistente): **ese rojo es vacuo** y no lo cuento.
+  - Integración: **7/8 rojos por conducta** (quote, batch, vitrina publica 100, solicitud `cotizada`, consola,
+    oferta sale con derivado 100, BG-8 sin entrada que cerrar); verde solo la precondición de la curva.
+  - **BG-2, BG-3, BG-4, BG-5 son verdes contra `5776f74` por diseño**: prueban que NO se retiene de más, y
+    `5776f74` nunca retiene. Su mordida es la de las mutaciones de abajo, no la del rojo previo.
+- **Mutaciones** (copia del árbol entero con este cambio; deterministas, N=1 cada una; línea base de la copia
+  45/45 unidad y 8/8 integración):
+
+| Mutación | Resultado |
+|---|---|
+| `decideBuyLine` con `quote.basis` (conducta `c77ebc8`) | muerta: BG-1, E4 |
+| retener bounty topado con curva `floor` sin `premiumFloorGuard` | muerta: BG-2 |
+| `guardBasis = basis de la curva` en todo el peldaño 1 | muerta: BG-3 (×2), BG-5 (×2), E4 (×2) |
+| `<=` en `bountyGuardBasis` | muerta: BG-3 empate y 8 más |
+| retener todo bounty topado premium sin mirar la curva | muerta: BG-4, vitrina, pura |
+| `bountyGuardBasis` sin H-1 (`mercado != null && mercado < bounty`) | muerta: BG-5 mercado 0, pura |
+| **`curveBasis` = `'floor'` cuando la curva es `pending` (la del contrato para BG-5)** | **sobrevive — mutante equivalente**, ver 0.57.4 (2) |
+| vitrina sin el filtro | muerta: BG-6 vitrina (unidad ×2, integración) |
+| consola con `buy.basis` | muerta: BG-6 consola (unidad, integración) |
+| `createRequest` sin escalar | muerta: BG-6 solicitud, BG-8 |
+| oferta derivada sin guardarraíl (`quote.priceCents`) | muerta: BG-7 |
+| la retención no se cierra (solo se escribe con razón) | muerta: BG-8 |
+
+- **Suites (árbol vivo):** unidad completa **359/359 suites, 5923/5923**; integración buylist/pricing (14 suites:
+  `bounty-cap`, `bounty-guard`, `buylist*`, `admin-bounties`, `pricing-*`, `pending-publish-seed`) **226/226**;
+  `tsc --noEmit` limpio; `eslint` de los ficheros tocados limpio.
+
+### 0.57.4 — ⚠️ Para el arquitecto (no cambié el contrato)
+
+1. **`guardBasis` no puede ser un campo del resultado de `quoteAcquisitionFromCurve` sin editar BC-5.** El contrato
+   pide ambas cosas: «el resultado gana un campo INTERNO `guardBasis`» y «BC-1…BC-12 siguen verdes **sin
+   editarse**». BC-5 (`test/money.bounty-cap.spec.ts`) afirma con `toEqual` la forma exacta
+   `{priceCents, basis, marketMxnCents, curveQuoteCents}` en sus 9 filas (y E2 de `money.pricing-curve.spec.ts`,
+   dos casos, igual). Un campo nuevo las pone rojas. Implementé la función hermana `quoteAcquisitionWithGuard`
+   (misma precedencia, un solo cuerpo; solo añade el basis del guardarraíl) y un candado que impide llamar a
+   `quoteAcquisitionFromCurve` **con controles** fuera de `money.ts`. BG-1 afirma su precondición sobre la
+   hermana. Si el arquitecto prefiere el campo, hay que autorizar a editar la forma de BC-5/E2.
+2. **La mutación que el contrato asigna a BG-5 es equivalente.** «`curveBasis` por defecto `'floor'` cuando la
+   curva es `pending`» no puede cambiar ninguna salida: la curva de compra es `pending` **solo** sin mercado
+   presente (`explainBuyFromCurve`, `mercado == null || <= 0`), y sin mercado presente `bountyPayoutCents`
+   devuelve el bounty ⇒ `bountyGuardBasis` responde `'bounty'` sin leer `curveBasis`. Medido: sobrevive. BG-5 sí
+   mata la mutación vecina que no es equivalente (quitar H-1 de `bountyGuardBasis`).
+3. **Consecuencia no nombrada (no es contradicción):** una solicitud con una línea retenida **exige INE**, porque
+   el intake exige INE ante cualquier línea `precio_pendiente` (Fase 0.3). El punto 8 dice «idéntico a una chase
+   sin bounty con la curva en el bin», y así es — pero para el vendedor significa que una chase con bounty y
+   mercado roto le pide INE aunque el monto fuera pequeño. Lo dejo dicho por si el dueño lo pregunta.
+
+## 0.56 — ⭐⭐ **v1.80 §M4-VAULT.2-bis.2: `SEC-SETTLE-LATE` — el pago solo se liquida desde `pending` o `failed`** (2026-09-28)
+
+> Contrato v1.80 §M4-VAULT.2-bis.2 · ARCHITECTURE §4.21q (p). Zona de dinero (`payments`). Sin schema, sin
+> migración, sin endpoint, sin código de error.
+
+### 0.56.1 — La forma del cambio
+
+- **Una constante, un predicado:** `SETTLEABLE_ORDER_STATUSES = ['pending','failed'] as const satisfies
+  readonly OrderStatus[]` en `backend/src/modules/payments/settleable-order-statuses.ts`, con
+  `isSettleableOrderStatus(status)` (la única forma de preguntarlo). La leen **tres** sitios y ningún otro: el
+  early-return de `onPaymentSucceeded` (negado) y el CAS `tx.order.updateMany({ where: { id, status: { in:
+  [...SETTLEABLE_ORDER_STATUSES] } } })` en las ramas `vault` y `settleDirectShipOrder`.
+- **El early-return va antes de H1** (un tardío no es un descuadre: ⛔ no audita `order.settle_amount_mismatch`)
+  y antes del reparto por `fulfillmentMode` (⛔ no llama a `getCardDetails`).
+- **La única huella del tardío** es `logger.warn('SEC-SETTLE-LATE: payment_intent.succeeded ignorado — orden
+  <orderNumber ?? id> en <status> (PI <pi>)')`, **solo** en `refunded`/`chargeback`; `settled` sale en silencio.
+  El perdedor del CAS no loguea nada (no sabe contra quién perdió). Marcador `ProcessedStripeEvent`: queda.
+- ⛔ No se tocó: `onChargeDispute*`, `onChargeDisputeClosed`, `failAndRelease`, `createMany … skipDuplicates`.
+
+### 0.56.2 — Medido ANTES del arreglo (sobre `cb4ee3e`, Postgres real, webhook firmado, N=1 por caso)
+
+El contrato marcaba ⛔ NO MEDIDO si salía `AV-2` por el camino tardío. **Sale**, y hay algo peor en `direct_ship`:
+
+| Caso (tardío = `succeeded` con otro event.id) | Antes de v1.80 |
+|---|---|
+| `vault` settled → contracargo → tardío | orden vuelve a `settled`, **`AV-2` enviado** |
+| `vault` settled → reembolso total → tardío | `settled`, **`AV-2` enviado** |
+| `direct_ship` (reg./inv.) settled → contracargo → tardío | `settled` + **`ShipmentRequest` NUEVO en `picking`** (el contracargo había cancelado el anterior) + confirmación de invitado / `AV-2` |
+| `direct_ship` (reg./inv.) `pending` → contracargo → tardío | lo anterior **y** la pieza que el contracargo había devuelto a `listed` se **re-congela en `picking`** (rama «recuperada» del settle) |
+
+Es decir: con Stripe entregando fuera de orden, una carta contracargada volvía a la cola de envío. Desde v1.80
+los cuatro casos son no-op (SL-1…SL-3, abajo).
+
+### 0.56.3 — Pruebas (primero en rojo, luego verdes)
+
+| Prueba | Fichero | Rojo sobre `cb4ee3e` | Verde |
+|---|---|---|---|
+| **38 (iii) enmendada** (`where` exacto `{ id, status: { in: ['pending','failed'] } }`, literal) | `test/payments.settle-cas.spec.ts` | 3/3 ramas | ✓ |
+| 38 (iii) literal en las otras tres specs que la afirmaban | `test/payments.service.spec.ts`, `test/payments.vault-placement-birth.spec.ts`, `src/modules/payments/h1-settle-amount.spec.ts` | — (cambio de literal) | ✓ |
+| **38 (ii) intacta** + control positivo `failed` en el fichero nuevo | `test/integration/vault-placement-birth.e2e-spec.ts`, `test/integration/settle-late.e2e-spec.ts` | verde (conducta que se conserva) | ✓ |
+| **SL-5** tabla de 5 estados × 3 ramas (unidad) + warn con id si no hay `orderNumber` + tardío antes de H1 | `test/payments.settle-late.spec.ts` | 18 rojas (las 21 de la corrida incluyen las 3 de 38 (iii)) | ✓ |
+| **SL-6** canario de lista cerrada (una fila por valor de `Object.values(OrderStatus)`) | ídem | — (nace con la constante) | ✓ |
+| **SL-1** `vault` contracargo → tardío (`settledAt` al ms, colocación igual) | `test/integration/settle-late.e2e-spec.ts` | rojo | ✓ |
+| **SL-2** `refunded` → tardío, 3 variantes | ídem | 3 rojas | ✓ |
+| **SL-3** `direct_ship` en `chargeback`, 4 variantes (reg./inv. × tras liquidar / sin liquidar) | ídem | 4 rojas | ✓ |
+| **SL-4** carrera con barrera de fila, N=10 por rama (`vault`, `direct_ship` reg., `direct_ship` inv.) | ídem | 0/10 verdes en cada rama | ✓ |
+| **SL-7** `dispute.closed(won)` conserva `settledAt`; luego tardío ⇒ no-op sin warn | ídem | verde (regresión) | ✓ |
+
+**«Cero escrituras» se mide con `xmin`:** la foto de SL-1…SL-3 incluye `xmin` de `Order`, `InventoryItem`,
+`VaultPlacement(Item)` y `ShipmentRequest`; cualquier `UPDATE` —aunque reescriba el mismo valor— lo cambia. Así
+«la tarjeta no se reescribió» no depende de que el doble de Stripe devuelva otra tarjeta.
+**`AV-2`:** el arnés no trae bandeja propia; la spec espía `mail.send`, `guestMail.sendConfirmation` y
+`logger.warn` **de la instancia viva** de `PaymentsService` (`h.app.get(PaymentsService)`), y
+`h.stripe.getCardDetails`. SL-1 lo mide directamente (no depende de SL-5).
+
+**SL-4, el arnés:** la barrera abre una tx, `SELECT … FOR UPDATE` + `UPDATE "Order" SET status='chargeback'`
+sin confirmar; se lanza el `succeeded` y se espera a verlo en `pg_stat_activity` con `wait_event_type='Lock'` y
+`query ILIKE '%UPDATE%"Order"%'`; se confirma la barrera. **Canario:** una tirada en la que el webhook respondió
+sin haberse visto esperando la fila cuenta como `INVALIDA` (⛔ no como verde) y la prueba exige 10/10 válidas.
+
+### 0.56.4 — Mediciones (autor: backend; sobre copia del árbol ENTERO `git archive HEAD` + mis ficheros)
+
+- **SL-4 verde:** 5 corridas × N=10 ⇒ **50/50 válidas y 50/50 verdes en cada una de las tres ramas**, 0 inválidas.
+- **Mutaciones** (cada una sobre la copia, suites de unidad de payments + `settle-late` + `vault-placement-birth`):
+
+| Mutación | Qué se pone rojo |
+|---|---|
+| M1 CAS **y** early-return a `not: 'settled'` (lo de v1.79.4) | SL-1, SL-2 ×3, SL-3 ×4, SL-4 ×3 (**0/10 verdes por rama, 2 corridas ⇒ 20/20 rojas**), residual ×2; unidad 25 |
+| M2 añadir `'refunded'` a la constante | SL-2 ×3, residual ×2; SL-5/SL-6/38 (iii) en unidad (17) |
+| M3 arreglar solo `vault` (early-return no aplica a `direct_ship` + CAS `direct_ship` viejo) | SL-2 direct_ship ×2, SL-3 ×4, SL-4 direct_ship ×2 (0/10 c/u) |
+| M4 early-return con la lista nueva, **CAS con `not: 'settled'`** en las dos ramas | en integración **solo SL-4** ×3 (**0/10 válidas-verdes por rama, 2 corridas ⇒ 20/20 rojas**); en unidad 38 (iii) + SL-5 (13) |
+| M5a quitar `'failed'` | 38 (ii) ×2 (integración), SL-5, SL-6, 38 (iii) (14) |
+| M5b añadir `'chargeback'` | SL-1, SL-3 ×4, SL-4 ×3, SL-5, SL-6 (23 en unidad) |
+| M5c early-return con lista propia `['pending','failed','refunded']` (CAS intacto) | SL-5 `refunded` ×3; SL-2 ×3 y residual ×2 (por el `warn`) |
+| M5d early-return con lista propia `['pending']` | SL-5 `failed` ×3; 38 (ii) ×2 |
+| M6 añadir `disputed` al enum `OrderStatus` + `prisma generate` | SL-6 ×2 |
+| M7 `onChargeDisputeClosed(won)` con `settledAt: new Date()` | SL-7 |
+| MCAN (canario) early-return que sale siempre | SL-4 ×3: **10/10 `INVALIDA`** por rama ⇒ rojo por el canario (sin él habría sido verde falso) |
+
+### 0.56.5 — ⭐ Residual declarado: el barrido de reservas y una orden `refunded` sin liquidar (MEDIDO)
+
+**Predicado leído** (`OrdersService.sweepExpiredReservations`, `orders.service.ts:1069`): selecciona piezas
+`status='reserved' ∧ reservedByOrderId ≠ null ∧ reservedUntil < now` **sin mirar el estado de la orden**; por
+orden, B3: `closePaymentIntent` y solo si queda `canceled` libera (`reservationGuard(orden)` ⇒ `listed`); la orden
+solo pasa a `failed` si seguía `pending`.
+
+**Medido** (Postgres real, `settle-late.e2e-spec.ts` «RESIDUAL», N=1 por variante): orden `vault` `pending` con 2
+piezas `reserved` vencidas ⇒ `charge.refunded` total (reembolso desde el panel, sin liquidar) ⇒ `refunded` ⇒
+tardío no-op ⇒ barrido:
+- **Con el doble en modo Stripe real** (`cancelOutcome='throws-succeeded'`: un PI reembolsado está `succeeded` y
+  cancelarlo lanza): **NO las suelta**, dos pasadas seguidas. Quedan `reserved` por una orden `refunded` para
+  siempre, y el barrido lo reintenta y loguea `error` en **cada** pasada (cada 15 min).
+- Contraste con el doble que sí cancela (irreal para un PI reembolsado): las soltaría a `listed`; la orden sigue
+  `refunded`.
+
+⇒ **Las piezas no se sueltan.** El contrato dice que en ese caso «se registra en `TECH_DEBT.md` con disparador
+"primer reembolso fuera de la app"»; mi encargo me limitó a `payments/`, sus pruebas y estas notas, así que **no
+lo escribí** — queda para el orquestador (propuesta de texto en el informe). Cuidado al arreglarlo: soltar una
+pieza de una orden reembolsada es devolver a la venta una carta cuyo cliente puede tenerla ya (depende de por
+qué se reembolsó); no es «liberar y ya».
+
+### 0.56.6 — Para QA / seguridad
+
+- Re-medir la sonda S4 de seguridad (N≥10) sobre este sha: `chargeback` + `succeeded` con importe correcto ⇒
+  `200`, sigue `chargeback`, `settledAt` sin reescribir, `logger.warn SEC-SETTLE-LATE` en el log.
+- Frontend: nada.
+
+## 0.55 — ⭐⭐ **v1.80 §M2-B.11: TOPE DE PAGO DEL BOUNTY — se paga `min(bounty, mercado)`** (2026-09-28)
+
+> Contrato v1.80 §M2-B.11 · ARCHITECTURE §4.36.6e · `HECHOS.md` (dos filas del 2026-09-28): «el bounty nunca
+> paga más que el precio de mercado»; sin mercado ⇒ bounty completo; carta barata ⇒ se paga el mercado aunque la
+> tarifa normal pague más (sin piso). Zona de dinero.
+
+### 0.55.1 — La forma del cambio
+
+- **`bountyPayoutCents(bounty, mercado)`** (`backend/src/common/money.ts`, junto a `quoteAcquisitionFromCurve`):
+  `isPresentAmount(mercado) ? Math.min(bounty, mercado) : bounty`. Enteros, sin redondeo. Un mercado `<= 0` es
+  ausente (H-1) ⇒ se paga el bounty, jamás MX$0.
+- **Peldaño 1 de `quoteAcquisitionFromCurve`**: único cambio, `priceCents = clampCents(bountyPayoutCents(...))`.
+  `basis` sigue `bounty`; `marketMxnCents` y `curveQuoteCents` sin cambio. De ahí salen cotización, lote,
+  `createRequest` (congela `quotedPriceCents`) y la **oferta derivada** (`offerDerivedPriceCents`, con el mercado
+  del momento de ofertar).
+- **Override** (`buyOverrideCents`, peldaño 2) y override del operador al ofertar: **no se topan**.
+- `isBountyEffective`, `422 BOUNTY_BELOW_RULE`, `state` de la consola: **intactos** (la tabla de 12 casos de
+  `src/common/pricing-curve.spec.ts` no se editó — canario BC-7).
+- **Vitrina** (`publicBounties`): seleccionar → mercado en lote → filtrar no efectivos → **calcular el pago** →
+  ordenar por el pago desc (desempate: el orden del query, `updatedAt` desc; `sort` es estable) → top 50.
+  `bountyPriceCents` publicado = lo que se paga. Misma forma; ningún campo delata el tope.
+- **`VariantPricingDTO.bounty`** gana `payoutCents: number | null` (`bountyPayoutCents` si `effective`, si no
+  `null`) y `cappedByMarket: boolean` (`payoutCents < priceCents`; empate ⇒ `false`). `priceCents` sigue siendo
+  lo configurado. Para toda fila efectiva `payoutCents === buy.effectiveCents`.
+- **Consola** (`admin-bounties.service.ts`): `price_desc` y el orden dentro de grupo de `attention_first` usan
+  `payoutCents ?? bountyPriceCents`.
+- **No retroactivo**: sin migración ni backfill; lo congelado (`quotedPriceCents`, `offeredPriceCents`,
+  `approvedPriceCents`, `acquisitionCostCents`) no se toca.
+- Docblock de `money.ts` corregido (decía «el bounty NUNCA se compara contra el mercado»).
+
+### 0.55.2 — Pruebas
+
+| Prueba | Dónde |
+|---|---|
+| BC-1..BC-6, BC-9 (candado de forma: único `Math.min` sobre bounty en `src/`, comentarios blanqueados, con canario) | `backend/test/money.bounty-cap.spec.ts` |
+| composer / vitrina / consola sin infra (BC-8 y BC-10 en unidad) | `backend/test/pricing.bounty-cap.spec.ts` |
+| BC-8, BC-10, BC-11, BC-12 (Postgres real, por HTTP) | `backend/test/integration/bounty-cap.e2e-spec.ts` |
+
+Montos de la integración **×100** respecto al contrato (MX$1,200 / MX$1,000): con MX$12 la solicitud no pasa el
+mínimo de MX$500 ni el neto mínimo de oferta. BC-10 usa para B mercado 400000 en vez de 10000×100: con la curva
+del seed (50 % en el tramo alto) el B del contrato **no es efectivo**; el B elegido conserva la propiedad que la
+prueba necesita (configurado menor que A, pago mayor).
+
+**Pruebas existentes que cambiaron de expectativa** (afirmaban la conducta anterior, bounty > mercado pagaba el
+bounty): `pricing.bounty-market-floor.spec.ts` (650 y 701 sobre mercado 500 ⇒ pagan 500),
+`buylist.bounty-revalidation.spec.ts` (3 casos: mercado $10 < bounty $50 ⇒ paga $10),
+`pricing.variant-controls.spec.ts` (DTO con los dos campos nuevos), `pricing.premium-floor-guard.spec.ts` (ver
+0.55.3), `buylist.variant-overrides.spec.ts` (el caso de tope por solicitud necesitaba mercado > bounty para que
+el bounty se pague entero).
+
+Mutaciones (sobre copia del árbol entero; todas deterministas): 16 unitarias y 6 de integración, **todas
+muertas** — incluidas `Math.max`, `market != null` en vez de `isPresentAmount`, topar contra la curva, topar solo
+si curva < mercado, `basis: 'market'` al topar, topar el override, vitrina publicando/ordenando por lo
+configurado, `Math.min` a mano en la vitrina, consola ordenando por lo configurado, y reescribir
+`quotedPriceCents` al ofertar.
+
+### 0.55.3 — ⚠️ Para el arquitecto: una consecuencia que el contrato no nombra
+
+> ⛔ **Superada por §0.57 (v1.80.2, 2026-09-29):** el arquitecto normó esta esquina (bounty topado + curva en el
+> bin + premium ⇒ `precio_pendiente`) y la expectativa «MX$1» se invirtió. Lo de abajo queda como historia.
+
+**Guardarraíl premium + bounty.** El guardarraíl (§4.36.5) no dispara con basis `bounty`, y el contrato no lo
+cambia. Pero ahora el **monto** sale del mercado: una chase con un mercado corrupto de MX$1 (justo el dato que
+el guardarraíl existe para no creer) y un bounty de MX$9,000 **cotiza y publica MX$1** en vez de MX$9,000
+(antes) o `pendiente`. Lo implementé literal (mercado presente ⇔ `> 0`) y lo dejé fijado en
+`pricing.premium-floor-guard.spec.ts`. Si el arquitecto quiere otra cosa (p. ej. no topar cuando el
+guardarraíl dispararía sobre la curva), es una decisión de contrato, no mía.
+
+### 0.55.4 — Para frontend
+
+`VariantPricingDTO.bounty.payoutCents` / `cappedByMarket` son aditivos. La vitrina no cambia de forma. La marca
+visual del tope en la consola es de ux-ui.
+
 ## 0.54 — ⭐⭐ **P-53 ALTO-4: F4/F5 dejan de capar la ventana por `capturedDate` crudo (frescura efectiva en TODA ruta de dinero)** (2026-09-18)
 
 > Propiedad: **backend**. Cierra los dos últimos lectores de dinero que el barrido del arquitecto
@@ -24228,3 +24665,1616 @@ mueren; detalle en el informe del commit.
 - **TD-b** (`docs/TECH_DEBT.md` › «DP-D1»): las invariantes de las 4 columnas `cover*` (todo-null / `cardId` sólo si
   `matched`) viven en el código, sin `CHECK` en BD. Se paga si aparece un segundo escritor.
 
+
+# Hotfix — los CTA de los correos al cliente llevaban a rutas inexistentes (404) (2026-09-29)
+
+**Defecto medido:** los avisos §R al cliente usaban `appUrl('cuenta/pedidos'|'boveda/envios'|'cuenta/identidad'|'cuenta/aclaraciones')`.
+Ninguna de esas carpetas existe en `frontend/src/app/[locale]/` ⇒ el botón del correo daba 404 a clientes reales.
+
+| Aviso | Antes | Ahora (ruta real del storefront) |
+|---|---|---|
+| AV-2 pedido liquidado (`orders/mail/order-notice.templates.ts`) | `cuenta/pedidos` | `orders/<Order.id>` |
+| AV-3 reembolso | `cuenta/pedidos` | `orders/<Order.id>` si es registrado; **invitado ⇒ sin CTA** (el detalle exige sesión) |
+| AV-4/5/6 envío de un **pedido** (`shipments/mail/shipment-notice.templates.ts`) | `cuenta/pedidos` | `orders/<Order.id>` si es registrado; **invitado ⇒ sin CTA** |
+| AV-4/5/6 retiro de **bóveda** | `boveda/envios` | `shipments/<ShipmentRequest.id>` |
+| AV-1 rechazo de identidad (`admin/mail/kyc-notice.templates.ts`) | `cuenta/identidad` | `account` (ahí vive `KycSection`) |
+| AV-10/11 disputas (`disputes/mail/dispute-notice.templates.ts`) | `cuenta/aclaraciones` | `vault` (las aclaraciones se listan en `WithdrawalsList`) |
+
+- Parámetros nuevos: `OrderSettledParams.orderId: string`, `OrderRefundedParams.orderId: string | null`,
+  `ShipmentNoticeParams.orderId?: string | null` (lo resuelve `ShipmentsService.resolveRecipient`: solo para el titular
+  registrado del pedido). El envío de un pedido va al detalle del **pedido**, no al del envío: `GET /shipments/:id`
+  compara `shipment.userId`, que en un envío de pedido es `null`.
+- Los demás enlaces al front ya eran correctos y ahora quedan bajo el mismo candado: `pedido?token=` (invitado),
+  `verify-email`, `reset-password`, `buylist/requests/<id>`.
+- **Candado:** `backend/test/mail-links.frontend-routes.spec.ts` lee el árbol de páginas del front (grupos `(x)` fuera,
+  `[param]` = segmento dinámico) y (1) renderiza cada aviso (exhaustivo sobre los exports `*Template`) exigiendo que todo
+  enlace exista, y (2) barre `backend/src` buscando `appUrl('…')`, `${origin}/${locale}/…` y `buildFrontendLink(…, '…')`.
+  ⚠️ Lee `../frontend`: corre sobre el árbol ENTERO (O-9). Mutaciones (N=1 cada una, deterministas): volver a
+  `boveda/envios` ⇒ 7 rojas; `cuenta/pedidos` ⇒ 5; `cuenta/identidad` ⇒ 4; `pedido` → `seguimiento` en el correo de
+  invitado ⇒ 1 (barrido estático); quitar `(storefront)/vault` del front ⇒ 5. Base: 28/28.
+- **Consecuencia para frontend:** renombrar/mover `orders/[orderId]`, `shipments/[id]`, `account`, `vault`, `pedido`,
+  `verify-email`, `reset-password` o `buylist/requests/[id]` pone rojo este test del backend. Es a propósito.
+- ⭐ 2026-09-29 — **cableado con candado (QA IMPORTANTE 2):** las cuatro mutaciones que sobrevivían (B2 invitado con CTA en
+  el reembolso, B3 invitado con CTA en el envío, B4 AV-2 sin `Order.id`, B5 registrado sin CTA en el envío) mueren en
+  los bloques «CTA —» de `test/avisos.orders.spec.ts` y `test/avisos.shipments.spec.ts` (fijan `APP_PUBLIC_URL`: sin
+  origen no hay CTA para nadie y «sin enlace» no probaría nada). N=1 cada una, deterministas; base 40/40.
+  *Medido:* hoy el único creador de `direct_ship` es `guest-checkout` (`userId=null` + `guestEmail`) ⇒ la rama
+  «registrado» de `resolveRecipient` (B5) **no es alcanzable** en producción todavía; el candado la protege para cuando
+  lo sea. Deuda: `TECH_DEBT.md` MAIL-URL1 / MAIL-CTA2 / MAIL-NOTE8.
+
+## M1 · guardas de `move` y `mark` (2026-09-29, rama `claude/arreglos-operador`)
+
+> Medido por techlead y QA: `POST /admin/inventory/items/:id/move` y `…/mark` no miraban estado ni zona. El API
+> aceptaba mover la carta **de un cliente en un retiro cobrado** al estante de tienda y marcar perdida una pieza en
+> `picking` de un pedido cobrado. Reglas en `modules/inventory/item-location.rules.ts` (un cuerpo por regla).
+
+| Pieza | `move` admite | Destino | `mark` admite |
+|---|---|---|---|
+| plataforma | `in_stock · listed · reserved · picking` | solo `platform_stock` | `in_stock · listed` (= ajuste del binder) |
+| cliente | `in_custody` + `settled`, **fuera** de retiro `picking/guia/enviado` | solo un cajón que **ya es suyo** (`customerDrawersOf`) | ~~igual que `move` (§0: «`mark` + reposición para custodia»)~~ ⛔ **retirado el 2026-09-29 (D-SHIP-5, sección siguiente): ninguna pieza de cliente** |
+| terminal / otro | ⛔ | — | ⛔ |
+
+**Errores (todos existentes en el catálogo):**
+- estado no admitido ⇒ `422 ITEM_NOT_ADJUSTABLE` `details:{ status, ownerType }`;
+- pieza de cliente en retiro cobrado ⇒ `409 ITEM_IN_ANOTHER_SHIPMENT` (desde D-SHIP-5, **solo `move`**: `mark` ya no
+  llega a mirar el retiro porque rechaza toda pieza de cliente antes);
+- destino ⇒ `422 LOCATION_NOT_AVAILABLE` `details.reason`: `not_found` · `inactive` · `not_customer_custody` ·
+  `not_customer_drawer` (+ `customerDrawers`, misma forma que el `confirm`) · `not_platform_stock` (`reason` nuevo:
+  **escrito en el contrato por el arquitecto en v1.79.6 §M1, `dde785b`**, junto con el campo `location`, el `201` y la
+  decisión de que `toLocationId` sigue `@IsString()` — un id malformado es `422 not_found`, no `400`). Antes, un destino
+  inexistente daba `500` (FK);
+- la pieza cambió entre la lectura y la escritura ⇒ `409 CONFLICT` (update condicionado a estado+dueño leídos).
+
+**Decisión leyendo el contrato:** la pieza de cliente **no** puede ir a un cajón vacío/ajeno: §M4-VAULT.4 regla 4 dice
+que el `move` existe para **consolidar** cajones del mismo cliente; la **primera** colocación es del `confirm` (que
+toma la puerta del cliente). El `move` de cliente ahora toma **la misma puerta** (`lockCustomerVaultGate`).
+
+**Transacción:** lectura, guardas, `update` y `InventoryMovement` en **una** `$transaction` (antes, dos sentencias
+sueltas). `tryAutoPublish` sigue **después** del commit, best-effort, como antes.
+
+**Para frontend:** la respuesta del `move` añade `location: { id, label, zone } | null` (aditivo; el resto de la fila
+no cambia).
+
+**Pruebas:** `test/inventory.move-mark-guards.spec.ts` (41; 32 rojas contra el código anterior, las 9 verdes son los
+casos permitidos), `test/integration/inventory-move-mark-guards.e2e-spec.ts` (8; 8/8 rojas contra el backend de `6695e9e`, 8/8
+verdes contra Postgres 16). Suites (medido 2026-09-29 sobre `6c90907`): unitaria 354/354 suites, 5883/5883; integración
+completa contra un Postgres propio 52/52 suites, 1143 verdes + 2 `skip` ya existentes; `tsc` limpio; eslint 0 errores. Mutaciones (copia del árbol sin `frontend/`, N=1 cada una, deterministas): 15/15 muertas —
+sin guarda de estado, sin chequeo de retiro (move y mark), sin zona de plataforma, sin zona de custodia, sin cajón
+propio, `mark` admitiendo `picking`, update sin condición de estado, sin puerta, destino inactivo, sin `location`,
+cliente `pending` admitido, movimiento fuera de la transacción, `P2025` sin mapear, y la de custodia de
+`inventory.pending-publish.spec.ts` (el intento de publicar no tumba el `move`), cuyo fixture pasó a un cajón del
+mismo cliente.
+
+## M1 · D-SHIP-5 y D-SHIP-6: `mark` solo plataforma; el `status` del `PATCH` gana la misma guarda (2026-09-29, rama `claude/arreglos-operador`, sobre `4ca6c45` + contrato `dde785b` v1.79.6)
+
+> **Fuente normativa:** diseño §M4-SHIP v1.80.3, **§M4-SHIP.17.1 (SEC-SHIP-A1)** puntos (1) y (2) —leído en el worktree
+> `claude/envio-preparar` (`/home/user/tcg-envio/docs/API_CONTRACT.md`, solo lectura)— que el orquestador etiquetó
+> **D-SHIP-5** y **D-SHIP-6**. Cita textual de (1): *«`mark` — solo plataforma `in_stock | listed`, guarda en el `WHERE`
+> del CAS; todo lo demás ⇒ `422 ITEM_NOT_ADJUSTABLE {status, ownerType}`. ⚠️ Divergencia deliberada con
+> `claude/arreglos-operador`: esa rama dejó `mark` permitido sobre una pieza de cliente `in_custody` fuera de un retiro
+> […] marcar `lost` la carta de un cliente fuera de un caso es exactamente el vector (3) — la pieza deja de ser retirable
+> y ningún lector de deuda (`ReplacementCase`) la ve. ⇒ Backend: en `assertOperable(item, 'mark')` la rama `customer`
+> lanza `ITEM_NOT_ADJUSTABLE` (y sobra `assertNotInActiveWithdrawal` en `markItem`)»*. Cita de (2): *«`PATCH …
+> {status:'in_stock'}` — solo plataforma `in_stock | listed`: lectura → guarda (`422 ITEM_NOT_ADJUSTABLE`) → escritura
+> condicionada `updateMany({ where: { id, ownerType:'platform', status: <leído> }, data })` (`count 0` ⇒ `409 CONFLICT`);
+> los demás campos del mismo `PATCH` en la misma transacción (todo o nada). `status:'listed'` sigue por el pipeline de
+> v1.51 (ya guardado). ⛔ Sin `InventoryMovement` para `listed ↔ in_stock`»*. Invariante **INV-SP-7**: `lost | damaged`
+> no vuelve a `in_stock | listed` por ningún verbo del operador.
+
+**Qué cambió (un cuerpo, `modules/inventory/item-location.rules.ts`; el servicio solo lo aplica):**
+
+| Verbo | Admite | Si no |
+|---|---|---|
+| `mark` | **solo plataforma `in_stock · listed`** | `422 ITEM_NOT_ADJUSTABLE {status, ownerType}` — **incluida toda pieza de cliente**, en retiro o no |
+| `PATCH {status:'in_stock'}` (verbo `status` de las reglas) | **solo plataforma `in_stock · listed`**; `listed → in_stock` despublica; `in_stock → in_stock` **no escribe `status`** | `422 ITEM_NOT_ADJUSTABLE {status, ownerType}`; pieza cambiada entre lectura y escritura ⇒ `409 CONFLICT` |
+| `PATCH {status:'listed'}` | sin cambio: pipeline v1.51 (`assertPublishableGuards` + `claimListed`) | `422 ITEM_NOT_PUBLISHABLE` / `PRICE_PENDING` (sin cambio) |
+| `PATCH` sin `status` | sin cambio: edición de campos con `update` plano | — |
+| `move` | **sin cambio** (§M4-SHIP.17.1 (3)) | — |
+
+- `assertOperable(item, verb)` gana el verbo `'status'` y **overloads**: `'mark' | 'status'` devuelven siempre
+  `'platform'`; la rama de cliente (`isCustomerCustody`) solo existe para `'move'`. `MARKABLE_PLATFORM_STATUSES` es el
+  allowlist de los dos.
+- `markItem`: se quitó `if (kind === 'customer') await this.assertNotInActiveWithdrawal(tx, id)`. **Consecuencia:**
+  `409 ITEM_IN_ANOTHER_SHIPMENT` ya solo lo emite `move` (una pieza de cliente en `mark` cae en `422` antes de mirar
+  retiros; sin lectura de `ShipmentItem` ni puerta del cliente — medido por el spec con `not.toHaveBeenCalled`).
+- `updateItem` (camino no publicante **con** `status`): `$transaction` (`VAULT_VERB_TX_OPTIONS`) → `readGuardedItem` →
+  `assertOperable(item,'status')` → `guardedItemUpdate` (el **mismo** `update` condicionado a `{id, status, ownerType,
+  ownerUserId}` leídos que usan `move`/`mark`; `P2025` ⇒ `409 CONFLICT`). Los demás campos del `PATCH` van en **esa**
+  escritura: si la guarda rechaza, tampoco se escriben (medido contra Postgres: `certNumber` queda `null`). El contrato
+  pide `updateMany` con `ownerType:'platform'`; `update` con filtro no único es la misma condición (y ya está probado
+  contra el motor por `move`/`mark`); no se duplicó la escritura.
+- ⛔ **Sin `InventoryMovement`** para `listed ↔ in_stock` (visibilidad de catálogo, no hecho físico; ARCHITECTURE
+  §4.57 (o) del diseño v1.80.3).
+- **No construido aquí (fuera del encargo, para el stream de envíos que construya §M1 v1.80.3):** la bitácora
+  `inventory.item_updated` con `before`/`after` (el controller sigue escribiendo `inventory.update` sin diff).
+
+**Discrepancias para el arquitecto (este árbol):** el contrato de esta rama (`dde785b`, v1.79.6 §M1, tabla 1 fila
+`customer`/`mark` y tabla 2 paso 3 de `mark`) todavía dice que `mark` admite la custodia liquidada fuera de retiro y
+que en retiro cobrado da `409`. Ese texto **documentaba lo construido en `6e3b1b7`** y queda superado por D-SHIP-5
+(v1.80.3 lo corrige en el otro worktree): hay que alinear §M1 aquí (`mark` ⇒ solo plataforma; `409` solo en `move`) y
+añadir la fila del `PATCH status:'in_stock'` (D-SHIP-6). El código sigue al diseño v1.80.3 por orden del orquestador
+(regla de conflicto: PROJECT/diseño aprobado por seguridad manda sobre la errata que solo transcribía el código).
+
+**Pruebas (rojo antes → verde después, mismo árbol, N=1 cada corrida, deterministas):**
+- `test/inventory.move-mark-guards.spec.ts`: 2 casos cambian de signo + 1 nuevo (D-SHIP-5) — **3/3 rojas** contra
+  `4ca6c45`, 42/42 verdes después.
+- `test/inventory.patch-status-guard.spec.ts` (nuevo, 21): **18/21 rojas** contra `4ca6c45` (las 3 verdes son «lo que
+  no cambia»: sin `status`, `listed` por el pipeline, y el `404`), 21/21 después.
+- `test/integration/inventory-move-mark-guards.e2e-spec.ts`: el caso de `mark` cliente en retiro pasa de `409` a
+  `422`, +1 caso `mark` cliente fuera de retiro, +1 `describe` del `PATCH` (8 casos, incl. que un rechazo no escribe
+  `certNumber`). Contra Postgres 16 propio (`/var/lib/postgresql/be-hotfix-guards`, 55434, `migrate deploy` limpio):
+  **17/17**; con `vault-placement-verbs.e2e-spec.ts` (usa `move`): 49/49.
+- `jest test/inventory`: 29 suites, **421/421** (base 399 + 22). Suite unitaria completa: **355/355 suites,
+  5905/5905** (base 354/5883). eslint sobre
+  los 4 ficheros tocados: 0 errores (1 aviso previo en `inventory.service.ts:655`, `actorUserId` sin usar, ya en HEAD).
+  ⚠️ `tsc --noEmit` **NO MEDIDO** en esta corrida: el clasificador de permisos del entorno lo bloqueó dos veces; los
+  ficheros tocados compilan bajo `ts-jest` (diagnósticos activos) en las suites de arriba.
+- **Mutaciones** (copia del árbol en scratchpad propio sin `frontend/`, restaurada y verificada `diff -q` al final; N=1,
+  deterministas): **3/3 muertas** — (M1) rama `customer` de vuelta en `assertOperable` para `mark` ⇒ 3 rojas; (M2) sin
+  `assertOperable(item,'status')` en `updateItem` ⇒ 14/21 rojas unitarias **y 6 rojas del e2e contra Postgres**; (M3)
+  escritura del `PATCH` sin condición (`update({ where: { id } })`) ⇒ 3 rojas (CAS, `in_stock → in_stock` y TOCTOU).
+
+**Para frontend:** «Marcar perdida/dañada» **no** se ofrece sobre piezas de cliente (ningún estado) ni sobre
+plataforma fuera de `in_stock|listed`; el `PATCH` a `in_stock` desde la pantalla debe esperar `422 ITEM_NOT_ADJUSTABLE`
+y `409 CONFLICT` además de los errores de v1.51.
+# SEC-RESET-TV — el script de rescate de contraseña de staff revoca sesiones (backend · 2026-09-28)
+
+**Hallazgo de seguridad** (`docs/SECURITY_NOTES.md` › `SEC-RESET-TV`, Media): `backend/prisma/reset-admin-password.ts`
+cambiaba el hash **sin** `tokenVersion +1`; un refresh token robado seguía valiendo hasta `JWT_REFRESH_TTL` (30 d).
+
+**Arreglo:** la MISMA `user.update` escribe `passwordHash`, `tokenVersion: { increment: 1 }`, `emailVerified: true` y
+`mustChangePassword: false` (igual que `auth.service.ts:272-281` reset por correo y `:347-353` cambio de contraseña;
+el reset de admin `admin.service.ts:1341-1349` también incrementa, pero pone `mustChangePassword: true` porque la
+contraseña es temporal — aquí la fija quien corre el script, así que `false`). Una sola escritura ⇒ atómico: no hay
+estado intermedio «hash nuevo, sesiones vivas».
+
+**Forma:** la lógica sale a `resetStaffPassword(prisma, env, hash?)` exportada; `main()` solo corre con
+`require.main === module` (mismo patrón que `reset-db-keep-users.ts`). El uso no cambia:
+`npx ts-node prisma/reset-admin-password.ts`.
+
+**Prueba:** `backend/prisma/reset-admin-password.spec.ts` (6 casos, sin BD: Prisma y hasher inyectados). Roja contra
+el código anterior (2/6: los dos de revocación). Mutaciones (deterministas, N=1 cada una), las tres mueren con 2 rojas:
+M1 quitar el `increment`; M2 `increment: 0`; M3 mover el `increment` a una segunda escritura aparte (no atómica).
+
+## Barrido: otros escritores de `passwordHash` / `role` sin `tokenVersion +1` (medido 2026-09-28, `grep` sobre `c4d378b`)
+- **`backend/src/`:** ningún `update` escribe `role` (los únicos `role:` en `data` son `create`: `admin.service.ts:716-735`
+  alta de usuario, `auth.service.ts:441-455` alta Google con `customer` fijo). Escritores de `passwordHash` en
+  `update`: `auth.service.ts:272`, `:347`, `admin.service.ts:1341`, `:1458` (anonimización, `null`) — **los cuatro
+  incrementan**. `VLT-3`/C2 sigue latente: hoy no hay mutación de `User.role` en la app.
+- **`backend/prisma/seed.ts`:** `upsert` con `update: {}` — solo crea (nace con `tokenVersion=0`). Sin hallazgo.
+- **`backend/prisma/seed-e2e.ts`** (NO arreglado, se reporta): cuatro `upsert` cuyo `update` reescribe `passwordHash`
+  y/o `role` sin `tokenVersion +1` — `:117` (`role`), `:809-834` (temporales: hash + `role`), `:839-865`
+  (solo-Google: hash `null` + `role`), `:981-1005` (KYC: hash + `role`). Es siembra de fixtures con
+  `assertSeedTarget` (`seed-target-guard.ts`) que se niega a correr contra hosts no autorizados, así que el riesgo
+  en producción es nulo mientras el candado aguante. No lo toqué porque cambia la conducta del harness E2E (una
+  re-siembra a mitad de corrida invalidaría sesiones de Playwright) y eso no lo puedo medir sin levantar el stack.
+  **NO MEDIDO:** si alguna corrida E2E re-siembra con sesiones ya emitidas.
+- **`backend/prisma/data-repair/*.sql`:** no tocan `User`.
+
+# C7 — límite de intentos de contraseña POR CUENTA + dispositivo conocido (v1.80 · backend · 2026-09-28)
+
+> Implementa `API_CONTRACT §1` «Límite de intentos por cuenta» (`#auth-password-attempts`) y `ARCHITECTURE §4.57`
+> (decisiones 1–14). Código en `cf32dc9` (rama `claude/paquete-seguridad`). Todo lo de esta sección está **medido**
+> salvo lo marcado **NO MEDIDO**.
+
+## 1 · Dónde vive cada cosa
+
+| Pieza | Fichero |
+|---|---|
+| Números con nombre (5 libres, 60 s·2^(f−5) tope 3600 s, olvido 2 h, 250 ms, 30 s, 50 000 claves, 24 h) y `lockMsForFailures` | `backend/src/modules/auth/password-attempts.constants.ts` |
+| Almacén: `MemoryLoginAttemptStore` (cuerpo síncrono ⇒ atómico), `RedisLoginAttemptStore` (Lua, una ida y vuelta), `ResilientLoginAttemptStore` (Redis con plazo 250 ms ⇒ memoria 30 s), cliente Redis propio, selección | `backend/src/modules/auth/login-attempt.store.ts` |
+| Política: claves (HMAC del correo normalizado vía `PiiCryptoService.blindIndex`, `auth-cp:v1:`, `auth-pwdev:v1:`), `reserve` ⇒ `429`, `clear`/`clearForUser`, efectos del candado sin `await` | `backend/src/modules/auth/password-attempts.service.ts` |
+| `deviceToken` (JWT HS256 90 d, llave HKDF de `JWT_REFRESH_SECRET`, `info=tcg-hunt/device-token/v1`) | `backend/src/modules/auth/device-token.service.ts` |
+| Orden normativo en `login`, contador de `change-password`, limpieza en `reset-password`, `deviceToken` en login/google/refresh/reset-password | `backend/src/modules/auth/auth.service.ts` |
+| `Retry-After` en `429 TOO_MANY_PASSWORD_ATTEMPTS` | `backend/src/modules/auth/retry-after.interceptor.ts` (en `AuthController`) |
+| Reset por admin levanta el candado | `backend/src/modules/admin/admin.service.ts` (`resetPassword`) + `AdminModule` importa `AuthModule` |
+| Correo de aviso a staff | `mail.templates.ts` `passwordLockAlertTemplate`, `MailService.sendPasswordLockAlert` |
+| Código de error | `common/error-codes.ts` `TOO_MANY_PASSWORD_ATTEMPTS` (zona compartida, lo pedía el diseño) |
+| Memoria siempre bajo la suite | `config/test-env.ts` `isLoginAttemptRedisDisabled()` (zona compartida, lo pedía el diseño) |
+| `trust proxy = 1` (C7-18) | `backend/src/trust-proxy.ts`, usado por `main.ts` **y** por el arnés E2E (`test/integration/helpers/e2e-app.ts`, que antes no lo ponía) |
+
+## 2 · Para frontend
+
+- `POST /auth/login` acepta `deviceToken?` (string ≤ 2048; más largo ⇒ `400 VALIDATION_ERROR` del `ValidationPipe`;
+  ajeno/caducado/mal firmado ⇒ se ignora sin error).
+- `200` de `login`, `google`, `refresh` y `reset-password` traen `deviceToken`. `reset-password` responde
+  `{ ok: true, deviceToken }` (sin sesión).
+- `429 TOO_MANY_PASSWORD_ATTEMPTS`: cabecera `Retry-After` = `details.retryAfterSeconds` (mismo número, segundos).
+  Lo emiten `login` y `change-password`. El `message` es fijo en inglés y no distingue nada.
+
+## 3 · Decisiones de implementación que el diseño no fijaba (para arquitecto/techlead)
+
+1. **Tope del correo 1/24 h:** vive en el almacén, como `claimOnce(key, ttlMs)` (Redis `SET NX PX`; memoria con
+   el mismo `Map` acotado). §4.57.5 solo nombra `acquire`/`reset`; no quise añadir estado a la BD.
+2. **`reset-password` y reset por admin limpian también el cubo de `change-password`** (`auth-cp:v1:<id>`), no
+   solo el del login: si no, el usuario recién reseteado podía encontrarse `change-password` en `429` con una
+   sesión nueva. Los cubos de dispositivo no se pueden enumerar (van por `jti`) y no se limpian.
+3. **`change-password`:** solo el `200` limpia (lectura literal del contrato). Un `422 PASSWORD_SAME_AS_CURRENT`
+   tras una actual correcta **cuenta** como intento.
+4. **Correo a staff solo si `status = active`** (un staff bloqueado/borrado no recibe aviso).
+5. **Bitácora:** `actorUserId = null` en login (nadie autenticado); `= userId` en `change-password`.
+6. **`Retry-After` por interceptor del módulo `auth`** y no en el filtro global (`common/filters`, zona compartida
+   que el diseño no pedía tocar). El filtro conserva las cabeceras ya puestas.
+7. **`AdminService` recibe `PasswordAttemptsService` como `@Optional()`** porque 25 specs lo construyen a mano; el
+   cableado real lo prueba C7-8(b) por HTTP contra la app.
+8. **`AuthService` NO lo recibe opcional:** las 14 construcciones manuales en specs usan
+   `test/helpers/auth-c7-deps.ts` (política y dispositivo REALES sobre memoria nueva; no apaga nada).
+9. **Arranque con Redis:** `ResilientLoginAttemptStore.onModuleInit` conecta con plazo de 2 s; si falla, arranca
+   igual en memoria. Con un Redis que acepta TCP y no contesta, el arranque espera esos 2 s (medido en
+   `auth.c7-store.spec.ts`).
+
+## 4 · Pruebas y dónde viven
+
+| C7 | Unit (sin infra) | Integración (Postgres/Redis reales) |
+|---|---|---|
+| 1 | `auth.c7-policy.spec.ts` (5/5 correos nuevos) | `auth-password-attempts.e2e-spec.ts` (X-Forwarded-For distinto, 5/5) |
+| 2, 3, 7, 9, 10, 11, 14, 16, 17 | `auth.c7-policy.spec.ts` | `auth-password-attempts.e2e-spec.ts` |
+| 4 | memoria: `auth.c7-store.spec.ts` y `auth.c7-policy.spec.ts`, **N=10, 10/10** cada una | HTTP 20 simultáneos; Redis: `auth-password-attempts-redis.e2e-spec.ts`, **N=10, 10/10** almacén y **N=10, 10/10** `AuthService` |
+| 5, 6 | `auth.c7-store.spec.ts` (reloj falso) | Lua: `auth-password-attempts-redis.e2e-spec.ts` |
+| 8 | `auth.c7-policy.spec.ts` (a–d) | `auth-password-attempts.e2e-spec.ts` (a–d, incl. reset admin por HTTP) |
+| 12 | — | `auth-password-attempts-redis.e2e-spec.ts` (prefijo aleatorio; sin `REDIS_URL` salta con aviso salvo `E2E_STRICT_INFRA=true`) |
+| 13 | `auth.c7-store.spec.ts` (fallo, cuelgue, ioredis real a puerto cerrado y a agujero negro) | — |
+| 15 | `auth.c7-policy.spec.ts` (audit que nunca resuelve, 1 correo/24 h, customer 0) | filas reales en `AuditLog` |
+| 18 | `auth.c7-trust-proxy.spec.ts` | — |
+| deviceToken | `auth.c7-device-token.spec.ts` | refresh con `deviceToken` en `auth-password-attempts.e2e-spec.ts` |
+
+**Mutaciones** — sobre copia del árbol ENTERO (`git archive cf32dc9`), 24 de 24 en rojo (medido 2026-09-28):
+M1 sin reserva · M2 candado tras argon2 · M2b dejar pasar al acierto · M3 no contar inexistente · M4 `await` entre
+mirar y contar (memoria: store 10/10 y política 10/10 en rojo) · M4r dos operaciones en Redis (20/20 en rojo) ·
+M5a contar durante el candado · M5b sin tope · M6 TTL ≤ tope · M7 no limpiar al acertar · M8 limpiar en
+forgot-password · M9 ignorar deviceToken · M10a no comparar `sub` · M10b firmar con `JWT_REFRESH_SECRET` tal cual ·
+M11 limpiar la cuenta en acierto por dispositivo · M12 correo en claro en la clave · M13a fail-open · M13b
+fail-closed · M14 umbral por rol · M15 `await` de la bitácora · M16 compartir cubo login/cp · M17a sin normalizar ·
+M17b saltar en test · M18 `trust proxy = true`; extra: M19 sin `Retry-After`, M20 correo sin tope de 24 h.
+
+## 5 · N-C7-4 y N-C7-5 (medidos)
+
+- **N-C7-4:** bajo la suite **no hay `PII_HMAC_KEY`**; `PiiCryptoService` usa una clave EFÍMERA aleatoria por
+  proceso (arnés `NODE_ENV=test`) ⇒ el blind index es determinista dentro del proceso y el candado funciona. Visto en
+  el aviso `PII_HMAC_KEY not set — using an EPHEMERAL random key` y en las pruebas verdes. En producción/staging la
+  clave es obligatoria (fail-fast ya existente).
+- **N-C7-5 (backend):** con C7 activo, la suite de integración existente (51 suites, sin las dos nuevas) quedó
+  **51/51 verde, 1135 pasan, 2 saltadas** (mismas que antes) y la unitaria **357/357 suites, 5889 pruebas**.
+  **Ninguna spec existente hace ≥ 5 logins fallidos con el mismo correo en el mismo `AppModule`**; no hubo que cambiar
+  ninguna por el candado. Las que sí cambié, por **otra** causa (constructor con dos dependencias nuevas, o el
+  nuevo shape de `reset-password`): `auth.change-password.spec.ts`, `auth.email-flows.spec.ts` (además
+  `resetPassword` ⇒ `{ ok, deviceToken }` y la fila de prueba gana `email`), `auth.google.spec.ts`,
+  `auth.login-timing.spec.ts`, `auth.logout.spec.ts`. **Frontend (Playwright): NO MEDIDO** por corrida; por `grep`
+  no encontré ≥ 5 logins fallidos con el mismo correo en `frontend/e2e`. Nota para frontend: `loginViaApi`
+  (`frontend/e2e/utils/env.ts`) reintenta ante **cualquier** `429`, también `TOO_MANY_PASSWORD_ATTEMPTS`.
+
+## 6 · NO MEDIDO
+
+- **N-C7-3** (ritmo de `argon2.verify` en el contenedor de producción): NO MEDIDO. Solo indicativo, **local** (4
+  CPU, máquina cargada por otros agentes): ~159 ms por `verify` en serie y ~10,6 `verify`/s con 20 en paralelo.
+- N-C7-1, N-C7-2, N-C7-6: de devops (sin cambios).
+
+# Deuda C7 tras 8ea245f — SEC-C7-RT, QA IMPORTANTE 2 (C7-3 intermitente) y SEC-C7-OPT (backend · 2026-09-29)
+
+Tres encargos sobre la rama `claude/paquete-seguridad`, base `1b82970`. ⛔ No toqué `SEC-C7-MINT`, el respaldo de
+Redis por plazo ni `reset-admin-password` (en diseño con el arquitecto). Sin Postgres ni Redis: todo unitario.
+
+| Punto | sha | Ficheros |
+|---|---|---|
+| 1 · SEC-C7-RT (`refresh()` exige `typ` y `tv`) | `114aecf` | `backend/src/modules/auth/auth.service.ts` (`refresh`, ~`:513-547`), `backend/test/auth.refresh-typ.spec.ts` (nuevo) |
+| 2 · C7-3 intermitente (reloj falso en `makeWorld`) | `178c705` | `backend/test/auth.c7-policy.spec.ts` (`makeWorld` `:65-71`, `:131`; C7-3 nuevo `it` `:209-219`) |
+| 3 · SEC-C7-OPT (sin `@Optional()`) | `bf2a486` | `backend/src/modules/admin/admin.service.ts` (constructor `:614-630`, guardia de `resetPassword` `:1342-1346`, `clearForUser` `:1369`), `backend/test/app.module.spec.ts` (`:110-132`), `backend/test/admin.user-management.spec.ts` |
+
+## 1 · SEC-C7-RT — `refresh()` ya no acepta ni un access ni un `deviceToken` ni un refresh sin `tv`
+
+**Qué cambió (`auth.service.ts` `refresh`)**: tras verificar la firma, `typ !== 'refresh' || typeof tv !== 'number'
+|| typeof sub !== 'string'` ⇒ `401 UNAUTHENTICATED` **antes de tocar la BD**; y la comparación con `tokenVersion` es
+estricta (`payload.tv !== user.tokenVersion`), sin `?? 0`. Mismo código y mensaje `401` que el resto de rechazos.
+
+**Prueba en rojo antes → verde después** (`auth.refresh-typ.spec.ts`, 7 casos): sobre `1b82970` + la spec
+(antes de `114aecf`) **3 en rojo de 7**, exactamente los tres que debían morder:
+- con `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` (lo que `env.validation` permite), un **access** presentado como
+  refresh devolvía sesión ⇒ ahora `401`;
+- un `{ typ: "device" }` firmado con `JWT_REFRESH_SECRET` **tal cual** (el caso «con la llave de refresh tal cual» de
+  C7-10) verificaba, y `tv ?? 0` casaba con `tokenVersion = 0` ⇒ ahora `401`;
+- un refresh bien firmado **sin `tv`** contra una cuenta con `tokenVersion = 0` ⇒ ahora `401`.
+Los otros cuatro (control positivo, revocación por `tv`, `deviceToken` real con llave HKDF, `tv` como string) ya
+eran verdes y siguen. Tras el arreglo: **7/7**; suites de auth (7 ficheros): **87/87**.
+
+**Mutaciones (copia de `178c705`, `git archive`, N=5 cada una):** **sin `typ`** (quitar `payload.typ !== 'refresh' ||`) ⇒ spec **roja 5/5** · **volver a `(payload.tv ?? 0)`** (quitar `typeof tv !== 'number'` y restaurar el `?? 0`) ⇒ spec **roja 5/5**. Limpia en la misma copia: **verde 5/5**.
+
+**⚠ Riesgo para el arquitecto (no lo cambio yo, zona `config/`):** `env.validation.ts:78-87` exige que **existan**
+`JWT_ACCESS_SECRET` y `JWT_REFRESH_SECRET` y que midan ≥ 32, pero **no impide que sean iguales**. Con este cambio,
+aunque coincidan, un access ya no vale como refresh (`typ`). Lo que **sigue abierto** si coinciden: el **guard**
+(`common/guards/jwt-auth.guard.ts:49-70`, zona compartida, fuera de este encargo) no rechaza `typ === 'refresh'` y
+mantiene `(payload.tv ?? 0)` ⇒ un **refresh** presentado como `Bearer` entraría. Dos cierres posibles, ambos del
+arquitecto: (a) `env.validation` rechaza secretos iguales; (b) el guard exige `typ` ausente/`'access'` y `tv`
+numérico (simetría con `refresh()`). Recomiendo los dos.
+
+## 2 · QA IMPORTANTE 2 — C7-3 exigía `retry: 60` con reloj real
+
+**Causa medida en el código**: `MemoryLoginAttemptStore.acquire` (`login-attempt.store.ts`) calcula
+`retryAfterSeconds = ceil((lockExpiresAt − now) / 1000)` con el reloj del almacén. Con `Date.now`, si entre el 5.º
+intento (que pone el candado de 60 000 ms) y el 6.º pasa **≥ 1 s** (carga, argon2 de otras pruebas), sale **59**.
+
+**Qué cambió**: `makeWorld` crea por defecto `new MemoryLoginAttemptStore(() => clock.t)` con `clock = { t: Date.now() }`
+congelado y devuelve `clock`. Una prueba que pasa su propio `store` conserva su reloj (C7-15 staff ya lo hacía).
+**Nuevo `it` en C7-3** que demuestra el cableado (con `Date.now` real no cambiaría): a `+30 s` el `429` dice **30**;
+a `+60 s` el candado se abre (`401`).
+
+**Cifras**: `auth.c7-policy.spec.ts` (39 pruebas) sobre copia de `178c705`, máquina cargada (load ≈ 18, tres lotes jest a la vez): **verde 10/10** (N=10). No tengo medición propia del 59 con reloj real: el dato es de QA sobre `8ea245f`. **Mutación «Retry-After fijo en 0»** (`acquire` devuelve `retryAfterSeconds: 0` en la
+rama bloqueada; copia de `178c705`): **verde 0/5, roja 5/5** (N=5; C7-3 espera `retry: 60` y el nuevo `it` espera 60→30, y C7-1 exige `≥ 1`) — la prueba sigue mordiendo.
+
+## 3 · SEC-C7-OPT — `PasswordAttemptsService` deja de ser `@Optional()` en `AdminService`
+
+**Medido antes de cambiar nada** (copia de `178c705` + la aserción nueva de `app.module.spec`; mutación «`AdminModule`
+sin `AuthModule` en `imports`», `@Optional()` todavía presente; N=5): el smoke `compiles the full module graph`
+**verde 5/5** —el silencio que denunciaba seguridad— y la aserción nueva **roja 5/5**.
+
+**Qué cambió**:
+- `admin.service.ts`: sin `@Optional()`. El `?` de TypeScript **se queda**, y no por gusto: va detrás de `mail?`
+  (`MAIL_PORT`, `@Optional()` legítimo de v1.74) y TS no admite un parámetro obligatorio tras uno opcional; los
+  ~28 unitarios que construyen `AdminService` a mano con 4 argumentos siguen compilando (`tsc` exit 0). En DI es
+  obligatorio: `AdminModule` importa `AuthModule`, que lo exporta.
+- `resetPassword` **se niega a correr sin el servicio, ANTES de leer o escribir** (`throw` con el nombre del módulo
+  que falta). Lo puse al principio a propósito: si fallara después del `update`, quedaría un reset a medias (hash
+  nuevo persistido, candado puesto, contraseña temporal nunca devuelta).
+- `app.module.spec.ts`: aserción de arranque — `AdminService.passwordAttempts` **es el mismo singleton** que recibe
+  `AuthService.attempts` (un doble o una segunda instancia con otro almacén limpiaría un contador que nadie mira).
+- `admin.user-management.spec.ts`: la construcción manual pasa un doble explícito; asevera `clearForUser` **después**
+  del `update` y con `{ id, email }`; caso nuevo «sin servicio ⇒ falla en seco sin tocar la BD». C7-8(b) en
+  `auth.c7-policy.spec` sigue con el servicio real.
+
+**Medido después** (copia de `bf2a486`, misma mutación, N=5): el arranque entero cae —
+`Nest can't resolve dependencies of the AdminService (…, MAIL_PORT, ?). Please make sure that the argument
+PasswordAttemptsService at index [5] is available in the AdminModule context` — smoke **rojo 5/5**, aserción
+**roja 5/5**, suite roja 5/5. Ya no hay modo mudo.
+
+## 4 · Verificación en el worktree a `bf2a486`
+
+`tsc --noEmit` exit 0 · `eslint` sobre los 6 ficheros tocados exit 0 · `test/auth.*.spec.ts` + `admin.user-management`
++ `app.module`: **14/14 suites, 153/153 pruebas** · muestra de unitarios que construyen `AdminService` a mano
+(`admin.user-create`, `admin.kyc-review`, `admin.pii`, `admin.contract-shapes`, `pii-degrade`): verdes dentro de
+un lote de **8/8 suites, 100/100**. **NO MEDIDO**: la suite unitaria completa (357 suites) y la de integración
+(`auth-password-attempts*`: no toqué el almacén ni el servicio de política, solo el reloj de la spec unitaria).
+
+# C7 rev v1.80.1 — SEC-C7-MINT, C7-R (QA IMPORTANTE 1), script de rescate y dos cierres de 114aecf (backend · 2026-09-29)
+
+Encargo: `API_CONTRACT` changelog v1.80.1 (`POST /auth/login`, `POST /auth/refresh`, tabla C7, pruebas C7-19…C7-23,
+«Script de rescate» `#reset-admin-password-script`) y `ARCHITECTURE §4.57.3/.4/.5/.8/.10`. Rama `claude/paquete-seguridad`,
+base `f602dca` (HEAD compartido avanzó a `940be1c` por devops mientras trabajaba; ninguno de sus ficheros se cruza con los míos).
+⛔ Sin schema, sin migración, sin env nueva, sin cambio de shape: **frontend no cambia** (medido: los `Object.keys(...)`
+de las e2e de login/refresh/reset-password siguen verdes con la lista exacta).
+
+| Bloque | sha | Ficheros |
+|---|---|---|
+| 1 · C7-R: memoria = caché de Redis + reposición en el Lua; `bump` de ventana fija (C7-22) | `668b6f8` | `backend/src/modules/auth/login-attempt.store.ts`, `password-attempts.constants.ts`, `backend/test/auth.c7-store.spec.ts`, `backend/test/helpers/fake-redis-attempt-store.ts` (nuevo), `backend/test/integration/auth-password-attempts-redis.e2e-spec.ts` |
+| 2 · SEC-C7-MINT: `jti = sid`, `refresh` hereda, legado, tope agregado (C7-19/20/21; C7-22 a nivel de servicio) | `d1fbbf8` | `backend/src/modules/auth/auth.service.ts`, `password-attempts.service.ts`, `device-token.service.ts`, `backend/test/auth.c7-mint.spec.ts` (nuevo), `backend/test/auth.c7-cache.spec.ts` (nuevo), `backend/test/helpers/auth-c7-world.ts` (nuevo), `backend/test/integration/auth-password-attempts.e2e-spec.ts` |
+| 3 · Script de rescate levanta el candado (C7-23) | `ff3ecc4` | `backend/prisma/reset-admin-password.ts`, `backend/prisma/reset-admin-password.c7.spec.ts` (nuevo), `backend/test/integration/reset-admin-password-lock.e2e-spec.ts` (nuevo) |
+| 4 · `env.validation` secretos iguales; guard `typ`/`tv` estrictos | `3c03f36` | `backend/src/config/env.validation.ts`, `backend/src/common/guards/jwt-auth.guard.ts`, `backend/test/env.validation.spec.ts`, `backend/test/jwt-auth.guard.typ.spec.ts` (nuevo) |
+| 5 · Deuda con fecha (sid legado) | `7cf48e5` | `docs/TECH_DEBT.md` («C7-LEGACY-SID») |
+
+## 1 · Dónde vive cada cosa (v1.80.1)
+
+- **`sid`** — `AuthService.issueTokens(user, sid = randomUUID())` (`auth.service.ts`): claim `sid` **solo en el refresh
+  token** (el access no lo necesita: no emite dispositivos). El par devuelto sigue siendo `{ accessToken, refreshToken }`:
+  el `sid` **no** viaja en el objeto para que el `...tokens` de las cuatro respuestas no gane campos.
+  - `login` / `google`: `sid = randomUUID()` → `issueTokens(user, sid)` + `devices.issue(user.id, sid)`.
+  - `refresh`: `AuthService.sessionIdOf(payload)` (estática, pura): `sid` del token si es string no vacío; si no,
+    `"legacy:" + sub + ":" + iat`; sin `iat` numérico ⇒ `null` ⇒ `401` (no hay de dónde derivar la sesión). Emite el
+    **mismo dispositivo** con `exp` renovado y el par nuevo hereda el `sid`.
+  - `reset-password`: `devices.issue(userId)` sin `jti` ⇒ aleatorio (no hay sesión). `register` y `change-password`
+    crean un `sid` nuevo por `issueTokens` (sin `deviceToken`; el siguiente `refresh` lo trae con ese `sid`).
+- **`DeviceTokenService.issue(userId, jti = randomUUID())`** (`device-token.service.ts`): `jti` vacío ⇒ `Error`.
+- **Tope agregado** (`password-attempts.constants.ts`: `DEVICE_AGGREGATE_KEY_PREFIX = 'auth-pwdevagg:v1:'`,
+  `DEVICE_ROUTE_CAP = 30`, `DEVICE_ROUTE_WINDOW_MS = 24 h`; `PasswordAttemptsService.deviceRouteAllowed(userId)` =
+  `store.bump(aggKey, 24 h) <= 30`). En `login` (`auth.service.ts`), **después** de verificar el token y **antes** de
+  elegir cubo: `if (viaDevice && user) viaDevice = await this.attempts.deviceRouteAllowed(user.id)`. Al pasarse, el
+  intento va al cubo de la cuenta (no hay 429 propio). Lo limpia `clearForUser` (reset-password, reset por admin) y el
+  script; ⛔ el acierto solo limpia el cubo usado.
+- **`passwordAttemptKeysForUser(pii, { id, email })`** (`password-attempts.service.ts`, función pura exportada): las tres
+  claves enumerables de una cuenta (`auth-pw` por `blindIndex(normalizeEmail)`, `auth-cp:v1:<id>`, `auth-pwdevagg:v1:<id>`).
+  El servicio y el script la comparten: es lo que el contrato pide con «nada duplicado a mano».
+- **Almacén** (`login-attempt.store.ts`): interfaz `LoginAttemptStore` gana `bump(key, ttlMs)`. Interfaz nueva
+  `PrimaryLoginAttemptStore` (la que ve `ResilientLoginAttemptStore`): `acquireSync(key, pending)` y
+  `bumpSync(key, ttl, pending)` devuelven además la **foto** (`{ failures, lockMs }` / `{ count, windowMs }`).
+  `MemoryLoginAttemptStore` guarda por clave `{ failures, failExpiresAt, lockExpiresAt, unsynced, resetPending }` (y
+  `{ count, windowExpiresAt, unsynced, resetPending }` para ventanas), con `syncAcquire/syncBump` (Redis manda),
+  `takePending*`/`giveBackPending*` (lo pendiente se entrega una sola vez; si la reposición no llega, vuelve) y
+  `markReset` (reset que Redis no vio). `ResilientLoginAttemptStore.acquire/bump`: si `degraded` ⇒ memoria; si no,
+  `takePending` → Redis con plazo 250 ms → `sync` (o `markDown` + `giveBack` + memoria). `reset`: Redis `DEL` y la foto
+  desaparece; si falla, `markReset`. `claimOnce` sigue siendo mejor esfuerzo (no entra en la caché).
+- **Lua** (`ACQUIRE_LUA`): 7 `ARGV` (`ttl, libres, base, tope, extra, lockRestanteMs, borrar`), en este orden: `DEL` si
+  `borrar`; `INCRBY extra` + `PEXPIRE`; `SET lock PX lockRest` solo si `lockRest > PTTL` (nunca acorta); después la
+  reserva de siempre. Al bloquear devuelve también `f` (`{0, pttl, f}`) para que la foto sea completa. `BUMP_LUA`:
+  `DEL` si `borrar`; `SET 0 PX ttl NX` + `INCRBY extra`; `SET 0 PX ttl NX`; `INCR`; devuelve `{n, pttl}`.
+- **`loginAttemptRedisKeys(k, prefix)`** y **`withTimeout`** exportados (los usa el script).
+- **Script** (`prisma/reset-admin-password.ts`): `clearPasswordLock(user, env, opts)` exportada, nunca lanza; la llama
+  `resetStaffPassword` **después** del `update`. `resetStaffPassword(prisma, env, hash?, opts?)` con
+  `opts.log` (por defecto `console.log`) y `opts.redisClient` (por defecto `createLoginAttemptRedisClient`). El retorno
+  sigue siendo `{ email, role }` (la spec «intacta» hace `toEqual` estricto). Plazo total conectar+`DEL`: 2 s
+  (`LOCK_CLEAR_TIMEOUT_MS`); `quit` con 500 ms y `disconnect` de respaldo. Necesita `PII_HMAC_KEY` del servicio (y en
+  no-local `PII_ENCRYPTION_KEY`, porque `PiiCryptoService` exige las dos: si faltan, el candado no se limpia y lo dice).
+- **`env.validation.ts`**: `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` (ambos string no vacío) ⇒ `Error` en **todo**
+  entorno. **`jwt-auth.guard.ts`**: `payload.typ !== undefined || typeof sub !== 'string' || typeof tv !== 'number'` ⇒
+  `401`; comparación `payload.tv !== user.tokenVersion` sin `?? 0`.
+
+## 2 · Rojo antes → verde después
+
+- **Rojo medido sobre `f602dca` + las specs nuevas** (`red-unit.txt` del scratchpad): `env.validation` **2/3 rojas**
+  (iguales en production / en local); `jwt-auth.guard.typ` **4/5 rojas** (el control pasaba); `auth.c7-mint`,
+  `auth.c7-cache`, `auth.c7-store` y `reset-admin-password.c7` **no compilan** (API que no existía: `bump`,
+  `PrimaryLoginAttemptStore`, `DEVICE_*`, `loginAttemptRedisKeys`, `RedisLike`). El rojo **conductual** de C7-19…C7-23 lo
+  dan las mutaciones de §3 (reintroducen el defecto de `8ea245f` y la spec muerde).
+- **Verde después (árbol vivo a `7cf48e5`, unitarias de auth + guard + env + script + admin.user-management + app.module):**
+  **22/22 suites, 227/227 pruebas** (`green-unit.txt`; base en `f602dca` para las mismas rutas: 16 suites, 171). Después de
+  corregir dos aserciones **mías** mal contadas (un 6.º `acquire` sin vencer el candado no cuenta: f = 5, no 6) el
+  `auth.c7-store` quedó **32/32**.
+- **Integración contra Postgres/Redis propios** (`postgresql://127.0.0.1:55801/tcg_seg_c7`, `redis://127.0.0.1:56801`,
+  `E2E_STRICT_INFRA=true`): `auth-password-attempts` (24, con C7-19/20/21 por HTTP), `auth-password-attempts-redis` (30,
+  con el Lua real de reposición y `bump`), `reset-admin-password-lock` (1) ⇒ **3/3 suites, 55/55**. Base en `f602dca`:
+  2 suites, 45/45.
+- **`tsc --noEmit` exit 0 · `eslint` sobre los 19 ficheros tocados exit 0.**
+- **Suite unitaria completa sobre copia del árbol ENTERO (`git archive 7cf48e5`, O-9):** **362/362 suites, 5940/5940 pruebas** (195 s, `--maxWorkers=2`, `full-unit.txt` del scratchpad). Sin rojos, sin skips nuevos..
+
+## 3 · Mutaciones (copia del árbol entero por mutación, `git archive 7cf48e5`; N y proporción)
+
+Arnés: `mutate.sh` copia el árbol entero (`git archive <sha> | tar -x`), enlaza `node_modules`, aplica UN parche (python con
+`assert old in s`) y corre la spec N veces. Cada fila dice qué prueba mordió (leído en `run-1.log`). Control limpio en la
+misma copia sin parche: **verde 2/2** sobre las seis specs (82/82).
+
+| Mutación (contrato) | Parche | Spec | Proporción | Qué mordió |
+|---|---|---|---|---|
+| C7-19: `randomUUID()` en `refresh` | `sessionIdOf(payload)` → `randomUUID()` | `auth.c7-mint` | **roja 5/5** (N=5) | C7-19 «usuario 1…5/5» (el 6.º llegó a argon2) y las tres de C7-21 |
+| C7-20 (a): quitar el `bump` | línea `deviceRouteAllowed` borrada | `auth.c7-mint` | **roja 3/3** | C7-20 (el 31.º dio 200) |
+| C7-20 (b): el acierto limpia el agregado | `clear(bucket, aggKey)` en login | `auth.c7-mint` | **roja 3/3** | C7-20 (el 31.º dio 200) |
+| C7-20 (c): ventana deslizante | memoria `windowExpiresAt = now + ttl` siempre | `auth.c7-mint` + `auth.c7-store` | **roja 3/3** | sobre `7cf48e5` solo mordió el almacén («la ventana se fija al crear»); la C7-20 del servicio seguía verde porque a +24 h ningún candado de cuenta sobrevive. Corregida en `8210af6` (re-bloquea la cuenta antes del +24 h): **roja 3/3** solo con `auth.c7-mint` (muerde C7-20: el 34.º con jti dio 429 en vez de 200); control limpio de la misma spec en copia de `8210af6`: **verde 2/2** |
+| C7-21: `sid` legado sin `sub` | `legacy:${iat}` | `auth.c7-mint` | **roja 3/3** | «dos usuarios con el mismo iat ⇒ jti distintos» y «3 refresh ⇒ mismo jti» |
+| C7-21: `sid` nuevo por reproducción | `randomUUID()` en la rama legado | `auth.c7-mint` | **roja 3/3** | las dos de C7-21 |
+| C7-22 (a): memoria desde 0 al caer (código de `8ea245f`) | sin `syncAcquire(photo)` | `auth.c7-cache` + `auth.c7-store` | **roja 5/5** (N=5) | C7-22 corridas 1–3/3 (10 a argon2), la de caché (`:201` sustituida), el agregado, y tres del almacén |
+| C7-22 (b): no reponer al volver | `acquireSync(key, NO_PENDING_ACQUIRE)` | `auth.c7-cache` + `auth.c7-store` | **roja 5/5** (N=5) | C7-22 corridas 1–3/3 (el 7.º dio 401), reset en memoria, y dos del almacén |
+| C7-22 (c): reponer sin `borrar` | `takePendingAcquire` devuelve `borrar: false` | `auth.c7-cache` + `auth.c7-store` | **roja 5/5** (N=5) | «un reset hecho en modo memoria se repone al volver Redis (borrar)» |
+| C7-23: no borrar | `del(...keys)` quitado | `reset-admin-password.c7` | **roja 3/3** | «seis claves», «DEL falla», «normaliza» |
+| C7-23: fallar si Redis no contesta | `catch` relanza | `reset-admin-password.c7` | **roja 3/3** | puerto cerrado, agujero negro, «DEL falla» |
+| C7-23: clave con el correo sin normalizar | `passwordAttemptKeysForUser` sin `normalizeEmail` | `reset-admin-password.c7` | **roja 3/3** | «Admin@TCG.local y admin@tcg.local borran las mismas claves» |
+| Guard: sin comprobación de `typ` | condición sin `payload.typ` | `jwt-auth.guard.typ` | **roja 3/3** | refresh como Bearer ⇒ 401; `typ: device` ⇒ 401 |
+| Guard: volver a `tv ?? 0` | `?? 0` restaurado y `tv` no exigido | `jwt-auth.guard.typ` | **roja 3/3** | «sin tv contra tokenVersion = 0 ⇒ 401» |
+| `env.validation`: sin la regla | comparación → `false` | `env.validation` | **roja 3/3** | «iguales en production» e «iguales en test/development» |
+
+## 4 · Decisiones que el contrato no fijaba (para arquitecto/techlead)
+
+- **`sid` no va en el objeto que devuelve `issueTokens`**: si fuera un tercer campo del par, el `...tokens` de las
+  respuestas lo colaría en el cuerpo y las e2e de shape (`Object.keys(...)` exacto) se pondrían rojas — y el contrato
+  dice «el front no lo lee». Los llamadores generan el `sid` y lo pasan dos veces (par y dispositivo).
+- **`sessionIdOf` devuelve `null` sin `iat` numérico ⇒ `401`.** Un refresh sin `sid` y sin `iat` no lo emitió nunca
+  `issueTokens` (jsonwebtoken pone `iat` siempre salvo `noTimestamp`); tratarlo como legado fabricaría un cubo
+  `legacy:<sub>:undefined` compartido por todos los tokens raros de esa cuenta. Mismo criterio que `typ`/`tv` (SEC-C7-RT).
+- **La reposición entrega lo pendiente UNA vez (`takePending` pone `unsynced = 0` antes de llamar a Redis) y lo devuelve
+  si la llamada falla.** Sin eso, dos peticiones simultáneas de la misma clave al volver Redis repondrían el mismo
+  `extra` dos veces. Un comando que Redis ejecutó pero contestó tarde sí queda contado dos veces (aceptado, §4.57.5).
+- **Lo pendiente de una clave que nadie vuelve a tocar no se repone** (no hay barrido de fondo). Es la misma pérdida que
+  §4.57.5 ya aceptaba para la memoria; la nota del almacén lo dice. Si se quiere cerrar, un `onModuleDestroy`/barrido
+  periódico que recorra `unsynced > 0` — decisión del arquitecto (añade una operación fuera del camino del login).
+- **`markReset` marca también la ventana de `bump`** para la misma clave (las claves de cuenta y de agregado son
+  disjuntas por prefijo, así que en la práctica solo aplica al agregado cuando `clearForUser` corre en modo memoria).
+  Cuesta una entrada de mapa por reset en modo memoria, acotada por el tope de 50 000.
+- **`change-password` NO limpia el agregado.** El contrato se contradice (§5 abajo); seguí la fila «Tope agregado» y
+  `ARCHITECTURE §4.57.10.1 b`, que listan exactamente tres vías (reset-password, reset por admin, script).
+- **`env.validation` rechaza secretos iguales también en local.** Medido antes: `test/integration/setup.ts`
+  (`e2e_access_secret` / `e2e_refresh_secret`), `.env.example` (dos `CHANGE_ME_…` distintos), `stack-native.sh`
+  (generados), `ci.yml`/`e2e.yml` (preflight de secretos) — ningún fixture tenía los dos iguales; no hubo que arreglar
+  ninguno. Los unitarios que construyen `ConfigService` a mano no pasan por `validateEnv`.
+- **El guard rechaza cualquier `typ` presente**, no solo `'refresh'`/`'device'`: `issueTokens` nunca pone `typ` en el
+  access, así que «tiene `typ`» ya significa «no es un access nuestro».
+- **`test/helpers/auth-c7-world.ts`** duplica el `makeWorld` de `auth.c7-policy.spec.ts` en vez de extraerlo de allí: esa
+  spec la midió QA sobre `178c705` y no quise moverla en el mismo pase. Candidata a unificar (deuda menor, no anotada
+  como bloqueante).
+
+## 5 · Discrepancias con el contrato (para el arquitecto — ⛔ no toqué `API_CONTRACT.md`)
+
+1. **C7-20, aritmética:** «7 logins correctos ⇒ 7 `jti`… 29 fallos repartidos (≤ 4 por `jti`, ninguno pone candado de
+   dispositivo)». Con 5 libres, el **5.º** fallo de un cubo ya pone candado, así que «≤ 4 por `jti`» con 7 `jti` da como
+   mucho **28** fallos, no 29. La prueba usa **8** logins (8 `jti`, 4×7 + 1 = 29) y así el 30.º es el correcto y el
+   31.º pasa del tope, como manda el resto de la fila. Propuesta: cambiar «7» por «8» (o «29» por «28» y renumerar).
+2. **Quién limpia el agregado:** la fila «Qué lo limpia» dice «*estos tres últimos y `reset-password` limpian también
+   `auth-cp` y el agregado*», y «los tres últimos» de esa lista son reset por admin, **`change-password`** y el script.
+   La fila «Tope agregado» y `ARCHITECTURE §4.57.10.1 b` dicen «reset-password, reset por admin y el script; ⛔ no el
+   acierto», sin `change-password`. Implementé lo segundo (`change-password` limpia `auth-cp` + cuenta, como en v1.80,
+   y **no** el agregado). Si el arquitecto quiere que `change-password` también lo limpie, es una línea en
+   `changePassword` (`clear(cpKey, accountKey, aggKey)`) y una aserción nueva.
+3. **C7-23, «f = 6 + candado»:** con la escalera del contrato, 6 fallos seguidos dejan f = 5 (el 6.º está bloqueado y
+   no cuenta). La prueba de integración vence el candado a mano entre el 5.º y el 6.º para tener f = 6 y 120 s; no
+   cambia lo que se demuestra.
+
+## 6 · NO MEDIDO
+
+- El Lua de reposición contra el Redis **de Railway** (solo contra Redis 7 local); `maxmemory-policy` sigue siendo de devops (§4.57.9).
+- Réplicas > 1 (`N-C7-6`): la convergencia al volver Redis se razona, no se midió con dos procesos.
+- La e2e completa de Playwright (frontend no cambia; QA decide si la corre).
+- El script contra la BD real (`railway run`): solo con Prisma doble + Redis real.
+## P-71 — `?q=` del índice de master sets se recorta en el servidor (2026-09-29)
+`MasterSetService.index` (`backend/src/modules/inventory/master-set.service.ts:476`) hace `q.q?.trim()`; vacío o solo
+whitespace = sin filtro. Cumple la convención transversal de `q` de `API_CONTRACT.md` (texto libre, `trim`, vacío =
+ausente), redactada para `/admin/buylist` y `/admin/orders`; §M-P71 no dice nada propio sobre normalización de `q`,
+así que el arquitecto puede fijar en una errata que la regla también aplica a los tres índices de master set.
+# P-83 · **MONEY** — `'sealed'` es clave de COLA, nunca de PRECIO (§M2-SK, v1.70 · backend · 2026-09-28, medido)
+
+Contrato: `API_CONTRACT.md` §M2-SK (normas SK-1…SK-4) y §0 `SEALED_MARKET_KEY_REQUIRED`; diseño: `ARCHITECTURE.md`
+§4.50.1. Rama `claude/paquete-dinero`. Implementado **lo que el reparto asigna a backend** (SK-2 en `inventoryValue`,
+SK-3); SK-1 (cero migración) y SK-4 (la vía `listPriceCents` ya existía) no llevan código.
+
+## Qué cambió
+- **SK-3** — `POST /admin/pricing/override` (`pricing.controller.ts`, justo tras `isCanonicalGradeKey` y **antes**
+  del `findUnique` de la carta): `productType:'sealed'` ∧ `gradeKey:'sealed'` ⇒ **`422 SEALED_MARKET_KEY_REQUIRED`**,
+  `details: { gradeKey: 'sealed', remedy: 'map_or_price_the_piece' }`. Código nuevo en `common/error-codes.ts`.
+  `isCanonicalGradeKey` **no se tocó**: `'sealed'` sigue siendo canónica para la COLA (pendientes, `PendingPriceEntry`).
+- **SK-2** — `admin.inventoryValue()`: retirado el fallback a `'sealed'` (antes pedía ambas claves al lote y hacía
+  `mercado ?? legacy`, **también para piezas MAPEADAS** sin referencia bajo su `sealed:tcg:<id>`). Ahora: sin clave de
+  mercado, o sin referencia bajo ella ⇒ `pendingPriceCount`. Efecto declarado por el contrato: el total **baja** y los
+  pendientes **suben** en la cuantía de las filas legadas que antes se sumaban.
+
+## Decisiones que el contrato no fijaba
+- **Orden de la guarda SK-3:** va antes de la búsqueda de la carta porque se decide solo con el body (un `cardId`
+  inexistente + `'sealed'` responde `422 SEALED_MARKET_KEY_REQUIRED`, no `404`). No se consulta BD para rechazar.
+- **Sin bitácora del intento bloqueado:** el contrato no la pide (la de `GRADED_*` sale de §O.8, que es de graduadas).
+- **Datos existentes:** ni backfill ni borrado (SK-1). Las filas `PriceReference(productType='sealed', gradeKey='sealed')`
+  que existan quedan **inertes** para `inventoryValue`; el censo sigue siendo el de P-79(d) (solo `SELECT`), NO MEDIDO
+  en producción.
+
+## Pruebas (rojo primero, medido)
+- `test/pricing.sealed-market-key-required.spec.ts` (8): 5 rojas contra el código previo, 3 controles verdes.
+- `test/admin.inventory-value-breakdown.spec.ts`: los dos casos que afirmaban el fallback se **invierten** (SK-2);
+  rojos contra el código previo.
+- `test/pricing.graded-intent.spec.ts`: dos casos usaban `sealed`/`'sealed'` como ejemplo de «no graduada»; pasan a
+  `sealed:tcg:4242` (con `'sealed'` hoy reciben el 422, que es la norma).
+- `test/pricing.m44-no-degrade.spec.ts`: la lista «claves legítimas siguen pasando» incluía `['sealed','sealed']`;
+  sale de la lista (sigue siendo canónica para la cola, pero el override responde 422). Lo cazó la suite completa.
+- `test/integration/sealed-market-key.e2e-spec.ts` (3, Postgres real, por HTTP): sobre de error y CERO filas escritas;
+  control mapeado `200`; delta de `inventory-value` con fila legada (no suma) y mapeada sin ref (pendiente).
+
+## ⚠️ Discrepancia con el contrato (para el arquitecto — NO la cambié)
+§M2-SK SK-2 dice que `inventoryValue` es **«la ÚNICA excepción viva»**. **Medido 2026-09-28 (Postgres propio,
+sonda HTTP no commiteada):** con una pieza sellada **de cliente** sin mapeo y una fila legada `'sealed'` de MX$800,
+- `GET /vault/holdings` ⇒ `referenceValue {status:'priced', referenceMxnCents: 80000}` (`vault.service.ts` `holdings`,
+  `tryGradeKeyFor(item)` ⇒ `'sealed'` ⇒ `getReference(cardId,'sealed','sealed',finish)`);
+- `GET /vault/holdings/:id` ⇒ lo mismo (`holdingDetail`);
+- `GET /admin/finance/custody-value` ⇒ `105000 → 185000` (`admin.service.ts` `custodyValue`).
+Por lectura de código (NO MEDIDO por HTTP) el mismo patrón está en `admin-vaults.service.ts` (valuación en lote de
+bóvedas) y `admin.service.ts` `ownedItemRefs` (ficha 360° de usuario). La causa común: `tryBuildGradeKey` devuelve
+`'sealed'` para sellado, y esos lectores no tratan el sellado aparte (los cinco «gemelos» que el contrato ratifica sí).
+Además, para una pieza de cliente **mapeada** estos lectores leen `'sealed'` y **no** su `sealed:tcg:<id>`.
+No lo toqué: cambia el patrimonio que ve el **cliente** y el reparto de §M2-SK no lo asigna; decide el arquitecto
+(¿`tryBuildGradeKey('sealed')` ⇒ `null` en lectura, o cada lector resuelve `sealedMarketGradeKeyForItem`?).
+
+# SK-5 · **MONEY** — una sola llave de valuación por pieza; los seis lectores de patrimonio la usan (§M2-SK SK-5, v1.80.1 · backend · 2026-09-28, medido)
+
+Contrato: `API_CONTRACT.md` §M2-SK **SK-5** (tabla de lectores, VK-1…VK-7); diseño: `ARCHITECTURE.md` §4.50.1-bis.
+Rama `claude/paquete-dinero`, medido sobre `1971291` + este cambio. Cierra la «Discrepancia» de P-83 (arriba).
+
+## Qué cambió
+- **`PricingService.valuationKeyFor(item)`** — sellado mapeado ⇒ `{cardId,'sealed','sealed:tcg:<id>','normal'}`
+  (finish `normal` aunque la pieza traiga otro); sellado sin mapeo ⇒ `null` (⛔ nunca `'sealed'`); raw/graduada ⇒
+  `tryGradeKeyFor(item)` (misma clave que antes). Llama al envoltorio `this.tryGradeKeyFor`, no a `tryBuildGradeKey`
+  directo: es la misma función, y así los dobles de prueba que fijan `tryGradeKeyFor` siguen gobernando la clave.
+- **`PricingService.valuationCentsOf(item, ref, sourceOn)`** — sellado ⇒ `gateSealedMarketCents` (el gate de
+  `/vault/sealed`: manual sobrevive al dial, `tcgcsv` solo con dial on, `<= 0` ⇒ `null`); raw/graduada ⇒
+  `priced ∧ != null` (sin cambio de un centavo).
+- **Seis lectores** por esas dos funciones: `vault.holdings`, `vault.holdingDetail` (comparten un `valuate()` privado),
+  `admin.custodyValue`, `adminVaults.list`, `admin.ownedItemRefs`, `admin.inventoryValue`. **Opcional del contrato,
+  hecho:** `vault.sealedTab` (`/vault/sealed` y, por delegación, `/admin/vaults/:userId/sealed`) también pasa por
+  ellas — una regla, un sitio; su número no cambia (su clave y su gate ya eran éstos).
+- `sourceOn` sale de `loadSealedSpreads()` **una vez por petición y solo si hay alguna pieza sellada** (sin sellado no
+  se lee el dial: cero consultas nuevas en bóvedas solo-raw).
+- `tcgplayerProductId` entra al `select` de `admin-vaults` y al de `ownedItems` (`ADMIN_USER_DETAIL_SELECT`) y al
+  tipo de `ownedItemRefs`. ⛔ No viaja a ningún DTO.
+- `tryBuildGradeKey('sealed')` **no cambió** (llave de cola, SK-2).
+
+## Decisiones que el contrato no fijaba
+- **`null` de `valuationCentsOf` ⇒ `referenceValue: {status:'pending'}`** en los lectores que emiten `PriceInfo`. Para
+  raw/graduada esto solo difiere de antes en un caso patológico: una fila `priced` **sin** `referenceMxnCents`, que
+  antes se emitía tal cual (`priced` sin cifra) y ya contaba como pendiente; ahora sale `pending`. Ningún total cambia.
+- **Efecto de `inventoryValue` declarado por §4.50.1-bis:** ahora gatea por dial. Con `sealed_price_source=off`, una
+  caja de plataforma mapeada cuyo único mercado es `tcgcsv` pasa de `atReferenceCents` a `pendingPriceCount`.
+  **NO MEDIDO** el valor del dial en producción.
+- Pruebas unitarias de los lectores: sus dobles de `PricingService` ganan `REAL_VALUATION_GATE`
+  (`test/helpers/valuation-gate.ts`): los **métodos reales** del prototipo, no stubs. Donde el doble valuaba sellado
+  se le añadió `loadSealedSpreads` con dial **on** (esas pruebas no son del dial; el dial lo cubren VK-2/VK-5), y el
+  fixture de `vault.holdings-sealed-identity.spec.ts` gana `tcgplayerProductId: 42` (la clave `sealed:tcg:42` que su
+  doble ya fijaba) + una aserción nueva: la caja se busca bajo `sealed:tcg:42`/`normal`. `vault-sealed.spec.ts`
+  sustituye su copia del gate por el real (el real además trata `<= 0` como sin mercado). Ninguna aserción se relajó.
+
+## Pruebas (rojo primero, medido)
+- `test/pricing.valuation-key.spec.ts` — **VK-1/VK-2** (20). Contra `c77ebc8`: no compila (las funciones no existían).
+- `test/pricing.valuation-callers-census.spec.ts` — **VK-6** (9): censo CERRADO por fichero y nº de apariciones del
+  identificador en código (comentarios fuera con `helpers/strip-comments.ts`; cuenta también referencias sin
+  paréntesis e imports), cada entrada con su razón; los tres ficheros de SK-5 no pueden figurar y deben llamar a las
+  dos funciones; canario (llamada inyectada en `vault.service.ts` se ve; comentario no cuenta). Rojo contra el
+  código previo (5 de 9: `vault.service.ts` 2, `admin-vaults.service.ts` 2, `admin.service.ts` 4 usos).
+- `test/integration/sk5-valuation.e2e-spec.ts` — **VK-3, VK-4, VK-5, VK-7** (7), Postgres real por HTTP, **fixture
+  propio** (set, 2 cartas, clientes y piezas por corrida). Contra el código previo: **5 rojas / 2 verdes** (las verdes:
+  VK-7 control y el 6º lector de VK-3, que SK-2 ya había arreglado en `inventoryValue`).
+- **Mutaciones** (copia del árbol ENTERO `git archive 1971291` + este cambio, BD propia; deterministas, N=1 cada una):
+  - VK-3, una por lector, revirtiendo SU clave a `tryGradeKeyFor`: **6/6 muerden**, y cada una en SU aserción
+    (holdings `:218`, holdingDetail `:222`, custody `:224`, `/admin/vaults` `:226`, ficha 360° `:229`,
+    inventory-value `:237`). Todas ponen también rojo VK-4.
+  - VK-1 `'sealed'` en la rama sin mapeo ⇒ rojo (unit + 2 e2e); VK-1 `item.finish` en la mapeada ⇒ rojo (unit).
+  - VK-2 gate cambiado por `status==='priced'` ⇒ rojo (2 unit + VK-5 dial off).
+  - VK-6 llamada nueva a `tryGradeKeyFor` en `vault.service.ts` ⇒ rojo (2 del censo).
+- Suites: unit **358/358 suites, 5902/5902**; `tsc --noEmit` limpio; eslint 0 errores (5 avisos previos, ninguno
+  de estos ficheros). Integración completa sobre BD **virgen**: ver «Discrepancias» (una roja, **preexistente**).
+
+## N-MEDICIÓN pedida por el arquitecto — ¿el mapeo de M2 acepta piezas de CLIENTE? **Sí (medido)**
+Sonda HTTP no commiteada, Postgres propio, **N=1, backend, 2026-09-28**: caja sellada de cliente sin mapeo ⇒
+aparece en `GET /admin/pricing/sealed/unmapped` (`true`); `PUT /admin/pricing/sealed/items/:id/mapping`
+`{tcgplayerProductId, tcgplayerGroupId}` ⇒ **`200`**; «Mi bóveda» pasa de `{status:'pending'}` a
+`{status:'priced', referenceMxnCents: 111100}` (con una ref manual bajo `sealed:tcg:<id>`). Por código
+(`sealed-mapping.service.ts` `listUnmapped`/`updateMapping`): ninguno filtra por `ownerType`. ⇒ «Lo fijaremos pronto»
+tiene camino real en el backend. **NO MEDIDO:** la pantalla de M2 que lo ofrece para piezas de cliente (frontend).
+⚠️ Por lectura (NO MEDIDO): `applyToSiblings` copia el mapeo a piezas `sealed` sin mapeo con el mismo
+`(cardId, sealedSubtype)` **de cualquier dueño** (cliente y plataforma).
+
+## ⚠️ Discrepancias / hallazgos para el arquitecto (NO los arreglé)
+1. **Export `.xlsx` de inventario cae a `'sealed'`** (fuera de los seis lectores): `inventory.service.ts`
+   `exportGradeKey` devuelve `tryBuildGradeKey(it)` = `'sealed'` para sellado **sin mapeo**, y las columnas de
+   mercado/compra/venta del export salen con la fila legada `'sealed'` (el precio de otra caja). Solo plataforma
+   (`ownerType:'platform'`). Además, para sellado **mapeado** busca con `it.finish`, no `normal`. Por lectura, **NO
+   MEDIDO** por HTTP. Candidato natural a `valuationKeyFor`. Está en el censo VK-6 con esta nota.
+2. **`price-sync` (job) pide `'sealed'` para sellado** — por lectura es uso de **cola** (sincroniza/escala por
+   variante), no valúa patrimonio; lo dejo en el censo como legítimo. Resto de la lista del contrato: confirmados por
+   lectura detrás de rama de sellado o sin sellado posible. Además de la lista del contrato, el censo encontró
+   `inventory.service.ts` re-publicación por variante (clave de cola, legítimo) y el export (punto 1).
+3. **Rojo PREEXISTENTE en integración, no de SK-5:** `enum-query-axes.e2e-spec.ts` › `GET /admin/vaults?sort= ⇒
+   conforme` sale rojo cuando corre detrás de cierta secuencia de suites. Medido: BD virgen + secuencia
+   `buylist-cycle, vault-placement-races, fx-mode, seed-idempotency, pricing-visibility, seed-account-fixtures,
+   buylist-pay-verdicts, checkout-reservation-owner, preparation-queue, enum-query-axes` ⇒ **rojo igual en el árbol
+   base `1971291` sin este cambio y con él** (N=1 cada uno). Sola, verde (N=2). Dependencia de orden de la prueba.
+   Integración completa del árbol con SK-5 sobre BD virgen: 54/55 suites, 1165 verdes, esa 1 roja.
+# §M4-SHIP · «Pedidos por preparar»: preparar envíos, la carta que falta, «Por reponer», la cubeta SPEI y el reembolso total de bóveda (v1.80.5 + errata v1.80.6 · backend · 2026-09-29)
+
+> Contrato: `API_CONTRACT §M4-SHIP` **v1.80.5 con la errata v1.80.6** (commit `290f27f`: predicados `reclaimedBy`/
+> `isVaultReclaimTarget` anclados a `refund_return` con `createdAt ≥ fullRefundClosedAt`, `closed_nothing_to_ship` de un
+> retiro con todas las líneas `blocked`, guarda `409 CONFLICT {reason:'nothing_to_ship'}`, `inventoryItemIds?` en
+> `reclaim-vault`). Copys de los correos que emite backend: `DESIGN_SYSTEM v4.9 §37` (`f0962d5`). Rama
+> `claude/envio-preparar`, worktree `/home/user/tcg-envio`. Cuatro commits, uno por bloque: `811e06a` (M-61 + fórmula),
+> `e843041` (preparación, libro, tope, M3 bóveda §18, webhooks), `482eae5` (apartado «Por reponer», cubeta SPEI,
+> `setClabe`, cadena del contracargo, §16), `19972b5` (SEC-SHIP-A1, pruebas §18, tablero/merma/M3/M7, enlaces de correo).
+> Lo medido lo medí yo en este entorno (Postgres 16 propio en `:55441`, Redis propio en `:56441`, doble de Stripe con
+> estado); lo que no pude medir va marcado **NO MEDIDO**.
+
+## 1. Migración `M-61` — `20260929120000_m61_shipment_prep_refunds` (una sola, aditiva)
+
+- Enums nuevos: `MissingReason`, `PaymentRefundKind`, `PaymentRefundStatus`, `ReplacementCaseSource`,
+  `ReplacementCaseStatus`, `ManualRefundSource`, `ManualRefundStatus`; `MovementReason` gana `replacement` y
+  `refund_return`; `VaultPlacementCancelReason` gana `full_refund`.
+- Columnas: `ShipmentRequest.preparedAt/preparedByUserId`; `ShipmentItem.prepStatus/prepMarkedAt/prepMarkedByUserId/
+  missingReason`; `VaultPlacementItem.missingReason` (**backfill `not_found`** sobre marcas `missing` previas: **0 filas**
+  aquí); `Order.fullRefundClosedAt`; `KycProfile.clabeUpdatedAt` (nace `NULL`: «fecha de cambio desconocida»).
+- Tablas: `PaymentRefund` (el libro; llaves `item:<shipmentItemId>` · `order-rest:<orderId>` · `ship-fee:<shipmentRequestId>`
+  · `order-full:<orderId>` · `case:<caseId>`; `orderItemId @unique`, `shipmentItemId @unique`, `replacementCaseId @unique`),
+  `ReplacementCase` (un nodo exacto: `shipmentItemId` xor `placementItemId`; índice parcial **un caso `open` por pieza**),
+  `ManualRefund` (`case-spei:<caseId>` · `refund-spei:<paymentRefundId>` · `reissue:<manualRefundId>`; índices parciales
+  «una viva por caso+source» y «una viva por fila de Stripe»; `reissuedFromId @unique`).
+- Todos los `CHECK` de §M4-SHIP.2 (forma por `kind`, identidad `amount = merchandise + shipping + fee + compensation`,
+  `compensation = 0 ⇔ kind ≠ case_refund`, `submitted|succeeded ⇒ stripeRefundId`, `failed ⇒ failedAt`; en el caso:
+  `open ⇔ sin resolución`, `found ⇒ misma pieza ∧ not_found`, `replacementShipmentItemId ⇒ replaced`, `refunded ⇔ los
+  seis refund*`; en SPEI: `paid ⇔ paidAt/paidBy`, `cancelled ⇔ cancelledAt/By/nota`).
+- Diales: `operator_refund_cap_24h_cents` (seed **500000**, D-3) y `case_refund_hard_multiplier` (seed **5**, entero 2–50,
+  D-12). `CASE_REFUND_CONFIRM_MULTIPLIER = 2`, `REPLACEMENT_CASE_DUE_MS = 7×24 h`, `CLABE_RECENT_CHANGE_MS = 72 h`,
+  `REFUND_ATTEMPT_LEASE_MS = 5 min`, `STUCK_REFUND_AFTER_MS = 10 min` — una constante cada una
+  (`vault/replacement-case.rules.ts`, `payments/refunds/refund-ledger.service.ts`).
+- **Drift preexistente, no mío:** `prisma migrate diff` reporta `RenameIndex PriceReference_variant_capturedDate_key`
+  desde antes de `HEAD` (medido sobre `c4d378b` antes de tocar nada).
+
+## 2. Qué se construyó (por módulo) y las decisiones que el contrato dejaba abiertas
+
+**`common/money.ts`** — `itemMissingRefundComponents` (`P + floor(F·P/G)`, IVA dentro), `orderRemainingRefundComponents`
+(el centavo residual del IVA va al envío), `shipmentFeeRefundComponents`, `orderFullRefundComponents` (también
+`IVA_EXCLUSIVE`, con el IVA persistido repartido DENTRO para que la identidad del `CHECK` se cumpla),
+`caseRefundContextOf` + `caseRefundComponents(X)` (monótona; `X > Q` ⇒ compensación) y `subtractRefundComponents` (la fila
+SPEI = diferencia, ±0 por construcción). `common/refund-math.spec.ts`: `31458`, `52430+31458+15729 = 99617`, ±0 para 200
+montos.
+
+**`shipments/shipment-prep.service.ts`** — `PATCH …/prep-items/:id` (CAS sobre `prepStatus` **y** `missingReason`),
+`POST …/prepared` (el algoritmo de §M4-SHIP.5 entero: tope del operador con `pg_advisory_xact_lock` por actor, plan del
+servidor, `REFUND_PREVIEW_STALE`, CAS por pieza, casos «Por reponer» en retiros, sello CAS, cierre `cancelado`,
+post-commit `executeRefund` + `AV-12`/`AV-13`), `DELETE …/prepared` (conserva marcas; en un retiro llama a `onFullRefund
+('unprepared', onlyItemIds)` por cada orden de origen con sello ⇒ `reclaimed[]` en la respuesta), `assertCanAdvance`
+(**las guardas de dinero van primero**: `WITHDRAWAL_LINE_ORIGIN_REFUNDED` / `ORDER_NOT_SETTLED`, luego
+`SHIPMENT_NOT_PREPARED`, `SHIPMENT_HAS_OPEN_REPLACEMENTS`, `nothing_to_ship`), `summary` (`toReplace`,
+`toReplaceOverdue`, `stuckRefunds`, `manualRefundsPending` solo súper-admin).
+- *Decisión:* los conteos de preparación cuentan **`blocked` por disponibilidad** aunque la línea esté `picked` (una
+  carta reclamada por un reembolso total no va a salir); la marca se conserva. Es lo que hace que un retiro vacío por
+  reclamo se titule «Nada que enviar» (PS-66) y que `PREPARATION_HAS_BLOCKED_LINES` **no** cuente bloqueadas cuyo origen
+  ya no está `settled`.
+- *Decisión:* `closed_nothing_to_ship` en un retiro con todas las líneas `blocked` emite `shipment_fee` **desde
+  `prepared`** (v1.80.6, PS-66); `closeWithdrawalIfEmpty` sigue siendo exclusivo de `refund`/`void` del apartado.
+
+**`payments/refunds/`** — `refund-ledger.service.ts` (`createRows` + bitácora `payment_refund.requested` por fila;
+`executeRefund` con **reclamo de 5 min**, `list` paginado por `metadata.refundId` cuando `attemptCount > 1`, clasificación
+definitivo/transitorio de `StripeService.classifyRefundError`; `retry` — el operador no reintenta `order_full` ni
+`case_refund`; **AV-12 un correo por destinatario y acto** — el `case_refund` y la `shipment_fee` de su cierre van
+juntos; `AV-3` lo manda **quien hace la transición `settled → refunded`**, sea la confirmación de M3 o el webhook: es
+equivalente a «quien escribe el sello» en bóveda y evita el doble correo del directo, donde el sello se escribe en la
+tx1); `full-refund.service.ts` (`onFullRefund` despacha por `fulfillmentMode` y **lanza** ante lo que no tiene rama;
+`reclaimVaultOnFullRefund` idempotente por pieza, destino `picking`, `ownershipStatus` en el CAS, `in_packed_withdrawal`
+sin `unpackedConfirmed`, sello por tabla de §18.2, colocación `pending` ⇒ `cancelled/full_refund`);
+`manual-refund.service.ts` (la cubeta; `revealToken = base64url(HMAC(k, 'mr-reveal:v1:' + id + ':' + clabeHmac))` con
+`PiiCryptoService.domainHmac` — la misma llave del índice ciego, ⛔ ningún secreto nuevo, ⛔ nada persistido; `paid` bajo
+`ManualRefund → KycProfile → Order`; `reissue`; `toManual` con la orden `FOR UPDATE` y `REFUND_FAILURE_DISPUTE_CODES`);
+`refund-reports.service.ts` (`operator-summary`, `shrinkage` con `toStatus ∈ {lost,damaged} ∧ fromStatus ∉ {lost,damaged}`);
+`origin.ts` (`resolveOriginsBatch`: la adquisición **más reciente** entre casos `replaced` y compras, empate ⇒ compra;
+`currentPiecesOf` con tope 16 y ciclo/bifurcación ⇒ `ambiguous`; `originsBeingRefunded`).
+- *Decisión:* las plantillas `AV-12…AV-16` viven en `payments/refunds/mail/refund-notice.templates.ts` (el contrato
+  sugería `shipments/`): el hecho que avisan es del libro. Copys y enlaces por `DESIGN_SYSTEM §37.7/§37.8f/§37.9d`.
+- *Decisión (v1.80.6, PS-61 M6):* `returned` en `vaultPieces` ⇔ hay `refund_return ≥ sello`, **y se queda** aunque la
+  pieza cambie después (`recuperada` ⇒ `listed` sin movimiento; `no_recuperada` ⇒ `lost` con movimiento);
+  `pendingConfirmation ⇔ sigue picking ∧ needsManual`.
+- **`REFUND_FAILURE_DISPUTE_CODES = ['charge_disputed', 'charge_already_refunded_or_disputed']`** — **NO MEDIDO** en modo
+  prueba real de Stripe MX (aquí no hay `STRIPE_SECRET_KEY` de prueba; el doble responde `charge_disputed`). PS-48 fija
+  la conducta con el doble; queda por medir en la ventana con claves.
+
+**`orders/`** — `order-refund.service.ts` (M3 total: `requestFullRefund` con `confirmPiecesWithCustomer`,
+`VAULT_PIECE_IN_PACKED_WITHDRAWAL` **solo en tx1**; `reclaimVault` §18.10 con `inventoryItemIds` 1–50 solo con
+`confirmUnpacked`, ids ajenos ⇒ `400 {field:'inventoryItemIds'}`); `orders.service.ts` (`chargeback-inventory` para
+`vault refunded`: objetivos por el **ancla** `refund_return ≥ sello`, **⛔ no por «está picking»** — el `WHERE` del CAS es
+la garantía (`409 CONFLICT` y rollback si alguien la puso `in_stock` por fuera); una objetivo ya en su estado de venta
+la dejó una pasada anterior y se omite; `recuperada` de bóveda **no** escribe movimiento; `no_recuperada` ⇒ `lost`
+firmada); `order-public-status.ts` (**un cuerpo** para el invitado y el cliente registrado: `publicStatus`,
+`activeShipment`, `refundedCentsOf`, `clientRefundOf`; la regla v1.80 «todo devuelto por Stripe ⇒ `reembolsado`» vive
+dentro); `GET /orders/:id` gana `fulfillmentMode`, `publicStatus`, `shipment` (lista blanca), `refundedCents`,
+`items[].refund`, `items[].replacement` (con `refund.transferStatus` derivado de la fila SPEI vigente); `GET /orders`
+gana `publicStatus`/`fulfillmentMode`; M3 lista gana `customer`/`refundedCents`/`q` sobre `recipientName`; M3 detalle
+gana `customer`, `refunds`, `items[].refund`, `shipments`, `vaultPlacement`, `manualRefunds`/`manualRefundedCents`
+(solo súper-admin) y `vaultPieces` (bóveda).
+
+**`vault/`** — `replacement-case.service.ts` + `admin-replacement-cases.controller.ts` (lista/detalle/candidatas hasta 50,
+`replace`/«apareció», `refund-preview`, `refund`, `void`; orden de candados **puerta del cliente → envío → caso → piezas
+(id asc) → orden de origen → libro**); `vault-placement.service.ts` (`missingReason` obligatorio con `missing`; el caso
+nace en `confirm` y en el 6-bis; CAS de la pieza con `P` en el `WHERE` ⇒ `lost|damaged` a nombre del cliente,
+movimiento con el actor = **la merma con firma**); `vault-physical-inventory.service.ts` (`to_replace` primero,
+`counts.toReplace` fuera de `total`); `vault.service.ts` (`marketValueOf` extraído — **la misma** valuación que «Mi
+bóveda» da `M`; `HoldingDTO.replacement`; `withdrawable` gana la quinta condición vía `originsBeingRefunded`).
+- *Medido (§M4-SHIP.15.2 «NO MEDIDO por el arquitecto»):* **(a)** M7 hoy **no** leía merma por movimiento; la merma por
+  actor nace en este stream con la regla «entrada a `lost|damaged` una vez» (`shrinkageWhere`): el nacimiento del caso
+  cuenta, el traspaso `replacement` no (PS-49 verde). **(b)** `GET /vault/holdings` **sí lista y sí valúa** una pieza
+  `lost|damaged` del cliente (no filtra por `status`, solo `≠ withdrawn`): se deja así a propósito — es la carta que se
+  le debe («la estamos reponiendo», `withdrawable:false`).
+
+**`users/` + `buylist/`** — `UsersService.setClabe(tx, userId, clabe, actor)`: **el único escritor** de `clabeEnc|
+clabeHmac|clabeUpdatedAt` (`FOR UPDATE` de la fila; índice ciego igual ⇒ nada; distinto ⇒ escribe, bitácora
+`kyc.clabe_changed {previousMasked,newMasked}` y `AV-16` post-commit vía `notifyClabeChanged`). `PUT /users/me/kyc` y el
+alta de buylist lo usan (el `upsert` del INE ya **no** lleva la CLABE). `GET /users/me/kyc` gana `clabeUpdatedAt`.
+
+**`inventory/`** — SEC-SHIP-A1 **en este worktree** (el contrato decía «en `claude/arreglos-operador` o donde el
+orquestador decida»; esa rama no existe aquí): `mark` solo plataforma `in_stock|listed` con el estado en el `WHERE`
+(`ITEM_NOT_ADJUSTABLE {status, ownerType}` para el resto, incluida la carta de un cliente fuera de un caso — D-14 = «por
+ahora no»); `PATCH {status:'in_stock'}` con la misma guarda, escritura condicionada y todos los campos en la misma tx,
+bitácora `inventory.item_updated` con `before/after`; ⛔ sin `InventoryMovement` para `listed ↔ in_stock`.
+~~**Instrucción de fusión (techlead R3 sobre `c20451f`):** «manda `item-location.rules.ts` y la copia en línea se
+borra»…~~ 🔒 **Sustituida (2026-09-29) por la regla única de `API_CONTRACT v1.80.7.2`, §M1
+[«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule)** (y `ARCHITECTURE §9 D-SHIP-7`, que la cita): la instrucción
+anterior citaba v1.80.7 p.9 y contradecía lo que el contrato decía entonces; **ya no se sigue**. Qué queda, qué sale, en qué
+orden fusionan los tres streams (hotfix · dinero · envío) y qué pruebas se re-corren sobre el **árbol fusionado** (PS-41,
+PS-41b, PS-42, **PS-42b invertida**, PS-64, INV-SP-8 y las suites del hotfix) está **solo** allí — ⛔ no se copia aquí para
+no tener dos textos. ⛔ Esta rama (`claude/envio-preparar`) **no** hace la fusión: la hace la sesión que fusione los tres
+streams. ✅ **Aplicada en la fusión `claude/release-s5` (`5321b8c6`, 2026-09-29)** según la [regla de fusión
+SEC-SHIP-A1](API_CONTRACT.md#M1-merge-rule), punto por punto con fichero:línea en «Release s5 — fusión de backend» al
+final de este documento. El hueco que la copia
+en línea tenía (un `PATCH {status}` igual al leído caía en el `update` plano y re-escribía `status` ⇒ pisaba una reserva)
+quedó cerrado aquí (PS-42b, §M4-SHIP-TL más abajo).
+
+**`admin/`** — `workQueue.toPrepare {ship, vault, toReplace, toReplaceOverdue, stuckRefunds}` (el mismo cuerpo que el
+`summary`), `workQueue.manualRefunds` y `workQueue.operatorRefunds` (`null` para el operador), `GET
+/admin/finance/shrinkage`; P&L e IVA restan lo devuelto (libro `submitted|succeeded` por `submittedAt`; SPEI `paid` por
+`paidAt`): `refundsCents` (mercancía + envío **netos**), `refundedFeesCents`, `compensationsCents` (renglón propio, ⛔
+nunca restando IVA), `ivaRefundedCents`/`ivaNetCents`; `profitCents` resta los tres. `exportCsv(pnl)` gana las tres
+columnas **antes** de `profitCents` (mismo orden que el objeto).
+
+## 3. Lo que difiere del contrato o el contrato no fijaba — para el arquitecto (regla 9)
+
+1. **P&L/IVA:** el contrato manda restar (§M4-SHIP v1.80 tabla de backend, PS-40) pero **no nombra los campos** del DTO.
+   Puse `refundsCents`, `refundedFeesCents`, `compensationsCents` (P&L) e `ivaRefundedCents`, `ivaNetCents` (IVA),
+   aditivos; `pnl-iva-neutral` sigue verde sobre las seis cifras heredadas. **Pido que el arquitecto ratifique (o
+   renombre) esos cinco nombres en §M7.**
+2. **`C-CLABE-1` con una excepción declarada:** `AdminService.deleteUser` (borrado suave, C20/PII) **anula** `clabeEnc/
+   clabeHmac` (`null`, nunca un valor). El candado la tolera explícitamente (solo nulos, sin `clabeUpdatedAt`). No es
+   un cambio de CLABE (con CLABE nula, `paid` ⇒ `422 CLABE_NOT_ON_FILE`), pero el texto de §M4-SHIP.8 dice «cualquier
+   otro escritor ⇒ rojo»: que el arquitecto lo bendiga o pida que la anonimización pase por un verbo de `users`.
+3. **`POST /shipments` con una carta reclamada:** PS-55/PS-63 esperan `422 ITEM_NOT_IN_CUSTODY`; medido: `classifyItems`
+   responde `422 NOT_FOUND`, porque la pieza ya **no es del cliente** (regla M-25 «no revelar»). Las dos cierran la
+   puerta; las pruebas aceptan ambas. Que el arquitecto elija si M-25 manda (mi lectura) o si hay que buscar por `id`.
+4. **Operador ⇒ `403 MONEY_OUT_FORBIDDEN` auditado en la cubeta y en `refund`/`void`:** para que sea `MoneyOutGuard`
+   quien conteste (y audite), esos verbos llevan `@Roles(operador+)` de clase + `@MoneyOut()` (como M3), ⛔ no
+   `@Roles(super_admin)` — con éste el guard de roles contestaría `FORBIDDEN` **sin** bitácora. El efecto es el del
+   contrato (solo `super_admin` pasa); lo anoto porque el texto dice `@Roles(super_admin)`.
+5. **`found` no escribe `replacementShipmentItemId`** (el `CHECK` de M-61 solo lo admite con `replaced`; la línea que
+   vuelve a `picked` es la misma). Coherente con el schema del contrato, no con la frase «guarda su id» de §15.4 paso 7.
+6. **`REPLACEMENT_CASE` y `RawCondition`:** el schema solo tiene `NM`, así que PS-22 no puede medir «otra condición»;
+   mide acabado, carta y ambos.
+7. **Webhook bajo candado ⇒ `503 BUSY_TRY_AGAIN`:** en la carrera M3-confirmación vs `charge.refunded` (PS-57), cuando
+   la fila `Order` está tomada, el webhook responde `503` (Stripe reintenta) y el invariante se cumple igual (un
+   movimiento por carta, una bitácora, un `AV-3`) — es conducta previa del webhook, no nueva.
+8. **`vaultPieces`/`chargeback-inventory` (v1.80.6 M6):** `returned` es permanente desde el ancla; la selección de
+   objetivos no filtra por `picking`; una objetivo ya confirmada se omite (idempotencia entre pasadas). Es mi lectura
+   de «una objetivo forzada a `in_stock` ⇒ 409» **y** «una pasada nueva solo toca la nueva» a la vez.
+9. **`inventory` SEC-SHIP-A1 aquí** (punto 2 del §2 «inventory»): conflicto de merge previsible con `arreglos-operador` —
+    🔒 **se resuelve con la regla única de `API_CONTRACT v1.80.7.2` §M1 [«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule)**
+    (sustituye la lectura anterior de v1.80.7 p.9; ver §2 «inventory»). La aplica la sesión que fusione los tres streams.
+    ✅ **Aplicada en `claude/release-s5` (`5321b8c6`, 2026-09-29)**: ver «Release s5 — fusión de backend» al final.
+10. **La cola de preparación no se cae por una fila sin dueño ni pedido** (`d030c85`): `buildView` llamaba
+    `resolveOriginsBatch(db, row.userId as string, …)` y una `ShipmentRequest` con `userId` **y** `orderId` nulos (inexpresable
+    por la API; la fixture `B-1` de `preparation-queue` la escribe por SQL) tumbaba **toda** la cola con `500`
+    (`PrismaClientValidationError`). Ahora esa fila va **sin origen** (`no_origin_order`, H8) y la cola responde. Medido:
+    `preparation-queue.e2e-spec.ts` 5 rojas → 17/17. No cambia el contrato; lo anoto porque es conducta ante corrupción.
+11. **`AV-6` legado se mide sobre un `solicitado`** (`avisos-sellos.e2e-spec.ts`): con §M4-SHIP.9 (`picking|guia → cancelado`
+    ⇒ `409 PAID_SHIPMENT_NOT_CANCELLABLE`, y `TRANSITIONS` ya no los admite) la carrera «dos `PATCH {cancelado}` sobre la
+    misma lectura» solo existe sobre un `solicitado` sin cobrar. Es lo que el contrato dice; lo anoto para QA porque la
+    prueba cambió de fixture, no de aserto (un correo, dos `200`). Las demás suites legadas que cambiaron (guest-checkout,
+    vault-shipments, iva-price-convention, vault-placement-birth) solo se alinearon a v1.80: la guía exige «preparado»,
+    `customer` es aditivo en `AdminShipmentDTO`, el CSV del P&L trae las tres columnas de lo devuelto, `missing` ⇔
+    `missingReason`.
+12. **Candados que las carreras no distinguen (mutaciones equivalentes, con la razón):** (a) ~~el `FOR UPDATE` de la orden
+    de origen en `ReplacementCaseService.refund` (`lockOriginOrder`) — equivalente~~ **CORREGIDO (techlead R1 sobre
+    `c20451f`): NO es equivalente.** PS-27b/PS-27c seguían 10/10 sin él solo porque M3 toma las piezas que el caso también
+    toma; pero `lockCase` lee la orden ANTES de esperar la pieza y hay escritores de `Order.status` que no tocan la pieza
+    del caso ni dejan fila del libro (`charge.dispute.created` de bóveda; `charge.refunded` desde el panel de Stripe). Sin la
+    relectura bajo `FOR UPDATE`, el reembolso del caso decidía con `settled` caduco y creaba `case_refund`/SPEI sobre un
+    cargo disputado ⇒ doble pago. La caza es **PS-27d** (contracargo encolado primero reteniendo `Order`, N=10): con M12
+    aplicada **0/10**; con el código, **10/10**. Razón escrita en `lockOriginOrder`. (b) el CAS `replacementCases: none open` de `shipments.service` en `→guia`: la
+    guarda primaria es `prep.assertCanAdvance` (quitarla: PS-21 rojo); el CAS es la segunda capa. (c) `paid` sin el `FOR
+    UPDATE` de la fila pero con el CAS `status:'pending'`: PS-33/PS-33b siguen 10/10 (el CAS basta); quitar candado + CAS +
+    guarda ⇒ PS-33b **0/10**. Techlead: si prefiere una sola capa, es decisión suya; yo dejé las dos.
+
+## 4. Mediciones B13/B14 (§18.9 / §18.11)
+
+- **B13** — `SELECT count(*) FROM "Order" WHERE "fulfillmentMode"='vault' AND status='refunded' AND "fullRefundClosedAt"
+  IS NULL`: **NO MEDIDO en producción** (sin usuario de solo lectura aquí). En mi BD de pruebas el conteo varía con las
+  fixtures (una PS pone `refunded` sin cierre a propósito). **Antes de desplegar** la corre el dueño o un usuario de solo
+  lectura; esperado **0** (`HECHOS`: sin ventas reales); si > 0 ⇒ arquitecto (esas órdenes no tienen verbo:
+  `reclaim-vault ⇒ 409 not_closed`).
+- **B14** — `AdminService.inventoryValue()` (`admin.service.ts:1671`): `where: { ownerType: 'platform', status: { in:
+  ['in_stock', 'listed', 'reserved'] } }` ⇒ **no cuenta `picking`**: la carta congelada por el reclamo **no** infla
+  `atReferenceCents` hasta `no_recuperada`. Sin cambio de M7.
+- `IVA_EXCLUSIVE` liquidadas en esta BD: 1 de 15 (fixture de otra suite); `REFUND_NOT_AVAILABLE {legacy_convention}` la
+  cubre (PS-15).
+
+## 5. Pruebas y cifras (medidas por mí, 2026-09-29, sobre `37fd85a` salvo donde se indica)
+
+| Suite | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, sobre `37fd85a`) | **354/354 suites · 5837/5837 pruebas** |
+| `test/integration/shipments-prep.e2e-spec.ts` (PS-1…PS-17, PS-43…45, PS-50/51) | 19/19 (`5cf99e3`) |
+| `test/integration/replacement-cases.e2e-spec.ts` (PS-18…PS-39 salvo PS-20/37, PS-46…48, PS-53/54) | 26/26 (`37fd85a`) |
+| `test/integration/full-refund-vault.e2e-spec.ts` (PS-55…PS-66, PS-41/42/49/52, PS-40) | 13/13 (`5cf99e3`) |
+| `test/integration/orders-public-status.e2e-spec.ts` (PO-1…PO-7) | 4/4 (`5cf99e3`) |
+| `test/integration/vault-placement-verbs/races` (PS-20, `to_replace`, `customer` v1.80) | 47/47 (`5cf99e3`) |
+| `test/refunds.candados.spec.ts` (C-REF-1, C-MREF-1, C-CLABE-1, C-FULLREF-1, lease > timeout, PS-62) | 17/17 |
+| Legadas que tocó el stream (`d030c85`): preparation-queue 17/17 · guest-checkout · vault-shipments · iva-price-convention · vault-placement-birth · avisos-sellos 15/15 | 6/6 suites verdes |
+| Resto de la integración (22 suites de `driver.sh`, sobre `19972b5`; las 6 de arriba se re-midieron sobre `d030c85`) | verde salvo las 6 que se alinearon |
+
+Carreras (barrera de fila, entrelazado observado en las N tiradas, N=10, autor: backend, `int-core-final` + `int-rc-final`):
+PS-1 10/10 · PS-4 10/10 · PS-6 10/10 · PS-7 10/10 · PS-11 10/10 · PS-44 10/10 · PS-51 10/10 · PS-21 10/10 · PS-23 (dos
+casos) 10/10 · PS-23 (vs compra) 10/10 · PS-27 10/10 · **PS-27b** (M3 primero) 10/10 · **PS-27c** (dos casos, misma orden)
+10/10 · PS-33 10/10 · **PS-33b** (cancel primero) 10/10 · PS-47 10/10 · PS-57 (M3 vs webhook) 10/10 · PS-57 (webhook ×2)
+10/10 · PS-41 10/10 · **PS-41b** (reserva primero) 10/10 · PS-65 10/10 · VP-6/13/18/24/25/32/40 (vault-placement-races)
+todas N/N. Las «b/c» son el **otro orden** de la misma carrera: el escritor rival se encola primero y el verbo decide con
+una lectura caduca; son las que distinguen las mutaciones que el orden original no distinguía (abajo).
+
+### Mutaciones (sobre COPIA del árbol ENTERO, `git archive HEAD` + `node_modules` enlazado; O-9)
+
+Ronda 1 (`mutate.py`, HEAD `19972b5`), 14 mutaciones: **8 rojas** (M5 C-CLABE-1 · M6 PS-61 · M7 PS-63 · M8 PS-66 · M9 PS-55 ·
+M10 PS-57 · M13 PS-36 · M14 PS-31), **6 verdes** que se investigaron una a una:
+
+| Ronda 1 verde | Qué era | Qué se hizo | Ronda 2/3 (`5cf99e3`) |
+|---|---|---|---|
+| M1 PS-21 | quitar el CAS `none open` de `shipments.service` | era la 2.ª capa (§3.12b) ⇒ mutar la guarda primaria (M1b) y las dos (M1c) | **M1b roja · M1c roja** |
+| M2 PS-23 | quitar `status` del CAS de la candidata | la carrera vuelca `ownerType`, así que no distingue; lo mide PS-22 (`not_platform_available`) | **M2b roja** (`PS-22\|PS-23`) |
+| M3 PS-33 | quitar `status:'pending'` del CAS de `paid` | el `FOR UPDATE` + relectura lo cubre; y sin el candado, el CAS lo cubre (M3b verde, §3.12c) ⇒ nueva carrera **PS-33b** | **M3c roja** (PS-33b 0/10) |
+| M4 PS-47 | `if (false && …)` | rompía la compilación (narrowing) ⇒ 0 pruebas: error del arnés, no del código; re-mutado `expected = body.revealToken` | **M4b roja** |
+| M11 PS-41 | quitar `status` del WHERE del CAS de `mark` | la carrera original siempre dejaba ganar a `mark`; nueva carrera **PS-41b** (reserva primero) | **M11b roja** (PS-41b 0/10) |
+| M12 PS-27 | quitar el `FOR UPDATE` de la orden en el reembolso del caso | PS-27b y PS-27c siguen 10/10 sin él porque M3 toma las piezas que el caso también toma; **no es equivalente**: el contracargo de bóveda y el `charge.refunded` del panel cambian `Order.status` sin tocar la pieza ni el libro ⇒ nueva carrera **PS-27d** (techlead R1) | **M12c roja** (PS-27d 0/10 con la mutación; PS-27/27b/27c 10/10 con ella — solo PS-27d la caza) |
+
+Total: **14 de 14** mutaciones distinguidas por al menos una prueba (M12 dejó de ser «equivalente» con PS-27d; ver
+§M4-SHIP-TL más abajo). `mut-report.txt`, `mut2-report.txt`, `mut3-report.txt` y las salidas por mutación quedaron en el scratchpad
+del stream hasta la limpieza (se borran al cerrar; las cifras están aquí y en el resumen del encargo).
+
+## 6. Lo que el frontend necesita (DTOs y códigos)
+
+- Cola ENVÍO: `ShipPreparationOrderDTO` (`kind`, `customer`, `preparation`, `items[].{prepStatus, missingReason,
+  prepMarkedBy, availability, refund}`), `PATCH prep-items {status, missingReason?}`, `POST prepared
+  {expectedRefundCents}` ⇒ `{outcome:'prepared'|'closed_nothing_to_ship'|'already_prepared', refunds, cases?}`,
+  `DELETE prepared` ⇒ `{outcome, reclaimed?}`; `GET picking-list/summary`.
+- Apartado: `ReplacementCaseDTO` (+ `candidates` en detalle), `CaseRefundPreviewDTO`, verbos `replace`
+  `{inventoryItemId, locationId?}`, `refund {amountCents, reason, expectedStripeCents, expectedManualCents,
+  confirmAboveReference?}`, `void {note}`.
+- Cubeta SPEI: `ManualRefundDTO` (con `clabeUpdatedAt`, `clabeChangedRecently`, `reissuedFromId/AsId`), `reveal-clabe`
+  ⇒ `{clabe, beneficiaryName, clabeUpdatedAt, clabeChangedRecently, revealToken}`, `paid {revealToken, speiReference?,
+  note?, confirmRecentClabeChange?, confirmOriginNotSettled?}`, `cancel {note}`, `reissue {note}`, `POST
+  /admin/refunds/:id/to-manual`.
+- M3: `POST …/refund {reason, confirmPiecesWithCustomer?}` (`409 VAULT_PIECE_IN_PACKED_WITHDRAWAL`, `422
+  REFUND_CONFIRMATION_REQUIRED {vaultPieces}`), `POST …/reclaim-vault {note, confirmUnpacked?, inventoryItemIds?}`,
+  `vaultPieces[]` en el detalle, `chargeback-inventory` sobre `vault refunded`.
+- Cliente: `GET /orders/:id` (`publicStatus`, `shipment`, `refundedCents`, `items[].refund/replacement`), `GET /orders`
+  (`publicStatus`), `GET /shipments/:id` (`refundedCents`, `items[].refund/replacement`), `HoldingDTO.replacement` y
+  `withdrawable`, `GET /users/me/kyc.clabeUpdatedAt`, `422 ITEM_ORIGIN_REFUNDED` / `ineligible[].reason='origin_refunded'`.
+- Códigos nuevos en `common/error-codes.ts`: los de §0 v1.80–v1.80.5 (`PREPARATION_*`, `PREP_ITEM_*`, `REFUND_*`,
+  `MONEY_OUT_LIMIT_EXCEEDED`, `SHIPMENT_HAS_OPEN_REPLACEMENTS`, `CASE_*`, `REPLACEMENT_NOT_ELIGIBLE`, `MANUAL_REFUND_*`,
+  `CLABE_NOT_ON_FILE`, `CLABE_CHANGED_SINCE_REVEAL`, `ORDER_NOT_SETTLED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`,
+  `ITEM_ORIGIN_REFUNDED`, `VAULT_PIECE_IN_PACKED_WITHDRAWAL`, `REFUND_CONFIRMATION_REQUIRED`, `ITEM_NOT_ADJUSTABLE`).
+- Enlaces de correo: `/orders/{id}` (pedido) y `/vault?tab=withdrawals` (retiro); `AV-14` sin CLABE ⇒ `/cuenta#kyc`.
+
+
+# §M4-SHIP-TL · Gate del techlead sobre `c20451f` (R1/R2/R3 + deuda (a)) y errata `API_CONTRACT v1.80.7` (backend · 2026-09-29)
+
+> Rama `claude/envio-preparar`, worktree `/home/user/tcg-envio`, base `ea615c3` (errata v1.80.7 del arquitecto sobre
+> `4fcc6b6`/`c20451f`). Postgres 16 propio en `:55447`, Redis en `:56447`; lo medido lo medí yo (autor: backend); las
+> proporciones llevan su N. Mutaciones sobre **COPIA del árbol ENTERO** (`tar` del worktree + `node_modules` enlazado, O-9).
+> Cada punto: **rojo antes → verde después**, fichero, prueba, mutación.
+
+## 1. R1 (Alta, dinero) — M12 NO era equivalente: `lockOriginOrder` es la única relectura de `Order`
+
+- **Antes:** §3.12(a) y la tabla de mutaciones decían que quitar el `FOR UPDATE` de la orden en `refund` era «equivalente»
+  porque PS-27b/PS-27c seguían 10/10. Era cierto para esos rivales (M3 toma las piezas que el caso también toma) y falso en
+  general: `lockCase` (`replacement-case.service.ts` · `load`) lee la orden **antes** de esperar la pieza, y el
+  contracargo de bóveda (`payments.service.ts · onChargeDisputeVault`: `updateMany` que NO alcanza la pieza `lost|damaged`
+  del caso, luego `order.update({status:'chargeback'})`) y el `charge.refunded` del panel de Stripe (sin `PaymentRefund` ⇒ la
+  vista previa no caduca) cambian `Order.status` sin serializar con nada de lo que el caso toma antes.
+- **Prueba (falla primero):** **PS-27d** (`test/integration/replacement-cases.e2e-spec.ts`): `charge.dispute.created`
+  encolado PRIMERO reteniendo `Order`, luego `POST …/refund`; N=10. Con M12 aplicada (copia): **0/10** — el caso queda
+  `refunded` con fila `case_refund` y la orden `chargeback` (doble pago). Con el código: **10/10** — `200` el webhook,
+  `409 CASE_ORIGIN_NOT_SETTLED` el caso, 0 filas, 0 SPEI, 0 llamadas a Stripe, caso `open`; PS-27/27b/27c siguen 10/10
+  bajo M12 (solo PS-27d la caza).
+- **Código:** sin cambio de conducta; `lockOriginOrder` gana el porqué (comentario). §3.12(a) y la tabla, corregidas arriba.
+
+## 2. R2 (Media) — `void` tomaba `caso → Order → piezas`; ahora `piezas → Order` como todos
+
+- **Antes:** `void` (`replacement-case.service.ts`) pedía `Order` (paso «¿viable?») y después la pieza; `refund`/`replace`,
+  M3 tx1 (`order-refund.service.ts`), `reclaim-vault`/`unprepare` (`full-refund.service.ts`) y el webhook de disputa van
+  piezas → `Order`. Rival real medido: **`reclaim-vault`** sobre una orden ya `refunded` (donde `void` sí es viable). M3
+  **no** sirve de rival: sobre una orden no `settled` contesta `422` antes de tomar candado alguno, y sobre una `settled`
+  es `void` quien contesta `409 CASE_NOT_VOIDABLE` antes de tocar la pieza (primera versión de PS-36b: Δ deadlocks = 0
+  por eso, no por el candado).
+- **Prueba:** **PS-36b** (`replacement-cases.e2e-spec.ts`): `mkSpei` + `charge.refunded` total (orden `refunded`, sellada,
+  la pieza del caso `open_case` sin tocar), barrera en la pieza del caso, `reclaim-vault` encolado primero vs `void`; N=10;
+  `pg_stat_database.deadlocks` antes/después. Con el orden viejo (copia): **0/10**, Δ deadlocks > 0 y un `503
+  BUSY_TRY_AGAIN` por tirada. Con el reorden: **10/10**, Δ = 0, los dos `200`, caso `voided`, pieza `lost` de plataforma.
+- **Código:** `lockPieces` antes de `lockOriginOrder` en `void` (comentario con el porqué).
+
+## 3. R3 — SEC-SHIP-A1 dos veces: el hueco del `PATCH {status}` igual al leído, cerrado; la fusión, invertida
+
+- **Antes:** `updateItem` (`inventory.service.ts`) guardaba solo el cambio de `status` **distinto** al leído; con `status`
+  igual (`in_stock→in_stock`, `listed→listed`) caía en el `update` plano y **re-escribía `status`** ⇒ una pieza que un checkout
+  acababa de poner `reserved` volvía a `in_stock`: reserva perdida. `item-location.rules.ts` del hotfix ya decía
+  «`in_stock → in_stock` no escribe `status`».
+- **Prueba (falla primero):** **PS-42b** (`full-refund-vault.e2e-spec.ts`): (a) espía sobre `inventoryItem.update`: un
+  `PATCH {status:'in_stock', listPriceCents}` sobre una `in_stock` no lleva `status` en `data`; (b) carrera reserva
+  (`in_stock → reserved`, encolada primero) vs `PATCH` con lectura caduca, N=10. Con el código viejo (copia): **0/10** (la
+  pieza vuelve a `in_stock` con dueño). Con el fix: **10/10** (`reserved` del comprador, `listPriceCents` escrito).
+- **Código:** el `update` plano quita `status` del `data` (`const { status: _sameStatus, ...fields } = patch`).
+- ~~**Fusión (b):** §2 «inventory» corregido: manda `item-location.rules.ts` de `arreglos-operador`; la copia en línea se
+  borra. **(c)** PS-41/PS-41b/PS-42/PS-42b/PS-64 y la suite de `arreglos-operador` se re-corren sobre el árbol fusionado.~~
+  🔒 **Sustituida (2026-09-29) por la [regla de fusión SEC-SHIP-A1](API_CONTRACT.md#M1-merge-rule)** (`API_CONTRACT
+  v1.80.7.2` §M1; `ARCHITECTURE §9 D-SHIP-7`): qué cuerpo, qué llamadores, qué pruebas — incluida **PS-42b invertida** —
+  están solo allí. Aplicada en `claude/release-s5` (`5321b8c6`): ver «Release s5 — fusión de backend» al final.
+
+## 4. Deuda (a) / v1.80.7 puntos 12 y 18 — el tope acumulado tiene prueba determinista: **PS-4b**
+
+- `operatorUsedCents` (`refund-ledger.service.ts`) es SQL ⇒ integración. **PS-4b** (`shipments-prep.e2e-spec.ts`), con las
+  cifras del contrato: operador NUEVO (usado absoluto 0), filas por SQL con `createdAt` explícito — `item_missing`
+  `requested` 10000 + `submitted` 20000 + `succeeded` 30000 **cuentan**; `failed` 40000, `order_full` del súper-admin 50000,
+  `succeeded` a −25 h 60000 y una de OTRO operador 70000 **no** ⇒ `operatorUsedCents = 60000`, `operator-summary.capUsedCents
+  = 60000`; `cap = 91457` ⇒ `403 {capCents: 91457, usedCents: 60000, requestedCents: 31458}`, 0 filas, 1 bitácora; `cap =
+  91458` ⇒ `200`; el siguiente `prepared` ⇒ `403 {usedCents: 91458}`. Mutación «`if (planCents > cap)`» (copia): **ROJA**
+  (el primer 403 no ocurre). PS-4: su `usedNow` ahora lleva la ventana de 24 h (el MISMO predicado que el tope), así que
+  `used0` ya no depende de filas viejas de otra corrida.
+
+## 5. v1.80.7 punto 17 🔴 — la confirmación de M3 adopta el orden del webhook (`onFullRefund` ANTES de `Order → refunded`)
+
+- **Antes:** `applyStripeOutcome` (`refund-ledger.service.ts`) hacía `Order → refunded` y después `onFullRefund`
+  (envíos → piezas → `Order`): sostenía `Order` mientras pedía el retiro. `prepared` de un retiro (envío → piezas → órdenes de
+  origen) sostenía el retiro mientras pedía `Order` ⇒ ciclo.
+- **Prueba (falla primero):** **PS-57c** (`full-refund-vault.e2e-spec.ts`): orden `vault` con dos cartas, retiro `picking`
+  sin preparar con una, M3 tx1 (transitorio) ⇒ fila `requested`; barrera en la fila del retiro, `prepared` encolado primero
+  vs `retry` (doble `succeeded`); N=10; contador de `deadlocks`. Con el orden viejo (copia): **0/10**, Δ > 0 y un `503`.
+  Con el orden del webhook: **10/10**, Δ = 0; desenlaces: `prepared` `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED` + pieza
+  `returned` **10/10**, `prepared` `200` + `in_packed_withdrawal` **0/10** (con la fila `requested` ya creada, el taller
+  siempre ve la orden en devolución); `retry` `200`, fila `succeeded`, orden `refunded`, sello, un `AV-3`.
+- **Código:** (1) CAS de la fila; (2) lectura sin candado de `Order.status` (∉ {settled, refunded} ⇒ log error, fin); (3)
+  `onFullRefund`; (4) `Order → refunded` bajo ese candado (`count 1` con `refunded` = éxito); (5) `AV-3` quien transicionó.
+  PS-57 (a/b/inversa/carreras) siguen verdes.
+- **Medido además (encargo): `chargeback-inventory` vs `reclaim-vault`.** `resolveChargebackInventory`
+  (`orders.service.ts`) hacía el claim sobre `Order` y DESPUÉS `vaultReclaimTargets` (piezas `FOR UPDATE`); `reclaim-vault`
+  va piezas → `Order`. **PS-61b** (`full-refund-vault.e2e-spec.ts`): orden `vault` `refunded` sellada por el webhook
+  (`chargebackNeedsManual: true`), barrera en una pieza devuelta, `reclaim-vault` encolado primero vs `chargeback-inventory
+  (recuperada)`, N=10. Con el orden viejo (copia): **0/10**, Δ > 0, un `503`. **Reordenado igual** (en bóveda las piezas se
+  toman antes del claim; el claim sigue decidiendo): **10/10**, Δ = 0, los dos `200`, piezas `listed`, `needsManual=false`.
+
+## 6. v1.80.7 punto 19 — `UsersService.eraseClabe` + `constantTimeEquals`
+
+- `UsersService.eraseClabe(tx, userId)`: solo nulos (`clabeEnc` ∧ `clabeHmac`), sin `clabeUpdatedAt`, sin `AV-16`, sin
+  bitácora propia. `AdminService.deleteUser` (borrado suave) lo llama dentro de su tx (`UsersModule` importado en
+  `AdminModule`; `@Optional()` por los unitarios que construyen el servicio a mano, y `deleteUser` exige que esté).
+  **C-CLABE-1** (`refunds.candados.spec.ts`): censo = **dos** sitios en `users.service.ts`, **cero** fuera; la excepción
+  declarada en `admin.service.ts` desaparece. Mutación «`deleteUser` escribe `clabeEnc: null` directo» ⇒ **ROJA**.
+- `PiiCryptoService.constantTimeEquals` (el mismo cuerpo que `blindIndexEquals`, con el nombre de lo que compara) y `paid`
+  (`manual-refund.service.ts`) lo usa para el `revealToken`. Unitaria en `pii-crypto.spec.ts` (igual/distinto/longitud/
+  nulo/vacío) y censo en `refunds.candados.spec.ts` («`paid` compara con `constantTimeEquals`, ⛔ nunca `===`/`!==`»).
+  Mutación «`expected !== body.revealToken`» ⇒ **ROJA**.
+
+## 7. v1.80.7 punto 13 — `HoldingDTO.withdrawableReason`
+
+- `withdrawableReasonOf` (`vault.service.ts`, exportada): un cuerpo para el flag y el motivo, en el orden del contrato
+  (`pending` → `replacing`/`not_in_custody` → `in_withdrawal` → `origin_refunded` → `null`); `withdrawable =
+  (withdrawableReason === null)`. Clave siempre presente en `GET /vault/holdings`.
+- Unitaria `test/vault.withdrawable-reason.spec.ts` (los cinco motivos, el orden, «caso abierto sin `lost|damaged` no es
+  `replacing`», y sobre `holdings` el invariante con el DTO). PS-65 ampliada (`{false, 'origin_refunded'}` con la fila
+  `order_full` viva; `{true, null}` con la fila `failed`; el invariante en todas las filas). Mutación «sin la quinta
+  condición» ⇒ unitaria y PS-65 **ROJAS**.
+- **Frontend (contrato):** el chip «Compra en reembolso» solo con `origin_refunded`; `replacing` ya tiene su copy.
+
+## 8. v1.80.7 punto 3 — PS-55/PS-63 fijan `422 NOT_FOUND`
+
+`classifyItems` (`shipments.service.ts`) contesta `NOT_FOUND` a una pieza que ya no es del cliente (M-25); las dos pruebas
+dejan de aceptar `ITEM_NOT_IN_CUSTODY`. Mutación «buscar por `id` sin `ownerUserId`» ⇒ `ITEM_NOT_IN_CUSTODY` ⇒ **ROJAS**.
+
+## 9. v1.80.7 punto 15 — el `429` del login, medido y cerrado
+
+- **Medido (auth-throttle e2e, `E2E_ENABLE_THROTTLER=true`, login ×6):** el throttler de Nest (`@nestjs/throttler` 6) SÍ
+  ponía `Retry-After: n` en la respuesta, pero `AllExceptionsFilter` devolvía como `details` el objeto crudo del framework
+  (`{statusCode, message}`): la cifra no llegaba al front. Con el filtro de `ea615c3` la aserción nueva
+  (`Retry-After: n ∧ details.retryAfterSeconds === n`) es **ROJA** (mutación M-429 sobre la copia); con el cierre, verde.
+- **Cierre:** `all-exceptions.filter.ts · rateLimitDetails(res)`: en un `429` de `HttpException`, `details = {
+  retryAfterSeconds: n }` si la respuesta lleva `Retry-After: n` (entero > 0), si no `{}`. Un `RATE_LIMITED` de negocio
+  (`auth.service.ts`, sin ventana) sigue con `details {}`. Unitaria `test/rate-limited-shape.spec.ts` (con cabecera,
+  cabecera como texto, sin cabecera, `0`, negocio).
+
+## 10. Cifras (medidas por mí, 2026-09-29)
+
+| Suite | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, árbol vivo con todos los cambios; tras el segundo pase) | **5924/5924** (primer pase: 356/356 suites · 5858/5858) |
+| Integración completa sobre COPIA del árbol entero (`jest --runInBand` de `test/integration/`, 55 suites) | primer pase (`copy`): 52/55 suites — rojas PS-39 (entorno: `APP_PUBLIC_URL`), PS-16 (mi PS-4b la empujó a la página 2) y `C-EQ-1` (preexistente en `ea615c3`); las tres cerradas en el segundo pase. Segundo pase (`copy3`): **55/55 suites · 1 267/1 267** (medido por backend el 2026-09-29 sobre copia del árbol entero de `0e979de`, HEAD de la errata v1.80.7.2; ver §12). *Del orquestador, no mío:* 55/55 suites, 1 281 verdes + 2 skip sobre `cfb43b3` |
+
+Carreras nuevas (N=10, autor backend): **PS-27d** 10/10 · **PS-36b** 10/10 (Δ deadlocks 0) · **PS-42b** 10/10 · **PS-57c**
+10/10 (Δ 0; 409+returned 10/10, 200+in_packed 0/10) · **PS-61b** 10/10 (Δ 0). Determinista: **PS-4b** verde.
+
+### Mutaciones (copia del árbol entero; `mutate.py` en el scratchpad hasta la limpieza)
+
+| Mutación | Qué | Prueba | Resultado (copia del árbol entero, 11/11 ROJAS) |
+|---|---|---|---|
+| M12 | quitar la relectura de `Order` en `refund` | PS-27 / PS-27b / PS-27c / **PS-27d** | **ROJA** — PS-27 10/10, PS-27b 10/10, PS-27c 10/10 (no la distinguen), **PS-27d 0/10** (caso `refunded` con fila y Stripe llamado sobre una orden `chargeback`) |
+| M-void | `void` de vuelta a `Order → piezas` | PS-36b | **ROJA** — 0/10, Δ deadlocks = 10, `503 BUSY_TRY_AGAIN` en `void` en las 10 |
+| M-R3 | el `update` plano vuelve a escribir `status` | PS-42b | **ROJA** (1 failed) |
+| M-cap | `if (planCents > cap)` | PS-4b | **ROJA** (el primer 403 no ocurre) |
+| M-17 | `Order → refunded` antes de `onFullRefund` | PS-57c | **ROJA** — 0/10, Δ deadlocks = 10 (la víctima fue la tx de confirmación: `retry` 200 con la fila aún `requested` y la orden `settled`) |
+| M-61b | el claim de `Order` antes de las piezas | PS-61b | **ROJA** — 0/10, Δ deadlocks = 10, `503` en `chargeback-inventory` |
+| M-clabe | `deleteUser` escribe `clabeEnc: null` directo | C-CLABE-1 | **ROJA** (1 failed / 18) |
+| M-cte | `paid` compara con `!==` | censo `constantTimeEquals` | **ROJA** (1 failed / 18) |
+| M-3 | `classifyItems` sin `ownerUserId` | PS-55 / PS-63 | **ROJA** (2 failed) |
+| M-429 | el filtro devuelve el `details` crudo | unitaria 429 + auth-throttle e2e | **ROJA** (unitaria 2 failed / 4; e2e 1 failed / 1) — es la medición de que el cierre hacía falta |
+| M-13 | sin la quinta condición en `withdrawableReasonOf` | unitaria + PS-65 | **ROJA** (unitaria 2 failed / 15; PS-65 1 failed) |
+
+## 11. Segundo pase (mismo día): veredicto de QA sobre `c20451f` (BLOQ-1, BLOQ-2 a/b, IMP-1, MENOR) + errata `v1.80.7.1`
+
+- **BLOQ-1 (dinero saliente) — `POST /admin/manual-refunds/:id/paid` y `/cancel` devolvían `{outcome, manualRefund}`** y el
+  contrato (§M4-SHIP.17.3 paso 4: «Res `ManualRefundDTO`») y el frontend esperan el DTO ⇒ la pantalla del súper-admin
+  moría (`customer.fullName` de `undefined`). **Ahora la respuesta ES el `ManualRefundDTO`** y `outcome`
+  (`paid|already_paid` / `cancelled|already_cancelled`) viaja como **campo aditivo** (`ManualRefundDTO & { outcome }`),
+  igual que `reissue`/`to-manual` devuelven el DTO. Pruebas (primero rojas): PS-33/PS-54 y PS-38 exigen
+  `{ id, status, customer: { userId, fullName, email } }` en la raíz y **ausencia** de `manualRefund`. *Para el
+  arquitecto:* `outcome` no está en el DTO del contrato; lo dejé aditivo porque PS-33/PS-38 lo aseveran y el front lo
+  ignora — si prefiere solo el DTO, es quitar una clave.
+- **BLOQ-2(a) — `C-EQ-1` (`enum-query-axes.e2e-spec.ts`) rojo por 13 `@Query` sin clase.** Clasificados por §0-Q punto 3
+  / §4.37 (v1.80.7.1 §M4-SHIP.1 decide E/E/E/E/L), ⛔ sin debilitar el candado: **cuatro** a `NO_ENUM_POR_RUTA`
+  (`shrinkage::from/to`, `refunds::from/to` — fechas; `replacement-cases::overdue` — booleano;
+  `replacement-cases/:id/refund-preview::amountCents` — entero) y **siete filas nuevas del `REGISTRO`**, con fixture
+  propio (`sembrarFixture` (h), `ShipPrepDb`) que discrimina: `replacement-cases::state` (**L**, `open|closed`,
+  `REPLACEMENT_CASE_STATE_VALUES`), `replacement-cases::source` (**E**, `ReplacementCaseSource`), `manual-refunds::status`
+  (**E**, `ManualRefundStatus`), `refunds::requestedByRole` (**E**, `Role`), `refunds::kind` (**E**, `PaymentRefundKind`),
+  `refunds::status` (**E**, `PaymentRefundStatus`), `finance/shrinkage::reason` (**L**, `lost|damaged`,
+  `SHRINKAGE_REASON_VALUES`). Trinquete: `REGISTRO` 44 → **51**, pendientes 11 → **18** (a propósito: es la conversación
+  que el trinquete exige; bajan a 11 cuando el arquitecto escriba las filas). Paridad L a dos bandas: entradas nuevas para
+  `?state=` (línea de §M4-SHIP.15.13) y `?reason=` (línea de §M4-SHIP.17.5).
+- **D-EQ-4 (medido, para que el arquitecto escriba las filas de §0-Q punto 4):** el descubrimiento de `C-EQ-1` **sí ve**
+  los ejes `?kind=`/`?status=` de `GET /admin/refunds`, `?status=` de `GET /admin/manual-refunds` y `?state=`/`?source=` de
+  `GET /admin/replacement-cases` (eran huérfanos exactos del rojo). Su conformidad HTTP con §0-Q, medida por las seis
+  propiedades del candado sobre las siete filas (vacío/espacios ⇒ `200`; `filtra` con datos que discriminan `valid` ≠ base
+  ≠ `alterno`; basura ⇒ `400 VALIDATION_ERROR {field, allowed}` con `allowed` = el dominio derivado): ver la tabla de
+  cierre de esta sección. Clases medidas: `refunds::kind` E · `refunds::status` E · `manual-refunds::status` E ·
+  `replacement-cases::state` L · `replacement-cases::source` E — coinciden con v1.80.7.1 §M4-SHIP.1.
+- **BLOQ-2(b) — `?missing=` ↔ `enum MissingReason` (v1.80.7.1 punto 1):** ⛔ sin renombrar el enum. La entrada `missing`
+  de la lista L gana `homonimosDeNombre: [{ enum: 'MissingReason', porque }]` y la prueba (3) pasa a: **(a)** todo enum
+  que case la regex de nombre está declarado (la regex **no cambia**) y **(b)** los valores del declarado, leídos de
+  `schema.prisma` en disco, son **disjuntos** del literal. Mutación: añadir `location` a `enum MissingReason` en una copia
+  del schema ⇒ **ROJA** (ver tabla).
+- **IMP-2 / v1.80.7.1 punto 2 — banda 3 UNIVERSAL en `enum-values-parity.spec.ts`:** parsea **todos** los `enum X {…}` del
+  schema (55), compara con la línea `^X\s+=` de §0 (con continuaciones `|`) y exige que los sin línea sean **exactamente**
+  `SIN_LINEA_CANONICA` (NameSource, PriceConvention, PriceRefKind, CardProductKind, PendingPriceStatus, MetaDeckSource,
+  MetaCardGroup, MetaMatchStatus). **Medido antes de escribirla (2026-09-29, sobre `7a860cd`): 0 discrepancias y los 8 sin
+  línea son exactamente esos** — ningún enum preexistente discrepa; nada que reportar al arquitecto en esta banda.
+  Además, **una sola declaración** (§4.37): `MISSING_REASON_VALUES`, `PREPARATION_ITEM_STATUS_VALUES`,
+  `PAYMENT_REFUND_KIND_VALUES`, `PAYMENT_REFUND_STATUS_VALUES`, `MANUAL_REFUND_STATUS_VALUES` viven en
+  `common/enum-values.ts` (tres bandas) y los consumidores (`vault-placement.service.ts`, `shipment-prep.service.ts`,
+  `admin-refunds.controller.ts`, `manual-refund.service.ts`; también `SOURCE_VALUES` de `replacement-case.service.ts`) las
+  importan.
+- **IMP-1 — `Math.ceil` en `itemFeeShareCents` (`common/money.ts`) no lo cazaban `refund-math.spec.ts` ni PS-2** (cocientes
+  enteros: `4617·30000/95000 = 1458.0`). Ahora: `P=30001 ⇒ 1458` (ceil 1459) y la propiedad Σ ≤ F con cifras que
+  discriminan (`G=3, F=100`, tres cartas de 1 centavo ⇒ 33+33+33 = 99 ≤ 100; con ceil 102 > F). Mutación ⇒ **ROJA**.
+- **MENOR — los 5 avisos `no-unused-vars`** (`buylist.dto.ts` `IsObject`, `inventory.service.ts` `actorUserId` →
+  `_actorUserId`, `sealed-product.service.ts` `normalizeSetName`, `buylist.guide-transit.spec.ts` `matches` → `_matches`,
+  `inventory.m11-debt.spec.ts` `Prisma`): `npm run lint` ⇒ **0 problemas**.
+- **PS-39 era dependiente del entorno, no del código:** `appUrl` (`mail-shell.ts`) construye los CTA con
+  **`APP_PUBLIC_URL`** (no `APP_BASE_URL`); sin ella el correo degrada el CTA a texto y PS-39 (AV-14 «regístrala en tu
+  cuenta» ⇒ `/cuenta#kyc`) sale roja (medido: roja aquí en `ea615c3` y en mi árbol; verde en QA, que la exporta).
+  `test/integration/setup.ts` fija un default local (`http://localhost:3000`), como hace con el resto de variables.
+- **PS-16 (mía, del pase anterior):** los 8 directos de PS-4b empujaron el envío de PS-16 a la página 2 (la lista va
+  `requestedAt asc`, `pageSize=100`). PS-16 ahora **recorre las páginas** (mide que `?q=` por destinatario ENCUENTRA el
+  envío, no en qué página cae) y PS-4b siembra con 3 directos (dos líneas por directo) en vez de 6.
+
+### Cifras del segundo pase (medidas por mí, 2026-09-29)
+
+| Qué | Resultado |
+|---|---|
+| Unitaria completa (`npx jest`, árbol vivo) | **5924/5924** |
+| `test/integration/enum-query-axes.e2e-spec.ts` (`C-EQ-1`) sobre el árbol vivo | **429/429** (antes: 2 rojas en `ea615c3`, 3 en la corrida completa) |
+| `replacement-cases` · `shipments-prep` · `full-refund-vault` sobre el árbol vivo | 28/28 · 20/20 · 16/16 |
+| `npm run lint` | **0 problemas** (eran 5 avisos) |
+| Integración completa sobre COPIA fresca del árbol entero (`copy3`, 55 suites) | **55/55 suites · 1 267/1 267** (medido por backend el 2026-09-29 sobre copia del árbol entero de `0e979de`, HEAD de la errata v1.80.7.2; ver §12). *Del orquestador, no mío:* 55/55 suites, 1 281 verdes + 2 skip sobre `cfb43b3` |
+
+Mutaciones v2 (copia `copy3`, restaurada tras cada una; `mutate2.py` en el scratchpad hasta la limpieza) — **6/6 ROJAS**:
+
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| IMP-1: `Math.ceil` en `itemFeeShareCents` | `refund-math.spec.ts` | **ROJA** (2 failed / 10) |
+| BLOQ-1: `paid` vuelve a envolver `{outcome, manualRefund}` | PS-33 | **ROJA** |
+| BLOQ-2(b): `location` entra a `enum MissingReason` (copia del schema) | `C-EQ-1` prueba (3) de L | **ROJA** (1 failed) |
+| banda 3 universal: `MovementReason` + `teleport` (enum SIN derivada en código) | `enum-values-parity` | **ROJA** (1 failed) |
+| banda 3 universal: `enum SinLinea {a b}` nuevo sin línea en §0 | `enum-values-parity` | **ROJA** (2 failed) |
+| `C-EQ-1`: `?kind=` de `GET /admin/refunds` valida y TIRA el valor (QA-M3 sobre el eje nuevo) | `C-EQ-1` «filtra» | **ROJA** (1 failed) |
+
+## 12. Errata `v1.80.7.2` punto 2 (D-a del techlead sobre `59a0c1f`) — la confirmación de M3 cierra aunque haya contracargo
+
+Rama `claude/envio-preparar`, 2026-09-29. ⛔ El punto 1 de la errata (regla de fusión única de guardas de inventario,
+§M1 `#M1-merge-rule`) **no** se hace en esta rama: lo hace la sesión que fusione los tres streams. Aquí solo se corrige la
+cita en §2 «inventory» y en §7 punto 9.
+
+- **Código** (`payments/refunds/refund-ledger.service.ts · applyStripeOutcome`): se quitó la lectura **sin candado** de
+  `Order.status` que cortaba antes de `onFullRefund` (antes `:301-305`). Ahora, como el webhook `charge.refunded`
+  (`payments.service.ts · onChargeRefunded`): (1) CAS de la fila → (3) `onFullRefund` (envíos → piezas → `Order FOR
+  UPDATE`, sello) → (4) `Order → refunded` con `WHERE status='settled'` → si `count 0`, relectura **bajo el candado que (3)
+  tomó**: `refunded` ⇒ éxito sin log (M5); **`chargeback` ⇒ `logger.warn`** «cierre por reembolso total hecho (sello,
+  revisión manual, colocación); su estado chargeback se conserva y no hay AV-3»; otro ⇒ `logger.error` (invariante).
+  `AV-3` solo con `count 1`. Docblock y comentario corregidos (ya no dicen «la orden no se toca»).
+- **PS-57d** (`test/integration/full-refund-vault.e2e-spec.ts`): **(seq)** disputa commit → `retry` ⇒ fila `succeeded`,
+  orden `chargeback`, sello puesto, flag `true`, cero `refund_return`, un `chargeback_return`, colocación
+  `cancelled/chargeback`, una bitácora `order.full_refund_closed`, cero `AV-3`; y un `charge.refunded` posterior ⇒ la foto
+  entera (orden, piezas, movimientos, bitácoras, colocación, filas del libro) **idéntica** (`toEqual`). **(race, N=10)**
+  `forced` con barrera en `Order`, A = disputa (encolada primero), B = `retry` ⇒ ambos `200` y la misma foto; `inter === N`.
+  **Unitaria** `test/refund-ledger.confirm.spec.ts` (6 casos): `chargeback` ⇒ `warn`, no `error`; `onFullRefund` antes de
+  `Order → refunded`; `count 1` ⇒ AV-3; `refunded` ⇒ silencio; `failed`/`pending` ⇒ `error`.
+- **Rojo antes (medido sobre `a703f2d`, commit de pruebas `cc0570e`):** (seq) `seal=null, flag=false, closed=0` y el
+  `log error` «la orden … está chargeback; … la orden no se toca» (falso: la colocación sí la había cancelado la disputa);
+  unitaria 1/6 roja. **Verde después** (`3849421`): PS-57d, PS-57 y PS-57c verdes.
+- **Supuesto «desde `settled` solo se llega a `refunded` o `chargeback`» — censo con `rg`** (`rg -U "\.order\.(update|
+  updateMany|upsert|create)\(\{[^;]*?status:" src`, 2026-09-29): escritores de `Order.status` = `settled` (pago, `WHERE
+  status ≠ settled`, `payments.service.ts:268-270`/`:427-430`; disputa ganada `:1018-1021`), `refunded` (webhook
+  `:687`/`:696-697`, M3 `refund-ledger.service.ts:312-313`, los tres `WHERE status='settled'`), `chargeback` (disputa
+  directa `:869-872`, bóveda `:971-973`, disputa perdida `:1028-1031` — por `id`, sin estado en el `WHERE`) y **`failed`**
+  (cuatro: `payments.service.ts:604` tras leer `status === 'pending'` sin candado; `orders.service.ts:896`
+  `releaseReservation`, **sin** guarda de estado — la llaman `attachPaymentIntent` al fallar Stripe sobre una orden recién
+  creada `pending` y el barrido legado de invitados tras cancelar el PI; `:1042` `supersedeOwnOrder`, tras confirmar el PI
+  `canceled`; `:1181` barrido, con `order.status === 'pending'` leído). **Ninguno de los `failed` lleva el estado en el
+  `WHERE`:** lo que impide que toquen una orden `settled` es que su PI está `succeeded` y `closePaymentIntent` no puede
+  cancelarlo (⇒ 409/skip), no la base. El supuesto se sostiene hoy por esa vía; si algún día se rompe, lo caza el `log
+  error` de la rama «otro estado». `create` solo escribe `pending`.
+- **PS-57c (nota (c) del encargo):** la rama «`prepared` 200 + `in_packed`» salió 0/20 en QA y 0/10 aquí: **es
+  inalcanzable con ese fixture** — la fila `order_full` `requested` (tx1 de M3) existe antes de la carrera y `prepared` la
+  mira bajo candado (`shipment-prep.service.ts:721-745` ⇒ `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED`). **Elegí simplificar**:
+  la prueba asevera la única rama alcanzable (409 con ese código, pieza `returned`, `preparedAt` nulo) 10/10; «preparado
+  ANTES de la fila ⇒ la confirmación deja la carta intacta» ya lo mide PS-63. Commit `ff942ca`.
+- **Pendiente para el arquitecto (nota (d)):** `outcome` (`paid|already_paid` / `cancelled|already_cancelled`) viaja como
+  campo **aditivo** en la respuesta de `POST /admin/manual-refunds/:id/paid` y `/cancel` (§11, BLOQ-1) y **no está
+  declarado** en el `ManualRefundDTO` del contrato (§M4-SHIP.17.3). Hay que declararlo (o decidir quitarlo); ⛔ no lo
+  escribo yo.
+
+### Mutaciones (copias del árbol entero `git archive ff942ca`, una por mutación, `node_modules` enlazado)
+
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| (a) el código de hoy: lectura previa sin candado ⇒ `log error` y fin | PS-57d (seq) · unitaria | **ROJA** (seq) 2/2 corridas: `seal=null, flag=false, closed=0`; `charge.refunded` posterior **sí** escribe (sella el webhook: dos semánticas); (race) 10/10 verde, como predice el contrato (la lectura previa ve `settled` porque la disputa aún no hizo commit); unitaria 3/6 rojas |
+| (b) semántica (a) del techlead: tras el `FOR UPDATE` de la pasada, `chargeback` ⇒ salir sin escribir (`full-refund.service.ts`, solo `trigger='m3'`) | PS-57d (seq + race) | **ROJA** — (seq) 2/2 corridas `seal=null`; (race) **0/10** verdes, N=10 (sello `null` en las 10), `inter` 10/10. Unitaria verde (la simula con doble de `onFullRefund`: no la ve, la ve la integración) |
+| (c) `logger.error` en vez de `warn` para `chargeback` | unitaria | **ROJA** (1/6) |
+
+### Cifras (medidas por mí, 2026-09-29)
+
+| Qué | Resultado |
+|---|---|
+| `npm run typecheck` · `npm run lint` (copia del árbol entero de `0e979de`) | limpio · **0 problemas** |
+| Unitaria completa (`npx jest`, misma copia) | **357/357 suites · 5 930/5 930** (5 924 + los 6 de `refund-ledger.confirm.spec.ts`) |
+| Integración completa (`--runInBand`, 55 suites, misma copia, base Postgres 16 **nueva** por corrida) | **2/3 corridas verdes (N=3):** 55/55 · 1 267/1 267 dos veces; la tercera 54/55 · 1 265/1 267 — rojas las 2 de `buylist-intake-concurrency` (barrera «esperaba 2 bloqueadas en `SellRequestItem`», el flake abierto **P-BUYLIST-CONC-FLAKE**). No es de este diff: `git diff --stat cfb43b3 HEAD -- backend/` = solo `refund-ledger.service.ts` y dos pruebas |
+| `cfb43b3` (base del orquestador) sobre copia, misma máquina | 55/55 · **1 266/1 266** (= mi HEAD − PS-57d). *Del orquestador:* 1 281 + 2 skip sobre ese mismo sha — la diferencia de 15 es de entorno (⚠️ NO MEDIDO cuál; los 2 skip son `stripe-in-tx-pool` sin `connection_limit=5`, que aquí sí corren) |
+| PS-57d (race) | **10/10 en cada una de 4 corridas** (N=10 por corrida, 40/40), `inter` 10/10 |
+| PS-57c | 10/10 en 4 corridas, Δ deadlocks 0 |
+
+⚠️ **Hallazgo lateral para el dueño de `buylist` (no es de este stream, no lo toqué):** tras el rojo de
+`buylist-intake-concurrency`, **la base queda envenenada**: esa suite sale **0/10** sobre la base de la corrida roja y
+**10/10** sobre una limpia — y el cruce lo confirma (código de `cfb43b3` sobre la base envenenada 0/3; código de HEAD
+sobre una limpia 3/3). O sea, su `afterAll` no deja la base como la encontró cuando la ronda revienta. Mecanismo ⚠️ NO
+MEDIDO (el alta se rechaza antes de insertar `SellRequestItem`). Relevante para P-BUYLIST-CONC-FLAKE: un rojo arrastra
+los siguientes si la base se reutiliza.
+
+---
+
+# Release s5 — fusión de backend (2026-09-29)
+
+Rama `claude/release-s5`, commit de fusión **`5321b8c6`** (envío-preparar sobre `7a32b833` = pantallas + dinero + hotfix).
+Qué se hizo en la parte de backend de la fusión. La regla que se aplicó vive **una sola vez** en el contrato:
+[«Regla de fusión SEC-SHIP-A1»](API_CONTRACT.md#M1-merge-rule) (`API_CONTRACT v1.80.7.2` §M1, citada desde §M4-SHIP.17.1
+punto 1 y `ARCHITECTURE §9 D-SHIP-7`). Aquí solo se anota **dónde quedó cada punto** — ⛔ no se copia la regla.
+Líneas medidas sobre `5321b8c6`. Logs: `scratchpad/backend-merge-s5/` (sesión `1afd7c0b…`).
+
+## 1 · Regla `#M1-merge-rule`, punto por punto
+
+| Punto de la regla | Dónde quedó (fichero:línea en `5321b8c6`) |
+|---|---|
+| **(i)** `item-location.rules.ts` es el **único cuerpo de guardas**; verbos `move\|mark\|status\|price`; `MARKABLE_PLATFORM_STATUSES` se exporta solo de ahí | `backend/src/modules/inventory/item-location.rules.ts:68` (única declaración), `:71` (`ItemVerb` con `'price'`), `:120-133` (`assertOperable`; `mark\|status\|price` comparten el allowlist `in_stock\|listed`, solo `move` tiene rama de cliente) |
+| **(ii)** escritor condicionado = `guardedItemUpdate` del hotfix (CAS sobre `{id, status, ownerType, ownerUserId}` leídos; `P2025` ⇒ `409 CONFLICT`) | `backend/src/modules/inventory/inventory.service.ts:2829-2851`; lector `readGuardedItem` `:2810-2817` |
+| **(iii)** `moveItem` y `markItem` = hotfix | `inventory.service.ts:2732-2746` (`moveItem`: `readGuardedItem` → `assertOperable(item,'move')` → `guardedItemUpdate`), `:2787-2806` (`markItem`: ídem con `'mark'`) |
+| **(iv)** `updateItem` = **estructura** de `envio-preparar` (una tx, bitácora `inventory.item_updated` `before/after`) **re-cableada** a `readGuardedItem` + `assertOperable(item,'status'\|'price')` + `guardedItemUpdate` | `inventory.service.ts:2417-2464` (camino no publicante; comentario de la regla `:2418-2435`, verbo `:2436-2437`, tx `:2442-2462`) |
+| su `MARKABLE_PLATFORM_STATUSES` local (antes `inventory.service.ts:389` de envío) **se borra** | borrado; lo fija el candado estático «se DECLARA una sola vez» (`backend/test/inventory.move-mark-guards.spec.ts:452-457`) |
+| **PS-42b se invierte** (D-d del techlead) | `backend/test/integration/full-refund-vault.e2e-spec.ts:872-921` — §3 |
+
+Import en el servicio: `inventory.service.ts:64-69` (`assertMoveDestination`, `assertOperable`, `GuardedItem`,
+`inActiveWithdrawalError` desde `./item-location.rules`). La resolución del conflicto de `inventory.service.ts` (4 bloques)
+se hizo con `resolve_inv.py` sobre las dos versiones (`inv.ours.ts` / `inv.theirs.ts` en el scratchpad).
+
+## 2 · INV-SP-8 (`#M1-patch-price-guard`, v1.80.2.3) construido en la fusión
+
+El código de v1.80.2.3 (dinero) se construyó aquí, sobre el cuerpo único: `PATCH {listPriceCents}` solo sobre plataforma
+`in_stock|listed` (`assertOperable(item,'price')`), cliente en cualquier estado / `reserved` / vendida / terminal ⇒
+`422 ITEM_NOT_ADJUSTABLE`, **todo o nada** (ningún otro campo del mismo `PATCH` se escribe); cuerpo solo de identidad
+(`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`) sigue **sin** guarda. `status` y `listPriceCents` juntos ⇒
+**una** llamada con verbo `'status'` (mismo allowlist ⇒ un solo `422`, `details` únicos).
+Prueba nueva: `backend/test/inventory.patch-price-guard.spec.ts` (casos 1–9 en `:135-248`, más `assertOperable(item,'price')`
+puro en `:250-271`).
+
+## 3 · PS-42b invertida
+
+Antes certificaba lo que INV-SP-8 prohíbe (`res.b < 300` y precio `1000+i` escrito sobre una pieza ya `reserved` **del
+comprador**). Ahora (`full-refund-vault.e2e-spec.ts:872-921`): la reserva encolada primero gana, el `PATCH {status:'in_stock',
+listPriceCents}` con lectura caduca recibe **`409 CONFLICT`**, la pieza sigue `reserved/customer` del comprador y su precio
+**intacto**; N=10, `inter === N`. La primera mitad se re-ancló a conducta: `{status:'in_stock', listPriceCents}` sobre una
+`in_stock` ⇒ `200`, precio escrito, `status` sigue `in_stock` y **sin** bitácora `inventory.item_updated` (`:885-888`). Que
+`data` no lleve `status` lo fija la unitaria gemela `backend/test/inventory.patch-status-guard.spec.ts:166`.
+
+## 4 · Candado estático endurecido (ignora comentarios) + canario
+
+`backend/test/inventory.move-mark-guards.spec.ts:404-492` («candado estático — un solo cuerpo de guardas
+(#M1-merge-rule)»): (a) `MARKABLE_PLATFORM_STATUSES` se **declara** una sola vez en `backend/src`, en
+`item-location.rules.ts` (`:452-457`); (b) `markItem` y `updateItem` no llevan guarda en línea ni allowlist y **llaman**
+a `assertOperable(` (`:459-464`).
+**Endurecimiento:** `stripComments` (`:440`) quita `// …` y `/* … */` antes de mirar el cuerpo. Motivo, **medido** en la
+mutación M1 de la fusión: `updateItem` nombra `assertOperable(` en su comentario de la regla, así que borrar la llamada
+dejaba el candado **verde** (`mut-M1.log`: `PASS test/inventory.move-mark-guards.spec.ts`). Con el endurecimiento la
+misma mutación lo pone rojo (`mut-M1-lock.log`: 1/45, `delegates: false`).
+**Canario** (`:468-491`): una segunda declaración y una guarda en línea se detectan, y una llamada **solo nombrada en un
+comentario** (`//` y `/* */`) **no** cuenta como delegar (`delegates === false`). Aproximación declarada: no hay `//`
+dentro de cadenas en esos dos métodos.
+
+## 5 · Las 7 rojas de la primera corrida unitaria: causa raíz y arreglo
+
+Primera corrida unitaria completa sobre el árbol fusionado (`unit-full-1.log`): **377/380 suites, 6381/6388** — 7 rojas en
+3 suites. Ninguna era conducta: las tres son **pruebas de un stream que fijaban la forma de algo que otro stream cambió**.
+
+| Rojas | Suite (origen) | Causa raíz | Arreglo |
+|---|---|---|---|
+| 5 | `test/vault.withdrawable-reason.spec.ts` (nació en envío) | su doble de `PricingService` es anterior a D-4 (v1.80.2.2, dinero): `VaultService.holdings` (`src/modules/vault/vault.service.ts:220`) ya llama `this.pricing.sealedSourceOnFor(items)` ⇒ `TypeError: … is not a function` | el doble gana el helper **real** `sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor` (`backend/test/vault.withdrawable-reason.spec.ts:65-67`) |
+| 1 | `test/pricing.bounty-cap.spec.ts` (dinero) | lista **cerrada** de claves de `PublicBountyDTO`, anterior a P-71 punto 6 (pantallas), que añade `setPtcgoCode` | se añade `setPtcgoCode` a la lista; la forma sigue cerrada (`backend/test/pricing.bounty-cap.spec.ts:143-156`) |
+| 1 | `test/mail-links.frontend-routes.spec.ts` (candado de enlaces; ausente en envío) | las plantillas de envío `AV-14/15/16` construían `appUrl('cuenta' / 'cuenta#kyc')`: **ruta inexistente** en el front (la ruta es `(storefront)/account`) | enlaces **`cuenta` → `account`**: `backend/src/modules/payments/refunds/mail/refund-notice.templates.ts:208, :247, :286` |
+
+Segunda corrida tras el arreglo: verde (§7).
+
+## 6 · Bitácora `inventory.item_updated`: sí en el camino no publicante, no en `→ listed`
+
+- **Sí** en el camino **no publicante** de `updateItem`, dentro de la misma tx y después de la escritura condicionada, **solo
+  cuando `status` cambia** respecto al leído (`before: {status}`, `after: {status, fields}`):
+  `inventory.service.ts:2447-2460`. `in_stock → in_stock` o un `PATCH` solo de precio **no** la escriben. Fijado por
+  `inventory.patch-status-guard.spec.ts:153-160` (unidad) y `full-refund-vault.e2e-spec.ts:824-826` (`listed → in_stock`,
+  Postgres) y `:888` (igual al leído ⇒ 0 filas).
+- **No** en `→ listed` (camino publicante, `inventory.service.ts:2465` en adelante): ese camino sigue el pipeline de v1.51
+  (`assertPublishableGuards` + `claimListed`) y no escribe esta bitácora. Fijado desde el pase del §8 por
+  `backend/test/inventory.pending-publish.spec.ts:481-524` («(4b)»: ancla que ve la bitácora en `listed → in_stock` con el
+  mismo arnés + tres casos publicantes sin ella).
+
+## 7 · Cifras
+
+| Qué | Resultado | Quién lo midió |
+|---|---|---|
+| Unitaria completa, 1.ª corrida (árbol fusionado, antes del §5) | 377/380 suites · 6381/6388 (7 rojas, §5) | backend (`unit-full-1.log`) |
+| Unitaria completa, 2.ª corrida | **380/380 suites · 6389/6389** | backend (`unit-full-2.log`) |
+| Unitaria completa sobre copia del árbol entero en `5321b8c` | **380/380 · 6389/6389** | orquestador |
+| Las 3 suites de guardas (`move-mark-guards`, `patch-status-guard`, `patch-price-guard`) | 3/3 · **95/95** | backend (`unit-inventory-guards.log`) |
+| Integración de guardas (`inventory-move-mark-guards.e2e-spec.ts` + `full-refund-vault.e2e-spec.ts`, Postgres 16 + Redis, pool `connection_limit=5`) | **2/2 suites · 46/46**; carreras PS-41b, PS-42b, PS-65 **10/10 con N=10** cada una, **una** corrida (load al final 3.43) | backend (`integ-guards-1.log`) |
+
+Mutaciones (sobre copia; la definición de cada una se reconstruye de su firma de fallo en el log):
+
+| Mutación | Resultado | Quién |
+|---|---|---|
+| **M1** — `updateItem` sin `assertOperable`, candado **sin** endurecer | **28/95 rojas** en `patch-price-guard` + `patch-status-guard`; `move-mark-guards` **verde** (el hueco del §4) | backend (`mut-M1.log`) |
+| **M1** con el candado endurecido | el candado estático muerde: **1/45** en `move-mark-guards` (`delegates: false`) | backend (`mut-M1-lock.log`) |
+| **M1** «sin `assertOperable` en `updateItem`», árbol `5321b8c` | **29/95 rojas** en las 3 suites de guardas (= 28 + el candado); restaurado **95/95** | orquestador |
+| **M2** — reintroducir en `updateItem` el allowlist local + guarda en línea de envío | **2/95**: las dos pruebas del candado estático (declaración duplicada; `inline/allowlist: true, delegates: false`) | backend (`mut-M2.log`) |
+| **M3** — CAS de `guardedItemUpdate` sin el estado/dueño leído (la mutación que nombra PS-42b) | unidad **7/95 rojas** (TOCTOU de `move`, `mark`, `PATCH status`, `PATCH price`); PS-42b **0/10 con N=10** (`200` + precio `1000+i` escrito sobre la `reserved` del comprador) | backend (`mut-M3.log`, `mut-M3-ps42b.log`) |
+
+## 8 · Pendientes del §8 original: cerrados (pase 2026-09-29, sobre `6fd55074` + este commit)
+
+Los tres pendientes que dejó la fusión, cerrados. Mutaciones sobre **copia del árbol entero** (`cp -a` en
+`scratchpad/backend-ps42b/tree`, sesión `1afd7c0b…`), Postgres 16 + Redis de `stack-native.sh up --infra`; load máximo
+medido durante las corridas de integración 1.25 (4 CPU). Logs en `scratchpad/backend-ps42b/logs/`.
+
+1. **PS-42b — semilla de precio no nula (CERRADO).** `ShipPrepDb.mkPiece` acepta `listPriceCents` (aditivo, sin él nace
+   `null` como antes: `backend/test/integration/helpers/ship-prep-db.ts:122,140`). La carrera siembra `55_500 + i`
+   (distinto del `1000 + i` del `PATCH`) y asevera la semilla (`full-refund-vault.e2e-spec.ts:904-906`).
+   | Mutación | Prueba nueva | Prueba anterior (`6fd55074`) |
+   |---|---|---|
+   | **M3** — `guardedItemUpdate` con `where: { id }` (sin `status`/`ownerType`/`ownerUserId`) | **0/10 con N=10** (`200` + precio `1000+i` sobre la reservada) — `mut-M3-ps42b.log` | (ya roja: §7) |
+   | **M4** — en `updateItem`, si la tx acaba en `409 CONFLICT`, un `update` sin guarda escribe `listPriceCents: null` y relanza (la respuesta sigue siendo `409 CONFLICT`, la pieza sigue `reserved/customer`) | **0/10 con N=10** (`price=null,VIOLATION`) — `mut-M4-ps42b-new.log` | **10/10 verde con N=10** (`price=null` = semilla `null`) — `mut-M4-ps42b-old.log`: el hueco era real |
+   Un primer intento de M4 (anular el precio **antes** de la tx) no aísla el hueco: cambia la respuesta a `422
+   ITEM_NOT_ADJUSTABLE` y pone roja también la prueba vieja. Por eso M4 es la variante en la rama de `CONFLICT`.
+   Sin mutación, PS-42b **10/10 con N=10** en dos corridas (`integ-frv-new.log` en la copia; `integ-touched.log` en el árbol vivo).
+2. **`PATCH → listed` no escribe `inventory.item_updated` (CERRADO, unitaria).** `inventory.pending-publish.spec.ts:481-524`:
+   el arnés gana un espía `auditLog.create` (su `$transaction` corre sobre el mismo cliente, así que ve también lo escrito
+   dentro de una tx); **ancla** — `listed → in_stock` SÍ la escribe con ese arnés (la ausencia no es vacía); y
+   `in_stock → listed` con precio resoluble, con `listPriceCents` + `gradeValue`, y sin precio (`422 PRICE_PENDING`)
+   ⇒ `auditLog.create` **no llamado**. Canarios: **M5a** (bitácora forzada tras `claimListed`) ⇒ **2/39 rojas** (los
+   dos casos que publican; `mut-M5a.log`); **M5b** (bitácora forzada dentro de un `$transaction` al entrar al camino
+   publicante, antes de las guardas) ⇒ **3/39 rojas** (los tres; `mut-M5b.log`). Deterministas (sin carrera).
+3. **Espía de tx de PS-42b (MEDIDO: no ve).** Prueba temporal en la copia (borrada; `spy-tx.log`), contra la app Nest real:
+   con `jest.spyOn(h.prisma.inventoryItem, 'update')` y `jest.spyOn(h.prisma, '$transaction')`, un `PATCH
+   {status:'in_stock', listPriceCents:4321}` sobre `in_stock` ⇒ `200`, precio **4321 en BD**, `$transaction` **1**
+   llamada, `update` espiado **0** llamadas. Controles: una llamada directa `h.prisma.inventoryItem.update` ⇒ el espía
+   cuenta **1**; un `h.prisma.$transaction(tx => tx.inventoryItem.update(…))` propio ⇒ sigue en **1** (no la ve). O sea:
+   el delegado de la tx interactiva de Prisma 5 **no** es el objeto espiado; re-anclar la primera mitad a conducta fue
+   correcto. Mutación **M6** («reescribir `status` igual al leído dentro de la tx»: `guardedItemUpdate(tx, item, patch)`
+   siempre): integración `full-refund-vault` + `inventory-move-mark-guards` **46/46 verde** (`mut-M6-integ.log`: el valor
+   escrito es el mismo, no es observable en BD); unitaria **1/50 roja** — «in_stock → in_stock NO escribe `status`»
+   (`inventory.patch-status-guard.spec.ts`, `mut-M6-unit.log`). Esa unitaria es el único candado, y basta: la conducta que
+   protege (no pisar una reserva) la fija la carrera de PS-42b vía el CAS (M3).
+
+## 9 · Cifras del pase del §8 (árbol vivo, `6fd55074` + este commit)
+
+| Qué | Resultado | Quién |
+|---|---|---|
+| `tsc --noEmit` (incluye `test/`) | 0 errores | backend |
+| Unitaria completa | **380/380 suites · 6393/6393** (6389 + 4 nuevas de «(4b)») | backend (`unit-full.log`) |
+| Integración de las suites que usan `ShipPrepDb` + guardas (`full-refund-vault`, `replacement-cases`, `shipments-prep`, `orders-public-status`, `inventory-move-mark-guards`) | **5/5 suites verdes**; PS-42b **10/10 con N=10** | backend (`integ-touched.log`) |
+| `enum-query-axes.e2e-spec.ts` (también usa `ShipPrepDb`) | **3 rojas de 429** (`pending-publish?acquisitionType=`, `?missing=`, `?productType=` ⇒ «FIXTURE VACÍO»: la cola sin filtro vuelve vacía). **Preexistente, no de este pase:** con los tres ficheros de prueba de `6fd55074` sobre la misma BD, las **mismas 3** rojas (`integ-enum-base.log`). Causa **NO MEDIDA** (hipótesis: estado de la BD compartida, piezas del fixture resueltas con precio). Pendiente abierto abajo | backend |
+
+> ✅ **CERRADO en §10.2** (2026-09-29, sobre `550bc371`): causa raíz = PS-64 de `full-refund-vault` deja `listed` la
+> única pieza de la cola y `enum-query-axes` no re-sembraba; arreglo en la víctima (re-siembra en `beforeAll`), 0/3 → 3/3
+> (N=3). Lo de abajo es el texto original del pendiente, conservado. (Anotado por TD-10 del techlead sobre `b8a3e4ce`.)
+
+**(Histórico) Pendiente abierto (medido 2026-09-29 sobre `0d370d96`):** `enum-query-axes.e2e-spec.ts` — 3 rojas «FIXTURE VACÍO» en
+`GET /admin/inventory/pending-publish` (arriba). Comprobación que lo cerraría: correrla sola contra una BD recién
+migrada (sin restos de otras suites); si sigue roja, es del fixture o del código de la cola, y es de backend.
+
+## 10 · P-REL-3 (cubeta SPEI sembrada) y `enum-query-axes` «FIXTURE VACÍO» (2026-09-29, sobre `550bc371`)
+
+Logs: `scratchpad/backend-prel3/logs/` (sesión `1afd7c0b…`). Load máximo medido durante las corridas: 1.59 (4 CPU).
+
+### 10.1 · La semilla de la cubeta SPEI (`seedE2E` paso 13)
+
+**Por qué:** en local no había forma de obtener un `ManualRefund` sin Stripe (solo nace del reembolso de un caso
+`case_excess` o de una fila de Stripe fallida `stripe_failed`). Frontend lo midió leyendo el código en `6fd55074`.
+
+- **Constantes:** `backend/prisma/e2e-fixtures.ts` `E2E_SPEI_FIXTURE` (`:544`). Cliente propio y desechable
+  `spei.refund@e2e.local` / `SpeiRefund123!`, nombre `Ana Transferencia E2E` (`nameSource='user'`), `emailVerified`;
+  orden `TCG-E2E-SPEI-0001`; filas `e2e:mr-pay` (MX$535.00 = 500.00 + 15.00 + 20.00, IVA dentro 68.97) y
+  `e2e:mr-cancel` (MX$315.00 = 300.00 + 9.00 + 6.00, IVA dentro 41.38).
+- **Siembra:** `backend/prisma/seed-e2e.ts` `seedSpeiBucket` (`:1098`), llamada al final de `seedE2E` (`:1075`). Deja lo
+  que el producto habría dejado tras `POST /admin/replacement-cases/:id/refund` con todo a SPEI: orden de bóveda
+  `settled`, `IVA_INCLUSIVE` con `ivaTransferPct: 100` (⇒ nunca `origin_not_settled`; y el candado M-50 de
+  `iva-price-convention` exige el dial archivado en toda `IVA_INCLUSIVE` — la primera versión sin él lo puso rojo, medido
+  en la integración completa) → colocación `placed` → línea `missing` por carta → caso `vault_purchase`
+  **`refunded`** con la captura completa → pieza original en plataforma `lost`/`damaged` (como `originalToPlatform`) →
+  `ManualRefund` `case_excess` `pending`, ya anunciada (`announcedNotifiedAt` sellado ⇒ sin `AV-14` por sembrar).
+- **Idempotente con ids ESTABLES** (todo por clave única y `upsert` que restaura). Cada siembra: borra el `KycProfile`
+  del cliente (sin CLABE; la clave PII es del proceso), borra toda fila del cliente fuera de las dos claves fijas
+  (re-emisiones, soltando antes `reissuedFromId`) **antes** de devolver las dos a `pending` con todos los sellos de
+  pago/cancelación y `paidNotifiedAt` a `null`.
+- **Diferencia con el encargo, a favor del schema:** el encargo decía `amountCents = merchandise + iva + fee +
+  compensation`; el CHECK `ManualRefund_amount_identity_chk` (migración M-61) es `amountCents = merchandiseCents +
+  processingFeeCents + compensationCents` — el IVA va **dentro** de la mercancía (`merchandiseIvaCents` es informativo).
+  Se sembró según el CHECK (la otra forma no entra en la BD).
+- **`setClabe` no valida el nombre** (medido: `users.service.ts:78-116` solo exige `^\d{18}$`), así que no hay
+  requisito de nombre que cumplir; el nombre es el `beneficiaryName` de la cubeta mientras no haya `legalName`.
+- **Lo que el E2E de frontend tiene que saber (medido en la prueba de abajo):** tras `PUT /users/me/kyc {clabe}`,
+  `clabeUpdatedAt > createdAt` ⇒ `clabeChangedRecently: true` ⇒ `POST …/paid` exige `confirmRecentClabeChange: true`
+  (si no, `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required:['recent_clabe_change']}`); `speiReference` solo admite
+  `^[A-Za-z0-9]{1,30}$` (con guion ⇒ `400`); `paid` necesita el `revealToken` de `GET …/reveal-clabe`.
+
+**Prueba:** `backend/test/integration/seed-spei-bucket.e2e-spec.ts` (3 casos): (1) forma de la siembra (importes que
+cuadran, todos > 0, caso `refunded`, origen `settled`, sin KYC); (2) dos siembras seguidas ⇒ **el mismo estado, ids
+incluidos**; (3) **N=3 ciclos** por HTTP — el cliente pone su CLABE, el súper-admin revela y paga una, cancela y
+re-emite la otra — y una siembra lo devuelve todo al estado de (2): **3/3**. Además, por la CLI (`npm run
+seed:synthetic` dos veces seguidas): estado de las dos filas, casos, piezas y KYC **idéntico** (`cli-state-1/2.txt`).
+Canarios (sobre copia): sin el borrado de re-emisiones ⇒ la re-siembra revienta con `P2002 (replacementCaseId,source)`
+(índice parcial de filas vivas) — rojo; sin `paidClabeHmac: null` ⇒ rojo (queda el HMAC de la pagada); sin borrar el
+`KycProfile` ⇒ rojo (`kyc` no nulo). Una corrida por mutación (deterministas). Primera versión de la prueba: si la
+siembra del `afterAll` fallaba, jest no cerraba la app y se colgaba (medido en la mutación A1) ⇒ `try/finally`.
+
+### 10.2 · `enum-query-axes.e2e-spec.ts` — 3 rojas «FIXTURE VACÍO»: causa raíz y arreglo
+
+- **BD recién migrada y sembrada** (`tcg_fresh_b`, creada para medir y borrada después): **3/3 corridas verdes, 429/429**
+  (N=3). Luego no era código de la cola.
+- **Qué la envenena (medido con una sonda sobre `GET /admin/inventory/pending-publish` tras cada suite):** la cola de
+  «listas para publicar» del seed tiene **una** pieza, `E2E-STK-0001` (plataforma `in_stock`, sin caja).
+  `full-refund-vault` **PS-64** llama `POST /admin/inventory/publish-all` **global** (el verbo real, a propósito: prueba
+  que ningún camino publica una pieza congelada) y la deja **`listed`**: tras esa suite, `platform in_stock = 0` y la cola
+  vacía. `inventory-move-mark-guards` también la encontró así; `replacement-cases`, `shipments-prep` y
+  `orders-public-status` la restauran porque re-siembran. `enum-query-axes` **no re-sembraba** (solo `ensureSeeded`, que
+  siembra una BD vacía) ⇒ medía lo que dejó la suite anterior.
+- **Misma clase que P-BUYLIST-CONC-FLAKE** (estado de la BD compartida que deja otra corrida y la víctima no restaura),
+  **no el mismo mecanismo**: aquí no hace falta un rojo previo — PS-64 verde basta.
+- **Arreglo (en la víctima):** `enum-query-axes` re-siembra en su `beforeAll` (`seedE2E`), como las demás suites
+  (`enum-query-axes.e2e-spec.ts:1041-1046`). No se tocó PS-64: su `publish-all` global es la prueba.
+- **Medición cruzada, N=3 ciclos «`full-refund-vault` → `enum-query-axes`» sobre la BD compartida:** sin el arreglo (copia
+  con el fichero de `550bc371`) **0/3 verdes** (3 rojas cada vez, las mismas tres); con el arreglo **3/3 verdes**
+  (429/429 cada vez).
+- **NO MEDIDO:** en la corrida por lotes del §9 salió una **cuarta** roja (`GET /admin/vaults?sort=`, N=1); no volvió a
+  salir en ninguna de las 9 corridas posteriores de esta suite. Se deja anotada, sin causa.
+- **Observación para el arquitecto (NO MEDIDO si es conducta querida):** `publish-all` publicó `E2E-STK-0001` **sin
+  ubicación** (`listed`, `locationId: null`), mientras la cola de pendientes trata «sin ubicación» como lo que le falta
+  para publicarse. No cambié nada; lo anoto porque es la misma pieza.
+
+### 10.3 · Cifras (árbol vivo, `550bc371` + este commit)
+
+| Qué | Resultado | Quién |
+|---|---|---|
+| `tsc --noEmit` (incluye `test/` y `prisma/`) | 0 errores | backend (`tsc.log`) |
+| Unitaria completa | **380/380 suites · 6393/6393** | backend (`unit-full.log`) |
+| Integración COMPLETA (66 suites), con la 1.ª versión de la siembra (sin `ivaTransferPct`) | 64/66 suites · 1420/1423: `iva-price-convention` 1 roja (la del dial, **mía**, arreglada abajo) y `settle-late` 2 rojas (**preexistentes**, abajo) | backend (`integ-full.log`) |
+| Tras añadir `ivaTransferPct: 100`: `iva-price-convention` · `seed-spei-bucket` · `enum-query-axes` | 39/39 · 3/3 · 429/429 | backend (`re-*.log`, `cyc-fix-enum-*.log`) |
+| La integración completa **no** se repitió tras ese cambio de un campo | NO MEDIDO | — |
+
+**Pendiente abierto (medido 2026-09-29):** `settle-late.e2e-spec.ts` — 2 rojas en «RESIDUAL — barrido de reservas sobre
+una orden `refunded` sin liquidar»: `refundFull` responde `200` pero la orden sigue `pending` (se esperaba `refunded`,
+`:409`). **Preexistente:** mismas 2 rojas sobre BD recién migrada **con la siembra de `550bc371`** (`fresh-base-settle-late.log`)
+y con la de este commit (`fresh-mine-settle-late.log`). Causa NO MEDIDA; es camino de dinero (reembolso total de una orden
+sin liquidar) y es de backend. Comprobación que lo cerraría: bisecar entre la última corrida verde conocida de esa suite y
+`550bc371`.
+
+## 11 · `settle-late` 2 rojas — BISECCIÓN Y CAUSA RAÍZ: choque de CONTRATO entre ramas (⛔ sin arreglar: va al arquitecto)
+
+Medido 2026-09-29 sobre worktrees de bisección propios (borrados) y BDs propias `tcg_settle_late_<sha>` (borradas),
+Postgres compartido que ya estaba arriba (no lo levanté ni lo apagué). Logs: `scratchpad/backend-settle-late/logs/`.
+
+**Bisección** (la suite entera, una corrida por punto; determinista):
+
+| Punto | Qué es | `settle-late` |
+|---|---|---|
+| `650a4ed3` (`origin/claude/paquete-dinero`, donde nació SEC-SETTLE-LATE) | dinero | **15/15** |
+| `7a32b833` (release-s5 antes de envío) | pantallas + dinero + hotfix | **15/15** |
+| `5321b8c6` (merge de `envio-preparar` 896fe8ea en release-s5) | + envío | **13/15** (las 2 rojas) |
+| `96418a88`, `0df68ede`, `f2f10923` | merges previos | sin `settle-late` (la suite nace con dinero) |
+| `ff83abf` (`envio-preparar`) | envío | sin `settle-late` (la suite no existe en esa rama) |
+
+**Causa:** en `5321b8c6` `onChargeRefunded` quedó con la versión de envío: `Order → refunded` con
+`updateMany({ where: { id, status: 'settled' } })` (`payments.service.ts:707` modo legado y `:717`). Dinero la tenía
+incondicional salvo `refunded`. Una orden **`pending`** reembolsada desde el panel de Stripe ya **no** pasa a `refunded`.
+
+**Consecuencia de dinero (medida con una sonda sobre `5321b8c6`, orden `vault` `pending` con 2 piezas):**
+`charge.refunded` total ⇒ `200`, orden **sigue `pending`** (`refundedAt null`), pero `onFullRefund` **sí** corrió
+(`fullRefundClosedAt` sellado, `chargebackNeedsManual: true`), piezas `reserved` del cliente. Luego un
+`payment_intent.succeeded` tardío ⇒ `200`, orden **`settled`**, las 2 piezas **`in_custody` del cliente** (2
+movimientos): **el cliente se queda las cartas Y el dinero devuelto** — exactamente lo que §M4-VAULT.2-bis.2 cerró
+(«hasta hoy un `succeeded` tardío las movía a custodia… desde v1.80 se quedan `reserved`»). Mismo sondeo sobre
+`7a32b833`: `refunded`, y el `succeeded` tardío no mueve nada.
+
+**Por qué no lo arreglo yo — el contrato dice las dos cosas:**
+- Envío fija el origen de la transición: tareas de backend de §M4-SHIP.18 (`API_CONTRACT.md:21640`) «`Order → refunded`
+  con `status IN (settled, refunded)`», y la unitaria de envío `test/payments.service.spec.ts:319-321` lo clava
+  (`where: { id: 'o1', status: 'settled' }`, REL-B / SEC-SHIP-M5).
+- Dinero da por hecho `pending → refunded` por el webhook del panel (§M4-VAULT.2-bis.2 «Residual declarado»,
+  `API_CONTRACT.md:17922` y `:17963-17967`), y `settle-late` RESIDUAL lo mide.
+
+**Candidato medido (en un worktree, ⛔ sin commit):** CAS del webhook `status: { in: ['settled','pending'] }` (las dos
+ramas de `onChargeRefunded`) ⇒ `settle-late` **15/15 en 3/3** corridas (N=3); las 5 suites de integración que mandan
+`charge.refunded` (`full-refund-vault`, `orders-public-status`, `replacement-cases`, `settle-late`, `shipments-prep`)
+**84/84**; unitaria **6392/6393** — la única roja es la de envío de arriba, que fija `'settled'`. **Preguntas para el
+arquitecto:** (1) ¿el webhook transiciona `pending → refunded`? (2) ¿y `failed → refunded`? (un `failed` es liquidable,
+así que el mismo `succeeded` tardío lo liquidaría); (3) sobre una `pending`, ¿`onFullRefund` debe sellar
+`fullRefundClosedAt` y poner `chargebackNeedsManual` (hoy lo hace; no hay colocación ni custodia que deshacer)?
+
+## 12 · v1.80.8.3 construida — `charge.refunded` total desde `pending|failed|settled`, `failAndRelease` con CAS, SL-8…SL-11 (2026-09-29)
+
+Errata del arquitecto `a77c7181` (`API_CONTRACT` §M4-SHIP.18.2 y §M4-VAULT.2-bis.2, bloques «v1.80.8.3»). Cierra el §11.
+Medido sobre BDs propias (`tcg_sl_fix`, `tcg_sl_fix2`, `tcg_sl_base`, borradas) en el Postgres compartido que dejó
+frontend arriba (⛔ no lo levanté ni lo apagué). Logs: `scratchpad/backend-settle-late/logs/`.
+
+**Código:**
+- `settleable-order-statuses.ts`: `CHARGE_REFUNDED_SOURCE_STATUSES = ['pending','failed','settled']` (literal, como el
+  contrato; la relación `= SETTLEABLE ∪ {settled}` la asevera SL-11).
+- `payments.service.ts`: `onChargeRefunded`, las dos ramas con esa lista — legada `:713-717` (AV-3 **solo** si
+  `count 1`; antes lo mandaba siempre) y con `fullRefund` `:728-740`; variante `vault` de AV-3 ⇔ `vault` ∧
+  `orderStatusUnderLock === 'settled'` (en la legada, sin candado, se usa el `status` leído). `failAndRelease` `:628`:
+  `updateMany where {id, status:'pending'}` y ⛔ libera piezas solo con `count 1`.
+- `full-refund.service.ts`: el `FOR UPDATE` de `Order` lee `status` en las dos ramas (`:201`, `:274`) ⇒
+  `FullRefundPassResult.orderStatusUnderLock` (`null` en retiro); vault 1.ª pasada `needsManual = items>0 ∧ status ∉
+  SETTLEABLE` (`:374`); `order.full_refund_closed` gana `after.statusAtClose` (`:398`).
+- **Escritores de `Order.status` (`rg "order\.(update|updateMany)\(" src`, confirmando la tabla del arquitecto):** los de
+  su tabla están, más **uno que no nombraba**: `OrdersService.releaseReservation` (`orders.service.ts:896`, `update` por
+  `id` a `failed`). Sus dos llamadores son la compensación de `attachPaymentIntent` (el PI **no** se creó ⇒ no hay cargo
+  que reembolsar) y el barrido legado de invitado **tras** `closePaymentIntent` (`guest-checkout.service.ts:480-495`) — la
+  misma clase que la fila «barrido de reservas» de su tabla (no alcanzable con cargo reembolsado; ⛔ NO MEDIDO con Stripe
+  real). Sin cambio; lo anoto para que la tabla quede completa.
+
+**Pruebas:**
+- Unitarias: `payments.service.spec.ts` M2/A1 (`where` con la lista) y B5 (`updateMany` `status:'pending'`) + caso nuevo
+  «CAS cuenta 0 ⇒ cero piezas liberadas»; `payments.settle-late.spec.ts:172` **SL-11** (tabla por `OrderStatus` + relación).
+- Integración (`settle-late.e2e-spec.ts`): **SL-8** `:450` (vault 2 piezas y directo invitado + un control `settled`
+  que conserva variante `vault` y `needsManual`), **SL-9** `:498` (directo; vault re-compra con O2 `settled` intacta
+  por `xmin`), **SL-10** `:536-680` (`failAndRelease` vs reembolso, ambas ramas; y `succeeded` vs reembolso sobre
+  `pending` en los dos órdenes de llegada, con reentrega del mismo `event.id` si no fue 2xx).
+- **Diferencia con el texto de SL-8, declarada:** «bitácora `order.full_refund_closed` con `statusAtClose`» se asevera
+  solo en la rama `vault`: la rama directo nunca escribió esa bitácora (solo `shipment.closed_by_full_refund` por envío
+  cerrado, y una `pending` no tiene envío). No añadí bitácora nueva al directo.
+
+**Cifras:**
+
+| Qué | Resultado |
+|---|---|
+| `settle-late` completa | **24/24 en 3/3 corridas** (N=3; era 13/15) |
+| SL-4 (sin cambio) | 10/10 válidas y verdes por rama, en las 3 |
+| SL-10 `failAndRelease` vs reembolso | vault **10/10**, directo **10/10** válidas y verdes, en las 3 |
+| SL-10 `succeeded` vs reembolso | primero el reembolso: 10/10 verdes, 0 con 5xx; primero el pago: 10/10 verdes, **10/10 con `503` del reembolso y reentrega** (acaba `settled → refunded` con las cartas reclamadas `refund_return`), en las 3 |
+| Mutación SL-8 (a) — `WHERE status:'settled'` (el código de `5321b8c6`) | rojas SL-8 ×2, SL-9 ×2 y SL-10 «primero el reembolso» **0/10** |
+| Mutación SL-8 (b) — `needsManual` sin mirar el estado | rojas SL-8 vault y SL-9 re-compra |
+| Mutación SL-9 — quitar `'failed'` de la lista | rojas SL-9 directo y re-compra |
+| Mutación SL-10 — `failAndRelease` vuelve a `update` por `id` | SL-10 fallo vault **0/10** y directo **0/10** (10/10 válidas) |
+| Mutación SL-11 (a) — `'chargeback'` en la lista | 2 rojas (tabla y relación) |
+| Mutación SL-11 (b) — `'chargeback'` en `SETTLEABLE` sin tocar la lista | la relación roja (y 15 más de SL-5/SL-6) |
+| `tsc --noEmit` | 0 errores |
+| Unitaria completa | **380/380 suites · 6396/6396** |
+| Integración completa (66 suites, load 6.83 al arrancar — acababa la unitaria — y 3.11 al terminar) | **65/66 · 1431/1432**: la roja, `shipments-prep` PS-50 (abajo) |
+
+Cada mutación: una corrida (las secuenciales son deterministas; las de carrera llevan su N=10 dentro), sobre copia del
+árbol entero, restaurada y borrada.
+
+**`shipments-prep` intermitente — ⛔ no atribuible a este cambio (medido):** sobre la BD usada `tcg_sl_fix`, mi árbol
+**4/5** en solitario (PS-51 rojo 1 vez) + PS-50 rojo en la integración completa; el árbol de **`a77c7181` (sin este
+cambio) sobre la misma BD: 4/5** (PS-43 rojo 1 vez). Sobre BD recién migrada: mi árbol **5/5**, `a77c7181` **5/5**. Las
+rojas son de preparación/libro de un directo (`prepare` sin fila `item_missing`; `PREPARATION_INCOMPLETE` en vez de
+`PREPARATION_HAS_BLOCKED_LINES`), caminos que este cambio no toca. Causa **NO MEDIDA**; misma clase que §10.2 (estado de
+BD compartida) o carrera propia de la suite. **Pendiente abierto** (backend): medirla N≥10 en BD usada vs limpia.
+
+## 13 · M-1 de QA sobre `b8a3e4ce`: el PATCH publicante escribía el precio y DESPUÉS perdía el CAS (2026-09-29, commit `81696fb8`)
+
+**El defecto (venía de v1.51, fase 8), medido:** en `updateItem`, camino publicante (`resultingStatus==='listed'` desde un
+estado no `listed`), los campos del body (incluido `listPriceCents`) se escribían con `inventoryItem.update({ where: { id } })`
+y **después** corría `claimListed` (el `updateMany` condicionado a `ownerType=platform` + `status ∈ {in_stock, listed}`). Si un
+checkout reservaba la pieza entre la lectura y la escritura, el CAS perdía ⇒ `422 ITEM_NOT_PUBLISHABLE`, pero el precio ya
+estaba escrito sobre una pieza `reserved`. Contradice INV-SP-8 (`#M1-patch-price-guard`: todo o nada).
+
+**Medición antes del arreglo:** `test/integration/inventory-patch-publish-race.e2e-spec.ts`, barrera de candado de fila
+(`helpers/row-lock-barrier.ts`: la prueba toma `FOR UPDATE`, el PATCH se para en su primera escritura —comprobado en
+`pg_stat_activity`—, la prueba hace `in_stock → reserved` y suelta). **10/10 rojas con N=10** (`422 … → reserved/45678`: el
+precio nuevo escrito). Control con la misma barrera y sin reserva: 10/10 verdes.
+
+**Arreglo:** `claimListed(item, lineListPriceCents?, fields = {})` — los campos viajan en el **mismo** `updateMany`
+condicionado que pone `listed`. Una sola escritura: si el CAS pierde, no se escribe nada. Los caminos de lote no pasan
+`fields` (sin cambio). Conducta visible sin cambio (mismos códigos, misma respuesta). ⛔ El contrato no cambia.
+
+**Cifras (árbol vivo, `81696fb8`):**
+| Medición | Resultado |
+|---|---|
+| Carrera tras el arreglo | 10/10 verdes (N=10); control 10/10 (N=10) |
+| Mutación 1 (volver al orden viejo: `update` por `id` + `claimListed` sin campos), copia entera `git archive HEAD` | carrera **10/10 rojas** (N=10); unitaria `inventory.graded-cert.spec.ts` roja |
+| Mutación 2 (no pasar `fields` a `claimListed`) | unitaria `graded-cert` roja (el `certNumber` no viaja) |
+| Unitaria completa | 380 suites / 6396 pruebas verdes |
+| Integración: race + move-mark-guards + pending-publish-seed + full-refund-vault + enum-query-axes | 5 suites / 487 verdes |
+
+`inventory.graded-cert.spec.ts` «PATCH que publica una gradeada aportando el certNumber» aseveraba la forma vieja (`update`
+llamado); ahora asevera `update` **no** llamado y un único `updateMany` con `{ certNumber, status: 'listed' }` y el `where`
+condicionado.
+
+**Del mismo pase:** M-2 (comentarios `/cuenta#kyc` ⇒ `/account#kyc` en `test/integration/setup.ts` y
+`replacement-cases.e2e-spec.ts`); TD-5 del techlead (comentarios que contradecían la norma vigente):
+`payments.service.ts · onChargeRefunded` (origen `CHARGE_REFUNDED_SOURCE_STATUSES`, v1.80.8.3),
+`refund-ledger.service.ts` cabecera (M3: `onFullRefund` y después `WHERE status='settled'`), y `readGuardedItem` /
+`guardedItemUpdate` en `inventory.service.ts` (también los usa el PATCH no publicante). Solo comentarios.

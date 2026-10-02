@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PaymentsService } from '../src/modules/payments/payments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
@@ -52,7 +53,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   });
 
   beforeEach(() => {
-    const tx = makeTx();
+    const tx = withM61Defaults(makeTx());
     processedIds = new Set<string>();
     prisma = {
       _tx: tx,
@@ -71,6 +72,8 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       order: {
         findUnique: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
+        // ⭐ v1.80: `charge.refunded` escribe `refunded` con el estado en el `WHERE`.
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       // `REL-B`/`REL-C`: las dos escrituras de envío del webhook llevan ahora su precondición de
       // estado en el `WHERE` (`updateMany` + `count`), no en el `if` sobre la lectura previa.
@@ -102,7 +105,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     // v1.79.4: el CAS del settle — estado en el WHERE.
     expect(tx.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'o1', status: { not: 'settled' } },
+        where: { id: 'o1', status: { in: ['pending', 'failed'] } }, // v1.80 §M4-VAULT.2-bis.2
         data: expect.objectContaining({ status: 'settled' }),
       }),
     );
@@ -306,13 +309,19 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled' });
     await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 40000 } as any);
     expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('M2/A1: reembolso TOTAL → refunded, SIN re-agregar item al inventario', async () => {
     prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled' });
     await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 100000 } as any);
-    expect(prisma.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'refunded' }) }),
+    // ⭐ v1.80 (REL-B, SEC-SHIP-M5): la transición lleva el estado en el `WHERE` (`updateMany`), ⛔ no `update` plano.
+    // 🔒💰 v1.80.8.3: el `WHERE` es `CHARGE_REFUNDED_SOURCE_STATUSES` (`pending`, `failed`, `settled`), ⛔ ya no solo `settled`.
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'o1', status: { in: ['pending', 'failed', 'settled'] } },
+        data: expect.objectContaining({ status: 'refunded' }),
+      }),
     );
     // A1: VENTAS FINALES → el item NO se revierte al inventario en el refund.
     expect(prisma._tx.inventoryItem.update).not.toHaveBeenCalled();
@@ -330,9 +339,11 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     });
     await payments.onPaymentCanceled('pi_1');
     const tx = prisma._tx;
-    expect(tx.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'o1' }, data: { status: 'failed' } }),
+    // 🔒💰 v1.80.8.3: CAS con el estado en el `WHERE` (⛔ nunca `update` por `id`: pisaría un `refunded` confirmado).
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'o1', status: 'pending' }, data: { status: 'failed' } }),
     );
+    expect(tx.order.update).not.toHaveBeenCalled();
     expect(tx.inventoryItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         // v1.68 (candado R-2): solo libera lo PROPIO (o legado).
@@ -344,6 +355,23 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
         data: expect.objectContaining({ status: 'listed', ownershipStatus: null, reservedByOrderId: null }),
       }),
     );
+  });
+
+  it('B5 (v1.80.8.3): el CAS a `failed` cuenta 0 (otro escritor ganó: `refunded`/`settled`) ⇒ ⛔ no libera ninguna pieza', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'o1',
+      fulfillmentMode: 'vault',
+      status: 'pending',
+      items: [{ inventoryItemId: 'item1' }],
+    });
+    const tx = prisma._tx;
+    tx.order.updateMany.mockResolvedValueOnce({ count: 0 });
+    await payments.onPaymentCanceled('pi_1');
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'o1', status: 'pending' }, data: { status: 'failed' } }),
+    );
+    expect(tx.inventoryItem.updateMany).toHaveBeenCalledTimes(0);
+    expect(tx.order.update).not.toHaveBeenCalled();
   });
 
   it('B5: payment_intent.canceled de un envío solicitado → lo cancela (libera items)', async () => {

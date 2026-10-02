@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ShipmentsService } from './shipments.service';
 import { AuditService } from '../audit/audit.service';
 import { TrackingDto, UpdateStatusDto } from './dto/shipments.dto';
+import { ShipmentPrepService } from './shipment-prep.service';
 
 /**
  * M4 — Retiros / envíos (vault_operator+). API_CONTRACT §M4.
@@ -15,6 +16,7 @@ export class AdminShipmentsController {
   constructor(
     private readonly shipments: ShipmentsService,
     private readonly audit: AuditService,
+    private readonly prep: ShipmentPrepService,
   ) {}
 
   @Get()
@@ -25,6 +27,8 @@ export class AdminShipmentsController {
     @Query('kind') kind?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    // ⭐ v1.80 (§M4-SHIP.10): búsqueda `q` (gramática de §M3).
+    @Query('q') q?: string,
   ) {
     return this.shipments.adminList(
       status,
@@ -32,7 +36,18 @@ export class AdminShipmentsController {
       Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
       userId,
       kind,
+      q,
     );
+  }
+
+  /**
+   * ⭐ v1.80 (§M4-SHIP.11) — el contador DERIVADO de «Pedidos por preparar» (sondeo de 60 s de la pantalla).
+   * `manualRefundsPending` solo para `super_admin` (`null` al operador).
+   */
+  @Header('Cache-Control', 'no-store')
+  @Get('picking-list/summary')
+  summary(@CurrentUser() user: { id: string; role: Role }) {
+    return this.prep.summary(user.role);
   }
 
   /**
@@ -65,6 +80,31 @@ export class AdminShipmentsController {
   @Get(':id')
   get(@Param('id') id: string) {
     return this.shipments.adminGet(id);
+  }
+
+  /** ⭐ v1.80 (§M4-SHIP.5) — palomear / marcar faltante (con motivo) / deshacer UNA carta de un envío. */
+  @Patch(':id/prep-items/:shipmentItemId')
+  markItem(
+    @Param('id') id: string,
+    @Param('shipmentItemId') shipmentItemId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.prep.markItem(id, shipmentItemId, body, user);
+  }
+
+  /** 💰 ⭐ v1.80 (§M4-SHIP.5) — dar por preparado (y reembolsar lo que falta / abrir casos en un retiro). */
+  @Post(':id/prepared')
+  @HttpCode(200)
+  prepare(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.prep.prepare(id, body, user);
+  }
+
+  /** ⭐ v1.80 (§M4-SHIP.5) — deshacer «preparado» (🔒 v1.80.5: en un retiro reclama lo que un reembolso total cerró). */
+  @Delete(':id/prepared')
+  @HttpCode(200)
+  unprepare(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    return this.prep.unprepare(id, user);
   }
 
   @Patch(':id/status')

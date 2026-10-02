@@ -41,6 +41,7 @@ import {
   E2E_SELL_REQUESTS,
   E2E_SET,
   E2E_SETTINGS,
+  E2E_SPEI_FIXTURE,
   E2E_STALE_ESTIMATES,
   E2E_USERS,
 } from './e2e-fixtures';
@@ -54,6 +55,8 @@ const E2E_FIXTURE_EMAILS: string[] = [
   // paso 3 los alcance (misma razón que los de §4.47.10.4); su `KycProfile` lo restaura su propia
   // siembra (paso 12), que es más fuerte que un borrado: deja el estado EXACTO, no «vacío».
   ...Object.values(E2E_KYC_FIXTURES).map((u) => u.email),
+  // P-REL-3: el cliente de la cubeta SPEI (paso 13).
+  E2E_SPEI_FIXTURE.customer.email,
 ];
 
 function todayUtc(): Date {
@@ -1068,6 +1071,213 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   // seed:synthetic` a secas). Si no hay, **avisa fuerte** y sigue — las filas quedan sembradas y lo
   // único que falla es lo que de verdad necesita el bucket.
   await seedIneObjects();
+
+  // 13. ⭐ P-REL-3 — LA CUBETA SPEI: dos `ManualRefund` `pending` con su caso `refunded` (ver `E2E_SPEI_FIXTURE`).
+  await seedSpeiBucket(prisma, {
+    adminId: userIds[E2E_USERS.admin.email],
+    operatorId: userIds[E2E_USERS.operator.email],
+    cardId: charizardId,
+    custodyLocationId: custodyLoc.id,
+  });
+}
+
+/**
+ * Paso 13 (P-REL-3). **Idempotente con IDs estables**: todo se encuentra por su clave única (`email`, `folio`,
+ * `orderNumber`, `orderId`, `orderItemId`, `placementItemId`, `idempotencyKey`) y se RESTAURA, no se recrea — el spec
+ * puede guardar ids entre corridas y una segunda siembra deja exactamente el mismo estado.
+ *
+ * Lo que el E2E puede mover y la siembra devuelve:
+ *  - `paid` / `cancelled` ⇒ la fila vuelve a `pending` con TODOS los sellos de pago y cancelación a `null`
+ *    (`paidAt`, `paidByUserId`, `speiReference`, `paidNote`, `paidClabeHmac`, `cancelled*`, `paidNotifiedAt`);
+ *  - `reissue` de la cancelada ⇒ la re-emisión (`reissue:<id>`, viva, mismo caso y canal) se BORRA **antes** de volver
+ *    la original a `pending` — si no, el índice único parcial `ManualRefund_live_per_case_source_key` lo impediría.
+ *    Se borra TODA fila del cliente que no sea una de las dos claves fijas (una re-emisión de re-emisión incluida),
+ *    soltando antes `reissuedFromId` (FK `Restrict` entre ellas);
+ *  - `PUT /users/me/kyc {clabe}` ⇒ se borra su `KycProfile` (sin CLABE; clave PII efímera, ver el paso 3).
+ */
+async function seedSpeiBucket(
+  prisma: PrismaClient,
+  ctx: { adminId: string; operatorId: string; cardId: string; custodyLocationId: string },
+): Promise<void> {
+  const F = E2E_SPEI_FIXTURE;
+  const passwordHash = await argon2.hash(F.customer.password);
+  const user = await prisma.user.upsert({
+    where: { email: F.customer.email },
+    create: {
+      email: F.customer.email,
+      passwordHash,
+      name: F.customer.name,
+      nameSource: 'user',
+      role: 'customer',
+      locale: 'es',
+      phone: F.customer.phone,
+      authProvider: 'local',
+      emailVerified: true,
+    },
+    update: {
+      passwordHash,
+      name: F.customer.name,
+      nameSource: 'user',
+      role: 'customer',
+      phone: F.customer.phone,
+      authProvider: 'local',
+      emailVerified: true,
+      status: 'active',
+      mustChangePassword: false,
+    },
+  });
+  await prisma.kycProfile.deleteMany({ where: { userId: user.id } });
+
+  // Re-emisiones y cualquier otra fila del cliente fuera de las dos claves fijas.
+  const fixedKeys = Object.values(F.rows).map((r) => r.idempotencyKey);
+  const stray = { customerUserId: user.id, idempotencyKey: { notIn: fixedKeys } };
+  await prisma.manualRefund.updateMany({ where: stray, data: { reissuedFromId: null } });
+  await prisma.manualRefund.deleteMany({ where: stray });
+
+  // La orden de bóveda `settled` (origen de los dos casos).
+  const orderData = {
+    userId: user.id,
+    fulfillmentMode: 'vault' as const,
+    status: 'settled' as const,
+    subtotalCents: F.order.subtotalCents,
+    shippingFeeCents: 0,
+    processingFeeCents: F.order.processingFeeCents,
+    ivaCents: F.order.ivaCents,
+    ivaRatePct: 16,
+    totalCents: F.order.totalCents,
+    priceConvention: 'IVA_INCLUSIVE' as const,
+    // M-50: toda orden `IVA_INCLUSIVE` archiva el dial con el que se derivaron sus precios (y viceversa;
+    // candado `iva-price-convention.e2e-spec.ts`). 100 = el default de `IVA_TRANSFER_PCT`.
+    ivaTransferPct: 100,
+    locale: 'es' as const,
+    createdAt: new Date(F.order.createdAt),
+    settledAt: new Date(F.order.settledAt),
+  };
+  const order = await prisma.order.upsert({
+    where: { orderNumber: F.order.orderNumber },
+    create: { orderNumber: F.order.orderNumber, ...orderData },
+    update: orderData,
+  });
+  const settledAt = new Date(F.order.settledAt);
+  const resolvedAt = new Date(F.order.resolvedAt);
+  const placementData = {
+    status: 'placed' as const,
+    createdAt: settledAt,
+    preparedAt: settledAt,
+    preparedByUserId: ctx.operatorId,
+    placedAt: settledAt,
+    placedByUserId: ctx.operatorId,
+    locationId: ctx.custodyLocationId,
+    cancelledAt: null,
+    cancelledByUserId: null,
+    cancelReason: null,
+  };
+  const placement = await prisma.vaultPlacement.upsert({
+    where: { orderId: order.id },
+    create: { orderId: order.id, ...placementData },
+    update: placementData,
+  });
+
+  for (const [k, r] of Object.entries(F.rows)) {
+    const missingReason = k === 'pay' ? ('not_found' as const) : ('damaged' as const);
+    // La pieza original, como la deja `originalToPlatform`: plataforma, `lost|damaged`, sin dueño.
+    const pieceState = {
+      ownerType: 'platform' as const,
+      ownerUserId: null,
+      ownershipStatus: null,
+      status: missingReason === 'not_found' ? ('lost' as const) : ('damaged' as const),
+      locationId: null,
+      listPriceCents: null,
+    };
+    const piece = await prisma.inventoryItem.upsert({
+      where: { folio: r.folio },
+      create: {
+        folio: r.folio,
+        cardId: ctx.cardId,
+        productType: 'raw',
+        rawCondition: 'NM',
+        finish: 'normal',
+        acquisitionType: 'compra',
+        acquisitionCostCents: 20000,
+        ...pieceState,
+      },
+      update: pieceState,
+    });
+    const orderItem =
+      (await prisma.orderItem.findFirst({ where: { orderId: order.id, inventoryItemId: piece.id } })) ??
+      (await prisma.orderItem.create({
+        data: {
+          orderId: order.id,
+          inventoryItemId: piece.id,
+          cardSnapshot: { cardId: ctx.cardId, name: E2E_CARDS.charizard.name, setName: E2E_SET.name, number: E2E_CARDS.charizard.number, productType: 'raw', rawCondition: 'NM', gradingCompany: null, gradeValue: null },
+          unitPriceCents: r.unitPriceCents,
+          finish: 'normal',
+        },
+      }));
+    const vpiData = { prepStatus: 'missing' as const, prepMarkedAt: settledAt, prepMarkedByUserId: ctx.operatorId, missingReason };
+    const vpi = await prisma.vaultPlacementItem.upsert({
+      where: { orderItemId: orderItem.id },
+      create: { placementId: placement.id, orderItemId: orderItem.id, inventoryItemId: piece.id, ...vpiData },
+      update: vpiData,
+    });
+    const caseData = {
+      source: 'vault_purchase' as const,
+      status: 'refunded' as const,
+      customerUserId: user.id,
+      originalInventoryItemId: piece.id,
+      missingReason,
+      originOrderItemId: orderItem.id,
+      openedAt: settledAt,
+      openedByUserId: ctx.operatorId,
+      resolvedAt,
+      resolvedByUserId: ctx.adminId,
+      replacementInventoryItemId: null,
+      replacementShipmentItemId: null,
+      voidNote: null,
+      refundAmountCents: r.amountCents,
+      refundReason: r.refundReason,
+      refundPaidRefCents: r.unitPriceCents,
+      refundMarketRefCents: null,
+      refundMarketRefDate: null,
+      refundAboveRefConfirmed: false,
+    };
+    const kase = await prisma.replacementCase.upsert({
+      where: { placementItemId: vpi.id },
+      create: { placementItemId: vpi.id, ...caseData },
+      update: caseData,
+    });
+    const mrData = {
+      source: 'case_excess' as const,
+      status: 'pending' as const,
+      customerUserId: user.id,
+      replacementCaseId: kase.id,
+      paymentRefundId: null,
+      orderId: order.id,
+      amountCents: r.amountCents,
+      merchandiseCents: r.merchandiseCents,
+      merchandiseIvaCents: r.merchandiseIvaCents,
+      processingFeeCents: r.processingFeeCents,
+      compensationCents: r.compensationCents,
+      createdAt: resolvedAt,
+      createdByUserId: ctx.adminId,
+      paidAt: null,
+      paidByUserId: null,
+      speiReference: null,
+      paidNote: null,
+      paidClabeHmac: null,
+      cancelledAt: null,
+      cancelledByUserId: null,
+      cancelNote: null,
+      reissuedFromId: null,
+      announcedNotifiedAt: resolvedAt,
+      paidNotifiedAt: null,
+    };
+    await prisma.manualRefund.upsert({
+      where: { idempotencyKey: r.idempotencyKey },
+      create: { idempotencyKey: r.idempotencyKey, ...mrData },
+      update: mrData,
+    });
+  }
 }
 
 /**

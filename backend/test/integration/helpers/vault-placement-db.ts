@@ -209,6 +209,8 @@ export class VaultPlacementDb {
             ...(mark === 'pending'
               ? {}
               : { prepMarkedAt: new Date(), prepMarkedByUserId: this.operatorId }),
+            // v1.80.1: CHECK `missingReason IS NOT NULL ⇔ prepStatus='missing'`.
+            ...(mark === 'missing' ? { missingReason: 'not_found' as const } : {}),
           },
         }),
       );
@@ -243,10 +245,16 @@ export class VaultPlacementDb {
   unprepare(placementId: string, token = this.opToken) {
     return this.h.api('DELETE', `/admin/vault-placements/${placementId}/prepared`, { token });
   }
+  /**
+   * ⭐ v1.80.1 (§M4-VAULT.10): `missingReason` es OBLIGATORIO con `missing` — un `status` de cadena `'missing'` viaja
+   * con `not_found` por defecto; un objeto se manda tal cual (para medir el `400` y `damaged`).
+   */
   mark(placementId: string, placementItemId: string, status: unknown, token = this.opToken) {
+    const json =
+      typeof status === 'object' && status !== null ? status : status === 'missing' ? { status, missingReason: 'not_found' } : { status };
     return this.h.api('PATCH', `/admin/vault-placements/${placementId}/prep-items/${placementItemId}`, {
       token,
-      json: { status },
+      json,
     });
   }
   queue(qs = '') {
@@ -373,6 +381,10 @@ export class VaultPlacementDb {
       select: { id: true },
     });
     const pIds = placements.map((x) => x.id);
+    // v1.80.1: los casos «Por reponer» que nacen al colocar (y su bitácora).
+    const cases = await p.replacementCase.findMany({ where: { customerUserId: { in: this.users } }, select: { id: true } });
+    await p.auditLog.deleteMany({ where: { entityType: 'ReplacementCase', entityId: { in: cases.map((c) => c.id) } } });
+    await p.replacementCase.deleteMany({ where: { id: { in: cases.map((c) => c.id) } } });
     await p.auditLog.deleteMany({ where: { entityType: 'VaultPlacement', entityId: { in: pIds } } });
     await p.vaultPlacementItem.deleteMany({ where: { placementId: { in: pIds } } });
     await p.vaultPlacement.deleteMany({ where: { id: { in: pIds } } });

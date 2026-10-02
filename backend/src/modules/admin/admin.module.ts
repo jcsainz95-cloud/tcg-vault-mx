@@ -8,10 +8,16 @@ import {
 } from './admin.controller';
 import { PricingModule } from '../pricing/pricing.module';
 import { UploadsModule } from '../uploads/uploads.module';
+import { AuthModule } from '../auth/auth.module';
+import { ShipmentsModule } from '../shipments/shipments.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   // UploadsModule provee UploadsService para purgar la imagen de INE al borrar un usuario (M6).
-  imports: [PricingModule, UploadsModule],
+  // AuthModule (v1.80, C7): provee `PasswordAttemptsService` — el reset por admin levanta el candado.
+  // v1.80 (§M4-SHIP.11): `ShipmentsModule` para `workQueue.toPrepare` (el mismo cuerpo que el `summary` de la cola).
+  // v1.80.7 (punto 19): `UsersModule` para `UsersService.eraseClabe` (`C-CLABE-1`).
+  imports: [PricingModule, UploadsModule, AuthModule, ShipmentsModule, UsersModule],
   providers: [AdminService],
   controllers: [
     AdminUsersController,

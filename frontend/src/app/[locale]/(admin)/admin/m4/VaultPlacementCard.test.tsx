@@ -96,7 +96,9 @@ const shipOrder = (over: Partial<ShipPreparationOrderDTO> = {}): ShipPreparation
   orderId: 'ord-s',
   orderNumber: 'TCG-000400',
   requestedAt: '2026-08-01T10:00:00Z',
-  customer: { lastName: 'Oak', fullName: 'Samuel Oak' },
+  kind: 'guest_direct_ship',
+  customer: { userId: 'u-oak', email: 'samuel@example.com', lastName: 'Oak', fullName: 'Samuel Oak' },
+  preparation: { status: 'in_progress', refundPreviewCents: 0, total: 1, pending: 1, picked: 0, missing: 0, blocked: 0 },
   shipTo: {
     recipientName: 'Samuel Oak',
     line1: 'Calle 1',
@@ -114,6 +116,11 @@ const shipOrder = (over: Partial<ShipPreparationOrderDTO> = {}): ShipPreparation
       quantity: 1,
       card: { name: 'Pikachu', setName: 'Base Set', finish: 'normal', conditionLabel: 'NM', imageSmallUrl: null },
       currentLocation: { kind: 'assigned', label: 'C01-F01-S01' },
+      prepStatus: 'pending',
+      missingReason: null,
+      prepMarkedBy: null,
+      availability: { kind: 'available' },
+      refund: { kind: 'refundable', amountCents: 30000 },
     },
   ],
   ...over,
@@ -137,7 +144,7 @@ async function card(placementId = 'vp-1') {
 describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
   it('PV-1 · el titular es el nombre COMPLETO; ⛔ ningún nodo propio con el apellido derivado', async () => {
     serve([vaultOrder()]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     const who = within(c).getByTestId('prep-customer-vp-1');
@@ -155,7 +162,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
         customer: { userId: 'u-780', email: 'juan.perez95@example.com', lastName: null, fullName: null },
       }),
     ]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     const who = within(c).getByTestId('prep-customer-vp-1');
@@ -177,7 +184,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
 
   it('PV-2 (EN) · la misma ausencia en inglés', async () => {
     serve([vaultOrder({ customer: { userId: 'u-780', email: 'j@example.com', lastName: null, fullName: null } })]);
-    renderWithProviders(<PreparationQueue />, 'en');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'en');
     const who = within(await card()).getByTestId('prep-customer-vp-1');
     expect(who).toHaveTextContent('No name on file');
     expect(who).toHaveTextContent("This account was created without a name: the customer hasn't given us one.");
@@ -204,7 +211,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
         },
       }),
     ]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     for (const id of ['vp-1', 'vp-2']) {
       const c = await card(id);
@@ -240,7 +247,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
         },
       }),
     ]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     expect(within(c).getByText('Cartas en varios cajones')).toBeInTheDocument();
@@ -260,7 +267,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
       { id: 'loc-3', zone: 'customer_custody', box: 'C10', row: 'F01', slot: 'S01', label: 'C10-F01-S01', isActive: true, createdAt: '2026-07-01T10:00:00Z' },
       { id: 'loc-9', zone: 'customer_custody', box: 'C12', row: 'F01', slot: 'S01', label: 'C12-F01-S01', isActive: false, createdAt: '2026-07-01T10:00:00Z' },
     ]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const select = (await within(await card()).findByLabelText('Elige su cajón')) as HTMLSelectElement;
     expect(select.value).toBe('');
@@ -270,7 +277,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
 
   it('PV-5 · con `pending > 0` «Pedido preparado» está deshabilitado y su razón VISIBLE va por `aria-describedby`', async () => {
     serve([vaultOrder({ items: [vItem('a1'), vItem('a2')] })]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const btn = within(await card()).getByRole('button', { name: 'Pedido preparado' });
     expect(btn).toBeDisabled();
@@ -287,7 +294,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
         items: [vItem('a1', { prepStatus: 'picked' }), vItem('a2', { placeability: { kind: 'blocked', reason: 'in_withdrawal' } })],
       }),
     ]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
     expect(within(await card()).getByRole('button', { name: 'Pedido preparado' })).toBeEnabled();
   });
 
@@ -300,7 +307,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
         ],
       }),
     ]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const row = within(await card()).getByTestId('prep-item-bl');
     expect(within(row).queryAllByRole('button')).toHaveLength(0);
@@ -315,7 +322,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
       vaultOrder({ placementId: 'vp-1', items: [vItem('a1')] }),
       vaultOrder({ placementId: 'vp-2', requestedAt: '2026-09-02T10:00:00Z', prepared: true, items: [vItem('b1', { prepStatus: 'picked' })] }),
     ]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const step1 = await card('vp-1');
     const step2 = await card('vp-2');
@@ -339,7 +346,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
       placement: {} as never,
       preparation: prep(items, false),
     });
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     fireEvent.click(within(c).getByRole('button', { name: 'Deshacer preparado' }));
@@ -366,7 +373,7 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
     vi.spyOn(api, 'setVaultPrepItem').mockRejectedValue(
       new ApiClientError(409, { code: 'PREPARATION_CLOSED', message: 'closed', details: { preparedAt: '2026-09-24T17:20:00Z' } }),
     );
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const row = within(await card()).getByTestId('prep-item-a1');
     fireEvent.click(within(row).getByRole('button', { name: /^La tengo:/ }));
@@ -376,16 +383,19 @@ describe('PV · tarjeta «Para bóveda» (§36 · §M4-VAULT)', () => {
     expect(within(alert).getByRole('button', { name: 'Deshacer preparado' })).toBeInTheDocument();
   });
 
-  it('PV-10 · en «Ambas», la tarjeta de ENVÍO no tiene casillas, «La tengo» ni línea de paso', async () => {
+  it('PV-10 (v1.80 · §37.3) · en «Ambas», la tarjeta de ENVÍO palomea con SUS verbos: ⛔ sin casillas ni «Paso n de 2» ni «Confirmar colocación»', async () => {
     serve([shipOrder(), vaultOrder()]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const ship = await screen.findByTestId('prep-order-shp-1');
     await card();
+    // La tarjeta de envío tiene «La tengo» (§37.3b: el mismo verbo en las dos cubetas)…
+    expect(within(ship).getAllByRole('button', { name: /La tengo/ }).length).toBeGreaterThan(0);
+    // …pero ⛔ ni las casillas ni el paso de BÓVEDA («Junta y palomea» de envío ≠ «al cajón») ni «Confirmar colocación».
     expect(within(ship).queryAllByRole('checkbox')).toHaveLength(0);
-    expect(within(ship).queryByText(/La tengo/)).not.toBeInTheDocument();
-    expect(ship).not.toHaveTextContent(/Paso \d de 2/);
-    expect(within(ship).queryByRole('button', { name: /Pedido preparado|Confirmar colocación/ })).not.toBeInTheDocument();
+    expect(ship).toHaveTextContent('Paso 1 de 2 · Junta y palomea');
+    expect(ship).not.toHaveTextContent(/cajón/);
+    expect(within(ship).queryByRole('button', { name: /Confirmar colocación/ })).not.toBeInTheDocument();
   });
 });
 
@@ -399,7 +409,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
       item: picked,
       preparation: prep([picked, items[1]]),
     });
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     const live = within(c).getByTestId('vault-live-vp-1');
@@ -419,13 +429,15 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
     serve([vaultOrder({ items })]);
     const missing = { ...items[0], prepStatus: 'missing' as const };
     vi.spyOn(api, 'setVaultPrepItem').mockResolvedValue({ changed: true, item: missing, preparation: prep([missing]) });
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     fireEvent.click(within(c).getByRole('button', { name: /^No la encontré:/ }));
     const row = within(c).getByTestId('prep-item-a1');
     await waitFor(() => expect(row).toHaveTextContent('Faltante'));
-    expect(row).toHaveTextContent('Queda anotada como faltante. No se mueve al cajón. Esta pantalla no avisa al cliente ni hace reembolsos.');
+    // v1.80.1 (§37.16 `vault.item.missingBody`): la frase nombra el caso «Por reponer» que abrirá la colocación,
+    // y sigue ⛔ sin prometer reembolso ni aviso desde ESTA pantalla.
+    expect(row).toHaveTextContent('Queda anotada. No se mueve al cajón. Al confirmar la colocación se abrirá un caso «Por reponer» a nombre del cliente; esta pantalla no le avisa ni hace reembolsos.');
     // Todas faltantes ⇒ se puede preparar igual, con el aviso de «nada al cajón».
     expect(within(c).getByText('Ninguna carta está tomada: al final no se guardará nada en el cajón.')).toBeInTheDocument();
   });
@@ -439,7 +451,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
       placement: { orderNumber: 'TCG-000501' } as never,
       items: [{ inventoryItemId: 'inv-a1', folio: 'INV-a1', result: 'missing' }],
     });
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     expect(within(c).queryByLabelText('Elige su cajón')).not.toBeInTheDocument();
@@ -475,7 +487,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
         ],
       };
     });
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     expect(within(c).getByTestId('vault-summary-vp-1')).toHaveTextContent(
@@ -504,7 +516,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
         details: { status: 'placed', location: { id: 'loc-4', label: 'C10-F01-S02', zone: 'customer_custody' } },
       });
     });
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     fireEvent.click(within(await card()).getByRole('button', { name: 'Confirmar colocación' }));
     const notice = await screen.findByTestId('prep-notice');
@@ -527,7 +539,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
         details: { status: 'placed', location: { id: 'loc-1', label: 'C03-F02-S15', zone: 'platform_stock' } },
       });
     });
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     fireEvent.click(within(await card()).getByRole('button', { name: 'Confirmar colocación' }));
     const notice = await screen.findByTestId('prep-notice');
@@ -542,7 +554,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
     vi.spyOn(api, 'confirmVaultPlacement').mockRejectedValue(
       new ApiClientError(422, { code: 'LOCATION_NOT_AVAILABLE', message: 'x', details: { reason: 'location_required', pickedCount: 2 } }),
     );
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     const before = queueSpy.mock.calls.length;
@@ -560,7 +572,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
     vi.spyOn(api, 'confirmVaultPlacement').mockRejectedValue(
       new ApiClientError(422, { code: 'LOCATION_NOT_AVAILABLE', message: 'x', details: { reason: 'location_required' } }),
     );
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     fireEvent.click(within(c).getByRole('button', { name: 'Cerrar pedido sin guardar nada' }));
@@ -572,7 +584,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
   it('`409 CONFLICT` de un verbo: copy PROPIO de la tarjeta, ⛔ no el genérico y ⛔ sin «Reintentar»', async () => {
     serve([vaultOrder({ items: [vItem('a1', { prepStatus: 'picked' })] })]);
     vi.spyOn(api, 'prepareVaultPlacement').mockRejectedValue(new ApiClientError(409, { code: 'CONFLICT', message: 'x' }));
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     const c = await card();
     fireEvent.click(within(c).getByRole('button', { name: 'Pedido preparado' }));
@@ -588,7 +600,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
     vi.spyOn(api, 'prepareVaultPlacement').mockRejectedValue(
       new ApiClientError(409, { code: 'PREPARATION_INCOMPLETE', message: 'x', details: { pendingCount: 1 } }),
     );
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
 
     fireEvent.click(within(await card()).getByRole('button', { name: 'Pedido preparado' }));
     expect(await within(await card()).findByRole('alert')).toHaveTextContent(
@@ -604,7 +616,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
         preparation: { status: 'prepared', preparedAt: '2026-09-24T17:20:00Z', preparedBy: { userId: 'u-x', name: null }, ...counts(items) },
       }),
     ]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
     const live = within(await card()).getByTestId('vault-live-vp-1');
     expect(live).toHaveTextContent('Preparado por una cuenta sin nombre ·');
     expect(live).not.toHaveTextContent('null');
@@ -612,7 +624,7 @@ describe('Tarjeta «Para bóveda» · verbos y respuestas (§36.5–§36.9)', ()
 
   it('el enlace «Ver qué debe haber en su bóveda» lleva al detalle DIRECCIONABLE del cliente (H-6)', async () => {
     serve([vaultOrder()]);
-    renderWithProviders(<PreparationQueue />, 'es');
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
     const link = within(await card()).getByRole('link', { name: 'Ver qué debe haber en su bóveda' });
     expect(link).toHaveAttribute('href', '/admin/vaults/u-1?tab=physical');
   });

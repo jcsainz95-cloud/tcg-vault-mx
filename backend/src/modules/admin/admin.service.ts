@@ -13,7 +13,6 @@ import {
   MarketBracket,
   OrderStatus,
   Prisma,
-  ProductType,
   Role,
   SellRequestStatus,
   UserStatus,
@@ -26,7 +25,9 @@ import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
+import { variantKey } from '../../common/variant-key';
 import { toAddressDTO } from '../users/address-dto';
+import { UsersService } from '../users/users.service';
 import {
   netRevenueCents,
   netShippingCostCents,
@@ -36,6 +37,9 @@ import {
 // v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { PasswordAttemptsService } from '../auth/password-attempts.service';
+import { ShipmentPrepService } from '../shipments/shipment-prep.service';
+import { ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { kycRejectedTemplate } from './mail/kyc-notice.templates';
 import {
   MIN_PASSWORD_LENGTH,
@@ -589,6 +593,8 @@ const ADMIN_USER_DETAIL_SELECT = {
       gradingCompany: true,
       gradeValue: true,
       ownershipStatus: true,
+      // v1.80.1 (SK-5): identidad de mercado del sellado — la valuación la necesita; ⛔ no viaja al DTO.
+      tcgplayerProductId: true,
       card: { include: { set: true } },
     },
   },
@@ -618,6 +624,21 @@ export class AdminService {
     // v1.74 (§R): `@Optional()` — los tests unitarios construyen este servicio a mano, y el envío es
     // best-effort: ⛔ un fallo del correo NO puede hacer fallar `PATCH /admin/users/:id/kyc`.
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // v1.80 (C7, §M6): el reset por admin LEVANTA el candado de intentos de la cuenta. Lo provee
+    // `AuthModule` (importado por `AdminModule`); lo prueba C7-8(b) por HTTP real y el arranque lo
+    // asevera `app.module.spec` («es el mismo singleton que usa AuthService»).
+    // SEC-C7-OPT (2026-09-29): SIN `@Optional()` — con él, sacar `AuthModule` de los imports
+    // compilaba y el reset dejaba de levantar el candado en silencio. El `?` de TypeScript queda
+    // solo porque va detrás de `mail?` (posición) y los unitarios construyen a mano; en DI es
+    // obligatorio, y `resetPassword` se niega a correr sin él (no hay rama muda).
+    private readonly passwordAttempts?: PasswordAttemptsService,
+    // ⭐ v1.80 (§M4-SHIP.11): `workQueue.toPrepare` (el MISMO cuerpo que `picking-list/summary`) y las cubetas de
+    // dinero del súper-admin. `@Optional()`: los unitarios construyen el servicio a mano.
+    @Optional() private readonly prep?: ShipmentPrepService,
+    @Optional() private readonly manualRefunds?: ManualRefundService,
+    // 🔒 v1.80.7 (punto 19): la CLABE la borra su módulo dueño (`UsersService.eraseClabe`, `C-CLABE-1`). `@Optional()`
+    // por el mismo motivo que los de arriba; `deleteUser` exige que esté.
+    @Optional() private readonly users?: UsersService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -980,6 +1001,7 @@ export class AdminService {
       rawCondition: string | null;
       gradingCompany: string | null;
       gradeValue: string | null;
+      tcgplayerProductId: number | null;
       ownershipStatus: Prisma.InventoryItemGetPayload<object>['ownershipStatus'];
       card: Prisma.CardGetPayload<{ include: { set: true } }>;
     }[],
@@ -1006,7 +1028,8 @@ export class AdminService {
     // displayFinishes — DERIVADO de los `refs` YA cargados (sin query extra ni N+1).
     const pricedByCard = new Map<string, Set<Finish>>();
     for (const r of refs) {
-      const key = `${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`;
+      // D-1 (v1.80.2.2): productor y consumidor del `Map` con la MISMA `variantKey` (P-30 H2), nunca a mano.
+      const key = variantKey(r);
       const cur = latest.get(key);
       if (cur == null || isBetterRef(r, cur)) latest.set(key, r);
       if (r.productType === 'raw' && r.gradeKey === 'raw:NM' && r.priceMxnCents > 0) {
@@ -1022,22 +1045,27 @@ export class AdminService {
     // vigente (izada UNA vez), en paridad con getReference/getReferencesBatch. Overrides manuales y
     // precios nativos en MXN quedan congelados (los distingue `liveMxnCents`).
     const fx = await this.pricing.fxSnapshotSafe();
+    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
     return items.map((item) => {
-      // v1.53 (§4.40.4b, MONEY) — LECTURA: sin identidad de slab no hay clave, y sin clave no hay
-      // referencia ⇒ `pending`. Antes la fila se resolvía como `graded:PSA:10` y el admin veía el
-      // valor del grado MÁS CARO para una pieza cuyo grado nunca se capturó.
-      const gradeKey = this.pricing.tryGradeKeyFor(item);
-      const r = gradeKey
-        ? latest.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`)
-        : undefined;
-      const referenceValue: PriceInfo = r
+      // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — por la ÚNICA puerta de valuación, la misma que
+      // «Mi bóveda» del cliente: la ficha 360° y lo que ve el cliente cuadran.
+      //  - raw/graduada: la clave de siempre (v1.53 §4.40.4b: sin identidad de slab no hay clave ⇒
+      //    `pending`; antes se resolvía `graded:PSA:10`, el grado MÁS CARO).
+      //  - sellado: su `sealed:tcg:<id>` con el gate de dial; sin mapeo ⇒ `pending`. ⛔ Nunca `'sealed'`.
+      const key = this.pricing.valuationKeyFor(item);
+      const r = key ? latest.get(variantKey(key)) : undefined;
+      const ref: PriceInfo | undefined = r
         ? {
             status: 'priced',
             referenceMxnCents: this.pricing.liveMxnCents(r, fx),
             source: r.source as PriceInfo['source'],
             capturedDate: r.capturedDate.toISOString().slice(0, 10),
           }
-        : { status: 'pending' };
+        : undefined;
+      const referenceValue: PriceInfo =
+        ref && this.pricing.valuationCentsOf(item, ref, sourceOn) != null ? ref : { status: 'pending' };
       return {
         inventoryItemId: item.id,
         folio: item.folio,
@@ -1330,7 +1358,16 @@ export class AdminService {
    * loguea/audita (el AuditLog solo guarda action + actor + target).
    */
   async resetPassword(id: string): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
-    const user = await this.prisma.user.findUnique({ where: { id }, select: { id: true, status: true } });
+    // SEC-C7-OPT: se comprueba ANTES de escribir nada. Sin servicio no hay reset «a medias» (hash
+    // nuevo persistido, candado puesto, contraseña temporal nunca devuelta): se falla en seco.
+    const attempts = this.passwordAttempts;
+    if (!attempts) {
+      throw new Error('AdminService.resetPassword: PasswordAttemptsService is not wired (AdminModule must import AuthModule)');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, status: true, email: true },
+    });
     if (!user) throw BusinessException.notFound();
     if (user.status === 'deleted') {
       throw BusinessException.validation('USER_DELETED', 'Cannot reset a deleted account');
@@ -1347,6 +1384,8 @@ export class AdminService {
         tokenVersion: { increment: 1 },
       },
     });
+    // v1.80 (C7): es la vía para que el dueño desbloquee a un operador (contrato §M6).
+    await attempts.clearForUser(user);
     return { userId: id, tempPassword, mustChangePassword: true };
   }
 
@@ -1433,13 +1472,14 @@ export class AdminService {
     }
 
     // SOFT delete: conserva filas económicas; anonimiza PII y revoca login.
+    if (!this.users) throw new Error('UsersService no disponible: el borrado suave anonimiza la CLABE por `eraseClabe`');
     await this.prisma.$transaction(async (tx) => {
       if (user.kycProfile) {
+        // 🔒 v1.80.7 (`C-CLABE-1`): la CLABE la anula su módulo dueño (solo nulos, sin `clabeUpdatedAt`, sin `AV-16`).
+        await this.users!.eraseClabe(tx, id);
         await tx.kycProfile.update({
           where: { userId: id },
           data: {
-            clabeEnc: null,
-            clabeHmac: null,
             rfcEnc: null,
             legalName: null,
             // ⭐ `C20` — las keys se anulan **solo si el objeto SE BORRÓ**. Con el borrado fallido, el
@@ -1560,11 +1600,18 @@ export class AdminService {
       if (s.shippingCostCents === 0) shippingCostMissingCount += 1;
       stripeFeesCents += s.processingFeeCents;
     }
-    // ⛔ `profitCents` NO cambia de fórmula. Lo que cambia es que sus dos términos de envío están
-    // ahora en la **MISMA base (neta)**: antes uno era neto y el otro bruto, y eso restaba una
-    // pérdida que no existía.
+    // ⭐ v1.80 / v1.80.2 (§M4-SHIP, PS-40) — EL DINERO QUE VUELVE resta en el periodo en que SALIÓ: las filas del
+    // libro aceptadas por Stripe (`submitted|succeeded`, por `submittedAt`) y las transferencias SPEI `paid` (por
+    // `paidAt`; ⛔ `pending` y `cancelled` no restan; la fila Stripe `failed` no resta y su sustituta SPEI no duplica).
+    // Componentes de venta NETOS (IVA fuera, como el ingreso); la comisión devuelta deja de compensar el costo de
+    // Stripe (se resta aparte); la compensación por carta perdida es RENGLÓN PROPIO (tratamiento fiscal ⛔ no
+    // decidido, §M4-SHIP.15.5). ⛔ NO MEDIDO por el arquitecto la forma del DTO: campos ADITIVOS, enrutados en
+    // BACKEND_NOTES.
+    const refunds = await this.refundsInPeriod(createdAt);
+    // ⛔ `profitCents` conserva sus cinco términos y resta lo devuelto (antes un reembolso parcial NO restaba nada).
     const profitCents =
-      incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents;
+      incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents -
+      refunds.refundsCents - refunds.refundedFeesCents - refunds.compensationsCents;
     return {
       incomeCents,
       shippingRevenueCents,
@@ -1572,7 +1619,68 @@ export class AdminService {
       stripeFeesCents,
       shippingCostCents,
       shippingCostMissingCount,
+      refundsCents: refunds.refundsCents,
+      refundedFeesCents: refunds.refundedFeesCents,
+      compensationsCents: refunds.compensationsCents,
       profitCents,
+    };
+  }
+
+  /**
+   * ⭐ v1.80.2 — un cuerpo para el P&L y el IVA: lo devuelto en el periodo. `refundsCents` = mercancía + envío NETOS;
+   * `refundedFeesCents` = comisión devuelta; `compensationsCents` = compensaciones por carta perdida; `ivaRefundedCents`
+   * = el IVA que iba dentro de lo devuelto.
+   */
+  private async refundsInPeriod(period?: Prisma.DateTimeFilter) {
+    const [stripeRows, speiRows] = await Promise.all([
+      this.prisma.paymentRefund.findMany({
+        where: { status: { in: ['submitted', 'succeeded'] }, ...(period ? { submittedAt: period } : {}) },
+        select: { merchandiseCents: true, merchandiseIvaCents: true, shippingCents: true, shippingIvaCents: true, processingFeeCents: true, compensationCents: true },
+      }),
+      this.prisma.manualRefund.findMany({
+        where: { status: 'paid', ...(period ? { paidAt: period } : {}) },
+        select: { merchandiseCents: true, merchandiseIvaCents: true, processingFeeCents: true, compensationCents: true },
+      }),
+    ]);
+    const acc = { refundsCents: 0, refundedFeesCents: 0, compensationsCents: 0, ivaRefundedCents: 0 };
+    for (const r of stripeRows) {
+      acc.refundsCents += r.merchandiseCents - r.merchandiseIvaCents + r.shippingCents - r.shippingIvaCents;
+      acc.refundedFeesCents += r.processingFeeCents;
+      acc.compensationsCents += r.compensationCents;
+      acc.ivaRefundedCents += r.merchandiseIvaCents + r.shippingIvaCents;
+    }
+    for (const r of speiRows) {
+      acc.refundsCents += r.merchandiseCents - r.merchandiseIvaCents;
+      acc.refundedFeesCents += r.processingFeeCents;
+      acc.compensationsCents += r.compensationCents;
+      acc.ivaRefundedCents += r.merchandiseIvaCents;
+    }
+    return acc;
+  }
+
+  /**
+   * ⭐ v1.80…v1.80.3 (§M4-SHIP.11, .17.5) — `workQueue.toPrepare` (+ `toReplace`, `toReplaceOverdue`, `stuckRefunds`,
+   * el MISMO cuerpo que `GET /admin/shipments/picking-list/summary`), y SOLO para `super_admin`: `manualRefunds`
+   * (la cubeta SPEI) y `operatorRefunds` (24 h / 30 d de filas con `requestedByRole='vault_operator'`). Para
+   * `vault_operator` las dos van `null`.
+   */
+  private async workQueueAdditions(role: Role) {
+    if (!this.prep) return {};
+    const isSuperAdmin = role === Role.super_admin;
+    const now = new Date();
+    const summary = await this.prep.summary(role, now);
+    const toPrepare = { ship: summary.ship, vault: summary.vault, toReplace: summary.toReplace, toReplaceOverdue: summary.toReplaceOverdue, stuckRefunds: summary.stuckRefunds };
+    if (!isSuperAdmin) return { toPrepare, manualRefunds: null, operatorRefunds: null };
+    const opWhere = { requestedByRole: Role.vault_operator, status: { not: 'failed' as const } };
+    const [manualRefunds, last24h, last30d] = await Promise.all([
+      this.manualRefunds ? this.manualRefunds.pendingSummary() : Promise.resolve(null),
+      this.prisma.paymentRefund.aggregate({ where: { ...opWhere, createdAt: { gte: new Date(now.getTime() - 24 * 3600 * 1000) } }, _count: { _all: true }, _sum: { amountCents: true } }),
+      this.prisma.paymentRefund.aggregate({ where: { ...opWhere, createdAt: { gte: new Date(now.getTime() - 30 * 24 * 3600 * 1000) } }, _sum: { amountCents: true } }),
+    ]);
+    return {
+      toPrepare,
+      manualRefunds,
+      operatorRefunds: { last24hCount: last24h._count._all, last24hCents: last24h._sum.amountCents ?? 0, last30dCents: last30d._sum.amountCents ?? 0 },
     };
   }
 
@@ -1586,9 +1694,12 @@ export class AdminService {
    * `pendingPriceCount` — nunca un 0 inventado):
    *  - raw/graded → referencia vigente del `(cardId, productType, gradeKey, finish)` del item
    *    (graded típicamente el override de MERCADO manual por grado, §M2 P-20);
-   *  - sealed → **`sealedMarketRef`** (`sealed:tcg:<productId>` del mapeo M-23; norma §4.26f) con
-   *    FALLBACK al gradeKey legacy `'sealed'` (override manual de mercado preexistente) para no
-   *    perder valuaciones capturadas antes de v1.19 — antes se valuaba SOLO por el legacy.
+   *  - sealed → **SOLO `sealedMarketRef`** (`sealed:tcg:<productId>` del mapeo M-23; norma §4.26f).
+   *    ⛔ v1.70 (P-83, API_CONTRACT §M2-SK **SK-2**): se RETIRA el fallback al gradeKey legacy
+   *    `'sealed'`. Esa llave es de COLA, no de PRECIO: no identifica al producto (un ETB y un blíster
+   *    anclados a la misma `Card` comparten fila), así que sumarla valuaba una caja con el precio de
+   *    otra. Sin clave de mercado (o sin referencia bajo ella) ⇒ `pendingPriceCount`, igual que la
+   *    graduada sin identidad de slab. Efecto declarado: el total baja y el contador de pendientes sube.
    * Rendimiento: referencias en UN lote (`getReferencesBatch`, cierra la deuda N+1 anotada en
    * ese método), no una query por pieza.
    */
@@ -1606,40 +1717,16 @@ export class AdminService {
         tcgplayerProductId: true,
       },
     });
-    // Claves de valuación por pieza (para sealed mapeado entran AMBAS: mercado + legacy fallback).
-    const keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] = [];
-    for (const item of items) {
-      if (item.productType === 'sealed') {
-        const gk = this.pricing.sealedMarketGradeKeyForItem(item);
-        if (gk) keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' });
-        keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: 'sealed', finish: 'normal' });
-      } else {
-        // v1.53 (§4.40.4b, MONEY) — LECTURA agregada: una graduada sin identidad de slab NO aporta
-        // clave al lote (mismo idioma que el sellado no mapeado, justo arriba). Abajo cae a
-        // `pendingPriceCount`, que es la verdad: no se puede valuar lo que no se sabe qué grado es.
-        const gk = this.pricing.tryGradeKeyFor(item);
-        if (gk) {
-          keys.push({
-            cardId: item.cardId,
-            productType: item.productType,
-            gradeKey: gk,
-            finish: item.finish,
-          });
-        }
-      }
-    }
+    // v1.80.1 (API_CONTRACT §M2-SK **SK-5**) — claves por la ÚNICA puerta de valuación. Sellado: SOLO
+    // la de mercado (SK-2 — `'sealed'` jamás se pide); graduada sin identidad de slab: sin clave
+    // (§4.40.4b). Ambos casos caen abajo a `pendingPriceCount`, que es la verdad.
+    const keyOf = items.map((item) => this.pricing.valuationKeyFor(item));
+    const keys = keyOf.flatMap((k) => (k ? [k] : []));
     const refs = keys.length ? await this.pricing.getReferencesBatch(keys) : new Map<string, PriceInfo>();
-    const refCentsOf = (
-      cardId: string,
-      productType: string,
-      gradeKey: string,
-      finish: string,
-    ): number | null => {
-      const ref = refs.get(`${cardId}|${productType}|${gradeKey}|${finish}`);
-      return ref && ref.status === 'priced' && ref.referenceMxnCents != null
-        ? ref.referenceMxnCents
-        : null;
-    };
+    // SK-5 (efecto declarado en §4.50.1-bis): el sellado gana el gate de dial de `/vault/sealed` — la
+    // fuente `tcgcsv` solo cuenta con el dial encendido; el override manual sobrevive. UNA lectura
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
 
     const emptyBucket = () => ({
       atReferenceCents: 0,
@@ -1648,25 +1735,18 @@ export class AdminService {
       pendingPriceCount: 0,
     });
     const breakdown = { raw: emptyBucket(), sealed: emptyBucket(), graded: emptyBucket() };
-    for (const item of items) {
+    items.forEach((item, i) => {
       const bucket = breakdown[item.productType];
       bucket.pieceCount += 1;
       bucket.atCostCents += item.acquisitionCostCents ?? 0;
-      let cents: number | null;
-      if (item.productType === 'sealed') {
-        const gk = this.pricing.sealedMarketGradeKeyForItem(item);
-        cents =
-          (gk ? refCentsOf(item.cardId, 'sealed', gk, 'normal') : null) ??
-          refCentsOf(item.cardId, 'sealed', 'sealed', 'normal');
-      } else {
-        // v1.6-finish: valúa contra la referencia del ACABADO del item.
-        // v1.53 (§4.40.4b): sin clave ⇒ `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`.
-        const gk = this.pricing.tryGradeKeyFor(item);
-        cents = gk ? refCentsOf(item.cardId, item.productType, gk, item.finish) : null;
-      }
+      const k = keyOf[i];
+      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
+      const ref = k ? refs.get(variantKey(k)) : undefined;
+      // `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`. ⛔ Sin `?? 'sealed'`.
+      const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
       if (cents != null) bucket.atReferenceCents += cents;
       else bucket.pendingPriceCount += 1;
-    }
+    });
 
     // Top-level = Σ del breakdown (shape previo intacto; el breakdown es ADITIVO).
     const buckets = [breakdown.raw, breakdown.sealed, breakdown.graded];
@@ -1682,18 +1762,21 @@ export class AdminService {
     const items = await this.prisma.inventoryItem.findMany({
       where: { ownerType: 'customer' },
     });
+    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear
+    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(items);
     let totalCustodyValueCents = 0;
     for (const item of items) {
-      // v1.53 (§4.40.4b, MONEY) — VALOR DE CUSTODIA: sin identidad de slab la pieza no se valúa (no
-      // suma). Sumarla al precio de un PSA 10 inflaría el pasivo con el cliente por una carta cuyo
-      // grado nunca se preguntó; no sumarla es honesto y entra al censo §4.40.8.
-      const gradeKey = this.pricing.tryGradeKeyFor(item);
-      if (gradeKey == null) continue;
-      // v1.6-finish: valúa contra la referencia del ACABADO del item.
-      const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
-      if (ref.status === 'priced' && ref.referenceMxnCents != null) {
-        totalCustodyValueCents += ref.referenceMxnCents;
-      }
+      // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — VALOR DE CUSTODIA por la ÚNICA puerta de
+      // valuación, la misma que «Mi bóveda»: el pasivo con el cliente cuadra con lo que él ve.
+      //  - sin identidad de slab (v1.53 §4.40.4b) o sellado sin mapeo ⇒ sin clave ⇒ NO suma. Antes el
+      //    sellado sin mapeo sumaba la fila legada `'sealed'` — el precio de otra caja (P-83, medido).
+      //  - sellado mapeado ⇒ su `sealed:tcg:<id>` con el gate de dial de `/vault/sealed`.
+      const key = this.pricing.valuationKeyFor(item);
+      if (key == null) continue;
+      const ref = await this.pricing.getReference(key.cardId, key.productType, key.gradeKey, key.finish);
+      const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
+      if (cents != null) totalCustodyValueCents += cents;
     }
     return { totalCustodyValueCents };
   }
@@ -1717,7 +1800,9 @@ export class AdminService {
       settledAt: o.settledAt,
       status: o.status,
     }));
-    return { ivaCollectedCents, byOrder };
+    // ⭐ v1.80 (§M4-SHIP): el IVA que iba DENTRO de lo devuelto (libro por `submittedAt`, SPEI `paid` por `paidAt`).
+    const { ivaRefundedCents } = await this.refundsInPeriod(settledAt);
+    return { ivaCollectedCents, ivaRefundedCents, ivaNetCents: ivaCollectedCents - ivaRefundedCents, byOrder };
   }
 
   async exportCsv(report: string, from?: string, to?: string): Promise<string> {
@@ -1727,9 +1812,9 @@ export class AdminService {
       // CSV cuyo orden de columnas no es el del DTO es dos contratos para una cifra.
       return (
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-        'shippingCostMissingCount,profitCents\n' +
+        'shippingCostMissingCount,refundsCents,refundedFeesCents,compensationsCents,profitCents\n' +
         `pnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},` +
-        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.profitCents}\n`
+        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents}\n`
       );
     }
     if (report === 'iva') {
@@ -2034,10 +2119,12 @@ export class AdminService {
         grossAmountCents: salesPeriod.grossAmountCents,
       },
       workQueue: {
+        // ⛔ `shipments` NO cambia de cifra (envíos vivos, no «por preparar»).
         shipments: shipmentsQueue,
         buylist: buylistQueue,
         disputes: disputesQueue,
         pendingPrices,
+        ...(await this.workQueueAdditions(role)),
       },
       buylistPeriod: { count: buylistPeriodCount, amountCents: buylistPeriodAgg._sum.approvedTotalCents ?? 0 },
       dataHealth: {

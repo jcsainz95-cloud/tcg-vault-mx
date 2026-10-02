@@ -20,6 +20,9 @@ import {
 import type { CartLine } from './useSellCart';
 import { MAX_LINE_QUANTITY } from './useSellCart';
 import { minimumShortfallCents } from './useQuotePolicy';
+import { CartTotalFigure } from './CartTotalFigure';
+import { CardCode } from '@/components/domain/CardCode';
+import { displaySetCode } from '@/lib/setCode';
 
 /**
  * Renglón de detalle: concepto a la izquierda, dato a la derecha.
@@ -70,7 +73,7 @@ export interface SellCartContentsProps {
    *
    * ⚠️ **La decisión NO se toma aquí y es deliberado:** la regla es *«exactamente una nota
    * visible por pantalla»*, y eso solo se puede decidir donde se conoce **el layout completo** —
-   * si el carrito es panel fijo, si el drawer está abierto, si el modal de crear está encima—.
+   * si el cajón está abierto, si el modal de crear está encima—.
    * Un componente que decidiera por su cuenta volvería a producir el caso de v2.3.7: dos párrafos
    * idénticos a 600px de distancia, que el vendedor no lee como énfasis sino como *«esta página
    * está rota»*. `BuylistView` es el único que ve la pantalla entera; aquí solo se obedece.
@@ -216,6 +219,14 @@ export function SellCartContents({
                         </span>
                       </div>
                       <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-[10px] text-muted">
+                        {/* v1.80 (P-71, §37.3c): «TWM 130» primero, solo si hay código (sin código la
+                            línea queda como antes: el número no se pintaba aquí). */}
+                        {displaySetCode(l.card.setPtcgoCode) && (
+                          <>
+                            <CardCode code={l.card.setPtcgoCode} number={l.card.number} />
+                            <span aria-hidden>·</span>
+                          </>
+                        )}
                         <span className="text-muted">{t('cartItemEstimate')}:</span>
                         {pending ? (
                           <BuylistPendingLineLabel className="text-[10px]" />
@@ -333,23 +344,17 @@ export function SellCartContents({
               {/* Si TODO el carrito está pendiente, el total NO es MX$0.00: es la versalita
                   (§23.3h) — «un total de cero que significa todavía no lo he calculado no es un
                   cero». El porqué se explica debajo, en `BuylistPendingLinesNote`. */}
-              {noFreshPrice ? (
-                /* §33.11.2: mientras se recotiza —o si la recotización falló— el total NO se afirma:
-                   «—», no la cifra vieja. Mismo predicado que apaga el CTA. */
-                <span
-                  className="tabular font-mono text-[26px] font-medium leading-none text-muted"
-                  data-testid="sell-cart-total-requoting"
-                  aria-label={tSellCart('requoting')}
-                >
-                  —
-                </span>
-              ) : totalEstimatedCents === 0 && pendingCardCount > 0 ? (
-                <BuylistPendingLineLabel className="text-[13px]" />
-              ) : (
-                <span className="tabular font-mono text-[26px] font-medium leading-none text-text">
-                  {formatMoneyCents(totalEstimatedCents, locale)}
-                </span>
-              )}
+              {/* §37.1b (P-61): las tres ramas —«—» recotizando/fallida · versalita si TODO está
+                  pendiente · importe— viven en `CartTotalFigure`, la MISMA función que pinta la
+                  barra de escritorio. §33.11.2: «—», no la cifra vieja, con el mismo predicado
+                  que apaga el CTA. */}
+              <CartTotalFigure
+                noFreshPrice={noFreshPrice}
+                totalEstimatedCents={totalEstimatedCents}
+                pendingCardCount={pendingCardCount}
+                size="hero"
+                testIdScope="sell-cart"
+              />
             </div>
 
             {/* Faltante (criterio 132a): cuánto falta, con el número del servidor. Al cruzar el

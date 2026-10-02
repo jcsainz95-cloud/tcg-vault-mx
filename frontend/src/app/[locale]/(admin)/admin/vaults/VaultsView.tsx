@@ -33,6 +33,7 @@ const ROW = 'grid grid-cols-[1fr_auto] items-center gap-3 sm:grid-cols-[1.4fr_1.
  */
 export function VaultsView() {
   const t = useTranslations('admin.vaults');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tName = useTranslations('admin.m4.prep.vault.nameMissing');
   const locale = useLocale() as AppLocale;
   const [q, setQ] = useState('');
@@ -54,7 +55,7 @@ export function VaultsView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('vaults')}</h1>
       <p className="text-sm text-muted">{t('subtitle')}</p>
 
       <div className="flex flex-wrap items-end gap-3">

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PreparationItemStatus, Prisma, Role } from '@prisma/client';
+import { MissingReason, PreparationItemStatus, Prisma, Role } from '@prisma/client';
+import { MISSING_REASON_VALUES as MISSING_REASON_VALUES_SHARED, PREPARATION_ITEM_STATUS_VALUES } from '../../common/enum-values';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { nullIfBlank } from '../shipments/preparation-view';
@@ -40,7 +41,9 @@ type Tx = Prisma.TransactionClient;
 
 export type VaultPlacementSkipReason = VaultPlacementBlockReason | 'not_picked';
 export type VaultPlacementItemResultDTO =
-  | { inventoryItemId: string; folio: string; result: 'moved' | 'already_there' | 'missing' }
+  | { inventoryItemId: string; folio: string; result: 'moved' | 'already_there' }
+  // ⭐ v1.80.1 (§M4-SHIP.15.3): la carta marcada `missing` NACE caso «Por reponer» al colocar (o en el 6-bis).
+  | { inventoryItemId: string; folio: string; result: 'missing'; caseId: string; missingReason: MissingReason }
   | { inventoryItemId: string; folio: string; result: 'skipped'; reason: VaultPlacementSkipReason };
 
 export type ConfirmVaultPlacementResponse =
@@ -70,7 +73,9 @@ export interface UnprepareVaultPlacementResponse {
 }
 
 /** Dominio del cuerpo de `PATCH …/prep-items` (clase E: DERIVADO del enum de Prisma, ⛔ lista a mano). */
-const PREP_STATUS_VALUES: readonly PreparationItemStatus[] = Object.values(PreparationItemStatus);
+const PREP_STATUS_VALUES: readonly PreparationItemStatus[] = PREPARATION_ITEM_STATUS_VALUES;
+/** ⭐ v1.80.1 (§M4-SHIP.15.2): UN solo modelo de motivo — el mismo enum que el palomeo de envío. */
+const MISSING_REASON_VALUES: readonly MissingReason[] = MISSING_REASON_VALUES_SHARED;
 
 /** Una colocación ya cargada con su vista (bajo la puerta, por el mismo `tx`). */
 interface LoadedView {
@@ -217,6 +222,20 @@ export class VaultPlacementService {
       });
     }
     const target = status as PreparationItemStatus;
+    // ⭐ v1.80.1 (§M4-VAULT.10 / §M4-SHIP.5): `missingReason` OBLIGATORIO ⇔ `status='missing'`; presente con otro
+    // `status`, ausente con `missing`, o fuera del dominio ⇒ `400 {field:'missingReason'}`.
+    const rawReason = (body as { missingReason?: unknown } | null)?.missingReason;
+    const reasonGiven = rawReason !== undefined && rawReason !== null;
+    if (
+      (target === 'missing') !== reasonGiven ||
+      (reasonGiven && (typeof rawReason !== 'string' || !(MISSING_REASON_VALUES as readonly string[]).includes(rawReason)))
+    ) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'missingReason is required with status=missing (and only then)', {
+        field: 'missingReason',
+        allowed: [...MISSING_REASON_VALUES],
+      });
+    }
+    const missingReason = target === 'missing' ? (rawReason as MissingReason) : null;
     // 2. colocación y carta DE ESTA colocación (⛔ no revelar que la carta existe en otra).
     const head = await this.loadHead(this.prisma, placementId);
     const pi = head
@@ -247,18 +266,19 @@ export class VaultPlacementService {
           reason: current.placeability.reason,
         });
       }
-      // 7. doble toque ⇒ 200 sin escribir.
-      if (current.prepStatus === target) {
+      // 7. doble toque ⇒ 200 sin escribir (⭐ v1.80.1: `prepStatus` Y `missingReason`; cambiar de `not_found` a
+      //    `damaged` es un cambio).
+      if (current.prepStatus === target && current.missingReason === missingReason) {
         return { changed: false, item: current, preparation: view.preparation };
       }
-      // 8. escribir con el valor LEÍDO en el WHERE (los CHECK exigen el sello entero o nada).
+      // 8. escribir con los valores LEÍDOS en el WHERE (los CHECK exigen el sello entero o nada).
       const stamp = new Date();
       const data =
         target === 'pending'
-          ? { prepStatus: target, prepMarkedAt: null, prepMarkedByUserId: null }
-          : { prepStatus: target, prepMarkedAt: stamp, prepMarkedByUserId: actor.id };
+          ? { prepStatus: target, prepMarkedAt: null, prepMarkedByUserId: null, missingReason: null }
+          : { prepStatus: target, prepMarkedAt: stamp, prepMarkedByUserId: actor.id, missingReason };
       const res = await tx.vaultPlacementItem.updateMany({
-        where: { id: placementItemId, prepStatus: current.prepStatus },
+        where: { id: placementItemId, prepStatus: current.prepStatus, missingReason: current.missingReason },
         data,
       });
       if (res.count !== 1) {
@@ -277,6 +297,7 @@ export class VaultPlacementService {
             inventoryItemId: current.inventoryItemId,
             folio: current.folio,
             orderId: view.row.orderId,
+            missingReason,
           },
         );
       }
@@ -469,7 +490,11 @@ export class VaultPlacementService {
           },
         });
         if (res.count !== 1) return this.answerConfirmByState(tx, placementId, locationId, userId);
-        const results = view.items.map((it) => this.unmovedResult(it));
+        // ⭐ v1.80.1 (§M4-SHIP.15.3, PS-20): el cierre directo TAMBIÉN abre un caso por cada carta `missing`.
+        const results: VaultPlacementItemResultDTO[] = [];
+        for (const it of view.items) {
+          results.push(it.prepStatus === 'missing' ? await this.openCase(tx, view, it, userId, actor, stamp) : this.unmovedResult(it));
+        }
         await this.audit(tx, actor, 'vault_placement.nothing_to_place', placementId, {
           orderId: view.row.orderId,
           locationId: null,
@@ -516,6 +541,11 @@ export class VaultPlacementService {
       const orderNumber = nullIfBlank(view.row.order.orderNumber) ?? view.row.orderId;
       const results: VaultPlacementItemResultDTO[] = [];
       for (const it of view.items) {
+        if (it.prepStatus === 'missing') {
+          // ⭐ v1.80.1 (§M4-SHIP.15.3): nace el caso «Por reponer» — DESPUÉS del CAS de la colocación, bajo la puerta.
+          results.push(await this.openCase(tx, view, it, userId, actor, stamp));
+          continue;
+        }
         if (it.prepStatus !== 'picked') {
           results.push(this.unmovedResult(it));
           continue;
@@ -611,11 +641,101 @@ export class VaultPlacementService {
     }, VAULT_VERB_TX_OPTIONS);
   }
 
-  /** Resultado de una carta que NO se mueve (paso 9): `missing` o `skipped` con su razón. */
-  private unmovedResult(it: VaultPreparationItemDTO): VaultPlacementItemResultDTO {
-    if (it.prepStatus === 'missing') {
-      return { inventoryItemId: it.inventoryItemId, folio: it.folio, result: 'missing' };
+  /**
+   * ⭐ v1.80.1 (§M4-SHIP.15.3) — NACIMIENTO del caso «Por reponer» en una COMPRA A BÓVEDA: CAS de la pieza con `P` en
+   * el `WHERE` → `lost|damaged` (⛔ dueño y `locationId` sin cambio: se le DEBE esa carta), movimiento con el actor
+   * (la merma con firma) y `ReplacementCase{ source:'vault_purchase' }` + bitácora `replacement_case.opened`.
+   * `count = 0` ⇒ `skipped` con su razón (la pieza dejó de ser del cliente: contracargo) y ⛔ sin caso.
+   * ⛔ Cero dinero. Un duplicado bajo la puerta (`placementItemId @unique`, índice parcial `open` por pieza) es un
+   * defecto ⇒ `P2002` ⇒ `409 CONFLICT`, rollback.
+   */
+  private async openCase(
+    tx: Tx,
+    view: LoadedView,
+    it: VaultPreparationItemDTO,
+    userId: string,
+    actor: VaultActor,
+    stamp: Date,
+  ): Promise<VaultPlacementItemResultDTO> {
+    const reason = it.missingReason as MissingReason;
+    const toStatus = reason === 'damaged' ? 'damaged' : 'lost';
+    const piece = await tx.inventoryItem.findUniqueOrThrow({ where: { id: it.inventoryItemId }, select: { locationId: true } });
+    const cas = await tx.inventoryItem.updateMany({
+      where: { id: it.inventoryItemId, ...placeableWhere(userId) },
+      data: { status: toStatus },
+    });
+    if (cas.count !== 1) {
+      const again = await tx.inventoryItem.findUniqueOrThrow({
+        where: { id: it.inventoryItemId },
+        select: { ownerType: true, ownerUserId: true, ownershipStatus: true, status: true },
+      });
+      const w = await activeWithdrawalsOf(tx, [it.inventoryItemId]);
+      return {
+        inventoryItemId: it.inventoryItemId,
+        folio: it.folio,
+        result: 'skipped',
+        reason: blockReasonOf(again, userId, w.has(it.inventoryItemId)) ?? 'not_in_custody',
+      };
     }
+    const orderNumber = nullIfBlank(view.row.order.orderNumber) ?? view.row.orderId;
+    let caseId: string;
+    try {
+      const c = await tx.replacementCase.create({
+        data: {
+          source: 'vault_purchase',
+          placementItemId: it.placementItemId,
+          customerUserId: userId,
+          originalInventoryItemId: it.inventoryItemId,
+          missingReason: reason,
+          originOrderItemId: it.orderItemId,
+          openedAt: stamp,
+          openedByUserId: actor.id,
+        },
+        select: { id: true },
+      });
+      caseId = c.id;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw BusinessException.conflict('CONFLICT', 'A replacement case already exists for this piece');
+      }
+      throw e;
+    }
+    await tx.inventoryMovement.create({
+      data: {
+        itemId: it.inventoryItemId,
+        fromLocationId: piece.locationId,
+        toLocationId: piece.locationId,
+        fromStatus: 'in_custody',
+        toStatus,
+        reason: toStatus,
+        actorUserId: actor.id,
+        note: `${orderNumber} · no salió al preparar (${reason}) · caso ${caseId}`,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        actorRole: (actor.role as Role) ?? null,
+        action: 'replacement_case.opened',
+        entityType: 'ReplacementCase',
+        entityId: caseId,
+        after: {
+          source: 'vault_purchase',
+          customerUserId: userId,
+          originalInventoryItemId: it.inventoryItemId,
+          folio: it.folio,
+          missingReason: reason,
+          originOrderItemId: it.orderItemId,
+          placementId: view.row.id,
+        },
+      },
+      select: { id: true },
+    });
+    return { inventoryItemId: it.inventoryItemId, folio: it.folio, result: 'missing', caseId, missingReason: reason };
+  }
+
+  /** Resultado de una carta que NO se mueve (paso 9) y no es `missing`: `skipped` con su razón. */
+  private unmovedResult(it: VaultPreparationItemDTO): VaultPlacementItemResultDTO {
     return {
       inventoryItemId: it.inventoryItemId,
       folio: it.folio,
@@ -628,7 +748,9 @@ export class VaultPlacementService {
     return {
       moved: results.filter((r) => r.result === 'moved').map((r) => r.inventoryItemId),
       alreadyThere: results.filter((r) => r.result === 'already_there').map((r) => r.inventoryItemId),
-      missing: results.filter((r) => r.result === 'missing').map((r) => r.inventoryItemId),
+      missing: results
+        .filter((r): r is Extract<VaultPlacementItemResultDTO, { result: 'missing' }> => r.result === 'missing')
+        .map((r) => ({ id: r.inventoryItemId, caseId: r.caseId, missingReason: r.missingReason })),
       skipped: results
         .filter((r): r is Extract<VaultPlacementItemResultDTO, { result: 'skipped' }> => r.result === 'skipped')
         .map((r) => ({ id: r.inventoryItemId, reason: r.reason })),

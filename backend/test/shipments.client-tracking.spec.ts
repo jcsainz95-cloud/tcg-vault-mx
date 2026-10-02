@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
@@ -72,6 +73,9 @@ describe('ShipmentsService — ClientShipmentDTO enriquecido (v1.17)', () => {
         number: '4',
         imageSmallUrl: 'http://img/small.png',
       },
+      // v1.80 (§M4-SHIP.10) / v1.80.1 (§M4-SHIP.15.8): la fila del libro y el caso de la línea — `null` sin ellos.
+      refund: null,
+      replacement: null,
     });
     // Scoping por usuario.
     expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ userId: 'u1' });
@@ -81,6 +85,7 @@ describe('ShipmentsService — ClientShipmentDTO enriquecido (v1.17)', () => {
     const prisma: any = {
       shipmentRequest: { findUnique: jest.fn().mockResolvedValue({ ...row, userId: 'otro' }) },
     };
+    withM61Defaults(prisma);
     const svc = makeService(prisma);
     await expect(svc.getMine('u1', 'shp1')).rejects.toMatchObject({});
   });
@@ -89,6 +94,7 @@ describe('ShipmentsService — ClientShipmentDTO enriquecido (v1.17)', () => {
     const prisma: any = {
       shipmentRequest: { findUnique: jest.fn().mockResolvedValue(row) },
     };
+    withM61Defaults(prisma);
     const svc = makeService(prisma);
     const dto = await svc.getMine('u1', 'shp1');
     expect(dto.id).toBe('shp1');
@@ -120,6 +126,18 @@ describe('ShipmentsService.updateStatus — transición terminal a entregado (v1
       inventoryItem: {
         findUnique: jest.fn(async ({ where }: any) => itemState[where.id] ?? null),
         update: jest.fn().mockResolvedValue({}),
+        // 🔴 v1.80 (§M4-SHIP.6, corrige H1): `withdrawn` se ESCRIBE CON GUARDA en el `WHERE` (`in_custody`, del
+        // dueño del retiro) — el fake la EVALÚA: una pieza `lost`/ya `withdrawn`/de otro dueño cuenta 0.
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          const it = itemState[where.id];
+          if (!it) return { count: 0 };
+          for (const k of Object.keys(where)) {
+            if (k === 'id') continue;
+            if (it[k] !== where[k]) return { count: 0 };
+          }
+          Object.assign(it, data);
+          return { count: 1 };
+        }),
       },
       inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
     };
@@ -129,10 +147,12 @@ describe('ShipmentsService.updateStatus — transición terminal a entregado (v1
     // La fila del `tx` y el envío que `findUnique` devuelve tienen que ser **el mismo hecho**: si
     // divergen, la reclamación de `REL-B` daría `count: 0` por una razón que no es la del producto.
     Object.assign(tx.fila, shipment);
+    withM61Defaults(tx);
     const prisma: any = {
       shipmentRequest: { findUnique: jest.fn().mockResolvedValue(shipment) },
       $transaction: jest.fn(async (cb: any) => cb(tx)),
     };
+    withM61Defaults(prisma);
     const svc = new ShipmentsService(
       prisma as unknown as PrismaService,
       {} as SettingsService,
@@ -149,15 +169,18 @@ describe('ShipmentsService.updateStatus — transición terminal a entregado (v1
         i2: { id: 'i2', status: 'in_custody', ownerType: 'customer', ownerUserId: 'u1' },
       },
     );
-    const { svc, prisma } = makeService({ id: 'shp1', status: 'enviado' }, tx);
+    const { svc, prisma } = makeService({ id: 'shp1', status: 'enviado', userId: 'u1' }, tx);
     await svc.updateStatus('shp1', 'entregado' as any);
 
     // Todo dentro de UNA transacción.
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(tx.inventoryItem.update).toHaveBeenCalledTimes(2);
+    // 🔴 v1.80 (H1): la transición es un CAS con la guarda en el `WHERE` (⛔ nunca `update({ where: { id } })`).
+    expect(tx.inventoryItem.update).not.toHaveBeenCalled();
+    expect(tx.inventoryItem.updateMany).toHaveBeenCalledTimes(2);
+    const call = tx.inventoryItem.updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'i1', status: 'in_custody', ownerType: 'customer', ownerUserId: 'u1' });
     // Solo cambia status (no toca ownerType/ownerUserId/ownershipStatus).
-    const updateData = tx.inventoryItem.update.mock.calls[0][0].data;
-    expect(updateData).toEqual({ status: 'withdrawn' });
+    expect(call.data).toEqual({ status: 'withdrawn' });
     // Movimiento de retiro por cada item.
     expect(tx.inventoryMovement.create).toHaveBeenCalledTimes(2);
     const mov = tx.inventoryMovement.create.mock.calls[0][0].data;
@@ -170,8 +193,9 @@ describe('ShipmentsService.updateStatus — transición terminal a entregado (v1
     const tx = makeTx([{ inventoryItemId: 'i1' }], {
       i1: { id: 'i1', status: 'withdrawn', ownerType: 'customer', ownerUserId: 'u1' },
     });
-    const { svc } = makeService({ id: 'shp1', status: 'enviado' }, tx);
+    const { svc } = makeService({ id: 'shp1', status: 'enviado', userId: 'u1' }, tx);
     await svc.updateStatus('shp1', 'entregado' as any);
+    // El CAS cuenta 0 sobre una pieza ya `withdrawn` ⇒ ⛔ sin movimiento (idempotencia POR EL MOTOR).
     expect(tx.inventoryItem.update).not.toHaveBeenCalled();
     expect(tx.inventoryMovement.create).not.toHaveBeenCalled();
   });

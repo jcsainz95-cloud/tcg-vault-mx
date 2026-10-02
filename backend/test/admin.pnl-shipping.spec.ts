@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { AdminService } from '../src/modules/admin/admin.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
@@ -49,7 +50,7 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
       },
     };
     service = new AdminService(
-      prisma as unknown as PrismaService,
+      withM61Defaults(prisma) as unknown as PrismaService,
       {} as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,
@@ -69,6 +70,11 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
       // ⭐ D56 (§M10-IVA.8): la SÉPTIMA cifra. Uno de los dos envíos tiene costo `0` ⇒ el contador
       // lo SEÑALA. ⛔ No afirma que costara cero: afirma que hay que revisarlo.
       shippingCostMissingCount: 1,
+      // ⭐ v1.80/v1.80.2 (§M4-SHIP, PS-40): lo DEVUELTO en el periodo (libro por `submittedAt`, SPEI `paid` por `paidAt`).
+      // Sin filas ⇒ 0, y el resto de las cifras NO cambia (neutralidad, `admin.pnl-iva-neutral.spec.ts`).
+      refundsCents: 0,
+      refundedFeesCents: 0,
+      compensationsCents: 0,
       profitCents: 100000 + 35000 - 30000 - 5600 - 9000,
     });
     // No debe existir la clave vieja.
@@ -85,13 +91,13 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
     expect(withoutCost.profitCents - withCost.profitCents).toBe(9000);
   });
 
-  it('exportCsv(pnl) mirrors the new 7-column shape', async () => {
+  it('exportCsv(pnl) mirrors the object shape (v1.80: + refundsCents, refundedFeesCents, compensationsCents antes de profitCents)', async () => {
     const csv = await service.exportCsv('pnl');
     const [header, row] = csv.trim().split('\n');
     expect(header).toBe(
       'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-        'shippingCostMissingCount,profitCents',
+        'shippingCostMissingCount,refundsCents,refundedFeesCents,compensationsCents,profitCents',
     );
-    expect(row).toBe(`pnl,100000,35000,30000,5600,9000,1,${100000 + 35000 - 30000 - 5600 - 9000}`);
+    expect(row).toBe(`pnl,100000,35000,30000,5600,9000,1,0,0,0,${100000 + 35000 - 30000 - 5600 - 9000}`);
   });
 });

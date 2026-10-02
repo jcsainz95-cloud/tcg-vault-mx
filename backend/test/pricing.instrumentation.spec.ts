@@ -9,6 +9,7 @@ import { StripeService } from '../src/modules/payments/stripe.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { UsersService } from '../src/modules/users/users.service';
+import { usersStubM61 } from './helpers/m61-mock-defaults';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { UploadsService } from '../src/modules/uploads/uploads.service';
@@ -172,7 +173,7 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
       getNumber: jest.fn(withMinimumOff(async () => 100_000_000)),
     } as unknown as SettingsService;
     return {
-      svc: new BuylistService(prisma, pricing, settings, {} as UsersService, pii),
+      svc: new BuylistService(prisma, pricing, settings, (usersStubM61() as unknown as UsersService), pii),
       created,
     };
   }

@@ -152,6 +152,7 @@ function fromInputValue(kind: DialKind, text: string): number | string {
 
 export function M10View() {
   const t = useTranslations('admin.m10');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
@@ -286,7 +287,7 @@ export function M10View() {
 
   return (
     <div className="flex flex-col gap-10">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m10')}</h1>
 
       {/* Sección 1: diales */}
       <section className="flex flex-col gap-3">

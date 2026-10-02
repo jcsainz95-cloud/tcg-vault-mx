@@ -1,6 +1,11 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  MissingReason,
+  PreparationItemStatus,
+  PaymentRefundKind,
+  PaymentRefundStatus,
+  ManualRefundStatus,
   AcquisitionType,
   Finish,
   GradingCompany,
@@ -12,6 +17,7 @@ import {
   SealedCondition,
   SealedGroupKind,
   SealedSubtype,
+  ReplacementCaseSource,
 } from '@prisma/client';
 import {
   ACQUISITION_TYPE_VALUES,
@@ -24,6 +30,12 @@ import {
   SEALED_CONDITION_VALUES,
   SEALED_GROUP_KIND_VALUES,
   SEALED_SUBTYPE_VALUES,
+  REPLACEMENT_CASE_SOURCE_VALUES,
+  MISSING_REASON_VALUES,
+  PREPARATION_ITEM_STATUS_VALUES,
+  PAYMENT_REFUND_KIND_VALUES,
+  PAYMENT_REFUND_STATUS_VALUES,
+  MANUAL_REFUND_STATUS_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
 import { ACCEPTED_RAW_CONDITIONS } from '../src/common/business-rules';
@@ -90,6 +102,14 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   PendingPriceReason: ['no_market', 'premium_at_floor'],
   PendingPriceContext: ['buylist', 'catalog', 'inventory', 'portfolio'],
   SealedGroupKind: ['promo_collection', 'set_main'],
+  // v1.80.1 (M-61, §M4-SHIP.15.8): filtro `?source=` de `GET /admin/replacement-cases` ⇒ clase E.
+  ReplacementCaseSource: ['vault_purchase', 'withdrawal'],
+  // ⭐ v1.80.7.1 (§4.37 «una sola declaración», QA IMP-2): los cinco que `src/` VALIDA y derivaba por su cuenta.
+  MissingReason: ['damaged', 'not_found'],
+  PreparationItemStatus: ['missing', 'pending', 'picked'],
+  PaymentRefundKind: ['case_refund', 'item_missing', 'order_full', 'order_remaining', 'shipment_fee'],
+  PaymentRefundStatus: ['failed', 'requested', 'submitted', 'succeeded'],
+  ManualRefundStatus: ['cancelled', 'paid', 'pending'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */
@@ -104,6 +124,12 @@ const PRISMA_ENUMS: Record<string, Record<string, string>> = {
   PendingPriceReason,
   PendingPriceContext,
   SealedGroupKind,
+  ReplacementCaseSource,
+  MissingReason,
+  PreparationItemStatus,
+  PaymentRefundKind,
+  PaymentRefundStatus,
+  ManualRefundStatus,
 };
 
 /** Las listas DERIVADAS que consume `src/`, por nombre. */
@@ -118,6 +144,12 @@ const DERIVED_VALUES: Record<string, readonly string[]> = {
   PendingPriceReason: PENDING_PRICE_REASON_VALUES,
   PendingPriceContext: PENDING_PRICE_CONTEXT_VALUES,
   SealedGroupKind: SEALED_GROUP_KIND_VALUES,
+  ReplacementCaseSource: REPLACEMENT_CASE_SOURCE_VALUES,
+  MissingReason: MISSING_REASON_VALUES,
+  PreparationItemStatus: PREPARATION_ITEM_STATUS_VALUES,
+  PaymentRefundKind: PAYMENT_REFUND_KIND_VALUES,
+  PaymentRefundStatus: PAYMENT_REFUND_STATUS_VALUES,
+  ManualRefundStatus: MANUAL_REFUND_STATUS_VALUES,
 };
 
 describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts ⇄ contrato', () => {
@@ -175,6 +207,74 @@ describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts �
       .map((l) => l.replace(/\/\/.*$/, '').trim())
       .filter((l) => l.length > 0);
     expect(fromSchema.sort()).toEqual([...SEALED_SUBTYPE_VALUES].sort());
+  });
+});
+
+/**
+ * ⭐ v1.80.7.1 (§0 nota, §4.37; QA IMP-2 sobre `c20451f`) — **LA TERCERA BANDA ES UNIVERSAL.** La banda que falló
+ * (`VaultPlacementCancelReason` sin `full_refund`, `RefundBasis` fantasma, `ManualRefund*` y `MovementReason` sin
+ * línea) es schema ↔ CONTRATO, y esa NO depende de que el código derive el enum: corre sobre TODO `enum X {…}` de
+ * `schema.prisma`. Un enum sin línea canónica en §0 es rojo salvo que esté en `SIN_LINEA_CANONICA` con razón.
+ * Las bandas 1-2 (ancla humana + `enum-values.ts`) siguen solo sobre los que `src/` valida.
+ */
+describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canónica de §0 (v1.80.7.1)', () => {
+  /** Enums del schema que, por decisión del arquitecto (v1.80.7.1), NO tienen línea canónica en §0. */
+  const SIN_LINEA_CANONICA: readonly string[] = [
+    'NameSource',
+    'PriceConvention',
+    'PriceRefKind',
+    'CardProductKind',
+    'PendingPriceStatus',
+    'MetaDeckSource',
+    'MetaCardGroup',
+    'MetaMatchStatus',
+  ];
+  const SCHEMA = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
+  const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+  const LINES = CONTRACT.split('\n');
+
+  /** Todos los `enum X { … }` del schema EN DISCO, con sus valores (sin comentarios ni `@@`). */
+  function schemaEnums(): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    for (const m of SCHEMA.matchAll(/^enum\s+(\w+)\s*\{([\s\S]*?)^\}/gm)) {
+      out[m[1]] = m[2]
+        .split('\n')
+        .map((l) => l.replace(/\/\/.*$/, '').trim())
+        .filter((l) => l.length > 0 && !l.startsWith('@@'));
+    }
+    return out;
+  }
+
+  /** La línea `X = a | b …` de §0, con sus continuaciones (`  | c | d`), o `null` si no existe. */
+  function contractLine(name: string): string[] | null {
+    const i = LINES.findIndex((l) => new RegExp(`^${name}\\s+=\\s+`).test(l));
+    if (i < 0) return null;
+    let text = LINES[i].replace(/^\w+\s+=\s+/, '');
+    for (let j = i + 1; j < LINES.length && /^\s+\|/.test(LINES[j]); j += 1) text += ` ${LINES[j]}`;
+    return text
+      .replace(/\/\/.*$/, '')
+      .split('|')
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+  }
+
+  const ENUMS = schemaEnums();
+  const NAMES = Object.keys(ENUMS).sort();
+
+  it('el schema tiene enums y el parser los ve todos (⛔ un parser vacío sería verde por omisión)', () => {
+    expect(NAMES.length).toBeGreaterThanOrEqual(50);
+    expect(ENUMS.SealedSubtype).toEqual(expect.arrayContaining(['upc', 'collection']));
+  });
+
+  it('los enums SIN línea canónica son EXACTAMENTE `SIN_LINEA_CANONICA` (ni uno más, ni uno menos)', () => {
+    const sinLinea = NAMES.filter((n) => contractLine(n) === null);
+    expect(sinLinea.sort()).toEqual([...SIN_LINEA_CANONICA].sort());
+  });
+
+  it.each(NAMES.filter((n) => !SIN_LINEA_CANONICA.includes(n)))('%s · la línea canónica de §0 == el enum del schema en disco', (name) => {
+    const fromContract = contractLine(name);
+    if (!fromContract) throw new Error(`El contrato no declara ${name} y no está en SIN_LINEA_CANONICA`);
+    expect(fromContract.sort()).toEqual([...ENUMS[name]].sort());
   });
 });
 

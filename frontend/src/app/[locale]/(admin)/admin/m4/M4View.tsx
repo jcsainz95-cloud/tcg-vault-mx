@@ -1,179 +1,139 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import {
-  getAdminShipments,
-  saveShipmentTracking,
-  updateAdminShipmentStatus,
-} from '@/lib/api';
-import { StatusBadge } from '@/components/ui/StatusBadge';
-import { PipelineStepper } from '@/components/ui/PipelineStepper';
-import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { saveShipmentTracking } from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
+import { usePickingSummary, PICKING_SUMMARY_KEY } from '@/hooks/usePickingSummary';
+import { useErrorMessage } from '@/components/ui/QueryState';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { useShipmentSteps } from '@/lib/pipelines';
 import { formatMoneyCents } from '@/lib/format';
-import type { AppLocale } from '@/i18n/routing';
+import { cn } from '@/lib/cn';
 import { Link } from '@/i18n/navigation';
-import type { AdminShipmentDTO, ShipmentStatus, ShipmentTrackingRequest } from '@/types/contract';
+import type { AppLocale } from '@/i18n/routing';
+import type { AdminShipmentDTO, ShipPreparationOrderDTO, ShipmentTrackingRequest, WithdrawalLineOriginRefundedDetails } from '@/types/contract';
 import { PreparationQueue } from './PreparationQueue';
+import { ShipmentsQueue } from './ShipmentsQueue';
+import { ReplacementCasesPanel } from './ReplacementCasesPanel';
+import { M4_TABS, type M4Tab } from './tabs';
 
-// `pesosToCents` vive en su propio módulo (función pura, sin React) para que su test no arrastre
-// el árbol de la vista (que importa `Link` de next-intl, no cargable en jsdom sin mock).
+// `pesosToCents` vive en su propio módulo (función pura, sin React).
 import { pesosToCents } from './pesosToCents';
 export { pesosToCents };
 
-/**
- * Campo string del `addressSnapshot` (contrato §M4 v1.67.1: forma de `AddressDTO` sin id/isDefault/
- * createdAt; los snapshots anteriores a M-52 traen 8 campos y `AddressSnapshotDTO` es de forma abierta).
- * Vacío/ausente ⇒ `undefined`.
- */
-function snap(row: AdminShipmentDTO, key: string): string | undefined {
-  const v = row.addressSnapshot?.[key];
-  return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+/** Lo que el diálogo de guía necesita de cualquiera de las dos superficies que lo abren (§37.3a). */
+interface TrackingTarget {
+  id: string;
+  ref: string;
+  carrier: string | null;
+  trackingNumber: string | null;
 }
 
 /**
- * Destinatario del paquete — UNA fuente canónica: `addressSnapshot.recipientName` (contrato §M4
- * v1.67.1, D-CTA-9). El `recipientName` suelto de la raíz es legado v1.21 DEPRECADO con invariante
- * `recipientName === addressSnapshot.recipientName`; se lee DESPUÉS, solo para que su retiro en una rev
- * futura sea gratis. ⛔ Nunca `User.name` (puede ser el fabricado) ni el `userId`.
+ * **«Pedidos por preparar»** (`DESIGN_SYSTEM §37` · contrato `§M4-SHIP` v1.80.6). Tres pestañas de página
+ * (`?tab=`): **Preparar** (la hoja de pie: envío + bóveda), **Por reponer** (los casos) y **Envíos** (la cola
+ * administrativa). El badge de cada pestaña sale del contador derivado (`usePickingSummary`), sondeado
+ * como fija el contrato. El diálogo de captura de guía es **uno** para las dos superficies que lo abren.
+ *
+ * Fusión release-s5: los arreglos del recorrido del operador (`arreglos-operador`, 2026-09-29) viven donde
+ * vive ahora su superficie — hueco 7 («Ver ficha» del operador → su bóveda) y hueco 12 («Dirección») en
+ * `ShipmentsQueue`; hueco 15 (confirmar enviado/entregado) lo cubre la confirmación de §37.6 (S9) de
+ * `ShipmentsQueue`; hueco 1 («Ubicar», solo envío directo) en `ShipPreparationCard`.
  */
-function recipientOf(row: AdminShipmentDTO): string | undefined {
-  return snap(row, 'recipientName') ?? row.recipientName?.trim() ?? undefined;
-}
-
-/**
- * Calle completa del destino (contrato §5 v1.67 · AddressSnapshotDTO): `line1` es obligatorio;
- * `line2` y `neighborhood` son opcionales. Se leen con el MISMO helper `snap` (S3-ENVIO-DIR: el
- * operador no puede enviar sin ver calle/número). Ausente/vacío ⇒ `undefined` (pinta «—»).
- */
-function streetOf(row: AdminShipmentDTO): string | undefined {
-  const parts = [snap(row, 'line1'), snap(row, 'line2'), snap(row, 'neighborhood')].filter(
-    (p): p is string => Boolean(p),
-  );
-  return parts.length ? parts.join(', ') : undefined;
-}
-
-/**
- * Cliente de la fila (R5 de §33.16, PROYECTADO): `customer { id, name, email }` NO está en el contrato
- * §M4 (medido en v1.67.1) — se lee de forma defensiva y se pinta «—» cuando falta.
- * // MOCK: pendiente de contrato — petición al arquitecto en FRONTEND_NOTES §68.
- */
-function customerOf(row: AdminShipmentDTO): { name?: string; email?: string } | null {
-  const c = (row as { customer?: unknown }).customer;
-  if (!c || typeof c !== 'object') return null;
-  const { name, email } = c as { name?: unknown; email?: unknown };
-  return {
-    ...(typeof name === 'string' && name.trim() ? { name: name.trim() } : {}),
-    ...(typeof email === 'string' && email.trim() ? { email: email.trim() } : {}),
-  };
-}
-
-/** §32.4: lo desconocido es «—», nunca omitido en silencio. */
-const DASH = '—';
-
-const STATUS_FILTERS: ShipmentStatus[] = [
-  'solicitado',
-  'picking',
-  'guia',
-  'enviado',
-  'entregado',
-  'cancelado',
-];
-
-/**
- * Transiciones MANUALES ofrecidas como botón por estado (subconjunto de la tabla legal del backend,
- * `SHIPMENT_TRANSITIONS`). Se EXCLUYE `solicitado→picking` (lo dispara el WEBHOOK de pago) y
- * `picking→guia` (lo hace la captura de guía). Quedan `guia→enviado`, `enviado→entregado` y
- * `→cancelado` según la etapa. `entregado`/`cancelado` son terminales (sin acciones).
- */
-const MANUAL_TRANSITIONS: Partial<Record<ShipmentStatus, ShipmentStatus[]>> = {
-  solicitado: ['cancelado'],
-  picking: ['cancelado'],
-  guia: ['enviado', 'cancelado'],
-  enviado: ['entregado'],
-};
-
-export function M4View() {
+export function M4View({ initialTab = 'preparar' }: { initialTab?: M4Tab }) {
   const t = useTranslations('admin.m4');
-  const ts = useTranslations('shipments');
-  const tStatus = useTranslations('status.shipment');
+  const tModules = useTranslations('admin.modules'); // §37.2a-2: h1 = rótulo del menú (candado P66-2)
+  const ts = useTranslations('admin.m4.prep.ship');
   const tc = useTranslations('common');
-  const tm6 = useTranslations('admin.m6');
+  const tStatus = useTranslations('status.shipment');
   const locale = useLocale() as AppLocale;
   const getError = useErrorMessage('operator');
   const qc = useQueryClient();
-  const steps = useShipmentSteps();
 
-  // Cola ADMIN de envíos de clientes (contrato §M4 · GET /admin/shipments?status=).
-  const [statusFilter, setStatusFilter] = useState('');
-  const shipments = useQuery({
-    queryKey: ['admin-shipments', statusFilter],
-    queryFn: () => getAdminShipments({ status: statusFilter || undefined }),
-  });
+  const [tab, setTab] = useState<M4Tab>(initialTab);
+  const tabRefs = useRef<Record<M4Tab, HTMLButtonElement | null>>({ preparar: null, reponer: null, envios: null });
+  const summary = usePickingSummary();
 
-  // --- Captura de guía (contrato §M4 · POST /admin/shipments/:id/tracking) ---
-  const [trackingTarget, setTrackingTarget] = useState<AdminShipmentDTO | null>(null);
+  const selectTab = useCallback((next: M4Tab) => {
+    setTab(next);
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (next === 'preparar') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', next);
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  }, []);
+
+  function onTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, current: M4Tab) {
+    const idx = M4_TABS.indexOf(current);
+    let next: M4Tab | null = null;
+    if (e.key === 'ArrowRight') next = M4_TABS[(idx + 1) % M4_TABS.length];
+    else if (e.key === 'ArrowLeft') next = M4_TABS[(idx - 1 + M4_TABS.length) % M4_TABS.length];
+    else if (e.key === 'Home') next = M4_TABS[0];
+    else if (e.key === 'End') next = M4_TABS[M4_TABS.length - 1];
+    if (!next) return;
+    e.preventDefault();
+    selectTab(next);
+    tabRefs.current[next]?.focus();
+  }
+
+  // --- Captura de guía (contrato §M4 · POST /admin/shipments/:id/tracking; un diálogo, dos puertas) ---
+  const [trackingTarget, setTrackingTarget] = useState<TrackingTarget | null>(null);
   const [carrierValue, setCarrierValue] = useState('');
   const [trackingNumberValue, setTrackingNumberValue] = useState('');
   const [shippingCostValue, setShippingCostValue] = useState('');
   const [trackingSaved, setTrackingSaved] = useState<string | null>(null);
+  const [trackingError, setTrackingError] = useState<{ text: string; link?: { href: string; label: string } } | null>(null);
 
   const shippingCostCents = pesosToCents(shippingCostValue);
   const shippingCostInvalid = shippingCostValue.trim() !== '' && (shippingCostCents === null || shippingCostCents < 0);
 
   const trackingMutation = useMutation({
-    mutationFn: (target: AdminShipmentDTO) => {
-      const body: ShipmentTrackingRequest = {
-        carrier: carrierValue.trim(),
-        trackingNumber: trackingNumberValue.trim(),
-      };
-      // shippingCostCents es opcional (v1.4-finance): solo se envía cuando el operador lo captura.
+    mutationFn: (target: TrackingTarget) => {
+      const body: ShipmentTrackingRequest = { carrier: carrierValue.trim(), trackingNumber: trackingNumberValue.trim() };
       if (shippingCostCents !== null) body.shippingCostCents = shippingCostCents;
       return saveShipmentTracking(target.id, body);
     },
     onSuccess: (_d, target) => {
       void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
       void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
-      setTrackingSaved(target.id);
+      void qc.invalidateQueries({ queryKey: PICKING_SUMMARY_KEY });
+      setTrackingSaved(target.ref);
       closeTracking();
     },
-  });
-
-  // --- Cambio de estado manual (contrato §M4 · PATCH /admin/shipments/:id/status) ---
-  const [statusChanged, setStatusChanged] = useState<string | null>(null);
-  // `cancelado` es destructivo → confirma antes; las transiciones hacia adelante son directas.
-  const [cancelTarget, setCancelTarget] = useState<AdminShipmentDTO | null>(null);
-
-  const statusMutation = useMutation({
-    mutationFn: ({ id, to }: { id: string; to: ShipmentStatus }) =>
-      updateAdminShipmentStatus(id, to),
-    onSuccess: (_d, vars) => {
-      void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
-      void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
-      setStatusChanged(vars.id);
-      setCancelTarget(null);
+    onError: (e) => {
+      // §37.6: cada 409 con su copy y su remedio; ⛔ ninguno cae a «Algo salió mal».
+      const err = e instanceof ApiClientError ? e : null;
+      const label = (s: unknown) => (typeof s === 'string' && tStatus.has(s) ? tStatus(s) : String(s ?? '—'));
+      if (err?.status === 409 && err.code === 'SHIPMENT_NOT_PREPARED') {
+        setTrackingError({ text: t('tracking.notPrepared'), link: { href: '/admin/m4', label: t('tracking.goToPrepare') } });
+      } else if (err?.status === 409 && err.code === 'SHIPMENT_HAS_OPEN_REPLACEMENTS') {
+        const ids = (err.details?.caseIds as unknown[] | undefined) ?? [];
+        setTrackingError({ text: t('tracking.openReplacements', { count: Math.max(1, ids.length) }), link: { href: '/admin/m4?tab=reponer', label: t('tracking.goToReplace') } });
+      } else if (err?.status === 409 && err.code === 'ORDER_NOT_SETTLED') {
+        setTrackingError({ text: t('tracking.orderNotSettled', { status: label(err.details?.orderStatus) }) });
+      } else if (err?.status === 409 && err.code === 'WITHDRAWAL_LINE_ORIGIN_REFUNDED') {
+        const items = (err.details as Partial<WithdrawalLineOriginRefundedDetails> | undefined)?.items ?? [];
+        setTrackingError({
+          text: t('tracking.originRefunded', { count: Math.max(1, items.length), items: items.map((i) => `${i.folio ?? i.inventoryItemId} · ${i.orderNumber ?? i.orderId ?? '—'}`).join('; ') }),
+          link: items[0]?.orderId ? { href: `/admin/m3/${items[0].orderId}`, label: `${t('viewOrder')} ${items[0].orderNumber ?? items[0].orderId}` } : undefined,
+        });
+      } else {
+        setTrackingError({ text: getError(e) });
+      }
     },
   });
 
-  function changeStatus(id: string, to: ShipmentStatus) {
-    setStatusChanged(null);
-    statusMutation.mutate({ id, to });
-  }
-
-  function openTracking(s: AdminShipmentDTO) {
-    setTrackingTarget(s);
-    setCarrierValue(s.carrier ?? '');
-    setTrackingNumberValue(s.trackingNumber ?? '');
+  function openTracking(target: TrackingTarget) {
+    setTrackingTarget(target);
+    setCarrierValue(target.carrier ?? '');
+    setTrackingNumberValue(target.trackingNumber ?? '');
     setShippingCostValue('');
     setTrackingSaved(null);
+    setTrackingError(null);
     trackingMutation.reset();
   }
   function closeTracking() {
@@ -182,163 +142,82 @@ export function M4View() {
     setTrackingNumberValue('');
     setShippingCostValue('');
   }
+  const openFromRow = (s: AdminShipmentDTO) => openTracking({ id: s.id, ref: s.orderNumber ?? s.id, carrier: s.carrier ?? null, trackingNumber: s.trackingNumber ?? null });
+  const openFromCard = (o: ShipPreparationOrderDTO) => openTracking({ id: o.shipmentId, ref: o.orderNumber ?? o.shipmentId, carrier: null, trackingNumber: null });
 
-  const canSubmitTracking =
-    carrierValue.trim() !== '' && trackingNumberValue.trim() !== '' && !shippingCostInvalid;
+  const canSubmitTracking = carrierValue.trim() !== '' && trackingNumberValue.trim() !== '' && !shippingCostInvalid;
+
+  useEffect(() => {
+    if (initialTab !== 'preparar') tabRefs.current[initialTab]?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const prepareCount = (summary.data?.ship ?? 0) + (summary.data?.vault ?? 0);
+  const replaceCount = summary.data?.toReplace ?? 0;
+  const overdue = summary.data?.toReplaceOverdue ?? 0;
+
+  const tabLabel = (key: M4Tab) => {
+    if (key === 'preparar') return summary.data ? t('tabs.withCount', { label: t('tabs.prepare'), count: prepareCount }) : t('tabs.prepare');
+    if (key === 'reponer') return summary.data ? t('tabs.withCases', { label: t('tabs.replace'), count: replaceCount }) : t('tabs.replace');
+    return t('tabs.shipments');
+  };
 
   return (
-    <div className="flex flex-col gap-8">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+    <div className="flex flex-col gap-6">
+      <h1 className="text-h1 font-bold">{tModules('m4')}</h1>
 
-      {/*
-        * «Pedidos a preparar» (contrato §M4-PREP): tarjeta por PEDIDO y dos cubetas. Sustituye a la
-        * lista PLANA de piezas ordenada por ubicación — ver PreparationQueue.tsx.
-        *
-        * ⭐ **P-10 / DESIGN_SYSTEM §35.13 — va ARRIBA de la cola de envíos, y no es una preferencia.**
-        * Esta ruta hospeda dos pantallas de naturaleza distinta: una de **administración** (la cola de
-        * envíos, que se consulta sentado y **no está paginada**) y una de **ejecución física** (esta,
-        * que se usa **de pie**, con las manos ocupadas y caminando a la bóveda). Con la cola arriba,
-        * el operador que entra a preparar **hace scroll por una lista que no es la suya** y cuya
-        * longitud crece con el negocio. Manda la que se usa de pie.
-        */}
-      <PreparationQueue />
+      {/* §37.2 — pestañas de página (patrón APG tablist, flechas, `?tab=`); el conteo va DENTRO del nombre accesible. */}
+      <div className="flex gap-5 overflow-x-auto border-b border-border" role="tablist" aria-label={tModules('m4')}>
+        {M4_TABS.map((key) => {
+          const active = tab === key;
+          const count = key === 'preparar' ? prepareCount : key === 'reponer' ? replaceCount : null;
+          return (
+            <button
+              key={key}
+              ref={(el) => {
+                tabRefs.current[key] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`m4-tab-${key}`}
+              aria-selected={active}
+              aria-controls={`m4-panel-${key}`}
+              aria-label={tabLabel(key)}
+              tabIndex={active ? 0 : -1}
+              onClick={() => selectTab(key)}
+              onKeyDown={(e) => onTabKeyDown(e, key)}
+              className={cn(
+                '-mb-px inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap border-b-2 px-1 text-sm',
+                active ? 'border-text text-text' : 'border-transparent text-muted hover:text-text',
+              )}
+            >
+              <span>{key === 'preparar' ? t('tabs.prepare') : key === 'reponer' ? t('tabs.replace') : t('tabs.shipments')}</span>
+              {summary.data && count !== null && (
+                <span
+                  aria-hidden
+                  data-testid={`m4-tab-badge-${key}`}
+                  className={cn('tabular font-mono text-[11px]', key === 'reponer' && overdue > 0 ? 'text-accent' : 'text-muted')}
+                >
+                  {count}
+                  {key === 'reponer' && overdue > 0 && <> {t('tabs.overdueSuffix', { count: overdue })}</>}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-      <section className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <h2 className="text-h2 font-semibold">{t('queueTitle')}</h2>
-          <Select
-            label={t('statusFilter')}
-            className="w-48"
-            placeholder={t('statusAll')}
-            options={STATUS_FILTERS.map((s) => ({ value: s, label: tStatus(s) }))}
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          />
-        </div>
-        {trackingSaved && (
-          <Banner variant="success" role="status">
-            {t('tracking.saved', { id: trackingSaved })}
-          </Banner>
-        )}
-        {statusChanged && (
-          <Banner variant="success" role="status">
-            {t('statusActions.changed', { id: statusChanged })}
-          </Banner>
-        )}
-        {statusMutation.isError && !cancelTarget && (
-          <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-            {getError(statusMutation.error)}
-          </Banner>
-        )}
-        <QueryState
-          isLoading={shipments.isLoading}
-          isError={shipments.isError}
-          error={shipments.error}
-          onRetry={() => shipments.refetch()}
-        >
-          {shipments.data && shipments.data.data.length === 0 ? (
-            <EmptyState title={t('queueEmpty')} />
-          ) : (
-            (shipments.data?.data ?? []).map((s: AdminShipmentDTO) => (
-              <div key={s.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="tabular text-sm font-medium">{s.id}</span>
-                    <StatusBadge domain="shipment" value={s.status} />
-                    {s.items && (
-                      <span className="text-xs text-muted">
-                        {t('itemCount', { count: s.items.length })}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {s.status !== 'cancelado' && s.status !== 'entregado' && (
-                      <Button size="sm" variant="secondary" onClick={() => openTracking(s)}>
-                        {t('tracking.capture')}
-                      </Button>
-                    )}
-                    {(MANUAL_TRANSITIONS[s.status] ?? []).map((to) =>
-                      to === 'cancelado' ? (
-                        <Button
-                          key={to}
-                          size="sm"
-                          variant="ghost"
-                          className="text-accent"
-                          onClick={() => setCancelTarget(s)}
-                        >
-                          {t('statusActions.cancelado')}
-                        </Button>
-                      ) : (
-                        <Button
-                          key={to}
-                          size="sm"
-                          loading={
-                            statusMutation.isPending &&
-                            statusMutation.variables?.id === s.id &&
-                            statusMutation.variables?.to === to
-                          }
-                          onClick={() => changeStatus(s.id, to)}
-                        >
-                          {t(`statusActions.${to}`)}
-                        </Button>
-                      ),
-                    )}
-                  </div>
-                </div>
-                {/* §33.10d / D-CTA-6 (contrato §M4 v1.67): el operador ve A QUIÉN va el paquete y a
-                    DÓNDE, no un id (P-66 B3). Sin `recipientName` en el snapshot (retiro anterior a
-                    v1.67): «SIN DESTINATARIO (…)» en mono rojo — nunca `User.name` (puede ser el
-                    fabricado) ni el `userId`. Cada dato ausente es «—» (§32.4). */}
-                <div className="flex flex-col gap-1 text-sm text-muted" data-testid={`shipment-parties-${s.id}`}>
-                  <p>
-                    <span className="font-medium text-text">{t('recipient')}</span>{' '}
-                    {recipientOf(s) ? (
-                      <span className="text-text">{recipientOf(s)}</span>
-                    ) : (
-                      <span className="font-mono text-xs uppercase text-accent">{t('recipientMissing')}</span>
-                    )}
-                    {' · '}
-                    {snap(s, 'city') ?? DASH}, {snap(s, 'state') ?? DASH}
-                    {' · '}
-                    {t('postalCode')} <span className="tabular">{snap(s, 'postalCode') ?? DASH}</span>
-                    {' · '}
-                    {t('phone')} <span className="tabular">{snap(s, 'phone') ?? DASH}</span>
-                  </p>
-                  <p>
-                    <span className="font-medium text-text">{t('street')}</span>{' '}
-                    <span className="text-text">{streetOf(s) ?? DASH}</span>
-                  </p>
-                  <p>
-                    <span className="font-medium text-text">{t('customer')}</span>{' '}
-                    {customerOf(s)?.name ?? DASH} · {customerOf(s)?.email ?? DASH}
-                    {s.userId && (
-                      <>
-                        {' · '}
-                        <Link
-                          href={{ pathname: '/admin/m6', query: { user: s.userId } }}
-                          className="font-mono text-xs uppercase text-accent hover:text-text"
-                        >
-                          {tm6('view')}
-                        </Link>
-                      </>
-                    )}
-                  </p>
-                </div>
-                {(s.carrier || s.trackingNumber) && (
-                  <p className="text-sm text-muted">
-                    <span className="font-medium text-text">{ts('carrier')}:</span> {s.carrier ?? '—'}
-                    {' · '}
-                    <span className="font-medium text-text">{ts('tracking')}:</span>{' '}
-                    <span className="tabular">{s.trackingNumber ?? '—'}</span>
-                  </p>
-                )}
-                <PipelineStepper steps={steps} current={s.status} />
-              </div>
-            ))
-          )}
-        </QueryState>
-      </section>
+      {trackingSaved && (
+        <Banner variant="success" role="status">
+          {ts('guide.saved', { ref: trackingSaved })}
+        </Banner>
+      )}
 
+      <div role="tabpanel" id={`m4-panel-${tab}`} aria-labelledby={`m4-tab-${tab}`}>
+        {tab === 'preparar' && <PreparationQueue onCaptureGuide={openFromCard} />}
+        {tab === 'reponer' && <ReplacementCasesPanel />}
+        {tab === 'envios' && <ShipmentsQueue onCaptureGuide={openFromRow} />}
+      </div>
 
       <Modal
         open={trackingTarget !== null}
@@ -349,11 +228,7 @@ export function M4View() {
             <Button variant="ghost" onClick={closeTracking}>
               {tc('cancel')}
             </Button>
-            <Button
-              disabled={!canSubmitTracking}
-              loading={trackingMutation.isPending}
-              onClick={() => trackingTarget && trackingMutation.mutate(trackingTarget)}
-            >
+            <Button disabled={!canSubmitTracking} loading={trackingMutation.isPending} onClick={() => trackingTarget && trackingMutation.mutate(trackingTarget)}>
               {t('tracking.save')}
             </Button>
           </>
@@ -362,22 +237,12 @@ export function M4View() {
         <div className="flex flex-col gap-3">
           {trackingTarget && (
             <p className="text-sm text-muted">
-              <span className="tabular font-medium text-text">{trackingTarget.id}</span>
+              <span className="tabular font-medium text-text">{trackingTarget.ref}</span>
+              {trackingTarget.ref !== trackingTarget.id && <> · {trackingTarget.id}</>}
             </p>
           )}
-          <Input
-            label={t('tracking.carrierLabel')}
-            type="text"
-            value={carrierValue}
-            onChange={(e) => setCarrierValue(e.target.value)}
-          />
-          <Input
-            label={t('tracking.numberLabel')}
-            type="text"
-            inputMode="numeric"
-            value={trackingNumberValue}
-            onChange={(e) => setTrackingNumberValue(e.target.value)}
-          />
+          <Input label={t('tracking.carrierLabel')} type="text" value={carrierValue} onChange={(e) => setCarrierValue(e.target.value)} />
+          <Input label={t('tracking.numberLabel')} type="text" inputMode="numeric" value={trackingNumberValue} onChange={(e) => setTrackingNumberValue(e.target.value)} />
           <Input
             label={t('tracking.shippingCostLabel')}
             hint={t('tracking.shippingCostHint')}
@@ -389,45 +254,15 @@ export function M4View() {
             value={shippingCostValue}
             onChange={(e) => setShippingCostValue(e.target.value)}
           />
-          {!shippingCostInvalid && shippingCostCents !== null && (
-            <p className="text-xs text-muted">= {formatMoneyCents(shippingCostCents, locale)}</p>
-          )}
-          {trackingMutation.isError && (
+          {!shippingCostInvalid && shippingCostCents !== null && <p className="text-xs text-muted">= {formatMoneyCents(shippingCostCents, locale)}</p>}
+          {trackingError && (
             <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-              {getError(trackingMutation.error)}
-            </Banner>
-          )}
-        </div>
-      </Modal>
-
-      <Modal
-        open={cancelTarget !== null}
-        onClose={() => setCancelTarget(null)}
-        title={t('statusActions.cancelTitle')}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setCancelTarget(null)}>
-              {tc('cancel')}
-            </Button>
-            <Button
-              variant="accent"
-              loading={statusMutation.isPending}
-              onClick={() => cancelTarget && changeStatus(cancelTarget.id, 'cancelado')}
-            >
-              {t('statusActions.cancelConfirm')}
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          {cancelTarget && (
-            <p className="text-sm text-muted">
-              {t('statusActions.cancelBody', { id: cancelTarget.id })}
-            </p>
-          )}
-          {statusMutation.isError && cancelTarget && (
-            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-              {getError(statusMutation.error)}
+              <p>{trackingError.text}</p>
+              {trackingError.link && (
+                <Link href={trackingError.link.href} className="text-text underline underline-offset-4 hover:text-accent" onClick={closeTracking}>
+                  {trackingError.link.label}
+                </Link>
+              )}
             </Banner>
           )}
         </div>

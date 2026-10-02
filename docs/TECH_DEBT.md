@@ -13,6 +13,32 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-09-28 · SEC-SETTLE-LATE (sobre `2fb61f1`)
+
+### SSL-R1 · Piezas `reserved` de una orden `refunded` SIN liquidar nunca se sueltan: el barrido las salta en cada pasada (backend · API_CONTRACT §M4-VAULT.2-bis.2 «Residual», 2026-09-28)
+- **Dueño:** **backend** (`src/modules/orders/orders.service.ts#sweepExpiredReservations` + `closePaymentIntent`).
+  **Dueño de la decisión** de qué hacer con la pieza: **arquitecto** (y el dueño si toca dinero/inventario vendible).
+- **Severidad:** Baja. **No bloqueante** (declarado así por el contrato v1.80). Nuestro reembolso exige `settled`
+  (`admin-orders.controller.ts:239`); solo se llega aquí con un reembolso hecho **desde el panel de Stripe** sobre una
+  orden aún `pending`.
+- **Qué es (medido 2026-09-28 sobre `2fb61f1`, autor backend, Postgres real, N=1 por variante,
+  `test/integration/settle-late.e2e-spec.ts` «RESIDUAL»):** orden `vault` `pending` con 2 piezas `reserved` vencidas ⇒
+  `charge.refunded` total ⇒ `refunded`; el `succeeded` tardío ya no las mueve (v1.80). El barrido selecciona
+  `reserved ∧ reservedByOrderId ≠ null ∧ reservedUntil < now` sin mirar el estado de la orden y, por B3, solo suelta
+  si el PI queda `canceled`. Un PI reembolsado está `succeeded` ⇒ cancelar lanza ⇒ `closed:false` ⇒ se salta. Con el
+  doble en modo Stripe real (`throws-succeeded`): **siguen `reserved` tras dos pasadas**, y cada pasada (cada 15 min)
+  loguea `error`. Contraste (doble que sí cancela, irreal aquí): las soltaría a `listed`.
+- **Riesgo:** cartas únicas atrapadas en `reserved` para siempre (fuera de venta) y ruido de `error` perpetuo en el
+  barrido, que entrena a ignorarlo.
+- **Dirección (⛔ no decidida):** ⛔ «liberar y ya» no vale: soltar a `listed` devuelve a la venta una carta que el
+  cliente puede tener ya, según por qué se reembolsó. Opciones a decidir: excluir del barrido las órdenes no `pending`
+  y llevar las piezas a una cola de revisión humana (como `chargebackNeedsManual`), o una transición explícita al
+  recibir `charge.refunded` sobre una orden `pending`.
+- **Comprobación de cierre:** la prueba «RESIDUAL — Stripe real» de `settle-late.e2e-spec.ts` cambia de aserción a la
+  conducta decidida (y se pone roja con el código de hoy); ⛔ ninguna pieza queda `reserved` por una orden `refunded`
+  tras una pasada del barrido; el barrido deja de loguear `error` por esas órdenes.
+- **Disparador:** el **primer reembolso hecho fuera de la app** (panel de Stripe) sobre una orden sin liquidar.
+
 ## Backend · 2026-09-25 · gates arreglos-rápidos (sobre `3806fec`)
 
 > Los identificadores llevan el sufijo «(arreglos-rápidos)» porque `TD-1`/`TD-2` ya existen más abajo (cerrados, de
@@ -8038,3 +8064,794 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   `CHECK (coverMatchStatus IS DISTINCT FROM 'unmatched_basic_energy')`, con prueba de migración que lo fije.
 - **Comprobación de cierre:** existe la migración con los `CHECK` aprobada por el arquitecto; un `INSERT` que viole
   cada invariante falla con `23514` en la integración.
+
+## Frontend · 2026-09-29 · techlead sobre `6695e9e` — arreglos del recorrido del operador (rama `claude/arreglos-operador`)
+
+> Deuda **no bloqueante** del techlead sobre el frontend de los huecos 1/7/12/15. El bloqueante de QA («Ubicar» en las
+> tarjetas de retiro de bóveda) y la condición C-1 (comentarios que afirmaban una guarda del backend) se cerraron en
+> este pase y no figuran aquí. Medido el **2026-09-29** sobre el árbol de trabajo encima de `6695e9e`.
+
+### OPG-D1 · La lógica de «mover de ubicación» está duplicada entre M1 y M4 (frontend · Inventario y vault, 2026-09-29)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/ItemDetailModal.tsx` (`move` + `moveTargets`, filtro
+  «en `picking` solo `platform_stock` activas») y `frontend/src/app/[locale]/(admin)/admin/m4/LocateItemControl.tsx`
+  (`move` + `options`, el mismo filtro). Las dos llaman a `moveInventoryItem`, invalidan las mismas consultas
+  (`admin-inventory`, `admin-inventory-item`, `admin-preparation-queue`) y sacan la etiqueta del aviso de la ubicación
+  ELEGIDA porque la respuesta real no trae `location`.
+- **Impacto:** dos predicados de destino para un mismo hecho («a dónde puede ir una pieza en `picking`»): si uno
+  cambia y el otro no, M1 y M4 ofrecen destinos distintos para la misma carta.
+- **Corrección:** hook `useMoveInventoryItem(itemId)` (mutación + invalidaciones + etiqueta elegida) y función pura
+  `moveTargetsFor(item, locations)` con su prueba unitaria; ambos componentes los consumen sin cambiar conducta.
+  Si vive en `frontend/src/hooks/` o `lib/` es **zona compartida** (CLAUDE.md): se serializa con el orquestador.
+- **Disparador:** el próximo cambio a la regla de destinos (p. ej. cuando el backend publique su guarda de zona), o
+  un tercer sitio que mueva piezas.
+- **Comprobación de cierre:** `rg -n "moveInventoryItem\(" "frontend/src/app/[locale]/(admin)"` ⇒ **0** (solo el hook).
+
+### OPG-D2 · Dos diálogos de confirmación casi idénticos en `M4View` (frontend · Órdenes y dinero, 2026-09-29)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m4/M4View.tsx` — el `Modal` de `advanceTarget` («Marcar
+  enviado/entregado», hueco 15) y el de `cancelTarget` («Cancelar envío»): mismo esqueleto (título, cuerpo con el id,
+  botón ghost «Cancelar», botón de acción con `statusMutation.isPending`, `Banner` de error), distintos solo en
+  variante del botón, tono del cuerpo y foco inicial.
+- **Impacto:** un arreglo de accesibilidad (foco en «Cancelar», anuncio del error) hay que hacerlo dos veces; hoy ya
+  divergen: el de cancelar NO lleva el foco a «Cancelar».
+- **Corrección:** un `StatusConfirmDialog({ open, title, body, confirmLabel, variant, onConfirm, onClose, error })`
+  local a `m4/` con el foco inicial en «Cancelar» para ambos; las pruebas de `M4View.operator-gaps.test.tsx` y
+  `M4View.test.tsx` son el juez.
+- **Disparador:** el próximo cambio a cualquiera de los dos diálogos, o un tercer verbo de estado que confirme.
+- **Comprobación de cierre:** `rg -c "<Modal" frontend/src/app/[locale]/(admin)/admin/m4/M4View.tsx` baja en 1.
+
+### OPG-D3 · La clave i18n `admin.m4.street` ya dice «Dirección» / «Address» (frontend · Órdenes y dinero, 2026-09-29)
+- **Dónde:** `frontend/messages/es.json` y `en.json` (`admin.m4.street`), consumida en `M4View.tsx` (`t('street')`).
+  Tras el hueco 12 («Calle Calle») el valor pasó a «Dirección», pero la clave sigue llamándose `street`.
+- **Impacto:** cosmético; el nombre engaña a quien busque la etiqueta de dirección o añada una de calle.
+- **Corrección:** renombrar a `address` en ambos idiomas y en el consumidor; el control de paridad i18n es el juez.
+- **Disparador:** el próximo cambio de copys de M4.
+- **Comprobación de cierre:** `rg -n "\"street\"" frontend/messages` ⇒ **0**.
+
+## Backend · 2026-09-29 · QA + techlead sobre `16a3170`/`6695e9e` — correos y `move`/`mark` (rama `claude/arreglos-operador`)
+
+### MAIL-URL1 · Tres constructores de URL del front y dos variables de entorno para el MISMO origen (backend · zona compartida, 2026-09-29)
+- **Dueño del código:** **backend**. **Dueño de la decisión:** **arquitecto** (toca `common/` y la configuración).
+- **Severidad:** Media. **No bloqueante.** Hoy los enlaces llegan bien *si las dos variables valen lo mismo*.
+- **Qué es (medido 2026-09-29 sobre `89c07f5`, `grep` en `backend/src`):**
+  - `appUrl` (`modules/buylist/mail-shell.ts:495`) y su gemelo `buylistPortalUrl`
+    (`modules/buylist/buylist-mail.templates.ts:1125`) — leen **`APP_PUBLIC_URL`**; sin ella, **sin CTA**.
+  - `AuthService.buildFrontendLink` (`modules/auth/auth.service.ts:67`) — lee **`APP_BASE_URL.split(',')[0]`**
+    (la lista de CORS), con respaldo `http://localhost:3000`.
+  - `GuestOrderMailService.buildTrackingUrl` (`modules/orders/guest-order-mail.service.ts:38`) — la misma
+    derivación de `APP_BASE_URL`, copiada.
+- **Riesgo:** alguien reordena la lista de CORS (o `APP_PUBLIC_URL` y `APP_BASE_URL` divergen entre entornos) y los
+  enlaces de verificación/reset/seguimiento apuntan a otro origen que los de pedidos y buylist, sin que nada falle.
+  Dos reglas de locale distintas (`normalizeLocale` vs `user.locale ?? DEFAULT_LOCALE`).
+- **Propuesta (al arquitecto):** un solo `frontendUrl(path, locale, query?)` en `common/`, con una sola variable
+  dedicada (la de `appUrl`), y los cuatro sitios lo llaman. `test/mail-links.frontend-routes.spec.ts` ya barre los
+  constructores: se le añade que no exista otro.
+- **Disparador:** el próximo cambio de dominio/entorno, o antes de separar CORS de la URL pública.
+
+### MAIL-CTA2 · La regla «invitado sin CTA / registrado con CTA» está escrita dos veces (backend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** **backend**.
+- **Severidad:** Baja. **No bloqueante.** Las dos copias coinciden hoy y tienen candado (`avisos.orders.spec.ts` y
+  `avisos.shipments.spec.ts`, bloques «CTA —», B2..B5 muertas, `89c07f5`).
+- **Qué es:** `payments.service.ts` (reembolso: `orderId: order.guestEmail ? null : order.id`) y
+  `shipments.service.ts` · `resolveRecipient` (rama invitado `orderId: null`, rama registrado `orderId`) deciden por
+  separado lo mismo: *«¿el destinatario puede abrir `orders/<id>`?»*. AV-2 lo decide implícitamente (solo se manda al
+  registrado).
+- **Riesgo:** una tercera superficie (p. ej. un aviso de disputa de pedido) copia la regla con otra condición.
+- **Propuesta:** una función `orderCtaIdFor(order)` junto a los templates de pedido, que usen los tres.
+- **Disparador:** el siguiente aviso con CTA al detalle del pedido.
+
+### MAIL-NOTE8 · La nota del movimiento de liquidación dice «guest order» sin mirar quién compró (backend · Órdenes y dinero, 2026-09-29) — QA menor 8
+- **Dueño:** **backend**.
+- **Severidad:** Baja. **No bloqueante.** Es texto de bitácora (`InventoryMovement.note`), no dinero ni cliente.
+- **Qué es:** `payments.service.ts` · `settleDirectShipOrder` escribe `guest order <n> settled (direct_ship)` y
+  `shipments.service.ts` · `updateStatus` escribe `guest shipment <id> <to>` para **todo** `direct_ship`.
+  *Medido 2026-09-29:* hoy el único creador de pedidos `direct_ship` es `guest-checkout.service.ts` (nacen con
+  `userId=null` y `guestEmail`), así que la nota es inexacta solo en los **reclamados** después; QA lo reporta también
+  en registrados — ⛔ NO MEDIDO por mí un camino que cree `direct_ship` de registrado.
+- **Propuesta:** `direct_ship order <n> settled` (el modo, que es el discriminador canónico, §4.21d), sin afirmar quién.
+- **Disparador:** cuando exista `direct_ship` para registrados, o al tocar esas notas.
+## Backend · 2026-09-29 · C7 rev v1.80.1 (SEC-C7-MINT)
+
+### C7-LEGACY-SID · La rama «refresh legado sin `sid`» de `AuthService.refresh()` tiene fecha de caducidad (backend · Cuentas y acceso, 2026-09-29)
+- **Dueño:** **backend** (`src/modules/auth/auth.service.ts`, `AuthService.sessionIdOf`; pruebas C7-21 en
+  `test/auth.c7-mint.spec.ts` y `test/integration/auth-password-attempts.e2e-spec.ts`).
+- **Severidad:** Baja. **No bloqueante.** Deuda **con fecha**, ordenada por el arquitecto (`ARCHITECTURE §4.57.4`,
+  «Sunset»).
+- **Qué es (medido 2026-09-29):** desde v1.80.1 todo refresh token lleva el claim `sid` (uuid de sesión) y el
+  `deviceToken` que `refresh` devuelve usa `jti = sid`. Los refresh tokens emitidos **antes** del despliegue de esta
+  rev no lo llevan y viven ≤ `JWT_REFRESH_TTL` (30 d, `auth.service.ts` `issueTokens`). Para no dejar fuera a los
+  navegadores con sesión abierta el día del despliegue, `sessionIdOf` deriva para ellos `sid = "legacy:" + sub +
+  ":" + iat` (determinista: reproducir el token da el mismo cubo; el par nuevo ya lleva `sid`).
+- **Riesgo de dejarla:** ninguno funcional; es código muerto a los 30 días que sigue ofreciendo una segunda forma
+  de `sid` (con `sub`+`iat`) que nadie emite ya. Cuanto más tiempo viva, más parece «diseño» y menos «migración».
+- **Fecha para borrarla:** **30 días después del despliegue a producción de v1.80.1** (fecha exacta: la del merge a
+  `production` + 30 d; la anota devops en `DEVOPS_NOTES` al desplegar). ⛔ **No antes**: un refresh legado válido
+  seguiría entrando con `401` y ese usuario tendría que volver a iniciar sesión.
+- **Cómo se borra:** `sessionIdOf` pasa a exigir `typeof payload.sid === 'string' && payload.sid.length > 0` (si no,
+  `401`, como `typ`/`tv`); se retiran las pruebas C7-21 «legado» (las dos de `auth.c7-mint.spec.ts` y la de HTTP) y
+  se conserva «sin `sid` ⇒ 401» como prueba nueva (misma forma que `auth.refresh-typ.spec.ts`).
+- **Comprobación de cierre:** `grep -n "legacy:" backend/src` no devuelve nada; un refresh firmado sin `sid` ⇒
+  `401` en `auth.refresh-typ.spec.ts`.
+## Backend · 2026-09-29 · paquete dinero v1.80.2.2 (techlead D-1…D-5 sobre `a3cde51`; ARCHITECTURE §4.50.6 D-SK-4 / D-BC-1)
+
+> Medido por backend el 2026-09-29 sobre `2cf50c6` (rama `claude/paquete-dinero`): unitaria completa **360/360 suites,
+> 5967/5967 pruebas**; mutaciones sobre copias del árbol entero, N=1 (deterministas). Detalle en `BACKEND_NOTES` §0.58.
+
+### Cerradas en este pase (con su comprobación)
+
+- **D-SK-4 (ARCHITECTURE §4.50.6) = D-5 techlead (Media) = SEC-DIN-1 seguridad (Baja) — CERRADA (`b338886`).** El export
+  `.xlsx` valúa por `valuationKeyFor` + `valuationCentsOf`; `exportGradeKey` retirado. **Comprobación:** VK-8a/b/c
+  verdes (`backend/test/inventory.export-xlsx.spec.ts`, rojas sobre `b8edfa7`: 800 / vacía / 2500); VK-6 con
+  `inventory.service.ts` en 4 usos y aserción por método; mutaciones 4/4 muerden.
+- **D-BC-1 (§4.50.6) = D-3 techlead (Media) — CERRADA (`cd696a3`).** `publicBounties` y `composeVariantPricing` consumen
+  `quoteAcquisitionWithGuard(m, curva, fila)`; cero `bountyPayoutCents`/`bountyGuardBasis` fuera de `common/money.ts`.
+  **Comprobación:** BC-9(b) (`money.bounty-cap.spec.ts`), BC-9(c) por valor (`pricing.bounty-cap.spec.ts`, 12 casos ×
+  vitrina y composer), inversiones de `money.bounty-cap.spec.ts:246` y `pricing.bounty-guard.spec.ts:310`; mutaciones
+  5/5 muerden (incluidas las tres del contrato).
+- **D-1 techlead (Media) — CERRADA (`2cf50c6`).** Los cuatro lectores SK-5 (`admin.service.ts:1013,1039,1645`,
+  `vault.service.ts:428`, `admin-vaults.service.ts:149`) y el export llavean el lote con `variantKey()`.
+  **Comprobación:** VK-6 «D-1» (0 llaves de cuatro componentes a mano en los lectores, `variantKey(` presente, el
+  productor `getReferencesBatch` llavea con `variantKey(`; canario +1/prosa); mutación 1/1.
+- **D-2 techlead (Baja) — CERRADA (`cd696a3`).** El candado de `pricing.bounty-guard.spec.ts` es un censo cerrado al
+  patrón VK-6 (comentarios fuera, imports contados, ≤ 2 argumentos fuera de `money.ts`), con el instrumento compartido
+  `test/helpers/ident-census.ts` que también usan VK-6 y BC-9(b). **Comprobación:** mutación (tercer argumento en
+  `variant-controls.service.ts`) 1/1.
+- **D-4 techlead (Baja) — CERRADA (`2cf50c6`).** `PricingService.sealedSourceOnFor(items)` sustituye a las 6 copias (y a
+  la lectura incondicional de `vault.service.ts` `/vault/sealed`). **Comprobación:** VK-6 «D-4» (los lectores no llaman
+  a `loadSealedSpreads`), `test/pricing.sealed-source-on.spec.ts` (sin sellado ⇒ `false` sin leer; con sellado ⇒ el
+  dial, una vez); mutaciones 2/2.
+
+### Lo que queda
+
+### DIN-D1 · Tres llaves de variante siguen interpoladas a mano FUERA de los lectores SK-5 (backend · Inventario y vault / Catálogo y precios, 2026-09-29)
+- **Dueño:** backend. **Severidad:** Baja. **No bloqueante.**
+- **Qué es (medido 2026-09-29 sobre `2cf50c6`, `grep` de `${…}|${…}|${…}|${…}` en `src/`):**
+  `inventory.service.ts:1656` (re-publicación por variante), `master-set.service.ts:1044` (binder `resolveBuyables`) y
+  `price-ingest.service.ts:1018` (barrido de cola del ingest) llavean a mano el `Map` que produce
+  `getReferencesBatch` con `variantKey()`. Fuera del alcance de D-1 (los cuatro lectores de patrimonio). Un cambio de
+  forma de `variantKey` las dejaría sin `ref` **en silencio**: no es dinero mal (la publicación cae a `no_market`/
+  pendiente, el binder a «sin mercado», el ingest a no-match), pero es el mismo patrón que D-1 cerró.
+  (`pricing.service.ts:407` es otra llave —lleva `cardProductId`— y `sealed-graded.service.ts:270` agrupa slabs: **no**
+  son llaves de variante; se anotan para que nadie las «arregle».)
+- **Disparador:** tocar cualquiera de esos tres métodos, o cualquier cambio en `common/variant-key.ts`.
+- **Dirección:** `variantKey({ cardId, productType, gradeKey, finish })` en las tres y extender el censo
+  `countManualKeys` de VK-6 (`pricing.valuation-callers-census.spec.ts`) de los lectores SK-5 a todo `src/` con lista
+  cerrada.
+- **Comprobación de cierre:** el censo de `countManualKeys` sobre `src/` devuelve `{}` salvo la definición en
+  `variant-key.ts`; la prueba está roja con el código de hoy.
+
+### DIN-D2 · Los candados de forma son léxicos — límite conocido, aceptado por el contrato; NO es deuda nueva (backend, 2026-09-29)
+- El contrato (§M2-B.11 punto 8, v1.80.2.1) ya lo declara «límite conocido, no bloqueante»: un alias o `...args` esquiva
+  a `ident-census`/`callArgCounts`; los canarios cubren la reintroducción literal y la revisión cubre el resto. Se anota
+  aquí solo para que el próximo candado de forma no lo redescubra. **Sin disparador.**
+
+### T-2 · `ident-census.ts`: `callArgCounts` parcialmente cerrada; quedan genéricos y `methodBody` (backend, 2026-09-29, re-revisión techlead sobre `fae5a44`)
+- **Cerrado hoy (2026-09-29):** `backend/test/helpers/ident-census.ts` `callArgCounts` ya no cuenta la coma final
+  (`trailingComma: "all"` de `.prettierrc` daba 3 en una llamada de 2 argumentos partida en líneas ⇒ rojo falso) y
+  salta cadenas `'…'`/`"…"`/`` `…` `` con escapes. Canario en `test/money.bounty-cap.spec.ts` (final del último `it`,
+  «T-2»): `g(\n a,\n b,\n)` ⇒ `[2]` y una llamada con comas/paréntesis dentro de cadenas ⇒ `[3]`.
+- **Abierto 1:** `callArgCounts` no reconoce genéricos (`f<A, B>(x)`; la coma de `<A, B>` no está en un par
+  balanceado que el contador conozca) — solo cuenta si la llamada lleva `<…>` ANTES del `(` que ancla la regex, y el
+  ancla `\bfn\s*\(` ni siquiera casa con `fn<T>(`; y dentro de los argumentos, `<` de comparación es ambiguo.
+- **Abierto 2:** `ident-census.ts:52-54` `methodBody` no reconoce como frontera un miembro sin modificador
+  (`foo(...) {` a secas, o decorador) ⇒ el cuerpo del método anterior se extiende hasta el siguiente miembro con
+  modificador y puede contar usos ajenos.
+- **Disparador:** escribir un candado nuevo que use `methodBody` sobre un método seguido de un miembro sin
+  modificador, o `callArgCounts` sobre una función genérica.
+- **Comprobación de cierre:** canario de `methodBody` con un miembro sin modificador entre dos con modificador (el
+  cuerpo termina en él), y canario `callArgCounts('f<A, B>(x, y)', 'f')` ⇒ `[2]`.
+
+### T-3 · `money.bounty-cap.spec.ts` recorre y quita comentarios por su cuenta (backend, 2026-09-29)
+- `backend/test/money.bounty-cap.spec.ts:128,143,172`: segundo recorrido de ficheros y quitacomentarios propios en
+  lugar de `walkSources`/`stripComments` de `test/helpers/ident-census.ts`. Dos implementaciones del mismo recorrido
+  divergen en silencio (un fichero o forma de comentario que una ve y la otra no).
+- **Disparador:** tocar esos tres bloques o cambiar `walkSources`/`stripComments`.
+- **Comprobación de cierre:** `grep -n "readdirSync\|replace(/\\\\/\\\\*" backend/test/money.bounty-cap.spec.ts` sin
+  resultados y la suite en verde con las mismas cifras de aserciones.
+
+### T-4 · «basis==='bounty' ⇒ monto no nulo» solo vive en `money.ts` (backend, 2026-09-29)
+- `backend/src/modules/buylist/buylist.service.ts:1335`: `q.priceCents as number`. El invariante lo garantiza
+  `money.ts` pero el tipo no lo expresa; un cambio allí lo rompería con un `null` que el `as` esconde.
+- **Propuesta:** unión discriminada en `AcquisitionQuoteResult` (`{ basis: 'bounty'; priceCents: number } | { basis:
+  …; priceCents: number | null }`) para que el estrechamiento por `basis` haga innecesario el cast.
+- **Disparador:** tocar `AcquisitionQuoteResult` o `buylist.service.ts` cerca de `:1335`.
+- **Comprobación de cierre:** `grep -n "priceCents as number" backend/src/modules/buylist/buylist.service.ts` sin
+  resultados y `tsc` limpio.
+
+### T-6 · 13 dobles de `PricingService` hechos a mano (backend, 2026-09-29)
+- 13 suites construyen a mano su doble de `PricingService`; cada método nuevo del servicio obliga a tocarlas todas o
+  a que una quede con un doble desfasado que no falla.
+- **Propuesta:** fábrica compartida de dobles en `backend/test/helpers/` (p. ej. `makePricingDouble(overrides)`).
+- **Disparador:** añadir un método público a `PricingService` que consuman los lectores.
+- **Comprobación de cierre:** `grep -rln "as unknown as PricingService\|: PricingService = {" backend/test` no lista
+  suites con dobles literales; todas usan la fábrica.
+## Backend · 2026-09-29 · gate del techlead sobre `c20451f` (§M4-SHIP, rama `claude/envio-preparar`)
+
+> Deuda **no bloqueante** anotada a petición del techlead (rechazo de `c20451f`; los tres bloqueantes R1/R2/R3 y la deuda
+> (a) del tope se cerraron en el mismo pase: `BACKEND_NOTES §M4-SHIP-TL`). Medido el **2026-09-29** sobre el worktree
+> encima de `ea615c3`. Dueño de todo lo de abajo: **backend** (stream «Órdenes y dinero» / «Inventario y vault»).
+
+### SHIP-D1 · El nacimiento del caso «Por reponer» está escrito dos veces (retiro y colocación)
+- **Dónde:** `backend/src/modules/shipments/shipment-prep.service.ts:548-651` (retiro: `prepare`, `replacementCase.create`
+  en `:612`) ↔ `backend/src/modules/vault/vault-placement.service.ts:651-734` (colocación: `confirm`, `create` en `:682`).
+  Los dos hacen: CAS de la pieza a `lost|damaged` a nombre del cliente, movimiento con actor (la merma con firma), fila
+  `ReplacementCase` con su nodo (`shipmentItemId` xor `placementItemId`), bitácora y `AV-13`.
+- **Impacto:** un cambio de regla del caso (p. ej. `dueAt`, la identidad que congela, el copy del `AV-13`) hay que hacerlo
+  en dos sitios; ya divergen en detalles menores (nota del movimiento, forma del `after` de la bitácora).
+- **Corrección:** `openReplacementCase(tx, { piece, node, missingReason, actor })` en `vault/replacement-case.rules.ts` (o
+  un `ReplacementCaseService.open`), llamado por los dos verbos; la suite `replacement-cases.e2e-spec.ts` (PS-18/PS-19 y
+  el 6-bis) es el juez.
+- **Disparador:** el próximo cambio a lo que se escribe al abrir un caso, o un tercer punto de nacimiento.
+- **Comprobación de cierre:** `rg -n "replacementCase\.create\(" backend/src` ⇒ **1** sitio.
+
+### SHIP-D2 · La cola de preparación hace N+1 por tarjeta y duplica el `include` de `SHIP_PREP_INCLUDE`
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts:842` (`for (const sh of shipments) shipRows.push(await
+  this.toPreparationOrder(sh))`) y `:990` (`prep.buildView(this.prisma, s as unknown as …)` por fila); el `include` de
+  `:826-838` repite a mano el de `SHIP_PREP_INCLUDE` (`shipment-prep.service.ts:136`) y el tipo se fuerza con dos
+  `as unknown as` (`:990-991`).
+- **Impacto:** con K envíos en cola, K rondas de `buildView` (cada una con sus lecturas de origen/libro/casos); dos
+  `include` que pueden divergir (uno tipa `ShipRow`, el otro se castea).
+- **Corrección:** `loadRows(db, where)` en `ShipmentPrepService` que use `SHIP_PREP_INCLUDE` y devuelva `ShipRow[]`;
+  `buildViews(db, rows)` por lote (`resolveOriginsBatch` ya es por lote); `shipments.service` deja de castear.
+- **Disparador:** la cola tarda > 1 s con ≥ 50 envíos, o el próximo campo nuevo en el `include`.
+- **Comprobación de cierre:** `rg -c "as unknown as" backend/src/modules/shipments/shipments.service.ts` ⇒ **0**; un solo
+  literal `include` para la fila de preparación.
+
+### SHIP-D3 · `@Optional()` con `throw` en tiempo de ejecución: el servicio dice que es opcional y luego exige que esté
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts:242-249` (`prep?`, `manual?` + `requirePrep()` que lanza);
+  **y ahora también** `backend/src/modules/admin/admin.service.ts` (`users?: UsersService`, `deleteUser` lanza si falta —
+  añadido en este pase por `eraseClabe`, v1.80.7 punto 19, siguiendo el mismo patrón para no romper 27 construcciones
+  manuales del servicio en los unitarios).
+- **Impacto:** el tipo miente: en producción son dependencias duras; solo los unitarios legacy que construyen el servicio
+  a mano las omiten. Un módulo mal cableado se descubre en la primera petición, no al arrancar.
+- **Corrección:** dependencias requeridas; los unitarios que construyen a mano pasan un doble (patrón `usersStubM61`).
+- **Disparador:** el próximo `@Optional()` nuevo, o el próximo unitario nuevo de esos servicios.
+- **Comprobación de cierre:** `rg -n "@Optional\(\) private readonly (prep|manual|users)" backend/src/modules` ⇒ **0**.
+
+### SHIP-D4 · `@Body() body: unknown` sin DTO en `prep-items`/`prepared`
+- **Dónde:** `backend/src/modules/shipments/admin-shipments.controller.ts:90` (`markItem`) y `:99` (`prepare`); la forma se
+  valida a mano dentro de `ShipmentPrepService` (`markItem`/`prepare`).
+- **Impacto:** los demás verbos del controlador validan con `class-validator`; aquí los `400` se construyen a mano y el
+  contrato del cuerpo no se lee del tipo.
+- **Corrección:** `PrepItemDto { status, missingReason? }` y `PreparedDto { expectedRefundCents }` en `shipments/dto/`,
+  con los mismos códigos (`400 VALIDATION_ERROR {field}`); PS-2/PS-3 y PS-26 (cuerpos malos) son el juez.
+- **Disparador:** el próximo campo en cualquiera de los dos cuerpos.
+- **Comprobación de cierre:** `rg -n "@Body\(\) body: unknown" backend/src/modules/shipments` ⇒ **0**.
+
+### SHIP-D5 · `nonePicked` / `anyPickedAvailable` son el mismo predicado escrito dos veces
+- **Dónde:** `backend/src/modules/shipments/shipment-prep.service.ts:365-367`: `closes = lines.length > 0 && nonePicked
+  && !anyPickedAvailable`; `anyPickedAvailable` ⇒ `!nonePicked` por construcción (una línea `picked ∧ available` no cumple
+  ninguna rama de `nonePicked`).
+- **Impacto:** legibilidad; invita a «arreglar» uno sin el otro.
+- **Corrección:** `const closes = lines.length > 0 && lines.every(isNotShippable)` con `isNotShippable` nombrado.
+- **Disparador:** el próximo cambio a la regla de cierre (`closed_nothing_to_ship`).
+- **Comprobación de cierre:** PS-66 y PS-18 verdes con un solo predicado.
+
+### SHIP-D6 · `C-FULLREF-1` censa APARICIONES (6 llamadas en 4 ficheros), no LLAMADORES
+- **Dónde:** `backend/test/refunds.candados.spec.ts:206-213`: `census(/\.onFullRefund\(/g)` ⇒ `{orders: 2, ledger: 1,
+  payments: 2, shipment-prep: 1}`; la prosa dice «cinco llamadores» (M3, `reclaim-vault`, confirmación, webhook,
+  `unprepare`).
+- **Impacto:** un refactor que junte las dos ramas del webhook en una llamada (o que parta una en dos) pone el candado rojo
+  sin que cambie el conjunto de llamadores; y al revés, un llamador nuevo dentro de un fichero ya censado con el mismo
+  conteo (quitando otro) pasaría.
+- **Corrección:** censar por **función llamadora** (`callSpans` + nombre del método que la contiene), como ya hace
+  `C-CLABE-1` con `setClabe`/`eraseClabe`.
+- **Disparador:** el próximo cambio a un llamador de `onFullRefund`.
+- **Comprobación de cierre:** el aserto lista nombres de funciones, no conteos por fichero.
+
+### SHIP-D7 · `blindIndexEquals` para comparar un token — **CERRADO en este pase**
+- **Qué era:** `manual-refund.service.ts:390` comparaba el `revealToken` con `blindIndexEquals` (nombre de índice ciego).
+- **Cierre (v1.80.7 punto 19):** `PiiCryptoService.constantTimeEquals` (mismo cuerpo), usado en `paid`; unitaria en
+  `pii-crypto.spec.ts` y censo en `refunds.candados.spec.ts` (mutar a `!==` ⇒ rojo, medido).
+
+### SHIP-D8 · `toBeLessThan(300)` en las fixtures de integración
+- **Dónde:** 14 sitios: `backend/test/integration/full-refund-vault.e2e-spec.ts` (9), `guest-checkout.e2e-spec.ts` (2),
+  `vault-shipments.e2e-spec.ts` (2), `orders-public-status.e2e-spec.ts` (1) — `expect(r.status).toBeLessThan(300)` sobre
+  pasos de fixture (publicar, mover, marcar).
+- **Impacto:** un verbo que pasara de `201` a `200` (o a `204`) no se notaría; y un `2xx` con cuerpo distinto tampoco.
+- **Corrección:** aseverar el código exacto que el contrato fija para cada verbo (`201` en `POST` que crea, `200` en el
+  resto) — o un helper `expectOk(r, 200 | 201)` con el código explícito.
+- **Disparador:** el próximo cambio de código de estado en un verbo de M1/M4.
+- **Comprobación de cierre:** `rg -c "toBeLessThan\(300\)" backend/test/integration` ⇒ **0**.
+
+## Frontend · 2026-09-29 · §M4-SHIP — deuda del techlead sobre `c20451f`, medida en este pase (rama `claude/envio-preparar`, base `ea615c3`)
+
+### SHIP-FD-a · El servidor falso de `m4-ship.ts` reimplementa la fórmula del dinero — **PARCIALMENTE CERRADO en este pase** (frontend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** frontend. **Severidad:** Media (es un mock: no toca dinero real, pero es el juez de las pantallas que sí
+  lo pintan). **No bloqueante.**
+- **Qué es:** `frontend/src/lib/mock/m4-ship.ts` (1 744 líneas, medido 2026-09-29) lleva estado **y** fórmula:
+  `item_missing` (`:191`, `itemMissingCents`), el tope del operador (`:74` `MOCK_OPERATOR_REFUND_CAP_CENTS`,
+  `:257` `operatorUsedCents`), el reparto Stripe/SPEI y los topes de caso (`:621` `caseReferences`, `:1221`
+  `caseRefundPlan`). Una fórmula en dos sitios diverge: **ya había divergido** — la fila SPEI salía con IVA `0` y
+  comisión `0` (`m4-ship.ts:1286,1300-1303` y `:1484` en `c20451f`).
+- **Lo cerrado en este pase (medido):** los `components` ya NO se calculan a mano. Nace `lib/mock/refund-math.ts`
+  (espejo de `backend/src/common/money.ts`, sección refund: `itemMissingRefundComponents`, `orderRemaining…`,
+  `caseRefundContextOf`, `caseRefundComponents`, `subtractRefundComponents`) con **los vectores dorados de
+  `backend/src/common/refund-math.spec.ts`** repetidos en `refund-math.test.ts` (31458 = 30000 + 1458, IVA 4138;
+  52430 + 31458 + 15729 = 99617; PS-26/27 con 200 montos). `case_excess` = `caseRefundComponents(A) −
+  caseRefundComponents(stripe)` y `stripe_failed` copia la fila (como `replacement-case.service:804-806` y
+  `manual-refund.service:597`). Prueba de mock `m4-ship-refund-components.test.ts`: **rojo antes 1/2** (`pr-8002` daba
+  `{40000, 0, 0, 0}`), **verde después 2/2** (`{32000, 4414, 1533, 6467}`).
+- **Lo que queda abierto:** el mock sigue calculando el tope (`operatorUsedCents`), `Q`/`R`/los multiplicadores y el
+  reparto `min(A, disponible)` con su propio código. No se comparte código con el backend (carpetas distintas; regla
+  de propiedad): el candado es la **copia de vectores dorados**, que se pone roja aquí cuando el spec del servidor
+  cambie sus cifras.
+- **Dirección:** (1) mover `caseReferences`/`caseRefundPlan`/`operatorUsedCents` a `refund-math.ts` (fórmula pura,
+  sin estado) y que `m4-ship.ts` solo lleve estado; (2) un fichero de vectores dorados (`refund-vectors.json`) leído
+  por **las dos** suites (`backend/src/common/refund-math.spec.ts` y `frontend/src/lib/mock/refund-math.test.ts`) —
+  requiere una zona compartida fuera de `backend/` y `frontend/` ⇒ pasa por el **arquitecto**.
+- **Disparador:** el siguiente cambio a la fórmula del contrato (§M4-SHIP.4 / .15.5) o al tope (§M4-SHIP.8).
+- **Comprobación de cierre:** `rg -n "Math.floor|taxBase|\* 100\) / \(100" frontend/src/lib/mock/m4-ship.ts` ⇒ **0**
+  (toda aritmética de dinero vive en `refund-math.ts`), y las dos suites leen el mismo fichero de vectores.
+
+### SHIP-FD-b · `ShipPreparationCard.tsx` mide 1 184 líneas: cuatro mutaciones y su mapeo de errores en un componente de ~650 (frontend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** frontend. **Severidad:** Media. **No bloqueante.** Hermana de **VLT-D7** (`VaultPlacementCard`).
+- **Qué es:** `frontend/src/app/[locale]/(admin)/admin/m4/ShipPreparationCard.tsx` (1 184 líneas, medido 2026-09-29;
+  1 169 en `c20451f` + 15 de la tipificación del `403` de este pase). `ShipPreparationCard` (`:96-745`) contiene las
+  cuatro `useMutation` (`mark :220`, `prepare :271`, `unprepare :420`, `retry :452`), la traducción de errores por
+  verbo (la tabla de §37.4–§37.6: `REFUND_PREVIEW_STALE`, `PREPARATION_INCOMPLETE`, `MONEY_OUT_LIMIT_EXCEEDED`,
+  `REFUND_NOT_AVAILABLE`, `PREPARATION_HAS_BLOCKED_LINES`, `ORDER_NOT_SETTLED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`…),
+  el parcheo de la caché (`patchShip`) y los planos de la tarjeta; debajo, `ErrorLine :747`, `ShipItemRow :765`,
+  `PrepareDialog :1061`.
+- **Impacto:** la lógica de errores (la parte con más ramas y la que toca el contrato) está mezclada con el marcado;
+  cada código nuevo del contrato crece el componente.
+- **Corrección:** extraer `useShipPreparation(order, onNotice)` → `{ mark, prepare, unprepare, retry, busy,
+  rowErrors, footerError, confirm }` y una tabla `shipErrorOf(err, ts)` pura (probable en unitaria sin render); mover
+  `ShipItemRow` y `PrepareDialog` a ficheros propios. Sin cambio de conducta: `ShipPreparationCard.test.tsx` (11
+  casos) y `e2e/m4-ship.spec.ts` son el juez.
+- **Disparador:** el próximo código de error nuevo sobre la tarjeta de envío, o el próximo verbo nuevo.
+- **Comprobación de cierre:** `wc -l ShipPreparationCard.tsx` < 500 y `rg -c "useMutation\(" ShipPreparationCard.tsx`
+  ⇒ **0**.
+
+### SHIP-FD-c · `asApiError` copiado en 5 vistas — **CERRADO en este pase** (frontend, 2026-09-29)
+- **Qué era:** la misma función de 3 líneas en `ShipPreparationCard.tsx`, `VaultPlacementCard.tsx`,
+  `ReplacementCaseView.tsx`, `M3OrderDetailView.tsx` y `ManualRefundDetailView.tsx`.
+- **Cierre:** vive en `frontend/src/lib/api-client.ts` (`export function asApiError`); las cinco vistas la importan
+  (commit `8f48d28`). Juez: las 4 suites de esas vistas, **48/48**.
+- **Comprobación:** `rg -n "^function asApiError" frontend/src` ⇒ **0**; `rg -c "import \{ asApiError" frontend/src`
+  ⇒ **5**.
+
+### SHIP-D-c (techlead sobre `59a0c1f`) · contar interbloqueos con `pg_stat_database.deadlocks` + espera de 1,5 s es frágil (backend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** backend. **Severidad:** Baja. **No bloqueante.** (Nombre con prefijo para no chocar con el `D-c` de enums de
+  §5106.)
+- **Qué es:** PS-57c, PS-61b (`backend/test/integration/full-refund-vault.e2e-spec.ts`) y PS-36b
+  (`replacement-cases.e2e-spec.ts`) aseveran `delta === 0` sobre `SELECT deadlocks FROM pg_stat_database WHERE datname =
+  current_database()` leído antes y después de la carrera, con un `setTimeout(1500)` antes de la segunda lectura
+  (medido con `rg -n pg_stat_database`: tres contadores en esos dos ficheros, 2026-09-29). En PG ≥ 15 las estadísticas acumuladas viven en memoria
+  compartida y se publican de forma diferida (`stats_fetch_consistency`, vaciado periódico por backend): 1,5 s es una
+  espera empírica, no una garantía; y el contador es **de la base entera**, así que cualquier otra suite corriendo a la
+  vez contra la misma base lo mueve.
+- **Por qué no rompe hoy:** la aserción que decide es la de cada tirada (cero `503`/`500`, que es como un `40P01` llega
+  al cliente) y la suite corre con `--runInBand` (`package.json · test:integration`, `jest-integration.config.js ·
+  maxWorkers: 1`). El Δ es redundante con ella: la mutación M-17 de PS-57c salió con Δ=10 **y** `503` en las 10.
+- **Corrección:** el Δ pasa a **registro informativo** (se imprime en `[PS-RACE …]`, no se asevera) y la aserción queda en
+  la señal por tirada (cero `5xx`, cero `40P01` en el cuerpo). Mantener `--runInBand` como requisito explícito de la suite.
+- **Disparador:** un rojo de Δ sin `5xx` en la misma corrida, o correr la integración en paralelo.
+- **Comprobación de cierre:** `rg -n "expect\(delta\)" backend/test/integration` ⇒ **0**, y el Δ sigue impreso.
+
+### D-SHIP-8 · orden `vault` en `chargeback` con `chargebackNeedsManual = true` y la disputa ya cerrada: ningún verbo baja el flag (backend · Órdenes y dinero, 2026-09-29)
+- **Dueño:** arquitecto (decidir el desenlace) → backend. **Severidad:** Baja. **No bloqueante.** Observación de
+  `ARCHITECTURE §9 D-SHIP-8` (v1.80.7.2); ⛔ sin trabajo en este corte.
+- **Qué es:** el cierre por reembolso total (M3 o `charge.refunded`) sobre una orden `vault` en `chargeback` pone
+  `chargebackNeedsManual = true` en su primera pasada (§18.2, tabla del sello). En bóveda el flag lo baja
+  `onChargeDisputeClosed` (`payments.service.ts:1007-1036`, rama no directa ⇒ `false`). Si la disputa **ya se cerró**
+  antes de ese cierre, el flag queda `true` y `POST /admin/orders/:id/chargeback-inventory` responde `400` porque solo
+  acepta un directo o una `vault` **`refunded`** (`orders.service.ts:1561-1567`, medido 2026-09-29 en `claude/envio-preparar`).
+- **Preexistente:** el webhook `charge.refunded` ya llegaba a ese estado; PS-57d (v1.80.7.2) solo iguala la confirmación de
+  M3 al webhook. ⛔ NO MEDIDO si Stripe permite en la práctica un reembolso confirmado después de una disputa cerrada.
+- **Disparador:** una fila así en la cola de M3 (`workQueue`/`chargebackNeedsManual`) sin verbo que la resuelva.
+- **Comprobación de cierre:** una prueba de integración que llegue a ese estado (disputa cerrada → `retry` de M3) y un
+  verbo que baje el flag con `200`, o una decisión del arquitecto que declare el estado inalcanzable y una prueba que lo asevere.
+
+---
+
+## Backend · 2026-09-29 · release s5 (7b9c196e)
+
+> Deuda **no bloqueante** del release s5, anotada por backend a petición del orquestador (DoD). Fuentes: veredicto del
+> techlead sobre `b8a3e4ce` (TD-1…TD-10), `SECURITY_NOTES` «Release s5 · 7b9c196e» (S5-1, C1, C2, PS-4) y
+> `BACKEND_NOTES` Release s5 §10.2/§12. **Cada `fichero:línea` se re-leyó el 2026-09-29** en el worktree
+> `claude/release-s5` (`HEAD` `1a5954ff`; `git diff 7b9c196e HEAD -- backend` vacío ⇒ las líneas valen para `7b9c196e`).
+> Dueño de todo: **backend**, salvo donde se dice que decide antes el arquitecto. ⛔ Ningún cambio de código en este pase.
+>
+> **Prioridad:** P1 = dinero (TD-2, TD-3, TD-4); P2 = antes de `sk_live_` sin ser dinero directo (S5-1a, C1, C2);
+> P3 = limpieza/consistencia (TD-1, TD-6, TD-7, PS-4, flake `shipments-prep`, `publish-all`). TD-10 se cerró en este
+> mismo pase (abajo).
+
+### RS5-TD-4 · P1 💰 · `failed` escrito con `update` por `id`, sin CAS, en tres sitios (**antes de `sk_live_`**)
+- **Dónde:** `backend/src/modules/orders/orders.service.ts:889-899` (`releaseReservation`: `tx.order.update({ where: { id:
+  orderId }, data: { status: 'failed' } })` en `:896`, envuelto en `.catch(() => undefined)` en `:898`); sustitución
+  `supersedeOwnOrder` `:1042`; barrido de reservas `:1181`, cuyo guardia `order.status === 'pending'` (`:1180`) es una
+  lectura **fuera** de la transacción (`findUnique` en `:1152`).
+- **Riesgo:** ninguno de los tres condiciona la escritura al estado. Hoy solo escriben `failed` cuando Stripe no creó el
+  PI (`:1309`) o cuando `closePaymentIntent` lo dejó `canceled`; la invariante «nadie saca una orden de
+  `settled`/`refunded` hacia un estado liquidable» descansa en que **un PI `canceled` nunca se cobra** — propiedad de
+  Stripe **NO MEDIDA contra Stripe real** (seguridad, §1 de su veredicto). Si falla, con dinero real sería un reembolso
+  **y** una entrega. Además el `.catch` de `:898` traga cualquier error del `update` (un `P2025` o un fallo de BD no se ve).
+- **Disparador:** antes de `sk_live_` (condición de seguridad, Baja); o cualquier nuevo llamador que escriba `failed`.
+- **Cómo se cierra:** helper único `failPendingOrder(tx, orderId) → count` (propuesta del arquitecto, `API_CONTRACT` fila
+  R-1) = `tx.order.updateMany({ where: { id, status: 'pending' }, data: { status: 'failed' } })`; los tres sitios lo
+  llaman; el barrido deja de decidir con la lectura de `:1152`. Qué hace cada llamador con `count 0` lo fija el contrato.
+- **Prueba que lo demuestra:** unitaria/integración roja hoy: orden `settled` (y `refunded`) + `releaseReservation` / sustitución
+  / barrido ⇒ el estado **no cambia** y `count === 0`. Mutación: volver a `update` por `id` ⇒ rojo. Candado estático:
+  `rg -n "data: \{ status: 'failed' \}" backend/src/modules/orders` ⇒ solo dentro de `failPendingOrder`.
+
+### RS5-TD-2 · P1 💰 · Rama «modo legado» de `onChargeRefunded` (lectura sin candado; inalcanzable en producción)
+- **Dónde:** `backend/src/modules/payments/payments.service.ts:711-720` (`if (!this.fullRefund) { … }`). El servicio se
+  inyecta `@Optional()` (`:42`). La variante del correo AV-3 en `:719` se decide con `order.status` leído **sin candado**
+  en `:693` (`findUnique` fuera de transacción).
+- **Riesgo:** bajo. Seguridad midió que en producción **no corre**: `PaymentsModule` siempre provee `FullRefundService`
+  (`payments.module.ts:19`) y ningún otro módulo provee `PaymentsService`. Aun en la rama, la escritura es CAS con
+  `CHARGE_REFUNDED_SOURCE_STATUSES`. El riesgo real es de mantenimiento: una segunda ruta del hecho «`charge.refunded`
+  total» que las pruebas unitarias ejercitan (8 ficheros hacen `new PaymentsService(`, `rg -l`) y que puede divergir de
+  la de producción sin que nada lo note.
+- **Disparador:** el próximo cambio a `onChargeRefunded` o a la lista de estados de origen.
+- **Cómo se cierra:** quitar la rama y hacer `fullRefund` obligatorio en el tipo (sin `@Optional()`), dando a las unitarias
+  un doble de `FullRefundService`; o, si alguna unitaria lo impide, que la rama lance en vez de escribir.
+- **Prueba que lo demuestra:** `rg -n "Modo legado" backend/src/modules/payments/payments.service.ts` ⇒ **0**; la suite
+  unitaria de `payments` y la integración `full-refund-vault` verdes con el doble.
+
+### RS5-TD-3 · P1 💰 · «Fue liquidada alguna vez» escrito como negación, y `status:'settled'` literal en M3
+- **Dónde:** `backend/src/modules/payments/refunds/full-refund.service.ts:374`
+  (`!isSettleableOrderStatus(head.status)` ⇒ `needsManual = true`); `backend/src/modules/payments/refunds/refund-ledger.service.ts:314`
+  (`where: { id: row.orderId, status: 'settled' }`, literal). Las listas viven en
+  `backend/src/modules/payments/settleable-order-statuses.ts:20` (`SETTLEABLE_ORDER_STATUSES`) y `:40`
+  (`CHARGE_REFUNDED_SOURCE_STATUSES`).
+- **Riesgo:** el predicado positivo «fue liquidada» (`settled|chargeback|refunded`) se deduce de «no es liquidable»
+  (`pending|failed`). Un `OrderStatus` nuevo que no sea liquidable y **nunca** se haya liquidado caería en «liquidada» y
+  abriría un falso pendiente perpetuo de `chargebackNeedsManual` (el caso que el comentario de `:370-373` describe). El
+  literal de `:314` es una tercera lista del mismo dominio fuera del fichero de listas (nota: seguridad reportó TD-3 como
+  «NO LOCALIZADO»; esta es su referencia).
+- **Disparador:** añadir un valor a `OrderStatus`, o tocar el orden del cierre M3/webhook.
+- **Cómo se cierra:** constante positiva `EVER_SETTLED_ORDER_STATUSES` (o `wasEverSettled()`) en
+  `settleable-order-statuses.ts`, usada en `:374`; `:314` usa una constante con nombre del mismo fichero. Candado de
+  exhaustividad: todo `OrderStatus` está en exactamente una de {liquidable, liquidada alguna vez} (o en una lista
+  explícita de excluidos).
+- **Prueba que lo demuestra:** unitaria que recorre `Object.values(OrderStatus)` y falla si alguno no está clasificado
+  (mutación: añadir un valor al enum en la copia ⇒ rojo); `rg -n "status: 'settled'" backend/src/modules/payments/refunds` ⇒ 0.
+
+### RS5-S5-1a · P2 · Tope absoluto de vida de la sesión: el refresh se renueva sin fin (**antes de `sk_live_`; diseño del arquitecto primero**)
+- **Dónde:** `backend/src/modules/auth/auth.service.ts:93-114` (`issueTokens`: refresh `expiresIn` 30 d **desde ahora**,
+  hereda `sid`) y `:530-567` (`refresh()`: valida `typ`, `tv`, estado; no compara ninguna fecha de nacimiento de la
+  sesión). LOW-1 del pentester, ampliado por seguridad.
+- **Riesgo:** Baja hoy (requiere XSS o el dispositivo; tokens en `localStorage`, `SEC-HDR-2` abierta). Un refresh robado
+  se encadena indefinidamente hasta que suba `tokenVersion`; con un `super_admin`, sesión perpetua con dinero saliente.
+- **Disparador:** antes de `sk_live_` (condición S5-1 de seguridad).
+- **Cómo se cierra:** ⛔ **backend no empieza sin el contrato**: el arquitecto fija la forma del claim de nacimiento
+  (viaja con el `sid`), N días y si N es menor para el personal. Luego `refresh()` rechaza `401` pasado N desde el login.
+  La pieza (b) (`SEC-HDR-2`, CSP) es de frontend, no de esta entrada.
+- **Prueba que lo demuestra:** unitaria con reloj falso: refresh encadenado hasta N−ε ⇒ `200`; más allá de N ⇒ `401`.
+  Mutación: quitar la comprobación ⇒ la segunda aserción se pone roja.
+
+### RS5-C1 · P2 · `qs` < 6.16.0 (y `body-parser`/`express`/`multer`) (**antes de `sk_live_`**)
+- **Dónde:** `backend/package.json:74` `"qs": "^6.15.3"` (y `:73` `multer`, `:75` `express`, `:76` `body-parser`).
+- **Riesgo:** 6 moderadas de `npm audit --omit=dev` (medido por seguridad sobre copia de `7b9c196e`); seguridad las da
+  **no alcanzables** hoy (no se usa `qs.stringify` ni `@Sse`).
+- **Disparador:** antes de `sk_live_`, o si aparece uso de `qs.stringify`/`@Sse`.
+- **Cómo se cierra:** subir `qs` ≥ 6.16.0 y las dependencias arrastradas; regenerar lockfile.
+- **Prueba que lo demuestra:** `npm audit --omit=dev` en `backend/` ⇒ 0 moderadas de `qs`/`body-parser`/`express`/`multer`;
+  suites unitaria e integración completas verdes (subidas/`multer` incluidas).
+
+### RS5-C2 · P2 💰 · Códigos reales de Stripe MX para reembolso sobre cargo disputado — **NO MEDIDO**
+- **Dónde:** `backend/src/modules/vault/replacement-case.rules.ts:20` (`REFUND_FAILURE_DISPUTE_CODES =
+  ['charge_disputed', 'charge_already_refunded_or_disputed']`), consumido en
+  `backend/src/modules/payments/refunds/manual-refund.service.ts:588`. `BACKEND_NOTES:25407` lo marca NO MEDIDO.
+- **Riesgo:** si Stripe MX devuelve otro `failure_code`, una fila fallida por disputa no se reconoce como tal y va por la
+  rama genérica (destino SPEI/cola distinto del previsto). No se sabe si pasa: nadie lo ha medido contra Stripe.
+- **Disparador:** antes de `sk_live_` (condición C2 de seguridad).
+- **Cómo se cierra:** backend mide con una `sk_test_` real (cargo disputado con la tarjeta de prueba de disputa → reembolso)
+  y registra el `failure_code` observado; el arquitecto decide la lista. Sin credencial de prueba en este entorno ⇒ la
+  medición la hace quien la tenga (sin pedir el valor por chat).
+- **Prueba que lo demuestra:** el `failure_code` observado citado en `BACKEND_NOTES` con fecha, y una unitaria de
+  `manual-refund` parametrizada con ese código ⇒ rama «disputa».
+
+### RS5-TD-1 · P3 · Dos bitácoras para un mismo `PATCH /admin/inventory/items/:id` (arquitecto → backend)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:2458-2469` (`inventory.item_updated`, dentro de la
+  transacción, solo cuando cambia `status`, con `before/after`) y `backend/src/modules/inventory/inventory.controller.ts:646-652`
+  (`inventory.update`, **después** del commit, fuera de la transacción, sin `before/after`, en todo `PATCH`).
+- **Riesgo:** un `PATCH` con cambio de `status` deja **dos** filas para un hecho; la del controller va fuera de la
+  transacción (si falla tras el commit, el cambio queda sin esa fila y el cliente ve error con el cambio hecho — NO MEDIDO
+  que ocurra). Quien consulte la bitácora tiene que saber cuál mirar.
+- **Disparador:** el próximo reporte/consulta de auditoría sobre inventario, o el próximo verbo que audite en los dos sitios.
+- **Cómo se cierra:** el arquitecto decide una sola acción por hecho; backend la escribe dentro de la transacción
+  (`audit.log(entry, tx)`) y quita la otra.
+- **Prueba que lo demuestra:** integración: `PATCH {status}` ⇒ exactamente **1** fila de auditoría para ese `entityId`;
+  `PATCH {listPriceCents}` ⇒ la que decida el contrato.
+
+### RS5-TD-6 · P3 · `PATCH` con `status` **y** precio solo evalúa el verbo `status`
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:2444-2445` (`guardedVerb = patch.status !== undefined ?
+  'status' : patch.listPriceCents !== undefined ? 'price' : null`) → `assertOperable(item, guardedVerb)` en `:2454`.
+- **Riesgo:** hoy **ninguno de conducta**: `assertOperable` usa el mismo allowlist (`MARKABLE_PLATFORM_STATUSES`,
+  `item-location.rules.ts:68`) para `status` y `price` (`:125`). Solo cambia el texto del `422` («status-changed» en
+  vez de «re-priced»). Se rompe el día que las reglas de `price` y `status` diverjan: un `PATCH` con los dos se saltaría
+  la de precio.
+- **Disparador:** cualquier cambio a `assertOperable` que distinga `status` de `price`.
+- **Cómo se cierra:** evaluar **cada** verbo presente (`for (const v of verbs) assertOperable(item, v)`).
+- **Prueba que lo demuestra:** unitaria con un `assertOperable` espía: `PATCH {status, listPriceCents}` ⇒ se llama con
+  `'status'` **y** con `'price'`. Mutación: volver al ternario ⇒ rojo.
+
+### RS5-TD-7 · P3 · `InventoryService.markItem` abre su transacción sin `VAULT_VERB_TX_OPTIONS`
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:2797-2817` (`this.prisma.$transaction(async (tx) => …)` sin
+  opciones), mientras `moveItem` (`:2769`) y el `PATCH` (`:2472`) pasan `VAULT_VERB_TX_OPTIONS`
+  (`vault/vault-placement.rules.ts:37`, `{ maxWait: 10_000, timeout: 30_000 }`). Relacionado: `shipment-prep.service.ts:487`,
+  `:691`, `:791` repiten el literal en vez de importar la constante.
+- **Riesgo:** con contención (carrera `mark` vs checkout), `markItem` usa los valores por defecto de Prisma (menores) y
+  puede fallar por timeout donde sus verbos hermanos esperan. NO MEDIDO que ocurra.
+- **Disparador:** un `P2028`/timeout en `mark` en logs o en PS-41/PS-42.
+- **Cómo se cierra:** pasar `VAULT_VERB_TX_OPTIONS` en `markItem`; `shipment-prep` importa la constante.
+- **Prueba que lo demuestra:** candado estático: todo `$transaction` de `inventory.service.ts`/`vault/`/`shipments/` que
+  toque piezas pasa `VAULT_VERB_TX_OPTIONS` (`rg -n "maxWait: 10_000" backend/src/modules` ⇒ solo en `vault-placement.rules.ts`).
+
+### RS5-PS-4 · P3 · Parametrizar PS-4 con `refundOutcome ∈ {ok, succeeded}` (deuda menor, seguridad)
+- **Dónde:** `backend/test/integration/shipments-prep.e2e-spec.ts:243-292` (PS-4 corre la carrera del tope solo con
+  `refundOutcome = 'ok'`, `:67`); el doble ya admite `'succeeded'` (`test/integration/helpers/e2e-app.ts:118`, `:149`).
+- **Riesgo:** bajo. Seguridad midió la variante `succeeded` en su copia **10/10 (N=10, autor: seguridad)** y la mutación
+  del candado **0/10 (N=10, autor: seguridad)**; la variante no quedó en el repo, así que nada impide que retroceda.
+- **Disparador:** cualquier cambio al predicado del tope (`refund-ledger.service.ts`, `lockOperatorRefundGate` `:187`).
+- **Cómo se cierra:** `it.each(['ok', 'succeeded'])` sobre la carrera de PS-4.
+- **Prueba que lo demuestra:** la propia PS-4 parametrizada, N=10 por valor; mutación (comentar `lockOperatorRefundGate`)
+  ⇒ rojo en los **dos** valores.
+
+### RS5-FLAKE · P3 · `shipments-prep` intermitente sobre BD usada — causa **NO MEDIDA**
+- **Dónde:** `backend/test/integration/shipments-prep.e2e-spec.ts` (rojas vistas: PS-43, PS-50, PS-51; `prepare` sin fila
+  `item_missing`, `PREPARATION_INCOMPLETE` en vez de `PREPARATION_HAS_BLOCKED_LINES`). Registro: `BACKEND_NOTES` Release s5 §12
+  («`shipments-prep` intermitente»).
+- **Medido:** backend sobre BD usada `tcg_sl_fix`: 4/5 (N=5) con y sin el cambio de v1.80.8.3; sobre BD recién migrada 5/5
+  (N=5) en ambos. QA la midió **11/11 verde (N=11, autor: QA**, relayado por el orquestador; no lo medí yo). Con un fallo de
+  ~20 %, 11/11 por suerte tiene ~8,6 % ⇒ no la da por cerrada.
+- **Riesgo:** un rojo de gate que no es conducta (manda a investigar lo que no está roto), o tapa uno que sí lo es.
+- **Disparador:** el próximo rojo de `shipments-prep` en integración completa.
+- **Cómo se cierra:** medir N≥20 en BD usada vs limpia; si solo falla en BD usada, localizar qué suite anterior deja el
+  estado (sonda como en §10.2) y re-sembrar en la víctima.
+- **Prueba que lo demuestra:** N≥20 verdes sobre BD usada tras la integración completa, con la proporción anotada.
+
+### RS5-PUBLISH-LOC · P3 · `publish-all` publica piezas sin ubicación — **NO MEDIDO si es conducta querida (pregunta al arquitecto)**
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:1478-1494` (`assertPublishableGuards`, compartido por
+  `bulkPublish` `:1319` y `publishAll` `:1994`: no mira `locationId`) vs `:2688-2692` (`reevaluateOne`: `locationId == null`
+  ⇒ `missing_location`, no publica) y `:1738` (la cola de pendientes cuenta «sin ubicación» como lo que falta).
+- **Medido (lectura + corrida, `BACKEND_NOTES` Release s5 §10.2):** PS-64 (`full-refund-vault.e2e-spec.ts:763`) llama
+  `publish-all` global y deja `E2E-STK-0001` `listed` con `locationId: null`.
+- **Riesgo:** una pieza a la venta que el operador no sabe dónde está: el comprador paga y la preparación no la encuentra.
+  Dos caminos de publicar con reglas distintas sobre ubicación.
+- **Disparador:** respuesta del arquitecto.
+- **Cómo se cierra:** el arquitecto decide si «sin ubicación» bloquea publicar en `publish-all`/`bulk-publish`; si sí,
+  la guarda va en `assertPublishableGuards` (un solo sitio) con el código que fije el contrato.
+- **Prueba que lo demuestra:** integración: pieza `in_stock` con precio y sin `locationId` + `publish-all` ⇒ sigue `in_stock`
+  y sale en su resultado con el motivo contratado. Mutación: quitar la guarda ⇒ `listed` ⇒ rojo.
+
+### RS5-TD-10 · ✅ CERRADA en este pase (2026-09-29) · `BACKEND_NOTES`
+- Dos `## 0.55`: la de P-71 (antes `BACKEND_NOTES.md:31`) pasa a **§0.59** con nota de renumeración; la del tope del
+  bounty conserva §0.55 porque es la que citan `API_CONTRACT` y §0.57 (`§0.55.3`). Release s5 §9: su «Pendiente abierto»
+  lleva ahora «CERRADO en §10.2».
+- **Comprobación:** `grep -c "^## 0.55 " docs/BACKEND_NOTES.md` ⇒ **1**.
+
+---
+
+## Frontend · 2026-09-29 · release s5 (7b9c196e)
+
+> Deuda **no bloqueante** del release s5, anotada por frontend a petición del orquestador (DoD). Fuentes: veredicto del
+> techlead sobre `b8a3e4ce` (TD-8, TD-9 mitad frontend, TD-11) y `SECURITY_NOTES` «Release s5 · 7b9c196e» (S5-1 pieza b).
+> **Cada `fichero:línea` se re-leyó el 2026-09-29** en el worktree `claude/release-s5` (`HEAD` `3bd744a9`;
+> `git diff --name-only 7b9c196e HEAD -- frontend docs/DESIGN_SYSTEM.md` ⇒ 0 ficheros ⇒ las líneas valen para `7b9c196e`).
+> Dueño de todo: **frontend**. ⛔ Ningún cambio de código en este pase.
+>
+> **Prioridad:** P2 = antes de `sk_live_` (RS5-FE-HDR2); P3 = consistencia/limpieza (RS5-FE-TD8, RS5-FE-TD11, RS5-FE-TD9).
+
+### RS5-FE-HDR2 · P2 · `SEC-HDR-2`: CSP completa de la vitrina (pieza **(b)** de S5-1; **antes de `sk_live_`**)
+- **Dónde:** `frontend/next.config.mjs:69-77` (`headers()`, `source: '/:path*'`); la única directiva CSP es
+  `frame-ancestors 'none'` en `:75`. Los tokens viven en `localStorage`: `frontend/src/lib/api-client.ts:28`
+  (`tcg.accessToken`), `:32` (`tcg.refreshToken`, 30 d), `:36-53` (lectura/escritura). Candado actual:
+  `frontend/src/lib/security-headers.test.ts` (solo SEC-HDR-1). Terceros que la CSP tiene que admitir, medidos:
+  `@stripe/stripe-js` (`components/domain/StripePaymentModal.tsx:4,30`) y el script de Google Identity inyectado
+  (`components/domain/GoogleSignInButton.tsx:113`, `https://accounts.google.com/gsi/client`). `dangerouslySetInnerHTML`
+  fuera de pruebas: **0** (`rg`).
+- **Riesgo:** Baja hoy (no se conoce XSS; DAST 40012/40014/40026 en FAIL y verdes, según seguridad). Pero sin
+  `script-src` un XSS lee `localStorage` y se lleva el refresh; con un `super_admin` y sin la pieza (a) (tope de vida,
+  `RS5-S5-1a` de backend) es una sesión perpetua con dinero saliente.
+- **Disparador:** antes de `sk_live_` (condición S5-1 de seguridad); o cualquier `dangerouslySetInnerHTML`/script de
+  tercero nuevo.
+- **Cómo se cierra:** CSP base en `headers()` (`default-src 'self'`, `object-src 'none'`, `base-uri 'self'`,
+  `form-action 'self'`, `connect-src` = API + Stripe + Google, `frame-src` Stripe + Google, `img-src` con los hosts de
+  `next-image-remote-patterns`) y `script-src` con **nonce** por petición (middleware de Next 15 + `headers()` para el
+  resto); `'unsafe-inline'` prohibido en `script-src`. Primero en `Content-Security-Policy-Report-Only` sobre staging,
+  luego enforce. Devops sube la regla DAST `10038` a FAIL (fuera de esta ruta). ⚠ Mover los tokens a cookie `httpOnly`
+  sería el cierre de fondo, pero cambia el contrato de auth ⇒ solicitud al arquitecto, no parte de esta entrada.
+- **Prueba que lo demuestra:** `security-headers.test.ts` amplía a: CSP contiene `script-src` sin `'unsafe-inline'`
+  ni `*`, `object-src 'none'`, `frame-ancestors 'none'` (mutación: quitar `script-src` ⇒ rojo); E2E Playwright que
+  recorre login (Google), checkout (Stripe) y panel sin ningún `securitypolicyviolation` en consola; DAST `10038`
+  verde en FAIL.
+
+### RS5-FE-TD8 · P3 · El banner del 429 por IP está escrito dos veces y ya divergió (TD-8, techlead)
+- **Dónde:** `frontend/src/components/domain/AuthForm.tsx:133-151` (banner con `ref`/`tabIndex={-1}` y foco en
+  `:110-112`) vs `frontend/src/components/domain/GoogleSignInButton.tsx:180-188` (mismo `Banner warning role="alert"`
+  con `auth.rateLimitedByIp*`, **sin foco**). `retryAfterMinutes` vive en `frontend/src/lib/password-attempts.ts:12`
+  (módulo nombrado por el tope por **correo**) pero sirve también a `RATE_LIMITED` por IP
+  (`GoogleSignInButton.tsx:9,96`; `AuthForm.tsx:99`).
+- **Riesgo:** Baja. La divergencia ya es un incumplimiento: `DESIGN_SYSTEM §37.13` (`DESIGN_SYSTEM.md:20640`, «login,
+  registro y Google»; `:20650` y `:20654`, «foco al banner al aparecer») exige foco también en Google, y hoy un usuario
+  de lector de pantalla no lo recibe ahí. Solo `AuthForm.rateLimited.test.tsx:47,73` asevera `toHaveFocus()`;
+  `GoogleSignInButton.test.tsx` no. Cada cambio de copy/forma del 429 hay que hacerlo dos veces.
+- **Disparador:** el próximo cambio a §37.13 o a los códigos 429 del contrato; o un tercer punto de entrada con 429.
+- **Cómo se cierra:** `RateLimitBanner({ code, mode, minutes })` compartido en `components/domain/` (elige clave por
+  `code` como la tabla de v1.80.8.1, pinta enlace solo con `TOO_MANY_PASSWORD_ATTEMPTS` en login, y lleva el foco);
+  `AuthForm` y `GoogleSignInButton` lo usan. `retryAfterMinutes` se mueve a un módulo neutro (p. ej.
+  `lib/rate-limit.ts`) y `password-attempts.ts` conserva solo la constante del código.
+- **Prueba que lo demuestra:** `GoogleSignInButton.test.tsx` con `429 RATE_LIMITED` ⇒ el banner `toHaveFocus()` (hoy
+  rojo); unitaria de `RateLimitBanner` con la tabla code×mode. Candado estático: `rg -n "rateLimitedByIp" frontend/src
+  --glob '!*.test.*'` ⇒ solo el componente compartido (hoy 2 ficheros de producción).
+
+### RS5-FE-TD11 · P3 · `DASH`, `ErrorLine` y `UnprepareDialog` duplicados en el panel (TD-11, techlead)
+- **Dónde (`frontend/src/app/[locale]/(admin)/admin/`):** `m4/prep-shared.tsx:18` **exporta** `DASH`, pero la
+  redeclaran `m4/ShipmentsQueue.tsx:47`, `m4/print/PrintSheetView.tsx:18` y `m4/reponer/[caseId]/ReplacementCaseView.tsx:38`
+  (los tres ya importan de `prep-shared`: `:26`, `:16`, `:34`). Fuera de M4, medido además: `refunds/OperatorRefundsView.tsx:20`,
+  `m3/[orderId]/M3OrderDetailView.tsx:26`, `manual-refunds/ManualRefundsView.tsx:19`,
+  `manual-refunds/[id]/ManualRefundDetailView.tsx:24` ⇒ **8** declaraciones para una constante.
+  `ErrorLine`: `m4/ShipPreparationCard.tsx:754` y `m4/VaultPlacementCard.tsx:612`, **ya divergen** (la de envío pinta
+  `error.links`, la de bóveda no), y cada fichero declara su propio `interface ShownError` (`:64` y `:78`).
+  `UnprepareDialog`: `ShipPreparationCard.tsx:1164` y `VaultPlacementCard.tsx:764`, 37 líneas idénticas salvo el nombre
+  del traductor (`ts`/`tv`; `diff` medido).
+- **Riesgo:** Baja. Un arreglo de a11y/copy en uno no llega al otro (`ErrorLine` ya lo muestra: si un error de bóveda
+  gana enlaces, no se pintan). Relacionada con `SHIP-FD-b` (`ShipPreparationCard.tsx` 1 200 líneas, medido hoy).
+- **Disparador:** el próximo cambio a la forma del error por fila o al diálogo de «Deshacer preparado» (§37.5); o que
+  un error de bóveda necesite enlace.
+- **Cómo se cierra:** `DASH` solo desde `prep-shared.tsx` (o `lib/format`, si se quiere para M3/manual-refunds —zona
+  compartida, coordinar); `ShownError`, `ErrorLine` y `UnprepareDialog({ t, … })` a `m4/prep-shared.tsx` y las dos
+  tarjetas los importan.
+- **Prueba que lo demuestra:** sin cambio de conducta: `ShipPreparationCard.test.tsx`, `VaultPlacementCard.test.tsx`
+  y `e2e/m4-ship.spec.ts`/`e2e/m4-preparation.spec.ts` verdes. Candado estático: `rg -n "^const DASH" frontend/src` ⇒ 0
+  (solo el `export`), `rg -n "^function (ErrorLine|UnprepareDialog)" frontend/src/app` ⇒ 0 fuera de `prep-shared.tsx`.
+
+### RS5-FE-TD9 · P3 · Citas «§37.x» que hoy son `DESIGN_SYSTEM §38` (TD-9, mitad frontend)
+- **Qué es:** el paquete P-61 / P-66 I2 / P-71 se escribió como §37 y se renumeró a **§38** al fusionarse con «Pedidos
+  por preparar», que conserva §37 (`DESIGN_SYSTEM.md:19453-19459`, nota de numeración: «§37.1 (P-61)», «§37.2 (menú /
+  P-66)», «§37.3 (P-71)» se leen §38.1/§38.2/§38.3). El código no se actualizó, así que **el mismo número cita dos
+  secciones distintas**: `m4/tabs.ts:2`, `m4/M4View.tsx:169`, `m4/page.tsx:5` usan §37.2 bien (pestañas de M4), mientras
+  `components/layout/AdminSidebar.tsx:22,27,43,133`, los `h1` de cada vista (`m1/M1View.tsx:94` y 13 más, «§37.2: h1 =
+  rótulo del menú») y `AdminPageTitles.test.tsx:11,18,109,121,133,159,190,206` lo usan para el menú (§38.2).
+- **Medido (2026-09-29, `rg` sobre `frontend/src` + `frontend/e2e`, excluyendo `m4`):** menú «§37.2…» **27** líneas;
+  P-61 «§37.1a-d» **50** (p. ej. `buylist/BuylistView.tsx:35`, `e2e/buylist.spec.ts:556` en un título de prueba);
+  P-71 «§37.3…» **27** (p. ej. `lib/setCode.ts:2`, `master-set/P71SetCode.test.tsx:20`) ⇒ **≈104 líneas en 66 ficheros**
+  (heurística por patrón: puede haber algún falso positivo; el recuento del techlead, «~20», se quedaba corto). Dentro
+  de `m4` hay 19 citas §37.1-3 que **sí** son §37. `docs/FRONTEND_NOTES.md` tiene 33 menciones `§3[78].[123]` sin
+  revisar.
+- **Riesgo:** Baja. Sin efecto en conducta; un lector (o un agente) que sigue «§37.3c» desde `SetCode.tsx` llega a
+  «La tarjeta de ENVÍO se vuelve interactiva» y decide sobre la regla equivocada. Los títulos de prueba con el número
+  viejo hacen que un reporte de QA cite la sección equivocada.
+- **Disparador:** cuando ux-ui fije las anclas estables (su mitad de TD-9); tocar cualquiera de esos ficheros antes
+  ⇒ corregir sus citas en el mismo commit.
+- **Cómo se cierra:** tras las anclas de ux-ui, reescritura mecánica: fuera de `m4`, `§37.1[a-d]?` + P-61 ⇒ `§38.1…`,
+  `§37.2[a-d]?` (menú/h1/P-66) ⇒ `§38.2…`, `§37.3[a-d]?` + P-71 ⇒ `§38.3…`; mismas reglas en `FRONTEND_NOTES`. Sin cambio
+  de código ni de conducta.
+- **Prueba que lo demuestra:** `rg -n "§37\.[123]([a-d]|\b)" frontend/src frontend/e2e --glob '!**/m4/**' --glob
+  '!**/m4-*'` ⇒ **0**; `npm test` y la lista de títulos de Playwright (`--list`) sin cambios de número de casos.
+
+### RS5-FE-LECCIÓN · ✅ cerrado en `7b9c196e` · Un aviso añadido «reusando copy» no tiene respaldo de diseño por reusar copy
+- **Qué pasó:** `ea6b72a3` (ux-pulido) añadió en el resumen del checkout con cuenta un segundo
+  `<p>{t('afterPayment')}</p>` («reusa el copy existente; no se inventa texto nuevo»). `DESIGN_SYSTEM §15.3`
+  (`DESIGN_SYSTEM.md:2569-2570`) fija **tres** notas al margen, «no se añade ni se quita ninguna», y PROJECT 48b iguala
+  los avisos del invitado (que pinta una). Resultado: el aviso salía **dos veces**. Lo cazó el gate de release (B-3b);
+  `7b9c196e` lo retiró (`CheckoutView.tsx:344`, comentario ⛔) y dejó candado.
+- **Lección (frontend):** reusar una clave de i18n no es respaldo: **cada bloque visible nuevo necesita su § en
+  `DESIGN_SYSTEM`**; si no está, se pide a ux-ui antes de pintar, igual que un campo nuevo se pide al arquitecto.
+- **Prueba que lo sostiene:** `frontend/e2e/checkout.spec.ts:41` (`checkout.afterPayment` ⇒ `toHaveCount(1)`).
+
+---
+
+## UX/UI · 2026-09-29 · release s5
+
+> Deuda **no bloqueante** del release s5, anotada por ux-ui a petición del orquestador (DoD). Fuente: veredicto del
+> techlead, **TD-9 mitad ux-ui** (la mitad frontend es `RS5-FE-TD9`, arriba). Dueño: **ux-ui** (salvo lo marcado
+> «solicitud»). ⛔ Ningún cambio a `DESIGN_SYSTEM.md` en este pase.
+> **Medido el 2026-09-29** con lectura/`rg` sobre el worktree `/home/user/tcg-release` (rama `claude/release-s5`).
+> El sha exacto **NO MEDIDO por ux-ui** (sin Bash); frontend midió `HEAD` `3bd744a9` y 0 ficheros cambiados en
+> `docs/DESIGN_SYSTEM.md` desde `7b9c196e` en su pase del mismo día. Todo `fichero:línea` de abajo se re-leyó en este pase.
+
+### RS5-UX-TD9 · P3 · §38 va antes que §37, el 429 del login vive dentro de «Pedidos por preparar», y «§37.x» nombra dos cosas
+
+- **Qué es (medido):**
+  1. **Orden del fichero:** `## 38.` (P-61 · P-66 I2 · P-71) está en `DESIGN_SYSTEM.md:19453` y `## 37.` («Pedidos por
+     preparar» — envíos) en `:19800`. La nota de `:19455-19459` lo reconoce («va antes de §37 por orden de fusión») y
+     `:22-23` y la tabla `§37.0-bis` C4 (`:19852`) dan la regla de lectura, pero un lector que busca «§37.3» por orden
+     numérico llega primero a `### 38.3` (`:19721`) o, si busca el literal, a «La tarjeta de ENVÍO» (`:19914`).
+  2. **El 429 del login fuera de sitio:** `### 37.13 El 429 del login (C7)` (`:20624-20669`) y sus filas de i18n
+     (`§37.16`, `:20902-20903`) viven dentro de «Pedidos por preparar», que no tiene nada de acceso. Su hogar natural es
+     §33 (cuenta del cliente: la contraseña es §33.7 `:16392` y ya lleva `account.password.rateLimited`, citada en
+     `:20669`; su i18n es §33.13 `:16736`). No hay sección de acceso/login propia (`rg "^###? .*(Login|Iniciar sesión|Auth)"`
+     ⇒ solo `:16649` y `:20624`). Citas vivas de «§37.13»: **23 en 10 ficheros** (`rg -c "§37\.13"`: `DESIGN_SYSTEM` 5,
+     `API_CONTRACT` 7, `FRONTEND_NOTES` 3, `TECH_DEBT` 2, `ARCHITECTURE` 1, y 5 ficheros de `frontend/src/components/domain/`:
+     `AuthForm.tsx`, `GoogleSignInButton.tsx`, `GoogleSignInButton.test.tsx`, `AuthForm.rateLimited.test.tsx`,
+     `AuthForm.test.tsx`, uno cada uno).
+  3. **Citas de otros roles a la sección equivocada** (`rg -n "§37\.[123]([a-d]|\b)"`, leídas una a una): **todas
+     significan §38.3 (P-71)** — `ARCHITECTURE.md:74` («Origen: `DESIGN_SYSTEM §37.3` (v4.9) pidió el dato»; el encargo
+     decía `:73`, la línea con la cita es `:74`) y `:26064`; `API_CONTRACT.md:327`, `:361`, `:379` (P71-B7). Hoy §37.3 es
+     «La tarjeta de ENVÍO se vuelve interactiva» (`:19914`).
+  4. **Dentro de `DESIGN_SYSTEM`** las 34 líneas con `§37.[1-3]` se revisaron: las citas a P-61/P-66/P-71 ya dicen §38
+     (`:1792-1793`, `:4119-4121`, `:16142`, `:27-33`); las que dicen §37.1/§37.2/§37.3 fuera de la nota de numeración
+     apuntan de verdad a «Pedidos por preparar» (p. ej. `:17830`, `:18202`, `:18349`, `:18813`, `:18865`, `:18969`,
+     `:19664`). Las únicas menciones «§37.x = P-61/66/71» son las **explicativas** de la renumeración (`:22-23`,
+     `:19455-19458`, `:19849-19852`) y se quedan.
+  5. **Frontend** (su `RS5-FE-TD9`, no re-medido por ux-ui): ≈104 líneas en 66 ficheros citan §37.1-3 por §38.1-3; más
+     33 menciones en `FRONTEND_NOTES.md`.
+- **Riesgo:** Bajo. Sin efecto en conducta ni en dinero. El riesgo es de **decisión**: quien sigue «§37.3c» desde
+  `SetCode.tsx` o desde `ARCHITECTURE:74` lee la regla de la tarjeta de envío. Y **cualquier renumeración futura repite
+  la clase**: por eso el cierre no es «cambiar números otra vez», sino anclas que no dependen del número.
+
+- **Anclas estables propuestas** (una por tema; se citan **por nombre**, con el número solo como ayuda):
+
+  | Ancla | Tema | Sección hoy | Subpartes (sufijo `.a`…`.d` = letra actual) |
+  |---|---|---|---|
+  | `DS-SELL-DESKTOP` | P-61 · Vender en computadora (catálogo a todo el ancho, carrito bajo demanda) | §38.1 (`:19479`) | `DS-SELL-DESKTOP.a` … `.d` |
+  | `DS-ADMIN-MENU` | P-66 I2 · menú del panel por nombres; regla «`h1` = rótulo del menú»; candados P66-1..3 | §38.2 (`:19618`) | `DS-ADMIN-MENU.a` … `.c` |
+  | `DS-SET-CODE` | P-71 · código corto del set junto a las cartas | §38.3 (`:19721`) | `DS-SET-CODE.a` … `.c` |
+  | `DS-M4-MENU-MERGE` | consolidación §37/§38 (C1–C4) | §37.0-bis (`:19841`) | `DS-M4-MENU-MERGE.C1` … `.C4` |
+  | `DS-M4-NAME` | nombre «Pedidos por preparar» (criterio 215) | §37.1 (`:19861`) | — |
+  | `DS-M4-TABS` | `/admin/m4`: tres pestañas | §37.2 (`:19885`) | — |
+  | `DS-M4-SHIP-CARD` | tarjeta de ENVÍO interactiva | §37.3 (`:19914`) | `DS-M4-SHIP-CARD.a` … `.c` |
+  | `DS-AUTH-429` | avisos 429 de acceso (login, registro, Google; `TOO_MANY_PASSWORD_ATTEMPTS` y `RATE_LIMITED`) | §37.13 (`:20624`) ⇒ **§33.17** | — |
+
+  **Forma en el documento:** `<a id="ds-set-code"></a>` en la línea anterior al encabezado (GitHub no soporta `{#id}`) y
+  el nombre visible en el propio encabezado: `### 38.3 [DS-SET-CODE] P-71 · …`. **Forma de cita** en código, pruebas y
+  docs: `DESIGN_SYSTEM [DS-SET-CODE.c]` (o `DS-SET-CODE.c` a secas en comentarios); `rg -n "DS-SET-CODE"` encuentra a la
+  vez la definición y todos los usos. Solo se anclan estos ocho temas (los que chocan hoy); el resto del documento sigue
+  citándose por número hasta que una renumeración lo justifique.
+
+- **Plan (ux-ui, un solo commit sobre `DESIGN_SYSTEM.md`):**
+  1. **No renumerar.** §37 sigue siendo «Pedidos por preparar» y §38 el paquete (C4 de §37.0-bis). Renumerar otra vez
+     invertiría el sentido de las ~104 citas de frontend y de las 34 internas: crearía la ambigüedad que se quiere quitar.
+  2. **Mover el bloque §38 entero** (`:19453-19799`) **detrás de §37.19** (último encabezado de nivel 2 del fichero), sin
+     tocar su texto salvo la nota de `:19455-19459`, que pierde la frase «va antes de §37 en el fichero» y gana las anclas.
+  3. **Sacar el 429 a §33.17** «El 429 de acceso — login, registro y Google» `[DS-AUTH-429]`, con el texto de §37.13
+     íntegro (incluidas las erratas v4.9.1 y los tachados), y sus filas `auth.login.rateLimited*`, `auth.rateLimitedByIp*`
+     de §37.16 (`:20902-20903`) a §33.13. En su sitio, `### 37.13` queda como **encabezado‑puente de una línea**
+     («Movido a §33.17 [DS-AUTH-429] el …»), para que las 23 citas «§37.13» no apunten a la nada y **§37.14–§37.19 no se
+     renumeren**. Elegí §33 y no una sección nueva: el aviso comparte forma, tono y clave hermana
+     (`account.password.rateLimited`, §33.7) con la cuenta; una §39 de una sola subsección sería otra isla.
+  4. Poner las ocho anclas de la tabla y una línea en §0 («Cómo leer…», `:910`) que diga que las anclas `DS-*` son la
+     forma de cita estable y el número es orientativo.
+  5. Actualizar las pocas citas **por línea** a `DESIGN_SYSTEM.md` ≥ `:19453`, que el movimiento deja obsoletas: 3 en total
+     (`rg -c "DESIGN_SYSTEM(\.md)?:(19[4-9][0-9]{2}|2[0-9]{4})"` ⇒ `TECH_DEBT.md` 2 — `RS5-FE-TD8` `:8668`, `RS5-FE-TD9`
+     `:8704` — y `API_CONTRACT.md` 1). Las de `TECH_DEBT` las rehace su dueño (frontend) al cerrar su entrada; la de
+     `API_CONTRACT`, el arquitecto.
+- **Solicitudes a otros roles** (no las toca ux-ui):
+  - **arquitecto:** `ARCHITECTURE.md:74` y `:26064`, `API_CONTRACT.md:327`, `:361`, `:379` ⇒ `DESIGN_SYSTEM [DS-SET-CODE]`;
+    las 7 citas de «§37.13» en `API_CONTRACT` y la de `ARCHITECTURE` ⇒ `[DS-AUTH-429]`; la cita por línea de `API_CONTRACT`.
+  - **frontend:** `RS5-FE-TD9` con las anclas (sustituye su regla «§37.x ⇒ §38.x» por «⇒ `DS-*`», que ya no depende del
+    número) y los 5 ficheros que citan «§37.13» ⇒ `DS-AUTH-429`; mismas reglas en `FRONTEND_NOTES.md`.
+- **Disparador:** el **primer pase de ux-ui sobre `DESIGN_SYSTEM.md` después de fusionar el release s5**, y en todo caso
+  **antes** de añadir una §39 o de editar §37/§38 (cualquier sección nueva agrava el desorden). ⛔ No durante el gate del
+  release (el árbol es del gate, O-14). Orden obligado: **ux-ui primero** (definir las anclas), luego arquitecto y
+  frontend en paralelo (ficheros disjuntos).
+- **Cómo se cierra / candado** (todo con `rg` sobre el árbol entero, re-medible):
+  1. **Orden:** `rg -n "^## [0-9]+\." docs/DESIGN_SYSTEM.md` devuelve los números **estrictamente crecientes** (hoy falla:
+     `38` en `:19453` antes de `37` en `:19800`).
+  2. **Anclas definidas una sola vez:** para cada una de las ocho, `rg -c '<a id="ds-…"></a>' docs/DESIGN_SYSTEM.md` ⇒ **1**.
+  3. **Cero citas huérfanas:** todo `DS-[A-Z0-9-]+` que aparece en `frontend/`, `docs/` resuelve a una de las ocho
+     (`rg -o "DS-[A-Z0-9-]+[A-Z0-9]" | sort -u` ⊆ lista de anclas).
+  4. **Cero citas ambiguas fuera de `m4`:** `rg -n "§37\.[123]([a-d]|\b)" frontend/src frontend/e2e --glob '!**/m4/**'
+     --glob '!**/m4-*'` ⇒ **0** (el candado de `RS5-FE-TD9`) **y** `rg -n "§37\.[123]([a-d]|\b)" docs/ARCHITECTURE.md
+     docs/API_CONTRACT.md` ⇒ **0** (hoy **5**: `ARCHITECTURE:74,:26064`, `API_CONTRACT:327,:361,:379`).
+  5. **El 429 fuera de M4:** `rg -n "§37\.13" frontend/src docs/API_CONTRACT.md docs/ARCHITECTURE.md` ⇒ **0** (hoy
+     1+1+1+1+1 en `frontend/src` y 7+1 en docs); en `DESIGN_SYSTEM` solo el encabezado‑puente.
+  6. **Dentro de `DESIGN_SYSTEM`:** `rg -n "§37\.[123]([a-d]|\b)" docs/DESIGN_SYSTEM.md` solo devuelve (a) citas que de
+     verdad son «Pedidos por preparar» y (b) las líneas explicativas de la renumeración (hoy `:22-23`, `:19455-19458`,
+     `:19849-19852`). Revisión a ojo con la lista en mano; no es automatizable sin falsos positivos, y lo digo.
+  7. Sin cambio de contenido: `git diff -w --stat` del commit de ux-ui ≈ movimiento (líneas añadidas ≈ borradas, salvo
+     anclas, puente de §37.13 y la línea de §0).
+
+### RS5-UX-Q1 · pregunta pendiente del dueño · Dónde va «Reembolsos manuales (SPEI)» en el menú del panel (C3 de §37.0-bis)
+
+- **Qué está decidido y qué no (medido):** `DESIGN_SYSTEM.md:19851` (C3) lo resolví como **consolidación de ux-ui, a
+  confirmar**: grupo **«Administración»**, justo **después de «Finanzas»**, con etiqueta **SÚPER**, porque §38.2 (b) dice
+  que «Administración agrupa exactamente las entradas de súper-admin de dinero y cuentas». La propia fila dice
+  «`HECHOS.md` no decide este punto». Lo superado era §37.2/§37.9: «en el grupo de dinero junto a «M3 · Órdenes»».
+- **Qué hay construido hoy** (según el encargo del orquestador; **NO MEDIDO por ux-ui** en `AdminSidebar.tsx`): la
+  entrada quedó **junto a «Ventas»**, como la trajo la rama de envío — es decir, la regla superada de §37.9, no C3.
+- **Pregunta al dueño (una, cerrada):** *«La entrada «Reembolsos manuales (SPEI)» —solo la ven los súper-admin— ¿la
+  quieres (a) en «Administración», después de «Finanzas», junto a lo demás de dinero y cuentas de súper-admin; o
+  (b) pegada a «Ventas», porque ahí nacen esos reembolsos?»* Recomendación de ux-ui: **(a)**; la cercanía a Ventas ya la
+  dan los enlaces desde el detalle del pedido (§37.9, §37.11a), que no cambian con ninguna de las dos respuestas.
+- **Riesgo mientras no se responda:** Bajo. Sin efecto en dinero ni en permisos (el operador no la ve en ningún caso,
+  S6). Solo divergencia documento ↔ código en el sitio del menú.
+- **Disparador:** respuesta del dueño (se anota en `HECHOS.md`, que es del orquestador).
+- **Cómo se cierra:** (a) ⇒ frontend mueve la entrada en `AdminSidebar.tsx` y C3 pierde «a confirmar»; (b) ⇒ ux-ui
+  reescribe C3 (y la nota de §38.2 (b)) a «junto a «Ventas»» y el código se queda. En ambos casos, candado: prueba del
+  sidebar que asevera el grupo y la posición de `admin.modules.manualRefunds` para `super_admin` y su ausencia para
+  `operator` (medir antes si ya existe en `AdminSidebar*.test.tsx` — **NO MEDIDO**).

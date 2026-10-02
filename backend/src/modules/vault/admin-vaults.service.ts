@@ -5,6 +5,7 @@ import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { VaultService } from './vault.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { variantKey } from '../../common/variant-key';
 import { compareByDisplayName, customerDisplayName } from './customer-display-name';
 
 /**
@@ -97,6 +98,8 @@ export class AdminVaultsService {
         gradingCompany: true,
         gradeValue: true,
         finish: true,
+        // v1.80.1 (SK-5): sin él, la valuación no puede distinguir una caja mapeada de una sin mapear.
+        tcgplayerProductId: true,
       },
     });
     if (pieces.length === 0) return { data: [], page: q.page, pageSize: q.pageSize, total: 0 };
@@ -123,31 +126,35 @@ export class AdminVaultsService {
     // v1.53 (§4.40.4b, MONEY) — LECTURA: una pieza `graded` sin identidad de slab no aporta clave al
     // lote; abajo suma a `pendingPriceCount` y queda EXCLUIDA del total, que es la verdad. Antes se
     // valuaba la bóveda del cliente al precio de un PSA 10.
-    const refs = await this.pricing.getReferencesBatch(
-      pieces.flatMap((p) => {
-        const gk = this.pricing.tryGradeKeyFor(p);
-        return gk ? [{ cardId: p.cardId, productType: p.productType, gradeKey: gk, finish: p.finish }] : [];
-      }),
-    );
+    // v1.80.1 (SK-5, MONEY): por la ÚNICA puerta de valuación. Sellado mapeado ⇒ su `sealed:tcg:<id>`
+    // con el gate de dial de `/vault/sealed`; sin mapeo ⇒ sin clave ⇒ pendiente. ⛔ Nunca la fila
+    // legada `'sealed'` (clave de COLA: puede ser el precio de otra caja anclada a la misma `Card`).
+    const keyOf = pieces.map((p) => this.pricing.valuationKeyFor(p));
+    const refs = await this.pricing.getReferencesBatch(keyOf.flatMap((k) => (k ? [k] : [])));
+    // El dial del sellado, UNA vez por petición y solo si hay sellado que gatear (v1.80.2.2 D-4: un
+    // solo cuerpo, `sealedSourceOnFor`).
+    const sourceOn = await this.pricing.sealedSourceOnFor(pieces);
 
     const agg = new Map<
       string,
       { pieceCount: number; totalValueMxnCents: number; pendingPriceCount: number }
     >();
-    for (const p of pieces) {
+    pieces.forEach((p, i) => {
       const userId = p.ownerUserId as string;
-      if (!userById.has(userId)) continue; // fuera del filtro q (o usuario inexistente)
+      if (!userById.has(userId)) return; // fuera del filtro q (o usuario inexistente)
       const a = agg.get(userId) ?? { pieceCount: 0, totalValueMxnCents: 0, pendingPriceCount: 0 };
       a.pieceCount += 1;
-      const gk = this.pricing.tryGradeKeyFor(p);
-      const ref = gk ? refs.get(`${p.cardId}|${p.productType}|${gk}|${p.finish}`) : undefined;
-      if (ref && ref.status === 'priced' && ref.referenceMxnCents != null) {
-        a.totalValueMxnCents += ref.referenceMxnCents;
+      const k = keyOf[i];
+      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
+      const ref = k ? refs.get(variantKey(k)) : undefined;
+      const cents = this.pricing.valuationCentsOf(p, ref, sourceOn);
+      if (cents != null) {
+        a.totalValueMxnCents += cents;
       } else {
         a.pendingPriceCount += 1; // pendientes EXCLUIDOS del total y CONTADOS (§3)
       }
       agg.set(userId, a);
-    }
+    });
 
     let rows: AdminVaultSummaryDTO[] = [...agg.entries()].map(([userId, a]) => {
       const u = userById.get(userId)!;

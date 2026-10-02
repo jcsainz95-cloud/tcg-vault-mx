@@ -82,7 +82,9 @@ export function kycRejectedTemplate(
   const privacy = en
     ? 'Your documents are stored privately and are only used to verify your identity.'
     : 'Tus documentos se guardan de forma privada y solo se usan para verificar tu identidad.';
-  const url = appUrl('cuenta/identidad', l);
+  // `account`: ahí vive `KycSection` (re-subida de INE). ⚠️ Antes `cuenta/identidad` ⇒ 404 (no
+  // existe en el front). Candado: `test/mail-links.frontend-routes.spec.ts`.
+  const url = appUrl('account', l);
   const ctaLabel = en ? 'UPLOAD MY ID AGAIN' : 'VOLVER A SUBIR MI IDENTIFICACIÓN';
   const blocks = [
     // ⛔ Sin folio: el expediente de identidad no tiene uno que el cliente use, y ⛔ no se inventa un

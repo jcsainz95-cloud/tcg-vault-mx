@@ -161,6 +161,51 @@ describe('useErrorMessage · §26 «el destinatario manda»', () => {
     }
   });
 
+  /*
+   * ───────────────────────────────────────────────────────────────────────────
+   * `422 LOCATION_NOT_AVAILABLE` (§M4-VAULT.5 + guardas de `move` en `item-location.rules.ts`).
+   * QA (2026-09-29, sobre `4ca6c45`): el banner del detalle de M1 pintaba «Location not available:
+   * not_platform_stock». El motivo viaja en `details.reason` y el copy lo nombra por `select` ICU.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  it('`LOCATION_NOT_AVAILABLE` con `reason` conocido: copy en castellano que nombra el motivo', () => {
+    const expectations: Record<string, RegExp> = {
+      not_platform_stock: /estante de stock de plataforma/,
+      not_customer_custody: /cajón de custodia de clientes/,
+      not_customer_drawer: /no es del cliente/,
+      inactive: /desactivada/,
+      not_found: /ya no existe/,
+      location_required: /falta elegir el cajón/,
+    };
+    for (const [reason, pattern] of Object.entries(expectations)) {
+      const error = new ApiClientError(422, {
+        code: 'LOCATION_NOT_AVAILABLE',
+        message: `Location not available: ${reason}`,
+        details: { reason },
+      });
+      const { unmount } = renderWithIntl(<Probe error={error} audience="operator" />, 'es');
+      expect(message(), reason).toMatch(pattern);
+      expect(message(), reason).toContain('No se guardó nada');
+      expect(message(), reason).not.toMatch(/Location not available|\{reason\}/);
+      expect(message(), reason).not.toContain(reason);
+      unmount();
+    }
+  });
+
+  it('`LOCATION_NOT_AVAILABLE` sin `reason` utilizable cae a la BASE traducida, nunca al inglés', () => {
+    for (const details of [undefined, {}, { reason: 'something_new' }, { reason: 7 }]) {
+      const error = new ApiClientError(422, {
+        code: 'LOCATION_NOT_AVAILABLE',
+        message: 'Location not available: something_new',
+        details: details as Record<string, unknown> | undefined,
+      });
+      const { unmount } = renderWithIntl(<Probe error={error} audience="operator" />, 'es');
+      expect(message(), JSON.stringify(details)).toBe(es.error.LOCATION_NOT_AVAILABLE);
+      expect(message(), JSON.stringify(details)).not.toContain('Location not available');
+      unmount();
+    }
+  });
+
   it('lo que NO cambia: un código sin copy sigue cayendo al mensaje del servidor', () => {
     // El fallback no se retira —cubre los códigos que el catálogo aún no tiene, y ocultarlos sería
     // peor—; lo que §26 exige es que **los siete suyos** no lleguen nunca hasta aquí.

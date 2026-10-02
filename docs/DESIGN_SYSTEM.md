@@ -4,7 +4,54 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.8** — **§36.17 NUEVA: las dos cifras de bóveda tienen nombre propio** (2026-09-28, `API_CONTRACT
+> Estado: **v4.9.2 (2026-09-29) — errata de ruta (contrato v1.80.8.2):** el enlace de los correos de reembolso por
+> carta (`AV-14`/`AV-15`/`AV-16`, CTA sin CLABE «Registrar mi CLABE») y la fila N-8 pasan de ~~`/cuenta#kyc`~~ a
+> **`/account#kyc`**: `/cuenta` da 404 (medido por backend); la pantalla de verificación es «Mi cuenta» en `/account`,
+> bloque `#kyc` (§33.6e), la misma ruta que ya usa el correo de rechazo de INE (§31.7). **Cero tokens nuevos.** Lo que
+> sigue es la v4.9.1 sin cambio.
+>
+> Estado anterior: **v4.9.1 (2026-09-29) — errata `API_CONTRACT` v1.80.8.1 (los dos `429` del login se pintan por
+> `error.code`):** §37.13 gana los textos finales de `auth.rateLimitedByIp` / `auth.rateLimitedByIpRetryIn` (tope por
+> IP; login, registro y Google; ⛔ sin enlace a restablecer), ~~`auth.register.rateLimited`~~ se retira y la frase «la
+> misma pareja de claves sirve para `google`» queda anulada. Las claves `auth.login.*` de `TOO_MANY_PASSWORD_ATTEMPTS`
+> no cambian. **Cero tokens nuevos.** Lo que sigue es la v4.9 sin cambio.
+>
+> Estado anterior: **v4.9 (consolidada, 2026-09-29)** — entran **dos revisiones v4.9 escritas en paralelo** y fusionadas en
+> `claude/release-s5`: **(1)** el paquete de pantallas P-61 · P-66 · P-71 (2026-09-28, rama de pantallas; se escribió
+> como «§37» y **al fusionar pasa a §38**) y **(2)** «Pedidos por preparar» / §M4-SHIP (2026-09-29, rama
+> `claude/envio-preparar`; **conserva §37**). Las citas «§37.1–§37.3» de P-61/P-66/P-71 en código, pruebas y notas
+> anteriores a esta fusión se leen **§38.1–§38.3**. Donde las dos se pisaban (nombre y rótulo de M4 en el menú, códigos
+> «M-n» en los copys nuevos, sitio de la cubeta SPEI en el menú) manda **§37.0-bis**, que aplica `HECHOS.md`
+> (2026-09-29, «La sección M4 del panel se llama «Pedidos por preparar»…»). **Cero tokens nuevos** en las dos.
+>
+> **§38 (antes «§37»): paquete de pantallas P-61 · P-66 (menú) · P-71** (2026-09-28). **§38.1 (P-61):** en
+> escritorio el carrito de Vender deja de ser columna fija de 360 px y pasa a **cajón lateral bajo demanda** (el
+> `SellCartDrawer` que ya existe) con una **barra inferior fija** que conserva lo que el panel daba siempre a la vista
+> (conteo y valor); la llamada a iniciar sesión y la nota de la guía **se reubican con regla de «exactamente un
+> anfitrión»**. **§38.2 (P-66 I2):** el menú del panel **deja de rotular por código**: nombres en ES/EN, cuatro grupos
+> por tarea, **título de página = rótulo del menú**, y barrido de las referencias «M10», «M11 · Sellado»… en copy.
+> **§38.3 (P-71):** el código corto del set («TWM 130») en cabecera del binder, tejas, ficha y carrito de venta —
+> **el dato no llega hoy al frontend** (medido): petición de contrato al arquitecto. **Cero tokens nuevos.**
+>
+> **§37 NUEVA: «Pedidos por preparar» — la cubeta ENVÍO se vuelve interactiva, «Por reponer»,
+> la cubeta SPEI y el reembolso total de bóveda** (2026-09-29, `API_CONTRACT §M4-SHIP` v1.80.5 · `PROJECT §S.10`,
+> criterios **215–233**). **La sección M4 se renombra «Pedidos por preparar» / «Orders to prepare»** en menú, título,
+> tablero, migas, hoja imprimible y en este documento (§12, §33.10d, §35, §36). La tarjeta de **envío** gana el
+> palomeo en **tres estados** (`La tengo` · `No la encontré` · `Llegó dañada`), el importe **del servidor** por carta y
+> la confirmación con **esa** cifra antes de «Pedido preparado» (directo), «Deshacer preparado», la guía que **exige
+> preparado**, y **confirmaciones** antes de «Marcar enviado» / «Marcar entregado» (hoy no las hay). Apartado **«Por
+> reponer»** (tarjeta de caso con identidad exacta, plazo de 7 días **del servidor**, «Reponer con esta pieza»,
+> «Apareció», «Anular» y —solo súper-admin— «Reembolsar» con monto **capturado**, referencias y topes). Cubeta
+> **«Reembolsos manuales (SPEI)»** (revelar CLABE con token, «Marcar pagada» = quién y cuándo, clave opcional,
+> casillas reforzadas, cancelar/re-emitir). Reembolso **total** de una compra a bóveda (M3): `409` del retiro en caja,
+> `422` con casilla, estados de `vaultPieces`, «Reclamar» con «Saqué la carta de la caja». Cola de envíos con número
+> de pedido, cliente y búsqueda; contador derivado con badge; **hoja de preparación imprimible** (sin precios, correo
+> ni teléfono). Cliente registrado: bloque de envío en su pedido con los **mismos** rótulos del seguimiento, ⛔ nunca
+> «LIQUIDADA». Copys de `AV-12..AV-16` y la variante `vault` de `AV-3` (es/en). Y el texto final del **429 de login**
+> (`C7`). **Cero tokens nuevos.** §36.5 gana «Llegó dañada» y cambia su frase de faltante; §36.9 gana la fila
+> `full_refund`; §35.11/§36.15 pierden la prohibición de casillas en la tarjeta de envío (ya está construida su
+> rebanada).
+> Antes: **v4.8** — **§36.17 NUEVA: las dos cifras de bóveda tienen nombre propio** (2026-09-28, `API_CONTRACT
 > §M4-VAULT.11` y §M1 v1.79.5). La lista de clientes dice **«{n} a su nombre»** (`pieceCount`) y «Qué debe haber» dice
 > **«{n} deben estar en bóveda»** (`counts.total`), con **una** ayuda breve en la vista física que explica por qué la
 > segunda puede ser menor; ⛔ nunca el mismo sustantivo para las dos. Se revisan los dos textos que frontend escribió
@@ -1742,6 +1789,11 @@ página legal que vea un comprador:
 - Es público (sin sesión). Al "Crear solicitud" pide login/registro y luego KYC/CLABE/INE según topes.
 
 ### 7.15 Navegación
+> ⚠ **v4.9 (§38.2, antes citada «§37.2»):** el **sidebar del panel** ya no se rotula ni se agrupa por códigos M1–M12. Los grupos y
+> nombres vigentes están en **§38.2** (con las entradas de §37 según §37.0-bis); la lista «Operación: M1, M4, M5, M8 · …» de abajo queda **superseded**.
+> *(Lo demás que este apartado afirma del panel —buscador global, barra inferior en `< lg`— sigue siendo P-66 I5 y
+> no se decide aquí.)*
+>
 > ⚠ **v4.1 (§33.1–33.2):** la **lista de entradas con sesión** de este apartado queda **superseded**. Con sesión
 > el header pinta **cinco** entradas —Comprar · Vender · Mi bóveda · **Compras y ventas** · **Mi cuenta**— y
 > **ya no pinta el nombre ni «Cerrar sesión»** (viven en «Mi cuenta»). El panel gana **«Mi cuenta»** en el topbar
@@ -2244,7 +2296,8 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 | M2 Precios/Catálogo | `/admin/pricing/*`, `/fx`, `/fx/mode`, `/admin/catalog/sync`,`/backfill`,`/remote-sets` | Tabla precio pendiente, curva de precio (§21), **consola de bounties (§28)**, **tarjeta de tipo de cambio con interruptor auto/manual (§30)**, colchón, rareza→categoría, sync/backfill de sets (super_admin) |
 | **M2 › Bounties** (v3.4) | `GET /admin/pricing/bounties` (lectura, `super_admin`); escribe en `PUT /admin/pricing/variant-controls/:cardId/:finish` **fila a fila** | `DataTable` agrupada **atención (rebasados + sin precio) → activos → completados → apagados**, con **`counts` de los cinco estados sobre el total**, edición **de una fila a la vez** y confirmación solo cuando **sube** el dinero — **§28** |
 | M3 Órdenes | `/admin/orders/*` | DataTable, AmountBreakdown, refund destructivo (super_admin) |
-| M4 Retiros | `/admin/shipments/*` | Cola de envíos (StatusBadge, captura de guía, PipelineStepper) + **«Pedidos a preparar» (§35)**: **una tarjeta por PEDIDO** con las cartas anidadas y ordenadas por ubicación, y dos cubetas (envío / bóveda). ~~picking-list por ubicación~~ — **la lista PLANA de piezas ya no existe** (v4.4); la palabra «picking» **no aparece de cara al operador** (sigue solo en la ruta interna `…/picking-list` y en el enum `ShipmentStatus`, `API_CONTRACT §M4-PREP`) |
+| M4 **«Pedidos por preparar»** *(v4.9: ⛔ ya no «Retiros»; criterio 215)* | `/admin/m4` (`/admin/shipments/*`) | **Tres pestañas** (§37.2): **Preparar** — **una tarjeta por PEDIDO** con las cartas anidadas y ordenadas por ubicación, dos cubetas (envío / bóveda), **palomeo en las dos** (§36.5, §37.3), «Pedido preparado» con la cifra del servidor (§37.4) — · **Por reponer** (§37.8) · **Envíos** (la cola administrativa: StatusBadge, captura de guía **solo tras preparado**, PipelineStepper, confirmaciones de enviado/entregado, ⛔ sin «Cancelar» en pagados, §37.6 y §37.11). Hoja imprimible (§37.11c). ~~picking-list por ubicación~~ — **la lista PLANA de piezas ya no existe** (v4.4); la palabra «picking» **no aparece de cara al operador** (sigue solo en la ruta interna `…/picking-list` y en el enum `ShipmentStatus`, `API_CONTRACT §M4-PREP`) |
+| **Reembolsos manuales (SPEI)** *(v4.9, solo súper-admin)* | `/admin/manual-refunds` (`GET/POST /admin/manual-refunds/*`) | Página propia en el menú de súper-admin (grupo «Administración», §37.0-bis C3): lista lo más viejo primero, CLABE **enmascarada**; detalle con «Revelar CLABE» (auditado) → «Marcar pagada» en la misma vista, «Cancelar» con nota, «Re-emitir» — **§37.9** |
 | M5 Buylist | `/admin/buylist/*` | Pipeline, cherry-pick por item, convertir a inventario, pago SPEI (super_admin) |
 | M6 Usuarios/KYC | `/admin/users/*` | Ficha 360° (Tabs), KYC, bloquear (destructivo) |
 | M7 Finanzas | `/admin/finance/*` | StatCards financieros, tablas, export CSV (solo super_admin) |
@@ -4062,6 +4115,10 @@ que `MasterSetBinder` (que ya comparte — hoy el problema era solo el ancho dis
    casos especiales.
 
 ### 18.4 Carrito flotante: `SellCartFab` + `SellCartDrawer` (P-16)
+
+> ⚠ **v4.9 (§38.1, P-61; antes citada «§37.1»):** en `≥ lg` el carrito vuelve a ser **este cajón** (el sheet lateral de 400 px de (b)), y
+> el panel fijo de 360 px que P-42 puso en su lugar **se retira**. El disparador de escritorio no es el FAB sino la
+> **barra inferior** de §38.1. En `< lg` nada cambia.
 
 **El carrito deja de ser columna.** Contenido interno del carrito (requisitos de venta, líneas,
 total, CTAs, «Vaciar») **sin cambios funcionales**; solo cambia el contenedor y las líneas ganan el
@@ -16082,7 +16139,7 @@ cuenta», a un toque. Filas de 44px, `border-b` de regla, como hoy.
 
 - **Sidebar (`AdminSidebar.tsx`): sin entrada nueva.** «Mi cuenta» **no es un módulo** y no lleva código M-n; meterla
   entre M1–M10 la haría parecer una cola de trabajo. *(P-66 I2 —los códigos que no ordenan— sigue abierto y fuera
-  de este stream.)*
+  de este stream.)* **v4.9:** I2 se diseña en **§38.2** (antes citada «§37.2»); «Mi cuenta» sigue fuera del sidebar.
 - **Topbar (`AdminTopbar.tsx`), extremo derecho, `≥ sm`:** `rol legible` · `ES | EN` · **«Mi cuenta»** · «Cerrar
   sesión». «Mi cuenta» es un `Link` a `/admin/account` con la misma piel que «Cerrar sesión» (11px 500 uppercase
   muted → text en hover, `focus-visible:shadow-focus`), **área táctil 44px** (P-66 I5: los objetivos del topbar
@@ -16581,7 +16638,8 @@ estado (sin marcar nada al cliente: no puede arreglar un envío ya creado).
     entonces, **se pinta «—»** en cada dato ausente (§32.4: lo desconocido es «—», nunca omitido en silencio) y
     **nunca** el `userId`.
 - ~~La **lista de picking** no cambia (es por ubicación, no por persona).~~ **⛔ DEJÓ DE SER CIERTO EN v4.4.**
-  La lista plana de piezas fue **sustituida** por «Pedidos a preparar» (**§35**): la unidad pasó a ser el
+  La lista plana de piezas fue **sustituida** por «Pedidos por preparar» (**§35**, *v4.9: antes «Pedidos a
+  preparar»*): la unidad pasó a ser el
   **pedido** —con su persona, su dirección y su antigüedad— y la ubicación sigue ordenando, pero **dentro** de
   cada pedido. *Se deja tachada y no borrada porque esta frase es justo la que hacía creer que la persona no
   entraba en esa lista: hoy la persona es el encabezado de la tarjeta.*
@@ -17764,7 +17822,13 @@ auth y del sidebar del panel, ya verificado en §10 y §17.2. **Cero tokens nuev
 
 ---
 
-## 35. «Pedidos a preparar» — la hoja de trabajo del operador **de pie** (v4.6, 2026-09-22 · `API_CONTRACT §M4-PREP`)
+## 35. «Pedidos por preparar» — la hoja de trabajo del operador **de pie** (v4.6, 2026-09-22 · `API_CONTRACT §M4-PREP` · **renombrada en v4.9**)
+
+> ⭐ **v4.9 (2026-09-29) — el nombre es «Pedidos por preparar» / “Orders to prepare”** (decisión del dueño,
+> `PROJECT §S.10.1`, criterio **215**; `API_CONTRACT §M4-SHIP`). Toda mención de «Pedidos a preparar» en esta
+> sección se lee así; ⛔ el texto histórico de §35.0 y §35.13 (mediciones y hallazgos con fecha) **no se reescribe**.
+> Dónde cambia la cadena y con qué claves: **§37.1**. Lo interactivo de la tarjeta de **envío** (palomeo, preparado,
+> reembolso por carta) está en **§37**; §35 sigue mandando en jerarquía, ubicación, dirección, nombre y vacíos.
 
 ### 35.0 De dónde sale esta sección, y por qué llega tarde
 
@@ -18134,6 +18198,10 @@ familia: no cambia nada del mundo, solo qué se mira. **⛔ No se migra a `radio
 - ⚠️ **Hoy, «Ambas» y «Solo envío» devuelven lo mismo y «Solo bóveda» siempre vacío** (§35.8). El filtro **se
   conserva igual**: está en el contrato, y quitarlo haría invisible una parte del producto que ya se decidió.
   Lo que no se vale es que la cubeta vacía **mienta** — que es justo el hallazgo **P-1**.
+- ⭐ **v4.9 — «Por reponer» NO es una cuarta cubeta de este filtro.** El contrato (`§M4-SHIP.15.11`) la llama
+  «tercera pestaña junto a Envío y Bóveda»; aquí se resuelve como **pestaña de página** (§37.2), porque un caso «Por
+  reponer» no es un pedido que se arma sino una **deuda que se busca**, y «Ambas» seguiría significando *envío +
+  bóveda*. El filtro de cubetas queda **intacto, con sus tres segmentos**, dentro de la pestaña «Preparar».
 
 ---
 
@@ -18276,6 +18344,11 @@ para que quien la construya no reorganice la jerarquía de §35.3 al añadirla.
 > `§M4-VAULT.10.1`: palomear en envío no entra). ⇒ Esta regla **sigue entera para la tarjeta de ENVÍO**: ni
 > casillas, ni botón de preparado, ni progreso apagados. La asimetría entre las dos tarjetas en «Ambas» se resuelve
 > en §36.2.
+>
+> ⭐ **v4.9 — la rebanada interactiva de ENVÍO llegó (`§M4-SHIP` v1.80.5).** La regla de «no pintar afordancias
+> apagadas» **deja de aplicar a la tarjeta de envío**: sus controles están construidos y se rigen por **§37.3–§37.6**.
+> Lo que **sigue** valiendo de este apartado: ⛔ ningún control apagado para algo **no** construido (p. ej. «abrir caso
+> desde inventario», que el dueño dejó fuera — **D-14**).
 
 ---
 
@@ -18715,7 +18788,7 @@ en v4.6. **A-7 sigue abierta** y sigue siendo otra cosa: la redacción de **§33
 (CA #17–#23 de §S) y las dos filas de bóveda de `HECHOS.md` (2026-09-24 y 2026-09-25). **Cero tokens nuevos**: todo
 sale de §2, §3, §4, §6, §7, §8 y de los patrones de §35.
 
-**Qué es:** la cubeta «Para bóveda» de «Pedidos a preparar» (§35) deja de estar vacía. Cada compra que el cliente
+**Qué es:** la cubeta «Para bóveda» de «Pedidos por preparar» (§35; *v4.9: antes «Pedidos a preparar»*) deja de estar vacía. Cada compra que el cliente
 deja en su bóveda, ya pagada, aparece como **una tarjeta por pedido** (§35.2). El operador **junta** las cartas del
 estante de la tienda, las **palomea**, da el pedido **por preparado** y lo **lleva a su cajón**. Además, cada
 cliente gana una vista de **qué debe haber** en su bóveda, para comprobar el archivero contra el sistema.
@@ -18737,7 +18810,7 @@ cliente gana una vista de **qué debe haber** en su bóveda, para comprobar el a
 
 ### 36.1 Dónde vive
 
-- **La tarjeta:** dentro de «Pedidos a preparar» (`/admin/m4`), en la cubeta «Solo bóveda» y mezclada en «Ambas» por
+- **La tarjeta:** dentro de «Pedidos por preparar» (`/admin/m4`, pestaña «Preparar» desde v4.9, §37.2), en la cubeta «Solo bóveda» y mezclada en «Ambas» por
   antigüedad (`requestedAt` ascendente; empate ⇒ envío antes que bóveda, `§M4-VAULT.3`). ⛔ La pantalla no reordena
   por su cuenta más allá de la regla de §35.2.
 - **La vista «Qué debe haber»:** una **tercera pestaña** en el detalle de cada cliente de «Bóvedas de clientes»
@@ -18787,6 +18860,13 @@ tarjeta rota. El destino en versalita de la cabecera ya separa las dos familias 
 sin nombre puede salir en una tarjeta de **envío** con el prefijo del correo como nombre, y en una de **bóveda** con
 «Sin nombre registrado». Es conocida y está candada; ⛔ frontend **no** la «arregla» en la tarjeta de envío en este
 stream.
+
+> ⭐ **v4.9 — las dos notas de arriba caducan con `§M4-SHIP` v1.80.5.** (1) La tarjeta de envío **ya tiene**
+> controles: la línea de paso se conserva en la de bóveda y la de envío gana la suya (§37.3a), así que en «Ambas»
+> las dos son trámites con pasos, no una rota y una entera. (2) El contrato **cierra la asimetría de nombres**
+> (`§M4-SHIP.3`, «Fuente del cliente»): la tarjeta de envío titula con el **comprador** (`customer.fullName`, `null`
+> ⇒ «Sin nombre registrado» con la frase de §36.4) y ⛔ ya no con el destinatario ni con el prefijo del correo. El
+> destinatario sigue en la dirección (plano 3), que es donde se transcribe al paquete.
 
 ---
 
@@ -18874,6 +18954,19 @@ Cada carta tiene **tres estados** (`prepStatus`) y, aparte, puede estar **bloque
 **“Undo”** · «Tomada» → **“Picked”** · «Faltante» → **“Missing”** · «No va al cajón» → **“Not for the drawer”** · la
 frase de faltante → **“Recorded as missing. It isn't moved to the drawer. This screen doesn't notify the customer or
 issue refunds.”**
+
+> ⭐ **v4.9 — la tarjeta de bóveda gana «Llegó dañada» y cambia la frase de faltante** (`§M4-SHIP.15.2`: «dañada =
+> faltante», `missingReason` obligatorio también en bóveda; `§M4-SHIP.15.11`: «como en envío»). La fila **pendiente**
+> ofrece **tres** botones: **«La tengo»** · **«No la encontré»** · **«Llegó dañada»** (EN “I have it” · “Couldn't find
+> it” · “Arrived damaged”); el tercero marca `missing` con `missingReason:'damaged'` y la fila pinta la versalita
+> **«Dañada»** / “Damaged” (mismo tratamiento visual que «Faltante»: `text-accent` + regla bermellón). La frase bajo
+> «Faltante»/«Dañada» **cambia** (clave `admin.m4.prep.vault.item.missingBody`), porque ahora **sí** pasa algo al
+> confirmar: ES **«Queda anotada. No se mueve al cajón. Al confirmar la colocación se abrirá un caso «Por reponer» a
+> nombre del cliente; esta pantalla no le avisa ni hace reembolsos.»** · EN **“Recorded. It isn't moved to the drawer.
+> When you confirm placement, a “To replace” case will be opened in the customer's name; this screen doesn't notify
+> them or issue refunds.”** Y `400 VALIDATION_ERROR {field:'missingReason'}` no se pinta como error del operador: la
+> pantalla **siempre** manda el motivo (los dos botones lo llevan implícito); si llegara, cae al genérico de §35.8.
+> El detalle de tres botones en `< sm` y los `aria-label` están en **§37.3b** y valen para las dos tarjetas.
 
 - ⛔ **El verde no se usa** para «tomada»: el verde es del dinero confirmado (§2.1, P-5). La palabra es el portador;
   la regla de tinta solo ayuda a barrer la columna con la vista.
@@ -19050,6 +19143,7 @@ Un solo copy para los cuatro verbos, porque el hecho es el mismo: **el pedido ya
 | `{status:'placed'}` | **«Otra persona ya colocó este pedido. No se cambió nada; sale de la lista.»** | **“Someone else already placed this order. Nothing was changed; it leaves the list.”** |
 | `{status:'cancelled', cancelReason:'chargeback'}` | **«Este pedido se canceló por un contracargo: sus cartas ya no son del cliente. Sale de la lista.»** | **“This order was cancelled by a chargeback: its cards no longer belong to the customer. It leaves the list.”** |
 | `{status:'cancelled', cancelReason:'nothing_to_place'}` | **«Este pedido ya se cerró sin guardar nada. Sale de la lista.»** | **“This order was already closed without placing anything. It leaves the list.”** |
+| `{status:'cancelled', cancelReason:'full_refund'}` *(v4.9, `§M4-SHIP.18.5`; clave `error.fullRefund`)* | **«Este pedido se reembolsó entero: sus cartas vuelven a la plataforma y no se colocan. Sale de la lista. Si ya las habías puesto en un cajón, en Pedidos (M3) se confirma dónde quedaron.»** | **“This order was fully refunded: its cards go back to the platform and aren't placed. It leaves the list. If you had already put them in a drawer, Orders (M3) is where you confirm where they ended up.”** |
 
 ~~⚠️ En `placed` el `details` trae solo `locationId`, no la etiqueta: **no se nombra el cajón** (sería inventarlo o
 pintar un id). Hueco **H-2**.~~ **v4.8 — H-2 cerrado** (contrato v1.79.3: `details.location: { id, label, zone }`).
@@ -19260,7 +19354,8 @@ en español:**
 - ⛔ «Cajón compartido», «cajón lleno», «ocupado» (V6).
 - ⛔ Prometer reembolso, aviso al cliente o búsqueda de una faltante (V7).
 - ⛔ Verde para «Tomada» (§2.1).
-- ⛔ Casillas, «preparado» o progreso apagados en la tarjeta de **envío** (§35.11).
+- ~~⛔ Casillas, «preparado» o progreso apagados en la tarjeta de **envío** (§35.11).~~ *(v4.9: la tarjeta de envío ya
+  tiene su rebanada interactiva — §37. Sigue prohibido apagar lo **no** construido.)*
 - ⛔ Copy de estos errores en `error.CONFLICT*` genéricos (§35.15.3).
 - ⛔ Un «—» en cualquier ausencia de esta sección.
 
@@ -19352,3 +19447,1533 @@ cambió, basta con cotejar.)*
   «Tus piezas entran a tu bóveda al pagar», `es.json:449`).
 - ⛔ Restar en el cliente para pintar «{n} reservadas»: no hay campo, y la resta mezclaría causas no medidas.
 - ⛔ Cambiar la columna de «Valor estimado»: sigue sumando el mismo perímetro que «a su nombre», y eso es coherente.
+
+---
+
+## 38. Paquete de pantallas — Vender en escritorio (P-61), menú del panel (P-66 I2) y código corto del set (P-71) (v4.9, 2026-09-28)
+
+> **Numeración (fusión 2026-09-29):** esta sección se escribió como **«§37»** y se renumera a **§38** al fusionarse con
+> «Pedidos por preparar», que conserva §37 (tiene muchas más citas vivas). Va **antes** de §37 en el fichero por orden
+> de fusión, no por orden lógico. Toda cita «§37.1 (P-61)», «§37.2 (menú / P-66)» o «§37.3 (P-71)» en código, pruebas o
+> notas anteriores a la fusión se lee **§38.1 / §38.2 / §38.3**. Donde §38.2 y §37 dicen cosas distintas del menú o
+> de M4, manda **§37.0-bis**.
+
+**Nada de esta sección toca dinero:** no cambia ninguna cifra, ningún cálculo ni ningún CTA de pago; mueve
+contenedores, cambia rótulos y pinta un dato de catálogo. **Cero tokens nuevos, cero pares de contraste nuevos**
+(todo usa `text`, `muted`, `accent`, `ink`/`on-ink` ya verificados en §10 y §17.2).
+
+**Medido en el árbol (worktree `claude/paquete-pantallas`, 2026-09-28), no supuesto:**
+
+| Hecho | Dónde |
+|---|---|
+| En `≥ lg` el carrito de Vender es un `<aside>` sticky dentro de `lg:grid-cols-[minmax(0,1fr)_360px]`; el drawer y el FAB **solo se montan en `< lg`** (`isDesktopCart = useMediaQuery('(min-width: 1024px)')`) | `BuylistView.tsx:136`, `:328`, `:378-411`, `:418`, `:513` |
+| El panel fijo lleva `SellRequirementsPanel` (con sesión ausente: banner «Inicia sesión o crea cuenta para vender» + enlaces) y la nota de la guía (`quote.shippingNote`) | `SellCartContents.tsx:158`, `:165`, `:376`; `SellRequirementsPanel.tsx:26-47` |
+| La regla «exactamente una nota de la guía visible» decide el anfitrión con `isDesktopCart \|\| drawerOpen` | `BuylistView.tsx:170-174` |
+| El contenido de la página vive en `max-w-7xl` (1280 px), con columna de etiqueta vertical de 40 px y `.gutter` de 32 px en `≥ lg` | `(storefront)/layout.tsx:22`, `BuylistView.tsx:271`, `globals.css:166-170` |
+| El binder usa `grid-cols-2 sm:3 lg:4 xl:5`, `gap-x-6` — por **viewport**, no por contenedor | `MasterSetBinder.tsx:512`, `:531` |
+| El menú rotula por código («M1 · Inventario» … «M12 · Meta Battle Decks», «M2 · Bounties») en 4 grupos | `es.json:1215-1237`, `en.json:1215-1237`, `AdminSidebar.tsx:14-59` |
+| `ptcgoCode` **no aparece en `frontend/src/types/contract.ts`** ni en ningún DTO de catálogo/binder; el único «código de set» que llega al frontend es el `setCode` crudo de Limitless en decks-meta | `grep ptcgoCode frontend/src` = 0; `contract.ts:5113,5129,5254` |
+
+---
+
+### 38.1 P-61 · Vender en computadora — el catálogo a todo el ancho y el carrito bajo demanda
+
+**El problema, en números (aritmética sobre las clases medidas; ⚠ NO MEDIDO en navegador):** a 1280 px el binder
+dispone de 1280 − 40 − 360 − 64 = **816 px** para 5 columnas ⇒ tejas de **≈144 px**. A 1024 px, 560 px para 4
+columnas ⇒ **≈122 px**. Sin la columna del carrito: **≈216 px** a 1280 y **≈212 px** a 1024 — el objetivo de
+§18.2 (≥ 200 px), que es el tamaño del binder de inventario de M1 que el dueño puso de ejemplo. Es **+50 % de ancho y
+≈2.2× de área** por carta. *(Medición que lo cerraría: `getBoundingClientRect().width` de una teja a 1280×800 y
+1024×768, antes y después.)*
+
+**Decisión: el carrito vuelve a ser cajón en escritorio, y una barra inferior conserva lo que el panel daba siempre
+a la vista.** El dueño pidió «pop-up»; un modal centrado taparía las cartas que el vendedor está comparando con su
+lista. El cajón lateral de 400 px de §18.4b **ya existe y ya está probado** (focus trap, `Esc`, overlay, retorno de
+foco): solo se deja de impedir que se monte en `≥ lg`. Lo que P-42 ganó —**ver siempre cuánto llevas**— no se
+pierde: lo lleva la barra.
+
+#### (a) Breakpoints
+
+| Viewport | Catálogo | Carrito cerrado | Carrito abierto |
+|---|---|---|---|
+| `< lg` (< 1024) | sin cambios | **FAB** 56×56 (§18.4a) | bottom sheet ~92vh (§18.4b) |
+| `≥ lg` (≥ 1024) | **una sola columna**, todo el ancho | **barra inferior fija** `SellCartBar` (nueva, (b)) | **sheet lateral derecho 400 px** (min 360 / max 440) con overlay de tinta — el mismo `SellCartDrawer` |
+
+- Se **retira** el contenedor `lg:grid lg:grid-cols-[minmax(0,1fr)_360px]` y el `<aside>` del panel fijo. `<main>`
+  queda como única columna (vuelve §18.1 punto 4). `pb-24` (96 px) se conserva: cubre la barra de 64 px.
+- **Sin `useMediaQuery` para decidir el contenedor.** Hay **un solo** `SellCartDrawer` para todos los tamaños (el
+  componente ya cambia de forma por CSS en `lg:`). Los dos disparadores se montan siempre y se esconden por CSS:
+  FAB `lg:hidden`, barra `hidden lg:flex`. Así no hay destello al hidratar, ni DOM de carrito duplicado, ni dos focus
+  traps (`display:none` los saca del árbol de accesibilidad).
+- Agregar desde la grilla **no abre** el cajón (§18.4a, sin cambios); el CTA de un bounty **sí** lo abre, también en
+  escritorio.
+
+#### (b) `SellCartBar` — la barra inferior de escritorio (componente nuevo)
+
+- `fixed inset-x-0 bottom-0 z-40`, fondo papel `--color-bg`, `border-t border-border-strong`, **sin sombra** (§4.3),
+  **alto 64 px**. El contenido interior se alinea con la columna del catálogo: `mx-auto max-w-7xl`, respetando la
+  columna de etiqueta vertical de 40 px y el `.gutter`.
+- **Izquierda:** eyebrow `TU LISTA` (`cartTitle`) + `{count} carta(s)` (`cartCount`) o, vacío, la frase
+  `cartBar.empty` en `text-muted`.
+- **Centro-derecha (solo con líneas):** etiqueta mono en versalitas `VALOR DE TUS CARTAS` (`quote.money.cardsValue`)
+  + cifra mono `tabular-nums` **20 px** en tinta (un escalón bajo el héroe de 26 px del cajón: la barra informa, el
+  cajón decide). **Las tres ramas son EXACTAMENTE las del bloque de dinero** (`SellCartContents.tsx:336-352`):
+  recotizando o recotización fallida ⇒ «—» en `muted`; todo pendiente ⇒ la versalita `BuylistPendingLineLabel`;
+  si no, el importe. ⛔ Que la barra tenga su propia lógica de total es el defecto: **se extrae un solo componente o
+  helper** (`CartTotalFigure` o similar) que usan los dos. ⛔ Nunca `MX$0.00` con carrito vacío: vacío ⇒ no hay cifra.
+- **Sin sesión** (`sellReq.ready && !sellReq.isAuthenticated`), antes del botón: `cartBar.loginHint` en mono 11 px
+  `text-text` + enlace `loginCta` («Iniciar sesión», `/login?next=/buylist`, subrayado `border-accent` como hoy).
+  ⛔ Sin «Crear cuenta» aquí: la barra no tiene sitio para dos enlaces más el botón a 1024 px; el banner completo
+  (con los dos) vive en la cabecera y en el cajón — ver (c).
+- **Derecha:** botón `primary` (tinta) `cartBar.open` «Ver lista», `min-h-[44px]`, **siempre activo** (vacío da
+  acceso a los requisitos, igual que el FAB). `aria-haspopup="dialog"`, `aria-expanded={drawerOpen}`,
+  `aria-controls` al id del diálogo.
+- ⛔ La barra **no** pinta el faltante del mínimo, ni la nota de la guía, ni el botón «Enviar solicitud». Enviar
+  exige abrir el cajón, que es donde viven el mínimo, la nota y los requisitos: la decisión se toma **con todo a la
+  vista**, no desde un atajo.
+- **Contenedor:** `<section aria-label={cartBar.region}>`. ⛔ Nada de `aria-live` en la cifra: el anuncio al
+  agregar ya lo hace el `role="status"` de `addedLine`; anunciar también el total sería doble.
+- **Sin animación** al cambiar la cifra (§17.3).
+
+#### (c) Las dos cosas que no pueden esconderse — reubicadas, con la regla de «exactamente un anfitrión»
+
+El panel fijo cargaba dos mensajes que el vendedor primerizo necesita **antes** de invertir tiempo (restricción del
+cuerpo de P-61). Se reubican con la **misma** regla que ya gobierna la nota de la guía (§23.3g-bis, v2.3.8):
+**siempre exactamente una instancia visible, y la decide `BuylistView`, que es el único que ve la pantalla entera.**
+
+**1 · La nota de la guía** («Nosotros ponemos la guía… no pagas nada de tu bolsillo»). La fórmula se **simplifica**
+—se quita `isDesktopCart`—:
+
+```
+shippingNoteHost = requestOpen ? 'createStep' : drawerOpen ? 'cart' : 'header'
+```
+
+| Situación | Quién pinta la nota |
+|---|---|
+| Cajón cerrado (cualquier tamaño) | la **cabecera** (`surface="buylist-header"`, tinta `text-sm`, ya existe) |
+| Cajón abierto (cualquier tamaño) | el **bloque de dinero** del cajón |
+| Paso de crear abierto | **el suyo** (`BuylistKycForm`) |
+
+La fila «Panel fijo lateral (escritorio)» de la tabla de `BuylistView.tsx:155-160` **desaparece**. ⛔ No se pone una
+versión corta en la barra: sería la regla de D16 en letra chica (§23.3c) y una segunda instancia visible.
+
+**2 · La llamada a iniciar sesión / requisitos de cuenta** (`SellRequirementsPanel`). Nuevo anfitrión en la
+cabecera **solo en `≥ lg`**:
+
+```
+requirementsHost = drawerOpen ? 'cart' : 'header'   // la instancia 'header' lleva `hidden lg:block`
+```
+
+- **Posición en la cabecera:** después de la nota de la guía y antes del enlace «Guía de envío seguro», `mt-5
+  max-w-[640px]`. Es el mismo componente, sin cambios (banner `warning` sin sesión · aviso de correo sin verificar ·
+  checklist con sesión).
+- **En `< lg` no cambia nada**: el cajón cerrado desmonta su contenido (`SellCartDrawer` devuelve `null`), y la
+  instancia de cabecera está oculta por CSS ⇒ cero duplicados. *(Que en móvil el banner solo se vea al abrir el
+  cajón es el comportamiento actual; P-61 es de escritorio y no lo reabre.)*
+- La barra (b) lleva además el **recordatorio corto** sin sesión: la cabecera se va con el scroll y la barra no.
+  No es una copia del banner (otra frase, otra función: el banner explica, la barra recuerda).
+
+#### (d) Foco y teclado
+
+- Orden de tabulación de la página: cabecera (incluido el banner de requisitos) → vitrina de bounties → binder →
+  pie de página → **barra** (o FAB en `< lg`). Igual que el FAB: el disparador fijo va **después** del contenido
+  (§18.8), sin `tabindex` positivos.
+- **Retorno de foco:** al cerrar el cajón, el foco vuelve **al disparador que lo abrió** — la barra en `≥ lg`, el
+  FAB en `< lg`. Si lo abrió el CTA de un bounty, vuelve a **ese** CTA. `returnFocusRef` deja de ser fijo al FAB.
+- Dentro del cajón, nada cambia (§18.4b): cerrar → requisitos → líneas → total → CTA → vaciar.
+
+#### (e) Textos nuevos (propiedad de frontend; se copian sin interpretar)
+
+| Clave | ES | EN |
+|---|---|---|
+| `buylist.cartBar.region` | «Resumen de tu lista de venta» | “Your sell list summary” |
+| `buylist.cartBar.empty` | «Vacía. Elige cartas del catálogo para agregarlas.» | “Empty. Pick cards from the catalog to add them.” |
+| `buylist.cartBar.open` | «Ver lista» | “View list” |
+| `buylist.cartBar.loginHint` | «Para enviar tu solicitud necesitas cuenta.» | “You need an account to submit your request.” |
+
+Se **reutilizan** sin cambio: `cartTitle`, `cartCount`, `quote.money.cardsValue`, `loginCta`,
+`cartDrawer.ariaLabel`, `cartDrawer.close`. ⛔ Ninguna cadena nueva lleva cifras ni habla de envío.
+
+#### (f) Qué NO hacer
+
+- ⛔ Modal centrado para el carrito (tapa las cartas que se están comparando).
+- ⛔ Panel plegable que al abrirse **empuja** la grilla (reflujo de 200 tejas a mitad de lectura; es el salto que H1
+  eliminó).
+- ⛔ Dos `SellCartDrawer` o dos `SellCartContents` montados a la vez.
+- ⛔ Recordar abierto/cerrado entre visitas: el cajón nace cerrado siempre (la lista sí persiste, §33.11).
+
+#### (g) Candados sugeridos (frontend los escribe con la pantalla; QA mide a 1280×800 y 1024×768)
+
+- **P61-1** a `≥ lg` no existe `aside` de carrito ni la clase `lg:grid-cols-[minmax(0,1fr)_360px]`; la teja mide
+  ≥ 200 px de ancho.
+- **P61-2** con cajón cerrado hay **exactamente una** `[data-testid="buylist-shipping-note"]` visible
+  (`data-note-surface="buylist-header"`); con cajón abierto, exactamente una (`cart-money`).
+- **P61-3** sin sesión, a `≥ lg` con cajón cerrado, el banner `loginToSellTitle` está visible en la cabecera **y**
+  `cartBar.loginHint` en la barra; al abrir el cajón, el banner de cabecera se desmonta.
+- **P61-4** con líneas recotizando, barra y cajón pintan «—» los dos (mutación: dar a la barra su propio cálculo del
+  total ⇒ rojo).
+- **P61-5** cerrar el cajón con `Esc` devuelve el foco al botón de la barra (y al FAB en `< lg`).
+
+---
+
+### 38.2 P-66 I2 · El menú del panel — nombres, no códigos
+
+**Alcance:** solo los **rótulos del menú**, los **grupos** y los **títulos de página** (`h1`). Lo demás de P-66 (B1
+M5, B3 identificadores, I1 dashboard, I3–I6) queda fuera. **Respeta las respuestas del dueño del 2026-09-08**
+(`PENDIENTES.md`, P-66): la etiqueta **«SÚPER» se queda** en las filas de súper-admin; y **«beta cerrada» se
+corrige ya** (el dueño no dictó texto: se propone en (d)).
+
+#### (a) Reglas
+
+1. **El código M-n deja de verse.** Sobrevive solo en la **ruta** (`/admin/m5`) y en la **clave i18n**
+   (`admin.modules.m5`): renombrar rutas no gana nada y rompe enlaces guardados.
+2. **Título de la página = rótulo del menú, carácter por carácter.** Medido en P-66: difieren en 6 de 12. Si una
+   página necesita más contexto, va en el **subtítulo**, no en el `h1`.
+3. **Nombres de tarea, en el vocabulario del dueño.** Él buscó las solicitudes de venta **por ese nombre** y no las
+   encontró bajo «Buylist» (P-66 I2) ⇒ «Solicitudes de venta». Él llama «Ventas» a M3 y «Config» a M10 (respuestas
+   del 2026-09-08).
+4. **Grupos por lo que se hace, no por el área técnica.** El grupo de trabajo diario va primero.
+
+#### (b) El menú
+
+`Resumen` va solo arriba, sin rótulo de grupo. Dentro de cada grupo, por frecuencia de uso conocida.
+
+| Grupo (clave → ES / EN) | Entrada | Ruta | ES (menú = `h1`) | EN (menú = `h1`) | SÚPER |
+|---|---|---|---|---|---|
+| — | dashboard | `/admin` | **Resumen** | **Overview** | |
+| `daily` → **Día a día** / **Daily work** | m5 | `/admin/m5` | **Solicitudes de venta** | **Sell requests** | |
+| | m3 | `/admin/m3` | **Ventas** | **Sales** | |
+| | m4 | `/admin/m4` | **Pedidos por preparar** ~~Preparar y enviar~~ | **Orders to prepare** ~~Pick & ship~~ | |
+| | m8 | `/admin/m8` | **Disputas** | **Disputes** | |
+| `stock` → **Existencias** / **Stock** | m1 | `/admin/m1` | **Inventario** | **Inventory** | |
+| | m11 | `/admin/m11` | **Sellado** | **Sealed** | |
+| | vaults | `/admin/vaults` | **Bóvedas de clientes** | **Customer vaults** | |
+| `storefront` → **Tienda** / **Storefront** | m2 | `/admin/m2` | **Catálogo y precios** | **Catalog & pricing** | ✓ |
+| | m2Bounties | `/admin/m2/bounties` | **Bounties** | **Bounties** | ✓ |
+| | m12 | `/admin/m12` | **Meta Battle Decks** | **Meta Battle Decks** | |
+| `administration` → **Administración** / **Administration** | m7 | `/admin/m7` | **Finanzas** | **Finance** | ✓ |
+| | m9 | `/admin/m9` | **Reportes** | **Reports** | ✓ |
+| | m6 | `/admin/m6` | **Usuarios** | **Users** | ✓ |
+| | m10 | `/admin/m10` | **Configuración** | **Settings** | ✓ |
+
+**Por qué así (lo que no es obvio):**
+
+- ~~**«Preparar y enviar»** y no «Retiros»: M4 es hoy, sobre todo, «Pedidos a preparar» (§35) y la cola de envíos;
+  «Retiros» nombraba una sola de sus tres colas. Verbo porque es trabajo físico.~~ **Superado (2026-09-29):** el dueño
+  eligió **«Pedidos por preparar» / “Orders to prepare”** para menú y título (`HECHOS.md` 2026-09-29, «La sección M4
+  del panel se llama «Pedidos por preparar»… ux-ui había propuesto «Preparar y enviar»»). Sin código «M4» delante
+  (regla 1 de (a)); detalle en §37.1 y §37.0-bis. Sigue valiendo que «Retiros» no nombra la sección.
+- **Entradas nuevas de §37 (dinero de súper-admin):** «Reembolsos manuales (SPEI)» (`manualRefunds`,
+  `/admin/manual-refunds`) y, si el menú la lleva, «Reembolsos de operadores» (`refunds`, `/admin/refunds`) no
+  estaban en esta tabla cuando se escribió. Su grupo lo fija §37.0-bis (C3).
+- **«Existencias»** como grupo y no «Inventario»: un grupo «Inventario» con una entrada «Inventario» dentro se lee
+  como error. «Sellado» sigue su propio nombre (su `h1` ya es «Sellado», `es.json:2878`).
+- **«Tienda»**: los tres destinos deciden **qué ve y qué paga** el cliente en la tienda (precios, bounties, decks).
+  «Meta Battle Decks» conserva el nombre que el dueño aprobó al renombrarlo (PR #56).
+- **«Administración»** agrupa exactamente las cuatro entradas de súper-admin de dinero y cuentas: cuando entre el
+  operador (el dueño dijo «pronto»), su menú útil son los tres primeros grupos.
+- **«Resumen»** y no «Dashboard»: el resto del menú está en español; «Inicio» se confundiría con la home de la
+  tienda.
+- Se **conserva** el mecanismo de ruta activa (`isActiveHref`, «gana la más específica»): el orden nuevo no lo toca.
+
+#### (c) Barrido de copy — las referencias a códigos que quedarían colgando
+
+Un texto que dice «se enciende en **M10**» cuando el menú ya no dice «M10» manda al operador a buscar algo que no
+existe. **Va en el mismo pase que el menú, no después.** Sustitución: el código (con o sin «· nombre») pasa al
+**nombre nuevo** de la tabla (b), entre comillas latinas si va dentro de frase.
+
+Medido en `es.json` (2026-09-28; `en.json` en las mismas claves — frontend coteja): `1223-1236` (menú), `1267`,
+`1393`, `1400`, `1455`, `1483`, `1655`, `1927`, `1941`, `2210`, `2216`, `2219`, `2249`, `2257`, `2267`, `2292`,
+`2669`, `2947`, `3129`, `3135`, `3165-3172` (líneas largas, revisar), `3238`, `3282`, `3446`.
+Ejemplos: «Se enciende y se apaga en M10 · Config.» → «Se enciende y se apaga en «Configuración».» · «…viven ahora en
+M11 · Sellado.» → «…viven ahora en «Sellado».» · «…entra a reposición (M7).» → «…entra a reposición («Finanzas»).» ·
+«…en M2 · Precios › Capturar estimado a mano.» → «…en «Catálogo y precios» › Capturar estimado a mano.»
+**Comprobación barata:** `grep -nE '\bM1?[0-9]\b' frontend/messages/{es,en}.json` = **0** tras el pase.
+
+#### (d) «Beta cerrada» y las metas N/X/Y/Z en M9 (el texto que el dueño pidió corregir)
+
+Las metas **no existen** (respuesta del dueño) y la tienda **está en producción**. Se dice eso, sin álgebra:
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m9.metrics.title` | «Actividad de la tienda» | “Store activity” |
+| `admin.m9.metrics.subtitle` | «Conteos en el rango de fechas elegido.» | “Counts for the selected date range.” |
+| `admin.m9.goalsUnset` | «Todavía no hay metas fijadas: se muestran solo los conteos.» | “No goals set yet: showing counts only.” |
+
+⛔ No se toca aquí la tarjeta «Progreso de lanzamiento» del Resumen (I1: decisión de product-owner) ni el futuro de
+M9 (P-67).
+
+#### (e) Qué NO hacer
+
+- ⛔ Dejar el código como prefijo «discreto» (gris, mono): sigue empujando el nombre y sigue sin ordenar nada.
+- ⛔ Iconos para compensar: el sidebar los quitó a propósito (dirección 5a).
+- ⛔ Renombrar rutas o claves i18n.
+- ⛔ Quitar «SÚPER» (decisión del dueño).
+
+#### (f) Candados sugeridos
+
+- **P66-1** ningún rótulo de `admin.modules.*` casa con `/^M\d/`.
+- **P66-2** para cada entrada del menú, el `h1` de su página es igual a `t('admin.modules.<key>')` (una prueba por
+  ruta; mutación: volver a «M3 · Ventas / órdenes» ⇒ rojo).
+- **P66-3** el `grep` de (c) da 0 en `es.json` y en `en.json`.
+
+---
+
+### 38.3 P-71 · El código corto del set junto a las cartas
+
+**Lo que pidió el dueño (2026-09-09):** *«en los sets cuando estamos viendo las imágenes pongamos el código chico que
+viene en las cartas»*. Es la sigla impresa en el cartón (TWM, SVI, POR…), la que usan los jugadores y las listas.
+
+#### (a) ⛔ El dato NO llega hoy al frontend — petición al arquitecto (regla 9)
+
+Medido: `CardSet.ptcgoCode` se guarda (`PENDIENTES.md` P-71; `schema.prisma`) y lo usa el emparejador de decks, pero
+**ningún DTO de catálogo ni de binder lo publica**: no está en `CardDTO`, `SetRefDTO`, `SetPartDTO`,
+`MasterSetSummaryDTO`, `CardSetDTO` ni `BuylistSetDTO` (`contract.ts:166-201`, `:304-309`, `:588-631`,
+`:1932-1969`, `:2212-2219`). **Sin cambio de contrato, esta sección no se puede implementar.** Lo que el diseño
+necesita (nombres a criterio del arquitecto):
+
+| Superficie | DTO | Campo que hace falta |
+|---|---|---|
+| Cabecera del binder (cotizador, M1, bóveda de cliente) | `SetRefDTO` (el `set` de `MasterSetBinderResponse`) | `ptcgoCode: string \| null` |
+| Separador de parte en masters combinados (Celebrations) | `SetPartDTO` | `ptcgoCode: string \| null` |
+| Tejas de Compra, ficha de carta | `CardDTO` | `setPtcgoCode: string \| null` |
+| Índice de sets (tejas + «Buscar set») | `MasterSetSummaryDTO` y `BuylistSetDTO` | `ptcgoCode: string \| null` |
+
+- **Clave siempre presente, valor nullable** (mismo patrón que `logoUrl`, §24): la ausencia es **normal y
+  permanente** para promos y sets viejos.
+- Cadena vacía o de solo espacios ⇒ `null` en el servidor. Mayúsculas tal como vienen del proveedor.
+- **Un solo nombre para el mismo hecho:** decks-meta ya usa `setCode` para el código **crudo de Limitless**
+  (`contract.ts:5113`). Si el de catálogo se llamara también `setCode`, dos fuentes distintas tendrían el mismo
+  nombre. De ahí la sugerencia `ptcgoCode` / `setPtcgoCode` — decide el arquitecto.
+- Las celdas del binder **no** necesitan campo: heredan el código del `set` o de su `part`.
+
+⚠ **Lo que hay que medir antes de prometerlo al dueño (NO MEDIDO):** cuántos sets tienen el código, y si los
+**recientes** —los que el dueño nombra— lo traen igual al impreso. Indicios de que puede faltar o diferir: el mock
+de decks-meta modela `MEG` como «set sin ptcgoCode en catálogo» y `DEVOPS_NOTES.md:3020` busca Pitch Black por
+`ptcgoCode='ME05'`. Consulta de solo lectura que lo cierra:
+`SELECT name, "releaseDate", "ptcgoCode" FROM "CardSet" ORDER BY "releaseDate" DESC NULLS LAST LIMIT 15;` más
+`SELECT count(*) FILTER (WHERE "ptcgoCode" IS NOT NULL), count(*) FROM "CardSet";`. Si los recientes vienen vacíos
+o con otra sigla, la pantalla **no lo arregla**: es una decisión de datos (¿captura manual?) para product-owner.
+
+#### (b) Formato
+
+- **`TWM 130`**: código + espacio **no separable** + número, tal como los jugadores escriben una lista. Mono
+  (`font-mono`), mayúsculas tal como llegan, `tabular-nums`, `lang="en"`.
+- Sin código ⇒ **se omite** y queda lo de hoy (`#130`). ⛔ Nunca un guion, «N/A» ni una sigla deducida del nombre o
+  del `externalId` («sv6» no es un código impreso). Misma regla que el precio: sin dato, no se finge.
+- **Una sola forma en toda la tienda:** la línea de decks-meta hoy pinta `{set} · {number}` («TWM · 130»,
+  `decksMeta.detail.cardCode`, `es.json:4151`, usada en `DeckAvailability.tsx:125`). Se alinea a `TWM 130` en el mismo pase (una clave, ES/EN).
+
+#### (c) Dónde se pinta, con qué jerarquía
+
+| Superficie | Dónde exactamente | Forma |
+|---|---|---|
+| **Cabecera del binder** (el caso que pidió el dueño) | Junto al nombre del set, en la misma línea base: «Twilight Masquerade  **TWM**» | mono 13 px, `text-muted`, `tracking-label`; separado del nombre por 12 px de aire (sin «·»). Nunca más grande que el nombre |
+| **Separador de parte** (masters combinados) | Tras la etiqueta de la parte: «Classic Collection  **{código de esa parte}**» (no medí qué código trae `cel25c`) | igual que la cabecera, a la escala del separador |
+| **Teja del binder** (cotizador, M1, bóveda) y **teja de Compra** | En la línea de número, sustituye a `#130`: «**TWM 130** · REVERSE HOLO» | mono 10 px, **mismo color que hoy el número**; el acabado sigue en `text-text` (§18.2) |
+| **Ficha de carta** | En la línea del set: «Twilight Masquerade · **TWM 130**» | mono, tamaño de la línea |
+| **Índice de sets** | Bajo el nombre, en la teja de §24.3 | mono 11 px `text-muted` |
+| **«Buscar set»** | Casa también por código, sin distinguir mayúsculas («por» encuentra Perfect Order) | — |
+| **Línea del carrito de venta** | Primer elemento de la línea mono: «**TWM 130** · Estimado c/u MX$… · RH · ×2» | mono 10 px `text-muted`; la línea ya hace `flex-wrap` |
+
+- En la teja se repite el código en cada carta aunque todas sean del mismo set: **es a propósito** — es como viene
+  impreso, y la carta se identifica sola cuando sale del binder (carrito, ficha, captura de pantalla).
+- **Fuera de este pase:** carrito de **compra**, checkout y pedidos. Sus líneas son hechos **congelados**
+  (`FrozenCardFacts`, §5.2 del contrato): añadir un campo ahí es otra conversación, con dinero cerca.
+- La línea del carrito de venta que entra por un **bounty** no trae el dato (`PublicBountyDTO`): se omite, sin
+  error. Si se quiere, es un campo más para el arquitecto (no bloquea).
+
+#### (d) Accesibilidad y contraste
+
+- Texto real (no imagen, no `::before`), leído en su orden. ⛔ Sin `aria-hidden`: es información.
+- ⛔ Sin `title`/tooltip para «explicar» la sigla: el nombre del set está al lado en cabecera, ficha e índice.
+- Colores ya verificados: `muted` sobre papel ~4.8:1, `text` ~15:1 (§10). **Cero pares nuevos.**
+
+#### (e) Candados sugeridos
+
+- **P71-1** con `ptcgoCode: null`, la teja pinta `#130` y **ningún** «—» ni «null» (mutación: pintar
+  `code ?? '—'` ⇒ rojo).
+- **P71-2** con código, la teja pinta `TWM 130` y la cabecera del binder `TWM`.
+- **P71-3** «Buscar set» con `por` encuentra el set de código `POR`.
+
+---
+
+## 37. «Pedidos por preparar» — preparar ENVÍOS, la carta que falta, «Por reponer», la cubeta SPEI y el reembolso total de bóveda (v4.9, 2026-09-29 · `API_CONTRACT §M4-SHIP` v1.80.5)
+
+### 37.0 Fuente, alcance, lo medido y las reglas duras
+
+**Fuente de producto:** decisiones del dueño del 2026-09-29 (`PROJECT §S.10`, criterios **215–233**; `HECHOS.md`).
+**Norma técnica:** `API_CONTRACT §M4-SHIP.1–.18` (v1.80 → v1.80.5, todas del 2026-09-29), en especial las listas de
+copys que el contrato deja a ux-ui en `§M4-SHIP.14` (tres tablas), `§M4-SHIP.17.10` y `§M4-SHIP.18.9`. **Esta sección
+se escribe ANTES de la pantalla** (a diferencia de §35): es un encargo, no un acta.
+
+**Lo que medí antes de redactar (2026-09-29, worktree `claude/envio-preparar`, HEAD `98ae8b0`; sin Bash, lectura de
+ficheros):**
+
+| Medición | Resultado |
+|---|---|
+| `DESIGN_SYSTEM.md` §37 | **No existía** (la última sección era §36.17). El encargo cita «§37.2b» para el menú: se cubre en **§37.1** de esta sección nueva |
+| Nombre vivo de M4 en `es.json` | `admin.modules.m4` = **«M4 · Retiros»** (`:1226`); `admin.m4.title` = **«M4 · Retiros / envíos»** (`:1483`); `admin.m4.prep.title` = **«Pedidos a preparar»** (`:1516`). Los tres **fallan** el criterio 215 |
+| Cubetas y palomeo de bóveda | `admin.m4.prep.filterAll/filterShip/filterVault` («Ambas · Solo envío · Solo bóveda», `:1519-1521`); `admin.m4.prep.vault.item.{pick,miss,undo,picked,missing,missingBody,blocked}` (`:1579-1589`) — el patrón de §36.5 **existe** y §37.3 lo extiende, ⛔ no lo duplica |
+| Rótulos de estado público del seguimiento | `status.tracking.{pendingPayment,paid,preparing,label,shipped,delivered,refunded,cancelled,inReview}` (`:3793-3803`) — **se reusan** en el detalle del cliente (§37.12) |
+| `status.order.settled` | «Liquidada» (`:3715`) — es el rótulo **interno** que el criterio 230 prohíbe en el pedido del cliente |
+| Acciones de la cola de envíos | `admin.m4.statusActions.{enviado,entregado,cancelado,cancelTitle,cancelConfirm,cancelBody}` (`:1506-1514`): «Marcar enviado» y «Marcar entregado» **sin confirmación**; «Cancelar» con diálogo genérico |
+| Texto del 429 de login que cita el encargo («Demasiados intentos con este correo. Vuelve a intentarlo en 1 min o restablece tu contraseña.») | **No está en este worktree**: `grep` de «con este correo» en `frontend/messages/*.json` y en `API_CONTRACT.md` da solo cadenas de checkout/reclamo (`es.json:569,1072,1134,3931`). Lo que hay hoy para 429 es `verifyEmail`/`account.password.rateLimited` = «Demasiados intentos. Espera un minuto.» (`:195`). El texto de `C7` lo fijo en **§37.13** como **nuevo**, ⛔ no como confirmación de uno que no medí |
+| `C7` en `SECURITY_NOTES.md:2860-2865` | «login y google por correo normalizado (p. ej. 10/15 min)» — la ventana es un **ejemplo**, no un valor fijado ⇒ el copy **no dice cuántos minutos** (criterio 207) |
+
+**Cero tokens nuevos.** Todo sale de §2–§8, §26 (audiencia `operator`), §31 (correos), §35 y §36.
+
+**Las reglas duras (se revisan en el PR):**
+
+| # | Regla | De dónde sale |
+|---|---|---|
+| **S1** | **Ninguna cifra la calcula la pantalla.** Lo que se devuelve por carta, el total, el reparto tarjeta/transferencia, las referencias, los topes y «vencido» **llegan del servidor** y se pintan tal cual. ⛔ Ni sumar, ni restar, ni comparar fechas para decidir un estado | criterios 220, 226, 227, 228 · `§M4-SHIP.3` (`refundPreviewCents`), `.15.5`, `.15.12` |
+| **S2** | **El operador confirma la cifra que vio**, y la ve en el botón que la ejecuta. Un cambio entre ver y confirmar (`409 REFUND_PREVIEW_STALE`) **se enseña con la cifra nueva** y se vuelve a pedir la confirmación; nunca se reintenta solo | criterio 220 · `§M4-SHIP.5` paso 7 |
+| **S3** | **Un campo de dinero editable existe en UNA sola pantalla**: la captura del súper-admin en «Por reponer» (§37.8d). En todo lo demás el importe es texto | criterios 218, 227 · `§M4-SHIP.4` («jamás llega en el cuerpo») |
+| **S4** | **Cada `409`/`422`/`403` tiene copy propio con audiencia `operator`** (§26) y dice **qué no se escribió** y **cuál es el remedio** (o quién lo atiende). ⛔ Nada cae a «Algo salió mal»; ⛔ nada en `error.CONFLICT*` genéricos (§35.15.3) | §26, §35.15.3 · `§M4-VAULT.7` V8 |
+| **S5** | **La CLABE nunca en claro** salvo en la vista del reveal, tras pulsar «Revelar CLABE», y ⛔ nunca en lista, título, `aria-label`, bitácora visible, correo ni impresión. Máscara = `clabeMasked` del servidor | criterio 229 · `§M4-SHIP.15.13`, `.17.3` |
+| **S6** | **Nada del operador mueve dinero fuera de «Pedido preparado» y «Reintentar reembolso»** (y ninguno de los dos existe como control para un caso «Por reponer» ni en SPEI). Los verbos de súper-admin **no se pintan apagados** al operador: **no se pintan** | criterio 221 · `§M4-SHIP.8` |
+| **S7** | **Los avisos al cliente no llevan actor, componentes, motivo interno, referencias de mercado ni CLABE.** En pantalla del cliente lo mismo | criterios 218, 227, 229, 230 · `§M4-SHIP.10`, `.15.7` |
+| **S8** | **Toda ausencia tiene nombre** (§35.6a, §32.4): sin origen, sin mercado, sin CLABE, sin clave de rastreo, sin nombre — ⛔ nunca «—» mudo ni el `null` | §35.6a |
+| **S9** | **Confirmación antes de todo acto irreversible** de la cola de envíos: enviado, entregado, cancelar un `solicitado`, deshacer preparado, «Apareció», anular, reembolsar, marcar pagada, cancelar/re-emitir una transferencia, reclamar. ⛔ Sin confirmación para palomear ni para «Pedido preparado» **sin** faltantes (es reversible) | criterios 216, 222 · el encargo («auditoría del operador: hoy no las hay») |
+
+---
+
+### 37.0-bis Consolidación con §38 (P-66, menú del panel) — fusión del 2026-09-29
+
+Esta sección y §38 (entonces «§37», paquete P-61 · P-66 · P-71) se escribieron **a la vez en ramas distintas**; la
+medición de §37.0 («§37 no existía») era cierta en `claude/envio-preparar` y no lo es tras la fusión. Donde dicen cosas
+distintas, **manda esta tabla**; el texto superado se deja tachado o señalado en su sitio, no se borra.
+
+| # | Punto | Regla vigente | Superado | Fuente |
+|---|---|---|---|---|
+| **C1** | Rótulo de M4 en el menú (`admin.modules.m4`) | **«Pedidos por preparar» / “Orders to prepare”**, **sin** «M4 ·» delante. El `<h1>` de `/admin/m4` es **el mismo texto** (§38.2 regla 2), y así la tarjeta del tablero, las migas y el `<title>` | «M4 · Pedidos por preparar» / “M4 · Orders to prepare” (§37.1, §37.2 y §37.16 de esta sección) · «Preparar y enviar» / “Pick & ship” (§38.2) | `HECHOS.md` 2026-09-29 «La sección M4 del panel se llama «Pedidos por preparar»…», (a) «Menú y título de página: «Pedidos por preparar» / en: «Orders to prepare»» · §38.2 (a) regla 1: el código M-n no se ve en el menú |
+| **C2** | Códigos «M-n» dentro de los copys nuevos de esta sección | Se aplica el barrido de §38.2 (c) **en el mismo pase**: el código pasa al nombre del menú de §38.2 (b), entre comillas latinas. **M3 → «Ventas» / “Sales”**; **M10 → «Configuración» / “Settings”**. Ej.: «Lo atiende el súper-admin en Pedidos (M3).» → **«Lo atiende el súper-admin en «Ventas».»** · «…el súper-admin resuelve ese pedido en M3.» → **«…en «Ventas».»** · «…sube el límite en Ajustes (M10)…» → **«…en «Configuración»…»**; EN “in Orders (M3)” → **“in “Sales””**, “in Settings (M10)” → **“in “Settings””**. Vale para §37.3c, §37.4, §37.8c/d, §37.9 y las filas equivalentes de §37.16. Las menciones «M3»/«M4» del **texto de diseño** (no de copy) se quedan: nombran el módulo para quien implementa | los literales con «(M3)», «en M3», «(M10)» y «M3 · Órdenes» de esta sección | §38.2 (c) y su candado **P66-3** (`grep -nE '\bM1?[0-9]\b'` = 0 en `es.json`/`en.json`), que los literales de §37 pondrían en rojo. `HECHOS.md` no decide este punto |
+| **C3** | Sitio en el menú de «Reembolsos manuales (SPEI)» (`admin.modules.manualRefunds`) y, si se pinta como entrada, «Reembolsos de operadores» (`admin.modules.refunds`) | Grupo **«Administración» / “Administration”**, justo **después de «Finanzas»**, con la etiqueta **SÚPER**; el badge `manualRefundsBadge` no cambia. La cercanía a M3 que buscaba §37.9 la dan los enlaces de entrada desde el detalle de «Ventas» (§37.9, §37.11a), que no cambian | «en el grupo de dinero junto a «M3 · Órdenes»» (§37.2, §37.9) | §38.2 (a) regla 4 y (b) «Administración agrupa exactamente las entradas de súper-admin de dinero y cuentas»; S6 (al operador no le aparece). `HECHOS.md` no decide este punto: **consolidación de ux-ui, a confirmar** |
+| **C4** | Numeración | Esta sección **conserva §37**; la del paquete pasa a **§38** (se cita «§38.1–§38.3»). Sin cambio de contenido | «§37.1–§37.3» para P-61/P-66/P-71 | orden de fusión; esta sección tiene muchas más citas vivas en el documento y en `frontend/` |
+
+**Qué NO cambia por la consolidación:** ninguna cifra, regla de dinero, control, rol ni candado de esta sección; el
+criterio 215 (⛔ «Retiros», «Pedidos a preparar», «picking» como nombre de M4) sigue igual, y **PS-UI-2** es compatible
+con C1 (busca «Pedidos por preparar», que sigue ahí). Los candados de §38.2 (**P66-1..3**) pasan a cubrir también
+`admin.modules.m4`, `manualRefunds` y los copys de esta sección.
+
+---
+
+### 37.1 El nombre — «Pedidos por preparar» / “Orders to prepare” (criterio 215)
+
+**Dónde cambia, con su clave** (todas existentes salvo las marcadas *nueva*; ES/EN en la tabla de §37.16):
+
+| Superficie | Clave | Hoy (medido) | Ahora |
+|---|---|---|---|
+| Menú lateral (`admin.modules`) | `admin.modules.m4` | «M4 · Retiros» | **«Pedidos por preparar»** / “Orders to prepare” — ~~«M4 · Pedidos por preparar» / “M4 · Orders to prepare”~~ superado por §37.0-bis C1 (sin código en el menú) |
+| Título de la página `/admin/m4` (`<h1>`) | `admin.m4.title` | «M4 · Retiros / envíos» | **«Pedidos por preparar»** / “Orders to prepare” (= rótulo del menú, §38.2 regla 2; ~~«el código «M4» ya va en el menú»~~: ya no va, §37.0-bis C1) |
+| Título del bloque de preparación (`<h2>`) | `admin.m4.prep.title` | «Pedidos a preparar» | **«Pedidos por preparar»** / “Orders to prepare” |
+| Migas (si el shell las pinta) y `<title>` del documento | las mismas claves | — | «Pedidos por preparar» |
+| Tarjeta del tablero (`workQueue.toPrepare`) | `admin.dashboard.toPrepare.title` *(nueva o la que hoy titule esa tarjeta — NO MEDIDO)* | — | **«Pedidos por preparar»** |
+| Hoja imprimible (§37.11c) | `admin.m4.print.title` *(nueva)* | — | **«Pedidos por preparar · hoja de preparación»** |
+| Badge del menú (`aria-label`) | `admin.modules.m4Badge` *(nueva)* | — | **«{count, plural, one {# pedido por preparar} other {# pedidos por preparar}}»** |
+
+**Regla de lectura del criterio 215, para que nadie borre de más:** lo prohibido **de cara al operador** es que la
+**sección M4** se llame «Retiros» o «Pedidos a preparar», y la palabra «picking». **No** está prohibido el sustantivo
+«retiro» para nombrar el retiro de un cliente (la tarjeta dice «Retiro de bóveda», §35.3; M7/M8 dicen «Retiros sin
+disputa», `es.json:1264,3296`, que son otra cosa). ⛔ Frontend no hace un `sed` de «Retiro» por todo el back-office.
+
+**«Orders to prepare», ⛔ no “Orders to pick”:** «pick» es la palabra que el criterio 215 saca de la vista del
+operador; en inglés se conserva la misma disciplina.
+
+---
+
+### 37.2 La página `/admin/m4` — tres pestañas, y por qué (cierra **P-10** de §35.13)
+
+Hoy la página apila la cola administrativa de envíos y, debajo, «Pedidos a preparar» (`M4View.tsx:331`, medido en
+§35.13 P-10: *el operador que va a preparar hace scroll por una lista que no es la suya*). Con «Por reponer» serían
+**tres** listas de naturaleza distinta en una columna. Se resuelve con **pestañas de página** (`Tabs`, §6.6,
+`role="tablist"`, `?tab=` como en `VaultView`, §33.4):
+
+| Pestaña | `?tab=` | Qué lista | Badge |
+|---|---|---|---|
+| **«Preparar»** / “Prepare” *(por defecto)* | `preparar` | §35 + §36 + §37.3: tarjetas por pedido, con el filtro de cubetas de §35.7 **intacto** | `summary.ship + summary.vault` |
+| **«Por reponer»** / “To replace” | `reponer` | §37.8: casos abiertos (lo más viejo primero) | `summary.toReplace`; si `toReplaceOverdue > 0`, el badge va en **`text-accent`** y añade «· {n} vencidos» |
+| **«Envíos»** / “Shipments” | `envios` | la cola administrativa de hoy (`admin.m4.queueTitle` «Cola de envíos de clientes»): estado, guía, enviado/entregado, búsqueda (§37.6, §37.11) | sin badge (no es «por hacer»: es administración) |
+
+- **Orden de tabulación** = orden visual. La pestaña activa lleva `aria-selected`; el conteo va **dentro** del nombre
+  accesible («Preparar, 7 pedidos»), ⛔ no como nodo hermano sin espacio (§35.10, regla del aire).
+- **El badge del menú lateral** («Pedidos por preparar»; §37.0-bis C1) suma **envíos sin preparar + colocaciones pendientes +
+  casos por reponer** (criterio 232); punto `text-accent` a la derecha si hay vencidos. El sondeo es **el del
+  contrato** (`GET …/picking-list/summary`: al cargar, al volver el foco y cada 60 s con la pestaña visible). ⛔ Sin
+  campana, sin sonido, sin «nuevo» que se quede encendido: el número **es** el aviso (criterio 232, `§M4-SHIP.11`).
+- **Un pedido nuevo mientras se mira la lista** se anuncia por la región `role="status"` de conteo que §35.10 exige
+  siempre montada: «{n} pedidos por preparar» cambia y se oye. ⛔ La lista **no** reordena bajo el dedo mientras un
+  botón de la tarjeta está en *loading*.
+- **Cubeta SPEI: ⛔ no es pestaña de aquí.** Es dinero saliente y solo súper-admin; vive como **página propia** en el
+  menú de súper-admin (§37.9; `§M4-SHIP.15.11`; grupo y posición: §37.0-bis C3 — ~~«grupo de dinero, junto a «M3 ·
+  Órdenes»»~~). Al operador **no le aparece** ni en menú ni en
+  tablero (S6).
+
+---
+
+### 37.3 La tarjeta de ENVÍO se vuelve interactiva — mismo esqueleto que §36, con tres diferencias
+
+**Lo que NO cambia:** los cuatro planos de §35.3, la ubicación en columna (§35.4), la dirección para transcribir
+(§35.5), el titular (§35.6/§36.4: ahora `customer.fullName`, comprador), «Retiro de bóveda» en el lugar del folio,
+las ausencias con nombre, el vacío y el `409` de fila corrupta (§35.8, §35.15).
+
+**Lo que cambia — a · b · c:**
+
+#### 37.3a La línea de paso (plano 3) y el pie
+
+Como en §36.2, una versalita dice en qué paso está el pedido. Para envío:
+
+| `preparation.status` | Línea de paso ES | EN |
+|---|---|---|
+| `in_progress` | **«Paso 1 de 2 · Junta y palomea»** | “Step 1 of 2 · Collect and check off” |
+| `prepared`, `kind='guest_direct_ship'` o retiro sin casos abiertos | **«Paso 2 de 2 · Empaca y captura la guía»** | “Step 2 of 2 · Pack and enter the tracking number” |
+| `prepared` y `openReplacements > 0` (retiro) | **«Paso 2 de 2 · Esperando reposición ({n})»** en `text-accent` | “Step 2 of 2 · Waiting for a replacement ({n})” |
+
+El pie del **paso 1** lleva **«Pedido preparado»** (§37.4). El pie del **paso 2** lleva **«Capturar guía»** (abre el
+mismo diálogo de `admin.m4.tracking.*` que la cola de envíos — ⛔ no un segundo formulario) y **«Deshacer preparado»**
+(fantasma, §37.5). Con `openReplacements > 0`, «Capturar guía» va **deshabilitado** con la razón unida por
+`aria-describedby`: **«Este retiro espera {n, plural, one {# carta que se está reponiendo} other {# cartas que se están
+reponiendo}}. Cuando cada caso se resuelva, sale completo. Ver en «Por reponer».»** / “This withdrawal is waiting for
+{n, plural, one {# card being replaced} other {# cards being replaced}}. Once every case is resolved, it ships
+complete. See “To replace”.” — con enlace a la pestaña filtrada por este retiro. *(Es un control construido con una
+condición del servidor: apagarlo con razón visible es lo que §36.6 ya permite.)*
+
+#### 37.3b Palomear en TRES estados — el control (vale para envío y bóveda)
+
+Sobre la tabla de §36.5, la fila **pendiente** tiene **tres** botones de texto (`Button size="sm"`, `min-h-[44px]`):
+**«La tengo»** (secundario) · **«No la encontré»** (fantasma) · **«Llegó dañada»** (fantasma). Las marcas:
+
+| Estado | Versalita | Frase debajo (`text-sm text-text`) — ENVÍO DIRECTO | — RETIRO |
+|---|---|---|---|
+| `picked` | **«Tomada»** (tinta) | — | — |
+| `missing` · `not_found` | **«Faltante»** (`text-accent`) | la línea de dinero de §37.3c | **«Al dar el pedido por preparado se abrirá un caso «Por reponer» a nombre del cliente. La carta sigue siendo suya.»** |
+| `missing` · `damaged` | **«Dañada»** (`text-accent`) | ídem | ídem |
+| `blocked` | **«No sale en este envío»** (`text-muted`) | **«Ya no está disponible para este envío ({estado}). No se palomea y no va en el paquete.»** — `{estado}` = el rótulo de estado de inventario ya traducido de M1 (⛔ nunca el enum crudo; si la clave no existiera, frontend la añade en el mismo cambio — NO MEDIDO) | ídem |
+
+EN: “Picked” · “Missing” · “Damaged” · “Not in this shipment” · “It's no longer available for this shipment ({status}).
+It isn't checked off and doesn't go in the package.” · “When you mark the order as prepared, a “To replace” case will be
+opened in the customer's name. The card is still theirs.”
+
+- **En `< sm`, tres botones no caben en una línea:** «La tengo» ocupa la primera fila entera; «No la encontré» y «Llegó
+  dañada» comparten la segunda a mitad y mitad. ⛔ No se agrupan en un menú «No salió ▾»: un menú de pie, con guantes,
+  es dos toques donde debe haber uno.
+- **`aria-label`** con la carta: «La tengo: {carta} · {folio}», «No la encontré: …», «Llegó dañada: …», «Deshacer: …»
+  (clave existente `admin.m4.prep.vault.item.actionAria`; se reutiliza).
+- **Marcar no mueve nada** (criterio 216). Por eso ⛔ no hay confirmación al marcar «dañada»: es reversible con
+  «Deshacer» hasta el preparado. El diálogo con consecuencias vive en **«Pedido preparado»** (§37.4).
+- **Regla de la fila reembolsada / con caso** (`409 PREP_ITEM_REFUNDED` / `409 PREP_ITEM_IN_REPLACEMENT`): la fila **no
+  tiene «Deshacer»**; en su lugar, texto: **«Esta carta ya se reembolsó ({estado del reembolso}); la marca es fija.»** /
+  **«Esta carta ya tiene un caso «Por reponer» ({estado}); la marca es fija. Si aparece, márcala como «Apareció» en el
+  caso.»** (con enlace). Si aun así llega el `409` (carrera), se pinta el mismo texto en `role="alert"` y se vuelve a
+  pedir la cola.
+
+**Errores al palomear** (fila, `role="alert"`), además de los de §36.5 que se reutilizan (`PREP_ITEM_BLOCKED`,
+`PREPARATION_CLOSED` con el botón «Deshacer preparado», `404`):
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `409 SHIPMENT_NOT_IN_PREPARATION {status}` | **«Este envío ya no está en preparación ({estado}). No se cambió nada; sale de la lista.»** | “This shipment is no longer in preparation ({status}). Nothing was changed; it leaves the list.” |
+| `409 PREP_ITEM_REFUNDED {refundId}` | el texto de la fila reembolsada (arriba) | |
+| `409 PREP_ITEM_IN_REPLACEMENT {caseId, status}` | el texto de la fila con caso (arriba) | |
+
+#### 37.3c La línea de dinero por carta — solo ENVÍO DIRECTO (`items[].refund`)
+
+Debajo de la versalita, `text-sm`, cifra en `tabular text-text`. **Es texto del servidor**; la pantalla no la produce:
+
+| `refund.kind` | ES | EN |
+|---|---|---|
+| `refundable` (carta aún sin marcar) | *(no se pinta nada: la carta va en el paquete)* | |
+| `refundable` (carta marcada `missing`) | **«Se le devolverán {amount} al dar el pedido por preparado (la carta más su parte de la comisión).»** | “{amount} will be refunded when you mark the order as prepared (the card plus its share of the fee).” |
+| `refunded` · `requested` | **«Reembolso de {amount} pedido por {name} · {fecha}. Esperando a Stripe.»** | “Refund of {amount} requested by {name} · {date}. Waiting for Stripe.” |
+| `refunded` · `submitted` \| `succeeded` | **«Reembolsada · {amount} · {fecha}.»** | “Refunded · {amount} · {date}.” |
+| `refunded` · `failed` | **«Stripe rechazó el reembolso de {amount}. Lo atiende el súper-admin en Pedidos (M3).»** en `text-accent` | “Stripe rejected the {amount} refund. The super-admin handles it in Orders (M3).” |
+| `not_refundable` · `order_not_settled` | **«El cobro de este pedido ya no está vivo (reembolsado o en disputa): esta carta no se puede devolver desde aquí. Lo atiende el súper-admin en Pedidos (M3).»** | “This order's charge is no longer live (refunded or disputed): this card can't be refunded from here. The super-admin handles it in Orders (M3).” |
+| `not_refundable` · `legacy_convention` | **«Este pedido es de antes del cambio a precios con IVA incluido: no se reembolsa por carta desde aquí. Lo atiende el súper-admin en Pedidos (M3).»** | “This order predates the switch to VAT-inclusive prices: it can't be refunded per card from here. The super-admin handles it in Orders (M3).” |
+| `not_refundable` · `no_origin_order` | **«No encontramos la compra de la que salió esta carta: no se puede devolver su dinero desde aquí. Avisa al súper-admin.»** | “We couldn't find the purchase this card came from: its money can't be refunded from here. Tell the super-admin.” |
+
+`{name} === null` ⇒ «una cuenta sin nombre» (§36.14). **Regla de la carta no reembolsable marcada faltante:** el pie
+muestra «Pedido preparado» **deshabilitado** con la razón: **«Una carta marcada como faltante no se puede reembolsar
+desde aquí; el súper-admin resuelve ese pedido en M3. Si te equivocaste, deshaz la marca.»** / “A card marked missing
+can't be refunded from here; the super-admin resolves this order in M3. If it was a mistake, undo the mark.” *(El
+servidor lo guarda igual con `409 REFUND_NOT_AVAILABLE`; apagarlo evita un viaje que ya se sabe perdido.)*
+
+**Retiro (`to_replacement` / `replacement`):** ⛔ ninguna cifra (no hay dinero al preparar, criterio 223). La fila con
+caso dice **«Por reponer →»** (enlace al caso) + su estado: «abierto» · «repuesta con {folio}» · «apareció» ·
+«reembolsada» · «anulado» (EN “open” · “replaced with {folio}” · “turned up” · “refunded” · “voided”).
+
+**Conteo del paso 1** (plano 3, región `role="status"` de la tarjeta, desde `preparation`): ES **«{picked} tomadas ·
+{missing} faltantes o dañadas · {pending} por palomear»** + « · {blocked} no salen» si `blocked > 0`; **y en un directo,
+si `refundPreviewCents > 0`:** una segunda línea **«Se devolverán {amount} al preparar.»** en `tabular text-text`. EN
+“{picked} picked · {missing} missing or damaged · {pending} to check” · “ · {blocked} not shipping” · “{amount} will be
+refunded when prepared.” Plurales ICU (§9.4).
+
+---
+
+### 37.4 «Pedido preparado» en ENVÍO — sin faltantes, un toque; con faltantes, un diálogo con la cifra del servidor
+
+**Cuándo se puede pulsar:** `preparation.status === 'in_progress'` ∧ `pending === 0` (regla del servidor). Apagado con
+la razón de §36.6 mientras falte palomear. Botón **primario** **«Pedido preparado»** / “Order prepared”.
+
+| Situación | Qué pasa al pulsar |
+|---|---|
+| Sin cartas `missing` (directo o retiro) | Se manda `expectedRefundCents: 0` **sin diálogo**: es un sello reversible (§37.5) — S9 |
+| Directo con `missing` | **Diálogo de confirmación con dinero** (abajo). Se manda `expectedRefundCents = refundPreviewCents` |
+| Retiro con `missing` | **Diálogo de casos** (abajo). Se manda `expectedRefundCents: 0` |
+| Ninguna carta tomada (directo) | Diálogo de dinero con la variante **«no sale nada»** |
+
+**Diálogo de dinero (directo)** — `Dialog` §7.6, botones **neutros** (no es destructivo: devuelve al cliente lo suyo),
+foco inicial en «Cancelar»:
+
+| Pieza | ES | EN |
+|---|---|---|
+| Título | **«Dar por preparado y devolver {amount}»** | “Mark as prepared and refund {amount}” |
+| Lista (una fila por carta `missing`) | **«{carta} · {folio} — {no la encontraron \| llegó dañada} — {amount}»** en `tabular` | “{card} · {folio} — {not found \| arrived damaged} — {amount}” |
+| Cuerpo | **«El importe lo calculó el servidor con lo que el cliente pagó por cada carta más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.»** | “The server calculated the amount from what the customer paid for each card plus its share of the processing fee. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.” |
+| Cuerpo, variante **no sale nada** (`Σ` = lo cobrado; el servidor lo indica con `refundPreviewCents === total`; la pantalla lo sabe porque **todas** las líneas disponibles están `missing`) | **«No sale ninguna carta: se devuelve todo lo cobrado —cartas, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.»** | “No card is shipping: everything charged —cards, shipping and fee— is refunded and the shipment closes by itself. There's no need to cancel it.” |
+| Nota de firma (`text-sm text-muted`) | **«Este reembolso queda a tu nombre y la carta pasa a merma con tu firma.»** | “This refund is recorded in your name and the card goes to shrinkage signed by you.” |
+| Confirmar | **«Confirmar {amount} y preparar»** | “Confirm {amount} and prepare” |
+| Cancelar | **«Cancelar»** | “Cancel” |
+
+⛔ El diálogo **no** pide volver a escribir la cifra (eso es de la captura del súper-admin, §37.8d): confirmar el
+botón que la lleva escrita **es** «confirmar esa cifra» (criterio 220). ⛔ Sin casilla «entiendo»: un checkbox más por
+pedido enseña a marcarlo sin leer.
+
+**Diálogo de casos (retiro):**
+
+| Pieza | ES | EN |
+|---|---|---|
+| Título | **«Dar por preparado y abrir {n, plural, one {# caso «Por reponer»} other {# casos «Por reponer»}}»** | “Mark as prepared and open {n, plural, one {# “To replace” case} other {# “To replace” cases}}” |
+| Lista | **«{carta} · {folio} — {no la encontraron \| llegó dañada}»** | |
+| Cuerpo | **«No se devuelve dinero: la carta sigue siendo del cliente y se le debe. El retiro espera: sale completo cuando cada caso se resuelva (repuesta dentro, o reembolsada por el súper-admin). El cliente recibe un correo de que su envío se detiene.»** | “No money is refunded: the card is still the customer's and is owed to them. The withdrawal waits: it ships complete once each case is resolved (replacement inside, or refunded by the super-admin). The customer gets an email that their shipment is on hold.” |
+| Confirmar / Cancelar | **«Preparar y abrir casos»** / **«Cancelar»** | “Prepare and open cases” / “Cancel” |
+
+**Respuestas** (aviso de resultado encima de la lista, `Banner` sin relleno, `role="status"`, con folio — patrón §36.8):
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `200 prepared`, `refunds: []`, `cases: []` | la tarjeta pasa al paso 2; plano 3: **«Preparado por {name} · {fecha y hora}»** (§36.6) | |
+| `200 prepared` con `refunds` | **«Pedido {folio} preparado. Reembolso de {amount} {pedido a Stripe \| aceptado por Stripe}: {n, plural, one {# carta no sale} other {# cartas no salen}}.»** — el estado se toma de las filas devueltas (`requested` ⇒ «pedido a Stripe»; `submitted`/`succeeded` ⇒ «aceptado por Stripe») | “Order {folio} prepared. {amount} refund {sent to Stripe \| accepted by Stripe}: {n, plural, one {# card isn't shipping} other {# cards aren't shipping}}.” |
+| `200 prepared` con alguna fila `failed` | además, `Banner danger`: **«Stripe rechazó un reembolso de {amount}. El pedido quedó preparado; el dinero lo resuelve el súper-admin en Pedidos (M3).»** | “Stripe rejected a {amount} refund. The order is prepared; the super-admin resolves the money in Orders (M3).” |
+| `200 closed_nothing_to_ship` | **«Pedido {folio}: no sale ninguna carta. Se devolvió todo lo cobrado ({amount}) y el envío se cerró. Sale de la lista.»** | “Order {folio}: no card is shipping. Everything charged ({amount}) was refunded and the shipment is closed. It leaves the list.” |
+| `200 prepared` con `cases` (retiro) | **«Retiro {ref} preparado con {n} {caso abierto \| casos abiertos}. Espera en «Por reponer»; la guía se podrá capturar cuando se resuelvan.»** | “Withdrawal {ref} prepared with {n, plural, one {# open case} other {# open cases}}. It waits under “To replace”; the tracking number can be entered once they're resolved.” |
+| `200 already_prepared` | igual que §36.6, sin aviso extra | |
+| `409 PREPARATION_INCOMPLETE {pendingCount}` | §36.6 | |
+| `409 REFUND_PREVIEW_STALE {refundCents}` | **«El importe cambió mientras confirmabas: ahora son {amount}. No se hizo nada. Revísalo y confirma otra vez.»** — y el diálogo **se reabre con la cifra nueva** (S2) | “The amount changed while you were confirming: it's now {amount}. Nothing was done. Check it and confirm again.” |
+| `403 MONEY_OUT_LIMIT_EXCEEDED` | **«Este reembolso supera lo que puedes devolver en 24 horas. No se preparó nada y el intento quedó en bitácora. Pide al súper-admin que prepare este pedido.»** *(⛔ sin la cifra del tope: es un dial y el `403` no la trae)* | “This refund exceeds what you can refund in 24 hours. Nothing was prepared and the attempt is logged. Ask the super-admin to prepare this order.” |
+| `409 REFUND_NOT_AVAILABLE {lines}` | **«{n, plural, one {Una carta faltante} other {# cartas faltantes}} no se puede reembolsar desde aquí: {razón de §37.3c}. No se hizo nada. Lo atiende el súper-admin en Pedidos (M3).»** | “{n, plural, one {One missing card} other {# missing cards}} can't be refunded from here: {reason}. Nothing was done. The super-admin handles it in Orders (M3).” |
+| `409 PREPARATION_HAS_BLOCKED_LINES {lines}` | **«Este pedido tiene {n, plural, one {# carta que ya no está disponible} other {# cartas que ya no están disponibles}} y su cobro sigue vivo: no se puede dar por preparado sin que alguien responda por ese dinero. No se hizo nada. Avisa al súper-admin.»** | “This order has {n, plural, one {# card that's no longer available} other {# cards that are no longer available}} and its charge is still live: it can't be marked as prepared until someone answers for that money. Nothing was done. Tell the super-admin.” |
+| `409 ORDER_NOT_SETTLED {orderStatus}` (directo) | **«El pedido de este envío ya no está liquidado ({estado}): se reembolsó o está en disputa. No se prepara ni sale. Sale de la lista; el súper-admin lo resuelve en Pedidos (M3).»** | “This shipment's order is no longer settled ({status}): it was refunded or is disputed. It isn't prepared and doesn't ship. It leaves the list; the super-admin resolves it in Orders (M3).” |
+| `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED {items}` (retiro) | **«{n, plural, one {Una carta de este retiro viene} other {# cartas de este retiro vienen}} de una compra que se está reembolsando: {carta · folio · pedido {orderNumber}}. No se mete en la caja. No se hizo nada. Cuando el reembolso se confirme, la carta vuelve a la plataforma y el retiro sigue sin ella.»** + enlace a M3 por pedido | “{n, plural, one {One card in this withdrawal comes} other {# cards in this withdrawal come}} from a purchase being refunded: {card · folio · order {orderNumber}}. It doesn't go in the box. Nothing was done. Once the refund is confirmed, the card returns to the platform and the withdrawal carries on without it.” |
+| `409 SHIPMENT_NOT_IN_PREPARATION {status}` | §37.3b | |
+| `409 CONFLICT` | **«Una carta cambió mientras preparabas (alguien la movió o su compra se revirtió). No se hizo nada. Actualizamos la tarjeta: revísala y vuelve a intentarlo.»** + vuelve a pedir la cola | “A card changed while you were preparing (someone moved it or its purchase was reversed). Nothing was done. We've refreshed the card: check it and try again.” |
+
+**Reembolso atorado (`stuckRefunds`):** en el paso 2 de un directo, una fila `requested` con más de 10 minutos, o
+`failed`, muestra su línea de §37.3c y, solo para `requested`, el botón fantasma **«Reintentar reembolso»** / “Retry
+refund” (`POST /admin/refunds/:id/retry`, sin confirmación: no crea dinero nuevo). Respuestas: `200` ⇒ la línea se
+actualiza; `409 REFUND_NOT_RETRYABLE {status}` ⇒ **«Este reembolso ya no se puede reintentar ({estado}).»**;
+`409 REFUND_ATTEMPT_IN_PROGRESS` ⇒ **«Ya hay un intento en curso. Espera unos minutos.»**; `403 MONEY_OUT_FORBIDDEN`
+⇒ **«Este reembolso solo lo reintenta el súper-admin.»** (EN “This refund can no longer be retried ({status}).” ·
+“An attempt is already in progress. Wait a few minutes.” · “Only the super-admin can retry this refund.”). Una fila
+`failed` **no** tiene botón para el operador: solo el texto de §37.3c.
+
+---
+
+### 37.5 «Deshacer preparado» en ENVÍO
+
+Mismo diálogo que §36.7 con el cuerpo adaptado (clave propia `admin.m4.prep.ship.unprepare.body`):
+
+| Pieza | ES | EN |
+|---|---|---|
+| Título | **«¿Deshacer «preparado»?»** | “Undo “prepared”?” |
+| Cuerpo | **«Las marcas se quedan como están y vuelven a poder corregirse. Las cartas ya reembolsadas o con caso «Por reponer» quedan fijas: ese dinero o esa deuda ya salió. No se mueve ninguna carta. Para capturar la guía tendrás que darlo por preparado otra vez.»** | “The marks stay as they are and become editable again. Cards already refunded or with a “To replace” case stay locked: that money or that debt is already out. No card moves. To enter the tracking number you'll have to mark it as prepared again.” |
+| Confirmar / Cancelar | **«Deshacer preparado»** / **«Cancelar»** (foco inicial) | “Undo prepared” / “Cancel” |
+
+**Respuestas:** `200 unprepared` y `200 not_prepared` con los avisos de §36.7. `409 SHIPMENT_NOT_IN_PREPARATION
+{status}` ⇒ **«No se pudo deshacer: el envío ya no está en preparación ({estado}). Después de la guía no hay vuelta
+atrás desde esta pantalla.»** / “Couldn't undo: the shipment is no longer in preparation ({status}). Once there's a
+tracking number, there's no going back from this screen.”
+
+**`reclaimed` en la respuesta** (`§M4-SHIP.5` v1.80.5, solo retiros): además del aviso, una segunda frase en el mismo
+`Banner`: **«{n, plural, one {# carta volvió} other {# cartas volvieron}} a la plataforma: su compra fue reembolsada.
+Ya no va en este retiro.»** / “{n, plural, one {# card went back} other {# cards went back}} to the platform: its
+purchase was refunded. It no longer goes in this withdrawal.” La fila de esa carta pasa a «No sale en este envío».
+
+---
+
+### 37.6 La cola de envíos (pestaña «Envíos»): la guía exige preparado, confirmaciones y el «Cancelar» que se va
+
+**Captura de guía** (`POST …/tracking`, diálogo `admin.m4.tracking.*` existente):
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `409 SHIPMENT_NOT_PREPARED` | **«Este envío todavía no está preparado: primero palomea sus cartas y dalo por preparado en «Preparar». No se guardó la guía.»** + enlace a la tarjeta | “This shipment isn't prepared yet: check off its cards and mark it as prepared under “Prepare” first. The tracking number wasn't saved.” |
+| `409 SHIPMENT_HAS_OPEN_REPLACEMENTS {caseIds}` | **«Este retiro tiene {n, plural, one {# carta que se está reponiendo} other {# cartas que se están reponiendo}}: sale completo cuando cada caso se resuelva. No se guardó la guía.»** + enlace a «Por reponer» | “This withdrawal has {n, plural, one {# card being replaced} other {# cards being replaced}}: it ships complete once each case is resolved. The tracking number wasn't saved.” |
+| `409 ORDER_NOT_SETTLED {orderStatus}` | el texto de §37.4 con «No se guardó la guía.» | |
+| `409 WITHDRAWAL_LINE_ORIGIN_REFUNDED {items}` | el texto de §37.4 con «No se guardó la guía. Deshaz el preparado para que la carta vuelva a la plataforma, o pide al súper-admin que la reclame.» | “… The tracking number wasn't saved. Undo the prepared mark so the card returns to the platform, or ask the super-admin to reclaim it.” |
+
+**Confirmaciones nuevas (S9)** — `Dialog` §7.6, botones neutros, foco inicial en «Cancelar»; el diálogo nombra el
+envío por su referencia y **al destinatario** (es lo que el operador tiene delante en la caja):
+
+| Acción | Título ES / EN | Cuerpo ES / EN | Confirmar |
+|---|---|---|---|
+| **«Marcar enviado»** (`enviado`) | **«¿Marcar {ref} como enviado?»** / “Mark {ref} as shipped?” | **«Para {destinatario}. El cliente recibe un correo de que su paquete salió. Confírmalo solo cuando la paquetería ya lo tenga.»** / “To {recipient}. The customer gets an email that their package is on its way. Confirm only once the carrier has it.” | **«Marcar enviado»** / “Mark shipped” |
+| **«Marcar entregado»** (`entregado`) | **«¿Marcar {ref} como entregado?»** / “Mark {ref} as delivered?” | **«Para {destinatario}. No se envía correo. Las cartas de un retiro pasan a «retiradas» y dejan de estar en la bóveda del cliente; desde esta pantalla no hay vuelta atrás. Confírmalo con la entrega de la paquetería a la vista.»** / “To {recipient}. No email is sent. A withdrawal's cards become “withdrawn” and leave the customer's vault; there's no going back from this screen. Confirm with the carrier's delivery confirmation in front of you.” | **«Marcar entregado»** / “Mark delivered” |
+| **«Cancelar»** — **solo en `solicitado`** | **«¿Cancelar la solicitud {ref}?»** / “Cancel request {ref}?” | **«Se cancela la solicitud y su cobro pendiente en Stripe, y el cliente recibe un correo. Si el pago ya entró, no se cancelará y te lo diremos.»** / “The request and its pending Stripe charge are cancelled, and the customer gets an email. If the payment already went through, it won't be cancelled and we'll tell you.” | **«Cancelar solicitud»** (`danger`) / “Cancel request” |
+
+- ⛔ **Sin botón «Cancelar» en `picking` ni en `guia`** (criterio 222; `§M4-SHIP.9`). No se pinta apagado: **no se
+  pinta**. Un envío pagado se cierra solo cuando no sale nada o cuando el dinero se devolvió entero.
+- `409 PAID_SHIPMENT_NOT_CANCELLABLE {status}` (llega si alguien pulsó en la carrera, o si el PI ya se cobró) ⇒
+  **«Este envío ya está pagado y no se cancela a mano ({estado}). No se cambió nada. Si una carta no sale, se marca al
+  preparar; si hay que devolver todo, lo hace el súper-admin en Pedidos (M3).»** / “This shipment is already paid and
+  isn't cancelled by hand ({status}). Nothing was changed. If a card isn't shipping, mark it when preparing; if
+  everything must be refunded, the super-admin does it in Orders (M3).”
+- Las confirmaciones de enviado/entregado **no** cambian la clave existente `statusActions.changed` («Estado actualizado
+  ({id}).»); solo se antepone el diálogo. `cancelTitle/cancelConfirm/cancelBody` **cambian de valor** a los de arriba.
+
+---
+
+### 37.7 La carta que no salió — lo que ve el cliente y el correo `AV-12`
+
+**Pedido / retiro / seguimiento del cliente** (`items[].refund`, solo `submitted|succeeded`), una línea por carta,
+`text-sm`, **sin** actor ni componentes (S7):
+
+| Dónde | ES | EN |
+|---|---|---|
+| Línea de la carta | **«No salió · te devolvimos {amount}»** | “Didn't ship · we refunded you {amount}” |
+| Motivo, solo si se pinta (una frase corta, misma línea o debajo) | **«no la encontramos»** / **«llegó dañada»** | “we couldn't find it” / “it arrived damaged” |
+| Encabezado del pedido si `refundedCents > 0` y no es total | **«Te devolvimos {amount} de este pedido.»** | “We refunded {amount} from this order.” |
+| Título del pedido cerrado por «no sale nada» | rótulo `status.tracking.refunded` **«REEMBOLSADO»** (§37.12); ⛔ nunca «Liquidada» | |
+
+**`AV-12` — «Una carta de tu pedido no salió y te devolvimos su dinero»** (correo, patrón §31; **un** correo por acto;
+variantes por `kind`; ⛔ nunca antes de que Stripe acepte):
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto | **«Una carta de tu pedido {orderNumber} no salió: te devolvimos {amount}»** (retiro sin número: «…de tu retiro…») | “A card from your order {orderNumber} didn't ship: we refunded {amount}” |
+| Cuerpo | **«Al preparar tu {pedido \| retiro} {no encontramos \| encontramos dañada} {esta carta \| estas cartas}: {lista: nombre · set · acabado · condición}. Te devolvimos {amount} a tu forma de pago original; según tu banco tarda hasta unos días en verse. El resto de tu pedido sigue su curso y te avisaremos cuando salga.»** | “While preparing your {order \| withdrawal} we {couldn't find \| found damaged} {this card \| these cards}: {list}. We refunded {amount} to your original payment method; depending on your bank it can take a few days to show. The rest of your order carries on and we'll let you know when it ships.” |
+| Variante **no sale nada** (`order_remaining` / `shipment_fee` en el acto) | última frase: **«No queda ninguna carta por enviar, así que te devolvimos todo lo cobrado: {amount}. Este pedido queda reembolsado.»** | “No card is left to ship, so we refunded everything charged: {amount}. This order is now refunded.” |
+| Variante **`case_refund`** (cierra un caso «Por reponer») | **«No conseguimos reponer {carta} que te debíamos. Te devolvimos {amount}{, y tu envío {ref} sale con el resto \| ; como no quedaba nada por enviar, también te devolvimos el costo del envío y el retiro queda cerrado}.»** | “We couldn't get a replacement for {card}, which we owed you. We refunded {amount}{, and your shipment {ref} ships with the rest \| ; as nothing was left to ship, we also refunded the shipping cost and the withdrawal is closed}.” |
+| CTA | **«Ver mi pedido»** → `/orders/{id}` (o el seguimiento tokenizado del invitado) | “View my order” |
+
+⛔ El correo no dice «lo sentimos» tres veces ni explica la comisión: dice qué carta, por qué, cuánto y qué sigue.
+
+---
+
+### 37.8 Apartado «Por reponer» — la deuda con nombre
+
+#### 37.8a La lista (`GET /admin/replacement-cases`)
+
+Pestaña «Por reponer» de §37.2. Barra superior: filtro segmentado (`role="group"` + `aria-pressed`, §35.7)
+**«Abiertos»** · **«Resueltos»** (`?state`), casilla **«Solo vencidos»** (`?overdue=true`, solo con «Abiertos»), filtro
+**«Origen: Todos · Retiros · Compras a bóveda»** (`?source`), y **búsqueda** (`?q=`: cliente, correo, folio, número de
+pedido — `Input` §6.2 con `type="search"`, rótulo «Buscar caso»). Orden: abiertos por antigüedad (lo más viejo arriba;
+los vencidos quedan arriba solos), resueltos por resolución reciente. **Con paginación** (§20.12): no es cola de pie.
+
+**Vacíos** (`EmptyState`, §35.8 — un solo hecho por copy):
+
+| Filtro | ES | EN |
+|---|---|---|
+| Abiertos | **«No hay cartas por reponer.»** / *«Cuando al preparar un retiro o al colocar una compra falte o llegue dañada una carta, el caso aparecerá aquí.»* | “No cards to replace.” / “When a card is missing or arrives damaged while preparing a withdrawal or placing a purchase, the case will show up here.” |
+| Solo vencidos | **«Ningún caso abierto lleva más de 7 días.»** *(los 7 días son norma del contrato, `§M4-SHIP.15.12`, no una cifra inventada)* | “No open case is older than 7 days.” |
+| Resueltos | **«Todavía no se ha resuelto ningún caso.»** | “No case has been resolved yet.” |
+| Búsqueda sin resultado | **«Nada coincide con «{q}».»** | “Nothing matches “{q}”.” |
+
+#### 37.8b La tarjeta de caso — planos
+
+`<article aria-labelledby>` (el nombre accesible es la carta + el folio), papel con regla, `p-4`, radio 0. Planos:
+
+| Plano | Qué lleva | Cómo |
+|---|---|---|
+| **0 · Plazo** (arriba a la derecha) | `dueAt` / `overdue` | versalita mono 11px: **«Vence en {n, plural, one {# día} other {# días}}»** en `text-muted`; **`overdue`** ⇒ **«Vencido hace {n, plural, one {# día} other {# días}}»** en **`text-accent`** + regla izquierda bermellón de 2px en toda la tarjeta. `{n}` es la diferencia de fechas **solo para mostrar** (`dueAt` − ahora, en días enteros hacia abajo); **qué está vencido lo dice `overdue`**, ⛔ nunca la resta (S1). Con `<time dateTime={dueAt}>` y la fecha absoluta al lado (§9.3) |
+| **1 · Qué carta** | `original.card` + `original.identity` | nombre `font-serif text-lg lang="en"`, set `text-sm font-semibold lang="en"`, `FinishMark`, condición/grado (`ConditionBadge`/`GradedCertChip`, §7.2b/§7.2c), sellado si aplica, miniatura `w-16`; folio mono 11px. Debajo, versalita **«Identidad exacta»** / “Exact identity” y la retícula `ListingSpec` con los nueve campos que tienen valor (los `null` **no** se listan — un `null` no es un dato) |
+| **2 · A quién se le debe** | `customer` | nombre completo `text-sm text-text` (o «Sin nombre registrado» + frase de §36.4) y correo debajo |
+| **3 · Por qué y desde cuándo** | `missingReason`, `openedBy`, `openedAt`, `source` | **«{No la encontraron \| Llegó dañada} al {preparar el retiro \| colocar la compra {orderNumber}} · {name} · {fecha}»** / “{Not found \| Arrived damaged} while {preparing the withdrawal \| placing purchase {orderNumber}} · {name} · {date}” |
+| **4 · Dónde está la deuda hoy** | `original.pieceStatus`, `original.currentLocation`, `shipment`, `destination` | ubicación con zona (V3 de §36): «Ubicación · {zona} · {etiqueta}» o «Sin ubicar»; y **«Si se repone, va: {al paquete del retiro \| al cajón del cliente}»** / “If replaced, it goes: {into the withdrawal's package \| into the customer's drawer}” |
+| **5 · Origen del dinero** | `origin` | **«Compra {orderNumber} · {estado del pedido}»** con enlace a M3; `null` ⇒ **«Sin compra de origen conocida»** en `text-accent` (S8) |
+| **6 · Candidatas** | `candidateCount` | **«{n, plural, =0 {Ninguna pieza igual disponible en la tienda} one {# pieza igual disponible} other {# piezas iguales disponibles}}»** / “{n, plural, =0 {No identical piece available in the store} one {# identical piece available} other {# identical pieces available}}” |
+| **7 · Resolución** (solo cerrados) | `status`, `resolvedBy`, `replacement`, `refund`, `voidNote`, `refundCapture` | versalita del estado + **«por {name} · {fecha}»**; `replaced` ⇒ «con la pieza {folio}»; `found` ⇒ «la misma pieza»; `refunded` ⇒ el bloque de §37.8e; `voided` ⇒ la nota tal cual |
+
+**Rótulos de estado** (`status.replacementCase.*`, versalita mono 11px, palabra como portador §2.4): `open` **«Abierto»**
+· `replaced` **«Repuesta»** · `found` **«Apareció»** · `refunded` **«Reembolsada»** · `voided` **«Anulado»** (EN “Open”
+· “Replaced” · “Turned up” · “Refunded” · “Voided”). Motivos (`status.missingReason.*`): `not_found` **«No la
+encontraron»** / “Not found” · `damaged` **«Llegó dañada»** / “Arrived damaged”.
+
+#### 37.8c Las acciones — quién ve cuál
+
+| Acción | Rol | Cuándo se pinta | Control |
+|---|---|---|---|
+| **«Reponer con esta pieza»** | operador+ | caso `open` y hay candidatas | por candidata, en el detalle (abajo) |
+| **«Apareció»** | operador+ | `open` ∧ `missingReason === 'not_found'` | botón secundario en el pie; **con confirmación** |
+| **«Reembolsar»** | **solo súper-admin** | `open` ∧ `refundContext.available` | botón secundario en el pie; abre §37.8d. Al operador **no se pinta** (S6) |
+| **«Anular»** | **solo súper-admin** | `open` ∧ `origin` es `null` **o** `origin.orderStatus !== 'settled'` | botón fantasma en el pie; diálogo con nota obligatoria. En cualquier otro caso **no se pinta** (el contrato lo rechaza; no se ofrece lo que se sabe rechazado) |
+
+**Detalle del caso** (`GET …/:id`, ruta `/admin/m4/reponer/{id}` o cajón lateral `Drawer` — frontend elige; el DOM es el
+mismo): la tarjeta entera + la **lista de candidatas** (`ReplacementCandidateDTO`, hasta 50, por ubicación y folio):
+fila = ubicación con zona en columna (§35.4) · folio · estado («En almacén» / «Publicada» = rótulos de M1 existentes) ·
+precio de lista (`listPriceCents`, solo informativo, `tabular text-muted`; ⛔ no se usa para nada) · botón
+**«Reponer con esta pieza»** / “Replace with this piece”. Con `destination === 'drawer'`, encima de la lista va el
+**selector de cajón de §36.8** (mismas tres ramas: cajón propio sin selector · varios cajones = radios · sin cajón =
+combobox) con `legend` **«¿A qué cajón va la pieza repuesta?»** / “Which drawer does the replacement go to?”. Sin
+candidatas: `EmptyState` **«Ninguna pieza igual en la tienda ahora mismo.»** / *«Si entra una por compra o
+cotizador, aparecerá aquí. Si no llega, el súper-admin puede reembolsar el caso.»* (EN “No identical piece in the
+store right now.” / “If one comes in through a purchase or the buylist, it'll show up here. If it doesn't, the
+super-admin can refund the case.”).
+
+**Confirmación de «Reponer con esta pieza»** — no mueve dinero pero **sí** cambia de dueño una pieza vendible (S9):
+título **«¿Reponer con {folio}?»**; cuerpo **«La pieza {folio} pasa a nombre del cliente y {va al paquete de su retiro
+\| se guarda en {zona · cajón}}. La original queda como merma de la tienda. No se devuelve dinero ni se avisa al
+cliente.»**; confirmar **«Reponer»**. (EN “Replace with {folio}?” · “Piece {folio} passes to the customer and {goes into
+their withdrawal's package \| is stored in {zone · drawer}}. The original stays as store shrinkage. No money is
+refunded and the customer isn't notified.” · “Replace”.)
+
+**Confirmación de «Apareció»:** título **«¿Apareció la misma carta?»**; cuerpo **«Solo si tienes en la mano la pieza
+{folio}, la misma que faltaba. Vuelve al cliente y {a su retiro \| a su cajón}; el caso se cierra sin dinero.»**;
+confirmar **«Sí, apareció»**. (EN “Did the same card turn up?” · “Only if you're holding piece {folio}, the very one
+that was missing. It goes back to the customer and {to their withdrawal \| to their drawer}; the case closes with no
+money involved.” · “Yes, it turned up”.)
+
+**Confirmación de «Anular»** (súper-admin; `danger`): título **«¿Anular este caso?»**; cuerpo **«Anular cierra la deuda
+sin dar carta ni dinero. Solo procede porque la compra de origen {ya no está liquidada ({estado}) \| no existe}: el
+dinero lo resolvió otro camino. La original pasa a la plataforma. Escribe por qué.»** + `Textarea` **«Motivo»** (3–500,
+obligatorio, contador); confirmar **«Anular caso»**. (EN “Void this case?” · “Voiding closes the debt with neither a
+card nor money. It's only appropriate because the origin purchase {is no longer settled ({status}) \| doesn't exist}:
+the money was resolved another way. The original goes to the platform. Say why.” · “Reason” · “Void case”.)
+
+**Respuestas de reponer / apareció / anular** (aviso de resultado `role="status"` encima de la lista; errores en el
+pie del caso, `role="alert"`):
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `200 replaced` | **«Caso resuelto: {carta} repuesta con {folio}{ · va en el retiro {ref} \| · guardada en {zona · cajón}}.»** + si trae `preparation` y ya no hay casos: **«El retiro ya puede llevar guía.»** | “Case resolved: {card} replaced with {folio}{ · goes in withdrawal {ref} \| · stored in {zone · drawer}}.” + “The withdrawal can take a tracking number now.” |
+| `200 found` | **«Caso resuelto: la carta apareció y volvió al cliente.»** | “Case resolved: the card turned up and went back to the customer.” |
+| `200 already_resolved` | **«Este caso ya estaba resuelto así. No se hizo nada nuevo.»** | “This case was already resolved that way. Nothing new was done.” |
+| `409 CASE_NOT_OPEN {status, resolvedAt}` | **«Este caso ya se resolvió ({estado}, {fecha}). No se cambió nada.»** | “This case was already resolved ({status}, {date}). Nothing was changed.” |
+| `409 CASE_ORIGIN_NOT_SETTLED {originStatus}` | **«La compra de origen ya no está liquidada ({estado}): reembolsada o en disputa. No se repone ni se reembolsa a quien ya recibió su dinero. No se hizo nada; lo que procede es anular el caso (súper-admin).»** | “The origin purchase is no longer settled ({status}): refunded or disputed. We don't replace or refund someone who already got their money back. Nothing was done; the right step is to void the case (super-admin).” |
+| `422 REPLACEMENT_NOT_ELIGIBLE` `identity_mismatch {mismatch}` | **«Esa pieza no es idéntica: cambia en {campos}. Solo vale la misma carta, variante, acabado y condición. No se hizo nada.»** — `{campos}` con los nombres humanos de la ficha (§7.2b), ⛔ no `cardProductId` | “That piece isn't identical: it differs in {fields}. Only the same card, variant, finish and condition counts. Nothing was done.” |
+| `422` `not_platform_available` | **«Esa pieza ya no está disponible: alguien la compró, la reservó o la movió. Elige otra.»** + refresca candidatas | “That piece is no longer available: someone bought it, reserved it or moved it. Choose another.” |
+| `422` `not_found` | **«Esa pieza ya no existe en el inventario. Elige otra.»** | “That piece no longer exists in inventory. Choose another.” |
+| `422` `same_piece_damaged` | **«Una carta dañada no «aparece»: repón con otra pieza igual o, si no hay, el súper-admin la reembolsa.»** | “A damaged card doesn't “turn up”: replace it with another identical piece or, if there's none, the super-admin refunds it.” |
+| `422` `same_piece_not_lost` | **«Esa pieza ya no está anotada como faltante: alguien la resolvió antes. Actualizamos el caso.»** | “That piece is no longer recorded as missing: someone resolved it first. We've refreshed the case.” |
+| `422 LOCATION_NOT_AVAILABLE` `location_required` | **«Elige el cajón del cliente antes de reponer.»** | “Choose the customer's drawer before replacing.” |
+| `422 LOCATION_NOT_AVAILABLE` (otras razones) | los textos de §36.8 | |
+| `409 CASE_NOT_VOIDABLE {originStatus:'settled'}` | **«No se puede anular: la compra de origen sigue liquidada, así que la deuda es real. Repón la carta o reembolsa el caso.»** | “Can't void: the origin purchase is still settled, so the debt is real. Replace the card or refund the case.” |
+| `409 CONFLICT` | **«La pieza cambió mientras resolvías el caso. No se hizo nada. Actualizamos el caso: revísalo y vuelve a intentarlo.»** | “The piece changed while you were resolving the case. Nothing was done. We've refreshed the case: check it and try again.” |
+| `403 MONEY_OUT_FORBIDDEN` (al operador, solo por API) | **«Esta acción es del súper-admin.»** — no debería verse: el control no se pinta | “This action belongs to the super-admin.” |
+
+#### 37.8d «Reembolsar» — la única captura de dinero de la pantalla (solo súper-admin)
+
+`Dialog` §7.6 de ancho `md`, foco inicial en el campo de monto. **Orden del DOM = orden de lectura:** referencias →
+monto → motivo → previsualización → botón.
+
+| Pieza | ES | EN |
+|---|---|---|
+| Título | **«Reembolsar sin reposición»** | “Refund without a replacement” |
+| Referencia 1 (`paidReferenceCents`) | **«Pagó {Q} por esta carta»** + `text-sm text-muted` **«(la carta más su parte de la comisión de cobro, según la compra {orderNumber})»** | “They paid {Q} for this card” · “(the card plus its share of the processing fee, per purchase {orderNumber})” |
+| Referencia 2 (`market`) | **«Mercado hoy: {M}»** + **«referencia del {capturedDate}»**; `null` ⇒ **«Sin referencia de mercado»** en `text-accent` (S8) | “Market today: {M}” · “reference from {capturedDate}” · “No market reference” |
+| Campo de monto | `Input` numérico en pesos con dos decimales, rótulo **«Monto a devolver (MX$)»**, `inputmode="decimal"`, ayuda **«Tú decides la cifra. Las dos referencias son solo para compararla.»** — la pantalla convierte a centavos enteros; ⛔ no redondea por su cuenta más de lo que teclea el usuario | “Amount to refund (MX$)” · “You decide the figure. The two references are only there to compare it against.” |
+| Motivo | `Textarea` rótulo **«De dónde sale la cifra»**, obligatorio, 3–500, contador visible, placeholder vacío (⛔ sin ejemplo con cifra) | “Where the figure comes from” |
+| Previsualización (`GET …/refund-preview?amountCents=A`, con retardo ≈400 ms tras escribir; región `role="status"`) | **«{stripeCents} regresan a su tarjeta · {manualCents} van por transferencia (cubeta SPEI).»** · con `manualCents === 0`: **«Todo regresa a su tarjeta: {stripeCents}.»** · con `stripeCents === 0`: **«En esa compra ya no queda nada por devolver a la tarjeta: los {manualCents} van por transferencia.»** · si `closesShipment`: **«Es el último caso del retiro y no queda carta que enviar: también se devuelve el costo del envío ({shipmentFeeCents}) y el retiro se cierra.»** · si `!customerHasClabe`: **«El cliente no tiene CLABE registrada: le pediremos por correo que la registre.»** | “{stripeCents} goes back to their card · {manualCents} goes by bank transfer (SPEI bucket).” · “Everything goes back to their card: {stripeCents}.” · “Nothing is left to refund to the card on that purchase: the {manualCents} goes by bank transfer.” · “It's the withdrawal's last case and no card is left to ship: the shipping cost ({shipmentFeeCents}) is refunded too and the withdrawal closes.” · “The customer has no CLABE on file: we'll email them asking to register one.” |
+| Aviso de confirmación reforzada (`confirmation === 'reinforced'`, antes de pulsar) | **«Es más del doble de la referencia ({referenceCents}): te pediremos escribir el monto otra vez.»** | “It's more than double the reference ({referenceCents}): we'll ask you to type the amount again.” |
+| Bloqueo (`confirmation === 'blocked'`) | botón deshabilitado + **«Supera el límite de esta pantalla ({limitCents}, {k} veces la referencia). No se puede confirmar. Si la cifra es correcta, sube el límite en Ajustes (M10) y vuelve.»** — `{k}` = `limitCents / referenceCents` que el servidor implica; si no viene entero, se omite la coletilla | “It's over this screen's limit ({limitCents}, {k}× the reference). It can't be confirmed. If the figure is right, raise the limit in Settings (M10) and come back.” |
+| Confirmar | **«Reembolsar {amountCents}»** (con la cifra total capturada) | “Refund {amountCents}” |
+| Cancelar | **«Cancelar»** | “Cancel” |
+
+**Segundo diálogo — confirmación reforzada** (`422 CASE_REFUND_CONFIRMATION_REQUIRED {referenceCents, confirmAboveCents,
+limitCents}`): título **«Confirma el monto escribiéndolo otra vez»**; cuerpo **«{amountCents} es más del doble de la
+referencia ({referenceCents}). Para seguir, escribe el monto exacto.»**; un `Input` con rótulo **«Monto (MX$)»**,
+`autocomplete="off"`, ⛔ sin valor inicial, ⛔ sin pegar desde el portapapeles (`onPaste` bloqueado con aviso «Escríbelo a
+mano»); el botón **«Reembolsar {amountCents}»** se habilita solo cuando coincide **al centavo**; distinto ⇒ ayuda
+**«No coincide con {amountCents}.»**. Reenvía con `confirmAboveReference: true`. (EN “Confirm the amount by typing it
+again” · “{amountCents} is more than double the reference ({referenceCents}). To continue, type the exact amount.” ·
+“Amount (MX$)” · “Type it by hand” · “Doesn't match {amountCents}.”.)
+
+**Respuestas del `POST`:**
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `200 refunded` | aviso: **«Caso resuelto: reembolso de {amountCents} capturado. {stripe} {pedido a Stripe \| aceptado por Stripe}{ · {manual} en «Reembolsos manuales (SPEI)»}{ · retiro cerrado y envío devuelto}.»** + enlace a la cubeta si `manual > 0` | “Case resolved: {amountCents} refund recorded. {stripe} {sent to Stripe \| accepted by Stripe}{ · {manual} under “Manual refunds (SPEI)”}{ · withdrawal closed and shipping refunded}.” |
+| `200 already_resolved` | **«Este caso ya se había reembolsado. No se hizo nada nuevo.»** | “This case was already refunded. Nothing new was done.” |
+| `409 REFUND_PREVIEW_STALE {stripeCents, manualCents}` | **«El reparto cambió mientras confirmabas: ahora {stripeCents} a la tarjeta y {manualCents} por transferencia. No se hizo nada. Revísalo y confirma otra vez.»** — el diálogo se queda abierto con la previsualización nueva (S2) | “The split changed while you were confirming: now {stripeCents} to the card and {manualCents} by transfer. Nothing was done. Check it and confirm again.” |
+| `422 CASE_REFUND_ABOVE_LIMIT {referenceCents, limitCents}` | el texto de bloqueo de arriba, en `role="alert"` | |
+| `409 CASE_REFUND_NOT_AVAILABLE {reason}` | `no_origin_order` ⇒ **«No hay compra de origen: no se sabe contra qué cobro devolver. Puedes reponer la carta o anular el caso.»** · `legacy_convention` ⇒ **«La compra de origen es de antes del cambio a precios con IVA incluido: no se reembolsa por esta vía. Repón la carta o resuélvelo en Pedidos (M3).»** | “There's no origin purchase: there's no charge to refund against. You can replace the card or void the case.” · “The origin purchase predates the switch to VAT-inclusive prices: it can't be refunded this way. Replace the card or resolve it in Orders (M3).” |
+| `409 CASE_NOT_OPEN` · `409 CASE_ORIGIN_NOT_SETTLED` · `409 CONFLICT` | §37.8c | |
+| `400 VALIDATION_ERROR {field}` | `amountCents` ⇒ **«Escribe un monto mayor que cero, en pesos y centavos.»** · `reason` ⇒ **«Escribe de dónde sale la cifra (mínimo 3 caracteres).»** — inline, `aria-describedby` | “Enter an amount greater than zero, in pesos and cents.” · “Say where the figure comes from (at least 3 characters).” |
+
+#### 37.8e Un caso `refunded` — lo capturado, congelado
+
+Bloque **«Reembolso»** (`<dl>`): **«Monto capturado»** {amountCents} · **«Motivo»** {reason} tal cual · **«Referencias
+al capturar»**: «pagó {paidReferenceCents} · mercado {cents} ({capturedDate}) \| sin referencia de mercado» ·
+**«Confirmación reforzada»**: «sí» / «no» · **«Por tarjeta»**: fila del libro con estado (§37.3c) o «nada» ·
+**«Por transferencia»**: {n} fila(s) SPEI con estado (`pending` **«pendiente de pagar»** · `paid` **«pagada por {name} ·
+{fecha}»** · `cancelled` **«cancelada»**) y enlace a la cubeta. (EN “Refund” · “Amount recorded” · “Reason” ·
+“References at capture” · “paid {…} · market {…} ({date}) \| no market reference” · “Reinforced confirmation” · “yes”
+/ “no” · “By card” · “none” · “By bank transfer” · “pending payment” · “paid by {name} · {date}” · “cancelled”.)
+
+#### 37.8f `AV-13` — «Tu envío se detiene un momento» (correo, solo retiros)
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto | **«Tu retiro {ref} se detiene un momento: estamos reponiendo una carta»** | “Your withdrawal {ref} is on hold for a moment: we're replacing a card” |
+| Cuerpo | **«Al preparar tu retiro {no encontramos \| encontramos dañada} {esta carta \| estas cartas}: {lista}. Sigue siendo tuya: la estamos reponiendo con otra igual (misma carta, variante y condición). Tu envío sale completo en cuanto la tengamos. Si no conseguimos otra, te devolvemos su valor y te avisamos.»** | “While preparing your withdrawal we {couldn't find \| found damaged} {this card \| these cards}: {list}. It's still yours: we're replacing it with an identical one (same card, variant and condition). Your shipment goes out complete as soon as we have it. If we can't get another, we'll refund its value and let you know.” |
+| CTA | **«Ver mi retiro»** → `/vault?tab=withdrawals` (§33.4) | “View my withdrawal” |
+
+⛔ Sin plazo de días en el correo (los 7 días son un límite interno, no una promesa al cliente). ⛔ Sin cifra.
+
+**Lo que ve el cliente mientras tanto** («Mi bóveda», `HoldingDTO.replacement`; y su retiro, `items[].replacement`):
+chip versalita **«La estamos reponiendo»** / “Being replaced” + `text-sm`: **«No la encontramos \| Llegó dañada al
+prepararla. Te avisamos en cuanto la tengamos, o te devolvemos su valor.»** / “We couldn't find it \| It arrived damaged
+while being prepared. We'll let you know as soon as we have it, or refund its value.” La carta **no** tiene botón de
+retiro (`withdrawable:false`). Caso `refunded` ⇒ **«Reembolsada · {amountCents}»** y, si `byTransferCents > 0`:
+**«{byTransferCents} por transferencia · {pendiente \| depositada \| cancelada}»** (`transferStatus`); `cancelled` ⇒
+además **«Si no sabes por qué, contáctanos.»** (EN “Refunded · {amount}” · “{amount} by bank transfer · {pending \|
+deposited \| cancelled}” · “If you don't know why, contact us.”). ⛔ Sin CLABE, sin motivo, sin referencias (S7).
+
+---
+
+### 37.9 Cubeta «Reembolsos manuales (SPEI)» — solo súper-admin
+
+**Dónde:** página propia `/admin/manual-refunds`, entrada de menú **«Reembolsos manuales (SPEI)»** / “Manual refunds
+(SPEI)” en el grupo **«Administración»**, tras «Finanzas» (§37.0-bis C3; ~~«en el grupo de dinero junto a «M3 ·
+Órdenes»»~~), con badge `summary.manualRefundsPending`. Enlaces de entrada
+desde el caso (§37.8e) y desde el detalle M3. **Al operador nada de esto existe** (ni la ruta pinta un `403` bonito:
+redirige al tablero como cualquier ruta ajena a su rol — patrón existente, NO MEDIDO cuál).
+
+#### 37.9a Lista
+
+Filtro segmentado **«Pendientes» · «Pagadas» · «Canceladas»** (`?status`), búsqueda (`?q`: cliente, correo, pedido,
+folio, clave de rastreo), paginación. Cabecera de la lista de pendientes: **«{total, plural, one {# pendiente} other {#
+pendientes}} · {pendingCents} por transferir · la más vieja hace {n} días»** (`tabular`). `DataTable` §7.7 (`≥ md`) /
+tarjetas (`< md`), columnas en este orden: **Beneficiario** (`beneficiaryName` ?? `customer.fullName` ?? «Sin nombre
+registrado»; correo debajo) · **Importe** · **Por qué** («Excedente del caso {carta · folio}» / «Tarjeta rechazada por
+Stripe · caso {carta · folio}» — `source`) · **Compra** (`origin.orderNumber` con enlace; `orderStatus !== 'settled'`
+⇒ versalita **«en disputa / reembolsada»** en `text-accent`) · **CLABE** (`clabeMasked` tal cual, mono; `null` ⇒ **«Sin
+CLABE registrada»** en `text-accent`) · **Creada** (fecha + `createdBy`) · estado. EN: “Beneficiary” · “Amount” ·
+“Why” (“Case excess {card · folio}” / “Card refund rejected by Stripe · case {card · folio}”) · “Purchase” ·
+“disputed / refunded” · “CLABE” · “No CLABE on file” · “Created”.
+
+Vacíos: pendientes **«No hay transferencias por hacer.»** / “No bank transfers to make.”; pagadas **«Todavía no se ha
+marcado ninguna como pagada.»** / “None has been marked as paid yet.”; canceladas **«Ninguna cancelada.»** / “None
+cancelled.”
+
+#### 37.9b Detalle — revelar, pagar, cancelar, re-emitir
+
+Encabezado: importe grande (`font-serif text-2xl tabular`), beneficiario, correo, caso y compra con enlaces, componentes
+en `<dl>` (**«Mercancía»** · **«IVA de mercancía»** · **«Comisión»** · **«Compensación por carta perdida»**; EN
+“Merchandise” · “Merchandise VAT” · “Fee” · “Compensation for lost card”). Si `origin.orderStatus !== 'settled'`:
+`Banner danger` **«La compra de origen está {en disputa \| reembolsada}: revisa antes de pagar. Al marcar pagada te
+pediremos confirmarlo.»** / “The origin purchase is {disputed \| refunded}: check before paying. When marking it paid
+we'll ask you to confirm.”
+
+**Paso 1 — «Revelar CLABE»** (`GET …/reveal-clabe`; botón secundario; solo `pending`):
+
+| Pieza | ES | EN |
+|---|---|---|
+| Botón | **«Revelar CLABE»** + ayuda `text-sm text-muted` **«Queda registrado que la viste.»** | “Reveal CLABE” · “It's logged that you viewed it.” |
+| Vista del reveal | `<output>` en mono `text-lg tabular`, agrupada de 4 en 4 **visualmente** (CSS `letter-spacing`/spans `aria-hidden`), con el valor **entero** en un solo nodo para lectores de pantalla y para **«Copiar CLABE»** (`Button` fantasma; confirma «Copiada» en `role="status"`); debajo **«Beneficiario: {beneficiaryName}»** (`null` ⇒ **«Sin nombre legal registrado; usa el nombre de la cuenta: {fullName}»**) | “Copy CLABE” · “Copied” · “Beneficiary: {name}” · “No legal name on file; use the account name: {fullName}” |
+| Fecha de la CLABE | **«CLABE registrada o cambiada el {clabeUpdatedAt}»**; `null` ⇒ **«Fecha de cambio desconocida (registrada antes de que se llevara)»** | “CLABE registered or changed on {date}” · “Change date unknown (registered before it was tracked)” |
+| `clabeChangedRecently` | `Banner warning` **«La CLABE cambió hace poco o después de generarse este reembolso. Antes de pagar, confirma con el cliente por otro medio que es suya.»** | “The CLABE changed recently or after this refund was created. Before paying, confirm with the customer through another channel that it's theirs.” |
+| `422 CLABE_NOT_ON_FILE` | **«Este cliente no tiene CLABE registrada. Pídele que la registre en su cuenta (Mi cuenta → datos bancarios); ya le llegó un correo con ese enlace. Mientras, no se puede marcar pagada.»** | “This customer has no CLABE on file. Ask them to register one in their account (My account → bank details); they already got an email with that link. Until then it can't be marked as paid.” |
+| `409 MANUAL_REFUND_NOT_PENDING {status}` | **«Esta transferencia ya no está pendiente ({estado}).»** | “This transfer is no longer pending ({status}).” |
+
+⛔ La CLABE **desaparece** de pantalla al salir de la vista o tras marcar pagada; ⛔ no se guarda en estado global ni en
+la URL; ⛔ no aparece en el `title` del botón de copiar.
+
+**Paso 2 — «Marcar pagada»** (solo visible **dentro** de la vista del reveal; lleva `revealToken` sin que el dueño
+escriba nada):
+
+| Pieza | ES | EN |
+|---|---|---|
+| Campo | **«Clave de rastreo (opcional)»**, mono, `maxLength 30`, ayuda **«La que te da tu banco al hacer el SPEI. Con ella el cliente descarga el comprobante de Banxico.»**; inválida ⇒ **«Solo letras y números, hasta 30.»** | “Tracking key (optional)” · “The one your bank gives you when sending the SPEI. With it the customer can download the Banxico receipt.” · “Letters and numbers only, up to 30.” |
+| Campo | **«Nota (opcional)»** ≤ 500 | “Note (optional)” |
+| Casilla reforzada (solo si el `422` la pide, `required` ∋ `recent_clabe_change`) | **«Verifiqué con el cliente por otro medio que la CLABE nueva es suya.»** | “I verified with the customer through another channel that the new CLABE is theirs.” |
+| Casilla reforzada (`required` ∋ `origin_not_settled`) | **«Sé que la compra de origen está en disputa o reembolsada y pago de todos modos.»** | “I know the origin purchase is disputed or refunded and I'm paying anyway.” |
+| Botón | **«Marcar pagada · {amountCents}»** (primario); **con confirmación** (S9): título **«¿Marcar como pagada?»**, cuerpo **«Solo si ya hiciste la transferencia de {amountCents} a la CLABE que acabas de ver. Queda registrado quién y cuándo, y el cliente recibe un correo.»**, confirmar **«Sí, ya la pagué»** | “Mark as paid · {amount}” · “Mark as paid?” · “Only if you've already sent the {amount} transfer to the CLABE you just saw. Who and when is recorded, and the customer gets an email.” · “Yes, I paid it” |
+
+Respuestas: `200` ⇒ **«Pagada. Registrado a tu nombre · {fecha}. Se avisó al cliente.»**; `200 already_paid` ⇒
+**«Ya estaba pagada{ con esa misma clave}. No se hizo nada nuevo.»**; `409 CLABE_CHANGED_SINCE_REVEAL {clabeUpdatedAt}`
+⇒ **«La CLABE cambió el {fecha}, después de que la viste. No se marcó pagada. Vuelve a revelarla y compárala con la que
+usaste.»** + el botón «Revelar CLABE» otra vez; `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required}` ⇒ se **muestran**
+las casillas que falten con el texto **«Falta confirmar lo de arriba.»** (⛔ no se marcan solas); `409
+MANUAL_REFUND_NOT_PENDING` ⇒ arriba; `409 MANUAL_REFUND_NOT_CANCELLED` (no aplica aquí). EN: “Paid. Recorded in your
+name · {date}. The customer was notified.” · “It was already paid{ with that same key}. Nothing new was done.” · “The
+CLABE changed on {date}, after you viewed it. It wasn't marked as paid. Reveal it again and compare it with the one you
+used.” · “The boxes above still need confirming.”
+
+**Pagada — lo que se ve después:** **«Pagada por {name} · {fecha}»** · **«Clave de rastreo: {ref}»** o **«Sin clave de
+rastreo»** (S8) · nota · y, si `paidToCurrentClabe === false`: `text-sm text-accent` **«La CLABE del cliente cambió
+después de este pago.»** (EN “Paid by {name} · {date}” · “Tracking key: {ref}” · “No tracking key” · “The customer's
+CLABE changed after this payment.”).
+
+**«Cancelar»** (fantasma, solo `pending`, `danger` en el diálogo): título **«¿Cancelar esta transferencia?»**; cuerpo
+**«El caso sigue reembolsado: cancelar no lo reabre ni devuelve nada. Queda registrado con tu nombre y tu nota. El
+cliente no recibe correo, pero en su cuenta verá «cancelada». Si te equivocaste, después puedes re-emitirla.»**;
+`Textarea` **«Motivo»** (3–500, obligatorio); confirmar **«Cancelar transferencia»**. Respuestas: `200` ⇒ **«Cancelada.
+Registrado a tu nombre.»**; `200 already_cancelled` ⇒ **«Ya estaba cancelada.»**; `409 MANUAL_REFUND_NOT_PENDING` ⇒
+arriba. (EN “Cancel this transfer?” · “The case stays refunded: cancelling doesn't reopen it or refund anything. It's
+recorded with your name and note. The customer gets no email, but will see “cancelled” in their account. If it was a
+mistake, you can reissue it later.” · “Reason” · “Cancel transfer” · “Cancelled. Recorded in your name.” · “It was
+already cancelled.”)
+
+**«Re-emitir»** (secundario, solo `cancelled` sin `reissuedAsId`): título **«¿Re-emitir esta transferencia?»**; cuerpo
+**«Se crea una transferencia nueva por el mismo importe ({amountCents}) que cita a la cancelada. El cliente no recibe
+otro correo de aviso: ya sabe que le vamos a depositar.»**; `Textarea` **«Por qué se re-emite»** (3–500); confirmar
+**«Re-emitir»**. Respuestas: `200` ⇒ navega a la nueva con aviso **«Re-emitida como {id corto}.»**; `409
+MANUAL_REFUND_NOT_CANCELLED {status, activeManualRefundId?}` ⇒ **«No se puede re-emitir: {esta transferencia no está
+cancelada ({estado}) \| ya hay otra transferencia viva de este caso}.»** (con enlace si viene `activeManualRefundId`).
+Una cancelada ya re-emitida muestra **«Re-emitida como {id}»** con enlace en lugar del botón. (EN “Reissue this
+transfer?” · “A new transfer is created for the same amount ({amount}), citing the cancelled one. The customer gets no
+new notice email: they already know we're depositing.” · “Why it's reissued” · “Reissue” · “Reissued as {id}.” · “Can't
+reissue: {this transfer isn't cancelled ({status}) \| there's already another live transfer for this case}.”)
+
+#### 37.9c «Pasar a transferencia» — en M3 y en el caso, sobre una fila de tarjeta `failed`
+
+Botón secundario **«Pasar a transferencia (SPEI)»** / “Move to bank transfer (SPEI)” junto a la línea `failed` de un
+`case_refund` (detalle M3 y §37.8e). Confirmación: título **«¿Pasar {amountCents} a transferencia?»**; cuerpo
+**«Stripe rechazó devolverlo a la tarjeta. Se crea una transferencia pendiente por el mismo importe en la cubeta SPEI y
+el cliente recibe el correo de «te vamos a depositar». La fila de Stripe se queda como rechazada.»**; confirmar
+**«Pasar a SPEI»**. Respuestas: `200` ⇒ **«En la cubeta SPEI: {enlace}.»** (si ya existía, la misma frase — repetir no
+crea dinero); `409 REFUND_NOT_CONVERTIBLE {status}` ⇒ **«Este reembolso todavía puede salir por Stripe ({estado}):
+pasarlo a transferencia sería pagar dos veces. Reintenta el reembolso o espera.»**; `409 REFUND_NOT_CONVERTIBLE {kind}`
+⇒ **«Solo los reembolsos de un caso «Por reponer» se pasan a transferencia.»**; `409 CASE_ORIGIN_NOT_SETTLED
+{originStatus, reason?}` ⇒ **«La compra de origen está {en disputa \| reembolsada}{ (Stripe rechazó por disputa)}: el
+banco ya está resolviendo ese dinero. No se crea nada.»** (EN “Move {amount} to bank transfer?” · “Stripe refused to
+return it to the card. A pending transfer for the same amount is created in the SPEI bucket and the customer gets the
+“we're going to deposit” email. The Stripe row stays as rejected.” · “Move to SPEI” · “In the SPEI bucket: {link}.” ·
+“This refund can still go through Stripe ({status}): moving it to a transfer would pay twice. Retry the refund or
+wait.” · “Only “To replace” case refunds can be moved to a bank transfer.” · “The origin purchase is {disputed \|
+refunded}{ (Stripe rejected due to a dispute)}: the bank is already resolving that money. Nothing is created.”)
+
+#### 37.9d Los correos `AV-14`, `AV-15` y `AV-16`
+
+| Aviso | Asunto ES / EN | Cuerpo ES / EN |
+|---|---|---|
+| **`AV-14`** «te vamos a depositar» | **«Te vamos a depositar {byTransferCents} por transferencia»** / “We're going to deposit {amount} by bank transfer” | **«No conseguimos reponer {carta} que te debíamos. Te devolvemos {amountCents}: {si hubo Stripe: «{stripe} regresan a tu tarjeta y »}{byTransferCents} te los depositamos por transferencia{ con CLABE: « a tu CLABE terminación {clabeMasked}» \| sin CLABE: «. Para hacerlo necesitamos tu CLABE: regístrala en tu cuenta»}. Te avisamos cuando esté hecho.»** / “We couldn't get a replacement for {card}, which we owed you. We're refunding {amount}: {“{stripe} goes back to your card and ”}{byTransfer} will be deposited by bank transfer{ “ to your CLABE ending in {masked}” \| “. To do it we need your CLABE: register it in your account”}. We'll let you know once it's done.” · CTA con CLABE **«Ver mi cuenta»**; sin CLABE **«Registrar mi CLABE»** → ~~`/cuenta#kyc`~~ **`/account#kyc`** (v4.9.2: `/cuenta` da 404; la pantalla es `/account`, §33.6e) (`§M4-SHIP.15.7`) |
+| **`AV-15`** «ya te depositamos» | **«Ya te depositamos {amountCents}»** / “We've deposited {amount}” | **«Te depositamos {amountCents} por transferencia{ a tu CLABE terminación {clabeMasked}}.{ Clave de rastreo: {speiReference} — con ella puedes descargar el comprobante en la página de Banxico (CEP).}{ Sin clave: «Si en unos días no lo ves, escríbenos.»}»** / “We deposited {amount} by bank transfer{ to your CLABE ending in {masked}}.{ Tracking key: {ref} — with it you can download the receipt from Banxico's site (CEP).}{ “If you don't see it in a few days, write to us.”}” |
+| **`AV-16`** «se actualizó tu CLABE» (`§M4-SHIP.17.3`) | **«Se actualizó la CLABE de tu cuenta»** / “The CLABE on your account was updated” | **«El {fecha} se registró una CLABE nueva en tu cuenta: terminación {newMasked}{ (antes terminación {previousMasked}) \| (antes no tenías CLABE registrada)}. Si fuiste tú, no tienes que hacer nada. Si no fuiste tú, escríbenos de inmediato.»** / “On {date} a new CLABE was registered on your account: ending in {newMasked}{ (previously ending in {previousMasked}) \| (you had no CLABE on file before)}. If it was you, there's nothing to do. If it wasn't, write to us right away.” |
+
+⛔ Ninguno lleva la CLABE completa, el motivo interno, las referencias ni el nombre del operador (S5, S7). El
+«escríbenos» usa el canal de soporte que la tienda ya tiene (§7.11), ⛔ no un correo nuevo inventado.
+
+**Cuenta del cliente:** en «Mi cuenta → datos bancarios» (`KycSection`), bajo la CLABE enmascarada, **«CLABE actualizada el
+{clabeUpdatedAt}»** / “CLABE updated on {date}” (`null` ⇒ nada).
+
+---
+
+### 37.10 Reembolso TOTAL de una compra a bóveda (M3) — la carta vuelve, y el humano confirma dónde está
+
+**En el diálogo de reembolso total de M3 (súper-admin), orden `vault`:** antes de confirmar se pinta **`vaultPieces`**
+(lista de cartas de la compra con su estado, §37.10b) y el cuerpo **«Al confirmarse el reembolso, las cartas de esta
+compra dejan de ser del cliente y vuelven a la plataforma en almacén (no a la venta) hasta que confirmes que están en
+el estante. El cliente recibe el correo de reembolso y deja de verlas en su bóveda.»** / “Once the refund is confirmed,
+this purchase's cards stop being the customer's and go back to the platform in storage (not for sale) until you confirm
+they're on the shelf. The customer gets the refund email and no longer sees them in their vault.”
+
+**Precondiciones (respuestas del `POST` de M3):**
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL {items}` | **«{n, plural, one {Una carta de esta compra está} other {# cartas de esta compra están}} en una caja: retiro {ref} ya preparado{ o con guía}. No se reembolsó nada. Deshaz el preparado de ese retiro en «Pedidos por preparar» y vuelve; con guía comprada, espera a que salga.»** + enlace al retiro | “{n, plural, one {One card from this purchase is} other {# cards from this purchase are}} in a box: withdrawal {ref} already prepared{ or with a tracking number}. Nothing was refunded. Undo that withdrawal's prepared mark under “Orders to prepare” and come back; with a tracking number bought, wait for it to ship.” |
+| `422 REFUND_CONFIRMATION_REQUIRED {required:['pieces_with_customer'], items}` | el diálogo **vuelve** con la lista de `items` resaltada y una casilla obligatoria: **«Sé que el cliente ya tiene {estas cartas \| esta carta} en la mano ({lista}) y reembolso de todos modos.»** — reenvía con `confirmPiecesWithCustomer: true` | “I know the customer already has {these cards \| this card} in hand ({list}) and I'm refunding anyway.” |
+
+#### 37.10b Los estados de `vaultPieces` (detalle M3, orden `vault`; y `chargeback-inventory`)
+
+Bloque **«Cartas de esta compra»** / “Cards from this purchase”, una fila por carta (nombre `lang="en"`, folio) con
+versalita de estado y frase:
+
+| `state` | Versalita ES / EN | Frase ES / EN |
+|---|---|---|
+| `in_custody` | **«En su bóveda»** / “In their vault” | *(antes del reembolso)* |
+| `returned` ∧ `pendingConfirmation` | **«Devuelta · por confirmar»** / “Returned · to confirm” en `text-accent` | **«Volvió a la plataforma pero nadie ha confirmado que está en el estante. Confírmalo abajo.»** / “It went back to the platform but no one has confirmed it's on the shelf. Confirm below.” |
+| `returned` (ya confirmada) | **«Devuelta»** / “Returned” | **«Volvió a la plataforma · {a la venta \| en almacén \| merma}»** (según su estado de inventario hoy) / “Back on the platform · {for sale \| in storage \| shrinkage}” |
+| `in_packed_withdrawal` | **«En una caja»** / “In a box” en `text-accent` | **«Sigue a nombre del cliente porque estaba en el retiro {ref} ya preparado{ o con guía} cuando se confirmó el reembolso. Ese retiro no puede salir con ella. Reclámala cuando la saques de la caja.»** + botón **«Reclamar»** (§37.10c) / “Still in the customer's name because it was in withdrawal {ref}, already prepared{ or with a tracking number}, when the refund was confirmed. That withdrawal can't ship with it. Reclaim it once you take it out of the box.” |
+| `already_withdrawn` | **«Ya la tiene el cliente»** / “Customer already has it” | **«Salió o se entregó antes del reembolso: no se toca.»** / “It shipped or was delivered before the refund: it isn't touched.” |
+| `open_case` | **«Con caso «Por reponer»»** / “With a “To replace” case” | **«Faltaba o llegó dañada; su caso sigue abierto y ahora se puede anular.»** + enlace / “It was missing or damaged; its case is still open and can now be voided.” |
+| `not_customer` | **«Ya no era del cliente»** / “No longer the customer's” | **«Ya había vuelto a la plataforma (por ejemplo, por un contracargo).»** / “It had already gone back to the platform (e.g. after a chargeback).” |
+| `ambiguous` | **«Revisar a mano»** / “Check by hand” en `text-accent` | **«El sistema no pudo decidir qué pieza es hoy esta carta. No se tocó nada. Revísala en Inventario.»** / “The system couldn't decide which piece this card is today. Nothing was touched. Check it in Inventory.” |
+| `other_purchase` | **«De otra compra»** / “From another purchase” | **«El cliente la volvió a comprar en otro pedido: responde esa compra, no ésta.»** / “The customer bought it again in another order: that purchase answers for it, not this one.” |
+
+#### 37.10c «Reclamar» (`POST …/reclaim-vault`, solo súper-admin) y la confirmación humana
+
+Botón **«Reclamar»** / “Reclaim” en la fila `in_packed_withdrawal` (y uno general **«Reclamar lo que quede»** / “Reclaim
+what's left” al pie del bloque si hay alguna). Diálogo: título **«¿Reclamar {esta carta \| estas cartas} para la
+plataforma?»**; cuerpo **«{carta · folio} sigue a nombre del cliente porque estaba en una caja. Al reclamarla vuelve a
+la plataforma en almacén y el retiro sigue sin ella. Solo confírmalo si ya la sacaste de la caja.»**; casilla
+obligatoria **«Saqué {la carta \| las cartas} de la caja.»** (`confirmUnpacked`); `Textarea` **«Qué viste o hiciste»**
+(3–500, obligatoria); confirmar **«Reclamar»**. Respuestas: `200` con `reclaimed` ⇒ **«{n, plural, one {# carta volvió}
+other {# cartas volvieron}} a la plataforma. Confirma abajo dónde está cada una.»**; `200 reclaimed: []` ⇒ **«No había
+nada que reclamar. Queda registrado que lo revisaste.»**; `409 CONFLICT {reason:'not_closed'}` ⇒ **«El reembolso
+todavía no se ha confirmado: no hay nada que reclamar. Reintenta el reembolso o espera a Stripe.»**; `{reason:'not_vault'}`
+⇒ **«Esta compra no es de bóveda.»**. (EN “Reclaim {this card \| these cards} for the platform?” · “{card · folio} is
+still in the customer's name because it was in a box. Reclaiming it returns it to the platform in storage and the
+withdrawal carries on without it. Only confirm if you've already taken it out of the box.” · “I took {the card \| the
+cards} out of the box.” · “What you saw or did” · “Reclaim” · “{n, plural, one {# card went back} other {# cards went
+back}} to the platform. Confirm below where each one is.” · “There was nothing to reclaim. It's logged that you
+checked.” · “The refund hasn't been confirmed yet: there's nothing to reclaim. Retry the refund or wait for Stripe.” ·
+“This purchase isn't a vault purchase.”)
+
+**Confirmación física (`chargeback-inventory` para `vault` `refunded`)** — el formulario existente gana, para
+bóveda, el rótulo **«¿Dónde están las cartas devueltas?»** / “Where are the returned cards?” con dos opciones:
+**«Recuperadas: están en el estante y vuelven a la venta»** / “Recovered: they're on the shelf and go back on sale” ·
+**«No recuperadas: no aparecen; quedan como merma a mi nombre»** / “Not recovered: they can't be found; they stay as
+shrinkage in my name”. ⛔ «Re-expedir» **no se pinta** en bóveda. Ayuda bajo «Recuperadas»: **«Si siguen en el cajón del
+cliente, muévelas a un estante desde Inventario; publicarlas no las mueve.»** / “If they're still in the customer's
+drawer, move them to a shelf from Inventory; publishing doesn't move them.” `409 CONFLICT` ⇒ **«Una de las cartas cambió
+de estado mientras confirmabas. No se hizo nada. Actualiza y vuelve a intentarlo.»** / “One of the cards changed state
+while you were confirming. Nothing was done. Refresh and try again.”
+
+#### 37.10d Lo que ve el cliente
+
+| Dónde | ES | EN |
+|---|---|---|
+| Detalle del pedido `vault` reembolsado, cada carta | **«Ya no está en tu bóveda: este pedido se reembolsó.»** | “No longer in your vault: this order was refunded.” |
+| Título de ese pedido | `status.tracking.refunded` **«REEMBOLSADO»** | |
+| «Mi bóveda» | la carta **desaparece** (no hay chip: ya no es suya). ⛔ Nada de «reembolsada» en una lista de lo que tiene | |
+| Solicitar retiro con una carta de una compra en devolución (`422 ITEM_ORIGIN_REFUNDED` / `withdrawable:false` con `origin_refunded`) | chip **«Compra en reembolso»** / “Purchase being refunded” + **«Esta carta viene de una compra que se está reembolsando: no se puede retirar. Si el reembolso no procede, volverá a estar disponible.»** — y como error del `POST`: **«{n, plural, one {Una carta} other {# cartas}} de tu retiro {viene \| vienen} de una compra que se está reembolsando y no se {puede \| pueden} enviar. Quítala(s) y vuelve a intentarlo.»** | “This card comes from a purchase that's being refunded: it can't be withdrawn. If the refund doesn't go through, it'll be available again.” · “{n, plural, one {One card} other {# cards}} in your withdrawal {comes \| come} from a purchase being refunded and can't ship. Remove {it \| them} and try again.” |
+| **`AV-3` variante `vault`** (correo) | asunto **«Te reembolsamos tu pedido {orderNumber}»**; cuerpo **«Te devolvimos {amount} a tu forma de pago original; según tu banco tarda hasta unos días en verse. Las cartas de este pedido dejan de estar en tu bóveda.»** + CTA **«Ver mi pedido»** | “We refunded your order {orderNumber}” · “We returned {amount} to your original payment method; depending on your bank it can take a few days to show. The cards from this order are no longer in your vault.” · “View my order” |
+
+---
+
+### 37.11 Cola de envíos: quién es quién, búsqueda, enlace a M3, contador y hoja imprimible (criterio 232)
+
+#### 37.11a La fila de la cola (pestaña «Envíos»)
+
+Cada fila gana, **antes** del destinatario: **número de pedido** (`orderNumber`, `tabular font-semibold`; retiro ⇒
+«Retiro de bóveda» en serif como §35.3) y **cliente** = el **comprador** (`customer.fullName` ?? «Sin nombre
+registrado»; correo debajo; invitado ⇒ `guestEmail` con versalita **«Invitado»** / “Guest”). El destinatario sigue
+en su línea «Para {recipientName}» (clave existente `admin.m4.recipient`). Fila preparada: versalita **«Preparado»** +
+«por {name} · {fecha}»; `missingCount > 0` ⇒ **«{n, plural, one {# carta no sale} other {# cartas no salen}}»** en
+`text-accent`. **Enlace «Ver pedido»** / “View order” → `/admin/m3/{orderId}` en cada fila con `orderId`.
+
+**Búsqueda:** `Input type="search"`, rótulo **«Buscar envío»** / “Search shipments”, ayuda **«Nombre, correo, número de
+pedido o destinatario»** / “Name, email, order number or recipient”; se manda como `?q=` **al pulsar Enter o tras 400
+ms sin teclear**; `≤ 200` caracteres (más ⇒ ayuda **«Máximo 200 caracteres.»**). Vacío con `q`: **«Ningún envío
+coincide con «{q}».»** / “No shipment matches “{q}”.” El filtro de estado existente se combina.
+
+**Detalle M3** (`GET /admin/orders/:id`): bloque **«Envíos de este pedido»** / “This order's shipments” con una fila por
+`shipments[]` (estado con `status.shipment.*`, `kind`, `preparedAt`, guía) y enlace **«Ver en Pedidos por preparar»**;
+bloque **«Reembolsos»** / “Refunds”: filas del libro (`refunds[]`: por carta, total; estado, actor y rol, fecha, importe)
+y —solo súper-admin— **«Transferencias»** (`manualRefunds[]`, estado, enlace a la cubeta). Cabecera: **«Devuelto por
+Stripe: {refundedCents}»** y **«Transferido: {manualRefundedCents}»** (`tabular`).
+
+#### 37.11b Tablero
+
+| Tarjeta (`StatCard`, §7.8) | Quién | Cifra grande | Segunda línea |
+|---|---|---|---|
+| **«Pedidos por preparar»** (`workQueue.toPrepare`) | operador+ | `ship + vault + toReplace` | **«{ship} envíos · {vault} bóveda · {toReplace} por reponer»**; si `toReplaceOverdue > 0`: **«{n} vencidos»** en `text-accent`, enlace a «Por reponer» filtrado |
+| **«Reembolsos por pagar (SPEI)»** (`workQueue.manualRefunds`) | solo súper-admin (`null` ⇒ no se pinta) | `pending` | **«{pendingCents} por transferir · la más vieja hace {n} días»** |
+| **«Reembolsos de operadores»** (`workQueue.operatorRefunds`) | solo súper-admin | `last24hCents` | **«{last24hCount} en 24 h · {last30dCents} en 30 días»**; enlaza a la vista `operator-summary` |
+
+EN: “Orders to prepare” · “{ship} shipping · {vault} vault · {toReplace} to replace” · “{n} overdue” · “Refunds to pay
+(SPEI)” · “{amount} to transfer · oldest {n} days ago” · “Operator refunds” · “{count} in 24 h · {amount} in 30 days”.
+⛔ `workQueue.shipments` («envíos vivos») **no cambia** de cifra ni de rótulo.
+
+**Vista «Reembolsos de operadores»** (`/admin/refunds`, súper-admin): tabla del **resumen por operador**
+(`operator-summary`): columnas **Operador** · **24 h** · **7 d** · **30 d** (conteo y suma) · **Usado del tope**
+(`capUsedCents` de `capCents`, como «{usado} de {tope}», `tabular`) · **Pedidos preparados (30 d)** · **Faltantes
+(30 d)** («{missingLines} de {lines} · {missingRatePct} %», `null` ⇒ «sin líneas») · **Merma (30 d)** · **Repuso lo que
+marcó** (`selfReplaced30d`). Debajo, el **libro filtrable** (`GET /admin/refunds`): filtros por rol, operador, tipo,
+estado y fechas; columnas fecha · quién (nombre y rol) · pedido/retiro · carta · tipo (`kind` con rótulo humano:
+«Carta que no salió» · «Resto del pedido» · «Costo del retiro» · «Pedido completo» · «Caso «Por reponer»») · importe ·
+estado · **«Reintentar»** (solo `requested`). EN: “Operator” · “Used of cap” · “Orders prepared (30 d)” · “Missing (30
+d)” · “no lines” · “Shrinkage (30 d)” · “Replaced what they marked” · kinds: “Card that didn't ship” · “Rest of the
+order” · “Withdrawal cost” · “Full order” · “To replace case”.
+
+#### 37.11c Hoja de preparación imprimible (solo CSS `@media print`)
+
+Botón secundario **«Imprimir hoja»** / “Print sheet” en la barra de la pestaña «Preparar» (imprime la cubeta y el
+filtro que se están viendo; opcionalmente el menú de una tarjeta ofrece **«Imprimir este pedido»**). Lo que sale en
+papel, por pedido, en este orden: número de pedido (o «Retiro de bóveda»), cliente (nombre completo; «Sin nombre
+registrado» si no hay), **dirección** (envío: destinatario, calle, colonia, CP, ciudad, estado) o **cajón** (bóveda:
+zona · etiqueta, o «Todavía sin cajón»), y la tabla de cartas en el orden de la pantalla: **casilla** (`☐` impreso,
+`aria-hidden`) · folio · nombre · set · acabado · condición · ubicación con zona. Encabezado de página: **«Pedidos por
+preparar · hoja de preparación · {fecha}»** y pie **«Impresa por {name}»**. **⛔ Sin precios, sin correo, sin teléfono,
+sin importes de reembolso, sin marcas ya hechas** (el papel es para palomear a mano) — criterio 232. Se ocultan con
+`print:hidden` los controles, badges, banners y la línea de dinero (§37.3c); la miniatura **no** se imprime (tinta,
+tiempo). Tipografía de impresión: la de §3 sin cambios; blanco y negro (tokens `text`/`muted` bastan).
+
+---
+
+### 37.12 El cliente registrado ve su envío en el detalle del pedido (`§M4-SHIP.16`, criterio 230)
+
+**Título del pedido** (`/orders/{id}` y la lista `/orders`): **`publicStatus`** con los rótulos **ya existentes** del
+seguimiento del invitado `status.tracking.*` (medido `es.json:3793-3803`): `pendiente_pago` → «PAGO PENDIENTE» ·
+`pagado` → «PAGADO» · `preparando` → «PREPARANDO» · `guia` → «GUÍA GENERADA» · `enviado` → «ENVIADO» · `entregado` →
+«ENTREGADO» · `reembolsado` → «REEMBOLSADO» · `cancelado` → «CANCELADO» · `en_revision` → «EN REVISIÓN». **⛔ Nunca
+`status.order.settled` («Liquidada»)** ni ningún `status.order.*` en superficie de cliente: son rótulos de M3. Candado
+**PS-UI-1** (§37.18). *(El mapeo `publicStatus → clave` es el mismo del componente de seguimiento; frontend lo extrae a
+un sitio, ⛔ no lo copia.)*
+
+**Bloque «Tu envío»** / “Your shipment” (solo `shipment !== null`), `<section aria-labelledby>`:
+
+| Pieza | ES | EN |
+|---|---|---|
+| Paquetería y guía | **«Paquetería: {carrier}»** · **«Guía: {trackingNumber}»** en mono `tabular` + botón fantasma **«Copiar guía»** (confirma «Copiada», `role="status"`); sin guía todavía: **«Guía: todavía no»** (S8) | “Carrier: {carrier}” · “Tracking number: {n}” · “Copy tracking number” · “Copied” · “Tracking number: not yet” |
+| Progreso | `PipelineStepper` §7.9 con **pagado → preparando → guía → enviado → entregado** y las fechas `pickingAt`, `shippedAt`, `deliveredAt` bajo cada paso (`<time>`); el paso actual = `publicStatus` | |
+| A dónde | **«Para {recipientName} · {city}, {state} · CP {postalCode}»** — ⛔ sin calle, colonia ni teléfono (lista cerrada del contrato) | “To {recipientName} · {city}, {state} · ZIP {postalCode}” |
+| Referencia | **«Referencia del envío: {shipment.id}»** mono 11px `text-muted` + **«Dala si nos escribes por este envío.»** | “Shipment reference: {id}” · “Quote it if you write to us about this shipment.” |
+| `missingCount > 0` | **«{n, plural, one {# carta de este envío no salió} other {# cartas de este envío no salieron}}; te devolvimos su dinero (ver abajo).»** | “{n, plural, one {# card in this shipment didn't ship} other {# cards in this shipment didn't ship}}; we refunded its money (see below).” |
+| `fulfillmentMode === 'vault'` | en lugar del bloque: **«En tu bóveda»** / “In your vault” + enlace **«Ver mi bóveda»**; ⛔ sin paquetería ni dirección | |
+| Envío `cancelado` | ningún bloque de envío propio: el rótulo de arriba (`reembolsado` / `en_revision`) ya lo dice; con `en_revision`: **«Estamos revisando este pedido. Si necesitas algo, escríbenos con tu número de pedido.»** | “We're reviewing this order. If you need anything, write to us with your order number.” |
+
+**Cartas** (`items[]`): con `refund` ⇒ §37.7; con `replacement` ⇒ §37.8f («La estamos reponiendo» / «Reembolsada ·
+{amount}» + transferencia). **Paridad:** el bloque y los rótulos son los **mismos** que ve el invitado en
+`/pedido?token=` (§15.6) — un componente, dos puertas (patrón de §33.5).
+
+---
+
+### 37.13 El 429 del login (`C7`) — el texto final
+
+**Hecho de partida (§37.0):** el texto que el encargo atribuye al contrato **no está en este worktree**; lo que hay es un
+429 genérico por IP. `C7` (`SECURITY_NOTES.md:2860`) añade un tope **por correo normalizado** y da la ventana solo como
+ejemplo («p. ej. 10/15 min»). Por eso el copy **no promete minutos** (criterio 207: sin cifras que el sistema no fija) y
+**no cambia según exista o no la cuenta** (se aplica al correo tecleado, exista o no ⇒ no filtra existencia).
+
+| Clave | ES | EN |
+|---|---|---|
+| `auth.login.rateLimited` | **«Demasiados intentos con este correo. Espera unos minutos y vuelve a intentarlo, o restablece tu contraseña.»** | “Too many attempts with this email. Wait a few minutes and try again, or reset your password.” |
+| `auth.login.rateLimitedRetryIn` *(solo si el servidor manda `Retry-After` o `details.retryAfterSeconds`; si no, ⛔ no se usa)* | **«Demasiados intentos con este correo. Vuelve a intentarlo en {minutes, plural, one {# minuto} other {# minutos}}, o restablece tu contraseña.»** | “Too many attempts with this email. Try again in {minutes, plural, one {# minute} other {# minutes}}, or reset your password.” |
+| `auth.login.rateLimitedResetLink` | **«Restablecer contraseña»** (enlace a `/forgot-password`, dentro del banner) | “Reset password” |
+
+**⭐ v4.9.1 (errata `API_CONTRACT` v1.80.8.1) — el aviso se elige por `error.code`, ⛔ nunca por el status solo.** Las
+tres claves de arriba son **solo** de `429 TOO_MANY_PASSWORD_ATTEMPTS` (tope por correo, solo login), con sus textos
+sin cambio y con el enlace «Restablecer contraseña». `429 RATE_LIMITED` (tope por IP) —y cualquier otro `429` de código
+desconocido— en **login, registro y Google** se pinta con estas dos claves nuevas, nivel `auth.*`:
+
+| Clave | ES | EN |
+|---|---|---|
+| `auth.rateLimitedByIp` *(sin `details.retryAfterSeconds` usable)* | **«Demasiados intentos seguidos. Espera un momento y vuelve a intentarlo.»** | “Too many attempts in a row. Wait a moment and try again.” |
+| `auth.rateLimitedByIpRetryIn` *(con `details.retryAfterSeconds` o `Retry-After`; `{minutes}` = `max(1, ceil(s/60))`)* | **«Demasiados intentos seguidos. Vuelve a intentarlo en {minutes, plural, one {# minuto} other {# minutos}}.»** | “Too many attempts in a row. Try again in {minutes, plural, one {# minute} other {# minutes}}.” |
+
+⛔ **Sin enlace** a `/forgot-password` (restablecer no levanta el tope por IP: sería un remedio que no remedia) y ⛔ sin
+«correo», «cuenta», «contraseña» ni «restablece» (el tope no depende del correo; decirlo sería falso). ⛔ Ninguna cifra
+fuera de `{minutes}`. «Un momento» y no «un minuto»: la ventana del throttler no se promete en el copy (criterio 207).
+La forma es la misma de abajo (banner, `role="alert"`, foco, botón encendido, sin contador sin cifra, ⛔ sin reintento
+automático). Se adopta el borrador del arquitecto **sin cambios**: cumple las cuatro condiciones y comparte arranque
+(«Demasiados intentos…») con la familia `auth.login.*`, así que el usuario reconoce el mismo tipo de aviso.
+
+**Forma:** `Banner warning` (§7.5) con `role="alert"`, encima del formulario, foco al banner al aparecer; el botón
+«Iniciar sesión» **no** se deshabilita (el servidor es la puerta; un botón apagado sin reloj es una promesa sin
+fecha, §35.11). El enlace de restablecer es un `<a>` real, no un botón con `onClick`. ⛔ No se pinta un contador
+regresivo si el servidor no dio la cifra. ~~La misma pareja de claves sirve para `google` (mismo tope por correo).~~
+**Anulada (v4.9.1, `API_CONTRACT` v1.80.8.1):** `/auth/google` solo emite `RATE_LIMITED` (throttle por IP), así que si
+pinta el `429` va por `auth.rateLimitedByIp*`, sin enlace. El enlace de restablecer se pinta **solo** con
+`TOO_MANY_PASSWORD_ATTEMPTS`, no con `mode === 'login'`.
+**Diferencia con la propuesta que cita el encargo:** cae «1 min» (no está fijado; si `C7` lo fija y lo devuelve, entra
+por `rateLimitedRetryIn`), y «Vuelve a intentarlo en… **o** restablece» pasa a dos frases: la espera es una y la salida
+es otra.
+
+**Registro y `change-password` (mismo `C7`):** ~~`auth.register.rateLimited` **«Demasiados intentos con este correo.
+Espera unos minutos y vuelve a intentarlo.»** / “Too many attempts with this email. Wait a few minutes and try again.”~~
+**Retirada (v4.9.1, `API_CONTRACT` v1.80.8.1):** el registro solo recibe `RATE_LIMITED` (por IP, no por correo) ⇒ usa
+`auth.rateLimitedByIp` / `auth.rateLimitedByIpRetryIn`; frontend borra la clave de `es.json` y `en.json`.
+`change-password` conserva `account.password.rateLimited` (§33.7) sin cambio.
+
+---
+
+### 37.14 Accesibilidad (además de §8.2, §35.10, §36.12)
+
+- **Tres botones por fila** (§37.3b): `role="group"` + `aria-labelledby` al nombre de la carta; cada botón con su
+  `aria-label` completo; `min-h-[44px]`; en `< sm` apilados como se describe, ⛔ nunca con `overflow: hidden`.
+- **Toda cifra de dinero** va en un solo nodo de texto con el formato de §9.3 (`Intl.NumberFormat`), ⛔ no separada en
+  «MX$» + número; los lectores de pantalla la leen entera.
+- **Diálogos de confirmación** (§37.4, §37.5, §37.6, §37.8, §37.9, §37.10): `Dialog` §7.6 con `aria-labelledby`
+  (título) y `aria-describedby` (cuerpo); foco inicial en «Cancelar» salvo donde se dice (captura de monto: en el campo;
+  confirmación reforzada: en el campo de re-escritura); `Escape` cierra sin escribir nada; el foco vuelve al botón que
+  lo abrió.
+- **Confirmación reforzada** (§37.8d): el campo lleva `aria-describedby` a la frase «No coincide con…» **solo** cuando
+  no coincide; ⛔ no se anuncia en cada tecla (`aria-live` del mensaje = `polite`, y el mensaje aparece al `blur` o tras
+  600 ms sin teclear).
+- **Reveal de CLABE** (§37.9b): el `<output>` tiene `aria-label="CLABE del cliente"`; la agrupación visual de 4 dígitos
+  es CSS, ⛔ no espacios en el texto (copiar tiene que dar los 18 dígitos seguidos). Tras «Copiar CLABE», `role="status"`
+  «Copiada».
+- **Regiones vivas:** conteo de la tarjeta (`role="status"`, siempre montado, §35.10); aviso de resultado encima de
+  la lista (`role="status"`); errores en pie/fila (`role="alert"`). ⛔ Dos regiones `alert` a la vez en la misma
+  tarjeta: el último error sustituye al anterior.
+- **Pestañas** (§37.2): patrón APG `tablist`/`tab`/`tabpanel`, flechas para moverse, `?tab=` para que el `Back` del
+  navegador funcione; el badge **dentro** del nombre accesible.
+- **Vencido** (§37.8b): el rojo va **con la palabra** «Vencido» (§2.4 doble canal); la regla lateral es decorativa
+  (`aria-hidden`).
+- **Impresión** (§37.11c): la casilla impresa es `aria-hidden`; el documento impreso mantiene los `h2`/`h3` para que un
+  PDF exportado conserve estructura.
+
+---
+
+### 37.15 Contraste — cero pares nuevos
+
+Todos los pares son los de §10/§35.12/§36: tinta sobre papel (~15.5:1) para cifras, títulos y frases; muted sobre papel
+(~4.8:1) para rótulos, fechas y ayudas; bermellón sobre papel (~4.65:1) para «Faltante», «Dañada», «Vencido», «En una
+caja», «Sin CLABE registrada», «Sin compra de origen conocida», el badge de vencidos y las reglas laterales; papel sobre
+tinta para pestañas/segmentos activos. ⛔ El verde sigue reservado al dinero **confirmado** (§2.1): «Reembolsada ·
+aceptado por Stripe» y «Pagada» **sí** pueden llevar la versalita en `success` (§2.4); «pedido a Stripe» y
+«pendiente de pagar», no.
+
+---
+
+### 37.16 i18n — claves nuevas y cambiadas (propiedad de frontend; copiar sin interpretar)
+
+**Paridad ES/EN** en el mismo cambio (candado del proyecto). Versalitas por CSS. Plurales ICU. Cifras con `{amount}`
+ya formateadas por la pantalla (§9.3). Los textos son los de §37.1–§37.13, **carácter por carácter**, **salvo** los
+códigos «M-n» que §37.0-bis C2 sustituye por el nombre del menú («(M3)» → «Ventas», «(M10)» → «Configuración»); esta tabla
+resume las claves y los copys **cortos**; los cuerpos largos se copian de su sección.
+
+**Cambian de valor (claves existentes):**
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.modules.m4` | Pedidos por preparar ~~M4 · Pedidos por preparar~~ (§37.0-bis C1) | Orders to prepare ~~M4 · Orders to prepare~~ |
+| `admin.m4.title` | Pedidos por preparar | Orders to prepare |
+| `admin.m4.prep.title` | Pedidos por preparar | Orders to prepare |
+| `admin.m4.prep.vault.item.missingBody` | Queda anotada. No se mueve al cajón. Al confirmar la colocación se abrirá un caso «Por reponer» a nombre del cliente; esta pantalla no le avisa ni hace reembolsos. | Recorded. It isn't moved to the drawer. When you confirm placement, a “To replace” case will be opened in the customer's name; this screen doesn't notify them or issue refunds. |
+| `admin.m4.statusActions.cancelTitle` | ¿Cancelar la solicitud {ref}? | Cancel request {ref}? |
+| `admin.m4.statusActions.cancelBody` | Se cancela la solicitud y su cobro pendiente en Stripe, y el cliente recibe un correo. Si el pago ya entró, no se cancelará y te lo diremos. | The request and its pending Stripe charge are cancelled, and the customer gets an email. If the payment already went through, it won't be cancelled and we'll tell you. |
+| `admin.m4.statusActions.cancelConfirm` | Cancelar solicitud | Cancel request |
+
+**Nuevas — página y pestañas (`admin.m4.tabs.*`, `admin.modules.*`, tablero):**
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m4.tabs.prepare` | Preparar | Prepare |
+| `admin.m4.tabs.replace` | Por reponer | To replace |
+| `admin.m4.tabs.shipments` | Envíos | Shipments |
+| `admin.m4.tabs.overdueSuffix` | · {count, plural, one {# vencido} other {# vencidos}} | · {count, plural, one {# overdue} other {# overdue}} |
+| `admin.modules.m4Badge` | {count, plural, one {# pedido por preparar} other {# pedidos por preparar}} | {count, plural, one {# order to prepare} other {# orders to prepare}} |
+| `admin.modules.manualRefunds` | Reembolsos manuales (SPEI) | Manual refunds (SPEI) |
+| `admin.dashboard.toPrepare.title` | Pedidos por preparar | Orders to prepare |
+| `admin.dashboard.toPrepare.detail` | {ship} envíos · {vault} bóveda · {toReplace} por reponer | {ship} shipping · {vault} vault · {toReplace} to replace |
+| `admin.dashboard.toPrepare.overdue` | {count, plural, one {# vencido} other {# vencidos}} | {count, plural, one {# overdue} other {# overdue}} |
+| `admin.dashboard.manualRefunds.title` | Reembolsos por pagar (SPEI) | Refunds to pay (SPEI) |
+| `admin.dashboard.manualRefunds.detail` | {amount} por transferir · la más vieja hace {days, plural, one {# día} other {# días}} | {amount} to transfer · oldest {days, plural, one {# day} other {# days}} ago |
+| `admin.dashboard.operatorRefunds.title` | Reembolsos de operadores | Operator refunds |
+| `admin.dashboard.operatorRefunds.detail` | {count} en 24 h · {amount30d} en 30 días | {count} in 24 h · {amount30d} in 30 days |
+
+**Nuevas — tarjeta de envío (`admin.m4.prep.ship.*`):**
+
+| Clave | ES | EN |
+|---|---|---|
+| `step.collect` | Paso 1 de 2 · Junta y palomea | Step 1 of 2 · Collect and check off |
+| `step.pack` | Paso 2 de 2 · Empaca y captura la guía | Step 2 of 2 · Pack and enter the tracking number |
+| `step.waiting` | Paso 2 de 2 · Esperando reposición ({count}) | Step 2 of 2 · Waiting for a replacement ({count}) |
+| `item.damaged` *(botón; también en `…vault.item.damaged`)* | Llegó dañada | Arrived damaged |
+| `item.damagedTag` *(versalita; también en vault)* | Dañada | Damaged |
+| `item.blocked` | No sale en este envío | Not in this shipment |
+| `item.blockedBody` | Ya no está disponible para este envío ({status}). No se palomea y no va en el paquete. | It's no longer available for this shipment ({status}). It isn't checked off and doesn't go in the package. |
+| `item.toReplacement` | Al dar el pedido por preparado se abrirá un caso «Por reponer» a nombre del cliente. La carta sigue siendo suya. | When you mark the order as prepared, a “To replace” case will be opened in the customer's name. The card is still theirs. |
+| `item.replacementLink` | Por reponer → | To replace → |
+| `item.replacementStatus.{open,replaced,found,refunded,voided}` | abierto · repuesta con {folio} · apareció · reembolsada · anulado | open · replaced with {folio} · turned up · refunded · voided |
+| `item.refundPreview` | Se le devolverán {amount} al dar el pedido por preparado (la carta más su parte de la comisión). | {amount} will be refunded when you mark the order as prepared (the card plus its share of the fee). |
+| `item.refundRequested` | Reembolso de {amount} pedido por {name} · {date}. Esperando a Stripe. | Refund of {amount} requested by {name} · {date}. Waiting for Stripe. |
+| `item.refundDone` | Reembolsada · {amount} · {date}. | Refunded · {amount} · {date}. |
+| `item.refundFailed` | Stripe rechazó el reembolso de {amount}. Lo atiende el súper-admin en Pedidos (M3). | Stripe rejected the {amount} refund. The super-admin handles it in Orders (M3). |
+| `item.notRefundable.order_not_settled` | El cobro de este pedido ya no está vivo (reembolsado o en disputa): esta carta no se puede devolver desde aquí. Lo atiende el súper-admin en Pedidos (M3). | This order's charge is no longer live (refunded or disputed): this card can't be refunded from here. The super-admin handles it in Orders (M3). |
+| `item.notRefundable.legacy_convention` | Este pedido es de antes del cambio a precios con IVA incluido: no se reembolsa por carta desde aquí. Lo atiende el súper-admin en Pedidos (M3). | This order predates the switch to VAT-inclusive prices: it can't be refunded per card from here. The super-admin handles it in Orders (M3). |
+| `item.notRefundable.no_origin_order` | No encontramos la compra de la que salió esta carta: no se puede devolver su dinero desde aquí. Avisa al súper-admin. | We couldn't find the purchase this card came from: its money can't be refunded from here. Tell the super-admin. |
+| `item.refundedLocked` | Esta carta ya se reembolsó ({status}); la marca es fija. | This card was already refunded ({status}); the mark is locked. |
+| `item.caseLocked` | Esta carta ya tiene un caso «Por reponer» ({status}); la marca es fija. Si aparece, márcala como «Apareció» en el caso. | This card already has a “To replace” case ({status}); the mark is locked. If it turns up, mark it “Turned up” in the case. |
+| `count` | {picked, plural, one {# tomada} other {# tomadas}} · {missing, plural, one {# faltante o dañada} other {# faltantes o dañadas}} · {pending} por palomear | {picked, plural, one {# picked} other {# picked}} · {missing, plural, one {# missing or damaged} other {# missing or damaged}} · {pending} to check |
+| `countBlocked` | · {blocked, plural, one {# no sale} other {# no salen}} | · {blocked, plural, one {# not shipping} other {# not shipping}} |
+| `countRefund` | Se devolverán {amount} al preparar. | {amount} will be refunded when prepared. |
+| `prepare.cta` | Pedido preparado | Order prepared |
+| `prepare.notRefundable` | Una carta marcada como faltante no se puede reembolsar desde aquí; el súper-admin resuelve ese pedido en M3. Si te equivocaste, deshaz la marca. | A card marked missing can't be refunded from here; the super-admin resolves this order in M3. If it was a mistake, undo the mark. |
+| `confirmRefund.title` | Dar por preparado y devolver {amount} | Mark as prepared and refund {amount} |
+| `confirmRefund.line` | {card} · {folio} — {reason} — {amount} | {card} · {folio} — {reason} — {amount} |
+| `confirmRefund.body` | *(§37.4)* | *(§37.4)* |
+| `confirmRefund.bodyNothingShips` | No sale ninguna carta: se devuelve todo lo cobrado —cartas, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo. | No card is shipping: everything charged —cards, shipping and fee— is refunded and the shipment closes by itself. There's no need to cancel it. |
+| `confirmRefund.signature` | Este reembolso queda a tu nombre y la carta pasa a merma con tu firma. | This refund is recorded in your name and the card goes to shrinkage signed by you. |
+| `confirmRefund.confirm` | Confirmar {amount} y preparar | Confirm {amount} and prepare |
+| `confirmCases.title` | Dar por preparado y abrir {count, plural, one {# caso «Por reponer»} other {# casos «Por reponer»}} | Mark as prepared and open {count, plural, one {# “To replace” case} other {# “To replace” cases}} |
+| `confirmCases.body` | *(§37.4)* | *(§37.4)* |
+| `confirmCases.confirm` | Preparar y abrir casos | Prepare and open cases |
+| `result.prepared` | Pedido {folio} preparado. | Order {folio} prepared. |
+| `result.preparedRefund` | Pedido {folio} preparado. Reembolso de {amount} {stripeState, select, requested {pedido a Stripe} other {aceptado por Stripe}}: {count, plural, one {# carta no sale} other {# cartas no salen}}. | Order {folio} prepared. {amount} refund {stripeState, select, requested {sent to Stripe} other {accepted by Stripe}}: {count, plural, one {# card isn't shipping} other {# cards aren't shipping}}. |
+| `result.refundFailed` | Stripe rechazó un reembolso de {amount}. El pedido quedó preparado; el dinero lo resuelve el súper-admin en Pedidos (M3). | Stripe rejected a {amount} refund. The order is prepared; the super-admin resolves the money in Orders (M3). |
+| `result.closed` | Pedido {folio}: no sale ninguna carta. Se devolvió todo lo cobrado ({amount}) y el envío se cerró. Sale de la lista. | Order {folio}: no card is shipping. Everything charged ({amount}) was refunded and the shipment is closed. It leaves the list. |
+| `result.preparedCases` | Retiro {ref} preparado con {count, plural, one {# caso abierto} other {# casos abiertos}}. Espera en «Por reponer»; la guía se podrá capturar cuando se resuelvan. | Withdrawal {ref} prepared with {count, plural, one {# open case} other {# open cases}}. It waits under “To replace”; the tracking number can be entered once they're resolved. |
+| `result.reclaimed` | {count, plural, one {# carta volvió} other {# cartas volvieron}} a la plataforma: su compra fue reembolsada. Ya no va en este retiro. | {count, plural, one {# card went back} other {# cards went back}} to the platform: its purchase was refunded. It no longer goes in this withdrawal. |
+| `error.previewStale` | El importe cambió mientras confirmabas: ahora son {amount}. No se hizo nada. Revísalo y confirma otra vez. | The amount changed while you were confirming: it's now {amount}. Nothing was done. Check it and confirm again. |
+| `error.limitExceeded` | Este reembolso supera lo que puedes devolver en 24 horas. No se preparó nada y el intento quedó en bitácora. Pide al súper-admin que prepare este pedido. | This refund exceeds what you can refund in 24 hours. Nothing was prepared and the attempt is logged. Ask the super-admin to prepare this order. |
+| `error.refundNotAvailable` | {count, plural, one {Una carta faltante} other {# cartas faltantes}} no se puede reembolsar desde aquí: {reason}. No se hizo nada. Lo atiende el súper-admin en Pedidos (M3). | {count, plural, one {One missing card} other {# missing cards}} can't be refunded from here: {reason}. Nothing was done. The super-admin handles it in Orders (M3). |
+| `error.blockedLines` | *(§37.4)* | *(§37.4)* |
+| `error.orderNotSettled` | El pedido de este envío ya no está liquidado ({status}): se reembolsó o está en disputa. No se prepara ni sale. Sale de la lista; el súper-admin lo resuelve en Pedidos (M3). | This shipment's order is no longer settled ({status}): it was refunded or is disputed. It isn't prepared and doesn't ship. It leaves the list; the super-admin resolves it in Orders (M3). |
+| `error.originRefunded` | *(§37.4)* | *(§37.4)* |
+| `error.notInPreparation` | Este envío ya no está en preparación ({status}). No se cambió nada; sale de la lista. | This shipment is no longer in preparation ({status}). Nothing was changed; it leaves the list. |
+| `error.conflict` | Una carta cambió mientras preparabas (alguien la movió o su compra se revirtió). No se hizo nada. Actualizamos la tarjeta: revísala y vuelve a intentarlo. | A card changed while you were preparing (someone moved it or its purchase was reversed). Nothing was done. We've refreshed the card: check it and try again. |
+| `retry.cta` | Reintentar reembolso | Retry refund |
+| `retry.notRetryable` | Este reembolso ya no se puede reintentar ({status}). | This refund can no longer be retried ({status}). |
+| `retry.inProgress` | Ya hay un intento en curso. Espera unos minutos. | An attempt is already in progress. Wait a few minutes. |
+| `retry.forbidden` | Este reembolso solo lo reintenta el súper-admin. | Only the super-admin can retry this refund. |
+| `unprepare.body` | *(§37.5)* | *(§37.5)* |
+| `unprepare.notInPreparation` | No se pudo deshacer: el envío ya no está en preparación ({status}). Después de la guía no hay vuelta atrás desde esta pantalla. | Couldn't undo: the shipment is no longer in preparation ({status}). Once there's a tracking number, there's no going back from this screen. |
+| `guide.cta` | Capturar guía | Enter tracking number |
+| `guide.waiting` | Este retiro espera {count, plural, one {# carta que se está reponiendo} other {# cartas que se están reponiendo}}. Cuando cada caso se resuelva, sale completo. Ver en «Por reponer». | This withdrawal is waiting for {count, plural, one {# card being replaced} other {# cards being replaced}}. Once every case is resolved, it ships complete. See “To replace”. |
+| `print.cta` · `print.one` · `print.title` · `print.by` · `print.noDrawer` | Imprimir hoja · Imprimir este pedido · Pedidos por preparar · hoja de preparación · {date} · Impresa por {name} · Todavía sin cajón | Print sheet · Print this order · Orders to prepare · preparation sheet · {date} · Printed by {name} · No drawer yet |
+
+**Nuevas — cola de envíos (`admin.m4.*`):**
+
+| Clave | ES | EN |
+|---|---|---|
+| `guest` | Invitado | Guest |
+| `preparedBy` | Preparado por {name} · {date} | Prepared by {name} · {date} |
+| `missingCount` | {count, plural, one {# carta no sale} other {# cartas no salen}} | {count, plural, one {# card isn't shipping} other {# cards aren't shipping}} |
+| `viewOrder` | Ver pedido | View order |
+| `search.label` · `search.hint` · `search.tooLong` · `search.empty` | Buscar envío · Nombre, correo, número de pedido o destinatario · Máximo 200 caracteres. · Ningún envío coincide con «{q}». | Search shipments · Name, email, order number or recipient · 200 characters at most. · No shipment matches “{q}”. |
+| `tracking.notPrepared` | Este envío todavía no está preparado: primero palomea sus cartas y dalo por preparado en «Preparar». No se guardó la guía. | This shipment isn't prepared yet: check off its cards and mark it as prepared under “Prepare” first. The tracking number wasn't saved. |
+| `tracking.openReplacements` | Este retiro tiene {count, plural, one {# carta que se está reponiendo} other {# cartas que se están reponiendo}}: sale completo cuando cada caso se resuelva. No se guardó la guía. | This withdrawal has {count, plural, one {# card being replaced} other {# cards being replaced}}: it ships complete once each case is resolved. The tracking number wasn't saved. |
+| `tracking.originRefunded` | *(§37.6)* | *(§37.6)* |
+| `statusActions.shippedTitle` · `shippedBody` · `shippedConfirm` | ¿Marcar {ref} como enviado? · Para {recipient}. El cliente recibe un correo de que su paquete salió. Confírmalo solo cuando la paquetería ya lo tenga. · Marcar enviado | Mark {ref} as shipped? · To {recipient}. The customer gets an email that their package is on its way. Confirm only once the carrier has it. · Mark shipped |
+| `statusActions.deliveredTitle` · `deliveredBody` · `deliveredConfirm` | ¿Marcar {ref} como entregado? · *(§37.6)* · Marcar entregado | Mark {ref} as delivered? · *(§37.6)* · Mark delivered |
+| `statusActions.notCancellable` | Este envío ya está pagado y no se cancela a mano ({status}). No se cambió nada. Si una carta no sale, se marca al preparar; si hay que devolver todo, lo hace el súper-admin en Pedidos (M3). | This shipment is already paid and isn't cancelled by hand ({status}). Nothing was changed. If a card isn't shipping, mark it when preparing; if everything must be refunded, the super-admin does it in Orders (M3). |
+
+**Nuevas — «Por reponer» (`admin.m4.replace.*`)** — los cuerpos largos en §37.8:
+
+| Clave | ES | EN |
+|---|---|---|
+| `filter.open` · `filter.closed` · `filter.overdueOnly` · `filter.source.{all,withdrawal,vault_purchase}` · `search` | Abiertos · Resueltos · Solo vencidos · Todos · Retiros · Compras a bóveda · Buscar caso | Open · Resolved · Overdue only · All · Withdrawals · Vault purchases · Search cases |
+| `empty.open.title` · `empty.open.body` | No hay cartas por reponer. · Cuando al preparar un retiro o al colocar una compra falte o llegue dañada una carta, el caso aparecerá aquí. | No cards to replace. · When a card is missing or arrives damaged while preparing a withdrawal or placing a purchase, the case will show up here. |
+| `empty.overdue` · `empty.closed` · `empty.search` | Ningún caso abierto lleva más de 7 días. · Todavía no se ha resuelto ningún caso. · Nada coincide con «{q}». | No open case is older than 7 days. · No case has been resolved yet. · Nothing matches “{q}”. |
+| `due.in` · `due.overdue` | Vence en {count, plural, one {# día} other {# días}} · Vencido hace {count, plural, one {# día} other {# días}} | Due in {count, plural, one {# day} other {# days}} · Overdue by {count, plural, one {# day} other {# days}} |
+| `identity` | Identidad exacta | Exact identity |
+| `openedLine` | {reason} al {source, select, withdrawal {preparar el retiro} other {colocar la compra {orderNumber}}} · {name} · {date} | {reason} while {source, select, withdrawal {preparing the withdrawal} other {placing purchase {orderNumber}}} · {name} · {date} |
+| `destination.package` · `destination.drawer` | Si se repone, va: al paquete del retiro · Si se repone, va: al cajón del cliente | If replaced, it goes: into the withdrawal's package · If replaced, it goes: into the customer's drawer |
+| `origin` · `originNone` | Compra {orderNumber} · {status} · Sin compra de origen conocida | Purchase {orderNumber} · {status} · No known origin purchase |
+| `candidates` | {count, plural, =0 {Ninguna pieza igual disponible en la tienda} one {# pieza igual disponible} other {# piezas iguales disponibles}} | {count, plural, =0 {No identical piece available in the store} one {# identical piece available} other {# identical pieces available}} |
+| `candidatesEmpty.title` · `candidatesEmpty.body` | Ninguna pieza igual en la tienda ahora mismo. · Si entra una por compra o cotizador, aparecerá aquí. Si no llega, el súper-admin puede reembolsar el caso. | No identical piece in the store right now. · If one comes in through a purchase or the buylist, it'll show up here. If it doesn't, the super-admin can refund the case. |
+| `drawerLegend` | ¿A qué cajón va la pieza repuesta? | Which drawer does the replacement go to? |
+| `action.replace` · `action.found` · `action.refund` · `action.void` | Reponer con esta pieza · Apareció · Reembolsar · Anular | Replace with this piece · Turned up · Refund · Void |
+| `confirmReplace.title` · `.body` · `.confirm` | ¿Reponer con {folio}? · *(§37.8c)* · Reponer | Replace with {folio}? · *(§37.8c)* · Replace |
+| `confirmFound.title` · `.body` · `.confirm` | ¿Apareció la misma carta? · *(§37.8c)* · Sí, apareció | Did the same card turn up? · *(§37.8c)* · Yes, it turned up |
+| `confirmVoid.title` · `.body` · `.reason` · `.confirm` | ¿Anular este caso? · *(§37.8c)* · Motivo · Anular caso | Void this case? · *(§37.8c)* · Reason · Void case |
+| `result.replaced` · `result.replacedCanShip` · `result.found` · `result.already` | *(§37.8c)* | *(§37.8c)* |
+| `error.notOpen` · `error.originNotSettled` · `error.identityMismatch` · `error.notAvailable` · `error.notFound` · `error.samePieceDamaged` · `error.samePieceNotLost` · `error.locationRequired` · `error.notVoidable` · `error.conflict` | *(§37.8c)* | *(§37.8c)* |
+| `refund.title` · `refund.paidRef` · `refund.paidRefHint` · `refund.marketRef` · `refund.marketRefDate` · `refund.marketNone` · `refund.amountLabel` · `refund.amountHint` · `refund.reasonLabel` · `refund.preview` · `refund.previewAllCard` · `refund.previewAllManual` · `refund.previewCloses` · `refund.previewNoClabe` · `refund.reinforcedHint` · `refund.blocked` · `refund.confirm` | *(§37.8d)* | *(§37.8d)* |
+| `refund.retype.title` · `.body` · `.label` · `.noPaste` · `.mismatch` | Confirma el monto escribiéndolo otra vez · *(§37.8d)* · Monto (MX$) · Escríbelo a mano · No coincide con {amount}. | Confirm the amount by typing it again · *(§37.8d)* · Amount (MX$) · Type it by hand · Doesn't match {amount}. |
+| `refund.result` · `refund.already` · `refund.error.previewStale` · `refund.error.aboveLimit` · `refund.error.noOrigin` · `refund.error.legacy` · `refund.error.amount` · `refund.error.reason` | *(§37.8d)* | *(§37.8d)* |
+| `captured.{title,amount,reason,refs,refsNoMarket,reinforced,yes,no,byCard,none,byTransfer,pending,paidBy,cancelled}` | Reembolso · Monto capturado · Motivo · Referencias al capturar · … | Refund · Amount recorded · Reason · References at capture · … *(§37.8e)* |
+| `status.replacementCase.{open,replaced,found,refunded,voided}` | Abierto · Repuesta · Apareció · Reembolsada · Anulado | Open · Replaced · Turned up · Refunded · Voided |
+| `status.missingReason.{not_found,damaged}` | No la encontraron · Llegó dañada | Not found · Arrived damaged |
+
+**Nuevas — cubeta SPEI (`admin.manualRefunds.*`)** — cuerpos en §37.9:
+
+| Clave | ES | EN |
+|---|---|---|
+| `title` | Reembolsos manuales (SPEI) | Manual refunds (SPEI) |
+| `filter.{pending,paid,cancelled}` | Pendientes · Pagadas · Canceladas | Pending · Paid · Cancelled |
+| `summary` | {count, plural, one {# pendiente} other {# pendientes}} · {amount} por transferir · la más vieja hace {days, plural, one {# día} other {# días}} | {count, plural, one {# pending} other {# pending}} · {amount} to transfer · oldest {days, plural, one {# day} other {# days}} ago |
+| `col.{beneficiary,amount,why,purchase,clabe,created,status}` | Beneficiario · Importe · Por qué · Compra · CLABE · Creada · Estado | Beneficiary · Amount · Why · Purchase · CLABE · Created · Status |
+| `source.case_excess` · `source.stripe_failed` | Excedente del caso {card} · {folio} · Tarjeta rechazada por Stripe · caso {card} · {folio} | Case excess {card} · {folio} · Card refund rejected by Stripe · case {card} · {folio} |
+| `originNotSettled` | en disputa / reembolsada | disputed / refunded |
+| `noClabe` | Sin CLABE registrada | No CLABE on file |
+| `empty.{pending,paid,cancelled}` | No hay transferencias por hacer. · Todavía no se ha marcado ninguna como pagada. · Ninguna cancelada. | No bank transfers to make. · None has been marked as paid yet. · None cancelled. |
+| `components.{merchandise,merchandiseIva,fee,compensation}` | Mercancía · IVA de mercancía · Comisión · Compensación por carta perdida | Merchandise · Merchandise VAT · Fee · Compensation for lost card |
+| `originBanner` | La compra de origen está {status, select, chargeback {en disputa} other {reembolsada}}: revisa antes de pagar. Al marcar pagada te pediremos confirmarlo. | The origin purchase is {status, select, chargeback {disputed} other {refunded}}: check before paying. When marking it paid we'll ask you to confirm. |
+| `reveal.cta` · `reveal.hint` · `reveal.copy` · `reveal.copied` · `reveal.beneficiary` · `reveal.beneficiaryNone` · `reveal.updatedAt` · `reveal.updatedUnknown` · `reveal.changedRecently` · `reveal.aria` | Revelar CLABE · Queda registrado que la viste. · Copiar CLABE · Copiada · Beneficiario: {name} · Sin nombre legal registrado; usa el nombre de la cuenta: {name} · CLABE registrada o cambiada el {date} · Fecha de cambio desconocida (registrada antes de que se llevara) · *(§37.9b)* · CLABE del cliente | Reveal CLABE · It's logged that you viewed it. · Copy CLABE · Copied · Beneficiary: {name} · No legal name on file; use the account name: {name} · CLABE registered or changed on {date} · Change date unknown (registered before it was tracked) · *(§37.9b)* · Customer's CLABE |
+| `error.clabeNotOnFile` · `error.notPending` · `error.clabeChanged` · `error.confirmMissing` | *(§37.9b)* | *(§37.9b)* |
+| `paid.reference` · `paid.referenceHint` · `paid.referenceInvalid` · `paid.note` · `paid.confirmClabe` · `paid.confirmOrigin` · `paid.cta` · `paid.title` · `paid.body` · `paid.confirm` · `paid.done` · `paid.already` | *(§37.9b)* | *(§37.9b)* |
+| `paidBy` · `trackingKey` · `trackingKeyNone` · `clabeChangedAfter` | Pagada por {name} · {date} · Clave de rastreo: {ref} · Sin clave de rastreo · La CLABE del cliente cambió después de este pago. | Paid by {name} · {date} · Tracking key: {ref} · No tracking key · The customer's CLABE changed after this payment. |
+| `cancel.{cta,title,body,reason,confirm,done,already}` | Cancelar · ¿Cancelar esta transferencia? · *(§37.9b)* · Motivo · Cancelar transferencia · Cancelada. Registrado a tu nombre. · Ya estaba cancelada. | Cancel · Cancel this transfer? · *(§37.9b)* · Reason · Cancel transfer · Cancelled. Recorded in your name. · It was already cancelled. |
+| `reissue.{cta,title,body,reason,confirm,done,as,error}` | Re-emitir · ¿Re-emitir esta transferencia? · *(§37.9b)* · Por qué se re-emite · Re-emitir · Re-emitida como {id}. · Re-emitida como {id} · *(§37.9b)* | Reissue · Reissue this transfer? · *(§37.9b)* · Why it's reissued · Reissue · Reissued as {id}. · Reissued as {id} · *(§37.9b)* |
+| `toManual.{cta,title,body,confirm,done,notConvertibleStatus,notConvertibleKind,originNotSettled}` | Pasar a transferencia (SPEI) · ¿Pasar {amount} a transferencia? · *(§37.9c)* · Pasar a SPEI · En la cubeta SPEI: {link}. · *(§37.9c)* | Move to bank transfer (SPEI) · Move {amount} to bank transfer? · *(§37.9c)* · Move to SPEI · In the SPEI bucket: {link}. · *(§37.9c)* |
+| `account.kyc.clabeUpdatedAt` *(cliente)* | CLABE actualizada el {date} | CLABE updated on {date} |
+
+**Nuevas — M3 reembolso total de bóveda (`admin.m3.vaultRefund.*`)** — cuerpos en §37.10:
+
+| Clave | ES | EN |
+|---|---|---|
+| `body` · `piecesTitle` | *(§37.10)* · Cartas de esta compra | *(§37.10)* · Cards from this purchase |
+| `state.{in_custody,returnedPending,returned,in_packed_withdrawal,already_withdrawn,open_case,not_customer,ambiguous,other_purchase}` | En su bóveda · Devuelta · por confirmar · Devuelta · En una caja · Ya la tiene el cliente · Con caso «Por reponer» · Ya no era del cliente · Revisar a mano · De otra compra | In their vault · Returned · to confirm · Returned · In a box · Customer already has it · With a “To replace” case · No longer the customer's · Check by hand · From another purchase |
+| `stateBody.*` | *(§37.10b)* | *(§37.10b)* |
+| `error.inPackedWithdrawal` · `confirmPieces` | *(§37.10)* | *(§37.10)* |
+| `reclaim.{cta,ctaAll,title,body,unpacked,note,confirm,done,nothing,notClosed,notVault}` | Reclamar · Reclamar lo que quede · *(§37.10c)* · Saqué {count, plural, one {la carta} other {las cartas}} de la caja. · Qué viste o hiciste · Reclamar · *(§37.10c)* | Reclaim · Reclaim what's left · *(§37.10c)* · I took {count, plural, one {the card} other {the cards}} out of the box. · What you saw or did · Reclaim · *(§37.10c)* |
+| `inventory.{legend,recovered,notRecovered,recoveredHint,conflict}` | ¿Dónde están las cartas devueltas? · Recuperadas: están en el estante y vuelven a la venta · No recuperadas: no aparecen; quedan como merma a mi nombre · *(§37.10c)* | Where are the returned cards? · Recovered: they're on the shelf and go back on sale · Not recovered: they can't be found; they stay as shrinkage in my name · *(§37.10c)* |
+| `shipments.title` · `shipments.view` · `refunds.title` · `refunds.transfers` · `refunds.byStripe` · `refunds.byTransfer` · `refunds.kind.{item_missing,order_remaining,shipment_fee,order_full,case_refund}` | Envíos de este pedido · Ver en Pedidos por preparar · Reembolsos · Transferencias · Devuelto por Stripe: {amount} · Transferido: {amount} · Carta que no salió · Resto del pedido · Costo del retiro · Pedido completo · Caso «Por reponer» | This order's shipments · View under Orders to prepare · Refunds · Bank transfers · Refunded via Stripe: {amount} · Transferred: {amount} · Card that didn't ship · Rest of the order · Withdrawal cost · Full order · “To replace” case |
+| `admin.refunds.*` (vista «Reembolsos de operadores») | *(§37.11b)* | *(§37.11b)* |
+
+**Nuevas — cliente (`orders.*`, `vault.*`, `auth.*`):**
+
+| Clave | ES | EN |
+|---|---|---|
+| `orders.item.refund` | No salió · te devolvimos {amount} | Didn't ship · we refunded you {amount} |
+| `orders.item.refundReason.{not_found,damaged}` | no la encontramos · llegó dañada | we couldn't find it · it arrived damaged |
+| `orders.refundedPartial` | Te devolvimos {amount} de este pedido. | We refunded {amount} from this order. |
+| `orders.item.replacing` · `orders.item.replacingBody.{not_found,damaged}` | La estamos reponiendo · No la encontramos al prepararla. Te avisamos en cuanto la tengamos, o te devolvemos su valor. · Llegó dañada al prepararla. Te avisamos en cuanto la tengamos, o te devolvemos su valor. | Being replaced · We couldn't find it while preparing it. We'll let you know as soon as we have it, or refund its value. · It arrived damaged while being prepared. We'll let you know as soon as we have it, or refund its value. |
+| `orders.item.caseRefunded` · `orders.item.byTransfer` · `orders.item.transferStatus.{pending,paid,cancelled}` · `orders.item.transferCancelledHelp` | Reembolsada · {amount} · {amount} por transferencia · {status} · pendiente · depositada · cancelada · Si no sabes por qué, contáctanos. | Refunded · {amount} · {amount} by bank transfer · {status} · pending · deposited · cancelled · If you don't know why, contact us. |
+| `orders.item.originRefunded` | Ya no está en tu bóveda: este pedido se reembolsó. | No longer in your vault: this order was refunded. |
+| `orders.shipment.{title,carrier,tracking,trackingNone,copy,copied,to,reference,referenceHint,missing,inVault,seeVault,inReview}` | Tu envío · Paquetería: {carrier} · Guía: {number} · Guía: todavía no · Copiar guía · Copiada · Para {name} · {city}, {state} · CP {zip} · Referencia del envío: {id} · Dala si nos escribes por este envío. · *(§37.12)* · En tu bóveda · Ver mi bóveda · *(§37.12)* | Your shipment · Carrier: {carrier} · Tracking number: {number} · Tracking number: not yet · Copy tracking number · Copied · To {name} · {city}, {state} · ZIP {zip} · Shipment reference: {id} · Quote it if you write to us about this shipment. · *(§37.12)* · In your vault · View my vault · *(§37.12)* |
+| `vault.item.originRefunded` · `vault.item.originRefundedBody` · `vault.withdraw.error.originRefunded` | Compra en reembolso · Esta carta viene de una compra que se está reembolsando: no se puede retirar. Si el reembolso no procede, volverá a estar disponible. · *(§37.10d)* | Purchase being refunded · This card comes from a purchase that's being refunded: it can't be withdrawn. If the refund doesn't go through, it'll be available again. · *(§37.10d)* |
+| `auth.login.rateLimited` · `auth.login.rateLimitedRetryIn` · `auth.login.rateLimitedResetLink` *(solo `TOO_MANY_PASSWORD_ATTEMPTS`)* · ~~`auth.register.rateLimited`~~ *(retirada, v4.9.1 / contrato v1.80.8.1)* | *(§37.13)* | *(§37.13)* |
+| `auth.rateLimitedByIp` · `auth.rateLimitedByIpRetryIn` *(v4.9.1; `RATE_LIMITED` en login, registro y Google; sin enlace)* | Demasiados intentos seguidos. Espera un momento y vuelve a intentarlo. · Demasiados intentos seguidos. Vuelve a intentarlo en {minutes, plural, one {# minuto} other {# minutos}}. | Too many attempts in a row. Wait a moment and try again. · Too many attempts in a row. Try again in {minutes, plural, one {# minute} other {# minutes}}. |
+
+**Correos (backend, plantillas en `shipments/` y `payments/`; el copy es normativo, §31 la forma):** `AV-12` (§37.7),
+`AV-13` (§37.8f), `AV-14`, `AV-15`, `AV-16` (§37.9d), `AV-3` variante `vault` (§37.10d).
+
+---
+
+### 37.17 Qué NO hacer
+
+- ⛔ Sumar, restar o comparar cifras en la pantalla para pintar un importe, un reparto o un «vencido» (S1).
+- ⛔ Un campo de monto en cualquier sitio que no sea §37.8d; ⛔ un «excluir sin reembolso» para el operador.
+- ⛔ Reintentar solo un `409 REFUND_PREVIEW_STALE`: se enseña la cifra nueva y se vuelve a confirmar.
+- ⛔ Pintar «Reembolsar», «Anular», la cubeta SPEI o «Reclamar» apagados al operador: no se pintan.
+- ⛔ «Cancelar» en un envío `picking`/`guia`, ni apagado ni escondido en un menú.
+- ⛔ «Marcar enviado» / «Marcar entregado» sin diálogo.
+- ⛔ La CLABE en lista, `aria-label`, `title`, URL, estado global, bitácora visible, correo o impresión; ⛔ espacios
+  dentro del texto de la CLABE revelada.
+- ⛔ Casilla reforzada marcada por defecto; ⛔ pegar en el campo de re-escritura del monto.
+- ⛔ «Retiros», «Pedidos a preparar» o «picking» como nombre de M4 o de sus pestañas; ⛔ «Orders to pick».
+- ⛔ «Liquidada» / `status.order.*` en cualquier superficie de cliente.
+- ⛔ Precios, correo, teléfono o importes en la hoja impresa.
+- ⛔ Un plazo en días en `AV-13`; una cifra en el 429 del login que el servidor no dio.
+- ⛔ Verde para «pedido a Stripe» o «pendiente de pagar»; ⛔ rojo sin la palabra que lo explica.
+- ⛔ Correo al súper-admin por reembolsos de operador (D-13): el tablero y la vista son el aviso.
+
+---
+
+### 37.18 Candados sugeridos (QA · se escriben con la pantalla; 390×844 y 1280×800)
+
+- **PS-UI-1** Con `publicStatus:'reembolsado'` (y con las 12 combinaciones de `§M4-SHIP.16` PO-3), el `<h1>` de
+  `/orders/{id}` y la fila de `/orders` **no** contienen «Liquidada» / “Settled” y contienen el rótulo de
+  `status.tracking.*` correspondiente.
+- **PS-UI-2** `admin.modules.m4`, `admin.m4.title`, `admin.m4.prep.title`, el `<title>` del documento, la tarjeta del
+  tablero y el encabezado impreso contienen «Pedidos por preparar»; ningún nodo del `(admin)` contiene «Pedidos a
+  preparar», «M4 · Retiros» ni «picking».
+- **PS-UI-3** Tarjeta de envío directo con una línea `missing` `refundable:{amountCents:31458}` y
+  `refundPreviewCents:31458`: la fila contiene «314.58», el conteo contiene «314.58», el botón del diálogo contiene
+  «314.58», y el `POST` lleva `expectedRefundCents:31458`; con `refundPreviewCents:0` y sin `missing` **no** se abre
+  diálogo. *(31458 es la cifra de ejemplo del contrato, `§M4-SHIP.4`.)*
+- **PS-UI-4** `409 REFUND_PREVIEW_STALE {refundCents:31000}` ⇒ el diálogo sigue abierto, contiene «310.00» y **no**
+  se envió un segundo `POST` sin nueva pulsación.
+- **PS-UI-5** La fila pendiente tiene exactamente tres botones «La tengo», «No la encontré», «Llegó dañada» (en envío
+  y en bóveda); a 390 px ninguno queda recortado (`scrollWidth === clientWidth`).
+- **PS-UI-6** Rol `vault_operator`: en «Por reponer» no existe ningún nodo «Reembolsar» ni «Anular»; la ruta
+  `/admin/manual-refunds` y la entrada de menú no existen; el tablero no contiene «SPEI».
+- **PS-UI-7** Cubeta SPEI, lista y detalle antes del reveal: el HTML **no** contiene 18 dígitos seguidos; tras
+  «Revelar CLABE» el `<output>` los contiene en un solo nodo; tras «Marcar pagada» o al salir, ya no.
+- **PS-UI-8** `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required:['recent_clabe_change']}` ⇒ aparece **una** casilla,
+  **sin** marcar; el botón sigue habilitado y el segundo `POST` lleva `confirmRecentClabeChange:true` solo tras marcarla.
+- **PS-UI-9** `confirmation:'reinforced'` ⇒ el segundo diálogo tiene un campo vacío; con «800» cuando el monto es
+  «800.00» coincide; con «799.99» el botón está deshabilitado y hay «No coincide con».
+- **PS-UI-10** «Marcar enviado» y «Marcar entregado» abren diálogo con foco en «Cancelar»; en `picking` y `guia` no
+  existe ningún nodo «Cancelar envío».
+- **PS-UI-11** Caso con `overdue:true` ⇒ la tarjeta contiene «Vencido» y `text-accent`; con `overdue:false` y `dueAt`
+  en el pasado (fixture contradictorio) ⇒ **no** contiene «Vencido» (manda el flag).
+- **PS-UI-12** Hoja impresa (`@media print` emulado): no contiene «MX$», «@», «Tel» ni ningún importe; contiene el
+  número de pedido, la ubicación con zona y una casilla por carta.
+- **PS-UI-13** Login con `429` sin `Retry-After` ⇒ el banner contiene «Espera unos minutos» y **no** contiene un
+  número; con `Retry-After: 600` ⇒ contiene «10 minutos».
+- **PS-UI-14** `409 VAULT_PIECE_IN_PACKED_WITHDRAWAL {items:[…]}` en M3 ⇒ el `alert` nombra la referencia del retiro
+  con enlace y contiene «Deshaz el preparado»; `422 REFUND_CONFIRMATION_REQUIRED` ⇒ el diálogo vuelve con la casilla
+  sin marcar y el segundo `POST` lleva `confirmPiecesWithCustomer:true`.
+
+---
+
+### 37.19 Notas a otros roles — lo que este diseño **no** decide
+
+| # | Para | Nota |
+|---|---|---|
+| **N-1** | arquitecto | `403 MONEY_OUT_LIMIT_EXCEEDED` no trae `details` (`§M4-SHIP.5` paso 6). Si un día se quiere pintar «te quedan {x} de {tope}», hace falta `{capCents, usedCents}` en el `403`; hoy el copy no lo promete |
+| **N-2** | arquitecto | `429 RATE_LIMITED` del login: si `C7` devuelve `Retry-After` (o `details.retryAfterSeconds`), §37.13 lo usa; si no, el copy no lo pide. Es decisión de backend/seguridad, no bloquea |
+| **N-3** | arquitecto | El rótulo humano de `pieceStatus` en «No sale en este envío» (§37.3b) reusa los rótulos de estado de inventario de M1 — NO MEDIDO que existan como clave i18n; frontend lo mide y, si falta, la añade |
+| **N-4** | frontend | «Por reponer» como **pestaña de página** (§37.2) es interpretación de ux-ui de la «tercera pestaña junto a Envío y Bóveda» del contrato; no cambia ningún endpoint. Si el shell no soporta `?tab=` en `/admin/m4`, se acepta el apilado con el orden Preparar → Por reponer → Envíos, y P-10 sigue cerrado |
+| **N-5** | backend | El texto «Impresa por {name}» de la hoja (§37.11c) usa la sesión del cliente (`GET /users/me`), ⛔ ningún endpoint nuevo |
+| **N-6** | product-owner | Criterio 215 dice «⛔ falla si «Retiros» aparece de cara al operador»; §37.1 fija la lectura de ux-ui: se refiere al **nombre de M4**, no al sustantivo «retiro» («Retiro de bóveda», «Retiros sin disputa» en M7/M8). Si el dueño quiso borrar también esos, es una decisión suya y toca M7/M8 |
+| **N-7** | seguridad | El campo de re-escritura del monto (§37.8d) bloquea pegar; es fricción a propósito (D-12). Si seguridad prefiere permitir pegar y exigir dos campos, es un cambio de una línea en el diseño |
+| **N-8** | backend | `AV-12`/`AV-13`/`AV-14`/`AV-15`/`AV-16`/`AV-3 vault` van con el copy de §37.7–§37.10; los enlaces (`/orders/{id}`, `/vault?tab=withdrawals`, ~~`/cuenta#kyc`~~ **`/account#kyc`** — v4.9.2) son los que el contrato y §33 ya fijan — ⛔ ningún enlace a lista (`cuenta/pedidos`), hueco 5 de `§M4-SHIP.10` |

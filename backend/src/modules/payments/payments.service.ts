@@ -8,13 +8,14 @@ import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
 import { clearReservation, releaseReservationData, reservationGuard } from '../orders/reservation';
 import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
+import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
 // LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
-import {
-  orderRefundedTemplate,
-  orderSettledTemplate,
-} from '../orders/mail/order-notice.templates';
+import { orderRefundedTemplate, orderSettledTemplate } from '../orders/mail/order-notice.templates';
+import { FullRefundService } from './refunds/full-refund.service';
+import { RefundLedgerService } from './refunds/refund-ledger.service';
+import { currentPiecesOf, resolveOriginsBatch } from './refunds/origin';
 
 /**
  * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
@@ -36,6 +37,10 @@ export class PaymentsService {
     // ⛔ **un fallo de correo NUNCA puede hacer que el webhook de Stripe responda != 2xx** (un 5xx
     // haría que Stripe reintentara un settle ya aplicado). Candado `C-AV-10`.
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // ⭐ v1.80 (§M4-SHIP.7/.17.2/.18): el cierre por reembolso total y el libro. `@Optional()` por el mismo
+    // motivo que el correo: los tests unitarios legacy construyen este servicio a mano.
+    @Optional() private readonly fullRefund?: FullRefundService,
+    @Optional() private readonly ledger?: RefundLedgerService,
   ) {}
 
   /**
@@ -74,9 +79,10 @@ export class PaymentsService {
    * la primera garantiza que **ningún pedido reciba dos confirmaciones** (criterio **206**, que falla
    * por exceso); la segunda, que no se intente escribir a un pedido sin dueño.
    * ⛔ **Y no se le escribe a una cuenta anonimizada** (§R.5.a).
-   * **Una sola vez, sin columna:** el early-return por `status === 'settled'` del settle ⇒ un
+   * **Una sola vez, sin columna:** el early-return por estado no liquidable del settle ⇒ un
    * reintento SECUENCIAL no duplica; ⭐ v1.79.4: bajo CONCURRENCIA lo garantiza el CAS del settle
-   * (`order.updateMany` con `status: { not: 'settled' }` en el `WHERE`) — el perdedor no llega aquí.
+   * (`order.updateMany` con `status: { in: SETTLEABLE_ORDER_STATUSES }` en el `WHERE`, v1.80) — el
+   * perdedor no llega aquí; y un `succeeded` tardío sobre `refunded`/`chargeback` tampoco (early-return).
    */
   private async notifyOrderSettled(order: Order & { items: OrderItem[] }): Promise<void> {
     if (order.guestEmail || !order.userId) return;
@@ -95,6 +101,7 @@ export class PaymentsService {
         ...orderSettledTemplate(
           {
             orderNumber: order.orderNumber ?? '',
+            orderId: order.id,
             items: order.items.map((oi) => {
               const snap = readFrozenCardFacts(oi.cardSnapshot);
               return {
@@ -158,6 +165,11 @@ export class PaymentsService {
         case 'charge.refunded':
           await this.onChargeRefunded(event.data.object as Stripe.Charge);
           break;
+        // ⭐ v1.80 (§9): concilia UNA fila del libro por `metadata.paymentRefundId` (mismo manejador).
+        case 'charge.refund.updated':
+        case 'refund.updated':
+          await this.onRefundUpdated(event.data.object as Stripe.Refund);
+          break;
         case 'charge.dispute.created':
           await this.onChargeDispute(event.data.object as Stripe.Dispute);
           break;
@@ -199,7 +211,22 @@ export class PaymentsService {
       include: { items: true },
     });
     if (order) {
-      if (order.status === 'settled') return;
+      // ⭐⭐ v1.80 (§M4-VAULT.2-bis.2, `SEC-SETTLE-LATE`) — early-return = NEGACIÓN EXACTA del CAS de abajo
+      // (misma constante `SETTLEABLE_ORDER_STATUSES`, ⛔ nunca dos listas). Solo `pending`/`failed` se
+      // liquidan. `settled` = reentrega (silencio). `refunded`/`chargeback` = hechos POSTERIORES a un
+      // cobro ⇒ este `succeeded` es viejo: `200`, ⛔ cero escrituras, ⛔ cero avisos, ⛔ cero `audit.log`;
+      // la única huella es este `warn`. Va ANTES de H1 (un tardío no es un descuadre). El marcador
+      // `ProcessedStripeEvent` de este event.id queda: reintentarlo nunca aplicaría. Bajo carrera decide
+      // el CAS; esto es el atajo secuencial (ahorra `getCardDetails` y el ruido de H1).
+      if (!isSettleableOrderStatus(order.status)) {
+        if (order.status === 'refunded' || order.status === 'chargeback') {
+          this.logger.warn(
+            `SEC-SETTLE-LATE: payment_intent.succeeded ignorado — orden ${order.orderNumber ?? order.id} ` +
+              `en ${order.status} (PI ${pi.id})`,
+          );
+        }
+        return;
+      }
       // H1 (money-safety) — DEFENSA EN PROFUNDIDAD antes de liquidar: el monto y la moneda del
       // PaymentIntent DEBEN coincidir con lo que la orden cobró (`totalCents`, en MXN). Aunque el
       // PaymentIntent lo crea el servidor (`attachPaymentIntent`, importe derivado del breakdown),
@@ -253,10 +280,12 @@ export class PaymentsService {
         // `succeeded` concurrentes (event.id distintos) lo pasan las dos; la segunda espera aquí el
         // candado de fila de la primera y, bajo READ COMMITTED, Postgres RE-EVALÚA el `WHERE` sobre la
         // versión confirmada ⇒ `settled` ⇒ 0 filas. `updateMany` y no `update`: sin fila, `update` lanza
-        // `P2025` ⇒ 500 ⇒ Stripe reintentaría un settle ya aplicado. `not: 'settled'` es la negación
-        // EXACTA del early-return (⛔ no `'pending'`: estrecharlo cambiaría qué pagos se liquidan).
+        // `P2025` ⇒ 500 ⇒ Stripe reintentaría un settle ya aplicado. El predicado es la negación
+        // EXACTA del early-return. ⭐⭐ v1.80 (§M4-VAULT.2-bis.2): el predicado es la lista CERRADA
+        // `SETTLEABLE_ORDER_STATUSES` (`pending`/`failed`) — un contracargo o reembolso confirmado mientras
+        // esta entrega esperaba el candado ⇒ 0 filas ⇒ perdedor (prueba SL-4).
         const won = await tx.order.updateMany({
-          where: { id: order.id, status: { not: 'settled' } },
+          where: { id: order.id, status: { in: [...SETTLEABLE_ORDER_STATUSES] } },
           data: { status: 'settled', settledAt: now },
         });
         if (won.count === 0) return false; // perdedor: ⛔ nada más en esta tx
@@ -397,7 +426,7 @@ export class PaymentsService {
    *    (mismo PaymentIntent). Repetirlo aquí lo contaría DOS VECES en el P&L de M7 (§4.21b).
    *  - Se capturan marca + últimos 4 de la tarjeta (único dato de pago que se persiste).
    *
-   * Idempotente: el early-return por `status==='settled'` (secuencial), ⭐ v1.79.4 el CAS del settle
+   * Idempotente: el early-return por estado no liquidable (secuencial; v1.80 lista cerrada), ⭐ v1.79.4 el CAS del settle
    * (concurrente: el perdedor no escribe ni avisa), la guardia `status:'reserved'` de cada pieza y la
    * búsqueda del envío activo hacen que un reintento de Stripe no duplique nada.
    * El correo es POST-COMMIT y BEST-EFFORT: su fallo NO revierte el pago ni falla el webhook.
@@ -414,8 +443,9 @@ export class PaymentsService {
     const settled = await this.prisma.$transaction(async (tx) => {
       // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el MISMO CAS que la rama `vault` (ver `onPaymentSucceeded`):
       // primera escritura, estado en el `WHERE`, `count === 0` ⇒ el perdedor no escribe nada más.
+      // v1.80 (§M4-VAULT.2-bis.2): mismo predicado, misma constante que el early-return.
       const won = await tx.order.updateMany({
-        where: { id: order.id, status: { not: 'settled' } },
+        where: { id: order.id, status: { in: [...SETTLEABLE_ORDER_STATUSES] } },
         data: {
           status: 'settled',
           settledAt: now,
@@ -591,7 +621,12 @@ export class PaymentsService {
     if (order) {
       if (order.status !== 'pending') return;
       await this.prisma.$transaction(async (tx) => {
-        await tx.order.update({ where: { id: order.id }, data: { status: 'failed' } });
+        // 🔒💰 v1.80.8.3 (§M4-VAULT.2-bis.2, tabla de escritores): CAS con el estado en el `WHERE`, ⛔ nunca
+        // `update` por `id` tras la lectura sin candado de arriba — un `charge.refunded` (o un settle) confirmado
+        // entre medias sería PISADO con `failed`, que es liquidable ⇒ un `succeeded` tardío liquidaría una orden con
+        // el dinero devuelto. `count 0` ⇒ otro escritor ganó: ⛔ no se libera nada.
+        const moved = await tx.order.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed' } });
+        if (moved.count !== 1) return;
         for (const oi of order.items) {
           // v1.68 (§4-R.2 regla 2, candado R-2): SOLO libera lo PROPIO. Tras una sustitución O1→O2, el
           // `payment_intent.canceled` del PI de O1 llega después y NO debe soltar la pieza que O2
@@ -621,36 +656,101 @@ export class PaymentsService {
   }
 
   /**
-   * charge.refunded → Order `refunded`. A1 (VENTAS FINALES): el reembolso NO re-agrega el
-   * item al inventario (no auto-revert); es un remedio excepcional del super_admin ya
-   * autorizado (money-out).
-   * M2: distingue reembolso PARCIAL vs TOTAL (`amount_refunded` vs `amount`); solo el
-   * reembolso total transiciona la orden a `refunded`.
+   * `charge.refund.updated` / `refund.updated` (⭐ v1.80, §9) — el `Refund` trae `metadata.paymentRefundId`:
+   * `succeeded` ⇒ la fila pasa a `succeeded`; `failed|canceled` ⇒ `failed` + bitácora. Sin metadata ⇒ solo log.
+   */
+  async onRefundUpdated(refund: Stripe.Refund): Promise<void> {
+    if (!this.ledger) {
+      this.logger.warn('refund.updated ignorado: RefundLedgerService no disponible');
+      return;
+    }
+    await this.ledger.onRefundUpdated({
+      id: refund.id,
+      status: refund.status ?? null,
+      metadata: (refund.metadata ?? {}) as Record<string, string>,
+    });
+  }
+
+  /**
+   * charge.refunded → Order `refunded`. M2: distingue reembolso PARCIAL vs TOTAL (`amount_refunded` vs
+   * `amount`); solo el reembolso total transiciona la orden a `refunded`.
+   *
+   * ⭐ v1.80.3/.4/.5 (§M4-SHIP.17.2, §M4-SHIP.18.2/.3) — el TOTAL corre `onFullRefund` EN LA MISMA tx del
+   * webhook: directo ⇒ cierra el envío vivo; bóveda ⇒ deshace la venta (reclamo por pieza, idempotente);
+   * PI de un RETIRO ⇒ cierra el retiro. Independiente del ORDEN DE LLEGADA (SEC-SHIP-M5): con la orden ya
+   * `refunded` por M3 la pasada re-clasifica y solo reclama lo que M3 no pudo. `Order → refunded` con
+   * `status IN CHARGE_REFUNDED_SOURCE_STATUSES` (`pending, failed, settled`; v1.80.8.3, supera el
+   * `IN (settled, refunded)` de M5): `refunded` ⇒ `count 0` no-op, `chargeback` se conserva. `AV-3` lo
+   * manda quien hizo la TRANSICIÓN, y solo si la regla de §9 lo
+   * permite (fila `order_full` no fallida, o ninguna fila del libro).
    */
   async onChargeRefunded(charge: Stripe.Charge): Promise<void> {
     const pi = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
     if (!pi) return;
-    const order = await this.prisma.order.findUnique({ where: { stripePaymentIntentId: pi } });
-    if (!order) return;
-
     const amount = charge.amount ?? 0;
     const amountRefunded = charge.amount_refunded ?? 0;
     const fullyRefunded = amount > 0 && amountRefunded >= amount;
+    const order = await this.prisma.order.findUnique({ where: { stripePaymentIntentId: pi } });
+    if (!order) {
+      // ¿El cobro de un RETIRO? Total ⇒ el retiro vivo se cierra (§M4-SHIP.17.2, rama retiro).
+      const shipment = await this.prisma.shipmentRequest.findUnique({ where: { stripePaymentIntentId: pi }, select: { id: true } });
+      if (!shipment || !fullyRefunded || !this.fullRefund) return;
+      await this.prisma.$transaction(async (tx) => {
+        await this.fullRefund!.onFullRefund(tx, { shipmentRequestId: shipment.id }, 'charge_refunded', null);
+      });
+      return;
+    }
     if (!fullyRefunded) {
-      // M2: reembolso parcial → no cambia el estado terminal de la orden (queda registrado
-      // en Stripe; la conciliación fina de importes parciales es de M7/Finanzas).
+      // M2: reembolso parcial → no cambia el estado terminal de la orden (queda registrado en Stripe; la
+      // conciliación por fila es `charge.refund.updated`).
       this.logger.log(
         `Order ${order.id}: reembolso PARCIAL (${amountRefunded}/${amount}); sin cambio de estado.`,
       );
       return;
     }
-    if (order.status === 'refunded') return;
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: { status: 'refunded', refundedAt: new Date() },
-    });
-    // ⭐ `AV-3` (§R.3) — POST-COMMIT y best-effort. Destinatario: `guestEmail ?? user.email` (§R.5:
-    // *el reembolso le toca a los dos*). ⛔ Nunca a una cuenta anonimizada (§R.5.a).
+    if (!this.fullRefund) {
+      // Modo legado (tests unitarios sin el servicio): el estado, con el CAS en el `WHERE`, y `AV-3` una vez.
+      if (order.status === 'refunded') return;
+      // 🔒💰 v1.80.8.3: la MISMA lista que la rama con `fullRefund` (⛔ nunca dos listas).
+      const legacy = await this.prisma.order.updateMany({
+        where: { id: order.id, status: { in: [...CHARGE_REFUNDED_SOURCE_STATUSES] } },
+        data: { status: 'refunded', refundedAt: new Date() },
+      });
+      if (legacy.count === 1) await this.notifyOrderRefunded(order, order.fulfillmentMode === 'vault' && order.status === 'settled');
+      return;
+    }
+    const outcome = await this.prisma.$transaction(
+      async (tx) => {
+        // El cierre toma sus candados (envíos → piezas → Order) y sella; `Order → refunded` va después, bajo
+        // el mismo candado de fila que la pasada ya tomó. Independiente del orden de llegada (SEC-SHIP-M5).
+        const pass = await this.fullRefund!.onFullRefund(tx, { orderId: order.id }, 'charge_refunded', null);
+        // 🔒💰 v1.80.8.3 (§M4-SHIP.18.2): desde `pending`, `failed` y `settled` (⛔ ya no solo `settled`: una orden
+        // `pending`/`failed` que se queda así es LIQUIDABLE y el `succeeded` tardío la liquidaría con el dinero
+        // devuelto). `refunded` ⇒ `count 0` (no-op); `chargeback` ⇒ se conserva (v1.80.7.2).
+        const moved = await tx.order.updateMany({
+          where: { id: order.id, status: { in: [...CHARGE_REFUNDED_SOURCE_STATUSES] } },
+          data: { status: 'refunded', refundedAt: new Date() },
+        });
+        return { transitioned: moved.count === 1, statusUnderLock: pass.orderStatusUnderLock };
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+    // ⭐ `AV-3` (§R.3) — POST-COMMIT y best-effort; una vez: quien hizo la TRANSICIÓN a `refunded`
+    // (M3 en su tx de confirmación o este webhook, el que llegue primero; el otro no manda nada).
+    // v1.80.8.3: variante `vault` ⇔ `vault` ∧ estado bajo candado `settled` (una nunca liquidada no tuvo bóveda).
+    if (outcome.transitioned) {
+      await this.notifyOrderRefunded(order, order.fulfillmentMode === 'vault' && outcome.statusUnderLock === 'settled');
+    }
+  }
+
+  /**
+   * ⭐ `AV-3` (§R.3) — TE DEVOLVIMOS TU DINERO, solo con reembolso TOTAL. Destinatario: `guestEmail ??
+   * user.email` (§R.5: *el reembolso le toca a los dos*). ⛔ Nunca a una cuenta anonimizada (§R.5.a).
+   * ⭐ v1.80 (§9): sale SOLO si la orden tiene fila `order_full` no fallida o ninguna fila del libro (con
+   * filas de carta faltante el cliente ya recibió `AV-12`). Variante `vault` (§M4-SHIP.18.6).
+   */
+  private async notifyOrderRefunded(order: Order, vaultVariant: boolean): Promise<void> {
+    if (this.ledger && !(await this.ledger.av3Allowed(order.id))) return;
     await this.safeNotify(order.id, async () => {
       const recipient = order.guestEmail
         ? { email: order.guestEmail, locale: order.locale }
@@ -668,7 +768,14 @@ export class PaymentsService {
       }
       return {
         ...orderRefundedTemplate(
-          { orderNumber: order.orderNumber ?? '', totalCents: order.totalCents },
+          {
+            orderNumber: order.orderNumber ?? '',
+            // Invitado ⇒ `null` ⇒ sin CTA: el detalle del pedido exige sesión.
+            orderId: order.guestEmail ? null : order.id,
+            totalCents: order.totalCents,
+            // ⭐ v1.80.4 (§M4-SHIP.18.6): variante `vault` de `AV-3`.
+            vault: vaultVariant,
+          },
           recipient.locale,
         ),
         to: recipient.email,
@@ -829,8 +936,26 @@ export class PaymentsService {
   private async onChargeDisputeVault(order: Order & { items: OrderItem[] }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       let needsManual = false;
+      // ⭐ v1.80.1 / 🔒 v1.80.3 (SEC-SHIP-M3, §M4-SHIP.15.9): la pieza VIGENTE de cada línea sigue la cadena de casos
+      // `replaced` de ESA `OrderItem` (`currentPieceOf`, tope de profundidad y detección de ciclo ⇒ `needsManual`,
+      // cero escrituras); y solo se revierte si su origen (`resolveOrigin`) sigue siendo esta línea: si el cliente
+      // la RE-COMPRÓ, ya es de otra compra y no se toca. ⛔ Nunca «la carta repuesta y el dinero».
+      const current = await currentPiecesOf(tx, order.items);
+      const targetIds = [...current.values()].flatMap((c) => (c.kind === 'piece' ? [c.inventoryItemId] : []));
+      const origins = order.userId && targetIds.length > 0 ? await resolveOriginsBatch(tx, order.userId, targetIds) : new Map();
       for (const oi of order.items) {
-        const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
+        const cur = current.get(oi.id);
+        if (!cur || cur.kind === 'ambiguous') {
+          this.logger.error(`Contracargo ${order.id}: cadena de reposiciones ambigua en la línea ${oi.id} (${cur?.kind === 'ambiguous' ? cur.reason : 'sin cadena'}); gestión manual.`);
+          needsManual = true;
+          continue;
+        }
+        const origin = origins.get(cur.inventoryItemId) ?? null;
+        if (origin && origin.orderItemId !== oi.id) {
+          needsManual = true;
+          continue;
+        }
+        const item = await tx.inventoryItem.findUnique({ where: { id: cur.inventoryItemId } });
         if (!item) continue;
         // ¿La carta ya salió físicamente (enviada/entregada)? En el RETIRO DE BÓVEDA el estado
         // del InventoryItem no se mueve hasta la entrega, así que la señal canónica es un
@@ -839,7 +964,7 @@ export class PaymentsService {
         // —picking/shipped/delivered— y la decisión la toma el estado del envío, ver arriba.)
         const shippedOut = await tx.shipmentItem.findFirst({
           where: {
-            inventoryItemId: oi.inventoryItemId,
+            inventoryItemId: item.id,
             shipmentRequest: { status: { in: ['enviado', 'entregado'] } },
           },
         });
@@ -852,9 +977,13 @@ export class PaymentsService {
         // v1.68 (§4-R.2 regla 2): si la pieza está `reserved`, solo si es de ESTA orden (o legada); una
         // pieza reservada por OTRA orden no se toca (queda para gestión manual). Fuera de `reserved`
         // (lo normal: `in_custody` tras el settle) se revierte como hoy y se limpia dueño/vencimiento.
+        // ⭐ v1.80.1 (H9 / D-SHIP-2, PS-8): una pieza `lost|damaged` A NOMBRE DEL CLIENTE (caso «Por reponer»
+        // abierto) NO vuelve a la venta como buena: `status ∈ {in_custody, reserved}` en el WHERE ⇒ `count 0`
+        // ⇒ `needsManual` (el súper-admin anula el caso, §M4-SHIP.15.10).
         const reverted = await tx.inventoryItem.updateMany({
           where: {
-            id: oi.inventoryItemId,
+            id: item.id,
+            status: { in: ['in_custody', 'reserved'] },
             OR: [
               { status: { not: 'reserved' } },
               { reservedByOrderId: order.id },
@@ -875,11 +1004,11 @@ export class PaymentsService {
         }
         await tx.inventoryMovement.create({
           data: {
-            itemId: oi.inventoryItemId,
+            itemId: item.id,
             fromStatus: item.status,
             toStatus: 'listed',
             reason: MovementReason.chargeback_return,
-            note: `chargeback order ${order.id}`,
+            note: `chargeback order ${order.id}${item.id !== oi.inventoryItemId ? ` · pieza repuesta de ${oi.inventoryItemId}` : ''}`,
           },
         });
       }

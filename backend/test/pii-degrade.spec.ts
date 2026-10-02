@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { Role, KycStatus } from '@prisma/client';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { UsersService } from '../src/modules/users/users.service';
@@ -97,7 +98,7 @@ describe('PII indescifrable — degrada a `piiUnavailable`, nunca 500', () => {
         },
       };
       const pricing = { fxSnapshotSafe: jest.fn().mockResolvedValue(null) } as unknown as PricingService;
-      return new AdminService(prisma as PrismaService, pricing, pii, {} as UploadsService);
+      return new AdminService(withM61Defaults(prisma) as PrismaService, pricing, pii, {} as UploadsService);
     }
 
     it('super_admin: CLABE indescifrable ⇒ 200, `clabeMasked` undefined, `kycProfile.piiUnavailable` true, resto intacto', async () => {
@@ -198,7 +199,7 @@ describe('PII indescifrable — degrada a `piiUnavailable`, nunca 500', () => {
       const res: any = await svc.getKyc('u1');
       expect(res.clabeMasked).toBe('**************4567');
       expect(res).not.toHaveProperty('piiUnavailable');
-      expect(Object.keys(res).sort()).toEqual(['clabeMasked', 'clabeOnFile', 'ineOnFile', 'kycStatus'].sort());
+      expect(Object.keys(res).sort()).toEqual(['clabeMasked', 'clabeOnFile', 'clabeUpdatedAt', 'ineOnFile', 'kycStatus'].sort());
     });
   });
 });

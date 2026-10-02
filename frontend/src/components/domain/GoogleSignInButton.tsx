@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { config } from '@/lib/config';
 import { loginWithGoogle } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { retryAfterMinutes } from '@/lib/password-attempts';
 import { Banner } from '@/components/ui/Banner';
 import type { Role, UserDTO } from '@/types/contract';
 
@@ -64,9 +65,16 @@ export interface GoogleSignInButtonProps {
  */
 export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
   const t = useTranslations('auth.google');
+  const tAuth = useTranslations('auth');
   const tErr = useTranslations('error');
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  /**
+   * DESIGN_SYSTEM §37.13 v4.9.1 · contrato v1.80.8.1: `/auth/google` solo emite `429 RATE_LIMITED` (throttle
+   * por IP) ⇒ cualquier 429 aquí se pinta con `auth.rateLimitedByIp*`, ⛔ sin enlace a restablecer (no levanta
+   * un tope por IP) y ⛔ sin reintento automático. `minutes` = `retryAfterMinutes` (`null` sin cifra usable).
+   */
+  const [rateLimited, setRateLimited] = useState<{ minutes: number | null } | null>(null);
   const scriptLoaded = useRef(false);
   const promptTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -84,6 +92,10 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
       const res = await loginWithGoogle(idToken);
       onSuccess(res.user.role, res.user);
     } catch (e) {
+      if (e instanceof ApiClientError && e.status === 429) {
+        setRateLimited({ minutes: retryAfterMinutes(e.details) });
+        return;
+      }
       const code = e instanceof ApiClientError ? e.code : 'GOOGLE_TOKEN_INVALID';
       setErrorCode(code);
     } finally {
@@ -121,6 +133,7 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
 
   function onClick() {
     setErrorCode(null);
+    setRateLimited(null);
     setLoading(true);
     if (realMode && window.google) {
       clearPromptTimeout();
@@ -164,6 +177,15 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
         {loading ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <GoogleG />}
         <span aria-live="polite">{loading ? t('connecting') : t('cta')}</span>
       </button>
+      {rateLimited && (
+        <div data-testid="google-rate-limited">
+          <Banner variant="warning" role="alert">
+            {rateLimited.minutes !== null
+              ? tAuth('rateLimitedByIpRetryIn', { minutes: rateLimited.minutes })
+              : tAuth('rateLimitedByIp')}
+          </Banner>
+        </div>
+      )}
       {errorCode && (
         <Banner variant="danger">
           {tErr.has(errorCode) ? tErr(errorCode) : tErr('INTERNAL')}

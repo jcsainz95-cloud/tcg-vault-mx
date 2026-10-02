@@ -7,13 +7,17 @@ import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StripeService } from '../payments/stripe.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
-import { ChargebackInventoryDto, RefundDto } from './dto/orders.dto';
+import { ChargebackInventoryDto, ReclaimVaultDto, RefundDto } from './dto/orders.dto';
+import { OrderRefundService } from './order-refund.service';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { maskEmail } from './guest-privacy';
 import { DAY_MS, GUEST_TRACKING_MAX_AGE_DAYS } from './guest-checkout.constants';
+import { RefundLedgerService } from '../payments/refunds/refund-ledger.service';
+import { ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { customerDisplayName } from '../vault/customer-display-name';
+import { refundedCentsOf } from './order-public-status';
 
 /**
  * M3 — Ventas / órdenes. vault_operator (lectura); super_admin (reembolso, money-out).
@@ -29,9 +33,11 @@ export class AdminOrdersController {
   constructor(
     private readonly orders: OrdersService,
     private readonly prisma: PrismaService,
-    private readonly stripe: StripeService,
     private readonly audit: AuditService,
     private readonly guestMail: GuestOrderMailService,
+    private readonly refunds: OrderRefundService,
+    private readonly ledger: RefundLedgerService,
+    private readonly manual: ManualRefundService,
   ) {}
 
   @Get()
@@ -91,6 +97,8 @@ export class AdminOrdersController {
         { userId: f.q },
         { user: { name: { contains: f.q, mode: 'insensitive' } } },
         { user: { email: { contains: f.q, mode: 'insensitive' } } },
+        // v1.80 (§M4-SHIP.10): el destinatario del envío (ruta JSON, parametrizado — ⛔ SQL crudo).
+        { shippingAddressSnapshot: { path: ['recipientName'], string_contains: f.q } },
       ];
     }
     const [data, total] = await Promise.all([
@@ -99,6 +107,8 @@ export class AdminOrdersController {
         orderBy: { createdAt: 'desc' },
         skip: (p - 1) * ps,
         take: ps,
+        // v1.80 (§M4-SHIP.10): `customer` y `refundedCents` en la MISMA consulta (⛔ sin N+1).
+        include: { user: { select: { id: true, name: true, nameSource: true, email: true } }, refunds: { select: { status: true, amountCents: true } } },
       }),
       this.prisma.order.count({ where }),
     ]);
@@ -107,7 +117,13 @@ export class AdminOrdersController {
     // `shippingAddressSnapshot`) ya viajan en la fila; el back-office está protegido por rol y el
     // correo del comprador es dato de contacto operativo (mismo criterio que AdminSellerRef.email).
     return {
-      data: data.map((o) => ({ ...o, isGuestOrder: o.guestEmail != null })),
+      data: data.map(({ user, refunds, ...o }) => ({
+        ...o,
+        isGuestOrder: o.guestEmail != null,
+        // v1.80 (§M4-SHIP.10): `CustomerRefDTO | null` (`null` ⇔ invitado) y lo devuelto por Stripe.
+        customer: user ? { userId: user.id, fullName: customerDisplayName(user), email: user.email } : null,
+        refundedCents: refundedCentsOf(refunds ?? []), // (`?? []`: dobles legacy sin relaciones)
+      })),
       page: p,
       pageSize: ps,
       total,
@@ -120,7 +136,7 @@ export class AdminOrdersController {
    * venir `null` — el front de M3 debe tolerarlo y etiquetar "invitado".
    */
   @Get(':id')
-  async get(@Param('id') id: string) {
+  async get(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     const detail = await this.orders.getOrder('', id, true);
     const extra = await this.prisma.order.findUnique({
       where: { id },
@@ -136,13 +152,46 @@ export class AdminOrdersController {
         disputeOutcome: true,
         paymentMethodBrand: true,
         paymentMethodLast4: true,
+        fullRefundClosedAt: true,
+        // v1.80 (§M4-SHIP.10): el comprador, el libro, los envíos y la colocación — en la MISMA consulta.
+        user: { select: { id: true, name: true, nameSource: true, email: true } },
+        refunds: { orderBy: { createdAt: 'asc' }, include: { orderItem: { select: { inventoryItemId: true } } } },
+        shipmentRequests: { orderBy: { requestedAt: 'asc' }, select: { id: true, status: true, userId: true, requestedAt: true, preparedAt: true, carrier: true, trackingNumber: true } },
+        vaultPlacement: { select: { id: true, status: true } },
       },
     });
+    // ⭐ v1.80.4 (§M4-SHIP.18.6) — `vaultPieces`, DERIVADO en la lectura (un cuerpo con el cierre).
+    const vaultPieces = extra?.fulfillmentMode === 'vault' ? await this.refunds.vaultPieces(id) : undefined;
+    if (!extra) throw BusinessException.notFound();
+    const { user: buyer, refunds: rows, shipmentRequests, vaultPlacement, ...cols } = extra;
+    const refundDtos = await this.ledger.toDtos(rows);
+    // ⭐ v1.80.2 (§M4-SHIP.15.13): las transferencias SPEI de los casos de esta orden — SOLO súper-admin (dinero y PII).
+    const manualRows = user.role === Role.super_admin ? await this.prisma.manualRefund.findMany({ where: { orderId: id }, select: { id: true, status: true, amountCents: true } }) : null;
+    const manualRefunds = manualRows ? await this.manual.dtosByIds(manualRows.map((m) => m.id)) : undefined;
     return {
       ...detail,
-      ...(extra ?? {}),
-      isGuestOrder: extra?.guestEmail != null,
-      claimedAt: extra?.claimedAt ?? undefined,
+      ...cols,
+      isGuestOrder: extra.guestEmail != null,
+      claimedAt: extra.claimedAt ?? undefined,
+      customer: buyer ? { userId: buyer.id, fullName: customerDisplayName(buyer), email: buyer.email } : null,
+      refunds: refundDtos,
+      // `items[].refund: PaymentRefundDTO | null` (§M4-SHIP.10 M3, cualquier estado): la fila de ESA carta.
+      items: (detail.items as { inventoryItemId: string }[]).map((it) => {
+        const i = rows.findIndex((r) => r.orderItem?.inventoryItemId === it.inventoryItemId);
+        return { ...it, refund: i >= 0 ? refundDtos[i] : null };
+      }),
+      shipments: shipmentRequests.map((s) => ({
+        id: s.id,
+        status: s.status,
+        kind: s.userId ? 'vault_withdrawal' : 'guest_direct_ship',
+        requestedAt: s.requestedAt.toISOString(),
+        preparedAt: s.preparedAt ? s.preparedAt.toISOString() : null,
+        carrier: s.carrier,
+        trackingNumber: s.trackingNumber,
+      })),
+      vaultPlacement: vaultPlacement ?? null,
+      ...(manualRefunds ? { manualRefunds, manualRefundedCents: manualRows!.filter((m) => m.status === 'paid').reduce((a, m) => a + m.amountCents, 0) } : {}),
+      ...(vaultPieces ? { vaultPieces } : {}),
     };
   }
 
@@ -197,7 +246,7 @@ export class AdminOrdersController {
     @Body() dto: ChargebackInventoryDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.orders.resolveChargebackInventory(id, dto.outcome);
+    const res = await this.orders.resolveChargebackInventory(id, dto.outcome, new Date(), user.id);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -215,11 +264,14 @@ export class AdminOrdersController {
   }
 
   /**
-   * A1 — Reembolso admin. POLÍTICA DEL HUMANO: VENTAS FINALES, sin reembolso voluntario.
-   * Este endpoint es EXCEPCIONAL (super_admin, money-out ya autorizado y auditado) y NO
-   * auto-revierte el item al inventario: `onChargeRefunded` marca la orden `refunded` pero
-   * NO re-agrega la carta. Úsese solo para casos excepcionales (obligación legal, error de
-   * cobro), no como remedio de disputa (esa es la recompra de M8).
+   * A1 — Reembolso admin. POLÍTICA DEL HUMANO: VENTAS FINALES, sin reembolso voluntario. Este endpoint es
+   * EXCEPCIONAL (super_admin, money-out ya autorizado y auditado).
+   *
+   * ⭐ v1.80 (§M3, §M4-SHIP.7): reembolsa LO QUE QUEDA (`totalCents − Σ` filas no fallidas del libro), con
+   * fila `order_full` y Stripe con `amount`; la cabecera `Idempotency-Key` se acepta y ⛔ ya no se usa (la
+   * idempotencia es la llave del libro). 🔒 v1.80.3: cierra el envío vivo de un directo en su tx.
+   * 💰 v1.80.4/.5: en una orden `vault` DESHACE la venta al confirmar (§M4-SHIP.18). Norma y candados:
+   * `OrderRefundService.requestFullRefund`.
    */
   @Post(':id/refund')
   @MoneyOut()
@@ -227,37 +279,24 @@ export class AdminOrdersController {
     @Param('id') id: string,
     @Body() dto: RefundDto,
     @CurrentUser() user: { id: string; role: Role },
-    @Headers('idempotency-key') idempotencyKey?: string,
+    @Headers('idempotency-key') _idempotencyKey?: string,
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id } });
-    if (!order) throw BusinessException.notFound();
-    if (!order.stripePaymentIntentId) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Order has no payment intent');
-    }
-    // SEC-M3: guardia de estado — solo se reembolsa una orden `settled`. Evita reembolsos
-    // sobre órdenes ya reembolsadas/en contracargo/pendientes y transiciones inconsistentes.
-    if (order.status !== 'settled') {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Only a settled order can be refunded', {
-        status: order.status,
-      });
-    }
-    // SEC-M3: idempotencia obligatoria hacia Stripe. Si el cliente no envía
-    // `Idempotency-Key`, se deriva una determinista por orden para que reintentos no
-    // generen reembolsos duplicados.
-    const idem = idempotencyKey ?? `refund-${order.id}`;
-    const refundId = await this.stripe.refund(order.stripePaymentIntentId, idem);
-    await this.prisma.order.update({
-      where: { id },
-      data: { status: 'refunded', refundedAt: new Date() },
-    });
-    await this.audit.log({
-      actorUserId: user.id,
-      actorRole: user.role,
-      action: 'order.refund',
-      entityType: 'Order',
-      entityId: id,
-      after: { reason: dto.reason, refundId },
-    });
-    return { orderId: id, status: 'refunded', refundId };
+    return this.refunds.requestFullRefund(id, dto, user);
+  }
+
+  /**
+   * 🔒 v1.80.5/.6 (§M4-SHIP.18.10) — re-correr el reclamo de una compra a bóveda ya cerrada por reembolso
+   * total. `super_admin`; custodia, ⛔ no dinero (sin `@MoneyOut`); auditado SIEMPRE
+   * (`order.vault_reclaim_requested`).
+   */
+  @Post(':id/reclaim-vault')
+  @Roles(Role.super_admin)
+  @HttpCode(200)
+  async reclaimVault(
+    @Param('id') id: string,
+    @Body() dto: ReclaimVaultDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.refunds.reclaimVault(id, dto, user);
   }
 }

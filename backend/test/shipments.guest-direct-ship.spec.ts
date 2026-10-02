@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
@@ -38,6 +39,7 @@ function build(shipment: any, itemStatus: string, fulfillmentMode: string | null
       }),
     },
   };
+  withM61Defaults(tx);
   const prisma: any = {
     shipmentRequest: { findUnique: jest.fn(async () => shipment) },
     // v1.21.2 (D4): el comportamiento se decide leyendo `Order.fulfillmentMode` de la orden
@@ -47,6 +49,7 @@ function build(shipment: any, itemStatus: string, fulfillmentMode: string | null
     },
     $transaction: jest.fn(async (cb: any) => cb(tx)),
   };
+  withM61Defaults(prisma);
   const svc = new ShipmentsService(
     prisma as PrismaService,
     {} as SettingsService,
@@ -176,6 +179,7 @@ describe('GET /shipments — un envío de invitado (userId=null) no es de nadie 
         }),
       },
     };
+    withM61Defaults(prisma);
     const svc = new ShipmentsService(prisma as PrismaService, {} as SettingsService, {} as StripeService);
     return { svc, prisma };
   }

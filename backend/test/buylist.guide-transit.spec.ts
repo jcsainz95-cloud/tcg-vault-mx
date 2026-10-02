@@ -76,11 +76,11 @@ function build(opts: Opts = {}) {
     guideActualCostCents: opts.guideActualCostCents ?? null,
     expiredReason: null,
   };
-  const matches = (value: unknown, cond: unknown): boolean => {
+  const _matches = (value: unknown, cond: unknown): boolean => {
     if (cond !== null && typeof cond === 'object' && !(cond instanceof Date)) {
       const c = cond as Record<string, unknown>;
       if ('in' in c) return (c.in as unknown[]).includes(value);
-      if ('not' in c) return !matches(value, c.not);
+      if ('not' in c) return !_matches(value, c.not);
       throw new Error(`condición no soportada: ${JSON.stringify(cond)}`);
     }
     if (value instanceof Date && cond instanceof Date) return value.getTime() === cond.getTime();

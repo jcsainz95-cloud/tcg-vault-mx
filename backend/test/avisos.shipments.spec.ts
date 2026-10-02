@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { matchesWhere } from './helpers/prisma-where';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -72,6 +73,7 @@ function buildHarness(opts: {
     user: { findUnique: jest.fn().mockResolvedValue(opts.user ?? null) },
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
   };
+  withM61Defaults(tx);
   const mail: MailPort | undefined =
     opts.mail === null || opts.mail === undefined
       ? undefined
@@ -96,6 +98,11 @@ const VAULT_SHIPMENT = {
   userId: 'user-1',
   orderId: null,
   status: 'picking',
+  // ⭐ v1.80 (§M4-SHIP.6): la guía exige «preparado» y cero casos `open` EN EL `WHERE`; el fake modela ambos.
+  preparedAt: new Date('2026-09-29T00:00:00.000Z'),
+  preparedByUserId: 'op-1',
+  replacementCases: [],
+  stripePaymentIntentId: null,
   carrier: null,
   trackingNumber: null,
   trackingNoticeSentAt: null,
@@ -136,8 +143,10 @@ describe('⭐⭐ C-AV-3 — DOS correos de envío y NINGUNO al entregar (criteri
   });
 
   it('`cancelado` sí manda (AV-6), y desde `cancelado` no se sale ⇒ no puede haber un segundo', async () => {
+    // ⭐ v1.80 (§M4-SHIP.9): un envío PAGADO (`picking|guia`) ya no se cancela a mano; el único `cancelado`
+    // manual que queda es el de un `solicitado` (no pagado), que sigue mandando `AV-6` una vez.
     const { svc, sent } = buildHarness({
-      shipment: { ...VAULT_SHIPMENT, status: 'guia' },
+      shipment: { ...VAULT_SHIPMENT, status: 'solicitado', preparedAt: null, preparedByUserId: null },
       user: USER,
       mail: 'ok',
     });
@@ -322,5 +331,75 @@ describe('⭐⭐ D-AV-1 — la captura de guía NO regresa el estado (ARCHITECTU
     const escrituraVieja = { carrier: 'DHL', trackingNumber: 'TRK-9', status: 'guia' };
     Object.assign(filaEntregada, escrituraVieja);
     expect(filaEntregada.status).toBe('guia'); // ⇐ la regresión que `D-AV-1` describía
+  });
+});
+
+// =================================================================================================
+/**
+ * ⭐ CTA de los avisos de envío (cableado de `16a3170`; QA IMPORTANTE 2, B3 y B5). `resolveRecipient`
+ * decide el `orderId` del botón: pedido de REGISTRADO ⇒ `orders/<Order.id>`; pedido de INVITADO ⇒
+ * ⛔ sin botón (el detalle exige sesión); retiro de bóveda ⇒ `shipments/<id>`. Antes de este bloque,
+ * cruzar esas dos ramas no ponía rojo nada.
+ */
+describe('CTA — el botón del aviso de envío según quién recibe', () => {
+  // Sin `APP_PUBLIC_URL` no hay CTA para NADIE (appUrl ⇒ undefined), y la prueba del invitado
+  // pasaría por la razón equivocada: se fija un origen para que la ausencia signifique algo.
+  const savedOrigin = process.env.APP_PUBLIC_URL;
+  beforeAll(() => {
+    process.env.APP_PUBLIC_URL = 'https://tienda.example';
+  });
+  afterAll(() => {
+    if (savedOrigin === undefined) delete process.env.APP_PUBLIC_URL;
+    else process.env.APP_PUBLIC_URL = savedOrigin;
+  });
+  const body = (m: MailMessage) => `${m.html}\n${m.text}`;
+  const ORDER_SHIPMENT = { ...VAULT_SHIPMENT, id: 'shp-9', userId: null, orderId: 'ord-1' };
+
+  it('B5 — pedido de REGISTRADO ⇒ CON botón a `orders/<Order.id>`', async () => {
+    const { svc, sent } = buildHarness({
+      shipment: { ...ORDER_SHIPMENT },
+      order: {
+        orderNumber: 'TCG-1001',
+        guestEmail: null,
+        locale: 'es',
+        user: { email: 'ash@pallet.mx', locale: 'es', anonymizedAt: null },
+        fulfillmentMode: 'direct_ship',
+      },
+      mail: 'ok',
+    });
+    await svc.setTracking('shp-9', 'DHL', 'TRK-1');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('ash@pallet.mx');
+    expect(body(sent[0])).toContain('orders/ord-1');
+    expect(body(sent[0])).not.toContain('shipments/shp-9');
+  });
+
+  it.each([
+    ['invitado puro', null],
+    ['invitado que reclamó el pedido', { email: 'cuenta@correo.mx', locale: 'es', anonymizedAt: null }],
+  ])('B3 — pedido de %s ⇒ ⛔ SIN botón (ni al pedido ni al envío)', async (_n, user) => {
+    const { svc, sent } = buildHarness({
+      shipment: { ...ORDER_SHIPMENT },
+      order: {
+        orderNumber: 'TCG-1001',
+        guestEmail: 'guest@correo.mx',
+        locale: 'es',
+        user,
+        fulfillmentMode: 'direct_ship',
+      },
+      mail: 'ok',
+    });
+    await svc.setTracking('shp-9', 'DHL', 'TRK-1');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('guest@correo.mx');
+    expect(body(sent[0])).not.toContain('orders/');
+    expect(body(sent[0])).not.toContain('shipments/');
+  });
+
+  it('retiro de bóveda ⇒ botón a `shipments/<id>`', async () => {
+    const { svc, sent } = buildHarness({ shipment: { ...VAULT_SHIPMENT }, user: USER, mail: 'ok' });
+    await svc.setTracking('shp-1', 'DHL', 'TRK-1');
+    expect(body(sent[0])).toContain('shipments/shp-1');
+    expect(body(sent[0])).not.toContain('orders/');
   });
 });

@@ -1,4 +1,4 @@
-import { Prisma, SealedGroupKind } from '@prisma/client';
+import { SealedGroupKind } from '@prisma/client';
 import { SealedProductService } from '../src/modules/inventory/sealed-product.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { FxService } from '../src/modules/pricing/fx.service';

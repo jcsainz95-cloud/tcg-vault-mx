@@ -151,7 +151,7 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
       'admin-1',
     );
     await ctrl.override(
-      { cardId: 'c1', productType: 'sealed', gradeKey: 'sealed', priceMxnCents: 115_000, intent: 'graded_estimate' } as never,
+      { cardId: 'c1', productType: 'sealed', gradeKey: 'sealed:tcg:4242', priceMxnCents: 115_000, intent: 'graded_estimate' } as never,
       'admin-1',
     );
     expect(wrote(pricing).map((a) => a.refKind)).toEqual(['market', 'market']);
@@ -164,7 +164,7 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
       'admin-1',
     );
     await ctrl.override(
-      { cardId: 'c1', productType: 'sealed', gradeKey: 'sealed', priceMxnCents: 115_000, intent: 'graded_estimate' } as never,
+      { cardId: 'c1', productType: 'sealed', gradeKey: 'sealed:tcg:4242', priceMxnCents: 115_000, intent: 'graded_estimate' } as never,
       'admin-1',
     );
     expect(pricing.applyManualOverride).toHaveBeenCalledTimes(2);

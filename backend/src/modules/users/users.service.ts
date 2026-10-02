@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { AuthProvider, KycStatus, NameSource, Prisma, Role, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -6,6 +6,8 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
+import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { clabeChangedTemplate } from '../payments/refunds/mail/refund-notice.templates';
 import { monthCommittedGrossCents } from '../../common/buylist-aml';
 import { UploadsService } from '../uploads/uploads.service';
 import {
@@ -44,7 +46,92 @@ export class UsersService {
     // ⭐ v1.69 (P-78, BK-4 · §M6-K.4.1): borrar del bucket la imagen de INE **sustituida**, en el
     // mismo flujo que la sustituye. Sin esto, cada re-subida deja PII que ninguna purga alcanza.
     private readonly uploads: UploadsService,
+    // 🔒 v1.80.3 (SEC-SHIP-A3): `AV-16` al cambiar la CLABE. `@Optional()`: los unitarios construyen el servicio a
+    // mano y el correo es best-effort (⛔ un fallo del correo NO puede hacer fallar el `PUT`).
+    @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
+
+  // ================================================================ 🔒 setClabe — EL escritor de la CLABE
+
+  /**
+   * 🔒 v1.80.3 (SEC-SHIP-A3, API_CONTRACT §M4-SHIP.17.3) — **el único escritor** de `KycProfile.clabeEnc|clabeHmac|
+   * clabeUpdatedAt` (candado estático `C-CLABE-1`). Lo llaman `PUT /users/me/kyc`, el alta de buylist y cualquier
+   * otro camino que escriba la CLABE. Dentro de la tx del llamador:
+   *  1. garantiza la fila (`upsert` vacío: ⛔ sin columnas de CLABE) y la toma `FOR UPDATE` — serializa con `paid`
+   *     de la cubeta SPEI, que lee `clabeHmac` bajo el mismo candado;
+   *  2. índice ciego igual al vigente ⇒ **no escribe nada** (ni fecha, ni bitácora, ni aviso) ⇒ `null`;
+   *  3. distinto (o no había) ⇒ `clabeEnc`, `clabeHmac`, `clabeUpdatedAt = now`, bitácora `kyc.clabe_changed`
+   *     (`entityType='User'`, `after:{ previousMasked, newMasked }` — ⛔ nunca la CLABE) y devuelve el cambio para
+   *     que el llamador mande `AV-16` **post-commit** (`notifyClabeChanged`).
+   * La CLABE ya viene validada (`isValidClabe`) por el llamador; aquí se vuelve a comprobar por forma (un solo sitio).
+   */
+  /**
+   * 🔒 v1.80.7 (punto 19, `C-CLABE-1`) — el SEGUNDO y último escritor de la CLABE: la anonimización del borrado suave
+   * de cuenta (C20/PII, `AdminService.deleteUser`). **Solo nulos** (`clabeEnc` ∧ `clabeHmac`), ⛔ sin `clabeUpdatedAt`
+   * (no es un cambio de CLABE), ⛔ sin `AV-16`, sin bitácora propia (la del borrado la escribe quien borra). Con CLABE
+   * nula, `paid` de la cubeta ⇒ `422 CLABE_NOT_ON_FILE`. Sin expediente ⇒ no-op (`count 0` no es error).
+   */
+  async eraseClabe(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    await tx.kycProfile.updateMany({ where: { userId }, data: { clabeEnc: null, clabeHmac: null } });
+  }
+
+  async setClabe(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    clabe: string,
+    actor: { id: string; role: Role },
+  ): Promise<ClabeChange | null> {
+    if (!isValidClabe(clabe)) {
+      throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
+    }
+    await tx.kycProfile.upsert({ where: { userId }, create: { userId }, update: {} });
+    await tx.$queryRaw`SELECT id FROM "KycProfile" WHERE "userId" = ${userId} FOR UPDATE`;
+    const current = await tx.kycProfile.findUniqueOrThrow({
+      where: { userId },
+      select: { clabeEnc: true, clabeHmac: true },
+    });
+    const newHmac = this.pii.clabeBlindIndex(clabe);
+    if (current.clabeHmac && this.pii.blindIndexEquals(current.clabeHmac, newHmac)) return null;
+    const now = new Date();
+    const previousMasked = maskClabe(this.pii.tryDecryptOptional(current.clabeEnc).value) ?? null;
+    const newMasked = maskClabe(clabe) as string;
+    await tx.kycProfile.update({
+      where: { userId },
+      data: { clabeEnc: this.pii.encrypt(clabe), clabeHmac: newHmac, clabeUpdatedAt: now },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        actorRole: actor.role,
+        action: 'kyc.clabe_changed',
+        entityType: 'User',
+        entityId: userId,
+        after: { previousMasked, newMasked },
+      },
+    });
+    return { userId, previousMasked, newMasked, changedAt: now };
+  }
+
+  /** `AV-16` — post-commit, best-effort, al `User.email` de la cuenta. Sin sello: el cambio es el hecho (§17.3). */
+  async notifyClabeChanged(change: ClabeChange | null): Promise<void> {
+    if (!change || !this.mail) return;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: change.userId },
+        select: { email: true, locale: true, anonymizedAt: true },
+      });
+      if (!user || user.anonymizedAt) return;
+      await this.mail.send({
+        ...clabeChangedTemplate(
+          { previousMasked: change.previousMasked, newMasked: change.newMasked, changedAt: change.changedAt },
+          user.locale,
+        ),
+        to: user.email,
+      });
+    } catch (err) {
+      this.logger.error(`AV-16 falló para ${change.userId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
   /**
    * v1.67 (contrato §1 `GET /users/me`) — la ÚNICA proyección del perfil propio; `GET` y `PATCH`
@@ -337,6 +424,8 @@ export class UsersService {
       // "usar mi CLABE ****1234" (= omitir `clabe` en POST /buylist/requests, resuelto server-side).
       // Sin PII nueva (la CLABE sigue enmascarada en `clabeMasked`).
       clabeOnFile: Boolean(kyc?.clabeEnc),
+      // 🔒 v1.80.3 (SEC-SHIP-A3): «CLABE actualizada el …». `null` = registrada antes de M-61 (o sin CLABE).
+      clabeUpdatedAt: kyc?.clabeUpdatedAt ? kyc.clabeUpdatedAt.toISOString() : null,
       ineOnFile: Boolean(kyc?.ineFrontKey && kyc?.ineBackKey),
       // ⭐ v1.69 (P-78, §M6-K.7): el motivo del rechazo, y SOLO mientras el estado sea `rejected`.
       // ⛔ Nunca `null` residual de un rechazo anterior: la clave **no viaja** en los otros estados.
@@ -495,21 +584,29 @@ export class UsersService {
       front: dto.ineFrontUploadKey,
       back: dto.ineBackUploadKey,
     });
-    if (dto.clabe) {
-      // Se cifra DESPUÉS de la compuerta: si la key es inválida, no se escribe nada de nada.
-      data.clabeEnc = this.pii.encrypt(dto.clabe);
-      data.clabeHmac = this.pii.clabeBlindIndex(dto.clabe);
-    }
-
-    await this.prisma.kycProfile.upsert({
-      where: { userId },
-      // En el `create` sin INE el estado se queda en el default del schema (`none` = «nunca subió
-      // INE», §M6-K.7): una CLABE no es una identidad y no puede poner nada «en revisión».
-      create: { userId, ...data, ...ine.data },
-      update: { ...data, ...ine.data },
+    // 🔒 v1.80.3 (SEC-SHIP-A3): la CLABE ya NO se escribe aquí — pasa por `setClabe` (el único escritor,
+    // `C-CLABE-1`), dentro de la MISMA transacción que el `upsert` del INE y DESPUÉS de la compuerta de keys.
+    const change = await this.prisma.$transaction(async (tx) => {
+      await tx.kycProfile.upsert({
+        where: { userId },
+        // En el `create` sin INE el estado se queda en el default del schema (`none` = «nunca subió
+        // INE», §M6-K.7): una CLABE no es una identidad y no puede poner nada «en revisión».
+        create: { userId, ...data, ...ine.data },
+        update: { ...data, ...ine.data },
+      });
+      return dto.clabe ? this.setClabe(tx, userId, dto.clabe, { id: userId, role: Role.customer }) : null;
     });
+    await this.notifyClabeChanged(change);
 
     await this.purgeSupersededIneObjects(userId, ine.supersededKeys);
     return this.getKyc(userId);
   }
+}
+
+/** Lo que `setClabe` devuelve cuando la CLABE cambió (para `AV-16` post-commit). ⛔ Nunca la CLABE. */
+export interface ClabeChange {
+  userId: string;
+  previousMasked: string | null;
+  newMasked: string;
+  changedAt: Date;
 }

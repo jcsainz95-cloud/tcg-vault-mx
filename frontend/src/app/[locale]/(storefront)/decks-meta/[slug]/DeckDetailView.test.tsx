@@ -202,3 +202,19 @@ describe('DeckDetailView · estados de carga y error', () => {
     expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
   });
 });
+
+/** §37.3b (P-71): la línea del deck pinta «TWM 130» con el MISMO formateador que la tienda. */
+describe('DeckDetailView · código corto de la línea («TWM 130», una sola forma en toda la tienda)', () => {
+  it('con código: «TWM 130» (espacio no separable) sin versalitas forzadas; sin código: nada (ni «#»)', async () => {
+    mockDetail(detail());
+    renderWithProviders(<DeckDetailView slug="dragapult-ex" />, 'es');
+    await screen.findByText('MX$615.00');
+    const codes = screen.getAllByTestId('card-code').map((el) => el.textContent);
+    expect(codes).toContain('TWM 130');
+    // Tal como llega (§37.3b): el CSS no decide las mayúsculas de la sigla.
+    for (const el of screen.getAllByTestId('card-code')) expect(el).not.toHaveClass('uppercase');
+    // La energía básica no trae set (`setCode: ''`): ningún «#» ni «—» en su lugar.
+    expect(codes.some((c) => c?.startsWith('#'))).toBe(false);
+    expect(document.body.textContent).not.toMatch(/—\s*\d|\bnull\b|\bundefined\b/);
+  });
+});

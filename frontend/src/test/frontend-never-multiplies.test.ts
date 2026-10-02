@@ -46,6 +46,12 @@ describe('§M10-IVA.3 · ⛔ el frontend nunca multiplica', () => {
     { patron: /\b1\.16\s*[*/]/, porque: 'el 1.16 como factor' },
     { patron: /ivaRatePct\s*\/\s*100/, porque: 'convertir la TASA en factor: el paso previo a aplicarla' },
     { patron: /1\s*\+\s*\w*[Ii]vaRate/, porque: 'construir (1 + r) para aplicarlo a un importe' },
+    /*
+     * ⭐ Añadido 2026-09-29 (endurece, no afloja): el patrón de arriba exige el `1` pegado al `+`, así que
+     * `(100 + ivaRatePct)` —la base gravable en porcentaje, `round(P × 100 / (100 + r))`— se le escapaba.
+     * Medido: la única ocurrencia fuera de tests y simuladores era `src/lib/mock/refund-math.ts@cfb43b3:35`.
+     */
+    { patron: /\b100\s*\+\s*\w*[Ii]vaRate/, porque: 'construir (100 + r) para sacar la base gravable de un precio' },
     { patron: /\*\s*\(\s*1\s*\+/, porque: 'aplicar un factor (1 + algo) a un importe' },
     { patron: /ivaCents\s*[+-]\s*/, porque: 'sumar o restar el IVA a un importe de cliente' },
     { patron: /[+-]\s*\w*\.?ivaCents\b/, porque: 'usar el IVA como sumando: bajo IVA_INCLUSIVE no lo es' },
@@ -182,6 +188,7 @@ const PATRONES_DEL_CANARIO = [
   { defecto: '/ 1.16', patron: /[*/]\s*1\.16\b/ },
   { defecto: '* (1 + r)', patron: /\*\s*\(\s*1\s*\+/ },
   { defecto: '+ line.ivaCents', patron: /[+-]\s*\w*\.?ivaCents\b/ },
+  { defecto: '* 100 / (100 + ivaRatePct)', patron: /\b100\s*\+\s*\w*[Ii]vaRate/ },
 ];
 
 describe('§M10-IVA.3 · canario: el candado VE el código que el limpiador v1 borraba', () => {

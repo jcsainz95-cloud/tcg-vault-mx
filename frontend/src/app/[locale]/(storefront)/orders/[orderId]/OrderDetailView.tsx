@@ -13,6 +13,9 @@ import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
 import { Link } from '@/i18n/navigation';
 import { historicalCardMeta, historicalCardName } from '@/lib/historical-card';
+import { OrderItemStatusLine } from '@/components/domain/OrderItemStatusLine';
+import { OrderShipmentBlock } from '@/components/domain/OrderShipmentBlock';
+import { TRACKING_STATUS_KEY, TRACKING_STATUS_TONE } from '@/app/[locale]/pedido/tracking-status';
 import { ResumePaymentAction } from '../ResumePaymentAction';
 
 /**
@@ -23,9 +26,17 @@ import { ResumePaymentAction } from '../ResumePaymentAction';
 export function OrderDetailView({ orderId }: { orderId: string }) {
   const t = useTranslations('orders');
   const tc = useTranslations('checkout');
+  const tRoot = useTranslations();
   const locale = useLocale() as AppLocale;
   const [requested, setRequested] = useState(false);
   const query = useQuery({ queryKey: ['order', orderId], queryFn: () => getOrder(orderId) });
+  // Suma de lo devuelto por carta (cifras del servidor, solo `submitted|succeeded`); ⛔ no se calcula
+  // ningún reembolso aquí: se SUMAN importes ya decididos para una frase de encabezado.
+  const partialRefund =
+    query.data && query.data.publicStatus !== 'reembolsado'
+      ? query.data.items.reduce((acc, it) => acc + (it.refund?.amountCents ?? 0), 0)
+      : 0;
+  const originRefunded = query.data?.fulfillmentMode === 'vault' && query.data.publicStatus === 'reembolsado';
 
   return (
     <QueryState
@@ -48,11 +59,29 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
               {t('orderNumber', { id: query.data.orderNumber ?? query.data.id })}
             </h1>
             <span className="flex items-center gap-2 font-mono text-[11px] text-muted">
-              <StatusBadge domain="order" value={query.data.status} />
+              {/* v1.80.2 (§37.12, PS-UI-1): el pedido se titula con `publicStatus` y los rótulos del
+                  seguimiento; ⛔ nunca `status.order.settled` («Liquidada») al cliente. Solo contra un
+                  backend anterior (sin `publicStatus`) se cae al badge de siempre. */}
+              {query.data.publicStatus ? (
+                <span
+                  data-testid="order-public-status"
+                  className={`font-mono text-[11px] uppercase tracking-label ${TRACKING_STATUS_TONE[query.data.publicStatus]}`}
+                >
+                  {tRoot(TRACKING_STATUS_KEY[query.data.publicStatus])}
+                </span>
+              ) : (
+                <StatusBadge domain="order" value={query.data.status} />
+              )}
               <span aria-hidden>·</span>
               {formatDate(query.data.createdAt, locale)}
             </span>
           </div>
+          {/* §37.7: si hubo devolución parcial, se dice arriba de todo, con la cifra del servidor. */}
+          {partialRefund > 0 && (
+            <p className="gutter pb-4 text-sm text-text" data-testid="order-refunded-partial">
+              {t('refundedPartial', { amount: formatMoneyCents(partialRefund, locale) })}
+            </p>
+          )}
 
           <div className="grid border-t border-border lg:grid-cols-[1fr_400px]">
             <div className="gutter border-b border-border pb-12 pt-6 lg:border-b-0 lg:border-r">
@@ -107,6 +136,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                             {meta}
                           </p>
                         )}
+                        {/* §37.7 / §37.8f / §37.10d: qué pasó con esta carta, si pasó algo. */}
+                        <OrderItemStatusLine refund={it.refund} replacement={it.replacement} originRefunded={originRefunded} className="mt-1.5" />
                       </div>
                       {/* El dinero NO vive en el blob (`unitPriceCents` es columna propia de
                           `OrderItem`): un snapshot incompleto no mueve un centavo. */}
@@ -120,6 +151,15 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
             </div>
 
             <aside className="gutter h-fit pb-12 pt-6 lg:px-10">
+              {/* §37.12 «Tu envío»: solo cuando el contrato manda `shipment`/`fulfillmentMode` (aditivo). */}
+              {(query.data.shipment !== undefined || query.data.fulfillmentMode) && (
+                <OrderShipmentBlock
+                  shipment={query.data.shipment}
+                  publicStatus={query.data.publicStatus}
+                  fulfillmentMode={query.data.fulfillmentMode}
+                  className="mb-8 border-b border-border pb-8"
+                />
+              )}
               <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
               {/* v1.68 §4-R.5: `pending` con reserva viva ⇒ «Reanudar pago» (vuelve a /checkout). */}
               <ResumePaymentAction order={query.data} className="mt-6" />

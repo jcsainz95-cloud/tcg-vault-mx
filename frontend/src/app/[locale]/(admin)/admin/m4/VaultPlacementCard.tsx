@@ -11,7 +11,7 @@ import {
   setVaultPrepItem,
   unprepareVaultPlacement,
 } from '@/lib/api';
-import { ApiClientError } from '@/lib/api-client';
+import { asApiError, ApiClientError } from '@/lib/api-client';
 import { useErrorMessage } from '@/components/ui/QueryState';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -57,10 +57,6 @@ export interface QueueNotice {
 }
 
 const QUEUE_KEY = ['admin-preparation-queue'] as const;
-
-function asApiError(e: unknown): ApiClientError | null {
-  return e instanceof ApiClientError ? e : null;
-}
 
 function patchOrder(
   qc: QueryClient,

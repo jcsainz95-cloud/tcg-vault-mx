@@ -22,6 +22,12 @@ export interface QuoterCardRef {
   name: string;
   number: string;
   imageSmallUrl?: string;
+  /**
+   * v1.80 (P-71, §37.3c): código corto del set de la carta, para la línea «TWM 130 · …». Opcional
+   * porque las listas guardadas antes de P-71 no lo traen (y una restaurada lo pinta como `#130`):
+   * ausente o `null` ⇒ sin código, nunca se deduce.
+   */
+  setPtcgoCode?: string | null;
 }
 
 /**
@@ -118,6 +124,7 @@ function sanitizeLines(raw: unknown): CartLine[] {
         name: card.name,
         number: typeof card.number === 'string' ? card.number : '',
         ...(typeof card.imageSmallUrl === 'string' ? { imageSmallUrl: card.imageSmallUrl } : {}),
+        ...(typeof card.setPtcgoCode === 'string' ? { setPtcgoCode: card.setPtcgoCode } : {}),
       },
       productType: 'raw',
       ...(typeof l.rawCondition === 'string' ? { rawCondition: l.rawCondition as RawCondition } : {}),

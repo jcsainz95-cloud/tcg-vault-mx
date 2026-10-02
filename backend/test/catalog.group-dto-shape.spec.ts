@@ -207,6 +207,8 @@ describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la
         'rarity',
         'setId',
         'setName',
+        // v1.80 (P-71): código corto del set de la carta — clave SIEMPRE presente (`null` si no hay).
+        'setPtcgoCode',
         'subtypes',
         'supertype',
       ].sort(),
