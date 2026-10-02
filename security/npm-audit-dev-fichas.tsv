@@ -34,6 +34,7 @@
 # el trinquete pida podarlas — lo comprobé en la primera corrida, que es justo la
 # señal de que la tabla no puede afirmar más de lo que el audit dice.
 # =============================================================================
-GHSA-5xrq-8626-4rwp	frontend	vitest	frontend	2026-10-10	Crítica 9.8 pero NO alcanzable aquí: requiere el servidor `vitest --ui` ESCUCHANDO. Medido 2026-09-10: `frontend/package.json` corre `vitest run` y `--ui` no aparece en ningún script ni workflow. Fix = vitest 5 (major, rompedor) -> decisión del rol frontend.
-GHSA-fx2h-pf6j-xcff	frontend	vite	frontend	2026-10-10	Bypass de `server.fs.deny` en rutas alternativas de WINDOWS. Los runners y el equipo son Linux. Fix = vitest 5.
-GHSA-2883-xcg3-v3hh	frontend	js-yaml	frontend	2026-09-24	Alta 7.5 (DoS por CPU en merge keys). Llega por `eslint`/`@eslint/eslintrc`. `npm audit` da `fixAvailable: true` -> es un bump de LOCKFILE (js-yaml >= 4.3.2), sin cambio de API. Es el más barato de los tres y por eso tiene la fecha más corta.
+# PODA 2026-10-02 (devops, DEVOPS_NOTES §74): GHSA-5xrq-8626-4rwp (vitest), GHSA-fx2h-pf6j-xcff (vite) y
+# GHSA-2883-xcg3-v3hh (js-yaml) retiradas: el trinquete las daba por obsoletas con npm audit Y con trivy
+# (`audit-npm-dev.sh` y `trivy-dev-fichas.sh` sobre `git archive 8a10153e`, ambos «ya no aparece»).
+# Hoy no hay ninguna ficha activa: todo alto/crítico de devDependencies debe ARREGLARSE o fichar aquí.
