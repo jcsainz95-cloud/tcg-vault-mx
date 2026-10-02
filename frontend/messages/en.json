@@ -2391,7 +2391,26 @@
         },
         "sent": "Offer issued: the email went out and the seller now has {netAmount} on the table.",
         "pendingAuthorization": "Prepared and waiting for super admin approval. The email has NOT been sent and nothing changed for the seller.",
-        "readOnly": "The offer is out: the desk is read-only."
+        "readOnly": "The offer is out: the desk is read-only.",
+        "decline": {
+          "action": "Decline",
+          "title": "Decline this request",
+          "body": "The request is closed and the seller gets the “we won't proceed” email. It cannot be reopened or offered on again; if the seller is still interested, they will have to request a new quote.",
+          "reasonLabel": "Reason (internal, kept in the log)",
+          "reasonHint": "Optional, up to 500 characters. The seller won't see it.",
+          "confirm": "Decline and notify them",
+          "done": "Request {id} declined: it is closed and the seller gets the “we won't proceed” email."
+        },
+        "cancelOffer": {
+          "action": "Cancel the offer",
+          "title": "Cancel the offer",
+          "body": "The seller gets the cancellation email and the request goes back to “To offer” with its full window. To correct the offer, issue a new one from the decision desk.",
+          "reasonLabel": "Reason (internal, kept in the log)",
+          "reasonHint": "Optional, up to 500 characters. The seller won't see it.",
+          "confirm": "Cancel the offer and notify them",
+          "done": "Offer on {id} cancelled: the request is back in “To offer”."
+        },
+        "reasonTooLong": "The reason cannot be longer than 500 characters."
       },
       "shipment": {
         "title": "Label and shipping",
@@ -4720,7 +4739,9 @@
     "IVA_TRANSFER_ACK_STALE": "The cost changed while you were deciding. Nothing was saved: check the new figure and save again.",
     "DECK_NOT_FOUND": "We couldn't find that deck. It may have dropped out of the top 10.",
     "DECK_LIST_UNPARSEABLE": "We couldn't read any cards from your list. Check the format (quantity, set and number) and try again.",
-    "ITEM_ORIGIN_REFUNDED": "A card in your withdrawal comes from a purchase being refunded and can't ship. Remove it and try again."
+    "ITEM_ORIGIN_REFUNDED": "A card in your withdrawal comes from a purchase being refunded and can't ship. Remove it and try again.",
+    "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
+    "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved."
   },
   "payment": {
     "title": "Payment",

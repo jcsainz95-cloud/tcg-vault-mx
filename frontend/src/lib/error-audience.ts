@@ -155,10 +155,16 @@ export const DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES = [
   'OFFER_PROJECTION_INCOMPLETE',
   'ITEM_NOT_OFFERED',
   'OFFERED_PRICE_MISSING',
-  'DECLINE_NOT_ALLOWED',
   'NO_LIVE_ADJUSTMENT',
   'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
 ] as const;
+
+/**
+ * **§27, LOTE 2 — lo ya CABLEADO** (sale de la lista de pendientes de arriba). `409 DECLINE_NOT_ALLOWED` llegó a
+ * pantalla con el botón «Declinar» de M5 (P-M5-DECLINE, §25.8, 2026-10-02): su copy es el de §27.2 tal cual, y el
+ * candado de literalidad de `error-audience.test.ts` lo compara carácter por carácter. Solo admin ⇒ sin `_OPERATOR`.
+ */
+export const DESIGN_SYSTEM_27_LOT2_WIRED_ERROR_CODES = ['DECLINE_NOT_ALLOWED'] as const;
 
 /**
  * **STREAM B — los dos códigos del reintento de checkout y de las transiciones de M5** (contrato
