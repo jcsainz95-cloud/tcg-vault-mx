@@ -1,8 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InventoryItem, ProductType } from '@prisma/client';
+import { ProductType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../modules/pricing/pricing.service';
+import { saleQueueKeyOf, serializeSaleQueueKey } from '../modules/pricing/sale-queue-key';
 import { hasManualPrice } from '../common/money';
+
+/** Tope de ids que el log del barrido VQ enumera (techlead D-6): el resto se resume con un conteo. */
+export const VQ_SWEEP_LOG_ID_CAP = 20;
 
 /**
  * PriceSyncJobService — Job diario `price-sync` (ARCHITECTURE §5). Recorre las piezas en bóveda
@@ -33,15 +37,26 @@ export class PriceSyncJobService {
   ): Promise<{ jobId: string; queued: number }> {
     // Ejecución directa (MVP). En prod, BullMQ encola y procesa con rate-limit.
     const jobId = `price-sync-${Date.now()}`;
-    const queued = await this.run(scope === 'cardIds' ? cardIds : undefined);
+    // QA (gate sobre `8a10153e`): con `scope="cardIds"` el filtro es `cardIds` TAL CUAL — vacío u
+    // omitido ⇒ ninguna carta (no-op, `queued: 0`). Antes `[]` caía en la corrida COMPLETA y en el
+    // barrido VQ, y §M2 v1.80.8.4 dice «con `scope="cardIds"` no barre».
+    const queued = await this.run(scope === 'cardIds' ? (cardIds ?? []) : undefined);
     return { jobId, queued };
   }
 
-  /** Ejecuta el sync. Devuelve cuántas combinaciones (item) se procesaron. */
+  /**
+   * Ejecuta el sync. Devuelve cuántas combinaciones (item) se procesaron.
+   *
+   * `cardIds` **omitido** ⇒ corrida COMPLETA (scheduler o `scope="all_vault"`) y barrido VQ al final.
+   * `cardIds` **presente** ⇒ solo esas cartas y ⛔ sin barrido; un array vacío es «ninguna carta» (no-op),
+   * nunca «todas».
+   */
   async run(cardIds?: string[]): Promise<number> {
-    // «Completa» = sin filtro de cartas (scheduler o `scope="all_vault"`). Un `cardIds` vacío ya
-    // barría todo, así que también cuenta como completa.
-    const full = !(cardIds && cardIds.length);
+    const full = cardIds === undefined;
+    if (!full && cardIds.length === 0) {
+      this.logger.log('price-sync: `cardIds` vacío ⇒ ninguna carta que refrescar (no-op, sin barrido VQ).');
+      return 0;
+    }
     const items = await this.prisma.inventoryItem.findMany({
       where: {
         ...(full ? {} : { cardId: { in: cardIds } }),
@@ -129,37 +144,28 @@ export class PriceSyncJobService {
         cardId: { in: [...new Set(rows.map((r) => r.cardId))] },
       },
     });
+    // Techlead D-1: la clave de una pieza sale de la derivación COMPARTIDA con la publicación
+    // (`saleQueueKeyOf`, la misma que usa `derivePublishSalePrice`) y se serializa con LA serialización
+    // (`serializeSaleQueueKey`) — fila y pieza se comparan con la misma función.
     const needed = new Set<string>();
     for (const item of items) {
       if (hasManualPrice(item)) continue;
-      const key = this.queueKeyOfItem(item);
-      if (key != null) needed.add(key);
+      const key = saleQueueKeyOf(item, this.pricing);
+      if (key != null) needed.add(serializeSaleQueueKey(key));
     }
-    const toClose = rows
-      .filter(
-        (r) =>
-          !needed.has(
-            queueKey(
-              r.cardId,
-              r.productType,
-              r.gradeKey,
-              r.finish,
-              r.cardProductId,
-              r.sealedProductId,
-            ),
-          ),
-      )
-      .map((r) => r.id);
+    const toClose = rows.filter((r) => !needed.has(serializeSaleQueueKey(r))).map((r) => r.id);
+    let closed = 0;
     if (toClose.length > 0) {
-      // El `where` repite el predicado: si entre la lectura y aquí un escritor le puso motivo a la
-      // fila (o la cerró), NO se toca.
-      await this.prisma.pendingPriceEntry.updateMany({
-        where: { id: { in: toClose }, status: 'open', context: 'inventory', reason: null },
-        data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
-      });
+      // Techlead D-2: la ESCRITURA vive en `PricingService` (dueño de la cola); el `where` de allí
+      // repite el predicado, así que una fila a la que un escritor le puso motivo entre la lectura y
+      // aquí NO se toca.
+      closed = await this.pricing.closeUnreasonedSaleQueueRows(toClose);
+      const shown = toClose.slice(0, VQ_SWEEP_LOG_ID_CAP).join(', ');
+      const rest = toClose.length - VQ_SWEEP_LOG_ID_CAP;
       this.logger.log(
-        `price-sync · barrido VQ: ${toClose.length} fila(s) «sin motivo» de VENTA cerradas (ninguna pieza ` +
-          `vendible de plataforma las necesita): ${toClose.join(', ')}`,
+        `price-sync · barrido VQ: ${closed} fila(s) «sin motivo» de VENTA cerradas (ninguna pieza ` +
+          `vendible de plataforma las necesita): ${shown}` +
+          (rest > 0 ? ` … (+${rest} más)` : ''),
       );
     }
     const kept = rows.length - toClose.length;
@@ -168,42 +174,6 @@ export class PriceSyncJobService {
         `price-sync · barrido VQ: ${kept} fila(s) «sin motivo» de piezas vendibles se dejan para publish-all.`,
       );
     }
-    return { closed: toClose.length, kept };
+    return { closed, kept };
   }
-
-  /**
-   * Clave de cola de una pieza — la MISMA con la que la publicación escala/cierra
-   * (`derivePublishSalePrice`): raw/graded `(cardId, productType, tryGradeKeyFor, finish,
-   * cardProductId, null)`; sellado `(cardId, 'sealed', sealedMarketGradeKeyForItem ?? 'sealed',
-   * 'normal', null, sealedProductId)`. Sin clave (graded sin identidad) ⇒ `null` (no casa).
-   */
-  private queueKeyOfItem(item: InventoryItem): string | null {
-    if (item.productType === 'sealed') {
-      const gk =
-        this.pricing.sealedMarketGradeKeyForItem(item) ??
-        this.pricing.gradeKeyFor({ productType: 'sealed' });
-      return queueKey(item.cardId, 'sealed', gk, 'normal', null, item.sealedProductId);
-    }
-    const gk = this.pricing.tryGradeKeyFor(item);
-    if (gk == null) return null;
-    return queueKey(item.cardId, item.productType, gk, item.finish, item.cardProductId, null);
-  }
-}
-
-function queueKey(
-  cardId: string,
-  productType: string,
-  gradeKey: string,
-  finish: string,
-  cardProductId: number | null,
-  sealedProductId: string | null,
-): string {
-  return JSON.stringify([
-    cardId,
-    productType,
-    gradeKey,
-    finish,
-    cardProductId ?? null,
-    sealedProductId ?? null,
-  ]);
 }

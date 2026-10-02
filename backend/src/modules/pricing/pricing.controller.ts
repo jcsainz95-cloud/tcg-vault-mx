@@ -6,7 +6,7 @@ import {
   PENDING_PRICE_REASON_VALUES,
   PRODUCT_TYPE_VALUES,
 } from '../../common/enum-values';
-import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
+import { Allow, IsArray, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
@@ -170,9 +170,18 @@ class SealedSpreadsDto {
   @IsOptional() @Allow() fallbackPct?: number | null;
 }
 
-class SyncDto {
-  @IsOptional() @IsString() scope?: 'all_vault' | 'cardIds';
-  @IsOptional() cardIds?: string[];
+/**
+ * Dominio de `scope` en `POST /admin/pricing/sync` (§M2: `scope?: "all_vault" | "cardIds"`).
+ * QA (gate sobre `8a10153e`): solo `@IsString` aceptaba `{"scope":"bogus"}` con 201 y corría la
+ * corrida COMPLETA (con barrido VQ). Fuera del dominio ⇒ `400 VALIDATION_ERROR` del pipe.
+ */
+export const PRICE_SYNC_SCOPES = ['all_vault', 'cardIds'] as const;
+
+export class SyncDto {
+  @IsOptional() @IsIn(PRICE_SYNC_SCOPES) scope?: (typeof PRICE_SYNC_SCOPES)[number];
+  // Lista de `cardId` (string). Con `scope="cardIds"` vacía u omitida ⇒ no-op (`queued: 0`), ⛔ nunca
+  // «todas» ni barrido (§M2 v1.80.8.4: «con `scope="cardIds"` no barre»). Ver `PriceSyncJobService.enqueue`.
+  @IsOptional() @IsArray() @IsString({ each: true }) cardIds?: string[];
 }
 
 /**

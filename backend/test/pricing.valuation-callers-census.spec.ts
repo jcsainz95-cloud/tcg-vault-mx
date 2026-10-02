@@ -75,9 +75,11 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
     why: 'Checkout: el sellado retorna antes por `getSealedMarketRef` + gate; la llamada es la rama raw/graduada.',
   },
   'modules/inventory/inventory.service.ts': {
-    n: 4,
+    n: 3,
     why:
-      'Import + publicación (lote con rama sellada propia; `derivePublishSalePrice` retorna antes para sellado) + ' +
+      'Import + publicación (lote con rama sellada propia) + ' +
+      '(techlead D-1, sobre `8a10153e`: `derivePublishSalePrice` ya no la llama — su clave de cola sale de ' +
+      '`saleQueueKeyOf`, compartida con el barrido VQ) + ' +
       're-publicación por variante (casa filas con la clave de COLA — uso legítimo). ⭐ v1.80.2.2 (errata ' +
       '«séptimo lector», `M2-SK-5-7`): el export .xlsx YA NO está aquí — `exportGradeKey` se retiró y ' +
       '`exportInventoryXlsx` valúa por la PUERTA (aserción por método abajo).',
@@ -103,12 +105,19 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
     why: 'Barrido de cola del ingest: el `where` acota a `productType:\'raw\'`.',
   },
   'jobs/price-sync.service.ts': {
+    n: 1,
+    why:
+      'Job `price-sync` (v1.80.8.4, §M2 `M2-VQ`): clave de la `PriceReference` que refresca por pieza ' +
+      '(sellado ⇒ `\'sealed\'`; ya NO escala a la cola). El barrido VQ ya no la llama: casa filas con ' +
+      '`saleQueueKeyOf` (techlead D-1).',
+  },
+  'modules/pricing/sale-queue-key.ts': {
     n: 2,
     why:
-      'Job `price-sync` (v1.80.8.4, §M2 `M2-VQ`): (1) clave de la `PriceReference` que refresca por pieza ' +
-      '(sellado ⇒ `\'sealed\'`; ya NO escala a la cola); (2) `queueKeyOfItem` del barrido VQ, que casa ' +
-      'filas `reason IS NULL` de VENTA con la clave de COLA de las piezas vendibles de plataforma. ' +
-      'Uso de COLA que SK-2 preserva (no valúa patrimonio).',
+      'Techlead D-1 (sobre `8a10153e`): `saleQueueKeyOf`, LA derivación de la clave de COLA de VENTA de una ' +
+      'pieza (firma del resolutor + su llamada en la rama raw/graded; el sellado sale antes por ' +
+      '`sealedSaleQueueKeyOf`). La comparten `derivePublishSalePrice` y el barrido VQ. Uso de COLA (SK-2), ' +
+      'no valúa patrimonio.',
   },
 };
 

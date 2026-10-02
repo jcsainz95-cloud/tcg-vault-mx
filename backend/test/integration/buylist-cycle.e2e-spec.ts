@@ -72,7 +72,15 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     for (const key of ['customer', 'customer2', 'operator'] as const) {
       const u = await h.prisma.user.findUnique({ where: { email: E2E_USERS[key].email } });
       userId[key] = u!.id;
-      const addr = await h.prisma.address.findFirst({ where: { userId: u!.id } });
+      // ⚠️ QA (gate sobre `8a10153e`): `orderBy` EXPLÍCITO, el mismo de `seed-e2e.ts` (predeterminada y,
+      // a igualdad, la más antigua = la del seed). Sin orden, `findFirst` devuelve la fila que quiera el
+      // planificador; en una BD reutilizada con direcciones de corridas anteriores tomaba otra y este
+      // spec daba 4 rojas (snapshot «Av. E2E 123», detalle admin, guía y correo PII). Medido: 2.ª corrida
+      // completa sobre la misma BD ⇒ 4/72 rojas.
+      const addr = await h.prisma.address.findFirst({
+        where: { userId: u!.id },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      });
       // El operador no tiene libreta y no la necesita: solo se guarda su id para aseverar
       // `declinedBy` (D39, el ÚNICO discriminador entre «decidimos» y «dejamos vencer»).
       if (addr) addressId[key] = addr.id;
@@ -196,13 +204,21 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     let srId: string;
     let otraDireccionId: string;
 
+    /** La dirección que crea ESTE bloque. Se identifica por `line1` para purgar también restos de corridas viejas. */
+    const OTRA_LINE1 = 'Calle Nueva 456';
+    const purgeOtra = () =>
+      h.prisma.address.deleteMany({ where: { userId: userId.customer, line1: OTRA_LINE1 } });
+
     beforeAll(async () => {
+      // Hermético (QA, gate sobre `8a10153e`): una BD reutilizada puede traer las de corridas anteriores.
+      // `Address` no tiene FKs entrantes (el snapshot de la solicitud es JSON), así que borrarla es seguro.
+      await purgeOtra();
       const created = await createRequest(validBody());
       srId = created.body.sellRequestId;
       const addr = await h.prisma.address.create({
         data: {
           userId: userId.customer,
-          line1: 'Calle Nueva 456',
+          line1: OTRA_LINE1,
           city: 'Monterrey',
           state: 'NL',
           postalCode: '64000',
@@ -211,6 +227,11 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         },
       });
       otraDireccionId = addr.id;
+    });
+
+    afterAll(async () => {
+      // Limpia lo que creó: sin esto la siguiente corrida sobre la misma BD hereda una dirección más.
+      await purgeOtra();
     });
 
     it('re-congela el snapshot mientras NO haya guía', async () => {

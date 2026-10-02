@@ -24,6 +24,11 @@ import { BusinessException } from '../../common/business.exception';
 import { variantKey } from '../../common/variant-key';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { tryBuildGradeKey, GradeKeyInput, sealedMarketGradeKey } from '../pricing/pricing.types';
+import {
+  saleQueueKeyOf,
+  sealedSaleQueueKeyOf,
+  serializeSaleQueueKey,
+} from '../pricing/sale-queue-key';
 import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -252,6 +257,11 @@ function variantPublishMatches(
  * ⚠️ **`cardProductId` aquí es el `Int` de TCGplayer** (el de `InventoryItem`/`PendingPriceEntry`),
  * **no** el uuid `String` de `PriceReference.cardProductId`. Son dos identificadores distintos con el
  * mismo nombre en este repo (ver `VariantPublishRef`).
+ *
+ * ⭐ Techlead D-1 (sobre `8a10153e`): la SERIALIZACIÓN es la única del repo para esta clave
+ * (`serializeSaleQueueKey`, `modules/pricing/sale-queue-key.ts`) — la misma con la que el barrido VQ de
+ * `price-sync` casa filas. Antes aquí era un `|`.join con `''` y allí un `JSON.stringify`: dos formas
+ * de escribir la misma clave. Se enumeran los seis componentes a la vista (R3 lo vigila).
  */
 function pendingQueueKey(k: {
   cardId: string;
@@ -261,14 +271,14 @@ function pendingQueueKey(k: {
   cardProductId?: number | null;
   sealedProductId?: string | null;
 }): string {
-  return [
-    k.cardId,
-    k.productType,
-    k.gradeKey,
-    k.finish,
-    k.cardProductId ?? '',
-    k.sealedProductId ?? '',
-  ].join('|');
+  return serializeSaleQueueKey({
+    cardId: k.cardId,
+    productType: k.productType,
+    gradeKey: k.gradeKey,
+    finish: k.finish,
+    cardProductId: k.cardProductId,
+    sealedProductId: k.sealedProductId,
+  });
 }
 
 /**
@@ -1665,17 +1675,10 @@ export class InventoryService {
       const ref = gk ? ctx.refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
       const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed);
       // v1.80.8.4 (VQ-6): UNA sola clave para escalar y para cerrar — la salida simétrica del sellado
-      // tiene que casar exactamente con la entrada que abrió esta misma derivación.
-      const sealedKey: PendingVariantKey = {
-        cardId: item.cardId,
-        productType: 'sealed',
-        // v1.53 (§4.40.4d): la rama `sealed` del constructor NO admite campos de grado y devuelve
-        // siempre `'sealed'` (la clave del override MANUAL del admin, §4.19d) — aquí va literal, no
-        // derivado de la fila, porque estamos DENTRO del `if (productType === 'sealed')`.
-        gradeKey: gk ?? this.pricing.gradeKeyFor({ productType: 'sealed' }),
-        finish: 'normal',
-        sealedProductId: item.sealedProductId,
-      };
+      // tiene que casar exactamente con la entrada que abrió esta misma derivación. Techlead D-1: la
+      // clave sale de la derivación COMPARTIDA con el barrido VQ (`sale-queue-key.ts`), no se arma aquí.
+      // (Sellado no mapeado ⇒ gradeKey estructural `'sealed'`, §4.40.4d / §4.19d.)
+      const sealedKey: PendingVariantKey = sealedSaleQueueKeyOf(item, this.pricing);
       if (sale.salePriceCents == null) {
         // ④: escala con el gradeKey de MERCADO; sellado no mapeado cae al gradeKey estructural.
         // v1.51 (fase 8, §4.39m.1): este cuerpo YA NO escala — es puro y devuelve la `pendingKey`;
@@ -1711,8 +1714,10 @@ export class InventoryService {
     // un precio, es saber QUÉ SLAB ES. La reparación es capturar empresa+grado por
     // `PATCH /admin/inventory/items/:id` (§4.40.5b); entra al censo §4.40.8.
     // Antes esta pieza se publicaba al precio de un `graded:PSA:10`, el grado más caro.
-    const gradeKey = this.pricing.tryGradeKeyFor(item);
-    if (gradeKey == null) {
+    // Techlead D-1: la clave de COLA de la pieza sale de la derivación compartida con el barrido VQ
+    // (`saleQueueKeyOf`); su `gradeKey` es el `tryGradeKeyFor` de siempre. `null` ⇔ graded sin slab.
+    const queueKey = saleQueueKeyOf(item, this.pricing);
+    if (queueKey == null) {
       return {
         ok: false,
         message:
@@ -1723,6 +1728,7 @@ export class InventoryService {
         pendingReason: null,
       };
     }
+    const gradeKey = queueKey.gradeKey;
     const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
     const ref = ctx.refs.get(key);
     const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
@@ -1745,14 +1751,8 @@ export class InventoryService {
           pendingReason === 'premium_at_floor'
             ? 'Premium rarity resolved to the floor (bad market data); not published — escalated to the pending queue'
             : 'No resolvable sale price (no market reference); not published',
-        pendingKey: {
-          cardId: item.cardId,
-          productType: item.productType,
-          gradeKey,
-          finish: item.finish,
-          // R3: la identidad REAL de la pieza entra a la llave de la cola.
-          cardProductId: item.cardProductId,
-        },
+        // R3: la identidad REAL de la pieza (`cardProductId`) entra a la llave de la cola.
+        pendingKey: queueKey,
         pendingReason,
       };
     }
@@ -1761,15 +1761,9 @@ export class InventoryService {
       salePriceCents: sale.priceCents,
       priceSource: 'derived',
       priceBasis: sale.basis,
-      pendingKey: {
-        cardId: item.cardId,
-        productType: item.productType,
-        gradeKey,
-        finish: item.finish,
-        // R3: el CIERRE simétrico usa la MISMA llave que la escalada — con los seis componentes, o
-        // resolver una variante apagaría el aviso de otra.
-        cardProductId: item.cardProductId,
-      },
+      // R3: el CIERRE simétrico usa la MISMA llave que la escalada — con los seis componentes, o
+      // resolver una variante apagaría el aviso de otra.
+      pendingKey: queueKey,
     };
   }
 

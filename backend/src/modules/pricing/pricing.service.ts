@@ -2116,6 +2116,25 @@ export class PricingService {
   }
 
   /**
+   * v1.80.8.4 — **la ESCRITURA del barrido VQ** (API_CONTRACT §M2 `M2-VQ`, ARCHITECTURE §4.36.5 c-bis
+   * punto 5). Techlead D-2 (sobre `8a10153e`): vivía en `PriceSyncJobService`, fuera del dueño de la
+   * cola; ahora toda escritura de `pendingPriceEntry` está en este servicio (VQ-5 lo vigila).
+   *
+   * Cierra (`resolved`, `resolvedPriceRefId=null`) las filas `ids` que **sigan** `open`,
+   * `context='inventory'`, `reason IS NULL`: el `where` repite el predicado del barrido, así que una
+   * fila a la que un escritor le puso motivo (o cerró) entre la lectura y aquí NO se toca. ⛔ No decide
+   * QUÉ filas cerrar —eso es del barrido, que casa claves con `saleQueueKeyOf`—. Devuelve cuántas cerró.
+   */
+  async closeUnreasonedSaleQueueRows(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const res = await this.prisma.pendingPriceEntry.updateMany({
+      where: { id: { in: ids }, status: 'open', context: 'inventory', reason: null },
+      data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
+    });
+    return res.count;
+  }
+
+  /**
    * v2.0 (§4.36.5c) — **EL MISMO SEAM que escala CIERRA**. Un solo cuerpo para las dos direcciones:
    *  - `reason != null` ⇒ escala (o actualiza la razón de la entrada abierta) y devuelve su id;
    *  - `reason == null` ⇒ cierra las entradas `open` de esa clave y devuelve `undefined`.

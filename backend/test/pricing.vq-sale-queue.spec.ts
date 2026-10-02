@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PriceSyncJobService } from '../src/jobs/price-sync.service';
+import { PriceSyncJobService, VQ_SWEEP_LOG_ID_CAP } from '../src/jobs/price-sync.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -214,6 +214,33 @@ describe('VQ-5 — candado: lista CERRADA de escritores de la cola y `syncCardPr
     expect(methodBody(buylist, 'async createRequest(')).toMatch(/\bsettlePendingForVariant\(/);
   });
 
+  it('techlead D-2/D-6: TODA escritura cruda de `pendingPriceEntry` vive en `PricingService` (el barrido incluido)', () => {
+    // Las escrituras: `escalatePending` (update de motivo + create), `closePendingForVariant`,
+    // `applyManualOverride` (updateMany del cierre por override) y `closeUnreasonedSaleQueueRows` (barrido VQ).
+    // Cualquier `prisma|tx|db.pendingPriceEntry.<escritura>` en otro fichero ⇒ rojo.
+    expect(
+      identCensus(
+        SRC,
+        /\bpendingPriceEntry\s*\.\s*(?:create|createMany|createManyAndReturn|update|updateMany|updateManyAndReturn|upsert|delete|deleteMany)\b/g,
+      ),
+    ).toEqual({ 'modules/pricing/pricing.service.ts': 5 });
+    // Ni SQL crudo sobre la tabla (la puerta lateral del censo anterior).
+    expect(identCensus(SRC, /"PendingPriceEntry"/g)).toEqual({});
+    // El barrido delega la escritura; la usa SOLO `price-sync`.
+    expect(identCensus(SRC, /\bcloseUnreasonedSaleQueueRows\b/g)).toEqual({
+      'jobs/price-sync.service.ts': 1,
+      'modules/pricing/pricing.service.ts': 1,
+    });
+    const pricing = stripComments(
+      readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8'),
+    );
+    const body = methodBody(pricing, 'async closeUnreasonedSaleQueueRows(');
+    // El `where` repite el predicado del barrido (una fila con motivo nunca se cierra aquí).
+    for (const frag of ["status: 'open'", "context: 'inventory'", 'reason: null', 'resolvedPriceRefId: null']) {
+      expect({ frag, presente: body.includes(frag) }).toEqual({ frag, presente: true });
+    }
+  });
+
   it('`syncCardPrice` no toca la cola y no tiene parámetro de escalada; sus llamadores pasan 4 argumentos', () => {
     const pricing = stripComments(
       readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8'),
@@ -327,6 +354,43 @@ describe('VQ-7 / VQ-8 — barrido VQ al final de un `price-sync` COMPLETO', () =
     const job = new PriceSyncJobService(prisma, buildPricing(prisma));
     expect(await job.sweepUnreasonedSaleQueue()).toEqual({ closed: 1, kept: 0 });
     expect(await job.sweepUnreasonedSaleQueue()).toEqual({ closed: 0, kept: 0 });
+  });
+
+  it('D-6: el log del barrido enumera como mucho VQ_SWEEP_LOG_ID_CAP ids y resume el resto', async () => {
+    const pending = Array.from({ length: VQ_SWEEP_LOG_ID_CAP + 7 }, (_, i) =>
+      row({ id: `r${i}`, cardId: `c-gone-${i}` }),
+    );
+    const { prisma } = buildPrisma([], pending);
+    const job = new PriceSyncJobService(prisma, buildPricing(prisma));
+    const log = jest.spyOn((job as any).logger, 'log').mockImplementation(() => undefined);
+    expect(await job.sweepUnreasonedSaleQueue()).toEqual({ closed: VQ_SWEEP_LOG_ID_CAP + 7, kept: 0 });
+    const line = log.mock.calls.map((c) => String(c[0])).find((l) => l.includes('cerradas'))!;
+    expect(line).toContain(`r${VQ_SWEEP_LOG_ID_CAP - 1}`);
+    expect(line).not.toContain(`r${VQ_SWEEP_LOG_ID_CAP},`);
+    expect(line).not.toMatch(new RegExp(`\\br${VQ_SWEEP_LOG_ID_CAP}\\b`));
+    expect(line).toContain('(+7 más)');
+  });
+
+  it('QA (gate `8a10153e`): `cardIds` VACÍO no es «todas»: no-op, sin refrescar y SIN barrido', async () => {
+    const items = [piece({ id: 'i1', cardId: 'c1' })];
+    const pending = [row({ id: 'r1', cardId: 'c-gone' })];
+    const { prisma } = buildPrisma(items, pending);
+    const pricing = buildPricing(prisma);
+    const sync = jest.spyOn(pricing, 'syncCardPrice');
+    const job = new PriceSyncJobService(prisma, pricing);
+    const sweep = jest.spyOn(job, 'sweepUnreasonedSaleQueue');
+    // Por el endpoint: `scope="cardIds"` con `[]` y con `cardIds` omitido.
+    expect(await job.enqueue('cardIds', [])).toMatchObject({ queued: 0 });
+    expect(await job.enqueue('cardIds', undefined)).toMatchObject({ queued: 0 });
+    expect(await job.run([])).toBe(0);
+    expect(sync).not.toHaveBeenCalled();
+    expect(sweep).not.toHaveBeenCalled();
+    expect(prisma.inventoryItem.findMany).not.toHaveBeenCalled();
+    expect(pending[0].status).toBe('open');
+    // Y `all_vault` (o el scheduler, `run()`) SÍ es la corrida completa con barrido.
+    await job.enqueue('all_vault', ['c1']);
+    expect(sweep).toHaveBeenCalledTimes(1);
+    expect(pending[0].status).toBe('resolved');
   });
 
   it('el barrido corre SOLO en corrida completa (no con `cardIds`)', async () => {
