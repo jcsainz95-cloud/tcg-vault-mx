@@ -26278,3 +26278,49 @@ condicionado.
 `payments.service.ts · onChargeRefunded` (origen `CHARGE_REFUNDED_SOURCE_STATUSES`, v1.80.8.3),
 `refund-ledger.service.ts` cabecera (M3: `onFullRefund` y después `WHERE status='settled'`), y `readGuardedItem` /
 `guardedItemUpdate` en `inventory.service.ts` (también los usa el PATCH no publicante). Solo comentarios.
+
+## 14 · Cola de precio pendiente (Venta): «SIN MOTIVO» — escritores del alta y del sellado ponen `reason` (2026-10-02, rama `claude/post-release-s5`, sobre `22b0b08d`)
+
+**Síntoma (dueño):** encabezado de M2 Venta «0 SIN MERCADO · 17 PREMIUM EN EL PISO · 19 SIN MOTIVO». «Sin motivo» =
+`counts.unknown` = filas `open` con `reason IS NULL` (contrato §M2: «filas anteriores a M-41»), pero las de hoy las
+siguen escribiendo escritores vigentes que llaman a `escalatePending` sin su 9.º argumento (default `null`).
+
+**Escritores medidos (re-medido sobre `22b0b08d`):**
+| Escritor | Antes | Ahora |
+|---|---|---|
+| `createItem` / `batchCreate` / `adjust(encontrada)` — sellado sin `listPriceCents` | `reason=null`, y escalaba **siempre** (aunque hubiera mercado) | `escalateSealedAltaIfPriceless`: escala **solo** si no resuelve (sin override manual del alta, y sin mapeo o `gateSealedMarketCents(ref, sourceOn) == null`), con `no_market` |
+| `resolveCreation` — aportación sin referencia (raw/graded/sellado) | `reason=null` | `no_market` |
+| `resolvePublishSalePrice` — sellado sin override ni mercado | `reason=null` | `derived.pendingReason ?? 'no_market'` |
+| `resolvePublishSalePrice` — raw/graded | ya `?? 'no_market'` | sin cambio |
+| `PricingService.syncCardPrice` (job `price-sync`) | `reason=null` | **SIN CAMBIO — bloqueado, va al arquitecto** (abajo) |
+
+**Por qué el alta de sellado ya no escala si el precio resuelve:** el contrato del alta (§M1 `POST /admin/inventory/items`,
+v1.23) dice «si se omite [`listPriceCents`], el sellado se auto-precia por mercado TCGCSV × spread cuando está mapeado […];
+sin mercado ni override queda PRICE_PENDING». Escalar un sellado que SÍ resuelve no tiene motivo verdadero en
+`PendingPriceReason = no_market | premium_at_floor`, y esa fila **no la cierra nadie** (la publicación del sellado no cierra
+la cola: `pendingKey: null`). Escalar es solo aviso: no mueve ningún precio. La puerta es la MISMA que la publicación
+(`gateSealedMarketCents` con el dial `sealedPriceSource`; el override manual de mercado sobrevive al dial).
+
+**Por qué `syncCardPrice` NO se tocó (decisión pendiente del arquitecto):** su escalada no significa «sin mercado», significa
+«el proveedor POR CARTA no devolvió cotización hoy». Medido en código: los proveedores de `graded`/`sealed` son *stubs* que
+devuelven siempre `null` (`providers/graded-sealed.providers.ts:23-31`, `:48-52`) ⇒ cada pieza graded/sealed del barrido
+escala **cada día**; el sellado además escala con `tryGradeKeyFor(item)` = `'sealed'` (clave de override, no la de mercado
+`sealed:tcg:<id>` que lee la publicación) ⇒ fila que nada cierra; y en raw, un HTTP fallido de pokemontcg.io escala aunque
+`price-ingest` tenga referencia. Ponerle `no_market` sería falso y rompería el diagnóstico del contrato («suben los dos a la
+vez ⇒ feed degradado»). Además el job barre `status ∉ {withdrawn, lost}` sin filtrar `ownerType` (`jobs/price-sync.service.ts:35-41`)
+y escala con `context='inventory'` piezas de CLIENTE y vendidas; ARCHITECTURE §5 (`price-sync` «sí escala pendientes» de
+«los items en custodia») lo describe así, y §4.24c define VENTA como inventario de plataforma: es una contradicción de diseño,
+no un arreglo de backend.
+
+**Filas históricas `reason IS NULL`:** `escalatePending` ya actualiza la razón de una fila abierta de la misma clave
+(`pricing.service.ts` `if (reason != null && open.reason !== reason)`), así que un `publish-all` tras este cambio reclasifica
+(o cierra, raw/graded que resuelven) las filas de piezas de plataforma `in_stock|listed`. Lo que quede `null` después es de
+claves que ninguna pieza vendible necesita (price-sync sobre clientes/vendidas/`'sealed'`) — su cierre depende de la decisión
+de arriba. No se escribió migración: reclasificar exige resolver el precio (lógica de app), no es SQL idempotente y seguro.
+
+**Pruebas:** `test/inventory.pending-reason-writers.spec.ts` (12, `escalatePending` REAL sobre almacén en memoria): 12/12 rojas
+sobre `22b0b08d`, verdes después. `inventory.sealed.spec.ts` y `inventory.finish-pending.spec.ts` aseveraban la firma vieja
+(sin motivo); ahora aseveran `'no_market'`. Mutaciones (copia entera, deterministas): helper sin `reason` ⇒ 6 rojas; sin
+puerta de mercado ⇒ 3; sin salida por override manual ⇒ 1; publicación de sellado con `null` ⇒ 2; aportación sin `reason` ⇒ 2;
+ignorar el dial (`sourceOn=true`) ⇒ 1. Unitaria completa 381 suites / 6408 verdes; integración completa (BD propia
+`tcg_be_pending_reason`) 67 suites / 1434 verdes.
