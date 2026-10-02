@@ -32,6 +32,7 @@
 | P-M1-BITACORA | Bitácora `inventory.item_updated` con before/after en el PATCH (§M4-SHIP.17.1 (2)) | backend (en la fusión de `inventory`) | 2026-09-29 | spec que lea la bitácora tras el PATCH |
 | P-OUTCOME | `outcome` aditivo en `paid`/`cancel` de la cubeta SPEI: declararlo en el contrato o quitarlo | arquitecto | 2026-09-29 (QA MENOR 2) | línea en §M4-SHIP.17.3 |
 | P-DEUDA | Deuda anotada con disparador: TECH_DEBT SHIP-D1…D8, SHIP-FD-a/b/c, T-2…T-6, DIN-D1, C7-LEGACY-SID (borrar la rama legado 30 d tras publicar), D-SHIP-8 | rol dueño de cada una | 2026-09-29 | cierre según cada entrada |
+| P-M5-DECLINE | **Botón «Declinar» en M5 para solicitudes `cotizada`** (y «Cancelar oferta» en `ofertada`): el dueño no puede rechazar una solicitud sin oferta (2026-10-02, captura). Hueco de PANTALLA: `POST /admin/buylist/:id/decline` existe (contrato `API_CONTRACT.md:25118-25176`, D39; backend `admin-buylist.controller.ts:480-497`, `buylist.service.ts:5608-5659`), diseño en `DESIGN_SYSTEM.md:10912-10930`; frontend sin cliente en `lib/api.ts` ni botón ni claves (FRONTEND_NOTES `:14565`, `:14735` lo daban por «no entregado»). Criterio 171 incumplible desde la UI | frontend (tras la pestaña de reembolsos, por `es/en.json`) | 2026-10-02 (Explore sobre 0d6b5362, solo lectura) | botón visible en una `cotizada`; declinar ⇒ `expirada/no_offer` + correo 4; E2E |
 
 ## Recuento del backlog 2026-09-25 (sobre production 47e4efa) — sustituye al índice del 2026-09-11 como punto de partida
 
