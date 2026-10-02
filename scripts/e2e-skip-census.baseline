@@ -1,7 +1,7 @@
 # Baseline del censo de salvaguardas E2E (scripts/check-e2e-skip-census.sh).
 # Formato: clave ocurrencias ficheros. Se regenera SOLO con --update --motivo, en el mismo diff que el cambio.
-# 2026-09-29 · P-REL-3 cubeta SPEI (devops; conteo medido sobre HEAD 327b53df de claude/release-s5). realOnly 14/4 -> 16/5 y skipIfSeedMissing 12/6 -> 15/7; las otras tres claves no cambian. Todo lo aporta frontend/e2e/m4-ship-spei-real.spec.ts (nuevo, 327b53df), contado por PALABRA (grep -rwo): realOnly 2 = import :3 + 1 llamada :115; skipIfSeedMissing 3 = import :3 + 2 llamadas :121 :204. O sea 2 casos que en MOCKS se saltan (realOnly) y 2 que en REAL se saltan si falta la fila pending sembrada. MOTIVO (duenio: frontend, cabecera del spec :5-22): la cubeta SPEI solo se mide contra la API real (afirma peticiones HTTP) y CONSUME las filas e2e:mr-pay / e2e:mr-cancel de seed-e2e.ts paso 13 (seedSpeiBucket). CONTRAPESO (devops, mismo diff): en e2e-real.yml el spec corre en paso propio con --retries=0 y scripts/check-e2e-must-run.sh exige 2 casos pasados en un intento (salto o flaky => rojo); canario en ci.yml. El motivo anterior (2026-09-29, M2-SK) vive en git.
-mockOnly 126 26
+# 2026-10-02 · P-M5-DECLINE (5ff5f920): el ciclo emitir→cancelar→declinar usa sr-3004 del fixture mock; declinar es terminal y en real consumiría la cotizada del seed que usan los @real de la mesa; deuda: semilla cotizada propia en seed-e2e.ts
+mockOnly 127 26
 needsSeed 34 9
 harnessLimit 5 3
 skipIfSeedMissing 15 7
