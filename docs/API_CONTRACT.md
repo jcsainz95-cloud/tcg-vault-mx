@@ -2,7 +2,45 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.8.3**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-02 (rev **v1.80.8.4**).
+>
+> **Rev v1.80.8.4 — ERRATA: LA COLA DE VENTA LA ESCRIBE SOLO LA VÍA DE PRECIO DE VENTA; `price-sync` DEJA DE ESCALAR
+> (2026-10-02, arquitecto, rama `claude/post-release-s5`).** ⛔ **Sin schema, sin migración, sin enum nuevo, sin
+> endpoint nuevo, sin cambio de forma de respuesta.** Cambia **quién escribe** `PendingPriceEntry` y añade un
+> **barrido único** de las filas `reason IS NULL`. Norma: [§M2 «v1.80.8.4»](#M2-VQ) y `ARCHITECTURE §4.36.5 (c-bis)`.
+>
+> - **La contradicción (medida por backend, `BACKEND_NOTES` «§14 · Cola de precio pendiente (Venta)», commit
+>   `0a4a6429`; las líneas de código citadas abajo las **leyó** el arquitecto en la rama, ⛔ el sha NO lo midió él).**
+>   El dueño ve en M2 Venta `0 SIN MERCADO · 17 PREMIUM EN EL PISO · 19 SIN MOTIVO`. La fuente que queda de filas sin
+>   motivo es `PricingService.syncCardPrice` (`pricing.service.ts:1927-1929` y `:1961-1963`), llamado por el job
+>   `price-sync` (`jobs/price-sync.service.ts:35-63`) con `context='inventory'` y sin `reason`. Esa escalada **no
+>   significa «sin mercado»**: significa «el proveedor POR CARTA no devolvió cotización hoy» — graded y sellado son
+>   *stubs* que devuelven siempre `null` (escalan todos los días), el sellado escala con la clave `'sealed'` (no la de
+>   mercado que lee la publicación, así que nada la cierra) y un HTTP fallido de pokemontcg.io escala raw aunque
+>   `price-ingest` tenga referencia. Y el barrido es `status ∉ {withdrawn, lost}` **sin filtro de dueño**: mete piezas
+>   **de clientes** en custodia y piezas **vendidas** en la cola de VENTA, que este contrato define como inventario de
+>   **plataforma** (§M2 v1.26 P-6; `ARCHITECTURE §4.24c`). `ARCHITECTURE §5` («`price-sync` … sí escala pendientes»)
+>   lo describía así: el error era de diseño, no de backend.
+> - **⭐ LA REGLA (cuatro decisiones):**
+>   1. **`price-sync` refresca referencias de TODAS las piezas que recorre hoy (sin cambio de alcance: la valuación de
+>      bóveda las usa) y ⛔ NO escribe la cola, nunca.** La escalada sale de `syncCardPrice` entera (sus dos ramas);
+>      ningún llamador de `syncCardPrice` escribe `PendingPriceEntry`.
+>   2. **No hay tercer motivo.** `PendingPriceReason` sigue siendo `no_market | premium_at_floor`. «El proveedor no
+>      contestó hoy» no es trabajo del dueño: es telemetría del job (log con conteos), no una fila en una bandeja.
+>      ⛔ **Paridad schema↔contrato: sin cambio.**
+>   3. **Las filas `open` con `reason IS NULL` se acaban:** `publish-all` (una vez, tras el deploy) reclasifica o
+>      cierra las de piezas de plataforma vendibles; un **barrido VQ** al final de cada `price-sync` completo cierra
+>      las demás. Tras ambos, **ningún escritor vigente produce `reason = null`**.
+>   4. **El sellado cierra su fila al resolver en publicación** (hasta hoy `pendingKey: null` ⇒ la fila `no_market`
+>      del sellado solo la cerraba el override manual; el texto «`no_market` la cura sola» era falso para sellado).
+> - **Qué se tacha:** §M2 `POST /admin/pricing/sync` (descripción), §M2 v1.26 (lista de escritores de VENTA), §M2
+>   v2.0 «`no_market` la cura sola el siguiente barrido», §M2 v2.1 definición de `unknown` («filas anteriores a
+>   M-41»), §M2 v2.0 «SALIDA de la cola». En `ARCHITECTURE`: §5 (`price-sync` «sí escala pendientes»), §4.24c (lista
+>   de VENTA), §4.36.5 (c) «los seams que cierran».
+> - **Backend:** VQ-1…VQ-9 (§M2). **Frontend nada** (la forma no cambia; `unknown` seguirá llegando, en 0). **ux-ui
+>   nada.** **QA:** VQ-1…VQ-9 + el invariante `no_market + premium_at_floor + unknown === nº open` sobre VENTA.
+> - ⛔ **No se toca** el guardarraíl `premium_at_floor` ni la curva/piso: las 17 «premium en el piso» esperan decisión
+>   del dueño y esta errata no las mueve.
 >
 > **Rev v1.80.8.3 — 🔒💰 ERRATA BLOQUEANTE: `charge.refunded` TOTAL LLEVA A `refunded` DESDE `pending`, `failed` Y
 > `settled` (2026-09-29, arquitecto).** ⛔ Sin schema, sin endpoint, sin código de error nuevo. Cambia **conducta de
@@ -7024,6 +7062,9 @@ PendingPriceReason  = no_market | premium_at_floor      // v2.0: por qué una va
                     // (`PendingPriceEntry.reason`). El dominio del filtro `?reason=` de §M2 se DERIVA de aquí; ⛔ no se
                     // transcribe (§0-Q punto 3). Si el schema gana una tercera razón, la cola de dinero tiene que poder
                     // filtrarla el mismo día — es el bug de `SealedSubtype`/`upc` con otro nombre.
+                    // v1.80.8.4 — SE DECIDIÓ NO añadir una tercera (`provider_unavailable`): «el proveedor no
+                    // contestó hoy» no es trabajo del dueño; esas filas no deben existir (§M2 «v1.80.8.4»). Paridad
+                    // schema↔contrato SIN CAMBIO.
 PendingPriceContext = catalog | portfolio | buylist | inventory
                     // ⚠️ DECLARACIÓN CANÓNICA AÑADIDA EN v1.73. Espeja `enum PendingPriceContext` de `schema.prisma`.
                     // Existía como enum de BD y como dominio del filtro `?context=` de `GET /admin/pricing/pending`
@@ -12867,6 +12908,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 ### M2 — Catálogo y precios (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`PricingController`, `FxController`, `AdminCatalogController`). No requiere backend nuevo para el flujo M2 existente (sync de precios de bóveda, override, FX, rareza→categoría, sync de catálogo por fecha/backfill); falta **consumo de frontend** (M2 es `ModuleTodo` en UI). Lo **único NUEVO** de backend en M2 es `POST /admin/catalog/sync-all` (abajo), para la Opción 1 del cotizador.
 - `POST /api/v1/admin/pricing/sync` — dispara/encola el sync diario (solo bóveda). Req `{ scope?: "all_vault" | "cardIds" , cardIds?: [] }` → `{ jobId, queued: number }`.
+  - **v1.80.8.4:** refresca `PriceReference` y ⛔ **no escribe la cola de precio pendiente** (antes escalaba sin motivo
+    toda pieza cuyo proveedor por carta no contestara, incluidas piezas de clientes y vendidas). Con
+    `scope="all_vault"` (y en la corrida programada) termina con el **barrido VQ** de filas sin motivo (abajo,
+    [«v1.80.8.4»](#M2-VQ)); con `scope="cardIds"` no barre. Forma de request/response **sin cambio**.
 - `GET /api/v1/admin/pricing/pending` — cola de precio pendiente. **v2.1:** `{ data: PendingPriceEntry[], counts: PendingPriceCountsDTO }`.
   - **v1.8-ronda-c:** cada `PendingPriceEntry` trae **`finish`** — dos acabados de la misma carta sin precio son **entradas separadas** (antes colapsaban en una).
   - **v1.42 (BLOQ-2b):** para sellado, la entrada trae **`sealedProductId`** (+ `sealedProductName`/`sealedSubtype` de display). Dos presentaciones distintas del mismo set (ETB vs blíster) son **entradas separadas** por `sealedProductId` — antes colapsaban bajo el `gradeKey` legacy `'sealed'`. El override de una **no** cierra la otra (money-safe).
@@ -12880,10 +12925,12 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     no cuerpo. *(El `422` que este endpoint usaba **no era conducta publicada** — ninguna línea de este contrato lo
     declaraba —, por eso se corrige en vez de conservarse; si lo hubiera declarado, el cambio sería mío por la regla 9
     y no se habría tocado sin pasar por aquí.)*
-  - **v1.26 (P-6, dos buckets) — query param opcional `?context=`** (dominio: el enum `PendingPriceContext` de §Enums; omitido = todos, retro-compatible). Habilita los dos buckets de M2: **VENTA** = `?context=inventory` (inventario incl. no publicado; se escala en `createItem` y —v1.26— en `bulk-publish`); **COMPRA** = `?context=buylist`, una vista **READ-ONLY** (solo display). ⚠️ **Producir el precio de compra on-request es un WRITE del buylist (`itemDecision`, acoplado a control INE/AML) — FUERA DE ALCANCE de M2;** COMPRA no escribe decisiones ni resuelve pendientes de buylist. Ver ARCHITECTURE §4.24c.
+  - **v1.26 (P-6, dos buckets) — query param opcional `?context=`** (dominio: el enum `PendingPriceContext` de §Enums; omitido = todos, retro-compatible). Habilita los dos buckets de M2: **VENTA** = `?context=inventory` (inventario ~~incl. no publicado; se escala en `createItem` y —v1.26— en `bulk-publish`~~ **v1.80.8.4: de PLATAFORMA, incl. no publicado; la escriben SOLO los escritores de la vía de precio de venta enumerados en [«v1.80.8.4»](#M2-VQ) — ⛔ nunca `price-sync`, nunca piezas de clientes**); **COMPRA** = `?context=buylist`, una vista **READ-ONLY** (solo display). ⚠️ **Producir el precio de compra on-request es un WRITE del buylist (`itemDecision`, acoplado a control INE/AML) — FUERA DE ALCANCE de M2;** COMPRA no escribe decisiones ni resuelve pendientes de buylist. Ver ARCHITECTURE §4.24c.
   - **v2.0 (P-48) — cada entrada gana `reason: PendingPriceReason | null`** y el endpoint el **filtro `?reason=`**
     (dominio: el enum `PendingPriceReason` de §Enums, ⛔ no re-listado aquí desde v1.73 —§4.37—; omitido = todas, retro-compatible; `null` en filas históricas). Distinguirlos es
-    lo que hace **triable** la cola: `no_market` la cura sola el siguiente barrido; **`premium_at_floor` necesita que
+    lo que hace **triable** la cola: ~~`no_market` la cura sola el siguiente barrido~~ **v1.80.8.4: `no_market` se cierra
+    sola cuando vuelve el mercado y la pieza se re-resuelve (barrido `price-ingest` para raw `listed`; publicación,
+    re-publicación o `publish-all` para el resto, sellado incluido)**; **`premium_at_floor` necesita que
     el dueño mire** (es el **guardarraíl** §4.36.5: una rareza premium cuyo precio aterrizó en el piso/bin, señal
     inequívoca de que **su dato de mercado está mal**). Volumen esperado de `premium_at_floor`: **≈3 de 333** cartas de
     un master set completo — si sale mucho más, el problema es el **piso mal calibrado** o el ingest, no el guardarraíl.
@@ -12903,7 +12950,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       número mentiría justo cuando el dueño está filtrando para triar**, que es cuando más lo mira.
     - **Solo `status = "open"`.** La cola es una **bandeja de trabajo**: una entrada `resolved` ya no es trabajo
       pendiente y no debe inflar el encabezado.
-    - **`unknown`** = entradas con `reason = null` (**filas anteriores a M-41**, §11). Existe para que se cumpla el
+    - **`unknown`** = entradas con `reason = null` (~~**filas anteriores a M-41**, §11~~ **v1.80.8.4:** filas
+      anteriores a M-41 **y** las que escribieron hasta v1.80.8.3 escritores sin motivo — alta/aportación/publicación
+      de sellado y, sobre todo, `price-sync`; medido por backend, `BACKEND_NOTES` §14. Desde v1.80.8.4 **ningún
+      escritor produce `null`** y el barrido VQ las agota: **en régimen `unknown` = 0**; un `unknown > 0` sostenido
+      tras el primer `price-sync` completo es **defecto**, no historia). Existe para que se cumpla el
       invariante **`no_market + premium_at_floor + unknown === nº de entradas `open` de esa cola`** — verificable por
       QA y aseverable por el front. Sin esta tercera clave, una cola con filas históricas haría que los dos números
       **no cuadraran con la lista** y pareciera un bug del backend. DESIGN_SYSTEM §21.7c ya contempla la fila
@@ -12928,8 +12979,56 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       `groupBy`. Se anota y **se difiere**; hoy la señal vive donde se triaja, que es lo que pidió el diseño.
   - **v2.0 — SALIDA de la cola (simétrica a la entrada):** cuando el **siguiente barrido** (`price-ingest`) escribe una
     `PriceReference` real y el precio vuelve a resolver con `priceBasis="market"`, la entrada `open` de esa clave se
-    **cierra sola** en la siguiente resolución (publicación / re-publicación / `publish-all` / lectura del binder),
-    **sin intervención manual**. La vía manual (`POST /admin/pricing/override`) **no cambia**.
+    **cierra sola** en la siguiente resolución (publicación / re-publicación / `publish-all` / ~~lectura del binder~~
+    *(tachado v1.80.8.4: el binder no escribe — ya corregido en `ARCHITECTURE §4.36.5 (c)`; se iguala aquí)* /
+    **reconciliación de `price-ingest` para raw `listed`, `ARCHITECTURE §4.36.5 (b-ter)`**), **sin intervención
+    manual**. ~~(El sellado no cerraba por publicación: `pendingKey: null`.)~~ **v1.80.8.4: el sellado SÍ cierra (VQ-6).**
+    La vía manual (`POST /admin/pricing/override`) **no cambia**.
+  - <a id="M2-VQ"></a>**v1.80.8.4 — QUIÉN ESCRIBE LA COLA DE VENTA, Y EL FIN DE «SIN MOTIVO» (NORMATIVO).** Porqué y
+    alternativas descartadas: `ARCHITECTURE §4.36.5 (c-bis)`.
+    - **Escritores de `context='inventory'` (lista CERRADA).** Solo escribe la cola de VENTA quien **decide un precio
+      de venta** de una pieza `ownerType=platform`, y **siempre con `reason` no nulo** (abrir) o cerrando (`reason`
+      resuelto): (a) el alta — `createItem` / `batchCreate` / `adjust(encontrada)` (raw/graded por aportación sin
+      referencia; sellado vía `escalateSealedAltaIfPriceless`); (b) `resolvePublishSalePrice` — `bulk-publish` y
+      `publish-all` sobre `{in_stock, listed}`; (c) la reconciliación de `price-ingest` (§4.36.5 b-ter, raw `listed`);
+      (d) el override manual (`POST /admin/pricing/override`, solo cierra). ⛔ **`price-sync`, `set-price-sync` y
+      cualquier otro llamador de `syncCardPrice` NO escriben la cola.** ⛔ Ninguna pieza de cliente (`ownerType≠platform`)
+      abre fila en VENTA ni en ningún otro `context` por esta errata (no se crea un bucket `portfolio`: nadie lo
+      triaría; la valuación de custodia ya excluye lo `pending`).
+    - **`PendingPriceReason` no cambia** (`no_market | premium_at_floor`). Que el proveedor por carta no conteste es
+      **telemetría del job**: `price-sync` registra al terminar `{ priced, noQuote, failed, skippedNoGradeIdentity }`
+      (log; `noQuote` desglosado por `productType`). No es fila de cola ni campo de respuesta.
+    - **Barrido VQ (una función, idempotente, de aplicación — ⛔ no es migración SQL).** Al final de cada `price-sync`
+      **completo** (scheduler o `scope="all_vault"`): para cada fila `open` con `context='inventory'` y `reason IS NULL`,
+      si **existe** al menos una pieza `ownerType=platform`, `status ∈ {in_stock, listed}`, **sin precio manual por
+      pieza** (`hasManualPrice` falso) cuya **clave de cola** es la de la fila ⇒ **se deja** (la reclasifica o cierra
+      `publish-all`, o el `price-ingest` si es raw `listed`); si **no existe** ⇒ se **cierra** (`status='resolved'`,
+      `resolvedAt=now`, `resolvedPriceRefId=null`). Clave de cola de una pieza: raw/graded `(cardId, productType,
+      tryGradeKeyFor(item), finish, cardProductId, sealedProductId=null)` — sin clave (`null`) no casa; sellado
+      `(cardId, 'sealed', sealedMarketGradeKeyForItem(item) ?? 'sealed', 'normal', cardProductId=null, item.sealedProductId)`.
+      Registra en log el número de filas cerradas y sus ids. ⛔ No toca filas con `reason` no nulo, ni otros `context`.
+    - **Paso de despliegue (va en la solicitud de fusión):** tras el deploy, **un** `publish-all` sin filtro (botón
+      «Publicar todo» de M1) reclasifica las filas sin motivo de piezas vendibles; el siguiente `price-sync` completo
+      (o `POST /admin/pricing/sync` con `all_vault`) cierra el resto. Orden indiferente: el barrido VQ no cierra lo
+      que `publish-all` necesita.
+    - **Qué ve el dueño en VENTA después:** `N SIN MERCADO · 17 PREMIUM EN EL PISO · 0 SIN MOTIVO` (`unknown` = 0 o «—»
+      según DESIGN_SYSTEM §21.7c). `N` = las filas que eran «sin motivo» de piezas de plataforma vendibles sin mercado,
+      ahora con su motivo verdadero (⛔ **NO MEDIDO** cuántas de las 19 son; se mide con la consulta de
+      `ARCHITECTURE §4.36.5 (c-bis)` antes de prometérselo). Las 17 `premium_at_floor` **no se mueven** con esta errata.
+      Piezas de clientes y vendidas **desaparecen** de la cola; `dataHealth.pendingPriceCount` (Dashboard) baja igual.
+    - **Pruebas (backend; QA las corre):**
+
+      | # | Caso | Esperado |
+      |---|---|---|
+      | VQ-1 | `price-sync` sobre pieza raw de plataforma `in_stock` cuyo proveedor devuelve `null` | 0 filas nuevas en `PendingPriceEntry`; devuelve `pending` |
+      | VQ-2 | `price-sync` sobre pieza graded y sellado (stubs `null`) | 0 filas nuevas |
+      | VQ-3 | `price-sync` sobre pieza de **cliente** `in_custody` y pieza **vendida** sin cotización | 0 filas nuevas; si hay cotización, la `PriceReference` del día **sí** se escribe (valuación intacta) |
+      | VQ-4 | `syncCardPrice` rama M-43 (fila del día `graded_estimate`) | no escala; no pisa la fila (M-43 intacto) |
+      | VQ-5 | Candado: ningún llamador de `syncCardPrice` en `backend/src` pasa/activa escalada; `escalatePending`/`settlePendingForVariant` en `src/` solo los llaman los escritores (a)–(c) y `buylist.createRequest` (eje COMPRA) | rojo si aparece un llamador nuevo (canario: reintroducir la escalada en `syncCardPrice` ⇒ VQ-1 rojo) |
+      | VQ-6 | Sellado mapeado con fila `open no_market` en `(cardId,'sealed','sealed:tcg:<id>','normal',null,spId)`; llega mercado; `publish-all` | la pieza publica **y** la fila pasa a `resolved`; con precio manual por pieza (`listPriceCents`) **no** cierra |
+      | VQ-7 | Barrido VQ: fila `null` de pieza de cliente, fila `null` de pieza vendida, fila `null` clave `'sealed'` sin pieza, fila `null` de pieza de plataforma con `listPriceCents` | las cuatro `resolved` |
+      | VQ-8 | Barrido VQ: fila `null` de pieza de plataforma `in_stock` sin mercado; fila `no_market` y fila `premium_at_floor` sin pieza; fila `null` con `context='buylist'` | las cuatro siguen `open` y con su `reason` intacto; luego `publish-all` ⇒ la primera pasa a `no_market` |
+      | VQ-9 | Ciclo completo sobre VENTA sembrada como la del dueño (null de cliente/vendida/plataforma + 17 `premium_at_floor`) ⇒ `publish-all` + `price-sync` completo | `counts.unknown = 0`, `premium_at_floor` sin cambio, invariante `no_market + premium_at_floor + unknown === nº open`; segunda corrida = no-op (idempotente) |
 - `POST /api/v1/admin/pricing/override` — override manual (respaldo siempre disponible).
   Req: `{ cardId, productType, gradeKey, priceMxnCents, finish?, intent? }` → crea `PriceReference` `source=manual` **para ese acabado**, resuelve **solo** el `PendingPriceEntry` de ese `(cardId, productType, gradeKey, finish)`.
   - **⚠️ v1.50.2 — `intent` es OBLIGATORIO cuando `productType:"graded"` (BREAKING chico, `super_admin`).**
