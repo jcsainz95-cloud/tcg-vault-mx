@@ -4,7 +4,17 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.9.2 (2026-09-29) — errata de ruta (contrato v1.80.8.2):** el enlace de los correos de reembolso por
+> Estado: **v4.10 (2026-10-02) — «Reembolsos»: una entrada de menú, dos cubetas (decisión del dueño, `HECHOS.md`
+> 2026-10-02 «Menú del panel: se queda como está; «Reembolsos manuales (SPEI)» y «Reembolsos de operadores» se
+> JUNTAN…»):** las dos entradas `/admin/manual-refunds` y `/admin/refunds` pasan a **una sola**, **«Reembolsos» /
+> “Refunds”**, en el **mismo sitio** (grupo «Día a día», justo tras «Ventas», SÚPER), con el badge de **transferencias
+> SPEI pendientes**. Dentro, dos pestañas-cubeta: **«Transferencias SPEI»** (por defecto) y **«Reembolsos de
+> operadores»** (`/admin/refunds?tab=spei|operadores`); `/admin/manual-refunds` redirige; el detalle
+> `/admin/manual-refunds/:id` **no cambia de ruta**. **Se retira C3** de §37.0-bis (el menú se queda como está).
+> Detalle normativo en **§37.20**. Solo de pantalla: ⛔ cero cambios de API, permisos o datos. **Cero tokens nuevos.**
+> Lo que sigue es la v4.9.2 sin cambio salvo las remisiones a §37.20.
+>
+> Estado anterior: **v4.9.2 (2026-09-29) — errata de ruta (contrato v1.80.8.2):** el enlace de los correos de reembolso por
 > carta (`AV-14`/`AV-15`/`AV-16`, CTA sin CLABE «Registrar mi CLABE») y la fila N-8 pasan de ~~`/cuenta#kyc`~~ a
 > **`/account#kyc`**: `/cuenta` da 404 (medido por backend); la pantalla de verificación es «Mi cuenta» en `/account`,
 > bloque `#kyc` (§33.6e), la misma ruta que ya usa el correo de rechazo de INE (§31.7). **Cero tokens nuevos.** Lo que
@@ -19664,7 +19674,10 @@ corrige ya** (el dueño no dictó texto: se propone en (d)).
   (regla 1 de (a)); detalle en §37.1 y §37.0-bis. Sigue valiendo que «Retiros» no nombra la sección.
 - **Entradas nuevas de §37 (dinero de súper-admin):** «Reembolsos manuales (SPEI)» (`manualRefunds`,
   `/admin/manual-refunds`) y, si el menú la lleva, «Reembolsos de operadores» (`refunds`, `/admin/refunds`) no
-  estaban en esta tabla cuando se escribió. Su grupo lo fija §37.0-bis (C3).
+  estaban en esta tabla cuando se escribió. ~~Su grupo lo fija §37.0-bis (C3).~~ **v4.10 (decisión del dueño,
+  2026-10-02):** quedan como **una sola entrada, «Reembolsos» / “Refunds”** (`refunds`, `/admin/refunds`, SÚPER), en
+  «Día a día» **justo tras «Ventas»**; la tabla de arriba gana esa fila entre `m3` y `m4` (§37.20). Los demás grupos y
+  el orden **no cambian**. «Administración» sigue con sus cuatro entradas.
 - **«Existencias»** como grupo y no «Inventario»: un grupo «Inventario» con una entrada «Inventario» dentro se lee
   como error. «Sellado» sigue su propio nombre (su `h1` ya es «Sellado», `es.json:2878`).
 - **«Tienda»**: los tres destinos deciden **qué ve y qué paga** el cliente en la tienda (precios, bounties, decks).
@@ -19848,7 +19861,7 @@ distintas, **manda esta tabla**; el texto superado se deja tachado o señalado e
 |---|---|---|---|---|
 | **C1** | Rótulo de M4 en el menú (`admin.modules.m4`) | **«Pedidos por preparar» / “Orders to prepare”**, **sin** «M4 ·» delante. El `<h1>` de `/admin/m4` es **el mismo texto** (§38.2 regla 2), y así la tarjeta del tablero, las migas y el `<title>` | «M4 · Pedidos por preparar» / “M4 · Orders to prepare” (§37.1, §37.2 y §37.16 de esta sección) · «Preparar y enviar» / “Pick & ship” (§38.2) | `HECHOS.md` 2026-09-29 «La sección M4 del panel se llama «Pedidos por preparar»…», (a) «Menú y título de página: «Pedidos por preparar» / en: «Orders to prepare»» · §38.2 (a) regla 1: el código M-n no se ve en el menú |
 | **C2** | Códigos «M-n» dentro de los copys nuevos de esta sección | Se aplica el barrido de §38.2 (c) **en el mismo pase**: el código pasa al nombre del menú de §38.2 (b), entre comillas latinas. **M3 → «Ventas» / “Sales”**; **M10 → «Configuración» / “Settings”**. Ej.: «Lo atiende el súper-admin en Pedidos (M3).» → **«Lo atiende el súper-admin en «Ventas».»** · «…el súper-admin resuelve ese pedido en M3.» → **«…en «Ventas».»** · «…sube el límite en Ajustes (M10)…» → **«…en «Configuración»…»**; EN “in Orders (M3)” → **“in “Sales””**, “in Settings (M10)” → **“in “Settings””**. Vale para §37.3c, §37.4, §37.8c/d, §37.9 y las filas equivalentes de §37.16. Las menciones «M3»/«M4» del **texto de diseño** (no de copy) se quedan: nombran el módulo para quien implementa | los literales con «(M3)», «en M3», «(M10)» y «M3 · Órdenes» de esta sección | §38.2 (c) y su candado **P66-3** (`grep -nE '\bM1?[0-9]\b'` = 0 en `es.json`/`en.json`), que los literales de §37 pondrían en rojo. `HECHOS.md` no decide este punto |
-| **C3** | Sitio en el menú de «Reembolsos manuales (SPEI)» (`admin.modules.manualRefunds`) y, si se pinta como entrada, «Reembolsos de operadores» (`admin.modules.refunds`) | Grupo **«Administración» / “Administration”**, justo **después de «Finanzas»**, con la etiqueta **SÚPER**; el badge `manualRefundsBadge` no cambia. La cercanía a M3 que buscaba §37.9 la dan los enlaces de entrada desde el detalle de «Ventas» (§37.9, §37.11a), que no cambian | «en el grupo de dinero junto a «M3 · Órdenes»» (§37.2, §37.9) | §38.2 (a) regla 4 y (b) «Administración agrupa exactamente las entradas de súper-admin de dinero y cuentas»; S6 (al operador no le aparece). `HECHOS.md` no decide este punto: **consolidación de ux-ui, a confirmar** |
+| ~~**C3**~~ | ~~Sitio en el menú de «Reembolsos manuales (SPEI)» (`admin.modules.manualRefunds`) y «Reembolsos de operadores» (`admin.modules.refunds`)~~ | **RETIRADA (v4.10, 2026-10-02).** ~~Grupo «Administración», tras «Finanzas», SÚPER — consolidación de ux-ui, a confirmar.~~ El dueño decidió: **el menú se queda como está** (grupo «Día a día», justo tras «Ventas») y las dos entradas se **juntan en una**, «Reembolsos» / “Refunds”, con dos cubetas dentro ⇒ **§37.20** | la propuesta C3 entera (mover a «Administración») | `HECHOS.md` 2026-10-02 «Menú del panel: se queda como está; «Reembolsos manuales (SPEI)» y «Reembolsos de operadores» se JUNTAN en UNA sola pestaña con dos cubetas», (a) «se descarta mover la cubeta SPEI a «Administración»». Cierra `TECH_DEBT` **RS5-UX-Q1** |
 | **C4** | Numeración | Esta sección **conserva §37**; la del paquete pasa a **§38** (se cita «§38.1–§38.3»). Sin cambio de contenido | «§37.1–§37.3» para P-61/P-66/P-71 | orden de fusión; esta sección tiene muchas más citas vivas en el documento y en `frontend/` |
 
 **Qué NO cambia por la consolidación:** ninguna cifra, regla de dinero, control, rol ni candado de esta sección; el
@@ -19905,8 +19918,8 @@ Hoy la página apila la cola administrativa de envíos y, debajo, «Pedidos a pr
   siempre montada: «{n} pedidos por preparar» cambia y se oye. ⛔ La lista **no** reordena bajo el dedo mientras un
   botón de la tarjeta está en *loading*.
 - **Cubeta SPEI: ⛔ no es pestaña de aquí.** Es dinero saliente y solo súper-admin; vive como **página propia** en el
-  menú de súper-admin (§37.9; `§M4-SHIP.15.11`; grupo y posición: §37.0-bis C3 — ~~«grupo de dinero, junto a «M3 ·
-  Órdenes»»~~). Al operador **no le aparece** ni en menú ni en
+  menú de súper-admin (§37.9; `§M4-SHIP.15.11`; ~~grupo y posición: §37.0-bis C3~~ — **v4.10: es la cubeta
+  «Transferencias SPEI» de la página «Reembolsos», §37.20**). Al operador **no le aparece** ni en menú ni en
   tablero (S6).
 
 ---
@@ -20332,9 +20345,11 @@ deposited \| cancelled}” · “If you don't know why, contact us.”). ⛔ Sin
 
 ### 37.9 Cubeta «Reembolsos manuales (SPEI)» — solo súper-admin
 
-**Dónde:** página propia `/admin/manual-refunds`, entrada de menú **«Reembolsos manuales (SPEI)»** / “Manual refunds
-(SPEI)” en el grupo **«Administración»**, tras «Finanzas» (§37.0-bis C3; ~~«en el grupo de dinero junto a «M3 ·
-Órdenes»»~~), con badge `summary.manualRefundsPending`. Enlaces de entrada
+**Dónde (v4.10, manda §37.20):** pestaña-cubeta **«Transferencias SPEI»** / “SPEI transfers” (la que abre por
+defecto) de la página **«Reembolsos»** / “Refunds” (`/admin/refunds`), entrada de menú en «Día a día» justo tras
+«Ventas», con badge `summary.manualRefundsPending`. ~~Página propia `/admin/manual-refunds`, entrada «Reembolsos
+manuales (SPEI)» en «Administración» tras «Finanzas» (§37.0-bis C3)~~: `/admin/manual-refunds` ahora **redirige**; el
+detalle `/admin/manual-refunds/:id` (§37.9b) se queda en su ruta. Enlaces de entrada
 desde el caso (§37.8e) y desde el detalle M3. **Al operador nada de esto existe** (ni la ruta pinta un `403` bonito:
 redirige al tablero como cualquier ruta ajena a su rol — patrón existente, NO MEDIDO cuál).
 
@@ -20567,7 +20582,12 @@ EN: “Orders to prepare” · “{ship} shipping · {vault} vault · {toReplace
 (SPEI)” · “{amount} to transfer · oldest {n} days ago” · “Operator refunds” · “{count} in 24 h · {amount} in 30 days”.
 ⛔ `workQueue.shipments` («envíos vivos») **no cambia** de cifra ni de rótulo.
 
-**Vista «Reembolsos de operadores»** (`/admin/refunds`, súper-admin): tabla del **resumen por operador**
+**Enlaces de las dos tarjetas de súper-admin (v4.10, §37.20):** «Reembolsos por pagar (SPEI)» → `/admin/refunds`
+(cubeta SPEI, la de por defecto) · «Reembolsos de operadores» → `/admin/refunds?tab=operadores`. Rótulos y cifras de
+las tarjetas **no cambian**.
+
+**Vista «Reembolsos de operadores»** (v4.10: **cubeta** `?tab=operadores` de la página «Reembolsos», §37.20; antes
+página propia `/admin/refunds`; súper-admin): tabla del **resumen por operador**
 (`operator-summary`): columnas **Operador** · **24 h** · **7 d** · **30 d** (conteo y suma) · **Usado del tope**
 (`capUsedCents` de `capCents`, como «{usado} de {tope}», `tabular`) · **Pedidos preparados (30 d)** · **Faltantes
 (30 d)** («{missingLines} de {lines} · {missingRatePct} %», `null` ⇒ «sin líneas») · **Merma (30 d)** · **Repuso lo que
@@ -20886,6 +20906,7 @@ resume las claves y los copys **cortos**; los cuerpos largos se copian de su sec
 | `inventory.{legend,recovered,notRecovered,recoveredHint,conflict}` | ¿Dónde están las cartas devueltas? · Recuperadas: están en el estante y vuelven a la venta · No recuperadas: no aparecen; quedan como merma a mi nombre · *(§37.10c)* | Where are the returned cards? · Recovered: they're on the shelf and go back on sale · Not recovered: they can't be found; they stay as shrinkage in my name · *(§37.10c)* |
 | `shipments.title` · `shipments.view` · `refunds.title` · `refunds.transfers` · `refunds.byStripe` · `refunds.byTransfer` · `refunds.kind.{item_missing,order_remaining,shipment_fee,order_full,case_refund}` | Envíos de este pedido · Ver en Pedidos por preparar · Reembolsos · Transferencias · Devuelto por Stripe: {amount} · Transferido: {amount} · Carta que no salió · Resto del pedido · Costo del retiro · Pedido completo · Caso «Por reponer» | This order's shipments · View under Orders to prepare · Refunds · Bank transfers · Refunded via Stripe: {amount} · Transferred: {amount} · Card that didn't ship · Rest of the order · Withdrawal cost · Full order · “To replace” case |
 | `admin.refunds.*` (vista «Reembolsos de operadores») | *(§37.11b)* | *(§37.11b)* |
+| *(v4.10)* menú y página «Reembolsos» — claves nuevas, que cambian y que se retiran | *(§37.20 f)* | *(§37.20 f)* |
 
 **Nuevas — cliente (`orders.*`, `vault.*`, `auth.*`):**
 
@@ -20944,7 +20965,8 @@ resume las claves y los copys **cortos**; los cuerpos largos se copian de su sec
 - **PS-UI-5** La fila pendiente tiene exactamente tres botones «La tengo», «No la encontré», «Llegó dañada» (en envío
   y en bóveda); a 390 px ninguno queda recortado (`scrollWidth === clientWidth`).
 - **PS-UI-6** Rol `vault_operator`: en «Por reponer» no existe ningún nodo «Reembolsar» ni «Anular»; la ruta
-  `/admin/manual-refunds` y la entrada de menú no existen; el tablero no contiene «SPEI».
+  ~~`/admin/manual-refunds`~~ **`/admin/refunds` (v4.10, §37.20; y `/admin/manual-refunds`, que redirige a ella)** no
+  le pinta contenido y la entrada de menú «Reembolsos» no existe para él; el tablero no contiene «SPEI».
 - **PS-UI-7** Cubeta SPEI, lista y detalle antes del reveal: el HTML **no** contiene 18 dígitos seguidos; tras
   «Revelar CLABE» el `<output>` los contiene en un solo nodo; tras «Marcar pagada» o al salir, ya no.
 - **PS-UI-8** `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required:['recent_clabe_change']}` ⇒ aparece **una** casilla,
@@ -20977,3 +20999,167 @@ resume las claves y los copys **cortos**; los cuerpos largos se copian de su sec
 | **N-6** | product-owner | Criterio 215 dice «⛔ falla si «Retiros» aparece de cara al operador»; §37.1 fija la lectura de ux-ui: se refiere al **nombre de M4**, no al sustantivo «retiro» («Retiro de bóveda», «Retiros sin disputa» en M7/M8). Si el dueño quiso borrar también esos, es una decisión suya y toca M7/M8 |
 | **N-7** | seguridad | El campo de re-escritura del monto (§37.8d) bloquea pegar; es fricción a propósito (D-12). Si seguridad prefiere permitir pegar y exigir dos campos, es un cambio de una línea en el diseño |
 | **N-8** | backend | `AV-12`/`AV-13`/`AV-14`/`AV-15`/`AV-16`/`AV-3 vault` van con el copy de §37.7–§37.10; los enlaces (`/orders/{id}`, `/vault?tab=withdrawals`, ~~`/cuenta#kyc`~~ **`/account#kyc`** — v4.9.2) son los que el contrato y §33 ya fijan — ⛔ ningún enlace a lista (`cuenta/pedidos`), hueco 5 de `§M4-SHIP.10` |
+
+---
+
+### 37.20 «Reembolsos» — una entrada de menú, dos cubetas (v4.10, 2026-10-02 · decisión del dueño)
+
+**Fuente:** `HECHOS.md` 2026-10-02, fila «Menú del panel: se queda como está; «Reembolsos manuales (SPEI)» y
+«Reembolsos de operadores» se JUNTAN en UNA sola pestaña con dos cubetas». Palabras del dueño: *«del menú déjalo como
+está ahora, solo junta spei y los reembolsos en una sola pestaña, ahí atacamos las dos, ponlas dentro de la pestaña como
+en dos cubetas distintas»*. Consecuencias de esa fila: (a) orden y grupos del menú **no cambian** (se descarta C3);
+(b) **una** entrada para reembolsos, con dos cubetas dentro. Esta sección **sustituye** lo que §37.9, §37.11b y §38.2 (b)
+decían sobre el **sitio** de las dos pantallas; su **contenido** (§37.9a–d, §37.11b vista) no cambia.
+
+**Lo que medí antes de redactar (2026-10-02, worktree `/home/user/tcg-post`, rama `claude/post-release-s5`; sin Bash,
+lectura de ficheros):**
+
+| Medición | Resultado |
+|---|---|
+| Menú vivo | `AdminSidebar.tsx:44-50`: dos entradas `superAdminOnly` en `daily`, entre `m3` (`:39`) y `m4` (`:52`): `/admin/manual-refunds` (`key: 'manualRefunds'`, badge `summary.manualRefundsPending`) y `/admin/refunds` (`key: 'refunds'`, sin badge) |
+| Candado del menú | `AdminPageTitles.test.tsx:133-188` (`§37.2b`): filas `:141-142` con las dos entradas; mapa `PAGES` `:101-102`; P66-2 `:190-204` exige `h1` = rótulo del menú en es y en |
+| Pantallas | `manual-refunds/ManualRefundsView.tsx:63` y `refunds/OperatorRefundsView.tsx:140` pintan su **propio** `h1` (`admin.manualRefunds.title`, `admin.refunds.title`); las dos se gatean con `SuperAdminOnly`. El filtro de estado y la búsqueda de SPEI son estado **local** (`ManualRefundsView.tsx:49-52`), ⛔ no viven en la URL |
+| Patrón de pestañas de página | `/admin/m4`: `m4/tabs.ts` (parseo sin `'use client'`), `m4/page.tsx` servidor que lee `?tab=`, `M4View.tsx:61-68` (`history.replaceState`, la pestaña por defecto **borra** `tab`) y `:70-` (flechas) — **se copia tal cual** |
+| Datos del contador | `PickingListSummaryDTO` (`types/contract.ts:1741-1749`) trae `manualRefundsPending` (`null` al operador) y **ningún** conteo de reembolsos de operador |
+| Quién enlaza a las rutas viejas | `AdminDashboard.tsx:187` (`/admin/manual-refunds`) y `:208` (`/admin/refunds`); `m3/M3View.tsx:158` (`/admin/refunds`); `ManualRefundDetailView.tsx:214` (volver a la lista). El detalle `/admin/manual-refunds/:id` lo enlazan M3 (`M3OrderDetailView.tsx:126,358`), «Por reponer» (`ReplacementCaseView.tsx:273,576`) y re-emitir (`ManualRefundDetailView.tsx:186,246,290`). Backend **no** emite enlaces a estas rutas de pantalla (`grep 'admin/(manual-refunds\|refunds)'` en `backend/src` sin specs: solo controladores y comentarios de **endpoints**, ningún enlace de correo ni alerta) |
+
+#### (a) La entrada de menú
+
+| | Valor |
+|---|---|
+| Rótulo (= `h1`, §38.2 regla 2) | **«Reembolsos»** / **“Refunds”** — clave **existente** `admin.modules.refunds` (cambia de valor) |
+| Ruta | **`/admin/refunds`** (la que ya existe; ⛔ ruta nueva) |
+| Posición | grupo **«Día a día»**, **justo tras «Ventas»** y antes de «Pedidos por preparar» — **el mismo hueco** que ocupaban las dos (orden del grupo: Solicitudes de venta · Ventas · **Reembolsos** · Pedidos por preparar · Disputas) |
+| Rol | `superAdminOnly` ⇒ etiqueta **SÚPER**; al operador no le aparece con contenido (S6, como hoy) |
+| Badge | **solo transferencias SPEI pendientes** (`summary.manualRefundsPending`), ⛔ no una suma. `null` o `0` ⇒ sin badge. `aria-label` con la clave **existente** `admin.modules.manualRefundsBadge` («# transferencias pendientes»), color `text-on-ink-muted` como hoy (⛔ sin `text-accent`: no hay «vencido» en SPEI) |
+| Se ilumina (`aria-current`) | en `/admin/refunds` (cualquier `?tab`) **y** en el detalle `/admin/manual-refunds/:id` — una sola entrada activa |
+
+**Por qué el badge es el de SPEI y no la suma:**
+
+1. **El número es el aviso de algo por hacer** (criterio 232, §37.2). Lo único de esta página que **espera la mano del
+   dueño** es una transferencia SPEI pendiente. Un reembolso de operador **ya salió**: se vigila, no se atiende (D-13,
+   «Solo verlo en el panel»), y su vigilancia ya tiene cifra propia en el tablero (`workQueue.operatorRefunds`, §37.11b).
+2. **Un badge que no baja al hacer el trabajo deja de leerse.** Sumar «por pagar» con «ya devuelto en 24 h» da un
+   número que no llega a cero aunque el dueño pague todo — y mezcla dos unidades distintas.
+3. **No cambia API.** El sondeo del menú (`picking-list/summary`) trae `manualRefundsPending` y nada de operadores
+   (`contract.ts:1741-1749`); sumar exigiría un campo nuevo en el contrato. Con esta regla, ⛔ cero cambios de contrato.
+
+#### (b) La página `/admin/refunds` — dos cubetas como pestañas de página
+
+Cabecera: `h1` **«Reembolsos»** (`admin.modules.refunds`, P66-2) y subtítulo `text-sm text-muted`
+`admin.refundsPage.hint`. Debajo, `Tabs` de página (§6.6, `role="tablist"`, `aria-label` = el `h1`), **mismo
+componente, mismas reglas y mismo teclado que `/admin/m4`** (§37.2: flechas, orden de tabulación = visual,
+`aria-selected`, conteo **dentro** del nombre accesible):
+
+| Cubeta (pestaña) | `?tab=` | Contenido | Contador en la pestaña |
+|---|---|---|---|
+| **«Transferencias SPEI»** / “SPEI transfers” — **por defecto** | `spei` (o sin `tab`) | la lista de §37.9a **tal cual** (filtro Pendientes/Pagadas/Canceladas, búsqueda, cabecera de pendientes, vacíos) | `summary.manualRefundsPending` — **la misma fuente que el badge del menú** (⛔ un segundo cálculo); nombre accesible «Transferencias SPEI, 3 pendientes»; `0`/`null` ⇒ sin número |
+| **«Reembolsos de operadores»** / “Operator refunds” | `operadores` | la vista de §37.11b **tal cual** (resumen por operador + libro filtrable con «Reintentar») | **sin contador** — es vigilancia, no «por hacer» (misma regla que «Envíos» en §37.2) |
+
+- **Por qué abre en SPEI:** es la única cubeta con trabajo pendiente para el dueño y la que anuncia el badge que le trajo
+  hasta aquí. Quien pulsa «3» en el menú debe aterrizar en las 3, sin un clic más.
+- **URL:** canónica sin parámetro para SPEI (como `preparar` en M4: al elegir la pestaña por defecto se **borra**
+  `tab`); `?tab=operadores` para la otra. Se acepta `?tab=spei` explícito. Cualquier otro valor ⇒ SPEI. Cambiar de
+  pestaña **reemplaza** la entrada del historial (`replaceState`), ⛔ no apila.
+- **Cada cubeta conserva su texto de ayuda** como primer párrafo del panel (`admin.manualRefunds.hint`,
+  `admin.refunds.hint`) y **pierde su `h1`** propio: el `h1` de la página es uno solo. Si una cubeta necesita título
+  visible dentro del panel, es `h2`; el panel lleva `role="tabpanel"` y `aria-labelledby` = su pestaña.
+- **Solo se monta la cubeta activa** (sus consultas solo corren al abrirla). El contador de la pestaña SPEI **no**
+  depende de montar SPEI: sale del `summary` que el menú ya sondea.
+- **Gate:** `SuperAdminOnly` envuelve **la página entera** (pestañas incluidas). Al operador no se le pinta ni el
+  `tablist` (S6); lo que ve es el mismo aviso de acceso restringido que ve hoy en cualquiera de las dos rutas.
+- ⛔ No se fusionan las dos listas en una tabla, ni se comparten filtros entre cubetas: son dos dineros distintos
+  (uno por pagar a mano, otro ya devuelto por Stripe) y el dueño pidió «dos cubetas distintas».
+
+#### (c) Rutas viejas y detalle
+
+| Ruta | Qué pasa |
+|---|---|
+| `/admin/manual-refunds` (lista) | **Redirige** a `/admin/refunds` (cubeta SPEI) desde la propia página de servidor, conservando el idioma (`/es/…` → `/es/admin/refunds`). No se arrastran `status`/`q`: la lista nunca los leyó de la URL (medido arriba) |
+| `/admin/manual-refunds/:id` (detalle §37.9b) | **Se queda en su ruta**, sin cambio de contenido. Razones: §38.2 (e) «⛔ Renombrar rutas»; la enlazan M3, «Por reponer», la re-emisión y las pruebas E2E; y el `revealToken`/CLABE ya está pensado para esa vista. Cambia solo el enlace de vuelta (`ManualRefundDetailView.tsx:214`): → `/admin/refunds`, texto «← Volver a «Transferencias SPEI»» |
+| `/admin/refunds` | pasa de «vista de operadores» a la página con las dos cubetas; quien la tenía guardada para la vista de operadores aterriza en SPEI (un clic a la otra pestaña). Aceptable: es una ruta de un solo usuario y los enlaces internos que la usaban pasan a `?tab=operadores` |
+
+**Enlaces internos que se reapuntan:** tarjeta del tablero «Reembolsos por pagar (SPEI)» → `/admin/refunds`; tarjeta
+«Reembolsos de operadores» → `/admin/refunds?tab=operadores`; enlace «Reembolsos de operadores» del listado de
+«Ventas» (`M3View.tsx:158`, texto `admin.m3.operatorRefundsLink`, que **no cambia**: es el nombre de la cubeta) →
+`/admin/refunds?tab=operadores`.
+
+#### (d) Qué NO cambia (y por qué no hace falta al arquitecto)
+
+- **API:** ninguna. Las rutas de `frontend/` no son los endpoints: `GET /admin/manual-refunds`, `GET /admin/refunds`,
+  `…/operator-summary`, `…/reveal-clabe`, `…/paid`, etc. siguen igual y se llaman igual.
+- **Permisos:** ninguno. Las dos pantallas ya eran súper-admin y lo siguen siendo; el backend sigue siendo la autoridad
+  (`403 MONEY_OUT_FORBIDDEN`).
+- **Copys de §37.9a–d y §37.11b**, cifras, confirmaciones, CLABE (S5): sin cambio.
+- **Resto del menú:** grupos, orden y rótulos de §38.2 (b) sin cambio; «Administración» sigue con sus cuatro entradas.
+
+#### (e) Lo que frontend cambia (fichero:línea, medido en este worktree el 2026-10-02)
+
+| Fichero | Línea(s) | Cambio |
+|---|---|---|
+| `src/components/layout/AdminSidebar.tsx` | `:40-50` | Las dos entradas pasan a **una**: `{ href: '/admin/refunds', key: 'refunds', superAdminOnly: true, badge: (s) => (s.manualRefundsPending ? { count: s.manualRefundsPending } : null) }` + el alias de ruta activa de abajo. Reescribir el comentario de `:40-43` (cita esta sección, no «lo decide ux-ui/dueño») |
+| `src/components/layout/AdminSidebar.tsx` | `:102`, `:121-129` | `isActiveHref` debe iluminar «Reembolsos» en `/admin/manual-refunds/:id`. Forma sugerida: un campo opcional del `Item` con prefijos extra (p. ej. `activeAlso: ['/admin/manual-refunds']`) que entra en la misma regla «con barra / gana la más específica». ⛔ Un `if` con la ruta a fuego dentro de `isActiveHref` |
+| `src/components/layout/AdminSidebar.tsx` | `:165` | `item.key === 'manualRefunds'` → `'refunds'` (la clave del badge sigue siendo `admin.modules.manualRefundsBadge`) |
+| `src/app/[locale]/(admin)/admin/refunds/page.tsx` | `:7-9` | Página de **servidor** asíncrona que lee `?tab=` (como `m4/page.tsx`) y monta la vista con las dos cubetas; parseo en un `refunds/tabs.ts` **sin** `'use client'` (`REFUNDS_TABS = ['spei','operadores']`, desconocido ⇒ `'spei'`) |
+| `…/admin/refunds/OperatorRefundsView.tsx` | `:140-141` | Quitar el `h1` (`admin.refunds.title`); el `hint` se queda como primer párrafo del panel |
+| `…/admin/manual-refunds/ManualRefundsView.tsx` | `:62-65` | Ídem: quitar el `h1` (`admin.manualRefunds.title`), dejar `hint`. La vista se monta **dentro** de la cubeta SPEI |
+| `…/admin/manual-refunds/page.tsx` | `:8-10` | Pasa a **redirigir** a `/admin/refunds` (redirección de `next-intl` / `@/i18n/navigation`, conserva idioma) |
+| `…/admin/manual-refunds/[id]/ManualRefundDetailView.tsx` | `:214` | `href` → `/admin/refunds` (texto: `backToList` con su valor nuevo) |
+| `…/admin/AdminDashboard.tsx` | `:187`, `:208` | → `/admin/refunds` y → `/admin/refunds?tab=operadores` |
+| `…/admin/m3/M3View.tsx` | `:158` | → `/admin/refunds?tab=operadores` |
+| `…/admin/AdminPageTitles.test.tsx` | `:71-73`, `:101-102`, `:138-142` | Candado §37.2b: las filas `:141-142` pasan a **una**: `['Día a día', '/admin/refunds', 'Reembolsos', 'Refunds', true]`, entre «Ventas» y «Pedidos por preparar»; reescribir el comentario `:138-140` (ya no hay «pendiente del dueño»). En `PAGES`, sale `/admin/manual-refunds`; `/admin/refunds` monta la página nueva sin `?tab` (envoltorio como `M4Page`, `:80-82`, si la página pasa a servidor asíncrono). P66-2 queda midiendo `h1` = «Reembolsos» / “Refunds” |
+| `frontend/messages/es.json` · `en.json` | `:1303` | `admin.modules.refunds` → «Reembolsos» / “Refunds” |
+| idem | `:1301` | **Retirar** `admin.modules.manualRefunds` (ya no es entrada de menú). ⚠️ Antes, `grep` de `modules.manualRefunds'` / `"manualRefunds"` en `src/` para confirmar que ninguna otra pantalla la lee — **NO MEDIDO** fuera de `AdminSidebar.tsx` |
+| idem | `:4289`, `:4410` | **Retirar** `admin.manualRefunds.title` y `admin.refunds.title` (sus únicos usos medidos son los `h1` que se quitan: `ManualRefundsView.tsx:63`, `OperatorRefundsView.tsx:140`) |
+| idem | `:4324` | `admin.manualRefunds.backToList` cambia de valor (tabla f) |
+| idem | `:2175` | `admin.m4.replace.refund.result`: «…en «Reembolsos manuales (SPEI)»…» cita un rótulo de menú que deja de existir ⇒ «…en «Reembolsos › Transferencias SPEI»…» (tabla f) |
+| `frontend/e2e/m4-ship.spec.ts` | `:201` | `page.goto('/es/admin/refunds')` (la canónica; la vieja sigue sirviendo por la redirección, que se mide aparte en RF-6) |
+| `frontend/e2e/m4-ship-spei-real.spec.ts` | `:75` | ídem. `:59` y siguientes son llamadas a la **API** (`apiAsOk`), ⛔ no se tocan |
+
+#### (f) i18n — claves (paridad ES/EN en el mismo cambio)
+
+| Estado | Clave | ES | EN |
+|---|---|---|---|
+| **cambia** | `admin.modules.refunds` | Reembolsos | Refunds |
+| **nueva** | `admin.refundsPage.hint` | Las transferencias que pagas a mano y los reembolsos que hicieron los operadores. | Transfers you pay by hand and refunds made by operators. |
+| **nueva** | `admin.refundsPage.tabs.spei` | Transferencias SPEI | SPEI transfers |
+| **nueva** | `admin.refundsPage.tabs.operators` | Reembolsos de operadores | Operator refunds |
+| **nueva** | `admin.refundsPage.tabs.speiCount` *(dentro del nombre accesible de la pestaña)* | {count, plural, one {# pendiente} other {# pendientes}} | {count, plural, one {# pending} other {# pending}} |
+| **cambia** | `admin.manualRefunds.backToList` | Volver a «Transferencias SPEI» | Back to “SPEI transfers” |
+| **cambia** | `admin.m4.replace.refund.result` (solo el tramo) | …{manualAmount} en «Reembolsos › Transferencias SPEI»… | …{manualAmount} under “Refunds › SPEI transfers”… |
+| **se queda** | `admin.modules.manualRefundsBadge` | (sin cambio) | (sin cambio) |
+| **se queda** | `admin.manualRefunds.hint` · `admin.refunds.hint` · `admin.m3.operatorRefundsLink` · `admin.dashboard.manualRefunds.*` · `admin.dashboard.operatorRefunds.*` | (sin cambio) | (sin cambio) |
+| **se retira** | `admin.modules.manualRefunds` · `admin.manualRefunds.title` · `admin.refunds.title` | — | — |
+
+La expresión «cubeta SPEI» que ya vive en copys (`es.json:2158,2176,2207,4401,4403`) **se queda**: es descripción, no
+nombre de menú, y coincide con la palabra del dueño («cubetas»). ⛔ Ningún copy nuevo con código «M-n» (P66-3).
+
+#### (g) Candados sugeridos (frontend los escribe con la pantalla; QA mide a 390×844 y 1280×800)
+
+- **RF-1** (sustituye las filas `:141-142` de §37.2b) Como `super_admin`, el menú tiene **una** entrada «Reembolsos» /
+  “Refunds” con SÚPER, entre «Ventas» y «Pedidos por preparar»; **ningún** enlace del menú apunta a
+  `/admin/manual-refunds`; el número total de entradas baja en uno.
+- **RF-2** Como `vault_operator`, ningún enlace del menú contiene «Reembolsos».
+- **RF-3** Badge: `manualRefundsPending: 3` ⇒ `nav-badge-refunds` muestra «3» y su `aria-label` es «3 transferencias
+  pendientes»; `0` y `null` ⇒ no existe el nodo. *Mutación:* sumar cualquier otro campo del `summary` al badge ⇒ rojo.
+- **RF-4** Con `pathname = '/admin/manual-refunds/mr-1001'` y con `'/admin/refunds'`, **exactamente un** enlace del menú
+  lleva `aria-current="page"` y es `/admin/refunds`. *Mutación:* quitar el alias ⇒ cero activos en el detalle ⇒ rojo.
+- **RF-5** `/admin/refunds` sin `tab` y con `?tab=basura` ⇒ «Transferencias SPEI» `aria-selected="true"`;
+  `?tab=operadores` ⇒ «Reembolsos de operadores». El `h1` es «Reembolsos» / “Refunds” y es el **único** `h1` de la
+  página (en es y en).
+- **RF-6** (E2E) `/es/admin/manual-refunds` termina en `/es/admin/refunds` con la cubeta SPEI visible; `/es/admin/manual-refunds/mr-1001`
+  **no** redirige.
+- **RF-7** Con `manualRefundsPending: 3`, el nombre accesible de la pestaña SPEI es «Transferencias SPEI, 3 pendientes»
+  (con el espacio); la pestaña de operadores **no** contiene dígitos.
+- **RF-8** `rg -n "(href=|push\(|replace\(|redirect\().*/admin/manual-refunds([^/]|$)" frontend/src` = **0** (ningún
+  enlace ni navegación interna a la lista vieja; los del detalle llevan `/${id}` y no casan). Se mira solo navegación
+  a propósito: la cadena también vive en comentarios y en `lib/api.ts`, donde es el **endpoint** de la API, que no
+  cambia. Regla de lectura, no automatizable sin falsos positivos: revisar a ojo los aciertos que salgan.
+- **PS-UI-6** y **PS-UI-7** siguen vigentes (PS-UI-6 con la ruta nueva, §37.18).
+
+#### (h) Notas a otros roles
+
+| # | Para | Nota |
+|---|---|---|
+| **N-9** | arquitecto | **Ninguna solicitud.** Esta sección no pide campo, endpoint ni permiso nuevo. Si un día se quiere un contador en la pestaña de operadores (p. ej. filas `requested` atascadas), haría falta en el `summary`; hoy **no** se pide |
+| **N-10** | frontend | El orden de los dos cambios importa para el candado §37.2b: menú + `PAGES` + filas del test en el **mismo** commit; si no, P66-2 queda en rojo por una página que ya no está en el menú |
