@@ -12896,3 +12896,123 @@ aún a «§69.1/§69.4» de M4-SHIP: `scripts/check-ci-ok.sh:55` (devops) y `TRA
 `check-secret-defaults.sh` estaba rojo en HEAD (medido sobre `git archive HEAD`): manifiesto desfasado y `frontend/e2e/utils/env.ts:105` (`E2E_SPEI_CUSTOMER_PASSWORD ?? 'SpeiRefund123!'`, dd6fb1d7). Regenerado desde una copia limpia de HEAD (no del árbol vivo, que tenía cambios sueltos de backend): **+19 hashes, 0 retirados**. Auditados uno por uno: todos son literales de prueba en `backend/test/` o `frontend/e2e/`, o expresiones o identificadores que el generador captura como «valor» (`randomBytes(32)…`, `REFRESH_SECRET,`, `hmacKey,`, `C7_ACCESS_SECRET,`), más un código de error (`TOO_MANY_PASSWORD_ATTEMPTS`, `backend/src/common/error-codes.ts:54`). Ninguno es una credencial real. Origen: C7 y SEC-C7-* (`cf32dc9d`, `114aecff`, `ff3ecc41`, `d1fbbf81`, rama `paquete-seguridad`), §M4-SHIP (`482eae50`, `19972b59`, `envio-preparar`: claves de idempotencia `re_fix32_`/`re_fix40_`/`re_fix40b_`) y P-REL-3 (`dd6fb1d7`, `release-s5`). Rollback: revertir el commit; el manifiesto solo añade rechazos.
 
 **2026-09-30 (devops, sobre e3bfae42):** `check-secret-defaults.sh` rojo desde `72ec57d0` (bisección del orquestador; rc=0 en `7b9c196e`). Regenerado desde `git archive HEAD`: **+1 hash, 0 retirados** — `2424ec00…` = sha256 de `whsec_pentest_`, capturado por la regla de PREFIJOS del generador (la etiqueta `PREFIJO` del manifiesto es la categoría, no un literal) en `docs/PENTEST_NOTES.md:1962` (`whsec_pentest_…`, prefijo con elipsis del secreto efímero y local del pentester; ninguna credencial real). Única aparición en el árbol. Tras regenerar, sobre la copia: `check-secret-defaults.sh` rc=0 y su canario rc=0. Rollback: revertir el commit.
+
+## §73 · Censo E2E: `mockOnly 126/26 → 127/26` por P-M5-DECLINE (2026-10-02, rama `claude/post-release-s5`)
+
+**Qué crece y por qué.** `frontend/e2e/admin.spec.ts:206`, test «P-M5-DECLINE: emitir → cancelar la oferta → declinar, como operador» (frontend, `5ff5f920`). Es una **llamada** `mockOnly(…)`, no un comentario: el fichero pasa de 4 a 5 ocurrencias por palabra (`grep -cw`), y el diff `5ff5f920~1..HEAD -- frontend/e2e` solo toca ese fichero con esa única línea `mockOnly` añadida (el comentario «no `mockOnly`» de la línea 258 ya existía, en `:209`). Ficheros: 26 → 26. Las otras cuatro claves no cambian.
+
+**Motivo (dueño: frontend).** El ciclo usa `sr-3004` del fixture mock (`frontend/src/lib/mock/fixtures.ts:3170`); declinar es terminal y, en real, consumiría la solicitud `cotizada` del seed que usan los `@real` de la mesa M5. **Deuda:** semilla `cotizada` propia en `backend/prisma/seed-e2e.ts` (backend) para poder quitar el `mockOnly`.
+
+**Medido (devops, sobre `bd0b3a1d` + baseline regenerado):** gate antes del `--update` rc=1 (`mockOnly 126 → 127: CRECIÓ`); después `check-e2e-skip-census.sh` rc=0 y `check-e2e-skip-census-canary.sh` 14/14 rc=0, **3/3** corridas cada uno.
+
+**Rollback.** Revertir el commit (el gate vuelve a rojo mientras exista el test).
+
+## §74 · `brace-expansion` (GHSA-q2hr-2g5m-vwhr y hermanas) pone rojos `npm-audit`, `trivy-fs`, `trivy-image` y `sast-ok` (2026-10-02, rama `claude/post-release-s5`)
+
+**Síntoma (medido por QA con la API de GitHub, 2026-10-02):** en `production` (`8fd637fb`) y en `claude/post-release-s5`
+(`8a10153e`) están rojos `sast-ok`, `npm-audit`, `trivy-fs`, `trivy-image`; en `production` además `dast-release`.
+
+**Causa (medido por devops sobre `git archive 8a10153e` entero, node 22.22.2 / npm 10.9.7, trivy v0.75.0 compilado
+desde fuente):** tres advisories ALTAS de `brace-expansion` publicadas el 2026-09-14 (GHSA-q2hr-2g5m-vwhr,
+GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p; en trivy CVE-2026-102276/102278). Parches: 1.1.21, 2.1.7, 5.0.12.
+
+| App | Dónde | Versión | ¿Runtime? | Gate que lo ve |
+|---|---|---|---|---|
+| backend | `exceljs → archiver → archiver-utils → glob@7 → minimatch@3` y `archiver → readdir-glob → minimatch@5` | 1.1.18, 2.1.4 | **SÍ** (`npm audit --omit=dev`: 1 high) | `audit-npm.sh` (sin fichas posibles), `trivy-fs.sh`, `trivy-image` |
+| backend | eslint, fork-ts-checker, test-exclude… | 1.1.18 | no | trinquete dev |
+| frontend | `brace-expansion` raíz y `@typescript-eslint/typescript-estree` | 1.1.18, 5.0.9 | no (`--omit=dev`: 0) | trinquete dev (`audit-npm-dev.sh`, `trivy-dev-fichas.sh`): «SIN ficha» |
+
+Corrección a la premisa recibida: en backend **no** es solo `@nestjs/cli → minimatch` (dev); el que bloquea es de
+**runtime** vía `exceljs`. Por eso **no admite ficha**: `npm-audit-dev-fichas.tsv` solo cubre devDependencies.
+
+**Arreglo (dueños: backend y frontend; devops lo deja preparado, no toca sus `package.json`):** `overrides`
+acotados por rango, la misma forma que ya usa backend para `glob@^10`/`picomatch@^4` (§22.6), y regenerar el lock
+con `npm install --package-lock-only`:
+
+- backend: `"brace-expansion@^1": "^1.1.21"`, `"brace-expansion@^2": "^2.1.7"` → lock: 7 entradas, solo versión/URL/integrity.
+- frontend: `"brace-expansion@^1": "^1.1.21"`, `"brace-expansion@^5": "^5.0.12"` → lock: 2 entradas.
+
+**Medido con el arreglo aplicado sobre la copia (antes → después):** `audit-npm.sh` rc 1 → **0**; `audit-npm-dev.sh`
+rc 1 → **0**; `trivy-fs.sh` rc 1 (4 HIGH) → **0**; `trivy-dev-fichas.sh` rc 1 → **0**; autopruebas
+`audit-npm-dev-selftest.sh` y `trivy-fs-selftest.sh` rc 0; `npm ci` en ambas apps rc 0; `npm run lint` backend y
+frontend rc 0; `trivy rootfs` HIGH/CRITICAL sobre los `node_modules` instalados (aprox. de la capa node-pkg de las
+imágenes) rc 0 en ambas. **NO MEDIDO:** `trivy-image` real (no hay demonio Docker aquí; la capa OS no se midió) y las
+suites de backend/frontend (las corre su rol / QA).
+
+**Fichas podadas (mismo commit):** GHSA-5xrq-8626-4rwp, GHSA-fx2h-pf6j-xcff, GHSA-2883-xcg3-v3hh — el trinquete las
+daba por obsoletas con npm audit y con trivy. Tras la poda: verde con el arreglo, **rojo** sin él (el candado sigue mordiendo).
+
+**`dast-release` rojo en `production` (C2-bis):** `8fd637fb` es el primer push a `production` con `report_only: false`
+(§69.4), así que su `dast-release` es justo el run que C2-bis pide citar — y salió rojo. Es la **alarma posterior a la
+publicación** (§69.4), no una puerta: lo publicado ya está publicado. Causa **NO MEDIDA** sin el log (`Deploy`, push a
+`production`, `head_sha 8fd637fb`): o un `FAIL` del candado (`blocking=true`; abre issue), o un fallo de arranque del
+stack efímero (como el run `34650494939`). C2-bis **no se cierra** con este run; se cierra con un run de `dast-release`
+sobre `production` con `blocking=false`, citado por número.
+
+**Rollback:** revertir el commit (vuelven las tres fichas; no cambia ningún veredicto con el arreglo aplicado).
+
+## §75 · El candado del DAST juzga solo NUESTROS orígenes (`--scope-origin`) · C2-bis: el primer run bloqueante fue rojo por un tercero (2026-10-02, rama `claude/post-release-s5`)
+
+**Qué pasó (lo midió el orquestador con la API de GitHub, 2026-10-02):** `Deploy` run **36969283231** (push a
+`production`, `8fd637fb`). Fue el **primer** `dast-release` con `report_only: false` (§69.4). Autoprueba del candado:
+success. «Levantar el stack» y «Escanear»: success. «Candado — veredicto»: **FAILURE** por un **solo** FAIL: ZAP `10020`
+(Missing Anti-clickjacking Header), Medio ×1, con ejemplo `https://js.stripe.com/v3/m-outer-3437aaddcdf6922d623e172c2d6f9278.html`.
+Es el iframe de Stripe que carga la araña AJAX, **fuera de nuestro origen**. nuclei: 0 high/critical. El job
+«Abrir/actualizar issue» comentó en el **issue #30** («[dast] Hallazgos bloqueantes en el stack efímero — production»,
+abierto el 2026-09-11 por el run 34650494939). El último comentario cita `runs/36969283231` y nombra 10020 y
+js.stripe.com (medido por devops con la API pública de issues).
+
+**Causa:** falso positivo **de alcance**. El candado aplicaba la política a todo lo que contenía el informe de ZAP,
+incluidas páginas de terceros. Antes no se notaba porque 10020 era WARN hasta SEC-HDR-1 (§70).
+
+**Arreglo (elegido para que no pueda esconder un 10020 real nuestro):**
+- `security/scripts/dast-gate.py`, opción nueva `--scope-origin <url>` (repetible). Con ella cada **instancia** de
+  ZAP se juzga por su origen (esquema + host + puerto, con el puerto por defecto explícito):
+  - Una alerta con un caso en js.stripe.com y otro en localhost:3010 **sigue en FAIL**.
+  - Los casos de terceros salen en el resumen como «Fuera de alcance» (regla, acción, host) y en la anotación del run.
+    Nunca son invisibles.
+  - Si ninguna instancia cae en nuestros orígenes, el veredicto es **ROJO** («el escáner no vio la app o el alcance
+    está mal declarado»).
+  - Sin la opción no se filtra nada; la autoprueba del canario sigue igual.
+- `security/scripts/dast-ephemeral.sh gate` pasa `--scope-origin` con los orígenes de **sus blancos**
+  (`DAST_SCOPE_ORIGINS`, por defecto `ZAP_TARGETS` + `NUCLEI_TARGETS`, es decir `http://localhost:3010` y
+  `http://localhost:3011`).
+- **Descartado:** excluir hosts de terceros dentro de ZAP. Ese camino no deja rastro en el informe, no se puede
+  probar sin levantar ZAP, y una lista de terceros siempre va un host por detrás.
+- La política (`security/zap/baseline.conf`) lo declara en su cabecera. No cambia ninguna regla: 38 reglas, 16 FAIL.
+
+**Medido (devops, 2026-10-02):** `scripts/check-dast-gate-live.sh` (bloque 5-ter, corre en cada push) da rc=0 con
+todos sus checks en verde. Sus fixtures:
+
+| Caso | Resultado |
+|---|---|
+| 10020 solo en js.stripe.com, con alcance | VERDE |
+| El mismo informe sin alcance | ROJO |
+| 10020 en localhost:3010 | ROJO |
+| 10020 mixto (Stripe primero, nuestro después) | ROJO |
+| localhost:8080 | se trata como tercero |
+| Alcance que no casa con nada | ROJO |
+| SQLi de manual con alcance | ROJO |
+
+Mutaciones sobre una copia del árbol (`git ls-files`), una por pase. Cada una pone rojo exactamente su check (1 ✗) y
+la restauración vuelve a 0 ✗. Son deterministas, sin carrera:
+- Decidir solo por la primera instancia: muerde «10020 mixto».
+- Quitar la guarda de alcance vacío: muerde «alcance que no casa».
+- Comparar el origen sin puerto: muerde «localhost:8080».
+
+**NO MEDIDO:** un ZAP real con este candado (aquí no hay Docker). Lo mide el próximo `dast-release`.
+
+**Riesgos que quedan:**
+- Con alcance declarado, «Casos» cuenta las instancias que trae el JSON, no el campo `count`.
+- Un barrido de nuestra app sin **ningún** hallazgo, ni siquiera WARN, saldría ROJO por la guarda. Hoy hay más de 10
+  WARN propios por barrido. Si algún día ocurre, la guarda pasa a exigir que el informe declare nuestro `site`.
+
+**C2-bis (para SECURITY_NOTES; lo escribe seguridad):**
+- El primer run de `dast-release` bloqueante en `production` fue **36969283231**, rojo por ese FAIL **de tercero**
+  (10020 en js.stripe.com). No hubo hallazgo en nuestro origen.
+- C2-bis **se cierra con el siguiente** `dast-release` sobre `production` que lleve este commit y salga con
+  `blocking=false`, citado por número. Cuando salga verde, el issue #30 se puede cerrar citando ese run.
+- No se vuelve a `report_only`.
+
+**Rollback:** revertir el commit. El candado vuelve a juzgar todo el informe, y el próximo `dast-release` vuelve a
+salir rojo por el iframe de Stripe.

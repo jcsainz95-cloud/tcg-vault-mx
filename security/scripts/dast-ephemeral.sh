@@ -66,6 +66,11 @@ BACKEND_HEALTH="${BACKEND_HEALTH:-${API_BASE}/health}"
 # ------------------------------------------------------------------------
 ZAP_TARGETS="${ZAP_TARGETS:-${FRONTEND_URL}}"
 NUCLEI_TARGETS="${NUCLEI_TARGETS:-${FRONTEND_URL} ${API_BASE}}"
+# ALCANCE PROPIO del candado (DEVOPS_NOTES §75): solo las instancias de ZAP en
+# estos orígenes deciden el veredicto; las de terceros (p. ej. el iframe de
+# js.stripe.com que carga la araña AJAX) salen como «fuera de alcance». Por
+# defecto, los orígenes de TODOS los blancos declarados (vitrina + API).
+DAST_SCOPE_ORIGINS="${DAST_SCOPE_ORIGINS:-${ZAP_TARGETS} ${NUCLEI_TARGETS}}"
 
 SCAN_PROFILE="${SCAN_PROFILE:-full}"
 ACTIVE_MAX_MINS="${ACTIVE_MAX_MINS:-10}"
@@ -300,6 +305,7 @@ cmd_gate() {
   # SIEMPRE por GITHUB_OUTPUT (blocking=…) y por este fichero (F1-1). Es lo que
   # lee security-dast.yml para `outputs.blocking`, no el color del paso.
   [ "${REPORT_ONLY:-0}" = "1" ] && args+=(--report-only)
+  for o in ${DAST_SCOPE_ORIGINS}; do args+=(--scope-origin "${o}"); done
   python3 "${SCRIPT_DIR}/dast-gate.py" \
     "${args[@]}" \
     --blocking-file "${REPORT_DIR}/dast-blocking.txt" \

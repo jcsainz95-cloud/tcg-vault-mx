@@ -195,6 +195,55 @@ test.describe('admin · M5 mesa de decisión (§23.6)', () => {
     await expect(emit.first()).toBeDisabled();
     await expect(page.getByText(t('es', 'admin.m5.desk.totals.noLines'))).toBeVisible();
   });
+
+  /**
+   * **P-M5-DECLINE** (DESIGN_SYSTEM §25.8, D39; contrato «Qué ofrece M5 en cada estado»): el ciclo de cierre
+   * entero de una solicitud, como lo recorre el operador. `sr-3004` (cotizada) → emitir → `ofertada` →
+   * «Cancelar la oferta» → vuelve a «Por ofertar» → «Declinar» → sale de la fila y aparece en «Cerradas».
+   * Lo recorre el OPERADOR: el verbo es suyo (D39), no solo del súper-admin.
+   */
+  test('P-M5-DECLINE: emitir → cancelar la oferta → declinar, como operador', async ({ page }) => {
+    mockOnly('el ciclo sigue `sr-3004` del fixture y declinar es terminal (en real consumiría la `cotizada` del seed)');
+    const D = (key: string, vars?: Record<string, string | number>) => t('es', `admin.m5.desk.${key}`, vars);
+    await loginAs(page, 'operator');
+    await page.goto('/es/admin/m5');
+    await openM5Stage(page, t('es', 'admin.m5.tabs.por_ofertar'));
+    const card = page.getByTestId('m5-request-sr-3004');
+    await expect(card).toBeVisible();
+
+    // 1) Emitir la oferta desde la mesa (en el fixture cabe en el tope del operador: sale sola).
+    await card.getByRole('button', { name: D('open') }).click();
+    await card.getByRole('button', { name: D('totals.emit') }).click();
+    const confirmEmit = page.getByRole('dialog', { name: D('confirm.title') });
+    await confirmEmit.getByRole('button', { name: D('confirm.cta') }).click();
+    await expect(confirmEmit).toBeHidden();
+
+    // 2) En «Con el vendedor» la puerta es «Cancelar la oferta» (y NO «Declinar»).
+    await openM5Stage(page, t('es', 'admin.m5.tabs.con_vendedor'));
+    await expect(card).toBeVisible();
+    await expect(card.getByRole('button', { name: D('decline.action'), exact: true })).toHaveCount(0);
+    await card.getByRole('button', { name: D('cancelOffer.action') }).click();
+    const cancelDialog = page.getByRole('dialog', { name: D('cancelOffer.title') });
+    await cancelDialog.getByLabel(D('cancelOffer.reasonLabel')).fill('número mal puesto');
+    await cancelDialog.getByRole('button', { name: D('cancelOffer.confirm') }).click();
+    await expect(page.getByTestId('m5-page-notice')).toContainText(D('cancelOffer.done', { id: 'sr-3004' }));
+
+    // 3) De vuelta en «Por ofertar»: «Declinar», con el diálogo de §25.8 y el motivo interno.
+    await openM5Stage(page, t('es', 'admin.m5.tabs.por_ofertar'));
+    await card.getByRole('button', { name: D('decline.action'), exact: true }).click();
+    const declineDialog = page.getByRole('dialog', { name: D('decline.title') });
+    await expect(declineDialog.getByText(D('decline.reasonHint'))).toBeVisible();
+    await declineDialog.getByLabel(D('decline.reasonLabel')).fill('no compramos esta colección');
+    await declineDialog.getByRole('button', { name: D('decline.confirm') }).click();
+    await expect(page.getByTestId('m5-page-notice')).toContainText(D('decline.done', { id: 'sr-3004' }));
+    await expect(card).toHaveCount(0);
+
+    // 4) Queda en «Cerradas» (lista propia, server-side), ya sin verbos de cierre.
+    await openM5Stage(page, t('es', 'admin.m5.tabs.cerradas'));
+    const closed = page.getByTestId('m5-closed-sr-3004');
+    await expect(closed).toBeVisible();
+    await expect(closed.getByRole('button', { name: D('decline.action'), exact: true })).toHaveCount(0);
+  });
 });
 
 /**

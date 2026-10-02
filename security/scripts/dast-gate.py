@@ -51,12 +51,38 @@
 #   · `--report-only` solo decide el EXIT CODE (0 aunque haya bloqueantes).
 # Quien consuma el veredicto lee el hecho, no el color del paso. Lo comprueba
 # scripts/check-dast-gate-live.sh (5-bis) en cada push.
+#
+# ALCANCE POR ORIGEN (`--scope-origin`, DEVOPS_NOTES §75, 2026-10-02)
+# ---------------------------------------------------------------------------
+# El primer `dast-release` bloqueante (run 36969283231, production 8fd637fb)
+# salió ROJO por un 10020 cuya ÚNICA instancia era
+# `https://js.stripe.com/v3/m-outer-….html`: el iframe de Stripe que la araña
+# AJAX carga desde la vitrina. Esa cabecera la sirve Stripe, no nosotros: no
+# hay nada que arreglar en nuestro código y no es un hallazgo sobre lo que
+# auditamos.
+#
+# Por qué el filtro va AQUÍ y es una lista de NUESTROS orígenes (permitidos),
+# no una lista de terceros (excluidos) ni una exclusión dentro de ZAP:
+#   · Se decide POR INSTANCIA, no por alerta: un 10020 con una instancia en
+#     js.stripe.com y otra en localhost:3010 sigue siendo FAIL (cuenta la
+#     nuestra). Lo de fuera no puede tapar lo de dentro.
+#   · Lo que NO es nuestro no desaparece: sale en el informe como «fuera de
+#     alcance», con regla, acción y host. Silenciado nunca es invisible.
+#   · Si con `--scope-origin` NO queda ni una instancia dentro de nuestros
+#     orígenes, es ROJO («el escáner no vio nuestro origen»): un origen mal
+#     declarado no puede convertir el barrido en un verde vacío.
+#   · Sin `--scope-origin` no se filtra nada (comportamiento anterior; lo usa
+#     la autoprueba del canario).
+#   · Una exclusión dentro de ZAP no deja rastro en el informe y no se puede
+#     probar sin levantar ZAP; esto se prueba con fixtures en
+#     scripts/check-dast-gate-live.sh en cada push.
 # =============================================================================
 import argparse
 import json
 import os
 import sys
 from collections import OrderedDict
+from urllib.parse import urlsplit
 
 RISK = {"0": "Info", "1": "Bajo", "2": "Medio", "3": "Alto"}
 
@@ -80,43 +106,62 @@ def load_policy(path):
     return pol
 
 
-def load_zap(paths):
-    """Aplana uno o varios JSON de ZAP a [(ruleid, nombre, riesgo, n, uri_ejemplo)].
+_DEFAULT_PORT = {"http": 80, "https": 443}
 
-    Varios porque un barrido puede tener varios BLANCOS (vitrina y API son
-    hosts distintos para ZAP). Si NINGUNO de los informes declarados existe,
-    devuelve None -> el gate lo trata como "el escáner no corrió" = ROJO.
+
+def origin_of(url):
+    """`esquema://host:puerto` normalizado (minúsculas, puerto por defecto explícito)."""
+    try:
+        u = urlsplit((url or "").strip())
+        if not u.scheme or not u.hostname:
+            return None
+        port = u.port or _DEFAULT_PORT.get(u.scheme.lower())
+        return "%s://%s:%s" % (u.scheme.lower(), u.hostname.lower(), port)
+    except ValueError:
+        return None
+
+
+def load_zap_split(paths, scope):
+    """Como load_zap, pero separa por ORIGEN de cada instancia.
+
+    Devuelve (dentro, fuera, instancias_dentro) o (None, None, 0) si no hay
+    informe. Con `scope` vacío todo es «dentro» (sin filtrado).
+    `dentro`/`fuera`: [(ruleid, nombre, riesgo, n, uri_ejemplo)].
     """
     existentes = [p for p in (paths or []) if p and os.path.exists(p)]
     if not existentes:
-        return None
-    out = []
+        return None, None, 0
+    dentro, fuera, n_dentro = [], [], 0
     for path in existentes:
         with open(path, "r", encoding="utf-8") as fh:
             doc = json.load(fh)
         for site in doc.get("site", []) or []:
+            site_name = site.get("@name") or ""
             for a in site.get("alerts", []) or []:
                 rule = str(a.get("pluginid") or a.get("alertRef") or "?").split("-")[0]
+                name = a.get("alert") or a.get("name") or "(sin nombre)"
+                risk = RISK.get(str(a.get("riskcode")), "?")
                 insts = a.get("instances") or []
-                uri = ""
-                for i in insts:
-                    if i.get("uri"):
-                        uri = i["uri"]
-                        break
                 try:
-                    n = int(a.get("count") or len(insts) or 1)
+                    total = int(a.get("count") or len(insts) or 1)
                 except ValueError:
-                    n = len(insts) or 1
-                out.append(
-                    (
-                        rule,
-                        a.get("alert") or a.get("name") or "(sin nombre)",
-                        RISK.get(str(a.get("riskcode")), "?"),
-                        n,
-                        uri,
-                    )
-                )
-    return out
+                    total = len(insts) or 1
+                if not scope:
+                    uri = next((i["uri"] for i in insts if i.get("uri")), "")
+                    dentro.append((rule, name, risk, total, uri))
+                    n_dentro += total
+                    continue
+                # Instancia sin uri -> se juzga por el sitio. Alerta sin
+                # instancias -> una «instancia» con el uri del sitio.
+                uris = [i.get("uri") or site_name for i in insts] or [site_name]
+                ins = [u for u in uris if origin_of(u) in scope]
+                out = [u for u in uris if origin_of(u) not in scope]
+                if ins:
+                    dentro.append((rule, name, risk, len(ins), ins[0]))
+                    n_dentro += len(ins)
+                if out:
+                    fuera.append((rule, name, risk, len(out), out[0]))
+    return dentro, fuera, n_dentro
 
 
 def load_nuclei(path, ignore_ids):
@@ -202,13 +247,21 @@ def main():
     p.add_argument("--report-only", action="store_true",
                    help="Solo afecta al EXIT CODE: nunca sale distinto de 0. El hecho "
                         "«blocking» se publica igual (GITHUB_OUTPUT / --blocking-file).")
+    p.add_argument("--scope-origin", action="append", default=[],
+                   help="Origen PROPIO (esquema://host[:puerto][/...]); repetible. Si se da, "
+                        "solo las instancias de ZAP en estos orígenes deciden el veredicto; "
+                        "el resto sale como «fuera de alcance» (DEVOPS_NOTES §75).")
     p.add_argument("--blocking-file",
                    help="Fichero donde escribir el hecho «true|false» (hay bloqueantes), "
                         "independiente del exit code.")
     args = p.parse_args()
 
     pol = load_policy(args.policy)
-    zap = load_zap(args.zap_json)
+    scope = {o for o in (origin_of(x) for x in args.scope_origin) if o}
+    if args.scope_origin and not scope:
+        print("::error title=--scope-origin ilegible::%s" % " ".join(args.scope_origin))
+        return 2
+    zap, zap_fuera, zap_dentro_n = load_zap_split(args.zap_json, scope)
     nuc = load_nuclei(args.nuclei_jsonl, load_ignore_ids(args.nuclei_ignore))
     nuc_fail_sev = {s.strip().lower() for s in args.nuclei_fail_severity.split(",") if s.strip()}
 
@@ -227,7 +280,13 @@ def main():
         missing_input.append("informe de ZAP (`%s`)" % (", ".join(args.zap_json) or "no indicado"))
         A("🔴 **No hay informe de ZAP.** Un gate sin informe NO es un verde: es un gate que no corrió.")
         A("")
-    else:
+    elif scope and zap_dentro_n == 0:
+        missing_input.append("instancias de ZAP dentro de nuestros orígenes (%s)" % ", ".join(sorted(scope)))
+        A("🔴 **El informe de ZAP no trae NI UNA instancia en nuestros orígenes** (%s). "
+          "O el escáner no vio la app, o el alcance está mal declarado: en los dos casos NO es un verde."
+          % ", ".join("`%s`" % o for o in sorted(scope)))
+        A("")
+    if zap is not None and not (scope and zap_dentro_n == 0):
         fails, warns, ignored = [], [], []
         for rule, name, risk, n, uri in zap:
             action = pol.get(rule, "WARN")
@@ -267,6 +326,20 @@ def main():
               "— el porqué de cada una está en `security/zap/baseline.conf`."
               % (sum(x[3] for x in ignored), len(names), ", ".join(names)))
             A("")
+
+    if zap_fuera:
+        A("<details><summary>Fuera de alcance: %d hallazgo(s) en orígenes de TERCEROS "
+          "(no deciden el veredicto)</summary>" % sum(x[3] for x in zap_fuera))
+        A("")
+        A("Alcance propio: %s. Ver `docs/DEVOPS_NOTES.md` §75." % ", ".join("`%s`" % o for o in sorted(scope)))
+        A("")
+        A("| Regla | Acción en política | Hallazgo | Riesgo | Casos | Ejemplo |")
+        A("|---|---|---|---|---|---|")
+        for rule, name, risk, n, uri in zap_fuera:
+            A("| `%s` | %s | %s | %s | %d | `%s` |" % (rule, pol.get(rule, "WARN"), name, risk, n, (uri or "-")[:110]))
+        A("")
+        A("</details>")
+        A("")
 
     # ---- nuclei --------------------------------------------------------------
     if nuc is None:
@@ -343,6 +416,10 @@ def main():
             agg[k] = agg.get(k, 0) + n
         for (act, rule, name, risk), n in sorted(agg.items(), key=lambda kv: (kv[0][0] != "FAIL", -kv[1])):
             dig.append("%-6s %-6s %-5s x%-4d %s" % (act, rule, risk, n, name[:70]))
+    if zap_fuera:
+        dig.append("fuera de alcance (terceros, no deciden): %s" % ", ".join(
+            "%s %s x%d %s" % (pol.get(r, "WARN"), r, n, (origin_of(u) or "?"))
+            for r, _nm, _rk, n, u in zap_fuera)[:600])
     if nuc:
         dig.append("nuclei: %d hallazgo(s)" % len(nuc))
     anotar("DAST %s — %s" % (args.label[:60], "ROJO" if red else "VERDE"), dig)

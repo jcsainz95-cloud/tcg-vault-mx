@@ -24,6 +24,11 @@ import { BusinessException } from '../../common/business.exception';
 import { variantKey } from '../../common/variant-key';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { tryBuildGradeKey, GradeKeyInput, sealedMarketGradeKey } from '../pricing/pricing.types';
+import {
+  saleQueueKeyOf,
+  sealedSaleQueueKeyOf,
+  serializeSaleQueueKey,
+} from '../pricing/sale-queue-key';
 import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -252,6 +257,11 @@ function variantPublishMatches(
  * ⚠️ **`cardProductId` aquí es el `Int` de TCGplayer** (el de `InventoryItem`/`PendingPriceEntry`),
  * **no** el uuid `String` de `PriceReference.cardProductId`. Son dos identificadores distintos con el
  * mismo nombre en este repo (ver `VariantPublishRef`).
+ *
+ * ⭐ Techlead D-1 (sobre `8a10153e`): la SERIALIZACIÓN es la única del repo para esta clave
+ * (`serializeSaleQueueKey`, `modules/pricing/sale-queue-key.ts`) — la misma con la que el barrido VQ de
+ * `price-sync` casa filas. Antes aquí era un `|`.join con `''` y allí un `JSON.stringify`: dos formas
+ * de escribir la misma clave. Se enumeran los seis componentes a la vista (R3 lo vigila).
  */
 function pendingQueueKey(k: {
   cardId: string;
@@ -261,14 +271,14 @@ function pendingQueueKey(k: {
   cardProductId?: number | null;
   sealedProductId?: string | null;
 }): string {
-  return [
-    k.cardId,
-    k.productType,
-    k.gradeKey,
-    k.finish,
-    k.cardProductId ?? '',
-    k.sealedProductId ?? '',
-  ].join('|');
+  return serializeSaleQueueKey({
+    cardId: k.cardId,
+    productType: k.productType,
+    gradeKey: k.gradeKey,
+    finish: k.finish,
+    cardProductId: k.cardProductId,
+    sealedProductId: k.sealedProductId,
+  });
 }
 
 /**
@@ -605,18 +615,9 @@ export class InventoryService {
     // UNA sola entrada por `(item / sealedProductId / clave de mercado)`. Sellado legacy sin mapping
     // (sin `tcgplayerProductId`) mantiene el comportamiento seguro: cae a `'sealed'`, sin duplicar.
     if (r.sealedNeedsEscalate) {
-      // P-79(d): la clave la da `sealedPendingGradeKeyOf` — UNA sola para los tres caminos de alta.
-      const pendingGradeKey = this.sealedPendingGradeKeyOf(r);
-      await this.pricing.escalatePending(
-        r.card.id,
-        dto.productType,
-        pendingGradeKey,
-        'inventory',
-        undefined,
-        'normal',
-        null,
-        r.sealedProductId,
-      );
+      // P-79(d) + motivo: clave y razón las decide `escalateSealedAltaIfPriceless` (UNA para los tres
+      // caminos de alta); solo escala si el precio no resuelve, y con `reason='no_market'`.
+      await this.escalateSealedAltaIfPriceless(r, dto.productType);
     }
 
     const folio = await this.prisma.nextFolio();
@@ -773,6 +774,9 @@ export class InventoryService {
           finish,
           null,
           sealedProductId,
+          // Motivo: aquí NO hay referencia de mercado (raw/graded: `getReference` pending; sellado: ni
+          // mercado ni override manual). Sin él la fila nacía `reason=null` («sin motivo» en M2).
+          'no_market',
         );
         throw BusinessException.validation(
           'PRICE_PENDING',
@@ -829,6 +833,69 @@ export class InventoryService {
     return r.sealedMapping.tcgplayerProductId != null
       ? sealedMarketGradeKey(r.sealedMapping.tcgplayerProductId)
       : r.gradeKey;
+  }
+
+  /**
+   * ⚠️ MONEY (cola de precio pendiente, VENTA) — **la escalada del ALTA de un sellado sin
+   * `listPriceCents`, con su MOTIVO.** Los tres caminos de alta (single, lote y ajuste «encontrada»)
+   * pasan por aquí; ninguno escribe la cola por su cuenta.
+   *
+   * ### El defecto que cierra (lo veía el dueño: «SIN MOTIVO» en la cola de Venta)
+   * Los tres caminos escalaban con `reason = null` —el default de `escalatePending`—, que la pantalla y
+   * los `counts` leen como «fila anterior a M-41» (`unknown`). Y escalaban **siempre** que faltara
+   * `listPriceCents`, aunque el sellado tuviera mercado: herencia de la regla v1.1 («sellado = precio
+   * SIEMPRE manual») que v1.23 retiró. El contrato del alta (§M1 `POST /admin/inventory/items`) dice
+   * hoy: «si se omite, el sellado se auto-precia por mercado TCGCSV × spread cuando está mapeado […];
+   * **sin mercado ni override queda PRICE_PENDING**». Una entrada abierta para un sellado que SÍ
+   * resuelve no tiene motivo verdadero que ponerle (`PendingPriceReason = no_market | premium_at_floor`,
+   * y el guardarraíl es solo de raw/graded). (Hasta v1.80.8.3 además nadie la cerraba; desde VQ-6 la
+   * publicación del sellado derivado sí cierra su fila.)
+   *
+   * ### La regla
+   * Se escala **solo** si el precio del sellado NO resuelve, y entonces el motivo es `no_market`:
+   *  - el alta trae un override manual de mercado validado (`sealedManualOverride`) ⇒ resuelve ⇒ no escala;
+   *  - sin mapeo (`tcgplayerProductId == null`) ⇒ la publicación no tiene clave de mercado que leer
+   *    (`sealedMarketGradeKeyForItem` ⇒ `null`) ⇒ escala `no_market`;
+   *  - mapeado ⇒ la MISMA puerta que la publicación (`gateSealedMarketCents` sobre la referencia de
+   *    `sealed:tcg:<id>`, con el dial `sealedPriceSource`): `null` ⇒ escala `no_market`; si no, no escala.
+   * Escalar es solo un AVISO: no mueve ningún precio (el precio se resuelve en lectura). Si el mercado
+   * desaparece después, la publicación vuelve a escalar con su propio motivo.
+   */
+  private async escalateSealedAltaIfPriceless(
+    r: {
+      card: { id: string };
+      gradeKey: string;
+      sealedMapping: SealedItemMapping;
+      sealedProductId: string | null;
+      sealedManualOverride: SealedManualOverride | null;
+    },
+    productType: ProductType,
+  ): Promise<void> {
+    if (r.sealedManualOverride != null) return;
+    const productId = r.sealedMapping.tcgplayerProductId;
+    if (productId != null) {
+      const { sourceOn } = await this.pricing.loadSealedSpreads();
+      const ref = await this.pricing.getReference(
+        r.card.id,
+        'sealed',
+        sealedMarketGradeKey(productId),
+        'normal',
+      );
+      if (this.pricing.gateSealedMarketCents(ref, sourceOn) != null) return;
+    }
+    // P-79(d): la clave la da `sealedPendingGradeKeyOf` — UNA sola para los tres caminos de alta, la
+    // misma que lee la publicación. Acabado `normal`: el sellado no tiene acabado (paridad publish).
+    await this.pricing.escalatePending(
+      r.card.id,
+      productType,
+      this.sealedPendingGradeKeyOf(r),
+      'inventory',
+      undefined,
+      'normal',
+      null,
+      r.sealedProductId,
+      'no_market',
+    );
   }
 
   /**
@@ -1199,16 +1266,7 @@ export class InventoryService {
               // publicación. Aquí iba `r.gradeKey` —el literal `'sealed'`, que es la clave del override
               // MANUAL— así que el precio que el operador fijaba en M2 quedaba ilegible para el publish
               // y la pieza volvía a la cola en bucle. Ver `sealedPendingGradeKeyOf`.
-              await this.pricing.escalatePending(
-                r.card.id,
-                line.productType,
-                this.sealedPendingGradeKeyOf(r),
-                'inventory',
-                undefined,
-                r.finish,
-                null,
-                r.sealedProductId,
-              );
+              await this.escalateSealedAltaIfPriceless(r, line.productType);
             }
             const folios = await this.prisma.nextFolios(qty);
             const inventoryItemIds: string[] = [];
@@ -1541,9 +1599,9 @@ export class InventoryService {
       // §4.36.5c — SALIDA SIMÉTRICA: el MISMO seam que escala CIERRA. Si el barrido ya escribió una
       // `PriceReference` real y el precio volvió a resolver, la entrada `open` de esta clave se
       // cierra SOLA aquí, sin intervención manual.
-      // ⚠️ **El alcance del cierre NO se ensancha en este refactor**: solo raw/graded con precio
-      // DERIVADO, igual que antes. Un precio manual no dice nada sobre el mercado de la variante
-      // (cerrar por él apagaría un aviso que sigue siendo cierto), y el sellado nunca cerró aquí.
+      // Solo con precio DERIVADO: un precio manual no dice nada sobre el mercado de la variante
+      // (cerrar por él apagaría un aviso que sigue siendo cierto). v1.80.8.4 (VQ-6): el sellado
+      // derivado TAMBIÉN cierra aquí (antes nunca cerraba).
       if (derived.pendingKey != null && derived.priceSource === 'derived') {
         await this.pricing.settlePendingForVariant(null, derived.pendingKey, 'inventory');
       }
@@ -1566,6 +1624,9 @@ export class InventoryService {
               'normal',
               null,
               k.sealedProductId ?? null,
+              // Motivo: el sellado solo cae aquí sin override y sin mercado (`computeSealedSalePrice`
+              // ⇒ pending). Sin él la fila nacía `reason=null` («sin motivo» en M2).
+              derived.pendingReason ?? 'no_market',
             )
           : // ④ + §4.36.5c: escala con el gradeKey server-side + acabado del item (la cola es POR
             // acabado, M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
@@ -1613,6 +1674,11 @@ export class InventoryService {
       const gk = this.pricing.sealedMarketGradeKeyForItem(item);
       const ref = gk ? ctx.refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
       const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed);
+      // v1.80.8.4 (VQ-6): UNA sola clave para escalar y para cerrar — la salida simétrica del sellado
+      // tiene que casar exactamente con la entrada que abrió esta misma derivación. Techlead D-1: la
+      // clave sale de la derivación COMPARTIDA con el barrido VQ (`sale-queue-key.ts`), no se arma aquí.
+      // (Sellado no mapeado ⇒ gradeKey estructural `'sealed'`, §4.40.4d / §4.19d.)
+      const sealedKey: PendingVariantKey = sealedSaleQueueKeyOf(item, this.pricing);
       if (sale.salePriceCents == null) {
         // ④: escala con el gradeKey de MERCADO; sellado no mapeado cae al gradeKey estructural.
         // v1.51 (fase 8, §4.39m.1): este cuerpo YA NO escala — es puro y devuelve la `pendingKey`;
@@ -1621,27 +1687,21 @@ export class InventoryService {
         return {
           ok: false,
           message: 'No resolvable sale price for sealed (no override and no market); not published',
-          pendingKey: {
-            cardId: item.cardId,
-            productType: 'sealed',
-            // v1.53 (§4.40.4d): la rama `sealed` del constructor NO admite campos de grado y
-            // devuelve siempre `'sealed'` (la clave del override MANUAL del admin, §4.19d) — aquí
-            // va literal, no derivado de la fila, porque estamos DENTRO del
-            // `if (productType === 'sealed')`.
-            gradeKey: gk ?? this.pricing.gradeKeyFor({ productType: 'sealed' }),
-            finish: 'normal',
-            sealedProductId: item.sealedProductId,
-          },
+          pendingKey: sealedKey,
           pendingReason: null,
         };
       }
-      // `pendingKey: null` ⇒ el sellado NO cierra la cola por esta vía (conducta preexistente).
+      // ⭐ v1.80.8.4 (VQ-6, ARCHITECTURE §4.36.5 c-bis punto 4): el sellado que RESUELVE con precio
+      // derivado (override de variante o mercado×spread) devuelve su clave para que
+      // `resolvePublishSalePrice` CIERRE su fila. Antes era `pendingKey: null` y la fila `no_market` del
+      // sellado solo la cerraba el override manual. El precio manual por pieza retorna arriba con
+      // `pendingKey: null` ⇒ no cierra (igual que raw/graded).
       return {
         ok: true,
         salePriceCents: sale.salePriceCents,
         priceSource: 'derived',
         priceBasis: sealedPriceBasisOf(sale),
-        pendingKey: null,
+        pendingKey: sealedKey,
       };
     }
     // raw/graded — v2.0 (P-48, §4.36.1): derivado server-side (SEC-A1) por la CURVA sobre el VALOR DE
@@ -1654,8 +1714,10 @@ export class InventoryService {
     // un precio, es saber QUÉ SLAB ES. La reparación es capturar empresa+grado por
     // `PATCH /admin/inventory/items/:id` (§4.40.5b); entra al censo §4.40.8.
     // Antes esta pieza se publicaba al precio de un `graded:PSA:10`, el grado más caro.
-    const gradeKey = this.pricing.tryGradeKeyFor(item);
-    if (gradeKey == null) {
+    // Techlead D-1: la clave de COLA de la pieza sale de la derivación compartida con el barrido VQ
+    // (`saleQueueKeyOf`); su `gradeKey` es el `tryGradeKeyFor` de siempre. `null` ⇔ graded sin slab.
+    const queueKey = saleQueueKeyOf(item, this.pricing);
+    if (queueKey == null) {
       return {
         ok: false,
         message:
@@ -1666,6 +1728,7 @@ export class InventoryService {
         pendingReason: null,
       };
     }
+    const gradeKey = queueKey.gradeKey;
     const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
     const ref = ctx.refs.get(key);
     const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
@@ -1688,14 +1751,8 @@ export class InventoryService {
           pendingReason === 'premium_at_floor'
             ? 'Premium rarity resolved to the floor (bad market data); not published — escalated to the pending queue'
             : 'No resolvable sale price (no market reference); not published',
-        pendingKey: {
-          cardId: item.cardId,
-          productType: item.productType,
-          gradeKey,
-          finish: item.finish,
-          // R3: la identidad REAL de la pieza entra a la llave de la cola.
-          cardProductId: item.cardProductId,
-        },
+        // R3: la identidad REAL de la pieza (`cardProductId`) entra a la llave de la cola.
+        pendingKey: queueKey,
         pendingReason,
       };
     }
@@ -1704,15 +1761,9 @@ export class InventoryService {
       salePriceCents: sale.priceCents,
       priceSource: 'derived',
       priceBasis: sale.basis,
-      pendingKey: {
-        cardId: item.cardId,
-        productType: item.productType,
-        gradeKey,
-        finish: item.finish,
-        // R3: el CIERRE simétrico usa la MISMA llave que la escalada — con los seis componentes, o
-        // resolver una variante apagaría el aviso de otra.
-        cardProductId: item.cardProductId,
-      },
+      // R3: el CIERRE simétrico usa la MISMA llave que la escalada — con los seis componentes, o
+      // resolver una variante apagaría el aviso de otra.
+      pendingKey: queueKey,
     };
   }
 
@@ -2941,16 +2992,7 @@ export class InventoryService {
       // v1.42 (BLOQ-2b): `sealedProductId` a la clave de la cola (ETB y blíster no colapsan).
       // ⚠️ P-79(d) · MONEY: misma corrección que el alta por lote — la clave es la de MERCADO, no el
       // literal `'sealed'` del override manual. Ver `sealedPendingGradeKeyOf`.
-      await this.pricing.escalatePending(
-        r.card.id,
-        line.productType,
-        this.sealedPendingGradeKeyOf(r),
-        'inventory',
-        undefined,
-        r.finish,
-        null,
-        r.sealedProductId,
-      );
+      await this.escalateSealedAltaIfPriceless(r, line.productType);
     }
     const folios = await this.prisma.nextFolios(qty);
     try {

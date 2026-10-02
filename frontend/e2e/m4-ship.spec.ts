@@ -198,7 +198,8 @@ for (const vp of VIEWPORTS) {
     test('cubeta SPEI: revelar CLABE → «Marcar pagada»; la CLABE no está en el HTML antes ni después', async ({ page }) => {
       mockOnly('la transferencia `mr-1001` (Ana) es del fixture con estado');
       const errors = collectPageErrors(page);
-      await page.goto('/es/admin/manual-refunds');
+      // §37.20: la lista SPEI es la cubeta por defecto de «Reembolsos» (la ruta vieja redirige: RF-6, abajo).
+      await page.goto('/es/admin/refunds');
 
       await expect(page.getByTestId('mr-row-mr-1001')).toBeVisible();
       expect(await page.content()).not.toMatch(EIGHTEEN_DIGITS);
@@ -222,6 +223,32 @@ for (const vp of VIEWPORTS) {
 
       await expectNoHorizontalOverflow(page);
       expect(errors).toEqual([]);
+    });
+
+    test('RF-6 (§37.20): `/admin/manual-refunds` redirige a «Reembolsos» (cubeta SPEI); el detalle NO redirige', async ({ page }) => {
+      // Corre también contra el stack real: nada de esto lee folios del fixture (la redirección, las pestañas y el enlace de vuelta
+      // del detalle se pintan igual contra el stack real, aunque `mr-1001` no exista allí).
+      const RP = (key: string) => t('es', `admin.refundsPage.${key}`);
+
+      await page.goto('/es/admin/manual-refunds');
+      await expect(page).toHaveURL(/\/es\/admin\/refunds$/);
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Reembolsos');
+      await expect(page.getByRole('tab', { name: new RegExp(`^${RP('tabs.spei')}`) })).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByRole('group', { name: MR('filter.label') })).toBeVisible();
+
+      // La otra cubeta reemplaza la URL.
+      await page.getByRole('tab', { name: RP('tabs.operators') }).click();
+      await expect(page).toHaveURL(/\/es\/admin\/refunds\?tab=operadores$/);
+      await expect(page.getByTestId('operator-summary')).toBeVisible();
+
+      // El detalle se queda en su ruta; su «volver» lleva a la cubeta SPEI.
+      await page.goto('/es/admin/manual-refunds/mr-1001');
+      await expect(page).toHaveURL(/\/es\/admin\/manual-refunds\/mr-1001$/);
+      await page.getByRole('link', { name: MR('backToList') }).click();
+      await expect(page).toHaveURL(/\/es\/admin\/refunds$/);
+      await expect(page.getByRole('group', { name: MR('filter.label') })).toBeVisible();
+
+      await expectNoHorizontalOverflow(page);
     });
 
     test('M3 · «Reclamar» con casilla por carta (v1.80.6) y la confirmación física', async ({ page }) => {

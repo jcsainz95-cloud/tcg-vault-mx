@@ -4,7 +4,7 @@ import { loginAs, realOnly, skipIfSeedMissing } from './utils/auth';
 import { apiAs, apiAsOk } from './utils/env';
 
 /**
- * **Cubeta «Reembolsos manuales (SPEI)» contra el STACK REAL** — P-REL-3 · contrato §M4-SHIP.15.13 y §M4-SHIP.17.3
+ * **Cubeta «Transferencias SPEI» (antes «Reembolsos manuales (SPEI)», §37.20) contra el STACK REAL** — P-REL-3 · contrato §M4-SHIP.15.13 y §M4-SHIP.17.3
  * (v1.80.8: `outcome` `paid|already_paid` / `cancelled|already_cancelled`) · `DESIGN_SYSTEM §37.9b`.
  *
  * Por qué existe: `m4-ship.spec.ts` corre 100 % contra mocks (el servidor con estado de `lib/mock/m4-ship`), y el
@@ -72,7 +72,8 @@ function waitApi(page: Page, method: string, re: RegExp): Promise<Response> {
 
 /** Lista → buscar por correo → «Ver» → detalle. Asevera que la CLABE no está en el HTML en ningún paso. */
 async function openFromBucket(page: Page, id: string): Promise<void> {
-  await page.goto('/es/admin/manual-refunds');
+  // §37.20: la lista SPEI es la cubeta por defecto de «Reembolsos» (`/admin/refunds`).
+  await page.goto('/es/admin/refunds');
   await page.getByRole('searchbox', { name: MR('search') }).fill(SPEI.email);
   const row = page.getByTestId(`mr-row-${id}`);
   await expect(row).toBeVisible();

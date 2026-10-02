@@ -9,6 +9,8 @@ import {
   receiveBuylistRequest,
   verifyBuylistRequest,
   rejectBuylistRequest,
+  declineBuylistRequest,
+  cancelBuylistOffer,
   decideBuylistItem,
   convertBuylistItemToInventory,
   revealBuylistClabe,
@@ -355,6 +357,51 @@ export function M5View() {
     setRejectRequestError(null);
   }
 
+  // --- «Declinar ahora» (D39 · POST /admin/buylist/:id/decline) y «Cancelar la oferta» (POST …/offer/cancel) ---
+  // DESIGN_SYSTEM §25.8: acción `secondary` de la ficha `cotizada`, con confirmación §7.6 porque es TERMINAL y
+  // manda el correo 4. Los dos roles (el operador ya tenía este poder por omisión: dejarla caducar). El motivo es
+  // INTERNO (0–500, bitácora) y ⛔ nunca llega al vendedor. «Cancelar la oferta» es la puerta de una `ofertada`
+  // (contrato, tabla «Qué ofrece M5 en cada estado»): una `ofertada` NO se declina — primero se cancela.
+  const [closeAction, setCloseAction] = useState<{ kind: 'decline' | 'cancelOffer'; requestId: string } | null>(null);
+  const [closeReason, setCloseReason] = useState('');
+  const [closeError, setCloseError] = useState<string | null>(null);
+  /** Aviso a nivel de página: tras declinar, la solicitud SALE de su pestaña y su ficha ya no está para anclarlo. */
+  const [pageNotice, setPageNotice] = useState<string | null>(null);
+  const closeReasonTooLong = closeReason.trim().length > REJECT_REASON_MAX;
+  const closeMutation = useMutation({
+    mutationFn: (vars: { kind: 'decline' | 'cancelOffer'; requestId: string; reason: string }) =>
+      vars.kind === 'decline'
+        ? declineBuylistRequest(vars.requestId, { reason: vars.reason })
+        : cancelBuylistOffer(vars.requestId, { reason: vars.reason }),
+    onSuccess: (_d, vars) => {
+      closeCloseAction();
+      void qc.invalidateQueries({ queryKey: ['admin-buylist'] });
+      void qc.invalidateQueries({ queryKey: ['admin-buylist-closed'] });
+      // Declinar anula la oferta `pending_authorization` viva; las dos cambian «vendedores con solicitudes vivas».
+      void qc.invalidateQueries({ queryKey: ['buylist-pending-auth'] });
+      void qc.invalidateQueries({ queryKey: ['buylist-live-sellers'] });
+      setFeedback(null);
+      setPageNotice(
+        vars.kind === 'decline'
+          ? tDesk('decline.done', { id: vars.requestId })
+          : tDesk('cancelOffer.done', { id: vars.requestId }),
+      );
+      if (deskFor === vars.requestId) setDeskFor(null);
+    },
+    // `409 DECLINE_NOT_ALLOWED` / `409 OFFER_NOT_CANCELLABLE`: dentro del diálogo, con su copy de `error.*`.
+    onError: (e) => setCloseError(getError(e)),
+  });
+  function openCloseAction(kind: 'decline' | 'cancelOffer', requestId: string) {
+    setCloseAction({ kind, requestId });
+    setCloseReason('');
+    setCloseError(null);
+  }
+  function closeCloseAction() {
+    setCloseAction(null);
+    setCloseReason('');
+    setCloseError(null);
+  }
+
   // --- Conversión a inventario (contrato POST .../convert-to-inventory) ---
   const convertMutation = useMutation({
     mutationFn: (vars: { requestId: string; itemId: string }) =>
@@ -515,6 +562,13 @@ export function M5View() {
     <div className="flex flex-col gap-6">
       <h1 className="text-h1 font-bold">{tModules('m5')}</h1>
       <p className="text-sm text-muted">{t('cherryPick')}</p>
+      {pageNotice && (
+        <div data-testid="m5-page-notice">
+          <Banner variant="success" role="status">
+            {pageNotice}
+          </Banner>
+        </div>
+      )}
 
       {/* Buscador por folio/usuario (clave i18n admin.searchGlobal) */}
       <div className="max-w-sm">
@@ -757,7 +811,7 @@ export function M5View() {
               ) : (
                 <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface px-4">
                   {closedQuery.data.data.map((req) => (
-                    <div key={req.id} className="flex flex-col gap-2 py-4">
+                    <div key={req.id} data-testid={`m5-closed-${req.id}`} className="flex flex-col gap-2 py-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="tabular text-sm font-medium">{req.id}</span>
@@ -947,7 +1001,7 @@ export function M5View() {
           // el cierre de una solicitud.
           const canRejectRequest = req.isTerminal === false && allItemsRejected;
           return (
-            <div key={req.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+            <div key={req.id} data-testid={`m5-request-${req.id}`} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="tabular text-sm font-medium">{req.id}</span>
@@ -996,6 +1050,19 @@ export function M5View() {
                     onClick={() => setDeskFor(deskFor === req.id ? null : req.id)}
                   >
                     {deskFor === req.id ? tDesk('close') : tDesk('open')}
+                  </Button>
+                )}
+                {/* §25.8 «Declinar ahora» (D39): `secondary`, no `destructive` — no destruimos nada del
+                    cliente, le contestamos. Solo `cotizada` abierta (`isTerminal` del SERVIDOR, fail-closed). */}
+                {req.status === 'cotizada' && req.isTerminal === false && (
+                  <Button size="sm" variant="secondary" onClick={() => openCloseAction('decline', req.id)}>
+                    {tDesk('decline.action')}
+                  </Button>
+                )}
+                {/* Contrato «Qué ofrece M5 en cada estado»: en `ofertada` la otra acción es `offer/cancel`. */}
+                {req.status === 'ofertada' && (
+                  <Button size="sm" variant="secondary" onClick={() => openCloseAction('cancelOffer', req.id)}>
+                    {tDesk('cancelOffer.action')}
                   </Button>
                 )}
                 {/* §M5-S (v1.68, cierre de P-58): «Marcar recibida» SOLO en `en_transito` — el
@@ -1339,6 +1406,54 @@ export function M5View() {
             </Banner>
           )}
         </div>
+      </Modal>
+
+      {/* §25.8 · confirmación §7.6 de «Declinar ahora» y de «Cancelar la oferta» (motivo interno opcional). */}
+      <Modal
+        open={!!closeAction}
+        onClose={closeCloseAction}
+        title={closeAction ? tDesk(`${closeAction.kind}.title`) : ''}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeCloseAction}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={closeReasonTooLong}
+              loading={closeMutation.isPending}
+              data-testid="m5-close-confirm"
+              onClick={() =>
+                closeAction &&
+                !closeReasonTooLong &&
+                closeMutation.mutate({ ...closeAction, reason: closeReason })
+              }
+            >
+              {closeAction ? tDesk(`${closeAction.kind}.confirm`) : ''}
+            </Button>
+          </>
+        }
+      >
+        {closeAction && (
+          <div className="flex flex-col gap-3">
+            <p className="tabular text-sm font-medium">{closeAction.requestId}</p>
+            <p className="leading-[1.7]">{tDesk(`${closeAction.kind}.body`)}</p>
+            <Input
+              label={tDesk(`${closeAction.kind}.reasonLabel`)}
+              hint={tDesk(`${closeAction.kind}.reasonHint`)}
+              error={closeReasonTooLong ? tDesk('reasonTooLong') : undefined}
+              type="text"
+              maxLength={REJECT_REASON_MAX}
+              value={closeReason}
+              onChange={(e) => setCloseReason(e.target.value)}
+            />
+            {closeError && (
+              <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+                {closeError}
+              </Banner>
+            )}
+          </div>
+        )}
       </Modal>
 
       {/* Modal de ajuste de precio por carta (decision=adjust + approvedPriceCents) */}

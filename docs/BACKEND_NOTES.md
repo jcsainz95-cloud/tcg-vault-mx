@@ -26278,3 +26278,146 @@ condicionado.
 `payments.service.ts · onChargeRefunded` (origen `CHARGE_REFUNDED_SOURCE_STATUSES`, v1.80.8.3),
 `refund-ledger.service.ts` cabecera (M3: `onFullRefund` y después `WHERE status='settled'`), y `readGuardedItem` /
 `guardedItemUpdate` en `inventory.service.ts` (también los usa el PATCH no publicante). Solo comentarios.
+
+## 14 · Cola de precio pendiente (Venta): «SIN MOTIVO» — escritores del alta y del sellado ponen `reason` (2026-10-02, rama `claude/post-release-s5`, sobre `22b0b08d`)
+
+**Síntoma (dueño):** encabezado de M2 Venta «0 SIN MERCADO · 17 PREMIUM EN EL PISO · 19 SIN MOTIVO». «Sin motivo» =
+`counts.unknown` = filas `open` con `reason IS NULL` (contrato §M2: «filas anteriores a M-41»), pero las de hoy las
+siguen escribiendo escritores vigentes que llaman a `escalatePending` sin su 9.º argumento (default `null`).
+
+**Escritores medidos (re-medido sobre `22b0b08d`):**
+| Escritor | Antes | Ahora |
+|---|---|---|
+| `createItem` / `batchCreate` / `adjust(encontrada)` — sellado sin `listPriceCents` | `reason=null`, y escalaba **siempre** (aunque hubiera mercado) | `escalateSealedAltaIfPriceless`: escala **solo** si no resuelve (sin override manual del alta, y sin mapeo o `gateSealedMarketCents(ref, sourceOn) == null`), con `no_market` |
+| `resolveCreation` — aportación sin referencia (raw/graded/sellado) | `reason=null` | `no_market` |
+| `resolvePublishSalePrice` — sellado sin override ni mercado | `reason=null` | `derived.pendingReason ?? 'no_market'` |
+| `resolvePublishSalePrice` — raw/graded | ya `?? 'no_market'` | sin cambio |
+| `PricingService.syncCardPrice` (job `price-sync`) | `reason=null` | **SIN CAMBIO — bloqueado, va al arquitecto** (abajo) |
+
+**Por qué el alta de sellado ya no escala si el precio resuelve:** el contrato del alta (§M1 `POST /admin/inventory/items`,
+v1.23) dice «si se omite [`listPriceCents`], el sellado se auto-precia por mercado TCGCSV × spread cuando está mapeado […];
+sin mercado ni override queda PRICE_PENDING». Escalar un sellado que SÍ resuelve no tiene motivo verdadero en
+`PendingPriceReason = no_market | premium_at_floor`, y esa fila **no la cierra nadie** (la publicación del sellado no cierra
+la cola: `pendingKey: null`). Escalar es solo aviso: no mueve ningún precio. La puerta es la MISMA que la publicación
+(`gateSealedMarketCents` con el dial `sealedPriceSource`; el override manual de mercado sobrevive al dial).
+
+**Por qué `syncCardPrice` NO se tocó (decisión pendiente del arquitecto):** su escalada no significa «sin mercado», significa
+«el proveedor POR CARTA no devolvió cotización hoy». Medido en código: los proveedores de `graded`/`sealed` son *stubs* que
+devuelven siempre `null` (`providers/graded-sealed.providers.ts:23-31`, `:48-52`) ⇒ cada pieza graded/sealed del barrido
+escala **cada día**; el sellado además escala con `tryGradeKeyFor(item)` = `'sealed'` (clave de override, no la de mercado
+`sealed:tcg:<id>` que lee la publicación) ⇒ fila que nada cierra; y en raw, un HTTP fallido de pokemontcg.io escala aunque
+`price-ingest` tenga referencia. Ponerle `no_market` sería falso y rompería el diagnóstico del contrato («suben los dos a la
+vez ⇒ feed degradado»). Además el job barre `status ∉ {withdrawn, lost}` sin filtrar `ownerType` (`jobs/price-sync.service.ts:35-41`)
+y escala con `context='inventory'` piezas de CLIENTE y vendidas; ARCHITECTURE §5 (`price-sync` «sí escala pendientes» de
+«los items en custodia») lo describe así, y §4.24c define VENTA como inventario de plataforma: es una contradicción de diseño,
+no un arreglo de backend.
+
+**Filas históricas `reason IS NULL`:** `escalatePending` ya actualiza la razón de una fila abierta de la misma clave
+(`pricing.service.ts` `if (reason != null && open.reason !== reason)`), así que un `publish-all` tras este cambio reclasifica
+(o cierra, raw/graded que resuelven) las filas de piezas de plataforma `in_stock|listed`. Lo que quede `null` después es de
+claves que ninguna pieza vendible necesita (price-sync sobre clientes/vendidas/`'sealed'`) — su cierre depende de la decisión
+de arriba. No se escribió migración: reclasificar exige resolver el precio (lógica de app), no es SQL idempotente y seguro.
+
+**Pruebas:** `test/inventory.pending-reason-writers.spec.ts` (12, `escalatePending` REAL sobre almacén en memoria): 12/12 rojas
+sobre `22b0b08d`, verdes después. `inventory.sealed.spec.ts` y `inventory.finish-pending.spec.ts` aseveraban la firma vieja
+(sin motivo); ahora aseveran `'no_market'`. Mutaciones (copia entera, deterministas): helper sin `reason` ⇒ 6 rojas; sin
+puerta de mercado ⇒ 3; sin salida por override manual ⇒ 1; publicación de sellado con `null` ⇒ 2; aportación sin `reason` ⇒ 2;
+ignorar el dial (`sourceOn=true`) ⇒ 1. Unitaria completa 381 suites / 6408 verdes; integración completa (BD propia
+`tcg_be_pending_reason`) 67 suites / 1434 verdes.
+
+## 15 · v1.80.8.4 construida — la cola de VENTA la escribe solo la vía de precio de venta; barrido VQ; el sellado cierra su fila (2026-10-02, sobre `bc9eac45`)
+
+Norma: API_CONTRACT rev v1.80.8.4 §M2 `M2-VQ` (VQ-1…VQ-9) y ARCHITECTURE §4.36.5 (c-bis). Sin schema, sin enum, sin
+cambio de forma.
+
+- **`PricingService.syncCardPrice`** pierde la escalada (sus dos ramas: sin cotización y M-43) y los parámetros
+  `context`/`refId`/`escalate`, que solo existían para ella. Firma: `(card, productType, gradeKey, finish)`.
+  `set-price-sync` ajustado; `test/set-value.spec.ts` asevera la llamada de 4 argumentos.
+- **`PriceSyncJobService.run()`**: mismo alcance de barrido (refresca `PriceReference` de todo lo no `withdrawn/lost`).
+  Log de telemetría `{ priced, noQuote (por productType), failed, skippedNoGradeIdentity }`. `noQuote` = `syncCardPrice`
+  devolvió `pending` (incluye la rama M-43, fila del día que no es de mercado). Solo en corrida **completa** (sin
+  `cardIds`) llama a `sweepUnreasonedSaleQueue()`. ~~o con lista vacía, que ya barría todo~~ — **corregido en §16**: un
+  `cardIds` vacío es «ninguna carta» (no-op), nunca «todas».
+- **Barrido VQ** (`sweepUnreasonedSaleQueue`, público para ops/pruebas): filas `open ∧ context='inventory' ∧ reason IS
+  NULL`; se cierran (`resolved`, `resolvedAt=now`, `resolvedPriceRefId=null`) las que no casan con la clave de cola de
+  ninguna pieza `platform ∧ {in_stock, listed} ∧ ¬hasManualPrice`. Clave de pieza en `queueKeyOfItem`, idéntica a la
+  de `derivePublishSalePrice` (raw/graded por `tryGradeKeyFor`; sellado por `sealedMarketGradeKeyForItem ?? 'sealed'`,
+  `normal`, `sealedProductId`). El `updateMany` repite el predicado `reason: null`: si un escritor le puso motivo entre
+  la lectura y la escritura, no se toca. Log con nº de cerradas y sus ids.
+- **VQ-6:** `derivePublishSalePrice` devuelve `pendingKey` también cuando el sellado resuelve (misma clave que la
+  escalada, una sola constante `sealedKey`); `resolvePublishSalePrice` cierra con `settlePendingForVariant(null, …,
+  'inventory')`. Precio manual por pieza ⇒ `pendingKey: null` ⇒ no cierra.
+- **Censo VK-6** (`pricing.valuation-callers-census.spec.ts`): `jobs/price-sync.service.ts` `n` 1→2 (el barrido usa la
+  llave de cola), `why` reescrito. **Candado VQ-5** nuevo en `test/pricing.vq-sale-queue.spec.ts`: censo cerrado de
+  `escalatePending|settlePendingForVariant` en `src/` (inventory 5, price-ingest 1, pricing 3, buylist 1 —
+  `createRequest`), cuerpo de `syncCardPrice` sin cola ni `escalate`, y llamadas de 4 argumentos.
+- `test/sealed-price-resolver.spec.ts`: su prisma de prueba no tenía `pendingPriceEntry.updateMany` (el sellado nunca
+  cerraba); se añade y se asevera que el cierre usa `sealed:tcg:100` (refuerzo, no debilitamiento).
+
+**Pruebas y mediciones:**
+| Medición | Resultado |
+|---|---|
+| VQ-1…5, 7, 8 (`test/pricing.vq-sale-queue.spec.ts`, 10) + VQ-6 (`inventory.pending-reason-writers.spec.ts`, 3) | verdes |
+| VQ-9 (`test/integration/sale-queue-vq.e2e-spec.ts`, BD propia) | 3/3 verdes; sobre `bc9eac45` sin el cambio: **roja** (`unknown` 2, esperado 0) |
+| Mutaciones unitarias (copia entera, deterministas, N=1 cada una) | escalada reintroducida sin cotización ⇒ 5 rojas; en rama M-43 ⇒ 3; barrido sin `ownerType` ⇒ 1; sin `hasManualPrice` ⇒ 1; sin `reason: null` ⇒ 1; sin `context` ⇒ 1; barre también con `cardIds` ⇒ 1; clave de sellado legacy en el barrido ⇒ 1; sellado sin `pendingKey` al resolver ⇒ 1 |
+| Mutación de integración: `run()` sin barrido | VQ-9 roja (`unknown` 2) |
+| Unitaria completa | 382 suites / 6421 verdes |
+| Integración completa (BD propia `tcg_be_vq`, dos corridas) | 1.ª: 67/68 (`enum-query-axes` `/admin/vaults?sort=`, que corrió ANTES de la suite nueva); 2.ª: 67/68 (`buylist-intake-concurrency`, barrera de candado por tiempo). Aisladas el par: árbol vivo 7/8 corridas verdes (N=8); árbol sin el cambio 4/5 (N=5) ⇒ intermitencia preexistente, no de este cambio |
+
+## 16 · Gate de QA + techlead sobre `8a10153e`: `scope` validado, `cardIds` vacío no barre, clave de cola compartida (2026-10-02)
+
+Rama `claude/post-release-s5`. Norma: API_CONTRACT §M2 v1.80.8.4 (`POST /admin/pricing/sync`, «con `scope="cardIds"` no
+barre») y `M2-VQ`. Sin schema, sin enum, sin cambio de forma de request/response.
+
+**1 · QA MENOR — `POST /admin/pricing/sync`.**
+- `SyncDto.scope`: `@IsIn(PRICE_SYNC_SCOPES)` (`['all_vault','cardIds']`, exportado desde `pricing.controller.ts`).
+  `{"scope":"bogus"}` / `""` / no-string ⇒ **`400 VALIDATION_ERROR`** del pipe (antes 201 y corrida completa).
+- `SyncDto.cardIds`: `@IsArray() @IsString({ each: true })` (antes sin validar: un string llegaba a Prisma).
+- `PriceSyncJobService.enqueue('cardIds', [] | undefined)` ⇒ **no-op, `201 { jobId, queued: 0 }`**, sin refrescar y
+  ⛔ sin barrido VQ. `run(cardIds?)`: `undefined` = completa (scheduler / `all_vault`) con barrido; array = solo esas
+  cartas, sin barrido; `[]` = ninguna.
+- ⚠️ **Para el arquitecto:** el contrato no dice si `scope="cardIds"` con lista vacía es `400` o no-op. Implementé
+  **no-op** (es lo único que el texto exige: «no barre», y la forma de respuesta no cambia). Si se prefiere `400`, es
+  un `@ArrayNotEmpty` condicionado a `scope="cardIds"` y una línea en §M2.
+
+**2 · QA MENOR — `buylist-cycle.e2e-spec.ts` hermético.** `findFirst` de la dirección del customer con
+`orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }]` (el mismo de `seed-e2e.ts`), y el bloque «corregir la
+dirección de origen» purga en `beforeAll`/`afterAll` las direcciones `Calle Nueva 456` del customer (`Address` no
+tiene FKs entrantes: el snapshot de la solicitud es JSON).
+
+**3 · Techlead D-1 — una derivación y una serialización de la clave de cola de VENTA.** Nuevo
+`src/modules/pricing/sale-queue-key.ts`: `saleQueueKeyOf(item, resolvers)` / `sealedSaleQueueKeyOf` (pura dada
+`SaleQueueKeyResolvers`, que es `PricingService`; se pasa como parámetro para que los dobles que sustituyen
+`tryGradeKeyFor` sigan gobernando ambos llamadores) y `serializeSaleQueueKey` (`JSON.stringify` de la tupla de seis,
+`undefined ≡ null`). La usan `derivePublishSalePrice` (sellado y raw/graded) y el barrido VQ; se retiraron
+`queueKeyOfItem`/`queueKey` del job y el `|`.join de `pendingQueueKey` (que conserva nombre y los seis componentes a la
+vista por R3, delegando en la serialización). Censo VK-6: `inventory.service.ts` 4→3, `price-sync.service.ts` 2→1,
+`sale-queue-key.ts` 2 (nuevo).
+
+**4 · Techlead D-2 / D-6 — hechos, sin deuda que registrar.** La escritura del barrido es
+`PricingService.closeUnreasonedSaleQueueRows(ids)` (mismo predicado `open ∧ inventory ∧ reason IS NULL` en el `where`;
+devuelve el `count` real). VQ-5 ampliado: censo de escrituras crudas `pendingPriceEntry.(create|createMany|update|
+updateMany|upsert|delete|deleteMany|…AndReturn)` = `{ pricing.service.ts: 5 }`, ningún `"PendingPriceEntry"` en SQL
+crudo, y `closeUnreasonedSaleQueueRows` solo desde `price-sync`. El log del barrido enumera como mucho
+`VQ_SWEEP_LOG_ID_CAP = 20` ids y añade `… (+N más)`. (El censo es léxico: un alias lo esquiva; lo cubre la revisión.)
+
+**Pruebas nuevas:** `test/pricing.sale-queue-key.parity.spec.ts` (paridad POR CONDUCTA: la `pendingKey` real de
+`derivePublishSalePrice` sembrada como fila «sin motivo» ⇒ el barrido real la deja y cierra la variante vecina, en raw,
+graded, sellado mapeado, sellado legacy y promo con `cardProductId`; también con precio derivado; graded sin slab sin
+clave; censo de uso), `test/pricing.sync-dto.spec.ts`, dos casos nuevos en `test/pricing.vq-sale-queue.spec.ts`
+(`cardIds` vacío no-op; tope del log) y `test/integration/pricing-sync-scope.e2e-spec.ts` (por HTTP: `[]` y omitido ⇒
+201 `queued: 0` sin barrido; `bogus`/`""`/`cardIds` string ⇒ 400; testigo «sin motivo» intacto).
+
+**Mediciones (autor: backend, 2026-10-02):**
+| Medición | Resultado |
+|---|---|
+| `tsc --noEmit` | limpio |
+| Unitaria completa (`--maxWorkers=2`) | **384/384 suites, 6444/6444** |
+| Mutaciones (copia del árbol entero, deterministas, N=1 cada una) | `derivePublishSalePrice` cierra sin `cardProductId` ⇒ 1 roja; escala sin `cardProductId` ⇒ 1; barrido sin `sealedProductId` ⇒ 3; `cardIds` vacío = completa ⇒ 1; `scope` con `@IsString` ⇒ 2; escritura de vuelta en el job ⇒ 1 (VQ-5); log sin tope ⇒ 1 — **7/7 muerden** |
+| `buylist-cycle` sobre BD reutilizada (2.ª corrida completa, spec viejo) | **4/72 rojas** (snapshot, detalle admin, guía, correo PII) — las 4 de QA |
+| Spec viejo sobre BD con dirección sobrante | **3/3 corridas con 4 rojas** |
+| Spec nuevo sobre BD con 2 y con 4 direcciones sobrantes | **6/6 corridas 72/72**; sobrantes tras cada corrida: 0 |
+
+| Integración completa, árbol vivo (BD propia `tcg_backend_s5`, Postgres/Redis compartidos), 4 corridas | antes del arreglo de `buylist-cycle`: 1.ª 1441/1443 (2 rojas `buylist-intake-concurrency`), 2.ª 1435/1443 (las 4 de `buylist-cycle` + las 2 de concurrencia). Con todo (incl. `brace-expansion`): 1.ª 1439/1443 (2 rojas `buylist-intake-concurrency`), 2.ª **1441/1441 + 2 skipped, 69/69 suites** |
+| `buylist-intake-concurrency` (barrera de candado por tiempo, 10 s) | aislada en árbol vivo **5/5 verdes**; en corrida completa del árbol vivo verde 1/4; árbol `8a10153e` completo 1/1 verde. El cambio no toca su camino (`POST /buylist/requests`); §15 ya la midió intermitente sobre la base (7/8). **No atribuida con certeza: N pequeño** |
+| `npm audit --omit=dev` (parche de devops) | antes: 1 high (`brace-expansion`) + 6 moderate; después: **0 high / 0 critical** + los mismos 6 moderate (`@nestjs/core`, `multer`, `qs`) |

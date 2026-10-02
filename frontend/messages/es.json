@@ -1298,9 +1298,8 @@
       "m2Bounties": "Bounties",
       "m4Badge": "{count, plural, one {# pedido por preparar} other {# pedidos por preparar}}",
       "m4BadgeOverdue": "con casos vencidos",
-      "manualRefunds": "Reembolsos manuales (SPEI)",
       "manualRefundsBadge": "{count, plural, one {# transferencia pendiente} other {# transferencias pendientes}}",
-      "refunds": "Reembolsos de operadores"
+      "refunds": "Reembolsos"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
@@ -2172,7 +2171,7 @@
             "noPaste": "Escríbelo a mano",
             "mismatch": "No coincide con {amount}."
           },
-          "result": "Caso resuelto: reembolso de {amount} capturado. {stripe} {stripeState, select, requested {pedido a Stripe} none {} other {aceptado por Stripe}}{manual, select, none {} other { · {manualAmount} en «Reembolsos manuales (SPEI)»}}{closed, select, yes { · retiro cerrado y envío devuelto} other {}}.",
+          "result": "Caso resuelto: reembolso de {amount} capturado. {stripe} {stripeState, select, requested {pedido a Stripe} none {} other {aceptado por Stripe}}{manual, select, none {} other { · {manualAmount} en «Reembolsos › Transferencias SPEI»}}{closed, select, yes { · retiro cerrado y envío devuelto} other {}}.",
           "resultLink": "Ver la cubeta SPEI",
           "already": "Este caso ya se había reembolsado. No se hizo nada nuevo.",
           "error": {
@@ -2392,7 +2391,26 @@
         },
         "sent": "Oferta emitida: el correo salió y el vendedor ya tiene {netAmount} sobre la mesa.",
         "pendingAuthorization": "Preparada y esperando autorización del súper-admin. El correo NO se ha mandado y la solicitud sigue igual para el vendedor.",
-        "readOnly": "La oferta ya salió: la mesa es de solo lectura."
+        "readOnly": "La oferta ya salió: la mesa es de solo lectura.",
+        "decline": {
+          "action": "Declinar",
+          "title": "Declinar esta solicitud",
+          "body": "Se cierra la solicitud y se le manda el correo de «no procederemos». No se puede reabrir ni volver a ofertar; si el vendedor sigue interesado, tendrá que cotizar de nuevo.",
+          "reasonLabel": "Motivo (interno, queda en bitácora)",
+          "reasonHint": "Opcional, hasta 500 caracteres. El vendedor no lo verá.",
+          "confirm": "Declinar y avisarle",
+          "done": "Solicitud {id} declinada: quedó cerrada y se le manda el correo de «no procederemos»."
+        },
+        "cancelOffer": {
+          "action": "Cancelar la oferta",
+          "title": "Cancelar la oferta",
+          "body": "Se le manda al vendedor el correo de cancelación y la solicitud vuelve a «Por ofertar» con su plazo completo. Para corregir la oferta, emite otra desde la mesa de decisión.",
+          "reasonLabel": "Motivo (interno, queda en bitácora)",
+          "reasonHint": "Opcional, hasta 500 caracteres. El vendedor no lo verá.",
+          "confirm": "Cancelar la oferta y avisarle",
+          "done": "Oferta de {id} cancelada: la solicitud volvió a «Por ofertar»."
+        },
+        "reasonTooLong": "El motivo no puede pasar de 500 caracteres."
       },
       "shipment": {
         "title": "Guía y envío",
@@ -4286,7 +4304,6 @@
       }
     },
     "manualRefunds": {
-      "title": "Reembolsos manuales (SPEI)",
       "hint": "Lo que hay que transferir a mano. El sistema no transfiere: aquí se registra que lo hiciste.",
       "filter": {
         "label": "Estado",
@@ -4321,7 +4338,7 @@
         "search": "Nada coincide con «{q}»."
       },
       "view": "Ver",
-      "backToList": "Volver a la cubeta",
+      "backToList": "Volver a «Transferencias SPEI»",
       "detailTitle": "Transferencia {id}",
       "case": "Caso",
       "viewCase": "Ver caso",
@@ -4406,8 +4423,15 @@
         "originNotSettled": "La compra de origen está {status, select, chargeback {en disputa} other {reembolsada}}{disputed, select, yes { (Stripe rechazó por disputa)} other {}}: el banco ya está resolviendo ese dinero. No se crea nada."
       }
     },
+    "refundsPage": {
+      "hint": "Las transferencias que pagas a mano y los reembolsos que hicieron los operadores.",
+      "tabs": {
+        "spei": "Transferencias SPEI",
+        "operators": "Reembolsos de operadores",
+        "speiCount": "{count, plural, one {# pendiente} other {# pendientes}}"
+      }
+    },
     "refunds": {
-      "title": "Reembolsos de operadores",
       "hint": "Lo que cada operador ha devuelto al preparar envíos. Sin correo: el panel es el aviso.",
       "generatedAt": "Calculado el {date} · tope por operador en 24 h: {cap}",
       "summaryTitle": "Resumen por operador",
@@ -4715,7 +4739,9 @@
     "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar.",
     "DECK_NOT_FOUND": "No encontramos ese deck. Puede que haya salido del top-10.",
     "DECK_LIST_UNPARSEABLE": "No pudimos leer ninguna carta de tu lista. Revisa el formato (cantidad, set y número) e inténtalo de nuevo.",
-    "ITEM_ORIGIN_REFUNDED": "Una carta de tu retiro viene de una compra que se está reembolsando y no se puede enviar. Quítala y vuelve a intentarlo."
+    "ITEM_ORIGIN_REFUNDED": "Una carta de tu retiro viene de una compra que se está reembolsando y no se puede enviar. Quítala y vuelve a intentarlo.",
+    "DECLINE_NOT_ALLOWED": "Esta solicitud no se puede declinar en el punto en que está. Si ya tiene una oferta enviada, la vía es cancelar la oferta, que es el aviso que le corresponde al vendedor; si ya cerró, no hay nada que declinar. Vuelve a cargarla para ver su estado. No se guardó nada.",
+    "OFFER_NOT_CANCELLABLE": "Esta oferta ya no se puede cancelar: no hay una oferta viva o la solicitud ya avanzó (una aceptada no se cancela por aquí). Vuelve a cargarla para ver su estado. No se guardó nada."
   },
   "payment": {
     "title": "Pago",

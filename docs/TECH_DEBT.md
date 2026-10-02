@@ -8836,7 +8836,19 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   7. Sin cambio de contenido: `git diff -w --stat` del commit de ux-ui ≈ movimiento (líneas añadidas ≈ borradas, salvo
      anclas, puente de §37.13 y la línea de §0).
 
-### RS5-UX-Q1 · pregunta pendiente del dueño · Dónde va «Reembolsos manuales (SPEI)» en el menú del panel (C3 de §37.0-bis)
+### ~~RS5-UX-Q1 · pregunta pendiente del dueño · Dónde va «Reembolsos manuales (SPEI)» en el menú del panel (C3 de §37.0-bis)~~ — **RESPONDIDA 2026-10-02**
+
+- **Respuesta del dueño** (`HECHOS.md` 2026-10-02, fila «Menú del panel: se queda como está; «Reembolsos manuales
+  (SPEI)» y «Reembolsos de operadores» se JUNTAN en UNA sola pestaña con dos cubetas»): *«del menú déjalo como está
+  ahora, solo junta spei y los reembolsos en una sola pestaña, ahí atacamos las dos, ponlas dentro de la pestaña como en
+  dos cubetas distintas»*. Ni (a) ni (b) tal cual: el sitio es el de hoy (junto a «Ventas», ≈ (b)) y además las dos
+  entradas se funden en una.
+- **Cómo queda:** `DESIGN_SYSTEM.md` **v4.10**: C3 de §37.0-bis **retirada**; diseño nuevo en **§37.20** (una entrada
+  «Reembolsos» / “Refunds” en `/admin/refunds`, en «Día a día» tras «Ventas», badge = SPEI pendientes; dentro, cubetas
+  «Transferencias SPEI» (por defecto) y «Reembolsos de operadores»; `/admin/manual-refunds` redirige; el detalle
+  `/admin/manual-refunds/:id` se queda). Lo que sigue abierto ya no es pregunta del dueño sino **trabajo de frontend**
+  (§37.20 e) con sus candados **RF-1..RF-8** (§37.20 g), que sustituyen el candado propuesto abajo.
+- *Texto original, para la historia:*
 
 - **Qué está decidido y qué no (medido):** `DESIGN_SYSTEM.md:19851` (C3) lo resolví como **consolidación de ux-ui, a
   confirmar**: grupo **«Administración»**, justo **después de «Finanzas»**, con etiqueta **SÚPER**, porque §38.2 (b) dice
