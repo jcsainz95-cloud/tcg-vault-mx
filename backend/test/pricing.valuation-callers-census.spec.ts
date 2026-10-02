@@ -103,10 +103,12 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
     why: 'Barrido de cola del ingest: el `where` acota a `productType:\'raw\'`.',
   },
   'jobs/price-sync.service.ts': {
-    n: 1,
+    n: 2,
     why:
-      'Job `price-sync`: sincroniza/ESCALA a la cola por clave de variante. Para sellado pide `\'sealed\'` — ' +
-      'es el uso de COLA que SK-2 preserva (no valúa patrimonio).',
+      'Job `price-sync` (v1.80.8.4, §M2 `M2-VQ`): (1) clave de la `PriceReference` que refresca por pieza ' +
+      '(sellado ⇒ `\'sealed\'`; ya NO escala a la cola); (2) `queueKeyOfItem` del barrido VQ, que casa ' +
+      'filas `reason IS NULL` de VENTA con la clave de COLA de las piezas vendibles de plataforma. ' +
+      'Uso de COLA que SK-2 preserva (no valúa patrimonio).',
   },
 };
 

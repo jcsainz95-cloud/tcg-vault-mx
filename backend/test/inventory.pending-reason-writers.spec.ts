@@ -135,7 +135,26 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
           data,
         ),
       ),
-      updateMany: jest.fn(async () => ({ count: 0 })),
+      // Cierre REAL (`closePendingForVariant`): clave de seis + `status` + el `OR` por motivo/eje.
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        let count = 0;
+        for (const e of pendingStore) {
+          if (!dedupeMatch(e, where)) continue;
+          if (
+            where.OR &&
+            !where.OR.some(
+              (o: any) =>
+                (e.reason ?? null) === (o.reason ?? null) &&
+                (o.context == null || o.context === e.context),
+            )
+          ) {
+            continue;
+          }
+          Object.assign(e, data);
+          count++;
+        }
+        return { count };
+      }),
     },
     inventoryBatch: {
       findUnique: jest.fn(async () => null),
@@ -347,5 +366,62 @@ describe('publicación de SELLADO sin precio ⇒ escala con `no_market` y reclas
       status: 'open',
       reason: 'no_market',
     });
+  });
+});
+
+describe('VQ-6 (v1.80.8.4) — el SELLADO que resuelve en publicación CIERRA su fila', () => {
+  const seed = (h: ReturnType<typeof buildHarness>, listPriceCents: number | null) => {
+    h.items.push({
+      id: 'inv-s1',
+      cardId: 'card-anchor',
+      productType: 'sealed',
+      ownerType: 'platform',
+      status: 'in_stock',
+      finish: 'normal',
+      listPriceCents,
+      sealedSubtype: 'etb',
+      tcgplayerProductId: 777,
+      sealedProductId: 'sp-etb',
+      cardProductId: null,
+    });
+    h.pendingStore.push({
+      id: 'pend-nm',
+      cardId: 'card-anchor',
+      productType: 'sealed',
+      gradeKey: 'sealed:tcg:777',
+      finish: 'normal',
+      cardProductId: null,
+      sealedProductId: 'sp-etb',
+      context: 'inventory',
+      status: 'open',
+      reason: 'no_market',
+    });
+  };
+
+  it('fila `open no_market` en `(card, sealed, sealed:tcg:777, normal, null, sp)`; llega mercado; publicar ⇒ publica y la fila pasa a `resolved`', async () => {
+    const h = buildHarness();
+    seed(h, null);
+    withMarket(h);
+    const res = await h.svc.bulkPublish({ items: [{ inventoryItemId: 'inv-s1' }] } as any, 'admin');
+    expect(res.results[0]).toMatchObject({ ok: true, status: 'listed' });
+    expect(h.pendingStore[0]).toMatchObject({ id: 'pend-nm', status: 'resolved' });
+  });
+
+  it('con precio MANUAL por pieza (`listPriceCents`) publica pero NO cierra (no dice nada del mercado)', async () => {
+    const h = buildHarness();
+    seed(h, 250000);
+    withMarket(h);
+    const res = await h.svc.bulkPublish({ items: [{ inventoryItemId: 'inv-s1' }] } as any, 'admin');
+    expect(res.results[0]).toMatchObject({ ok: true, status: 'listed' });
+    expect(h.pendingStore[0]).toMatchObject({ id: 'pend-nm', status: 'open', reason: 'no_market' });
+  });
+
+  it('sin mercado sigue sin publicar y la fila sigue abierta (no se cierra por error)', async () => {
+    const h = buildHarness();
+    seed(h, null);
+    const res = await h.svc.bulkPublish({ items: [{ inventoryItemId: 'inv-s1' }] } as any, 'admin');
+    expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'PRICE_PENDING' } });
+    expect(h.pendingStore).toHaveLength(1);
+    expect(h.pendingStore[0]).toMatchObject({ status: 'open', reason: 'no_market' });
   });
 });

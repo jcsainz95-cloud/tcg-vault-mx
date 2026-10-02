@@ -838,8 +838,8 @@ export class InventoryService {
    * hoy: «si se omite, el sellado se auto-precia por mercado TCGCSV × spread cuando está mapeado […];
    * **sin mercado ni override queda PRICE_PENDING**». Una entrada abierta para un sellado que SÍ
    * resuelve no tiene motivo verdadero que ponerle (`PendingPriceReason = no_market | premium_at_floor`,
-   * y el guardarraíl es solo de raw/graded), y además **no la cerraría nadie**: la publicación del
-   * sellado no cierra la cola (`pendingKey: null` en `derivePublishSalePrice`).
+   * y el guardarraíl es solo de raw/graded). (Hasta v1.80.8.3 además nadie la cerraba; desde VQ-6 la
+   * publicación del sellado derivado sí cierra su fila.)
    *
    * ### La regla
    * Se escala **solo** si el precio del sellado NO resuelve, y entonces el motivo es `no_market`:
@@ -1589,9 +1589,9 @@ export class InventoryService {
       // §4.36.5c — SALIDA SIMÉTRICA: el MISMO seam que escala CIERRA. Si el barrido ya escribió una
       // `PriceReference` real y el precio volvió a resolver, la entrada `open` de esta clave se
       // cierra SOLA aquí, sin intervención manual.
-      // ⚠️ **El alcance del cierre NO se ensancha en este refactor**: solo raw/graded con precio
-      // DERIVADO, igual que antes. Un precio manual no dice nada sobre el mercado de la variante
-      // (cerrar por él apagaría un aviso que sigue siendo cierto), y el sellado nunca cerró aquí.
+      // Solo con precio DERIVADO: un precio manual no dice nada sobre el mercado de la variante
+      // (cerrar por él apagaría un aviso que sigue siendo cierto). v1.80.8.4 (VQ-6): el sellado
+      // derivado TAMBIÉN cierra aquí (antes nunca cerraba).
       if (derived.pendingKey != null && derived.priceSource === 'derived') {
         await this.pricing.settlePendingForVariant(null, derived.pendingKey, 'inventory');
       }
@@ -1664,6 +1664,18 @@ export class InventoryService {
       const gk = this.pricing.sealedMarketGradeKeyForItem(item);
       const ref = gk ? ctx.refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
       const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed);
+      // v1.80.8.4 (VQ-6): UNA sola clave para escalar y para cerrar — la salida simétrica del sellado
+      // tiene que casar exactamente con la entrada que abrió esta misma derivación.
+      const sealedKey: PendingVariantKey = {
+        cardId: item.cardId,
+        productType: 'sealed',
+        // v1.53 (§4.40.4d): la rama `sealed` del constructor NO admite campos de grado y devuelve
+        // siempre `'sealed'` (la clave del override MANUAL del admin, §4.19d) — aquí va literal, no
+        // derivado de la fila, porque estamos DENTRO del `if (productType === 'sealed')`.
+        gradeKey: gk ?? this.pricing.gradeKeyFor({ productType: 'sealed' }),
+        finish: 'normal',
+        sealedProductId: item.sealedProductId,
+      };
       if (sale.salePriceCents == null) {
         // ④: escala con el gradeKey de MERCADO; sellado no mapeado cae al gradeKey estructural.
         // v1.51 (fase 8, §4.39m.1): este cuerpo YA NO escala — es puro y devuelve la `pendingKey`;
@@ -1672,27 +1684,21 @@ export class InventoryService {
         return {
           ok: false,
           message: 'No resolvable sale price for sealed (no override and no market); not published',
-          pendingKey: {
-            cardId: item.cardId,
-            productType: 'sealed',
-            // v1.53 (§4.40.4d): la rama `sealed` del constructor NO admite campos de grado y
-            // devuelve siempre `'sealed'` (la clave del override MANUAL del admin, §4.19d) — aquí
-            // va literal, no derivado de la fila, porque estamos DENTRO del
-            // `if (productType === 'sealed')`.
-            gradeKey: gk ?? this.pricing.gradeKeyFor({ productType: 'sealed' }),
-            finish: 'normal',
-            sealedProductId: item.sealedProductId,
-          },
+          pendingKey: sealedKey,
           pendingReason: null,
         };
       }
-      // `pendingKey: null` ⇒ el sellado NO cierra la cola por esta vía (conducta preexistente).
+      // ⭐ v1.80.8.4 (VQ-6, ARCHITECTURE §4.36.5 c-bis punto 4): el sellado que RESUELVE con precio
+      // derivado (override de variante o mercado×spread) devuelve su clave para que
+      // `resolvePublishSalePrice` CIERRE su fila. Antes era `pendingKey: null` y la fila `no_market` del
+      // sellado solo la cerraba el override manual. El precio manual por pieza retorna arriba con
+      // `pendingKey: null` ⇒ no cierra (igual que raw/graded).
       return {
         ok: true,
         salePriceCents: sale.salePriceCents,
         priceSource: 'derived',
         priceBasis: sealedPriceBasisOf(sale),
-        pendingKey: null,
+        pendingKey: sealedKey,
       };
     }
     // raw/graded — v2.0 (P-48, §4.36.1): derivado server-side (SEC-A1) por la CURVA sobre el VALOR DE

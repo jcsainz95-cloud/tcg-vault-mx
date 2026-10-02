@@ -26324,3 +26324,41 @@ sobre `22b0b08d`, verdes después. `inventory.sealed.spec.ts` y `inventory.finis
 puerta de mercado ⇒ 3; sin salida por override manual ⇒ 1; publicación de sellado con `null` ⇒ 2; aportación sin `reason` ⇒ 2;
 ignorar el dial (`sourceOn=true`) ⇒ 1. Unitaria completa 381 suites / 6408 verdes; integración completa (BD propia
 `tcg_be_pending_reason`) 67 suites / 1434 verdes.
+
+## 15 · v1.80.8.4 construida — la cola de VENTA la escribe solo la vía de precio de venta; barrido VQ; el sellado cierra su fila (2026-10-02, sobre `bc9eac45`)
+
+Norma: API_CONTRACT rev v1.80.8.4 §M2 `M2-VQ` (VQ-1…VQ-9) y ARCHITECTURE §4.36.5 (c-bis). Sin schema, sin enum, sin
+cambio de forma.
+
+- **`PricingService.syncCardPrice`** pierde la escalada (sus dos ramas: sin cotización y M-43) y los parámetros
+  `context`/`refId`/`escalate`, que solo existían para ella. Firma: `(card, productType, gradeKey, finish)`.
+  `set-price-sync` ajustado; `test/set-value.spec.ts` asevera la llamada de 4 argumentos.
+- **`PriceSyncJobService.run()`**: mismo alcance de barrido (refresca `PriceReference` de todo lo no `withdrawn/lost`).
+  Log de telemetría `{ priced, noQuote (por productType), failed, skippedNoGradeIdentity }`. `noQuote` = `syncCardPrice`
+  devolvió `pending` (incluye la rama M-43, fila del día que no es de mercado). Solo en corrida **completa** (sin
+  `cardIds` o con lista vacía, que ya barría todo) llama a `sweepUnreasonedSaleQueue()`.
+- **Barrido VQ** (`sweepUnreasonedSaleQueue`, público para ops/pruebas): filas `open ∧ context='inventory' ∧ reason IS
+  NULL`; se cierran (`resolved`, `resolvedAt=now`, `resolvedPriceRefId=null`) las que no casan con la clave de cola de
+  ninguna pieza `platform ∧ {in_stock, listed} ∧ ¬hasManualPrice`. Clave de pieza en `queueKeyOfItem`, idéntica a la
+  de `derivePublishSalePrice` (raw/graded por `tryGradeKeyFor`; sellado por `sealedMarketGradeKeyForItem ?? 'sealed'`,
+  `normal`, `sealedProductId`). El `updateMany` repite el predicado `reason: null`: si un escritor le puso motivo entre
+  la lectura y la escritura, no se toca. Log con nº de cerradas y sus ids.
+- **VQ-6:** `derivePublishSalePrice` devuelve `pendingKey` también cuando el sellado resuelve (misma clave que la
+  escalada, una sola constante `sealedKey`); `resolvePublishSalePrice` cierra con `settlePendingForVariant(null, …,
+  'inventory')`. Precio manual por pieza ⇒ `pendingKey: null` ⇒ no cierra.
+- **Censo VK-6** (`pricing.valuation-callers-census.spec.ts`): `jobs/price-sync.service.ts` `n` 1→2 (el barrido usa la
+  llave de cola), `why` reescrito. **Candado VQ-5** nuevo en `test/pricing.vq-sale-queue.spec.ts`: censo cerrado de
+  `escalatePending|settlePendingForVariant` en `src/` (inventory 5, price-ingest 1, pricing 3, buylist 1 —
+  `createRequest`), cuerpo de `syncCardPrice` sin cola ni `escalate`, y llamadas de 4 argumentos.
+- `test/sealed-price-resolver.spec.ts`: su prisma de prueba no tenía `pendingPriceEntry.updateMany` (el sellado nunca
+  cerraba); se añade y se asevera que el cierre usa `sealed:tcg:100` (refuerzo, no debilitamiento).
+
+**Pruebas y mediciones:**
+| Medición | Resultado |
+|---|---|
+| VQ-1…5, 7, 8 (`test/pricing.vq-sale-queue.spec.ts`, 10) + VQ-6 (`inventory.pending-reason-writers.spec.ts`, 3) | verdes |
+| VQ-9 (`test/integration/sale-queue-vq.e2e-spec.ts`, BD propia) | 3/3 verdes; sobre `bc9eac45` sin el cambio: **roja** (`unknown` 2, esperado 0) |
+| Mutaciones unitarias (copia entera, deterministas, N=1 cada una) | escalada reintroducida sin cotización ⇒ 5 rojas; en rama M-43 ⇒ 3; barrido sin `ownerType` ⇒ 1; sin `hasManualPrice` ⇒ 1; sin `reason: null` ⇒ 1; sin `context` ⇒ 1; barre también con `cardIds` ⇒ 1; clave de sellado legacy en el barrido ⇒ 1; sellado sin `pendingKey` al resolver ⇒ 1 |
+| Mutación de integración: `run()` sin barrido | VQ-9 roja (`unknown` 2) |
+| Unitaria completa | 382 suites / 6421 verdes |
+| Integración completa (BD propia `tcg_be_vq`, dos corridas) | 1.ª: 67/68 (`enum-query-axes` `/admin/vaults?sort=`, que corrió ANTES de la suite nueva); 2.ª: 67/68 (`buylist-intake-concurrency`, barrera de candado por tiempo). Aisladas el par: árbol vivo 7/8 corridas verdes (N=8); árbol sin el cambio 4/5 (N=5) ⇒ intermitencia preexistente, no de este cambio |
