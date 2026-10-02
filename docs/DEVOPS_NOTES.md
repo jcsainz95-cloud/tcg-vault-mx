@@ -12950,3 +12950,69 @@ stack efímero (como el run `34650494939`). C2-bis **no se cierra** con este run
 sobre `production` con `blocking=false`, citado por número.
 
 **Rollback:** revertir el commit (vuelven las tres fichas; no cambia ningún veredicto con el arreglo aplicado).
+
+## §75 · El candado del DAST juzga solo NUESTROS orígenes (`--scope-origin`) · C2-bis: el primer run bloqueante fue rojo por un tercero (2026-10-02, rama `claude/post-release-s5`)
+
+**Qué pasó (lo midió el orquestador con la API de GitHub, 2026-10-02):** `Deploy` run **36969283231** (push a
+`production`, `8fd637fb`). Fue el **primer** `dast-release` con `report_only: false` (§69.4). Autoprueba del candado:
+success. «Levantar el stack» y «Escanear»: success. «Candado — veredicto»: **FAILURE** por un **solo** FAIL: ZAP `10020`
+(Missing Anti-clickjacking Header), Medio ×1, con ejemplo `https://js.stripe.com/v3/m-outer-3437aaddcdf6922d623e172c2d6f9278.html`.
+Es el iframe de Stripe que carga la araña AJAX, **fuera de nuestro origen**. nuclei: 0 high/critical. El job
+«Abrir/actualizar issue» comentó en el **issue #30** («[dast] Hallazgos bloqueantes en el stack efímero — production»,
+abierto el 2026-09-11 por el run 34650494939). El último comentario cita `runs/36969283231` y nombra 10020 y
+js.stripe.com (medido por devops con la API pública de issues).
+
+**Causa:** falso positivo **de alcance**. El candado aplicaba la política a todo lo que contenía el informe de ZAP,
+incluidas páginas de terceros. Antes no se notaba porque 10020 era WARN hasta SEC-HDR-1 (§70).
+
+**Arreglo (elegido para que no pueda esconder un 10020 real nuestro):**
+- `security/scripts/dast-gate.py`, opción nueva `--scope-origin <url>` (repetible). Con ella cada **instancia** de
+  ZAP se juzga por su origen (esquema + host + puerto, con el puerto por defecto explícito):
+  - Una alerta con un caso en js.stripe.com y otro en localhost:3010 **sigue en FAIL**.
+  - Los casos de terceros salen en el resumen como «Fuera de alcance» (regla, acción, host) y en la anotación del run.
+    Nunca son invisibles.
+  - Si ninguna instancia cae en nuestros orígenes, el veredicto es **ROJO** («el escáner no vio la app o el alcance
+    está mal declarado»).
+  - Sin la opción no se filtra nada; la autoprueba del canario sigue igual.
+- `security/scripts/dast-ephemeral.sh gate` pasa `--scope-origin` con los orígenes de **sus blancos**
+  (`DAST_SCOPE_ORIGINS`, por defecto `ZAP_TARGETS` + `NUCLEI_TARGETS`, es decir `http://localhost:3010` y
+  `http://localhost:3011`).
+- **Descartado:** excluir hosts de terceros dentro de ZAP. Ese camino no deja rastro en el informe, no se puede
+  probar sin levantar ZAP, y una lista de terceros siempre va un host por detrás.
+- La política (`security/zap/baseline.conf`) lo declara en su cabecera. No cambia ninguna regla: 38 reglas, 16 FAIL.
+
+**Medido (devops, 2026-10-02):** `scripts/check-dast-gate-live.sh` (bloque 5-ter, corre en cada push) da rc=0 con
+todos sus checks en verde. Sus fixtures:
+
+| Caso | Resultado |
+|---|---|
+| 10020 solo en js.stripe.com, con alcance | VERDE |
+| El mismo informe sin alcance | ROJO |
+| 10020 en localhost:3010 | ROJO |
+| 10020 mixto (Stripe primero, nuestro después) | ROJO |
+| localhost:8080 | se trata como tercero |
+| Alcance que no casa con nada | ROJO |
+| SQLi de manual con alcance | ROJO |
+
+Mutaciones sobre una copia del árbol (`git ls-files`), una por pase. Cada una pone rojo exactamente su check (1 ✗) y
+la restauración vuelve a 0 ✗. Son deterministas, sin carrera:
+- Decidir solo por la primera instancia: muerde «10020 mixto».
+- Quitar la guarda de alcance vacío: muerde «alcance que no casa».
+- Comparar el origen sin puerto: muerde «localhost:8080».
+
+**NO MEDIDO:** un ZAP real con este candado (aquí no hay Docker). Lo mide el próximo `dast-release`.
+
+**Riesgos que quedan:**
+- Con alcance declarado, «Casos» cuenta las instancias que trae el JSON, no el campo `count`.
+- Un barrido de nuestra app sin **ningún** hallazgo, ni siquiera WARN, saldría ROJO por la guarda. Hoy hay más de 10
+  WARN propios por barrido. Si algún día ocurre, la guarda pasa a exigir que el informe declare nuestro `site`.
+
+**C2-bis (para SECURITY_NOTES; lo escribe seguridad):**
+- El primer run de `dast-release` bloqueante en `production` fue **36969283231**, rojo por ese FAIL **de tercero**
+  (10020 en js.stripe.com). No hubo hallazgo en nuestro origen.
+- C2-bis **se cierra con el siguiente** `dast-release` sobre `production` que lleve este commit y salga con
+  `blocking=false`, citado por número. Cuando salga verde, el issue #30 se puede cerrar citando ese run.
+- No se vuelve a `report_only`.
+
+**Rollback:** revertir el commit. El candado vuelve a juzgar todo el informe, y el próximo `dast-release` vuelve a
+salir rojo por el iframe de Stripe.
