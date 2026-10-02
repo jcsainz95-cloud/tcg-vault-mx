@@ -29,7 +29,7 @@ function daysSince(iso: string | null | undefined): number {
 }
 
 /**
- * **La cubeta «Reembolsos manuales (SPEI)» — lista** (`DESIGN_SYSTEM §37.9a` · contrato `§M4-SHIP.15.13`
+ * **La cubeta «Transferencias SPEI» — lista** (v4.10: se monta en `/admin/refunds`, §37.20 · `DESIGN_SYSTEM §37.9a` · contrato `§M4-SHIP.15.13`
  * `GET /admin/manual-refunds`). Lo que hay que transferir a mano, lo más viejo primero. **Solo súper-admin**
  * (S6): al operador no le existe ni en menú ni en tablero. ⛔ La CLABE nunca en claro aquí: `clabeMasked` tal cual (S5).
  */
@@ -59,10 +59,8 @@ function ManualRefundsList() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-h1 font-bold">{t('title')}</h1>
-        <p className="text-sm text-muted">{t('hint')}</p>
-      </div>
+      {/* §37.20 b: la cubeta pierde su `h1` — el de la página es uno solo («Reembolsos»); el `hint` se queda. */}
+      <p className="text-sm text-muted">{t('hint')}</p>
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex flex-col gap-1.5">
           <span id="mr-status-label" className={LABEL}>

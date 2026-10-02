@@ -155,7 +155,7 @@ export function M3View() {
         {/* §37.2a-2: el h1 es el rótulo del menú (`admin.modules.m3`). */}
         <h1 className="text-h1 font-bold">{tModules('m3')}</h1>
         {isSuperAdmin && (
-          <Link href="/admin/refunds" className="text-sm underline underline-offset-4 hover:text-accent" data-testid="m3-operator-refunds-link">
+          <Link href="/admin/refunds?tab=operadores" className="text-sm underline underline-offset-4 hover:text-accent" data-testid="m3-operator-refunds-link">
             {t('operatorRefundsLink')}
           </Link>
         )}

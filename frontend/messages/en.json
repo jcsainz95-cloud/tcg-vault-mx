@@ -1298,9 +1298,8 @@
       "m2Bounties": "Bounties",
       "m4Badge": "{count, plural, one {# order to prepare} other {# orders to prepare}}",
       "m4BadgeOverdue": "with overdue cases",
-      "manualRefunds": "Manual refunds (SPEI)",
       "manualRefundsBadge": "{count, plural, one {# pending transfer} other {# pending transfers}}",
-      "refunds": "Operator refunds"
+      "refunds": "Refunds"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
@@ -2172,7 +2171,7 @@
             "noPaste": "Type it by hand",
             "mismatch": "Doesn't match {amount}."
           },
-          "result": "Case resolved: {amount} refund recorded. {stripe} {stripeState, select, requested {sent to Stripe} none {} other {accepted by Stripe}}{manual, select, none {} other { · {manualAmount} under “Manual refunds (SPEI)”}}{closed, select, yes { · withdrawal closed and shipping refunded} other {}}.",
+          "result": "Case resolved: {amount} refund recorded. {stripe} {stripeState, select, requested {sent to Stripe} none {} other {accepted by Stripe}}{manual, select, none {} other { · {manualAmount} under “Refunds › SPEI transfers”}}{closed, select, yes { · withdrawal closed and shipping refunded} other {}}.",
           "resultLink": "View the SPEI bucket",
           "already": "This case was already refunded. Nothing new was done.",
           "error": {
@@ -4286,7 +4285,6 @@
       }
     },
     "manualRefunds": {
-      "title": "Manual refunds (SPEI)",
       "hint": "What must be transferred by hand. The system doesn't transfer: here you record that you did.",
       "filter": {
         "label": "Status",
@@ -4321,7 +4319,7 @@
         "search": "Nothing matches “{q}”."
       },
       "view": "View",
-      "backToList": "Back to the bucket",
+      "backToList": "Back to “SPEI transfers”",
       "detailTitle": "Transfer {id}",
       "case": "Case",
       "viewCase": "View case",
@@ -4406,8 +4404,15 @@
         "originNotSettled": "The origin purchase is {status, select, chargeback {disputed} other {refunded}}{disputed, select, yes { (Stripe rejected due to a dispute)} other {}}: the bank is already resolving that money. Nothing is created."
       }
     },
+    "refundsPage": {
+      "hint": "Transfers you pay by hand and refunds made by operators.",
+      "tabs": {
+        "spei": "SPEI transfers",
+        "operators": "Operator refunds",
+        "speiCount": "{count, plural, one {# pending} other {# pending}}"
+      }
+    },
     "refunds": {
-      "title": "Operator refunds",
       "hint": "What each operator has refunded while preparing shipments. No email: the panel is the notice.",
       "generatedAt": "Calculated on {date} · per-operator 24 h cap: {cap}",
       "summaryTitle": "Summary by operator",

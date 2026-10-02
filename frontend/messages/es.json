@@ -1298,9 +1298,8 @@
       "m2Bounties": "Bounties",
       "m4Badge": "{count, plural, one {# pedido por preparar} other {# pedidos por preparar}}",
       "m4BadgeOverdue": "con casos vencidos",
-      "manualRefunds": "Reembolsos manuales (SPEI)",
       "manualRefundsBadge": "{count, plural, one {# transferencia pendiente} other {# transferencias pendientes}}",
-      "refunds": "Reembolsos de operadores"
+      "refunds": "Reembolsos"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
@@ -2172,7 +2171,7 @@
             "noPaste": "Escríbelo a mano",
             "mismatch": "No coincide con {amount}."
           },
-          "result": "Caso resuelto: reembolso de {amount} capturado. {stripe} {stripeState, select, requested {pedido a Stripe} none {} other {aceptado por Stripe}}{manual, select, none {} other { · {manualAmount} en «Reembolsos manuales (SPEI)»}}{closed, select, yes { · retiro cerrado y envío devuelto} other {}}.",
+          "result": "Caso resuelto: reembolso de {amount} capturado. {stripe} {stripeState, select, requested {pedido a Stripe} none {} other {aceptado por Stripe}}{manual, select, none {} other { · {manualAmount} en «Reembolsos › Transferencias SPEI»}}{closed, select, yes { · retiro cerrado y envío devuelto} other {}}.",
           "resultLink": "Ver la cubeta SPEI",
           "already": "Este caso ya se había reembolsado. No se hizo nada nuevo.",
           "error": {
@@ -4286,7 +4285,6 @@
       }
     },
     "manualRefunds": {
-      "title": "Reembolsos manuales (SPEI)",
       "hint": "Lo que hay que transferir a mano. El sistema no transfiere: aquí se registra que lo hiciste.",
       "filter": {
         "label": "Estado",
@@ -4321,7 +4319,7 @@
         "search": "Nada coincide con «{q}»."
       },
       "view": "Ver",
-      "backToList": "Volver a la cubeta",
+      "backToList": "Volver a «Transferencias SPEI»",
       "detailTitle": "Transferencia {id}",
       "case": "Caso",
       "viewCase": "Ver caso",
@@ -4406,8 +4404,15 @@
         "originNotSettled": "La compra de origen está {status, select, chargeback {en disputa} other {reembolsada}}{disputed, select, yes { (Stripe rechazó por disputa)} other {}}: el banco ya está resolviendo ese dinero. No se crea nada."
       }
     },
+    "refundsPage": {
+      "hint": "Las transferencias que pagas a mano y los reembolsos que hicieron los operadores.",
+      "tabs": {
+        "spei": "Transferencias SPEI",
+        "operators": "Reembolsos de operadores",
+        "speiCount": "{count, plural, one {# pendiente} other {# pendientes}}"
+      }
+    },
     "refunds": {
-      "title": "Reembolsos de operadores",
       "hint": "Lo que cada operador ha devuelto al preparar envíos. Sin correo: el panel es el aviso.",
       "generatedAt": "Calculado el {date} · tope por operador en 24 h: {cap}",
       "summaryTitle": "Resumen por operador",

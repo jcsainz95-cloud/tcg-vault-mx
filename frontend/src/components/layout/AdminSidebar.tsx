@@ -16,6 +16,11 @@ export interface Item {
    * `summary`. `null` ⇒ sin badge (cero o dato que el rol no recibe). El número ES el aviso.
    */
   badge?: (s: PickingListSummaryDTO) => { count: number; overdue?: boolean } | null;
+  /**
+   * v4.10 (§37.20 a): prefijos de ruta EXTRA que también iluminan esta entrada (p. ej. un detalle que vive
+   * fuera de su ruta). Entran en la MISMA regla de `isActiveHref` («con barra / gana la más específica»).
+   */
+  activeAlso?: readonly string[];
 }
 
 /**
@@ -37,17 +42,18 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
     items: [
       { href: '/admin/m5', key: 'm5' },
       { href: '/admin/m3', key: 'm3' },
-      // v1.80.2 (§37.9): la cubeta SPEI y la vigilancia de reembolsos de operador (§37.11b, D-13) son del
-      // súper-admin y solo de él. `manualRefundsPending` es `null` para el operador ⇒ sin badge.
-      // Fusión release-s5: se conserva la posición que trae envío («junto a» Ventas, §37.9); el grupo de
-      // dinero en el que vivía ya no existe en el menú de §37.2b — su grupo final lo decide ux-ui/dueño.
+      // v4.10 (§37.20 · HECHOS 2026-10-02 «Menú del panel: se queda como está; … se JUNTAN en UNA sola pestaña
+      // con dos cubetas»): UNA entrada «Reembolsos», en el mismo hueco tras «Ventas», súper-admin y solo él.
+      // Badge = SOLO transferencias SPEI pendientes (lo único que espera la mano del dueño), ⛔ no una suma.
+      // `manualRefundsPending` es `null` para el operador ⇒ sin badge. Se ilumina también en el detalle
+      // `/admin/manual-refunds/:id`, que se queda en su ruta (§37.20 c).
       {
-        href: '/admin/manual-refunds',
-        key: 'manualRefunds',
+        href: '/admin/refunds',
+        key: 'refunds',
         superAdminOnly: true,
+        activeAlso: ['/admin/manual-refunds'],
         badge: (s) => (s.manualRefundsPending ? { count: s.manualRefundsPending } : null),
       },
-      { href: '/admin/refunds', key: 'refunds', superAdminOnly: true },
       // v1.80 «Pedidos por preparar»: badge = envíos + bóveda + por reponer (§M4-SHIP.11).
       {
         href: '/admin/m4',
@@ -99,7 +105,12 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
 /** Entradas del menú en orden (para candados y para quien necesite la lista plana). */
 export const ADMIN_MENU_ITEMS: readonly Item[] = groups.flatMap((g) => g.items);
 
-const ALL_HREFS = groups.flatMap((g) => g.items.map((i) => i.href));
+/** Todos los prefijos que el menú reclama (rutas propias + `activeAlso`), con la entrada a la que pertenecen. */
+const ALL_PREFIXES: readonly { prefix: string; href: string }[] = groups.flatMap((g) =>
+  g.items.flatMap((i) => [i.href, ...(i.activeAlso ?? [])].map((prefix) => ({ prefix, href: i.href }))),
+);
+
+const matches = (pathname: string, prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
 
 /**
  * ### Qué entrada se ilumina — **gana la MÁS ESPECÍFICA**, y por eso ya no hace falta `exact`
@@ -115,17 +126,17 @@ const ALL_HREFS = groups.flatMap((g) => g.items.map((i) => i.href));
  *    dicen dónde estás* — que es justo lo que `exact` intentaba evitar en otro sitio.
  *
  * Ahora la regla es una sola y se deduce del propio menú: una entrada se ilumina si la ruta es la
- * suya o cuelga de ella (**con barra**), **salvo que otra entrada del menú sea un prefijo más largo**
- * de esa misma ruta. `/admin` es el único caso exacto por definición: es la raíz de todas.
+ * suya (o uno de sus `activeAlso`) o cuelga de ella (**con barra**), **salvo que otro prefijo del menú
+ * sea más largo** y también case con esa ruta. `/admin` es el único caso exacto por definición: es la
+ * raíz de todas.
  */
 export function isActiveHref(pathname: string, href: string): boolean {
   if (pathname === href) return true;
   if (href === '/admin') return false;
-  if (!pathname.startsWith(`${href}/`)) return false;
-  return !ALL_HREFS.some(
-    (other) =>
-      other.length > href.length && (pathname === other || pathname.startsWith(`${other}/`)),
-  );
+  const own = ALL_PREFIXES.filter((p) => p.href === href && matches(pathname, p.prefix));
+  if (own.length === 0) return false;
+  const best = Math.max(...own.map((p) => p.prefix.length));
+  return !ALL_PREFIXES.some((p) => p.href !== href && p.prefix.length > best && matches(pathname, p.prefix));
 }
 
 /**
@@ -162,7 +173,7 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
               const locked = item.superAdminOnly && !isSuperAdmin;
               const badge = badgeFor(item);
               const badgeLabel = badge
-                ? item.key === 'manualRefunds'
+                ? item.key === 'refunds'
                   ? t('modules.manualRefundsBadge', { count: badge.count })
                   : `${t('modules.m4Badge', { count: badge.count })}${badge.overdue ? ` · ${t('modules.m4BadgeOverdue')}` : ''}`
                 : null;
