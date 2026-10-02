@@ -26336,7 +26336,8 @@ cambio de forma.
 - **`PriceSyncJobService.run()`**: mismo alcance de barrido (refresca `PriceReference` de todo lo no `withdrawn/lost`).
   Log de telemetría `{ priced, noQuote (por productType), failed, skippedNoGradeIdentity }`. `noQuote` = `syncCardPrice`
   devolvió `pending` (incluye la rama M-43, fila del día que no es de mercado). Solo en corrida **completa** (sin
-  `cardIds` o con lista vacía, que ya barría todo) llama a `sweepUnreasonedSaleQueue()`.
+  `cardIds`) llama a `sweepUnreasonedSaleQueue()`. ~~o con lista vacía, que ya barría todo~~ — **corregido en §16**: un
+  `cardIds` vacío es «ninguna carta» (no-op), nunca «todas».
 - **Barrido VQ** (`sweepUnreasonedSaleQueue`, público para ops/pruebas): filas `open ∧ context='inventory' ∧ reason IS
   NULL`; se cierran (`resolved`, `resolvedAt=now`, `resolvedPriceRefId=null`) las que no casan con la clave de cola de
   ninguna pieza `platform ∧ {in_stock, listed} ∧ ¬hasManualPrice`. Clave de pieza en `queueKeyOfItem`, idéntica a la
@@ -26362,3 +26363,61 @@ cambio de forma.
 | Mutación de integración: `run()` sin barrido | VQ-9 roja (`unknown` 2) |
 | Unitaria completa | 382 suites / 6421 verdes |
 | Integración completa (BD propia `tcg_be_vq`, dos corridas) | 1.ª: 67/68 (`enum-query-axes` `/admin/vaults?sort=`, que corrió ANTES de la suite nueva); 2.ª: 67/68 (`buylist-intake-concurrency`, barrera de candado por tiempo). Aisladas el par: árbol vivo 7/8 corridas verdes (N=8); árbol sin el cambio 4/5 (N=5) ⇒ intermitencia preexistente, no de este cambio |
+
+## 16 · Gate de QA + techlead sobre `8a10153e`: `scope` validado, `cardIds` vacío no barre, clave de cola compartida (2026-10-02)
+
+Rama `claude/post-release-s5`. Norma: API_CONTRACT §M2 v1.80.8.4 (`POST /admin/pricing/sync`, «con `scope="cardIds"` no
+barre») y `M2-VQ`. Sin schema, sin enum, sin cambio de forma de request/response.
+
+**1 · QA MENOR — `POST /admin/pricing/sync`.**
+- `SyncDto.scope`: `@IsIn(PRICE_SYNC_SCOPES)` (`['all_vault','cardIds']`, exportado desde `pricing.controller.ts`).
+  `{"scope":"bogus"}` / `""` / no-string ⇒ **`400 VALIDATION_ERROR`** del pipe (antes 201 y corrida completa).
+- `SyncDto.cardIds`: `@IsArray() @IsString({ each: true })` (antes sin validar: un string llegaba a Prisma).
+- `PriceSyncJobService.enqueue('cardIds', [] | undefined)` ⇒ **no-op, `201 { jobId, queued: 0 }`**, sin refrescar y
+  ⛔ sin barrido VQ. `run(cardIds?)`: `undefined` = completa (scheduler / `all_vault`) con barrido; array = solo esas
+  cartas, sin barrido; `[]` = ninguna.
+- ⚠️ **Para el arquitecto:** el contrato no dice si `scope="cardIds"` con lista vacía es `400` o no-op. Implementé
+  **no-op** (es lo único que el texto exige: «no barre», y la forma de respuesta no cambia). Si se prefiere `400`, es
+  un `@ArrayNotEmpty` condicionado a `scope="cardIds"` y una línea en §M2.
+
+**2 · QA MENOR — `buylist-cycle.e2e-spec.ts` hermético.** `findFirst` de la dirección del customer con
+`orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }]` (el mismo de `seed-e2e.ts`), y el bloque «corregir la
+dirección de origen» purga en `beforeAll`/`afterAll` las direcciones `Calle Nueva 456` del customer (`Address` no
+tiene FKs entrantes: el snapshot de la solicitud es JSON).
+
+**3 · Techlead D-1 — una derivación y una serialización de la clave de cola de VENTA.** Nuevo
+`src/modules/pricing/sale-queue-key.ts`: `saleQueueKeyOf(item, resolvers)` / `sealedSaleQueueKeyOf` (pura dada
+`SaleQueueKeyResolvers`, que es `PricingService`; se pasa como parámetro para que los dobles que sustituyen
+`tryGradeKeyFor` sigan gobernando ambos llamadores) y `serializeSaleQueueKey` (`JSON.stringify` de la tupla de seis,
+`undefined ≡ null`). La usan `derivePublishSalePrice` (sellado y raw/graded) y el barrido VQ; se retiraron
+`queueKeyOfItem`/`queueKey` del job y el `|`.join de `pendingQueueKey` (que conserva nombre y los seis componentes a la
+vista por R3, delegando en la serialización). Censo VK-6: `inventory.service.ts` 4→3, `price-sync.service.ts` 2→1,
+`sale-queue-key.ts` 2 (nuevo).
+
+**4 · Techlead D-2 / D-6 — hechos, sin deuda que registrar.** La escritura del barrido es
+`PricingService.closeUnreasonedSaleQueueRows(ids)` (mismo predicado `open ∧ inventory ∧ reason IS NULL` en el `where`;
+devuelve el `count` real). VQ-5 ampliado: censo de escrituras crudas `pendingPriceEntry.(create|createMany|update|
+updateMany|upsert|delete|deleteMany|…AndReturn)` = `{ pricing.service.ts: 5 }`, ningún `"PendingPriceEntry"` en SQL
+crudo, y `closeUnreasonedSaleQueueRows` solo desde `price-sync`. El log del barrido enumera como mucho
+`VQ_SWEEP_LOG_ID_CAP = 20` ids y añade `… (+N más)`. (El censo es léxico: un alias lo esquiva; lo cubre la revisión.)
+
+**Pruebas nuevas:** `test/pricing.sale-queue-key.parity.spec.ts` (paridad POR CONDUCTA: la `pendingKey` real de
+`derivePublishSalePrice` sembrada como fila «sin motivo» ⇒ el barrido real la deja y cierra la variante vecina, en raw,
+graded, sellado mapeado, sellado legacy y promo con `cardProductId`; también con precio derivado; graded sin slab sin
+clave; censo de uso), `test/pricing.sync-dto.spec.ts`, dos casos nuevos en `test/pricing.vq-sale-queue.spec.ts`
+(`cardIds` vacío no-op; tope del log) y `test/integration/pricing-sync-scope.e2e-spec.ts` (por HTTP: `[]` y omitido ⇒
+201 `queued: 0` sin barrido; `bogus`/`""`/`cardIds` string ⇒ 400; testigo «sin motivo» intacto).
+
+**Mediciones (autor: backend, 2026-10-02):**
+| Medición | Resultado |
+|---|---|
+| `tsc --noEmit` | limpio |
+| Unitaria completa (`--maxWorkers=2`) | **384/384 suites, 6444/6444** |
+| Mutaciones (copia del árbol entero, deterministas, N=1 cada una) | `derivePublishSalePrice` cierra sin `cardProductId` ⇒ 1 roja; escala sin `cardProductId` ⇒ 1; barrido sin `sealedProductId` ⇒ 3; `cardIds` vacío = completa ⇒ 1; `scope` con `@IsString` ⇒ 2; escritura de vuelta en el job ⇒ 1 (VQ-5); log sin tope ⇒ 1 — **7/7 muerden** |
+| `buylist-cycle` sobre BD reutilizada (2.ª corrida completa, spec viejo) | **4/72 rojas** (snapshot, detalle admin, guía, correo PII) — las 4 de QA |
+| Spec viejo sobre BD con dirección sobrante | **3/3 corridas con 4 rojas** |
+| Spec nuevo sobre BD con 2 y con 4 direcciones sobrantes | **6/6 corridas 72/72**; sobrantes tras cada corrida: 0 |
+
+| Integración completa, árbol vivo (BD propia `tcg_backend_s5`, Postgres/Redis compartidos), 4 corridas | antes del arreglo de `buylist-cycle`: 1.ª 1441/1443 (2 rojas `buylist-intake-concurrency`), 2.ª 1435/1443 (las 4 de `buylist-cycle` + las 2 de concurrencia). Con todo (incl. `brace-expansion`): 1.ª 1439/1443 (2 rojas `buylist-intake-concurrency`), 2.ª **1441/1441 + 2 skipped, 69/69 suites** |
+| `buylist-intake-concurrency` (barrera de candado por tiempo, 10 s) | aislada en árbol vivo **5/5 verdes**; en corrida completa del árbol vivo verde 1/4; árbol `8a10153e` completo 1/1 verde. El cambio no toca su camino (`POST /buylist/requests`); §15 ya la midió intermitente sobre la base (7/8). **No atribuida con certeza: N pequeño** |
+| `npm audit --omit=dev` (parche de devops) | antes: 1 high (`brace-expansion`) + 6 moderate; después: **0 high / 0 critical** + los mismos 6 moderate (`@nestjs/core`, `multer`, `qs`) |
