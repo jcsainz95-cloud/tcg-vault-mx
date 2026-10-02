@@ -513,3 +513,76 @@ export const E2E_KYC_INE_IMAGES = {
   back: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAIAAAAy3EnLAAAAFElEQVR42mPY5C9PEmIY1TA0NQAAq960AatE4Y4AAAAASUVORK5CYII=',
   contentType: 'image/png',
 } as const;
+
+/**
+ * ⭐ P-REL-3 (release s5) — **LA CUBETA SPEI SEMBRADA**: dos `ManualRefund` `pending` para el E2E realOnly de
+ * `GET /admin/manual-refunds` (pagar / cancelar). Sin esto, en local no existe forma de obtener una: la única vía del
+ * producto es el reembolso de un caso con Stripe (`case_excess`) o una fila de Stripe fallida (`stripe_failed`).
+ *
+ * **La cadena sembrada es la que el producto habría dejado** tras `POST /admin/replacement-cases/:id/refund` con todo
+ * el importe a SPEI: orden de bóveda `settled` del cliente (⇒ ⛔ nunca `422 origin_not_settled`) → su colocación
+ * `placed` → una línea `missing` por carta → `ReplacementCase` `vault_purchase` **`refunded`** con la captura completa →
+ * la pieza original pasada a **plataforma** (`lost`, como la deja `originalToPlatform`) → `ManualRefund` `case_excess`
+ * `pending`, ya anunciada (`announcedNotifiedAt` sellado ⇒ el seed no dispara `AV-14`).
+ *
+ * **Cliente PROPIO y desechable** (no el `customer` compartido): pagar escribe `paidClabeHmac` y la CLABE es de una
+ * persona; el reset por-usuario de `E2E_USERS` además borra `ShipmentRequest`/`Order` en cascada y chocaría con el
+ * `Restrict` de `ReplacementCase`. Vive aparte, como `E2E_KYC_FIXTURES`, y su propia siembra lo restaura.
+ *
+ * **Importes** — la identidad es la del CHECK `ManualRefund_amount_identity_chk`:
+ * `amountCents = merchandiseCents + processingFeeCents + compensationCents`, con el **IVA DENTRO de la mercancía**
+ * (`merchandiseIvaCents` es informativo: `IVA_INCLUSIVE`, `iva = m − floor(m / 1.16)`). Todos > 0.
+ *
+ * ⛔ **La CLABE NO se siembra**: `clabeEnc` se cifra con la clave PII del PROCESO (efímera por arranque en el stack
+ * nativo), así que la pone el spec con `PUT /users/me/kyc {clabe}` como este cliente. Cada siembra BORRA su
+ * `KycProfile` (vuelve a «sin CLABE»). Tras ponerla, `clabeUpdatedAt > createdAt` ⇒ `clabeChangedRecently: true` y
+ * `paid` exige `confirmRecentClabeChange: true` (si no, `422 MANUAL_REFUND_CONFIRMATION_REQUIRED
+ * {required:['recent_clabe_change']}`).
+ *
+ * Credenciales de FIXTURE de una BD sintética/efímera: no son secretos (misma doctrina que `E2E_USERS`).
+ */
+export const E2E_SPEI_FIXTURE = {
+  customer: {
+    email: 'spei.refund@e2e.local',
+    password: 'SpeiRefund123!',
+    /** Nombre tecleado (`nameSource='user'`): es el `beneficiaryName` de la cubeta mientras no haya `legalName`. */
+    name: 'Ana Transferencia E2E',
+    phone: '5511110011',
+  },
+  order: {
+    orderNumber: 'TCG-E2E-SPEI-0001',
+    subtotalCents: 80000,
+    processingFeeCents: 4617,
+    ivaCents: 11035, // 80000 − floor(80000 / 1.16)
+    totalCents: 84617,
+    createdAt: '2026-01-10T15:00:00Z',
+    settledAt: '2026-01-10T15:05:00Z',
+    resolvedAt: '2026-01-12T18:00:00Z',
+  },
+  rows: {
+    /** La que el spec PAGA. */
+    pay: {
+      idempotencyKey: 'e2e:mr-pay',
+      folio: 'E2E-SPEI-0001',
+      unitPriceCents: 50000,
+      merchandiseCents: 50000,
+      merchandiseIvaCents: 6897, // 50000 − floor(50000 / 1.16)
+      processingFeeCents: 1500,
+      compensationCents: 2000,
+      amountCents: 53500,
+      refundReason: 'E2E SPEI — carta no encontrada al colocar (pagar)',
+    },
+    /** La que el spec CANCELA (y puede re-emitir: la siembra borra la re-emisión). */
+    cancel: {
+      idempotencyKey: 'e2e:mr-cancel',
+      folio: 'E2E-SPEI-0002',
+      unitPriceCents: 30000,
+      merchandiseCents: 30000,
+      merchandiseIvaCents: 4138, // 30000 − floor(30000 / 1.16)
+      processingFeeCents: 900,
+      compensationCents: 600,
+      amountCents: 31500,
+      refundReason: 'E2E SPEI — carta dañada al colocar (cancelar)',
+    },
+  },
+} as const;

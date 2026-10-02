@@ -447,12 +447,35 @@ test.describe('admin · M8 disputas', () => {
  * exista). El vínculo vacío ⇔ «usa el global» se afirma como bicondicional, sin asumir cuál de los
  * dos lados toca hoy.
  */
-test.describe('admin · M2 spreads del sellado (T-1)', () => {
+/*
+ * ⚠️ UBICACIÓN (2026-09-28/29, QA menor 6): el editor de spreads del sellado se MUDÓ de M2 a
+ * «Sellado» (M11), decisión D-2: `m11/sections/SealedDialsPanel.tsx` › 5.3 «Márgenes de venta»,
+ * dentro del acordeón «Ajustes avanzados» (plegado; solo `super_admin` — el `admin` del seed lo es).
+ * M2 conserva solo un deep-link (`M2View.tsx`, `sealedSpreads.movedToM11`). Lo que mide no cambia:
+ * la misma fila editable por UPC y Collection y el mismo bicondicional vacío ⇔ «usa el global», en la
+ * superficie donde vive hoy. Además fija la mudanza: en M2 ya no hay editor (un único editor,
+ * `M11-single-editor`) y el camino del dueño desde M2 lleva hasta él por el enlace.
+ */
+test.describe('admin · Sellado (M11) › spreads del sellado (T-1)', () => {
   test('@real hay fila editable para UPC y Collection, y el vacío dice que cae al global', async ({
     page,
   }) => {
     await loginAs(page, 'admin');
+
+    // Un solo editor: en «Catálogo y precios» (M2) ya no está.
     await page.goto('/es/admin/m2');
+    await expect(page.getByRole('heading', { level: 1, name: t('es', 'admin.modules.m2') })).toBeVisible();
+    await expect(
+      page.getByLabel(t('es', 'admin.m2.sealedSpreads.spreadFor', { subtype: 'UPC' })),
+    ).toHaveCount(0);
+
+    // El camino del dueño: quien busca los spreads en M2 encuentra el enlace a M11.
+    await page.getByRole('link', { name: t('es', 'admin.m2.sealedSpreads.movedToM11') }).click();
+    await expect(page).toHaveURL(/\/es\/admin\/m11$/);
+
+    // Vive en «Sellado» › «Ajustes avanzados» (acordeón plegado por defecto) › «Márgenes de venta».
+    await page.getByText(t('es', 'admin.m11.advanced.title'), { exact: true }).click();
+    await expect(page.getByRole('heading', { name: t('es', 'admin.m11.advanced.margins.title') })).toBeVisible();
 
     const usesGlobal = /Usa el global \(\d+(\.\d+)?%\)/;
     for (const subtype of ['UPC', 'Collection']) {

@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AdminService } from '../src/modules/admin/admin.service';
@@ -63,7 +64,7 @@ function servicio(envios: EnvioFake[]) {
     shipmentRequest: { findMany: jest.fn().mockResolvedValue(envios) },
   };
   const service = new AdminService(
-    prisma as unknown as PrismaService,
+    withM61Defaults(prisma) as unknown as PrismaService,
     {} as PricingService,
     new PiiCryptoService(new ConfigService({})),
     {} as never,

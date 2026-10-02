@@ -12,6 +12,7 @@ import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { CardImage } from '@/components/ui/CardImage';
+import { CardCode } from '@/components/domain/CardCode';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 import { CartAddedToast } from '../catalog/CartAddedToast';
@@ -122,7 +123,6 @@ function DeckLineRow({
   const locale = useLocale() as AppLocale;
   const state = lineState(line);
   const displayName = line.card?.name ?? line.rawName;
-  const code = line.setCode ? t('detail.cardCode', { set: line.setCode, number: line.number }) : null;
 
   return (
     <div className="flex flex-wrap items-center gap-4 border-b border-border py-4">
@@ -141,10 +141,15 @@ function DeckLineRow({
           <span className="truncate text-[15px] text-text" lang="en">
             {displayName}
           </span>
-          {code && (
-            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted" lang="en">
-              {code}
-            </span>
+          {/* §37.3b (P-71): «TWM 130» con el MISMO formateador que el resto de la tienda (`CardCode`,
+              código + espacio no separable + número; tal como llega, sin `uppercase`). Sin código
+              (energía básica, línea sin set) no se pinta nada — aquí no hay «#número» que mostrar. */}
+          {line.setCode && (
+            <CardCode
+              code={line.setCode}
+              number={line.number}
+              className="font-mono text-[10px] tracking-[0.08em] text-muted"
+            />
           )}
         </div>
 

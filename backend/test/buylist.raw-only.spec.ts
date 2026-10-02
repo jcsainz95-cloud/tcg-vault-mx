@@ -7,6 +7,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
+import { usersStubM61 } from './helpers/m61-mock-defaults';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { BUYLIST_ACCEPTED_PRODUCT_TYPES } from '../src/common/business-rules';
@@ -141,7 +142,7 @@ function build(): { svc: BuylistService; prisma: any; pricing: PricingService } 
     prisma as PrismaService,
     pricing,
     settingsHighCaps(),
-    {} as UsersService,
+    (usersStubM61() as unknown as UsersService),
     pii,
   );
   return { svc, prisma, pricing };

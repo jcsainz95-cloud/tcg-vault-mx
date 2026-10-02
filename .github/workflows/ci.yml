@@ -409,6 +409,8 @@ jobs:
   # FECHA_LIMITE del script (2026-10-06) si sigue puesto, con el retiro en el
   # mensaje. Se apaga solo al quitar la línea. Y su canario demuestra en cada
   # push que sabe ponerse rojo cuando toca y no antes.
+  # 2026-09-28 (C2-bis, DEVOPS_NOTES §69): `report_only` RETIRADO (`false`).
+  # El job queda como ANTI-REGRESIÓN: si `report_only: true` vuelve, rojo.
   # ---------------------------------------------------------------------------
   dast-report-only-expiry:
     runs-on: ubuntu-latest
@@ -586,6 +588,18 @@ jobs:
   # el mismo problema una capa más arriba. Barato: sin red, sin Docker, ~2 s.
   # Ver DEVOPS_NOTES §49.
   # ---------------------------------------------------------------------------
+  # M4-SHIP: los eventos del webhook se suscriben A MANO en el dashboard de Stripe; este job falla si el
+  # backend maneja un evento que no esta en security/stripe-webhook-events.txt / DEVOPS_NOTES §11.G.
+  stripe-webhook-events:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Todo evento que maneja el backend esta en la lista de suscripcion del endpoint
+        run: ./scripts/check-stripe-webhook-events.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-stripe-webhook-events-canary.sh
+
   stripe-webhook-failclosed:
     runs-on: ubuntu-latest
     steps:
@@ -681,6 +695,14 @@ jobs:
       - name: Y el censo sabe ponerse rojo (canario)
         if: ${{ !cancelled() }}
         run: ./scripts/check-e2e-skip-census-canary.sh
+      # P-REL-3 (2026-09-29): el censo estático cuenta escotillas; esto vigila la
+      # que un spec que CONSUME su semilla (cubeta SPEI) no se salte en el E2E real.
+      # El comprobador corre en e2e-real.yml sobre el JSON de Playwright; aquí, en
+      # cada PR, su canario (salto / flaky tras reintento / 0 casos ⇒ rojo) y el
+      # cableado del paso (`--retries=0`, JSON, `--min 2`). DEVOPS_NOTES §72.
+      - name: Y un spec que consume su semilla no puede saltarse en verde (canario P-REL-3)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-e2e-must-run-canary.sh
 
   # ---------------------------------------------------------------------------
   # B-3 (2026-09-14): un script sin token no puede AFIRMAR qué secrets existen en
@@ -725,7 +747,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording]
     if: always()
     runs-on: ubuntu-latest
     steps:

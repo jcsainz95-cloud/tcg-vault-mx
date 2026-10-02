@@ -10,6 +10,7 @@ import { formatMoneyCents, formatDate } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { TRACKING_STATUS_KEY, TRACKING_STATUS_TONE } from '@/app/[locale]/pedido/tracking-status';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { ClaimableOrdersNotice } from '@/components/domain/claimable/ClaimableOrdersNotice';
@@ -40,6 +41,7 @@ const TAB_LINK_IDLE = 'border-transparent text-muted hover:text-text';
  */
 export function OrdersView() {
   const t = useTranslations('orders');
+  const tRoot = useTranslations();
   const locale = useLocale() as AppLocale;
   const searchParams = useSearchParams();
   const tab: OrdersTab = searchParams.get('tab') === ORDERS_SALES_TAB ? 'ventas' : 'compras';
@@ -65,7 +67,17 @@ export function OrdersView() {
       header: t('status'),
       render: (o) => (
         <div>
-          <StatusBadge domain="order" value={o.status} />
+          {/* v1.80.2 (§37.12, PS-UI-1): la lista titula con `publicStatus` cuando viene; ⛔ nunca «Liquidada». */}
+          {o.publicStatus ? (
+            <span
+              data-testid={`order-public-status-${o.id}`}
+              className={`font-mono text-[11px] uppercase tracking-label ${TRACKING_STATUS_TONE[o.publicStatus]}`}
+            >
+              {tRoot(TRACKING_STATUS_KEY[o.publicStatus])}
+            </span>
+          ) : (
+            <StatusBadge domain="order" value={o.status} />
+          )}
           {/* v1.68 §4-R.5: `pending` con reserva viva ⇒ «reservada hasta HH:MM» + «Reanudar pago». */}
           <ResumePaymentAction order={o} className="mt-2" />
         </div>

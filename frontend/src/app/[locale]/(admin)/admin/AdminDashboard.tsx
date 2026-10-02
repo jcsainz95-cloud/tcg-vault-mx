@@ -28,6 +28,13 @@ function QueueLink({ href, label, count }: { href: string; label: string; count:
   );
 }
 
+/** Días enteros desde una fecha ISO (la «más vieja» de la cubeta SPEI); ilegible ⇒ 0. */
+function daysSince(iso: string, now: Date = new Date()): number {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return 0;
+  return Math.max(0, Math.floor((now.getTime() - t) / 86_400_000));
+}
+
 /**
  * 6i — Las tarjetas de métricas se vuelven una retícula de celdas con regla: más
  * datos por pantalla y ninguna caja redondeada. La regla la pone la retícula
@@ -104,9 +111,14 @@ export function AdminDashboard() {
                   <span data-testid="sales-gross">
                     {t('salesGross')}: {formatMoneyCents(query.data.salesPeriod.grossAmountCents, locale)}
                   </span>
-                  <span data-testid="sales-net">
-                    {t('salesNet')}: {formatMoneyCents(query.data.salesPeriod.netAmountCents, locale)}
-                  </span>
+                  {/* Hueco 9 (2026-09-29): el backend OMITE `netAmountCents` al no-súper-admin (el neto
+                      es la cifra del P&L, `admin.service.ts` · `dashboard`). Sin el campo la línea no
+                      se pinta: nunca «MX$NaN». ⛔ No se deriva del bruto (sería otra definición de neto). */}
+                  {Number.isFinite(query.data.salesPeriod.netAmountCents) && (
+                    <span data-testid="sales-net">
+                      {t('salesNet')}: {formatMoneyCents(query.data.salesPeriod.netAmountCents, locale)}
+                    </span>
+                  )}
                 </span>
               }
             />
@@ -126,6 +138,85 @@ export function AdminDashboard() {
                 </span>
               }
             />
+            {/*
+             * v1.80 (§M4-SHIP.11 · `DESIGN_SYSTEM §37.11b`): «Pedidos por preparar» INCLUYE bóveda y los casos
+             * «Por reponer» (el mismo cuerpo que el `summary`); los vencidos van en bermellón y enlazan a la
+             * pestaña filtrada. ⛔ `workQueue.shipments` («envíos vivos») no cambia de cifra ni de rótulo.
+             * Opcional en el tipo (aditivo): un backend anterior no la manda y la tarjeta no se pinta.
+             */}
+            {query.data.workQueue.toPrepare && (
+              <StatCard
+                label={t('toPrepare.title')}
+                value={
+                  query.data.workQueue.toPrepare.ship +
+                  query.data.workQueue.toPrepare.vault +
+                  query.data.workQueue.toPrepare.toReplace
+                }
+                sub={
+                  <span className="flex flex-wrap gap-x-3 gap-y-1" data-testid="dashboard-to-prepare">
+                    <Link
+                      href="/admin/m4"
+                      className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    >
+                      {t('toPrepare.detail', {
+                        ship: query.data.workQueue.toPrepare.ship,
+                        vault: query.data.workQueue.toPrepare.vault,
+                        toReplace: query.data.workQueue.toPrepare.toReplace,
+                      })}
+                    </Link>
+                    {query.data.workQueue.toPrepare.toReplaceOverdue > 0 && (
+                      <Link
+                        href="/admin/m4?tab=reponer"
+                        className="text-accent underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                        data-testid="dashboard-to-prepare-overdue"
+                      >
+                        {t('toPrepare.overdue', { count: query.data.workQueue.toPrepare.toReplaceOverdue })}
+                      </Link>
+                    )}
+                  </span>
+                }
+              />
+            )}
+            {/* v1.80.2 (§37.11b): solo súper-admin; `null` (operador) ⇒ la tarjeta NO existe (S6). */}
+            {isSuperAdmin && query.data.workQueue.manualRefunds && (
+              <StatCard
+                label={t('manualRefunds.title')}
+                value={query.data.workQueue.manualRefunds.pending}
+                sub={
+                  <Link
+                    href="/admin/manual-refunds"
+                    className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    data-testid="dashboard-manual-refunds"
+                  >
+                    {query.data.workQueue.manualRefunds.pending > 0 && query.data.workQueue.manualRefunds.oldestCreatedAt
+                      ? t('manualRefunds.detail', {
+                          amount: formatMoneyCents(query.data.workQueue.manualRefunds.pendingCents, locale),
+                          days: daysSince(query.data.workQueue.manualRefunds.oldestCreatedAt),
+                        })
+                      : t('manualRefunds.detailNone')}
+                  </Link>
+                }
+              />
+            )}
+            {/* v1.80.3 (SEC-SHIP-M1, D-13 «solo verlo en el panel»): el tablero ES el aviso; ⛔ sin correo. */}
+            {isSuperAdmin && query.data.workQueue.operatorRefunds && (
+              <StatCard
+                label={t('operatorRefunds.title')}
+                value={formatMoneyCents(query.data.workQueue.operatorRefunds.last24hCents, locale)}
+                sub={
+                  <Link
+                    href="/admin/refunds"
+                    className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    data-testid="dashboard-operator-refunds"
+                  >
+                    {t('operatorRefunds.detail', {
+                      count: query.data.workQueue.operatorRefunds.last24hCount,
+                      amount30d: formatMoneyCents(query.data.workQueue.operatorRefunds.last30dCents, locale),
+                    })}
+                  </Link>
+                }
+              />
+            )}
             <StatCard
               label={t('inventoryValue')}
               value={formatMoneyCents(query.data.inventoryValueCents ?? 0, locale)}

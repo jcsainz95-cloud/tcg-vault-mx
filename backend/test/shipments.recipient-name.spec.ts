@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
@@ -44,6 +45,7 @@ function build(recipientName: string | null, userName = 'Nombre De Cuenta') {
       findUnique: jest.fn(),
     },
   };
+  withM61Defaults(prisma);
   prisma.$transaction = jest.fn((fn: any) => fn(prisma));
   const settings: any = {
     getNumber: jest.fn().mockResolvedValue(17500),
@@ -150,6 +152,7 @@ describe('M4 — `recipientName` del snapshot deja de ser `undefined` en retiros
         }),
       },
     };
+    withM61Defaults(prisma);
     return new ShipmentsService(prisma as PrismaService, {} as SettingsService, {} as StripeService);
   }
 
@@ -164,8 +167,10 @@ describe('M4 — `recipientName` del snapshot deja de ser `undefined` en retiros
     const svc = adminBuild({ line1: 'x' });
     const dto = await svc.adminGet('shp1');
     expect(dto.recipientName).toBeUndefined();
-    // La cola de M4 NO expone `customer {id,name,email}` (pregunta R5 de ux-ui): solo `userId`.
-    expect(dto).not.toHaveProperty('customer');
+    // ⭐ v1.80 (§M4-SHIP.10): el detalle SÍ expone `customer: CustomerRefDTO | null` (aditivo). En este fake no
+    // hay fila de `User` ⇒ `null`; `userId` sigue viajando tal cual.
+    expect(dto).toHaveProperty('customer');
+    expect(dto.customer).toBeNull();
     expect(dto.userId).toBe('userA');
   });
 });

@@ -75,10 +75,13 @@ describe('Q1 · §M2-B.8 — BORDE `curva ≥ mercado` (mercado=500, curva=700):
     expect(res.pricing.bounty).toMatchObject({ enabled: true, priceCents: 500, effective: true });
   });
 
-  it('bounty entre mercado y bin (500 ≤ 650 < 700) se ACEPTA — paga su propio monto, bajo el bin', async () => {
+  it('bounty entre mercado y bin (500 ≤ 650 < 700) se ACEPTA — y paga el MERCADO (v1.80, §M2-B.11)', async () => {
     const { svc } = build({ referenceMxnCents: 500 });
     const res = await svc.update('card-1', 'normal', bounty(650), 'admin-1');
-    expect(res.pricing.buy).toMatchObject({ effectiveCents: 650, source: 'bounty' });
+    // Quién es efectivo NO cambió (Q1 lo acepta); lo que paga es `min(bounty, mercado)` = 500 — bajo
+    // la tarifa normal de 700, sin piso (decisión del dueño 2026-09-28: «Pagar el mercado»).
+    expect(res.pricing.buy).toMatchObject({ effectiveCents: 500, source: 'bounty' });
+    expect(res.pricing.bounty).toMatchObject({ priceCents: 650, payoutCents: 500, cappedByMarket: true });
   });
 
   it('below-market RECHAZADO: bounty=499 (< mercado y < curva) ⇒ 422 BOUNTY_BELOW_RULE', async () => {
@@ -96,10 +99,11 @@ describe('Q1 · §M2-B.8 — BORDE `curva ≥ mercado` (mercado=500, curva=700):
     });
   });
 
-  it('bounty estrictamente > curva (701) sigue aceptándose (tramo `> curva`, invariante)', async () => {
+  it('bounty estrictamente > curva (701) sigue aceptándose (tramo `> curva`, invariante) — paga el mercado (v1.80)', async () => {
     const { svc } = build({ referenceMxnCents: 500 });
     const res = await svc.update('card-1', 'normal', bounty(701), 'admin-1');
-    expect(res.pricing.buy).toMatchObject({ effectiveCents: 701, source: 'bounty' });
+    expect(res.pricing.buy).toMatchObject({ effectiveCents: 500, source: 'bounty' });
+    expect(res.pricing.bounty).toMatchObject({ priceCents: 701, effective: true, payoutCents: 500, cappedByMarket: true });
   });
 
   it('🐤 CANARIO DEL DUEÑO — con `curva ≥ mercado` SIEMPRE existe un bounty aceptado `≤ mercado` (bounty=mercado)', async () => {

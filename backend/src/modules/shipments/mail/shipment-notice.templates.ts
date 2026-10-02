@@ -64,13 +64,31 @@ export interface ShipmentNoticeParams {
   shipmentId: string;
   /** Número de pedido, si el envío fulfilla uno. `null` en un retiro de bóveda. */
   orderNumber?: string | null;
+  /**
+   * `Order.id` del pedido que fulfilla el envío, **solo si el destinatario es el titular
+   * registrado**. `null` con `orderNumber` presente = pedido de invitado ⇒ **sin CTA** (el detalle
+   * del pedido exige sesión y el invitado no tiene cuenta).
+   */
+  orderId?: string | null;
   carrier?: string | null;
   trackingNumber?: string | null;
 }
 
-/** Enlace a la superficie donde el dato SIEMPRE está (la red de seguridad de `D-AVISO-2`). */
+/**
+ * Enlace a la superficie donde el dato SIEMPRE está (la red de seguridad de `D-AVISO-2`).
+ *
+ * ⚠️ Antes apuntaba a `cuenta/pedidos` / `boveda/envios`, que **no existen** en el storefront (404
+ * medido en clientes reales). Las rutas reales son `orders/[orderId]` y `shipments/[id]`; el candado
+ * `test/mail-links.frontend-routes.spec.ts` lee el árbol del front y falla si alguna desaparece.
+ *  - Envío de un pedido ⇒ detalle del pedido (el envío de un pedido de cliente registrado no es
+ *    legible en `GET /shipments/:id`: su `userId` va en la orden, no en el envío).
+ *  - Retiro de bóveda ⇒ detalle del envío.
+ */
 function shipmentUrl(params: ShipmentNoticeParams, locale: Locale): string | undefined {
-  return params.orderNumber ? appUrl('cuenta/pedidos', locale) : appUrl('boveda/envios', locale);
+  if (params.orderNumber) {
+    return params.orderId ? appUrl(`orders/${encodeURIComponent(params.orderId)}`, locale) : undefined;
+  }
+  return appUrl(`shipments/${encodeURIComponent(params.shipmentId)}`, locale);
 }
 
 /** Eyebrow: el folio del envío, o el número de pedido si lo hay. Ya en MAYÚSCULAS (§31.2). */

@@ -1386,13 +1386,24 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
   hábiles**, el cliente **recibe un correo diciéndole que no procederemos** y puede **volver a cotizar**.)*
 - **Súper-admin (dueño del negocio)**: acceso total al back-office (M1–M10). Es el único que
   **toca dinero que sale** (pagos SPEI de buylist, reembolsos), edita configuración/diales y ve
-  finanzas. Fija precios "pendientes" a mano. En el MVP, el negocio ES el admin. *(NUEVO v2.1)*: decide qué
+  finanzas. *(⭐ **Acotado v1.80.4 · 2026-09-29**, decisión del dueño *«también el operador»*: la **única
+  excepción** es el **reembolso de una carta que no sale al preparar un ENVÍO**, que el operador origina
+  dentro de un **tope de MX$5,000 acumulados en 24 h** — §S.10.4. Todo lo demás que saca dinero —reembolso
+  total de M3, reembolsar un caso «Por reponer», la cubeta de transferencias SPEI, el SPEI de buylist— **sigue
+  siendo solo suyo**, y él **ve en el panel** cada reembolso de operador, sin correo (D-13).)* Fija precios
+  "pendientes" a mano. En el MVP, el negocio ES el admin. *(NUEVO v2.1)*: decide qué
   se compra y **emite ofertas de buylist sin tope**; además **autoriza** las ofertas del operador que
   **rebasan el tope** de éste (§P.2, D13). El **celular es obligatorio** también en el **alta de usuario que
   él hace desde el back-office** (D11).
 - **Operador de bóveda**: rol de back-office limitado. Opera M1 (inventario/bóveda), M4
-  (retiros/envíos) y M5 (buylist) **hasta la etapa de verificación**. **No** toca dinero,
-  configuración ni finanzas. Toda su actividad queda en bitácora. *(Actualizado 2ª ronda v2.1, D13 — corrige
+  (**«Pedidos por preparar»**: envíos, colocaciones a bóveda y el apartado «Por reponer») y M5 (buylist)
+  **hasta la etapa de verificación**. **No** toca dinero,
+  configuración ni finanzas. *(⭐ **Acotado v1.80.4 · 2026-09-29**: **sí puede reembolsar una carta que no
+  encontró o que está dañada al preparar un ENVÍO** —solo por ese camino, solo cartas de un envío en
+  preparación, con importe calculado por el servidor y **tope de MX$5,000 acumulados en 24 h** (dial de M10)—
+  y **reponer** una carta de bóveda desde «Por reponer» (eso no saca dinero). ⛔ **No** reembolsa desde «Por
+  reponer», ⛔ no ve ni opera la cubeta de transferencias SPEI, ⛔ no hace el reembolso total de M3. Ver
+  §S.10.4 y criterio **221**.)* Toda su actividad queda en bitácora. *(Actualizado 2ª ronda v2.1, D13 — corrige
   el supuesto del primer pase de que ofertar era exclusivo del súper-admin)*: **SÍ puede emitir ofertas de
   buylist hasta un tope de monto** (dial de M10, sobre el **bruto** de la oferta); **por encima del tope la
   oferta no sale sola: la autoriza el súper-admin**. Además **compra la guía a mano y captura su número**
@@ -1543,6 +1554,14 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       real en bóveda)— **siempre se reembolsa**. NO es "arrepentimiento del comprador": es la **corrección de
       un error propio** y no está sujeto a la ventana de 7 días ni a la evidencia de la disputa de
       condición. El **súper-admin ejecuta el reembolso** para restituir el cobro indebido.
+      *(⭐ **v1.80.4 · 2026-09-29** — dos precisiones del dueño, ambas **instancias de esta misma excepción**:
+      **(a)** la **carta que no aparece o está dañada al preparar un envío** es inventario fantasma **descubierto
+      al empacar** ⇒ se reembolsa **solo esa carta** (lo pagado por ella **más su parte de la comisión de
+      cobro**), el pedido sigue con las demás, y **lo origina el operador** al dar el pedido por preparado
+      dentro de su tope — §S.10.3–S.10.4, criterios **218–221**; **(b)** un **reembolso TOTAL de una compra a
+      bóveda deshace la venta**: las cartas dejan de ser del cliente y vuelven a la plataforma «en almacén» —
+      §H, criterio **231**. Para una carta **de bóveda** (retiro o compra a bóveda) que falta o está dañada, el
+      remedio primero es **reponerla**, no reembolsarla: §S.10.5.)*
 - [ ] **Contracargo bancario ≠ reembolso**: se aclara al cliente (en términos/FAQ) que un **contracargo** es
       un proceso que puede iniciar **con su banco de forma independiente**, distinto de la política de
       reembolsos de la plataforma.
@@ -1578,6 +1597,18 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] **Envío/retiro solo nacional (todo México)** en el MVP; internacional queda fuera de alcance.
 - [ ] Solo se pueden retirar cartas con titularidad **`settled`**.
 - [ ] Ejecución de guía **manual** en el MVP (el admin/operador captura el número de guía).
+- [ ] ⭐ **El cliente REGISTRADO ve su envío en su pedido** *(v1.80.4 · 2026-09-29; hallazgo de QA: hoy solo el
+      invitado lo ve)*: en el **detalle de su pedido de envío directo** ve **paquetería, número de guía, el
+      progreso** (pagado → preparando → guía → enviado → entregado), destinatario y ciudad, con el **mismo
+      estado público** que el seguimiento del invitado — ⛔ nunca un término interno como «LIQUIDADA». Las
+      cartas que **no salieron** se muestran como *«no salió · te devolvimos MX$X»*, y las que se están
+      reponiendo, *«la estamos reponiendo»*. En un **retiro de bóveda**, su retiro muestra lo mismo por carta.
+      Criterio **230**.
+- [ ] ⭐ **Una carta que falta o está dañada al preparar un envío se reembolsa sola, sin cancelar el envío**
+      *(v1.80.4 · 2026-09-29)*: el envío directo sigue con las demás cartas; si **ninguna** sale, se devuelve
+      **todo** (cartas, envío y comisión) y el envío se cierra solo. En un **retiro de bóveda**, la carta que
+      falta o está dañada **se repone** antes que reembolsarse y **el paquete espera** hasta tenerla o hasta que
+      el dueño la reembolse (*«esperar y mandar todo junto»*). Detalle en **§S.10**.
 
 ### E. Buylist — compra de raw a usuarios (cotizador público + solicitud)
 - [ ] **Cotizador público**: el usuario elige carta y, entre los **acabados disponibles de esa carta**
@@ -2012,12 +2043,24 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       sin acciones masivas** —eliminar es por fila—. Ver criterios **184**, **91** y
       `API_CONTRACT §M2-B.8/B.9/B.10`.
 - [ ] **M3 — Ventas / órdenes**: estados `pending / settled / fallida / reembolsada / contracargo`,
-      **desglose con línea de Stripe**, **reembolso**.
-- [ ] **M4 — Retiros / envíos**: cola `solicitado → picking → guía → enviado → entregado`,
+      **desglose con línea de Stripe**, **reembolso**. *(⭐ **v1.80.4 · 2026-09-29**: la lista y el detalle
+      muestran **cliente y número de pedido** y se puede **buscar** por ellos; el detalle **enlaza el envío** del
+      pedido y **lista sus reembolsos** —por carta, totales, y las transferencias SPEI si las hubo—. El
+      **reembolso total sigue siendo solo del súper-admin** y ahora **devuelve lo que queda** (respeta lo ya
+      reembolsado por carta). Sobre una **compra a bóveda**, el reembolso total **deshace la venta** (§H,
+      criterio **231**) y se **rechaza** si una carta está en un retiro ya preparado o con guía.)*
+- [ ] **M4 — «Pedidos por preparar»** *(nombre del dueño, 2026-09-29; antes «Retiros / envíos»)*: cola
+      `solicitado → picking → guía → enviado → entregado`,
       ~~**lista de picking por ubicación**~~ **⚠ SUSTITUIDA en v2.3 (2026-09-22) por «Pedidos a preparar» (§S)**:
       una **tarjeta por PEDIDO** con sus cartas dentro ordenadas por ubicación y **dos cubetas** (envío /
       bóveda). La máquina de estados **no cambia**. Ver **§S** y el criterio **20** (superseded),
       **captura de guía**, solo sobre cartas `settled`.
+      *(⭐ **v1.80.4 · 2026-09-29** — **§S.10**: palomeo carta por carta y «pedido preparado» **también en la
+      cubeta ENVÍO**; **la guía exige «preparado»**; carta que falta o está dañada en un envío directo ⇒
+      **reembolso solo de esa carta** (también lo origina el operador, con tope); en bóveda ⇒ **tercera pestaña
+      «Por reponer»** (7 días, reponer con carta idéntica, reembolso capturado por el dueño); **sin botón
+      «Cancelar»** en envíos pagados; cola con **número de pedido y cliente, búsqueda**, contador que **incluye
+      bóveda** y **hoja de preparación imprimible**. Criterios **215–233**.)*
 - [ ] **M5 — Buylist** *(pipeline ampliado en v2.1, §P)*: pipeline
       `cotizada → ofertada → aceptada → en_transito → recibida → verificación → aprobada → pagada`, con
       **estados terminales** *(**eran cuatro; la 5ª ronda los subió a CINCO; la 6ª los devuelve a CUATRO** —
@@ -2209,6 +2252,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       acepta** (§P.3). En las otras tres es **información**; en el correo de oferta es **la condición del
       contrato**. Por eso un rechazo por no-NM **no requiere volver a preguntarle nada**: **ya lo aceptó**.
 - [ ] **Titularidad en bóveda**: `pending → settled`; retiro solo sobre `settled`; contracargo revierte al inventario.
+      *(⭐ **v1.80.4 · 2026-09-29** — dos precisiones: **(a)** una carta de bóveda que **falta o está dañada** al
+      preparar su retiro o al colocar su compra **sigue siendo del cliente** mientras su caso «Por reponer» esté
+      abierto —se le **debe** esa carta—, aunque no pueda retirarla; deja de ser suya solo cuando se le da otra
+      igual, se le reembolsa o el caso se anula (§S.10.5). **(b)** el **reembolso TOTAL de una compra a bóveda
+      deshace la venta**: las cartas de esa compra que sigan en su bóveda **vuelven a la plataforma** (ver el
+      bullet «Error de la plataforma», abajo, y el criterio **231**).)*
 - [ ] **Regla general de valuación**: toda carta se valúa contra la web de referencia; si no hay precio,
       se marca **"precio pendiente"** y se **escala al dueño** (aplica a buylist, inventario y portafolio).
       Nunca se descarta una carta por falta de dato.
@@ -2218,6 +2267,22 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       es una **obligación de la plataforma**, no una cobertura aseguradora. **Prohibido decir «asegurada» /
       «insured»** en cualquier superficie **que hable de la custodia** (verificable: **criterio 120**, que lista
       las exclusiones legítimas).
+      *(⭐ **v1.80.4 · 2026-09-29 — cómo se cumple esta obligación, decidido por el dueño (D-2, D-4, D-5..D-7,
+      D-12; `HECHOS.md`)**: **(1)** la carta de un cliente que **falta o está dañada** —al preparar su retiro o al
+      colocar su compra a bóveda; «dañada» es **el mismo caso** que «faltante»— abre un caso en el apartado
+      **«Por reponer»**; **(2)** el remedio **primero es reponerla** con otra pieza de **identidad exacta** (misma
+      carta, variante/acabado, condición o grado, sellado — ⛔ no vale «mejor condición» ni otra variante), en un
+      plazo de **7 días** tras el cual el caso se marca **vencido** y se ve en el tablero, ⛔ **sin que nada se
+      reembolse solo**; **(3)** si no se consigue, **el dueño la reembolsa por el monto que él captura**, con
+      **lo pagado** y **el valor de mercado del día** (con su fecha) **a la vista como referencias** — *«yo busco
+      lo que vale y capturo»*, con **motivo obligatorio**; **(4)** contra el error de dedo: **más del doble** de
+      la referencia ⇒ volver a escribir el monto; **más de 5 veces** ⇒ bloqueado (el «5» es un **dial de M10**);
+      **(5)** lo que no quepa en el cobro con tarjeta se paga **por transferencia SPEI a mano** desde una cubeta
+      propia. Detalle en **§S.10.5–S.10.7**, criterios **223–229**.
+      **(SUPUESTO — el product-owner lo interpreta así y el dueño lo confirma o corrige):** el *«tope por carta
+      configurable por el dueño (M10)»* de esta regla y de la **decisión 8** **se materializa** en ese
+      **múltiplo de la referencia** (el dial del punto 4), **no** en una cifra fija en pesos por carta. Si el
+      dueño quiere además un tope absoluto en pesos, es un dial nuevo y se dice.)*
 - [ ] **Ventas finales (sin reembolso voluntario)**: toda compra es **final**; no hay reembolso a solicitud
       del cliente, ni con la carta en bóveda ni ya enviada. Aplica a **todos los tipos de producto sin
       excepción** (raw, sellado y gradeadas). Las **dos únicas excepciones** son la disputa de condición
@@ -2234,6 +2299,30 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       fantasma** (venta de una carta sin existencia real en bóveda)— **siempre se reembolsa**. No es
       arrepentimiento del comprador sino corrección de un error nuestro; **no aplica la ventana de 7 días ni la
       evidencia de la disputa de condición**. Lo ejecuta el **súper-admin** (reembolso en M3).
+      *(⭐ **v1.80.4 · 2026-09-29 — lo que el dueño precisó sobre QUIÉN y sobre QUÉ PASA CON LA CARTA**:)*
+      - *(**Quién**)* El reembolso **total** sigue siendo **solo del súper-admin** (M3) y ahora **devuelve lo que
+        queda**, respetando lo ya devuelto por carta. El reembolso **de una sola carta que no sale al preparar un
+        ENVÍO** lo origina **también el operador**, al dar el pedido por preparado, con importe calculado por el
+        servidor y **tope de MX$5,000 acumulados en 24 h** (dial). Ver §S.10.4, criterio **221**.
+      - *(**Qué pasa con la carta — reembolso TOTAL de una compra A BÓVEDA deshace la venta**, criterio **231**)*
+        Hoy el sistema deja la orden «reembolsada» **y la carta sigue en la bóveda del cliente**: el cliente se
+        queda **con la carta y con su dinero**. Eso **no puede ser**: las dos causas que admite esta excepción
+        —cobro duplicado, inventario fantasma— exigen que la venta **se deshaga**. Regla: **al confirmarse** el
+        reembolso total (desde M3 o desde el panel de Stripe), cada carta de esa compra que **siga en la bóveda del
+        cliente** **vuelve a la plataforma como «en almacén»** —⛔ **no a la venta**— con su movimiento firmado,
+        **desaparece de «Mi bóveda»** y de «Qué debe haber», y la **colocación pendiente se cancela** (sale de la
+        cola «Para bóveda»). La orden queda **pendiente de que un humano confirme** dónde está físicamente cada
+        carta (la misma revisión que hoy usa el contracargo): *«recuperada»* ⇒ vuelve a la venta; *«no
+        recuperada»* ⇒ **merma firmada** (una carta que «devolvimos» en el sistema **no está en el estante** hasta
+        que alguien lo vea — es justo el caso de inventario fantasma). El cliente recibe **el correo de
+        reembolso** de siempre (variante «tus cartas dejan de estar en tu bóveda»), ⛔ no uno de «envío cancelado».
+        **Corre al confirmar el reembolso, no al pedirlo**: si Stripe lo rechaza, el cliente **conserva su
+        carta** (nunca sin carta y sin dinero). ⛔ Si una carta de esa compra está en un **retiro ya preparado o
+        con guía**, M3 **se rechaza** con el retiro nombrado — se deshace el preparado primero, o se espera a que
+        salga; si el reembolso llega **desde Stripe** en ese estado, esa carta **no se toca** y queda marcada para
+        revisión manual. Cartas **ya retiradas o entregadas** no se tocan; una carta con caso «Por reponer»
+        abierto **sigue en su caso** (el dueño lo anula). **El contracargo NO cambia** su regla: ahí la carta
+        existe y está en su cajón, y vuelve **a la venta** como hoy.
 - [ ] **Contracargo bancario (independiente)**: el cliente puede iniciar un **contracargo con su banco** por
       su cuenta; es un proceso ajeno a la política de reembolsos de la plataforma y se maneja según la regla
       de contracargo (revierte la carta al inventario y refleja el estado de la orden).
@@ -6212,7 +6301,7 @@ pedido. **No es una incoherencia: es que no tiene dónde ir a mirarlo.**
 |---|---|---|
 | **Pedido liquidado (`settled`)** | **📧 a TODOS** | **Se movió su dinero.** ⭐ **Hueco medido**: el cliente **registrado** —el que tiene cuenta, el que más nos importa— **no recibe nada hoy** |
 | **Pedido fallido (`failed`)** | **▫️ SIN CORREO** *(pregunta **72**: ***«avisa al momento […] se avisa en la plataforma»***)* | **Ya se enteró: la plataforma se lo dice en vivo** — `CheckoutRetryNotice.tsx`, y **tratado como información, no como error** (`role="status"`, `:48,:54,:62`). **Es la cláusula (c) en acción.** ⚠ **Riesgo residual, aceptado y escrito**: ese aviso **solo lo ve quien está en la página**; un 3DS que falle **con la pestaña ya cerrada** deja al cliente creyendo que compró. **Él decidió que no se le escriba; queda registrado, no reabierto** |
-| **Reembolsado (`refunded`)** | **📧** | **Su dinero volvió.** Cláusula (b) |
+| **Reembolsado (`refunded`)** | **📧** | **Su dinero volvió.** Cláusula (b). *(⭐ v1.80.4 · 2026-09-29: cuando el reembolso total es de una **compra a bóveda**, **el mismo correo** dice además que **sus cartas dejan de estar en su bóveda** (§H, criterio **231**) — ⛔ **no** es un segundo correo. Y ⛔ **no sale** cuando el total se alcanza **sumando reembolsos por carta** de un envío que no salió: en ese caso el correo que llega es el de «tu carta no salió» de abajo — un hecho, un correo.)* |
 | **Contracargo (`chargeback`)** | **⛔ NADA** *(pregunta **73**: ***«me avisa Stripe, no lo genera el cliente en nuestro portal»***)* | **Ya se enteró por su banco, y normalmente lo inició él.** Escribirle *«detectamos un contracargo»* sería **poner una pantalla nuestra en medio de una investigación bancaria**. ⚠ **Pero eso deja una pregunta distinta sin contestar —y la levantó él mismo—: el cliente no sabe QUÉ LE PASA A SU PEDIDO. Es la pregunta 86, ABIERTA, fuera del alcance de §R** |
 | **Pedido `pending`** | **⛔** | Estado interno de segundos |
 
@@ -6225,6 +6314,12 @@ pedido. **No es una incoherencia: es que no tiene dónde ir a mirarlo.**
 | **Entregado (`entregado`)** | **▫️ SIN CORREO** *(pregunta **74**, ⛔ **confirmado explícitamente**)* | **Ya tiene la caja en la mano: cláusula (c) al revés.** ⚠ **El contraargumento se le puso delante y lo descartó**: es el evento que **abre la ventana de disputa**, y el correo habría sido **la última oportunidad de que revisara antes de que el plazo corra**. **Decisión suya, registrada** |
 | **Cancelado (`cancelado`)** | **📧** | Su solicitud **no procede**: probablemente **tenga que rehacerla** |
 | **`solicitado` / `picking`** | **⛔** | **Son nuestro taller**, no su información |
+| ⭐ **Una carta de tu envío NO SALIÓ y te devolvimos su dinero** *(v1.80.4 · 2026-09-29, §S.10.3)* | **📧** | **Su dinero volvió** (cláusula (b)) **y su paquete llega incompleto** (cláusula (c)): dice **qué carta(s)**, **por qué** (no la encontramos / llegó dañada), **cuánto** se devuelve y que **el resto sigue su curso** — o que **no sale nada** y se devolvió todo. **Un correo por acto de preparado**, aunque falten varias cartas; ⛔ **nunca antes de que Stripe acepte** el reembolso (una carta cuyo reembolso quedó atorado avisa cuando salga). Es el mismo correo cuando un caso «Por reponer» se cierra **con reembolso**. ⛔ **Sin** actor, sin componentes, sin motivo interno |
+| ⭐ **Tu retiro se DETIENE: una carta se está reponiendo** *(v1.80.4 · 2026-09-29, §S.10.5–S.10.6)* | **📧** | **Cláusula (c)**: su paquete **no sale cuando esperaba** y no tiene forma de saberlo. Dice qué carta(s), por qué, que **la estamos reponiendo** y que el envío sale en cuanto la tengamos —o que, si no la conseguimos, le devolvemos su valor. **Un correo por acto** |
+| ⭐ **Carta repuesta / «apareció»** | **⛔** | **Sin correo propio**: el siguiente hecho que le importa es **la guía**, que ya avisa |
+| ⭐ **Te vamos a DEPOSITAR por transferencia** *(v1.80.4, §S.10.7 — la parte de un reembolso que no cabe en la tarjeta)* | **📧** | **Tiene que hacer algo o saber algo**: le decimos **cuánto** va por transferencia (y cuánto regresó a su tarjeta, si hubo); **con CLABE registrada**, a qué terminación; **sin CLABE**, que **la registre en su cuenta** (enlace). ⛔ Nunca la CLABE completa, ⛔ nunca el motivo interno ni las referencias de mercado |
+| ⭐ **Ya te DEPOSITAMOS** *(v1.80.4, §S.10.7)* | **📧** | **Se movió su dinero** (cláusula (b)); lleva la **clave de rastreo** si el dueño la capturó (D-11: es opcional) |
+| ⭐ **Transferencia CANCELADA por el dueño** | **⛔** | Cancelar es **decisión del dueño con nota**; si hay algo que explicarle, **lo hace él**. El cliente lo ve en su cuenta (*«cancelada»*) |
 
 **Venta / buylist — lo que TE VENDEN** *(hoy: **6 plantillas**, `buylist-mail.templates.ts` — ofertamos · recordatorio · cancelamos · piezas rechazadas · se venció · no se siguió)*
 
@@ -6254,6 +6349,14 @@ pedido. **No es una incoherencia: es que no tiene dónde ir a mirarlo.**
 | **«Tu carta ya está en tu bóveda»** | **▫️** | ⚠ **No es un evento nuevo: es el mismo `settled`**, visto desde la bóveda. **Duplicarlo como aviso propio sería mandar dos correos por un solo hecho** |
 | **«Falta tu KYC»** (pendiente vivo) | **🔔 CAMPANA** | **El ejemplo del dueño.** Clase A, §R.1 |
 | **⛔ «El valor de tu bóveda subió/bajó»** | **⛔ DESCARTADO POR EL DUEÑO — NO SE REABRE** | El dato **existe** (hay foto diaria del portafolio) y **eso no cambia nada**: **él dijo que no** |
+| ⭐ **Compra a bóveda con una carta POR REPONER** *(v1.80.4 · 2026-09-29, D-10)* | **▫️ SIN CORREO** | **Coherente con «sin aviso al guardar»** (`HECHOS.md`, 2026-09-25): lo ve en **«Mi bóveda»** como *«la estamos reponiendo»* y **no puede pedir su retiro** mientras. **Sí** recibe correo si al final **se le reembolsa** (el de «tu carta no salió» de la tabla de envíos) |
+| ⭐ **Tus cartas dejan de estar en tu bóveda** (reembolso total de la compra) *(v1.80.4, §H)* | **📧 el mismo «Reembolsado»** | Es **el mismo hecho** que el reembolso: **un correo**, con la variante de bóveda. ⛔ No un segundo correo |
+
+**Interno — lo que se entera EL DUEÑO** *(⭐ v1.80.4 · 2026-09-29, D-13)*
+
+| Evento | Propuesta | Razón |
+|---|---|---|
+| **Un operador reembolsó una carta** | **⛔ NADA — ni correo por evento ni resumen diario** *(D-13: ***«Solo verlo en el panel»***)* | El dueño **lo ve en el panel**: lista de reembolsos, **resumen por operador**, **merma por actor** y la tarjeta del tablero «Reembolsos de operadores». Un correo por cada carta que falta sería ruido; **el contador no puede mentir** |
 
 **Catálogo**
 
@@ -6266,6 +6369,14 @@ pedido. **No es una incoherencia: es que no tiene dónde ir a mirarlo.**
 comprador · **(5)** salida del envío · **(6)** envío cancelado · **(7)** guía al vendedor · **(8)** acuse de
 recibido al vendedor · **(9)** buylist pagada · **(10)** disputa resuelta con recompra · **(11)** disputa
 rechazada.
+⭐ **v1.80.4 · 2026-09-29 — el corte crece a QUINCE con cuatro correos que salen de las decisiones del dueño
+sobre preparar envíos y «Por reponer»** (§S.10; todos cláusula (b) o (c), ninguno de «taller»): **(12)** una
+carta de tu envío no salió y te devolvimos su dinero · **(13)** tu retiro se detiene porque una carta se está
+reponiendo · **(14)** te vamos a depositar por transferencia · **(15)** ya te depositamos. **Y tres ⛔ nuevos,
+decididos uno a uno**: carta repuesta/«apareció» (nada), compra a bóveda con carta por reponer (nada, D-10),
+transferencia cancelada (nada), más el **interno** «un operador reembolsó» (nada: solo panel, D-13). El
+criterio **206** se verifica con **15**. ⛔ **El criterio 210 no cambia** (dos correos de envío, ninguno al
+entregar): esto **no lo toca** y se reabrirá, si acaso, en la iniciativa Skydropx, aparte.
 
 **⭐ Y la cuenta que de verdad define esta sección**: de los **30 cambios de estado posibles**, **la gran
 mayoría no manda ningún correo**, y **tres no producen absolutamente nada, ni campana** —identidad aprobada,
@@ -6410,7 +6521,10 @@ inventan motivos que él nunca haya usado.** Propuesta, **a confirmar** (pregunt
 **⛔ Restricción que aplica a los seis, venga el texto que venga**: **ningún motivo puede mencionar topes ni
 umbrales** — son política interna (`HECHOS.md`, 2026-09-11 (c)). Es el criterio **201**.
 
-### S. «Pedidos a preparar» — la hoja de trabajo del operador (rediseño de la cola de picking, M4) — **RECONSTRUIDA v2.3, 2026-09-22 · ⚠️ PENDIENTE DE RE-APROBACIÓN DEL DUEÑO**
+### S. «Pedidos por preparar» — la hoja de trabajo del operador (rediseño de la cola de picking, M4) — **RECONSTRUIDA v2.3, 2026-09-22 · ⚠️ PENDIENTE DE RE-APROBACIÓN DEL DUEÑO** · ⭐ **AMPLIADA v1.80.4 · 2026-09-29 (S.10: preparar envíos, la carta que falta y «Por reponer» — decisiones del dueño, APROBADAS)**
+
+> *(Nombre: el dueño lo fijó el 2026-09-29 como **«Pedidos por preparar»** — antes «Pedidos a preparar», y antes
+> «Retiros». Las citas internas a «Pedidos a preparar» de S.0–S.9 son históricas y no se reescriben.)*
 
 > ### ⚠️⚠️ S.0 · Por qué esta sección dice «RECONSTRUIDA» y no «aprobada»
 >
@@ -6452,6 +6566,27 @@ umbrales** — son política interna (`HECHOS.md`, 2026-09-11 (c)). Es el criter
 >
 > El resto de §S **sigue pendiente de re-aprobación** (S.8 n.º 1, 4, 5, 6 y las nuevas 7–11).
 
+> ### ✅ S.0-ter · Lo que el dueño decidió el 2026-09-29 (v1.80.4) — **decidido, no se vuelve a preguntar**
+>
+> Salió de la **auditoría E2E del recorrido del operador** sobre producción (`a2da420`) y de las preguntas
+> D-1..D-14 del diseño del arquitecto. Todo vive en **S.10** y en los criterios globales **215–233**; aquí,
+> el índice:
+>
+> | Qué | Decisión del dueño (literal cuando la hay) | Dónde queda |
+> |---|---|---|
+> | Nombre de M4 | **«Pedidos por preparar»** | S.10.1 · criterio 215 |
+> | Palomear y «preparado» en la cubeta **ENVÍO** (hoy solo bóveda); la guía exige «preparado» | aprobado | S.10.2 · 216–217 |
+> | Carta que falta o está **dañada** en un envío directo | *«Reembolsar solo esa carta»* · *«$314.58: la carta más su parte de la comisión»* · *«la carta que tenemos está dañada es el mismo caso para cuando falta»* | S.10.3 · 218–220 |
+> | Quién reembolsa | *«También el operador»* (queda registrado quién) · tope **MX$5,000 en 24 h** (D-3) · *«Solo verlo en el panel»* (D-13, sin correo al dueño) | S.10.4 · 221 |
+> | Cancelar a mano un envío pagado | *«no se puede cancelar, ¿estamos dando la opción?»* ⇒ **se quita el botón** | S.10.8 · 222 |
+> | Carta de **bóveda** (retiro o compra a bóveda) que falta o está dañada | *«la buscamos reemplazar; déjame el botón de lo que vale en el mercado por si no la conseguimos»* (D-2) · *«un apartado para estos casos porque puedo buscarla y reemplazar»* (D-4) · **7 días**, luego alerta; nada se reembolsa solo · *«esperar y mandar todo junto»* (D-9) · sin botón desde inventario (D-14, *«Por ahora no»*) | S.10.5–S.10.6 · 223–226 |
+> | Monto del reembolso de un caso | *«yo busco lo que vale y capturo»* (D-5/D-6) · *«se genera un reembolso que haga lo SPEI manual yo; tenemos que aventarlos a una cubeta nueva»* (D-7) · topes 2× confirma / 5× bloquea, *«Sí, así»* (D-12) | S.10.7 · 227–228 |
+> | Cubeta «Reembolsos manuales (SPEI)» | *«Solo marcar si se realizó y quién»* (D-11) | S.10.7 · 229 |
+> | El cliente registrado ve su envío/guía | hallazgo de QA, aprobado | §D · 230 |
+> | Reembolso **total** de una compra a bóveda | **deshace la venta**: las cartas vuelven a la plataforma «en almacén», no a la venta, hasta que un humano confirme | §H · 231 |
+> | Colas: número y cliente, búsqueda, detalle M3, contador con bóveda, hoja imprimible | aprobado | S.10.9 · 232 |
+> | **Lo que NO cambia** | criterio **210** (dos correos de envío, ninguno al entregar) — se reabre, si acaso, en la iniciativa Skydropx | S.10.10 · 233 |
+
 #### S.1 Qué es, y a quién sirve
 
 **Un cambio de unidad, no de pantalla.** La cola de M4 dejó de ser una **lista plana de piezas ordenada por
@@ -6473,8 +6608,9 @@ es la especificación**: no es una tabla de back-office que se lee con el ratón
 4. **¿A dónde va cuando esté armado?** → destino (envío / bóveda) y, si es envío, la **dirección completa con la calle**.
 5. **¿Qué tan tarde voy?** → la antigüedad, porque la cola se atiende por **lo más viejo primero**.
 
-**Renombrado de cara al operador:** la palabra «picking» **desaparece de la pantalla**; se llama **«Pedidos a
-preparar»**. La ruta interna sigue diciendo `picking-list` y eso es correcto: el renombrado es de producto, no de
+**Renombrado de cara al operador:** la palabra «picking» **desaparece de la pantalla**; se llama ~~**«Pedidos a
+preparar»**~~ ⭐ **«Pedidos por preparar»** *(nombre del dueño, 2026-09-29 — v1.80.4; criterio **215**)*. La ruta
+interna sigue diciendo `picking-list` y eso es correcto: el renombrado es de producto, no de
 plomería (`API_CONTRACT.md:14813-14818`).
 
 **Por qué agrupar por pedido y no seguir optimizando el recorrido** (`DESIGN_SYSTEM §35.2`): el operador **no
@@ -6497,12 +6633,14 @@ Se cambia un óptimo global por uno local **con la unidad de trabajo intacta**: 
 
 **Y fuera de ESTA VERSIÓN (construido ≠ diseñado) — planeado, no implementado** (`API_CONTRACT §M4-PREP`, recuadro
 PLANEADO):
-- **Palomear cada carta y firmar el pedido como preparado** (S.5).
+- ~~**Palomear cada carta y firmar el pedido como preparado** (S.5).~~ → ⭐ **Sale de esta lista el 2026-09-29
+  (v1.80.4):** el dueño lo aprobó **también para la cubeta ENVÍO** (S.10.2). Es trabajo aprobado.
 - ~~**Sugerencia de ubicación de bóveda** (S.4) — además **bloqueada** por la decisión pendiente de S.6.~~
   → **Sale de esta lista el 2026-09-24:** el dueño la **aprobó por construir** junto con la cubeta de bóveda
   (S.4) y **desbloqueó S.6** con la opción (b). Ya no es «fuera de esta versión»: es trabajo aprobado.
-- 💰 **Reembolso parcial por carta faltante** (S.5) — **toca dinero: exige los tres veredictos (QA + techlead +
-  seguridad) ANTES de escribir código.**
+- ~~💰 **Reembolso parcial por carta faltante** (S.5)~~ → ⭐ **Sale de esta lista el 2026-09-29 (v1.80.4):**
+  decidido (*«Reembolsar solo esa carta»*, S.10.3) y diseñado; **sigue tocando dinero: exige los tres veredictos
+  (QA + techlead + seguridad) ANTES de desplegar** — la revisión de seguridad del diseño ya corrió.
 - ⛔ **Regla de pantalla mientras tanto** (`DESIGN_SYSTEM §35.11`): **no se pintan afordancias apagadas** — ni
   casillas deshabilitadas, ni un botón «Marcar preparado» en gris, ni «0 de 7». *Un control deshabilitado es una
   promesa con fecha, y esas fechas no están decididas.*
@@ -6604,9 +6742,19 @@ Criterios de aceptación de este ciclo: **CA #17 a #23 de §S** (S.7).
   **deja seguir preparando el resto**.
 
 > 💰 **El reembolso parcial es el único punto de §S que mueve dinero**, y hoy el reembolso del sistema es
-> **todo-o-nada**. ⛔ **No se escribe código de esto hasta tener los tres veredictos** (QA + techlead + seguridad).
-> Quién **marca faltante** (operador) y quién **ejecuta el reembolso** (súper-admin) son **personas distintas a
-> propósito**: separación de poderes.
+> **todo-o-nada**. ⛔ **No se despliega esto sin los tres veredictos** (QA + techlead + seguridad).
+> ~~Quién **marca faltante** (operador) y quién **ejecuta el reembolso** (súper-admin) son **personas distintas a
+> propósito**: separación de poderes.~~
+> ⭐ **SUSTITUIDO el 2026-09-29 (v1.80.4) por decisión del dueño: *«También el operador»*.** El mismo operador
+> que marca «no la encontré» / «llegó dañada» **origina el reembolso de esa carta al dar el pedido por
+> preparado**. La separación de poderes que se pierde **se compensa con límites verificables, no se ignora**:
+> solo por esa vía, solo cartas de un envío en preparación, importe del servidor, **tope de MX$5,000 en 24 h**,
+> merma **firmada** por quien marcó, y el dueño **lo ve en el panel** — **S.10.4**, criterio **221**.
+>
+> ⭐ **Y esta S.5 queda PRECISADA por S.10 en dos puntos más:** *(i)* «ajustar el total a pagar» de DECISIÓN #2
+> significa **reembolsar solo esa carta con su parte de la comisión** (no el envío mientras salga alguna);
+> *(ii)* todo lo anterior vale para el **envío directo**; para una carta **de bóveda** (retiro o compra a bóveda)
+> la conducta es **otra**: se **repone**, no se reembolsa al preparar — **S.10.5**.
 
 #### S.6 ✅ **RESUELTA (2026-09-24) — opción (b), «junto a sus otras cartas»** — en qué cajón del archivero queda cada cliente
 
@@ -6681,19 +6829,19 @@ apellido gobierne algo: la propuesta de ubicación de bóveda, o cualquier lista
 | **CA #1** | ⛔ **HUECO — no referenciado en ninguna fuente del árbol.** Texto **no recuperable**. | — | `grep 'CA #1[^0-9]'` ⇒ 0 | **pendiente del dueño** |
 | **CA #2** | ⛔ **HUECO — no referenciado en ninguna fuente del árbol.** Texto **no recuperable**. | — | `grep 'CA #2[^0-9]'` ⇒ 0 | **pendiente del dueño** |
 | **CA #3** | La cola muestra **la identidad exacta de la carta** (no basta el nombre). | **PARCIAL** — se conoce el tema, no la redacción | `…CONTRACT_DRAFT.md:110` («identidad de la carta — DECISIÓN #6 / CA #3, #10») | construido (S.3); **redacción a confirmar** |
-| **CA #4** | Queda registrado **quién preparó el pedido y cuándo**, y es **consultable en la bitácora de auditoría**. El dato se toma de **la sesión del usuario**, ⛔ nunca se teclea (DECISIÓN #3). | **ALTA** | `…CONTRACT_DRAFT.md:147-149,174` | **PLANEADO** — no construido |
-| **CA #5** | Al dar un pedido por preparado, **el siguiente paso que se ofrece depende del destino**: envío ⇒ **guía**; bóveda ⇒ **cambio de ubicación**, ⛔ sin guía. | **ALTA** | `…CONTRACT_DRAFT.md:178-181` | **PLANEADO** — no construido |
+| **CA #4** | Queda registrado **quién preparó el pedido y cuándo**, y es **consultable en la bitácora de auditoría**. El dato se toma de **la sesión del usuario**, ⛔ nunca se teclea (DECISIÓN #3). | **ALTA** | `…CONTRACT_DRAFT.md:147-149,174` | ⭐ **APROBADO por construir** (2026-09-29, S.10.2; criterio **216**) |
+| **CA #5** | Al dar un pedido por preparado, **el siguiente paso que se ofrece depende del destino**: envío ⇒ **guía**; bóveda ⇒ **cambio de ubicación**, ⛔ sin guía. | **ALTA** | `…CONTRACT_DRAFT.md:178-181` | ⭐ **APROBADO por construir** (2026-09-29, S.10.2; criterio **217**) |
 | **CA #6** | En destino **envío**, la cola muestra la **dirección COMPLETA, con la calle** — el dato que la fila plana omitía. | **ALTA** | `…CONTRACT_DRAFT.md:87` · `API_CONTRACT.md:14855` · `shipments.service.ts:736` · `M4View.test.tsx:464` | ✅ **construido y con prueba** |
-| **CA #7** | El operador **palomea carta por carta**, y un pedido **solo puede darse por preparado cuando todas sus cartas están palomeadas o marcadas como faltantes**. | **PARCIAL** — el borrador agrupa tres CA (#4,#5,#7) sobre cuatro conductas; **cuál de las dos mitades es exactamente el #7 no es recuperable** | `…CONTRACT_DRAFT.md:147-149` | **PLANEADO** — no construido; **reparto #4/#5/#7 a confirmar** |
+| **CA #7** | El operador **palomea carta por carta**, y un pedido **solo puede darse por preparado cuando todas sus cartas están palomeadas o marcadas como faltantes**. | **PARCIAL** — el borrador agrupa tres CA (#4,#5,#7) sobre cuatro conductas; **cuál de las dos mitades es exactamente el #7 no es recuperable** | `…CONTRACT_DRAFT.md:147-149` | ⭐ **APROBADO por construir** (2026-09-29, S.10.2; criterio **216**); **reparto #4/#5/#7 a confirmar** |
 | **CA #8** | La cola tiene **dos cubetas, envío y bóveda**, y se puede ver **una o las dos**. | **ALTA** | `…CONTRACT_DRAFT.md:231` · `frontend/src/lib/api.ts:1417` · `M4View.test.tsx:595` | ✅ **construido y con prueba**; ⚠️ la cubeta bóveda **sale vacía** (S.4) |
 | **CA #9** | Los pedidos se atienden **por antigüedad: lo más viejo primero**. | **ALTA** | `API_CONTRACT.md:14821,14846` · `shipments.service.ts:659,692` · `M4View.test.tsx:391` | ✅ **construido y con prueba** |
 | **CA #10** | Por cada carta se ve **cantidad, set, acabado, condición/grado junto al acabado y miniatura**; y el cliente se identifica por **apellido** (archivero alfabético) con el nombre completo al lado. | **ALTA** | `…CONTRACT_DRAFT.md:109-117,313` | ✅ **construido** (S.3) · ✅ S.6 resuelta (2026-09-24): el texto se conserva tal cual, pero **«archivero alfabético» ya no gobierna nada** — el apellido es solo identificación visual; el cajón lo decide CA #18/#19 |
 | **CA #11** | La ubicación se muestra **en texto entendible**: ⛔ el código **`UNASSIGNED` deja de viajar y de pintarse**. | **ALTA** | `…CONTRACT_DRAFT.md:125,328` · `API_CONTRACT.md:14886` · `shipments.service.ts:67,861` · `M4View.test.tsx:574` | ✅ **construido y con prueba** |
 | **CA #12** | ⛔ **HUECO — no referenciado en ninguna fuente del árbol.** Texto **no recuperable**. | — | `grep 'CA #12'` ⇒ 0 | **pendiente del dueño** |
-| **CA #13** | Marcar una carta como **faltante deja seguir preparando el resto** del pedido. | **ALTA** | `…CONTRACT_DRAFT.md:259-260` | **PLANEADO** — no construido |
+| **CA #13** | Marcar una carta como **faltante deja seguir preparando el resto** del pedido. | **ALTA** | `…CONTRACT_DRAFT.md:259-260` | ⭐ **APROBADO por construir** (2026-09-29, S.10.3; criterio **218**) |
 | **CA #14** | ⛔ **HUECO — no referenciado en ninguna fuente del árbol.** Texto **no recuperable**. | — | `grep 'CA #14'` ⇒ 0 | **pendiente del dueño** |
-| **CA #15** | Cuando falta una carta, **se le avisa al cliente** (por el centro de avisos, §R). | **ALTA** | `…CONTRACT_DRAFT.md:284-286` | **PLANEADO** — no construido |
-| **CA #16** | 💰 El admin **ve el monto exacto a reembolsar antes de ejecutar nada**. | **ALTA** | `…CONTRACT_DRAFT.md:263` | **PLANEADO** — 💰 tres veredictos |
+| **CA #15** | Cuando falta una carta, **se le avisa al cliente** (por el centro de avisos, §R). | **ALTA** | `…CONTRACT_DRAFT.md:284-286` | ⭐ **APROBADO por construir** (2026-09-29, S.10.3 y §R.3; criterio **218**) |
+| **CA #16** | 💰 El admin **ve el monto exacto a reembolsar antes de ejecutar nada**. | **ALTA** | `…CONTRACT_DRAFT.md:263` | ⭐ **APROBADO por construir** (2026-09-29, S.10.3; criterio **220**) — 💰 tres veredictos; *el que ve el monto es ahora también el operador* |
 
 ⚠️ **NO MEDIDO — hasta dónde llegaba la lista.** La referencia más alta que sobrevive es **`CA #16`**. **No hay
 forma de saber si la lista aprobada terminaba ahí o seguía.** ⇒ **pregunta 4 de S.8.**
@@ -6719,6 +6867,14 @@ cambiar la propuesta, compras previas, y si hay que palomear antes de colocar). 
 la conducta de esos casos a partir de estos siete.**
 *(Corrección al encargo que originó esta sección: se me pidió recuperar «`CA #1..#11`». **Medido: las referencias
 llegan al menos hasta `#16`** — `#13`, `#15` y `#16` están citados en `…CONTRACT_DRAFT.md:259,263,284`.)*
+
+##### S.7.2 Criterios del 2026-09-29 (v1.80.4) — viven en la lista GLOBAL, **215–233**, ⛔ no como `CA #N` locales
+
+Para **no ampliar la colisión** de numeraciones que S.7 declara, los criterios de las decisiones del 2026-09-29
+(S.10) **se escribieron en la lista global de `## Criterios de aceptación`**, con numeración continua tras el
+214. Se citan como **«criterio 2NN»**, nunca como `CA #N de §S`. Los `CA #4, #5, #7, #13, #15, #16` de arriba
+**no se re-redactan**: su estado pasa a «aprobado por construir» y cada uno apunta al criterio global que lo
+hace verificable.
 
 #### S.7-bis Las seis decisiones del dueño (2026-09-15) — cinco recuperadas, **una hueca**
 
@@ -6769,9 +6925,11 @@ llegan al menos hasta `#16`** — `#13`, `#15` y `#16` están citados en `…CON
     **aún no está construido** (S.2). Si quieres la cubeta de bóveda antes, el operador confirmaría la
     colocación **sin** palomear carta por carta en esa primera versión. Es orden de trabajo y es tuyo decidirlo.
 
-*(Pregunta **abierta al arquitecto**, no al dueño, anotada aquí para que no se pierda: ¿«preparado» es un estado
+*(~~Pregunta **abierta al arquitecto**, no al dueño, anotada aquí para que no se pierda: ¿«preparado» es un estado
 nuevo de la máquina de envíos o un hito **dentro** de `picking`? Propuesta del arquitecto: lo segundo, sin tocar
-el enum — `…CONTRACT_DRAFT.md:183-188`.)*
+el enum — `…CONTRACT_DRAFT.md:183-188`.~~ ⭐ **RESUELTA el 2026-09-29 (v1.80.4): «preparado» es un HITO dentro
+de «en preparación», con sello de quién y cuándo, ⛔ no un estado nuevo** — la máquina de estados del envío no
+cambia. Es requisito de producto en **S.10.2** y criterio **216**.)*
 
 #### S.9 Mapa de citas heredadas
 
@@ -6786,12 +6944,256 @@ la cita literal; el número de destino es reconstrucción mía**, no dato:
 | «producto **§4**» | los datos que la cola despliega | **S.3** |
 | «producto **§5.7**» | dar el pedido por preparado **como una unidad** | **S.5** |
 
+#### S.10 ⭐ Preparar ENVÍOS, la carta que falta y el apartado «Por reponer» — **decisiones del dueño del 2026-09-29 · v1.80.4 · APROBADO, por construir**
+
+> **Fuente:** `HECHOS.md`, filas del **2026-09-29** («Preparar pedidos de ENVÍO», «D-1..D-4», «Por reponer —
+> D-5..D-10», «Reembolsos manuales — D-11 y D-12», «Reembolsos de operador — D-13 y D-14») y, para las decisiones
+> previas de bóveda, las del 2026-09-24/25. Diseño técnico: `docs/API_CONTRACT.md §M4-SHIP` (v1.80.4) y
+> `docs/ARCHITECTURE.md §4.57`. **Este documento manda sobre el contrato**: aquí van los **requisitos en lenguaje
+> de negocio**; el *cómo* (tablas, candados, códigos de error, orden de transacciones) es del arquitecto y **no se
+> repite aquí**. **Todo lo de esta subsección es decisión del dueño: no se re-pregunta.** Criterios verificables:
+> **215–233** de la lista global (S.7.2).
+>
+> 💰 **Toca dinero** —reembolsos por carta, reembolsos de casos, transferencias SPEI, reembolso total de bóveda—
+> ⇒ **tres veredictos** (QA + techlead + seguridad) **antes de desplegar**. La revisión de seguridad del diseño ya
+> corrió (v1.80.3) y sus cierres **están incorporados abajo como requisitos**, no como notas.
+>
+> **De dónde viene, en corto:** la auditoría E2E del recorrido del operador sobre producción encontró que el
+> operador **no podía palomear un envío**, que **podía cancelar un envío ya pagado** sin que el dinero se
+> tocara, que **no sabía de quién era cada envío**, y que si una carta **no aparecía al empacar** no había forma
+> de resolverlo sin que el dueño reembolsara **todo el pedido**. Las decisiones de abajo cierran esos cuatro
+> huecos.
+
+##### S.10.1 El nombre: «Pedidos por preparar»
+
+La sección de M4 se llama **«Pedidos por preparar»** en menú, tablero, título de pantalla y hoja imprimible
+(ES/EN por su clave i18n). «Retiros», «picking» y «Pedidos a preparar» **no aparecen de cara al operador**. La
+ruta interna (`picking-list`) no es de producto y puede quedarse. Criterio **215**.
+
+##### S.10.2 Palomear y «pedido preparado» llegan a la cubeta ENVÍO — y la guía exige «preparado»
+
+- **Lo que hoy solo hace la bóveda lo hace también el envío** (pedido directo **y** retiro de bóveda): el
+  operador **marca carta por carta** —*la tengo* / *no la encontré* / *llegó dañada*— y **da el pedido por
+  preparado como una unidad**, solo cuando **ninguna carta disponible queda sin marcar**.
+- **«Preparado» es un HITO dentro de «en preparación», ⛔ no un estado nuevo** de la máquina de envíos: lleva
+  **sello de quién y cuándo** (de la sesión, ⛔ nunca tecleado), consultable en la bitácora. La máquina
+  `solicitado → picking → guía → enviado → entregado` **no cambia**.
+- **La guía exige «preparado»**: no se puede capturar una guía ni pasar el envío a «guía» sin haberlo dado por
+  preparado. *Por qué no es opcional:* sin esto un paquete puede salir con una carta marcada como faltante **y
+  sin reembolsar** — el cliente paga una carta que no recibe.
+- **Se puede deshacer «preparado»** mientras no haya guía (como en bóveda); las marcas se conservan. ⛔ Lo que
+  **no** se deshace: una carta **ya reembolsada** (el dinero salió) ni una que **ya abrió un caso «Por
+  reponer»** (si aparece, se corrige desde el caso: «apareció»).
+- Marcar una carta **no mueve dinero ni inventario**: es reversible. El dinero y la merma se mueven **al dar el
+  pedido por preparado** (S.10.3).
+- Una carta que **ya no está disponible** para ese envío (p. ej. la revirtió un contracargo o un reembolso
+  total) se pinta **bloqueada**: no se palomea, no cuenta para «preparado» y no sale. Si su dinero **sigue
+  cobrado**, el pedido **no se puede dar por preparado** hasta que el súper-admin lo resuelva — ⛔ no se inventa
+  un «excluir sin reembolso».
+- Criterios **216–217**.
+
+##### S.10.3 💰 Envío DIRECTO: la carta que falta o está dañada ⇒ **se reembolsa SOLO esa carta**
+
+Decisión literal: *«Reembolsar solo esa carta»* — y *«la carta que tenemos está dañada es el mismo caso para
+cuando falta»*.
+
+- Al dar el pedido por preparado, **cada carta marcada como faltante o dañada se reembolsa a la tarjeta** del
+  cliente por **lo que pagó por esa carta más su parte de la comisión de cobro** (D-1: *«$314.58: la carta más
+  su parte de la comisión»* — ejemplo del dueño: carta de MX$300 en un pedido con dos cartas, envío y comisión).
+  **El envío no se devuelve** mientras salga al menos una carta: la otra sí viaja.
+- **El pedido sigue con las demás cartas.** «Dañada» produce **el mismo importe y el mismo flujo** que «no la
+  encontré»; lo único distinto es el estado físico en que queda la pieza.
+- **Si no sale ninguna carta**, se devuelve **todo** (cartas + envío + comisión: la suma **es exactamente lo
+  cobrado**) y el envío **se cierra solo** — ⛔ **sin** botón de cancelar y **sin** correo de «envío cancelado»:
+  el cliente recibe **el correo del reembolso** (§R.3).
+- **El operador ve el importe exacto antes de confirmar, y confirma esa cifra** (CA #16 de §S, DECISIÓN #2): la
+  pantalla muestra **por carta y en total** lo que se va a devolver, **calculado por el servidor** — ⛔ nunca
+  sumado en la pantalla, ⛔ nunca tecleado. Si entre ver y confirmar la cifra cambió, **se rechaza y se enseña la
+  nueva**. *Nadie reembolsa una cifra que no vio.*
+- **La pieza queda en merma** (perdida o dañada) **firmada por quien la marcó** —aparece en la merma de M7 con
+  nombre— y **nunca vuelve a la venta** por un verbo del operador. *Quien marca «no la encontré» firma una
+  merma.* Una dañada ⛔ jamás vuelve a la venta como buena.
+- **Se le avisa al cliente por correo**: qué carta(s), por qué, cuánto se devuelve y que el resto sigue su
+  curso — **un correo por acto**, y ⛔ nunca antes de que Stripe acepte el reembolso (§R.3).
+- **Lo que esta vía NO resuelve**: una carta cuyo cobro ya no está vivo (pedido ya reembolsado o en
+  contracargo) o de un pedido con la convención de precios vieja **no se reembolsa por aquí** — el pedido no se
+  puede dar por preparado con esa carta faltante, la pantalla lo dice y **lo atiende el súper-admin en M3**.
+- Criterios **218–220**.
+
+##### S.10.4 💰 Quién reembolsa: **también el operador**, solo por esta vía, con límites verificables
+
+Decisión literal: *«También el operador»* (queda registrado quién). Esto **cambia la regla de que solo el
+súper-admin saca dinero** (Usuarios y roles, §H) **en un único punto**, y la separación de poderes que se pierde
+**se compensa con límites**, no se ignora:
+
+1. **Solo cartas de un envío en preparación**: no se reembolsa un pedido ya enviado, ni uno cualquiera.
+2. **Una vez por carta**: aunque la carta viaje en dos envíos (re-expedición), su dinero se devuelve una vez.
+3. **Importe del servidor**, acotado a lo cobrado: la suma de reembolsos de un pedido **nunca excede** su total.
+4. **Tope acumulado por operador: MX$5,000 en 24 horas** (D-3; dial de M10). Al excederlo el acto **se rechaza
+   entero** sin escribir nada y **queda en bitácora el intento**. El súper-admin no tiene tope.
+5. **Actor y rol en cada reembolso**, y la pieza en merma **con su firma** (S.10.3) — firma que **no se puede
+   borrar** desde inventario.
+6. **El dueño lo ve en el panel** —lista de reembolsos, resumen por operador, merma por actor y tarjeta del
+   tablero «Reembolsos de operadores»— **sin correo** (D-13: *«Solo verlo en el panel»*).
+7. **Reintentar un reembolso atorado** (Stripe no contestó) lo puede hacer el operador, y **no vuelve a contar**
+   contra el tope.
+
+⛔ **Lo que sigue siendo solo del súper-admin**: el reembolso **total** de M3 (que ahora **devuelve lo que
+queda**, respetando lo ya devuelto por carta), **reembolsar un caso «Por reponer»** (S.10.7), y **toda** la
+cubeta de transferencias SPEI. ⛔ **Ningún otro botón o verbo del operador mueve dinero** — se verifica por
+ausencia. Criterio **221**.
+
+##### S.10.5 💰 Carta de BÓVEDA (retiro o compra a bóveda) que falta o está dañada ⇒ apartado **«Por reponer»**
+
+Decisiones literales: *«En teoría no debe pasar este caso y la buscamos reemplazar; déjame el botón de lo que
+vale en el mercado por si no la conseguimos»* (D-2, retiro) · *«Tenemos que generar un apartado para estos
+casos porque puedo buscarla y reemplazar»* (D-4, compra a bóveda) · **«dañada» = «faltante»** en los tres
+flujos.
+
+*Por qué la bóveda es distinta del envío directo:* en la bóveda **el cliente ya es dueño de la carta** (la
+tiene guardada con nosotros), así que lo que se le debe **es la carta**; en un directo es un pedido que no
+pudimos surtir. Por eso aquí **no se reembolsa al preparar**.
+
+- **Nace un caso** cuando se fija la marca: al **dar por preparado un retiro**, o al **confirmar la colocación**
+  de una compra a bóveda (en bóveda «preparado» se deshace a propósito para corregir marcas; el acto
+  irreversible es colocar). El caso dice **a quién se le debe qué carta, por qué (no la encontré / dañada),
+  quién lo abrió y cuándo**.
+- **La carta sigue siendo del cliente** mientras el caso esté abierto (es una **deuda con nombre**): pasa a
+  estado perdida/dañada **a su nombre**, **no puede retirarla**, y «Mi bóveda» la muestra como *«la estamos
+  reponiendo»*. En un **retiro**, el cliente recibe **un correo** diciendo que su envío se detiene por esa carta
+  (§R.3). En una **compra a bóveda**, ⛔ **no se le avisa** (D-10; coherente con «sin aviso al guardar»): lo ve
+  en «Mi bóveda».
+- **Reponer** (operador o súper-admin, ⛔ no saca dinero): se le da **otra pieza de plataforma de identidad
+  EXACTA** — misma carta, variante/acabado, condición o grado, sellado. ⛔ No vale «mejor condición» (regalar) ni
+  otra variante. La original pasa a **merma de plataforma** (firmada); la repuesta pasa al cliente: **al paquete**
+  si el retiro sigue en preparación, **al cajón del cliente** si es compra a bóveda o el retiro ya no está en
+  preparación. Si **aparece la misma pieza** («apareció», solo para «no la encontré»), vuelve al cliente y a su
+  línea. Una pieza **no puede reponer dos casos ni venderse al mismo tiempo** (el sistema lo garantiza, no la
+  lectura).
+- **Plazo: 7 días** (D-9-bis: *«7 días, luego el caso se marca vencido y avisa en el tablero; nada se reembolsa
+  solo»*). Un caso abierto **siete períodos de 24 h** se pinta **vencido, en rojo**, y **cuenta en el tablero**.
+  ⛔ Vencer **no dispara nada**: ni reembolso, ni anulación, ni correo. Se resuelve con los mismos botones.
+- **⛔ Sin botón para abrir un caso desde inventario** (D-14: *«Por ahora no»*). La deuda nace **solo al
+  palomear** (retiro o colocación). Consecuencia conocida y aceptada: una carta de cliente que falta en un
+  conteo se registra **cuando el cliente pide su retiro**. Y marcar «perdida» una carta de cliente **desde
+  inventario se rechaza** (era el agujero que encontró seguridad: la deuda desaparecía sin caso).
+- **Anular** un caso (solo súper-admin, con nota) **solo** cuando el dinero de esa compra ya lo resolvió otro
+  camino (contracargo o reembolso total) o no hay compra de origen. ⛔ Anular **no** es «excluir sin reembolso».
+- **Dónde vive**: «Pedidos por preparar» gana una **tercera pestaña, «Por reponer»**, junto a Envío y Bóveda,
+  con contador (y vencidos en rojo). En la tarjeta de un retiro, la carta faltante dice *«Por reponer →»*.
+- Criterios **223–224**, **226**.
+
+##### S.10.6 El retiro espera: **«esperar y mandar todo junto»** (D-9)
+
+- **No se puede capturar guía mientras un caso del retiro esté abierto**: el paquete sale **completo**, con la
+  carta repuesta dentro o sin la carta reembolsada. La tarjeta dice *«Esperando reposición (n)»*.
+- Si **todos** los casos de un retiro se reembolsan y **no queda nada que enviar**, **el cobro del retiro (envío)
+  se devuelve** y el retiro **se cierra solo**, con el correo del reembolso.
+- Criterio **225**.
+
+##### S.10.7 💰 Reembolsar un caso: **solo el dueño**, por el monto que él captura, y lo que no cabe en la tarjeta va a **«Reembolsos manuales (SPEI)»**
+
+Decisiones literales: *«yo busco lo que vale y capturo»* (D-5/D-6, retiro **y** compra a bóveda) · *«se genera
+un reembolso que haga lo SPEI manual yo; tenemos que aventarlos a una cubeta nueva»* (D-7) · topes: *«Sí,
+así»* (D-12) · marcar pagada: *«Solo marcar si se realizó y quién»* (D-11).
+
+- **Quién**: solo el **súper-admin**. El operador **repone**, ⛔ no reembolsa desde el apartado (D-8).
+- **El monto lo captura el dueño**, con **dos referencias a la vista**: **lo pagado** por la carta (con su parte
+  de la comisión) y **el valor de mercado de hoy**, con su fecha (o *«sin referencia de mercado»*). Es el *«botón
+  de lo que vale en el mercado»* de D-2: la referencia se le enseña, **la cifra la decide él** y va con **motivo
+  obligatorio** (de dónde salió). ⛔ El sistema **no calcula** el monto ni lo paga solo.
+- **Topes contra el error de dedo** (D-12): más del **doble** de la referencia (la mayor entre lo pagado y el
+  mercado) ⇒ **volver a escribir el monto**; más de **5 veces** ⇒ **bloqueado** (el «5» es un **dial de M10**;
+  si el monto es legítimo, se sube el dial, auditado, y se vuelve). *Por qué múltiplos y no pesos:* un cero de
+  más es ×10 sea la carta de MX$50 o de MX$50,000.
+- **Se congela** lo capturado (monto, motivo, las dos referencias con fecha, si hubo confirmación reforzada).
+  La carta original pasa a **plataforma** (merma); el caso cierra; el cliente recibe **el correo de reembolso**
+  con el monto. Lo que se pague **por encima de lo que el cliente pagó** es **compensación**, no devolución de
+  venta: M7 lo muestra en **su propio renglón** (*«compensaciones por carta perdida»*) sin restarle IVA; su
+  tratamiento fiscal **lo confirma el contador del dueño** (⛔ no decidido aquí).
+- **Reparto tarjeta / transferencia — lo decide el servidor**, la pantalla solo lo muestra: **lo que quepa** en
+  lo que queda por devolver del cobro de origen va **a la tarjeta** (Stripe); **el resto** entra a la cubeta
+  **«Reembolsos manuales (SPEI)»**. Tarjeta + transferencia = monto capturado, **al centavo**. ⛔ Nunca se
+  devuelve por tarjeta más de lo cobrado. La previsualización dice *«MX$A a su tarjeta · MX$B por
+  transferencia»* y el dueño **confirma esas dos cifras**. Si Stripe **rechaza en definitiva** la parte de
+  tarjeta, el dueño puede **«pasar a transferencia»** ese mismo importe — ⛔ nunca el mismo peso por dos canales.
+- **La cubeta «Reembolsos manuales (SPEI)»** — página propia, **solo súper-admin** (⛔ el operador no la ve ni
+  por conteo: es dinero y datos bancarios), junto a M3, con tarjeta en el tablero (cuántas, cuánto, la más
+  vieja):
+  - lista lo **pendiente de transferir a mano**, lo más viejo primero; ⛔ **el sistema no transfiere** (no hay
+    integración bancaria; como el SPEI de buylist).
+  - para **marcar pagada** hay que **revelar la CLABE** del cliente **en esa misma pantalla** (auditado, solo
+    sobre pendientes); **queda quién y cuándo**; la **clave de rastreo** y la nota son **opcionales** (D-11);
+    ⛔ sin subir comprobantes.
+  - **protecciones que el dueño debe conocer** (cierres de seguridad, ya incorporados): si el cliente **cambió
+    su CLABE** después de que el dueño la reveló, no se puede marcar pagada **hasta verla de nuevo**; si la
+    cambió **hace menos de 3 días** o después de generarse el reembolso, se pide confirmar que se **verificó
+    con el cliente por otro medio**; si la **compra de origen** ya no está liquidada (disputa/reembolsada), se
+    pide **confirmación explícita** antes de pagar, y «pasar a transferencia» **no se puede** mientras haya
+    disputa (el banco ya le devuelve).
+  - **cancelar** exige nota y ⛔ **no reabre el caso** (la deuda queda registrada como cancelada, con nombre y
+    motivo); existe **«Re-emitir»** desde una cancelada.
+  - el cliente recibe **«te vamos a depositar»** (con CLABE **enmascarada**, o pidiéndole que la registre en su
+    cuenta si no la tiene) y **«ya te depositamos»** (con clave de rastreo si la hay) — §R.3. ⛔ Ninguna lista,
+    detalle ni correo lleva la CLABE completa; los datos bancarios **no se copian** a la cubeta, se leen vivos.
+  - En M7, una transferencia resta **cuando se marca pagada** (no al crearse); una cancelada nunca resta; una
+    fila de tarjeta rechazada y su sustituta por SPEI **no restan dos veces**.
+- Criterios **227–229**.
+
+##### S.10.8 Se quita «cancelar» a mano un envío pagado
+
+Decisión literal: *«no se puede cancelar, ¿estamos dando la opción?»* ⇒ **se quita el botón**.
+
+- En **«en preparación»** y **«con guía»** **no existe «Cancelar»** — ni para el operador ni para el
+  súper-admin; el intento por API **se rechaza** sin escribir ni avisar. *Hoy el operador podía cancelar un envío
+  pagado y las piezas y el dinero quedaban en el limbo* (auditoría, hueco 4).
+- **Cancelar un envío «solicitado» (no pagado) sigue**, con confirmación, y ahora **cancela primero el cobro en
+  Stripe**; si el cobro ya entró, **se rechaza** (hoy un «solicitado» cancelado a mano podía cobrarse después y
+  quedar pagado sin envío).
+- **Las cancelaciones automáticas siguen**: pago fallido, contracargo, cierre por «no sale ninguna carta»
+  (S.10.3) y cierre por reembolso total (§H). Ninguna es «cancelar a mano».
+- Criterio **222**.
+
+##### S.10.9 Quién es quién, contador y hoja imprimible
+
+- **La cola de envíos y M3 muestran número de pedido y cliente** — el **comprador**, ⛔ no el destinatario del
+  paquete (que puede ser otra persona); un invitado se muestra con su correo. Hay **búsqueda** por nombre,
+  correo, número de pedido y destinatario.
+- **El detalle de M3 enlaza su envío** y **lista sus reembolsos** (por carta, totales, y las transferencias SPEI
+  si las hubo, con estado).
+- **Aviso de pedido nuevo = un contador derivado** que la pantalla consulta cada **60 s** y pinta como badge en
+  «Pedidos por preparar»; cuenta **envíos sin preparar + colocaciones a bóveda pendientes + casos por reponer**
+  (con los vencidos aparte). La tarjeta del tablero **incluye bóveda**. ⛔ Ni correo ni campana por pedido: el
+  operador trabaja **dentro** del back-office, y un contador derivado **no puede mentir**.
+- **Hoja de preparación imprimible** por pedido: número, cliente, dirección (envío) o cajón (bóveda), y las
+  cartas con folio, set, acabado, condición, ubicación y una **casilla para palomear en papel**. ⛔ **Sin
+  precios, sin correo, sin teléfono** (el papel sale de la pantalla).
+- Criterio **232**.
+
+##### S.10.10 Lo que NO cambia (se verifica por ausencia, criterio 233)
+
+- **Criterio 210 intacto**: dos correos de envío (guía y salida), **ninguno al entregar**. ⛔ Este encargo no lo
+  toca; se reabrirá, si acaso, en la **iniciativa Skydropx**, aparte.
+- La **tarifa de envío MX$175**, la **máquina de estados** del envío, **impresión de etiquetas: cero**, y
+  **sin aviso al cliente al colocar en bóveda**.
+- **El envío directo no entra a «Por reponer»**: sigue reembolsando al preparar (D-1).
+- **Ninguna pantalla ordena por apellido** (S.6).
+- **El contracargo** conserva su regla (la carta vuelve a la venta).
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
-- **De «Pedidos a preparar» (§S), fuera de la versión construida** *(NUEVO v2.3, 2026-09-22)*: **palomear y
+- **De «Pedidos por preparar» (§S), fuera de la versión construida** *(NUEVO v2.3, 2026-09-22)*: ~~**palomear y
   firmar** el pedido como preparado, y 💰 el **reembolso parcial por carta faltante** (este último **exige los
-  tres veredictos antes de escribir una línea**). *(2026-09-24: la **cubeta de bóveda y la sugerencia de cajón
-  salen de esta lista** — el dueño las aprobó para construir, §S.4 y §S.6.)* **También sigue fuera:
-  la impresión de etiquetas.** Detalle y motivo en **§S.2**.
+  tres veredictos antes de escribir una línea**).~~ *(2026-09-24: la **cubeta de bóveda y la sugerencia de cajón
+  salen de esta lista** — el dueño las aprobó para construir, §S.4 y §S.6.)* *(⭐ **2026-09-29, v1.80.4: palomear
+  y firmar en la cubeta ENVÍO y el reembolso por carta faltante/dañada también salen de esta lista** — el dueño
+  los decidió y están diseñados, **§S.10**; el dinero sigue exigiendo los tres veredictos antes de desplegar.)*
+  **Sigue fuera: la impresión de etiquetas.** Detalle y motivo en **§S.2**.
+  **Y fuera de §S.10, a propósito** *(v1.80.4 · 2026-09-29)*: **abrir un caso «Por reponer» desde inventario**
+  (D-14: *«Por ahora no»* — si el dueño cambia de idea es un pase de diseño propio); **subir comprobantes** de
+  transferencia (D-11: basta marcar quién y cuándo); **correo o resumen diario al dueño** por cada reembolso de
+  operador (D-13: solo panel); **transferir SPEI desde el sistema** (integración bancaria: no existe, ni para
+  buylist); **«mandar lo demás» de un retiro con una carta por reponer** (D-9: se espera y se manda todo junto);
+  **re-vender una carta dañada** como «dañada»; y **saldo a favor en la tienda** como forma de compensar.
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
   *(Ojo — esta línea NO responde la **pregunta abierta 26**: lo que está fuera es la plataforma como
   **intermediaria** entre dos usuarios. Que **la plataforma COMPRE** una carta que ya está en la bóveda —el
@@ -7195,6 +7597,12 @@ nuevo, no como parte de §R**:
   comprador. Un
   **contracargo bancario** es un proceso independiente que el cliente inicia con su banco. El **checkout debe
   mostrar el aviso** y debe existir una **página de términos/políticas** con el texto completo.
+  *(⭐ **v1.80.4 · 2026-09-29** — precisiones del dueño que **no cambian la política**, la ejecutan: la **carta
+  que no aparece o está dañada al preparar un envío** se reembolsa **sola** (lo pagado por ella con su parte de
+  la comisión), lo origina **también el operador** con tope de MX$5,000 en 24 h; una carta **de bóveda** que
+  falta **se repone primero** y, si no, **el dueño captura el monto** con el mercado a la vista y paga por
+  tarjeta hasta donde alcance el cobro y **el resto por SPEI a mano**; y un **reembolso total de una compra a
+  bóveda deshace la venta** (la carta vuelve a la plataforma). **§S.10**, **§H**, criterios **215–233**.)*
 - **Correo de evidencia / soporte de disputas**: la evidencia de una disputa de condición se envía por
   **correo a un buzón de soporte** (no hay subida de foto en la app). Correo de contacto:
   **soporte@tcghunt.mx** *(corregido 2026-08-31: decía `soporte@tcgvault.mx` y afirmaba que convivía con un
@@ -7290,6 +7698,11 @@ nuevo, no como parte de §R**:
 > ellos son huecos declarados**: ver el recuadro **§S.0**. **QA verifica desde ya los de confianza ALTA marcados
 > «construido»; los demás esperan la palabra del dueño.**
 > ⚠️ **El criterio 20 queda SUPERSEDED por §S** — ver su nota más abajo.
+> ⭐ **v1.80.4 · 2026-09-29 — los criterios 215–233 (preparar envíos, la carta que falta, «Por reponer»,
+> reembolsos manuales SPEI, reembolso total de bóveda) son GLOBALES**, se citan como «criterio 2NN» y **no** como
+> `CA #N de §S` (§S.7.2). El **206** pasa de 11 a **15** correos; el **210 no cambia**. Los que tocan dinero
+> (218–219, 221, 227–229, 231) **exigen los tres veredictos** antes de desplegar, y las carreras se reportan con
+> **N ≥ 10 y proporción** (O-3/O-15), nunca con una tirada.
 
 **Catálogo y precio**
 1. En la sección **Compra**, un visitante navega **nuestro inventario publicado a la venta** y filtra por
@@ -7363,7 +7776,10 @@ nuevo, no como parte de §R**:
    bancario es un proceso independiente ante el banco del cliente.
 7c. Un **cobro duplicado** o una **compra sin inventario real** (inventario fantasma) **se reembolsa**: el
    súper-admin puede ejecutar el reembolso en M3 sin depender de la ventana de 7 días ni de la evidencia de
-   disputa, y la orden queda en estado `reembolsada`.
+   disputa, y la orden queda en estado `reembolsada`. *(⭐ **v1.80.4 · 2026-09-29**: el reembolso total de M3
+   **devuelve lo que queda** tras los reembolsos por carta (criterio **221**); sobre una **compra a bóveda**
+   además **deshace la venta** — criterio **231**; y la carta que no aparece **al preparar un envío** se
+   reembolsa **sola, por carta**, también por el operador — criterios **218–221**.)*
 
 **Portafolio**
 8. "Mi bóveda" lista las cartas del usuario y muestra un **valor total de portafolio** en MXN,
@@ -9717,6 +10133,14 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    pedido y de una solicitud de venta y **la bandeja recibe exactamente los 11 correos del catálogo de §R.3 y
    ninguno más**. **⛔ Falla por exceso, no solo por defecto** — y ése es el punto entero de la sección:
    *«avisar de los 30 es no avisar de ninguno»*.
+   *(⭐ **v1.80.4 · 2026-09-29 — el catálogo pasa de 11 a QUINCE** (§R.3): **(12)** carta de tu envío que no
+   salió y su reembolso, **(13)** retiro detenido por una carta en reposición, **(14)** te vamos a depositar por
+   transferencia, **(15)** ya te depositamos. **El criterio se verifica con 15** al recorrer además un envío con
+   una carta faltante, un retiro con caso «Por reponer» y un reembolso con parte SPEI. **Y los ⛔ nuevos se
+   verifican por ausencia**: carta repuesta/«apareció», compra a bóveda con carta por reponer, transferencia
+   cancelada, y el **interno** «un operador reembolsó» (D-13) — **la bandeja está vacía y la campana no cambia**.
+   Además, **un hecho, un correo**: cuando el total se alcanza sumando reembolsos por carta, llega **solo** el
+   de «tu carta no salió», ⛔ no el de «Reembolsado» encima. El **210 sigue intacto**.)*
    **Y los TRES que no producen NADA se verifican aparte, porque el dueño los decidió uno a uno**: con
    **identidad aprobada**, **pago fallido** y **contracargo**, **la bandeja está vacía Y la campana no
    cambia**. *(El pago fallido **sí** se ve en vivo en la pantalla —`CheckoutRetryNotice.tsx`—: eso **no**
@@ -9740,7 +10164,9 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    **llegan exactamente dos correos** —**al capturar la guía** y **a la salida (`enviado`)**— y **al pasar a
    `entregado` NO llega ninguno**. **⛔ Falla con uno, falla con tres, y falla si el de entregado aparece
    «porque parecía razonable».** *(El contraargumento de la ventana de disputa se le puso delante y lo
-   descartó: §R.3.)*
+   descartó: §R.3.)* *(⭐ **v1.80.4 · 2026-09-29: SIN CAMBIO.** El encargo de «Pedidos por preparar» no toca
+   este criterio; se reabrirá, si acaso, en la **iniciativa Skydropx**, aparte. Los correos nuevos de §S.10
+   —carta que no salió, retiro detenido, transferencias— son **otros hechos**, no un tercer correo de envío.)*
 211. **El acuse de recibido llega al VENDEDOR** *(pregunta **75**, contestada: **sí, correo**)*: al marcar la
    solicitud como recibida —`POST /admin/buylist/:id/receive`, **botón que ya existe**— el vendedor **recibe
    un correo diciendo que sus cartas llegaron y que están en revisión**. **⛔ Y ese correo NO adelanta ningún
@@ -9764,6 +10190,185 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    una fila sin convención** (`money.ts:507-512`). **⛔ Falla si alguien «simplifica» quitando la columna o
    poniéndole un default de cortesía** — es **exactamente la mutación** que el dueño descartó al corregir su
    primera respuesta (§Q.10.e), y **el criterio 190 sigue vigente** aunque hoy no haya historia que proteger.
+
+**«Pedidos por preparar» — preparar envíos, la carta que falta, «Por reponer», reembolsos manuales y reembolso
+total de bóveda (§S.10, §H, §D, §R.3 — v1.80.4 · 2026-09-29; decisiones del dueño, no se re-preguntan)**
+> Los que llevan 💰 **exigen los tres veredictos antes de desplegar**. Las carreras se verifican con **N ≥ 10 y se
+> reporta la proporción con su N y su autor**; las mutaciones, sobre **copia del árbol entero** con su sha.
+
+215. **El nombre es «Pedidos por preparar»** *(S.10.1)*: menú, tablero, título de la pantalla y hoja imprimible
+   dicen **«Pedidos por preparar»** (ES/EN por su clave i18n). **⛔ Falla** si «Retiros», «picking» o «Pedidos a
+   preparar» aparecen de cara al operador. La ruta interna `picking-list` **no cuenta** (no es de producto).
+216. **Palomear y «pedido preparado» en la cubeta ENVÍO, con sello y deshacer** *(S.10.2; hace verificables
+   CA #4, #5 y #7 de §S)*: en un **pedido directo y en un retiro**, el operador marca cada carta *la tengo* /
+   *no la encontré* / *llegó dañada*; **«Dar por preparado» se rechaza** mientras quede una carta disponible sin
+   marcar (con el conteo); al darlo por preparado queda **quién y cuándo, de la sesión** (⛔ no tecleado),
+   consultable en la bitácora; **«preparado» es un hito dentro de «en preparación»** —el estado del envío **no
+   cambia**— y el siguiente paso ofrecido es **guía** (envío) o **colocar** (bóveda). **Deshacer preparado**
+   funciona mientras no haya guía y **conserva las marcas**; ⛔ una carta ya reembolsada o con caso «Por reponer»
+   **no se re-marca** ni vuelve a reembolsarse al re-preparar. **Marcar no mueve dinero ni inventario**
+   (reversible); el dinero se mueve solo al preparar. Un doble clic o dos operadores a la vez sobre «preparar»
+   ⇒ **un solo sello, un solo reembolso por carta, un solo correo** (N ≥ 10).
+217. **La guía exige «preparado»** *(S.10.2)*: capturar guía o pasar a «guía» un envío **sin preparar** se
+   rechaza con mensaje claro y **sin escribir nada**; la carrera «deshacer preparado» vs «capturar guía» **nunca**
+   deja un envío en «guía» sin preparado (N ≥ 10, proporción). Un **retiro** exige además **cero casos abiertos**
+   (criterio 225). **⛔ Falla** si un paquete puede salir con una carta marcada faltante y sin reembolsar.
+218. 💰 **Envío directo: la carta que falta o está dañada se reembolsa SOLA, con su parte de la comisión, y el
+   pedido sigue** *(S.10.3; D-1 y «dañada = faltante»)*: con el ejemplo del dueño —pedido directo con cartas de
+   MX$500 y MX$300, envío MX$150 y comisión de cobro MX$46.17 (total MX$996.17)— marcar la de MX$300 como
+   faltante y preparar ⇒ **se devuelven MX$314.58** (carta + su parte proporcional de la comisión, IVA dentro),
+   **el envío no se devuelve** (la otra carta viaja), el pedido **sigue** con la otra carta y llega a «guía».
+   **«Llegó dañada» produce el mismo importe y el mismo flujo** que «no la encontré» — solo cambia el estado
+   físico de la pieza. **⛔ Falla** si el importe usa el precio de lista de hoy, el dial de IVA vivo, o redondea
+   la comisión hacia arriba (la suma de reembolsos por carta **nunca** excede lo cobrado). La pieza queda en
+   merma **perdida/dañada firmada por quien la marcó** (aparece en merma de M7 con nombre) y **nunca vuelve a
+   la venta por un verbo del operador**; una dañada ⛔ jamás vuelve como buena. El cliente recibe **un** correo
+   (qué carta, por qué, cuánto, que el resto sigue) **solo después de que Stripe aceptó**; su pedido/retiro
+   muestra la carta como *«no salió · te devolvimos MX$X»*, ⛔ sin actor ni componentes. Una carta cuyo cobro
+   ya no está vivo (pedido reembolsado / en contracargo) o de convención vieja ⇒ **no se puede preparar con esa
+   carta faltante**, la pantalla lo dice y lo atiende el súper-admin en M3 — ⛔ no existe «excluir sin
+   reembolso».
+219. 💰 **Si no sale ninguna carta: reembolso total y cierre solo, sin cancelar a mano** *(S.10.3)*: con **todas**
+   las cartas del envío directo marcadas faltantes/dañadas, preparar devuelve **cartas + envío + comisión** y la
+   suma **es exactamente lo cobrado, al centavo**, y el IVA devuelto es exactamente el IVA cobrado; el envío
+   queda **cerrado** sin que nadie pulse «Cancelar»; el pedido pasa a **reembolsado** cuando Stripe lo confirma;
+   el cliente recibe **un** correo de «tu carta no salió» con el total y **ninguno** de «envío cancelado» ni de
+   «Reembolsado» encima (un hecho, un correo). Su pedido titula **«Reembolsado»**, ⛔ nunca «Liquidada».
+220. 💰 **El operador ve el importe exacto antes de confirmar, y confirma ESA cifra** *(S.10.3; CA #16 de §S y
+   DECISIÓN #2)*: la tarjeta muestra **por carta** lo que se devolvería y **el total**, **calculado por el
+   servidor** (⛔ la pantalla no suma ni permite teclear un monto); «Dar por preparado» exige confirmar la cifra
+   vista; si entre ver y confirmar la cifra cambió, **se rechaza sin escribir nada y se enseña la nueva**.
+   **⛔ Falla** si el importe puede llegar desde la pantalla o si se puede preparar sin haber visto la cifra.
+221. 💰 **También el operador reembolsa — SOLO por esta vía, con límites, y el dueño lo ve en el panel sin
+   correo** *(S.10.4; D-3, D-13)*: **(a)** un operador puede dar por preparado un envío con faltantes y el
+   reembolso sale **con su nombre y rol**; **(b)** solo cartas de un envío **en preparación**; **(c)** **una vez
+   por carta** aunque viaje en dos envíos; **(d)** el importe es del servidor y la suma **nunca excede lo
+   cobrado**, también con un reembolso total de M3 **concurrente** (N ≥ 10); **(e)** **tope acumulado por
+   operador de MX$5,000 en 24 h** —dial de M10, seed 5,000—: a un centavo del tope el acto **se rechaza entero**,
+   cero escrituras, y **queda en bitácora el intento**; dos actos del mismo operador a la vez que juntos exceden
+   ⇒ **nunca pasan los dos** (N ≥ 10); el súper-admin **no tiene tope**; **(f)** el súper-admin ve **cada**
+   reembolso de operador en la lista de reembolsos, el **resumen por operador**, la **merma por actor** y la
+   tarjeta del tablero «Reembolsos de operadores» — y **⛔ NO recibe correo** por ello, ni por evento ni resumen
+   diario (D-13; se verifica por ausencia); **(g)** el operador puede **reintentar** un reembolso atorado y eso
+   **no vuelve a contar** contra el tope. **Se verifica por AUSENCIA**: el reembolso **total** de M3 sigue siendo
+   solo súper-admin (y ahora **devuelve lo que queda**), reembolsar un caso «Por reponer» y toda la cubeta SPEI
+   son solo súper-admin (403 para el operador, auditado), y **ningún otro botón o verbo del operador mueve
+   dinero** (candado estático que enumera los sitios exactos: un camino de más ⇒ rojo).
+222. **Sin cancelación manual de envíos pagados** *(S.10.8)*: en «en preparación» y «con guía» **no hay botón
+   «Cancelar»** para nadie, y el intento por API **se rechaza sin escribir ni avisar**. Cancelar un envío
+   **«solicitado»** sigue existiendo, con confirmación, y **antes cancela el cobro en Stripe**; si el cobro ya
+   entró, **se rechaza**. Las cancelaciones **automáticas** (pago fallido, contracargo, cierre por «no sale
+   nada», cierre por reembolso total) **siguen** funcionando.
+223. 💰 **Bóveda (retiro o compra a bóveda): la carta que falta o está dañada NO se reembolsa al preparar — abre
+   un caso «Por reponer», y sigue siendo del cliente** *(S.10.5; D-2, D-4, D-10)*: preparar un **retiro** con
+   una carta «no la encontré» y otra «llegó dañada» ⇒ **cero** reembolsos, **cero** llamadas a Stripe, **dos
+   casos** abiertos con su motivo, quién y cuándo; las piezas quedan perdida/dañada **a nombre del cliente**
+   (con su movimiento firmado); «Mi bóveda» las muestra como *«la estamos reponiendo»*; pedir su retiro se
+   rechaza; el cliente recibe **un** correo de «tu retiro se detiene». Confirmar una **colocación** con una
+   carta marcada ⇒ un caso por carta, **sin** correo (D-10), y «no la encontré» sin motivo ⇒ se rechaza (el
+   motivo es obligatorio). **El envío directo no entra aquí** (criterio 218 intacto). Marcar «perdida» una carta
+   **de cliente desde inventario se rechaza** (la deuda solo nace al palomear) y la merma firmada **no se borra**
+   desde inventario. **⛔ Falla** si una carta de bóveda produce una fila de reembolso al preparar.
+224. 💰 **Reponer con carta IDÉNTICA; «apareció»; cero dinero** *(S.10.5)*: operador o súper-admin reponen con
+   otra pieza de plataforma de **identidad exacta** (carta, variante/acabado, condición o grado, sellado —
+   ⛔ «mejor condición» u otra variante se rechaza diciendo qué no coincide); la original pasa a **merma de
+   plataforma**; la repuesta pasa al cliente **al paquete** (retiro en preparación) o **al cajón del cliente**
+   (compra a bóveda); si es **la misma pieza** y el motivo era «no la encontré», «apareció» la devuelve al
+   cliente y a su línea; con «dañada» **no** hay «apareció». Dos casos que intentan la **misma** candidata a la
+   vez, o reponer vs. **una compra** de esa pieza ⇒ **uno solo gana** (N ≥ 10). La original **nunca** queda a la
+   venta. **Reponer no cuenta contra ningún tope** (no sale dinero). ⛔ No se repone ni reembolsa a quien
+   **disputó** o ya recibió su dinero: ese caso solo se **anula** (súper-admin, con nota).
+225. **El retiro espera y se manda todo junto; si no queda nada, se cierra solo** *(S.10.6; D-9)*: con un caso
+   abierto, capturar guía **se rechaza** y la tarjeta dice *«Esperando reposición (n)»*; la carrera «reponer» vs
+   «guía» **nunca** deja guía con caso abierto y, si la reposición ganó, **la repuesta va en el paquete**
+   (N ≥ 10); resuelto el último caso, la guía se puede capturar. Si **todos** los casos se reembolsan y no queda
+   carta que enviar, en el **mismo acto** se devuelve **el cobro del retiro** (envío) y el retiro se cierra, con
+   el correo del reembolso. Reponer **nunca** cierra el retiro.
+226. **Siete días para reponer, luego «vencido» — y nada se reembolsa solo; sin botón desde inventario** *(S.10.5;
+   D-14)*: un caso abierto **7 × 24 h** exactas se pinta **vencido, en rojo** («Vencido hace n días»; antes,
+   «Vence en n días») y **cuenta en el tablero** como vencido; a 7 días menos un instante **no** está vencido;
+   **pasar el reloj no escribe nada** (ni reembolso, ni anulación, ni correo al cliente, ni correo al dueño); un
+   caso vencido se resuelve **con los mismos botones**; los cerrados **no** cuentan. **No existe** botón ni verbo
+   para abrir un caso desde inventario (se verifica por ausencia).
+227. 💰 **Reembolsar un caso: solo el dueño, por el monto que él captura, con referencias a la vista y topes contra
+   el error de dedo** *(S.10.7; D-5..D-7, D-12)*: en un caso abierto el súper-admin ve **lo pagado** por la
+   carta (con su parte de la comisión) y **el mercado de hoy con su fecha** (o *«sin referencia de mercado»*),
+   captura **monto y motivo** (obligatorio); con referencia R = la mayor de las dos: **A ≤ 2R** pasa; **2R < A ≤
+   5R** exige **volver a escribir el monto** (⛔ no basta un «sí»); **A > 5R** se **bloquea** con el límite a la
+   vista, y **subir el dial de M10** (auditado) lo destraba; sin mercado, R = lo pagado. Se **congelan** monto,
+   motivo, referencias y si hubo confirmación reforzada; la original pasa a plataforma; el caso cierra; el
+   cliente recibe el correo con el monto (⛔ sin motivo interno ni referencias). **El operador ⇒ 403, auditado.**
+   Sin motivo, monto cero, negativo o no entero ⇒ se rechaza sin escribir. **Doble clic** ⇒ un solo reembolso.
+   La parte **por encima de lo pagado** aparece en M7 en el renglón **«compensaciones por carta perdida»**, ⛔
+   sin restarle IVA.
+228. 💰 **Reparto tarjeta / transferencia lo decide el servidor, al centavo, y nunca el mismo peso por dos
+   canales** *(S.10.7; D-7)*: lo que cabe en **lo que queda por devolver** del cobro de origen va a la tarjeta;
+   **el resto** entra a la cubeta SPEI como pendiente; **tarjeta + transferencia = monto capturado ±0**, y
+   componente a componente; si **no queda nada** en el cobro, **todo** va a SPEI **sin llamar a Stripe**; la
+   previsualización y el acto **dicen lo mismo** para cualquier monto (incluidos los bordes), y si un reembolso
+   parcial cambió el remanente entre ver y confirmar ⇒ **se rechaza con las cifras nuevas**; un reembolso
+   **total de M3 concurrente** ⇒ en **todas** las tiradas la tarjeta no excede lo cobrado y tarjeta + SPEI sigue
+   siendo el monto (N ≥ 10). Si Stripe **rechaza en definitiva** la parte de tarjeta, «pasar a transferencia»
+   crea **una** pendiente por el **mismo** importe (repetir devuelve la misma); sobre una fila que Stripe **aún
+   puede aceptar** ⇒ se rechaza (sería pagar dos veces).
+229. 💰 **Cubeta «Reembolsos manuales (SPEI)»: solo súper-admin; marcar pagada = quién y cuándo; CLABE protegida**
+   *(S.10.7; D-11)*: la página y su conteo **no existen para el operador** (sin acceso por página, sin acceso por
+   API y sin conteo ni tarjeta en el tablero). *(Precisión 2026-09-29, IMP-3 de QA sobre `c20451f`: «ni en
+   menú» significa **sin acceso ni conteo**; el sidebar del operador puede mostrar la entrada **gris, con etiqueta
+   SÚPER y sin conteo**, igual que M2/M7/M9 —patrón del panel, DESIGN_SYSTEM §37.1—; la página queda bloqueada y la
+   API responde 403. Aplica también a «Reembolsos de operadores».)* Lista lo pendiente **lo más viejo primero** con importe total y tarjeta en el tablero; **marcar
+   pagada** exige haber **revelado la CLABE en esa pantalla** (auditado, solo pendientes; sin CLABE registrada
+   ⇒ *«pídele que la registre»*), guarda **quién y cuándo**, y la **clave de rastreo y la nota son opcionales**;
+   repetir con la misma clave ⇒ idempotente; **pagada vs cancelada a la vez** ⇒ solo una gana (N ≥ 10). Si la
+   CLABE **cambió después de revelarla**, no se puede marcar pagada hasta verla de nuevo; si cambió **hace menos
+   de 3 días** o después de crearse el reembolso ⇒ pide confirmar la verificación con el cliente por otro medio;
+   si la **compra de origen** ya no está liquidada ⇒ pide confirmación explícita, y «pasar a transferencia»
+   **se rechaza** con disputa abierta. **Cancelar** exige nota, **no reabre el caso**, y **«Re-emitir»** crea
+   otra igual. Correos: **«te vamos a depositar»** (CLABE **enmascarada** o enlace para registrarla) al crearse,
+   **«ya te depositamos»** al marcar pagada (con clave si la hay), **ninguno** al cancelar; el cliente ve en su
+   cuenta *pendiente / pagada / cancelada*. **⛔ Falla** si la CLABE completa aparece en cualquier lista,
+   detalle, correo o bitácora, o si la cubeta **copia** nombre, CLABE o correo en vez de leerlos vivos. En M7,
+   una transferencia resta **al marcarse pagada**, nunca pendiente ni cancelada, y **no duplica** la fila de
+   tarjeta rechazada que sustituye.
+230. **El cliente REGISTRADO ve su envío en el detalle de su pedido** *(§D; hallazgo de QA)*: tras capturar la
+   guía, el detalle del pedido muestra **paquetería y número de guía** (copiable) y el estado público
+   **«guía»**; tras «enviado» y «entregado», sus fechas; el título usa **el mismo estado público** que el
+   seguimiento del invitado (**paridad** en todas las combinaciones orden × envío) y **⛔ nunca «LIQUIDADA»**;
+   un envío cerrado por «no sale nada» titula **«Reembolsado»**; una compra a bóveda muestra *«en tu bóveda»*
+   sin bloque de envío; las cartas con reembolso, *«no salió · te devolvimos MX$X»*, y las de un caso, *«la
+   estamos reponiendo»* / *«reembolsada»* (con la parte por transferencia y su estado). **⛔ Falla** si el
+   bloque de envío expone costos, sellos, actores o la dirección completa (solo destinatario, ciudad, estado y
+   CP) o si un pedido ajeno devuelve envío.
+231. 💰 **Reembolso TOTAL de una compra a bóveda deshace la venta: la carta vuelve a la plataforma «en almacén»,
+   nunca a la venta sola, y el cliente no se queda con carta y dinero** *(§H)*: orden a bóveda liquidada y
+   colocada, reembolso total desde M3 ⇒ **al confirmarse** el reembolso, la carta es de la **plataforma, en
+   almacén** (⛔ no publicada; el catálogo no la lista), con **un** movimiento firmado, su ubicación física
+   intacta; **desaparece de «Mi bóveda»** y de «Qué debe haber»; pedir su retiro se rechaza; la **colocación
+   pendiente** queda cancelada con motivo «reembolso total» y sale de la cola; la orden queda **pendiente de
+   confirmación humana**: **«recuperada»** ⇒ vuelve a la venta, **«no recuperada»** ⇒ **merma firmada** (una
+   sola vez). El **mismo** resultado si el reembolso total llega **desde el panel de Stripe**; una segunda
+   llegada (M3 y luego su webhook, o webhook duplicado) **no escribe nada ni re-marca** la orden (N ≥ 10). **Si
+   Stripe rechaza**, la carta **sigue siendo del cliente** y la colocación sigue pendiente (⛔ falla si la carta
+   se quita antes de confirmar el dinero). Si una carta está en un retiro **ya preparado o con guía**, M3 **se
+   rechaza** nombrando el retiro (y tras deshacer el preparado, pasa); por webhook esa carta **no se toca** y
+   queda marcada para revisión. Cartas **ya retiradas/entregadas** no se tocan; una con caso **abierto** sigue
+   en su caso y se puede anular; una **repuesta** por un caso se revierte **ella**, no la original; una que el
+   cliente **re-compró** en otra orden no se toca. El cliente recibe **el** correo de reembolso (variante
+   bóveda), ⛔ ninguno de «envío cancelado». **El contracargo no cambia** (la carta vuelve a la venta como hoy).
+232. **Quién es quién, contador con bóveda y hoja imprimible** *(S.10.9)*: la cola de envíos y M3 muestran
+   **número de pedido y cliente** —el **comprador**, ⛔ no el destinatario del paquete; invitado con su correo—;
+   la **búsqueda** por nombre, correo, número de pedido o destinatario encuentra el envío y el pedido; el
+   **detalle de M3 enlaza su envío** y **lista sus reembolsos** (por carta, total, transferencias); el
+   **contador** de «Pedidos por preparar» es **derivado** (envíos sin preparar + colocaciones pendientes + casos
+   por reponer, con los vencidos aparte), lo consulta la pantalla **cada 60 s** y con la pestaña visible, y la
+   tarjeta del tablero **incluye bóveda** (⛔ el conteo de «envíos vivos» no cambia de cifra); la **hoja de
+   preparación imprimible** lleva por pedido número, cliente, dirección o cajón, y por carta folio, set, acabado,
+   condición, ubicación y **casilla** — **⛔ falla si imprime precios, correo o teléfono**.
+233. **Lo que NO cambia — se verifica por ausencia** *(S.10.10)*: el **criterio 210** (dos correos de envío,
+   ninguno al entregar) **sigue tal cual**; la **tarifa MX$175**; la **máquina de estados** del envío (ningún
+   estado nuevo); **impresión de etiquetas: cero**; **sin aviso al cliente al colocar en bóveda**; el **envío
+   directo no entra a «Por reponer»**; **ninguna pantalla ordena por apellido**; y el **contracargo** conserva su
+   regla. **⛔ Falla** cualquiera que «aparezca porque parecía razonable».
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -11485,6 +12090,41 @@ promesa:**
    **Pregunta 81 NO contestada** ⇒ se mantiene el supuesto (cerrar la 57, mantener el 190).
    Ver **§Q.10** (con **Q.10.e** nueva), criterios **209, 213, 214** (vigentes), y las preguntas **82, 83,
    84** (contestadas).
+
+119. **«PEDIDOS POR PREPARAR» — PREPARAR ENVÍOS, LA CARTA QUE FALTA, «POR REPONER», REEMBOLSOS MANUALES Y EL
+   REEMBOLSO TOTAL DE BÓVEDA (v1.80.4 · 2026-09-29; `HECHOS.md` filas del 2026-09-29; tras la auditoría E2E del
+   operador sobre producción `a2da420` y las preguntas D-1..D-14 del arquitecto).** *(Registro; el requisito vive
+   en **§S.10**, §H, §D y §R.3, y los criterios **215–233**.)*
+   **Qué decidió el dueño, literal**: **(1)** *«Reembolsar solo esa carta»* cuando falta o está dañada en un
+   envío, y *«$314.58: la carta más su parte de la comisión»* (D-1); **(2)** *«También el operador»* reembolsa,
+   con *«MX$5,000»* de tope en 24 h (D-3) y *«Solo verlo en el panel»* (D-13, sin correo); **(3)** *«no se puede
+   cancelar, ¿estamos dando la opción?»* ⇒ se quita el botón de cancelar envíos pagados; **(4)** la sección se
+   llama **«Pedidos por preparar»**; **(5)** *«la carta que tenemos está dañada es el mismo caso para cuando
+   falta»*; **(6)** en bóveda —retiro (D-2) y compra a bóveda (D-4)— *«la buscamos reemplazar»* en un **apartado
+   «Por reponer»**, con *«el botón de lo que vale en el mercado por si no la conseguimos»*, **7 días** y luego
+   alerta, *«nada se reembolsa solo»*, *«esperar y mandar todo junto»* (D-9), y **sin botón desde inventario**
+   (D-14, *«Por ahora no»*); **(7)** el monto del reembolso de un caso *«yo busco lo que vale y capturo»*
+   (D-5/D-6), y lo que no quepa en la tarjeta *«que haga lo SPEI manual yo; tenemos que aventarlos a una cubeta
+   nueva»* (D-7), con topes *«Sí, así»* (2× confirma, 5× bloquea, D-12) y *«Solo marcar si se realizó y quién»*
+   (D-11).
+   **Dos cosas que el diseño añadió y este documento registra como requisito** (no las preguntó porque las dos
+   causas de la excepción de §H las exigen; **si el dueño quisiera lo contrario, se dice**): **(a)** el cliente
+   **registrado ve su envío y su guía** en su pedido (hallazgo de QA: hoy solo el invitado); **(b)** el
+   **reembolso TOTAL de una compra a bóveda deshace la venta** — las cartas vuelven a la plataforma «en almacén»
+   hasta que un humano confirme que existen; el cliente **no se queda con carta y dinero** (criterio **231**).
+   **Lo que SUSTITUYE de este documento**: la frase de §S.5 *«quién marca faltante (operador) y quién ejecuta el
+   reembolso (súper-admin) son personas distintas a propósito»* (tachada, S.5); el *«es el único que toca dinero
+   que sale»* del súper-admin y el *«no toca dinero»* del operador (acotados, Usuarios y roles); el conteo de
+   **11** correos de §R.3 (ahora **15**, criterio 206).
+   **Precisión 2026-09-29 (IMP-3 de QA sobre `c20451f`; decide el product-owner, opción a)**: el criterio 229
+   «ni en menú» se lee como **sin acceso ni conteo**; las entradas «Reembolsos manuales (SPEI)» y «Reembolsos de
+   operadores» pueden aparecer al operador **grises, con etiqueta SÚPER y sin conteo**, por coherencia con
+   M2/M7/M9 y porque no revelan ningún dato. Sin trabajo de frontend. (SUPUESTO: si el dueño prefiere ocultarlas
+   del todo, se dice y pasa a trabajo frontend pequeño.)
+   **Lo que NO toca**: el **criterio 210** (se reabre, si acaso, en la iniciativa Skydropx), la tarifa, la
+   máquina de estados, las etiquetas, el contracargo.
+   **Un SUPUESTO del product-owner, marcado en §H**: el *«tope por carta configurable»* de la decisión 8 se
+   materializa como el **múltiplo de la referencia** (dial), no como cifra fija en pesos.
 
 ---
 

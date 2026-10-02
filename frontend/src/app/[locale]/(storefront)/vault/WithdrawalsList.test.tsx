@@ -27,7 +27,7 @@ function card(id: string, name: string): CardDTO {
     supertype: 'Pokémon',
     subtypes: [],
     setId: 'base1',
-    setName: 'Base Set',
+    setName: 'Base Set', setPtcgoCode: null,
     imageSmallUrl: `https://images.pokemontcg.io/base1/1.png`,
     imageLargeUrl: `https://images.pokemontcg.io/base1/1_hires.png`,
     availableFinishes: ['normal'],

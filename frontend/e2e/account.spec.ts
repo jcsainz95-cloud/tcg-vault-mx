@@ -284,7 +284,7 @@ test.describe('cuenta · perfil y contraseña (§33.6, §33.7)', () => {
 });
 
 test.describe('cuenta · navegación (§33.1, §33.2) y móvil', () => {
-  test('@real header con sesión: cinco entradas, sin nombre ni «Cerrar sesión»; «Mi cuenta» → /account', async ({ page }) => {
+  test('@real header con sesión: seis entradas, sin nombre ni «Cerrar sesión»; «Mi cuenta» → /account', async ({ page }) => {
     await loginAs(page, 'customer');
     await page.goto('/es/catalog');
     const header = page.locator('header');
@@ -292,6 +292,8 @@ test.describe('cuenta · navegación (§33.1, §33.2) y móvil', () => {
     await expect(nav.getByRole('link')).toHaveText([
       t('es', 'nav.buy'),
       t('es', 'nav.buylist'),
+      // 6ª entrada, pública, por decisión del dueño (af1f8c8c; DESIGN_SYSTEM R10 CA-1 = seis, en este orden).
+      t('es', 'nav.decksMeta'),
       t('es', 'nav.vault'),
       t('es', 'nav.ordersAndSales'),
       t('es', 'nav.myAccount'),

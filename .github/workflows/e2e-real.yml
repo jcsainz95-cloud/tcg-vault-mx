@@ -364,6 +364,7 @@ jobs:
       # backend) y se ejecuta con node_modules/.bin en el PATH. Semántica idéntica,
       # incluido el "si no existe, se salta".
       - name: Seed sintético (datos deterministas para los flujos)
+        id: seed
         run: |
           SEED_CMD="$(docker compose -f "$COMPOSE" exec -T backend \
             node -e "process.stdout.write((require('./package.json').scripts||{})['seed:synthetic']||'')")"
@@ -505,6 +506,58 @@ jobs:
           npm run test:e2e -- $EFFECTIVE_SMOKE_SPECS
 
       # -----------------------------------------------------------------------
+      # P-REL-3 — CUBETA SPEI CONTRA EL STACK REAL: DEBE CORRER, UNA VEZ, Y PASAR.
+      # (devops, 2026-09-29 · DEVOPS_NOTES §72)
+      #
+      # `frontend/e2e/m4-ship-spei-real.spec.ts` CONSUME las dos filas que siembra
+      # el paso 13 de `seed-e2e.ts` (`seedSpeiBucket`: `e2e:mr-pay`, `e2e:mr-cancel`),
+      # que aquí corre UNA vez en «Seed sintético» (`seed:synthetic` = seed-e2e.ts)
+      # sobre un Postgres recién creado. Sin fila `pending` sus casos se SALTAN.
+      # Por eso va en SU paso y no en `SMOKE_SPECS`:
+      #   · `--retries=0`: el config pone `retries: 2` en CI, y un reintento tras
+      #     consumir la fila se SALTA ⇒ Playwright lo cuenta `flaky` ⇒ rc=0. MEDIDO
+      #     (proyecto sintético, @playwright/test 1.56.0, N=5): 5/5 rc=0 con el caso
+      #     fallado. Ni `not-measured.ts` lo ve (filtra `outcome()==='skipped'`).
+      #   · una sola corrida por siembra: si alguien mete el spec en `smoke_specs`,
+      #     este paso aborta (la 2.ª corrida encontraría las filas consumidas).
+      #   · `E2E_EXPECT_NOT_MEASURED=0`: el reporter de frontend tumba la corrida
+      #     si algún caso quedó sin medir (el instrumento es suyo; cablearlo, mío).
+      #   · `check-e2e-must-run.sh`: sobre el JSON, exige ≥2 casos `expected` con UN
+      #     solo intento `passed`. Salto, flaky, reintento o 0 casos ⇒ ROJO.
+      #     Canario: `check-e2e-must-run-canary.sh` (en ci.yml, cada PR).
+      # Corre aunque el smoke de dinero haya fallado (mide otra cosa), pero solo si
+      # la siembra terminó bien: sin siembra, su rojo no hablaría del producto.
+      # -----------------------------------------------------------------------
+      - name: P-REL-3 cubeta SPEI (REAL) — debe ejecutarse y pasar en su único intento
+        id: spei
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: ${{ env.FRONTEND_URL }}
+          E2E_REAL: '1'
+          SPEI_SPEC: m4-ship-spei-real.spec.ts
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/frontend/test-results-spei/report.json
+          E2E_NOT_MEASURED_JSON: ${{ github.workspace }}/frontend/test-results-spei/not-measured.json
+          E2E_EXPECT_NOT_MEASURED: '0'
+        run: |
+          set -uo pipefail
+          case " ${EFFECTIVE_SMOKE_SPECS:-} " in
+            *" $SPEI_SPEC "*)
+              echo "::error title=P-REL-3::$SPEI_SPEC está también en smoke_specs: consume su semilla y ya corrió allí; esta segunda corrida se saltaría. Quítalo de smoke_specs (corre en este paso)."
+              exit 1 ;;
+          esac
+          mkdir -p test-results-spei
+          set +e
+          npm run test:e2e -- "$SPEI_SPEC" --retries=0 --output=test-results-spei/artifacts \
+            --reporter=list,github,json,./e2e/reporters/not-measured.ts
+          PW_RC=$?
+          echo "playwright rc=$PW_RC"
+          "$GITHUB_WORKSPACE/scripts/check-e2e-must-run.sh" \
+            --report test-results-spei/report.json --spec "$SPEI_SPEC" --min 2
+          CHK_RC=$?
+          [ "$PW_RC" -eq 0 ] && [ "$CHK_RC" -eq 0 ]
+
+      # -----------------------------------------------------------------------
       # VEREDICTO EN UNA LÍNEA, EN LA PÁGINA DEL RUN.
       # Requisito explícito: el estado «Stripe no configurado» tiene que ser de
       # primera clase y legible SIN abrir logs. Hoy había que bajar 2 000 líneas
@@ -515,6 +568,7 @@ jobs:
         if: always()
         env:
           PW_OUTCOME: ${{ steps.smoke.outcome }}
+          SPEI_OUTCOME: ${{ steps.spei.outcome }}
         run: |
           set -uo pipefail
           CORRIDOS=$(printf '%s' "${EFFECTIVE_SMOKE_SPECS:-}" | wc -w | tr -d ' ')
@@ -543,6 +597,12 @@ jobs:
             else
               echo "**El preflight abortó: no se ejecutó ningún smoke.** Ver el bloque de arriba."
             fi
+            echo ""
+            case "${SPEI_OUTCOME:-skipped}" in
+              success) echo "**P-REL-3 cubeta SPEI (real): EJECUTADA y PASÓ** (2 casos, un intento, 0 saltos — \`check-e2e-must-run.sh\`)." ;;
+              failure) echo "**P-REL-3 cubeta SPEI (real): ROJO** — falló, se saltó o se reintentó. Ver el paso y \`test-results-spei/\`." ;;
+              *)       echo "**P-REL-3 cubeta SPEI (real): NO CORRIÓ** (la siembra no terminó bien o el job murió antes). NO está medida." ;;
+            esac
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "${MONEY_GATE:-}" = "off" ]; then
             echo "::warning title=Verde PARCIAL — $CORRIDOS $PLURAL corridos, $SALTADOS de dinero SALTADOS::Este run NO probó comprar, comprar-como-invitado ni retirar: no hay credencial de Stripe (ausencia deliberada, DEVOPS_NOTES 33.2). El verde de este workflow NO es un verde de dinero."
@@ -617,6 +677,7 @@ jobs:
           path: |
             frontend/playwright-report
             frontend/test-results
+            frontend/test-results-spei
           if-no-files-found: ignore
           retention-days: 14
 

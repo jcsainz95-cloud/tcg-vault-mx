@@ -825,7 +825,10 @@ Validaciones estáticas corridas (reales):
       `https://api.tudominio.com/api/v1/webhooks/stripe`.
 - [ ] Habilitar eventos: `payment_intent.succeeded`, `payment_intent.payment_failed`,
       `payment_intent.canceled`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`,
-      `charge.dispute.funds_reinstated`.
+      `charge.dispute.funds_reinstated`, **`charge.refund.updated`** y **`refund.updated`** (estos dos, desde
+      §M4-SHIP v1.80.5: **paso de la ventana de despliegue**, ver §71.1; en un endpoint ya creado se añaden con
+      *Update details > Select events*). Fuente única de la lista: `security/stripe-webhook-events.txt`
+      (la vigila `scripts/check-stripe-webhook-events.sh`).
 - [ ] Copiar el **`whsec_…`** a `STRIPE_WEBHOOK_SECRET` en Railway (11.D [RW]) y **redeploy** del backend.
       (El backend preserva el raw body en esa ruta — ver §3; no pongas un proxy que lo altere.)
 
@@ -12591,3 +12594,305 @@ los números al lado. **NO MEDIDO:** si alguna plantilla de PR del repo sugiere 
 sobre HTML remoto— y **nadie lo ha inventariado**. No es de esta PR ni la bloquea. Dueños: **seguridad**
 (inventario de terceros en runtime) y **backend** (dueño de `decks-meta`). Lo registra el orquestador
 como pendiente; yo no toco esas rutas.
+
+## §69 · C2-bis / DO-D4 — `dast-release` pasa a BLOQUEANTE (`report_only: false`) antes de que caduque el 2026-10-06 (2026-09-28, rama `claude/paquete-seguridad`)
+
+### 69.1 · Qué mide ese DAST, contra qué y cuándo (leído del árbol en `c4d378b`)
+
+- **Qué:** ZAP (perfil `full`, escaneo activo, tope 10 min) contra la vitrina y nuclei contra vitrina + API,
+  con la política `security/zap/baseline.conf`; el veredicto lo da `security/scripts/dast-gate.py`. Antes
+  de escanear, el job `selftest` barre un canario con vulnerabilidades plantadas y **exige** rojo.
+- **Contra qué:** un **stack efímero** levantado en el runner (`docker-compose.staging.yml`, datos
+  sintéticos) sobre el SHA pedido. **No necesita staging** (HECHOS.md: no existe) ni secretos de CD. NO es
+  producción (§44.4): no cubre la red/CDN/TLS de Vercel y Railway ni sus datos.
+- **Cuándo:** (1) en cada push a `production` vía `deploy.yml > dast-release`, sobre ese SHA;
+  (2) lunes 06:00 UTC (`schedule`, rama por defecto); (3) a mano.
+- **Qué hacía `report_only: true`:** solo el color del run. `blocking` se calcula igual (F1-1) y las
+  `promote-*` —inertes, el CD por Actions está apagado— lo exigen `== 'false'`.
+
+### 69.2 · Lo medido (API de GitHub, 2026-09-28)
+
+| Qué | Resultado |
+|---|---|
+| Runs de `Deploy` por push a `production` desde el 2026-09-12 (`35870241154` sobre `47e4efa` … `34692360915` sobre `9050d59e`) | **19/19** con veredicto del candado **VERDE**, 0 líneas `FAIL` (anotación «DAST … — VERDE» del check-run «DAST contra el stack efímero») |
+| Run `34650494939` (2026-09-11, `efe65f57`) | **rojo** por «Levantar y preparar el stack efímero» — un fallo de arranque pone el run rojo **con o sin** `report_only`; no es de la política |
+| Barridos semanales (`schedule`) 09-14, 09-21, 09-28 | **3/3 VERDE**. Ojo: 09-21 y 09-28 escanearon `bb239c09` (la punta de la rama por defecto no se movió entre ambas) |
+| `abrir-issue` en los 19 | **skipped** ⇒ `blocking` nunca fue `'true'` |
+| Rulesets activos sobre `production` (`GET /rules/branches/production`) | **ninguno** (`[]`) |
+| Protección clásica de ramas | **NO MEDIDO** (403 para el token de integración) |
+| Artefactos `dast-ephemeral-reports` | **NO MEDIDO** (descarga bloqueada por el proxy de salida); el veredicto sale de las anotaciones, que dast-gate.py escribe con independencia de `report_only` |
+
+Lo que se ve en las anotaciones del último run (`47e4efa`): solo `WARN` — CSP ausente (Medio x5),
+anti-clickjacking ausente (Medio x5), cookie sin HttpOnly (Bajo x5). Ninguno es `FAIL` según la política
+vigente. Revisar esos `WARN` le toca a seguridad, no a este cambio.
+
+### 69.3 · Qué pasaba el 6 de octubre sin este cambio
+
+`check-dast-report-only-expiry.sh` devuelve rc=9 ⇒ el job `dast-report-only-expiry` sale rojo ⇒ **`ci-ok` sale
+rojo en todos los push y PR de todas las ramas**, sin que el producto haya cambiado. `ci-ok` es el check que
+cita C5 (`check-candidate-checks.sh <sha>` debe dar rc=0 antes de cada publicación), así que **el
+procedimiento de publicación quedaba parado** hasta retirar la línea o mover la fecha. Comprobado sobre una
+copia de `deploy.yml` de `HEAD`: `--today 2026-09-28` → rc=0, `--today 2026-10-06` → **rc=9**.
+
+### 69.4 · El cambio
+
+- `deploy.yml > dast-release`: `report_only: false` (explícito, para que volver a `true` se vea en el diff).
+  Comentarios de cabecera y del bloque puestos al día.
+- **No bloquea la publicación.** Vercel y Railway publican solos al recibir el push a `production`; este run
+  corre después, sobre el mismo SHA. Un hallazgo `FAIL` pone rojo el run y abre issue: es la alarma de que
+  **lo publicado** tiene algo bloqueante, no una puerta previa. Hacerlo puerta previa exigiría escanear en
+  `main` antes de la solicitud de fusión — eso es otra decisión (§69.5).
+- `scripts/check-dast-report-only-expiry.sh`: la semántica no cambia (sin `report_only: true` → verde; con él
+  y fecha ≥ 2026-10-06 → rc=9). Queda como **anti-regresión** y así lo dicen su cabecera y el comentario del
+  job en `ci.yml`. `FECHA_LIMITE` no se mueve.
+- `security-dast.yml`: comentario de cadencia actualizado.
+
+**Medido en el árbol (sin actionlint en este contenedor):** YAML de los 3 workflows parsea; expiry sobre el
+árbol → rc=0 con hoy, `2026-10-06` y `2027-01-01`; canario de caducidad **8/8**; mutación sobre copia
+(volver a `report_only: true`) → rc=0 el 09-28 y **rc=9** el 10-06; `check-dast-gate-live`,
+`check-provenance-gate`, `check-ci-ok --static`, `check-workflow-cwd`, `check-secret-defaults` → rc=0.
+**NO MEDIDO:** actionlint, y el primer run bloqueante real — lo da el primer push a `production` que lleve
+este commit (hay que citarlo por número con `blocking=false`, como pide la condición C2-bis).
+
+### 69.5 · Qué tiene que decidir seguridad
+
+1. **Confirmar que lo retirado es lo decidido.** La decisión ya está escrita («Decisión sobre `report_only`»
+   en SECURITY_NOTES: retirarlo, plazo 2026-09-25, pasado ya). Este commit la ejecuta; el cierre de C2-bis
+   pide además citar el primer run de `dast-release` en `production` con `blocking=false`.
+2. **Si el DAST debe ser puerta *previa*:** hoy es una alarma *posterior* a la publicación. Hacerlo previo
+   exige correr `security-dast.yml` sobre el SHA candidato de `main` y meterlo en C5; cuesta ~17 min por
+   candidato. Lo decide seguridad (y el dueño, por el tiempo del ciclo).
+3. **Los `WARN` que se repiten** (CSP, anti-clickjacking, cookie sin HttpOnly): aceptarlos con motivo, o
+   subirlos a `FAIL` en `security/zap/baseline.conf` — subirlos **hoy** pondría rojos los runs, porque salen en
+   todos los barridos.
+4. **Si el primer run bloqueante sale rojo:** según lo ya decidido, el hallazgo va a su dueño y **no** se vuelve
+   a `report_only`.
+
+**Rollback de este cambio:** revertir el commit. Antes del 2026-10-06 no rompe nada; desde esa fecha vuelve a
+poner `ci-ok` en rojo, y así tiene que ser.
+
+## §70 · SEC-HDR-1: ZAP 10020 y 10021 pasan de WARN a FAIL (2026-09-29, rama `claude/paquete-seguridad`)
+
+**Qué cambió.** `security/zap/baseline.conf:88` (10020, anti-clickjacking) y `:89` (10021, nosniff): `WARN` -> `FAIL`,
+con el motivo escrito en la línea. Frontend sirve las cabeceras desde `6d59712` (`frontend/next.config.mjs`
+`headers()`). 10038/10055 (CSP completa) **siguen en WARN**: son SEC-HDR-2, aparte.
+
+**Qué perfil aplica (medido leyendo el código, no ejecutando ZAP).** Hay **una sola** política: `baseline.conf` es
+el `-c` de `dast-ephemeral.sh:245`, `dast-zap-full.sh:39`, `dast-zap-baseline.sh:42`, y el `--policy` de
+`dast-gate.py` (`dast-ephemeral.sh:307`). No hay perfil separado para vitrina y backend. El blanco por defecto de
+ZAP es solo la vitrina (`dast-ephemeral.sh:67`, `ZAP_TARGETS=${FRONTEND_URL}`, `http://localhost:3010`).
+
+**Advertencia pedida: NO aplica el riesgo de orden.** El DAST (`security-dast.yml`, llamado por `deploy.yml`
+`dast-release` en cada push a `production`) escanea un stack **efímero levantado en el runner desde el SHA del run**
+(`next build` + `next start`), no la URL de Vercel. Por tanto ve las cabeceras en cuanto el SHA las contiene, sin
+depender de que Vercel haya publicado; no hace falta orden entre frontend y backend. Lo que sí es cierto: **el SHA
+que se escanee debe contener `6d59712`**. Un run sobre un SHA anterior (p. ej. `production` actual, si aún no
+recibió esta rama) daría 10020/10021 FAIL = rojo. Y la prueba puntual autorizada contra `tcghunt.mx` (§14.3) sí
+vería la cabecera ausente hasta que Vercel publique.
+
+**Candados.** `scripts/check-dast-gate-live.sh` no fija conteos de WARN/FAIL de reglas concretas (solo que el
+gate rojo con un FAIL sintético, 40018); no hubo nada que actualizar. **NO MEDIDO:** un barrido ZAP real con esta
+política (no corrí ZAP aquí); riesgo residual: 10021 sobre assets `_next/static` y 10020 en respuestas que no pasen
+por `headers()`. El primer `dast-release` sobre un SHA con esto lo mide.
+
+**Rollback:** revertir el commit (las dos líneas vuelven a WARN).
+## §71 · §M4-SHIP v1.80.5 — lo que le toca a devops en el despliegue (2026-09-29, rama `claude/envio-preparar`)
+
+Encargo: `API_CONTRACT §M4-SHIP.14` fila **devops** («suscribir `charge.refund.updated`; seed del dial por entorno; consulta de
+residuo con credencial de solo lectura») + rollback de `M-61`. Cada punto dice **qué medí** y qué no.
+
+### 71.1 · Webhook: `charge.refund.updated` (y `refund.updated`) — paso del DUEÑO en la ventana de despliegue
+
+**Medido (2026-09-29):** los eventos se suscriben **a mano en el dashboard de Stripe**; ni un script ni un workflow los registra.
+`grep -rn "enabled_events\|stripe listen\|webhook_endpoints" scripts .github security` ⇒ 0 resultados; la única lista es §11.G de estas notas.
+El backend hoy maneja 7 eventos (`backend/src/modules/payments/payments.service.ts:148-168`); el contrato añade dos con **el mismo
+manejador** (`API_CONTRACT §9`, «⭐ v1.80 — `charge.refund.updated`… y `refund.updated`»). **NO MEDIDO:** qué eventos tiene suscritos hoy el
+endpoint real (no hay acceso al dashboard desde aquí; no se pide la clave): se lee en el dashboard, en el paso de abajo.
+
+**Paso exacto (dueño, dashboard de Stripe; una vez por endpoint: staging en modo prueba y producción):**
+1. Developers > Webhooks > el endpoint `…/api/v1/webhooks/stripe` > **Update details** (o *Add events*).
+2. *Select events* > marcar **`charge.refund.updated`** y **`refund.updated`** (los 7 anteriores ya deben estar) > guardar.
+3. **No** se cambia el `whsec_…` ni hace falta redeploy: el secreto del endpoint no cambia al editar sus eventos.
+4. Verificación (ventana): en el mismo endpoint, la lista de eventos muestra los 9; y tras el primer reembolso real de un caso, la fila
+   del libro pasa de `submitted` a `succeeded` (sin este evento se queda en `submitted` para siempre).
+
+**Por qué es paso de ventana y no de CI:** sin la suscripción el despliegue pasa todos los gates y el evento no llega jamás (la clase de
+§32: cambio de configuración que ningún gate ve). SEC-SHIP-B4 (`SECURITY_NOTES`): norma operativa **«nunca reembolsar desde el panel de Stripe»**;
+un reembolso hecho ahí llega sin `metadata.paymentRefundId` y el backend solo lo registra en log.
+
+**Candado nuevo (CI):** `scripts/check-stripe-webhook-events.sh` (job `stripe-webhook-events`, en el `needs` de `ci-ok`) falla si el backend
+maneja un `case '<evento de Stripe>'` que no está en `security/stripe-webhook-events.txt` (fuente única de la lista) o si un evento del
+manifiesto falta en la lista de §11.G. Canario `scripts/check-stripe-webhook-events-canary.sh` (5 casos: 2 verdes y 3 rojos, incl. extractor
+ciego), corrido 3/3 verde. **Límite honesto:** comprueba que la lista **documentada** crece con el backend; **no** puede ver el dashboard. Que el
+dueño haya marcado el evento se verifica con el paso 4. El fixture de webhooks del harness E2E no existe como fichero (los E2E forjan sus
+eventos en cada spec), por eso el candado lee el código del backend y no un fixture.
+
+### 71.2 · Diales nuevos — de quién es cada cosa (medido en `API_CONTRACT`)
+
+| Cosa | ¿Dial? | Valor inicial | Dueño |
+|---|---|---|---|
+| `operator_refund_cap_24h_cents` (tope del operador en 24 h) | **sí**, `ConfigSetting` | **500000** (MX$5,000; decisión D-3 del dueño, `HECHOS.md`) | backend: default en `settings.constants.ts` / `seed.ts` |
+| `case_refund_hard_multiplier` (bloqueo de reembolso de caso > k×R) | **sí**, `ConfigSetting`, entero 2–50 | **5** | backend (ídem) |
+| Confirmación reforzada a 2×R | **no**: constante | 2 | backend (`API_CONTRACT §M4-SHIP.15.5`: «El `2` es la constante») |
+| Plazo de 7 días de «Por reponer» | **no**: constante derivada, sin columna ni job | 7×24 h (`REPLACEMENT_CASE_DUE_MS`, `API_CONTRACT` ~línea 18904) | backend |
+
+**Devops no añade variables de entorno para ninguno** (ninguno va por entorno: son filas de `ConfigSetting`); `.env.example` no cambia por esto.
+**Regla §11.0/§32:** `seed.ts` usa `update: {}`, así que en un entorno ya sembrado (producción) el `seed` **no** cambia filas existentes; para
+una clave **nueva** el comportamiento es el de la clave **ausente**, que `settings.service.ts` resuelve al **default de código** (medido:
+comentario «Una clave AUSENTE en la tabla … resuelve al default», `settings.service.ts:161`). Por tanto: **sin `PUT` ni `UPDATE` en la
+ventana** mientras backend ponga los dos defaults en `SETTING_DEFAULTS` (500000 y 5). **NO MEDIDO todavía** (backend está construyendo
+en paralelo; `grep operator_refund_cap backend` ⇒ 0 hoy): verificar tras aterrizar que ambas claves están en `SETTING_DEFAULTS` y en el DTO.
+Si el dueño quiere otro valor, lo edita en M10 (auditado); **`UPDATE` directo a la base sigue prohibido (§32.3)**. Post-deploy:
+`GET /admin/settings` debe traer los dos con 500000 y 5 (si falta uno, el binario desplegado no es el que creemos: parar).
+
+### 71.3 · Residuo pre-despliegue de `M-61`: `scripts/vault-full-refund-residue.sh`
+
+**Qué mide:** cuántas órdenes `fulfillmentMode='vault'` con `status='refunded'` existen **sin** haber pasado por el cierre de M-61 (`fullRefundClosedAt`).
+Son el residuo del hueco: antes de M-61 un reembolso total de una compra a bóveda no devolvía la carta. **Ningún script las toca** (`API_CONTRACT`
+bloque v1.80.4); se listan y las resuelve el súper-admin a mano.
+**Cuándo:** **ANTES** de fusionar `main → production` (fase PRE, cifra que el dueño lee al decidir) y, si se quiere la cifra «sin sello», **después** de
+`migrate deploy` (fase POST). Es estable después del despliegue (el código nuevo siempre escribe el sello); lo irrecuperable es solo la foto previa.
+**Cómo (usuario de solo lectura, nunca la credencial de la app):**
+```sql
+-- una vez, como admin de la base (contraseña generada, NO en el repo):
+CREATE ROLE residuo_ro LOGIN PASSWORD '<generada>';
+GRANT CONNECT ON DATABASE <base> TO residuo_ro;
+GRANT USAGE ON SCHEMA public TO residuo_ro;
+GRANT SELECT ON "Order" TO residuo_ro;
+```
+```bash
+export DATABASE_URL_RO='postgresql://residuo_ro:…@<host>:<puerto>/<base>'   # en TU shell; no se pega en ningún fichero ni chat
+./scripts/vault-full-refund-residue.sh --target prod --list
+unset DATABASE_URL_RO
+```
+(o que lo corra el dueño donde la credencial ya vive; `DROP ROLE residuo_ro` al terminar). **Cómo se lee:** imprime la huella del host (no el host), la fase
+(PRE/POST según exista la columna), el **RESIDUO** y una fila lista para pegar en la tabla de abajo; con `--list`, los 8 primeros caracteres de cada id.
+rc=0 = midió (léelo: **0 ⇒ nada que hacer; >0 ⇒** los ids completos se sacan desde tu terminal, se listan en `BACKEND_NOTES` y el súper-admin los resuelve con
+`reclaim-vault` / `chargeback-inventory`; **no** bloquea solo, lo decide el dueño antes de fusionar). rc=2 = **NO CONCLUYENTE** (sin URL, sin `psql`, rol que
+puede escribir, host que contradice `--target`, SQL falló): nunca es «0».
+**Probado (2026-09-29, N=1 por caso, consulta determinista) contra un Postgres 16 local desechable:** PRE con 1 orden `vault refunded` ⇒ 1; con la columna añadida y sin
+sello ⇒ 1; con sello ⇒ 0; un rol con escritura ⇒ rc=2 «TIENE privilegio de escritura»; `--target prod` contra host local ⇒ rc=2. **NO MEDIDO contra producción**
+(egress bloqueado, sin credencial). **Una sola fuente:** el literal es el del contrato; la consulta dueña es la de backend (`BACKEND_NOTES`): si difieren, manda la de backend y se corrige el script.
+
+| fecha UTC | fase | objetivo/huella | residuo |
+|---|---|---|---|
+| *(sin medir todavía en producción — 2026-09-29)* | | | |
+
+### 71.4 · Migración `M-61` — despliegue y rollback (rollback MEDIDO el 2026-09-29)
+
+**Qué trae** (`backend/prisma/migrations/20260929120000_m61_shipment_prep_refunds/migration.sql`, en `claude/release-s5` 1a5954ff): 3 tablas nuevas
+(`PaymentRefund`, `ReplacementCase`, `ManualRefund`), columnas nuevas nullable o con default (`Order.fullRefundClosedAt`, `KycProfile.clabeUpdatedAt`,
+`ShipmentRequest.preparedAt/preparedByUserId`, `ShipmentItem.prepStatus/prepMarkedAt/prepMarkedByUserId/missingReason`, `VaultPlacementItem.missingReason`),
+7 enums nuevos, **dos enums existentes que ganan valores** (`MovementReason + replacement, refund_return`; `VaultPlacementCancelReason + full_refund`),
+un backfill (`missingReason='not_found'` donde `prepStatus='missing'`) y CHECKs. **Cuatro CHECKs caen sobre tablas que ya existían:**
+`VaultPlacementItem_missing_reason_chk` (:248), `ShipmentRequest_prepared_seal_chk` (:236), `ShipmentItem_prep_mark_chk` y `ShipmentItem_missing_reason_chk`.
+
+**Antes:** snapshot de la BD de producción (Railway > Postgres > Backups), regla de oro de §11.F.
+**Aplicación:** `prisma migrate deploy` (corre al arrancar el contenedor). Falla ⇒ rollback **atómico** de esa migración, Railway mantiene el deploy anterior (patrón §26.4).
+
+#### Rollback, para el dueño (en llano)
+
+Volver a la versión anterior **no es solo apretar «Redeploy»**. La versión anterior tiene un botón («no está», al preparar un pedido de bóveda) que la base
+nueva rechaza: si se vuelve atrás sin más, ese botón da **error 500** y la carta no se puede marcar ni desmarcar. Se arregla quitando **una sola regla**
+de la base antes del redeploy. Nada se borra: los reembolsos, los casos «Por reponer» y las transferencias SPEI se quedan guardados, la versión vieja
+simplemente no los muestra, y reaparecen al volver a la versión nueva.
+
+1. **Medir** (solo lee; vale un usuario de solo lectura): `./scripts/rollback-m61.sh --check` con `DATABASE_URL` exportada en tu terminal
+   (nunca en un fichero ni en el chat; `unset DATABASE_URL` al terminar). Imprime una **huella** de la base y un veredicto.
+   - `rc=0` ⇒ se puede volver atrás después del paso 2.
+   - `rc=1` ⇒ **NO volver atrás todavía**: hay filas con valores nuevos (`refund_return`, `replacement`, `full_refund`) que la versión vieja **no sabe
+     leer**; las pantallas que las lean dan 500 (medido: ficha de la pieza y los verbos de una colocación cancelada por reembolso total). Postgres no
+     permite quitar un valor de un enum y reescribir movimientos es decisión tuya con backend: se escala, no se improvisa.
+   - `rc=2` ⇒ no concluyente (sin URL, sin `psql`, SQL que falló): no es «seguro».
+   También dice cuánto trabajo de dinero quedaría **abierto e invisible** mientras dure el rollback (reembolsos `requested/submitted/failed`, casos
+   abiertos, SPEI pendientes). No se pierde, pero nadie lo verá ni lo avanzará hasta volver a la versión nueva.
+   (`./scripts/rollback-safety-probe.sh <sha-anterior>` sigue valiendo para columnas `NOT NULL` sin default, pero **no mira CHECKs**: su verde no cubre esto.)
+2. **Quitar la regla** (solo si el paso 1 dio `rc=0`): `./scripts/rollback-m61.sh --apply --confirm <huella>`. Pide escribir `VOLVER ATRAS M-61` en una
+   terminal interactiva; sin terminal, o con otra huella, no escribe nada. Hace **un** `ALTER TABLE "VaultPlacementItem" DROP CONSTRAINT IF EXISTS
+   "VaultPlacementItem_missing_reason_chk"` en una transacción con `lock_timeout` de 5 s. Idempotente. Necesita la credencial dueña de la tabla (la de la app).
+3. **Redeploy** del código anterior: Railway *Redeploy* del deploy previo + Vercel *Promote* del build previo. Su `migrate deploy` dice «No pending
+   migrations» (medido) porque la fila de M-61 en `_prisma_migrations` **se queda**.
+
+**Qué NO se toca, y por qué:** las tablas y columnas nuevas (son el libro de reembolsos; la versión vieja las ignora); los otros tres CHECKs (miran
+columnas que la versión vieja no conoce ni escribe — medido abajo); los valores de enum (no se pueden quitar); y **la fila de M-61 en
+`_prisma_migrations` (⛔ NO borrarla)**: sin ella, la versión nueva intenta re-crear M-61 al arrancar y **falla** (medido: `P3018`, `type "MissingReason"
+already exists`) — y la cabecera de la migración sugiere ese `DELETE` solo como parte de la reversa TOTAL que tira las tablas, que aquí no se hace.
+El dinero ya devuelto por Stripe **no se revierte** con nada de esto. La suscripción del webhook a `charge.refund.updated`/`refund.updated` puede
+quedarse: con la versión vieja cae en «evento no manejado» y responde 200.
+
+**Volver a avanzar (roll-forward):** `./scripts/rollback-m61.sh --reforward --confirm <huella>` (frase `AVANZAR M-61`) **ANTES** de publicar otra vez
+la versión nueva. En una transacción: pone `missingReason='not_found'` a las cartas que la versión vieja marcó «no está» sin motivo, limpia el motivo
+de las que desmarcó, y re-añade el CHECK idéntico al de M-61 (lo compara con `pg_get_constraintdef`). Ese orden es a propósito: mientras corre, el
+botón «no está» de la versión vieja vuelve a dar 500 (falla cerrado, sin dato malo), y la versión nueva nunca ve una carta «no está» sin motivo — su
+`confirm` lo necesita para abrir el caso «Por reponer».
+
+**Medido el 2026-09-29** (devops; Postgres 16 local, BD propia `devops_rb61`; migraciones del árbol de `claude/release-s5` 1a5954ff hasta M-61; backend
+de `origin/production` a2da420 **vivo** con `ts-node src/main.ts` en su worktree y su cliente Prisma; verbos por HTTP con el operador del seed):
+
+| Medición | Sin paso de DDL (canario) | Tras `--apply` |
+|---|---|---|
+| `PATCH …/prep-items/:id {status:'missing'}` (marcar «no está») | **500** `VaultPlacementItem_missing_reason_chk` — **3/3** | 200 — **3/3** |
+| Regresar a `pending` una carta que la versión nueva dejó `missing`+`not_found` | **500**, mismo CHECK — **3/3** | 200 — **3/3** |
+| Palomear (`picked`) y «dar por preparado» | 200 — 3/3 | 200 — 3/3 |
+| Suite de integración de a2da420 entera (51 suites, 1137 pruebas) | **15 rojas** en 3 suites de colocación; **las 34** violaciones del log son de ese CHECK, **ninguna** de los otros tres | vault 0 rojas; 1 suite roja ajena (abajo) |
+| Misma suite sobre BD **sin** M-61 (línea base) | 51/51 suites, 1135 + 2 skip | — |
+| Fila con `refund_return` / colocación `full_refund` leída por la versión vieja | — | **500** (`Value 'refund_return' not found in enum`) — N=1 cada una; `--check` las cuenta y sale `rc=1` |
+
+Roll-forward, medido: con cartas dejadas por la versión vieja (1 «no está» sin motivo + 1 motivo sobrante), re-añadir el CHECK **a pelo** falla
+(«violated by some row»: por eso normaliza); `--reforward` ⇒ 1 + 1 normalizadas, CHECK idéntico, rc=0; segunda corrida ⇒ 0 + 0 (idempotente); la versión
+vieja vuelve a dar 500 al marcar (el CHECK muerde); `migrate deploy` del código nuevo ⇒ «No pending migrations»; y 4 suites de integración del código
+nuevo sobre esa BD (`vault-placement-verbs`, `vault-placement-races`, `replacement-cases`, `full-refund-vault`) ⇒ **92/92**.
+Candados del script, medidos: sin `--confirm`, huella ajena, sin TTY, frase distinta ⇒ rc=2 y el CHECK sigue (verificado con `--check`); `--apply`
+repetido ⇒ rc=0 sin cambio; con un rol de solo lectura `--check` funciona (misma huella) y `--apply` ⇒ rc=2 «no es dueño».
+**NO MEDIDO:** contra producción (sin credencial, egress bloqueado; lo corre el dueño donde vive la credencial); cómo trata la versión nueva un retiro
+que la vieja avanzó después de que la nueva lo marcara «preparado» (el script solo lo cuenta).
+**Rojo ajeno a M-61 (enrutado a backend):** en la corrida tras `--apply`, `buylist-cycle.e2e-spec.ts` 4 rojas: la prueba crea una dirección
+«Calle Nueva 456» que no borra y la relee con `address.findFirst` **sin `orderBy`** (`backend/test/integration/buylist-cycle.e2e-spec.ts:75`, también en
+1a5954ff); con dos direcciones el orden físico decide. `Address` no la toca M-61; sobre la BD base la misma spec pasó 72/72 con el mismo residuo.
+
+| fecha UTC | modo | huella | enum nuevos |
+|---|---|---|---|
+| *(sin correr en producción — 2026-09-29)* | | | |
+
+**2026-09-29 (devops, BLOQ-3 de QA sobre c20451f):** baseline del censo E2E regenerado con motivo: `mockOnly` 113/24 -> 121/25 por `frontend/e2e/m4-ship.spec.ts` (8 palabras = import + prosa + 6 llamadas; 12 casos). Gate rc=0 y canario 14/14 tras el cambio. Deuda: cuando el seed real siembre reembolsos/casos/transferencias, el censo baja y se regenera.
+
+**2026-09-29 (devops, fusión `claude/release-s5` sobre 6fd5507):** censo E2E rojo al fusionar `claude/paquete-dinero`:
+`mockOnly` 121/25 -> 126/26 por `frontend/e2e/admin-m2-sealed-unmapped.spec.ts` (§M2-SK, cf30bfb). Medido: en
+`origin/claude/paquete-dinero` (650a4ed) el censo **ya estaba rojo** (113 -> 118) y el baseline no se tocó allí (último
+cambio en esa rama: 05de0c9, M4-VAULT). Las 5 palabras = import :3 + prosa :13 + **3 llamadas** (:40 :57 :82): 3 casos que
+no miden contra el stack real. Legítimos por la política del censo (§66): dependen de la fila `ppe-sealed-unmapped` de la
+semilla del mock y el seed real no siembra un sellado sin mapear; el 422 `SEALED_MARKET_KEY_REQUIRED` (SK-3) y SK-2 los
+mide `backend/test/integration/sealed-market-key.e2e-spec.ts` contra Postgres real. Baseline regenerado con motivo;
+canario sobre copia (`mockOnly` falso en el spec, y en un spec nuevo) -> rojo rc=1 (126->127, 126->128). DEUDA: sembrar
+un sellado sin mapear en el seed real; ese día el censo baja y se regenera.
+**Renumeración (mismo commit):** la fusión dejó dos «§69»; la segunda (§M4-SHIP v1.80.5) pasa a **§71** —no §70, que ya
+era SEC-HDR-1— con sus 71.1–71.4 y la referencia de la checklist de Stripe (§71.1). Quedan fuera de este commit, apuntando
+aún a «§69.1/§69.4» de M4-SHIP: `scripts/check-ci-ok.sh:55` (devops) y `TRASPASO.md:80` (orquestador).
+
+## §72 · P-REL-3 — la cubeta SPEI contra el stack real CORRE en CI, una vez, y no puede saltarse en verde (2026-09-29, rama `claude/release-s5`)
+
+**Qué entra.** `frontend/e2e/m4-ship-spei-real.spec.ts` (frontend, 327b53df) conduce la cubeta «Reembolsos manuales (SPEI)» contra la API real y **consume** las dos filas `pending` del paso 13 de `backend/prisma/seed-e2e.ts` (`seedSpeiBucket`: `e2e:mr-pay`, `e2e:mr-cancel`). Sin fila, sus 2 casos se saltan (`skipIfSeedMissing`).
+
+**Qué había, medido sobre 327b53df (2026-09-29):**
+1. `e2e-real.yml` **no corría el spec**: el smoke solo ejecuta `SMOKE_SPECS` (checkout, guest-checkout, shipments, buylist). La siembra sí estaba: «Seed sintético» corre `seed:synthetic` = `ts-node prisma/seed-e2e.ts` (incluye el paso 13) una vez, sobre Postgres recién creado.
+2. **El reintento convierte un rojo en verde.** `frontend/playwright.config.ts:84` pone `retries: isCI ? 2 : 0`. Si un caso falla *después* de consumir su fila, el reintento no la encuentra, se salta, y Playwright 1.56.0 computa `flaky` (`computeTestCaseOutcome`: 1 unexpected + 1 skipped) ⇒ **rc=0**. Medido en un proyecto sintético (consume la fila y falla, `retries=2`, `E2E_EXPECT_NOT_MEASURED=0`): **5/5 rc=0** (N=5, devops). El reporter `not-measured.ts` tampoco lo ve: filtra `outcome() === 'skipped'`.
+3. Sin semilla: `skipped` ⇒ rc=0 salvo que se fije `E2E_EXPECT_NOT_MEASURED`.
+
+**Qué se cableó.**
+- `e2e-real.yml`, paso **«P-REL-3 cubeta SPEI (REAL)»** (tras el smoke; `if: !cancelled() && steps.seed.outcome == 'success'`): `npm run test:e2e -- m4-ship-spei-real.spec.ts --retries=0 --output=test-results-spei/artifacts --reporter=list,github,json,./e2e/reporters/not-measured.ts` con `E2E_EXPECT_NOT_MEASURED=0`, y después `scripts/check-e2e-must-run.sh --report test-results-spei/report.json --spec m4-ship-spei-real.spec.ts --min 2`. Aborta si alguien mete el spec también en `smoke_specs` (segunda corrida por siembra = salto). La línea del veredicto en el *Summary* dice si la cubeta corrió, falló o no corrió. `frontend/test-results-spei` va al artefacto `playwright-report-real`.
+- `scripts/check-e2e-must-run.sh`: por spec, ≥`--min` casos y cada uno `expected` con **un único** intento `passed`. Salto, flaky, reintento o 0 casos ⇒ rc=1; reporte ausente/roto ⇒ rc=2 (rojo en CI).
+- `scripts/check-e2e-must-run-canary.sh` (en `ci.yml`, job `e2e-skip-census`, cada PR): 19 comprobaciones sobre reportes sintéticos con la forma medida del reporter `json` + el cableado del paso. Mutaciones medidas sobre copia (2026-09-29): quitar `--retries=0`, `--min 1`, quitar `E2E_EXPECT_NOT_MEASURED`, meter el spec en el smoke por defecto, renombrar el paso, y un comprobador que nunca falla ⇒ **6/6 rojo**.
+- Medición real contra el comprobador (proyecto sintético, Playwright 1.56.0): pasa ⇒ 0; falla tras consumir con `retries=2` ⇒ Playwright 0 / **comprobador 1**; sin semilla ⇒ 1. `--list` en modo real selecciona los **2** casos del spec (`:119`, `:202`), coherente con `--min 2`.
+- Censo estático regenerado: `realOnly 14/4 → 16/5`, `skipIfSeedMissing 12/6 → 15/7` (motivo en `scripts/e2e-skip-census.baseline`).
+
+**NO MEDIDO.** Que el spec **pase** en un run de GitHub Actions (no puedo lanzar `e2e-real.yml` desde aquí; corre nightly, `workflow_dispatch` o `deploy.yml`). Lo cierra: un `workflow_dispatch` de `e2e-real.yml` sobre esta rama y mirar el paso P-REL-3 y el *Summary*. Si sale rojo por el producto, va a frontend/backend; si sale rojo por 429 de login, es límite del arnés (frontend).
+
+**Local (QA).** Cada corrida exige re-sembrar: `./scripts/stack-native.sh up --seed` (la siembra devuelve las filas a `pending`, `seed-e2e.ts:1085`). Para aplicar el mismo candado a mano: correr el spec con `PLAYWRIGHT_JSON_OUTPUT_NAME=/ruta/r.json --retries=0 --reporter=list,json` y pasar `r.json` a `scripts/check-e2e-must-run.sh`.
+
+**Rollback.** Revertir el commit: el paso desaparece de `e2e-real.yml` y el canario de `ci.yml` (van juntos: el canario comprueba el cableado, así que quitar uno sin el otro pone rojo `e2e-skip-census`).
+
+### §72.1 · Manifiesto de valores publicados regenerado (2026-09-29, sobre a77c7181+c1b55a40)
+
+`check-secret-defaults.sh` estaba rojo en HEAD (medido sobre `git archive HEAD`): manifiesto desfasado y `frontend/e2e/utils/env.ts:105` (`E2E_SPEI_CUSTOMER_PASSWORD ?? 'SpeiRefund123!'`, dd6fb1d7). Regenerado desde una copia limpia de HEAD (no del árbol vivo, que tenía cambios sueltos de backend): **+19 hashes, 0 retirados**. Auditados uno por uno: todos son literales de prueba en `backend/test/` o `frontend/e2e/`, o expresiones o identificadores que el generador captura como «valor» (`randomBytes(32)…`, `REFRESH_SECRET,`, `hmacKey,`, `C7_ACCESS_SECRET,`), más un código de error (`TOO_MANY_PASSWORD_ATTEMPTS`, `backend/src/common/error-codes.ts:54`). Ninguno es una credencial real. Origen: C7 y SEC-C7-* (`cf32dc9d`, `114aecff`, `ff3ecc41`, `d1fbbf81`, rama `paquete-seguridad`), §M4-SHIP (`482eae50`, `19972b59`, `envio-preparar`: claves de idempotencia `re_fix32_`/`re_fix40_`/`re_fix40b_`) y P-REL-3 (`dd6fb1d7`, `release-s5`). Rollback: revertir el commit; el manifiesto solo añade rechazos.
+
+**2026-09-30 (devops, sobre e3bfae42):** `check-secret-defaults.sh` rojo desde `72ec57d0` (bisección del orquestador; rc=0 en `7b9c196e`). Regenerado desde `git archive HEAD`: **+1 hash, 0 retirados** — `2424ec00…` = sha256 de `whsec_pentest_`, capturado por la regla de PREFIJOS del generador (la etiqueta `PREFIJO` del manifiesto es la categoría, no un literal) en `docs/PENTEST_NOTES.md:1962` (`whsec_pentest_…`, prefijo con elipsis del secreto efímero y local del pentester; ninguna credencial real). Única aparición en el árbol. Tras regenerar, sobre la copia: `check-secret-defaults.sh` rc=0 y su canario rc=0. Rollback: revertir el commit.

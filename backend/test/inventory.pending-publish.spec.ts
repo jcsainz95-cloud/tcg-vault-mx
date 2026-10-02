@@ -86,7 +86,34 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
   const rows = items;
   const prisma: any = {
     $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    // Guardas de `move` (`item-location.rules.ts`): `loc-*` son estantes de tienda activos y
+    // `drawer-*` cajones de custodia de cliente. La puerta del cliente es un no-op aquí.
+    $executeRaw: jest.fn(async () => 1),
+    vaultLocation: {
+      findUnique: jest.fn(async ({ where }: any) => ({
+        id: where.id,
+        label: where.id.toUpperCase(),
+        zone: String(where.id).startsWith('drawer-') ? 'customer_custody' : 'platform_stock',
+        isActive: true,
+      })),
+      findMany: jest.fn(async ({ where }: any) =>
+        where.id.in.map((id: string) => ({ id, label: id.toUpperCase(), zone: 'customer_custody' })),
+      ),
+    },
+    shipmentItem: { findMany: jest.fn(async () => []) },
     inventoryItem: {
+      // `customerDrawersOf`: cajones con ≥1 pieza del cliente en custodia liquidada.
+      groupBy: jest.fn(async ({ where }: any) => {
+        const out: any[] = [];
+        for (const r of rows as any[]) {
+          if (r.ownerType !== 'customer' || r.status !== 'in_custody' || r.ownershipStatus !== 'settled')
+            continue;
+          if (!where.ownerUserId.in.includes(r.ownerUserId)) continue;
+          if (!String(r.locationId ?? '').startsWith('drawer-')) continue;
+          out.push({ ownerUserId: r.ownerUserId, locationId: r.locationId, _count: { _all: 1 } });
+        }
+        return out;
+      }),
       findMany: jest.fn(async ({ where, select }: any) => {
         let out = rows;
         if (where?.id?.in) out = out.filter((r) => where.id.in.includes(r.id));
@@ -114,6 +141,14 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
       }),
     },
     inventoryMovement: { create: jest.fn(async () => ({})) },
+    // Bitácora del servicio (`inventory.item_updated`, `#M1-merge-rule`): se registra en `writes` para que
+    // la AUSENCIA en el camino publicante (§ (4b)) se lea contra un espía que sí la ve en el no publicante.
+    auditLog: {
+      create: jest.fn(async ({ data }: any) => {
+        writes.push(`audit:${data.action}`);
+        return data;
+      }),
+    },
     pendingPriceEntry: {
       findMany: jest.fn(async () => {
         writes.push('pendingPriceEntry.findMany');
@@ -438,6 +473,56 @@ describe('⚠️⚠️ (4) el bypass del PATCH, CERRADO', () => {
 });
 
 // =============================================================================================
+// 🔒 `#M1-merge-rule` (v1.80.7.2) — la bitácora `inventory.item_updated` (before/after) es del camino NO
+// publicante de `updateItem`. El camino PUBLICANTE (`→ listed` desde un estado que no era `listed`) sigue el
+// pipeline de v1.51 (`assertPublishableGuards` + `claimListed`) y NO la escribe (BACKEND_NOTES «Release s5» §6).
+// Antes esto solo lo sostenía cómo estaba escrito el código; estas pruebas lo fijan. El `$transaction` de este
+// arnés corre sobre el MISMO cliente, así que el espía ve también las escrituras hechas dentro de una tx.
+describe('🔒 (4b) `PATCH → listed` (camino PUBLICANTE) NO escribe `inventory.item_updated`', () => {
+  const actor = { id: 'op-1', role: 'operador' } as any;
+
+  it('ancla: el MISMO arnés SÍ ve la bitácora en el camino NO publicante (`listed → in_stock`)', async () => {
+    const { svc, prisma, writes } = build([
+      item({ id: 'a', locationId: 'loc-1', priced: true, status: 'listed' }),
+    ]);
+    await svc.updateItem('a', { status: 'in_stock' } as UpdateItemDto, actor);
+    expect(writes).toContain('audit:inventory.item_updated');
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('`in_stock → listed` con precio resoluble: publica y NO escribe la bitácora', async () => {
+    const { svc, prisma, rows, writes } = build([item({ id: 'a', locationId: 'loc-1', priced: true })]);
+    const res: any = await svc.updateItem('a', { status: 'listed' } as UpdateItemDto, actor);
+    expect(res.status).toBe('listed');
+    expect(rows[0].status).toBe('listed');
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(writes.filter((w) => w.startsWith('audit:'))).toEqual([]);
+  });
+
+  it('`in_stock → listed` con `listPriceCents` y campo de identidad: publica y NO escribe la bitácora', async () => {
+    const { svc, prisma, rows } = build([item({ id: 'a', locationId: 'loc-1' })]);
+    const res: any = await svc.updateItem(
+      'a',
+      { status: 'listed', listPriceCents: 77_700, gradeValue: '9' } as UpdateItemDto,
+      actor,
+    );
+    expect(res.status).toBe('listed');
+    expect(rows[0]).toMatchObject({ status: 'listed', listPriceCents: 77_700 });
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('`in_stock → listed` sin precio ⇒ `422 PRICE_PENDING` y tampoco bitácora', async () => {
+    const { svc, prisma, rows } = build([item({ id: 'a', locationId: 'loc-1' })]);
+    const e = (await svc
+      .updateItem('a', { status: 'listed' } as UpdateItemDto, actor)
+      .catch((x) => x)) as BusinessException;
+    expect(e.code).toBe('PRICE_PENDING');
+    expect(rows[0].status).toBe('in_stock');
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================================
 describe('⚠️ (5) auto-publicación al fijar ubicación, SIN BOTÓN', () => {
   it('mover una pieza con precio a su caja la publica sola', async () => {
     const { svc, rows } = build([item({ id: 'a', priced: true })]);
@@ -481,11 +566,20 @@ describe('⚠️ (5) auto-publicación al fijar ubicación, SIN BOTÓN', () => {
     // `assertPublishableGuards` lanza `VALIDATION_ERROR` en inventario que **no es de plataforma**, y
     // las piezas de custodia **se mueven de caja todos los días**. Sin el catch, la bóveda no podría
     // reubicar la carta de un cliente. *Nunca se publica lo ajeno; tampoco se bloquea moverlo.*
-    const { svc, rows } = build([item({ id: 'a', priced: true })]);
-    (rows[0] as Record<string, unknown>).ownerType = 'customer';
-    (rows[0] as Record<string, unknown>).status = 'in_custody';
-    await expect(svc.moveItem('a', { toLocationId: 'loc-9' }, 'op-1')).resolves.toBeDefined();
-    expect(rows[0].locationId).toBe('loc-9');
+    // (Con las guardas de `move`, una pieza de cliente solo va a un cajón SUYO: aquí consolida la
+    // carta en el otro cajón donde el cliente ya tiene cartas — el caso real de todos los días.)
+    const { svc, rows } = build([
+      item({ id: 'a', priced: true, locationId: 'drawer-8' }),
+      item({ id: 'b', locationId: 'drawer-9' }),
+    ]);
+    for (const r of rows as Record<string, unknown>[]) {
+      r.ownerType = 'customer';
+      r.ownerUserId = 'u1';
+      r.ownershipStatus = 'settled';
+      r.status = 'in_custody';
+    }
+    await expect(svc.moveItem('a', { toLocationId: 'drawer-9' }, 'op-1')).resolves.toBeDefined();
+    expect(rows[0].locationId).toBe('drawer-9');
     expect(rows[0].status).toBe('in_custody');
   });
 

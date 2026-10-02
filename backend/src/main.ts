@@ -5,6 +5,7 @@ import { json } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { applyTrustProxy } from './trust-proxy';
 
 /**
  * Orígenes permitidos por CORS (S-M2). Se toma de `APP_BASE_URL` (lista separada por comas
@@ -36,7 +37,8 @@ async function bootstrap() {
   // NUNCA se intenta). `1` = un solo salto de proxy (el edge de Railway, sin Cloudflare delante del
   // backend — DEVOPS_NOTES §23.2/§25.3). Si devops mete otro proxy delante, ajustar el nº de saltos.
   // Multi-instancia además exige storage compartido del throttler (Redis) — ver app.module.ts.
-  app.set('trust proxy', 1);
+  // v1.80 (C7-18): el valor vive en `trust-proxy.ts` (fijado a 1 y probado; ⛔ nunca `true`).
+  applyTrustProxy(app);
 
   // S-B4: cabeceras de seguridad (CSP por defecto, HSTS, noSniff, frameguard, etc.).
   app.use(helmet());

@@ -156,6 +156,7 @@ enum VaultPlacementStatus {
 enum VaultPlacementCancelReason {
   chargeback // contracargo: las piezas volvieron a la plataforma (§M4-VAULT.6)
   nothing_to_place // al confirmar, ninguna pieza se colocó (todas faltantes o bloqueadas) (§M4-VAULT.5)
+  full_refund // v1.80.4 (M-61, §M4-SHIP.18.5): la compra se reembolsó entera; nada se coloca a nombre del cliente
 }
 
 // v1.79.1 (M-59, §M4-VAULT.10) — marca de preparación de UNA carta de un pedido de bóveda. Clase E.
@@ -163,6 +164,57 @@ enum PreparationItemStatus {
   pending // sin palomear (estado de nacimiento)
   picked // el operador la tiene en la mano
   missing // el operador NO la encontró. ⛔ Solo se registra: no mueve dinero, ni inventario, ni avisa
+}
+
+// v1.80 (M-61, §M4-SHIP.2) — por qué una carta de un ENVÍO (o de una colocación, v1.80.1) no sale. Clase E.
+// `not_found` ⇒ la pieza pasa a `lost`; `damaged` ⇒ a `damaged`. UN SOLO modelo de motivo (envío y bóveda).
+enum MissingReason {
+  not_found
+  damaged
+}
+
+// v1.80 (M-61, §M4-SHIP.2) — qué reembolsa una fila del libro `PaymentRefund`. Clase E.
+enum PaymentRefundKind {
+  item_missing // UNA carta de un envío que no sale (vía del operador, §M4-SHIP.5)
+  order_remaining // lo que queda de una orden `direct_ship` cuando NO sale ninguna carta
+  shipment_fee // el cobro de un RETIRO cuando no sale ninguna carta
+  order_full // M3, súper-admin: el remanente de la orden (§M3)
+  case_refund // v1.80.1 — cierra un caso «Por reponer» sin reposición (súper-admin, §M4-SHIP.15.5)
+}
+
+// v1.80 (M-61, §M4-SHIP.7) — ciclo de una fila del libro. Clase E.
+enum PaymentRefundStatus {
+  requested // el hecho está registrado; Stripe aún no confirmó (o falló de forma transitoria)
+  submitted // Stripe aceptó el reembolso (hay `stripeRefundId`), aún no `succeeded`
+  succeeded // Stripe lo dio por hecho
+  failed // Stripe lo rechazó de forma DEFINITIVA (terminal; lo resuelve el súper-admin)
+}
+
+// v1.80.1 (M-61, §M4-SHIP.15.2) — de dónde nació un caso «Por reponer». Clase E (filtro `?source=`).
+enum ReplacementCaseSource {
+  withdrawal
+  vault_purchase
+}
+
+// v1.80.1 (M-61, §M4-SHIP.15.3) — ciclo del caso. Clase E.
+enum ReplacementCaseStatus {
+  open // nació; la carta se le debe al cliente
+  replaced // se le dio OTRA pieza de la misma identidad (terminal)
+  found // apareció la MISMA pieza (solo not_found) (terminal)
+  refunded // se cerró con un reembolso capturado por el súper-admin (terminal)
+  voided // la orden de origen dejó de estar `settled`: el dinero lo resolvió otro camino (terminal)
+}
+
+// v1.80.2 (M-61, §M4-SHIP.15.13) — cubeta «Reembolsos manuales (SPEI)».
+enum ManualRefundSource {
+  case_excess // la parte de un reembolso de caso que no cabe en el cobro de Stripe (o todo, si el remanente es 0)
+  stripe_failed // una fila `case_refund` que Stripe rechazó en definitiva, pasada a SPEI por el súper-admin
+}
+
+enum ManualRefundStatus {
+  pending // hay que pagarla por fuera
+  paid // el súper-admin la marcó pagada (terminal)
+  cancelled // el súper-admin la canceló con nota (terminal)
 }
 
 enum OrderStatus {
@@ -355,6 +407,10 @@ enum MovementReason {
   // (POST /admin/inventory/adjustments). El historial de la pieza distingue un ajuste de
   // operador (`adjustment`) de un `mark` normal (`lost`/`damaged`) o un retiro (`withdrawal`).
   adjustment
+  // v1.80.1 (M-61, §M4-SHIP.15.2): traspaso de titularidad de una REPOSICIÓN (⛔ no es sale/settle/adjustment).
+  replacement
+  // v1.80.4 (M-61, §M4-SHIP.18.4): la carta vuelve a la plataforma por un reembolso TOTAL de su compra.
+  refund_return
 }
 
 // v1.20-master-set-everywhere (M-24): motivo OBLIGATORIO del ajuste de inventario por
@@ -471,6 +527,8 @@ model User {
   kycUploadGrants            KycUploadGrant[]
   // v1.23-sealed-sales (M-28): suscripciones restock del usuario (FK opcional; onDelete SetNull).
   sealedRestockSubscriptions SealedRestockSubscription[]
+  // v1.80.2 (M-61, §M4-SHIP.15.13): reembolsos manuales (SPEI) a este cliente.
+  manualRefunds              ManualRefund[]
 
   @@index([role])
   @@index([status])
@@ -523,6 +581,9 @@ model KycProfile {
   // ya limpia `rejectionReason`/`reviewedAt`/`reviewedBy`) y al pasar la decisión a `verified`/`none`.
   // ⛔ Un segundo rechazo consecutivo NO lo limpia (criterio 205(a): dos rechazos ⇒ UN correo).
   kycRejectionNoticeSentAt   DateTime?
+  // v1.80.3 (M-61, SEC-SHIP-A3, §M4-SHIP.17.3): último cambio (o primer registro) de la CLABE. Lo escribe SOLO
+  // `setClabe`. NULL para las CLABE registradas antes de M-61 («fecha de cambio desconocida»).
+  clabeUpdatedAt             DateTime?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
@@ -786,7 +847,7 @@ model Card {
   metaDeckCards              MetaDeckCard[]
   // rev `decks-portada` (M-60): inversa de `MetaDeckList.coverCard`. Solo lado Prisma (sin columna).
   // Si la carta sale del catálogo, la portada queda en null (ON DELETE SET NULL) y conserva su crudo.
-  metaDeckListCovers         MetaDeckList[] @relation("MetaDeckListCover")
+  metaDeckListCovers         MetaDeckList[]              @relation("MetaDeckListCover")
 
   @@index([setId])
   @@index([name])
@@ -937,6 +998,9 @@ model InventoryItem {
   adjustments         InventoryAdjustment[]
   // v1.79.1 (M-59, §M4-VAULT.2): filas de preparación de bóveda que apuntan a esta pieza.
   vaultPlacementItems VaultPlacementItem[]
+  // v1.80.1 (M-61, §M4-SHIP.15): casos «Por reponer» donde esta pieza es la original / la repuesta.
+  caseAsOriginal      ReplacementCase[]     @relation("CaseOriginal")
+  caseAsReplacement   ReplacementCase[]     @relation("CaseReplacement")
 
   @@index([cardId])
   @@index([status])
@@ -1040,26 +1104,26 @@ model InventoryBatch {
 // (upsert; sin serie temporal — la auditoría del cambio va por AuditLog). La clave única espeja la
 // de PriceReference menos `capturedDate`. `sealed` NO usa esta tabla (§4.26g: su cadena H-1 sigue).
 model VariantPriceOverride {
-  id                String      @id @default(uuid())
-  cardId            String
-  card              Card        @relation(fields: [cardId], references: [id])
-  productType       ProductType @default(raw) // raw | graded (P-20). sealed NO usa esta tabla (§4.26g).
-  gradeKey          String      @default("raw:NM") // canónico de buildGradeKey: "raw:NM" | "graded:PSA:10" …
-  finish            Finish      @default(normal) // graded → normal (el acabado no aplica; paridad PriceReference)
-  sellOverrideCents Int? // precio de VENTA manual → PISA el storefront (§4.26b). null = sin override
-  buyOverrideCents  Int? // precio de COMPRA manual → PISA el cotizador público (§4.26b). null = sin override
-  bountyEnabled     Boolean     @default(false) // P-22
-  bountyPriceCents  Int? // requerido si bountyEnabled — SIEMPRE explícito, jamás calculado
-  bountyTargetQty   Int? // "necesito N"; null = sin objetivo (no se auto-apaga)
-  bountyAcquiredQty Int         @default(0) // piezas compradas vía buylist PAGADA bajo bounty (§4.26e)
-  bountyCompletedAt DateTime?
+  id                  String      @id @default(uuid())
+  cardId              String
+  card                Card        @relation(fields: [cardId], references: [id])
+  productType         ProductType @default(raw) // raw | graded (P-20). sealed NO usa esta tabla (§4.26g).
+  gradeKey            String      @default("raw:NM") // canónico de buildGradeKey: "raw:NM" | "graded:PSA:10" …
+  finish              Finish      @default(normal) // graded → normal (el acabado no aplica; paridad PriceReference)
+  sellOverrideCents   Int? // precio de VENTA manual → PISA el storefront (§4.26b). null = sin override
+  buyOverrideCents    Int? // precio de COMPRA manual → PISA el cotizador público (§4.26b). null = sin override
+  bountyEnabled       Boolean     @default(false) // P-22
+  bountyPriceCents    Int? // requerido si bountyEnabled — SIEMPRE explícito, jamás calculado
+  bountyTargetQty     Int? // "necesito N"; null = sin objetivo (no se auto-apaga)
+  bountyAcquiredQty   Int         @default(0) // piezas compradas vía buylist PAGADA bajo bounty (§4.26e)
+  bountyCompletedAt   DateTime?
   // v2.2 (Q2, M-58 · §M2-B.9): sello de DESPUBLICACIÓN. Espejo de `bountyCompletedAt`. Distingue el
   // estado derivado `despublicada` (eliminado CON historia) de `apagada` (hold reversible). Aditiva,
   // nullable, sin backfill: null = «nunca despublicada». `BountyState` NO es enum de Prisma (clase L).
   bountyUnpublishedAt DateTime?
-  updatedBy         String? // actorUserId (patrón AuditLog, sin FK dura)
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  updatedBy           String? // actorUserId (patrón AuditLog, sin FK dura)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
   @@unique([cardId, productType, gradeKey, finish])
   @@index([bountyEnabled])
@@ -1248,6 +1312,8 @@ model Order {
   createdAt               DateTime        @default(now())
   settledAt               DateTime?
   refundedAt              DateTime?
+  // v1.80.4 (M-61, §M4-SHIP.18.2): sello de `onFullRefund` — se escribe UNA vez, bajo el candado de la fila.
+  fullRefundClosedAt      DateTime?
 
   items            OrderItem[]
   // v1.68 (M-53, §4-R): piezas cuya reserva VIVA pertenece a esta orden (relación inversa; sin DDL propio).
@@ -1258,6 +1324,9 @@ model Order {
   shipmentRequests ShipmentRequest[]
   // v1.79 (M-59, §M4-VAULT.2): la colocación en bóveda de esta orden (solo `vault` liquidada).
   vaultPlacement   VaultPlacement?
+  // v1.80 (M-61, §M4-SHIP.2): el libro de reembolsos de esta orden; v1.80.2: sus filas SPEI.
+  refunds          PaymentRefund[]
+  manualRefunds    ManualRefund[]
 
   @@index([userId])
   @@index([status])
@@ -1288,6 +1357,10 @@ model OrderItem {
 
   // v1.79.1 (M-59, §M4-VAULT.2): su fila de preparación de bóveda (solo órdenes `vault` liquidadas).
   vaultPlacementItem VaultPlacementItem?
+  // v1.80 (M-61): una carta se reembolsa UNA vez en su vida (`item_missing` o `case_refund`), venga por donde venga.
+  refund             PaymentRefund?
+  // v1.80.1 (M-61, §M4-SHIP.15): casos «Por reponer» cuyo dinero vino de esta línea (`resolveOrigin`).
+  replacementCases   ReplacementCase[]
 
   @@index([orderId])
 }
@@ -1338,6 +1411,9 @@ model VaultPlacementItem {
   prepStatus         PreparationItemStatus @default(pending)
   prepMarkedAt       DateTime?
   prepMarkedByUserId String? // de la SESIÓN. Sin FK dura
+  // v1.80.1 (M-61, §M4-SHIP.15.2): ⇔ prepStatus='missing' (CHECK). El MISMO enum que ShipmentItem.
+  missingReason      MissingReason?
+  replacementCase    ReplacementCase?
 
   @@index([placementId])
   @@index([inventoryItemId])
@@ -1405,8 +1481,13 @@ model ShipmentRequest {
   pickingAt             DateTime?
   shippedAt             DateTime?
   deliveredAt           DateTime?
+  // v1.80 (M-61, §M4-SHIP.2): sello de «preparado» (hito DENTRO de `picking`, ⛔ no un estado nuevo). CHECK: van juntos.
+  preparedAt            DateTime?
+  preparedByUserId      String? // de la SESIÓN. Sin FK dura (patrón AuditLog)
 
-  items ShipmentItem[]
+  items            ShipmentItem[]
+  refunds          PaymentRefund[]
+  replacementCases ReplacementCase[]
 
   @@index([userId])
   @@index([status])
@@ -1415,13 +1496,169 @@ model ShipmentRequest {
 }
 
 model ShipmentItem {
-  id                String          @id @default(uuid())
-  shipmentRequestId String
-  shipmentRequest   ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
-  inventoryItemId   String
-  inventoryItem     InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  id                 String                @id @default(uuid())
+  shipmentRequestId  String
+  shipmentRequest    ShipmentRequest       @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
+  inventoryItemId    String
+  inventoryItem      InventoryItem         @relation(fields: [inventoryItemId], references: [id])
+  // v1.80 (M-61, §M4-SHIP.2): la marca de preparación de UNA carta de un ENVÍO. El MISMO enum de bóveda.
+  prepStatus         PreparationItemStatus @default(pending)
+  prepMarkedAt       DateTime?
+  prepMarkedByUserId String? // de la SESIÓN. Sin FK dura
+  missingReason      MissingReason? // ⇔ prepStatus='missing' (CHECK)
+  refund             PaymentRefund?
+  // v1.80.1: el caso que abrió esta línea (solo retiros) · la línea NUEVA que una reposición metió al paquete.
+  replacementCase    ReplacementCase?      @relation("CaseOpenedByLine")
+  replacedIntoCase   ReplacementCase?      @relation("CaseReplacementLine")
 
   @@index([shipmentRequestId])
+}
+
+// ============================= REEMBOLSOS (M-61, §M4-SHIP.2) =============================
+
+// v1.80 — EL LIBRO: una fila por reembolso, con su llave de idempotencia de negocio ÚNICA (a la vez la
+// Idempotency-Key de Stripe), componentes CONGELADOS y estado. ⛔ Ningún importe se re-deriva.
+model PaymentRefund {
+  id                  String              @id @default(uuid())
+  // Formas: `item:<shipmentItemId>` · `order-rest:<orderId>` · `ship-fee:<shipmentRequestId>` · `order-full:<orderId>` · `case:<caseId>`
+  idempotencyKey      String              @unique
+  kind                PaymentRefundKind
+  status              PaymentRefundStatus @default(requested)
+  // EL COBRO que se reembolsa: exactamente UNO de los dos (CHECK).
+  orderId             String?
+  order               Order?              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  shipmentRequestId   String? // solo `shipment_fee` (el cobro propio de un retiro)
+  shipmentRequest     ShipmentRequest?    @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  // La LÍNEA que lo causó (`item_missing`; `orderItemId` también en `case_refund`). Una carta se reembolsa UNA vez.
+  orderItemId         String?             @unique
+  orderItem           OrderItem?          @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  shipmentItemId      String?             @unique
+  shipmentItem        ShipmentItem?       @relation(fields: [shipmentItemId], references: [id], onDelete: Restrict)
+  missingReason       MissingReason?
+  // IMPORTE y componentes, CONGELADOS al crear la fila (§M4-SHIP.4). IVA DENTRO de mercancía y envío (IVA_INCLUSIVE).
+  amountCents         Int
+  merchandiseCents    Int
+  merchandiseIvaCents Int
+  shippingCents       Int
+  shippingIvaCents    Int
+  processingFeeCents  Int
+  // v1.80.1 — lo que un `case_refund` paga POR ENCIMA de lo cobrado por esa carta (compensación, sin IVA de venta).
+  compensationCents   Int                 @default(0)
+  // v1.80.1 — solo `case_refund`: el caso que cierra (a lo más UNA fila de Stripe por caso).
+  replacementCaseId   String?             @unique
+  replacementCase     ReplacementCase?    @relation(fields: [replacementCaseId], references: [id], onDelete: Restrict)
+  manualRefunds       ManualRefund[] // v1.80.2/.3 — la(s) fila(s) SPEI que sustituyen a esta fila `failed` (una viva)
+  // QUIÉN: de la sesión. ⛔ Nunca del cuerpo.
+  requestedByUserId   String
+  requestedByRole     Role
+  reason              String? // texto del súper-admin en `order_full` / `case_refund`; null en los demás
+  stripeRefundId      String?             @unique
+  failureCode         String?
+  // v1.80.3 (SEC-SHIP-M2): intentos de hablar con Stripe y reclamo (lease) del intento en curso.
+  attemptCount        Int                 @default(0)
+  attemptStartedAt    DateTime?
+  createdAt           DateTime            @default(now())
+  submittedAt         DateTime?
+  succeededAt         DateTime?
+  failedAt            DateTime?
+  customerNotifiedAt  DateTime? // sello de `AV-12` (una vez por fila, §R.4.b)
+
+  @@index([orderId])
+  @@index([requestedByUserId, createdAt]) // sirve el tope de 24 h (§M4-SHIP.8)
+  @@index([status, createdAt]) // sirve «reembolsos atorados»
+}
+
+// v1.80.1 — apartado «Por reponer» (§M4-SHIP.15): una deuda con nombre por una carta de BÓVEDA que falta o llegó dañada.
+model ReplacementCase {
+  id                         String                @id @default(uuid())
+  source                     ReplacementCaseSource
+  status                     ReplacementCaseStatus @default(open)
+  // EL NODO QUE LO ABRIÓ: exactamente uno (CHECK). @unique ⇒ una línea abre a lo más UN caso.
+  shipmentItemId             String?               @unique // source=withdrawal
+  shipmentItem               ShipmentItem?         @relation("CaseOpenedByLine", fields: [shipmentItemId], references: [id], onDelete: Restrict)
+  shipmentRequestId          String? // = ShipmentItem.shipmentRequestId (desnormalizado, inmutable)
+  shipmentRequest            ShipmentRequest?      @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  placementItemId            String?               @unique // source=vault_purchase
+  placementItem              VaultPlacementItem?   @relation(fields: [placementItemId], references: [id], onDelete: Restrict)
+  // A QUIÉN SE LE DEBE y QUÉ.
+  customerUserId             String
+  originalInventoryItemId    String // a lo más UN caso ABIERTO por pieza: índice único PARCIAL (SQL crudo)
+  originalInventoryItem      InventoryItem         @relation("CaseOriginal", fields: [originalInventoryItemId], references: [id], onDelete: Restrict)
+  missingReason              MissingReason
+  // DE DÓNDE VINO SU DINERO (resolveOrigin, §M4-SHIP.3). null ⇔ no_origin_order.
+  originOrderItemId          String?
+  originOrderItem            OrderItem?            @relation(fields: [originOrderItemId], references: [id], onDelete: Restrict)
+  // NACIMIENTO — de la sesión del acto que lo abrió.
+  openedAt                   DateTime
+  openedByUserId             String
+  customerNotifiedAt         DateTime? // sello de AV-13 (solo withdrawal)
+  // RESOLUCIÓN (todo NULL ⇔ open; CHECKs).
+  resolvedAt                 DateTime?
+  resolvedByUserId           String?
+  replacementInventoryItemId String? // replaced: la pieza que se le dio · found: = original
+  replacementInventoryItem   InventoryItem?        @relation("CaseReplacement", fields: [replacementInventoryItemId], references: [id], onDelete: Restrict)
+  replacementShipmentItemId  String?               @unique // replaced dentro del paquete: la línea nueva
+  replacementShipmentItem    ShipmentItem?         @relation("CaseReplacementLine", fields: [replacementShipmentItemId], references: [id], onDelete: Restrict)
+  refund                     PaymentRefund? // refunded: su fila `case_refund` (puede NO haberla si todo fue a SPEI)
+  voidNote                   String? // voided: texto del súper-admin
+  // v1.80.2 — REEMBOLSO CAPTURADO (todo NULL ⇔ status≠refunded; CHECK). Congelado en el acto.
+  refundAmountCents          Int?
+  refundReason               String?
+  refundPaidRefCents         Int?
+  refundMarketRefCents       Int?
+  refundMarketRefDate        DateTime?
+  refundAboveRefConfirmed    Boolean?
+  manualRefunds              ManualRefund[]
+
+  @@index([status, openedAt])
+  @@index([shipmentRequestId, status])
+  @@index([customerUserId, status])
+}
+
+// v1.80.2 — cubeta «Reembolsos manuales (SPEI)» (§M4-SHIP.15.13). ⛔ Sin nombre, CLABE ni correo copiados.
+model ManualRefund {
+  id                  String             @id @default(uuid())
+  // `case-spei:<caseId>` · `refund-spei:<paymentRefundId>` · `reissue:<manualRefundId>`
+  idempotencyKey      String             @unique
+  source              ManualRefundSource
+  status              ManualRefundStatus @default(pending)
+  customerUserId      String
+  customer            User               @relation(fields: [customerUserId], references: [id], onDelete: Restrict)
+  replacementCaseId   String
+  replacementCase     ReplacementCase    @relation(fields: [replacementCaseId], references: [id], onDelete: Restrict)
+  paymentRefundId     String? // solo stripe_failed: la fila de Stripe que sustituye (unicidad parcial entre vivas, SQL crudo)
+  paymentRefund       PaymentRefund?     @relation(fields: [paymentRefundId], references: [id], onDelete: Restrict)
+  orderId             String?
+  order               Order?             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  // IMPORTE y componentes CONGELADOS (envío siempre 0 aquí).
+  amountCents         Int
+  merchandiseCents    Int
+  merchandiseIvaCents Int
+  processingFeeCents  Int
+  compensationCents   Int
+  createdAt           DateTime           @default(now())
+  createdByUserId     String
+  // PAGO (CHECK: status='paid' ⇔ paidAt, paidByUserId NOT NULL; speiReference opcional, D-11).
+  paidAt              DateTime?
+  paidByUserId        String?
+  speiReference       String?
+  paidNote            String?
+  paidClabeHmac       String? // KycProfile.clabeHmac AL MARCAR (índice ciego; ⛔ nunca la CLABE)
+  // CANCELACIÓN (CHECK).
+  cancelledAt         DateTime?
+  cancelledByUserId   String?
+  cancelNote          String?
+  // v1.80.3 (SEC-SHIP-M4): la fila CANCELADA que esta re-emite (una re-emisión por cancelada).
+  reissuedFromId      String?            @unique
+  reissuedFrom        ManualRefund?      @relation("MRReissue", fields: [reissuedFromId], references: [id], onDelete: Restrict)
+  reissuedAs          ManualRefund?      @relation("MRReissue")
+  // SELLOS de aviso (§M4-SHIP.15.7).
+  announcedNotifiedAt DateTime? // AV-14
+  paidNotifiedAt      DateTime? // AV-15
+
+  @@index([status, createdAt])
+  @@index([customerUserId])
+  @@index([orderId])
 }
 
 // ============================= BUYLIST =============================
@@ -1906,17 +2143,17 @@ model MetaDeck {
 
 // INMUTABLE: una lista concreta con su fecha y fuente. Una lista nueva NO muta la anterior.
 model MetaDeckList {
-  id                  String         @id @default(uuid())
+  id                  String           @id @default(uuid())
   deckId              String
-  deck                MetaDeck       @relation("DeckLists", fields: [deckId], references: [id])
+  deck                MetaDeck         @relation("DeckLists", fields: [deckId], references: [id])
   formatLabel         String // "Standard 2026-27"
   activeMarksSnapshot Json // ventana vigente al capturar (procedencia)
   sourceUrl           String?
   sourceTournament    String?
-  fetchedAt           DateTime       @default(now())
+  fetchedAt           DateTime         @default(now())
   supersededById      String? // apunta a la lista que la reemplazó
   cards               MetaDeckCard[]
-  currentOf           MetaDeck?      @relation("CurrentList")
+  currentOf           MetaDeck?        @relation("CurrentList")
   // rev `decks-portada` (M-60, ARCHITECTURE §12.4.3, API_CONTRACT §13 «Portada del deck»): la PORTADA
   // que Limitless pinta para el arquetipo en la MISMA foto de la home que produjo esta lista
   // (`a.leader-image > img[alt="SET-NÚM"]`). Crudo + resultado del casado (mismo motor que las 60).
@@ -1927,7 +2164,7 @@ model MetaDeckList {
   coverNumber         String? // crudo («25», SIN normalizar); null ⇔ sin portada
   coverMatchStatus    MetaMatchStatus? // null ⇔ sin portada; si no, el estado del casado
   coverCardId         String? // solo si coverMatchStatus = matched
-  coverCard           Card?          @relation("MetaDeckListCover", fields: [coverCardId], references: [id], onDelete: SetNull)
+  coverCard           Card?            @relation("MetaDeckListCover", fields: [coverCardId], references: [id], onDelete: SetNull)
 
   @@index([deckId, fetchedAt])
 }

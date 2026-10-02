@@ -46,6 +46,7 @@ interface SealedDrawerState {
 
 export function M11View() {
   const t = useTranslations('admin.m11');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const queryClient = useQueryClient();
   const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
   const [drawer, setDrawer] = useState<SealedDrawerState | null>(null);
@@ -78,7 +79,7 @@ export function M11View() {
       <Toaster toasts={toasts} onDismiss={dismissToast} />
 
       <div className="flex flex-col gap-1">
-        <h1 className="text-h1 font-bold">{t('title')}</h1>
+        <h1 className="text-h1 font-bold">{tModules('m11')}</h1>
         <p className="max-w-[70ch] text-sm text-muted">{t('subtitle')}</p>
       </div>
 

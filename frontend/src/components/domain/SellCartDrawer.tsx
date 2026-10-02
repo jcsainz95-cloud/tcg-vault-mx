@@ -18,8 +18,14 @@ export interface SellCartDrawerProps {
   countLabel?: string | null;
   /** `aria-label` del botón cerrar (44px). */
   closeLabel: string;
-  /** Al cerrar, el foco REGRESA aquí (el FAB) — §18.4b. */
-  returnFocusRef?: React.RefObject<HTMLButtonElement | null>;
+  /**
+   * Al cerrar, el foco REGRESA aquí — §18.4b. §37.1d (P-61): ya no es fijo al FAB; es el
+   * disparador que ABRIÓ el cajón (FAB en `< lg`, barra en `≥ lg`, o el CTA del bounty). Se lee
+   * al abrir, así que el dueño debe fijarlo ANTES de poner `open`.
+   */
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
+  /** `id` del diálogo, para el `aria-controls` de los disparadores (§37.1b). */
+  id?: string;
   children: React.ReactNode;
 }
 
@@ -42,11 +48,12 @@ export function SellCartDrawer({
   countLabel,
   closeLabel,
   returnFocusRef,
+  id,
   children,
 }: SellCartDrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Foco inicial al abrir; al cerrar (cleanup), el foco REGRESA al FAB (§18.4b).
+  // Foco inicial al abrir; al cerrar (cleanup), el foco REGRESA al disparador (§18.4b, §37.1d).
   useEffect(() => {
     if (!open) return;
     panelRef.current?.focus();
@@ -125,6 +132,7 @@ export function SellCartDrawer({
     >
       <div
         ref={panelRef}
+        id={id}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"

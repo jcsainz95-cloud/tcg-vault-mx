@@ -33,7 +33,7 @@ const card: CardDTO = {
   supertype: 'Pokémon',
   subtypes: ['Stage 2'],
   setId: 'base1',
-  setName: 'Base Set',
+  setName: 'Base Set', setPtcgoCode: null,
   imageSmallUrl: 'https://img.example/s.png',
   imageLargeUrl: 'https://img.example/l.png',
   availableFinishes: ['normal'],
@@ -394,5 +394,36 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     expect(c[0].className).toContain('sm:col-span-2');
     expect(c[1].className).not.toContain('sm:border-l');
     expect(c[2].className).toContain('sm:border-l');
+  });
+});
+
+/** v1.80 (P-71, §37.3b-c): la línea del set de la ficha, «Set · TWM 130 · rareza». */
+describe('CardDetailView · P-71 código corto del set en la línea del set', () => {
+  it('con código: «Twilight Masquerade · TWM 130 · Rare Holo», y el código NO va en versalitas (tal como llega)', async () => {
+    const { listings, units } = twoVariants();
+    const withCode = { ...card, setName: 'Twilight Masquerade', setPtcgoCode: 'TWM', number: '130' };
+    vi.spyOn(api, 'getCardDetail').mockResolvedValue({
+      card: withCode,
+      listings: listings.map((l) => ({ ...l, card: withCode })),
+      units: units.map((u) => ({ ...u, card: withCode })),
+    });
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    const code = await screen.findByTestId('card-code');
+    expect(code.textContent).toBe('TWM 130');
+    expect(code.parentElement?.textContent).toBe('Twilight Masquerade · TWM 130 · Rare Holo');
+    // §37.3b «mayúsculas tal como llegan»: la línea sí va en versalitas (`uppercase`, es su voz de
+    // siempre), pero el código se exceptúa (`normal-case`) — la sigla impresa no la decide el CSS.
+    expect(code.parentElement).toHaveClass('uppercase');
+    expect(code).toHaveClass('normal-case');
+    expect(code).not.toHaveClass('uppercase');
+  });
+
+  it('sin código: «Base Set · #4 · Rare Holo», sin «—» ni «null»', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    const code = await screen.findByTestId('card-code');
+    expect(code.parentElement?.textContent).toBe('Base Set · #4 · Rare Holo');
+    expect(code.parentElement?.textContent).not.toMatch(/—|null|undefined/);
   });
 });

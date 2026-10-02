@@ -18,6 +18,8 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { cn } from '@/lib/cn';
+import { setMatchesQuery } from '@/lib/setCode';
+import { SetCode } from '@/components/domain/SetCode';
 import type { MasterSetViewMode } from './mode';
 // §24 — el POZO del logo vive en su propio módulo: lo consumen la retícula (tamaño `md`) y el
 // encabezado del binder (tamaño `sm`, §24.10), y así el binder no arrastra el índice entero.
@@ -48,8 +50,10 @@ interface Props {
  */
 async function fetchQuoterIndex(filters: MasterSetIndexFilters): Promise<MasterSetIndexResponse> {
   const sets = await listBuylistSets();
-  const q = (filters.q ?? '').trim().toLowerCase();
-  const matched = q ? sets.filter((s) => s.name.toLowerCase().includes(q)) : sets;
+  const q = (filters.q ?? '').trim();
+  // v1.80 (P-71): «Buscar set» casa por NOMBRE o por CÓDIGO («por» ⇒ Perfect Order), sin distinguir
+  // mayúsculas — la MISMA regla (`setMatchesQuery`) que el servidor aplica en los otros tres índices.
+  const matched = q ? sets.filter((s) => setMatchesQuery(s.name, s.ptcgoCode, q)) : sets;
   // N-1: ordenar por `releaseDate` COMPLETA descendente (no solo por año), igual que el
   // backend en `listSetsWithImportedCards`. Con año-solo, los sets del mismo año caían en
   // orden alfabético y Pitch Black (2026) quedaba tras Ascended/Chaos/Perfect. Sets sin
@@ -80,6 +84,8 @@ async function fetchQuoterIndex(filters: MasterSetIndexFilters): Promise<MasterS
     // contrato del cotizador esta línea **deja de compilar** — antes se tragaba el `undefined` y
     // «nada fallaba hasta verlo con los ojos».
     logoUrl: s.logoUrl,
+    // v1.80 (P-71): mismo candado que `logoUrl` — sin `?? null`, requerido en `BuylistSetDTO`.
+    ptcgoCode: s.ptcgoCode,
     catalogCardCount: 0,
     distinctCardsOwned: 0,
     completionPct: null,
@@ -233,6 +239,9 @@ export function MasterSetIndex({ mode, userId, onOpenSet, currentSetId }: Props)
                               </span>
                             )}
                           </span>
+                          {/* v1.80 (P-71, §37.3c): el código corto bajo el nombre, mono 11 px muted.
+                              Sin código, nada (⛔ nunca una sigla deducida). */}
+                          <SetCode code={s.ptcgoCode} className="text-[11px]" testId="index-set-code" />
                           {/* §24.3 — la META es donde aterriza la voz mono en versalitas: es la
                               etiqueta técnica (§3.1), no el nombre propio. */}
                           <span

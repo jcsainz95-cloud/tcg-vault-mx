@@ -23,13 +23,19 @@ function cartPanel(page: Page) {
   const prefix = t('es', 'buylist.cartDrawer.ariaLabel', { count: 0 }).replace(/\s*\(0\)\s*$/, '');
   return page.locator(`[aria-label^="${prefix}"]:not(button)`);
 }
+/**
+ * §37.1 (P-61): un solo cajón en todos los tamaños; el disparador visible es el FAB en `< lg` y
+ * «Ver lista» de la `SellCartBar` en `≥ lg` (los dos montados, el CSS esconde uno).
+ */
 async function openCart(page: Page) {
   const panel = cartPanel(page);
-  const fab = page.getByTestId('sell-cart-fab');
-  await expect(panel.or(fab).first()).toBeVisible();
-  if (await fab.isVisible().catch(() => false)) {
-    await fab.click({ timeout: 5_000 }).catch(() => {});
-  }
+  if (await panel.isVisible().catch(() => false)) return;
+  const trigger = page
+    .getByTestId('sell-cart-fab')
+    .or(page.getByTestId('sell-cart-bar-open'))
+    .filter({ visible: true });
+  await expect(trigger).toHaveCount(1);
+  await trigger.click();
   await expect(panel).toBeVisible();
 }
 

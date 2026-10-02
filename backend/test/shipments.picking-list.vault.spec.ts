@@ -1,7 +1,11 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
+import { ShipmentPrepService } from '../src/modules/shipments/shipment-prep.service';
+import { RefundLedgerService } from '../src/modules/payments/refunds/refund-ledger.service';
+import { FullRefundService } from '../src/modules/payments/refunds/full-refund.service';
 import { VaultPreparationOrderDTO } from '../src/modules/vault/vault-preparation.view';
 import { vaultReadMocks, vpItem, vpRow } from './helpers/vault-placement-fixtures';
 
@@ -24,10 +28,22 @@ function makeService(
     ...vaultReadMocks(placements, opts),
     shipmentRequest: { findMany: jest.fn().mockResolvedValue(shipments) },
   };
+  withM61Defaults(prisma);
+  // ⭐ v1.80 (§M4-SHIP.3): la rama `ship` la proyecta `ShipmentPrepService` (marcas, disponibilidad, reembolso,
+  // comprador). Sus lecturas del libro/casos/orígenes las cubre `withM61Defaults` (vacías): estas pruebas miden
+  // la forma del renglón, no el dinero (eso es la integración `shipments-prep*.e2e-spec.ts`).
+  const prep = new ShipmentPrepService(
+    prisma as unknown as PrismaService,
+    { toDtos: async () => [] } as unknown as RefundLedgerService,
+    {} as FullRefundService,
+    {} as SettingsService,
+  );
   const service = new ShipmentsService(
     prisma as unknown as PrismaService,
     {} as SettingsService,
     {} as StripeService,
+    undefined,
+    prep,
   );
   return { prisma, service };
 }
@@ -267,11 +283,11 @@ describe('prueba 26 — «Nombre y apellido»', () => {
     expect(o.customer.fullName).toBe('María de la Luz Pérez Gómez');
   });
 
-  it('⛔ asimetría declarada: la fuente `ship` NO lee nameSource (sigue emitiendo User.name)', async () => {
+  it('⭐ v1.80 (§M4-SHIP.3) — la asimetría se CIERRA: la fuente `ship` también lee `nameSource` (`derived` ⇒ null)', async () => {
     const { prisma, service } = makeService([]);
     await service.pickingList();
     const include = (prisma.shipmentRequest.findMany as jest.Mock).mock.calls[0][0].include;
-    expect(include.user).toEqual({ select: { name: true } });
+    expect(include.user).toEqual({ select: { id: true, name: true, nameSource: true, email: true } });
   });
 });
 

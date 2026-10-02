@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useId, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { batchQuote } from '@/lib/api';
@@ -16,6 +16,7 @@ import type {
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Modal } from '@/components/ui/Modal';
+import { BodyPortal } from '@/components/ui/BodyPortal';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
 import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
 import { BuylistShippingNote } from '@/components/domain/BuylistShippingNote';
@@ -24,7 +25,6 @@ import {
   BuylistPendingLinesNote,
 } from '@/components/domain/BuylistPendingLinesNote';
 import { useSellRequirements } from '@/hooks/useSellRequirements';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
 // v1.21-cotizador-master-set: el grid del cotizador es el binder COMPARTIDO de Master Set
 // (§4.20f, mode="quoter") — casillas de imagen por acabado real de la carta, nunca un chip
 // de texto ni una casilla para un acabado que la carta no tiene. v1.53 (§4.40): es el ÚNICO
@@ -32,7 +32,8 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 // v1.28 (P-22): vitrina «Top Bounties» arriba de la página Vender, antes del selector de set.
 import { TopBountiesShelf } from '@/components/domain/TopBountiesShelf';
-// v1.29 Stream C (P-16, §18.4): el carrito deja de ser columna lateral — FAB + drawer flotante.
+// §18.4 (P-16) + §37.1 (P-61): el carrito es un cajón bajo demanda en todos los tamaños; sus
+// disparadores fijos son el FAB (`< lg`) y la `SellCartBar` (`≥ lg`), montados vía `BodyPortal`.
 import { SellCartFab } from '@/components/domain/SellCartFab';
 import { SellCartDrawer } from '@/components/domain/SellCartDrawer';
 // v1.29 Stream C (P-14, §18.5): las líneas del resumen usan el FinishMark compartido.
@@ -41,6 +42,13 @@ import { FinishMark } from '@/components/domain/FinishMark';
 // en módulos propios (extracción mecánica, sin cambio de comportamiento).
 import { useSellCart } from './useSellCart';
 import { SellCartContents } from './SellCartContents';
+// §37.1 (P-61): en escritorio el carrito vuelve a ser el cajón; la barra inferior conserva a la
+// vista cuánto llevas. La requisitos de cuenta suben a la cabecera con el cajón cerrado.
+import { SellCartBar } from './SellCartBar';
+import { CartTotalFigure } from './CartTotalFigure';
+// §4.4: el umbral `lg` como token, no como `1024` a mano (mismo número que la clase `lg:`).
+import { minWidthQuery } from '@/lib/breakpoints';
+import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
 // v1.51.4 (D43): el mínimo de compra del cotizador. Se pide AL MONTAR esta vista (el cotizador),
 // no se guarda en un store de vida larga: el contrato lo norma por la caché pública de 5 minutos.
 import { useQuotePolicy } from './useQuotePolicy';
@@ -103,9 +111,10 @@ export function BuylistView() {
   const [createdId, setCreatedId] = useState<string | null>(null);
 
   // --- Carrito de venta: varias cartas en UNA sola solicitud. P-16 (§18.4): vive en un
-  // DRAWER flotante disparado por el FAB (cerrado por defecto; agregar desde la grilla NO
-  // lo abre — solo el CTA de bounty, intención explícita de vender ESA carta). Al cerrar,
-  // el foco regresa al FAB (returnFocusRef). Estado y totales: useSellCart (TL-C3). ---
+  // cajón (`SellCartDrawer`) disparado por el FAB en `< lg` o por la barra en `≥ lg` (cerrado por
+  // defecto; agregar desde la grilla NO lo abre — solo el CTA de bounty, intención explícita de
+  // vender ESA carta). Al cerrar,
+  // el foco regresa al disparador que lo abrió (§37.1d). Estado y totales: useSellCart (TL-C3). ---
   const {
     cart,
     expandedLines,
@@ -127,21 +136,45 @@ export function BuylistView() {
   const tSellCart = useTranslations('sellCart');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const fabRef = useRef<HTMLButtonElement>(null);
+  const barButtonRef = useRef<HTMLButtonElement>(null);
   const [lastAdded, setLastAdded] = useState<{ name: string; label: string } | null>(null);
+  const drawerId = useId();
 
-  // P-42 · en DESKTOP (≥lg) el carrito es un PANEL FIJO a la par del grid (2 columnas persistentes),
-  // no un drawer que abre/cierra: siempre se ve lo que metes y el total. En móvil se conserva el
-  // sheet (FAB + drawer). Un solo render (JS-driven, no CSS duplicado) evita DOM/foco duplicado. En
-  // jsdom `matchMedia` devuelve `matches:false` → los tests corren la variante MÓVIL por defecto.
-  const isDesktopCart = useMediaQuery('(min-width: 1024px)');
+  /**
+   * §37.1 (P-61) · UN solo cajón para todos los tamaños. El `SellCartDrawer` se monta igual en
+   * todos los tamaños (su forma cambia por CSS en `lg:`) y los DOS disparadores —FAB `lg:hidden`,
+   * `SellCartBar` `hidden lg:flex`— se montan siempre y se esconden por CSS. ⛔ El contenedor
+   * nunca se decide por JS (`useMediaQuery`): sin destello al hidratar, sin DOM de carrito
+   * duplicado, sin dos focus traps. El catálogo tiene todo el ancho (teja ≥ 200 px, P61-1).
+   *
+   * §37.1d · Retorno de foco: `openerRef` apunta al disparador que ABRIÓ el cajón (barra, FAB o el
+   * CTA del bounty) y se fija ANTES de abrir, porque el cajón lo lee al montarse.
+   */
+  const openerRef = useRef<HTMLElement | null>(null);
+  const openDrawerFrom = useCallback((opener: HTMLElement | null) => {
+    openerRef.current = opener;
+    setDrawerOpen(true);
+  }, []);
+  /**
+   * Respaldo del retorno de foco cuando el disparador no tiene el foco (p. ej. Safari no enfoca
+   * los botones al clic): el disparador VISIBLE de este tamaño. Solo decide a dónde vuelve el
+   * foco, nunca qué contenedor se monta (§37.1a).
+   */
+  const visibleTrigger = (): HTMLElement | null => {
+    const desktop =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia(minWidthQuery('lg')).matches;
+    return desktop ? barButtonRef.current : fabRef.current;
+  };
 
   /**
    * **§23.3g-bis (v2.3.8) — EXACTAMENTE UNA nota de servicio del envío visible por pantalla.**
    *
    * La tabla de §23.3g dice **dónde puede** ir la nota; le faltaba decir **cuántas se ven a la
-   * vez**. A 1280px `/buylist` acabó mostrando **dos párrafos idénticos de cuatro líneas**
-   * —cabecera y panel fijo del carrito— porque cada instancia se autorizó en una sección
-   * distinta y **nadie miró las dos juntas**.
+   * vez**. A 1280px `/buylist` llegó a mostrar **dos párrafos idénticos de cuatro líneas**
+   * —cabecera y el panel fijo de escritorio que existía entonces (hoy no hay panel fijo)— porque
+   * cada instancia se autorizó en una sección distinta y **nadie miró las dos juntas**.
    *
    * **Por qué dos copias idénticas SÍ son un defecto**, aunque el texto sea correcto: dos
    * párrafos iguales a 600px de distancia y con el mismo peso visual son **la firma de un error
@@ -154,10 +187,13 @@ export function BuylistView() {
    *
    * | Situación | Quién pinta |
    * |---|---|
-   * | Panel fijo lateral (escritorio) | el **bloque de dinero** |
-   * | Drawer abierto (móvil) | el **bloque de dinero** del drawer |
-   * | Drawer cerrado (móvil) | la **cabecera** |
+   * | Cajón cerrado (cualquier tamaño) | la **cabecera** |
+   * | Cajón abierto (cualquier tamaño) | el **bloque de dinero** del cajón |
    * | Paso de crear abierto | **el suyo** (`BuylistKycForm`) |
+   *
+   * §37.1c (P-61): no hay fila para escritorio porque el cajón es el mismo en todos los tamaños:
+   * la fórmula no mira el viewport. ⛔ Nada de versión corta en la barra: sería una segunda
+   * instancia visible (y la regla de D16 en letra chica, §23.3c).
    *
    * ⚠️ **La decisión vive AQUÍ y en un solo sitio**, porque es la única capa que ve la pantalla
    * entera. Repartirla entre los componentes es exactamente cómo se llegó a las dos copias.
@@ -169,9 +205,18 @@ export function BuylistView() {
    */
   const shippingNoteHost: 'header' | 'cart' | 'createStep' = requestOpen
     ? 'createStep'
-    : isDesktopCart || drawerOpen
+    : drawerOpen
       ? 'cart'
       : 'header';
+
+  /**
+   * §37.1c (P-61) · la llamada a iniciar sesión / requisitos de cuenta (`SellRequirementsPanel`),
+   * con la MISMA regla de «exactamente un anfitrión». Cajón abierto ⇒ la pinta el cajón
+   * (`SellCartContents`); cerrado ⇒ la cabecera, que la lleva `hidden lg:block`: en `< lg` el
+   * cajón cerrado no monta nada y la de cabecera está oculta por CSS (comportamiento móvil
+   * previo, sin duplicados).
+   */
+  const requirementsHost: 'header' | 'cart' = drawerOpen ? 'cart' : 'header';
 
   /**
    * Clic en una casilla del binder Master Set (mode="quoter", raw): la variante YA trae su
@@ -182,7 +227,7 @@ export function BuylistView() {
    * una identidad nueva por render — prepara el `memo` de tiles si algún día hace falta.
    */
   const addFromMasterSet = useCallback(
-    (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => {
+    (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO, setPtcgoCode: string | null) => {
       if (!variant.quote) return;
       const quote: BuylistQuoteResponse = {
         rarity: variant.quote.rarity ?? '',
@@ -193,7 +238,7 @@ export function BuylistView() {
         paymentNotice: 'PAY_AFTER_RECEIPT',
       };
       addLine({
-        card: { id: cell.cardId, name: cell.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl },
+        card: { id: cell.cardId, name: cell.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl, setPtcgoCode },
         productType: 'raw',
         rawCondition: 'NM',
         finish: variant.finish,
@@ -211,9 +256,15 @@ export function BuylistView() {
    * en useSellCart). El nombre de la línea es el del PRODUCTO (p. ej. «Charizard (Deck Exclusive)»).
    */
   const addFromMasterSetProduct = useCallback(
-    (cell: MasterSetCardCellDTO, product: CardProductDTO, finish: Finish, quote: BuylistQuoteResponse) => {
+    (
+      cell: MasterSetCardCellDTO,
+      product: CardProductDTO,
+      finish: Finish,
+      quote: BuylistQuoteResponse,
+      setPtcgoCode: string | null,
+    ) => {
       addLine({
-        card: { id: cell.cardId, name: product.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl },
+        card: { id: cell.cardId, name: product.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl, setPtcgoCode },
         productType: 'raw',
         rawCondition: 'NM',
         finish,
@@ -233,13 +284,13 @@ export function BuylistView() {
    * el tipo a `raw` antes de agregar — es el único que existe.
    */
   const bountyQuote = useMutation({
-    mutationFn: async (b: PublicBountyDTO) => {
+    mutationFn: async ({ bounty: b }: { bounty: PublicBountyDTO; opener: HTMLElement | null }) => {
       const res = await batchQuote([
         { cardId: b.cardId, productType: 'raw', rawCondition: 'NM', finish: b.finish },
       ]);
       return { bounty: b, result: res.results[0] };
     },
-    onSuccess: ({ bounty, result }) => {
+    onSuccess: ({ bounty, result }, { opener }) => {
       if (!result?.ok) return;
       addLine({
         card: {
@@ -247,6 +298,8 @@ export function BuylistView() {
           name: bounty.name,
           number: bounty.number,
           imageSmallUrl: bounty.imageSmallUrl,
+          // v1.80 (P-71): la vitrina ya trae el código del set de la carta.
+          setPtcgoCode: bounty.setPtcgoCode,
         },
         productType: 'raw',
         rawCondition: 'NM',
@@ -254,7 +307,8 @@ export function BuylistView() {
         quote: batchResultToQuote(result),
       });
       // Excepción de §18.4a: el CTA de bounty SÍ abre el drawer (intención explícita).
-      setDrawerOpen(true);
+      // §37.1d: al cerrar, el foco vuelve a ESE CTA (capturado al pulsarlo, antes del await).
+      openDrawerFrom(opener);
       setLastAdded({ name: bounty.name, label: tFinish(bounty.finish) });
     },
   });
@@ -295,6 +349,14 @@ export function BuylistView() {
           {shippingNoteHost === 'header' && (
             <BuylistShippingNote surface="buylist-header" className="mt-4 max-w-[640px]" />
           )}
+          {/* §37.1c (P-61): requisitos de cuenta en la cabecera SOLO en `≥ lg` y con el cajón
+              cerrado (el banner «Inicia sesión o crea cuenta para vender» ya no vive en un panel
+              fijo). Mismo componente, sin cambios. */}
+          {requirementsHost === 'header' && (
+            <div className="mt-5 hidden max-w-[640px] lg:block" data-testid="buylist-header-requirements">
+              <SellRequirementsPanel req={sellReq} />
+            </div>
+          )}
           {/* R3: link editorial canónico (§20.0) — era la variante divergida a mano. */}
           <EditorialLink onClick={() => setGuideOpen(true)} className="mt-5">
             {t('shippingGuideLink')}
@@ -303,7 +365,16 @@ export function BuylistView() {
 
         {/* v1.28 (P-22): Top Bounties ARRIBA, antes del binder. Se oculta sola si no hay
             bounties activos o el endpoint falla (vitrina, no bloquea la venta). */}
-        <TopBountiesShelf onQuote={(b) => bountyQuote.mutate(b)} />
+        <TopBountiesShelf
+          onQuote={(b) => {
+            // §37.1d: el disparador es el CTA que tiene el foco AHORA; si el clic no lo enfocó
+            // (Safari no enfoca botones al clic), el disparador visible de su tamaño.
+            const active = typeof document !== 'undefined' ? document.activeElement : null;
+            const opener =
+              active instanceof HTMLElement && active !== document.body ? active : visibleTrigger();
+            bountyQuote.mutate({ bounty: b, opener });
+          }}
+        />
 
         {/* v1.53 (§4.40) — SIN barra de filtros propia. Antes vivían aquí (a) el selector «Tipo de
             producto» y (b) un filtro plano set+texto que solo se pintaba con graded/sealed. Cerrada
@@ -313,21 +384,10 @@ export function BuylistView() {
             binder de Master Set: «Buscar set» (MasterSetIndex) y «Buscar carta» dentro del set
             elegido (MasterSetBinder). Una sola barra de búsqueda, la del grid que se usa. */}
 
-        {/* P-42 · en DESKTOP el grid y el carrito conviven en 2 columnas persistentes (el carrito
-            fijo a la derecha, a la par del grid); en móvil el grid ocupa todo el ancho y el carrito
-            vive en el sheet (FAB + drawer, abajo).
-            H1 (anti-flash): la ESTRUCTURA de 2 columnas se declara por CSS (`lg:grid` = ≥1024px, el
-            MISMO umbral que `isDesktopCart`), NO por JS. Así el track de 360px queda RESERVADO desde
-            el first-paint en desktop y la columna del grid (main) nace con su ancho final — se elimina
-            el layout shift de main (antes: móvil full-width → salto a 2 columnas tras hidratar).
-            Trade-off (documentado en FRONTEND_NOTES): el CONTENIDO del carrito (`<aside>`) sigue siendo
-            un ÚNICO render JS-driven (`isDesktopCart`) para no duplicar estado/foco ni el focus-trap;
-            por eso, en desktop, el aside aparece al hidratar DENTRO de la columna ya reservada (rellena
-            hueco, sin reflujo de main). El FAB móvil es `fixed` (fuera del flujo del grid), así que su
-            breve aparición pre-hidratación tampoco desplaza el layout. */}
-        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
-        {/* P-16 (§18.1.4): la grilla es la única columna, a TODO el ancho. `pb-24` para que
-            el FAB fijo nunca tape la última fila de tejas. */}
+        {/* §37.1a (P-61): el catálogo es UNA sola columna a todo el ancho, en todos los tamaños
+            (§18.1 punto 4): sin columna de carrito la teja llega a ≥ 200 px (P61-1). `pb-24`
+            (96 px) reserva el sitio de la barra de 64 px en `≥ lg` y del FAB en `< lg`: nunca
+            tapan la última fila de tejas. */}
         <main className="gutter min-w-0 pb-24 pt-8">
             {lastAdded && (
               <p role="status" className="mb-3 font-mono text-[11px] text-success">
@@ -372,58 +432,19 @@ export function BuylistView() {
             />
         </main>
 
-        {/* P-42 · DESKTOP: carrito de venta como PANEL FIJO a la derecha, pegajoso, a la par del
-            grid (siempre visible: lo que metes y el total). Reusa EXACTAMENTE el mismo
-            SellCartContents que el drawer móvil. */}
-        {isDesktopCart && (
-          <aside
-            aria-label={t('cartDrawer.ariaLabel', { count: cartCount })}
-            className="sticky top-4 max-h-[calc(100vh-2rem)] self-start overflow-y-auto border-l border-border px-5 pb-8"
-          >
-            <div className="flex items-baseline gap-3 border-b border-border py-3">
-              <h2 className="eyebrow">{t('cartTitle')}</h2>
-              {cartCount > 0 && <span className="eyebrow">{t('cartCount', { count: cartCount })}</span>}
-            </div>
-            <div className="pt-4">
-              <SellCartContents
-                cart={cart}
-                sellReq={sellReq}
-                expandedLines={expandedLines}
-                totalEstimatedCents={totalEstimatedCents}
-                pendingCardCount={pendingCardCount}
-                cartCount={cartCount}
-                minimumRequestCents={minimumRequestCents}
-                onSetQuantity={setQuantity}
-                onRemoveLine={removeLine}
-                onToggleLineDetail={toggleLineDetail}
-                onClearCart={clearCart}
-                showShippingNote={shippingNoteHost === 'cart'}
-                requoting={requoting}
-                requoteFailed={requoteFailed}
-                onRetryRequote={retryRequote}
-                onSubmit={() => {
-                  setCreatedId(null);
-                  setRequestOpen(true);
-                }}
-              />
-            </div>
-          </aside>
-        )}
-        </div>
-
         {/* Carrito de venta = DRAWER flotante (P-16, §18.4b): el contenido (requisitos →
             líneas → total → CTA → vaciar) vive en SellCartContents (TL-C3). El encabezado
-            (eyebrow + conteo + cerrar) lo pinta el propio drawer. En DESKTOP el carrito es el
-            panel fijo de arriba, así que el drawer (y su FAB) SOLO se montan en móvil. */}
-        {!isDesktopCart && (
+            (eyebrow + conteo + cerrar) lo pinta el propio drawer. §37.1a (P-61): UN solo cajón
+            para todos los tamaños — lateral de 400 px en `≥ lg`, bottom sheet en `< lg`, por CSS. */}
         <SellCartDrawer
+          id={drawerId}
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           ariaLabel={t('cartDrawer.ariaLabel', { count: cartCount })}
           title={t('cartTitle')}
           countLabel={cartCount > 0 ? t('cartCount', { count: cartCount }) : null}
           closeLabel={t('cartDrawer.close')}
-          returnFocusRef={fabRef}
+          returnFocusRef={openerRef}
         >
           <SellCartContents
             cart={cart}
@@ -450,7 +471,6 @@ export function BuylistView() {
             }}
           />
         </SellCartDrawer>
-        )}
 
         {/* Política NM-only (PROJECT §E/H, AC 3d) + copy de confianza. El bloque baja a DOS
             párrafos: `trustShipping` se retiró (§23.14.2b) por ser un eco degradado de
@@ -506,14 +526,34 @@ export function BuylistView() {
           )}
         </section>
 
-        {/* FAB del carrito (§18.4a): fijo abajo-derecha, en el flujo de tabulación DESPUÉS
-            del contenido principal (§18.8, sin tabindex positivos). Siempre presente (vacío
-            da acceso a los requisitos de venta); el badge se omite con carrito vacío. P-42: en
-            DESKTOP el carrito es el panel fijo lateral, así que el FAB SOLO se monta en móvil. */}
-        {!isDesktopCart && (
-          <SellCartFab ref={fabRef} count={cartCount} open={drawerOpen} onClick={() => setDrawerOpen(true)} />
-        )}
       </div>
+
+      {/* Los dos disparadores fijos del carrito, al FINAL de <body> (`BodyPortal`): §37.1d / §18.8
+          quieren el orden cabecera → vitrina → binder → PIE → disparador, sin tabindex positivos, y
+          el pie pertenece al layout, no a esta vista — escritos aquí quedarían antes del pie.
+          FAB (§18.4a, `lg:hidden`) y barra (§37.1b, `hidden lg:flex`) se montan SIEMPRE y los
+          esconde el CSS. Siempre presentes (vacío da acceso a los requisitos de venta); el badge
+          del FAB se omite con carrito vacío. */}
+      <BodyPortal>
+        <SellCartFab
+          ref={fabRef}
+          count={cartCount}
+          open={drawerOpen}
+          onClick={() => openDrawerFrom(fabRef.current)}
+        />
+        <SellCartBar
+          ref={barButtonRef}
+          cartCount={cartCount}
+          hasLines={cart.length > 0}
+          totalEstimatedCents={totalEstimatedCents}
+          pendingCardCount={pendingCardCount}
+          noFreshPrice={requoting || requoteFailed}
+          showLoginHint={sellReq.ready && !sellReq.isAuthenticated}
+          drawerOpen={drawerOpen}
+          dialogId={drawerId}
+          onOpen={() => openDrawerFrom(barButtonRef.current)}
+        />
+      </BodyPortal>
 
       <Modal open={guideOpen} onClose={() => setGuideOpen(false)} title={t('shippingGuideLink')}>
         <SafeShippingGuide onUnderstood={() => setGuideOpen(false)} />
@@ -563,13 +603,17 @@ export function BuylistView() {
               </ul>
               <div className="flex items-baseline justify-between gap-3 pt-3">
                 <span className="text-[13px] font-medium text-text">{t('quote.money.cardsValue')}</span>
-                {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
-                  <BuylistPendingLineLabel className="text-[13px]" />
-                ) : (
-                  <span className="tabular text-[18px] font-medium text-text">
-                    {formatMoneyCents(totalEstimatedCents, locale)}
-                  </span>
-                )}
+                {/* §37.1b: la MISMA función que el cajón y la barra (antes este bloque copiaba dos de
+                    las tres ramas y omitía la del «—»). El CTA que abre este modal está apagado
+                    mientras se recotiza, así que esa rama es hoy inalcanzable aquí — pero la cifra
+                    sale de un solo sitio, no de una copia que diverja a la próxima. */}
+                <CartTotalFigure
+                  noFreshPrice={requoting || requoteFailed}
+                  totalEstimatedCents={totalEstimatedCents}
+                  pendingCardCount={pendingCardCount}
+                  size="summary"
+                  testIdScope="sell-request"
+                />
               </div>
               {/* §23.3h: el paso de crear también es un bloque de dinero, así que explica su
                   propia aritmética — mismo texto, misma vez, con el conteo interpolado. */}

@@ -260,11 +260,29 @@ export class PiiCryptoService {
   }
 
   /** Compara dos blind index en tiempo constante. */
+  /**
+   * 🔒 v1.80.3 (SEC-SHIP-A3, §M4-SHIP.17.3) — HMAC con la MISMA llave del índice ciego, separada por un PREFIJO DE
+   * DOMINIO (`'mr-reveal:v1:'…`): el `revealToken` que ata la CLABE revelada a la que se marca pagada. ⛔ Ningún
+   * secreto nuevo, ⛔ nada persistido. Determinista: la misma CLABE da el mismo token; si cambia, el viejo no vale.
+   */
+  domainHmac(domain: string, value: string): string {
+    return createHmac('sha256', this.hmacKey).update(`${domain}${value}`).digest('base64url');
+  }
+
   blindIndexEquals(a?: string | null, b?: string | null): boolean {
     if (!a || !b) return false;
     const ba = Buffer.from(a);
     const bb = Buffer.from(b);
     if (ba.length !== bb.length) return false;
     return timingSafeEqual(ba, bb);
+  }
+
+  /**
+   * 🔒 v1.80.7 (punto 19) — comparación en tiempo constante de dos cadenas secretas (el `revealToken` de la cubeta
+   * SPEI contra el esperado). Es EL MISMO cuerpo que `blindIndexEquals`, con el nombre de lo que compara: un token no
+   * es un índice ciego. Nulos/vacíos ⇒ `false`; longitudes distintas ⇒ `false` (no hay nada que igualar).
+   */
+  constantTimeEquals(a?: string | null, b?: string | null): boolean {
+    return this.blindIndexEquals(a, b);
   }
 }

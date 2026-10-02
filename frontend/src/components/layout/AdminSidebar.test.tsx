@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { screen } from '@testing-library/react';
-import { renderWithIntl } from '@/test/render';
+import { renderWithProviders } from '@/test/render';
 
 /**
  * # AdminSidebar — **qué entrada se ilumina**
@@ -76,7 +76,7 @@ describe('AdminSidebar — en el DOM se ilumina UNA entrada, nunca dos', () => {
     ['/admin/m2/lo-que-venga', '/admin/m2'],
   ])('en %s se ilumina exactamente %s', (pathname, href) => {
     pathState.pathname = pathname;
-    renderWithIntl(<AdminSidebar />, 'es');
+    renderWithProviders(<AdminSidebar />, 'es');
     const active = current();
     expect(active.map((a) => a.getAttribute('href'))).toEqual([href]);
   });

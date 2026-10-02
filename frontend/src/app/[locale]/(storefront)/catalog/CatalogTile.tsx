@@ -14,6 +14,7 @@ import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 import { IvaLabel } from '@/components/ui/IvaLabel';
 import { GradingEstimateBadge } from '../_shared/grading/GradingEstimateBadge';
 import { cn } from '@/lib/cn';
+import { formatCardCode } from '@/lib/setCode';
 
 export interface CatalogTileProps {
   listing: GroupedListingSummaryDTO;
@@ -65,7 +66,8 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
         <Link href={href}>{card.name}</Link>
       </p>
       <p className="mt-1.5 font-mono text-[10px] leading-snug text-muted sm:text-[11px]" lang="en">
-        {`${card.setName} · #${card.number}`}
+        {/* v1.80 (P-71, §37.3c): «Set · TWM 130»; sin código, `#130`. */}
+        {`${card.setName} · ${formatCardCode(card.setPtcgoCode, card.number)}`}
       </p>
 
       {/* Fila de calidad bajo la imagen (§7.2b): RAW · NM · ACABADO / GRADED · PSA 9.

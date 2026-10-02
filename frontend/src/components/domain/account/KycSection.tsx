@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { getKyc, updateKyc } from '@/lib/api';
+import { formatDate } from '@/lib/format';
+import type { AppLocale } from '@/i18n/routing';
 import { getBadgeSpec } from '@/lib/status-map';
 import { PENDINGS_QUERY_KEY } from '@/hooks/usePendings';
 import { Input } from '@/components/ui/Input';
@@ -29,13 +31,16 @@ const CLABE_RE = /^\d{18}$/;
  *
  * ⛔ **Ninguna cifra de tope** (§34.9, decisión (c) del dueño): las dos filas de topes se retiraron
  * junto con sus claves. El número **ni aparece ni llega**: lo que llega es `ineRequiredForTotal`.
- * ⛔ **Ninguna fecha**: `GET /users/me/kyc` no trae ninguna y lo que no tenemos no se pinta.
+ * ⭐ **Una sola fecha, la de la CLABE** (v1.80.7, `DESIGN_SYSTEM §37.9d` · contrato §M6 `clabeUpdatedAt`):
+ * bajo la CLABE enmascarada, «CLABE actualizada el {date}». `null` ⇔ fecha desconocida (CLABE anterior a
+ * `M-61`, o sin CLABE) ⇒ **no se pinta nada**: lo que no tenemos no se inventa.
  */
 export function KycSection() {
   const t = useTranslations('account.kyc');
   const tAcc = useTranslations('account');
   const tAll = useTranslations();
   const tIne = useTranslations('ine');
+  const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['kyc'], queryFn: () => getKyc() });
 
@@ -151,6 +156,12 @@ export function KycSection() {
                   >
                     {t('clabeChange')}
                   </button>
+                )}
+                {/* v1.80.7 (§37.9d): la fecha SOLO si el servidor la conoce; `null` ⇒ nada. */}
+                {data.clabeMasked && data.clabeUpdatedAt && (
+                  <span className="mt-1 block font-mono text-[11px] text-muted" data-testid="kyc-clabe-updated-at">
+                    {t('clabeUpdatedAt', { date: formatDate(data.clabeUpdatedAt, locale) })}
+                  </span>
                 )}
               </dd>
             </div>

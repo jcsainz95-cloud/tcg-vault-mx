@@ -6,6 +6,7 @@ import {
   BOUNTY_STATES,
   blockOfState,
   bountyDeleteOutcome,
+  bountyPayout,
   bountyPremium,
   buildBountyControlsRequest,
   hasAttentionRows,
@@ -69,6 +70,8 @@ function row(state: string): AdminBountyRowDTO {
         completedAt: null,
         effective: false,
         curveQuoteCents: 95000,
+        payoutCents: null,
+        cappedByMarket: false,
       },
     },
   };
@@ -416,6 +419,8 @@ describe('⭐ `bountyDeleteOutcome`: borrado vs despublicado se LEE del DTO que 
     completedAt: null,
     effective: false,
     curveQuoteCents: 95000,
+    payoutCents: null,
+    cappedByMarket: false,
     ...over,
   });
 
@@ -438,5 +443,98 @@ describe('⭐ `bountyDeleteOutcome`: borrado vs despublicado se LEE del DTO que 
   it('bounty AUSENTE del DTO (rama A borró la fila entera) ⇒ `deleted`', () => {
     expect(bountyDeleteOutcome(null)).toBe('deleted');
     expect(bountyDeleteOutcome(undefined)).toBe('deleted');
+  });
+});
+
+/**
+ * ⭐ §M2-B.11 punto 8 (v1.80 / v1.80.2) — `bounty.payoutCents` y `bounty.cappedByMarket` son ADITIVOS
+ * e INFORMATIVOS: `priceCents` sigue siendo lo CONFIGURADO; lo que se paga hoy es `payoutCents`.
+ * La pantalla NO recalcula el tope (no tiene el mercado): obedece los dos campos que llegaron.
+ *   · `pays`     — `payoutCents != null`; `capped` = `cappedByMarket` tal cual llegó.
+ *   · `retained` — bounty efectivo y `activa`, pero `payoutCents == null` con `buy.premiumAtFloor`:
+ *                  el guardarraíl retuvo la línea (§4.36.5). No se paga hasta corregir el mercado.
+ *   · `none`     — no efectivo / sin precio / apagado: no hay «lo que se paga» que enseñar.
+ */
+describe('⭐ §M2-B.11 punto 8 — bountyPayout: lo que se paga vs lo configurado', () => {
+  const buyFace = (over: Partial<AdminBountyRowDTO['pricing']['buy']> = {}) => ({
+    suggestedCents: 95000,
+    overrideCents: null,
+    effectiveCents: 95000,
+    source: 'market' as const,
+    premiumAtFloor: false,
+    ...over,
+  });
+  const rowWith = (
+    bountyOver: Partial<VariantBountyDTO>,
+    buyOver: Partial<AdminBountyRowDTO['pricing']['buy']> = {},
+    state: BountyState = 'activa',
+  ): AdminBountyRowDTO => ({
+    cardId: 'c-1',
+    setId: 'sv3',
+    setName: 'Obsidian Flames',
+    name: 'Charizard ex',
+    number: '125',
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    finish: 'holofoil',
+    state,
+    progress: { targetQty: 2, acquiredQty: 0, remainingQty: 2 },
+    updatedAt: '2026-09-01T12:00:00.000Z',
+    pricing: {
+      buy: buyFace(buyOver),
+      sell: buyFace(),
+      bounty: {
+        enabled: true,
+        priceCents: 120000,
+        targetQty: 2,
+        acquiredQty: 0,
+        completedAt: null,
+        effective: true,
+        curveQuoteCents: 95000,
+        payoutCents: 120000,
+        cappedByMarket: false,
+        ...bountyOver,
+      },
+    },
+  });
+
+  it('bounty 120000 y mercado 100000 ⇒ se pagan 100000, topado por mercado', () => {
+    const row = rowWith(
+      { payoutCents: 100000, cappedByMarket: true },
+      { effectiveCents: 100000, source: 'bounty' },
+    );
+    expect(bountyPayout(row)).toEqual({ kind: 'pays', cents: 100000, capped: true });
+  });
+
+  it('bounty por debajo del mercado ⇒ se paga lo configurado, sin tope', () => {
+    const row = rowWith({ payoutCents: 120000, cappedByMarket: false }, { effectiveCents: 120000, source: 'bounty' });
+    expect(bountyPayout(row)).toEqual({ kind: 'pays', cents: 120000, capped: false });
+  });
+
+  it('chase RETENIDA por el guardarraíl (payoutCents null + premiumAtFloor, state activa) ⇒ retained', () => {
+    const row = rowWith(
+      { payoutCents: null, cappedByMarket: false },
+      { effectiveCents: null, source: 'pending', premiumAtFloor: true },
+    );
+    expect(bountyPayout(row)).toEqual({ kind: 'retained' });
+  });
+
+  it('no efectivo (rebasado) / sin precio / apagado ⇒ none: no se afirma «lo que se paga»', () => {
+    expect(bountyPayout(rowWith({ effective: false, payoutCents: null }, {}, 'rebasada'))).toEqual({ kind: 'none' });
+    expect(bountyPayout(rowWith({ priceCents: null, effective: false, payoutCents: null }, {}, 'invalida'))).toEqual({ kind: 'none' });
+    expect(bountyPayout(rowWith({ enabled: false, effective: false, payoutCents: null }, {}, 'apagada'))).toEqual({ kind: 'none' });
+  });
+
+  it('⛔ obedece `cappedByMarket` tal cual llega: NO lo deduce comparando cifras', () => {
+    // Un servidor que mande payout < price con cappedByMarket:false es contradictorio; la pantalla
+    // pinta lo que llegó (§28: obedece, no infiere) — el candado de coherencia vive en el servidor.
+    const row = rowWith({ payoutCents: 100000, cappedByMarket: false }, { effectiveCents: 100000, source: 'bounty' });
+    expect(bountyPayout(row)).toEqual({ kind: 'pays', cents: 100000, capped: false });
+  });
+
+  it('sin `bounty` en el DTO ⇒ none', () => {
+    const row = rowWith({});
+    row.pricing.bounty = null;
+    expect(bountyPayout(row)).toEqual({ kind: 'none' });
   });
 });

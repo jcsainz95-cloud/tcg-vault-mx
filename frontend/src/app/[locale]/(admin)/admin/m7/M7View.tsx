@@ -42,6 +42,7 @@ function PnlLine({ label, value, sign }: { label: string; value: string; sign: '
 
 export function M7View() {
   const t = useTranslations('admin.m7');
+  const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
 
@@ -74,7 +75,7 @@ export function M7View() {
 
   return (
     <div className="flex flex-col gap-10">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+      <h1 className="text-h1 font-bold">{tModules('m7')}</h1>
 
       {/* Selector de rango de fechas (aplica a P&L e IVA) */}
       <section className="flex flex-col gap-3">

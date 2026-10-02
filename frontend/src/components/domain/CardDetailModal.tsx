@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import type { Finish, ProductType } from '@/types/contract';
 import { formatMoneyCents } from '@/lib/format';
+import { formatCardCode } from '@/lib/setCode';
 import { Modal } from '@/components/ui/Modal';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { RarityLabel } from '@/components/domain/RarityLabel';
@@ -11,6 +12,8 @@ import { RarityLabel } from '@/components/domain/RarityLabel';
 export interface CardDetailModalCard {
   name: string;
   setName?: string;
+  /** v1.80 (P-71): código corto del set; con él la ficha pinta «TWM 130» en vez de `#130`. */
+  setPtcgoCode?: string | null;
   number?: string;
   rarity?: string | null;
   productType?: ProductType;
@@ -89,7 +92,8 @@ export function CardDetailModal({
               <dd lang="en" className="text-right text-[13px] text-text">
                 {card.setName}
                 {card.setName && card.number ? ' · ' : ''}
-                {card.number ? `#${card.number}` : ''}
+                {/* v1.80 (P-71, §37.3c): «Set · TWM 130»; sin código, `#130` como siempre. */}
+                {formatCardCode(card.setPtcgoCode, card.number ?? '')}
               </dd>
             </div>
           )}

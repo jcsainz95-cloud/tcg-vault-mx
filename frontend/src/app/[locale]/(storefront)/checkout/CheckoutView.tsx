@@ -42,7 +42,7 @@ import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome
  *    (`/checkout/quote` → `/checkout/session` → Stripe, destino bóveda).
  *  - SIN sesión: `GuestCheckoutView` (gate de identidad + formulario de invitado + upsell
  *    de bóveda + `/checkout/guest/*`). Un invitado NUNCA toca un endpoint `customer` ni ve
- *    `EmailNotVerifiedNotice` (contrato §4-G.0-3 / §4-G.8, DESIGN_SYSTEM §15.2).
+ *    `EmailNotVerifiedNotice` (contrato §4-G.0-3 / §4-G.8, DESIGN_SYSTEM §15.3.2).
  * Al crear cuenta/iniciar sesión desde el flujo de invitado, `useSession` reacciona y esta
  * misma vista conmuta al flujo con cuenta sin recargar la ruta: el carrito (localStorage)
  * se conserva y el desglose se re-cotiza.
@@ -341,10 +341,9 @@ export function CheckoutView() {
                 <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
               </div>
 
-              {/* Recordatorio breve del destino, junto al total: la compra registrada va a la
-                  bóveda. Reusa el copy existente (`afterPayment`); no se inventa texto nuevo. */}
-              <p className="mt-4 text-xs leading-relaxed text-muted">{t('afterPayment')}</p>
-
+              {/* ⛔ Sin segunda copia de `afterPayment` aquí (B-3b, gate de release s5): DESIGN_SYSTEM §15.3
+                  fija TRES notas al margen («no se añade ni se quita ninguna») y PROJECT 48b exige los
+                  mismos avisos que el checkout de invitado, que pinta una sola. */}
               {/* Éxito del upsell de bóveda (§15.4): el desglose se re-cotizó sin envío. */}
               {vaultUpsellDone && (
                 <div role="status" aria-live="polite" className="mt-6">

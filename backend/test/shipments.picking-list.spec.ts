@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { join } from 'node:path';
 import { HttpStatus } from '@nestjs/common';
 import {
@@ -11,6 +12,9 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { vaultReadMocks, vpRow } from './helpers/vault-placement-fixtures';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
+import { ShipmentPrepService } from '../src/modules/shipments/shipment-prep.service';
+import { RefundLedgerService } from '../src/modules/payments/refunds/refund-ledger.service';
+import { FullRefundService } from '../src/modules/payments/refunds/full-refund.service';
 // `B-TL2` (techlead): la ÚNICA puerta para leer código en un candado, con su control de
 // no-vacuidad por CONTENIDO (anclas) — la mitad que detecta la ceguera PARCIAL del limpiador.
 import { codigoDeFichero } from './helpers/codigo-de-fichero';
@@ -123,6 +127,9 @@ function shipment(o: ShipmentOverrides = {}) {
             orderNumber: o.orderNumber === undefined ? 'TCG-000123' : o.orderNumber,
             fulfillmentMode: o.fulfillmentMode ?? 'direct_ship',
           },
+    // ⭐ v1.80 (§M4-SHIP.3): el comprador se identifica por `userId` (`ShipmentRequest.userId ?? Order.userId`);
+    // un envío con `user` SIEMPRE tiene `userId` en la BD, así que el fixture los pone juntos.
+    userId: o.userName === undefined || o.userName === null ? null : 'user-1',
     user: o.userName === undefined ? null : o.userName === null ? null : { name: o.userName },
     items: o.items ?? [item()],
   };
@@ -138,10 +145,22 @@ function makeService(
     ...vaultReadMocks(placements),
     shipmentRequest: { findMany: jest.fn().mockResolvedValue(rows) },
   };
+  withM61Defaults(prisma);
+  // ⭐ v1.80 (§M4-SHIP.3): la rama `ship` la proyecta `ShipmentPrepService` (marcas, disponibilidad, reembolso,
+  // comprador). Sus lecturas del libro/casos/orígenes las cubre `withM61Defaults` (vacías): estas pruebas miden
+  // la forma del renglón, no el dinero (eso es la integración `shipments-prep*.e2e-spec.ts`).
+  const prep = new ShipmentPrepService(
+    prisma as unknown as PrismaService,
+    { toDtos: async () => [] } as unknown as RefundLedgerService,
+    {} as FullRefundService,
+    {} as SettingsService,
+  );
   const service = new ShipmentsService(
     prisma as unknown as PrismaService,
     {} as SettingsService,
     {} as StripeService,
+    undefined,
+    prep,
   );
   return { prisma, service };
 }
@@ -342,8 +361,11 @@ describe('pickingList — la consulta trae lo que el DTO proyecta (§M4-PREP)', 
     const inv = arg.include.items.include.inventoryItem.include;
     expect(inv.card.include.set).toBe(true);
     expect(inv.location).toBe(true);
-    expect(arg.include.order.select).toEqual({ orderNumber: true, fulfillmentMode: true });
-    expect(arg.include.user.select).toEqual({ name: true });
+    // ⭐ v1.80 (§M4-SHIP.3, «Fuente del cliente»): el comprador se lee con `nameSource`/`email` (cierra la
+    // asimetría de §M4-VAULT.3) y la orden trae a su usuario (directo con cuenta ⇒ el comprador, ⛔ no el destinatario).
+    const USER_SELECT = { id: true, name: true, nameSource: true, email: true };
+    expect(arg.include.order).toEqual({ include: { user: { select: USER_SELECT } } });
+    expect(arg.include.user).toEqual({ select: USER_SELECT });
   });
 
   it('el motor ordena los pedidos por `requestedAt` asc (CA #9)', async () => {
@@ -486,7 +508,8 @@ describe('pickingList — cliente: `fullName` y el apellido DERIVADO (§6.A)', (
 
   it('⭐ v1.78.1 — snapshot ausente por completo ⇒ `fullName` y `lastName` NULL, sin reventar', async () => {
     const o = await onlyOrder([shipment({ addressSnapshot: null })]);
-    expect(o.customer).toEqual({ fullName: null, lastName: null });
+    // ⭐ v1.80 (§M4-SHIP.3): `customer` gana `userId`/`email` (null ⇔ invitado sin correo en el fixture).
+    expect(o.customer).toEqual({ userId: null, email: null, fullName: null, lastName: null });
   });
 
   it('⛔ la cadena vacía NO viaja en `customer`: `null` es la ÚNICA marca de ausencia', async () => {

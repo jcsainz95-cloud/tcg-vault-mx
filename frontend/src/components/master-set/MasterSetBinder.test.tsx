@@ -36,6 +36,7 @@ const set: MasterSetSummaryDTO = {
   setId: 'sv08',
   name: 'Surging Sparks',
   logoUrl: null,
+  ptcgoCode: null,
   catalogCardCount: 1,
   distinctCardsOwned: 1,
   completionPct: 50,
@@ -71,7 +72,7 @@ const spinarakCell: MasterSetCardCellDTO = {
 };
 
 const response: MasterSetBinderResponse = {
-  set: { id: 'sv08', name: 'Surging Sparks' },
+  set: { id: 'sv08', name: 'Surging Sparks', ptcgoCode: 'SSP' },
   printedTotal: 191,
   catalogCardCount: 1,
   cells: [spinarakCell],
@@ -254,7 +255,7 @@ describe('MasterSetBinder · banda de acabado estrictamente por finish (independ
   };
 
   const multiResponse: MasterSetBinderResponse = {
-    set: { id: 'sv08', name: 'Surging Sparks' },
+    set: { id: 'sv08', name: 'Surging Sparks', ptcgoCode: 'SSP' },
     printedTotal: 191,
     catalogCardCount: 1,
     cells: [multiFinishCell],
@@ -339,6 +340,8 @@ describe('MasterSetBinder · badge de bounty rebasado (P-48, §21.9c)', () => {
               completedAt: null,
               effective,
               curveQuoteCents: 95_000,
+              payoutCents: null,
+              cappedByMarket: false,
             },
           },
         },

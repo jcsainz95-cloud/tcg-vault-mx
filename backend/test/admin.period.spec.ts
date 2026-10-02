@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { AdminService } from '../src/modules/admin/admin.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
@@ -35,8 +36,8 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
       inventoryItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
     service = new AdminService(
-      prisma as unknown as PrismaService,
-      {} as PricingService,
+      withM61Defaults(prisma) as unknown as PrismaService,
+      { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,
     );

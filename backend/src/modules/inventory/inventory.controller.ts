@@ -643,7 +643,7 @@ export class InventoryController {
     @Body() dto: UpdateItemDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.inventory.updateItem(id, dto);
+    const res = await this.inventory.updateItem(id, dto, user);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,

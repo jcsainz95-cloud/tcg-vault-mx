@@ -18349,3 +18349,533 @@ deterministas ⇒ 1 tirada por mutación; archivo con 19 pruebas):
 - M3 `t(reasonKey)` sin respaldo ⇒ 1/19 roja («matchStatus desconocido…»).
 - M4 `rejected = matched && !src` (todo sin imagen se llama «rechazada») ⇒ 1/19 roja («casada sin imageUrl…»).
 - Restaurado ⇒ 19/19.
+
+## §81 · **Arreglos del recorrido del operador** — huecos 1, 7, 9, 12 y 15 (2026-09-29, rama `claude/arreglos-operador`, base production `a2da420`)
+
+Origen: auditoría E2E del recorrido del operador (tester-e2e, 2026-09-29). Solo los huecos que no tocan dinero ni contrato.
+
+| Hueco | Qué cambia | Dónde | Candado |
+|---|---|---|---|
+| **1** · ubicar una carta vendida | «Mover de ubicación» se habilita también en `picking` (⛔ solo mover: merma/publicar siguen en `in_stock\|listed`). En `picking` los destinos son **solo `platform_stock` activos**. Al mover se invalida también `['admin-preparation-queue']`. | `m1/ItemDetailModal.tsx` (`canMove`, `moveTargets`) | `m1/ItemDetailModal.test.tsx` |
+| **1** · «Ubicar» en «Pedidos a preparar» | Cada carta de la tarjeta de **ENVÍO DIRECTO** (`orderId !== null`; sin ubicar **y** ubicadas) trae «Ubicar» — ⛔ **nunca en un retiro de bóveda** (§81.1). Diálogo con selector de `GET /admin/locations` filtrado a `platform_stock` activo, `POST /admin/inventory/items/:id/move`, y tras el 200 se **reescribe la tarjeta en caché** (`setQueriesData` sobre `['admin-preparation-queue']`, `currentLocation = {kind:'assigned', label}`) con la etiqueta de la ubicación **elegida** (§81.1), sin otra ida a `picking-list`. Foco inicial en «Cancelar». | `m4/LocateItemControl.tsx` (nuevo), `m4/PreparationQueue.tsx` | `m4/M4View.operator-gaps.test.tsx` |
+| **7** · «Ver ficha» | Operador ⇒ «Ver bóveda» a `/admin/vaults/:userId` (M6 es `superAdminOnly`). Súper-admin ⇒ sigue «Ver ficha» a M6. | `m4/M4View.tsx` (`useRole`) | ídem + `M4View.test.tsx` F9 |
+| **9** · «Neto: MX$NaN» | El backend **omite** `salesPeriod.netAmountCents` al no-súper (`admin.service.ts` · `dashboard`, leído). Sin el campo la línea no se pinta. ⛔ No se deriva del bruto. | `AdminDashboard.tsx` | `AdminDashboard.test.tsx` (hueco 9) |
+| **12** · «Calle Calle Río Lerma» | El rótulo `admin.m4.street` pasa de «Calle/Street» a «Dirección/Address»: la calle capturada suele empezar por «Calle». | `messages/*.json` | `M4View.test.tsx` F9 |
+| **15** · confirmar enviado/entregado | «Marcar enviado» y «Marcar entregado» abren un diálogo **neutro** (botón primario, no acento) con foco en «Cancelar»; el cuerpo solo afirma lo medido (la tabla `TRANSITIONS` del backend no tiene vuelta atrás). «Cancelar envío» no cambia. | `m4/M4View.tsx` (`advanceTarget`) | `M4View.operator-gaps.test.tsx` + `M4View.test.tsx` F4 |
+
+**Foco en «Cancelar»:** `Modal` enfoca su contenedor en un `useEffect`; el efecto del padre corre después del del hijo, así que el `useEffect` del consumidor que enfoca el `ref` de «Cancelar» gana. No se tocó `Modal` (compartido).
+
+**Nota para el arquitecto (no bloqueante):** `DashboardSalesPeriodDTO.netAmountCents` está tipado como `number` obligatorio, pero el backend lo omite para `vault_operator`. El front ya se defiende; el contrato debería declararlo opcional/enmascarado por rol.
+
+**Mutaciones (sobre copia en scratchpad, N=1 cada una, deterministas):** 10/10 muerden — `canMove` sin `picking`, filtro de zona en M1, escritura de caché del «Ubicar», filtro de zona del «Ubicar», control retirado, guarda del neto, enlace siempre a M6, «Marcar …» directo sin diálogo, foco sin mover, rótulo «Calle».
+
+### §81.1 · Rechazo de QA y condiciones del techlead sobre `6695e9e` (2026-09-29)
+
+- **Bloqueante QA — «Ubicar» en un retiro de bóveda.** QA midió contra el stack que «Ubicar» se pintaba también en las
+  tarjetas de «Retiro de bóveda» y movía una carta **del cliente** (`in_custody`, cajón `customer_custody`) al estante:
+  200 y `ownerType=customer` en `platform_stock` (rompe §M4-VAULT: un cliente = un cajón). Arreglo:
+  `PreparationQueue.tsx` pasa `canLocate={order.orderId !== null}` a cada carta; solo el envío directo monta
+  `LocateItemControl`. `PreparationItemDTO` no trae `ownerType`: el discriminador es `orderId`, que el contrato
+  (§M4-PREP) declara `null` exactamente en el retiro y poblado en el envío directo (pieza de plataforma vendida).
+  Candado: «⛔ un RETIRO DE BÓVEDA NO ofrece «Ubicar»…» (cola mixta retiro + directo, con control positivo).
+  Mutación `canLocate={true}` ⇒ rojo (N=1, determinista).
+- **C-1 — comentarios que afirmaban una guarda inexistente.** `m1/ItemDetailModal.tsx` y `m4/LocateItemControl.tsx`
+  ahora dicen lo medido: production `a2da420` **no restringe** estado ni zona en `move`/`mark`; las guardas llegan en
+  esta rama en `backend/src/modules/inventory/item-location.rules.ts` (`assertOperable`, `assertMoveDestination`,
+  `inActiveWithdrawalError`). Hasta desplegarse, los filtros del front son la única barrera.
+- **QA menor 4/5 — respuesta del move.** La respuesta de production es la fila de `toAdminInventoryItemRow`
+  (`locationId`, **sin** `location`); el backend de esta rama le añade `location`. Front y back se publican por
+  separado, así que **la etiqueta sale de la ubicación ELEGIDA** (variable de la mutación), no de la respuesta, en
+  los dos sitios: M4 (tarjeta) y M1 (aviso «Item movido a {label}.», que con la respuesta real salía «Item movido
+  a .»). Las pruebas corren con las **dos** formas (`it.each`); mutación «leer `res.location`» ⇒ rojo en «sin
+  location» en ambos (N=1, determinista). ⚠️ El mock de `lib/api.ts · moveInventoryItem` devuelve `location`
+  (= forma nueva); no se tocó (zona compartida).
+- **QA menor 6 — E2E obsoleto.** `e2e/admin.spec.ts` «spreads del sellado (T-1)» iba a M2; el editor vive en M11
+  (`SealedDialsPanel` 5.3, dentro de «Ajustes avanzados», plegado y `super_admin`). Ahora recorre el camino del dueño
+  (enlace `sealedSpreads.movedToM11` de M2 ⇒ `/es/admin/m11` ⇒ abre «Ajustes avanzados») y conserva íntegro el
+  invariante (fila editable UPC/Collection + bicondicional vacío ⇔ «usa el global»). Corrido en mock: 1/1 verde.
+- **Deuda del techlead** registrada en `docs/TECH_DEBT.md` (OPG-D1 mover duplicado, OPG-D2 diálogos gemelos en
+  `M4View`, OPG-D3 clave `street`).
+
+
+### §81.2 · Hallazgos de QA sobre `4ca6c45` (2026-09-29, rama `claude/arreglos-operador`)
+
+Medido en la UI por QA tras aprobar `4ca6c45`; prueba en rojo primero, luego el arreglo (vitest, N=1, deterministas).
+
+| Hallazgo | Qué cambia | Dónde | Prueba (roja antes → verde después) |
+|---|---|---|---|
+| **IMPORTANTE** · cajones de custodia ofrecidos a una pieza `in_stock`/`listed` (backend: `422 LOCATION_NOT_AVAILABLE reason=not_platform_stock`, y el banner pintaba el inglés del servidor) | `moveTargets` filtra a `platform_stock` **activo** para **toda** pieza de plataforma (antes solo en `picking`). `canMove` solo es cierto en `in_stock\|listed\|picking`, estados de pieza de plataforma; una de cliente (`in_custody`) no entra en la sección. | `m1/ItemDetailModal.tsx` (`moveTargets`) | `m1/ItemDetailModal.test.tsx` «en `in_stock`/`listed` ofrece mover SOLO a stock de plataforma activo…» (2 rojas: ofrecía `loc-2..5`; ahora `['loc-2']`, y un estante inactivo tampoco) |
+| ídem · mensaje traducido | Claves nuevas `error.LOCATION_NOT_AVAILABLE` (base) y `error.LOCATION_NOT_AVAILABLE_WITH_DETAILS` (`select` ICU sobre `reason`: `not_platform_stock`, `not_customer_custody`, `not_customer_drawer`, `inactive`, `not_found`, `location_required`) en `es` y `en`; entrada `LOCATION_NOT_AVAILABLE` en `DETAILED_ERRORS` de `useErrorMessage` que pasa `{ reason }` solo si es uno de esos seis (si no, `null` ⇒ base traducida; nunca un `select` sin rama ni el inglés). ⚠️ `components/ui/QueryState.tsx` es zona compartida: cambio aditivo (una entrada + una lista), sin tocar el mecanismo §26. | `components/ui/QueryState.tsx`, `messages/{es,en}.json` | `components/ui/QueryState.test.tsx` (2 rojas: pintaba «Location not available: …»; ahora seis motivos en castellano + caída a la base) y `m1/ItemDetailModal.test.tsx` «un `422 LOCATION_NOT_AVAILABLE` del move se pinta TRADUCIDO…» (1 roja) |
+| **MENOR** · comentarios obsoletos («la respuesta real del move NO trae `location`») | Desde `6e3b1b7` el backend de esta rama sí devuelve `location`; production `a2da420` sigue sin ella. Los comentarios dicen ahora las dos formas y por qué la etiqueta sigue saliendo de la ubicación **elegida** (front y back se publican por separado). Sin cambio de conducta. | `m1/ItemDetailModal.tsx` (`mutationFn`), `m4/LocateItemControl.tsx` (cabecera y `onSuccess`) | — (comentario); las pruebas `it.each(['sin location','con location'])` ya cubren las dos formas |
+| **MENOR (preexistente)** · «Merma» y «Editar precio» sobre una pieza en `picking` (backend: `422 ITEM_NOT_ADJUSTABLE`) | Reglas de pantalla del contrato (§M1 v1.79.6 «5»): «Merma» solo en `in_stock\|listed` (`markable`, el mismo predicado que `removableCount`; ⛔ nunca `picking` ni `reserved`); «Editar precio» no en piezas **vendidas** (`sold` = `picking`, `shipped`, `delivered`; el contrato norma `picking`, las otras dos son la misma pieza más tarde) — el precio se sigue **leyendo** (span, no botón). Sobre `reserved` el precio no está normado: sin cambio. `in_stock`/`listed` no cambian. | `m1/VariantDrawer.tsx` (`markable`, `sold`) | `m1/VariantDrawer.test.tsx` «una pieza VENDIDA … NO ofrece «Merma» ni «Editar precio»; `reserved` tampoco merma; `in_stock` sí» (1 roja) |
+
+**Corrido (2026-09-29):** vitest de las 5 suites tocadas/candados (`ItemDetailModal`, `QueryState`, `VariantDrawer`,
+`error-audience`, `i18n-parity`) 115/115; vitest `m1/` + `m4/` completos 274/274 (23 ficheros); `tsc --noEmit` 0 errores;
+`next lint` limpio; Playwright en mocks `e2e/admin.spec.ts` + `e2e/inventory-stream-b.spec.ts` 23/23 (humo: ningún spec
+E2E abre el detalle de pieza de M1 — medido con grep —, la cobertura del arreglo es vitest).
+
+**Contrato:** mientras se hacía este pase el arquitecto publicó **v1.79.6** (`dde785b`): `LOCATION_NOT_AVAILABLE` lo emite también
+`move` con `reason:'not_platform_stock'` y §M1 «5 · Reglas de pantalla» norma exactamente lo de arriba. `frontend/src/types/contract.ts ·
+LocationNotAvailableDetails` incorpora `not_platform_stock`. No queda solicitud abierta al arquitecto por este pase.
+## §81 · **C7 — límite de intentos por cuenta: `deviceToken` y el `429 TOO_MANY_PASSWORD_ATTEMPTS`** (2026-09-28, rama `claude/paquete-seguridad`, base `ffe0f7b`; `API_CONTRACT` v1.80 §1 «Límite de intentos por cuenta», `ARCHITECTURE §4.57`)
+
+**Qué hace el front:**
+- **`deviceToken` («dispositivo conocido»)** en `localStorage['tcg.deviceToken']` (`src/lib/api-client.ts`:
+  `getDeviceToken` / `storeDeviceToken`, ambos con `try/catch`: si el almacenamiento lanza, se entra sin
+  dispositivo). Se guarda desde las **cuatro** respuestas que lo traen: `login` y `google` (vía
+  `persistSession`), `refresh` (dentro de `refreshTokens`, fuera de `apiRequest`) y `reset-password`. Una
+  respuesta sin token (`register`, backend anterior) **no borra** el existente.
+- **Se manda en cada `POST /auth/login`** si existe (`LoginRequest` en `types/contract.ts`); si no hay, la clave
+  no viaja.
+- ⛔ **No lo borran ni `logout` ni `clearClientSession`** (limpieza por `401`). No es credencial de sesión: borrarlo
+  al salir le quitaría al dueño su puerta justo antes de volver a entrar (`ARCHITECTURE §4.57.4`).
+- **Login con `429 TOO_MANY_PASSWORD_ATTEMPTS`:** `AuthForm` pinta `auth.tooManyAttempts` (banner `warning`) con
+  `{minutes} = max(1, ceil(retryAfterSeconds / 60))` (`src/lib/password-attempts.ts`) y **enlace a
+  `/forgot-password`** dentro del propio texto (etiqueta ICU `<reset>`), porque aquí restablecer también levanta
+  el candado. Sin `details` usable: `auth.tooManyAttemptsNoTime` (sin cifra; no se inventa). **No hay reintento
+  automático** ni cuenta atrás que reenvíe.
+- **Cambio de contraseña con el mismo `429`:** `PasswordForm` usa `error.TOO_MANY_PASSWORD_ATTEMPTS_WITH_DETAILS`
+  resuelto por `useErrorMessage` (entrada nueva en `DETAILED_ERRORS` de `QueryState.tsx`); base sin cifra
+  `error.TOO_MANY_PASSWORD_ATTEMPTS` como red.
+- Copys: los del arquitecto, literal (ux-ui puede pulirlos). ⛔ Ninguno dice «bloqueada»/«locked». Los dos copys
+  «sin cifra» son **míos** (red para un backend que no mande `details`), pendientes de visto de ux-ui.
+
+**Pruebas:** F-C7-1 y F-C7-3 en `AuthForm.test.tsx`; F-C7-2 (+ logout, logout con red caída, limpieza por `401`,
+`clearClientSession`, `localStorage` que lanza) en `src/lib/device-token.test.ts`; fórmula de minutos en
+`password-attempts.test.ts` (61 s y 121 s existen para que `round`/`floor` no pasen); `PasswordForm.test.tsx`.
+
+**Mutaciones medidas (sobre copia en scratchpad, no en el árbol vivo; deterministas, N=1 cada una):** borrar el
+token en `logout` ⇒ 2 rojas; en `clearClientSession` ⇒ 4 rojas; no mandarlo en login ⇒ 2; no guardarlo en refresh
+⇒ 1; pintar el genérico en vez del copy C7 ⇒ 3; reintento con `setTimeout(retryAfterSeconds)` ⇒ 1 (F-C7-3);
+`Math.round` ⇒ 2 y `Math.floor` ⇒ 3 en la fórmula. (`Math.round` **sobrevivía** a F-C7-1 sola — 150 s redondea a
+3 igual — y por eso existe `password-attempts.test.ts`.)
+
+**E2E:** no se añadió ninguna Playwright; el censo `scripts/check-e2e-skip-census.sh` no se toca.
+
+## SEC-HDR-1 — cabeceras anti-clickjacking (2026-09-29, sobre f602dca)
+
+- **Medido antes:** `next.config.mjs` sin `headers()`, `src/middleware.ts` solo next-intl, `vercel.json` (raíz) solo `ignoreCommand`. La sesión vive en localStorage ⇒ el admin se cargaba autenticado en un iframe hostil.
+- **Cambio:** `headers()` en `frontend/next.config.mjs`, `source: '/:path*'`: `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'` (SOLO esa directiva; la CSP completa es SEC-HDR-2), `Referrer-Policy: strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`.
+- **Prueba:** `src/lib/security-headers.test.ts` (4 pruebas; rojas por ausencia antes, verdes después). Verificado además con `next build && next start` + `curl -I` en `/`, `/es`, `/es/admin` y un 404.
+- **Iframes propios:** `grep -rn "<iframe" frontend/src` = 0 resultados; nada nuestro embebe páginas nuestras ni terceros. `frame-ancestors` restringe quién nos embebe, no a quién embebemos.
+- **Para devops:** `security/zap/baseline.conf:88` lista `10020 WARN`; según seguridad debe pasar a FAIL en el mismo cambio. No lo toqué (es de devops). 10021 (nosniff, línea 89) también queda resuelto para la vitrina.
+
+## Copy final del 429 de login (2026-09-29, DESIGN_SYSTEM v4.9 §37.13)
+
+`auth.tooManyAttempts`/`tooManyAttemptsNoTime` sustituidas por `auth.login.rateLimited` (sin cifra) y `auth.login.rateLimitedRetryIn` (`{minutes, plural, one {# minuto} other {# minutos}}`), es/en. Se usa la segunda solo si `details.retryAfterSeconds` es usable (`retryAfterMinutes`, ceil a minutos); el cliente API no expone la cabecera `Retry-After` (solo `details`), así que no se lee. Pruebas en `AuthForm.test.tsx` (con cifra 3 min/1 min, ES singular, sin cifra); mutación medida: intercambiar las dos claves ⇒ 4 rojas (N=1, determinista).
+
+### Errata v1.80.8.1 (contrato) / §37.13 v4.9.1 — el 429 se elige por `error.code` (2026-09-29, rama `claude/release-s5`)
+
+- `AuthForm` guarda `{ minutes, code }` del 429. `perAccount = mode === 'login' && code === 'TOO_MANY_PASSWORD_ATTEMPTS'`
+  ⇒ `auth.login.rateLimited*` + enlace `/forgot-password`. Cualquier otro 429 (`RATE_LIMITED`, código desconocido; login
+  o registro) ⇒ `auth.rateLimitedByIp` / `auth.rateLimitedByIpRetryIn`, sin enlace. El status 429 decide *que* hay aviso,
+  no *cuál*. Minutos = `retryAfterMinutes` para los dos.
+- `GoogleSignInButton`: un 429 ya no cae en el genérico `error.RATE_LIMITED`; pinta `auth.rateLimitedByIp*` (Banner
+  warning, `role="alert"`, sin enlace).
+- Retirada `auth.register.rateLimited` de es/en.
+- Pruebas: `AuthForm.rateLimited.test.tsx` (los casos que fijaban enlace y «con este correo» con `RATE_LIMITED` pasan a
+  `TOO_MANY_PASSWORD_ATTEMPTS`; `RATE_LIMITED` exige lo contrario) + F-C7-4; `GoogleSignInButton.test.tsx` (429).
+  Mutaciones (N=1, deterministas, sobre copia): ramificar por status (`perAccount = mode==='login' && !!rateLimited`)
+  ⇒ 5 rojas; solo el enlace por `mode === 'login'` ⇒ 5 rojas.
+## §81 · **Paquete de pantallas** — Vender en computadora (P-61, DESIGN_SYSTEM §37.1) y menú del panel sin códigos (P-66 I2, §37.2) (2026-09-28, rama `claude/paquete-pantallas`, base `82ea0f3`)
+
+### §37.1 · P-61 — el carrito vuelve a ser cajón en escritorio
+
+- **Un solo `SellCartDrawer` para todos los tamaños.** Se retiró `useMediaQuery` de `BuylistView` (el hook
+  sigue existiendo: lo usa `FeaturedCarousel`), el `lg:grid-cols-[minmax(0,1fr)_360px]` y el `<aside>` del
+  panel fijo de P-42. Los dos disparadores se montan siempre y los esconde el CSS: FAB `lg:hidden`
+  (`SellCartFab`), barra `hidden lg:flex` (`SellCartBar`, nueva, en la carpeta de la ruta).
+- **Una sola función para el total:** `buylist/CartTotalFigure.tsx` tiene las tres ramas (recotizando/fallida
+  ⇒ «—» · todo pendiente ⇒ versalita · importe) y la usan el bloque de dinero del cajón (`size="hero"`, 26 px)
+  y la barra (`size="bar"`, 20 px). `testIdScope` distingue las dos superficies (`sell-cart-total*` /
+  `sell-cart-bar-total*`), porque en jsdom conviven en el DOM.
+- **Anfitriones (regla de «exactamente uno», decidida en `BuylistView`):**
+  `shippingNoteHost = requestOpen ? 'createStep' : drawerOpen ? 'cart' : 'header'` (sin `isDesktopCart`);
+  `requirementsHost = drawerOpen ? 'cart' : 'header'`, con la instancia de cabecera en `hidden lg:block`
+  (`data-testid="buylist-header-requirements"`), después de la nota y antes de «Guía de envío seguro».
+- **Retorno de foco:** `openerRef` (en `BuylistView`) apunta al disparador que abrió el cajón y se fija ANTES
+  de abrir (el cajón lo lee al montarse). FAB y barra fijan su propio botón; el CTA del bounty captura
+  `document.activeElement` al pulsarlo (antes del `await` del batch) y, si el clic no lo enfocó (Safari),
+  cae al disparador visible de su tamaño (`matchMedia` solo para ESO, nunca para elegir contenedor).
+  `SellCartDrawer.returnFocusRef` se ensanchó a `RefObject<HTMLElement | null>` y ganó `id` (para el
+  `aria-controls` de la barra).
+- **Decisión propia, fuera del texto de §37.1:** la barra es `fixed` de 64 px y el pie legal del layout va
+  DESPUÉS de la vista, así que al final del scroll lo taparía. `globals.css` reserva 64 px al `body` en `≥ lg`
+  solo mientras existe la barra (`body:has([data-sell-cart-bar])`). Sin JS ni tocar el layout.
+- **Medido en navegador** (`next build` + `next start` con mocks, Chromium; `getBoundingClientRect().width` de
+  las 5 primeras tejas de Base Set): antes (`82ea0f3`) **144 px** a 1280×800 y **122 px** a 1024×768, con
+  `aside`=1; después **216 px** y **212 px**, `aside`=0, barra visible y FAB oculto. Coincide con la
+  aritmética de §37.1.
+- **Candados:** vitest P61-1…P61-5 en `BuylistView.test.tsx` (describe «P-61»); Playwright P61-1 (ancho ≥ 200
+  px a 1280 y 1024, barra de 64 px pegada al borde, FAB oculto; FAB visible y barra oculta a 390), P61-3 y
+  P61-5 en `e2e/buylist.spec.ts`. Sin `mockOnly` nuevos (usa `openBaseSet`, env-agnóstico). Los helpers
+  `openCart` de `buylist.spec.ts` y `sell-cart-persist.spec.ts` pulsan el disparador VISIBLE; las aserciones
+  sobre «Valor de tus cartas» se acotan al cajón (la barra también lo rotula).
+
+### §37.2 · P-66 I2 — menú por nombre
+
+- `AdminSidebar`: grupos `daily` / `stock` / `storefront` / `administration` en el orden de §37.2b, «Resumen»
+  solo arriba sin rótulo (`groupKey: null`). Se exporta `ADMIN_MENU_ITEMS` (lista plana en orden) para el
+  candado. Se retiraron las claves de grupo `operation` / `pricing` / `finance` (solo las usaba el menú).
+- **El `h1` de cada página lee `admin.modules.<key>`** (una sola fuente, no dos cadenas iguales que puedan
+  divergir). Las claves `admin.<módulo>.title` se conservan con el mismo texto que el menú porque siguen
+  alimentando toasts y `aria-label` de pestañas (M1, M5, M11) y las usan specs E2E.
+- Barrido de copy: `grep -nE '\bM1?[0-9]\b' messages/{es,en}.json` = **0 / 0**. Ninguna referencia resultó
+  legítima. ES usa «…» y EN “…” para el nombre dentro de frase. SÚPER y «Meta Battle Decks» intactos.
+- M9: «Actividad de la tienda» / “Store activity” + subtítulo y `goalsUnset` de §37.2d.
+- **Candados:** `src/app/[locale]/(admin)/admin/AdminPageTitles.test.tsx` — P66-1, P66-2 (una prueba por ruta,
+  renderizando el `page.tsx` real), P66-3 (el grep, en prueba), el orden/grupos/SÚPER del menú en es y en,
+  y los textos de M9.
+
+## §82 · **P-71 — código corto del set («TWM 130»)** + reubicación del E2E de spreads (2026-09-28, rama `claude/paquete-pantallas`, base `924a75d`; contrato v1.80, backend `72d4372`)
+
+- **Tipos (`contract.ts`), sin `?`:** `CardDTO.setPtcgoCode`, `MasterSetRefDTO = SetRefDTO & { ptcgoCode }`
+  (cabecera del binder; `SetRefDTO` no cambia), `SetPartDTO.ptcgoCode`, `MasterSetSummaryDTO.ptcgoCode`,
+  `BuylistSetDTO.ptcgoCode`, `PublicBountyDTO.setPtcgoCode`. El compilador obligó a decidir el valor en cada
+  composición cliente (índice y binder del cotizador) — mismo candado que `logoUrl`.
+- **Una sola función** `lib/setCode.ts`: `formatCardCode(code, number)` ⇒ `TWM 130` o `#130`
+  (nunca «—»/«null»; vacío/espacios ⇒ sin código; sin mayúsculas forzadas); `setMatchesQuery(name, code, q)`
+  ⇒ «Buscar set» por nombre **o** código, sin distinguir mayúsculas. Componente `domain/CardCode.tsx`.
+- **Superficies (§37.3c):** cabecera del binder (`binder-set-code`, mono 13 px muted, 12 px de aire, misma
+  línea base); separador de parte con el código **de esa parte** (`part-set-code`); tejas del binder en los
+  cuatro modos (la celda hereda `set.ptcgoCode` o, en combinados, el de su parte por `partSetId`); teja del
+  índice (`index-set-code`, bajo el nombre); teja de Compra (`CatalogTile`, `ListingCard`); ficha
+  (`CardDetailView`) y pop-up de detalle del cotizador (`CardDetailModal`); línea del carrito de venta
+  (primer elemento de la línea mono, solo con código). El binder pasa el código al alta del carrito
+  (`onAddToSellCart(cell, variant, setPtcgoCode)`); el bounty lo trae en `PublicBountyDTO`.
+  `QuoterCardRef.setPtcgoCode` es opcional: las listas guardadas antes de P-71 no lo tienen y se pintan sin él.
+- **Fuera de este pase (§37.3c):** carrito de compra, checkout y pedidos (hechos congelados). Las tejas de
+  bounty (vitrina y tablero del home) no están en la tabla de §37.3 y siguen con `#130`.
+- **Decks:** `decksMeta.detail.cardCode` y `substitute.use/usePending` pasan a `{set} {number}`; el
+  ensayo M12 (`DeckCoverCell`) pinta la portada con `formatCardCode` («TWM 130», antes «TWM-130»).
+- **Mock:** `MockCardSetRow.ptcgoCode` es columna requerida: SSP, TWM, SVI, CEL, CLC, SSH y `base1` = `null`
+  (el cotizador de las pruebas ejercita `#4`). `mockCatalogSetDTO` descarta la columna (`GET /catalog/sets` no
+  la emite). El `?q=` del índice mock usa `setMatchesQuery`.
+- **Candados:** `master-set/P71SetCode.test.tsx` (P71-F1 y F2 en los cuatro modos, F3, índice, alta con código,
+  formato); combinado CEL/CLC en `MasterSet.test.tsx`; `CatalogTile.test.tsx`; línea del carrito en
+  `BuylistView.test.tsx`. Los E2E de `master-set.spec.ts` leen el número del renglón `card-code` sin depender
+  de si lleva código.
+- **E2E de spreads (T-1):** `admin.spec.ts` entraba a `/admin/m2`, pero el editor está en «Sellado» (M11) ›
+  «Ajustes avanzados» › «Márgenes de venta». La spec va ahora ahí (abre el acordeón), mide lo mismo (fila
+  editable de UPC y Collection, bicondicional vacío ⇔ «usa el global») y además afirma que M2 ya no lo tiene.
+- **Corrección de §81:** el E2E `master-set-plate` «I-2» quedó rojo por P-61 (placa a 1024 = 206 px vs 181 a
+  640: diferencia 25 < 30). El §81 dijo que pasaba y no era cierto. Se cambió el par de viewports a 640/1280
+  (181 vs 270 px, medido en Chromium), no el umbral.
+
+## §83 · **Deuda del techlead sobre `8655e9a` + menores de QA + nombre de M4** (2026-09-29, rama `claude/paquete-pantallas`, base `a2406cf`)
+
+Todo frontend, sin dinero. Cada punto se **midió antes de tocar** (fichero:línea de `8655e9a`); lo que no
+existía se dice, no se «arregla».
+
+| Punto | Medido en `8655e9a` | Qué cambió |
+|---|---|---|
+| **M4 = «Pedidos por preparar» / «Orders to prepare»** (dueño, `HECHOS.md` a2406cf) | `es.json:1232` «Preparar y enviar», `en.json:1232` «Pick & ship»; el `h1` de `/admin/m4` sale de `tModules('m4')` (`M4View.tsx:192`) ⇒ una sola clave. `admin.m4.title` repetía el literal y **nadie la leía** (`grep m4.title src e2e` = 0, huérfana desde `924a75d`). | Clave cambiada en ES/EN; `admin.m4.title` retirada; la tabla de §37.2b en `AdminPageTitles.test` fija el literal nuevo. **El `h2` de la cola (`admin.m4.prep.title`, «Pedidos a preparar») no se tocó**: no está en la decisión; queda casi igual que el `h1` en la misma página — si molesta, es de ux-ui. |
+| **(a) `uppercase` sobre el código** | `CardDetailView.tsx:314` — la línea «Set · TWM 130 · rareza» entera en `uppercase`. En tejas, modal y carrito no había `uppercase` sobre el código. **También** `DeckAvailability.tsx:145` (decks-meta) lo forzaba. | Ficha: la línea sigue en versalitas, el código va en `CardCode` con `normal-case` (§37.3b «tal como llegan»). Decks-meta: sin `uppercase`. Candados en `CardDetailView.test` y `DeckDetailView.test`. |
+| **(b) dos formateadores** | `formatCardCode` (`setCode.ts`) **y** la plantilla i18n `decksMeta.detail.cardCode` = `"{set} {number}"` (`es.json:4157`, usada solo en `DeckAvailability.tsx:125`). | Decks-meta usa `CardCode`; clave retirada en ES/EN. Un formateador. |
+| **(c) NBSP invisible** | `NBSP` ya era constante con comentario (`setCode.ts:15`) pero su valor era el U+00A0 **pegado**; ídem en tres tests. | `' '` (escape visible) y el porqué en el comentario. `grep -P '\xC2\xA0' src messages e2e` = **0**. |
+| **(d) SetCode ×3** | Tres `<span lang="en" data-testid=… className="font-mono … tracking-label text-muted">` inline: `MasterSetBinder.tsx:441-449` (cabecera), `:657-661` (parte), `MasterSetIndex.tsx:243-250` (índice). | `components/domain/SetCode.tsx` (sigla sola; `CardCode` sigue siendo «código + número»). Mismos `data-testid`: P71-F1/F2 verdes sin tocarlos. |
+| **(e) total del modal** | `BuylistView.tsx:587-594`: ternario propio = copia de la rama «todo pendiente» de `CartTotalFigure` **sin** la rama «—». **No calcula distinto** (misma suma); es una tercera copia. Además la rama «versalita» del modal es **inalcanzable**: con todo pendiente el CTA está `disabled` por el mínimo (medido en test). | El modal usa `CartTotalFigure` (`size='summary'`, `testIdScope='sell-request'`). Candados: cifra idéntica a la del cajón; CTA apagado con todo pendiente. Efecto visual: la cifra pasa a mono (como cajón y barra). |
+| **(f) breakpoints mágicos** | `BuylistView.tsx:162` `matchMedia('(min-width: 1024px)')`; `BuylistView.test.tsx:1092` `query.includes('1024')`. `tailwind.config.ts` no redefine `screens`. Los `1024×768`/`1280×800` de los E2E son **viewports de medición** (§37.1g), no umbrales: no se tocan. | `lib/breakpoints.ts` (`BREAKPOINTS`, `minWidthQuery`) + `breakpoints.test.ts`: paridad con `resolveConfig` de Tailwind, con la tabla de §4.4 y grep = 0 de `min-width: Npx` en `src` sin tests. |
+| **(g) comentarios del estado anterior** | `BuylistView.tsx:34`, `:109-111`, `:139-146`, `:171`, `:190-192`, `:383-386`; `SellCartContents.tsx:76`; `SellCartBar.tsx:31` — narraban `aside`, columna fija de 360 px, `useMediaQuery`, «panel fijo». | Reescritos para describir lo que hay. El origen de la regla «exactamente una nota» (§23.3g-bis) se conserva pero dice que el panel fijo **existía entonces**. `SellCartContents.tsx:188` «columna fija a la izquierda» es la miniatura de la línea, no el carrito: se queda. |
+| **(h) P66-2 solo en `es`** | `AdminPageTitles.test.tsx:166-175`. | Corre por ruta en `es` **y** `en` (30 casos). Mutación: `h1` con literal español ⇒ cae solo `en /admin/m4`. |
+| **(i) barra después del pie (§37.1d)** | FAB y barra se escribían dentro de la vista (`BuylistView.tsx:531-548`); el `<footer>` es del layout (`(storefront)/layout.tsx`) ⇒ en el DOM iban **antes** del pie, y el orden de tabulación es el del DOM. | `components/ui/BodyPortal.tsx` (portal al final de `<body>`, monta tras hidratar — mismo patrón que `Toaster`; el sitio lo reserva `pb-24`). Candados: vitest (pie hermano posterior; FAB y barra tras él y fuera de `<main>`; el cajón abre desde la barra portada; mutación fragmento-en-vez-de-portal ⇒ rojo) y E2E en `buylist.spec` (DOM: `footer` precede a la barra; teclado: Tab desde el último enlace del pie entra en la barra a 1280 y en el FAB a 390). |
+
+**Coste dicho de (i):** el HTML del servidor no trae FAB ni barra; aparecen en el primer efecto del cliente.
+Sin salto de layout (espacio reservado). Si algún día importa el primer pintado, la alternativa es un
+«slot» en el layout después del pie — sigue siendo portal, solo cambia el destino.
+
+**Suites (este pase, sobre el árbol vivo de la rama, medidas por frontend):** `tsc --noEmit` limpio ·
+`next lint` sin avisos · vitest completo **178/178 ficheros, 2133/2133 pruebas** · Playwright con mocks
+(`buylist`, `admin`, `master-set`, build + start de producción) **52/52, 0 saltados**, incluidos los dos casos
+nuevos de §37.1d. Mutaciones hechas (una tirada cada una, deterministas): `h1` con literal español ⇒ cae solo
+`en /admin/m4`; fragmento en vez de `BodyPortal` ⇒ cae el candado del orden del DOM.
+
+**Commits:** `b06bec9` (M4 + P66-2 en `en`) · `6949e13` (NBSP) · `4aa9b12` (SetCode + `normal-case`) ·
+`2dbf5af` (un formateador) · `5e4ef3e` (total del modal) · `b61de76` (breakpoints) · el del portal y los
+comentarios (g)+(i), y este de notas.
+## §81 · **M2 dinero: sellado sin mapear (dos salidas, §M2-SK) y «lo que se paga» en la consola de bounties (§M2-B.11 punto 8)** (2026-09-29, rama `claude/paquete-dinero`, base `b8edfa7`)
+
+### Qué
+1. **Cola de precio pendiente (`(admin)/admin/m2` › `PendingQueueSection`)**: una fila de sellado **sin mapear**
+   (`productType='sealed'` ∧ `gradeKey==='sealed'`) ya **no** ofrece el «Fijar precio» de mercado (terminaba en
+   `422 SEALED_MARKET_KEY_REQUIRED`, SK-3 / P-83). Ofrece las **dos salidas** de la tabla «Qué ofrece M2» del
+   contrato, las dos reales (`SealedUnmappedModal.tsx`):
+   - **«Ligar a su presentación»** → `PUT /admin/pricing/sealed/items/:itemId/mapping` con `applyToSiblings:true`
+     sobre la primera pieza sin mapeo de la fila (cliente nuevo `updateSealedItemMapping`, `api.ts`). El picker de
+     presentación es el mismo del alta (`m1/SealedProductPicker`, `listSealedProducts({setId})`). Mapear **no** fija
+     ni cambia precio; se dice cuántas piezas quedaron ligadas (`1 + siblingsUpdated`).
+   - **«Fijar el precio de esta pieza»** → `PATCH /admin/inventory/items/:id { listPriceCents }` en **cada** pieza sin
+     mapeo de la fila (SK-4, precedencia #1 de §K). **No publica** (publicar sigue en M1). Guard S-L1 idéntico al
+     override (`isSaveableRuleValue`/`sanitizeDecimalInput`).
+   - La fila de la cola **no trae `inventoryItemId`** (agrupa una clase de piezas): las piezas se resuelven con
+     `GET /admin/inventory/items?cardId=&productType=sealed&pageSize=100` filtradas a `tcgplayerProductId == null` y
+     mismo `sealedSubtype`. Sin piezas ⇒ se dice (fila legada anterior a P-79(d)) y se enlaza a Inventario › Sellado.
+   - Sellado **mapeado** (`sealed:tcg:<id>`), raw y graded: «Fijar precio» de mercado como antes.
+2. **Mock (`api.ts`)**: `overridePrice` replica SK-3 (`sealed` + `gradeKey:'sealed'` ⇒ 422 con
+   `details {gradeKey:'sealed', remedy:'map_or_price_the_piece'}`) y `updateSealedItemMapping` replica las
+   validaciones del contrato (404 item; 422 no-sealed / groupId ausente / no enteros positivos; `null` desmapea;
+   `applyToSiblings` nunca pisa un mapeo). Semilla nueva `ppe-sealed-unmapped` (pieza `inv-1009`, sv06 ETB).
+3. **Consola de bounties (`m2/bounties`)**: junto a lo configurado (`bounty.priceCents`) se pinta **lo que se paga**
+   cuando difiere: `payoutCents`+`cappedByMarket` ⇒ «Se pagan MX$X · topado por mercado» (con `aria-label` que
+   nombra oferta y mercado); chase **retenida** por el guardarraíl (`activa`, `effective`, `payoutCents:null`,
+   `buy.premiumAtFloor`) ⇒ «PENDIENTE · retenido». Si paga lo configurado no se repite la cifra. Función pura
+   `bountyPayout(row)` en `bounty-view-model.ts`: **obedece** los dos campos, no recalcula el tope (§28).
+   El composer del mock (`mockVariantPricing`) produce ahora `payoutCents`/`cappedByMarket` y la retención.
+
+### Tipos transcritos del contrato a `types/contract.ts` (no inventados; línea del contrato)
+- `VariantBountyDTO.payoutCents: number | null`, `cappedByMarket: boolean` (obligatorios; `API_CONTRACT.md:6924-6925`).
+- `InventoryItemDTO.tcgplayerProductId?`, `tcgplayerGroupId?`, `sealedMarketRef?` (`API_CONTRACT.md:10808-10809`).
+- `SealedItemMappingRequest` / `SealedItemMappingResponse` (`API_CONTRACT.md:15030-15036`).
+
+### Copy sin norma de ux-ui (redactado por frontend, tono §21/§28; pendiente de que ux-ui lo ratifique)
+`admin.m2.pending.sealedUnmapped.*` (es/en) y `admin.m2.bounties.row.payoutCapped|payoutCappedAria|payoutRetained|
+payoutRetainedAria`. El contrato deja ese copy a ux-ui (`API_CONTRACT.md:118`); no había texto en `DESIGN_SYSTEM.md`.
+
+### Pruebas (rojo primero, luego el cambio)
+- `sections/PendingQueueSection.test.tsx` (6): fila sin mapear ⇒ sin «Fijar precio», con las dos salidas; mapeada/raw
+  ⇒ «Fijar precio»; ligar ⇒ `updateSealedItemMapping('a', {…, applyToSiblings:true})` y «2 piezas ligadas»; sin piezas ⇒
+  no llama al endpoint; precio ⇒ `PATCH` por pieza con `listPriceCents:180000`, nunca `overridePrice`; S-L1.
+- `lib/api.sealed-unmapped-mock.test.ts` (7): SK-3 en el mock, semilla, validaciones del mapeo, siblings.
+- `bounties/bounty-view-model.test.ts` (+6) y `bounties/BountiesView.test.tsx` (+4): 120000/100000 ⇒ «Se pagan
+  MX$1,000.00 · topado por mercado»; retenida ⇒ «PENDIENTE · retenido»; no topado / rebasado ⇒ ninguna línea extra.
+- Playwright con mocks: `e2e/admin-m2-sealed-unmapped.spec.ts` (3, `mockOnly`): fila sin mapear y mapeada; ligar
+  (picker → «Ligar 1 pieza» → estado «1 pieza ligada a … Elite Trainer Box»); precio (folio INV-000109 → MX$1,800.00).
+- `lib/mock/bounty-payout-mock.test.ts` (4): canario del composer del mock (nació de una mutación que no mordía, abajo).
+
+### Gates (2026-09-29, desde `frontend/`, sobre la rama `claude/paquete-dinero`)
+- `tsc --noEmit`: limpio. `eslint` sobre los ficheros tocados: limpio.
+- `vitest run` completa: **177/177 ficheros, 2082/2082 pruebas** (453 s), sobre el árbol con `ac33222` (antes del
+  canario del mock; el canario corre 4/4 aparte).
+- Playwright con mocks (`E2E_MOCK_PORT=3017`, bundle `.next-e2e-mock`): `admin-m2-sealed-unmapped.spec.ts` +
+  `admin-bounties.spec.ts` ⇒ **10/10** (3 nuevas + 7 existentes), 2.0 min.
+
+### Mutaciones (copia del árbol ENTERO en scratchpad, `git archive cd696a3`; deterministas ⇒ 1 tirada por mutación)
+| # | Mutación | Resultado |
+|---|---|---|
+| M1 | `isSealedUnmapped` ⇒ `false` (la cola vuelve a ofrecer «Fijar precio» en toda fila) | `PendingQueueSection.test`: **5/6 rojas** |
+| M2 | el mock de `overridePrice` deja de replicar SK-3 | `api.sealed-unmapped-mock.test`: **2/7 rojas** |
+| M3 | `bountyPayout` ignora `cappedByMarket` y la retención | `bounty-view-model.test` **2/50 rojas**, `BountiesView.test` **2/73 rojas** |
+| M4 | el composer del mock deja de topar (`payout = bounty`) | `admin-bounties-mock.test` **15/15 verdes** (no mordía: la semilla no tiene bounty > mercado) ⇒ se añadió `bounty-payout-mock.test.ts`; con él **1/4 roja** |
+| M5 | `buy.effectiveCents` vuelve a ser el bounty configurado (rompe `payout == effectiveCents`) | `bounty-payout-mock.test`: **1/4 roja** |
+Restaurado ⇒ todo verde; `api.ts` y `fixtures.ts` de la copia iguales a `HEAD` tras cada mutación.
+
+### Lo que NO se midió aquí (y qué lo cerraría)
+- La fila sin mapear contra el **stack real** (sembrar un sellado sin `tcgplayerProductId`, ver el `422` de SK-3 si se
+  forzara el override y el `PUT …/mapping` real): gate de QA con la plataforma levantada.
+- Semilla del mock con un bounty **topado** (bounty > mercado) para verlo en pantalla en modo mocks: no se añadió porque
+  cambiaría los conteos de `admin-bounties.spec.ts` y el candado de la semilla (`admin-bounties-mock.test.ts`); con la
+  regla nueva ningún bounty sembrado queda topado (pikachu 288000 > 250000; latias 950000 > 850000). El caso vive en
+  jsdom con filas inyectadas (`BountiesView.test.tsx`) y en el canario del composer.
+- `useTranslations` con plural ICU en `sealedUnmapped.*`: el helper `e2e/utils/i18n.t` no interpola plurales, por eso
+  el spec Playwright casa los botones por regex (`/^Ligar \d+ pieza/`, `/^Fijar en \d+ pieza/`).
+
+### T-1 (techlead, Media, «antes del deploy a prod») · el precio de pieza solo toca PLATAFORMA EN VENTA y nunca una lista cortada (2026-09-29, sobre `fae5a44`)
+
+**Defecto (techlead, `SealedUnmappedModal.tsx:53-63` y `:130`, medido en `fae5a44`):** «Fijar el precio de esta pieza»
+hacía `PATCH listPriceCents` a **cada** pieza sellada sin mapeo de la carta: incluidas **vendidas** (`picking`/`shipped`/
+`delivered`), **terminales** (`lost`/`damaged`/`withdrawn`) y **piezas de clientes** en custodia (`ownerType='customer'`).
+Y `:88` pedía `pageSize=100` sin mirar `total` (cap silencioso, misma clase que FE-21).
+
+**Cambio (`SealedUnmappedModal.tsx`):**
+- `isPlatformOnSale(i)` = `ownerType==='platform' ∧ status ∈ {in_stock, listed}` — el **mismo** predicado que los ajustes de
+  inventario (`types/contract.ts` «Solo piezas ownerType=platform con status ∈ {in_stock, listed} son ajustables», ~2689;
+  `CellDrawer.tsx:522` usa el mismo). `splitPriceable(unmapped)` parte el conjunto sin mapeo en `priceable` / `skipped`.
+- El `PATCH` va solo a `priceable`; el botón cuenta `priceable`; la lista pinta **folio · dueño · estado** (`PieceRow`) y
+  las excluidas se **dicen** en su propia lista («N piezas no se tocan: vendidas, en proceso, dadas de baja o de
+  clientes»). Si no queda ninguna, `noPriceable` (distinto del `noPieces` de la fila legada: sí hay piezas, no son nuestras
+  en venta) y botón bloqueado.
+- **Corte de lista:** `truncated = data.total > data.length` ⇒ `Banner` de alerta «La lista se cortó» (`shown`/`total`) y
+  el precio **no se fija** (botón bloqueado aunque el valor sea válido). Se pinta también en modo «Ligar» (honestidad del
+  conteo), pero ahí no bloquea: `applyToSiblings` lo resuelve el servidor sobre el conjunto entero.
+- «Ligar a su presentación» no cambia: mapear no es dinero y el servidor aplica el mapeo a los hermanos sin mapeo.
+- Claves nuevas `admin.m2.pending.sealedUnmapped.{ownerPlatform,ownerCustomer,skipped,noPriceable,truncatedTitle,
+  truncatedBody}` (es/en) y `priceLead` dice ahora «de la plataforma y en venta». Copy de frontend, pendiente de ux-ui.
+
+**Pruebas (rojo primero) — `PendingQueueSection.test.tsx`, describe «T-1» (+4):** fixture `in_stock/platform` +
+`picking/platform` + `in_custody/customer` ⇒ **1** `PATCH` (`'a'`, 180000), dueño/estado visibles, «2 piezas no se
+tocan» con `INV-b`/`INV-c`; todas excluidas ⇒ `noPriceable` + «Fijar en 0 piezas» bloqueado, 0 `PATCH`; `total:150` con
+2 recibidas ⇒ alerta con «2» y «150», botón bloqueado, 0 `PATCH`; `total == recibidas` ⇒ sin alerta.
+Rojo antes del cambio: **4/4 rojas, 6/6 existentes verdes** (el test de «CADA pieza» existente sigue verde: sus piezas
+`a`/`b` son `in_stock`/`platform`). Verde después: **10/10**.
+
+**Gates (2026-09-29, `frontend/`):** `tsc --noEmit` exit 0; `eslint` (modal + test) exit 0; `vitest run "admin/m2/"
+"sealed-unmapped-mock" "i18n-parity"` ⇒ **12 ficheros, 337/337**. Playwright con mocks, solo
+`e2e/admin-m2-sealed-unmapped.spec.ts` (`E2E_DEV_SERVER=1`, `E2E_MOCK_PORT=3311`; el build de producción no cabe en el
+presupuesto de 3 min con carga ~13) ⇒ **3/3, 56.9 s** — el spec no cambió: la pieza de la semilla `inv-1009` es
+`in_stock`/`platform` y `total == data.length`, así que el flujo de precio sigue igual. Mutaciones adicionales: no se corrieron (QA está
+midiendo sobre una copia de `fae5a44` y la carga era ~13; el rojo-antes de las 4 pruebas es la evidencia de que muerden
+sobre el código sin el cambio).
+
+**Nota para el arquitecto (no estaba en el fichero: `grep` sobre §81 y sobre todo este documento da 0 antes de este
+párrafo; vivía en el resumen del pase anterior):**
+1. El contrato llama a la salida «Fijar el precio de **esta** pieza» (singular), pero la fila de la cola agrupa una **clase**
+   de piezas (`cardId`+`sealedSubtype`) sin `inventoryItemId`, así que la pantalla fija el precio de **cada** pieza sin
+   mapeo de la clase. Con T-1 el conjunto queda **acotado a piezas de plataforma en venta** (`in_stock | listed`), que es
+   lo que puede recibir un precio de venta; las demás se listan como «no se tocan». Si el contrato quiere de verdad
+   «esta pieza» (una sola), la fila necesitaría `inventoryItemId` o la cola debería desagrupar.
+2. Falta un **filtro de servidor «sin mapear»** en `GET /admin/inventory/items` (p. ej. `sealedMapped=false`) y, con él,
+   la paginación deja de importar: hoy el cliente pide `pageSize=100` de **todas** las selladas de la carta y filtra
+   `tcgplayerProductId == null` en memoria; si hay más de 100, la lista se corta y T-1 bloquea el precio. También
+   valdría `ownerType=platform&status=in_stock,listed` (multi-estado) para que el conjunto viniera ya acotado.
+## §81 · **§M4-SHIP «Pedidos por preparar» (v1.80.6)** — palomeo de envío, reembolso por carta, «Por reponer», cubeta SPEI, M3 detalle y el pedido del cliente (2026-09-29, rama `claude/envio-preparar`, base `b011b1b`; contrato `290f27f`, diseño `f0962d5`)
+
+Fuentes: `API_CONTRACT.md §M4-SHIP.1–.18` (v1.80.6, errata B12/M7), `PROJECT.md §S.10` (criterios 215–233),
+`DESIGN_SYSTEM.md §37` (v4.9). Los copys son la tabla de claves de **§37.16** tal cual (573 claves nuevas; paridad
+es/en 3916/3916 medida con `i18n-parity.test.ts`; sin NBSP: `grep` de ` ` en los dos catálogos = 0).
+
+### Commits (todos acotados a `frontend/` y a este fichero)
+
+| SHA | Bloque |
+|---|---|
+| `9fc1757` | Base: DTOs del contrato en `types/contract.ts`, **servidor mock con estado** `lib/mock/m4-ship.ts` (replica §M4-SHIP.4/.5/.7/.15/.17/.18 y sus códigos 409/422/403), 20 funciones nuevas en `lib/api.ts`, catálogo es/en, `hooks/usePickingSummary.ts`, `ui/Textarea.tsx` |
+| `8bada0c` | M4: pestañas `?tab=preparar\|reponer\|envios`, `ShipPreparationCard`, `ShipmentsQueue`, hoja imprimible `m4/print` |
+| `ea278e9` | «Por reponer»: `ReplacementCasesPanel`, `ReplacementCaseCard`, `m4/reponer/[caseId]` |
+| `47d28c2` | `admin/manual-refunds` (lista + detalle) y `admin/refunds` (resumen por operador + libro) |
+| `4e61b2f` | M3: `m3/[orderId]` (detalle, reclamar, chargeback-inventory), `RefundOrderDialog`, `VaultPiecesList`; menú y tablero |
+| `dee8f34` | Cliente: `OrderShipmentBlock`, `OrderItemStatusLine`, `OrderDetailView`/`OrdersView`/`VaultView`/`WithdrawalsList`/`ShipmentDetailView`; `AuthForm` 429 |
+| *(este)* | `e2e/m4-ship.spec.ts` + esta sección |
+
+### Decisiones de implementación
+
+1. **Un fake server con estado, no fixtures sueltos.** `lib/mock/m4-ship.ts` guarda órdenes de origen, envíos con
+   marcas, libro de reembolsos, casos, transferencias y piezas de bóveda, y **recalcula** `refundPreviewCents`
+   (`unitPrice + floor(processingFee·unitPrice/(subtotal+envío))`, §M4-SHIP.4: Pikachu 30 000 sobre `ord-5001` ⇒
+   **31 458**) y los conteos en cada verbo. Así los tests de pantalla miden contra la semántica del contrato (topes
+   2×/5×, `REFUND_PREVIEW_STALE`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED`, `nothing_to_ship`…) sin backend. `resetMockM4Ship()`
+   deja cada test limpio; en Playwright se reinicia con cada carga completa.
+2. **S1/S2 (§37.0): la pantalla no produce cifras de dinero.** La fila, el conteo vivo y el botón del diálogo repiten
+   `refundPreviewCents`; el `POST /prepared` lleva esa cifra como `expectedRefundCents`; un `409 REFUND_PREVIEW_STALE`
+   reabre el diálogo con `details.refundCents` y ⛔ nunca reintenta solo (`ShipPreparationCard.test` PS-UI-4: 1 POST).
+   El único input de dinero es la captura del caso (§37.8d), con las dos referencias a la vista, el reparto del servidor
+   (`GET …/refund-preview`, debounce 400 ms) y re-escritura sin pegar por encima de 2× (`onPaste` → `preventDefault`).
+3. **Un preparado sin dinero ni casos NO manda aviso a la cola.** Medido en Playwright: el aviso (`prep-notice`) toma el
+   foco y le robaba el foco a la línea de paso, que es lo que §36.12 pide (mismo trato que la tarjeta de bóveda). El
+   aviso queda para lo que mueve dinero, abre casos o cierra el retiro (`closed_nothing_to_ship`, v1.80.6).
+4. **PR-3 se conserva en la fila de envío:** la columna de ubicación es el primer hijo del `<li>` (el renglón ES el
+   flex-row); estado, dinero y error viven en la columna de contenido.
+5. **S5 (CLABE):** solo existe en el estado local de `ManualRefundDetailView` (`useState`, se limpia al pagar, al
+   ocultar y al desmontar), en un solo `<output>`; ⛔ ni `title`, ni `aria-label`, ni URL, ni cache de TanStack. La lista
+   solo trae `clabeMasked`. Candado PS-UI-7: `document.body.innerHTML` sin `\d{18}` antes y después.
+6. **S6 (súper-admin):** `SuperAdminOnly` envuelve SPEI y «Reembolsos de operadores»; en «Por reponer» los verbos
+   «Reembolsar»/«Anular» no se pintan al operador (PS-UI-6); tablero: `manualRefunds`/`operatorRefunds` `null` ⇒ la
+   tarjeta no existe; el menú pinta el badge SPEI solo si `manualRefundsPending !== null`.
+7. **El contador es el aviso (§M4-SHIP.11):** `usePickingSummary` (una sola `queryKey`, `refetchInterval` 60 s solo
+   con pestaña visible, `refetchOnWindowFocus`) alimenta menú, pestañas y tablero; todo verbo que cambia la cola lo
+   invalida. Sin campana ni sonido.
+8. **Cliente (§37.12):** el mapeo `publicStatus → status.tracking.*` se importa de `pedido/tracking-status.ts` (⛔ no
+   se copia); `OrderShipmentBlock` pinta la lista cerrada del contrato (sin calle ni teléfono). `OrderItemStatusLine`
+   es el mismo componente en pedido, retiro, detalle de retiro y «Mi bóveda».
+9. **Renombre §37.16 / criterio 215:** `admin.modules.m4 = «M4 · Pedidos por preparar»`, `admin.m4.title` y
+   `admin.m4.prep.title = «Pedidos por preparar»`. El `<h1>` y el `<h2>` comparten nombre: los tests buscan por
+   `level`. ⚠️ El encargo pedía «sin M-n en textos visibles»; §37.16 fija normativamente el prefijo «M4 ·» en el menú y
+   la mención «Pedidos (M3)» en dos copys de error. Seguí §37.16 (es la fuente de copys) y lo dejo señalado.
+
+### Mediciones (2026-09-29, árbol `dee8f34` + spec)
+
+- `npx tsc --noEmit`: limpio. `eslint` sobre todos los ficheros tocados: limpio.
+- **vitest completo:** `182 ficheros · 2108 pruebas` ⇒ tras corregir `AdminShell*.test` (el menú ahora usa
+  `useQuery`, hacía falta el `QueryClientProvider` y el export `getPickingListSummary` en su mock de `@/lib/api`)
+  **0 rojas** en los ficheros tocados (`AdminShell`, `AdminShell.mustChange`, `ShipPreparationCard`: 19/19). La
+  corrida completa previa a ese arreglo: 2104/2108 (las 4 rojas eran exactamente esas).
+- **Nuevas pruebas unitarias (41):** `ShipPreparationCard.test` 9 (PS-UI-3/4/5, guía/deshacer, «Nada que enviar»),
+  `ShipmentsQueue.test` 8 (PS-UI-10, 409 por código, quién es quién, búsqueda), `ReplacementCaseView.test` 7
+  (PS-UI-6/9/11), `ManualRefundDetailView.test` 5 (PS-UI-7/8/6), `RefundOrderDialog.test` 3 (PS-UI-14),
+  `OrderDetailView.shipment.test` 5 (PS-UI-1 ×9 estados + «Tu envío»), `AuthForm.rateLimited.test` 4 (PS-UI-13).
+  Adaptadas al DTO v1.80 y a las pestañas: `M4View.test` (60/60), `VaultPlacementCard.test` (25/25), `M3View.test`
+  (6/6), `AdminSidebar.test`, `AdminDashboard.test`.
+- **Censo E2E** (`src/test/e2e-harness.test.ts`) + paridad i18n: 57/57. El spec nuevo declara `mockOnly` en sus 6
+  casos (usa folios del fixture).
+- **Playwright con mocks, `e2e/m4-ship.spec.ts`:** 6 flujos × 2 anchos (390×844 y 1280×800) = **12/12** en la
+  tercera corrida (build de producción `.next-e2e-mock`); las dos primeras corridas dejaron los dos hallazgos de la
+  decisión 3 (foco) y un `getByLabel` no exacto en el diálogo de guía. Flujos: palomeo→preparado→guía; faltante→
+  reembolso 314.58→preparado; «Por reponer» reponer con pieza; «Por reponer» reembolsar; SPEI revelar→pagada; M3
+  reclamar con casilla por carta.
+- **Specs existentes de las pantallas tocadas** (`m4-preparation`, `m4-vault-placement`, `vault`, `orders-resume`,
+  `shipments`, `stream-a-navigation`, `--workers 2`): **41/41 pasadas, 2 saltadas** (`@real`), tras adaptar dos
+  aserciones al rótulo compartido h1/h2 (`level: 2`) y reescribir P-10 de `m4-preparation` a las pestañas (la cola ya
+  no comparte scroll: «Preparar» es la pestaña por defecto y la cola solo aparece al pedirla);
+  `m4-vault-placement` 14/14 en su re-corrida. Una corrida anterior con 9 specs a la vez perdió el servidor de mocks a
+  mitad (`ERR_CONNECTION_REFUSED` en 27 casos: no es defecto de pantalla; con 2 workers no volvió a pasar, N=2).
+- **Dos rojas que NO son de este encargo** (medidas en esa corrida, no re-medidas sobre la base `b011b1b`):
+  `account.spec.ts:287` espera cinco entradas en el header y recibe seis — la sexta es «Meta Battle Decks» (§78,
+  `claude/fe-decksmeta-f1`); `admin.spec.ts:451` busca «Spread de UPC» en M2 y los spreads del sellado se movieron a
+  M11 (`admin.m2.movedToM11`). Ninguna toca ficheros de §M4-SHIP.
+
+### Lo que NO se pudo cablear (solicitudes al arquitecto)
+
+- ~~**`HoldingDTO` sin motivo de `withdrawable:false`.**~~ **Resuelto por la errata v1.80.7 (`withdrawableReason`; cableado en §81.1).** §37.10d pide el chip «Compra en reembolso» en «Mi bóveda», pero
+  `GET /vault/holdings` solo da `withdrawable:false`; el motivo `origin_refunded` vive en `quote.ineligible[]`. Las
+  claves `vault.item.originRefunded*` están en el catálogo y `error.ITEM_ORIGIN_REFUNDED` sí se pinta en el `POST`.
+  Petición: `withdrawableReason?: 'pending' | 'in_withdrawal' | 'origin_refunded' | 'replacing'` en `HoldingDTO`.
+- ~~**`KycInfoDTO` sin `clabeUpdatedAt`.**~~ **Resuelto por la errata v1.80.7 (la línea del DTO estaba desactualizada; cableado en §81.1).** `account.kyc.clabeUpdatedAt` («CLABE actualizada el…») existe en el catálogo
+  pero la cuenta del cliente no puede pintarla.
+- **`Retry-After` no llega al cliente HTTP** (`api-client` solo expone `code/details`). El 429 usa
+  `details.retryAfterSeconds` si viene; si no, la frase sin minutos (§37.13). Si `C7` fija minutos, que los mande en
+  `details`.
+- ~~**`403 MONEY_OUT_LIMIT_EXCEEDED`** sin `details` tipados en el contrato para la tarjeta de envío~~ **Resuelto por la errata v1.80.7 (punto 16: `details {capCents, usedCents, requestedCents}` normativos; tipados en §81.1).** Se sigue pintando la frase
+  genérica `error.limitExceeded` (§37.4, sin cifra) hasta que ux-ui fije el copy con cifras.
+
+### §81.1 · Errata **v1.80.7** del contrato (2026-09-29, rama `claude/envio-preparar`, base `ea615c3`; `DESIGN_SYSTEM §37`)
+
+Cinco puntos del changelog de 19 tocan al front (13, 14, 16 y la deuda (a)/(b)/(c) del techlead). Todo con su prueba;
+las cifras son medidas en este pase (vitest por fichero; ⛔ sin Playwright completo: QA tenía un stack levantado).
+
+| Punto | Antes (rojo) | Después (verde) | Dónde |
+|---|---|---|---|
+| **13 · `HoldingDTO.withdrawableReason`** | «Mi bóveda» no podía distinguir `origin_refunded` (§81 «Lo que NO se pudo cablear») | Tipo `WithdrawableReason` (clave siempre presente); el hint del botón RETIRAR y el chip salen del motivo: `origin_refunded` ⇒ chip **«Compra en reembolso»** + su frase (§37.10d); `replacing` ⇒ «La estamos reponiendo»; `pending`/`not_in_custody`/`in_withdrawal` conservan su copy. Mock: `lib/mock/holding-withdrawable.ts` (**UN cuerpo** para flag + motivo, en el orden del contrato) y `m4-ship.mockHoldingWithdrawabilityOf` (deriva `replacing` del caso abierto y `origin_refunded` de la fila `order_full` viva de la orden de origen) | `types/contract.ts`, `vault/VaultView.tsx` (`withdrawableHintKey`), `lib/api.ts` (`getHoldings`), fixtures |
+| · pruebas | — | `holding-withdrawable.test.ts` **14/14**: cinco motivos, orden (`pending` manda; `in_withdrawal` antes que `origin_refunded`), invariante `withdrawable === (withdrawableReason === null)` sobre la función pura, los fixtures y el `GET /vault/holdings` del mock; `VaultView.test.tsx` **+8** (uno por motivo, `null`, `replacing` sin `replacement`, helper) ⇒ **19/19** | commit `3dc5f3e`, `2785d73` |
+| **14 · `KycInfoDTO.clabeUpdatedAt`** | La cuenta no podía pintar «CLABE actualizada el …» (clave i18n huérfana desde §81) | `clabeUpdatedAt: string \| null` obligatorio; `KycSection` la pinta bajo la CLABE enmascarada con `formatDate`; `null` (o sin CLABE) ⇒ nada. El mock sella la fecha solo cuando la máscara cambia (PS-46) | `KycSection.tsx`; `KycSection.test.tsx` **+4** (es/en, `null`, sin CLABE) ⇒ **13/13**; `i18n-parity` **45/45**. Commit `aba5eaa` |
+| **16 · `403 MONEY_OUT_LIMIT_EXCEEDED`** | `details` sin leer; copy genérico | `moneyOutLimitDetailsOf(err.details)` tipa los tres enteros (normativos, PS-4/PS-4b) y los retiene en `ShownError.moneyOut` **sin pintarlos**: §37.4 va sin cifra hasta que ux-ui fije el copy. Prueba: el pie dice la frase de §37.4, ⛔ ni `914.57` ni `600.00` en la tarjeta, un solo `POST`; el lector devuelve `null` si falta un campo o no es entero | `ShipPreparationCard.tsx`; `ShipPreparationCard.test.tsx` **+2** ⇒ **11/11**. Commit `3dc5f3e` |
+| **Deuda (c) · `asApiError` ×5** | Cinco copias | `lib/api-client.ts` exporta `asApiError`; las cinco vistas lo importan; juez: 4 suites **48/48** | Commit `8f48d28`; `TECH_DEBT` SHIP-FD-c (cerrado) |
+| **Deuda (a) · el mock reimplementa la fórmula** | `m4-ship.ts:1286,1300-1303,1484` daban la fila SPEI con **IVA 0 y comisión 0** | `lib/mock/refund-math.ts` (espejo de `money.ts`) + `refund-math.test.ts` con **los vectores dorados** de `backend/src/common/refund-math.spec.ts` (31458/4138/1458; 52430+31458+15729=99617; PS-26/27 ×200 montos; el caso `stripe < Q`) **7/7**. `case_excess` = `caseRefundComponents(A) − caseRefundComponents(stripe)`, `stripe_failed` copia la fila. `m4-ship-refund-components.test.ts`: **rojo antes 1/2** (`pr-8002` ⇒ `{40000,0,0,0}`), **verde después 2/2** (`{32000,4414,1533,6467}`), medido cambiando el fichero por su copia de `HEAD` y volviéndolo a poner | Commit `85923df`; `TECH_DEBT` SHIP-FD-a (parcial: el tope y `Q/R` siguen en el mock; dirección: vectores compartidos vía arquitecto) |
+| **Deuda (b) · `ShipPreparationCard` 1 184 líneas** | — | **No se paga en este pase** (no cabe con juez suficiente): registrada como SHIP-FD-b con `useShipPreparation` + `shipErrorOf` como dirección y `wc -l < 500` como cierre | `TECH_DEBT` |
+
+**Una precisión sobre el encargo.** El resumen del encargo decía `origin_refunded` ⇒ «Ya no está en tu bóveda: este
+pedido se reembolsó». Esa frase es, en §37.10d, la del **pedido `vault` ya reembolsado** (la carta ya no es suya y
+**desaparece** de «Mi bóveda»); para una carta que **sigue siendo suya** con la compra **en** reembolso, el diseño y el
+contrato (§3 v1.80.7: «chip «Compra en reembolso» (§37.10d) solo con `origin_refunded`») fijan el chip **«Compra en
+reembolso»** + «Esta carta viene de una compra que se está reembolsando…». Se cableó lo que dicen diseño y contrato;
+la prueba de `VaultView` asevera que «Ya no está en tu bóveda» **no** aparece en esa tarjeta.
+
+**Cierre medido:** `tsc --noEmit` limpio; `eslint` limpio en los 18 ficheros tocados; suites que consumen el mock
+`m4-ship` (`m4/`, `m3/`, `manual-refunds/`, `lib/mock/`, `vault/`, `shipments/`, `orders/`): **26 ficheros, 325/325**.
+Playwright `e2e/m4-ship.spec.ts` con mocks (build de producción privado, puerto `3117`, `--workers 2`): **12/12 pasadas**, 1.9 min, N=1.
+
+### §81.2 · El mock no calcula IVA — candado `§M10-IVA.3` rojo por `85923df` (2026-09-29, base `cfb43b3`)
+
+**El defecto (medido por el orquestador sobre copia del árbol entero de `cfb43b3`, vitest completo 1 roja de 2145;
+reproducido por mí en copia):** `src/test/frontend-never-multiplies.test.ts` > «sumar o restar el IVA a un importe»
+⇒ `['src/lib/mock/refund-math.ts']`. La línea era `shippingIvaCents: o.ivaCents - refundedIva` de
+`orderRemainingRefundComponents`, que el mock **ni siquiera usaba** (solo su prueba). En el pase de `85923df` corrí
+solo las suites tocadas, no la completa: por eso no la vi.
+
+**Opción elegida: (1), que el mock no calcule IVA.** Descarté la (2) —excluir `refund-math.ts` del candado— porque
+es exactamente la forma en que el propio candado dice que la regla se pierde, y porque la (1) cabía:
+- `lib/mock/refund-math.ts` ya no tiene `taxBaseCentsOf` ni `orderRemainingRefundComponents`. El IVA de la mercancía
+  se **lee** de `GOLDEN_MERCHANDISE_IVA_CENTS` (tabla `r → mercancía → IVA`, copiada de lo que produce
+  `backend/src/common/money.ts`; 30000→4138 es literal de `refund-math.spec.ts`, 32000→4414 y 35000→4828 de las
+  pruebas del mock sobre `ord-4103`/`ord-4102`). Un importe sin vector responde **`501 MOCK_GOLDEN_VECTOR_MISSING`**
+  en vez de inventar la cifra. Lo que queda en el espejo es reparto de centavos sin IVA (comisión `floor(F·P/G)`,
+  compensación `X − Q`) y la resta componente a componente de filas ya congeladas.
+- `itemMissingAmountCents` (solo el importe) para que `itemMissingCents` del mock no dependa de la tabla.
+- **Limitación aceptada del mock:** un reembolso de caso **parcial** (`X ≤ Q`, o un Stripe corto) con un monto que
+  no esté sembrado da 501 en modo mocks. Ninguna prueba ni E2E lo ejerce hoy (e2e usa MX$500 > Q; las unitarias 500
+  y 900 > Q). Si hace falta otro, se siembra su vector. El servidor real no tiene esta limitación.
+- `refund-math.test.ts`: nueva prueba de que **cada `unitPriceCents` sembrado en `m4-ship.ts`** tiene vector, y de
+  que un faltante da 501. PS-3 («faltan todas», 99617) se retiró del espejo: vive en el spec del backend. La
+  propiedad «×200 montos» pasa a los montos sembrados (4 × 5).
+
+**El candado se ENDURECIÓ, no se aflojó.** Al medir se vio que el patrón `1\s*\+\s*\w*[Ii]vaRate` exige el `1`
+pegado al `+` y **no veía `(100 + ivaRatePct)`** —la base gravable en porcentaje de `taxBaseCentsOf`—. Patrón nuevo
+`/\b100\s*\+\s*\w*[Ii]vaRate/` + su entrada en el canario (`* 100 / (100 + ivaRatePct)` inyectado en la ventana
+ciega de `StorefrontHeader.tsx`). Única ocurrencia fuera de tests/simuladores: el `refund-math.ts` viejo.
+**Mutación (copia de `frontend/` en scratchpad, estática ⇒ determinista):** con el `refund-math.ts` de `cfb43b3`
+el candado da **2 rojas** (`100 + r` y «restar el IVA»); quitándole solo `orderRemaining`, **1 roja** (`100 + r`).
+
+**Cierre medido:** `npx vitest run` completo **185/185 ficheros, 2149/2149** (2145 + 1 patrón + 1 canario + 2 netas
+en `refund-math.test.ts`); `tsc --noEmit` limpio; `npm run lint` limpio; Playwright `e2e/m4-ship.spec.ts` con mocks
+(build privado, puerto `3917`): **12/12**, N=1.
+
+- **P-REL-3 (2026-09-29, rama `claude/release-s5`, base `e04d0e53`)** — `e2e/m4-ship-spei-real.spec.ts` (nuevo, `@real` + `realOnly`): cubeta SPEI contra el stack REAL con la semilla `E2E_SPEI_FIXTURE` de backend (`dd6fb1d7`). Paga `E2E-SPEI-0001` (reveal ⇒ `422 MANUAL_REFUND_CONFIRMATION_REQUIRED` ⇒ casilla ⇒ `200 outcome:'paid'`; repetir ⇒ `already_paid`; reveal ⇒ `409`) y cancela `E2E-SPEI-0002` (`outcome:'cancelled'`; repetir ⇒ `already_cancelled`), aseverando la respuesta interceptada y la pantalla. Rol nuevo `speiCustomer` en `e2e/utils/env.ts` (registra la CLABE por `PUT /users/me/kyc`). Consume las filas: re-sembrar entre corridas; sin fila ⇒ `skipIfSeedMissing`. Medido: **5/5 corridas verdes** (N=5, re-siembra + `next build`/`start`, load 1.9–3.3); mutación en copia (la vista no llama a `…/paid`) ⇒ **3/3 rojas** en `waitForResponse` del primer `paid`. Censo de devops por tocar (medido con `check-e2e-skip-census.sh`): `scripts/e2e-skip-census.baseline:8` `realOnly 14 4 → 16 5` y `:7` `skipIfSeedMissing 12 6 → 15 7` (import + 1 `realOnly` + 2 saltos por dato; la prosa del spec evita las palabras clave).
+
+**Gate de release s5 (b8a3e4ce) · B-1..B-3b cerrados, 2026-09-29.** B-1 `m4-ship` lee `admin.modules.m4` (+ literal «Pedidos por preparar»); B-2 la fila reembolsada asevera sin «Deshacer» por nombre, sin `group` de verbos y un solo botón («Ubicar», folio INV-000113); B-3a el header con sesión son SEIS entradas (`nav.decksMeta` 3ª, af1f8c8c / DS R10 CA-1); **B-3b es defecto de PANTALLA**: `ea6b72a3` duplicaba `checkout.afterPayment` en el `aside`, contra DS §15.3 («tres notas… no se añade ni se quita ninguna») y PROJECT 48b (invitado pinta una) ⇒ se quita la copia y la prueba gana `toHaveCount(1)`. Canarios: reponer la copia ⇒ checkout rojo 1/1; mostrar los verbos en fila fija ⇒ B-2 rojo 2/2. Medido: las 4 pruebas `--repeat-each=3` 18/18; E2E mocks completa 245 verdes · 0 rojos · 8 saltados; vitest 2320/2320; tsc y eslint limpios; censo = baseline.

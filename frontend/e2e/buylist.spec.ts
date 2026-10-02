@@ -45,10 +45,9 @@ async function addFromBinder(page: Page, name: string, finish = 'Normal') {
 }
 
 /**
- * Localizador del carrito de venta **agnóstico del layout**. El carrito tiene DOS encarnaciones
- * (`BuylistView`, mitigación H1): en **desktop (≥1024px)** es un `<aside>` fijo siempre visible; en
- * **móvil** es un `role="dialog"` que abre el FAB. Ambos comparten el MISMO `SellCartContents` y el
- * MISMO `aria-label`, así que se localiza por ahí en vez de por rol — que es lo único que cambia.
+ * Localizador del carrito de venta. §37.1 (P-61): el carrito es UN solo `role="dialog"`
+ * (`SellCartDrawer`) en todos los tamaños — lateral de 400 px en `≥ lg`, bottom sheet en `< lg`.
+ * El `<aside>` fijo de P-42 se retiró. Se localiza por el prefijo del `aria-label` del diálogo.
  */
 function cartPanel(page: Page) {
   // El aria-label lleva el conteo («Carrito de venta (2)»), así que se ancla por prefijo.
@@ -56,41 +55,26 @@ function cartPanel(page: Page) {
   /*
    * ⚠️ `:not(button)` NO es cosmético: el **FAB** se rotula «Carrito de venta, 1 carta(s)»
    * (`buylist.cartFab.ariaWithCount`), que empieza por el MISMO prefijo que el panel. Con el
-   * drawer abierto el selector resolvía a DOS elementos —el diálogo y el botón que lo abre— y
-   * cualquier aserción sobre «el carrito» reventaba por strict mode… o, peor, pasaba mirando el
-   * botón en vez del panel. El carrito es un `dialog`/`aside`; el FAB es el mando que lo abre.
+   * drawer abierto el selector resolvía a DOS elementos —el diálogo y el botón que lo abre—.
    */
   return page.locator(`[aria-label^="${prefix}"]:not(button)`);
 }
 
 /**
- * Deja el carrito VISIBLE, sea cual sea el viewport. En móvil abre el drawer con el FAB; en
- * desktop no hay nada que abrir (el `<aside>` ya está en pantalla).
- *
- * Antes clicaba el FAB a secas y, con el viewport por defecto de la suite (1280×800), ese FAB
- * **no existe** — el carrito es la columna lateral. De ahí el timeout de ocho specs.
+ * Deja el carrito VISIBLE, sea cual sea el viewport. §37.1 (P-61): los dos disparadores se montan
+ * siempre y los esconde el CSS — FAB en `< lg`, «Ver lista» de la `SellCartBar` en `≥ lg` —, así
+ * que se pulsa **el que está visible**. Ya no hay superficie que se decida al hidratar (el
+ * `useMediaQuery` que la elegía se retiró), así que no hay carrera FAB→panel que esquivar.
  */
 async function openCart(page: Page) {
   const panel = cartPanel(page);
-  const fab = page.getByTestId('sell-cart-fab');
-  /*
-   * ⚠️ **Se persigue el ESTADO FINAL —el carrito visible—, no una secuencia de clics.**
-   * Qué superficie monta el carrito (FAB + drawer en móvil, `<aside>` fijo en escritorio) lo
-   * decide una medición del viewport en cliente, así que **durante la hidratación el primer
-   * render puede pintar el FAB y sustituirlo por el panel medio segundo después**. La versión
-   * anterior leía `fab.count()` en ese instante y clicaba: Playwright encontraba el elemento ya
-   * **desprendido del DOM** («element was detached from the DOM, retrying») y agotaba el
-   * tiempo esperando a un botón que había dejado de existir.
-   *
-   * Se espera a que la superficie se decida, se pulsa el FAB **solo si sigue ahí**, y el fallo
-   * de ese clic **no es un fallo del test**: si el FAB desapareció es porque el panel fijo tomó
-   * su lugar, y el carrito ya está a la vista. Lo que se asevera al final es lo único que los
-   * llamadores necesitan.
-   */
-  await expect(panel.or(fab).first()).toBeVisible();
-  if (await fab.isVisible().catch(() => false)) {
-    await fab.click({ timeout: 5_000 }).catch(() => {});
-  }
+  if (await panel.isVisible().catch(() => false)) return;
+  const trigger = page
+    .getByTestId('sell-cart-fab')
+    .or(page.getByTestId('sell-cart-bar-open'))
+    .filter({ visible: true });
+  await expect(trigger).toHaveCount(1);
+  await trigger.click();
   await expect(panel).toBeVisible();
 }
 
@@ -252,7 +236,8 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     // el contador del FAB sube y el carrito se revisa abriéndolo (P-16, §18.4a).
     await expect(page.getByText(t('es', 'buylist.addedLine', { name: 'Charizard', finish: 'Normal' }))).toBeVisible();
     await openCart(page);
-    await expect(page.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
+    // §37.1b: la barra de escritorio también rotula «Valor de tus cartas»; se mide en el cajón.
+    await expect(cartPanel(page).getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
 
     // Transparencia: el detalle expandible trae el valor de referencia y el acabado.
     // v2.0 (P-48): la fila «Regla aplicada» SE RETIRÓ — no hay reglas por rareza/acabado, hay una
@@ -281,7 +266,8 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     await addFromBinder(page, 'Pikachu');
     await openCart(page);
 
-    await expect(page.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
+    // §37.1b: la barra de escritorio también rotula «Valor de tus cartas»; se mide en el cajón.
+    await expect(cartPanel(page).getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
     await expect(page.getByText(t('es', 'buylist.estimateNote'))).toBeVisible();
     await expect(page.getByRole('button', { name: /Enviar solicitud/ })).toBeEnabled();
 
@@ -379,7 +365,10 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
    */
   for (const [label, width, height, host] of [
     ['390px · drawer CERRADO', 390, 844, 'buylist-header'],
-    ['1280px · panel fijo', 1280, 900, 'cart-money'],
+    // §37.1c (P-61): en escritorio ya no hay panel fijo; con el cajón cerrado la nota es la de
+    // la cabecera, igual que en móvil.
+    ['1280px · cajón CERRADO', 1280, 900, 'buylist-header'],
+    ['1024px · cajón CERRADO', 1024, 768, 'buylist-header'],
   ] as const) {
     test(`§23.3g-bis · ${label} ⇒ una sola nota, la de «${host}»`, async ({ page }) => {
       await page.setViewportSize({ width, height });
@@ -399,17 +388,22 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     });
   }
 
-  test('§23.3g-bis · 390px con el DRAWER ABIERTO ⇒ la nota es la del bloque de dinero', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/es/buylist');
-    await openCart(page);
+  for (const [label, width, height] of [
+    ['390px', 390, 844],
+    ['1280px', 1280, 900],
+  ] as const) {
+    test(`§23.3g-bis · ${label} con el CAJÓN ABIERTO ⇒ la nota es la del bloque de dinero`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/es/buylist');
+      await openCart(page);
 
-    const visible = page.getByTestId('buylist-shipping-note').filter({ visible: true });
-    await expect(visible).toHaveCount(1);
-    await expect(visible).toHaveAttribute('data-note-surface', 'cart-money');
-  });
+      const visible = page.getByTestId('buylist-shipping-note').filter({ visible: true });
+      await expect(visible).toHaveCount(1);
+      await expect(visible).toHaveAttribute('data-note-surface', 'cart-money');
+    });
+  }
 
   /**
    * §23.14.6-6 — el TEASER del home. Los dos montajes del panel son **por diseño** y a cada ancho
@@ -506,10 +500,10 @@ test.describe('buylist · el total sin precios se EXPLICA (§23.3h / §23.3f-bis
 });
 
 test.describe('buylist · cotizador v2: FAB + drawer del carrito (Stream C, P-14/P-16 — §18.11.3)', () => {
-  // El FAB + drawer es la encarnación MÓVIL del carrito: arriba de 1024px el carrito es el
-  // `<aside>` fijo y el FAB ni se monta (`isDesktopCart`, mitigación H1). Este bloque describe
-  // literalmente «badge del FAB» y «cerrar regresa el foco al FAB», así que corre en el viewport
-  // donde ese comportamiento existe — el 390px de los patrones móviles de §20.11.
+  // El FAB es el disparador MÓVIL del carrito: en `≥ lg` lo esconde el CSS (`lg:hidden`) y el
+  // disparador es la barra (§37.1, P-61 — ver su bloque). Este bloque describe literalmente
+  // «badge del FAB» y «cerrar regresa el foco al FAB», así que corre en el viewport donde ese
+  // disparador se ve — el 390px de los patrones móviles de §20.11.
   test.use({ viewport: { width: 390, height: 844 } });
 
   test('smoke: agregar desde la teja → badge del FAB sube → drawer con FinishMark → cerrar regresa el foco', async ({
@@ -549,6 +543,123 @@ test.describe('buylist · cotizador v2: FAB + drawer del carrito (Stream C, P-14
     await drawer.getByRole('button', { name: t('es', 'buylist.cartDrawer.close') }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(fab).toBeFocused();
+  });
+});
+
+/**
+ * §37.1 (P-61) · VENDER EN COMPUTADORA — el catálogo a todo el ancho y el carrito bajo demanda.
+ *
+ * Lo que jsdom no puede medir (no pinta CSS) se mide aquí: el ANCHO de la teja, qué disparador se
+ * VE en cada breakpoint y el retorno de foco real. Env-agnóstico: «Base» abre el set tanto en mock
+ * como contra el seed real (`openBaseSet`), y ninguna aserción depende de un nombre de fixture.
+ */
+test.describe('buylist · P-61 carrito bajo demanda en escritorio (§37.1)', () => {
+  for (const [label, width, height] of [
+    ['1280×800', 1280, 800],
+    ['1024×768', 1024, 768],
+  ] as const) {
+    test(`P61-1 · ${label}: sin panel fijo, la teja mide ≥ 200 px y el disparador es la barra`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/es/buylist');
+      await openBaseSet(page);
+
+      const firstTile = page
+        .getByRole('list', { name: t('es', 'masterSet.binderGridLabel') })
+        .first()
+        .locator(':scope > li')
+        .first();
+      await expect(firstTile).toBeVisible();
+      const box = await firstTile.boundingBox();
+      // §37.1 / §18.2: con la columna de 360 px la teja medía ≈144 px a 1280 y ≈122 px a 1024.
+      expect(box?.width ?? 0, `ancho de la teja a ${label}`).toBeGreaterThanOrEqual(200);
+
+      // Ni `aside` de carrito ni diálogo abierto: el carrito está cerrado hasta que se pide.
+      await expect(page.locator('aside')).toHaveCount(0);
+      await expect(cartPanel(page)).toHaveCount(0);
+      // El disparador visible es la barra; el FAB existe pero el CSS lo esconde.
+      const bar = page.getByTestId('sell-cart-bar');
+      await expect(bar).toBeVisible();
+      const barBox = await bar.boundingBox();
+      expect(barBox?.height).toBe(64);
+      expect(Math.round((barBox?.y ?? 0) + (barBox?.height ?? 0))).toBe(height);
+      await expect(page.getByTestId('sell-cart-fab')).toBeHidden();
+    });
+  }
+
+  test('P61-1 · 390px: el disparador es el FAB y la barra no se ve', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/es/buylist');
+    await expect(page.getByTestId('sell-cart-fab')).toBeVisible();
+    await expect(page.getByTestId('sell-cart-bar')).toBeHidden();
+  });
+
+  test('P61-3 · sin sesión a 1280: banner en la cabecera + recordatorio en la barra; al abrir, el de cabecera se va', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/es/buylist');
+
+    const headerReq = page.getByTestId('buylist-header-requirements');
+    await expect(headerReq.getByText(t('es', 'buylist.loginToSellTitle'))).toBeVisible();
+    const bar = page.getByTestId('sell-cart-bar');
+    await expect(bar.getByText(t('es', 'buylist.cartBar.loginHint'))).toBeVisible();
+    await expect(bar.getByRole('link', { name: t('es', 'buylist.loginCta') })).toHaveAttribute(
+      'href',
+      /\/login\?next=\/buylist$/,
+    );
+
+    await openCart(page);
+    await expect(headerReq).toHaveCount(0);
+    await expect(page.getByText(t('es', 'buylist.loginToSellTitle')).filter({ visible: true })).toHaveCount(1);
+  });
+
+  /**
+   * §37.1d · orden de tabulación: cabecera → vitrina → binder → PIE → disparador fijo. El pie es
+   * del layout, así que el disparador solo queda detrás si vive fuera de la vista (portal al final
+   * de <body>). Se mide en el DOM y con el teclado: Tab desde el último enlace del pie.
+   */
+  test('§37.1d · a 1280, el pie va ANTES de la barra en el DOM y Tab desde el pie entra en la barra', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/es/buylist');
+    const bar = page.getByTestId('sell-cart-bar');
+    await expect(bar).toBeVisible();
+    const order = await page.evaluate(() => {
+      const footer = document.querySelector('footer');
+      const el = document.querySelector('[data-testid="sell-cart-bar"]');
+      if (!footer || !el) return 'missing';
+      // eslint-disable-next-line no-bitwise
+      return footer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING ? 'after-footer' : 'before-footer';
+    });
+    expect(order).toBe('after-footer');
+    await page.locator('footer a').last().focus();
+    await page.keyboard.press('Tab');
+    const focusedIn = await page.evaluate(
+      () => document.activeElement?.closest('[data-testid="sell-cart-bar"]')?.getAttribute('data-testid') ?? null,
+    );
+    expect(focusedIn).toBe('sell-cart-bar');
+  });
+
+  test('§37.1d · a 390, Tab desde el último enlace del pie cae en el FAB', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/es/buylist');
+    await expect(page.getByTestId('sell-cart-fab')).toBeVisible();
+    await page.locator('footer a').last().focus();
+    await page.keyboard.press('Tab');
+    await expect(page.getByTestId('sell-cart-fab')).toBeFocused();
+  });
+
+  test('P61-5 · a 1280, Esc cierra el cajón y el foco vuelve a «Ver lista»', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/es/buylist');
+    const open = page.getByTestId('sell-cart-bar-open');
+    await open.focus();
+    await page.keyboard.press('Enter');
+    await expect(cartPanel(page)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(cartPanel(page)).toHaveCount(0);
+    await expect(open).toBeFocused();
   });
 });
 
@@ -675,7 +786,8 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
 
     // Estructura: el carrito (drawer, P-16) suma un total ESTIMADO (no un monto de fixture).
     await openCart(page);
-    await expect(page.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
+    // §37.1b: la barra de escritorio también rotula «Valor de tus cartas»; se mide en el cajón.
+    await expect(cartPanel(page).getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
 
     // 132(a): por debajo del mínimo de compra el CTA no procede y la pantalla dice cuánto falta.
     // El mínimo lo fija el servidor, así que el smoke sube cantidad hasta cruzarlo (sin hardcodear).

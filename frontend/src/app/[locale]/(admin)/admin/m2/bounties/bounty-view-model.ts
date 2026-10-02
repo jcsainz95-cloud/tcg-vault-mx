@@ -209,6 +209,36 @@ export function bountyPremium(
   };
 }
 
+/**
+ * ⭐ §M2-B.11 punto 8 (v1.80 / v1.80.2) — LO QUE SE PAGA, junto a lo configurado.
+ *
+ * `bounty.priceCents` sigue siendo lo CONFIGURADO; `payoutCents`/`cappedByMarket` (aditivos) dicen
+ * lo que se paga hoy. La pantalla **obedece** los dos campos: no tiene el mercado y ⛔ no recalcula el
+ * tope ni deduce `capped` comparando cifras (§28: obedece, no infiere).
+ * - `pays`     — `payoutCents != null`: se paga esa cifra; `capped` = `cappedByMarket` tal cual llegó.
+ * - `retained` — bounty efectivo y `activa`, pero `payoutCents == null` con `buy.premiumAtFloor`: el
+ *                guardarraíl retuvo la línea (topado + curva en el bin + premium). No paga ni sale en
+ *                la vitrina hasta que el mercado se corrija; `state` sigue `activa` (excepción aceptada
+ *                del contrato, y por eso hay que decirlo en la fila).
+ * - `none`     — no efectivo / sin precio / apagado / sin `bounty`: no hay «lo que se paga» que afirmar.
+ */
+export type BountyPayout =
+  | { kind: 'pays'; cents: number; capped: boolean }
+  | { kind: 'retained' }
+  | { kind: 'none' };
+
+export function bountyPayout(row: AdminBountyRowDTO): BountyPayout {
+  const bounty = row.pricing.bounty;
+  if (!bounty) return { kind: 'none' };
+  if (bounty.payoutCents != null) {
+    return { kind: 'pays', cents: bounty.payoutCents, capped: bounty.cappedByMarket === true };
+  }
+  if (row.state === 'activa' && bounty.effective && row.pricing.buy.premiumAtFloor) {
+    return { kind: 'retained' };
+  }
+  return { kind: 'none' };
+}
+
 /** Clave estable de una fila: el par (carta, acabado) que identifica la variante `raw:NM`. */
 export function bountyRowKey(row: { cardId: string; finish: string }): string {
   return `${row.cardId}|${row.finish}`;

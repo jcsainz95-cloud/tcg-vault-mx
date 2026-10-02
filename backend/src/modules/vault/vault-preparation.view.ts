@@ -1,5 +1,6 @@
 import {
   FulfillmentMode,
+  MissingReason,
   NameSource,
   PreparationItemStatus,
   Prisma,
@@ -44,6 +45,8 @@ export interface VaultPreparationItemDTO {
   currentLocation: LocationView;
   currentZone: VaultZone | null;
   prepStatus: PreparationItemStatus;
+  /** ⭐ v1.80.1 (§M4-VAULT.10): ⇔ `prepStatus==='missing'` (CHECK). El MISMO enum que el palomeo de envío. */
+  missingReason: MissingReason | null;
   placeability: { kind: 'placeable' } | { kind: 'blocked'; reason: VaultPlacementBlockReason };
 }
 
@@ -151,6 +154,7 @@ export function toVaultPreparationItem(
     // `null` ⇔ `currentLocation` 'unassigned' (mismo colapso de etiqueta en blanco).
     currentZone: currentLocation.kind === 'unassigned' ? null : piece.location!.zone,
     prepStatus: pi.prepStatus,
+    missingReason: pi.missingReason,
     placeability: reason === null ? { kind: 'placeable' } : { kind: 'blocked', reason },
   };
 }

@@ -1,4 +1,5 @@
 import { PaymentsService } from '../src/modules/payments/payments.service';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
@@ -67,6 +68,9 @@ function makeHarness() {
       create: rec('vaultPlacementItem.create'),
     },
   };
+  // v1.80.1 (§M4-SHIP.15.9): el contracargo `vault` resuelve la pieza VIGENTE por la cadena de casos (`replacementCase`,
+  // `orderItem`): delegados INERTES para las pruebas que no miden eso (se miden contra Postgres real).
+  withM61Defaults(tx);
   let inTx = false;
   const prisma: any = {
     order: { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
@@ -166,12 +170,12 @@ describe('M-59 · nacimiento de la colocación en la rama `vault` de onPaymentSu
     const h = makeHarness();
     h.prisma.order.findUnique.mockResolvedValue(vaultOrder());
     await h.payments.onPaymentSucceeded(piOf('pi_1', 100000));
-    // v1.79.4 (prueba 38(iii)): el candado se CONSERVA cambiando solo el método — la escritura es el
+    // v1.79.4 (prueba 38(iii), enmendada en v1.80: el WHERE es la lista cerrada pending/failed): el candado se CONSERVA cambiando solo el método — la escritura es el
     // CAS (`updateMany`, estado en el WHERE) y su `data` sigue siendo exactamente { status, settledAt }.
     expect(h.tx.order.update).not.toHaveBeenCalled();
     expect(h.tx.order.updateMany).toHaveBeenCalledTimes(1);
     expect(h.tx.order.updateMany.mock.calls[0][0]).toEqual({
-      where: { id: 'o1', status: { not: 'settled' } },
+      where: { id: 'o1', status: { in: ['pending', 'failed'] } }, // v1.80 §M4-VAULT.2-bis.2
       data: { status: 'settled', settledAt: expect.any(Date) },
     });
   });

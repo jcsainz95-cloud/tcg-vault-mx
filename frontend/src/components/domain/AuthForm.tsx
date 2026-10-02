@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
 import { Link } from '@/i18n/navigation';
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { buildPasswordChangeRedirect, homeForRole, passwordRouteForRole, safeNext as safeNextOf } from '@/lib/account-routes';
+import { TOO_MANY_PASSWORD_ATTEMPTS, retryAfterMinutes } from '@/lib/password-attempts';
 import type { UserDTO } from '@/types/contract';
 
 export function AuthForm({
@@ -30,6 +31,17 @@ export function AuthForm({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  /**
+   * `C7` (DESIGN_SYSTEM §37.13 v4.9.1 · contrato v1.80.8.1): el aviso del 429 se elige por `error.code`,
+   * ⛔ nunca por el status solo. `TOO_MANY_PASSWORD_ATTEMPTS` (tope por correo, solo login) ⇒
+   * `auth.login.rateLimited*` + enlace a restablecer (restablecer SÍ levanta ese candado). `RATE_LIMITED`
+   * (tope por IP) o cualquier otro 429 ⇒ `auth.rateLimitedByIp*`, sin enlace y sin «correo»: restablecer no
+   * lo levanta y el tope no depende del correo. Minutos = fórmula normativa (`retryAfterMinutes`:
+   * `max(1, ceil(s / 60))`, `null` sin cifra usable) para los dos códigos. ⛔ Sin contador regresivo sin
+   * cifra; el botón no se apaga (el servidor es la puerta). ⛔ Nunca «tu cuenta está bloqueada».
+   */
+  const [rateLimited, setRateLimited] = useState<{ minutes: number | null; code: string } | null>(null);
+  const rateLimitRef = useRef<HTMLDivElement>(null);
 
   // Solo se honra un `next` interno (empieza con "/") para evitar open redirect.
   const safeNext = safeNextOf(next);
@@ -59,6 +71,7 @@ export function AuthForm({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setErrorCode(null);
+    setRateLimited(null);
     setLoading(true);
     const form = new FormData(e.currentTarget);
     const email = String(form.get('email') ?? '');
@@ -79,10 +92,24 @@ export function AuthForm({
         redirectAfterAuth(res.user);
       }
     } catch (err) {
-      setErrorCode(err instanceof ApiClientError ? err.code : 'INTERNAL');
+      // ⛔ v1.80 (C7): con el 429 NO se reintenta solo (ni temporizador ni cuenta atrás que re-envíe): se
+      // pinta el aviso y el usuario decide. Se guarda el `code`: solo `TOO_MANY_PASSWORD_ATTEMPTS` ofrece
+      // restablecer (contrato v1.80.8.1); el status 429 solo decide QUE hay aviso, no CUÁL.
+      if (err instanceof ApiClientError && err.status === 429) {
+        setRateLimited({ minutes: retryAfterMinutes(err.details), code: err.code });
+      } else {
+        setErrorCode(err instanceof ApiClientError ? err.code : 'INTERNAL');
+      }
       setLoading(false);
     }
   }
+
+  // Tabla de la errata v1.80.8.1: el aviso por cuenta (con enlace) SOLO con su código y en login.
+  const perAccount = mode === 'login' && rateLimited?.code === TOO_MANY_PASSWORD_ATTEMPTS;
+
+  useEffect(() => {
+    if (rateLimited) rateLimitRef.current?.focus();
+  }, [rateLimited]);
 
   return (
     /*
@@ -102,6 +129,26 @@ export function AuthForm({
           <Banner variant="warning" role="status">
             {t('inactivityLogout')}
           </Banner>
+        )}
+        {rateLimited && (
+          <div ref={rateLimitRef} tabIndex={-1} className="outline-none" data-testid="auth-rate-limited">
+            <Banner variant="warning" role="alert">
+              <p>
+                {perAccount
+                  ? rateLimited.minutes !== null
+                    ? t('login.rateLimitedRetryIn', { minutes: rateLimited.minutes })
+                    : t('login.rateLimited')
+                  : rateLimited.minutes !== null
+                    ? t('rateLimitedByIpRetryIn', { minutes: rateLimited.minutes })
+                    : t('rateLimitedByIp')}
+              </p>
+              {perAccount && (
+                <Link href="/forgot-password" className="mt-2 inline-block text-text underline underline-offset-4 hover:text-accent">
+                  {t('login.rateLimitedResetLink')}
+                </Link>
+              )}
+            </Banner>
+          </div>
         )}
         {errorCode && (
           <Banner variant="danger" role="alert">

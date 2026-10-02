@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { VaultService } from '../src/modules/vault/vault.service';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
@@ -12,6 +13,7 @@ import {
   tryBuildGradeKey,
   sealedMarketGradeKey,
 } from '../src/modules/pricing/pricing.types';
+import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
 
 /**
  * v1.53-buylist-graded-identity (ARCHITECTURE §4.40.4c / §4.40.9 qa-e y qa-f, **MONEY**) —
@@ -41,6 +43,8 @@ function pricingWithRealKeys(over: Record<string, unknown> = {}): PricingService
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     gradeKeyFor: jest.fn(PricingService.prototype.gradeKeyFor),
     tryGradeKeyFor: jest.fn(PricingService.prototype.tryGradeKeyFor),
+    // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
+    ...REAL_VALUATION_GATE,
     sealedMarketGradeKeyForItem: (i: { tcgplayerProductId: number | null }) =>
       i.tcgplayerProductId != null ? sealedMarketGradeKey(i.tcgplayerProductId) : null,
     // La ÚNICA fila de mercado de graduadas que existe es la de PSA 10 (el caso real: el defecto
@@ -70,6 +74,8 @@ function pricingWithRealKeys(over: Record<string, unknown> = {}): PricingService
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     fxSnapshotSafe: jest.fn(async () => null),
     ...over,
+    // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
+    sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
 }
 
@@ -125,7 +131,7 @@ describe('bóveda — una graduada sin identidad de slab NO se valúa como PSA 1
       inventoryItem: { findMany: jest.fn(async () => items) },
       shipmentItem: { findMany: jest.fn(async () => []) },
     };
-    return new VaultService(prisma as PrismaService, pricingWithRealKeys());
+    return new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys());
   }
 
   it('sale `pending` y NO suma al portafolio (antes sumaba MX$900 del grado más caro)', async () => {
@@ -146,7 +152,7 @@ describe('bóveda — una graduada sin identidad de slab NO se valúa como PSA 1
     const prisma: any = {
       inventoryItem: { findUnique: jest.fn(async () => ({ ...item, ownerUserId: 'u1', movements: [] })) },
     };
-    const svc = new VaultService(prisma as PrismaService, pricingWithRealKeys());
+    const svc = new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys());
     const res = await svc.holdingDetail('u1', 'i-sin');
     expect(res.referenceValue).toEqual({ status: 'pending' });
   });

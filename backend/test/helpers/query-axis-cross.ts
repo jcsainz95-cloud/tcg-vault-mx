@@ -191,6 +191,15 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   // un `?ivaTransferPct=` en otro endpoint tendría que declararse de nuevo, y debe.
   'GET /admin/settings/iva-transfer/preview::ivaTransferPct',
   'GET /admin/settings/iva-transfer/preview::samplePriceCents',
+
+  // ⭐ §M4-SHIP (v1.80.x; QA BLOQ-2(a) sobre `c20451f`): fechas (`from`/`to`, «Borde de día»), un booleano (`overdue`)
+  // y un entero (`amountCents` de la vista previa del reembolso de un caso) — sin enum detrás, como sus vecinos.
+  'GET /admin/finance/shrinkage::from',
+  'GET /admin/finance/shrinkage::to',
+  'GET /admin/refunds::from',
+  'GET /admin/refunds::to',
+  'GET /admin/replacement-cases::overdue',
+  'GET /admin/replacement-cases/:id/refund-preview::amountCents',
 ];
 
 /**
