@@ -155,6 +155,8 @@ describe('§40 · SR-UI-11 — el menú no cambia con «por revisar»', () => {
       '/admin/m5',
       '/admin/m3',
       '/admin/refunds',
+      // v4.20 (§43.19.8): «Avisos de gasto», súper-admin, tras «Reembolsos».
+      '/admin/spend-alerts',
       '/admin/m4',
       '/admin/m8',
       '/admin/m1',
