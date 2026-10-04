@@ -443,6 +443,14 @@ export interface UserDTO {
    * respuesta del login no lo llevan.
    */
   lockNotice?: { since: string } | null;
+  /**
+   * 🔒 v1.80.12.10 (§M4-SHIP.19.30.3): `isOwnerAccount` de la fila (la cuenta del dueño, marca `User.isOwner`);
+   * `false` para todo cliente. El front lo usa **solo** para mostrar u ocultar (diales del dueño, la fila del
+   * dueño en Usuarios); ⛔ nunca autoriza: autoriza el servidor (`403 OWNER_ONLY_SETTING`,
+   * `403 OWNER_ACCOUNT_PROTECTED`). Opcional: la sesión guardada y la respuesta del login no lo llevan; ausente
+   * ⇒ se trata como `false` (falla cerrado: se deshabilita, el servidor decide).
+   */
+  isOwner?: boolean;
 }
 
 export interface AuthResponse {
@@ -1372,6 +1380,24 @@ export interface AdminShipmentDTO {
   /** §19.20.2 */
   labelPending?: LabelPendingDTO | null;
   labelAlert?: LabelAlertDTO | null;
+  /**
+   * 🔒💰 v1.80.12.8 (§M4-SHIP.19.28.11): nuestro folio del envío (`ENV-000045`), fila y detalle. Es de admin
+   * (SK15/SDX-I-6): ⛔ ninguna superficie de cliente lo pinta. Opcional SOLO para un servidor anterior a `M-67`:
+   * sin él se pinta lo de hoy (el uuid), ⛔ nunca vacío.
+   */
+  folio?: string;
+  /**
+   * 💰 v1.80.12.7 (§M4-SHIP.19.27.9) + v1.80.12.8 (`auto_not_sent`): la última liberación de las últimas 24 h si el
+   * envío quedó sin guía y sin reclamo. **Solo en el detalle** y en la respuesta de `label/release`. ⛔ Sin importes.
+   */
+  lastLabelRelease?: LabelReleaseDTO | null;
+}
+
+/** §19.27.9 / §19.28.11 — cómo se soltó el último reclamo de compra. */
+export type LabelReleaseVia = 'auto_verified' | 'auto_not_sent' | 'manual' | 'manual_verified';
+export interface LabelReleaseDTO {
+  at: string;
+  via: LabelReleaseVia;
 }
 
 // ---- ⭐ Skydropx: la ventana «Capturar guía» (contrato §M4-SHIP.19.19 v1.80.11 + §19.20 v1.80.12) ----
@@ -1525,6 +1551,17 @@ export interface LabelOptionsDTO {
   provider: 'off' | 'skydropx';
   purchase: ShippingLabelPurchase;
   canPurchase: boolean;
+  /**
+   * 💰 v1.80.12.9 (§M4-SHIP.19.29.4, TG-1/TG-2): tope que ya se sabe sin el precio. `reissue` ⇔ el envío ya gastó su
+   * recompra; `daily_spend` ⇔ lo gastado en 24 h ya llegó al tope (el caso que depende del precio solo se sabe al
+   * pulsar: `403 LABEL_PURCHASE_LIMIT`). `null` para el dueño. ⛔ Sin cifra (SK11). Opcional: servidor anterior.
+   */
+  limit?: LabelPurchaseLimit | null;
+}
+/** §19.29.4 — `403 LABEL_PURCHASE_LIMIT {limit}` y `labelOptions.limit`. */
+export type LabelPurchaseLimit = 'daily_spend' | 'reissue';
+export interface LabelPurchaseLimitDetails {
+  limit: LabelPurchaseLimit;
 }
 export type ShippingLabelPurchase = 'disabled' | 'super_admin_only' | 'operators';
 
@@ -1580,13 +1617,48 @@ export interface LabelPendingDTO {
   carrierLabel: string | null;
   serviceName: string | null;
   chosenBy: { userId: string; name: string | null } | null;
+  /** 💰 v1.80.12.6 (§19.26.5): el precio de la opción reclamada (lo que se ve en el panel de Skydropx). Opcional: servidor anterior. */
+  priceCents?: number | null;
+  /**
+   * 🔒💰 v1.80.12.8 (§19.28.11): el token del reclamo vigente (`ENV-000045-01`); en pantalla va como
+   * «Pedido ENV-000045-01» (el texto exacto de la etiqueta y del panel). `null` ⇔ la compra no llegó a llevar folio.
+   */
+  providerReference?: string | null;
+  /** 💰 v1.80.12.7 (§19.27.9): `in_flight` ⇒ `since + T_UNKNOWN`; `processing` ⇒ `null`. */
+  verifyingUntil?: string | null;
 }
-export type LabelAlertKind = 'label_unknown' | 'label_processing_stuck' | 'label_cancel_failed' | 'label_live_on_cancelled';
+export type LabelAlertKind =
+  | 'label_unknown'
+  | 'label_processing_stuck'
+  | 'label_cancel_failed'
+  | 'label_live_on_cancelled'
+  /** 🔒💰 v1.80.12.8 (§19.28.6): una guía pagada de un intento anterior que no es la que usamos. */
+  | 'label_orphan';
+/** §19.27.4 + v1.80.12.8 (`duplicate`): por qué la verificación automática no pudo decidir. */
+export type InFlightUncertainReason =
+  | 'conflict'
+  | 'charged_not_found'
+  | 'ambiguous'
+  | 'balance_moved'
+  | 'unreadable'
+  | 'not_calibrated'
+  | 'duplicate';
+export const IN_FLIGHT_UNCERTAIN_REASONS: readonly InFlightUncertainReason[] = [
+  'conflict',
+  'charged_not_found',
+  'ambiguous',
+  'balance_moved',
+  'unreadable',
+  'not_calibrated',
+  'duplicate',
+];
 export interface LabelAlertDTO {
   kind: LabelAlertKind;
   since: string;
   /** ⇔ `kind='label_unknown'` ∧ actor súper-admin (lo decide el servidor; ⛔ la pantalla no mira el rol). */
   canRelease: boolean;
+  /** 💰 v1.80.12.7 (§19.27.9): solo con `label_unknown`; `null` si el job aún no lo escribió. */
+  reason?: InFlightUncertainReason | null;
 }
 /** §19.20.2: `T_UNKNOWN` / `T_STUCK` — van como `{minutes}` en el copy (§43.8c). */
 export const LABEL_T_UNKNOWN_MINUTES = 15;
@@ -1595,7 +1667,23 @@ export const LABEL_T_STUCK_MINUTES = 30;
 /** `POST …/label` — §19.7 + §19.20.5. */
 export type ShipmentLabelResponse =
   | { outcome: 'labeled'; shipment: AdminShipmentDTO; label: ShipmentLabelDTO }
-  | { outcome: 'processing' | 'in_progress' | 'in_flight'; shipment: AdminShipmentDTO };
+  | {
+      outcome: 'processing' | 'in_progress' | 'in_flight';
+      shipment: AdminShipmentDTO;
+      /** 💰 v1.80.12.6 (§19.26.1): Skydropx creó el envío Y reportó un error (solo con `processing`, solo en esta respuesta). */
+      providerError?: { code: string | null; message: string | null };
+    };
+
+/**
+ * 💰 `409 CONFLICT` de `POST …/label` por `details.reason` (§19.26.3, §19.27.2/§19.28.8, §19.28.11, §19.29.9).
+ * ⛔ La pantalla ramifica por `reason`, nunca por status (UX-SDX-12/29).
+ */
+export type LabelPurchaseConflictDetails =
+  | { reason: 'rate_already_purchased'; otherShipmentId: string }
+  | { reason: 'provider_id_taken'; otherShipmentId: string }
+  | { reason: 'purchase_in_flight'; otherShipmentId: string | null; otherFolio: string | null; retryAfterSeconds: number }
+  | { reason: 'attempts_exhausted' }
+  | { reason: 'stale_purchase_response' };
 
 /** `POST …/label/cancel` (§19.8). */
 export interface CancelShipmentLabelRes {
@@ -1603,9 +1691,18 @@ export interface CancelShipmentLabelRes {
   shipment: AdminShipmentDTO;
 }
 /** `POST …/label/release` (§19.18.4, súper-admin). */
+export interface ReleaseShipmentLabelReq {
+  note: string;
+  /** 💰 v1.80.12.6 (§19.26.3 (b)): SOLO si la pantalla pintó la casilla y la persona la marcó; ⛔ si no, la clave no viaja. */
+  confirmConflict?: true;
+}
+/** §19.27.6 + v1.80.12.8 (`not_sent`). */
+export type InFlightVerdictOutcome = 'found' | 'not_charged' | 'not_sent' | 'pending' | 'uncertain';
 export interface ReleaseShipmentLabelRes {
   outcome: 'adopted' | 'released';
   shipment: AdminShipmentDTO;
+  /** 💰 v1.80.12.7 (§19.27.6), aditivo. Opcional: servidor anterior. */
+  verdict?: { outcome: InFlightVerdictOutcome; reason: InFlightUncertainReason | null };
 }
 
 /** `GET /geo/postal-codes/:cp` (§19.5, público). */
@@ -1667,6 +1764,8 @@ export interface DepartureBoardDTO {
       trackingNumber: string;
       labelAvailable: boolean;
       labelPurchasedAt: string;
+      /** 🔒 v1.80.12.10 (§19.30.8 S-GAS-1): folio del envío. Opcional: servidor anterior. */
+      folio?: string;
     }[];
   }[];
   manualPending: number;
@@ -1769,6 +1868,8 @@ export interface ShipPreparationOrderDTO {
   /** ⭐ §19.20.2 (opcionales hasta que exista la fase D en el servidor). */
   labelPending?: LabelPendingDTO | null;
   labelAlert?: LabelAlertDTO | null;
+  /** 🔒💰 v1.80.12.8 (§19.28.11): folio del envío (`ENV-000045`), de admin. Opcional: servidor anterior a `M-67`. */
+  folio?: string;
 }
 
 export interface VaultPreparationOrderDTO {
@@ -2142,6 +2243,11 @@ export interface PickingListSummaryDTO {
   oldestOpenCaseAt: string | null;
   toReplaceOverdue: number;
   manualRefundsPending: number | null; // null para `vault_operator`
+  /**
+   * 🔒 v1.80.12.10 (§19.30.8 S-GAS-3): avisos de gasto 🔴 sin ver (sin AG-7/11/12, sin `muted`) — el mismo predicado que
+   * `workQueue.spendControl.unseenImmediate`. `null` para `vault_operator`. Opcional: servidor anterior.
+   */
+  spendAlertsUnseenImmediate?: number | null;
 }
 
 // ---- `details` de los errores de la cubeta ENVÍO (§0 v1.80 / v1.80.1 / v1.80.5) ----
@@ -2974,6 +3080,11 @@ export interface DashboardDTO {
     operatorRefunds?: { last24hCount: number; last24hCents: number; last30dCents: number } | null;
     /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): SOLO super_admin (`null` para el operador ⇒ la tarjeta no existe). */
     refundReviews?: { pending: number; oldestRefundedAt: string | null } | null;
+    /**
+     * 💰 v1.80.12.9 (§19.29.9, D2f): SOLO super_admin (`null` para el operador ⇒ la tarjeta no existe, GAS-1).
+     * `labelSpend24h` = las 24 h MÓVILES de TG-1 (se rotula «últimas 24 h», ⛔ nunca «hoy»); `capCents: null` ⇔ el dueño.
+     */
+    spendControl?: SpendControlDTO | null;
   };
   inventoryValueCents?: number;
   custodyValueCents?: number;
@@ -5394,6 +5505,12 @@ export interface AdminUserSummaryDTO {
    * no miente — no se deriva de ningún otro campo.
    */
   kycStatus?: KycStatus;
+  /**
+   * 🔒 v1.80.12.10 (§19.30.3): la cuenta del dueño. Un no dueño no ve «Restablecer», «Bloquear» ni «Borrar» en su fila;
+   * el propio dueño no ve «Bloquear» ni «Borrar» (§19.30.2 (b)). Solo para mostrar; autoriza el servidor
+   * (`403 OWNER_ACCOUNT_PROTECTED`). Opcional: servidor anterior.
+   */
+  isOwner?: boolean;
 }
 
 /**
@@ -5670,6 +5787,169 @@ export interface SettingsDTO {
   shippingTrackingPollMinutes?: number;
   shippingInsuranceTiers?: ShippingInsuranceTier[];
   shippingLabelFormat?: 'standard' | 'thermal';
+  // ---- 💰 Control del gasto (§M4-SHIP.19.29.8; diales del DUEÑO, §19.30.2 (1)). Opcionales: servidor anterior. ----
+  operatorLabelCap24hCents?: number;
+  shippingLabelReissueMaxPerShipment?: number;
+  spendAlertsDisabled?: SpendAlertCode[];
+  spendAlertLabelCapWarnPct?: number;
+  spendAlertShipmentCancelCount?: number;
+  spendAlertPersonCancelCount24h?: number;
+  spendAlertChargeDriftImmediateCents?: number;
+  spendAlertExtraChargeImmediateCents?: number;
+  spendAlertCancelRefundDays?: number;
+  spendAlertLabelNotShippedDays?: number;
+}
+
+/**
+ * 🔒 v1.80.12.10 (§19.30.2 (1)): las claves (nombres del DTO) que solo el dueño cambia — las 11 de §19.29.8 (incluido
+ * `skydropxLowBalanceCents`) + `shippingLabelPurchase`. Espejo de `OWNER_ONLY_SETTING_KEYS` del servidor; la pantalla
+ * la usa para DESHABILITAR (⛔ no autoriza: el servidor responde `403 OWNER_ONLY_SETTING {keys}`).
+ */
+export const OWNER_ONLY_SETTING_DTO_KEYS = [
+  'operatorLabelCap24hCents',
+  'shippingLabelReissueMaxPerShipment',
+  'spendAlertsDisabled',
+  'spendAlertLabelCapWarnPct',
+  'spendAlertShipmentCancelCount',
+  'spendAlertPersonCancelCount24h',
+  'spendAlertChargeDriftImmediateCents',
+  'spendAlertExtraChargeImmediateCents',
+  'skydropxLowBalanceCents',
+  'spendAlertCancelRefundDays',
+  'spendAlertLabelNotShippedDays',
+  'shippingLabelPurchase',
+] as const satisfies readonly (keyof SettingsDTO)[];
+export type OwnerOnlySettingKey = (typeof OWNER_ONLY_SETTING_DTO_KEYS)[number];
+/** `403 OWNER_ONLY_SETTING {keys}` (§19.30.2 (1)): nombres del DTO, ordenados. */
+export interface OwnerOnlySettingDetails {
+  keys: string[];
+}
+
+// ---- 💰 Avisos de gasto (§M4-SHIP.19.29.9 + §19.30) ----
+export type SpendAlertKind =
+  | 'label_after_address_fix'
+  | 'label_cap_warning'
+  | 'label_cap_blocked'
+  | 'label_reissue_loop'
+  | 'label_charge_drift'
+  | 'carrier_extra_charge'
+  | 'provider_balance_low'
+  | 'cancel_refund_missing'
+  | 'label_charged_unexplained'
+  | 'label_not_shipped'
+  | 'parcel_returned'
+  | 'parcel_problem'
+  | 'label_costly_choice'
+  | 'operator_refund_cap'
+  | 'super_admin_money_out'
+  | 'shrinkage'
+  | 'chargeback'
+  | 'buylist_manual_price'
+  | 'psa_credits'
+  | 'stuck_refund'
+  | 'owner_account_changed'
+  | 'staff_control_by_non_owner';
+/** Mapa fijo kind ⇔ code (§19.29.2 + §19.30.1 (6) / §19.30.2 (3)). */
+export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = {
+  label_after_address_fix: 'AG-1',
+  label_cap_warning: 'AG-2',
+  label_cap_blocked: 'AG-3',
+  label_reissue_loop: 'AG-4',
+  label_charge_drift: 'AG-5',
+  carrier_extra_charge: 'AG-6',
+  provider_balance_low: 'AG-7',
+  cancel_refund_missing: 'AG-8',
+  label_charged_unexplained: 'AG-9',
+  label_not_shipped: 'AG-10',
+  parcel_returned: 'AG-11',
+  parcel_problem: 'AG-12',
+  label_costly_choice: 'AG-13',
+  operator_refund_cap: 'AG-14',
+  super_admin_money_out: 'AG-15',
+  shrinkage: 'AG-16',
+  chargeback: 'AG-17',
+  buylist_manual_price: 'AG-18',
+  psa_credits: 'AG-19',
+  stuck_refund: 'AG-20',
+  owner_account_changed: 'AG-21',
+  staff_control_by_non_owner: 'AG-22',
+};
+export type SpendAlertCode =
+  | 'AG-1' | 'AG-2' | 'AG-3' | 'AG-4' | 'AG-5' | 'AG-6' | 'AG-7' | 'AG-8' | 'AG-9' | 'AG-10' | 'AG-11'
+  | 'AG-12' | 'AG-13' | 'AG-14' | 'AG-15' | 'AG-16' | 'AG-17' | 'AG-18' | 'AG-19' | 'AG-20' | 'AG-21' | 'AG-22';
+/** Los trece con disparador en D2 (§19.29.8 validador de `spend_alerts_disabled`): los únicos que se apagan. */
+export const SPEND_ALERT_SWITCHABLE_CODES: readonly SpendAlertCode[] = [
+  'AG-1', 'AG-2', 'AG-3', 'AG-4', 'AG-5', 'AG-6', 'AG-7', 'AG-8', 'AG-9', 'AG-10', 'AG-11', 'AG-12', 'AG-13',
+];
+export type SpendAlertSeverity = 'immediate' | 'digest';
+export type SpendAlertMailStatus =
+  | 'not_applicable'
+  | 'pending'
+  | 'sending'
+  | 'sent'
+  | 'batched'
+  | 'batch_sent'
+  | 'failed'
+  | 'failed_unknown'
+  | 'no_recipient';
+/** §19.29.9 + §19.30.1 (6)/§19.30.2 (3) (AG-21 `previousOwner`/`currentOwner`, AG-22 `target`: personas del personal). */
+export type SpendAlertFactValue = string | number | boolean | string[] | null | { userId: string; name: string | null; role?: Role };
+export interface SpendAlertDTO {
+  id: string;
+  code: SpendAlertCode;
+  kind: SpendAlertKind;
+  severity: SpendAlertSeverity;
+  /** Miembro del personal; ⛔ nunca un cliente. */
+  subject: { userId: string; name: string | null } | null;
+  /** 🔒 v1.80.12.10 (S-GAS-2): `kind` elige el enlace (con `order` ⇒ pedido; sin `order` ⇒ envíos por folio). */
+  shipment: { id: string; folio: string; kind?: 'vault_withdrawal' | 'guest_direct_ship' | 'order_ship' } | null;
+  order: { id: string; orderNumber: string | null } | null;
+  amountCents: number | null;
+  /** Lista blanca por kind (§19.29.6); la pantalla aplica OTRA lista blanca al pintar (UX-GAS-6). */
+  facts: Record<string, SpendAlertFactValue | undefined>;
+  occurrenceCount: number;
+  firstOccurredAt: string;
+  lastOccurredAt: string;
+  resolvedAt: string | null;
+  seen: { at: string; by: { userId: string; name: string | null } } | null;
+  mail: { status: SpendAlertMailStatus; at: string | null };
+  /** 🔒 v1.80.12.10 (§19.30.2 (5)): el tipo estaba apagado al crearse (sin correo, fuera de `unseen*`). */
+  muted?: boolean;
+}
+export interface SpendAlertListFilters {
+  kind?: SpendAlertKind;
+  severity?: SpendAlertSeverity;
+  subjectUserId?: string;
+  unseen?: boolean;
+  muted?: boolean;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+export interface SpendAlertListRes {
+  data: SpendAlertDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+export interface SpendAlertSummaryDTO {
+  from: string;
+  to: string;
+  byKind: { code: SpendAlertCode; immediate: number; digest: number; amountCents: number }[];
+  labelSpendByPerson: { userId: string; name: string | null; cents: number; labels: number }[];
+  costlyChoices: { count: number; overRecommendedCents: number; byPerson: { userId: string; name: string | null; count: number }[] };
+}
+/** `POST /admin/spend-alerts/seen` — `skipped` desde v1.80.12.10 (§19.30.2 (4)). */
+export interface MarkSpendAlertsSeenRes {
+  updated: number;
+  skipped?: number;
+}
+/** `workQueue.spendControl` (§19.29.9). */
+export interface SpendControlDTO {
+  unseenImmediate: number;
+  unseenDigest: number;
+  labelSpend24h: { userId: string; name: string | null; cents: number; capCents: number | null }[];
 }
 
 /** §M2 `M2-PF` — el dial `premiumFloorSalePublish`. `rarities` vacío ⇔ `mode !== 'only'` (validador del servidor). */

@@ -511,7 +511,19 @@ export let mockSettings: SettingsDTO = {
   },
   shippingConsignmentNote: '49101600',
   shippingPackageRuleBoxMinCards: 60,
-  skydropxLowBalanceCents: 50000,
+  // v1.80.12.9 (§19.29.8): seed MX$1,000 (`HECHOS.md:62`).
+  skydropxLowBalanceCents: 100000,
+  // 💰 Control del gasto (§19.29.8): seeds = `HECHOS.md:62` / `PROJECT §Z.3`.
+  operatorLabelCap24hCents: 250000,
+  shippingLabelReissueMaxPerShipment: 1,
+  spendAlertsDisabled: [],
+  spendAlertLabelCapWarnPct: 80,
+  spendAlertShipmentCancelCount: 2,
+  spendAlertPersonCancelCount24h: 3,
+  spendAlertChargeDriftImmediateCents: 2000,
+  spendAlertExtraChargeImmediateCents: 15000,
+  spendAlertCancelRefundDays: 3,
+  spendAlertLabelNotShippedDays: 3,
   shippingTrackingPollMinutes: 60,
   shippingInsuranceTiers: [
     { coverageCents: 250000, costCents: 2500, measuredAt: '2026-10-04' },

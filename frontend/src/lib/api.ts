@@ -278,6 +278,12 @@ import type {
   DepartureBoardDTO,
   PostalCodeDTO,
   ReleaseShipmentLabelRes,
+  ReleaseShipmentLabelReq,
+  MarkSpendAlertsSeenRes,
+  SpendAlertDTO,
+  SpendAlertListFilters,
+  SpendAlertListRes,
+  SpendAlertSummaryDTO,
   ShipmentLabelRequest,
   ShipmentLabelResponse,
   ShipmentQuoteDTO,
@@ -289,6 +295,8 @@ import type {
 } from '@/types/contract';
 import * as m4ship from './mock/m4-ship';
 import * as sdx from './mock/skydropx';
+import * as spendMock from './mock/spend-alerts';
+import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -1848,7 +1856,8 @@ export async function retryRefund(refundId: string): Promise<PaymentRefundDTO> {
 /** `GET /admin/shipments/picking-list/summary` — el contador DERIVADO del badge (§M4-SHIP.11, `no-store`). */
 export async function getPickingListSummary(): Promise<PickingListSummaryDTO> {
   if (!config.useMocks) return apiRequest<PickingListSummaryDTO>('/admin/shipments/picking-list/summary');
-  return delay(m4ship.mockPickingListSummary(fx.mockVaultPreparationQueue().length));
+  // MOCK S-GAS-3 (§19.30.8): `spendAlertsUnseenImmediate` con el mismo predicado que la tarjeta del tablero.
+  return delay({ ...m4ship.mockPickingListSummary(fx.mockVaultPreparationQueue().length), spendAlertsUnseenImmediate: spendMock.mockSpendAlertsUnseenImmediate() });
 }
 
 // ---------- §M4-SHIP.15 · apartado «Por reponer» ----------
@@ -2112,10 +2121,56 @@ export async function cancelShipmentLabel(shipmentId: string, reason: string): P
   });
 }
 
-/** `POST /admin/shipments/:id/label/release` (§19.18.4, súper-admin, `@MoneyOut`). */
-export async function releaseShipmentLabel(shipmentId: string, note: string): Promise<ReleaseShipmentLabelRes> {
-  if (!config.useMocks) return apiRequest<ReleaseShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/release`, { method: 'POST', body: { note } });
-  return mockSdx(() => sdx.mockReleaseLabel(mockLiveAdminRow(shipmentId)));
+/**
+ * `POST /admin/shipments/:id/label/release` (§19.18.4, súper-admin, `@MoneyOut`). 💰 v1.80.12.6 (§19.26.3 (b)):
+ * `confirmConflict: true` SOLO si la pantalla pintó la casilla y la persona la marcó; ⛔ si no, la clave no viaja.
+ */
+export async function releaseShipmentLabel(shipmentId: string, note: string, confirmConflict = false): Promise<ReleaseShipmentLabelRes> {
+  const body: ReleaseShipmentLabelReq = confirmConflict ? { note, confirmConflict: true } : { note };
+  if (!config.useMocks) return apiRequest<ReleaseShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/release`, { method: 'POST', body });
+  return mockSdx(() => sdx.mockReleaseLabel(mockLiveAdminRow(shipmentId), body));
+}
+
+// ---------- 💰 Avisos de gasto (contrato §M4-SHIP.19.29.9 + §19.30; súper-admin, `@MoneyOut()` de clase) ----------
+// MOCK: pendiente de backend real — `modules/spend-alerts/` (D2g) se está construyendo; las ramas mock son el
+// servidor falso de `mock/spend-alerts.ts`.
+
+/** `GET /admin/spend-alerts` — filtros en query, orden `firstOccurredAt desc`, 25 por página. */
+export async function listSpendAlerts(filters: SpendAlertListFilters = {}): Promise<SpendAlertListRes> {
+  if (!config.useMocks) {
+    return apiRequest<SpendAlertListRes>('/admin/spend-alerts', {
+      query: {
+        kind: filters.kind,
+        severity: filters.severity,
+        subjectUserId: filters.subjectUserId,
+        unseen: filters.unseen ? 'true' : undefined,
+        muted: filters.muted === undefined ? undefined : String(filters.muted),
+        from: filters.from,
+        to: filters.to,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
+  }
+  return mockSdx(() => spendMock.mockListSpendAlerts(filters));
+}
+
+/** `GET /admin/spend-alerts/summary?from&to` — el mismo cuerpo que el correo del resumen (GAS-4: se pinta tal cual). */
+export async function getSpendAlertSummary(from: string, to: string): Promise<SpendAlertSummaryDTO> {
+  if (!config.useMocks) return apiRequest<SpendAlertSummaryDTO>('/admin/spend-alerts/summary', { query: { from, to } });
+  return mockSdx(() => spendMock.mockSpendAlertSummary(from, to));
+}
+
+/** `GET /admin/spend-alerts/:id` (`404` si no existe). ⛔ Abrirlo NO lo marca visto (GAS-3). */
+export async function getSpendAlert(id: string): Promise<SpendAlertDTO> {
+  if (!config.useMocks) return apiRequest<SpendAlertDTO>(`/admin/spend-alerts/${encodeURIComponent(id)}`);
+  return mockSdx(() => spendMock.mockGetSpendAlert(id));
+}
+
+/** `POST /admin/spend-alerts/seen {ids}` — idempotente; ⛔ sin borrar ni «no visto». `skipped` desde v1.80.12.10. */
+export async function markSpendAlertsSeen(ids: string[]): Promise<MarkSpendAlertsSeenRes> {
+  if (!config.useMocks) return apiRequest<MarkSpendAlertsSeenRes>('/admin/spend-alerts/seen', { method: 'POST', body: { ids } });
+  return mockSdx(() => spendMock.mockMarkSpendAlertsSeen(ids));
 }
 
 /** `POST /admin/shipments/:id/refresh-tracking` (§19.10, operador+, 6/min). */
@@ -2970,6 +3025,8 @@ export async function updateMe(input: UpdateMeInput): Promise<UserDTO> {
 function withMeDefaults(u: UserDTO): UserDTO {
   return {
     ...u,
+    // MOCK §19.30.3: `isOwner` — el súper-admin del selector «Ver como» es el dueño (salvo `tcg.owner=false`).
+    isOwner: u.isOwner ?? spendMock.mockIsOwner(),
     hasPassword: u.hasPassword ?? u.authProvider !== 'google',
     mustChangePassword: u.mustChangePassword ?? false,
     nameSource: u.nameSource ?? (u.authProvider === 'google' ? 'google' : 'user'),
@@ -3486,6 +3543,8 @@ export async function getDashboard(): Promise<DashboardDTO> {
         : null,
       // MOCK §M4-SHIP.18.12 (7): «Reembolso por revisar» (`null` para el operador).
       refundReviews: m4ship.mockRefundReviewsCounter(),
+      // MOCK §19.29.9 (D2f): «Control del gasto» (`null` para el operador ⇒ la tarjeta no existe, GAS-1).
+      spendControl: spendMock.mockSpendControl(),
     },
   });
 }
@@ -6340,7 +6399,16 @@ export async function getSettings(): Promise<SettingsDTO> {
  */
 export async function updateSettings(patch: EditableSettingsPatch): Promise<SettingsDTO> {
   if (!config.useMocks) return apiRequest<SettingsDTO>('/admin/settings', { method: 'PUT', body: patch });
-  fx.setMockSettings(patch);
+  // MOCK 🔒 v1.80.12.10 (§19.30.2 (1)): un no dueño que MUEVE una clave del dueño ⇒ `403 OWNER_ONLY_SETTING {keys}` y
+  // nada se escribe; si las manda IGUALES a lo vigente, se quitan del cuerpo antes de escribir.
+  const body: EditableSettingsPatch = { ...patch };
+  if (!spendMock.mockIsOwner()) {
+    const current = fx.mockSettings as unknown as Record<string, unknown>;
+    const moved = OWNER_ONLY_SETTING_DTO_KEYS.filter((k) => k in body && JSON.stringify(body[k]) !== JSON.stringify(current[k])).sort();
+    if (moved.length) throw new ApiClientError(403, { code: 'OWNER_ONLY_SETTING', message: 'owner only', details: { keys: moved } });
+    for (const k of OWNER_ONLY_SETTING_DTO_KEYS) delete body[k];
+  }
+  fx.setMockSettings(body);
   return delay(fx.mockSettings);
 }
 

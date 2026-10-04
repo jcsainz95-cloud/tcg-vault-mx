@@ -27,6 +27,9 @@ import type {
   DepartureBoardDTO,
   LabelAlertDTO,
   LabelOptionsDTO,
+  LabelPurchaseLimit,
+  LabelReleaseDTO,
+  ReleaseShipmentLabelReq,
   LabelPendingDTO,
   NeighborhoodCheck,
   PostalCodeDTO,
@@ -129,6 +132,14 @@ interface SdxShip {
   label: ShipmentLabelDTO | null;
   labelPending: LabelPendingDTO | null;
   labelAlert: LabelAlertDTO | null;
+  /** §19.27.9: la última liberación (solo en el detalle). */
+  lastLabelRelease: LabelReleaseDTO | null;
+  /** §19.26.3 (b): hay un `shipment.label_conflict` del reclamo vigente ⇒ «Liberar» exige `confirmConflict`. */
+  conflict: boolean;
+  /** §19.29.4: tope ya sabido sin precio (`labelOptions.limit`). */
+  limit: LabelPurchaseLimit | null;
+  /** Demo/pruebas: la próxima compra responde este error (los `409` por `reason`, el `403` del tope…). */
+  nextPurchaseError: ApiFixtureError | null;
 }
 const ships = new Map<string, SdxShip>();
 const quotes = new Map<string, ShipmentQuoteDTO & { shipmentId: string; addressVersion: number }>();
@@ -137,7 +148,19 @@ let seq = 0;
 function stateOf(id: string): SdxShip {
   let s = ships.get(id);
   if (!s) {
-    s = { version: 0, corrected: null, override: {}, labelSource: null, label: null, labelPending: null, labelAlert: null };
+    s = {
+      version: 0,
+      corrected: null,
+      override: {},
+      labelSource: null,
+      label: null,
+      labelPending: null,
+      labelAlert: null,
+      lastLabelRelease: null,
+      conflict: false,
+      limit: null,
+      nextPurchaseError: null,
+    };
     ships.set(id, s);
   }
   return s;
@@ -150,14 +173,26 @@ export function resetMockSkydropx(): void {
   seq = 0;
 }
 
+/**
+ * 🔒💰 v1.80.12.8 (§19.28.11): el folio del envío (`ENV-000045`). El servidor falso lo deriva del orden del fixture
+ * (la secuencia real sale de `shipment_folio_seq`, `M-67`).
+ */
+export function mockFolioOf(shipmentId: string): string {
+  const idx = mockAdminShipments.findIndex((x) => x.id === shipmentId);
+  const n = idx >= 0 ? 45 + idx : 900000 + (Array.from(shipmentId).reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 99999, 7));
+  return `ENV-${String(n).padStart(6, '0')}`;
+}
+
 /** §19.19.7 — lo que la ventana puede ofrecer AL ACTOR. */
-export function mockLabelOptions(): LabelOptionsDTO {
+export function mockLabelOptions(shipmentId?: string): LabelOptionsDTO {
   const provider = mockSettings.shippingProvider ?? 'off';
   const purchase = mockSettings.shippingLabelPurchase ?? 'disabled';
   const role = mockCallerRole();
   const canPurchase =
     provider === 'skydropx' && (purchase === 'operators' || (purchase === 'super_admin_only' && role === 'super_admin'));
-  return { provider, purchase, canPurchase };
+  // §19.29.4: `limit` (sin cifra) — `null` para el dueño (el súper-admin del mock).
+  const limit = shipmentId && role !== 'super_admin' ? ships.get(shipmentId)?.limit ?? null : null;
+  return { provider, purchase, canPurchase, limit };
 }
 
 function missingOf(snap: Partial<AddressSnapshotDTO>): ShipmentAddressMissingField[] {
@@ -194,22 +229,26 @@ export function mockDecorateAdminShipment(row: AdminShipmentDTO): AdminShipmentD
     ...row,
     addressSnapshot: snap,
     address: { complete: missing.length === 0, version: s?.version ?? 0, corrected: s?.corrected ?? null, missing, neighborhoodCheck: neighborhoodCheckOf(snap) },
-    labelOptions: mockLabelOptions(),
+    labelOptions: mockLabelOptions(row.id),
     labelSource: s?.labelSource ?? (row.trackingNumber ? 'manual' : null),
     label: s?.label ?? null,
     labelPending: s?.labelPending ?? null,
     labelAlert: s?.labelAlert ? { ...s.labelAlert, canRelease: s.labelAlert.kind === 'label_unknown' && mockCallerRole() === 'super_admin' } : null,
     carrierAlert: row.carrierAlert ?? null,
+    folio: row.folio ?? mockFolioOf(row.id),
+    lastLabelRelease: s?.lastLabelRelease ?? null,
   };
 }
 
 /** Lo mismo para la tarjeta de «Preparar» (`ShipPreparationOrderDTO`). */
 export function mockDecoratePrep(o: ShipPreparationOrderDTO): ShipPreparationOrderDTO {
   const s = ships.get(o.shipmentId);
-  if (!s) return o;
+  const folio = o.folio ?? mockFolioOf(o.shipmentId);
+  if (!s) return { ...o, folio };
   const { references: _r, ...over } = s.override;
   return {
     ...o,
+    folio,
     shipTo: { ...o.shipTo, ...(over as Partial<ShipPreparationOrderDTO['shipTo']>), addressCorrected: s.corrected !== null },
     labelPending: s.labelPending,
     labelAlert: s.labelAlert ? { ...s.labelAlert, canRelease: s.labelAlert.kind === 'label_unknown' && mockCallerRole() === 'super_admin' } : null,
@@ -331,6 +370,13 @@ export function mockPurchaseLabel(row: AdminShipmentDTO, body: ShipmentLabelRequ
   }
   const s = stateOf(row.id);
   if (s.labelPending) return { outcome: 'in_progress', shipment: mockDecorateAdminShipment(row) };
+  if (s.nextPurchaseError) {
+    const e = s.nextPurchaseError;
+    s.nextPurchaseError = null;
+    throw e;
+  }
+  // §19.29.4: el tope que ya se sabe sin el precio (el dueño no tiene).
+  if (s.limit && mockCallerRole() !== 'super_admin') throw new ApiFixtureError(403, 'LABEL_PURCHASE_LIMIT', 'label purchase limit', { limit: s.limit });
   const q = quotes.get(body.quoteId);
   if (!q || q.shipmentId !== row.id) throw new ApiFixtureError(404, 'NOT_FOUND', 'quote not found');
   const r = q.rates.find((x) => x.rateId === body.rateId);
@@ -395,18 +441,31 @@ export function mockCancelLabel(row: AdminShipmentDTO): CancelShipmentLabelRes {
   return { outcome: 'cancelled', shipment: mockDecorateAdminShipment({ ...row, status: 'picking', carrier: null, trackingNumber: null }) };
 }
 
-/** `POST /admin/shipments/:id/label/release` (§19.18.4, súper-admin). */
-export function mockReleaseLabel(row: AdminShipmentDTO): ReleaseShipmentLabelRes {
+/**
+ * `POST /admin/shipments/:id/label/release` (§19.18.4, súper-admin). 💰 v1.80.12.6–.8: con un conflicto registrado
+ * exige `confirmConflict:true` (`409 LABEL_NOT_RELEASABLE {reason:'provider_conflict'}`); responde con `verdict`
+ * (el servidor falso no puede comprobar nada: `uncertain` con el motivo de la alerta) y escribe `lastLabelRelease`.
+ */
+export function mockReleaseLabel(row: AdminShipmentDTO, body: ReleaseShipmentLabelReq = { note: '' }): ReleaseShipmentLabelRes {
   if (mockCallerRole() !== 'super_admin') throw new ApiFixtureError(403, 'MONEY_OUT_FORBIDDEN', 'super admin only');
   const s = stateOf(row.id);
   if (!s.labelPending) throw new ApiFixtureError(409, 'LABEL_NOT_RELEASABLE', 'not in progress', { reason: 'not_in_progress' });
+  if (s.conflict && body.confirmConflict !== true) {
+    throw new ApiFixtureError(409, 'LABEL_NOT_RELEASABLE', 'provider conflict', { reason: 'provider_conflict', otherShipmentId: null });
+  }
+  const reason = s.labelAlert?.reason ?? 'unreadable';
   s.labelPending = null;
   s.labelAlert = null;
-  return { outcome: 'released', shipment: mockDecorateAdminShipment(row) };
+  s.conflict = false;
+  s.lastLabelRelease = { at: new Date().toISOString(), via: 'manual' };
+  return { outcome: 'released', shipment: mockDecorateAdminShipment(row), verdict: { outcome: 'uncertain', reason } };
 }
 
 /** Siembra un estado de guía (demo y pruebas): compra en vuelo, en proceso o una alerta. */
-export function mockSeedLabelState(shipmentId: string, patch: Partial<Pick<SdxShip, 'labelPending' | 'labelAlert' | 'labelSource' | 'label'>>): void {
+export function mockSeedLabelState(
+  shipmentId: string,
+  patch: Partial<Pick<SdxShip, 'labelPending' | 'labelAlert' | 'labelSource' | 'label' | 'lastLabelRelease' | 'conflict' | 'limit' | 'nextPurchaseError'>>,
+): void {
   Object.assign(stateOf(shipmentId), patch);
 }
 
@@ -444,7 +503,7 @@ export function mockSearchConsignmentNotes(description: string): ConsignmentNote
   return { consignmentNotes: all.filter((c) => c.description.toLowerCase().includes(q.toLowerCase())), hasMore: false };
 }
 export function mockShippingBalance(): ShippingBalanceDTO {
-  const thresholdCents = mockSettings.skydropxLowBalanceCents ?? 50000;
+  const thresholdCents = mockSettings.skydropxLowBalanceCents ?? 100000;
   const balanceCents = 96516; // PROD §5.4: $965.16
   return { balanceCents, currency: 'MXN', lowBalance: balanceCents < thresholdCents, thresholdCents, fetchedAt: new Date().toISOString() };
 }
@@ -477,6 +536,7 @@ export function mockDepartureBoard(liveStatus: (id: string) => string | null): D
       trackingNumber: s.label.trackingNumber,
       labelAvailable: s.label.labelAvailable,
       labelPurchasedAt: s.label.purchasedAt,
+      folio: row.folio ?? mockFolioOf(id),
     });
   }
   const sorted = [...groups.values()].sort((a, b) => Number(b.isPreferred) - Number(a.isPreferred) || a.carrierName.localeCompare(b.carrierName));
