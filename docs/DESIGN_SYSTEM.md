@@ -4,7 +4,19 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.13 (2026-10-04) — TODOS LOS CORREOS (§41 NUEVA, amplía §31 de «los ocho» a los 30 renders que
+> Estado: **v4.14 (2026-10-04) — EQUIPO SIN CORREO (§42 NUEVA; `PROJECT §U`, criterios 256–270; `HECHOS.md` fila
+> 2026-10-04 «Usuarios de back-office SIN correo», puntos (a)(b)(c); `API_CONTRACT` v1.80.9 §M6-U; fichero:línea medidos
+> en el worktree `claude/precios-s5`, HEAD `43c42b3d` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):**
+> **§42.1** login: la etiqueta «Correo o usuario», `type="text"`, el candado por cuenta con usuario tecleado dice
+> «pídele al administrador» sin enlace, y «Usuario o contraseña incorrectos» con usuario tecleado — ⛔ la rama del aviso
+> de los 6 intentos (`HECHOS.md:40`) no se toca. **§42.2** «Olvidé mi contraseña» deja de rechazar un usuario en el
+> navegador (criterio 262). **§42.3** alta en Usuarios con selector Cliente/Equipo, regla del usuario visible y un
+> error por regla. **§42.4** restablecer: «no se manda correo». **§42.5** Usuarios: «Correo o usuario», marca
+> «Bloqueado por intentos hasta HH:MM», `lockState:'unavailable'`. **§42.6** aviso de candado en el panel. **§42.7**
+> `403 ACCOUNT_WITHOUT_EMAIL`. **§42.8** «Mi cuenta» sin correo. **Cero tokens nuevos, cero pares de contraste
+> nuevos.** Lo que sigue es la v4.13 sin cambio.
+>
+> Estado anterior: **v4.13 (2026-10-04) — TODOS LOS CORREOS (§41 NUEVA, amplía §31 de «los ocho» a los 30 renders que
 > existen hoy en el código; fuente: auditoría ux-review del 2026-10-04 sobre `60048797` + lectura propia del código en
 > este worktree):** **§41.2** un solo formato de asunto (**sin prefijo de marca**: la marca la pone el remitente) —
 > los ocho asuntos congelados de §31.9 **no cambian**, cambian los otros veintiuno. **§41.3** regla de saludo
@@ -22576,3 +22588,375 @@ nace verde, el candado no mide lo que dice.
 | **D-1** | devops | **`MAIL_FROM` con nombre visible** (`TCG HUNT <no-reply@tcghunt.mx>`) en staging y prod — §41.2 depende de ello. Valor real: **NO MEDIDO**. ML-14(b) lo vigila al arrancar |
 | **N-1** | orquestador | Los cambios cruzan **seis módulos de cuatro streams** y la zona compartida `buylist/mail-shell.ts` (§41.13). E-1…E-3 primero y solos; y el traslado de `layout()` de `mail/` es el disparador declarado de **BE-43** (§31.15) |
 | **N-2** | QA | ML-11 no se automatiza: abrir los seis que cambian de esqueleto en las tres bandejas. Y ML-14…ML-23 se dan por buenos **solo** si se vieron rojos contra el código de hoy |
+
+---
+
+## 42. Equipo sin correo — entrar con usuario, alta de equipo, candado en el panel y «Mi cuenta» sin correo (v4.14, 2026-10-04 · `API_CONTRACT §M6-U` v1.80.9)
+
+### 42.0 Fuente, alcance y reglas duras
+
+**Fuente.** `HECHOS.md` fila 2026-10-04 «Usuarios de back-office SIN correo; el correo es solo para clientes.» (`HECHOS.md:43`):
+(a) el súper-admin dueño conserva su correo; (b) el resto del equipo entra con **usuario + contraseña**, sin doble
+verificación, y si la olvida **la restablece el dueño desde Usuarios**; default del orquestador: el aviso de candado
+va **al panel**; (c) **misma pantalla de entrada** que los clientes. `PROJECT §U` (`PROJECT.md:7367-7516`), criterios
+**256–270** (`PROJECT.md:10783-10877`). `API_CONTRACT §M6-U` (`API_CONTRACT.md:26633-26891`), en especial §M6-U.10.
+Todo fichero:línea de esta sección lo **leí** en el worktree `claude/precios-s5` el 2026-10-04 (HEAD `43c42b3d` según el
+orquestador; ⛔ el sha **no lo medí**: sin Bash). **Re-medir antes de editar.**
+
+**Reglas duras.**
+
+1. ⛔ **La rama `RATE_LIMITED` del login no se toca** (`HECHOS.md:40`, «déjalo así»): `AuthForm.tsx:141-143`, claves
+   `auth.rateLimitedByIp` / `auth.rateLimitedByIpRetryIn` (`es.json:1204-1205`) y `AuthForm.rateLimited.test.tsx`
+   quedan **byte a byte** como están.
+2. ⛔ **Nada en pantalla depende de si la cuenta existe.** Lo que se muestra puede variar según la **forma** de lo
+   tecleado (con o sin `@`) y según `error.code`; **nunca** según otro dato de la respuesta (criterio 259; §M6-U.10).
+3. ⛔ **Nunca `null`, `undefined` ni una celda vacía donde hoy va un correo** (criterio 268). La regla de pintado es
+   **una**: `email ?? username` (§42.5.1).
+4. **Lo del cliente no cambia** (criterio 270): su entrada con correo, Google, registro, «olvidé», su texto de candado y
+   el error de credenciales **con `@`** salen idénticos a hoy. Lo único que el cliente ve distinto es la etiqueta del
+   campo.
+5. **Cero tokens nuevos, cero pares de contraste nuevos.** Todo usa componentes que ya existen: `Input`, `Select`,
+   `Button`, `Banner` (`variant` info/warning), `Badge` (`tone` warning/neutral, `shape` outline/soft —
+   `status-map.ts:7-8`), `Modal`, `DataTable`. Los pares de contraste son los ya verificados en §10 para esos
+   componentes.
+
+### 42.1 Login — la MISMA pantalla, cuatro cambios mínimos en `AuthForm` (criterios 258, 259, 264, 270)
+
+Medido: el campo es `AuthForm.tsx:166` (`type="email"`, `autoComplete="email"`, etiqueta `t('email')` = «Correo»,
+`es.json:1181`); «olvidé» en `:180-184`; Google en `:192-194`; registro en `:196-201`; el aviso por cuenta (`perAccount`,
+`:108`) pinta su texto en `:137-140` y su enlace a `/forgot-password` en `:145-149`; el error genérico en `:153-157`
+(`error.INVALID_CREDENTIALS` = «Correo o contraseña incorrectos.», `es.json:4870`).
+
+**C-1 · El campo.** Solo en `mode === 'login'`:
+
+| Atributo | Hoy (`:166`) | Ahora (login) | Registro |
+|---|---|---|---|
+| `type` | `email` | **`text`** | `email` (sin cambio) |
+| `autoComplete` | `email` | **`username`** | `email` |
+| `autoCapitalize` / `autoCorrect` / `spellCheck` | — | **`none` / `off` / `false`** (en móvil, `Ana` en vez de `ana` es inofensivo — el servidor normaliza — pero el corrector convierte `luis.p` en `Luis. P`) | sin cambio |
+| `inputMode` | — | **`email`** (el teclado con `@` sirve a los dos) | sin cambio |
+| etiqueta | `auth.email` | **`auth.emailOrUsername`** | `auth.email` |
+| `name` | `email` | `email` (el contrato no cambia la llave, §M6-U.2) | `email` |
+
+⛔ Sin placeholder, sin texto de ayuda, sin «¿eres del equipo?». La pantalla no anuncia usuarios.
+
+**C-2 · Los enlaces no dependen de lo tecleado.** «¿Olvidaste tu contraseña?», Google y «Regístrate» se pintan
+siempre, en el mismo orden, con o sin `@` (hoy ya es así: `:180-201` no leen el campo). **Cambio de código: ninguno**;
+solo el candado STF-16 (§42.9 UX-2) que impide que alguien lo «mejore».
+
+**C-3 · El candado por cuenta con un usuario tecleado.** En `onSubmit` el valor ya se lee (`:77`); al capturar el
+`429` (`:98-99`) se guarda además **`typedUsername: !email.includes('@')`** en el estado `rateLimited`. Al pintar
+(`:137-149`), **solo** cuando `perAccount && typedUsername`:
+
+- texto `auth.lockedAskAdminRetryIn` (con minutos) o `auth.lockedAskAdmin` (sin cifra usable) — mismos minutos de
+  `retryAfterMinutes`, misma regla de §37.13;
+- ⛔ **sin** el `<Link href="/forgot-password">` de `:145-149` (el equipo sin correo no tiene por dónde recibirlo);
+- mismo `Banner variant="warning" role="alert"`, mismo contenedor con foco (`:134`).
+
+Con `@` tecleado: el aviso de hoy, **con** enlace, sin cambio. Rama `RATE_LIMITED`: sin cambio (regla dura 1).
+
+**C-4 · Credenciales incorrectas con un usuario tecleado** *(añadido por ux-ui sobre los tres puntos de §M6-U.10:
+`PROJECT §U.3` deja el texto a ux-ui y permite variar por la forma; ⚠️ el orquestador decide si entra en el encargo —
+§42.10 N-5)*. Hoy, quien teclea `ana` leería «**Correo** o contraseña incorrectos», que le dice que tecleó mal el
+campo. Regla: si `mode === 'login'`, `errorCode === 'INVALID_CREDENTIALS'` y lo tecleado **no** lleva `@` ⇒
+`auth.invalidCredentialsUsername`; en cualquier otro caso, el `tErr(errorCode)` de hoy (`:155`). El tecleo se toma del
+**mismo** submit que produjo el error (no del campo vivo, que el usuario pudo editar después).
+
+⛔ `USER_BLOCKED`, `VALIDATION_ERROR` (correo mal formado con `@`) y `INTERNAL`: sin cambio.
+
+**Claves i18n — `auth`** (catálogos `frontend/messages/{es,en}.json`, bloque `auth` en `:1178-1214`):
+
+| Clave | ES | EN |
+|---|---|---|
+| `auth.emailOrUsername` | Correo o usuario | Email or username |
+| `auth.lockedAskAdmin` | Demasiados intentos con este usuario. Espera unos minutos y vuelve a intentarlo. Si no recuerdas tu contraseña, pídele al administrador que la restablezca. | Too many attempts with this username. Wait a few minutes and try again. If you don't remember your password, ask the administrator to reset it. |
+| `auth.lockedAskAdminRetryIn` | Demasiados intentos con este usuario. Vuelve a intentarlo en {minutes, plural, one {# minuto} other {# minutos}}. Si no recuerdas tu contraseña, pídele al administrador que la restablezca. | Too many attempts with this username. Try again in {minutes, plural, one {# minute} other {# minutes}}. If you don't remember your password, ask the administrator to reset it. |
+| `auth.invalidCredentialsUsername` | Usuario o contraseña incorrectos. | Wrong username or password. |
+
+⛔ No cambian: `auth.email`, `auth.login.rateLimited*`, `auth.login.rateLimitedResetLink`, `auth.rateLimitedByIp*`,
+`error.INVALID_CREDENTIALS`.
+
+**Fuera de esta pantalla, decidido:** el panel de identidad del checkout (`InlineAuthPanel.tsx:152`, `type="email"`)
+**no cambia**: ahí entra quien va a comprar, y una cuenta sin correo no compra (§42.7). El registro tampoco
+(criterio 269).
+
+### 42.2 «¿Olvidaste tu contraseña?» — no rechazar un usuario en el navegador (criterio 262)
+
+Medido: `ForgotPasswordView.tsx:69-77` usa `type="email"`. Con `ana` el **navegador** bloquea el envío con su propio
+mensaje («incluye un signo @…»), que es distinto del que recibe un correo inexistente: el criterio 262 lo marca como
+falla («si el formulario rechaza el usuario con un mensaje distinto»). §M6-U.10 no lo lista (§42.10 N-1).
+
+**Cambio:** `type="text"`, `inputMode="email"`, `autoComplete="email"`, `autoCapitalize="none"`. **Nada más**: misma
+etiqueta «Correo», mismo subtítulo, mismo «Revisa tu correo / Si el correo existe…» (`es.json:1237-1247`). Con `ana`
+el servidor responde `200 {ok:true}` (§M6-U.3) y la pantalla pinta **lo mismo** que con un correo inexistente. ⛔ La
+pantalla no menciona usuarios ni al administrador: decirlo ahí sería anunciar que existen cuentas de equipo.
+
+### 42.3 Usuarios › «Crear usuario» — Cliente o Equipo (criterios 256, 257, 260)
+
+Medido: el modal de alta es `M6View.tsx:519-573`; estado `createForm` en `:157`, `openCreate` en `:175-179`, mutación
+en `:159-173` (manda siempre `email`), errores en `:182-188`, botón deshabilitado por `email`/`name` en `:531`; roles
+`CREATE_ROLES` en `:58`; resultado en `:575-600` (`successBody` con `{email}`, `:585-588`).
+
+**42.3.1 El selector — primera fila del modal.** «Tipo de cuenta», dos opciones: **Cliente** · **Equipo**. Por defecto
+**Cliente** (el alta de hoy no cambia, criterio 270). Forma: grupo de radios (`<fieldset>` + `<legend className="eyebrow">`,
+`role="radiogroup"` implícito), cada opción un `<label>` con la piel de las pestañas de la ficha (`M6View.tsx:744-747`:
+activa `border-b-2 border-primary text-text`, inactiva `text-muted hover:text-text`), radio `sr-only`, foco
+`focus-within:shadow-focus`. Flechas ←/→ cambian de opción (comportamiento nativo del radio).
+
+**Al cambiar de tipo se vacía el campo del otro tipo** (correo ↔ usuario) y el error de servidor previo
+(`createMutation.reset()`). El cuerpo que se manda se arma **por tipo**: ⛔ Equipo nunca lleva la clave `email`
+(sería `422 staff_without_email`); ⛔ Cliente nunca lleva `username`.
+
+**42.3.2 Campos por tipo, en este orden:**
+
+| Cliente (como hoy) | Equipo |
+|---|---|
+| Correo (`type="email"`, `:540-546`) | **Nombre de usuario** (nuevo) |
+| Nombre | Nombre |
+| — (rol fijo `customer`; el `Select` de rol no aparece) | **Rol**: `Select` con `vault_operator` (por defecto) y `super_admin` — rótulos `create.roleOption.*` de hoy |
+| Contraseña (hint de hoy) | Contraseña (hint de equipo) |
+| — | aviso `create.superAdminWarning` si rol = `super_admin` (hoy `:566-568`) |
+
+**Botón «Crear» deshabilitado** si falta el nombre o el identificador del tipo (correo **o** usuario, `trim()` vacío).
+
+**42.3.3 El nombre de usuario — la regla siempre visible.**
+`Input` con `label=create.username`, `autoComplete="off"`, `autoCapitalize="none"`, `autoCorrect="off"`,
+`spellCheck={false}`, clase `font-mono` en el valor (un usuario se lee carácter a carácter: `l`/`1`, `.`/`_`).
+- **Hint** = `create.usernameRule`. Si `trim().toLowerCase()` difiere de lo tecleado, se añade
+  `create.usernamePreview` («Se guardará como «luis.p».») — es solo `toLowerCase`, ⛔ no valida nada en el cliente.
+- ⛔ **Sin validación propia en el cliente**: el servidor es el juez y su orden es normativo (§M6-U.6 paso 3:
+  `required → length → charset → start`). Un validador duplicado en el front deriva y se contradice.
+- **Error del servidor** — `422 VALIDATION_ERROR` con `details.field === 'username'` ⇒ el texto de `details.rule`
+  **bajo el campo** (prop `error` de `Input`: sube la regla a bermellón y pone `aria-invalid`), y foco al campo.
+  `409 USERNAME_TAKEN` ⇒ igual, con `create.errorUsernameTaken`. Como el `Input` cambia el hint por el error
+  (`Input.tsx:55-63`), **cada texto de error repite la parte de la regla que falla**: la regla nunca desaparece sin
+  decir cuál era.
+- Otros `422` del equipo (nombre, rol, contraseña) ⇒ el banner de hoy con `create.errorValidationStaff`. `details.rule
+  === 'staff_without_email'` es inalcanzable desde esta UI (42.3.1); si llegara, `create.errorGeneric`.
+
+**42.3.4 La contraseña inicial.** Mismo campo (`:558-565`). Hint del equipo: `create.passwordHintStaff` (dice que **en
+los dos casos** tendrá que cambiarla al entrar: P-STF-6, `mustChangePassword: true` siempre, §M6-U.6 paso 4).
+
+**42.3.5 El resultado — una sola vez.** Mismo modal (`:575-600`):
+- Equipo ⇒ `create.successBodyStaff` con `{username}` y `{role}` (dice **por dónde** entra: la pantalla de siempre).
+- con `tempPassword` ⇒ `TempPasswordPanel` (`:676-711`) **sin cambio**: «se muestra UNA sola vez», copiar, y la nota de
+  cambio obligatorio (`mustChangePassword` llega `true`).
+- sin `tempPassword` (la tecleó el dueño) ⇒ `create.providedPasswordNoteStaff` en lugar de `providedPasswordNote`.
+- Cliente ⇒ `create.successBody` de hoy.
+
+**Claves i18n — `admin.m6.create`** (`es.json:3442-3464`):
+
+| Clave | ES | EN |
+|---|---|---|
+| `create.kind` | Tipo de cuenta | Account type |
+| `create.kindCustomer` | Cliente | Customer |
+| `create.kindStaff` | Equipo | Team |
+| `create.kindStaffNote` | Las cuentas del equipo no llevan correo: entran con su nombre de usuario y la contraseña que tú les das. | Team accounts have no email: they sign in with their username and the password you give them. |
+| `create.username` | Nombre de usuario | Username |
+| `create.usernameRule` | De 3 a 30 caracteres: letras a–z sin acentos ni ñ, números, punto (.), guion (-) y guion bajo (_). Empieza con una letra. | 3 to 30 characters: letters a–z without accents, numbers, dot (.), hyphen (-) and underscore (_). Starts with a letter. |
+| `create.usernamePreview` | Se guardará como «{username}». | It will be saved as “{username}”. |
+| `create.usernameError.required` | Escribe un nombre de usuario. | Enter a username. |
+| `create.usernameError.length` | Debe tener de 3 a 30 caracteres. | It must be 3 to 30 characters long. |
+| `create.usernameError.charset` | Solo letras a–z sin acentos ni ñ, números, punto (.), guion (-) y guion bajo (_). Sin espacios ni @. | Only letters a–z without accents, numbers, dot (.), hyphen (-) and underscore (_). No spaces or @. |
+| `create.usernameError.start` | Tiene que empezar con una letra. | It must start with a letter. |
+| `create.errorUsernameTaken` | Ese nombre de usuario ya existe (sin importar mayúsculas). Elige otro. | That username is already taken (case doesn't matter). Choose another one. |
+| `create.errorValidationStaff` | Revisa los datos: nombre, rol de equipo y contraseña de al menos 8 caracteres. | Check the details: name, team role and a password of at least 8 characters. |
+| `create.passwordHintStaff` | Déjala vacía para generar una temporal segura (se mostrará una sola vez). Sea cual sea, la tendrá que cambiar al entrar por primera vez. | Leave it empty to generate a secure temporary one (shown only once). Either way, they'll have to change it the first time they sign in. |
+| `create.successBodyStaff` | Cuenta de equipo creada: usuario {username}, rol {role}. Entra por la pantalla de «Iniciar sesión» de siempre, con su usuario y su contraseña. | Team account created: username {username}, role {role}. They sign in on the usual “Sign in” page, with their username and password. |
+| `create.providedPasswordNoteStaff` | Dale la contraseña que definiste por un canal seguro. Al entrar por primera vez tendrá que cambiarla. | Give them the password you set through a secure channel. They'll have to change it the first time they sign in. |
+
+`create.kindStaffNote` va como texto `text-xs text-muted` bajo el selector, **solo** con Equipo elegido.
+
+### 42.4 Restablecer contraseña — decir que no va correo (criterio 261)
+
+El diálogo ya existe y ya hace lo pedido (botón `M6View.tsx:470-477`, modal `:503-517`, `TempPasswordPanel` una sola
+vez; backend sin correo, §M6-U.6). **Dos cambios:**
+
+1. **Texto.** `admin.m6.resetHint` (`es.json:3422`) se reescribe — vale para todos los roles, porque el
+   restablecimiento por admin **no manda correo a nadie** (§M6-U.6: «ningún correo, no hay `mail` en el método»).
+2. **Refrescar la marca de candado.** Hoy `onSuccess` solo guarda el resultado (`M6View.tsx:151`); el restablecimiento
+   **levanta el candado**, así que debe invalidar `['admin-users']` y `['admin-user', selectedId]`. Sin esto, la fila
+   sigue diciendo «Bloqueado por intentos» después de quitarlo.
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m6.resetHint` *(reescrita)* | Genera una contraseña temporal que verás una sola vez, para que se la des tú. No se manda ningún correo. Cierra sus sesiones abiertas y quita el bloqueo por intentos, si lo tiene. | Generates a temporary password that you'll see only once, so you can hand it over yourself. No email is sent. It signs them out everywhere and lifts the failed-attempts lock, if any. |
+
+`resetOnce`, `resetShareNote`, `resetMustChangeNote`: sin cambio.
+
+### 42.5 Usuarios — listado, ficha, búsqueda y la marca de candado (criterios 265, 268)
+
+**42.5.1 Identificador.** Columna `email` (`M6View.tsx:217`) ⇒ clave `identifier`, cabecera `table.identifier`,
+celda `u.email ?? u.username`, `tabular text-muted` como hoy. Ficha: `M6View.tsx:365` ⇒ si hay correo, como hoy; si
+no, `admin.m6.usernameLine` («Usuario: ana»). Misma regla en «Reembolsos de operadores» (`OperatorRefundsView.tsx:82`).
+⛔ Si **los dos** fueran `null` (inalcanzable por el CHECK 1, §M6-U.1) se pinta «—», nunca vacío.
+
+**42.5.2 Búsqueda.** El backend ya busca por usuario (§M6-U.7). Solo cambia la etiqueta `searchLabel`
+(`es.json:3363`).
+
+**42.5.3 Marca «Bloqueado por intentos hasta HH:MM».** Con `lockedUntil` no nulo **y en el futuro** (comparado con la
+hora del navegador al pintar; ⛔ sin contador ni temporizador):
+- **Listado:** en la celda de estado (`:219-223`), **a la derecha** del `UserStatusBadge`, un
+  `<Badge tone="warning" shape="outline">` con `lockMark`. Es un estado distinto de «Bloqueada» (que es el bloqueo del
+  admin, `tone="danger"`): por eso **otro tono y otra forma**, y la palabra «intentos».
+- **Ficha:** el mismo badge junto al de estado (`:361`) y debajo, `text-xs text-muted`, `lockHint`.
+- La hora: **nuevo helper** `formatTimeMx(iso, locale)` en `frontend/src/lib/format.ts` (junto a `formatDateTimeMx`,
+  `:128-137`): `Intl.DateTimeFormat(localeTag[locale], { timeStyle: 'short', timeZone: 'America/Mexico_City' })`,
+  entrada inválida ⇒ `''` y sin badge. Solo la hora basta: el candado máximo es **60 min**
+  (`PASSWORD_LOCK_MAX_MS`, `backend/src/modules/auth/password-attempts.constants.ts:17`).
+- Vale para **cualquier** fila con `lockedUntil` (también clientes): el dato es el mismo.
+
+**42.5.4 `lockState: 'unavailable'`.** Sobre la tabla (entre filtros y `QueryState`, `:307`), un
+`<Banner variant="info" role="status">` con `lockUnavailable`. ⛔ Ninguna fila lleva marca (todas llegan `null`), y
+⛔ ningún texto dice «sin candado».
+
+**42.5.5 Historial de la persona (pestaña Actividad).** Tres rótulos nuevos en `auditAction` (patrón de
+`M6View.tsx:955-958`; el resto sigue crudo). ⚠️ Que el evento de candado aparezca en `scope=target` de esa persona es
+**NO MEDIDO** (§42.10 A-2).
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m6.table.identifier` | Correo o usuario | Email or username |
+| `admin.m6.searchLabel` *(reescrita)* | Buscar (correo, usuario o nombre) | Search (email, username or name) |
+| `admin.m6.usernameLine` | Usuario: {username} | Username: {username} |
+| `admin.m6.lockMark` | Bloqueado por intentos hasta {time} | Locked after failed attempts until {time} |
+| `admin.m6.lockHint` | Se quita solo a esa hora. Para quitarlo antes, restablece la contraseña. | It lifts on its own at that time. To lift it sooner, reset the password. |
+| `admin.m6.lockUnavailable` | Ahora no pudimos consultar quién está bloqueado por intentos, así que esta lista no lo marca. Vuelve a cargarla en un momento. | We couldn't check failed-attempt locks right now, so this list doesn't show them. Reload it in a moment. |
+| `admin.m6.auditAction.auth_password_lock` | Bloqueo por intentos fallidos | Locked after failed attempts |
+| `admin.m6.auditAction.user_reset_password` | Le restablecieron la contraseña | Password reset by an admin |
+| `admin.m6.auditAction.user_create` | Alta de la cuenta | Account created |
+
+(La clave `table.email` se queda: la usan otras pantallas — NO MEDIDO cuáles; no se borra.)
+
+### 42.6 Aviso de candado en el panel — se cierra, uno cada 24 h (criterio 265)
+
+Medido: `AdminShell.tsx:110-113` pinta `AdminTopbar` y `<main>{children}</main>`; el shell no consulta `/users/me`
+(lo hace `AccountView.tsx:42` con la clave `['me']`). `Banner` con `dismissible` solo se oculta en local
+(`Banner.tsx:42`, `:61-70`) — **no sirve** aquí: cerrar debe llegar al servidor.
+
+**Dónde:** primera cosa dentro de `<main>` (`AdminShell.tsx:112`), antes de `{children}`, en todas las pantallas del
+panel hasta que se cierre. **Datos:** `useQuery(['me'], getMe)` (misma clave que `AccountView`, así se comparte la
+caché), habilitada solo con sesión de staff y **sin** `mustChangePassword` (el `dismiss` no está en la allowlist,
+§M6-U.5: con temporal pendiente el aviso **no se pinta**; aparecerá después de cambiarla).
+
+**Forma:** `<Banner variant="warning" role="status" title={lockNotice.title}>` — `status`, no `alert`: ⛔ no roba el
+foco ni interrumpe al lector de pantalla al entrar. Cuerpo: `lockNotice.body` con `{since}` =
+`formatDateTimeMx(lockNotice.since, locale)` (`format.ts:128`) y un enlace `lockNotice.changeLink` a
+`/admin/account/password`. `action` = `<Button size="sm" variant="secondary">` `lockNotice.dismiss`.
+
+**Cerrar:** `POST /users/me/lock-notice/dismiss`. Botón en `loading` mientras va. `204` ⇒ `setQueryData(['me'],
+{...me, lockNotice: null})` y el aviso desaparece; el foco pasa al `<main>` (no se pierde en el `body`). Error ⇒ el
+aviso **se queda** y debajo, `font-mono text-xs text-accent`, `lockNotice.dismissError`. ⛔ Sin cierre optimista: si se
+oculta y el servidor no lo registró, reaparece en la siguiente entrada y parece un candado nuevo.
+
+**Uno cada 24 h** lo garantiza el servidor (`claimOnce`, §M6-U.4); el front pinta lo que trae `lockNotice`, sin
+lógica propia de tiempo. Cuentas **con** correo nunca traen `lockNotice` (CHECK 5): reciben el correo de hoy.
+
+El contenido sigue al correo de hoy (`backend/src/modules/mail/mail.templates.ts:143-146`) y añade lo que `PROJECT
+§U.5` pide (avisar al administrador):
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.lockNotice.title` | Hubo varios intentos fallidos de entrar a tu cuenta | There were several failed attempts to sign in to your account |
+| `admin.lockNotice.body` | Fue el {since}. Si fuiste tú, no tienes que hacer nada. Si no, tu contraseña sigue a salvo: cámbiala y avísale al administrador. | It was on {since}. If it was you, you don't need to do anything. If not, your password is still safe: change it and let the administrator know. |
+| `admin.lockNotice.changeLink` | Cambiar contraseña | Change password |
+| `admin.lockNotice.dismiss` | Entendido | Got it |
+| `admin.lockNotice.dismissError` | No pudimos cerrar el aviso. Intenta de nuevo. | We couldn't close this notice. Try again. |
+
+### 42.7 `403 ACCOUNT_WITHOUT_EMAIL` — una cuenta del equipo que intenta comprar o vender (criterio 269)
+
+**Mecanismo:** una clave nueva en el catálogo `error` (`es.json:4833` en adelante). `useErrorMessage`
+(`QueryState.tsx:210-233`) busca `error.<CODE>` ⇒ toda pantalla que ya cae a `getMessage(e)` la pinta sin código nuevo.
+Medido que cae ahí: el pago (`CheckoutView.tsx:229-231`). **NO MEDIDO** si caen ahí `ShipmentsView.tsx:148`,
+`BuylistKycForm.tsx:307`, `GuestOrderConfirmation.tsx:70` y `ClaimableOrdersNotice.tsx:83` — frontend lo comprueba; si
+alguno lo traga como genérico, se enruta a `getMessage`. ⛔ **No** se pinta el aviso de «verifica tu correo»
+(`EmailNotVerifiedNotice`): no hay correo que verificar.
+
+**Y lo que hoy la llevaría a ese callejón:** una cuenta sin correo tiene `emailVerified = false` (CHECK 4, §M6-U.1), así
+que `VerifyEmailBanner.tsx:24` le pintaría «Verifica tu correo» en la tienda, y `BuylistKycForm.tsx:253` la trataría
+como «correo sin verificar». Las dos condiciones ganan `&& user.email != null` (⚠️ que `user` de la sesión traiga
+`email: null` y no `undefined` lo fija `AuthUser` en `contract.ts`, §M6-U.10).
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.ACCOUNT_WITHOUT_EMAIL` | Esta es una cuenta del equipo y no tiene correo, así que no puede comprar, mandar a bóveda ni vender. Para eso, usa una cuenta de cliente. | This is a team account without an email, so it can't buy, send to the vault or sell. To do that, use a customer account. |
+
+### 42.8 «Mi cuenta» del equipo sin correo (criterio 263)
+
+Medido: `AccountView.tsx:105` pinta `user.email` bajo el título; `sectionsForRole` (`:24-28`) da al staff
+`['profile','email','password','session']`; `EmailSection.tsx:26` pinta el correo y un pill «SIN VERIFICAR»
+(`:34`) — con `email: null` sería un hueco más un estado falso. «Cambiar contraseña» ya existe y se llega por el menú
+sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el cajón; `PasswordSection.tsx:21-26`).
+
+**Cambios:**
+1. **Línea bajo el título** (`AccountView.tsx:105`): `user.email ?? t('usernameLine', {username})`.
+2. **La sección `email` se reemplaza por `username`** cuando `user.email === null`: `sectionsForRole(staff, hasEmail)`
+   devuelve `['profile','username','password','session']`. Sección nueva mínima (`SectionShell id="username"`), título
+   `account.username.title`; valor en `font-mono text-base text-text`; nota `text-xs text-muted`
+   `account.username.note`. ⛔ Sin pill de verificación, sin `mailto:`, sin botón. `AccountSectionId` y
+   `sectionTitle` (`AccountView.tsx:128-145`) ganan `'username'`.
+3. **Contraseña:** sin cambio de pantalla. Candado de defensa en `PasswordPage.tsx:65`: el modo «crear» (que llama a
+   `forgotPassword(user.email)`, `:96`, y pinta `{email}`, `:161`) **no puede activarse** con `user.email === null`
+   (`createMode = … && user?.email != null`). Inalcanzable por contrato (§M6-U.8 (b)); el candado evita un
+   `forgotPassword(null)` si la invariante se rompe. ⛔ Ningún «olvidé» ni «crear contraseña» en todo el ciclo.
+
+| Clave | ES | EN |
+|---|---|---|
+| `account.usernameLine` | Usuario: {username} | Username: {username} |
+| `account.username.title` | Usuario | Username |
+| `account.username.note` | Con este usuario entras en la misma pantalla que los clientes. No se puede cambiar; si necesitas otro, pídeselo al administrador. | You sign in with this username on the same page as customers. It can't be changed; if you need a different one, ask the administrator. |
+
+### 42.9 Lista de cambios para frontend y candados
+
+**Cambios** (fichero:línea leídos el 2026-10-04; re-medir antes de editar):
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| F-1 | `components/domain/AuthForm.tsx:166` | Login: `type="text"`, `autoComplete="username"`, `inputMode="email"`, `autoCapitalize="none"`, `autoCorrect="off"`, `spellCheck={false}`, etiqueta `auth.emailOrUsername`. Registro igual | 42.1 C-1 |
+| F-2 | `AuthForm.tsx:43`, `:77`, `:98-99`, `:137-149` | Guardar `typedUsername` del submit en `rateLimited`; con `perAccount && typedUsername` ⇒ `auth.lockedAskAdmin*` sin `<Link>`. ⛔ `:141-143` intactas | 42.1 C-3 |
+| F-3 | `AuthForm.tsx:101`, `:153-157` | `INVALID_CREDENTIALS` + login + sin `@` ⇒ `auth.invalidCredentialsUsername` | 42.1 C-4 (N-5) |
+| F-4 | `app/[locale]/(auth)/forgot-password/ForgotPasswordView.tsx:72-73` | `type="text"`, `inputMode="email"`, `autoCapitalize="none"` | 42.2 (N-1) |
+| F-5 | `app/[locale]/(admin)/admin/m6/M6View.tsx:58`, `:157-188`, `:519-573` | Selector Cliente/Equipo, campos por tipo, cuerpo por tipo, errores por `details.rule` y `USERNAME_TAKEN` | 42.3 |
+| F-6 | `M6View.tsx:575-600` | Resultado de equipo (`successBodyStaff`, `providedPasswordNoteStaff`) | 42.3.5 |
+| F-7 | `M6View.tsx:149-152` | `onSuccess` del reset invalida `['admin-users']` y `['admin-user', id]` | 42.4 |
+| F-8 | `M6View.tsx:217`, `:365` | `email ?? username` (+ `usernameLine` en la ficha) | 42.5.1 |
+| F-9 | `M6View.tsx:219-223`, `:361`, `:307` | Badge de candado, `lockHint`, banner `lockUnavailable` | 42.5.3–4 |
+| F-10 | `lib/format.ts` (tras `:137`) | `formatTimeMx` — ⚠️ zona compartida | 42.5.3 |
+| F-11 | `app/[locale]/(admin)/admin/refunds/OperatorRefundsView.tsx:82` | `email ?? username` | 42.5.1 |
+| F-12 | `components/layout/AdminShell.tsx:112` | Aviso de candado + `dismiss` — ⚠️ zona compartida | 42.6 |
+| F-13 | `components/domain/VerifyEmailBanner.tsx:24`, `components/domain/BuylistKycForm.tsx:253` | `&& user.email != null` | 42.7 |
+| F-14 | `components/domain/account/AccountView.tsx:24-28`, `:105`, `:116`, `:128-145` | Línea de usuario; sección `username` en lugar de `email` sin correo | 42.8 |
+| F-15 | `components/domain/account/PasswordPage.tsx:65` | `createMode` exige `user.email != null` | 42.8 |
+| F-16 | `frontend/messages/{es,en}.json` | Claves de §42.1–42.8 (reescritas: `admin.m6.resetHint`, `admin.m6.searchLabel`) | todas |
+
+**Candados sugeridos** (los que coinciden con `§M6-U.9` llevan su ID):
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-1** = STF-9 | `AuthForm` login: `type="text"`, `autoComplete="username"`, etiqueta «Correo o usuario»; registro `type="email"` | `type="email"` en login |
+| **UX-2** = STF-16 | Con `ana` y con `a@b.com` tecleados (y tras un `401` en cada uno): mismos enlaces, mismo orden, mismos `href` | Ocultar «olvidé» sin `@` |
+| **UX-3** = STF-22 | `429 TOO_MANY_PASSWORD_ATTEMPTS`: `ana` ⇒ texto `lockedAskAdmin*`, **cero** `a[href$="/forgot-password"]` dentro de `auth-rate-limited`; `a@b.com` ⇒ texto y enlace de hoy. `AuthForm.rateLimited.test.tsx` **sin diff** | Pintar siempre el enlace; tocar la rama `RATE_LIMITED` |
+| **UX-4** | `401 INVALID_CREDENTIALS`: `ana` ⇒ «Usuario o contraseña incorrectos.»; `a@b.com` ⇒ «Correo o contraseña incorrectos.» (igual que hoy); se toma el tecleo **del submit** (editar el campo después no cambia el banner) | Elegir el texto por el campo vivo |
+| **UX-5** | `ForgotPasswordView`: con `ana`, el submit llega a `forgotPassword('ana')` y pinta `sentBody`, igual que con `nadie@x.com` | Devolver `type="email"` |
+| **UX-6** | Alta Equipo: el DOM no tiene campo de correo; el cuerpo enviado **no tiene** la clave `email`; Cliente no manda `username`; cambiar de tipo vacía el otro campo | Mandar `email: ''` en Equipo |
+| **UX-7** | `422 {field:'username', rule}` para las cuatro reglas y `409 USERNAME_TAKEN` ⇒ cinco textos distintos bajo el campo, `aria-invalid="true"` | Mapear todo a `errorValidation` |
+| **UX-8** = STF-27 (front) | Fila M6 y de reembolsos de operador con `email:null, username:'ana'` ⇒ pinta `ana`; el DOM no contiene `null`, `undefined` ni celda vacía | Pintar `u.email` a pelo |
+| **UX-9** | `lockedUntil` futuro ⇒ badge con la hora de CDMX; pasado o `null` ⇒ sin badge; `lockState:'unavailable'` ⇒ banner info y **cero** badges | Badge por `lockedUntil != null` sin mirar la hora |
+| **UX-10** | Tras el reset, `invalidateQueries` con `['admin-users']` y `['admin-user', id]` | Quitar la invalidación |
+| **UX-11** | `AdminShell` con `lockNotice` ⇒ aviso; «Entendido» ⇒ **un** `POST …/dismiss`; `204` ⇒ desaparece; error ⇒ se queda + `dismissError`; con `mustChangePassword` ⇒ ni aviso ni llamada | Cierre optimista; pintar con temporal pendiente |
+| **UX-12** | «Mi cuenta» con `email:null` ⇒ «Usuario: ana», sección `username`, **cero** «SIN VERIFICAR», cero enlaces a `forgot-password`; `PasswordPage` con `hasPassword:false, email:null` **no** entra en modo crear | Dejar `'email'` en `sectionsForRole` |
+| **UX-13** | `VerifyEmailBanner` con `emailVerified:false, email:null` ⇒ `null` | Quitar `&& email != null` |
+| **UX-14** | `error.ACCOUNT_WITHOUT_EMAIL` existe en `es` y `en`; el pago con ese `403` pinta su texto y **no** el aviso de verificar | Tratarlo como `EMAIL_NOT_VERIFIED` |
+| **UX-15** | Paridad de catálogos: cada clave de §42 en los dos idiomas | Borrar una en `en.json` |
+
+### 42.10 Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **A-1** | arquitecto | **Ficha con el almacén caído.** `lockState` existe solo en el listado (§M6-U.7); en la ficha, `lockedUntil: null` no distingue «sin candado» de «no se pudo leer». Default de este diseño: la ficha no dice nada (no afirma «sin candado»). Si se quiere decirlo, `lockState` también en la ficha. No bloquea |
+| **A-2** | arquitecto / backend | **¿El evento `auth.password_lock` sale en `GET /admin/users/:id/audit?scope=target` de esa persona?** NO MEDIDO. El criterio 265 pide verlo en su historial; §42.5.5 pone el rótulo, pero si el `entityId` no es el usuario la fila no aparece |
+| **N-1** | orquestador | **`ForgotPasswordView.tsx:72` no está en §M6-U.10** y el criterio 262 lo exige («en la pantalla»). Entra al encargo de frontend (stream Cuentas y acceso) |
+| **N-2** | orquestador | **`VerifyEmailBanner` y `BuylistKycForm` tampoco están en §M6-U.10**; sin F-13 el equipo sin correo ve «Verifica tu correo» en la tienda |
+| **N-3** | product-owner | **El alta de cliente de hoy no pide celular** (`M6View.tsx:540-565`: correo, nombre, rol, contraseña), aunque `PROJECT §U.2` dice «sigue exigiendo correo (y celular, D11)». Este diseño **no lo cambia** (criterio 270: «como hoy»). Si el celular debe pedirse ahí, es otro encargo |
+| **N-4** | orquestador | **Zonas compartidas tocadas:** `frontend/src/lib/format.ts` (F-10), `frontend/src/components/layout/AdminShell.tsx` (F-12), `frontend/src/components/domain/*` (F-1…F-3, F-13…F-15) y `types/contract.ts` (§M6-U.10). Un solo stream a la vez |
+| **N-5** | orquestador | **F-3 (credenciales con usuario) va más allá de los tres puntos de §M6-U.10.** Lo sostiene `PROJECT §U.3` («texto final de ux-ui»; puede variar por la forma de lo tecleado) y no toca la rama `@`. Si se prefiere el cambio mínimo estricto, se omite F-3 y UX-4, y el equipo leerá «Correo o contraseña incorrectos» |
