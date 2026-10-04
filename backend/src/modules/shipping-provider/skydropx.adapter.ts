@@ -165,8 +165,8 @@ function purchaseFields(p: ParsedShipment): Omit<PurchaseResult, 'providerShipme
   return {
     carrierName: firstStr(attrs.carrier_name, pkg.carrier_name),
     trackingNumber: firstStr(attrs.master_tracking_number, pkg.tracking_number),
-    labelUrl: firstStr(pkg.label_url, attrs.label_url),
-    trackingUrl: firstStr(pkg.tracking_url_provider, pkg.tracking_url, attrs.tracking_url_provider, attrs.tracking_url),
+    rawLabelUrl: firstStr(pkg.label_url, attrs.label_url),
+    rawTrackingUrl: firstStr(pkg.tracking_url_provider, pkg.tracking_url, attrs.tracking_url_provider, attrs.tracking_url),
     totalCents: decimalToCents(attrs.total),
     insuranceCents: decimalToCents(attrs.protection_value_total ?? pkg.protection_value),
     error: errorCode
@@ -202,6 +202,13 @@ function eventsFrom(...candidates: unknown[]): ProviderEvent[] {
   }
   return [];
 }
+
+/**
+ * ⭐ v1.80.12.1 (API_CONTRACT §M4-SHIP.19.21.6): el campo del reembolso de la cancelación (`refunded_amount` /
+ * `refund_amount`) es NO MEDIDO hasta `PG-3`. Mientras esto sea `false`, todo `refundedCents ≠ null` deja un log
+ * `warn cancel_refund_unverified`. `PG-3` lo confirma ⇒ se pasa a `true` (con la cita de la medición) y el log calla.
+ */
+export const CANCEL_REFUND_FIELD_VERIFIED = false;
 
 function refundedCentsOf(json: unknown): number | null {
   const p = parseShipmentEnvelope(json);
@@ -305,7 +312,11 @@ export class SkydropxAdapter implements ShippingProviderPort {
   async cancel(providerShipmentId: string, reason: string): Promise<CancelResult> {
     try {
       const res = await this.client.mutate({ op: 'cancel', providerShipmentId, body: { reason } });
-      return { ok: true, refundedCents: refundedCentsOf(res.json) };
+      const refundedCents = refundedCentsOf(res.json);
+      if (refundedCents !== null && !CANCEL_REFUND_FIELD_VERIFIED) {
+        this.logger.warn(`skydropx cancel_refund_unverified providerShipmentId=${providerShipmentId} refundedCents=${refundedCents}`);
+      }
+      return { ok: true, refundedCents };
     } catch (err) {
       if (err instanceof ShippingProviderError && err.code === 'SHIPPING_PROVIDER_REJECTED') {
         return {

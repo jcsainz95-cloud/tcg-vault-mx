@@ -115,9 +115,13 @@ export interface PurchaseResult {
   carrierName: string | null;
   /** `null` ⇒ «guía en proceso» (R5). */
   trackingNumber: string | null;
-  /** URLs CRUDAS de la respuesta: se validan con `providerUrlsFrom` ANTES de escribirse (SEC-SDX-5). */
-  labelUrl: string | null;
-  trackingUrl: string | null;
+  /**
+   * URLs CRUDAS de la respuesta, SIN validar. ⭐ v1.80.12.1 (§M4-SHIP.19.21.2, `C-SDX-7` (2)): se llaman `raw*` para que
+   * nadie fuera de `shipping-provider/` pueda escribirlas por descuido — la ÚNICA lectora es `providerUrlsFrom`, que
+   * devuelve `{ labelUrl, trackingUrl }` ya validadas (SEC-SDX-5). `labelUrl: result.labelUrl` deja de compilar.
+   */
+  rawLabelUrl: string | null;
+  rawTrackingUrl: string | null;
   totalCents: number | null;
   insuranceCents: number | null;
   /** `error_detail.error_code ≠ null` ⇒ rama de rechazo (§19.7 paso 9). */

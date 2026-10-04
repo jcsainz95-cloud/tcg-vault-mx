@@ -342,6 +342,33 @@ describe('PS-93 💰 — cubeta ≤ 2 req/s y matriz de reintentos: la compra NU
     expect(rec.callsTo('POST', '/api/v2/shipments')).toHaveLength(1);
   });
 
+  // ⭐ v1.80.12.1 (API_CONTRACT §M4-SHIP.19.21.4) — PS-109 gana tres filas: en la COMPRA, todo lo que no prueba que no se
+  // procesó es «en vuelo» (reclamo conservado ⇒ `200 {outcome:'in_flight'}` en D2c), con UNA llamada.
+  it.each([
+    ['3xx (302 con Location, no se sigue)', () => jsonResponse(302, {}, { location: 'https://pro.skydropx.com/api/v2/shipments/sh-x' })],
+    ['409', () => jsonResponse(409, { error: 'conflict' })],
+    ['403 JSON que NO es del borde', () => jsonResponse(403, { message: 'forbidden' })],
+  ])('PS-109 — compra con %s ⇒ 1 llamada y «en vuelo»', async (_l, response) => {
+    const { rec, client } = setup();
+    rec.on('POST', '/api/v2/shipments', response);
+    const err = await withSpendGateOpen(rec, () => caught(client.mutate({ op: 'purchase', body: {}, idempotencyKey: 'k' })));
+    expect(err).toBeInstanceOf(ShippingProviderPurchaseInFlightError);
+    expect(err.httpStatus).toBe(502);
+    expect(rec.callsTo('POST', '/api/v2/shipments')).toHaveLength(1);
+  });
+
+  it('el 403 JSON no-borde SIGUE siendo `502` sin «en vuelo» fuera de la compra (cotización y cancelación)', async () => {
+    const { rec, client } = setup();
+    rec.on('POST', '/api/v1/quotations', () => jsonResponse(403, { message: 'forbidden' }));
+    const q = await caught(client.createQuotation({}));
+    expect(q).not.toBeInstanceOf(ShippingProviderPurchaseInFlightError);
+    expect(q.details).toEqual({ provider: 'skydropx', op: 'quote', status: 403 });
+    rec.on('POST', /\/cancellations$/, () => jsonResponse(403, { message: 'forbidden' }));
+    const c = await withSpendGateOpen(rec, () => caught(client.mutate({ op: 'cancel', providerShipmentId: 'sh-1', body: { reason: 'x' } })));
+    expect(c).not.toBeInstanceOf(ShippingProviderPurchaseInFlightError);
+    expect(c.details).toMatchObject({ op: 'cancel', status: 403 });
+  });
+
   it('compra con 401 ⇒ 2 llamadas (token renovado) y éxito', async () => {
     const { rec, client } = setup();
     rec.on('POST', '/api/v2/shipments', (_c, n) =>

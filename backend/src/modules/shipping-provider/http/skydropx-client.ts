@@ -375,8 +375,13 @@ export class SkydropxClient {
         const text = await safeText(res);
         const edge = isEdgeBlock(text);
         this.logCall(spec, status, started, 'error', edge ? 'edge_blocked' : undefined);
-        // Ni el borde ni un 403 de la API procesan la compra: no es «compra en vuelo».
-        throw ShippingProviderError.error(spec.op, 403, edge ? 'edge_blocked' : undefined);
+        // El borde (Cloudflare) corta ANTES de la aplicación: la compra no se procesó ⇒ `502 edge_blocked`, reclamo deshecho.
+        // ⭐ v1.80.12.1 (§M4-SHIP.19.21.4): un `403` JSON que NO es del borde viene de la aplicación (cuenta, permiso,
+        // saldo — semántica NO MEDIDA) y no prueba que no se procesó ⇒ en la COMPRA es «en vuelo». En lecturas,
+        // cotización y cancelación sigue `502` sin reintento.
+        const e = ShippingProviderError.error(spec.op, 403, edge ? 'edge_blocked' : undefined);
+        if (!edge && spec.retry === 'purchase') throw new ShippingProviderPurchaseInFlightError(e);
+        throw e;
       }
 
       if (status === 400 || status === 422) {

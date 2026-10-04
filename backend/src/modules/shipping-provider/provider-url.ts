@@ -70,11 +70,12 @@ export interface ProviderUrls {
 }
 
 /**
- * ⭐ EL único sitio que produce los valores de `labelUrl`/`trackingUrl` a escribir (`C-SDX-7` (2)). Una URL
+ * ⭐ EL único sitio que produce los valores de `labelUrl`/`trackingUrl` a escribir, y la ÚNICA lectora de las crudas
+ * `rawLabelUrl`/`rawTrackingUrl` (`C-SDX-7` (2), v1.80.12.1 §M4-SHIP.19.21.2). Una URL
  * rechazada ⇒ `null` + entrada en `rejected` (el escritor deja la bitácora). ⛔ Nunca descarta la compra.
  */
 export function providerUrlsFrom(
-  result: { labelUrl?: unknown; trackingUrl?: unknown },
+  result: { rawLabelUrl?: unknown; rawTrackingUrl?: unknown },
   allowedHosts: readonly string[],
 ): ProviderUrls {
   const rejected: ProviderUrls['rejected'] = [];
@@ -85,8 +86,8 @@ export function providerUrlsFrom(
     return ok;
   };
   return {
-    labelUrl: check('labelUrl', result.labelUrl),
-    trackingUrl: check('trackingUrl', result.trackingUrl),
+    labelUrl: check('labelUrl', result.rawLabelUrl),
+    trackingUrl: check('trackingUrl', result.rawTrackingUrl),
     rejected,
   };
 }

@@ -53,15 +53,15 @@ describe('assertProviderUrl (PS-84 / PS-88, SEC-SDX-5)', () => {
 
   it('providerUrlsFrom: rechazada ⇒ null + {field, host} (sin la URL entera); válida ⇒ pasa', () => {
     const out = providerUrlsFrom(
-      { labelUrl: 'http://169.254.169.254/latest/?sig=SECRET', trackingUrl: 'https://pro.skydropx.com/t/1' },
+      { rawLabelUrl: 'http://169.254.169.254/latest/?sig=SECRET', rawTrackingUrl: 'https://pro.skydropx.com/t/1' },
       HOSTS,
     );
     expect(out.labelUrl).toBeNull();
     expect(out.trackingUrl).toBe('https://pro.skydropx.com/t/1');
     expect(out.rejected).toEqual([{ field: 'labelUrl', host: '169.254.169.254' }]);
     expect(JSON.stringify(out.rejected)).not.toContain('SECRET');
-    expect(providerUrlsFrom({ labelUrl: null, trackingUrl: undefined }, HOSTS)).toEqual({ labelUrl: null, trackingUrl: null, rejected: [] });
-    expect(providerUrlsFrom({ trackingUrl: 'javascript:alert(1)' }, HOSTS).rejected).toEqual([{ field: 'trackingUrl', host: null }]);
+    expect(providerUrlsFrom({ rawLabelUrl: null, rawTrackingUrl: undefined }, HOSTS)).toEqual({ labelUrl: null, trackingUrl: null, rejected: [] });
+    expect(providerUrlsFrom({ rawTrackingUrl: 'javascript:alert(1)' }, HOSTS).rejected).toEqual([{ field: 'trackingUrl', host: null }]);
   });
 });
 
@@ -288,6 +288,55 @@ describe('C-SDX-7 (1) — `fetch` en shipping-provider/ SOLO en el cliente y en 
     expect(codigoDeFichero(join(SP, 'http/skydropx-client.ts'), ['export const fetchTransport'])).toMatch(
       /fetchTransport[\s\S]*?redirect: 'manual'/,
     );
+  });
+});
+
+/**
+ * ⭐ v1.80.12.1 (API_CONTRACT §M4-SHIP.19.21.2) — `C-SDX-7` (2), texto nuevo. Sobre el TEXTO del fichero (comentarios
+ * incluidos), como el `rg` del contrato:
+ *  (a) `rawLabelUrl|rawTrackingUrl` fuera de `shipping-provider/` ⇒ 0;
+ *  (b) `label_url|tracking_url` fuera de `shipping-provider/` ⇒ 0.
+ */
+const RAW_URL_NAMES = /rawLabelUrl|rawTrackingUrl/;
+const RAW_URL_KEYS = /label_url|tracking_url/;
+function rawUrlLeaks(files: { path: string; text: string }[]): { a: string[]; b: string[] } {
+  const outside = files.filter((f) => !f.path.startsWith('src/modules/shipping-provider/'));
+  return {
+    a: outside.filter((f) => RAW_URL_NAMES.test(f.text)).map((f) => f.path),
+    b: outside.filter((f) => RAW_URL_KEYS.test(f.text)).map((f) => f.path),
+  };
+}
+
+describe('C-SDX-7 (2) — la URL cruda del proveedor solo se lee dentro de shipping-provider/ (v1.80.12.1)', () => {
+  const tree = () => walk(SRC).map((f) => ({ path: rel(f), text: readFileSync(f, 'utf8') }));
+
+  it('(a) y (b): cero fuera de shipping-provider/', () => {
+    expect(rawUrlLeaks(tree())).toEqual({ a: [], b: [] });
+  });
+
+  it('dentro: el puerto los declara, el adaptador y el doble los producen, y providerUrlsFrom es la única que los LEE', () => {
+    const inside = tree().filter((f) => f.path.startsWith('src/modules/shipping-provider/') && RAW_URL_NAMES.test(code(join(BACKEND, f.path))));
+    expect(inside.map((f) => f.path).sort()).toEqual([
+      'src/modules/shipping-provider/fake-shipping-provider.ts',
+      'src/modules/shipping-provider/provider-url.ts',
+      'src/modules/shipping-provider/shipping-provider.port.ts',
+      'src/modules/shipping-provider/skydropx.adapter.ts',
+    ]);
+    // lectura = `<algo>.rawLabelUrl` / `.rawTrackingUrl`: solo en provider-url.ts (el doble copia su propio estado).
+    const readers = inside
+      .filter((f) => f.path !== 'src/modules/shipping-provider/fake-shipping-provider.ts')
+      .filter((f) => /\.\s*raw(Label|Tracking)Url\b/.test(code(join(BACKEND, f.path))))
+      .map((f) => f.path);
+    expect(readers).toEqual(['src/modules/shipping-provider/provider-url.ts']);
+  });
+
+  it('CANARIO: `labelUrl: result.rawLabelUrl` en un fichero de shipments/ ⇒ ROJO en (a); `pkg.label_url` ⇒ ROJO en (b)', () => {
+    const planted = [
+      ...tree(),
+      { path: 'src/modules/shipments/canario-raw.ts', text: 'export const x = (result: any) => ({ labelUrl: result.rawLabelUrl });' },
+      { path: 'src/modules/shipments/canario-key.ts', text: 'export const y = (pkg: any) => pkg.label_url;' },
+    ];
+    expect(rawUrlLeaks(planted)).toEqual({ a: ['src/modules/shipments/canario-raw.ts'], b: ['src/modules/shipments/canario-key.ts'] });
   });
 });
 

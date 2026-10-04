@@ -370,12 +370,15 @@ describe('Comprar — cuerpo (§19.19.8, PS-85 / PS-96 / PS-97 lado cuerpo) y pa
         included: [{ id: 'p1', type: 'package', attributes: { tracking_number: 'NN123', label_url: 'https://labels.example/x.pdf', tracking_url_provider: 'https://track.example/NN123' } }],
       },
     ]);
+    expect(result).not.toHaveProperty('labelUrl');
+    expect(result).not.toHaveProperty('trackingUrl');
     expect(result).toMatchObject({
       providerShipmentId: 'sh-1',
       carrierName: 'ninetynineminutes',
       trackingNumber: 'NN123',
-      labelUrl: 'https://labels.example/x.pdf',
-      trackingUrl: 'https://track.example/NN123',
+      // ⭐ v1.80.12.1 (§M4-SHIP.19.21.2): crudas, con nombre `raw*`; solo `providerUrlsFrom` las lee.
+      rawLabelUrl: 'https://labels.example/x.pdf',
+      rawTrackingUrl: 'https://track.example/NN123',
       totalCents: 7015,
       error: null,
     });
@@ -388,7 +391,7 @@ describe('Comprar — cuerpo (§19.19.8, PS-85 / PS-96 / PS-97 lado cuerpo) y pa
     const { result } = await purchaseWith({ data: { id: 'sh-2', attributes: { master_tracking_number: null } } });
     expect(result.providerShipmentId).toBe('sh-2');
     expect(result.trackingNumber).toBeNull();
-    expect(result.labelUrl).toBeNull();
+    expect(result.rawLabelUrl).toBeNull();
     expect(result.totalCents).toBeNull();
   });
 
@@ -441,7 +444,7 @@ describe('getShipment / cancel / balance / cargos / catálogos — parsers toler
   });
 
   it('cancel: acepta con refundedCents si viene, null si no; 422 ⇒ ok:false', async () => {
-    const { rec, adapter } = setup();
+    const { rec, adapter, logger } = setup();
     rec.on('POST', '/api/v1/shipments/a/cancellations', () => jsonResponse(200, { data: { id: 'a', attributes: { refunded_amount: '51.25' } } }));
     rec.on('POST', '/api/v1/shipments/b/cancellations', () => jsonResponse(201, { data: { id: 'b' } }));
     rec.on('POST', '/api/v1/shipments/c/cancellations', () => jsonResponse(422, { message: 'ya recolectada', code: 'already_picked' }));
@@ -450,6 +453,10 @@ describe('getShipment / cancel / balance / cargos / catálogos — parsers toler
       expect(await adapter.cancel('b', 'reissue')).toEqual({ ok: true, refundedCents: null });
       expect(await adapter.cancel('c', 'reissue')).toEqual({ ok: false, code: 'already_picked', message: 'ya recolectada' });
     });
+    // ⭐ v1.80.12.1 (§M4-SHIP.19.21.6): refundedCents ≠ null antes de PG-3 ⇒ warn `cancel_refund_unverified`; null ⇒ nada.
+    const warns = logger.text().split('\n').filter((l) => l.includes('cancel_refund_unverified'));
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatch(/^warn skydropx cancel_refund_unverified providerShipmentId=a refundedCents=5125$/);
   });
 
   it('balance: {data:{balance:965.16,currency:"MXN"}} ⇒ 96516 (medido, M-15); forma rara ⇒ 502', async () => {
