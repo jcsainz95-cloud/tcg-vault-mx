@@ -4,24 +4,25 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
-> **Rev v1.81 — 💰🔒 ENVÍOS CON SKYDROPX: puerto/adaptador, hitos sin estado nuevo, rastreo por consulta periódica, la
-> dirección como fase previa, y el costo real al P&L** (2026-09-29, arquitecto. Base: **v1.80.6, vigente entera salvo lo
-> que esta rev toca**. Origen: `PROJECT §T` (v1.81), criterios 234–248, decisión 120, preguntas 88–91; `HECHOS.md` seis
-> filas «Envíos con Skydropx»; `docs/specs/SKYDROPX_*`. `API_CONTRACT` sube a **v1.81**; norma entera en
-> `API_CONTRACT §M4-SHIP.19`. Porqué y alternativas: **§4.58** (nueva). Schema: **`M-62`** (§11, dos partes). 💰 Dinero +
-> PII a un tercero ⇒ tres veredictos + revisión de seguridad del diseño **antes** de construir. ⛔ Sin Bash: nada medido
-> en ejecución; la referencia de la API es del dueño y lo que dependa solo de ella lleva NO MEDIDO con su prueba de
-> sandbox PS-SBX-1…12.)
+> **Rev v1.80.11 — CONSOLIDACIÓN DE `claude/skydropx-envios` + LA FASE D DE SKYDROPX CON LA API DE PRODUCCIÓN MEDIDA**
+> (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador `785ea5fc`; ⛔ sha NO MEDIDO por el
+> arquitecto: sin Bash. Base: todo lo de abajo, vigente entero salvo lo que esta rev toca. Origen: la fusión por unión de
+> `claude/skydropx-envios` (base `8fd637fb`) sobre `claude/staff-sin-correo`; `docs/specs/SKYDROPX_API_PROD_RESULTADOS.md`
+> (2026-10-04); `HECHOS.md:48` (Carta Porte `49101600`, credenciales de producción, seguro por escalones, compra real solo
+> con autorización del dueño guía por guía), `:41` (88–91), `:50` (disputas fuera de la tienda) y la ventana «Capturar
+> guía» (relayada por el orquestador; ⚠️ no está en `HECHOS.md`). `API_CONTRACT` sube a **v1.80.11**; norma entera en
+> `API_CONTRACT §M4-SHIP.19.19`. Porqué: **§4.60 (l)**.)
 >
-> | # | Qué cambia | Dónde | ¿Toca código? |
+> | # | Qué | Dónde | ¿Toca código? |
 > |---|---|---|---|
-> | **1** | «Guía en proceso» y «en sucursal» son **hitos con sello** (`labelProcessingSince`, `carrierStatus`) dentro de `picking`/`enviado`; ⛔ ningún `ShipmentStatus` nuevo; un cuerpo `applyCarrierStatus` con el mapeo §8.3 y CAS en todo | §4.58 (b) | **Sí** (backend) |
-> | **2** | Puerto `ShippingProviderPort` en módulo `shipping-provider/` (no en `common/`), adaptador Skydropx + `Noop` + `Fake`; la guía manual **no** pasa por el puerto | §4.58 (c) | **Sí** (backend) |
-> | **3** | Rastreo por **consulta periódica** (BullMQ, 3 jobs); ⛔ sin webhook hasta doc de firma; el webhook futuro es un segundo llamador del mismo cuerpo | §4.58 (d) | **Sí** (backend, devops) |
-> | **4** | Dirección: colonia obligatoria **de lista por CP** con catálogo local (SEPOMEX) y proveedor intercambiable; **fase C, sola, antes de D**; compatible sin backfill (`complete`) | §4.58 (e) | **Sí** (backend `users`+`orders`, frontend, devops) |
-> | **5** | Dinero: costo desde la respuesta, IVA 16/116 sin gestión como constante nombrada (no el dial), seguro aparte, ajustes con fecha propia, absorber 88/90 | §4.58 (f) | **Sí** (backend) |
-> | **6** | Seguridad: `labelUrl` interna con proxy, PII saliente por lista blanca, secretos solo env, reclamo CAS antes de la red, kill switch `shipping_provider='off'` | §4.58 (g) | **Sí** (backend, devops) · 🔒 seguridad |
-> | **7** | Desviación nueva `D-SHIP-7` (el invitado sin botón en los correos de envío) en §9; `D-AV-2`/`D-AV-1` no cambian | §9 | **Sí** (backend, dentro de la fase D) |
+> | **1** | **Una historia de revisiones.** La rev v1.81 de Skydropx, que la unión dejó **encima** de v1.80.8-release, baja a su sitio como frente de rama (separador, verbatim, debajo de la tabla de v1.80.8-release). v1.81/v1.81.1 ⟨skydropx⟩ son de 2026-09-29 y ⛔ no se renumeran; la errata nueva es v1.80.11 y lo siguiente será v1.80.12 | esta cabecera | **No** |
+> | **2** | ⚠️ **Dos `§4.58`** tras la unión: staff (v1.80.9) y Skydropx (v1.81). **Staff la conserva** (la cita el código: `password-attempts.service.ts:32`, `login-attempt.store.ts:75`, `admin.service.ts:958`…; Grep 2026-10-04) y **Skydropx pasa a §4.60** (cero citas en `backend/src`: `Grep "[Ss]kydropx"` ⇒ 0). En textos anteriores a v1.80.11 (`SECURITY_NOTES` sobre `62d0c46`, changelogs v1.81/v1.81.1), «§4.58» junto a Skydropx = §4.60 | §4.60 | **No** |
+> | **3** | ⚠️ **Dos `M-62`** tras la unión. `M-62` = reembolso tras envío (S.11), **construida** (`migrations/20261004120000_m62_shipped_refund_reason/`); `M-63` = staff (`…/20261005120000_m63_staff_username/`), ambas medidas con Glob el 2026-10-04. Skydropx pasa a **`M-SDX-C`** (fase C) y **`M-SDX-D`** (fase D), **número sin asignar** (≥ M-64; lo asigna el orquestador al encargar) | §11 | **No** (nada de Skydropx construido) |
+> | **4** | Fase D corregida con la API medida: User-Agent obligatorio, matriz de reintentos (la compra no se reintenta), forma real de la tarifa, reutilización de cotizaciones (⇒ `ShipmentQuote` sin `@unique` en `providerQuotationId`), seguro por escalones (dial), Carta Porte y empaques sembrados, **puerta de compra de dos llaves + candado de ejecución** (PS-99), `Authorization` solo al host de la API, ventana «Capturar guía», `AV-17` sin plazo de disputa | §4.60 (l), §11 `M-SDX-D` | **Sí** (backend, frontend, devops, ux-ui) · 🔒 seguridad revisa el delta |
+> | **5** | Sin sandbox (`HECHOS.md:17`, `:48`): PS-SBX se sustituye por mediciones de producción sin gastar (`M-PRD`) y la primera guía real comprada por el dueño (`PG`) | §4.60 (l) | **Sí** (devops) |
+> | **6** | ⚠️ **Dos `D-SHIP-7`** en §9 tras la unión: la de v1.80.7 (SEC-SHIP-A1 construido dos veces; la citan `API_CONTRACT` y `BACKEND_NOTES`) **conserva** el nombre; la de v1.81 (enlace del invitado en los correos de envío) pasa a **`D-SHIP-SDX-1`** | §9, §4.60 (i) | **No** |
+>
+> ---
 > **Rev v1.80.8-release — CONSOLIDACIÓN DE LA RAMA DE RELEASE `claude/release-s5`** (2026-09-29, arquitecto. Base:
 > production `a2da420` (v1.79.5) más cinco frentes, cada uno vigente entero salvo lo que sus propias erratas tocan.
 > `API_CONTRACT` sube a **v1.80.8-release** — su cabecera trae la tabla completa de qué entra, los números homónimos y
@@ -45,6 +46,32 @@
 > | **v1.80.9.1** | Errata (2026-10-04, rama `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`, ⛔ sha NO MEDIDO por el arquitecto; cierra C-1 del techlead; origen `BACKEND_NOTES §22`, `DESIGN_SYSTEM §42.10 A-1`, decisión del dueño sobre TD-4). Aceptados tal cual: **D-1** (rama `@` = `isEmail` de hoy), **D-2** (anonimización anula también `lockNoticeAt`), **D-3** (`M-63`, `20261005120000_m63_staff_username`), **D-5** (`rule:'customer_without_username'`, `field` en todo `422` del alta). **Cambian:** **D-4** el resiliente degradado/Redis sin contestar ⇒ `peekLockMs` lanza `LoginAttemptStoreUnavailableError` sin `markDown` ⇒ `lockState:'unavailable'`; **A-1** `lockState` en la ficha; **TD-9** sin servicio ⇒ lanza, y solo la clase del almacén ⇒ `'unavailable'`; **TD-4** reset desde Usuarios a cualquier rol (normado + STF-36), script con `ADMIN_USERNAME` y `emailVerified` solo con correo; ⛔ no se prohíbe el súper-admin sin correo. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` §M6-U.11 | §4.58.5, §4.58.9, §11 `M-63` | **Sí** (backend; frontend: `lockState` de la ficha) · 🔒 seguridad |
 > | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
+> | **v1.81 / v1.81.1 ⟨skydropx⟩** | Frente `claude/skydropx-envios` (2026-09-29, base `8fd637fb`), fusionado en v1.80.11: diseño de envíos con Skydropx y cierres de la revisión de seguridad. Su cabecera va abajo, verbatim | §4.60, §11 `M-SDX-C/D` | ver su tabla |
+> | **v1.80.11** | Consolidación + fase D con la API medida (arriba) | §4.60 (l) | **Sí** |
+>
+> ---
+> *(Frente `claude/skydropx-envios` (base `8fd637fb`): rev **v1.81** ⟨skydropx⟩, **verbatim**. Hasta v1.80.11 estaba
+> encima de v1.80.8-release. Léase «§4.58» como **§4.60**, «`M-62`» como **`M-SDX-C`/`M-SDX-D`** y el «`D-SHIP-7`» de su
+> fila 7 como **`D-SHIP-SDX-1`**; la fase D la corrige v1.80.11.)*
+>
+> **Rev v1.81 — 💰🔒 ENVÍOS CON SKYDROPX: puerto/adaptador, hitos sin estado nuevo, rastreo por consulta periódica, la
+> dirección como fase previa, y el costo real al P&L** (2026-09-29, arquitecto. Base: **v1.80.6, vigente entera salvo lo
+> que esta rev toca**. Origen: `PROJECT §T` (v1.81), criterios 234–248, decisión 120, preguntas 88–91; `HECHOS.md` seis
+> filas «Envíos con Skydropx»; `docs/specs/SKYDROPX_*`. `API_CONTRACT` sube a **v1.81**; norma entera en
+> `API_CONTRACT §M4-SHIP.19`. Porqué y alternativas: **§4.58** (nueva). Schema: **`M-62`** (§11, dos partes). 💰 Dinero +
+> PII a un tercero ⇒ tres veredictos + revisión de seguridad del diseño **antes** de construir. ⛔ Sin Bash: nada medido
+> en ejecución; la referencia de la API es del dueño y lo que dependa solo de ella lleva NO MEDIDO con su prueba de
+> sandbox PS-SBX-1…12.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | «Guía en proceso» y «en sucursal» son **hitos con sello** (`labelProcessingSince`, `carrierStatus`) dentro de `picking`/`enviado`; ⛔ ningún `ShipmentStatus` nuevo; un cuerpo `applyCarrierStatus` con el mapeo §8.3 y CAS en todo | §4.58 (b) | **Sí** (backend) |
+> | **2** | Puerto `ShippingProviderPort` en módulo `shipping-provider/` (no en `common/`), adaptador Skydropx + `Noop` + `Fake`; la guía manual **no** pasa por el puerto | §4.58 (c) | **Sí** (backend) |
+> | **3** | Rastreo por **consulta periódica** (BullMQ, 3 jobs); ⛔ sin webhook hasta doc de firma; el webhook futuro es un segundo llamador del mismo cuerpo | §4.58 (d) | **Sí** (backend, devops) |
+> | **4** | Dirección: colonia obligatoria **de lista por CP** con catálogo local (SEPOMEX) y proveedor intercambiable; **fase C, sola, antes de D**; compatible sin backfill (`complete`) | §4.58 (e) | **Sí** (backend `users`+`orders`, frontend, devops) |
+> | **5** | Dinero: costo desde la respuesta, IVA 16/116 sin gestión como constante nombrada (no el dial), seguro aparte, ajustes con fecha propia, absorber 88/90 | §4.58 (f) | **Sí** (backend) |
+> | **6** | Seguridad: `labelUrl` interna con proxy, PII saliente por lista blanca, secretos solo env, reclamo CAS antes de la red, kill switch `shipping_provider='off'` | §4.58 (g) | **Sí** (backend, devops) · 🔒 seguridad |
+> | **7** | Desviación nueva `D-SHIP-7` (el invitado sin botón en los correos de envío) en §9; `D-AV-2`/`D-AV-1` no cambian | §9 | **Sí** (backend, dentro de la fase D) |
 >
 > ---
 > *(Frente `claude/paquete-seguridad` — C7. Sus «Rev v1.80» y «Rev v1.80.1» son **⟨C7⟩**.)*
@@ -27239,7 +27266,13 @@ anclada a orden y línea, `userId` opcional) ⇒ no entra en una errata. `D-DSP-
 
 ---
 
-### 4.58 ENVÍOS CON SKYDROPX — puerto/adaptador, hitos sin estado nuevo, consulta periódica, la dirección primero, y el costo real al P&L (v1.81, `M-62`, NORMATIVO, 💰 **DINERO + PII + TERCERO**)
+### 4.60 ENVÍOS CON SKYDROPX — puerto/adaptador, hitos sin estado nuevo, consulta periódica, la dirección primero, y el costo real al P&L (v1.81, `M-SDX-C`/`M-SDX-D`, NORMATIVO, 💰 **DINERO + PII + TERCERO**)
+
+> ⚠️ **Numeración (v1.80.11):** esta sección se llamó **§4.58** hasta v1.80.11 y chocaba con §4.58 «usuarios de
+> back-office sin correo», que el código cita; se renumera **esta** porque nada construido la cita. Su schema se llamó
+> «`M-62`» (partes a/b) y chocaba con la `M-62` construida de S.11: ahora es `M-SDX-C`/`M-SDX-D`. Las citas internas
+> «§4.58 (x)» de abajo y de los textos v1.81/v1.81.1 se leen §4.60 (x). Lo que la API de producción medida cambió:
+> **(l)**, al final.
 
 > **Producto:** `PROJECT §T` (T.0–T.13), criterios 234–248, decisión 120; seis decisiones del dueño en `HECHOS.md`
 > (2026-09-29): asegurado siempre · 99minutos preferente, sin recolección · el operador elige con la preferida
@@ -27325,7 +27358,8 @@ automática» de la cuenta también aplica a guías por API (T6, NO MEDIDO; PS-S
 (5) SEPOMEX y Skydropx pueden discrepar en el nombre de una colonia (e). (6) Multipaquete fuera: un pedido que no quepa
 en la caja va con guía manual.
 
-**(i) Desviaciones detectadas (no las corrijo yo; van al rol dueño):** `D-SHIP-7` en §9.
+**(i) Desviaciones detectadas (no las corrijo yo; van al rol dueño):** `D-SHIP-SDX-1` en §9 (se llamó `D-SHIP-7` hasta
+v1.80.11).
 
 **(j) 🔒💰 v1.81.1 — lo que la revisión de seguridad del diseño cambió de REGLA (`SECURITY_NOTES` sobre `62d0c46`,
 APROBADO; norma en `API_CONTRACT §M4-SHIP.19.18`).** Cinco medias y ocho bajas; aquí solo las que mueven una regla de
@@ -27346,11 +27380,31 @@ withdrawn` y **no hay camino de vuelta** (medido: `disputes.service.ts` no conti
 Disparador: la primera disputa «no me llegó» sobre una guía Skydropx ⇒ el arquitecto diseña la reversión como verbo de
 inventario del súper-admin (con prueba) o la descarta por escrito. `TECH_DEBT.md` (backend, a petición del techlead).
 
-**Zonas compartidas que toca:** `backend/prisma/` (`M-62`, dos partes), `backend/src/common/` (`money.ts`,
-`error-codes.ts`, `enum-values.ts`), `backend/src/config/env.validation.ts` (v1.81.1: + `SKYDROPX_URL_HOSTS`),
-`backend/src/modules/users/` + `orders/` (fase C), `backend/src/jobs/scheduler.service.ts` (tres jobs),
-`frontend/src/lib/` y `frontend/src/components/` (selector de colonia, tipos). Un stream a la vez; fase C y D en
-commits distintos.
+**Zonas compartidas que toca:** `backend/prisma/` (`M-SDX-C` y `M-SDX-D`; antes «`M-62`, dos partes»), `backend/src/common/` (`money.ts`,
+`error-codes.ts`, `enum-values.ts`), `backend/src/config/env.validation.ts` (v1.81.1: + `SKYDROPX_URL_HOSTS`; v1.80.11:
++ `SKYDROPX_ALLOW_SPEND`, `SHIPPING_PROVIDER_ADAPTER`), `backend/src/modules/users/` + `orders/` (fase C),
+`backend/src/jobs/scheduler.service.ts` (tres jobs), `backend/jest.config.js` y `backend/test/jest-integration.config.js`
+(v1.80.11: `setupFiles` que veta la red a Skydropx), `frontend/src/lib/` y `frontend/src/components/` (selector de
+colonia, tipos). Un stream a la vez; fase C y D en commits distintos.
+
+**(l) ⭐💰🔒 v1.80.11 — lo que la API de PRODUCCIÓN medida cambió de REGLA** (`docs/specs/SKYDROPX_API_PROD_RESULTADOS.md`,
+2026-10-04, cero envíos creados; `HECHOS.md:48`; norma entera en `API_CONTRACT §M4-SHIP.19.19`). Solo lo que mueve un
+porqué; lo demás es forma de la tarifa y vive en el contrato.
+
+| Regla nueva | Alternativa descartada | Por qué |
+|---|---|---|
+| **El User-Agent es parte del protocolo**: constante propia en toda petición; el `403` del borde es defecto, no transitorio (sin reintento) | Confiar en el de `fetch` y reintentar `403` | Medido: el de por omisión de Python recibe `403` Cloudflare `1010` «Do not retry» (PROD §2). Que el de Node pase es NO MEDIDO; mandarlo explícito cuesta una línea y quita la pregunta. Reintentar un `403` del borde solo gasta cuota y puede agravar el bloqueo |
+| **La compra no se reintenta nunca por timeout/`5xx`/red**; solo `401` (token) y `429`. Lo dudoso es «compra en vuelo» y lo resuelve `recoverInFlightLabel`/`label/release` | Un reintento genérico para todo | Que Skydropx acepte `Idempotency-Key` es NO MEDIDO y **no se puede medir** sin arriesgar una segunda compra real. Un reintento a ciegas tras un timeout es exactamente la guía duplicada (SDX-R4); la rama «en vuelo» ya existe (SEC-SDX-4) |
+| **Una cotización de Skydropx no es nuestra**: `providerQuotationId` deja de ser único; unicidad por `(envío, cotización)`; vigencia desde la **primera** vez que la vimos | `@unique` (diseño v1.81) | Medido: la API devuelve el mismo `id` a la misma ruta y medidas, aun con otro seguro (PROD §4.1). Con `@unique`, el segundo envío a la misma colonia daba `P2002` ⇒ `500`. Y la cotización puede ser más vieja que nuestra petición: contar 24 h desde «ahora» prometería una vigencia que Skydropx no da |
+| **El seguro es un escalón de una tabla del dueño, siempre explícito** (`declared_value` = la cobertura que cubre lo que va en la caja; dial `shipping_insurance_tiers`) | Valor declarado = valor exacto del pedido, recortado a un tope (v1.81) | Es la regla del dueño (`HECHOS.md:48`: «≤ 2500 ⇒ 25 y así»). Medido que **omitir** el seguro aplica el de la cuenta ($2,500, PROD §4.4): un pedido de $8,000 saldría asegurado por $2,500 sin que nadie lo vea — por eso nunca se omite. La tabla vive en un dial porque solo dos escalones están medidos y el resto se mide **cotizando** (`M-PRD-1`), sin redeploy |
+| **Comprar exige dos llaves de personas distintas y un candado que es código**: el dial del dueño (`shipping_label_purchase`, seed `disabled`), la env de devops (`SKYDROPX_ALLOW_SPEND`, solo producción) y `evaluateMutationGate` (⛔ con `CI`, `NODE_ENV=test` o `JEST_WORKER_ID`) | Solo el kill switch `shipping_provider` | El dueño dijo «comprar guías reales requiere mi autorización guía por guía» (`HECHOS.md:48`) y las credenciales son de **producción**: un error de configuración ya no gasta saldo de prueba, gasta el suyo. `shipping_provider` también apaga **cotizar**, que hace falta encendido para medir la tabla de seguros. Con `super_admin_only`, el clic del dueño **es** la autorización de esa guía, con su nombre en la bitácora. El candado de ejecución existe porque las dos llaves son configuración, y la configuración se copia: un `.env` de producción pegado en CI no debe poder comprar |
+| **Nuestro token solo viaja a la API**: el proxy de la etiqueta manda `Authorization` únicamente al host de `SKYDROPX_BASE_URL` | Mandarlo siempre (v1.81: «descarga con el token del adaptador») | El host de `label_url` es NO MEDIDO y puede ser una cubeta o una URL firmada de otro dominio; mandarle un `Bearer` de 2 h con acceso a comprar es entregar la llave a un tercero. Si la descarga necesita token, lo dirá `PG-1` y se decide con el dato |
+| **Skydropx vive dentro de la ventana «Capturar guía»**, con la captura a mano en la misma ventana | Botón «Cotizar envío» propio en la tarjeta (v1.81, `PROJECT §T.3.1`) | Palabras del dueño (relayadas): ahí revisa la dirección, ve las opciones, elige y le regresa la guía. Y `DESIGN_SYSTEM §37.3` ya prohibía un segundo formulario de guía. Un solo diálogo con dos caminos hace imposible que la guía manual y la de Skydropx diverjan en guardas (las dos cuelgan de «preparado») |
+| **No hay sandbox**: lo medible sin gastar se mide en producción con un script de **solo lectura** (`M-PRD`), y lo que exige comprar espera a la primera guía real del dueño (`PG`) | Esperar un sandbox (v1.81, PS-SBX) | `HECHOS.md:17` (no hay staging) y `:48` (credenciales de producción). Un guion que exige sandbox no se ejecuta nunca; partirlo en «gratis ahora» y «con la primera guía» cierra la mitad hoy |
+
+**Deuda que deja (l):** `M-PRD-1…6` y `PG-1…3` (tabla en `API_CONTRACT §19.19.18`); la pregunta de producto de la
+impresora (`shipping_label_format`, seed `standard`); que `HECHOS.md` no tenga aún la fila de la ventana «Capturar guía»
+(la añade el orquestador).
 
 ---
 
@@ -28241,7 +28295,11 @@ Riesgos técnicos:
 > MEDIDAS en ejecución** — cada una trae la medición que la cierra, que es su prueba en `API_CONTRACT §M4-SHIP.12`.
 > **Dueño: backend.** Se corrigen **dentro** del stream (el diseño las exige), ⛔ no como deuda.
 
-- **🔴 ABIERTA (v1.81) — `D-SHIP-7`: los correos de envío mandan al invitado a una ruta que no es la suya.**
+- **🔴 ABIERTA (v1.81) — `D-SHIP-SDX-1` (se llamó `D-SHIP-7` en v1.81 y chocaba con el `D-SHIP-7` de v1.80.7, abajo;
+  renombrada en v1.80.11): los correos de envío mandan al invitado a una ruta que no es la suya.** *(v1.80.11: en este
+  árbol `shipmentUrl` está en `shipment-notice.templates.ts:87-92` — pedido ⇒ `orders/:orderId` si hay `orderId`, si no
+  sin botón; retiro ⇒ `shipments/:id`; leído 2026-10-04. Qué `orderId` recibe un pedido de invitado: NO MEDIDO. La norma
+  de abajo no cambia.)*
   `shipments/mail/shipment-notice.templates.ts:72-74 · shipmentUrl`: `orderNumber ? 'cuenta/pedidos' : 'boveda/envios'`
   en este worktree (`609b45b`); en `claude/arreglos-operador` (`4ca6c45`, traspaso §7.1) se cambió a `orders/:orderId` /
   `shipments/:id` y el **invitado quedó sin botón**. Ninguna de las dos versiones le da al invitado su única puerta
@@ -30713,18 +30771,27 @@ arrived_damaged}`; `MovementReason + refund_release` (`ALTER TYPE … ADD VALUE`
 `Order + fullRefundAfterShipment BOOLEAN NOT NULL DEFAULT false, shippedRefundReason, shippedRefundNote,
 shippedRefundReasonAt, shippedRefundReasonByUserId (FK User RESTRICT)`; CHECKs `order_shipped_refund_reason_shape` y
 `order_after_shipment_sealed`.
-- **Número:** `M-62` — ⚠️ **NO MEDIDO** contra la rama viva `claude/skydropx-envios` (§T, criterios 234–248), que puede
+- **Número:** `M-62` — ~~⚠️ **NO MEDIDO** contra la rama viva `claude/skydropx-envios` (§T, criterios 234–248), que puede
   traer su propia migración. El orquestador lo comprueba (`git show origin/claude/skydropx-envios --stat` / su carpeta
-  `migrations/`) antes de encargar; si choca, se renumera y el contrato la cita por nombre («`M-62` (S.11)»).
+  `migrations/`) antes de encargar; si choca, se renumera y el contrato la cita por nombre («`M-62` (S.11)»).~~ ✅
+  **v1.80.11, medido:** construida en `backend/prisma/migrations/20261004120000_m62_shipped_refund_reason/` (Glob,
+  2026-10-04). Chocaba con la «`M-62`» de Skydropx, que **no** estaba construida y se renombra `M-SDX-C`/`M-SDX-D` (abajo).
 - **`NOT NULL DEFAULT false` con datos:** cumple la norma v1.64 de arriba — el default es el valor **verdadero** para toda
   fila existente (ninguna se cerró con este corte registrado). ⛔ Sin backfill a `true`: medición previa de solo lectura
   en `API_CONTRACT §M4-SHIP.18.12` (1).
 - **Reversible:** rollback de código; las columnas pueden quedarse (nullable / default). Con motivos registrados ⛔ no se
   borran (registro de por qué salió dinero). El `ADD VALUE` no se quita sin recrear el tipo.
-### v1.81-skydropx (**M-62**: dirección con colonia de lista + envíos con Skydropx — **DDL ADITIVO en DOS PARTES + 4 enums + CHECKs + seeds, SIN backfill**, §4.58)
 
-Forma normativa entera en `API_CONTRACT §M4-SHIP.19.2` y `.19.5`. Va **después** de `M-61` (que sigue sin construirse
-al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto; backend lo confirma con `ls backend/prisma/migrations`).
+### v1.81-skydropx (**`M-SDX-C` + `M-SDX-D`** — antes «`M-62`» partes a/b; **número sin asignar**: dirección con colonia de lista + envíos con Skydropx — **DDL ADITIVO en DOS MIGRACIONES + 4 enums + CHECKs + seeds, SIN backfill**, §4.60)
+
+⭐ **v1.80.11:** renombrada (chocaba con la `M-62` construida de S.11, arriba). Medido 2026-10-04 (Glob de
+`backend/prisma/migrations/`): `M-61` (`20260929120000_m61_shipment_prep_refunds`), `M-62` (S.11) y `M-63` (staff)
+construidas; ninguna de Skydropx. Los dos números los asigna el orquestador (≥ M-64) al encargar cada fase y backend los
+confirma contra `migrations/`. `M-SDX-D` cambia con el delta de `API_CONTRACT §M4-SHIP.19.19.14` (resumen al final de
+esta fila). En el texto de abajo, `M-62a` = `M-SDX-C` y `M-62b` = `M-SDX-D`.
+
+Forma normativa entera en `API_CONTRACT §M4-SHIP.19.2` y `.19.5`. Va **después** de `M-61` (~~que sigue sin construirse
+al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto~~ construida, ver arriba).
 **Dos partes, dos despliegues** (traspaso §7.3 fases C y D):
 - **`M-62a` — dirección (fase C):** `Address + references String?`; tabla **`PostalCode`** (`postalCode`, `state`,
   `municipality`, `neighborhood`; `@@unique([postalCode, neighborhood])`, `@@index([postalCode])`), cargada por
@@ -30751,6 +30818,14 @@ al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto; backend lo confirma con `
 - **Reversible:** `M-62a` sí (quitar columna y tabla; los snapshots con `references` se leen igual). `M-62b` sí mientras
   no haya `providerShipmentId` poblados; con guías compradas ⛔ no se borra (registro de dinero gastado y de PII enviada):
   rollback de código conservando columnas, y `shipping_provider='off'` como kill switch (congela el rastreo).
+- ⭐ **v1.80.11 — delta de `M-SDX-D`** (norma: `API_CONTRACT §M4-SHIP.19.19.14`): `ShipmentQuote.providerQuotationId`
+  **sin `@unique`** ⇒ `@@unique([shipmentRequestId, providerQuotationId])` + `@@index([providerQuotationId])` (la API
+  reutiliza cotizaciones, PROD §4.1); `ShipmentQuote` + `insuredValueCents Int`, `insuranceEchoOk Boolean`;
+  `ShipmentRequest` + `insuredValueCents Int?`; CHECKs `declaredValueCents >= insuredValueCents`; `ShippingPackage.weightKg`
+  **`Int`** con CHECK `>= 1`; seeds: `envelope` 25×18×3 · 1 · `5H4` y `box` 49×23×21 · 5 · `4G`, **activos**; diales de
+  §19.19.12 (nuevos `shipping_label_purchase = 'disabled'`, `shipping_insurance_tiers` con dos filas medidas,
+  `shipping_label_format = 'standard'`; `shipping_consignment_note = '49101600'`; `shipping_preferred_carriers =
+  ['ninetynineminutes']`; **sin** `shipping_declared_value_cap_cents`). Sin backfill; reversibilidad sin cambio.
 
 ### v1.80-preparar-envios (**M-61**: palomeo en envío + libro de reembolsos — **DDL ADITIVO + 3 enums + CHECKs + seed de un dial, SIN backfill**, §4.57)
 
