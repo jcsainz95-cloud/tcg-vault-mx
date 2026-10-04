@@ -36,6 +36,7 @@ function detail(overrides: Partial<AdminUserDetailDTO> = {}): AdminUserDetailDTO
     email: 'jcsainz95@example.com',
     username: null,
     lockedUntil: null,
+    lockState: 'ok',
     name: 'jcsainz95',
     role: 'customer',
     status: 'active',

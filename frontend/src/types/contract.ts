@@ -5123,6 +5123,12 @@ export interface AdminUserOwnedItemRef {
 // GET /admin/users/:id — ficha 360°. billingProfile = null para vault_operator
 // (proyección reducida SEC-A4: sin RFC/INE/billing).
 export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
+  /**
+   * ⭐ v1.80.9.1 A-1 (§M6-U.7): en la RAÍZ de la ficha, en los DOS DTOs (`AdminUserDetailDTO` y
+   * `AdminUserDetailOperatorDTO`), con la misma regla que el listado. `'unavailable'` ⇒
+   * `lockedUntil: null` y el front pinta el aviso discreto, no «sin candado».
+   */
+  lockState: AdminUsersLockState;
   locale?: Locale;
   authProvider?: AuthProvider;
   phone?: string;

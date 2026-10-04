@@ -3605,7 +3605,9 @@
         "user_kyc_update": "Decidió sobre la identidad",
         "auth_password_lock": "Bloqueo por intentos fallidos",
         "user_reset_password": "Le restablecieron la contraseña",
-        "user_create": "Alta de la cuenta"
+        "user_create": "Alta de la cuenta",
+        "auth_password_changed": "Cambió su contraseña",
+        "auth_logout": "Cerró sesión"
       }
     },
     "m11": {

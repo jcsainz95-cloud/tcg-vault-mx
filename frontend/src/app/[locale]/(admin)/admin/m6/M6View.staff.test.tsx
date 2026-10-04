@@ -249,7 +249,7 @@ describe('UX-8 = STF-27 (front) · el identificador es `email ?? username`', () 
 
   it('la ficha de una cuenta sin correo dice «Usuario: ana»', async () => {
     vi.spyOn(api, 'getAdminUsers').mockResolvedValue(listing([ANA]));
-    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...ANA, ownedItems: [] } as AdminUserDetailDTO);
+    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...ANA, lockState: 'ok', ownedItems: [] } as AdminUserDetailDTO);
     renderWithProviders(<M6View />, 'es');
     fireEvent.click((await screen.findAllByRole('button', { name: 'Ver ficha' }))[0]);
     const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
@@ -306,7 +306,7 @@ describe('UX-9 · marca «Bloqueado por intentos hasta HH:MM»', () => {
   it('la ficha con candado vigente lleva la marca y la pista de cómo quitarlo', async () => {
     const until = IN_30_MIN();
     vi.spyOn(api, 'getAdminUsers').mockResolvedValue(listing([{ ...ANA, lockedUntil: until }]));
-    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...ANA, lockedUntil: until, ownedItems: [] } as AdminUserDetailDTO);
+    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...ANA, lockedUntil: until, lockState: 'ok', ownedItems: [] } as AdminUserDetailDTO);
     renderWithProviders(<M6View />, 'es');
     fireEvent.click((await screen.findAllByRole('button', { name: 'Ver ficha' }))[0]);
     const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
@@ -319,7 +319,7 @@ describe('UX-10 · el restablecimiento refresca la marca', () => {
   it('tras el reset se invalidan `["admin-users"]` y `["admin-user", id]`; el texto dice que no va correo', async () => {
     const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
     vi.spyOn(api, 'getAdminUsers').mockResolvedValue(listing([{ ...ANA, lockedUntil: IN_30_MIN() }]));
-    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...ANA, ownedItems: [] } as AdminUserDetailDTO);
+    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...ANA, lockState: 'ok', ownedItems: [] } as AdminUserDetailDTO);
     vi.spyOn(api, 'resetUserPassword').mockResolvedValue({ userId: 'u-ana', tempPassword: 'T-1', mustChangePassword: true });
     renderWithProviders(<M6View />, 'es');
     fireEvent.click((await screen.findAllByRole('button', { name: 'Ver ficha' }))[0]);
@@ -331,5 +331,93 @@ describe('UX-10 · el restablecimiento refresca la marca', () => {
     const keys = invalidate.mock.calls.map((c) => (c[0] as { queryKey?: unknown[] } | undefined)?.queryKey);
     expect(keys).toContainEqual(['admin-users']);
     expect(keys).toContainEqual(['admin-user', 'u-ana']);
+  });
+});
+
+describe('v1.80.9.1 A-1 · la ficha trae su `lockState`', () => {
+  it('ficha con `lockState: "unavailable"` ⇒ el MISMO aviso discreto del listado y CERO marcas (aunque trajera hora)', async () => {
+    vi.spyOn(api, 'getAdminUsers').mockResolvedValue(listing([ANA]));
+    vi.spyOn(api, 'getAdminUser').mockResolvedValue({
+      ...ANA,
+      lockedUntil: IN_30_MIN(),
+      lockState: 'unavailable',
+      ownedItems: [],
+    } as AdminUserDetailDTO);
+    renderWithProviders(<M6View />, 'es');
+    // El listado dijo 'ok': el aviso de fuera NO está; el de la ficha sale al abrirla.
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Ver ficha' }))[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
+    const notice = await within(dialog).findByText(
+      'Ahora no pudimos consultar quién está bloqueado por intentos, así que esta lista no lo marca. Vuelve a cargarla en un momento.',
+    );
+    expect(notice.closest('[role="status"]')).toBeInTheDocument();
+    expect(within(dialog).queryAllByTestId('lock-mark')).toHaveLength(0);
+    expect(within(dialog).queryByText(/Se quita solo a esa hora/)).not.toBeInTheDocument();
+    expect(dialog.textContent).not.toMatch(/sin candado/i);
+  });
+
+  it('ficha con `lockState: "ok"` y `lockedUntil: null` ⇒ ni aviso ni marca', async () => {
+    vi.spyOn(api, 'getAdminUsers').mockResolvedValue(listing([ANA]));
+    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...ANA, lockState: 'ok', ownedItems: [] } as AdminUserDetailDTO);
+    renderWithProviders(<M6View />, 'es');
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Ver ficha' }))[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
+    await within(dialog).findByText('Usuario: ana');
+    expect(within(dialog).queryByText(/no pudimos consultar/)).not.toBeInTheDocument();
+    expect(within(dialog).queryAllByTestId('lock-mark')).toHaveLength(0);
+  });
+});
+
+describe('STF-36 (front) · el dueño rescata a un súper-admin sin correo desde Usuarios', () => {
+  it('ficha de `role: super_admin`, `email: null` ⇒ el botón «Restablecer contraseña» ESTÁ y llama al reset de esa cuenta', async () => {
+    const JEFA = row({ id: 'u-jefa', email: null, username: 'jefa', name: 'Jefa Sin Correo', role: 'super_admin' });
+    vi.spyOn(api, 'getAdminUsers').mockResolvedValue(listing([JEFA]));
+    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...JEFA, lockState: 'ok', ownedItems: [] } as AdminUserDetailDTO);
+    const reset = vi
+      .spyOn(api, 'resetUserPassword')
+      .mockResolvedValue({ userId: 'u-jefa', tempPassword: 'T-JEFA', mustChangePassword: true });
+    renderWithProviders(<M6View />, 'es');
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Ver ficha' }))[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
+    await within(dialog).findByText('Usuario: jefa');
+    const button = within(dialog).getByRole('button', { name: /Restablecer contraseña/ });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    await waitFor(() => expect(reset).toHaveBeenCalledWith('u-jefa'));
+    expect(await screen.findByText('T-JEFA')).toBeInTheDocument();
+  });
+});
+
+describe('M-4 (QA sobre da6d910e) · Actividad de la ficha', () => {
+  it('un evento sin actor pinta «—» en ROL ACTOR; `auth.password_changed` y `auth.logout` llevan rótulo', async () => {
+    vi.spyOn(api, 'getAdminUsers').mockResolvedValue(listing([ANA]));
+    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...ANA, lockState: 'ok', ownedItems: [] } as AdminUserDetailDTO);
+    vi.spyOn(api, 'getAdminUserAudit').mockResolvedValue({
+      data: [
+        { id: 'a1', actorUserId: 'u-ana', actorRole: 'vault_operator', action: 'auth.password_changed', entityType: 'User', entityId: 'u-ana', createdAt: '2026-10-04T10:00:00Z', ip: '10.0.0.1' },
+        // El candado lo pone el sistema: el backend lo emite sin rol de actor.
+        { id: 'a2', actorUserId: null, actorRole: null, action: 'auth.password_lock', entityType: 'User', entityId: 'u-ana', createdAt: '2026-10-04T09:00:00Z' },
+        { id: 'a3', actorUserId: 'u-ana', actorRole: 'vault_operator', action: 'auth.logout', entityType: 'User', entityId: 'u-ana', createdAt: '2026-10-04T08:00:00Z' },
+      ],
+      page: 1,
+      pageSize: 10,
+      total: 3,
+    } as unknown as Awaited<ReturnType<typeof api.getAdminUserAudit>>);
+    renderWithProviders(<M6View />, 'es');
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Ver ficha' }))[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
+    fireEvent.click(await within(dialog).findByRole('tab', { name: 'Actividad' }));
+    expect((await within(dialog).findAllByText('Cambió su contraseña')).length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText('Cerró sesión').length).toBeGreaterThan(0);
+    expect(within(dialog).queryByText('auth.password_changed')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('auth.logout')).not.toBeInTheDocument();
+
+    const table = dialog.querySelector('table')!;
+    const headers = Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent);
+    const col = headers.indexOf('Rol actor');
+    expect(col).toBeGreaterThanOrEqual(0);
+    const lockRow = Array.from(table.querySelectorAll('tbody tr')).find((tr) => tr.textContent?.includes('Bloqueo por intentos fallidos'))!;
+    expect(lockRow.querySelectorAll('td')[col].textContent?.trim()).toBe('—');
+    expect(dialog.textContent).not.toMatch(/\bnull\b|\bundefined\b/);
   });
 });

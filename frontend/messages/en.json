@@ -3605,7 +3605,9 @@
         "user_kyc_update": "Decided on the identity",
         "auth_password_lock": "Locked after failed attempts",
         "user_reset_password": "Password reset by an admin",
-        "user_create": "Account created"
+        "user_create": "Account created",
+        "auth_password_changed": "Changed their password",
+        "auth_logout": "Signed out"
       }
     },
     "m11": {
