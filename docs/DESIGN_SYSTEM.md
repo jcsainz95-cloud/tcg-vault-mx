@@ -4,7 +4,20 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.11 (2026-10-04) — precios del 2026-10-04 (decisiones del dueño, `HECHOS.md` 2026-10-04, filas
+> Estado: **v4.12 (2026-10-04) — reembolso total «depende de si ya salió» (errata de contrato v1.80.8.6,
+> `API_CONTRACT §M4-SHIP.18.12`, `ARCHITECTURE §4.57 (w)`, `PROJECT §S.11`, criterios 249–253; `HECHOS.md` filas
+> 2026-10-02 «Cartas apartadas…» y 2026-10-04 «Cartas apartadas (SSL-R1) — detalles» 4a/4b):** **§40 NUEVA.**
+> **§40.2** — el diálogo de reembolso total de «Ventas» con el pedido **ya enviado**: aviso «las cartas no vuelven a
+> inventario», motivo obligatorio de **dos** opciones («No llegó» / «Llegó en mala condición», ⛔ sin «otro»), el texto
+> libre de siempre pasa a ser la nota, y el `422 REFUND_CONFIRMATION_REQUIRED {required:['shipped_reason']}` re-pinta
+> el selector sin perder lo escrito. **§40.3** — «Reembolso por revisar»: marca y filtro (`?refundReview=pending`) en el
+> listado de «Ventas», formulario de una sola vez en el detalle (solo súper-admin, con confirmación; el operador ve el
+> estado), y tarjeta del tablero. **§40.4** — el pedido reembolsado **sin liquidar**: qué se dice de las cartas que
+> volvieron solas a la venta. **§40.5** — historial de la pieza: «Liberada por reembolso» (y tres motivos que hoy no
+> tienen texto — medido). **§40.6** — «Reembolsos» (§37.20) **sigue con dos cubetas**; gana solo un enlace. **Cero
+> tokens nuevos.** Una solicitud al arquitecto (A-1) y una nota (A-2) en §40.12. Lo que sigue es la v4.11 sin cambio.
+>
+> Estado anterior: **v4.11 (2026-10-04) — precios del 2026-10-04 (decisiones del dueño, `HECHOS.md` 2026-10-04, filas
 > «Precios — decisiones del 2026-10-04» (a)(b) y «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y
 > P-PRE-1» (a)(d)):** **§39 NUEVA.** **§39.1** — control de «Configuración» para el dial `premiumFloorSalePublish`
 > (`API_CONTRACT` v1.80.8.5, ancla `M2-PF`): tres modos (**«Publicar solo estas rarezas»** por defecto con *Double Rare*
@@ -21658,3 +21671,443 @@ dueños de namespace lo arrastre)
 **Contraste:** ningún color nuevo. Frases de motivo en `text-text` sobre `surface` (ya verificado AA en §10); chips y
 estados vacíos de precio en `text-accent` como hoy; disabled del `fieldset` a 0.5 de opacidad como el resto de §6.4
 (texto deshabilitado, exento de AA por WCAG 1.4.3, y acompañado de la nota en tinta normal que dice por qué).
+
+---
+
+## 40. Reembolso TOTAL «depende de si ya salió» — el motivo del enviado, «Reembolso por revisar» y la carta que vuelve sola (v4.12, 2026-10-04 · `API_CONTRACT §M4-SHIP.18.12` v1.80.8.6)
+
+### 40.0 Fuente, alcance y reglas duras
+
+**Fuentes (citadas, no resumidas de memoria):**
+
+- `HECHOS.md` 2026-10-02, fila **«Cartas apartadas de un pedido reembolsado desde Stripe sin liquidar (SSL-R1):
+  depende de si el pedido ya salió»** — *«si ya salió ahí no podemos regresarlas a inventario y habría que checar por
+  qué el reembolso, porque solo sería porque no llegó o estaban en mala condición»* (citado en `PROJECT §S.11`, Fuente 1).
+- `HECHOS.md` 2026-10-04, fila **«Cartas apartadas (SSL-R1) — detalles del 2026-10-04»**: **4a** *«como sugieres está
+  bien»* (no enviado ⇒ vuelven solas a la venta si nadie las tocó) y **4b** *«para cualquier reembolso»* (la regla del
+  enviado vale para todo reembolso total) (citado en `PROJECT §S.11`, Fuente 2).
+- `PROJECT §S.11` y criterios **249–253**; `API_CONTRACT §M4-SHIP.18.12` (1)–(7) — (7) es la lista de pantalla;
+  `ARCHITECTURE §4.57 (w)`.
+
+**Lo que este diseño cubre:** (1) el diálogo de reembolso total de «Ventas» (M3) cuando el pedido ya salió y cuando
+no; (2) «Reembolso por revisar» en listado, filtro, detalle y tablero; (3) el pedido reembolsado sin liquidar en el
+detalle; (4) el movimiento `refund_release` en el historial de la pieza; (5) el encaje con «Reembolsos» (§37.20).
+
+**Reglas duras (de PROJECT/contrato; la pantalla no las relaja):**
+
+1. **Dos motivos y solo dos.** `not_arrived` «No llegó» y `arrived_damaged` «Llegó en mala condición». ⛔ Sin opción
+   «otro», ⛔ sin texto libre **en lugar** del motivo, ⛔ sin motivo preseleccionado (un valor por defecto es un motivo
+   que nadie eligió).
+2. **La pantalla no decide «enviado».** `shipmentShipped` (detalle) solo sirve para pedir el motivo **antes** de enviar;
+   quien decide es la tx1 del servidor (contrato (7)). Por eso el `422` existe y se maneja (§40.2 c).
+3. **El motivo registrado después no se edita.** Una vez, con confirmación, y luego solo lectura (contrato (6)).
+4. **Registrar el motivo no mueve dinero, cartas ni correos.** Ningún texto de esta sección puede sugerir lo contrario.
+5. **El menú no cambia** (§37.20, decisión del dueño 2026-10-02): ni entrada nueva, ni badge que sume «por revisar».
+6. **Cero tokens nuevos.** Todo sale de lo ya usado en §37.10 (`Banner` `warning`/`info`/`danger`, versalita mono
+   `text-accent`, `Textarea` con contador, `StatCard`).
+
+**Lo medido antes de redactar (2026-10-04, worktree `/home/user/tcg-precios`, rama `claude/precios-s5`; sin Bash,
+lectura de ficheros — ⛔ sha NO MEDIDO, el encargo dice HEAD `f0dac0a6`):**
+
+| Medición | Resultado |
+|---|---|
+| Diálogo de reembolso total | `m3/RefundOrderDialog.tsx`: un solo `Input` de motivo (`:141`), cuerpo `isVault ? body : directBody` (`:132`), y el `422 REFUND_CONFIRMATION_REQUIRED` **siempre** se trata como «cartas en mano del cliente» (`:84-88`) — ⚠️ con el `422 … ['shipped_reason']` nuevo pintaría la casilla de bóveda equivocada. Se corrige en §40.2 c |
+| Tipo del `422` | `types/contract.ts:2065-2068`: `required: ('pieces_with_customer')[]`, `items` obligatorio. No admite `shipped_reason` ni `shipmentStatus` |
+| Listado de «Ventas» | `m3/M3View.tsx`: filtros en estado **local** (`:45-63`), ⛔ nada en la URL; `m3/page.tsx:3-5` no lee `searchParams`. Hoy `/admin/m3?refundReview=pending` (el enlace del tablero, contrato (7)) **no filtraría** |
+| Detalle | `m3/[orderId]/M3OrderDetailView.tsx`: banners en `:186-207`, columna principal desde `:210`, `RefundOrderDialog` en `:375-383` |
+| Tablero | `AdminDashboard.tsx:181-200` tarjeta SPEI (`StatCard`, `null` ⇒ no existe), `:202-219` operadores; tipo `contract.ts:2505-2507` |
+| Historial de la pieza | `m1/ItemDetailModal.tsx:393` pinta `t('movementReason.' + reason)` con `t = useTranslations('admin.m1')` (`:43`); `es.json`/`en.json:1485-1495` tienen **9** motivos. El schema tiene **12** (`backend/prisma/schema.prisma:396-414`): faltan texto para `adjustment`, `replacement` y `refund_return` (y el tipo `contract.ts:2593-2603` no tiene `replacement` ni `refund_return`). Qué pinta `next-intl` con la clave ausente en producción: **NO MEDIDO** |
+| `settledAt` en el detalle admin | El controlador mezcla `getOrder('', id, true)` con columnas propias (`backend/src/modules/orders/admin-orders.controller.ts:140-195`); si `getOrder` emite `settledAt`: **NO MEDIDO**. El contrato (§M3) no lo declara para el detalle admin ⇒ solicitud **A-1** (§40.10) |
+| «Reembolsos» | `refunds/RefundsView.tsx:74-77` cabecera con `h1` + `hint`; dos pestañas (`:79-111`), implementado según §37.20 |
+
+---
+
+### 40.1 Los dos motivos — un solo juego de textos para todas las superficies
+
+| Valor (`ShippedRefundReason`) | Rótulo ES / EN | Ayuda bajo la opción ES / EN |
+|---|---|---|
+| `not_arrived` | **«No llegó»** / “Didn't arrive” | «El paquete se perdió o el cliente no lo recibió.» / “The parcel was lost or the customer never got it.” |
+| `arrived_damaged` | **«Llegó en mala condición»** / “Arrived in bad condition” | «Llegó, pero las cartas no estaban como se vendieron.» / “It arrived, but the cards weren't as sold.” |
+
+Mismo rótulo en el diálogo (§40.2), en el formulario del detalle (§40.3 c), en la lectura (§40.3 d) y en el aviso de
+éxito. ⛔ Ningún sitio traduce el valor crudo (`not_arrived`) al DOM.
+
+**Control:** `fieldset` + `legend` con dos `input type="radio"` del mismo `name` (patrón de `M3OrderDetailView.tsx:255-275`:
+`h-5 w-5 accent-text`, rótulo `text-sm text-text`, ayuda `text-muted` en bloque). Área táctil ≥ 44 px por fila (la
+`label` entera es el blanco). **Ninguna marcada al abrir.**
+
+---
+
+### 40.2 El diálogo de reembolso total de «Ventas» (M3, solo súper-admin)
+
+Lee `detail.data.shipmentShipped` (contrato (7)). Mientras el detalle carga, el `Skeleton` de hoy y **el botón de
+confirmar deshabilitado** (hoy no lo está: `:107`). Si el detalle **falla**, el diálogo se comporta como «no enviado» y
+el `422` de (c) es la red.
+
+#### (a) Pedido NO enviado (`shipmentShipped === false`) — sin cambio de conducta
+
+- **Compra a bóveda:** §37.10 tal cual (P-S11-4: ⛔ nunca pide motivo de envío).
+- **Envío directo:** `directBody` de hoy, **sin cambio** — *«Se devuelve lo que queda del cobro. Si el envío sigue
+  vivo, se cierra: sus cartas quedan congeladas hasta que confirmes dónde están.»* (`es.json:1613`).
+- **Sobre «las cartas apartadas que vuelven a la venta»:** **en este diálogo no aplica y no se dice.** «Ventas» solo
+  reembolsa pedidos **liquidados** (contrato (4): «exige `settled`, sin cambio»), y las cartas de un pedido liquidado
+  ya no están «apartadas»: si el pedido no salió, quedan **congeladas** y un humano confirma dónde están (lo que ya
+  dice `directBody`; criterio 253: «se comporta igual que hoy»). La vuelta **sola** a la venta (4a) solo ocurre en un
+  pedido **sin liquidar** reembolsado desde Stripe, que nunca pasa por este diálogo; se cuenta en el detalle (§40.4).
+  ⛔ Prometer aquí «vuelven a la venta» sería falso.
+
+#### (b) Pedido ENVIADO (`shipmentShipped === true`) — motivo obligatorio
+
+Orden de arriba abajo (el título, «Reembolsar», y la pregunta `refundQuestion` no cambian):
+
+1. **Aviso** — `Banner variant="warning"` (estático, ⛔ sin `role="alert"`: no es un error), título **«Este pedido ya
+   salió»** / “This order has already shipped”, cuerpo **«Las cartas no vuelven a inventario: el cliente las tiene o
+   las tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición.»** / “The cards don't go back
+   into inventory: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad
+   condition.”
+2. **Lo que queda por devolver** — `tv('remaining')` como hoy.
+3. **Cuerpo** (sustituye a `directBody` en este caso) — **«Se devuelve lo que queda del cobro. El envío no se toca y
+   las cartas no vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el
+   correo de reembolso de siempre.»** / “What's left of the charge is refunded. The shipment isn't touched and the
+   cards don't go back into inventory or on sale. The reason is saved under your name. The customer gets the usual
+   refund email.”
+4. **Motivo** — `fieldset` de §40.1, `legend` **«¿Por qué se reembolsa? (obligatorio)»** / “Why is it being
+   refunded? (required)”. Debajo, mientras no haya opción marcada, `text-xs text-muted`: **«Elige uno de los dos para
+   poder reembolsar.»** / “Pick one of the two to be able to refund.”
+5. **Nota** — el mismo campo de texto de hoy (`reason`, obligatorio en M3; contrato (4) cita `orders.dto.ts:23`), con **otro rótulo y otra ayuda** en este caso: rótulo **«Qué pasó»** / “What happened”, ayuda
+   **«Obligatorio. Queda como nota del motivo y en bitácora. Máximo 500 caracteres.»** / “Required. Saved as the
+   reason's note and in the audit log. 500 characters max.” Pasa a `Textarea` con `maxLength={500}` y
+   `counter={{ max: 500 }}` (patrón `M3OrderDetailView.tsx:276`): el servidor recorta a 500 (contrato (4)) y la
+   pantalla no deja escribir lo que se perdería en silencio.
+6. `moneyOutNote` y el botón **«Reembolsar {amount}»** (destructivo) como hoy. Habilitado solo con **motivo marcado
+   ∧ nota no vacía** (∧ detalle cargado).
+
+**Cuerpo del `POST`:** `{ reason: nota.trim(), shippedReason }`. ⛔ Con `shipmentShipped === false` el cuerpo **no**
+lleva `shippedReason` (si lo llevara: `409 …NOT_APPLICABLE`, (c)).
+
+**Éxito:** el diálogo cierra y el aviso de la página (listado y detalle) dice **«Reembolso hecho del pedido {ref}.
+Motivo guardado: «{reason}». Las cartas no vuelven a inventario.»** / “Order {ref} refunded. Reason saved: “{reason}”.
+The cards don't go back into inventory.” (`{reason}` = rótulo de §40.1; el diálogo lo conoce, ⛔ no hace falta que lo
+devuelva el servidor). Sin motivo de envío: `refundDone` de hoy.
+
+#### (c) Respuestas nuevas del `POST` (se distinguen por `error.code` **y** `details.required`)
+
+| Respuesta | Qué hace la pantalla | ES | EN |
+|---|---|---|---|
+| `422 REFUND_CONFIRMATION_REQUIRED {required:['shipped_reason'], shipmentStatus}` (la pantalla creía «no enviado») | Pasa al modo (b) **sin perder la nota escrita** (la copia al `Textarea`); invalida el detalle; foco a la `legend` del motivo; `Banner danger role="alert"` | **«Este pedido salió mientras tenías abierto el diálogo (envío {status}). No se reembolsó nada. Elige por qué se reembolsa y confirma otra vez.»** | “This order shipped while you had the dialog open (shipment {status}). Nothing was refunded. Pick why it's being refunded and confirm again.” |
+| `422 REFUND_CONFIRMATION_REQUIRED {required:['pieces_with_customer'], items}` | **Sin cambio** (§37.10, casilla de cartas en mano) | (sin cambio) | (sin cambio) |
+| `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE {afterShipment:false}` | Quita el motivo, vuelve al modo (a), invalida el detalle, conserva la nota | **«Este pedido no ha salido: no lleva motivo de envío. No se reembolsó nada. Revisa y confirma otra vez.»** | “This order hasn't shipped: it takes no shipping reason. Nothing was refunded. Check and confirm again.” |
+| `400 VALIDATION_ERROR {field:'shippedReason'}` | No debería ocurrir desde la UI (solo dos radios) | **«Elige «No llegó» o «Llegó en mala condición».»** | “Pick “Didn't arrive” or “Arrived in bad condition”.” |
+| `403 MONEY_OUT_FORBIDDEN` | Como hoy (`getError`) | (sin cambio) | (sin cambio) |
+
+`{status}` se pinta con `status.shipment` (la misma traducción que la lista de envíos del detalle, `:299`).
+⛔ Ninguna de estas respuestas movió dinero: todas dicen «No se reembolsó nada».
+
+---
+
+### 40.3 «Reembolso por revisar» — pedidos enviados reembolsados desde el panel de Stripe
+
+**Definición de pantalla:** `refundReviewPending === true` (fila del listado) / `fullRefundReview.pending === true`
+(detalle). ⛔ La pantalla no lo recalcula con otros campos: el predicado es uno y es del servidor (contrato (1)).
+
+#### (a) Marca en el listado de «Ventas»
+
+En la columna **Estado**, a la derecha del `StatusBadge` («Reembolsada»), versalita mono **«Por revisar»** / “To
+review” en `text-accent` (`font-mono text-[11px] uppercase tracking-[0.06em]`, el mismo `TAG` de
+`M3OrderDetailView.tsx:27`), `data-testid="m3-review-chip-{id}"`. En móvil envuelve bajo el badge. El significado no
+depende del color: la palabra está escrita. Visible para los **dos** roles (la fila es la misma para ambos; contrato
+(7) «mismo guard»).
+
+#### (b) Filtro
+
+En la fila de filtros de `M3View` (tras «Monto máx.»), una casilla **«Solo reembolsos por revisar»** / “Only refunds
+to review” (`h-5 w-5 accent-text`, `label` ≥ 44 px de alto). Marcada ⇒ `refundReview: 'pending'` en la consulta y
+**en la URL**:
+
+- `/admin/m3?refundReview=pending` llega **ya filtrado** (es el destino de la tarjeta del tablero). La página de
+  servidor lee `searchParams` (patrón de `refunds/page.tsx:9-11`) y pasa el valor inicial a `M3View`.
+- Marcar/desmarcar **reemplaza** la entrada del historial (`replaceState`, como §37.20 b), vuelve a la página 1.
+  Cualquier otro valor del parámetro ⇒ casilla desmarcada (⛔ no se manda al servidor: daría `400`).
+- Se combina con búsqueda, fechas y montos (todo reduce).
+- **Vacío con el filtro:** `EmptyState` título **«No hay reembolsos por revisar.»** / “No refunds to review.”, texto
+  **«Aquí aparecen los pedidos que ya habían salido y se reembolsaron completos desde el panel de Stripe, hasta que
+  alguien registre por qué.»** / “Orders that had already shipped and were fully refunded from the Stripe dashboard
+  show up here until someone records why.”
+
+#### (c) En el detalle — el formulario, una sola vez
+
+Con `fullRefundReview?.pending === true`, **primero** (tras los banners de `:186-207`, antes de «Cartas»):
+
+1. `Banner variant="warning" role="status"` título **«Reembolso por revisar»** / “Refund to review”, cuerpo
+   **«Este pedido se reembolsó completo desde el panel de Stripe cuando ya había salido. Las cartas no vuelven a
+   inventario. Falta registrar por qué.»** / “This order was fully refunded from the Stripe dashboard after it had
+   shipped. The cards don't go back into inventory. The reason still needs recording.”
+2. **Solo súper-admin** — sección `data-testid="m3-refund-review"`, `h2` **«Registrar el motivo»** / “Record the
+   reason”:
+   - `fieldset` de §40.1, `legend` **«¿Por qué se reembolsó? (obligatorio)»** / “Why was it refunded? (required)”.
+   - `Textarea` **«Nota (opcional)»** / “Note (optional)”, `maxLength={500}`, contador 500.
+   - Texto `text-xs text-muted`: **«Solo queda registrado: no mueve dinero ni cartas y no avisa al cliente. Una vez
+     guardado no se cambia.»** / “It's only recorded: it doesn't move money or cards and doesn't notify the customer.
+     Once saved it can't be changed.”
+   - Botón `primary` **«Registrar motivo»** / “Record reason”, habilitado con motivo marcado.
+   - **Confirmación** (`Modal`, foco inicial en «Cancelar», como `:69-71`): título **«¿Registrar «{reason}» como
+     motivo?»** / “Record “{reason}” as the reason?”; cuerpo **«Queda guardado a tu nombre y ya no se puede cambiar.»**
+     / “It's saved under your name and can't be changed afterwards.”; confirmar **«Registrar»** / “Record”.
+     *Por qué hay confirmación:* el registro es final (regla 3) y un radio mal tocado no tendría arreglo.
+3. **Operador** (`vault_operator`): ve el banner y, en lugar del formulario, `text-sm text-muted` **«Solo el
+   súper-admin puede registrar el motivo.»** / “Only the super-admin can record the reason.” ⛔ Sin botón
+   deshabilitado (no hay nada que él pueda completar).
+
+**Respuestas de `POST /admin/orders/:id/shipped-refund-reason`:**
+
+| Respuesta | Qué hace la pantalla | ES | EN |
+|---|---|---|---|
+| `200 {outcome:'recorded'}` | Aviso `info role="status"`; invalida detalle, listado y tablero; el bloque pasa a lectura (d) | **«Motivo registrado: «{reason}».»** | “Reason recorded: “{reason}”.” |
+| `200 {outcome:'already_recorded'}` | Igual, otro texto | **«Ese motivo ya estaba registrado. No se cambió nada.»** | “That reason was already recorded. Nothing changed.” |
+| `409 SHIPPED_REFUND_REASON_ALREADY_SET {reason}` | `danger role="alert"`; invalida el detalle | **«Alguien ya registró otro motivo: «{reason}». El motivo no se cambia.»** | “Someone already recorded a different reason: “{reason}”. The reason can't be changed.” |
+| `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE` | `danger`; invalida el detalle | **«Este pedido no había salido cuando se reembolsó: no lleva motivo de envío.»** | “This order hadn't shipped when it was refunded: it takes no shipping reason.” |
+| `403 MONEY_OUT_FORBIDDEN` | `danger` (no debería verse: el operador no tiene formulario) | **«Solo el súper-admin puede registrar el motivo. El intento quedó registrado.»** | “Only the super-admin can record the reason. The attempt was logged.” |
+| `400 VALIDATION_ERROR` | `danger`, conserva lo elegido | **«Elige «No llegó» o «Llegó en mala condición». La nota admite hasta 500 caracteres.»** | “Pick “Didn't arrive” or “Arrived in bad condition”. The note takes up to 500 characters.” |
+
+`{reason}` = rótulo de §40.1 (en el `409 …ALREADY_SET`, el de `details.reason`).
+
+#### (d) En el detalle — la lectura (motivo ya registrado)
+
+Con `fullRefundReview?.afterShipment === true ∧ pending === false` (registrado después **o** en el propio reembolso de
+M3), sección de solo lectura `data-testid="m3-refund-review-done"`, `h2` **«Reembolso tras el envío»** / “Refund after
+shipping”:
+
+- **«Motivo: {reason}»** / “Reason: {reason}”
+- **«Nota: {note}»** / “Note: {note}” (`note === null` ⇒ la línea no se pinta)
+- **«Registrado por {name} · {date}»** / “Recorded by {name} · {date}” (`formatDateTimeMx`; `recordedBy.name === null`
+  ⇒ `admin.m3.nameMissing` de hoy)
+- **«Las cartas no volvieron a inventario.»** / “The cards didn't go back into inventory.”
+
+Visible para los dos roles. ⛔ Sin botón de editar.
+
+#### (e) Tarjeta del tablero
+
+`workQueue.refundReviews` (contrato (7)); **`null` ⇒ la tarjeta no existe** (operador; regla S6, como
+`AdminDashboard.tsx:180-181`). `StatCard` entre «Reembolsos por pagar (SPEI)» y «Reembolsos de operadores» (las tres de
+reembolsos juntas):
+
+| Parte | ES | EN |
+|---|---|---|
+| `label` | **Reembolsos por revisar** | **Refunds to review** |
+| `value` | `pending` | |
+| `sub` (enlace a `/admin/m3?refundReview=pending`, `data-testid="dashboard-refund-reviews"`, mismas clases que `:186-190`) con `pending > 0 ∧ oldestRefundedAt` | **«Falta el motivo · el más viejo hace {days, plural, one {# día} other {# días}}»** | “Reason missing · oldest {days, plural, one {# day} other {# days}} ago” |
+| `sub` con `pending === 0` | **«Nada por revisar.»** | “Nothing to review.” |
+
+`{days}` con el `daysSince` que ya existe (`AdminDashboard.tsx:32`). ⛔ Sin `text-accent` ni rojo: como la tarjeta SPEI.
+
+---
+
+### 40.4 El pedido reembolsado SIN liquidar — las cartas que volvieron solas (4a, criterio 249)
+
+En el detalle, con `status === 'refunded' ∧ fullRefundReview?.afterShipment === false ∧` **el pedido nunca se
+liquidó** (ver la condición de datos abajo): `Banner variant="info" role="status"`, título **«Reembolsado antes de
+quedar pagado»** / “Refunded before it was paid”, cuerpo **«Stripe reembolsó este pedido antes de que la tienda lo
+diera por pagado, así que nunca se preparó. Las cartas que tenía apartadas volvieron solas a la venta; cada una
+lleva «Liberada por reembolso» en su historial.»** / “Stripe refunded this order before the store marked it as paid,
+so it was never prepared. The cards it was holding went back on sale by themselves; each one shows “Released by
+refund” in its history.”
+
+- **Condición de datos:** hace falta saber si el pedido se liquidó. El detalle admin **no declara** `settledAt`
+  (medido arriba, §40.0) ⇒ **solicitud A-1**. Hasta que el arquitecto lo declare, el banner **no se pinta** (⛔ no se
+  infiere de otro campo): la verdad sigue visible en el historial de cada pieza (§40.5).
+- ⛔ Este caso **no** lleva «por revisar», ni motivo, ni formulario (contrato (3): `chargebackNeedsManual` no sube).
+- El cliente no ve nada nuevo (criterio 253: ningún correo nuevo).
+
+---
+
+### 40.5 Historial de la pieza — «Liberada por reembolso»
+
+En `ItemDetailModal` (historial, `:381-414`), el movimiento `refund_release` se pinta como cualquier otro: rótulo
+**«Liberada por reembolso»** / “Released by refund”, debajo `Apartada → A la venta` (los estados ya traducidos de
+`status.inventory`) y la `note` del servidor tal cual (*«pedido {n} reembolsado sin liquidar»*). Sin actor visible
+(hoy el historial no pinta actores; el barrido escribe `actorUserId = null`).
+
+**Se cierran en el mismo cambio los tres motivos que hoy no tienen texto** (medido en §40.0; criterio de «ningún
+valor crudo en el DOM»):
+
+| `MovementReason` | ES | EN |
+|---|---|---|
+| `refund_release` *(nuevo)* | Liberada por reembolso | Released by refund |
+| `refund_return` *(v1.80.4, sin texto hoy)* | Devuelta por reembolso | Returned by refund |
+| `replacement` *(v1.80.1, sin texto hoy)* | Reposición | Replacement |
+| `adjustment` *(v1.20, sin texto hoy)* | Ajuste por levantamiento | Stock-count adjustment |
+
+*Por qué «Liberada» y no «Devuelta»:* `refund_return` ya es la carta de bóveda que **vuelve** de manos del cliente a la
+plataforma; `refund_release` es la carta que **nunca salió del estante** y solo deja de estar apartada. Dos hechos
+distintos, dos palabras.
+
+---
+
+### 40.6 «Reembolsos» (§37.20) — sigue con dos cubetas; gana un enlace
+
+**Decisión: «Reembolso por revisar» NO es una tercera cubeta.** Razones:
+
+1. El dueño pidió **dos** cubetas, SPEI y operadores (`HECHOS.md` 2026-10-02, fila «Menú del panel…»). Una tercera
+   contradice sus palabras.
+2. Lo que se revisa es un **pedido** (falta su motivo), no un reembolso por pagar ni una fila del libro: su sitio
+   natural es «Ventas», que es donde están el detalle y el formulario, y adonde el contrato manda la tarjeta (7).
+3. El badge del menú se queda **solo SPEI** (§37.20 a): «por revisar» ya tiene su cifra en el tablero.
+
+**Lo que sí cambia:** bajo el `hint` de la cabecera (`RefundsView.tsx:76`), un enlace `text-sm underline` **«Pedidos
+enviados reembolsados desde Stripe que esperan motivo: verlos en Ventas →»** / “Shipped orders refunded from Stripe
+that need a reason: see them in Sales →” a `/admin/m3?refundReview=pending`. **Sin número** (el `summary` que usa esta
+página no lo trae y ⛔ no se pide campo para esto). La página ya es solo súper-admin (`:26`).
+
+---
+
+### 40.7 Accesibilidad (además de §8.2 y §37.14)
+
+- Los dos `fieldset` de motivo llevan `legend` visible; el «(obligatorio)» está **en** la `legend` (lo lee el lector
+  de pantalla), ⛔ no solo un asterisco.
+- Tras el `422 …shipped_reason`, el foco va a la `legend` del motivo (`tabIndex={-1}`) y el `Banner` con
+  `role="alert"` se anuncia una vez.
+- Orden de tabulación del diálogo enviado: aviso (no enfocable) → radios → nota → Cancelar → Reembolsar.
+- La marca «Por revisar» es texto; la casilla del filtro tiene `label` asociada.
+- Ningún cambio de layout entre los modos (a) y (b) mueve el botón de confirmar fuera del pie del `Modal`.
+
+### 40.8 Contraste — cero pares nuevos
+
+`text-accent` sobre `surface` (marca «Por revisar»), `Banner` `warning`/`info`/`danger` y `text-muted` ya están
+verificados AA (§10, §37.15). Ningún color nuevo.
+
+### 40.9 i18n — claves nuevas y cambiadas (paridad ES/EN en el mismo cambio)
+
+| Estado | Clave | ES | EN |
+|---|---|---|---|
+| nueva | `admin.m3.shippedReason.not_arrived` | No llegó | Didn't arrive |
+| nueva | `admin.m3.shippedReason.arrived_damaged` | Llegó en mala condición | Arrived in bad condition |
+| nueva | `admin.m3.shippedReason.hint.not_arrived` | El paquete se perdió o el cliente no lo recibió. | The parcel was lost or the customer never got it. |
+| nueva | `admin.m3.shippedReason.hint.arrived_damaged` | Llegó, pero las cartas no estaban como se vendieron. | It arrived, but the cards weren't as sold. |
+| nueva | `admin.m3.shippedRefund.title` | Este pedido ya salió | This order has already shipped |
+| nueva | `admin.m3.shippedRefund.warning` | Las cartas no vuelven a inventario: el cliente las tiene o las tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición. | The cards don't go back into inventory: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition. |
+| nueva | `admin.m3.shippedRefund.body` | Se devuelve lo que queda del cobro. El envío no se toca y las cartas no vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre. | What's left of the charge is refunded. The shipment isn't touched and the cards don't go back into inventory or on sale. The reason is saved under your name. The customer gets the usual refund email. |
+| nueva | `admin.m3.shippedRefund.legend` | ¿Por qué se reembolsa? (obligatorio) | Why is it being refunded? (required) |
+| nueva | `admin.m3.shippedRefund.pickOne` | Elige uno de los dos para poder reembolsar. | Pick one of the two to be able to refund. |
+| nueva | `admin.m3.shippedRefund.noteLabel` | Qué pasó | What happened |
+| nueva | `admin.m3.shippedRefund.noteHint` | Obligatorio. Queda como nota del motivo y en bitácora. Máximo 500 caracteres. | Required. Saved as the reason's note and in the audit log. 500 characters max. |
+| nueva | `admin.m3.shippedRefund.done` | Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Las cartas no vuelven a inventario. | Order {ref} refunded. Reason saved: “{reason}”. The cards don't go back into inventory. |
+| nueva | `admin.m3.shippedRefund.error.required` | Este pedido salió mientras tenías abierto el diálogo (envío {status}). No se reembolsó nada. Elige por qué se reembolsa y confirma otra vez. | This order shipped while you had the dialog open (shipment {status}). Nothing was refunded. Pick why it's being refunded and confirm again. |
+| nueva | `admin.m3.shippedRefund.error.notApplicable` | Este pedido no ha salido: no lleva motivo de envío. No se reembolsó nada. Revisa y confirma otra vez. | This order hasn't shipped: it takes no shipping reason. Nothing was refunded. Check and confirm again. |
+| nueva | `admin.m3.shippedRefund.error.invalid` | Elige «No llegó» o «Llegó en mala condición». | Pick “Didn't arrive” or “Arrived in bad condition”. |
+| nueva | `admin.m3.refundReview.chip` | Por revisar | To review |
+| nueva | `admin.m3.refundReview.filter` | Solo reembolsos por revisar | Only refunds to review |
+| nueva | `admin.m3.refundReview.emptyTitle` | No hay reembolsos por revisar. | No refunds to review. |
+| nueva | `admin.m3.refundReview.emptyBody` | Aquí aparecen los pedidos que ya habían salido y se reembolsaron completos desde el panel de Stripe, hasta que alguien registre por qué. | Orders that had already shipped and were fully refunded from the Stripe dashboard show up here until someone records why. |
+| nueva | `admin.m3.refundReview.bannerTitle` | Reembolso por revisar | Refund to review |
+| nueva | `admin.m3.refundReview.bannerBody` | Este pedido se reembolsó completo desde el panel de Stripe cuando ya había salido. Las cartas no vuelven a inventario. Falta registrar por qué. | This order was fully refunded from the Stripe dashboard after it had shipped. The cards don't go back into inventory. The reason still needs recording. |
+| nueva | `admin.m3.refundReview.formTitle` | Registrar el motivo | Record the reason |
+| nueva | `admin.m3.refundReview.legend` | ¿Por qué se reembolsó? (obligatorio) | Why was it refunded? (required) |
+| nueva | `admin.m3.refundReview.noteLabel` | Nota (opcional) | Note (optional) |
+| nueva | `admin.m3.refundReview.effect` | Solo queda registrado: no mueve dinero ni cartas y no avisa al cliente. Una vez guardado no se cambia. | It's only recorded: it doesn't move money or cards and doesn't notify the customer. Once saved it can't be changed. |
+| nueva | `admin.m3.refundReview.cta` | Registrar motivo | Record reason |
+| nueva | `admin.m3.refundReview.confirmTitle` | ¿Registrar «{reason}» como motivo? | Record “{reason}” as the reason? |
+| nueva | `admin.m3.refundReview.confirmBody` | Queda guardado a tu nombre y ya no se puede cambiar. | It's saved under your name and can't be changed afterwards. |
+| nueva | `admin.m3.refundReview.confirm` | Registrar | Record |
+| nueva | `admin.m3.refundReview.operatorOnly` | Solo el súper-admin puede registrar el motivo. | Only the super-admin can record the reason. |
+| nueva | `admin.m3.refundReview.recorded` | Motivo registrado: «{reason}». | Reason recorded: “{reason}”. |
+| nueva | `admin.m3.refundReview.alreadyRecorded` | Ese motivo ya estaba registrado. No se cambió nada. | That reason was already recorded. Nothing changed. |
+| nueva | `admin.m3.refundReview.error.alreadySet` | Alguien ya registró otro motivo: «{reason}». El motivo no se cambia. | Someone already recorded a different reason: “{reason}”. The reason can't be changed. |
+| nueva | `admin.m3.refundReview.error.notApplicable` | Este pedido no había salido cuando se reembolsó: no lleva motivo de envío. | This order hadn't shipped when it was refunded: it takes no shipping reason. |
+| nueva | `admin.m3.refundReview.error.forbidden` | Solo el súper-admin puede registrar el motivo. El intento quedó registrado. | Only the super-admin can record the reason. The attempt was logged. |
+| nueva | `admin.m3.refundReview.error.invalid` | Elige «No llegó» o «Llegó en mala condición». La nota admite hasta 500 caracteres. | Pick “Didn't arrive” or “Arrived in bad condition”. The note takes up to 500 characters. |
+| nueva | `admin.m3.refundReview.doneTitle` | Reembolso tras el envío | Refund after shipping |
+| nueva | `admin.m3.refundReview.reasonLine` | Motivo: {reason} | Reason: {reason} |
+| nueva | `admin.m3.refundReview.noteLine` | Nota: {note} | Note: {note} |
+| nueva | `admin.m3.refundReview.byLine` | Registrado por {name} · {date} | Recorded by {name} · {date} |
+| nueva | `admin.m3.refundReview.cardsStayed` | Las cartas no volvieron a inventario. | The cards didn't go back into inventory. |
+| nueva | `admin.m3.unsettledRefund.title` | Reembolsado antes de quedar pagado | Refunded before it was paid |
+| nueva | `admin.m3.unsettledRefund.body` | Stripe reembolsó este pedido antes de que la tienda lo diera por pagado, así que nunca se preparó. Las cartas que tenía apartadas volvieron solas a la venta; cada una lleva «Liberada por reembolso» en su historial. | Stripe refunded this order before the store marked it as paid, so it was never prepared. The cards it was holding went back on sale by themselves; each one shows “Released by refund” in its history. |
+| nueva | `admin.dashboard.refundReviews.title` | Reembolsos por revisar | Refunds to review |
+| nueva | `admin.dashboard.refundReviews.detail` | Falta el motivo · el más viejo hace {days, plural, one {# día} other {# días}} | Reason missing · oldest {days, plural, one {# day} other {# days}} ago |
+| nueva | `admin.dashboard.refundReviews.detailNone` | Nada por revisar. | Nothing to review. |
+| nueva | `admin.refundsPage.reviewLink` | Pedidos enviados reembolsados desde Stripe que esperan motivo: verlos en Ventas → | Shipped orders refunded from Stripe that need a reason: see them in Sales → |
+| nueva | `admin.m1.movementReason.refund_release` | Liberada por reembolso | Released by refund |
+| nueva | `admin.m1.movementReason.refund_return` | Devuelta por reembolso | Returned by refund |
+| nueva | `admin.m1.movementReason.replacement` | Reposición | Replacement |
+| nueva | `admin.m1.movementReason.adjustment` | Ajuste por levantamiento | Stock-count adjustment |
+| **se queda** | `admin.m3.vaultRefund.directBody` · `admin.m3.refundReasonLabel` · `admin.m3.refundReasonHint` · `admin.m3.refundDone` | (sin cambio; siguen en el modo «no enviado») | (sin cambio) |
+
+⛔ Ningún copy con código «M-n» (P66-3). `{status}` se traduce con `status.shipment`; `{reason}` con
+`admin.m3.shippedReason.*`; `{date}` con `formatDateTimeMx`.
+
+### 40.10 Lista de cambios para frontend (fichero:línea, medido en este worktree el 2026-10-04)
+
+| Fichero | Línea(s) | Cambio |
+|---|---|---|
+| `src/types/contract.ts` | `:2061-2064` | `RefundOrderRequest` + `shippedReason?: ShippedRefundReason`; exportar `type ShippedRefundReason = 'not_arrived' \| 'arrived_damaged'` y `FullRefundReviewDTO` (contrato (7)) |
+| idem | `:2065-2068` | `RefundConfirmationRequiredDetails.required: ('pieces_with_customer' \| 'shipped_reason')[]`; `items?` opcional; + `shipmentStatus?: 'enviado' \| 'entregado'` |
+| idem | `:2100-2123` | `AdminOrderDetailDTO` + `shipmentShipped?: boolean`, `fullRefundReview?: FullRefundReviewDTO \| null` (y `settledAt` cuando A-1 se resuelva) |
+| idem | `:3977-3988` | `AdminOrderDTO` + `refundReviewPending?: boolean` |
+| idem | `:2505-2507` | `workQueue` + `refundReviews?: { pending: number; oldestRefundedAt: string \| null } \| null` |
+| idem | `:2593-2603` | `MovementReason` + `'replacement' \| 'refund_return' \| 'refund_release'` (paridad con `schema.prisma:396-414`) |
+| `src/lib/api.ts` | `:5005-5017`, `:5038` | `AdminOrdersFilters.refundReview?: 'pending'` y su paso a `query` (+ filtro en el mock) |
+| idem | tras `:5110` | nueva `recordShippedRefundReason(orderId, { reason, note? })` → `POST /admin/orders/:id/shipped-refund-reason` (+ mock con las cinco respuestas de §40.3 c) |
+| `…/admin/m3/page.tsx` | `:3-5` | página de servidor asíncrona que lee `searchParams.refundReview` (forma de `refunds/page.tsx:9-11`) y pasa `initialRefundReview` a `M3View` |
+| `…/admin/m3/M3View.tsx` | `:45-63` | estado `refundReview` inicializado desde la prop; `replaceState` al cambiar; `resetPage()` |
+| idem | `:65-85` | `refundReview` en `queryKey` y en `getAdminOrders` |
+| idem | `:124` | columna Estado: `StatusBadge` + marca «Por revisar» si `o.refundReviewPending` (§40.3 a) |
+| idem | `:230` (fin de la fila de filtros) | casilla de §40.3 b |
+| idem | `:240-241` | `EmptyState` con el texto «por revisar» cuando el filtro está activo |
+| idem | `:279-282` | `onDone` recibe el motivo elegido y pinta `shippedRefund.done` si lo hubo |
+| `…/admin/m3/RefundOrderDialog.tsx` | `:48-51`, `:63-71` | + estado `shippedReason` (sin valor inicial) y su reinicio al abrir |
+| idem | `:60-61` | `shipped = detail.data?.shipmentShipped === true \|\| requiredShipped` |
+| idem | `:74` | cuerpo con `shippedReason` **solo** en modo enviado |
+| idem | `:84-88` | ramificar por `details.required`: `shipped_reason` ⇒ modo enviado + error `required` + foco a la `legend`; `pieces_with_customer` ⇒ lo de hoy. + rama `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE` (§40.2 c) |
+| idem | `:107` | `canSubmit` exige `!detail.isLoading` y, en modo enviado, motivo marcado |
+| idem | `:126-141` | modo enviado: `Banner warning`, `shippedRefund.body` en vez de `directBody`, `fieldset` de motivo, `Textarea` (500) con rótulo/ayuda nuevos. Modo no enviado: **sin cambio** |
+| idem | `:39` (`onDone`) | firma `onDone(res, { shippedReason })` |
+| `…/admin/m3/[orderId]/M3OrderDetailView.tsx` | `:186-207` | banners «Reembolso por revisar» (§40.3 c-1) y «Reembolsado antes de quedar pagado» (§40.4, **solo** cuando A-1 dé `settledAt`) |
+| idem | `:210` (antes de «Cartas») | sección de formulario (súper-admin) / texto del operador / lectura (§40.3 c-d) |
+| idem | `:141-148` (junto a `retry`) | mutación `recordShippedRefundReason` con `refresh()` + invalidar la consulta del tablero |
+| idem | `:375-383` | `onDone` con el motivo (como `M3View`) |
+| `…/admin/AdminDashboard.tsx` | tras `:200` | `StatCard` de §40.3 e |
+| `…/admin/refunds/RefundsView.tsx` | `:76` | enlace `reviewLink` bajo el `hint` (§40.6) |
+| `…/admin/m1/ItemDetailModal.tsx` | `:393` | sin cambio de código (las claves nuevas bastan) |
+| `frontend/messages/es.json` · `en.json` | `:1336-1344` | + `admin.dashboard.refundReviews` |
+| idem | `:1485-1495` | + los cuatro `movementReason` de §40.5 |
+| idem | `:1534-` (`admin.m3`) | + `shippedReason`, `shippedRefund`, `refundReview`, `unsettledRefund` |
+| idem | `:4426-` (`admin.refundsPage`) | + `reviewLink` |
+| `…/admin/m3/RefundOrderDialog.test.tsx` · `M3View.test.tsx` | — | casos de §40.11 |
+
+### 40.11 Candados sugeridos (frontend los escribe con la pantalla; QA mide a 390×844 y 1280×800)
+
+- **SR-UI-1** (criterio 251) `shipmentShipped: true` ⇒ el aviso «Este pedido ya salió» está; ningún radio marcado;
+  «Reembolsar» deshabilitado hasta marcar uno **y** escribir la nota; el `POST` lleva `shippedReason`. *Mutación:*
+  preseleccionar `not_arrived` ⇒ rojo.
+- **SR-UI-2** `shipmentShipped: false` (directo y bóveda) ⇒ no hay `fieldset` de motivo y el cuerpo del `POST` **no**
+  tiene la clave `shippedReason` (`toEqual` exacto, como `RefundOrderDialog.test.tsx:82`).
+- **SR-UI-3** `422 {required:['shipped_reason'], shipmentStatus:'enviado'}` ⇒ aparece el selector, la nota escrita
+  **sigue** en el campo, **no** aparece la casilla de cartas en mano (`m3-confirm-pieces` ausente), el foco está en la
+  `legend`. *Mutación:* volver a la rama única de `:84-88` ⇒ rojo.
+- **SR-UI-4** `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE` ⇒ el selector desaparece y el segundo `POST` va sin
+  `shippedReason`.
+- **SR-UI-5** Listado con una fila `refundReviewPending: true` y otra `false` ⇒ «Por revisar» solo en la primera.
+- **SR-UI-6** `/admin/m3?refundReview=pending` ⇒ la casilla llega marcada y la primera llamada a `getAdminOrders`
+  lleva `refundReview: 'pending'`; `?refundReview=basura` ⇒ desmarcada y **sin** el parámetro.
+- **SR-UI-7** (criterio 250) Detalle `pending: true` como súper-admin ⇒ formulario; confirmar ⇒ `POST` con el motivo
+  elegido y `note` recortada u omitida si vacía; `200 recorded` ⇒ lectura sin botón. Como operador ⇒ banner + texto
+  `operatorOnly`, **ningún** `button` con «Registrar».
+- **SR-UI-8** `409 …ALREADY_SET {reason:'arrived_damaged'}` ⇒ el texto nombra «Llegó en mala condición» (⛔ el valor
+  crudo en el DOM).
+- **SR-UI-9** Tablero: `refundReviews: null` ⇒ no existe `dashboard-refund-reviews`; `{pending: 2, oldestRefundedAt}`
+  ⇒ «2» y el enlace apunta a `/admin/m3?refundReview=pending`.
+- **SR-UI-10** Historial con un movimiento de cada uno de los **12** `MovementReason` ⇒ ningún texto del DOM contiene
+  `movementReason.` ni un valor crudo (`refund_release`, `adjustment`…).
+- **SR-UI-11** (por ausencia, criterio 253) El menú del panel tiene las mismas entradas que antes; con
+  `manualRefundsPending: 0` el badge de «Reembolsos» **no** existe aunque el tablero traiga `refundReviews.pending: 3`
+  (el badge sigue leyendo solo SPEI; RF-3 sigue verde).
+
+### 40.12 Solicitudes y notas a otros roles
+
+| # | Para | Solicitud / nota |
+|---|---|---|
+| **A-1** | arquitecto | **Declarar `settledAt: string \| null` en `GET /admin/orders/:id`** (o un booleano equivalente en `FullRefundReviewDTO`, p. ej. `releasedOnRefund`). Sin él la pantalla no puede decir «volvieron solas a la venta» (§40.4) sin inferirlo. Medido: el controlador no lo selecciona en sus columnas propias (`admin-orders.controller.ts:143-161`); si `getOrder` lo emite: **NO MEDIDO**. No bloquea: el banner se omite hasta entonces |
+| **A-2** | arquitecto | El `409 SHIPPED_REFUND_REASON_ALREADY_SET {reason}` da el motivo ganador pero no **quién**; el texto dice «Alguien» y la lectura recargada muestra el nombre. Si se quiere el nombre en el propio error, haría falta `recordedBy` en `details`. **No se pide**; se anota |
+| **N-14** | product-owner | En «Ventas» la nota del motivo es **obligatoria** (es el `reason` que M3 ya exigía; contrato (4)), mientras que `PROJECT §S.11.4` la da como **opcional (SUPUESTO)**. En el registro posterior (Stripe) sí es opcional. Diferencia heredada del contrato, no de la pantalla; si el dueño la quiere opcional también en M3, es cambio de contrato |
+| **N-15** | product-owner | El operador **ve** la marca «Por revisar», el filtro y la lectura del motivo, pero no puede registrarlo. Lo dejo visible porque es estado del pedido que él ya consulta; si el dueño lo quiere oculto al operador, es cambio de pantalla (y de proyección si se quiere también en la API) |
+| **N-16** | frontend | Los tres `movementReason` sin texto (§40.5) son un hueco **anterior** a esta errata (v1.20, v1.80.1, v1.80.4) que se cierra aquí porque el candado SR-UI-10 los cubre; ⛔ no esperar a otro pase. El tipo `MovementReason` del front va en el mismo commit |
