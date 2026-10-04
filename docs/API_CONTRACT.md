@@ -2,9 +2,30 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.9**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.10**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.10 — 🔒💰 ERRATA DE LA REVISIÓN DE DISEÑO DE §Z: EL DUEÑO ES UNA MARCA EXPLÍCITA, LA VIGILANCIA NO LA APAGA
+> EL VIGILADO, Y C-19…C-24 (2026-10-04, arquitecto, rama `claude/skydropx-d`, veredicto de seguridad sobre `0363f7e2`,
+> commit `2553c508` según el orquestador; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
+> **[§M4-SHIP.19.30](#M4-SHIP-19-30)**. Porqué: `ARCHITECTURE §4.60 (w)`. Origen: `SECURITY_NOTES.md:1-155` (§Z APROBADO
+> CON CONDICIONES: SDX-Z-1/2/3 medios, SDX-Z-4/5/6 bajos, SDX-I-7/8/9).
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | SDX-Z-1 / C-20 | «El dueño» deja de deducirse del correo: columna **`User.isOwner`**, como mucho **una** fila (índice único parcial), fijada por la migración solo si hay **exactamente un** candidato, o por el script `prisma/set-owner.ts`; **ningún** endpoint la escribe; `spend-watch` avisa 🔴 (**AG-21**) si cambia | No (M-68 sin construir) | backend 💰 (D2g) |
+> | **2** | SDX-Z-2 / C-21 | Diales de §Z y el interruptor de compra: **solo el dueño** (`403 OWNER_ONLY_SETTING`); la cuenta del dueño no se restablece, bloquea ni borra desde otra cuenta (`403 OWNER_ACCOUNT_PROTECTED`); un súper-admin que no es el dueño y toca cuentas de personal ⇒ **AG-22**; `seen` no marca avisos sobre uno mismo; un aviso apagado se guarda «silenciado» | **Sí, pequeño:** `admin.controller.ts` (status/reset/delete), `SettingsController.PUT`, `GET /users/me` (+`isOwner`), `GET /admin/users` (+`isOwner`) | backend + frontend |
+> | **3** | SDX-Z-3 / C-22 | TG-1 cuenta una guía cancelada con reembolso **desconocido** por lo cobrado (falla cerrado) | No | backend 💰 (D2c) |
+> | **4** | SDX-Z-4 / C-23 | La neutralización del folio recorre **todas** las llaves de texto del destino, con NFKC y guiones tipográficos, en la **cotización** y en la **compra** | No | backend (D2c) |
+> | **5** | SDX-Z-5 / C-19 | Rastreo normalizado alfanumérico; la huérfana sin movimiento de paquetería; el fusible cuenta una **intención** escrita antes de `cancel` | No | backend 💰 (D2d) |
+> | **6** | SDX-Z-6 / C-24 | Como mucho **2** correos inmediatos por persona y hora | No | backend (D2g) |
+> | **7** | SDX-I-8 | Los enlaces de los correos son páginas; nunca un GET que actúe ni un token | No | backend + frontend |
+>
+> **Códigos de error nuevos:** `403 OWNER_ONLY_SETTING {keys}`, `403 OWNER_ACCOUNT_PROTECTED`. **Migración:** `M-68` gana
+> `User.isOwner`, `SpendOwnerWatch`, `SpendAlert.muted`, `ShipmentPaidLabel.autoCancelIntentAt`. **Avisos nuevos:** AG-21,
+> AG-22. **Pruebas:** PS-130, PS-135, PS-138, PS-139, PS-145, PS-152, PS-153, PS-155 ampliadas; **PS-160…PS-165**.
+> **Preguntas al dueño:** §19.30.10 (medición C-20 (a), credenciales del panel de Skydropx, segundo factor).
 >
 > **Rev v1.80.12.9 — 🔒💰 CONTROL DEL GASTO EN GUÍAS (§Z, D2) Y LOS CIERRES C-14…C-18 DE LA REVISIÓN DE v1.80.12.8
 > (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador `2612064e` o posterior; ⛔ sha NO MEDIDO por
@@ -243,7 +264,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -23701,6 +23722,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.27** | 💰 **v1.80.12.7** — la compra en vuelo se verifica sola (`HECHOS.md:59`): una compra en vuelo a la vez, foto del saldo tras el reclamo, `recoverInFlightLabel` por envíos recientes + saldo, adopción automática, liberación automática tras calibrar, «Liberar» de respaldo, P-SDX-REL reformulada, PS-122…PS-128 |
 | **.28** | 🔒💰 **v1.80.12.8** — folio `ENV-000045` en `address_to.reference`, adopción por folio exacto (SDX-D-14), vida máxima de compra y `since` exacto (SDX-D-16), cancelación solo por folio y conciliación de huérfanas (SDX-D-15), contaminación y regla de encendido (SDX-D-17), `pg_try_advisory_xact_lock` y censo (SDX-D-18), `not_sent`, PS-129…PS-136 |
 | **.29** | 🔒💰 **v1.80.12.9** — control del gasto (§Z, D2): TG-1/TG-2 en la tx del candado, el dueño como única excepción, libros `ShipmentLabelAttempt`/`ShipmentPaidLabel`, avisos AG-1…AG-13 con correo al dueño y resumen diario (`M-68`); C-14 (sustituye §19.28.6), C-15…C-18, SDX-I-5/6; PS-137…PS-159 |
+| **.30** | 🔒💰 **v1.80.12.10** — errata de la revisión de §Z: el dueño como marca explícita `User.isOwner` (C-20), la vigilancia no la apaga el vigilado (C-21: diales y cuenta del dueño, AG-21/AG-22, `seen`, silenciado), TG-1 falla cerrado con reembolso desconocido (C-22), neutralización por llaves con NFKC (C-23), residuo de C-14 (C-19), 2 correos por persona y hora (C-24), enlaces de correo (SDX-I-8); PS-160…PS-165 |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -27155,6 +27177,8 @@ el orquestador `13957d99`, ⛔ no medido por el arquitecto: sin Bash).
    - **`n` sale de `ShipmentLabelAttempt.attemptNo`** (§19.29.2), una fila de dominio sin purga, ⛔ ya no de contar
      `shipment.label_purchase_sent` en la bitácora.
 2. **C-15 / SDX-D-20 — el folio no se puede forjar con datos del cliente.**
+   > 🔒 **v1.80.12.10 ([§19.30.5](#M4-SHIP-19-30), C-23):** la lista fija de seis campos queda **SUSTITUIDA** por un recorrido
+   > de **todas** las llaves de texto del destino, con NFKC y guiones tipográficos, en la cotización **y** en la compra.
    - **Neutralizar al armar la compra:** en **todo** campo de `PurchaseInput.to` que no sea `reference` (`name`, `company`,
      `street1`, `phone`, `email`, `furtherInformation`) se sustituye cada coincidencia de `/E\s*N\s*V\s*-(?=\s*\d)/gi` por
      `ENV ` (guion fuera). Una función pura `neutralizeFolioPattern(text)`, ⛔ un solo cuerpo, aplicada en el servicio antes
@@ -27178,6 +27202,9 @@ el orquestador `13957d99`, ⛔ no medido por el arquitecto: sin Bash).
    aplicación (⛔ `since` nunca de `now()` de Postgres). Liberar (`not_sent`, `not_charged`, «Liberar») hace en su tx el CAS
    inverso sobre la misma fila del intento (`outcome:'pending' ∧ sentAt` según el caso) ⇒ las dos ramas se excluyen por fila.
 5. **C-14 / SDX-D-21 — cancelación automática de huérfanas (SUSTITUYE la primera viñeta de «Qué se hace» de §19.28.6).**
+   > 🔒💰 **v1.80.12.10 ([§19.30.6](#M4-SHIP-19-30), C-19):** (c) normaliza a **solo alfanumérico**; entra la condición
+   > **(e) sin movimiento de paquetería**; (d) el fusible cuenta **intenciones** (`autoCancelIntentAt`, escritas antes de
+   > `cancel`), no la bitácora posterior. Manda §19.30.6 donde choque.
    El job cancela una huérfana o duplicado Y **solo si se cumplen las cuatro**; si falta una ⇒ **0** `cancel`, alerta
    `label_orphan` para una persona y aviso **AG-9** (§19.29.6):
    - (a) `getShipment(Y)` **legible** y con número de rastreo `t_Y ≠ null` (sin número no se puede descartar que sea la guía
@@ -27334,6 +27361,11 @@ model SpendDigestRun {
 
 **M4-SHIP.19.29.3 — 💰 Quién es «el dueño» en el sistema (Z.0.4–Z.0.5, P-GAS-9; pedido por seguridad, 2.5).**
 
+> ⛔🔒 **v1.80.12.10 — ESTA DEFINICIÓN QUEDA SUSTITUIDA por [§19.30.1](#M4-SHIP-19-30) (C-20, SDX-Z-1).** «Súper-admin con
+> correo» **no** garantiza «dueño»: `M-63` no hizo backfill (`20261005120000_m63_staff_username/migration.sql:11-12`) y
+> todo súper-admin anterior a v1.80.9 tiene correo. El dueño pasa a ser la marca `User.isOwner`. Lo de abajo se conserva
+> como historia; ⛔ no se construye.
+
 ```ts
 // spend-alerts/owner.ts — función PURA, conjunto explícito (patrón C-13). ⛔ Ni role !== 'vault_operator' ni role === 'super_admin' a secas.
 export function isOwnerAccount(u: { role: Role; email: string | null; status: UserStatus; deletedAt: Date | null }): boolean {
@@ -27356,7 +27388,7 @@ export function isOwnerAccount(u: { role: Role; email: string | null; status: Us
 
 ```ts
 // shipments/label-spend.ts — UN cuerpo para las dos comprobaciones y para la tarjeta del tablero.
-spendOfPaidLabel(p)   = p.cancelledAt ? (p.unrefundedCents ?? 0) : p.chargedCents;
+spendOfPaidLabel(p)   = p.cancelledAt ? (p.unrefundedCents ?? 0) : p.chargedCents;   // ⛔ v1.80.12.10 (§19.30.4, C-22): `?? p.chargedCents`
 spendOfAttempt(a)     = a.paidLabels.length > 0 ? Σ spendOfPaidLabel(p)
                       : (a.outcome === 'pending' || a.outcome === 'released_unverified') ? a.expectedChargeCents
                       : 0;                                   // not_charged (incl. not_sent) ⇒ 0; 'labeled' siempre tiene paidLabel
@@ -27371,8 +27403,9 @@ checkLabelLimits(db, actorRow, shipmentId, priceCents, now): null | 'reissue' | 
 
 - **TG-1 cuenta (seguridad 2.5):** los reclamos en vuelo e inciertos por `expectedChargeCents` hasta resolverse; `not_sent`,
   `not_charged` y los rechazos sin id lo descuentan; la guía adoptada o huérfana se atribuye al **intento**, y el intento
-  a **quien reclamó** (⛔ nunca a `system:label-verify`); una cancelación solo descuenta lo devuelto (`unrefundedCents`; con
-  `null`, se asume devuelto como el P&L — SEC-SDX-11 — y lo vigila AG-8 (b)). Ventana: 24 h **móviles** sobre `since`
+  a **quien reclamó** (⛔ nunca a `system:label-verify`); una cancelación solo descuenta lo devuelto (`unrefundedCents`; ~~con
+  `null`, se asume devuelto como el P&L — SEC-SDX-11 — y lo vigila AG-8 (b)~~ ⛔ **v1.80.12.10 (§19.30.4, C-22): con `null`
+  cuenta `chargedCents` — el tope falla cerrado; el P&L conserva su supuesto**). Ventana: 24 h **móviles** sobre `since`
   (`>`, estricto). Bloquea si **la suma con esta guía** pasa del tope (`>`): MX$2,400 + MX$150 > MX$2,500 ⇒ niega
   (criterio 321); igual al tope ⇒ pasa.
 - **TG-2 cuenta guías pagadas, nunca el `n` del token (seguridad 2.5):** un intento que no costó (`PurchaseDeadlineError`,
@@ -27422,7 +27455,7 @@ checkLabelLimits(db, actorRow, shipmentId, priceCents, now): null | 'reissue' | 
 ```ts
 // spend-alerts/spend-alerts.service.ts — único escritor de SpendAlert (candado C-GAS-1: censo de `spendAlert.create|upsert|update`).
 raise(db, { kind, severity, dedupKey, subjectUserId?, shipmentRequestId?, orderId?, amountCents?, facts }): Promise<void>
-//  1. kind ∈ dial spend_alerts_disabled ⇒ no-op (ni panel ni correo).
+//  1. kind ∈ dial spend_alerts_disabled ⇒ no-op (ni panel ni correo).   ⛔ v1.80.12.10 (§19.30.2 (5), C-21 (e)): crea la fila con muted = true, sin correo
 //  2. Persona vigilada: si el aviso es «sobre una persona» (AG-1…AG-4, AG-13) y subject es dueño ⇒ no-op.
 //  3. INSERT … ON CONFLICT (dedupKey) DO UPDATE SET occurrenceCount = +1, lastOccurredAt = now,
 //     severity = max(severity) — si sube de digest a immediate y mailStatus = 'not_applicable', pasa a 'pending'.
@@ -27442,6 +27475,8 @@ resolve(db, dedupKey): Promise<void>     // AG-7 y AG-10: resolvedAt = now (y AG
 - **El lote:** cerrada la hora H, `spend-watch` manda **un** correo «y N avisos más» con una línea por aviso `batched` de H
   y los marca `batch_sent`. Con 6 avisos 🔴 en una hora: 5 correos + 1 de lote (criterio 332). El de lote no cuenta en el
   tope de la hora siguiente (a lo sumo 6 correos por hora).
+- ⛔ **v1.80.12.10 ([§19.30.1](#M4-SHIP-19-30), [§19.30.7](#M4-SHIP-19-30)):** `isOwnerAccount` es la marca `User.isOwner`
+  (como mucho una cuenta); AG-21 va además a la cuenta anterior; cupo de **2** correos por persona y hora.
 - **Destinatarios:** toda cuenta con `isOwnerAccount` (§19.29.3), un correo a cada una, en su `locale`. ⛔ Nunca al personal
   ni a clientes (criterio 332/338).
 - **Contenido (lista blanca, `toSpendAlertMail(alert)` por tipo):** qué pasó, cuánto, **nombre del miembro del personal**
@@ -27528,7 +27563,8 @@ resolve(db, dedupKey): Promise<void>     // AG-7 y AG-10: resolvedAt = now (y AG
 - **`GET /api/v1/admin/spend-alerts/:id`** ⇒ `SpendAlertDTO` (`404` si no existe).
 - **`POST /api/v1/admin/spend-alerts/seen`** — Req `{ ids: string[] (1..200, uuid) }`. `updateMany({ where:{ id:{in:ids},
   seenAt:null }, data:{ seenAt: now, seenByUserId: actor } })` ⇒ `200 { updated: number }` (idempotente). Bitácora
-  `spend_alert.seen {count}`. ⛔ Sin verbo de borrado ni de «no visto».
+  `spend_alert.seen {count}`. ⛔ Sin verbo de borrado ni de «no visto». ⛔ **v1.80.12.10 ([§19.30.2](#M4-SHIP-19-30) (4),
+  C-21 (d)):** un no dueño no marca avisos sobre sí mismo ni AG-21; respuesta `{updated, skipped}`.
 
 ```ts
 export type SpendAlertCode = 'AG-1' | 'AG-2' | … | 'AG-20';          // mapa fijo kind ⇔ code (§19.29.2)
@@ -27619,6 +27655,283 @@ PS-99). Las de seguridad primero.
 **M4-SHIP.19.29.13 — Lo que esta errata NO decide.** P-SDX-REL (sigue (a), solo súper-admin). AG-14…AG-20 (stream aparte;
 AG-14 con correo ya aceptado). Cómo comprobar el reembolso de una cancelación sin cifra (`CANCEL_REFUND_VERIFIABLE`, hasta
 `M-PRD-7`). Un tope por guía (fuera, Z.4).
+
+###### <a id="M4-SHIP-19-30"></a>M4-SHIP.19.30 — 🔒💰 v1.80.12.10: errata de la revisión de diseño de §Z — el dueño es una marca explícita, la vigilancia no la apaga el vigilado, C-19…C-24, SDX-I-8 y las solicitudes S-GAS-1…5 de ux-ui (**NORMATIVA**, **DINERO + TERCERO**)
+
+> **Fuentes:** `SECURITY_NOTES.md:1-155` (veredicto sobre `0363f7e2`: §Z **APROBADO CON CONDICIONES**; C-14…C-18 cerradas;
+> D2c desbloqueada con C-22/C-23, D2d con C-19, D2g con C-20/C-21 antes de fusionar); `DESIGN_SYSTEM §43.19.17` (v4.20,
+> S-GAS-1…5, no bloqueantes); `HECHOS.md:51` (a)(b)(d), `:58`, `:60`, `:62` («vigilar también a otros súper-admin»; «Todo
+> configurable por el dueño en Configuración»); `PROJECT.md §Z.0.2`, `§Z.0.4` (`:8536-8545`), `§Z.5` (`:8645-8664`), criterios
+> 331, 332, 335 (`:12644-12669`), P-GAS-9 (`:16797-16801`). Código leído el 2026-10-04 en `/home/user/tcg-skyd` (Read/Grep, ⛔ sin
+> ejecutar; ⛔ sha NO MEDIDO: sin Bash): `admin.service.ts:730-735,1456-1501,1541-1638`, `admin.controller.ts:183-212,378-430`,
+> `audited-super-admin.guard.ts:8,39-61`, `settings.controller.ts:18-79`, `users.service.ts:161-198`, `schema.prisma:459-464,
+> 536-571,1683-1697`, `prisma/reset-admin-password.ts:1-42`. **Manda** sobre §19.29.1.2, §19.29.1.5, §19.29.2 (añade), §19.29.3
+> (entera), §19.29.4 (`spendOfPaidLabel`), §19.29.5, §19.29.6 (AG-4, AG-6), §19.29.8, §19.29.9 y §19.29.12 donde choque.
+> **Migración:** se amplía **`M-68`** (sin construir), ⛔ ninguna nueva.
+
+**M4-SHIP.19.30.1 — 🔒💰 C-20 / SDX-Z-1: «el dueño» es una marca explícita (SUSTITUYE §19.29.3).**
+
+*Qué estaba mal:* §19.29.3 decía «hoy la única forma de ser súper-admin con correo es ser el dueño». Es un hecho de **datos**,
+no de construcción: `M-63` conservó el correo de toda cuenta anterior a v1.80.9. Cualquier súper-admin heredado sería
+«dueño»: sin topes, sin avisos sobre él y destinatario de los correos.
+
+1. **Schema (`M-68`):** `User.isOwner Boolean @default(false)`.
+   - **Cardinalidad ≤ 1 en la base:** `CREATE UNIQUE INDEX "user_single_owner" ON "User" ("isOwner") WHERE "isOwner";` (SQL
+     crudo, patrón de los CHECK de `M-64`; Prisma no expresa índices parciales: se declara en el comentario del modelo).
+   - **CHECK `user_owner_shape`:** `NOT "isOwner" OR (role = 'super_admin' AND email IS NOT NULL AND "deletedAt" IS NULL AND
+     status <> 'deleted')`. Es un respaldo; las guardas de §19.30.2 impiden llegar a violarlo por la API.
+   - **Marca inicial (en la misma migración, condicionada):**
+     ```sql
+     UPDATE "User" SET "isOwner" = true
+      WHERE id = (SELECT id FROM "User" WHERE role='super_admin' AND email IS NOT NULL AND status='active' AND "deletedAt" IS NULL)
+        AND (SELECT count(*) FROM "User" WHERE role='super_admin' AND email IS NOT NULL AND status='active' AND "deletedAt" IS NULL) = 1;
+     ```
+     Con **exactamente un** candidato lo marca; con 0 o con más de uno **no marca a nadie** (y el arranque lo registra, punto
+     4). ⛔ Nunca «el más antiguo» ni ninguna otra regla de desempate: con más de uno, decide el dueño (§19.30.10, pregunta 1).
+     Precondición de despliegue: la medición C-20 (a) del dueño (§19.30.10).
+2. **Quién escribe la marca:** **solo** `backend/prisma/set-owner.ts` (script nuevo, mismo patrón y misma justificación que
+   `reset-admin-password.ts:33-35`: «quien puede correr esto tiene la consola de Railway — ya es el dueño»). Entrada
+   `OWNER_EMAIL` (normalizado como el login). Se niega sin cambios si la cuenta no existe o no cumple `user_owner_shape` con
+   `status='active'`. En **una** tx: `UPDATE "User" SET "isOwner"=false WHERE "isOwner"` y luego `SET "isOwner"=true` sobre
+   la cuenta; bitácora `user.owner_set {previousOwnerUserId | null}` con actor de sistema `script:set-owner`. Imprime solo
+   ids. ⛔ **Ningún endpoint, servicio ni job escribe `isOwner`** (censo **`C-OWN-1`**: `git grep` de `isOwner` en una
+   escritura dentro de `backend/src` ⇒ 0; solo la migración y el script).
+3. **La función (sustituye la de §19.29.3, mismo fichero `spend-alerts/owner.ts`, pura):**
+   ```ts
+   export function isOwnerAccount(u: { isOwner: boolean; role: Role; email: string | null; status: UserStatus; deletedAt: Date | null }): boolean {
+     return u.isOwner === true && u.role === Role.super_admin && u.email !== null && u.status === UserStatus.active && u.deletedAt === null;
+   }
+   ```
+   Se lee de la base en la tx (sin cambio: ⛔ nunca del JWT). Decide lo mismo que antes (exento de TG-1/TG-2, fuera de los
+   avisos «sobre una persona», destinatario de los correos) y además los permisos de §19.30.2. Un súper-admin **con correo
+   sin marca** es persona vigilada y ⛔ no recibe correos.
+4. **Sin dueño = falla cerrado.** Si nadie cumple `isOwnerAccount`: nadie queda exento de los topes; nadie puede cambiar
+   los diales de §19.30.2 (1) (todos reciben `403 OWNER_ONLY_SETTING`); los correos quedan `no_recipient`. El arranque del
+   módulo `spend-alerts` registra `error` `NO_OWNER_ACCOUNT` (⛔ no tumba la aplicación: la tienda sigue vendiendo).
+5. **Vigilancia de la marca (C-20 (b)) — tabla `SpendOwnerWatch` (`M-68`):**
+   ```prisma
+   // Último dueño observado por spend-watch. Una sola fila (CHECK id = 1). Su único escritor es spend-watch.
+   model SpendOwnerWatch {
+     id          Int      @id @default(1)
+     ownerUserId String?                 // null ⇔ sin dueño en la última corrida
+     observedAt  DateTime
+   }
+   ```
+   *No es segunda fuente del hecho:* la marca vive en `User.isOwner`; esta fila es la **memoria de la corrida anterior**,
+   como `SpendDigestRun`. Paso **(0)** nuevo de `spend-watch` (antes de los de §19.29.7, también con el proveedor `off`):
+   `actual` = id del único `User` con `isOwner` si cumple `isOwnerAccount`, si no `null`. Sin fila ⇒ la inserta; si `actual =
+   null`, crea el aviso. Con fila y `actual ≠ ownerUserId` ⇒ aviso **AG-21** 🔴 y actualiza la fila en la **misma** tx. Igual
+   ⇒ solo `observedAt`.
+6. **AG-21 `owner_account_changed` · Sistema · 🔴** — `dedupKey` `ag21:<anterior|none>:<actual|none>`; `facts`: `cause:
+   'changed' | 'no_owner'`, `previousOwner: {userId, name} | null`, `currentOwner: {userId, name} | null` (nombres del
+   personal; ⛔ ni correos). **Destinatarios:** el dueño actual **y** la cuenta anterior si sigue con correo y activa — es la
+   **única** excepción a «solo el dueño recibe» (el aviso existe para que el anterior se entere). ⛔ Nunca va al lote: sale
+   siempre individual (a lo sumo una vez por cambio). ⛔ No se puede apagar (§19.30.2 (5)).
+
+**M4-SHIP.19.30.2 — 🔒💰 C-21 / SDX-Z-2: el vigilado no apaga su vigilancia.** Respeta `HECHOS.md:62` («Todo configurable por
+el dueño») y P-GAS-9 («vigilar también a otros súper-admin»). En todo lo que sigue, «no dueño» = `!isOwnerAccount(actor)`
+leído de la base.
+
+1. **(a) Diales del dueño.** Constante `OWNER_ONLY_SETTING_KEYS` en `settings.constants.ts` = las **11** claves de §19.29.8
+   (incluido `skydropx_low_balance_cents`) **+ `shipping_label_purchase`** (`HECHOS.md:58`: «lo enciende el dueño»). En
+   `PUT /admin/settings` (`settings.controller.ts:32-79`), **antes** de `settings.update`:
+   - actor no dueño y alguna clave de la constante viene en el cuerpo con valor **distinto** del vigente (`before`,
+     `:38`) ⇒ **`403 OWNER_ONLY_SETTING { keys: string[] }`** (nombres del DTO, ordenados), **nada** se escribe (tampoco las
+     demás claves del cuerpo), bitácora `settings.owner_only_denied {keys}` (fuera de la tx que se deshizo) y aviso AG-22;
+   - actor no dueño y las claves vienen **iguales** a lo vigente ⇒ se **quitan** del cuerpo antes de escribir (un no dueño
+     ⛔ nunca escribe una clave de la constante; así un formulario viejo no puede pisar un cambio reciente del dueño);
+   - *Por qué `403` y no «se permite con aviso»:* el aviso llega después del daño (un tope en 1e8 ya gastado); seguridad
+     prefería el `403`.
+   - `GET /admin/settings` no cambia: el súper-admin no dueño **ve** los diales (Z.0.2), no los mueve.
+   - Los diales que añada el stream de AG-14…AG-20 entran en la misma constante (regla: todo dial de §Z es del dueño). ⚠️
+     `operator_refund_cap_24h_cents` (v1.80.7) **no** entra en esta errata: lo decide ese stream con AG-14 (§19.30.11).
+2. **(b) La cuenta del dueño está protegida.** Código nuevo **`403 OWNER_ACCOUNT_PROTECTED`** (sin `details`), comprobado en
+   el **servicio** leyendo `isOwner` del destino:
+   - `POST /admin/users/:id/reset-password` (`admin.service.ts:1473`): destino dueño ∧ actor ≠ destino ⇒ `403`. El dueño se
+     restablece por «olvidé mi contraseña» o con `reset-admin-password.ts`.
+   - `PATCH /admin/users/:id/status` (`admin.service.ts:1456`): destino dueño ⇒ `403` **siempre**, también si es él mismo (un
+     dueño bloqueado deja el sistema sin destinatario).
+   - `DELETE /admin/users/:id` (`admin.service.ts:1541`): primero `409 CANNOT_DELETE_SELF` (sin cambio, `:1542`); luego
+     destino dueño ⇒ `403`.
+   - Bitácora del rechazo: `user.admin_action_denied` con `after: { attempted: 'reset_password' | 'status' | 'delete', reason:
+     'owner_protected' }` (`AdminDeniedAttempt`, `audited-super-admin.guard.ts:8`, gana `'status' | 'delete'`), y aviso
+     AG-22 🔴. El rechazo no depende de la bitácora (mismo patrón que `:56-58`).
+3. **(c) Lo que un no dueño hace con cuentas de personal avisa: AG-22 `staff_control_by_non_owner` · Persona.** Disparadores
+   (post-commit, `subjectUserId` = actor; si el actor es el dueño ⇒ no-op por la regla de «persona»):
+   | `facts.act` | Cuándo | Gravedad |
+   |---|---|---|
+   | `staff_created` | `POST /admin/users` con rol de personal | 🔴 si el rol creado es `super_admin`; 🟡 si `vault_operator` |
+   | `staff_password_reset` | `POST …/reset-password` sobre personal | 🔴 si el destino es `super_admin`; 🟡 si operador |
+   | `staff_status_changed` | `PATCH …/status` sobre personal | 🟡 |
+   | `staff_deleted` | `DELETE …/:id` sobre personal | 🟡 |
+   | `owner_account_denied` | rechazo de (b) | 🔴 |
+   | `owner_setting_denied` | rechazo de (1) | 🔴 |
+   `dedupKey` `ag22:<actorId>:<act>:<targetUserId | claves unidas con ','>:<díaMX>`. `facts`: `act`, `target: {userId, name,
+   role} | null`, `keys: string[] | null`. ⛔ Ninguna contraseña ni correo. Actos sobre **clientes** no avisan (fuera de §Z).
+   *Por qué aviso y no `403`:* `HECHOS.md:51` (d) deja al súper-admin rescatar personal; lo que se cierra es el silencio.
+4. **(d) `POST /admin/spend-alerts/seen`** (sustituye el `where` de §19.29.9): actor no dueño ⇒ `where` añade
+   `OR: [{ subjectUserId: null }, { subjectUserId: { not: actor } }]` **y** `kind ≠ owner_account_changed` (⛔ un
+   `NOT: { subjectUserId: actor }` a secas deja fuera los `null` en SQL). El dueño marca todo. Respuesta aditiva: `200 {
+   updated: number; skipped: number }` (`skipped` = ids pedidos que existían y no se marcaron por esta regla). Bitácora
+   `spend_alert.seen {count, skipped}`.
+5. **(e) Apagar un aviso apaga el correo, no la fila.** Paso 1 de `raise` (§19.29.5) sustituido: `kind ∈
+   spend_alerts_disabled` ⇒ la fila **se crea** con `muted = true` y `mailStatus = 'not_applicable'` (sube `occurrenceCount`
+   igual). Columna nueva `SpendAlert.muted Boolean @default(false)` (`M-68`), fijada al crear (cambiar el dial después no
+   reescribe filas). Los silenciados: fuera de `unseen*` (tarjeta y badge, §19.30.8), fuera del correo inmediato y del lote;
+   **sí** en la lista (filtro nuevo `?muted=true|false`, clase **L**) y en el resumen diario como una línea «N avisos
+   apagados». El validador de `spend_alerts_disabled` (§19.29.8) **rechaza** `'AG-21'` y `'AG-22'` (`422`): la vigilancia de
+   la vigilancia no se apaga.
+
+**M4-SHIP.19.30.3 — Qué cambia en los DTO por §19.30.1–.2 (aditivo).**
+- `GET /users/me` y `PATCH /users/me` (§ «GET /api/v1/users/me»): **+ `isOwner: boolean`** (= `isOwnerAccount` de la fila;
+  `false` para todo cliente). Fuente: `users.service.ts:179-197` (`toMeDTO`, cuya consulta gana `isOwner`, `role`, `email`,
+  `status`, `deletedAt` ya están). El front lo usa **solo** para mostrar u ocultar; ⛔ nunca autoriza (autoriza el servidor).
+- `AdminUserSummaryDTO` (`GET /admin/users`, `PATCH …/status` — proyección `admin.service.ts:1461` y la de `listUsers`): **+
+  `isOwner: boolean`**.
+- Errores nuevos en §Errores: `403 OWNER_ONLY_SETTING {keys}`, `403 OWNER_ACCOUNT_PROTECTED`.
+- Bitácora nueva: `settings.owner_only_denied`, `user.owner_set`; `user.admin_action_denied` gana `reason`.
+
+**M4-SHIP.19.30.4 — 💰 C-22 / SDX-Z-3: TG-1 falla cerrado con el reembolso desconocido.**
+```ts
+// shipments/label-spend.ts — sustituye la línea de §19.29.4
+spendOfPaidLabel(p) = p.cancelledAt ? (p.unrefundedCents ?? p.chargedCents) : p.chargedCents;
+```
+- Una guía cancelada cuyo reembolso Skydropx no dijo **cuenta entera** en las 24 h móviles de su intento. Con
+  `CANCEL_REFUND_VERIFIABLE = false` es **toda** cancelación sin cifra: el bucle compra–cancela–compra deja de bajar el
+  contador. Con cifra conocida descuenta lo devuelto (sin cambio).
+- **Lo que cuesta, dicho:** quien cancela y recompra legítimamente gasta su tope dos veces ese día; el dueño compra o
+  sube el tope. Aceptable: es el caso que el dueño quería cubrir (que el dinero no regrese, SEC-SDX-11).
+- ⛔ El P&L **no** cambia (sigue su supuesto). Mismo cuerpo para TG-1, `labelOptions.limit`, `workQueue.spendControl` y el
+  resumen (un solo `spendOfPaidLabel`). AG-4 `unrecoveredCents` sigue sumando solo cifras conocidas y `unknownRefunds` cuenta
+  las otras.
+
+**M4-SHIP.19.30.5 — 🔒 C-23 / SDX-Z-4: la neutralización recorre todas las llaves (SUSTITUYE la primera viñeta de
+§19.29.1.2).**
+```ts
+// shipments/folio-neutralize.ts — UN cuerpo, puro.
+const DASH = '[-\\u2010-\\u2015\\u2212\\uFE58\\uFE63\\uFF0D]';
+const FOLIO_LIKE = new RegExp(`E\\s*N\\s*V\\s*${DASH}(?=\\s*\\d)`, 'giu');
+export function neutralizeFolioPattern(text: string): string { return text.normalize('NFKC').replace(FOLIO_LIKE, 'ENV '); }
+export function neutralizeOutboundAddress<T extends object>(to: T, except: readonly string[]): T;
+//  copia `to`; para CADA llave propia (recursivo en objetos y arreglos) cuyo valor es string y no está en `except`,
+//  aplica neutralizeFolioPattern. ⛔ Nunca una lista de campos a incluir.
+```
+- Se aplica en el **servicio**, justo antes de **los dos** puertos: `QuoteInput.to` (cotizar; colonia, municipio, estado,
+  `line2`, referencias y lo que venga) y `PurchaseInput.to` con `except = ['reference']`. El remitente (`from`, nuestro) no
+  se toca.
+- Lo que viaja es el texto en **NFKC** con el patrón neutralizado; `ShipmentRequest.addressSnapshot` **no** cambia.
+- `folioTokenOf` **sin cambio** (sin NFKC: más estricto; el `reference` lo escribimos nosotros en ASCII).
+
+**M4-SHIP.19.30.6 — 🔒💰 C-19 / SDX-Z-5: residuo de C-14 (manda sobre §19.29.1.5).**
+1. **(c) Normalizar:** `normalizeTracking(t) = t.normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/g, '')`, la **misma**
+   función a los dos lados de la comparación. `"1Z-999-AA1"` ≡ `"1Z999AA1"`.
+2. **(e) nueva — sin movimiento de paquetería:** el estado que `getShipment(Y)` devuelve ya mapeado a `carrierStatus`
+   (§19.10) debe ser `null` o `'created'`. Cualquier otro (en tránsito, entregado, devuelto, desconocido) ⇒ **0** `cancel`,
+   alerta `label_orphan` y AG-9 🔴 `cause:'orphan'`. Aplica a **toda** cancelación automática, no solo al envío `cancelado`.
+3. **(d) El fusible cuenta intenciones.** Columna `ShipmentPaidLabel.autoCancelIntentAt DateTime?` (`M-68`; CHECK
+   `"autoCancelIntentAt" IS NULL OR origin IN ('orphan','duplicate')`; `@@index([autoCancelIntentAt])`). Orden, tras (a)–(c)
+   y (e) en verde:
+   1. tx con `pg_advisory_xact_lock(ORPHAN_FUSE_LOCK_KEY = 65_310_703)` (entra al censo de claves de §19.28.8): contar filas
+      con `autoCancelIntentAt > now − 24 h`; `≥ ORPHAN_AUTO_CANCEL_MAX_24H` ⇒ fusible (bitácora `shipment.orphan_cancel_fused`,
+      AG-9 `orphan_fuse`, sin cambio); si no, `updateMany {where:{id, autoCancelIntentAt:null, cancelledAt:null}, data:
+      {autoCancelIntentAt: now}}` ⇒ exige `count = 1`; bitácora `shipment.orphan_cancel_intent`; commit;
+   2. **después** del commit, `cancel(Y)`;
+   3. éxito ⇒ `cancelledAt`, `cancelKind:'orphan_auto'` (como hoy); fallo conocido ⇒ la intención **sigue contando**; resultado
+      **desconocido** (timeout) ⇒ AG-9 🔴 `cause:'orphan_cancel_unknown'` (valor nuevo de `cause`) y alerta para una persona.
+   - Una fila con intención y sin `cancelledAt` ⛔ no se reintenta sola (la cancelación automática exige `autoCancelIntentAt
+     IS NULL`). El fusible cuenta **todo** intento, salga como salga.
+
+**M4-SHIP.19.30.7 — C-24 / SDX-Z-6: como mucho 2 correos inmediatos por persona y hora.** En el despacho de §19.29.5, bajo
+el mismo `SPEND_MAIL_LOCK_KEY`, si el aviso tiene `subjectUserId ≠ null` se cuentan además los `sent|sending` de **esa
+persona** en la hora de reloj; `≥ SPEND_MAIL_PER_SUBJECT_HOURLY_MAX = 2` (constante) ⇒ `batched`, aunque el cupo global
+tenga sitio. Los avisos de sistema (`subjectUserId = null`) solo miran el global. AG-21 nunca va al lote (§19.30.1 (6)).
+Resultado: 5 AG-1 🔴 de una persona en 10 min ⇒ 2 correos + 3 al lote; un AG-9 🔴 del fusible después sale individual.
+
+**M4-SHIP.19.30.8 — Solicitudes de ux-ui S-GAS-1…5 (`DESIGN_SYSTEM §43.19.17`, v4.20). Todas aditivas; ninguna bloquea.**
+
+| Id | Decisión |
+|---|---|
+| **S-GAS-1** | `DepartureBoardDTO.groups[].shipments[]` (§19.9, `GET /admin/shipments/departure`) gana **`folio: string`** (el `ShipmentRequest.folio` de `M-67`; siempre presente: toda guía de Skydropx nace tras `M-67`). Es admin: SDX-I-6 lo permite |
+| **S-GAS-2** | El aviso de un **retiro** enlaza a la lista de envíos filtrada: **`GET /admin/shipments?folio=ENV-000045`** queda **declarado** (igualdad exacta; formato `^ENV-\d{6,}$`, fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}`; clase **L** en §0-Q punto 4). El front enlaza a la pantalla de envíos de M4 con `?folio=` en la URL de la **página** (un GET de página que no actúa; SDX-I-8). `SpendAlertDTO.shipment` gana **`kind: 'vault_withdrawal' \| 'guest_direct_ship' \| 'order_ship'`** para elegir el enlace sin otra llamada (frontend decide: con `order` ⇒ pedido; sin `order` ⇒ envíos por folio). ⚠️ Los valores de `kind` deben ser los del tipo existente de envío; backend los toma de ahí y, si difieren, manda el tipo existente (NO MEDIDO por el arquitecto) |
+| **S-GAS-3** | `GET /admin/shipments/picking-list/summary` (§M4-SHIP.11, el que lee `AdminSidebar.tsx:55`) gana **`spendAlertsUnseenImmediate: number \| null`** — `null` para `vault_operator` (como `manualRefundsPending`); el **mismo** predicado que `workQueue.spendControl.unseenImmediate` (un cuerpo: 🔴, `seenAt IS NULL`, sin AG-7/11/12, sin `muted`). Índice `[severity, seenAt]` ya existe |
+| **S-GAS-4** | AG-6 `facts.kind` ∈ **`ShipmentCostAdjustmentKind`** = `overweight \| extended_zone \| return \| other` (medido: `schema.prisma:459-464`). Es la lista cerrada; un valor nuevo del enum entra por `C-ENUM` y ux-ui le pone rótulo |
+| **S-GAS-5** | AG-4 `facts` gana **`triggers: ('reissue_denied' \| 'shipment_cancels' \| 'person_cancels')[]`** = (i), (ii), (iii) de §19.29.6. Como (i) y (ii) comparten `ag4:s:<shipmentId>`, `raise` en conflicto hace **unión** de `facts.triggers` (regla general: si `facts` trae `triggers`, se une sin repetidos; el resto de `facts` queda como lo dejó el primero, salvo `cancelledCount`/`unrecoveredCents`/`unknownRefunds`, que se reescriben con lo vigente). El texto puede decir «se le negó la 3.ª guía» cuando `triggers` contiene `reissue_denied` |
+
+**M4-SHIP.19.30.9 — SDX-I-8: los enlaces de los correos.** Todo enlace de `AVG-1/2/3` es `appUrl('admin/…')` hacia una
+**página** del panel que exige sesión: el aviso (`admin/spend-alerts/<id>`), la lista y, en los 🔴 de guías, la **página de
+ajustes** en la sección de envíos (donde está `shipping_label_purchase`). ⛔ Ningún enlace a `/api/`, ⛔ ningún token ni
+parámetro que actúe, ⛔ ninguna página que cambie estado al cargarse (el interruptor exige clic + `PUT` con sesión del
+dueño, §19.30.2 (1)). Los escáneres de correo siguen los enlaces: lo que siguen no debe hacer nada.
+
+**M4-SHIP.19.30.10 — Preguntas al dueño (lenguaje llano; ⛔ el arquitecto no las decide).**
+1. **¿Cuántas cuentas de súper-admin con correo hay hoy? (C-20 (a), solo lectura).** Córrala usted donde ya vive la
+   credencial (consola de Railway o un usuario de solo lectura); ⛔ no pegue credenciales en el chat:
+   ```sql
+   SELECT count(*) FROM "User"
+    WHERE role = 'super_admin' AND email IS NOT NULL AND status = 'active' AND "deletedAt" IS NULL;
+   -- Para saber cuáles son (sin mostrar correos):
+   SELECT id, name, "createdAt" FROM "User"
+    WHERE role = 'super_admin' AND email IS NOT NULL AND status = 'active' AND "deletedAt" IS NULL
+    ORDER BY "createdAt";
+   ```
+   **Esperado: 1** (la suya). Si sale 1, la migración lo marca como dueño sola. Si sale más de uno, díganos cuál es la suya:
+   se marca con `set-owner.ts` y las demás quedan **vigiladas como el resto del equipo** (con topes y sin recibir correos).
+   **Recomendación:** además, si alguna de esas cuentas ya no se usa, bloquéela desde Usuarios.
+2. **Las credenciales del panel de Skydropx, ¿solo usted?** Una guía comprada directamente en el panel de Skydropx no pasa
+   por los topes ni genera avisos (solo la delata el saldo bajo, SDX-I-7). **Recomendación:** sí, solo usted; si alguien más
+   la conoció, cámbiela antes de encender la compra de guías.
+3. **¿Segundo factor en su cuenta?** Con esta errata su cuenta es la única sin tope, la única que cambia los ajustes de
+   gasto y la que recibe todos los avisos; hoy entra solo con contraseña (SDX-I-9). **Recomendación:** sí, con una app de
+   códigos (tipo Google Authenticator), solo para su cuenta, antes de encender la compra de guías. Es una pieza nueva: si
+   dice que sí, va a product-owner y luego al arquitecto; ⛔ no está en esta errata.
+
+**M4-SHIP.19.30.11 — Lo que esta errata NO decide.** `operator_refund_cap_24h_cents` como dial del dueño (con AG-14, su
+stream). AG-9 `cause:'unattributed'` para guías compradas en el panel sin folio (SDX-I-7, opcional según seguridad: sin
+disparador hasta medir el listado con compras reales, `M-PRD-7`). El segundo factor (pregunta 3). P-SDX-REL (sigue (a)).
+
+**M4-SHIP.19.30.12 — Pruebas que DEBEN fallar** (reglas de §19.27.8 y de `SECURITY_NOTES.md:126-127`: copia del árbol
+**entero** con su sha, mutación demostrada en rojo, carreras con barrera y **N ≥ 10 con proporción y autor**, reloj y
+constantes inyectados, ⛔ nunca la red).
+
+| # | Cierra | Qué asevera | Mutación que la pone roja |
+|---|---|---|---|
+| **PS-130** (amplía, D2d) 💰🔒 | C-19 | (d) S `cancelado`, guía vigente `manual` con `trackingNumber = "1Z-999-AA1"`, `getShipment(Y)` con rastreo `"1Z999AA1"` y `in_transit` ⇒ **0** `cancel` y AG-9 🔴; variante con rastreos distintos pero `in_transit` ⇒ **0** `cancel`. (e) el doble de `cancel` lanza *timeout* tres veces ⇒ la 4.ª huérfana **no** se cancela (fusible) y cada *timeout* deja AG-9 `orphan_cancel_unknown` | quitar (e) de movimiento; normalizar solo espacios; contar solo éxitos o la bitácora posterior |
+| **PS-135** (amplía, D2c) 🔒 | C-23 | (c) «Pedido ENV-000046-01» en colonia, municipio, estado, `line2`, referencias, `recipientName` y `line1`, y variantes `ＥＮＶ－000046－01` y con `‐`/`–`/`—` ⇒ ni el cuerpo de la **cotización** ni el de la **compra** que recibe el doble contienen, tras NFKC, `/ENV\s*[-‐–—]\s*\d/i` fuera de `address_to.reference`; `addressSnapshot` intacto. Una llave de texto **nueva** añadida a la fixture de `to` también queda neutralizada | lista fija de campos; sin NFKC; neutralizar solo en la compra |
+| **PS-138** (amplía, D2c) 💰 | C-22 | Tope 250000: 15 guías de 15000 canceladas con reembolso **desconocido** + una de 30000 ⇒ `403 LABEL_PURCHASE_LIMIT {limit:'daily_spend'}` y **0** llamadas al doble; con reembolso **entero** conocido ⇒ compra (fila actual) | `unrefundedCents ?? 0` |
+| **PS-139** (cambia una fila) 💰 | C-22 | cancelada con `unrefundedCents = null` ⇒ cuenta **`chargedCents`** (antes «⇒ 0») | `?? 0` |
+| **PS-145** (sustituye la tabla) 💰🔒 | C-20 | `isOwnerAccount`: marcada + súper-admin + correo + activa ⇒ sí; **súper-admin con correo activa sin marca ⇒ no**; marcada bloqueada, borrada, sin correo u operador ⇒ no | volver a decidir por correo; ignorar `status` |
+| **PS-152** (amplía) | C-21 (d) | Súper-admin no dueño V: `seen` sobre un aviso con `subjectUserId = V` ⇒ `updated: 0, skipped: 1` y sigue sin ver; sobre un aviso de sistema ⇒ `updated: 1`; sobre AG-21 ⇒ `skipped`; con un aviso de `subjectUserId = null` y otro de otra persona en el mismo lote ⇒ los dos marcados (el `null` no se pierde) | `NOT: {subjectUserId: V}` a secas (pierde los `null`); sin excluir al sujeto |
+| **PS-153** (amplía) | C-24, SDX-I-8 | 5 AG-1 🔴 del mismo sujeto en 10 min y luego AG-9 `orphan_fuse` ⇒ 2 individuales + AG-9 individual; 3 al lote. Cada plantilla renderizada: todo URL empieza por `appUrl('admin/')`, sin `/api/`, sin `?`/`token` | cupo solo global; enlace con token |
+| **PS-155** (amplía) | C-21 (a)(e) | `spendAlertsDisabled` con `'AG-21'` o `'AG-22'` ⇒ `422`; un tipo apagado ⇒ fila con `muted`, `mailStatus='not_applicable'`, fuera de `unseen*`, visible con `?muted=true` | `no-op` sin fila |
+| **PS-160** 💰🔒 | C-20 | (a) Migración: 1 candidato ⇒ marcado; 2 ⇒ ninguno; 0 ⇒ ninguno. (b) Índice: segunda fila con `isOwner` ⇒ error de base; CHECK con operador marcado ⇒ error. (c) Dos súper-admin con correo, uno marcado: el otro recibe `403 LABEL_PURCHASE_LIMIT` al pasar el tope y **ningún** correo. (d) `spend-watch`: dueño cambia de A a B (por SQL en la prueba) ⇒ **un** AG-21 🔴 con correo a A y a B; segunda corrida ⇒ nada; sin dueño ⇒ AG-21 `no_owner` y `error` en el log. (e) `set-owner.ts`: quita la marca anterior y pone la nueva en una tx; cuenta sin correo o bloqueada ⇒ se niega sin cambios. (f) Censo `C-OWN-1` | backfill sin `count = 1`; quitar el paso (0); `isOwnerAccount` por correo; un servicio que escriba `isOwner` |
+| **PS-161** 🔒 | C-21 (a) | V cambia `operatorLabelCap24hCents` (o cualquiera de las 12) ⇒ `403 OWNER_ONLY_SETTING {keys}`, **nada** escrito (tampoco otra clave del mismo cuerpo), `settings.owner_only_denied`, AG-22 🔴; V manda el formulario entero con esas claves iguales y otra clave distinta ⇒ `200`, solo se escribe la otra; carrera: el dueño cambia el tope mientras V guarda con el valor viejo ⇒ el tope del dueño queda (N ≥ 10, proporción); el dueño cambia ⇒ `200` | `@MoneyOut()` a secas; comparar sin quitar las iguales |
+| **PS-162** 🔒 | C-21 (b) | V: `reset-password`, `status` y `DELETE` sobre el dueño ⇒ `403 OWNER_ACCOUNT_PROTECTED`, hash/estado intactos, `user.admin_action_denied {reason:'owner_protected'}`, AG-22 🔴; el dueño se bloquea a sí mismo ⇒ `403`; el dueño restablece su propia contraseña ⇒ `200`; V restablece a un operador ⇒ `200` | `resetPassword` sin leer `isOwner` |
+| **PS-163** | C-21 (c) | V crea un operador ⇒ AG-22 🟡 `staff_created`; crea un súper-admin ⇒ 🔴; restablece a un súper-admin ⇒ 🔴; el dueño crea ⇒ nada; V restablece a un cliente ⇒ nada | no avisar; avisar también al dueño |
+| **PS-164** (frontend) | §19.30.3, S-GAS | Contra MSW: con `me.isOwner = false` los 12 diales se ven deshabilitados con su texto y `403 OWNER_ONLY_SETTING` se pinta por `keys`; en Usuarios la fila con `isOwner` no ofrece restablecer/bloquear/borrar a un no dueño; badge con `spendAlertsUnseenImmediate`; «Salida de hoy» con folio; AG-4 por `triggers`; AG-6 por `kind` | ramificar por `message`; autorizar en el front sin pintar el `403` |
+| **PS-165** 🔒 | censo | `OWNER_ONLY_SETTING_KEYS` ⊇ las claves de §19.29.8 + `shipping_label_purchase` (un dial nuevo de §Z fuera de la constante ⇒ rojo); `ORPHAN_FUSE_LOCK_KEY` y `SPEND_MAIL_LOCK_KEY` en el censo de claves | añadir un dial de §Z sin meterlo |
+
+**M4-SHIP.19.30.13 — Orden de construcción** (amplía §19.29.11).
+
+| Pieza | Qué de esta errata | Antes de |
+|---|---|---|
+| **D2c** | C-22 (§19.30.4), C-23 (§19.30.5); PS-135, PS-138, PS-139 | construir D2c |
+| **D2d** | C-19 (§19.30.6); PS-130 | construir D2d |
+| **D2g** | `M-68` ampliada (§19.30.1–.2, .6 columna); `set-owner.ts`; paso (0) de `spend-watch`; AG-21/AG-22; `seen`; `muted`; C-24; SDX-I-8; S-GAS-3/4/5; PS-145, 152, 153, 155, 160…163, 165 | **fusionar D2g** y encender `shipping_label_purchase` en producción (C-20/C-21, `SECURITY_NOTES.md:11-12`) |
+| **Usuarios y ajustes** (`admin/`, `users/`, `settings/`) | §19.30.2 (1)(2)(3), §19.30.3 | fusionar D2g. ⚠️ Toca módulos de los streams «Cuentas y acceso» y «Admin y auditoría»: el orquestador lo serializa |
+| **F-D6** (frontend) | §19.30.3, S-GAS-1…5, PS-164 | — |
+
+**M4-SHIP.19.30.14 — Qué cambia para quién** (amplía la tabla de **§19.29.12**; fichero:línea leído el 2026-10-04, ⛔ sha no
+medido).
+
+| Rol | Qué |
+|---|---|
+| **backend 💰 (modelo fuerte)** | **Prisma (`M-68`):** `User.isOwner` + índice parcial + CHECK + marca condicionada (`schema.prisma:536-571`); `SpendOwnerWatch`; `SpendAlert.muted`; `ShipmentPaidLabel.autoCancelIntentAt` + CHECK + índice; enum `SpendAlertKind` + `owner_account_changed` (AG-21), `staff_control_by_non_owner` (AG-22). **Script nuevo** `prisma/set-owner.ts` (patrón de `prisma/reset-admin-password.ts:1-42`). **`spend-alerts/`:** `owner.ts` (§19.30.1 (3)); `raise` (muted, unión de `triggers`); despacho con cupo por persona y AG-21 sin lote; paso (0) de `spend-watch`; arranque `NO_OWNER_ACCOUNT`; `seen` con `skipped`. **Ajustes:** `settings.constants.ts` (`OWNER_ONLY_SETTING_KEYS`; validador de `spend_alerts_disabled` sin AG-21/22); `settings.controller.ts:32-46` (comprobación antes de `update`). **Usuarios:** `admin.service.ts:1456` (status), `:1473-1481` (reset: leer `isOwner`), `:1541-1549` (delete), `:1461` y `listUsers` (+`isOwner`); `admin.controller.ts:183-212,378-430` (AG-22 post-commit); `audited-super-admin.guard.ts:8` (`AdminDeniedAttempt` + `'status' \| 'delete'`). **Perfil:** `users.service.ts:161-198` (+`isOwner`). **Envíos:** `label-spend.ts` (C-22), `folio-neutralize.ts` (C-23), job de huérfanas (C-19, `ORPHAN_FUSE_LOCK_KEY`), `DepartureBoardDTO` + `folio`, `?folio=` en `GET /admin/shipments`, `picking-list/summary` + `spendAlertsUnseenImmediate`. PS de §19.30.12. Medir y anotar en `BACKEND_NOTES`: los valores del tipo de envío para `SpendAlertDTO.shipment.kind` (S-GAS-2) |
+| **frontend** | `types/contract.ts`: `isOwner` en el usuario de sesión (zona `:420-446`) y en `AdminUserSummaryDTO` (`:5374-5397`); `OWNER_ONLY_SETTING`, `OWNER_ACCOUNT_PROTECTED`; `seen` con `skipped`; `muted` y `?muted=`; AG-21/AG-22; `SpendAlertDTO.shipment.kind`; `DepartureBoardDTO…folio`; `PickingListSummaryDTO.spendAlertsUnseenImmediate`; AG-4 `triggers`, AG-6 `kind`. `admin/m6/M6View.tsx:567-611` (ocultar restablecer/bloquear/borrar en la fila del dueño para un no dueño; bloquear/borrar también para el propio dueño) y pintar `403 OWNER_ACCOUNT_PROTECTED`; M10 «Control del gasto» y `ShippingSection.tsx` (interruptor y saldo bajo): deshabilitados con `!me.isOwner`, pintar `403 OWNER_ONLY_SETTING` por `keys`; `components/layout/AdminSidebar.tsx:55` (badge «sin ver» con `spendAlertsUnseenImmediate`; ⚠️ zona compartida `components/`); «Salida de hoy» con folio; enlace del aviso de retiro a envíos `?folio=`. MSW. PS-164 |
+| **ux-ui** | Copys: «Solo el dueño puede cambiar esto» (diales), `OWNER_ACCOUNT_PROTECTED` («Esta es la cuenta del dueño: no se puede cambiar desde otra cuenta»), AG-21 («Cambió la cuenta del dueño» / «No hay cuenta de dueño»), AG-22 por `act`, AG-4 por `triggers`, AG-6 por `kind`, «N avisos apagados» del resumen, `orphan_cancel_unknown`. Responde a S-GAS-1…5 (§19.30.8) |
+| **devops** | Nada de entorno nuevo. Precondición del despliegue de `M-68`: la medición C-20 (a) del dueño (§19.30.10 (1)) anotada en `HECHOS.md`; si sale ≠ 1, el paso de `set-owner.ts` en Railway va en la solicitud de fusión a `production` |
+| **product-owner** | Ajustar `PROJECT.md`: Z.0.4 (`:8539`, «el dueño» = la cuenta **marcada**, no «súper-admin con correo»), Z.0.2 (`:8536`, los ajustes de §Z los cambia **el dueño**), criterio 332 (`:12650-12651`, «a la cuenta del dueño») y 335 (`:12667`, «súper-admin que no es el dueño»). Es la letra de P-GAS-9 aceptada («solo a las cuentas de súper-admin con correo **(la suya)**», `:16798-16799`): con C-20 (a) = 1 coinciden; con > 1 manda «la suya» y lo confirma el dueño (§19.30.10 (1)) |
+| **seguridad** | Verificar C-19…C-24 en el código (D2c, D2d, D2g) y que la errata cierra SDX-Z-1…6 |
+| **orquestador** | Pasar al dueño las tres preguntas de §19.30.10 tal cual; anotar sus respuestas en `HECHOS.md` |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
@@ -31418,6 +31731,9 @@ entropía devuelta una vez (`admin.service.ts:1377`, `:1390`), `mustChangePasswo
 (`:1389`), bitácora `user.reset_password` sin contraseña (`admin.controller.ts:397-404`), ⛔ ningún correo (no hay
 `mail` en el método). **Único cambio:** `select` de `:1370` gana `username` para que `clearForUser` limpie el cubo
 correcto (M6-U.4).
+🔒 **v1.80.12.10 ([§M4-SHIP.19.30.2](#M4-SHIP-19-30) (2)(3), C-21):** sobre la cuenta del dueño (`User.isOwner`) desde otra
+cuenta ⇒ `403 OWNER_ACCOUNT_PROTECTED` (también `PATCH …/status`, siempre, y `DELETE`); un súper-admin que no es el dueño
+y restablece, bloquea, borra o crea personal ⇒ aviso AG-22 al dueño.
 
 ⭐ **Errata v1.80.9.1 TD-4 (decisión del dueño 2026-10-04: «dame la capacidad de moverlo desde mi cuenta») — el
 destinatario puede ser cualquier rol, también `super_admin` sin correo (NORMATIVO).** El rescate de un súper-admin sin

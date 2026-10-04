@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.10 — 🔒💰 ERRATA DE LA REVISIÓN DE §Z** (2026-10-04, arquitecto, rama `claude/skydropx-d`, veredicto de
+> seguridad sobre `0363f7e2`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.10**; norma en
+> `API_CONTRACT §M4-SHIP.19.30`; porqué en **§4.60 (w)**. «El dueño» pasa a ser una marca explícita (`User.isOwner`, como
+> mucho una fila, sin endpoint que la escriba, vigilada por `spend-watch`); los diales de §Z y la cuenta del dueño solo los
+> mueve el dueño; TG-1 falla cerrado con reembolso desconocido; neutralización del folio por llaves con NFKC; residuo de
+> C-14; 2 correos por persona y hora; S-GAS-1…5 de ux-ui. `M-68` ampliada.
+>
 > **Rev v1.80.12.9 — 🔒💰 CONTROL DEL GASTO EN GUÍAS Y CIERRES C-14…C-18** (2026-10-04, arquitecto, rama
 > `claude/skydropx-d`, HEAD dado por el orquestador `2612064e` o posterior; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a
 > **v1.80.12.9**; norma en `API_CONTRACT §M4-SHIP.19.29`; porqué en **§4.60 (v)**. Origen: `PROJECT.md §Z`, `HECHOS.md:62`,
@@ -27710,7 +27717,7 @@ todo hecho ─► SpendAlert (dedupKey único) ─► correo inmediato (≤ 5/h 
 | **I-SENT y `n` desde el intento** (C-16, C-18) | Buscar `label_purchase_sent` por `after.since` | Una búsqueda en JSON que no encuentra una fila existente libera compras vivas; una columna con `@@unique(envío, since)` no tiene ese modo de fallo, y no se purga |
 | **Topes dentro del candado de compra** | Candado por persona (como `lockOperatorRefundGate`) | El candado consultivo de §19.28.8 ya serializa el paso 7 de toda la cuenta; uno más sería una segunda llave con su propio orden de toma |
 | **Comprobación previa en el paso 2** | Solo la del paso 7 | El criterio 321 exige negar antes de llamar a Skydropx, y los pasos 3 (re-cotizar) y 6 (saldo) lo llaman. La del paso 7 sigue mandando |
-| **«El dueño» = súper-admin con correo, activo** | El rol `super_admin` | El dueño pidió vigilar también a otros súper-admin (P-GAS-9); el alta de staff prohíbe correo (v1.80.9), así que hoy solo su cuenta lo tiene. Conjunto explícito, como C-13 |
+| ~~**«El dueño» = súper-admin con correo, activo**~~ ⛔ **sustituida por (w): marca `User.isOwner`** | El rol `super_admin` | El dueño pidió vigilar también a otros súper-admin (P-GAS-9); el alta de staff prohíbe correo (v1.80.9), así que hoy solo su cuenta lo tiene. Conjunto explícito, como C-13. ⛔ Premisa falsa por construcción: `M-63` conservó el correo de los súper-admin heredados (SDX-Z-1) |
 | **Negativa sin cifras** (`LABEL_PURCHASE_LIMIT`) | Reusar `MONEY_OUT_LIMIT_EXCEEDED` | Ese código trae `capCents/usedCents` por norma (v1.80.7) y Z.0.6 prohíbe enseñar la cifra al personal |
 | **Avisos persistidos** (`SpendAlert`) | Derivarlos al leer, como la campana (§R.2.0) | La campana deriva un estado vigente; un aviso de gasto es un **hecho pasado** con «visto por», «no repetir» y resumen que debe cuadrar con el panel: necesita fila. No es segunda fuente del hecho (el hecho vive en los libros y la bitácora): es el registro de «se le avisó al dueño» |
 | **Correo a lo sumo una vez** (`sending` vencido ⇒ `failed_unknown`) | Al menos una vez | El criterio 332 castiga el correo repetido; un aviso no enviado sigue en el panel, que es la fuente |
@@ -27722,6 +27729,33 @@ todo hecho ─► SpendAlert (dedupKey único) ─► correo inmediato (≤ 5/h 
 un fallo parcial del correo reenvía al que sí lo recibió (hoy hay uno). NO MEDIDO: si algún verbo cambia el rol de una cuenta
 con correo a `super_admin` (la convertiría en «dueño»); si BullMQ admite `tz` (respaldo: cron en UTC, sin horario de verano
 en México).
+
+**(w) 🔒💰 v1.80.12.10 — errata de la revisión de diseño de §Z** (norma en `API_CONTRACT §M4-SHIP.19.30`; origen
+`SECURITY_NOTES.md:1-155`, veredicto sobre `0363f7e2`, y `DESIGN_SYSTEM §43.19.17`). Una idea gobierna: **un control no
+puede depender de un dato que el controlado mueve, ni de un hecho de datos que nadie fijó.**
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **Dueño = `User.isOwner`**, ≤ 1 por índice único parcial, CHECK de forma | Seguir con «súper-admin con correo» y medir que hay uno | Es un hecho de datos, no de construcción (`M-63` sin backfill); cualquier flujo futuro que dé correo a personal fabricaría «dueños». Una marca se fija una vez y no la mueve ningún otro dato |
+| | Comprobar en cada corrida que hay exactamente un súper-admin con correo | Detecta pero no decide **quién** es; y obliga a quitar el correo a los heredados para operar |
+| **La marca la escriben solo la migración (con exactamente 1 candidato) y `set-owner.ts`** | Endpoint «nombrar dueño» | Un endpoint lo podría pulsar justo quien se quiere vigilar. La consola de Railway ya es del dueño (`reset-admin-password.ts:33-35`) |
+| | Desempatar por antigüedad | Una regla que adivina al dueño es la misma clase de error que SDX-Z-1. Con > 1 decide él |
+| **`SpendOwnerWatch`** (memoria de la última corrida) | Disparador de base sobre `User` | Sería el primer disparador del proyecto y viviría fuera del código que se prueba; la fila de memoria sigue el patrón `SpendDigestRun`. No es segunda fuente: la marca vive en `User` |
+| **Sin dueño ⇒ falla cerrado** (nadie exento, diales congelados) | Tratar a todos los súper-admin como dueño | Abriría justo lo que se cierra |
+| **Diales de §Z y el interruptor: `403` a quien no es el dueño** | Permitir y avisar | El aviso llega después del gasto. `HECHOS.md:62`: «configurable por el dueño» |
+| **Un no dueño nunca escribe una clave del dueño, ni con el mismo valor** | Escribir lo que venga igual | Un formulario viejo revertiría un cambio reciente del dueño (carrera) |
+| **Cuenta del dueño protegida** (`403` a reset/estado/borrado desde otra cuenta) | Prohibir a los súper-admin restablecer a nadie | `HECHOS.md:51` (d) quiere el rescate entre cuentas; lo que se cierra es la entrada al escalón nuevo que §Z creó |
+| **AG-22** por actos de un no dueño sobre personal | `403` a crear o restablecer personal | Mismo `HECHOS.md:51` (d); multiplicar topes se vuelve visible, no imposible (el tope es por persona, deuda aceptada) |
+| **Apagar = silenciar** (`muted`) | `no-op` sin fila | Sin fila no hay evidencia; en manos de quien no es el dueño borraba el rastro. AG-21/AG-22 no se apagan |
+| **TG-1 con reembolso desconocido = lo cobrado** | Suponer devuelto (como el P&L) | El tope existe para el caso en que el dinero no vuelve; el P&L puede esperar a medir, el tope no |
+| **Neutralizar recorriendo llaves, con NFKC** | Lista de campos | La lista se queda vieja con cada campo nuevo (la colonia libre lo demostró) |
+| **Fusible por intención previa** | Contar la bitácora tras `cancel` | Un *timeout* no dejaba fila y no gastaba fusible |
+| **2 correos por persona y hora** | Solo el cupo global | Los 🔴 de una persona retrasaban un 🔴 del sistema hasta el lote |
+
+**Deuda que deja (w):** el tope sigue siendo por persona (crear operadores multiplica el gasto posible; ahora avisa). Una
+recompra legítima con reembolso sin cifra gasta el tope dos veces ese día. El segundo factor del dueño no existe (pregunta
+al dueño, `API_CONTRACT §19.30.10`). NO MEDIDO: cuántos súper-admin con correo hay en producción (C-20 (a), lo mide el
+dueño); los valores del tipo de envío para `SpendAlertDTO.shipment.kind`.
 
 ---
 
