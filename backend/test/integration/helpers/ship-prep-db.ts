@@ -30,6 +30,25 @@ export const OWNER_EXAMPLE = {
 
 export type R = { status: number; body: any };
 
+/**
+ * ⭐ `lines[i]` ES la línea de la pieza `i` — por construcción, no por suerte (2026-10-04, PR #68).
+ *
+ * `include: { items: true }` NO lleva `ORDER BY` (medido: Prisma 5 emite `… WHERE "shipmentRequestId" IN ($1)
+ * OFFSET $2`), así que Postgres devuelve las líneas en orden FÍSICO. En una BD recién creada coincide con el de
+ * inserción; en una BD USADA (los `cleanup()` de las suites dejan huecos que reaprovechan los `INSERT` nuevos) la
+ * segunda línea puede quedar antes que la primera. Entonces `lines[1]` era la carta de MX$500 y no la de MX$300:
+ * la prueba marcaba `missing` la otra, `prepared` contestaba `409 REFUND_PREVIEW_STALE {refundCents: 52430}`
+ * (≠ 31458), no se creaba fila y `refunds(…)[0].id` reventaba con `TypeError` (PS-51 en CI, run 37054037762;
+ * PS-10 aquí, 1/20 en BD usada). Se alinea con las piezas y, si falta alguna, revienta AQUÍ diciendo por qué.
+ */
+export function alignLines<L extends { inventoryItemId: string }>(lines: readonly L[], pieceIds: readonly string[]): L[] {
+  return pieceIds.map((id) => {
+    const l = lines.find((x) => x.inventoryItemId === id);
+    if (!l) throw new Error(`fixture: el envío no tiene línea para la pieza ${id}`);
+    return l;
+  });
+}
+
 export class ShipPrepDb {
   readonly users: string[] = [];
   readonly orders: string[] = [];
@@ -209,7 +228,7 @@ export class ShipPrepDb {
       include: { items: true },
     });
     this.shipments.push(shipment.id);
-    return { order, pieces, orderItems, shipment, lines: shipment.items, pi };
+    return { order, pieces, orderItems, shipment, lines: alignLines(shipment.items, pieces.map((p) => p.id)), pi };
   }
 
   /** Orden `vault` LIQUIDADA (F-SPEI por defecto: `P₁=50000`, `P₂=30000`, sin envío) con colocación y piezas `in_custody` del cliente. */
@@ -288,7 +307,7 @@ export class ShipPrepDb {
     });
     this.shipments.push(s.id);
     this.h.stripe.chargedByIntent.set(pi, 21405);
-    return { shipment: s, lines: s.items, pi };
+    return { shipment: s, lines: alignLines(s.items, pieceIds), pi };
   }
 
   /**

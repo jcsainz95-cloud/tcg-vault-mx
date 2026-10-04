@@ -1,0 +1,37 @@
+# =============================================================================
+# .trivyignore-image — Excepciones de Trivy SOLO para el escaneo de IMÁGENES
+# Propiedad: devops.  Lo leen: job `trivy-image` (security-sast.yml) y
+# security/scripts/trivy-image.sh, SIEMPRE junto con security/.trivyignore.
+# Registro auditado: security/README.md (bloque REGISTRO) · DEVOPS_NOTES §76.
+# =============================================================================
+# POR QUÉ ES UN FICHERO APARTE (y no una línea en .trivyignore)
+# ---------------------------------------------------------------------------
+# .trivyignore lo leen TAMBIÉN trivy-fs.sh y trivy-dev-fichas.sh. Una línea allí
+# dejaría ciego al escaneo de lockfiles y al trinquete de devDependencies sobre
+# el mismo aviso, que ya tiene su ficha con dueño y fecha en
+# security/npm-audit-dev-fichas.tsv. Aquí solo se apaga en la IMAGEN, donde el
+# paquete viaja como fichero inerte (ver abajo), y el resto de gates lo sigue viendo.
+#
+# REGLA: toda línea lleva `exp:AAAA-MM-DD` (≤ 30 días). Trivy deja de honrar la
+# excepción a partir de esa fecha, y el gate vuelve a ROJO solo — medido
+# 2026-10-04: con exp pasada, `trivy rootfs --exit-code 1` → exit 1; en fecha → 0.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# braces@3.0.3 · CVE-2026-93687 (= GHSA-vfj7-8cjw-p6xm) · HIGH · alta 2026-10-04
+# -----------------------------------------------------------------------------
+# Sin versión arreglada (3.0.3 es la última publicada; rango afectado <=3.0.3).
+# Ruta medida: /app/node_modules/braces/package.json SOLO en tcg-backend
+# (reconstruido: `npm ci --include=dev` del lockfile de HEAD + `trivy rootfs`).
+# La imagen frontend (standalone de Next) NO lo contiene.
+# Por qué está en la imagen: Dockerfile.backend copia node_modules CON
+# devDependencies a propósito — `prisma` (migrate deploy del CMD) y `ts-node`
+# (seed de una vez) son devDependencies de backend/package.json (DEVOPS_NOTES §6.2).
+# Por qué NO es alcanzable: `npm ls braces --omit=dev` VACÍO; solo lo cargan
+# @nestjs/cli→chokidar y jest→micromatch, y en el contenedor solo corren
+# preflight (sh), `node node_modules/prisma/build/index.js migrate deploy`,
+# `node dist/main.js` y, a mano, `ts-node prisma/seed.ts`: ninguno en su cierre.
+# Ningún código de producción importa braces/micromatch/chokidar (grep src/ prisma/).
+# Salida real: backend mueve prisma/ts-node/typescript a dependencies y devops
+# poda devDeps en la imagen; o upstream publica braces arreglado.
+CVE-2026-93687 exp:2026-11-03

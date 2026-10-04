@@ -26687,3 +26687,54 @@ Sin mutación: SFP-5 verde **10/10 forzada** y **10/10 suelta** en los dos camin
 3. **SRF-8 `PATCH →enviado` tras la tx1:** medido `409 CONFLICT` (el CAS del envío ve `cancelado`), la prueba lo fija.
 4. **Mutaciones de SRF-6/7/8/11** que no muerden (17.4).
 5. **Bitácora `order.full_refund_closed` en la rama directo** (17.2 (1)).
+## 17-bis · PR #68 — rojo de `backend-e2e` en PS-51: el fixture leía las líneas del envío en orden FÍSICO (2026-10-04, sobre `8a18b170`)
+
+**Síntoma (CI, run 37054037762, job 110994253030, evento `pull_request`; el `push` del mismo sha salió verde):**
+`TypeError: Cannot read properties of undefined (reading 'id')` en `shipments-prep.e2e-spec.ts:506` — `row` (la fila
+`item_missing` que crea el `prepared` del setup) no existía. ⛔ No pude bajar el log de CI (el proxy rechaza el host de
+los artefactos), así que lo de abajo sale de reproducirlo aquí, no de leer aquel log.
+
+**Causa (medida) — defecto de la PRUEBA, no del producto:** `ShipPrepDb.mkDirect`/`mkWithdrawal` devolvían
+`lines: shipment.items` de un `include: { items: true }` **sin `ORDER BY`** (Prisma 5 emite `… WHERE
+"shipmentRequestId" IN ($1) OFFSET $2`, medido con el log de consultas). Postgres devuelve orden físico: en BD nueva
+coincide con el de inserción; en BD **usada** (los `cleanup()` dejan huecos) la segunda línea puede quedar delante. Las
+pruebas asumen `lines[1]` = la carta de MX$300; con el orden invertido marcan `missing` la de MX$500 y `prepared`
+contesta **`409 REFUND_PREVIEW_STALE {refundCents: 52430}`** (≠ 31458) ⇒ cero filas ⇒ `TypeError`. Es también la causa
+de lo que §12 dejó «NO MEDIDO» (`prepare` sin fila `item_missing`; `PREPARATION_INCOMPLETE` en vez de
+`PREPARATION_HAS_BLOCKED_LINES`: misma inversión). El producto no depende del orden (marcas por `shipmentItemId`,
+plan por línea, piezas `id asc.`).
+
+**Los `40P01` / `BUSY_TRY_AGAIN` del log NO son de esta suite:** reproducidos en la integración completa, los 10
+interbloqueos (`Order FOR UPDATE` de `onFullRefund` vs `UPDATE InventoryItem` de reserva) salen en `settle-late` (SL-10,
+el `503` medido y aceptado en §12, «10/10 con `503` del reembolso»); Nest escribe en tiempo real y jest imprime el
+bloque `FAIL` al final, por eso aparecen «justo antes». PS-51 corre en serie: no hay contendiente posible en su setup.
+
+**Arreglo (solo prueba, nada debilitado):**
+- `helpers/ship-prep-db.ts` — `alignLines(lines, pieceIds)`: `lines[i]` es la línea de la pieza `i` por construcción;
+  si falta una, revienta en el fixture diciendo cuál.
+- `shipments-prep.e2e-spec.ts` — `prepTransient(d)`: el setup de PS-10 / PS-50 / PS-51 **asevera** `200 prepared` y
+  exactamente una fila `item_missing requested 31458`. Un setup roto ya no llega a la carrera como `undefined`: dice qué
+  contestó `prepared`. El oráculo de PS-51 (una sola `create`, un `200`, un `409 REFUND_ATTEMPT_IN_PROGRESS`) no cambia.
+
+| Medición (autor: backend; BD propia `tcg_ps51`, usada; Postgres/Redis compartidos) | Resultado |
+|---|---|
+| Antes — suite sola, árbol `8a18b170` + solo registro de diagnóstico, 2 tandas | **38/40 corridas verdes (N=40)**: 1 roja por inversión (PS-10, `409 REFUND_PREVIEW_STALE 52430`), 1 roja por la carrera de abajo (PS-51 9/10). Inversiones observadas sin rojo en 5 fixtures de 20 corridas (pruebas que toleran el orden) |
+| Mutación A — orden físico invertido forzado, SIN alinear (copia del árbol entero) | **9 rojas de 20**, entre ellas PS-51 con el mensaje nuevo `409 REFUND_PREVIEW_STALE {refundCents: 52430}` y PS-10/PS-50/PS-1/PS-43 |
+| Mutación B — orden físico invertido forzado, CON `alignLines` | **20/20 verdes** |
+| Después — suite sola, árbol vivo, BD usada | **20/20 corridas verdes (N=20)**; PS-51 10/10 en cada una (200 tiradas) |
+| Unitaria completa | **384/384 suites · 6444/6444** |
+| Integración completa, árbol vivo, BD `tcg_ps51`, 5 corridas (load 2.8–9; otro agente corría su integración a la vez en las dos primeras) | `shipments-prep` **verde 5/5** (PS-51 10/10 en cada una). Totales: 1441/1443 · 1439/1443 · 1441/1443 · 1440/1443 · 1442/1443. Las rojas, todas en suites que NO usan los ficheros tocados: `buylist-intake-concurrency` 4/5 (la barrera por tiempo de 10 s de §16: «Esperaba 2 petición(es) bloqueada(s)… SellRequestItem»), `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` 2/5, `replacement-cases` PS-23 timeout 30 s 1/5 (load ~9), `graded-estimate` 3b 1/5. Las tres de la corrida 2 re-corridas solas con load < 3: **459/459** |
+| Integración completa, copia `git archive` del HEAD SIN este arreglo, misma BD | **69/69 · 1443/1443** (1 corrida, load ~3.6); la de arranque sobre BD nueva, también 69/69 · 1443/1443 |
+| ⚠️ NO MEDIDO | si `buylist-intake-concurrency` / `enum-query-axes` C-EQ-1 rojos dependen de la BD usada o de la carga: no los perseguí (fuera del encargo) |
+
+**⚠️ ABIERTO — para el arquitecto (no lo toqué):** segunda intermitencia de PS-51, distinta: `BAD(200:ok, 409:
+REFUND_NOT_RETRYABLE, create=1)` — **1 tirada de 400** (40 corridas × N=10, antes del arreglo; 0 de 200 después, que
+no la descarta). Mecanismo **demostrado**: en `executeRefund`, el perdedor pierde el reclamo (`count 0`) y RELEE la
+fila; si el ganador ya terminó (doble de Stripe 150 ms + tx de confirmación), la relectura ve `submitted` ⇒
+`not_requested` ⇒ `REFUND_NOT_RETRYABLE`. Mutación C (copia; 400 ms entre el reclamo perdido y la relectura): **0/10**,
+las 10 con esa firma. El dinero está bien (una sola `create`, el perdedor no escribe). La duda es de CONTRATO:
+§M4-SHIP.17.6 paso 0 dice «`count 0` ⇒ desde `retry` ⇒ `409 REFUND_ATTEMPT_IN_PROGRESS`», y §errores dice
+`REFUND_NOT_RETRYABLE` = «fila que no está `requested`», que en el momento de contestar también es verdad. Opciones:
+(1) clasificar en la MISMA sentencia que el reclamo (bajo el candado de fila) y contestar `IN_PROGRESS` si perdió contra
+un reclamo vigente; (2) que PS-51 acepte cualquiera de los dos `409` (el invariante de dinero es «una `create`»).
+Ninguna se hace sin decisión del arquitecto.

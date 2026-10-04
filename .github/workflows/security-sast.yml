@@ -359,7 +359,7 @@ jobs:
             echo
             echo "${REGISTRO}"
             echo
-            echo "_Fuente: \`security/README.md\`. Excepciones activas de Trivy: \`security/.trivyignore\`._"
+            echo "_Fuente: \`security/README.md\`. Excepciones activas de Trivy: \`security/.trivyignore\` (todos los gates) y \`security/.trivyignore-image\` (solo imágenes)._"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
@@ -443,8 +443,11 @@ jobs:
           # venían del npm empaquetado en `node:20-alpine`
           # (/usr/local/lib/node_modules/npm/node_modules/...), NO de deps de la
           # app. Dockerfile.backend elimina npm/npx de la etapa `runtime`, así que
-          # esa superficie desapareció en vez de ignorarse. Todo bloquea.
-          trivyignores: security/.trivyignore
+          # esa superficie desapareció en vez de ignorarse.
+          # §76 (2026-10-04): + security/.trivyignore-image — excepciones SOLO de
+          # imagen, cada una con `exp:` ≤30 días (hoy: braces CVE-2026-93687, que
+          # viaja inerte con las devDeps del backend). Registro: security/README.md.
+          trivyignores: security/.trivyignore,security/.trivyignore-image
       - name: Build + scan imagen frontend
         if: hashFiles('frontend/package.json') != ''
         run: |
@@ -467,7 +470,9 @@ jobs:
           # Mismo criterio que el backend: sin excepciones activas. La etapa
           # `runtime` de Dockerfile.frontend también borra npm/npx de la imagen
           # base (el runtime standalone de Next arranca con `node server.js`).
-          trivyignores: security/.trivyignore
+          # §76: mismas excepciones de imagen que el backend (plano + plano: la
+          # acción los concatena).
+          trivyignores: security/.trivyignore,security/.trivyignore-image
 
   # ---------------------------------------------------------------------------
   # Gate final SAST.

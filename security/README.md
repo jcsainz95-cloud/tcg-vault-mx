@@ -24,10 +24,30 @@ Todo es **automatizable** y está cableado en CI (ver `.github/workflows/`).
 > a **devops**, no lo corrijas tú.
 
 <!-- REGISTRO:INICIO -->
-**Excepciones ACTIVAS del gate Trivy (`security/.trivyignore`): NINGUNA.**
+**Excepciones ACTIVAS del gate Trivy (`security/.trivyignore`, lo leen TODOS los gates): NINGUNA.**
 Ni por CVE, ni por ruta, ni por severidad. `trivy-fs` y `trivy-image` fallan en
 cualquier HIGH/CRITICAL, con `ignore-unfixed: false` (también los que *no* tienen
 parche disponible).
+
+**Excepciones ACTIVAS SOLO de imagen (`security/.trivyignore-image`, 2026-10-04, DEVOPS_NOTES §76): UNA.**
+`CVE-2026-93687` (= `GHSA-vfj7-8cjw-p6xm`), `braces@3.0.3`, HIGH, DoS por desbordamiento de
+pila con patrones muy anidados, **sin versión arreglada** (3.0.3 es la última; rango `<=3.0.3`).
+Caduca sola: `exp:2026-11-03` (trivy deja de honrarla y `trivy-image` vuelve a rojo — medido
+con fecha pasada → exit 1). Dueño del arreglo: **backend** (y devops para la imagen).
+*Dónde está y por qué:* solo en `tcg-backend` (`/app/node_modules/braces/package.json`), porque
+`Dockerfile.backend` copia `node_modules` **con devDependencies** a propósito (`prisma` para el
+`migrate deploy` del arranque y `ts-node` para el seed son devDependencies — §6.2). La imagen
+frontend no lo trae (medido: `trivy rootfs` sobre el standalone de Next, 0 hallazgos).
+*Por qué no es alcanzable (medido 2026-10-04):* `npm ls braces --omit=dev` **vacío** en backend y
+frontend; lo cargan solo `@nestjs/cli→chokidar` y `jest→@jest/core→micromatch`, que nunca corren
+en el contenedor (el arranque es `sh` preflight + `prisma migrate deploy` + `node dist/main.js`;
+el seed manual usa `ts-node`, cuyo cierre no incluye braces). Ningún fichero de `src/`/`prisma/`
+importa braces/micromatch/chokidar. Ninguna entrada de usuario llega a un patrón glob.
+*Por qué en fichero aparte:* una línea en `.trivyignore` cegaría también a `trivy-fs` y a
+`trivy-dev-fichas.sh` sobre el mismo aviso; así esos dos lo siguen viendo, y en devDependencies
+lo juzga su ficha (`npm-audit-dev-fichas.tsv`, mismas fechas, ambos IDs).
+*Salida real:* que backend mueva `prisma`/`ts-node`/`typescript` a `dependencies` para que la
+imagen pueda podar devDeps, o que upstream publique braces arreglado.
 
 **Alcance del escaneo `trivy fs`: el repositorio COMPLETO (`.`), escáner `vuln`.** No hay
 `skip-dirs` de código ni de herramienta de desarrollo; los únicos `skip-dirs` de

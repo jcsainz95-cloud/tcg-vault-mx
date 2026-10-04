@@ -62,6 +62,18 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
     });
   const HUGE_CAP = 1_000_000_000;
 
+  /**
+   * El SETUP de PS-10/PS-50/PS-51 (falta la de MX$300, Stripe transitorio) se COMPRUEBA: sin esto, un `prepared`
+   * que no creó la fila llegaba a la carrera como `refunds(…)[0] === undefined` y la prueba moría con un
+   * `TypeError` que no dice nada (CI, run 37054037762). Ahora dice qué contestó `prepared` y por qué.
+   */
+  const prepTransient = async (d: { shipment: { id: string }; order: { id: string } }) => {
+    const r = await db.prepare(d.shipment.id, 31458);
+    expect({ status: r.status, outcome: r.body?.outcome, error: r.body?.error }).toEqual({ status: 200, outcome: 'prepared', error: undefined });
+    const rows = await db.refunds({ orderId: d.order.id });
+    expect(rows.map((x) => ({ kind: x.kind, status: x.status, amountCents: x.amountCents }))).toEqual([{ kind: 'item_missing', status: 'requested', amountCents: 31458 }]);
+  };
+
   beforeEach(async () => {
     bandeja = [];
     h.stripe.refundOutcome = 'ok';
@@ -457,7 +469,7 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
     await db.mark(d2.shipment.id, d2.lines[0].id, { status: 'picked' });
     await db.mark(d2.shipment.id, d2.lines[1].id, { status: 'missing', missingReason: 'not_found' });
     h.stripe.refundOutcome = 'transient';
-    await db.prepare(d2.shipment.id, 31458);
+    await prepTransient(d2);
     const row2 = (await db.refunds({ orderId: d2.order.id }))[0];
     const seeded = h.stripe.seedStripeRefund(d2.pi, { status: 'succeeded', metadata: { paymentRefundId: row2.id }, amountCents: 31458 });
     h.stripe.refundOutcome = 'ok';
@@ -475,7 +487,7 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
     await db.mark(d.shipment.id, d.lines[0].id, { status: 'picked' });
     await db.mark(d.shipment.id, d.lines[1].id, { status: 'missing', missingReason: 'not_found' });
     h.stripe.refundOutcome = 'transient';
-    await db.prepare(d.shipment.id, 31458);
+    await prepTransient(d);
     const row = (await db.refunds({ orderId: d.order.id }))[0];
     for (let i = 0; i < 25; i += 1) {
       h.stripe.seedStripeRefund(d.pi, { status: 'succeeded', metadata: i === 22 ? { paymentRefundId: row.id } : { other: String(i) }, amountCents: 1 });
@@ -496,7 +508,7 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
       await db.mark(d.shipment.id, d.lines[0].id, { status: 'picked' });
       await db.mark(d.shipment.id, d.lines[1].id, { status: 'missing', missingReason: 'not_found' });
       h.stripe.refundOutcome = 'transient';
-      await db.prepare(d.shipment.id, 31458);
+      await prepTransient(d);
       const row = (await db.refunds({ orderId: d.order.id }))[0];
       h.stripe.refundOutcome = 'ok';
       h.stripe.expireIdempotencyMemory();
