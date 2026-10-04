@@ -5,6 +5,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { UploadsService } from '../src/modules/uploads/uploads.service';
+import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
  * ⭐ **v1.69 (P-78, BK-5) — la ficha de M6 como PANTALLA DE COTEJO.**
@@ -99,6 +100,8 @@ function buildService(over: Record<string, unknown> = {}) {
     { fxSnapshotSafe: jest.fn().mockResolvedValue(null) } as unknown as PricingService,
     pii,
     {} as UploadsService,
+    undefined,
+    noLockAttempts(),
   );
 }
 

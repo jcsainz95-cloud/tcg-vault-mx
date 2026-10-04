@@ -22,6 +22,8 @@ type ClaimState =
   | { kind: 'claiming' }
   | { kind: 'claimed' }
   | { kind: 'needsVerification' }
+  /** ⭐ v1.80.9 (DESIGN_SYSTEM §42.7): `403 ACCOUNT_WITHOUT_EMAIL` — una cuenta del equipo no reclama pedidos. */
+  | { kind: 'accountWithoutEmail' }
   | { kind: 'neutral' };
 
 /**
@@ -39,6 +41,7 @@ type ClaimState =
 export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrderConfirmationProps) {
   const t = useTranslations('checkout.confirmation');
   const tn = useTranslations('nav');
+  const tErr = useTranslations('error');
   const [copied, setCopied] = useState(false);
   const [claim, setClaim] = useState<ClaimState>({ kind: 'idle' });
 
@@ -69,6 +72,9 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
     } catch (e) {
       if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
         setClaim({ kind: 'needsVerification' });
+      } else if (e instanceof ApiClientError && e.code === 'ACCOUNT_WITHOUT_EMAIL') {
+        // ⛔ No es «ya reclamado» ni «verifica tu correo»: no hay correo que verificar (§42.7).
+        setClaim({ kind: 'accountWithoutEmail' });
       } else {
         setClaim({ kind: 'neutral' });
       }
@@ -115,9 +121,13 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
               {t('claim.successLink')}
             </Link>
           </div>
-        ) : claim.kind === 'needsVerification' || claim.kind === 'neutral' ? (
+        ) : claim.kind === 'needsVerification' || claim.kind === 'neutral' || claim.kind === 'accountWithoutEmail' ? (
           <p role="status" className="mt-6 max-w-[560px] text-sm leading-relaxed text-muted">
-            {claim.kind === 'needsVerification' ? t('claim.needsVerification') : t('claim.alreadyClaimedNeutral')}
+            {claim.kind === 'needsVerification'
+              ? t('claim.needsVerification')
+              : claim.kind === 'accountWithoutEmail'
+                ? tErr('ACCOUNT_WITHOUT_EMAIL')
+                : t('claim.alreadyClaimedNeutral')}
           </p>
         ) : (
           <>

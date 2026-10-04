@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import { MissingReason, PreparationItemStatus, ReplacementCaseSource, VaultZone } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -199,7 +200,7 @@ export class VaultPhysicalInventoryService {
     }
 
     return {
-      owner: { userId: user.id, name: customerDisplayName(user), email: user.email },
+      owner: { userId: user.id, name: customerDisplayName(user), email: customerEmailOrBlank(user.email, 'VaultPhysical.owner', user.id) },
       drawer:
         drawers.length === 0
           ? { kind: 'none' }

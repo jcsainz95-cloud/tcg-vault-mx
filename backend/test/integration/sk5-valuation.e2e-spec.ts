@@ -73,7 +73,7 @@ describe('E2E — SK-5: una sola llave de valuación para el sellado en los seis
       },
     });
     userIds.push(u.id);
-    const token = await h.login(u.email, E2E_USERS.customer.password);
+    const token = await h.login(u.email!, E2E_USERS.customer.password);
     return { id: u.id, email: u.email, token };
   }
 
@@ -223,7 +223,7 @@ describe('E2E — SK-5: una sola llave de valuación para el sellado en los seis
     // custody-value — NO sube 80 000
     expect((await custody()) - c0).toBe(RAW_CENTS);
     // /admin/vaults — +1 pendiente, total sin la legada
-    expect(await vaultRow(u.email)).toMatchObject({ pieceCount: 2, totalValueMxnCents: RAW_CENTS, pendingPriceCount: 1 });
+    expect(await vaultRow(u.email!)).toMatchObject({ pieceCount: 2, totalValueMxnCents: RAW_CENTS, pendingPriceCount: 1 });
     // ficha 360° — `pending`
     const o = await owned(u.id);
     expect(o.get(box)).toEqual({ status: 'pending' });
@@ -250,7 +250,7 @@ describe('E2E — SK-5: una sola llave de valuación para el sellado en los seis
     expect(hs.portfolio).toMatchObject({ totalValueMxnCents: MAPPED_CENTS, pendingPriceCount: 0 });
     expect(await holdingDetail(u.token, box)).toMatchObject({ status: 'priced', referenceMxnCents: MAPPED_CENTS });
     expect((await custody()) - c0).toBe(MAPPED_CENTS);
-    expect(await vaultRow(u.email)).toMatchObject({ pieceCount: 1, totalValueMxnCents: MAPPED_CENTS, pendingPriceCount: 0 });
+    expect(await vaultRow(u.email!)).toMatchObject({ pieceCount: 1, totalValueMxnCents: MAPPED_CENTS, pendingPriceCount: 0 });
     expect((await owned(u.id)).get(box)).toMatchObject({ status: 'priced', referenceMxnCents: MAPPED_CENTS });
     const v1 = await inventoryValue();
     expect(v1.breakdown.sealed.atReferenceCents - v0.breakdown.sealed.atReferenceCents).toBe(MAPPED_CENTS);
@@ -282,7 +282,7 @@ describe('E2E — SK-5: una sola llave de valuación para el sellado en los seis
     expect(hs.portfolio).toMatchObject({ totalValueMxnCents: 0, pendingPriceCount: 1 });
     expect(await holdingDetail(u.token, box)).toEqual({ status: 'pending' });
     expect((await custody()) - c0).toBe(0);
-    expect(await vaultRow(u.email)).toMatchObject({ totalValueMxnCents: 0, pendingPriceCount: 1 });
+    expect(await vaultRow(u.email!)).toMatchObject({ totalValueMxnCents: 0, pendingPriceCount: 1 });
     expect((await owned(u.id)).get(box)).toEqual({ status: 'pending' });
     const v1 = await inventoryValue();
     expect(v1.breakdown.sealed.atReferenceCents - v0.breakdown.sealed.atReferenceCents).toBe(0);
@@ -301,7 +301,7 @@ describe('E2E — SK-5: una sola llave de valuación para el sellado en los seis
       expect(st.data[0].marketValue.referenceMxnCents).toBe(TCGCSV_CENTS);
       expect(await holdingDetail(u.token, box)).toMatchObject({ status: 'priced', referenceMxnCents: TCGCSV_CENTS });
       expect((await custody()) - c0).toBe(TCGCSV_CENTS);
-      expect(await vaultRow(u.email)).toMatchObject({ totalValueMxnCents: TCGCSV_CENTS, pendingPriceCount: 0 });
+      expect(await vaultRow(u.email!)).toMatchObject({ totalValueMxnCents: TCGCSV_CENTS, pendingPriceCount: 0 });
       expect((await owned(u.id)).get(box)).toMatchObject({ status: 'priced', referenceMxnCents: TCGCSV_CENTS });
     } finally {
       await setDial('off');
@@ -324,7 +324,7 @@ describe('E2E — SK-5: una sola llave de valuación para el sellado en los seis
     expect(await holdingDetail(u.token, gId)).toMatchObject({ status: 'priced', referenceMxnCents: GRADED_CENTS });
     expect(await holdingDetail(u.token, noId)).toEqual({ status: 'pending' });
     expect((await custody()) - c0).toBe(RAW_CENTS + GRADED_CENTS);
-    expect(await vaultRow(u.email)).toMatchObject({ pieceCount: 3, totalValueMxnCents: RAW_CENTS + GRADED_CENTS, pendingPriceCount: 1 });
+    expect(await vaultRow(u.email!)).toMatchObject({ pieceCount: 3, totalValueMxnCents: RAW_CENTS + GRADED_CENTS, pendingPriceCount: 1 });
     const o = await owned(u.id);
     expect(o.get(rawId)).toMatchObject({ status: 'priced', referenceMxnCents: RAW_CENTS });
     expect(o.get(gId)).toMatchObject({ status: 'priced', referenceMxnCents: GRADED_CENTS });

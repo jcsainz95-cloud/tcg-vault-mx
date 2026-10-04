@@ -39,11 +39,13 @@ import {
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { PasswordAttemptsService } from '../auth/password-attempts.service';
+import { LoginAttemptStoreUnavailableError } from '../auth/login-attempt.store';
 import { ShipmentPrepService } from '../shipments/shipment-prep.service';
 import { ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { kycRejectedTemplate } from './mail/kyc-notice.templates';
 import {
   MIN_PASSWORD_LENGTH,
+  checkUsername,
   isStrongPassword,
   isValidEmailFormat,
   normalizeEmail,
@@ -170,7 +172,9 @@ function kycDecisionFields(k: {
  */
 interface AdminUserRow {
   id: string;
-  email: string;
+  email: string | null;
+  // v1.80.9 (§M6-U.7): staff sin correo ⇒ `username`; los dos DTOs de la ficha lo llevan.
+  username: string | null;
   name: string;
   nameSource: NameSource;
   role: Role;
@@ -190,7 +194,9 @@ interface AdminUserRow {
 function toAdminUserHeader(u: AdminUserRow) {
   return {
     id: u.id,
+    // v1.80.9 (§M6-U.7): `email: string | null` (clave siempre presente) + `username`.
     email: u.email,
+    username: u.username,
     name: u.name,
     // ⭐ v1.69 (P-78, §M6-K.3, BK-5) — **el campo que hace LEGIBLE el cotejo contra la INE**, y va a
     // los DOS DTOs (super_admin y vault_operator). Sin él, un nombre FABRICADO del correo (P-73,
@@ -505,6 +511,7 @@ function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
 const ADMIN_USER_DETAIL_SELECT = {
   id: true,
   email: true,
+  username: true,
   name: true,
   nameSource: true,
   role: true,
@@ -661,6 +668,7 @@ export class AdminService {
    */
   async createUser(dto: {
     email?: unknown;
+    username?: unknown;
     name?: unknown;
     role?: unknown;
     password?: unknown;
@@ -669,7 +677,8 @@ export class AdminService {
   }): Promise<{
     user: {
       id: string;
-      email: string;
+      email: string | null;
+      username: string | null;
       name: string;
       role: Role;
       locale: string;
@@ -681,40 +690,72 @@ export class AdminService {
     tempPassword?: string;
     mustChangePassword: boolean;
   }> {
-    // --- Validación semántica → 422 VALIDATION_ERROR (contrato §M6) ---
-    // BE-9: reusa el validador compartido de credenciales (misma regla que /auth/register).
-    if (!isValidEmailFormat(dto.email)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid email');
-    }
-    // email se lowercasea antes de persistir/validar unicidad (paridad con /auth/register).
-    const email = normalizeEmail(dto.email);
-
+    // --- Validación semántica → 422 VALIDATION_ERROR con `details.field` (contrato §M6 / §M6-U.6) ---
+    // ⭐ v1.80.9 (§M6-U.6) — ORDEN NORMATIVO: 1) nombre y rol; 2) cliente ⇒ sin usuario, con correo válido;
+    // 3) equipo ⇒ SIN correo, con usuario canónico; 4) contraseña; 5) escritura; 6) unicidad por el índice.
     if (typeof dto.name !== 'string' || dto.name.trim().length === 0) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Name is required');
+      throw BusinessException.validation('VALIDATION_ERROR', 'Name is required', { field: 'name' });
     }
     const name = dto.name.trim();
 
     const roles: Role[] = [Role.customer, Role.vault_operator, Role.super_admin];
     if (typeof dto.role !== 'string' || !roles.includes(dto.role as Role)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid role');
+      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid role', { field: 'role' });
     }
     const role = dto.role as Role;
+    const isStaff = role !== Role.customer;
+
+    let email: string | null;
+    let username: string | null;
+    if (!isStaff) {
+      // 2. Cliente: el correo es su identificador y ⛔ nunca tiene usuario (CHECK `user_customer_has_email` + XOR).
+      if (dto.username !== undefined && dto.username !== null) {
+        throw BusinessException.validation('VALIDATION_ERROR', 'A customer account has no username', {
+          field: 'username',
+          rule: 'customer_without_username',
+        });
+      }
+      // BE-9: reusa el validador compartido de credenciales (misma regla que /auth/register).
+      if (!isValidEmailFormat(dto.email)) {
+        throw BusinessException.validation('VALIDATION_ERROR', 'Invalid email', { field: 'email' });
+      }
+      // email se lowercasea antes de persistir/validar unicidad (paridad con /auth/register).
+      email = normalizeEmail(dto.email);
+      username = null;
+    } else {
+      // 3. Equipo (HECHOS 2026-10-04 «Usuarios de back-office SIN correo»): ⛔ correo prohibido —presente, aun vacío—;
+      //    usuario obligatorio, guardado canónico (`checkUsername`, reglas en orden required→length→charset→start).
+      if (dto.email !== undefined && dto.email !== null) {
+        throw BusinessException.validation('VALIDATION_ERROR', 'Staff accounts have no email; use a username', {
+          field: 'email',
+          rule: 'staff_without_email',
+        });
+      }
+      const u = checkUsername(dto.username);
+      if (!u.ok) {
+        throw BusinessException.validation('VALIDATION_ERROR', `Invalid username (${u.rule})`, {
+          field: 'username',
+          rule: u.rule,
+        });
+      }
+      email = null;
+      username = u.value;
+    }
 
     if (dto.locale !== undefined && dto.locale !== null) {
       if (typeof dto.locale !== 'string' || !['es', 'en'].includes(dto.locale)) {
-        throw BusinessException.validation('VALIDATION_ERROR', 'Invalid locale');
+        throw BusinessException.validation('VALIDATION_ERROR', 'Invalid locale', { field: 'locale' });
       }
     }
     const locale = (dto.locale as string | undefined) ?? 'es';
 
     if (dto.phone !== undefined && dto.phone !== null && typeof dto.phone !== 'string') {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid phone');
+      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid phone', { field: 'phone' });
     }
     const phone = (dto.phone as string | undefined) ?? undefined;
 
-    // password: si se provee, política de /auth/register (MinLength 8). Si se omite, se
-    // autogenera una temporal de ALTA ENTROPÍA reusando el generador del reset M-15
-    // (randomBytes(18).base64url) y se devuelve UNA sola vez en `tempPassword`.
+    // 4. password: si se provee, política de /auth/register (MinLength 8). Si se omite, se autogenera una temporal
+    // de ALTA ENTROPÍA (randomBytes(18).base64url) y se devuelve UNA sola vez en `tempPassword`.
     let autogenerated = false;
     let plainPassword: string;
     if (dto.password === undefined || dto.password === null || dto.password === '') {
@@ -726,12 +767,14 @@ export class AdminService {
         throw BusinessException.validation(
           'VALIDATION_ERROR',
           `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+          { field: 'password' },
         );
       }
       plainPassword = dto.password;
     }
-    // mustChangePassword=true SOLO cuando la contraseña fue autogenerada (false si el admin la proveyó).
-    const mustChangePassword = autogenerated;
+    // ⭐ v1.80.9 (P-STF-6): equipo ⇒ `mustChangePassword` SIEMPRE (también con contraseña tecleada). Cliente ⇒ como
+    // antes: solo cuando se autogeneró.
+    const mustChangePassword = isStaff ? true : autogenerated;
 
     const passwordHash = await argon2.hash(plainPassword);
 
@@ -740,20 +783,27 @@ export class AdminService {
       user = await this.prisma.user.create({
         data: {
           email,
+          username,
           passwordHash,
           name,
           role,
           phone,
           locale: locale as never,
           authProvider: 'local',
-          // emailVerified=true para TODO rol creado por admin (staff como el seed; el customer
-          // porque el admin da fe de la identidad). NO se dispara correo de verificación.
-          emailVerified: true,
+          // Cliente: emailVerified=true (el admin da fe de la identidad; NO se dispara correo de verificación).
+          // ⭐ v1.80.9: equipo SIN correo ⇒ `false` (CHECK `user_no_email_unverified`: no hay correo que verificar).
+          emailVerified: email !== null,
           mustChangePassword,
         },
       });
     } catch (e) {
+      // 6. La unicidad la decide el ÍNDICE ÚNICO (también en la carrera, STF-6), no un `findFirst` previo.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const target = (e.meta as { target?: unknown } | undefined)?.target;
+        const fields = Array.isArray(target) ? target.map(String) : typeof target === 'string' ? [target] : [];
+        if (fields.some((f) => f.includes('username'))) {
+          throw BusinessException.conflict('USERNAME_TAKEN', 'Username already taken', { field: 'username' });
+        }
         throw BusinessException.conflict('EMAIL_TAKEN', 'Email already registered');
       }
       throw e;
@@ -764,6 +814,7 @@ export class AdminService {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
         name: user.name,
         role: user.role,
         locale: user.locale,
@@ -832,10 +883,15 @@ export class AdminService {
       and.push({ status: statusFilter });
     }
 
-    // `?q=` — el buscador por email/nombre. Su `OR` vive DENTRO de su cláusula, no en la raíz.
+    // `?q=` — el buscador por email/nombre y (v1.80.9, §M6-U.7) por nombre de usuario. Su `OR` vive DENTRO de su
+    // cláusula, no en la raíz. El usuario se guarda canónico ⇒ `contains` sobre `q` en minúsculas basta.
     if (q) {
       and.push({
-        OR: [{ email: { contains: q, mode: 'insensitive' } }, { name: { contains: q, mode: 'insensitive' } }],
+        OR: [
+          { email: { contains: q, mode: 'insensitive' } },
+          { name: { contains: q, mode: 'insensitive' } },
+          { username: { contains: q.trim().toLowerCase() } },
+        ],
       });
     }
 
@@ -863,6 +919,7 @@ export class AdminService {
         select: {
           id: true,
           email: true,
+          username: true,
           name: true,
           role: true,
           status: true,
@@ -876,9 +933,13 @@ export class AdminService {
       this.prisma.user.count({ where }),
     ]);
 
-    const data = rows.map((u) => ({
+    // v1.80.9 (§M6-U.7): el candado de cada fila de LA PÁGINA, leído del almacén (≤ 100 lecturas, en paralelo).
+    const locks = await this.lockedUntilOf(rows);
+    const data = rows.map((u, i) => ({
       id: u.id,
+      // ⛔ Siempre presente: `null` en el staff sin correo, nunca omitida ni `""`.
       email: u.email,
+      username: u.username,
       name: u.name,
       role: u.role,
       status: u.status,
@@ -887,9 +948,47 @@ export class AdminService {
       // `?? 'none'`. UN hecho, UNA regla, en las TRES superficies. ⛔ Ni `null` ni clave omitida:
       // «no tiene perfil» y «tiene perfil en none» son el mismo hecho para quien lee la cola.
       kycStatus: u.kycProfile?.kycStatus ?? KycStatus.none,
+      lockedUntil: locks.values[i],
     }));
 
-    return { data, page, pageSize, total };
+    return { data, page, pageSize, total, lockState: locks.state };
+  }
+
+  /**
+   * v1.80.9 (§M6-U.7, §4.58.5) — «bloqueado por intentos hasta…» de cada cuenta: ISO = ahora + `peekLockMs` del cubo
+   * de SU identificador; `null` sin candado. El almacén es la ÚNICA fuente (ni columna ni bitácora).
+   * ⭐ v1.80.9.1 (errata D-4 + TD-9, §M6-U.7, `ARCHITECTURE §4.58.9`) — falla en alto:
+   *  - solo `LoginAttemptStoreUnavailableError` (Redis degradado, caído o fuera de plazo) ⇒ `state:'unavailable'` y
+   *    TODAS `null` (⛔ ni un 500, ni una marca a medias);
+   *  - cualquier OTRA excepción (p. ej. `passwordAttemptKeysForUser` sin identificador = CHECK 1 roto, o un error de
+   *    programación) ⇒ se propaga: ⛔ no se disfraza de «almacén no disponible»;
+   *  - sin `PasswordAttemptsService` ⇒ lanza el error de cableado (SEC-C7-OPT: no hay rama muda).
+   */
+  private async lockedUntilOf(
+    users: { id: string; email: string | null; username: string | null }[],
+  ): Promise<{ state: 'ok' | 'unavailable'; values: (string | null)[] }> {
+    const attempts = this.requirePasswordAttempts('lockedUntilOf');
+    try {
+      const now = Date.now();
+      const ms = await Promise.all(users.map((u) => attempts.lockMsForUser(u)));
+      return { state: 'ok', values: ms.map((m) => (m > 0 ? new Date(now + m).toISOString() : null)) };
+    } catch (e) {
+      if (!(e instanceof LoginAttemptStoreUnavailableError)) throw e;
+      this.logger.warn(`lockedUntil: el almacén de intentos no contestó (${e.message})`);
+      return { state: 'unavailable', values: users.map(() => null) };
+    }
+  }
+
+  /**
+   * SEC-C7-OPT / TD-9: el `PasswordAttemptsService` es obligatorio en DI; sin él, se falla en seco con el MISMO texto
+   * de cableado en todos los que lo usan (reset y lectura del candado).
+   */
+  private requirePasswordAttempts(op: string): PasswordAttemptsService {
+    const attempts = this.passwordAttempts;
+    if (!attempts) {
+      throw new Error(`AdminService.${op}: PasswordAttemptsService is not wired (AdminModule must import AuthModule)`);
+    }
+    return attempts;
   }
 
   /**
@@ -915,6 +1014,12 @@ export class AdminService {
       select: ADMIN_USER_DETAIL_SELECT,
     });
     if (!user) throw BusinessException.notFound();
+    // v1.80.9 (§M6-U.7): «bloqueado por intentos hasta…», leído del ALMACÉN (única fuente). ⭐ v1.80.9.1 (A-1): la
+    // ficha gana `lockState` con la MISMA regla que el listado (misma función) — `'unavailable'` ⇒ `lockedUntil: null`;
+    // ⛔ la ficha no falla por el almacén (sí por una invariante rota, TD-9).
+    const lock = await this.lockedUntilOf([user]);
+    const lockedUntil = lock.values[0];
+    const lockState = lock.state;
 
     // Las relaciones ya vienen acotadas por el `select`, y cada una pasa además por SU proyector
     // (los del encabezado de este fichero). ⛔ Ni un SPREAD DE RESTO en esta función.
@@ -943,6 +1048,8 @@ export class AdminService {
       const billingRfc = this.pii.tryDecryptOptional(user.billingProfile?.rfcEnc);
       return {
         ...toAdminUserHeaderSuper(user),
+        lockedUntil,
+        lockState,
         ...comunes,
         // ⭐ v1.69 (P-78, §M6-K.3): SOLO aquí. El operador no recibe la clave (ni vacía): un perfil
         // de movimientos POR PERSONA no es de su rol.
@@ -968,6 +1075,8 @@ export class AdminService {
     // Proyección reducida para `vault_operator` (y cualquier rol no `super_admin`), SEC-A4.
     return {
       ...toAdminUserHeader(user),
+      lockedUntil,
+      lockState,
       ...comunes,
       kycProfile: user.kycProfile
         ? {
@@ -1346,7 +1455,8 @@ export class AdminService {
     return this.prisma.user.update({
       where: { id },
       data: { status },
-      select: { id: true, email: true, name: true, role: true, status: true, createdAt: true },
+      // v1.80.9 (§M6-U.6): + `username`; `email` anulable.
+      select: { id: true, email: true, username: true, name: true, role: true, status: true, createdAt: true },
     });
   }
 
@@ -1361,13 +1471,11 @@ export class AdminService {
   async resetPassword(id: string): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
     // SEC-C7-OPT: se comprueba ANTES de escribir nada. Sin servicio no hay reset «a medias» (hash
     // nuevo persistido, candado puesto, contraseña temporal nunca devuelta): se falla en seco.
-    const attempts = this.passwordAttempts;
-    if (!attempts) {
-      throw new Error('AdminService.resetPassword: PasswordAttemptsService is not wired (AdminModule must import AuthModule)');
-    }
+    const attempts = this.requirePasswordAttempts('resetPassword');
     const user = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, status: true, email: true },
+      // v1.80.9 (§M6-U.6): + `username`, para que `clearForUser` limpie el cubo de SU identificador.
+      select: { id: true, status: true, email: true, username: true },
     });
     if (!user) throw BusinessException.notFound();
     if (user.status === 'deleted') {
@@ -1503,6 +1611,10 @@ export class AdminService {
           deletedAt: new Date(),
           anonymizedAt: new Date(),
           email: `deleted+${randomUUID()}@anon.invalid`,
+          // ⭐ v1.80.9 (§M6-U.1): con el correo anonimizado, el usuario se anula (CHECK `user_login_identity_xor`) y el
+          // aviso de panel también (CHECK `user_lock_notice_no_email`: solo cuentas sin correo lo llevan).
+          username: null,
+          lockNoticeAt: null,
           name: 'Usuario eliminado',
           phone: null,
           avatarUrl: null,

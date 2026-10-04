@@ -2743,7 +2743,8 @@ export function mockVaultOwnerOf(userId: string): VaultOwnerRefDTO {
   if (!u || !(userId in mockVaultHoldingsByUser)) {
     throw new ApiFixtureNotFound(`User ${userId} has no vault`);
   }
-  return { userId: u.id, name: mockCustomerDisplayName(u.id, u.name), email: u.email };
+  // Ref de CLIENTE: siempre con correo (I-STF-1, §M6-U.8 (b)); `?? ''` replica lo que emite el backend si la invariante se rompiera.
+  return { userId: u.id, name: mockCustomerDisplayName(u.id, u.name), email: u.email ?? '' };
 }
 
 /**
@@ -4014,14 +4015,17 @@ export function mockPriceHistory(cardId: string): PriceHistoryEntryDTO[] {
 
 // ---- M6: Usuarios / KYC ----
 export const mockAdminUsers: AdminUserSummaryDTO[] = [
-  { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', createdAt: '2026-08-01T10:00:00Z' },
-  { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', createdAt: '2026-08-05T14:30:00Z' },
-  { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', createdAt: '2026-08-08T09:12:00Z' },
+  { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', username: null, lockedUntil: null, createdAt: '2026-08-01T10:00:00Z' },
+  { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', username: null, lockedUntil: null, createdAt: '2026-08-05T14:30:00Z' },
+  { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', username: null, lockedUntil: null, createdAt: '2026-08-08T09:12:00Z' },
   // P-78: el caso que motiva la pantalla — INE subida, ESPERANDO revisión, y con el nombre
   // FABRICADO del correo (`nameSource='derived'`, P-73). Es el usuario contra el que se mide que
   // el aviso de «no cotejes con este nombre» aparece.
-  { id: 'u-780', email: 'jcsainz95@example.com', name: 'jcsainz95', role: 'customer', status: 'active', createdAt: '2026-09-02T11:05:00Z' },
-  { id: 'u-op1', email: brandEmail('operador'), name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
+  { id: 'u-780', email: 'jcsainz95@example.com', name: 'jcsainz95', role: 'customer', status: 'active', username: null, lockedUntil: null, createdAt: '2026-09-02T11:05:00Z' },
+  { id: 'u-op1', email: brandEmail('operador'), name: 'Operador Bóveda', role: 'vault_operator', status: 'active', username: null, lockedUntil: null, createdAt: '2026-07-20T08:00:00Z' },
+  // MOCK (v1.80.9, §M6-U): cuenta del equipo SIN correo — entra con su usuario. Con un candado por
+  // intentos vigente para que la marca «Bloqueado por intentos hasta HH:MM» se vea en mock.
+  { id: 'u-op2', email: null, username: 'luis.p', name: 'Luis Pérez', role: 'vault_operator', status: 'active', lockedUntil: new Date(Date.now() + 30 * 60_000).toISOString(), createdAt: '2026-10-04T09:00:00Z' },
 ];
 
 /**
@@ -4152,6 +4156,8 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
   const base = mockAdminUsers.find((u) => u.id === id) ?? mockAdminUsers[0];
   return {
     ...base,
+    // ⭐ v1.80.9.1 A-1: la ficha trae su `lockState` (el servidor falso siempre contesta).
+    lockState: 'ok',
     locale: 'es',
     authProvider: id === 'u-778' ? 'google' : 'local',
     // ⭐ v1.69 (§M6-K.3): el origen del nombre va en la ficha SIEMPRE (los dos roles).
@@ -4579,7 +4585,7 @@ export function mockAdminVaultSealed(userId: string): VaultSealedResponse {
   const owner: VaultOwnerRefDTO = {
     userId,
     name: u ? mockCustomerDisplayName(userId, u.name) : null,
-    email: u?.email,
+    email: u?.email ?? undefined,
   };
   if (userId === 'u-777') {
     return { ...mockVaultSealed, owner };
@@ -7064,7 +7070,7 @@ export function mockConfirmVaultPlacement(
 export function mockPhysicalInventory(userId: string): CustomerPhysicalInventoryDTO {
   const u = mockAdminUsers.find((x) => x.id === userId);
   if (!u) throw new ApiFixtureNotFound(`User ${userId} not found`);
-  const owner = { userId, name: mockCustomerDisplayName(userId, u.name), email: u.email };
+  const owner = { userId, name: mockCustomerDisplayName(userId, u.name), email: u.email ?? '' }; // ref de cliente: I-STF-1
   const card = (name: string, setName: string, conditionLabel = 'NM') => ({
     name,
     setName,

@@ -747,7 +747,7 @@ describe('§M4-VAULT — verbos, cola y vista física (Postgres real)', () => {
       }
       const expectName = (u: typeof der) => (u.id === der.id ? null : 'Gil Google');
       for (const u of [der, goo]) {
-        const list = await h.api('GET', `/admin/vaults?q=${encodeURIComponent(u.email)}`, { token: db.opToken });
+        const list = await h.api('GET', `/admin/vaults?q=${encodeURIComponent(u.email!)}`, { token: db.opToken });
         const row = list.body.data.find((r: any) => r.userId === u.id);
         expect(row.name).toBe(expectName(u));
         expect(row.email).toBe(u.email);
@@ -761,7 +761,7 @@ describe('§M4-VAULT — verbos, cola y vista física (Postgres real)', () => {
         expect(q.customer.fullName).toBe(expectName(u));
       }
       // candado de la frontera: vista (iii) del propio derived
-      const tok = await h.login(der.email, E2E_USERS.customer.password);
+      const tok = await h.login(der.email!, E2E_USERS.customer.password);
       const mine = await h.api('GET', '/vault/master-sets', { token: tok });
       expect(mine.status).toBe(200);
       expect(mine.body.owner.name).toBe('juan.perez95');

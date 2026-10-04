@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import {
   BuyDecision,
   Card,
@@ -2574,13 +2575,14 @@ export class BuylistService implements OnModuleInit {
 
   /** v1.18-buylist-rejects: AdminSellerRef = { id, name, email } (§11). Tolerante a mocks sin join. */
   private sellerRef(
-    user: { id: string; name: string; email: string; phone?: string | null } | null | undefined,
+    user: { id: string; name: string; email: string | null; phone?: string | null } | null | undefined,
   ): { id: string; name: string; email: string; phone: string | null } | undefined {
     return user
       ? {
           id: user.id,
           name: user.name,
-          email: user.email,
+          // v1.80.9 (I-STF-1, §M6-U.8 (b)): el vendedor es cliente ⇒ siempre con correo; `null` ⇒ log + `""`.
+          email: customerEmailOrBlank(user.email, 'AdminSellerRef', user.id),
           // ⚠️ v1.51 · **BL-15** (D12, criterios 129/130) — **el teléfono viaja EN LA FILA**, para que
           // el operador **pueda llamar desde la solicitud sin ir a buscar al usuario**. Ése es el
           // requisito: *«que sepamos qué usuarios tienen cotizaciones abiertas»* y poder contactarlos.
@@ -4488,7 +4490,8 @@ export class BuylistService implements OnModuleInit {
    */
   private async sendOfferMail(
     req: Prisma.SellRequestGetPayload<{ include: { items: { include: { card: { include: { set: true } } } } } }>,
-    user: { name: string; email: string; locale: string | null } | null | undefined,
+    // v1.80.9: `email` anulable en el schema; el cuerpo ya omite con aviso si falta (§M6-U.8 (a) E-4).
+    user: { name: string; email: string | null; locale: string | null } | null | undefined,
   ): Promise<void> {
     try {
       if (!this.mail || !user?.email) {
@@ -4597,7 +4600,8 @@ export class BuylistService implements OnModuleInit {
   /** **CORREO 5 — cancelamos la oferta.** Mismo régimen best-effort post-commit. */
   private async sendOfferCancelledMail(
     req: { id: string; offerSentAt: Date | null },
-    user: { name: string; email: string; locale: string | null } | null | undefined,
+    // v1.80.9: `email` anulable en el schema; el cuerpo ya omite con aviso si falta (§M6-U.8 (a) E-4).
+    user: { name: string; email: string | null; locale: string | null } | null | undefined,
   ): Promise<void> {
     try {
       if (!this.mail || !user?.email) {
@@ -5667,7 +5671,8 @@ export class BuylistService implements OnModuleInit {
   /** **CORREO 4 — «no procederemos».** Best-effort post-commit; su fallo no revierte el cierre. */
   private async sendNotPursuedMail(
     id: string,
-    user: { name: string; email: string; locale: string | null } | null | undefined,
+    // v1.80.9: `email` anulable en el schema; el cuerpo ya omite con aviso si falta (§M6-U.8 (a) E-4).
+    user: { name: string; email: string | null; locale: string | null } | null | undefined,
   ): Promise<void> {
     try {
       if (!this.mail || !user?.email) {
@@ -7081,7 +7086,7 @@ export class BuylistService implements OnModuleInit {
       // soporte, y este correo es justo el que le pide escribir a soporte.
       sellRequestId: string;
       finish: Finish;
-      sellRequest?: { user?: { email: string; name: string; locale: string | null } | null } | null;
+      sellRequest?: { user?: { email: string | null; name: string; locale: string | null } | null } | null;
       card?: { name: string; number: string; set?: { name: string } | null } | null;
     },
     reason: string,

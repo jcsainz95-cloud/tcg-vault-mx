@@ -44,7 +44,7 @@ export class JwtAuthGuard implements CanActivate {
       throw new BusinessException('UNAUTHENTICATED', 401, 'Missing bearer token');
     }
     const token = auth.slice('Bearer '.length);
-    let payload: { sub?: unknown; email?: string; role?: string; tv?: unknown; typ?: unknown };
+    let payload: { sub?: unknown; email?: string | null; role?: string; tv?: unknown; typ?: unknown };
     try {
       payload = await this.jwt.verifyAsync(token, {
         secret: this.config.get<string>('JWT_ACCESS_SECRET'),
@@ -70,7 +70,8 @@ export class JwtAuthGuard implements CanActivate {
     // un guard más NO cuesta una consulta más (ARCHITECTURE §4.47.2).
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { status: true, tokenVersion: true, emailVerified: true, mustChangePassword: true },
+      // v1.80.9 (§M6-U.2): + `email` ⇒ `req.user.hasEmail` DESDE LA BD (no desde el token), para EmailVerifiedGuard.
+      select: { status: true, tokenVersion: true, emailVerified: true, mustChangePassword: true, email: true },
     });
     if (
       !user ||
@@ -83,8 +84,9 @@ export class JwtAuthGuard implements CanActivate {
 
     req.user = {
       id: payload.sub,
-      email: payload.email,
+      email: payload.email ?? null,
       role: payload.role,
+      hasEmail: user.email !== null,
       emailVerified: user.emailVerified,
       mustChangePassword: user.mustChangePassword,
     };

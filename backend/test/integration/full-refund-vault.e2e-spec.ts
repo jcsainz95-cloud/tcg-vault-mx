@@ -80,7 +80,7 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
 
   it('PS-55 💰 — orden `vault` colocada: M3 total ⇒ tras la confirmación la carta es plataforma `picking` en el cajón, un `refund_return` con el actor, `needsManual`, sello; sale de holdings; `POST /shipments` 422; no se publica', async () => {
     const { u, drawer, vo } = await placedVault('PS55');
-    const tok = await db.loginCustomer(u.email);
+    const tok = await db.loginCustomer(u.email!);
     const addr = await db.mkAddress(u.id);
     const r = await m3(vo.order.id);
     expect(r.status).toBe(200);
@@ -508,7 +508,7 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     expect(await db.movements([a.vo.pieces[0].id, a.vo.pieces[1].id])).toEqual(before);
     expect(await db.audits(a.vo.order.id, 'order.full_refund_closed')).toHaveLength(1);
     // POST /shipments con ella ⇒ 422
-    const tok = await db.loginCustomer(a.u.email);
+    const tok = await db.loginCustomer(a.u.email!);
     const addr = await db.mkAddress(a.u.id);
     const sh = await db.createShipment(tok, { inventoryItemIds: [a.vo.pieces[0].id], addressId: addr.id });
     expect(sh.status).toBe(422);
@@ -939,7 +939,7 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
 
   it('PS-65 💰🔒 — orden con fila `order_full` viva ⇒ `POST /shipments` 422 ITEM_ORIGIN_REFUNDED, `quote` origin_refunded, `withdrawable:false`; `failed` ⇒ elegible; retiro ya creado ⇒ `prepared` 409 {pendingFullRefund:true}; orden `refunded` sin cierre ⇒ 409 en los cuatro verbos; mixto nombra solo la afectada; carrera prepared vs M3 (N≥10)', async () => {
     const a = await placedVault('PS65');
-    const tok = await db.loginCustomer(a.u.email);
+    const tok = await db.loginCustomer(a.u.email!);
     const addr = await db.mkAddress(a.u.id);
     const row = await h.prisma.paymentRefund.create({
       data: { idempotencyKey: `order-full:${a.vo.order.id}`, kind: 'order_full', orderId: a.vo.order.id, amountCents: a.vo.order.totalCents, merchandiseCents: 80000, merchandiseIvaCents: 80000 - Math.floor(80000 / 1.16), shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 4617, status: 'requested', requestedByUserId: db.adminId, requestedByRole: 'super_admin', reason: 'fixture PS-65' },

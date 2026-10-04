@@ -8701,6 +8701,132 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Disparador:** el próximo cambio a quién pasa `policy` a `premiumFloorGuard`/`resolvePendingReason`, o borrar PF-3/7/10.
 - **Comprobación de cierre:** PF-3, PF-7 y PF-10 siguen existiendo y verdes; PF-11 los cita.
 
+## Backend · 2026-10-04 · gate del techlead sobre `da6d910e` (rama `claude/staff-sin-correo`, condición C-2: TD-1…TD-5, TD-9)
+
+> Deuda del veredicto del techlead sobre «staff sin correo» (v1.80.9). C-1 la cerró la errata v1.80.9.1 del arquitecto
+> (construida en `BACKEND_NOTES §56`). Líneas medidas por backend el 2026-10-04 sobre la rama (`HEAD` previo `58126076`).
+> TD-6…TD-8 no son de backend.
+
+### STF-TD-1 · P3 · Tres formas de «normalizar el identificador» para la clave del cubo
+- **Dónde:** `backend/src/modules/auth/password-attempts.service.ts:108` (`accountKey(identifier)` fabrica un usuario
+  `{ id: '', email: identifier }` —el usuario tecleado viaja en `email`— para reutilizar `passwordAttemptKeysForUser`);
+  `backend/src/modules/auth/auth.service.ts:252` (`forgotPassword` normaliza a mano con `email.toLowerCase()`, sin
+  `trim`, en vez de `normalizeIdentifier`); `backend/test/stf.staff-without-email.spec.ts:61` prueba la FORMA del alias
+  (`normalizeIdentifier` **es** `normalizeEmail`) en vez de la conducta.
+- **Impacto:** hoy dan la misma clave (STF-18/STF-19 lo miden), pero un cambio en una de las tres vías (p. ej. que el
+  usuario gane otra normalización que el correo) partiría el cubo de una cuenta en dos sin que nada lo note salvo
+  STF-18. El `email: identifier` engaña a quien lea `passwordAttemptKeysForUser`.
+- **Corrección:** una función pura `accountKeyOf(pii, identifier)` que use `normalizeIdentifier` y que llamen
+  `passwordAttemptKeysForUser`, `accountKey` y `forgotPassword`; la prueba del alias pasa a ser de conducta (tabla de
+  pares correo/usuario ⇒ misma clave que el login).
+- **Disparador:** el próximo cambio a `normalizeIdentifier`/`normalizeEmail` o a la búsqueda de `forgotPassword`.
+- **Comprobación de cierre:** `rg -n "email: identifier" backend/src/modules/auth` ⇒ **0**;
+  `rg -n "toLowerCase\(\)" backend/src/modules/auth/auth.service.ts` ⇒ ninguno en `forgotPassword`; STF-18/19 verdes.
+
+### STF-TD-2 · P3 · `@AuditedSuperAdmin(…)` + `@UseGuards(AuditedSuperAdminGuard)` van siempre emparejados a mano
+- **Dónde:** `backend/src/modules/admin/admin.controller.ts:187-188` (alta) y `:405-406` (reset).
+- **Impacto:** si alguien copia solo el metadato (sin el guard), la ruta queda **sin** comprobación de rol de este guard
+  (el `RolesGuard` de clase solo exige staff): un `vault_operator` podría dar de alta o restablecer. Hoy STF-3/STF-15 lo
+  cazarían en esas dos rutas; una tercera ruta nueva no tendría prueba.
+- **Corrección:** decorador compuesto `AuditedSuperAdmin(attempted)` = `applyDecorators(SetMetadata(…),
+  UseGuards(AuditedSuperAdminGuard))`, y que el guard lance si corre sin metadato.
+- **Disparador:** la próxima ruta que necesite «403 + fila» para `vault_operator`.
+- **Comprobación de cierre:** `rg -n "UseGuards\(AuditedSuperAdminGuard\)" backend/src/modules/admin/admin.controller.ts`
+  ⇒ **0** (vive dentro del decorador); STF-3/STF-15 verdes.
+
+### STF-TD-3 · P3 · Destinatario de correo y `CustomerRefDTO.email` resueltos copia a copia
+- **Dónde (medido con `rg`):** omisión del envío con `email == null` (D-STF-2) en **8** sitios —
+  `users.service.ts:124`, `shipment-prep.service.ts:872`, `shipments.service.ts:1549`, `:1572`,
+  `manual-refund.service.ts:637`, `:667`, `refund-ledger.service.ts:542`, `:572`; y `customerEmailOrBlank(…)` (I-STF-1)
+  en **12** call-sites — `admin-orders.controller.ts:141`, `:218`, `shipment-prep.service.ts:203`,
+  `shipments.service.ts:668`, `vault-preparation.view.ts:342`, `vault-physical-inventory.service.ts:203`,
+  `admin-vaults.service.ts:77`, `:163`, `master-set.service.ts:687`, `buylist.service.ts:2585`,
+  `refund-reports.service.ts:32`, `manual-refund.service.ts:201`.
+- **Impacto:** cada envío nuevo tiene que acordarse de la guarda; uno que la olvide manda a `null` (el `MailService`
+  fallaría o, peor, se registraría como enviado). Los refs de cliente están centralizados en la función, pero el
+  `CustomerRefDTO` se arma a mano en cada sitio.
+- **Corrección:** `recipientOf(user): string | null` en `mail` (con el `logger.warn` dentro) usado por todos los envíos a
+  cliente, y un `toCustomerRef(user)` único para el DTO.
+- **Disparador:** el próximo correo transaccional nuevo a cliente, o el próximo DTO con `CustomerRefDTO`.
+- **Comprobación de cierre:** `rg -n "D-STF-2" backend/src` ⇒ solo la función común; `rg -n "customerEmailOrBlank\("
+  backend/src` ⇒ solo `toCustomerRef`; STF-26/STF-28 verdes.
+
+### STF-TD-4 · ✅ CERRADA en este pase (2026-10-04) · Súper-admin sin correo sin vía de rescate
+- **Cierre:** errata v1.80.9.1 TD-4 (decisión del dueño 2026-10-04). (a) El reset desde Usuarios no filtra por rol del
+  destinatario, fijado por **STF-36** (`staff-without-email.e2e-spec.ts`); (b) `prisma/reset-admin-password.ts` gana
+  `ADMIN_USERNAME`, `emailVerified` solo con correo y el candado del cubo de su usuario — **STF-34**
+  (`prisma/reset-admin-password.username.spec.ts` + `stf-errata-v1-80-9-1.e2e-spec.ts` con BD). `BACKEND_NOTES §56`.
+- **Comprobación de cierre:** `rg -n "ADMIN_USERNAME" backend/prisma/reset-admin-password.ts` ⇒ ≥ 1; STF-34 y STF-36 verdes.
+
+### STF-TD-5 · ✅ CERRADA en este pase (2026-10-04) · Nada comparaba la regex del CHECK SQL con `USERNAME_CANONICAL_REGEX` (parte backend)
+- **Cierre:** prueba «TD-5» en `backend/test/integration/stf-errata-v1-80-9-1.e2e-spec.ts`: lee el CHECK
+  `user_username_canonical` **vivo** (`pg_get_constraintdef`) y exige la misma fuente que `USERNAME_CANONICAL_REGEX`.
+  Mutación `{2,29}` → `{2,30}` en `credentials.ts` ⇒ roja (N=1, determinista). La parte de frontend (si la hay) no es mía.
+- **Comprobación de cierre:** la prueba existe y está verde.
+
+### STF-TD-9 · ✅ CERRADA en este pase (2026-10-04) · `lockedUntilOf` traducía cualquier fallo a `'unavailable'`
+- **Dónde era:** `admin.service.ts:965` (sin servicio ⇒ `unavailable`) y el `catch` sin mirar la clase.
+- **Cierre:** errata v1.80.9.1 TD-9: sin `PasswordAttemptsService` lanza (mismo texto de cableado que `resetPassword`,
+  `requirePasswordAttempts`); solo `LoginAttemptStoreUnavailableError` ⇒ `'unavailable'`. **STF-33** + STF-24 ampliada.
+- **Comprobación de cierre:** `rg -n "return \{ state: 'unavailable'" backend/src/modules/admin/admin.service.ts` ⇒ solo
+  la del `catch` con `instanceof LoginAttemptStoreUnavailableError`.
+
+## Frontend · 2026-10-04 · gate del techlead sobre `da6d910e` (rama `claude/staff-sin-correo`, condición C-2: TD-5 parte frontend, TD-6, TD-7, TD-8)
+
+> Deuda frontend del veredicto del techlead sobre «staff sin correo» (v1.80.9). Líneas medidas por frontend el
+> 2026-10-04 sobre el árbol de trabajo (base `68e5d93a`). La parte backend de TD-5 la cerró backend (STF-TD-5, arriba).
+
+### STF-FE-TD5 · ✅ CERRADA en parte (2026-10-04) · El mock del alta de equipo divergía del servidor real
+- **Cerrado:** el `409 USERNAME_TAKEN` del servidor falso (`frontend/src/lib/api.ts`, rama mock de `createAdminUser`)
+  no traía `details.field`; el real sí (`admin.service.ts`, rama `P2002` de `username`). Ahora lo trae. Candado:
+  `src/lib/api.staff-mock.test.ts` «TD-5»; mutación quitar `details` ⇒ roja (N=1, determinista).
+- **Queda abierto (P3, aceptado):** el mock sigue replicando la regla del usuario (`MOCK_USERNAME_RULES`, mismo
+  orden `required → length → charset → start`) — una cuarta copia de la regex canónica, además del CHECK SQL,
+  `USERNAME_CANONICAL_REGEX` y la prueba de backend. Es el servidor falso: la UI real no valida (el techlead lo
+  da por bueno). Riesgo: que el mock acepte o rechace distinto que el real y una prueba de mocks mida conducta
+  inexistente.
+- **Disparador:** cualquier cambio de la regla del usuario en `backend/src/common/validation/credentials.ts`.
+- **Comprobación de cierre:** una prueba de paridad que recorra la tabla de STF-5 contra el mock y exija los mismos
+  `details.rule` que la de backend.
+
+### STF-FE-TD6 · P3 · Ternario de cuatro niveles del 429 en `AuthForm` y `username?` opcional en la fila de operador
+- **Dónde:** `frontend/src/components/domain/AuthForm.tsx:156-166` (texto del banner `auth-rate-limited`: cuenta ×
+  usuario tecleado × minutos, o IP × minutos); `frontend/src/types/contract.ts:2039` (`username?: string | null` en
+  la fila de «Reembolsos de operadores», un DTO que no se guarda en `localStorage` ⇒ el opcional sobra).
+- **Impacto:** legibilidad del sitio más delicado del login (la rama `RATE_LIMITED` de `HECHOS.md:40` no se toca, y
+  el ternario hace difícil ver que no se tocó); el opcional deja pasar un DTO sin la clave sin que `tsc` lo diga.
+- **Corrección:** función pura `rateLimitMessage(rateLimited, perAccount, perAccountUsername)` con su tabla de
+  pruebas; `username: string | null` en esa fila.
+- **Disparador:** el próximo cambio al texto o a las ramas del 429 del login.
+- **Comprobación de cierre:** `AuthForm.tsx` sin ternarios anidados en ese bloque; `AuthForm.rateLimited.test.tsx` y
+  `AuthForm.staff.test.tsx` verdes sin diff de aserciones.
+
+### STF-FE-TD7 · P3 · `M6View()` mide ~740 líneas; el diálogo de alta debe ser un componente propio
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m6/M6View.tsx:103-841` (fichero de 1194 líneas): el diálogo
+  «Crear usuario» con su estado, `usernameErrorOf` y `createErrorMessage` vive dentro de la función de la pantalla.
+- **Impacto:** cada cambio a la ficha, al listado o al alta toca el mismo componente y su estado compartido; el
+  riesgo de pisar un estado ajeno (p. ej. borrar el borrador del reset al cambiar de usuario) crece con cada pase.
+- **Corrección:** extraer `CreateUserDialog` (estado propio, `onCreated`) y, después, la ficha (`UserDetailModal`).
+- **Disparador:** el próximo cambio al alta de usuarios (p. ej. F-7: celular obligatorio en cliente, v1.80.10).
+- **Comprobación de cierre:** `M6View()` < 400 líneas; `M6View.test.tsx` y `M6View.staff.test.tsx` verdes sin diff
+  de aserciones.
+
+### STF-FE-TD8 · P3 · «Identificador visible» y «necesita verificar correo» escritos copia a copia
+- **Dónde (medido con `rg`):** `email ?? username` en `M6View.tsx:85`, `:487`, `KycReviewView.tsx:203`,
+  `OperatorRefundsView.tsx:83`, `AccountView.tsx:113` (dos variantes: con y sin «Usuario:»; claves duplicadas
+  `admin.m6.usernameLine` y `account.usernameLine`). «Necesita verificar» (`emailVerified === false && email != null`)
+  en `VerifyEmailBanner.tsx:26`, `BuylistKycForm.tsx:255`, `hooks/useSellRequirements.ts:95`. Y, desde este pase,
+  «cuenta sin correo ⇒ textos de cliente fuera» en `ProfileSection.tsx` (`withoutEmail`, M-3 de QA).
+- **Impacto:** una regla que §42.5.1 llama «una sola regla de pintado» vive en 5+ sitios; la próxima pantalla que
+  pinte una cuenta (la Actividad, si algún día muestra al actor) hará la séptima copia, y si una diverge el
+  equipo sin correo vuelve a ver un hueco o un «verifica tu correo».
+- **Corrección:** `frontend/src/lib/account-identity.ts` con `accountIdentifier(u, { withLabel })`,
+  `needsEmailVerification(u)` e `isStaffWithoutEmail(u)`; una sola clave `usernameLine`.
+- **Disparador:** la próxima pantalla que pinte una cuenta o decida por `emailVerified`.
+- **Comprobación de cierre:** `rg -n "email \?\? .*username" frontend/src --glob '!*.test.*'` ⇒ solo
+  `lib/account-identity.ts`; `rg -n "email != null" frontend/src --glob '!*.test.*'` ⇒ solo ese fichero (y
+  `PasswordPage.tsx` si sigue siendo un candado local); UX-8, UX-12, UX-13 verdes.
+
 ## Frontend · 2026-10-04 · gate del techlead sobre `4d994c55` (rama `claude/precios-s5`, D-7; D-8 cerrada)
 
 > Anotado por frontend a petición del orquestador. D-8 se cerró en código en este pase (`FRONTEND_NOTES` §85); D-7 se

@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -682,7 +683,8 @@ export class MasterSetService implements OnModuleInit {
     return {
       userId: user.id,
       name: opts.includeOwnerEmail ? customerDisplayName(user) : user.name,
-      ...(opts.includeOwnerEmail ? { email: user.email } : {}),
+      // v1.80.9 (I-STF-1): el dueño de una bóveda es cliente ⇒ con correo; `null` ⇒ log + `""`.
+      ...(opts.includeOwnerEmail ? { email: customerEmailOrBlank(user.email, 'VaultOwnerRefDTO', user.id) } : {}),
     };
   }
 

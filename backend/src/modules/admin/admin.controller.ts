@@ -14,6 +14,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { AuditedSuperAdmin, AuditedSuperAdminGuard } from './audited-super-admin.guard';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
@@ -76,7 +77,10 @@ export class UpdateStatusDto {
  * y lanza `422 VALIDATION_ERROR` (el contrato exige 422; el pipe global solo da 400 estructural).
  */
 class CreateAdminUserDto {
-  @IsString() email!: string;
+  // v1.80.9 (§M6-U.6): cliente ⇒ `email` obligatorio y `username` prohibido; equipo ⇒ al revés. Solo ESTRUCTURA
+  // aquí; la regla (con `details.field`/`details.rule`) vive en `AdminService.createUser`.
+  @IsOptional() @IsString() email?: string;
+  @IsOptional() @IsString() username?: string;
   @IsString() name!: string;
   @IsString() role!: string;
   @IsOptional() @IsString() password?: string;
@@ -178,7 +182,10 @@ export class AdminUsersController {
    */
   @Post()
   @HttpCode(201)
-  @Roles(Role.super_admin)
+  // ⭐ v1.80.9 (§M6-U.6, D-STF-1): solo `super_admin`, y el rechazo a `vault_operator` es 403 **con** fila
+  // `user.admin_action_denied` (antes `@Roles(Role.super_admin)`: 403 sin bitácora).
+  @AuditedSuperAdmin('create')
+  @UseGuards(AuditedSuperAdminGuard)
   async createUser(
     @Body() dto: CreateAdminUserDto,
     @CurrentUser() user: { id: string; role: Role },
@@ -193,6 +200,9 @@ export class AdminUsersController {
       // SEGURIDAD: NUNCA la contraseña (temp o provista). Solo metadatos no sensibles.
       after: {
         role: res.user.role,
+        // v1.80.9 (§M6-U.6): quién es (`username`) y si tiene correo. ⛔ Nunca la contraseña.
+        username: res.user.username,
+        hasEmail: res.user.email !== null,
         emailVerified: res.user.emailVerified,
         authProvider: res.user.authProvider,
         mustChangePassword: res.mustChangePassword,
@@ -391,7 +401,9 @@ export class AdminUsersController {
    */
   @Post(':id/reset-password')
   @HttpCode(200)
-  @Roles(Role.super_admin)
+  // ⭐ v1.80.9 (§M6-U.6, D-STF-1): 403 + fila `user.admin_action_denied {attempted:'reset_password'}` a `vault_operator`.
+  @AuditedSuperAdmin('reset_password')
+  @UseGuards(AuditedSuperAdminGuard)
   async resetPassword(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     const res = await this.admin.resetPassword(id);
     await this.audit.log({

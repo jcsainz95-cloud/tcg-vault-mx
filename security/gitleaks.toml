@@ -103,6 +103,17 @@ regexes = [
   # ponían rojo un run: esto deja limpio el modo `git` manual/local.
   '''^A-Strong-Secret-123$''',
   '''^asB64\.length$''',
+  # PR #70 (claude/staff-sin-correo, 2026-10-04): contraseñas de FICCIÓN en
+  # pruebas de integración de backend; CI (rango de la PR) las marcaba como
+  # generic-api-key. Medido: solo aparecen en esas specs, en ningún .env ni
+  # workflow. Por VALOR EXACTO (anclado), no por ruta:
+  #   · `Otra-STF-98765`  → newPassword de STF-17 en
+  #       backend/test/integration/staff-without-email.e2e-spec.ts (0a42d85a).
+  #   · `Rescate-STF34-`  → prefijo literal de NEW_ADMIN_PASSWORD (se le
+  #       concatena un randomUUID) en
+  #       backend/test/integration/stf-errata-v1-80-9-1.e2e-spec.ts (1d946722).
+  '''^Otra-STF-98765$''',
+  '''^Rescate-STF34-$''',
 ]
 paths = [
   '''\.env\.example$''',

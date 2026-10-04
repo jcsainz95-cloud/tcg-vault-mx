@@ -62,7 +62,10 @@ export function PasswordPage({ surface, next, reason }: PasswordPageProps) {
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'rateLimited' | 'error'>('idle');
 
   const blocked = user?.mustChangePassword === true;
-  const createMode = !blocked && (forceCreate || user?.hasPassword === false);
+  // ⭐ v1.80.9 (DESIGN_SYSTEM §42.8, F-15): el modo «crear» manda `forgotPassword(user.email)`; una cuenta
+  // del equipo sin correo SIEMPRE tiene contraseña (§M6-U.8 (b)), y aun si la invariante se rompe ⛔ no
+  // se llama `forgotPassword(null)` ni se pinta un «olvidé» sin canal.
+  const createMode = !blocked && (forceCreate || user?.hasPassword === false) && user?.email != null;
   const dest = safeNext(next) ?? accountRouteForRole(user?.role);
   const backHref = accountRouteForRole(user?.role);
 
@@ -90,7 +93,7 @@ export function PasswordPage({ surface, next, reason }: PasswordPageProps) {
   }
 
   async function sendLink() {
-    if (!user) return;
+    if (!user || user.email == null) return;
     setSendState('sending');
     try {
       await forgotPassword(user.email);
@@ -158,7 +161,7 @@ export function PasswordPage({ surface, next, reason }: PasswordPageProps) {
           <h1 ref={h1Ref} tabIndex={-1} className="font-serif text-[30px] leading-[1.1] text-text outline-none lg:text-[38px]">
             {t('createTitle')}
           </h1>
-          <p className="text-[15px] text-muted">{t('createBody', { email: user.email })}</p>
+          <p className="text-[15px] text-muted">{t('createBody', { email: user.email ?? '' })}</p>
           {sendState === 'sent' ? (
             <div className="flex flex-col gap-3">
               <p role="status" className="font-mono text-[11px] uppercase tracking-label text-success">

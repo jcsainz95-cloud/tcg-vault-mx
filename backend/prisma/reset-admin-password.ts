@@ -18,6 +18,14 @@
  * Opcional: ADMIN_EMAIL para apuntar a otro correo (default: SEED_ADMIN_EMAIL o
  * admin@tcg.local). Solo restablece cuentas con rol super_admin o vault_operator.
  *
+ * ⭐ v1.80.9.1 (TD-4 b, contrato «Script de rescate», fila «por usuario»): ADMIN_USERNAME para una
+ * cuenta de staff SIN correo (se normaliza como el login: `trim` + minúsculas). ⛔ ADMIN_EMAIL y
+ * ADMIN_USERNAME a la vez ⇒ error sin cambios (nada de precedencias silenciosas). Con una cuenta sin
+ * correo NO se escribe `emailVerified` (el CHECK 4 `user_no_email_unverified` lo prohíbe). Es la RED
+ * DE ÚLTIMO RECURSO: la vía normal es el reset desde Usuarios por otro súper-admin (§M6-U.6).
+ *   railway run --service backend -e NEW_ADMIN_PASSWORD='…' -e ADMIN_USERNAME='ana' \
+ *     npx ts-node prisma/reset-admin-password.ts
+ *
  * SESIONES (SEC-RESET-TV): el cambio de hash incrementa `tokenVersion` en la MISMA
  * escritura, así que TODA sesión abierta de esa cuenta (incluida la de un atacante
  * con un refresh token robado) queda revocada al terminar el script.
@@ -37,6 +45,7 @@ import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { passwordAttemptKeysForUser } from '../src/modules/auth/password-attempts.service';
+import { normalizeIdentifier } from '../src/common/validation/credentials';
 import {
   createLoginAttemptRedisClient,
   loginAttemptRedisKeys,
@@ -50,15 +59,23 @@ export const MIN_PASSWORD_LENGTH = 12;
 export const LOCK_CLEAR_TIMEOUT_MS = 2000;
 
 /** Lo mínimo de Prisma que usa el script (inyectable para la prueba unitaria). */
+/** Por qué clave única se busca y se escribe la cuenta: su correo, o (v1.80.9.1) su usuario canónico. */
+export type ResetWhere = { email: string } | { username: string };
+
 export interface ResetPrismaLike {
   user: {
-    findUnique(args: { where: { email: string } }): Promise<{ id?: string; email: string; role: string } | null>;
-    update(args: { where: { email: string }; data: Record<string, unknown> }): Promise<unknown>;
+    // v1.80.9: `email` anulable en el schema. v1.80.9.1: la fila trae `username` (el cubo de su identificador).
+    findUnique(args: {
+      where: ResetWhere;
+    }): Promise<{ id?: string; email: string | null; username?: string | null; role: string } | null>;
+    update(args: { where: ResetWhere; data: Record<string, unknown> }): Promise<unknown>;
   };
 }
 
 export interface ResetEnv {
   ADMIN_EMAIL?: string;
+  /** ⭐ v1.80.9.1 (TD-4 b): el usuario de una cuenta de staff SIN correo. ⛔ Incompatible con `ADMIN_EMAIL`. */
+  ADMIN_USERNAME?: string;
   SEED_ADMIN_EMAIL?: string;
   NEW_ADMIN_PASSWORD?: string;
   /** v1.80.1: los del servicio backend; opcionales aquí (sin ellos, el candado no se limpia y se avisa). */
@@ -95,7 +112,7 @@ const LOCK_NOT_CLEARED_HINT = 'espera ≤ 60 min o entra con un dispositivo cono
  * (`passwordAttemptKeysForUser` + `loginAttemptRedisKeys`), no una copia.
  */
 export async function clearPasswordLock(
-  user: { id?: string; email: string },
+  user: { id?: string; email: string | null; username?: string | null },
   env: ResetEnv,
   opts: ResetOptions = {},
 ): Promise<LockClearResult> {
@@ -105,7 +122,9 @@ export async function clearPasswordLock(
   let client: RedisLike | undefined;
   try {
     const pii = new PiiCryptoService(new ConfigService(env as Record<string, unknown>));
-    const k = passwordAttemptKeysForUser(pii, { id: user.id, email: user.email });
+    // v1.80.9.1 (M6-U.4): el cubo de SU identificador (`email ?? username`). ⛔ Nunca `{ id, email }` a secas: con
+    // `email: null` `passwordAttemptKeysForUser` lanza (y el candado del súper-admin sin correo no se limpiaría).
+    const k = passwordAttemptKeysForUser(pii, { id: user.id, email: user.email, username: user.username ?? null });
     const keys = [k.account, k.changePassword, k.deviceAggregate].flatMap((x) => loginAttemptRedisKeys(x));
     client = (opts.redisClient ?? createLoginAttemptRedisClient)(url, env.REDIS_FAMILY);
     const c = client;
@@ -130,8 +149,27 @@ export async function clearPasswordLock(
   }
 }
 
+/** Qué cuenta apunta el entorno. ⛔ Las dos variables a la vez ⇒ error (contrato «Script de rescate», v1.80.9.1). */
+function resolveTarget(env: ResetEnv): { where: ResetWhere; label: string } {
+  if (env.ADMIN_USERNAME !== undefined) {
+    if (env.ADMIN_EMAIL !== undefined) {
+      throw new Error(
+        'Set ADMIN_EMAIL or ADMIN_USERNAME, not both: the script refuses to guess which account to reset. Nothing was changed.',
+      );
+    }
+    // La misma normalización que el login y el alta (`trim` + minúsculas): `'ANA '` ⇒ `'ana'`.
+    const username = normalizeIdentifier(env.ADMIN_USERNAME);
+    if (username.length === 0) {
+      throw new Error('ADMIN_USERNAME is empty. Nothing was changed.');
+    }
+    return { where: { username }, label: username };
+  }
+  const email = env.ADMIN_EMAIL ?? env.SEED_ADMIN_EMAIL ?? 'admin@tcg.local';
+  return { where: { email }, label: email };
+}
+
 /**
- * Restablece la contraseña de una cuenta staff. Devuelve email y rol afectados.
+ * Restablece la contraseña de una cuenta staff. Devuelve el identificador (correo o, v1.80.9.1, usuario) y el rol.
  * ⛔ Nunca devuelve ni imprime la contraseña.
  */
 export async function resetStaffPassword(
@@ -139,9 +177,8 @@ export async function resetStaffPassword(
   env: ResetEnv,
   hash: (plain: string) => Promise<string> = (plain) => argon2.hash(plain),
   opts: ResetOptions = {},
-): Promise<{ email: string; role: string }> {
+): Promise<{ email: string; role: string } | { username: string; role: string }> {
   const log = opts.log ?? ((line: string) => console.log(line));
-  const email = env.ADMIN_EMAIL ?? env.SEED_ADMIN_EMAIL ?? 'admin@tcg.local';
   const newPassword = env.NEW_ADMIN_PASSWORD;
 
   if (!newPassword || newPassword.length < MIN_PASSWORD_LENGTH) {
@@ -150,14 +187,20 @@ export async function resetStaffPassword(
         'Set it in the environment (never hardcode) and re-run.',
     );
   }
+  const { where, label } = resolveTarget(env);
+  const byUsername = 'username' in where;
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await prisma.user.findUnique({ where });
   if (!user) {
-    throw new Error(`No user found with email "${email}". Set ADMIN_EMAIL to the correct address.`);
+    throw new Error(
+      byUsername
+        ? `No user found with username "${label}". Set ADMIN_USERNAME to the correct username.`
+        : `No user found with email "${label}". Set ADMIN_EMAIL to the correct address.`,
+    );
   }
   if (user.role !== 'super_admin' && user.role !== 'vault_operator') {
     throw new Error(
-      `Refusing to reset "${email}": role is "${user.role}", not staff (super_admin/vault_operator).`,
+      `Refusing to reset "${label}": role is "${user.role}", not staff (super_admin/vault_operator).`,
     );
   }
 
@@ -166,20 +209,30 @@ export async function resetStaffPassword(
   // /auth/refresh comparan la versión), igual que los caminos de la app (auth.service reset/cambio,
   // admin.service reset). Si el script se usa porque la cuenta está comprometida, un refresh robado
   // deja de valer en el acto. `mustChangePassword=false`: quien lo corre fija una contraseña conocida.
+  // ⭐ v1.80.9.1: `emailVerified = true` SOLO si la cuenta tiene correo — con `email: null` viola el CHECK 4
+  // (`user_no_email_unverified`) y el `update` fallaría justo en el rescate.
   await prisma.user.update({
-    where: { email },
+    where,
     data: {
       passwordHash,
       tokenVersion: { increment: 1 },
-      emailVerified: true,
+      ...(user.email !== null && user.email !== undefined ? { emailVerified: true } : {}),
       mustChangePassword: false,
     },
   });
 
   // v1.80.1: DESPUÉS de la escritura, y sin que un fallo aquí haga fallar el script.
-  const lock = await clearPasswordLock({ id: user.id, email: user.email }, env, opts);
+  const lock = await clearPasswordLock(
+    {
+      id: user.id,
+      email: user.email ?? (byUsername ? null : label),
+      username: user.username ?? (byUsername ? label : null),
+    },
+    env,
+    opts,
+  );
   if (lock.cleared) {
-    log(`[reset-admin-password] candado de intentos (C7) limpiado en Redis para ${email}.`);
+    log(`[reset-admin-password] candado de intentos (C7) limpiado en Redis para ${label}.`);
   } else {
     log(
       `[reset-admin-password] candado de intentos NO limpiado (${lock.reason}): ${LOCK_NOT_CLEARED_HINT}. ` +
@@ -187,15 +240,16 @@ export async function resetStaffPassword(
     );
   }
 
-  return { email, role: user.role };
+  return byUsername ? { username: label, role: user.role } : { email: label, role: user.role };
 }
 
 async function main() {
   const prisma = new PrismaClient();
   try {
-    const { email, role } = await resetStaffPassword(prisma, process.env);
-    // Nunca se imprime la contraseña.
-    console.log(`[reset-admin-password] OK — contraseña restablecida para ${email} (rol ${role}).`);
+    const out = await resetStaffPassword(prisma, process.env);
+    // Nunca se imprime la contraseña. v1.80.9.1: el identificador es el correo o el usuario.
+    const who = 'email' in out ? out.email : out.username;
+    console.log(`[reset-admin-password] OK — contraseña restablecida para ${who} (rol ${out.role}).`);
   } finally {
     await prisma.$disconnect();
   }

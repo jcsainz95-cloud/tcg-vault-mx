@@ -84,6 +84,7 @@
   "account": {
     "eyebrow": "CUENTA",
     "title": "Mi cuenta",
+    "usernameLine": "Usuario: {username}",
     "index": {
       "label": "Secciones"
     },
@@ -116,6 +117,10 @@
       "unverified": "SIN VERIFICAR",
       "unverifiedBody": "Verifica tu correo para comprar, vender y retirar.",
       "changeNote": "Para cambiar tu correo escríbenos a {contact}."
+    },
+    "username": {
+      "title": "Usuario",
+      "note": "Con este usuario entras en la misma pantalla que los clientes. No se puede cambiar; si necesitas otro, pídeselo al administrador."
     },
     "addresses": {
       "title": "Direcciones de envío"
@@ -1179,6 +1184,10 @@
     "loginTitle": "Iniciar sesión",
     "registerTitle": "Crear cuenta",
     "email": "Correo",
+    "emailOrUsername": "Correo o usuario",
+    "lockedAskAdmin": "Demasiados intentos con este usuario. Espera unos minutos y vuelve a intentarlo. Si no recuerdas tu contraseña, pídele al administrador que la restablezca.",
+    "lockedAskAdminRetryIn": "Demasiados intentos con este usuario. Vuelve a intentarlo en {minutes, plural, one {# minuto} other {# minutos}}. Si no recuerdas tu contraseña, pídele al administrador que la restablezca.",
+    "invalidCredentialsUsername": "Usuario o contraseña incorrectos.",
     "password": "Contraseña",
     "name": "Nombre",
     "phone": "Teléfono",
@@ -1266,6 +1275,13 @@
   },
   "admin": {
     "shellTitle": "Back-office",
+    "lockNotice": {
+      "title": "Hubo varios intentos fallidos de entrar a tu cuenta",
+      "body": "Fue el {since}. Si fuiste tú, no tienes que hacer nada. Si no, tu contraseña sigue a salvo: cámbiala y avísale al administrador.",
+      "changeLink": "Cambiar contraseña",
+      "dismiss": "Entendido",
+      "dismissError": "No pudimos cerrar el aviso. Intenta de nuevo."
+    },
     "authLoading": "Verificando sesión…",
     "roleLabel": "Rol",
     "searchGlobal": "Buscar folio o usuario…",
@@ -3360,7 +3376,7 @@
     "m6": {
       "title": "Usuarios",
       "subtitle": "Consulta usuarios, su ficha 360° y gestiona KYC y bloqueo.",
-      "searchLabel": "Buscar (correo o nombre)",
+      "searchLabel": "Buscar (correo, usuario o nombre)",
       "view": "Ver ficha",
       "active": "Activa",
       "blocked": "Bloqueada",
@@ -3381,7 +3397,8 @@
         "action": "Acción",
         "actorRole": "Rol actor",
         "ip": "IP",
-        "identity": "Identidad"
+        "identity": "Identidad",
+        "identifier": "Correo o usuario"
       },
       "pageInfo": "Página {page} de {totalPages} · {total} usuarios",
       "prev": "Anterior",
@@ -3419,7 +3436,11 @@
       "unblockQuestion": "¿Reactivar la cuenta de este usuario?",
       "deleted": "Eliminado",
       "accountTitle": "Gestión de cuenta",
-      "resetHint": "Restablece la contraseña y genera una temporal para compartir al usuario; invalida sus sesiones activas.",
+      "usernameLine": "Usuario: {username}",
+      "lockMark": "Bloqueado por intentos hasta {time}",
+      "lockHint": "Se quita solo a esa hora. Para quitarlo antes, restablece la contraseña.",
+      "lockUnavailable": "Ahora no pudimos consultar quién está bloqueado por intentos, así que esta lista no lo marca. Vuelve a cargarla en un momento.",
+      "resetHint": "Genera una contraseña temporal que verás una sola vez, para que se la des tú. No se manda ningún correo. Cierra sus sesiones abiertas y quita el bloqueo por intentos, si lo tiene.",
       "resetPassword": "Restablecer contraseña",
       "resetError": "No se pudo restablecer la contraseña.",
       "resetTitle": "Contraseña temporal",
@@ -3460,7 +3481,25 @@
         "errorGeneric": "No se pudo crear el usuario.",
         "successTitle": "Usuario creado",
         "successBody": "Cuenta creada para {email} con rol {role}.",
-        "providedPasswordNote": "El usuario puede iniciar sesión con la contraseña que definiste."
+        "providedPasswordNote": "El usuario puede iniciar sesión con la contraseña que definiste.",
+        "kind": "Tipo de cuenta",
+        "kindCustomer": "Cliente",
+        "kindStaff": "Equipo",
+        "kindStaffNote": "Las cuentas del equipo no llevan correo: entran con su nombre de usuario y la contraseña que tú les das.",
+        "username": "Nombre de usuario",
+        "usernameRule": "De 3 a 30 caracteres: letras a–z sin acentos ni ñ, números, punto (.), guion (-) y guion bajo (_). Empieza con una letra.",
+        "usernamePreview": "Se guardará como «{username}».",
+        "usernameError": {
+          "required": "Escribe un nombre de usuario.",
+          "length": "Debe tener de 3 a 30 caracteres.",
+          "charset": "Solo letras a–z sin acentos ni ñ, números, punto (.), guion (-) y guion bajo (_). Sin espacios ni @.",
+          "start": "Tiene que empezar con una letra."
+        },
+        "errorUsernameTaken": "Ese nombre de usuario ya existe (sin importar mayúsculas). Elige otro.",
+        "errorValidationStaff": "Revisa los datos: nombre, rol de equipo y contraseña de al menos 8 caracteres.",
+        "passwordHintStaff": "Déjala vacía para generar una temporal segura (se mostrará una sola vez). Sea cual sea, la tendrá que cambiar al entrar por primera vez.",
+        "successBodyStaff": "Cuenta de equipo creada: usuario {username}, rol {role}. Entra por la pantalla de «Iniciar sesión» de siempre, con su usuario y su contraseña.",
+        "providedPasswordNoteStaff": "Dale la contraseña que definiste por un canal seguro. Al entrar por primera vez tendrá que cambiarla."
       },
       "tabs": {
         "purchases": "Compras",
@@ -3563,7 +3602,12 @@
       "kycFilterNone": "Sin INE",
       "auditAction": {
         "user_kyc_reveal_ine": "Miró la INE",
-        "user_kyc_update": "Decidió sobre la identidad"
+        "user_kyc_update": "Decidió sobre la identidad",
+        "auth_password_lock": "Bloqueo por intentos fallidos",
+        "user_reset_password": "Le restablecieron la contraseña",
+        "user_create": "Alta de la cuenta",
+        "auth_password_changed": "Cambió su contraseña",
+        "auth_logout": "Cerró sesión"
       }
     },
     "m11": {
@@ -4868,6 +4912,7 @@
     "REQUEST_HAS_NON_REJECTED_ITEMS": "No se puede cerrar: aún quedan ítems sin rechazar. Rechaza todos los ítems de la solicitud antes de cerrarla.",
     "EMAIL_TAKEN": "Ese correo ya está registrado.",
     "INVALID_CREDENTIALS": "Correo o contraseña incorrectos.",
+    "ACCOUNT_WITHOUT_EMAIL": "Esta es una cuenta del equipo y no tiene correo, así que no puede comprar, mandar a bóveda ni vender. Para eso, usa una cuenta de cliente.",
     "USER_BLOCKED": "Tu cuenta está bloqueada.",
     "BILLING_PROFILE_REQUIRED": "Necesitas un perfil de facturación.",
     "DISPUTE_WINDOW_CLOSED": "La ventana para disputas ya cerró.",

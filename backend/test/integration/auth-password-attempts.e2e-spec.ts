@@ -90,7 +90,7 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
     expect(Object.keys(process.env).filter((k) => /C7|PASSWORD_ATTEMPT|LOGIN_ATTEMPT|LOCKOUT/i.test(k))).toEqual([]);
     expect(h.app.get(LOGIN_ATTEMPT_STORE)).toBeInstanceOf(MemoryLoginAttemptStore);
     const u = await newUser();
-    await lockOut(u.email);
+    await lockOut(u.email!);
   });
 
   describe('C7-1 — mismo correo, X-Forwarded-For distinto cada vez: 401×5, el 6.º 429 + Retry-After, argon2 exactamente 5 (5/5 con correos nuevos)', () => {
@@ -98,8 +98,8 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
       const u = await newUser();
       verifySpy.mockClear();
       const statuses: number[] = [];
-      for (let i = 0; i < 5; i++) statuses.push((await login(u.email, BAD)).status);
-      const sixth = await login(u.email, BAD);
+      for (let i = 0; i < 5; i++) statuses.push((await login(u.email!, BAD)).status);
+      const sixth = await login(u.email!, BAD);
       expect(statuses).toEqual([401, 401, 401, 401, 401]);
       expect(sixth.status).toBe(429);
       expect(sixth.body.error.code).toBe('TOO_MANY_PASSWORD_ATTEMPTS');
@@ -112,16 +112,16 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
 
   it('C7-2 — con el candado puesto, la contraseña CORRECTA ⇒ 429 (no 200)', async () => {
     const u = await newUser();
-    const r = await lockOut(u.email);
+    const r = await lockOut(u.email!);
     expect(r.body.error.code).toBe('TOO_MANY_PASSWORD_ATTEMPTS');
   });
 
   it('C7-3 — anti-enumeración: misma secuencia (estado, cuerpo, Retry-After, argon2) para existente, inexistente, solo-Google y bloqueada', async () => {
     const kinds = {
-      existing: (await newUser()).email,
+      existing: (await newUser()).email!,
       missing: `c7_nadie_${randomUUID().slice(0, 12)}@e2e.local`,
-      googleOnly: (await newUser({ passwordHash: null })).email,
-      blocked: (await newUser({ status: UserStatus.blocked })).email,
+      googleOnly: (await newUser({ passwordHash: null })).email!,
+      blocked: (await newUser({ status: UserStatus.blocked })).email!,
     };
     const seqs: Record<string, unknown[]> = {};
     for (const [k, email] of Object.entries(kinds)) {
@@ -142,7 +142,7 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
   it('C7-4 (por HTTP) — 20 intentos simultáneos contra un correo nuevo ⇒ argon2 exactamente 5 y 15 × 429', async () => {
     const u = await newUser();
     verifySpy.mockClear();
-    const rs = await Promise.all(Array.from({ length: 20 }, () => login(u.email, BAD)));
+    const rs = await Promise.all(Array.from({ length: 20 }, () => login(u.email!, BAD)));
     expect(verifySpy).toHaveBeenCalledTimes(5);
     expect(rs.filter((r) => r.status === 429)).toHaveLength(15);
     expect(rs.filter((r) => r.status === 401)).toHaveLength(5);
@@ -150,75 +150,75 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
 
   it('C7-7 — 4 fallos + acierto ⇒ 200 con deviceToken; después vuelven a haber 5 libres', async () => {
     const u = await newUser();
-    for (let i = 0; i < 4; i++) await login(u.email, BAD);
-    const ok = await login(u.email, GOOD);
+    for (let i = 0; i < 4; i++) await login(u.email!, BAD);
+    const ok = await login(u.email!, GOOD);
     expect(ok.status).toBe(200);
     expect(Object.keys(ok.body).sort()).toEqual(['accessToken', 'deviceToken', 'refreshToken', 'user']);
     const after: number[] = [];
-    for (let i = 0; i < 6; i++) after.push((await login(u.email, BAD)).status);
+    for (let i = 0; i < 6; i++) after.push((await login(u.email!, BAD)).status);
     expect(after).toEqual([401, 401, 401, 401, 401, 429]);
   });
 
   describe('C7-8 — qué levanta el candado', () => {
     it('(a) reset-password completado ⇒ levanta y devuelve { ok, deviceToken } (sin sesión)', async () => {
       const u = await newUser();
-      await lockOut(u.email);
+      await lockOut(u.email!);
       const clear = await h.app.get(AuthTokenService).issue(u.id, AuthTokenType.password_reset);
       const r = await h.api('POST', '/auth/reset-password', { json: { token: clear, password: 'Nueva-C7-456' } });
       expect(r.status).toBe(200);
       expect(Object.keys(r.body).sort()).toEqual(['deviceToken', 'ok']);
-      expect((await login(u.email, 'Nueva-C7-456')).status).toBe(200);
+      expect((await login(u.email!, 'Nueva-C7-456')).status).toBe(200);
     });
 
     it('(b) reset por admin ⇒ levanta', async () => {
       const u = await newUser();
-      await lockOut(u.email);
+      await lockOut(u.email!);
       const adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
       const r = await h.api('POST', `/admin/users/${u.id}/reset-password`, { token: adminToken });
       expect(r.status).toBe(200);
-      expect((await login(u.email, r.body.tempPassword)).status).toBe(200);
+      expect((await login(u.email!, r.body.tempPassword)).status).toBe(200);
     });
 
     it('(c) change-password correcto ⇒ levanta (y el 429 del login no le impide cambiarla desde dentro)', async () => {
       const u = await newUser();
-      const session = await login(u.email, GOOD);
-      await lockOut(u.email);
+      const session = await login(u.email!, GOOD);
+      await lockOut(u.email!);
       const r = await h.api('POST', '/auth/change-password', {
         token: session.body.accessToken,
         json: { currentPassword: GOOD, newPassword: 'Nueva-C7-789' },
       });
       expect(r.status).toBe(200);
-      expect((await login(u.email, 'Nueva-C7-789')).status).toBe(200);
+      expect((await login(u.email!, 'Nueva-C7-789')).status).toBe(200);
     });
 
     it('(d) forgot-password NO levanta: tras pedirlo, el login sigue en 429', async () => {
       const u = await newUser();
-      await lockOut(u.email);
+      await lockOut(u.email!);
       expect((await h.api('POST', '/auth/forgot-password', { json: { email: u.email } })).status).toBe(200);
-      expect((await login(u.email, GOOD)).status).toBe(429);
+      expect((await login(u.email!, GOOD)).status).toBe(429);
     });
   });
 
   it('C7-9 — el dueño no queda fuera: con el deviceToken de un login anterior y su contraseña ⇒ 200', async () => {
     const owner = await newUser({ role: Role.super_admin });
-    const first = await login(owner.email, GOOD);
+    const first = await login(owner.email!, GOOD);
     const deviceToken = first.body.deviceToken as string;
-    for (let i = 0; i < 8; i++) await login(owner.email, BAD); // atacante sin token
-    expect((await login(owner.email, GOOD)).status).toBe(429);
-    const mine = await login(owner.email, GOOD, deviceToken);
+    for (let i = 0; i < 8; i++) await login(owner.email!, BAD); // atacante sin token
+    expect((await login(owner.email!, GOOD)).status).toBe(429);
+    const mine = await login(owner.email!, GOOD, deviceToken);
     expect(mine.status).toBe(200);
     // ⚠️ El acierto por el dispositivo NO limpia el cubo de la cuenta (C7-11).
-    expect((await login(owner.email, BAD)).status).toBe(429);
+    expect((await login(owner.email!, BAD)).status).toBe(429);
   });
 
   it('C7-10 — deviceToken ajeno ⇒ misma respuesta que sin token; como Bearer ⇒ 401; como refreshToken ⇒ 401', async () => {
     const victim = await newUser();
     const other = await newUser();
-    const otherLogin = await login(other.email, GOOD);
+    const otherLogin = await login(other.email!, GOOD);
     const foreign = otherLogin.body.deviceToken as string;
-    for (let i = 0; i < 5; i++) await login(victim.email, BAD);
-    const without = await login(victim.email, GOOD);
-    const withForeign = await login(victim.email, GOOD, foreign);
+    for (let i = 0; i < 5; i++) await login(victim.email!, BAD);
+    const without = await login(victim.email!, GOOD);
+    const withForeign = await login(victim.email!, GOOD, foreign);
     expect(without.status).toBe(429);
     expect({ s: withForeign.status, b: withForeign.body }).toEqual({ s: without.status, b: without.body });
     expect((await h.api('GET', '/users/me', { token: foreign })).status).toBe(401);
@@ -231,10 +231,10 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
 
   it('C7-11 — cubo del dispositivo: 5 fallos con token ⇒ el 6.º 429 aunque sea la correcta', async () => {
     const u = await newUser();
-    const deviceToken = (await login(u.email, GOOD)).body.deviceToken as string;
-    for (let i = 0; i < 5; i++) expect((await login(u.email, BAD, deviceToken)).status).toBe(401);
-    expect((await login(u.email, GOOD, deviceToken)).status).toBe(429);
-    expect((await login(u.email, GOOD)).status).toBe(200); // el de la cuenta, intacto
+    const deviceToken = (await login(u.email!, GOOD)).body.deviceToken as string;
+    for (let i = 0; i < 5; i++) expect((await login(u.email!, BAD, deviceToken)).status).toBe(401);
+    expect((await login(u.email!, GOOD, deviceToken)).status).toBe(429);
+    expect((await login(u.email!, GOOD)).status).toBe(200); // el de la cuenta, intacto
   });
 
   it('C7-14 — super_admin, vault_operator y customer: la misma secuencia', async () => {
@@ -242,7 +242,7 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
     for (const role of [Role.super_admin, Role.vault_operator, Role.customer]) {
       const u = await newUser({ role });
       const s: number[] = [];
-      for (let i = 0; i < 7; i++) s.push((await login(u.email, BAD)).status);
+      for (let i = 0; i < 7; i++) s.push((await login(u.email!, BAD)).status);
       seqs.push(s);
     }
     expect(seqs).toEqual([seqs[2], seqs[2], [401, 401, 401, 401, 401, 429, 429]]);
@@ -252,7 +252,7 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
     const u = await newUser();
     const countAll = () => h.prisma.auditLog.count({ where: { action: 'auth.password_lock' } });
     const before = await countAll();
-    for (let i = 0; i < 7; i++) await login(u.email, BAD);
+    for (let i = 0; i < 7; i++) await login(u.email!, BAD);
     const rows = await waitFor(
       () => h.prisma.auditLog.findMany({ where: { action: 'auth.password_lock', entityId: u.id } }),
       (r) => r.length >= 1,
@@ -270,7 +270,7 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
 
   it('C7-16 — change-password: 5 × 422 ⇒ el 6.º 429 + Retry-After, sin argon2; no 401', async () => {
     const u = await newUser();
-    const session = (await login(u.email, GOOD)).body.accessToken as string;
+    const session = (await login(u.email!, GOOD)).body.accessToken as string;
     for (let i = 0; i < 5; i++) {
       const r = await h.api('POST', '/auth/change-password', { token: session, json: { currentPassword: BAD, newPassword: 'Nueva-C7-000' } });
       expect(r.status).toBe(422);
@@ -289,10 +289,10 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
 
   it('C7-17 — Owner@X.COM y owner@x.com comparten contador (por HTTP)', async () => {
     const u = await newUser();
-    const [local, domain] = u.email.split('@');
+    const [local, domain] = u.email!.split('@');
     const shout = `${local.toUpperCase()}@${domain.toUpperCase()}`;
-    for (let i = 0; i < 5; i++) expect((await login(i % 2 ? shout : u.email, BAD)).status).toBe(401);
-    expect((await login(u.email, GOOD)).status).toBe(429);
+    for (let i = 0; i < 5; i++) expect((await login(i % 2 ? shout : u.email!, BAD)).status).toBe(401);
+    expect((await login(u.email!, GOOD)).status).toBe(429);
   });
 
   // ── v1.80.1 (SEC-C7-MINT): el dispositivo es la sesión, por HTTP ─────────────────────────────
@@ -300,7 +300,7 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
 
   it('C7-19 (por HTTP) — 4 refrescos (2 reproduciendo R0, 2 encadenados) ⇒ 4 deviceToken con el MISMO jti = sid de R0; con la cuenta bloqueada, 5 fallos con el 1.º ⇒ 401×5 y 1 con cada otro ⇒ 429×3; argon2 = 5', async () => {
     const u = await newUser();
-    const first = await login(u.email, GOOD);
+    const first = await login(u.email!, GOOD);
     expect(first.status).toBe(200);
     const R0 = first.body.refreshToken as string;
     const sid = decode(R0).sid as string;
@@ -318,11 +318,11 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
       return r.body.deviceToken as string;
     });
     for (const d of devices) expect(decode(d).jti).toBe(sid);
-    await lockOut(u.email);
+    await lockOut(u.email!);
     verifySpy.mockClear();
-    for (let i = 0; i < 5; i++) expect((await login(u.email, BAD, devices[0])).status).toBe(401);
+    for (let i = 0; i < 5; i++) expect((await login(u.email!, BAD, devices[0])).status).toBe(401);
     for (const d of devices.slice(1)) {
-      const r = await login(u.email, BAD, d);
+      const r = await login(u.email!, BAD, d);
       expect(r.status).toBe(429);
       expect(r.body.error.code).toBe('TOO_MANY_PASSWORD_ATTEMPTS');
     }
@@ -332,15 +332,15 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
   it('C7-20 (por HTTP) — tope agregado: 29 fallos por 8 dispositivos ⇒ 401×29; el 30.º correcto ⇒ 200; el 31.º correcto ⇒ 429 sin argon2', async () => {
     const u = await newUser();
     const devices: string[] = [];
-    for (let i = 0; i < 8; i++) devices.push((await login(u.email, GOOD)).body.deviceToken as string);
+    for (let i = 0; i < 8; i++) devices.push((await login(u.email!, GOOD)).body.deviceToken as string);
     expect(new Set(devices.map((d) => decode(d).jti)).size).toBe(8);
-    await lockOut(u.email);
+    await lockOut(u.email!);
     verifySpy.mockClear();
-    for (let i = 0; i < 29; i++) expect((await login(u.email, BAD, devices[i % 8])).status).toBe(401);
+    for (let i = 0; i < 29; i++) expect((await login(u.email!, BAD, devices[i % 8])).status).toBe(401);
     expect(verifySpy).toHaveBeenCalledTimes(29);
-    expect((await login(u.email, GOOD, devices[0])).status).toBe(200);
+    expect((await login(u.email!, GOOD, devices[0])).status).toBe(200);
     verifySpy.mockClear();
-    const r = await login(u.email, GOOD, devices[3]);
+    const r = await login(u.email!, GOOD, devices[3]);
     expect(r.status).toBe(429);
     expect(r.body.error.code).toBe('TOO_MANY_PASSWORD_ATTEMPTS');
     expect(verifySpy).not.toHaveBeenCalled();

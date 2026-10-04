@@ -46,6 +46,13 @@ export function ProfileSection({
   }, [user.name, user.phone]);
 
   const derived = user.nameSource === 'derived';
+  /**
+   * M-3 (QA sobre `da6d910e`): una cuenta SIN correo es siempre del equipo (CHECK 2 de §M6-U.1: cliente
+   * ⇒ correo). A esa cuenta no le escribimos correos, no tiene envíos y no vende (§M6-U.8 (c)): los
+   * textos de cliente «Así te llamamos en los correos y en tus envíos» y «Sin celular. Lo necesitas
+   * para vender.» le mienten. Se ocultan (sin copy nuevo: §42.8 no define uno para el equipo).
+   */
+  const withoutEmail = user.email == null;
 
   useEffect(() => {
     if (focusNameOnMount && derived) nameRef.current?.focus();
@@ -111,7 +118,7 @@ export function ProfileSection({
               setName(e.target.value);
               setSaved(false);
             }}
-            hint={t('name.hint')}
+            hint={withoutEmail ? undefined : t('name.hint')}
             error={errors.name}
             // `Input` deriva `<id>-err` / `<id>-hint`; con nombre derivado se AÑADE la nota
             // (§33.6a: «enlazada por aria-describedby»), sin perder el hint o el error.
@@ -133,7 +140,7 @@ export function ProfileSection({
         </div>
 
         <div>
-          {phone === '' && !errors.phone && (
+          {phone === '' && !errors.phone && !withoutEmail && (
             <p className="mb-2 font-mono text-[11px] uppercase tracking-label text-accent">
               {t('phone.missing')}
             </p>

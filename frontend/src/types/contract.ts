@@ -399,7 +399,14 @@ export type NameSource = 'user' | 'google' | 'derived';
 
 export interface UserDTO {
   id: string;
-  email: string;
+  /**
+   * ⭐ v1.80.9 (§M6-U.2/§M6-U.5): `null` SOLO en cuentas del equipo sin correo (entran con
+   * `username`). El CHECK `user_login_identity_xor` garantiza exactamente uno de los dos. ⛔ Nunca
+   * se pinta a pelo: la regla es `email ?? username` (DESIGN_SYSTEM §42.5.1).
+   */
+  email: string | null;
+  /** ⭐ v1.80.9: nombre de usuario canónico (minúsculas) del equipo sin correo; `null` en el resto. */
+  username?: string | null;
   name: string;
   phone?: string;
   role: Role;
@@ -429,6 +436,13 @@ export interface UserDTO {
   hasPassword?: boolean;
   /** v1.67: ver `NameSource`. `GET /users/me` y `PATCH /users/me` lo traen SIEMPRE. */
   nameSource?: NameSource;
+  /**
+   * ⭐ v1.80.9 (§M6-U.5): aviso de candado pendiente en el panel (solo cuentas sin correo; las que
+   * tienen correo lo reciben por correo). Solo lo trae `GET /users/me`. Se cierra con
+   * `POST /users/me/lock-notice/dismiss` (`204`). Opcional en el tipo porque la sesión guardada y la
+   * respuesta del login no lo llevan.
+   */
+  lockNotice?: { since: string } | null;
 }
 
 export interface AuthResponse {
@@ -2021,7 +2035,8 @@ export interface AdminRefundsResponse extends Paginated<AdminRefundRowDTO> {
   sumCents: number;
 }
 export interface OperatorRefundSummaryDTO {
-  user: { userId: string; name: string | null; email: string; active: boolean };
+  /** ⭐ v1.80.9 (§M6-U.8 (b)): `email` anulable + `username`; el front pinta `email ?? username`. */
+  user: { userId: string; name: string | null; email: string | null; username?: string | null; active: boolean };
   refunds: {
     last24h: { count: number; cents: number };
     last7d: { count: number; cents: number };
@@ -4974,7 +4989,15 @@ export type AdminUserStatus = 'active' | 'blocked' | 'deleted';
 
 export interface AdminUserSummaryDTO {
   id: string;
-  email: string;
+  /** ⭐ v1.80.9 (§M6-U.7): clave SIEMPRE presente; `null` en el equipo sin correo. Se pinta `email ?? username`. */
+  email: string | null;
+  /** ⭐ v1.80.9: `null` en clientes y en el equipo con correo. */
+  username: string | null;
+  /**
+   * ⭐ v1.80.9 (§M6-U.7): fin del candado por intentos (ISO = ahora + PTTL del almacén); `null` sin
+   * candado **o** si el almacén no contestó (entonces el listado trae `lockState:'unavailable'`).
+   */
+  lockedUntil: string | null;
   name: string;
   role: Role;
   status: AdminUserStatus;
@@ -4987,6 +5010,16 @@ export interface AdminUserSummaryDTO {
    * no miente — no se deriva de ningún otro campo.
    */
   kycStatus?: KycStatus;
+}
+
+/**
+ * ⭐ v1.80.9 (§M6-U.7): `GET /admin/users` gana `lockState` a nivel raíz. `'unavailable'` ⇒ el
+ * almacén de candados no contestó: todas las filas traen `lockedUntil: null` y el front NO afirma
+ * «sin candado» (aviso discreto, DESIGN_SYSTEM §42.5.4).
+ */
+export type AdminUsersLockState = 'ok' | 'unavailable';
+export interface AdminUsersListResponse extends Paginated<AdminUserSummaryDTO> {
+  lockState: AdminUsersLockState;
 }
 
 // POST /admin/users/:id/reset-password → contraseña temporal UNA sola vez (v1.3.1).
@@ -5090,6 +5123,12 @@ export interface AdminUserOwnedItemRef {
 // GET /admin/users/:id — ficha 360°. billingProfile = null para vault_operator
 // (proyección reducida SEC-A4: sin RFC/INE/billing).
 export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
+  /**
+   * ⭐ v1.80.9.1 A-1 (§M6-U.7): en la RAÍZ de la ficha, en los DOS DTOs (`AdminUserDetailDTO` y
+   * `AdminUserDetailOperatorDTO`), con la misma regla que el listado. `'unavailable'` ⇒
+   * `lockedUntil: null` y el front pinta el aviso discreto, no «sin candado».
+   */
+  lockState: AdminUsersLockState;
   locale?: Locale;
   authProvider?: AuthProvider;
   phone?: string;
@@ -5116,7 +5155,10 @@ export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
 export interface AdminCreatedUserDTO {
   user: {
     id: string;
-    email: string;
+    /** ⭐ v1.80.9 (§M6-U.6): `null` en el alta de equipo. */
+    email: string | null;
+    /** ⭐ v1.80.9: el usuario canónico guardado (minúsculas) en el alta de equipo; `null` en cliente. */
+    username: string | null;
     name: string;
     role: Role;
     locale: Locale;
@@ -5134,8 +5176,10 @@ export interface AdminCreatedUserDTO {
 // omitido). NUNCA incluye before/after (posible PII/estado sensible; §M6/ARCHITECTURE §3.2).
 export interface UserAuditEntryDTO {
   id: string;
-  actorUserId: string;
-  actorRole: Role;
+  // Eventos del sistema (p. ej. `auth.password_lock` desde el login): los dos son null a la vez
+  // (contrato, errata 2026-10-04). El front pinta «—».
+  actorUserId: string | null;
+  actorRole: Role | null;
   action: string;
   entityType: string;
   entityId: string;
@@ -5469,8 +5513,10 @@ export interface GradedEstimateDeleteResponse {
 
 export interface AuditLogDTO {
   id: string;
-  actorUserId: string;
-  actorRole: Role;
+  // Eventos del sistema (p. ej. `auth.password_lock` desde el login): los dos son null a la vez
+  // (contrato, errata 2026-10-04). El front pinta «—».
+  actorUserId: string | null;
+  actorRole: Role | null;
   action: string;
   entityType: string;
   entityId: string;

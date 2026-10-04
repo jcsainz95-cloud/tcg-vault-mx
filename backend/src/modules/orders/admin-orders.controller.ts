@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import { OrderStatus, Prisma, Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
@@ -137,7 +138,7 @@ export class AdminOrdersController {
         refundReviewPending: isRefundReviewPending({ fullRefundAfterShipment, shippedRefundReason }),
         isGuestOrder: o.guestEmail != null,
         // v1.80 (§M4-SHIP.10): `CustomerRefDTO | null` (`null` ⇔ invitado) y lo devuelto por Stripe.
-        customer: user ? { userId: user.id, fullName: customerDisplayName(user), email: user.email } : null,
+        customer: user ? { userId: user.id, fullName: customerDisplayName(user), email: customerEmailOrBlank(user.email, 'AdminOrderSummary.customer', user.id) } : null,
         refundedCents: refundedCentsOf(refunds ?? []), // (`?? []`: dobles legacy sin relaciones)
       })),
       page: p,
@@ -214,7 +215,7 @@ export class AdminOrdersController {
       ...cols,
       isGuestOrder: extra.guestEmail != null,
       claimedAt: extra.claimedAt ?? undefined,
-      customer: buyer ? { userId: buyer.id, fullName: customerDisplayName(buyer), email: buyer.email } : null,
+      customer: buyer ? { userId: buyer.id, fullName: customerDisplayName(buyer), email: customerEmailOrBlank(buyer.email, 'AdminOrderDetail.customer', buyer.id) } : null,
       refunds: refundDtos,
       // `items[].refund: PaymentRefundDTO | null` (§M4-SHIP.10 M3, cualquier estado): la fila de ESA carta.
       items: (detail.items as { inventoryItemId: string }[]).map((it) => {

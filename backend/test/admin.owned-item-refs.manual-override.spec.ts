@@ -5,6 +5,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
  * §4.27f-2 (P47-2, v1.46) — la ficha 360° admin (`ownedItemRefs`) usa `isBetterRef`, NO «la primera
@@ -94,7 +95,7 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
       // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
       sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
-    return new AdminService(prisma as PrismaService, pricing, pii, {} as never);
+    return new AdminService(prisma as PrismaService, pricing, pii, {} as never, undefined, noLockAttempts());
   }
 
   it('muestra el precio MANUAL viejo, no la automática fresca (aunque la automática sea más reciente)', async () => {

@@ -7680,7 +7680,257 @@ nosotros»*. Lo que pasa hoy *(medido el 2026-10-04 por lectura del código, sin
 Ver la sección final **«Preguntas — disputas fuera de la tienda (§V, 2026-10-04)»**: P-DSP-1 a P-DSP-5. Ninguna
 bloquea al arquitecto: si el dueño no contesta, se construye con el default.
 
+### W. Finanzas para el dueño — lo que falta para leer el negocio en pesos (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-FIN abiertas)
+
+> **Fuente:** petición del dueño, tal como la relayó el orquestador: que un agente *«se ponga en mis zapatos…
+> desde el punto de vista financiero… y vea qué falta»*. El informe que la responde es de **tester-e2e, sobre
+> producción `279d96de`, 2026-10-04**. Los defectos **D-1…D-10** son **mediciones suyas**; ⚠️ **NO MEDIDOS por
+> product-owner** (no tengo Bash ni acceso a producción): los cito como los reportó. El contrato §M7 **v1.51.1**
+> como origen de la tarifa de envío de buylist (D-7) también es dato del informe, **NO MEDIDO** por mí.
+>
+> **Letra:** §T la usa la rama viva `claude/skydropx-envios`; §U y §V ya existen; por eso esta es **§W** (y las
+> dos siguientes, §X y §Y). **Criterios: 275–293** (medido el 2026-10-04 sobre este `PROJECT.md`: el último
+> ocupado es el **274**; **NO MEDIDO** si alguna otra rama viva usa ≥ 275 o las letras W/X/Y — lo comprueba el
+> orquestador antes de fusionar).
+>
+> **Base que no se toca:** M7 (P&L, valor de inventario, custodia, IVA cobrado, CSV — criterio **21**), el tablero
+> (criterio **24**) y el **P&L en ingreso NETO, sin IVA** (criterio **191**). Esta sección **corrige** lo que el
+> informe midió mal y **añade** lo que falta. 💰 Todo lo que cambia cómo se cuenta el dinero ⇒ **tres veredictos**.
+> El *cómo* (consultas, tablas, endpoints) es del arquitecto y **no se escribe aquí**.
+
+#### W.1 El problema, en pesos
+
+Hoy el panel le dice al dueño **qué vendió**, pero no le dice con confianza **cuánto ganó, cuánto tiene que pagar
+hoy ni cuánto perdió**. Tres ejemplos del informe: si elige «hoy» ve **MX$0** aunque haya vendido (D-1); un
+reembolso total le **resta dos veces** la mercancía y el IVA (D-2), así que la ganancia del mes sale más baja que
+la real; y un **contracargo perdido no aparece** como pérdida (D-3), así que la ganancia sale más alta que la
+real. Una cifra que a veces sobra y a veces falta no sirve para decidir precios ni compras.
+
+#### W.2 Reglas comunes a todo Finanzas, Reportes y CSV (criterio 275)
+
+- **Un día es el día de México.** Todo periodo se corta en **hora del centro de México** *(SUPUESTO: zona
+  `America/Mexico_City`; P-FIN-1)*, de 00:00:00 a 23:59:59.999.
+- **El último día del rango cuenta entero** (corrige **D-1**). «Hoy» es hoy completo; «1 al 3 de octubre» incluye
+  todo el 3 de octubre. Vale igual en **Finanzas (M7)**, **Reportes (M9)**, el **tablero** y **todo CSV**.
+- **La pantalla y su CSV cuadran al centavo** para el mismo periodo.
+- **Cada cifra dice su periodo** a la vista (corrige **D-10**): «Hoy», «Últimos 30 días» o las fechas exactas.
+
+#### W.3 IMPRESCINDIBLE — sin esto, las cifras de dinero no son confiables
+
+| # | Qué falta | Por qué, en dinero | Criterio |
+|---|---|---|---|
+| **(a)** | Rangos que **incluyen el último día** en Finanzas, Reportes y CSV (D-1) | Hoy «hoy» da **MX$0**: el dueño no ve la venta del día ni el pago del día, y un cierre de mes pierde su último día entero | **275** |
+| **(b)** | **«Caja del día»**: lo que **sale** de la cuenta hoy | Hoy el SPEI de buylist **no aparece en el tablero** ni muestra el **neto**: el dueño no sabe cuánto debe tener en el banco para pagar | **276** |
+| **(c)** | **Contracargos dentro del dinero** (D-3) | Un contracargo perdido es dinero que **ya no está** más una cuota; hoy no resta, y la ganancia sale **inflada** | **277** |
+| **(d)** | Un **reembolso total no resta dos veces** la mercancía ni el IVA (D-2) | Hoy la ganancia del periodo sale **más baja** que la real por la doble resta | **278** |
+| **(e)** | **Flujo de SPEI de buylist por periodo**: neto **pagado**, referencia y fecha (D-8) | El tablero muestra lo **aprobado**, no lo **pagado**: el dueño no puede conciliar contra el banco | **279** |
+
+**(b) Caja del día — qué muestra** *(default de P-FIN-2)*:
+- **Por pagar**, todo lo que está aprobado y aún no sale, con su antigüedad:
+  - **SPEI de buylist**: folio de la solicitud, **beneficiario** (nombre del vendedor), CLABE **enmascarada**
+    (últimos 4), **neto a pagar** (lo que de verdad se transfiere, no el bruto), desde cuándo espera.
+  - **Reembolsos por SPEI** (la cubeta de reembolsos manuales, `HECHOS.md` 2026-10-02 «Menú del panel…»):
+    pedido, cliente, monto.
+  - **Bloqueados por falta de CLABE**: cuántos y cuánto suman, aparte, **sin** sumarse a lo que puede salir hoy.
+- **Pagado hoy**: lo que ya se marcó como pagado hoy, con su referencia SPEI.
+- **Total que puede salir hoy** = suma de lo «Por pagar» no bloqueado.
+- Cada línea lleva a su solicitud o pedido. ⛔ Sin CLABE completa ni INE en esta pantalla.
+
+**(c) Contracargos — cómo entran** *(default de P-FIN-3)*: una **línea propia en el P&L, «Contracargos»**, con, por
+contracargo: **pedido**, **carta(s)**, **importe disputado**, **cuota de disputa** (la que Stripe reporte),
+**estado** (abierto / ganado / perdido) y fecha. Mientras está **abierto** se muestra como **en riesgo** sin
+restar; al **perderse**, resta el ingreso neto del pedido y la cuota; al **ganarse**, no resta el importe (la cuota
+resta solo si Stripe no la devuelve — **NO MEDIDO** cómo lo reporta Stripe; lo mide el arquitecto). El IVA del
+pedido perdido se marca aparte para el contador, sin moverlo al ingreso (criterio 191).
+
+**(d) Reembolso total — una sola vez** *(ejemplo que fija la cuenta)*: pedido con base **MX$1,000**, IVA
+**MX$160**, costo de las cartas **MX$600**, reembolsado completo.
+- **No enviado** (las cartas vuelven a la venta, §S.11): en el P&L del periodo ese pedido deja **ingreso 0**,
+  **IVA 0**, **costo de lo vendido 0**; solo queda la **comisión de Stripe** que no se recupere, **una vez**.
+- **Enviado** (motivo «no llegó» / «llegó en mala condición», las cartas no vuelven): **ingreso 0**, **IVA 0**, y
+  los **MX$600** aparecen **una sola vez** como **pérdida por reembolso tras envío** (línea propia), más la comisión
+  una vez.
+- ⛔ En ningún caso el P&L resta **−MX$600 dos veces** ni el IVA queda en **−MX$160**.
+
+**(e) SPEI de buylist por periodo**: por cada pago, **folio**, **vendedor**, **fecha del pago**, **neto pagado**,
+**referencia SPEI**; total del periodo. La tarjeta del tablero «buylist del periodo» muestra **pagado** y, aparte y
+rotulado, **aprobado sin pagar**.
+
+#### W.4 IMPORTANTE — para decidir compras, precios y cumplir con el contador
+
+| Qué | Por qué, en dinero | Criterio |
+|---|---|---|
+| **Antigüedad y rotación del inventario** (días en stock) | Dinero parado: cuánto costo lleva más de 90/180 días sin venderse, y en cuántos días se vende lo que se compra | **280** |
+| **Pasivo de bóveda** sin piezas **perdidas ya reembolsadas** (D-4) | Hoy la custodia cuenta piezas que ya se pagaron al cliente: el dueño cree deber **más** de lo que debe | **281** |
+| **Sellado valuado aunque su fuente de precio esté apagada** | Hoy ese sellado cuenta como **MX$0** o no cuenta (según el informe): el valor de inventario sale **bajo** | **282** |
+| **Pantalla de demanda** (`pricing-brackets`) y su CSV correcto (D-6: hoy el CSV devuelve el inventario) | Saber en qué rangos de precio se vende y se compra para mover diales con datos | **283** |
+| **Exportes para el contador**: IVA por pedido y compras a personas físicas | Sin ellos, el contador reconstruye a mano cada mes; errores en IVA son multas | **284** |
+| **Bitácora legible**: nombre, folio, filtros | Encontrar quién movió dinero o inventario sin descifrar identificadores | **285** |
+| **Periodo rotulado en el tablero** (D-10) | Una cifra sin periodo se compara mal | **286** |
+| **Tarifa de envío de buylist: ingreso y costo** (D-7, contrato §M7 v1.51.1 según el informe, no implementado) | Se le descuenta al vendedor la tarifa congelada y se paga una guía real: hoy ninguna de las dos aparece, y la diferencia es ganancia o pérdida invisible | **287** |
+| **Disputas y ficha 360° con carta, pedido y folio**, no UUID (D-9) | Identificar de qué dinero se habla sin buscar a mano | **288** |
+
+Detalles y defaults:
+- **Antigüedad** *(default de P-FIN-5)*: por pieza, días desde que **entró al inventario**; tramos **0–30, 31–90,
+  91–180, >180 días**, con número de piezas, **costo** y **valor a referencia** por tramo. **Rotación**: días
+  promedio entre entrada y venta de lo vendido en el periodo.
+- **Pasivo de bóveda**: el valor en custodia **excluye** toda pieza marcada perdida cuyo reembolso ya se pagó; el
+  dueño ve aparte «perdidas y reembolsadas» (cuántas, cuánto).
+- **Sellado sin fuente** *(default de P-FIN-6)*: se valúa con su **último precio conocido** y su fecha; si nunca
+  tuvo, con su **precio final a mano** (`HECHOS.md` 2026-10-04 «Precios — decisiones…», (b)); si no tiene ninguno,
+  se cuenta en «**sin valuar**» (piezas y costo), ⛔ nunca como MX$0 silencioso.
+- **Exportes al contador** *(default de P-FIN-4)*:
+  - **IVA por pedido**: número de pedido, fecha de cobro, **base**, **IVA**, total, cliente (nombre y correo; datos
+    fiscales si los dio para factura), y si hubo reembolso o contracargo.
+  - **Compras a personas físicas** (buylist pagado): folio, fecha del pago, nombre del vendedor, bruto, tarifa de
+    envío descontada, **neto pagado**, referencia SPEI. ⛔ Sin CLABE completa ni datos del INE.
+- **Bitácora**: el actor por **nombre** (o nombre de usuario, §U), el objeto por **folio** (pedido, solicitud,
+  carta); filtros por **fecha**, **persona** y **tipo de acción**.
+- **Tarifa de envío de buylist**: **ingreso** = la tarifa congelada que se le descontó al vendedor (D25); **costo**
+  = el costo real de la guía cuando se capturó, o la tarifa congelada de MX$180 cuando no (como ya dice M7). Se ven
+  como **dos líneas** en el P&L. ⛔ No cambia el neto pagado ni el costo de la pieza.
+
+#### W.5 DESEABLE — no bloquea este corte (criterios 289–292)
+
+- **Conteo cíclico por cajón** (289): el operador cuenta un cajón; el sistema compara contra lo esperado y lista
+  faltantes y sobrantes.
+- **Alertas de «vendido bajo mercado»** (290): lista de ventas cuyo precio quedó por debajo del mercado del día por
+  más de un umbral *(default de P-FIN-7: 20 %)*.
+- **Saldo y depósitos de Stripe** (291): saldo disponible, pendiente y depósitos al banco del periodo, solo lectura.
+- **Vista de merma** (292): piezas dadas de baja (perdidas, dañadas) en el periodo, con costo y motivo.
+
+#### W.6 Lo que NO cambia (criterio 293)
+
+- El P&L mide **ingreso NETO**; el IVA **no es ingreso** (criterio 191).
+- El **costo de la pieza** de buylist sigue siendo el **bruto ofertado**; lo descontado al vendedor sigue siendo la
+  tarifa congelada (§H, M7).
+- **Quién puede ver** Finanzas, Reportes y Caja del día no cambia respecto de M7 hoy *(NO MEDIDO por PO el permiso
+  exacto de hoy; el arquitecto lo confirma — default: solo súper-admin)*.
+
+#### W.7 Preguntas de §W
+
+Ver la sección final **«Preguntas — finanzas para el dueño (§W, 2026-10-04)»**: P-FIN-1 a P-FIN-7, cada una con
+default. Ninguna bloquea al arquitecto.
+
+### X. Portada rápida — el precio exhibido se precalcula, no se calcula en cada visita (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-POR abiertas)
+
+> **Fuente:** `HECHOS.md`, fila **2026-10-04** «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA
+> (no por petición), más el índice.» Palabras del dueño, literales: *«¿por qué no se deja una semana con todo y la
+> volatilidad? no debería de moverse mucho, o que se calcule una vez al día no por solicitud. Más el índice»*.
+> La misma fila trae el diagnóstico medido por backend (local, 7.352 piezas): cada visita a la portada carga y
+> precia **todo** el inventario publicado (`catalog.service.ts:1369,1428`), **~1.2–1.9 s**, y crece con el
+> inventario. Y trae la **lectura del orquestador, a confirmar**, que esta sección adopta como default (P-POR-1).
+> **Criterios: 294–299.** 💰 Toca el precio que ve el cliente ⇒ tres veredictos.
+
+#### X.1 Qué cambia, en lenguaje llano
+
+- **El precio que se exhibe** (portada, catálogo y ficha de carta — *SUPUESTO: las tres, para que el cliente nunca
+  vea dos precios distintos de la misma pieza antes del carrito; P-POR-2*) **se calcula por adelantado y se
+  guarda**. Una visita **lee** ese precio; no lo recalcula.
+- **Cuándo se recalcula** *(default de P-POR-1)*:
+  - **una vez al día**, de madrugada, después de que entra el precio de mercado del día *(hora exacta: la fija el
+    arquitecto midiendo el horario de la actualización automática; NO MEDIDO por PO)*;
+  - y además, **enseguida**, después de: **«Actualizar precios»**, **«Publicar todo»**, **publicar una pieza**,
+    **cualquier cambio de un dial que mueva el precio de venta** (M10) y **cualquier precio puesto a mano** (precio
+    final del sellado, precio por pieza).
+- **La disponibilidad sigue en vivo**: una pieza vendida o apartada deja de ofrecerse como hoy, sin esperar al
+  recálculo.
+- **El cobro siempre recalcula**: el carrito y el checkout cotizan contra el servidor como hoy, y se cobra el
+  precio **actual**.
+
+#### X.2 Si el precio exhibido y el cobrado difieren
+
+*Medido el 2026-10-04 por lectura:* el carrito guarda **solo identificadores** de pieza, sin precio
+(`frontend/src/lib/cart.ts:41-48`), y el checkout pide la cotización al servidor cada vez
+(`frontend/src/app/[locale]/(storefront)/checkout/GuestCheckoutView.tsx:103-104`). **Hoy no hay aviso** de que un
+precio cambió (búsqueda de textos de «precio cambió» en carrito y checkout: sin resultados; los que existen son del
+carrito de **venta** de buylist). Hasta hoy no hacía falta, porque exhibido y cobrado salían del mismo cálculo.
+
+- **Se cobra el precio actual** (el que da la cotización en el checkout), y el cliente lo ve **antes de pagar**,
+  como hoy.
+- *(Default de P-POR-3:)* si el precio de una pieza en el carrito o checkout **difiere** del que se exhibía, se
+  muestra un aviso en esa línea: **«El precio de esta carta cambió: antes MX$A, ahora MX$B»** (texto final de
+  ux-ui). Sin aviso, el cliente podría pagar más de lo que vio sin notarlo.
+
+#### X.3 Tiempos objetivo (default de P-POR-4)
+
+- La **respuesta del servidor** para la portada y para una página del catálogo: **p95 < 500 ms** con un inventario
+  publicado del tamaño medido (**7.352 piezas**) y **sigue < 500 ms** con el doble — es decir, ya **no crece** con
+  el inventario.
+- El recálculo tras una acción del dueño termina en **≤ 5 minutos** *(SUPUESTO)*; mientras tanto la tienda sigue
+  sirviendo el precio anterior, nunca una página vacía ni un error.
+
+### Y. «Joyas para gradear» con cartas baratas (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-JOY abiertas)
+
+> **Fuente:** `HECHOS.md`, fila **2026-10-04** «"Joyas para gradear" debe incluir cartas baratas; precio PSA 10/9
+> de TODAS las cartas publicadas, por turnos, cada carta 1 vez por semana.» Palabras del dueño, literales: *«si
+> quiero que incluya baratas, checa cuántos créditos podríamos dedicar a esto»*; elegida la opción *«cada carta 1
+> vez por semana»*. Medido en esa fila: hoy el alcance PSA son **250 cartas fijas** por `cardId` ascendente, sin
+> rotación (`price-ingest.service.ts:1335-1342`); 250 × 2 créditos × 2 corridas ≈ **1.000 créditos/día**; cuota del
+> dueño **20.000/día** (DEVOPS_NOTES §32.12.1). Estimación (NO medida en producción el nº de cartas publicadas):
+> ~6.000 cartas × 2 créditos / 7 días ≈ **1.700 créditos/día (~9 %)**.
+> **Criterios: 300–305.** Cambia §O.2/§O.7 **solo para la vitrina** (Y.4).
+
+#### Y.1 Alcance del precio PSA: todas las cartas, por turnos
+
+- Entran **todas las cartas raw publicadas** (sin sellado ni gradeadas), **no** una lista fija.
+- **Cada carta se consulta una vez por semana**, por turnos: primero la que lleva **más tiempo sin consultarse**;
+  una carta recién publicada entra a la fila y se consulta dentro de sus **primeros 7 días**.
+- Sustituye a las 250 fijas; no se suma a ellas.
+
+#### Y.2 Presupuesto de créditos visible y con tope
+
+- **Dial nuevo en M10**, auditado: **tope de créditos PSA por día** *(default de P-JOY-5: **3.000/día**, el 15 % de
+  la cuota de 20.000)*.
+- **Nunca se pasa del tope.** Si con el tope no alcanza para cubrir todas en 7 días, el turno **se alarga** (cada
+  carta cada 9, 10… días) y se le dice al dueño; no se dejan cartas fuera para siempre.
+- **El dueño ve** (en salud de datos o junto al dial — ubicación de ux-ui): créditos usados **hoy** y en los
+  **últimos 7 días**, el **tope**, la **cuota** del proveedor, **cartas publicadas** vs. **cartas consultadas en los
+  últimos 7 días**, y el **ciclo real** en días.
+
+#### Y.3 Regla nueva de la vitrina — simple y que incluye baratas
+
+**Hoy** (§O.2 y §O.7): entra si **PSA 9 ≥ 1.3 × (precio + costo de gradeo)** —con escalón 1, **1.3 × (L + MX$700)**—
+**y** **PSA 10 ≤ 100 × L**. Una carta de MX$25 necesita un PSA 9 de **≥ MX$943** y a la vez un PSA 10 de **≤ MX$2,500**:
+el bulk queda fuera por construcción (medido por backend, según el encargo).
+
+**Propuesta (default de P-JOY-1)** — una carta raw publicada y disponible entra a la vitrina si:
+1. **PSA 10 ≥ 20 × el precio de la carta**, **y**
+2. **PSA 10 ≥ MX$1,000**, **y**
+3. el dato pasa la **confianza de §O.7** como hoy: fresco, con muestra suficiente (`minSalesSample`), PSA 10 >
+   precio, PSA 10 ≥ PSA 9 y la cota superior `maxGradedMultiple` (100×) *(ver P-JOY-3)*.
+
+**Por qué esas cifras:** con MX$1,000 y 20×, **toda carta que entra** cumple que, **si sale PSA 10**, su estimado
+supera en más de 30 % lo que cuesta comprarla y gradearla en el escalón 1 (precio + MX$700) — el mismo margen de
+hoy, pero sobre PSA 10. *(Comprobación: hasta L = MX$50 manda el piso de MX$1,000 ≥ 1.3 × 750 = 975; desde ~MX$49
+manda 20 × L ≥ 1.3 × (L + 700). NO MEDIDO para escalones 2–6.)*
+
+**Lo que el dueño acepta con esto (P-JOY-2):** la vitrina **ya no garantiza** que el comprador gane si la carta sale
+**PSA 9**; muestra el **potencial en PSA 10**. Es lo que permite que entren baratas.
+
+**Ejemplos:** carta de **MX$25** con PSA 10 de **MX$1,800** ⇒ entra (72×, ≥ MX$1,000). Carta de **MX$25** con PSA 10
+de **MX$600** ⇒ no entra (< MX$1,000). Carta de **MX$300** con PSA 10 de **MX$4,500** ⇒ no entra (15×). Carta de
+**MX$25** con PSA 10 de **MX$3,000** ⇒ **no entra** mientras la cota de 100× siga (P-JOY-3).
+
+**Orden** *(default de P-JOY-4)*: por **PSA 10 ÷ precio**, de mayor a menor, hasta **8** cartas (el tope de hoy).
+El orden es interno, como hoy.
+
+#### Y.4 Qué ve el cliente, y qué no cambia
+
+- **Lo mismo que hoy por teja**: la carta, su precio, el badge **«En PSA 10 vale ≈ MX$X»** y el aviso **«Ilustrativo;
+  no evaluamos esta carta.»** (§O.5; el encargo lo citaba como «no evaluamos la pieza» — el texto vigente en
+  `PROJECT.md` dice «esta carta»). ⛔ Ni el múltiplo, ni la regla, ni los umbrales viajan al cliente (§O.2, SEC-A1).
+- **Solo cambia la vitrina** *(default de P-JOY-6)*. La **ficha de carta** (que informa sin gate), el **badge de la
+  rejilla de Compra** y la **burbuja del carrusel «Piezas destacadas»** siguen con §O.2/§O.7 **como hoy**.
+  Consecuencia visible: una carta barata puede salir en la vitrina con su cifra y, en la rejilla, **sin** badge
+  (p. ej. MX$25 con PSA 10 de MX$1,800 y PSA 9 de MX$500: pasa la regla nueva, no la de §O.2).
+- Si **ninguna** carta pasa, la vitrina **no se pinta** (como hoy).
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §W, §X y §Y** *(2026-10-04)*: contabilidad completa o emisión automática de CFDI (los exportes son insumo
+  para el contador); conciliación bancaria automática y pago de SPEI desde la app (se sigue pagando en el banco y
+  marcando en el panel); recalcular el precio exhibido por cada visita; consultar PSA de sellado o de gradeadas;
+  cambiar la regla de §O.2/§O.7 en la rejilla, destacadas o ficha mientras P-JOY-6 no diga otra cosa.
 - **De §V (disputas fuera de la tienda)** *(2026-10-04)*: cualquier **disputa iniciada por el cliente dentro de
   la tienda** (antes del envío, en bóveda, en retiros o en pedidos — decisión del dueño); la disputa del invitado
   con esquema propio (`D-DSP-1`); un formulario de contacto dentro de la app (es un correo a soporte); y, mientras
@@ -11081,6 +11331,117 @@ cerradas el mismo día: P-STF-4 por decisión del dueño, el resto con default a
    aparece cuando corresponde y el cierre ganado/perdido deja el pedido como hoy; el contracargo **no** pide
    motivo. El reembolso por error de plataforma (M3) y el reembolso por carta al preparar (§S.10) se comportan
    igual que hoy.
+*(Criterios 275–293 **nuevos el 2026-10-04** — §W, finanzas para el dueño; insumo: informe de tester-e2e sobre
+producción `279d96de`, defectos D-1…D-10. 💰 275–279, 281, 282, 284 y 287 tocan cómo se cuenta el dinero: tres
+veredictos. 289–292 son **deseables** y no bloquean el corte.)*
+275. 💰 **El último día cuenta y la pantalla cuadra con su CSV** *(§W.2, D-1)*: QA registra una venta liquidada
+   **hoy** a las 10:00 y otra a las **23:30** hora de México, de importes conocidos. ⇒ En **Finanzas**, **Reportes**
+   y el **tablero**, «Hoy» muestra la **suma exacta** de las dos (no MX$0); el rango «1 al *hoy*» las incluye; el
+   **CSV** del mismo rango suma **lo mismo al centavo**. Una venta a las **00:00:30 de mañana** no entra en «hoy».
+   Cada cifra muestra su periodo a la vista.
+276. 💰 **Caja del día** *(§W.3 b)*: con **dos** solicitudes de buylist aprobadas sin pagar (netos conocidos, una
+   con CLABE y otra **sin** CLABE), **un** reembolso SPEI por pagar y **un** SPEI marcado pagado hoy ⇒ la pantalla
+   muestra: en «Por pagar», la solicitud con CLABE con su **beneficiario** y su **neto** (no el bruto) y el
+   reembolso; en «Bloqueados por falta de CLABE», la otra con su monto, **fuera** del total; en «Pagado hoy», el
+   pagado con su referencia. **Total que puede salir hoy = neto de la solicitud con CLABE + reembolso**, al centavo.
+   ⛔ Ninguna CLABE completa ni dato del INE en pantalla.
+277. 💰 **Contracargos en el P&L** *(§W.3 c, D-3)*: sobre un pedido de base **MX$1,000** e IVA MX$160, un
+   contracargo **abierto** aparece en la línea «Contracargos» como **en riesgo** con pedido, carta, importe y
+   cuota, **sin** restar; al **perderse**, la ganancia del periodo baja **exactamente MX$1,000 + la cuota** respecto
+   de antes, y el IVA de ese pedido queda marcado para el contador; al **ganarse**, la ganancia no baja por el
+   importe. La línea muestra **la carta y el pedido**, no un identificador interno.
+278. 💰 **Un reembolso total resta una sola vez** *(§W.3 d, D-2)*: con el ejemplo de §W.3 (d) —base MX$1,000, IVA
+   MX$160, costo MX$600—, reembolsado completo: **(i) no enviado** ⇒ ese pedido aporta **ingreso 0, IVA 0, costo de
+   lo vendido 0** al periodo, más la comisión de Stripe no recuperada **una vez**; **(ii) enviado** ⇒ **ingreso 0,
+   IVA 0**, y **MX$600** una sola vez en «pérdida por reembolso tras envío», más la comisión una vez. **⛔ Falla** si
+   aparece −MX$1,200 de mercancía o −MX$160 de IVA. El CSV de IVA muestra ese pedido con IVA neto **0**.
+279. 💰 **SPEI de buylist por periodo: lo pagado** *(§W.3 e, D-8)*: con tres solicitudes aprobadas en el periodo y
+   **dos** pagadas ⇒ el reporte lista las **dos** pagadas con folio, vendedor, fecha de pago, **neto pagado** y
+   referencia SPEI, y su total; la tarjeta del tablero muestra **pagado = suma de esas dos** y, aparte y rotulado,
+   **aprobado sin pagar = la tercera**.
+280. **Antigüedad y rotación** *(§W.4)*: con piezas de entrada conocida (p. ej. de hace 10, 45, 120 y 200 días) ⇒
+   cada una cae en su tramo (0–30, 31–90, 91–180, >180) y cada tramo suma **número, costo y valor a referencia**
+   exactos; la rotación del periodo es el **promedio de días entre entrada y venta** de lo vendido, verificable a
+   mano con esas piezas.
+281. 💰 **Pasivo de bóveda sin piezas perdidas reembolsadas** *(§W.4, D-4)*: una pieza en custodia de valor
+   conocido, marcada perdida y con su reembolso pagado ⇒ el valor en custodia **baja exactamente** ese valor, y
+   aparece en «perdidas y reembolsadas» (1 pieza, ese monto).
+282. 💰 **Sellado valuado aunque su fuente esté apagada** *(§W.4)*: con la fuente de precio del sellado apagada, un
+   sellado con último precio conocido se valúa con **ese** precio y muestra su fecha; uno sin precio conocido pero
+   con **precio final a mano**, con ese; uno sin ninguno aparece en «sin valuar» (piezas y costo). **⛔ Falla** si
+   alguno suma MX$0 al valor de inventario sin rótulo.
+283. **Pantalla de demanda y su CSV** *(§W.4, D-6)*: existe una pantalla de **demanda por rango de precio**
+   (venta y compra) con los mismos números que `pricing-brackets`; su **CSV devuelve esos mismos rangos y cifras**,
+   no el inventario.
+284. 💰 **Exportes para el contador** *(§W.4)*: **(i) IVA por pedido**: con tres pedidos del periodo (uno normal, uno
+   reembolsado, uno con contracargo) ⇒ una fila por pedido con número, fecha de cobro, base, IVA, total, cliente y
+   marca de reembolso/contracargo; **la suma de IVA del CSV = IVA cobrado de M7** para el periodo. **(ii) Compras a
+   personas físicas**: con dos buylists pagados ⇒ una fila por pago con folio, fecha, vendedor, bruto, tarifa de
+   envío descontada, neto pagado y referencia; **suma de netos = total del criterio 279**. ⛔ Sin CLABE completa ni
+   datos del INE.
+285. **Bitácora legible** *(§W.4)*: toda entrada muestra el actor por **nombre** (o usuario, §U) y el objeto por
+   **folio**; QA filtra por fecha, por persona y por tipo de acción y obtiene solo lo que corresponde. **⛔ Falla** si
+   una entrada muestra solo un UUID donde existe nombre o folio.
+286. **Periodo rotulado en el tablero** *(§W.2, D-10)*: cada tarjeta del tablero dice su periodo; cambiar el
+   periodo cambia el rótulo y la cifra a la vez.
+287. 💰 **Tarifa de envío de buylist en el P&L** *(§W.4, D-7)*: con dos buylists recibidos —uno con costo real de guía
+   capturado (p. ej. MX$150) y otro sin capturar— ⇒ el P&L muestra **ingreso por tarifa = 2 × la tarifa congelada
+   descontada** y **costo de envío = MX$150 + MX$180**. El neto pagado y el costo de las piezas **no cambian**.
+288. **Disputas y ficha 360° legibles** *(§W.4, D-9)*: en Disputas (mientras exista, §V.5), en la línea de
+   Contracargos y en la ficha 360°, cada caso muestra **carta, número de pedido y folio**. **⛔ Falla** si se ve un
+   UUID como única identificación.
+289. *(Deseable)* **Conteo cíclico por cajón** *(§W.5)*: el operador captura lo contado en un cajón con una pieza de
+   menos y una de más respecto de lo esperado ⇒ el sistema lista exactamente esa faltante y esa sobrante.
+290. *(Deseable)* **Vendido bajo mercado** *(§W.5)*: una venta a precio **25 %** por debajo del mercado del día
+   aparece en la lista con el umbral de 20 %; una a 10 % por debajo, no.
+291. *(Deseable)* **Saldo y depósitos de Stripe** *(§W.5)*: las cifras de saldo disponible, pendiente y depósitos
+   del periodo **coinciden** con las del panel de Stripe en modo prueba.
+292. *(Deseable)* **Merma** *(§W.5)*: dos piezas dadas de baja en el periodo, con costo conocido ⇒ la vista las
+   lista con motivo y **suma ese costo**.
+293. **Lo que NO cambia con §W — por ausencia** *(§W.6)*: el P&L sigue en **ingreso neto** (criterio 191, su
+   ejemplo sigue dando lo mismo); el costo de la pieza de buylist sigue siendo el bruto ofertado; lo descontado al
+   vendedor sigue siendo la tarifa congelada; quién puede ver Finanzas no cambia.
+*(Criterios 294–299 **nuevos el 2026-10-04**, de `HECHOS.md` fila «Portada y catálogo: el precio exhibido se
+calcula UNA VEZ AL DÍA…» — §X. 💰 Precio al cliente: tres veredictos.)*
+294. **Tiempos de la portada y el catálogo** *(§X.3)*: con **7.352** piezas publicadas, **N = 20** peticiones a la
+   portada y a una página del catálogo ⇒ **p95 < 500 ms** de respuesta del servidor; con el **doble** de piezas,
+   **sigue < 500 ms**. El reporte trae la N y los tiempos medidos (regla O-3).
+295. 💰 **Una visita no recalcula el precio** *(§X.1)*: entre dos recálculos, 20 visitas seguidas a la portada no
+   disparan ningún cálculo de precio (verificable por el registro o un contador); cambiar a mano en la base el
+   precio de mercado **sin** recalcular **no** cambia lo exhibido.
+296. 💰 **Se recalcula al día y tras cada acción del dueño** *(§X.1)*: tras el recálculo diario, el precio exhibido
+   de una carta cuyo mercado cambió refleja el nuevo; y, por separado, tras **«Actualizar precios»**, **«Publicar
+   todo»**, publicar una pieza, cambiar un dial que mueve el precio (p. ej. el piso o el markup) y poner un precio
+   final a mano a un sellado, el exhibido cambia en **≤ 5 minutos**, y durante ese lapso la tienda sirve el precio
+   anterior sin errores ni páginas vacías. El precio exhibido es el **mismo** en portada, catálogo y ficha.
+297. **La disponibilidad sigue en vivo** *(§X.1)*: una pieza comprada deja de ofrecerse en portada y catálogo **igual
+   que hoy**, sin esperar al recálculo.
+298. 💰 **Se cobra el precio actual y el cliente lo sabe** *(§X.2)*: con una pieza exhibida a MX$A y su precio
+   actual cambiado a MX$B (sin recálculo del exhibido) ⇒ el checkout cobra **MX$B**, lo muestra antes de pagar y
+   *(default P-POR-3)* la línea dice que el precio cambió de MX$A a MX$B. Con A = B, no hay aviso.
+299. **Lo que NO cambia con §X — por ausencia**: el cálculo del precio (IVA, diales, piso, pisos por rareza) da el
+   **mismo** número que hoy para la misma entrada; el carrito sigue podando piezas no disponibles; el cobro sigue
+   resolviendo el precio en el servidor.
+*(Criterios 300–305 **nuevos el 2026-10-04**, de `HECHOS.md` fila «"Joyas para gradear" debe incluir cartas
+baratas…» — §Y.)*
+300. **Alcance PSA por turnos** *(§Y.1)*: con el tope sin alcanzar, en **7 días** cada carta raw publicada tiene una
+   consulta PSA en ese lapso (cartas consultadas en 7 días = cartas publicadas); una carta publicada hoy tiene su
+   primera consulta **antes de 7 días**; ninguna sellada ni gradeada se consulta; la lista fija de 250 ya no existe.
+301. **Créditos con tope y a la vista** *(§Y.2)*: con el tope bajado en prueba por debajo de lo necesario ⇒ los
+   créditos usados en el día **no pasan del tope** (medido en los registros), el ciclo real mostrado sube de 7 días,
+   y la pantalla muestra créditos de hoy y de 7 días, tope, cuota, cartas publicadas vs. consultadas. Cambiar el
+   tope queda en la auditoría de M10.
+302. **La vitrina incluye baratas** *(§Y.3)*: con datos que pasan §O.7 ⇒ carta de MX$25 con PSA 10 MX$1,800
+   **entra**; MX$25 con PSA 10 MX$600 **no**; MX$300 con PSA 10 MX$4,500 **no**; MX$25 con PSA 10 MX$3,000 **no**
+   mientras la cota 100× siga (P-JOY-3); una que falle frescura o muestra **no**, aunque cumpla 20× y MX$1,000.
+   Orden por PSA 10 ÷ precio, hasta 8. Antes de encender, backend reporta **cuántas** cartas entrarían con la regla
+   nueva (corrida sin publicar) y el dueño lo ve.
+303. **El cliente ve lo mismo que hoy por teja** *(§Y.4)*: en la vitrina cada teja lleva precio, badge y «Ilustrativo;
+   no evaluamos esta carta.»; la respuesta pública **no** trae el múltiplo, los umbrales ni la ganancia.
+304. **Solo cambia la vitrina** *(§Y.4, default P-JOY-6)*: el badge de la rejilla, la burbuja de destacadas y la ficha
+   se comportan **igual que hoy** con §O.2/§O.7 para las mismas cartas (la de MX$25/MX$1,800 del 302, con un PSA 9
+   de MX$500 —bajo los MX$943 de §O.2—, **no** lleva badge en la rejilla aunque esté en la vitrina).
+305. **Vitrina vacía no se pinta** *(§Y.4)*: si ninguna carta pasa la regla nueva, la vitrina no aparece, como hoy.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -14984,3 +15345,66 @@ ese frente:**
 - **P-DSP-5 · El correo de soporte, ¿sale de la configuración que ya existe o lo fijamos?** Medido: hoy **no es un
   dial de M10**; sale de la configuración del servidor (`DISPUTE_EVIDENCE_CONTACT` / `SUPPORT_EMAIL`, por defecto
   `soporte@tcghunt.mx`). Default: **el mismo buzón y el mismo origen**, sin dial nuevo. §V.6.
+
+## Preguntas — finanzas para el dueño (§W, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
+
+> Si no contestas, se construye con el default. Ninguna bloquea al arquitecto.
+
+- **P-FIN-1 · ¿El día se corta en hora del centro de México?** Default: **sí**, de 00:00 a 23:59 hora de la Ciudad de
+  México, en Finanzas, Reportes, tablero y CSV. §W.2, criterio 275.
+- **P-FIN-2 · ¿Qué es «Caja del día»?** Default: **todo lo aprobado que falta pagar** (SPEI de buylist y reembolsos
+  SPEI, con su antigüedad), lo **bloqueado por falta de CLABE** aparte, y lo **pagado hoy**. Alternativa: solo lo que
+  vence hoy. §W.3 (b), criterio 276.
+- **P-FIN-3 · ¿Cómo cuenta un contracargo?** Default: abierto = **«en riesgo»** sin restar; perdido = resta el
+  **ingreso neto del pedido + la cuota**; ganado = no resta el importe. El IVA del pedido perdido se marca aparte
+  para tu contador. §W.3 (c), criterio 277.
+- **P-FIN-4 · ¿Qué datos necesita tu contador en los exportes?** Default: IVA por pedido con número, fecha, base, IVA,
+  total y cliente (nombre, correo y datos fiscales si los dio); compras a personas físicas con folio, fecha,
+  vendedor, bruto, tarifa descontada, neto y referencia SPEI — **sin** CLABE completa ni INE. Si tu contador pide
+  RFC o CURP del vendedor, dilo: hoy no se le pide (NO MEDIDO por PO si se guarda). §W.4, criterio 284.
+- **P-FIN-5 · Tramos de antigüedad.** Default: **0–30, 31–90, 91–180, más de 180 días**. §W.4, criterio 280.
+- **P-FIN-6 · Sellado sin fuente de precio: ¿con qué se valúa?** Default: último precio conocido (con su fecha);
+  si nunca tuvo, el precio final a mano; si ninguno, «sin valuar», nunca MX$0. §W.4, criterio 282.
+- **P-FIN-7 · (Deseable) ¿Desde cuánto por debajo del mercado avisamos «vendido bajo mercado»?** Default: **20 %**,
+  como dial. §W.5, criterio 290.
+
+## Preguntas — portada rápida (§X, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
+
+> Lo que dijiste («una vez al día, no por solicitud; más el índice») **no se pregunta**. Se confirma la lectura.
+
+- **P-POR-1 · ¿Confirmas la lectura?** Default: el precio exhibido se recalcula **una vez al día** y además
+  **enseguida** tras «Actualizar precios», «Publicar todo», publicar una pieza, mover un dial de precio o poner un
+  precio a mano; lo **vendido** se ve en vivo; el **cobro** siempre recalcula. Alternativa que mencionaste: fijarlo
+  una **semana**. §X.1, criterio 296.
+- **P-POR-2 · ¿El precio precalculado vale también para la ficha de la carta?** Default: **sí** —portada, catálogo
+  y ficha—, para que nunca veas dos precios de la misma pieza antes del carrito. §X.1.
+- **P-POR-3 · Si el precio cambió entre que el cliente lo vio y el pago, ¿lo avisamos?** Medido: hoy **no hay**
+  aviso (el carrito guarda solo piezas y el checkout cotiza en vivo). Default: **se cobra el precio actual** y la
+  línea dice «antes MX$A, ahora MX$B». Alternativa: sin aviso (el total ya se ve antes de pagar). §X.2, criterio 298.
+- **P-POR-4 · ¿Qué tan rápida?** Default: respuesta del servidor **p95 < 500 ms** para portada y catálogo, aunque el
+  inventario se duplique; y el precio nuevo visible **≤ 5 minutos** después de tus acciones. §X.3, criterios 294
+  y 296.
+
+## Preguntas — «Joyas para gradear» con baratas (§Y, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
+
+> Lo que dijiste («que incluya baratas», «cada carta 1 vez por semana») **no se pregunta**.
+
+- **P-JOY-1 · La regla de la vitrina.** Default: entra si **PSA 10 ≥ 20 × el precio** de la carta **y PSA 10 ≥
+  MX$1,000**, con el filtro de calidad del dato de hoy. Con esas cifras, si la carta sale PSA 10, el cliente gana
+  más de 30 % tras pagar carta y gradeo (escalón de MX$700). Ajustables: el **20×** y los **MX$1,000**. §Y.3,
+  criterio 302.
+- **P-JOY-2 · ¿Aceptas que la vitrina ya no garantice ganar si sale PSA 9?** Hoy solo entra lo que gana **aun con
+  PSA 9**; eso deja fuera a las baratas. Default: **sí**, la vitrina muestra el potencial en **PSA 10**, con el aviso
+  «Ilustrativo; no evaluamos esta carta.» de siempre. §Y.3.
+- **P-JOY-3 · El filtro «PSA 10 no más de 100× el precio» frena a las baratas.** Existe para cazar un cero de más.
+  Con una carta de MX$25, el PSA 10 debe estar entre **MX$1,000 y MX$2,500**: una de MX$25 que vale MX$3,000 en PSA 10
+  queda fuera. Default: **se queda en 100×** (proteger de datos rotos). Alternativa: subirlo solo para la vitrina
+  (p. ej. 300×). §Y.3, criterio 302.
+- **P-JOY-4 · ¿En qué orden?** Default: por **PSA 10 ÷ precio**, de mayor a menor, hasta **8** cartas (salen primero
+  las baratas con más potencial). Alternativa: mezclar caras y baratas. §Y.3.
+- **P-JOY-5 · ¿Cuántos créditos PSA al día como máximo?** Estimado (no medido en producción): ~**1.700/día** para
+  cubrir ~6.000 cartas cada semana; hoy se gastan ~1.000/día; tu cuota es 20.000/día. Default: **tope de 3.000/día**
+  (15 %), editable; si no alcanza, el turno se alarga en vez de pasarse. §Y.2, criterio 301.
+- **P-JOY-6 · ¿La regla nueva vale también para el badge de la rejilla y la burbuja de destacadas?** Default: **no,
+  solo la vitrina**; la rejilla, destacadas y la ficha siguen como hoy. Consecuencia: una carta barata puede estar en
+  la vitrina y salir sin badge en la rejilla. §Y.4, criterio 304.

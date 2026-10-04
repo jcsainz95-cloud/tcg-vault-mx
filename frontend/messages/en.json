@@ -84,6 +84,7 @@
   "account": {
     "eyebrow": "ACCOUNT",
     "title": "My account",
+    "usernameLine": "Username: {username}",
     "index": {
       "label": "Sections"
     },
@@ -116,6 +117,10 @@
       "unverified": "NOT VERIFIED",
       "unverifiedBody": "Verify your email to buy, sell and withdraw.",
       "changeNote": "To change your email, write to {contact}."
+    },
+    "username": {
+      "title": "Username",
+      "note": "You sign in with this username on the same page as customers. It can't be changed; if you need a different one, ask the administrator."
     },
     "addresses": {
       "title": "Shipping addresses"
@@ -1179,6 +1184,10 @@
     "loginTitle": "Log in",
     "registerTitle": "Create account",
     "email": "Email",
+    "emailOrUsername": "Email or username",
+    "lockedAskAdmin": "Too many attempts with this username. Wait a few minutes and try again. If you don't remember your password, ask the administrator to reset it.",
+    "lockedAskAdminRetryIn": "Too many attempts with this username. Try again in {minutes, plural, one {# minute} other {# minutes}}. If you don't remember your password, ask the administrator to reset it.",
+    "invalidCredentialsUsername": "Wrong username or password.",
     "password": "Password",
     "name": "Name",
     "phone": "Phone",
@@ -1266,6 +1275,13 @@
   },
   "admin": {
     "shellTitle": "Back-office",
+    "lockNotice": {
+      "title": "There were several failed attempts to sign in to your account",
+      "body": "It was on {since}. If it was you, you don't need to do anything. If not, your password is still safe: change it and let the administrator know.",
+      "changeLink": "Change password",
+      "dismiss": "Got it",
+      "dismissError": "We couldn't close this notice. Try again."
+    },
     "authLoading": "Checking session…",
     "roleLabel": "Role",
     "searchGlobal": "Search folio or user…",
@@ -3360,7 +3376,7 @@
     "m6": {
       "title": "Users",
       "subtitle": "Browse users, their 360° profile, and manage KYC and blocking.",
-      "searchLabel": "Search (email or name)",
+      "searchLabel": "Search (email, username or name)",
       "view": "View profile",
       "active": "Active",
       "blocked": "Blocked",
@@ -3381,7 +3397,8 @@
         "action": "Action",
         "actorRole": "Actor role",
         "ip": "IP",
-        "identity": "Identity"
+        "identity": "Identity",
+        "identifier": "Email or username"
       },
       "pageInfo": "Page {page} of {totalPages} · {total} users",
       "prev": "Previous",
@@ -3419,7 +3436,11 @@
       "unblockQuestion": "Reactivate this user's account?",
       "deleted": "Deleted",
       "accountTitle": "Account management",
-      "resetHint": "Reset the password and generate a temporary one to share with the user; revokes their active sessions.",
+      "usernameLine": "Username: {username}",
+      "lockMark": "Locked after failed attempts until {time}",
+      "lockHint": "It lifts on its own at that time. To lift it sooner, reset the password.",
+      "lockUnavailable": "We couldn't check failed-attempt locks right now, so this list doesn't show them. Reload it in a moment.",
+      "resetHint": "Generates a temporary password that you'll see only once, so you can hand it over yourself. No email is sent. It signs them out everywhere and lifts the failed-attempts lock, if any.",
       "resetPassword": "Reset password",
       "resetError": "Could not reset the password.",
       "resetTitle": "Temporary password",
@@ -3460,7 +3481,25 @@
         "errorGeneric": "Could not create the user.",
         "successTitle": "User created",
         "successBody": "Account created for {email} with role {role}.",
-        "providedPasswordNote": "The user can sign in with the password you set."
+        "providedPasswordNote": "The user can sign in with the password you set.",
+        "kind": "Account type",
+        "kindCustomer": "Customer",
+        "kindStaff": "Team",
+        "kindStaffNote": "Team accounts have no email: they sign in with their username and the password you give them.",
+        "username": "Username",
+        "usernameRule": "3 to 30 characters: letters a–z without accents, numbers, dot (.), hyphen (-) and underscore (_). Starts with a letter.",
+        "usernamePreview": "It will be saved as “{username}”.",
+        "usernameError": {
+          "required": "Enter a username.",
+          "length": "It must be 3 to 30 characters long.",
+          "charset": "Only letters a–z without accents, numbers, dot (.), hyphen (-) and underscore (_). No spaces or @.",
+          "start": "It must start with a letter."
+        },
+        "errorUsernameTaken": "That username is already taken (case doesn't matter). Choose another one.",
+        "errorValidationStaff": "Check the details: name, team role and a password of at least 8 characters.",
+        "passwordHintStaff": "Leave it empty to generate a secure temporary one (shown only once). Either way, they'll have to change it the first time they sign in.",
+        "successBodyStaff": "Team account created: username {username}, role {role}. They sign in on the usual “Sign in” page, with their username and password.",
+        "providedPasswordNoteStaff": "Give them the password you set through a secure channel. They'll have to change it the first time they sign in."
       },
       "tabs": {
         "purchases": "Purchases",
@@ -3563,7 +3602,12 @@
       "kycFilterNone": "No ID",
       "auditAction": {
         "user_kyc_reveal_ine": "Viewed the ID",
-        "user_kyc_update": "Decided on the identity"
+        "user_kyc_update": "Decided on the identity",
+        "auth_password_lock": "Locked after failed attempts",
+        "user_reset_password": "Password reset by an admin",
+        "user_create": "Account created",
+        "auth_password_changed": "Changed their password",
+        "auth_logout": "Signed out"
       }
     },
     "m11": {
@@ -4868,6 +4912,7 @@
     "REQUEST_HAS_NON_REJECTED_ITEMS": "Cannot close: some items are not rejected yet. Reject every item in the request before closing it.",
     "EMAIL_TAKEN": "That email is already registered.",
     "INVALID_CREDENTIALS": "Wrong email or password.",
+    "ACCOUNT_WITHOUT_EMAIL": "This is a team account without an email, so it can't buy, send to the vault or sell. To do that, use a customer account.",
     "USER_BLOCKED": "Your account is blocked.",
     "BILLING_PROFILE_REQUIRED": "You need a billing profile.",
     "DISPUTE_WINDOW_CLOSED": "The dispute window has closed.",

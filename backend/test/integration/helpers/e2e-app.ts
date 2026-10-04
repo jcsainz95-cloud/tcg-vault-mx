@@ -17,7 +17,7 @@ import * as http from 'http';
 import { randomUUID } from 'crypto';
 import { Injectable, INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Test } from '@nestjs/testing';
+import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { json } from 'express';
 import Stripe from 'stripe';
 import { PrismaClient } from '@prisma/client';
@@ -305,11 +305,15 @@ export class E2EHarness {
     public readonly stripe: TestStripeService,
   ) {}
 
-  static async create(): Promise<E2EHarness> {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  /**
+   * @param customize v1.80.9.1 (STF-32): sustituciones ADICIONALES de proveedores sobre el `AppModule` real (p. ej. el
+   * almacén de intentos por un `ResilientLoginAttemptStore` sobre un Redis doble). Sin él, la app de siempre.
+   */
+  static async create(customize?: (b: TestingModuleBuilder) => TestingModuleBuilder): Promise<E2EHarness> {
+    const base = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(StripeService)
-      .useClass(TestStripeService)
-      .compile();
+      .useClass(TestStripeService);
+    const moduleRef = await (customize ? customize(base) : base).compile();
 
     const app = moduleRef.createNestApplication();
 

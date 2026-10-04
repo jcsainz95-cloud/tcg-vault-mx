@@ -40,7 +40,18 @@ export function AuthForm({
    * `max(1, ceil(s / 60))`, `null` sin cifra usable) para los dos códigos. ⛔ Sin contador regresivo sin
    * cifra; el botón no se apaga (el servidor es la puerta). ⛔ Nunca «tu cuenta está bloqueada».
    */
-  const [rateLimited, setRateLimited] = useState<{ minutes: number | null; code: string } | null>(null);
+  /**
+   * ⭐ v1.80.9 (§M6-U.10 punto 3, DESIGN_SYSTEM §42.1 C-3): `typedUsername` = lo tecleado en ESE submit no
+   * lleva `@`. Elige el texto del aviso por cuenta («pídele al administrador», sin enlace). ⛔ Depende solo de
+   * lo tecleado, nunca de la respuesta más allá de `error.code` ⇒ no es oráculo de existencia (criterio 259).
+   */
+  const [rateLimited, setRateLimited] = useState<{ minutes: number | null; code: string; typedUsername: boolean } | null>(null);
+  /**
+   * ⭐ v1.80.9 (DESIGN_SYSTEM §42.1 C-4, N-5): el error de credenciales dice «Usuario» si lo tecleado en el
+   * MISMO submit que lo produjo no lleva `@` (no el campo vivo, que pudo editarse después). Misma regla que
+   * `typedUsername`: forma de lo tecleado + `error.code`, nada más.
+   */
+  const [errorTypedUsername, setErrorTypedUsername] = useState(false);
   const rateLimitRef = useRef<HTMLDivElement>(null);
 
   // Solo se honra un `next` interno (empieza con "/") para evitar open redirect.
@@ -76,6 +87,8 @@ export function AuthForm({
     const form = new FormData(e.currentTarget);
     const email = String(form.get('email') ?? '');
     const password = String(form.get('password') ?? '');
+    // Correo o usuario: lo decide la FORMA de lo tecleado (con o sin `@`), como el servidor (§M6-U.2).
+    const typedUsername = !email.includes('@');
     try {
       // Email/contraseña es la acción PRIMARIA (contrato §1 /auth/login|register).
       // Redirige según el rol devuelto en AuthResponse.user.role (admin → /admin).
@@ -96,8 +109,9 @@ export function AuthForm({
       // pinta el aviso y el usuario decide. Se guarda el `code`: solo `TOO_MANY_PASSWORD_ATTEMPTS` ofrece
       // restablecer (contrato v1.80.8.1); el status 429 solo decide QUE hay aviso, no CUÁL.
       if (err instanceof ApiClientError && err.status === 429) {
-        setRateLimited({ minutes: retryAfterMinutes(err.details), code: err.code });
+        setRateLimited({ minutes: retryAfterMinutes(err.details), code: err.code, typedUsername });
       } else {
+        setErrorTypedUsername(typedUsername);
         setErrorCode(err instanceof ApiClientError ? err.code : 'INTERNAL');
       }
       setLoading(false);
@@ -106,6 +120,11 @@ export function AuthForm({
 
   // Tabla de la errata v1.80.8.1: el aviso por cuenta (con enlace) SOLO con su código y en login.
   const perAccount = mode === 'login' && rateLimited?.code === TOO_MANY_PASSWORD_ATTEMPTS;
+  // ⭐ v1.80.9 (§42.1 C-3): candado por cuenta con un USUARIO tecleado ⇒ «pídele al administrador», ⛔ sin
+  // enlace a restablecer (el equipo sin correo no tiene por dónde recibirlo). Con `@`, el aviso de hoy.
+  const perAccountUsername = perAccount && rateLimited?.typedUsername === true;
+  // ⭐ v1.80.9 (§42.1 C-4): solo `INVALID_CREDENTIALS` en login y sin `@` en lo tecleado.
+  const invalidCredentialsUsername = mode === 'login' && errorCode === 'INVALID_CREDENTIALS' && errorTypedUsername;
 
   useEffect(() => {
     if (rateLimited) rateLimitRef.current?.focus();
@@ -135,14 +154,18 @@ export function AuthForm({
             <Banner variant="warning" role="alert">
               <p>
                 {perAccount
-                  ? rateLimited.minutes !== null
-                    ? t('login.rateLimitedRetryIn', { minutes: rateLimited.minutes })
-                    : t('login.rateLimited')
+                  ? perAccountUsername
+                    ? rateLimited.minutes !== null
+                      ? t('lockedAskAdminRetryIn', { minutes: rateLimited.minutes })
+                      : t('lockedAskAdmin')
+                    : rateLimited.minutes !== null
+                      ? t('login.rateLimitedRetryIn', { minutes: rateLimited.minutes })
+                      : t('login.rateLimited')
                   : rateLimited.minutes !== null
                     ? t('rateLimitedByIpRetryIn', { minutes: rateLimited.minutes })
                     : t('rateLimitedByIp')}
               </p>
-              {perAccount && (
+              {perAccount && !perAccountUsername && (
                 <Link href="/forgot-password" className="mt-2 inline-block text-text underline underline-offset-4 hover:text-accent">
                   {t('login.rateLimitedResetLink')}
                 </Link>
@@ -152,7 +175,11 @@ export function AuthForm({
         )}
         {errorCode && (
           <Banner variant="danger" role="alert">
-            {tErr.has(errorCode) ? tErr(errorCode) : tErr('INTERNAL')}
+            {invalidCredentialsUsername
+              ? t('invalidCredentialsUsername')
+              : tErr.has(errorCode)
+                ? tErr(errorCode)
+                : tErr('INTERNAL')}
           </Banner>
         )}
       </div>
@@ -163,7 +190,27 @@ export function AuthForm({
             <Input label={t('phone')} name="phone" type="tel" inputMode="tel" autoComplete="tel" />
           </>
         )}
-        <Input label={t('email')} name="email" type="email" autoComplete="email" required />
+        {mode === 'login' ? (
+          /*
+           * ⭐ v1.80.9 (§M6-U.10 punto 1, DESIGN_SYSTEM §42.1 C-1): la MISMA pantalla para clientes y equipo
+           * (HECHOS 2026-10-04 (c)). `type="text"` para que el navegador no rechace un usuario; `inputMode="email"`
+           * deja el teclado con `@`. `name="email"`: el contrato no cambia la llave. ⛔ Sin placeholder ni ayuda:
+           * la pantalla no anuncia que existen usuarios.
+           */
+          <Input
+            label={t('emailOrUsername')}
+            name="email"
+            type="text"
+            inputMode="email"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+          />
+        ) : (
+          <Input label={t('email')} name="email" type="email" autoComplete="email" required />
+        )}
         <Input
           label={t('password')}
           name="password"

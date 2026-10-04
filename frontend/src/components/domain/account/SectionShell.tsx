@@ -9,6 +9,8 @@ import { cn } from '@/lib/cn';
 export type AccountSectionId =
   | 'profile'
   | 'email'
+  /** ⭐ v1.80.9 (§42.8): en lugar de `email` para el equipo sin correo. */
+  | 'username'
   | 'addresses'
   | 'billing'
   | 'kyc'

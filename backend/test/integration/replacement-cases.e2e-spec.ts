@@ -154,7 +154,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     const q2 = (await db.queue()).body.data.find((r: any) => r.shipmentId === f.w.shipment.id);
     expect(q2.items.map((i: any) => i.refund.kind)).toEqual(['replacement', 'replacement']);
     // «Mi bóveda»: la sigue enseñando, «la estamos reponiendo», NO retirable; y su retiro dice lo mismo.
-    const tok = await db.loginCustomer(f.u.email);
+    const tok = await db.loginCustomer(f.u.email!);
     const hold = (await db.holdings(tok)).body.data.find((x: any) => x.inventoryItemId === f.vo.pieces[0].id);
     expect(hold).toMatchObject({ status: 'lost', withdrawable: false, replacement: { status: 'open', reason: 'not_found', since: expect.any(String), refund: null } });
     const cs = await db.clientShipment(f.w.shipment.id, tok);
@@ -467,7 +467,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     expect(again.body.outcome).toBe('already_resolved');
     expect(again.body.refunds).toHaveLength(1);
     // El cliente lo ve en su pedido: «reembolsada» con el total capturado; ⛔ sin motivo ni referencias.
-    const tok = await db.loginCustomer(s.u.email);
+    const tok = await db.loginCustomer(s.u.email!);
     const od = await db.clientOrder(s.vo.order.id, tok);
     expect(od.status).toBe(200);
     expect(JSON.stringify(od.body)).not.toMatch(/TCGplayer|refundMarketRef|marketRef/);
@@ -1087,7 +1087,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     expect(kase.body.manualRefunds[0].status).toBe('cancelled');
     expect(av14().length + av15().length).toBe(0);
     // el cliente lo ve como `cancelled`
-    const tok = await db.loginCustomer(p.u.email);
+    const tok = await db.loginCustomer(p.u.email!);
     const od = await db.clientOrder(p.vo.order.id, tok);
     expect(od.status).toBe(200);
     // pagada ⇒ 409
@@ -1216,7 +1216,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
 
   it('PS-53 💰 — `reissue` de una `cancelled` ⇒ fila nueva `pending` con el mismo importe y componentes, `reissuedFromId`, CERO AV-14; repetir ⇒ 200 la misma; sobre `pending`/`paid` ⇒ 409; INV-MR-1; el cliente ve `cancelled` antes y `pending` después', async () => {
     const p = await mkPending();
-    const tok = await db.loginCustomer(p.u.email);
+    const tok = await db.loginCustomer(p.u.email!);
     const view = async () => (await db.clientOrder(p.vo.order.id, tok)).body.items.find((i: any) => i.inventoryItemId === p.piece.id)?.replacement;
     expect(await view()).toMatchObject({ status: 'refunded', reason: 'not_found', refund: { amountCents: Q, byTransferCents: Q, transferStatus: 'pending' } });
     const np = await db.mrReissue(p.mr.id, { note: 'aún pendiente' });
@@ -1252,7 +1252,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
 
   it('PS-46 🔒 — `PUT /users/me/kyc` con CLABE nueva ⇒ `clabeUpdatedAt`, UNA bitácora sin 18 dígitos, UN AV-16 con las dos máscaras; misma CLABE ⇒ cero escrituras y cero avisos', async () => {
     const u = await db.mkUser('Clabe Cuarenta y Seis');
-    const tok = await db.loginCustomer(u.email);
+    const tok = await db.loginCustomer(u.email!);
     const r = await db.putKyc(tok, { clabe: CLABE_A });
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ clabeMasked: '**************4567', clabeOnFile: true, clabeUpdatedAt: expect.any(String) });
@@ -1282,7 +1282,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
   it('PS-47 💰🔒 — reveal ⇒ token; cambiar la CLABE ⇒ `paid` con el token viejo 409 CLABE_CHANGED_SINCE_REVEAL (cero escrituras); re-reveal ⇒ 422 {required:[recent_clabe_change]}; con `true` ⇒ 200 y `paidClabeHmac` = la revelada; carrera paid vs PUT kyc (N≥10)', async () => {
     const pii = h.app.get(PiiCryptoService);
     const p = await mkPending();
-    const tok = await db.loginCustomer(p.u.email);
+    const tok = await db.loginCustomer(p.u.email!);
     const old = (await db.mrReveal(p.mr.id)).body.revealToken;
     expect((await db.putKyc(tok, { clabe: CLABE_B })).status).toBe(200);
     const stale = await db.mrPaid(p.mr.id, { revealToken: old, speiReference: 'S1' });
@@ -1306,7 +1306,7 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     let inter = 0;
     for (let i = 0; i < N; i += 1) {
       const m = await mkPending({ name: `PS47 ${i}` });
-      const ctok = await db.loginCustomer(m.u.email);
+      const ctok = await db.loginCustomer(m.u.email!);
       const tk = (await db.mrReveal(m.mr.id)).body.revealToken;
       const kycRow = await h.prisma.kycProfile.findUniqueOrThrow({ where: { userId: m.u.id } });
       const res = await db.forced(

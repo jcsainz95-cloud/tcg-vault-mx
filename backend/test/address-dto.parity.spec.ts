@@ -10,6 +10,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { ADDRESS_DTO_KEYS, toAddressDTO } from '../src/modules/users/address-dto';
+import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
  * v1.67.1 (techlead F2-2, `D-CTA-8`, contrato §M6 / §11 `AddressDTO`) — **UNA sola proyección de
@@ -88,7 +89,7 @@ function buildAdmin() {
     fxSnapshotSafe: jest.fn().mockResolvedValue(null),
     liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
   } as unknown as PricingService;
-  return new AdminService(prisma as PrismaService, pricing, pii, {} as never);
+  return new AdminService(prisma as PrismaService, pricing, pii, {} as never, undefined, noLockAttempts());
 }
 
 function buildUsers() {

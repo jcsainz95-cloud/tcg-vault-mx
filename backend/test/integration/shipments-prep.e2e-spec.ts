@@ -314,7 +314,7 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
       data: { email: `sp.op4b.${Date.now().toString(36)}@e2e.local`, passwordHash: seedOp.passwordHash, name: 'Operador PS-4b', nameSource: 'user', role: 'vault_operator', emailVerified: true },
     });
     db.users.push(op.id);
-    const opToken = await h.login(op.email, E2E_USERS.operator.password);
+    const opToken = await h.login(op.email!, E2E_USERS.operator.password);
     const now = Date.now();
     const H = 60 * 60 * 1000;
     // Cada `item_missing` cuelga de su propia línea (`orderItemId`/`shipmentItemId` son @unique): dos filas por directo.

@@ -135,3 +135,18 @@ export function formatDateTimeMx(iso: string | null | undefined, locale: AppLoca
     timeZone: 'America/Mexico_City',
   }).format(date);
 }
+
+/**
+ * ⭐ v1.80.9 (DESIGN_SYSTEM §42.5.3): SOLO la hora, en `America/Mexico_City` (misma zona fija que
+ * `formatDateTimeMx`), para la marca «Bloqueado por intentos hasta HH:MM». Basta la hora: el candado
+ * máximo es 60 min. Entrada inválida ⇒ `''` (y quien la usa no pinta la marca).
+ */
+export function formatTimeMx(iso: string | null | undefined, locale: AppLocale = 'es'): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(localeTag[locale], {
+    timeStyle: 'short',
+    timeZone: 'America/Mexico_City',
+  }).format(date);
+}

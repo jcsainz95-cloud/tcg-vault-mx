@@ -52,6 +52,12 @@ export const ErrorCode = {
   // userId). Cabecera `Retry-After` + details { retryAfterSeconds }. Idéntico exista o no la cuenta.
   // Distinto de RATE_LIMITED porque el remedio difiere: restablecer la contraseña también lo levanta.
   TOO_MANY_PASSWORD_ATTEMPTS: 'TOO_MANY_PASSWORD_ATTEMPTS',
+  // 403 — v1.80.9 (§M6-U.8 (c), criterio 269): una cuenta del equipo SIN correo intenta una acción de cliente (las
+  // cinco rutas con `@RequireEmailVerified`). Lo emite `EmailVerifiedGuard` ANTES de mirar `emailVerified`.
+  ACCOUNT_WITHOUT_EMAIL: 'ACCOUNT_WITHOUT_EMAIL',
+  // 409 — v1.80.9 (§M6-U.6): `POST /admin/users` con un nombre de usuario ya usado (sin distinguir mayúsculas: se
+  // guarda canónico). Lo decide el índice único (`P2002` sobre `username`). Solo `super_admin` lo ve.
+  USERNAME_TAKEN: 'USERNAME_TAKEN',
   // 422 — POST /shipments/quote | /shipments con un `addressId` cuya fila tiene `recipientName IS NULL`
   // (dirección anterior a M-52). Emisor: módulo `shipments` (Stream A · B5). details { field, addressId }.
   RECIPIENT_NAME_REQUIRED: 'RECIPIENT_NAME_REQUIRED',

@@ -16,8 +16,9 @@ import { ADDRESS_DTO_KEYS } from '../src/modules/users/address-dto';
  */
 
 /** Las 14 claves de `GET /users/me` (contrato §1, v1.67). El PATCH devuelve EXACTAMENTE las mismas. */
+// v1.80.9 (§M6-U.5): + `username` y `lockNotice` (16 claves).
 const ME_KEYS = [
-  'id', 'email', 'name', 'nameSource', 'phone', 'role', 'locale', 'kycStatus', 'status',
+  'id', 'email', 'username', 'lockNotice', 'name', 'nameSource', 'phone', 'role', 'locale', 'kycStatus', 'status',
   'authProvider', 'emailVerified', 'avatarUrl', 'hasPassword', 'mustChangePassword',
 ].sort();
 

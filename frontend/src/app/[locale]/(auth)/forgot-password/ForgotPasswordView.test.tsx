@@ -56,3 +56,37 @@ describe('ForgotPasswordView (anti-enumeración)', () => {
     expect(screen.queryByText(/Si el correo existe/)).toBeNull();
   });
 });
+
+/**
+ * **UX-5** (`DESIGN_SYSTEM §42.2`, criterio 262, nota N-1): con un USUARIO tecleado la pantalla se comporta
+ * EXACTAMENTE como con un correo inexistente — el envío llega a `forgotPassword('ana')` y pinta el mismo
+ * «Si el correo existe…». Con `type="email"` el navegador lo frenaría con su propio mensaje (señal distinta).
+ * Canario: devolver `type="email"`.
+ */
+describe('UX-5 · «olvidé» no rechaza un usuario en el navegador', () => {
+  it('el campo es `type="text"` (con teclado de correo) y conserva la etiqueta «Correo»', () => {
+    renderWithIntl(<ForgotPasswordView />);
+    const input = screen.getByLabelText('Correo');
+    expect(input).toHaveAttribute('type', 'text');
+    expect(input).toHaveAttribute('inputmode', 'email');
+    expect(input).toHaveAttribute('autocomplete', 'email');
+    // ⛔ La pantalla no menciona usuarios ni al administrador.
+    expect(document.body.textContent).not.toMatch(/usuario|administrador/i);
+  });
+
+  it('«ana» y «nadie@x.com» llegan al servidor y pintan el MISMO resultado', async () => {
+    forgotPassword.mockResolvedValue({ ok: true });
+    const a = renderWithIntl(<ForgotPasswordView />);
+    submitEmail('ana');
+    await screen.findByText(/Si el correo existe/);
+    expect(forgotPassword).toHaveBeenLastCalledWith('ana');
+    const withUsername = a.container.innerHTML;
+    a.unmount();
+
+    const b = renderWithIntl(<ForgotPasswordView />);
+    submitEmail('nadie@x.com');
+    await screen.findByText(/Si el correo existe/);
+    expect(forgotPassword).toHaveBeenLastCalledWith('nadie@x.com');
+    expect(b.container.innerHTML).toBe(withUsername);
+  });
+});

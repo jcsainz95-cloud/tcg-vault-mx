@@ -510,7 +510,8 @@ export class BuylistSweepJobService {
    */
   private async sendMail(
     id: string,
-    user: { name: string; email: string; locale: string | null } | null | undefined,
+    // v1.80.9: `email` anulable en el schema; el `!user?.email` de abajo ya omite con aviso (§M6-U.8 (a) E-4).
+    user: { name: string; email: string | null; locale: string | null } | null | undefined,
     build: () => { to: string; subject: string; html: string; text: string },
   ): Promise<void> {
     try {
