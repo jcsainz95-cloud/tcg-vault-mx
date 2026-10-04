@@ -63,6 +63,14 @@ caso VERDE "Ficha obsoleta: avisa, no castiga"       2026-09-10 "$FICHAS_OK"
 caso VERDE "Moderadas: no entran al trinquete"       2026-09-10 "$FICHAS_OK" "GHSA-AAAA:critical:vitest" "GHSA-MOD:moderate:algo"
 
 # Sin tabla de fichas, las excepciones vuelven a ser invisibles: eso es rojo.
+# §76 — ALIAS: una ficha `GHSA-x,CVE-y` (npm audit ve el GHSA, trivy el CVE).
+FICHAS_ALIAS="$BASE/fichas-alias.tsv"
+printf 'GHSA-BBBB,CVE-2026-1%sfrontend%sbraces%sfrontend%s2026-10-10%smotivo medido\n' "$T" "$T" "$T" "$T" "$T" > "$FICHAS_ALIAS"
+caso VERDE "Alias: el CVE casa la ficha GHSA,CVE"        2026-09-10 "$FICHAS_ALIAS" "CVE-2026-1:high:braces"
+caso VERDE "Alias: el GHSA casa la ficha GHSA,CVE"       2026-09-10 "$FICHAS_ALIAS" "GHSA-BBBB:high:braces"
+caso ROJO  "Alias: caduca igual por el CVE"              2026-10-11 "$FICHAS_ALIAS" "CVE-2026-1:high:braces"
+caso ROJO  "Alias: un ID parecido NO casa (CVE-2026-12)" 2026-09-10 "$FICHAS_ALIAS" "CVE-2026-12:high:braces"
+
 dir="$BASE/sin-fichas"; mkdir -p "$dir"
 fixture "$dir/frontend.dev.json" "GHSA-AAAA:critical:vitest"
 printf '{"vulnerabilities":{}}' > "$dir/frontend.prod.json"

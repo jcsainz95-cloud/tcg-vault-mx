@@ -13016,3 +13016,72 @@ la restauración vuelve a 0 ✗. Son deterministas, sin carrera:
 
 **Rollback:** revertir el commit. El candado vuelve a juzgar todo el informe, y el próximo `dast-release` vuelve a
 salir rojo por el iframe de Stripe.
+
+## §76 · `braces@3.0.3` (CVE-2026-93687 = GHSA-vfj7-8cjw-p6xm, HIGH, sin arreglo) pone rojos `npm-audit`, `trivy-fs` y `trivy-image` (2026-10-04, rama `claude/post-release-s5`)
+
+**Síntoma (medido por el orquestador, run 37176114596 sobre `ab8fcc89`):** `trivy-fs` (trinquete dev vía
+`trivy-dev-fichas.sh`), `npm-audit` (`audit-npm-dev.sh`) y `trivy-image` rojos por `braces@3.0.3`. Aviso nuevo, no
+viene de ningún diff: rojo en cualquier rama.
+
+**¿Hay arreglo? No (medido 2026-10-04):** `npm view braces versions` → la última es `3.0.3`; el aviso cubre `<=3.0.3`.
+`micromatch@4.0.8` (la última) exige `braces ^3.0.3`; `chokidar@3.6.0` exige `braces ~3.0.2`. `fixAvailable` de npm
+propone `@nestjs/cli@12` (major, de backend) y no quitaría la rama de jest→micromatch. No hay override posible.
+
+**Dónde está (medido):**
+
+| Sitio | Cadena | ¿Runtime? |
+|---|---|---|
+| backend lock | `@nestjs/cli→chokidar→braces`, `jest→@jest/core→micromatch→braces` | no: `npm ls braces --omit=dev` vacío |
+| frontend lock | `tailwindcss→chokidar/micromatch→braces` | no: `npm ls braces --omit=dev` vacío |
+| imagen `tcg-backend` | `/app/node_modules/braces/package.json` | fichero presente, **no cargado** (ver abajo) |
+| imagen `tcg-frontend` | — (standalone de Next: `trivy rootfs` 0 hallazgos) | — |
+
+La imagen backend lo trae porque `Dockerfile.backend` copia `node_modules` **con devDependencies** a propósito
+(§6.2: `prisma` del `migrate deploy` y `ts-node` del seed son devDependencies). En el contenedor solo corren el
+preflight (`sh`), `node node_modules/prisma/build/index.js migrate deploy`, `node dist/main.js` y, a mano,
+`ts-node prisma/seed.ts`; ninguno tiene braces en su cierre (`npm ls braces` solo muestra @nestjs/cli y jest) y
+ningún fichero de `src/`/`prisma/`/`scripts/` importa braces/micromatch/chokidar/fast-glob. Ninguna entrada de
+usuario llega a un patrón glob: los únicos patrones son los fijos de `jest.config.js` y `tailwind.config.ts`.
+
+**Decisión: fichar, con fecha corta, en los DOS registros, sin tocar umbrales.**
+
+1. `security/npm-audit-dev-fichas.tsv`: **una** ficha `GHSA-vfj7-8cjw-p6xm,CVE-2026-93687`, dueño backend,frontend,
+   `revisar_antes_de 2026-11-03`. La primera columna ahora admite **alias separados por coma**, porque el mismo aviso
+   llega con dos IDs: npm audit da el GHSA y trivy el CVE (su DB no trae el GHSA en `References` — medido con trivy
+   sobre `backend/package-lock.json`). Con dos fichas sueltas, cada trinquete pedía «PÓDALA» de la otra: un aviso
+   falso que invita a borrar una excepción viva. `audit-npm-dev.sh` casa el ID exacto contra cualquiera de los
+   alias; el self-test suma 4 casos (CVE casa, GHSA casa, caduca por el CVE, `CVE-2026-12` NO casa `CVE-2026-1`).
+2. `security/.trivyignore-image` (**nuevo**, solo imágenes): `CVE-2026-93687 exp:2026-11-03`. No va en
+   `.trivyignore` porque ese fichero lo leen también `trivy-fs.sh` y `trivy-dev-fichas.sh`: los dejaría ciegos al
+   mismo aviso, que en lockfiles ya juzga la ficha (1). El job `trivy-image` pasa
+   `trivyignores: security/.trivyignore,security/.trivyignore-image` (la acción v0.36.0 concatena ficheros planos);
+   `trivy-image.sh` hace la misma concatenación. Toda línea lleva `exp:` y trivy deja de honrarla sola.
+3. Registro de decisiones de `security/README.md` (bloque que se publica en cada run): entrada nueva.
+
+**Prueba (devops, 2026-10-04, árbol de trabajo sobre `ab8fcc89` + este diff; trivy compilado desde fuente con
+`go install …/trivy@latest`, DB de `mirror.gcr.io`):**
+
+| Paso | Resultado |
+|---|---|
+| `audit-npm.sh` (runtime) | rc 0 |
+| `audit-npm-dev.sh` | rc 0 (GHSA fichado; sin «PÓDALA») |
+| `audit-npm-dev-selftest.sh` | 10/10 |
+| `trivy-fs.sh` / `trivy-fs-selftest.sh` | rc 0 / rc 0 |
+| `trivy-dev-fichas.sh` | rc 0 (CVE fichado; sin «PÓDALA») |
+| `trivy rootfs` (config y umbral del gate) sobre `npm ci --include=dev` del lock de HEAD (= capa node-pkg de `tcg-backend`) con `.trivyignore`+`.trivyignore-image` | rc 0; solo con `.trivyignore`: rc 1 |
+| ídem sobre el standalone de Next (`tcg-frontend`) | rc 0 con y sin la excepción |
+
+**Mutaciones (copia en scratchpad, deterministas, N=1 cada una):** sin la ficha → `audit-npm-dev.sh` ROJO (GHSA) y
+`trivy-dev-fichas.sh` ROJO (CVE); ficha sin el alias CVE → npm verde, trivy ROJO; `AUDIT_DEV_HOY=2026-11-04` →
+ambos ROJO «venció»; `.trivyignore-image` sin la línea → imagen rc 1; con `exp:2026-10-03` → rc 1; self-test nuevo
+contra el `audit-npm-dev.sh` de HEAD → 8/10 (los dos casos de alias en verde caen).
+
+**NO MEDIDO:** `trivy-image` real con `docker build` (aquí no hay demonio Docker; la capa OS de alpine no se midió):
+lo mide el job de CI tras el push.
+
+**Salida real (para la revisión del 2026-11-03):** que backend mueva `prisma`/`ts-node`/`typescript` a
+`dependencies` (decisión suya, `backend/package.json`) para que devops pode devDeps en la imagen — eso quita braces,
+jest y @nestjs/cli del artefacto —, o que upstream publique braces arreglado. Si a esa fecha nada cambió, la ficha
+se renueva **con nueva medición**, no copiando esta.
+
+**Rollback:** revertir el commit. Los tres gates vuelven a rojo por braces (que es el estado sin decisión).
