@@ -17,6 +17,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type {
+  AdminOrderDetailDTO,
   AdminOrderDTO,
   RefundConfirmationRequiredDetails,
   RefundOrderRequest,
@@ -29,8 +30,16 @@ import { ShippedReasonFieldset } from './ShippedReasonFieldset';
 
 export const ADMIN_ORDER_KEY = ['admin-order'] as const;
 
-/** Lo que el diálogo necesita de la orden (vale para la fila del listado y para el detalle). */
+/**
+ * Lo que el diálogo necesita de la orden. La FILA del listado (`AdminOrderSummaryDTO`) trae `totalCents` en la raíz;
+ * el DETALLE no — lo trae en `breakdown.totalCents` (contrato §11). Para el detalle usar `refundDialogOrderOfDetail`.
+ */
 export type RefundDialogOrder = Pick<AdminOrderDTO, 'id' | 'totalCents' | 'fulfillmentMode' | 'orderNumber'>;
+
+/** Proyecta el detalle M3 a lo que pide el diálogo (QA s5 IMPORTANTE-1: el total del detalle es `breakdown.totalCents`). */
+export function refundDialogOrderOfDetail(o: AdminOrderDetailDTO): RefundDialogOrder {
+  return { id: o.id, totalCents: o.breakdown.totalCents, fulfillmentMode: o.fulfillmentMode, orderNumber: o.orderNumber };
+}
 
 /** Lo que el diálogo sabe y el servidor no devuelve: el motivo que se eligió (`DESIGN_SYSTEM §40.2 (b)` «Éxito»). */
 export interface RefundDoneInfo {
@@ -88,7 +97,7 @@ export function RefundOrderDialog({
     enabled: open && !!orderId,
   });
   const isVault = (detail.data?.fulfillmentMode ?? order?.fulfillmentMode) === 'vault';
-  const remaining = detail.data && typeof detail.data.refundedCents === 'number' ? detail.data.totalCents - detail.data.refundedCents : (order?.totalCents ?? 0);
+  const remaining = detail.data && typeof detail.data.refundedCents === 'number' ? detail.data.breakdown.totalCents - detail.data.refundedCents : (order?.totalCents ?? 0);
   // §40.2: con el detalle en error el diálogo se comporta como «no enviado» y el `422` es la red.
   const shipped = !isVault && (serverShipped ?? detail.data?.shipmentShipped === true);
   const piecesRequired = required?.required.includes('pieces_with_customer') ?? false;

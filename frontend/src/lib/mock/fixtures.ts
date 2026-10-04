@@ -3332,6 +3332,12 @@ export const mockAdminOrders: AdminOrderDTO[] = [
   // §M4-SHIP.18: compra a BÓVEDA ya reembolsada entera (por webhook) con una carta en caja y otra
   // devuelta pendiente de confirmación física — alimenta `vaultPieces`, «Reclamar» y `chargeback-inventory`.
   { id: 'ord-9004', userId: 'u-778', status: 'refunded', totalCents: 47400, createdAt: '2026-09-20T12:00:00Z', settledAt: '2026-09-20T12:02:00Z', cfdiStatus: 'registrado' },
+  // §M4-SHIP.18.12 (E2E `precios-s5.spec.ts`): directos de INVITADO — `ord-5006` enviado y liquidado (reembolso total
+  // CON motivo), `ord-5008` con guía sin salir (SIN motivo) y `ord-5007` reembolsado desde Stripe tras el envío sin
+  // motivo («Reembolso por revisar»). Estado vivo en `lib/mock/m4-ship`.
+  { id: 'ord-5006', status: 'settled', totalCents: 83886, createdAt: '2026-09-25T10:00:00Z', settledAt: '2026-09-25T10:02:00Z', isGuestOrder: true, guestEmail: 'invitado2@example.com', fulfillmentMode: 'direct_ship' },
+  { id: 'ord-5008', status: 'settled', totalCents: 83886, createdAt: '2026-09-26T10:00:00Z', settledAt: '2026-09-26T10:02:00Z', isGuestOrder: true, guestEmail: 'invitado4@example.com', fulfillmentMode: 'direct_ship' },
+  { id: 'ord-5007', status: 'refunded', totalCents: 83886, createdAt: '2026-09-24T10:00:00Z', settledAt: '2026-09-24T10:02:00Z', isGuestOrder: true, guestEmail: 'invitado3@example.com', fulfillmentMode: 'direct_ship' },
 ];
 
 // MOCK: `evidenceContact` viene de la API (contrato §7/§M8) y la UI **renderiza el que recibe**;
@@ -6699,7 +6705,52 @@ export function mockPendingPublish(): Paginated<PendingPublishRowDTO> {
       sourceSellRequestItemId: 'sri-desk-2',
       createdAt: '2026-08-30T18:10:00Z',
     },
+    // §39.3 (b) (E2E `precios-s5.spec.ts`): carta premium retenida por la regla de M10 — el MOTIVO lo dice el
+    // servidor (`pendingReason`), ⛔ la UI no lo deduce de la rareza.
+    {
+      inventoryItemId: 'inv-pub-4',
+      folio: 'INV-004204',
+      card: cardById('c-latias-sir'),
+      productType: 'raw',
+      finish: 'holofoil',
+      cardProductId: null,
+      locationId: 'loc-a1',
+      listPriceCents: null,
+      resolvedSalePriceCents: null,
+      priceBasis: 'pending',
+      pendingPriceEntryId: 'ppe-79',
+      pendingReason: 'premium_at_floor',
+      missing: ['price'],
+      acquisitionType: 'buylist',
+      sourceSellRequestItemId: null,
+      createdAt: '2026-08-30T18:15:00Z',
+    },
   ];
+  // §39.2 (E2E `precios-s5.spec.ts`): el sellado `inv-1009` (con ubicación, sin precio automático) está en la cola
+  // MIENTRAS siga `in_stock` sin precio final: «Guardar y publicar» lo saca (estado vivo de `mockInventory`).
+  const sealed = mockInventory.find((i) => i.id === 'inv-1009');
+  if (sealed && sealed.status === 'in_stock' && sealed.listPriceCents == null) {
+    rows.push({
+      inventoryItemId: sealed.id,
+      folio: sealed.folio,
+      card: sealed.card,
+      productType: 'sealed',
+      sealedProductName: sealed.card.name,
+      sealedSubtype: sealed.sealedSubtype,
+      finish: sealed.finish ?? 'normal',
+      cardProductId: null,
+      locationId: sealed.location?.id ?? null,
+      listPriceCents: null,
+      resolvedSalePriceCents: null,
+      priceBasis: 'pending',
+      pendingPriceEntryId: null,
+      pendingReason: 'no_market',
+      missing: ['price'],
+      acquisitionType: 'compra',
+      sourceSellRequestItemId: null,
+      createdAt: '2026-08-30T18:20:00Z',
+    });
+  }
   return { data: rows, page: 1, pageSize: 20, total: rows.length };
 }
 

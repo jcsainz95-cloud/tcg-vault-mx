@@ -2132,8 +2132,31 @@ export interface ChargebackInventoryResponse {
   chargebackNeedsManual: false;
 }
 
-/** Detalle M3 (`GET /admin/orders/:id`), aditivo v1.80 / v1.80.2 / v1.80.4 (§M4-SHIP.10, .15.13, .18.6). */
-export interface AdminOrderDetailDTO extends Omit<AdminOrderDTO, 'settledAt'> {
+/**
+ * Detalle M3 (`GET /admin/orders/:id`) — forma declarada en `API_CONTRACT §11 AdminOrderDetailDTO` + aditivos
+ * v1.80 / v1.80.2 / v1.80.4 (§M4-SHIP.10, .15.13, .18.6).
+ *
+ * ⛔ NO extiende `AdminOrderDTO`/`OrderSummaryDTO` (QA s5 IMPORTANTE-1, 2026-10-04): esa herencia le daba un
+ * `totalCents` en la RAÍZ que el detalle NO emite — el total vive en `breakdown.totalCents`. Leer la raíz pintaba
+ * «MX$NaN» en producción y tsc no lo veía. Declarado a mano para que un lector de `o.totalCents` NO compile.
+ */
+export interface AdminOrderDetailDTO {
+  id: string;
+  userId: string | null;
+  status: OrderStatus;
+  /** El total, el subtotal y el IVA de la orden. ⛔ No hay `totalCents` en la raíz del detalle. */
+  breakdown: BreakdownDTO;
+  cfdiStatus?: CfdiStatus;
+  invoiceRequested?: boolean;
+  stripePaymentIntentId?: string | null;
+  shippingFeeCents?: number;
+  paymentMethodBrand?: string;
+  paymentMethodLast4?: string;
+  guestEmail?: string | null;
+  claimedAt?: string;
+  createdAt: string;
+  /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): «Reembolso por revisar» (predicado del servidor). */
+  refundReviewPending?: boolean;
   /**
    * v1.80.8.7 (A-1): SIEMPRE presente en el detalle admin; `null` ⇔ la orden nunca se liquidó. ⛔ La clave
    * ausente (servidor anterior) NO cuenta como `null`: la pantalla compara con `=== null`.

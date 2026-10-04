@@ -16,11 +16,9 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { useErrorMessage } from '@/components/ui/QueryState';
 
-/**
- * `MAX_LIST_PRICE_CENTS` del `UpdateItemDto` (`@Max`, medido por ux-ui en `inventory.dto.ts:57`) ⇒ MX$1,000,000.00.
- * La pantalla no deja escribir lo que el servidor va a rechazar con `422 VALIDATION_ERROR`.
- */
-export const MAX_LIST_PRICE_CENTS = 100_000_000;
+import { MAX_LIST_PRICE_CENTS, SEALED_FINAL_PRICE_INVALIDATES } from './sealed-final-price';
+
+export { MAX_LIST_PRICE_CENTS };
 
 export interface SealedFinalPricePiece {
   id: string;
@@ -145,6 +143,11 @@ export function SealedFinalPrice({
   })();
   const currentCents = piece.listPriceCents ?? piece.resolvedSalePriceCents ?? null;
 
+  /** Techlead D-8: la MISMA lista tras guardar y en «Recargar» (antes «Recargar» no refrescaba el panel de «Sellado»). */
+  function invalidateSealedPrice() {
+    for (const key of SEALED_FINAL_PRICE_INVALIDATES) void qc.invalidateQueries({ queryKey: [key] });
+  }
+
   const mutation = useMutation({
     mutationFn: (value: number) => {
       // ⛔ D-SFP-2: `listPriceCents` es SIEMPRE un entero > 0 aquí (el tipo del verbo no admite `null`).
@@ -154,9 +157,7 @@ export function SealedFinalPrice({
     onSuccess: (_res, value) => {
       setConfirmOpen(false);
       const price = formatMoneyCents(value, locale);
-      for (const key of ['pending-publish', 'admin-inventory', 'variant-pieces', 'sealed-sets', 'sealed-set-detail', 'sealed-price-status']) {
-        void qc.invalidateQueries({ queryKey: [key] });
-      }
+      invalidateSealedPrice();
       returnFocus.current = true;
       onEditingChange(false);
       onDone(
@@ -196,7 +197,7 @@ export function SealedFinalPrice({
   }
   function reload() {
     setError(null);
-    for (const key of ['pending-publish', 'admin-inventory', 'variant-pieces']) void qc.invalidateQueries({ queryKey: [key] });
+    invalidateSealedPrice();
   }
 
   const priceText = currentCents != null ? formatMoneyCents(currentCents, locale) : '—';

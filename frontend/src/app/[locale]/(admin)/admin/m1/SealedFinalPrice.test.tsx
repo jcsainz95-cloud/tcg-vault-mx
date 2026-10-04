@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { QueryClient } from '@tanstack/react-query';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
@@ -7,6 +8,7 @@ import type { InventoryItemDTO, PendingPublishRowDTO } from '@/types/contract';
 import { PendingPublishQueue } from './PendingPublishQueue';
 import { VariantDrawer } from './VariantDrawer';
 import { parseFinalPrice } from './SealedFinalPrice';
+import { SEALED_FINAL_PRICE_INVALIDATES } from './sealed-final-price';
 
 /**
  * 💰 `DESIGN_SYSTEM §39.2/§39.3` — precio final a mano SOLO para sellado (criterio 255, `HECHOS.md` 2026-10-04 (b);
@@ -353,5 +355,36 @@ describe('§39.2 (c) · el panel de «Sellado» (VariantDrawer)', () => {
     expect(screen.queryByText(/Precio final/)).toBeNull();
     expect(screen.queryByRole('button', { name: /precio final/i })).toBeNull();
     expect(screen.queryByTestId(/^sealed-final-price/)).toBeNull();
+  });
+});
+
+describe('techlead D-8 · una sola lista de invalidaciones', () => {
+  it('«Recargar» tras un `409` invalida EXACTAMENTE lo mismo que un guardado con éxito (incluido el panel de «Sellado»)', async () => {
+    stub([sealedRow()]);
+    const inv = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    const firstKeys = () => inv.mock.calls.map((c) => (c[0] as { queryKey: string[] }).queryKey[0]);
+    const patch = vi
+      .spyOn(api, 'updateInventoryItem')
+      .mockRejectedValueOnce(new ApiClientError(409, { code: 'CONFLICT', message: 'x' }))
+      .mockResolvedValueOnce({} as InventoryItemDTO);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+    await openEditorAndType('INV-001950', '1250');
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar y publicar' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publicar a MX$1,250.00' }));
+    const alert = await screen.findByRole('alert');
+    inv.mockClear();
+    fireEvent.click(within(alert).getByRole('button', { name: 'Recargar' }));
+    const onReload = new Set(firstKeys());
+
+    inv.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar y publicar' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publicar a MX$1,250.00' }));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(inv).toHaveBeenCalled());
+    const onSave = new Set(firstKeys());
+
+    expect([...onReload].sort()).toEqual([...SEALED_FINAL_PRICE_INVALIDATES].sort());
+    expect([...onSave].sort()).toEqual([...SEALED_FINAL_PRICE_INVALIDATES].sort());
+    expect(onReload.has('sealed-set-detail')).toBe(true);
   });
 });

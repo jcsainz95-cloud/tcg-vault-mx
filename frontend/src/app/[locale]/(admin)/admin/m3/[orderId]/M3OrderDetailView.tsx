@@ -20,7 +20,7 @@ import { cn } from '@/lib/cn';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { AdminOrderDetailDTO, ChargebackInventoryRequest, PaymentRefundDTO, ShippedRefundReason, VaultPieceDTO } from '@/types/contract';
-import { ADMIN_ORDER_KEY, RefundOrderDialog } from '../RefundOrderDialog';
+import { ADMIN_ORDER_KEY, RefundOrderDialog, refundDialogOrderOfDetail } from '../RefundOrderDialog';
 import { ShippedReasonFieldset } from '../ShippedReasonFieldset';
 import { VaultPiecesList } from '../VaultPiecesList';
 
@@ -216,7 +216,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                 </p>
               </div>
               <div className="flex flex-col items-end gap-2">
-                <p className="tabular text-lg font-semibold text-text">{formatMoneyCents(o.totalCents, locale)}</p>
+                <p className="tabular text-lg font-semibold text-text" data-testid="m3-total">{formatMoneyCents(o.breakdown.totalCents, locale)}</p>
                 {o.status === 'settled' && (
                   <Button variant="destructive" size="sm" disabled={!isSuperAdmin} title={!isSuperAdmin ? tm('masked') : undefined} onClick={() => setRefundOpen(true)} data-testid="m3-refund-cta">
                     {t('refund')}
@@ -455,14 +455,14 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                   )}
                 </section>
               </div>
-              <aside className="h-fit">{o.breakdown && <AmountBreakdown breakdown={o.breakdown} variant="purchase" />}</aside>
+              <aside className="h-fit">{<AmountBreakdown breakdown={o.breakdown} variant="purchase" />}</aside>
             </div>
           </div>
         )}
       </QueryState>
 
       <RefundOrderDialog
-        order={o}
+        order={o ? refundDialogOrderOfDetail(o) : null}
         open={refundOpen}
         onClose={() => setRefundOpen(false)}
         onDone={(res, info) => {
