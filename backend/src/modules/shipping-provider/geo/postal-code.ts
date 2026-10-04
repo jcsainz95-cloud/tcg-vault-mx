@@ -53,7 +53,7 @@ export interface CanonicalAddressPart {
 export function normalizeColonia(s: string): string {
   return s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '') // marcas diacríticas combinantes (tras NFD)
     .replace(/\s+/g, ' ')
     .trim()
     .toUpperCase();
