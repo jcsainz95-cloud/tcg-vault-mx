@@ -4,6 +4,12 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.2 — `SKX-SEC-1` Y LO QUE PIDIÓ FRONTEND** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado
+> por el orquestador `fae954ce`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.2**; norma en
+> `API_CONTRACT §M4-SHIP.19.22`; porqué en **§4.60 (o)**. Toca código construido de la fase C (bitácora de la corrección
+> de dirección y la anonimización) y añade **una tabla** (`ShipmentAddressRevision`, migración `M-SDX-C2`, propuesta
+> M-65). Además: `address.missing`, dos formas de respuesta, `ShipmentCostAdjustmentDTO` y PS-101 con el diseño v4.17.
+>
 > **Rev v1.80.12.1 — ERRATA MENOR DE D1** (2026-10-04, arquitecto, rama `claude/skydropx-d`; ⛔ sha NO MEDIDO: sin Bash).
 > `API_CONTRACT` sube a **v1.80.12.1**; norma en `API_CONTRACT §M4-SHIP.19.21`; porqué en **§4.60 (n)**. Toca código
 > construido en dos puntos pequeños (backend, D1c y D1a): renombrar las URLs crudas del puerto y el `403` no-borde de la
@@ -27449,8 +27455,8 @@ que la guía **siguiente** nacía sellada (fuera del sondeo, `already_cancelled`
 contrato; nada estaba construido.
 
 **Deuda que deja (m):** P-ADR-1 (¿se corrige también el teléfono?, product-owner → dueño); qué dirección leen hoy las
-superficies del cliente (NO MEDIDO, lo mide backend); qué hace la anonimización con las filas de bitácora que guardan
-direcciones (NO MEDIDO, seguridad).
+superficies del cliente (NO MEDIDO, lo mide backend); ~~qué hace la anonimización con las filas de bitácora que guardan
+direcciones (NO MEDIDO, seguridad)~~ ⇒ medido por seguridad (`SKX-SEC-1`: nada) y cerrado en diseño por (o).
 
 **(n) v1.80.12.1 — errata menor de D1** (`BACKEND_NOTES §57.3`/`§57.4`; norma en `API_CONTRACT §M4-SHIP.19.21`).
 
@@ -27461,6 +27467,24 @@ direcciones (NO MEDIDO, seguridad).
 | **En la compra, «en vuelo» es el defecto**: solo `400/422` y lo que se corta antes de la aplicación (borde, `401`, `429`, puerta) deshacen el reclamo | Enumerar los status que son «en vuelo» | Liberar el reclamo de una guía que sí se creó es la guía duplicada (dinero); retenerlo de más cuesta una nota del súper-admin (`label/release`). Por eso el `403` que no es del borde también queda en vuelo |
 | **Un solo lector del secreto**, la fábrica del proveedor | «Solo en `config/`» literal | El riesgo es que el secreto se lea en varios sitios, no la carpeta; `config/` es zona compartida y la declaración opcional en `env.validation.ts` no es una lectura |
 | **`protect` sin llamador** en D2 | Llamarla tras comprar | M-8: la cotización y la compra ya aceptan `package_protected`/`declared_value`; una segunda mutación que gasta, con cuerpo NO MEDIDO, no aporta nada |
+
+**(o) 🔒 v1.80.12.2 — el domicilio sale de la bitácora (`SKX-SEC-1`) y lo que pidió frontend** (`SECURITY_NOTES.md:51-62`
+de `claude/staff-sin-correo`; `FRONTEND_NOTES §87`; norma en `API_CONTRACT §M4-SHIP.19.22`).
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **La bitácora guarda quién, cuándo, qué claves y qué versión; los valores van a `ShipmentAddressRevision`, que la anonimización borra** (opción (a)) | (b) `before/after` cifrados con una clave por sujeto y borrar la clave al anonimizar | (b) exige guardar claves por cliente **fuera** de la base (si están en la misma base, borrarlas no prueba nada que un respaldo no deshaga), su rotación y su respaldo — infraestructura nueva para un solo verbo. Y el envío de invitado no tiene sujeto con cuenta al que colgarle la clave. (a) usa lo que ya hay: un `deleteMany` en la tx de anonimización que ya existe |
+| ídem | Ningún valor en ningún sitio (solo claves en la bitácora) | `DESIGN_SYSTEM §43.2b` le promete al operador «Queda registrado a tu nombre, con lo que había antes», y si la paquetería no entrega, lo que había antes es la evidencia de qué cambió la tienda. Mientras el cliente exista, ese valor tiene uso; al anonimizarlo, deja de tenerlo |
+| **Se borra la revisión, no se redacta; la bitácora queda intacta** | Redactar los valores en la revisión; o reescribir la fila de `AuditLog` | Quién y cuándo ya están en la bitácora, así que una revisión redactada no aporta nada. Reescribir `AuditLog` abriría la excepción a su inmutabilidad que seguridad rechazó en `STF-P1` (`SECURITY_NOTES.md:45-49`). Con (a) la bitácora nunca recibe el dato y no hay nada que reescribir |
+| **La anonimización alcanza los envíos por `userId` O por `order.userId`** | Solo `ShipmentRequest.userId` | El envío directo de un cliente registrado nace con `userId: null` (`payments.service.ts:518-522`, `orders.service.ts:1659-1663`): filtrar solo por `userId` dejaría justo esos domicilios. PS-112 lo mide con los dos tipos de envío |
+| **Las fotos vigentes (`ShipmentRequest.addressSnapshot`, `Order.shippingAddressSnapshot`) no cambian** | Purgarlas también | Son el registro económico de a dónde fue la caja y qué capturó el cliente (decisión previa, `SECURITY_NOTES.md:55`); `SKX-SEC-1` trata de lo que la bitácora acumulaba **además** de eso |
+| **Migración propia (`M-SDX-C2`)**, no dentro de `M-SDX-D` | Meter la tabla en `M-SDX-D` (aún sin construir) | Arregla la fase C, que ya está construida; ligarla a la fase D ataría un arreglo de seguridad a la entrega más grande y arriesgada de Skydropx. Revertir D no debe reabrir `SKX-SEC-1` |
+| **`address.missing` siempre presente, un cuerpo para el DTO y el `422`** | Que la pantalla deduzca qué falta; o dos listas | Si lo deduce la pantalla, es una regla de negocio en dos sitios. Con un cuerpo, lo que la ventana anuncia es exactamente lo que el servidor rechazaría. Se compone con `addressMissing` de la libreta (no se copia) |
+| **`consignment-notes` responde un objeto con `hasMore`** | El arreglo pelado que asumió frontend | Solo se trae una página de 48,757 códigos; sin `hasMore` la pantalla no puede decir «afina la búsqueda». Un objeto deja crecer la respuesta sin romperla |
+
+**Deuda que deja (o):** el verbo que algún día anonimice a un **invitado** no existe; cuando exista, borra también las
+revisiones de los envíos de ese pedido (regla escrita en `API_CONTRACT §19.22.1`). La precondición de despliegue (cero
+filas `shipment.address_corrected` en producción) es **NO MEDIDA**.
 
 ---
 
@@ -30845,6 +30869,11 @@ shippedRefundReasonAt, shippedRefundReasonByUserId (FK User RESTRICT)`; CHECKs `
 construidas; ninguna de Skydropx. Los dos números los asigna el orquestador (≥ M-64) al encargar cada fase y backend los
 confirma contra `migrations/`. `M-SDX-D` cambia con el delta de `API_CONTRACT §M4-SHIP.19.19.14` (resumen al final de
 esta fila). En el texto de abajo, `M-62a` = `M-SDX-C` y `M-62b` = `M-SDX-D`.
+
+⭐ **v1.80.12.2:** `M-SDX-C` = **`M-64`**, construida (`20261006120000_m64_sdx_c_address/`, Glob 2026-10-04). Nueva
+**`M-SDX-C2`** (número propuesto **M-65**; si `M-SDX-D` ya lo tomó, el siguiente libre): tabla `ShipmentAddressRevision`
++ unique `(shipmentRequestId, fromVersion)` + 3 CHECK; aditiva, idempotente, sin backfill, ⛔ no toca `AuditLog`. Reversa:
+`DROP TABLE` (pierde los valores intermedios; quién/cuándo siguen en la bitácora). Norma: `API_CONTRACT §M4-SHIP.19.22.1`.
 
 Forma normativa entera en `API_CONTRACT §M4-SHIP.19.2` y `.19.5`. Va **después** de `M-61` (~~que sigue sin construirse
 al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto~~ construida, ver arriba).

@@ -2,9 +2,29 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.1**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.2**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.2 — ERRATA: SKX-SEC-1 (EL DOMICILIO SALE DE LA BITÁCORA), `address.missing`, DOS RESPUESTAS SIN
+> FORMA, `ShipmentCostAdjustmentDTO` Y PS-101 CON EL DISEÑO v4.17 (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD
+> dado por el orquestador `fae954ce`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
+> **[§M4-SHIP.19.22](#M4-SHIP-19-22)**. Porqué: `ARCHITECTURE §4.60 (o)`. Origen: `SECURITY_NOTES.md:58-62` (rama
+> `claude/staff-sin-correo`, árbol `/home/user/tcg-staff`, condición `SKX-SEC-1` del gate de la release de Skydropx),
+> `FRONTEND_NOTES §87` «Solicitudes al arquitecto» 1–3 (`FRONTEND_NOTES.md:19152-19159`), `DESIGN_SYSTEM §43.5a` (v4.17,
+> commit `f6cb8fdb` según el orquestador).
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | 🔒 `SKX-SEC-1`: `shipment.address_corrected` guarda en `AuditLog` los **valores** del domicilio, y la bitácora no se purga | **Opción (a).** La bitácora guarda solo `changedKeys`, versiones y el actor; los valores viejos y nuevos van a la tabla nueva **`ShipmentAddressRevision`**, que la anonimización de cuenta **borra**. Prueba de release **PS-112** | **Sí** — fase C construida: `shipment-address.service.ts:141-159`, `sdx-c-address.e2e-spec.ts:233-236,346`, `admin.service.ts:1587-1629` | backend 💰 (migración **`M-SDX-C2`**) |
+> | **2** | `AdminShipmentDTO.address.missing` | **Se añade, siempre presente** (`[]` si está completa); `complete ⇔ missing.length = 0`; es **la misma lista** que `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` (un cuerpo, `shipmentAddressMissing`) | **Sí** (pequeño): `shipments.service.ts:722` | backend + frontend |
+> | **3** | Respuestas sin forma | `GET …/catalogs/consignment-notes` ⇒ **`200 { consignmentNotes: {code, description}[], hasMore }`** (⛔ no el arreglo pelado que asumió frontend); `PUT /admin/shipping/packages` ⇒ **`200 { packages }`** (se ratifica) | Frontend: sí, una línea (`api.ts:2105`) | backend + frontend |
+> | **4** | `ShipmentCostAdjustmentDTO` sin definir | Definido (§19.22.4) | No (frontend solo cuenta filas) | backend (D2) + frontend (tipo) |
+> | **5** | PS-101 decía «"Capturar a mano" presente en los cuatro pasos» | Se alinea con `DESIGN_SYSTEM §43.5a` v4.17: solo con `label = null ∧ labelPending = null` | No (frontend ya lo hace, medido por el orquestador en `CaptureLabelDialog.tsx:1036`) | — |
+>
+> **Códigos de error nuevos:** ninguno. **Endpoints nuevos:** ninguno. **Migración nueva:** `M-SDX-C2` (tabla
+> `ShipmentAddressRevision`; número propuesto **M-65** si `M-SDX-D` no lo ha tomado — lo confirma el orquestador contra
+> `migrations/` al encargar).
 >
 > **Rev v1.80.12.1 — ERRATA MENOR: LAS DISCREPANCIAS DE D1 (`BACKEND_NOTES §57.3`/`§57.4`) (2026-10-04, arquitecto, rama
 > `claude/skydropx-d`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§M4-SHIP.19.21](#M4-SHIP-19-21)**.
@@ -97,7 +117,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -23544,6 +23564,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.19** | ⭐💰🔒 **v1.80.11** — la fase D con la API de **producción** medida: cliente (User-Agent, reintentos), forma real de la tarifa, reutilización de cotizaciones, **seguro por escalones**, Carta Porte `49101600`, **puerta de compra** (dos llaves + candado de ejecución, PS-99), ventana «Capturar guía», `M-SDX-C/D`, plan de construcción por piezas, PS-91…PS-101, lo que sigue NO MEDIDO |
 | **.20** | ⭐💰 **v1.80.12** — corregir **toda** la dirección del envío (`PUT …/address`, sustituye a `address-neighborhood`), `labelPending`/`labelAlert` en los dos DTO, `providerCancelConfirmedAt`, empaques legibles por el operador, `isPromo`, `200 in_flight`, `AV-18/19` en esta fase, conteo 19, vía B de disputas sustituida; PS-102…PS-111 |
 | **.21** | **v1.80.12.1** — errata menor de D1: orden del filtro de tarifas, `C-SDX-7` (2) con `rawLabelUrl`/`rawTrackingUrl`, cubeta de capacidad 1, «en vuelo» por defecto en la compra, `C-SDX-1` con la fábrica, cuerpos NO MEDIDOS |
+| **.22** | 🔒💰 **v1.80.12.2** — `SKX-SEC-1`: el domicilio sale de la bitácora (`ShipmentAddressRevision`, `M-SDX-C2`, la anonimización la borra, PS-112); `address.missing`; respuestas de `consignment-notes` y `PUT …/packages`; `ShipmentCostAdjustmentDTO`; PS-101 con `DESIGN_SYSTEM §43.5a` v4.17 |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -23969,7 +23990,8 @@ vigente y pide otra.
    `labelSource ≠ null` ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource}` (re-emitir es §19.8, no cotizar encima);
    `labelProcessingSince ≠ null` ⇒ `409 LABEL_IN_PROGRESS`.
 3. Dirección del snapshot incompleta (`neighborhood` vacío, CP/tel fuera de forma) ⇒ `422 SHIPMENT_ADDRESS_INCOMPLETE
-   {missing}` (§19.5).
+   {missing}` (§19.5). ⭐ **v1.80.12.2 (§19.22.2):** `missing = shipmentAddressMissing(snapshot)`, la **misma** lista que
+   `AdminShipmentDTO.address.missing` (incluye `recipientName` y `line1` vacíos).
 4. **Empaque:** `packageCode` o la regla: `Σ líneas picked` de sellado > 0 **o** `count(picked) >
    shipping_package_rule_box_min_cards` ⇒ `box`; si no `envelope`. Empaque inactivo/sin `providerPackageType` ⇒ `409
    SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['packages']}`.
@@ -24133,6 +24155,7 @@ export interface ShipmentLabelDTO {
 null`, `carrierAlert: { status: CarrierStatus; detail: string | null; at: string } | null`, `costAdjustments:
 ShipmentCostAdjustmentDTO[]`, `margin: { chargedNetCents: number; costNetCents: number; marginCents: number } | null`
 (se muestra **antes y después** de comprar — T.7; con guía manual se calcula con lo capturado) y `address.complete`.
+⭐ **v1.80.12.2:** `ShipmentCostAdjustmentDTO` se define en §19.22.4; `address` gana `missing` (§19.22.2).
 ⛔ `labelUrl`, `rawResponseJson`, `providerRateId` y los sellos **no** entran (lista blanca `toAdminShipmentRow`).
 
 **`POST …/tracking` (guía manual) con Skydropx:** sigue igual **y** gana la guarda `labelSource='skydropx' ⇒ 409
@@ -24352,7 +24375,8 @@ Skydropx; por qué el borrador partió de 15: NO MEDIDO, y no cambia el resultad
 - **Empaques:** `GET /api/v1/admin/shipping/packages` (⭐ v1.80.12: **operador+**, §M4-SHIP.19.20.3) · `PUT /api/v1/admin/shipping/packages` (`super_admin`; Req
   `{ packages: { code, label, lengthCm, widthCm, heightCm, weightKg, providerPackageType, active, sortOrder }[] }`, reemplazo
   entero, ≥ 1 activo con código de proveedor para que `quote` funcione; bitácora `shipping.packages_updated`
-  `before/after`).
+  `before/after`). ⭐ **v1.80.12.2 (§19.22.3):** responde `200 { packages: ShippingPackageDTO[] }`, la misma forma que
+  el `GET`; sin activo con código ⇒ `400 VALIDATION_ERROR {field:'packages', reason:'no_active_package'}`.
 - **Catálogos y saldo:** `GET /api/v1/admin/shipping/catalogs` (`super_admin`) ⇒ `{ consignmentNotes, packagings }` del
   proveedor (para elegir códigos en la pantalla; `503`/`502` si no responde); **`GET /api/v1/admin/shipping/balance`**
   (`super_admin`) ⇒ `{ balanceCents, currency:'MXN', lowBalance: boolean, thresholdCents, fetchedAt }` (leído en vivo,
@@ -24889,6 +24913,7 @@ como único dato del seguro (ahora el desglose siempre trae `insuranceCents`, de
   addressTemplates: { id, alias, addressType: 'from' | 'to', isDefault: boolean, postalCode }[] }` — ⛔ la lista entera
   de Carta Porte (48,757) **no** se trae; de las plantillas ⛔ no viajan nombre, teléfono, correo ni RFC. `GET
   /admin/shipping/catalogs/consignment-notes?description=<texto>` (`super_admin`, una página) para buscar otro código.
+  ⭐ **v1.80.12.2 (§19.22.3):** responde `200 { consignmentNotes: { code, description }[]; hasMore: boolean }`.
 
 **M4-SHIP.19.19.7 — 💰🔒 La puerta de compra: dos llaves y un candado de ejecución.**
 
@@ -25077,7 +25102,7 @@ proporción en las de carrera, copia del árbol entero con su sha, mutación dem
 | **PS-98** 💰🔒 | Puerta: dial `disabled` ⇒ `404 {feature:'label_purchase'}`, cero transporte, cero escrituras; `super_admin_only` + operador ⇒ `403 {reason}` + bitácora `label_purchase_denied`; + súper-admin ⇒ `200`; sin `SKYDROPX_ALLOW_SPEND` ⇒ `409 {missing:['allow_spend']}`; `quote` responde con la compra apagada; `labelOptions.canPurchase` coincide con el resultado en las 3×2 combinaciones; arranque con `SHIPPING_PROVIDER_ADAPTER=fake` y `SKYDROPX_ALLOW_SPEND=true` ⇒ el proceso no arranca | mirar el dial solo en la pantalla; quitar el chequeo de rol |
 | **PS-99** ⭐💰🔒 | **Ninguna prueba ni ningún CI puede comprar una guía real** — §19.19.17 | §19.19.17 |
 | **PS-100** 🔒 | Proxy: `labelUrl` en el host de la API ⇒ la petición lleva `Authorization`; en `labels.example-bucket.com` (listado en `SKYDROPX_URL_HOSTS`) ⇒ **sin** `Authorization` y con `User-Agent` | adjuntar siempre el token |
-| **PS-101** | Ventana (Playwright contra MSW/`fake`): abrir con `provider:'off'` ⇒ solo el formulario manual; con `'skydropx'` ⇒ paso 1 muestra el snapshot; `complete:false` ⇒ selector de colonia y no avanza sin ella; paso 2 con la recomendada marcada y las de sucursal plegadas; «Capturar a mano» presente en los cuatro pasos; `canPurchase:false` ⇒ sin botón «Comprar guía» y con el texto; `QUOTE_EXPIRED` ⇒ vuelve al paso 2 con la cifra nueva; `labeled` ⇒ número + «Imprimir etiqueta»; `processing` ⇒ texto de guía en proceso; ⛔ ningún botón «Cotizar envío» en la tarjeta | un segundo formulario; botón de compra sin `canPurchase`; ramificar errores por status |
+| **PS-101** | Ventana (Playwright contra MSW/`fake`): abrir con `provider:'off'` ⇒ solo el formulario manual; con `'skydropx'` ⇒ paso 1 muestra el snapshot; `complete:false` ⇒ selector de colonia y no avanza sin ella; paso 2 con la recomendada marcada y las de sucursal plegadas; ~~«Capturar a mano» presente en los cuatro pasos~~ ⭐ v1.80.12.2 (§19.22.5, `DESIGN_SYSTEM §43.5a` v4.17): «Capturar a mano» **solo** con `label = null ∧ labelPending = null` (la condición con que el servidor acepta `POST …/tracking`) — presente en los pasos 1–3 (en el 3, **deshabilitado** con la compra en curso), en el paso 4 **solo** en «Skydropx no creó la guía», y **ausente** en `labeled`, `processing`, `in_progress` e `in_flight`; `canPurchase:false` ⇒ sin botón «Comprar guía» y con el texto; `QUOTE_EXPIRED` ⇒ vuelve al paso 2 con la cifra nueva; `labeled` ⇒ número + «Imprimir etiqueta»; `processing` ⇒ texto de guía en proceso; ⛔ ningún botón «Cotizar envío» en la tarjeta | un segundo formulario; botón de compra sin `canPurchase`; ramificar errores por status |
 | **PS-70** (corrige) | Usa el fixture medido de PS-94 en vez de tarifas inventadas; «FedEx sin IVA» pasa a «tarifa con `vat_fee: null`» | — |
 | **PS-78** (corrige) | `delivered` con `occurredAt = now − 8 d` ⇒ `deliveredAt ≈ now`, `carrierStatusAt = now − 8 d`, y `AV-17` **sin** plazo de disputa y con «Escríbenos» (⛔ la aserción `POST /disputes ⇒ 201` sale: `HECHOS.md:50`) | `deliveredAt = occurredAt`; plantilla con plazo |
 | **PS-81** (corrige) | Además: `ivaSource:'provider'` con el `vat_fee` de la tarifa; compra con `total` distinto ⇒ `'computed'` y log `purchase_total_drift` | tomar el IVA del dial |
@@ -25196,9 +25221,10 @@ se ignoran): `city` y `state` se **sobrescriben con el canónico** del CP (§19.
 5. CAS: `updateMany({ where:{ id, status:'picking', labelSource:null, labelProcessingSince:null, addressVersion:
    expectedAddressVersion }, data:{ addressSnapshot: next, addressVersion: { increment: 1 }, addressCorrectedAt: now,
    addressCorrectedByUserId: actor } })`; `count 0` ⇒ relee y responde el `409` del paso 3 que corresponda.
-6. Bitácora **`shipment.address_corrected`** en la **misma tx** (`entityType 'ShipmentRequest'`, actor de la sesión):
+6. ~~Bitácora **`shipment.address_corrected`** en la **misma tx** (`entityType 'ShipmentRequest'`, actor de la sesión):
    `before:{ <solo las claves de changed, valor viejo> }`, `after:{ <solo las claves de changed, valor nuevo>,
-   addressVersion }`. *Es el «antes/después y quién» de `HECHOS.md:50`.*
+   addressVersion }`. *Es el «antes/después y quién» de `HECHOS.md:50`.*~~ 🔒 **v1.80.12.2 — SUSTITUIDO por §19.22.1
+   paso 6** (`SKX-SEC-1`): los valores van a `ShipmentAddressRevision`; la bitácora lleva solo claves, versiones y actor.
 7. **Commit ⇒ `200 { outcome:'corrected', shipment: AdminShipmentDTO }`.**
 
 **La cotización se invalida por versión, no por borrado.** `ShipmentQuote` gana `addressVersion Int` (la del envío
@@ -25216,6 +25242,8 @@ cuando se cotizó, leída bajo el candado del paso 2 de §19.6). Una cotización
 **Lo que ve la pantalla** (`AdminShipmentDTO`, aditivo): `addressSnapshot` con `references` (10 campos, §19.5) y
 `address: { complete: boolean; version: number; corrected: { at: string; by: { userId: string; name: string | null } } | null }`
 (`corrected` ⇔ `addressCorrectedAt ≠ null`; es la **última** corrección; el historial entero es la bitácora).
+⭐ **v1.80.12.2:** `address` gana `missing` (§19.22.2); el historial de **valores** vive en `ShipmentAddressRevision`
+(§19.22.1) y la bitácora guarda quién, cuándo y qué claves.
 `ShipPreparationOrderDTO.shipTo` lee el mismo snapshot (ya corregido) y gana `addressCorrected: boolean`.
 
 **Lo que ve el cliente:** la dirección a la que va su paquete es la del envío. Qué snapshot leen hoy las superficies del
@@ -25344,7 +25372,7 @@ proporción en las de carrera; mutación demostrada roja).
 
 | # | Qué asevera | Mutación que la pone roja |
 |---|---|---|
-| **PS-102** 💰 | Corrección completa: `200 corrected`; `ShipmentRequest.addressSnapshot` con los seis campos nuevos y `city`/`state` **canónicos** del CP (aunque el cuerpo traiga otros); la fila `Address` del cliente y `Order.shippingAddressSnapshot` **idénticas byte a byte** a antes; `addressVersion` +1; `addressCorrectedAt`/`ByUserId` = ahora/actor; **una** fila `shipment.address_corrected` con `before`/`after` **solo** de las claves cambiadas y el actor; mismo cuerpo dos veces ⇒ la segunda `unchanged`, cero bitácora | escribir también en `Address` (o en la orden); bitácora con el snapshot entero sin actor; aceptar `city` del cuerpo |
+| **PS-102** 💰 | Corrección completa: `200 corrected`; `ShipmentRequest.addressSnapshot` con los seis campos nuevos y `city`/`state` **canónicos** del CP (aunque el cuerpo traiga otros); la fila `Address` del cliente y `Order.shippingAddressSnapshot` **idénticas byte a byte** a antes; `addressVersion` +1; `addressCorrectedAt`/`ByUserId` = ahora/actor; **una** fila `shipment.address_corrected` con `before`/`after` **solo** de las claves cambiadas y el actor (⭐ v1.80.12.2: **una** `ShipmentAddressRevision` con los valores de las claves cambiadas y **una** fila de bitácora **sin valores**, §19.22.1); mismo cuerpo dos veces ⇒ la segunda `unchanged`, cero bitácora y cero revisión | escribir también en `Address` (o en la orden); bitácora con el snapshot entero sin actor; aceptar `city` del cuerpo |
 | **PS-103** | Validación: colonia fuera del CP ⇒ `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}`; CP sin colonias ⇒ `422 POSTAL_CODE_UNKNOWN`; CP de 4 dígitos, `references` de 71, `recipientName` vacío ⇒ `400 {field}`; en todos, **cero** escrituras y versión intacta; la colonia tecleada en minúsculas sin acentos se guarda como el canónico | guardar la colonia tecleada sin pasar por `resolvePostalCode` |
 | **PS-104** 💰 | Guardas, en el orden del paso 3: `guia`/`enviado` (incluida toda guía manual) ⇒ `409 SHIPMENT_NOT_IN_PREPARATION`; `picking` con guía Skydropx en proceso (`labelSource='skydropx'`) ⇒ `409 SHIPMENT_ALREADY_LABELED`; compra en vuelo (`labelProcessingSince` puesto, sin `labelSource`) ⇒ `409 LABEL_IN_PROGRESS`; `expectedAddressVersion` viejo ⇒ `409 CONFLICT {reason:'address_changed'}`. **Carrera:** dos correcciones distintas con la misma versión, concurrentes ⇒ exactamente **una** `200` y una `409` por ronda; **N = 10 rondas, se reporta la proporción** | quitar `addressVersion` del `WHERE` del CAS (gana la última escritura) |
 | **PS-105** 💰 | La cotización muere con la corrección: cotizar (v0) ⇒ corregir (v1) ⇒ `GET …/quote` `404`; `POST …/quote` sin `force` **llama** al doble (no reutiliza); `POST …/label` con el `quoteId` viejo ⇒ `409 QUOTE_EXPIRED {reason:'address_changed'}` y **cero** `purchase`; corrección inyectada entre el paso 2 y el 7 de `label` ⇒ `409 CONFLICT` y **cero** `purchase` | quitar `addressVersion` de la vigencia, o del `WHERE` del paso 7 ⇒ compra con la cotización de la dirección vieja |
@@ -25364,7 +25392,7 @@ proporción en las de carrera; mutación demostrada roja).
 | **frontend** | Paso 1 editable (PS-101), «Cambiar empaque» con `GET …/packages`, `isPromo`, `in_flight`, tarjetas de preparación y de envíos con `labelPending`/`labelAlert`; tipos en `contract.ts` (zona compartida) |
 | **ux-ui** | Copy del paso 1 editable (campos, «Corregida por…», `409 CONFLICT {reason:'address_changed'}`, `QUOTE_EXPIRED {reason:'address_changed'}`), `outcome:'in_flight'`, realce de promoción con `isPromo`, `AV-18`, `AV-19` |
 | **product-owner** | `PROJECT §T.2` y el paso 1 de la ventana (`PROJECT.md:8083-8084`, `:12217-12218`) a la corrección completa; criterio 242 a «16 → 19»; P-ADR-1 (teléfono) |
-| **seguridad** | En la fase por release: el verbo nuevo escribe PII ajena en la bitácora (antes/después) — qué hace la anonimización de cuenta con esas filas: NO MEDIDO |
+| **seguridad** | En la fase por release: el verbo nuevo escribe PII ajena en la bitácora (antes/después) — qué hace la anonimización de cuenta con esas filas: NO MEDIDO ⭐ **v1.80.12.2: cerrado en diseño por §19.22.1 (`SKX-SEC-1`)**; seguridad verifica PS-112 en la release |
 | **orquestador** | El encargo de fase C cita esta sección (no §19.5 para el verbo de colonia); D2a lleva las dos columnas nuevas |
 
 ###### <a id="M4-SHIP-19-21"></a>M4-SHIP.19.21 — v1.80.12.1: errata menor — las discrepancias de D1 (**NORMATIVA**, **DINERO**)
@@ -25487,6 +25515,193 @@ que devops entregue; en cuanto existan, backend la endurece a «presente y vací
 | **devops** | Nada nuevo: D0 y D0' tal como están |
 | **frontend / ux-ui** | Nada |
 | **QA** | PS-109 con las tres filas nuevas; `C-SDX-7` (2) nuevo |
+
+###### <a id="M4-SHIP-19-22"></a>M4-SHIP.19.22 — 🔒💰 v1.80.12.2: el domicilio sale de la bitácora (`SKX-SEC-1`), `address.missing`, dos respuestas, `ShipmentCostAdjustmentDTO` y PS-101 (**NORMATIVA**, **PII + DINERO**)
+
+> **Fuentes:** `SECURITY_NOTES.md:51-62` (rama `claude/staff-sin-correo`; Parte B, `SKX-SEC-1`, condición del gate de
+> seguridad de la release de Skydropx), `FRONTEND_NOTES.md:19152-19159` (§87, solicitudes 1–3), `DESIGN_SYSTEM §43.2a`
+> (`DESIGN_SYSTEM.md:23156-23161`) y §43.5a (v4.17), `HECHOS.md:50` (2026-10-04, «En "Capturar guía" el dueño (y quien
+> prepare) puede corregir TODA la dirección… queda registrado quién la cambió»). **Manda** sobre §19.20.1 paso 6, §19.7
+> (`ShipmentCostAdjustmentDTO`), §19.13 (`PUT …/packages`), §19.19.6 (`consignment-notes`) y PS-101 donde choque. Porqué:
+> `ARCHITECTURE §4.60 (o)`. ⛔ Sin código de error nuevo, sin endpoint nuevo. ⛔ Sin Bash: el arquitecto leyó, no ejecutó.
+
+**M4-SHIP.19.22.1 — 🔒 `SKX-SEC-1`: los valores del domicilio salen de `AuditLog` (opción (a)).**
+
+*Lo medido por el arquitecto (Read/Grep, 2026-10-04, árbol `/home/user/tcg-skyd`):*
+- `backend/src/modules/shipments/shipment-address.service.ts:141-159` escribe `AuditLog {action:'shipment.address_corrected',
+  before:{<clave>: valor viejo}, after:{<clave>: valor nuevo, addressVersion}}` — construido tal como lo pedía §19.20.1
+  paso 6. La prueba lo fija: `backend/test/integration/sdx-c-address.e2e-spec.ts:233-236` (aserta los valores) y `:346`
+  (lee `after.line1`).
+- La anonimización de cuenta es **una sola**: el borrado suave de `admin.service.ts:1585-1629` (`deleteUser`, rama
+  `hasTransactions`; `Grep "anonymizedAt: new Date"` ⇒ solo `admin.service.ts:1614`). Borra `BillingProfile`, `Address` y
+  `PortfolioSnapshot` (`:1606-1608`), anula la CLABE, RFC y claves de INE, y **no toca** `AuditLog`, `ShipmentRequest` ni
+  `Order` (conserva `addressSnapshot`/`shippingAddressSnapshot` como registro económico, decisión previa citada en
+  `SECURITY_NOTES.md:55`). Ningún `auditLog.update`/`delete` en `backend/src` (`SECURITY_NOTES.md:54`).
+- El envío **directo** de un cliente registrado nace con `userId: null` y `orderId` (`payments.service.ts:518-522`,
+  `orders.service.ts:1659-1663`): su dueño se alcanza por `order.userId`, **no** por `ShipmentRequest.userId`.
+- No hay verbo que anonimice a un **invitado** (sin cuenta); el único sello de anonimización es el de arriba.
+
+*Decisión: opción (a).* La bitácora conserva **quién, cuándo, qué claves y qué versión** (`HECHOS.md:50`: «queda
+registrado quién la cambió»); los **valores** (lo de antes y lo de después) viven en una tabla nueva ligada al envío, que
+la anonimización de cuenta **borra**. Se descarta (b) (cifrado por sujeto) y la variante «sin valores en ningún sitio»:
+el porqué está en `ARCHITECTURE §4.60 (o)`.
+
+*Schema — migración nueva `M-SDX-C2` (aditiva; ⛔ no toca `AuditLog` ni ninguna fila existente):*
+```prisma
+// v1.80.12.2 (SKX-SEC-1): los valores de cada corrección de dirección del envío. PII: la borra la anonimización.
+model ShipmentAddressRevision {
+  id                String          @id @default(uuid())
+  shipmentRequestId String
+  shipmentRequest   ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
+  fromVersion       Int             // la addressVersion que se corrigió (= expectedAddressVersion); la nueva es fromVersion + 1
+  changedKeys       String[]        // ⊆ CORRECTABLE_SNAPSHOT_KEYS (shipment-address.service.ts:41-51), en ese orden, ≥ 1
+  before            Json            // { <clave de changedKeys>: valor viejo | null }  — SOLO esas claves
+  after             Json            // { <clave de changedKeys>: valor nuevo | null }  — SOLO esas claves
+  correctedByUserId String          // sin FK dura (patrón AuditLog y addressCorrectedByUserId)
+  createdAt         DateTime        @default(now())
+  @@unique([shipmentRequestId, fromVersion])   // una revisión por versión: segundo candado detrás del CAS
+}
+// ShipmentRequest gana: addressRevisions ShipmentAddressRevision[]
+```
+CHECKs (SQL crudo, bloque `DO $$ … pg_constraint`, mismo patrón que `M-64`): `"fromVersion" >= 0` ·
+`cardinality("changedKeys") >= 1` · `"changedKeys" <@ ARRAY['recipientName','line1','line2','postalCode','neighborhood',
+'city','state','country','references']::text[]`. `onDelete: Cascade` porque la revisión no tiene sentido sin su envío y un
+`ShipmentRequest` solo se borra en el rollback compensatorio de `POST /shipments` (estado `solicitado`, nunca corregible).
+
+*Algoritmo — sustituye el paso 6 de §19.20.1 (pasos 1–5 y 7 sin cambio):*
+
+6. En la **misma tx**, tras el CAS con `count === 1`:
+   (a) `INSERT ShipmentAddressRevision { shipmentRequestId, fromVersion: expectedAddressVersion, changedKeys: changed,
+   before: {k: prev[k] ?? null}, after: {k: wanted[k]}, correctedByUserId: actor.id }`;
+   (b) `INSERT AuditLog { action:'shipment.address_corrected', entityType:'ShipmentRequest', entityId, actorUserId,
+   actorRole, before: { addressVersion: expectedAddressVersion }, after: { addressVersion: expectedAddressVersion + 1,
+   changedKeys: changed, revisionId } }`.
+   ⛔ **Ningún valor de ninguna clave del snapshot** en `AuditLog.before/after` (ni el `recipientName`, ni el CP). Si (a) o
+   (b) fallan, la tx entera se deshace (la corrección no ocurre sin su rastro).
+
+*Anonimización — `deleteUser`, rama suave (`admin.service.ts:1587-1629`), dentro de la misma `$transaction`:*
+```ts
+await tx.shipmentAddressRevision.deleteMany({
+  where: { shipmentRequest: { OR: [{ userId: id }, { order: { userId: id } }] } },   // retiros Y envíos directos
+});
+```
+- Se **borra** (no se redacta): quién y cuándo ya están en la bitácora, que se conserva intacta (sin PII que purgar).
+- ⛔ No cambia lo demás de `deleteUser`: `ShipmentRequest.addressSnapshot` (la dirección **vigente** del envío, a la que
+  fue la caja) y `Order.shippingAddressSnapshot` siguen como registro económico, igual que hoy. Lo que se elimina es el
+  historial **intermedio** de valores, que no es registro económico.
+- Rama dura (sin transacciones): sin cambio — no hay envíos, así que no hay revisiones.
+- **Invitados:** hoy no hay verbo que los anonimice. **Regla para el futuro:** el verbo que anonimice la PII de un
+  pedido de invitado borra también las revisiones de los envíos de ese pedido (`shipmentRequest.orderId`).
+
+*Lectura:* ningún endpoint lee `ShipmentAddressRevision` (la bitácora tampoco expone `before/after`:
+`SECURITY_NOTES.md:47`). El «Corregida por {name} · {fecha}» de la pantalla sale de `addressCorrectedAt/ByUserId`, sin
+cambio. Si mañana se quiere ver el historial en pantalla, es un endpoint nuevo con errata.
+
+*Precondición de despliegue (devops/orquestador, NO MEDIDO por el arquitecto):* la fase C no ha llegado a `production`
+(se publica solo por fusión del dueño a `production`, `CLAUDE.md` «Cómo se publica»). Antes de desplegar `M-SDX-C2`, medir
+en producción `SELECT count(*) FROM "AuditLog" WHERE action = 'shipment.address_corrected'` ⇒ debe ser **0**. Si no lo
+es, **se para y se pregunta al dueño**: reescribir esas filas abre una excepción a la inmutabilidad de `AuditLog`
+(`SECURITY_NOTES.md:48`), y esa decisión no la toma el arquitecto. En local/CI la base es nueva en cada corrida.
+
+*Migración `M-SDX-C2` — número propuesto **M-65**, carpeta `…_m65_sdx_c2_address_revision/`* (si cuando se encargue
+`M-SDX-D` ya tomó el 65, toma el siguiente libre; lo confirma el orquestador contra `backend/prisma/migrations/`).
+Contenido: `CREATE TABLE IF NOT EXISTS "ShipmentAddressRevision"` con FK a `"ShipmentRequest"("id") ON DELETE CASCADE`,
+`CREATE UNIQUE INDEX IF NOT EXISTS "ShipmentAddressRevision_shipmentRequestId_fromVersion_key"`, y los tres CHECK.
+Idempotente, sin backfill, cero dinero.
+**Reversa** (con el código revertido antes):
+```sql
+DROP TABLE IF EXISTS "ShipmentAddressRevision";   -- ⚠️ pierde los valores intermedios de las correcciones (los quién/cuándo siguen en AuditLog)
+DELETE FROM "_prisma_migrations" WHERE migration_name = '<carpeta de M-SDX-C2>';
+```
+⚠️ Revertir el **código** a la fase C sin esta errata vuelve a escribir domicilios en `AuditLog`: reabre `SKX-SEC-1`.
+
+**PS-112 🔒 (prueba de release; integración, base real):**
+
+| Qué asevera | Mutación que la pone roja |
+|---|---|
+| Cliente registrado con **un retiro** (`userId` = cliente) y **un envío directo** (`userId:null`, `order.userId` = cliente), ambos en `picking`; dos correcciones a cada uno con cadenas canario únicas por corrida (`CANARIO-<run>-…` en `recipientName`, `line1`, `line2`, `references`). Antes de anonimizar: 4 revisiones, 4 filas de bitácora. `DELETE /admin/users/:id` (modo `soft`) ⇒ **(1)** `SELECT count(*) FROM "AuditLog" WHERE before::text LIKE '%CANARIO-<run>%' OR after::text LIKE '%CANARIO-<run>%'` = **0** sobre la **tabla entera**, no solo esas acciones (y también **antes** de anonimizar: la bitácora nunca los tuvo); **(2)** revisiones de esos dos envíos = **0**; **(3)** las 4 filas `shipment.address_corrected` siguen, con `changedKeys` y versiones; **(4)** las revisiones de **otro** cliente, intactas | escribir los valores en `AuditLog.after` ⇒ (1); `deleteMany` solo por `shipmentRequest.userId` ⇒ (2) en el envío directo; `deleteMany` sin filtro ⇒ (4); borrar la fila de bitácora en vez de la revisión ⇒ (3) |
+
+PS-102 se corrige en su sitio (§19.20.8): la revisión lleva los valores; la bitácora, no.
+
+**M4-SHIP.19.22.2 — `AdminShipmentDTO.address.missing` (solicitud 1 de `FRONTEND_NOTES §87`).**
+
+```ts
+export type ShipmentAddressMissingField = 'recipientName' | 'line1' | 'neighborhood' | 'postalCode' | 'phone';
+export interface ShipmentAddressStateDTO {
+  complete: boolean;                         // ⇔ missing.length === 0
+  version: number;
+  corrected: { at: string; by: { userId: string; name: string | null } } | null;
+  missing: ShipmentAddressMissingField[];    // ⭐ v1.80.12.2 — SIEMPRE presente ([] si completa); orden fijo, el de arriba
+}
+```
+- **Un cuerpo:** `shipmentAddressMissing(snapshot)` en `shipments/` = `recipientName` si vacío tras trim, `line1` si vacío
+  tras trim, y luego `addressMissing(snapshot)` (`users/address-rules.ts:39-45`: `neighborhood`, `postalCode`, `phone`),
+  en ese orden. ⛔ No se copia la regla de la libreta: se compone.
+- **Es la misma lista que `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}`** de `quote`/`label` (§19.19, paso 3): el `422`
+  llama a la misma función sobre el snapshot leído bajo candado. Por eso el `422` puede traer también `recipientName` o
+  `line1` (un snapshot viejo de ocho campos sin nombre, `shipments.service.ts:438-440`, no se puede comprar en Skydropx).
+- ⛔ `422 ADDRESS_INCOMPLETE {addressId, missing}` de la **libreta** (§19.5, `POST /shipments`) **no cambia**: tres
+  valores, otro objeto (la libreta ya exige nombre y calle al guardar).
+- `complete` deja de ser `isAddressComplete(snap)` (`shipments.service.ts:722`) y pasa a `missing.length === 0`.
+- La pantalla (§43.2a): `missing` sin `phone` ⇒ abre en modo corregir con foco en el primero; con `phone` ⇒ aviso y
+  «Capturar a mano» (P-ADR-1 sigue abierta). Tras `PUT …/address` el teléfono sigue en `missing` si faltaba.
+- Solo en `AdminShipmentDTO` (fila y detalle). `ShipPreparationOrderDTO` sin cambio.
+
+**M4-SHIP.19.22.3 — Formas de respuesta (solicitud 2).**
+
+- **`GET /api/v1/admin/shipping/catalogs/consignment-notes?description=<texto>`** (`super_admin`):
+  `200 { consignmentNotes: { code: string; description: string }[]; hasMore: boolean }`. `code` = `consignment_note`
+  de Skydropx (8 dígitos), `description` tal cual (PROD §5.1: `{"data":[{"consignment_note","description"}],"meta":{…
+  "next_page"}}`, `docs/specs/SKYDROPX_API_PROD_RESULTADOS.md:253`). Solo la **primera** página; `hasMore` ⇔
+  `meta.next_page ≠ null` (meta ilegible ⇒ `false`): la pantalla pide afinar la búsqueda. Filas sin código se descartan
+  (como ya hace `skydropx.adapter.ts:423-427`). `description` obligatoria, 3..60 tras trim ⇒ si no, `400 VALIDATION_ERROR
+  {field:'description'}`; sin resultados ⇒ `200` con `[]`. Proveedor `off`/sin credenciales y fallas: los mismos códigos
+  que `GET …/catalogs` (§19.13). ⛔ Frontend asumió el arreglo pelado: **cambia** a leer `consignmentNotes` (un objeto
+  deja crecer la respuesta sin romperla, como todas las listas de este contrato).
+- **`PUT /api/v1/admin/shipping/packages`** (`super_admin`): `200 { packages: ShippingPackageDTO[] }` — **la misma forma
+  que el `GET`** (§19.20.3: todos, activos e inactivos, por `sortOrder`), leída tras el commit. Se **ratifica** lo que
+  asumió frontend. `ShippingPackageDTO = { code; label; lengthCm; widthCm; heightCm; weightKg /* entero ≥ 1 */;
+  providerPackageType; active; sortOrder }`. Errores: forma ⇒ `400 VALIDATION_ERROR {field}` (incluye `weightKg` no
+  entero o < 1, medidas ≤ 0, `code` repetido); sin ningún activo con `providerPackageType` ⇒ **`400 VALIDATION_ERROR
+  {field:'packages', reason:'no_active_package'}`** (⛔ no `422`: es validación del cuerpo).
+
+**M4-SHIP.19.22.4 — `ShipmentCostAdjustmentDTO` (solicitud 3).**
+
+```ts
+export interface ShipmentCostAdjustmentDTO {
+  id: string;
+  kind: ShipmentCostAdjustmentKind;   // 'overweight' | 'extended_zone' | 'return' | 'other' (§Enums)
+  providerChargeType: string;         // tal cual de Skydropx (p. ej. 'ExtraCharge::Overweight', 'Cancellation::NotRefunded')
+  amountCents: number;                // BRUTO, IVA incluido (> 0), misma convención que shippingCostCents
+  ivaCents: number;
+  ivaSource: ShippingIvaSource;
+  netCents: number;                   // amountCents − ivaCents (resta, nunca división)
+  chargedAt: string;                  // la fecha que decide el mes del P&L (pregunta 89, HECHOS.md:41)
+  observedAt: string;
+  note: string | null;
+}
+```
+- Proyección por lista blanca desde `ShipmentCostAdjustment` (§19.2). ⛔ `providerChargeId` **no** viaja (llave de
+  idempotencia interna; en la cancelación contiene el id de la guía).
+- Orden: `chargedAt` asc, luego `id`. En `AdminShipmentDTO` fila y detalle (§19.7), `[]` si no hay. Nunca en DTO de
+  cliente (la lista de §4-G.3 gana `costAdjustments` como prohibido).
+
+**M4-SHIP.19.22.5 — PS-101 alineada con `DESIGN_SYSTEM §43.5a` (v4.17).** «Capturar a mano» se pinta **solo** con
+`label = null ∧ labelPending = null` — la misma condición con que el servidor acepta `POST …/tracking` (sin guía y sin
+compra pendiente, §19.7/§19.20.1). Pasos 1–3: presente (paso 3 **deshabilitado** con la compra en curso); paso 4: solo
+en «Skydropx no creó la guía»; en `labeled`, `processing`, `in_progress` e `in_flight`: **no** se pinta. El texto de
+PS-101 se corrige en su fila. Medido por el orquestador: frontend ya lo hace (`CaptureLabelDialog.tsx:1036`; NO MEDIDO por
+el arquitecto).
+
+**M4-SHIP.19.22.6 — Qué cambia para quién.**
+
+| Rol | Qué |
+|---|---|
+| **backend 💰🔒** | `M-SDX-C2` + `ShipmentAddressRevision` en `schema.prisma`; `shipment-address.service.ts:141-159` (paso 6 nuevo); `admin.service.ts:1587-1629` (`deleteMany` en la tx); `sdx-c-address.e2e-spec.ts:233-236,346` (los valores se leen de la revisión); PS-112; `shipmentAddressMissing` y `address.missing` (`shipments.service.ts:712-723`) y su uso en el `422` de `quote`/`label` (D2); `consignment-notes` y `PUT …/packages` con estas formas (D2f); `ShipmentCostAdjustmentDTO` (D2) |
+| **frontend** | `types/contract.ts:1500-1512` (`missing` obligatorio, `ShipmentAddressMissingField`), `:1482-1489` (DTO completo); `lib/api.ts:2102-2105` (`{ consignmentNotes, hasMore }`); `lib/mock/skydropx.ts:182` (`missing` siempre), `:402` (`400` no `422`), `:418-425` (forma nueva); quitar los `// MOCK: pendiente de contrato` |
+| **devops / orquestador** | Número de `M-SDX-C2`; la medición de la precondición antes de desplegar |
+| **seguridad** | Verifica PS-112 en la release; `SKX-SEC-1` pasa de «condición» a «cerrado en diseño, pendiente de verificación» |
+| **QA** | PS-112, PS-102 corregida, PS-101 corregida |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
