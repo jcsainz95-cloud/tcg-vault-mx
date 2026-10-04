@@ -1845,7 +1845,10 @@ export const mockAddresses: AddressDTO[] = [
     postalCode: '06600',
     country: 'MX',
     phone: '5555123456',
+    references: null,
     isDefault: true,
+    // ⭐ v1.81: derivado por el servidor (colonia + CP de 5 + teléfono de 10).
+    complete: true,
   },
   {
     // v1.67: fila ANTERIOR a M-52 (sin destinatario). La libreta pinta «Falta el nombre de quien
@@ -1859,7 +1862,9 @@ export const mockAddresses: AddressDTO[] = [
     postalCode: '44100',
     country: 'MX',
     phone: '3331234567',
+    references: null,
     isDefault: false,
+    complete: true,
   },
 ];
 
@@ -4201,12 +4206,12 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
         : null,
     addresses:
       id === 'u-777'
-        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
+        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', references: null, isDefault: true, complete: false }]
         : id === 'u-780'
           ? [
-              { id: 'addr-80a', recipientName: 'Juan Carlos Sainz', line1: 'Av. Vallarta 1500', line2: 'Int. 4', neighborhood: 'Americana', city: 'Guadalajara', state: 'JAL', postalCode: '44160', country: 'MX', phone: '3312345678', isDefault: true },
+              { id: 'addr-80a', recipientName: 'Juan Carlos Sainz', line1: 'Av. Vallarta 1500', line2: 'Int. 4', neighborhood: 'Americana', city: 'Guadalajara', state: 'JAL', postalCode: '44160', country: 'MX', phone: '3312345678', references: null, isDefault: true, complete: true },
               // Fila anterior a M-52: sin destinatario. Se pinta «Sin destinatario», nunca el nombre.
-              { id: 'addr-80b', recipientName: null, line1: 'Calle Morelos 22', city: 'Zapopan', state: 'JAL', postalCode: '45010', country: 'MX', phone: '3398765432', isDefault: false },
+              { id: 'addr-80b', recipientName: null, line1: 'Calle Morelos 22', city: 'Zapopan', state: 'JAL', postalCode: '45010', country: 'MX', phone: '3398765432', references: null, isDefault: false, complete: false },
             ]
           : [],
     orders: base.id === 'u-777' ? mockOrders : [],

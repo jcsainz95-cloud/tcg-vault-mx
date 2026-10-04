@@ -19184,3 +19184,90 @@ que muerdan por separado).
 - **«Capturar a mano» en el paso 4:** ux-ui ratificó lo construido (v4.17, §43.5a); sin cambio de código.
 - El servidor falso habla las formas nuevas (`missing` siempre, `400` en empaques, `{consignmentNotes, hasMore}`);
   candado `lib/mock/skydropx-contract.test.ts`.
+
+## §88 · **Fase C en el cliente — colonia de lista por CP** en la libreta, el alta inline del buylist, el checkout de invitado y el retiro; y `line2` 0..200 (errata v1.80.12.3) (2026-10-04, rama `claude/skydropx-d`, base `f0009e92`; contrato v1.80.12 `§M4-SHIP.19.5`/`§19.20.1`, errata v1.80.12.3 `§19.23.4`; backend `eea04309`, `BACKEND_NOTES §58`)
+
+### 88.1 Qué mandaban los formularios ANTES (medido sobre `cd761248`)
+- **Libreta** (`components/domain/AddressManager.tsx`, también el alta inline de `BuylistPickupAddressField.tsx:129-133`):
+  colonia `Input` de texto libre y opcional (`:406-410`), ciudad y estado tecleados y obligatorios (`:344-345`,
+  `:411-414`), CP «≥ 3» y teléfono «≥ 7» (`:346-347`), sin `references`. ⇒ con fase C el servidor responde `400`
+  (colonia obligatoria, CP 5, tel 10) o `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE`.
+- **Invitado** (`checkout/GuestCheckoutForm.tsx:222-246`, `guest-validation.ts:108-133`): colonia texto libre opcional
+  (`neighborhood?.trim() || undefined`), ciudad/estado tecleados; CP 5 y tel 10 ya estaban; sin `references`.
+- **Retiro** (`shipments/ShipmentsView.tsx`): no había nada para `ADDRESS_INCOMPLETE` (caía a `getMessage` genérico,
+  `:157-160`) ni lectura de `complete`.
+- **`line2`**: el frontend NO fijaba ninguna cota (ni `maxLength` ni validación) en libreta, invitado ni «Capturar
+  guía» (`Grep` de `line2` con 120/200/`maxLength` en `frontend/src` ⇒ 0).
+
+### 88.2 Qué hay ahora
+- **Un hook, tres pantallas:** `hooks/usePostalCodeLookup.ts` (⚠️ zona compartida) — consulta `GET /geo/postal-codes/:cp`
+  con 5 dígitos (clave `['postal-code', cp]`, sin reintentos, `staleTime: Infinity`), distingue `unknown`
+  (`404`/`POSTAL_CODE_UNKNOWN`) de `failed` (red/5xx, con «Reintentar»), aplica `allowedOverride` (la lista del `422`)
+  y reconcilia la colonia elegida con la lista que llega (`matchNeighborhood`: grafía canónica o vacío). El paso 1
+  de «Capturar guía» (`m4/capture/AddressStep.tsx`) **usa ese mismo hook**: se quitó su copia de la consulta y del
+  efecto de reconciliación (sin cambio de conducta; 192/192 de `m4` verdes tras el cambio).
+- **`lib/address-rules.ts`** (⚠️ zona compartida): `POSTAL_CODE_RE`, `PHONE_RE`, `REFERENCES_MAX = 70`, `LINE2_MAX = 200`,
+  `normalizeMxPhone` (movida desde `guest-validation.ts`, que la re-exporta), `normalizeColonia` (la del servidor) y
+  `matchNeighborhood`.
+- **`components/domain/PostalCodeNeighborhoodFields.tsx`** (⚠️ zona compartida): CP → `Select` de colonias (⛔ sin texto
+  libre; apagado con su motivo por `aria-describedby` mientras no hay 5 dígitos / consulta / catálogo) → línea
+  «Municipio y estado: {city}, {state} (salen del CP).» (no son campos). La usan la libreta y el invitado.
+- **Libreta:** orden destinatario · calle · interior · CP · colonia · (municipio/estado) · teléfono (10, normalizado) ·
+  referencias (`Textarea` con contador, ≤ 70) · país. Al llegar la lista del CP el formulario toma colonia, `city` y
+  `state` **canónicos** (el servidor los sobrescribe igual; los manda porque el DTO los exige). Alta: referencias
+  vacías no viajan; edición: vacías ⇒ `null`. `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` ⇒ aviso bajo «Colonia» y la lista
+  pasa a `allowed`; `422 POSTAL_CODE_UNKNOWN` ⇒ bajo «Código postal»; `400 {field}` (los del servicio) ⇒ bajo el campo.
+  Validación local de CP 5 / tel 10 / colonia / referencias ≤ 70 / interior ≤ 200 porque el `400` del `ValidationPipe`
+  no trae `field` (`BACKEND_NOTES §58.2` punto 2) y no se podría pintar bajo el campo. Fila con `complete:false`
+  (decisión del servidor; ⛔ un DTO sin el campo no se marca) ⇒ «Dirección incompleta…» + «Completar dirección», que
+  abre la edición con el foco en el primer campo que falta.
+- **Invitado:** mismo componente; `GuestField` pierde `city`/`state` y gana `neighborhood`, `references`, `line2`.
+  `422` de colonia/CP de la session ⇒ aviso bajo el campo + el mensaje `error.<CODE>` junto al botón (cero órdenes).
+- **Retiro:** `complete:false` ⇒ CTA deshabilitado con motivo enlazado («A la dirección elegida le falta {…}») y
+  «Completar dirección» (el `AddressFormModal` de la libreta sobre ESA dirección). `422 ADDRESS_INCOMPLETE` del
+  servidor ⇒ se marca ESA dirección con su `missing` (manda el servidor).
+- **`line2` 0..200 (§19.23.4):** libreta e invitado la validan con `LINE2_MAX`; «Capturar guía» **no** pone cota en
+  pantalla (`§43.2b`: «no replica longitudes») — admite 200 y un `400 {field:'line2'}` va bajo el campo; el doble
+  (`lib/mock/skydropx.ts`) rechaza 201 como el servidor.
+- **Tipos** (`types/contract.ts`, ⚠️ zona compartida): `AddressDTO` + `references`, `complete` (y `line2`/`neighborhood`
+  admiten `null`, como emite el servidor); `GuestAddressInput.neighborhood` obligatoria + `references?`;
+  `AddressIncompleteField`; `AddressErrorCode` (los tres códigos nuevos, con su `error.<CODE>` en es/en — lo exige el
+  candado de `i18n-parity`). Mocks: `createAddress`/`updateAddress` validan colonia con el mismo catálogo que
+  `getPostalCode` y derivan `complete`.
+- **Playwright:** `guest-checkout.spec.ts:146`, `checkout-retry.spec.ts:126` (44100 → «Guadalajara Centro») y
+  `buylist.spec.ts:136` (06600 → «Juárez») eligen la colonia con `e2e/utils/address.ts#chooseNeighborhood` y ya no
+  teclean ciudad/estado. Censo `scripts/check-e2e-skip-census.sh`: sin cambios (todo `= baseline`).
+
+### 88.3 Pendiente para ux-ui (diseño del cliente NO escrito; apliqué lo mínimo coherente con §43.2b)
+1. Copy de la libreta/invitado/retiro: claves `addresses.geo.*`, `addresses.references*`, `addresses.line2TooLong`,
+   `addresses.phoneHint`, `addresses.incomplete.*`, `shipments.addressIncomplete.*` y `error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE`
+   / `POSTAL_CODE_UNKNOWN` / `ADDRESS_INCOMPLETE` (es/en). El «CP no está en el catálogo» del cliente NO dice «captura la
+   guía a mano» (eso es del operador): dice «Revisa que esté bien escrito.» — ¿qué remedio se le da al cliente si su CP
+   real no está en SEPOMEX?
+2. `addresses.line2` pasó de «Interior / referencia» a «Número interior o depto. (opcional)»: con `references` como campo
+   propio, la etiqueta vieja mezclaba las dos cosas (lo mismo que §43.2b señala de `es.json:5019`).
+3. El orden de campos, el contador de referencias (`Textarea counter`) y la marca de fila «Dirección incompleta».
+4. Retiro: el bloque «le falta {…}» + «Completar dirección» (hermano del de destinatario de §33.10b).
+
+### 88.4 Pruebas y mutaciones (medido por mí)
+Nuevas: `lib/address-rules.test.ts` (4), `components/domain/AddressManager.colonia.test.tsx` (10),
+`checkout/GuestCheckoutColonia.test.tsx` (4), 5 casos en `guest-validation.test.ts`, 3 en `ShipmentsView.test.tsx`,
+1 en `lib/mock/skydropx-contract.test.ts` y 1 en `m4/CaptureLabelDialog.test.tsx`. Ajustadas a la conducta nueva:
+`AddressManager.test.tsx`, `CheckoutRetry.test.tsx`, `CheckoutUnavailable.test.tsx`, `api.test.ts`, `KycReviewView.test.tsx`.
+
+Suites (árbol vivo, load < 2,5): `tsc` 0 errores · `next lint` 0 · vitest **220/220 ficheros, 2649/2649** · Playwright
+modo mock de los tres specs tocados **45/45** (N=1; contra el stack real: NO MEDIDO).
+
+Mutaciones (copia `git archive f0009e92` del árbol ENTERO + mis ficheros encima; N=1, todas deterministas; copia borrada):
+
+| Mutación | Resultado |
+|---|---|
+| M1 libreta sin exigir colonia | rojo (1) |
+| M2 libreta manda ciudad/estado tecleados, no los del CP | rojo (1) |
+| M3 colonia comparada sin normalizar | rojo (2) |
+| M4 `line2` con la cota vieja 120 | rojo (3) |
+| M5 retiro ignora `complete:false` | rojo (2) |
+| M6 invitado: `422` de colonia cae al genérico | rojo (2) |
+| M7 doble de «Capturar guía» sin cota de `line2` | rojo (1) |
+| M8 invitado: municipio/estado no salen del CP | rojo (1) |
+| M9 el hook no consulta el CP | rojo (8, incluye «Capturar guía») |

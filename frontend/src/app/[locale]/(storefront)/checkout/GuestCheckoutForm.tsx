@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { GuestAddressInput } from '@/types/contract';
 import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { PostalCodeNeighborhoodFields } from '@/components/domain/PostalCodeNeighborhoodFields';
+import { LINE2_MAX, REFERENCES_MAX } from '@/lib/address-rules';
 import { VaultUpsellPanel } from './VaultUpsellPanel';
 import { suggestEmailTypo, type GuestErrors, type GuestField, type GuestFormState } from './guest-validation';
 
@@ -25,6 +28,14 @@ export interface GuestCheckoutFormProps {
   shippingFeeLabel?: string;
   onDismissUpsell: () => void;
   onAccountReady: () => void;
+  /**
+   * ⭐ v1.81 (§M4-SHIP.19.5): el `422` de colonia de la sesión, pintado BAJO su campo
+   * (`NEIGHBORHOOD_NOT_IN_POSTAL_CODE` ⇒ colonia, `POSTAL_CODE_UNKNOWN` ⇒ CP). Lo retira quien monta
+   * al tocar ese campo.
+   */
+  serverAddressError?: { field: 'postalCode' | 'neighborhood'; message: string } | null;
+  /** `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}`: la lista del servidor manda sobre la consultada. */
+  allowedNeighborhoods?: string[] | null;
 }
 
 const FIELD_ORDER: GuestField[] = [
@@ -32,10 +43,11 @@ const FIELD_ORDER: GuestField[] = [
   'emailConfirmed',
   'recipientName',
   'line1',
-  'city',
-  'state',
+  'line2',
   'postalCode',
+  'neighborhood',
   'phone',
+  'references',
   'terms',
 ];
 
@@ -45,10 +57,11 @@ const FIELD_ID: Record<GuestField, string> = {
   emailConfirmed: 'guest-email-confirm',
   recipientName: 'guest-recipientName',
   line1: 'guest-line1',
-  city: 'guest-city',
-  state: 'guest-state',
+  line2: 'guest-line2',
   postalCode: 'guest-postalCode',
+  neighborhood: 'guest-neighborhood',
   phone: 'guest-phone',
+  references: 'guest-references',
   terms: 'guest-terms',
 };
 
@@ -78,6 +91,8 @@ export function GuestCheckoutForm({
   shippingFeeLabel,
   onDismissUpsell,
   onAccountReady,
+  serverAddressError = null,
+  allowedNeighborhoods = null,
 }: GuestCheckoutFormProps) {
   const t = useTranslations('checkout');
   const ta = useTranslations('addresses');
@@ -102,6 +117,9 @@ export function GuestCheckoutForm({
     if (field === 'terms') return t('guest.acceptTermsRequired');
     if (field === 'postalCode') return ta('postalCodeInvalid');
     if (field === 'phone') return ta('phoneInvalid');
+    if (field === 'neighborhood') return ta('geo.neighborhoodRequired');
+    if (field === 'line2') return ta('line2TooLong', { max: String(LINE2_MAX) });
+    if (field === 'references') return ta('referencesTooLong', { max: String(REFERENCES_MAX) });
     return ta('required');
   }
 
@@ -115,6 +133,8 @@ export function GuestCheckoutForm({
         return t('guest.recipientName');
       case 'terms':
         return t('guest.acceptTerms');
+      case 'references':
+        return ta('references');
       default:
         return ta(field);
     }
@@ -214,62 +234,66 @@ export function GuestCheckoutForm({
             error={visible('line1') ? messageFor('line1') : undefined}
           />
           <Input
+            id={FIELD_ID.line2}
             label={ta('line2')}
             autoComplete="address-line2"
             value={state.address.line2 ?? ''}
             onChange={(e) => onAddressChange({ line2: e.target.value })}
+            onBlur={() => onBlurField('line2')}
+            error={visible('line2') ? messageFor('line2') : undefined}
+          />
+          {/* ⭐ v1.81 (§M4-SHIP.19.5): CP → colonia de la lista → municipio y estado del CP (no son campos). */}
+          <PostalCodeNeighborhoodFields
+            postalCodeId={FIELD_ID.postalCode}
+            neighborhoodId={FIELD_ID.neighborhood}
+            postalCode={state.address.postalCode}
+            neighborhood={state.address.neighborhood}
+            onPostalCode={(postalCode) => onAddressChange({ postalCode })}
+            onNeighborhood={(neighborhood) => onAddressChange({ neighborhood })}
+            onResolved={(data, match) =>
+              onAddressChange({ neighborhood: match, city: data.municipality, state: data.state })
+            }
+            onBlurPostalCode={() => onBlurField('postalCode')}
+            onBlurNeighborhood={() => onBlurField('neighborhood')}
+            postalCodeError={
+              serverAddressError?.field === 'postalCode'
+                ? serverAddressError.message
+                : visible('postalCode')
+                  ? messageFor('postalCode')
+                  : undefined
+            }
+            neighborhoodError={
+              serverAddressError?.field === 'neighborhood'
+                ? serverAddressError.message
+                : visible('neighborhood')
+                  ? messageFor('neighborhood')
+                  : undefined
+            }
+            allowedOverride={allowedNeighborhoods}
           />
           <Input
-            label={ta('neighborhood')}
-            value={state.address.neighborhood ?? ''}
-            onChange={(e) => onAddressChange({ neighborhood: e.target.value })}
+            id={FIELD_ID.phone}
+            label={ta('phone')}
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={state.address.phone}
+            onChange={(e) => onAddressChange({ phone: e.target.value })}
+            onBlur={() => onBlurField('phone')}
+            error={visible('phone') ? messageFor('phone') : undefined}
+            hint={t('guest.phoneHelp')}
           />
-          <div className="grid gap-6 sm:grid-cols-2">
-            <Input
-              id={FIELD_ID.city}
-              label={ta('city')}
-              autoComplete="address-level2"
-              value={state.address.city}
-              onChange={(e) => onAddressChange({ city: e.target.value })}
-              onBlur={() => onBlurField('city')}
-              error={visible('city') ? messageFor('city') : undefined}
-            />
-            <Input
-              id={FIELD_ID.state}
-              label={ta('state')}
-              autoComplete="address-level1"
-              value={state.address.state}
-              onChange={(e) => onAddressChange({ state: e.target.value })}
-              onBlur={() => onBlurField('state')}
-              error={visible('state') ? messageFor('state') : undefined}
-            />
-          </div>
-          <div className="grid gap-6 sm:grid-cols-2">
-            <Input
-              id={FIELD_ID.postalCode}
-              label={ta('postalCode')}
-              inputMode="numeric"
-              maxLength={5}
-              autoComplete="postal-code"
-              className="tabular-nums"
-              value={state.address.postalCode}
-              onChange={(e) => onAddressChange({ postalCode: e.target.value.replace(/\D/g, '') })}
-              onBlur={() => onBlurField('postalCode')}
-              error={visible('postalCode') ? messageFor('postalCode') : undefined}
-            />
-            <Input
-              id={FIELD_ID.phone}
-              label={ta('phone')}
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              value={state.address.phone}
-              onChange={(e) => onAddressChange({ phone: e.target.value })}
-              onBlur={() => onBlurField('phone')}
-              error={visible('phone') ? messageFor('phone') : undefined}
-              hint={t('guest.phoneHelp')}
-            />
-          </div>
+          <Textarea
+            id={FIELD_ID.references}
+            label={ta('references')}
+            hint={ta('referencesHint', { max: String(REFERENCES_MAX) })}
+            rows={2}
+            counter={{ max: REFERENCES_MAX }}
+            value={state.address.references ?? ''}
+            onChange={(e) => onAddressChange({ references: e.target.value })}
+            onBlur={() => onBlurField('references')}
+            error={visible('references') ? messageFor('references') : undefined}
+          />
           {/* País fijo MX, mismo tratamiento que el formulario de direcciones (§15.3). */}
           <div className="flex flex-col">
             <span className="eyebrow">{ta('country')}</span>

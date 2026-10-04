@@ -46,12 +46,15 @@ function address(recipientName: string | null): AddressDTO {
     id: 'addr-old',
     recipientName,
     line1: 'Calle Falsa 123',
+    neighborhood: 'Guadalajara Centro',
     city: 'Guadalajara',
     state: 'JAL',
     postalCode: '44100',
     country: 'MX',
     phone: '3331234567',
+    references: null,
     isDefault: true,
+    complete: true,
   };
 }
 
@@ -250,5 +253,68 @@ describe('ShipmentsView · destinatario del envío (F10)', () => {
 
     await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/vault?tab=retiros'));
     expect(window.sessionStorage.getItem('tcg.vault.withdrawalRequested')).toBe('1');
+  });
+});
+
+/**
+ * v1.81 (`API_CONTRACT §M4-SHIP.19.5`, criterio 235): una dirección con `complete:false` no sirve para
+ * el retiro. La pantalla lo dice ANTES de pagar y ofrece completarla con el formulario de la libreta;
+ * si el `422 ADDRESS_INCOMPLETE` llega igual, manda el servidor.
+ */
+describe('ShipmentsView · dirección incompleta (v1.81)', () => {
+  it('complete:false ⇒ CTA deshabilitado con motivo enlazado y «Completar dirección» abre la edición de ESA dirección', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([{ ...address('Ana'), neighborhood: null, complete: false }]);
+    renderWithProviders(<ShipmentsView />, 'es');
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+
+    const block = await screen.findByTestId('address-incomplete-block');
+    expect(block).toHaveTextContent('A la dirección elegida le falta la colonia. Complétala para solicitar el retiro; no se cobró nada.');
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-describedby', 'address-incomplete');
+
+    fireEvent.click(within(block).getByRole('button', { name: 'Completar dirección' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Editar dirección' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Calle y número')).toHaveValue('Calle Falsa 123');
+  });
+
+  it('complete:true ⇒ sin bloqueo', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([address('Ana')]);
+    renderWithProviders(<ShipmentsView />, 'es');
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(screen.queryByTestId('address-incomplete-block')).toBeNull();
+  });
+
+  it('422 ADDRESS_INCOMPLETE del servidor (caché vieja) ⇒ se marca ESA dirección con lo que dice `missing`', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([address('Ana')]);
+    createShipmentMock.mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'ADDRESS_INCOMPLETE',
+        message: 'x',
+        details: { addressId: 'addr-old', missing: ['neighborhood', 'phone'] },
+      }),
+    );
+    renderWithProviders(<ShipmentsView />, 'es');
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+
+    const block = await screen.findByTestId('address-incomplete-block');
+    expect(block).toHaveTextContent('le falta la colonia y un teléfono de 10 dígitos');
+    expect(button).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/le faltan datos para la guía/);
   });
 });

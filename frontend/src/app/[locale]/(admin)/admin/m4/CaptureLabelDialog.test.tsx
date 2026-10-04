@@ -507,6 +507,24 @@ describe('UX-SDX-20 💰 · corregir tira la cotización vieja', () => {
   });
 });
 
+describe('§19.23.4 (errata v1.80.12.3) · el número interior admite 200 caracteres', () => {
+  it('200 viajan tal cual en el PUT (sin recorte ni cota de pantalla); un 400 {field:line2} va bajo ese campo', async () => {
+    const put = vi.spyOn(api, 'correctShipmentAddress').mockRejectedValueOnce(
+      new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'x', details: { field: 'line2' } }),
+    );
+    open();
+    fireEvent.click(await screen.findByRole('button', { name: 'Corregir dirección' }));
+    const line2 = await screen.findByLabelText('Número interior o depto. (opcional)');
+    expect(line2).not.toHaveAttribute('maxlength');
+    fireEvent.change(line2, { target: { value: 'x'.repeat(200) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar dirección' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put.mock.calls[0][1].line2).toBe('x'.repeat(200));
+    expect(await screen.findByText('Revisa este campo: el servidor no lo aceptó.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Número interior o depto. (opcional)')).toHaveAttribute('aria-invalid', 'true');
+  });
+});
+
 describe('UX-SDX-21 · conflicto de versión: relee, avisa y no re-manda', () => {
   it('409 CONFLICT address_changed ⇒ texto, UNA relectura, modo leer con lo nuevo, y el siguiente PUT con la versión nueva', async () => {
     const put = vi.spyOn(api, 'correctShipmentAddress').mockRejectedValueOnce(

@@ -538,15 +538,35 @@ export interface AddressDTO {
    */
   recipientName: string | null;
   line1: string;
-  line2?: string;
-  neighborhood?: string;
+  line2?: string | null;
+  /** ⭐ v1.81 (§M4-SHIP.19.5): OBLIGATORIA al crear y de la lista del CP; `null` solo en filas viejas. */
+  neighborhood?: string | null;
+  /** v1.81: municipio canónico del CP (lo fija el servidor). */
   city: string;
+  /** v1.81: estado canónico del CP (lo fija el servidor). */
   state: string;
   postalCode: string;
   country: string;
   phone: string;
+  /** ⭐ v1.81: referencias para el repartidor, ≤ 70 (van a la guía como `further_information`). */
+  references: string | null;
   isDefault?: boolean;
+  /**
+   * ⭐ v1.81 — DERIVADO por el servidor: `neighborhood ≠ null ∧ postalCode ~ ^\d{5}$ ∧ phone ~ ^\d{10}$`.
+   * `false` ⇒ `POST /shipments` (retiro) con ella responde `422 ADDRESS_INCOMPLETE {addressId, missing}`.
+   */
+  complete: boolean;
 }
+
+/** `422 ADDRESS_INCOMPLETE {addressId, missing}` del retiro (§M4-SHIP.19.5). */
+export type AddressIncompleteField = 'neighborhood' | 'postalCode' | 'phone';
+
+/**
+ * Códigos que la libreta (`POST/PATCH /users/me/addresses`), el checkout de invitado y el retiro
+ * pueden recibir por la dirección desde la fase C (§M4-SHIP.19.5). Declarados aquí para que el
+ * candado de `i18n-parity` exija su `error.<CODE>` en los dos catálogos.
+ */
+export type AddressErrorCode = 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE' | 'POSTAL_CODE_UNKNOWN' | 'ADDRESS_INCOMPLETE';
 
 // ---- Perfil de facturación CFDI (contrato §1 «Perfil de facturación») ----
 /**
@@ -5991,8 +6011,15 @@ export type FulfillmentMode = 'vault' | 'direct_ship';
 export interface GuestAddressInput {
   line1: string;
   line2?: string;
-  neighborhood?: string;
+  /**
+   * ⭐ v1.81 (§M4-SHIP.19.5) — OBLIGATORIA y DE LA LISTA de `GET /geo/postal-codes/:cp`; fuera de la
+   * lista ⇒ `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {postalCode, allowed}`; CP sin colonias ⇒
+   * `422 POSTAL_CODE_UNKNOWN {postalCode}`.
+   */
+  neighborhood: string;
+  /** v1.81: el servidor la sobrescribe con el municipio canónico del CP. */
   city: string;
+  /** v1.81: el servidor lo sobrescribe con el estado canónico del CP. */
   state: string;
   /** ^\d{5}$ */
   postalCode: string;
@@ -6002,6 +6029,8 @@ export interface GuestAddressInput {
   phone: string;
   /** nombre de quien recibe (el invitado no tiene User.name) */
   recipientName: string;
+  /** ⭐ v1.81 — opcional, ≤ 70, para el repartidor; se imprime en la guía. */
+  references?: string;
 }
 
 /** POST /checkout/guest/quote — read-only, no reserva inventario. §4-G.1 */

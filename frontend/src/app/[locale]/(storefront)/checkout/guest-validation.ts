@@ -1,4 +1,9 @@
 import type { GuestAddressInput } from '@/types/contract';
+import { isMxPhone, isPostalCode, LINE2_MAX, normalizeMxPhone, REFERENCES_MAX } from '@/lib/address-rules';
+
+// N-3: `normalizeMxPhone` vive desde v1.81 en `lib/address-rules` (la libreta la usa también); se
+// re-exporta para no mover a quien ya la importaba de aquí.
+export { normalizeMxPhone };
 
 /**
  * Validación LOCAL del checkout de invitado (DESIGN_SYSTEM §15.3, criterios 47 y 48b).
@@ -48,14 +53,15 @@ export type GuestField =
   | 'email'
   | 'recipientName'
   | 'line1'
-  | 'city'
-  | 'state'
+  | 'line2'
   | 'postalCode'
+  | 'neighborhood'
   | 'phone'
+  | 'references'
   | 'terms'
   | 'emailConfirmed';
 
-export type GuestErrorCode = 'required' | 'invalid' | 'unconfirmed';
+export type GuestErrorCode = 'required' | 'invalid' | 'unconfirmed' | 'tooLong';
 
 export type GuestErrors = Partial<Record<GuestField, GuestErrorCode>>;
 
@@ -78,25 +84,17 @@ export const EMPTY_GUEST_ADDRESS: GuestAddressInput = {
   // fuera de MX la rechaza el backend con 422 ADDRESS_NOT_MX (criterio 31/48b).
   country: 'MX',
   phone: '',
+  references: '',
 };
-
-/**
- * N-3: normaliza un teléfono MX a sus 10 dígitos nacionales. Acepta lo que la gente
- * teclea de verdad — `55 4017 0606`, `(55) 4017-0606`, `+52 55 4017 0606`,
- * `+521 55...` — quitando separadores y la lada de país 52/521. Antes solo pasaba si
- * quedaban EXACTAMENTE 10 dígitos, así que `+525540170606` (12) reventaba en silencio.
- */
-export function normalizeMxPhone(raw: string): string {
-  let d = raw.replace(/\D/g, '');
-  if (d.length === 12 && d.startsWith('52')) d = d.slice(2); // +52 55...
-  else if (d.length === 13 && d.startsWith('521')) d = d.slice(3); // +521 55... (móvil legacy)
-  return d;
-}
 
 /**
  * Valida el formulario completo. `postalCode` = ^\d{5}$ y `phone` = 10 dígitos MX,
  * exactamente como el `GuestAddressInput` del contrato §4-G.1 (que exige además
  * `recipientName`, porque un invitado no tiene `User.name`).
+ *
+ * ⭐ v1.81 (§M4-SHIP.19.5): la colonia es OBLIGATORIA y se elige de la lista del CP (el `Select` solo
+ * ofrece colonias de la lista, así que aquí basta con que haya una); `references` ≤ 70. `city`/`state`
+ * ya no son campos: salen del CP y el servidor los sobrescribe con los canónicos.
  */
 export function validateGuestForm(state: GuestFormState): GuestErrors {
   const errors: GuestErrors = {};
@@ -108,10 +106,11 @@ export function validateGuestForm(state: GuestFormState): GuestErrors {
   const a = state.address;
   if (!a.recipientName.trim()) errors.recipientName = 'required';
   if (!a.line1.trim()) errors.line1 = 'required';
-  if (!a.city.trim()) errors.city = 'required';
-  if (!a.state.trim()) errors.state = 'required';
-  if (!/^\d{5}$/.test(a.postalCode.trim())) errors.postalCode = 'invalid';
-  if (!/^\d{10}$/.test(normalizeMxPhone(a.phone))) errors.phone = 'invalid';
+  if ((a.line2 ?? '').trim().length > LINE2_MAX) errors.line2 = 'tooLong';
+  if (!isPostalCode(a.postalCode)) errors.postalCode = 'invalid';
+  else if (!(a.neighborhood ?? '').trim()) errors.neighborhood = 'required';
+  if (!isMxPhone(a.phone)) errors.phone = 'invalid';
+  if ((a.references ?? '').trim().length > REFERENCES_MAX) errors.references = 'tooLong';
 
   if (!state.acceptedTerms) errors.terms = 'required';
   return errors;
@@ -124,11 +123,12 @@ export function toAddressPayload(address: GuestAddressInput): GuestAddressInput 
     recipientName: address.recipientName.trim(),
     line1: address.line1.trim(),
     line2: address.line2?.trim() || undefined,
-    neighborhood: address.neighborhood?.trim() || undefined,
+    neighborhood: address.neighborhood.trim(),
     city: address.city.trim(),
     state: address.state.trim(),
     postalCode: address.postalCode.trim(),
     phone: normalizeMxPhone(address.phone),
+    references: address.references?.trim() || undefined,
     country: 'MX',
   };
 }

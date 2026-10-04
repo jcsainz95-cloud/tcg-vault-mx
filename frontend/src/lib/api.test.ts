@@ -331,21 +331,25 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
     const created = await createAddress({
       recipientName: 'Ana López',
       line1: 'Calle 5 de Mayo 10',
-      city: 'Puebla',
-      state: 'Puebla',
-      postalCode: '72000',
+      neighborhood: 'americana', // v1.81: de la lista del CP; se guarda la grafía canónica
+      city: 'tecleada',
+      state: 'tecleado',
+      postalCode: '44100',
       country: 'MX',
-      phone: '2221234567',
+      phone: '3312345678',
       isDefault: true,
     });
+    // v1.81 (§M4-SHIP.19.5): colonia, municipio y estado CANÓNICOS del CP; `complete` derivado.
+    expect(created).toMatchObject({ neighborhood: 'Americana', city: 'Guadalajara', state: 'Jalisco', references: null, complete: true });
     expect(created.id).toBeTruthy();
     const after = await listAddresses();
     expect(after.length).toBe(before.length + 1);
     // isDefault=true deja como no-default a las demás.
     expect(after.filter((a) => a.isDefault).length).toBe(1);
 
+    // v1.81: con colonia, tocar la ciudad vuelve a escribir el municipio canónico del CP.
     const updated = await updateAddress(created.id, { city: 'Cholula' });
-    expect(updated.city).toBe('Cholula');
+    expect(updated.city).toBe('Guadalajara');
 
     await deleteAddress(created.id);
     const final = await listAddresses();
@@ -357,6 +361,7 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
       createAddress({
         recipientName: 'Ana López',
         line1: '5th Ave 1',
+        neighborhood: 'Midtown',
         city: 'NYC',
         state: 'NY',
         postalCode: '10001',
@@ -530,7 +535,7 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/users/me/addresses');
 
     fetchMock.mockResolvedValueOnce(makeRes(201, { id: 'a2', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' }));
-    await createAddress({ recipientName: 'Ana', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' });
+    await createAddress({ recipientName: 'Ana', line1: 'y', neighborhood: 'n', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' });
     expect(fetchMock.mock.calls[1][1].method).toBe('POST');
 
     fetchMock.mockResolvedValueOnce(makeRes(200, { id: 'a2', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111', isDefault: true }));

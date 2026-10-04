@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as api from '@/lib/api';
 import { config } from '@/lib/config';
 import { mockAdminShipments } from './fixtures';
-import { mockDecorateAdminShipment, mockPutShippingPackages, mockSearchConsignmentNotes, mockShippingPackages, resetMockSkydropx } from './skydropx';
+import { mockCorrectAddress, mockDecorateAdminShipment, mockPutShippingPackages, mockSearchConsignmentNotes, mockShippingPackages, resetMockSkydropx } from './skydropx';
 import { ApiFixtureError } from './fixtures';
 
 /** El servidor falso y la rama real hablan las formas de `API_CONTRACT §M4-SHIP.19.22` (v1.80.12.2). */
@@ -52,5 +52,27 @@ describe('§19.22.3 · formas de respuesta', () => {
       config.useMocks = original;
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('§19.23.4 (errata v1.80.12.3) · `line2` 0..200 en «Capturar guía»', () => {
+  it('el doble acepta 200 y rechaza 201 con `400 {field:line2}` — la cota del validador compartido', () => {
+    const row = mockAdminShipments.find((r) => r.status === 'picking')!;
+    const body = {
+      expectedAddressVersion: 0,
+      recipientName: 'Ana',
+      line1: 'Calle 1',
+      postalCode: '03100',
+      neighborhood: 'Del Valle',
+      references: null,
+    };
+    try {
+      mockCorrectAddress(row, { ...body, line2: 'x'.repeat(201) });
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toMatchObject({ status: 400, code: 'VALIDATION_ERROR', details: { field: 'line2' } });
+    }
+    const ok = mockCorrectAddress(row, { ...body, line2: 'x'.repeat(200) });
+    expect(ok.shipment.addressSnapshot?.line2).toBe('x'.repeat(200));
   });
 });

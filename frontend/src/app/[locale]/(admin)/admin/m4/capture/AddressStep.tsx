@@ -1,10 +1,8 @@
 'use client';
 
-import { forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { forwardRef, useId, useImperativeHandle, useRef } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { getPostalCode } from '@/lib/api';
-import { asApiError } from '@/lib/api-client';
+import { usePostalCodeLookup } from '@/hooks/usePostalCodeLookup';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
@@ -98,29 +96,20 @@ export const AddressForm = forwardRef<AddressFormHandle, FormProps>(function Add
   useImperativeHandle(ref, () => ({ focusField: (f) => refs[f].current?.focus() }));
 
   const cp = draft.postalCode;
-  const cpComplete = /^\d{5}$/.test(cp);
-  const postal = useQuery({
-    queryKey: ['postal-code', cp],
-    queryFn: () => getPostalCode(cp),
-    enabled: cpComplete,
-    retry: false,
-    staleTime: Infinity,
+  // El CP manda (§43.2b): consulta, lista y reconciliación de la colonia viven en UN hook compartido
+  // con la libreta y el checkout de invitado (fase C, §M4-SHIP.19.5).
+  const postal = usePostalCodeLookup(cp, {
+    allowedOverride,
+    selected: draft.neighborhood,
+    onResolved: (_data, match) => {
+      if (match !== draft.neighborhood) onDraft({ ...draft, neighborhood: match });
+    },
   });
-  const cpUnknown = cpComplete && postal.isError && ['POSTAL_CODE_UNKNOWN', 'NOT_FOUND'].includes(asApiError(postal.error)?.code ?? '');
-  const neighborhoods = useMemo(
-    () => (!cpComplete ? [] : allowedOverride ?? (postal.data?.postalCode === cp ? postal.data.neighborhoods : [])),
-    [cpComplete, allowedOverride, postal.data, cp],
-  );
+  const { cpComplete, neighborhoods } = postal;
+  const cpUnknown = postal.unknown;
 
-  // La colonia elegida que NO está en la lista del CP nuevo vuelve al placeholder (UX-SDX-23).
-  useEffect(() => {
-    if (!postal.data || postal.data.postalCode !== cp) return;
-    if (draft.neighborhood && !neighborhoods.includes(draft.neighborhood)) onDraft({ ...draft, neighborhood: '' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [postal.data, cp]);
-
-  const city = postal.data && postal.data.postalCode === cp ? postal.data.municipality : str(saved.city);
-  const state = postal.data && postal.data.postalCode === cp ? postal.data.state : str(saved.state);
+  const city = postal.data ? postal.data.municipality : str(saved.city);
+  const state = postal.data ? postal.data.state : str(saved.state);
   const set = (k: AddressField) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     onDraft({ ...draft, [k]: e.target.value });
 

@@ -842,6 +842,17 @@
       "descPlaceholder": "E.g.: the card arrived with corner wear.",
       "descHint": "At least 10 characters. Evidence (photos) is sent by email to support after opening the dispute.",
       "errorTitle": "Could not open the dispute"
+    },
+    "addressIncomplete": {
+      "required": "The selected address is missing {missing}. Complete it to request the withdrawal; nothing was charged.",
+      "generic": "The selected address is missing data for the label. Complete it to request the withdrawal; nothing was charged.",
+      "cta": "Complete address",
+      "and": "and",
+      "missing": {
+        "neighborhood": "the neighborhood",
+        "postalCode": "a 5-digit postal code",
+        "phone": "a 10-digit phone"
+      }
     }
   },
   "shipmentStage": {
@@ -5455,7 +5466,10 @@
     "DECK_LIST_UNPARSEABLE": "We couldn't read any cards from your list. Check the format (quantity, set and number) and try again.",
     "ITEM_ORIGIN_REFUNDED": "A card in your withdrawal comes from a purchase being refunded and can't ship. Remove it and try again.",
     "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
-    "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved."
+    "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved.",
+    "NEIGHBORHOOD_NOT_IN_POSTAL_CODE": "That neighborhood isn’t in the postal code. Nothing was saved: choose one from the list.",
+    "POSTAL_CODE_UNKNOWN": "We couldn’t find that postal code in the neighborhood catalog. Check it’s typed correctly.",
+    "ADDRESS_INCOMPLETE": "The selected address is missing data for the label (neighborhood, postal code or phone). Complete it to continue; nothing was charged."
   },
   "payment": {
     "title": "Payment",
@@ -5484,7 +5498,7 @@
     "postalCodeInvalid": "Invalid postal code",
     "phoneInvalid": "Invalid phone number",
     "line1": "Street and number",
-    "line2": "Unit / reference",
+    "line2": "Unit or apt. number (optional)",
     "neighborhood": "Neighborhood",
     "city": "City",
     "state": "State",
@@ -5499,7 +5513,29 @@
     "recipientMissing": "Recipient name missing",
     "complete": "Complete",
     "edit": "Edit",
-    "editTitle": "Edit address"
+    "editTitle": "Edit address",
+    "line2TooLong": "Up to {max} characters: shorten it.",
+    "phoneHint": "10 digits. The carrier calls this number if they can’t find the address.",
+    "references": "Directions for the courier (optional)",
+    "referencesHint": "For example: black gate, between streets… Up to {max} characters; printed on the label.",
+    "referencesTooLong": "The directions don’t fit on the label: shorten them (up to {max} characters).",
+    "geo": {
+      "cpHint": "5 digits. Neighborhood, municipality and state come from the postal code.",
+      "cpFirst": "Type the 5-digit postal code to see its neighborhoods.",
+      "loading": "Looking up the neighborhoods for postal code {cp}…",
+      "placeholder": "Choose a neighborhood",
+      "noNeighborhoods": "No neighborhoods: check the postal code.",
+      "cpUnknown": "We couldn’t find postal code {cp} in the neighborhood catalog. Check it’s typed correctly.",
+      "failed": "We couldn’t look up the neighborhoods for postal code {cp}.",
+      "notInCp": "That neighborhood isn’t in postal code {cp}. Nothing was saved: choose one from the list.",
+      "neighborhoodRequired": "Choose the neighborhood from the postal code’s list.",
+      "cityState": "Municipality and state: {city}, {state} (from the postal code).",
+      "noData": "no data"
+    },
+    "incomplete": {
+      "row": "Incomplete address: missing the neighborhood, a 5-digit postal code or a 10-digit phone.",
+      "cta": "Complete address"
+    }
   },
   "track": {
     "title": "Track your order",

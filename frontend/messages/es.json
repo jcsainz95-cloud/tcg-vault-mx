@@ -842,6 +842,17 @@
       "descPlaceholder": "Ej.: la carta llegó con desgaste en una esquina.",
       "descHint": "Mínimo 10 caracteres. La evidencia (fotos) se envía por correo a soporte tras abrir la disputa.",
       "errorTitle": "No se pudo abrir la disputa"
+    },
+    "addressIncomplete": {
+      "required": "A la dirección elegida le falta {missing}. Complétala para solicitar el retiro; no se cobró nada.",
+      "generic": "A la dirección elegida le faltan datos para la guía. Complétala para solicitar el retiro; no se cobró nada.",
+      "cta": "Completar dirección",
+      "and": "y",
+      "missing": {
+        "neighborhood": "la colonia",
+        "postalCode": "un CP de 5 dígitos",
+        "phone": "un teléfono de 10 dígitos"
+      }
     }
   },
   "shipmentStage": {
@@ -5455,7 +5466,10 @@
     "DECK_LIST_UNPARSEABLE": "No pudimos leer ninguna carta de tu lista. Revisa el formato (cantidad, set y número) e inténtalo de nuevo.",
     "ITEM_ORIGIN_REFUNDED": "Una carta de tu retiro viene de una compra que se está reembolsando y no se puede enviar. Quítala y vuelve a intentarlo.",
     "DECLINE_NOT_ALLOWED": "Esta solicitud no se puede declinar en el punto en que está. Si ya tiene una oferta enviada, la vía es cancelar la oferta, que es el aviso que le corresponde al vendedor; si ya cerró, no hay nada que declinar. Vuelve a cargarla para ver su estado. No se guardó nada.",
-    "OFFER_NOT_CANCELLABLE": "Esta oferta ya no se puede cancelar: no hay una oferta viva o la solicitud ya avanzó (una aceptada no se cancela por aquí). Vuelve a cargarla para ver su estado. No se guardó nada."
+    "OFFER_NOT_CANCELLABLE": "Esta oferta ya no se puede cancelar: no hay una oferta viva o la solicitud ya avanzó (una aceptada no se cancela por aquí). Vuelve a cargarla para ver su estado. No se guardó nada.",
+    "NEIGHBORHOOD_NOT_IN_POSTAL_CODE": "Esa colonia no es del código postal. No se guardó nada: elige una de la lista.",
+    "POSTAL_CODE_UNKNOWN": "No encontramos ese código postal en el catálogo de colonias. Revisa que esté bien escrito.",
+    "ADDRESS_INCOMPLETE": "A la dirección elegida le faltan datos para la guía (colonia, CP o teléfono). Complétala para continuar; no se cobró nada."
   },
   "payment": {
     "title": "Pago",
@@ -5484,7 +5498,7 @@
     "postalCodeInvalid": "Código postal inválido",
     "phoneInvalid": "Teléfono inválido",
     "line1": "Calle y número",
-    "line2": "Interior / referencia",
+    "line2": "Número interior o depto. (opcional)",
     "neighborhood": "Colonia",
     "city": "Ciudad",
     "state": "Estado",
@@ -5499,7 +5513,29 @@
     "recipientMissing": "Falta el nombre de quien recibe",
     "complete": "Completar",
     "edit": "Editar",
-    "editTitle": "Editar dirección"
+    "editTitle": "Editar dirección",
+    "line2TooLong": "Hasta {max} caracteres: acórtalo.",
+    "phoneHint": "10 dígitos. La paquetería llama a este número si no encuentra el domicilio.",
+    "references": "Referencias para el repartidor (opcional)",
+    "referencesHint": "Por ejemplo: portón negro, entre calles… Hasta {max} caracteres; van impresas en la guía.",
+    "referencesTooLong": "Las referencias no caben en la guía: acórtalas (hasta {max} caracteres).",
+    "geo": {
+      "cpHint": "5 dígitos. La colonia, el municipio y el estado salen del CP.",
+      "cpFirst": "Escribe los 5 dígitos del CP para ver sus colonias.",
+      "loading": "Buscando las colonias del CP {cp}…",
+      "placeholder": "Elige una colonia",
+      "noNeighborhoods": "Sin colonias: revisa el CP.",
+      "cpUnknown": "No encontramos el CP {cp} en el catálogo de colonias. Revisa que esté bien escrito.",
+      "failed": "No se pudieron consultar las colonias del CP {cp}.",
+      "notInCp": "Esa colonia no es del CP {cp}. No se guardó nada: elige una de la lista.",
+      "neighborhoodRequired": "Elige la colonia de la lista del CP.",
+      "cityState": "Municipio y estado: {city}, {state} (salen del CP).",
+      "noData": "sin dato"
+    },
+    "incomplete": {
+      "row": "Dirección incompleta: falta la colonia, el CP de 5 dígitos o el teléfono de 10.",
+      "cta": "Completar dirección"
+    }
   },
   "track": {
     "title": "Seguimiento de tu pedido",

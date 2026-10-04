@@ -220,6 +220,8 @@ export function mockCorrectAddress(row: AdminShipmentDTO, body: CorrectShipmentA
   for (const [field, ok] of [
     ['recipientName', body.recipientName.trim().length >= 1 && body.recipientName.trim().length <= 120],
     ['line1', body.line1.trim().length >= 1 && body.line1.trim().length <= 200],
+    // errata v1.80.12.3 (§19.23.4): `line2` 0..200 (el 0..120 de §19.20.1 era de transcripción).
+    ['line2', (body.line2 ?? '').trim().length <= 200],
     ['postalCode', /^\d{5}$/.test(body.postalCode)],
     ['references', (body.references ?? '').length <= 70],
   ] as const) {

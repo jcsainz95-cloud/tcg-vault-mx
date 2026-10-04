@@ -83,6 +83,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const [outcome, setOutcome] = useState<GuestCheckoutSessionResponse | null>(null);
   const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paid, setPaid] = useState<GuestCheckoutSessionResponse | null>(null);
+  /** ⭐ v1.81 (§M4-SHIP.19.5): el `422` de colonia/CP de la sesión, bajo su campo. */
+  const [serverAddressError, setServerAddressError] = useState<{ field: 'postalCode' | 'neighborhood'; message: string } | null>(null);
+  const [allowedNeighborhoods, setAllowedNeighborhoods] = useState<string[] | null>(null);
+  const ta = useTranslations('addresses');
 
   /**
    * v1.68.1 (§4-R.5): el quote reconoce la reserva PROPIA solo con `retryOfCheckoutToken` + `email`.
@@ -170,6 +174,13 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   }
   function patchAddress(patch: Partial<GuestAddressInput>) {
     setForm((f) => ({ ...f, address: { ...f.address, ...patch } }));
+    // Tocar el CP o la colonia retira el `422` del servidor; un CP nuevo retira además su lista.
+    if (patch.postalCode !== undefined && patch.postalCode !== form.address.postalCode) {
+      setServerAddressError(null);
+      setAllowedNeighborhoods(null);
+    } else if (patch.neighborhood !== undefined && patch.neighborhood !== form.address.neighborhood) {
+      setServerAddressError((cur) => (cur?.field === 'neighborhood' ? null : cur));
+    }
   }
 
   function chooseDestination(next: Destination) {
@@ -228,6 +239,22 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       if (e instanceof ApiClientError && e.code === 'VAULT_REQUIRES_ACCOUNT') {
         setDestination('vault');
         setUpsellOpen(true);
+      } else if (
+        e instanceof ApiClientError &&
+        (e.code === 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE' || e.code === 'POSTAL_CODE_UNKNOWN')
+      ) {
+        // ⭐ v1.81 (§M4-SHIP.19.5): cero órdenes creadas. El aviso va bajo el campo y junto al botón.
+        const cp = typeof e.details?.postalCode === 'string' ? e.details.postalCode : form.address.postalCode;
+        if (e.code === 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE') {
+          const allowed = Array.isArray(e.details?.allowed)
+            ? (e.details.allowed as unknown[]).filter((x): x is string => typeof x === 'string')
+            : null;
+          setAllowedNeighborhoods(allowed);
+          setServerAddressError({ field: 'neighborhood', message: ta('geo.notInCp', { cp }) });
+        } else {
+          setServerAddressError({ field: 'postalCode', message: ta('geo.cpUnknown', { cp }) });
+        }
+        setPayError(getMessage(e));
       } else if (e instanceof ApiClientError && e.code === 'PAYMENT_IN_PROGRESS') {
         // §4-R.2/.3: el PI del intento anterior ya está en curso o cobrado ⇒ no se abre otro. El
         // invitado no tiene `/orders/:id`: el bloqueo explica y ofrece reintentar en un momento.
@@ -362,6 +389,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                       setDestination('ship');
                     }}
                     onAccountReady={() => onAccountReady({ fromVaultUpsell: true })}
+                    serverAddressError={serverAddressError}
+                    allowedNeighborhoods={allowedNeighborhoods}
                   />
                 </div>
               )}

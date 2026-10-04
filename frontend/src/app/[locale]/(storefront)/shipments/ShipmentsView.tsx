@@ -10,13 +10,18 @@ import { formatMoneyCents } from '@/lib/format';
 import { createShipment, getHoldings, getShipmentQuote, listAddresses, updateAddress } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
-import type { ShipmentCreateResponse } from '@/types/contract';
+import type { AddressIncompleteField, ShipmentCreateResponse } from '@/types/contract';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import { AddressManager } from '@/components/domain/AddressManager';
+import {
+  AddressFormModal,
+  AddressManager,
+  addressIncomplete,
+  addressMissingFields,
+} from '@/components/domain/AddressManager';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
 import { WithdrawalBadge } from '@/components/domain/WithdrawalBadge';
@@ -45,6 +50,13 @@ const RECIPIENT_MAX = 120;
  * se pide sola y el CTA se habilita. Si aun así el servidor responde `422 RECIPIENT_NAME_REQUIRED`
  * (quote o create), se abre la misma captura para ESA `addressId` y se reintenta — hermano de
  * `PHONE_REQUIRED`. ⛔ Nunca se manda `User.name` por el usuario (puede ser el fabricado).
+ *
+ * ⭐ v1.81 (§M4-SHIP.19.5, criterio 235): una dirección vieja con `complete: false` (sin colonia, CP que
+ * no es de 5 o teléfono que no es de 10) no sirve para el retiro — el servidor responde
+ * `422 ADDRESS_INCOMPLETE {addressId, missing}`. La pantalla lo dice ANTES de pagar: CTA deshabilitado
+ * con motivo enlazado y «Completar dirección», que abre el formulario de la libreta sobre ESA dirección
+ * (mismo formulario, misma validación de colonia por CP). Si el `422` llega igual (caché vieja), manda el
+ * servidor: se marca esa dirección y se abre la misma salida.
  */
 export function ShipmentsView() {
   const t = useTranslations('shipments');
@@ -104,6 +116,16 @@ export function ShipmentsView() {
     // Solo al cambiar de dirección (o al descubrir que falta): no pisa lo que el usuario teclea.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAddress?.id, recipientMissing]);
+  // --- v1.81 · dirección incompleta (colonia / CP / teléfono) ------------------------------------
+  const [serverIncomplete, setServerIncomplete] = useState<{ id: string; missing: AddressIncompleteField[] } | null>(null);
+  const incomplete =
+    !!selectedAddress && (addressIncomplete(selectedAddress) || serverIncomplete?.id === selectedAddress.id);
+  const incompleteMissing: AddressIncompleteField[] = !selectedAddress
+    ? []
+    : serverIncomplete?.id === selectedAddress.id && serverIncomplete.missing.length > 0
+      ? serverIncomplete.missing
+      : addressMissingFields(selectedAddress);
+  const [completingAddress, setCompletingAddress] = useState(false);
   const recipientClean = recipientDraft.trim();
   const recipientValid = recipientClean.length >= 1 && recipientClean.length <= RECIPIENT_MAX;
 
@@ -154,6 +176,17 @@ export function ShipmentsView() {
         setServerSaysMissing(detailId);
         void queryClient.invalidateQueries({ queryKey: ['addresses'] });
         setReqError(t('recipient.required'));
+      } else if (e instanceof ApiClientError && e.code === 'ADDRESS_INCOMPLETE') {
+        // v1.81: manda el servidor — se marca ESA dirección y se ofrece completarla (cero cobro).
+        const detailId = typeof e.details?.addressId === 'string' ? (e.details.addressId as string) : addressId;
+        const missing = Array.isArray(e.details?.missing)
+          ? (e.details.missing as unknown[]).filter(
+              (m): m is AddressIncompleteField => m === 'neighborhood' || m === 'postalCode' || m === 'phone',
+            )
+          : [];
+        setServerIncomplete({ id: detailId, missing });
+        void queryClient.invalidateQueries({ queryKey: ['addresses'] });
+        setReqError(getMessage(e));
       } else {
         // Incluye 422 ITEM_NOT_SETTLED / ADDRESS_NOT_MX / 409 ITEM_IN_ANOTHER_SHIPMENT.
         setReqError(getMessage(e));
@@ -179,7 +212,8 @@ export function ShipmentsView() {
     router.push(VAULT_WITHDRAWALS_HREF);
   }
 
-  const canRequest = isMx && selected.length > 0 && !!addressId && !recipientMissing;
+  const canRequest = isMx && selected.length > 0 && !!addressId && !recipientMissing && !incomplete;
+  const missingText = joinMissing(incompleteMissing.map((m) => t(`addressIncomplete.missing.${m}`)), t('addressIncomplete.and'));
   const shipToName = recipientMissing ? '' : recipientOnFile;
 
   return (
@@ -298,6 +332,18 @@ export function ShipmentsView() {
             </div>
           )}
 
+          {/* v1.81 · dirección incompleta: motivo + «Completar dirección» (formulario de la libreta). */}
+          {selectedAddress && isMx && incomplete && (
+            <div className="rule-note mt-5" data-testid="address-incomplete-block">
+              <p id="address-incomplete" className="font-mono text-[11px] leading-[1.6] text-accent">
+                {missingText ? t('addressIncomplete.required', { missing: missingText }) : t('addressIncomplete.generic')}
+              </p>
+              <Button variant="secondary" size="sm" className="mt-3" onClick={() => setCompletingAddress(true)}>
+                {t('addressIncomplete.cta')}
+              </Button>
+            </div>
+          )}
+
           <p className="mt-5 text-xs leading-[1.65] text-muted">
             {t('flatFeeNotice')} {t('onlyMx')}
           </p>
@@ -339,7 +385,13 @@ export function ShipmentsView() {
             loading={creating}
             disabled={!canRequest}
             // §15.9: ningún control apagado y mudo — el motivo está enlazado cuando falta el destinatario.
-            aria-describedby={selectedAddress && isMx && recipientMissing ? 'recipient-required' : undefined}
+            aria-describedby={
+              selectedAddress && isMx && recipientMissing
+                ? 'recipient-required'
+                : selectedAddress && isMx && incomplete
+                  ? 'address-incomplete'
+                  : undefined
+            }
             onClick={requestWithdrawal}
             className="mt-6 w-full"
           >
@@ -347,6 +399,19 @@ export function ShipmentsView() {
           </Button>
         </aside>
       </div>
+
+      <AddressFormModal
+        open={completingAddress && !!selectedAddress}
+        address={selectedAddress}
+        focusField={incompleteMissing[0] ?? 'neighborhood'}
+        onClose={() => setCompletingAddress(false)}
+        onSaved={(saved) => {
+          setCompletingAddress(false);
+          setServerIncomplete((cur) => (cur?.id === saved.id ? null : cur));
+          setReqError(null);
+          void queryClient.invalidateQueries({ queryKey: ['addresses'] });
+        }}
+      />
 
       <StripePaymentModal
         open={!!shipment}
@@ -359,4 +424,10 @@ export function ShipmentsView() {
       />
     </div>
   );
+}
+
+/** «a, b y c» — une lo que falta con la conjunción del idioma (sin `Intl.ListFormat`: jsdom/Node varían). */
+function joinMissing(parts: string[], and: string): string {
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} ${and} ${parts[parts.length - 1]}`;
 }
