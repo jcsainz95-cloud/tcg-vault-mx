@@ -27220,3 +27220,127 @@ Instrumento de la mutación PS-99 (c): con el veto quitado, el canario haría un
 | PS-94 `parseFloat×100` · redondear cada `extra_fee` · admitir `success:false` | 4/46 · 1/46 · 3/46 |
 | PS-100 token siempre · PS-84 seguir `Location` sin `assertProviderUrl` | 2/68 · 2/28 |
 | M-5 el doble no reutiliza · C-SDX-1 URL de Skydropx en el código | 1/46 · 1/28 |
+
+## 58 · Skydropx fase C construida (M-64 = `M-SDX-C`): catálogo de CP, dirección de lista, `PUT …/address`; y la errata v1.80.12.1 sobre D1 (2026-10-04, rama `claude/skydropx-d`; código en `eea04309`, `239cec70`, `fae954ce`)
+
+Fuente: `API_CONTRACT §M4-SHIP.19.5`, `§19.20.1` (errata v1.80.12), `§19.19.14/.15`, `§19.21` (errata v1.80.12.1);
+`ARCHITECTURE §4.60 (e)(m)`, `§11 «v1.81-skydropx»`; `PROJECT §T.2`, criterios 235 y 315; `HECHOS.md` 2026-10-04
+«Poder corregir todo». ⛔ Cero llamadas a `*.skydropx.com`.
+
+### 58.1 Dónde vive cada pieza
+
+| Pieza | Fichero |
+|---|---|
+| Migración M-64 (aditiva, sin backfill, idempotente: cada sentencia con `IF NOT EXISTS` / bloque `pg_constraint`) | `prisma/migrations/20261006120000_m64_sdx_c_address/migration.sql` |
+| `normalizeColonia`, `PostalCodePort`, fuente local, **`PostalCodeService.resolvePostalCode`** (EL cuerpo, `C-SDX-3`), `describe` (el `GET`), `canonicalize` (la validación) | `src/modules/shipping-provider/geo/postal-code.ts` |
+| `GET /api/v1/geo/postal-codes/:cp` (público, 60/min, `Cache-Control: public, max-age=86400`) | `…/geo/geo.controller.ts`, `geo.module.ts` (módulo Nest aparte: no arrastra el adaptador de guías) |
+| Cotas compartidas, `addressMissing`/`isAddressComplete`, validadores de campo con `{field}` | `src/modules/users/address-rules.ts` |
+| `AddressDTO` + `references` + `complete`; `ADDRESS_ROW_KEYS` (columnas) vs `ADDRESS_DTO_KEYS` (DTO) | `src/modules/users/address-dto.ts` |
+| Libreta (`POST/PATCH /users/me/addresses`) | `users.service.ts`, `dto/users.dto.ts` |
+| Invitado (`GuestAddressInput`, quote y sesión; `/pedido` lee la dirección DEL ENVÍO) | `orders/dto/guest-checkout.dto.ts`, `orders/guest-checkout.service.ts` |
+| Retiro con dirección incompleta ⇒ `422 ADDRESS_INCOMPLETE`; snapshot de 10 campos; `AdminShipmentDTO.address`; `shipTo.references/addressCorrected` | `shipments/shipments.service.ts` |
+| **`PUT /api/v1/admin/shipments/:id/address`** | `shipments/shipment-address.service.ts`, `admin-shipments.controller.ts` |
+| Códigos `NEIGHBORHOOD_NOT_IN_POSTAL_CODE`, `POSTAL_CODE_UNKNOWN`, `ADDRESS_INCOMPLETE`, `SHIPMENT_ALREADY_LABELED` | `common/error-codes.ts` (cuatro líneas al final) |
+| Catálogo de CP del arnés (`E2E_POSTAL_CODES`: 01000, 06600, 14210, 44100, 64000) | `prisma/e2e-fixtures.ts`, `prisma/seed-e2e.ts` (paso 12a) |
+
+### 58.2 Decisiones que el contrato no fijaba (medidas o declaradas)
+
+1. **Cotas:** §19.20.1 pide «un juego» y manda la del invitado donde difiera. Medido en `GuestAddressInput` (sobre
+   `3238ece1`): `line1` 200, **`line2` 200** (§19.20.1 decía 0..120 ⇒ manda 200), `neighborhood`/`city`/`state`/
+   `recipientName` 120, CP `^\d{5}$`, tel `^\d{10}$`, `references` 70. Viven en `ADDRESS_LIMITS`; los tres DTO las citan.
+2. **`PUT …/address` valida el cuerpo en el servicio**, no con el `ValidationPipe`: PS-103 exige `400 {field}` y el
+   pipe no emite `field` (deuda ya registrada en `person-name.ts`). Cuerpo como `unknown`, igual que `prepared`.
+3. **Fase C sin `labelSource`/`labelProcessingSince`** (son `M-SDX-D`): la guarda «ya tiene guía» usa
+   `labelSourceOf(row)` = `trackingNumber ? 'manual' : null` (la mitad derivada de §19.2) y el `WHERE` del CAS lleva
+   `trackingNumber: null` como sustituto de `labelSource: null`. **D2a/D2c deben**: cambiar el cuerpo de `labelSourceOf`
+   por el de §19.2, añadir `labelSource: null, labelProcessingSince: null` al `WHERE` y la guarda `409 LABEL_IN_PROGRESS`.
+   Hoy `setTracking` lleva el envío a `guia` en la misma tx (`REL-C`), así que `SHIPMENT_ALREADY_LABELED` en `picking`
+   solo lo alcanza una fila legada: defensa en profundidad (la prueba la siembra a mano).
+4. **Orden de `ADDRESS_INCOMPLETE` en el retiro:** después de la elegibilidad de las piezas (medido: PS-55/63/65 de
+   `full-refund-vault.e2e-spec.ts` esperan `NOT_FOUND`/`ITEM_ORIGIN_REFUNDED` con una dirección incompleta) y antes de la
+   tx serializable y del PaymentIntent. `quote` del retiro no cambia (§19.5).
+5. **`PATCH` de la libreta:** si toca CP, colonia, ciudad o estado y la colonia resultante existe ⇒ se valida el par
+   (CP, colonia) y se escriben los canónicos. Excepción: dirección vieja SIN colonia a la que solo se cambia ciudad o
+   estado ⇒ se escribe tal cual (no hay colonia que validar; sigue `complete:false`).
+6. **El quote del invitado también valida la colonia** cuando trae dirección (mismo `GuestAddressInput`, §4-G.1).
+7. **`unchanged`:** se compara clave a clave contra lo leído; ausente ≡ `null` (un snapshot de 9 campos sin
+   `references` no «cambia» por recibir `null`). `country` se fija a `MX`; `phone` no se toca (P-ADR-1).
+8. **`AdminShipmentDTO.address`** va en la fila y en el detalle (dentro de `adminIdentity`): una consulta de `User`
+   por fila corregida (mismo patrón N+1 que `preparedBy`).
+9. **`GET /geo` sin colonias:** `municipality`/`state` = el más frecuente entre las filas del CP (un CP de SEPOMEX puede
+   cruzar municipios); la VALIDACIÓN usa el municipio de la colonia elegida, no el del `GET`.
+10. **Qué superficie del cliente leía la orden habiendo envío (NO MEDIDO en el contrato, medido aquí):** solo
+    `POST /orders/guest/track` (`guest-checkout.service.ts`, antes `order.shippingAddressSnapshot`). `/orders/:id` y
+    `/shipments/:id` ya leían el del envío; `AV-4` no lleva domicilio. Ahora `/pedido` lee el del envío si existe.
+
+### 58.3 Discrepancias con el contrato (para el arquitecto; ⛔ no cambié el contrato)
+
+- **D-SDX-4 · PS-105 y PS-106 no son construibles en fase C** (`API_CONTRACT §M4-SHIP.19.20.9`, fila backend: «Fase C:
+  … PS-102…PS-107»). PS-105 necesita `ShipmentQuote.addressVersion` (columna de `M-SDX-D`, §19.20.1 «Schema») y los verbos
+  `quote`/`label` (D2b/D2c); PS-106 necesita la compra. Quedan para D2b/D2c, igual que la carrera «corrección contra
+  compra» de criterio 315 (e). En fase C se mide la carrera análoga con el único otro escritor que existe (captura de
+  guía manual, abajo).
+- **D-SDX-5 · La mutación declarada de PS-104 («quitar `addressVersion` del `WHERE` del CAS») sale VERDE** (medido, N = 10
+  rondas forzadas: 10/10 verdes con la mutación). Por qué: el paso 3 normativo toma `SELECT … FOR UPDATE` y compara la
+  versión bajo el candado; el perdedor ya ve la versión nueva y responde `409` antes del CAS. No hay escritor rival que
+  no pase por el candado (lección `ARCHITECTURE §4.60 (o)`): el `WHERE` es defensa en profundidad. Lo que SÍ muerde
+  (medido): quitar el candado **y** la versión del `WHERE` ⇒ 0/10; quitar la guarda **y** la versión del `WHERE` ⇒ 0/10;
+  quitar solo el candado ⇒ 10/10 verde (el `WHERE` es el segundo muro). Propuesta: reescribir la mutación de PS-104 como
+  «quitar el candado y la versión del `WHERE`».
+
+### 58.4 Bloqueos de despliegue (fuera de backend)
+
+- **`PostalCode` nace VACÍA.** Con la tabla vacía, TODA dirección nueva (libreta e invitado) es `422 POSTAL_CODE_UNKNOWN`
+  ⇒ nadie puede pagar un envío. `scripts/geo/import-sepomex.ts` **no existe** (medido: `ls scripts/geo` ⇒ no existe,
+  2026-10-04). El import de devops tiene que correr en la misma ventana que M-64, antes de abrir el tráfico.
+- **Frontend tiene que mandar la colonia** (checkout de invitado, libreta): sin ella el servidor responde `400`. Las
+  pruebas Playwright que teclean CP (`frontend/e2e/guest-checkout.spec.ts:146` y `checkout-retry.spec.ts:126` con 44100,
+  `buylist.spec.ts:136` con 06600) dependen de ello; el catálogo del arnés ya trae esos CP.
+
+### 58.5 Errata v1.80.12.1 sobre D1 (§M4-SHIP.19.21)
+
+- **URLs crudas** (`.21.2`): `PurchaseResult`/`ProviderShipmentState` ⇒ `rawLabelUrl`/`rawTrackingUrl`; `providerUrlsFrom`
+  es la única lectora. `C-SDX-7` (2) nuevo en `test/skydropx-provider-url.spec.ts`: (a) y (b) sobre el TEXTO de
+  `backend/src` fuera de `shipping-provider/` ⇒ 0; dentro, productores = puerto/adaptador/doble/`provider-url.ts` y
+  lector único = `provider-url.ts`; canario plantado (`labelUrl: result.rawLabelUrl` en `shipments/` ⇒ rojo en (a);
+  `pkg.label_url` ⇒ rojo en (b)). Las opciones de configuración del `FakeShippingProvider` siguen llamándose
+  `labelUrl`/`trackingUrl` (son entradas del doble, no el dato del puerto).
+- **`403` JSON no-borde en la compra ⇒ «en vuelo»** (`.21.4`, `http/skydropx-client.ts`); en cotización, lecturas y
+  cancelación sigue `502`. PS-109 (lado adaptador): `3xx`, `409`, `403` no-borde ⇒ en vuelo, 1 llamada.
+- **`warn cancel_refund_unverified`** (`.21.6`): `cancel()` con `refundedCents ≠ null` y
+  `CANCEL_REFUND_FIELD_VERIFIED = false` (`skydropx.adapter.ts`); `PG-3` lo pasa a `true`.
+- **PS-99 (d) sin endurecer** (`.21.7`): `.env.example` con `SKYDROPX_ALLOW_SPEND=` y `scripts/skydropx/prod-probe.ts` no
+  están commiteados por devops (medido: `git status` los muestra modificado/sin seguir, 2026-10-04). Al commitearse, se
+  endurece a «presente y vacío».
+
+### 58.6 Pruebas y mutaciones
+
+Ficheros nuevos: `test/sdx-c.address-rules.spec.ts` (26), `test/integration/sdx-c-address.e2e-spec.ts` (17),
+`test/helpers/fake-postal-codes.ts`. Ajustados a la conducta nueva (colonia obligatoria, canónicos, 10 campos, `complete`):
+`address-dto.parity`, `admin.user-detail-shape`, `guest-checkout.{contract,session,tracking}`, `users.me-and-addresses`,
+`shipments.{picking-list,recipient-name,rollback,withdraw-invariant}` y en integración `account-profile`,
+`guest-chargeback`, `guest-checkout`, `preparation-queue`, `vault-shipments`, `helpers/ship-prep-db` (`mkAddress` completa).
+
+Carreras (barrera de fila, N = 10, sobre `eea04309`, BD `tcg_sdxc_mut`): PS-104 dos correcciones 10/10; criterio 315 (e)
+fase C, corrección contra captura de guía manual (orden alternado en la cola del candado) 10/10.
+
+Migración sobre BD con datos (`tcg_sdxc_mut`: seed E2E + 12 envíos y 3 direcciones legadas sembradas a mano): huella md5
+de las columnas preexistentes de `ShipmentRequest` y `Address` y conteo de las 43 tablas **idénticos** antes/después; las
+12 filas nacen `addressVersion = 0`, sin sello; segunda aplicación del SQL a mano ⇒ esquema (`pg_dump --schema-only`),
+datos y conteos idénticos. `prisma migrate diff` contra el schema ⇒ solo el renombre de índice de `PriceReference` que ya
+existía antes de M-64.
+
+Mutaciones (copia `git archive` del árbol entero; fase C sobre `eea04309`, errata sobre `fae954ce`; N = 1 salvo las de
+carrera, que corren N = 10 rondas forzadas dentro de la prueba):
+
+| Mutación | Resultado |
+|---|---|
+| PS-102 escribir también `Order.shippingAddressSnapshot` · bitácora con el snapshot entero sin actor · aceptar `city` del cuerpo · sin `unchanged` | rojo · rojo · rojo · rojo |
+| PS-103 guardar la colonia tecleada sin `resolvePostalCode` | rojo (3) |
+| PS-104 quitar `addressVersion` del `WHERE` (la del contrato) | **verde** (D-SDX-5) |
+| PS-104 quitar el candado · candado + `WHERE` · guarda + `WHERE` | verde (esperado) · rojo 0/10 · rojo 0/10 |
+| PS-104 aceptar cualquier estado | rojo (guardas; carrera 315 (e) 5/10) |
+| PS-107 condicionar el verbo al dial de compra | rojo |
+| 235 libreta sin validar colonia · sesión de invitado sin validar · retiro sin `addressMissing` | rojo · rojo · rojo |
+| `normalizeColonia` sin quitar acentos · `GET` sin `Cache-Control` · `/pedido` lee la orden · `complete` siempre `true` · `addressCorrected` siempre `false` | rojo · rojo · rojo · rojo · rojo |
+| Errata: `403` no-borde de la compra vuelve a `502` · todo `403` en vuelo (también el borde) · sin `warn` · `rawLabelUrl` leído en `shipments/` · segunda lectora en `label-proxy.ts` | rojo · rojo · rojo · rojo · rojo |
