@@ -1154,7 +1154,8 @@
         "guia": "Guía",
         "enviado": "Enviado",
         "entregado": "Entregado"
-      }
+      },
+      "trackingLink": "Rastrear en la paquetería"
     }
   },
   "legal": {
@@ -1792,7 +1793,239 @@
         "originRefunded": "{count, plural, one {Una carta de este retiro viene} other {# cartas de este retiro vienen}} de una compra que se está reembolsando: {items}. No se guardó la guía. Deshaz el preparado para que la carta vuelva a la plataforma, o pide al súper-admin que la reclame.",
         "orderNotSettled": "El pedido de este envío ya no está liquidado ({status}): se reembolsó o está en disputa. No se guardó la guía. Lo resuelve el súper-admin en Ventas.",
         "goToPrepare": "Ir a «Preparar»",
-        "goToReplace": "Ver en «Por reponer»"
+        "goToReplace": "Ver en «Por reponer»",
+        "sdx": {
+          "step": "Paso {n} de 4 · {name}",
+          "stepName": {
+            "address": "Dirección",
+            "options": "Opciones",
+            "buy": "Comprar",
+            "label": "Guía"
+          },
+          "loading": "Leyendo el envío…",
+          "loadError": "No se pudo leer el envío. Puedes capturar la guía a mano.",
+          "manual": "Capturar a mano",
+          "manualIntro": "Para una guía que ya compraste en el panel de Skydropx o con otra paquetería.",
+          "backToSkydropx": "Volver a Skydropx",
+          "back": "Atrás",
+          "close": "Cerrar",
+          "address": {
+            "recipient": "Destinatario",
+            "line1": "Calle y número",
+            "line2": "Interior",
+            "neighborhood": "Colonia",
+            "postalCode": "CP",
+            "city": "Municipio o alcaldía",
+            "state": "Estado",
+            "phone": "Teléfono",
+            "references": "Referencias",
+            "recipientMissing": "Sin destinatario",
+            "neighborhoodNone": "Falta la colonia",
+            "postalCodeNone": "Sin CP",
+            "phoneNone": "Sin teléfono",
+            "noData": "Sin dato",
+            "referencesNone": "Sin referencias",
+            "neighborhoodMissing": "Falta la colonia y Skydropx no cotiza sin ella. Elige la del CP {cp}.",
+            "neighborhoodLabel": "Colonia (de la lista del CP {cp})",
+            "neighborhoodPlaceholder": "Elige una colonia",
+            "loadingNeighborhoods": "Buscando las colonias del CP {cp}…",
+            "cta": "Ver opciones de envío",
+            "corrected": "Corregida por {name} · {datetime}.",
+            "unnamed": "una cuenta sin nombre",
+            "edit": "Corregir dirección",
+            "scopeNote": "Esto corrige solo a dónde va este paquete. La dirección guardada en la cuenta del cliente y la que capturó al pagar no cambian.",
+            "auditNote": "Queda registrado a tu nombre, con lo que había antes.",
+            "field": {
+              "recipient": "Destinatario",
+              "line1": "Calle y número",
+              "line2": "Número interior o depto. (opcional)",
+              "postalCode": "CP",
+              "references": "Referencias para el repartidor (opcional)"
+            },
+            "hint": {
+              "recipient": "Quien recibe el paquete. Va en la etiqueta.",
+              "postalCode": "5 dígitos. Al cambiarlo, la colonia, el municipio y el estado salen del CP nuevo.",
+              "references": "Por ejemplo: portón negro, entre calles… Hasta 70 caracteres; Skydropx no acepta más."
+            },
+            "cityState": "Municipio y estado: {city}, {state} (salen del CP).",
+            "phoneReadOnly": "Teléfono: {phone}. No se corrige aquí.",
+            "cpFirst": "Escribe los 5 dígitos del CP para ver sus colonias.",
+            "cpUnknown": "El CP {cp} no está en el catálogo de colonias. Revísalo; si es correcto, captura la guía a mano.",
+            "save": "Guardar dirección",
+            "discard": "Descartar cambios",
+            "saving": "Guardando la dirección…",
+            "saved": "Dirección corregida. Queda registrado a tu nombre.",
+            "unchanged": "No había nada que cambiar: la dirección ya era esa.",
+            "conflict": "Alguien más corrigió esta dirección mientras la editabas. No se guardó tu cambio. Abajo está la que quedó: revísala y, si sigue mal, corrígela otra vez.",
+            "notInPreparation": "Este envío ya no está en preparación ({status}). No se guardó la dirección.",
+            "alreadyLabeled": "Este envío ya tiene guía. No se guardó la dirección: con guía comprada, la dirección ya es la de la guía.",
+            "labelInProgress": "Hay una compra de guía en curso para este envío. No se guardó la dirección.",
+            "forbidden": "Tu cuenta no puede corregir direcciones de envío.",
+            "serverDown": "No se pudo guardar la dirección: el servidor no respondió. No se cambió nada; vuelve a intentarlo.",
+            "neighborhoodNotInCp": "Esa colonia no es del CP {cp}. No se guardó. Elige una de la lista.",
+            "invalid": {
+              "recipient": "Escribe quién recibe.",
+              "line1": "Escribe la calle y el número.",
+              "postalCode": "El CP son 5 dígitos.",
+              "references": "Las referencias no caben en la guía: acórtalas (hasta 70 caracteres).",
+              "other": "Revisa este campo: el servidor no lo aceptó."
+            }
+          },
+          "quoting": "Cotizando con Skydropx…",
+          "quotingHint": "Suele tardar entre 2 y 7 segundos.",
+          "quotingSlow": "Está tardando más de lo normal. Puedes esperar (hasta 20 segundos) o capturar a mano.",
+          "options": {
+            "package": "Va en: {label} · {length}×{width}×{height} cm · {kg} kg",
+            "changePackage": "Cambiar empaque",
+            "insurance": "Asegurado por {coverage}. El seguro cuesta {cost} y ya va dentro de cada precio.",
+            "insuredValue": "Lo que va en la caja vale {value}.",
+            "charged": "Cobrado al cliente por el envío: {gross} ({net} sin IVA).",
+            "validUntil": "Precios válidos hasta {datetime}.",
+            "incomplete": "Skydropx no terminó de cotizar en 20 segundos: estas son las opciones que alcanzó a dar.",
+            "requote": "Volver a cotizar",
+            "tierTableNote": "En alguna opción el costo del seguro sale de tu tabla de «Configuración»: Skydropx no lo confirmó en esta cotización.",
+            "legend": "Elige una paquetería",
+            "pickOne": "Elige una opción para seguir.",
+            "recommended": "Recomendada",
+            "days": "{days, plural, one {# día} other {# días}} (estimado de la paquetería)",
+            "daysNone": "Días: sin dato",
+            "pickup": "Ofrece recolección (no se agenda desde aquí)",
+            "dropoffAt": "Sin recolección: llévalo a {name}",
+            "dropoffAny": "Sin recolección: hay que llevarlo a una sucursal de {carrier}",
+            "pickupNone": "Recolección: sin dato",
+            "home": "Entrega a domicilio",
+            "branch": "No entrega a domicilio: el cliente recoge en sucursal",
+            "deliveryNone": "Entrega: sin dato",
+            "margin": "Margen: {amount}",
+            "marginNegative": "Margen: −{amount} — este envío te cuesta más de lo que cobraste",
+            "plan": "Plan Skydropx: {plan}",
+            "promo": "Promoción",
+            "promoNote": "«Promoción» son tarifas de promoción de Skydropx: pueden dejar de existir sin aviso. «Plan» es el código de tarifa tal como lo da Skydropx.",
+            "packageLabel": "Empaque",
+            "packageOption": "{label} · {length}×{width}×{height} cm · {kg} kg",
+            "quotingPackage": "Cotizando con el empaque {label}…",
+            "packagesError": "No se pudo leer la lista de empaques.",
+            "showBranch": "Ver también {count, plural, one {# opción} other {# opciones}} sin entrega a domicilio",
+            "hideBranch": "Ocultar las opciones sin entrega a domicilio",
+            "excluded": "{total, plural, one {# opción no se muestra} other {# opciones no se muestran}}: {parts}.",
+            "excludedPart": {
+              "unavailable": "{n} no disponibles por API",
+              "noCoverage": "{n} sin cobertura",
+              "notApplicable": "{n} no aplican",
+              "multipackage": "{n} de varios paquetes",
+              "breakdownMismatch": "{n} con desglose que no cuadra"
+            },
+            "emptyTitle": "Skydropx no devolvió opciones para este destino.",
+            "emptyBody": "No se compró nada. Captura la guía a mano con otra paquetería.",
+            "cta": "Continuar con {carrier}"
+          },
+          "buy": {
+            "row": {
+              "amount": "Envío",
+              "extra": "Combustible y cargos",
+              "iva": "IVA",
+              "ivaComputed": "(calculado)",
+              "serviceFee": "Gestión Skydropx",
+              "insurance": "Seguro (cobertura {coverage})",
+              "total": "Total"
+            },
+            "charge": "Se cobrará {amount} de tu saldo de Skydropx.",
+            "chargeStore": "Se cobrará {amount} del saldo de Skydropx de la tienda.",
+            "signature": "La compra queda a tu nombre en la bitácora, con la opción que elegiste y la que era la recomendada.",
+            "cancelWindow": "Una guía comprada solo se puede cancelar mientras la paquetería no la haya recogido.",
+            "confirmNegative": "Margen negativo: −{amount}. Este envío te cuesta más de lo que le cobraste al cliente. Si compras, lo confirmas.",
+            "confirmBranch": "Esta opción no entrega a domicilio: el cliente tendrá que ir a recogerlo a una sucursal. Si compras, lo confirmas.",
+            "cta": "Comprar guía por {amount}",
+            "buying": "Comprando… no cierres esta ventana.",
+            "disabled": "La compra de guías está desactivada. Se activa en «Configuración › Envíos». Mientras, captura la guía a mano.",
+            "ownerOnly": "Solo el dueño compra guías por ahora. Avísale, o captura la guía a mano si ya la tienes.",
+            "notEnabled": "La compra de guías no está habilitada en este servidor. No se cobró nada. Captura la guía a mano."
+          },
+          "label": {
+            "title": "Guía comprada",
+            "tracking": "Guía: {number}",
+            "copy": "Copiar guía",
+            "copied": "Copiada",
+            "charged": "Se cobraron {amount} del saldo de Skydropx.",
+            "print": "Imprimir etiqueta",
+            "download": "Descargar PDF",
+            "printError": "No se pudo abrir la etiqueta. Vuelve a intentarlo en un momento.",
+            "notReady": "La etiqueta todavía no está lista en Skydropx. Aparecerá en la tarjeta del envío; vuelve en unos minutos.",
+            "trackingLink": "Rastreo en la paquetería",
+            "newTab": "(se abre en otra pestaña)",
+            "emailSent": "Le mandamos al cliente el correo con su guía.",
+            "done": "Listo",
+            "saved": "Guía comprada para {ref}: {carrier} · {number}."
+          },
+          "processing": {
+            "title": "Guía en proceso",
+            "body": "Skydropx aceptó la compra pero todavía no da el número de guía. Lo esperamos aquí unos minutos.",
+            "checking": "Revisando…",
+            "timeout": "Sigue en proceso. Puedes cerrar: el número llega solo, la tarjeta lo mostrará y el cliente recibirá su correo entonces.",
+            "inProgress": "Esta guía ya se está comprando (alguien la pidió hace un momento). No se compró otra."
+          },
+          "inFlight": {
+            "title": "Compra sin confirmar",
+            "body": "Skydropx no contestó a tiempo y no sabemos si alcanzó a crear la guía. No la vuelvas a comprar: el sistema la busca solo y, si aparece, la verás en la tarjeta del envío. Si en {minutes, plural, one {# minuto} other {# minutos}} no aparece, el dueño puede liberarla.",
+            "who": "Pedida por {name} · {carrier} · {service} · desde {time}.",
+            "notCreated": "Skydropx no creó la guía. No se compró nada.",
+            "chooseAgain": "Volver a elegir",
+            "timeout": "Sigue sin confirmar. Puedes cerrar: si la guía aparece, la tarjeta la mostrará; si no, el dueño puede liberarla a los {minutes, plural, one {# minuto} other {# minutos}}.",
+            "checking": "Skydropx no contestó. Comprobando si se compró la guía…",
+            "nothingBought": "Skydropx no respondió y lo comprobamos: no se compró nada. Puedes volver a intentarlo.",
+            "whoBy": "Pedida por {name}",
+            "whoSince": "desde {time}"
+          },
+          "error": {
+            "labelPurchaseDisabled": "La compra de guías está desactivada. No se cobró nada. Se activa en «Configuración › Envíos»; mientras, captura la guía a mano.",
+            "providerOff": "Skydropx está apagado en «Configuración». No se cotizó ni se compró nada. Captura la guía a mano.",
+            "ownerOnly": "Solo el dueño compra guías por ahora. No se cobró nada y el intento quedó en bitácora.",
+            "insuranceTier": "Lo que va en la caja vale {insuredValue} y el seguro configurado cubre hasta {maxCoverage}. Sin un escalón que lo cubra no se cotiza ni se compra (todo paquete va asegurado). Captura la guía a mano y asegúralo en el panel de Skydropx.",
+            "insuranceTierAdmin": "Añade un escalón en «Configuración › Envíos».",
+            "allowSpend": "La compra de guías no está habilitada en este servidor. No se cobró nada. Captura la guía a mano.",
+            "origin": "Falta la dirección de origen en «Configuración › Envíos». No se cotizó nada.",
+            "packages": "No hay un empaque activo con código de Skydropx en «Configuración › Envíos». No se cotizó nada.",
+            "consignmentNote": "Falta la Carta Porte en «Configuración › Envíos». No se compró nada.",
+            "env": "Faltan las credenciales de Skydropx en el servidor. No se cotizó ni se compró nada. Avisa al súper-admin.",
+            "addressIncomplete": "A la dirección le falta {missing} y Skydropx no cotiza sin ello. No se cotizó ni se compró nada. Corrígela en el paso 1.",
+            "missing": {
+              "neighborhood": "la colonia",
+              "postalCode": "un CP de 5 dígitos",
+              "recipientName": "el destinatario",
+              "line1": "la calle",
+              "and": "y"
+            },
+            "phone": "El teléfono no tiene 10 dígitos. Skydropx lo exige y aquí no se corrige: captura la guía a mano.",
+            "rejectedQuote": "Skydropx rechazó la cotización de esta dirección. No se cotizó nada.",
+            "rejectedLabel": "Skydropx rechazó la compra con esta opción. No se cobró nada y el envío sigue igual.",
+            "chooseOther": "Elegir otra opción",
+            "providerSays": "Skydropx dice: “{message}”",
+            "balanceOwner": "Tu saldo de Skydropx no alcanza para esta guía ({required}). No se cobró nada. Recarga en el panel de Skydropx y vuelve a intentarlo, o elige una opción más barata.",
+            "balanceOperator": "El saldo de Skydropx de la tienda no alcanza para esta guía ({required}). No se cobró nada. Avisa al súper-admin, o elige una opción más barata.",
+            "providerDownQuote": "Skydropx no respondió. No se cotizó nada. Vuelve a intentarlo en un momento o captura la guía a mano.",
+            "edgeBlocked": "La conexión con Skydropx fue bloqueada antes de llegar (es un defecto de nuestro servidor, no de Skydropx). No se cotizó ni se cobró nada. No sirve reintentar: avisa al súper-admin y captura la guía a mano.",
+            "quoteExpired": "Los precios vencieron y volvimos a cotizar. No se compró nada. Revisa la cifra nueva y elige otra vez.",
+            "quoteExpiredAddress": "La dirección de este envío cambió después de cotizar, así que estos precios ya no valen. No se compró nada. Volvimos a cotizar con la dirección nueva: revísala en el paso 1 y elige otra vez.",
+            "previewStale": "El precio cambió mientras confirmabas: ahora son {price} (margen {margin}). No se compró nada. Revísalo y compra otra vez.",
+            "confirmationRequired": "Esta opción necesita que confirmes {what}. No se compró nada.",
+            "confirm": {
+              "negativeMargin": "que el margen es negativo",
+              "branchDelivery": "que no entrega a domicilio"
+            },
+            "rateGone": "Esa opción ya no está en la cotización. No se compró nada. Vuelve a cotizar.",
+            "alreadyLabeledSkydropx": "Este envío ya tiene una guía de Skydropx. No se compró ni se guardó otra. Para cambiarla, cancélala desde la tarjeta.",
+            "alreadyLabeledManual": "Este envío ya tiene una guía capturada a mano. No se compró otra.",
+            "labelInProgress": "Ya hay una compra de guía en curso para este envío. No se cotizó nada.",
+            "autoCancelled": "El envío se canceló mientras Skydropx respondía ({status}). La guía que alcanzó a crearse se canceló sola para que el saldo regrese.",
+            "notInPreparation": "Este envío ya no está en preparación ({status}). No se cotizó ni se compró nada.",
+            "notPrepared": "Este envío todavía no está preparado: primero palomea sus cartas y dalo por preparado en «Preparar». No se cotizó ni se compró nada.",
+            "openReplacements": "Este retiro tiene {count, plural, one {# carta que se está reponiendo} other {# cartas que se están reponiendo}}: sale completo cuando cada caso se resuelva. No se cotizó ni se compró nada.",
+            "orderNotSettled": "El pedido de este envío ya no está liquidado ({status}): se reembolsó o está en disputa. No se cotizó ni se compró nada. Lo resuelve el súper-admin en Ventas.",
+            "originRefunded": "{count, plural, one {Una carta de este retiro viene} other {# cartas de este retiro vienen}} de una compra que se está reembolsando: {items}. No se cotizó ni se compró nada.",
+            "conflict": "El envío cambió mientras comprabas (por ejemplo, alguien corrigió la dirección). No se compró nada. Lo actualizamos: revísalo y vuelve a intentarlo.",
+            "forbiddenQuote": "Tu cuenta no puede cotizar guías. No se cotizó nada."
+          }
+        }
       },
       "queueTitle": "Cola de envíos de clientes",
       "statusFilter": "Filtrar por estado",
@@ -2074,7 +2307,13 @@
           "guide": {
             "cta": "Capturar guía",
             "waiting": "Este retiro espera {count, plural, one {# carta que se está reponiendo} other {# cartas que se están reponiendo}}. Cuando cada caso se resuelva, sale completo. Ver en «Por reponer».",
-            "saved": "Guía guardada para {ref}. Sale de la lista."
+            "saved": "Guía guardada para {ref}. Sale de la lista.",
+            "processing": "Guía en proceso · {carrier} · desde {time}",
+            "processingNoCarrier": "Guía en proceso · desde {time}",
+            "viewProcessing": "Ver guía en proceso",
+            "inFlight": "Compra sin confirmar · {carrier} · desde {time}",
+            "inFlightNoCarrier": "Compra sin confirmar · desde {time}",
+            "viewInFlight": "Ver compra sin confirmar"
           },
           "print": {
             "cta": "Imprimir hoja",
@@ -2089,7 +2328,8 @@
             "back": "Volver a Pedidos por preparar",
             "empty": "Nada que imprimir: la cola está vacía.",
             "card": "Carta"
-          }
+          },
+          "addressCorrected": "Dirección corregida"
         },
         "locate": {
           "action": "Ubicar",
@@ -2111,7 +2351,8 @@
         "shipments": "Envíos",
         "overdueSuffix": "· {count, plural, one {# vencido} other {# vencidos}}",
         "withCount": "{label}, {count, plural, one {# pedido} other {# pedidos}}",
-        "withCases": "{label}, {count, plural, one {# caso} other {# casos}}"
+        "withCases": "{label}, {count, plural, one {# caso} other {# casos}}",
+        "departure": "Salida de hoy"
       },
       "guest": "Invitado",
       "preparedTag": "Preparado",
@@ -2310,7 +2551,122 @@
           "viewBucket": "Ver en la cubeta SPEI"
         }
       },
-      "viewCustomerVault": "Ver bóveda"
+      "viewCustomerVault": "Ver bóveda",
+      "labelAlert": {
+        "unknown": {
+          "title": "Compra sin respuesta",
+          "body": "Desde {since}, Skydropx no confirma si creó la guía. No la vuelvas a comprar.",
+          "ownerOnly": "Solo el dueño puede liberarla: avísale."
+        },
+        "stuck": {
+          "title": "Guía atorada en proceso",
+          "body": "Skydropx creó la guía hace más de {minutes, plural, one {# minuto} other {# minutos}} (desde {since}) y todavía no da el número. Suele llegar solo; si no, cancélala y compra otra."
+        },
+        "cancelFailed": {
+          "title": "Cancelación sin confirmar",
+          "body": "Pediste cancelar esta guía el {since} y Skydropx no lo confirmó: el saldo puede no haber regresado. Vuelve a intentarlo.",
+          "retry": "Reintentar cancelación"
+        },
+        "liveOnCancelled": {
+          "title": "Guía viva en un envío cancelado",
+          "body": "El envío se canceló, pero la guía {number} ya había salido con la paquetería (desde {since}). Revísala en el panel de Skydropx y decide qué hacer.",
+          "noNumber": "sin número"
+        },
+        "retryDialog": {
+          "title": "¿Volver a pedir la cancelación de la guía {number}?",
+          "body": "La cancelación ya se pidió y Skydropx no la confirmó. La volvemos a pedir; no se compra nada.",
+          "confirm": "Pedir cancelación otra vez",
+          "done": "Skydropx confirmó la cancelación. El saldo regresa.",
+          "already": "Ya estaba confirmada. No se hizo nada."
+        }
+      },
+      "carrierStatus": {
+        "created": "Guía creada",
+        "picked_up": "Recolectado",
+        "in_transit": "En tránsito",
+        "last_mile": "En reparto",
+        "delivery_attempt": "Intento de entrega fallido",
+        "delivered_to_branch": "En sucursal (el cliente debe recogerlo)",
+        "delivered": "Entregado",
+        "exception": "Incidencia",
+        "retained": "Retenido",
+        "in_return": "En devolución",
+        "destroyed": "Destruido",
+        "canceled": "Cancelada por la paquetería"
+      },
+      "label": {
+        "guide": "Guía Skydropx · {carrier} · {service} · {number}",
+        "noNumber": "sin número todavía",
+        "boughtBy": "Comprada por {name} · {datetime}",
+        "notRecommended": "No era la recomendada ({carrier}).",
+        "adjustments": "+ {n, plural, one {# ajuste} other {# ajustes}} de la paquetería",
+        "adjustmentsLink": "Ver en la bitácora",
+        "carrier": "Paquetería: {status} · {date}",
+        "carrierNone": "Paquetería: sin dato",
+        "alert": "Aviso de la paquetería: {status} · {date}.",
+        "alertNote": "No cambia el estado del envío: revísalo en el panel de Skydropx y decide.",
+        "print": "Imprimir etiqueta",
+        "notAvailable": "La etiqueta todavía no está disponible en Skydropx. Vuelve en unos minutos.",
+        "refresh": "Actualizar rastreo",
+        "refreshed": "Rastreo actualizado.",
+        "refreshTooSoon": "Ya lo actualizaste hace un momento. Espera un minuto.",
+        "refreshOff": "Skydropx está apagado: el rastreo no se actualiza.",
+        "cancel": {
+          "cta": "Cancelar guía y comprar otra",
+          "title": "¿Cancelar la guía {number}?",
+          "body": "Se cancela en Skydropx y el saldo regresa; si Skydropx no devuelve todo, la diferencia queda como ajuste en «Finanzas». El envío no se cancela: vuelve a «preparado» y compras otra guía. El cliente recibirá el correo con la guía nueva.",
+          "reason": "Por qué la cancelas (obligatorio)",
+          "reasonHint": "De 3 a 200 caracteres. Queda en bitácora.",
+          "confirm": "Cancelar guía",
+          "back": "Volver",
+          "done": "Guía cancelada. El envío volvió a «preparado»: ya puedes capturar otra.",
+          "already": "Esa guía ya estaba cancelada. No se hizo nada.",
+          "rejected": "Skydropx no aceptó la cancelación. La guía sigue viva.",
+          "pickedUp": "La paquetería ya recogió el paquete ({status}): la guía ya no se cancela.",
+          "status": "Este envío ya no admite cambiar la guía ({status}).",
+          "notProvider": "Esta guía se capturó a mano: se cancela en la paquetería, no aquí.",
+          "providerDown": "Skydropx no respondió. La guía sigue marcada para cancelar; vuelve a intentarlo."
+        },
+        "release": {
+          "cta": "Liberar",
+          "title": "¿Liberar este envío?",
+          "body": "Primero buscamos la guía en Skydropx; si existe, la adoptamos y no se compra otra. Si no aparece, el envío vuelve a «preparado» y se puede comprar de nuevo. Antes, revisa en el panel de Skydropx que no haya un envío con la referencia {ref}.",
+          "note": "Qué revisaste (obligatorio)",
+          "noteHint": "De 10 a 300 caracteres.",
+          "confirm": "Buscar y liberar",
+          "adopted": "La guía sí existía y quedó adoptada: {carrier} · {number}. No se compró otra.",
+          "released": "No había guía en Skydropx. El envío volvió a «preparado».",
+          "notInProgress": "Este envío ya no tiene una compra pendiente. No se hizo nada.",
+          "hasProviderId": "Skydropx sí creó este envío; solo falta su número. Se resuelve solo, o cancela la guía.",
+          "tooEarly": "Todavía no: espera {minutes, plural, one {# minuto} other {# minutos}} antes de liberar."
+        },
+        "cost": "Costo {cost}",
+        "margin": "margen {margin}"
+      },
+      "departure": {
+        "title": "Salida de hoy",
+        "group": "{carrier} · {dropoff}",
+        "groupNoDropoff": "{carrier} · sin sucursal configurada",
+        "count": "{count, plural, one {# paquete} other {# paquetes}}",
+        "preferred": "Preferida",
+        "row": "{ref} · {recipient} · {city} · Guía {number}",
+        "selectGroup": "Seleccionar los de {carrier}",
+        "select": "Seleccionar {ref}",
+        "cta": "Ya los dejé en la sucursal ({count})",
+        "confirmTitle": "¿Marcar {count, plural, one {# paquete} other {# paquetes}} como enviados?",
+        "confirmBody": "Confírmalo cuando ya estén en la sucursal. Cada cliente recibe el correo de que su paquete salió. Si la paquetería ya lo había reportado, no se manda otro.",
+        "confirm": "Marcar enviados",
+        "resultShipped": "{n} marcados como enviados",
+        "resultAlready": "{n} ya habían salido",
+        "resultRejected": "{n} no se movieron",
+        "rejectedRow": "No se movió ({code}).",
+        "manualPending": "{count, plural, one {# envío} other {# envíos}} con guía a mano por salir: se marcan en «Envíos».",
+        "manualPendingLink": "Ir a «Envíos»",
+        "empty": "Nada por salir: no hay guías de Skydropx esperando.",
+        "print": "Imprimir lista",
+        "printTitle": "Salida de hoy · {date}",
+        "withdrawal": "Retiro de bóveda"
+      }
     },
     "m5": {
       "title": "Solicitudes de venta",
@@ -4034,6 +4390,103 @@
           "all": "publicar todas al piso",
           "none": "retener todas"
         }
+      },
+      "shipping": {
+        "title": "Envíos (Skydropx)",
+        "subtitle": "Solo el súper-admin. Cada cambio queda en la bitácora.",
+        "notAvailable": "Este servidor todavía no trae los ajustes de envío.",
+        "balance": "Saldo en Skydropx: {balance} · leído {time}",
+        "lowBalance": "Saldo bajo",
+        "balanceError": "No se pudo leer el saldo: Skydropx no respondió.",
+        "purchase": {
+          "legend": "¿Quién puede comprar guías?",
+          "disabled": "Nadie (compra apagada)",
+          "disabledNote": "Se puede cotizar y ver precios, pero nadie compra. Es el valor inicial.",
+          "superAdminOnly": "Solo yo",
+          "superAdminOnlyNote": "Cada guía la compras tú con tu clic; ese clic es tu autorización y queda con tu nombre.",
+          "operators": "También los operadores",
+          "operatorsNote": "Los operadores gastan del saldo con su nombre en la bitácora. No hay tope aparte del saldo.",
+          "serverKey": "Además, el servidor necesita su propia autorización para gastar. Si falta, nadie compra aunque aquí diga que sí.",
+          "confirmTitle": "¿Dejar que los operadores compren guías?",
+          "confirmBody": "Podrán gastar el saldo de Skydropx sin pedirte permiso, cada guía a su nombre. No hay tope aparte del saldo.",
+          "confirm": "Sí, dejar que compren"
+        },
+        "tiers": {
+          "title": "Escalones de seguro",
+          "intro": "Todo paquete va asegurado. Se paga el primer escalón que cubra lo que va en la caja; si ningún escalón lo cubre, ese pedido se captura a mano.",
+          "coverage": "Cubre hasta",
+          "cost": "Cuesta",
+          "measuredAt": "Medido el",
+          "add": "Añadir escalón",
+          "remove": "Quitar",
+          "atLeastOne": "Debe haber al menos un escalón.",
+          "max": "Máximo 20 escalones.",
+          "coverageMin": "La cobertura mínima es MX$1.00.",
+          "notIncreasing": "Cada escalón debe cubrir más que el anterior.",
+          "costNegative": "El costo no puede ser negativo.",
+          "dateMissing": "Pon la fecha en que mediste el costo.",
+          "reading": "Hasta {coverage} → seguro de {coverage} por {cost}",
+          "readingOver": "Más de {coverage} → sin seguro configurado: guía a mano"
+        },
+        "consignment": {
+          "label": "Carta Porte (código SAT del contenido)",
+          "hint": "8 dígitos. Las cartas usan 49101600 «Coleccionables».",
+          "found": "{code}: {description}",
+          "notFound": "Código no encontrado en el catálogo de Skydropx.",
+          "search": "Buscar otro código por descripción",
+          "searchLabel": "Descripción",
+          "searchCta": "Buscar",
+          "invalid": "Deben ser 8 dígitos."
+        },
+        "packages": {
+          "title": "Empaques",
+          "code": "Código",
+          "name": "Nombre",
+          "dims": "Medidas (cm)",
+          "weight": "Peso (kg, entero)",
+          "provider": "Empaque Skydropx",
+          "active": "Activo",
+          "note": "Las medidas iniciales son estimadas: corrígelas con las de tus empaques reales.",
+          "weightInvalid": "El peso va en kilos enteros, mínimo 1.",
+          "needActive": "Debe quedar al menos un empaque activo con código de Skydropx.",
+          "save": "Guardar empaques",
+          "saved": "Empaques guardados.",
+          "boxMin": "Usar caja desde (cartas)",
+          "providerOption": "{code} · {name}",
+          "length": "Largo",
+          "width": "Ancho",
+          "height": "Alto"
+        },
+        "carriers": {
+          "label": "Paquetería preferida (en orden)",
+          "hint": "Códigos de Skydropx, p. ej. ninetynineminutes (99minutos). La primera con entrega a domicilio sale recomendada aunque cueste más.",
+          "up": "Subir {code}",
+          "down": "Bajar {code}",
+          "remove": "Quitar {code}",
+          "add": "Añadir código",
+          "newCode": "Código nuevo"
+        },
+        "dropoff": {
+          "title": "Sucursal donde dejas los paquetes",
+          "note": "La de 99minutos viene de un directorio sin confirmar: revísala.",
+          "name": "Nombre ({code})",
+          "address": "Dirección ({code})"
+        },
+        "origin": "Dirección de origen",
+        "originOption": "{alias} · CP {postalCode}",
+        "originNone": "Sin elegir",
+        "labelFormat": "Formato de etiqueta",
+        "labelFormatStandard": "Hoja normal",
+        "labelFormatThermal": "Térmica",
+        "lowBalanceThreshold": "Avisar si el saldo baja de",
+        "pollMinutes": "Consultar el rastreo cada (minutos)",
+        "provider": "Skydropx",
+        "providerOff": "Apagado: solo guía a mano",
+        "providerOn": "Encendido: cotizar y rastrear",
+        "providerNote": "Apagar congela el rastreo de las guías ya compradas.",
+        "save": "Guardar envíos",
+        "saved": "Ajustes de envío guardados.",
+        "saveError": "No se guardó: el servidor rechazó un valor. Revisa el campo marcado."
       }
     },
     "m7": {
@@ -4870,6 +5323,19 @@
       "pending": "Pendiente",
       "paid": "Pagada",
       "cancelled": "Cancelada"
+    },
+    "timeline": {
+      "title": "Movimientos",
+      "label_created": "Guía creada",
+      "shipped": "Salió",
+      "in_transit": "En camino",
+      "out_for_delivery": "En reparto",
+      "delivery_attempt": "Intentaron entregarlo",
+      "at_branch": "En sucursal",
+      "atBranchNamed": "En sucursal: {branch}. Pasa a recogerlo.",
+      "delivered": "Entregado",
+      "line": "{label} · {datetime}",
+      "newTab": "(se abre en otra pestaña)"
     }
   },
   "error": {
@@ -5071,7 +5537,8 @@
       "claimAlternative": "¿Prefieres tenerlo siempre a la mano? Crea tu cuenta con ese mismo correo y tu pedido aparecerá en tu historial.",
       "support": "¿Necesitas ayuda? Escríbenos a {contact}."
     },
-    "temporaryLinkNotice": "Este enlace es temporal y caduca en unas horas. El enlace de seguimiento de tu pedido te llega por correo; si no lo ves, pide uno nuevo."
+    "temporaryLinkNotice": "Este enlace es temporal y caduca en unas horas. El enlace de seguimiento de tu pedido te llega por correo; si no lo ves, pide uno nuevo.",
+    "trackingLink": "Rastrear en la paquetería"
   },
   "sealed": {
     "title": "Sellado",

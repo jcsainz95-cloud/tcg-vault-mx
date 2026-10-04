@@ -1224,6 +1224,9 @@ export interface ShipmentDTO {
   ivaCents?: number;
   processingFeeCents?: number;
   totalCents?: number;
+  // ⭐ §19.12 (aditivo, `ClientShipmentDTO`): liga solo si Skydropx la dio; movimientos sin códigos.
+  trackingUrl?: string;
+  timeline?: CustomerTimelineEventDTO[];
   // v1.17: timestamps por etapa (para la línea de tiempo del rastreo). `requestedAt` == alta del retiro.
   requestedAt?: string;
   pickingAt?: string;
@@ -1330,6 +1333,324 @@ export interface AdminShipmentDTO {
   missingCount?: number;
   /** Solo en `/:id`. */
   refunds?: PaymentRefundDTO[];
+  // ---- ⭐ Skydropx (contrato §M4-SHIP.19.7 / .19.19.7 / .19.20), aditivo y OPCIONAL en el tipo ----
+  // Opcional porque el backend de la fase D todavía no existe: una fila sin estos campos es una fila
+  // de hoy (guía manual, sin integración), y la pantalla la trata así (⛔ nunca inventa el dato).
+  /** `null` ⇔ sin guía; `'manual'` ⇔ «Capturar a mano»; `'skydropx'` ⇔ comprada por la ventana. */
+  labelSource?: ShipmentLabelSource | null;
+  label?: ShipmentLabelDTO | null;
+  carrierAlert?: { status: CarrierStatus; detail: string | null; at: string } | null;
+  costAdjustments?: ShipmentCostAdjustmentDTO[];
+  margin?: { chargedNetCents: number; costNetCents: number; marginCents: number } | null;
+  /** §19.20.1: versión del snapshot (CAS de `PUT …/address`) y la ÚLTIMA corrección. */
+  address?: ShipmentAddressStateDTO;
+  /** §19.19.7: lo que la ventana puede ofrecer AL ACTOR (dial + rol + env). */
+  labelOptions?: LabelOptionsDTO;
+  /** §19.20.2 */
+  labelPending?: LabelPendingDTO | null;
+  labelAlert?: LabelAlertDTO | null;
+}
+
+// ---- ⭐ Skydropx: la ventana «Capturar guía» (contrato §M4-SHIP.19.19 v1.80.11 + §19.20 v1.80.12) ----
+
+/** §Enums `CarrierStatus` (los 12 valores de la referencia, §19.19.10). */
+export type CarrierStatus =
+  | 'created'
+  | 'picked_up'
+  | 'in_transit'
+  | 'last_mile'
+  | 'delivery_attempt'
+  | 'delivered_to_branch'
+  | 'delivered'
+  | 'exception'
+  | 'retained'
+  | 'in_return'
+  | 'destroyed'
+  | 'canceled';
+export const CARRIER_STATUSES: readonly CarrierStatus[] = [
+  'created',
+  'picked_up',
+  'in_transit',
+  'last_mile',
+  'delivery_attempt',
+  'delivered_to_branch',
+  'delivered',
+  'exception',
+  'retained',
+  'in_return',
+  'destroyed',
+  'canceled',
+];
+export type ShipmentLabelSource = 'manual' | 'skydropx';
+export type ShippingIvaSource = 'provider' | 'computed' | 'manual';
+
+/** §19.19.4 (sustituye la forma de §19.6) + `isPromo` de §19.20.4. */
+export interface ShipmentRateDTO {
+  rateId: string;
+  carrierName: string;
+  carrierLabel: string;
+  serviceName: string;
+  /** total (IVA incluido) + seguro. ⛔ La pantalla NO lo recompone del desglose (SK3). */
+  priceCents: number;
+  breakdown: {
+    amountCents: number;
+    extraFeesCents: number;
+    ivaCents: number;
+    serviceFeeCents: number;
+    totalCents: number;
+    insuranceCents: number;
+  };
+  ivaSource: 'provider' | 'computed';
+  insuranceSource: 'quote' | 'tier_table';
+  netCostCents: number;
+  marginCents: number;
+  days: number | null;
+  deliveryKind: 'home' | 'branch' | 'unknown';
+  pickup: boolean | null;
+  planType: string | null;
+  /** §19.20.4: lo decide el servidor (`isPromoPlan`); ⛔ la pantalla no mira `planType` para esto. */
+  isPromo: boolean;
+  dropoff: { name: string; address: string } | null;
+  recommended: boolean;
+  /** ⇔ `deliveryKind === 'branch'` */
+  hidden: boolean;
+}
+
+export interface ShipmentQuoteDTO {
+  quoteId: string;
+  providerQuotationId: string;
+  requestedAt: string;
+  expiresAt: string;
+  completed: boolean;
+  reused: boolean;
+  package: { code: string; label: string; lengthCm: number; widthCm: number; heightCm: number; weightKg: number };
+  insurance: { insuredValueCents: number; coverageCents: number; costCents: number };
+  charged: { grossCents: number; netCents: number };
+  recommendedRateId: string | null;
+  /** Ordenadas por `priceCents` asc (orden del servidor). */
+  rates: ShipmentRateDTO[];
+  excluded: { unavailable: number; noCoverage: number; notApplicable: number; multipackage: number; breakdownMismatch: number };
+}
+
+/** `POST …/quote` (§19.19.4): ⛔ sin `declaredValueCents`. */
+export interface ShipmentQuoteRequest {
+  packageCode?: string;
+  force?: boolean;
+}
+
+/** `POST …/label` (§19.7): `expected*` = lo que el operador vio. */
+export interface ShipmentLabelRequest {
+  quoteId: string;
+  rateId: string;
+  expectedPriceCents: number;
+  expectedMarginCents: number;
+  confirmNegativeMargin?: boolean;
+  confirmBranchDelivery?: boolean;
+}
+
+export interface ShipmentLabelDTO {
+  source: 'skydropx';
+  providerShipmentId: string;
+  carrierName: string;
+  serviceName: string;
+  trackingNumber: string | null;
+  /** `null` ⇔ Skydropx no la dio (decisión 4): ⛔ nunca se construye con la guía. */
+  trackingUrl: string | null;
+  /** ⇔ `labelUrl ≠ null` (la URL cruda nunca viaja). */
+  labelAvailable: boolean;
+  purchasedAt: string;
+  chosenBy: { userId: string; name: string | null };
+  chosenAt: string;
+  chosen: ShipmentRateDTO;
+  recommended: ShipmentRateDTO | null;
+  wasRecommended: boolean;
+  cost: {
+    grossCents: number;
+    ivaCents: number;
+    ivaSource: ShippingIvaSource;
+    insuranceCents: number;
+    netCents: number;
+    marginCents: number;
+  };
+  carrierStatus: CarrierStatus | null;
+  carrierStatusAt: string | null;
+  processing: boolean;
+  canceledAt: string | null;
+  cancelReason: string | null;
+}
+
+export interface ShipmentCostAdjustmentDTO {
+  id: string;
+  kind: 'overweight' | 'extended_zone' | 'return' | 'other';
+  amountCents: number;
+  ivaCents: number;
+  chargedAt: string;
+}
+
+/** §19.19.7 */
+export interface LabelOptionsDTO {
+  provider: 'off' | 'skydropx';
+  purchase: ShippingLabelPurchase;
+  canPurchase: boolean;
+}
+export type ShippingLabelPurchase = 'disabled' | 'super_admin_only' | 'operators';
+
+/** §19.20.1 */
+export interface ShipmentAddressStateDTO {
+  complete: boolean;
+  version: number;
+  corrected: { at: string; by: { userId: string; name: string | null } } | null;
+  /** §19.5: lo que falta (presente con `complete = false`). */
+  missing?: ShipmentAddressMissing[];
+}
+export type ShipmentAddressMissing = 'neighborhood' | 'postalCode' | 'phone' | 'recipientName' | 'line1';
+
+/**
+ * §19.20.1 — `PUT /admin/shipments/:id/address`. ⛔ Sin `city`/`state`/`country`/`phone`: el servidor los
+ * pone del CP (y el teléfono no se corrige aquí, P-ADR-1 abierta).
+ */
+export interface CorrectShipmentAddressReq {
+  expectedAddressVersion: number;
+  recipientName: string;
+  line1: string;
+  line2: string | null;
+  postalCode: string;
+  neighborhood: string;
+  references: string | null;
+}
+export interface CorrectShipmentAddressRes {
+  outcome: 'corrected' | 'unchanged';
+  shipment: AdminShipmentDTO;
+}
+
+/** §19.20.2 */
+export interface LabelPendingDTO {
+  since: string;
+  state: 'in_flight' | 'processing';
+  carrierLabel: string | null;
+  serviceName: string | null;
+  chosenBy: { userId: string; name: string | null } | null;
+}
+export type LabelAlertKind = 'label_unknown' | 'label_processing_stuck' | 'label_cancel_failed' | 'label_live_on_cancelled';
+export interface LabelAlertDTO {
+  kind: LabelAlertKind;
+  since: string;
+  /** ⇔ `kind='label_unknown'` ∧ actor súper-admin (lo decide el servidor; ⛔ la pantalla no mira el rol). */
+  canRelease: boolean;
+}
+/** §19.20.2: `T_UNKNOWN` / `T_STUCK` — van como `{minutes}` en el copy (§43.8c). */
+export const LABEL_T_UNKNOWN_MINUTES = 15;
+export const LABEL_T_STUCK_MINUTES = 30;
+
+/** `POST …/label` — §19.7 + §19.20.5. */
+export type ShipmentLabelResponse =
+  | { outcome: 'labeled'; shipment: AdminShipmentDTO; label: ShipmentLabelDTO }
+  | { outcome: 'processing' | 'in_progress' | 'in_flight'; shipment: AdminShipmentDTO };
+
+/** `POST …/label/cancel` (§19.8). */
+export interface CancelShipmentLabelRes {
+  outcome: 'cancelled' | 'already_cancelled';
+  shipment: AdminShipmentDTO;
+}
+/** `POST …/label/release` (§19.18.4, súper-admin). */
+export interface ReleaseShipmentLabelRes {
+  outcome: 'adopted' | 'released';
+  shipment: AdminShipmentDTO;
+}
+
+/** `GET /geo/postal-codes/:cp` (§19.5, público). */
+export interface PostalCodeDTO {
+  postalCode: string;
+  state: string;
+  municipality: string;
+  neighborhoods: string[];
+  source: 'local' | 'skydropx';
+}
+
+/** `GET /admin/shipping/packages` (§19.20.3: operador+). */
+export interface ShippingPackageDTO {
+  code: string;
+  label: string;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  weightKg: number;
+  providerPackageType: string | null;
+  active: boolean;
+  sortOrder: number;
+}
+
+/** `GET /admin/shipping/catalogs` (§19.19.6, súper-admin). */
+export interface ShippingCatalogsDTO {
+  packagings: { code: string; name: string }[];
+  consignmentNote: { code: string; description: string } | null;
+  addressTemplates: { id: string; alias: string; addressType: 'from' | 'to'; isDefault: boolean; postalCode: string }[];
+}
+/** `GET /admin/shipping/balance` (§19.13, súper-admin). */
+export interface ShippingBalanceDTO {
+  balanceCents: number;
+  currency: 'MXN';
+  lowBalance: boolean;
+  thresholdCents: number;
+  fetchedAt: string;
+}
+
+/** `GET /admin/shipments/departure` (§19.9). */
+export interface DepartureBoardDTO {
+  date: string;
+  groups: {
+    carrierName: string;
+    carrierLabel: string;
+    dropoff: { name: string; address: string } | null;
+    isPreferred: boolean;
+    shipments: {
+      shipmentId: string;
+      orderNumber: string | null;
+      kind: AdminShipmentKind;
+      recipientName: string;
+      city: string;
+      trackingNumber: string;
+      labelAvailable: boolean;
+      labelPurchasedAt: string;
+    }[];
+  }[];
+  manualPending: number;
+}
+/** `POST /admin/shipments/departed` (§19.9). */
+export interface DepartedResultDTO {
+  results: { shipmentId: string; outcome: 'shipped' | 'already_shipped' | 'rejected'; code?: string }[];
+}
+
+/** §19.19.5: dial `shipping_insurance_tiers`. */
+export interface ShippingInsuranceTier {
+  coverageCents: number;
+  costCents: number;
+  measuredAt: string;
+}
+
+/** §19.12: la línea de tiempo del CLIENTE (las tres superficies). */
+export type CustomerTimelineKind =
+  | 'label_created'
+  | 'shipped'
+  | 'in_transit'
+  | 'out_for_delivery'
+  | 'delivery_attempt'
+  | 'at_branch'
+  | 'delivered';
+export const CUSTOMER_TIMELINE_KINDS: readonly CustomerTimelineKind[] = [
+  'label_created',
+  'shipped',
+  'in_transit',
+  'out_for_delivery',
+  'delivery_attempt',
+  'at_branch',
+  'delivered',
+];
+export interface CustomerTimelineEventDTO {
+  kind: CustomerTimelineKind;
+  at: string;
+  /** Solo en `at_branch` (§19.12: «es el dato que necesita para recoger»). */
+  branchName?: string;
 }
 
 // ---- «Pedidos a preparar» (contrato §M4-PREP v1.78 · GET /admin/shipments/picking-list) ----
@@ -1385,9 +1706,14 @@ export interface ShipPreparationOrderDTO {
     postalCode: string;
     country: string;
     phone: string;
+    /** ⭐ §19.20.1: la dirección del envío se corrigió en «Capturar guía». Opcional hasta la fase C. */
+    addressCorrected?: boolean;
   };
   // --- las cartas del pedido (v1.80: con su marca, disponibilidad y lo que se reembolsaría) ---
   items: ShipPreparationItemDTO[];
+  /** ⭐ §19.20.2 (opcionales hasta que exista la fase D en el servidor). */
+  labelPending?: LabelPendingDTO | null;
+  labelAlert?: LabelAlertDTO | null;
 }
 
 export interface VaultPreparationOrderDTO {
@@ -2229,6 +2555,9 @@ export interface CustomerOrderShipmentDTO {
   deliveredAt: string | null;
   shipTo: { recipientName: string; city: string; state: string; postalCode: string };
   missingCount: number;
+  /** ⭐ §19.12 (aditivo): solo si Skydropx la dio; ausente si no. */
+  trackingUrl?: string;
+  timeline?: CustomerTimelineEventDTO[];
 }
 
 // ---- Buylist (contrato §6) ----
@@ -5273,6 +5602,19 @@ export interface SettingsDTO {
    * UI de M10 NO asume el seed (`DESIGN_SYSTEM §39.1 (b)`). Se edita SOLO desde su sección propia de M10.
    */
   premiumFloorSalePublish?: PremiumFloorSalePublish;
+  // ---- ⭐ Envíos con Skydropx (§M4-SHIP.19.19.12, `SETTING_DTO_MAP` en camelCase). Opcionales: el
+  // servidor los trae desde `M-SDX-D`; antes, M10 no pinta la sección como si existieran. ----
+  shippingProvider?: 'off' | 'skydropx';
+  shippingLabelPurchase?: ShippingLabelPurchase;
+  skydropxOriginAddressTemplateId?: string | null;
+  shippingPreferredCarriers?: string[];
+  shippingDropoffPoints?: Record<string, { name: string; address: string }>;
+  shippingConsignmentNote?: string;
+  shippingPackageRuleBoxMinCards?: number;
+  skydropxLowBalanceCents?: number;
+  shippingTrackingPollMinutes?: number;
+  shippingInsuranceTiers?: ShippingInsuranceTier[];
+  shippingLabelFormat?: 'standard' | 'thermal';
 }
 
 /** §M2 `M2-PF` — el dial `premiumFloorSalePublish`. `rarities` vacío ⇔ `mode !== 'only'` (validador del servidor). */
@@ -5766,6 +6108,9 @@ export interface GuestTrackingShippingDTO {
   trackingNumber?: string;
   shippedAt?: string;
   deliveredAt?: string;
+  /** ⭐ §19.12 (aditivo): solo si Skydropx la dio; ausente si no. */
+  trackingUrl?: string;
+  timeline?: CustomerTimelineEventDTO[];
 }
 
 /** Marca + últimos 4. NADA más (criterio 51). */

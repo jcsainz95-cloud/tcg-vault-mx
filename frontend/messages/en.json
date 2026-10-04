@@ -1154,7 +1154,8 @@
         "guia": "Tracking number",
         "enviado": "Shipped",
         "entregado": "Delivered"
-      }
+      },
+      "trackingLink": "Track with the carrier"
     }
   },
   "legal": {
@@ -1792,7 +1793,239 @@
         "originRefunded": "{count, plural, one {One card in this withdrawal comes} other {# cards in this withdrawal come}} from a purchase being refunded: {items}. The tracking number wasn't saved. Undo the prepared mark so the card returns to the platform, or ask the super-admin to reclaim it.",
         "orderNotSettled": "This shipment's order is no longer settled ({status}): it was refunded or is disputed. The tracking number wasn't saved. The super-admin resolves it in Sales.",
         "goToPrepare": "Go to “Prepare”",
-        "goToReplace": "See under “To replace”"
+        "goToReplace": "See under “To replace”",
+        "sdx": {
+          "step": "Step {n} of 4 · {name}",
+          "stepName": {
+            "address": "Address",
+            "options": "Options",
+            "buy": "Buy",
+            "label": "Label"
+          },
+          "loading": "Loading the shipment…",
+          "loadError": "The shipment couldn't be loaded. You can enter the label by hand.",
+          "manual": "Enter by hand",
+          "manualIntro": "For a label you already bought in the Skydropx panel or with another carrier.",
+          "backToSkydropx": "Back to Skydropx",
+          "back": "Back",
+          "close": "Close",
+          "address": {
+            "recipient": "Recipient",
+            "line1": "Street and number",
+            "line2": "Interior",
+            "neighborhood": "Neighborhood",
+            "postalCode": "Postcode",
+            "city": "Municipality or borough",
+            "state": "State",
+            "phone": "Phone",
+            "references": "References",
+            "recipientMissing": "No recipient",
+            "neighborhoodNone": "Neighborhood missing",
+            "postalCodeNone": "No postcode",
+            "phoneNone": "No phone",
+            "noData": "No data",
+            "referencesNone": "No references",
+            "neighborhoodMissing": "The neighborhood is missing and Skydropx won't quote without it. Choose the one for postcode {cp}.",
+            "neighborhoodLabel": "Neighborhood (from the list for postcode {cp})",
+            "neighborhoodPlaceholder": "Choose a neighborhood",
+            "loadingNeighborhoods": "Looking up neighborhoods for postcode {cp}…",
+            "cta": "See shipping options",
+            "corrected": "Corrected by {name} · {datetime}.",
+            "unnamed": "an unnamed account",
+            "edit": "Correct address",
+            "scopeNote": "This only corrects where this package goes. The address saved in the customer's account and the one they entered at checkout don't change.",
+            "auditNote": "It's recorded in your name, along with what was there before.",
+            "field": {
+              "recipient": "Recipient",
+              "line1": "Street and number",
+              "line2": "Interior or apartment number (optional)",
+              "postalCode": "Postcode",
+              "references": "Notes for the courier (optional)"
+            },
+            "hint": {
+              "recipient": "Who receives the package. It goes on the label.",
+              "postalCode": "5 digits. When you change it, the neighborhood, municipality and state come from the new postcode.",
+              "references": "For example: black gate, between streets… Up to 70 characters; Skydropx doesn't accept more."
+            },
+            "cityState": "Municipality and state: {city}, {state} (from the postcode).",
+            "phoneReadOnly": "Phone: {phone}. It can't be corrected here.",
+            "cpFirst": "Type the 5-digit postcode to see its neighborhoods.",
+            "cpUnknown": "Postcode {cp} isn't in the neighborhood catalogue. Check it; if it's right, enter the label by hand.",
+            "save": "Save address",
+            "discard": "Discard changes",
+            "saving": "Saving the address…",
+            "saved": "Address corrected. It's recorded in your name.",
+            "unchanged": "Nothing to change: the address was already that.",
+            "conflict": "Someone else corrected this address while you were editing it. Your change wasn't saved. The current one is below: check it and, if it's still wrong, correct it again.",
+            "notInPreparation": "This shipment is no longer being prepared ({status}). The address wasn't saved.",
+            "alreadyLabeled": "This shipment already has a label. The address wasn't saved: once a label is bought, the address is the one on the label.",
+            "labelInProgress": "A label purchase is in progress for this shipment. The address wasn't saved.",
+            "forbidden": "Your account can't correct shipping addresses.",
+            "serverDown": "The address couldn't be saved: the server didn't respond. Nothing changed; try again.",
+            "neighborhoodNotInCp": "That neighborhood isn't in postcode {cp}. It wasn't saved. Choose one from the list.",
+            "invalid": {
+              "recipient": "Enter who receives it.",
+              "line1": "Enter the street and number.",
+              "postalCode": "The postcode is 5 digits.",
+              "references": "The notes don't fit on the label: shorten them (up to 70 characters).",
+              "other": "Check this field: the server didn't accept it."
+            }
+          },
+          "quoting": "Getting quotes from Skydropx…",
+          "quotingHint": "It usually takes 2 to 7 seconds.",
+          "quotingSlow": "It's taking longer than usual. You can wait (up to 20 seconds) or enter it by hand.",
+          "options": {
+            "package": "Packed in: {label} · {length}×{width}×{height} cm · {kg} kg",
+            "changePackage": "Change packaging",
+            "insurance": "Insured for {coverage}. Insurance costs {cost} and is already included in every price.",
+            "insuredValue": "What's in the box is worth {value}.",
+            "charged": "Charged to the customer for shipping: {gross} ({net} before VAT).",
+            "validUntil": "Prices valid until {datetime}.",
+            "incomplete": "Skydropx didn't finish quoting within 20 seconds: these are the options it managed to return.",
+            "requote": "Quote again",
+            "tierTableNote": "For some options the insurance cost comes from your table in “Settings”: Skydropx didn't confirm it in this quote.",
+            "legend": "Choose a carrier",
+            "pickOne": "Choose an option to continue.",
+            "recommended": "Recommended",
+            "days": "{days, plural, one {# day} other {# days}} (carrier's estimate)",
+            "daysNone": "Days: no data",
+            "pickup": "Offers pickup (not scheduled from here)",
+            "dropoffAt": "No pickup: take it to {name}",
+            "dropoffAny": "No pickup: it has to be taken to a {carrier} branch",
+            "pickupNone": "Pickup: no data",
+            "home": "Home delivery",
+            "branch": "No home delivery: the customer collects at a branch",
+            "deliveryNone": "Delivery: no data",
+            "margin": "Margin: {amount}",
+            "marginNegative": "Margin: −{amount} — this shipment costs you more than you charged",
+            "plan": "Skydropx plan: {plan}",
+            "promo": "Promotion",
+            "promoNote": "“Promotion” marks Skydropx promotional rates: they may disappear without notice. “Plan” is the rate code exactly as Skydropx gives it.",
+            "packageLabel": "Packaging",
+            "packageOption": "{label} · {length}×{width}×{height} cm · {kg} kg",
+            "quotingPackage": "Getting quotes with the {label} packaging…",
+            "packagesError": "The packaging list couldn't be loaded.",
+            "showBranch": "Also show {count, plural, one {# option} other {# options}} without home delivery",
+            "hideBranch": "Hide options without home delivery",
+            "excluded": "{total, plural, one {# option isn't shown} other {# options aren't shown}}: {parts}.",
+            "excludedPart": {
+              "unavailable": "{n} not available via API",
+              "noCoverage": "{n} without coverage",
+              "notApplicable": "{n} not applicable",
+              "multipackage": "{n} multi-package",
+              "breakdownMismatch": "{n} with a breakdown that doesn't add up"
+            },
+            "emptyTitle": "Skydropx returned no options for this destination.",
+            "emptyBody": "Nothing was bought. Enter the label by hand with another carrier.",
+            "cta": "Continue with {carrier}"
+          },
+          "buy": {
+            "row": {
+              "amount": "Shipping",
+              "extra": "Fuel and surcharges",
+              "iva": "VAT",
+              "ivaComputed": "(calculated)",
+              "serviceFee": "Skydropx handling fee",
+              "insurance": "Insurance ({coverage} coverage)",
+              "total": "Total"
+            },
+            "charge": "{amount} will be charged to your Skydropx balance.",
+            "chargeStore": "{amount} will be charged to the store's Skydropx balance.",
+            "signature": "The purchase is logged in your name, with the option you chose and the one that was recommended.",
+            "cancelWindow": "A purchased label can only be cancelled until the carrier picks it up.",
+            "confirmNegative": "Negative margin: −{amount}. This shipment costs you more than you charged the customer. Buying confirms it.",
+            "confirmBranch": "This option doesn't deliver to the door: the customer will have to collect it at a branch. Buying confirms it.",
+            "cta": "Buy label for {amount}",
+            "buying": "Buying… don't close this window.",
+            "disabled": "Label buying is turned off. It's turned on in “Settings › Shipping”. Meanwhile, enter the label by hand.",
+            "ownerOnly": "Only the owner buys labels for now. Let them know, or enter the label by hand if you already have it.",
+            "notEnabled": "Label buying isn't enabled on this server. Nothing was charged. Enter the label by hand."
+          },
+          "label": {
+            "title": "Label purchased",
+            "tracking": "Tracking: {number}",
+            "copy": "Copy tracking number",
+            "copied": "Copied",
+            "charged": "{amount} was charged to the Skydropx balance.",
+            "print": "Print label",
+            "download": "Download PDF",
+            "printError": "The label couldn't be opened. Try again in a moment.",
+            "notReady": "The label isn't ready in Skydropx yet. It will show up on the shipment card; check back in a few minutes.",
+            "trackingLink": "Tracking with the carrier",
+            "newTab": "(opens in a new tab)",
+            "emailSent": "We sent the customer the email with their tracking number.",
+            "done": "Done",
+            "saved": "Label purchased for {ref}: {carrier} · {number}."
+          },
+          "processing": {
+            "title": "Label in progress",
+            "body": "Skydropx accepted the purchase but hasn't given the tracking number yet. We'll wait for it here for a few minutes.",
+            "checking": "Checking…",
+            "timeout": "Still in progress. You can close: the number arrives on its own, the card will show it and the customer will get their email then.",
+            "inProgress": "This label is already being bought (someone requested it a moment ago). No other was bought."
+          },
+          "inFlight": {
+            "title": "Purchase not confirmed",
+            "body": "Skydropx didn't answer in time and we don't know whether it created the label. Don't buy it again: the system looks for it on its own and, if it turns up, you'll see it on the shipment card. If it hasn't turned up in {minutes, plural, one {# minute} other {# minutes}}, the owner can release it.",
+            "who": "Requested by {name} · {carrier} · {service} · since {time}.",
+            "notCreated": "Skydropx didn't create the label. Nothing was bought.",
+            "chooseAgain": "Choose again",
+            "timeout": "Still not confirmed. You can close: if the label turns up, the card will show it; if not, the owner can release it after {minutes, plural, one {# minute} other {# minutes}}.",
+            "checking": "Skydropx didn't answer. Checking whether the label was bought…",
+            "nothingBought": "Skydropx didn't respond and we checked: nothing was bought. You can try again.",
+            "whoBy": "Requested by {name}",
+            "whoSince": "since {time}"
+          },
+          "error": {
+            "labelPurchaseDisabled": "Label buying is turned off. Nothing was charged. It's turned on in “Settings › Shipping”; meanwhile, enter the label by hand.",
+            "providerOff": "Skydropx is turned off in “Settings”. Nothing was quoted or bought. Enter the label by hand.",
+            "ownerOnly": "Only the owner buys labels for now. Nothing was charged and the attempt was logged.",
+            "insuranceTier": "What's in the box is worth {insuredValue} and the configured insurance covers up to {maxCoverage}. Without a tier that covers it, nothing is quoted or bought (every package is insured). Enter the label by hand and insure it in the Skydropx panel.",
+            "insuranceTierAdmin": "Add a tier in “Settings › Shipping”.",
+            "allowSpend": "Label buying isn't enabled on this server. Nothing was charged. Enter the label by hand.",
+            "origin": "The origin address is missing in “Settings › Shipping”. Nothing was quoted.",
+            "packages": "There's no active packaging with a Skydropx code in “Settings › Shipping”. Nothing was quoted.",
+            "consignmentNote": "The Carta Porte code is missing in “Settings › Shipping”. Nothing was bought.",
+            "env": "The Skydropx credentials are missing on the server. Nothing was quoted or bought. Let the super admin know.",
+            "addressIncomplete": "The address is missing {missing} and Skydropx won't quote without it. Nothing was quoted or bought. Correct it in step 1.",
+            "missing": {
+              "neighborhood": "the neighborhood",
+              "postalCode": "a 5-digit postcode",
+              "recipientName": "the recipient",
+              "line1": "the street",
+              "and": "and"
+            },
+            "phone": "The phone number doesn't have 10 digits. Skydropx requires it and it can't be corrected here: enter the label by hand.",
+            "rejectedQuote": "Skydropx rejected the quote for this address. Nothing was quoted.",
+            "rejectedLabel": "Skydropx rejected the purchase with this option. Nothing was charged and the shipment is unchanged.",
+            "chooseOther": "Choose another option",
+            "providerSays": "Skydropx says: “{message}”",
+            "balanceOwner": "Your Skydropx balance isn't enough for this label ({required}). Nothing was charged. Top up in the Skydropx panel and try again, or choose a cheaper option.",
+            "balanceOperator": "The store's Skydropx balance isn't enough for this label ({required}). Nothing was charged. Let the super admin know, or choose a cheaper option.",
+            "providerDownQuote": "Skydropx didn't respond. Nothing was quoted. Try again in a moment or enter the label by hand.",
+            "edgeBlocked": "The connection to Skydropx was blocked before it got there (it's a fault on our server, not Skydropx's). Nothing was quoted or charged. Retrying won't help: let the super admin know and enter the label by hand.",
+            "quoteExpired": "The prices expired and we quoted again. Nothing was bought. Check the new figure and choose again.",
+            "quoteExpiredAddress": "This shipment's address changed after the quote, so these prices are no longer valid. Nothing was bought. We quoted again with the new address: check it in step 1 and choose again.",
+            "previewStale": "The price changed while you were confirming: it's now {price} (margin {margin}). Nothing was bought. Check it and buy again.",
+            "confirmationRequired": "This option needs you to confirm {what}. Nothing was bought.",
+            "confirm": {
+              "negativeMargin": "that the margin is negative",
+              "branchDelivery": "that it doesn't deliver to the door"
+            },
+            "rateGone": "That option is no longer in the quote. Nothing was bought. Quote again.",
+            "alreadyLabeledSkydropx": "This shipment already has a Skydropx label. No other was bought or saved. To change it, cancel it from the card.",
+            "alreadyLabeledManual": "This shipment already has a label entered by hand. No other was bought.",
+            "labelInProgress": "A label purchase is already in progress for this shipment. Nothing was quoted.",
+            "autoCancelled": "The shipment was cancelled while Skydropx was responding ({status}). The label that got created was cancelled automatically so the balance comes back.",
+            "notInPreparation": "This shipment is no longer being prepared ({status}). Nothing was quoted or bought.",
+            "notPrepared": "This shipment isn't prepared yet: first tick its cards and mark it prepared in “Prepare”. Nothing was quoted or bought.",
+            "openReplacements": "This withdrawal has {count, plural, one {# card being replaced} other {# cards being replaced}}: it ships complete once each case is resolved. Nothing was quoted or bought.",
+            "orderNotSettled": "This shipment's order is no longer settled ({status}): it was refunded or is in dispute. Nothing was quoted or bought. The super admin resolves it in Sales.",
+            "originRefunded": "{count, plural, one {One card in this withdrawal comes} other {# cards in this withdrawal come}} from a purchase being refunded: {items}. Nothing was quoted or bought.",
+            "conflict": "The shipment changed while you were buying (for example, someone corrected the address). Nothing was bought. We've updated it: check it and try again.",
+            "forbiddenQuote": "Your account can't quote labels. Nothing was quoted."
+          }
+        }
       },
       "queueTitle": "Customer shipments queue",
       "statusFilter": "Filter by status",
@@ -2074,7 +2307,13 @@
           "guide": {
             "cta": "Enter tracking number",
             "waiting": "This withdrawal is waiting for {count, plural, one {# card being replaced} other {# cards being replaced}}. Once every case is resolved, it ships complete. See “To replace”.",
-            "saved": "Tracking number saved for {ref}. It leaves the list."
+            "saved": "Tracking number saved for {ref}. It leaves the list.",
+            "processing": "Label in progress · {carrier} · since {time}",
+            "processingNoCarrier": "Label in progress · since {time}",
+            "viewProcessing": "See label in progress",
+            "inFlight": "Purchase not confirmed · {carrier} · since {time}",
+            "inFlightNoCarrier": "Purchase not confirmed · since {time}",
+            "viewInFlight": "See unconfirmed purchase"
           },
           "print": {
             "cta": "Print sheet",
@@ -2089,7 +2328,8 @@
             "back": "Back to Orders to prepare",
             "empty": "Nothing to print: the queue is empty.",
             "card": "Card"
-          }
+          },
+          "addressCorrected": "Address corrected"
         },
         "locate": {
           "action": "Locate",
@@ -2111,7 +2351,8 @@
         "shipments": "Shipments",
         "overdueSuffix": "· {count, plural, one {# overdue} other {# overdue}}",
         "withCount": "{label}, {count, plural, one {# order} other {# orders}}",
-        "withCases": "{label}, {count, plural, one {# case} other {# cases}}"
+        "withCases": "{label}, {count, plural, one {# case} other {# cases}}",
+        "departure": "Today's drop-off"
       },
       "guest": "Guest",
       "preparedTag": "Prepared",
@@ -2310,7 +2551,122 @@
           "viewBucket": "View in the SPEI bucket"
         }
       },
-      "viewCustomerVault": "View vault"
+      "viewCustomerVault": "View vault",
+      "labelAlert": {
+        "unknown": {
+          "title": "Purchase without an answer",
+          "body": "Since {since}, Skydropx hasn't confirmed whether it created the label. Don't buy it again.",
+          "ownerOnly": "Only the owner can release it: let them know."
+        },
+        "stuck": {
+          "title": "Label stuck in progress",
+          "body": "Skydropx created the label more than {minutes, plural, one {# minute} other {# minutes}} ago (since {since}) and still hasn't given the number. It usually arrives on its own; if not, cancel it and buy another."
+        },
+        "cancelFailed": {
+          "title": "Cancellation not confirmed",
+          "body": "You asked to cancel this label on {since} and Skydropx didn't confirm it: the balance may not have come back. Try again.",
+          "retry": "Retry cancellation"
+        },
+        "liveOnCancelled": {
+          "title": "Live label on a cancelled shipment",
+          "body": "The shipment was cancelled, but label {number} had already gone out with the carrier (since {since}). Check it in the Skydropx panel and decide what to do.",
+          "noNumber": "without a number"
+        },
+        "retryDialog": {
+          "title": "Ask again to cancel label {number}?",
+          "body": "The cancellation was already requested and Skydropx didn't confirm it. We'll request it again; nothing is bought.",
+          "confirm": "Request cancellation again",
+          "done": "Skydropx confirmed the cancellation. The balance comes back.",
+          "already": "It was already confirmed. Nothing was done."
+        }
+      },
+      "carrierStatus": {
+        "created": "Label created",
+        "picked_up": "Picked up",
+        "in_transit": "In transit",
+        "last_mile": "Out for delivery",
+        "delivery_attempt": "Delivery attempt failed",
+        "delivered_to_branch": "At the branch (customer must collect)",
+        "delivered": "Delivered",
+        "exception": "Exception",
+        "retained": "Held",
+        "in_return": "Being returned",
+        "destroyed": "Destroyed",
+        "canceled": "Cancelled by the carrier"
+      },
+      "label": {
+        "guide": "Skydropx label · {carrier} · {service} · {number}",
+        "noNumber": "no number yet",
+        "boughtBy": "Bought by {name} · {datetime}",
+        "notRecommended": "It wasn't the recommended one ({carrier}).",
+        "adjustments": "+ {n, plural, one {# adjustment} other {# adjustments}} from the carrier",
+        "adjustmentsLink": "See in the log",
+        "carrier": "Carrier: {status} · {date}",
+        "carrierNone": "Carrier: no data",
+        "alert": "Carrier notice: {status} · {date}.",
+        "alertNote": "It doesn't change the shipment's status: check it in the Skydropx panel and decide.",
+        "print": "Print label",
+        "notAvailable": "The label isn't available in Skydropx yet. Check back in a few minutes.",
+        "refresh": "Refresh tracking",
+        "refreshed": "Tracking refreshed.",
+        "refreshTooSoon": "You refreshed it a moment ago. Wait a minute.",
+        "refreshOff": "Skydropx is turned off: tracking isn't refreshed.",
+        "cancel": {
+          "cta": "Cancel label and buy another",
+          "title": "Cancel label {number}?",
+          "body": "It's cancelled in Skydropx and the balance comes back; if Skydropx doesn't return all of it, the difference is recorded as an adjustment in “Finance”. The shipment isn't cancelled: it goes back to “prepared” and you buy another label. The customer will get the email with the new label.",
+          "reason": "Why you're cancelling it (required)",
+          "reasonHint": "3 to 200 characters. It's logged.",
+          "confirm": "Cancel label",
+          "back": "Back",
+          "done": "Label cancelled. The shipment went back to “prepared”: you can enter another one now.",
+          "already": "That label was already cancelled. Nothing was done.",
+          "rejected": "Skydropx didn't accept the cancellation. The label is still live.",
+          "pickedUp": "The carrier already picked up the package ({status}): the label can no longer be cancelled.",
+          "status": "This shipment no longer allows changing the label ({status}).",
+          "notProvider": "This label was entered by hand: it is cancelled with the carrier, not here.",
+          "providerDown": "Skydropx didn't respond. The label is still marked for cancellation; try again."
+        },
+        "release": {
+          "cta": "Release",
+          "title": "Release this shipment?",
+          "body": "First we look for the label in Skydropx; if it exists, we adopt it and no other is bought. If it doesn't turn up, the shipment goes back to “prepared” and can be bought again. Before that, check in the Skydropx panel that there's no shipment with reference {ref}.",
+          "note": "What you checked (required)",
+          "noteHint": "10 to 300 characters.",
+          "confirm": "Search and release",
+          "adopted": "The label did exist and was adopted: {carrier} · {number}. No other was bought.",
+          "released": "There was no label in Skydropx. The shipment went back to “prepared”.",
+          "notInProgress": "This shipment no longer has a pending purchase. Nothing was done.",
+          "hasProviderId": "Skydropx did create this shipment; only its number is missing. It resolves on its own, or cancel the label.",
+          "tooEarly": "Not yet: wait {minutes, plural, one {# minute} other {# minutes}} before releasing."
+        },
+        "cost": "Cost {cost}",
+        "margin": "margin {margin}"
+      },
+      "departure": {
+        "title": "Today's drop-off",
+        "group": "{carrier} · {dropoff}",
+        "groupNoDropoff": "{carrier} · no branch configured",
+        "count": "{count, plural, one {# package} other {# packages}}",
+        "preferred": "Preferred",
+        "row": "{ref} · {recipient} · {city} · Label {number}",
+        "selectGroup": "Select the {carrier} ones",
+        "select": "Select {ref}",
+        "cta": "I dropped them off at the branch ({count})",
+        "confirmTitle": "Mark {count, plural, one {# package} other {# packages}} as shipped?",
+        "confirmBody": "Confirm it once they're at the branch. Each customer gets the email that their package has shipped. If the carrier had already reported it, no other is sent.",
+        "confirm": "Mark shipped",
+        "resultShipped": "{n} marked as shipped",
+        "resultAlready": "{n} had already shipped",
+        "resultRejected": "{n} weren't moved",
+        "rejectedRow": "It wasn't moved ({code}).",
+        "manualPending": "{count, plural, one {# shipment} other {# shipments}} with a hand-entered label to go out: they are marked in “Shipments”.",
+        "manualPendingLink": "Go to “Shipments”",
+        "empty": "Nothing to go out: no Skydropx labels waiting.",
+        "print": "Print list",
+        "printTitle": "Today's drop-off · {date}",
+        "withdrawal": "Vault withdrawal"
+      }
     },
     "m5": {
       "title": "Sell requests",
@@ -4034,6 +4390,103 @@
           "all": "publish all at the floor",
           "none": "hold all"
         }
+      },
+      "shipping": {
+        "title": "Shipping (Skydropx)",
+        "subtitle": "Super admin only. Every change is logged.",
+        "notAvailable": "This server doesn't have the shipping settings yet.",
+        "balance": "Skydropx balance: {balance} · read {time}",
+        "lowBalance": "Low balance",
+        "balanceError": "The balance couldn't be read: Skydropx didn't respond.",
+        "purchase": {
+          "legend": "Who can buy labels?",
+          "disabled": "Nobody (buying off)",
+          "disabledNote": "Quotes and prices still work, but nobody buys. This is the starting value.",
+          "superAdminOnly": "Only me",
+          "superAdminOnlyNote": "You buy every label with your own click; that click is your authorization and it's recorded in your name.",
+          "operators": "Operators too",
+          "operatorsNote": "Operators spend from the balance with their name in the log. There's no cap other than the balance.",
+          "serverKey": "On top of this, the server needs its own authorization to spend. If it's missing, nobody buys even if this says yes.",
+          "confirmTitle": "Let operators buy labels?",
+          "confirmBody": "They'll be able to spend the Skydropx balance without asking you, each label in their name. There's no cap other than the balance.",
+          "confirm": "Yes, let them buy"
+        },
+        "tiers": {
+          "title": "Insurance tiers",
+          "intro": "Every package is insured. The first tier that covers what's in the box is paid; if no tier covers it, that order is entered by hand.",
+          "coverage": "Covers up to",
+          "cost": "Costs",
+          "measuredAt": "Measured on",
+          "add": "Add tier",
+          "remove": "Remove",
+          "atLeastOne": "There must be at least one tier.",
+          "max": "Maximum 20 tiers.",
+          "coverageMin": "The minimum coverage is MX$1.00.",
+          "notIncreasing": "Each tier must cover more than the previous one.",
+          "costNegative": "The cost can't be negative.",
+          "dateMissing": "Enter the date you measured the cost.",
+          "reading": "Up to {coverage} → {coverage} insurance for {cost}",
+          "readingOver": "Over {coverage} → no insurance configured: label by hand"
+        },
+        "consignment": {
+          "label": "Carta Porte (SAT content code)",
+          "hint": "8 digits. Cards use 49101600 “Collectibles”.",
+          "found": "{code}: {description}",
+          "notFound": "Code not found in the Skydropx catalogue.",
+          "search": "Search another code by description",
+          "searchLabel": "Description",
+          "searchCta": "Search",
+          "invalid": "It must be 8 digits."
+        },
+        "packages": {
+          "title": "Packaging",
+          "code": "Code",
+          "name": "Name",
+          "dims": "Dimensions (cm)",
+          "weight": "Weight (kg, whole)",
+          "provider": "Skydropx packaging",
+          "active": "Active",
+          "note": "The starting dimensions are estimates: correct them with your real packaging.",
+          "weightInvalid": "Weight is in whole kilos, minimum 1.",
+          "needActive": "At least one active packaging with a Skydropx code must remain.",
+          "save": "Save packaging",
+          "saved": "Packaging saved.",
+          "boxMin": "Use a box from (cards)",
+          "providerOption": "{code} · {name}",
+          "length": "Length",
+          "width": "Width",
+          "height": "Height"
+        },
+        "carriers": {
+          "label": "Preferred carrier (in order)",
+          "hint": "Skydropx codes, e.g. ninetynineminutes (99minutos). The first one with home delivery is recommended even if it costs more.",
+          "up": "Move {code} up",
+          "down": "Move {code} down",
+          "remove": "Remove {code}",
+          "add": "Add code",
+          "newCode": "New code"
+        },
+        "dropoff": {
+          "title": "Branch where you drop off packages",
+          "note": "The 99minutos one comes from an unconfirmed directory: check it.",
+          "name": "Name ({code})",
+          "address": "Address ({code})"
+        },
+        "origin": "Origin address",
+        "originOption": "{alias} · Postcode {postalCode}",
+        "originNone": "Not chosen",
+        "labelFormat": "Label format",
+        "labelFormatStandard": "Regular sheet",
+        "labelFormatThermal": "Thermal",
+        "lowBalanceThreshold": "Warn if the balance drops below",
+        "pollMinutes": "Check tracking every (minutes)",
+        "provider": "Skydropx",
+        "providerOff": "Off: labels by hand only",
+        "providerOn": "On: quote and track",
+        "providerNote": "Turning it off freezes tracking of labels already bought.",
+        "save": "Save shipping",
+        "saved": "Shipping settings saved.",
+        "saveError": "Not saved: the server rejected a value. Check the marked field."
       }
     },
     "m7": {
@@ -4870,6 +5323,19 @@
       "pending": "Pending",
       "paid": "Paid",
       "cancelled": "Cancelled"
+    },
+    "timeline": {
+      "title": "Tracking updates",
+      "label_created": "Label created",
+      "shipped": "Shipped",
+      "in_transit": "In transit",
+      "out_for_delivery": "Out for delivery",
+      "delivery_attempt": "Delivery attempted",
+      "at_branch": "At the branch",
+      "atBranchNamed": "At the branch: {branch}. Please pick it up.",
+      "delivered": "Delivered",
+      "line": "{label} · {datetime}",
+      "newTab": "(opens in a new tab)"
     }
   },
   "error": {
@@ -5071,7 +5537,8 @@
       "claimAlternative": "Want it always at hand? Create an account with that same email and your order will appear in your history.",
       "support": "Need help? Write to us at {contact}."
     },
-    "temporaryLinkNotice": "This link is temporary and expires in a few hours. Your order's tracking link arrives by email; if you don't see it, request a new one."
+    "temporaryLinkNotice": "This link is temporary and expires in a few hours. Your order's tracking link arrives by email; if you don't see it, request a new one.",
+    "trackingLink": "Track with the carrier"
   },
   "sealed": {
     "title": "Sealed",

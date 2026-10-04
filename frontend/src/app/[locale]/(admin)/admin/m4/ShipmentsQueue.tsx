@@ -24,6 +24,8 @@ import { Link } from '@/i18n/navigation';
 import { useRole } from '@/lib/role';
 import type { AdminShipmentDTO, ShipmentStatus, WithdrawalLineOriginRefundedDetails } from '@/types/contract';
 import { LABEL, TAG } from './prep-shared';
+import { LabelAlertBlock } from './LabelActions';
+import { SkydropxLabelBlock } from './SkydropxLabelBlock';
 
 /**
  * Campo string del `addressSnapshot` (contrato §M4 v1.67.1). Vacío/ausente ⇒ `undefined`.
@@ -204,7 +206,8 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
                     {(s.missingCount ?? 0) > 0 && <p className={cn(TAG, 'text-accent')}>{t('missingCount', { count: s.missingCount! })}</p>}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {s.status !== 'cancelado' && s.status !== 'entregado' && s.status !== 'solicitado' && (
+                    {/* §43.8b (FS-6): con guía Skydropx NO hay «Capturar guía» (el servidor la rechazaría, criterio 247). */}
+                    {s.status !== 'cancelado' && s.status !== 'entregado' && s.status !== 'solicitado' && s.labelSource !== 'skydropx' && (
                       <Button size="sm" variant="secondary" onClick={() => onCaptureGuide(s)}>
                         {t('tracking.capture')}
                       </Button>
@@ -278,7 +281,12 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
                     )}
                   </p>
                 </div>
-                {(s.carrier || s.trackingNumber) && (
+                {s.labelSource === 'skydropx' && s.label && <SkydropxLabelBlock shipment={s} />}
+                {/* §43.8c (FS-21): las cuatro alertas de guía, donde lleguen; «Liberar» ⇔ `canRelease`. */}
+                {s.labelAlert && (
+                  <LabelAlertBlock shipmentId={s.id} alert={s.labelAlert} refText={refOf(s)} trackingNumber={s.label?.trackingNumber ?? s.trackingNumber ?? null} />
+                )}
+                {s.labelSource !== 'skydropx' && (s.carrier || s.trackingNumber) && (
                   <p className="text-sm text-muted">
                     <span className="font-medium text-text">{ts('carrier')}:</span> {s.carrier ?? DASH}
                     {' · '}

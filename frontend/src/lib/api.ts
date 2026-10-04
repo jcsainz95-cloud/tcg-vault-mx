@@ -271,8 +271,23 @@ import type {
   VoidCaseRequest,
   VoidCaseResponse,
   GuestOrderPublicStatus,
+  CancelShipmentLabelRes,
+  CorrectShipmentAddressReq,
+  CorrectShipmentAddressRes,
+  DepartedResultDTO,
+  DepartureBoardDTO,
+  PostalCodeDTO,
+  ReleaseShipmentLabelRes,
+  ShipmentLabelRequest,
+  ShipmentLabelResponse,
+  ShipmentQuoteDTO,
+  ShipmentQuoteRequest,
+  ShippingBalanceDTO,
+  ShippingCatalogsDTO,
+  ShippingPackageDTO,
 } from '@/types/contract';
 import * as m4ship from './mock/m4-ship';
+import * as sdx from './mock/skydropx';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
@@ -1552,7 +1567,8 @@ export async function getAdminShipments(
   // y su `status` es el vivo (el preparado puede haberla cerrado).
   let data = fx.mockAdminShipments.map((s) => {
     const live = m4ship.mockShipStatusOf(s.id);
-    return { ...s, ...(m4ship.mockShipAdminAdditions(s.id) ?? {}), ...(live ? { status: live } : {}) };
+    // MOCK §M4-SHIP.19.20: y las piezas de Skydropx (guía, alerta, compra pendiente) del servidor falso.
+    return sdx.mockDecorateAdminShipment({ ...s, ...(m4ship.mockShipAdminAdditions(s.id) ?? {}), ...(live ? { status: live } : {}) });
   });
   if (filters.status) data = data.filter((s) => s.status === filters.status);
   const q = filters.q?.trim().toLowerCase();
@@ -1598,7 +1614,11 @@ export async function getAdminPreparationQueue(
   // MOCK §M4-VAULT: las dos fuentes (envíos + colocaciones pendientes), como el servidor.
   // MOCK §M4-SHIP: la cubeta ENVÍO sale del servidor falso VIVO (`mock/m4-ship`), con marcas,
   // `preparation` y `refund` por carta; `fixtures.mockPreparationQueue` queda como semilla de forma.
-  const all: PreparationOrderDTO[] = [...m4ship.mockShipPreparationQueue(), ...fx.mockVaultPreparationQueue()];
+  const all: PreparationOrderDTO[] = [
+    // MOCK §M4-SHIP.19.20: dirección corregida, `labelPending` y `labelAlert` del servidor falso de Skydropx.
+    ...m4ship.mockShipPreparationQueue().map(sdx.mockDecoratePrep),
+    ...fx.mockVaultPreparationQueue(),
+  ];
   return delay(
     sortPreparationOrders(all.filter((o) => !filters.destination || o.destination === filters.destination)),
   );
@@ -1939,6 +1959,158 @@ export async function getOperatorRefundSummary(): Promise<OperatorRefundSummaryR
   } catch (e) {
     throw translateFixtureError(e);
   }
+}
+
+// ---------- ⭐ Skydropx: la ventana «Capturar guía» y lo que cuelga de ella (contrato §M4-SHIP.19.19 / .19.20) ----------
+// MOCK: pendiente de backend real — el cotizar/comprar de la fase D no existe todavía; las ramas mock son el
+// servidor falso de `mock/skydropx.ts` (conducta del contrato, cifras medidas de PROD §4.4–§4.6).
+
+/** MOCK: la fila admin VIVA (fixture + servidor falso de §M4-SHIP + estado vivo), sin decorar. */
+function mockLiveAdminRow(shipmentId: string): AdminShipmentDTO {
+  const base = fx.mockAdminShipments.find((s) => s.id === shipmentId);
+  if (!base) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
+  const live = m4ship.mockShipStatusOf(shipmentId);
+  return { ...base, ...(m4ship.mockShipAdminAdditions(shipmentId) ?? {}), ...(live ? { status: live } : {}) };
+}
+async function mockSdx<T>(fn: () => T): Promise<T> {
+  try {
+    return await delay(fn());
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * `GET /admin/shipments/:id` (§M4, operador+). La ventana lo lee al abrir (paso 0 de §19.19.13) y para
+ * RELEER tras un `5xx`/red de la compra (§19.20.5) o un `409 CONFLICT {reason:'address_changed'}`.
+ */
+export async function getAdminShipment(shipmentId: string): Promise<AdminShipmentDTO> {
+  if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}`);
+  return mockSdx(() => sdx.mockDecorateAdminShipment(mockLiveAdminRow(shipmentId)));
+}
+
+/** `PUT /admin/shipments/:id/address` (§19.20.1, operador+): corrige la dirección DEL ENVÍO con CAS por versión. */
+export async function correctShipmentAddress(shipmentId: string, body: CorrectShipmentAddressReq): Promise<CorrectShipmentAddressRes> {
+  if (!config.useMocks) return apiRequest<CorrectShipmentAddressRes>(`/admin/shipments/${shipmentId}/address`, { method: 'PUT', body });
+  return mockSdx(() => sdx.mockCorrectAddress(mockLiveAdminRow(shipmentId), body));
+}
+
+/** `GET /geo/postal-codes/:cp` (§19.5, público): colonias, municipio y estado del CP. */
+export async function getPostalCode(cp: string): Promise<PostalCodeDTO> {
+  if (!config.useMocks) return apiRequest<PostalCodeDTO>(`/geo/postal-codes/${encodeURIComponent(cp)}`);
+  return mockSdx(() => sdx.mockPostalCode(cp));
+}
+
+/** `POST /admin/shipments/:id/quote` (§19.19.4, operador+). ⛔ Sin `declaredValueCents`: el seguro lo decide el servidor. */
+export async function quoteShipment(shipmentId: string, body: ShipmentQuoteRequest = {}): Promise<ShipmentQuoteDTO> {
+  if (!config.useMocks) return apiRequest<ShipmentQuoteDTO>(`/admin/shipments/${shipmentId}/quote`, { method: 'POST', body });
+  return mockSdx(() => sdx.mockQuote(mockLiveAdminRow(shipmentId), body));
+}
+
+/**
+ * 💰 `POST /admin/shipments/:id/label` (§19.7 + §19.19.7 + §19.20.5). Manda lo que el operador VIO
+ * (`expectedPriceCents`/`expectedMarginCents`); ⛔ esta función nunca reintenta (un reintento a ciegas es la
+ * guía duplicada): el `5xx`/red sube tal cual y la ventana RELEE el envío.
+ */
+export async function purchaseShipmentLabel(shipmentId: string, body: ShipmentLabelRequest): Promise<ShipmentLabelResponse> {
+  if (!config.useMocks) return apiRequest<ShipmentLabelResponse>(`/admin/shipments/${shipmentId}/label`, { method: 'POST', body });
+  return mockSdx(() => {
+    const res = sdx.mockPurchaseLabel(mockLiveAdminRow(shipmentId), body);
+    if (res.outcome === 'labeled') m4ship.mockSetShipStatus(shipmentId, 'guia');
+    return res;
+  });
+}
+
+/**
+ * `GET /admin/shipments/:id/label.pdf` (§19.8, operador+): proxy autenticado. La sesión viaja por la cabecera
+ * (`requestBlob`), así que la pantalla abre/descarga un `blob:` — ⛔ nunca la URL de Skydropx.
+ */
+export async function fetchShipmentLabelPdf(shipmentId: string): Promise<BlobResponse> {
+  if (!config.useMocks) return requestBlob(`/admin/shipments/${shipmentId}/label.pdf`);
+  return mockSdx(() => ({ blob: new Blob(['%PDF-1.4 MOCK'], { type: 'application/pdf' }), filename: `guia-${shipmentId}.pdf` }));
+}
+
+/** `POST /admin/shipments/:id/label/cancel` (§19.8, operador+): cancelar y re-emitir (o reintentar la cancelación). */
+export async function cancelShipmentLabel(shipmentId: string, reason: string): Promise<CancelShipmentLabelRes> {
+  if (!config.useMocks) return apiRequest<CancelShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/cancel`, { method: 'POST', body: { reason } });
+  return mockSdx(() => {
+    const res = sdx.mockCancelLabel(mockLiveAdminRow(shipmentId));
+    m4ship.mockSetShipStatus(shipmentId, 'picking');
+    return res;
+  });
+}
+
+/** `POST /admin/shipments/:id/label/release` (§19.18.4, súper-admin, `@MoneyOut`). */
+export async function releaseShipmentLabel(shipmentId: string, note: string): Promise<ReleaseShipmentLabelRes> {
+  if (!config.useMocks) return apiRequest<ReleaseShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/release`, { method: 'POST', body: { note } });
+  return mockSdx(() => sdx.mockReleaseLabel(mockLiveAdminRow(shipmentId)));
+}
+
+/** `POST /admin/shipments/:id/refresh-tracking` (§19.10, operador+, 6/min). */
+export async function refreshShipmentTracking(shipmentId: string): Promise<AdminShipmentDTO> {
+  if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}/refresh-tracking`, { method: 'POST' });
+  return mockSdx(() => {
+    if ((fx.mockSettings.shippingProvider ?? 'off') !== 'skydropx') {
+      throw new fx.ApiFixtureError(404, 'FEATURE_DISABLED', 'shipping provider off');
+    }
+    return sdx.mockDecorateAdminShipment(mockLiveAdminRow(shipmentId));
+  });
+}
+
+/** `GET /admin/shipments/departure?date=` (§19.9, operador+). */
+export async function getDepartureBoard(date?: string): Promise<DepartureBoardDTO> {
+  if (!config.useMocks) return apiRequest<DepartureBoardDTO>('/admin/shipments/departure', { query: { date } });
+  return mockSdx(() => sdx.mockDepartureBoard((id) => m4ship.mockShipStatusOf(id)));
+}
+
+/** `POST /admin/shipments/departed` (§19.9, operador+): «Ya los dejé en la sucursal». */
+export async function markShipmentsDeparted(shipmentIds: string[]): Promise<DepartedResultDTO> {
+  if (!config.useMocks) return apiRequest<DepartedResultDTO>('/admin/shipments/departed', { method: 'POST', body: { shipmentIds } });
+  return mockSdx(() =>
+    sdx.mockDeparted(shipmentIds, (id) => {
+      m4ship.mockSetShipStatus(id, 'enviado');
+      const i = fx.mockAdminShipments.findIndex((x) => x.id === id);
+      if (i >= 0) fx.mockAdminShipments[i] = { ...fx.mockAdminShipments[i], status: 'enviado' };
+    }),
+  );
+}
+
+/** `GET /admin/shipping/packages` (§19.20.3: operador+). */
+export async function listShippingPackages(): Promise<ShippingPackageDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ packages: ShippingPackageDTO[] }>('/admin/shipping/packages');
+    return res.packages;
+  }
+  return mockSdx(() => sdx.mockShippingPackages());
+}
+
+/** `PUT /admin/shipping/packages` (§19.13, súper-admin): reemplazo entero. */
+export async function putShippingPackages(packages: ShippingPackageDTO[]): Promise<ShippingPackageDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ packages: ShippingPackageDTO[] }>('/admin/shipping/packages', { method: 'PUT', body: { packages } });
+    return res.packages;
+  }
+  return mockSdx(() => sdx.mockPutShippingPackages(packages));
+}
+
+/** `GET /admin/shipping/catalogs` (§19.19.6, súper-admin). */
+export async function getShippingCatalogs(): Promise<ShippingCatalogsDTO> {
+  if (!config.useMocks) return apiRequest<ShippingCatalogsDTO>('/admin/shipping/catalogs');
+  return mockSdx(() => sdx.mockShippingCatalogs());
+}
+
+/** `GET /admin/shipping/catalogs/consignment-notes?description=` (§19.19.6, súper-admin, una página). */
+export async function searchConsignmentNotes(description: string): Promise<{ code: string; description: string }[]> {
+  if (!config.useMocks) {
+    return apiRequest<{ code: string; description: string }[]>('/admin/shipping/catalogs/consignment-notes', { query: { description } });
+  }
+  return mockSdx(() => sdx.mockSearchConsignmentNotes(description));
+}
+
+/** `GET /admin/shipping/balance` (§19.13, súper-admin; leído en vivo). */
+export async function getShippingBalance(): Promise<ShippingBalanceDTO> {
+  if (!config.useMocks) return apiRequest<ShippingBalanceDTO>('/admin/shipping/balance');
+  return mockSdx(() => sdx.mockShippingBalance());
 }
 
 /**

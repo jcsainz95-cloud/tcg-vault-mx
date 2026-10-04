@@ -496,6 +496,28 @@ export let mockSettings: SettingsDTO = {
   gradingHookEnabled: 'on',
   // 💰 v1.80.8.5 (§M2 `M2-PF`): MOCK con el seed del contrato (decisión del dueño 2026-10-04).
   premiumFloorSalePublish: { mode: 'only', rarities: ['Double Rare', 'Rare Holo EX'] },
+  // ⭐ MOCK §M4-SHIP.19.19.12 — los diales de envío con su SEED del contrato (fail-closed: Skydropx
+  // apagado y compra `disabled`). Para ver la ventana de cuatro pasos en la demo se enciende en
+  // «Configuración › Envíos», como lo haría el dueño.
+  shippingProvider: 'off',
+  shippingLabelPurchase: 'disabled',
+  skydropxOriginAddressTemplateId: null,
+  shippingPreferredCarriers: ['ninetynineminutes'],
+  shippingDropoffPoints: {
+    ninetynineminutes: {
+      name: 'Punto99 · Periférico Sur 4249',
+      address: 'Av. Periférico Sur 4249, Jardines de la Montaña, 14210 CDMX',
+    },
+  },
+  shippingConsignmentNote: '49101600',
+  shippingPackageRuleBoxMinCards: 60,
+  skydropxLowBalanceCents: 50000,
+  shippingTrackingPollMinutes: 60,
+  shippingInsuranceTiers: [
+    { coverageCents: 250000, costCents: 2500, measuredAt: '2026-10-04' },
+    { coverageCents: 1000000, costCents: 17000, measuredAt: '2026-10-04' },
+  ],
+  shippingLabelFormat: 'standard',
 };
 /**
  * ⭐⭐ **EL DIAL DE TRASLACIÓN, EN SU PROPIA VARIABLE Y ⛔ FUERA DE `mockSettings`** (contrato v1.75,

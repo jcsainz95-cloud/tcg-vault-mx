@@ -1,11 +1,12 @@
 /**
- * Pestañas de `/admin/m4` (`DESIGN_SYSTEM §37.2`): `?tab=preparar|reponer|envios`.
+ * Pestañas de `/admin/m4` (`DESIGN_SYSTEM §37.2`): `?tab=preparar|reponer|envios|salida`
+ * (⭐ `salida` = «Salida de hoy», §43.9, al final y sin badge).
  *
  * ⚠️ Sin `'use client'` a propósito (misma lección que `vaults/[userId]/tabs.ts`): `page.tsx` es componente
  * de SERVIDOR y llama a `parseM4Tab`; una función exportada desde un módulo cliente no se puede invocar
  * desde el servidor en el build de producción.
  */
-export const M4_TABS = ['preparar', 'reponer', 'envios'] as const;
+export const M4_TABS = ['preparar', 'reponer', 'envios', 'salida'] as const;
 export type M4Tab = (typeof M4_TABS)[number];
 
 function isM4Tab(v: string | undefined): v is M4Tab {

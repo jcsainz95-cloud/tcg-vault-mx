@@ -100,7 +100,9 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Capturar guía' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Captura de guía' });
-    fireEvent.change(within(dialog).getByLabelText('Paquetería'), { target: { value: 'DHL' } });
+    // §43.1: la ventana lee el envío al abrir (GET /admin/shipments/:id) y, con Skydropx apagado (seed),
+    // pinta el formulario de hoy cuando la lectura vuelve — de ahí el `findBy`.
+    fireEvent.change(await within(dialog).findByLabelText('Paquetería'), { target: { value: 'DHL' } });
     fireEvent.change(within(dialog).getByLabelText('Número de guía'), { target: { value: 'MX123' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar guía' }));
 
