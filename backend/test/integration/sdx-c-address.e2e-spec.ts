@@ -44,6 +44,8 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
   };
   const auditOf = (shipmentId: string) =>
     h.prisma.auditLog.findMany({ where: { entityId: shipmentId, action: 'shipment.address_corrected' }, orderBy: { createdAt: 'asc' } });
+  const revisionsOf = (shipmentId: string) =>
+    h.prisma.shipmentAddressRevision.findMany({ where: { shipmentRequestId: shipmentId }, orderBy: { fromVersion: 'asc' } });
   const row = (id: string) => h.prisma.shipmentRequest.findUniqueOrThrow({ where: { id } });
 
   beforeAll(async () => {
@@ -78,6 +80,14 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       await expect(
         h.prisma.$executeRawUnsafe(`INSERT INTO "PostalCode" (id, "postalCode", state, municipality, neighborhood) VALUES ('x-${RUN}', '1000', 'E', 'M', 'C')`),
       ).rejects.toThrow(/postal_code_five_digits/);
+      // ⭐ M-65 (v1.80.12.2): CHECKs de `ShipmentAddressRevision` — `changedKeys` no vacío y dentro de las claves corregibles.
+      const ins = (keys: string) =>
+        h.prisma.$executeRawUnsafe(
+          `INSERT INTO "ShipmentAddressRevision" (id, "shipmentRequestId", "fromVersion", "changedKeys", before, after, "correctedByUserId") VALUES (gen_random_uuid()::text, $1, 0, ${keys}, '{}', '{}', 'x')`,
+          d.shipment.id,
+        );
+      await expect(ins(`ARRAY[]::text[]`)).rejects.toThrow(/shipment_address_revision_changed_keys_nonempty/);
+      await expect(ins(`ARRAY['phone']::text[]`)).rejects.toThrow(/shipment_address_revision_changed_keys_known/);
       // `Address.references` existe (nullable)
       const u = await db.mkUser();
       const a = await db.mkAddress(u.id);
@@ -229,25 +239,34 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       const logs = await auditOf(d.shipment.id);
       expect(logs).toHaveLength(1);
       expect(logs[0]).toMatchObject({ actorUserId: db.operatorId, actorRole: 'vault_operator', entityType: 'ShipmentRequest' });
-      // CP y país NO cambiaron (01000/MX ya estaban): no aparecen. Lo ausente del snapshot viejo se registra como null.
-      expect(logs[0].before).toEqual({
+      // ⭐ v1.80.12.2 (§M4-SHIP.19.22.1, SKX-SEC-1): la bitácora NO lleva valores — versión, claves y la revisión.
+      const KEYS = ['recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'references'];
+      const revs = await revisionsOf(d.shipment.id);
+      expect(revs).toHaveLength(1);
+      expect(logs[0].before).toEqual({ addressVersion: 0 });
+      expect(logs[0].after).toEqual({ addressVersion: 1, changedKeys: KEYS, revisionId: revs[0].id });
+      // los VALORES viven en la revisión. CP y país NO cambiaron (01000/MX ya estaban): no aparecen; lo ausente ⇒ null.
+      expect(revs[0]).toMatchObject({ fromVersion: 0, changedKeys: KEYS, correctedByUserId: db.operatorId });
+      expect(revs[0].before).toEqual({
         recipientName: 'Destinatario Directo', line1: 'Calle 1', line2: null, neighborhood: null, city: 'CDMX', state: 'CDMX', references: null,
       });
-      expect(logs[0].after).toEqual({
+      expect(revs[0].after).toEqual({
         recipientName: 'Ana Gómez Ruiz', line1: 'Av. Revolución 1500', line2: 'Int. 4', neighborhood: 'San Ángel',
-        city: 'Álvaro Obregón', state: 'Ciudad de México', references: 'Portón negro junto a la farmacia', addressVersion: 1,
+        city: 'Álvaro Obregón', state: 'Ciudad de México', references: 'Portón negro junto a la farmacia',
       });
-      // el DTO de admin: `address` con versión y quién
+      // el DTO de admin: `address` con versión, quién y QUÉ FALTA (v1.80.12.2: `missing` siempre presente)
       expect(r.body.shipment.address).toEqual({
         complete: false, // teléfono de 2 dígitos en el pedido: la guía va a mano (P-ADR-1)
         version: 1,
         corrected: { at: s.addressCorrectedAt!.toISOString(), by: { userId: db.operatorId, name: expect.any(String) } },
+        missing: ['phone'],
       });
       // mismo cuerpo otra vez ⇒ `unchanged`, cero bitácora, versión intacta
       const again = await put(d.shipment.id, { expectedAddressVersion: 1, ...CORRECTION });
       expect(again.status).toBe(200);
       expect(again.body.outcome).toBe('unchanged');
       expect(await auditOf(d.shipment.id)).toHaveLength(1);
+      expect(await revisionsOf(d.shipment.id)).toHaveLength(1);
       expect((await row(d.shipment.id)).addressVersion).toBe(1);
     });
 
@@ -291,6 +310,7 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       expect(JSON.stringify(s.addressSnapshot)).toBe(snap0);
       expect(s.addressVersion).toBe(0);
       expect(await auditOf(d.shipment.id)).toHaveLength(0);
+      expect(await revisionsOf(d.shipment.id)).toHaveLength(0);
     });
 
     it('la colonia tecleada en minúsculas y sin acentos se guarda como el canónico', async () => {
@@ -337,13 +357,15 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
         const rs = await Promise.all([a, b]);
         const s = await row(d.shipment.id);
         const logs = await auditOf(d.shipment.id);
+        const revs = await revisionsOf(d.shipment.id);
         const winner = rs.find((r) => r.status === 200);
         const sorted = rs.map(code).sort().join(',');
         const ok =
           sorted === '200:corrected,409:CONFLICT/address_changed' &&
           s.addressVersion === 1 &&
           logs.length === 1 &&
-          (s.addressSnapshot as any).line1 === (winner ? (logs[0].after as any).line1 : null);
+          revs.length === 1 &&
+          (s.addressSnapshot as any).line1 === (winner ? (revs[0].after as any).line1 : null);
         outcomes.push(ok ? `ok(${sorted})` : `MAL(${sorted};v=${s.addressVersion};logs=${logs.length})`);
       }
       expect(report('PS-104 dos correcciones', outcomes, (o) => o.startsWith('ok'))).toBe(N);
@@ -377,6 +399,61 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
         outcomes.push(JSON.stringify(got) === JSON.stringify(expected) && coherent ? `ok(${got.join(',')})` : `MAL(${got.join(',')};v=${s.addressVersion};st=${s.status})`);
       }
       expect(report('criterio 315(e) fase C · corrección vs guía manual', outcomes, (o) => o.startsWith('ok'))).toBe(N);
+    });
+  });
+
+  // ================================================================ PS-112 — SKX-SEC-1 (prueba de release)
+
+  describe('PS-112 🔒 — el domicilio NUNCA entra a la bitácora y la anonimización borra sus revisiones (v1.80.12.2)', () => {
+    it('retiro (userId) + envío directo (userId:null, order.userId): 4 correcciones ⇒ bitácora sin canarios; borrado suave ⇒ 0 revisiones suyas, bitácora intacta, las de otro cliente intactas', async () => {
+      const C = `CANARIO-${RUN}`;
+      const corr = (k: string) => ({ ...CORRECTION, recipientName: `${C}-nom-${k}`, line1: `${C}-calle-${k}`, line2: `${C}-int-${k}`, references: `${C}-ref-${k}` });
+      const canaryLogs = () =>
+        h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+          `SELECT count(*) AS n FROM "AuditLog" WHERE before::text LIKE $1 OR after::text LIKE $1`,
+          `%${C}%`,
+        );
+
+      const u = await db.mkUser('Cliente Anonimizable');
+      const v = await db.mkVaultOrder(u.id, { placement: 'none' });
+      const w = await db.mkWithdrawal(u.id, [v.pieces[0].id], 'picking');
+      const d = await db.mkDirect({ userId: u.id });
+      expect((await row(d.shipment.id)).userId).toBeNull(); // el directo nace sin userId: su dueño es la orden
+      const other = await db.mkUser('Otro Cliente');
+      const od = await db.mkDirect({ userId: other.id });
+
+      for (const [id, k] of [[w.shipment.id, 'w'], [d.shipment.id, 'd']] as const) {
+        expect((await put(id, { expectedAddressVersion: 0, ...corr(`${k}1`) })).status).toBe(200);
+        expect((await put(id, { expectedAddressVersion: 1, ...corr(`${k}2`) })).status).toBe(200);
+      }
+      expect((await put(od.shipment.id, { expectedAddressVersion: 0, ...corr('otro') })).status).toBe(200);
+
+      const mine = [w.shipment.id, d.shipment.id];
+      expect(await h.prisma.shipmentAddressRevision.count({ where: { shipmentRequestId: { in: mine } } })).toBe(4);
+      expect(await h.prisma.auditLog.count({ where: { entityId: { in: mine }, action: 'shipment.address_corrected' } })).toBe(4);
+      // (1) ANTES de anonimizar: la bitácora nunca tuvo los valores (tabla ENTERA, toda acción).
+      expect(Number((await canaryLogs())[0].n)).toBe(0);
+
+      const del = await h.api('DELETE', `/admin/users/${u.id}`, { token: db.adminToken });
+      expect(del.status).toBe(200);
+      expect(del.body.mode).toBe('soft');
+
+      // (1) después, tampoco.
+      expect(Number((await canaryLogs())[0].n)).toBe(0);
+      // (2) cero revisiones de SUS dos envíos (también el directo, alcanzado por `order.userId`).
+      expect(await h.prisma.shipmentAddressRevision.count({ where: { shipmentRequestId: { in: mine } } })).toBe(0);
+      // (3) las 4 filas de bitácora siguen, con claves y versiones.
+      const logs = await h.prisma.auditLog.findMany({ where: { entityId: { in: mine }, action: 'shipment.address_corrected' } });
+      expect(logs).toHaveLength(4);
+      for (const l of logs) {
+        expect((l.after as { changedKeys: string[] }).changedKeys).toEqual(expect.arrayContaining(['recipientName', 'line1', 'line2', 'references']));
+        expect(Object.keys(l.after as object).sort()).toEqual(['addressVersion', 'changedKeys', 'revisionId']);
+        expect([1, 2]).toContain((l.after as { addressVersion: number }).addressVersion);
+      }
+      // (4) las del OTRO cliente, intactas (con sus valores).
+      const otherRevs = await revisionsOf(od.shipment.id);
+      expect(otherRevs).toHaveLength(1);
+      expect((otherRevs[0].after as { line1: string }).line1).toBe(`${C}-calle-otro`);
     });
   });
 

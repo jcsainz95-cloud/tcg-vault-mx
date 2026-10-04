@@ -3,7 +3,8 @@
  * (API_CONTRACT §M4-SHIP.19.20.1, errata v1.80.12; ARCHITECTURE §4.60 (m); `HECHOS.md` 2026-10-04 «Poder corregir
  * todo»; criterio 315). Fase C, M-64 = `M-SDX-C`. Propiedad: backend.
  *
- * ⛔ Escribe SOLO `ShipmentRequest.addressSnapshot` (+ versión y sello). Nunca la libreta (`Address`) ni
+ * ⛔ Escribe SOLO `ShipmentRequest.addressSnapshot` (+ versión y sello) y, por corrección, UNA `ShipmentAddressRevision`
+ * (los valores) y UNA fila de bitácora SIN valores (v1.80.12.2, SKX-SEC-1). Nunca la libreta (`Address`) ni
  * `Order.shippingAddressSnapshot` (evidencia de lo que el cliente capturó al pagar). Operador+, ⛔ sin depender de los
  * diales de Skydropx (`shipping_provider`, `shipping_label_purchase`).
  *
@@ -138,14 +139,26 @@ export class ShipmentAddressService {
           this.assertCorrectable(actual, req.expectedAddressVersion);
           throw this.addressChanged(actual.addressVersion);
         }
-        // 6. Bitácora en la MISMA tx: antes/después SOLO de lo que cambió, y quién.
+        // 6. ⭐ v1.80.12.2 (§M4-SHIP.19.22.1, SKX-SEC-1): en la MISMA tx, (a) los VALORES en `ShipmentAddressRevision`
+        //    (la anonimización de cuenta la borra) y (b) la bitácora SIN valores: versión, claves y la revisión.
+        //    ⛔ Ningún valor del snapshot en `AuditLog`. Si (a) o (b) fallan, la corrección no ocurre.
         const before: Record<string, unknown> = {};
         const after: Record<string, unknown> = {};
         for (const k of changed) {
           before[k] = prev[k] ?? null;
           after[k] = wanted[k];
         }
-        after.addressVersion = req.expectedAddressVersion + 1;
+        const revision = await tx.shipmentAddressRevision.create({
+          data: {
+            shipmentRequestId: shipmentId,
+            fromVersion: req.expectedAddressVersion,
+            changedKeys: [...changed],
+            before: before as Prisma.InputJsonValue,
+            after: after as Prisma.InputJsonValue,
+            correctedByUserId: actor.id,
+          },
+          select: { id: true },
+        });
         await tx.auditLog.create({
           data: {
             actorUserId: actor.id,
@@ -153,8 +166,8 @@ export class ShipmentAddressService {
             action: 'shipment.address_corrected',
             entityType: 'ShipmentRequest',
             entityId: shipmentId,
-            before: before as Prisma.InputJsonValue,
-            after: after as Prisma.InputJsonValue,
+            before: { addressVersion: req.expectedAddressVersion },
+            after: { addressVersion: req.expectedAddressVersion + 1, changedKeys: [...changed], revisionId: revision.id },
           },
         });
         return 'corrected' as const;

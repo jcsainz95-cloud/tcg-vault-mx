@@ -1543,6 +1543,8 @@ model ShipmentRequest {
   addressVersion           Int       @default(0)
   addressCorrectedAt       DateTime?
   addressCorrectedByUserId String? // de la SESIÓN. Sin FK dura (patrón AuditLog)
+  // ⭐ v1.80.12.2 (M-65 = `M-SDX-C2`, SKX-SEC-1): los VALORES de cada corrección (la bitácora solo guarda claves y versión).
+  addressRevisions ShipmentAddressRevision[]
 
   items            ShipmentItem[]
   refunds          PaymentRefund[]
@@ -1552,6 +1554,22 @@ model ShipmentRequest {
   @@index([status])
   // v1.21 (M-25): join orden->envío de la vista pública de seguimiento.
   @@index([orderId])
+}
+
+// ⭐ v1.80.12.2 (M-65 = `M-SDX-C2`, API_CONTRACT §M4-SHIP.19.22.1, SKX-SEC-1): los valores de cada corrección de
+// dirección del envío. PII: la BORRA la anonimización de cuenta (`deleteUser`, rama suave). ⛔ Ningún endpoint la lee.
+model ShipmentAddressRevision {
+  id                String          @id @default(uuid())
+  shipmentRequestId String
+  shipmentRequest   ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
+  fromVersion       Int // la addressVersion corregida (= expectedAddressVersion); la nueva es fromVersion + 1
+  changedKeys       String[] // ⊆ CORRECTABLE_SNAPSHOT_KEYS, en ese orden, ≥ 1 (CHECK)
+  before            Json // { <clave de changedKeys>: valor viejo | null }
+  after             Json // { <clave de changedKeys>: valor nuevo | null }
+  correctedByUserId String // sin FK dura (patrón AuditLog)
+  createdAt         DateTime        @default(now())
+
+  @@unique([shipmentRequestId, fromVersion])
 }
 
 model ShipmentItem {

@@ -131,3 +131,16 @@ describe('labelSourceOf (§19.2, mitad derivada en fase C)', () => {
     expect(labelSourceOf({ trackingNumber: null })).toBeNull();
   });
 });
+
+describe('shipmentAddressMissing (v1.80.12.2, §M4-SHIP.19.22.2): recipientName, line1 y luego la regla de la libreta', () => {
+  // import tardío para no tocar la cabecera del fichero
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { shipmentAddressMissing } = require('../src/modules/shipments/shipment-address-missing');
+  it('completa ⇒ []; orden fijo; blanco cuenta como ausente; no-objeto ⇒ todo', () => {
+    expect(shipmentAddressMissing({ recipientName: 'Ana', line1: 'C 1', neighborhood: 'Centro', postalCode: '01000', phone: '5512345678' })).toEqual([]);
+    expect(shipmentAddressMissing({ recipientName: ' ', line1: '', neighborhood: 'Centro', postalCode: '01000', phone: '55' })).toEqual(['recipientName', 'line1', 'phone']);
+    expect(shipmentAddressMissing(null)).toEqual(['recipientName', 'line1', 'neighborhood', 'postalCode', 'phone']);
+    // snapshot legado de 8 campos (sin nombre)
+    expect(shipmentAddressMissing({ line1: 'C 1', neighborhood: 'Centro', postalCode: '01000', phone: '5512345678' })).toEqual(['recipientName']);
+  });
+});

@@ -56,13 +56,17 @@ import { CustomerTransferView, ManualRefundService } from '../payments/refunds/m
 import { PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { customerDisplayName } from '../vault/customer-display-name';
 import { originsBeingRefunded } from '../payments/refunds/origin';
-import { addressMissing, isAddressComplete } from '../users/address-rules';
+import { addressMissing } from '../users/address-rules';
+import { ShipmentAddressMissingField, shipmentAddressMissing } from './shipment-address-missing';
 
 /** ⭐ v1.80.12 (§M4-SHIP.19.20.1) — el bloque `address` de `AdminShipmentDTO`. */
 export interface ShipmentAddressStateDTO {
+  /** ⇔ `missing.length === 0` (v1.80.12.2). */
   complete: boolean;
   version: number;
   corrected: { at: string; by: { userId: string; name: string | null } } | null;
+  /** ⭐ v1.80.12.2 (§M4-SHIP.19.22.2): SIEMPRE presente (`[]` si completa); `shipmentAddressMissing`, orden fijo. */
+  missing: ShipmentAddressMissingField[];
 }
 
 /** `P-84` · clase **E** (§4.37): estados de envío filtrables, DERIVADOS del schema. */
@@ -710,7 +714,6 @@ export class ShipmentsService {
    * `expectedAddressVersion`) y la ÚLTIMA corrección (el historial entero es la bitácora `shipment.address_corrected`).
    */
   private async addressStateOf(s: ShipmentRequest): Promise<ShipmentAddressStateDTO> {
-    const snap = (s.addressSnapshot ?? {}) as Record<string, unknown>;
     let corrected: ShipmentAddressStateDTO['corrected'] = null;
     if (s.addressCorrectedAt && s.addressCorrectedByUserId) {
       const by = await this.prisma.user.findUnique({ where: { id: s.addressCorrectedByUserId }, select: { name: true } });
@@ -719,7 +722,8 @@ export class ShipmentsService {
         by: { userId: s.addressCorrectedByUserId, name: nullIfBlank(by?.name ?? null) },
       };
     }
-    return { complete: isAddressComplete(snap), version: s.addressVersion, corrected };
+    const missing = shipmentAddressMissing(s.addressSnapshot);
+    return { complete: missing.length === 0, version: s.addressVersion, corrected, missing };
   }
 
   async adminGet(id: string) {

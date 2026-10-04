@@ -1606,6 +1606,13 @@ export class AdminService {
       await tx.billingProfile.deleteMany({ where: { userId: id } });
       await tx.address.deleteMany({ where: { userId: id } });
       await tx.portfolioSnapshot.deleteMany({ where: { userId: id } });
+      // ⭐ v1.80.12.2 (API_CONTRACT §M4-SHIP.19.22.1, SKX-SEC-1): los VALORES intermedios de las correcciones de dirección
+      // de SUS envíos — retiros (`ShipmentRequest.userId`) Y envíos directos (nacen con `userId: null`; su dueño es
+      // `order.userId`). Se borran (no se redactan): quién y cuándo siguen en la bitácora, que no lleva valores.
+      // ⛔ `ShipmentRequest.addressSnapshot` y `Order.shippingAddressSnapshot` se conservan (registro económico).
+      await tx.shipmentAddressRevision.deleteMany({
+        where: { shipmentRequest: { OR: [{ userId: id }, { order: { userId: id } }] } },
+      });
       await tx.user.update({
         where: { id },
         data: {
