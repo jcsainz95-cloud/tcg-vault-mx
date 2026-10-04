@@ -767,6 +767,9 @@ export const ErrorCode = {
   ADDRESS_INCOMPLETE: 'ADDRESS_INCOMPLETE',
   // 409 — corregir la dirección (u otro verbo de guía) de un envío que ya tiene guía. `details: { labelSource }`.
   SHIPMENT_ALREADY_LABELED: 'SHIPMENT_ALREADY_LABELED',
+  // ⭐💰 409 — v1.80.12.3 (§M4-SHIP.19.23.3, D2a): hay un reclamo de compra vivo (`labelProcessingSince ≠ null`, sin
+  // `labelSource`: la compra salió o está saliendo a Skydropx). Sin `details`. Catálogo del contrato: `API_CONTRACT.md:7259`.
+  LABEL_IN_PROGRESS: 'LABEL_IN_PROGRESS',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

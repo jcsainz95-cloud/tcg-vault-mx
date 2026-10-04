@@ -54,6 +54,23 @@ import {
   isFxRateInBand,
 } from '../../common/fx-mode';
 import { SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+// ⭐💰 v1.81 (M-66 = `M-SDX-D`, §M4-SHIP.19.19.12): los diales de Skydropx — seeds y validadores PUROS en su fichero.
+import {
+  DEFAULT_SHIPPING_DROPOFF_POINTS,
+  DEFAULT_SHIPPING_INSURANCE_TIERS,
+  validateConsignmentNote,
+  validateDropoffPoints,
+  validateInsuranceTiers,
+  validateIntRange,
+  validateOriginSnapshot,
+  validateOriginTemplateId,
+  validatePreferredCarriers,
+  validateShippingLabelFormat,
+  validateShippingLabelPurchase,
+  validateShippingProvider,
+  validateNonNegIntCents,
+  validateSpendAlertsDisabled,
+} from './shipping-dials';
 export const SettingKey = {
   SHIPPING_FEE_CENTS: 'shipping_fee_cents',
   APORTACION_PCT: 'aportacion_pct',
@@ -296,6 +313,43 @@ export const SettingKey = {
   // cambio de contrato ⇒ **lo decide el arquitecto, no el backend** (regla 9). Se opera por fila de
   // `ConfigSetting`, igual que el paso 6 se opera a mano.
   BUYLIST_NO_OFFER_EXPIRY_ENABLED: 'buylist_no_offer_expiry_enabled',
+
+  // ===== ⭐💰 v1.81 (M-66 = `M-SDX-D`, API_CONTRACT §M4-SHIP.19.19.12) — LOS DOCE DIALES DE SKYDROPX =====
+  // Todos `super_admin`, auditados, en `SETTING_DTO_MAP`. Seeds y validadores: `shipping-dials.ts`.
+  // ⛔ `shipping_declared_value_cap_cents` (de §19.2) está RETIRADO (§19.19.5) y nunca se construyó: no existe.
+  // ⛔ Las credenciales y la URL base NO son diales (env, `C-SDX-1`).
+  // Interruptor del proveedor (patrón `sealed_price_source`). Seed `off`: FAIL-CLOSED.
+  SHIPPING_PROVIDER: 'shipping_provider',
+  // §19.19.7 — la primera llave de la puerta de compra. Seed `disabled`: «arranca apagado y lo enciende el dueño»
+  // (`HECHOS.md:58`). Los tres modos, `operators` incluido («también el personal», `HECHOS.md:58`; errata v1.80.12.6,
+  // §19.26.6): solo el súper-admin gira el dial (`PUT /admin/settings` es `@Roles(super_admin)`).
+  SHIPPING_LABEL_PURCHASE: 'shipping_label_purchase',
+  SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID: 'skydropx_origin_address_template_id',
+  SKYDROPX_ORIGIN_SNAPSHOT: 'skydropx_origin_snapshot',
+  SHIPPING_PREFERRED_CARRIERS: 'shipping_preferred_carriers',
+  SHIPPING_DROPOFF_POINTS: 'shipping_dropoff_points',
+  // Carta Porte SAT del contenido. Seed '49101600' «Coleccionables» (`HECHOS.md:48`).
+  SHIPPING_CONSIGNMENT_NOTE: 'shipping_consignment_note',
+  SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS: 'shipping_package_rule_box_min_cards',
+  SKYDROPX_LOW_BALANCE_CENTS: 'skydropx_low_balance_cents',
+  SHIPPING_TRACKING_POLL_MINUTES: 'shipping_tracking_poll_minutes',
+  // §19.19.5 — escalones de seguro (regla `HECHOS.md:48`: «siempre se asegura, el escalón que cubra»).
+  SHIPPING_INSURANCE_TIERS: 'shipping_insurance_tiers',
+  SHIPPING_LABEL_FORMAT: 'shipping_label_format',
+
+  // ===== 💰 v1.80.12.9 (§M4-SHIP.19.29.8, `HECHOS.md:62` «Control del gasto — límites aceptados») — topes y avisos =====
+  // Cableados en D2a (cuatro tablas); su SEMBRADO en BD es de M-68 (D2g) y sus lectores (TG-1/TG-2, AG-n) de D2c/D2g.
+  // ⚠️ D2g además cambia `SettingsController` a `@Roles(vault_operator, super_admin)` + `@MoneyOut()` (no hecho aquí).
+  OPERATOR_LABEL_CAP_24H_CENTS: 'operator_label_cap_24h_cents', // TG-1
+  SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT: 'shipping_label_reissue_max_per_shipment', // TG-2
+  SPEND_ALERTS_DISABLED: 'spend_alerts_disabled',
+  SPEND_ALERT_LABEL_CAP_WARN_PCT: 'spend_alert_label_cap_warn_pct', // AG-2
+  SPEND_ALERT_SHIPMENT_CANCEL_COUNT: 'spend_alert_shipment_cancel_count', // AG-4
+  SPEND_ALERT_PERSON_CANCEL_COUNT_24H: 'spend_alert_person_cancel_count_24h', // AG-4
+  SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS: 'spend_alert_charge_drift_immediate_cents', // AG-5
+  SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS: 'spend_alert_extra_charge_immediate_cents', // AG-6
+  SPEND_ALERT_CANCEL_REFUND_DAYS: 'spend_alert_cancel_refund_days', // AG-8 (b)
+  SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS: 'spend_alert_label_not_shipped_days', // AG-10
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -482,6 +536,31 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // recién desplegado NO caduca ninguna `cotizada` ni manda un solo correo de «no procederemos»
   // hasta que un humano haya hecho el censo/triage y encienda esta fila a mano.
   [SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED]: 'off',
+  // ⭐💰 v1.81 (M-66, §19.19.12). ⚠️ La migración M-66 siembra EXACTAMENTE estos valores (`ON CONFLICT DO NOTHING`);
+  // candado de paridad: `test/sdx-d.dials.spec.ts`.
+  [SettingKey.SHIPPING_PROVIDER]: 'off',
+  [SettingKey.SHIPPING_LABEL_PURCHASE]: 'disabled', // HECHOS.md:58 — arranca apagado; lo enciende el dueño
+  [SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID]: null,
+  [SettingKey.SKYDROPX_ORIGIN_SNAPSHOT]: null,
+  [SettingKey.SHIPPING_PREFERRED_CARRIERS]: ['ninetynineminutes'],
+  [SettingKey.SHIPPING_DROPOFF_POINTS]: DEFAULT_SHIPPING_DROPOFF_POINTS,
+  [SettingKey.SHIPPING_CONSIGNMENT_NOTE]: '49101600', // HECHOS.md:48 — «son coleccionables»
+  [SettingKey.SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS]: 60,
+  [SettingKey.SKYDROPX_LOW_BALANCE_CENTS]: 100000, // MX$1,000 — HECHOS.md:62 (v1.80.12.9, §19.29.2; antes 50000)
+  [SettingKey.SHIPPING_TRACKING_POLL_MINUTES]: 60,
+  [SettingKey.SHIPPING_INSURANCE_TIERS]: DEFAULT_SHIPPING_INSURANCE_TIERS, // HECHOS.md:48 — $2,500 ⇒ $25; $10,000 ⇒ $170
+  [SettingKey.SHIPPING_LABEL_FORMAT]: 'standard',
+  // 💰 v1.80.12.9 (§19.29.8; seeds = HECHOS.md:62 / PROJECT §Z.3 aceptado entero por el dueño)
+  [SettingKey.OPERATOR_LABEL_CAP_24H_CENTS]: 250000, // MX$2,500 por operador en 24 h
+  [SettingKey.SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT]: 1,
+  [SettingKey.SPEND_ALERTS_DISABLED]: [],
+  [SettingKey.SPEND_ALERT_LABEL_CAP_WARN_PCT]: 80,
+  [SettingKey.SPEND_ALERT_SHIPMENT_CANCEL_COUNT]: 2,
+  [SettingKey.SPEND_ALERT_PERSON_CANCEL_COUNT_24H]: 3,
+  [SettingKey.SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS]: 2000,
+  [SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS]: 15000,
+  [SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS]: 3,
+  [SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS]: 3,
 };
 
 /**
@@ -1084,6 +1163,30 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && /^\d{4}\/\d{2}\/\d{2}$/.test(v) ? null : 'must be a date string yyyy/MM/dd',
   [SettingKey.OPERATOR_REFUND_CAP_24H_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.CASE_REFUND_HARD_MULTIPLIER]: (v) => (isInt(v) && v >= 2 && v <= 50 ? null : 'must be an integer in [2, 50]'),
+  // ⭐💰 v1.81 (M-66, §19.19.12) — los doce de Skydropx (`shipping-dials.ts`).
+  [SettingKey.SHIPPING_PROVIDER]: validateShippingProvider,
+  [SettingKey.SHIPPING_LABEL_PURCHASE]: validateShippingLabelPurchase,
+  [SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID]: validateOriginTemplateId,
+  [SettingKey.SKYDROPX_ORIGIN_SNAPSHOT]: validateOriginSnapshot,
+  [SettingKey.SHIPPING_PREFERRED_CARRIERS]: validatePreferredCarriers,
+  [SettingKey.SHIPPING_DROPOFF_POINTS]: validateDropoffPoints,
+  [SettingKey.SHIPPING_CONSIGNMENT_NOTE]: validateConsignmentNote,
+  [SettingKey.SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS]: validateIntRange(1, 500),
+  [SettingKey.SKYDROPX_LOW_BALANCE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.SHIPPING_TRACKING_POLL_MINUTES]: validateIntRange(5, 1440),
+  [SettingKey.SHIPPING_INSURANCE_TIERS]: validateInsuranceTiers,
+  [SettingKey.SHIPPING_LABEL_FORMAT]: validateShippingLabelFormat,
+  // 💰 v1.80.12.9 (§19.29.8). ⛔ El tope en 0 NO es legal (criterio 319: para cerrar compras está el interruptor).
+  [SettingKey.OPERATOR_LABEL_CAP_24H_CENTS]: validateIntRange(100, 100000000),
+  [SettingKey.SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT]: validateIntRange(0, 10),
+  [SettingKey.SPEND_ALERTS_DISABLED]: validateSpendAlertsDisabled,
+  [SettingKey.SPEND_ALERT_LABEL_CAP_WARN_PCT]: validateIntRange(1, 99),
+  [SettingKey.SPEND_ALERT_SHIPMENT_CANCEL_COUNT]: validateIntRange(1, 10),
+  [SettingKey.SPEND_ALERT_PERSON_CANCEL_COUNT_24H]: validateIntRange(1, 50),
+  [SettingKey.SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS]: validateNonNegIntCents,
+  [SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS]: validateNonNegIntCents,
+  [SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS]: validateIntRange(1, 30),
+  [SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS]: validateIntRange(1, 30),
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */
@@ -1144,4 +1247,29 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   buylistShipmentConfirmAlertBusinessDays: SettingKey.BUYLIST_SHIPMENT_CONFIRM_ALERT_BUSINESS_DAYS,
   buylistMinimumOfferNetCents: SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS,
   buylistOfferReissueAlertCount: SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT,
+  // ⭐💰 v1.81 (M-66, §19.13 + §19.19.12): los doce de Skydropx. `shippingLabelPurchase`, `shippingInsuranceTiers` y
+  // `shippingLabelFormat` entran (v1.80.11); `shippingDeclaredValueCapCents` NO existe (retirado, §19.19.5).
+  shippingProvider: SettingKey.SHIPPING_PROVIDER,
+  shippingLabelPurchase: SettingKey.SHIPPING_LABEL_PURCHASE,
+  skydropxOriginAddressTemplateId: SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID,
+  skydropxOriginSnapshot: SettingKey.SKYDROPX_ORIGIN_SNAPSHOT,
+  shippingPreferredCarriers: SettingKey.SHIPPING_PREFERRED_CARRIERS,
+  shippingDropoffPoints: SettingKey.SHIPPING_DROPOFF_POINTS,
+  shippingConsignmentNote: SettingKey.SHIPPING_CONSIGNMENT_NOTE,
+  shippingPackageRuleBoxMinCards: SettingKey.SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS,
+  skydropxLowBalanceCents: SettingKey.SKYDROPX_LOW_BALANCE_CENTS,
+  shippingTrackingPollMinutes: SettingKey.SHIPPING_TRACKING_POLL_MINUTES,
+  shippingInsuranceTiers: SettingKey.SHIPPING_INSURANCE_TIERS,
+  shippingLabelFormat: SettingKey.SHIPPING_LABEL_FORMAT,
+  // 💰 v1.80.12.9 (§19.29.8): topes y avisos del gasto en guías.
+  operatorLabelCap24hCents: SettingKey.OPERATOR_LABEL_CAP_24H_CENTS,
+  shippingLabelReissueMaxPerShipment: SettingKey.SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT,
+  spendAlertsDisabled: SettingKey.SPEND_ALERTS_DISABLED,
+  spendAlertLabelCapWarnPct: SettingKey.SPEND_ALERT_LABEL_CAP_WARN_PCT,
+  spendAlertShipmentCancelCount: SettingKey.SPEND_ALERT_SHIPMENT_CANCEL_COUNT,
+  spendAlertPersonCancelCount24h: SettingKey.SPEND_ALERT_PERSON_CANCEL_COUNT_24H,
+  spendAlertChargeDriftImmediateCents: SettingKey.SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS,
+  spendAlertExtraChargeImmediateCents: SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS,
+  spendAlertCancelRefundDays: SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS,
+  spendAlertLabelNotShippedDays: SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS,
 };

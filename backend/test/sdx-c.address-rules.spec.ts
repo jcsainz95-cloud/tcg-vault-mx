@@ -188,10 +188,15 @@ describe('PUT …/address — el cuerpo (§19.20.1: `400 VALIDATION_ERROR {field
   });
 });
 
-describe('labelSourceOf (§19.2, mitad derivada en fase C)', () => {
-  it('trackingNumber ⇒ manual; sin él ⇒ null', () => {
-    expect(labelSourceOf({ trackingNumber: 'T1' })).toBe('manual');
-    expect(labelSourceOf({ trackingNumber: null })).toBeNull();
+describe('labelSourceOf (§19.2; ⭐ D2a §19.23.3 (1): la columna manda, la mitad derivada cubre la fila legada)', () => {
+  it.each([
+    [{ labelSource: null, trackingNumber: null }, null],
+    [{ labelSource: null, trackingNumber: 'T1' }, 'manual'], // legada: número sin `labelSource` (sin backfill)
+    [{ labelSource: 'manual', trackingNumber: 'T1' }, 'manual'],
+    [{ labelSource: 'skydropx', trackingNumber: null }, 'skydropx'], // guía en proceso: comprada, sin número
+    [{ labelSource: 'skydropx', trackingNumber: 'T2' }, 'skydropx'], // la columna gana a la derivación
+  ] as const)('%j ⇒ %s', (row, expected) => {
+    expect(labelSourceOf(row)).toBe(expected);
   });
 });
 

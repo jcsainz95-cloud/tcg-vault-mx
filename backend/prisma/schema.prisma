@@ -423,6 +423,46 @@ enum ShippedRefundReason {
   arrived_damaged
 }
 
+// ⭐💰 v1.81 (M-66 = `M-SDX-D`, API_CONTRACT §M4-SHIP.19.2 + delta §19.19.14) — Skydropx fase D. Cuatro enums, CLASE E.
+// Quién emitió la guía. `manual` = capturada a mano (T.10); `skydropx` = comprada por §19.7. Sin backfill: una fila con
+// `trackingNumber` y `labelSource` nulo se LEE como `manual` (`labelSourceOf`, §19.2) — ⛔ ningún UPDATE lo afirma.
+enum ShipmentLabelSource {
+  manual
+  skydropx
+}
+
+// Estado CRUDO que reporta Skydropx (levantamiento R7). El mapeo a nuestra máquina vive en UN cuerpo
+// (`applyCarrierStatus`, §19.3). ⛔ Ningún valor nuevo en `ShipmentStatus`. Espeja `CARRIER_STATUSES` del puerto.
+enum CarrierStatus {
+  created
+  picked_up
+  in_transit
+  last_mile
+  delivery_attempt
+  delivered_to_branch
+  delivered
+  exception
+  in_return
+  canceled
+  destroyed
+  retained
+}
+
+// De dónde salió la línea de IVA del costo (T.7 / criterio 238).
+enum ShippingIvaSource {
+  provider
+  computed
+  manual
+}
+
+// Cargos extra de Skydropx con fecha propia (§9 D3, T.7).
+enum ShipmentCostAdjustmentKind {
+  overweight
+  extended_zone
+  return
+  other
+}
+
 // v1.20-master-set-everywhere (M-24): motivo OBLIGATORIO del ajuste de inventario por
 // levantamiento físico (ARCHITECTURE §4.20e). `encontrada` crea pieza(s); `perdida`/`danada`
 // → lost/damaged (flujo de reposición/merma); `error_captura` → withdrawn SIN semántica de
@@ -1546,6 +1586,40 @@ model ShipmentRequest {
   // ⭐ v1.80.12.2 (M-65 = `M-SDX-C2`, SKX-SEC-1): los VALORES de cada corrección (la bitácora solo guarda claves y versión).
   addressRevisions ShipmentAddressRevision[]
 
+  // ⭐💰 v1.81 (M-66 = `M-SDX-D`, API_CONTRACT §M4-SHIP.19.2 + §19.19.14 + §19.20.2). SIN BACKFILL: las filas existentes
+  // nacen con todo NULL/0. CHECKs en la migración (SQL crudo). ⛔ `labelUrl` es INTERNA: nunca viaja a un DTO.
+  labelSource               ShipmentLabelSource? // null ⇔ sin guía todavía. Lo escriben SOLO setTracking (manual) o purchaseLabel (skydropx)
+  providerShipmentId        String?              @unique // id del envío en Skydropx. null ⇔ guía manual o sin guía
+  providerQuotationId       String? // cotización de la que salió la tarifa comprada
+  providerRateId            String? // `rate_id` comprado (snapshot)
+  chosenRateJson            Json? // SNAPSHOT de la tarifa ELEGIDA tal como se mostró
+  recommendedRateJson       Json? // SNAPSHOT de la RECOMENDADA en ese momento (null ⇔ no había recomendada, §19.7 paso 7)
+  rateChosenByUserId        String? // quién eligió (sesión). Sin FK dura (patrón AuditLog)
+  rateChosenAt              DateTime?
+  labelPurchasedAt          DateTime? // Skydropx aceptó la compra (2xx)
+  labelUrl                  String? // ⛔ INTERNA (§19.8 sirve un proxy firmado)
+  trackingUrl               String? // SOLO si Skydropx la dio
+  packageCode               String? // `ShippingPackage.providerPackageType` congelado
+  packageDimsJson           Json? // { lengthCm, widthCm, heightCm, weightKg } congelados al cotizar
+  declaredValueCents        Int? // = COBERTURA del escalón (§19.19.5), congelada con el reclamo
+  insuredValueCents         Int? // ⭐ v1.80.11: el valor a asegurar (lo que va en la caja), congelado con el reclamo
+  insuranceCostCents        Int                  @default(0) // 💰 costo del seguro, BRUTO. Renglón propio
+  shippingIvaSource         ShippingIvaSource?
+  carrierStatus             CarrierStatus? // último estado CRUDO (null ⇔ manual o sin sondeo)
+  carrierStatusAt           DateTime? // instante del ÚLTIMO CAMBIO de carrierStatus
+  carrierPolledAt           DateTime? // último sondeo
+  labelProcessingSince      DateTime? // ≠ null ⇔ reclamo de compra vivo: «en vuelo» (sin providerShipmentId) o «en proceso» (con él, sin número)
+  branchNoticeSentAt        DateTime? // sello AV-18
+  deliveredNoticeSentAt     DateTime? // sello AV-17 (solo Skydropx, CHECK)
+  lastDeliveryAttemptAt     DateTime? // sello AV-19
+  providerCanceledAt        DateTime? // cancelación de la guía en Skydropx (⛔ no es `cancelado` del envío)
+  providerCancelReason      String? // 'reissue' | 'auto_close'
+  providerCancelConfirmedAt DateTime? // ⭐ v1.80.12 (§19.20.2): la escribe SOLO el `ok` de `port.cancel`
+
+  costAdjustments ShipmentCostAdjustment[]
+  quotes          ShipmentQuote[]
+  carrierEvents   ShipmentCarrierEvent[]
+
   items            ShipmentItem[]
   refunds          PaymentRefund[]
   replacementCases ReplacementCase[]
@@ -1554,6 +1628,90 @@ model ShipmentRequest {
   @@index([status])
   // v1.21 (M-25): join orden->envío de la vista pública de seguimiento.
   @@index([orderId])
+  // v1.81 (M-66, §19.2): por id del proveedor (redundante con el `@unique`, pero es la lista del contrato); el sondeo
+  // (vivos con guía Skydropx, los más viejos primero); y el de «guía en proceso».
+  @@index([providerShipmentId])
+  @@index([status, labelSource, carrierPolledAt])
+  @@index([labelProcessingSince])
+}
+
+// ⭐💰 v1.81 (M-66 = `M-SDX-D`, §19.2 + delta §19.19.14 + §19.20.1) — la COTIZACIÓN (efímera, 24 h). ⭐ v1.80.11:
+// `providerQuotationId` SIN `@unique` (Skydropx REUTILIZA cotizaciones entre envíos, PROD §4.1) ⇒ única por envío.
+model ShipmentQuote {
+  id                  String          @id @default(uuid())
+  shipmentRequestId   String
+  shipmentRequest     ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
+  providerQuotationId String
+  requestedByUserId   String
+  requestedAt         DateTime        @default(now())
+  expiresAt           DateTime // requestedAt + 24 h (R4). CHECK expiresAt > requestedAt
+  completedAt         DateTime?
+  packageCode         String
+  packageDimsJson     Json
+  declaredValueCents  Int // = cobertura del escalón. CHECK ≥ 0 y ≥ insuredValueCents
+  insuredValueCents   Int // ⭐ v1.80.11: el valor a asegurar
+  insuranceEchoOk     Boolean // ⭐ v1.80.11: Skydropx devolvió el seguro que mandamos
+  addressVersion      Int // ⭐ v1.80.12 (§19.20.1): sin default — toda cotización la escribe
+  ratesJson           Json // ShipmentRateDTO[] NORMALIZADAS. ⛔ Nunca la respuesta cruda
+  rawResponseJson     Json? // ya REDACTADA (SEC-SDX-6); ⛔ nunca a un DTO
+  recommendedRateId   String?
+
+  @@unique([shipmentRequestId, providerQuotationId])
+  @@index([providerQuotationId])
+  @@index([shipmentRequestId, requestedAt])
+}
+
+// ⭐ v1.81 (M-66) — EVENTOS del transportista (línea de tiempo; idempotencia del sondeo). 🔒 SEC-SDX-9: la llave única
+// lleva `providerShipmentId` para que una guía re-emitida no choque con la historia de la cancelada.
+model ShipmentCarrierEvent {
+  id                 String          @id @default(uuid())
+  shipmentRequestId  String
+  shipmentRequest    ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
+  providerShipmentId String
+  status             CarrierStatus
+  occurredAt         DateTime
+  detail             String? // ⛔ nunca al cliente tal cual
+  branchName         String?
+  providerEventKey   String
+  observedAt         DateTime        @default(now())
+
+  @@unique([shipmentRequestId, providerShipmentId, providerEventKey])
+  @@index([shipmentRequestId, occurredAt])
+}
+
+// ⭐💰 v1.81 (M-66) — AJUSTES DE COSTO (cargos extra con fecha propia; §9 D3, T.7). CHECK amountCents > 0; 0 ≤ iva ≤ amount.
+model ShipmentCostAdjustment {
+  id                 String                     @id @default(uuid())
+  shipmentRequestId  String
+  shipmentRequest    ShipmentRequest            @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  kind               ShipmentCostAdjustmentKind
+  providerChargeId   String                     @unique
+  providerChargeType String
+  amountCents        Int // 💰 BRUTO (IVA incluido)
+  ivaCents           Int                        @default(0)
+  ivaSource          ShippingIvaSource
+  chargedAt          DateTime // FECHA PROPIA del cargo: el P&L lo suma en su mes
+  observedAt         DateTime                   @default(now())
+  note               String?
+
+  @@index([shipmentRequestId])
+  @@index([chargedAt])
+}
+
+// ⭐ v1.81 (M-66) — EMPAQUES ESTÁNDAR (T.9). ⭐ v1.80.11: `weightKg` ENTERO ≥ 1 (el panel rechaza < 1 kg y decimales).
+model ShippingPackage {
+  id                  String   @id @default(uuid())
+  code                String   @unique // 'envelope' | 'box' | …
+  label               String
+  lengthCm            Int
+  widthCm             Int
+  heightCm            Int
+  weightKg            Int
+  providerPackageType String // `package_type` de Skydropx ('5H4', '4G')
+  active              Boolean  @default(true)
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 // ⭐ v1.80.12.2 (M-65 = `M-SDX-C2`, API_CONTRACT §M4-SHIP.19.22.1, SKX-SEC-1): los valores de cada corrección de

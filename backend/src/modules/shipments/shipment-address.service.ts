@@ -8,15 +8,18 @@
  * `Order.shippingAddressSnapshot` (evidencia de lo que el cliente capturó al pagar). Operador+, ⛔ sin depender de los
  * diales de Skydropx (`shipping_provider`, `shipping_label_purchase`).
  *
- * ⚠️ FASE C — lo que todavía NO existe y entra con `M-SDX-D` (D2): las columnas `labelSource` y
- * `labelProcessingSince`. Mientras tanto la guarda «ya tiene guía» se lee con `labelSourceOf` (= `trackingNumber ≠
- * null ⇒ 'manual'`, la regla de §19.2 para las filas sin `labelSource`) y el `WHERE` del CAS lleva `trackingNumber:
- * null` como su sustituto. D2 añade `labelSource: null` y `labelProcessingSince: null` (`409 LABEL_IN_PROGRESS`).
- * Hoy una guía manual siempre lleva el envío a `guia` en la misma tx (`setTracking`, `REL-C`), así que esa guarda
- * es inalcanzable sin datos legados: es defensa en profundidad y así se declara (BACKEND_NOTES §58).
+ * ⭐💰 D2a (M-66 = `M-SDX-D`, §M4-SHIP.19.23.3, v1.80.12.3) — la guarda «ya tiene guía» con las columnas nuevas, en el
+ * MISMO pase que las crea (⛔ no puede existir un despliegue con `labelSource` en el esquema y una guarda que no lo lea):
+ *   · `labelSourceOf(row) = row.labelSource ?? (row.trackingNumber ? 'manual' : null)` (§19.2): la fila legada (número
+ *     sin `labelSource`, anterior a v1.81 y sin backfill) sigue siendo guía manual;
+ *   · paso 3: estado ⇒ `SHIPMENT_ALREADY_LABELED` ⇒ `LABEL_IN_PROGRESS` (reclamo de compra vivo) ⇒ versión;
+ *   · el `WHERE` del CAS expresa el MISMO predicado entero: `labelSource`, `trackingNumber` y `labelProcessingSince`
+ *     nulos + versión. Candado y `WHERE` son dos muros (§19.23.2): cada uno basta solo; las mutaciones van por pares.
+ * Hoy una guía manual siempre lleva el envío a `guia` en la misma tx (`setTracking`, `REL-C`), así que la rama legada es
+ * defensa en profundidad (BACKEND_NOTES §58); las de Skydropx las escribirá D2c (`label`), y PS-104 las siembra.
  */
 import { Injectable } from '@nestjs/common';
-import { Prisma, Role, ShipmentRequest } from '@prisma/client';
+import { Prisma, Role, ShipmentLabelSource, ShipmentRequest } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
@@ -57,11 +60,11 @@ export const CORRECTABLE_SNAPSHOT_KEYS = [
 type CorrectableKey = (typeof CORRECTABLE_SNAPSHOT_KEYS)[number];
 
 /**
- * §19.2 — `labelSourceOf(row) = row.labelSource ?? (row.trackingNumber ? 'manual' : null)`. En fase C no hay columna
- * `labelSource`: queda la mitad derivada. D2 sustituye el cuerpo por el de §19.2 (⛔ sin cambiar a los lectores).
+ * §19.2 / §19.23.3 (1) — `labelSourceOf(row) = row.labelSource ?? (row.trackingNumber ? 'manual' : null)`. UN helper:
+ * sin backfill (`ARCHITECTURE §11`), una fila con número y `labelSource` nulo es una guía manual anterior a v1.81.
  */
-export function labelSourceOf(row: Pick<ShipmentRequest, 'trackingNumber'>): 'manual' | null {
-  return row.trackingNumber ? 'manual' : null;
+export function labelSourceOf(row: Pick<ShipmentRequest, 'labelSource' | 'trackingNumber'>): ShipmentLabelSource | null {
+  return row.labelSource ?? (row.trackingNumber ? 'manual' : null);
 }
 
 /** El cuerpo, validado en el SERVIDOR con `400 VALIDATION_ERROR {field}` (el pipe global no emite `field`). */
@@ -132,9 +135,17 @@ export class ShipmentAddressService {
 
         const next = { ...prev, ...wanted };
         const now = new Date();
-        // 5. CAS: la versión que el operador vio, y la fila todavía corregible.
+        // 5. CAS: la versión que el operador vio, y la fila todavía corregible — el MISMO predicado que la guarda del
+        //    paso 3, entero (§19.23.3 (3): sin guía de ningún origen, legada incluida, y sin reclamo de compra vivo).
         const cas = await tx.shipmentRequest.updateMany({
-          where: { id: shipmentId, status: 'picking', trackingNumber: null, addressVersion: req.expectedAddressVersion },
+          where: {
+            id: shipmentId,
+            status: 'picking',
+            labelSource: null,
+            trackingNumber: null,
+            labelProcessingSince: null,
+            addressVersion: req.expectedAddressVersion,
+          },
           data: {
             addressSnapshot: next as Prisma.InputJsonValue,
             addressVersion: { increment: 1 },
@@ -186,7 +197,7 @@ export class ShipmentAddressService {
     return { outcome, shipment: await this.shipments.adminGet(shipmentId) };
   }
 
-  /** Paso 3: `status` ⇒ guía ⇒ versión, en ese orden (PS-104). */
+  /** Paso 3 (§19.23.3 (2)): `status` ⇒ guía ⇒ compra en vuelo ⇒ versión, en ese orden (PS-104). */
   private assertCorrectable(row: ShipmentRequest, expectedAddressVersion: number): void {
     if (row.status !== 'picking') {
       throw BusinessException.conflict('SHIPMENT_NOT_IN_PREPARATION', 'Shipment is not in preparation', { status: row.status });
@@ -194,6 +205,10 @@ export class ShipmentAddressService {
     const labelSource = labelSourceOf(row);
     if (labelSource !== null) {
       throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Shipment already has a label', { labelSource });
+    }
+    // Reclamo de compra vivo (§19.7 paso 7): la compra salió o está saliendo con la dirección de AHORA. Sin `details`.
+    if (row.labelProcessingSince !== null) {
+      throw BusinessException.conflict('LABEL_IN_PROGRESS', 'A label purchase is in progress for this shipment');
     }
     if (row.addressVersion !== expectedAddressVersion) throw this.addressChanged(row.addressVersion);
   }

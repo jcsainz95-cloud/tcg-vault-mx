@@ -6,6 +6,8 @@
  * `ADDRESS_INCOMPLETE`, `references`), §M4-SHIP.19.20.1 (`PUT /admin/shipments/:id/address`) con PS-102, PS-103,
  * PS-104 (con su carrera N = 10) y PS-107; y la carrera «corrección contra captura de guía» (fase C: la guía manual —
  * la compra Skydropx es D2c y su carrera, PS-105, NO está aquí: BACKEND_NOTES §58).
+ * ⭐💰 D2a (M-66, §19.23.3): las dos filas D2a de PS-104 (`labelSource='skydropx'` ⇒ `ALREADY_LABELED`; compra en vuelo
+ * ⇒ `LABEL_IN_PROGRESS`) y la carrera corrección vs reclamo de compra simulado (BACKEND_NOTES §61).
  * ⭐ v1.80.12.5 (§M4-SHIP.19.25, `HECHOS.md:57`, «colonia como Mercado Libre»): `resolveAddressGeo` nunca rechaza por
  * geografía — PS-103 sustituida, PS-114 (libreta e invitado; un invitado PAGA con `PostalCode` vacía) y PS-115
  * (`address.neighborhoodCheck` calculado al leer).
@@ -551,6 +553,94 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       expect(stale.status).toBe(409);
       expect(stale.body.error).toMatchObject({ code: 'CONFLICT', details: { reason: 'address_changed', addressVersion: 1 } });
       expect((await put('00000000-0000-0000-0000-000000000000', { expectedAddressVersion: 0, ...CORRECTION })).status).toBe(404);
+    });
+
+    // ⭐💰 D2a (M-66 = `M-SDX-D`, §M4-SHIP.19.23.1 / .23.3) — las dos filas que la fase C no podía sembrar. Se siembran
+    // RESPETANDO los CHECK de M-66 (con `providerShipmentId` y los datos de compra la de Skydropx; la «en vuelo» sin id).
+    const purchaseClaim = () => ({
+      providerQuotationId: `q-${RUN}`,
+      providerRateId: `rate-${RUN}`,
+      chosenRateJson: { carrier: 'ninetynineminutes', priceCents: 9900 },
+      rateChosenByUserId: db.operatorId,
+      rateChosenAt: new Date(),
+      packageCode: '5H4',
+      declaredValueCents: 250000,
+      insuredValueCents: 150000,
+    });
+    const frozen = async (id: string) =>
+      JSON.stringify({ row: await row(id), logs: await auditOf(id), revs: await revisionsOf(id) });
+
+    it('PS-104 💰 fila D2a — `picking` con guía Skydropx (en proceso: comprada, sin número) ⇒ 409 SHIPMENT_ALREADY_LABELED {labelSource:skydropx}; CERO escrituras', async () => {
+      const d = await db.mkDirect();
+      await h.prisma.shipmentRequest.update({
+        where: { id: d.shipment.id },
+        data: { ...purchaseClaim(), labelSource: 'skydropx', providerShipmentId: `sdx-${RUN}-${d.shipment.id}`, labelPurchasedAt: new Date(), labelProcessingSince: new Date() },
+      });
+      const before = await frozen(d.shipment.id);
+      const r = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION });
+      expect({ status: r.status, code: r.body.error?.code, details: r.body.error?.details }).toEqual({ status: 409, code: 'SHIPMENT_ALREADY_LABELED', details: { labelSource: 'skydropx' } });
+      expect(await frozen(d.shipment.id)).toBe(before); // versión, snapshot, sello, revisión y bitácora intactos
+    });
+
+    it('PS-104 💰 fila D2a — `picking` con compra EN VUELO (`labelProcessingSince` puesto, sin `labelSource` ni id) ⇒ 409 LABEL_IN_PROGRESS (sin details); CERO escrituras', async () => {
+      const d = await db.mkDirect();
+      await h.prisma.shipmentRequest.update({ where: { id: d.shipment.id }, data: { ...purchaseClaim(), labelProcessingSince: new Date() } });
+      const before = await frozen(d.shipment.id);
+      const r = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION });
+      expect({ status: r.status, code: r.body.error?.code, details: r.body.error?.details }).toEqual({ status: 409, code: 'LABEL_IN_PROGRESS', details: {} }); // «sin details»: el sobre siempre lleva `{}`
+      expect(await frozen(d.shipment.id)).toBe(before);
+      // el orden del paso 3: con la versión VIEJA también gana `LABEL_IN_PROGRESS` (la versión se mira al final)
+      const stale = await put(d.shipment.id, { expectedAddressVersion: 7, ...CORRECTION });
+      expect(stale.body.error?.code).toBe('LABEL_IN_PROGRESS');
+      // y el estado va primero: fuera de `picking` con reclamo vivo ⇒ NOT_IN_PREPARATION
+      await h.prisma.shipmentRequest.update({ where: { id: d.shipment.id }, data: { status: 'cancelado' } });
+      expect((await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION })).body.error?.code).toBe('SHIPMENT_NOT_IN_PREPARATION');
+    });
+
+    it(`PS-104 💰 carrera D2a — corrección contra un RECLAMO de compra (el CAS de §19.7 paso 7, simulado: D2c aún no existe), orden alternado (N = ${N}): nunca una corrección aceptada sobre un reclamo vivo`, async () => {
+      const outcomes: string[] = [];
+      for (let i = 0; i < N; i++) {
+        const d = await db.mkDirect();
+        await h.prisma.shipmentRequest.update({ where: { id: d.shipment.id }, data: { preparedAt: new Date(), preparedByUserId: db.operatorId } });
+        const lock = await db.holdRow('ShipmentRequest', d.shipment.id);
+        // El reclamo de §19.7 paso 7: UN `UPDATE` con su CAS (espera el candado de fila como cualquier escritor).
+        // ⚠️ `.then(...)`: una consulta de Prisma es PEREZOSA (no sale hasta que alguien la espera); sin esto el reclamo
+        // nunca llegaría a la cola del candado y la barrera no vería dos esperando.
+        const claim = (): Promise<number> =>
+          h.prisma.$executeRawUnsafe(
+            `UPDATE "ShipmentRequest" SET "labelProcessingSince" = now(), "rateChosenByUserId" = $2, "rateChosenAt" = now(), "providerRateId" = 'r'
+              WHERE id = $1 AND status = 'picking' AND "preparedAt" IS NOT NULL AND "labelSource" IS NULL AND "labelProcessingSince" IS NULL`,
+            d.shipment.id,
+            db.operatorId,
+          ).then((n) => n);
+        const corr = () => put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION, line1: `Calle ${i}` });
+        let p1: Promise<R | number>;
+        let p2: Promise<R | number>;
+        try {
+          // la barrera cuenta esperas en TODA la base: una sesión colgada de otra corrida falsearía el orden
+          const stale = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+            `SELECT count(*) AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+          );
+          expect(Number(stale[0].n)).toBe(0);
+          p1 = i % 2 === 0 ? corr() : claim();
+          expect(await db.waitRowBlocked(1)).toBe(true);
+          p2 = i % 2 === 0 ? claim() : corr();
+          expect(await db.waitRowBlocked(2)).toBe(true);
+        } finally {
+          await lock.release(); // ⛔ nunca dejar el candado tomado: colgaría a la suite entera
+        }
+        const [r1, r2] = await Promise.all([p1, p2]);
+        const [c, k] = (i % 2 === 0 ? [r1, r2] : [r2, r1]) as [R, number];
+        const s = await row(d.shipment.id);
+        const logs = await auditOf(d.shipment.id);
+        const expected = i % 2 === 0 ? '200:corrected' : '409:LABEL_IN_PROGRESS';
+        const coherent =
+          k === 1 &&
+          s.labelProcessingSince !== null &&
+          (c.status === 200 ? s.addressVersion === 1 && logs.length === 1 : s.addressVersion === 0 && logs.length === 0);
+        outcomes.push(code(c) === expected && coherent ? `ok(${code(c)})` : `MAL(${code(c)};claim=${k};v=${s.addressVersion};logs=${logs.length})`);
+      }
+      expect(report('PS-104 D2a · corrección vs reclamo de compra', outcomes, (o) => o.startsWith('ok'))).toBe(N);
     });
 
     it(`PS-104 💰 carrera — dos correcciones DISTINTAS con la misma versión, entrelazadas por barrera ⇒ exactamente una 200 y una 409 (N = ${N})`, async () => {
