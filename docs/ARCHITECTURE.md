@@ -30689,7 +30689,6 @@ productivas); las migraciones solo redefinen esquema.~~
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
 
-<<<<<<< HEAD
 ### v1.80.9-staff-sin-correo (**M-63**: usuarios de back-office sin correo — **DDL ADITIVO + `DROP NOT NULL` + 5 CHECK, SIN backfill**, §4.58)
 
 ⭐ **v1.80.9.1 (D-3):** número asignado por el orquestador: **`M-63`**. Carpeta construida:
@@ -30722,7 +30721,6 @@ shippedRefundReasonAt, shippedRefundReasonByUserId (FK User RESTRICT)`; CHECKs `
   en `API_CONTRACT §M4-SHIP.18.12` (1).
 - **Reversible:** rollback de código; las columnas pueden quedarse (nullable / default). Con motivos registrados ⛔ no se
   borran (registro de por qué salió dinero). El `ADD VALUE` no se quita sin recrear el tipo.
-=======
 ### v1.81-skydropx (**M-62**: dirección con colonia de lista + envíos con Skydropx — **DDL ADITIVO en DOS PARTES + 4 enums + CHECKs + seeds, SIN backfill**, §4.58)
 
 Forma normativa entera en `API_CONTRACT §M4-SHIP.19.2` y `.19.5`. Va **después** de `M-61` (que sigue sin construirse
@@ -30753,7 +30751,6 @@ al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto; backend lo confirma con `
 - **Reversible:** `M-62a` sí (quitar columna y tabla; los snapshots con `references` se leen igual). `M-62b` sí mientras
   no haya `providerShipmentId` poblados; con guías compradas ⛔ no se borra (registro de dinero gastado y de PII enviada):
   rollback de código conservando columnas, y `shipping_provider='off'` como kill switch (congela el rastreo).
->>>>>>> origin/claude/skydropx-envios
 
 ### v1.80-preparar-envios (**M-61**: palomeo en envío + libro de reembolsos — **DDL ADITIVO + 3 enums + CHECKs + seed de un dial, SIN backfill**, §4.57)
 

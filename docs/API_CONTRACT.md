@@ -2,7 +2,6 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-<<<<<<< HEAD
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.10**; errata
 > **v1.80.9.1** al stream «staff sin correo», rama `claude/staff-sin-correo`).
 >
@@ -323,7 +322,6 @@
 >   nada.** **QA:** VQ-1…VQ-9 + el invariante `no_market + premium_at_floor + unknown === nº open` sobre VENTA.
 > - ⛔ **No se toca** el guardarraíl `premium_at_floor` ni la curva/piso: las 17 «premium en el piso» esperan decisión
 >   del dueño y esta errata no las mueve. *(v1.80.8.5: el dueño decidió — se publican al piso; ver arriba.)*
-=======
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.81.1**).
 >
 > **Changelog v1.81.1 — 🔒💰 ERRATA DE §M4-SHIP.19 TRAS EL VEREDICTO APROBADO DE SEGURIDAD SOBRE v1.81 (`SECURITY_NOTES`,
@@ -379,7 +377,6 @@
 > `external_shipments`, webhook, multipaquete. **Orden:** A (seguridad revisa) → B (§M4-SHIP) → **C (dirección, sola)** →
 > D (Skydropx; frontend con mocks, ux-ui y devops en paralelo) → E (gates).
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-29 (rev **v1.80.8.3**).
->>>>>>> origin/claude/skydropx-envios
 >
 > **Rev v1.80.8.3 — 🔒💰 ERRATA BLOQUEANTE: `charge.refunded` TOTAL LLEVA A `refunded` DESDE `pending`, `failed` Y
 > `settled` (2026-09-29, arquitecto).** ⛔ Sin schema, sin endpoint, sin código de error nuevo. Cambia **conducta de
@@ -7071,7 +7068,6 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
   **y** recibe el dinero) sin `confirmPiecesWithCustomer:true` en el cuerpo. `details: { required:
   ['pieces_with_customer']; items: { inventoryItemId: string; folio: string; state: 'already_withdrawn' }[] }`. No
   escribió nada (ni fila del libro). Patrón de §M4-SHIP.17.3 paso 7. [§M4-SHIP.18.4](#M4-SHIP-18).
-<<<<<<< HEAD
   💰 **v1.80.8.6 — token nuevo `'shipped_reason'`:** M3 total sobre una orden con un envío propio en `enviado|entregado`
   sin `shippedReason` ⇒ `details: { required: ['shipped_reason']; shipmentStatus: 'enviado' | 'entregado' }`. Cero
   escrituras, ⛔ sin Stripe. [§M4-SHIP.18.12](#M4-SHIP-18-12) (4).
@@ -7082,7 +7078,6 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
 - 💰 **v1.80.8.6 — `409 SHIPPED_REFUND_REASON_ALREADY_SET` (NUEVO):** `POST /admin/orders/:id/shipped-refund-reason` con
   un motivo **distinto** del ya registrado (el mismo ⇒ `200 already_recorded`). `details: { reason: ShippedRefundReason
   }`. No escribió nada; el motivo no se edita. [§M4-SHIP.18.12](#M4-SHIP-18-12) (6).
-=======
 - 💰🔒 **v1.81 — Envíos con Skydropx (NUEVOS; norma y `details` de cada uno en [§M4-SHIP.19](#M4-SHIP-19)):**
   `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing: ('env'|'origin'|'packages'|'consignment_note')[]}` · `409
   SHIPMENT_ALREADY_LABELED {labelSource}` · `409 LABEL_IN_PROGRESS` · `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` · `422
@@ -7098,7 +7093,6 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
   allowed: string[]}` · `422 POSTAL_CODE_UNKNOWN {postalCode}` (también `404` en `GET /geo/postal-codes/:cp`) · `422
   ADDRESS_INCOMPLETE {addressId, missing: ('neighborhood'|'postalCode'|'phone')[]}`. Emisor nuevo de **`404
   FEATURE_DISABLED`**: `quote`/`label` con el dial `shipping_provider='off'`. Todos en `common/error-codes.ts`.
->>>>>>> origin/claude/skydropx-envios
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
 - **`422 ITEM_NOT_OFFERED` (v1.51.20 — NUEVO; DINERO Y PROPIEDAD AJENA):** en `PATCH /admin/buylist/items/:itemId/decision`
   **dentro del ciclo de oferta** (`offerSentAt IS NOT NULL`), se manda **`decision:"approve"`** sobre una línea cuyo
@@ -23052,7 +23046,6 @@ con el `409` de la tx1). Con la guarda de §M4-SHIP.6 el paquete **no sale** has
 | **B14** (`inventory-value` y la plataforma `picking`) | **Medición de backend (v1.80.6), no diseño:** leer el `where` de `admin.inventoryValue()` y anotarlo. Sin modo de fallo de dinero (el P&L se acota por `pickingAt` de envíos, no por estado de pieza). Si cuenta `picking`, se propone excluirla o etiquetarla; ⛔ no se cambia sin pase de diseño | §18.9 |
 | 💰 **B15** (retiro en **`guia`** que queda sin líneas `picked` tras `reclaim-vault {confirmUnpacked}` sobre su única carta; v1.80.6) | **Deuda aceptada con disparador:** no tiene cierre (`prepared` exige `picking`; §M4-SHIP.9 quitó «cancelar» en `guia`); la guía ya está comprada y la tarifa cobrada. Solo lo produce un súper-admin que reclama a mano la única carta de un retiro con guía, y lo ve en la respuesta. **Disparador:** la primera vez que ocurra ⇒ pase de diseño: `closeWithdrawalIfEmpty` extendido a `guia` desde `reclaim-vault` (que pasaría a `@MoneyOut` y a `C-REF-1`), o el procedimiento manual en `BACKEND_NOTES`. Hasta entonces, `→enviado` sobre ese retiro con cero líneas `picked` disponibles ⇒ `409 CONFLICT {reason:'nothing_to_ship'}` (⛔ no un paquete vacío) | §18.4, §18.10 |
 
-<<<<<<< HEAD
 ###### <a id="M4-SHIP-18-12"></a>M4-SHIP.18.12 — 💰 v1.80.8.6: reembolso TOTAL y sus cartas, «depende de si ya salió» (`PROJECT §S.11`, criterios 249–253) (**NORMATIVA**, **DINERO**)
 
 > Fuentes del dueño: `HECHOS.md` filas 2026-10-02 «Cartas apartadas … (SSL-R1): depende de si el pedido ya salió»,
@@ -23373,7 +23366,6 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
   (9); la condición extra `afterShipment === false` de `DESIGN_SYSTEM §40.4` es **redundante**: una orden nunca
   liquidada no tiene envío (medido (a)) ⇒ su `afterShipment` es siempre `false`. ux-ui puede quitarla; no hay nada que
   construir. 1–5 y 8 son claves i18n, componentes y textos (ux-ui / frontend).
-=======
 ##### <a id="M4-SHIP-19"></a>M4-SHIP.19 — 💰🔒 v1.81: ENVÍOS CON SKYDROPX — cotizar, elegir y comprar la guía, etiqueta, rastreo por consulta periódica, correos de entrega y el costo real al P&L (**NORMATIVA**, **DINERO + PII + TERCERO**, schema `M-62`)
 
 > **Producto:** `PROJECT §T` (T.0–T.13), criterios **234–248**, decisión **120** (v1.81), preguntas **88–91** con sus
@@ -24488,7 +24480,6 @@ escribir y proxy acotado (PS-84/PS-88; norma §19.18.5). `C-AV-1` = 19, `C-AV-3a
 | **ux-ui** | Copys de los dos códigos y del botón «Liberar»; el correo `AV-17` distingue «entregado el <fecha del transportista>» de «puedes disputar hasta <deliveredAt + 7 d>» |
 | **devops** | `SKYDROPX_URL_HOSTS`; red a esos hosts; `sbx-probe.ts` con lista blanca; DAST incluye `label/release` como operador |
 | **seguridad** | Nada más en diseño (veredicto: «no hace falta otra vuelta»); verifica SEC-SDX-1…5 sobre el código en la fase de seguridad por release |
->>>>>>> origin/claude/skydropx-envios
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
