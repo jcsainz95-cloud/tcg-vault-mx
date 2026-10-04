@@ -18938,3 +18938,68 @@ deterministas: 22/22 rojas en su prueba objetivo** (FP-1…5, PF-UI-1…4, LP-1,
 **Cierre:** `tsc` limpio, lint limpio, vitest **202/202 ficheros, 2436/2436**; `5c324e3a` solo también compila.
 Playwright no corrido (encargo). Ruido previo, no tocado: `mockAdminOrderRowAdditions` pisa `status` con `undefined`
 en órdenes sin origen ⇒ `IntlError status.order.undefined` en consola de `M3View.test`.
+
+## §85 · **Equipo sin correo — `DESIGN_SYSTEM §42` (v4.14) contra el contrato errata v1.80.9 `§M6-U`** (2026-10-04, rama `claude/staff-sin-correo`, base `fe44901e`; código en `5ec85f64`)
+
+> Fuente: `PROJECT §U` (criterios 256–270), `HECHOS.md` 2026-10-04 (c) «misma pantalla de login». Backend **no existía**
+> en el árbol al escribir esto: todo se probó contra los tipos de `§M6-U.10` y mocks (`config.useMocks`) marcados como
+> servidor falso. **NO MEDIDO contra backend real.**
+
+**Lo que se hizo (F-1…F-16, más N-1/N-2):**
+
+| Cambio | Dónde | Candado |
+|---|---|---|
+| «Correo o usuario», `type="text"`, `autoComplete="username"` solo en login | `AuthForm.tsx` | UX-1 = STF-9 |
+| Enlaces fijos con o sin `@` (sin cambio de código) | `AuthForm.tsx` | UX-2 = STF-16 |
+| Candado por cuenta + usuario tecleado ⇒ `auth.lockedAskAdmin*`, sin enlace | `AuthForm.tsx` | UX-3 = STF-22 |
+| **N-5 aplicado:** `INVALID_CREDENTIALS` + login + sin `@` ⇒ «Usuario o contraseña incorrectos.» | `AuthForm.tsx` | UX-4 |
+| «Olvidé»: `type="text"` (N-1) | `ForgotPasswordView.tsx` | UX-5 |
+| Alta Cliente/Equipo, cuerpo por tipo, errores por `details.rule` / `USERNAME_TAKEN` bajo el campo | `M6View.tsx` | UX-6, UX-7 |
+| `email ?? username` en listado, ficha, reembolsos de operador y la identidad KYC | `M6View.tsx`, `OperatorRefundsView.tsx`, `KycReviewView.tsx` | UX-8 = STF-27 |
+| Marca de candado (`formatTimeMx`, CDMX) y aviso `lockState:'unavailable'` | `M6View.tsx`, `lib/format.ts` | UX-9 |
+| El reset invalida `['admin-users']` y `['admin-user', id]` | `M6View.tsx` | UX-10 |
+| Aviso de candado en el panel + `dismiss` | `layout/AdminLockNotice.tsx`, `AdminShell.tsx` | UX-11 |
+| «Mi cuenta»: «Usuario: ana», sección `username`; PasswordPage sin modo crear | `AccountView.tsx`, `UsernameSection.tsx`, `PasswordPage.tsx` | UX-12 |
+| «Sin correo» ≠ «sin verificar» (N-2) | `VerifyEmailBanner.tsx`, `BuylistKycForm.tsx`, `hooks/useSellRequirements.ts` | UX-13 |
+| `error.ACCOUNT_WITHOUT_EMAIL` | catálogos; `GuestOrderConfirmation.tsx` | UX-14 |
+| Paridad de las 39 claves de §42 | `lib/i18n-staff-without-email.test.ts` | UX-15 |
+
+**Decisiones que no están escritas en otro sitio:**
+
+1. **N-5 (F-3) se aplicó porque no es oráculo.** El texto depende de (a) que lo tecleado en **ese** submit lleve o no
+   `@` (`errorTypedUsername`, fijado en el `catch`) y (b) `error.code`. La respuesta del servidor no aporta nada más:
+   un usuario inexistente y uno existente con clave mala dan el mismo `401 INVALID_CREDENTIALS` (`§M6-U.2`), así que
+   pintan lo mismo. UX-4 incluye un caso con `details` distintos que debe pintar idéntico.
+2. **`AuthForm.rateLimited.test.tsx` NO quedó «byte a byte».** `§42.0` regla 1 y UX-3 lo piden sin diff, pero ese
+   fichero localiza el campo con `getByLabelText('Correo')` (`:31`) y C-1 cambia la etiqueta en login: las 9 pruebas
+   se ponían rojas **por el localizador, no por conducta** (medido). Se cambió **solo** esa línea a
+   `'Correo o usuario'`; ninguna aserción tocada. La rama `RATE_LIMITED` (`AuthForm.tsx`, las tres líneas de
+   `rateLimitedByIp*`) sigue idéntica, y la mutación que la toca pone rojas 2 de ese fichero.
+3. **El selector Cliente/Equipo sustituye al `Select` de rol de cliente.** Cliente ⇒ rol fijo `customer` (sin
+   selector); Equipo ⇒ `vault_operator` (por defecto) / `super_admin`. `CreateAdminUserInput` es ahora una **unión
+   por tipo** (`email` con `customer`, `username` con staff, `never` cruzado): mandar `email` en Equipo no compila.
+4. **Con `lockState:'unavailable'` no se pinta ninguna marca aunque una fila trajera `lockedUntil`** (defensa: el
+   contrato dice que llegan `null`, pero la UI no afirma un candado de una lectura que el servidor declaró caída).
+5. **`AdminLockNotice` vive en un fichero propio** dentro de `components/layout/` y comparte la clave `['me']` con
+   «Mi cuenta». Se consulta solo con sesión de staff y sin `mustChangePassword` (sesión local) **y** no se pinta si
+   `/users/me` trae `mustChangePassword: true` (sesión local atrasada). `<main>` ganó `tabIndex={-1}` para recibir el
+   foco al cerrar.
+6. **§42.7 medido (lo que el diseño dejó NO MEDIDO):** `CheckoutView.tsx` y `ShipmentsView.tsx` caen a `getMessage`;
+   `BuylistKycForm.tsx` cae a `getErrorMessage` en su `else`; `ClaimableOrdersNotice.tsx` pinta `getMessage` en el
+   error del reclamo (y la consulta `GET /orders/claimable` con error devuelve `null`, por diseño). **Solo
+   `GuestOrderConfirmation.tsx` lo tragaba** como «ya reclamado (neutro)»: ganó la rama `accountWithoutEmail`.
+7. **Sitios extra con la misma regla, fuera de la lista F:** `KycReviewView.tsx` (`:203` y el panel de identidad) y
+   `hooks/useSellRequirements.ts` (el mismo `emailBlocked` que `BuylistKycForm`). Las refs de **cliente** (órdenes,
+   bóveda, envíos, reembolsos manuales) siguen `email: string` por I-STF-1 y no se tocaron; los mocks que las arman
+   desde `mockAdminUsers` usan `?? ''`, que es lo que el backend emite si la invariante se rompe.
+8. **Mocks** (`lib/api.ts`, `lib/mock/fixtures.ts`): `createAdminUser` replica el orden normativo de reglas
+   (`required → length → charset → start`) y `USERNAME_TAKEN`; `getAdminUsers` busca también por usuario y devuelve
+   `lockState:'ok'`; nueva fila `u-op2` (`luis.p`, sin correo, candado vigente 30 min desde la carga). Ninguna
+   validación de usuario en la UI: el servidor es el juez.
+
+**Pendiente / no medido:**
+- Ningún recorrido E2E (Playwright) nuevo: STF-17-E2E necesita backend real con la migración. Los specs de login
+  existentes usan `getByLabel(t('auth.email'))`, que en Playwright es subcadena ⇒ siguen encontrando «Correo o
+  usuario» (leído, **NO MEDIDO** corriendo).
+- A-2 (¿sale `auth.password_lock` en la Actividad de esa persona?) sigue NO MEDIDO: el rótulo está, la fila depende
+  del backend.
