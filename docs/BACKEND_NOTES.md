@@ -26494,3 +26494,78 @@ mock — solo forma del doble, ninguna aserción.
 
 **Lo que NO medí:** el número real de filas DR/EX vs otras premium en la cola de producción (la consulta de
 `ARCHITECTURE §4.36.5 (c-ter)` la corre el orquestador); el frontend (control de M10).
+
+## 18 · v1.80.8.7 `M1-SFP` construida — bitácora antes/después del `PATCH` de M1, `pendingReason` en la cola, precio derivado del sellado en el listado (2026-10-04, rama `claude/precios-s5`, sobre `2b99b5c2`; código en `64ce47bb`)
+
+Contrato: `API_CONTRACT §M1` «v1.80.8.7» (`M1-SFP`, puntos 1–9). Arquitectura: §4.36.5 (c-quater). Criterio 255.
+⛔ Sin schema, migración, enum, endpoint ni código de error nuevos.
+
+**`D-SFP-1` — CERRADA por backend** (medido 2026-10-04 sobre `64ce47bb`): SFP-1…SFP-6 verdes con sus mutaciones
+(SFP-5 con proporción, N=10 forzada + N=10 suelta, los dos caminos). El registro en `ARCHITECTURE §9` es del
+arquitecto (no lo toco). `D-SFP-2` (`listPriceCents: null`) sigue **fuera**: no se tocó su conducta.
+
+### Qué hace el código (`inventory/inventory.service.ts`)
+1. **Un solo cuerpo** del `before/after`: `itemUpdatedAudit(read, written, fields)` (pura; `null` si ni `status` ni
+   `listPriceCents` cambian; `fields` ordenado) y `writeItemUpdatedAudit(tx, actor, id, …)`, que escribe con el
+   handle `tx` de la escritura auditada. Es el **único** literal `'inventory.item_updated'` de `inventory/` (SFP-6).
+2. **No publicante:** `guardedItemUpdate(tx, item, data, { listPriceCents: <leído> })` — el precio leído entra al CAS
+   (`P2025` ⇒ `409 CONFLICT`); lo leído se fija **antes** de escribir. `move`/`mark` no pasan la condición.
+3. **Publicante:** `claimListed(…, audited)` corre dentro de `$transaction(VAULT_VERB_TX_OPTIONS)` con
+   `listPriceCents: <leído>` en el `updateMany`; `count 0` ⇒ relee en la tx: plataforma ∧ `in_stock|listed` ⇒
+   `409 CONFLICT`; si no ⇒ `422 ITEM_NOT_PUBLISHABLE { status: <releído> }`. `resolvePublishSalePrice` sigue antes y
+   fuera. **Los caminos de lote** (`bulk-publish`, `publish-all`, reevaluación/auto-publicación) **no pasan
+   `audited`**: sin tx nueva, sin precio en el CAS, sin esta bitácora (no son la captura del criterio 255; ARCH lo
+   declara «lo que NO cubre»).
+4. **`pendingReason`** (`PendingPublishState` + fila de `pending-publish`, siempre presente): `pendingKey == null` ⇒
+   `null` (gradeada sin slab); si no ⇒ `derived.pendingReason ?? 'no_market'` — **la misma expresión** con la que
+   `resolvePublishSalePrice` escala (incluido el sellado). ⛔ No lee `PendingPriceEntry`.
+5. **Listado** (`listItems` → `sealedSalePricesOf`): solo `sealed ∧ platform ∧ in_stock|listed`;
+   `loadPublishPricingCtx` una vez por página (ninguna consulta sin elegibles); `derivePublishSalePrice(item, null,
+   ctx)`; `ok:false` ⇒ `{ null, 'pending' }`. En el resto de filas las claves no viajan. No escribe.
+
+### Pruebas
+- Unitarias: `backend/test/inventory.sealed-final-price.spec.ts` (39). El arnés hace **rollback de verdad** en
+  `$transaction` (SFP-3 mide «nada escrito», no «el doble no se llamó»).
+- Integración (Postgres real): `backend/test/integration/inventory-price-audit.e2e-spec.ts` (20). SFP-3 se mide con
+  un **TRIGGER** `BEFORE INSERT ON "AuditLog"` que lanza para las piezas de la prueba (se crea y se borra en la
+  propia prueba, también en `afterAll`). SFP-5 forzada usa `row-lock-barrier.ts` (2 peticiones bloqueadas
+  comprobadas en `pg_stat_activity`).
+- **Rojo antes** (sobre `2b99b5c2`, sin el código): unitaria 23/39 rojas (SFP-1 6/6, SFP-2 2/2, SFP-3 2/3 —la de
+  `status` ya tenía bitácora—, SFP-5 3/3, SFP-6 1/2, SFP-7 6/6, SFP-8 3/9); integración 13/20 rojas (SFP-1 3/3,
+  SFP-2 2/2, SFP-3 1/1, SFP-5 4/4 —forzada 10/10 `[200,200]` sin filas, suelta 10/10—, SFP-7, SFP-9 primera,
+  SFP-8). Verdes antes, como dice el contrato: SFP-4 (candado) y el `422` de SFP-9.
+- **Actualizadas a la forma nueva (no borradas):** `inventory.pending-publish.spec.ts` (4b: el publicante ahora SÍ
+  escribe una fila), `inventory.patch-price-guard.spec.ts` (3: `audit@tx` + precio en el CAS),
+  `inventory.graded-cert.spec.ts` (CAS con `listPriceCents` + doble de `auditLog`),
+  `integration/full-refund-vault.e2e-spec.ts` PS-42b (`{status igual, listPriceCents}` deja una fila con el
+  `status` igual en los dos lados).
+
+### Mutaciones (sobre copia `git archive` + mis ficheros, esquema propio; N=1 deterministas salvo SFP-5)
+| Mutación | Resultado |
+|---|---|
+| M1 volver a `if (statusChanges)` | SFP-1 rojo: unit 4, integ 3 |
+| M2 quitar la bitácora del publicante | SFP-2 rojo: unit 2, integ 2 |
+| M3a bitácora del no publicante DESPUÉS del commit, fuera de la tx | SFP-3 rojo: unit 2, integ 1 |
+| M3b bitácora del publicante DESPUÉS del commit | SFP-3 rojo: unit 1, integ 1 |
+| M4 sin comparar valores (fila siempre) | SFP-4 rojo: unit 2, integ 1 |
+| M5 quitar `listPriceCents` del CAS no publicante | forzada **10/10 rojas**, suelta **9/10 rojas** (N=10 c/u); unit 1 |
+| M5b quitar `listPriceCents` del CAS publicante | forzada **10/10 rojas**, suelta **10/10 rojas** (N=10 c/u); unit 1 |
+| M6 segundo literal en `claimListed` (canario) | SFP-6 rojo |
+| M7 `pendingReason` constante `'no_market'` | SFP-7 rojo: unit 2, integ 2 |
+| M8a fórmula propia (mercado sin spread) | SFP-8 rojo: unit 1, integ 1 |
+| M8b campos también en raw/graded | SFP-8 rojo: unit 3, integ 1 |
+| M9 memoizar `loadSalePremiumFloorPolicy` | SFP-9 rojo: integ 1 |
+
+Sin mutación: SFP-5 verde **10/10 forzada** y **10/10 suelta** en los dos caminos (formas medidas en la suelta:
+`[200,409]` 10/10 en ambos caminos).
+
+### Para otros roles / decisiones abiertas
+- **Contrato vs schema (menor):** SFP-7 dice «`PendingPriceEntry` idéntica (conteo y `updatedAt`)», pero el modelo
+  **no tiene `updatedAt`** (`schema.prisma`, `model PendingPriceEntry`). La prueba compara la fila ENTERA y el conteo.
+- **Residual del «antes» exacto (para el arquitecto):** el CAS publicante condiciona `status ∈ {in_stock, listed}`
+  (como dice el contrato) más el precio, no el `status` exacto. Si un lote publica la pieza `in_stock → listed` sin
+  tocar su precio entre la lectura y el CAS del `PATCH`, la fila del `PATCH` dirá `before.status: in_stock`. La
+  cadena sigue cuadrando porque el lote no escribe `inventory.item_updated`; no lo cambié porque el contrato no lo
+  pide y cambiaría un `200` actual por `409`.
+- **Frontend:** `pendingReason` viaja siempre (`null` incluido); `resolvedSalePriceCents`/`priceBasis` en el listado
+  solo en sellado de plataforma `in_stock|listed` (claves ausentes en el resto).
