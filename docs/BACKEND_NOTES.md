@@ -26824,3 +26824,58 @@ ellas se quedan (son filas legítimas).
 | VQ-14: quitar `context:'inventory'` del deep-link | **rojo** VQ-14 |
 
 Ninguna prueba existente aseveraba una fila compartida entre ejes (la suite completa lo dice: ver el informe final).
+
+## 21 · Condiciones de los gates sobre `4d994c55`: techlead C-1/C-2/C-3 + D-1/D-3/D-6, QA MENOR-1 (2026-10-04, rama `claude/precios-s5`; código en `0ceedf77`)
+
+⛔ Sin schema, endpoint ni conducta nuevos, salvo MENOR-1 (el listado de M3 deja de llevar dos columnas que el contrato
+no declara). Base medida: `HEAD` era `1b1ab19a` (mismo árbol que `fe44901e`, que nombraba el encargo:
+`git diff --stat fe44901e 1b1ab19a` vacío; el remoto apunta a `1b1ab19a`).
+
+### 21.1 Qué cambió
+| Pieza | Dónde |
+|---|---|
+| **C-1** — «ya salió» en un solo sitio: `SHIPPED_OUT_STATUSES` (tipada contra `ShipmentStatus`), `isShippedOut(status)` y `lockShipmentsOfOrder(tx, orderId, exceptIds?)` («bloquear los envíos de la orden y leer su estado BAJO el candado») | `payments/refunds/refund-review.ts` |
+| M3 tx1 usa el helper y el predicado (antes: su propio `FOR UPDATE` y el literal `'enviado' \|\| 'entregado'`) | `orders/order-refund.service.ts` |
+| `onFullRefund` rama directo: pasos (1)+(2) y (4-bis) en un cuerpo, `lockAndCloseShipments` (**cierra D-1**); la clase `already_withdrawn` de bóveda lee la misma constante | `payments/refunds/full-refund.service.ts` |
+| El detalle de M3 (`shipmentShipped`) usa `isShippedOut`; el controlador ya no importa de `full-refund.service` | `orders/admin-orders.controller.ts` |
+| **C-2** — la cabecera de `full-refund.service.ts` y el docblock de `closeShipmentsOnFullRefund` dicen las DOS excepciones al orden de candados (ver 21.3) | `full-refund.service.ts` |
+| **MENOR-1** — `GET /admin/orders`: la fila ya no lleva `fullRefundAfterShipment` ni `shippedRefundReason` crudos (se quitan junto a las otras tres); `refundReviewPending` se sigue derivando de ellas. El detalle no cambia (`fullRefundReview`) | `orders/admin-orders.controller.ts` |
+| **D-3** — el docblock de `openPendingEntriesFor` vuelve encima de su función | `inventory/inventory.service.ts` |
+| **D-6** — cabecera de M-62: «motivo, cuándo y quién juntos; nota opcional CON motivo». ⛔ DDL intacto | `prisma/migrations/20261004120000_m62_shipped_refund_reason/migration.sql` |
+| **C-3** + D-2, D-4, D-5, D-9 anotadas (D-1, D-3, D-6 como cerradas) | `docs/TECH_DEBT.md` (SHIP-D3 ampliada; PS5-D1…D6, D9) |
+| Pruebas: `C-1` en `test/refund-review.spec.ts` (+5: `isShippedOut` sobre todo el enum; censo de los tres lectores sin literal ni lista propia; mismo helper en M3 y `onFullRefund`; forma del helper con y sin `exceptIds`); `test/admin-orders.list-review-columns.spec.ts` (nuevo, 2); SRF-4 gana la aserción de las cinco columnas ausentes en la fila | `test/` |
+
+**Frontend:** el listado de M3 en `frontend/src` no lee `fullRefundAfterShipment` ni `shippedRefundReason` (medido:
+`grep -rn` en `frontend/src` ⇒ solo `lib/mock/m4-ship.ts`, el mock del detalle). Nada que cambiar allí.
+
+**M-62 y el checksum de Prisma (D-6):** cambiar el comentario cambia el checksum de una migración ya aplicada en BD
+locales. Medido en `tcg_fix_be_mut`: aplicada con el texto de `HEAD~1`, luego `prisma migrate deploy` ⇒ «No pending
+migrations to apply» y `prisma migrate status` ⇒ «Database schema is up to date!». `migrate dev` (no lo usamos) podría
+pedir reset en una BD de desarrollo: NO MEDIDO. M-62 no está en `main` ni en `production`
+(`git cat-file -e origin/{main,production}:<migración>` ⇒ no existe).
+
+### 21.2 Mediciones (autor: backend; copia `git archive HEAD` del árbol ENTERO en `0ceedf77`)
+| | Resultado |
+|---|---|
+| Unitaria completa | **388/388 suites, 6572/6572 pruebas** (161 s) |
+| Integración completa (`tcg_fix_be`, `--runInBand`, carga 1 min al terminar 7.66 con 4 CPU) | **73/73 suites, 1538/1538 pruebas** (562 s) |
+| SRF-9 (N=10 por orden) | `enviado-primero` **10/10**, `reembolso-primero` **10/10**, `suelta` **10/10**; inválidas 0 en las tres |
+| SRF-10 (N=10 por orden) | `m3-primero` **10/10**, `enviado-primero` **10/10**, `suelta` **10/10**; inválidas 0 en las tres |
+| Mut. MENOR-1: devolver las dos columnas a `...o` | **rojo** `list-review-columns` «ninguna de las cinco columnas crudas» |
+| Mut. C-1 (a): `SHIPPED_OUT_STATUSES = ['enviado']` | **rojo** «`isShippedOut` sobre TODOS los estados» |
+| Mut. C-1 (b): M3 vuelve a un literal `'enviado'` | **rojo** censo «… no escribe la lista a mano» |
+| Mut. C-1 (c) conductual: `lockShipmentsOfOrder` devuelve el estado leído ANTES del `FOR UPDATE` (`tcg_fix_be_mut`) | **rojo**: SRF-9 `enviado-primero` 0/10, `suelta` 0/10; SRF-10 `enviado-primero` 0/10, `suelta` 0/10 (N=10 cada una; `m3-primero`/`reembolso-primero` 10/10, como se espera: ahí el estado no cambia en la ventana). Desenlace típico: `enviado,shipped/shipped,after=false` — paquete salido sin «por revisar» |
+
+Las mutaciones (a)–(c) se hicieron sobre una SEGUNDA copia (`git archive HEAD`), nunca sobre el árbol vivo.
+
+### 21.3 Para el arquitecto — las dos excepciones al orden de candados (techlead C-2)
+Orden documentado: envíos → piezas → `Order` → libro. Excepciones, ambas en la rama directo de `onFullRefund`:
+1. **(4-bis, SRF-11) — ya aceptada por el arquitecto.** Envíos bloqueados DESPUÉS de `Order`. Segura porque el único
+   creador de un envío de la orden (settle de un `succeeded` tardío) lo crea bajo el candado de `Order`.
+2. **M3 directo — ⚠ NO MEDIDA como carrera.** M3 tx1 toma envíos → `Order` y luego llama a `onFullRefund`, cuyo
+   `lockReservedOfOrder` bloquea piezas `reserved` por la orden ⇒ **piezas después de `Order`**. En una orden `settled`
+   la consulta no devuelve filas (no bloquea nada). Solo con la anomalía sembrada de SRF-11 (orden liquidada con una
+   pieza aún `reserved`) bloquearía, y podría dar `40P01` contra quien tome pieza → `Order`. Medición que lo cerraría:
+   sembrar esa anomalía y correr M3 contra un verbo que tome pieza → `Order` de la misma orden con barrera de fila
+   (N ≥ 10 por orden), contando `40P01`/`500`. Decisión pedida: aceptarla como 4-bis, o que M3 tome las piezas
+   `reserved` antes de `Order` (cambio del orden en M3 tx1, no en `onFullRefund`).
