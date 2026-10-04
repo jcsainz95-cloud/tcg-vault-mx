@@ -7,7 +7,9 @@
  *  - el guardarraíl (§4.36.5), el predicado de bounty (§4.36.6) y el bracket fijo (§4.36.7c).
  */
 import {
+  BUY_PREMIUM_FLOOR_POLICY,
   DEFAULT_PRICING_CURVE,
+  PremiumFloorPolicy,
   PricingCurve,
   collectCurveViolations,
   interp,
@@ -451,19 +453,24 @@ describe('pricing-curve — normalización y lectura money-safe', () => {
 });
 
 describe('pricing-curve — guardarraíl premiumFloorGuard (§4.36.5)', () => {
+  // v1.80.8.5 (`M2-PF`): el guardarraíl recibe la política del eje. Con `none` (= la constante de
+  // COMPRA) se conservan las aserciones originales.
+  const NONE: PremiumFloorPolicy = { mode: 'none', rarities: [] };
   it('rareza premium + basis floor ⇒ premium_at_floor (NO se publica / NO se cotiza)', () => {
-    expect(premiumFloorGuard('Illustration Rare', 'floor')).toBe('premium_at_floor');
-    expect(premiumFloorGuard('Special Illustration Rare', 'floor')).toBe('premium_at_floor');
+    for (const p of [NONE, BUY_PREMIUM_FLOOR_POLICY]) {
+      expect(premiumFloorGuard('Illustration Rare', 'floor', p)).toBe('premium_at_floor');
+      expect(premiumFloorGuard('Special Illustration Rare', 'floor', p)).toBe('premium_at_floor');
+    }
   });
 
   it('rareza NO premium en el piso ⇒ ok (una Common al piso sí se publica)', () => {
-    expect(premiumFloorGuard('Common', 'floor')).toBe('ok');
-    expect(premiumFloorGuard(null, 'floor')).toBe('ok');
+    expect(premiumFloorGuard('Common', 'floor', NONE)).toBe('ok');
+    expect(premiumFloorGuard(null, 'floor', NONE)).toBe('ok');
   });
 
   it('NO dispara con market / override / bounty / pending (decisiones deliberadas del admin)', () => {
     for (const basis of ['market', 'override', 'bounty', 'pending'] as const) {
-      expect(premiumFloorGuard('Illustration Rare', basis)).toBe('ok');
+      expect(premiumFloorGuard('Illustration Rare', basis, NONE)).toBe('ok');
     }
   });
 });

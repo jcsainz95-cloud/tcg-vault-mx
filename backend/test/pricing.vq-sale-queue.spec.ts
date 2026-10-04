@@ -12,6 +12,7 @@ import {
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { stripComments } from './helpers/strip-comments';
 import { callArgCounts, identCensus, methodBody } from './helpers/ident-census';
+import { DEFAULT_SALE_PREMIUM_FLOOR_POLICY, PremiumFloorPolicy } from '../src/common/pricing-curve';
 
 /**
  * v1.80.8.4 — API_CONTRACT §M2 `M2-VQ` (VQ-1…VQ-5, VQ-7, VQ-8; VQ-6 vive en
@@ -82,7 +83,12 @@ function buildPrisma(items: any[], pending: any[] = []) {
   return { prisma, refs, pending };
 }
 
-function buildPricing(prisma: any, rawQuote: (cardId: string) => any = () => null) {
+function buildPricing(
+  prisma: any,
+  rawQuote: (cardId: string) => any = () => null,
+  // v1.80.8.5 (`M2-PF`): el barrido lee el dial de VENTA al empezar. Por defecto, su seed (sin fila).
+  premiumFloorPolicy: PremiumFloorPolicy = DEFAULT_SALE_PREMIUM_FLOOR_POLICY,
+) {
   const settings = {
     getString: jest.fn(async (k: string) =>
       k === 'pricing_provider_raw' ? 'pokemontcg_io' : 'pokemonpricetracker',
@@ -95,7 +101,7 @@ function buildPricing(prisma: any, rawQuote: (cardId: string) => any = () => nul
   } as unknown as PokemonTcgIoProvider;
   // Los stubs REALES de graded/sellado (sin API key ⇒ `null`): exactamente lo que corre en prod.
   const config = { get: () => undefined } as any;
-  return new PricingService(
+  const pricing = new PricingService(
     prisma as PrismaService,
     settings,
     {} as FxService,
@@ -103,6 +109,8 @@ function buildPricing(prisma: any, rawQuote: (cardId: string) => any = () => nul
     new PokemonPriceTrackerProvider(config),
     new PokeTraceProvider(config),
   );
+  jest.spyOn(pricing, 'loadSalePremiumFloorPolicy').mockResolvedValue(premiumFloorPolicy);
+  return pricing;
 }
 
 const piece = (over: any) => ({
@@ -223,11 +231,16 @@ describe('VQ-5 — candado: lista CERRADA de escritores de la cola y `syncCardPr
         SRC,
         /\bpendingPriceEntry\s*\.\s*(?:create|createMany|createManyAndReturn|update|updateMany|updateManyAndReturn|upsert|delete|deleteMany)\b/g,
       ),
-    ).toEqual({ 'modules/pricing/pricing.service.ts': 5 });
+    ).toEqual({ 'modules/pricing/pricing.service.ts': 6 });
     // Ni SQL crudo sobre la tabla (la puerta lateral del censo anterior).
     expect(identCensus(SRC, /"PendingPriceEntry"/g)).toEqual({});
     // El barrido delega la escritura; la usa SOLO `price-sync`.
     expect(identCensus(SRC, /\bcloseUnreasonedSaleQueueRows\b/g)).toEqual({
+      'jobs/price-sync.service.ts': 1,
+      'modules/pricing/pricing.service.ts': 1,
+    });
+    // v1.80.8.5 (`M2-PF`): la rama nueva del barrido también delega su escritura (sexta escritura).
+    expect(identCensus(SRC, /\bcloseStalePremiumFloorSaleRows\b/g)).toEqual({
       'jobs/price-sync.service.ts': 1,
       'modules/pricing/pricing.service.ts': 1,
     });
@@ -295,7 +308,7 @@ describe('VQ-7 / VQ-8 — barrido VQ al final de un `price-sync` COMPLETO', () =
       prisma,
       buildPricing(prisma),
     ).sweepUnreasonedSaleQueue();
-    expect(res).toEqual({ closed: 5, kept: 0 });
+    expect(res).toEqual({ closed: 5, kept: 0, premiumFloorClosed: 0 });
     for (const p of pending) {
       expect({ id: p.id, status: p.status, priceRef: p.resolvedPriceRefId }).toEqual({
         id: p.id,
@@ -306,7 +319,9 @@ describe('VQ-7 / VQ-8 — barrido VQ al final de un `price-sync` COMPLETO', () =
     }
   });
 
-  it('VQ-8: `null` de plataforma vendible sin mercado, `no_market`/`premium_at_floor` sin pieza y `null` de COMPRA ⇒ las cuatro siguen `open` con su motivo', async () => {
+  // v1.80.8.5 (`M2-PF`): VQ-8 corre con el dial en `none` (la rama nueva del barrido es no-op) y conserva
+  // su aserción original. La rama nueva la cubre PF-6 (`pricing.premium-floor-sale.spec.ts`).
+  it('VQ-8 (dial `none`): `null` de plataforma vendible sin mercado, `no_market`/`premium_at_floor` sin pieza y `null` de COMPRA ⇒ las cuatro siguen `open` con su motivo', async () => {
     const items = [
       piece({ id: 'pv', cardId: 'c-plat', status: 'in_stock' }),
       piece({
@@ -336,9 +351,9 @@ describe('VQ-7 / VQ-8 — barrido VQ al final de un `price-sync` COMPLETO', () =
     const { prisma } = buildPrisma(items, pending);
     const res = await new PriceSyncJobService(
       prisma,
-      buildPricing(prisma),
+      buildPricing(prisma, undefined, { mode: 'none', rarities: [] }),
     ).sweepUnreasonedSaleQueue();
-    expect(res).toEqual({ closed: 0, kept: 2 });
+    expect(res).toEqual({ closed: 0, kept: 2, premiumFloorClosed: 0 });
     expect(pending.map((p) => [p.id, p.status, p.reason])).toEqual([
       ['r-plat', 'open', null],
       ['r-seal', 'open', null],
@@ -352,8 +367,8 @@ describe('VQ-7 / VQ-8 — barrido VQ al final de un `price-sync` COMPLETO', () =
     const pending = [row({ id: 'r1', cardId: 'c-gone' })];
     const { prisma } = buildPrisma([], pending);
     const job = new PriceSyncJobService(prisma, buildPricing(prisma));
-    expect(await job.sweepUnreasonedSaleQueue()).toEqual({ closed: 1, kept: 0 });
-    expect(await job.sweepUnreasonedSaleQueue()).toEqual({ closed: 0, kept: 0 });
+    expect(await job.sweepUnreasonedSaleQueue()).toEqual({ closed: 1, kept: 0, premiumFloorClosed: 0 });
+    expect(await job.sweepUnreasonedSaleQueue()).toEqual({ closed: 0, kept: 0, premiumFloorClosed: 0 });
   });
 
   it('D-6: el log del barrido enumera como mucho VQ_SWEEP_LOG_ID_CAP ids y resume el resto', async () => {
@@ -363,7 +378,11 @@ describe('VQ-7 / VQ-8 — barrido VQ al final de un `price-sync` COMPLETO', () =
     const { prisma } = buildPrisma([], pending);
     const job = new PriceSyncJobService(prisma, buildPricing(prisma));
     const log = jest.spyOn((job as any).logger, 'log').mockImplementation(() => undefined);
-    expect(await job.sweepUnreasonedSaleQueue()).toEqual({ closed: VQ_SWEEP_LOG_ID_CAP + 7, kept: 0 });
+    expect(await job.sweepUnreasonedSaleQueue()).toEqual({
+      closed: VQ_SWEEP_LOG_ID_CAP + 7,
+      kept: 0,
+      premiumFloorClosed: 0,
+    });
     const line = log.mock.calls.map((c) => String(c[0])).find((l) => l.includes('cerradas'))!;
     expect(line).toContain(`r${VQ_SWEEP_LOG_ID_CAP - 1}`);
     expect(line).not.toContain(`r${VQ_SWEEP_LOG_ID_CAP},`);

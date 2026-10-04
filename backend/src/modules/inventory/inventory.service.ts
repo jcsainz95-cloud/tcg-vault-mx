@@ -41,7 +41,7 @@ import {
   sealedPriceBasisOf,
 } from '../../common/money';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
-import { PendingReason, PricingCurve } from '../../common/pricing-curve';
+import { PendingReason, PremiumFloorPolicy, PricingCurve } from '../../common/pricing-curve';
 import {
   BatchCreateInventoryRequest,
   BatchInventoryItemInput,
@@ -303,6 +303,8 @@ export interface PendingPublishState {
 interface PublishPricingCtx {
   /** v2.0 (P-48, §4.36.2): la CURVA izada UNA vez por request/corrida (BE-25). */
   curve: PricingCurve;
+  /** v1.80.8.5 (`M2-PF`, MONEY): la política del guardarraíl de VENTA, izada junto a la curva. */
+  premiumFloorPolicy: PremiumFloorPolicy;
   sealed: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
   refs: Map<string, PriceInfo>;
   variantOverrides: Map<string, VariantPriceOverride>;
@@ -1500,9 +1502,10 @@ export class InventoryService {
    */
   private async loadPublishPricingCtx(
     items: PublishableItem[],
-    base?: Pick<PublishPricingCtx, 'curve' | 'sealed'>,
+    base?: Pick<PublishPricingCtx, 'curve' | 'sealed' | 'premiumFloorPolicy'>,
   ): Promise<PublishPricingCtx> {
     const curve = base?.curve ?? (await this.pricing.loadPricingCurve());
+    const premiumFloorPolicy = base?.premiumFloorPolicy ?? (await this.pricing.loadSalePremiumFloorPolicy());
     const sealed = base?.sealed ?? (await this.pricing.loadSealedSpreads());
     const derivable = items
       // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ la pieza deriva precio y necesita su referencia en el lote.
@@ -1521,7 +1524,7 @@ export class InventoryService {
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       derivable.filter((d) => d.productType !== 'sealed'),
     );
-    return { curve, sealed, refs, variantOverrides };
+    return { curve, premiumFloorPolicy, sealed, refs, variantOverrides };
   }
 
   /**
@@ -1742,6 +1745,7 @@ export class InventoryService {
       rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
       controls: ctx.variantOverrides.get(key) ?? null,
       curve: ctx.curve,
+      premiumFloorPolicy: ctx.premiumFloorPolicy,
     });
     const pendingReason = sale.pendingReason;
     if (pendingReason != null || sale.priceCents == null) {
@@ -1874,6 +1878,8 @@ export class InventoryService {
     ).map((r) => r.id);
 
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por corrida junto a la curva.
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const sealed = await this.pricing.loadSealedSpreads();
     // Del barrido solo sobreviven **id + estado**: es lo que mantiene la memoria acotada aunque el
     // superconjunto sea grande. Las filas completas se leen después, y SOLO las de la página.
@@ -1885,7 +1891,7 @@ export class InventoryService {
         include: { card: true },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
-      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed });
       for (const item of items) {
         const state = this.pendingPublishStateOf(item, ctx);
         // `missing: []` ⇒ NO entra: no le falta nada, así que la auto-publicación la sacará (o ya la
@@ -2102,6 +2108,8 @@ export class InventoryService {
     // Curva/spreads izados UNA vez por corrida; referencias/overrides en lote POR CHUNK
     // (memoria acotada; sigue sin N+1 por pieza).
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por corrida junto a la curva.
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const sealed = await this.pricing.loadSealedSpreads();
 
     const summary = {
@@ -2124,7 +2132,7 @@ export class InventoryService {
         where: { id: { in: chunkIds } },
         include: { card: true },
       });
-      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed });
       for (const item of items) {
         try {
           // v2.1.1 (§4.36.5b-bis) — la rama `listed` YA NO ES CORTO-CIRCUITO: se RE-RESUELVE.
@@ -2612,6 +2620,8 @@ export class InventoryService {
     if (ids.length === 0) return [];
     const out: PublishReevaluationResult[] = [];
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por corrida junto a la curva.
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const sealed = await this.pricing.loadSealedSpreads();
     for (let i = 0; i < ids.length; i += PENDING_PUBLISH_CHUNK_SIZE) {
       const chunkIds = ids.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
@@ -2623,7 +2633,7 @@ export class InventoryService {
       for (const missingId of chunkIds.filter((x) => !found.has(x))) {
         out.push({ inventoryItemId: missingId, outcome: 'not_found', missing: [] });
       }
-      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed });
       for (const item of items) {
         out.push(await this.reevaluateOne(item, ctx));
       }

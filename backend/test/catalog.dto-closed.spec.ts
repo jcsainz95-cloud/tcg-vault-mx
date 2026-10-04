@@ -1,7 +1,7 @@
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PricingService, PriceInfo, toPublicPriceInfo } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
@@ -68,6 +68,7 @@ const MANUAL_REF: PriceInfo = {
 
 function pricingMock() {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),

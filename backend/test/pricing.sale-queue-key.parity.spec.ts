@@ -11,7 +11,7 @@ import {
   PokeTraceProvider,
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
-import { DEFAULT_PRICING_CURVE, normalizePricingCurve } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY, normalizePricingCurve } from '../src/common/pricing-curve';
 import { serializeSaleQueueKey } from '../src/modules/pricing/sale-queue-key';
 import { stripComments } from './helpers/strip-comments';
 import { identCensus } from './helpers/ident-census';
@@ -60,7 +60,7 @@ function buildPrisma(items: any[], pending: any[]) {
 
 function buildPricing(prisma: any): PricingService {
   const config = { get: () => undefined } as any;
-  return new PricingService(
+  const pricing = new PricingService(
     prisma as PrismaService,
     {} as SettingsService,
     {} as FxService,
@@ -68,6 +68,9 @@ function buildPricing(prisma: any): PricingService {
     new PokemonPriceTrackerProvider(config),
     new PokeTraceProvider(config),
   );
+  // v1.80.8.5 (`M2-PF`): el barrido lee el dial de VENTA al empezar; aquí, su seed (sin fila).
+  jest.spyOn(pricing, 'loadSalePremiumFloorPolicy').mockResolvedValue(DEFAULT_SALE_PREMIUM_FLOOR_POLICY);
+  return pricing;
 }
 
 const piece = (over: any) => ({
@@ -141,6 +144,7 @@ const CASES: Array<{ name: string; item: any; neighbour: Record<string, unknown>
 
 const ctx = (refs: Map<string, any> = new Map()) => ({
   curve: normalizePricingCurve(DEFAULT_PRICING_CURVE),
+  premiumFloorPolicy: DEFAULT_SALE_PREMIUM_FLOOR_POLICY,
   sealed: { spreadPctBySubtype: {}, fallbackPct: 0, sourceOn: true },
   refs,
   variantOverrides: new Map(),
@@ -167,7 +171,7 @@ describe('D-1 — la clave del barrido VQ ES la `pendingKey` de `derivePublishSa
         ['same', 'open'],
         ['other', 'resolved'],
       ]);
-      expect(res).toEqual({ closed: 1, kept: 1 });
+      expect(res).toEqual({ closed: 1, kept: 1, premiumFloorClosed: 0 });
     });
   });
 

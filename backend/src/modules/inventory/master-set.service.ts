@@ -879,6 +879,8 @@ export class MasterSetService implements OnModuleInit {
     const includePricing = scope.kind === 'platform';
     // v2.0 (P-48, §4.36.2): UNA curva izada una vez por request, compartida por los dos ejes.
     const pricingCurve = includePricing ? await this.pricing.loadPricingCurve() : null;
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada una vez junto a la curva (solo scope platform).
+    const salePremiumFloorPolicy = includePricing ? await this.pricing.loadSalePremiumFloorPolicy() : null;
     const variantOverrides = includePricing
       ? await this.pricing.getVariantOverridesBatch(universeKeys)
       : new Map<string, never>();
@@ -932,7 +934,7 @@ export class MasterSetService implements OnModuleInit {
             marketReferenceMxnCents,
             ...(market.capturedDate != null ? { capturedDate: market.capturedDate } : {}),
             // v1.28 (P-18): consola de tres precios — SOLO scope platform (regla dura §4.26b).
-            ...(pricingCurve
+            ...(pricingCurve && salePremiumFloorPolicy
               ? {
                   pricing: composeVariantPricing(
                     mref ?? null,
@@ -940,6 +942,7 @@ export class MasterSetService implements OnModuleInit {
                     variantOverrides.get(`${c.id}|raw|raw:NM|${finish}`) ?? null,
                     // v2.0 (§4.36.5): la rareza SOLO para el veredicto del guardarraíl (`premiumAtFloor`).
                     c.rarityCanonical ?? c.rarity,
+                    salePremiumFloorPolicy,
                   ),
                 }
               : {}),
@@ -1087,6 +1090,8 @@ export class MasterSetService implements OnModuleInit {
     if (candidates.length === 0) return map;
 
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada una vez (mismo veredicto que el storefront).
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const derivableKeys = candidates
       // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ esas piezas también derivan precio.
       .filter((i) => !hasManualPrice(i))
@@ -1120,6 +1125,7 @@ export class MasterSetService implements OnModuleInit {
           rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
           controls: variantOverrides.get(key) ?? null,
           curve,
+          premiumFloorPolicy,
         }).priceCents;
       }
       // Sin precio resoluble (>0) → no comprable (paridad con `sellable` de la ficha §4.9).

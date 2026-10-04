@@ -3,7 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UpdateItemDto } from '../src/modules/inventory/dto/inventory.dto';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { BusinessException } from '../src/common/business.exception';
 
 /**
@@ -157,6 +157,7 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
     },
   };
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 0, sourceOn: false })),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),

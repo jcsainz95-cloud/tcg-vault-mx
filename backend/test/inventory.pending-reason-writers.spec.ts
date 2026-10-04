@@ -1,4 +1,4 @@
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -177,6 +177,7 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
     {} as PokeTraceProvider,
   );
   jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
+  jest.spyOn(pricing, 'loadSalePremiumFloorPolicy').mockResolvedValue(DEFAULT_SALE_PREMIUM_FLOOR_POLICY);
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({
     spreadPctBySubtype: {},
     fallbackPct: 25,

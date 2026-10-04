@@ -1,7 +1,7 @@
 import { AdminBountiesService } from '../src/modules/pricing/admin-bounties.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { variantKey } from '../src/common/variant-key';
 
 /**
@@ -64,6 +64,7 @@ function svcOf(rows: ReturnType<typeof row>[]) {
   const findMany = jest.fn(async () => rows);
   const prisma = { variantPriceOverride: { findMany } } as unknown as PrismaService;
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     getReferencesBatch: jest.fn(async (keys: any[]) => {
       const m = new Map<string, any>();

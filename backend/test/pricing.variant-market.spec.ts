@@ -7,7 +7,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { FxService } from '../src/modules/pricing/fx.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { DEFAULT_PRICING_CURVE, resolveBuyFromCurve } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, resolveBuyFromCurve, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { variantKey } from '../src/common/variant-key';
 import type { VariantPricingDTO } from '../src/modules/pricing/variant-pricing';
 
@@ -146,6 +146,7 @@ async function consolaRows() {
     variantPriceOverride: { findMany: jest.fn(async () => rows) },
   } as unknown as PrismaService;
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     getReferencesBatch: jest.fn(async () => refsMap()),
   } as unknown as PricingService;
@@ -177,6 +178,7 @@ async function binderVariants() {
     FINISHES.map((finish) => [`${CARD_ID}|raw|raw:NM|${finish}`, overrideRow(finish)]),
   );
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReferencesBatch: jest.fn(async () => refsMap()),
@@ -207,6 +209,7 @@ async function putControls(finish: B14Finish) {
     },
   } as unknown as PrismaService;
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // La MISMA fuente de mercado del fixture, por acabado: `getReference` es la versión single.
     getReference: jest.fn(async (_c: string, _p: string, _g: string, f: B14Finish) => {

@@ -7,7 +7,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { BusinessException } from '../src/common/business.exception';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import {
   buildGradeKey,
   tryBuildGradeKey,
@@ -38,6 +38,7 @@ const REF_PSA9 = 30_000;
 /** `PricingService` con los CUERPOS REALES de las dos variantes de clave (aquí es lo que se prueba). */
 function pricingWithRealKeys(over: Record<string, unknown> = {}): PricingService {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),

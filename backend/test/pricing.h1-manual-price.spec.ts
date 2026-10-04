@@ -4,7 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { firstPresentAmount, hasManualPrice, isPresentAmount } from '../src/common/money';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
@@ -67,6 +67,7 @@ const CURVE_PRICE = 115000;
 
 function pricingMock() {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),

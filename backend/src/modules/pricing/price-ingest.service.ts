@@ -993,6 +993,8 @@ export class PriceIngestService {
       if (items.length === 0) return;
       // Pago mínimo BE-25: curva izada UNA vez; referencias y overrides EN LOTE (sin N+1 por pieza).
       const curve = await this.pricing.loadPricingCurve();
+      // v1.80.8.5 (`M2-PF`): la política de VENTA, izada una vez como la curva.
+      const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
       // v1.53 (§4.40.4b, MONEY) — `price-ingest` es camino de LECTURA/valuación ⇒ clave TOLERANTE.
       // Hoy el `where` de arriba ya acota a `productType:'raw'` (nunca hay `null`), pero se pide con
       // la tolerante a propósito: si mañana el barrido se ensancha a graduadas, una pieza sin
@@ -1025,6 +1027,7 @@ export class PriceIngestService {
           rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
           controls: overrides.get(key) ?? null,
           curve,
+          premiumFloorPolicy,
         });
         // §4.36.5c: el MISMO seam abre y cierra. `reason != null` ⇒ entra a la cola; `null` ⇒ se cierra
         // la entrada abierta de esa clave si el mercado volvió a resolver.

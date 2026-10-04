@@ -2,7 +2,7 @@ import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { InventoryPublishPort } from '../src/modules/inventory/inventory-publish.port';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -91,6 +91,7 @@ function build(rows: ReturnType<typeof piece>[]) {
     pendingPriceEntry: { findMany: jest.fn(async () => []) },
   };
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 0, sourceOn: false })),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),

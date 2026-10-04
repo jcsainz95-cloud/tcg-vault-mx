@@ -38,6 +38,8 @@ import {
   marketBracketOf,
   premiumFloorGuard,
   resolvePendingReason,
+  // v1.80.8.5 (`M2-PF`): el eje de COMPRA NO lee el dial de venta — constante de código.
+  BUY_PREMIUM_FLOOR_POLICY,
 } from '../../common/pricing-curve';
 // v1.53 (§4.40.3.1, MONEY): la lista blanca del buylist es una DECISIÓN DE PRODUCTO declarada
 // literal (`PROJECT.md` §E/§K LOCKED/criterio 61), NO un espejo de `PRODUCT_TYPE_VALUES`.
@@ -1130,7 +1132,11 @@ export class BuylistService implements OnModuleInit {
     // el mercado ⇒ el guardarraíl evalúa el basis de la CURVA (chase + bin ⇒ `premium_at_floor`).
     // `guardBasis === 'pending'` ⇔ `basis === 'pending'` (peldaño 1 topado ⇒ mercado presente ⇒ la
     // curva resuelve), así que `no_market` sigue significando lo mismo.
-    const pendingReason = resolvePendingReason(quote.guardBasis, card.rarityCanonical ?? card.rarity);
+    const pendingReason = resolvePendingReason(
+      quote.guardBasis,
+      card.rarityCanonical ?? card.rarity,
+      BUY_PREMIUM_FLOOR_POLICY,
+    );
     const quotedPriceCents = pendingReason == null ? quote.priceCents : null;
     return {
       finish: f,
@@ -1332,7 +1338,7 @@ export class BuylistService implements OnModuleInit {
       // El filtro va ANTES de ordenar/cortar para no dejar huecos silenciosos en la vitrina.
       .filter(
         ({ r, q }) =>
-          q.basis === 'bounty' && premiumFloorGuard(r.card.rarityCanonical ?? r.card.rarity, q.guardBasis) === 'ok',
+          q.basis === 'bounty' && premiumFloorGuard(r.card.rarityCanonical ?? r.card.rarity, q.guardBasis, BUY_PREMIUM_FLOOR_POLICY) === 'ok',
       )
       .map(({ r, q }) => ({ r, payoutCents: q.priceCents as number }))
       // Orden por LO QUE SE PAGA (el `orderBy` del query ordena por lo configurado y ya no basta);

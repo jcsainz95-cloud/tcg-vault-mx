@@ -15,6 +15,10 @@
  * ⚠️ El `price-sync` corre REAL (`PriceSyncJobService.run()` sin `cardIds`) salvo el proveedor por carta:
  * `syncCardPrice` se sustituye por `pending` para no salir a la red (pokemontcg.io) por cada pieza de
  * la BD de pruebas. Lo que se mide aquí es el BARRIDO del final de la corrida completa, no el fetch.
+ *
+ * v1.80.8.5 (API_CONTRACT §M2 `M2-PF`): VQ-9 corre con el dial `premiumFloorSalePublish` en `none`
+ * (la rama nueva del barrido es no-op) y conserva su aserción original «premium sin cambio». La conducta
+ * con el seed la mide PF-10 (`premium-floor-sale.e2e-spec.ts`). El dial se restaura al final.
  * `publish-all` va acotado al set del spec (`setId`) para no publicar piezas de otras suites.
  */
 import { E2EHarness } from './helpers/e2e-app';
@@ -32,10 +36,12 @@ interface Counts {
   unknown: number;
 }
 
-describe('E2E — VQ-9: ciclo completo de la cola de VENTA (publish-all + price-sync completo)', () => {
+describe('E2E — VQ-9 (dial `none`): ciclo completo de la cola de VENTA (publish-all + price-sync completo)', () => {
   let h: E2EHarness;
   let adminToken: string;
   const items: Record<string, string> = {};
+  // v1.80.8.5: estado del dial antes del spec (undefined ⇒ la fila no existía).
+  let dialBefore: unknown = undefined;
 
   async function cleanup() {
     const cards = await h.prisma.card.findMany({ where: { setId: SET_ID }, select: { id: true } });
@@ -90,6 +96,13 @@ describe('E2E — VQ-9: ciclo completo de la cola de VENTA (publish-all + price-
   beforeAll(async () => {
     h = await E2EHarness.create();
     adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
+    const dialRow = await h.prisma.configSetting.findUnique({ where: { key: 'premium_floor_sale_publish' } });
+    dialBefore = dialRow ? dialRow.valueJson : undefined;
+    const put = await h.api('PUT', '/admin/settings', {
+      token: adminToken,
+      json: { premiumFloorSalePublish: { mode: 'none', rarities: [] } },
+    });
+    expect(put.status).toBe(200);
     await cleanup();
     await h.prisma.cardSet.create({ data: { id: SET_ID, externalId: SET_ID, name: 'E2E VQ-9' } });
     for (const [slug, n] of [
@@ -171,7 +184,17 @@ describe('E2E — VQ-9: ciclo completo de la cola de VENTA (publish-all + price-
   });
 
   afterAll(async () => {
-    if (h) await cleanup();
+    if (h) {
+      await cleanup();
+      if (dialBefore === undefined) {
+        await h.prisma.configSetting.deleteMany({ where: { key: 'premium_floor_sale_publish' } });
+      } else {
+        await h.prisma.configSetting.update({
+          where: { key: 'premium_floor_sale_publish' },
+          data: { valueJson: dialBefore as object },
+        });
+      }
+    }
     await h?.close();
   });
 

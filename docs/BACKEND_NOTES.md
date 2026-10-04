@@ -26421,3 +26421,76 @@ clave; censo de uso), `test/pricing.sync-dto.spec.ts`, dos casos nuevos en `test
 | Integración completa, árbol vivo (BD propia `tcg_backend_s5`, Postgres/Redis compartidos), 4 corridas | antes del arreglo de `buylist-cycle`: 1.ª 1441/1443 (2 rojas `buylist-intake-concurrency`), 2.ª 1435/1443 (las 4 de `buylist-cycle` + las 2 de concurrencia). Con todo (incl. `brace-expansion`): 1.ª 1439/1443 (2 rojas `buylist-intake-concurrency`), 2.ª **1441/1441 + 2 skipped, 69/69 suites** |
 | `buylist-intake-concurrency` (barrera de candado por tiempo, 10 s) | aislada en árbol vivo **5/5 verdes**; en corrida completa del árbol vivo verde 1/4; árbol `8a10153e` completo 1/1 verde. El cambio no toca su camino (`POST /buylist/requests`); §15 ya la midió intermitente sobre la base (7/8). **No atribuida con certeza: N pequeño** |
 | `npm audit --omit=dev` (parche de devops) | antes: 1 high (`brace-expansion`) + 6 moderate; después: **0 high / 0 critical** + los mismos 6 moderate (`@nestjs/core`, `multer`, `qs`) |
+
+## 15 · v1.80.8.5 — «Premium en el piso», en VENTA, se publica al piso según el dial `premiumFloorSalePublish` (2026-10-04, rama `claude/precios-s5`, sobre `9f08cd64`)
+
+Norma: `API_CONTRACT §M2 «v1.80.8.5»` (ancla `M2-PF`) y `ARCHITECTURE §4.36.5 (c-ter)`. Decisión del dueño: `HECHOS.md`
+2026-10-04, «Precios — decisiones» (a) y «Precios y reembolsos — respuestas…» (a) — solo `Double Rare` y `Rare Holo EX`
+se publican al piso (MX$25); el resto de premium sigue retenida `premium_at_floor`. **Sin schema, sin migración, sin
+endpoint nuevo.** El contrato cuadró con el código: no hubo nada que escalar al arquitecto.
+
+**1 · La regla, en un solo sitio (`common/pricing-curve.ts`).** `PremiumFloorPolicy`, `BUY_PREMIUM_FLOOR_POLICY`
+(`none`, congelada), `DEFAULT_SALE_PREMIUM_FLOOR_POLICY` (seed `only` DR/EX), `premiumFloorPublishes(policy, rareza)`
+(igualdad EXACTA de la canónica: un alias, un patrón o una cruda sin mapear con token `ex` **se retienen**),
+`validatePremiumFloorSalePublish` (el MISMO cuerpo para la puerta y la lectura) y `sanitizePremiumFloorSalePublish`
+(lectura money-safe: `undefined` ⇒ seed; inválido ⇒ `none` + problema; válido ⇒ copia). `premiumFloorGuard` y
+`resolvePendingReason` ganan `policy` **obligatorio**; `no_market` se decide antes de mirar la política.
+
+**2 · El dial.** `SettingKey.PREMIUM_FLOOR_SALE_PUBLISH = 'premium_floor_sale_publish'` en las cuatro estructuras de
+`settings.constants.ts`; DTO `premiumFloorSalePublish` en `GET/PUT /admin/settings` (auditado por `settings.update`).
+Validador: objeto con **exactamente** `{mode, rarities}` (una clave extra ⇒ 422 — decisión de backend, el contrato fija la
+forma exacta); `mode ∈ all|none|only`; `rarities` array de strings sin duplicados; vacío ⇔ `mode ≠ only`; con `only`,
+cada elemento es la `key` canónica de una rareza `premium:true` (alias como `doublerare` ⇒ 422: con comparación exacta no
+publicaría nada). Error ⇒ `422 VALIDATION_ERROR` con `details.errors.premiumFloorSalePublish: string`.
+Lector único: `PricingService.loadSalePremiumFloorPolicy()` (fila inválida ⇒ `none` + `logger.error [MONEY]`).
+
+**3 · ¿Cachea `SettingsService`? NO (medido, 2026-10-04).** `SettingsService.get()` hace un `findUnique` por llamada
+(`settings.service.ts:229-233`); no hay memo, `Map` ni TTL en `backend/src/modules/settings/` (`grep -i "cache|ttl"`: solo
+un comentario «no cacheable» del preview de IVA). `loadSalePremiumFloorPolicy` se llama por request/lote ⇒ **un `PUT` del
+dial rige desde la siguiente petición**. Lo que NO medí: cachés fuera del backend (CDN / `revalidate` del frontend sobre el
+catálogo) — no es mi carpeta.
+
+**4 · Quién pasa QUÉ política (candado PF-11, `test/pricing.premium-floor-sale.spec.ts`).**
+| Llamador | Política |
+|---|---|
+| `buylist.service.ts` (cotización/`createRequest` y vitrina de bounties) | `BUY_PREMIUM_FLOOR_POLICY` (⛔ no lee el dial) |
+| `variant-pricing.composeVariantPricing` | `buy` ⇒ `BUY_PREMIUM_FLOOR_POLICY`; `sell` ⇒ parámetro **obligatorio** `salePremiumFloorPolicy` |
+| `PricingService.decideSalePrice` | campo **obligatorio** `premiumFloorPolicy`; `computeSalePriceForItem` lo carga si no viene |
+| catálogo (`fetchSellable` iza una vez; uso single ⇒ seam), checkout auth/guest (`orders.salePriceOf` ⇒ seam), `inventory` (`PublishPricingCtx.premiumFloorPolicy`, izada por corrida en publish-all, cola «listas para publicar» y re-evaluación), binder (`master-set` consola y `resolveBuyables`), `price-ingest` (reconciliación), `admin-bounties`, `variant-controls`, barrido VQ | `loadSalePremiumFloorPolicy()` una vez por request/lote |
+
+`composeVariantPricing`: el parámetro `rarityCanonical` pierde su default `= null` (no se puede poner un obligatorio
+detrás de uno con default). Ningún llamador de `src/` dependía del default; los de pruebas pasan `null` explícito.
+
+**5 · Barrido VQ, rama nueva.** `sweepUnreasonedSaleQueue()` lee la política UNA vez y devuelve
+`{ closed, kept, premiumFloorClosed }` (campo nuevo; antes `{closed, kept}`). Rama nueva: filas `open ∧ inventory ∧
+premium_at_floor` con `card.rarityCanonical ?? card.rarity`; cierra las que `premiumFloorPublishes` publica, sin casar
+piezas; `none` ⇒ no-op sin consultar. Escritura en `PricingService.closeStalePremiumFloorSaleRows(ids)` (repite
+`status/context/reason` en el `where`; `resolvedPriceRefId = null`). VQ-5: escrituras crudas de la cola en
+`pricing.service.ts` 5 → **6**. Log con el mismo tope `VQ_SWEEP_LOG_ID_CAP`.
+
+**6 · Pruebas.** Nuevas: `test/pricing.premium-floor-sale.spec.ts` (PF-1, PF-2, PF-3 cotización, PF-6, PF-8 puerta +
+loader + `SettingsService.update`, PF-9, PF-11 con canario) y `test/integration/premium-floor-sale.e2e-spec.ts` (PF-3 con
+`createRequest`, PF-7 catálogo + `stockCount` + checkout auth y guest con seed y con `none`, PF-8 por HTTP con bitácora,
+PF-10 escenario del dueño + 2.ª corrida no-op). PF-4 en `inventory.publish-all.spec.ts` (su harness ahora respeta el `OR`
+por eje de `closePendingForVariant`; sin eso la fila de COMPRA se cerraba en el doble), PF-5 en
+`price-ingest.service.spec.ts`. Las 12 que cambian, parametrizadas (`none` conserva la aserción original): `pricing-curve.spec`,
+`pricing.premium-floor-guard`, `inventory.bulk-publish-escalate` (+DR seed/none), `inventory.publish-all` (+PF-4),
+`price-ingest.service` (+PF-5), `master-set.scopes` (+DR en el binder seed/none), `pricing.pending-close-scope`,
+`pricing.vq-sale-queue` (VQ-8 con `none`; forma `premiumFloorClosed`), `sale-queue-vq.e2e` (VQ-9 con `none`, restaura el
+dial), `pricing-visibility.e2e` (+DR publicada al piso con el seed), `pricing.bounty-cap` (firma), comentarios de
+`seed-e2e.ts`/`e2e-fixtures.ts` (`floorpremium` es `Secret Rare` ⇒ sigue retenida con el seed). ⛔ Ninguna aserción de
+COMPRA cambió de valor. Además ~35 specs con dobles de `PricingService` ganaron `loadSalePremiumFloorPolicy` (seed) en el
+mock — solo forma del doble, ninguna aserción.
+
+**Mediciones (autor: backend, 2026-10-04; todas deterministas ⇒ N=1 por corrida):**
+| Medición | Resultado |
+|---|---|
+| `tsc --noEmit` / `eslint` de los ficheros tocados | limpio / limpio |
+| Unitaria completa, base `9f08cd64` (copia del árbol entero) | 383/384 suites, 6443/6444 — la roja es `enum-values-parity` (`MovementReason`: el contrato ya trae `refund_release` de v1.80.8.6 y el schema no) |
+| Unitaria completa, este cambio | 384/385 suites, 6500/6501 — la MISMA roja preexistente, ninguna otra |
+| Integración completa (BD propia `tcg_pf580`, Postgres/Redis compartidos) | 69/70 suites, 1464/1465: la roja era PF-3 (`BUYLIST_MINIMUM_NOT_MET`, fixture sin línea sana); corregido el fixture ⇒ PF-e2e + VQ-9 + pricing-visibility **47/47** |
+| Mutaciones unitarias (copia del árbol entero) | **21/21 muerden** (en la 1.ª pasada «sin fila ⇒ `all`» SOBREVIVIÓ: en producción `getRaw` nunca devuelve `undefined` — cae a `SETTING_DEFAULTS` —, así que esa rama solo la ejercía un doble; se añadió la prueba pura de `sanitize…` y se re-midió roja, junto con la mutación de `SETTING_DEFAULTS`): guard ignora `policy`; `only`≡`all`; `policy` antes que `pending`; sin fila ⇒ `all`; basura ⇒ `all`; `SETTING_DEFAULTS` ⇒ `all`; seed sin `Rare Holo EX`; comparación por patrón; seam con `none` fijo; compra lee el dial; cierre sin eje; ctx de inventory sin política; `price-ingest` sin política; `where` sin `context/reason`; cerrar sin mirar la rareza; barrido sin rama nueva; validador acepta no-premium; validador acepta `only` vacío; `sellGuarded` sin política; `buyGuarded` con el dial; canario literal en `decideSalePrice` |
+| Mutaciones de integración (copia, BD `tcg_pf580_mut`; control sin mutar 21/21 verde) | **5/5 muerden**: checkout sin política; catálogo sin política; compra lee el dial; barrido sin rama nueva; barrido sin mirar la rareza |
+
+**Lo que NO medí:** el número real de filas DR/EX vs otras premium en la cola de producción (la consulta de
+`ARCHITECTURE §4.36.5 (c-ter)` la corre el orquestador); el frontend (control de M10).

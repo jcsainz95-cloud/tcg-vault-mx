@@ -233,6 +233,8 @@ export class AdminBountiesService {
   private async classify(rows: ScopedRow[]): Promise<ClassifiedRow[]> {
     if (rows.length === 0) return [];
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada una vez como la curva (solo afecta a `sell`).
+    const salePremiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const refs = await this.pricing.getReferencesBatch(
       rows.map((r) => ({
         cardId: r.cardId,
@@ -258,6 +260,7 @@ export class AdminBountiesService {
         curve,
         row,
         row.card.rarityCanonical ?? row.card.rarity,
+        salePremiumFloorPolicy,
       );
       // El composer incluye SIEMPRE el bloque `bounty` cuando hay fila M-30, y aquí SIEMPRE la hay
       // (el predicado de alcance selecciona filas M-30). Si algún día dejara de cumplirlo, esto

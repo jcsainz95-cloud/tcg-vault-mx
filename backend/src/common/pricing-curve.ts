@@ -30,7 +30,7 @@
  * `rarityCanonical`, `tier` ni `finish`. La rareza solo entra a `premiumFloorGuard`, que devuelve un
  * VEREDICTO booleano de publicación/cotización — nunca un monto (§4.36.4/§4.36.5d).
  */
-import { isPremiumCanonicalRarity } from './rarity-catalog';
+import { CANONICAL_RARITIES, isPremiumCanonicalRarity } from './rarity-catalog';
 
 /**
  * `ROUND_HALF_UP` de §4.36.1: **medio ALEJANDOSE DE CERO**. Sobre valores `>= 0` (el unico caso que
@@ -553,18 +553,146 @@ export function explainBuyFromCurve(marketMxnCents: number | null, curve: Pricin
 
 export type GuardVerdict = 'ok' | 'premium_at_floor';
 
+// ----------------------------------------------------------------------------
+// v1.80.8.5 (API_CONTRACT §M2 `M2-PF`, ARCHITECTURE §4.36.5 c-ter, MONEY) — EL DIAL DE VENTA.
+// Decisión del dueño (HECHOS 2026-10-04, «Precios — decisiones» (a) y «Precios y reembolsos —
+// respuestas…» (a)): en VENTA, una premium CON dato de mercado que cae al piso SE PUBLICA al piso, pero
+// SOLO si su rareza canónica está en la lista del dial (seed: `Double Rare` + `Rare Holo EX`). Las
+// demás premium siguen retenidas `premium_at_floor`. La COMPRA no tiene dial: constante de código.
+// ----------------------------------------------------------------------------
+
+/** Modos del dial `premiumFloorSalePublish` (contrato §M2 `M2-PF`). */
+export const PREMIUM_FLOOR_POLICY_MODES = ['all', 'none', 'only'] as const;
+export type PremiumFloorPolicyMode = (typeof PREMIUM_FLOOR_POLICY_MODES)[number];
+
+/**
+ * Política del guardarraíl «premium en el piso». `rarities` solo cuenta con `mode:'only'`, y se compara
+ * por IGUALDAD EXACTA de string canónico (⛔ ni patrón, ni alias, ni comodín).
+ */
+export type PremiumFloorPolicy = { mode: PremiumFloorPolicyMode; rarities: readonly string[] };
+
+/**
+ * COMPRA no tiene dial: el bin de una chase sigue sin cotizarse (PROJECT §N.5, eje compra intacto).
+ * ⛔ Ningún llamador de compra lee `premium_floor_sale_publish` (candado PF-11).
+ */
+export const BUY_PREMIUM_FLOOR_POLICY: PremiumFloorPolicy = Object.freeze({
+  mode: 'none',
+  rarities: Object.freeze([]) as readonly string[],
+}) as PremiumFloorPolicy;
+
+/**
+ * Seed del dial de VENTA y valor cuando la fila NO existe: la respuesta del dueño a P-PRE-2 («solo ex y
+ * double rare»). Las dos son las canónicas `premium:true` de `rarity-catalog.ts` (`Double Rare`,
+ * `Rare Holo EX` — la única canónica con «ex»).
+ */
+export const DEFAULT_SALE_PREMIUM_FLOOR_POLICY: PremiumFloorPolicy = Object.freeze({
+  mode: 'only',
+  rarities: Object.freeze(['Double Rare', 'Rare Holo EX']) as readonly string[],
+}) as PremiumFloorPolicy;
+
+/** Valor de una fila corrupta (no pasa el validador): la dirección CONSERVADORA — retener todo. */
+export const FAILSAFE_SALE_PREMIUM_FLOOR_POLICY: PremiumFloorPolicy = Object.freeze({
+  mode: 'none',
+  rarities: Object.freeze([]) as readonly string[],
+}) as PremiumFloorPolicy;
+
+/**
+ * ¿Esta rareza, en el piso, se PUBLICA? **ÚNICO cuerpo**: lo usan el guardarraíl y el barrido VQ.
+ * - `'all'` ⇒ `true` · `'none'` ⇒ `false`
+ * - `'only'` ⇒ `rarityCanonical != null && rarities.includes(rarityCanonical)` — igualdad EXACTA del
+ *   string canónico: una premium «solo por patrón» (cruda sin mapear con token `ex`) NO está en la
+ *   lista ⇒ se RETIENE (dirección conservadora; el remedio es mapearla a una canónica).
+ */
+export function premiumFloorPublishes(policy: PremiumFloorPolicy, rarityCanonical: string | null): boolean {
+  switch (policy.mode) {
+    case 'all':
+      return true;
+    case 'none':
+      return false;
+    case 'only':
+      return rarityCanonical != null && policy.rarities.includes(rarityCanonical);
+    default:
+      // Un modo desconocido (objeto casteado) no publica nada: conservador.
+      return false;
+  }
+}
+
+/**
+ * Validador de PUERTA del dial (`SETTING_VALIDATORS`) y de LECTURA (`loadSalePremiumFloorPolicy`): un
+ * solo cuerpo, así la puerta y el loader no pueden discrepar sobre qué es válido. Devuelve el mensaje
+ * del `422` o `null`.
+ * - forma EXACTA `{ mode, rarities }` (sin claves extra); `mode` del enum;
+ * - `rarities` array de strings sin duplicados; **vacío ⇔ `mode ≠ 'only'`**;
+ * - con `'only'`, cada elemento es la `key` CANÓNICA de una rareza `premium:true` (un alias, una
+ *   no-premium o un typo se rechazan: con comparación exacta, no publicarían nada en silencio).
+ */
+export function validatePremiumFloorSalePublish(v: unknown): string | null {
+  if (v == null || typeof v !== 'object' || Array.isArray(v)) {
+    return 'must be an object { mode, rarities }';
+  }
+  const o = v as Record<string, unknown>;
+  const extra = Object.keys(o).filter((k) => k !== 'mode' && k !== 'rarities');
+  if (extra.length > 0) return `unknown field(s): ${extra.join(', ')}`;
+  if (typeof o.mode !== 'string' || !(PREMIUM_FLOOR_POLICY_MODES as readonly string[]).includes(o.mode)) {
+    return `mode must be one of ${PREMIUM_FLOOR_POLICY_MODES.join('|')}`;
+  }
+  if (!Array.isArray(o.rarities) || !o.rarities.every((r) => typeof r === 'string')) {
+    return 'rarities must be an array of strings';
+  }
+  const rarities = o.rarities as string[];
+  if (new Set(rarities).size !== rarities.length) return 'rarities must not contain duplicates';
+  if (o.mode === 'only') {
+    if (rarities.length === 0) return "rarities must not be empty when mode is 'only'";
+    const bad = rarities.filter(
+      (r) => !CANONICAL_RARITIES.some((c) => c.key === r && c.premium) || !isPremiumCanonicalRarity(r),
+    );
+    if (bad.length > 0) {
+      return `rarities must be canonical PREMIUM rarities (GET /admin/pricing/rarities); invalid: ${bad.join(', ')}`;
+    }
+  } else if (rarities.length > 0) {
+    return `rarities must be empty when mode is '${o.mode}'`;
+  }
+  return null;
+}
+
+/**
+ * Lectura money-safe del dial (mismo patrón que `sanitizePricingCurve`): `undefined` (sin fila) ⇒ el
+ * seed; un valor que NO pasa `validatePremiumFloorSalePublish` ⇒ `FAILSAFE` (`none`: retener todo) +
+ * `problem` para que el lector lo grite; uno válido ⇒ una COPIA (el llamador no puede mutar la fila).
+ */
+export function sanitizePremiumFloorSalePublish(raw: unknown): {
+  policy: PremiumFloorPolicy;
+  problem: string | null;
+} {
+  if (raw === undefined) return { policy: DEFAULT_SALE_PREMIUM_FLOOR_POLICY, problem: null };
+  const problem = validatePremiumFloorSalePublish(raw);
+  if (problem != null) return { policy: FAILSAFE_SALE_PREMIUM_FLOOR_POLICY, problem };
+  const v = raw as PremiumFloorPolicy;
+  return { policy: { mode: v.mode, rarities: [...v.rarities] }, problem: null };
+}
+
 /**
  * Una carta de rareza canónica `premium` que aterriza en el PISO (venta) o en el BIN (compra) NO se
- * publica ni se cotiza: su dato de mercado está mal (ausente, aplanado o absurdo). Convierte un error
- * de dinero silencioso en una COLA VISIBLE (≈3 de 333 cartas de un master set).
+ * publica ni se cotiza —salvo que la `policy` del eje la publique (v1.80.8.5: solo VENTA tiene dial;
+ * COMPRA pasa `BUY_PREMIUM_FLOOR_POLICY`, que no publica nada)—: su dato de mercado está mal (ausente,
+ * aplanado o absurdo). Convierte un error de dinero silencioso en una COLA VISIBLE.
  *
  * NO dispara con `basis ∈ {market, override, bounty}`: un override manual o un bounty son decisiones
  * DELIBERADAS del admin y no se corrigen (§4.36.6). Con `pending` no hace falta (ya no se publica).
  *
  * NO fija ningún monto — solo decide publicar/no publicar y cotizar/no cotizar (§4.36.5d).
+ * ⚠️ `policy` es OBLIGATORIO (sin default): el compilador encuentra a todo llamador.
  */
-export function premiumFloorGuard(rarityCanonical: string | null, basis: PriceBasis): GuardVerdict {
-  return basis === 'floor' && isPremiumCanonicalRarity(rarityCanonical) ? 'premium_at_floor' : 'ok';
+export function premiumFloorGuard(
+  rarityCanonical: string | null,
+  basis: PriceBasis,
+  policy: PremiumFloorPolicy,
+): GuardVerdict {
+  return basis === 'floor' &&
+    isPremiumCanonicalRarity(rarityCanonical) &&
+    !premiumFloorPublishes(policy, rarityCanonical)
+    ? 'premium_at_floor'
+    : 'ok';
 }
 
 /**
@@ -589,9 +717,14 @@ export type PendingReason = 'no_market' | 'premium_at_floor';
  * Distinguir las dos razones es lo que hace TRIABLE la cola: `no_market` la cura sola el barrido;
  * `premium_at_floor` necesita que el dueño mire.
  */
-export function resolvePendingReason(basis: PriceBasis, rarityCanonical: string | null): PendingReason | null {
+export function resolvePendingReason(
+  basis: PriceBasis,
+  rarityCanonical: string | null,
+  policy: PremiumFloorPolicy,
+): PendingReason | null {
+  // `no_market` ANTES de mirar la política: el dial NO toca `no_market` (contrato §M2 `M2-PF`).
   if (basis === 'pending') return 'no_market';
-  return premiumFloorGuard(rarityCanonical, basis) === 'premium_at_floor' ? 'premium_at_floor' : null;
+  return premiumFloorGuard(rarityCanonical, basis, policy) === 'premium_at_floor' ? 'premium_at_floor' : null;
 }
 
 // ============================================================================

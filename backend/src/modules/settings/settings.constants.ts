@@ -33,7 +33,12 @@ import {
 // v2.0 (P-48, §4.36.2): la CURVA vive en `common/` (zona compartida, sin infra) para que el seed, las
 // migraciones y los tests la compartan con el runtime. Aquí solo se declara su KEY, su DEFAULT y su
 // validador de puerta; la matemática y los invariantes V1–V8 NO se duplican.
-import { DEFAULT_PRICING_CURVE, validatePricingCurve } from '../../common/pricing-curve';
+import {
+  DEFAULT_PRICING_CURVE,
+  DEFAULT_SALE_PREMIUM_FLOOR_POLICY,
+  validatePremiumFloorSalePublish,
+  validatePricingCurve,
+} from '../../common/pricing-curve';
 // v1.63 (§M2-F.1, §4.43c): la regla de resolución del MODO de la FX vive en `common/` (mismo motivo
 // que la curva: la comparten `FxService` y este módulo, y `FxService` ya depende de éste). Aquí solo
 // se declaran su KEY, su DEFAULT (el sentinel) y su validador de puerta.
@@ -131,6 +136,12 @@ export const SettingKey = {
   // Editable SOLO por `GET/PUT /admin/pricing/curve` (como los spreads del sellado): NO se expone en
   // `SETTING_DTO_MAP`, así que `PUT /admin/settings` no la toca.
   PRICING_CURVE: 'pricing_curve',
+  // ⭐ v1.80.8.5 (API_CONTRACT §M2 `M2-PF`, ARCHITECTURE §4.36.5 c-ter, MONEY) — el dial del guardarraíl
+  // «premium en el piso» del eje de VENTA: `{ mode: 'all'|'none'|'only', rarities }`. Seed y valor sin
+  // fila = `{ mode:'only', rarities:['Double Rare','Rare Holo EX'] }` (decisión del dueño, HECHOS
+  // 2026-10-04). Se expone en `GET/PUT /admin/settings` (`premiumFloorSalePublish`). ⛔ La COMPRA no lo
+  // lee: usa la constante `BUY_PREMIUM_FLOOR_POLICY`. Lector único: `PricingService.loadSalePremiumFloorPolicy`.
+  PREMIUM_FLOOR_SALE_PUBLISH: 'premium_floor_sale_publish',
   // v1.23-sealed-sales (§4.23c): spreads de VENTA del SELLADO por presentación + fallback global.
   // Mecanismo INDEPENDIENTE de la curva de precios (v2.0, §4.36): el sellado no interpola, usa
   // `pct` = markup ARRIBA de mercado por SealedSubtype (NO % de la referencia como en buylist).
@@ -361,6 +372,12 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // negocio NO está en vivo, así que no hay comportamiento que preservar. Son DIALES: el súper-admin los
   // mueve desde M2 sin redeploy (el upsert del seed no pisa un valor ya editado).
   [SettingKey.PRICING_CURVE]: DEFAULT_PRICING_CURVE,
+  // v1.80.8.5 (`M2-PF`): seed = respuesta del dueño a P-PRE-2 («solo ex y double rare»). Copia mutable
+  // (el `upsert` del seed y el DTO serializan el objeto; la constante de `common/` está congelada).
+  [SettingKey.PREMIUM_FLOOR_SALE_PUBLISH]: {
+    mode: DEFAULT_SALE_PREMIUM_FLOOR_POLICY.mode,
+    rarities: [...DEFAULT_SALE_PREMIUM_FLOOR_POLICY.rarities],
+  },
   // v1.23-sealed-sales (§4.23c, SUP-6): seed confirmado por el PO — markup % arriba de mercado por
   // presentación (ítems chicos → % mayor) y fallback global 25 para piezas sin subtype o subtype
   // sin regla. Editables en M2 (GET/PUT /admin/pricing/sealed-spreads).
@@ -1003,6 +1020,8 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // v2.0 (P-48, §4.36.3): la CURVA. Editable SOLO por PUT /admin/pricing/curve (no está en
   // SETTING_DTO_MAP), pero se valida igual en esta puerta: V1–V8 money-safe, sin excepción.
   [SettingKey.PRICING_CURVE]: validatePricingCurveSetting,
+  // v1.80.8.5 (`M2-PF`): MISMO validador que aplica el loader en lectura (fila inválida ⇒ `none` + log).
+  [SettingKey.PREMIUM_FLOOR_SALE_PUBLISH]: validatePremiumFloorSalePublish,
   // v1.23-sealed-sales (§4.23c/§4.23h): spreads del sellado (editados por M2, no por PUT settings,
   // pero se validan igual) + feature flags on|off.
   [SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE]: validateSealedSpreads,
@@ -1109,6 +1128,8 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,
   operatorRefundCap24hCents: SettingKey.OPERATOR_REFUND_CAP_24H_CENTS,
   caseRefundHardMultiplier: SettingKey.CASE_REFUND_HARD_MULTIPLIER,
+  // v1.80.8.5 (`M2-PF`, MONEY): el dial de VENTA «premium en el piso» — editable sin redeploy, auditado.
+  premiumFloorSalePublish: SettingKey.PREMIUM_FLOOR_SALE_PUBLISH,
   // v1.51 (M-46, §M10): los DIEZ diales del ciclo de adquisición del buylist. Se exponen en el GET y
   // se editan por este PUT (mismo patrón que el resto de `ConfigSetting`): sin redeploy y auditados.
   // ⚠️ NO se expone ninguno de los DOS retirados (`buylistShippingThresholdCents` de D31 y el

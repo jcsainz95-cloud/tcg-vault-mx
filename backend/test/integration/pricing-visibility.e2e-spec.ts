@@ -266,6 +266,79 @@ describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra ba
       expect(found).toBeUndefined();
     });
 
+    /**
+     * v1.80.8.5 (API_CONTRACT §M2 `M2-PF`) — el caso de arriba sigue reteniendo porque `floorpremium` es
+     * `Rare Secret` (⇒ `Secret Rare`), que el seed del dial NO publica. El caso que GANA: una `Double
+     * Rare` con el MISMO mercado absurdo, con el seed, SE PUBLICA al piso (MX$25) en la rejilla.
+     */
+    it('M2-PF: una `Double Rare` en el piso, con el seed del dial, SÍ se publica al piso', async () => {
+      const SET = 'e2e-pv-pf-set';
+      const id = 'e2e-pv-pf-dr';
+      const name = 'E2E PV DR Floor';
+      const clean = async () => {
+        await h.prisma.inventoryItem.deleteMany({ where: { cardId: id } });
+        await h.prisma.priceReference.deleteMany({ where: { cardId: id } });
+        await h.prisma.card.deleteMany({ where: { id } });
+        await h.prisma.cardSet.deleteMany({ where: { id: SET } });
+      };
+      const dialRow = await h.prisma.configSetting.findUnique({ where: { key: 'premium_floor_sale_publish' } });
+      await clean();
+      try {
+        await h.prisma.configSetting.deleteMany({ where: { key: 'premium_floor_sale_publish' } }); // ⇒ seed
+        await h.prisma.cardSet.create({ data: { id: SET, externalId: SET, name: 'E2E PV PF' } });
+        await h.prisma.card.create({
+          data: {
+            id,
+            externalId: id,
+            setId: SET,
+            name,
+            number: '1',
+            rarity: 'Double Rare',
+            rarityCanonical: 'Double Rare',
+            availableFinishes: ['normal'],
+          },
+        });
+        await h.prisma.priceReference.create({
+          data: {
+            cardId: id,
+            productType: 'raw',
+            gradeKey: 'raw:NM',
+            finish: 'normal',
+            source: 'manual',
+            priceMxnCents: E2E_CARDS.floorpremium.refNmCents!,
+            capturedDate: new Date('2026-10-04T00:00:00.000Z'),
+            isManualOverride: true,
+            refKind: 'market',
+          },
+        });
+        await h.prisma.inventoryItem.create({
+          data: {
+            folio: 'E2E-PV-PF-DR',
+            cardId: id,
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: 'normal',
+            acquisitionType: 'compra',
+            ownerType: 'platform',
+            status: 'listed',
+          } as never,
+        });
+        const res = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(name)}&pageSize=20`);
+        expect(res.status).toBe(200);
+        const found = res.body.data.find((g: { card: { name: string } }) => g.card.name === name);
+        expect(found?.displayPriceCents).toBe(P(DEFAULT_PRICING_CURVE.sale.floorCents));
+      } finally {
+        await clean();
+        if (dialRow) {
+          await h.prisma.configSetting.upsert({
+            where: { key: 'premium_floor_sale_publish' },
+            create: { key: 'premium_floor_sale_publish', valueJson: dialRow.valueJson as object },
+            update: { valueJson: dialRow.valueJson as object },
+          });
+        }
+      }
+    });
+
     it('S48-M1 en vivo: cotizar esa carta en COMPRA no apaga el aviso del eje de VENTA', async () => {
       const card = await h.prisma.card.findUnique({ where: { externalId: E2E_CARDS.floorpremium.externalId } });
       // El eje de COMPRA resuelve (300c > bin 100c), así que su cotización pública es legítima…

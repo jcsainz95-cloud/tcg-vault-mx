@@ -6,7 +6,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { buildGradeKey, tryBuildGradeKey } from '../src/modules/pricing/pricing.types';
 import { ConfigService } from '@nestjs/config';
 import { ivaDialsStub } from './helpers/iva-dials';
@@ -132,6 +132,7 @@ function masterSetPrisma(setRows: any[], binderSet?: any): PrismaService {
 
 function masterSetPricing(): PricingService {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReferencesBatch: jest.fn(async () => new Map()),
@@ -329,6 +330,7 @@ function buylistSvc(prisma: any) {
     {
       gradeKeyFor: (i: any) => buildGradeKey(i),
       tryGradeKeyFor: (i: any) => tryBuildGradeKey(i),
+      loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       getReferencesBatch: jest.fn(async () => new Map()),
@@ -378,6 +380,7 @@ function storefrontPricing(): PricingService {
     tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),

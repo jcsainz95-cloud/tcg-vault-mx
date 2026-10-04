@@ -25,7 +25,7 @@ import {
   sealedPriceBasisOf,
 } from '../../common/money';
 import type { IvaDials } from '../../common/money';
-import { PricingCurve } from '../../common/pricing-curve';
+import { PremiumFloorPolicy, PricingCurve } from '../../common/pricing-curve';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
@@ -156,6 +156,8 @@ interface ListingCtx {
   reference?: PriceInfo;
   // v2.0 (P-48, §4.36.2): la CURVA izada una vez por request (BE-25) — sustituye a `salesRules`.
   curve?: PricingCurve;
+  // v1.80.8.5 (`M2-PF`, MONEY): la política del guardarraíl de VENTA, izada una vez junto a la curva.
+  premiumFloorPolicy?: PremiumFloorPolicy;
   // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
   // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
   sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
@@ -687,6 +689,8 @@ export class CatalogService {
     if (items.length === 0) return [];
 
     const curve = await this.pricing.loadPricingCurve();
+    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por request (como la curva).
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (pago mínimo BE-25).
     const sealedSpreads = await this.pricing.loadSealedSpreads();
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
@@ -731,6 +735,7 @@ export class CatalogService {
       const { dto, listPriceCents } = await this.toListingRow(item, {
         reference,
         curve,
+        premiumFloorPolicy,
         sealedSpreads,
         pricedFinishes: pricedByCard.get(item.cardId),
         variantOverride:
@@ -905,8 +910,14 @@ export class CatalogService {
           rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
           controls: variantOverride,
         };
+        // v1.80.8.5 (`M2-PF`): la política viaja con la curva; si un contexto de lote no la trajera, se
+        // LEE (jamás se asume): el veredicto es el mismo que el del checkout.
         const sale = ctx?.curve
-          ? this.pricing.decideSalePrice({ ...decision, curve: ctx.curve })
+          ? this.pricing.decideSalePrice({
+              ...decision,
+              curve: ctx.curve,
+              premiumFloorPolicy: ctx.premiumFloorPolicy ?? (await this.pricing.loadSalePremiumFloorPolicy()),
+            })
           : await this.pricing.computeSalePriceForItem(decision);
         if (sale.priceCents != null) {
           salePriceCents = sale.priceCents;

@@ -9,7 +9,7 @@ import {
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { BulkPublishRequest } from '../src/modules/inventory/dto/inventory.dto';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 
 /**
  * v1.26 (④, §M1) — PUBLICAR SIEMPRE CON PRECIO: la variante priceless ESCALA a la cola de
@@ -123,6 +123,7 @@ function buildHarness() {
   );
   // Stubs de acceso a datos izados una vez por bulkPublish (el resto de métodos corre REAL).
   jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
+  jest.spyOn(pricing, 'loadSalePremiumFloorPolicy').mockResolvedValue(DEFAULT_SALE_PREMIUM_FLOOR_POLICY);
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({
     spreadPctBySubtype: {},
     fallbackPct: 25,
@@ -302,6 +303,34 @@ describe('bulkPublish — E4-bis: una pieza YA `listed` se RE-RESUELVE (§4.36.5
     expect(h.pendingStore[0]).toMatchObject({ context: 'inventory', reason: 'premium_at_floor' });
     // Escalar NO le cambia el status (§4.36.5b-bis decisión 3).
     expect(h.items[0].status).toBe('listed');
+  });
+
+  /**
+   * v1.80.8.5 (API_CONTRACT §M2 `M2-PF`) — el guardarraíl de VENTA se parametriza por el dial. Con el
+   * seed (`only` Double Rare / Rare Holo EX) una `Double Rare` en el piso SE PUBLICA al piso y no
+   * escala; con `none` se retiene igual que la Illustration Rare de arriba (que el seed tampoco publica).
+   */
+  it('M2-PF · seed: `Double Rare` `listed` en el piso ⇒ ok:true (al piso), SIN fila; con `none` ⇒ PRICE_PENDING premium_at_floor', async () => {
+    for (const [policy, expectOk] of [
+      [DEFAULT_SALE_PREMIUM_FLOOR_POLICY, true],
+      [{ mode: 'none' as const, rarities: [] }, false],
+    ] as const) {
+      const h = buildHarness();
+      (h.pricing.loadSalePremiumFloorPolicy as jest.Mock).mockResolvedValue(policy);
+      h.items.push(rawItem({ status: 'listed', card: { rarity: 'Double Rare', rarityCanonical: 'Double Rare' } }));
+      h.refsBatch.mockResolvedValue(
+        new Map([['c1|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 1000 } as any]]),
+      );
+      const res = await h.svc.bulkPublish(publish('i1'), 'admin');
+      if (expectOk) {
+        expect(res.results[0]).toMatchObject({ ok: true, status: 'listed', priceSource: 'derived' });
+        expect(h.pendingStore).toHaveLength(0);
+      } else {
+        expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'PRICE_PENDING' } });
+        expect(h.pendingStore[0]).toMatchObject({ context: 'inventory', reason: 'premium_at_floor' });
+      }
+      expect(h.items[0].status).toBe('listed');
+    }
   });
 
   it('RECÍPROCO — `listed` SANA ⇒ ok:true (no-op idempotente), sin escalar', async () => {

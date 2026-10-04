@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../modules/pricing/pricing.service';
 import { saleQueueKeyOf, serializeSaleQueueKey } from '../modules/pricing/sale-queue-key';
 import { hasManualPrice } from '../common/money';
+import { PremiumFloorPolicy, premiumFloorPublishes } from '../common/pricing-curve';
 
 /** Tope de ids que el log del barrido VQ enumera (techlead D-6): el resto se resume con un conteo. */
 export const VQ_SWEEP_LOG_ID_CAP = 20;
@@ -18,6 +19,10 @@ export const VQ_SWEEP_LOG_ID_CAP = 20;
  * piezas de clientes y vendidas— y eso era el «SIN MOTIVO» de la cola de VENTA. Ahora: (1) telemetría
  * del job en log; (2) al final de una corrida COMPLETA, el **barrido VQ** cierra las filas
  * `reason IS NULL` de VENTA que ninguna pieza vendible de plataforma necesita.
+ *
+ * ⭐ v1.80.8.5 (API_CONTRACT §M2 `M2-PF`, ARCHITECTURE §4.36.5 c-ter): el barrido gana una rama —
+ * cierra las filas `premium_at_floor` de VENTA cuya rareza el dial `premium_floor_sale_publish` publica
+ * (para esas rarezas ningún escritor de VENTA produce ya ese motivo, así que la fila es obsoleta).
  *
  * Nota: la programación repetible vive en BullMQ (ver JOBS en BACKEND_NOTES); aquí está la lógica
  * ejecutable, invocable desde el endpoint admin y desde el scheduler. Secuencial por el rate-limit.
@@ -123,7 +128,49 @@ export class PriceSyncJobService {
    *
    * Uso de la llave de COLA (`tryGradeKeyFor`), no de patrimonio (SK-5 intacto).
    */
-  async sweepUnreasonedSaleQueue(): Promise<{ closed: number; kept: number }> {
+  async sweepUnreasonedSaleQueue(): Promise<{ closed: number; kept: number; premiumFloorClosed: number }> {
+    // v1.80.8.5 (`M2-PF`): la política se lee UNA vez, al empezar.
+    const policy = await this.pricing.loadSalePremiumFloorPolicy();
+    const { closed, kept } = await this.sweepUnreasonedRows();
+    const premiumFloorClosed = await this.sweepStalePremiumFloorRows(policy);
+    return { closed, kept, premiumFloorClosed };
+  }
+
+  /**
+   * v1.80.8.5 (`M2-PF`) — **rama nueva del barrido VQ.** Toma las filas `open`, `context='inventory'`,
+   * `reason='premium_at_floor'` con la rareza de su carta (`Card.rarityCanonical ?? Card.rarity`, la
+   * misma expresión que pasan los seams) y CIERRA las que `premiumFloorPublishes(policy, rareza)` publica
+   * —sin casar piezas—. Las demás se DEJAN. Con `mode:'none'` ⇒ no-op. ⛔ No toca `context='buylist'`
+   * ni otros motivos (lo repite el `where` de la escritura, en `PricingService`).
+   *
+   * Carrera aceptada (contrato): si el dial cambia entre esta lectura y la escritura, se puede cerrar una
+   * fila recién abierta; la reabre el siguiente escritor. Higiene de cola, no dinero.
+   */
+  private async sweepStalePremiumFloorRows(
+    policy: PremiumFloorPolicy,
+  ): Promise<number> {
+    if (policy.mode === 'none') return 0;
+    const rows = await this.prisma.pendingPriceEntry.findMany({
+      where: { status: 'open', context: 'inventory', reason: 'premium_at_floor' },
+      select: { id: true, card: { select: { rarity: true, rarityCanonical: true } } },
+    });
+    const toClose = rows
+      .filter((r) => premiumFloorPublishes(policy, r.card.rarityCanonical ?? r.card.rarity))
+      .map((r) => r.id);
+    if (toClose.length === 0) return 0;
+    const closed = await this.pricing.closeStalePremiumFloorSaleRows(toClose);
+    const shown = toClose.slice(0, VQ_SWEEP_LOG_ID_CAP).join(', ');
+    const rest = toClose.length - VQ_SWEEP_LOG_ID_CAP;
+    this.logger.log(
+      `price-sync · barrido VQ: ${closed} fila(s) «premium en el piso» de VENTA cerradas (su rareza ` +
+        `se publica al piso según premium_floor_sale_publish=${policy.mode}): ${shown}` +
+        (rest > 0 ? ` … (+${rest} más)` : ''),
+    );
+    return closed;
+  }
+
+  /** v1.80.8.4 — rama original del barrido: filas `reason IS NULL` de VENTA sin pieza vendible. */
+  private async sweepUnreasonedRows(): Promise<{ closed: number; kept: number }> {
     const rows = await this.prisma.pendingPriceEntry.findMany({
       where: { status: 'open', context: 'inventory', reason: null },
       select: {

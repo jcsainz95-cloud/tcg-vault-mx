@@ -15,6 +15,9 @@ import { bountyGuardBasis, quoteAcquisitionWithGuard, VariantPriceControls } fro
 import { variantKey } from '../src/common/variant-key';
 import { stripComments } from './helpers/strip-comments';
 import { callArgCounts, countIdentUses, identCensus, methodBody, topLevelBody } from './helpers/ident-census';
+import { DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
+// v1.80.8.5 (`M2-PF`): el composer exige la política de VENTA; aquí, el seed del dial (sin fila).
+const SALE_SEED = DEFAULT_SALE_PREMIUM_FLOOR_POLICY;
 
 /**
  * v1.80.2 — EL TOPE DEL BOUNTY NO SE SALTA EL GUARDARRAÍL PREMIUM (API_CONTRACT §M2-B.11 punto 8,
@@ -193,13 +196,13 @@ const priced = (cents: number) => ({ status: 'priced', referenceMxnCents: cents 
 describe('BG-6 (consola, sin infra) — fila retenida', () => {
   it('chase topada contra el bin ⇒ source pending, effective null, premiumAtFloor, payout null, capped false, state activa', () => {
     expect(curveBasis(100)).toBe('floor');
-    const dto = composeVariantPricing(priced(100), CURVE, m30(), CHASE);
+    const dto = composeVariantPricing(priced(100), CURVE, m30(), CHASE, SALE_SEED);
     expect(dto.buy).toMatchObject({ source: 'pending', effectiveCents: null, premiumAtFloor: true });
     expect(dto.bounty).toMatchObject({ effective: true, payoutCents: null, cappedByMarket: false });
     expect(deriveBountyState(dto.bounty!, null)).toBe('activa');
   });
   it('canario de no-vaciar: la MISMA fila no premium sigue pagando 100 topado', () => {
-    const dto = composeVariantPricing(priced(100), CURVE, m30(), BULK);
+    const dto = composeVariantPricing(priced(100), CURVE, m30(), BULK, SALE_SEED);
     expect(dto.buy).toMatchObject({ source: 'bounty', effectiveCents: 100, premiumAtFloor: false });
     expect(dto.bounty).toMatchObject({ payoutCents: 100, cappedByMarket: true });
   });
