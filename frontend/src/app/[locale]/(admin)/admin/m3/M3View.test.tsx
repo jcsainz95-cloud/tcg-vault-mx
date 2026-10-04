@@ -47,6 +47,8 @@ describe('M3View · Ventas / órdenes (refund)', () => {
     fireEvent.change(within(dialog).getByLabelText('Motivo del reembolso'), {
       target: { value: 'cobro doble' },
     });
+    // §40.2: mientras el detalle carga, «Reembolsar» está deshabilitado (decide `shipmentShipped`).
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: /Reembolsar MX\$/ })).toBeEnabled());
     fireEvent.click(within(dialog).getByRole('button', { name: /Reembolsar MX\$/ }));
 
     // v1.80 (contrato §M3 · `RefundOrderRequest`): el cuerpo es `{ reason }` (+ `confirmPiecesWithCustomer` solo si el 422 lo pidió).
@@ -66,6 +68,8 @@ describe('M3View · Ventas / órdenes (refund)', () => {
     fireEvent.change(within(dialog).getByLabelText('Motivo del reembolso'), {
       target: { value: 'cobro doble' },
     });
+    // §40.2: mientras el detalle carga, «Reembolsar» está deshabilitado (decide `shipmentShipped`).
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: /Reembolsar MX\$/ })).toBeEnabled());
     fireEvent.click(within(dialog).getByRole('button', { name: /Reembolsar MX\$/ }));
 
     expect(

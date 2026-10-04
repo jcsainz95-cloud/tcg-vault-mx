@@ -494,6 +494,8 @@ export let mockSettings: SettingsDTO = {
   // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
   // no apaga las cifras del mock, y encenderlo aquí NO gasta un crédito (no hay ingest en el mock).
   gradingHookEnabled: 'on',
+  // 💰 v1.80.8.5 (§M2 `M2-PF`): MOCK con el seed del contrato (decisión del dueño 2026-10-04).
+  premiumFloorSalePublish: { mode: 'only', rarities: ['Double Rare', 'Rare Holo EX'] },
 };
 /**
  * ⭐⭐ **EL DIAL DE TRASLACIÓN, EN SU PROPIA VARIABLE Y ⛔ FUERA DE `mockSettings`** (contrato v1.75,

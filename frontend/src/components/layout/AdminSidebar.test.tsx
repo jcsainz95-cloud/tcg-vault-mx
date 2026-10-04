@@ -132,6 +132,48 @@ describe('§37.20 · RF-3 — el badge de «Reembolsos» es SOLO transferencias 
   });
 });
 
+/**
+ * **SR-UI-11** (`DESIGN_SYSTEM §40.0` regla 5, criterio 253 por ausencia): «Reembolso por revisar» NO cambia el menú. Las
+ * entradas son las mismas que antes de v4.12 y el badge de «Reembolsos» sigue leyendo SOLO SPEI — aunque el tablero
+ * traiga `refundReviews.pending: 3` (el menú ni siquiera lo consulta: se espía para probarlo).
+ */
+describe('§40 · SR-UI-11 — el menú no cambia con «por revisar»', () => {
+  it('mismas entradas; con `manualRefundsPending: 0` no hay badge aunque haya 3 por revisar', async () => {
+    const api = await import('@/lib/api');
+    const { mockDashboard } = await import('@/lib/mock/fixtures');
+    const dash = vi.spyOn(api, 'getDashboard').mockResolvedValue({
+      ...mockDashboard,
+      workQueue: { ...mockDashboard.workQueue, refundReviews: { pending: 3, oldestRefundedAt: '2026-10-01T10:00:00Z' } },
+    } as never);
+    roleState.role = 'super_admin';
+    pathState.pathname = '/admin';
+    summaryState.data = summary(0);
+    renderWithProviders(<AdminSidebar />, 'es');
+    const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual([
+      '/admin',
+      '/admin/m5',
+      '/admin/m3',
+      '/admin/refunds',
+      '/admin/m4',
+      '/admin/m8',
+      '/admin/m1',
+      '/admin/m11',
+      '/admin/vaults',
+      '/admin/m2',
+      '/admin/m2/bounties',
+      '/admin/m12',
+      '/admin/m7',
+      '/admin/m9',
+      '/admin/m6',
+      '/admin/m10',
+    ]);
+    expect(screen.queryByTestId('nav-badge-refunds')).toBeNull();
+    expect(dash).not.toHaveBeenCalled();
+    summaryState.data = undefined;
+  });
+});
+
 describe('§37.20 · RF-2 — al operador, «Reembolsos» no es un enlace que lleve a ningún sitio', () => {
   it('como `vault_operator`: ningún enlace NAVEGABLE contiene «Reembolsos», y la entrada bloqueada no lleva badge', () => {
     roleState.role = 'vault_operator';

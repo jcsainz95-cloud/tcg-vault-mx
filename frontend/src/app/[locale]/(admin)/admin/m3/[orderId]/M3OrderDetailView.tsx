@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { PICKING_SUMMARY_KEY } from '@/hooks/usePickingSummary';
-import { chargebackInventory, getAdminOrder, reclaimVault, refundToManual, retryRefund } from '@/lib/api';
+import { chargebackInventory, getAdminOrder, reclaimVault, recordShippedRefundReason, refundToManual, retryRefund } from '@/lib/api';
 import { asApiError } from '@/lib/api-client';
 import { useRole } from '@/lib/role';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
@@ -19,8 +19,9 @@ import { historicalCardName } from '@/lib/historical-card';
 import { cn } from '@/lib/cn';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
-import type { AdminOrderDetailDTO, ChargebackInventoryRequest, PaymentRefundDTO, VaultPieceDTO } from '@/types/contract';
+import type { AdminOrderDetailDTO, ChargebackInventoryRequest, PaymentRefundDTO, ShippedRefundReason, VaultPieceDTO } from '@/types/contract';
 import { ADMIN_ORDER_KEY, RefundOrderDialog } from '../RefundOrderDialog';
+import { ShippedReasonFieldset } from '../ShippedReasonFieldset';
 import { VaultPiecesList } from '../VaultPiecesList';
 
 const DASH = '—';
@@ -44,6 +45,8 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
   const tManual = useTranslations('admin.manualRefunds');
   const tManualStatus = useTranslations('status.manualRefund');
   const tShipStatus = useTranslations('status.shipment');
+  const trr = useTranslations('admin.m3.refundReview');
+  const tsr = useTranslations('admin.m3.shippedReason');
   const tOrders = useTranslations('orders');
   const tc = useTranslations('common');
   const tm = useTranslations('admin');
@@ -65,10 +68,14 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
   const [invOutcome, setInvOutcome] = useState<ChargebackInventoryRequest['outcome'] | ''>('');
   const [invNote, setInvNote] = useState('');
   const [toManualTarget, setToManualTarget] = useState<PaymentRefundDTO | null>(null);
+  // §40.3 (c) — registro ÚNICO del motivo de un reembolso tras el envío hecho desde Stripe.
+  const [reviewReason, setReviewReason] = useState<ShippedRefundReason | null>(null);
+  const [reviewNote, setReviewNote] = useState('');
+  const [reviewConfirmOpen, setReviewConfirmOpen] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (reclaimOpen || toManualTarget) cancelRef.current?.focus();
-  }, [reclaimOpen, toManualTarget]);
+    if (reclaimOpen || toManualTarget || reviewConfirmOpen) cancelRef.current?.focus();
+  }, [reclaimOpen, toManualTarget, reviewConfirmOpen]);
 
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ADMIN_ORDER_KEY });
@@ -134,6 +141,41 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
         setError(typeof status === 'string' ? tManual('toManual.notConvertibleStatus', { status: tRefund.has(status) ? tRefund(status) : status }) : tManual('toManual.notConvertibleKind'));
       } else if (err?.status === 409 && err.code === 'CASE_ORIGIN_NOT_SETTLED') {
         setError(tManual('toManual.originNotSettled', { status: String(err.details?.originStatus ?? 'refunded'), disputed: err.details?.reason === 'charge_disputed' ? 'yes' : 'no' }));
+      } else setError(getError(e));
+    },
+  });
+
+  /**
+   * 💰 `POST /admin/orders/:id/shipped-refund-reason` (§M4-SHIP.18.12 (6)). Solo registra: ⛔ no mueve dinero, cartas
+   * ni correos. Registro FINAL: el `409 …ALREADY_SET` nombra el motivo que ganó (traducido, ⛔ crudo).
+   */
+  const recordReview = useMutation({
+    mutationFn: (v: { reason: ShippedRefundReason; note: string }) =>
+      recordShippedRefundReason(orderId, { reason: v.reason, ...(v.note.trim() ? { note: v.note.trim() } : {}) }),
+    onMutate: () => setError(null),
+    onSuccess: (res, v) => {
+      setReviewConfirmOpen(false);
+      setReviewNote('');
+      setReviewReason(null);
+      setNotice({ role: 'status', text: res.outcome === 'already_recorded' ? trr('alreadyRecorded') : trr('recorded', { reason: tsr(v.reason) }) });
+      refresh();
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (e) => {
+      setReviewConfirmOpen(false);
+      const err = asApiError(e);
+      if (err?.status === 409 && err.code === 'SHIPPED_REFUND_REASON_ALREADY_SET') {
+        const won = err.details?.reason;
+        setError(trr('error.alreadySet', { reason: typeof won === 'string' && tsr.has(won) ? tsr(won) : '—' }));
+        refresh();
+      } else if (err?.status === 409 && err.code === 'SHIPPED_REFUND_REASON_NOT_APPLICABLE') {
+        setError(trr('error.notApplicable'));
+        refresh();
+      } else if (err?.status === 403 && err.code === 'MONEY_OUT_FORBIDDEN') {
+        setError(trr('error.forbidden'));
+      } else if (err?.status === 400 && err.code === 'VALIDATION_ERROR') {
+        // Conserva lo elegido.
+        setError(trr('error.invalid'));
       } else setError(getError(e));
     },
   });
@@ -205,9 +247,56 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                 {td('needsManualBody')}
               </Banner>
             )}
+            {/* §40.3 (c-1): el predicado es del servidor (`fullRefundReview.pending`), ⛔ no se recalcula aquí. */}
+            {o.fullRefundReview?.pending === true && (
+              <Banner variant="warning" role="status" title={trr('bannerTitle')}>
+                <span data-testid="m3-refund-review-banner">{trr('bannerBody')}</span>
+              </Banner>
+            )}
+            {/* §40.4 + contrato v1.80.8.7 (A-1): ⇔ `refunded ∧ settledAt === null`. ⛔ Clave ausente ≠ null. */}
+            {o.status === 'refunded' && o.settledAt === null && (
+              <Banner variant="info" role="status" title={t('unsettledRefund.title')}>
+                <span data-testid="m3-unsettled-refund">{t('unsettledRefund.body')}</span>
+              </Banner>
+            )}
 
             <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
               <div className="flex flex-col gap-8">
+                {/* §40.3 (c): formulario ÚNICO (súper-admin) o el texto del operador — antes de «Cartas». */}
+                {o.fullRefundReview?.pending === true &&
+                  (isSuperAdmin ? (
+                    <section className="flex flex-col gap-3" data-testid="m3-refund-review">
+                      <h2 className="text-h2 font-semibold">{trr('formTitle')}</h2>
+                      <ShippedReasonFieldset name="m3-refund-review-reason" legend={trr('legend')} value={reviewReason} onChange={setReviewReason} />
+                      <Textarea label={trr('noteLabel')} value={reviewNote} maxLength={500} counter={{ max: 500 }} onChange={(e) => setReviewNote(e.target.value)} />
+                      <p className="text-xs text-muted">{trr('effect')}</p>
+                      <Button variant="primary" className="self-start" disabled={reviewReason === null || recordReview.isPending} loading={recordReview.isPending} onClick={() => setReviewConfirmOpen(true)}>
+                        {trr('cta')}
+                      </Button>
+                    </section>
+                  ) : (
+                    <p className="text-sm text-muted" data-testid="m3-refund-review-operator">
+                      {trr('operatorOnly')}
+                    </p>
+                  ))}
+                {/* §40.3 (d): lectura del motivo ya registrado — los dos roles, ⛔ sin editar. */}
+                {o.fullRefundReview?.afterShipment === true && o.fullRefundReview.pending === false && (
+                  <section className="flex flex-col gap-1 text-sm text-text" data-testid="m3-refund-review-done">
+                    <h2 className="text-h2 font-semibold">{trr('doneTitle')}</h2>
+                    {o.fullRefundReview.reason && <p>{trr('reasonLine', { reason: tsr(o.fullRefundReview.reason) })}</p>}
+                    {o.fullRefundReview.note !== null && <p>{trr('noteLine', { note: o.fullRefundReview.note })}</p>}
+                    {o.fullRefundReview.recordedAt && (
+                      <p className="tabular text-muted">
+                        {trr('byLine', {
+                          name: o.fullRefundReview.recordedBy?.name?.trim() || t('nameMissing'),
+                          date: formatDateTimeMx(o.fullRefundReview.recordedAt, locale),
+                        })}
+                      </p>
+                    )}
+                    <p className="text-muted">{trr('cardsStayed')}</p>
+                  </section>
+                )}
+
                 <section className="flex flex-col gap-2">
                   <h2 className="text-h2 font-semibold">{td('items')}</h2>
                   <ul className="flex flex-col divide-y divide-border border-y border-border">
@@ -376,11 +465,41 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
         order={o}
         open={refundOpen}
         onClose={() => setRefundOpen(false)}
-        onDone={(res) => {
+        onDone={(res, info) => {
           setRefundOpen(false);
-          setNotice({ role: 'status', text: t('refundDone', { orderId: res.orderId }) });
+          setNotice({
+            role: 'status',
+            text: info.shippedReason
+              ? t('shippedRefund.done', { ref: o?.orderNumber ?? res.orderId, reason: tsr(info.shippedReason) })
+              : t('refundDone', { orderId: res.orderId }),
+          });
         }}
       />
+
+      {/* §40.3 (c) — confirmación del registro FINAL (foco inicial en «Cancelar»). */}
+      <Modal
+        open={reviewConfirmOpen}
+        onClose={() => setReviewConfirmOpen(false)}
+        title={trr('confirmTitle', { reason: reviewReason ? tsr(reviewReason) : '—' })}
+        footer={
+          <>
+            <Button ref={cancelRef} variant="secondary" onClick={() => setReviewConfirmOpen(false)}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              loading={recordReview.isPending}
+              disabled={reviewReason === null || recordReview.isPending}
+              onClick={() => reviewReason && recordReview.mutate({ reason: reviewReason, note: reviewNote })}
+              data-testid="m3-refund-review-confirm"
+            >
+              {trr('confirm')}
+            </Button>
+          </>
+        }
+      >
+        <p>{trr('confirmBody')}</p>
+      </Modal>
 
       {/* §37.10c — «Reclamar» (v1.80.6: casilla por carta para acotar `inventoryItemIds`). */}
       <Modal

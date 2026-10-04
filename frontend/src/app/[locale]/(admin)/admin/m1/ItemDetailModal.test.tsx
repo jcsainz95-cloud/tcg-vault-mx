@@ -140,3 +140,49 @@ describe('ItemDetailModal · hueco 1: mover una pieza en `picking`', () => {
     expect(within(dialog).queryByRole('heading', { name: /Mover de ubicación/ })).not.toBeInTheDocument();
   });
 });
+
+/**
+ * **SR-UI-10** (`DESIGN_SYSTEM §40.5`, N-16): el historial con un movimiento de CADA `MovementReason` (13 = paridad con
+ * `schema.prisma` y §Enums, v1.80.8.6) ⇒ ningún texto del DOM contiene `movementReason.` ni un valor crudo. Cierra los
+ * tres huecos anteriores (`adjustment`, `replacement`, `refund_return`) y el nuevo `refund_release`.
+ */
+describe('ItemDetailModal · SR-UI-10: los 13 motivos del historial tienen texto', () => {
+  it.each(['es', 'en'] as const)('%s: ningún motivo crudo ni clave en el DOM', async (locale) => {
+    const { MOVEMENT_REASONS } = await import('@/types/contract');
+    expect(MOVEMENT_REASONS).toHaveLength(13);
+    vi.spyOn(api, 'getAdminInventoryItem').mockResolvedValue({
+      ...detail('listed'),
+      movements: MOVEMENT_REASONS.map((reason, i) => ({
+        id: `mv-${i}`,
+        reason,
+        fromStatus: reason === 'refund_release' ? 'reserved' : null,
+        toStatus: reason === 'refund_release' ? 'listed' : null,
+        fromLocationId: null,
+        toLocationId: null,
+        note: null,
+        createdAt: '2026-10-04T10:00:00Z',
+      })) as AdminInventoryItemDetailDTO['movements'],
+    });
+    const { container } = renderWithProviders(
+      <ItemDetailModal itemId="inv-1001" onClose={() => {}} locations={mockLocations} />,
+      locale,
+    );
+    await screen.findByText(locale === 'es' ? 'Liberada por reembolso' : 'Released by refund');
+    const text = container.ownerDocument.body.textContent ?? '';
+    expect(text).not.toMatch(/movementReason\./);
+    for (const raw of MOVEMENT_REASONS) {
+      // `alta`/`move`/… son palabras corrientes (y en EN «Stock-count adjustment» es el texto bueno): se buscan los
+      // crudos con guion bajo en los dos idiomas y, en ES, también los inequívocos en inglés.
+      if (raw.includes('_') || (locale === 'es' && ['adjustment', 'replacement', 'settle', 'withdrawal'].includes(raw))) {
+        expect(text, raw).not.toContain(raw);
+      }
+    }
+    if (locale === 'es') {
+      for (const label of ['Liberada por reembolso', 'Devuelta por reembolso', 'Reposición', 'Ajuste por levantamiento']) {
+        expect(screen.getByText(label)).toBeInTheDocument();
+      }
+      // `Apartada → A la venta` (estados traducidos) bajo el movimiento nuevo.
+      expect(text).toMatch(/→/);
+    }
+  });
+});

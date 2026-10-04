@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { usePickingSummary } from '@/hooks/usePickingSummary';
 import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
 import { cn } from '@/lib/cn';
+import { Link } from '@/i18n/navigation';
 import { ManualRefundsView } from '../manual-refunds/ManualRefundsView';
 import { OperatorRefundsView } from './OperatorRefundsView';
 import { REFUNDS_TABS, type RefundsTab } from './tabs';
@@ -74,6 +75,10 @@ function RefundsTabs({ initialTab }: { initialTab: RefundsTab }) {
       <div className="flex flex-col gap-1">
         <h1 className="text-h1 font-bold">{tModules('refunds')}</h1>
         <p className="text-sm text-muted">{t('hint')}</p>
+        {/* §40.6: «por revisar» NO es una tercera cubeta (son pedidos, viven en «Ventas»). Sin número. */}
+        <Link href="/admin/m3?refundReview=pending" className="text-sm text-text underline underline-offset-4 hover:text-accent" data-testid="refunds-review-link">
+          {t('reviewLink')}
+        </Link>
       </div>
 
       <div className="flex gap-5 overflow-x-auto border-b border-border" role="tablist" aria-label={tModules('refunds')}>

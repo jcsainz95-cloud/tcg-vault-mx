@@ -1341,6 +1341,11 @@
       "operatorRefunds": {
         "title": "Reembolsos de operadores",
         "detail": "{count} en 24 h · {amount30d} en 30 días"
+      },
+      "refundReviews": {
+        "title": "Reembolsos por revisar",
+        "detail": "Falta el motivo · el más viejo hace {days, plural, one {# día} other {# días}}",
+        "detailNone": "Nada por revisar."
       }
     },
     "m1": {
@@ -1491,7 +1496,11 @@
         "withdrawal": "Retiro",
         "lost": "Pérdida",
         "damaged": "Daño",
-        "buylist_convert": "Conversión de buylist"
+        "buylist_convert": "Conversión de buylist",
+        "refund_release": "Liberada por reembolso",
+        "refund_return": "Devuelta por reembolso",
+        "replacement": "Reposición",
+        "adjustment": "Ajuste por levantamiento"
       },
       "locations": {
         "button": "Ubicaciones",
@@ -1522,13 +1531,35 @@
         "missingPrice": "Precio",
         "missingUnknown": "Por revisar",
         "origin": "Origen",
-        "originBuylist": "Compra a vendedor",
         "salePrice": "Precio de venta",
-        "noSalePrice": "Sin precio resoluble",
         "pendingPriceLink": "Ver en la cola de precio pendiente",
         "sealedMark": "SELLADO",
         "sealedUnidentified": "Sellado sin identificar",
-        "note": "Esta cola solo mira: no se capturan precios de venta aquí ni se heredan del costo de compra."
+        "note": "Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. Solo el producto sellado admite aquí un precio final a mano.",
+        "openPiece": "Abrir la pieza {folio}",
+        "basis": {
+          "manual": "precio final a mano",
+          "market": "automático",
+          "floor": "piso",
+          "override": "precio de variante",
+          "none": "sin precio"
+        },
+        "reason": {
+          "location": "Sin ubicación: se publica sola en cuanto se la pongas.",
+          "sealedNoPrice": "El sellado no tiene precio automático: ponle precio final.",
+          "no_market": "El proveedor no trae precio de mercado para esta carta.",
+          "premium_at_floor": "Rareza premium con mercado bajo el piso: retenida para revisión.",
+          "seeRule": "Ver la regla",
+          "inQueue": "Sin precio; el motivo está en la cola de precio pendiente.",
+          "noEntry": "Sin precio y sin entrada en la cola de precio pendiente: avisa a sistemas.",
+          "gradedNoSlab": "Le falta empresa y grado: captúralos en la pieza."
+        },
+        "originLabel": {
+          "aportacion_en_especie": "Aportación en especie",
+          "buylist": "Compra a vendedor",
+          "compra": "Compra directa",
+          "unknown": "Origen desconocido"
+        }
       }
     },
     "m3": {
@@ -1670,6 +1701,63 @@
           "conflict": "Una de las cartas cambió de estado mientras confirmabas. No se hizo nada. Actualiza y vuelve a intentarlo.",
           "alreadyResolved": "Este pedido ya se resolvió antes. No se hizo nada."
         }
+      },
+      "shippedReason": {
+        "not_arrived": "No llegó",
+        "arrived_damaged": "Llegó en mala condición",
+        "hint": {
+          "not_arrived": "El paquete se perdió o el cliente no lo recibió.",
+          "arrived_damaged": "Llegó, pero las cartas no estaban como se vendieron."
+        }
+      },
+      "shippedRefund": {
+        "title": "Este pedido ya salió",
+        "warning": "Las cartas no vuelven a inventario: el cliente las tiene o las tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición.",
+        "body": "Se devuelve lo que queda del cobro. El envío no se toca y las cartas no vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre.",
+        "legend": "¿Por qué se reembolsa? (obligatorio)",
+        "pickOne": "Elige uno de los dos para poder reembolsar.",
+        "noteLabel": "Qué pasó",
+        "noteHint": "Obligatorio. Queda como nota del motivo y en bitácora. Máximo 500 caracteres.",
+        "done": "Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Las cartas no vuelven a inventario.",
+        "error": {
+          "required": "Este pedido salió mientras tenías abierto el diálogo (envío {status}). No se reembolsó nada. Elige por qué se reembolsa y confirma otra vez.",
+          "notApplicable": "Este pedido no ha salido: no lleva motivo de envío. No se reembolsó nada. Revisa y confirma otra vez.",
+          "invalid": "Elige «No llegó» o «Llegó en mala condición»."
+        }
+      },
+      "refundReview": {
+        "chip": "Por revisar",
+        "filter": "Solo reembolsos por revisar",
+        "emptyTitle": "No hay reembolsos por revisar.",
+        "emptyBody": "Aquí aparecen los pedidos que ya habían salido y se reembolsaron completos desde el panel de Stripe, hasta que alguien registre por qué.",
+        "bannerTitle": "Reembolso por revisar",
+        "bannerBody": "Este pedido se reembolsó completo desde el panel de Stripe cuando ya había salido. Las cartas no vuelven a inventario. Falta registrar por qué.",
+        "formTitle": "Registrar el motivo",
+        "legend": "¿Por qué se reembolsó? (obligatorio)",
+        "noteLabel": "Nota (opcional)",
+        "effect": "Solo queda registrado: no mueve dinero ni cartas y no avisa al cliente. Una vez guardado no se cambia.",
+        "cta": "Registrar motivo",
+        "confirmTitle": "¿Registrar «{reason}» como motivo?",
+        "confirmBody": "Queda guardado a tu nombre y ya no se puede cambiar.",
+        "confirm": "Registrar",
+        "operatorOnly": "Solo el súper-admin puede registrar el motivo.",
+        "recorded": "Motivo registrado: «{reason}».",
+        "alreadyRecorded": "Ese motivo ya estaba registrado. No se cambió nada.",
+        "error": {
+          "alreadySet": "Alguien ya registró otro motivo: «{reason}». El motivo no se cambia.",
+          "notApplicable": "Este pedido no había salido cuando se reembolsó: no lleva motivo de envío.",
+          "forbidden": "Solo el súper-admin puede registrar el motivo. El intento quedó registrado.",
+          "invalid": "Elige «No llegó» o «Llegó en mala condición». La nota admite hasta 500 caracteres."
+        },
+        "doneTitle": "Reembolso tras el envío",
+        "reasonLine": "Motivo: {reason}",
+        "noteLine": "Nota: {note}",
+        "byLine": "Registrado por {name} · {date}",
+        "cardsStayed": "Las cartas no volvieron a inventario."
+      },
+      "unsettledRefund": {
+        "title": "Reembolsado antes de quedar pagado",
+        "body": "Stripe reembolsó este pedido antes de que la tienda lo diera por pagado, así que nunca se preparó. Las cartas que tenía apartadas volvieron solas a la venta; cada una lleva «Liberada por reembolso» en su historial."
       }
     },
     "m4": {
@@ -3836,6 +3924,74 @@
             "charged": "Total que paga el comprador"
           }
         }
+      },
+      "premiumFloor": {
+        "title": "Cartas premium en el piso (venta)",
+        "intro": "Cuando el mercado de una carta cae por debajo del piso de venta ({floor}), la tienda la vende al piso. Para las cartas comunes eso es lo normal. En las rarezas premium (ex, Illustration, Special Illustration, Ultra…) un mercado tan bajo a veces es un dato roto, así que aquí decides cuáles se publican solas al piso y cuáles se quedan fuera de la venta, en la cola de precio pendiente de «Catálogo y precios», para que las revises.",
+        "introNoFloor": "Cuando el mercado de una carta cae por debajo del piso de venta, la tienda la vende al piso. Para las cartas comunes eso es lo normal. En las rarezas premium (ex, Illustration, Special Illustration, Ultra…) un mercado tan bajo a veces es un dato roto, así que aquí decides cuáles se publican solas al piso y cuáles se quedan fuera de la venta, en la cola de precio pendiente de «Catálogo y precios», para que las revises.",
+        "legend": "¿Qué hacer con una premium cuyo mercado cae bajo el piso?",
+        "defaultTag": "Valor inicial",
+        "mode": {
+          "only": {
+            "label": "Publicar solo estas rarezas",
+            "help": "Las cartas de las rarezas que marques abajo se publican solas a {floor}. Las de cualquier otra rareza premium se quedan fuera de la venta, en la cola de precio pendiente, hasta que alguien las revise.",
+            "helpNoFloor": "Las cartas de las rarezas que marques abajo se publican solas al piso. Las de cualquier otra rareza premium se quedan fuera de la venta, en la cola de precio pendiente, hasta que alguien las revise."
+          },
+          "all": {
+            "label": "Publicar todas al piso",
+            "help": "Toda carta premium cuyo mercado caiga bajo el piso se publica sola a {floor}, sea de la rareza que sea. Ojo: una carta cara con un dato de mercado roto también saldría a {floor}.",
+            "helpNoFloor": "Toda carta premium cuyo mercado caiga bajo el piso se publica sola al piso, sea de la rareza que sea. Ojo: una carta cara con un dato de mercado roto también saldría al piso."
+          },
+          "none": {
+            "label": "Retener todas",
+            "help": "Ninguna premium se publica al piso: si su mercado cae bajo el piso, se queda fuera de la venta, en la cola de precio pendiente, hasta que alguien le ponga precio. Es la regla de antes.",
+            "helpNoFloor": "Ninguna premium se publica al piso: si su mercado cae bajo el piso, se queda fuera de la venta, en la cola de precio pendiente, hasta que alguien le ponga precio. Es la regla de antes."
+          }
+        },
+        "rarities": {
+          "legend": "Rarezas que se publican al piso",
+          "selected": "{count, plural, =0 {Ninguna marcada} one {# marcada} other {# marcadas}}",
+          "cardCount": "{count, plural, one {# carta en el catálogo} other {# cartas en el catálogo}}",
+          "notInCatalog": "sin cartas en el catálogo hoy",
+          "hintDoubleRare": "las «ex» de Escarlata y Púrpura",
+          "hintRareHoloEx": "las «EX» de eras anteriores",
+          "disabledNote": "Solo cuenta con «Publicar solo estas rarezas».",
+          "filter": "Filtrar rarezas",
+          "loadError": "No pude cargar la lista de rarezas. «Publicar todas» y «Retener todas» se pueden guardar igual; para marcar rarezas, reintenta."
+        },
+        "unmapped": {
+          "title": "Rarezas premium sin mapear (siempre se retienen) · {count}",
+          "body": "El catálogo trae estas rarezas con un nombre que el sistema no reconoce. Se tratan como premium y se retienen siempre, aunque el nombre diga «ex». Para poder publicarlas al piso hay que darlas de alta en el catálogo de rarezas (trabajo de sistemas); después aparecen arriba para marcarlas."
+        },
+        "exWarning": {
+          "title": "La rareza manda, no el nombre",
+          "body": "Que una carta se llame «ex» no la hace Double Rare. Una <b>Charizard ex</b> de rareza <b>Special Illustration Rare</b> o <b>Ultra Rare</b> sigue retenida aunque marques Double Rare: la regla mira la rareza de la carta, no su nombre."
+        },
+        "effect": "Qué pasa al guardar: las cartas que ya están publicadas cambian al momento (aparecen a {floor} o dejan de mostrarse). Las que están en caja sin publicar salen con el siguiente «Publicar todo» de «Inventario» o con la siguiente actualización de precios. Lo que ya se vendió se queda vendido. Ninguna carta genera aviso propio.",
+        "effectNoFloor": "Qué pasa al guardar: las cartas que ya están publicadas cambian al momento (aparecen al piso o dejan de mostrarse). Las que están en caja sin publicar salen con el siguiente «Publicar todo» de «Inventario» o con la siguiente actualización de precios. Lo que ya se vendió se queda vendido. Ninguna carta genera aviso propio.",
+        "buyNote": "No cambia lo que pagamos al comprar: una premium barata sigue sin cotizarse en «Vender».",
+        "audit": "Solo súper-admin · queda en bitácora.",
+        "save": "Guardar regla de premium",
+        "saved": "Regla guardada. Las publicadas ya cambiaron; las de caja salen con el siguiente «Publicar todo».",
+        "notAvailable": "Este servidor todavía no tiene este ajuste.",
+        "errors": {
+          "emptyOnly": "Marca al menos una rareza, o elige «Retener todas».",
+          "server": "No se guardó: el servidor rechazó la regla. Nada cambió."
+        },
+        "confirm": {
+          "title": "¿Cambiar la regla de premium en el piso?",
+          "before": "Antes: {summary}",
+          "after": "Ahora: {summary}",
+          "allWarning": "Con «Publicar todas», cualquier premium con un dato de mercado roto saldría a la venta a {floor}.",
+          "allWarningNoFloor": "Con «Publicar todas», cualquier premium con un dato de mercado roto saldría a la venta al piso.",
+          "removing": "Las cartas de las rarezas que dejas de publicar desaparecen de la tienda al guardar. Lo ya vendido se queda vendido.",
+          "confirm": "Guardar regla"
+        },
+        "summary": {
+          "only": "publicar solo {list}",
+          "all": "publicar todas al piso",
+          "none": "retener todas"
+        }
       }
     },
     "m7": {
@@ -4429,7 +4585,8 @@
         "spei": "Transferencias SPEI",
         "operators": "Reembolsos de operadores",
         "speiCount": "{count, plural, one {# pendiente} other {# pendientes}}"
-      }
+      },
+      "reviewLink": "Pedidos enviados reembolsados desde Stripe que esperan motivo: verlos en Ventas →"
     },
     "refunds": {
       "hint": "Lo que cada operador ha devuelto al preparar envíos. Sin correo: el panel es el aviso.",
@@ -4476,6 +4633,52 @@
       "retry": "Reintentar",
       "retried": "Reintento pedido: {status}.",
       "noName": "una cuenta sin nombre"
+    },
+    "sealedFinalPrice": {
+      "rowLabel": "Precio final",
+      "auto": "automático",
+      "manual": "{price} a mano",
+      "market": "Mercado: {price}",
+      "set": "Poner precio final",
+      "change": "Cambiar precio final",
+      "setAria": "Poner precio final de {folio}",
+      "changeAria": "Cambiar precio final de {folio}",
+      "label": "Precio final (MXN)",
+      "hint": "Gana sobre el automático. Nunca $0.",
+      "noLocationHint": "Se publicará sola en cuanto le pongas ubicación.",
+      "listedHint": "Ya está a la venta: el precio nuevo se ve en la tienda al confirmar.",
+      "saveOnly": "Guardar precio",
+      "saveAndPublish": "Guardar y publicar",
+      "errPositive": "Escribe un precio mayor que cero.",
+      "errDecimals": "Máximo dos decimales.",
+      "errMax": "El precio máximo es {max}.",
+      "confirm": {
+        "title": "¿Fijar el precio final de {name}?",
+        "thisSealed": "este sellado",
+        "now": "Ahora: {price} ({basis})",
+        "nowNone": "Ahora: sin precio",
+        "new": "Nuevo: {price}, fijo a mano",
+        "effectPublish": "Se publica en la tienda a {price} al confirmar.",
+        "effectNoLocation": "No se publica todavía: le falta ubicación. Saldrá sola a {price} en cuanto se la pongas.",
+        "effectListed": "Ya está a la venta: el precio nuevo se ve en la tienda al confirmar.",
+        "note": "Gana sobre el precio automático hasta que lo cambies. Queda en bitácora a tu nombre.",
+        "publish": "Publicar a {price}",
+        "save": "Guardar {price}"
+      },
+      "done": {
+        "published": "{folio} publicada a {price}.",
+        "savedNoLocation": "Precio final guardado en {folio}. Saldrá sola al ponerle ubicación.",
+        "repriced": "Precio de {folio} cambiado a {price}."
+      },
+      "errors": {
+        "reserved": "Está apartada en un pedido en curso. Si el pedido no se paga, vuelve a estar libre en unos minutos y podrás cambiarla. No se guardó nada.",
+        "notAdjustable": "Esta pieza ya no se puede re-preciar: está «{status}». No se guardó nada.",
+        "conflict": "La pieza cambió mientras la editabas. Recarga y vuelve a intentarlo; no se guardó nada.",
+        "notPublishable": "No se pudo publicar: está «{status}». No se guardó el precio.",
+        "pricePending": "No se pudo publicar: el servidor no resolvió el precio. No se guardó nada.",
+        "validation": "El precio no es válido: debe ser mayor que cero y como máximo {max}."
+      },
+      "reload": "Recargar"
     }
   },
   "locale": {

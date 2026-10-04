@@ -44,7 +44,9 @@ import M2Page from './m2/page';
 // eslint-disable-next-line import/first
 import M2BountiesPage from './m2/bounties/page';
 // eslint-disable-next-line import/first
-import M3Page from './m3/page';
+import { M3View } from './m3/M3View';
+// eslint-disable-next-line import/first
+import { parseRefundReview } from './m3/filters';
 // eslint-disable-next-line import/first
 import { M4View } from './m4/M4View';
 // eslint-disable-next-line import/first
@@ -84,6 +86,11 @@ function M4Page() {
 /** v4.10 (§37.20): `refunds/page.tsx` también es de servidor asíncrono; se mide lo que devuelve sin `?tab=`. */
 function RefundsPage() {
   return <RefundsView initialTab={parseRefundsTab(undefined)} />;
+}
+
+/** v4.12 (§40.3 b): `m3/page.tsx` también es de servidor asíncrono (lee `?refundReview=`); se mide sin el parámetro. */
+function M3Page() {
+  return <M3View initialRefundReview={parseRefundReview(undefined)} />;
 }
 
 /** La página que sirve cada `href` del menú (la misma que monta el App Router). */

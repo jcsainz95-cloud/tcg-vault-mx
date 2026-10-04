@@ -198,6 +198,24 @@ export function AdminDashboard() {
                 }
               />
             )}
+            {/* 💰 v1.80.8.6 (§M4-SHIP.18.12 (7), DESIGN_SYSTEM §40.3 e): solo súper-admin; `null` ⇒ la tarjeta NO existe. */}
+            {isSuperAdmin && query.data.workQueue.refundReviews && (
+              <StatCard
+                label={t('refundReviews.title')}
+                value={query.data.workQueue.refundReviews.pending}
+                sub={
+                  <Link
+                    href="/admin/m3?refundReview=pending"
+                    className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    data-testid="dashboard-refund-reviews"
+                  >
+                    {query.data.workQueue.refundReviews.pending > 0 && query.data.workQueue.refundReviews.oldestRefundedAt
+                      ? t('refundReviews.detail', { days: daysSince(query.data.workQueue.refundReviews.oldestRefundedAt) })
+                      : t('refundReviews.detailNone')}
+                  </Link>
+                }
+              />
+            )}
             {/* v1.80.3 (SEC-SHIP-M1, D-13 «solo verlo en el panel»): el tablero ES el aviso; ⛔ sin correo. */}
             {isSuperAdmin && query.data.workQueue.operatorRefunds && (
               <StatCard
