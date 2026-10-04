@@ -75,6 +75,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   });
   const [touched, setTouched] = useState<Partial<Record<GuestField, boolean>>>({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  /** Sube en cada clic en pagar: dispara el foco al resumen de errores (§91). */
+  const [submitAttemptId, setSubmitAttemptId] = useState(0);
   const [destination, setDestination] = useState<Destination>('ship');
   const [upsellOpen, setUpsellOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -207,6 +209,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
   async function pay() {
     setSubmitAttempted(true);
+    setSubmitAttemptId((n) => n + 1);
     setPayError(null);
     if (destination === 'vault') {
       setUpsellOpen(true);
@@ -381,6 +384,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                     touched={touched}
                     onBlurField={(field) => setTouched((s) => ({ ...s, [field]: true }))}
                     submitAttempted={submitAttempted}
+                    submitAttemptId={submitAttemptId}
                     destination={destination}
                     onDestinationChange={chooseDestination}
                     upsellOpen={upsellOpen}

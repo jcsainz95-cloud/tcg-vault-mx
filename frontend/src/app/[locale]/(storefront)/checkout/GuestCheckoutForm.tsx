@@ -22,6 +22,11 @@ export interface GuestCheckoutFormProps {
   onBlurField: (field: GuestField) => void;
   /** true tras un intento de pago con errores: pinta el resumen `role="alert"` */
   submitAttempted: boolean;
+  /**
+   * Contador de intentos de pago (sube en CADA clic en pagar). El foco va al resumen solo cuando cambia
+   * este número — nunca cuando cambia el número de errores (FRONTEND_NOTES §91).
+   */
+  submitAttemptId: number;
   destination: Destination;
   onDestinationChange: (destination: Destination) => void;
   upsellOpen: boolean;
@@ -91,6 +96,7 @@ export function GuestCheckoutForm({
   touched,
   onBlurField,
   submitAttempted,
+  submitAttemptId,
   destination,
   onDestinationChange,
   upsellOpen,
@@ -109,11 +115,14 @@ export function GuestCheckoutForm({
   const visible = (field: GuestField) => !!errors[field] && (submitAttempted || !!touched[field]);
   const listed = FIELD_ORDER.filter((f) => !!errors[f]);
 
-  // El resumen recibe el foco al fallar el intento de pago: sustituye al scroll a ciegas.
+  // El resumen recibe el foco al fallar el intento de pago (DESIGN_SYSTEM §15.3): sustituye al scroll a ciegas.
+  // ⛔ Depende SOLO de `submitAttemptId` (cada clic en pagar). Con `listed.length` en las dependencias, la
+  // primera letra tecleada en un campo con error cambiaba el número de errores y el foco saltaba al resumen:
+  // solo entraba esa letra (FRONTEND_NOTES §91). El resumen se monta en el mismo render que sube el contador,
+  // así que el ref ya existe cuando corre el efecto; si no hay errores no hay resumen y no se mueve el foco.
   useEffect(() => {
-    if (submitAttempted && listed.length > 0) summaryRef.current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitAttempted, listed.length]);
+    if (submitAttemptId > 0) summaryRef.current?.focus();
+  }, [submitAttemptId]);
 
   function messageFor(field: GuestField): string {
     const code = errors[field];

@@ -19430,3 +19430,23 @@ constante (2). **E2E:** la mutación de §19.25.6 (sin campos de texto con `404`
   `GuestCheckoutColonia.test.tsx` (con `userEvent.type` solo entraba la primera letra). Afecta a todos los campos, no
   solo a la colonia. Va como hallazgo para ux-ui/orquestador.
 - Capturas a 390 px del modo a mano y de «todo a mano»: NO MEDIDO.
+
+## §91 · **Foco del resumen de errores del checkout de invitado: solo en el intento de pago** (2026-10-04, rama `claude/skydropx-d`, base `9a0b6d19`; cierra el hallazgo anotado al final de §90)
+
+- **Defecto (en producción):** `GuestCheckoutForm.tsx` llevaba el foco al resumen con un efecto
+  `[submitAttempted, listed.length]`. Tras un pago fallido, la primera letra tecleada en un campo con error quitaba ese
+  error, cambiaba `listed.length` y el foco saltaba al resumen: solo entraba esa letra. Todos los campos.
+- **Arreglo:** `GuestCheckoutView` lleva un contador `submitAttemptId` que sube en **cada** clic en pagar; el efecto
+  depende solo de él. Conducta = `DESIGN_SYSTEM §15.3` («Resumen de errores al intentar pagar … el foco va al bloque»):
+  el foco va al resumen en cada intento con errores, nunca al teclear. El resumen sigue montándose con
+  `submitAttempted && listed.length > 0` (sin cambio visual).
+- **Prueba:** `checkout/GuestCheckoutFocus.test.tsx` — (1) tras el pago fallido, «Juan Pérez» y «Av. Vallarta 1234»
+  entran completos y el foco se queda en el campo (antes: `Received: "J"`); (2) un segundo clic en pagar vuelve a
+  enfocar el resumen. Mutación (reponer `listed.length` en las dependencias) sobre copia `git archive` del árbol
+  entero: la prueba (1) se pone roja.
+- **Otros formularios revisados, sin el mismo defecto:** `PasswordForm.tsx:64-67` (ya usa contador de evento);
+  `AddressManager.tsx:564-577` (libreta: `focusField` fijado al abrir el editor, no derivado de errores vivos; en
+  retiro `ShipmentsView.tsx:437` sale de la dirección guardada); `AuthForm.tsx:129-131` (registro/login: solo
+  `rateLimited`, respuesta del servidor); `KycRejectDialog.tsx:78-80`, `PricingCurveSection.tsx:219-221`,
+  `BountyRowEditor.tsx:123-125` (estado de error puesto por la respuesta del servidor, no recalculado al teclear);
+  buylist (`SellCartContents.tsx:154`, `BuylistView.tsx`): no mueve el foco por errores.
