@@ -19,21 +19,8 @@
 // sustituir `request`/`get` en el MÓDULO real, que es el que comparten todos los que lo importan.
 const http = require('http') as typeof import('http');
 const https = require('https') as typeof import('https');
+import { ForbiddenTestNetworkError, isForbiddenHost } from './forbidden-network';
 
-export class ForbiddenTestNetworkError extends Error {
-  constructor(readonly target: string) {
-    super(`PS-99 (c): red a Skydropx vetada en pruebas (${target}). Usa el FakeShippingProvider o un transporte grabador.`);
-    this.name = 'ForbiddenTestNetworkError';
-  }
-}
-
-const FORBIDDEN_SUFFIX = 'skydropx.com';
-
-export function isForbiddenHost(hostname: string | null | undefined): boolean {
-  if (!hostname) return false;
-  const h = hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
-  return h === FORBIDDEN_SUFFIX || h.endsWith(`.${FORBIDDEN_SUFFIX}`);
-}
 
 function hostOfUnknown(input: unknown): string | null {
   try {

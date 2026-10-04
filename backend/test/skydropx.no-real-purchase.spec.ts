@@ -30,7 +30,9 @@ import {
   RECORDER_ORIGIN,
   RecorderTransport,
 } from './helpers/skydropx-recorder';
-import { ForbiddenTestNetworkError, isForbiddenHost } from './setup/forbid-skydropx-network';
+// ⛔ De `forbidden-network` (sin efectos), NUNCA de `forbid-skydropx-network`: importar éste instalaría el veto
+// desde la propia prueba y el canario no vería que alguien lo quitó de `setupFiles`.
+import { ForbiddenTestNetworkError, isForbiddenHost } from './setup/forbidden-network';
 
 const BACKEND = join(__dirname, '..');
 const REPO = join(BACKEND, '..');

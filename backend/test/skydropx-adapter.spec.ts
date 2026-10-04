@@ -196,6 +196,25 @@ describe('PS-94 💰 — normalización con el fixture MEDIDO (PROD §4.6 amplia
     expect(excluded).toMatchObject({ breakdownMismatch: 1, multipackage: 2 });
   });
 
+  it('varios extra_fees se suman en decimal y se redondean UNA vez dentro de la normalización (0.335 + 0.335 ⇒ 67)', () => {
+    const base = fixtureRates()[3];
+    const twoFees = {
+      ...base,
+      id: 'two-fees',
+      amount: '43.10',
+      extra_fees: [
+        { code: 'fuel_increase_fee', value: 0.335, groupable: false, group_code: null },
+        { code: 'fuel_increase_fee_1', value: 0.335, groupable: false, group_code: null },
+      ],
+      vat_fee: '7.00',
+      service_fee: '1.27',
+      total: '52.04',
+    };
+    const { rates } = normalizeRates([twoFees], { insuranceEchoOk: true });
+    expect(rates).toHaveLength(1);
+    expect(rates[0].extraFeesCents).toBe(67); // por separado: 34 + 34 = 68
+  });
+
   it('PS-70 (corregida): tarifa con vat_fee null ⇒ se ofrece con vatCents null (el dominio calcula 16/116)', () => {
     const base = fixtureRates()[3];
     const { rates } = normalizeRates([{ ...base, id: 'novat', vat_fee: null }], { insuranceEchoOk: true });
