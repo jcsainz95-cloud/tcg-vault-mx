@@ -2,7 +2,30 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.8.8**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.8.9**).
+>
+> **Rev v1.80.8.9 — ERRATA: «PUBLICAR TODO» CIERRA LAS FILAS «SIN MOTIVO»; LA COLA SE ESCRIBE POR EJE Y CON LA CLAVE
+> ENTERA (2026-10-04, arquitecto, rama `claude/precios-s5`; ⛔ sha del árbol NO MEDIDO por el arquitecto: sin Bash).**
+> Origen: diagnóstico de backend sobre production `aab55abe` (2026-10-04, relayado por el orquestador; ⛔ las cifras de
+> producción NO las midió el arquitecto). Las líneas de código de abajo las **leyó** el arquitecto en el árbol vivo
+> `claude/precios-s5` el 2026-10-04 (difieren de las de `aab55abe` que cita el diagnóstico). ⛔ **Sin schema, sin
+> migración, sin enum, sin endpoint, sin código de error, sin cambio de forma de respuesta.** Norma entera:
+> [§M2 «v1.80.8.9»](#M2-VQ9). Porqué: `ARCHITECTURE §4.36.5 (c-quinquies)`.
+>
+> | # | Hallazgo | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | **1** | Producción: 17 filas VENTA `reason=null`. «Publicar todo» solo cierra las de su clave exacta (`inventory.service.ts:2227-2238` selección; `:1683-1685` cierre); el barrido VQ solo corre al final de un `price-sync` **completo** (`jobs/price-sync.service.ts:115`; cron `scheduler.service.ts:162`; o `POST /admin/pricing/sync` sin botón). «Actualizar precios ahora» es `price-ingest` y no barre. El paso de despliegue de v1.80.8.4 decía «el siguiente `price-sync` completo… cierra el resto» y el dueño entendió que bastaba «Publicar todo» | **`publish-all` termina con el barrido VQ entero** (`sweepUnreasonedSaleQueue()`: rama `null` + rama `premium_at_floor`), en toda ejecución no-replay, falla-seguro. ⛔ **No** se engancha a «Actualizar precios ahora» (fan-out asíncrono sin «final», `jobs/price-ingest.service.ts:26`, `:158-180`). Pruebas **VQ-10, VQ-11** | **Sí** (publish-all cierra filas que antes esperaban al cron) | backend |
+> | **2** | (a) La reconciliación de `price-ingest` abre/cierra con clave **sin** `cardProductId` (`price-ingest.service.ts:1034-1038` ⇒ `null` en `pricing.service.ts:2206`); la publicación usa la de seis (`inventory.service.ts:1797`, `sale-queue-key.ts:81-93`) | **DEFECTO.** La reconciliación usa `saleQueueKeyOf(item, pricing)`. Prueba **VQ-12** | **Sí** (cola: promo `listed` deja de abrir fila fantasma de set base y su fila sí se cierra) | backend |
+> | **3** | (b) El dedupe de `escalatePending` ignora `context` (`pricing.service.ts:2047-2049`): un eje reutiliza —y reescribe el `reason` de— la fila abierta del otro, y el aviso de VENTA puede vivir en una fila `buylist` que el bucket VENTA no muestra | **DEFECTO.** `context` entra a la clave de dedupe (siete componentes; sin DDL: no hay índice único, `schema.prisma:1207-1245`). El deep-link de M1 (`inventory.service.ts:2048`) filtra `context='inventory'`. Cierra el residual que backend dejó al arquitecto (`BACKEND_NOTES` «P-48 · S48-M1», «Residual conocido»). Pruebas **VQ-13, VQ-14** | **Sí** (una variante bloqueada en los dos ejes tiene **dos** filas; `dataHealth.pendingPriceCount` las cuenta a las dos) | backend |
+> | **4** | Paso de despliegue | **Reescrito** con qué cierra qué (§M2 «v1.80.8.9» punto 5). Tachados los pasos de v1.80.8.4 y v1.80.8.5 | **No** | nadie |
+>
+> - **Backend:** (1) barrido al final de `publishAll` + VQ-10/VQ-11; (2) clave entera en `reconcilePublishedPrices` +
+>   VQ-12; (3) `context` en el dedupe y en el deep-link + VQ-13/VQ-14. Cada prueba con su mutación (tabla de §M2
+>   «v1.80.8.9»). **Frontend nada** (forma sin cambio). **ux-ui nada** (opcional: el texto de ayuda de «Publicar todo»
+>   puede decir «también limpia la cola de precios», sin cambio de contrato). **QA:** VQ-10…VQ-14 (deterministas: N=1
+>   por corrida es medida) + invariante `no_market + premium_at_floor + unknown === nº open` sobre VENTA tras un
+>   `publish-all` sin filtro. **Orquestador:** las dos consultas de solo lectura de `ARCHITECTURE §4.36.5
+>   (c-quinquies)` antes de prometer cifras al dueño.
 >
 > **Rev v1.80.8.8 — ERRATA: SE RESUELVEN LAS DUDAS DE LA CONSTRUCCIÓN DE v1.80.8.6 / v1.80.8.7 Y LA SEGUNDA
 > INTERMITENCIA DE PS-51 (2026-10-04, arquitecto, rama `claude/precios-s5`, sobre `352b849a` — sha dado por el
@@ -12780,7 +12803,8 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       la única vía (idéntico a hoy).
   - **v1.26 (④, priceless → ESCALA, no dropea):** una línea que falla `PRICE_PENDING` (variante sin precio resoluble)
     **ESCALA** a la cola de pendientes (`escalatePending`, `context='inventory'`, dedupe idempotente por
-    `(cardId, productType, gradeKey, finish, status='open')`) y **NO** se publica — antes se caía en silencio y M2 no se
+    `(cardId, productType, gradeKey, finish, status='open')` *(v1.80.8.9: la clave vigente es `(cardId, productType,
+    gradeKey, finish, cardProductId, sealedProductId, context, status='open')` — [§M2 «v1.80.8.9»](#M2-VQ9) punto 3)*) y **NO** se publica — antes se caía en silencio y M2 no se
     enteraba. **Mismo código de error** `PRICE_PENDING` (no breaking). La línea puede devolver **`pendingPriceEntryId?`**
     (aditivo/opcional) para deep-link de UI. Remedio: el admin fija precio (override M2 `POST /admin/pricing/override` o
     `listPriceCents` por-línea) y el re-publish procede. Paridad con `createItem` (que ya escalaba). Ver ARCHITECTURE §4.24b.
@@ -12959,6 +12983,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       roto bajo la curva nueva; (2) `GET /admin/pricing/pending?reason=premium_at_floor` (o el `counts` del
       encabezado) debe quedar del orden de **≈3 por cada 333** cartas; mucho más ⇒ **piso mal calibrado o ingest
       roto**, no guardarraíl ruidoso — y los dos `counts` juntos separan cuál de los dos es (§M2).
+  - **v1.80.8.9 — termina con el barrido VQ** (filas VENTA `reason IS NULL` que ninguna pieza vendible necesita, y
+    `premium_at_floor` de rareza que el dial publica), en toda ejecución real con o sin filtro; ⛔ el replay no barre;
+    un fallo del barrido no cambia el `200`. Forma de respuesta sin cambio. Norma: [§M2 «v1.80.8.9»](#M2-VQ9).
   - **Idempotencia + auditoría:** `batchKey` vía `InventoryBatch` (`kind='publish_all'`; replay ⇒ resultado
     guardado + `idempotentReplay:true`). `AuditLog action=inventory.publish_all` (filtros + resumen).
   - Res `200` (`PublishAllResponse`): `{ batchKey?, idempotentReplay: boolean,
@@ -13343,7 +13370,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       anteriores a M-41 **y** las que escribieron hasta v1.80.8.3 escritores sin motivo — alta/aportación/publicación
       de sellado y, sobre todo, `price-sync`; medido por backend, `BACKEND_NOTES` §14. Desde v1.80.8.4 **ningún
       escritor produce `null`** y el barrido VQ las agota: **en régimen `unknown` = 0**; un `unknown > 0` sostenido
-      tras el primer `price-sync` completo es **defecto**, no historia). Existe para que se cumpla el
+      tras el primer `price-sync` completo es **defecto**, no historia). **v1.80.8.9:** «tras el primer `publish-all`
+      sin filtro **o** `price-sync` completo» — los dos terminan con el barrido; el residual admitido está en
+      [«v1.80.8.9»](#M2-VQ9) punto 5. Existe para que se cumpla el
       invariante **`no_market + premium_at_floor + unknown === nº de entradas `open` de esa cola`** — verificable por
       QA y aseverable por el front. Sin esta tercera clave, una cola con filas históricas haría que los dos números
       **no cuadraran con la lista** y pareciera un bug del backend. DESIGN_SYSTEM §21.7c ya contempla la fila
@@ -13396,10 +13425,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       tryGradeKeyFor(item), finish, cardProductId, sealedProductId=null)` — sin clave (`null`) no casa; sellado
       `(cardId, 'sealed', sealedMarketGradeKeyForItem(item) ?? 'sealed', 'normal', cardProductId=null, item.sealedProductId)`.
       Registra en log el número de filas cerradas y sus ids. ⛔ No toca filas con `reason` no nulo, ni otros `context`.
-    - **Paso de despliegue (va en la solicitud de fusión):** tras el deploy, **un** `publish-all` sin filtro (botón
+    - ~~**Paso de despliegue (va en la solicitud de fusión):** tras el deploy, **un** `publish-all` sin filtro (botón
       «Publicar todo» de M1) reclasifica las filas sin motivo de piezas vendibles; el siguiente `price-sync` completo
       (o `POST /admin/pricing/sync` con `all_vault`) cierra el resto. Orden indiferente: el barrido VQ no cierra lo
-      que `publish-all` necesita.
+      que `publish-all` necesita.~~ **v1.80.8.9: tachado — el dueño lo leyó como «basta “Publicar todo”» y no bastaba
+      (el barrido no corría ahí). Paso vigente: [«v1.80.8.9»](#M2-VQ9) punto 5.**
     - **Qué ve el dueño en VENTA después:** `N SIN MERCADO · 17 PREMIUM EN EL PISO · 0 SIN MOTIVO` (`unknown` = 0 o «—»
       según DESIGN_SYSTEM §21.7c). `N` = las filas que eran «sin motivo» de piezas de plataforma vendibles sin mercado,
       ahora con su motivo verdadero (⛔ **NO MEDIDO** cuántas de las 19 son; se mide con la consulta de
@@ -13422,6 +13452,103 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
       > **v1.80.8.5 — VQ-8 y VQ-9 se corren con el dial en `mode:'none'`** (su asunto son las filas `null`, y en
       > `'none'` la conducta de `premium_at_floor` de VENTA es la de v1.80.8.4). Con `'all'`/`'only'` la fijan PF-6 y PF-10.
+
+  - <a id="M2-VQ9"></a>**v1.80.8.9 — «PUBLICAR TODO» TERMINA CON EL BARRIDO VQ; LA COLA SE ESCRIBE POR EJE Y CON LA CLAVE
+    ENTERA (NORMATIVO; sin schema, sin endpoint, sin forma nueva).** Porqué y alternativas: `ARCHITECTURE §4.36.5
+    (c-quinquies)`. Líneas leídas por el arquitecto en `claude/precios-s5` el 2026-10-04 (sha NO MEDIDO por él).
+    1. **`publish-all` termina con el barrido VQ entero.**
+       - **Qué:** `InventoryService.publishAll` invoca `sweepUnreasonedSaleQueue()` (las **dos** ramas: `reason IS
+         NULL` de v1.80.8.4 y `premium_at_floor` de rareza publicada de v1.80.8.5; `jobs/price-sync.service.ts:131-137`)
+         **después** del bucle por chunks (`inventory.service.ts:2261-2314`) y **antes** de armar la respuesta
+         (`:2316`). Así las filas que el propio bucle reclasificó ya llevan motivo y el barrido no las ve.
+       - **Cuándo:** en **toda ejecución real**, con o sin filtro (`setId`/`productType`). El predicado del barrido es
+         global y no depende de la selección: con filtro sigue sin cerrar nada que una pieza vendible necesite.
+         ⛔ **El replay por `batchKey` no barre** (`:2186-2198` y `:2338-2345` devuelven lo guardado: un replay no
+         ejecuta nada).
+       - **Un solo cuerpo.** `PriceSyncJobService` lo exporta `PricingModule` (`pricing.module.ts:62`, `:92`) e
+         `InventoryModule` ya importa `PricingModule` (`inventory.module.ts:19`) ⇒ se inyecta sin arista nueva.
+         ⛔ Prohibido copiar el cuerpo. Si backend prefiere mover el cuerpo a un servicio propio del módulo `pricing`,
+         puede, con **una** definición y los **dos** llamadores (`price-sync` completo y `publish-all`).
+       - **El log nombra quién barrió:** `sweepUnreasonedSaleQueue` recibe el origen (`'price-sync' | 'publish-all'`) y
+         sus dos líneas de log (`price-sync.service.ts:164-168`, `:212-216`, hoy con prefijo fijo «price-sync ·») lo
+         dicen. Ids con el mismo tope `VQ_SWEEP_LOG_ID_CAP`.
+       - **Falla-seguro:** un error del barrido ⇒ `logger.error` y la respuesta `200` **sin cambio** (las piezas ya se
+         publicaron; la cola es higiene). Mismo patrón que la reconciliación de `price-ingest`
+         (`price-ingest.service.ts:980`, `:1048-1053`).
+       - **Forma de respuesta y auditoría: sin cambio.** `PublishAllResponse` no gana campo; la evidencia es el log y
+         los `counts` de M2.
+       - **Concurrencia:** dos barridos a la vez (cron + botón, o dos botones) son inocuos: las dos escrituras repiten
+         el predicado en el `where` (`pricing.service.ts:2162`, `:2178`) ⇒ el segundo cierra 0.
+       - ⛔ **«Actualizar precios ahora» (`POST /admin/jobs/price-ingest`) NO barre.** Hace fan-out asíncrono por set
+         (`jobs/price-ingest.service.ts:26`, `:158-180`): no tiene un «final» en el que engancharlo sin un
+         coordinador nuevo, y su reconciliación solo ve raw `listed` (`price-ingest.service.ts:984-992`).
+    2. **(a) La reconciliación de `price-ingest` usa la clave de cola entera.** En `reconcilePublishedPrices`
+       (`price-ingest.service.ts:1034-1038`) la clave del `settlePendingForVariant` sale de `saleQueueKeyOf(item,
+       this.pricing)` (`sale-queue-key.ts:81-93`) — la misma que la publicación (`inventory.service.ts:1797`) y el
+       barrido (`price-sync.service.ts:200`). Hoy va sin `cardProductId` ⇒ `null` (`pricing.service.ts:2206`), así que
+       para una pieza promo (`cardProductId ≠ null`): el cierre **no casa** con la fila que abrió la publicación, y la
+       escalada abre una fila **fantasma** de set base. ⛔ **La lectura de referencia no cambia** (`refs` por
+       `cardId|productType|gradeKey|finish`, `:1020`, igual que la publicación, `inventory.service.ts:1810`): el precio
+       es el mismo; lo que cambia es **qué fila** se abre o cierra. Sin efecto en dinero.
+    3. **(b) `context` entra a la clave de dedupe de `escalatePending`.** El `findFirst` (`pricing.service.ts:2047-2049`)
+       gana `context`: la clave pasa a **siete** componentes `(cardId, productType, gradeKey, finish, cardProductId,
+       sealedProductId, context)` + `status='open'`. Sin DDL (no hay índice único, `schema.prisma:1242-1244`).
+       Consecuencias, todas normativas:
+       - Cada eje tiene **su** fila. Un eje ya no reutiliza ni reescribe el `reason` de la fila del otro, y el aviso de
+         VENTA no puede vivir en una fila `buylist` que `?context=inventory` no muestra.
+       - **El cierre no cambia** (`closePendingForVariant`, `pricing.service.ts:2112-2147`): `no_market`/`null` se
+         cierran desde cualquier eje (dato compartido), `premium_at_floor` solo desde el suyo, y el override manual
+         cierra todas. Con filas por eje desaparece el «residual conocido» de S48-M1 (`BACKEND_NOTES` «P-48 · S48-M1»).
+       - **El deep-link de M1** (`openPendingEntriesFor`, `inventory.service.ts:2048-2049`) filtra
+         `context:'inventory'`: hoy, con dos filas de la misma clave, gana la más antigua (`:2073-2074`) aunque sea la
+         de COMPRA.
+       - `GET /admin/pricing/pending` **sin** `?context` puede listar dos filas con la misma variante (una por eje):
+         es correcto, son dos trabajos. `dataHealth.pendingPriceCount` (`admin.service.ts:2042`) cuenta filas, así que
+         una variante bloqueada en los dos ejes cuenta **2**. Aceptado: es «filas en bandejas».
+       - Datos existentes: **sin migración**. Una fila que un eje reescribió en el pasado no se distingue en BD; el
+         siguiente escritor de cada eje la corrige (VENTA: el propio «Publicar todo» del paso 5).
+       - El comentario de `sale-queue-key.ts:9-10`, `:41` («los seis componentes del dedupe») pasa a decir: la clave de
+         VENTA son esos seis con `context='inventory'` implícito.
+    4. **Pruebas (backend; QA las corre). Deterministas ⇒ N=1 por corrida es medida; cada una con su mutante:**
+
+       | # | Caso | Esperado | Mutación que debe ponerla roja |
+       |---|---|---|---|
+       | VQ-10 | VENTA sembrada; `publish-all` **sin filtro**. Filas `null`: (i) pieza de cliente `in_custody`, (ii) pieza vendida, (iii) pieza de plataforma `in_stock` con `listPriceCents`, (iv) `cardProductId=X` cuando la única pieza vendible de la carta tiene `cardProductId=null`, (v) clave `'sealed'` sin pieza, (vi) pieza de plataforma `in_stock` sin mercado (clave exacta), (vii) `context='buylist'`. Filas con motivo: (viii) `premium_at_floor` VENTA de una `Double Rare` sin pieza (dial seed), (ix) `premium_at_floor` VENTA de una `Special Illustration Rare` sin pieza | (i)–(v) y (viii) `resolved`, `resolvedPriceRefId=null`; (vi) `open` con `reason='no_market'`; (vii) y (ix) `open` intactas; `counts.unknown=0` en VENTA e invariante `no_market + premium_at_floor + unknown === nº open`; segunda pulsación ⇒ 0 cierres | (M1) quitar la llamada al barrido de `publishAll` ⇒ (i)–(v), (viii) siguen `open`. (M2) llamar solo a la rama `null` ⇒ (viii) sigue `open` |
+       | VQ-11 | (a) `publish-all` con `batchKey`; se siembra una fila `null` de pieza de cliente; replay con el mismo `batchKey`. (b) Barrido que lanza. (c) `publish-all` con `setId` de **otro** set y una fila `null` de pieza de cliente | (a) la fila sigue `open` y el barrido tiene 0 invocaciones en el replay. (b) `200`, `summary` idéntico al de una corrida sin fallo, un `logger.error`. (c) la fila `resolved` | (a) barrer antes del chequeo de replay. (b) quitar el `try/catch`. (c) condicionar el barrido a «sin filtro» |
+       | VQ-12 | `reconcilePublishedPrices` sobre pieza raw de plataforma `listed`, `cardProductId=X`, rareza no premium. (A) fila `open no_market` con clave `(…, cardProductId=X, null)` y referencia de mercado presente. (B) sin referencia y sin fila | (A) esa fila `resolved`. (A) y (B): **0** filas con `cardProductId=null` para esa carta; (B) **una** fila `open no_market` con `cardProductId=X` | Volver a la clave de `:1036` sin `cardProductId` ⇒ (A) la fila sigue `open`; (B) aparece la fila `null` |
+       | VQ-13 | `settlePendingForVariant` por eje sobre la misma variante `K`. (A) existe `open` `K`/`buylist`/`premium_at_floor`; escala VENTA con `no_market`. (B) existe `open` `K`/`inventory`/`null`; escala COMPRA con `premium_at_floor`. (C) VENTA escala `K` dos veces | (A) devuelve un id **distinto**; dos filas `open`; la de COMPRA conserva `premium_at_floor`; `GET …pending?context=inventory` lista la nueva. (B) la de VENTA sigue `null` (la cierra el barrido); nace una de COMPRA. (C) **una** sola fila (idempotencia intacta) | Quitar `context` del `where` de `:2048` ⇒ (A) y (B) rojas. (C) es el canario de no-sobrecorrección: quitar el dedupe entero la pone roja |
+       | VQ-14 | Deep-link de M1: pieza de plataforma `in_stock` sin mercado; fila `open` `K`/`buylist` (más antigua) y `K`/`inventory` (más nueva) | `GET /admin/inventory/pending-publish` ⇒ `pendingPriceEntryId` = id de la de `inventory` | Quitar `context:'inventory'` del `findMany` de `:2048` ⇒ apunta a la de COMPRA |
+
+       Siguen verdes sin cambio: VQ-1…VQ-9, PF-*, y las de S48-M1 sobre `closePendingForVariant`. Si alguna prueba
+       existente asevera **una** fila compartida entre ejes, codifica el defecto (b): se cambia y se dice en
+       `BACKEND_NOTES`, ⛔ no se borra.
+    5. **Paso de despliegue — qué cierra qué (va en la solicitud de fusión; sustituye a los de v1.80.8.4 y v1.80.8.5).**
+       - **Hoy, en production `aab55abe` (antes de esta errata):** «Publicar todo» cierra o pone motivo **solo** a las
+         filas cuya clave es exactamente la de una pieza de plataforma `in_stock|listed` sin precio manual; «Actualizar
+         precios ahora» no cierra filas «sin motivo». Las demás legadas solo las cierra un `price-sync` **completo**:
+         el cron de las 06:15 UTC (`scheduler.service.ts:162`), que solo existe si hay `REDIS_URL`
+         (`scheduler.service.ts:124-131`; ⛔ NO MEDIDO por el arquitecto si production lo tiene), o `POST
+         /admin/pricing/sync {"scope":"all_vault"}` (sin botón; consulta al proveedor por carta).
+       - **Tras desplegar v1.80.8.9, el dueño pulsa UNA vez «Publicar todo» (alcance «Todo»).** En esa pulsación:
+         1. **El bucle, por pieza de plataforma `in_stock|listed`:** si resuelve con precio derivado ⇒ cierra la fila
+            de su clave exacta; si no resuelve ⇒ esa fila queda con motivo (`no_market` / `premium_at_floor`), y si
+            el aviso de VENTA estaba escondido en una fila de COMPRA, ahora nace la suya. Precio manual por pieza ⇒ ni
+            abre ni cierra.
+         2. **El barrido, al final:** cierra toda fila VENTA `reason IS NULL` cuya clave **ninguna** pieza de
+            plataforma `in_stock|listed` sin precio manual tiene — de clientes, vendidas, reservadas u otro status, con
+            precio manual, otro acabado/grado, `cardProductId` distinto, sellado sin pieza, gradeada sin identidad de
+            slab — y toda VENTA `premium_at_floor` cuya rareza publica el dial (seed: `Double Rare`, `Rare Holo EX`).
+         3. **No cierra:** (i) filas `null` de piezas vendibles cuyo `publish-all` falló **antes** de resolver
+            (salen en `failures[]` del resultado; p. ej. gradeada sin `certNumber`, `inventory.service.ts:1625-1630`)
+            — se arregla la pieza y se pulsa otra vez; (ii) `premium_at_floor` de las demás premium (por diseño,
+            v1.80.8.5); (iii) COMPRA; (iv) filas `no_market` sin pieza, incluidas las fantasma de (a) — VQ-8 sigue
+            vigente; se miden con la consulta de `ARCHITECTURE §4.36.5 (c-quinquies)` y, si existen, es decisión
+            aparte.
+         4. **Qué ve el dueño en M2 VENTA:** `N SIN MERCADO · K PREMIUM EN EL PISO · 0 SIN MOTIVO`, salvo el
+            residual (i). `N` y `K` ⛔ NO MEDIDOS; `N` puede **subir** por los avisos que (b) saca de filas de COMPRA.
+         5. **Pulsar otra vez es inocuo** (idempotente). «Actualizar precios ahora» no forma parte del paso.
+       - **Reversión:** revertir el despliegue. No hay dato que deshacer: una fila cerrada por el barrido no era
+         trabajo de nadie, y si lo fuera, el siguiente escritor la reabre **con** motivo.
 
   - <a id="M2-PF"></a>**v1.80.8.5 — PREMIUM EN EL PISO, EN VENTA: SE PUBLICA AL PISO; EL GUARDARRAÍL DE VENTA ES UN
     DIAL (NORMATIVO, DINERO).** Decisiones del dueño: `HECHOS.md` fila «Precios — decisiones del 2026-10-04» punto
@@ -13526,9 +13653,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     - **Paso de despliegue (va en la solicitud de fusión):** sin tocar el dial (el seed ya es la respuesta del dueño),
       tras el deploy: (1) las `Double Rare`/`Rare Holo EX` en el piso **`listed`** ya se venden a MX$25 sin hacer
       nada; (2) **un** `publish-all` sin filtro (botón «Publicar todo» de M1) publica las **`in_stock`** de esas dos
-      rarezas a MX$25 y cierra sus filas; (3) el siguiente `price-sync` completo (o `POST /admin/pricing/sync`
+      rarezas a MX$25 y cierra sus filas; ~~(3) el siguiente `price-sync` completo (o `POST /admin/pricing/sync`
       `{scope:"all_vault"}`) cierra las filas `premium_at_floor` de VENTA **de esas dos rarezas** que queden. Orden
-      indiferente. Las filas de las **demás** premium **no se mueven**. ⛔ Cuántas de las 17 son `Double Rare`/`Rare
+      indiferente.~~ **v1.80.8.9: (3) lo hace el mismo `publish-all` de (2) al terminar (barrido VQ, rama
+      `premium_at_floor`); el `price-sync` completo lo repite sin efecto. Paso vigente: [«v1.80.8.9»](#M2-VQ9) punto 5.** Las filas de las **demás** premium **no se mueven**. ⛔ Cuántas de las 17 son `Double Rare`/`Rare
       Holo EX` y cuántas otra premium, y en qué status están: **NO MEDIDO**; consulta de solo lectura en `ARCHITECTURE
       §4.36.5 (c-ter)` — el orquestador la corre antes de prometer al dueño cuántas se publican y cuántas siguen en la cola.
     - **Qué ve el dueño:** M2 VENTA ⇒ `N SIN MERCADO · K PREMIUM EN EL PISO · 0 SIN MOTIVO`, donde **`K` = las

@@ -22,6 +22,7 @@
 > | **v1.80.8.6** | 💰 Errata (2026-10-04, rama `claude/precios-s5`; `HECHOS.md` 2026-10-02 «Cartas apartadas … (SSL-R1)», 2026-10-04 «Cartas apartadas (SSL-R1) — detalles» 4a/4b y «Precios y reembolsos — respuestas…» (b)(c); `PROJECT §S.11`, criterios 249–253): reembolso TOTAL «depende de si ya salió». Corte = envío propio en `enviado\|entregado` **leído bajo candado** y congelado en `Order.fullRefundAfterShipment` con el sello. Orden nunca liquidada ⇒ sus piezas `reserved` vuelven a la venta en la misma tx (`refund_release`) y el barrido limpia las anteriores ⇒ **cierra `SSL-R1`**. Enviado ⇒ cartas quietas y motivo cerrado `ShippedRefundReason`: en M3 obligatorio antes de Stripe; por Stripe, «reembolso por revisar» (predicado derivado, ⛔ no `OrderStatus`) + verbo `shipped-refund-reason` + `workQueue.refundReviews`. **Migración `M-62`**. Tacha §4.57 (v) fila «Piezas `reserved` … Sin cambio». Norma: `API_CONTRACT` rev v1.80.8.6, §M4-SHIP.18.12 | §4.57 (w), §11 `M-62` | **Sí** (backend + frontend M3/tablero + textos ux-ui) · 🔒 seguridad |
 > | **v1.80.8.7** | Errata (2026-10-04, rama `claude/precios-s5`, sobre `f0dac0a6`; responde a `DESIGN_SYSTEM §39.6` S-1…S-5 (v4.11) y §40.12 A-1/A-2 (v4.12); `PROJECT §N.5-bis (b)`, criterio 255). **S-3:** todo `PATCH /admin/inventory/items/:id` que cambie `status` o `listPriceCents` escribe `inventory.item_updated` con `before/after {status, listPriceCents}` y el actor, **en la misma tx**, en los dos caminos, con el precio leído dentro del CAS (`409 CONFLICT` si cambió) — hoy un cambio de solo precio no deja antes/después (`D-SFP-1`). **S-1:** `PendingPublishRowDTO.pendingReason` (veredicto de hoy de la derivación, ⛔ no la fila de la cola). **S-2:** el listado de M1 trae `resolvedSalePriceCents`/`priceBasis` solo para sellado de plataforma `in_stock\|listed`. **S-4:** sin caché del dial (medido). **S-5:** forma `details.errors` del `422` de settings (medida). **A-1:** `AdminOrderDetailDTO.settledAt: string \| null` (ya emitido). **A-2:** el `409 …ALREADY_SET` no gana `recordedBy`. Defaults registrados: N-11 (operador + súper-admin), Q-1, N-14, N-15; Q-2 medido (no es `SSL-R1`). **Fuera:** N-12 (`listPriceCents:null`, `D-SFP-2`). ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.8.7, §M1 `M1-SFP`, §M4-SHIP.18.12 (9) | §4.36.5 (c-quater), §4.57 (w), §9 | **Sí** (backend + tipos/pantallas frontend + un texto ux-ui) |
 > | **v1.80.8.8** | Errata (2026-10-04, rama `claude/precios-s5`, sobre `352b849a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES` §17.2/§17.4/§17.5/§18, PR #68, `FRONTEND_NOTES §84`). **Aceptado y normado lo construido:** paso **4-bis** de SRF-11 (candado de envío **después** de `Order`, única excepción al orden de candados, interbloqueo solo vía `40P01 ⇒ 503`/reentrega); fila `order.full_refund_closed` en la rama directo (forma declarada); `?refundReview=` en §0-Q (clase L); M3 sobre no `settled` ⇒ **`422`** (el `400` de SRF-13 era errata); SRF-8 ⇒ `409 CONFLICT`; mutaciones de SRF-6/7/8/11 sustituidas por las que muerden (SRF-8: una nueva NO MEDIDA); SFP-7 sin `updatedAt`; PS-51 admite `IN_PROGRESS` **o** `NOT_RETRYABLE` (clasificación por el estado releído). **Endurecido:** el CAS publicante del `PATCH` de M1 condiciona el `status` leído exacto (un `200` de carrera pasa a `409 CONFLICT`), prueba **SFP-10**. `D-SFP-1` cerrada (reportado por backend). ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.8.8, §M4-SHIP.18.12 (10), §M4-SHIP.17.6, §M1 `M1-SFP`, §0-Q | §4.36.5 (c-quater), §4.57 (w), §9 | **Sí** (backend: una condición en `claimListed` + pruebas SFP-10, SRF-13, SRF-8, SRF-4, PS-51, `C-EQ-1`) |
+> | **v1.80.8.9** | Errata (2026-10-04, rama `claude/precios-s5`; ⛔ sha NO MEDIDO por el arquitecto; origen: diagnóstico de backend sobre production `aab55abe`, relayado por el orquestador — 17 filas VENTA `reason=null` que «Publicar todo» no cerraba). (1) **`publish-all` termina con el barrido VQ entero** (`sweepUnreasonedSaleQueue`, un solo cuerpo, falla-seguro, ⛔ no en replay); «Actualizar precios ahora» (`price-ingest`) **no** barre. (2) La reconciliación de `price-ingest` abre/cierra con **`saleQueueKeyOf`** (con `cardProductId`). (3) **`context` entra a la clave de dedupe** de `escalatePending` (siete componentes, sin DDL) y el deep-link de M1 filtra `context='inventory'` — cierra el residual de S48-M1. Paso de despliegue reescrito con qué cierra qué. ⛔ Sin schema, migración, endpoint ni forma nueva. Norma: `API_CONTRACT` rev v1.80.8.9, §M2 `M2-VQ9` | §4.36.5 (c-quinquies), (c-bis) 5 | **Sí** (backend: VQ-10…VQ-14) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -4784,7 +4785,7 @@ Implementaciones MVP:
 5. Respeta rate-limit del free tier vía cola BullMQ.
 
 **v1.8-ronda-c — cola de precio pendiente POR ACABADO:** `PendingPriceEntry` gana `finish` (§3.2, M-19) y las dos rutinas de la cola lo incorporan a la llave:
-- **`escalatePending(cardId, productType, gradeKey, finish, context, refId?)`** dedupe por `(cardId, productType, gradeKey, finish, status='open')`. **Corrección de implementación (BE):** hoy `syncCardPrice` invoca `escalatePending` **sin** pasar `finish` (bug: colapsa acabados) — con M-19 debe **propagar** el `finish` del `syncCardPrice`.
+- **`escalatePending(cardId, productType, gradeKey, finish, context, refId?)`** dedupe por `(cardId, productType, gradeKey, finish, status='open')` *(v1.80.8.9: clave vigente `(cardId, productType, gradeKey, finish, cardProductId, sealedProductId, context, status='open')`, §4.36.5 (c-quinquies))*. **Corrección de implementación (BE):** hoy `syncCardPrice` invoca `escalatePending` **sin** pasar `finish` (bug: colapsa acabados) — con M-19 debe **propagar** el `finish` del `syncCardPrice`.
 - **`manualOverride(cardId, productType, gradeKey, priceMxnCents, finish='normal')`** ya crea la `PriceReference` del acabado correcto (clave con `finish`), pero su `updateMany` que **resuelve** pendientes filtraba `{cardId, productType, gradeKey, status:'open'}` **sin `finish`** → cerraba TODOS los acabados. Con M-19 el `updateMany` **añade `finish`**, resolviendo **solo** el pendiente de ese acabado (el de `holofoil` sigue abierto hasta que se le fije precio). `getReference(...finish)` no cambia (ya era por-acabado); no se rompe SEC-A1 (los montos siguen derivándose server-side de `(Card.rarity, finish)`).
 
 ### 4.2 AcquisitionPricer (buylist) — tabla de precio por RAREZA OFICIAL (v1.3.1) — ⛔ **SUPERSEDED por §4.36 (v2.0, P-48)**
@@ -14682,7 +14683,7 @@ bucket que §4.24c define como inventario de plataforma. El §5 de este document
    `settlePendingForVariant(null, …, 'inventory')`. Precio manual por pieza ⇒ no cierra (igual que raw/graded).
    Sin esto, «`no_market` se cierra sola» era falso para todo el sellado.
 5. **Barrido VQ de las filas `reason IS NULL` (`context='inventory'`).** Función de aplicación idempotente al final
-   de cada `price-sync` completo: cierra (`resolved`) la fila si **ninguna** pieza `platform` `{in_stock, listed}`
+   de cada `price-sync` completo *(v1.80.8.9: **y** al final de cada `publish-all` no-replay — (c-quinquies))*: cierra (`resolved`) la fila si **ninguna** pieza `platform` `{in_stock, listed}`
    sin precio manual por pieza tiene su clave; si alguna la tiene, la deja para `publish-all` (que le pone motivo o la
    cierra). No es migración: decidir la clave de una pieza es lógica de app (`tryGradeKeyFor`,
    `sealedMarketGradeKeyForItem`). Como desde (1)–(4) ningún escritor produce `null`, tras el primer `publish-all` +
@@ -14713,8 +14714,8 @@ bucket que §4.24c define como inventario de plataforma. El §5 de este document
    Holo EX` se publican al piso y sus filas se cierran; las demás premium siguen en la cola — (c-ter).**
 
 **Lo que NO cambia:** alcance de `price-sync` (sigue barriendo vendidas: desperdicia cuota del free tier, no es
-defecto de cola — se anota, no se decide aquí), `set-price-sync`, clave de dedupe, `counts`, forma de respuesta,
-`PendingPriceReason`, `PendingPriceStatus`.
+defecto de cola — se anota, no se decide aquí), `set-price-sync`, clave de dedupe *(v1.80.8.9: cambia — gana
+`context`, (c-quinquies))*, `counts`, forma de respuesta, `PendingPriceReason`, `PendingPriceStatus`.
 
 **(c-ter) v1.80.8.5 — En VENTA, la premium ex / Double Rare en el piso se publica al piso; el guardarraíl de venta es
 un dial con lista de rarezas (NORMATIVO, DINERO; sin schema, sin enum).** Contrato: `API_CONTRACT §M2` «v1.80.8.5»
@@ -14814,8 +14815,8 @@ SELECT COALESCE(c."rarityCanonical", c."rarity") AS rareza,
 visible al desplegar, `in_stock` ⇒ tras `publish-all`, `NULL` ⇒ sin pieza vendible, solo cierra el barrido. Para
 `se_publica = false`: siguen en la cola «PREMIUM EN EL PISO» — es lo que el dueño verá ahí.)
 
-**Lo que NO cambia:** curva, piso, puntos, escalera, `no_market`, exención de override/bounty, clave de dedupe,
-`counts`, forma de respuestas, `PendingPriceReason`, COMPRA entera.
+**Lo que NO cambia:** curva, piso, puntos, escalera, `no_market`, exención de override/bounty, clave de dedupe
+*(v1.80.8.9: cambia — (c-quinquies))*, `counts`, forma de respuestas, `PendingPriceReason`, COMPRA entera.
 
 **(c-quater) v1.80.8.7 — El precio final del sellado: bitácora con antes/después, motivo en la cola, precio derivado
 en el panel (NORMATIVO; sin schema).** Contrato: `API_CONTRACT §M1` «v1.80.8.7» (ancla `M1-SFP`), pruebas SFP-1…SFP-9.
@@ -14850,6 +14851,105 @@ fila `inventory.item_updated` con el valor realmente sustituido y el valor escri
 | Aceptar y documentar | `before.status` = «lo leído», puede no ser lo sustituido | El precio sí es exacto y el lote no escribe `inventory.item_updated`, así que la cadena de **precio** cuadra; pero la de `status` no, y habría que explicar en cada lectura de la bitácora que el «antes» de `status` es aproximado |
 **Lo que NO cubre:** los otros escritores de `listPriceCents` (precio por línea de `bulk-publish`, alta) — no son la
 captura del criterio 255; ⛔ NO MEDIDO si la pantalla los usa para sellado.
+
+**(c-quinquies) v1.80.8.9 — «Publicar todo» cierra las filas «sin motivo»; la cola se escribe por eje y con la clave
+entera (NORMATIVO; sin schema, sin endpoint).** Contrato: `API_CONTRACT §M2` «v1.80.8.9» (ancla `M2-VQ9`), pruebas
+VQ-10…VQ-14. Líneas leídas por el arquitecto en `claude/precios-s5` el 2026-10-04 (sha NO MEDIDO por él).
+
+*Origen.* Diagnóstico de backend sobre production `aab55abe` (2026-10-04, relayado por el orquestador; ⛔ cifras de
+producción NO MEDIDAS por el arquitecto): quedan **17** filas VENTA `reason=null`; el dueño pulsó «Publicar todo»
+porque el paso de despliegue de v1.80.8.4 lo nombraba primero, y el cierre del resto dependía de un `price-sync`
+completo que **no tiene botón** (`POST /admin/pricing/sync`, @deprecated) y cuyo cron (`scheduler.service.ts:162`)
+solo existe con `REDIS_URL` (`:124-131`). Reproducido por backend en BD local: tras `publish-all` 5/8 legadas
+abiertas; tras el barrido, 0 (N=1, determinista). El defecto es **de diseño** (mío, v1.80.8.4): puse el cierre en un
+sitio al que el dueño no llega, y lo describí con una frase que se leía como «basta el botón».
+
+**Decisiones:**
+
+1. **El barrido se engancha a «Publicar todo», no a «Actualizar precios ahora».**
+
+   | Opción | Por qué sí / no |
+   |---|---|
+   | **Al final de `publish-all` (elegida)** | Es el botón que el paso de despliegue ya nombra y que el dueño ya pulsa; es **síncrono** (hay un «final»); el barrido es idempotente y sin red; y `publish-all` es justo lo que reclasifica las filas que el barrido deja, así que en **una** pulsación se agota todo lo agotable |
+   | Al final de «Actualizar precios ahora» (`price-ingest`) | Fan-out asíncrono por set (`jobs/price-ingest.service.ts:26`, `:158-180`): no hay «final» sin un coordinador nuevo (contador de hijos o job de cierre). Y su reconciliación solo ve raw `listed` (`price-ingest.service.ts:984-992`), así que barrer ahí no reclasifica nada |
+   | Las dos | Dos sitios para una regla sin ganar nada: el de `price-ingest` exige el coordinador |
+   | Endpoint/botón nuevo «Limpiar cola» | Pantalla, copy, permiso y contrato para algo que el dueño no debería tener que saber que existe |
+
+   Con o sin filtro, porque el predicado del barrido es global e independiente de la selección; ⛔ no en replay
+   (no ejecuta nada). Falla-seguro (la cola es higiene; las piezas ya se publicaron). Un solo cuerpo: `publish-all`
+   inyecta el `PriceSyncJobService` que `PricingModule` ya exporta (`pricing.module.ts:92`; `inventory.module.ts:19`
+   ya importa `PricingModule` ⇒ sin arista nueva en el grafo).
+   *Qué se pierde:* `publish-all` (`vault_operator+`) cierra filas de la cola de M2. Aceptado: solo cierra lo que
+   ninguna pieza vendible necesita o lo que el dial ya publica — cero dinero, cero entrada del request.
+
+2. **(a) Defecto: la reconciliación de `price-ingest` escribía la cola con clave de cinco.** `price-ingest.service.ts:1036`
+   pasa `{cardId, productType, gradeKey, finish}` y `settlePendingForVariant` rellena `cardProductId=null`
+   (`pricing.service.ts:2206`); la publicación y el barrido usan `saleQueueKeyOf` con `cardProductId`
+   (`inventory.service.ts:1797`, `price-sync.service.ts:200`). Para una pieza promo `listed`: el cierre no casa y la
+   escalada abre una fila fantasma de set base. Es la misma clase que D-1 del techlead (dos derivaciones de una
+   clave); se cierra igual: `saleQueueKeyOf`. No es dinero: el precio se lee por referencia de cuatro componentes en
+   los dos sitios (`price-ingest.service.ts:1020`, `inventory.service.ts:1810`).
+
+3. **(b) Defecto: el dedupe ignoraba el eje.** `pricing.service.ts:2047-2049` busca la fila abierta sin `context`, así
+   que el primer eje que escala una variante se queda la fila y el otro la reutiliza — y le reescribe el `reason`
+   (`:2051-2052`). Consecuencias: el aviso de VENTA puede vivir en una fila `buylist`, invisible en el bucket VENTA
+   (`?context=inventory`); una escalada de COMPRA puede convertir una fila VENTA `null` en `premium_at_floor`
+   (sacándola del barrido de `null` y metiéndola en el de rareza); y el «residual conocido» de S48-M1 (`BACKEND_NOTES`
+   «P-48 · S48-M1»), que backend dejó al arquitecto porque «meter `context` en la clave es decisión de
+   schema/contrato». Decisión: **entra** `context`. Sin DDL (no hay índice único: `schema.prisma:1242-1244`). El
+   cierre por razón de S48-M1 (`pricing.service.ts:2132-2141`) no cambia y ahora es exacto. El deep-link de M1
+   (`inventory.service.ts:2048`) filtra `context='inventory'`.
+   *Descartado:* índice único parcial `(…, context) WHERE status='open'` — DDL + migración para algo que el dedupe de
+   aplicación ya sostiene, y que hoy no existe para la clave de seis. *Qué se pierde:* `dataHealth.pendingPriceCount`
+   (`admin.service.ts:2042`) cuenta 2 para una variante bloqueada en los dos ejes; es correcto como «filas en
+   bandejas».
+
+4. **El paso de despliegue dice qué cierra qué** (contrato §M2 «v1.80.8.9» punto 5), con lo que **no** cierra
+   escrito: filas de piezas cuyo `publish-all` falló antes de resolver (en `failures[]`), `premium_at_floor` de las
+   demás premium, COMPRA, y filas `no_market` sin pieza (VQ-8 sigue vigente).
+
+**Consultas de solo lectura para el orquestador** (⛔ NO MEDIDAS por el arquitecto; nombres según `schema.prisma`,
+no verificados contra la BD real):
+
+```sql
+-- Q1 · filas VENTA «sin motivo» abiertas hoy (el diagnóstico dice 17)
+SELECT count(*) FROM "PendingPriceEntry"
+ WHERE status = 'open' AND context = 'inventory' AND reason IS NULL;
+
+-- Q2 · (b) avisos de VENTA posiblemente escondidos en filas de COMPRA: fila buylist abierta, sin fila inventory
+--      abierta de la misma clave, y con pieza de plataforma vendible sin precio manual de esa carta/tipo/acabado
+SELECT count(*) FROM "PendingPriceEntry" b
+ WHERE b.status = 'open' AND b.context = 'buylist'
+   AND NOT EXISTS (SELECT 1 FROM "PendingPriceEntry" s
+                    WHERE s.status = 'open' AND s.context = 'inventory' AND s."cardId" = b."cardId"
+                      AND s."productType" = b."productType" AND s."gradeKey" = b."gradeKey" AND s.finish = b.finish
+                      AND s."cardProductId" IS NOT DISTINCT FROM b."cardProductId"
+                      AND s."sealedProductId" IS NOT DISTINCT FROM b."sealedProductId")
+   AND EXISTS (SELECT 1 FROM "InventoryItem" i
+                WHERE i."cardId" = b."cardId" AND i."productType" = b."productType" AND i.finish = b.finish
+                  AND i."ownerType" = 'platform' AND i.status IN ('in_stock','listed')
+                  AND (i."listPriceCents" IS NULL OR i."listPriceCents" <= 0));
+
+-- Q3 · (a) filas fantasma: VENTA no_market raw con cardProductId NULL, sin pieza vendible base de esa
+--      carta/acabado, pero con pieza promo listed
+SELECT count(*) FROM "PendingPriceEntry" e
+ WHERE e.status = 'open' AND e.context = 'inventory' AND e.reason = 'no_market'
+   AND e."productType" = 'raw' AND e."cardProductId" IS NULL
+   AND NOT EXISTS (SELECT 1 FROM "InventoryItem" i
+                    WHERE i."cardId" = e."cardId" AND i.finish = e.finish AND i."productType" = 'raw'
+                      AND i."ownerType" = 'platform' AND i.status IN ('in_stock','listed')
+                      AND i."cardProductId" IS NULL)
+   AND EXISTS (SELECT 1 FROM "InventoryItem" i
+                WHERE i."cardId" = e."cardId" AND i.finish = e.finish AND i."productType" = 'raw'
+                  AND i."ownerType" = 'platform' AND i.status = 'listed' AND i."cardProductId" IS NOT NULL);
+```
+
+(Q2 es aproximación por exceso: no compara `gradeKey` de la pieza. Q3 > 0 ⇒ esas filas no las cierra nadie
+automáticamente — VQ-8 deja las filas con motivo sin pieza —; cerrarlas es decisión aparte, ⛔ no se improvisa en
+construcción.)
+
+**Lo que NO cambia:** `PendingPriceReason`, `PendingPriceStatus`, `counts`, formas de respuesta, la regla de cierre
+por razón (S48-M1), VQ-1…VQ-9, el dial, el alcance de `price-sync`.
 
 **(d) Lo que el guardarraíl NO es.** No es un piso por rareza, no es una regla de precio y **no fija ningún monto**:
 solo decide **publicar / no publicar** y **cotizar / no cotizar**. Meter la rareza de vuelta al monto por esta puerta
