@@ -4375,6 +4375,10 @@ Núcleo del sistema. Una fila = una carta/producto físico.
   cobró en la orden — evita el doble conteo en el P&L). La restricción de "solo items `settled`" **no aplica** al
   envío directo: sus items nunca estuvieron en bóveda (§4.21c). Invariante de aplicación: **a lo más un envío
   activo por orden** (no se pone `@unique` para no cerrar la re-expedición por pérdida).
+- **Folio (v1.80.12.8, MIGRACIÓN `M-67` = `M-SDX-E`, D2c, separada de `M-66`):** `folio String @unique`, `ENV-000045`,
+  secuencia `shipment_folio_seq` con **default de base de datos** (cero escritores en la aplicación), backfill en orden
+  `(requestedAt, id)`, inmutable. Viaja en cada compra de guía como `address_to.reference = "Pedido <folio>-<intento>"` y es
+  la llave de la adopción automática (`API_CONTRACT §M4-SHIP.19.28`, §4.60 (u)).
 
 #### ShipmentItem
 - `id`, `shipmentRequestId`, `inventoryItemId`.
@@ -27585,7 +27589,7 @@ cerrada (errata), no antes.
 | **`purchase` tiene un solo llamador (el verbo con clic)**; el replay se tacha sin condición | Dejar el replay detrás de «si se mide que `Idempotency-Key` funciona» | No se puede medir sin arriesgar la segunda compra, y lo correría un cron sin actor ni dial. Una rama condicional en el texto normativo es una invitación a construirla |
 | **`P2002` del id ⇒ reclamo retenido + conflicto registrado; liberar exige confirmarlo** | Deshacer el reclamo de B | Que Skydropx devuelva el id de A no prueba que no creó nada para B; retener cuesta una nota del súper-admin, liberar a ciegas puede costar una guía (doctrina de §19.21.4) |
 | **Guarda previa: una `rateId` ya comprada en otro envío no se vuelve a comprar** | Solo el cinturón de la `P2002` | M-5 midió que la misma ruta y medidas reutilizan cotización (y `rate_id`): es el vector conocido; cortarlo **antes** de la red es más barato que manejarlo después. Falla cerrado hasta que `PG-2` mida |
-| **Sin referencia nuestra en la compra** | Meter el id en `reference`/`further_information` | La API no tiene campo libre (`SKYDROPX_API_REFERENCIA.md:142-186`); los campos de dirección se imprimen en la guía y uno es el canal de las referencias del cliente. Se cuadra con lo que ya muestra la ventana, más el precio |
+| ~~**Sin referencia nuestra en la compra**~~ (🔒 v1.80.12.8: sustituida por (u), el dueño quiere el folio impreso) | Meter el id en `reference`/`further_information` | La API no tiene campo libre (`SKYDROPX_API_REFERENCIA.md:142-186`); los campos de dirección se imprimen en la guía y uno es el canal de las referencias del cliente. Se cuadra con lo que ya muestra la ventana, más el precio |
 | **El personal compra y cancela; el dial sigue arrancando apagado** | Mantener «solo súper-admin» como máximo | Lo decidió el dueño (`HECHOS.md:58`); la «autorización guía por guía» era lectura del equipo. Las dos llaves y el candado (PS-99) no cambian |
 | **«Liberar» sigue del súper-admin** (P-SDX-REL abierta) | Extenderlo al personal por analogía con cancelar | `HECHOS.md:58` no lo dice, y liberar es lo único que habilita otra compra del mismo envío: no se infiere una decisión de dinero que el dueño no tomó |
 
@@ -27626,6 +27630,51 @@ a este volumen basta) — **disparador:** más de una compra en vuelo por semana
 una migración propia. No hay vigilancia de **guías huérfanas tras una liberación** (una creada después de 24 h, o tras un
 falso `not_charged`) — **disparador:** antes de encender `INFLIGHT_NEGATIVE_VERIFIED`, el arquitecto diseña la
 conciliación «envíos de la cuenta que no son nuestros». `transaction_stats` podría sustituir al saldo (`M-PRD-7`).
+🔒 **v1.80.12.8: el cuadre «paquetería + total o CP» y la regla «K ≥ 5» de (t) quedan sustituidos por (u)** (seguridad los
+rechazó: SDX-D-14, SDX-D-17).
+
+**(u) 🔒💰 v1.80.12.8 — el folio nuestro como llave; la compra con vida máxima** (norma en `API_CONTRACT §M4-SHIP.19.28`;
+origen `SECURITY_NOTES.md:1-207`, v1.80.12.7 RECHAZADO, y la propuesta del dueño «¿no valdría la pena que tenga folio
+nuestro…? y de ahí haces el cross check»). Una idea gobierna: **una guía se atribuye por algo que escribimos nosotros, no
+por parecido.** El parecido (paquetería, total, CP) lo comparte cualquier guía del mismo empaque a la misma zona —
+exactamente el caso M-5 y el de la compra en el panel durante la ventana—; un folio exacto por intento, no.
+
+```
+reclamo (since) ─► 7b: label_purchase_sent {providerReference = ENV-000045-n}  ─► POST (address_to.reference = "Pedido ENV-000045-n")
+   │                                                                               └ plazo: ningún intento sale tras since+120 s; 30 s por intento con cuerpo
+   │ job desde since+3 min (vida máxima: ninguna respuesta viva después)
+   ├─ sin label_purchase_sent ─► NO SALIÓ ─► libera solo (I-SENT)                                   [desde el día 1]
+   ├─ exactamente un envío con ENV-000045-n, en [−2, +5 min], misma paquetería ─► ADOPTA          [desde el día 1; sin folio legible, nunca]
+   ├─ dos con ENV-000045-n ─► INCIERTO 'duplicate' (y la conciliación cancela el sobrante si hay guía viva)
+   ├─ 2 lecturas: ningún ENV-000045-n ∧ saldo igual sin contaminar ─► LIBERA solo                  [apagado hasta N ≥ 60]
+   └─ 15 min ─► INCIERTO ─► «Liberar» (P-SDX-REL)
+respuesta tardía de un reclamo viejo ─► no toca la fila (since exacto) ─► label_orphan ─► conciliación
+```
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **Folio por intento en `address_to.reference`** | Seguir sin referencia (v1.80.12.6) | La razón de entonces era «se imprime en la guía»; el dueño quiere que se imprima. El campo es opcional y no lo usábamos: no pisa nada |
+| | `further_information` | Es el canal de las referencias del cliente (≤ 70): mezclarlas obliga a recortar lo que escribió el cliente |
+| | `company` | Es requerido y hoy lleva el nombre: una paquetería que imprime `company` en lugar de `name` dejaría la etiqueta sin destinatario |
+| **`ENV-` por envío, no `TCG-` del pedido** | Usar `Order.orderNumber` | El retiro de bóveda no tiene pedido (`orderId = null`) y un pedido puede tener más de un envío (re-expedición) |
+| **Default de base de datos para el folio** | Escribirlo en cada sitio de creación | Cero escritores en la aplicación: ningún sitio nuevo de creación puede olvidarlo |
+| **Intento en el token (`-n`)** | Solo el folio del envío | Tras una liberación, la guía tardía del intento 1 y la del intento 2 llevan el mismo folio: sin `-n`, la tardía podría adoptarse para el intento 2 |
+| **Sin folio legible ⇒ no hay adopción** | Volver al cuadre por parecido como plan B | Es el plan B que seguridad tumbó. Falla cerrado ⇒ «Liberar»; la medición de PG-1 dice si el folio vuelve |
+| **Adopción encendida desde el día 1** (`INFLIGHT_ADOPTION_ENABLED = true`) | Apagarla hasta medir (la vía que ofreció seguridad) | Con el folio, una adopción falsa exige que Skydropx devuelva **nuestro** token en un envío que no compramos. Y si el token no vuelve, la regla ya no adopta nada: apagarla no añade seguridad y quita lo automático (`HECHOS.md:59`) |
+| **Vida máxima por plazo explícito** (120 s + 30 s) | Calcularla desde las constantes de reintento | La suma de reintentos, tokens y esperas `429` da ≈ 6 min o más, y la lectura del cuerpo no tenía tope: no hay cota fiable sin un plazo propio. Con el plazo, la cota es una línea |
+| **`since` exacto en toda escritura de la respuesta** | `{not:null}` | Una respuesta vieja pisaba el reclamo nuevo o lo deshacía con la compra viva (SDX-D-16) |
+| **`not_sent` libera solo** | Tratarlo como incierto (v1.80.12.7) | Es un hecho local, no una inferencia sobre Skydropx: si la fila del 7b no existe, la compra no salió (I-SENT, con prueba) |
+| **El bloqueo baja a 3 min** | Mantener 15 min | Con folio, otra compra no confunde al listado; el bloqueo largo solo sirve al saldo, que hoy no vota. Menos espera y menos tentación de comprar en el panel |
+| **Contaminación del saldo con reembolsos y débitos tardíos (30 días hasta medir)** | Solo `[since, now]` | El reembolso de una cancelación anterior por la misma cifra deja el saldo igual (SDX-D-17). Hasta medir, el saldo casi nunca vota: legal pero inútil, y eso se dice |
+| **Cable trampa que apaga `not_charged` solo** | Confiar en la calibración | Si una evidencia negativa resulta falsa (se adopta después de una lectura limpia), la máquina deja de liberar sin esperar a nadie |
+| **El job cancela duplicados atribuidos por folio** | Cancelar solo con clic (SDX-D-15 literal) | Lo que hacía peligrosa la cancelación sin actor era la atribución por parecido. Por folio e intento, cancelar un duplicado pagado es devolver dinero (`HECHOS.md:59`); queda en la bitácora con actor de sistema |
+
+**Deuda que deja (u):** si `address_to.reference` vuelve en el listado es **NO MEDIDO** hasta la primera compra real
+(PG-1 + `M-PRD-7` segunda corrida); mientras tanto, en la práctica, no hay adopción. No hay verbo para **adoptar** una
+huérfana (envío sin guía y huérfana viva): se cancela en el panel y se compra de nuevo — **disparador:** la primera
+`label_orphan` de ese tipo. La alerta de huérfana se apaga al verla cancelada; si Skydropx no expone ese estado de forma
+legible, se queda en la bitácora a los 7 días. El folio impreso revela el volumen aproximado de envíos (aceptado por el
+dueño). `T_REFUND_LAG`/`T_DEBIT_LAG` a 30 días hasta medir. P-SDX-REL y SDX-D-19 (`HECHOS.md:60`) no se deciden aquí.
 
 ---
 
