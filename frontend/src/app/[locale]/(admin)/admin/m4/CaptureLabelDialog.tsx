@@ -24,9 +24,10 @@ import { useRole } from '@/lib/role';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import {
-  LABEL_T_UNKNOWN_MINUTES,
   type AdminShipmentDTO,
+  type LabelAlertDTO,
   type LabelPendingDTO,
+  type LabelReleaseVia,
   type ShipmentLabelDTO,
   type ShipmentLabelRequest,
   type ShipmentLabelResponse,
@@ -50,7 +51,7 @@ import {
   type AddressFormHandle,
 } from './capture/AddressStep';
 import { BuyView, OptionsView } from './capture/QuoteViews';
-import { isUnknownOutcome, sdxErrorView, type SdxErrorView } from './capture/sdx-errors';
+import { isUnknownOutcome, purchaseInFlightText, sdxErrorView, type SdxErrorView } from './capture/sdx-errors';
 import { openLabelPdf } from './capture/label-pdf';
 
 /** Lo que la ventana necesita de cualquiera de las dos superficies que la abren (§37.3a, SK1). */
@@ -59,6 +60,10 @@ export interface CaptureTarget {
   ref: string;
   carrier: string | null;
   trackingNumber: string | null;
+  /** 🔒 §43.19.7: nuestro folio (`ENV-000045`); sustituye al uuid en la cabecera. Ausente ⇒ servidor anterior a `M-67`. */
+  folio?: string | null;
+  /** El número de pedido; `null` ⇔ retiro de bóveda (la cabecera dice «Retiro de bóveda · Envío ENV-…»). */
+  orderNumber?: string | null;
 }
 
 /** Lo que la página anuncia al guardar (`M4View.tsx` Banner de éxito, FS-4). */
@@ -70,6 +75,12 @@ const PENDING: Stage[] = ['processing', 'in_progress', 'in_flight'];
 /** §43.5: la ventana relee cada 5 s hasta 2 min. */
 export const POLL_MS = 5_000;
 export const POLL_MAX_MS = 120_000;
+/**
+ * 💰 §43.19.4 (PS-128 (a)): con una compra `in_flight` que trae `verifyingUntil`, pasados los 2 min se sigue releyendo
+ * **cada 30 s** hasta `verifyingUntil + 60 s`. ⛔ El reloj de la pantalla solo decide CUÁNDO releer, nunca el resultado.
+ */
+export const POLL_SLOW_MS = 30_000;
+export const VERIFY_GRACE_MS = 60_000;
 /** §43.3a: a los 10 s sin respuesta cambia el TEXTO (no decide nada). */
 export const QUOTE_SLOW_MS = 10_000;
 
@@ -161,6 +172,18 @@ export function CaptureLabelDialog({
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /** 💰 §43.19.3: `processing` con `providerError` (solo en la respuesta inmediata). */
+  const [providerError, setProviderError] = useState<{ code: string | null; message: string | null } | null>(null);
+  /** 💰 §43.19.2: `provider_id_taken` — su texto queda ENCIMA de la vista de espera mientras dure la ventana. */
+  const [pendingConflict, setPendingConflict] = useState<string | null>(null);
+  /** 💰 §43.19.4: la guía llegó por la relectura de una compra en vuelo (adoptada por folio) ⇒ `verify.found`. */
+  const [found, setFound] = useState(false);
+  /** §43.19.4: cómo se soltó el reclamo (el texto de «no se creó» lo decide `lastLabelRelease.via`). */
+  const [releaseVia, setReleaseVia] = useState<LabelReleaseVia | null>(null);
+  /** 💰 §43.19.2: la espera de `purchase_in_flight` — segundos que quedan (los dio el servidor) y el folio del otro envío. */
+  const [wait, setWait] = useState<{ left: number; folio: string | null } | null>(null);
+  const [waitLive, setWaitLive] = useState<string | null>(null);
+  const waitId = useId();
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
@@ -171,6 +194,9 @@ export function CaptureLabelDialog({
 
   const sdxOn = shipment?.labelOptions?.provider === 'skydropx';
   const mode: 'loading' | 'manual' | 'sdx' = loadState === 'loading' ? 'loading' : loadState === 'error' || !sdxOn || manual ? 'manual' : 'sdx';
+
+  const pendingRef = useRef<LabelPendingDTO | null>(null);
+  pendingRef.current = pendingInfo;
 
   const enterPending = useCallback((s: AdminShipmentDTO, fallback: Stage) => {
     setPendingInfo(s.labelPending ?? null);
@@ -303,10 +329,35 @@ export function CaptureLabelDialog({
       case 'unknownOutcome':
         return; // lo resuelve `decideAfterUnknown` (la relectura), no el texto del error
       case 'blockPurchase':
+        if (eff.banner) {
+          // 💰 §43.19.1: la negativa por tope va en un `Banner` y el botón DESAPARECE (⛔ 0 compras más sin cambiar de envío).
+          setPurchaseBlocked('');
+          break;
+        }
         setPurchaseBlocked(v.text);
         // En el paso 3 la frase ocupa el sitio del botón (como `canPurchase=false`): sin repetirla en un banner.
         if (op === 'label') return;
         break;
+      case 'waitRetry':
+        // 💰 §43.19.2: se queda en el paso 3; el botón queda pintado y deshabilitado hasta que pase la espera.
+        setWait({ left: eff.seconds, folio: eff.folio });
+        setWaitLive(purchaseInFlightText(t, eff.seconds, eff.folio));
+        return;
+      case 'toPendingConflict':
+        // 💰 §19.26.3 (b): el reclamo se conserva ⇒ paso 4, con este texto encima (⛔ sin compra ni «a mano», SK5).
+        setPendingConflict(v.text);
+        try {
+          const s = await reread();
+          enterPending(s, 'in_flight');
+        } catch {
+          enterPending(shipment ?? ({} as AdminShipmentDTO), 'in_flight');
+        }
+        return;
+      case 'rereadDecide':
+        // §43.19.2 (`stale_purchase_response`): relee y decide por el ESTADO, con el texto como `info`.
+        setErr(shown);
+        await decideAfterUnknown(false, true);
+        return;
       case 'toOptions':
         if (!v.chooseOther) {
           if (eff.reread) {
@@ -373,6 +424,8 @@ export function CaptureLabelDialog({
       showLabeled(res.label);
       return;
     }
+    // 💰 §43.19.3: Skydropx creó el envío Y reportó un error ⇒ aviso encima de «Guía en proceso» (solo aquí).
+    if (res.outcome === 'processing' && res.providerError) setProviderError(res.providerError);
     enterPending(res.shipment, res.outcome);
   }
   function showLabeled(l: ShipmentLabelDTO) {
@@ -384,7 +437,7 @@ export function CaptureLabelDialog({
   }
 
   /** SK5 — tras un `5xx`/red de la compra: relee y decide por el ESTADO; si la relectura falla, falla cerrado. */
-  async function decideAfterUnknown(edgeBlocked: boolean) {
+  async function decideAfterUnknown(edgeBlocked: boolean, keepErr = false) {
     setBuyHidden(true);
     setNotice(t('inFlight.checking'));
     let s: AdminShipmentDTO;
@@ -403,6 +456,10 @@ export function CaptureLabelDialog({
     invalidate();
     if (s.label) return showLabeled(s.label);
     if (s.labelPending) return enterPending(s, s.labelPending.state === 'in_flight' ? 'in_flight' : 'processing');
+    if (keepErr) {
+      setBuyHidden(false);
+      return;
+    }
     if (edgeBlocked) {
       // «No sirve reintentar»: el botón no vuelve; su sitio lo ocupa la frase y «Capturar a mano» pasa a primaria.
       setPurchaseBlocked(t('error.edgeBlocked'));
@@ -419,6 +476,8 @@ export function CaptureLabelDialog({
     buyingRef.current = true;
     setBuying(true);
     setErr(null);
+    setWait(null);
+    setWaitLive(null);
     setNotice(t('buy.buying'));
     const body: ShipmentLabelRequest = {
       quoteId: quote.quoteId,
@@ -447,7 +506,8 @@ export function CaptureLabelDialog({
     }
   }
 
-  // --- Paso 4: relectura cada 5 s hasta 2 min (§43.5), contados desde que la ventana ENTRÓ en espera ---
+  // --- Paso 4: relectura cada 5 s hasta 2 min (§43.5), contados desde que la ventana ENTRÓ en espera; con una compra
+  // `in_flight` que trae `verifyingUntil`, luego cada 30 s hasta `verifyingUntil + 60 s` (§43.19.4, PS-128 (a)) ---
   const pollStart = useRef<number | null>(null);
   useEffect(() => {
     if (!stage || !PENDING.includes(stage)) {
@@ -457,15 +517,26 @@ export function CaptureLabelDialog({
     if (pollTimedOut) return;
     if (pollStart.current === null) pollStart.current = Date.now();
     const started = pollStart.current;
+    let lastRead = started;
     let stopped = false;
+    /** Hasta cuándo se relee: 2 min, o `verifyingUntil + 60 s` si la compra en vuelo lo trae (lo que sea más tarde). */
+    const deadline = () => {
+      const p = pendingRef.current;
+      const until = p?.state === 'in_flight' && p.verifyingUntil ? Date.parse(p.verifyingUntil) + VERIFY_GRACE_MS : 0;
+      return Math.max(started + POLL_MAX_MS, Number.isFinite(until) ? until : 0);
+    };
     const tick = setInterval(async () => {
       if (stopped) return;
-      if (Date.now() - started >= POLL_MAX_MS) {
+      const now = Date.now();
+      if (now >= deadline()) {
         stopped = true;
         clearInterval(tick);
         setPollTimedOut(true);
         return;
       }
+      // Pasados los 2 min, una lectura cada 30 s (el intervalo sigue de 5 s: solo se salta vueltas).
+      if (now - started >= POLL_MAX_MS && now - lastRead < POLL_SLOW_MS) return;
+      lastRead = now;
       try {
         const s = await getAdminShipment(id);
         if (stopped) return;
@@ -474,6 +545,8 @@ export function CaptureLabelDialog({
           stopped = true;
           clearInterval(tick);
           invalidate();
+          // §43.19.4 «Encontrada»: la guía llegó por la relectura de una compra EN VUELO (adoptada por su folio).
+          if (stage === 'in_flight') setFound(true);
           showLabeled(s.label);
         } else if (s.labelPending) {
           setPendingInfo(s.labelPending);
@@ -482,6 +555,8 @@ export function CaptureLabelDialog({
           stopped = true;
           clearInterval(tick);
           invalidate();
+          // §43.19.4: el texto de «no se creó» lo decide CÓMO se soltó (⛔ nunca el reloj de la pantalla).
+          setReleaseVia(s.lastLabelRelease?.via ?? null);
           setStage('notCreated');
         }
       } catch {
@@ -494,6 +569,20 @@ export function CaptureLabelDialog({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, pollTimedOut, id]);
+
+  // --- 💰 La espera de `purchase_in_flight` (§43.19.2): cuenta atrás VISUAL, una vez por segundo, fuera de la región
+  // viva; al llegar a 0 el botón se habilita y se anuncia UNA vez. ⛔ No compra sola (SK2): hace falta el clic. ---
+  const waiting = wait !== null && wait.left > 0;
+  useEffect(() => {
+    if (!waiting) return;
+    const tick = setInterval(() => setWait((w) => (w ? { ...w, left: Math.max(0, w.left - 1) } : w)), 1_000);
+    return () => clearInterval(tick);
+  }, [waiting]);
+  const waitDone = wait !== null && wait.left === 0;
+  useEffect(() => {
+    if (waitDone) setWaitLive(t('error.purchaseInFlightReady'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitDone]);
 
   // --- Guardar la dirección (paso 1, §43.2d) ---
   async function saveAddress() {
@@ -642,7 +731,8 @@ export function CaptureLabelDialog({
   const rate = quote?.rates.find((r) => r.rateId === selected) ?? null;
   const warnNegative = !!rate && (rate.marginCents < 0 || forceWarn.negative);
   const warnBranch = !!rate && (rate.deliveryKind === 'branch' || forceWarn.branch);
-  const canBuy = !!opts?.canPurchase && purchaseBlocked === null && !buyHidden && !fatal;
+  // 💰 §43.19.1 (SK12): con `labelOptions.limit` no hay botón y «Capturar a mano» es la primaria.
+  const canBuy = !!opts?.canPurchase && !opts?.limit && purchaseBlocked === null && !buyHidden && !fatal;
   const stepName = (['address', 'options', 'buy', 'label'] as const)[step - 1];
 
   // ------------------------------ pie ------------------------------
@@ -727,7 +817,7 @@ export function CaptureLabelDialog({
       footer = (
         <>
           {!buyHidden && manualBtn(!canBuy, buying)}
-          <Button variant="ghost" disabled={buying || buyHidden} onClick={() => { setErr(null); setStep(2); }}>
+          <Button variant="ghost" disabled={buying || buyHidden} onClick={() => { setErr(null); setWait(null); setWaitLive(null); setStep(2); }}>
             {t('back')}
           </Button>
           {err?.chooseOther && (
@@ -749,7 +839,7 @@ export function CaptureLabelDialog({
             </Button>
           )}
           {canBuy && rate && (
-            <Button disabled={buying} loading={buying} onClick={buy}>
+            <Button disabled={buying || waiting} loading={buying} aria-describedby={waiting ? waitId : undefined} onClick={buy}>
               {t('buy.cta', { amount: money(rate.priceCents) })}
             </Button>
           )}
@@ -763,11 +853,13 @@ export function CaptureLabelDialog({
           </Button>
         );
       } else if (stage === 'notCreated') {
+        // §43.19.4: «Cotizar de nuevo» PIDE cotización (sin `force`: el servidor reutiliza la vigente, SEC-SDX-8);
+        // ⛔ 0 compras hasta el clic con la cifra del paso 3 (SK2, PS-128 (b)).
         footer = (
           <>
             {manualBtn()}
-            <Button onClick={() => { setStage(null); setBuyHidden(false); setErr(null); setStep(2); if (!quote) runQuote({}); }}>
-              {t('inFlight.chooseAgain')}
+            <Button onClick={() => { setStage(null); setBuyHidden(false); setErr(null); setReleaseVia(null); setPendingConflict(null); setStep(2); runQuote({}); }}>
+              {t('verify.requote')}
             </Button>
           </>
         );
@@ -893,6 +985,7 @@ export function CaptureLabelDialog({
                 if (p && code !== quote.package.code) runQuote({ packageCode: code }, p.label);
               }}
               pickReasonId={pickReasonId}
+              limit={opts?.limit ?? null}
             />
           ) : null)}
         {step === 3 && rate && quote && opts && (
@@ -906,6 +999,18 @@ export function CaptureLabelDialog({
             isSuperAdmin={isSuperAdmin}
           />
         )}
+        {step === 3 && wait && (
+          // §43.19.2: la cuenta atrás va FUERA de la región viva (un lector de pantalla no oye 180 anuncios): aspecto de
+          // `Banner` sin `role`; el anuncio (al empezar y al terminar) lo hace el `role="status"` de abajo, una vez.
+          <div id={waitId} data-testid="sdx-purchase-in-flight" className="border-l-2 border-accent py-1 pl-4 text-sm leading-relaxed text-muted">
+            {wait.left > 0 ? purchaseInFlightText(t, wait.left, wait.folio) : t('error.purchaseInFlightReady')}
+          </div>
+        )}
+        {waitLive && (
+          <p role="status" className="sr-only">
+            {waitLive}
+          </p>
+        )}
         {step === 4 && stage === 'labeled' && label && (
           <LabelView
             label={label}
@@ -915,10 +1020,19 @@ export function CaptureLabelDialog({
             setPrintError={setPrintError}
             copied={copied}
             setCopied={setCopied}
+            found={found}
           />
         )}
         {step === 4 && stage && stage !== 'labeled' && (
-          <PendingView stage={stage} info={pendingInfo} timedOut={pollTimedOut} />
+          <PendingView
+            stage={stage}
+            info={pendingInfo}
+            alert={shipment.labelAlert ?? null}
+            timedOut={pollTimedOut}
+            providerError={stage === 'processing' ? providerError : null}
+            conflict={pendingConflict}
+            releaseVia={releaseVia}
+          />
         )}
         {errorBanner}
       </div>
@@ -928,12 +1042,21 @@ export function CaptureLabelDialog({
   return (
     <Modal open={target !== null} onClose={guardedClose} title={tm4('tracking.title')} footer={footer}>
       <div className="flex flex-col gap-3">
-        {target && (
-          <p className="text-sm text-muted">
-            <span className="tabular font-medium text-text">{target.ref}</span>
-            {target.ref !== target.id && <> · {target.id}</>}
-          </p>
-        )}
+        {target &&
+          (target.folio ? (
+            // 🔒 §43.19.7: «{pedido} · Envío ENV-000045»; retiro ⇒ «Retiro de bóveda · Envío ENV-000045». ⛔ Sin uuid.
+            <p className="text-sm text-muted" data-testid="sdx-dialog-ref">
+              <span className={target.orderNumber ? 'tabular font-medium text-text' : 'font-medium text-text'}>
+                {target.orderNumber ?? tm4('prep.withdrawal')}
+              </span>{' '}
+              · {tm4('prep.shipmentRef')} <span className="tabular">{target.folio}</span>
+            </p>
+          ) : (
+            <p className="text-sm text-muted" data-testid="sdx-dialog-ref">
+              <span className="tabular font-medium text-text">{target.ref}</span>
+              {target.ref !== target.id && <> · {target.id}</>}
+            </p>
+          ))}
         {mode === 'sdx' && (
           <p ref={stepRef} tabIndex={-1} data-testid="sdx-step" className={`${TAG} text-muted outline-none focus-visible:shadow-focus`}>
             {t('step', { n: step, name: t(`stepName.${stepName}`) })}
@@ -957,6 +1080,7 @@ function LabelView({
   setPrintError,
   copied,
   setCopied,
+  found,
 }: {
   label: ShipmentLabelDTO;
   shipmentId: string;
@@ -965,7 +1089,9 @@ function LabelView({
   setPrintError: (s: string | null) => void;
   copied: boolean;
   setCopied: (b: boolean) => void;
+  found: boolean;
 }) {
+  const tv = useTranslations('admin.m4.tracking.sdx.verify');
   const t = useTranslations('admin.m4.tracking.sdx.label');
   const tq = useTranslations('admin.m4.label');
   const locale = useLocale() as AppLocale;
@@ -978,6 +1104,11 @@ function LabelView({
   return (
     <div className="flex flex-col gap-3" data-testid="sdx-labeled">
       <p className="font-serif text-xl text-text">{t('title')}</p>
+      {found && (
+        <p className="text-sm text-text" data-testid="sdx-verify-found">
+          {tv('found')}
+        </p>
+      )}
       <p className="text-base text-text">
         {label.chosen.carrierLabel} · {label.serviceName}
       </p>
@@ -1018,49 +1149,131 @@ function LabelView({
   );
 }
 
-/** Paso 4 · «Guía en proceso» / «Compra sin confirmar» / «no se creó» (§43.5). */
-function PendingView({ stage, info, timedOut }: { stage: Stage; info: LabelPendingDTO | null; timedOut: boolean }) {
+/** «Pedido ENV-000045-01» con «Copiar folio» (§43.19.4): el texto EXACTO de la etiqueta y del panel de Skydropx. */
+export function FolioLine({ reference, testId }: { reference: string; testId?: string }) {
+  const t = useTranslations('admin.m4.tracking.sdx.verify');
+  const [copied, setCopied] = useState(false);
+  const text = `Pedido ${reference}`;
+  return (
+    <div className="flex flex-wrap items-baseline gap-3" data-testid={testId ?? 'sdx-folio'}>
+      <span className="select-all font-mono text-[15px] text-text">{t('folio', { reference: text })}</span>
+      <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true))}>
+        {copied ? t('copied') : t('copy')}
+      </Button>
+    </div>
+  );
+}
+
+/** «Pedida por {name} · {carrier} · {service} · desde {hora}.» — cada nulo se omite con su separador. */
+function WhoLine({ info }: { info: LabelPendingDTO }) {
+  const t = useTranslations('admin.m4.tracking.sdx');
+  const locale = useLocale() as AppLocale;
+  const parts = [info.chosenBy ? t('inFlight.whoBy', { name: info.chosenBy.name?.trim() || t('address.unnamed') }) : null, info.carrierLabel, info.serviceName].filter(
+    Boolean,
+  ) as string[];
+  return (
+    <p className="text-sm text-text" data-testid="sdx-in-flight-who">
+      {info.chosenBy && info.carrierLabel && info.serviceName
+        ? t('inFlight.who', {
+            name: info.chosenBy.name?.trim() || t('address.unnamed'),
+            carrier: info.carrierLabel,
+            service: info.serviceName,
+            time: formatTimeMx(info.since, locale),
+          })
+        : `${[...parts, t('inFlight.whoSince', { time: formatTimeMx(info.since, locale) })].join(' · ')}.`}
+    </p>
+  );
+}
+
+/**
+ * Paso 4 · «Verificando con Skydropx…» / «Compra sin confirmar» / «Guía en proceso» / «no se creó» (§43.5 + §43.19.3–.4).
+ * 💰 La vista la decide lo que dice el SERVIDOR (`labelPending.state`, `labelAlert.kind`, `lastLabelRelease.via`);
+ * ⛔ nunca se compara `verifyingUntil` con el reloj de la pantalla (SK3).
+ */
+function PendingView({
+  stage,
+  info,
+  alert,
+  timedOut,
+  providerError,
+  conflict,
+  releaseVia,
+}: {
+  stage: Stage;
+  info: LabelPendingDTO | null;
+  alert: LabelAlertDTO | null;
+  timedOut: boolean;
+  providerError: { code: string | null; message: string | null } | null;
+  conflict: string | null;
+  releaseVia: LabelReleaseVia | null;
+}) {
   const t = useTranslations('admin.m4.tracking.sdx');
   const locale = useLocale() as AppLocale;
   if (stage === 'notCreated') {
+    const key =
+      releaseVia === 'auto_verified'
+        ? 'verify.notCharged'
+        : releaseVia === 'auto_not_sent'
+          ? 'verify.notSent'
+          : releaseVia === 'manual_verified'
+            ? 'verify.manualVerified'
+            : releaseVia === 'manual'
+              ? 'verify.manual'
+              : 'inFlight.notCreated';
     return (
       <div className="flex flex-col gap-2" data-testid="sdx-not-created">
-        <p className="text-sm text-text">{t('inFlight.notCreated')}</p>
+        <p className="text-sm text-text">{t(key)}</p>
       </div>
     );
   }
   if (stage === 'in_flight') {
-    const parts = (
-      info
-        ? [info.chosenBy ? t('inFlight.whoBy', { name: info.chosenBy.name?.trim() || t('address.unnamed') }) : null, info.carrierLabel, info.serviceName]
-        : []
-    ).filter(Boolean) as string[];
+    const reference = info?.providerReference ?? null;
+    const conflictBanner = conflict && (
+      <Banner variant="warning" role="status">
+        {conflict}
+      </Banner>
+    );
+    // «Incierto» (§43.19.4): el servidor ya dio la verificación por incierta (`label_unknown`), o nunca se pudo leer.
+    if (!info || alert?.kind === 'label_unknown') {
+      const reason = alert?.kind === 'label_unknown' && alert.reason ? t(`reason.${alert.reason}`) : t('reason.none');
+      return (
+        <div className="flex flex-col gap-3" data-testid="sdx-in-flight">
+          <p className="font-serif text-xl text-text">{t('inFlight.title')}</p>
+          {conflictBanner}
+          <Banner variant="warning" role="status">
+            {t('inFlight.body', { reason })}
+          </Banner>
+          {reference && <FolioLine reference={reference} />}
+          {info && <WhoLine info={info} />}
+          <p className="text-sm text-muted">{timedOut ? t('inFlight.timeout') : t('processing.checking')}</p>
+        </div>
+      );
+    }
     return (
-      <div className="flex flex-col gap-3" data-testid="sdx-in-flight">
-        <p className="font-serif text-xl text-text">{t('inFlight.title')}</p>
-        <Banner variant="warning" role="status">
-          {t('inFlight.body', { minutes: LABEL_T_UNKNOWN_MINUTES })}
-        </Banner>
-        {info && (
-          <p className="text-sm text-text" data-testid="sdx-in-flight-who">
-            {/* «Pedida por {name} · {carrier} · {service} · desde {hora}.» — cada nulo se omite con su separador. */}
-            {info.chosenBy && info.carrierLabel && info.serviceName
-              ? t('inFlight.who', {
-                  name: info.chosenBy.name?.trim() || t('address.unnamed'),
-                  carrier: info.carrierLabel,
-                  service: info.serviceName,
-                  time: formatTimeMx(info.since, locale),
-                })
-              : `${[...parts, t('inFlight.whoSince', { time: formatTimeMx(info.since, locale) })].join(' · ')}.`}
-          </p>
+      <div className="flex flex-col gap-3" data-testid="sdx-verifying">
+        <p className="font-serif text-xl text-text">{t('verify.title')}</p>
+        {/* `provider_id_taken` SUSTITUYE el cuerpo: no se está comprobando nada útil, lo resuelve una persona. */}
+        {conflictBanner ?? (
+          <Banner variant="warning" role="status">
+            {info.verifyingUntil ? t('verify.body', { time: formatTimeMx(info.verifyingUntil, locale) }) : t('verify.bodyNoTime')}
+          </Banner>
         )}
-        <p className="text-sm text-muted">{timedOut ? t('inFlight.timeout', { minutes: LABEL_T_UNKNOWN_MINUTES }) : t('processing.checking')}</p>
+        {reference && <FolioLine reference={reference} />}
+        <WhoLine info={info} />
+        <p className="text-sm text-muted">{timedOut ? t('verify.timeout') : t('processing.checking')}</p>
       </div>
     );
   }
   return (
     <div className="flex flex-col gap-3" data-testid="sdx-processing">
       <p className="font-serif text-xl text-text">{t('processing.title')}</p>
+      {providerError && (
+        <Banner variant="warning" role="status">
+          <p>{t('processing.providerError')}</p>
+          {/* `message` LITERAL entre comillas, ⛔ ni traducido ni reinterpretado; `code` no se pinta (es técnico). */}
+          {providerError.message && <p>{t('error.providerSays', { message: providerError.message })}</p>}
+        </Banner>
+      )}
       <p className="text-sm text-text">{stage === 'in_progress' ? t('processing.inProgress') : t('processing.body')}</p>
       <p className="text-sm text-muted">{timedOut ? t('processing.timeout') : t('processing.checking')}</p>
     </div>

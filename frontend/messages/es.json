@@ -1933,7 +1933,12 @@
             },
             "emptyTitle": "Skydropx no devolvió opciones para este destino.",
             "emptyBody": "No se compró nada. Captura la guía a mano con otra paquetería.",
-            "cta": "Continuar con {carrier}"
+            "cta": "Continuar con {carrier}",
+            "limitNote": "Puedes ver las opciones, pero esta guía no la puedes comprar tú: {reason}.",
+            "limitReason": {
+              "dailySpend": "llegaste a tu tope de las últimas 24 horas",
+              "reissue": "este envío ya tuvo su recompra"
+            }
           },
           "buy": {
             "row": {
@@ -1954,8 +1959,12 @@
             "cta": "Comprar guía por {amount}",
             "buying": "Comprando… no cierres esta ventana.",
             "disabled": "La compra de guías está desactivada. Se activa en «Configuración › Envíos». Mientras, captura la guía a mano.",
-            "ownerOnly": "Solo el dueño compra guías por ahora. Avísale, o captura la guía a mano si ya la tienes.",
-            "notEnabled": "La compra de guías no está habilitada en este servidor. No se cobró nada. Captura la guía a mano."
+            "notEnabled": "La compra de guías no está habilitada en este servidor. No se cobró nada. Captura la guía a mano.",
+            "superAdminOnly": "Ahora mismo solo los súper-admin compran guías (así está en «Configuración › Envíos»). Avísale a uno, o captura la guía a mano si ya la tienes.",
+            "limit": {
+              "dailySpend": "Llegaste a tu tope de guías de las últimas 24 horas. El dueño puede comprarla; tú puedes capturarla a mano si ya tienes la guía.",
+              "reissue": "Este envío ya tuvo su recompra de guía. La siguiente la compra el dueño; tú puedes capturarla a mano si ya tienes la guía."
+            }
           },
           "label": {
             "title": "Guía comprada",
@@ -1978,15 +1987,15 @@
             "body": "Skydropx aceptó la compra pero todavía no da el número de guía. Lo esperamos aquí unos minutos.",
             "checking": "Revisando…",
             "timeout": "Sigue en proceso. Puedes cerrar: el número llega solo, la tarjeta lo mostrará y el cliente recibirá su correo entonces.",
-            "inProgress": "Esta guía ya se está comprando (alguien la pidió hace un momento). No se compró otra."
+            "inProgress": "Esta guía ya se está comprando (alguien la pidió hace un momento). No se compró otra.",
+            "providerError": "Skydropx reportó un problema al crear la guía; la guardamos para revisarla. No la vuelvas a comprar: si el número de guía no llega, la tarjeta del envío te avisará."
           },
           "inFlight": {
             "title": "Compra sin confirmar",
-            "body": "Skydropx no contestó a tiempo y no sabemos si alcanzó a crear la guía. No la vuelvas a comprar: el sistema la busca solo y, si aparece, la verás en la tarjeta del envío. Si en {minutes, plural, one {# minuto} other {# minutos}} no aparece, el dueño puede liberarla.",
+            "body": "Skydropx no contestó a tiempo y el sistema no pudo comprobar solo si se creó la guía: {reason} No la vuelvas a comprar. Esta compra ya no detiene las demás. Un súper-admin puede liberarla después de buscar en el panel de Skydropx el folio de abajo.",
             "who": "Pedida por {name} · {carrier} · {service} · desde {time}.",
             "notCreated": "Skydropx no creó la guía. No se compró nada.",
-            "chooseAgain": "Volver a elegir",
-            "timeout": "Sigue sin confirmar. Puedes cerrar: si la guía aparece, la tarjeta la mostrará; si no, el dueño puede liberarla a los {minutes, plural, one {# minuto} other {# minutos}}.",
+            "timeout": "Sigue sin confirmar. Puedes cerrar: si la guía aparece, la tarjeta la mostrará.",
             "checking": "Skydropx no contestó. Comprobando si se compró la guía…",
             "nothingBought": "Skydropx no respondió y lo comprobamos: no se compró nada. Puedes volver a intentarlo.",
             "whoBy": "Pedida por {name}",
@@ -1995,7 +2004,6 @@
           "error": {
             "labelPurchaseDisabled": "La compra de guías está desactivada. No se cobró nada. Se activa en «Configuración › Envíos»; mientras, captura la guía a mano.",
             "providerOff": "Skydropx está apagado en «Configuración». No se cotizó ni se compró nada. Captura la guía a mano.",
-            "ownerOnly": "Solo el dueño compra guías por ahora. No se cobró nada y el intento quedó en bitácora.",
             "insuranceTier": "Lo que va en la caja vale {insuredValue} y el seguro configurado cubre hasta {maxCoverage}. Sin un escalón que lo cubra no se cotiza ni se compra (todo paquete va asegurado). Captura la guía a mano y asegúralo en el panel de Skydropx.",
             "insuranceTierAdmin": "Añade un escalón en «Configuración › Envíos».",
             "allowSpend": "La compra de guías no está habilitada en este servidor. No se cobró nada. Captura la guía a mano.",
@@ -2039,7 +2047,46 @@
             "orderNotSettled": "El pedido de este envío ya no está liquidado ({status}): se reembolsó o está en disputa. No se cotizó ni se compró nada. Lo resuelve el súper-admin en Ventas.",
             "originRefunded": "{count, plural, one {Una carta de este retiro viene} other {# cartas de este retiro vienen}} de una compra que se está reembolsando: {items}. No se cotizó ni se compró nada.",
             "conflict": "El envío cambió mientras comprabas (por ejemplo, alguien corrigió la dirección). No se compró nada. Lo actualizamos: revísalo y vuelve a intentarlo.",
-            "forbiddenQuote": "Tu cuenta no puede cotizar guías. No se cotizó nada."
+            "forbiddenQuote": "Tu cuenta no puede cotizar guías. No se cotizó nada.",
+            "superAdminOnly": "Ahora mismo solo los súper-admin compran guías. No se cobró nada y el intento quedó en bitácora.",
+            "limitNothing": "No se cobró nada y el intento quedó en bitácora.",
+            "rateAlreadyPurchased": "Esa opción de paquetería ya se usó para comprar la guía de otro envío, y Skydropx no garantiza que sirva dos veces. No se compró nada. Cambia el empaque para cotizar de nuevo, o captura la guía a mano.",
+            "providerIdTaken": "Skydropx contestó con una guía que ya es de otro envío. No se guardó en éste. No la vuelvas a comprar, ni aquí ni en el panel de Skydropx: la compra queda detenida hasta que un súper-admin la revise.",
+            "purchaseInFlight": "Otra guía se está comprando en este momento. Se compran de una en una para que el sistema pueda comprobar cada compra. No se compró nada. Podrás intentarlo de nuevo en {wait}; mientras tanto, no compres esta guía en el panel de Skydropx.",
+            "purchaseInFlightFolio": "Otra guía se está comprando en este momento (envío {folio}). Se compran de una en una para que el sistema pueda comprobar cada compra. No se compró nada. Podrás intentarlo de nuevo en {wait}; mientras tanto, no compres esta guía en el panel de Skydropx.",
+            "purchaseInFlightReady": "Ya puedes intentarlo de nuevo. No se compró nada todavía.",
+            "wait": {
+              "fewSeconds": "unos segundos",
+              "seconds": "{n} segundos",
+              "minutes": "{m}:{ss} minutos"
+            },
+            "attemptsExhausted": "Este envío ya no admite más intentos de compra con Skydropx. No se compró nada. Captura la guía a mano.",
+            "stalePurchase": "La respuesta de Skydropx llegó tarde, cuando esta compra ya se había resuelto por otro lado. No se guardó en este envío; si creó una guía de más, el sistema la detecta y la avisa."
+          },
+          "verify": {
+            "title": "Verificando con Skydropx…",
+            "body": "Skydropx no contestó a tiempo. El sistema está comprobando solo si se creó la guía, buscando su folio. No la vuelvas a comprar, ni aquí ni en el panel de Skydropx. Suele resolverse en pocos minutos; a más tardar a las {time}.",
+            "bodyNoTime": "Skydropx no contestó a tiempo. El sistema está comprobando solo si se creó la guía, buscando su folio. No la vuelvas a comprar, ni aquí ni en el panel de Skydropx.",
+            "folio": "Folio en Skydropx: {reference}",
+            "copy": "Copiar folio",
+            "copied": "Folio copiado",
+            "timeout": "Puedes cerrar: el resultado aparecerá en la tarjeta del envío.",
+            "found": "Skydropx sí la había creado: la encontramos por su folio. No se compró otra.",
+            "notCharged": "Comprobamos con Skydropx: no se creó la guía ni se cobró. Puedes comprarla de nuevo.",
+            "notSent": "La compra no llegó a salir hacia Skydropx: no se creó la guía ni se cobró. Puedes comprarla de nuevo.",
+            "manualVerified": "Un súper-admin la liberó después de que comprobamos con Skydropx que no se creó. Puedes comprarla de nuevo.",
+            "manual": "Un súper-admin la liberó tras revisarla en el panel de Skydropx. Puedes comprarla de nuevo; si la guía anterior aparece después, el sistema la detecta como guía de más.",
+            "requote": "Cotizar de nuevo"
+          },
+          "reason": {
+            "conflict": "Skydropx contestó con una guía que ya es de otro envío.",
+            "charged_not_found": "Skydropx descontó el saldo, pero no encontramos la guía.",
+            "ambiguous": "Encontramos un envío parecido en Skydropx, pero no pudimos confirmar que sea éste.",
+            "balance_moved": "El saldo de Skydropx se movió por otra causa y no sirve para comprobarlo.",
+            "unreadable": "Skydropx no respondió a la comprobación.",
+            "not_calibrated": "Aún no podemos comprobar solos que una guía no se creó.",
+            "duplicate": "Skydropx creó dos guías para esta misma compra.",
+            "none": "Todavía estamos terminando la comprobación."
           }
         }
       },

@@ -68,6 +68,10 @@ const RETIRED = [
   'admin.m4.tracking.sdx.error.postalCode',
   'admin.m4.tracking.sdx.error.postalCodeUnknown',
   'admin.m4.tracking.sdx.options.planNote',
+  // v4.20 (§43.19.13, UX-GAS-7): «Solo el dueño…» era falso con `HECHOS.md:58`; «Volver a elegir» ⇒ `verify.requote`.
+  'admin.m4.tracking.sdx.buy.ownerOnly',
+  'admin.m4.tracking.sdx.error.ownerOnly',
+  'admin.m4.tracking.sdx.inFlight.chooseAgain',
 ];
 
 const ours = (cat: Record<string, string>) => Object.keys(cat).filter((k) => ROOTS.some((r) => k.startsWith(r)) || SINGLE.includes(k));

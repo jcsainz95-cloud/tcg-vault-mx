@@ -115,11 +115,11 @@ describe('UX-SDX-2 = PS-101 (b) · «Capturar a mano» en los pasos', () => {
     expect(await screen.findByText('Paso 3 de 4 · Comprar')).toBeInTheDocument();
     expect(api.quoteShipment).toHaveBeenCalledTimes(1);
   });
-  it('paso 4 «no se creó» ⇒ presente; paso 4 «sin confirmar» ⇒ ausente (SK5)', async () => {
+  it('paso 4 «no se creó» ⇒ presente; paso 4 «verificando» ⇒ ausente (SK5)', async () => {
     const s = shipment({ labelPending: { since: '2026-10-04T16:00:00Z', state: 'in_flight', carrierLabel: '99minutos', serviceName: 'Next Day Nacional', chosenBy: { userId: 'u', name: 'Ana' } } });
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
     const { get } = open(s);
-    expect(await screen.findByText('Compra sin confirmar')).toBeInTheDocument();
+    expect(await screen.findByText('Verificando con Skydropx…')).toBeInTheDocument();
     expect(manualButtons()).toHaveLength(0);
     // La relectura dice que el reclamo se deshizo ⇒ «no se creó» y vuelve la salida manual.
     get.mockResolvedValue(shipment());
@@ -129,7 +129,7 @@ describe('UX-SDX-2 = PS-101 (b) · «Capturar a mano» en los pasos', () => {
     vi.useRealTimers();
     expect(await screen.findByText('Skydropx no creó la guía. No se compró nada.')).toBeInTheDocument();
     expect(manualButtons()).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Volver a elegir' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cotizar de nuevo' })).toBeInTheDocument();
   });
 });
 
@@ -193,7 +193,7 @@ describe('UX-SDX-7 (SK3) · ninguna cifra la calcula la pantalla', () => {
 describe('UX-SDX-8 = PS-101 (d) · el botón de compra solo si se puede comprar (SK2, SK4)', () => {
   it.each([
     ['disabled', false, 'La compra de guías está desactivada. Se activa en «Configuración › Envíos». Mientras, captura la guía a mano.'],
-    ['super_admin_only', false, 'Solo el dueño compra guías por ahora. Avísale, o captura la guía a mano si ya la tienes.'],
+    ['super_admin_only', false, 'Ahora mismo solo los súper-admin compran guías (así está en «Configuración › Envíos»). Avísale a uno, o captura la guía a mano si ya la tienes.'],
     ['operators', false, 'La compra de guías no está habilitada en este servidor. No se cobró nada. Captura la guía a mano.'],
   ] as const)("canPurchase:false con purchase '%s' ⇒ cero «Comprar guía…» y la frase", async (purchase, canPurchase, text) => {
     open(shipment({}, { purchase, canPurchase }));
@@ -274,14 +274,15 @@ describe('UX-SDX-10 = PS-101 (e) · re-cotizar nunca compra solo', () => {
 describe('UX-SDX-11 ⭐💰 (SK5) · la compra que no sabemos si ocurrió se trata como ocurrida', () => {
   const pendingInFlight = shipment({ labelPending: { since: '2026-10-04T16:05:00Z', state: 'in_flight', carrierLabel: '99minutos', serviceName: 'Next Day Nacional', chosenBy: { userId: 'u-op1', name: 'Operador' } } });
 
+  /** v4.20 §43.19.4: `in_flight` sin `label_unknown` ⇒ «Verificando con Skydropx…» (el sistema comprueba solo). */
   async function assertInFlight() {
-    expect(await screen.findByText('Compra sin confirmar')).toBeInTheDocument();
-    expect(screen.getByText(/no sabemos si alcanzó a crear la guía\. No la vuelvas a comprar/)).toBeInTheDocument();
+    expect(await screen.findByText('Verificando con Skydropx…')).toBeInTheDocument();
+    expect(screen.getByText(/No la vuelvas a comprar, ni aquí ni en el panel de Skydropx/)).toBeInTheDocument();
     expect(buyButtons()).toHaveLength(0);
     expect(manualButtons()).toHaveLength(0);
   }
 
-  it('(a) 200 {outcome:in_flight} ⇒ «Compra sin confirmar»; 10 clics durante la compra ⇒ 1 llamada', async () => {
+  it('(a) 200 {outcome:in_flight} ⇒ «Verificando…»; 10 clics durante la compra ⇒ 1 llamada', async () => {
     const d = deferred<Awaited<ReturnType<typeof api.purchaseShipmentLabel>>>();
     const buy = vi.spyOn(api, 'purchaseShipmentLabel').mockReturnValue(d.promise);
     open();
@@ -312,7 +313,11 @@ describe('UX-SDX-11 ⭐💰 (SK5) · la compra que no sabemos si ocurrió se tra
     await toStep3();
     get.mockRejectedValue(new TypeError('Failed to fetch'));
     fireEvent.click(buyButtons()[0]);
-    await assertInFlight();
+    // §43.19.4: «si nunca se pudo leer, «Compra sin confirmar» con el texto nuevo `inFlight.body`» (motivo `reason.none`).
+    expect(await screen.findByText('Compra sin confirmar')).toBeInTheDocument();
+    expect(screen.getByText(/no pudo comprobar solo si se creó la guía: Todavía estamos terminando la comprobación\. No la vuelvas a comprar/)).toBeInTheDocument();
+    expect(buyButtons()).toHaveLength(0);
+    expect(manualButtons()).toHaveLength(0);
   });
   it('(d) 503 con relectura sin `label` ni `labelPending` ⇒ «no se compró nada», vuelve el botón y 0 llamadas sin clic', async () => {
     const buy = vi.spyOn(api, 'purchaseShipmentLabel').mockRejectedValue(new ApiClientError(503, { code: 'SHIPPING_PROVIDER_BUSY', message: 'x' }));

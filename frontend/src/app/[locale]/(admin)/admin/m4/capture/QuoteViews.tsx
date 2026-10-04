@@ -8,7 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type { LabelOptionsDTO, ShipmentQuoteDTO, ShipmentRateDTO, ShippingPackageDTO } from '@/types/contract';
+import type { LabelOptionsDTO, LabelPurchaseLimit, ShipmentQuoteDTO, ShipmentRateDTO, ShippingPackageDTO } from '@/types/contract';
 import { TAG } from '../prep-shared';
 
 /**
@@ -80,6 +80,8 @@ interface OptionsProps {
   onTogglePackage: () => void;
   onPackage: (code: string) => void;
   pickReasonId: string;
+  /** 💰 §43.19.1: `labelOptions.limit` — el operador ve las opciones (le sirven para la guía a mano) pero sabe que no comprará. */
+  limit?: LabelPurchaseLimit | null;
 }
 
 export function OptionsView(p: OptionsProps) {
@@ -157,6 +159,11 @@ export function OptionsView(p: OptionsProps) {
         <p className="text-muted">{t('insuredValue', { value: money(quote.insurance.insuredValueCents) })}</p>
         <p>{t('charged', { gross: money(quote.charged.grossCents), net: money(quote.charged.netCents) })}</p>
         <p className="text-muted">{t('validUntil', { datetime: formatDateTimeMx(quote.expiresAt, locale) })}</p>
+        {p.limit && (
+          <p className="text-muted" data-testid="sdx-limit-note">
+            {t('limitNote', { reason: t(p.limit === 'reissue' ? 'limitReason.reissue' : 'limitReason.dailySpend') })}
+          </p>
+        )}
       </div>
       {quote.rates.some((r) => r.insuranceSource === 'tier_table') && <p className="text-xs text-muted">{t('tierTableNote')}</p>}
       {!quote.completed && quote.rates.length > 0 && (
@@ -220,10 +227,17 @@ export function BuyView({ rate, coverageCents, warnNegative, warnBranch, options
     [t('row.serviceFee'), null, b.serviceFeeCents],
     [t('row.insurance', { coverage: money(coverageCents) }), null, b.insuranceCents],
   ];
-  const canBuy = options.canPurchase && blockedText === null;
+  // 💰 §43.19.1: con `limit` el botón no está (SK4) y su sitio lo ocupa la negativa, ⛔ sin cifras (SK11).
+  const canBuy = options.canPurchase && !options.limit && blockedText === null;
   const disabledText =
     blockedText ??
-    (options.purchase === 'disabled' ? t('disabled') : options.purchase === 'super_admin_only' && !isSuperAdmin ? t('ownerOnly') : t('notEnabled'));
+    (options.limit
+      ? t(options.limit === 'reissue' ? 'limit.reissue' : 'limit.dailySpend')
+      : options.purchase === 'disabled'
+        ? t('disabled')
+        : options.purchase === 'super_admin_only' && !isSuperAdmin
+          ? t('superAdminOnly')
+          : t('notEnabled'));
   return (
     <div className="flex flex-col gap-4">
       <RateLines rate={rate} />
@@ -262,11 +276,11 @@ export function BuyView({ rate, coverageCents, warnNegative, warnBranch, options
           <p className="text-sm text-muted">{t('signature')}</p>
           <p className="text-sm text-muted">{t('cancelWindow')}</p>
         </div>
-      ) : (
+      ) : disabledText ? (
         <p className="text-sm text-text" data-testid="sdx-cannot-buy">
           {disabledText}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

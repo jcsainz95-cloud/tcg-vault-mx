@@ -1933,7 +1933,12 @@
             },
             "emptyTitle": "Skydropx returned no options for this destination.",
             "emptyBody": "Nothing was bought. Enter the label by hand with another carrier.",
-            "cta": "Continue with {carrier}"
+            "cta": "Continue with {carrier}",
+            "limitNote": "You can see the options, but you can't buy this label yourself: {reason}.",
+            "limitReason": {
+              "dailySpend": "you've reached your limit for the last 24 hours",
+              "reissue": "this shipment already had its rebuy"
+            }
           },
           "buy": {
             "row": {
@@ -1954,8 +1959,12 @@
             "cta": "Buy label for {amount}",
             "buying": "Buying… don't close this window.",
             "disabled": "Label buying is turned off. It's turned on in “Settings › Shipping”. Meanwhile, enter the label by hand.",
-            "ownerOnly": "Only the owner buys labels for now. Let them know, or enter the label by hand if you already have it.",
-            "notEnabled": "Label buying isn't enabled on this server. Nothing was charged. Enter the label by hand."
+            "notEnabled": "Label buying isn't enabled on this server. Nothing was charged. Enter the label by hand.",
+            "superAdminOnly": "Right now only super admins buy labels (that's the setting in “Settings › Shipping”). Let one know, or enter the label by hand if you already have it.",
+            "limit": {
+              "dailySpend": "You've reached your label limit for the last 24 hours. The owner can buy it; you can enter it by hand if you already have the label.",
+              "reissue": "This shipment already had its label rebuy. The owner buys the next one; you can enter it by hand if you already have the label."
+            }
           },
           "label": {
             "title": "Label purchased",
@@ -1978,15 +1987,15 @@
             "body": "Skydropx accepted the purchase but hasn't given the tracking number yet. We'll wait for it here for a few minutes.",
             "checking": "Checking…",
             "timeout": "Still in progress. You can close: the number arrives on its own, the card will show it and the customer will get their email then.",
-            "inProgress": "This label is already being bought (someone requested it a moment ago). No other was bought."
+            "inProgress": "This label is already being bought (someone requested it a moment ago). No other was bought.",
+            "providerError": "Skydropx reported a problem while creating the label; we kept it so it can be checked. Don't buy it again: if the tracking number doesn't arrive, the shipment card will let you know."
           },
           "inFlight": {
             "title": "Purchase not confirmed",
-            "body": "Skydropx didn't answer in time and we don't know whether it created the label. Don't buy it again: the system looks for it on its own and, if it turns up, you'll see it on the shipment card. If it hasn't turned up in {minutes, plural, one {# minute} other {# minutes}}, the owner can release it.",
+            "body": "Skydropx didn't answer in time and the system couldn't check on its own whether the label was created: {reason} Don't buy it again. This purchase no longer holds up other ones. A super admin can release it after searching the Skydropx panel for the reference below.",
             "who": "Requested by {name} · {carrier} · {service} · since {time}.",
             "notCreated": "Skydropx didn't create the label. Nothing was bought.",
-            "chooseAgain": "Choose again",
-            "timeout": "Still not confirmed. You can close: if the label turns up, the card will show it; if not, the owner can release it after {minutes, plural, one {# minute} other {# minutes}}.",
+            "timeout": "Still unconfirmed. You can close this: if the label shows up, the card will show it.",
             "checking": "Skydropx didn't answer. Checking whether the label was bought…",
             "nothingBought": "Skydropx didn't respond and we checked: nothing was bought. You can try again.",
             "whoBy": "Requested by {name}",
@@ -1995,7 +2004,6 @@
           "error": {
             "labelPurchaseDisabled": "Label buying is turned off. Nothing was charged. It's turned on in “Settings › Shipping”; meanwhile, enter the label by hand.",
             "providerOff": "Skydropx is turned off in “Settings”. Nothing was quoted or bought. Enter the label by hand.",
-            "ownerOnly": "Only the owner buys labels for now. Nothing was charged and the attempt was logged.",
             "insuranceTier": "What's in the box is worth {insuredValue} and the configured insurance covers up to {maxCoverage}. Without a tier that covers it, nothing is quoted or bought (every package is insured). Enter the label by hand and insure it in the Skydropx panel.",
             "insuranceTierAdmin": "Add a tier in “Settings › Shipping”.",
             "allowSpend": "Label buying isn't enabled on this server. Nothing was charged. Enter the label by hand.",
@@ -2039,7 +2047,46 @@
             "orderNotSettled": "This shipment's order is no longer settled ({status}): it was refunded or is in dispute. Nothing was quoted or bought. The super admin resolves it in Sales.",
             "originRefunded": "{count, plural, one {One card in this withdrawal comes} other {# cards in this withdrawal come}} from a purchase being refunded: {items}. Nothing was quoted or bought.",
             "conflict": "The shipment changed while you were buying (for example, someone corrected the address). Nothing was bought. We've updated it: check it and try again.",
-            "forbiddenQuote": "Your account can't quote labels. Nothing was quoted."
+            "forbiddenQuote": "Your account can't quote labels. Nothing was quoted.",
+            "superAdminOnly": "Right now only super admins buy labels. Nothing was charged and the attempt was logged.",
+            "limitNothing": "Nothing was charged and the attempt was logged.",
+            "rateAlreadyPurchased": "That carrier option was already used to buy another shipment's label, and Skydropx doesn't guarantee it works twice. Nothing was bought. Change the packaging to get a new quote, or enter the label by hand.",
+            "providerIdTaken": "Skydropx answered with a label that already belongs to another shipment. It wasn't saved on this one. Don't buy it again, here or in the Skydropx panel: the purchase stays on hold until a super admin reviews it.",
+            "purchaseInFlight": "Another label is being bought right now. Labels are bought one at a time so the system can check each purchase. Nothing was bought. You can try again in {wait}; meanwhile, don't buy this label in the Skydropx panel.",
+            "purchaseInFlightFolio": "Another label is being bought right now (shipment {folio}). Labels are bought one at a time so the system can check each purchase. Nothing was bought. You can try again in {wait}; meanwhile, don't buy this label in the Skydropx panel.",
+            "purchaseInFlightReady": "You can try again now. Nothing has been bought yet.",
+            "wait": {
+              "fewSeconds": "a few seconds",
+              "seconds": "{n} seconds",
+              "minutes": "{m}:{ss} minutes"
+            },
+            "attemptsExhausted": "This shipment can't take any more purchase attempts with Skydropx. Nothing was bought. Enter the label by hand.",
+            "stalePurchase": "Skydropx's answer arrived late, after this purchase had already been settled another way. It wasn't saved on this shipment; if it created an extra label, the system detects it and flags it."
+          },
+          "verify": {
+            "title": "Checking with Skydropx…",
+            "body": "Skydropx didn't answer in time. The system is checking on its own whether the label was created, by looking for its reference. Don't buy it again, here or in the Skydropx panel. It usually settles in a few minutes; at the latest by {time}.",
+            "bodyNoTime": "Skydropx didn't answer in time. The system is checking on its own whether the label was created, by looking for its reference. Don't buy it again, here or in the Skydropx panel.",
+            "folio": "Skydropx reference: {reference}",
+            "copy": "Copy reference",
+            "copied": "Reference copied",
+            "timeout": "You can close this: the result will show on the shipment card.",
+            "found": "Skydropx had created it after all: we found it by its reference. No other label was bought.",
+            "notCharged": "We checked with Skydropx: the label wasn't created and nothing was charged. You can buy it again.",
+            "notSent": "The purchase never reached Skydropx: no label was created and nothing was charged. You can buy it again.",
+            "manualVerified": "A super admin released it after we checked with Skydropx that it wasn't created. You can buy it again.",
+            "manual": "A super admin released it after checking the Skydropx panel. You can buy it again; if the earlier label shows up later, the system flags it as an extra label.",
+            "requote": "Get a new quote"
+          },
+          "reason": {
+            "conflict": "Skydropx answered with a label that already belongs to another shipment.",
+            "charged_not_found": "Skydropx took the money from the balance, but we couldn't find the label.",
+            "ambiguous": "We found a similar shipment in Skydropx, but couldn't confirm it's this one.",
+            "balance_moved": "The Skydropx balance moved for another reason, so it can't be used to check.",
+            "unreadable": "Skydropx didn't respond to the check.",
+            "not_calibrated": "We can't yet check on our own that a label wasn't created.",
+            "duplicate": "Skydropx created two labels for this same purchase.",
+            "none": "We're still finishing the check."
           }
         }
       },

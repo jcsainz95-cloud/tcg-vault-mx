@@ -20,8 +20,20 @@ export type SdxErrorEffect =
   | { kind: 'none' }
   /** La compra quizá ocurrió: relee el envío y decide por `label`/`labelPending` (SK5). */
   | { kind: 'unknownOutcome'; edgeBlocked: boolean }
-  /** Quita el botón de compra (como `canPurchase=false`). */
-  | { kind: 'blockPurchase' }
+  /**
+   * Quita el botón de compra (como `canPurchase=false`). `banner` ⇒ el texto va en un `Banner` (la negativa por tope,
+   * §43.19.1) y el sitio del botón queda vacío; sin él, la frase ocupa el sitio del botón.
+   */
+  | { kind: 'blockPurchase'; banner?: boolean }
+  /**
+   * 💰 `409 purchase_in_flight` (§43.19.2): se queda en el paso 3 con el botón pintado y DESHABILITADO hasta que pasen
+   * `seconds` (los da el servidor; ⛔ la pantalla no los calcula ni los alarga). ⛔ Al llegar a 0 no compra sola.
+   */
+  | { kind: 'waitRetry'; seconds: number; folio: string | null }
+  /** 💰 `409 provider_id_taken`: relee ⇒ paso 4 (el reclamo se conserva) con el texto encima de «Verificando». */
+  | { kind: 'toPendingConflict' }
+  /** `409 stale_purchase_response`: relee y decide por el estado (mismo camino que SK5) con el texto como `info`. */
+  | { kind: 'rereadDecide' }
   /** Vuelve al paso 2 con la cotización que trajo el error (`QUOTE_EXPIRED`, rechazo con `quote`). */
   | { kind: 'toOptions'; quote: ShipmentQuoteDTO | null; reread: boolean }
   /** `LABEL_PREVIEW_STALE`: el paso 3 se repinta con las cifras del servidor. */
@@ -88,6 +100,22 @@ export function joinMissing(t: T, missing: string[]): string {
   return `${parts.slice(0, -1).join(', ')} ${t('error.missing.and')} ${parts[parts.length - 1]}`;
 }
 
+/**
+ * `{espera}` de `purchase_in_flight` (§43.19.2): `≤ 5` ⇒ «unos segundos»; `< 60` ⇒ «{n} segundos»; `≥ 60` ⇒
+ * «{m}:{ss} minutos». Formato, no decisión: los segundos los da el servidor.
+ */
+export function waitText(t: T, seconds: number): string {
+  if (seconds <= 5) return t('error.wait.fewSeconds');
+  if (seconds < 60) return t('error.wait.seconds', { n: seconds });
+  return t('error.wait.minutes', { m: Math.floor(seconds / 60), ss: String(seconds % 60).padStart(2, '0') });
+}
+
+/** El texto de `purchase_in_flight` con la espera que queda (con folio del otro envío si vino). */
+export function purchaseInFlightText(t: T, seconds: number, folio: string | null): string {
+  const wait = waitText(t, seconds);
+  return folio ? t('error.purchaseInFlightFolio', { folio, wait }) : t('error.purchaseInFlight', { wait });
+}
+
 /** ¿Es la clase «no sabemos qué pasó»? Un `5xx` o algo que no es una respuesta del servidor (red). */
 export function isUnknownOutcome(e: unknown): boolean {
   return !(e instanceof ApiClientError) || e.status >= 500;
@@ -109,8 +137,14 @@ export function sdxErrorView(e: unknown, t: T, ctx: Ctx): SdxErrorView {
       if (d.feature === 'label_purchase') return view(t('error.labelPurchaseDisabled'), { manualPrimary: true, effect: { kind: 'blockPurchase' } });
       return view(t('error.providerOff'), { manualPrimary: true, effect: { kind: 'blockPurchase' } });
     case 'FORBIDDEN':
-      if (d.reason === 'label_purchase_super_admin_only') return view(t('error.ownerOnly'), { manualPrimary: true, effect: { kind: 'blockPurchase' } });
+      // §43.19.1 (`HECHOS.md:58`): el dial habla de súper-admins, ⛔ no del dueño.
+      if (d.reason === 'label_purchase_super_admin_only') return view(t('error.superAdminOnly'), { manualPrimary: true, effect: { kind: 'blockPurchase' } });
       break;
+    case 'LABEL_PURCHASE_LIMIT': {
+      // 💰 §43.19.1 (TG-1/TG-2): la frase por `limit`, ⛔ SIN cifras (SK11); «Capturar a mano» primaria (SK12).
+      const key = d.limit === 'reissue' ? 'buy.limit.reissue' : 'buy.limit.dailySpend';
+      return view(`${t(key)} ${t('error.limitNothing')}`, { manualPrimary: true, effect: { kind: 'blockPurchase', banner: true } });
+    }
     case 'SHIPPING_PROVIDER_NOT_CONFIGURED': {
       const missing = Array.isArray(d.missing) ? (d.missing as string[]) : [];
       const texts = missing.map((m) =>
@@ -205,7 +239,26 @@ export function sdxErrorView(e: unknown, t: T, ctx: Ctx): SdxErrorView {
       );
     }
     case 'CONFLICT':
-      if (op === 'label') return view(t('error.conflict'), { variant: 'warning', effect: { kind: 'rereadToAddress' } });
+      if (op === 'label') {
+        // 💰 §43.19.2: por `details.reason` PRIMERO; sin `reason` (o uno desconocido) cae al texto de hoy.
+        switch (d.reason) {
+          case 'rate_already_purchased':
+            return view(t('error.rateAlreadyPurchased'), { chooseOther: true, effect: { kind: 'toOptions', quote: null, reread: false } });
+          case 'provider_id_taken':
+            return view(t('error.providerIdTaken'), { variant: 'warning', effect: { kind: 'toPendingConflict' } });
+          case 'purchase_in_flight': {
+            const seconds = Math.max(1, Math.ceil(Number(d.retryAfterSeconds ?? 1)) || 1);
+            // ⛔ Nunca el `otherShipmentId` (uuid) en pantalla: solo `otherFolio`; `null` ⇒ el paréntesis se omite.
+            const folio = typeof d.otherFolio === 'string' && d.otherFolio ? d.otherFolio : null;
+            return view('', { variant: 'warning', effect: { kind: 'waitRetry', seconds, folio } });
+          }
+          case 'attempts_exhausted':
+            return view(t('error.attemptsExhausted'), { manualPrimary: true, effect: { kind: 'blockPurchase' } });
+          case 'stale_purchase_response':
+            return view(t('error.stalePurchase'), { variant: 'info', effect: { kind: 'rereadDecide' } });
+        }
+        return view(t('error.conflict'), { variant: 'warning', effect: { kind: 'rereadToAddress' } });
+      }
       break;
   }
   // Sin copy propio: la ventana cae al mensaje genérico del operador (lo pone quien llama).

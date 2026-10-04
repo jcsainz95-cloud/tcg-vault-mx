@@ -73,8 +73,11 @@ export function M4View({ initialTab = 'preparar' }: { initialTab?: M4Tab }) {
     setTrackingTarget(target);
   }
   const closeTracking = () => setTrackingTarget(null);
-  const openFromRow = (s: AdminShipmentDTO) => openTracking({ id: s.id, ref: s.orderNumber ?? s.id, carrier: s.carrier ?? null, trackingNumber: s.trackingNumber ?? null });
-  const openFromCard = (o: ShipPreparationOrderDTO) => openTracking({ id: o.shipmentId, ref: o.orderNumber ?? o.shipmentId, carrier: null, trackingNumber: null });
+  // 🔒 §43.19.7 (FS-32): el folio viaja a la cabecera de la ventana (⛔ sin uuid cuando lo hay).
+  const openFromRow = (s: AdminShipmentDTO) =>
+    openTracking({ id: s.id, ref: s.orderNumber ?? s.folio ?? s.id, carrier: s.carrier ?? null, trackingNumber: s.trackingNumber ?? null, folio: s.folio ?? null, orderNumber: s.orderNumber ?? null });
+  const openFromCard = (o: ShipPreparationOrderDTO) =>
+    openTracking({ id: o.shipmentId, ref: o.orderNumber ?? o.folio ?? o.shipmentId, carrier: null, trackingNumber: null, folio: o.folio ?? null, orderNumber: o.orderNumber });
 
   useEffect(() => {
     if (initialTab !== 'preparar') tabRefs.current[initialTab]?.focus();
