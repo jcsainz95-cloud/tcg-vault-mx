@@ -204,6 +204,8 @@ export function CaptureLabelDialog({
           enterPending(s, s.labelPending.state === 'in_flight' ? 'in_flight' : 'processing');
           return;
         }
+        // Solo con `missing` en el DTO se abre en modo corregir (§43.2a). Sin él la pantalla no deduce nada:
+        // deja cotizar y el `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` lo dice (FRONTEND_NOTES §87).
         const missing = s.address?.missing ?? [];
         if (s.address && !s.address.complete && missing.length > 0 && !missing.includes('phone')) {
           setAddrEdit(true);
@@ -641,7 +643,10 @@ export function CaptureLabelDialog({
   // ------------------------------ derivados ------------------------------
   const opts = shipment?.labelOptions;
   const missing = shipment?.address?.missing ?? [];
+  const missingKnown = Array.isArray(shipment?.address?.missing);
   const phoneMissing = missing.includes('phone');
+  // «Ver opciones» con `complete=false` solo si NO sabemos qué falta: el servidor lo dirá con su `422`.
+  const canSeeOptions = !phoneMissing && (shipment?.address?.complete !== false || !missingKnown);
   const canCorrect = shipment?.status === 'picking' && !shipment?.labelSource && !shipment?.labelPending;
   const rate = quote?.rates.find((r) => r.rateId === selected) ?? null;
   const warnNegative = !!rate && (rate.marginCents < 0 || forceWarn.negative);
@@ -694,7 +699,7 @@ export function CaptureLabelDialog({
         </>
       ) : (
         <>
-          {manualBtn(phoneMissing || !shipment?.address?.complete)}
+          {manualBtn(!canSeeOptions)}
           {canCorrect && (
             <Button variant="secondary" aria-expanded={false} aria-controls={formId} onClick={() => {
               setDraft(draftOf(shipment?.addressSnapshot));
@@ -705,7 +710,7 @@ export function CaptureLabelDialog({
               {t('address.edit')}
             </Button>
           )}
-          {!phoneMissing && shipment?.address?.complete !== false && <Button onClick={goToOptions}>{t('address.cta')}</Button>}
+          {canSeeOptions && <Button onClick={goToOptions}>{t('address.cta')}</Button>}
         </>
       );
     } else if (step === 2) {

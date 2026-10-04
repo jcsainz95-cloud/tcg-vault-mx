@@ -1479,6 +1479,7 @@ export interface ShipmentLabelDTO {
   cancelReason: string | null;
 }
 
+/** // MOCK: pendiente de contrato — §19.7 nombra el tipo sin definirlo; la pantalla solo cuenta las filas. */
 export interface ShipmentCostAdjustmentDTO {
   id: string;
   kind: 'overweight' | 'extended_zone' | 'return' | 'other';
@@ -1500,7 +1501,12 @@ export interface ShipmentAddressStateDTO {
   complete: boolean;
   version: number;
   corrected: { at: string; by: { userId: string; name: string | null } } | null;
-  /** §19.5: lo que falta (presente con `complete = false`). */
+  /**
+   * // MOCK: pendiente de contrato — `DESIGN_SYSTEM §43.2a` decide el modo del paso 1 por `missing`, pero
+   * `§M4-SHIP.19.20.1` solo fija `{ complete, version, corrected }`. Solicitud al arquitecto en
+   * `FRONTEND_NOTES §87`. Mientras no venga, la ventana NO lo deduce: deja cotizar y el
+   * `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` del servidor dice qué falta.
+   */
   missing?: ShipmentAddressMissing[];
 }
 export type ShipmentAddressMissing = 'neighborhood' | 'postalCode' | 'phone' | 'recipientName' | 'line1';

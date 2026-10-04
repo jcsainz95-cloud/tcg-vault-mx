@@ -464,6 +464,17 @@ describe('UX-SDX-18 ⭐ = PS-101 (corregida) · el paso 1 corrige la dirección 
   });
 });
 
+describe('§43.2a sin `address.missing` en el DTO (no está en §19.20.1) · decide el servidor', () => {
+  it('`complete:false` sin `missing` ⇒ modo leer con «Ver opciones»; el 422 con teléfono ⇒ su texto y «a mano» primaria', async () => {
+    const { quoteSpy } = open(shipment({ address: { complete: false, version: 1, corrected: null } }));
+    expect(await screen.findByTestId('sdx-address-dl')).toBeInTheDocument();
+    quoteSpy.mockRejectedValueOnce(new ApiClientError(422, { code: 'SHIPMENT_ADDRESS_INCOMPLETE', message: 'x', details: { missing: ['phone'] } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ver opciones de envío' }));
+    expect(await screen.findByText(/El teléfono no tiene 10 dígitos/)).toBeInTheDocument();
+    expect(manualButtons()[0].className).toMatch(/bg-primary/);
+  });
+});
+
 describe('UX-SDX-19 · la frase de alcance unida al formulario', () => {
   it('visible en modo corregir y referida por `aria-describedby` del <form>', async () => {
     open();
