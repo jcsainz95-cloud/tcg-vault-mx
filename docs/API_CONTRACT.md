@@ -2,9 +2,42 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.11**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12 — ERRATA DE LA VENTANA «CAPTURAR GUÍA»: EL OPERADOR CORRIGE TODA LA DIRECCIÓN DEL ENVÍO; EL DTO DICE
+> LA COMPRA PENDIENTE Y LAS ALERTAS DE GUÍA; LA COMPRA EN VUELO RESPONDE `200 in_flight`; LA VÍA B DE DISPUTAS QUEDA
+> SUSTITUIDA (2026-10-04, arquitecto, rama `claude/skydropx-d`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
+> Origen: `HECHOS.md:50` (2026-10-04, «puede corregir TODA la dirección del cliente antes de comprar la guía: calle,
+> número, CP, colonia, referencias y destinatario; queda registrado quién la cambió»), `HECHOS.md:52` (disputas fuera
+> de la tienda), `DESIGN_SYSTEM §43.17` A-1…A-5 y N-3 (`DESIGN_SYSTEM.md:23786-23793`, v4.15), `PROJECT.md:12123-12125`
+> (criterio 242, conteo del catálogo). Norma entera: **[§M4-SHIP.19.20](#M4-SHIP-19-20)**. Porqué: `ARCHITECTURE §4.60 (m)`.
+> ⛔ **Ningún código de error nuevo** y ningún endpoint de dinero nuevo. Medido por el arquitecto (Grep, 2026-10-04,
+> árbol `claude/skydropx-d`): la fase C **no está construida** (`address-neighborhood`, `geo/postal` ⇒ 0 en
+> `backend/src`) y `M-SDX-D` tampoco (`providerCanceledAt`, `labelProcessingSince` ⇒ 0 en `backend/prisma/schema.prisma`),
+> así que **nada de esto rompe código construido**; la vía B de disputas tampoco está construida (`direct_ship` ⇒ 0 en
+> `backend/src/modules/disputes/`; `DSP-` ⇒ 0 en `backend/test/`; «Abrir disputa» solo en `vault/WithdrawalsList.tsx`).
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **A-1** | Corregir la dirección en «Capturar guía» (`HECHOS.md:50`) | **`PUT /admin/shipments/:id/address`** (operador+, el mismo rol que captura la guía) **sustituye** a `PATCH …/address-neighborhood` (§19.5, sin construir). Escribe **solo** `ShipmentRequest.addressSnapshot` (⛔ ni la libreta `Address`, ni `Order.shippingAddressSnapshot`); `addressVersion` + CAS; bitácora `shipment.address_corrected` antes/después + actor; la cotización queda **inválida** por versión (`ShipmentQuote.addressVersion`). Schema: tres columnas en `M-SDX-C`, una en `M-SDX-D` | No (fase C sin construir) | backend 💰 (`shipments`, fase C) + frontend (paso 1) + ux-ui |
+> | **A-2** | El DTO no dice la compra pendiente ni las alertas de guía | `AdminShipmentDTO` **y** `ShipPreparationOrderDTO` ganan `labelPending` y `labelAlert` (derivados, un cuerpo `labelStateOf(row, now, actor)`); **`ShipmentRequest.providerCancelConfirmedAt`** nuevo en `M-SDX-D` (sin él `label_cancel_failed` no se distingue de una cancelación que salió bien); la re-emisión **limpia** el sello de cancelación (defecto del texto de §19.8, encontrado al derivar) | No (D2a/D2c sin construir) | backend 💰 (D2a, D2c) + frontend |
+> | **A-3** | ¿El operador lee `GET /admin/shipping/packages`? | **Sí**, operador+; `PUT` sigue `super_admin` | No | backend (D2f) + frontend |
+> | **A-4** | Promoción visible | `ShipmentRateDTO.isPromo: boolean` derivado por `isPromoPlan(planType)` (patrones medidos `50PESOS_…`, `PROMO_…`; `ACQ_2026` = normal) + `planType` crudo. ⛔ Sin fecha de fin (el sufijo no es una fecha medida) | No | backend (D2b) + frontend |
+> | **A-5** | Respuesta de la compra en vuelo | **`200 { outcome:'in_flight', shipment }`** (compra enviada, respuesta desconocida: timeout, `5xx`, red, `404`). Un `5xx` de `label` ya **no** significa «en vuelo»: la pantalla **relee** el envío y manda `labelPending` | No | backend (D2c) + frontend |
+> | **N-3** | `AV-18`/`AV-19` sin texto | **Son de esta fase** (pieza D2e, §19.19.15) ⇒ ux-ui los escribe ahora | No | ux-ui |
+> | **PO** | «catálogo 15→18» frente a `C-AV-1 = 19` | **19** filas: `AV-1…AV-16` (16, `AV-16` construido: `backend/test/users.kyc-cycle.spec.ts:307`) + `AV-17…AV-19`. `AVA-1` retirado, no cuenta. product-owner corrige el texto a «16 → 19» | No | product-owner |
+> | **DSP** | La vía B de disputas (v1.80.10) contra `HECHOS.md:52` | **Vía B SUSTITUIDA, no se construye** (ni DSP-1…12, ni OD-DSP-1…7, ni `Dispute.orderItemId` por vía B). Vivo: la vía A tal como está construida, hasta el diseño de §V (encargo propio) | No (nada construido) | — |
+>
+> - **Backend 💰 (stream de envíos, modelo fuerte):** fase C con `PUT …/address` (PS-102…PS-107) en lugar de
+>   `address-neighborhood`; D2a con las cuatro columnas; D2b `isPromo` (PS-111) y `addressVersion` en la cotización;
+>   D2c `in_flight` (PS-109), `labelPending`/`labelAlert` (PS-108), la limpieza del sello al re-emitir; D2f `GET
+>   …/packages` operador+ (PS-110). ⛔ Nada de esto toca D1a–c (el cliente, el adaptador y la etiqueta).
+> - **Frontend:** paso 1 editable (PS-101 corregida), tarjeta con `labelPending`/`labelAlert`, `in_flight`, `isPromo`.
+> - **ux-ui:** copy del paso 1 editable y de sus errores, `AV-18`, `AV-19`. **product-owner:** `PROJECT §T.2` y el paso 1
+>   de §T (`PROJECT.md:8083-8084`, `:12217`) pasan de «⛔ no puede cambiar calle, CP…» a la corrección completa; el conteo
+>   del criterio 242; y la pregunta abierta **P-ADR-1** (¿el teléfono también se corrige? §19.20.1).
 >
 > **Rev v1.80.11 — CONSOLIDACIÓN DE `claude/skydropx-envios` SOBRE `claude/staff-sin-correo` + ERRATA DE LA FASE D DE
 > SKYDROPX CON LA API DE PRODUCCIÓN MEDIDA (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
@@ -55,7 +88,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -76,6 +109,10 @@
 > | TD-9 | ⭐ `lockedUntilOf` sin `PasswordAttemptsService` **lanza** (como `resetPassword`); solo `LoginAttemptStoreUnavailableError` se traduce en `'unavailable'` | **Sí** | backend |
 > | D-5 | `details.rule:'customer_without_username'` y `details.field` en todos los `422` del alta | No (ya construido) | — |
 > | TD-4 | ⭐ (a) El súper-admin **sin correo** se rescata desde Usuarios con el reset de siempre, hecho por otro súper-admin (el dueño) — confirmado en contrato y en prueba. (b) El script de rescate gana `ADMIN_USERNAME`. (c) **No** se prohíbe el súper-admin sin correo | (a) No (ya es así); (b) **Sí** | backend |
+>
+> ⛔ **v1.80.12: la fila F-2 de abajo (vía B de `POST /disputes`, `DSP-1…12`, `OD-DSP-1…7`, «Mis disputas» del
+> comprador sin bóveda, el ciclo F-2 de QA) queda SUSTITUIDA por `HECHOS.md:52` y no se construye** — detalle en
+> [§E2E-ADM.1](#E2E-ADM) y §M4-SHIP.19.20.7. F-1, F-4, F-7, F-8, F-9 y F-11 siguen vivas.
 >
 > **Rev v1.80.10 — ERRATA DEL RECORRIDO E2E DEL PANEL: EL COMPRADOR DEL ENVÍO DIRECTO PUEDE DISPUTAR SIN SER TITULAR;
 > EL CLIENTE DADO DE ALTA POR EL ADMIN LLEVA CELULAR; LO DEMÁS YA ESTABA EN EL CONTRATO Y LE FALTA PANTALLA (2026-10-04,
@@ -10713,8 +10750,9 @@ el 3DS — precisamente la UX que el propio contrato describe.
   **positiva** (nunca "≠ otro"), de modo que un envío con `userId=null` **jamás** aparezca en la lista de nadie
   (una consulta mal escrita del tipo `where: { userId: { not: X } }` o un `findUnique` sin comparar dueño sí lo
   expondría — es el riesgo #1 de esta migración y QA debe cubrirlo con un caso negativo).
-- **`POST /disputes` (`customer`) — SIN cambios** *(⭐ v1.80.10: gana la vía del comprador con cuenta de un envío
-  directo, [§E2E-ADM.1](#E2E-ADM); para el invitado esta línea sigue vigente y su hueco por carta es `D-DSP-1`)*. El invitado **no** abre disputa por API (criterio 56b se cumple
+- **`POST /disputes` (`customer`) — SIN cambios** *(~~⭐ v1.80.10: gana la vía del comprador con cuenta de un envío
+  directo, [§E2E-ADM.1](#E2E-ADM)~~ ⛔ v1.80.12: esa vía queda sustituida por `HECHOS.md:52` y no se construye,
+  §M4-SHIP.19.20.7; para el invitado esta línea sigue vigente y su hueco por carta es `D-DSP-1`, que pasa a §V)*. El invitado **no** abre disputa por API (criterio 56b se cumple
   por correo a soporte citando su `orderNumber`); el súper-admin evalúa y, si procede, ejecuta **reembolso en M3**
   (`POST /admin/orders/:id/refund`), que ya funciona sobre cualquier orden. Consecuencia consciente: en v1.5 **no
   se crea fila `Dispute`** para un invitado (se evita volver `Dispute.userId` nullable); la trazabilidad queda en
@@ -12122,8 +12160,10 @@ Err: `422 DISPUTE_WINDOW_CLOSED` (fuera de 7 días desde entrega), `422 NOT_RAW`
 
 **Resolución (back-office §M8):** idéntica política para raw y sellado — **VENTAS FINALES**. El súper-admin resuelve `reject` (`→rechazada`) o `repurchase` (`→resuelta_recompra`, money-out): **recompra al precio pagado**; el **cliente conserva el ítem** y el ítem **NO** regresa al inventario (sin `InventoryMovement`, sin revertir titularidad/stock). La resolución se apoya en: **gradeadas** → grado + `certNumber` del slab (verificable en la graduadora); **raw NM** → estándar/política de condición propio; la evidencia del cliente llegó **por correo a soporte** (fuera del sistema).
 
-> ⭐ **v1.80.10 — `POST /disputes` tiene DOS vías de autorización** (bóveda, la de siempre; y **comprador del envío
-> directo**, sin titularidad). Norma, pruebas y el caso del invitado: [§E2E-ADM.1](#E2E-ADM).
+> ~~⭐ **v1.80.10 — `POST /disputes` tiene DOS vías de autorización** (bóveda, la de siempre; y **comprador del envío
+> directo**, sin titularidad). Norma, pruebas y el caso del invitado: [§E2E-ADM.1](#E2E-ADM).~~
+> ⛔ **v1.80.12 — vía B SUSTITUIDA** (`HECHOS.md:52`): `POST /disputes` conserva **solo** la vía A, tal como está
+> construida. Qué queda vivo y qué muerto: §M4-SHIP.19.20.7.
 
 ### GET /api/v1/disputes — `customer` → lista propia.
 ### GET /api/v1/disputes/:id — `customer` → estado + resolución.
@@ -12134,6 +12174,13 @@ Cabecera, origen y tabla: rev **v1.80.10**. Porqué: `ARCHITECTURE §4.59`. ⛔ 
 código de error nuevos. Las líneas citadas son del árbol `claude/precios-s5`, leídas el 2026-10-04.
 
 ##### E2E-ADM.1 — F-2 · Disputa del comprador de un envío directo (💰, módulo `disputes`)
+
+> ⛔⛔ **v1.80.12 — SUSTITUIDA ENTERA; NO SE CONSTRUYE.** `HECHOS.md:52` (2026-10-04): «Disputas: se quitan de la
+> tienda. No hay disputa antes del envío ni en bóveda; tras la entrega, el cliente escribe a soporte o reclama con su
+> banco vía Stripe», y la fila dice expresamente «Sustituye la "vía B" de la errata v1.80.10 (F-2)». El texto de abajo
+> queda **verbatim como historia**; ninguna línea suya es norma. Lo vivo y lo muerto: §M4-SHIP.19.20.7. El diseño que lo
+> reemplaza (quitar «Abrir disputa», «Escríbenos», reembolso de una sola carta tras la entrega, M8 y las disputas
+> abiertas) es **§V**, encargo propio.
 
 **Estado medido.** `create` autoriza solo si `item.ownerUserId === userId` (`disputes.service.ts:142-143`). Una pieza de
 envío directo **nunca** recibe titularidad: queda de la plataforma todo el ciclo (`orders.service.ts:845-847`, invariante
@@ -23486,6 +23533,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | .17 | Orden de construcción y quién hace qué |
 | **.18** | 🔒💰 **v1.81.1** — cierres de la revisión de seguridad (SEC-SDX-1…5 al contrato; SEC-SDX-6…13 decididas); verbo `label/release`; `C-SDX-7` |
 | **.19** | ⭐💰🔒 **v1.80.11** — la fase D con la API de **producción** medida: cliente (User-Agent, reintentos), forma real de la tarifa, reutilización de cotizaciones, **seguro por escalones**, Carta Porte `49101600`, **puerta de compra** (dos llaves + candado de ejecución, PS-99), ventana «Capturar guía», `M-SDX-C/D`, plan de construcción por piezas, PS-91…PS-101, lo que sigue NO MEDIDO |
+| **.20** | ⭐💰 **v1.80.12** — corregir **toda** la dirección del envío (`PUT …/address`, sustituye a `address-neighborhood`), `labelPending`/`labelAlert` en los dos DTO, `providerCancelConfirmedAt`, empaques legibles por el operador, `isPromo`, `200 in_flight`, `AV-18/19` en esta fase, conteo 19, vía B de disputas sustituida; PS-102…PS-111 |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -23862,7 +23910,11 @@ llevan NO MEDIDO y su PS-SBX):**
   postalCode ~ ^\d{5}$ ∧ phone ~ ^\d{10}$`). `POST /shipments` (retiro) con una dirección `complete=false` ⇒ **`422
   ADDRESS_INCOMPLETE {addressId, missing: ('neighborhood'|'postalCode'|'phone')[]}`** — la pantalla pide completarla
   **antes de pagar** (criterio 235). `GET /vault/holdings`/`quote` no cambian.
-- **Pedido ya pagado sin colonia (SUPUESTO T.2, auditado):** `PATCH /api/v1/admin/shipments/:id/address-neighborhood`
+- ⛔ **v1.80.12 — el verbo de este punto queda SUSTITUIDO por `PUT /api/v1/admin/shipments/:id/address`
+  (§M4-SHIP.19.20.1)**, que corrige toda la dirección del envío (`HECHOS.md:50`) y cubre «elegir la colonia» como un caso
+  más. `address-neighborhood` **no se construye** (Grep ⇒ 0 en `backend/src`, 2026-10-04) ni su bitácora
+  `shipment.address_neighborhood_set`. El texto sigue como historia:
+- ~~**Pedido ya pagado sin colonia (SUPUESTO T.2, auditado):**~~ `PATCH /api/v1/admin/shipments/:id/address-neighborhood`
   (operador+) — Req `{ neighborhood: string }`. Solo `status ∈ {picking}` y `labelSource IS NULL`; valida contra la lista
   del CP del snapshot (mismos `422` de arriba); escribe **solo** `addressSnapshot.neighborhood` (y `city`/`state`
   canónicos si la fuente los da) bajo el candado de fila; bitácora `shipment.address_neighborhood_set` `before/after`.
@@ -23964,6 +24016,10 @@ escribe** en `ShipmentRequest` (solo inserta la cotización): cotizar es gratis 
 > `SKYDROPX_ALLOW_SPEND`, §19.19.7) antes del reclamo; el paso 8 manda el cuerpo de §19.19.8 (origen completo, seguro por
 > escalón, Carta Porte del dial, `printing_format` del dial); la compra **nunca se reintenta** salvo `401`/`429`
 > (§19.19.3 (4)); el costo, como §19.19.8. «Operador+» se lee «según el dial».
+
+> ⭐ **v1.80.12 (§19.20):** el paso 2 compara `quote.addressVersion` con la del envío (distinta ⇒ `409 QUOTE_EXPIRED
+> {quote, reason:'address_changed'}`), el CAS del paso 7 lleva `addressVersion`, y la compra en vuelo responde **`200
+> {outcome:'in_flight'}`** (§19.20.5), no `503`/`502`.
 
 **Req:** `{ quoteId: string; rateId: string; expectedPriceCents: number; expectedMarginCents: number;
 confirmNegativeMargin?: boolean; confirmBranchDelivery?: boolean }` — `expected*` = **lo que el operador vio** (CA #16
@@ -24102,7 +24158,9 @@ sello en tx nueva (CAS inverso) y `422 SHIPPING_PROVIDER_REJECTED` (la guía sig
 estaba: guía en proceso cancelada), `labelSource:null`, `providerShipmentId:null` (el anterior queda en la bitácora; los eventos se **conservan**:
 `ShipmentCarrierEvent` lleva su propia columna `providerShipmentId String` — incluida en `M-SDX-D` — para que la historia
 de la guía cancelada sobreviva), `carrier:null`, `trackingNumber:null`,
-`labelUrl:null`, `trackingUrl:null`, `carrierStatus:null`, `labelProcessingSince:null`, **costo a 0**
+`labelUrl:null`, `trackingUrl:null`, `carrierStatus:null`, `labelProcessingSince:null` (🔴 ⭐ v1.80.12, §19.20.2: **y**
+`providerCanceledAt:null`, `providerCancelReason:null`, `providerCancelConfirmedAt:null`, `labelPurchasedAt:null` — sin
+esto la guía siguiente nace sellada y el sondeo no la ve), **costo a 0**
 (`shippingCostCents`, `shippingCostIvaCents`, `insuranceCostCents`, `shippingIvaSource:null` — el saldo regresó;
 ⛔ NO MEDIDO si Skydropx reembolsa el seguro: PS-SBX-8. 🔒 **v1.81.1, SEC-SDX-11:** si `cancel` devuelve
 `refundedCents ≠ null ∧ refundedCents < shippingCostCents` ⇒ en la **misma tx** `INSERT ShipmentCostAdjustment {
@@ -24227,9 +24285,13 @@ siguen (guía manual, T.10). PS-90 lo aserta.
 quedan tras quitar las disputas de la tienda: **NO MEDIDO** — lo dice el diseño de §V cuando se haga). PS-78
 > cambia la aserción de «`POST /disputes` ⇒ `201`» por «`deliveredAt ≈ now`» y el correo sin plazo — §19.19.16.
 
-**El catálogo §R.3 pasa de 16 a 19** (criterio 206 = 18 avisos al cliente + `AV-16`… ⚠️ conteo: §R.3 numera `AV-1…AV-16`;
-`PROJECT` cuenta 15 → 18 «correos» porque `AV-16` es del ciclo de CLABE y **sí** cuenta; QA cuenta **por fila de §R.3**:
-**19 filas**, ids `AV-17..19`). Filas nuevas (texto: ux-ui; §R.8 aplica entero):
+**El catálogo §R.3 pasa de 16 a 19** (~~criterio 206 = 18 avisos al cliente + `AV-16`… ⚠️ conteo: §R.3 numera `AV-1…AV-16`;
+`PROJECT` cuenta 15 → 18 «correos» porque `AV-16` es del ciclo de CLABE y **sí** cuenta~~ ⭐ v1.80.12, reconciliado
+con `PROJECT.md:12123-12125`: **19** = `AV-1…AV-16` (dieciséis filas en §R.3: `AV-1…AV-13`, `AV-14`, `AV-15`, `AV-16`;
+`AV-16` está construido, `backend/test/users.kyc-cycle.spec.ts:307`) **+** `AV-17…AV-19`. `AVA-1` está retirado
+(v1.80.4) y **no** cuenta. El «15 → 18» del borrador v1.81 de `PROJECT` deja fuera una fila (la cuenta da 16 antes de
+Skydropx; por qué el borrador partió de 15: NO MEDIDO, y no cambia el resultado); product-owner lo corrige a
+«16 → 19». QA cuenta **por fila de §R.3**: **19 filas**, `C-AV-1 = 19`). Filas nuevas (texto: ux-ui; §R.8 aplica entero):
 
 | # | Aviso | Disparador | Destinatario | Motor / sello |
 |---|---|---|---|---|
@@ -24277,7 +24339,7 @@ quedan tras quitar las disputas de la tienda: **NO MEDIDO** — lo dice el dise�
   `shippingDropoffPoints`, `shippingConsignmentNote`, `shippingPackageRuleBoxMinCards`, `skydropxLowBalanceCents`,
   `shippingTrackingPollMinutes`, `shippingDeclaredValueCapCents`). ⛔ Credenciales y URL base **no** aparecen ni como
   máscara. Auditado como todo dial (criterio 245).
-- **Empaques:** `GET /api/v1/admin/shipping/packages` · `PUT /api/v1/admin/shipping/packages` (`super_admin`; Req
+- **Empaques:** `GET /api/v1/admin/shipping/packages` (⭐ v1.80.12: **operador+**, §M4-SHIP.19.20.3) · `PUT /api/v1/admin/shipping/packages` (`super_admin`; Req
   `{ packages: { code, label, lengthCm, widthCm, heightCm, weightKg, providerPackageType, active, sortOrder }[] }`, reemplazo
   entero, ≥ 1 activo con código de proveedor para que `quote` funcione; bitácora `shipping.packages_updated`
   `before/after`).
@@ -24925,7 +24987,7 @@ no hay botón aparte en la tarjeta.
 | Paso | Qué ve el operador | Llamadas (todas existentes) |
 |---|---|---|
 | **0 · Abrir** | Con `labelOptions.provider = 'off'` ⇒ el formulario de hoy (paquetería, número, costo) y nada más. Con `'skydropx'` ⇒ el flujo de abajo, con el enlace **«Capturar a mano»** visible en **todos** los pasos (T.10: el pedido nunca queda atorado) | `GET /admin/shipments/:id` |
-| **1 · Revisar la dirección** | La dirección **del snapshot**, tal como irá en la guía (destinatario, calle, colonia, CP, municipio, estado, teléfono, referencias). `address.complete = false` ⇒ selector de colonia **de la lista del CP** (fase C); ⛔ no se edita calle, CP ni destinatario (`PROJECT §T.2`) | `GET /geo/postal-codes/:cp`, `PATCH …/address-neighborhood` |
+| **1 · Revisar ~~la dirección~~ y corregir la dirección** | La dirección **del snapshot**, tal como irá en la guía (destinatario, calle, colonia, CP, municipio, estado, teléfono, referencias). `address.complete = false` ⇒ selector de colonia **de la lista del CP** (fase C); ~~⛔ no se edita calle, CP ni destinatario (`PROJECT §T.2`)~~ ⭐ **v1.80.12 (`HECHOS.md:50`): destinatario, calle y número, CP, colonia y referencias se corrigen aquí** (municipio y estado salen del CP; teléfono: P-ADR-1), con quién y cuándo la corrigió; norma en §M4-SHIP.19.20.1 | `GET /geo/postal-codes/:cp`, ~~`PATCH …/address-neighborhood`~~ **`PUT …/address`** |
 | **2 · Opciones** | Al pasar del paso 1 se cotiza solo (espera visible, sin bloquear). Arriba: empaque (cambiable ⇒ re-cotiza), **seguro** («asegurado por $2,500 · $25»), lo cobrado al cliente. Lista por precio con la **recomendada preseleccionada**; «ver todas» despliega las de sucursal; pie con lo excluido («3 no disponibles por API»). Cero opciones ⇒ «Skydropx no devolvió opciones» + «Capturar a mano» | `POST …/quote` |
 | **3 · Confirmar y comprar** | Precio, margen (rojo si negativo, con su confirmación), sucursal si aplica (confirmación). Botón «Comprar guía» **solo** con `labelOptions.canPurchase`; si no, el texto «La compra de guías está desactivada» / «Solo el dueño compra guías por ahora» y «Capturar a mano». `409 QUOTE_EXPIRED` ⇒ vuelve al paso 2 con la cifra nueva; `409 LABEL_PREVIEW_STALE` ⇒ ídem | `POST …/label` |
 | **4 · La guía** | **«que regrese la guía»**: paquetería, número de guía, «Imprimir etiqueta» (abre el PDF) y, si Skydropx dio liga, «Rastreo». `outcome:'processing'` ⇒ «Guía en proceso: te avisamos cuando tenga número» y la ventana re-lee el envío cada 5 s hasta 2 min; después se cierra y la tarjeta queda «guía en proceso» | `GET …/label.pdf`, `GET /admin/shipments/:id` |
@@ -25065,6 +25127,230 @@ autorización, `HECHOS.md:48`); el informe lo arma backend leyendo la bitácora,
 | **product-owner** | `PROJECT §T.3.1` (el botón «Cotizar envío» pasa a la ventana «Capturar guía»), §T.3.2 y T.9 (seguro por escalones, Carta Porte decidida, sin tope de valor declarado), T.13 (sin sandbox; pregunta de la impresora), §T.6/AV-17 (sin plazo de disputa, `HECHOS.md:50`) |
 | **orquestador** | Añadir a `HECHOS.md` la fila de la ventana «Capturar guía» con las palabras del dueño; asignar los números de `M-SDX-C`/`M-SDX-D` al encargar; encargar `M-PRD-1…6` a devops |
 | **dueño** | Nada ahora. Al salir a producción: credenciales en Railway, `SKYDROPX_BASE_URL`, y él compra la primera guía (`PG-1`) |
+
+###### <a id="M4-SHIP-19-20"></a>M4-SHIP.19.20 — ⭐💰 v1.80.12: corregir la dirección en «Capturar guía», la compra pendiente y las alertas en el DTO, la compra en vuelo, y lo que queda de las disputas (**NORMATIVA**, **DINERO + PII**)
+
+> **Fuentes:** `HECHOS.md:50` (2026-10-04, elegido por el dueño entre «solo revisar y elegir colonia» y «poder corregir
+> todo»: «Poder corregir todo»), `HECHOS.md:52` (disputas fuera de la tienda), `DESIGN_SYSTEM §43.17`
+> (`DESIGN_SYSTEM.md:23786-23793`), `PROJECT.md:12123-12125`. **Manda** sobre §19.5 (verbo de colonia), §19.7, §19.8,
+> §19.13 y §19.19.13 donde choque. Porqué: `ARCHITECTURE §4.60 (m)`. ⛔ Sin código de error nuevo. ⛔ Sin Bash: el
+> arquitecto leyó, no ejecutó.
+
+**M4-SHIP.19.20.1 — 💰 `PUT /api/v1/admin/shipments/:shipmentId/address` — corregir la dirección del envío (A-1).**
+
+*Quién:* **operador+** (`vault_operator`, `super_admin`) — el mismo rol que `POST …/tracking` («quien puede capturar la
+guía»). ⛔ No depende del dial `shipping_label_purchase` ni de `shipping_provider`: con Skydropx apagado la dirección
+corregida es la que el operador escribe en la guía manual. `customer` ⇒ `403`.
+
+*Qué corrige y dónde vive.* **Solo** `ShipmentRequest.addressSnapshot` (la foto del envío: «a dónde va esta caja»).
+⛔ **Nunca** la libreta del cliente (`Address`) ni `Order.shippingAddressSnapshot` (queda como lo que el cliente capturó
+al pagar; es evidencia). El remedio de §19.5 «elegir la colonia» es **un caso de este verbo** (el operador manda la
+dirección con la colonia elegida) y `PATCH …/address-neighborhood` **no se construye**.
+
+**Req:**
+```ts
+export interface CorrectShipmentAddressReq {
+  expectedAddressVersion: number;   // la `address.version` que el operador vio (CA #16: nadie corrige sobre una foto que no vio)
+  recipientName: string;            // destinatario, 1..120 tras trim
+  line1: string;                    // calle y número exterior, 1..200 tras trim
+  line2: string | null;             // número interior / depto., 0..120 (vacío ⇒ null)
+  postalCode: string;               // ^\d{5}$
+  neighborhood: string;             // obligatoria; DEBE estar en resolvePostalCode(postalCode).neighborhoods
+  references: string | null;        // ≤ 70 (viaja como further_information, SEC-SDX-7); vacío ⇒ null
+}
+```
+Las cotas de longitud son las de `GuestAddressInput` (§4-G.1) cuando difieran de las de arriba — **un** juego de
+validadores compartido, ⛔ no una copia (backend mide cuál es el vigente y lo cita en `BACKEND_NOTES`; NO MEDIDO por el
+arquitecto). `city`, `state`, `country`, `phone` **no** se aceptan del cuerpo (`forbidNonWhitelisted:false`, `main.ts:56`:
+se ignoran): `city` y `state` se **sobrescriben con el canónico** del CP (§19.5, `resolvePostalCode`), `country` es `MX`,
+`phone` no cambia (**P-ADR-1**, abajo).
+
+**Algoritmo normativo — en este orden:**
+1. Rol ⇒ `403`. Cuerpo inválido (forma, CP no `^\d{5}$`, longitudes) ⇒ `400 VALIDATION_ERROR {field}`. Envío inexistente
+   ⇒ `404`.
+2. `resolvePostalCode(postalCode)` (**el mismo cuerpo** que sirve `GET /geo/postal-codes/:cp`, `C-SDX-3`), **fuera** de la
+   tx: CP desconocido ⇒ `422 POSTAL_CODE_UNKNOWN {postalCode}`; colonia fuera de la lista (tras `normalizeColonia`) ⇒
+   `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {postalCode, allowed}`. Se guarda el **canónico** de la lista.
+3. `$transaction` + candado de fila (`SELECT … FOR UPDATE`, primera sentencia). Bajo el candado: `status ≠ 'picking'` ⇒
+   `409 SHIPMENT_NOT_IN_PREPARATION {status}`; `labelSource ≠ null` ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource}`;
+   `labelProcessingSince ≠ null` ⇒ `409 LABEL_IN_PROGRESS`; `addressVersion ≠ expectedAddressVersion` ⇒ **`409 CONFLICT
+   {reason:'address_changed', addressVersion}`** (código existente; la pantalla relee).
+4. `next` = el snapshot leído con los campos corregidos y `city`/`state` canónicos; `changed` = las claves cuyo valor
+   difiere de lo leído. `changed` vacío ⇒ **`200 { outcome:'unchanged', shipment }`**, ⛔ nada se escribe (ni bitácora ni
+   versión).
+5. CAS: `updateMany({ where:{ id, status:'picking', labelSource:null, labelProcessingSince:null, addressVersion:
+   expectedAddressVersion }, data:{ addressSnapshot: next, addressVersion: { increment: 1 }, addressCorrectedAt: now,
+   addressCorrectedByUserId: actor } })`; `count 0` ⇒ relee y responde el `409` del paso 3 que corresponda.
+6. Bitácora **`shipment.address_corrected`** en la **misma tx** (`entityType 'ShipmentRequest'`, actor de la sesión):
+   `before:{ <solo las claves de changed, valor viejo> }`, `after:{ <solo las claves de changed, valor nuevo>,
+   addressVersion }`. *Es el «antes/después y quién» de `HECHOS.md:50`.*
+7. **Commit ⇒ `200 { outcome:'corrected', shipment: AdminShipmentDTO }`.**
+
+**La cotización se invalida por versión, no por borrado.** `ShipmentQuote` gana `addressVersion Int` (la del envío
+cuando se cotizó, leída bajo el candado del paso 2 de §19.6). Una cotización es **vigente** ⇔ `expiresAt > now` **∧**
+`addressVersion = ShipmentRequest.addressVersion`. Consecuencias, todas normativas:
+- §19.6 paso 6 (reutilizar) exige además la misma `addressVersion`; `GET …/quote` ⇒ `404` si la última no la tiene.
+- §19.7 paso 2: `quote.addressVersion ≠ row.addressVersion` ⇒ la rama del paso 3 (re-cotizar sin `force` y responder)
+  con **`409 QUOTE_EXPIRED {quote, reason:'address_changed'}`** (`reason` aditivo; la vencida lleva `reason:'expired'`).
+- §19.7 paso 7: el CAS del reclamo gana **`addressVersion: quote.addressVersion`** en el `WHERE` (una corrección que
+  entra entre el paso 2 y el 7 deja `count 0` ⇒ relee ⇒ `409 CONFLICT`, ⛔ cero compra). El paso 8 arma `address_to` con
+  el snapshot **leído en la tx del paso 7**, no con una relectura posterior.
+- ⛔ `shippingFeeCents` (lo cobrado al cliente) **no** cambia: una corrección que encarece la guía la absorbe la tienda
+  (misma regla que la pregunta 90, `HECHOS.md:41`); el margen nuevo sale de la cotización nueva.
+
+**Lo que ve la pantalla** (`AdminShipmentDTO`, aditivo): `addressSnapshot` con `references` (10 campos, §19.5) y
+`address: { complete: boolean; version: number; corrected: { at: string; by: { userId: string; name: string | null } } | null }`
+(`corrected` ⇔ `addressCorrectedAt ≠ null`; es la **última** corrección; el historial entero es la bitácora).
+`ShipPreparationOrderDTO.shipTo` lee el mismo snapshot (ya corregido) y gana `addressCorrected: boolean`.
+
+**Lo que ve el cliente:** la dirección a la que va su paquete es la del envío. Qué snapshot leen hoy las superficies del
+cliente (`/orders/[id]`, `/pedido`, `/shipments/[id]`, `AV-4`): **NO MEDIDO** — backend lo mide en la pieza; donde
+lean `Order.shippingAddressSnapshot` habiendo envío, pasan a leer el del envío (una proyección, `toAddressDTO`-style).
+
+**P-ADR-1 (product-owner → dueño, no bloquea):** `HECHOS.md:50` enumera «calle, número, CP, colonia, referencias y
+destinatario»; el **teléfono** no está. Default de este contrato: **no** se corrige aquí (un teléfono que no tiene 10
+dígitos sigue en `422 SHIPMENT_ADDRESS_INCOMPLETE {missing:['phone']}` ⇒ guía a mano). Si el dueño lo quiere, es **un
+campo opcional más** en el cuerpo, con `^\d{10}$`, sin otro cambio.
+
+**Schema (aditivo, sin backfill):**
+- `M-SDX-C` (fase C, junto con `PostalCode`): `ShipmentRequest` + **`addressVersion Int @default(0)`**, **`addressCorrectedAt
+  DateTime?`**, **`addressCorrectedByUserId String?`** (sin FK dura, patrón `AuditLog`). CHECKs: `"addressVersion" >= 0` ·
+  `("addressCorrectedAt" IS NULL) = ("addressCorrectedByUserId" IS NULL)` · `("addressVersion" = 0) = ("addressCorrectedAt"
+  IS NULL)`.
+- `M-SDX-D` (fase D): `ShipmentQuote` + **`addressVersion Int`** (sin default: toda cotización la escribe).
+
+**M4-SHIP.19.20.2 — 💰 La compra pendiente y las alertas de guía en los dos DTO (A-2).**
+
+`AdminShipmentDTO` (fila y detalle) **y** `ShipPreparationOrderDTO` (cola de preparación) ganan, calculados por **un**
+cuerpo puro `labelStateOf(row, now, actor)` en `shipments/` (⛔ ninguna tabla nueva; misma doctrina que `carrierAlert`,
+§19.3):
+
+```ts
+export interface LabelPendingDTO {             // ⇔ labelProcessingSince ≠ null
+  since: string;                              // labelProcessingSince
+  state: 'in_flight' | 'processing';          // providerShipmentId = null ⇒ 'in_flight' (no sabemos si Skydropx la creó); ≠ null ⇒ 'processing' (creada, sin número)
+  carrierLabel: string | null;                // de chosenRateJson (lo que se eligió)
+  serviceName: string | null;
+  chosenBy: { userId: string; name: string | null } | null;
+}
+export type LabelAlertKind = 'label_unknown' | 'label_processing_stuck' | 'label_cancel_failed' | 'label_live_on_cancelled';
+export interface LabelAlertDTO { kind: LabelAlertKind; since: string; canRelease: boolean /* ⇔ kind='label_unknown' ∧ actor super_admin */ }
+// AdminShipmentDTO y ShipPreparationOrderDTO: + labelPending: LabelPendingDTO | null; + labelAlert: LabelAlertDTO | null
+```
+
+**Derivación (normativa; `T_UNKNOWN = 15 min`, `T_STUCK = 30 min`, `T_CANCEL = 2 min`, constantes con su cita):**
+
+| `kind` | Condición sobre la fila | `since` | Quién la resuelve |
+|---|---|---|---|
+| `label_live_on_cancelled` | `status='cancelado' ∧ labelSource='skydropx' ∧ providerCanceledAt IS NULL` | `carrierStatusAt` ?? `labelPurchasedAt` (no nulo con guía Skydropx, CHECK de §19.2) | una persona en el panel de Skydropx (§19.8) |
+| `label_cancel_failed` | `providerShipmentId ≠ null ∧ providerCanceledAt ≠ null ∧ providerCancelConfirmedAt IS NULL ∧ providerCanceledAt ≤ now − T_CANCEL` | `providerCanceledAt` | operador+ reintenta `label/cancel` (abajo) |
+| `label_unknown` | `labelProcessingSince ≠ null ∧ providerShipmentId IS NULL ∧ labelProcessingSince ≤ now − T_UNKNOWN` | `labelProcessingSince` | súper-admin, `label/release` (§19.18.4) |
+| `label_processing_stuck` | `labelProcessingSince ≠ null ∧ providerShipmentId ≠ null ∧ trackingNumber IS NULL ∧ labelProcessingSince ≤ now − T_STUCK` | `labelProcessingSince` | el sondeo; si no, cancelar y re-emitir |
+
+Una sola alerta por envío, con **esta precedencia** (de arriba abajo; `label_cancel_failed` y `label_processing_stuck`
+pueden coexistir y gana la primera). `T_UNKNOWN` es el mismo umbral de `label/release` (`too_early`, §19.18.4) y del job
+(§19.10): **una** constante, tres lectores.
+
+- **`providerCancelConfirmedAt DateTime?`** — columna nueva en `M-SDX-D`. La escribe **solo** el `ok` de `port.cancel`
+  (en §19.8 re-emisión, §19.8 cancelación automática y §19.18.3 paso 3), CAS `WHERE providerCanceledAt IS NOT NULL AND
+  providerCancelConfirmedAt IS NULL`, en la misma tx que el ajuste de SEC-SDX-11. CHECK: `"providerCancelConfirmedAt" IS
+  NULL OR "providerCanceledAt" IS NOT NULL`. *Por qué hace falta:* tras la cancelación automática el sello
+  `providerCanceledAt` queda puesto **haya respondido Skydropx o no**; sin la confirmación, una cancelación fallida y una
+  buena son la misma fila, y la guía viva pagada no se ve. Es **falla-cerrado**: si el proceso muere entre el sello y la
+  llamada, la alerta aparece sola.
+- **Reintento de `label/cancel`** (§19.8, precisión): con `providerCanceledAt ≠ null ∧ providerCancelConfirmedAt IS
+  NULL` el verbo **no** pasa por el CAS del sello: llama `port.cancel` otra vez y, con `ok`, escribe la confirmación (y,
+  si era re-emisión con el envío en `picking|guia`, el reinicio de abajo). `outcome:'already_cancelled'` ⇔ confirmación
+  ya escrita.
+- 🔴 **Corrección a §19.8 (defecto del texto, encontrado al derivar):** el reinicio de la re-emisión aceptada pone
+  también **`providerCanceledAt:null`, `providerCancelReason:null`, `providerCancelConfirmedAt:null` y
+  `labelPurchasedAt:null`** (la guía anterior queda en la bitácora `shipment.label_cancelled`). Sin esto la guía
+  **siguiente** nacería con el sello viejo: el sondeo de §19.10 la excluye (`providerCanceledAt IS NULL`) y `label/cancel`
+  respondería `already_cancelled` sobre una guía viva.
+- **Invariante de §19.18.3, precisión:** «ninguna guía viva sobre un `cancelado`» vale para la carrera de la compra
+  (PS-83, conteo 0); la excepción **declarada** es `label_live_on_cancelled` (la paquetería ya la recogió, §19.8): la
+  invariante pasa a ser «… **sin alerta**».
+- **Filtro y tablero:** `GET /admin/shipments?alert=true` ⇔ `carrierAlert ≠ null ∨ labelAlert ≠ null`;
+  `workQueue.shipments` gana `withLabelAlert: number` (aditivo).
+- Ningún dato nuevo para el cliente: `labelPending`/`labelAlert` son **solo** de los DTO de admin (lista blanca
+  `toAdminShipmentRow`; la de §4-G.3 gana ambos nombres como prohibidos).
+
+**M4-SHIP.19.20.3 — `GET /api/v1/admin/shipping/packages` lo lee el operador (A-3).** **Operador+** (lo necesita
+«Cambiar empaque» del paso 2: `quote` ya acepta `packageCode` del operador, §19.6). Res `200 { packages: { code, label,
+lengthCm, widthCm, heightCm, weightKg, providerPackageType, active, sortOrder }[] }` ordenados por `sortOrder`; ⛔ sin
+dinero ni secretos. La ventana ofrece **solo** los `active`. `PUT` sigue **`super_admin`**.
+
+**M4-SHIP.19.20.4 — Promoción visible (A-4).** `ShipmentRateDTO` (§19.19.4) gana **`isPromo: boolean`** junto a
+`planType` (crudo, sin cambio). `isPromo = isPromoPlan(planType)`, función pura en `shipping-provider/promo-plan.ts`
+(fichero nuevo; ⛔ no toca el adaptador ni el cliente de D1): `true` ⇔ `planType` casa con `/^PROMO_/` o `/^\d+PESOS?_/`
+(medidos: `50PESOS_30042026`, `50PESOS_20052026`, `PROMO_1_PESO_19082026`; `ACQ_2026` = «tarifa normal»,
+`docs/specs/SKYDROPX_API_PROD_RESULTADOS.md:192-193`); `null` o cualquier otro ⇒ `false` (⛔ no se afirma una promo que
+no se reconoce). ⛔ **Sin fecha de vencimiento:** el sufijo parece una fecha pero hay promos vigentes el 2026-10-04 con
+sufijo `30042026` y `19082026` — su significado es NO MEDIDO, y la pantalla no lo interpreta. Un patrón nuevo de promo
+se añade a la función (con su fila en PS-111).
+
+**M4-SHIP.19.20.5 — 💰 Qué responde la compra en vuelo (A-5).** Sustituye la respuesta implícita «`503`/`502`» de la
+matriz de §19.19.3 (4) para la **compra**:
+
+| Qué pasó en `POST /api/v2/shipments` | Reclamo (`labelProcessingSince`) | Respuesta de `POST …/label` |
+|---|---|---|
+| `5xx`, error de red, timeout (30 s), o `404` — **la petición salió y no sabemos si se creó** | **se conserva** (§19.7 paso 9 ⚠️) | **`200 { outcome:'in_flight', shipment }`** con `shipment.labelPending.state = 'in_flight'` |
+| `400`/`422` | se deshace | `422 SHIPPING_PROVIDER_REJECTED` (sin cambio) |
+| Antes de que salga la compra: `403` del borde, segundo `401`, `429` agotado, `SkydropxMutationForbiddenError` | se deshace | `502 {reason:'edge_blocked'}` / `502` / `503 SHIPPING_PROVIDER_BUSY` / `409 …NOT_CONFIGURED {missing:['allow_spend']}` (sin cambio) |
+
+- `outcome` de `label` pasa a `'labeled' | 'processing' | 'in_progress' | 'in_flight'`. `in_flight` ≠ `processing`: en
+  `processing` Skydropx **confirmó** la compra (hay `providerShipmentId`); en `in_flight` no lo sabemos.
+- **Regla de la pantalla (cierra SK5 de `DESIGN_SYSTEM`):** ante **cualquier** `5xx` o error de red de `POST …/label`
+  (incluido un `500` nuestro tras la compra), la ventana **relee** `GET /admin/shipments/:id` y decide por el estado:
+  `labelPending ≠ null` ⇒ el texto de «compra en vuelo» (sin botón de compra ni «Capturar a mano»); `labelPending = null
+  ∧ label = null` ⇒ «no se compró nada». ⛔ Nunca decide por el status solo. La respuesta `200 in_flight` es la vía
+  normal; la relectura es el cinturón para lo que no responde.
+
+**M4-SHIP.19.20.6 — `AV-18` y `AV-19` son de esta fase (N-3).** Pieza **D2e** (§19.19.15) ⇒ ux-ui escribe su texto
+ahora, con el patrón de `AV-17` (familia ENVÍO, sin saludo, sin importes) y **sin** mencionar disputas ni plazos
+(`HECHOS.md:52`). `AV-18`: qué sucursal si hay `branchName`, que **debe recogerlo**, paquetería y guía; «Rastrear mi
+paquete» solo con `trackingUrl`. `AV-19`: paquetería, guía y qué hacer (comunicarse con la paquetería con su guía;
+«¿Problema con tu pedido? Escríbenos»); uno por intento. Conteo del catálogo: **19** (§19.12, reconciliado).
+
+**M4-SHIP.19.20.7 — Disputas: qué queda vivo y qué muerto (`HECHOS.md:52`).** Sin diseño nuevo: eso es **§V**.
+
+| Pieza | Estado | Medido |
+|---|---|---|
+| Vía B de `POST /disputes` (comprador de envío directo, `orderItemId`, `resolve` por `orderItemId`), §E2E-ADM.1 | ⛔ **MUERTA — no se construye** | sin construir: `direct_ship` ⇒ 0 en `backend/src/modules/disputes/` |
+| `DSP-1…DSP-12`, `OD-DSP-1…7`, «Mis disputas» para quien compra sin bóveda, ciclo F-2 de QA | ⛔ **MUERTAS** | `DSP-` ⇒ 0 en `backend/test/`; «Abrir disputa» solo en `vault/WithdrawalsList.tsx` |
+| Vía A (bóveda, `ownerUserId`) y M8 (resolver) | **VIVAS tal como están construidas**, sin construcción nueva, hasta que §V decida (la fila manda quitar el botón de la tienda; qué pasa con M8 y las disputas abiertas está «Pendiente» en la propia fila) | `vault/WithdrawalsList.tsx` |
+| Contracargos de Stripe (`charge.dispute.created` congela las piezas) | **VIVOS, sin cambio** | `HECHOS.md:52` cita `payments.service.ts:173` |
+| `AV-17` sin plazo de disputa, con «Escríbenos»; `deliveredAt = max(occurredAt, observedAt)` | **VIVOS** (v1.80.11) | §19.12 |
+| `D-DSP-1` (compensar una carta al invitado) | pasa a **§V** («reembolsar solo la carta», respuesta (a) de la fila) | — |
+| El orden arbitrario de `resolve` con dos `OrderItem` de la misma pieza (`disputes.service.ts:282-285`, citado en §E2E-ADM.1) | sigue como está; lo decide §V | NO MEDIDO de nuevo |
+
+**M4-SHIP.19.20.8 — Pruebas que DEBEN fallar.** Mismas reglas que §19.16 (copia del árbol entero con su sha; N ≥ 10 con
+proporción en las de carrera; mutación demostrada roja).
+
+| # | Qué asevera | Mutación que la pone roja |
+|---|---|---|
+| **PS-102** 💰 | Corrección completa: `200 corrected`; `ShipmentRequest.addressSnapshot` con los seis campos nuevos y `city`/`state` **canónicos** del CP (aunque el cuerpo traiga otros); la fila `Address` del cliente y `Order.shippingAddressSnapshot` **idénticas byte a byte** a antes; `addressVersion` +1; `addressCorrectedAt`/`ByUserId` = ahora/actor; **una** fila `shipment.address_corrected` con `before`/`after` **solo** de las claves cambiadas y el actor; mismo cuerpo dos veces ⇒ la segunda `unchanged`, cero bitácora | escribir también en `Address` (o en la orden); bitácora con el snapshot entero sin actor; aceptar `city` del cuerpo |
+| **PS-103** | Validación: colonia fuera del CP ⇒ `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}`; CP sin colonias ⇒ `422 POSTAL_CODE_UNKNOWN`; CP de 4 dígitos, `references` de 71, `recipientName` vacío ⇒ `400 {field}`; en todos, **cero** escrituras y versión intacta; la colonia tecleada en minúsculas sin acentos se guarda como el canónico | guardar la colonia tecleada sin pasar por `resolvePostalCode` |
+| **PS-104** 💰 | Guardas, en el orden del paso 3: `guia`/`enviado` (incluida toda guía manual) ⇒ `409 SHIPMENT_NOT_IN_PREPARATION`; `picking` con guía Skydropx en proceso (`labelSource='skydropx'`) ⇒ `409 SHIPMENT_ALREADY_LABELED`; compra en vuelo (`labelProcessingSince` puesto, sin `labelSource`) ⇒ `409 LABEL_IN_PROGRESS`; `expectedAddressVersion` viejo ⇒ `409 CONFLICT {reason:'address_changed'}`. **Carrera:** dos correcciones distintas con la misma versión, concurrentes ⇒ exactamente **una** `200` y una `409` por ronda; **N = 10 rondas, se reporta la proporción** | quitar `addressVersion` del `WHERE` del CAS (gana la última escritura) |
+| **PS-105** 💰 | La cotización muere con la corrección: cotizar (v0) ⇒ corregir (v1) ⇒ `GET …/quote` `404`; `POST …/quote` sin `force` **llama** al doble (no reutiliza); `POST …/label` con el `quoteId` viejo ⇒ `409 QUOTE_EXPIRED {reason:'address_changed'}` y **cero** `purchase`; corrección inyectada entre el paso 2 y el 7 de `label` ⇒ `409 CONFLICT` y **cero** `purchase` | quitar `addressVersion` de la vigencia, o del `WHERE` del paso 7 ⇒ compra con la cotización de la dirección vieja |
+| **PS-106** 💰 | La compra lleva la dirección corregida: el doble recibe `address_to.street1` (línea 1 + 2), `name`/`company`, `further_information` y `postal_code`/`area_level1..3` **del snapshot corregido**, nunca de la libreta ni de la orden | armar `address_to` desde `Order.shippingAddressSnapshot` o desde `Address` |
+| **PS-107** | Roles y diales: `vault_operator` y `super_admin` ⇒ `200`; `customer` ⇒ `403`; con `shipping_provider='off'` y `shipping_label_purchase='disabled'` ⇒ `200` igual | condicionar el verbo al dial de compra |
+| **PS-108** 💰 | `labelStateOf` con reloj falso: las cuatro alertas en su umbral exacto (14:59 ⇒ `null`, 15:00 ⇒ `label_unknown`), la precedencia, `canRelease` solo para súper-admin, `labelPending.state` por `providerShipmentId`; **en los dos DTO** (`AdminShipmentDTO` y `ShipPreparationOrderDTO`); cancelación automática con `port.cancel` lanzando ⇒ `label_cancel_failed` a los 2 min; reintento con `ok` ⇒ `providerCancelConfirmedAt` y la alerta se apaga; **re-emisión aceptada ⇒ la guía siguiente entra al sondeo** (`providerCanceledAt` nulo) | no escribir `providerCancelConfirmedAt`; no limpiar `providerCanceledAt` al re-emitir |
+| **PS-109** 💰 | Compra con timeout ⇒ `200 {outcome:'in_flight'}`, **1** llamada en el transporte, reclamo conservado, `labelPending.state='in_flight'`; con `5xx` ⇒ ídem; con `404` ⇒ ídem; `403` del borde ⇒ `502 edge_blocked` y reclamo **deshecho** (`labelPending = null`) | responder `503` en vuelo; deshacer el reclamo tras un timeout |
+| **PS-110** | `GET /admin/shipping/packages` como operador ⇒ `200` con los activos e inactivos y `active`; `PUT` como operador ⇒ `403` | dejar `GET` en `super_admin` |
+| **PS-111** | `isPromoPlan`: `50PESOS_30042026`, `50PESOS_20052026`, `PROMO_1_PESO_19082026` ⇒ `true`; `ACQ_2026`, `null`, `'FOO'` ⇒ `false`; `ShipmentRateDTO.isPromo` lo refleja | `isPromo = planType != null` |
+| **PS-101** (corrige) | Paso 1: con `labelOptions.provider='skydropx'` los seis campos son editables; guardar manda `expectedAddressVersion`; `409 CONFLICT {reason:'address_changed'}` ⇒ relee y avisa; tras corregir, el paso 2 **re-cotiza** (no muestra la cotización vieja); «Corregida por {name} · {fecha}» con `address.corrected`; `5xx` de `label` ⇒ relee y decide por `labelPending` (§19.20.5) | editar sin `expectedAddressVersion`; mostrar la cotización previa tras corregir |
+
+**M4-SHIP.19.20.9 — Qué cambia para quién.**
+
+| Rol | Qué |
+|---|---|
+| **backend 💰 (stream de envíos, modelo fuerte)** | **Fase C:** `PUT …/address` (en lugar de `address-neighborhood`) + tres columnas en `M-SDX-C`, PS-102…PS-107. **D2a:** `ShipmentQuote.addressVersion`, `ShipmentRequest.providerCancelConfirmedAt` en `M-SDX-D`. **D2b:** vigencia por versión, `isPromo` (`promo-plan.ts`, PS-111). **D2c:** `addressVersion` en el paso 2 y el CAS del paso 7, `in_flight` (PS-109), confirmación de cancelación y limpieza del sello al re-emitir, `labelPending`/`labelAlert` (PS-108). **D2f:** `GET …/packages` operador+ (PS-110). ⛔ Nada en D1a–c |
+| **frontend** | Paso 1 editable (PS-101), «Cambiar empaque» con `GET …/packages`, `isPromo`, `in_flight`, tarjetas de preparación y de envíos con `labelPending`/`labelAlert`; tipos en `contract.ts` (zona compartida) |
+| **ux-ui** | Copy del paso 1 editable (campos, «Corregida por…», `409 CONFLICT {reason:'address_changed'}`, `QUOTE_EXPIRED {reason:'address_changed'}`), `outcome:'in_flight'`, realce de promoción con `isPromo`, `AV-18`, `AV-19` |
+| **product-owner** | `PROJECT §T.2` y el paso 1 de la ventana (`PROJECT.md:8083-8084`, `:12217-12218`) a la corrección completa; criterio 242 a «16 → 19»; P-ADR-1 (teléfono) |
+| **seguridad** | En la fase por release: el verbo nuevo escribe PII ajena en la bitácora (antes/después) — qué hace la anonimización de cuenta con esas filas: NO MEDIDO |
+| **orquestador** | El encargo de fase C cita esta sección (no §19.5 para el verbo de colonia); D2a lleva las dos columnas nuevas |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 

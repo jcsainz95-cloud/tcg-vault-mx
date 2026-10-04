@@ -4,6 +4,20 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12 — ERRATA DE LA VENTANA «CAPTURAR GUÍA»** (2026-10-04, arquitecto, rama `claude/skydropx-d`; ⛔ sha NO
+> MEDIDO por el arquitecto: sin Bash. Origen: `HECHOS.md:50` (el dueño eligió «Poder corregir todo»), `HECHOS.md:52`
+> (disputas fuera de la tienda), `DESIGN_SYSTEM §43.17` A-1…A-5 y N-3, `PROJECT.md:12123-12125`. `API_CONTRACT` sube a
+> **v1.80.12**; norma entera en `API_CONTRACT §M4-SHIP.19.20`. Porqué: **§4.60 (m)**.)
+>
+> | # | Qué | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | La dirección del envío se **corrige entera** en la ventana (`PUT …/address`, operador+), sobre la foto del envío y nunca sobre la libreta ni la orden; versión + CAS; bitácora antes/después; la cotización vale solo para la versión con que se hizo | §4.60 (m), §11 `M-SDX-C`/`M-SDX-D` | **Sí** (backend fase C/D2, frontend, ux-ui) |
+> | **2** | Compra pendiente y alertas de guía **derivadas** en los dos DTO; `providerCancelConfirmedAt` para que una cancelación fallida se vea; la re-emisión limpia el sello de cancelación | §4.60 (m), §11 `M-SDX-D` | **Sí** (backend D2a/D2c, frontend) |
+> | **3** | Compra en vuelo ⇒ `200 in_flight` (no un `5xx`); la pantalla decide por el estado releído | §4.60 (m) | **Sí** (backend D2c, frontend) |
+> | **4** | Empaques legibles por el operador; `isPromo` derivado en el servidor; `AV-18/19` en esta fase; catálogo = 19 | `API_CONTRACT §19.20` | **Sí** |
+> | **5** | §4.59 (vía B de disputas) **sustituida** por `HECHOS.md:52`; el reemplazo es §V, encargo propio | §4.59 | **No** (nada construido) |
+>
+> ---
 > **Rev v1.80.11 — CONSOLIDACIÓN DE `claude/skydropx-envios` + LA FASE D DE SKYDROPX CON LA API DE PRODUCCIÓN MEDIDA**
 > (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador `785ea5fc`; ⛔ sha NO MEDIDO por el
 > arquitecto: sin Bash. Base: todo lo de abajo, vigente entero salvo lo que esta rev toca. Origen: la fusión por unión de
@@ -27217,6 +27231,13 @@ invariante rota es lo correcto: la alternativa es un panel que la tapa.
 
 ### 4.59 LA DISPUTA DEL ENVÍO DIRECTO — derecho a reclamar sin ser dueño (v1.80.10, 2026-10-04, NORMATIVO, 💰 **DINERO**)
 
+> ⛔⛔ **v1.80.12 — SUSTITUIDA; NO SE CONSTRUYE.** `HECHOS.md:52` (2026-10-04) saca las disputas de la tienda («no
+> debería haber disputas hasta después del envío, menos en bóveda»; «quita el botón y pon escríbenos») y dice
+> expresamente que sustituye la vía B. El razonamiento de abajo queda como historia: era correcto **para la pregunta
+> que se hizo** (cómo disputa el comprador de un envío directo) y la respuesta del dueño es que no disputa en la tienda.
+> Vivo/muerto: `API_CONTRACT §M4-SHIP.19.20.7`. Reemplazo («Escríbenos», reembolso de una carta tras la entrega, M8,
+> disputas abiertas): **§V**, encargo propio.
+
 Norma: `API_CONTRACT §E2E-ADM` (rev v1.80.10). Aquí, el porqué de F-2; los demás puntos de la errata no tienen diseño que
 justificar (son pantalla sobre contrato existente, o una validación de una línea).
 
@@ -27403,8 +27424,28 @@ porqué; lo demás es forma de la tarifa y vive en el contrato.
 | **No hay sandbox**: lo medible sin gastar se mide en producción con un script de **solo lectura** (`M-PRD`), y lo que exige comprar espera a la primera guía real del dueño (`PG`) | Esperar un sandbox (v1.81, PS-SBX) | `HECHOS.md:17` (no hay staging) y `:48` (credenciales de producción). Un guion que exige sandbox no se ejecuta nunca; partirlo en «gratis ahora» y «con la primera guía» cierra la mitad hoy |
 
 **Deuda que deja (l):** `M-PRD-1…6` y `PG-1…3` (tabla en `API_CONTRACT §19.19.18`); la pregunta de producto de la
-impresora (`shipping_label_format`, seed `standard`); que `HECHOS.md` no tenga aún la fila de la ventana «Capturar guía»
-(la añade el orquestador).
+impresora (`shipping_label_format`, seed `standard`); ~~que `HECHOS.md` no tenga aún la fila de la ventana «Capturar guía»
+(la añade el orquestador)~~ (añadida: `HECHOS.md:49`, leído 2026-10-04).
+
+**(m) ⭐💰 v1.80.12 — corregir la dirección, ver la compra pendiente, responder la compra en vuelo** (`HECHOS.md:50`,
+`DESIGN_SYSTEM §43.17`; norma entera en `API_CONTRACT §M4-SHIP.19.20`).
+
+| Regla nueva | Alternativa descartada | Por qué |
+|---|---|---|
+| **La corrección vive en la foto del envío** (`ShipmentRequest.addressSnapshot`); la libreta del cliente y la foto de la orden no se tocan | Corregir la libreta (`Address`) o las dos fotos | `HECHOS.md:50` habla de esta guía, no de la cuenta: cambiar la libreta cambiaría **el próximo** pedido del cliente sin que él lo sepa. Y `Order.shippingAddressSnapshot` es lo que el cliente capturó al pagar: si la paquetería falla, es la evidencia de qué dirección dio él y cuál corrigió la tienda (con la bitácora, que guarda quién) |
+| **Un verbo para toda la dirección**, que absorbe «elegir colonia» | Dos verbos (`address-neighborhood` + uno nuevo) | El de colonia no estaba construido (Grep ⇒ 0). Dos verbos sobre los mismos campos son dos juegos de guardas y validaciones que pueden divergir; la colonia elegida es una corrección más, con la misma validación contra la lista del CP |
+| **Versión entera + CAS** (`addressVersion`), y la cotización guarda la versión con que se hizo | Borrar o vencer las cotizaciones al corregir; o comparar un hash del JSON | Vencer por escritura deja la carrera abierta: una cotización que **vuelve** de la red después de la corrección se insertaría «vigente» con la dirección vieja. Con la versión, esa cotización nace muerta sin que nadie la toque, y el CAS del reclamo de la compra la vuelve a exigir, así que una corrección que se cuela entre «elegí» y «compré» no compra a la dirección vieja. Un entero se compara en el `WHERE`; un hash obliga a canonizar JSON igual en dos sitios |
+| **Operador+, sin depender de los diales de Skydropx** | Solo súper-admin; o atarlo a `shipping_label_purchase` | La palabra del dueño es «el dueño (y quien prepare)». Con Skydropx apagado, la dirección corregida es la que se escribe a mano en la guía manual: atarla al dial dejaría al operador sin remedio justo cuando la paquetería es manual |
+| **Alertas de guía derivadas, no almacenadas** — salvo `providerCancelConfirmedAt` | Tabla de alertas, o una columna por alerta | Tres de las cuatro son funciones de columnas que ya existen y del reloj (misma doctrina que `carrierAlert`, §19.3): se apagan solas cuando el hecho cambia. La cuarta (`label_cancel_failed`) **no** era derivable: tras la cancelación automática el sello queda puesto respondiera o no Skydropx. Se guarda la **confirmación** y no el fallo porque el fallo puede no llegar a escribirse (el proceso muere entre el sello y la llamada): la ausencia de confirmación es falla-cerrado |
+| **La compra en vuelo es un `200 in_flight`** | Un `503`/`502` con un detalle | Un `5xx` dice «falló, reintenta», y en vuelo reintentar es justo la guía duplicada. `in_flight` es un resultado con estado (el reclamo sigue), igual que `processing` e `in_progress`. Y como un `500` nuestro tras la compra también puede ocurrir, la pantalla no confía en el status: relee y decide por `labelPending` |
+
+Encontrado al derivar `label_cancel_failed`: el reinicio de la re-emisión (§19.8) no limpiaba `providerCanceledAt`, con lo
+que la guía **siguiente** nacía sellada (fuera del sondeo, `already_cancelled` sobre una guía viva). Se corrige en el
+contrato; nada estaba construido.
+
+**Deuda que deja (m):** P-ADR-1 (¿se corrige también el teléfono?, product-owner → dueño); qué dirección leen hoy las
+superficies del cliente (NO MEDIDO, lo mide backend); qué hace la anonimización con las filas de bitácora que guardan
+direcciones (NO MEDIDO, seguridad).
 
 ---
 
@@ -30826,6 +30867,11 @@ al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto~~ construida, ver arriba).
   §19.19.12 (nuevos `shipping_label_purchase = 'disabled'`, `shipping_insurance_tiers` con dos filas medidas,
   `shipping_label_format = 'standard'`; `shipping_consignment_note = '49101600'`; `shipping_preferred_carriers =
   ['ninetynineminutes']`; **sin** `shipping_declared_value_cap_cents`). Sin backfill; reversibilidad sin cambio.
+- ⭐ **v1.80.12** (norma: `API_CONTRACT §M4-SHIP.19.20.1`/`.2`): **`M-SDX-C`** + `ShipmentRequest.addressVersion Int
+  @default(0)`, `addressCorrectedAt DateTime?`, `addressCorrectedByUserId String?` con CHECKs (versión ≥ 0; los dos de
+  corrección pareados; versión 0 ⇔ sin corrección). **`M-SDX-D`** + `ShipmentQuote.addressVersion Int` y
+  `ShipmentRequest.providerCancelConfirmedAt DateTime?` (CHECK: solo con `providerCanceledAt`). Sin backfill (filas
+  existentes nacen en versión 0); reversible igual que el resto de la parte.
 
 ### v1.80-preparar-envios (**M-61**: palomeo en envío + libro de reembolsos — **DDL ADITIVO + 3 enums + CHECKs + seed de un dial, SIN backfill**, §4.57)
 
