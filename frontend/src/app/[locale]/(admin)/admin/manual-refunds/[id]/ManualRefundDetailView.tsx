@@ -211,7 +211,7 @@ function ManualRefundDetail({ id }: { id: string }) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <Link href="/admin/manual-refunds" className="font-mono text-[11px] uppercase tracking-label text-muted hover:text-text">
+        <Link href="/admin/refunds" className="font-mono text-[11px] uppercase tracking-label text-muted hover:text-text">
           ← {t('backToList')}
         </Link>
       </div>

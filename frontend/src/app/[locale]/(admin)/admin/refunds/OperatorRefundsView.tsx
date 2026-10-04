@@ -22,7 +22,7 @@ const KINDS: PaymentRefundKind[] = ['item_missing', 'order_remaining', 'shipment
 const STATUSES: PaymentRefundStatus[] = ['requested', 'submitted', 'succeeded', 'failed'];
 
 /**
- * **«Reembolsos de operadores»** (`DESIGN_SYSTEM §37.11b` · contrato `§M4-SHIP.17.5`). Es la vigilancia del
+ * **«Reembolsos de operadores»** (v4.10: cubeta `?tab=operadores` de `/admin/refunds`, §37.20 · `DESIGN_SYSTEM §37.11b` · contrato `§M4-SHIP.17.5`). Es la vigilancia del
  * súper-admin sobre la política nueva de `§M4-SHIP.8` («también el operador reembolsa»): el resumen por operador
  * (24 h / 7 d / 30 d, tope usado, tasa de faltantes, merma, «repuso lo que marcó») y el libro filtrable con
  * «Reintentar». ⛔ Sin correo (D-13): el panel es el aviso.
@@ -136,10 +136,8 @@ function OperatorRefunds() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-h1 font-bold">{t('title')}</h1>
-        <p className="text-sm text-muted">{t('hint')}</p>
-      </div>
+      {/* §37.20 b: la cubeta pierde su `h1` — el de la página es uno solo («Reembolsos»); el `hint` se queda. */}
+      <p className="text-sm text-muted">{t('hint')}</p>
       {retried && (
         <Banner variant="success" role="status">
           {retried}

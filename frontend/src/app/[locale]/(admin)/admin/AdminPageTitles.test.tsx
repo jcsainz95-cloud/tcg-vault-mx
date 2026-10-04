@@ -68,9 +68,9 @@ import M12Page from './m12/page';
 // eslint-disable-next-line import/first
 import VaultsPage from './vaults/page';
 // eslint-disable-next-line import/first
-import ManualRefundsPage from './manual-refunds/page';
+import { RefundsView } from './refunds/RefundsView';
 // eslint-disable-next-line import/first
-import OperatorRefundsPage from './refunds/page';
+import { parseRefundsTab } from './refunds/tabs';
 
 /**
  * Fusión release-s5: `m4/page.tsx` pasó a componente de SERVIDOR asíncrono (lee `?tab=`), que el render
@@ -79,6 +79,11 @@ import OperatorRefundsPage from './refunds/page';
  */
 function M4Page() {
   return <M4View initialTab={parseM4Tab(undefined)} />;
+}
+
+/** v4.10 (§37.20): `refunds/page.tsx` también es de servidor asíncrono; se mide lo que devuelve sin `?tab=`. */
+function RefundsPage() {
+  return <RefundsView initialTab={parseRefundsTab(undefined)} />;
 }
 
 /** La página que sirve cada `href` del menú (la misma que monta el App Router). */
@@ -98,8 +103,7 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/m11': M11Page,
   '/admin/m12': M12Page,
   '/admin/vaults': VaultsPage,
-  '/admin/manual-refunds': ManualRefundsPage,
-  '/admin/refunds': OperatorRefundsPage,
+  '/admin/refunds': RefundsPage,
 };
 
 const MODULES_ES = es.admin.modules as Record<string, string>;
@@ -135,11 +139,10 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     [null, '/admin', 'Resumen', 'Overview', false],
     ['Día a día', '/admin/m5', 'Solicitudes de venta', 'Sell requests', false],
     ['Día a día', '/admin/m3', 'Ventas', 'Sales', false],
-    // Fusión release-s5 (decisión del orquestador, 2026-09-29): se queda la posición que trae envío
-    // (§37.9, «junto a» Ventas; `AdminSidebar.tsx`), las dos con `superAdminOnly` ⇒ SÚPER. La
-    // propuesta C3 de ux-ui (moverlas a «Administración») queda pendiente del dueño.
-    ['Día a día', '/admin/manual-refunds', 'Reembolsos manuales (SPEI)', 'Manual refunds (SPEI)', true],
-    ['Día a día', '/admin/refunds', 'Reembolsos de operadores', 'Operator refunds', true],
+    // RF-1 (§37.20, HECHOS 2026-10-02 «Menú del panel: se queda como está; … se JUNTAN en UNA sola
+    // pestaña con dos cubetas»): UNA entrada «Reembolsos», en el mismo hueco tras «Ventas», SÚPER.
+    // ⛔ ninguna entrada a `/admin/manual-refunds` (la lista vive en la cubeta SPEI; el detalle sigue en su ruta).
+    ['Día a día', '/admin/refunds', 'Reembolsos', 'Refunds', true],
     // «Pedidos por preparar»: elección del dueño (HECHOS.md, 2026-09-29) sobre el «Preparar y
     // enviar» que proponía §37.2b. Menú y `h1` salen de la MISMA clave (`admin.modules.m4`).
     ['Día a día', '/admin/m4', 'Pedidos por preparar', 'Orders to prepare', false],
@@ -177,6 +180,19 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     const groupLabels = Array.from(nav.querySelectorAll(':scope > div > p')).map((p) => p.textContent);
     expect(groupLabels).toEqual(['Día a día', 'Existencias', 'Tienda', 'Administración']);
     expect(nav.querySelector(':scope > div:first-child > p')).toBeNull();
+  });
+
+  it('RF-1 (§37.20): una sola entrada de reembolsos, entre «Ventas» y «Pedidos por preparar»; ninguna a la lista vieja', () => {
+    pathState.pathname = '/admin';
+    renderWithProviders(<AdminSidebar />, 'es');
+    const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') ?? '');
+    // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16.
+    expect(hrefs).toHaveLength(16);
+    expect(hrefs.filter((h) => h.startsWith('/admin/manual-refunds'))).toEqual([]);
+    const refunds = screen.getAllByRole('link').filter((a) => /Reembolsos/.test(a.textContent ?? ''));
+    expect(refunds.map((a) => a.getAttribute('href'))).toEqual(['/admin/refunds']);
+    const i = hrefs.indexOf('/admin/refunds');
+    expect([hrefs[i - 1], hrefs[i + 1]]).toEqual(['/admin/m3', '/admin/m4']);
   });
 
   it('en inglés, los mismos nombres de la tabla', () => {

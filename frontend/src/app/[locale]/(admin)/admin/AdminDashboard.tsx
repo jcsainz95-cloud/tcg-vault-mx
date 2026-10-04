@@ -184,7 +184,7 @@ export function AdminDashboard() {
                 value={query.data.workQueue.manualRefunds.pending}
                 sub={
                   <Link
-                    href="/admin/manual-refunds"
+                    href="/admin/refunds"
                     className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
                     data-testid="dashboard-manual-refunds"
                   >
@@ -205,7 +205,7 @@ export function AdminDashboard() {
                 value={formatMoneyCents(query.data.workQueue.operatorRefunds.last24hCents, locale)}
                 sub={
                   <Link
-                    href="/admin/refunds"
+                    href="/admin/refunds?tab=operadores"
                     className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
                     data-testid="dashboard-operator-refunds"
                   >

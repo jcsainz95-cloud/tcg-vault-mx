@@ -17,6 +17,7 @@
 > | **3** | Números de rev homónimos (`v1.80` ×4, `v1.80.1` ×3, `v1.80.2` ×2) se leen con sufijo ⟨rama⟩; las notas «se renumera al fusionar» quedan superadas | `API_CONTRACT` cabecera punto 2 | **No** |
 > | **4** | §9: ~~`INV-P2` sigue **ABIERTA** en la rama de release (`ItemVerb` sin `'price'`, `item-location.rules.ts:66`, leído 2026-09-29)~~ ✅ **`INV-P2` CERRADA en `b8a3e4ce`** (`item-location.rules.ts:71` = `'move' \| 'mark' \| 'status' \| 'price'`; prueba `backend/test/inventory.patch-price-guard.spec.ts`; leído 2026-09-29 por el arquitecto, sha NO MEDIDO por él; detalle en §9 y `API_CONTRACT` cabecera v1.80.8-release punto 5); `D-SHIP-5`/`D-SHIP-6` anotadas como cerradas por `7e803bd` (reportado por backend) | §9 | **No** (~~lo cierra~~ lo cerró la regla de fusión de `API_CONTRACT §M1`) |
 > | **v1.80.8.3** | 🔒💰 `charge.refunded` total lleva a `refunded` desde `CHARGE_REFUNDED_SOURCE_STATUSES = pending, failed, settled`; `failAndRelease` pasa a CAS `status:'pending'`. Supera el `WHERE status IN (settled, refunded)` de M5 (v1.80.5 fila 3 y §4.57 (q) fila M5, tachados). Norma: `API_CONTRACT` rev v1.80.8.3 | §4.57 (v) | **Sí** (backend) |
+> | **v1.80.8.4** | Errata (2026-10-02, rama `claude/post-release-s5`): la cola de VENTA la escriben **solo** los escritores del precio de venta de plataforma y siempre con motivo; `price-sync`/`syncCardPrice` ⛔ no escalan; **sin tercer motivo** (paridad schema↔contrato sin cambio); el sellado cierra su fila al resolver en publicación; **barrido VQ** cierra las filas `reason IS NULL` que ninguna pieza vendible necesita. Tacha §5 «`price-sync` sí escala pendientes», la lista de VENTA de §4.24c y el «sellado no cierra» de §4.36.5 (c). No toca guardarraíl ni curva. Norma: `API_CONTRACT` rev v1.80.8.4, §M2 `M2-VQ` | §4.36.5 (c-bis), §5, §4.24c | **Sí** (backend) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -8317,8 +8318,9 @@ Reusa **`PendingPriceEntry`** (`schema.prisma:613-632`, enum `context = catalog 
 nuevo, sin endpoint nuevo:** `pendingQueue()` gana un parámetro **opcional `context`** (y el endpoint un query param
 `?context=`), para que M2 sirva dos buckets:
 
-- **VENTA** = `context='inventory'` — inventario (incl. no publicado): ya se escala en `createItem` (`:127`) y **ahora
-  también en `bulkPublish`** (§4.24b).
+- **VENTA** = `context='inventory'` — inventario **de plataforma** (incl. no publicado): ya se escala en `createItem` (`:127`) y **ahora
+  también en `bulkPublish`** (§4.24b). **v1.80.8.4:** la lista cerrada de escritores (alta, publicación /
+  `publish-all`, reconciliación de `price-ingest`, override manual) está en §4.36.5 (c-bis); ⛔ `price-sync` no escribe.
 - **COMPRA** = vista **READ-ONLY** sobre `context='buylist'` — **solo display**. `context='buylist'` lo escala el
   stream buylist (`buylist.service.ts:306`).
 
@@ -14614,7 +14616,9 @@ esa clave cuando una resolución posterior devuelve `basis ∈ {market, override
 **Los seams que cierran son SOLO los de ESCRITURA** (v2.1.2 — corrección del hallazgo M2 de QA):
 `inventory.createItem`, `inventory.bulkPublish`, `inventory.publish-all` y `buylist.createRequest` — exactamente los
 mismos que escalan (b). El camino manual existente (`POST /admin/pricing/override`, que resuelve pendientes
-context-agnóstico, §4.24c) **no cambia**.
+context-agnóstico, §4.24c) **no cambia**. ~~(El sellado no cerraba en publicación: `pendingKey: null`.)~~ **v1.80.8.4:
+el sellado que resuelve en publicación con precio derivado (override de variante o mercado×spread) cierra su fila —
+(c-bis) punto 4.**
 
 > ⛔ **Corrección: la «lectura del binder» NO cierra pendientes, y no debe hacerlo.** Una revisión anterior de este
 > párrafo listaba «publicación, republicación, `publish-all` **o lectura del binder**». Lo último **era falso**: el
@@ -14631,6 +14635,76 @@ que la cierra **sin intervención**, y es **el mismo pase** que la abre — abri
 hace que la cola no derive. **Nota para backend:** hoy el ingest **no** cierra entradas; esa simetría es
 **comportamiento nuevo** y debe cubrirse con test (escalar ⇒ inyectar `PriceReference` ⇒ correr el pase ⇒ entrada
 `resolved` y pieza publicable).
+
+**(c-bis) v1.80.8.4 — Quién escribe la cola de VENTA, y el fin de «sin motivo» (NORMATIVO; sin schema, sin enum).**
+Contrato: `API_CONTRACT §M2` «v1.80.8.4» (ancla `M2-VQ`), pruebas VQ-1…VQ-9.
+
+*Origen (medido por backend, `BACKEND_NOTES` §14, commit `0a4a6429`; código leído por el arquitecto en la rama, sha
+NO MEDIDO por él).* M2 Venta mostraba `0 SIN MERCADO · 17 PREMIUM EN EL PISO · 19 SIN MOTIVO`. Backend corrigió los
+escritores del alta/aportación/publicación de sellado. Quedaba `syncCardPrice` (`pricing.service.ts:1927`, `:1961`),
+llamado por `price-sync` (`jobs/price-sync.service.ts:35-63`), con tres defectos de **diseño**, no de código:
+(i) su «sin cotización» es «el proveedor POR CARTA no contestó hoy» — graded/sellado son stubs que devuelven siempre
+`null` (`providers/graded-sealed.providers.ts:23-31`, `:48-52`), un HTTP fallido de pokemontcg.io cuenta igual aunque
+`price-ingest` tenga referencia; (ii) el sellado escala con la clave `'sealed'`, que ninguna publicación cierra;
+(iii) barre `status ∉ {withdrawn, lost}` sin filtrar `ownerType`, así que mete **piezas de clientes y vendidas** en el
+bucket que §4.24c define como inventario de plataforma. El §5 de este documento («sí escala pendientes») lo prescribía.
+
+**Decisiones:**
+
+1. **`price-sync` no escribe la cola, nunca.** Sigue recorriendo lo mismo y refrescando `PriceReference` (la
+   valuación de custodia y P&L las leen). La escalada sale **de `syncCardPrice` entera** (sus dos ramas, y el
+   parámetro `escalate` deja de existir): es la función del proveedor por carta y ningún llamador suyo decide precio
+   de venta. Así una regla vive en un sitio, en vez de un default que un llamador futuro puede olvidar.
+   *Descartado:* filtrar `price-sync` a plataforma y etiquetar `no_market` — mentiría (stub ≠ sin mercado) y rompería
+   el diagnóstico de (c) («suben los dos a la vez ⇒ feed degradado»), porque cada graded/sellado sumaría a `no_market`
+   todos los días.
+2. **La cola de VENTA la escribe solo quien decide un precio de venta de plataforma, con motivo.** Lista cerrada:
+   alta (`createItem`/`batchCreate`/`adjust(encontrada)`), `resolvePublishSalePrice` (`bulk-publish`, `publish-all`),
+   reconciliación de `price-ingest` (b-ter) y override manual (solo cierra). Todos pasan por `decideSalePrice` /
+   `settlePendingForVariant` o por `escalatePending` **con `reason` no nulo**. Las piezas de cliente no tienen cola:
+   no se abre un bucket `portfolio` (nadie lo triaría; la valuación ya excluye `pending`). Si el dueño quiere ver
+   «custodia sin valuación», es una métrica de `dataHealth`, no una bandeja — se difiere.
+3. **Sin tercer motivo.** `provider_unavailable` costaría un enum CLASE E (schema + contrato + paridad + copy) para
+   meter en la bandeja algo que el dueño no puede arreglar. La telemetría del job va a log:
+   `{ priced, noQuote (por productType), failed, skippedNoGradeIdentity }`.
+4. **Salida simétrica del sellado.** `derivePublishSalePrice` devuelve `pendingKey` también cuando el sellado
+   **resuelve** con `priceSource='derived'`, con **la misma clave con la que escalaría** (`sealedMarketGradeKeyForItem
+   ?? 'sealed'`, `finish='normal'`, `sealedProductId` de la pieza), y `resolvePublishSalePrice` cierra con
+   `settlePendingForVariant(null, …, 'inventory')`. Precio manual por pieza ⇒ no cierra (igual que raw/graded).
+   Sin esto, «`no_market` se cierra sola» era falso para todo el sellado.
+5. **Barrido VQ de las filas `reason IS NULL` (`context='inventory'`).** Función de aplicación idempotente al final
+   de cada `price-sync` completo: cierra (`resolved`) la fila si **ninguna** pieza `platform` `{in_stock, listed}`
+   sin precio manual por pieza tiene su clave; si alguna la tiene, la deja para `publish-all` (que le pone motivo o la
+   cierra). No es migración: decidir la clave de una pieza es lógica de app (`tryGradeKeyFor`,
+   `sealedMarketGradeKeyForItem`). Como desde (1)–(4) ningún escritor produce `null`, tras el primer `publish-all` +
+   `price-sync` completo el barrido es no-op para siempre; se deja (barato, y un `null` nuevo sería un defecto que
+   hay que ver en el log, no arrastrar). `resolved` aquí significa «ya no es trabajo», igual que el cierre por
+   override; no se añade estado nuevo.
+   - ⚠️ **Consecuencia para el censo `pricing.valuation-callers-census.spec.ts`:** la entrada de
+     `jobs/price-sync.service.ts` dice «sincroniza/ESCALA a la cola»; su `why` (y `n` si el barrido añade llamadas a
+     `tryGradeKeyFor`) se actualiza — es un candado documental, no se debilita: el barrido es uso de **cola**, no de
+     patrimonio (SK-5 intacto).
+6. **Qué ve el dueño.** VENTA: `N SIN MERCADO · 17 PREMIUM EN EL PISO · 0 SIN MOTIVO`. ⛔ `N` **NO MEDIDO**. Consulta
+   que lo cierra (solo lectura, para el orquestador/backend antes de prometer la cifra):
+   ```sql
+   -- filas «sin motivo» de VENTA, separadas por si alguna pieza vendible de plataforma comparte cardId+productType+finish
+   SELECT e."productType", e."gradeKey",
+          EXISTS (SELECT 1 FROM "InventoryItem" i
+                   WHERE i."cardId" = e."cardId" AND i."productType" = e."productType"
+                     AND i."finish" = e."finish" AND i."ownerType" = 'platform'
+                     AND i."status" IN ('in_stock','listed')) AS plataforma_vendible,
+          count(*)
+     FROM "PendingPriceEntry" e
+    WHERE e.status = 'open' AND e.context = 'inventory' AND e.reason IS NULL
+    GROUP BY 1,2,3;
+   ```
+   (aproximación por exceso: no compara `gradeKey` ni `sealedProductId` de la pieza; `plataforma_vendible=false` son
+   cotas seguras de lo que cierra el barrido). Las 17 `premium_at_floor` **no se mueven**: el guardarraíl y la curva
+   esperan decisión del dueño y esta errata no los toca.
+
+**Lo que NO cambia:** alcance de `price-sync` (sigue barriendo vendidas: desperdicia cuota del free tier, no es
+defecto de cola — se anota, no se decide aquí), `set-price-sync`, clave de dedupe, `counts`, forma de respuesta,
+`PendingPriceReason`, `PendingPriceStatus`.
 
 **(d) Lo que el guardarraíl NO es.** No es un piso por rareza, no es una regla de precio y **no fija ningún monto**:
 solo decide **publicar / no publicar** y **cotizar / no cotizar**. Meter la rareza de vuelta al monto por esta puerta
@@ -26696,7 +26770,7 @@ processingFeeCents = totalCents − baseCents
 - **Seguridad/roles:** 3 roles. Autorización por **acción**, no solo por ruta (§7). Guard `MoneyOutGuard` exige `super_admin` para pagos SPEI y reembolsos; todo intento (permitido o bloqueado) se audita.
 - **Imágenes (v1.2):** el producto **no lleva fotos propias**; se muestra la **imagen de catálogo remota** de pokemontcg.io (`Card.imageSmallUrl`/`imageLargeUrl`). La **única** subida del sistema es la **imagen del INE** del buylist (`kyc_ine`), a object storage **privado** con presigned PUT/GET y **retención** (§3.4). No hay fotos de producto/inventario ni de evidencia de disputa (la evidencia de disputa llega por correo a soporte).
 - **Sync de precios/FX (jobs BullMQ):**
-  - `price-sync` diario: recorre solo cartas **en bóveda**, respeta rate-limit del free tier, escribe `PriceReference` del día, genera `PendingPriceEntry` para faltantes. **v1.12-catalog-pricing:** el catálogo **completo** ya se precia aparte durante el `catalog-sync` (§4.13a, `escalate=false`); este job de bóveda se conserva para refrescar los items en custodia **entre** syncs de catálogo (y sí escala pendientes, porque son cartas que sí necesitamos preciar).
+  - `price-sync` diario: recorre solo cartas **en bóveda**, respeta rate-limit del free tier, escribe `PriceReference` del día, ~~genera `PendingPriceEntry` para faltantes~~. **v1.12-catalog-pricing:** el catálogo **completo** ya se precia aparte durante el `catalog-sync` (§4.13a, `escalate=false`); este job de bóveda se conserva para refrescar los items en custodia **entre** syncs de catálogo ~~(y sí escala pendientes, porque son cartas que sí necesitamos preciar)~~. **v1.80.8.4: ⛔ NO escribe la cola de precio pendiente** (su «sin cotización» es «el proveedor por carta no contestó hoy», no «sin mercado», y su barrido incluye piezas de clientes y vendidas); al terminar una corrida completa ejecuta el **barrido VQ** de filas sin motivo. Norma en §4.36.5 (c-bis).
   - `fx-refresh` diario: obtiene USD→MXN de **Banxico (SIE)**, aplica el colchón (`fx_buffer_pct`) y escribe `FxRate` (`source=banxico`); ~~si falla o hay override manual (M10), usa `source=manual` como fallback/prioridad~~.
     > ⛔⛔ **TACHADO EN v1.63.2 — ERA LA MISMA FALSEDAD DE §3.2, Y ES EL BUG QUE `I-FX5` MATÓ.** Norma vigente
     > (§4.43c-bis, `API_CONTRACT §M2-F.1`): **(1)** *«hay override manual ⇒ prioridad»* es **exactamente la inferencia

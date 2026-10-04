@@ -4750,6 +4750,63 @@ export async function rejectBuylistRequest(
   return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 
+/** Cuerpo de los dos verbos con motivo interno opcional (0–500, va al `AuditLog`, ⛔ nunca al vendedor). */
+function internalReasonBody(reason: string | undefined): { reason?: string } {
+  const r = reason?.trim();
+  return r ? { reason: r } : {};
+}
+
+/**
+ * **«Declinar ahora»** (contrato §M5 · `POST /admin/buylist/:id/decline`, v1.51.3 D39; `vault_operator` y
+ * `super_admin`). Cierra de inmediato una `cotizada` abierta: `status → expirada`, `expiredReason → no_offer`,
+ * correo 4 al vendedor y anula la oferta `pending_authorization` viva. Fuera de `cotizada ∧ closedAt IS NULL`
+ * ⇒ **`409 DECLINE_NOT_ALLOWED`** (`details: { status, offerState }`) — ⛔ sin `200` idempotente.
+ */
+export async function declineBuylistRequest(id: string, input: { reason?: string } = {}): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/decline`, {
+      method: 'POST',
+      body: internalReasonBody(input.reason),
+    });
+  }
+  const req = mockFindBuylistRequest(id);
+  if (req.status !== 'cotizada') {
+    throw new ApiClientError(409, {
+      code: 'DECLINE_NOT_ALLOWED',
+      message: 'Sell request cannot be declined in its current state',
+      details: { status: req.status, offerState: req.status === 'ofertada' ? 'sent' : null },
+    });
+  }
+  req.status = 'expirada';
+  req.expiredReason = 'no_offer';
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
+}
+
+/**
+ * **Cancelar la oferta** (contrato §M5 · `POST /admin/buylist/:id/offer/cancel`, criterio 145). La única vía para
+ * corregir una oferta ya emitida: la solicitud **vuelve a `cotizada`** (correo 3 al vendedor si la oferta había
+ * salido; D38 repone el reloj de emisión). Sin oferta viva o ya `aceptada` ⇒ **`409 OFFER_NOT_CANCELLABLE`**.
+ */
+export async function cancelBuylistOffer(id: string, input: { reason?: string } = {}): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/offer/cancel`, {
+      method: 'POST',
+      body: internalReasonBody(input.reason),
+    });
+  }
+  const req = mockFindBuylistRequest(id);
+  if (req.status !== 'ofertada') {
+    throw new ApiClientError(409, {
+      code: 'OFFER_NOT_CANCELLABLE',
+      message: 'There is no live offer to cancel',
+      details: { status: req.status },
+    });
+  }
+  // `offerSentAt` sigue sellado: una oferta cancelada lo conserva (contrato §M5-V, V-b).
+  req.status = 'cotizada';
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
+}
+
 /** Plazos del ítem rechazado en la rama MOCK (espeja las constantes 7d/30d del backend). */
 const DAY_MS = 24 * 3600 * 1000;
 function mockRejectDeadlines(rejectedAtIso: string): {

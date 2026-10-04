@@ -100,6 +100,8 @@ describe('InventoryService.createItem — sellado', () => {
       'normal',
       null,
       null,
+      // Motivo (cola de Venta «SIN MOTIVO»): sin mapeo no hay mercado que leer ⇒ `no_market`, nunca `null`.
+      'no_market',
     );
   });
 

@@ -13958,3 +13958,254 @@ disparador de sus veredictos.
   real, no de este release en modo prueba.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-29 · código `7b9c196e` (rama `claude/release-s5`) · **APROBADO CON CONDICIONES** (nada bloquea el botón en modo prueba; S5-1, TD-4, C1, C2, C3 antes de `sk_live_`; C2-bis en el primer push a `production`)
+
+---
+
+# post-release s5 · b370cf9b — veredicto de seguridad (blue team) · 2026-10-02
+
+> **En una línea:** ningún hallazgo crítico, alto ni medio. El filtro de alcance del DAST no puede esconder un FAIL de
+> nuestro origen: lo comprobé con cuatro mutaciones y el canario muerde en las cuatro. El barrido VQ no cierra nada
+> que proteja dinero. «Declinar» y «Cancelar la oferta» en manos del operador no abren ningún poder nuevo.
+> **APROBADO CON CONDICIONES**: nada bloquea el botón. C2-bis sigue abierta hasta que se cite un run verde.
+
+**Sobre qué sha:** `b370cf9b` (rama `claude/post-release-s5`, base `production` `8fd637fb`). No escribí nada en el
+árbol vivo `/home/user/tcg-post` salvo este fichero.
+
+**Qué medí yo y qué consolido:**
+- **Medido por mí:** copia del árbol ENTERO (`git archive b370cf9b`) en el scratchpad, borrada al terminar.
+  `node_modules` es un enlace al del worktree. El schema no cambia en el rango (`git diff --stat`), así que no
+  regeneré Prisma. Carga baja (`loadavg` 0.10, 4 CPU). No usé base de datos ni Redis.
+- **CI en `b370cf9b`, consultado en la API pública de GitHub:** CI `37050914782` → success. Security SAST
+  `37050914645` → success. E2E `37050914631` → **in_progress** cuando lo consulté. No leí sus logs.
+- **Consolidado, no re-medido:** el veredicto de QA (APROBADO CON CONDICIONES sobre `8a10153e`), el del techlead
+  (APROBADO CON DEUDA sobre `8a10153e`, con D-1/D-2/D-6 pagadas en `0dd18c6e`), `DEVOPS_NOTES §74–§75` y
+  `BACKEND_NOTES §14–§16`. El run `36969283231` y el issue #30 los midió el orquestador y devops; yo no los volví a
+  abrir.
+- **Pentester:** no hubo pase de red team sobre este paquete. Lo último en `PENTEST_NOTES` es de `7b9c196e`. Por la
+  cadencia, la fase completa corre por release, y este paquete no añade superficie de dinero saliente ni rutas
+  nuevas.
+
+## 1. DAST `--scope-origin` (`771848e0`), revisado con lupa
+
+**Por qué el filtro no puede esconder un FAIL nuestro** (leído en `security/scripts/dast-gate.py`):
+- **Se decide por instancia, no por alerta** (`load_zap_split`). Una alerta con al menos una instancia en nuestro
+  origen entra en `dentro` con su acción de política. Lo de terceros no tapa lo nuestro.
+- **El origen se compara entero:** esquema, host y puerto, en minúsculas y con el puerto por defecto explícito
+  (`origin_of`).
+  - `https://localhost:3010` no casa con `http://localhost:3010`, y `localhost:8080` cuenta como tercero.
+  - Un URI ilegible devuelve `None`: cuenta como tercero y por tanto sale en «Fuera de alcance».
+  - Un `--scope-origin` ilegible hace salir con `rc=2`.
+- **Alcance vacío = ROJO:** si declaras alcance y no queda ni una instancia dentro, el candado sale rojo.
+- **Sin `--scope-origin` no se filtra nada.** Así la autoprueba del canario sigue juzgando el informe entero.
+- **Nuclei no pasa por el filtro.**
+- **El alcance coincide con los blancos reales:** ZAP corre con `--network host` contra `http://localhost:3010`, y la
+  vitrina efímera llama a `http://localhost:3011/api/v1` (`docker-compose.staging.yml:238`). Los dos orígenes están
+  en `DAST_SCOPE_ORIGINS`, y ningún workflow sobreescribe esa variable (lo comprobé con `grep`).
+
+**Medido `[VIVO]` sobre la copia:** `scripts/check-dast-gate-live.sh` → rc=0, todos los checks del bloque 5-ter en
+verde. Ese script corre en cada push (`.github/workflows/ci.yml:450`). Hice cuatro mutaciones a `dast-gate.py`, una
+por pase y restaurando entre pases. Son deterministas, así que con N=1 basta:
+
+| Mutación | Resultado del canario |
+|---|---|
+| M1 · decide solo la primera instancia de cada alerta | **ROJO**: muerde «10020 mixto» |
+| M2 · el origen se compara sin puerto | **ROJO**: muerde «localhost:8080 como tercero» |
+| M3 · se quita la guarda de alcance vacío | **ROJO**: muerde «alcance que no casa ⇒ ROJO» |
+| M4 · se filtra por defecto aunque no haya `--scope-origin` | **ROJO**: 4 checks, incluido «el candado no puede ponerse rojo con un SQLi» |
+
+**Riesgos residuales** (ninguno bloquea):
+- **DAST-SCOPE-1 (Info, devops, deuda con disparador).** Con alcance declarado, una alerta se juzga **solo por las
+  instancias que trae el JSON**.
+  - Si el informe trae menos instancias que su `count` y todas las listadas son de terceros, las no listadas no
+    deciden.
+  - NO MEDIDO si el informe `-J` de ZAP recorta instancias.
+  - **Disparador:** ver en algún informe real `count > len(instances)`.
+  - **Arreglo:** que la diferencia cuente como «dentro» (conservador).
+- **DAST-SCOPE-2 (Info, devops).** `DAST_SCOPE_ORIGINS` se puede sobreescribir por entorno, y el canario no vigila
+  que ningún workflow lo haga.
+  - Hoy nadie lo hace (comprobado con `grep`).
+  - **Arreglo opcional:** añadir ese `grep` a `check-dast-gate-live.sh`.
+- **Comprobado NO MEDIDO por devops:** un ZAP real con este candado. Lo mide el próximo `dast-release`. Por eso
+  **C2-bis sigue abierta**.
+
+**C2-bis (registro):**
+- El primer `dast-release` bloqueante en `production` fue el run **36969283231** (`8fd637fb`). Salió **ROJO solo
+  por un 10020 de tercero** (`https://js.stripe.com/v3/m-outer-….html`), con nuclei 0 high/critical. No hubo ningún
+  hallazgo en nuestro origen (fuente: `DEVOPS_NOTES §75`, medido por el orquestador y por devops).
+- Se comentó en el issue #30.
+- **Se cierra** con el primer `dast-release` sobre `production` que lleve `771848e0` y salga con `blocking=false`,
+  citado por número. En ese momento se cierra también el issue #30.
+- **No se vuelve a `report_only`.**
+
+## 2. «Declinar» y «Cancelar la oferta» en M5 (`5ff5f920`): ¿le dan algo de más al operador?
+
+**No.** El frontend cablea verbos que ya existían. Su autorización está en el backend y no cambió en este rango:
+- **`@Roles` sin cambio:** `admin-buylist.controller.ts:41-42` declara `vault_operator, super_admin` para la clase, y
+  `:333` (`offer/cancel`) y `:480` (`decline`) no lo sobreescriben. Es lo que pide el contrato (D39 y criterio 145).
+  `offer/authorize` (`:305-307`) y el SPEI siguen siendo solo `super_admin`.
+- **Declinar solo cierra solicitudes que no tienen oferta enviada.** La guarda es atómica
+  (`buylist.service.ts:5617-5638`): `updateMany` con `status='cotizada' ∧ closedAt IS NULL`.
+  - Una oferta ya enviada pone la solicitud en `ofertada`, así que da `409 DECLINE_NOT_ALLOWED`.
+  - La oferta que «anula» es solo `pending_authorization`. Esa oferta nunca salió al vendedor y la prepara el propio
+    operador.
+  - Anularla **reduce** el compromiso de dinero; no lo aumenta. No hay dinero saliente: correctamente, sin
+    `@MoneyOut`.
+- **Correo 4 y correo 5 son plantillas fijas** (`sendNotPursuedMail` en `:5662`, `sendOfferCancelledMail` en
+  `:4592`). Reciben solo folio, nombre, idioma y la URL del portal.
+  - El `reason` libre (`@Length(0,500)`, `dto/buylist.dto.ts:225,279`) **nunca** llega al correo ni a ningún DTO.
+  - `offerCancelReason` no aparece en ninguna proyección (comprobado con `grep`).
+  - El operador no puede inyectar texto que llegue al vendedor.
+- **Auditado con actor y rol:** `buylist.request.decline` y `buylist.offer.cancel`, con el `before` completo de la
+  oferta. La fila guarda además `declinedBy`.
+- **Cancelar y volver a ofertar** pasa otra vez por `adminOffer`, que aplica el tope del operador y exige
+  autorización si se supera. No hay atajo.
+- **Riesgo residual:** un operador malintencionado podría declinar solicitudes legítimas. El daño es reputacional,
+  no de dinero, y queda auditado. Lo acepto, y entra en el mismo disparador que INFO-1: un operador que no sea de
+  confianza directa del dueño.
+
+**«Reembolsos» en una pestaña (`ea853e0f`):**
+- **Sin cambio de autorización.** `RefundsView` envuelve la página entera en `SuperAdminOnly`, y
+  `ManualRefundsView`, `OperatorRefundsView` y el detalle conservan el suyo.
+- El backend (`admin-manual-refunds.controller.ts`, con `@MoneyOut`) no cambió en el rango.
+- **`?tab=` no es un vector:** se convierte a un enum en `tabs.ts`.
+- **La redirección `/admin/manual-refunds` es a una ruta fija.** El idioma se valida contra `routing.locales`, así
+  que no es una redirección abierta.
+
+## 3. Barrido VQ (`8a10153e`, `0dd18c6e`): ¿puede cerrar avisos que protegen dinero?
+
+**No.** Las razones, leídas en el código:
+- **La cola de VENTA es una bandeja de trabajo, no un candado.** Sus únicos lectores son:
+  - el contador del panel (`admin.service.ts:2038`);
+  - el *deep-link* de la publicación (`inventory.service.ts:1957`, «es una LECTURA: no escala nada»);
+  - la deduplicación de `escalatePending` (`pricing.service.ts:2016`);
+  - la lista de M2.
+
+  **Ninguna venta, publicación, cotización de compra ni pago se condiciona a que haya una fila `open`.** Lo que
+  impide vender sin precio es `derivePublishSalePrice`. Si hace falta, al publicar vuelve a escalar la fila con
+  motivo.
+- **El cierre está acotado dos veces.**
+  - **La escritura** (`closeUnreasonedSaleQueueRows`, `pricing.service.ts:2128-2135`) repite el predicado: `status
+    open ∧ context='inventory' ∧ reason IS NULL`. No toca filas con motivo, ni la cola de COMPRA (`buylist`), ni las
+    de otro `context`.
+  - **La decisión** conserva toda fila cuya clave necesite una pieza de plataforma `in_stock`/`listed` sin precio
+    manual. Usa la misma clave que la publicación (`sale-queue-key.ts`).
+- **El barrido solo corre en una corrida completa** (programada, o `scope=all_vault`). Con `scope=cardIds` no barre.
+  Deja rastro en el log con los ids, con un tope de 20.
+
+**Medido `[VIVO]` sobre la copia:** cuatro suites (`pricing.sync-dto`, `pricing.vq-sale-queue`,
+`pricing.sale-queue-key.parity` y `inventory.pending-reason-writers`) dan **48/48**. Mutaciones, una por pase y
+restaurando entre pases:
+
+| Mutación | Resultado |
+|---|---|
+| MA · la escritura sin `reason:null`/`status`/`context` | **1 roja** |
+| MB · el barrido cuenta también piezas de clientes | **1 roja** |
+| MD · `cardIds:[]` vuelve a barrer | **1 roja** |
+| MC · la lectura del barrido trae también filas con motivo | **0 rojas**, pero no es un hueco: MA demuestra que la escritura las excluye igual. Es una mutación equivalente en efecto |
+
+**Observación (Info, no bloquea):** el cierre del barrido no escribe `AuditLog`, solo una línea de log. Me parece
+aceptable porque no mueve dinero ni precio y la fila guarda `resolvedAt` con `resolvedPriceRefId=null`, que la
+distingue de un cierre por precio. **Disparador:** que la cola llegue a usarse como evidencia de auditoría (por
+ejemplo, «¿quién decidió que no hacía falta precio?»). Dueño: arquitecto.
+
+## 4. Validación de `POST /admin/pricing/sync` (`0dd18c6e`)
+
+- **¿Rompe a algún llamador interno?** **No.**
+  - El job programado llama a `PriceSyncJobService.run()` directamente (`scheduler.service.ts:245`), sin pasar por
+    el DTO.
+  - `set-price-sync` llama a `syncCardPrice` sin los parámetros retirados (`set-price-sync.service.ts:45`).
+  - El frontend no llama a `POST /admin/pricing/sync`: el endpoint está `@deprecated` y solo existe `sync-status`
+    (comprobado con `grep` en `frontend/src`).
+  - El controlador es solo `super_admin` (`pricing.controller.ts:206`), y la llamada se audita como `pricing.sync`.
+- **`scope` con `@IsIn`:** correcto. Antes `{"scope":"bogus"}` hacía la corrida completa con barrido. Ahora da
+  `400`.
+- **`scope=cardIds` con `[]` ⇒ `201 {queued:0}` como no-op: lo ACEPTO, no pido `400`.** Motivos:
+  - es idempotente;
+  - no escribe nada salvo la entrada de auditoría;
+  - no barre (lo fija la mutación MD de arriba);
+  - es solo para `super_admin`;
+  - y «una lista vacía son cero cartas» es la lectura menos sorprendente.
+
+  Lo que de verdad había que impedir era que `[]` significara «todas». Eso ya está cerrado. **Pido solo** que el
+  arquitecto lo escriba como norma en `§M2`, para que no dependa de un comentario.
+- **Info (preexistente, no del rango):**
+  - `{cardIds:[…]}` **sin** `scope` hace la corrida completa con barrido, porque `scope ?? 'all_vault'` ignora
+    `cardIds`. Es inocuo: el barrido es idempotente y no toca dinero. Pero sorprende. **Dueño: arquitecto** (decidir
+    entre `400` y inferir `cardIds`). Es deuda.
+  - `cardIds` no tiene `ArrayMaxSize`. Lo acota el límite de 100 kB del parser y que el endpoint es solo
+    `super_admin`.
+
+## 5. Dependencias (`e20c7ab2`, `834348f8`, `92845c1c`)
+
+Medido `[VIVO]` con `npm audit --package-lock-only`, sobre la copia de `b370cf9b` y sobre los lockfiles de `8fd637fb`:
+
+| | `8fd637fb` | `b370cf9b` |
+|---|---|---|
+| backend `--omit=dev` | **1 alta (`brace-expansion`)** + 6 moderadas | **0 altas** + 6 moderadas |
+| backend completo | — | 0 altas y 0 críticas (1 baja, 13 moderadas) |
+| frontend `--omit=dev` / completo | — | 0 / 0 |
+
+- En el lockfile del backend, `brace-expansion` queda en `1.1.21` (×6) y `2.1.7` (×1).
+- **La alta de producción (vía exceljs) queda cerrada.**
+- **Las 6 moderadas son las mismas de C1** (`qs`, `body-parser`, `express`, `multer` y `@nestjs/core` SSE).
+  Preexistentes, sin cambios.
+- **La poda de las tres fichas dev:** las fichas ya no aparecen en el audit del frontend completo (0 de 0), así que
+  la poda es correcta. Queda en 0 fichas activas, y eso hace que una alta nueva de desarrollo ponga el trinquete
+  rojo, que es lo que se busca.
+
+## 6. Condiciones heredadas — estado sobre `b370cf9b`
+
+| Id | Estado | Cuándo · dueño |
+|---|---|---|
+| **C2-bis** | **ABIERTA**, solo por la cita de un run verde (ver §1) | primer push a `production` con `771848e0` · devops |
+| C1 (`qs`/`multer`/`body-parser`/`express`) | ABIERTA, sin cambios (las mismas 6 moderadas) | antes de `sk_live_` · backend |
+| C2 (códigos de disputa en Stripe MX) | ABIERTA, el rango no la toca | antes de `sk_live_` · backend + arquitecto |
+| C3 (B13 = 0) | ABIERTA, el rango no la toca | antes de `sk_live_` · dueño (usuario de solo lectura) |
+| S5-1 / `SEC-HDR-2`, TD-4, pre-gate DAST `full`, C6 | ABIERTAS, el rango no las toca | antes de `sk_live_` · ver el veredicto de `7b9c196e` |
+
+## 7. Hallazgos de este paquete
+
+| Id | Severidad | Ubicación | Dueño | Cuándo |
+|---|---|---|---|---|
+| DAST-SCOPE-1 (instancias no listadas no deciden) | Info | `security/scripts/dast-gate.py` `load_zap_split` | devops | deuda; disparador: ver `count > len(instances)` en un informe real |
+| DAST-SCOPE-2 (sobreescritura de `DAST_SCOPE_ORIGINS` sin vigilancia) | Info | `security/scripts/dast-ephemeral.sh:73` | devops | deuda; opcional |
+| VQ sin `AuditLog` | Info | `pricing.service.ts:2128` | arquitecto | deuda; disparador en §3 |
+| `sync` sin `scope` ignora `cardIds` (preexistente) | Info | `pricing.controller.ts:246` | arquitecto | deuda |
+| Norma de `cardIds:[]` ⇒ no-op en `§M2` | Info (documental) | `docs/API_CONTRACT.md §M2` | arquitecto | deuda; no bloquea |
+
+**Crítica 0 · Alta 0 · Media 0 · Baja 0 · Info 5.**
+
+## 8. NO MEDIDO
+- **Un ZAP real con `--scope-origin`:** aquí no hay Docker. Lo mide el próximo `dast-release` (C2-bis).
+- **Si el `-J` de ZAP recorta instancias** frente a `count` (DAST-SCOPE-1).
+- **La E2E de CI en `b370cf9b`:** `37050914631` estaba `in_progress` cuando la consulté.
+- **Las suites de integración con base de datos** (`sale-queue-vq.e2e-spec`, `pricing-sync-scope.e2e-spec`,
+  `buylist-cycle`): no las corrí. Las consolido de QA y backend (`BACKEND_NOTES §16`).
+- **El frontend de M5 y de «Reembolsos» en vivo:** no levanté la vitrina. La autorización la verifiqué en el
+  backend, que es la autoridad, y la envoltura `SuperAdminOnly` leyendo el código.
+- **Los logs de los runs de GitHub:** solo leí su conclusión por la API.
+
+## 9. Banderas para el humano
+- No cambian respecto de `7b9c196e`:
+  - **antes de `sk_live_`**, pentest de un tercero y bug bounty;
+  - nunca reembolsar desde el panel de Stripe;
+  - validación legal de la custodia, del SPEI a CLABE y de la PII que ve el operador.
+- **Nuevo:** el operador ya puede declinar desde la pantalla (antes solo por API). Si el dueño quiere que los
+  vendedores solo reciban «no procederemos» con su visto bueno, es una decisión de producto que no es de seguridad,
+  y la tomaría el product-owner.
+
+## 10. VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `b370cf9b`
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 0 · Info 5.**
+- **Botón `main → production` (modo prueba): sí.** Ninguna condición de seguridad de este paquete lo bloquea.
+- **En el primer push a `production` con `771848e0`:** C2-bis. Devops cita el run de `dast-release` con
+  `blocking=false` y cierra el issue #30.
+  - Si ese run sale ROJO **por nuestro origen**, es un hallazgo real y vuelve a frontend o devops según la regla.
+  - **No** se vuelve a `report_only`.
+- **Antes de `sk_live_`:** las heredadas sin cambios (S5-1/`SEC-HDR-2`, TD-4, C1, C2, C3, pre-gate DAST `full`, C6)
+  y el pentest de un tercero.
+- **Mínimo para quedar APROBADO sin condiciones:** que se cite el run verde de C2-bis.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-02 · código `b370cf9b` (rama `claude/post-release-s5`) · **APROBADO CON CONDICIONES** (nada bloquea el botón en modo prueba; C2-bis en el primer push a `production`; las de `sk_live_`, heredadas)

@@ -250,6 +250,9 @@ describe('H-1 — inventory.bulkPublish es el 4º consumidor del resolver único
       pendingPriceEntry: {
         findFirst: jest.fn(async () => null),
         create: jest.fn(async () => ({ id: 'pend-A' })),
+        // v1.80.8.4 (VQ-6): el sellado que RESUELVE con precio derivado CIERRA su fila
+        // (`settlePendingForVariant(null, …)` ⇒ `closePendingForVariant` ⇒ `updateMany`).
+        updateMany: jest.fn(async () => ({ count: 0 })),
       },
     } as any;
 
@@ -276,6 +279,13 @@ describe('H-1 — inventory.bulkPublish es el 4º consumidor del resolver único
     expect(lineB.ok).toBe(true);
     expect(lineB.salePriceCents).toBe(EXPECTED);
     expect(lineB.priceSource).toBe('derived');
+    // VQ-6: el cierre se intentó con la clave de MERCADO del sellado mapeado (la misma que escala).
+    expect(prismaInv.pendingPriceEntry.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ productType: 'sealed', gradeKey: 'sealed:tcg:100', finish: 'normal', status: 'open' }),
+        data: expect.objectContaining({ status: 'resolved' }),
+      }),
+    );
     expect(res.summary.published).toBe(1);
   });
 });

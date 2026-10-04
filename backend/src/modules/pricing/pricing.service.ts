@@ -1866,21 +1866,23 @@ export class PricingService {
   }
 
   /**
-   * Sincroniza el precio de una carta (cache diario). Devuelve el PriceInfo.
-   * Si no hay precio y no hay override → crea PendingPriceEntry (no descarta).
+   * Sincroniza el precio de una carta (cache diario) desde el proveedor POR CARTA. Devuelve el
+   * PriceInfo: `priced` con la referencia del día, o `pending` si el proveedor no cotizó.
+   *
+   * ⛔ v1.80.8.4 (API_CONTRACT §M2 `M2-VQ`, ARCHITECTURE §4.36.5 c-bis) — **NO escribe la cola de
+   * precio pendiente, nunca.** Hasta v1.80.8.3 escalaba a `PendingPriceEntry` (con `reason=null`,
+   * `context='inventory'`) cada pieza cuyo proveedor no contestara: los de graded/sellado son stubs que
+   * devuelven siempre `null`, el sellado escalaba con la clave `'sealed'` que nada cierra, y el job
+   * `price-sync` barre piezas de clientes y vendidas. Eso era el «SIN MOTIVO» de la cola de VENTA.
+   * «El proveedor no contestó hoy» es telemetría del job (log), no trabajo del dueño. La cola de VENTA
+   * la escriben solo quienes deciden un precio de venta de plataforma, siempre con motivo. Por eso se
+   * fueron también `context`/`refId`/`escalate`: solo existían para la escalada.
    */
   async syncCardPrice(
     card: Card,
     productType: ProductType,
     gradeKey: string,
     finish: Finish = 'normal',
-    context: 'catalog' | 'portfolio' | 'buylist' | 'inventory' = 'inventory',
-    refId?: string,
-    // v1.9-set-chart: el `set-price-sync` precia TODO el set destacado (agregación de
-    // mercado/marketing, no bóveda). Con `escalate=false` una carta sin precio NO se encola en
-    // PendingPriceEntry (ARCHITECTURE §4.12a: no inundar la cola con todo el catálogo del set).
-    // Los flujos de bóveda/buylist siguen con el default `true` (nunca se descarta una carta).
-    escalate = true,
   ): Promise<PriceInfo> {
     // Cache diario: ¿ya hay fila de hoy para ESTE acabado?
     // v1.29 (M-31): esta ruta (graded/sealed/market genérico) escribe con `cardProductId=null`. Como
@@ -1921,12 +1923,7 @@ export class PricingService {
     const quote = provider ? await provider.fetchPrice({ card, productType, gradeKey, finish }) : null;
 
     if (!quote || (quote.priceUsdCents == null && quote.priceMxnCents == null)) {
-      // v1.8-ronda-c FIX: propaga `finish` a la cola de pendientes. Antes se encolaba sin acabado,
-      // colapsando `normal`/`holofoil` de la misma carta en UNA entrada al escalar.
-      // v1.9-set-chart: `escalate=false` (set-price-sync) NO encola pendientes (§4.12a).
-      if (escalate) {
-        await this.escalatePending(card.id, productType, gradeKey, context, refId, finish);
-      }
+      // v1.80.8.4 (§M2 `M2-VQ`): sin cotización ⇒ `pending`, y NADA en la cola (ver docblock).
       return { status: 'pending' };
     }
 
@@ -1947,8 +1944,8 @@ export class PricingService {
     // M-43 (§4.38l.4.3 regla 2) — **la naturaleza solo la SUBE un humano con `intent:"market"`; ningún
     // escritor automático la mueve.** Si la fila del día es un estimado, este barrido NO la pisa (ni la
     // promueve ni la degrada): hace skip + traza y devuelve `pending`, exactamente igual que ya hacía
-    // ante un `isManualOverride`. Con `escalate` la pieza entra a la cola de precio pendiente, que es
-    // la señal honesta («esta pieza no tiene precio de mercado»), no un precio heredado.
+    // ante un `isManualOverride`. v1.80.8.4: ya no escala a la cola (la escalada salió de esta función
+    // entera); devolver `pending` es la señal honesta, no un precio heredado.
     // Hoy es un camino inalcanzable —no existe ningún proveedor de mercado `graded` (§4.38l.4.6,
     // candado 4: son *stubs* que devuelven `null`)—; se escribe porque el día que exista, el fallo
     // silencioso sería un P2002 en un job y un precio que nadie explica.
@@ -1958,9 +1955,6 @@ export class PricingService {
           '(no `market`): NO se escribe la referencia de mercado (M-43, §4.38l.4.3). Retira el estimado ' +
           'o fija el precio con POST /admin/pricing/override e intent:"market".',
       );
-      if (escalate) {
-        await this.escalatePending(card.id, productType, gradeKey, context, refId, finish);
-      }
       return { status: 'pending' };
     }
     const ref = await this.prisma.priceReference.create({
@@ -2117,6 +2111,25 @@ export class PricingService {
           : {}),
       },
       data: { status: 'resolved', resolvedAt: new Date() },
+    });
+    return res.count;
+  }
+
+  /**
+   * v1.80.8.4 — **la ESCRITURA del barrido VQ** (API_CONTRACT §M2 `M2-VQ`, ARCHITECTURE §4.36.5 c-bis
+   * punto 5). Techlead D-2 (sobre `8a10153e`): vivía en `PriceSyncJobService`, fuera del dueño de la
+   * cola; ahora toda escritura de `pendingPriceEntry` está en este servicio (VQ-5 lo vigila).
+   *
+   * Cierra (`resolved`, `resolvedPriceRefId=null`) las filas `ids` que **sigan** `open`,
+   * `context='inventory'`, `reason IS NULL`: el `where` repite el predicado del barrido, así que una
+   * fila a la que un escritor le puso motivo (o cerró) entre la lectura y aquí NO se toca. ⛔ No decide
+   * QUÉ filas cerrar —eso es del barrido, que casa claves con `saleQueueKeyOf`—. Devuelve cuántas cerró.
+   */
+  async closeUnreasonedSaleQueueRows(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const res = await this.prisma.pendingPriceEntry.updateMany({
+      where: { id: { in: ids }, status: 'open', context: 'inventory', reason: null },
+      data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
     });
     return res.count;
   }

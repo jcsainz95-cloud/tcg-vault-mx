@@ -359,7 +359,7 @@ describe('SetValueSnapshotJobService — upsert idempotente por día', () => {
 });
 
 describe('SetPriceSyncJobService — precia el set SIN filtrar bóveda (DEV-3)', () => {
-  it('recorre Card WHERE setId=<featured> (sin InventoryItem) y usa escalate=false', async () => {
+  it('recorre Card WHERE setId=<featured> (sin InventoryItem) y llama syncCardPrice SIN escalada (v1.80.8.4)', async () => {
     const set = { id: 'setX' };
     const cards = [
       { id: 'c1', externalId: 'sv8-1' },
@@ -378,17 +378,17 @@ describe('SetPriceSyncJobService — precia el set SIN filtrar bóveda (DEV-3)',
 
     // Recorre por setId, NO por InventoryItem (cierra DEV-3).
     expect(prisma.card.findMany).toHaveBeenCalledWith({ where: { setId: 'setX' } });
-    // Reusa syncCardPrice con la MISMA regla compartida (TD-1) que la lectura y escalate=false.
+    // Reusa syncCardPrice con la MISMA regla compartida (TD-1) que la lectura. v1.80.8.4: el parámetro
+    // `escalate` (y `context`/`refId`) dejó de existir — `syncCardPrice` no escribe la cola para nadie
+    // (§M2 `M2-VQ`); la llamada lleva EXACTAMENTE los cuatro argumentos de la referencia.
     expect(pricing.syncCardPrice).toHaveBeenCalledTimes(2);
     expect(pricing.syncCardPrice).toHaveBeenCalledWith(
       cards[0],
       SET_VALUE_RULE.productType,
       SET_VALUE_RULE.gradeKey,
       SET_VALUE_RULE.finish,
-      'catalog',
-      undefined,
-      false,
     );
+    expect((pricing.syncCardPrice as jest.Mock).mock.calls[0]).toHaveLength(4);
     expect(res).toEqual({ setId: 'setX', priced: 2, total: 2 });
   });
 
