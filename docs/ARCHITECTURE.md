@@ -19,6 +19,7 @@
 > | **v1.80.8.3** | 🔒💰 `charge.refunded` total lleva a `refunded` desde `CHARGE_REFUNDED_SOURCE_STATUSES = pending, failed, settled`; `failAndRelease` pasa a CAS `status:'pending'`. Supera el `WHERE status IN (settled, refunded)` de M5 (v1.80.5 fila 3 y §4.57 (q) fila M5, tachados). Norma: `API_CONTRACT` rev v1.80.8.3 | §4.57 (v) | **Sí** (backend) |
 > | **v1.80.8.4** | Errata (2026-10-02, rama `claude/post-release-s5`): la cola de VENTA la escriben **solo** los escritores del precio de venta de plataforma y siempre con motivo; `price-sync`/`syncCardPrice` ⛔ no escalan; **sin tercer motivo** (paridad schema↔contrato sin cambio); el sellado cierra su fila al resolver en publicación; **barrido VQ** cierra las filas `reason IS NULL` que ninguna pieza vendible necesita. Tacha §5 «`price-sync` sí escala pendientes», la lista de VENTA de §4.24c y el «sellado no cierra» de §4.36.5 (c). No toca guardarraíl ni curva. Norma: `API_CONTRACT` rev v1.80.8.4, §M2 `M2-VQ` | §4.36.5 (c-bis), §5, §4.24c | **Sí** (backend) |
 > | **v1.80.8.5** | 💰 Errata (2026-10-04, rama `claude/post-release-s5`; decisiones del dueño, `HECHOS.md` «Precios — decisiones del 2026-10-04» (a) y «Precios y reembolsos — respuestas a P-PRE-2…» (a)): en **VENTA**, la premium **ex / Double Rare** cuyo precio cae al piso **se publica al piso**; las demás premium siguen retenidas. El guardarraíl de venta pasa a ser el dial M10 **`premiumFloorSalePublish`** (`{mode:'all'|'none'|'only', rarities}`, **seed `{mode:'only', rarities:['Double Rare','Rare Holo EX']}`**, canónicas exactas de `rarity-catalog.ts:97`/`:112`), auditado y modificable sin código. `PROJECT §N.5-bis` / criterio 254. **COMPRA sin cambio** (constante `BUY_PREMIUM_FLOOR_POLICY = {mode:'none'}`). `PendingPriceReason` sin cambio; el barrido VQ gana una rama que cierra las `premium_at_floor` de VENTA cuya rareza el dial publica. Tacha §4.36.5 (a) VENTA, «Por qué funciona», tabla (b) fila VENTA y (c-bis) punto 6. Norma: `API_CONTRACT` rev v1.80.8.5, §M2 `M2-PF` | §4.36.5 (c-ter) | **Sí** (backend + control M10 en frontend + textos ux-ui) |
+> | **v1.80.8.6** | 💰 Errata (2026-10-04, rama `claude/precios-s5`; `HECHOS.md` 2026-10-02 «Cartas apartadas … (SSL-R1)», 2026-10-04 «Cartas apartadas (SSL-R1) — detalles» 4a/4b y «Precios y reembolsos — respuestas…» (b)(c); `PROJECT §S.11`, criterios 249–253): reembolso TOTAL «depende de si ya salió». Corte = envío propio en `enviado\|entregado` **leído bajo candado** y congelado en `Order.fullRefundAfterShipment` con el sello. Orden nunca liquidada ⇒ sus piezas `reserved` vuelven a la venta en la misma tx (`refund_release`) y el barrido limpia las anteriores ⇒ **cierra `SSL-R1`**. Enviado ⇒ cartas quietas y motivo cerrado `ShippedRefundReason`: en M3 obligatorio antes de Stripe; por Stripe, «reembolso por revisar» (predicado derivado, ⛔ no `OrderStatus`) + verbo `shipped-refund-reason` + `workQueue.refundReviews`. **Migración `M-62`**. Tacha §4.57 (v) fila «Piezas `reserved` … Sin cambio». Norma: `API_CONTRACT` rev v1.80.8.6, §M4-SHIP.18.12 | §4.57 (w), §11 `M-62` | **Sí** (backend + frontend M3/tablero + textos ux-ui) · 🔒 seguridad |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -26822,12 +26823,54 @@ es norma, y si no se escribe, la primera fusión la borra sin que nadie la vea. 
 | M3 | Sigue `status:'settled'` | Usar la misma constante | La tx1 de M3 garantiza `settled`, y el detector `count 0 ∧ otro ⇒ log error` es el que caza a un escritor desconocido de `Order.status`; ampliar la lista lo silenciaría sin ganar nada. Dos llamadores con precondiciones distintas pueden tener dos predicados si **cada uno** es una constante con nombre |
 | `chargebackNeedsManual` en una orden nunca liquidada | No se sube; el sello sí | Subirlo como en la primera pasada de siempre | No hay nada físico que confirmar y `chargeback-inventory` contesta `409` sin objetivos: sería un pendiente eterno en la cola, que entrena a ignorarla. El sello sí, porque es lo que hace idempotente la pasada y deja rastro de que el cierre ocurrió |
 | `failAndRelease` | CAS `status:'pending'`, libera solo con `count 1` | Dejarlo (el liquidador ya respeta `refunded`) | «`refunded` es terminal para el liquidador» no basta: hace falta que ningún escritor saque la orden de `refunded` hacia algo liquidable, y `failAndRelease` lo hacía con un `update` por `id` tras una lectura sin candado. Es la clase `REL-B`; el mismo defecto le permitía pisar `settled` |
-| Piezas `reserved` de la orden reembolsada sin liquidar | Sin cambio (`SSL-R1`, deuda) | Liberarlas en la misma tx | No es dinero ni custodia; el `TECH_DEBT` ya registró por qué «liberar y ya» necesita decisión, y una errata bloqueante no es el sitio para decidir inventario vendible |
+| Piezas `reserved` de la orden reembolsada sin liquidar | ~~Sin cambio (`SSL-R1`, deuda)~~ 💰 **v1.80.8.6: se liberan en la misma tx — (w)** | Liberarlas en la misma tx | No es dinero ni custodia; el `TECH_DEBT` ya registró por qué «liberar y ya» necesita decisión, y una errata bloqueante no es el sitio para decidir inventario vendible. *(v1.80.8.6: el dueño decidió — 4a; ver (w).)* |
 
 **Invariante que queda escrito:** tras un `charge.refunded` total, ninguna entrega posterior de Stripe (ni `succeeded` ni
 `payment_failed`) puede llevar la orden a `settled` ni entregar custodia (SL-8, SL-9, SL-10).
 **Zonas compartidas:** `payments` (`settleable-order-statuses.ts`, `payments.service.ts`, `refunds/full-refund.service.ts`).
 ⛔ `prisma/` no se toca.
+
+**(w) 💰 v1.80.8.6 — Reembolso TOTAL y sus cartas: «depende de si ya salió» (`PROJECT §S.11`, criterios 249–253).**
+Norma: `API_CONTRACT` rev v1.80.8.6 y §M4-SHIP.18.12. Aquí, el porqué. Fuentes del dueño: `HECHOS.md` 2026-10-02
+«Cartas apartadas … (SSL-R1): depende de si el pedido ya salió»; 2026-10-04 «Cartas apartadas (SSL-R1) — detalles»
+(4a, 4b); 2026-10-04 «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1» (b)(c).
+
+*Lo que encontré al medir, antes de diseñar* (lectura de ficheros en `claude/precios-s5`, 2026-10-04; sha NO MEDIDO):
+(1) los dos SUPUESTOS de §S.11.3 son ciertos — un envío de orden solo nace en el settle (`payments.service.ts:518`) o en
+`reexpedir` ⇒ una orden sin liquidar nunca está palomeada ni tiene colocación; el sub-caso «con un clic» no la alcanza.
+(2) Para un directo liquidado y enviado, «las cartas no vuelven» **ya se cumple** hoy: `→enviado` las deja `shipped`
+(`shipments.service.ts:1243-1268`) y el cierre por reembolso es no-op sobre `enviado|entregado`. Lo nuevo ahí es solo el
+motivo. (3) El hueco real del corte: M3 tx1 y `closeShipmentsOnFullRefund` leen los envíos **sin candado** y solo
+bloquean `picking|guia`; para decidir «enviado» hay que leer el estado **después** del `FOR UPDATE` de todos.
+
+| Punto | Decisión | Alternativa descartada | Por qué |
+|---|---|---|---|
+| Dónde vive «reembolso por revisar» | Predicado derivado `fullRefundAfterShipment ∧ shippedRefundReason IS NULL` sobre columnas de `Order` | (a) Estado nuevo de `OrderStatus`; (b) tabla `OrderRefundReview` | (a) `OrderStatus` es el eje que leen `SETTLEABLE`, `CHARGE_REFUNDED_SOURCE_STATUSES`, M7, el contracargo y el cliente; un `refunded_review` obligaría a revisar cada lista cerrada y el cliente vería un estado interno. «Por revisar» es una tarea del dueño, no un estado del dinero. (b) La relación es 1:1 con el sello (una orden se cierra por reembolso total **una** vez); una tabla añade un join y una segunda fuente para «¿esta orden se reembolsó tras salir?» |
+| Cuándo se decide «enviado» | En la primera pasada de `onFullRefund`, con los envíos `FOR UPDATE` y el estado leído después; se congela en `fullRefundAfterShipment` con el sello | Derivarlo en cada lectura del estado actual de los envíos | §S.11.2: «con el estado en el momento en que se confirma el reembolso, no con lo que diga la pantalla». Un hecho congelado no cambia si mañana alguien toca un envío (`reexpedir`); derivado, el contador del dueño podría moverse solo |
+| Carrera «marcar enviado» vs reembolso | Sin candado nuevo: `updateStatus` y `onFullRefund` ya toman el envío primero (envío → piezas → `Order`); basta con que el reembolso lea el estado **bajo** ese candado | Un candado de orden adicional o un estado intermedio | El candado del envío ya serializa los dos; el defecto estaba en leer antes de tomarlo. Un candado de más cambia el orden global y abre ciclos con `prepared`/retiros (lección v1.80.7) |
+| Motivo en M3 | Campo `shippedReason` en el **mismo** cuerpo, comprobado en tx1 **antes** de `createRows`; `reason` (ya obligatorio) es la nota | (a) Verbo aparte después; (b) segundo texto libre | §S.11.4 / criterio 251: sin motivo no se llama a Stripe. (a) dejaría una ventana con dinero devuelto sin motivo cuando el sistema sí podía preguntar. (b) dos textos libres para un hecho; PROJECT prohíbe texto libre **en lugar** del motivo, no al lado |
+| Motivo en el panel de Stripe | Verbo `shipped-refund-reason`, súper-admin, `@MoneyOut` (403 auditado al operador), CAS sobre `reason IS NULL`, sin edición | `@Roles(super_admin)` a secas | El 403 mudo no deja rastro y el criterio 250 pide «403, auditado»; `MoneyOutGuard` es la única vía del proyecto que lo da. No mueve dinero, pero registra uno que salió |
+| Piezas de la orden nunca liquidada | Liberadas en la misma tx con `releaseReservationData` y movimiento `refund_release`, solo `reservedByOrderId = orderId` exacto | (a) Esperar al barrido; (b) usar `reservationGuard` (incluye legadas `null`); (c) reusar `refund_return` | (a) criterio 249 dice «al confirmarse»; el barrido es la red, no el camino. (b) una legada puede ser de otra orden pendiente — soltar de más le quita la carta a quien paga. (c) `refund_return` significa «volvió del cliente, congelada»; los reportes las confundirían (misma razón que separó `refund_return` de `chargeback_return`) |
+| Barrido y `SSL-R1` | Rama para `refunded ∧ settledAt IS NULL`: sin `closePaymentIntent`, mismo cuerpo de liberación, `info` y no `error` | Excluirlas del barrido | Excluirlas deja atrapadas las reservadas antes del despliegue; el `error` perpetuo era el síntoma que entrenaba a ignorar el log (`TECH_DEBT` SSL-R1) |
+| Órdenes reembolsadas tras salir **antes** del despliegue | Sin backfill de `fullRefundAfterShipment`; medición de solo lectura previa | Backfill a `true` ⇒ aparecen «por revisar» | El sistema no registró el corte entonces; inventarlo sería un hecho falso (doctrina del hueco honesto, §11 `M-50`). Si la medición da > 0, decide el dueño vía orquestador |
+
+**Invariante que queda escrito:** ningún reembolso total deja una carta apartada por un pedido reembolsado, y ninguno
+pone a la venta una carta de un pedido cuyo envío ya salió; entre «marcar enviado» y el reembolso, el resultado es
+**uno** de los dos casos completo (SRF-9, SRF-10, N ≥ 10).
+
+**Preguntas (⛔ no bloquean la construcción; default aplicado entre paréntesis):**
+- **Q-1 (para product-owner → dueño si hace falta):** el reembolso total del **cobro de un retiro** (tarifa de envío de
+  bóveda, `ShipmentRequest.stripePaymentIntentId`) tras «enviado» no está en la tabla §S.11.5. *(Default: no pide
+  motivo — no es un pedido, las cartas son del cliente y no vuelven en ningún caso; la rama retiro de `onFullRefund` no
+  toca `Order`.)*
+- **Q-2 (observación para backend, medición):** un **contracargo** sobre una orden **nunca liquidada** (cargo cobrado,
+  `succeeded` aún no procesado) dejaría sus piezas `reserved` igual que `SSL-R1`. NO MEDIDO qué hace hoy
+  `onChargeDispute` con ellas; §S.11 no lo cubre (P-S11-3 habla de pedido enviado). Backend lo lee y lo anota; si se
+  quedan apartadas, vuelve aquí.
+
+**Zonas compartidas:** `backend/prisma/` (`M-62`) — ⛔ un solo stream a la vez; `payments/refunds/full-refund.service.ts`,
+`orders/order-refund.service.ts`, `orders/orders.service.ts` (barrido), `common/error-codes.ts`, `common/enum-values.ts`;
+frontend: M3, tablero.
 
 ---
 
@@ -30097,6 +30140,22 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.80.8.6-reembolso-tras-envio (**M-62**: corte «enviado» del reembolso total y su motivo — **DDL ADITIVO + 1 enum + 1 valor + CHECKs, SIN backfill**, §4.57 (w))
+
+Forma normativa entera en `API_CONTRACT §M4-SHIP.18.12` (1). Resumen: enum `ShippedRefundReason {not_arrived,
+arrived_damaged}`; `MovementReason + refund_release` (`ALTER TYPE … ADD VALUE`, como `refund_return` en `M-61`);
+`Order + fullRefundAfterShipment BOOLEAN NOT NULL DEFAULT false, shippedRefundReason, shippedRefundNote,
+shippedRefundReasonAt, shippedRefundReasonByUserId (FK User RESTRICT)`; CHECKs `order_shipped_refund_reason_shape` y
+`order_after_shipment_sealed`.
+- **Número:** `M-62` — ⚠️ **NO MEDIDO** contra la rama viva `claude/skydropx-envios` (§T, criterios 234–248), que puede
+  traer su propia migración. El orquestador lo comprueba (`git show origin/claude/skydropx-envios --stat` / su carpeta
+  `migrations/`) antes de encargar; si choca, se renumera y el contrato la cita por nombre («`M-62` (S.11)»).
+- **`NOT NULL DEFAULT false` con datos:** cumple la norma v1.64 de arriba — el default es el valor **verdadero** para toda
+  fila existente (ninguna se cerró con este corte registrado). ⛔ Sin backfill a `true`: medición previa de solo lectura
+  en `API_CONTRACT §M4-SHIP.18.12` (1).
+- **Reversible:** rollback de código; las columnas pueden quedarse (nullable / default). Con motivos registrados ⛔ no se
+  borran (registro de por qué salió dinero). El `ADD VALUE` no se quita sin recrear el tipo.
 
 ### v1.80-preparar-envios (**M-61**: palomeo en envío + libro de reembolsos — **DDL ADITIVO + 3 enums + CHECKs + seed de un dial, SIN backfill**, §4.57)
 
