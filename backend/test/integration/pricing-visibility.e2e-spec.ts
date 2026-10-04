@@ -439,7 +439,8 @@ describe('E2E — §M2: rutas de pricing con forma DECLARADA', () => {
     });
     expect(res.status).toBe(200);
     expect(res.body).not.toHaveProperty('passwordHash');
-    expect(Object.keys(res.body).sort()).toEqual(['createdAt', 'email', 'id', 'name', 'role', 'status']);
+    // v1.80.9 (§M6-U.6): + `username`.
+    expect(Object.keys(res.body).sort()).toEqual(['createdAt', 'email', 'id', 'name', 'role', 'status', 'username']);
     // Se restaura para no dejar al usuario bloqueado en el seed compartido.
     await h2.api('PATCH', `/admin/users/${target!.id}/status`, { token: admin, json: { status: 'active' } });
   });

@@ -26824,3 +26824,100 @@ ellas se quedan (son filas legítimas).
 | VQ-14: quitar `context:'inventory'` del deep-link | **rojo** VQ-14 |
 
 Ninguna prueba existente aseveraba una fila compartida entre ejes (la suite completa lo dice: ver el informe final).
+
+## 21 · v1.80.9 construida — usuarios de back-office SIN correo: `M-63`, STF-1…STF-30 (2026-10-04, rama `claude/staff-sin-correo`, desde `43c42b3d`; código en `0a42d85a` + el commit de esta sección)
+
+Fuente: `API_CONTRACT` rev v1.80.9 §M6-U; `ARCHITECTURE §4.58`, §11 `M-STF`, §9 `D-STF-1`/`D-STF-2`; `PROJECT §U`
+(criterios 256–270); `HECHOS.md` fila 2026-10-04 «Usuarios de back-office SIN correo».
+
+### 21.1 Qué se construyó (dónde vive)
+
+| Pieza | Dónde |
+|---|---|
+| Migración **M-63** (número asignado por el orquestador; production y ramas vivas terminan en m61/m62): `email` DROP NOT NULL, `username` (UNIQUE), `lockNoticeAt`, 5 CHECK, sin backfill | `prisma/migrations/20261005120000_m63_staff_username/` |
+| Identificador del login: `isLoginIdentifier` / `@IsLoginIdentifier()` en `LoginDto.email` y `ForgotPasswordDto.email` | `modules/auth/dto/auth.dto.ts` |
+| `normalizeIdentifier` (= `normalizeEmail`, la MISMA función), `checkUsername` (reglas `required→length→charset→start`), `USERNAME_CANONICAL_REGEX` (= el CHECK) | `common/validation/credentials.ts` |
+| Login: búsqueda por `email` (con `@`) o `username` (sin `@`); orden C7 intacto | `auth.service.ts` `login` |
+| Una cuenta, un cubo: `passwordAttemptKeysForUser` deriva de `email ?? username` y **lanza** sin ninguno; `accountKeyForUser`; `lockMsForUser` | `password-attempts.service.ts` |
+| Aviso de candado sin correo ⇒ `updateMany({id, email:null}, {lockNoticeAt})` tras ganar `claimOnce` | `password-attempts.service.ts` `notifyLock` |
+| `peekLockMs` en las tres implementaciones del almacén (memoria; Redis `PTTL`; resiliente con respaldo) | `login-attempt.store.ts` |
+| `GET /users/me` + `username`, `lockNotice`; **`POST /users/me/lock-notice/dismiss`** (204, fuera de la allowlist) | `users.service.ts`, `users.controller.ts` |
+| `GET /admin/users`: `username`, `lockedUntil`, `lockState`; `?q=` por usuario. Ficha (los dos DTOs): `username`, `lockedUntil` | `admin.service.ts` (`lockedUntilOf`) |
+| Alta (§M6-U.6, orden normativo) y `409 USERNAME_TAKEN` por `P2002` sobre `username` | `admin.service.ts` `createUser` |
+| `AuditedSuperAdminGuard` + `@AuditedSuperAdmin('create'|'reset_password')` ⇒ 403 + `user.admin_action_denied` (D-STF-1) | `modules/admin/audited-super-admin.guard.ts` |
+| `ACCOUNT_WITHOUT_EMAIL` (antes de `EMAIL_NOT_VERIFIED`); `req.user.hasEmail` desde la BD | `email-verified.guard.ts`, `jwt-auth.guard.ts` |
+| D-STF-2: los 7 envíos al cliente omiten con `logger.warn` si `email == null` | `users.service.ts`, `refund-ledger.service.ts` (×2), `manual-refund.service.ts` (×2), `shipment-prep.service.ts`, `shipments.service.ts` |
+| I-STF-1: refs de **cliente** siguen `string`; `null` ⇒ `logger.error('I-STF-1 …')` + `""` | `common/customer-email.ts` (`customerEmailOrBlank`), 11 call-sites |
+| Anonimización: `username: null` **y `lockNoticeAt: null`** | `admin.service.ts` `deleteUser` |
+
+### 21.2 Decisiones de implementación (y dónde me aparté de una lectura literal)
+
+1. **Rama `@` del login = `@IsEmail` de hoy, no `EMAIL_REGEX`.** §M6-U.2 dice a la vez «formato `EMAIL_REGEX`» e
+   «igual que hoy»; hoy es `@IsEmail` de class-validator, que NO es `EMAIL_REGEX` (p. ej. `a@b` y espacios). Elegí
+   «igual que hoy» (criterio 270). Sin `@`: solo `trim` 1–254, sin forma.
+2. **`lockNoticeAt: null` en la anonimización.** El contrato pide solo `username: null`; sin anular también el aviso,
+   el CHECK 5 (`lockNoticeAt` solo sin correo) rompe el soft-delete de un staff con aviso pendiente (STF-30 lo siembra).
+3. **El rechazo auditado es un guard de RUTA**, no un chequeo en el handler: corre antes de los pipes, así que un
+   `vault_operator` con cuerpo mal formado también deja la fila (no un `400`). Si la bitácora falla, 403 igual.
+4. **Cliente con `username` ⇒ `details.rule:'customer_without_username'`** (el contrato fija `field`, no la regla).
+   Todos los `422` de `createUser` ganan `details.field` (aditivo). «Presente» = `!== undefined && !== null`.
+5. **`ResilientLoginAttemptStore.peekLockMs` NO lanza con Redis caído**: lee la memoria, que es la que decide el `429`
+   en ese modo (misma regla que `acquire`). Consecuencia: `lockState:'unavailable'` solo sale si el almacén mismo lanza
+   (o si `AdminService` se construye sin `PasswordAttemptsService`). Si el arquitecto quiere «unavailable» también con
+   Redis degradado, es un cambio de una línea — no lo hice porque contradiría la fuente del `429`.
+6. **`sendVerificationEmail` LANZA sin correo** (en vez de `return`): un `return` silencioso tapaba que el paso nuevo de
+   `resendVerification` desapareciera (la mutación de STF-26 salía verde). Ahora la mutación da `500` ⇒ roja.
+7. **`changePasswordKey`/`deviceAggregateKey`** ya no pasan por `passwordAttemptKeysForUser` (que ahora lanza sin
+   identificador); dan la misma clave que antes (`prefijo + userId`).
+8. **Doble normalización deliberada** (login normaliza el identificador y la función de clave vuelve a normalizar). La
+   mutación de STF-18 tiene que quitar **las dos** para morder (medido: quitar solo una ⇒ verde).
+9. **Censo de rutas de cliente (§M6-U.8 (c), NO MEDIDO por el arquitecto):** `@Post|@Put|@Patch` de `orders`, `vault`,
+   `payments`, `shipments`, `buylist`, `disputes` (no admin): solo las cinco con `@RequireEmailVerified` CREAN una
+   orden/venta/retiro; el resto opera sobre filas propias ya existentes (inalcanzables para una cuenta sin correo) o
+   son de invitado/operador. Medido el 2026-10-04 con `rg "@Post|@Put|@Patch"`.
+
+### 21.3 Respuestas a ux-ui (DESIGN_SYSTEM §42.10)
+
+- **A-1 (ficha sin `lockState`):** construido según el contrato: la ficha trae `lockedUntil` y **no** `lockState`; con el
+  almacén lanzando, `lockedUntil: null` (STF-24 lo mide en la ficha). Añadir `lockState` a la ficha es contrato ⇒ arquitecto.
+- **A-2 (`auth.password_lock` en `scope=target`):** **SÍ, medido.** `notifyLock` escribe `entityType:'User'`,
+  `entityId:<id de la cuenta>`, y `listForUser` filtra `scope=target` por exactamente eso (`audit.service.ts:94`).
+  STF-23 lo asevera por HTTP (`GET /admin/users/:id/audit?scope=target` contiene `auth.password_lock`). La fila no
+  lleva actor (`actorUserId: null`) en el login; lo lleva en `change-password`.
+
+### 21.4 Pruebas y mutaciones (medido por backend, 2026-10-04)
+
+Nuevas: `test/integration/staff-without-email.e2e-spec.ts` (24), `staff-throttle.e2e-spec.ts` (STF-21),
+`m63-migration.e2e-spec.ts` (STF-25 a/b), `test/stf.staff-without-email.spec.ts` (33 unitarias). Todas vistas ROJAS
+contra el árbol con schema+compatibilidad de tipos y sin la conducta (25/27 de integración rojas; STF-4 y STF-25(a)
+nacen verdes porque prueban la migración ya escrita — su rojo lo dan las mutaciones). STF-9/16/17-E2E/22 son de
+frontend.
+
+Mutaciones sobre copia `git archive` del árbol entero, BD `tcg_stf_mut`; cada una ROJA por la razón esperada:
+STF-1 (correo ficticio ⇒ 500; sin `username` en el `after`), STF-2 (422→201), STF-3/15 (sin fila), STF-4 (cada uno de
+los 5 CHECK soltado ⇒ su caso), STF-5 (tope 31; sin `toLowerCase`), STF-7, STF-8, STF-10, STF-11, STF-12 (DTO
+`@IsEmail` ⇒ 400; buscar por usuario ⇒ token), STF-13, STF-14 (temporal ⇒ 429), STF-17 (500), STF-18 (las dos
+normalizaciones), STF-19 (dominio), STF-21 (sin `@Throttle`), STF-23 (aviso antes de `claimOnce`; correo sin mirar
+`email`), STF-24 (siempre `null`; propagar ⇒ 500), STF-25 (backfill ⇒ la migración falla), STF-26, STF-27, STF-28,
+STF-29 (canario `PASSWORD_FREE_ATTEMPTS=6` ⇒ 22 rojas en la suite C7 EXISTENTE), STF-30.
+
+**Carreras (R = 10 rondas × N = 10):** verde STF-6 **10/10**, STF-20 **10/10**. Con mutación: STF-20 (acquire no
+atómico) **10/10 rondas rojas**; STF-6 con `findFirst` justo antes del `create` (tras `argon2.hash`) **1/10 rondas
+rojas** (ventana estrecha), con `findFirst` en la validación (la forma natural de «validar antes») **10/10 rojas**.
+
+### 21.5 Pruebas existentes que cambiaron (ninguna se debilita)
+
+- **Rompe a propósito (contrato):** alta de staff con correo `201 ⇒ 422`. `admin.user-create.spec.ts`: el `it.each` de
+  los tres roles queda para `customer`; staff pasa a su propio caso (sin correo, `emailVerified=false`,
+  `mustChangePassword=true`) + uno nuevo que asevera el `422 staff_without_email`. `auth-change-password.e2e-spec.ts`:
+  solo el fixture del operador (alta con `username`, login con él); aserciones del ciclo intactas.
+- **Listas de claves ampliadas a la forma v1.80.9** (igualdad de conjunto, sigue siendo exacta): `users.me-and-addresses`,
+  `account-profile` (+`username`,`lockNotice`), `admin.users-kyc-filter`, `admin-users-kyc-queue` (+`username`,
+  `lockedUntil`; y la cláusula `username` del `OR` de `q`), `admin.user-detail-shape` (los dos DTOs), `pricing.declared-shapes`
+  y `pricing-visibility` (+`username` en `PATCH status`), `admin.user-create` (`after` + `username`,`hasEmail`).
+- `admin.user-audit.spec.ts`: el candado de `@Roles(super_admin)` en `createUser` pasa a asertar el guard auditado en
+  alta **y** reset (la conducta 403 + fila la miden STF-3/15).
+- **Solo tipos:** `.email!` en 8 specs de integración (Prisma tipa `email` como `string | null`); diff verificado:
+  quitar `!` deja las líneas idénticas.
+- Dobles: `auth-c7-deps.ts` y `reset-admin-password.c7.spec.ts` pasan el 5.º argumento (Prisma) al servicio;
+  `fake-redis-attempt-store.ts` implementa `peekLockMs`.

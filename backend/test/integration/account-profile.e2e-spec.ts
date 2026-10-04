@@ -10,9 +10,9 @@ import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 
-/** Las 14 claves de `GET /users/me` (contrato §1, v1.67). */
+/** Las 14 claves de `GET /users/me` (contrato §1, v1.67) + `username` y `lockNotice` (v1.80.9, §M6-U.5) = 16. */
 const ME_KEYS = [
-  'id', 'email', 'name', 'nameSource', 'phone', 'role', 'locale', 'kycStatus', 'status',
+  'id', 'email', 'username', 'lockNotice', 'name', 'nameSource', 'phone', 'role', 'locale', 'kycStatus', 'status',
   'authProvider', 'emailVerified', 'avatarUrl', 'hasPassword', 'mustChangePassword',
 ].sort();
 
@@ -61,7 +61,7 @@ describe('E2E — Cuenta del cliente: /users/me y libreta (v1.67)', () => {
   });
 
   describe('GET /users/me', () => {
-    it('devuelve las 14 claves del contrato; hasPassword=true con hash local', async () => {
+    it('devuelve las 16 claves del contrato (v1.80.9); hasPassword=true con hash local', async () => {
       const res = await h.api('GET', '/users/me', { token });
       expect(res.status).toBe(200);
       // `avatarUrl` es opcional y desaparece del JSON cuando es undefined.

@@ -92,7 +92,8 @@ describe('`A5` · §M6-L — el estado de identidad en el listado y su filtro', 
       const comoOperador = await list('?pageSize=100', operatorToken);
       const claves = (b: ListBody) => Object.keys(b.data[0]).sort();
       expect(claves(comoOperador.body)).toEqual(claves(comoAdmin.body));
-      expect(claves(comoAdmin.body)).toEqual(['createdAt', 'email', 'id', 'kycStatus', 'name', 'role', 'status']);
+      // v1.80.9 (§M6-U.7): + `lockedUntil` y `username` (el mismo DTO para los dos roles).
+      expect(claves(comoAdmin.body)).toEqual(['createdAt', 'email', 'id', 'kycStatus', 'lockedUntil', 'name', 'role', 'status', 'username']);
     });
 
     it('el usuario SIN FILA en `KycProfile` emite `none` (no `null`, no clave ausente)', async () => {

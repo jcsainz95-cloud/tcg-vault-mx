@@ -171,9 +171,11 @@ export class AuthService {
 
   /** Emite el token de verificación y envía el correo (best-effort). */
   private async sendVerificationEmail(user: User, requestIp?: string | null): Promise<void> {
-    // v1.80.9: sin correo no hay a quién verificar (el llamador ya lo filtra; esto es defensa en profundidad).
-    if (!user.email) return;
+    // v1.80.9 (§M6-U.3): los llamadores ya filtran la cuenta sin correo (`register` siempre trae correo;
+    // `resendVerification` sale antes con `{ok:true}`). Llegar aquí sin correo es invariante rota: se FALLA en alto
+    // (⛔ un `return` silencioso taparía que el paso de `resendVerification` desapareció — mutación de STF-26).
     const email = user.email;
+    if (email === null) throw new Error(`sendVerificationEmail: la cuenta ${user.id} no tiene correo`);
     const clear = await this.tokens.issue(user.id, AuthTokenType.email_verification, requestIp);
     const link = this.buildFrontendLink(user, 'verify-email', clear);
     try {
