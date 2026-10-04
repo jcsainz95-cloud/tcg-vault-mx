@@ -2683,9 +2683,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       seguimiento del pedido). Sin correo válido no se puede pagar.
 - [ ] **Único destino disponible: envío directo a domicilio nacional** con la **tarifa fija de envío** (§D,
       default MX$175). Aplican las mismas reglas de §D: solo direcciones en **México**. *(⭐ **v1.81 · 2026-09-29 —
-      §T.2**: la dirección del invitado exige **colonia elegida de una lista por CP** (⛔ no texto libre), CP de 5
-      dígitos, teléfono de 10 y municipio/alcaldía; campo **opcional «referencias»** para el repartidor. Sin
-      colonia la paquetería no cotiza. El precio y las políticas **no cambian**. Criterio **235**.)*
+      §T.2**: la dirección del invitado exige **colonia** (⭐ 2026-10-04, `HECHOS.md:57` «si, hazlo como mercado
+      libre»: **de la lista del CP o escrita a mano**; la lista ayuda, ⛔ no bloquea), CP de 5 dígitos, teléfono de
+      10 y municipio/alcaldía y estado; campo **opcional «referencias»** para el repartidor. Sin colonia la
+      paquetería no cotiza. El precio y las políticas **no cambian**. Criterios **235**, **316** y **317**.)*
 - [ ] **Mismo precio, mismos impuestos, mismas políticas** que un usuario con cuenta: precio de venta =
       referencia + markup, ~~**línea de costo de procesamiento**~~ **línea de «Comisión de plataforma»**
       *(**D53**, 15ª ronda)*, ~~**IVA 16% desglosado**~~ **IVA 16 % YA INCLUIDO en el precio exhibido, con su
@@ -8041,7 +8042,8 @@ guía y cómo se compra, ⛔ **no lo que se cobra**. La **tarifa en vivo en el c
   guía en Skydropx, y la guía regresa ahí mismo** (decisión 7) → **imprimir la etiqueta** → «Salida de hoy» →
   rastreo automático → «Entregado».
 - **Retiro de bóveda** (§D): solicitud → pago de MX$203 (+ comisión) → «en preparación» → el mismo camino.
-- **Lo que necesita para funcionar y también entra:** colonia obligatoria de lista por CP y libreta endurecida
+- **Lo que necesita para funcionar y también entra:** colonia obligatoria (de la lista del CP **o escrita a mano**,
+  `HECHOS.md:57`) y libreta endurecida
   (T.2), empaques estándar y origen como configuración (T.9), el costo real al P&L (T.7), los correos nuevos
   (T.6) y la línea de tiempo de rastreo para el cliente (T.8).
 
@@ -8069,12 +8071,26 @@ guía y cómo se compra, ⛔ **no lo que se cobra**. La **tarifa en vivo en el c
 de cada CP** (§10.1 M5). Hoy la colonia es **opcional** en el checkout de invitado y en la libreta: un pedido
 pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operador no puede comprar la guía.
 
-- **Colonia OBLIGATORIA y elegida de una lista por CP** en el **checkout de invitado** y en la **libreta de
-  direcciones** (alta y edición). Con el CP tecleado, la pantalla ofrece las colonias de ese CP y el cliente
-  **elige una**; ⛔ no se escribe a mano (*«Centro»* contra *«Cancún Centro»* no cuadra). Si el CP no devuelve
-  colonias, la dirección **no se puede guardar ni pagar** con ella (mensaje claro). *(De dónde sale la lista —
-  Skydropx, SEPOMEX u otra fuente— lo decide el arquitecto; el requisito es que sea **una lista**, no un texto
-  libre.)*
+- ~~**Colonia OBLIGATORIA y elegida de una lista por CP** (…) ⛔ no se escribe a mano (…). Si el CP no devuelve
+  colonias, la dirección **no se puede guardar ni pagar** con ella.~~ ⛔ **Sustituido el 2026-10-04 por decisión
+  del dueño** (`HECHOS.md:57`, «si, hazlo como mercado libre»; la regla anterior fue decisión del equipo, no del
+  dueño). Queda así:
+- ⭐ **Colonia OBLIGATORIA; la lista del CP AYUDA, no bloquea** (como Mercado Libre) — en el **checkout de
+  invitado**, en la **libreta de direcciones** (alta y edición) y en el alta de dirección dentro del buylist.
+  Diseño: `API_CONTRACT §M4-SHIP.19.25` (v1.80.12.5), `DESIGN_SYSTEM §43.18m` (v4.19).
+  - **CP en el catálogo:** la pantalla ofrece las colonias de ese CP **más «Mi colonia no está»**, que abre un
+    campo para **escribirla a mano**. Municipio/alcaldía y estado se muestran como los da el CP.
+  - **CP fuera del catálogo, o catálogo vacío** (o la consulta del CP falla o tarda): el cliente **escribe
+    colonia, municipio/alcaldía y estado**.
+  - **La tienda nunca deja de vender por el catálogo:** ni el CP desconocido, ni la colonia que no está en la
+    lista, ni un fallo de la consulta impiden **guardar ni pagar**. Lo único obligatorio es que la colonia,
+    el municipio y el estado **tengan texto**.
+  - Con el CP en el catálogo, municipio y estado **son los del CP** aunque se manden otros; una colonia escrita
+    a mano que sí coincide con una de la lista se guarda **con la grafía de la lista**. *(Cómo se compara es
+    del arquitecto, §M4-SHIP.19.25.1.)*
+  - Las colonias mal escritas **se corrigen en «Capturar guía»** (`HECHOS.md:50`, abajo), donde el operador ve
+    un **aviso** cuando la colonia no salió de la lista (criterio 318). *(De dónde sale la lista —SEPOMEX u otra
+    fuente— y cuándo se carga es del arquitecto; ya **no** es requisito para abrir la tienda.)*
 - **La libreta queda al nivel del invitado**: **CP de 5 dígitos**, **teléfono de 10 dígitos**, **país MX**,
   ciudad/municipio obligatorio (en CDMX, la **alcaldía**, no «CDMX» — es lo que Skydropx usa como municipio).
   Hoy la libreta es más laxa que el checkout de invitado (levantamiento §5 H3).
@@ -8082,8 +8098,8 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
   añaden campos separados de número exterior/interior: en México el número va dentro de la calle y Skydropx no
   los exige (R2).
 - **Direcciones ya guardadas sin colonia** (las de antes de este cambio): al **elegirlas para un retiro** se pide
-  completar la colonia **antes de pagar**. Para pedidos **ya pagados** sin colonia (o con la dirección mal), la
-  remedia el operador en «Capturar guía» con la corrección de abajo (elegir la colonia es un caso de ella).
+  completar la colonia **antes de pagar** (de la lista o escrita a mano, como arriba). Para pedidos **ya pagados** sin colonia (o con la dirección mal), la
+  remedia el operador en «Capturar guía» con la corrección de abajo (elegir o escribir la colonia es un caso de ella).
   ~~*(SUPUESTO — el operador puede **completar la colonia de la lista del CP** desde la tarjeta antes de cotizar,
   y queda auditado quién y cuándo; ⛔ no puede cambiar calle, CP ni ciudad.)*~~ ⛔ **Sustituido el 2026-10-04 por
   decisión del dueño** (`HECHOS.md:50`), abajo.
@@ -8092,9 +8108,17 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
   corregir todo»*; diseño: `API_CONTRACT §M4-SHIP.19.20.1`, errata v1.80.12). Quién: **quien puede capturar la
   guía** (operador y súper-admin), con la integración encendida **o apagada**.
   - **Qué se corrige:** **destinatario**, **calle y número** (línea 1), **número interior / depto.** (línea 2),
-    **CP**, **colonia** (⛔ de la lista del CP, como en T.2) y **referencias** (≤ 70).
-  - **Municipio/alcaldía y estado salen del CP**, nunca se teclean: al cambiar el CP se recalculan solos. El país
-    es MX. El **teléfono no** se corrige aquí *(SUPUESTO, pregunta **P-ADR-1**)*.
+    **CP**, **colonia** (de la lista del CP **o escrita a mano**, como en T.2 — `HECHOS.md:57`) y **referencias**
+    (≤ 70). ~~colonia ⛔ de la lista del CP~~ *(sustituido 2026-10-04)*
+  - **Municipio/alcaldía y estado:** con el CP en el catálogo **salen del CP** y no se teclean (al cambiar el CP se
+    recalculan solos); con el CP **fuera del catálogo** (o el catálogo vacío) el operador **los escribe**, igual
+    que el cliente en T.2 *(⭐ 2026-10-04, `HECHOS.md:57`; `API_CONTRACT §M4-SHIP.19.25.1`)*. El país es MX. El
+    **teléfono no** se corrige aquí *(SUPUESTO, pregunta **P-ADR-1**)*.
+  - **Aviso de colonia sin comprobar:** si la colonia del envío **no salió de la lista** del CP (escrita a mano, o
+    CP fuera del catálogo), la ventana lo dice junto a la colonia para que el operador la revise. ⛔ **No
+    bloquea** cotizar, comprar ni capturar a mano, y ⛔ no pide casilla «ya la revisé». Si el operador la cambia
+    por una de la lista (o el catálogo se carga después y la colonia sí estaba), el aviso desaparece. Criterio
+    **318**.
   - **Solo afecta a este envío.** ⛔ **No** cambia la libreta del cliente ni la dirección que el cliente capturó al
     pagar (esa queda como evidencia). Lo que sí ve el cliente después es a dónde va su paquete: la del envío.
   - **Bitácora:** cada corrección deja **el antes y el después** (solo de lo que cambió) **y quién la hizo**; la
@@ -8113,7 +8137,7 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
 - ⚠️ **Orden de construcción** (traspaso §7.2.4): este endurecimiento toca la cuenta del cliente (`users`) y el
   checkout (`orders`) — dos streams; va como **paso aparte y previo** a la guía, serializado por el arquitecto.
   ⛔ No se mete en el mismo commit que la compra de guía.
-- Criterio **235**.
+- Criterios **235**, **316**, **317** y **318**.
 
 #### T.3 En la ventana «Capturar guía»: revisar la dirección, ver las opciones y elegir — después de «preparado»
 
@@ -8132,8 +8156,10 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
 2. **Paso 1 — Revisar la dirección.** La ventana abre con la dirección **precargada con la del cliente** —la que
    quedó congelada en el pedido o retiro—, tal como irá en la guía: destinatario, calle, colonia, CP,
    municipio/alcaldía, estado, teléfono y referencias. ⭐ **Se puede corregir toda** (decisión del dueño
-   2026-10-04, `HECHOS.md:50`; detalle en T.2): destinatario, calle, línea 2, CP, colonia (de la lista del CP) y
-   referencias; municipio y estado salen del CP; el teléfono no *(P-ADR-1)*. La corrección es **solo de este
+   2026-10-04, `HECHOS.md:50`; detalle en T.2): destinatario, calle, línea 2, CP, colonia (de la lista del CP o
+   escrita a mano, `HECHOS.md:57`) y referencias; municipio y estado salen del CP si está en el catálogo, y si no
+   se escriben; el teléfono no *(P-ADR-1)*. Si la colonia no salió de la lista, **aviso sin bloqueo** (T.2,
+   criterio 318). La corrección es **solo de este
    envío** (no toca la libreta del cliente), queda en bitácora con antes, después y quién, y **invalida la
    cotización**: el paso 2 vuelve a cotizar. Sin colonia no se avanza. ~~⛔ no se editan calle, CP ni
    destinatario.~~ *(sustituido 2026-10-04)*
@@ -12055,14 +12081,21 @@ se re-preguntan; lo marcado SUPUESTO espera su palabra)**
    etiqueta → «Salida de hoy» → rastreo → «Entregado». **Se verifica por ausencia**: una **compra a bóveda** no
    ofrece cotizar ni guía; el **buylist** no cambia ni una pantalla; el **checkout** sigue cobrando **MX$203**
    sin preguntar destino ni paquetería; **no existe** botón de recolección ni compra de guía sin elegir.
-235. **Colonia obligatoria de lista por CP; libreta al nivel del invitado; «referencias» opcional** *(T.2)*: en el
-   checkout de invitado y en la libreta (alta y edición), con el CP tecleado la pantalla ofrece **las colonias de
-   ese CP** y **no se puede guardar ni pagar** sin elegir una (⛔ el campo no acepta texto libre; un valor que no
-   esté en la lista del CP **se rechaza en el servidor**, no solo en la pantalla); **CP de 5 dígitos, teléfono de
-   10, país MX, municipio/alcaldía obligatorio**; el campo **«referencias»** es opcional, ≤ 70 caracteres y **se
-   imprime en la guía**. Una dirección **guardada antes** sin colonia **pide completarla** al elegirse para un
-   retiro. **⛔ Falla** si un pedido nuevo puede quedar pagado sin colonia, o si el precio, el IVA o las políticas
-   del checkout cambian por este endurecimiento.
+235. **Colonia obligatoria (la lista del CP ayuda, no bloquea); libreta al nivel del invitado; «referencias»
+   opcional** *(T.2; ⭐ reescrito 2026-10-04 por `HECHOS.md:57`, «si, hazlo como mercado libre»)*: en el checkout
+   de invitado y en la libreta (alta y edición), con el CP tecleado: si el CP **está en el catálogo**, la pantalla
+   ofrece **las colonias de ese CP más «Mi colonia no está»** para escribirla a mano; si **no está** (o el
+   catálogo está vacío, o la consulta falla), el cliente **escribe colonia, municipio/alcaldía y estado**.
+   **No se puede guardar ni pagar sin colonia** (texto vacío o solo espacios cuenta como sin colonia — lo valida
+   el servidor, no solo la pantalla); **CP de 5 dígitos, teléfono de 10, país MX, municipio/alcaldía y estado
+   obligatorios**; con el CP en el catálogo, municipio y estado guardados son **los del CP** aunque el cuerpo
+   mande otros. El campo **«referencias»** es opcional, ≤ 70 caracteres y **se imprime en la guía**. Una
+   dirección **guardada antes** sin colonia **pide completarla** (de la lista o a mano) al elegirse para un
+   retiro. ~~⛔ el campo no acepta texto libre; un valor que no esté en la lista del CP se rechaza en el
+   servidor~~ *(sustituido 2026-10-04)*. **⛔ Falla** si un pedido nuevo puede quedar pagado sin colonia, si una
+   dirección se rechaza **por el catálogo** (CP desconocido o colonia fuera de la lista), si en ningún modo
+   existe la salida «Mi colonia no está» / escribir a mano, o si el precio, el IVA o las políticas del checkout
+   cambian por este endurecimiento.
 236. **Cotizar dentro de la ventana «Capturar guía»: solo con «preparado», empaque estándar, seguro por escalón, y
    la lista con precio, días, recolección o sucursal, dónde se entrega y margen; 99minutos preseleccionada si
    cubre; entrega en sucursal oculta** *(T.3; decisiones 1, 2, 3, 7, 9 — ⭐ reescrito 2026-10-04)*: la ventana
@@ -12246,8 +12279,9 @@ v1.80.11, `API_CONTRACT §M4-SHIP.19.19`; numeración siguiente a 305, medida co
 308. **La ventana «Capturar guía» es la única puerta, con cuatro pasos y salida manual en todos** *(T.3.1–T.3.2;
    decisión 7)*: con la integración **apagada**, la ventana es la captura a mano de hoy y nada más; **encendida**,
    la ventana muestra **(1)** la dirección **precargada con la del cliente** (la del pedido o retiro), con
-   **la dirección completa editable** (destinatario, calle, línea 2, CP, colonia de la lista del CP y referencias;
-   municipio y estado salen del CP — criterio 315) ~~y ⛔ sin poder editar calle, CP ni destinatario~~
+   **la dirección completa editable** (destinatario, calle, línea 2, CP, colonia de la lista del CP **o escrita a
+   mano** y referencias; municipio y estado salen del CP, o se escriben si el CP no está en el catálogo —
+   criterios 315 y 318, `HECHOS.md:57`) ~~y ⛔ sin poder editar calle, CP ni destinatario~~
    *(sustituido 2026-10-04, `HECHOS.md:50`)* — no avanza sin colonia; **(2)** las opciones; **(3)** confirmar y comprar; **(4)** la guía. **«Capturar a mano»** está
    visible **en los cuatro pasos**. **⛔ Falla** si hay un botón «Cotizar envío» en la tarjeta o un segundo
    formulario de guía, o si algún paso deja al operador sin la salida manual.
@@ -12292,8 +12326,11 @@ v1.80.11, `API_CONTRACT §M4-SHIP.19.19`; numeración siguiente a 305, medida co
    *(T.2, T.3 paso 1; decisión del dueño 2026-10-04, `HECHOS.md:50`; `API_CONTRACT §M4-SHIP.19.20.1`; lo verifica
    **QA**)*: el operador (y el súper-admin) cambia destinatario, calle, línea 2, CP, colonia y referencias de un
    envío **en preparación y sin guía** — con la integración encendida **y** apagada — y:
-   **(a)** el envío queda con lo tecleado, **municipio y estado los del CP** aunque se intente mandar otros, y la
-   colonia **de la lista del CP** (otra colonia o un CP sin colonias ⇒ rechazo **sin guardar nada**);
+   **(a)** el envío queda con lo tecleado; con el CP **en el catálogo**, **municipio y estado los del CP** aunque
+   se intente mandar otros, una colonia de la lista tecleada sin acentos o en minúsculas queda **con la grafía de
+   la lista**, y una colonia que **no** está en la lista **se guarda tal cual**; con el CP **fuera del catálogo**,
+   se guardan colonia, municipio y estado **tecleados**; colonia, municipio o estado **vacíos** ⇒ rechazo **sin
+   guardar nada** *(⭐ 2026-10-04, `HECHOS.md:57`: ~~otra colonia o un CP sin colonias ⇒ rechazo~~)*;
    **(b)** la **libreta del cliente** y la **dirección del pedido** quedan **idénticas** a antes;
    **(c)** la bitácora tiene **una** entrada con **antes y después** (solo de lo que cambió) y **quién**, y la
    ventana muestra *«Corregida por {nombre} · {fecha}»*; guardar lo mismo otra vez ⇒ **sin** entrada nueva;
@@ -12308,6 +12345,35 @@ v1.80.11, `API_CONTRACT §M4-SHIP.19.19`; numeración siguiente a 305, medida co
    rechazo; el **teléfono** no cambia por esta vía *(P-ADR-1)*; lo cobrado de envío al cliente **no** cambia.
    **⛔ Falla** si alguna de (a)–(f) no se cumple, si una sola ronda de carrera deja dos correcciones guardadas o
    una compra con la dirección vieja, o si la corrección toca la libreta o la orden.
+316. 💰 **Un invitado paga con el catálogo de CP vacío** *(T.2; `HECHOS.md:57`, 2026-10-04: «la tienda nunca deja
+   de vender por el catálogo»; `API_CONTRACT §M4-SHIP.19.25.4/.6` PS-114 y E2E; lo verifica **QA** con la tabla de
+   CP **vacía**)*: sin ninguna fila en el catálogo de CP, un invitado teclea un CP de 5 dígitos, la pantalla le
+   pide **colonia, municipio/alcaldía y estado** como texto (⛔ sin «Escríbenos» como única salida), los escribe,
+   **paga** y el pedido queda creado con esa dirección **tal como la escribió**. Lo mismo con un CP que el catálogo
+   **no** tiene aunque el catálogo tenga otros, y cuando la consulta del CP **falla** (red, error del servidor,
+   demasiadas consultas). La tienda **arranca y vende** con el catálogo vacío. **⛔ Falla** si con el catálogo
+   vacío o un CP desconocido no se puede guardar la dirección o pagar, si aparece un error de «CP desconocido» o
+   «colonia no válida» al pagar, o si el arranque de la tienda depende de que el catálogo esté cargado.
+317. **Con el CP en el catálogo, la colonia escrita a mano se acepta** *(T.2; `HECHOS.md:57`; `API_CONTRACT
+   §M4-SHIP.19.25.1-.2`, `DESIGN_SYSTEM §43.18m.1-.2`; PS-114 y E2E)*: con un CP que **sí** está en el catálogo,
+   bajo la lista de colonias hay **«Mi colonia no está»**; al pulsarlo el cliente escribe su colonia y puede
+   **volver a la lista** sin perder lo escrito. En el **checkout de invitado** paga y en la **libreta** guarda
+   (alta y edición), con una colonia que **no** está en la lista: queda guardada **tal como la escribió**, con
+   municipio y estado **del CP**. Si lo escrito coincide con una colonia de la lista (sin acentos o en
+   minúsculas), se guarda **con la grafía de la lista**. **⛔ Falla** si una colonia escrita a mano con el CP en
+   el catálogo se rechaza (en pantalla o en el servidor), si se guarda con municipio o estado distintos a los del
+   CP, o si la opción a mano solo aparece cuando el CP no tiene lista.
+318. **«Capturar guía» avisa, sin bloquear, cuando la colonia no salió de la lista** *(T.2, T.3 paso 1;
+   `HECHOS.md:50` y `:57`; `API_CONTRACT §M4-SHIP.19.25.3` PS-115, `DESIGN_SYSTEM §43.18m.6`; lo verifica **QA**)*:
+   al abrir «Capturar guía» de un envío cuya colonia **no está en la lista del CP** (escrita a mano) o cuyo CP **no
+   está en el catálogo**, el paso 1 muestra un **aviso junto a la colonia** para revisarla (y, con el CP fuera del
+   catálogo, también sobre municipio y estado); con la colonia de la lista, **no** hay aviso. El aviso **no
+   bloquea**: «Ver opciones», comprar y «Capturar a mano» siguen disponibles, sin casilla de «ya la revisé». Si
+   el operador corrige la colonia a una **de la lista**, el aviso **desaparece**; y si el catálogo se carga
+   **después** y la colonia sí estaba, el mismo envío deja de mostrar el aviso **sin tocarlo**. El aviso **no**
+   aparece en la tarjeta de «Salida de hoy» ni se le muestra al cliente. **⛔ Falla** si el aviso impide cotizar,
+   comprar o capturar a mano, si falta en un envío con colonia escrita a mano, si aparece en uno con colonia de
+   la lista, o si se queda pegado tras corregir la colonia o cargar el catálogo.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
