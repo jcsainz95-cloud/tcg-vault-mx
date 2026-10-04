@@ -4,7 +4,19 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.12 (2026-10-04) — reembolso total «depende de si ya salió» (errata de contrato v1.80.8.6,
+> Estado: **v4.13 (2026-10-04) — TODOS LOS CORREOS (§41 NUEVA, amplía §31 de «los ocho» a los 30 renders que
+> existen hoy en el código; fuente: auditoría ux-review del 2026-10-04 sobre `60048797` + lectura propia del código en
+> este worktree):** **§41.2** un solo formato de asunto (**sin prefijo de marca**: la marca la pone el remitente) —
+> los ocho asuntos congelados de §31.9 **no cambian**, cambian los otros veintiuno. **§41.3** regla de saludo
+> (`Hola Ana:` / `Hola:` · `Hi Ana,` / `Hi,`; nunca `Hola :`). **§41.4** tono del CTA para los treinta. **§41.5**
+> dinero: **una** forma en los dos idiomas, la misma que ya imprime la web (`MX$1,250.00`, medido en
+> `frontend/src/lib/format.ts:29-40`) — ⚠ **corrige el ejemplo de §9.3**, que tenía un espacio que nadie implementó.
+> **§41.7** norma de los trece correos sin diseño. **§41.8** invitado ≡ registrado (13 ≡ 15). **§41.9** CLABE
+> cambiada. **§41.10** reposición de sellado. **§41.13** lista de cambios para backend con fichero:línea, **§41.14**
+> candados ML-1…ML-23. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.12 sin cambio
+> (salvo el ejemplo de §9.3 y un puntero al inicio de §31).
+>
+> Estado anterior: **v4.12 (2026-10-04) — reembolso total «depende de si ya salió» (errata de contrato v1.80.8.6,
 > `API_CONTRACT §M4-SHIP.18.12`, `ARCHITECTURE §4.57 (w)`, `PROJECT §S.11`, criterios 249–253; `HECHOS.md` filas
 > 2026-10-02 «Cartas apartadas…» y 2026-10-04 «Cartas apartadas (SSL-R1) — detalles» 4a/4b):** **§40 NUEVA.**
 > **§40.2** — el diálogo de reembolso total de «Ventas» con el pedido **ya enviado**: aviso «las cartas no vuelven a
@@ -2146,7 +2158,11 @@ no del set entero).
 
 ### 9.3 Formato de números, dinero y fechas (localizado)
 - Usar `Intl.NumberFormat`/`Intl.DateTimeFormat`. Dinero siempre en **MXN** en ambos idiomas:
-  `MX$ 1,250.00`. Convertir centavos→unidades en la capa de formato (nunca mostrar centavos crudos).
+  `MX$1,250.00`. Convertir centavos→unidades en la capa de formato (nunca mostrar centavos crudos).
+  ⚠ **v4.13 — el ejemplo decía `MX$ 1,250.00` (con espacio) y nunca se implementó así**: la web imprime
+  `MX$1,250.00` en los dos idiomas (`frontend/src/lib/format.ts:29-40`, fijado por `format.test.ts:36-48`). Manda
+  lo implementado, porque el correo y el portal **repiten la misma cifra** y dos formas para un hecho es el
+  defecto. El correo adopta esta forma exacta (§41.5).
 - Fechas: ES "13 ago 2026", EN "Aug 13, 2026". `capturedDate` del precio se muestra localizada.
 - El símbolo de moneda no cambia con el idioma (siempre MXN); solo cambian separadores/labels.
 
@@ -14820,6 +14836,13 @@ pantalla** y **qué sale por la red**.*
 
 ## 31. LOS OCHO CORREOS — el sistema de diseño del medio «correo» (v3.9)
 
+> **v4.13 — esta sección sigue mandando sobre el MEDIO, y §41 la amplía a todos los correos que existen hoy
+> (30 renders por idioma).** Lo que §41 cambia de aquí, dicho una vez: **(a)** el asunto tiene una regla para todos
+> (§41.2) y los ocho de §31.9 **la cumplen ya** — no se tocan; **(b)** el saludo en inglés lleva **coma**
+> (`Hi Ana,`), lo que cambia **un carácter** en cinco de los ocho (§41.3); **(c)** el dinero se escribe
+> `MX$1,250.00` en los dos idiomas (§41.5), lo que cambia el **formato** —no el contenido— de las cifras de la
+> cadena vinculante `rule` en español. Todo lo demás de §31 queda igual.
+
 > **Origen:** el dueño mandó una propuesta de diseño del **correo 1** y pidió, literal: *«adecua con nuestro
 > logo pero algo así»* y *«hay que mover el diseño a que todos se hablen con la propuesta que te mandé»*.
 >
@@ -22111,3 +22134,445 @@ verificados AA (§10, §37.15). Ningún color nuevo.
 | **N-14** | product-owner | En «Ventas» la nota del motivo es **obligatoria** (es el `reason` que M3 ya exigía; contrato (4)), mientras que `PROJECT §S.11.4` la da como **opcional (SUPUESTO)**. En el registro posterior (Stripe) sí es opcional. Diferencia heredada del contrato, no de la pantalla; si el dueño la quiere opcional también en M3, es cambio de contrato |
 | **N-15** | product-owner | El operador **ve** la marca «Por revisar», el filtro y la lectura del motivo, pero no puede registrarlo. Lo dejo visible porque es estado del pedido que él ya consulta; si el dueño lo quiere oculto al operador, es cambio de pantalla (y de proyección si se quiere también en la API) |
 | **N-16** | frontend | Los tres `movementReason` sin texto (§40.5) son un hueco **anterior** a esta errata (v1.20, v1.80.1, v1.80.4) que se cierra aquí porque el candado SR-UI-10 los cubre; ⛔ no esperar a otro pase. El tipo `MovementReason` del front va en el mismo commit |
+
+---
+
+## 41. TODOS LOS CORREOS — §31 ampliado de «los ocho» a los que existen hoy (v4.13, 2026-10-04)
+
+### 41.0 Fuente, alcance y reglas duras
+
+- **Fuente.** La auditoría de ux-review del 2026-10-04 sobre `60048797` (renders HTML/texto y capturas de todos los
+  correos en ES y EN) **y mi propia lectura del código en este worktree** (rama `claude/precios-s5`, 2026-10-04).
+  Toda cita fichero:línea de §41 la medí yo leyendo el fichero. ⚠ **El SHA exacto del worktree que leí: NO MEDIDO**
+  (no tengo Bash). Un agente backend escribe en `backend/` en paralelo: **backend re-mide cada línea antes de
+  editarla**; si una cita no cuadra, manda el fichero, no esta tabla.
+- **Cuántos son.** El inventario tiene **28 números**; el 2 y el 5 tienen dos variantes (2a/2b, 5a/5b) ⇒ **30
+  renders por idioma**. El encargo dice «29»: **no reconcilié cómo contó el auditor (NO MEDIDO)**. §41 cubre los 30.
+- **Sigue mandando todo §31 sobre el medio**: §31.0 (las tres cosas que no se tocan: texto vinculante, los cinco
+  prohibidos, `MX$0.00`), §31.2 (lo que no sobrevive), §31.3–§31.8 (retícula, tipografía, marca, patrones, CTA, modo
+  oscuro), §31.11–§31.13. **Un correo de §41 se construye con `mailShell` y los patrones de §31.6, sin
+  excepciones.**
+- **Cero tokens nuevos, cero pares de contraste nuevos, cero patrones nuevos.** Lo nuevo son **reglas** (asunto,
+  saludo, dinero, tono, pie) y **dos helpers de código** (saludo y dinero) que no son diseño, son la forma de que
+  treinta plantillas no tengan que acordarse.
+- **Lo que §41 cambia de lo congelado en §31, de frente** (el resto de §31.13 #17 sigue: ninguna otra cadena de los
+  ocho se reescribe):
+  1. **Saludo EN: `Hi Ana:` → `Hi Ana,`** en los correos 1, 2, 3, 5 y 6. Es **puntuación del idioma**, no copy: el
+     correo 4 ya lo hace así (`buylist-mail.templates.ts:193`) y hoy los ocho **se contradicen entre sí**.
+  2. **Formato del dinero** en los ocho (`$840.00` → `MX$840.00` en ES; EN ya decía `MX$840.00`). ⚠ **Esto toca el
+     VALOR de la cadena vinculante `offerTermsCopy().rule` en español** (`buylist-mail.templates.ts:688-689,704-706`
+     interpola `money()`). **Paro y lo digo, como manda §31.0 regla 1:** cambia **cómo se escribe** la cifra, no la
+     cifra ni la frase; y como `rule` es **un cuerpo para tres lectores**, el portal cambia en el mismo commit y ML-3
+     sigue midiendo identidad. **La ratificación es de product-owner** (§41.15 P-2).
+  3. **Los asuntos de los ocho NO cambian** (§31.13 #18 sigue en pie): la regla de §41.2 **ya la cumplen**.
+
+### 41.1 Inventario — los 30, con su esqueleto de hoy
+
+**Esqueleto de hoy:** **S** = `mailShell` de §31 (`buylist/mail-shell.ts:587`) · **V** = `layout()` viejo de nueve
+líneas (Arial, `<h2>`, `max-width:520px`, `#111`, CTA con `border-radius:6px`) · **—** = sin plantilla.
+
+| # | Correo | Función · fichero:línea | Hoy | Familia (§41.6) |
+|---|---|---|---|---|
+| 1 | Oferta | `sellOfferTemplate` · `buylist/buylist-mail.templates.ts:343` | S | VENTA |
+| 2a/2b | Recordatorio (aceptar / enviar) | `sellOfferReminderTemplate` · `:765` | S | VENTA |
+| 3 | Oferta cancelada | `sellOfferCancelledTemplate` · `:581` | S | VENTA |
+| 4 | Carta no aceptada | `sellItemRejectedTemplate` · `:157` | S | VENTA |
+| 5a/5b | Solicitud vencida (sin respuesta / sin envío) | `sellRequestExpiredTemplate` · `:918` | S | VENTA |
+| 6 | Solicitud cerrada | `sellRequestNotPursuedTemplate` · `:1001` | S | VENTA |
+| 7 | Verifica tu correo | `emailVerificationTemplate` · `mail/mail.templates.ts:68` | **V** (`:33`) | CUENTA |
+| 8 | Restablece tu contraseña | `passwordResetTemplate` · `mail/mail.templates.ts:95` | **V** | CUENTA |
+| 9 | Candado del staff | `passwordLockAlertTemplate` · `mail/mail.templates.ts:128` | **V** | CUENTA |
+| 10 | Tu guía prepagada (vendedor) | `sellGuideTemplate` · `buylist/buylist-notice.templates.ts:94` | S | VENTA |
+| 11 | Tus cartas llegaron | `sellReceivedTemplate` · `:183` | S | VENTA |
+| 12 | Te pagamos | `sellPaidTemplate` · `:261` | S | VENTA |
+| 13 | Pedido de invitado | `guestOrderConfirmationTemplate` · `orders/mail/guest-order.templates.ts:127` | **V** (`:36`) | PEDIDO |
+| 14 | Enlace de invitado | `guestTrackingLinkTemplate` · `:167` | **V** | PEDIDO |
+| 15 | Pedido pagado (registrado) | `orderSettledTemplate` · `orders/mail/order-notice.templates.ts:104` | S | PEDIDO |
+| 16 | Reembolso total | `orderRefundedTemplate` · `:198` | S | PEDIDO |
+| 17 | Tu paquete ya tiene guía | `shipmentGuideTemplate` · `shipments/mail/shipment-notice.templates.ts:113` | S | ENVÍO |
+| 18 | Va en camino | `shipmentShippedTemplate` · `:161` | S | ENVÍO |
+| 19 | Envío cancelado | `shipmentCancelledTemplate` · `:205` | S | ENVÍO |
+| 20 | Aclaración: recompra | `disputeRepurchaseTemplate` · `disputes/mail/dispute-notice.templates.ts:111` | S | ACLARACIÓN |
+| 21 | Aclaración: no procedió | `disputeRejectedTemplate` · `:147` | S | ACLARACIÓN |
+| 22 | Identificación rechazada | `kycRejectedTemplate` · `admin/mail/kyc-notice.templates.ts:67` | S | IDENTIDAD |
+| 23 | Carta reembolsada | `refundNoticeTemplate` · `payments/refunds/mail/refund-notice.templates.ts:78` | S | REEMBOLSO |
+| 24 | Reposición en curso | `replacementPendingTemplate` · `:151` | S | REEMBOLSO |
+| 25 | Reembolso manual anunciado | `manualRefundAnnouncedTemplate` · `:190` | S | REEMBOLSO |
+| 26 | Reembolso manual pagado | `manualRefundPaidTemplate` · `:235` | S | REEMBOLSO |
+| 27 | CLABE cambiada | `clabeChangedTemplate` · `:272` | S | **CLABE** (propia) |
+| 28 | Reposición de sellado | `sendRestockEmail` · `catalog/sealed-restock-notify.service.ts:107-116` | **—** (HTML a mano, bilingüe, sin escape) | AVISO |
+
+⇒ **Cinco en el esqueleto viejo (7, 8, 9, 13, 14) y uno sin plantilla (28).** Los seis pasan a `mailShell`: no hay
+«correo con otro diseño» después de §41.
+
+### 41.2 ⭐ El asunto — UN formato para los treinta
+
+Hoy conviven tres (medido): **sin prefijo** (los ocho de §31.9 y el 9, `mail/mail.templates.ts:138,149`), **`TCG HUNT
+— …`** (los otros diecinueve, p. ej. `buylist-notice.templates.ts:137`, `refund-notice.templates.ts:139`) y
+**bilingüe con `·`** (el 28, `sealed-restock-notify.service.ts:108`).
+
+> ⭐ **Decisión: SIN PREFIJO DE MARCA. El asunto dice el hecho, en el idioma del destinatario.**
+> `<Hecho en una frase, mayúscula inicial, sin punto final>[ <referencia que el cliente reconoce>]`
+
+**Por qué sin prefijo, y no al revés:**
+1. **La marca ya está en la bandeja, una columna a la izquierda**: el remitente es `TCG HUNT
+   <no-reply@tcghunt.mx>` (`mail/resend-mail.adapter.ts:7`, valor que devops fija en `MAIL_FROM`). `TCG HUNT —` en
+   el asunto la **repite** y se come **11 de los ~35–40 caracteres** que un móvil enseña: en «TCG HUNT — Tu envío se
+   retrasa: estamos reponiendo una carta» el hecho llega cortado.
+2. **Los ocho congelados ya lo cumplen** ⇒ la regla **no toca ni un asunto ratificado** (§31.9, R1 de §25.4 sigue
+   intacta). Elegir el prefijo obligaba a reescribir ocho asuntos ratificados con PO; elegir sin prefijo cambia
+   diecinueve que **nadie** ratificó.
+3. **El bilingüe desaparece solo**, porque §41.10 manda un idioma por correo.
+
+**Reglas del asunto:**
+- ⛔ Ni marca, ni emoji, ni `¡…!`, ni MAYÚSCULAS de grito, ni el otro idioma.
+- **Referencia** solo si el cliente la **reconoce y ya la usaba**: el número de pedido (13–16, `TH-…`) y la referencia
+  del reembolso (23). ⛔ No se añade folio a asuntos que hoy no lo llevan (sería un cambio de producto).
+- R1 de §25.4 (el 1 no lleva el bruto) y §31.0 (los cinco prohibidos) aplican también al asunto: **ML-2 lo barre**.
+- ⚠ **Precondición — la regla depende del remitente:** si `MAIL_FROM` llega **sin** nombre visible, el default de código
+  es `no-reply@tcghunt.mx` (`resend-mail.adapter.ts:8`) y la marca **desaparece de la bandeja**. Valor real de
+  `MAIL_FROM` en producción: **NO MEDIDO**. ⇒ candado ML-14(b) y nota a devops (§41.15 D-1).
+
+**Los asuntos, uno por uno** (✅ = no cambia; ✏ = solo se quita `TCG HUNT — `; ⭐ = nuevo):
+
+| # | ES | EN | |
+|---|---|---|---|
+| 1 | Tenemos una oferta por tus cartas | We have an offer for your cards | ✅ |
+| 2a / 2b | Tu oferta vence mañana / (título de 2b, `:774-781`) | idem EN | ✅ |
+| 3 | Cancelamos la oferta que te mandamos | We cancelled the offer we sent you | ✅ |
+| 4 | Una carta de tu solicitud de venta fue rechazada | A card in your sell request was rejected | ✅ |
+| 5a / 5b · 6 | (= título, `:966`, `:1057`) | idem | ✅ |
+| 7 · 8 | Verifica tu correo · Restablece tu contraseña | Verify your email · Reset your password | ✅ |
+| 9 | Intentos fallidos de entrar a tu cuenta | Failed sign-in attempts on your account | ✅ |
+| 10 | Tu guía prepagada | Your prepaid label | ✏ |
+| 11 | Tus cartas llegaron | Your cards arrived | ✏ |
+| 12 | Te pagamos | We paid you | ✏ |
+| 13 · 15 | Confirmación de tu pedido `<n>` | Your order `<n>` is confirmed | ✏ (y **idénticos** entre sí, §41.8) |
+| 14 | Enlace de seguimiento de tu pedido `<n>` | Tracking link for your order `<n>` | ✏ |
+| 16 | Reembolso de tu pedido `<n>` | Refund for your order `<n>` | ✏ |
+| 17 | Tu guía de envío | Your tracking number | ✏ |
+| 18 | Tu paquete va en camino | Your package is on its way | ✏ |
+| 19 | Tu envío quedó cancelado | Your shipment was cancelled | ✏ |
+| 20 · 21 | Resolvimos tu aclaración | Your claim was resolved | ✏ (el mismo para los dos: el asunto no adelanta el sentido; el titular sí) |
+| 22 | Sobre tu identificación | About your ID | ✏ |
+| 23 | Reembolso de `<referencia>` | Refund for `<reference>` | ✏ |
+| 24 | Tu envío se retrasa: estamos reponiendo una carta | Your shipment is delayed: we are replacing a card | ✏ |
+| 25 | Te vamos a depositar tu reembolso | We will deposit your refund | ✏ |
+| 26 | Tu reembolso ya fue depositado | Your refund was deposited | ✏ |
+| 27 | Se actualizó tu CLABE | Your CLABE was updated | ✏ |
+| 28 | Volvió a estar disponible: `<producto>` | Back in stock: `<product>` | ⭐ (un idioma, §41.10) |
+
+### 41.3 ⭐ El saludo — una regla y un helper
+
+**Quién saluda** (es lo que hoy pasa, y se vuelve regla): saludan los correos cuyo destinatario es **siempre una
+cuenta con nombre conocido** — VENTA (1–6, 10–12), CUENTA (7–9) e IDENTIDAD (22). **No saludan** los que pueden
+llegar a un **invitado** o a un correo sin cuenta — PEDIDO, ENVÍO, ACLARACIÓN, REEMBOLSO, CLABE y AVISO (13–21,
+23–28) —: sus plantillas no reciben nombre (`order-notice.templates.ts:76-86`, `refund-notice.templates.ts:62-75`) y
+**13 ≡ 15** exige que el registrado no salude si el invitado no puede (§41.8).
+
+**Cómo saluda:**
+
+| | ES | EN |
+|---|---|---|
+| Con nombre | `Hola Ana:` | `Hi Ana,` |
+| Sin nombre (vacío, solo espacios, o `nameSource='derived'`) | `Hola:` | `Hi,` |
+
+- **El nombre lo decide `greetingName()`** (`mail/greeting-name.ts:22-26`: `null` si es derivado o queda vacío tras
+  `trim`). Es la regla que ya rige 7 y 8 (`mail/mail.templates.ts:49-58`) y que su propia cabecera dice que VENTA
+  debía adoptar «en su stream» (`greeting-name.ts:10-12`).
+- ⛔ **Nunca `Hola :`** (espacio antes de los dos puntos). Hoy sale así en el 22 porque el llamador pasa
+  `user.name ?? ''` (`admin/admin.service.ts:1226`) y la plantilla interpola `Hola ${name}:` (`kyc-notice.templates.ts:95`).
+  Mismo patrón, mismo riesgo, en 10–12 (`buylist-notice.templates.ts:119,203,282`) y en 1–3, 5, 6.
+- **EN con coma** (`Hi Ana,`), que es la convención del idioma; hoy 1, 2, 3, 5, 6, 10–12 y 22 escriben `Hi Ana:`.
+- **Un helper, dos salidas** (`{ html, text }`, el HTML escapado): el que ya existe en `mail/mail.templates.ts:49` se
+  mueve al esqueleto y lo usan todos. ⛔ Ninguna plantilla compone el saludo a mano.
+- El saludo va **igual en la parte de texto** (ML-15 lo mide en las dos).
+
+### 41.4 El CTA — la regla de §31.7 aplicada a los treinta
+
+> ⭐ **Bermellón `#B31217` si y solo si NO actuar le cuesta dinero al destinatario (o lo expone a perderlo). Si no,
+> tinta.** **Y el rótulo nombra el DESTINO real del enlace**, no una intención («ir a mi cuenta» que abre un pedido es
+> un rótulo falso).
+
+| # | Tono | Rótulo ES / EN | Por qué ese tono |
+|---|---|---|---|
+| 1, 2a, 2b | **Bermellón** | `VER Y RESPONDER LA OFERTA` / `VIEW AND RESPOND TO THE OFFER` · 2b `IR A MI SOLICITUD` | §31.7, sin cambio |
+| 3 | Tinta | `VER MI SOLICITUD` / `VIEW MY REQUEST` | §31.7 |
+| 4 | ⛔ ninguno | — | §31.10e |
+| 5a, 5b, 6 | Tinta | `COTIZAR DE NUEVO` / `GET A NEW QUOTE` | §31.7 |
+| 7 | Tinta | `VERIFICAR MI CORREO` / `VERIFY MY EMAIL` | §31.7 (hoy `Verificar correo`, en minúsculas y con radio 6px) |
+| 8 | Tinta | `RESTABLECER MI CONTRASEÑA` / `RESET MY PASSWORD` | §31.7 |
+| 9 | ⛔ **ninguno, deliberado** | — | Sin enlaces por diseño anti-phishing (`mail/mail.templates.ts:124-126`); la acción («cámbiala desde tu cuenta») va en prosa |
+| 10 | **Bermellón** | `IR A MI SOLICITUD` / `GO TO MY REQUEST` | Hay **plazo de envío** vigilado: si no deposita, la solicitud se cierra y **no se le compra nada** — es el mismo hecho que 2b, que ya es bermellón. Ya está así (`buylist-notice.templates.ts:132`) |
+| 11, 12 | Tinta | `IR A MI SOLICITUD` / `GO TO MY REQUEST` | Informan; no hay decisión |
+| 13, 14, 15, 16 | Tinta | `VER MI PEDIDO` / `SEE MY ORDER` | Informan. 13/14 abren la página tokenizada; 15/16 el detalle con sesión. **Mismo rótulo** (§41.8) |
+| 17, 18, 19 | Tinta | **Según destino:** `orders/<id>` ⇒ `VER MI PEDIDO` / `SEE MY ORDER`; `shipments/<id>` ⇒ `VER MI ENVÍO` / `SEE MY SHIPMENT` | ⚠ Hoy 17/18 dicen `VER MI ENVÍO` y 19 `IR A MI CUENTA` **aunque el enlace abra el pedido** (`shipment-notice.templates.ts:88-91,132,179,219`) |
+| 20, 21 | Tinta | `VER MI ACLARACIÓN` / `SEE MY CLAIM` | Sin cambio |
+| 22 | Tinta | `VOLVER A SUBIR MI IDENTIFICACIÓN` / `UPLOAD MY ID AGAIN` | Sin cambio |
+| 23, 24 | Tinta | `VER MI PEDIDO` / `VER MI ENVÍO` según destino | Sin cambio |
+| 25 sin CLABE | **Bermellón** | `REGISTRAR MI CLABE` / `REGISTER MY CLABE` | **Sin CLABE no hay depósito**: no actuar retiene su dinero. Ya está así (`refund-notice.templates.ts:219`) |
+| 25 con CLABE · 26 | Tinta | `VER MI CUENTA` / `SEE MY ACCOUNT` | Hoy `MI CUENTA`, sin verbo: un botón es una acción |
+| 27 | **Bermellón** | `REVISAR MI CUENTA` / `REVIEW MY ACCOUNT` | **Si no fue él, el siguiente depósito va a la cuenta de otro.** Ya está así (`:298`) |
+| 28 | Tinta | `VER EL PRODUCTO` / `SEE THE PRODUCT` | Informa (§41.10) |
+
+⇒ **Bermellón en 6 de 30** (1, 2a, 2b, 10, 25-sin-CLABE, 27). «Con avaricia» sigue siendo cierto. **Un solo CTA por
+correo**, y la URL en texto debajo **siempre** (§31.6g, ML-5).
+
+### 41.5 ⭐ El dinero — una forma, dos idiomas, la misma que la web
+
+**Medido:** las cuatro copias de `money()` del backend (`buylist-mail.templates.ts:293`,
+`order-notice.templates.ts:47`, `refund-notice.templates.ts:35`, `guest-order.templates.ts:48`) usan
+`Intl.NumberFormat('es-MX'|'en-US', {currency:'MXN'})` ⇒ **`$840.00` en ES y `MX$840.00` en EN**. En español se lee
+como **dólar**. La web ya lo resolvió: `formatMoneyCents` normaliza a `MX$` en los dos (`frontend/src/lib/format.ts:29-40`;
+`format.test.ts:36`: `690 → 'MX$6.90'` en `es` y en `en`).
+
+> ⭐ **Regla: el correo escribe el dinero EXACTAMENTE como la web: `MX$1,250.00` en los dos idiomas.**
+> **Un** formateador en el esqueleto (`mailMoney(cents)`), que reproduce el algoritmo de `format.ts:29-40` (Intl con
+> MXN, 2 decimales fijos, `$` → `MX$` si falta), y las cuatro copias se borran.
+
+- **Sobre el espacio de §9.3 (`MX$ 1,250.00`)**: el encargo pedía confirmarlo y **no lo confirmo**: la web nunca lo
+  imprimió con espacio (medido arriba) y el portal enseña la cadena `rule` del backend **al lado** de cifras que
+  formatea la web. Con espacio en el correo y sin espacio en la web, **la misma cifra tendría dos formas en la misma
+  pantalla**. §9.3 queda corregida. *Si se prefiere el espacio, cambia en `format.ts` y en el correo **en el mismo
+  commit**, nunca en uno solo* (§41.15 P-1).
+- **La resta (§31.6e) es el único patrón de montos.** Importe en su celda de ancho fijo, `align="right"`, en mono;
+  sustraendo con `−` (U+2212) **texto**; regla de tinta encima del neto. ⛔ **Nada de `monoRow("ETIQUETA: $x")`**
+  para dinero (lo que hacen hoy 25 y 26, `refund-notice.templates.ts:197-200,215,239,252`): una línea mono
+  con el importe pegado a la etiqueta **no alinea** y no se distingue del folio.
+- **Líneas de carta con importe → §31.6c** (`cardLineRows`, importe a la derecha); **sin importe → §31.6c con la
+  celda derecha vacía** (nunca `MX$0.00`, §31.0 regla 3).
+- **Importes en prosa** (la frase de `rule` en 1; la de la tarjeta en 25) usan **la misma cadena** de `mailMoney`.
+- ⛔ Ninguna cifra en la serif (§31.4). ⛔ Ninguna resta recalculada en la plantilla (criterio 207): el neto y el
+  total son **columnas persistidas** que la plantilla recibe.
+
+### 41.6 El pie — una línea de «por qué» por familia
+
+La línea variable del pie (§31.6h) se fija **por familia** — es el **hecho que origina** el correo — y tiene que ser
+**verdad para todo correo de la familia**.
+
+| Familia | Correos | ES | EN | Estado |
+|---|---|---|---|---|
+| VENTA | 1–6, 10–12 | Recibes este correo porque tienes una solicitud de venta con nosotros. | You are receiving this email because you have a sell request with us. | ✅ (`buylist-notice.templates.ts:57-61`) |
+| CUENTA · alta | 7 | Recibes este correo porque se creó una cuenta de TCG HUNT con esta dirección. | You are receiving this email because a TCG HUNT account was created with this address. | ⭐ nueva |
+| CUENTA · contraseña | 8 | Recibes este correo porque alguien pidió restablecer la contraseña de esta dirección. | You are receiving this email because someone asked to reset the password for this address. | ⭐ (la de §31.6h, nunca implementada) |
+| CUENTA · equipo | 9 | Recibes este correo porque esta dirección es de una cuenta del equipo de TCG HUNT. | You are receiving this email because this address belongs to a TCG HUNT staff account. | ⭐ nueva |
+| PEDIDO | 13–16 | Recibes este correo porque hiciste un pedido con nosotros. | You are receiving this email because you placed an order with us. | ✅ (`order-notice.templates.ts:56-60`); 13 y 14 la ganan |
+| ENVÍO | 17–19 | Recibes este correo porque tienes un envío con nosotros. | You are receiving this email because you have a shipment with us. | ✅ (`shipment-notice.templates.ts:56-60`) |
+| ACLARACIÓN | 20–21 | Recibes este correo porque abriste una aclaración con nosotros. | You are receiving this email because you opened a claim with us. | ✅ (`dispute-notice.templates.ts:44-48`) |
+| IDENTIDAD | 22 | Recibes este correo porque subiste una identificación a tu cuenta. | You are receiving this email because you uploaded an ID to your account. | ✅ (`kyc-notice.templates.ts:120-122`) |
+| REEMBOLSO | 23–26 | Recibes este correo porque tienes un pedido o un envío con nosotros. | You are receiving this email because you have an order or a shipment with us. | ✅ (`refund-notice.templates.ts:43-47`) — **cierta para 23–26, falsa para 27** |
+| **CLABE** | **27** | Recibes este correo porque cambió la CLABE registrada en tu cuenta. | You are receiving this email because the CLABE on your account changed. | ⭐ propia (§41.9) |
+| AVISO | 28 | Recibes este correo porque pediste que te avisáramos cuando este producto volviera. | You are receiving this email because you asked us to let you know when this product was back. | ⭐ nueva |
+
+- ⛔ **Sin enlace de baja** en ninguno (§31.6h). El 28 es un **aviso pedido y de una sola vez** — la suscripción se
+  sella al enviar (`sealed-restock-notify.service.ts:96-99`) —: no hay serie de la que darse de baja.
+
+### 41.7 ⭐ La norma de los trece correos sin diseño
+
+Para los trece que la auditoría marcó sin norma (9, 10–12, 13, 14, 15, 17–21, 28). **Todos**: `mailShell`, orden de
+§31.3, titular serif **22px**, prosa sans 15/1.55, eyebrow mono en MAYÚSCULAS **en la cadena**, URL de respaldo bajo
+el CTA, parte de texto a paridad (§31.12). **Copy: se conserva el que ya existe** (medido en las líneas citadas) salvo
+lo marcado ✏; lo que no se marca, no se toca.
+
+| # | Eyebrow ES / EN | Titular | Saludo | Montos | CTA | Pie | Copy: qué cambia |
+|---|---|---|---|---|---|---|---|
+| **9** | `SEGURIDAD DE LA CUENTA` / `ACCOUNT SECURITY` (sin folio, §31.6b) | ✏ = asunto: «Intentos fallidos de entrar a tu cuenta» / «Failed sign-in attempts on your account» (hoy «Intentos fallidos de entrar», `:150`) | Sí (§41.3) | No | ⛔ ninguno (§41.4) | CUENTA · equipo | El cuerpo (`:133-135`, `:144-146`) **no se toca**: es copy del contrato |
+| **10** | `TU SOLICITUD DE VENTA · <folio>` / `YOUR SELL REQUEST · <folio>` | sin cambio (`:101`) | Sí | No (⛔ a propósito, `:84-86`) | Bermellón | VENTA | Ninguno. El dato de la guía sigue en `monoRow` (es un identificador, no dinero) |
+| **11** | idem | sin cambio (`:190`) | Sí | No (criterio 211) | Tinta | VENTA | Ninguno |
+| **12** | idem | sin cambio (`:268`) | Sí | **Neto solo**: `totalsRows([], SE TE DEPOSITARON)` — ya así (`:288`); cambia el formato (§41.5) | Tinta | VENTA | Ninguno |
+| **13** | `TU PEDIDO · <n>` / `YOUR ORDER · <n>` | «Gracias por tu compra» / «Thanks for your purchase» | **No** | `TOTAL PAGADO` vía `totalsRows([])` | Tinta `VER MI PEDIDO` → enlace tokenizado | PEDIDO | ✏ §41.8: los textos sin `<strong>` (`:73,:107`) y la nota del enlace pasa a letra chica tras el CTA |
+| **14** | idem | sin cambio (`:86`, `:106`) | No | No | Tinta `VER MI PEDIDO` | PEDIDO | ✏ sin `<strong>` (`:88`, `:108`); `trackNote` en letra chica tras el CTA |
+| **15** | idem | sin cambio (`:110`) | No | `TOTAL PAGADO` (ya así, `:136`) | Tinta | PEDIDO | ✏ líneas de carta a §31.6c (§41.8) |
+| **17** | `TU PEDIDO · <n>` o `TU ENVÍO · <folio>` (ya así, `:95-101`) | sin cambio (`:119`) | No | No | Tinta, rótulo según destino (§41.4) | ENVÍO | Ninguno |
+| **18** | idem | sin cambio (`:167`) | No | No | idem | ENVÍO | ✏ **Si `carrier` es `null`, la línea es solo `Guía: <n>` / `Tracking: <n>`** — hoy imprime `Paquetería:  · Guía: …` con el hueco (`:175-176`). *Un aviso no finge un dato que no tiene* (su propia regla, `:171`) |
+| **19** | idem | sin cambio (`:211`) | No | No (`:201-203`) | idem | ENVÍO | ✏ **`next` («puedes volver a solicitarlo desde tu cuenta», `:215-217`) solo cuando es un retiro de bóveda** (`orderNumber == null`). En el envío de un pedido, que el cliente pueda «volver a solicitarlo»: **NO MEDIDO** ⇒ no se afirma (§41.15 P-4) |
+| **20** | `TU ACLARACIÓN · <folio>` / `YOUR CLAIM · <folio>` | sin cambio (`:117`) | No | No (la recompra no trae monto a la plantilla: `DisputeNoticeParams`, `:50-54`) | Tinta | ACLARACIÓN | Ninguno |
+| **21** | idem | sin cambio (`:153`) | No | No | Tinta | ACLARACIÓN | Ninguno. El buzón de respuesta (`:157-159`) sigue **en el cuerpo**, nunca solo en el pie |
+| **28** | `AVISO DE EXISTENCIA` / `BACK IN STOCK` (sin folio) | «Volvió a estar disponible» / «It's back in stock» | No | **No** (⛔ ni precio: puede cambiar antes del clic) | Tinta `VER EL PRODUCTO` | AVISO | ⭐ nuevo, §41.10 |
+
+### 41.8 ⭐ Invitado y registrado — el mismo hecho, la misma apariencia (13 ≡ 15)
+
+**Medido:** 13 sale en el esqueleto **viejo** (`guest-order.templates.ts:36,135-148`), con `<ul>` de viñetas y el
+total en una línea en negritas; 15 sale en `mailShell` con el total en la resta (`order-notice.templates.ts:123-141`).
+Son **el mismo hecho** —«tu pedido quedó confirmado»— y el criterio 206 garantiza que **ningún pedido recibe los dos**
+(`order-notice.templates.ts:92-96`): por eso **nadie los ve lado a lado, y por eso nadie lo había notado.**
+
+**Esqueleto común (los dos, en este orden):**
+1. Eyebrow `TU PEDIDO · <n>` / `YOUR ORDER · <n>` · titular «Gracias por tu compra» / «Thanks for your purchase».
+2. Prosa: «Tu pedido `<n>` quedó confirmado y lo estamos preparando.» (sin `<strong>`: la cadena es texto; el número
+   ya va en el eyebrow en mono).
+3. Regla · `LO QUE COMPRASTE` / `WHAT YOU BOUGHT` (`sectionLabelRow`) · **una §31.6c por carta**: `title` = nombre,
+   `meta` = `<set> · #<número>`, celda derecha **vacía** (las plantillas no reciben precio por línea; ⛔ no se
+   inventa).
+4. `totalsRows([], { TOTAL PAGADO / TOTAL PAID, mailMoney(totalCents) })`.
+5. Letra chica «Ventas finales…» (cadena ya idéntica en los dos: `guest-order.templates.ts:81-82` = `order-notice.templates.ts:117-119`).
+6. CTA tinta `VER MI PEDIDO` / `SEE MY ORDER` + URL de respaldo.
+7. Letra chica tras el CTA: **solo 13** — `trackNote` (enlace personal, caduca en 90 días) y `claimCta` (crear cuenta);
+   **los dos** — `invoice` (factura CFDI).
+8. Pie PEDIDO. **Sin saludo** en los dos (§41.3). **Asunto idéntico** (§41.2).
+
+**Lo único que puede diferir, y por qué:** el **destino** del CTA (token frente a sesión, `order-notice.templates.ts:98-101`)
+y las dos notas que solo son verdad para el invitado (enlace personal, crear cuenta). **Todo lo demás —incluido el
+orden— es igual**, y ML-20 lo mide.
+- 🟠 **La línea de factura (CFDI) hoy solo la lleva 13** (`guest-order.templates.ts:83-84`). Pedir factura es igual
+  de cierto para el registrado ⇒ **default: va en los dos.** Es pregunta de producto (§41.15 P-3).
+
+### 41.9 ⭐ CLABE cambiada (27)
+
+Medido (`refund-notice.templates.ts:272-305`) y tres defectos:
+1. **Fecha en ISO y UTC** (`:276`: `2026-10-03 15:00 UTC`). ⇒ **`formatDateTime(changedAt, l)`** —el formateador
+   **exportado** de `buylist-mail.templates.ts:279-286` (hora de `America/Mexico_City`, fecha completa), el mismo de los
+   plazos—. ⛔ No se escribe un quinto formateador. Frase: ES «La CLABE a la que te depositamos cambió el
+   `<fecha y hora>`.» / EN «The CLABE we deposit to changed on `<date and time>`.» (hoy `:291` pone la fecha delante).
+   ⚠ La parte de texto imprime hoy la fecha **suelta en una línea** (`:303`): lleva **la misma frase**.
+2. **Pie falso**: decía «porque tienes un pedido o un envío» (`:43-47`). ⇒ pie **CLABE** propio (§41.6).
+3. **El soporte no estaba en el cuerpo**: «escríbenos de inmediato a soporte» (`:283-285`) sin dirección, y la dirección
+   solo en el pie — que **no puede portar nada necesario** (§31.6h). ⇒ ES «Si no fuiste tú, escríbenos de inmediato a
+   `<soporte>`.» / EN «If this was not you, write to `<support>` right away.», con la dirección de la **misma cascada**
+   del pie (`supportEmail()`, `mail-shell.ts:616-618`, hoy privada ⇒ se exporta). Y pasa de **letra chica a prosa**
+   (`:296`): es la frase de seguridad del correo, no una nota al pie.
+- Sin cambio: eyebrow `TU CUENTA` sin folio; las dos máscaras (anterior / nueva) en `monoRow` (son identificadores,
+  no dinero — y este correo **no es del ciclo de venta**, así que la prohibición de CLABE enmascarada de §31.0 regla 2
+  no le aplica; la cabecera del fichero solo permite la máscara, `:8-9`); CTA bermellón (§41.4).
+
+### 41.10 ⭐ Reposición de sellado (28)
+
+Medido (`catalog/sealed-restock-notify.service.ts:106-117`): asunto y cuerpo **en los dos idiomas a la vez**, HTML a
+mano sin marca ni pie, **`productName` interpolado sin escapar** en el HTML (`:114-115`, que es justo lo que ML-10
+prohíbe) y **ningún enlace al producto**.
+
+- **Una plantilla de verdad**, `catalog/mail/` (mismo patrón que los otros módulos: local al dueño del hecho), sobre
+  `mailShell`.
+- **Un idioma.** Orden de decisión:
+  1. Suscriptor con cuenta (`SealedRestockSubscription.userId`, `prisma/schema.prisma:2102-2103`) ⇒ `User.locale`.
+  2. Invitado ⇒ el idioma en que se suscribió. ⚠ **Ese dato hoy NO existe**: ni el `Req` de
+     `POST /catalog/sealed/restock-subscriptions` (`API_CONTRACT.md:9284`) ni la tabla (`schema.prisma:2098-2116`)
+     guardan idioma ⇒ **solicitud al arquitecto** (§41.15 A-1).
+  3. **Mientras no exista: español** (§9.1: default español). Es un default, no un dato medido.
+- **Enlace al producto:** `appUrl('sellado/<inventoryItemId>', locale)` — la ficha del sellado existe en
+  `frontend/src/app/[locale]/(storefront)/sellado/[inventoryItemId]/page.tsx` y la API la sirve por **una pieza
+  del grupo** (`API_CONTRACT.md:9253-9257`). El job ya empareja contra piezas `listed` (`:80-84`) pero **no
+  selecciona su `id`**: backend lo añade y usa **una** pieza del grupo emparejado. Sin pieza ⇒ `appUrl('sellado')`.
+  ⛔ Nunca sin URL de respaldo. Y la ruta entra en `test/mail-links.frontend-routes.spec.ts`.
+- **Copy** (⭐ nuevo, sin promesas que el sistema no cumpla): prosa ES «El producto `<nombre>` que seguías volvió a
+  estar disponible.» / EN «The product `<name>` you were watching is back in stock.» (es la frase de hoy, `:111-112`,
+  partida por idioma). Letra chica ES «Te avisamos una sola vez por producto.» / EN «We only let you know once per
+  product.» — **cierta**: se sella `notifiedAt` (`:96-99`). ⛔ Ni precio, ni «date prisa», ni cuántas quedan.
+
+### 41.11 Copy — qué hay de nuevo y dónde está lo anterior
+
+- **Pase v3.9 de §31.10 (correos 3, 5a, 5b, 6 y el eyebrow de 2b): ya escrito, no se reescribe** → §31.10 y su
+  estimación en §31.15 (pase 3).
+- **Lo nuevo de §41**, y es todo lo que hay: los asuntos ✏/⭐ de §41.2 · el saludo de §41.3 · los rótulos de CTA
+  cambiados de §41.4 (7, 8, 17–19, 25, 26) · los pies ⭐ de §41.6 · las tres ✏ de §41.7 (9, 18, 19) · el orden de
+  13/15 de §41.8 · las dos frases de 27 (§41.9) · el copy de 28 (§41.10) · y la frase de la tarjeta de 25:
+  ES «Además, `<monto>` regresan a tu tarjeta; tu banco decide cuándo aparecen.» / EN «Also, `<amount>` goes back to
+  your card; your bank decides when it shows up.» (sustituye la segunda `monoRow` de `refund-notice.templates.ts:199`).
+- **Paridad ES/EN en el mismo cambio**, como siempre. Ratificación de PO en §41.15 P-2.
+
+### 41.12 Contraste — cero pares nuevos
+
+Todo §41 usa los pares de §31.11. El bermellón aparece en 6 de 30 CTA (papel sobre `#B31217` = 6.2:1) y en el token
+de fecha de 10 (6.2:1). El verde de éxito **sigue sin aparecer en ningún correo** — tampoco en 12, 16 o 26, que son
+buenas noticias: lo dice la palabra.
+
+### 41.13 Lista de cambios para backend (fichero:línea medidos en este worktree el 2026-10-04 — re-medir antes de editar)
+
+**Esqueleto (`buylist/mail-shell.ts`) — primero, porque los treinta dependen de él:**
+- **E-1** `mailMoney(cents)`: el algoritmo de `frontend/src/lib/format.ts:29-40`. Borrar `money()` de
+  `buylist-mail.templates.ts:293-299` (o reexportar el nuevo con ese nombre: lo importan `buylist-notice.templates.ts:15`
+  y `offerTermsCopy` en `:688-689`), `order-notice.templates.ts:47-53`, `refund-notice.templates.ts:35-41` y
+  `guest-order.templates.ts:48-53`.
+- **E-2** `greetingLine(name: string | null, locale)` → `{ html, text }`, con la tabla de §41.3; mover aquí el de
+  `mail/mail.templates.ts:49-58`.
+- **E-3** Exportar `supportEmail()` (`:616-618`).
+
+**Por correo:**
+
+| # | Fichero:línea | Cambio |
+|---|---|---|
+| 1 | `buylist-mail.templates.ts:467`, `:520` | Saludo por E-2 (EN con coma). Dinero por E-1 (incl. `rule`, `:688-706`). Asunto `:549` ✅ |
+| 2 | `:856`, `:896` | Saludo E-2. Neto E-1. Asunto `:885` ✅ |
+| 3 | `:609`, `:641` | Saludo E-2. (Copy de §31.10a si aún no está — pase 3 de §31.15) |
+| 4 | `:193`, `:220` | Saludo E-2 (ya con coma; gana el caso sin nombre) |
+| 5 | `:952`, `:978` | Saludo E-2 |
+| 6 | `:1040`, `:1067` | Saludo E-2 |
+| 1–6, 10–12 | llamadores en `buylist/buylist.service.ts` (p. ej. `:4500`, `:5081`, `:7703`) y `buylist-sweep.service.ts` | Pasar `greetingName(user)` (`mail/greeting-name.ts:22`) en vez del nombre crudo. Líneas exactas de cada llamador: **NO MEDIDAS** salvo las tres citadas |
+| 7, 8 | `mail/mail.templates.ts:68-120` | A `mailShell` (§31.9 fila 7/8): eyebrow `SEGURIDAD DE LA CUENTA`, CTA tinta de §41.4, URL de respaldo, pie §41.6, letra chica con el plazo del enlace. Borrar `layout()` `:33-43` y `button()` `:60-62` (adiós `border-radius:6px`, `#111`, `520px`) |
+| 9 | `mail/mail.templates.ts:128-153` | A `mailShell`, sin CTA, titular = asunto, pie CUENTA·equipo |
+| 10 | `buylist-notice.templates.ts:137`, `:119`, `:146` | Asunto sin prefijo; saludo E-2 |
+| 11 | `:213`, `:203`, `:222` | idem |
+| 12 | `:296`, `:282`, `:306`, `:273` | idem + E-1 |
+| 13 | `orders/mail/guest-order.templates.ts:71`, `:91`, `:127-164` | Asunto sin prefijo; a `mailShell` con el esqueleto de §41.8; sin `<strong>` en `:73`, `:93`; borrar `layout()` `:36-46`, `escapeHtml` `:27-34` (usar el del esqueleto) e `itemsHtml` `:112-120` |
+| 14 | `:85`, `:105`, `:167-185` | Asunto sin prefijo; a `mailShell`; sin `<strong>` en `:88`, `:108` |
+| 15 | `orders/mail/order-notice.templates.ts:143-145`, `:122`, `:133` | Asunto sin prefijo; líneas a `cardLineRows`; línea CFDI (default §41.8) |
+| 16 | `:232-234` | Asunto sin prefijo |
+| 17 | `shipments/mail/shipment-notice.templates.ts:148`, `:132` | Asunto sin prefijo; rótulo según destino |
+| 18 | `:190`, `:172-177`, `:179` | Asunto; línea sin `Paquetería:` cuando `carrier` es `null`; rótulo |
+| 19 | `:231`, `:215-219`, `:226` | Asunto; `next` solo en retiro; rótulo |
+| 20, 21 | `disputes/mail/dispute-notice.templates.ts:126`, `:162` | Asunto sin prefijo |
+| 22 | `admin/mail/kyc-notice.templates.ts:114`, `:95`, `:125`; `admin/admin.service.ts:1226` | Asunto; saludo E-2; el llamador pasa `greetingName(user)` en vez de `user.name ?? ''` |
+| 23 | `payments/refunds/mail/refund-notice.templates.ts:139`, `:93-97`, `:126` | Asunto; cada carta a `cardLineRows` (`title` nombre, `meta` set, `note` el motivo, `amount` E-1) |
+| 24 | `:176`, `:158`, `:169` | Asunto; cartas a `cardLineRows` **sin** importe |
+| 25 | `:222`, `:197-200`, `:215`, `:219` | Asunto; `totalsRows([], { POR TRANSFERENCIA / BY TRANSFER, transfer })`; la parte de tarjeta como frase (§41.11); rótulo `VER MI CUENTA` con CLABE |
+| 26 | `:259`, `:239`, `:252`, `:256` | Asunto; `totalsRows([], { TE DEPOSITAMOS / DEPOSITED, transfer })`; rótulo `VER MI CUENTA` |
+| 27 | `:301`, `:276`, `:283-285`, `:291`, `:296`, `:302`, `:303` | Asunto; fecha por `formatDateTime`; soporte en el cuerpo con E-3 y en prosa; pie CLABE; texto a paridad |
+| 28 | `catalog/sealed-restock-notify.service.ts:75`, `:81-82`, `:90`, `:106-117` | Plantilla nueva en `catalog/mail/`; un idioma (§41.10); `include` del `user.locale`; `select` del `id` de la pieza para el enlace; escape vía esqueleto |
+
+**Tests que hoy fijan lo que cambia** (medido por `grep`, puede haber más): `test/avisos.shipments.spec.ts:129-130`
+(asunto por `toContain`, sigue verde), `test/guest-checkout.guard-sweep-mail.spec.ts:245,266-267` (sigue verde),
+`test/users.kyc-cycle.spec.ts:329` (sigue verde), `test/mail.service.spec.ts:25-57` (sigue verde). Ninguno fija el
+prefijo `TCG HUNT —` por igualdad (NO MEDIDO en `test/avisos.*` por igualdad de HTML).
+
+**Zonas y streams (para el orquestador):** los cambios cruzan `mail/` (Cuentas y acceso), `orders`, `payments`,
+`shipments`, `disputes` (Órdenes y dinero), `admin` (Admin y auditoría), `catalog` (Catálogo y precios) y el esqueleto
+compartido `buylist/mail-shell.ts`. **E-1…E-3 van primero y solos**; el resto se puede repartir por módulo.
+
+### 41.14 Candados — ML-1…ML-13 ampliados a los treinta, y ML-14…ML-23 nuevos
+
+**Base común:** un registro exhaustivo `TODOS_LOS_CORREOS` en un spec (p. ej. `test/mail.all-templates.spec.ts`) que
+renderiza los **30 × 2 idiomas** con fixtures, y **falla si un fichero de plantillas exporta una función que no está
+en el registro** (mismo mecanismo de exhaustividad que `test/avisos.copy-guard.spec.ts` y
+`test/buylist.cycle-mail-pii.spec.ts`). Sin ese registro, «los treinta» se vuelve «los que alguien se acordó de poner».
+
+| # | Ampliación / nuevo | Rojo si… |
+|---|---|---|
+| **ML-1** | A los 30 | Quitando todo `<img>`, `TCG HUNT` no está en el texto visible; o algún `alt` contiene `TCG HUNT`; o no hay **exactamente un** `<img>` con `src` en `tcghunt.mx` |
+| **ML-2** | Se queda en VENTA (1–6, 10–12) + `subject` | Uno de los cinco prohibidos en `subject`/`html`/`text`. El resto ya lo barre `C-AV-9` |
+| **ML-3** | Sin cambio | `item.condition` del portal ≠ cadena del correo 1. ⭐ **Y añade:** `rule` del correo = `rule` del DTO del portal tras E-1 |
+| **ML-4** | A los 30 | Una `<td>` con texto sin `bgcolor` **y** `background-color` |
+| **ML-5** | A los 28 con CTA | La URL del `href` no aparece también como texto en `html` **y** en `text` |
+| **ML-6** | A los 30 | Aparece `MX$0.00`, `$0.00` o `0.00` junto a símbolo de moneda en cualquier render |
+| **ML-7** | A los de dinero: 1, 2, 12, 13, 15, 16, 23, 25, 26 | La parte `text` no contiene **cada** importe del HTML (misma cadena de E-1) y la URL completa |
+| **ML-8** | A los 30 (peor caso: 1 con 20 líneas, 13/15 con 20 cartas, 23 con 10) | `html` ≥ 90 000 bytes, o el CTA cae en la segunda mitad |
+| **ML-9** | A los 30 | `text-transform:uppercase` en cualquier render; o un eyebrow/rótulo/CTA con minúsculas en la cadena |
+| **ML-10** | A los 30 ⭐ (incluye 28: hoy **rojo**) | Un nombre/producto `"><script>alert(1)</script>` aparece sin escapar |
+| **ML-11** | Manual, a los 30 | Visto en Gmail web sin imágenes, Outlook Windows y Gmail Android oscuro: desaparece texto, marca o CTA. ⭐ Prioridad: los seis que cambian de esqueleto (7, 8, 9, 13, 14, 28) |
+| **ML-12, ML-13** | Sin cambio | (§31.14) |
+| **ML-14** ⭐ | Asunto | **(a)** Para los 30 × 2: el asunto **no empieza** por `TCG HUNT`, **no contiene** ` · ` ni el asunto del otro idioma, y los ocho de §31.9 son **byte a byte** los de hoy. **(b)** En no-local, `MAIL_FROM` tiene nombre visible `TCG HUNT` (validación de entorno al arrancar) |
+| **ML-15** ⭐ | Saludo | Para los 15 renders que saludan (1–6 con sus variantes, 7–12, 22), con `name` = `'Ana'`, `''`, `'   '` y `nameSource='derived'`, en `html` y `text`: ES `Hola Ana:` / `Hola:`, EN `Hi Ana,` / `Hi,`. **Rojo** con `/Hola\s+:/`, `/Hi\s+[,:]/`, `/Hi [^,\n]+:/`. **Y por ausencia:** los 15 que no saludan (13–21, 23–28) no contienen `Hola`/`Hi ` al inicio del cuerpo |
+| **ML-16** ⭐ | Dinero | **(a)** `mailMoney` con la tabla fija `690→MX$6.90`, `84000→MX$840.00`, `125000→MX$1,250.00`, `1685520→MX$16,855.20` — **la misma** que `frontend/src/lib/format.test.ts:36-48`, en `es` **y** `en` (mismo resultado). **(b)** En los 30 × 2, ningún `$` no precedido de `MX` (`/(?<!MX)\$\d/`). **(c)** 25 y 26 no emiten importes por `monoRow` (el importe vive en una `<td align="right">`) |
+| **ML-17** ⭐ | Tono del CTA | Tabla esperada: bermellón en {1, 2a, 2b, 10, 25-sin-CLABE, 27}, cero CTA en {4, 9}, tinta en el resto. **Rojo** si un CTA tiene el `bgcolor` contrario. **Y el rótulo nombra el destino:** si el `href` contiene `/orders/`, el rótulo es `VER MI PEDIDO`/`SEE MY ORDER` |
+| **ML-18** ⭐ | Pie | El «por qué» de cada correo = el de su familia (§41.6). **Rojo** si 27 contiene `pedido o un envío` / `order or a shipment`, o si dos familias comparten frase |
+| **ML-19** ⭐ | Un idioma | En los 30: `html lang` = locale pedido, y el render ES no contiene **ninguna** frase del render EN del mismo correo (y viceversa). ⭐ Hoy **rojo** en 28. **Y 28** con suscriptor registrado `locale='en'` sale en inglés; con invitado sin dato, en español |
+| **ML-20** ⭐ | 13 ≡ 15 | Con el mismo pedido: mismo asunto, eyebrow, titular, intro, rótulo de sección, líneas, etiqueta y cadena del total, letra chica «Ventas finales», rótulo del CTA y pie; y el **orden** de esos bloques es el mismo. Solo 13 contiene `trackNote` y `claimCta` |
+| **ML-21** ⭐ | Esqueleto único | Ningún render contiene `max-width:520px`, `border-radius`, `<h2`, `<h3` ni `color:#111`; todos contienen `<meta name="color-scheme" content="light">` y el pie en tinta |
+| **ML-22** ⭐ | CLABE (27) | El render no contiene `/\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/`; contiene `formatDateTime(changedAt, l)` en `html` y `text`; y la dirección de soporte aparece **fuera** de la banda del pie |
+| **ML-23** ⭐ | Sellado (28) | El render tiene CTA con `href` a `/<locale>/sellado/<id>` (o `/sellado`), la ruta está en `test/mail-links.frontend-routes.spec.ts`, y no contiene ningún importe |
+
+*Canarios:* ML-14…ML-23 tienen que nacer **rojos contra el código de hoy** (asuntos con prefijo, `Hola :` en 22,
+`$840.00` en ES, 19 con `IR A MI CUENTA` hacia un pedido, pie de 27, fecha ISO, 28 bilingüe y sin escape). Si alguno
+nace verde, el candado no mide lo que dice.
+
+### 41.15 Preguntas, solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **P-1** 🟠 | dueño / product-owner | **Dinero sin espacio** (`MX$1,250.00`, lo que ya imprime la web). Default: **sin espacio**. Si el dueño quiere el espacio, cambian web y correo **juntos** |
+| **P-2** | product-owner | **Ratificar el copy nuevo de §41.11** y el cambio de **formato** dentro de `offerTermsCopy().rule` en español (`$180.00` → `MX$180.00`; la frase no cambia) |
+| **P-3** 🟠 | dueño | **¿La línea de factura (CFDI) va también en el correo del registrado (15)?** Default: **sí**, en los dos (§41.8) |
+| **P-4** 🟠 | dueño / product-owner | **19 en un pedido:** ¿el cliente puede «volver a solicitar» el envío de un pedido cancelado? **NO MEDIDO.** Default: la frase sale **solo** en el retiro de bóveda |
+| **A-1** | arquitecto | **Idioma del suscriptor invitado del sellado:** `locale?: 'es' \| 'en'` en el `Req` de `POST /catalog/sealed/restock-subscriptions` (`API_CONTRACT.md:9284`) y columna en `SealedRestockSubscription` (`schema.prisma:2098`); el front manda el locale de la página. **No bloquea**: hasta entonces el invitado recibe español (§41.10) |
+| **D-1** | devops | **`MAIL_FROM` con nombre visible** (`TCG HUNT <no-reply@tcghunt.mx>`) en staging y prod — §41.2 depende de ello. Valor real: **NO MEDIDO**. ML-14(b) lo vigila al arrancar |
+| **N-1** | orquestador | Los cambios cruzan **seis módulos de cuatro streams** y la zona compartida `buylist/mail-shell.ts` (§41.13). E-1…E-3 primero y solos; y el traslado de `layout()` de `mail/` es el disparador declarado de **BE-43** (§31.15) |
+| **N-2** | QA | ML-11 no se automatiza: abrir los seis que cambian de esqueleto en las tres bandejas. Y ML-14…ML-23 se dan por buenos **solo** si se vieron rojos contra el código de hoy |
