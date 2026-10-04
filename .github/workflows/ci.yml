@@ -194,8 +194,9 @@ jobs:
       # M-64: el importador del catálogo de CP de SEPOMEX (scripts/geo/). Su prueba
       # corre contra una base DEDICADA (`tcg_sepomex_ci`, la crea `migrate deploy`
       # porque el usuario del servicio es superusuario), nunca contra `tcg_ci`: la
-      # prueba vacía la tabla. Mide carga, resolución por `resolvePostalCode`,
-      # idempotencia y que todo fallo deja la tabla idéntica. DEVOPS_NOTES §79.
+      # prueba vacía la tabla. Mide carga por modo, resolución por `resolvePostalCode`,
+      # idempotencia, `verify` (vacía ⇒ 2) y que todo fallo deja la tabla idéntica.
+      # Ningún arranque lo corre (G-BOOT, job `boot-no-geo`). DEVOPS_NOTES §79–§81.
       - name: Importador SEPOMEX — prueba con base dedicada (M-64)
         run: |
           SEPOMEX_TEST_DATABASE_URL="$(printf '%s' "$DATABASE_URL" | sed 's#/tcg_ci?#/tcg_sepomex_ci?#')"
@@ -666,6 +667,25 @@ jobs:
         run: ./scripts/check-skydropx-spend-lock-canary.sh
 
   # ---------------------------------------------------------------------------
+  # 💰 G-BOOT — «la tienda nunca deja de vender por el catálogo de CP», al nivel
+  # del arranque (API_CONTRACT §M4-SHIP.19.25.4, decisión del dueño HECHOS.md:57).
+  # Hasta v1.80.12.4 el CMD corría `import-sepomex.ts boot` y en Railway, sin
+  # manifiesto, la imagen NO arrancaba. Este candado impide que vuelva: ni el
+  # CMD/ENTRYPOINT, ni la imagen, ni .dockerignore, ni railway.json, ni compose
+  # cargan el importador. El canario repone el `boot` literal y exige ROJO.
+  # DEVOPS_NOTES §81.
+  # ---------------------------------------------------------------------------
+  boot-no-geo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ningún arranque carga ni verifica el catálogo de CP (G-BOOT)
+        run: ./scripts/check-boot-no-geo.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-boot-no-geo-canary.sh
+
+  # ---------------------------------------------------------------------------
   # 🔒 S-CI-1 — UN SCRIPT QUE SE INVOCA DESDE CI TIENE QUE EXISTIR BAJO EL CWD DEL
   # PASO QUE LO INVOCA. 2026-09-11, hallazgo ALTA de seguridad (re-veredicto).
   #
@@ -786,7 +806,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, skydropx-spend-lock]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, skydropx-spend-lock, boot-no-geo]
     if: always()
     runs-on: ubuntu-latest
     steps:

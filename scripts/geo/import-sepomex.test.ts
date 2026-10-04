@@ -1,15 +1,18 @@
 /**
- * import-sepomex.test.ts — prueba del importador de SEPOMEX (DEVOPS_NOTES §79–§80).                       · devops
+ * import-sepomex.test.ts — prueba del importador de SEPOMEX (DEVOPS_NOTES §79–§81).                       · devops
  *
- * Norma: API_CONTRACT §M4-SHIP.19.24.9 (G1–G11). Sin base: lector, manifiesto, modo (G1), sin manifiesto (G5), pisos
- * (G10), arnés sin archivo, candado del extracto (G11). Con SEPOMEX_TEST_DATABASE_URL (localhost y nombre con
- * «sepomex»: la prueba vacía la tabla): arnés, G2, G3, G4, G6, G7, G8, G9, ROLLBACK e `import` explícito, resolviendo
- * por el MISMO `PostalCodeService` de la app.
+ * Norma: API_CONTRACT §M4-SHIP.19.24.9 (G1–G11) con la errata v1.80.12.5 (§M4-SHIP.19.25.4): `boot` retirado ⇒ G4
+ * fuera; G5 = «`import` estricto sin manifiesto ⇒ sale 1»; G2/G9 en `verify` (alarma, solo lectura), G3/G6/G8 en
+ * `import`; el test 19 (que exigía `boot` en el CMD) pasa a ser G-BOOT (el CMD NO lo corre). Sin base: lector,
+ * manifiesto, modo (G1), G5, G10, G11, `boot` ya no es subcomando, G-BOOT. Con SEPOMEX_TEST_DATABASE_URL (localhost y
+ * nombre con «sepomex»: la prueba vacía la tabla): arnés, G2, G3, G6, G7, G8, G9, `verify` vacía ⇒ 2, ROLLBACK e
+ * `import` explícito, resolviendo por el MISMO `PostalCodeService` de la app.
  *
  * Lanzador: scripts/geo/import-sepomex.sh test
  */
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -121,36 +124,57 @@ test('G1: el modo lo decide el blanco con assertSeedTarget (importada, no copiad
   assert.doesNotMatch(src, /isRecognizedSeedTarget|LOCAL_HOSTS|--harness|SEPOMEX_HARNESS/);
 });
 
-test('boot clasifica y escribe con DATABASE_URL tal cual (sin salto a DATABASE_PUBLIC_URL); verify/import sí saltan', async () => {
-  const { resolveDatabaseUrl } = await import('./import-sepomex');
+/** El CLI real, como lo corre el dueño (mismo node + ts-node que esta prueba, vía el lanzador). */
+const CLI = join(__dirname, 'import-sepomex.ts');
+function cli(args: string[], env: NodeJS.ProcessEnv = {}) {
+  const r = spawnSync(process.execPath, ['--require', 'ts-node/register', CLI, ...args], {
+    env: { PATH: process.env.PATH, TS_NODE_PROJECT: process.env.TS_NODE_PROJECT, TS_NODE_TRANSPILE_ONLY: '1', ...env },
+    encoding: 'utf8',
+    timeout: 120_000,
+  });
+  return { code: r.status, out: `${r.stdout}${r.stderr}` };
+}
+
+test('`verify`/`import` saltan a DATABASE_PUBLIC_URL si DATABASE_URL es *.railway.internal (se lanzan desde fuera)', async () => {
+  const { resolveDatabaseUrl, ImportAbort } = await import('./import-sepomex');
   const env = { DATABASE_URL: 'postgresql://u:p@postgres.railway.internal:5432/railway', DATABASE_PUBLIC_URL: 'postgresql://u:p@x.proxy.rlwy.net:1/railway' } as NodeJS.ProcessEnv;
-  assert.equal(resolveDatabaseUrl(env, { allowPublicFallback: false }).url, env.DATABASE_URL);
-  assert.equal(resolveDatabaseUrl(env, { allowPublicFallback: true }).url, env.DATABASE_PUBLIC_URL);
-  const src = readFileSync(join(__dirname, 'import-sepomex.ts'), 'utf8');
-  const bootBlock = src.slice(src.indexOf("if (cmd === 'boot') {"), src.indexOf("if (cmd === 'boot') {") + 300);
-  assert.match(bootBlock, /resolveDatabaseUrl\(process\.env, \{ allowPublicFallback: false \}\)/);
+  assert.equal(resolveDatabaseUrl(env).url, env.DATABASE_PUBLIC_URL);
+  assert.throws(() => resolveDatabaseUrl({ DATABASE_URL: env.DATABASE_URL } as NodeJS.ProcessEnv), (e: unknown) => e instanceof ImportAbort && /DATABASE_PUBLIC_URL/.test(e.message));
+  const local = { DATABASE_URL: 'postgresql://u:p@localhost:5432/x' } as NodeJS.ProcessEnv;
+  assert.equal(resolveDatabaseUrl(local).url, local.DATABASE_URL);
 });
 
-test('G5: estricto sin manifiesto ⇒ error (antes de tocar la base)', async () => {
-  const { bootCatalog, ImportAbort } = await import('./import-sepomex');
-  await assert.rejects(bootCatalog(null, { mode: 'strict', manifestPath: null, source: null }), (e: unknown) => e instanceof ImportAbort && /no hay manifiesto/.test(e.message));
-  await assert.rejects(bootCatalog(null, { mode: 'strict', manifestPath: join(tmp, 'no-existe.json'), source: null }), /no hay manifiesto/);
+test('`boot` retirado (§19.25.4): ni subcomando, ni función, ni rama en el lanzador; pedirlo es error de uso (64)', () => {
+  const ts = readFileSync(CLI, 'utf8');
+  assert.doesNotMatch(ts, /bootCatalog|BootOptions|BootReport|cmd === 'boot'|'boot'/);
+  const sh = readFileSync(join(__dirname, 'import-sepomex.sh'), 'utf8');
+  assert.doesNotMatch(sh.split('\n').filter((l) => !l.startsWith('#')).join('\n'), /\bboot\b/);
+  const r = cli(['boot'], { DATABASE_URL: 'postgresql://u:p@localhost:1/x' });
+  assert.equal(r.code, 64, r.out);
+  assert.match(r.out, /^uso: manifest/m);
+  assert.doesNotMatch(r.out, /boot/);
 });
 
-test('G10: manifiesto bajo los pisos de C-GEO-1 ⇒ error (con los pisos reales)', async () => {
-  const { bootCatalog, C_GEO_FLOORS, HARNESS_POSTAL_CODES } = await import('./import-sepomex');
-  await assert.rejects(bootCatalog(null, { mode: 'strict', manifestPath: FIX_MANIFEST, source: null }), /no alcanza los pisos/);
+test('G5: `import` estricto sin manifiesto ⇒ sale 1, antes de tocar la base (puerto muerto: no llega a conectar)', () => {
+  const r = cli(['import', '--file', FIXTURE, '--strict', '--manifest', join(tmp, 'no-existe.json')], { DATABASE_URL: 'postgresql://u:canario-g5@localhost:1/x' });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /no hay manifiesto \(no-existe\.json\)/);
+  assert.doesNotMatch(r.out, /canario-g5|ECONNREFUSED|P1001/); // ni la contraseña, ni un intento de conexión
+});
+
+test('G10: manifiesto bajo los pisos de C-GEO-1 ⇒ error en estricto (con los pisos reales); en arnés no aplica', async () => {
+  const { assertManifestFloors, readManifest, C_GEO_FLOORS, HARNESS_POSTAL_CODES } = await import('./import-sepomex');
+  const m = readManifest(FIX_MANIFEST);
+  assert.throws(() => assertManifestFloors(m, 'strict'), /no alcanza los pisos/);
+  assert.doesNotThrow(() => assertManifestFloors(m, 'harness'));
+  assert.doesNotThrow(() => assertManifestFloors(m, 'strict', FIX_FLOORS));
   assert.deepEqual({ ...C_GEO_FLOORS }, { minRows: 100_000, minPostalCodes: 25_000, exactStates: 32 });
   assert.ok(Object.isFrozen(C_GEO_FLOORS));
   assert.deepEqual([...HARNESS_POSTAL_CODES], ['01000', '06600', '14210', '44100', '64000']);
-});
-
-test('arnés sin archivo ⇒ no carga, sale bien, sin base ni red', async () => {
-  const { bootCatalog } = await import('./import-sepomex');
-  const lines: string[] = [];
-  const r = await bootCatalog(null, { mode: 'harness', manifestPath: null, source: null, log: (l) => lines.push(l) });
-  assert.equal(r.outcome, 'harness-no-file');
-  assert.deepEqual(lines, ['[sepomex] modo arnés: sin archivo, no se carga; los CP los siembra el arnés']);
+  // y por el CLI: el extracto (10 filas) en estricto ⇒ sale 1 por pisos, sin conectar
+  const r = cli(['import', '--file', FIXTURE, '--strict'], { DATABASE_URL: 'postgresql://u:p@localhost:1/x' });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /no alcanza los pisos/);
 });
 
 /** G11 (§19.24.7): el extracto es SINTÉTICO y pequeño. */
@@ -190,37 +214,55 @@ async function harness() {
   const svc = new PostalCodeService([new LocalPostalCodeSource(prisma)]);
   const snapshot = async () =>
     JSON.stringify(await prisma.postalCode.findMany({ orderBy: [{ postalCode: 'asc' }, { neighborhood: 'asc' }] }));
+  /** El contenido sin `id`: tras una reparación la fila re-insertada trae un `id` nuevo (lo que importa son las 4 columnas). */
+  const content = async () =>
+    JSON.stringify(await prisma.postalCode.findMany({ select: { postalCode: true, neighborhood: true, municipality: true, state: true }, orderBy: [{ postalCode: 'asc' }, { neighborhood: 'asc' }] }));
   await prisma.$executeRawUnsafe('DELETE FROM "PostalCode"');
-  /** Un obtenedor de archivo que cuenta llamadas (G4/G6). */
+  /** Un obtenedor de archivo que cuenta llamadas (G6). */
   const counting = (buf: Buffer) => {
     const src = { describe: 'doble', calls: 0, fetch: async () => (src.calls++, buf) };
     return src;
   };
-  const boot = (mode: 'strict' | 'harness', extra: Partial<Parameters<typeof mod.bootCatalog>[1]> = {}) =>
-    mod.bootCatalog(prisma, { mode, manifestPath: FIX_MANIFEST, source: mod.localFile(FIXTURE), floors: FIX_FLOORS, ...extra });
-  return { prisma, svc, snapshot, counting, boot, ...mod };
+  const m = mod.readManifest(FIX_MANIFEST);
+  const rows = await mod.obtainVerified(mod.localFile(FIXTURE), m);
+  const load = (mode: 'strict' | 'harness', extra: Partial<Parameters<typeof mod.importCatalog>[1]> = {}) =>
+    mod.importCatalog(prisma, { mode, manifest: m, rows, floors: FIX_FLOORS, ...extra });
+  const verify = (mode: 'strict' | 'harness', extra: Partial<Parameters<typeof mod.verifyCatalog>[1]> = {}) =>
+    mod.verifyCatalog(prisma, { mode, manifestPath: FIX_MANIFEST, source: mod.localFile(FIXTURE), floors: FIX_FLOORS, ...extra });
+  return { prisma, svc, snapshot, content, counting, load, verify, m, rows, ...mod };
 }
 
-test('arnés: carga el extracto y resuelve por el cuerpo de la app; falla-cerrado y ROLLBACK', { skip }, async () => {
-  const { prisma, svc, boot, ImportAbort, deriveFromFile, localFile } = await harness();
+/**
+ * La colonia canónica tal como la resuelve la app: `resolvePostalCode` (el ÚNICO cuerpo que lee `PostalCode`, C-SDX-3)
+ * + `normalizeColonia`. No usa la función de alto nivel de backend (que v1.80.12.5 renombra): lo que se prueba aquí es
+ * el catálogo que deja el importador, no la regla de la dirección.
+ */
+async function canon(svc: { resolvePostalCode(cp: string): Promise<{ entries: { neighborhood: string; municipality: string; state: string }[] } | null> }, cp: string, typed: string) {
+  const { normalizeColonia } = await import('../../backend/src/modules/shipping-provider/geo/postal-code');
+  const hit = (await svc.resolvePostalCode(cp))?.entries.find((e) => normalizeColonia(e.neighborhood) === normalizeColonia(typed));
+  return hit ? { postalCode: cp, neighborhood: hit.neighborhood, city: hit.municipality, state: hit.state } : null;
+}
+
+test('arnés: `import` carga el extracto y resuelve por el cuerpo de la app; falla-cerrado y ROLLBACK', { skip }, async () => {
+  const { prisma, svc, load, ImportAbort, deriveFromFile, obtainVerified, localFile, readManifest } = await harness();
   try {
-    const r1 = await boot('harness');
-    assert.deepEqual([r1.outcome, r1.inserted, r1.inclusion?.missing], ['loaded', 10, 0]);
+    const r1 = await load('harness');
+    assert.deepEqual([r1.added, r1.removed, r1.inclusion.missing], [10, 0, 0]);
     const gdl = await svc.resolvePostalCode('44100');
     assert.deepEqual(gdl?.entries.map((e) => e.neighborhood), ['Centro Barranquitas', 'Guadalajara Centro']);
     assert.equal(gdl?.source, 'local');
     assert.deepEqual((await svc.resolvePostalCode('06600'))?.entries, [{ neighborhood: 'Juárez', municipality: 'Cuauhtémoc', state: 'Ciudad de México' }]);
-    assert.deepEqual(await svc.canonicalize('15520', '  penon   de los BANOS '), {
+    assert.deepEqual(await canon(svc, '15520', '  penon   de los BANOS '), {
       postalCode: '15520',
       neighborhood: 'Peñón de los Baños',
       city: 'Venustiano Carranza',
       state: 'Ciudad de México',
     });
-    assert.equal((await svc.canonicalize('58000', 'AGUITA FRIA')).neighborhood, 'Agüita Fría');
-    assert.equal((await svc.canonicalize('14210', 'jardines de la montana')).neighborhood, 'Jardines de la Montaña');
+    assert.equal((await canon(svc, '58000', 'AGUITA FRIA'))?.neighborhood, 'Agüita Fría');
+    assert.equal((await canon(svc, '14210', 'jardines de la montana'))?.neighborhood, 'Jardines de la Montaña');
     assert.equal(await svc.resolvePostalCode('99999'), null);
-    const r2 = await boot('harness');
-    assert.deepEqual([r2.inserted, r2.inclusion?.missing], [0, 0]);
+    const r2 = await load('harness');
+    assert.deepEqual([r2.added, r2.inclusion.missing], [0, 0]);
 
     // (3): un archivo sin un CP del arnés (con SU manifiesto) ⇒ carga, (3) falla dentro de la tx ⇒ ROLLBACK
     await prisma.$executeRawUnsafe('DELETE FROM "PostalCode"');
@@ -228,89 +270,121 @@ test('arnés: carga el extracto y resuelve por el cuerpo de la app; falla-cerrad
     const f = join(tmp, 'sin14210.txt');
     writeFileSync(f, sin);
     writeFileSync(join(tmp, 'sin14210.manifest.json'), JSON.stringify(deriveFromFile(sin).manifest));
+    const m2 = readManifest(join(tmp, 'sin14210.manifest.json'));
     await assert.rejects(
-      boot('harness', { source: localFile(f), manifestPath: join(tmp, 'sin14210.manifest.json') }),
+      load('harness', { manifest: m2, rows: await obtainVerified(localFile(f), m2) }),
       (e: unknown) => e instanceof ImportAbort && /\(3\) resolvePostalCode\(14210\)/.test(e.message),
     );
     assert.equal(await prisma.postalCode.count(), 0);
 
-    // fallo a mitad de la transacción, tras insertar ⇒ ROLLBACK
-    let seen = -1;
-    await assert.rejects(
-      boot('harness', {
-        afterWrite: async () => {
-          seen = await prisma.postalCode.count(); // fuera de la tx: no ve nada
-          throw new Error('fallo simulado');
-        },
-      }),
-      /fallo simulado/,
-    );
-    assert.deepEqual([seen, await prisma.postalCode.count()], [0, 0]);
+    // fallo a mitad de la transacción, tras insertar ⇒ ROLLBACK (en los dos modos)
+    for (const mode of ['harness', 'strict'] as const) {
+      let seen = -1;
+      await assert.rejects(
+        load(mode, {
+          afterWrite: async () => {
+            seen = await prisma.postalCode.count(); // fuera de la tx: no ve nada
+            throw new Error('fallo simulado');
+          },
+        }),
+        /fallo simulado/,
+      );
+      assert.deepEqual([mode, seen, await prisma.postalCode.count()], [mode, 0, 0]);
+    }
   } finally {
     await prisma.$executeRawUnsafe('DELETE FROM "PostalCode"');
     await prisma.$disconnect();
   }
 });
 
-test('G3: arnés + filas de E2E_POSTAL_CODES + archivo ⇒ bien, ajenas contadas e impresas', { skip }, async () => {
-  const { prisma, boot } = await harness();
+test('G3: arnés + filas de E2E_POSTAL_CODES + archivo ⇒ `import` bien, ajenas contadas, impresas y NO borradas', { skip }, async () => {
+  const { prisma, load } = await harness();
   const { E2E_POSTAL_CODES } = await import('../../backend/prisma/e2e-fixtures');
   try {
     await prisma.postalCode.createMany({ data: [...E2E_POSTAL_CODES], skipDuplicates: true });
     const logs: string[] = [];
-    const r = await boot('harness', { log: (l) => logs.push(l) });
-    assert.equal(r.outcome, 'loaded');
-    assert.deepEqual([r.inclusion?.missing, r.inclusion?.discrepant, r.inclusion?.foreign], [0, 0, 2]); // 01000 «Centro», 06600 «Roma Norte»
+    const r = await load('harness', { log: (l) => logs.push(l) });
+    assert.deepEqual([r.inclusion.missing, r.inclusion.discrepant, r.inclusion.foreign, r.removed], [0, 0, 2, 0]); // 01000 «Centro», 06600 «Roma Norte»
     assert.ok(logs.some((l) => /ajenas 2 \[.*Roma Norte/.test(l)), logs.join('\n'));
+    assert.equal(await prisma.postalCode.count({ where: { neighborhood: 'Roma Norte' } }), 1);
   } finally {
     await prisma.$executeRawUnsafe('DELETE FROM "PostalCode"');
     await prisma.$disconnect();
   }
 });
 
-test('G2/G4/G6/G8/G9: modo estricto — alarma sin borrar, re-arranque sin archivo, sha antes de leer, reparación', { skip }, async () => {
-  const { prisma, snapshot, counting, boot, ImportAbort } = await harness();
+test('G2/G6/G8/G9: estricto — sha antes de leer, carga, `verify` alarma sin borrar, `import` repara y reconcilia', { skip }, async () => {
+  const { prisma, snapshot, content, counting, load, verify, obtainVerified, m, ImportAbort } = await harness();
   try {
     // G6: objeto con sha256 distinto ⇒ error de sha ANTES de interpretarlo (basura no parseable: si se parseara antes, el error sería otro)
     const bad = counting(Buffer.from('esto no es un TXT de SEPOMEX', 'utf8'));
-    await assert.rejects(boot('strict', { source: bad }), (e: unknown) => e instanceof ImportAbort && /sha256 del archivo/.test(e.message));
+    await assert.rejects(obtainVerified(bad, m), (e: unknown) => e instanceof ImportAbort && /sha256 del archivo/.test(e.message));
     assert.deepEqual([bad.calls, await prisma.postalCode.count()], [1, 0]);
 
-    // carga estricta desde vacío
-    const r1 = await boot('strict');
-    assert.deepEqual([r1.outcome, r1.inserted], ['loaded', 10]);
+    // carga estricta desde vacío (§19.25.4: «tabla vacía ⇒ carga normal, todo es falta»)
+    const r1 = await load('strict');
+    assert.deepEqual([r1.added, r1.updated, r1.removed, r1.inclusion.missing], [10, 0, 0, 0]);
     const s1 = await snapshot();
-
-    // G4: tabla = manifiesto ⇒ sin escribir y SIN pedir el archivo
-    const spy = counting(latin1());
-    const r2 = await boot('strict', { source: spy });
-    assert.deepEqual([r2.outcome, r2.inserted, spy.calls], ['already-loaded', 0, 0]);
+    const c1 = await content();
+    assert.deepEqual(await verify('strict'), { empty: false, fails: [] });
+    assert.deepEqual(await verify('strict', { source: null }), { empty: false, fails: [] }); // (1b) por huella, sin archivo
+    // idempotente: segunda carga, cero cambios
+    const r2 = await load('strict');
+    assert.deepEqual([r2.added, r2.updated, r2.removed], [0, 0, 0]);
     assert.equal(await snapshot(), s1);
-    // …y sin obtenedor alguno, igual
-    assert.equal((await boot('strict', { source: null })).outcome, 'already-loaded');
 
-    // G2: una fila ajena ⇒ alarma, sale con error, la fila SIGUE, tabla idéntica
+    // G2: una fila ajena ⇒ `verify` estricto da ALARMA, y como es solo lectura la fila SIGUE y la tabla es idéntica
     await prisma.postalCode.create({ data: { postalCode: '06600', neighborhood: 'Roma Norte', municipality: 'Cuauhtémoc', state: 'Ciudad de México' } });
     const s2 = await snapshot();
-    await assert.rejects(boot('strict'), (e: unknown) => e instanceof ImportAbort && /ALARMA: 0 discrepantes y 1 ajenas/.test(e.message));
+    const v2 = await verify('strict');
+    assert.match(v2.fails.join('; '), /ALARMA: 0 discrepantes y 1 ajenas/);
+    assert.match(v2.fails.join('; '), /\(1b\) setDigest\(tabla\)/);
+    assert.match((await verify('strict', { source: null })).fails.join('; '), /\(1b\)/); // sin archivo, la huella también la ve
     assert.equal(await snapshot(), s2);
-    // y sin archivo, la huella distinta tampoco pasa
-    await assert.rejects(boot('strict', { source: null }), /no coincide con el manifiesto/);
-    await prisma.postalCode.deleteMany({ where: { neighborhood: 'Roma Norte' } });
+    // …y en arnés la misma fila es tolerada (autor legítimo: el seed)
+    assert.deepEqual((await verify('harness')).fails, []);
+    // `import` estricto es el acto que la corrige: reconcilia (§19.24.5) y vuelve a la huella del manifiesto
+    const r3 = await load('strict');
+    assert.deepEqual([r3.added, r3.updated, r3.removed], [0, 0, 1]);
     assert.equal(await snapshot(), s1);
 
-    // G9: misma clave, otro municipio ⇒ alarma (el conteo y la clave no lo verían; la huella sí)
+    // G9: misma clave, otro municipio ⇒ `verify` estricto da alarma (el conteo y la clave no lo verían; la huella sí)
     await prisma.postalCode.updateMany({ where: { postalCode: '06600', neighborhood: 'Juárez' }, data: { municipality: 'OTRO' } });
     const s3 = await snapshot();
-    await assert.rejects(boot('strict'), (e: unknown) => e instanceof ImportAbort && /1 discrepantes y 0 ajenas/.test(e.message));
+    assert.match((await verify('strict')).fails.join('; '), /ALARMA: 1 discrepantes y 0 ajenas/);
     assert.equal(await snapshot(), s3);
-    await prisma.postalCode.updateMany({ where: { postalCode: '06600', neighborhood: 'Juárez' }, data: { municipality: 'Cuauhtémoc' } });
+    const r4 = await load('strict');
+    assert.deepEqual([r4.added, r4.updated, r4.removed], [0, 1, 0]);
 
-    // G8: falta UNA fila del archivo y nada más ⇒ la inserta y sale bien (reparación sin borrar)
+    // G8: falta UNA fila del archivo y nada más ⇒ `import` la inserta y sale bien (reparación sin borrar)
     await prisma.postalCode.deleteMany({ where: { postalCode: '97000' } });
-    const r3 = await boot('strict');
-    assert.deepEqual([r3.outcome, r3.inserted], ['loaded', 1]);
-    assert.equal((await boot('strict', { source: null })).outcome, 'already-loaded');
+    assert.match((await verify('strict')).fails.join('; '), /\(1a\) faltan 1/);
+    const r5 = await load('strict');
+    assert.deepEqual([r5.added, r5.updated, r5.removed], [1, 0, 0]);
+    assert.equal(await content(), c1);
+    assert.deepEqual(await verify('strict'), { empty: false, fails: [] });
+  } finally {
+    await prisma.$executeRawUnsafe('DELETE FROM "PostalCode"');
+    await prisma.$disconnect();
+  }
+});
+
+test('`verify` con la tabla vacía ⇒ «catálogo vacío» y sale 2 (≠ 1 «cargado pero mal»), aunque no haya manifiesto', { skip }, async () => {
+  const { prisma, verify } = await harness();
+  try {
+    const logs: string[] = [];
+    assert.deepEqual(await verify('strict', { manifestPath: null, source: null, log: (l) => logs.push(l) }), { empty: true, fails: [] });
+    assert.deepEqual(logs, ['[sepomex] catálogo vacío: 0 filas (no cargado)']);
+    // por el CLI, en los dos modos (localhost es arnés; --strict fuerza)
+    for (const extra of [[], ['--strict']]) {
+      const r = cli(['verify', ...extra], { DATABASE_URL: DB_URL });
+      assert.equal(r.code, 2, r.out);
+      assert.match(r.out, /\[sepomex\] catálogo vacío: 0 filas \(no cargado\)/);
+    }
+    // con filas y sin manifiesto ya no es «vacío»: es error (1)
+    await prisma.postalCode.create({ data: { postalCode: '06600', neighborhood: 'Juárez', municipality: 'Cuauhtémoc', state: 'Ciudad de México' } });
+    const r = cli(['verify', '--strict', '--manifest', join(tmp, 'no-existe.json')], { DATABASE_URL: DB_URL });
+    assert.equal(r.code, 1, r.out);
   } finally {
     await prisma.$executeRawUnsafe('DELETE FROM "PostalCode"');
     await prisma.$disconnect();
@@ -375,7 +449,7 @@ test('import explícito: idempotente, y todo fallo deja la tabla idéntica', { s
     // sin fallo aplica exactamente lo esperado (1 de 10 = 10 %, no supera el límite)
     const r3 = await syncPostalCodes(prisma, changed);
     assert.deepEqual([r3.added, r3.updated, r3.removed], [1, 1, 1]);
-    assert.equal((await svc.canonicalize('06600', 'juarez')).city, 'OTRO');
+    assert.equal((await canon(svc, '06600', 'juarez'))?.city, 'OTRO');
     assert.equal(await svc.resolvePostalCode('97000'), null);
   } finally {
     await prisma.$executeRawUnsafe('DELETE FROM "PostalCode"');
@@ -383,21 +457,32 @@ test('import explícito: idempotente, y todo fallo deja la tabla idéntica', { s
   }
 });
 
-test('C-GEO-2 cableado: el CMD corre `boot` entre `migrate deploy` y `node dist/main.js`; la imagen trae el importador y no su prueba', () => {
+test('G-BOOT (§19.25.4, sustituye al test 19 de §80.2): ningún arranque corre el importador; canario: reponer `boot` ⇒ ROJO', () => {
   const root = join(__dirname, '..', '..');
+  const gate = join(root, 'scripts', 'check-boot-no-geo.sh');
+  // 1) El candado sobre el árbol real ⇒ verde.
+  const real = spawnSync('bash', [gate, '--root', root], { encoding: 'utf8' });
+  assert.equal(real.status, 0, `${real.stdout}${real.stderr}`);
+  // 2) Lo mismo, leído aquí sin el script (dos implementaciones: si una se rompe, la otra lo dice).
   const dk = readFileSync(join(root, 'Dockerfile.backend'), 'utf8');
   const cmd = dk.split('\n').filter((l) => /^\s*CMD\b/.test(l));
   assert.equal(cmd.length, 1);
-  const c = cmd[0];
-  const iMig = c.indexOf('migrate deploy');
-  const iBoot = c.indexOf('/opt/geo/scripts/geo/import-sepomex.ts boot');
-  const iMain = c.indexOf('node dist/main.js');
-  assert.ok(iMig > 0 && iBoot > iMig && iMain > iBoot, `orden del CMD: ${c}`);
-  assert.match(c.slice(iMig), /migrate deploy && .*import-sepomex\.ts boot && node dist\/main\.js/); // `&&`: falla-cerrado
-  assert.doesNotMatch(c, /import-sepomex\.ts boot[^&]*--(file|manifest)/); // hoy sin archivo (G-1 abierta)
-  assert.match(dk, /COPY --chown=nestjs:nodejs scripts\/geo\/ \/opt\/geo\/scripts\/geo\//);
+  assert.doesNotMatch(cmd[0], /import-sepomex|scripts\/geo|\/opt\/geo/);
+  assert.match(cmd[0], /migrate deploy && node dist\/main\.js"\]$/);
+  const code = dk.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.doesNotMatch(code, /scripts\/geo|\/opt\/geo|import-sepomex/);
   const di = readFileSync(join(root, '.dockerignore'), 'utf8').split('\n').map((l) => l.trim());
-  const at = (x: string) => di.lastIndexOf(x);
-  assert.ok(at('!scripts/geo') > at('scripts'), '.dockerignore: !scripts/geo después de scripts');
-  assert.ok(at('scripts/geo/*.test.ts') > at('!scripts/geo') && at('scripts/geo/fixtures') > at('!scripts/geo'), '.dockerignore: prueba y extracto fuera');
+  assert.ok(di.includes('scripts') && !di.some((l) => /^!\/?scripts(\/geo|\/?$|\/\*)/.test(l)), '.dockerignore: scripts fuera y scripts/geo sin reincluir');
+  // 3) Canario: el CMD de v1.80.12.4 (con `boot`) en una copia ⇒ el candado se pone ROJO y nombra el CMD.
+  const copy = join(tmp, 'gboot');
+  mkdirSync(join(copy, 'scripts'), { recursive: true });
+  for (const f of ['Dockerfile.backend', '.dockerignore', 'railway.json']) copyFileSync(join(root, f), join(copy, f));
+  copyFileSync(gate, join(copy, 'scripts', 'check-boot-no-geo.sh'));
+  const boot = 'TS_NODE_PROJECT=/app/tsconfig.json TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register /opt/geo/scripts/geo/import-sepomex.ts boot';
+  const mutated = dk.replace(/(migrate deploy) && node dist\/main\.js"\]/, `$1 && ${boot} && node dist/main.js"]`);
+  assert.notEqual(mutated, dk, 'el canario no encontró el CMD que muta');
+  writeFileSync(join(copy, 'Dockerfile.backend'), mutated);
+  const red = spawnSync('bash', [join(copy, 'scripts', 'check-boot-no-geo.sh'), '--root', copy], { encoding: 'utf8' });
+  assert.equal(red.status, 1, red.stdout);
+  assert.match(red.stdout, /\(A\) Dockerfile\.backend:\d+ — el CMD\/ENTRYPOINT corre el importador/);
 });

@@ -1,32 +1,37 @@
 /**
- * import-sepomex.ts — el catálogo de CP de SEPOMEX en la tabla `PostalCode` (M-64), según API_CONTRACT
- * §M4-SHIP.19.23.6 (C-GEO-1/C-GEO-2) y §M4-SHIP.19.24 (v1.80.12.4: inclusión + huella, dos modos por blanco,
- * manifiesto). Runbook y rollback: docs/DEVOPS_NOTES.md §79 y §80.                                        · devops
+ * import-sepomex.ts — el catálogo de CP de SEPOMEX en la tabla `PostalCode` (M-64), según API_CONTRACT §M4-SHIP.19.24
+ * (inclusión + huella, dos modos por blanco, manifiesto) con la errata v1.80.12.5 (§M4-SHIP.19.25.4): el catálogo
+ * AYUDA, no bloquea, y ⛔ NINGÚN arranque lo carga ni lo verifica (`boot` y C-GEO-2 retirados; candado G-BOOT).
+ * Runbook y rollback: docs/DEVOPS_NOTES.md §79–§81.                                                         · devops
  *
  *   manifest --file F [--out M]          Sin base. Deriva el manifiesto del archivo (sha256, cifras, descartes,
  *                                        setDigest, aviso de la línea 1). Es lo que se commitea (no el archivo).
- *   boot [--file F] [--strict]           C-GEO-2: el paso de ARRANQUE (tras `migrate deploy`, antes de servir).
- *   verify [--file F] [--strict]         C-GEO-1 contra la base, solo lectura. Salida 3 si no se cumple.
- *   import --file F [--dry-run] [--allow-shrink]
- *                                        Recarga EXPLÍCITA, fuera del arranque: reconcilia (altas, cambios, BAJAS).
+ *   import --file F [--dry-run] [--allow-shrink] [--strict]
+ *                                        Carga EXPLÍCITA (un acto a mano, fuera de todo arranque). Transaccional:
+ *                                        o carga entero y pasa C-GEO-1, o ROLLBACK.
+ *   verify [--file F] [--strict]         C-GEO-1 contra la base, solo lectura. Un INFORME, no un candado: ⛔ nada en el
+ *                                        arranque ni en el despliegue lo llama.
+ *   (todas: [--manifest M])
  *
  * MODO (§19.24.5), decidido por el BLANCO y no por una variable: si la URL con la que de verdad se conecta pasa
  * `assertSeedTarget` (la MISMA función que impide sembrar producción, importada de backend/prisma/seed-target-guard.ts)
  * ⇒ modo ARNÉS; si no ⇒ modo ESTRICTO. `--strict` fuerza el estricto; ⛔ no existe opción que afloje.
  *
- *   ESTRICTO: sin manifiesto ⇒ 1. Manifiesto bajo los pisos ⇒ 1. Tabla = manifiesto (setDigest) y (3)(4) ⇒ 0 sin
- *             escribir y SIN leer el archivo. Si no: archivo (sha256 = manifiesto ANTES de interpretarlo), su setDigest =
- *             el del manifiesto, INSERT … ON CONFLICT DO NOTHING (⛔ nunca borra) y dentro de la tx (1b)(2)(3)(4).
- *             Fila ajena o discrepante ⇒ 1 con la lista (no se borra: se reconcilia con `import`, fuera del arranque).
- *   ARNÉS:    sin `--file` ⇒ no carga, sale 0 sin tocar base ni red. Con `--file` ⇒ exige SU manifiesto (hermano
- *             `<F sin .txt>.manifest.json`), carga igual y verifica (1a) con faltan = 0, (3) y (4); ajenas y
+ *   ESTRICTO (import): sin manifiesto ⇒ 1. Manifiesto bajo los pisos ⇒ 1. Archivo con sha256 = manifiesto ANTES de
+ *             interpretarlo, su setDigest = el del manifiesto; RECONCILIA (altas, cambios, bajas; aborta si quita > 10 %
+ *             sin --allow-shrink) y dentro de la tx (1b)(2)(3)(4). En un blanco estricto el único escritor legítimo es
+ *             este importador (§19.24.1): `import` es el acto que corrige una fila ajena o discrepante.
+ *   ARNÉS (import): exige el manifiesto del archivo (hermano `<F sin .txt>.manifest.json`), INSERT … ON CONFLICT DO
+ *             NOTHING (⛔ no borra: las filas ajenas son del arnés), y verifica (1a) con faltan = 0, (3) y (4); ajenas y
  *             discrepantes se cuentan y se imprimen. Los pisos (2) son del catálogo nacional: solo en estricto.
+ *   verify:   tabla vacía ⇒ `[sepomex] catálogo vacío: 0 filas (no cargado)` y sale 2. Si no, estricto: (2) del
+ *             manifiesto, (1b), (3), (4) [+ (1a) con --file]; arnés: (1a) con --file, (3), (4). Ajena o discrepante en
+ *             estricto ⇒ ALARMA y sale 1 (solo lectura: ⛔ no borra).
  *
  * Manifiesto: `--manifest M`, si no el hermano del archivo, si no `scripts/geo/sepomex.manifest.json`.
- * Base: `boot` usa `DATABASE_URL` TAL CUAL (la de la app: dentro de Railway `*.railway.internal` es la red buena).
- * `verify`/`import`, lanzados desde fuera, usan `DATABASE_PUBLIC_URL` si `DATABASE_URL` es `*.railway.internal`.
- * La URL NUNCA se imprime.
- * Salida: 0 bien · 1 error/alarma (nada escrito) · 2 uso · 3 `verify` no cumple.
+ * Base: `DATABASE_URL`, o `DATABASE_PUBLIC_URL` si `DATABASE_URL` es `*.railway.internal` (se lanza desde fuera de
+ * Railway). La URL NUNCA se imprime.
+ * Salida: 0 bien · 1 error, alarma o C-GEO-1 no se cumple (nada escrito) · 2 `verify` con la tabla vacía · 64 uso.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -137,7 +142,7 @@ export function deriveFromFile(buf: Buffer): Derived {
 }
 
 export function readManifest(path: string): Manifest {
-  if (!existsSync(path)) throw new ImportAbort(`no hay manifiesto (${basename(path)}): la versión no se publica (G-1 abierta)`);
+  if (!existsSync(path)) throw new ImportAbort(`no hay manifiesto (${basename(path)}): sin manifiesto no hay archivo fijado que cargar ni comprobar (G-1, §19.25.5)`);
   let m: Manifest;
   try {
     m = JSON.parse(readFileSync(path, 'utf8')) as Manifest;
@@ -192,7 +197,7 @@ export async function obtainVerified(source: FileSource, m: Manifest): Promise<P
 
 // ------------------------------------------------------------------------------------------------ base
 
-export function resolveDatabaseUrl(env: NodeJS.ProcessEnv, opts: { allowPublicFallback: boolean }): { url: string; label: string } {
+export function resolveDatabaseUrl(env: NodeJS.ProcessEnv): { url: string; label: string } {
   let url = env.DATABASE_URL ?? '';
   if (!url) throw new ImportAbort('falta DATABASE_URL');
   let host = '';
@@ -201,8 +206,9 @@ export function resolveDatabaseUrl(env: NodeJS.ProcessEnv, opts: { allowPublicFa
   } catch {
     throw new ImportAbort('DATABASE_URL no parsea');
   }
-  // ⛔ En `boot` NO se salta (§19.24.5): se clasifica y se escribe con la MISMA URL que usa la app.
-  if (opts.allowPublicFallback && host.endsWith('.railway.internal')) {
+  // `import`/`verify` se lanzan desde FUERA de Railway (máquina del dueño, `railway run`): la red interna no se alcanza.
+  // La clasificación (modo) se hace con la URL resultante: la misma con la que se escribe.
+  if (host.endsWith('.railway.internal')) {
     if (!env.DATABASE_PUBLIC_URL) {
       throw new ImportAbort('DATABASE_URL es *.railway.internal y no hay DATABASE_PUBLIC_URL (desde fuera de Railway; DEVOPS_NOTES §79).');
     }
@@ -282,7 +288,7 @@ async function functionalFailures(db: Db, probes: readonly string[]): Promise<st
 async function txSetup(tx: Db) {
   await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '10s'`);
   await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '300s'`);
-  // Un solo importador a la vez: dos réplicas arrancando a la vez se serializan, no se mezclan.
+  // Un solo importador a la vez: dos `import` lanzados a la vez se serializan, no se mezclan.
   await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext('import-sepomex'))`);
 }
 
@@ -304,78 +310,13 @@ async function insertMissing(tx: Db, rows: PostalCodeRow[]): Promise<number> {
   return inserted;
 }
 
-// ------------------------------------------------------------------------------------------------ boot
+// ------------------------------------------------------------------------------------------------ manifiesto y pisos
 
-export interface BootOptions {
-  mode: Mode;
-  /** Ruta del manifiesto (o `null` = no hay). En arnés sin archivo no se lee. */
-  manifestPath: string | null;
-  source: FileSource | null;
-  /** Solo pruebas (extracto). El CLI pasa siempre `C_GEO_FLOORS`. */
-  floors?: Floors;
-  probes?: readonly string[];
-  afterWrite?: () => void | Promise<void>;
-  log?: (line: string) => void;
-}
-
-export interface BootReport {
-  mode: Mode;
-  outcome: 'harness-no-file' | 'already-loaded' | 'loaded';
-  inserted: number;
-  inclusion?: Inclusion;
-}
-
-/** C-GEO-2 con §19.24.5. Lanza ⇒ ROLLBACK (el CLI sale 1). ⛔ Nunca borra. */
-export async function bootCatalog(prisma: PrismaService | null, o: BootOptions): Promise<BootReport> {
-  const floors = o.floors ?? C_GEO_FLOORS;
-  const probes = o.probes ?? HARNESS_POSTAL_CODES;
-  const log = o.log ?? (() => undefined);
-
-  if (o.mode === 'harness' && !o.source) {
-    log('[sepomex] modo arnés: sin archivo, no se carga; los CP los siembra el arnés');
-    return { mode: o.mode, outcome: 'harness-no-file', inserted: 0 };
-  }
-  if (!o.manifestPath) throw new ImportAbort('no hay manifiesto: la versión no se publica (G-1 abierta)');
-  const m = readManifest(o.manifestPath);
-  if (o.mode === 'strict') {
-    const ff = floorFailures(m.derived, floors);
-    if (ff.length) throw new ImportAbort(`el manifiesto no alcanza los pisos de C-GEO-1 (2): ${ff.join('; ')}`);
-  }
-  if (!prisma) throw new ImportAbort('falta la base');
-
-  if (o.mode === 'strict') {
-    // Camino barato del re-arranque: ⛔ ni archivo ni red si la tabla ya es el manifiesto.
-    if ((await sqlSetDigest(prisma)) === m.setDigest && (await functionalFailures(prisma, probes)).length === 0) {
-      log('[sepomex] modo estricto: la tabla = manifiesto (setDigest) y C-GEO-1 se cumple; sin escribir');
-      return { mode: o.mode, outcome: 'already-loaded', inserted: 0 };
-    }
-    if (!o.source) throw new ImportAbort('la tabla no coincide con el manifiesto y no hay de dónde obtener el archivo (G-1)');
-  }
-  const rows = await obtainVerified(o.source!, m);
-
-  return prisma.$transaction(
-    async (tx) => {
-      await txSetup(tx);
-      const inserted = await insertMissing(tx, rows);
-      if (o.afterWrite) await o.afterWrite();
-      const inc = await inclusion(tx, rows);
-      const fails = await functionalFailures(tx, probes);
-      log(`[sepomex] (1a) ${fmtInclusion(inc)}`);
-      if (inc.missing) fails.unshift(`(1a) faltan ${inc.missing}`);
-      if (o.mode === 'strict') {
-        if (inc.discrepant || inc.foreign) {
-          fails.unshift(`ALARMA: ${inc.discrepant} discrepantes y ${inc.foreign} ajenas (sin escritor legítimo; se reconcilia con \`import\` fuera del arranque)`);
-        }
-        const td = await sqlSetDigest(tx);
-        if (td !== m.setDigest) fails.push(`(1b) setDigest(tabla) ${td} ≠ manifiesto ${m.setDigest}`);
-        const t = await tableStats(tx);
-        fails.push(...floorFailures({ rows: t.neighborhoods, postalCodes: t.postalCodes, states: t.states }, floors).map((x) => `(2) tabla: ${x}`));
-      }
-      if (fails.length) throw new ImportAbort(`C-GEO-1 no se cumple (ROLLBACK): ${fails.join('; ')}`);
-      return { mode: o.mode, outcome: 'loaded' as const, inserted, inclusion: inc };
-    },
-    { maxWait: 15_000, timeout: 600_000 },
-  );
+/** G10: en estricto, un manifiesto cuyas cifras no alcanzan los pisos de C-GEO-1 (2) se rechaza antes de tocar nada. */
+export function assertManifestFloors(m: Manifest, mode: Mode, floors: Floors = C_GEO_FLOORS): void {
+  if (mode !== 'strict') return;
+  const ff = floorFailures(m.derived, floors);
+  if (ff.length) throw new ImportAbort(`el manifiesto no alcanza los pisos de C-GEO-1 (2): ${ff.join('; ')}`);
 }
 
 // ------------------------------------------------------------------------------------------------ import explícito
@@ -392,7 +333,12 @@ export interface SyncReport {
 export async function syncPostalCodes(
   prisma: PrismaService,
   rows: PostalCodeRow[],
-  opts: { allowShrink?: boolean; afterWriteHook?: () => void | Promise<void> } = {},
+  opts: {
+    allowShrink?: boolean;
+    afterWriteHook?: () => void | Promise<void>;
+    /** Comprobaciones extra DENTRO de la tx, tras la huella; una lista no vacía ⇒ ROLLBACK. */
+    check?: (tx: Db) => Promise<string[]>;
+  } = {},
 ): Promise<SyncReport> {
   const expectedDigest = setDigestOf(rows);
   return prisma.$transaction(
@@ -438,10 +384,129 @@ export async function syncPostalCodes(
       }
       const td = await sqlSetDigest(tx);
       if (td !== expectedDigest) throw new ImportAbort(`comprobación final: setDigest(tabla) ${td} ≠ archivo ${expectedDigest}. ROLLBACK.`);
+      const fails = opts.check ? await opts.check(tx) : [];
+      if (fails.length) throw new ImportAbort(`C-GEO-1 no se cumple (ROLLBACK): ${fails.join('; ')}`);
       return { before, after: await tableStats(tx), added, updated, removed };
     },
     { maxWait: 15_000, timeout: 600_000 },
   );
+}
+
+// ------------------------------------------------------------------------------------------------ import por modo
+
+export interface ImportOptions {
+  mode: Mode;
+  /** El manifiesto que fija el archivo; `rows` ya pasó `obtainVerified` contra él. */
+  manifest: Manifest;
+  rows: PostalCodeRow[];
+  allowShrink?: boolean;
+  /** Solo pruebas (extracto). El CLI pasa siempre `C_GEO_FLOORS`. */
+  floors?: Floors;
+  probes?: readonly string[];
+  afterWrite?: () => void | Promise<void>;
+  log?: (line: string) => void;
+}
+
+export interface ImportReport {
+  mode: Mode;
+  added: number;
+  updated: number;
+  removed: number;
+  /** (1a) tras escribir, en la misma tx. */
+  inclusion: Inclusion;
+}
+
+/** §19.25.4: la carga EXPLÍCITA, por modo. Lanza ⇒ ROLLBACK (el CLI sale 1). */
+export async function importCatalog(prisma: PrismaService, o: ImportOptions): Promise<ImportReport> {
+  const floors = o.floors ?? C_GEO_FLOORS;
+  const probes = o.probes ?? HARNESS_POSTAL_CODES;
+  const log = o.log ?? (() => undefined);
+  assertManifestFloors(o.manifest, o.mode, floors);
+
+  if (o.mode === 'strict') {
+    let inc: Inclusion | undefined;
+    const r = await syncPostalCodes(prisma, o.rows, {
+      allowShrink: o.allowShrink,
+      afterWriteHook: o.afterWrite,
+      check: async (tx) => {
+        const fails: string[] = [];
+        inc = await inclusion(tx, o.rows);
+        log(`[sepomex] (1a) ${fmtInclusion(inc)}`);
+        const td = await sqlSetDigest(tx);
+        if (td !== o.manifest.setDigest) fails.push(`(1b) setDigest(tabla) ${td} ≠ manifiesto ${o.manifest.setDigest}`);
+        const t = await tableStats(tx);
+        fails.push(...floorFailures({ rows: t.neighborhoods, postalCodes: t.postalCodes, states: t.states }, floors).map((x) => `(2) tabla: ${x}`));
+        fails.push(...(await functionalFailures(tx, probes)));
+        return fails;
+      },
+    });
+    return { mode: o.mode, added: r.added, updated: r.updated, removed: r.removed, inclusion: inc! };
+  }
+
+  // ARNÉS: solo inserta; las ajenas tienen autor legítimo (el seed y las specs, §19.24.1).
+  return prisma.$transaction(
+    async (tx) => {
+      await txSetup(tx);
+      const added = await insertMissing(tx, o.rows);
+      if (o.afterWrite) await o.afterWrite();
+      const inc = await inclusion(tx, o.rows);
+      const fails = await functionalFailures(tx, probes);
+      log(`[sepomex] (1a) ${fmtInclusion(inc)}`);
+      if (inc.missing) fails.unshift(`(1a) faltan ${inc.missing}`);
+      if (fails.length) throw new ImportAbort(`C-GEO-1 no se cumple (ROLLBACK): ${fails.join('; ')}`);
+      return { mode: o.mode, added, updated: 0, removed: 0, inclusion: inc };
+    },
+    { maxWait: 15_000, timeout: 600_000 },
+  );
+}
+
+// ------------------------------------------------------------------------------------------------ verify
+
+export interface VerifyOptions {
+  mode: Mode;
+  /** `null` = no hay manifiesto: con la tabla vacía da igual (sale 2); con filas, es un error. */
+  manifestPath: string | null;
+  /** El archivo, si se pasó `--file` (para (1a)). */
+  source: FileSource | null;
+  floors?: Floors;
+  probes?: readonly string[];
+  log?: (line: string) => void;
+}
+
+export interface VerifyReport {
+  empty: boolean;
+  fails: string[];
+}
+
+/** C-GEO-1, solo lectura. ⛔ No escribe. Tabla vacía ⇒ `empty` (el CLI sale 2: «no cargado», distinto de «cargado pero mal»). */
+export async function verifyCatalog(db: Pick<Db, '$queryRawUnsafe'>, o: VerifyOptions): Promise<VerifyReport> {
+  const floors = o.floors ?? C_GEO_FLOORS;
+  const probes = o.probes ?? HARNESS_POSTAL_CODES;
+  const log = o.log ?? (() => undefined);
+  const t0 = await tableStats(db);
+  if (t0.neighborhoods === 0) {
+    log('[sepomex] catálogo vacío: 0 filas (no cargado)');
+    return { empty: true, fails: [] };
+  }
+  if (!o.manifestPath) throw new ImportAbort('no hay manifiesto: sin manifiesto no hay archivo fijado contra el que comprobar');
+  const m = readManifest(o.manifestPath);
+  const fails: string[] = [];
+  if (o.mode === 'strict') {
+    fails.push(...floorFailures(m.derived, floors).map((x) => `(2) manifiesto: ${x}`));
+    fails.push(...floorFailures({ rows: t0.neighborhoods, postalCodes: t0.postalCodes, states: t0.states }, floors).map((x) => `(2) tabla: ${x}`));
+    const td = await sqlSetDigest(db);
+    if (td !== m.setDigest) fails.push(`(1b) setDigest(tabla) ${td} ≠ manifiesto ${m.setDigest}`);
+  }
+  if (o.source) {
+    const inc = await inclusion(db, await obtainVerified(o.source, m));
+    log(`[sepomex] (1a) ${fmtInclusion(inc)}`);
+    if (inc.missing) fails.push(`(1a) faltan ${inc.missing}`);
+    if (o.mode === 'strict' && (inc.discrepant || inc.foreign)) {
+      fails.unshift(`ALARMA: ${inc.discrepant} discrepantes y ${inc.foreign} ajenas (sin escritor legítimo; se corrige con \`import\` y se investiga quién las escribió)`);
+    }
+  } else if (o.mode === 'harness') fails.push('(1a) en modo arnés hace falta --file para medir la inclusión');
+  fails.push(...(await functionalFailures(db as Db, probes)));
+  return { empty: false, fails };
 }
 
 // ------------------------------------------------------------------------------------------------ CLI
@@ -494,14 +559,17 @@ async function withDb<T>(url: string, fn: (p: PrismaService) => Promise<T>): Pro
   }
 }
 
+export const EXIT_USAGE = 64;
+export const EXIT_EMPTY = 2;
+
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2);
-  if (!['manifest', 'boot', 'verify', 'import'].includes(cmd)) {
+  if (!['manifest', 'verify', 'import'].includes(cmd)) {
     console.error(
-      'uso: manifest --file F [--out M] | boot [--file F] [--strict] | verify [--file F] [--strict] | ' +
-        'import --file F [--dry-run] [--allow-shrink]   (todas: [--manifest M])',
+      'uso: manifest --file F [--out M] | verify [--file F] [--strict] | import --file F [--dry-run] [--allow-shrink] [--strict]' +
+        '   (todas: [--manifest M])',
     );
-    return 2;
+    return EXIT_USAGE;
   }
   const a = parseArgs(rest);
   const file = typeof a.file === 'string' ? a.file : undefined;
@@ -520,68 +588,46 @@ async function main(): Promise<number> {
   }
 
   const manifestPath = manifestPathFor(file, typeof a.manifest === 'string' ? a.manifest : undefined);
-
-  if (cmd === 'boot') {
-    const { url, label } = resolveDatabaseUrl(process.env, { allowPublicFallback: false });
-    const mode = classifyTarget(url, process.env, Boolean(a.strict));
-    console.log(`[sepomex] boot · base ${label} · modo ${mode === 'strict' ? 'ESTRICTO' : 'arnés'}`);
-    if (mode === 'harness' && !file) {
-      await bootCatalog(null, { mode, manifestPath: null, source: null, log: console.log });
-      return 0;
-    }
-    return withDb(url, async (prisma) => {
-      const r = await bootCatalog(prisma, { mode, manifestPath, source: file ? localFile(file) : null, log: console.log });
-      const t = await tableStats(prisma);
-      console.log(
-        `[sepomex] boot · ${r.outcome === 'already-loaded' ? 'ya cargado, sin escribir' : `+${r.inserted} filas (ON CONFLICT DO NOTHING), COMMIT`} · ` +
-          `tabla: ${fmt(t)} · C-GEO-1 OK · ${((Date.now() - t0) / 1000).toFixed(1)} s`,
-      );
-      return 0;
-    });
-  }
-
-  const { url, label } = resolveDatabaseUrl(process.env, { allowPublicFallback: true });
+  const { url, label } = resolveDatabaseUrl(process.env);
+  const mode = classifyTarget(url, process.env, Boolean(a.strict));
+  const modeLabel = mode === 'strict' ? 'ESTRICTO' : 'arnés';
 
   if (cmd === 'verify') {
-    const mode = classifyTarget(url, process.env, Boolean(a.strict));
-    const m = readManifest(manifestPath);
     return withDb(url, async (prisma) => {
-      const fails: string[] = [];
-      console.log(`[sepomex] verify · base ${label} · modo ${mode === 'strict' ? 'ESTRICTO' : 'arnés'} · tabla: ${fmt(await tableStats(prisma))}`);
-      if (mode === 'strict') {
-        fails.push(...floorFailures(m.derived, C_GEO_FLOORS).map((x) => `(2) manifiesto: ${x}`));
-        const td = await sqlSetDigest(prisma);
-        if (td !== m.setDigest) fails.push(`(1b) setDigest(tabla) ${td} ≠ manifiesto ${m.setDigest}`);
-      }
-      if (file) {
-        const inc = await inclusion(prisma, await obtainVerified(localFile(file), m));
-        console.log(`[sepomex] (1a) ${fmtInclusion(inc)}`);
-        if (inc.missing) fails.push(`(1a) faltan ${inc.missing}`);
-      } else if (mode === 'harness') fails.push('(1a) en modo arnés hace falta --file para medir la inclusión');
-      fails.push(...(await functionalFailures(prisma, HARNESS_POSTAL_CODES)));
-      for (const f of fails) console.log(`[sepomex]   ✗ ${f}`);
-      console.log(fails.length ? '[sepomex] ⛔ C-GEO-1 NO se cumple: catálogo NO cargado.' : '[sepomex] C-GEO-1 se cumple: CATÁLOGO CARGADO.');
-      return fails.length ? 3 : 0;
+      console.log(`[sepomex] verify · base ${label} · modo ${modeLabel} · tabla: ${fmt(await tableStats(prisma))}`);
+      const r = await verifyCatalog(prisma, {
+        mode,
+        manifestPath: existsSync(manifestPath) ? manifestPath : null,
+        source: file ? localFile(file) : null,
+        log: console.log,
+      });
+      if (r.empty) return EXIT_EMPTY;
+      for (const f of r.fails) console.log(`[sepomex]   ✗ ${f}`);
+      console.log(r.fails.length ? '[sepomex] ⛔ C-GEO-1 NO se cumple: catálogo cargado pero MAL.' : '[sepomex] C-GEO-1 se cumple: CATÁLOGO CARGADO.');
+      return r.fails.length ? 1 : 0;
     });
   }
 
-  // import (explícito)
+  // import (explícito): manifiesto ⇒ pisos (estricto) ⇒ sha256 antes de interpretar ⇒ setDigest = manifiesto ⇒ tx.
   if (!file) throw new ImportAbort('falta --file');
   const m = readManifest(manifestPath);
+  assertManifestFloors(m, mode);
   const rows = await obtainVerified(localFile(file), m);
   printManifest(m, file);
+  console.log(`[sepomex] import · base ${label} · modo ${modeLabel}`);
   if (a['dry-run']) {
     await withDb(url, async (prisma) =>
-      console.log(`[sepomex] dry-run · base ${label} hoy: ${fmt(await tableStats(prisma))} · (1a) ${fmtInclusion(await inclusion(prisma, rows))}`),
+      console.log(`[sepomex] dry-run · hoy: ${fmt(await tableStats(prisma))} · (1a) ${fmtInclusion(await inclusion(prisma, rows))}`),
     );
     console.log('[sepomex] DRY-RUN: nada escrito.');
     return 0;
   }
   return withDb(url, async (prisma) => {
-    console.log(`[sepomex] import · base ${label}: reconciliando en una transacción…`);
-    const r = await syncPostalCodes(prisma, rows, { allowShrink: Boolean(a['allow-shrink']) });
-    console.log(`[sepomex] antes: ${fmt(r.before)} · después: ${fmt(r.after)}`);
-    console.log(`[sepomex] filas: +${r.added} · ~${r.updated} · -${r.removed} · ${((Date.now() - t0) / 1000).toFixed(1)} s · COMMIT`);
+    const before = await tableStats(prisma);
+    console.log(`[sepomex] ${mode === 'strict' ? 'reconciliando' : 'insertando lo que falte'} en una transacción…`);
+    const r = await importCatalog(prisma, { mode, manifest: m, rows, allowShrink: Boolean(a['allow-shrink']), log: console.log });
+    console.log(`[sepomex] antes: ${fmt(before)} · después: ${fmt(await tableStats(prisma))}`);
+    console.log(`[sepomex] filas: +${r.added} · ~${r.updated} · -${r.removed} · C-GEO-1 OK · ${((Date.now() - t0) / 1000).toFixed(1)} s · COMMIT`);
     return 0;
   });
 }
