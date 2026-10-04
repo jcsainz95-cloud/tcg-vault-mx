@@ -19063,3 +19063,108 @@ motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
   usuario» (leído, **NO MEDIDO** corriendo).
 - A-2 (¿sale `auth.password_lock` en la Actividad de esa persona?) sigue NO MEDIDO: el rótulo está, la fila depende
   del backend.
+
+## §87 · **Skydropx en «Capturar guía»** — la ventana de cuatro pasos, las tarjetas, «Salida de hoy», «Configuración › Envíos» y el cliente (2026-10-04, rama `claude/skydropx-d`; contrato v1.80.11/v1.80.12 (`§M4-SHIP.19.19`, `§19.20`; la errata v1.80.12.1 dice «frontend: nada»), diseño v4.15/v4.16 `§43`; código en `f9996337`, `bd9ab31e`, `eed6b6a0`, `9a8e3969`)
+
+**Contra qué se construyó.** El backend de cotizar/comprar no existe (solo el cliente y el doble de D1). La pantalla
+consume la API **tal como la fija el contrato** (`lib/api.ts`), y en modo mock la sirve un **servidor falso**
+(`lib/mock/skydropx.ts`) con las cifras medidas de PROD §4.4–§4.6. Las pruebas espían la API (equivalente a MSW).
+Sin Playwright: ni `@real` (no hay backend) ni mock — el censo `mockOnly`/`realOnly` **no cambia**.
+
+**Dónde vive cada pieza (FS-n de §43.14).**
+
+| FS | Fichero | Qué |
+|---|---|---|
+| FS-1/2/3/4 | `m4/CaptureLabelDialog.tsx` (+ `m4/capture/`) | La ventana: `M4View` la monta una vez con `key` por apertura; lee `GET /admin/shipments/:id` al abrir; `onClose` no cierra con la compra o el `PUT` en curso (sin tocar `Modal.tsx`); el banner de la página dice «Guía comprada para…» |
+| FS-15 | `capture/AddressStep.tsx` | Modo leer (`<dl>`, ausencias con nombre) y modo corregir (6 controles; municipio/estado/teléfono no son campos); CP ⇒ `GET /geo/postal-codes/:cp` en caché por CP |
+| FS-16/18 | `capture/sdx-errors.ts` | Un copy por `error.code` (+ `details.reason/missing/op/required`), función pura; SK5 decide por relectura |
+| FS-17 | `capture/QuoteViews.tsx` | Opciones (chips «Recomendada»/«Promoción» del servidor, sucursal plegada, excluidas, «Cambiar empaque») y compra (desglose, frase de dinero, confirmaciones) |
+| FS-5/19/20 | `m4/ShipPreparationCard.tsx` | Compra pendiente por `state`, sin «Deshacer preparado», chip «Dirección corregida», `labelAlert` |
+| FS-6/21 | `m4/SkydropxLabelBlock.tsx`, `m4/LabelActions.tsx`, `m4/ShipmentsQueue.tsx` | Bloque de guía Skydropx; imprimir / actualizar rastreo / cancelar y re-emitir; las cuatro alertas; «Liberar» ⇔ `canRelease`; «Reintentar cancelación» |
+| FS-7 | `m4/DepartureBoard.tsx`, `m4/tabs.ts` | `?tab=salida`, grupos del servidor, casillas, confirmación (S9), hoja imprimible |
+| FS-8 | `m10/sections/ShippingSection.tsx` | Puerta de compra (se guarda sola; `operators` con diálogo antes del `PUT`), escalones, Carta Porte, empaques, preferidas, sucursales y diales |
+| FS-9/10/11 | `components/domain/ShipmentTrackingExtras.tsx` | `TrackingLink` + `ShipmentTimeline` en las cuatro superficies del cliente |
+| FS-12/22 | `types/contract.ts`, `lib/api.ts` (zona compartida) | Tipos de §19.19.4/§19.20 y 15 llamadas; ⛔ sin `address-neighborhood` |
+| FS-13/23 | `messages/{es,en}.json` | Claves de §43.13 (retiradas de v4.16 ausentes; teléfono **sin** claves: P-ADR-1) |
+| FS-14/24 | `lib/mock/skydropx.ts`, `lib/mock/fixtures.ts` | Servidor falso + diales sembrados con el seed del contrato (`shippingProvider:'off'`, compra `disabled`) |
+
+**Decisiones de implementación.**
+- **PDF de la etiqueta (§43.5 lo dejó a frontend):** `fetch` autenticado (`requestBlob`) ⇒ `blob:` local ⇒ pestaña
+  nueva (imprimir) o `<a download="guia-<ref>.pdf">`. La sesión es un Bearer en `localStorage`, no una cookie: un
+  enlace directo al proxy saldría sin credenciales. ⛔ Nunca la URL de Skydropx.
+- **Sin `labelOptions` en el DTO** (servidor anterior a la fase D) ⇒ la ventana es el formulario de hoy. Falla
+  segura: el operador nunca queda sin la salida manual.
+- **`address.missing` no está en el contrato** (§19.20.1 fija `{ complete, version, corrected }`), y §43.2a decide el
+  modo del paso 1 por él. Queda opcional y marcado `// MOCK: pendiente de contrato`: si llega, la ventana hace lo de
+  §43.2a; si no, **no lo deduce** (sería una regla en pantalla): deja cotizar y el `422 SHIPMENT_ADDRESS_INCOMPLETE
+  {missing}` la lleva al paso 1 en modo corregir (o a «a mano» si es el teléfono). Solicitud abajo.
+- **502 `edge_blocked` en la COMPRA:** es `5xx` ⇒ SK5 relee. Si la relectura dice «no se compró nada», se pinta el
+  texto de `edge_blocked` (no «Puedes volver a intentarlo») y el botón **no vuelve**: §43.7 dice «no sirve reintentar».
+- **La puerta de compra se guarda sola** (no con «Guardar envíos»): es una llave de dinero con su propia
+  confirmación, el patrón de §39.1. El resto de los diales va en un `PUT` parcial.
+- **Escalones:** la única validación en pantalla es la que UX-SDX-17 exige (creciente, ≥ MX$1.00, costo ≥ 0, fecha):
+  con error de fila, cero `PUT`. El resto lo decide el servidor (`422` bajo el botón).
+- **Servidor falso:** da `SKYDROPX_ALLOW_SPEND` por puesta y compra al instante con un número `MOCK…`; no hay red.
+  Con el seed (`off`), la demo enseña el formulario de hoy; para ver los cuatro pasos se enciende en
+  «Configuración › Envíos», como lo haría el dueño.
+- `M4View.test.tsx` (captura manual) cambió `getByLabelText` por `findByLabelText`: la ventana ahora lee el envío al
+  abrir. No se debilitó ninguna aserción.
+
+**Candados de §43.15 y su mutación** (medidas sobre copia del árbol ENTERO con `git archive` — `eed6b6a0` para G1–G15
+y `9a8e3969` para H1–H7 —, `node_modules` enlazado; una tirada por mutación: ninguna depende de carreras ni de
+reloj real — el sondeo usa reloj falso):
+
+| Candado | Suite | Mutación | Resultado |
+|---|---|---|---|
+| UX-SDX-1 | `CaptureLabelDialog.test.tsx` | abrir siempre los cuatro pasos (ignorar `provider`) | 2 rojas |
+| UX-SDX-2 | ídem + `sdx-cards.test.tsx` | «a mano» en «Compra sin confirmar» | 6 rojas (con UX-SDX-11) |
+| UX-SDX-4 | ídem | preseleccionar la más barata | 2 rojas |
+| UX-SDX-7 (SK3) | ídem | «Total» = suma del desglose | 2 rojas |
+| UX-SDX-8 (SK2/4) | ídem | botón de compra sin `canPurchase` | 5 rojas |
+| UX-SDX-9 | ídem | `confirmBranchDelivery:true` siempre | 1 roja |
+| UX-SDX-11 ⭐💰 (SK5) | ídem | tratar el 5xx como «no se compró nada» sin releer | 5 rojas |
+| UX-SDX-12 | ídem | todo 409 de la compra = saldo (ramificar por status) | 4 rojas |
+| UX-SDX-13 | ídem | sondeo sin tope de 2 min | 1 roja |
+| UX-SDX-14 | `lib/i18n-skydropx.test.ts` | borrar `options.promoNote` en `en.json` | 1 roja |
+| UX-SDX-15 | `ShipmentTrackingExtras.test.tsx` | liga construida sin `trackingUrl` | 1 roja |
+| UX-SDX-16 | `sdx-cards.test.tsx` | «Liberar» sin mirar `canRelease` | 1 roja |
+| UX-SDX-17 | `ShippingSection.test.tsx` | `PUT` al elegir `operators`, sin confirmar | 1 roja |
+| UX-SDX-18/21 | `CaptureLabelDialog.test.tsx` | `expectedAddressVersion + 1` | 2 rojas |
+| UX-SDX-19 | ídem | `<form>` sin `aria-describedby` | 1 roja |
+| UX-SDX-20 💰 | ídem | no tirar la cotización tras `corrected` | 1 roja |
+| UX-SDX-22 | ídem | mismo texto para `expired` y `address_changed` | 1 roja |
+| UX-SDX-23 | ídem | conservar la colonia del CP viejo / consultar con 4 dígitos | 1 roja / 1 roja (la primera **sobrevivía**: la prueba miraba el `select` y no el cuerpo del `PUT`; se reforzó y ahora muerde) |
+| UX-SDX-24 | ídem | «Promoción» por `planType` | 1 roja |
+| UX-SDX-25 | ídem | ofrecer empaques inactivos | 1 roja |
+| UX-SDX-26 | `sdx-cards.test.tsx` | «Deshacer preparado» con compra pendiente | 1 roja |
+
+UX-SDX-3 está retirado (v4.16). Sin mutación propia: UX-SDX-5, -6 y -10 (cubiertos por la misma suite; no medido
+que muerdan por separado).
+
+**Fuera de este encargo / pendiente.**
+- Los correos `AV-17/18/19` (backend).
+- A-6: la alerta `label_processing_stuck` va **sin** botón (default de §43.17).
+- P-ADR-1: teléfono no editable, claves `address.phone.*` **sin** añadir (un candado lo vigila).
+- Playwright: ningún spec nuevo (ni mock ni `@real`).
+- «Imprimir lista» de «Salida de hoy» usa `window.print()` sobre la misma vista con clases `print:`; la hoja no se
+  midió en un navegador (NO MEDIDO).
+
+**Solicitudes al arquitecto.**
+1. `AdminShipmentDTO.address.missing: ('neighborhood'|'postalCode'|'phone'|'recipientName'|'line1')[]` (o una regla
+   equivalente) — `DESIGN_SYSTEM §43.2a` lo necesita para abrir el paso 1 en modo corregir y para el aviso del
+   teléfono sin cotizar antes.
+2. Forma de la respuesta de `GET /admin/shipping/catalogs/consignment-notes?description=` (§19.19.6 solo dice «una
+   página») y de `PUT /admin/shipping/packages` (§19.13 no la da). La pantalla asume `{code, description}[]` y
+   `{ packages }`.
+3. `ShipmentCostAdjustmentDTO` (§19.7 lo nombra sin definirlo); la pantalla solo cuenta las filas.
+4. El `GET /admin/settings` con los diales nuevos se lee como opcional (servidor anterior a `M-SDX-D` ⇒ la sección dice
+   «Este servidor todavía no trae los ajustes de envío»).
+
+**Desacuerdos con el diseño (para ux-ui, no bloquean).**
+- **UX-SDX-2 pide «Capturar a mano» en el paso 4** (`DESIGN_SYSTEM.md:24092`, y «en los cuatro pasos» en `:23092`),
+  pero el mismo §43 lo prohíbe en «Compra sin confirmar» (`:23469`, SK5) y SK6 lo excluye «con guía ya comprada»
+  (`:23064`). En `processing` la guía **ya existe** en Skydropx (`labelSource:'skydropx'` desde el paso 9 de §19.7) y el
+  `POST …/tracking` respondería `409 SHIPMENT_ALREADY_LABELED`. Implementado: en el paso 4 «a mano» solo aparece en
+  «Skydropx no creó la guía» (`CaptureLabelDialog.tsx`, rama `stage === 'notCreated'` del pie); en `labeled`,
+  `processing`, `in_progress` e `in_flight`, no. La prueba lo fija así.
+- **«Volver a cotizar» en `502 edge_blocked` de la compra:** ver arriba (no se ofrece reintentar ni vuelve el botón).

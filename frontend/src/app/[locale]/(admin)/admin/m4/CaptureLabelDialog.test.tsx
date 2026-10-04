@@ -567,6 +567,11 @@ describe('UX-SDX-23 · el CP manda sobre colonia, municipio y estado', () => {
     await waitFor(() => expect(screen.getByRole('combobox', { name: /Colonia/ })).toHaveValue(''));
     expect(screen.getByRole('option', { name: 'Elige una colonia' })).toBeInTheDocument();
     expect((api.getPostalCode as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([c]) => c === '44100')).toHaveLength(1);
+    // Y lo que viaja es lo que se ve: ⛔ la colonia del CP viejo NO sale con el CP nuevo.
+    const put = vi.spyOn(api, 'correctShipmentAddress').mockResolvedValue({ outcome: 'unchanged', shipment: shipment() });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar dirección' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put.mock.calls[0][1]).toMatchObject({ postalCode: '44100', neighborhood: '' });
   });
 });
 
