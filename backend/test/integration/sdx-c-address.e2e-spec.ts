@@ -473,21 +473,24 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       await h.prisma.postalCode.deleteMany({ where: { postalCode: CP } });
     });
 
-    it('el MISMO envío pasa de postal_code_not_in_catalog a in_catalog al cargar su CP, sin tocar el envío; los tres valores; tras PUT con colonia de la lista ⇒ in_catalog', async () => {
+    it('el MISMO envío, escrito por el verbo con el CP fuera del catálogo, pasa a in_catalog al cargar su CP sin tocar el envío; los tres valores; tras PUT con colonia de la lista ⇒ in_catalog', async () => {
       await h.prisma.postalCode.deleteMany({ where: { postalCode: CP } });
       const d = await db.mkDirect();
-      await h.prisma.shipmentRequest.update({
-        where: { id: d.shipment.id },
-        data: { addressSnapshot: { recipientName: 'Ana', line1: 'Calle 1', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes', postalCode: CP, country: 'MX', phone: '5512345678' } },
-      });
       const check = async () => {
         const g = await h.api('GET', `/admin/shipments/${d.shipment.id}`, { token: db.opToken });
         const l = await h.api('GET', `/admin/shipments?q=${d.shipment.id}`, { token: db.opToken });
         expect(l.body.data[0].address.neighborhoodCheck).toBe(g.body.address.neighborhoodCheck); // fila y detalle
         return g.body.address.neighborhoodCheck as string;
       };
-      const before = await row(d.shipment.id);
+      // escrito por el VERBO con el CP fuera del catálogo (así es como una marca guardada al escribir quedaría vieja)
+      const w0 = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION, postalCode: CP, neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes' });
+      expect(w0.status).toBe(200);
+      expect(w0.body.shipment.address.neighborhoodCheck).toBe('postal_code_not_in_catalog');
       expect(await check()).toBe('postal_code_not_in_catalog');
+      const before = await row(d.shipment.id);
+      // ⛔ no se guarda: ni en el snapshot ni en ninguna columna
+      expect(JSON.stringify(before)).not.toContain('neighborhoodCheck');
+      expect(JSON.stringify(before)).not.toMatch(/in_catalog|not_in_postal_code_list/);
 
       // se carga el CP con OTRA colonia ⇒ la del envío no está en la lista
       await h.prisma.postalCode.create({ data: { postalCode: CP, neighborhood: 'Barrio de San Marcos', municipality: 'Aguascalientes', state: 'Aguascalientes' } });
@@ -496,15 +499,17 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       // se carga la suya (con otra grafía) ⇒ in_catalog, y el envío NO se tocó
       await h.prisma.postalCode.create({ data: { postalCode: CP, neighborhood: 'ZONA CENTRO', municipality: 'Aguascalientes', state: 'Aguascalientes' } });
       expect(await check()).toBe('in_catalog');
-      const after = await row(d.shipment.id);
-      expect(JSON.stringify(after)).toBe(JSON.stringify(before)); // la fila entera, byte a byte
+      expect(JSON.stringify(await row(d.shipment.id))).toBe(JSON.stringify(before)); // la fila entera, byte a byte
 
       // corregido a una colonia escrita ⇒ not_in_postal_code_list; luego a una de la lista ⇒ in_catalog
-      const w = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION, postalCode: CP, neighborhood: 'Inventada', city: 'X', state: 'Y' });
+      const w = await put(d.shipment.id, { expectedAddressVersion: 1, ...CORRECTION, postalCode: CP, neighborhood: 'Inventada', city: 'X', state: 'Y' });
       expect(w.body.shipment.address.neighborhoodCheck).toBe('not_in_postal_code_list');
-      const ok = await put(d.shipment.id, { expectedAddressVersion: 1, ...CORRECTION, postalCode: CP, neighborhood: 'barrio de san marcos', city: 'X', state: 'Y' });
+      const ok = await put(d.shipment.id, { expectedAddressVersion: 2, ...CORRECTION, postalCode: CP, neighborhood: 'barrio de san marcos', city: 'X', state: 'Y' });
       expect(ok.body.shipment.address.neighborhoodCheck).toBe('in_catalog');
       expect(await check()).toBe('in_catalog');
+      // y si el catálogo pierde el CP, vuelve a decirlo (lectura, no marca)
+      await h.prisma.postalCode.deleteMany({ where: { postalCode: CP } });
+      expect(await check()).toBe('postal_code_not_in_catalog');
     });
 
     it('snapshot sin colonia ⇒ postal_code_not_in_catalog; ausente en AddressDTO y en ShipPreparationOrderDTO', async () => {
