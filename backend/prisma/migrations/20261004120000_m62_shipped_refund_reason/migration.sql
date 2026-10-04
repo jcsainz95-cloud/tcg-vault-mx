@@ -8,8 +8,9 @@
 --     en esta misma tx — y no se usa);
 --   · 5 columnas en Order: fullRefundAfterShipment BOOLEAN NOT NULL DEFAULT false, shippedRefundReason,
 --     shippedRefundNote, shippedRefundReasonAt, shippedRefundReasonByUserId (FK User, RESTRICT);
---   · 2 CHECKs (SQL crudo, precedente M-25/M-59/M-61): `order_shipped_refund_reason_shape` (los cuatro campos del
---     motivo van juntos y solo con `fullRefundAfterShipment`) y `order_after_shipment_sealed` (`true` ⇒ sellada).
+--   · 2 CHECKs (SQL crudo, precedente M-25/M-59/M-61): `order_shipped_refund_reason_shape` (motivo, cuándo y quién
+--     van juntos y solo con `fullRefundAfterShipment`; la nota es opcional CON motivo y ⛔ nunca sin él) y
+--     `order_after_shipment_sealed` (`true` ⇒ sellada).
 --   · ⛔ Sin índice nuevo (el contador «por revisar» es un `count` con `WHERE` sobre dos columnas; volumen mínimo).
 --
 -- SIN BACKFILL (norma v1.64, §11): `false` es el valor VERDADERO para toda fila existente — ninguna orden se cerró

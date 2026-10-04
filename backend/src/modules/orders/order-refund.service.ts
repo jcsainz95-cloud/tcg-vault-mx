@@ -20,7 +20,14 @@ import { orderFullRefundComponents } from '../../common/money';
 import { FullRefundService, VaultPieceState } from '../payments/refunds/full-refund.service';
 import { NON_FAILED, PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { ACCEPTED_SHIPPED_REFUND_REASONS } from '../../common/business-rules';
-import { FULL_REFUND_REVIEW_SELECT, FullRefundReviewDTO, toFullRefundReviewDTO } from '../payments/refunds/refund-review';
+import {
+  FULL_REFUND_REVIEW_SELECT,
+  FullRefundReviewDTO,
+  isShippedOut,
+  lockShipmentsOfOrder,
+  ShippedOutStatus,
+  toFullRefundReviewDTO,
+} from '../payments/refunds/refund-review';
 
 /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)/(6)) — tope de la nota del motivo «tras envío». */
 export const SHIPPED_REFUND_NOTE_MAX = 500;
@@ -99,19 +106,10 @@ export class OrderRefundService {
         // Candados: envíos de la orden (directo) / retiros vivos + piezas (bóveda) → Order → libro.
         // 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)): TODOS los envíos de la orden (cualquier estado), FOR UPDATE id asc., y su
         // estado leído DESPUÉS del candado — decide «enviado» (⛔ la lectura sin candado de `picking|guia` no lo ve).
-        const shipments = await tx.shipmentRequest.findMany({
-          where: { orderId },
-          select: { id: true },
-          orderBy: { id: 'asc' },
-        });
-        let shippedStatus: 'enviado' | 'entregado' | null = null;
-        if (shipments.length > 0) {
-          const ids = shipments.map((s) => s.id);
-          const locked = await tx.$queryRaw<{ id: string; status: string }[]>`
-            SELECT id, status::text AS status FROM "ShipmentRequest" WHERE id = ANY(${ids}::text[]) ORDER BY id FOR UPDATE`;
-          const out = locked.find((s) => s.status === 'enviado' || s.status === 'entregado');
-          shippedStatus = out ? (out.status as 'enviado' | 'entregado') : null;
-        }
+        // Techlead C-1: el MISMO helper y el MISMO predicado que `onFullRefund` (`refund-review.ts`) ⇒ lo que M3 decide
+        // aquí y lo que `onFullRefund` exige como invariante no pueden divergir.
+        const shipments = await lockShipmentsOfOrder(tx, orderId);
+        const shippedStatus: ShippedOutStatus | null = shipments.map((s) => s.status).find(isShippedOut) ?? null;
         let vaultPreview: Awaited<ReturnType<FullRefundService['classifyVaultPieces']>> | null = null;
         if (order.fulfillmentMode === 'vault') {
           // Retiros vivos que contienen cartas vigentes de la compra, FOR UPDATE (id asc.), luego piezas.

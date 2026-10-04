@@ -18,8 +18,7 @@ import { RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { customerDisplayName } from '../vault/customer-display-name';
 import { refundedCentsOf } from './order-public-status';
-import { FULL_REFUND_REVIEW_SELECT, isRefundReviewPending, REFUND_REVIEW_PENDING_WHERE, toFullRefundReviewDTO } from '../payments/refunds/refund-review';
-import { SHIPPED_OUT_STATUSES } from '../payments/refunds/full-refund.service';
+import { FULL_REFUND_REVIEW_SELECT, isRefundReviewPending, isShippedOut, REFUND_REVIEW_PENDING_WHERE, toFullRefundReviewDTO } from '../payments/refunds/refund-review';
 
 /**
  * M3 — Ventas / órdenes. vault_operator (lectura); super_admin (reembolso, money-out).
@@ -130,11 +129,12 @@ export class AdminOrdersController {
     // `shippingAddressSnapshot`) ya viajan en la fila; el back-office está protegido por rol y el
     // correo del comprador es dato de contacto operativo (mismo criterio que AdminSellerRef.email).
     return {
-      // 💰 v1.80.8.6: las columnas del motivo «tras envío» ⛔ no viajan crudas; la fila lleva `refundReviewPending`
-      // (una sola fuente: el detalle trae `fullRefundReview`).
-      data: data.map(({ user, refunds, shippedRefundNote: _n, shippedRefundReasonAt: _a, shippedRefundReasonByUserId: _b, ...o }) => ({
+      // 💰 v1.80.8.6: las columnas del motivo «tras envío» ⛔ no viajan crudas — NINGUNA de las cinco (QA MENOR-1,
+      // 2026-10-04: tampoco `fullRefundAfterShipment` ni `shippedRefundReason`). La fila lleva SOLO `refundReviewPending`
+      // (§M3); el detalle trae `fullRefundReview`. Lo fija `test/admin-orders.list-review-columns.spec.ts`.
+      data: data.map(({ user, refunds, fullRefundAfterShipment, shippedRefundReason, shippedRefundNote: _n, shippedRefundReasonAt: _a, shippedRefundReasonByUserId: _b, ...o }) => ({
         ...o,
-        refundReviewPending: isRefundReviewPending(o),
+        refundReviewPending: isRefundReviewPending({ fullRefundAfterShipment, shippedRefundReason }),
         isGuestOrder: o.guestEmail != null,
         // v1.80 (§M4-SHIP.10): `CustomerRefDTO | null` (`null` ⇔ invitado) y lo devuelto por Stripe.
         customer: user ? { userId: user.id, fullName: customerDisplayName(user), email: user.email } : null,
@@ -234,7 +234,7 @@ export class AdminOrdersController {
       // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): el registro del motivo y el estado VIVO del envío (lo usa el diálogo de M3
       // para pedir el motivo antes de enviar; quien decide es la tx1, ⛔ no este campo).
       fullRefundReview,
-      shipmentShipped: shipmentRequests.some((s) => (SHIPPED_OUT_STATUSES as readonly string[]).includes(s.status)),
+      shipmentShipped: shipmentRequests.some((s) => isShippedOut(s.status)),
       // v1.80.8.7 A-1: `settledAt: string | null`, SIEMPRE presente (lo emite `getOrder`; se fija aquí su presencia).
       settledAt: (detail as { settledAt?: Date | string | null }).settledAt ?? null,
       ...(manualRefunds ? { manualRefunds, manualRefundedCents: manualRows!.filter((m) => m.status === 'paid').reduce((a, m) => a + m.amountCents, 0) } : {}),

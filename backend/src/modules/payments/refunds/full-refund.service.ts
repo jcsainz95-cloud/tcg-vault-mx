@@ -24,14 +24,25 @@
  * se congela en `Order.fullRefundAfterShipment` con el sello; una orden NUNCA liquidada (estado bajo candado ∈
  * `SETTLEABLE`) devuelve sus piezas `reserved` a la venta en la misma tx (`releaseReservedOfUnsettledRefund`, SSL-R1).
  *
- * **Orden de candados (⛔ ninguno nuevo):** envíos (`FOR UPDATE`, id asc.) → piezas (id asc.) → `Order` → libro.
- * El mismo que el preparado (§M4-SHIP.5) ⇒ M3, preparado y webhook se serializan sin interbloqueo.
+ * **Orden de candados:** envíos (`FOR UPDATE`, id asc.) → piezas (id asc.) → `Order` → libro. El mismo que el
+ * preparado (§M4-SHIP.5) ⇒ M3, preparado y webhook se serializan sin interbloqueo. **Dos excepciones** (techlead C-2,
+ * 2026-10-04), ambas en la rama DIRECTO:
+ *  1. **(4-bis, SRF-11 — aceptada por el arquitecto):** tras `Order FOR UPDATE` se bloquean los envíos que NACIERON
+ *     entre el paso (1) y ese candado. Es segura porque el único que crea un envío de la orden (el settle de un
+ *     `succeeded` tardío) lo hace BAJO el candado de `Order`, que ya es nuestro: cuando lo vemos, su creador confirmó y
+ *     nadie más puede tenerlo bloqueado esperando `Order`.
+ *  2. **(M3 directo):** M3 tx1 (`order-refund.service.ts`) toma envíos → `Order` y DESPUÉS llama a `onFullRefund`, cuyo
+ *     `lockReservedOfOrder` bloquea piezas `reserved` por la orden ⇒ piezas DESPUÉS de `Order`. En una orden `settled`
+ *     la consulta no devuelve filas (no bloquea nada); solo con la anomalía sembrada de SRF-11 (liquidada con una pieza
+ *     aún `reserved`) bloquearía, y podría interbloquear (`40P01`) con quien tome pieza → `Order`. ⚠ NO MEDIDA como
+ *     carrera; anotada para el arquitecto en BACKEND_NOTES §21.
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderStatus, Prisma, ShippedRefundReason } from '@prisma/client';
 import { CurrentPiece, currentPiecesOf, resolveOriginsBatch } from './origin';
 import { isSettleableOrderStatus } from '../settleable-order-statuses';
 import { lockReservedOfOrder, releaseReservedOfUnsettledRefund, reservedIdsOfOrder } from './release-unsettled-refund';
+import { isShippedOut, lockShipmentsOfOrder, SHIPPED_OUT_STATUSES } from './refund-review';
 
 export type FullRefundTrigger = 'm3' | 'charge_refunded' | 'unprepared' | 'reclaim';
 export type FullRefundTarget = { orderId: string } | { shipmentRequestId: string };
@@ -102,9 +113,6 @@ export interface FullRefundPassResult {
   releasedItemIds: string[];
 }
 
-/** Estados de un envío propio que cuentan como «ya salió» (§M4-SHIP.18.12 (1)). */
-export const SHIPPED_OUT_STATUSES: readonly ('enviado' | 'entregado')[] = ['enviado', 'entregado'];
-
 type Tx = Prisma.TransactionClient;
 
 const LIVE: readonly ('solicitado' | 'picking' | 'guia')[] = ['solicitado', 'picking', 'guia'];
@@ -161,10 +169,14 @@ export class FullRefundService {
    * la bóveda). Envío ya `cancelado|enviado|entregado` ⇒ no-op (idempotente). ⛔ Sin `AV-6`.
    *
    * 💰 v1.80.8.6 (§M4-SHIP.18.12 (2)/(3)) — rama DIRECTO:
-   *  - toma TODOS los envíos de la orden `FOR UPDATE` (id asc., cualquier estado) y lee su `status` DESPUÉS del
-   *    candado ⇒ `afterShipment = ∃ enviado|entregado`. (⛔ La lectura previa al candado no decide: un `→enviado` que
+   *  - (1) toma TODOS los envíos de la orden `FOR UPDATE` (id asc., cualquier estado) y lee su `status` DESPUÉS del
+   *    candado ⇒ `afterShipment = ∃ isShippedOut`. (⛔ La lectura previa al candado no decide: un `→enviado` que
    *    confirma entre ella y el `FOR UPDATE` dejaría un paquete salido sin «por revisar» — SRF-9.)
-   *  - luego las piezas `reserved` por la orden `FOR UPDATE` (id asc.), luego `Order FOR UPDATE`;
+   *  - (3) luego las piezas `reserved` por la orden `FOR UPDATE` (id asc.), (4) luego `Order FOR UPDATE`;
+   *  - (4-bis) EXCEPCIÓN al orden de candados (aceptada por el arquitecto, SRF-11): los envíos nacidos entre (1) y (4)
+   *    se bloquean DESPUÉS de `Order` y se tratan igual que los de (1) (cabecera del fichero, excepción 1);
+   *  - si quien llama es M3 tx1, `Order` ya está bloqueada ANTES de entrar ⇒ (3) toma piezas después de `Order`
+   *    (cabecera, excepción 2: vacía salvo anomalía; NO MEDIDA como carrera);
    *  - estado bajo candado ∈ `SETTLEABLE` (nunca liquidada) ⇒ `releaseReservedOfUnsettledRefund` (SSL-R1);
    *  - primera pasada: congela `fullRefundAfterShipment` (y, si M3 lo trae, el motivo) con el sello y escribe
    *    `order.full_refund_closed`. ⛔ Las pasadas siguientes no lo reescriben (criterio 250).
@@ -206,18 +218,12 @@ export class FullRefundService {
       };
     }
     const orderId = target.orderId;
-    // (1) TODOS los envíos de la orden, FOR UPDATE id asc., y su estado leído DESPUÉS del candado.
-    const all = await tx.shipmentRequest.findMany({ where: { orderId }, select: { id: true }, orderBy: { id: 'asc' } });
-    const lockedIds = all.map((s) => s.id);
-    const locked = lockedIds.length > 0 ? await this.lockShipments(tx, lockedIds) : [];
-    let afterShipment = locked.some((s) => (SHIPPED_OUT_STATUSES as readonly string[]).includes(s.status));
     const closed: string[] = [];
     const frozen: string[] = [];
-    // (2) el CAS `picking|guia → cancelado` de siempre.
-    for (const s of locked) {
-      if (s.status !== 'picking' && s.status !== 'guia') continue;
-      if (await this.cancelShipment(tx, s.id, trigger, actorUserId, { orderId }, frozen)) closed.push(s.id);
-    }
+    // (1) TODOS los envíos de la orden, FOR UPDATE id asc., su estado leído DESPUÉS del candado, y (2) el CAS
+    // `picking|guia → cancelado` de siempre.
+    const first = await this.lockAndCloseShipments(tx, orderId, [], trigger, actorUserId, closed, frozen);
+    let afterShipment = first.anyShippedOut;
     // (3) piezas `reserved` por la orden (id asc.), (4) `Order` FOR UPDATE + sello. v1.80.8.3: + `status`.
     const lockedReservedIds = await lockReservedOfOrder(tx, orderId);
     const [row] = await tx.$queryRaw<{ fullRefundClosedAt: Date | null; chargebackNeedsManual: boolean; status: OrderStatus; orderNumber: string | null }[]>`
@@ -225,15 +231,9 @@ export class FullRefundService {
     // (4-bis) 💰 SRF-11 — un envío que NACIÓ entre (1) y el candado de `Order` (el settle de un `succeeded` tardío que
     // confirmó ENTERO en esa ventana: crea el envío `picking` bajo el candado de `Order`, que ahora es nuestro y ya
     // está confirmado). Sin esto la orden quedaría `refunded` con un envío vivo. Se bloquea y se cierra igual.
-    const late = await tx.shipmentRequest.findMany({ where: { orderId, id: { notIn: lockedIds } }, select: { id: true }, orderBy: { id: 'asc' } });
-    if (late.length > 0) {
-      const lateLocked = await this.lockShipments(tx, late.map((s) => s.id));
-      if (lateLocked.some((s) => (SHIPPED_OUT_STATUSES as readonly string[]).includes(s.status))) afterShipment = true;
-      for (const s of lateLocked) {
-        if (s.status !== 'picking' && s.status !== 'guia') continue;
-        if (await this.cancelShipment(tx, s.id, trigger, actorUserId, { orderId }, frozen)) closed.push(s.id);
-      }
-    }
+    // ⚠ Envíos DESPUÉS de `Order`: excepción 1 al orden de candados (cabecera del fichero), aceptada por el arquitecto.
+    const late = await this.lockAndCloseShipments(tx, orderId, first.lockedIds, trigger, actorUserId, closed, frozen);
+    if (late.anyShippedOut) afterShipment = true;
     // (5) SSL-R1: orden NUNCA liquidada ⇒ sus piezas apartadas vuelven a la venta en esta misma tx.
     const releasedItemIds = isSettleableOrderStatus(row.status)
       ? await releaseReservedOfUnsettledRefund(tx, orderId, trigger, actorUserId, { lockedReservedIds, orderNumber: row.orderNumber })
@@ -297,10 +297,27 @@ export class FullRefundService {
     };
   }
 
-  /** `FOR UPDATE` de los envíos dados (id asc.) y su estado leído BAJO el candado. */
-  private async lockShipments(tx: Tx, ids: string[]): Promise<{ id: string; status: string }[]> {
-    return tx.$queryRaw<{ id: string; status: string }[]>`
-      SELECT id, status::text AS status FROM "ShipmentRequest" WHERE id = ANY(${ids}::text[]) ORDER BY id FOR UPDATE`;
+  /**
+   * Rama directo, pasos (1)+(2) y (4-bis) — un solo cuerpo (techlead D-1, 2026-10-04): bloquea los envíos de la orden
+   * salvo `exceptIds` (`lockShipmentsOfOrder`), anota si alguno ya salió (`isShippedOut`, leído BAJO el candado) y
+   * cancela por CAS los `picking|guia` (acumula en `closed`/`frozen`).
+   */
+  private async lockAndCloseShipments(
+    tx: Tx,
+    orderId: string,
+    exceptIds: readonly string[],
+    trigger: FullRefundTrigger,
+    actorUserId: string | null,
+    closed: string[],
+    frozen: string[],
+  ): Promise<{ lockedIds: string[]; anyShippedOut: boolean }> {
+    const locked = await lockShipmentsOfOrder(tx, orderId, exceptIds);
+    const anyShippedOut = locked.some((s) => isShippedOut(s.status));
+    for (const s of locked) {
+      if (s.status !== 'picking' && s.status !== 'guia') continue;
+      if (await this.cancelShipment(tx, s.id, trigger, actorUserId, { orderId }, frozen)) closed.push(s.id);
+    }
+    return { lockedIds: locked.map((s) => s.id), anyShippedOut };
   }
 
   /** El CAS `picking|guia → cancelado` de un envío + su bitácora; en un directo, junta sus piezas congeladas. */
@@ -661,7 +678,7 @@ export class FullRefundService {
         select: { originalInventoryItemId: true },
       }),
       tx.shipmentItem.findMany({
-        where: { inventoryItemId: { in: pieceIds }, shipmentRequest: { status: { in: ['enviado', 'entregado'] } } },
+        where: { inventoryItemId: { in: pieceIds }, shipmentRequest: { status: { in: [...SHIPPED_OUT_STATUSES] } } },
         select: { inventoryItemId: true },
       }),
       this.reclaimedByBatch(tx, pieceIds, ctx.sealAt),
