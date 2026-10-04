@@ -2,7 +2,8 @@
  * staff-without-email.e2e-spec.ts — v1.80.9, usuarios de back-office SIN correo (`API_CONTRACT §M6-U`,
  * `ARCHITECTURE §4.58`, `PROJECT §U` criterios 256–270), punta a punta: app REAL de Nest, Postgres real (con la
  * migración M-63 aplicada), HTTP real. Pruebas `STF-*` de §M6-U.9 que viven aquí: 1–8, 10–15, 17, 18, 20, 23, 24,
- * 26–28, 30. Las de carrera (STF-6, STF-20) corren R = 10 rondas × N = 10 peticiones simultáneas y AFIRMAN 10/10.
+ * 26–28, 30; y de la errata v1.80.9.1 (§M6-U.11): STF-2/24/30 ampliadas, STF-35 y STF-36 (STF-32 y STF-34 con BD
+ * viven en `stf-errata-v1-80-9-1.e2e-spec.ts`). Las de carrera (STF-6, STF-20) corren R = 10 rondas × N = 10 peticiones simultáneas y AFIRMAN 10/10.
  * Las demás piezas: `test/stf.*.spec.ts` (unitarias), `staff-throttle.e2e-spec.ts` (STF-21) y
  * `m63-migration.e2e-spec.ts` (STF-25).
  *
@@ -19,7 +20,11 @@ import * as argon2 from 'argon2';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.port';
-import { LOGIN_ATTEMPT_STORE, LoginAttemptStore } from '../../src/modules/auth/login-attempt.store';
+import {
+  LOGIN_ATTEMPT_STORE,
+  LoginAttemptStore,
+  LoginAttemptStoreUnavailableError,
+} from '../../src/modules/auth/login-attempt.store';
 
 jest.setTimeout(300_000);
 
@@ -140,9 +145,24 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
     expect(onlyEmail.body.error.details.field).toBe('email');
     const custUser = await createUser({ name: 'X', email: `stf2_${randomUUID().slice(0, 8)}@e2e.local`, username: uname('c'), role: 'customer' });
     expect(custUser.status).toBe(422);
-    expect(custUser.body.error.details.field).toBe('username');
+    // ⭐ v1.80.9.1 (D-5): la regla tiene nombre normativo.
+    expect(custUser.body.error.details).toMatchObject({ field: 'username', rule: 'customer_without_username' });
     const custNoEmail = await createUser({ name: 'X', role: 'customer' });
     expect(custNoEmail.status).toBe(422);
+    expect(custNoEmail.body.error.details.field).toBe('email');
+    // ⭐ v1.80.9.1 (D-5): TODO `422` del alta lleva `details.field` (aditivo), también los que antes no lo llevaban.
+    const okCust = { name: 'X', role: 'customer', email: `stf2_${randomUUID().slice(0, 8)}@e2e.local` };
+    const cases: [Record<string, unknown>, string][] = [
+      [{ ...okCust, name: '   ' }, 'name'],
+      [{ ...okCust, role: 'jefe' }, 'role'],
+      [{ ...okCust, email: 'no-es-correo' }, 'email'],
+      [{ ...okCust, password: 'abc' }, 'password'],
+      [{ ...okCust, locale: 'fr' }, 'locale'],
+    ];
+    for (const [body, field] of cases) {
+      const r = await createUser(body);
+      expect([field, r.status, r.body.error?.code, r.body.error?.details?.field]).toEqual([field, 422, 'VALIDATION_ERROR', field]);
+    }
     const sa = await createUser({ name: 'Super STF', username: uname('sa'), role: 'super_admin' });
     expect(sa.status).toBe(201);
     expect(sa.body.user.email).toBeNull();
@@ -538,9 +558,10 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
     // Con candado puesto de nuevo y el almacén lanzando ⇒ el listado NO falla y no afirma «sin candado».
     for (let i = 0; i < 5; i++) await login(s.username, BAD);
     const store = h.app.get<LoginAttemptStore>(LOGIN_ATTEMPT_STORE);
+    // ⭐ v1.80.9.1 (D-4 + TD-9): «no contesta» = la CLASE del almacén; cualquier otro error se propaga (500).
     const spy = jest
       .spyOn(store as unknown as { peekLockMs: (k: string) => Promise<number> }, 'peekLockMs')
-      .mockRejectedValue(new Error('store down'));
+      .mockRejectedValue(new LoginAttemptStoreUnavailableError('store down'));
     try {
       const down = await h.api('GET', `/admin/users?q=mrk&pageSize=100`, { token: adminTok });
       expect(down.status).toBe(200);
@@ -549,9 +570,15 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
       const dd = await h.api('GET', `/admin/users/${s.id}`, { token: adminTok });
       expect(dd.status).toBe(200);
       expect(dd.body.lockedUntil).toBeNull();
+      expect(dd.body.lockState).toBe('unavailable');
+      spy.mockRejectedValue(new Error('bug, not the store'));
+      expect((await h.api('GET', `/admin/users?q=mrk&pageSize=100`, { token: adminTok })).status).toBe(500);
+      expect((await h.api('GET', `/admin/users/${s.id}`, { token: adminTok })).status).toBe(500);
     } finally {
       spy.mockRestore();
     }
+    const okDetail = await h.api('GET', `/admin/users/${s.id}`, { token: adminTok });
+    expect(okDetail.body.lockState).toBe('ok');
   });
 
   // ───────────────────────────────────────────── 267: correos ──────────────────────────────────────────
@@ -625,6 +652,41 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
         EXISTS (SELECT 1 FROM "ManualRefund" x WHERE x."customerUserId" = u.id) OR
         EXISTS (SELECT 1 FROM "ReplacementCase" x WHERE x."customerUserId" = u.id))`);
     expect(Number(broken[0].n)).toBe(0);
+  });
+
+  // ───────────────────────────────── errata v1.80.9.1 (§M6-U.11): D-1, TD-4 (a) ─────────────────────────────────
+
+  it('STF-35 — D-1: la rama con @ es isEmail de hoy: "a@b" y "a@b.c" ⇒ 400; "ana" ⇒ el 401 de M6-U.2; su usuario y clave ⇒ 200', async () => {
+    // "a@b.c" es el valor que DISTINGUE las dos reglas (medido 2026-10-04: isEmail ⇒ false, EMAIL_REGEX ⇒ true);
+    // "a@b" lo rechazan las dos (BACKEND_NOTES §55.2.1 afirmaba lo contrario: corregido en §56.3).
+    for (const v of ['a@b', 'a@b.c']) {
+      const r = await login(v, BAD);
+      expect([v, r.status, r.body.error?.code]).toEqual([v, 400, 'VALIDATION_ERROR']);
+    }
+    expect((await login('ana', BAD)).status).toBe(401);
+    const s = await staff('d1');
+    expect((await login(s.username, s.temp)).status).toBe(200);
+  });
+
+  it('STF-36 — TD-4 (a): el dueño rescata a un super_admin SIN correo desde Usuarios: 200 temporal, login (no 429) con mustChangePassword, sesión vieja 401, bitácora, cero correos', async () => {
+    const ownerId = (await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.admin.email } })).id;
+    const jefa = await activeStaff('jefa', Role.super_admin);
+    await lock(jefa.username);
+    mailSpy.mockClear();
+    const r = await h.api('POST', `/admin/users/${jefa.id}/reset-password`, { token: adminTok });
+    expect([r.status, r.text]).toEqual([200, r.text]);
+    const temp = r.body.tempPassword as string;
+    expect(typeof temp).toBe('string');
+    const l = await login(jefa.username, temp);
+    expect(l.status).toBe(200);
+    expect(l.body.user.mustChangePassword).toBe(true);
+    expect(l.body.user.role).toBe('super_admin');
+    expect((await h.api('GET', '/users/me', { token: jefa.token })).status).toBe(401);
+    const rows = await h.prisma.auditLog.findMany({ where: { action: 'user.reset_password', entityId: jefa.id } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].actorUserId).toBe(ownerId);
+    await settle();
+    expect(mailSpy).not.toHaveBeenCalled();
   });
 
   // ───────────────────────────────────────────── anonimización ─────────────────────────────────────────

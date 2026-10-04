@@ -7,6 +7,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { UploadsService } from '../src/modules/uploads/uploads.service';
 import { BusinessException } from '../src/common/business.exception';
+import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
  * `A5` · API_CONTRACT §M6-L · ARCHITECTURE §4.53 — **el estado de identidad en el listado y su
@@ -40,7 +41,7 @@ function build(rows: any[] = []) {
   const findMany = jest.fn(async (_args: FoundArgs) => rows);
   const count = jest.fn(async (_args: { where: Record<string, any> }) => rows.length);
   const prisma = { user: { findMany, count } } as unknown as PrismaService;
-  const admin = new AdminService(prisma, {} as PricingService, {} as PiiCryptoService, {} as UploadsService);
+  const admin = new AdminService(prisma, {} as PricingService, {} as PiiCryptoService, {} as UploadsService, undefined, noLockAttempts());
   const ctrl = new AdminUsersController(admin, {} as AuditService);
   return { ctrl, findMany, count };
 }

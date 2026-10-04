@@ -71,6 +71,18 @@ export interface LoginAttemptStore {
 /** Token DI del almacén. */
 export const LOGIN_ATTEMPT_STORE = Symbol('LOGIN_ATTEMPT_STORE');
 
+/**
+ * ⭐ v1.80.9.1 (errata D-4 + TD-9, `API_CONTRACT §M6-U.4`, `ARCHITECTURE §4.58.9`) — «el almacén no puede decir dónde
+ * está el candado». La lanza `ResilientLoginAttemptStore.peekLockMs` en modo degradado o si Redis no contesta. Es la
+ * ÚNICA excepción que `AdminService` traduce a `lockState:'unavailable'`; cualquier otra se propaga (fallar en alto).
+ */
+export class LoginAttemptStoreUnavailableError extends Error {
+  constructor(reason: string) {
+    super(`login-attempt store unavailable: ${reason}`);
+    this.name = 'LoginAttemptStoreUnavailableError';
+  }
+}
+
 /** Lo que Redis no vio de una clave de reserva mientras no contestaba (§4.57.5, v1.80.1). */
 export interface PendingAcquire {
   /** Intentos contados solo en memoria. */
@@ -510,7 +522,8 @@ export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 /**
  * Redis con respaldo en memoria (§4.57.2 #11). Cada operación contra Redis tiene `timeoutMs`; si
  * falla o vence, ESA operación y las de los `fallbackMs` siguientes van a memoria, con las mismas
- * reglas. ⛔ Nunca deja pasar sin contar (fail-open) ni lanza (fail-closed).
+ * reglas. ⛔ Nunca deja pasar sin contar (fail-open) ni lanza (fail-closed) — salvo `peekLockMs`, que es una
+ * lectura del panel, no del login, y lanza `LoginAttemptStoreUnavailableError` (v1.80.9.1, D-4).
  *
  * v1.80.1 (§4.57.10.2): la memoria es la CACHÉ de Redis (`MemoryLoginAttemptStore.sync*`), arranca
  * de la foto cuando Redis no contesta, y lo que contó a solas se repone en la primera operación que
@@ -594,16 +607,20 @@ export class ResilientLoginAttemptStore implements LoginAttemptStore, OnModuleIn
   }
 
   /**
-   * v1.80.9: misma regla que `acquire` para saber QUIÉN manda: degradado ⇒ la memoria (que es la que decide el `429`
-   * en ese modo); si Redis no contesta ⇒ se marca caído y se lee la memoria. Nunca lanza por un Redis caído.
+   * ⭐ v1.80.9.1 (errata D-4, `API_CONTRACT §M6-U.4`, `ARCHITECTURE §4.58.9`) — la lectura del panel NO sigue la regla
+   * de `acquire`:
+   *  - degradado ⇒ lanza `LoginAttemptStoreUnavailableError` sin tocar Redis. ⛔ No lee la memoria: en este modo solo
+   *    conoce las claves que tocó ESTA réplica (N-C7-6) y «sin candado» sería una afirmación que no puede sostener.
+   *  - Redis falla o vence el plazo ⇒ lanza la misma clase y ⛔ NO llama a `markDown`: la lectura es «sin efectos»
+   *    (interfaz, arriba) y una consulta del panel no puede cambiar por dónde decide el login.
+   * (Hasta v1.80.9 leía la memoria y marcaba caído; descartado por el arquitecto, §4.58.9.)
    */
   async peekLockMs(key: string): Promise<number> {
-    if (this.degraded) return this.fallback.peekLockMs(key);
+    if (this.degraded) throw new LoginAttemptStoreUnavailableError('degraded (Redis down, reading memory is not the lock)');
     try {
       return await withTimeout(this.primary.peekLockMs(key), this.timeoutMs);
     } catch (e) {
-      this.markDown('peekLockMs', e);
-      return this.fallback.peekLockMs(key);
+      throw new LoginAttemptStoreUnavailableError(e instanceof Error ? e.message : String(e));
     }
   }
 

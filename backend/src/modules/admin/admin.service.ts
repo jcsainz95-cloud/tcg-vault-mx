@@ -39,6 +39,7 @@ import {
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { PasswordAttemptsService } from '../auth/password-attempts.service';
+import { LoginAttemptStoreUnavailableError } from '../auth/login-attempt.store';
 import { ShipmentPrepService } from '../shipments/shipment-prep.service';
 import { ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { kycRejectedTemplate } from './mail/kyc-notice.templates';
@@ -955,22 +956,39 @@ export class AdminService {
 
   /**
    * v1.80.9 (§M6-U.7, §4.58.5) — «bloqueado por intentos hasta…» de cada cuenta: ISO = ahora + `peekLockMs` del cubo
-   * de SU identificador; `null` sin candado. El almacén es la ÚNICA fuente (ni columna ni bitácora). Si el almacén
-   * lanza en cualquiera de las lecturas ⇒ `state:'unavailable'` y TODAS `null` (⛔ ni un 500, ni una marca a medias).
+   * de SU identificador; `null` sin candado. El almacén es la ÚNICA fuente (ni columna ni bitácora).
+   * ⭐ v1.80.9.1 (errata D-4 + TD-9, §M6-U.7, `ARCHITECTURE §4.58.9`) — falla en alto:
+   *  - solo `LoginAttemptStoreUnavailableError` (Redis degradado, caído o fuera de plazo) ⇒ `state:'unavailable'` y
+   *    TODAS `null` (⛔ ni un 500, ni una marca a medias);
+   *  - cualquier OTRA excepción (p. ej. `passwordAttemptKeysForUser` sin identificador = CHECK 1 roto, o un error de
+   *    programación) ⇒ se propaga: ⛔ no se disfraza de «almacén no disponible»;
+   *  - sin `PasswordAttemptsService` ⇒ lanza el error de cableado (SEC-C7-OPT: no hay rama muda).
    */
   private async lockedUntilOf(
     users: { id: string; email: string | null; username: string | null }[],
   ): Promise<{ state: 'ok' | 'unavailable'; values: (string | null)[] }> {
-    const attempts = this.passwordAttempts;
-    if (!attempts) return { state: 'unavailable', values: users.map(() => null) };
+    const attempts = this.requirePasswordAttempts('lockedUntilOf');
     try {
       const now = Date.now();
       const ms = await Promise.all(users.map((u) => attempts.lockMsForUser(u)));
       return { state: 'ok', values: ms.map((m) => (m > 0 ? new Date(now + m).toISOString() : null)) };
     } catch (e) {
-      this.logger.warn(`lockedUntil: el almacén de intentos no contestó (${e instanceof Error ? e.message : String(e)})`);
+      if (!(e instanceof LoginAttemptStoreUnavailableError)) throw e;
+      this.logger.warn(`lockedUntil: el almacén de intentos no contestó (${e.message})`);
       return { state: 'unavailable', values: users.map(() => null) };
     }
+  }
+
+  /**
+   * SEC-C7-OPT / TD-9: el `PasswordAttemptsService` es obligatorio en DI; sin él, se falla en seco con el MISMO texto
+   * de cableado en todos los que lo usan (reset y lectura del candado).
+   */
+  private requirePasswordAttempts(op: string): PasswordAttemptsService {
+    const attempts = this.passwordAttempts;
+    if (!attempts) {
+      throw new Error(`AdminService.${op}: PasswordAttemptsService is not wired (AdminModule must import AuthModule)`);
+    }
+    return attempts;
   }
 
   /**
@@ -996,9 +1014,12 @@ export class AdminService {
       select: ADMIN_USER_DETAIL_SELECT,
     });
     if (!user) throw BusinessException.notFound();
-    // v1.80.9 (§M6-U.7): «bloqueado por intentos hasta…», leído del ALMACÉN (única fuente). Si no contesta ⇒ `null`
-    // (la ficha no lleva `lockState`: §42.10 A-1 queda para el arquitecto) — ⛔ la ficha no falla por eso.
-    const lockedUntil = (await this.lockedUntilOf([user])).values[0];
+    // v1.80.9 (§M6-U.7): «bloqueado por intentos hasta…», leído del ALMACÉN (única fuente). ⭐ v1.80.9.1 (A-1): la
+    // ficha gana `lockState` con la MISMA regla que el listado (misma función) — `'unavailable'` ⇒ `lockedUntil: null`;
+    // ⛔ la ficha no falla por el almacén (sí por una invariante rota, TD-9).
+    const lock = await this.lockedUntilOf([user]);
+    const lockedUntil = lock.values[0];
+    const lockState = lock.state;
 
     // Las relaciones ya vienen acotadas por el `select`, y cada una pasa además por SU proyector
     // (los del encabezado de este fichero). ⛔ Ni un SPREAD DE RESTO en esta función.
@@ -1028,6 +1049,7 @@ export class AdminService {
       return {
         ...toAdminUserHeaderSuper(user),
         lockedUntil,
+        lockState,
         ...comunes,
         // ⭐ v1.69 (P-78, §M6-K.3): SOLO aquí. El operador no recibe la clave (ni vacía): un perfil
         // de movimientos POR PERSONA no es de su rol.
@@ -1054,6 +1076,7 @@ export class AdminService {
     return {
       ...toAdminUserHeader(user),
       lockedUntil,
+      lockState,
       ...comunes,
       kycProfile: user.kycProfile
         ? {
@@ -1448,10 +1471,7 @@ export class AdminService {
   async resetPassword(id: string): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
     // SEC-C7-OPT: se comprueba ANTES de escribir nada. Sin servicio no hay reset «a medias» (hash
     // nuevo persistido, candado puesto, contraseña temporal nunca devuelta): se falla en seco.
-    const attempts = this.passwordAttempts;
-    if (!attempts) {
-      throw new Error('AdminService.resetPassword: PasswordAttemptsService is not wired (AdminModule must import AuthModule)');
-    }
+    const attempts = this.requirePasswordAttempts('resetPassword');
     const user = await this.prisma.user.findUnique({
       where: { id },
       // v1.80.9 (§M6-U.6): + `username`, para que `clearForUser` limpie el cubo de SU identificador.

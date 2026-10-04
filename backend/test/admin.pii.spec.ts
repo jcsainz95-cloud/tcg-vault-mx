@@ -7,6 +7,7 @@ import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { maskRfc } from '../src/common/crypto/pii-mask';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
  * SEC-A4 + endurecimiento PII: la CLABE/RFC viven CIFRADOS en reposo y en la ficha 360°
@@ -99,7 +100,7 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     } as unknown as PricingService;
     return {
       prisma,
-      service: new AdminService(prisma as PrismaService, pricing, pii, {} as any),
+      service: new AdminService(prisma as PrismaService, pricing, pii, {} as any, undefined, noLockAttempts()),
     };
   }
 

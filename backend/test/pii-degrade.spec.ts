@@ -8,6 +8,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { UploadsService } from '../src/modules/uploads/uploads.service';
+import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
  * ⭐ Robustez PII (deuda M11) — **un campo PII que NO descifra DEGRADA, no tumba la pantalla.**
@@ -98,7 +99,7 @@ describe('PII indescifrable — degrada a `piiUnavailable`, nunca 500', () => {
         },
       };
       const pricing = { fxSnapshotSafe: jest.fn().mockResolvedValue(null) } as unknown as PricingService;
-      return new AdminService(withM61Defaults(prisma) as PrismaService, pricing, pii, {} as UploadsService);
+      return new AdminService(withM61Defaults(prisma) as PrismaService, pricing, pii, {} as UploadsService, undefined, noLockAttempts());
     }
 
     it('super_admin: CLABE indescifrable ⇒ 200, `clabeMasked` undefined, `kycProfile.piiUnavailable` true, resto intacto', async () => {
