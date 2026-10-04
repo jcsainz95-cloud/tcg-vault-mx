@@ -27290,6 +27290,9 @@ Fuente: `API_CONTRACT §M4-SHIP.19.5`, `§19.20.1` (errata v1.80.12), `§19.19.1
 
 ### 58.4 Bloqueos de despliegue (fuera de backend)
 
+> ⚠️ **Superado por §60 (v1.80.12.5, `HECHOS.md:57`):** con la tabla vacía ya no se rechaza ninguna dirección; el
+> primer punto de abajo dejó de ser bloqueo. Se conserva como historia.
+
 - **`PostalCode` nace VACÍA.** Con la tabla vacía, TODA dirección nueva (libreta e invitado) es `422 POSTAL_CODE_UNKNOWN`
   ⇒ nadie puede pagar un envío. `scripts/geo/import-sepomex.ts` **no existe** (medido: `ls scripts/geo` ⇒ no existe,
   2026-10-04). El import de devops tiene que correr en la misma ventana que M-64, antes de abrir el tráfico.
@@ -27388,3 +27391,101 @@ Mutaciones (copia `git archive` del árbol entero; `f5b58a75`, y las dos última
 | purgar y además borrar las filas de bitácora | rojo en (3) |
 | `complete` con la regla vieja (`addressMissing`) | **verde** con las pruebas de `f5b58a75` ⇒ se añadió la prueba de `9117cb24` ⇒ rojo |
 | `shipmentAddressMissing` sin `recipientName` | rojo (unitaria) |
+
+## 60 · Errata v1.80.12.5 construida (parte backend): la colonia como Mercado Libre — `resolveAddressGeo`, `neighborhoodCheck`, PS-103 sustituida, PS-114, PS-115; y lo pendiente de v1.80.12.3 (PS-99 (d4)/(d5), M1–M4 de PS-104) (2026-10-04, rama `claude/skydropx-d`, sobre `143b9b94`; código en `3a6d15c9` + `4b930010` + el commit de esta sección)
+
+Fuente: `API_CONTRACT §M4-SHIP.19.25` (tabla de §19.25.7), `§19.23.2`, `§19.23.5`; `ARCHITECTURE §4.60 (r)`; `HECHOS.md:57`
+(«si, hazlo como mercado libre»). ⛔ Ningún endpoint, columna, migración ni código de error nuevos.
+
+### 60.1 Qué cambió y dónde
+
+| Pieza | Fichero |
+|---|---|
+| `canonicalize` ⇒ **`resolveAddressGeo(postalCode, neighborhood, city, state)`**: cuatro casos, ⛔ nunca lanza. CP fuera del catálogo ⇒ lo escrito (trim), `check:'postal_code_not_in_catalog'`; colonia que casa por `normalizeColonia` ⇒ canónico + municipio/estado DE ESA colonia, `'in_catalog'`; colonia que no casa ⇒ la escrita + municipio/estado **del CP** (`mostCommon`, lo mismo que pinta el `GET`), `'not_in_postal_code_list'`. **`neighborhoodCheckOf(postalCode, neighborhood)`** para el DTO: la misma consulta y la misma comparación (`matchColonia`, una función para los dos) | `shipping-provider/geo/postal-code.ts` |
+| Libreta: `POST` resuelve con `city`/`state` del cuerpo; `PATCH` con `postalCode` exige `neighborhood`, `city` y `state` en ese orden (`400 {field, reason:'required_with_postal_code'}`), y lo que no viene sale de la fila | `users/users.service.ts`, `users/dto/users.dto.ts` (comentarios) |
+| Invitado: `city`/`state` con trim + `MinLength(1)`; la sesión resuelve sin `422`, antes de reservar y del PaymentIntent (misma posición); **`quote` ya no consulta el catálogo** | `orders/dto/guest-checkout.dto.ts`, `orders/guest-checkout.service.ts` |
+| `PUT /admin/shipments/:id/address`: `city`/`state` obligatorios en el cuerpo (`requiredText`, 1..120); solo cuentan con el CP fuera del catálogo | `shipments/shipment-address.service.ts` |
+| `AdminShipmentDTO.address.neighborhoodCheck`, calculado al leer (fila y detalle). `ShipmentsService` recibe `PostalCodeService` como `@Optional()` (los unitarios legacy lo construyen a mano); sin él, leer `address` lanza (`requirePostalCodes`), no degrada a un valor | `shipments/shipments.service.ts` |
+| `NEIGHBORHOOD_NOT_IN_POSTAL_CODE` fuera; `POSTAL_CODE_UNKNOWN` solo como `404` del `GET` | `common/error-codes.ts` |
+
+### 60.2 Decisiones que el contrato no fijaba
+
+1. **`neighborhoodCheck` de un snapshot sin colonia (o en blanco), sin CP o con CP mal formado** ⇒ `'postal_code_not_in_catalog'`
+   **sin consultar** la fuente (§19.25.3 lo dice para «sin colonia o CP mal formado»; el blanco cuenta como sin colonia, igual
+   que en `addressMissing`).
+2. **`PATCH` de la libreta que toca solo colonia/ciudad/estado** (sin CP): se resuelve con el CP de la fila y lo que no vino
+   sale de la fila. La excepción de §58.2 (5) sigue: dirección vieja SIN colonia a la que solo se cambia ciudad/estado ⇒ tal cual.
+3. **Una dirección vieja con CP mal formado** (`'1000'`) a la que se le cambia la colonia: `resolvePostalCode` ⇒ `null` ⇒ caso 2
+   (se guarda lo escrito). Antes era `422 POSTAL_CODE_UNKNOWN`; hoy no hay `422` que emitir. La forma del CP solo se valida
+   cuando el `PATCH` trae `postalCode` (pipe), como antes.
+4. **`check` no se persiste en la sesión del invitado**: se separa con `const { check: _check, ...geo }` antes de armar el
+   snapshot (un campo de más en `toAddressSnapshot` sería un undécimo campo).
+
+### 60.3 Pruebas
+
+- **Unitarias** (`test/sdx-c.address-rules.spec.ts`): los cuatro casos de `resolveAddressGeo` (incluido el catálogo vacío y
+  «del CP» = lo que muestra `describe`, con un CP de cuatro colonias en el que el municipio más frecuente no es ni el primero
+  ni el último), `neighborhoodCheckOf` (tres valores + sin colonia / CP mal formado sin consultar), `canonicalize` ya no existe;
+  el cuerpo del `PUT` con `city`/`state` (ausente, blanco, 121). `shipments.recipient-name.spec.ts` pasa el `PostalCodeService`.
+- **Integración** (`test/integration/sdx-c-address.e2e-spec.ts`): **PS-103** sustituida, (a)(b)(c)(d) de §19.25.6; **PS-114**
+  libreta (a)(b)(c)(d) y `PATCH` (`required_with_postal_code` para `neighborhood`/`city`/`state`, cero escrituras), invitado
+  (a)(b)(c)(d), **con `PostalCode` vacía** (borrada y restaurada en `finally`) un invitado con CP 20000 crea la orden y su
+  PaymentIntent (`Order.stripePaymentIntentId` = el devuelto), y el `quote` con colonia inventada / CP desconocido ⇒ `200`;
+  **PS-115**: el envío se escribe **por el verbo** con el CP fuera del catálogo; se carga otra colonia del CP ⇒
+  `not_in_postal_code_list`; se carga la suya ⇒ `in_catalog` con la fila **byte a byte** igual; `PUT` con colonia escrita ⇒
+  `not_in_postal_code_list`, con colonia de la lista ⇒ `in_catalog`; se borra el CP ⇒ vuelve a `postal_code_not_in_catalog`;
+  fila y detalle coinciden; ausente en `AddressDTO` y en `ShipPreparationOrderDTO`. PS-102 ahora asevera `neighborhoodCheck`.
+- **PS-99 (d4)/(d5)** (`test/skydropx.no-real-purchase.spec.ts`, sustituye la aserción transitoria): (d4) las tres llaves
+  `SKYDROPX_ALLOW_SPEND`/`CLIENT_ID`/`CLIENT_SECRET` aparecen **exactamente una vez** en `.env.example` y vacías; (d5)
+  existen `scripts/skydropx/prod-probe.ts` y `prod-probe.test.ts` y un workflow invoca `run-prod-probe.sh test` en una línea
+  no comentada. Cada regla es una función pura con sus canarios sintéticos en la propia prueba, además de la mutación sobre
+  la copia (abajo).
+
+**Suites (árbol vivo, BD propia `tcg_be_colml`):** unitaria completa **397/397 suites, 6816/6816** (sobre `3a6d15c9` + la
+prueba de `mostCommon` reforzada); integración completa con `stack-native.sh test:integration` **78/78 suites, 1601/1601**,
+8 min 25 s, load inicial ≈ 2–8 (otros agentes en la máquina). Sin rojos por timeout.
+
+### 60.4 Mutaciones (copia `git archive` del árbol ENTERO en `4b930010`; BD `tcg_be_colml`)
+
+Deterministas, N = 1 cada una (las de carrera, abajo):
+
+| Mutación | Prueba que muerde | Resultado |
+|---|---|---|
+| `resolveAddressGeo` caso 3 acepta `city`/`state` del cuerpo (CP en catálogo) | unit caso 3 | rojo |
+| caso 2 vuelve a lanzar `POSTAL_CODE_UNKNOWN` | unit casos 2 y vacío | rojo (2) |
+| caso 4 vuelve a lanzar | unit caso 4 | rojo |
+| caso 4 usa `city` del cuerpo · la última entrada · la primera entrada (en vez de `mostCommon`) | unit caso 4 | rojo · rojo · rojo (la de «última entrada» salió **verde** con la primera versión de la prueba, porque en el CP sintético la última coincidía con la más frecuente; se reforzó la prueba y se repitió) |
+| `PUT`: `city`/`state` opcionales en el cuerpo | unit cuerpo | rojo (4) |
+| `neighborhoodCheckOf` consulta con la colonia en blanco | unit | rojo |
+| sesión del invitado reintroduce `POSTAL_CODE_UNKNOWN` (la del contrato) | PS-114 invitado (c) y **catálogo vacío** (orden no creada) | rojo (2) |
+| `PATCH` sin exigir `city`/`state` (la del contrato) | PS-114 `PATCH` | rojo |
+| **guardar la marca al escribir** (en el snapshot) y leerla (la del contrato) | PS-115 (el envío escrito por el verbo sigue diciendo lo viejo tras cargar el CP), PS-102 | rojo (2) |
+| el `quote` vuelve a consultar y rechazar | PS-114 quote | rojo |
+| `PUT` acepta `city`/`state` del cuerpo con el CP en el catálogo (la del contrato) | PS-103 (a)(b), PS-102 | rojo (3) |
+| `PUT` vuelve a `422` en (b)/(c) (la del contrato) | PS-103 (b)(c), PS-115 | rojo (3) |
+| libreta rechaza la colonia escrita | PS-114 libreta (b) | rojo |
+| PS-99 (d4): borrar la línea · `SKYDROPX_ALLOW_SPEND=true` · segunda línea `SKYDROPX_ALLOW_SPEND=` · `SKYDROPX_CLIENT_SECRET=abc` | (d4) árbol | rojo · rojo · rojo · rojo (la primera era **verde** con la aserción transitoria) |
+| PS-99 (d5): borrar `prod-probe.test.ts` · quitar el paso `run-prod-probe.sh test` de `ci.yml` | (d5) árbol | rojo · rojo |
+
+**PS-104 por pares (§19.23.2)**, cada una con las **N = 10 rondas forzadas** de la prueba (barrera de fila), sobre
+`shipment-address.service.ts` en `4b930010`:
+
+| Mutación | Exigido | Medido (rondas `ok`/N) |
+|---|---|---|
+| **M1** sin la comparación de versión del paso 3 **y** sin `addressVersion` en el `WHERE` | rojo | **0/10** ⇒ rojo |
+| **M2** sin el candado **y** sin `addressVersion` en el `WHERE` | rojo | **0/10** ⇒ rojo |
+| **M3** sin el candado, solo | verde 10/10 | **10/10** ⇒ verde |
+| **M4** sin `addressVersion` en el `WHERE`, solo | verde 10/10 | **10/10** ⇒ verde |
+
+⚠️ **Hallazgo para el arquitecto (no cambia el veredicto de M1/M2):** en M1 y M2 el perdedor de cada ronda no responde
+`200` (no hay «gana la última escritura» con dos `200`): responde **`500 INTERNAL`** por `Unique constraint failed on
+(shipmentRequestId, fromVersion)` — la `@@unique` de `ShipmentAddressRevision` (M-65) aborta su tx y la fila queda en `v=1`
+con una sola bitácora (las 10 rondas: `MAL(200:corrected,500:INTERNAL;v=1;logs=1)`). Es decir, desde M-65 hay un
+**tercer muro** (de esquema) que impide la doble escritura aunque caigan candado/comparación y el `WHERE`; lo que la prueba
+detecta en M1/M2 es el `500` en vez del `409`. El reporte de §58.6 («guarda + `WHERE` ⇒ 0/10») es anterior a M-65.
+
+### 60.5 Lo que NO está aquí
+
+- Frontend, `Dockerfile.backend`/`boot`/G-BOOT y `import-sepomex` (devops), `PROJECT.md` (product-owner): fuera de mis rutas.
+- La `E2E` de §19.25.6 (Playwright) es de frontend + QA.
+- PS-104 filas D2a, PS-105a/b, PS-106, PS-113: siguen en su hito (§19.23.1).

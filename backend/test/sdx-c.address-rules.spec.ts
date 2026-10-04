@@ -53,9 +53,12 @@ describe('PostalCodeService — EL cuerpo que sirve el GET y resuelve (C-SDX-3);
     const mixed = new PostalCodeService([
       new MemoryPostalCodeSource({
         '50000': [
-          { neighborhood: 'A', municipality: 'Toluca', state: 'México' },
-          { neighborhood: 'B', municipality: 'Metepec', state: 'México' },
+          // el más frecuente (Toluca) no es ni el primero ni el último: una implementación que tome una entrada
+          // cualquiera en vez de `mostCommon` sale roja
+          { neighborhood: 'A', municipality: 'Metepec', state: 'México' },
+          { neighborhood: 'B', municipality: 'Toluca', state: 'México' },
           { neighborhood: 'C', municipality: 'Toluca', state: 'México' },
+          { neighborhood: 'D', municipality: 'Zinacantepec', state: 'México' },
         ],
       }),
     ]);
