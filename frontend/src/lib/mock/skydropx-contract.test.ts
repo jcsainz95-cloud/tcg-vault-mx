@@ -64,6 +64,8 @@ describe('§19.23.4 (errata v1.80.12.3) · `line2` 0..200 en «Capturar guía»'
       line1: 'Calle 1',
       postalCode: '03100',
       neighborhood: 'Del Valle',
+      city: 'Benito Juárez',
+      state: 'Ciudad de México',
       references: null,
     };
     try {
@@ -74,5 +76,50 @@ describe('§19.23.4 (errata v1.80.12.3) · `line2` 0..200 en «Capturar guía»'
     }
     const ok = mockCorrectAddress(row, { ...body, line2: 'x'.repeat(200) });
     expect(ok.shipment.addressSnapshot?.line2).toBe('x'.repeat(200));
+  });
+});
+
+/**
+ * §M4-SHIP.19.25 (v1.80.12.5) en el doble del servidor: `PUT …/address` con `resolveAddressGeo` (⛔ nunca
+ * `422` por geografía) y `address.neighborhoodCheck` calculado AL LEER. El modo mock de Playwright corre contra
+ * este doble: si volviera a lanzar `422`, el E2E de «colonia escrita» no mediría nada.
+ */
+describe('§19.25 · el doble resuelve la colonia sin rechazar y calcula `neighborhoodCheck` al leer', () => {
+  const base = { expectedAddressVersion: 0, recipientName: 'Ana', line1: 'Calle 1', line2: null, references: null };
+  it('(a) colonia de la lista en minúsculas ⇒ canónica, y municipio/estado del CP aunque el cuerpo traiga otros', () => {
+    resetMockSkydropx();
+    const row = mockAdminShipments.find((r) => r.status === 'picking')!;
+    const res = mockCorrectAddress(row, { ...base, postalCode: '44100', neighborhood: 'americana', city: 'Otra', state: 'Otro' });
+    expect(res.shipment.addressSnapshot).toMatchObject({ neighborhood: 'Americana', city: 'Guadalajara', state: 'Jalisco' });
+    expect(res.shipment.address?.neighborhoodCheck).toBe('in_catalog');
+  });
+  it('(b) CP del catálogo + colonia que no está ⇒ `corrected`, colonia tal cual (trim), municipio/estado del CP', () => {
+    resetMockSkydropx();
+    const row = mockAdminShipments.find((r) => r.status === 'picking')!;
+    const res = mockCorrectAddress(row, { ...base, postalCode: '44100', neighborhood: '  Fracc. Los Pinos ', city: 'X', state: 'Y' });
+    expect(res.outcome).toBe('corrected');
+    expect(res.shipment.addressSnapshot).toMatchObject({ neighborhood: 'Fracc. Los Pinos', city: 'Guadalajara', state: 'Jalisco' });
+    expect(res.shipment.address?.neighborhoodCheck).toBe('not_in_postal_code_list');
+  });
+  it('(c) CP fuera del catálogo ⇒ `corrected` con colonia, municipio y estado del cuerpo', () => {
+    resetMockSkydropx();
+    const row = mockAdminShipments.find((r) => r.status === 'picking')!;
+    const res = mockCorrectAddress(row, { ...base, postalCode: '20000', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes' });
+    expect(res.outcome).toBe('corrected');
+    expect(res.shipment.addressSnapshot).toMatchObject({ postalCode: '20000', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes' });
+    expect(res.shipment.address?.neighborhoodCheck).toBe('postal_code_not_in_catalog');
+  });
+  it('(d) `city` o `state` vacíos ⇒ `400 {field}` y versión intacta', () => {
+    resetMockSkydropx();
+    const row = mockAdminShipments.find((r) => r.status === 'picking')!;
+    for (const field of ['city', 'state'] as const) {
+      try {
+        mockCorrectAddress(row, { ...base, postalCode: '20000', neighborhood: 'Zona Centro', city: 'A', state: 'B', [field]: '  ' });
+        expect.unreachable();
+      } catch (e) {
+        expect(e).toMatchObject({ status: 400, code: 'VALIDATION_ERROR', details: { field } });
+      }
+    }
+    expect(mockDecorateAdminShipment(row).address?.version).toBe(0);
   });
 });

@@ -19343,3 +19343,90 @@ exige `guest-references`) y la mutación quedó roja.
 - Capturas `360×740`/`390×844` del select con 30+ colonias y de la hoja de completar (N-8, de QA): NO MEDIDO.
 - Objetivo táctil de «Editar»/«Borrar»/«Marcar predeterminada» (N-9): fuera de este encargo, deuda no bloqueante.
 - El ≥ 24 px de «Completar dirección» se asevera por clase (`py-1.5`), no por medida: jsdom no hace layout.
+
+## §90 · **La colonia como Mercado Libre** — la lista del CP ayuda, no bloquea (2026-10-04, rama `claude/skydropx-d`, base `011b5924`; `HECHOS.md:57`; contrato v1.80.12.5 `§M4-SHIP.19.25`; diseño v4.19 `DESIGN_SYSTEM §43.18m`, FC-16…FC-27, UX-ADR-1, 7, 8…13)
+
+### 90.1 Qué cambió
+- **Un solo cuerpo para el modo de la colonia:** `hooks/useNeighborhoodMode.ts` (nuevo). Lo usan
+  `PostalCodeNeighborhoodFields` (libreta, alta inline del buylist, invitado) y el paso 1 de «Capturar guía»
+  (`capture/AddressStep.tsx`). Modos de §43.18m.1: `pending` (CP incompleto, consultando o falló) · `list` ·
+  `manualNeighborhood` · `manualAll` (`404`, `200` sin colonias, o elegido mientras consulta/falla).
+  `usePostalCodeLookup` pierde `allowedOverride` (§19.25.2 p. 5); `404` sigue leyéndose como «sin lista».
+- **Reglas del hook (las que muerden las mutaciones de 90.3):** el modo no cambia solo al llegar una respuesta
+  (UX-ADR-10); solo **cambiar el CP** lo reinicia, y además vacía municipio y estado (eran del CP anterior). Lo
+  tecleado a mano queda en memoria al ir y volver de la lista (CA-9). **CA-9 / FC-22 / FC-25 parte 1:** al
+  abrir con una colonia guardada que no está en la lista del CP con el que se abrió, entra en
+  `manualNeighborhood` con su valor — ni `''` ni la colonia única del CP. **El defecto de `AddressStep.tsx:104-105`
+  (vaciaba la colonia al llegar la lista) sale en este mismo commit.**
+- **Cliente:** «Mi colonia no está» es un **botón** bajo el control (⛔ ninguna `option` centinela, UX-ADR-13); el
+  `Input` sustituye al `Select` con el mismo `id`/label y recibe el foco; «Escribir la colonia a mano» desde el
+  primer instante de la consulta y tras un fallo (junto a «Reintentar», `role="alert"` solo en el texto del
+  fallo). «Todo a mano»: `geo.cpNotInCatalog` (o `geo.manualAllIntro` si lo eligió el cliente) en un
+  `<p aria-live="polite">`, ⛔ no es error (CA-7: el CP no lleva `aria-invalid`); municipio = `Input`, estado =
+  `<select>` de 32 entidades (`lib/mx-states.ts`, nuevo). Validación por modo (§43.18m.7):
+  `neighborhoodRequired` / `neighborhoodTypeRequired` / `cityRequired` / `stateRequired`; `400 {field, max}` ⇒
+  `geo.tooLong`. Invitado: `FIELD_ORDER`/`FIELD_ID` ganan `city`, `state` tras `neighborhood`.
+- **Fuera los `422` geográficos** (C-2): ramas de `NEIGHBORHOOD_NOT_IN_POSTAL_CODE`/`POSTAL_CODE_UNKNOWN` en
+  libreta, invitado y operador; `AddressErrorCode = 'ADDRESS_INCOMPLETE'`; claves `addresses.geo.cpUnknown`,
+  `.notListed`, `.noNeighborhoods`, `.notInCp`, `error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE`,
+  `error.POSTAL_CODE_UNKNOWN` y `…sdx.address.neighborhoodNotInCp` retiradas (UX-ADR-7 lo asevera). Los dobles
+  del modo mock (`lib/api.ts`, `lib/mock/skydropx.ts`) implementan `resolveAddressGeo` (cuatro casos, nunca lanza
+  por geografía) y el `PATCH` exige `neighborhood`/`city`/`state` con `postalCode` (§19.25.1).
+- **Operador (C-3/C-4):** `CorrectShipmentAddressReq` gana `city`/`state` (siempre viajan); con el CP fuera del
+  catálogo, colonia, municipio y estado son editables y `cpUnknown` es aviso, no error. `AddressReadView` pinta
+  `manualMark` bajo Colonia, `manualCityStateMark` bajo Estado y `manualReview.*` al pie del paso **solo** con
+  `address.neighborhoodCheck` del servidor (⛔ no se deduce; sin el dato, cero marcas; «Ver opciones de envío»
+  sigue habilitado). `ShipmentAddressStateDTO.neighborhoodCheck` es **opcional** en el tipo solo para un servidor
+  anterior a v1.80.12.5.
+- **Libreta:** la rehidratación del formulario al cambiar de dirección pasa de efecto a **durante el render**: con el
+  efecto los campos montaban con el CP del formulario anterior y luego «veían» cambiar el CP, que apaga CA-9 y vacía
+  municipio y estado (M16 lo mide).
+
+### 90.2 Decisiones
+1. **`value` del estado = nombre oficial de SEPOMEX** (`d_estado`, lo que guarda `PostalCode.state`:
+   «Michoacán de Ocampo», «México», «Coahuila de Zaragoza», «Veracruz de Ignacio de la Llave»); la etiqueta es la
+   corta de §43.18m.4. El encargo dijo «el nombre de la entidad»; el contrato no fija otra cosa (texto 1..120). Así
+   una dirección escrita y una de la lista se leen igual en la guía. Un estado guardado que no es ninguno de los 32
+   se ofrece como opción extra tal cual (no se pierde el dato).
+2. **Marcas del operador con colonia ausente:** si falta la colonia o el CP no es de 5 dígitos, la fila ya dice
+   «Falta…» (`missing`) y no se añade «escrita a mano» aunque el servidor diga `postal_code_not_in_catalog`.
+3. **El `select` de colonia del operador sigue enfocable mientras consulta** (como antes de §43.18m): el paso 1 abre
+   con el foco en «Colonia» cuando falta (§43.2c) y la lista llega después. El del cliente sí se apaga mientras
+   consulta (§43.18m.1).
+4. **Operador consultando/falló:** reusa `addresses.geo.typeInstead`/`.failed`/`.manualHint`/`.manualAllIntro` y
+   `.statePlaceholder` (§43.18m.8 no define claves de operador para esos casos).
+
+### 90.3 Pruebas y mutaciones (medido por mí)
+Nuevas/ajustadas: `AddressManager.colonia.test.tsx` (20 → 28: UX-ADR-1 ×2, §43.18m.7, UX-ADR-8, 9 ×2, 10, 13, 11 ×2,
+`400 city`), `GuestCheckoutColonia.test.tsx` (7: UX-ADR-1/PS-114 con resumen en orden del DOM, UX-ADR-8, `tooLong`;
+UX-ADR-5 ahora en «todo a mano» con los 9 ids), `capture/AddressStep.colonia.test.tsx` (nuevo, 9: UX-ADR-11 ×2 del
+operador, C-4 ×2, UX-ADR-12 ×4), `CaptureLabelDialog.test.tsx` (el `PUT` lleva `city`/`state`),
+`skydropx-contract.test.ts` (+4: el doble con los casos (a)–(d) de PS-103), `i18n-client-address.test.ts`.
+E2E nuevo `e2e/address-colonia.spec.ts` (2, `@real`, sin salvaguardas): invitado con CP `20000` (fuera de
+`E2E_POSTAL_CODES` y del doble) escribe colonia/municipio/estado y **paga**; libreta con CP `06600` + «Mi colonia no
+está» guarda (y borra la fila al final).
+
+Suites (árbol vivo): `tsc` 0 · `next lint` 0 · vitest **222/222 ficheros, 2744/2744** (incluye `i18n-parity`; load ≈ 3,8) ·
+Playwright modo mock `address-colonia` + `guest-checkout` + `checkout-retry` + `buylist` **47/47** (N=1, build propio
+:3471, load final 8,4; contra el stack real: NO MEDIDO) · censo `check-e2e-skip-census.sh` = baseline (mockOnly 135).
+
+Mutaciones (copia `git archive 011b5924` del árbol ENTERO + mis ficheros encima, en
+`scratchpad/fe-colonia-ml/`, ya borrada): **18/18 rojas en vitest** (N=1; M3 y M4 repetidas, 3/3 rojas cada una) —
+M1 CA-9 apagado (4) · M2 sin campos con `404` (7) · M3 la lista arranca el modo elegido (1) · M4 sin foco al pulsar (3) ·
+M5 se pierde lo tecleado (1) · M6 sin salida mientras consulta (2) · M7 sin «a mano» tras fallar (1) · M8 CP desconocido
+como error (2) · M9 `option` centinela (3) · M10 invitado sin exigir municipio/estado (1) · M11 texto de lista a mano (1) ·
+M12 `PUT` sin `city`/`state` (5) · M13 CP nuevo conserva municipio/estado (1) · M14 marca deducida sin dato (1) · M15 sin
+marca de estado (1) · M16 rehidratación en efecto (3) · M17 el doble vuelve a lanzar `422` (1) · M18 `neighborhoodCheck`
+constante (2). **E2E:** la mutación de §19.25.6 (sin campos de texto con `404`) ⇒ `address-colonia` invitado **rojo**
+(1/1; el de la libreta sigue verde, como debe).
+
+### 90.4 Lo que NO hice / hallazgos
+- **E2E «Capturar guía muestra el aviso»** (tercera parte de la fila E2E de §19.25.6): no está. En modo mock el
+  proveedor arranca `off` y llegar a la ventana Skydropx exige cambiar «Configuración › Envíos» en el mismo spec;
+  queda cubierto por vitest (UX-ADR-12). Pendiente para QA / un pase con el stack.
+- **Defecto anterior, no tocado:** tras un intento de pago fallido, el resumen de errores del invitado toma el foco
+  **cada vez que cambia el número de errores** (`GuestCheckoutForm.tsx`, efecto `[submitAttempted, listed.length]`):
+  al teclear el primer carácter de un campo con error, el foco salta al resumen. Medido en
+  `GuestCheckoutColonia.test.tsx` (con `userEvent.type` solo entraba la primera letra). Afecta a todos los campos, no
+  solo a la colonia. Va como hallazgo para ux-ui/orquestador.
+- Capturas a 390 px del modo a mano y de «todo a mano»: NO MEDIDO.

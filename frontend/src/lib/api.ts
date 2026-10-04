@@ -1379,13 +1379,14 @@ export interface AddressInput {
   line1: string;
   line2?: string;
   /**
-   * ⭐ v1.81 (§M4-SHIP.19.5, criterio 235): OBLIGATORIA y de la lista de `GET /geo/postal-codes/:cp`
-   * (`422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` / `422 POSTAL_CODE_UNKNOWN`). `PATCH` con `postalCode` la exige.
+   * v1.80.12.5 (§M4-SHIP.19.25.1, `HECHOS.md:57`): OBLIGATORIA como texto 1..120, de la lista de
+   * `GET /geo/postal-codes/:cp` o escrita a mano (⛔ sin `422` geográficos). `PATCH` con `postalCode` exige
+   * `neighborhood`, `city` y `state` (`400 {field, reason:'required_with_postal_code'}`).
    */
   neighborhood: string;
-  /** v1.81: el servidor la sobrescribe con el municipio canónico del CP. */
+  /** v1.80.12.5: obligatorio 1..120; con el CP en el catálogo el servidor pone el municipio del CP. */
   city: string;
-  /** v1.81: el servidor lo sobrescribe con el estado canónico del CP. */
+  /** v1.80.12.5: obligatorio 1..120; con el CP en el catálogo el servidor pone el estado del CP. */
   state: string;
   /** v1.81: `^\d{5}$`. */
   postalCode: string;
@@ -1407,28 +1408,28 @@ export async function listAddresses(): Promise<AddressDTO[]> {
 }
 
 /**
- * MOCK v1.81 (§M4-SHIP.19.5): la validación de colonia del servidor, con el MISMO catálogo que sirve
- * `getPostalCode` en mocks. Devuelve los campos canónicos (colonia de la lista, municipio y estado del CP).
+ * MOCK v1.80.12.5 (§M4-SHIP.19.25.1): `resolveAddressGeo` del servidor, con el MISMO catálogo que sirve
+ * `getPostalCode` en mocks. ⛔ Nunca lanza por geografía: CP fuera del catálogo ⇒ lo escrito (caso 2); colonia
+ * que casa ⇒ canónicos (caso 3); colonia que no casa ⇒ la escrita con municipio y estado DEL CP (caso 4).
  */
-function mockCanonicalAddress(input: { postalCode: string; neighborhood: string }): { neighborhood: string; city: string; state: string } {
+function mockCanonicalAddress(input: { postalCode: string; neighborhood: string; city: string; state: string }): { neighborhood: string; city: string; state: string } {
   if (!/^\d{5}$/.test(input.postalCode)) {
     throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'postalCode must be 5 digits' });
+  }
+  for (const field of ['neighborhood', 'city', 'state'] as const) {
+    const v = (input[field] ?? '').trim();
+    if (v.length < 1 || v.length > 120) {
+      throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: `${field} must be 1..120`, details: { field } });
+    }
   }
   let cp: PostalCodeDTO;
   try {
     cp = sdx.mockPostalCode(input.postalCode);
   } catch {
-    throw new ApiClientError(422, { code: 'POSTAL_CODE_UNKNOWN', message: 'unknown postal code', details: { postalCode: input.postalCode } });
+    return { neighborhood: input.neighborhood.trim(), city: input.city.trim(), state: input.state.trim() };
   }
   const canonical = matchNeighborhood(input.neighborhood, cp.neighborhoods);
-  if (!canonical) {
-    throw new ApiClientError(422, {
-      code: 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE',
-      message: 'neighborhood not in postal code',
-      details: { postalCode: input.postalCode, allowed: cp.neighborhoods },
-    });
-  }
-  return { neighborhood: canonical, city: cp.municipality, state: cp.state };
+  return { neighborhood: canonical || input.neighborhood.trim(), city: cp.municipality, state: cp.state };
 }
 
 /** MOCK: `complete` derivado como en el servidor (colonia ∧ CP de 5 ∧ teléfono de 10). */
@@ -1484,19 +1485,23 @@ export async function updateAddress(id: string, input: Partial<AddressInput>): P
   if (input.isDefault) fx.mockAddresses.forEach((a) => (a.isDefault = false));
   const prev = fx.mockAddresses[idx];
   const next: AddressDTO = { ...prev, ...input, references: input.references === undefined ? prev.references : input.references?.trim() || null };
-  // MOCK v1.81: cambiar CP sin colonia ⇒ 400; tocar CP, colonia, ciudad o estado con colonia valida el par y
-  // escribe los canónicos; una fila vieja SIN colonia a la que solo se cambia ciudad/estado se escribe tal
-  // cual (BACKEND_NOTES §58.2 punto 5).
-  if (input.postalCode !== undefined && input.postalCode !== prev.postalCode && input.neighborhood === undefined) {
-    throw new ApiClientError(400, {
-      code: 'VALIDATION_ERROR',
-      message: 'neighborhood is required with postalCode',
-      details: { field: 'neighborhood', reason: 'required_with_postal_code' },
-    });
+  // MOCK v1.80.12.5 (§M4-SHIP.19.25.1): `PATCH` con `postalCode` exige `neighborhood`, `city` y `state` (el primero
+  // que falte, en ese orden); tocar CP, colonia, ciudad o estado con colonia resuelve con `resolveAddressGeo`;
+  // una fila vieja SIN colonia a la que solo se cambia ciudad/estado se escribe tal cual (BACKEND_NOTES §58.2 p. 5).
+  if (input.postalCode !== undefined) {
+    for (const field of ['neighborhood', 'city', 'state'] as const) {
+      if (input[field] === undefined) {
+        throw new ApiClientError(400, {
+          code: 'VALIDATION_ERROR',
+          message: `${field} is required with postalCode`,
+          details: { field, reason: 'required_with_postal_code' },
+        });
+      }
+    }
   }
   const touchesGeo = [input.postalCode, input.neighborhood, input.city, input.state].some((v) => v !== undefined);
   if (touchesGeo && next.neighborhood) {
-    Object.assign(next, mockCanonicalAddress({ postalCode: next.postalCode, neighborhood: next.neighborhood ?? '' }));
+    Object.assign(next, mockCanonicalAddress({ postalCode: next.postalCode, neighborhood: next.neighborhood ?? '', city: next.city, state: next.state }));
   }
   next.complete = mockAddressComplete(next);
   fx.mockAddresses[idx] = next;

@@ -439,7 +439,9 @@ describe('UX-SDX-18 ⭐ = PS-101 (corregida) · el paso 1 corrige la dirección 
     const body = put.mock.calls[0][1] as unknown as Record<string, unknown>;
     expect(body.expectedAddressVersion).toBe(3);
     expect(body.recipientName).toBe('Ana María López');
-    for (const k of ['city', 'state', 'phone', 'country']) expect(body).not.toHaveProperty(k);
+    // v1.80.12.5 (§M4-SHIP.19.25.1, C-4): `city`/`state` viajan (los del CP con lista); ⛔ `phone`/`country` no.
+    expect(body).toMatchObject({ city: 'Tlalpan', state: 'Ciudad de México' });
+    for (const k of ['phone', 'country']) expect(body).not.toHaveProperty(k);
     expect(await screen.findByText('No había nada que cambiar: la dirección ya era esa.')).toBeInTheDocument();
   });
   it('`complete:false` sin colonia ⇒ abre en modo corregir con el foco en «Colonia» y el texto de 43.2c', async () => {

@@ -1846,17 +1846,19 @@
               "line1": "Street and number",
               "line2": "Interior or apartment number (optional)",
               "postalCode": "Postcode",
-              "references": "Notes for the courier (optional)"
+              "references": "Notes for the courier (optional)",
+              "city": "Municipality or borough",
+              "state": "State"
             },
             "hint": {
               "recipient": "Who receives the package. It goes on the label.",
-              "postalCode": "5 digits. When you change it, the neighborhood, municipality and state come from the new postcode.",
+              "postalCode": "5 digits. When you change it, the neighborhood goes back to the new postal code’s list.",
               "references": "For example: black gate, between streets… Up to 70 characters; Skydropx doesn't accept more."
             },
             "cityState": "Municipality and state: {city}, {state} (from the postcode).",
             "phoneReadOnly": "Phone: {phone}. It can't be corrected here.",
             "cpFirst": "Type the 5-digit postcode to see its neighborhoods.",
-            "cpUnknown": "Postcode {cp} isn't in the neighborhood catalogue. Check it; if it's right, enter the label by hand.",
+            "cpUnknown": "Postal code {cp} isn’t in the neighborhood catalog. Check it; if it’s right, type the neighborhood, municipality and state.",
             "save": "Save address",
             "discard": "Discard changes",
             "saving": "Saving the address…",
@@ -1868,14 +1870,22 @@
             "labelInProgress": "A label purchase is in progress for this shipment. The address wasn't saved.",
             "forbidden": "Your account can't correct shipping addresses.",
             "serverDown": "The address couldn't be saved: the server didn't respond. Nothing changed; try again.",
-            "neighborhoodNotInCp": "That neighborhood isn't in postcode {cp}. It wasn't saved. Choose one from the list.",
             "invalid": {
               "recipient": "Enter who receives it.",
               "line1": "Enter the street and number.",
               "postalCode": "The postcode is 5 digits.",
               "references": "The notes don't fit on the label: shorten them (up to 70 characters).",
               "other": "Check this field: the server didn't accept it."
-            }
+            },
+            "manualMark": "Typed in by the customer · not on postal code {cp}’s list",
+            "manualCityStateMark": "Municipality and state typed in: postal code {cp} isn’t in the catalog",
+            "manualReview": {
+              "neighborhood": "The customer typed the neighborhood in. Check it before viewing shipping options; if it’s misspelled, correct it.",
+              "all": "The customer typed the neighborhood, municipality and state in (postal code {cp} isn’t in the catalog). Check them before viewing shipping options; if anything is misspelled, correct it."
+            },
+            "notListedCta": "The neighborhood isn’t on the list",
+            "backToList": "Choose from the list for postal code {cp}",
+            "neighborhoodManualLabel": "Neighborhood (typed in)"
           },
           "quoting": "Getting quotes from Skydropx…",
           "quotingHint": "It usually takes 2 to 7 seconds.",
@@ -5462,8 +5472,6 @@
     "ITEM_ORIGIN_REFUNDED": "A card in your withdrawal comes from a purchase being refunded and can't ship. Remove it and try again.",
     "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
     "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved.",
-    "NEIGHBORHOOD_NOT_IN_POSTAL_CODE": "That neighborhood isn’t in the postal code. Nothing was saved: choose one from the list.",
-    "POSTAL_CODE_UNKNOWN": "That postal code isn’t in our catalog and nothing was saved. The “Postal code” field tells you what to do.",
     "ADDRESS_INCOMPLETE": "The selected address is missing data for the label (neighborhood, postal code or phone). Complete it to continue; nothing was charged."
   },
   "payment": {
@@ -5495,7 +5503,7 @@
     "line1": "Street and number",
     "line2": "Unit or apt. number (optional)",
     "neighborhood": "Neighborhood",
-    "city": "City",
+    "city": "Municipality or borough",
     "state": "State",
     "postalCode": "Postal code",
     "phone": "Phone",
@@ -5515,18 +5523,25 @@
     "referencesHint": "For example: black gate, between streets… Up to {max} characters; printed on the label.",
     "referencesTooLong": "The directions don’t fit on the label: shorten them (up to {max} characters).",
     "geo": {
-      "cpHint": "5 digits. Neighborhood, municipality and state come from the postal code.",
+      "cpHint": "5 digits. We use it to show the neighborhoods in your area.",
       "cpFirst": "Type the 5-digit postal code to see its neighborhoods.",
       "loading": "Looking up the neighborhoods for postal code {cp}…",
       "placeholder": "Choose a neighborhood",
-      "noNeighborhoods": "No neighborhoods: this postal code isn’t in the catalog.",
-      "cpUnknown": "We couldn’t find postal code {cp} in our catalog, and we can’t ship without it. Check it’s typed correctly; if it’s right, email us at {contact} with your postal code.",
       "failed": "We couldn’t look up the neighborhoods for postal code {cp}.",
-      "notInCp": "That neighborhood isn’t in postal code {cp}. Nothing was saved: choose one from the list.",
-      "neighborhoodRequired": "Choose the neighborhood from the postal code’s list.",
+      "neighborhoodRequired": "Choose your neighborhood from the list; if it isn’t there, use “My neighborhood isn’t listed”.",
       "cityState": "Municipality and state: {city}, {state} (from the postal code).",
       "noData": "no data",
-      "notListed": "Your neighborhood isn’t listed? Email us at {contact} with your postal code and its name."
+      "notListedCta": "My neighborhood isn’t listed",
+      "typeInstead": "Type my neighborhood instead",
+      "backToList": "Choose from the list for postal code {cp}",
+      "manualHint": "Type it as it appears on an electricity or water bill. We check it before shipping.",
+      "cpNotInCatalog": "We don’t have the neighborhood list for postal code {cp}. If it’s correct, type your neighborhood, municipality and state: we check them before shipping.",
+      "manualAllIntro": "Type your neighborhood, municipality and state: we check them before shipping.",
+      "statePlaceholder": "Choose a state",
+      "neighborhoodTypeRequired": "Type your neighborhood’s name.",
+      "cityRequired": "Type your municipality or borough.",
+      "stateRequired": "Choose your state.",
+      "tooLong": "Up to {max} characters: shorten it."
     },
     "incomplete": {
       "row": "Incomplete address: it’s missing details for the label.",

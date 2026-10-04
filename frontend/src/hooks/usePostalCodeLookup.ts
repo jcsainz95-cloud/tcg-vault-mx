@@ -12,20 +12,18 @@ export interface PostalCodeLookup {
   cpComplete: boolean;
   /** Consultando el CP actual (no hay respuesta para ESTE CP todavía). */
   loading: boolean;
-  /** `404`/`422 POSTAL_CODE_UNKNOWN`: el CP no está en el catálogo. */
+  /** `404 POSTAL_CODE_UNKNOWN` del `GET`: el CP no está en el catálogo (§M4-SHIP.19.25: se escribe a mano). */
   unknown: boolean;
   /** Cualquier otro fallo (red, `5xx`, `429`): se puede reintentar. */
   failed: boolean;
   retry: () => void;
   /** La respuesta para EXACTAMENTE el CP actual (⛔ nunca la de un CP anterior). */
   data: PostalCodeDTO | null;
-  /** Las colonias que se ofrecen: `allowedOverride` (la lista de un `422`) manda sobre la consultada. */
+  /** Las colonias de la respuesta de ESTE CP (`[]` sin respuesta o con el catálogo vacío). */
   neighborhoods: string[];
 }
 
 export interface PostalCodeLookupOptions {
-  /** `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}`: la lista del servidor manda sobre la consultada. */
-  allowedOverride?: string[] | null;
   /** La colonia elegida hoy (para reconciliarla con la lista que llega). */
   selected?: string;
   /**
@@ -43,7 +41,7 @@ export interface PostalCodeLookupOptions {
  * reintentos automáticos, `staleTime: Infinity`: el catálogo SEPOMEX no cambia en una sesión).
  */
 export function usePostalCodeLookup(cp: string, options: PostalCodeLookupOptions = {}): PostalCodeLookup {
-  const { allowedOverride = null, selected = '', onResolved } = options;
+  const { selected = '', onResolved } = options;
   const cpComplete = isPostalCode(cp);
   const query = useQuery({
     queryKey: ['postal-code', cp],
@@ -56,7 +54,8 @@ export function usePostalCodeLookup(cp: string, options: PostalCodeLookupOptions
   const code = asApiError(query.error)?.code ?? '';
   const unknown = cpComplete && !data && query.isError && (code === 'POSTAL_CODE_UNKNOWN' || code === 'NOT_FOUND');
   const failed = cpComplete && !data && query.isError && !unknown;
-  const neighborhoods = !cpComplete ? [] : (allowedOverride ?? data?.neighborhoods ?? []);
+  // v1.80.12.5 (§M4-SHIP.19.25.2 punto 5): ya no hay `422` con `allowed` que mande sobre la consulta.
+  const neighborhoods = !cpComplete ? [] : (data?.neighborhoods ?? []);
 
   // La colonia elegida que NO está en la lista del CP nuevo vuelve al placeholder (UX-SDX-23); si está
   // con otra grafía, se toma la canónica. Una vez por respuesta: el efecto solo mira `data`.

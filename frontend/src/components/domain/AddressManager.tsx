@@ -10,7 +10,7 @@ import {
   deleteAddress,
   type AddressInput,
 } from '@/lib/api';
-import type { AddressDTO, AddressIncompleteField, PostalCodeDTO } from '@/types/contract';
+import type { AddressDTO, AddressIncompleteField } from '@/types/contract';
 import { ApiClientError } from '@/lib/api-client';
 import { isMxPhone, isPostalCode, LINE2_MAX, normalizeMxPhone, REFERENCES_MAX } from '@/lib/address-rules';
 import { Input } from '@/components/ui/Input';
@@ -19,8 +19,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PostalCodeNeighborhoodFields } from './PostalCodeNeighborhoodFields';
-import { SUPPORT_CONTACT_FALLBACK } from '@/app/[locale]/(storefront)/checkout/support-contact';
+import { PostalCodeNeighborhoodFields, type NeighborhoodMode } from './PostalCodeNeighborhoodFields';
 
 /**
  * WS-F · F2 — Gestor de direcciones de envío (contrato §1, solo MX). Lista + alta + editar + marcar
@@ -376,10 +375,12 @@ export interface AddressFormState {
   error: unknown;
   /** `'edit'` cuando se montó con `address` (el `submit` hace `PATCH`, no `POST`). */
   mode: 'create' | 'edit';
-  /** ⭐ v1.81: `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}` — la lista del servidor manda sobre la consultada. */
-  allowedOverride: string[] | null;
-  /** ⭐ v1.81: llegó la lista del CP — colonia reconciliada y municipio/estado canónicos al formulario. */
-  resolvePostalCode: (data: PostalCodeDTO, match: string) => void;
+  /**
+   * v1.80.12.5 (§M4-SHIP.19.25, §43.18m.1): el modo de la colonia que pinta el formulario. La validación
+   * usa el texto de ese modo (§43.18m.7) y, en «todo a mano», exige municipio y estado.
+   */
+  geoMode: NeighborhoodMode;
+  setGeoMode: (mode: NeighborhoodMode) => void;
   /** `true` si el error del servidor ya se pintó bajo un campo (no se repite abajo). */
   errorOnField: boolean;
 }
@@ -392,30 +393,34 @@ export interface AddressFormOptions {
 }
 
 /** Campos que un `400 VALIDATION_ERROR {field}` puede señalar y que tienen control en el formulario. */
-const FIELD_KEYS = new Set(['recipientName', 'line1', 'line2', 'postalCode', 'neighborhood', 'phone', 'references']);
+const FIELD_KEYS = new Set(['recipientName', 'line1', 'line2', 'postalCode', 'neighborhood', 'city', 'state', 'phone', 'references']);
 
 /**
- * El error del servidor que se pinta BAJO un campo (fase C, §M4-SHIP.19.5). `null` ⇒ va abajo, genérico.
+ * El error del servidor que se pinta BAJO un campo. `null` ⇒ va abajo, genérico.
  * ⚠️ El `400` del `ValidationPipe` no trae `details.field` (`BACKEND_NOTES §58.2` punto 2): solo los
- * `400` del servicio (p. ej. `required_with_postal_code`) y los dos `422` de colonia caen aquí.
+ * `400` del servicio (p. ej. `required_with_postal_code`) caen aquí.
+ * v1.80.12.5 (§M4-SHIP.19.25.1): ⛔ ya no hay `422` geográficos (`NEIGHBORHOOD_NOT_IN_POSTAL_CODE` retirado,
+ * `POSTAL_CODE_UNKNOWN` solo es el `404` del `GET`); `required_with_postal_code` puede nombrar también
+ * `city`/`state`, y un `{max}` en `details` es «demasiado largo» (`geo.tooLong`, §43.18m.7).
  */
 export function addressServerFieldError(
   error: unknown,
   t: (key: string, values?: Record<string, string>) => string,
-  postalCode: string,
-): { field: string; message: string; allowed?: string[] } | null {
+  geoMode: NeighborhoodMode = 'list',
+): { field: string; message: string } | null {
   if (!(error instanceof ApiClientError)) return null;
   const d = error.details ?? {};
-  const cp = typeof d.postalCode === 'string' ? d.postalCode : postalCode;
-  if (error.code === 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE') {
-    const allowed = Array.isArray(d.allowed) ? d.allowed.filter((x): x is string => typeof x === 'string') : undefined;
-    return { field: 'neighborhood', message: t('geo.notInCp', { cp }), allowed };
-  }
-  if (error.code === 'POSTAL_CODE_UNKNOWN') {
-    return { field: 'postalCode', message: t('geo.cpUnknown', { cp, contact: SUPPORT_CONTACT_FALLBACK }) };
-  }
   if (error.code === 'VALIDATION_ERROR' && typeof d.field === 'string' && FIELD_KEYS.has(d.field)) {
-    if (d.field === 'neighborhood') return { field: 'neighborhood', message: t('geo.neighborhoodRequired') };
+    const geoField = d.field === 'neighborhood' || d.field === 'city' || d.field === 'state';
+    if (geoField && (typeof d.max === 'number' || typeof d.max === 'string')) {
+      return { field: d.field, message: t('geo.tooLong', { max: String(d.max) }) };
+    }
+    if (d.field === 'neighborhood') {
+      const manual = geoMode === 'manualNeighborhood' || geoMode === 'manualAll';
+      return { field: 'neighborhood', message: t(manual ? 'geo.neighborhoodTypeRequired' : 'geo.neighborhoodRequired') };
+    }
+    if (d.field === 'city') return { field: 'city', message: t('geo.cityRequired') };
+    if (d.field === 'state') return { field: 'state', message: t('geo.stateRequired') };
     if (d.field === 'postalCode') return { field: 'postalCode', message: t('postalCodeInvalid') };
     if (d.field === 'phone') return { field: 'phone', message: t('phoneInvalid') };
     if (d.field === 'line2') return { field: 'line2', message: t('line2TooLong', { max: String(LINE2_MAX) }) };
@@ -435,18 +440,21 @@ export function useAddressForm(
     address ? formFromAddress(address) : { ...EMPTY_FORM, recipientName: defaultRecipientName ?? '' };
   const [form, setForm] = useState<AddressInput>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [allowedOverride, setAllowedOverride] = useState<string[] | null>(null);
+  const [geoMode, setGeoMode] = useState<NeighborhoodMode>('pending');
   const [errorOnField, setErrorOnField] = useState(false);
 
   // Si cambia la dirección que se edita (otro «Editar» sin desmontar), se rehidrata el formulario.
+  // ⚠️ DURANTE el render, no en un efecto: los campos montan en el mismo pase que el `Modal` se abre, y con
+  // un efecto montarían con el CP del formulario anterior y luego «verían» cambiar el CP — que es justo lo
+  // que apaga CA-9 (la colonia guardada fuera de la lista abre a mano) y vacía municipio y estado.
   const addressId = address?.id;
-  useEffect(() => {
+  const [hydratedFor, setHydratedFor] = useState(addressId);
+  if (hydratedFor !== addressId) {
+    setHydratedFor(addressId);
     setForm(initial());
     setErrors({});
-    setAllowedOverride(null);
     setErrorOnField(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addressId]);
+  }
 
   const mut = useMutation({
     mutationFn: (body: AddressInput) =>
@@ -454,33 +462,25 @@ export function useAddressForm(
     onSuccess: (saved) => {
       setForm({ ...EMPTY_FORM, recipientName: defaultRecipientName ?? '' });
       setErrors({});
-      setAllowedOverride(null);
       setErrorOnField(false);
       onSaved(saved);
     },
     onError: (e) => {
-      const onField = addressServerFieldError(e, t, form.postalCode);
+      const onField = addressServerFieldError(e, t, geoMode);
       setErrorOnField(!!onField);
       if (!onField) return;
       setErrors((prev) => ({ ...prev, [onField.field]: onField.message }));
-      if (onField.allowed) setAllowedOverride(onField.allowed);
     },
   });
 
   function set<K extends keyof AddressInput>(key: K, value: AddressInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
-    // Tocar el campo retira su error; cambiar el CP retira además la lista del `422` (era de otro CP).
+    // Tocar el campo retira su error.
     setErrors((e) => {
       if (!(key in e)) return e;
       const { [key as string]: _drop, ...rest } = e;
       return rest;
     });
-    if (key === 'postalCode') setAllowedOverride(null);
-  }
-
-  function resolvePostalCode(data: PostalCodeDTO, match: string) {
-    // El servidor sobrescribe municipio y estado con los del CP: el formulario manda esos mismos.
-    setForm((f) => ({ ...f, neighborhood: match, city: data.municipality, state: data.state }));
   }
 
   function validate(): boolean {
@@ -489,7 +489,15 @@ export function useAddressForm(
     if (!form.line1.trim()) e.line1 = t('required');
     if ((form.line2 ?? '').trim().length > LINE2_MAX) e.line2 = t('line2TooLong', { max: String(LINE2_MAX) });
     if (!isPostalCode(form.postalCode)) e.postalCode = t('postalCodeInvalid');
-    else if (!form.neighborhood.trim()) e.neighborhood = t('geo.neighborhoodRequired');
+    else {
+      // §43.18m.7: el texto nombra lo que hay que hacer EN ESTE MODO (elegir de la lista o escribirla).
+      const manual = geoMode === 'manualNeighborhood' || geoMode === 'manualAll';
+      if (!form.neighborhood.trim()) e.neighborhood = t(manual ? 'geo.neighborhoodTypeRequired' : 'geo.neighborhoodRequired');
+      if (geoMode === 'manualAll') {
+        if (!form.city.trim()) e.city = t('geo.cityRequired');
+        if (!form.state.trim()) e.state = t('geo.stateRequired');
+      }
+    }
     if (!isMxPhone(form.phone)) e.phone = t('phoneInvalid');
     if ((form.references ?? '').trim().length > REFERENCES_MAX) {
       e.references = t('referencesTooLong', { max: String(REFERENCES_MAX) });
@@ -505,6 +513,11 @@ export function useAddressForm(
     mut.mutate({
       ...form,
       recipientName: form.recipientName.trim(),
+      // §M4-SHIP.19.25.1: colonia de la lista o escrita, siempre texto con trim; municipio y estado SIEMPRE
+      // viajan (del CP o escritos): con el CP en el catálogo el servidor los sobrescribe.
+      neighborhood: form.neighborhood.trim(),
+      city: form.city.trim(),
+      state: form.state.trim(),
       postalCode: form.postalCode.trim(),
       phone: normalizeMxPhone(form.phone),
       // Alta: vacío ⇒ no se manda. Edición: vacío ⇒ `null` (borra la que hubiera).
@@ -522,8 +535,8 @@ export function useAddressForm(
     isError: mut.isError,
     error: mut.error,
     mode: address ? 'edit' : 'create',
-    allowedOverride,
-    resolvePostalCode,
+    geoMode,
+    setGeoMode,
     errorOnField,
   };
 }
@@ -532,8 +545,9 @@ export function useAddressForm(
  *  footer, el alta inline con su propio botón. `focusField`: foco inicial (acción «Completar» de una
  *  fila sin nombre, §33.10a, o de una dirección incompleta, v1.81).
  *
- *  ⭐ v1.81 (§M4-SHIP.19.5): CP → colonia de la lista del CP (`Select`, ⛔ sin texto libre) → municipio
- *  y estado mostrados tal como los da el CP (⛔ no son campos); `references` opcional ≤ 70. */
+ *  v1.80.12.5 (§M4-SHIP.19.25, §43.18m): CP → colonia de la lista **o escrita** («Mi colonia no está») →
+ *  municipio y estado del CP; sin lista (CP fuera del catálogo, catálogo vacío, consulta fallida) los tres se
+ *  escriben. `references` opcional ≤ 70. */
 export function AddressFormFields({
   state,
   focusField,
@@ -545,7 +559,7 @@ export function AddressFormFields({
   const getMessage = useErrorMessage();
   const { form, errors, set } = state;
   const recipientRef = useRef<HTMLInputElement>(null);
-  const neighborhoodRef = useRef<HTMLSelectElement>(null);
+  const neighborhoodRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!focusField) return;
@@ -582,12 +596,17 @@ export function AddressFormFields({
           ref={neighborhoodRef}
           postalCode={form.postalCode}
           neighborhood={form.neighborhood}
+          city={form.city}
+          state={form.state}
           onPostalCode={(v) => set('postalCode', v)}
           onNeighborhood={(v) => set('neighborhood', v)}
-          onResolved={state.resolvePostalCode}
+          onCity={(v) => set('city', v)}
+          onState={(v) => set('state', v)}
+          onModeChange={state.setGeoMode}
           postalCodeError={errors.postalCode}
           neighborhoodError={errors.neighborhood}
-          allowedOverride={state.allowedOverride}
+          cityError={errors.city}
+          stateError={errors.state}
         />
       </div>
       {/* §43.18b: las referencias acompañan al lugar (van antes que el teléfono, como §43.2b). */}

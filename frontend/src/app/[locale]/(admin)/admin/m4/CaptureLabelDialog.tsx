@@ -38,6 +38,7 @@ import {
 import { pesosToCents } from './pesosToCents';
 import { TAG } from './prep-shared';
 import {
+  ADDRESS_FIELDS,
   AddressForm,
   AddressReadView,
   PhoneMissingBanner,
@@ -133,7 +134,6 @@ export function CaptureLabelDialog({
   const [addrEdit, setAddrEdit] = useState(false);
   const [draft, setDraft] = useState<AddressDraft>(draftOf(null));
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<AddressField, string>>>({});
-  const [allowedOverride, setAllowedOverride] = useState<string[] | null>(null);
   const [addrBanner, setAddrBanner] = useState<{ text: string; variant: 'warning' | 'danger' } | null>(null);
   const [savingAddr, setSavingAddr] = useState(false);
   const [pendingFocus, setPendingFocus] = useState<AddressField | null>(null);
@@ -509,7 +509,6 @@ export function CaptureLabelDialog({
       setShipment(res.shipment);
       setDraft(draftOf(res.shipment.addressSnapshot));
       setAddrEdit(false);
-      setAllowedOverride(null);
       if (res.outcome === 'corrected') {
         // §19.20.1: la cotización vieja ya no es vigente ⇒ se TIRA; el paso 2 cotiza de nuevo (UX-SDX-20).
         quoteSeq.current++;
@@ -548,19 +547,11 @@ export function CaptureLabelDialog({
         } catch {
           enterPending(shipment, 'in_flight');
         }
-      } else if (ae.code === 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE') {
-        setAllowedOverride(Array.isArray(d.allowed) ? (d.allowed as string[]) : null);
-        setFieldErrors({ neighborhood: t('address.neighborhoodNotInCp', { cp: String(d.postalCode ?? draft.postalCode) }) });
-        setPendingFocus('neighborhood');
-      } else if (ae.code === 'POSTAL_CODE_UNKNOWN') {
-        setFieldErrors({ postalCode: t('address.cpUnknown', { cp: String(d.postalCode ?? draft.postalCode) }) });
-        setPendingFocus('postalCode');
       } else if (ae.code === 'VALIDATION_ERROR') {
+        // v1.80.12.5 (§M4-SHIP.19.25.1): ⛔ sin `422` geográficos; `city`/`state` vacíos son un `400 {field}`.
         const field = (typeof d.field === 'string' ? d.field : 'other') as string;
         const key = { recipientName: 'recipient', line1: 'line1', postalCode: 'postalCode', references: 'references' }[field] ?? 'other';
-        const target: AddressField = (['recipientName', 'line1', 'line2', 'postalCode', 'neighborhood', 'references'] as const).includes(field as AddressField)
-          ? (field as AddressField)
-          : 'recipientName';
+        const target: AddressField = (ADDRESS_FIELDS as readonly string[]).includes(field) ? (field as AddressField) : 'recipientName';
         setFieldErrors({ [target]: t(`address.invalid.${key}`) });
         setPendingFocus(target);
       } else if (ae.status === 403) {
@@ -574,9 +565,9 @@ export function CaptureLabelDialog({
     }
   }
 
-  function onDraft(d: AddressDraft) {
-    if (d.postalCode !== draft.postalCode) setAllowedOverride(null);
-    setDraft(d);
+  // Parche funcional: el CP nuevo manda colonia, municipio y estado en el mismo pase (`useNeighborhoodMode`).
+  function onPatch(patch: Partial<AddressDraft>) {
+    setDraft((d) => ({ ...d, ...patch }));
   }
 
   // --- «Capturar a mano» (§43.6): el formulario de hoy, sin cambios de campos ni de copy ---
@@ -687,7 +678,6 @@ export function CaptureLabelDialog({
           <Button variant="ghost" disabled={savingAddr} onClick={() => {
             setDraft(draftOf(shipment?.addressSnapshot));
             setFieldErrors({});
-            setAllowedOverride(null);
             setAddrEdit(false);
             stepRef.current?.focus();
           }}>
@@ -869,9 +859,8 @@ export function CaptureLabelDialog({
                 formId={formId}
                 saved={shipment.addressSnapshot ?? ({} as never)}
                 draft={draft}
-                onDraft={onDraft}
+                onPatch={onPatch}
                 fieldErrors={fieldErrors}
-                allowedOverride={allowedOverride}
                 neighborhoodMissing={missing.includes('neighborhood')}
               />
             ) : (

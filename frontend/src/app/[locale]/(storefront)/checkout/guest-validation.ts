@@ -1,4 +1,5 @@
 import type { GuestAddressInput } from '@/types/contract';
+import type { NeighborhoodMode } from '@/hooks/useNeighborhoodMode';
 import { isMxPhone, isPostalCode, LINE2_MAX, normalizeMxPhone, REFERENCES_MAX } from '@/lib/address-rules';
 
 // N-3: `normalizeMxPhone` vive desde v1.81 en `lib/address-rules` (la libreta la usa también); se
@@ -56,12 +57,15 @@ export type GuestField =
   | 'line2'
   | 'postalCode'
   | 'neighborhood'
+  | 'city'
+  | 'state'
   | 'phone'
   | 'references'
   | 'terms'
   | 'emailConfirmed';
 
-export type GuestErrorCode = 'required' | 'invalid' | 'unconfirmed' | 'tooLong';
+/** `typeRequired`: la colonia vacía en modo a mano (§43.18m.7: «Escribe el nombre de tu colonia.»). */
+export type GuestErrorCode = 'required' | 'typeRequired' | 'invalid' | 'unconfirmed' | 'tooLong';
 
 export type GuestErrors = Partial<Record<GuestField, GuestErrorCode>>;
 
@@ -92,11 +96,11 @@ export const EMPTY_GUEST_ADDRESS: GuestAddressInput = {
  * exactamente como el `GuestAddressInput` del contrato §4-G.1 (que exige además
  * `recipientName`, porque un invitado no tiene `User.name`).
  *
- * ⭐ v1.81 (§M4-SHIP.19.5): la colonia es OBLIGATORIA y se elige de la lista del CP (el `Select` solo
- * ofrece colonias de la lista, así que aquí basta con que haya una); `references` ≤ 70. `city`/`state`
- * ya no son campos: salen del CP y el servidor los sobrescribe con los canónicos.
+ * v1.80.12.5 (§M4-SHIP.19.25, §43.18m.7): la colonia es OBLIGATORIA como texto — de la lista o escrita a
+ * mano; el texto del error depende del modo (`geoMode`). En «todo a mano» (CP fuera del catálogo, catálogo
+ * vacío o consulta fallida) municipio y estado son campos y también se exigen. `references` ≤ 70.
  */
-export function validateGuestForm(state: GuestFormState): GuestErrors {
+export function validateGuestForm(state: GuestFormState, geoMode: NeighborhoodMode = 'list'): GuestErrors {
   const errors: GuestErrors = {};
   const email = state.email.trim();
   if (!email) errors.email = 'required';
@@ -108,7 +112,14 @@ export function validateGuestForm(state: GuestFormState): GuestErrors {
   if (!a.line1.trim()) errors.line1 = 'required';
   if ((a.line2 ?? '').trim().length > LINE2_MAX) errors.line2 = 'tooLong';
   if (!isPostalCode(a.postalCode)) errors.postalCode = 'invalid';
-  else if (!(a.neighborhood ?? '').trim()) errors.neighborhood = 'required';
+  else {
+    const manual = geoMode === 'manualNeighborhood' || geoMode === 'manualAll';
+    if (!(a.neighborhood ?? '').trim()) errors.neighborhood = manual ? 'typeRequired' : 'required';
+    if (geoMode === 'manualAll') {
+      if (!(a.city ?? '').trim()) errors.city = 'required';
+      if (!(a.state ?? '').trim()) errors.state = 'required';
+    }
+  }
   if (!isMxPhone(a.phone)) errors.phone = 'invalid';
   if ((a.references ?? '').trim().length > REFERENCES_MAX) errors.references = 'tooLong';
 

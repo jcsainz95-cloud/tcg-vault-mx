@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import type { GuestAddressInput } from '@/types/contract';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
-import { PostalCodeNeighborhoodFields } from '@/components/domain/PostalCodeNeighborhoodFields';
+import { PostalCodeNeighborhoodFields, type NeighborhoodMode } from '@/components/domain/PostalCodeNeighborhoodFields';
 import { LINE2_MAX, REFERENCES_MAX } from '@/lib/address-rules';
 import { VaultUpsellPanel } from './VaultUpsellPanel';
 import { suggestEmailTypo, type GuestErrors, type GuestField, type GuestFormState } from './guest-validation';
@@ -29,13 +29,13 @@ export interface GuestCheckoutFormProps {
   onDismissUpsell: () => void;
   onAccountReady: () => void;
   /**
-   * ⭐ v1.81 (§M4-SHIP.19.5): el `422` de colonia de la sesión, pintado BAJO su campo
-   * (`NEIGHBORHOOD_NOT_IN_POSTAL_CODE` ⇒ colonia, `POSTAL_CODE_UNKNOWN` ⇒ CP). Lo retira quien monta
-   * al tocar ese campo.
+   * Un `400 VALIDATION_ERROR {field, max}` de la sesión sobre la colonia, el municipio o el estado, pintado
+   * BAJO su campo (§43.18m.7, `geo.tooLong`). Lo retira quien monta al tocar ese campo. v1.80.12.5
+   * (§M4-SHIP.19.25): ⛔ ya no hay `422` geográficos que pintar.
    */
-  serverAddressError?: { field: 'postalCode' | 'neighborhood'; message: string } | null;
-  /** `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}`: la lista del servidor manda sobre la consultada. */
-  allowedNeighborhoods?: string[] | null;
+  serverAddressError?: { field: 'neighborhood' | 'city' | 'state'; message: string } | null;
+  /** El modo de la colonia (§43.18m.1): la validación de quien monta depende de él. */
+  onGeoModeChange?: (mode: NeighborhoodMode) => void;
 }
 
 export const FIELD_ORDER: GuestField[] = [
@@ -46,6 +46,9 @@ export const FIELD_ORDER: GuestField[] = [
   'line2',
   'postalCode',
   'neighborhood',
+  // §43.18m.7 / FC-23: municipio y estado (solo existen en «todo a mano») van tras la colonia, como en el DOM.
+  'city',
+  'state',
   // §43.18b: referencias antes que teléfono (mismo orden que el DOM: el resumen de errores lo sigue).
   'references',
   'phone',
@@ -61,6 +64,8 @@ export const FIELD_ID: Record<GuestField, string> = {
   line2: 'guest-line2',
   postalCode: 'guest-postalCode',
   neighborhood: 'guest-neighborhood',
+  city: 'guest-city',
+  state: 'guest-state',
   phone: 'guest-phone',
   references: 'guest-references',
   terms: 'guest-terms',
@@ -93,7 +98,7 @@ export function GuestCheckoutForm({
   onDismissUpsell,
   onAccountReady,
   serverAddressError = null,
-  allowedNeighborhoods = null,
+  onGeoModeChange,
 }: GuestCheckoutFormProps) {
   const t = useTranslations('checkout');
   const ta = useTranslations('addresses');
@@ -118,7 +123,9 @@ export function GuestCheckoutForm({
     if (field === 'terms') return t('guest.acceptTermsRequired');
     if (field === 'postalCode') return ta('postalCodeInvalid');
     if (field === 'phone') return ta('phoneInvalid');
-    if (field === 'neighborhood') return ta('geo.neighborhoodRequired');
+    if (field === 'neighborhood') return ta(code === 'typeRequired' ? 'geo.neighborhoodTypeRequired' : 'geo.neighborhoodRequired');
+    if (field === 'city') return ta('geo.cityRequired');
+    if (field === 'state') return ta('geo.stateRequired');
     if (field === 'line2') return ta('line2TooLong', { max: String(LINE2_MAX) });
     if (field === 'references') return ta('referencesTooLong', { max: String(REFERENCES_MAX) });
     return ta('required');
@@ -139,6 +146,11 @@ export function GuestCheckoutForm({
       default:
         return ta(field);
     }
+  }
+
+  function geoError(field: 'neighborhood' | 'city' | 'state'): string | undefined {
+    if (serverAddressError?.field === field) return serverAddressError.message;
+    return visible(field) ? messageFor(field) : undefined;
   }
 
   const typo = suggestEmailTypo(state.email);
@@ -243,34 +255,30 @@ export function GuestCheckoutForm({
             onBlur={() => onBlurField('line2')}
             error={visible('line2') ? messageFor('line2') : undefined}
           />
-          {/* ⭐ v1.81 (§M4-SHIP.19.5): CP → colonia de la lista → municipio y estado del CP (no son campos). */}
+          {/* v1.80.12.5 (§M4-SHIP.19.25, §43.18m): CP → colonia de la lista o escrita → municipio y estado
+              del CP; sin lista, los tres se escriben. La tienda nunca deja de vender por el catálogo. */}
           <PostalCodeNeighborhoodFields
             postalCodeId={FIELD_ID.postalCode}
             neighborhoodId={FIELD_ID.neighborhood}
+            cityId={FIELD_ID.city}
+            stateId={FIELD_ID.state}
             postalCode={state.address.postalCode}
             neighborhood={state.address.neighborhood}
+            city={state.address.city}
+            state={state.address.state}
             onPostalCode={(postalCode) => onAddressChange({ postalCode })}
             onNeighborhood={(neighborhood) => onAddressChange({ neighborhood })}
-            onResolved={(data, match) =>
-              onAddressChange({ neighborhood: match, city: data.municipality, state: data.state })
-            }
+            onCity={(city) => onAddressChange({ city })}
+            onState={(st) => onAddressChange({ state: st })}
+            onModeChange={onGeoModeChange}
             onBlurPostalCode={() => onBlurField('postalCode')}
             onBlurNeighborhood={() => onBlurField('neighborhood')}
-            postalCodeError={
-              serverAddressError?.field === 'postalCode'
-                ? serverAddressError.message
-                : visible('postalCode')
-                  ? messageFor('postalCode')
-                  : undefined
-            }
-            neighborhoodError={
-              serverAddressError?.field === 'neighborhood'
-                ? serverAddressError.message
-                : visible('neighborhood')
-                  ? messageFor('neighborhood')
-                  : undefined
-            }
-            allowedOverride={allowedNeighborhoods}
+            onBlurCity={() => onBlurField('city')}
+            onBlurState={() => onBlurField('state')}
+            postalCodeError={visible('postalCode') ? messageFor('postalCode') : undefined}
+            neighborhoodError={geoError('neighborhood')}
+            cityError={geoError('city')}
+            stateError={geoError('state')}
           />
           {/* §43.18b: las referencias acompañan al lugar, antes que el teléfono. */}
           <Textarea

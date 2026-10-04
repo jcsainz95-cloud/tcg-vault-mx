@@ -32,14 +32,35 @@ const KEYS = [
   'addresses.geo.cpFirst',
   'addresses.geo.loading',
   'addresses.geo.placeholder',
-  'addresses.geo.noNeighborhoods',
-  'addresses.geo.cpUnknown',
-  'addresses.geo.notListed',
   'addresses.geo.failed',
-  'addresses.geo.notInCp',
   'addresses.geo.neighborhoodRequired',
   'addresses.geo.cityState',
   'addresses.geo.noData',
+  // v4.19 (§43.18m.8): la colonia como Mercado Libre.
+  'addresses.city',
+  'addresses.state',
+  'addresses.geo.notListedCta',
+  'addresses.geo.typeInstead',
+  'addresses.geo.backToList',
+  'addresses.geo.manualHint',
+  'addresses.geo.cpNotInCatalog',
+  'addresses.geo.manualAllIntro',
+  'addresses.geo.statePlaceholder',
+  'addresses.geo.neighborhoodTypeRequired',
+  'addresses.geo.cityRequired',
+  'addresses.geo.stateRequired',
+  'addresses.geo.tooLong',
+  'admin.m4.tracking.sdx.address.manualMark',
+  'admin.m4.tracking.sdx.address.manualCityStateMark',
+  'admin.m4.tracking.sdx.address.manualReview.neighborhood',
+  'admin.m4.tracking.sdx.address.manualReview.all',
+  'admin.m4.tracking.sdx.address.notListedCta',
+  'admin.m4.tracking.sdx.address.backToList',
+  'admin.m4.tracking.sdx.address.neighborhoodManualLabel',
+  'admin.m4.tracking.sdx.address.field.city',
+  'admin.m4.tracking.sdx.address.field.state',
+  'admin.m4.tracking.sdx.address.cpUnknown',
+  'admin.m4.tracking.sdx.address.hint.postalCode',
   'addresses.incomplete.row',
   'addresses.incomplete.rowMissing',
   'addresses.incomplete.cta',
@@ -54,8 +75,6 @@ const KEYS = [
   'shipments.addressIncomplete.cta',
   'shipments.addressIncomplete.notCharged',
   'shipments.addressIncomplete.saved',
-  'error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE',
-  'error.POSTAL_CODE_UNKNOWN',
   'error.ADDRESS_INCOMPLETE',
 ];
 
@@ -68,12 +87,27 @@ describe('UX-ADR-7 · textos de la dirección del cliente (§43.18i)', () => {
     expect(placeholders(EN[key])).toEqual(placeholders(ES[key]));
   });
 
-  it('CP fuera del catálogo y colonia que no aparece remiten a {contact} (CA-2)', () => {
+  /**
+   * UX-ADR-7 (ampliado v4.19, `HECHOS.md:57`): el remedio de la colonia ya no es una persona sino escribirla.
+   * Las copias de «Escríbenos» de la colonia y los textos de los `422` retirados (§M4-SHIP.19.25.1, C-2) no
+   * existen; ningún valor bajo `addresses.geo.*` remite a `{contact}`.
+   */
+  it('UX-ADR-7 · sin «Escríbenos» en la colonia: claves retiradas ausentes y ningún `{contact}` en `addresses.geo.*`', () => {
     for (const d of [ES, EN]) {
-      expect(d['addresses.geo.cpUnknown']).toContain('{contact}');
-      expect(d['addresses.geo.notListed']).toContain('{contact}');
-      // El error junto al botón remite al campo: ⛔ sin el correo (el remedio vive una vez).
-      expect(d['error.POSTAL_CODE_UNKNOWN']).not.toContain('{contact}');
+      for (const gone of [
+        'addresses.geo.cpUnknown',
+        'addresses.geo.notListed',
+        'addresses.geo.noNeighborhoods',
+        'addresses.geo.notInCp',
+        'error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE',
+        'error.POSTAL_CODE_UNKNOWN',
+        'admin.m4.tracking.sdx.address.neighborhoodNotInCp',
+      ]) {
+        expect(d[gone], gone).toBeUndefined();
+      }
+      const geo = Object.entries(d).filter(([k]) => k.startsWith('addresses.geo.'));
+      expect(geo.length).toBeGreaterThan(10);
+      for (const [k, v] of geo) expect(v, k).not.toContain('{contact}');
     }
   });
 

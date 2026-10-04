@@ -563,10 +563,13 @@ export type AddressIncompleteField = 'neighborhood' | 'postalCode' | 'phone';
 
 /**
  * Códigos que la libreta (`POST/PATCH /users/me/addresses`), el checkout de invitado y el retiro
- * pueden recibir por la dirección desde la fase C (§M4-SHIP.19.5). Declarados aquí para que el
- * candado de `i18n-parity` exija su `error.<CODE>` en los dos catálogos.
+ * pueden recibir por la dirección (§M4-SHIP.19.5). Declarados aquí para que el candado de
+ * `i18n-parity` exija su `error.<CODE>` en los dos catálogos.
+ * v1.80.12.5 (§M4-SHIP.19.25.1): `NEIGHBORHOOD_NOT_IN_POSTAL_CODE` RETIRADO (ningún emisor) y
+ * `POSTAL_CODE_UNKNOWN` queda solo como `404` del `GET /geo/postal-codes/:cp` (la pantalla lo lee como
+ * «escribe a mano», nunca como mensaje).
  */
-export type AddressErrorCode = 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE' | 'POSTAL_CODE_UNKNOWN' | 'ADDRESS_INCOMPLETE';
+export type AddressErrorCode = 'ADDRESS_INCOMPLETE';
 
 // ---- Perfil de facturación CFDI (contrato §1 «Perfil de facturación») ----
 /**
@@ -1536,12 +1539,23 @@ export interface ShipmentAddressStateDTO {
    * {missing}` de `quote`/`label`. La ventana decide con ella el modo del paso 1 (§43.2a).
    */
   missing: ShipmentAddressMissingField[];
+  /**
+   * v1.80.12.5 (§M4-SHIP.19.25.3): si la colonia del snapshot se comprobó contra el catálogo. Lo CALCULA el
+   * servidor al leer (⛔ no se guarda; tras `PUT …/address` o al cargar el catálogo cambia solo). La ventana
+   * lo usa para el aviso de revisión del paso 1 (§43.18m.6); ⛔ no bloquea nada. Opcional SOLO para un
+   * servidor anterior a v1.80.12.5: sin el dato, cero marcas (UX-ADR-12).
+   */
+  neighborhoodCheck?: NeighborhoodCheck;
 }
+/** §M4-SHIP.19.25.1 — el resultado de `resolveAddressGeo` (casos 3 · 4 · 2). */
+export type NeighborhoodCheck = 'in_catalog' | 'not_in_postal_code_list' | 'postal_code_not_in_catalog';
 export type ShipmentAddressMissingField = 'recipientName' | 'line1' | 'neighborhood' | 'postalCode' | 'phone';
 
 /**
- * §19.20.1 — `PUT /admin/shipments/:id/address`. ⛔ Sin `city`/`state`/`country`/`phone`: el servidor los
- * pone del CP (y el teléfono no se corrige aquí, P-ADR-1 abierta).
+ * §19.20.1 — `PUT /admin/shipments/:id/address`. v1.80.12.5 (§M4-SHIP.19.25.1): `neighborhood` de la lista
+ * o escrita (texto 1..120, sin `422`), y gana **`city`/`state`** (obligatorios 1..120): el servidor solo los
+ * escribe con el CP fuera del catálogo; con el CP en el catálogo pone los del CP. ⛔ Sin `country` ni `phone`
+ * (P-ADR-1).
  */
 export interface CorrectShipmentAddressReq {
   expectedAddressVersion: number;
@@ -1550,6 +1564,8 @@ export interface CorrectShipmentAddressReq {
   line2: string | null;
   postalCode: string;
   neighborhood: string;
+  city: string;
+  state: string;
   references: string | null;
 }
 export interface CorrectShipmentAddressRes {
@@ -6012,14 +6028,14 @@ export interface GuestAddressInput {
   line1: string;
   line2?: string;
   /**
-   * ⭐ v1.81 (§M4-SHIP.19.5) — OBLIGATORIA y DE LA LISTA de `GET /geo/postal-codes/:cp`; fuera de la
-   * lista ⇒ `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {postalCode, allowed}`; CP sin colonias ⇒
-   * `422 POSTAL_CODE_UNKNOWN {postalCode}`.
+   * v1.80.12.5 (§M4-SHIP.19.25.1) — OBLIGATORIA como texto 1..120: de la lista de
+   * `GET /geo/postal-codes/:cp` o escrita a mano. ⛔ Sin `422` geográficos: el servidor nunca rechaza por
+   * el catálogo (con el CP en el catálogo guarda la grafía canónica si casa).
    */
   neighborhood: string;
-  /** v1.81: el servidor la sobrescribe con el municipio canónico del CP. */
+  /** v1.80.12.5: obligatorio 1..120. Con el CP en el catálogo el servidor pone el municipio del CP. */
   city: string;
-  /** v1.81: el servidor lo sobrescribe con el estado canónico del CP. */
+  /** v1.80.12.5: obligatorio 1..120. Con el CP en el catálogo el servidor pone el estado del CP. */
   state: string;
   /** ^\d{5}$ */
   postalCode: string;

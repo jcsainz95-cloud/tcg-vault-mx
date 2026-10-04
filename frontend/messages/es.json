@@ -1846,17 +1846,19 @@
               "line1": "Calle y número",
               "line2": "Número interior o depto. (opcional)",
               "postalCode": "CP",
-              "references": "Referencias para el repartidor (opcional)"
+              "references": "Referencias para el repartidor (opcional)",
+              "city": "Municipio o alcaldía",
+              "state": "Estado"
             },
             "hint": {
               "recipient": "Quien recibe el paquete. Va en la etiqueta.",
-              "postalCode": "5 dígitos. Al cambiarlo, la colonia, el municipio y el estado salen del CP nuevo.",
+              "postalCode": "5 dígitos. Al cambiarlo, la colonia vuelve a la lista del CP nuevo.",
               "references": "Por ejemplo: portón negro, entre calles… Hasta 70 caracteres; Skydropx no acepta más."
             },
             "cityState": "Municipio y estado: {city}, {state} (salen del CP).",
             "phoneReadOnly": "Teléfono: {phone}. No se corrige aquí.",
             "cpFirst": "Escribe los 5 dígitos del CP para ver sus colonias.",
-            "cpUnknown": "El CP {cp} no está en el catálogo de colonias. Revísalo; si es correcto, captura la guía a mano.",
+            "cpUnknown": "El CP {cp} no está en el catálogo de colonias. Revísalo; si es correcto, escribe colonia, municipio y estado.",
             "save": "Guardar dirección",
             "discard": "Descartar cambios",
             "saving": "Guardando la dirección…",
@@ -1868,14 +1870,22 @@
             "labelInProgress": "Hay una compra de guía en curso para este envío. No se guardó la dirección.",
             "forbidden": "Tu cuenta no puede corregir direcciones de envío.",
             "serverDown": "No se pudo guardar la dirección: el servidor no respondió. No se cambió nada; vuelve a intentarlo.",
-            "neighborhoodNotInCp": "Esa colonia no es del CP {cp}. No se guardó. Elige una de la lista.",
             "invalid": {
               "recipient": "Escribe quién recibe.",
               "line1": "Escribe la calle y el número.",
               "postalCode": "El CP son 5 dígitos.",
               "references": "Las referencias no caben en la guía: acórtalas (hasta 70 caracteres).",
               "other": "Revisa este campo: el servidor no lo aceptó."
-            }
+            },
+            "manualMark": "Escrita a mano por el cliente · no está en la lista del CP {cp}",
+            "manualCityStateMark": "Municipio y estado escritos a mano: el CP {cp} no está en el catálogo",
+            "manualReview": {
+              "neighborhood": "El cliente escribió la colonia a mano. Revísala antes de ver opciones de envío; si está mal escrita, corrígela.",
+              "all": "El cliente escribió colonia, municipio y estado a mano (el CP {cp} no está en el catálogo). Revísalos antes de ver opciones de envío; si algo está mal escrito, corrígelo."
+            },
+            "notListedCta": "La colonia no está en la lista",
+            "backToList": "Elegir de la lista del CP {cp}",
+            "neighborhoodManualLabel": "Colonia (escrita a mano)"
           },
           "quoting": "Cotizando con Skydropx…",
           "quotingHint": "Suele tardar entre 2 y 7 segundos.",
@@ -5462,8 +5472,6 @@
     "ITEM_ORIGIN_REFUNDED": "Una carta de tu retiro viene de una compra que se está reembolsando y no se puede enviar. Quítala y vuelve a intentarlo.",
     "DECLINE_NOT_ALLOWED": "Esta solicitud no se puede declinar en el punto en que está. Si ya tiene una oferta enviada, la vía es cancelar la oferta, que es el aviso que le corresponde al vendedor; si ya cerró, no hay nada que declinar. Vuelve a cargarla para ver su estado. No se guardó nada.",
     "OFFER_NOT_CANCELLABLE": "Esta oferta ya no se puede cancelar: no hay una oferta viva o la solicitud ya avanzó (una aceptada no se cancela por aquí). Vuelve a cargarla para ver su estado. No se guardó nada.",
-    "NEIGHBORHOOD_NOT_IN_POSTAL_CODE": "Esa colonia no es del código postal. No se guardó nada: elige una de la lista.",
-    "POSTAL_CODE_UNKNOWN": "Ese código postal no está en nuestro catálogo y no se guardó nada. En el campo «Código postal» te decimos qué hacer.",
     "ADDRESS_INCOMPLETE": "A la dirección elegida le faltan datos para la guía (colonia, CP o teléfono). Complétala para continuar; no se cobró nada."
   },
   "payment": {
@@ -5495,7 +5503,7 @@
     "line1": "Calle y número",
     "line2": "Número interior o depto. (opcional)",
     "neighborhood": "Colonia",
-    "city": "Ciudad",
+    "city": "Municipio o alcaldía",
     "state": "Estado",
     "postalCode": "Código postal",
     "phone": "Teléfono",
@@ -5515,18 +5523,25 @@
     "referencesHint": "Por ejemplo: portón negro, entre calles… Hasta {max} caracteres; van impresas en la guía.",
     "referencesTooLong": "Las referencias no caben en la guía: acórtalas (hasta {max} caracteres).",
     "geo": {
-      "cpHint": "5 dígitos. La colonia, el municipio y el estado salen del CP.",
+      "cpHint": "5 dígitos. Con él te mostramos las colonias de tu zona.",
       "cpFirst": "Escribe los 5 dígitos del CP para ver sus colonias.",
       "loading": "Buscando las colonias del CP {cp}…",
       "placeholder": "Elige una colonia",
-      "noNeighborhoods": "Sin colonias: este CP no está en el catálogo.",
-      "cpUnknown": "No encontramos el CP {cp} en nuestro catálogo y sin él no podemos enviar. Revisa que esté bien escrito; si es correcto, escríbenos a {contact} con tu CP.",
       "failed": "No se pudieron consultar las colonias del CP {cp}.",
-      "notInCp": "Esa colonia no es del CP {cp}. No se guardó nada: elige una de la lista.",
-      "neighborhoodRequired": "Elige la colonia de la lista del CP.",
+      "neighborhoodRequired": "Elige tu colonia de la lista; si no aparece, usa «Mi colonia no está».",
       "cityState": "Municipio y estado: {city}, {state} (salen del CP).",
       "noData": "sin dato",
-      "notListed": "¿No aparece tu colonia? Escríbenos a {contact} con tu CP y el nombre de tu colonia."
+      "notListedCta": "Mi colonia no está",
+      "typeInstead": "Escribir la colonia a mano",
+      "backToList": "Elegir de la lista del CP {cp}",
+      "manualHint": "Escríbela como aparece en un recibo de luz o de agua. La revisamos antes de enviar.",
+      "cpNotInCatalog": "No tenemos la lista de colonias del CP {cp}. Si está bien escrito, escribe tu colonia, municipio y estado: los revisamos antes de enviar.",
+      "manualAllIntro": "Escribe tu colonia, municipio y estado: los revisamos antes de enviar.",
+      "statePlaceholder": "Elige un estado",
+      "neighborhoodTypeRequired": "Escribe el nombre de tu colonia.",
+      "cityRequired": "Escribe tu municipio o alcaldía.",
+      "stateRequired": "Elige tu estado.",
+      "tooLong": "Hasta {max} caracteres: acórtalo."
     },
     "incomplete": {
       "row": "Dirección incompleta: le faltan datos para la guía.",

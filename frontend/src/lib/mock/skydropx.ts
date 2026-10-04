@@ -28,6 +28,7 @@ import type {
   LabelAlertDTO,
   LabelOptionsDTO,
   LabelPendingDTO,
+  NeighborhoodCheck,
   PostalCodeDTO,
   ReleaseShipmentLabelRes,
   ShipmentAddressMissingField,
@@ -44,6 +45,7 @@ import type {
 } from '@/types/contract';
 import { ApiFixtureError, mockAdminShipments, mockSettings } from './fixtures';
 import { mockCallerRole } from './m4-ship';
+import { matchNeighborhood } from '@/lib/address-rules';
 
 const SUPER = { userId: 'u-sa1', name: 'Dueño' };
 const OPERATOR = { userId: 'u-op1', name: 'Operador Bóveda' };
@@ -169,6 +171,17 @@ function missingOf(snap: Partial<AddressSnapshotDTO>): ShipmentAddressMissingFie
 }
 
 /**
+ * §M4-SHIP.19.25.3 — `neighborhoodCheck` se CALCULA al leer (⛔ no se guarda) con la misma comparación del caso 3
+ * de `resolveAddressGeo`. Snapshot sin colonia o con CP mal formado ⇒ `'postal_code_not_in_catalog'`.
+ */
+function neighborhoodCheckOf(snap: Partial<AddressSnapshotDTO>): NeighborhoodCheck {
+  const cp = POSTAL_CODES[String(snap.postalCode ?? '')];
+  const n = typeof snap.neighborhood === 'string' ? snap.neighborhood : '';
+  if (!cp || n.trim() === '') return 'postal_code_not_in_catalog';
+  return matchNeighborhood(n, cp.neighborhoods) ? 'in_catalog' : 'not_in_postal_code_list';
+}
+
+/**
  * Decora la fila admin (`GET /admin/shipments/:id`) con lo de §19.19.7/§19.20: snapshot corregido,
  * `address`, `labelOptions`, `labelPending`, `labelAlert`, `labelSource`, `label`.
  */
@@ -180,7 +193,7 @@ export function mockDecorateAdminShipment(row: AdminShipmentDTO): AdminShipmentD
   return {
     ...row,
     addressSnapshot: snap,
-    address: { complete: missing.length === 0, version: s?.version ?? 0, corrected: s?.corrected ?? null, missing },
+    address: { complete: missing.length === 0, version: s?.version ?? 0, corrected: s?.corrected ?? null, missing, neighborhoodCheck: neighborhoodCheckOf(snap) },
     labelOptions: mockLabelOptions(),
     labelSource: s?.labelSource ?? (row.trackingNumber ? 'manual' : null),
     label: s?.label ?? null,
@@ -223,16 +236,17 @@ export function mockCorrectAddress(row: AdminShipmentDTO, body: CorrectShipmentA
     // errata v1.80.12.3 (§19.23.4): `line2` 0..200 (el 0..120 de §19.20.1 era de transcripción).
     ['line2', (body.line2 ?? '').trim().length <= 200],
     ['postalCode', /^\d{5}$/.test(body.postalCode)],
+    ['neighborhood', (body.neighborhood ?? '').trim().length >= 1 && (body.neighborhood ?? '').trim().length <= 120],
+    ['city', (body.city ?? '').trim().length >= 1 && (body.city ?? '').trim().length <= 120],
+    ['state', (body.state ?? '').trim().length >= 1 && (body.state ?? '').trim().length <= 120],
     ['references', (body.references ?? '').length <= 70],
   ] as const) {
     if (!ok) throw new ApiFixtureError(400, 'VALIDATION_ERROR', `invalid ${field}`, { field });
   }
+  // v1.80.12.5 (§M4-SHIP.19.25.1): `resolveAddressGeo` — ⛔ nunca lanza por geografía.
   const cp = POSTAL_CODES[body.postalCode];
-  if (!cp) throw new ApiFixtureError(422, 'POSTAL_CODE_UNKNOWN', 'unknown postal code', { postalCode: body.postalCode });
-  const canonical = cp.neighborhoods.find((n) => n.toLowerCase() === body.neighborhood.trim().toLowerCase());
-  if (!canonical) {
-    throw new ApiFixtureError(422, 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE', 'neighborhood not in postal code', { postalCode: body.postalCode, allowed: cp.neighborhoods });
-  }
+  const typed = body.neighborhood.trim();
+  const canonical = cp ? matchNeighborhood(typed, cp.neighborhoods) || typed : typed;
   const s = stateOf(row.id);
   if (row.status !== 'picking') throw new ApiFixtureError(409, 'SHIPMENT_NOT_IN_PREPARATION', 'not in preparation', { status: row.status });
   if (s.labelSource) throw new ApiFixtureError(409, 'SHIPMENT_ALREADY_LABELED', 'already labeled', { labelSource: s.labelSource });
@@ -248,8 +262,8 @@ export function mockCorrectAddress(row: AdminShipmentDTO, body: CorrectShipmentA
     postalCode: body.postalCode,
     neighborhood: canonical,
     references: body.references?.trim() || null,
-    city: cp.municipality,
-    state: cp.state,
+    city: cp ? cp.municipality : body.city.trim(),
+    state: cp ? cp.state : body.state.trim(),
   };
   const changed = (Object.keys(next) as (keyof typeof next)[]).filter((k) => (current[k] ?? null) !== next[k]);
   if (changed.length === 0) return { outcome: 'unchanged', shipment: mockDecorateAdminShipment(row) };

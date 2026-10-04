@@ -11,6 +11,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { GuestAddressInput, GuestCheckoutSessionResponse } from '@/types/contract';
+import type { NeighborhoodMode } from '@/hooks/useNeighborhoodMode';
 import { CardImage } from '@/components/ui/CardImage';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
@@ -19,7 +20,6 @@ import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { CheckoutIdentityGate, type IdentityMode } from './CheckoutIdentityGate';
 import { GuestCheckoutForm, type Destination } from './GuestCheckoutForm';
 import { GuestOrderConfirmation } from './GuestOrderConfirmation';
-import { SUPPORT_CONTACT_FALLBACK } from './support-contact';
 import { InlineAuthPanel } from './InlineAuthPanel';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { pruneCandidates, pushUnavailableNotice } from './unavailable-notice';
@@ -84,9 +84,13 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const [outcome, setOutcome] = useState<GuestCheckoutSessionResponse | null>(null);
   const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paid, setPaid] = useState<GuestCheckoutSessionResponse | null>(null);
-  /** ⭐ v1.81 (§M4-SHIP.19.5): el `422` de colonia/CP de la sesión, bajo su campo. */
-  const [serverAddressError, setServerAddressError] = useState<{ field: 'postalCode' | 'neighborhood'; message: string } | null>(null);
-  const [allowedNeighborhoods, setAllowedNeighborhoods] = useState<string[] | null>(null);
+  /**
+   * v1.80.12.5 (§M4-SHIP.19.25): ⛔ sin `422` geográficos. Lo único que la sesión puede devolver sobre la
+   * colonia, el municipio o el estado es un `400 {field, max}` de longitud: va bajo su campo (§43.18m.7).
+   */
+  const [serverAddressError, setServerAddressError] = useState<{ field: 'neighborhood' | 'city' | 'state'; message: string } | null>(null);
+  /** El modo de la colonia (§43.18m.1): decide el texto del error y si municipio y estado se exigen. */
+  const [geoMode, setGeoMode] = useState<NeighborhoodMode>('pending');
   const ta = useTranslations('addresses');
 
   /**
@@ -139,7 +143,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       ? { orderId: own.orderId, orderNumber: own.orderNumber, reservedUntil: own.reservedUntil, own: { expired: own.expired } }
       : null);
 
-  const errors: GuestErrors = useMemo(() => validateGuestForm(form), [form]);
+  const errors: GuestErrors = useMemo(() => validateGuestForm(form, geoMode), [form, geoMode]);
   // `shippingFeeLabel` sale SIEMPRE del `breakdown` de envío directo (la tarifa REAL): alimenta
   // el hint del radio «envío {amount}» y el upsell «te ahorras {amount}» — es cuánto se ahorra
   // el invitado al NO enviar, NO un dato del desglose de bóveda (N-12).
@@ -175,12 +179,15 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   }
   function patchAddress(patch: Partial<GuestAddressInput>) {
     setForm((f) => ({ ...f, address: { ...f.address, ...patch } }));
-    // Tocar el CP o la colonia retira el `422` del servidor; un CP nuevo retira además su lista.
+    // Tocar el CP retira el error del servidor sobre la dirección; tocar un campo, el suyo.
     if (patch.postalCode !== undefined && patch.postalCode !== form.address.postalCode) {
       setServerAddressError(null);
-      setAllowedNeighborhoods(null);
-    } else if (patch.neighborhood !== undefined && patch.neighborhood !== form.address.neighborhood) {
-      setServerAddressError((cur) => (cur?.field === 'neighborhood' ? null : cur));
+    } else {
+      for (const f of ['neighborhood', 'city', 'state'] as const) {
+        if (patch[f] !== undefined && patch[f] !== form.address[f]) {
+          setServerAddressError((cur) => (cur?.field === f ? null : cur));
+        }
+      }
     }
   }
 
@@ -242,22 +249,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         setUpsellOpen(true);
       } else if (
         e instanceof ApiClientError &&
-        (e.code === 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE' || e.code === 'POSTAL_CODE_UNKNOWN')
+        e.code === 'VALIDATION_ERROR' &&
+        (e.details?.field === 'neighborhood' || e.details?.field === 'city' || e.details?.field === 'state') &&
+        (typeof e.details?.max === 'number' || typeof e.details?.max === 'string')
       ) {
-        // ⭐ v1.81 (§M4-SHIP.19.5): cero órdenes creadas. El aviso va bajo el campo y junto al botón.
-        const cp = typeof e.details?.postalCode === 'string' ? e.details.postalCode : form.address.postalCode;
-        if (e.code === 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE') {
-          const allowed = Array.isArray(e.details?.allowed)
-            ? (e.details.allowed as unknown[]).filter((x): x is string => typeof x === 'string')
-            : null;
-          setAllowedNeighborhoods(allowed);
-          setServerAddressError({ field: 'neighborhood', message: ta('geo.notInCp', { cp }) });
-        } else {
-          setServerAddressError({
-            field: 'postalCode',
-            message: ta('geo.cpUnknown', { cp, contact: SUPPORT_CONTACT_FALLBACK }),
-          });
-        }
+        // §43.18m.7: la cota la da el servidor (⛔ la pantalla no la replica). Cero órdenes creadas.
+        setServerAddressError({ field: e.details.field, message: ta('geo.tooLong', { max: String(e.details.max) }) });
         setPayError(getMessage(e));
       } else if (e instanceof ApiClientError && e.code === 'PAYMENT_IN_PROGRESS') {
         // §4-R.2/.3: el PI del intento anterior ya está en curso o cobrado ⇒ no se abre otro. El
@@ -394,7 +391,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                     }}
                     onAccountReady={() => onAccountReady({ fromVaultUpsell: true })}
                     serverAddressError={serverAddressError}
-                    allowedNeighborhoods={allowedNeighborhoods}
+                    onGeoModeChange={setGeoMode}
                   />
                 </div>
               )}
