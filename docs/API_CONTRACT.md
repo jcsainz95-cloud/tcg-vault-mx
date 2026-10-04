@@ -2,9 +2,29 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.5**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.6**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.6 — 🔒💰 ERRATA DE LA REVISIÓN DE DISEÑO DE SEGURIDAD ANTES DE D2c (SDX-D-1/2/3/6/10, C-1…C-6) Y QUIÉN
+> COMPRA, CANCELA Y LIBERA (`HECHOS.md:58`) (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
+> orquestador `31ba38cc`; la fila de HECHOS, en `f963c44d`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
+> **[§M4-SHIP.19.26](#M4-SHIP-19-26)**. Porqué: `ARCHITECTURE §4.60 (s)`. Origen: `SECURITY_NOTES.md:1-137` (veredicto de
+> diseño **APROBADO CON CONDICIONES** sobre `ace57032`) y `HECHOS.md:58` (respuesta del dueño a SDX-D-5 y SDX-I-1).
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | SDX-D-1: respuesta de compra con `error_detail` **y** `data.id` | **Un id presente nunca se descarta.** «Rechazo con id» ⇒ rama «guía en proceso» (se persiste el id, el reclamo **no** se deshace) + bitácora `label_failed` con el id ⇒ `200 {outcome:'processing', providerError}`. El adaptador devuelve `providerShipmentId: null` (⛔ nunca `''`); el `400/422` de la compra también entrega el id si el cuerpo lo trae | **Sí**, pequeño: `skydropx.adapter.ts:281-285`, `shipping-provider.port.ts:114`, `skydropx-client.ts:387-391`, `shipping-provider.errors.ts:46` | backend 💰 (D2c) |
+> | **2** | SDX-D-2: replay de la compra (§19.18.4 (3a)) | **TACHADO sin condición.** `purchase` tiene **un** llamador: el verbo `label`. `recoverInFlightLabel`, el job y `label/release` solo **leen** | No (nada construido: `recoverInFlightLabel` ⇒ 0 en `backend/src` fuera de un comentario) | backend (D2c) |
+> | **3** | SDX-D-3: `P2002` en `providerShipmentId @unique` | Rama **`provider_id_taken`**: cero `500`, el otro envío intacto, el reclamo **se conserva** (como «en vuelo»), bitácora `shipment.label_conflict` ⇒ `409 CONFLICT {reason:'provider_id_taken'}`. Además, **guarda previa**: una `rateId` ya comprada o en vuelo en **otro** envío ⇒ `409 CONFLICT {reason:'rate_already_purchased'}` **antes** del reclamo, cero red | No | backend 💰 (D2c) |
+> | **4** | SDX-D-10: `SkydropxMutationForbiddenError` tras el reclamo | Reclamo **deshecho** ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['allow_spend']}` (ya lo decían §19.20.5 y §19.21.4; ahora también §19.7 paso 9) | No | backend (prueba) |
+> | **5** | SDX-D-6: referencia nuestra en la compra | **La API no la admite** en lo medido ni en la referencia (`SKYDROPX_API_REFERENCIA.md:142-186`): ⛔ no se mete el id en campos de dirección. La ventana «Liberar» muestra con qué cuadrar en el panel; `LabelPendingDTO` gana `priceCents`. Deuda con disparador | Aditivo (DTO) | backend (D2c) + frontend + ux-ui |
+> | **6** | SDX-D-5 / SDX-I-1 (`HECHOS.md:58`) | **El personal también compra y cancela.** El dial admite `operators` por decisión del dueño (sigue arrancando `disabled`, lo gira solo el súper-admin); `label/cancel` sigue operador+. **«Liberar» sigue `super_admin`: `HECHOS.md:58` no lo menciona ⇒ pregunta P-SDX-REL al dueño** | No | — (norma) |
+> | **7** | C-1…C-6 de seguridad | Entran como **PS-116…PS-121** con su mutación (§19.26.7) | — | backend (D2c) |
+>
+> **Códigos de error nuevos:** ninguno (`CONFLICT` con dos `reason` nuevos). **Endpoints, columnas, migraciones:**
+> ninguno (⛔ `M-SDX-D`/`M-66` no cambia). **DTO:** `LabelPendingDTO.priceCents`, `providerError?` en la respuesta
+> `processing` de `label`.
 >
 > **Rev v1.80.12.5 — LA COLONIA COMO MERCADO LIBRE: EL CATÁLOGO DE CP AYUDA, NO BLOQUEA (2026-10-04, arquitecto, rama
 > `claude/skydropx-d`, HEAD dado por el orquestador `76de8268`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma
@@ -165,7 +185,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -23618,6 +23638,8 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.22** | 🔒💰 **v1.80.12.2** — `SKX-SEC-1`: el domicilio sale de la bitácora (`ShipmentAddressRevision`, `M-SDX-C2`, la anonimización la borra, PS-112); `address.missing`; respuestas de `consignment-notes` y `PUT …/packages`; `ShipmentCostAdjustmentDTO`; PS-101 con `DESIGN_SYSTEM §43.5a` v4.17 |
 | **.23** | 💰 **v1.80.12.3** — errata menor tras la fase C: PS-104 parcial/PS-105a/b/PS-106/PS-113 a D2a–D2c, criterio 315 parcial hasta D2c; mutación de PS-104 por pares; guarda «ya tiene guía» de D2a (`WHERE` con `trackingNumber`, `LABEL_IN_PROGRESS`); `line2` 200; PS-99 (d) definitiva; catálogo de CP en la ventana (`C-GEO-1`/`C-GEO-2`) |
 | **.24** | 💰 **v1.80.12.4** — catálogo de CP: `C-GEO-1` (1) como inclusión + `setDigest` del manifiesto; modo estricto (producción) y modo arnés por el blanco del seed; dónde vive el archivo (pregunta G-1 al dueño); extracto sintético con candado; Railway como precondición |
+| **.25** | 💰 **v1.80.12.5** — la colonia como Mercado Libre: el catálogo de CP ayuda, no bloquea |
+| **.26** | 🔒💰 **v1.80.12.6** — revisión de diseño de seguridad antes de D2c: un id de compra nunca se descarta (SDX-D-1), sin replay de la compra (SDX-D-2), `P2002` del id y `rateId` ya comprada (SDX-D-3), candado tras el reclamo (SDX-D-10), referencia en la compra (SDX-D-6), quién compra/cancela/libera (`HECHOS.md:58`), PS-116…PS-121 |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -24154,6 +24176,11 @@ aplicado al costo: *nadie compra a una cifra que no vio*, T.4.1).
 8. **Compra:** `port.purchase({ rateId, printingFormat:'thermal', from:{templateId}, to: fromSnapshot(addressSnapshot,
    recipientEmail), package:{ protected:true, declaredValueCents, consignmentNote, packageType }, idempotencyKey })`.
 9. **Resultado — tx nueva + candado de fila:**
+   > 🔒 **v1.80.12.6 ([§19.26](#M4-SHIP-19-26)) — este paso se lee con §19.26.1–.4, que mandan donde choquen:** (a) la
+   > rama de rechazo de abajo es **solo** para `error ≠ null` **sin id legible** (con id ⇒ §19.26.1, el reclamo **no** se
+   > deshace); (b) el replay de `purchase` del ⚠️ de abajo está **TACHADO** (§19.26.2); (c) una `P2002` en
+   > `providerShipmentId` va a la rama `provider_id_taken` (§19.26.3); (d) `SkydropxMutationForbiddenError` ⇒ reclamo
+   > deshecho y `409 {missing:['allow_spend']}` (§19.26.4).
    - **`error ≠ null` o excepción del proveedor** ⇒ `updateMany({ where:{ id, labelProcessingSince:{not:null},
      providerShipmentId:null }, data:{ labelProcessingSince:null, providerQuotationId:null, providerRateId:null,
      chosenRateJson:null, recommendedRateJson:null, rateChosenByUserId:null, rateChosenAt:null } })` (**se deshace el
@@ -24162,8 +24189,8 @@ aplicado al costo: *nadie compra a una cifra que no vio*, T.4.1).
      providerMessage, quote}`** (o `503`/`502`). La pantalla ofrece otra opción **de la misma cotización** o re-cotizar.
      ⚠️ Si el proveedor **creó** el envío y luego falló al responder (timeout tras el `POST`), el reclamo **no** se deshace:
      `providerShipmentId` queda `null` con `labelProcessingSince` puesto y el sondeo de «en proceso» (§19.10) lo busca
-     (🔒 v1.81.1, SEC-SDX-4: **primero** replay de `purchase` con la **misma** `idempotencyKey` si PS-SBX-1 confirma
-     `Idempotency-Key`; **después** `port.findByReference(shipmentId)` si PS-SBX-6 confirma el filtro) — si no lo
+     (🔒 v1.81.1, SEC-SDX-4: ~~**primero** replay de `purchase` con la **misma** `idempotencyKey` si PS-SBX-1 confirma
+     `Idempotency-Key`;~~ ⛔ **v1.80.12.6: replay TACHADO, §19.26.2**; **después** `port.findByReference(shipmentId)` si PS-SBX-6 confirma el filtro) — si no lo
      encuentra en 15 min, alerta al admin `label_unknown` y el súper-admin resuelve con **`POST …/label/release`**
      (§19.18.4), que vuelve a buscar y **adopta** la guía si existe; ⛔ ya no remite a `label/cancel {reason:'unknown'}`
      (ese verbo la rechazaba: `not_provider`).
@@ -24326,7 +24353,7 @@ como respaldo. Tres jobs en la cola `tcg-daily` (S9), cada uno single-flight y d
 | Job | Cron (env, default) | Qué hace |
 |---|---|---|
 | **`shipment-tracking-poll`** | `SHIPMENT_TRACKING_POLL_CRON`, `*/10 * * * *` | Toma hasta **50** envíos `labelSource='skydropx' ∧ status ∈ {guia, enviado} ∧ providerCanceledAt IS NULL ∧ (carrierPolledAt IS NULL ∨ carrierPolledAt < now − shipping_tracking_poll_minutes)` por `carrierPolledAt asc`; por cada uno `port.getShipment(providerShipmentId)` (a ≤ 2 req/s: ≤ 25 s por lote) y `applyCarrierStatus` con **cada** evento nuevo (en orden `occurredAt asc`; si la API solo da el estado actual sin historial — NO MEDIDO, PS-SBX-5 — se sintetiza **un** evento `{status, occurredAt: updated_at ?? now, observedAt: now, synthetic:true, providerEventKey: updated_at ? status+':'+updated_at : status}` — 🔒 v1.81.1 (SEC-SDX-2): la llave **nunca** lleva `now`, y `applyCarrierStatus` paso 2b lo descarta si `status = carrierStatus`; §19.18.2). Refresco efectivo ≤ `poll_minutes` + 10 min (T.6: «al menos cada hora» con seed 60 ⇒ ≤ 70 min; devops baja el cron a `*/5` si hace falta). Envíos `entregado`/`cancelado` **no se consultan** (criterio 241) |
-| **`shipment-label-processing`** | `SHIPMENT_LABEL_PROCESSING_CRON`, `* * * * *` | Envíos con `labelProcessingSince ≠ null`: `getShipment` ⇒ si trae número, `applyCarrierStatus(created, trackingNumber…)`; > 30 min ⇒ alerta `label_processing_stuck`; con `providerShipmentId = null` (paso 9 ⚠️ de §19.7) corre **`recoverInFlightLabel`** (🔒 v1.81.1, SEC-SDX-4, §19.18.4: replay de `purchase` con la **misma** `idempotencyKey` si PS-SBX-1 lo confirma, después `findByReference` si PS-SBX-6; si encuentra ⇒ **adopta** por la rama de éxito del paso 9, bitácora `shipment.label_adopted`) y a los 15 min sin hallazgo alerta `label_unknown` (la resuelve `POST …/label/release`). 🔒 v1.81.1 (SEC-SDX-6): en la primera corrida de cada día **purga** `ShipmentQuote` con `expiresAt < now − 30 d` cuyo `providerQuotationId ≠ ShipmentRequest.providerQuotationId` (la comprada se conserva); contador en el resultado |
+| **`shipment-label-processing`** | `SHIPMENT_LABEL_PROCESSING_CRON`, `* * * * *` | Envíos con `labelProcessingSince ≠ null`: `getShipment` ⇒ si trae número, `applyCarrierStatus(created, trackingNumber…)`; > 30 min ⇒ alerta `label_processing_stuck`; con `providerShipmentId = null` (paso 9 ⚠️ de §19.7) corre **`recoverInFlightLabel`** (🔒 v1.81.1, SEC-SDX-4, §19.18.4: ~~replay de `purchase` con la **misma** `idempotencyKey` si PS-SBX-1 lo confirma,~~ ⛔ v1.80.12.6: **sin replay, solo lectura**, §19.26.2; después `findByReference` si PS-SBX-6; si encuentra ⇒ **adopta** por la rama de éxito del paso 9, bitácora `shipment.label_adopted`) y a los 15 min sin hallazgo alerta `label_unknown` (la resuelve `POST …/label/release`). 🔒 v1.81.1 (SEC-SDX-6): en la primera corrida de cada día **purga** `ShipmentQuote` con `expiresAt < now − 30 d` cuyo `providerQuotationId ≠ ShipmentRequest.providerQuotationId` (la comprada se conserva); contador en el resultado |
 | **`shipment-extra-charges`** | `SHIPMENT_EXTRA_CHARGES_CRON`, `30 8 * * *` (diaria) | `port.extraCharges(now − 45 d, now)` paginado; por cada cargo con `shipment_id` que corresponda a un `providerShipmentId` nuestro: `INSERT ShipmentCostAdjustment` (`providerChargeId @unique` ⇒ P2002 ⇒ no-op: **no duplica**, criterio 238, N ≥ 10 sobre la misma respuesta — PS-80); `kind` por `charge_type` (`Overweight ⇒ overweight`, `ExtendedZone ⇒ extended_zone`, `Return ⇒ return`, otro ⇒ `other`); `amountCents` bruto, `ivaCents = round(amount × 16/116)` `ivaSource:'computed'`; `chargedAt` = la fecha del cargo (NO MEDIDO el campo: si no viene, `observedAt`, y se anota). Cargos sin correspondencia ⇒ log `warn` + contador en el resultado del job. Bitácora `shipment.cost_adjusted` por fila. ⛔ Nunca escribe `shippingCostCents` (T.7) |
 
 `POST /admin/jobs/shipment-tracking-poll` admite `{ shipmentId? }` (excepción a la forma de la familia, como `price-ingest
@@ -24682,14 +24709,15 @@ escribir y proxy acotado (PS-84/PS-88; norma §19.18.5). `C-AV-1` = 19, `C-AV-3a
      o `label/cancel`); `labelProcessingSince > now − 15 min` ⇒ `409 {reason:'too_early', retryAfterSeconds}`. Commit
      (solo se leyó).
   3. **Buscar antes de liberar** — `recoverInFlightLabel(shipmentId)` (el mismo cuerpo que corre el job
-     `shipment-label-processing`, §19.10; `C-SDX-5` lo enumera con dos llamadores): (a) si PS-SBX-1 confirmó
+     `shipment-label-processing`, §19.10; `C-SDX-5` lo enumera con dos llamadores): ~~(a) si PS-SBX-1 confirmó
      `Idempotency-Key`, **replay** de `port.purchase` con la **misma** `idempotencyKey` (`label:<shipmentId>:<rateId>`)
      — un proveedor idempotente devuelve el envío ya creado sin crear otro; ⛔ si PS-SBX-1 mide que **no** es
-     idempotente, este paso **no se ejecuta** (sería una segunda compra) y se anota en `BACKEND_NOTES`; (b) si PS-SBX-6
+     idempotente, este paso **no se ejecuta** (sería una segunda compra) y se anota en `BACKEND_NOTES`;~~ ⛔ **(a)
+     TACHADO sin condición en v1.80.12.6 (SDX-D-2, §19.26.2): este verbo y el job NUNCA llaman `purchase`**; (b) si PS-SBX-6
      confirmó el filtro, `port.findByReference(shipmentId)`. Ambas fuera de tx.
   4. **Encontrada** ⇒ se persiste por la rama de éxito de §19.7 paso 9 (con número ⇒ `setTrackingFromProvider` + `AV-4`;
      sin número ⇒ «guía en proceso»; envío ya `cancelado` ⇒ §19.18.3), bitácora `shipment.label_adopted`
-     (`after:{ providerShipmentId, note, via:'idempotency'|'reference' }`) ⇒ **`200 { outcome:'adopted', shipment }`**.
+     (`after:{ providerShipmentId, note, via:'reference' }`; ⛔ v1.80.12.6: `'idempotency'` sale) ⇒ **`200 { outcome:'adopted', shipment }`**.
   5. **No encontrada** ⇒ tx nueva: CAS `updateMany({ where:{ id, labelProcessingSince:{not:null},
      providerShipmentId:null, labelProcessingSince:{lt: now − 15 min} }, data:{ labelProcessingSince:null,
      providerQuotationId:null, providerRateId:null, chosenRateJson:null, recommendedRateJson:null,
@@ -24700,7 +24728,9 @@ escribir y proxy acotado (PS-84/PS-88; norma §19.18.5). `C-AV-1` = 19, `C-AV-3a
 - **Con `shipping_provider='off'`:** sigue (SEC-SDX-12); sin env ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED`.
 - **Pantalla:** en la tarjeta con alerta `label_unknown`, botón «Liberar» **solo** para el súper-admin, con el campo de
   nota y el texto «primero buscamos la guía en Skydropx; si existe la adoptamos». ux-ui.
-- **Prueba:** PS-74 ampliada. **Mutación:** liberar **sin** buscar ⇒ dos `purchase` en el doble.
+- **Prueba:** PS-74 ampliada. **Mutación:** liberar **sin** buscar ⇒ dos `purchase` en el doble. ⭐ **v1.80.12.6:**
+  PS-74 aserta además **0** `purchase` en el doble durante `label/release` (PS-117, §19.26.7); quién libera:
+  §19.26.6.
 
 **M4-SHIP.19.18.5 — 🔒 SEC-SDX-5: las URLs del proveedor son entrada no confiable (`assertProviderUrl`, proxy acotado, `C-SDX-7`).**
 - **Riesgo:** el proxy `label.pdf` hace `fetch(labelUrl)` desde el servidor y devuelve el cuerpo; `trackingUrl` va
@@ -24995,7 +25025,11 @@ como único dato del seguro (ahora el desglose siempre trae `insuranceCents`, de
   puede medir la tabla de seguros desde la plataforma con la compra apagada.
 - `label/cancel` y `label/release` siguen funcionando con `shipping_provider='off'` (SEC-SDX-12) y **no** miran el dial de
   compra; **sí** pasan por el candado de ejecución (en pruebas y CI nunca salen; sin env no hubo compra que cancelar).
-- **«Autorización guía por guía» (`HECHOS.md:48`), cómo queda en el sistema:** mientras el dueño no diga otra cosa, el dial
+- ⭐ **v1.80.12.6 (`HECHOS.md:58`, §19.26.6): el dueño dijo otra cosa — «también el personal» compra y cancela.** El
+  párrafo siguiente queda **sustituido** en lo que limita el dial a `super_admin_only`: el súper-admin puede poner
+  `operators` cuando quiera (sin errata ni despliegue). Lo demás sigue: seed `disabled`, solo el súper-admin gira el dial,
+  `SKYDROPX_ALLOW_SPEND` solo en producción, ⛔ ningún agente gira nada, PS-99.
+- ~~**«Autorización guía por guía» (`HECHOS.md:48`), cómo queda en el sistema:**~~ *(sustituido en lo dicho arriba)* mientras el dueño no diga otra cosa, el dial
   vive en **`super_admin_only`** como máximo ⇒ cada guía real la compra **él mismo**, apretando el botón: su clic es la
   autorización de esa guía, y queda en la bitácora `shipment.label_requested` con su nombre. Pasar a `operators` es
   decisión suya (`PROJECT §T.4.7`, decisión 3 de `HECHOS.md:36`), por M10, sin despliegue. ⛔ **Ningún agente** cambia el
@@ -25020,8 +25054,9 @@ como único dato del seguro (ahora el desglose siempre trae `insuranceCents`, de
   (son datos del dueño, no PII del cliente). `address_to` sin cambio (SEC-SDX-7).
 - **Respuesta:** se aceptan **objeto o arreglo** (v2 «siempre arreglo», referencia §3.5, NO MEDIDO) ⇒ el primero;
   JSON:API `data.attributes` (`master_tracking_number`, `total`, `error_detail`) con los paquetes en `included` (NO
-  MEDIDO); `error_detail.error_code ≠ null` ⇒ rama de rechazo. Parser **tolerante**: campo ausente ⇒ `null`, ⛔ nunca un
-  `500`.
+  MEDIDO); `error_detail.error_code ≠ null` ⇒ rama de rechazo ⭐ **v1.80.12.6 (SDX-D-1, §19.26.1): solo si NO hay id
+  legible; con `data.id` ⇒ «rechazo con id», el id se persiste y el reclamo se conserva**. Parser **tolerante**: campo
+  ausente ⇒ `null`, ⛔ nunca un `500`.
 - **Costo:** `shippingCostCents = totalCents (de la compra; si no viene, el de la tarifa) + insuranceCents`. Si el `total`
   de la compra ≠ el de la tarifa ⇒ manda el de la compra, `shippingCostIvaCents = round((total − serviceFee) × 16/116)`
   con `'computed'` y log `warn purchase_total_drift`; si coincide ⇒ `vat_fee` de la tarifa con `'provider'`.
@@ -25132,7 +25167,7 @@ imprimir, cancelar y re-emitir, «Liberar» del súper-admin).
 | **D2a · Esquema y diales** | `M-SDX-D` con el delta de §19.19.14; enums y paridad (`C-ENUM`); las cuatro tablas de diales (`SettingKey`, `SETTING_DEFAULTS`, `SETTING_VALIDATORS`, `SETTING_DTO_MAP`); ⭐ v1.80.12.3: la guarda «ya tiene guía» de `PUT …/address` con las columnas nuevas (§19.23.3) | backend 💰 (zona compartida `prisma/`, un agente) | C construida | paridad de enums; PS-96 (validadores), PS-97; ⭐ **PS-104** filas D2a (§19.23.1) |
 | **D2b · Cotizar** | `quote`/`GET quote`: guardas, empaque, `insuredValueCents` + `insuranceCoverageFor`, reutilización y vigencia, recomendada, `excluded` | backend 💰 | D1b, D2a | PS-69, PS-70, PS-71, PS-95, **PS-96**; ⭐ **PS-105a** (§19.23.1) |
 | **🔒 Revisión** | seguridad revisa el **delta** v1.80.11 (puerta de compra, `Authorization` al host de la etiqueta, unicidad de `ShipmentQuote`) **sobre el diseño**, antes de D2c | seguridad | D2b en paralelo | — |
-| **D2c · Comprar** | `label` con la puerta (dial, rol, env), reclamo, cuerpo de §19.19.8, ramas de resultado, `label/cancel`, `label/release`, cancelación automática, `labelOptions` en el DTO | backend 💰 | D2b + revisión | PS-73, PS-74, PS-76, PS-81, PS-82, PS-83, PS-85, **PS-97**, **PS-98**; ⭐ **PS-105b**, **PS-106**, **PS-113** (§19.23.1) |
+| **D2c · Comprar** | `label` con la puerta (dial, rol, env), reclamo, cuerpo de §19.19.8, ramas de resultado, `label/cancel`, `label/release`, cancelación automática, `labelOptions` en el DTO | backend 💰 | D2b + revisión | PS-73, PS-74, PS-76, PS-81, PS-82, PS-83, PS-85, **PS-97**, **PS-98**; ⭐ **PS-105b**, **PS-106**, **PS-113** (§19.23.1); ⭐ **PS-116…PS-121** (v1.80.12.6, §19.26.7) |
 | **D2d · Rastreo** | `applyCarrierStatus`, los tres jobs, `refresh-tracking`, relleno de `labelUrl` nulo, estado desconocido | backend | D1b, D2a | PS-72, PS-75, PS-77, PS-78, PS-79, PS-80 |
 | **D2e · Correos y cliente** | `AV-17` (sin plazo de disputa), `AV-18`, `AV-19`, `customerUrl`, `timeline`, `C-AV-3a/3b`, `C-AV-1 = 19` | backend | D2d | PS-87, PS-88, PS-89 |
 | **D2f · Dinero y ajustes** | P&L (`shippingAdjustmentsCents`, `shippingInsuranceCents`), `workQueue.shipping`, `GET/PUT …/packages`, `catalogs` (forma nueva), `balance` | backend 💰 | D2a | PS-80, PS-81, PS-90 |
@@ -25160,7 +25195,7 @@ proporción en las de carrera, copia del árbol entero con su sha, mutación dem
 | **PS-95** | Cotización: `201` incompleta ⇒ 3 `GET` ⇒ completa; 20 s sin completar ⇒ `completed:false` con lo que haya; **el doble devuelve el mismo `providerQuotationId` para dos envíos** ⇒ dos filas, cero `P2002`, `500` nunca; mismo envío con `force` ⇒ la fila se actualiza; `expiresAt` = primera observación + 24 h (no la segunda) | restaurar `@unique` en `providerQuotationId`; `expiresAt = now + 24 h` siempre |
 | **PS-96** 💰 | Seguro: valor 30000 ⇒ el doble recibe `package_protected:true` y `declared_value:2500` **en la cotización y en la compra**; 250000 ⇒ 2500 (no 10000); 250001 ⇒ 10000; mayor que el último escalón ⇒ `409 …NOT_CONFIGURED {missing:['insurance_tier']}` y **cero** llamadas; eco que no coincide ⇒ `insuranceSource:'tier_table'` y el costo de la tabla; `declaredValueCents` en el cuerpo de `quote` **sin efecto**; dial con escalones no crecientes ⇒ `422` | omitir `package_protected`/`declared_value` (la API pondría $2,500); `>` en vez de `≥`; recortar al mayor escalón |
 | **PS-97** | Carta Porte y empaque: la compra lleva `consignment_note: '49101600'` del dial y `package_type` del empaque usado (`5H4`/`4G`); `PUT /admin/settings` con `'4910160'` ⇒ `422`; `weightKg: 1.5` en `PUT …/packages` ⇒ `400`; seeds presentes tras migrar | el código fijo en el adaptador; empaque fijo |
-| **PS-98** 💰🔒 | Puerta: dial `disabled` ⇒ `404 {feature:'label_purchase'}`, cero transporte, cero escrituras; `super_admin_only` + operador ⇒ `403 {reason}` + bitácora `label_purchase_denied`; + súper-admin ⇒ `200`; sin `SKYDROPX_ALLOW_SPEND` ⇒ `409 {missing:['allow_spend']}`; `quote` responde con la compra apagada; `labelOptions.canPurchase` coincide con el resultado en las 3×2 combinaciones; arranque con `SHIPPING_PROVIDER_ADAPTER=fake` y `SKYDROPX_ALLOW_SPEND=true` ⇒ el proceso no arranca | mirar el dial solo en la pantalla; quitar el chequeo de rol |
+| **PS-98** 💰🔒 | Puerta: dial `disabled` ⇒ `404 {feature:'label_purchase'}`, cero transporte, cero escrituras; `super_admin_only` + operador ⇒ `403 {reason}` + bitácora `label_purchase_denied`; + súper-admin ⇒ `200`; sin `SKYDROPX_ALLOW_SPEND` ⇒ `409 {missing:['allow_spend']}`; `quote` responde con la compra apagada; `labelOptions.canPurchase` coincide con el resultado en las 3×2 combinaciones; arranque con `SHIPPING_PROVIDER_ADAPTER=fake` y `SKYDROPX_ALLOW_SPEND=true` ⇒ el proceso no arranca. ⭐ **v1.80.12.6: filas nuevas en PS-120 (§19.26.7)** — `operators` + operador ⇒ `200`; segundo súper-admin ⇒ `200`; dial cambiado entre dos llamadas ⇒ la segunda lo ve | mirar el dial solo en la pantalla; quitar el chequeo de rol |
 | **PS-99** ⭐💰🔒 | **Ninguna prueba ni ningún CI puede comprar una guía real** — §19.19.17 | §19.19.17 |
 | **PS-100** 🔒 | Proxy: `labelUrl` en el host de la API ⇒ la petición lleva `Authorization`; en `labels.example-bucket.com` (listado en `SKYDROPX_URL_HOSTS`) ⇒ **sin** `Authorization` y con `User-Agent` | adjuntar siempre el token |
 | **PS-101** | Ventana (Playwright contra MSW/`fake`): abrir con `provider:'off'` ⇒ solo el formulario manual; con `'skydropx'` ⇒ paso 1 muestra el snapshot; `complete:false` ⇒ selector de colonia y no avanza sin ella; paso 2 con la recomendada marcada y las de sucursal plegadas; ~~«Capturar a mano» presente en los cuatro pasos~~ ⭐ v1.80.12.2 (§19.22.5, `DESIGN_SYSTEM §43.5a` v4.17): «Capturar a mano» **solo** con `label = null ∧ labelPending = null` (la condición con que el servidor acepta `POST …/tracking`) — presente en los pasos 1–3 (en el 3, **deshabilitado** con la compra en curso), en el paso 4 **solo** en «Skydropx no creó la guía», y **ausente** en `labeled`, `processing`, `in_progress` e `in_flight`; `canPurchase:false` ⇒ sin botón «Comprar guía» y con el texto; `QUOTE_EXPIRED` ⇒ vuelve al paso 2 con la cifra nueva; `labeled` ⇒ número + «Imprimir etiqueta»; `processing` ⇒ texto de guía en proceso; ⛔ ningún botón «Cotizar envío» en la tarjeta | un segundo formulario; botón de compra sin `canPurchase`; ramificar errores por status |
@@ -25204,8 +25239,9 @@ autorización, `HECHOS.md:48`); el informe lo arma backend leyendo la bitácora,
 | Si `GET /shipments?…` filtra por referencia | `findByReference` (SEC-SDX-4) | **`M-PRD-6`** (hoy `total_count:0`: mide los parámetros, no el resultado) y **`PG-1`** | Sin búsqueda: `label/release` libera tras nota del súper-admin |
 | Forma de la respuesta de compra (objeto/arreglo, `master_tracking_number` nulo y cuánto tarda, `included`), **host de `label_url`**, `tracking_url_provider`, si `total` y la protección cobrados = los cotizados, si el seguro lleva IVA (saldo antes/después) | §19.19.8–.11 | **`PG-1`** | Parser tolerante; host desconocido ⇒ procedimiento de §19.19.9 |
 | Forma de `GET /shipments/{id}`: historial o solo estado | §19.10 | **`PG-1`** + el sondeo de las primeras guías | Rama sintética (SEC-SDX-2) |
-| Si Skydropx acepta `Idempotency-Key` | replay en `recoverInFlightLabel` | **colección OpenAPI** (T.13) o `api@skydropx.com` — ⛔ **nunca** probándolo con una compra repetida | El replay **no se ejecuta** (§19.18.4 (3a)) |
-| Si se puede comprar la misma `rate_id` reutilizada para dos envíos | M-5 | OpenAPI / soporte; **`PG-2`** si coincide en la práctica | Si Skydropx lo rechaza ⇒ `422` y el operador re-cotiza con `force` |
+| Si Skydropx acepta `Idempotency-Key` | ~~replay en `recoverInFlightLabel`~~ ⛔ v1.80.12.6: ya no importa para el diseño (replay tachado, §19.26.2) | — | El replay **no existe** (§19.26.2); la cabecera se sigue mandando, inocua |
+| Si se puede comprar la misma `rate_id` reutilizada para dos envíos | M-5 | OpenAPI / soporte; **`PG-2`** si coincide en la práctica | ⭐ v1.80.12.6 (§19.26.3): guarda previa `rate_already_purchased` (falla cerrado: el operador cambia empaque o captura a mano); si se mide que Skydropx crea envíos distintos con la misma `rate_id`, el arquitecto la relaja |
+| ⭐ v1.80.12.6 — Si `POST /shipments`, el listado de envíos o el panel admiten/muestran una **referencia nuestra** (`reference_number`, `external_id`, metadatos) o la `rate_id` | SDX-D-6, `findByReference` | OpenAPI / soporte; **`M-PRD-6`** (qué expone `GET /shipments`); **`PG-1`** (qué muestra el panel de la guía real) | Sin referencia: «Liberar» cuadra por lo que muestra la ventana (§19.26.5) |
 | Si la cancelación devuelve todo el saldo, seguro incluido | SEC-SDX-11 | **`PG-3`**: solo si el dueño **autoriza aparte** cancelar una guía | `refundedCents:null` ⇒ costo a 0 (§19.8) |
 | Conducta ante `429` | matriz §19.19.3 | se observa en los logs; ⛔ no se fuerza | backoff ≤ 3 ⇒ `503` |
 | Por qué J&T sale `success:false` por API | oferta | dueño en su panel o `api@skydropx.com` | Excluida, contada en `excluded.unavailable` |
@@ -25343,6 +25379,7 @@ export interface LabelPendingDTO {             // ⇔ labelProcessingSince ≠ n
   carrierLabel: string | null;                // de chosenRateJson (lo que se eligió)
   serviceName: string | null;
   chosenBy: { userId: string; name: string | null } | null;
+  priceCents: number | null;                  // ⭐ v1.80.12.6 (SDX-D-6, §19.26.5): chosenRateJson.priceCents — lo que se ve en el panel de Skydropx para cuadrar
 }
 export type LabelAlertKind = 'label_unknown' | 'label_processing_stuck' | 'label_cancel_failed' | 'label_live_on_cancelled';
 export interface LabelAlertDTO { kind: LabelAlertKind; since: string; canRelease: boolean /* ⇔ kind='label_unknown' ∧ actor super_admin */ }
@@ -25564,7 +25601,7 @@ con esta norma.
   queda en el puerto y en la lista cerrada de mutantes (PS-99 (a)/(d) la cubren), pero ⛔ ninguna pieza de D2 la llama.
   Llamarla exige errata del arquitecto.
 - **`Idempotency-Key`** en la compra: se manda (inocua si se ignora); ⛔ el replay de §19.18.4 (3a) **no se ejecuta**
-  hasta que conste que es idempotente (sin cambio).
+  ~~hasta que conste que es idempotente (sin cambio)~~ — ⭐ **v1.80.12.6: nunca** (§19.26.2).
 - **Estado del transportista** (orden de lectura de campos, `BACKEND_NOTES.md:27166-27167`): parser tolerante, NO MEDIDO
   hasta `PG-1` (sin cambio de §19.19.10).
 
@@ -26309,6 +26346,164 @@ re-escriben a los cuatro casos de `resolveAddressGeo`.
 | **QA** | PS-103, PS-114, PS-115, el E2E; en el gate, comprobar con la tabla **vacía** que un invitado paga |
 | **seguridad** | Nada nuevo que revisar fuera de lo ya visto: la colonia escrita es texto ≤ 120 que ya se aceptaba en `line1`/`line2` (mismo render, mismo destino) |
 | **orquestador** | Quitar de la solicitud `main` → `production` las condiciones de `C-GEO-2`, §19.24.8 y las tres de §19.23.6; poner la de §19.25.5 |
+
+###### <a id="M4-SHIP-19-26"></a>M4-SHIP.19.26 — 🔒💰 v1.80.12.6: la revisión de diseño de seguridad antes de D2c (SDX-D-1/2/3/6/10, C-1…C-6) y quién compra, cancela y libera (`HECHOS.md:58`) (**NORMATIVA**, **DINERO + TERCERO**)
+
+> **Fuentes:** `SECURITY_NOTES.md:1-137` (veredicto de diseño **APROBADO CON CONDICIONES** sobre `ace57032`, commit
+> `31ba38cc` según el orquestador); `HECHOS.md:58` (2026-10-04, respuesta del dueño a SDX-D-5 y SDX-I-1: comprar
+> «También el personal», cancelar «También el personal»); código leído por el arquitecto en `/home/user/tcg-skyd` el
+> 2026-10-04 (Read/Grep, ⛔ sin ejecutar nada). **Manda** sobre §19.7 paso 9, §19.10 (job `shipment-label-processing`),
+> §19.18.4, §19.19.7, §19.19.8, §19.19.18 y §19.21.6 donde choque. ⛔ **Sin cambio de esquema:** `M-SDX-D` (`M-66`,
+> `backend/prisma/migrations/20261007120000_m66_sdx_d_skydropx/`, en construcción por D2a) **no se toca**; todo lo de abajo
+> cabe en sus columnas y CHECKs (comprobado contra `migration.sql:227-276`). Porqué: `ARCHITECTURE §4.60 (s)`.
+
+**M4-SHIP.19.26.1 — 💰 SDX-D-1: un id de compra presente NUNCA se descarta.**
+
+- **Id legible** = `idOf(data.id)` no nulo y **no vacío tras `trim`**. El puerto cambia: `PurchaseResult.providerShipmentId:
+  string | null` (hoy `string`, `shipping-provider.port.ts:114`); el adaptador devuelve `parsed.id ?? null` (hoy `?? ''`,
+  `skydropx.adapter.ts:285`). ⛔ **Nunca se persiste `''`**: el servicio trata un id vacío como ausente.
+- **Matriz de la respuesta `2xx` de `POST /api/v2/shipments`** (sustituye a «`error ≠ null` ⇒ rechazo» de §19.7 paso 9 y
+  §19.19.8):
+
+| Id legible | `error` | Rama | Reclamo | Respuesta de `label` |
+|---|---|---|---|---|
+| sí | `null` | con número ⇒ éxito con número; sin número ⇒ éxito sin número (sin cambio, §19.7 paso 9) | según la rama | `labeled` / `processing` |
+| **sí** | **≠ `null`** | **«rechazo con id»** (nueva, abajo) | **se conserva** | **`200 { outcome:'processing', shipment, providerError: { code, message } }`** |
+| no | ≠ `null` | rechazo (sin cambio): se deshace el reclamo | se deshace | `422 SHIPPING_PROVIDER_REJECTED` |
+| no | `null` | en vuelo (sin cambio: el adaptador lanza `ShippingProviderPurchaseInFlightError`, `skydropx.adapter.ts:281-284`) | se conserva | `200 in_flight` |
+
+- **Rama «rechazo con id»:** **el mismo `updateMany` de «éxito SIN número»** de §19.7 paso 9 (con `status:'picking'`,
+  `labelProcessingSince:{not:null}` y `providerShipmentId:null` en el `WHERE`; `data`: `providerShipmentId`,
+  `labelSource:'skydropx'`, `labelPurchasedAt: now`, las URLs por `providerUrlsFrom`, el costo de §19.19.8). ⛔ **Con
+  `error ≠ null` nunca se pasa a `guia` en la misma respuesta**, aunque traiga número: el sondeo de §19.10 lo confirma con
+  `getShipment` y, si el número llega, `applyCarrierStatus(created)`. `count 0` ⇒ la rama de §19.18.3. Bitácora
+  `shipment.label_failed` con `after:{ rateId, providerCode, providerMessage, providerShipmentId, kept:true }` y log
+  `error purchase_error_with_id {providerShipmentId, providerCode}`. *Por qué se escribe el costo:* si Skydropx cobró,
+  está cobrado; si la guía nunca existe, la cancelación (§19.8) lo lleva a 0 con `refundedCents` (SEC-SDX-11).
+- **Lo que pasa después:** el envío queda «guía en proceso» (`labelPending.state = 'processing'`); un segundo `POST
+  …/label` ⇒ `409 SHIPMENT_ALREADY_LABELED` (cero `purchase`). Sin número a los 30 min ⇒ `label_processing_stuck` (§19.20.2)
+  ⇒ el operador cancela y re-emite (`label/cancel`, §19.8). Qué hace Skydropx con un envío creado con error (si cobra, si
+  admite cancelarlo): **NO MEDIDO**, se cierra con `PG-n`; si la cancelación lo rechaza, la guía queda con su alerta y una
+  persona lo resuelve en el panel — ⛔ nunca una segunda compra automática.
+- **El `400`/`422` de la compra también puede traer id.** Hoy el cliente lo descarta: `skydropx-client.ts:387-391` solo
+  saca `providerCode`/`providerMessage`. **Norma:** para `op:'purchase'`, si el cuerpo del `400/422` trae un id legible
+  (mismo parser de sobre, `parseShipmentEnvelope`, ⛔ un segundo parser no), el id llega al servicio
+  (`ShippingProviderError.details.providerShipmentId`, `shipping-provider.errors.ts:46`) y va a «rechazo con id». Dónde se
+  extrae (cliente o adaptador) lo decide backend, con **un** parser.
+- **CHECKs de `M-66`:** `shipment_provider_id_requires_purchase` exige `providerRateId`, `chosenRateJson`,
+  `rateChosenByUserId`, `rateChosenAt`, `packageCode`, `declaredValueCents`, `insuredValueCents` (los escribe el reclamo,
+  §19.7 paso 7 y §19.19.8) y `labelPurchasedAt` (lo escribe esta rama; se lee «instante de la respuesta con id»).
+  `shipment_label_processing_without_tracking` se cumple (sin número). ⛔ Ninguna columna nueva.
+
+**M4-SHIP.19.26.2 — 💰 SDX-D-2: el replay de la compra queda TACHADO, sin condición.**
+
+- `port.purchase` tiene **un solo llamador** en `backend/src`: el verbo `label` (§19.7), **después** del CAS del reclamo
+  (paso 7). ⛔ `recoverInFlightLabel`, el job `shipment-label-processing` y `label/release` **nunca** llaman `purchase`,
+  con ningún dial, bandera ni resultado de medición. `port.protect` sigue con **cero** llamadores (§19.21.6).
+- Tachado en: §19.7 paso 9 (⚠️ «primero replay…»), §19.10 fila del job, §19.18.4 paso 3 (a) y `via:'idempotency'`,
+  §19.19.18 fila `Idempotency-Key`, §19.21.6. La cabecera `Idempotency-Key` se sigue mandando en la compra (inocua).
+- **`recoverInFlightLabel` = búsqueda de SOLO LECTURA.** Hoy no hay con qué buscar (§19.26.5: la compra no lleva
+  referencia nuestra; `findByReference` no existe en el puerto, `shipping-provider.port.ts:178-191`) ⇒ en D2c devuelve
+  `not_found` **sin** red, el job alerta `label_unknown` a los 15 min y `label/release` libera tras la nota. Cuando
+  `M-PRD-6`/`PG-1` midan una llave de búsqueda, se implementa como `GET` (errata del arquitecto).
+- *Por qué sin condición:* el replay solo era seguro si `Idempotency-Key` es respetada, y eso **no se puede medir sin
+  arriesgar una segunda compra** (§19.19.18); además lo ejecutaría un cron sin actor ni dial — una compra que nadie apretó.
+
+**M4-SHIP.19.26.3 — 💰 SDX-D-3: `P2002` en `providerShipmentId` y la misma `rateId` en dos envíos (M-5).**
+
+- **(a) Guarda previa (paso 2 de §19.7, bajo el candado de la fila, antes del reclamo):** existe **otro**
+  `ShipmentRequest` con `providerRateId = rateId ∧ (providerShipmentId ≠ null ∨ labelProcessingSince ≠ null)` ⇒ **`409
+  CONFLICT {reason:'rate_already_purchased', otherShipmentId}`**, cero escrituras, **cero** red. Es el vector medido de M-5
+  (misma ruta y medidas ⇒ misma cotización ⇒ mismas `rate_id`). Falla cerrado: si Skydropx sí crea envíos distintos con
+  la misma `rate_id` (NO MEDIDO, `PG-2`), el operador cambia el empaque (otra cotización) o captura a mano, y el arquitecto
+  relaja la guarda con la medición. ⛔ Sin índice nuevo (la tabla es chica; `M-66` no se toca).
+- **(b) Cinturón — `P2002` cuyo `meta.target` incluye `providerShipmentId`** en cualquier escritura del paso 9 (con número,
+  sin número, rechazo con id, §19.18.3 punto 2). Otra `P2002` ⇒ se re-lanza (sin cambio). Ocurre si dos envíos pasan (a) a
+  la vez, o si Skydropx devuelve el id de un envío que ya es de otro:
+  1. **Cero `500`.** Tx nueva bajo candado de **este** envío (B). ⛔ El otro envío (A) **no se toca**.
+  2. **El reclamo de B se conserva** (`labelProcessingSince` puesto, `providerShipmentId` nulo ⇒ `labelPending.state =
+     'in_flight'`): no hay prueba de que no se creó nada para B, y la doctrina de §19.21.4 manda retener.
+  3. Bitácora `shipment.label_conflict` en B (`after:{ rateId, providerShipmentId, otherShipmentId }`) y log `error`.
+  4. Respuesta **`409 CONFLICT {reason:'provider_id_taken', otherShipmentId}`**.
+  5. Un `label` posterior sobre B ⇒ `200 in_progress` (paso 2), cero `purchase`. A los 15 min, `label_unknown` ⇒
+     «Liberar». **`label/release` con un conflicto registrado** (existe `shipment.label_conflict` de B con `createdAt ≥
+     labelProcessingSince`) exige en el cuerpo **`confirmConflict: true`**; sin él ⇒ `409 LABEL_NOT_RELEASABLE
+     {reason:'provider_conflict', otherShipmentId}`. Así B **no** se suelta «sin más»: quien libera vio el conflicto y lo
+     comprobó en el panel. Tras liberar, la misma `rateId` sigue bloqueada por (a) si A la compró.
+
+**M4-SHIP.19.26.4 — SDX-D-10: el candado de ejecución que salta DESPUÉS del reclamo.** Ya lo decían §19.20.5 (fila
+«antes de que salga la compra») y §19.21.4; ahora también §19.7 paso 9: `SkydropxMutationForbiddenError` ⇒ **reclamo
+deshecho** (mismo `data` que la rama de rechazo), bitácora `shipment.label_failed {providerCode:'mutation_forbidden',
+reason}` ⇒ **`409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['allow_spend']}`**. Medido por el arquitecto: la guarda corre
+en `skydropx-client.ts:311`, **fuera** del `try` de `:322-335`, así que la excepción llega con su clase (no envuelta como
+«en vuelo»). ⚠️ `SkydropxMutationForbiddenError` y `ShippingProviderPurchaseInFlightError` son subclases de
+`ShippingProviderError` (`shipping-provider.errors.ts:65,79`): el servicio las distingue **por clase y antes** del manejo
+genérico; una rama que las confunda deja el reclamo puesto (PS-119).
+
+**M4-SHIP.19.26.5 — SDX-D-6: la compra no lleva referencia nuestra — porque la API no la admite.**
+
+- **Medido en los documentos** (arquitecto, Read, 2026-10-04): el cuerpo de `POST /shipments` de la referencia
+  (`SKYDROPX_API_REFERENCIA.md:142-186`) tiene `rate_id`, `printing_format`, `original_shipment_id` (reexpediciones),
+  `address_from`, `address_to` y `packages[]` — **ningún campo libre de referencia**. `address_to.reference` existe pero es
+  dato de dirección que se imprime, y SEC-SDX-7 lo sacó (§19.18.6). `quotation.order_id` (`:89`) apunta a una orden de
+  Skydropx y la cotización se **reutiliza** entre envíos (M-5): no identifica un envío. `reference_number` es de
+  `POST /orders` (`:331`), una escritura fuera de la lista cerrada (§19.19.3 (6)). La medición de producción no vio
+  ninguno (`SKYDROPX_API_PROD_RESULTADOS.md`, Grep `reference|order_id|external|metadata` ⇒ solo la plantilla de origen,
+  `:286`).
+- **Decisión:** ⛔ no se mete `shipmentId` ni el número de pedido en `name`, `company`, `reference` ni
+  `further_information` (se imprimen en la guía; `further_information` es el canal de las referencias del cliente,
+  ≤ 70). Mientras no haya campo, **«Liberar» cuadra con lo que la ventana muestra**: destinatario, calle, CP, colonia
+  (`address`), hora del reclamo (`labelPending.since`), paquetería y servicio (`carrierLabel`, `serviceName`), **precio**
+  (`labelPending.priceCents`, nuevo, de `chosenRateJson`) y quién eligió (`chosenBy`). Todo ya está en `AdminShipmentDTO`
+  salvo `priceCents`.
+- **Deuda con disparador:** OpenAPI, soporte (`api@skydropx.com`), `M-PRD-6` o `PG-1` muestran un campo de referencia
+  aceptado en la compra (o que el listado/panel expone `rate_id`) ⇒ errata: se manda `shipmentId` (sin PII) y se
+  implementa `findByReference` como `GET` (§19.26.2).
+
+**M4-SHIP.19.26.6 — Quién compra, cancela y libera (`HECHOS.md:58`).** Cierra SDX-D-5 y SDX-I-1.
+
+| Verbo | Antes | Ahora | Fuente |
+|---|---|---|---|
+| **`POST …/label`** (comprar) | Dial `shipping_label_purchase` con tres modos; §19.19.7 lo limitaba a `super_admin_only` «mientras el dueño no diga otra cosa» | **Los tres modos, `operators` permitido**: el súper-admin lo pone cuando quiera desde `PUT /admin/settings` (sin errata, sin despliegue). Seed **`disabled`**; solo el súper-admin gira el dial; `SKYDROPX_ALLOW_SPEND` solo en producción; PS-99 intacta. `super_admin_only` sigue existiendo (y «cualquier súper-admin» es correcto: el dueño amplió, no restringió) | `HECHOS.md:58` («También el personal») |
+| **`POST …/label/cancel`** | operador+ (§19.8), sin mirar el dial de compra | **Sin cambio, ratificado.** SDX-I-1 cerrada | `HECHOS.md:58` («También el personal») |
+| **`POST …/label/release`** («Liberar») | **solo `super_admin`**, `@MoneyOut()` (§19.18.4) | **Sin cambio.** `HECHOS.md:58` habla de comprar y cancelar, **no** de liberar ⇒ **pregunta P-SDX-REL** al dueño | — (no está en HECHOS) |
+
+- **P-SDX-REL — «¿Quién puede "Liberar" una compra que quedó sin respuesta de Skydropx?»** (a) **solo el súper-admin**
+  (vigente y default mientras no responda): liberar es lo único que habilita **otra** compra del mismo envío; si el
+  personal compra, que la liberación la haga otra persona es un segundo par de ojos sobre el único camino a una guía
+  duplicada. (b) **también el personal** (operador+, como cancelar): menos espera cuando el dueño no está, a cambio de que
+  quien compró pueda liberar su propia compra. Cambiar a (b) es una línea (rol del verbo, `canRelease` de §19.20.2 y
+  PS-120); ⛔ no se construye (b) sin la respuesta.
+- ⚠️ **Para el orquestador:** `HECHOS.md:48`, última celda, sigue diciendo «⛔ Comprar guías reales requiere autorización
+  explícita del dueño guía por guía»; `HECHOS.md:58` sustituye solo la nota de la fila 49. El contrato sigue a `:58`
+  (respuesta directa del dueño a la pregunta); la fila 48 la concilia quien es dueño de `HECHOS.md`.
+- **ux-ui:** el texto «Solo el dueño compra guías por ahora» (§19.19.13 paso 3) pasa a decir lo que hace el dial
+  (`super_admin_only` ⇒ solo súper-admin), sin afirmar «el dueño».
+
+**M4-SHIP.19.26.7 — Pruebas que DEBEN fallar: las condiciones C-1…C-6 de seguridad.** Mismas reglas que §19.16: copia
+del árbol **entero** con su sha, mutación demostrada roja, y las de carrera con barrera y **N ≥ 10 con proporción**.
+Todas con el doble del puerto (⛔ nunca la red: PS-99).
+
+| # | Cierra | Qué asevera | Mutación que la pone roja |
+|---|---|---|---|
+| **PS-116** 💰 | C-1 · SDX-D-1 | El doble responde `2xx` con `data.id='sdx-1'` **y** `error_detail.error_code='X'`: (a) el reclamo **no** se deshace; (b) `providerShipmentId='sdx-1'`, `labelSource='skydropx'`, `status='picking'`, `labelPending.state='processing'`; bitácora `shipment.label_failed` con `providerShipmentId:'sdx-1'` y `kept:true`; respuesta `200 {outcome:'processing', providerError}`; (c) un segundo `POST …/label` ⇒ `409 SHIPMENT_ALREADY_LABELED` y **0** llamadas nuevas a `purchase`. Igual con `422` cuyo cuerpo trae `data.id`. Escenario aparte: `error` **sin** id ⇒ reclamo deshecho y `providerShipmentId` **`NULL`** en la fila (⛔ nunca `''`); unitaria del adaptador: sin id ⇒ `providerShipmentId === null` | tratar «id + error» como rechazo ⇒ (c) registra una segunda `purchase`; `parsed.id ?? ''` ⇒ la unitaria ve `''` |
+| **PS-117** 💰🔒 | C-2 · SDX-D-2 | **Censo estático:** en `backend/src/modules/shipments/`, `.purchase(` aparece en **una** función (la del verbo `label`) y **después** del CAS del reclamo; en `recoverInFlightLabel`, el procesador del job `shipment-label-processing` y `label/release` ⇒ **0**; `.protect(` ⇒ **0** en todo `backend/src`. **Conducta:** el job con un envío «en vuelo sin id» de 20 min ⇒ **0** `purchase` en el doble y alerta `label_unknown`; `label/release` sobre él ⇒ **0** `purchase` | añadir un replay de `purchase` en `recoverInFlightLabel` ⇒ rojo en el censo **y** en la conducta |
+| **PS-118** 💰 | C-3 · SDX-D-3 | (a) A tiene `providerRateId='r-1'` y guía `sdx-1`; B compra `r-1` ⇒ `409 CONFLICT {reason:'rate_already_purchased', otherShipmentId:A}`, **0** `purchase`, B sin escribir. (b) A tiene `providerShipmentId='sdx-1'` con `providerRateId='r-A'`; B compra `r-B` y el doble devuelve `sdx-1` ⇒ **cero `500`**, `409 CONFLICT {reason:'provider_id_taken'}`; A **idéntica byte a byte**; B con `labelProcessingSince` puesto y `providerShipmentId` nulo; bitácora `shipment.label_conflict`. (c) `label/release` sobre B (reloj +16 min) sin `confirmConflict` ⇒ `409 LABEL_NOT_RELEASABLE {reason:'provider_conflict'}`; con él ⇒ `released`; en todo (b)–(c), **0** `purchase` nuevas | dejar que la `P2002` suba ⇒ `500`; quitar la guarda previa ⇒ (a) registra una `purchase` |
+| **PS-119** | C-4 · SDX-D-10 | `SkydropxMutationForbiddenError` **después** del reclamo (dial y rol abiertos, candado cerrado por el entorno de la prueba) ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['allow_spend']}`, `labelProcessingSince` **NULL**, **0** peticiones en el transporte | mapearlo a «en vuelo» ⇒ `labelProcessingSince` queda puesto |
+| **PS-120** 💰🔒 | C-5 · PS-98 · `HECHOS.md:58` | PS-98 completa **más**: dial `operators` + `vault_operator` ⇒ `200` (compra); `super_admin_only` + `vault_operator` ⇒ `403 {reason:'label_purchase_super_admin_only'}` + bitácora; **segundo** `super_admin` (no el sembrado) con `super_admin_only` ⇒ `200`; el dial pasa a `disabled` entre dos llamadas ⇒ la segunda `404 FEATURE_DISABLED` (la puerta se lee en cada llamada); `label/cancel` como `vault_operator` con el dial `disabled` ⇒ funciona; `label/release` como `vault_operator` ⇒ `403` (mientras P-SDX-REL siga en (a)); `labelOptions.canPurchase` coincide en todas | quitar la comprobación de rol; cachear el dial; condicionar `label/cancel` al dial |
+| **PS-121** 💰 | C-6 · SDX-R4 · PS-73 | **Carrera:** 10 `POST …/label` simultáneos con barrera sobre el mismo envío ⇒ **1** `purchase` en el doble, **por ronda, N ≥ 10 rondas, se reporta la proporción** (esperado 10/10). Además: el doble tarda > 30 s ⇒ `200 in_flight`, **1** llamada; un `label` posterior ⇒ `200 in_progress` y **0** llamadas | quitar `labelProcessingSince:null` del `WHERE` del CAS del paso 7 |
+
+**M4-SHIP.19.26.8 — Qué cambia para quién (fichero:línea leído el 2026-10-04 en `/home/user/tcg-skyd`, HEAD dado por el
+orquestador `31ba38cc`).**
+
+| Rol | Qué |
+|---|---|
+| **backend 💰 (D2c, modelo fuerte)** | `shipping-provider/shipping-provider.port.ts:114` (`providerShipmentId: string \| null`) y `:127` (comentario: «con id ⇒ rechazo con id, §19.26.1»); `skydropx.adapter.ts:285` (`?? null`); `http/skydropx-client.ts:387-391` + `shipping-provider.errors.ts:46` (el id del cuerpo de un `400/422` de compra llega al servicio, **un** parser de sobre); `FakeShippingProvider` (`fake-shipping-provider.ts`) con escenarios «id + error», «`422` con id», «id de otro envío». En `shipments/` (D2c, sin construir): §19.7 con la guarda previa (§19.26.3 (a)), la matriz de §19.26.1, la rama `provider_id_taken`, `SkydropxMutationForbiddenError` por clase (§19.26.4), `recoverInFlightLabel` de solo lectura, `label/release` con `confirmConflict`, `LabelPendingDTO.priceCents`, la respuesta `processing` con `providerError`; PS-116…PS-121. ⛔ Nada en `prisma/` (D2a sigue tal cual) |
+| **frontend** | `types/contract.ts`: `LabelPendingDTO.priceCents`, `providerError?` en la respuesta de `label`, `confirmConflict?` en el cuerpo de `label/release`, los `reason` `rate_already_purchased`/`provider_id_taken`/`provider_conflict`; la ventana: `processing` con aviso de Skydropx; `409 CONFLICT` por `reason` (⛔ nunca por status); «Liberar» muestra los datos de §19.26.5 y la casilla de conflicto si el servidor la pide |
+| **ux-ui** | Copys: `processing` con `providerError` («Skydropx reportó un problema; guardamos la guía para revisarla»), `rate_already_purchased`, `provider_id_taken`, `provider_conflict`; «Solo el dueño…» ⇒ texto por modo del dial (§19.26.6) |
+| **product-owner** | `PROJECT §T.4.7` (quién compra y cancela: también el personal, `HECHOS.md:58`) |
+| **seguridad** | Verifica en la fase por release que PS-116…PS-121 existen y muerden; nada más en diseño |
+| **orquestador** | Preguntar **P-SDX-REL** al dueño; conciliar `HECHOS.md:48` con `:58` |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 

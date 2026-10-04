@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.6 — 🔒💰 REVISIÓN DE DISEÑO DE SEGURIDAD ANTES DE D2c Y QUIÉN COMPRA** (2026-10-04, arquitecto, rama
+> `claude/skydropx-d`, HEAD dado por el orquestador `31ba38cc`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a
+> **v1.80.12.6**; norma en `API_CONTRACT §M4-SHIP.19.26`; porqué en **§4.60 (s)**. Origen: `SECURITY_NOTES.md:1-137`
+> (APROBADO CON CONDICIONES sobre `ace57032`) y `HECHOS.md:58`. Un id de compra nunca se descarta; sin replay de la
+> compra; `P2002` del id y `rateId` repetida con rama propia; el personal también compra y cancela; «Liberar» sigue del
+> súper-admin hasta P-SDX-REL. Sin endpoint, columna ni migración.
+>
 > **Rev v1.80.12.5 — LA COLONIA COMO MERCADO LIBRE** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
 > orquestador `76de8268`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.5**; norma en
 > `API_CONTRACT §M4-SHIP.19.25`; porqué en **§4.60 (r)**. Origen: `HECHOS.md:57` (decisión del dueño). La lista de
@@ -27560,6 +27567,24 @@ la lista de envíos es una consulta por fila (mismo patrón y misma deuda que `c
 urgencia** (el día que el dueño quiera cargar el catálogo). Que el estado escrito a mano sea texto libre y no una lista
 de las 32 entidades es decisión de alcance mínimo: si las guías empiezan a rebotar por el estado, se cierra con una lista
 cerrada (errata), no antes.
+
+**(s) 🔒💰 v1.80.12.6 — lo que la revisión de diseño de seguridad cambió antes de D2c, y quién compra** (norma en
+`API_CONTRACT §M4-SHIP.19.26`; origen `SECURITY_NOTES.md:1-137` y `HECHOS.md:58`). Una idea gobierna las cuatro medias:
+**ante una respuesta que no entendemos, se retiene; un hecho de dinero que el tercero ya nos dio no se tira.**
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **Un id de compra presente nunca se descarta**: «error + id» ⇒ guía en proceso con el id, reclamo conservado | Seguir la letra «`error_code ≠ null` ⇒ rechazo» | El rechazo deshace el reclamo y olvida el id: si Skydropx creó (y cobró) el envío, queda una guía pagada huérfana y el envío listo para **una segunda compra**. Persistir el id cuesta, en el peor caso, una cancelación a mano |
+| **`purchase` tiene un solo llamador (el verbo con clic)**; el replay se tacha sin condición | Dejar el replay detrás de «si se mide que `Idempotency-Key` funciona» | No se puede medir sin arriesgar la segunda compra, y lo correría un cron sin actor ni dial. Una rama condicional en el texto normativo es una invitación a construirla |
+| **`P2002` del id ⇒ reclamo retenido + conflicto registrado; liberar exige confirmarlo** | Deshacer el reclamo de B | Que Skydropx devuelva el id de A no prueba que no creó nada para B; retener cuesta una nota del súper-admin, liberar a ciegas puede costar una guía (doctrina de §19.21.4) |
+| **Guarda previa: una `rateId` ya comprada en otro envío no se vuelve a comprar** | Solo el cinturón de la `P2002` | M-5 midió que la misma ruta y medidas reutilizan cotización (y `rate_id`): es el vector conocido; cortarlo **antes** de la red es más barato que manejarlo después. Falla cerrado hasta que `PG-2` mida |
+| **Sin referencia nuestra en la compra** | Meter el id en `reference`/`further_information` | La API no tiene campo libre (`SKYDROPX_API_REFERENCIA.md:142-186`); los campos de dirección se imprimen en la guía y uno es el canal de las referencias del cliente. Se cuadra con lo que ya muestra la ventana, más el precio |
+| **El personal compra y cancela; el dial sigue arrancando apagado** | Mantener «solo súper-admin» como máximo | Lo decidió el dueño (`HECHOS.md:58`); la «autorización guía por guía» era lectura del equipo. Las dos llaves y el candado (PS-99) no cambian |
+| **«Liberar» sigue del súper-admin** (P-SDX-REL abierta) | Extenderlo al personal por analogía con cancelar | `HECHOS.md:58` no lo dice, y liberar es lo único que habilita otra compra del mismo envío: no se infiere una decisión de dinero que el dueño no tomó |
+
+**Deuda que deja (s):** `findByReference` no existe (sin llave medida) ⇒ «Liberar» depende de que una persona mire el
+panel; disparador en §19.26.5. Qué hace Skydropx con un envío creado con error es NO MEDIDO (`PG-n`). La guarda previa
+puede bloquear una compra legítima si Skydropx admite la misma `rate_id` dos veces (`PG-2`).
 
 ---
 
