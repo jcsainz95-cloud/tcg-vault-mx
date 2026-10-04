@@ -19450,3 +19450,85 @@ constante (2). **E2E:** la mutación de §19.25.6 (sin campos de texto con `404`
   `rateLimited`, respuesta del servidor); `KycRejectDialog.tsx:78-80`, `PricingCurveSection.tsx:219-221`,
   `BountyRowEditor.tsx:123-125` (estado de error puesto por la respuesta del servidor, no recalculado al teclear);
   buylist (`SellCartContents.tsx:154`, `BuylistView.tsx`): no mueve el foco por errores.
+
+## §92 · **Skydropx v4.20 (`DESIGN_SYSTEM §43.19`) y el control del gasto** — compra del personal, negativa por tope, `409` por `reason`, «Verificando…», «Liberar» con folio, el folio en pantallas, avisos de gasto y la cuenta del dueño (2026-10-04, rama `claude/skydropx-d`, base `50a04523`; contrato v1.80.12.6 → .11, `§M4-SHIP.19.26…19.30`; FS-25…FS-43, UX-SDX-27…34, UX-GAS-1…7, PS-128/136/158/164 del lado frontend)
+
+**Commits** (uno por bloque, cada uno empujado): `921c58c1` tipos/API/servidor falso · `09b0a05c` ventana «Capturar
+guía» · `1a504c15` alertas, «Liberar», folio en tarjeta/fila/hoja/«Salida de hoy» · `4a72ea00` «Avisos de gasto»,
+tarjeta del tablero, menú y `?folio=` en «Envíos» · `3df2edd8` «Configuración › Control del gasto» y diales del dueño ·
+`d01c626d` Usuarios y la cuenta del dueño · `37891624` UX-GAS-7 y orden del menú.
+
+**Zonas compartidas tocadas:** `types/contract.ts` (aditivo: §19.26–§19.30), `lib/api.ts` (`releaseShipmentLabel(id,
+note, confirmConflict)`, `listSpendAlerts`, `getSpendAlertSummary`, `getSpendAlert`, `markSpendAlertsSeen`, filtro
+`folio` de `getAdminShipments`, servidor falso de `OWNER_ONLY_SETTING` y `isOwner` en `getMe`), `lib/mock/`
+(`skydropx.ts`, `fixtures.ts`, `spend-alerts.ts` nuevo), `components/layout/AdminSidebar.tsx`. Ningún componente de
+`components/ui/` cambió.
+
+**Decisiones de implementación**
+- **Todo contra la API espiada** (patrón de §87: `vi.spyOn(api, …)`, equivalente a MSW) y el servidor falso `// MOCK:
+  pendiente de backend real` (`lib/mock/skydropx.ts`, `lib/mock/spend-alerts.ts`). El servidor falso siembra 5 avisos de
+  demo; los **13 tipos**, los cinco `reason` de `409`, los dos `limit`, los cuatro `via`, los ocho motivos, `label_orphan`,
+  `verdict` y el resumen que no cuadra viven como fixtures **en las pruebas** (FS-43 parcial en la demo).
+- **Relectura (FS-30):** el intervalo sigue de 5 s (las pruebas viejas fingen solo `setInterval`/`Date`); pasados 2 min
+  se **salta vueltas** hasta 30 s entre lecturas, y para en `max(2 min, verifyingUntil + 60 s)`. El reloj solo decide
+  *cuándo releer*; el resultado lo decide el estado (`label`, `labelPending`, `labelAlert.kind`, `lastLabelRelease.via`).
+- **«Verificando…» vs «Compra sin confirmar»:** `in_flight` sin `label_unknown` ⇒ «Verificando con Skydropx…»; con
+  `label_unknown`, o si nunca se pudo leer el envío ⇒ «Compra sin confirmar» con `inFlight.body {reason}` (`reason.none`
+  sin motivo). Siete aserciones de `CaptureLabelDialog.test.tsx` cambiaron por esto (manda v4.20).
+- **La espera de `purchase_in_flight`:** la cuenta atrás va en un bloque con el **aspecto** de `Banner` pero **sin
+  `role`** (el `Banner` de `components/ui` siempre lleva región viva y anunciaría cada segundo); el anuncio, una vez al
+  empezar y otra al terminar, lo hace un `role="status"` `sr-only`. El botón queda pintado, deshabilitado y con
+  `aria-describedby` al bloque; ⛔ no compra solo al llegar a 0.
+- **Negativa por tope:** `labelOptions.limit` ⇒ el botón no está y su sitio dice el motivo; `403 LABEL_PURCHASE_LIMIT`
+  ⇒ `Banner danger` y el sitio del botón queda vacío (efecto `blockPurchase {banner:true}`).
+- **El folio (SK15):** `folio` opcional en los tipos (servidor anterior a `M-67` ⇒ el uuid de hoy). Cabecera de la
+  ventana «{pedido} · Envío ENV-…» / «Retiro de bóveda · Envío ENV-…». Un retiro se nombra por su folio también en el
+  aviso de «Guía guardada» (`M4View.test.tsx` ajustado). Las cuatro superficies de cliente se prueban con un DTO que trae
+  `folio` por error ⇒ `/ENV-\d/` 0 veces.
+- **«Liberar» (FS-34):** el diálogo solo se monta con `label_unknown ∧ canRelease`. `confirmConflict` viaja **solo** si la
+  casilla estaba pintada y marcada (`releaseShipmentLabel(…, false)` ⇒ la clave no va en el cuerpo; lo prueba la rama
+  real en `lib/api.spend-alerts.test.ts`).
+- **Avisos de gasto:** filtros en la URL con `replaceState` (patrón de M3/Reembolsos); la página de servidor los lee
+  (`spend-alerts/filters.ts`, sin `'use client'`). Tabla desde `md` y tarjetas en móvil (las dos en el DOM; las pruebas
+  miran dentro de la tabla). La `<dl>` del detalle pinta solo la lista blanca de `facts` (`alert-text.ts`), ⛔ `cause`
+  no se pinta crudo (la frase ya lo dice). El aviso de un retiro enlaza a `/admin/m4?tab=envios&folio=ENV-…` (S-GAS-2):
+  «Envíos» gana un filtro por folio con su ✕ (`tabs.ts › parseFolio`).
+- **Menú (UX-GAS-1):** «Avisos de gasto» tras «Reembolsos», `superAdminOnly` y además `hiddenUnlessSuperAdmin` (al
+  operador no se le pinta, ⛔ ni bloqueada: el candado dice «el menú no tiene "Avisos de gasto"»). Badge =
+  `spendAlertsUnseenImmediate` del summary (S-GAS-3).
+- **La cuenta del dueño:** `useIsOwner()` (`(admin)/admin/_owner/`) lee `['me']` (`GET /users/me`), **solo para
+  mostrar**; mientras no se sabe ⇒ `false` (falla cerrado: deshabilitado). Diales del dueño deshabilitados para los
+  demás (interruptor de compra, saldo bajo y toda «Control del gasto»); un no dueño no manda `skydropxLowBalanceCents`.
+  `403 OWNER_ONLY_SETTING` se pinta por `keys` (⛔ nunca por `message`). En Usuarios: `isOwner ∧ ¬isSelf` ⇒ sin
+  restablecer/bloquear/borrar; el propio dueño ⇒ sin bloquear/borrar; `403 OWNER_ACCOUNT_PROTECTED` con su texto.
+
+**Copys que NO estaban en el diseño (provisionales, para ux-ui):** el diseño v4.20 es anterior a v1.80.12.10. Se usaron
+las frases del contrato donde las había (`OWNER_ACCOUNT_PROTECTED` «Esta es la cuenta del dueño: no se puede cambiar
+desde otra cuenta», «Solo el dueño puede cambiar esto», AG-21 «Cambió la cuenta del dueño» / «No hay cuenta de dueño»)
+y se escribieron estas: `admin.m10.ownerOnly.denied` + `field.*`; `admin.m6.ownerAccount`; `admin.spendAlerts.skipped`
+(`seen` con `skipped`), `mutedTag`, `kind.AG-4.denied` (S-GAS-5), `kind.AG-9.other` (causa sin texto, p. ej.
+`orphan_cancel_unknown`), `kind.AG-22.text` (por `act`), `chargeKind.overweight/extended_zone/return` (S-GAS-4),
+`cancelKind.*`, `summary.byKindEmpty/labelSpendEmpty`, `pageInfo`, el texto «Inmediato o resumen, según el caso»
+(AG-1, AG-9) y la frase de «Salida de hoy» con folio (`departure-folio-*`, reutiliza «Envío»). Y
+`admin.m4.folioFilter(/Remove)`.
+
+**Nota para ux-ui:** el canario (c) de UX-SDX-28 pide `/\d/ ⇒ 0` sobre la negativa, pero el propio copy dice «últimas
+**24** horas». La prueba descuenta esa frase y exige cero dígitos, `MX$` y `%` en lo demás.
+
+**Mutaciones** (cada una sobre una copia `git archive HEAD` del árbol entero en
+`scratchpad/fe-sdx-gas/tree`, borrada al terminar; N=1 cada una: son deterministas, sin carrera ni temporizador real):
+| Bloque | Mutación | Resultado |
+|---|---|---|
+| ventana (`09b0a05c`) | `CONFLICT` sin mirar `reason` | 6 rojas (UX-SDX-29) |
+| ventana | relectura que para a los 2 min | 1 roja (UX-SDX-31 (a): `expected +0 to be 4`) |
+| ventana | texto único para los cuatro `via` | 4 rojas (UX-SDX-31 (b)) |
+| tarjetas (`1a504c15`) | «Liberar» manda siempre `confirmConflict:true` | 2 rojas (UX-SDX-16/33) |
+| tarjetas | pintar el `reason` crudo | 16 rojas (UX-SDX-32/33) |
+| tarjetas | la fila enseña el uuid | 1 roja (UX-SDX-34) |
+| avisos (`4a72ea00`) | el detalle pinta todas las claves de `facts` | rojas en los 13 detalles (UX-GAS-6) |
+| avisos | quitar la fila al marcarla | 1 roja (UX-GAS-2) |
+| ajustes (`3df2edd8`) | mandar los marcados | 2 rojas (UX-GAS-4) |
+| ajustes | apagar sin confirmar | 1 roja (UX-GAS-4) |
+| ajustes | campo del dueño habilitado para el no dueño | 1 roja (PS-164) |
+| usuarios (`d01c626d`) | bloquear/borrar visibles en la cuenta del dueño | 2 rojas (PS-164) |
+| i18n | volver a poner `labelAlert.unknown.ownerOnly` | 3 rojas (UX-GAS-7 + UX-SDX-14) |
