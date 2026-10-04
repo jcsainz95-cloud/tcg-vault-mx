@@ -12,7 +12,7 @@ import { Banner } from '@/components/ui/Banner';
 import { formatDateTimeMx } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type { AddressSnapshotDTO, AdminShipmentDTO, CorrectShipmentAddressReq, ShipmentAddressMissing } from '@/types/contract';
+import type { AddressSnapshotDTO, AdminShipmentDTO, CorrectShipmentAddressReq, ShipmentAddressMissingField } from '@/types/contract';
 
 /** Campos del formulario (los seis de `CorrectShipmentAddressReq`, §19.20.1). */
 export type AddressField = 'recipientName' | 'line1' | 'line2' | 'postalCode' | 'neighborhood' | 'references';
@@ -54,7 +54,7 @@ export function correctionBody(draft: AddressDraft, expectedAddressVersion: numb
 }
 
 /** `missing` (§19.5) ⇒ el primer campo del formulario al que va el foco. */
-export function firstFieldOf(missing: ShipmentAddressMissing[]): AddressField {
+export function firstFieldOf(missing: ShipmentAddressMissingField[]): AddressField {
   for (const f of ['recipientName', 'line1', 'postalCode', 'neighborhood'] as const) if (missing.includes(f)) return f;
   return 'recipientName';
 }

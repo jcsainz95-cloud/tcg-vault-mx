@@ -4436,7 +4436,9 @@
           "search": "Buscar otro código por descripción",
           "searchLabel": "Descripción",
           "searchCta": "Buscar",
-          "invalid": "Deben ser 8 dígitos."
+          "invalid": "Deben ser 8 dígitos.",
+          "hasMore": "Hay más resultados: afina la descripción.",
+          "searchInvalid": "Escribe de 3 a 60 caracteres para buscar."
         },
         "packages": {
           "title": "Empaques",

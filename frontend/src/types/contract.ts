@@ -1479,13 +1479,22 @@ export interface ShipmentLabelDTO {
   cancelReason: string | null;
 }
 
-/** // MOCK: pendiente de contrato — §19.7 nombra el tipo sin definirlo; la pantalla solo cuenta las filas. */
+/** §M4-SHIP.19.22.4 (v1.80.12.2). Orden `chargedAt` asc; `[]` si no hay. ⛔ Sin `providerChargeId`. */
+export type ShipmentCostAdjustmentKind = 'overweight' | 'extended_zone' | 'return' | 'other';
 export interface ShipmentCostAdjustmentDTO {
   id: string;
-  kind: 'overweight' | 'extended_zone' | 'return' | 'other';
+  kind: ShipmentCostAdjustmentKind;
+  /** Tal cual de Skydropx (p. ej. `ExtraCharge::Overweight`). */
+  providerChargeType: string;
+  /** BRUTO, IVA incluido (> 0). */
   amountCents: number;
   ivaCents: number;
+  ivaSource: ShippingIvaSource;
+  /** `amountCents − ivaCents` (lo calcula el servidor). */
+  netCents: number;
   chargedAt: string;
+  observedAt: string;
+  note: string | null;
 }
 
 /** §19.19.7 */
@@ -1496,20 +1505,19 @@ export interface LabelOptionsDTO {
 }
 export type ShippingLabelPurchase = 'disabled' | 'super_admin_only' | 'operators';
 
-/** §19.20.1 */
+/** §19.20.1 + §19.22.2 (v1.80.12.2). */
 export interface ShipmentAddressStateDTO {
+  /** ⇔ `missing.length === 0`. */
   complete: boolean;
   version: number;
   corrected: { at: string; by: { userId: string; name: string | null } } | null;
   /**
-   * // MOCK: pendiente de contrato — `DESIGN_SYSTEM §43.2a` decide el modo del paso 1 por `missing`, pero
-   * `§M4-SHIP.19.20.1` solo fija `{ complete, version, corrected }`. Solicitud al arquitecto en
-   * `FRONTEND_NOTES §87`. Mientras no venga, la ventana NO lo deduce: deja cotizar y el
-   * `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` del servidor dice qué falta.
+   * SIEMPRE presente (`[]` si completa), en orden fijo. Es la MISMA lista del `422 SHIPMENT_ADDRESS_INCOMPLETE
+   * {missing}` de `quote`/`label`. La ventana decide con ella el modo del paso 1 (§43.2a).
    */
-  missing?: ShipmentAddressMissing[];
+  missing: ShipmentAddressMissingField[];
 }
-export type ShipmentAddressMissing = 'neighborhood' | 'postalCode' | 'phone' | 'recipientName' | 'line1';
+export type ShipmentAddressMissingField = 'recipientName' | 'line1' | 'neighborhood' | 'postalCode' | 'phone';
 
 /**
  * §19.20.1 — `PUT /admin/shipments/:id/address`. ⛔ Sin `city`/`state`/`country`/`phone`: el servidor los
@@ -1591,6 +1599,11 @@ export interface ShippingCatalogsDTO {
   packagings: { code: string; name: string }[];
   consignmentNote: { code: string; description: string } | null;
   addressTemplates: { id: string; alias: string; addressType: 'from' | 'to'; isDefault: boolean; postalCode: string }[];
+}
+/** `GET /admin/shipping/catalogs/consignment-notes` (§19.22.3). */
+export interface ConsignmentNotesSearchDTO {
+  consignmentNotes: { code: string; description: string }[];
+  hasMore: boolean;
 }
 /** `GET /admin/shipping/balance` (§19.13, súper-admin). */
 export interface ShippingBalanceDTO {

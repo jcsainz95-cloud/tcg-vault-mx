@@ -285,6 +285,7 @@ import type {
   ShippingBalanceDTO,
   ShippingCatalogsDTO,
   ShippingPackageDTO,
+  ConsignmentNotesSearchDTO,
 } from '@/types/contract';
 import * as m4ship from './mock/m4-ship';
 import * as sdx from './mock/skydropx';
@@ -2099,10 +2100,13 @@ export async function getShippingCatalogs(): Promise<ShippingCatalogsDTO> {
   return mockSdx(() => sdx.mockShippingCatalogs());
 }
 
-/** `GET /admin/shipping/catalogs/consignment-notes?description=` (§19.19.6, súper-admin, una página). */
-export async function searchConsignmentNotes(description: string): Promise<{ code: string; description: string }[]> {
+/**
+ * `GET /admin/shipping/catalogs/consignment-notes?description=` (§19.19.6 + §19.22.3, súper-admin): solo la primera
+ * página; `hasMore` ⇒ la pantalla pide afinar. `description` 3..60 tras trim (si no, `400 {field:'description'}`).
+ */
+export async function searchConsignmentNotes(description: string): Promise<ConsignmentNotesSearchDTO> {
   if (!config.useMocks) {
-    return apiRequest<{ code: string; description: string }[]>('/admin/shipping/catalogs/consignment-notes', { query: { description } });
+    return apiRequest<ConsignmentNotesSearchDTO>('/admin/shipping/catalogs/consignment-notes', { query: { description } });
   }
   return mockSdx(() => sdx.mockSearchConsignmentNotes(description));
 }

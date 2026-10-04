@@ -4436,7 +4436,9 @@
           "search": "Search another code by description",
           "searchLabel": "Description",
           "searchCta": "Search",
-          "invalid": "It must be 8 digits."
+          "invalid": "It must be 8 digits.",
+          "hasMore": "There are more results: refine the description.",
+          "searchInvalid": "Type 3 to 60 characters to search."
         },
         "packages": {
           "title": "Packaging",

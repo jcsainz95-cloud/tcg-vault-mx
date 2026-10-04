@@ -16,7 +16,7 @@ import { asApiError } from '@/lib/api-client';
 import { formatMoneyCents, formatTimeMx } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type { EditableSettingsPatch, SettingsDTO, ShippingInsuranceTier, ShippingLabelPurchase, ShippingPackageDTO } from '@/types/contract';
+import type { ConsignmentNotesSearchDTO, EditableSettingsPatch, SettingsDTO, ShippingInsuranceTier, ShippingLabelPurchase, ShippingPackageDTO } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -203,7 +203,8 @@ function ShippingForm({
   const [provider, setProvider] = useState(settings.shippingProvider ?? 'off');
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [found, setFound] = useState<{ code: string; description: string }[] | null>(null);
+  const [found, setFound] = useState<ConsignmentNotesSearchDTO | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [tried, setTried] = useState(false);
 
@@ -305,12 +306,31 @@ function ShippingForm({
         {searchOpen && (
           <div className="flex flex-wrap items-end gap-2">
             <Input label={t('consignment.searchLabel')} value={search} onChange={(e) => setSearch(e.target.value)} />
-            <Button size="sm" variant="secondary" onClick={() => searchConsignmentNotes(search).then(setFound).catch(() => setFound([]))}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setSearchError(null);
+                searchConsignmentNotes(search)
+                  .then(setFound)
+                  .catch((e) => {
+                    setFound(null);
+                    const err = asApiError(e);
+                    // §19.22.3: la descripción la valida el servidor (3..60) ⇒ `400 {field:'description'}`.
+                    setSearchError(err?.code === 'VALIDATION_ERROR' && err.details?.field === 'description' ? t('consignment.searchInvalid') : getError(e));
+                  });
+              }}
+            >
               {t('consignment.searchCta')}
             </Button>
+            {searchError && (
+              <p role="alert" className="w-full font-mono text-xs text-accent">
+                {searchError}
+              </p>
+            )}
             {found && (
-              <ul className="w-full text-sm text-text">
-                {found.map((f) => (
+              <ul className="w-full text-sm text-text" data-testid="consignment-results">
+                {found.consignmentNotes.map((f) => (
                   <li key={f.code}>
                     <button type="button" className="underline underline-offset-4 hover:text-accent" onClick={() => setNote(f.code)}>
                       {t('consignment.found', { code: f.code, description: f.description })}
@@ -319,6 +339,7 @@ function ShippingForm({
                 ))}
               </ul>
             )}
+            {found?.hasMore && <p className="w-full text-xs text-muted">{t('consignment.hasMore')}</p>}
           </div>
         )}
       </div>
@@ -441,7 +462,6 @@ function PackagesEditor({ boxMin, packagings }: { boxMin: number | undefined; pa
     if (list.data && rows === null) setRows(list.data);
   }, [list.data, rows]);
   const weightInvalid = (rows ?? []).some((p) => !Number.isInteger(p.weightKg) || p.weightKg < 1);
-  const noActive = rows !== null && !rows.some((p) => p.active && p.providerPackageType);
   const save = useMutation({
     mutationFn: async () => {
       const saved = await putShippingPackages(rows ?? []);
@@ -454,7 +474,13 @@ function PackagesEditor({ boxMin, packagings }: { boxMin: number | undefined; pa
       void qc.invalidateQueries({ queryKey: ['shipping-packages'] });
       void qc.invalidateQueries({ queryKey: ['admin-settings'] });
     },
-    onError: (e) => setError(getError(e)),
+    onError: (e) => {
+      const err = asApiError(e);
+      // §19.22.3: sin ningún activo con código ⇒ `400 VALIDATION_ERROR {field:'packages', reason:'no_active_package'}`.
+      if (err?.code === 'VALIDATION_ERROR' && err.details?.reason === 'no_active_package') return setError(t('needActive'));
+      if (err?.code === 'VALIDATION_ERROR' && err.details?.field === 'weightKg') return setError(t('weightInvalid'));
+      setError(getError(e));
+    },
   });
   const patch = (i: number, p: Partial<ShippingPackageDTO>) => setRows((r) => (r ? r.map((x, k) => (k === i ? { ...x, ...p } : x)) : r));
   return (
@@ -493,9 +519,8 @@ function PackagesEditor({ boxMin, packagings }: { boxMin: number | undefined; pa
           </div>
         ))}
       </QueryState>
-      {noActive && <p className={cn('text-sm text-accent')}>{t('needActive')}</p>}
       <Input label={t('boxMin')} inputMode="numeric" value={boxMinValue} onChange={(e) => setBoxMinValue(e.target.value)} />
-      <Button className="self-start" disabled={rows === null || weightInvalid || noActive} loading={save.isPending} onClick={() => save.mutate()}>
+      <Button className="self-start" disabled={rows === null || weightInvalid} loading={save.isPending} onClick={() => save.mutate()}>
         {t('save')}
       </Button>
       {save.isSuccess && (

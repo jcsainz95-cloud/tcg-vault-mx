@@ -459,14 +459,15 @@ describe('UX-SDX-18 ⭐ = PS-101 (corregida) · el paso 1 corrige la dirección 
     expect(manualButtons()[0].className).toMatch(/bg-primary/);
   });
   it('«Corregida por {name} · {fecha}» con `address.corrected`', async () => {
-    open(shipment({ address: { complete: true, version: 4, corrected: { at: '2026-10-04T16:00:00Z', by: { userId: 'u', name: null } } } }));
+    open(shipment({ address: { complete: true, version: 4, corrected: { at: '2026-10-04T16:00:00Z', by: { userId: 'u', name: null } } , missing: [] } }));
     expect(await screen.findByTestId('sdx-address-corrected')).toHaveTextContent(/^Corregida por una cuenta sin nombre · /);
   });
 });
 
-describe('§43.2a sin `address.missing` en el DTO (no está en §19.20.1) · decide el servidor', () => {
+describe('§43.2a con un servidor anterior a v1.80.12.2 (sin `address.missing`) · decide el servidor', () => {
   it('`complete:false` sin `missing` ⇒ modo leer con «Ver opciones»; el 422 con teléfono ⇒ su texto y «a mano» primaria', async () => {
-    const { quoteSpy } = open(shipment({ address: { complete: false, version: 1, corrected: null } }));
+    const { quoteSpy } = // Servidor anterior a v1.80.12.2 (sin `missing`): la ventana no deduce nada y decide el `422`.
+    open(shipment({ address: { complete: false, version: 1, corrected: null } as unknown as AdminShipmentDTO['address'] }));
     expect(await screen.findByTestId('sdx-address-dl')).toBeInTheDocument();
     quoteSpy.mockRejectedValueOnce(new ApiClientError(422, { code: 'SHIPMENT_ADDRESS_INCOMPLETE', message: 'x', details: { missing: ['phone'] } }));
     fireEvent.click(screen.getByRole('button', { name: 'Ver opciones de envío' }));
@@ -488,7 +489,7 @@ describe('UX-SDX-19 · la frase de alcance unida al formulario', () => {
 
 describe('UX-SDX-20 💰 · corregir tira la cotización vieja', () => {
   it('cotiza A ⇒ Atrás ⇒ corrige (corrected) ⇒ Ver opciones ⇒ cotiza OTRA vez y no queda ni un precio de A', async () => {
-    const corrected = shipment({ address: { complete: true, version: 4, corrected: { at: '2026-10-04T16:10:00Z', by: { userId: 'u-op1', name: 'Operador' } } } });
+    const corrected = shipment({ address: { complete: true, version: 4, corrected: { at: '2026-10-04T16:10:00Z', by: { userId: 'u-op1', name: 'Operador' } } , missing: [] } });
     vi.spyOn(api, 'correctShipmentAddress').mockResolvedValue({ outcome: 'corrected', shipment: corrected });
     const { quoteSpy } = open();
     quoteSpy.mockResolvedValueOnce(Q_A).mockResolvedValueOnce(Q_B);
@@ -515,7 +516,7 @@ describe('UX-SDX-21 · conflicto de versión: relee, avisa y no re-manda', () =>
     fireEvent.click(await screen.findByRole('button', { name: 'Corregir dirección' }));
     const theirs = shipment({
       addressSnapshot: { ...shipment().addressSnapshot!, recipientName: 'Beto Ruiz' },
-      address: { complete: true, version: 5, corrected: { at: '2026-10-04T16:20:00Z', by: { userId: 'u2', name: 'Beto' } } },
+      address: { complete: true, version: 5, corrected: { at: '2026-10-04T16:20:00Z', by: { userId: 'u2', name: 'Beto' } } , missing: [] },
     });
     get.mockResolvedValue(theirs);
     fireEvent.click(await screen.findByRole('button', { name: 'Guardar dirección' }));

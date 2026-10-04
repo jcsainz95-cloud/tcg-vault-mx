@@ -1,5 +1,5 @@
 import { ApiClientError } from '@/lib/api-client';
-import type { ShipmentAddressMissing, ShipmentQuoteDTO, WithdrawalLineOriginRefundedDetails } from '@/types/contract';
+import type { ShipmentAddressMissingField, ShipmentQuoteDTO, WithdrawalLineOriginRefundedDetails } from '@/types/contract';
 
 /**
  * **Un copy por `error.code`** de la ventana «Capturar guía» (`DESIGN_SYSTEM §43.7`, SK5 y SK6).
@@ -29,7 +29,7 @@ export type SdxErrorEffect =
   /** `LABEL_CONFIRMATION_REQUIRED`: pinta los avisos que pidió el servidor. */
   | { kind: 'repaintConfirm'; negativeMargin: boolean; branchDelivery: boolean }
   /** `SHIPMENT_ADDRESS_INCOMPLETE` sin teléfono: paso 1 en modo corregir con foco en el primer `missing`. */
-  | { kind: 'toAddressEdit'; missing: ShipmentAddressMissing[] }
+  | { kind: 'toAddressEdit'; missing: ShipmentAddressMissingField[] }
   /** `409 CONFLICT` en la compra: relee y vuelve al paso 1. */
   | { kind: 'rereadToAddress' }
   /** `LABEL_IN_PROGRESS`: pasa al paso 4 (relee para saber en qué estado). */
@@ -128,7 +128,7 @@ export function sdxErrorView(e: unknown, t: T, ctx: Ctx): SdxErrorView {
       return view(texts.filter(Boolean).join(' '), { adminHint, manualPrimary: true, effect: block ? { kind: 'blockPurchase' } : { kind: 'none' } });
     }
     case 'SHIPMENT_ADDRESS_INCOMPLETE': {
-      const missing = (Array.isArray(d.missing) ? d.missing : []) as ShipmentAddressMissing[];
+      const missing = (Array.isArray(d.missing) ? d.missing : []) as ShipmentAddressMissingField[];
       if (missing.includes('phone')) return view(t('error.phone'), { manualPrimary: true });
       return view(t('error.addressIncomplete', { missing: joinMissing(t, missing) }), { effect: { kind: 'toAddressEdit', missing } });
     }

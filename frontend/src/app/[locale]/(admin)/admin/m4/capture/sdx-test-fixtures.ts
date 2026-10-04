@@ -32,7 +32,7 @@ export function shipment(over: Partial<AdminShipmentDTO> = {}, options: Partial<
       phone: '5551234567',
       references: 'Portón negro',
     },
-    address: { complete: true, version: 3, corrected: null },
+    address: { complete: true, version: 3, corrected: null, missing: [] },
     labelOptions: { provider: 'skydropx', purchase: 'operators', canPurchase: true, ...options },
     labelSource: null,
     label: null,

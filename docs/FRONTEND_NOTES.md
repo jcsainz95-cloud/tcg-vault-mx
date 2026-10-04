@@ -19168,3 +19168,19 @@ que muerdan por separado).
   «Skydropx no creó la guía» (`CaptureLabelDialog.tsx`, rama `stage === 'notCreated'` del pie); en `labeled`,
   `processing`, `in_progress` e `in_flight`, no. La prueba lo fija así.
 - **«Volver a cotizar» en `502 edge_blocked` de la compra:** ver arriba (no se ofrece reintentar ni vuelve el botón).
+
+### §87.1 · Respuestas del contrato v1.80.12.2 (`§M4-SHIP.19.22`, `4b3f3c10`) y diseño v4.17 (`f6cb8fdb`)
+- **Solicitud 1 — cerrada.** `address.missing: ShipmentAddressMissingField[]` es obligatorio (`[]` si completa, orden
+  fijo `recipientName, line1, neighborhood, postalCode, phone`) y es la misma lista del `422`. El tipo deja de ser
+  «MOCK»; el paso 1 lo usa como pide §43.2a. Se conserva una defensa: si un servidor anterior no lo manda, la ventana no
+  deduce nada y decide el `422` (prueba propia, con el DTO forzado).
+- **Solicitud 2 — cerrada, y corrige lo que se asumió.** `consignment-notes` ⇒ `{ consignmentNotes, hasMore }` (no un
+  arreglo pelado); `hasMore` ⇒ «Hay más resultados: afina la descripción.»; `400 {field:'description'}` (3..60) ⇒
+  «Escribe de 3 a 60 caracteres para buscar.» (copy nuevo de frontend: §43.10c no lo fija — ux-ui puede cambiarlo).
+  `PUT …/packages` ⇒ `{ packages }` (ratificado); sin activo con código ⇒ **`400`** `{reason:'no_active_package'}`, que
+  ahora se traduce a «Debe quedar al menos un empaque activo…». La pantalla dejó de bloquear el botón por esa regla
+  (la decide el servidor).
+- **Solicitud 3 — cerrada.** `ShipmentCostAdjustmentDTO` completo (§19.22.4) con `ShipmentCostAdjustmentKind`.
+- **«Capturar a mano» en el paso 4:** ux-ui ratificó lo construido (v4.17, §43.5a); sin cambio de código.
+- El servidor falso habla las formas nuevas (`missing` siempre, `400` en empaques, `{consignmentNotes, hasMore}`);
+  candado `lib/mock/skydropx-contract.test.ts`.

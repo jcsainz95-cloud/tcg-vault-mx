@@ -20,6 +20,7 @@ import type {
   AddressSnapshotDTO,
   AdminShipmentDTO,
   CancelShipmentLabelRes,
+  ConsignmentNotesSearchDTO,
   CorrectShipmentAddressReq,
   CorrectShipmentAddressRes,
   DepartedResultDTO,
@@ -29,7 +30,7 @@ import type {
   LabelPendingDTO,
   PostalCodeDTO,
   ReleaseShipmentLabelRes,
-  ShipmentAddressMissing,
+  ShipmentAddressMissingField,
   ShipmentLabelDTO,
   ShipmentLabelRequest,
   ShipmentLabelResponse,
@@ -157,8 +158,8 @@ export function mockLabelOptions(): LabelOptionsDTO {
   return { provider, purchase, canPurchase };
 }
 
-function missingOf(snap: Partial<AddressSnapshotDTO>): ShipmentAddressMissing[] {
-  const m: ShipmentAddressMissing[] = [];
+function missingOf(snap: Partial<AddressSnapshotDTO>): ShipmentAddressMissingField[] {
+  const m: ShipmentAddressMissingField[] = [];
   if (!(typeof snap.recipientName === 'string' && snap.recipientName.trim())) m.push('recipientName');
   if (!(typeof snap.line1 === 'string' && snap.line1.trim())) m.push('line1');
   if (!(typeof snap.neighborhood === 'string' && snap.neighborhood.trim())) m.push('neighborhood');
@@ -179,7 +180,7 @@ export function mockDecorateAdminShipment(row: AdminShipmentDTO): AdminShipmentD
   return {
     ...row,
     addressSnapshot: snap,
-    address: { complete: missing.length === 0, version: s?.version ?? 0, corrected: s?.corrected ?? null, ...(missing.length ? { missing } : {}) },
+    address: { complete: missing.length === 0, version: s?.version ?? 0, corrected: s?.corrected ?? null, missing },
     labelOptions: mockLabelOptions(),
     labelSource: s?.labelSource ?? (row.trackingNumber ? 'manual' : null),
     label: s?.label ?? null,
@@ -399,7 +400,9 @@ export function mockShippingPackages(): ShippingPackageDTO[] {
 export function mockPutShippingPackages(next: ShippingPackageDTO[]): ShippingPackageDTO[] {
   if (mockCallerRole() !== 'super_admin') throw new ApiFixtureError(403, 'FORBIDDEN', 'super admin only');
   if (next.some((p) => !Number.isInteger(p.weightKg) || p.weightKg < 1)) throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'weightKg', { field: 'weightKg' });
-  if (!next.some((p) => p.active && p.providerPackageType)) throw new ApiFixtureError(422, 'VALIDATION_ERROR', 'no active package', { field: 'packages' });
+  if (!next.some((p) => p.active && p.providerPackageType)) {
+    throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'no active package', { field: 'packages', reason: 'no_active_package' });
+  }
   packages = next.map((p) => ({ ...p }));
   return mockShippingPackages();
 }
@@ -415,13 +418,14 @@ export function mockShippingCatalogs(): ShippingCatalogsDTO {
     addressTemplates: [{ id: 'tpl-verapaz', alias: 'Verapaz', addressType: 'from', isDefault: true, postalCode: '14210' }],
   };
 }
-export function mockSearchConsignmentNotes(description: string): { code: string; description: string }[] {
+export function mockSearchConsignmentNotes(description: string): ConsignmentNotesSearchDTO {
+  const q = description.trim();
+  if (q.length < 3 || q.length > 60) throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'description', { field: 'description' });
   const all = [
     { code: '49101600', description: 'Coleccionables' },
     { code: '55101500', description: 'Publicaciones impresas' },
   ];
-  const q = description.trim().toLowerCase();
-  return all.filter((c) => c.description.toLowerCase().includes(q));
+  return { consignmentNotes: all.filter((c) => c.description.toLowerCase().includes(q.toLowerCase())), hasMore: false };
 }
 export function mockShippingBalance(): ShippingBalanceDTO {
   const thresholdCents = mockSettings.skydropxLowBalanceCents ?? 50000;
