@@ -759,9 +759,9 @@ export const ErrorCode = {
   // 409 — falta configuración: `details: { missing: ['env' | 'allow_spend' | 'insurance_tier' | …] }`.
   SHIPPING_PROVIDER_NOT_CONFIGURED: 'SHIPPING_PROVIDER_NOT_CONFIGURED',
   // ⭐ v1.81 fase C (M-64, §M4-SHIP.19.5 / .19.20.1) — la dirección.
-  // 422 — colonia fuera de la lista del CP. `details: { postalCode, allowed: string[] }`.
-  NEIGHBORHOOD_NOT_IN_POSTAL_CODE: 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE',
-  // 422 (en un verbo) / 404 (en `GET /geo/postal-codes/:cp`) — CP sin colonias en la fuente. `details: { postalCode }`.
+  // ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): `NEIGHBORHOOD_NOT_IN_POSTAL_CODE` RETIRADO (ningún emisor; la colonia escrita a
+  // mano se acepta). `POSTAL_CODE_UNKNOWN` queda SOLO como el `404` de `GET /geo/postal-codes/:cp` (ningún verbo de
+  // escritura lo emite). `details: { postalCode }`.
   POSTAL_CODE_UNKNOWN: 'POSTAL_CODE_UNKNOWN',
   // 422 — retiro con una dirección de la libreta `complete=false`. `details: { addressId, missing }`.
   ADDRESS_INCOMPLETE: 'ADDRESS_INCOMPLETE',

@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { ivaDialsStub } from './helpers/iva-dials';
+import { fakePostalCodes } from './helpers/fake-postal-codes';
 
 /**
  * v1.67 (M-52, Stream A · B5; contrato §0 `RECIPIENT_NAME_REQUIRED`, §5 «snapshot de NUEVE campos»;
@@ -156,7 +157,8 @@ describe('M4 — `recipientName` del snapshot deja de ser `undefined` en retiros
       },
     };
     withM61Defaults(prisma);
-    return new ShipmentsService(prisma as PrismaService, {} as SettingsService, {} as StripeService);
+    // ⭐ v1.80.12.5 (§M4-SHIP.19.25.3): `address.neighborhoodCheck` se calcula al leer con el `PostalCodeService`.
+    return new ShipmentsService(prisma as PrismaService, {} as SettingsService, {} as StripeService, undefined, undefined, undefined, fakePostalCodes());
   }
 
   it('retiro v1.67 (9 campos) ⇒ recipientName poblado, sin cambio en `admin`', async () => {

@@ -58,6 +58,7 @@ import { customerDisplayName } from '../vault/customer-display-name';
 import { originsBeingRefunded } from '../payments/refunds/origin';
 import { addressMissing } from '../users/address-rules';
 import { ShipmentAddressMissingField, shipmentAddressMissing } from './shipment-address-missing';
+import { NeighborhoodCheck, PostalCodeService } from '../shipping-provider/geo/postal-code';
 
 /** ⭐ v1.80.12 (§M4-SHIP.19.20.1) — el bloque `address` de `AdminShipmentDTO`. */
 export interface ShipmentAddressStateDTO {
@@ -67,6 +68,12 @@ export interface ShipmentAddressStateDTO {
   corrected: { at: string; by: { userId: string; name: string | null } } | null;
   /** ⭐ v1.80.12.2 (§M4-SHIP.19.22.2): SIEMPRE presente (`[]` si completa); `shipmentAddressMissing`, orden fijo. */
   missing: ShipmentAddressMissingField[];
+  /**
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.3): si la colonia del snapshot se comprobó contra el catálogo. Calculado AL LEER
+   * (`PostalCodeService.neighborhoodCheckOf`), ⛔ nunca guardado: el día que se cargue el catálogo, los envíos ya
+   * capturados pasan a `'in_catalog'` sin tocarlos. Solo en `AdminShipmentDTO`.
+   */
+  neighborhoodCheck: NeighborhoodCheck;
 }
 
 /** `P-84` · clase **E** (§4.37): estados de envío filtrables, DERIVADOS del schema. */
@@ -259,7 +266,15 @@ export class ShipmentsService {
     @Optional() private readonly prep?: ShipmentPrepService,
     // ⭐ v1.80.2 (§M4-SHIP.15.13): lo que el CLIENTE ve de las transferencias de un caso reembolsado.
     @Optional() private readonly manual?: ManualRefundService,
+    // ⭐ v1.80.12.5 (§M4-SHIP.19.25.3): `address.neighborhoodCheck` de `AdminShipmentDTO`. `@Optional()` por los tests
+    // unitarios legacy que construyen el servicio a mano; quien lea `address` sin él falla ruidoso (`requirePostalCodes`).
+    @Optional() private readonly postalCodes?: PostalCodeService,
   ) {}
+
+  private requirePostalCodes(): PostalCodeService {
+    if (!this.postalCodes) throw new Error('PostalCodeService no disponible');
+    return this.postalCodes;
+  }
 
   private requirePrep(): ShipmentPrepService {
     if (!this.prep) throw new Error('ShipmentPrepService no disponible');
@@ -723,7 +738,11 @@ export class ShipmentsService {
       };
     }
     const missing = shipmentAddressMissing(s.addressSnapshot);
-    return { complete: missing.length === 0, version: s.addressVersion, corrected, missing };
+    const snap = (s.addressSnapshot !== null && typeof s.addressSnapshot === 'object' && !Array.isArray(s.addressSnapshot)
+      ? s.addressSnapshot
+      : {}) as Record<string, unknown>;
+    const neighborhoodCheck = await this.requirePostalCodes().neighborhoodCheckOf(snap.postalCode, snap.neighborhood);
+    return { complete: missing.length === 0, version: s.addressVersion, corrected, missing, neighborhoodCheck };
   }
 
   async adminGet(id: string) {

@@ -252,12 +252,62 @@ describe('PS-99 (d) — estático C-SDX-8', () => {
     expect(readers).toEqual(['src/modules/shipping-provider/spend-gate.ts']);
   });
 
-  it('.env.example nunca trae SKYDROPX_ALLOW_SPEND con valor (vacío o ausente)', () => {
-    const p = join(REPO, '.env.example');
-    expect(existsSync(p)).toBe(true);
-    const lines = readFileSync(p, 'utf8')
-      .split('\n')
-      .filter((l) => /^\s*SKYDROPX_ALLOW_SPEND\s*=/.test(l));
-    for (const l of lines) expect(l.replace(/^\s*SKYDROPX_ALLOW_SPEND\s*=/, '').replace(/#.*$/, '').trim()).toBe('');
+  // ⭐ v1.80.12.3 (§M4-SHIP.19.23.5) — sustituye la aserción transitoria «nunca con valor», que era VERDE con la línea
+  // BORRADA (el `for` recorría cero líneas). (d4) y (d5) son funciones puras sobre el texto, con sus canarios
+  // sintéticos aquí mismo (que la regla muerde) y la aserción sobre los ficheros reales del árbol.
+  describe('(d4) .env.example: cada llave presente UNA vez y vacía', () => {
+    const KEYS = ['SKYDROPX_ALLOW_SPEND', 'SKYDROPX_CLIENT_ID', 'SKYDROPX_CLIENT_SECRET'] as const;
+    /** `null` ⇔ la llave aparece exactamente una vez, con valor `''` tras quitar comentario y espacios. */
+    const envKeyProblem = (text: string, key: string): string | null => {
+      const re = new RegExp(`^\\s*${key}\\s*=`);
+      const lines = text.split('\n').filter((l) => re.test(l));
+      if (lines.length !== 1) return `${key}: ${lines.length} líneas (se exige 1)`;
+      const value = lines[0].replace(re, '').replace(/#.*$/, '').trim();
+      return value === '' ? null : `${key}: con valor`;
+    };
+
+    it('canarios: borrada ⇒ problema; con valor ⇒ problema; dos líneas ⇒ problema; comentada no cuenta; vacía con comentario ⇒ bien', () => {
+      const ok = 'A=1\nSKYDROPX_ALLOW_SPEND=   # solo prod\nB=\n';
+      expect(envKeyProblem(ok, 'SKYDROPX_ALLOW_SPEND')).toBeNull();
+      expect(envKeyProblem('A=1\nB=\n', 'SKYDROPX_ALLOW_SPEND')).toMatch(/0 líneas/);
+      expect(envKeyProblem('# SKYDROPX_ALLOW_SPEND=\n', 'SKYDROPX_ALLOW_SPEND')).toMatch(/0 líneas/);
+      expect(envKeyProblem('SKYDROPX_ALLOW_SPEND=true\n', 'SKYDROPX_ALLOW_SPEND')).toMatch(/con valor/);
+      expect(envKeyProblem(' SKYDROPX_ALLOW_SPEND = x # c\n', 'SKYDROPX_ALLOW_SPEND')).toMatch(/con valor/);
+      expect(envKeyProblem('SKYDROPX_ALLOW_SPEND=\nSKYDROPX_ALLOW_SPEND=\n', 'SKYDROPX_ALLOW_SPEND')).toMatch(/2 líneas/);
+      expect(envKeyProblem('SKYDROPX_CLIENT_SECRET=abc123\n', 'SKYDROPX_CLIENT_SECRET')).toMatch(/con valor/);
+      // `SKYDROPX_CLIENT_ID_X=` no es `SKYDROPX_CLIENT_ID=`
+      expect(envKeyProblem('SKYDROPX_CLIENT_ID_X=\n', 'SKYDROPX_CLIENT_ID')).toMatch(/0 líneas/);
+    });
+
+    it('el .env.example del árbol: las tres llaves, una vez cada una y vacías', () => {
+      const p = join(REPO, '.env.example');
+      expect(existsSync(p)).toBe(true);
+      const text = readFileSync(p, 'utf8');
+      expect(KEYS.map((k) => envKeyProblem(text, k)).filter((x) => x !== null)).toEqual([]);
+    });
+  });
+
+  describe('(d5) la sonda de producción y su prueba existen, y CI las corre', () => {
+    const PROBE = join(REPO, 'scripts/skydropx/prod-probe.ts');
+    const PROBE_TEST = join(REPO, 'scripts/skydropx/prod-probe.test.ts');
+    const WORKFLOWS = join(REPO, '.github/workflows');
+    /** Un workflow invoca `run-prod-probe.sh test` en una línea NO comentada (un paso comentado no corre). */
+    const invokesProbeTest = (yaml: string): boolean =>
+      yaml.split('\n').some((l) => !/^\s*#/.test(l) && /run-prod-probe\.sh\s+test\b/.test(l));
+
+    it('canarios: paso presente ⇒ sí; quitado, comentado o con otro subcomando ⇒ no', () => {
+      expect(invokesProbeTest('      - name: x\n        run: ../scripts/skydropx/run-prod-probe.sh test\n')).toBe(true);
+      expect(invokesProbeTest('      - name: x\n        run: npm test\n')).toBe(false);
+      expect(invokesProbeTest('      # run: ../scripts/skydropx/run-prod-probe.sh test\n')).toBe(false);
+      expect(invokesProbeTest('        run: ../scripts/skydropx/run-prod-probe.sh probe\n')).toBe(false);
+    });
+
+    it('existen prod-probe.ts y prod-probe.test.ts, y algún workflow de .github/workflows invoca `run-prod-probe.sh test`', () => {
+      expect({ probe: existsSync(PROBE), test: existsSync(PROBE_TEST) }).toEqual({ probe: true, test: true });
+      const files = walk(WORKFLOWS, (f) => /\.ya?ml$/.test(f));
+      expect(files.length).toBeGreaterThan(0); // no-vacuidad (O-9: copia del árbol ENTERO)
+      const callers = files.filter((f) => invokesProbeTest(readFileSync(f, 'utf8'))).map((f) => relative(REPO, f).split(sep).join('/'));
+      expect(callers.length).toBeGreaterThan(0);
+    });
   });
 });

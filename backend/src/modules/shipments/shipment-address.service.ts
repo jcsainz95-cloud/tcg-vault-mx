@@ -30,6 +30,10 @@ export interface CorrectShipmentAddressReq {
   line2: string | null;
   postalCode: string;
   neighborhood: string;
+  /** ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): obligatorio, 1..120; solo se escribe con el CP fuera del catálogo. */
+  city: string;
+  /** ⭐ v1.80.12.5: ídem `city`. */
+  state: string;
   references: string | null;
 }
 
@@ -76,6 +80,8 @@ export function parseCorrectAddressBody(raw: unknown): CorrectShipmentAddressReq
     line2: optionalText(body, 'line2'),
     postalCode: requiredPostalCode(body),
     neighborhood: requiredText(body, 'neighborhood'),
+    city: requiredText(body, 'city'),
+    state: requiredText(body, 'state'),
     references: optionalText(body, 'references'),
   };
 }
@@ -93,8 +99,10 @@ export class ShipmentAddressService {
     const req = parseCorrectAddressBody(raw);
     const exists = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true } });
     if (!exists) throw BusinessException.notFound();
-    // 2. La lista del CP, FUERA de la tx (el mismo cuerpo que `GET /geo/postal-codes/:cp`, `C-SDX-3`).
-    const geo = await this.postalCodes.canonicalize(req.postalCode, req.neighborhood);
+    // 2. ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): `resolveAddressGeo`, FUERA de la tx (el mismo cuerpo que
+    //    `GET /geo/postal-codes/:cp`, `C-SDX-3`). ⛔ Sin `422` geográficos: `city`/`state` del cuerpo solo cuentan con
+    //    el CP fuera del catálogo; con el CP dentro ganan los del catálogo.
+    const geo = await this.postalCodes.resolveAddressGeo(req.postalCode, req.neighborhood, req.city, req.state);
 
     const outcome = await this.prisma.$transaction(
       async (tx) => {

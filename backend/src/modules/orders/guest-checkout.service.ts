@@ -98,9 +98,9 @@ export class GuestCheckoutService {
    */
   async quote(dto: GuestQuoteDto) {
     if (dto.shippingAddress) {
+      // ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): el quote NO consulta el catálogo — solo forma (pipe) y `ADDRESS_NOT_MX`.
+      // No persiste nada y ya no hay nada geográfico que rechazar.
       this.assertMxAddress(dto.shippingAddress.country);
-      // ⭐ v1.81 (§M4-SHIP.19.5): si viene, la colonia se valida igual que en la sesión (un cuerpo, `C-SDX-3`).
-      await this.postalCodes.canonicalize(dto.shippingAddress.postalCode, dto.shippingAddress.neighborhood);
     }
     // v1.68.1 (§4-R.5): la reserva propia existe SOLO con `retryOfCheckoutToken` + `email` válidos
     // (misma regla que la sesión, §4-R.3). Token inválido/otro correo ⇒ conducta de hoy. READ-ONLY.
@@ -168,9 +168,15 @@ export class GuestCheckoutService {
     // Anti-enumeración (criterio 56): NO se consulta `User` por este correo. Que tenga cuenta o no
     // es indistinguible desde fuera (mismo status, mismo shape, mismos tiempos).
     const guestEmail = normalizeEmail(dto.email);
-    // ⭐ v1.81 (§M4-SHIP.19.5, criterio 235): colonia de la LISTA del CP; `city`/`state` canónicos. ⛔ Ningún pedido
-    // nuevo nace sin colonia: esto corre ANTES de reservar y antes del PaymentIntent.
-    const geo = await this.postalCodes.canonicalize(dto.shippingAddress.postalCode, dto.shippingAddress.neighborhood);
+    // ⭐ v1.80.12.5 (§M4-SHIP.19.25.1, `HECHOS.md:57`): `resolveAddressGeo` decide qué se guarda y ⛔ NUNCA rechaza
+    // por geografía (con el catálogo vacío la tienda vende). Corre ANTES de reservar y antes del PaymentIntent; la
+    // colonia sigue obligatoria como texto (pipe). `check` no se persiste.
+    const { check: _check, ...geo } = await this.postalCodes.resolveAddressGeo(
+      dto.shippingAddress.postalCode,
+      dto.shippingAddress.neighborhood,
+      dto.shippingAddress.city,
+      dto.shippingAddress.state,
+    );
     const addressSnapshot = this.toAddressSnapshot({ ...dto.shippingAddress, ...geo });
 
     // v1.68 (§4-R.3): la reserva PROPIA existe SOLO si el body trae `retryOfCheckoutToken` válido

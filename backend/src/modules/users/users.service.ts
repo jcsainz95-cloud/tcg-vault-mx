@@ -257,15 +257,17 @@ export class UsersService {
    * `User.name` (puede ser fabricado, y «cómo te llamas» ≠ «a nombre de quién va el paquete»); el
    * pre-relleno es cosa del front y solo con `nameSource !== 'derived'` (ARCHITECTURE §4.47.4).
    *
-   * ⭐ v1.81 (M-64, §M4-SHIP.19.5, criterio 235): la colonia es de la LISTA del CP y se guarda el canónico; `city`
-   * y `state` se SOBRESCRIBEN con el municipio/estado de esa colonia (`PostalCodeService.canonicalize`, el mismo
-   * cuerpo que sirve `GET /geo/postal-codes/:cp`, `C-SDX-3`). Orden: `400` del pipe ⇒ `422 ADDRESS_NOT_MX` ⇒
-   * `422 POSTAL_CODE_UNKNOWN` / `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE`. ⛔ Nada se escribe antes de validar.
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.1, `HECHOS.md:57`, «colonia como Mercado Libre»): la colonia es OBLIGATORIA como
+   * texto, de la lista del CP o escrita a mano; `PostalCodeService.resolveAddressGeo` (el mismo cuerpo que sirve
+   * `GET /geo/postal-codes/:cp`, `C-SDX-3`) decide qué se guarda y ⛔ nunca rechaza por geografía: CP fuera del
+   * catálogo ⇒ lo escrito; colonia de la lista ⇒ el canónico + municipio/estado de esa colonia; colonia que no casa
+   * ⇒ la escrita + municipio/estado del CP. Orden: `400` del pipe ⇒ `400 recipientName` ⇒ `422 ADDRESS_NOT_MX` ⇒
+   * resolución (sin error). ⛔ Nada se escribe antes de validar.
    */
   async createAddress(userId: string, dto: AddressDto) {
     const recipientName = assertPersonName(dto.recipientName, 'recipientName');
     this.assertMx(dto.country);
-    const geo = await this.requirePostalCodes().canonicalize(dto.postalCode, dto.neighborhood);
+    const geo = await this.requirePostalCodes().resolveAddressGeo(dto.postalCode, dto.neighborhood, dto.city, dto.state);
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
@@ -292,18 +294,23 @@ export class UsersService {
    * una dirección que ya tiene destinatario no vuelve a no tenerlo. Es el remedio de
    * `422 RECIPIENT_NAME_REQUIRED` (`PATCH { recipientName }` y reintentar el retiro).
    *
-   * ⭐ v1.81 (M-64, §M4-SHIP.19.5): `postalCode` sin `neighborhood` ⇒ `400 {field:'neighborhood',
-   * reason:'required_with_postal_code'}`. Si el PATCH toca CP, colonia, ciudad o estado, el par resultante
-   * (CP, colonia) se valida contra la lista y se escriben colonia/ciudad/estado CANÓNICOS. Única excepción
-   * (decisión de backend, BACKEND_NOTES §58): una dirección vieja SIN colonia a la que solo se le cambia ciudad o
-   * estado se escribe tal cual — no hay colonia que validar y la dirección sigue `complete:false`.
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): `postalCode` exige `neighborhood`, `city` y `state` en el mismo cuerpo ⇒ si
+   * falta alguno, `400 {field:<el primero que falte, en ese orden>, reason:'required_with_postal_code'}`. Si el
+   * PATCH toca CP, colonia, ciudad o estado, el resultado (CP, colonia, ciudad, estado — lo que no vino, de la fila)
+   * pasa por `resolveAddressGeo` (sin `422` geográficos). Única excepción (decisión de backend, BACKEND_NOTES §58):
+   * una dirección vieja SIN colonia a la que solo se le cambia ciudad o estado se escribe tal cual — no hay colonia
+   * que resolver y la dirección sigue `complete:false`.
    */
   async updateAddress(userId: string, id: string, dto: UpdateAddressDto) {
-    if (dto.postalCode !== undefined && dto.neighborhood === undefined) {
-      throw BusinessException.badRequest('VALIDATION_ERROR', 'neighborhood is required when postalCode changes', {
-        field: 'neighborhood',
-        reason: 'required_with_postal_code',
-      });
+    if (dto.postalCode !== undefined) {
+      for (const field of ['neighborhood', 'city', 'state'] as const) {
+        if (dto[field] === undefined) {
+          throw BusinessException.badRequest('VALIDATION_ERROR', `${field} is required when postalCode changes`, {
+            field,
+            reason: 'required_with_postal_code',
+          });
+        }
+      }
     }
     // Lista blanca explícita, campo a campo y SOLO los presentes (un PATCH no debe escribir `undefined`
     // sobre lo que no vino; y un campo nuevo del DTO no se escribe solo — misma norma que `updateMe`).
@@ -327,7 +334,12 @@ export class UsersService {
     const touchesGeo = [dto.postalCode, dto.neighborhood, dto.city, dto.state].some((v) => v !== undefined);
     const neighborhood = dto.neighborhood ?? existing.neighborhood;
     if (touchesGeo && neighborhood != null) {
-      const geo = await this.requirePostalCodes().canonicalize(dto.postalCode ?? existing.postalCode, neighborhood);
+      const geo = await this.requirePostalCodes().resolveAddressGeo(
+        dto.postalCode ?? existing.postalCode,
+        neighborhood,
+        dto.city ?? existing.city,
+        dto.state ?? existing.state,
+      );
       data.postalCode = geo.postalCode;
       data.neighborhood = geo.neighborhood;
       data.city = geo.city;

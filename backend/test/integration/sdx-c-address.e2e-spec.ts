@@ -2,10 +2,13 @@
  * sdx-c-address.e2e-spec.ts — ⭐💰 fase C de Skydropx (M-64 = `M-SDX-C`) contra Postgres REAL y la app Nest completa
  * por HTTP. Propiedad: backend.
  *
- * Cubre: API_CONTRACT §M4-SHIP.19.5 (catálogo de CP, colonia de lista, libreta al nivel del invitado, `complete`,
+ * Cubre: API_CONTRACT §M4-SHIP.19.5 (catálogo de CP, libreta al nivel del invitado, `complete`,
  * `ADDRESS_INCOMPLETE`, `references`), §M4-SHIP.19.20.1 (`PUT /admin/shipments/:id/address`) con PS-102, PS-103,
  * PS-104 (con su carrera N = 10) y PS-107; y la carrera «corrección contra captura de guía» (fase C: la guía manual —
  * la compra Skydropx es D2c y su carrera, PS-105, NO está aquí: BACKEND_NOTES §58).
+ * ⭐ v1.80.12.5 (§M4-SHIP.19.25, `HECHOS.md:57`, «colonia como Mercado Libre»): `resolveAddressGeo` nunca rechaza por
+ * geografía — PS-103 sustituida, PS-114 (libreta e invitado; un invitado PAGA con `PostalCode` vacía) y PS-115
+ * (`address.neighborhoodCheck` calculado al leer).
  *
  * Carreras: entrelazado FORZADO por barrera de fila (la prueba toma `FOR UPDATE` sobre el envío, comprueba en
  * `pg_stat_activity` que las peticiones esperan, y suelta). Se reporta la proporción con su N (`[PS-RACE …] k/N`).
@@ -14,7 +17,7 @@
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { R, ShipPrepDb } from './helpers/ship-prep-db';
-import { E2E_USERS } from '../../prisma/e2e-fixtures';
+import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 
 const RUN = Date.now().toString(36);
 const N = 10;
@@ -26,6 +29,9 @@ const CORRECTION = {
   line2: 'Int. 4',
   postalCode: '01000',
   neighborhood: 'San Ángel',
+  // ⭐ v1.80.12.5 (§19.25.1): obligatorios en el cuerpo; con el CP en el catálogo ganan los del catálogo.
+  city: 'Álvaro Obregón',
+  state: 'Ciudad de México',
   references: 'Portón negro junto a la farmacia',
 };
 
@@ -128,20 +134,33 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       token = await db.loginCustomer(u.email as string);
     });
 
-    it('colonia de la lista ⇒ 201 con el CANÓNICO (aunque se teclee en minúsculas sin acentos), city/state del CP, `complete:true`', async () => {
+    it('PS-114 💰 libreta (a) — colonia de la lista ⇒ 201 con el CANÓNICO (aunque se teclee en minúsculas sin acentos), city/state del CATÁLOGO aunque el cuerpo traiga otros, `complete:true`', async () => {
       const r = await h.api('POST', '/users/me/addresses', { token, json: { ...base, neighborhood: '  juarez ', references: 'Timbre 2' } });
       expect(r.status).toBe(201);
       expect(r.body).toMatchObject({ neighborhood: 'Juárez', city: 'Cuauhtémoc', state: 'Ciudad de México', references: 'Timbre 2', complete: true });
     });
 
-    it('fuera de la lista ⇒ 422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}; CP sin colonias ⇒ 422 POSTAL_CODE_UNKNOWN; cero filas', async () => {
+    it('PS-114 💰 libreta (b) — CP del catálogo + colonia que NO está ⇒ 201: la colonia escrita (trim) + city/state DEL CP; `complete:true`', async () => {
+      const r = await h.api('POST', '/users/me/addresses', { token, json: { ...base, neighborhood: '  Polanco  ', city: 'Miguel Hidalgo', state: 'Edomex' } });
+      expect(r.status).toBe(201);
+      expect(r.body).toMatchObject({ postalCode: '06600', neighborhood: 'Polanco', city: 'Cuauhtémoc', state: 'Ciudad de México', complete: true });
+      expect(r.body).not.toHaveProperty('neighborhoodCheck'); // §19.25.3: solo en AdminShipmentDTO
+      const db1 = await h.prisma.address.findUniqueOrThrow({ where: { id: r.body.id } });
+      expect({ n: db1.neighborhood, c: db1.city, s: db1.state }).toEqual({ n: 'Polanco', c: 'Cuauhtémoc', s: 'Ciudad de México' });
+    });
+
+    it('PS-114 💰 libreta (c) — CP fuera del catálogo ⇒ 201 con colonia, city y state del cuerpo (trim)', async () => {
+      const r = await h.api('POST', '/users/me/addresses', { token, json: { ...base, postalCode: '20000', neighborhood: ' Zona Centro ', city: ' Aguascalientes ', state: ' Aguascalientes ' } });
+      expect(r.status).toBe(201);
+      expect(r.body).toMatchObject({ postalCode: '20000', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes', complete: true });
+    });
+
+    it('PS-114 libreta (d) — city o state vacíos/ausentes ⇒ 400 VALIDATION_ERROR; cero filas', async () => {
       const before = await h.prisma.address.count({ where: { userId } });
-      const out = await h.api('POST', '/users/me/addresses', { token, json: { ...base, neighborhood: 'Polanco' } });
-      expect(out.status).toBe(422);
-      expect(out.body.error).toMatchObject({ code: 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE', details: { postalCode: '06600', allowed: ['Juárez', 'Roma Norte'] } });
-      const unk = await h.api('POST', '/users/me/addresses', { token, json: { ...base, postalCode: '99999' } });
-      expect(unk.status).toBe(422);
-      expect(unk.body.error).toMatchObject({ code: 'POSTAL_CODE_UNKNOWN', details: { postalCode: '99999' } });
+      for (const json of [{ ...base, city: '   ' }, { ...base, state: '' }, { ...base, city: undefined }, { ...base, state: undefined }]) {
+        const r = await h.api('POST', '/users/me/addresses', { token, json });
+        expect({ status: r.status, code: r.body?.error?.code }).toEqual({ status: 400, code: 'VALIDATION_ERROR' });
+      }
       expect(await h.prisma.address.count({ where: { userId } })).toBe(before);
     });
 
@@ -157,14 +176,27 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       }
     });
 
-    it('PATCH con `postalCode` sin `neighborhood` ⇒ 400 {field:neighborhood, reason:required_with_postal_code}; con los dos ⇒ canónicos', async () => {
+    it('PS-114 💰 PATCH con `postalCode` exige neighborhood, city y state (el primero que falte, en ese orden) ⇒ 400 required_with_postal_code, cero escrituras; con los tres ⇒ resolución', async () => {
       const a = await h.api('POST', '/users/me/addresses', { token, json: base });
-      const bad = await h.api('PATCH', `/users/me/addresses/${a.body.id}`, { token, json: { postalCode: '01000' } });
-      expect(bad.status).toBe(400);
-      expect(bad.body.error.details).toEqual({ field: 'neighborhood', reason: 'required_with_postal_code' });
-      const ok = await h.api('PATCH', `/users/me/addresses/${a.body.id}`, { token, json: { postalCode: '01000', neighborhood: 'san angel' } });
+      const row0 = JSON.stringify(await h.prisma.address.findUniqueOrThrow({ where: { id: a.body.id } }));
+      for (const [json, field] of [
+        [{ postalCode: '01000' }, 'neighborhood'],
+        [{ postalCode: '01000', neighborhood: 'san angel' }, 'city'],
+        [{ postalCode: '01000', neighborhood: 'san angel', state: 'CDMX' }, 'city'],
+        [{ postalCode: '01000', neighborhood: 'san angel', city: 'X' }, 'state'],
+      ] as const) {
+        const bad = await h.api('PATCH', `/users/me/addresses/${a.body.id}`, { token, json });
+        expect({ status: bad.status, details: bad.body.error?.details }).toEqual({ status: 400, details: { field, reason: 'required_with_postal_code' } });
+      }
+      expect(JSON.stringify(await h.prisma.address.findUniqueOrThrow({ where: { id: a.body.id } }))).toBe(row0);
+      // (a) colonia de la lista tecleada a mano ⇒ canónico + municipio/estado del catálogo (no los del cuerpo)
+      const ok = await h.api('PATCH', `/users/me/addresses/${a.body.id}`, { token, json: { postalCode: '01000', neighborhood: 'san angel', city: 'X', state: 'Y' } });
       expect(ok.status).toBe(200);
       expect(ok.body).toMatchObject({ postalCode: '01000', neighborhood: 'San Ángel', city: 'Álvaro Obregón', state: 'Ciudad de México' });
+      // (c) a un CP fuera del catálogo ⇒ lo escrito
+      const out = await h.api('PATCH', `/users/me/addresses/${a.body.id}`, { token, json: { postalCode: '20000', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes' } });
+      expect(out.status).toBe(200);
+      expect(out.body).toMatchObject({ postalCode: '20000', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes', complete: true });
     });
 
     it('una dirección vieja sin colonia sale `complete:false` y el retiro con ella ⇒ 422 ADDRESS_INCOMPLETE {addressId, missing}, cero envíos', async () => {
@@ -182,25 +214,95 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
     });
   });
 
-  // ================================================================ checkout de invitado (criterio 235)
+  // ================================================================ PS-114 — checkout de invitado
 
-  describe('checkout de invitado — ningún pedido nuevo sin colonia (criterio 235)', () => {
+  describe('PS-114 💰 — checkout de invitado: la colonia es texto; el catálogo ayuda y NO bloquea (§19.25.1)', () => {
     const address = { line1: 'Av. Juárez 10', neighborhood: 'Guadalajara Centro', city: 'GDL', state: 'JAL', postalCode: '44100', country: 'MX', phone: '3312345678', recipientName: 'Luis' };
-    const session = (shippingAddress: unknown) =>
-      h.api('POST', '/checkout/guest/session', {
-        json: { inventoryItemIds: ['00000000-0000-0000-0000-000000000000'], email: `g.${RUN}@example.com`, shippingAddress, acceptedTerms: true },
+    let seq = 0;
+    /** Pieza vendible propia de esta corrida (plantilla del arnés: la de `listedCharizard`, con precio). */
+    const newItem = async () => {
+      const tpl = await h.prisma.inventoryItem.findUniqueOrThrow({ where: { folio: E2E_FOLIOS.listedCharizard } });
+      const it = await h.prisma.inventoryItem.create({
+        data: {
+          folio: `SDXC-G-${RUN}-${(seq += 1)}`, cardId: tpl.cardId, productType: 'raw', rawCondition: 'NM', finish: 'normal',
+          ownerType: 'platform', status: 'listed', acquisitionType: 'compra', acquisitionCostCents: 70000, locationId: tpl.locationId,
+        },
       });
+      db.items.push(it.id);
+      return it;
+    };
+    const email = (k: string) => `g.${k}.${RUN}@example.com`;
+    const session = async (shippingAddress: unknown, k: string, itemId?: string) => {
+      const r = await h.api('POST', '/checkout/guest/session', {
+        json: { inventoryItemIds: [itemId ?? (await newItem()).id], email: email(k), shippingAddress, acceptedTerms: true },
+      });
+      if (r.status === 201) db.orders.push(r.body.orderId);
+      return r;
+    };
+    const snapOf = async (orderId: string) => (await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).shippingAddressSnapshot as Record<string, unknown>;
 
-    it('sin colonia ⇒ 400; colonia fuera ⇒ 422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE; CP desconocido ⇒ 422 POSTAL_CODE_UNKNOWN; cero órdenes', async () => {
-      const before = await h.prisma.order.count({ where: { guestEmail: `g.${RUN}@example.com` } });
+    it('(a) colonia de la lista en minúsculas ⇒ 201, snapshot con el canónico y city/state del CATÁLOGO (no los del cuerpo)', async () => {
+      const r = await session({ ...address, neighborhood: ' guadalajara   centro ' }, 'a');
+      expect(r.status).toBe(201);
+      expect(await snapOf(r.body.orderId)).toMatchObject({ postalCode: '44100', neighborhood: 'Guadalajara Centro', city: 'Guadalajara', state: 'Jalisco' });
+    });
+
+    it('(b) CP del catálogo + colonia que NO está ⇒ 201, la colonia escrita + city/state del CP', async () => {
+      const r = await session({ ...address, neighborhood: '  Colonia Nueva  ' }, 'b');
+      expect(r.status).toBe(201);
+      expect(await snapOf(r.body.orderId)).toMatchObject({ postalCode: '44100', neighborhood: 'Colonia Nueva', city: 'Guadalajara', state: 'Jalisco' });
+    });
+
+    it('(c) CP fuera del catálogo ⇒ 201 con colonia, city y state del cuerpo', async () => {
+      const r = await session({ ...address, postalCode: '20000', neighborhood: 'Zona Centro', city: ' Aguascalientes ', state: 'Aguascalientes' }, 'c');
+      expect(r.status).toBe(201);
+      expect(await snapOf(r.body.orderId)).toMatchObject({ postalCode: '20000', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes' });
+    });
+
+    it('(d) sin colonia, o city/state vacíos ⇒ 400 VALIDATION_ERROR; cero órdenes', async () => {
+      const k = 'd';
+      const before = await h.prisma.order.count({ where: { guestEmail: email(k) } });
       const { neighborhood: _n, ...sinColonia } = address;
-      expect((await session(sinColonia)).status).toBe(400);
-      const out = await session({ ...address, neighborhood: 'Centro' });
-      expect(out.status).toBe(422);
-      expect(out.body.error).toMatchObject({ code: 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE', details: { postalCode: '44100', allowed: ['Guadalajara Centro'] } });
-      const unk = await session({ ...address, postalCode: '99999' });
-      expect(unk.body.error.code).toBe('POSTAL_CODE_UNKNOWN');
-      expect(await h.prisma.order.count({ where: { guestEmail: `g.${RUN}@example.com` } })).toBe(before);
+      for (const a of [sinColonia, { ...address, city: '' }, { ...address, state: '   ' }]) {
+        const r = await session(a, k, '00000000-0000-0000-0000-000000000000');
+        expect({ status: r.status, code: r.body?.error?.code }).toEqual({ status: 400, code: 'VALIDATION_ERROR' });
+      }
+      expect(await h.prisma.order.count({ where: { guestEmail: email(k) } })).toBe(before);
+    });
+
+    it('💰 con `PostalCode` VACÍA, un invitado con CP 20000 y colonia escrita CREA la orden y su PaymentIntent (la tienda vende con el catálogo vacío)', async () => {
+      const saved = await h.prisma.postalCode.findMany();
+      await h.prisma.postalCode.deleteMany({});
+      try {
+        expect(await h.prisma.postalCode.count()).toBe(0);
+        // el GET dice «escribe a mano» (404), y escribir a mano PAGA
+        expect((await h.api('GET', '/geo/postal-codes/20000')).status).toBe(404);
+        const r = await session({ ...address, postalCode: '20000', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes' }, 'empty');
+        expect(r.status).toBe(201);
+        expect(r.body.stripe.paymentIntentId).toEqual(expect.any(String));
+        const o = await h.prisma.order.findUniqueOrThrow({ where: { id: r.body.orderId } });
+        expect(o.stripePaymentIntentId).toBe(r.body.stripe.paymentIntentId);
+        expect(o.shippingAddressSnapshot).toMatchObject({ postalCode: '20000', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes' });
+        // también un CP que el catálogo SÍ tendría: con la tabla vacía, lo escrito
+        const r2 = await session({ ...address, neighborhood: 'Guadalajara Centro', city: 'GDL', state: 'JAL' }, 'empty2');
+        expect(r2.status).toBe(201);
+        expect(await snapOf(r2.body.orderId)).toMatchObject({ neighborhood: 'Guadalajara Centro', city: 'GDL', state: 'JAL' });
+      } finally {
+        await h.prisma.postalCode.createMany({ data: saved, skipDuplicates: true });
+      }
+      expect(await h.prisma.postalCode.count()).toBe(saved.length);
+    });
+
+    it('POST /checkout/guest/quote con colonia inventada ⇒ 200 (el quote no consulta el catálogo)', async () => {
+      const it = await newItem();
+      const r = await h.api('POST', '/checkout/guest/quote', {
+        json: { inventoryItemIds: [it.id], shippingAddress: { ...address, neighborhood: 'Colonia Que No Existe' } },
+      });
+      expect(r.status).toBe(200);
+      const unk = await h.api('POST', '/checkout/guest/quote', {
+        json: { inventoryItemIds: [it.id], shippingAddress: { ...address, postalCode: '99999', neighborhood: 'Otra' } },
+      });
+      expect(unk.status).toBe(200);
     });
   });
 
@@ -211,7 +313,8 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       const d = await db.mkDirect();
       const orderBefore = await h.prisma.order.findUniqueOrThrow({ where: { id: d.order.id } });
       const t0 = Date.now();
-      // el cuerpo trae `city`/`state`/`phone`/`country` de más: se IGNORAN (city/state salen del CP, phone no cambia).
+      // el cuerpo trae `city`/`state` distintos (CP en el catálogo ⇒ ganan los del catálogo, §19.25.1) y `phone`/`country`
+      // de más (se IGNORAN: phone no cambia, P-ADR-1).
       const r = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION, city: 'Inventada', state: 'Inventado', phone: '0000000000', country: 'US' });
       expect(r.status).toBe(200);
       expect(r.body.outcome).toBe('corrected');
@@ -260,6 +363,7 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
         version: 1,
         corrected: { at: s.addressCorrectedAt!.toISOString(), by: { userId: db.operatorId, name: expect.any(String) } },
         missing: ['phone'],
+        neighborhoodCheck: 'in_catalog', // ⭐ v1.80.12.5 (§19.25.3)
       });
       // mismo cuerpo otra vez ⇒ `unchanged`, cero bitácora, versión intacta
       const again = await put(d.shipment.id, { expectedAddressVersion: 1, ...CORRECTION });
@@ -307,24 +411,49 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
     });
   });
 
-  // ================================================================ PS-103 — validación
+  // ================================================================ PS-103 — v1.80.12.5 (sustituida, §19.25.6)
 
-  describe('PS-103 — validación: cero escrituras y versión intacta', () => {
-    it('colonia fuera ⇒ 422 {allowed}; CP sin colonias ⇒ 422; CP de 4, references de 71, destinatario vacío ⇒ 400 {field}', async () => {
+  describe('PS-103 💰 (v1.80.12.5) — `resolveAddressGeo` en `PUT …/address`: nunca 422 geográfico; la forma, cero escrituras', () => {
+    it('(a) CP del catálogo + colonia de la lista en minúsculas sin acentos ⇒ el canónico y city/state del catálogo AUNQUE el cuerpo traiga otros', async () => {
+      const d = await db.mkDirect();
+      const r = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION, neighborhood: '  SAN   angel ', city: 'Inventada', state: 'Inventado' });
+      expect(r.status).toBe(200);
+      expect(r.body.outcome).toBe('corrected');
+      expect((await row(d.shipment.id)).addressSnapshot).toMatchObject({ postalCode: '01000', neighborhood: 'San Ángel', city: 'Álvaro Obregón', state: 'Ciudad de México' });
+    });
+
+    it('(b) CP del catálogo + colonia que no está ⇒ 200 corrected, colonia tal cual (trim), city/state DEL CP', async () => {
+      const d = await db.mkDirect();
+      const r = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION, postalCode: '06600', neighborhood: '  Colonia Escrita  ', city: 'Inventada', state: 'Inventado' });
+      expect({ status: r.status, outcome: r.body.outcome }).toEqual({ status: 200, outcome: 'corrected' });
+      expect((await row(d.shipment.id)).addressSnapshot).toMatchObject({ postalCode: '06600', neighborhood: 'Colonia Escrita', city: 'Cuauhtémoc', state: 'Ciudad de México' });
+      expect(r.body.shipment.address.neighborhoodCheck).toBe('not_in_postal_code_list');
+    });
+
+    it('(c) CP fuera del catálogo ⇒ 200 corrected con colonia, city y state del cuerpo', async () => {
+      const d = await db.mkDirect();
+      const r = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION, postalCode: '99999', neighborhood: 'Zona Centro', city: ' Aguascalientes ', state: 'Aguascalientes' });
+      expect({ status: r.status, outcome: r.body.outcome }).toEqual({ status: 200, outcome: 'corrected' });
+      expect((await row(d.shipment.id)).addressSnapshot).toMatchObject({ postalCode: '99999', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes' });
+      expect(r.body.shipment.address.neighborhoodCheck).toBe('postal_code_not_in_catalog');
+    });
+
+    it('(d) CP de 4, references de 71, recipientName, line1, city o state vacíos (o ausentes) ⇒ 400 {field}; cero escrituras y versión intacta', async () => {
       const d = await db.mkDirect();
       const snap0 = JSON.stringify((await row(d.shipment.id)).addressSnapshot);
-      const cases: [unknown, number, string, Record<string, unknown>][] = [
-        [{ ...CORRECTION, neighborhood: 'Roma Norte' }, 422, 'NEIGHBORHOOD_NOT_IN_POSTAL_CODE', { postalCode: '01000', allowed: ['Centro', 'San Ángel'] }],
-        [{ ...CORRECTION, postalCode: '99999' }, 422, 'POSTAL_CODE_UNKNOWN', { postalCode: '99999' }],
-        [{ ...CORRECTION, postalCode: '0100' }, 400, 'VALIDATION_ERROR', { field: 'postalCode' }],
-        [{ ...CORRECTION, references: 'x'.repeat(71) }, 400, 'VALIDATION_ERROR', { field: 'references' }],
-        [{ ...CORRECTION, recipientName: '   ' }, 400, 'VALIDATION_ERROR', { field: 'recipientName' }],
-        [{ ...CORRECTION, line1: '' }, 400, 'VALIDATION_ERROR', { field: 'line1' }],
+      const cases: [unknown, string][] = [
+        [{ ...CORRECTION, postalCode: '0100' }, 'postalCode'],
+        [{ ...CORRECTION, references: 'x'.repeat(71) }, 'references'],
+        [{ ...CORRECTION, recipientName: '   ' }, 'recipientName'],
+        [{ ...CORRECTION, line1: '' }, 'line1'],
+        [{ ...CORRECTION, city: '  ' }, 'city'],
+        [{ ...CORRECTION, state: '' }, 'state'],
+        [{ ...CORRECTION, city: undefined }, 'city'],
+        [{ ...CORRECTION, state: undefined }, 'state'],
       ];
-      for (const [body, status, errCode, details] of cases) {
+      for (const [body, field] of cases) {
         const r = await put(d.shipment.id, { expectedAddressVersion: 0, ...(body as object) });
-        expect({ status: r.status, code: r.body.error?.code }).toEqual({ status, code: errCode });
-        expect(r.body.error.details).toMatchObject(details);
+        expect({ status: r.status, code: r.body.error?.code, field: r.body.error?.details?.field }).toEqual({ status: 400, code: 'VALIDATION_ERROR', field });
       }
       const noVersion = await put(d.shipment.id, { ...CORRECTION });
       expect(noVersion.body.error).toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'expectedAddressVersion' } });
@@ -334,12 +463,64 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
       expect(await auditOf(d.shipment.id)).toHaveLength(0);
       expect(await revisionsOf(d.shipment.id)).toHaveLength(0);
     });
+  });
 
-    it('la colonia tecleada en minúsculas y sin acentos se guarda como el canónico', async () => {
+  // ================================================================ PS-115 — neighborhoodCheck (§19.25.3)
+
+  describe('PS-115 — `address.neighborhoodCheck` se calcula AL LEER (nunca se guarda)', () => {
+    const CP = '20000';
+    afterEach(async () => {
+      await h.prisma.postalCode.deleteMany({ where: { postalCode: CP } });
+    });
+
+    it('el MISMO envío pasa de postal_code_not_in_catalog a in_catalog al cargar su CP, sin tocar el envío; los tres valores; tras PUT con colonia de la lista ⇒ in_catalog', async () => {
+      await h.prisma.postalCode.deleteMany({ where: { postalCode: CP } });
       const d = await db.mkDirect();
-      const r = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION, neighborhood: '  SAN   angel ' });
-      expect(r.status).toBe(200);
-      expect((await row(d.shipment.id)).addressSnapshot).toMatchObject({ neighborhood: 'San Ángel' });
+      await h.prisma.shipmentRequest.update({
+        where: { id: d.shipment.id },
+        data: { addressSnapshot: { recipientName: 'Ana', line1: 'Calle 1', neighborhood: 'Zona Centro', city: 'Aguascalientes', state: 'Aguascalientes', postalCode: CP, country: 'MX', phone: '5512345678' } },
+      });
+      const check = async () => {
+        const g = await h.api('GET', `/admin/shipments/${d.shipment.id}`, { token: db.opToken });
+        const l = await h.api('GET', `/admin/shipments?q=${d.shipment.id}`, { token: db.opToken });
+        expect(l.body.data[0].address.neighborhoodCheck).toBe(g.body.address.neighborhoodCheck); // fila y detalle
+        return g.body.address.neighborhoodCheck as string;
+      };
+      const before = await row(d.shipment.id);
+      expect(await check()).toBe('postal_code_not_in_catalog');
+
+      // se carga el CP con OTRA colonia ⇒ la del envío no está en la lista
+      await h.prisma.postalCode.create({ data: { postalCode: CP, neighborhood: 'Barrio de San Marcos', municipality: 'Aguascalientes', state: 'Aguascalientes' } });
+      expect(await check()).toBe('not_in_postal_code_list');
+
+      // se carga la suya (con otra grafía) ⇒ in_catalog, y el envío NO se tocó
+      await h.prisma.postalCode.create({ data: { postalCode: CP, neighborhood: 'ZONA CENTRO', municipality: 'Aguascalientes', state: 'Aguascalientes' } });
+      expect(await check()).toBe('in_catalog');
+      const after = await row(d.shipment.id);
+      expect(JSON.stringify(after)).toBe(JSON.stringify(before)); // la fila entera, byte a byte
+
+      // corregido a una colonia escrita ⇒ not_in_postal_code_list; luego a una de la lista ⇒ in_catalog
+      const w = await put(d.shipment.id, { expectedAddressVersion: 0, ...CORRECTION, postalCode: CP, neighborhood: 'Inventada', city: 'X', state: 'Y' });
+      expect(w.body.shipment.address.neighborhoodCheck).toBe('not_in_postal_code_list');
+      const ok = await put(d.shipment.id, { expectedAddressVersion: 1, ...CORRECTION, postalCode: CP, neighborhood: 'barrio de san marcos', city: 'X', state: 'Y' });
+      expect(ok.body.shipment.address.neighborhoodCheck).toBe('in_catalog');
+      expect(await check()).toBe('in_catalog');
+    });
+
+    it('snapshot sin colonia ⇒ postal_code_not_in_catalog; ausente en AddressDTO y en ShipPreparationOrderDTO', async () => {
+      const d = await db.mkDirect(); // snapshot del arnés: CP 01000 (en catálogo) SIN colonia
+      const g = await h.api('GET', `/admin/shipments/${d.shipment.id}`, { token: db.opToken });
+      expect(g.body.address.neighborhoodCheck).toBe('postal_code_not_in_catalog');
+      const q = await db.queue();
+      const o = q.body.data.find((x: any) => x.shipmentId === d.shipment.id);
+      expect(o).toBeDefined();
+      expect(JSON.stringify(o)).not.toContain('neighborhoodCheck');
+      const u = await db.mkUser('Cliente PS-115');
+      await db.mkAddress(u.id);
+      const token = await db.loginCustomer(u.email as string);
+      const list = await h.api('GET', '/users/me/addresses', { token });
+      expect(list.body.data.length).toBeGreaterThan(0);
+      expect(JSON.stringify(list.body)).not.toContain('neighborhoodCheck');
     });
   });
 

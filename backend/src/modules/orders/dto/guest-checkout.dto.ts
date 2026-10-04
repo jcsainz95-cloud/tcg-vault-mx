@@ -33,19 +33,30 @@ export class GuestAddressInput {
   @IsString() @MaxLength(ADDRESS_LIMITS.line1) line1!: string;
   @IsOptional() @IsString() @MaxLength(ADDRESS_LIMITS.line2) line2?: string;
   /**
-   * ⭐ v1.81 (§M4-SHIP.19.5, criterio 235): OBLIGATORIA y de la lista de `GET /geo/postal-codes/:cp`. Aquí solo
-   * forma (1..120 tras trim); la pertenencia la decide el servicio (`422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` /
-   * `422 POSTAL_CODE_UNKNOWN`) y se guarda el canónico.
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.1, `HECHOS.md:57`): OBLIGATORIA como texto (1..120 tras trim), de la lista de
+   * `GET /geo/postal-codes/:cp` **o escrita a mano**. El servicio (`resolveAddressGeo`) decide qué se guarda: el
+   * canónico si casa con la lista, lo escrito si no; ⛔ nunca rechaza por geografía.
    */
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(1)
   @MaxLength(ADDRESS_LIMITS.neighborhood)
   neighborhood!: string;
-  /** v1.81: se sobrescribe con el municipio canónico del CP (en CDMX, la alcaldía). */
-  @IsString() @MaxLength(ADDRESS_LIMITS.city) city!: string;
-  /** v1.81: se sobrescribe con el estado canónico del CP. */
-  @IsString() @MaxLength(ADDRESS_LIMITS.state) state!: string;
+  /**
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): OBLIGATORIO, 1..120 tras trim (antes aceptaba `""`). Con el CP en el catálogo
+   * se sobrescribe con el municipio del catálogo (en CDMX, la alcaldía); con el CP fuera, se guarda lo escrito.
+   */
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(1)
+  @MaxLength(ADDRESS_LIMITS.city)
+  city!: string;
+  /** ⭐ v1.80.12.5: ídem `city` con el estado. */
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(1)
+  @MaxLength(ADDRESS_LIMITS.state)
+  state!: string;
   /** CP mexicano: exactamente 5 dígitos. */
   @Matches(POSTAL_CODE_PATTERN) postalCode!: string;
   /**

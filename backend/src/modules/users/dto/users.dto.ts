@@ -39,9 +39,10 @@ export class AddressDto {
    */
   @trim() @IsString() recipientName!: string;
   // ⭐ v1.81 (M-64, §M4-SHIP.19.5, criterio 235): la libreta al nivel del invitado — MISMAS cotas que
-  // `GuestAddressInput` (`address-rules.ts`, un juego). La colonia es OBLIGATORIA y el servicio la valida contra la
-  // lista del CP (`422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` / `422 POSTAL_CODE_UNKNOWN`); `city`/`state` se sobrescriben
-  // con los canónicos del CP.
+  // `GuestAddressInput` (`address-rules.ts`, un juego). ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): colonia, `city` y `state`
+  // OBLIGATORIOS como texto (1..120); la colonia puede ser de la lista o escrita a mano. El servicio
+  // (`resolveAddressGeo`) nunca rechaza por geografía: con el CP en el catálogo `city`/`state` se sobrescriben con
+  // los del catálogo; con el CP fuera, se guarda lo escrito.
   @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.line1) line1!: string;
   @IsOptional() @trim() @IsString() @MaxLength(ADDRESS_LIMITS.line2) line2?: string;
   @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.neighborhood) neighborhood!: string;
@@ -62,8 +63,8 @@ export class UpdateAddressDto {
    * `422 RECIPIENT_NAME_REQUIRED`.
    */
   @IsOptional() @trim() @IsString() recipientName?: string;
-  // ⭐ v1.81: mismas cotas que `AddressDto` cuando el campo viene; `postalCode` sin `neighborhood` ⇒ `400
-  // {field:'neighborhood', reason:'required_with_postal_code'}` (lo decide el servicio).
+  // ⭐ v1.81: mismas cotas que `AddressDto` cuando el campo viene. ⭐ v1.80.12.5: `postalCode` exige `neighborhood`,
+  // `city` y `state` ⇒ si falta alguno, `400 {field:<el primero>, reason:'required_with_postal_code'}` (servicio).
   @IsOptional() @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.line1) line1?: string;
   @IsOptional() @trim() @IsString() @MaxLength(ADDRESS_LIMITS.line2) line2?: string;
   @IsOptional() @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.neighborhood) neighborhood?: string;

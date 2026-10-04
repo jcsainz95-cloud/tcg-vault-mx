@@ -2,9 +2,12 @@
  * postal-code.ts — la fuente de colonias por CP y el ÚNICO cuerpo que la consulta (`resolvePostalCode`).
  * API_CONTRACT §M4-SHIP.19.5 (fase C, M-64 = `M-SDX-C`); ARCHITECTURE §4.60 (e). Propiedad: backend.
  *
- * `C-SDX-3`: el `GET /geo/postal-codes/:cp` (lo que pinta la pantalla) y TODA validación del servidor (libreta,
- * checkout de invitado, corrección de la dirección del envío) pasan por `PostalCodeService.resolvePostalCode` —
- * un cuerpo, así que pantalla y servidor no divergen.
+ * `C-SDX-3`: el `GET /geo/postal-codes/:cp` (lo que pinta la pantalla) y TODA resolución del servidor (libreta,
+ * checkout de invitado, corrección de la dirección del envío, `neighborhoodCheck`) pasan por
+ * `PostalCodeService.resolvePostalCode` — un cuerpo, así que pantalla y servidor no divergen.
+ *
+ * ⭐ v1.80.12.5 (§M4-SHIP.19.25, `HECHOS.md:57`, «colonia como Mercado Libre»): el catálogo AYUDA, no bloquea.
+ * `resolveAddressGeo` nunca rechaza por geografía; `POSTAL_CODE_UNKNOWN` queda solo como el `404` del `GET`.
  *
  * Fuente intercambiable (`PostalCodePort`), con precedencia: (1) catálogo LOCAL (`PostalCode`, SEPOMEX, lo carga
  * devops); (2) Skydropx — ⛔ NO construido: que su API dé colonias por CP es NO MEDIDO (PS-SBX-9) y la red está
@@ -38,12 +41,19 @@ export interface PostalCodeDTO {
   source: 'local' | 'skydropx';
 }
 
-/** Lo que una validación devuelve: la colonia, municipio y estado CANÓNICOS (los de la fuente, no lo tecleado). */
-export interface CanonicalAddressPart {
+/**
+ * ⭐ v1.80.12.5 (§M4-SHIP.19.25.1, `HECHOS.md:57`): qué se comprobó de la colonia contra el catálogo. Sale en
+ * `AdminShipmentDTO.address.neighborhoodCheck` (calculado AL LEER, ⛔ nunca persistido, §19.25.3).
+ */
+export type NeighborhoodCheck = 'in_catalog' | 'not_in_postal_code_list' | 'postal_code_not_in_catalog';
+
+/** Lo que `resolveAddressGeo` manda guardar. `check` es para la prueba y el registro: ⛔ NO se persiste. */
+export interface ResolvedAddressGeo {
   postalCode: string;
   neighborhood: string;
   city: string;
   state: string;
+  check: NeighborhoodCheck;
 }
 
 /**
@@ -82,6 +92,12 @@ function mostCommon(values: string[]): string {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
 }
 
+/** La comparación del caso 3 (§19.25.1): la entrada del CP cuya colonia casa por `normalizeColonia`, o `undefined`. */
+function matchColonia(rec: PostalCodeRecord, neighborhood: string): PostalCodeRecord['entries'][number] | undefined {
+  const wanted = normalizeColonia(neighborhood);
+  return rec.entries.find((e) => normalizeColonia(e.neighborhood) === wanted);
+}
+
 @Injectable()
 export class PostalCodeService {
   constructor(@Inject(POSTAL_CODE_SOURCES) private readonly sources: PostalCodePort[]) {}
@@ -115,24 +131,45 @@ export class PostalCodeService {
   }
 
   /**
-   * La validación de la dirección (§19.5, §19.20.1 paso 2): la colonia DEBE estar en la lista del CP (comparada con
-   * `normalizeColonia`) y se devuelve el canónico, con `city` = municipio y `state` de ESA colonia.
-   * CP desconocido ⇒ `422 POSTAL_CODE_UNKNOWN {postalCode}`; fuera de la lista ⇒ `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE
-   * {postalCode, allowed}`.
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.1) — LA regla de la dirección (libreta, invitado, `PUT …/address`); sustituye a
+   * `canonicalize`. ⛔ **Nunca lanza por geografía**: solo decide qué guardar (la forma ya la validó quien llama).
+   *  2. CP fuera del catálogo (o catálogo vacío) ⇒ colonia, `city` y `state` tal como vinieron (trim).
+   *  3. CP en el catálogo y la colonia casa por `normalizeColonia` ⇒ la grafía canónica + municipio/estado de ESA
+   *     colonia (una colonia escrita a mano que sí está en la lista cae aquí: lo decide el servidor, no el cuerpo).
+   *  4. CP en el catálogo y la colonia no casa ⇒ la colonia escrita (trim) + municipio/estado DEL CP (`mostCommon`,
+   *     los mismos que mostró el `GET`): el cliente no contradice al catálogo en lo que el catálogo sí sabe.
    */
-  async canonicalize(postalCode: string, neighborhood: string): Promise<CanonicalAddressPart> {
-    const rec = await this.resolvePostalCode(postalCode);
+  async resolveAddressGeo(postalCode: string, neighborhood: string, city: string, state: string): Promise<ResolvedAddressGeo> {
+    const cp = postalCode.trim();
+    const typed = neighborhood.trim();
+    const rec = await this.resolvePostalCode(cp);
     if (!rec) {
-      throw BusinessException.validation('POSTAL_CODE_UNKNOWN', 'Unknown postal code', { postalCode });
+      return { postalCode: cp, neighborhood: typed, city: city.trim(), state: state.trim(), check: 'postal_code_not_in_catalog' };
     }
-    const wanted = normalizeColonia(neighborhood);
-    const hit = rec.entries.find((e) => normalizeColonia(e.neighborhood) === wanted);
-    if (!hit) {
-      throw BusinessException.validation('NEIGHBORHOOD_NOT_IN_POSTAL_CODE', 'Neighborhood is not in the postal code list', {
-        postalCode,
-        allowed: [...new Set(rec.entries.map((e) => e.neighborhood))],
-      });
+    const hit = matchColonia(rec, typed);
+    if (hit) {
+      return { postalCode: cp, neighborhood: hit.neighborhood, city: hit.municipality, state: hit.state, check: 'in_catalog' };
     }
-    return { postalCode, neighborhood: hit.neighborhood, city: hit.municipality, state: hit.state };
+    return {
+      postalCode: cp,
+      neighborhood: typed,
+      city: mostCommon(rec.entries.map((e) => e.municipality)),
+      state: mostCommon(rec.entries.map((e) => e.state)),
+      check: 'not_in_postal_code_list',
+    };
+  }
+
+  /**
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.3) — `neighborhoodCheck` de un snapshot, AL LEER: la misma consulta
+   * (`resolvePostalCode`) y la misma comparación (`matchColonia`) que `resolveAddressGeo`. Sin colonia o con CP mal
+   * formado ⇒ `'postal_code_not_in_catalog'` (y `missing` ya lo dice). Una sola fuente: el catálogo de hoy.
+   */
+  async neighborhoodCheckOf(postalCode: unknown, neighborhood: unknown): Promise<NeighborhoodCheck> {
+    if (typeof postalCode !== 'string' || typeof neighborhood !== 'string' || neighborhood.trim().length === 0) {
+      return 'postal_code_not_in_catalog';
+    }
+    const rec = await this.resolvePostalCode(postalCode.trim());
+    if (!rec) return 'postal_code_not_in_catalog';
+    return matchColonia(rec, neighborhood) ? 'in_catalog' : 'not_in_postal_code_list';
   }
 }
