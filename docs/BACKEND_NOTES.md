@@ -26879,12 +26879,19 @@ Orden documentado: envíos → piezas → `Order` → libro. Excepciones, ambas 
    sembrar esa anomalía y correr M3 contra un verbo que tome pieza → `Order` de la misma orden con barrera de fila
    (N ≥ 10 por orden), contando `40P01`/`500`. Decisión pedida: aceptarla como 4-bis, o que M3 tome las piezas
    `reserved` antes de `Order` (cambio del orden en M3 tx1, no en `onFullRefund`).
-## 22 · v1.80.9 construida — usuarios de back-office SIN correo: `M-63`, STF-1…STF-30 (2026-10-04, rama `claude/staff-sin-correo`, desde `43c42b3d`; código en `0a42d85a` + el commit de esta sección)
+## 55 · v1.80.9 construida — usuarios de back-office SIN correo: `M-63`, STF-1…STF-30 (2026-10-04, rama `claude/staff-sin-correo`, desde `43c42b3d`; código en `0a42d85a` + el commit de esta sección)
+
+> ⚠️ **Renumerada el 2026-10-04 (QA M-1):** nació como «§22» con subsecciones «21.x», y chocaba con la `## 22.
+> v1.4-finance` (más arriba) y con la `## 21 ·` de `precios-s5`. Número elegido: **55**, el primero libre por encima
+> del mayor usado en este documento (medido con `grep -oE "^## [0-9]+" | sort -n`: usados 0–23 y 25–54; el hueco 24
+> queda en el bloque de agosto y no se recicla). Las citas **`BACKEND_NOTES §22` (21.1/21.2/21.3)** de `API_CONTRACT`
+> (cabecera y §M6-U.11) y `ARCHITECTURE` (§4.58.9, §11 `M-63`) — errata v1.80.9.1 — **apuntan aquí** (§55.1/55.2/55.3);
+> esos documentos son del arquitecto y no los toco.
 
 Fuente: `API_CONTRACT` rev v1.80.9 §M6-U; `ARCHITECTURE §4.58`, §11 `M-STF`, §9 `D-STF-1`/`D-STF-2`; `PROJECT §U`
 (criterios 256–270); `HECHOS.md` fila 2026-10-04 «Usuarios de back-office SIN correo».
 
-### 21.1 Qué se construyó (dónde vive)
+### 55.1 Qué se construyó (dónde vive)
 
 | Pieza | Dónde |
 |---|---|
@@ -26904,11 +26911,13 @@ Fuente: `API_CONTRACT` rev v1.80.9 §M6-U; `ARCHITECTURE §4.58`, §11 `M-STF`, 
 | I-STF-1: refs de **cliente** siguen `string`; `null` ⇒ `logger.error('I-STF-1 …')` + `""` | `common/customer-email.ts` (`customerEmailOrBlank`), 11 call-sites |
 | Anonimización: `username: null` **y `lockNoticeAt: null`** | `admin.service.ts` `deleteUser` |
 
-### 21.2 Decisiones de implementación (y dónde me aparté de una lectura literal)
+### 55.2 Decisiones de implementación (y dónde me aparté de una lectura literal)
 
 1. **Rama `@` del login = `@IsEmail` de hoy, no `EMAIL_REGEX`.** §M6-U.2 dice a la vez «formato `EMAIL_REGEX`» e
    «igual que hoy»; hoy es `@IsEmail` de class-validator, que NO es `EMAIL_REGEX` (p. ej. `a@b` y espacios). Elegí
    «igual que hoy» (criterio 270). Sin `@`: solo `trim` 1–254, sin forma.
+   ⚠️ *Corregido en §56.3 (medido 2026-10-04):* `a@b` lo rechazan **las dos** (`EMAIL_REGEX` exige un punto tras la
+   `@`); el valor que las distingue es `a@b.c` (`isEmail` ⇒ `false`, `EMAIL_REGEX` ⇒ `true`).
 2. **`lockNoticeAt: null` en la anonimización.** El contrato pide solo `username: null`; sin anular también el aviso,
    el CHECK 5 (`lockNoticeAt` solo sin correo) rompe el soft-delete de un staff con aviso pendiente (STF-30 lo siembra).
 3. **El rechazo auditado es un guard de RUTA**, no un chequeo en el handler: corre antes de los pipes, así que un
@@ -26919,6 +26928,8 @@ Fuente: `API_CONTRACT` rev v1.80.9 §M6-U; `ARCHITECTURE §4.58`, §11 `M-STF`, 
    en ese modo (misma regla que `acquire`). Consecuencia: `lockState:'unavailable'` solo sale si el almacén mismo lanza
    (o si `AdminService` se construye sin `PasswordAttemptsService`). Si el arquitecto quiere «unavailable» también con
    Redis degradado, es un cambio de una línea — no lo hice porque contradiría la fuente del `429`.
+   ⚠️ *Superado por la errata v1.80.9.1 (D-4 + TD-9): el arquitecto eligió «unavailable» en modo degradado y que
+   solo la clase del almacén se traduzca. Construido en §56.1.*
 6. **`sendVerificationEmail` LANZA sin correo** (en vez de `return`): un `return` silencioso tapaba que el paso nuevo de
    `resendVerification` desapareciera (la mutación de STF-26 salía verde). Ahora la mutación da `500` ⇒ roja.
 7. **`changePasswordKey`/`deviceAggregateKey`** ya no pasan por `passwordAttemptKeysForUser` (que ahora lanza sin
@@ -26930,16 +26941,17 @@ Fuente: `API_CONTRACT` rev v1.80.9 §M6-U; `ARCHITECTURE §4.58`, §11 `M-STF`, 
    orden/venta/retiro; el resto opera sobre filas propias ya existentes (inalcanzables para una cuenta sin correo) o
    son de invitado/operador. Medido el 2026-10-04 con `rg "@Post|@Put|@Patch"`.
 
-### 21.3 Respuestas a ux-ui (DESIGN_SYSTEM §42.10)
+### 55.3 Respuestas a ux-ui (DESIGN_SYSTEM §42.10)
 
 - **A-1 (ficha sin `lockState`):** construido según el contrato: la ficha trae `lockedUntil` y **no** `lockState`; con el
   almacén lanzando, `lockedUntil: null` (STF-24 lo mide en la ficha). Añadir `lockState` a la ficha es contrato ⇒ arquitecto.
+  ⚠️ *Superado por v1.80.9.1 A-1: la ficha (los dos DTOs) gana `lockState` — §56.1.*
 - **A-2 (`auth.password_lock` en `scope=target`):** **SÍ, medido.** `notifyLock` escribe `entityType:'User'`,
   `entityId:<id de la cuenta>`, y `listForUser` filtra `scope=target` por exactamente eso (`audit.service.ts:94`).
   STF-23 lo asevera por HTTP (`GET /admin/users/:id/audit?scope=target` contiene `auth.password_lock`). La fila no
   lleva actor (`actorUserId: null`) en el login; lo lleva en `change-password`.
 
-### 21.4 Pruebas y mutaciones (medido por backend, 2026-10-04)
+### 55.4 Pruebas y mutaciones (medido por backend, 2026-10-04)
 
 Nuevas: `test/integration/staff-without-email.e2e-spec.ts` (24), `staff-throttle.e2e-spec.ts` (STF-21),
 `m63-migration.e2e-spec.ts` (STF-25 a/b), `test/stf.staff-without-email.spec.ts` (33 unitarias). Todas vistas ROJAS
@@ -26959,7 +26971,7 @@ STF-29 (canario `PASSWORD_FREE_ATTEMPTS=6` ⇒ 22 rojas en la suite C7 EXISTENTE
 atómico) **10/10 rondas rojas**; STF-6 con `findFirst` justo antes del `create` (tras `argon2.hash`) **1/10 rondas
 rojas** (ventana estrecha), con `findFirst` en la validación (la forma natural de «validar antes») **10/10 rojas**.
 
-### 21.5 Pruebas existentes que cambiaron (ninguna se debilita)
+### 55.5 Pruebas existentes que cambiaron (ninguna se debilita)
 
 - **Rompe a propósito (contrato):** alta de staff con correo `201 ⇒ 422`. `admin.user-create.spec.ts`: el `it.each` de
   los tres roles queda para `customer`; staff pasa a su propio caso (sin correo, `emailVerified=false`,
@@ -26975,3 +26987,102 @@ rojas** (ventana estrecha), con `findFirst` en la validación (la forma natural 
   quitar `!` deja las líneas idénticas.
 - Dobles: `auth-c7-deps.ts` y `reset-admin-password.c7.spec.ts` pasan el 5.º argumento (Prisma) al servicio;
   `fake-redis-attempt-store.ts` implementa `peekLockMs`.
+
+## 56 · Errata v1.80.9.1 construida — almacén degradado ⇒ `unavailable`, `lockState` en la ficha, TD-9, rescate por usuario; STF-31…STF-36 (2026-10-04, rama `claude/staff-sin-correo`, sobre `58126076`)
+
+Fuente: `API_CONTRACT` errata v1.80.9.1 (cabecera, §M6-U.4/.6/.7/.11, §1 «Script de rescate» fila «por usuario»,
+STF-2/24/30 ampliadas, STF-31…36); `ARCHITECTURE §4.58.5`, `§4.58.9`. Cierra la parte backend de C-1 del techlead
+y anota C-2 en `TECH_DEBT` («gate del techlead sobre `da6d910e`»).
+
+### 56.1 Qué cambió (dónde vive)
+
+| Norma | Código |
+|---|---|
+| D-4: clase `LoginAttemptStoreUnavailableError` (exportada) | `modules/auth/login-attempt.store.ts` |
+| D-4: `ResilientLoginAttemptStore.peekLockMs` — degradado ⇒ lanza sin tocar Redis ni leer memoria; Redis falla/vence ⇒ lanza, **sin** `markDown`. Memoria pura y Redis puro: sin cambio | idem |
+| TD-9: `lockedUntilOf` — solo la clase del almacén ⇒ `'unavailable'`; cualquier otra excepción se propaga; sin `PasswordAttemptsService` lanza (`requirePasswordAttempts`, el MISMO texto de cableado que `resetPassword`) | `modules/admin/admin.service.ts` |
+| A-1: `lockState` en la raíz de los DOS DTOs de la ficha (misma función que el listado) | `admin.service.ts` `getUser` |
+| TD-4(b): `ADMIN_USERNAME` (normalizado con `normalizeIdentifier`); las dos variables a la vez ⇒ error sin cambios; vacío ⇒ error; `emailVerified=true` solo con correo; candado con `{ id, email, username }`; salida `email ?? username` | `prisma/reset-admin-password.ts` |
+| TD-4(a), D-1, D-2, D-5: sin código nuevo (ya construidos); se fijan con STF-36, STF-35, STF-30, STF-2 | — |
+| TD-5 (techlead): prueba de paridad CHECK vivo ↔ `USERNAME_CANONICAL_REGEX` | `test/integration/stf-errata-v1-80-9-1.e2e-spec.ts` |
+
+**Forma de la salida del script (para devops/dueño):** `resetStaffPassword` devuelve `{ email, role }` por correo (sin
+cambio: los 6 casos de `reset-admin-password.spec.ts` y C7-23 intactos) o `{ username, role }` por usuario. Uso:
+`railway run --service backend -e NEW_ADMIN_PASSWORD='…' -e ADMIN_USERNAME='ana' npx ts-node prisma/reset-admin-password.ts`.
+`ADMIN_USERNAME` es una variable **nueva** del script (no del servicio): devops puede querer anotarla junto a
+`ADMIN_EMAIL` en su tabla de variables (`DEVOPS_NOTES` ~l. 8260; no es mía).
+
+### 56.2 Decisiones que el contrato no fijaba
+
+1. **`ADMIN_USERNAME` vacío o de solo espacios ⇒ error sin lectura** (no «sin variable»): una variable puesta pero vacía
+   en Railway es un error de quien la puso; caer a `SEED_ADMIN_EMAIL` sería una precedencia silenciosa.
+2. **«A la vez» = las dos `!== undefined`** (también `ADMIN_EMAIL=''`).
+3. **`update` por `{ username }`** en el camino por usuario (simétrico al `{ email }` de hoy, misma clave única).
+4. **Arnés:** `E2EHarness.create(customize?)` acepta sustituciones adicionales de proveedores (STF-32 sustituye
+   `LOGIN_ATTEMPT_STORE`). Sin argumento, la app de siempre.
+5. **Fixtures de unitarios (TD-9, «ajustan su fixture, no su aserción»):** 7 specs que construyen `AdminService` a mano
+   y llaman `getUser`/`listUsers` reciben `noLockAttempts()` (`test/helpers/no-lock-attempts.ts`: almacén sano sin
+   candado). Ninguna aserción cambió. `admin.user-detail-shape`: las dos listas exactas ganan `lockState`.
+6. **STF-34 nunca apunta a una cuenta de la suite:** el respaldo `SEED_ADMIN_EMAIL` del entorno de la prueba es un correo
+   inexistente y el caso «las dos» usa un staff desechable. Medido: la corrida ROJA contra el código viejo (que ignora
+   `ADMIN_USERNAME`) le cambió la contraseña a `admin@e2e.local` en `tcg_stf2_mut` — restaurada; la prueba se rehízo
+   para que un script defectuoso falle con «No user found» en vez de tocar el fixture.
+
+### 56.3 D-1 / STF-35: el valor que distingue las dos reglas (corrige §55.2.1)
+
+Medido con `node` (class-validator del árbol, 2026-10-04): `'a@b'` ⇒ `isEmail` `false`, `EMAIL_REGEX` **`false`** (la
+regex exige un punto tras la `@`), así que §55.2.1 se equivocaba y `a@b` no distingue nada. Valores que sí:
+`a@b.c`, `a..b@x.com`, `.a@x.com`, `a@x_y.com` (`isEmail` `false`, `EMAIL_REGEX` `true`). STF-35 usa `a@b` (lo que pide el
+contrato) **y** `a@b.c` (el que muerde). Mutación `isEmail` → `EMAIL_REGEX.test` ⇒ roja por `a@b.c`.
+
+### 56.4 Pruebas: rojo primero, verde después
+
+| Prueba | Dónde | Rojo contra el código anterior (medido) |
+|---|---|---|
+| STF-31 (a)(b×2)(c) + memoria pura | `test/stf.errata-v1-80-9-1.spec.ts` | (a), (b throw), (b hang) rojas; (c) y memoria pura nacen verdes (conducta que no cambia) |
+| STF-33 (a)(b)(c) + sano | idem | 4/4 rojas |
+| STF-32 | `test/integration/stf-errata-v1-80-9-1.e2e-spec.ts` | roja (`lockState` `'ok'` con Redis caído) |
+| STF-32 (iii) listas de claves | `test/admin.user-detail-shape.spec.ts` | super_admin y operador rojas |
+| STF-34 sin BD (5) | `prisma/reset-admin-password.username.spec.ts` | 4/5 rojas (la 5.ª fija el camino de correo de hoy) |
+| STF-34 con BD (2) | `stf-errata-v1-80-9-1.e2e-spec.ts` | 2/2 rojas |
+| STF-24 ampliada | `staff-without-email.e2e-spec.ts` | roja (ficha sin `lockState`) |
+| STF-2 ampliada, STF-30, STF-35, STF-36 | `staff-without-email.e2e-spec.ts` | nacen verdes (fijan conducta ya construida); su rojo lo dan las mutaciones |
+| TD-5 | `stf-errata-v1-80-9-1.e2e-spec.ts` | nace verde; rojo por mutación |
+
+Rojo medido sobre copia `git archive HEAD` (`58126076`) del árbol entero + las pruebas nuevas + stubs de **tipo** solos
+(la clase vacía y `ADMIN_USERNAME?` en `ResetEnv`, para que el rojo sea de conducta y no de compilación); BD
+`tcg_stf2_mut`.
+
+### 56.5 Mutaciones (copia del árbol entero, BD `tcg_stf2_mut`; cada una revertida tras correr; N=1 — todas deterministas)
+
+**25/25 rojas**, cada una por el caso esperado (una primera variante de STF-36 (i) no compilaba —`BusinessException.forbidden` no existe— y se rehízo con un `422`; no cuenta):
+STF-31 (i) degradado ⇒ memoria → (a); (ii) `markDown` en el `catch` → (b)×2; (iii) `catch` ⇒ memoria → (b)×2 ·
+STF-32 (i) conducta construida, por HTTP → STF-32; (ii) ficha con `lockState` fijo `'ok'` → STF-32; (iii) quitar
+`lockState` de un DTO → su caso de `admin.user-detail-shape` (las dos variantes) ·
+STF-33 (i) rama muda sin servicio → (a); (ii) `catch` sin mirar la clase → (b); (iii) `catch` que solo relanza → (c) ·
+STF-34 (i) `emailVerified` siempre → unitaria y con BD (el CHECK 4 tumba el `update`); (ii) candado con `{ id, email }`
+→ unitaria y con BD; (iii) sin `normalizeIdentifier` → 2 unitarias; (iv) precedencia de `ADMIN_USERNAME` → unitaria;
+precedencia de `ADMIN_EMAIL` → con BD ·
+STF-35 `isEmail` → `EMAIL_REGEX` · STF-36 (i) rechazar destinatario `super_admin` · (ii) rechazar destinatario sin correo ·
+STF-2 cambiar el texto de la `rule` · STF-24 propagar el error del almacén (500) · siempre `null` ·
+STF-30 no anular `lockNoticeAt` (CHECK 5 ⇒ 500) · TD-5 regex de la app `{2,30}` ≠ CHECK.
+
+### 56.6 Repetición (N=10)
+
+- `stf-errata-v1-80-9-1.e2e-spec.ts` (STF-32 tiene plazos reales: `timeoutMs` 100 ms, modo memoria 400 ms): **10/10
+  verdes** (copia del árbol, `tcg_stf2_mut`, load 3–4 con 4 CPU).
+- Unitarias STF-31/33/34 (STF-31 (b) con plazo real de 20 ms): **10/10 verdes**.
+- Carreras STF-6 y STF-20 (R = 10 rondas × N = 10 por corrida): ver 56.7.
+
+### 56.7 Suites completas
+
+Ver la cifra en el commit de cierre de esta sección (copia `git archive HEAD` del árbol entero).
+
+### 56.8 Pendiente para el arquitecto (⛔ no lo toqué)
+
+- Las citas `BACKEND_NOTES §22` / «21.x» en `API_CONTRACT` (l. 10 y §M6-U.11) y `ARCHITECTURE` (l. 27, §4.58.9, §11
+  `M-63`) apuntan ahora a **§55** (55.1/55.2/55.3). La nota de §55 lo dice; el texto es del arquitecto.
+- STF-35 del contrato afirma (marcado NO MEDIDO) que `EMAIL_REGEX` acepta `a@b`: es falso (§56.3); la prueba usa además
+  `a@b.c`.
+- §M6-U.6 2-bis (v1.80.10, F-7, `customer_phone_required`) **no está construido** en esta rama (medido:
+  `rg customer_phone_required backend/src` ⇒ 0). No es parte de este encargo.
