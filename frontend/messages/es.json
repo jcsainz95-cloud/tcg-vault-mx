@@ -4062,7 +4062,9 @@
         "auth_password_lock": "Bloqueo por intentos fallidos",
         "user_reset_password": "Le restablecieron la contraseña",
         "user_create": "Alta de la cuenta"
-      }
+      },
+      "ownerProtected": "Esta es la cuenta del dueño: no se puede cambiar desde otra cuenta.",
+      "ownerAccount": "Esta es la cuenta del dueño: no se restablece, bloquea ni borra desde otra cuenta."
     },
     "m11": {
       "title": "Sellado",

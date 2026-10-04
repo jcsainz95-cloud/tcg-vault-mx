@@ -47,7 +47,7 @@ import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { QueryState } from '@/components/ui/QueryState';
+import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 
@@ -188,6 +188,14 @@ export function M6View() {
   // --- Reset de contraseña (super_admin): la temp password se muestra UNA sola vez ---
   const session = useSession();
   const isSelf = !!session.user && session.user.id === selectedId;
+  // 🔒 v1.80.12.10 (§19.30.2 (b)): la cuenta del dueño no se restablece, bloquea ni borra desde otra cuenta, y ni el
+  // propio dueño se bloquea o se borra. Solo para mostrar (⛔ no autoriza): el servidor responde
+  // `403 OWNER_ACCOUNT_PROTECTED`, que también se pinta. Con ≤ 1 dueño, `isOwner ∧ ¬isSelf` ⇒ el actor no es el dueño.
+  const ownerTarget = d?.isOwner === true;
+  const canResetTarget = !ownerTarget || isSelf;
+  const canBlockOrDeleteTarget = !ownerTarget;
+  const ownerProtected = (e: unknown) => e instanceof ApiClientError && e.code === 'OWNER_ACCOUNT_PROTECTED';
+  const getError = useErrorMessage('operator');
   const [resetResult, setResetResult] = useState<ResetPasswordResponse | null>(null);
   const resetMutation = useMutation({
     mutationFn: () => resetUserPassword(selectedId!),
@@ -299,7 +307,7 @@ export function M6View() {
     },
     onError: (err) => {
       const code = err instanceof ApiClientError ? err.code : undefined;
-      setDeleteError(code === 'CANNOT_DELETE_SELF' ? t('deleteSelfError') : t('deleteError'));
+      setDeleteError(code === 'CANNOT_DELETE_SELF' ? t('deleteSelfError') : code === 'OWNER_ACCOUNT_PROTECTED' ? t('ownerProtected') : t('deleteError'));
     },
   });
 
@@ -564,8 +572,14 @@ export function M6View() {
                 </div>
               )}
 
+              {ownerTarget && (
+                <p className="text-sm text-muted" data-testid="m6-owner-account">
+                  {t('ownerAccount')}
+                </p>
+              )}
+
               {/* Bloquear / activar */}
-              {d.status !== 'deleted' && (
+              {d.status !== 'deleted' && canBlockOrDeleteTarget && (
                 <div className="flex items-center justify-between border-t border-border pt-3">
                   <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
                   {d.status === 'blocked' ? (
@@ -581,10 +595,11 @@ export function M6View() {
               )}
 
               {/* Gestión de cuenta (super_admin): reset de contraseña + eliminar */}
-              {d.status !== 'deleted' && (
+              {d.status !== 'deleted' && (canResetTarget || canBlockOrDeleteTarget) && (
                 <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
                   <span className="text-sm font-semibold">{t('accountTitle')}</span>
                   {/* Reset de contraseña */}
+                  {canResetTarget && (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="max-w-md text-xs text-muted">{t('resetHint')}</p>
                     <Button
@@ -596,10 +611,12 @@ export function M6View() {
                       <KeyRound size={16} /> {t('resetPassword')}
                     </Button>
                   </div>
+                  )}
                   {resetMutation.isError && (
-                    <Banner variant="danger" role="alert">{t('resetError')}</Banner>
+                    <Banner variant="danger" role="alert">{ownerProtected(resetMutation.error) ? t('ownerProtected') : t('resetError')}</Banner>
                   )}
                   {/* Eliminar usuario */}
+                  {canBlockOrDeleteTarget && (
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
                     <p className="max-w-md text-xs text-muted">{t('deleteHint')}</p>
                     <Button
@@ -611,7 +628,8 @@ export function M6View() {
                       <Trash2 size={16} /> {t('deleteUser')}
                     </Button>
                   </div>
-                  {isSelf && <p className="text-xs text-muted">{t('deleteSelfHint')}</p>}
+                  )}
+                  {isSelf && canBlockOrDeleteTarget && <p className="text-xs text-muted">{t('deleteSelfHint')}</p>}
                 </div>
               )}
             </div>
@@ -825,6 +843,11 @@ export function M6View() {
         }
       >
         <p>{blockTarget === 'blocked' ? t('blockQuestion') : t('unblockQuestion')}</p>
+        {statusMutation.isError && (
+          <Banner variant="danger" role="alert">
+            {ownerProtected(statusMutation.error) ? t('ownerProtected') : getError(statusMutation.error)}
+          </Banner>
+        )}
       </Modal>
     </div>
   );

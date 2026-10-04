@@ -4062,7 +4062,9 @@
         "auth_password_lock": "Locked after failed attempts",
         "user_reset_password": "Password reset by an admin",
         "user_create": "Account created"
-      }
+      },
+      "ownerProtected": "This is the owner's account: it can't be changed from another account.",
+      "ownerAccount": "This is the owner's account: it can't be reset, blocked or deleted from another account."
     },
     "m11": {
       "title": "Sealed",
