@@ -8241,9 +8241,14 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
      *«Solo el dueño compra guías por ahora»* y el enlace «Capturar a mano». ⛔ No se le pinta un botón que va a
      fallar, y ⛔ no se le dice qué llave falta.
    - Pasar a «los operadores también compran» es **decisión del dueño** (de la decisión 3 se desprende que puede
-     querer hacerlo); entonces el operador compra y queda **con su nombre**. *(SUPUESTO, sin cambio: sin tope de
+     querer hacerlo); entonces el operador compra y queda **con su nombre**. ~~*(SUPUESTO, sin cambio: sin tope de
      gasto aparte del saldo — el precio por guía es acotado y visible; el candado es el margen negativo con
-     confirmación y la bitácora.)*
+     confirmación y la bitácora.)*~~ ⭐ *(2026-10-04: el dueño dijo que **el personal también compra y cancela**
+     guías — `HECHOS.md:58` — y pidió **avisos y topes** sobre ese gasto — `HECHOS.md:60`. El SUPUESTO «sin tope»
+     queda **sustituido** por §Z: tope de gasto en guías por persona en 24 h (**TG-1**), tope de re-emisiones por
+     envío (**TG-2**) y los avisos **AG-1…AG-13**. La frase de arriba «como máximo "solo el dueño compra"» se lee
+     a la luz de `HECHOS.md:58`: el dueño ya autorizó «los operadores también compran»; el ajuste sigue arrancando
+     **apagado** y lo enciende él.)*
    - Además del ajuste, el servidor de **producción** necesita un **permiso de gasto** que solo devops pone y solo
      cuando el dueño lo indique; ⛔ **ningún** otro entorno (local, CI, vista previa, el entorno de los agentes) lo
      tiene. ⛔ **Ningún agente** cambia el ajuste, pone el permiso ni compra.
@@ -8328,7 +8333,9 @@ arquitecto (R8: sin doc oficial de firma, empieza por consulta). Un evento **rep
 - **Alertas al admin** (intento fallido, excepción, retenido, devolución, destruido, cancelado por la paquetería):
   viven en el **tablero y en la tarjeta del envío**, con el detalle que dio Skydropx; ⛔ sin correo al dueño (mismo
   criterio que D-13: *«solo verlo en el panel»*). Un envío con alerta **no cambia de estado solo**: lo resuelve
-  una persona.
+  una persona. ⭐ *(2026-10-04: §Z propone correo al dueño para devuelto/destruido (AG-11, inmediato) y para
+  excepción/retenido/intento fallido (AG-12, resumen diario); **mientras el dueño no conteste P-GAS-5, sigue
+  «solo panel»**.)*
 - **Riesgo de correos duplicados** (levantamiento §12.3.3, **NO MEDIDO**): la cuenta de Skydropx puede mandar
   **sus propios avisos** al cliente (correo/WhatsApp). **Requisito:** los avisos al cliente salen **solo de TCG
   HUNT**; antes de la primera guía real el dueño **apaga** los de Skydropx en su panel (petición ya justificada,
@@ -8404,7 +8411,7 @@ arquitecto (R8: sin doc oficial de firma, empieza por consulta). Un evento **rep
 | **Regla de empaque** | Cómo se elige el empaque según el contenido | *(SUPUESTO: sellado o > N cartas ⇒ caja; si no, sobre. N es dial, seed 60)* — el operador puede cambiarlo en la ventana (re-cotiza) |
 | **Carta Porte** | Código SAT del contenido | ⭐ **`49101600` «Coleccionables»** — **DECIDIDO** por el dueño (decisión 8). Viene puesto de arranque; el súper-admin puede buscar y elegir otro (8 dígitos) |
 | **Formato de la etiqueta** ⭐ | Hoja normal o térmica | *(SUPUESTO, pregunta P-SDX-1)* **hoja normal** (carta/A4) |
-| **Umbral de saldo bajo** | Alerta en el tablero cuando el saldo de Skydropx baja del umbral | *(SUPUESTO: seed MX$500; sin correo, solo panel)* |
+| **Umbral de saldo bajo** | Alerta en el tablero cuando el saldo de Skydropx baja del umbral | *(SUPUESTO: seed MX$500)* ~~sin correo, solo panel~~ ⭐ *(2026-10-04, §Z: además **correo inmediato al dueño**, una vez por cruce — aviso **AG-7**; umbral en pregunta P-GAS-7)* |
 | **Refresco del rastreo** | Cada cuánto se consulta Skydropx | *(SUPUESTO: 60 min)* |
 | **Credenciales** | `client_id` / `client_secret` y URL base — **de PRODUCCIÓN** (decisión 10; ⛔ no hay sandbox) | Hoy viven como **variables del entorno** de los agentes, por instrucción explícita del dueño; al salir a producción, en el **almacén de secretos** de Railway. ⛔ Nunca en el repo (es público), ni en GitHub/CI, ni en pantalla, ni en registros, ni por chat. La URL base es variable, no constante (R11) |
 
@@ -8500,7 +8507,196 @@ arquitecto (R8: sin doc oficial de firma, empieza por consulta). Un evento **rep
 | **Los avisos propios de Skydropx** al cliente; la **sucursal Punto99**; **precios sin promoción** | el dueño en su panel (T.13) | La promoción se ve en la fila de cada opción (T.3.4) |
 | **La URL base** en el entorno | el dueño la re-añade (no es secreta) | La de la referencia de producción |
 
+### Z. 💰 Control del gasto — avisos al dueño y topes sobre lo que cuesta dinero (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-GAS abiertas)
+
+> **Fuente y autoridad:** `HECHOS.md:60` (2026-10-04, «Control del dinero que nos cuesta…»). Palabras del dueño:
+> *«Ponme los avisos y más para control de dinero que nos cuesta dinero»*, tras proponérsele **(a)** un aviso cuando
+> la misma persona corrige la dirección y compra la guía y **(b)** un tope diario de guías por persona. **(a) está
+> decidido.** «Y más» ⇒ esta sección propone el **conjunto completo**, con **avisos encendidos por defecto** y
+> **topes que el dueño configura**. Reglas que también aplican, por su fila: `HECHOS.md:59` (2026-10-04, «REGLA
+> GENERAL: los procesos se diseñan LO MÁS AUTOMÁTICOS POSIBLE…»): el sistema **detecta solo**, nadie tiene que ir a
+> buscar; `HECHOS.md:58` (2026-10-04, «Skydropx: comprar y cancelar guías lo puede hacer TAMBIÉN EL PERSONAL…»);
+> `HECHOS.md:51` (2026-10-04, «Usuarios de back-office SIN correo…»): el personal no tiene correo, así que **los
+> avisos van al dueño**, nunca al personal.
+>
+> **Criterios: 319–338.** **Qué se construye ya con Skydropx (fase D2)** y **qué va a un stream aparte**: Z.7.
+> El *cómo* (tablas, jobs, endpoints, plantillas) es del **arquitecto**; aquí van requisitos de negocio.
+> 💰 Toca dinero (topes que bloquean compras y reembolsos) ⇒ **tres veredictos**.
+>
+> **Medido por product-owner el 2026-10-04 por lectura del árbol `claude/skydropx-d`** (sin ejecutar nada): lo que
+> cita fichero:línea abajo. ⚠️ **NO MEDIDO**: el volumen real de guías por día (la tienda **nunca ha vendido**,
+> `HECHOS.md` «La tienda NUNCA ha procesado una venta real»), por eso los umbrales en pesos son **propuestas** y van
+> a pregunta (Z.8).
+
+#### Z.0 Reglas comunes a todos los controles (decididas por product-owner — lo obvio)
+
+1. **Encendido por defecto.** En una instalación nueva **todos** los avisos de esta sección están encendidos y todos
+   los topes tienen su valor de arranque. El dueño puede **apagar** cada aviso y **mover** cada umbral o tope desde
+   la configuración (M10), sin desplegar; cada cambio queda **auditado** (quién, antes, después).
+2. **Solo el súper-admin configura.** El operador no ve ni cambia estos ajustes.
+3. **El sistema detecta solo** (`HECHOS.md:59`): ningún aviso depende de que alguien abra una pantalla o apriete un
+   botón. Lo que se puede medir automáticamente se mide automáticamente.
+4. **«El dueño»** = las cuentas de **súper-admin con correo** (`HECHOS.md:51` (a): la del dueño conserva correo).
+   *(SUPUESTO, pregunta **P-GAS-9**.)* Los avisos le llegan a él. ⛔ **Nunca** al personal (no tiene correo y no es
+   a quien se controla).
+5. **Los actos del propio dueño no se le avisan a él** cuando el aviso es «sobre una persona» (dirección + guía,
+   tope por persona, bucle de cancelar y recomprar): él no necesita vigilarse. **Sí** se le avisan los hechos del
+   sistema o del proveedor (saldo bajo, cargo extra, cobrado ≠ cotizado, paquete devuelto), los provoque quien los
+   provoque. Un **súper-admin sin correo** (`HECHOS.md:51` (d)) **sí** cuenta como persona vigilada.
+6. **Un tope por persona bloquea solo a esa persona.** Al rebasarlo, a esa persona se le niega el acto con un
+   mensaje claro (*«Llegaste al tope de hoy; el dueño puede hacerlo»*), ⛔ sin decirle la cifra del tope ni el
+   saldo (mismo criterio que T.11); **el dueño sigue** sin tope y puede subirlo. El intento negado queda en
+   bitácora y genera aviso. ⛔ Un tope **nunca** deja un pedido atorado: la «Capturar a mano» de T.10 sigue
+   disponible para todos.
+7. **Ningún aviso se borra.** Se marca **«visto»** (queda quién y cuándo); el historial se conserva.
+8. **⛔ Sin PII en el correo**: el correo dice **qué pasó, cuánto, quién del personal y el número de pedido**, con un
+   enlace al panel. ⛔ Sin dirección, teléfono, CLABE ni nombre del cliente (todo eso se ve en el panel, con sesión).
+9. **No cambia ninguna decisión anterior del dueño.** Donde un control de aquí roza una (D-13 «solo verlo en el
+   panel» para reembolsos de operador, `HECHOS.md:33`; pregunta 91, `HECHOS.md:41`), **se respeta tal cual** y se
+   pregunta (Z.8), no se asume.
+
+#### Z.1 Inventario: lo que nos cuesta dinero, quién lo dispara y qué control existe hoy
+
+| # | Qué cuesta dinero | Quién lo dispara | Dónde vive (medido) | Control que ya existe |
+|---|---|---|---|---|
+| 1 | **Comprar una guía Skydropx** (gasta saldo prepagado) | personal o dueño (`HECHOS.md:58`) | §T.4; `API_CONTRACT §M4-SHIP.19.7`; dial `shipping_label_purchase` (`API_CONTRACT.md:25040`) | Puerta de compra; saldo suficiente; confirmación con margen negativo (T.3.8); bitácora de quién eligió y si era la recomendada (T.4.3). **Sin tope de gasto**: el contrato lo deja como deuda aceptada «si el dueño quiere tope ⇒ dial `operator_label_cap_24h_cents`» (`API_CONTRACT.md:24537`, SDX-R6) |
+| 2 | **Seguro** de cada guía (escalón $25 / $170…) | sistema (automático) | T.3.3, decisión 9 | Lo calcula el servidor, no se teclea (criterio 311) |
+| 3 | **Cancelar una guía y comprar otra** (re-emitir) | personal o dueño | T.4.8; `HECHOS.md:58` | Bitácora. **Sin límite de veces** |
+| 4 | **Cancelación cuyo saldo no regresa entero** | sistema o persona | `API_CONTRACT.md:24311-24315` (SEC-SDX-11): `refundedCents < costo` ⇒ ajuste `Cancellation::NotRefunded`; `refundedCents = null` ⇒ **se asume devuelto**, NO MEDIDO | Ajuste al P&L. **Sin aviso**; el caso `null` **no se comprueba** |
+| 5 | **Cargos extra de la paquetería** (sobrepeso, zona extendida, devolución) | paquetería | `ShipmentCostAdjustment` (`backend/prisma/schema.prisma:1683-1699`); DTO `API_CONTRACT §M4-SHIP.19.22.4`; T.7; los absorbe la tienda (`HECHOS.md:41`) | Se registran solos y suman al P&L. **Sin aviso** |
+| 6 | **Lo cobrado por la guía ≠ lo cotizado** | proveedor | `API_CONTRACT.md:26583-26587` (`expectedChargeCents`, `balanceBeforeCents`); T.7 «manda lo cobrado» | Se registra. **Sin aviso** |
+| 7 | **Compra cobrada sin guía** (`charged_not_found`) | proveedor / red | `API_CONTRACT.md:26656-26658` (§19.27.4) | Bitácora `shipment.label_verify_uncertain`; el envío queda en duda. **Sin aviso al dueño** |
+| 8 | **Saldo de Skydropx bajo** | — | dial `skydropx_low_balance_cents`, seed MX$500, «solo panel» (`API_CONTRACT.md:23851`); `workQueue.shipping.lowBalance` (`API_CONTRACT.md:24495-24498`) | Tarjeta del tablero. **Sin correo** |
+| 9 | **Guía comprada que no sale** (el paquete no se entrega a la paquetería) | personal | T.5 («Salida de hoy») | **Nada** avisa |
+| 10 | **Paquete devuelto, destruido, retenido o con excepción** (guía de regreso, mercancía perdida) | paquetería | T.6, tabla de mapeo | Alerta en tablero y tarjeta; **sin correo** |
+| 11 | **Elegir una opción más cara que la recomendada / con margen negativo** | personal | T.3.8, T.4.3 | Confirmación + bitácora. **Nadie lo resume** |
+| 12 | **Corregir la dirección y comprar la guía la misma persona** (riesgo: desviar un paquete) | personal | T.2; `HECHOS.md:50`, `:60` | Bitácora antes/después y quién (criterio 315). **Sin aviso** — **decidido: lo lleva** |
+| 13 | **Reembolso de una carta por el operador** (dinero sale de Stripe; la comisión no regresa) | operador | `PaymentRefund.kind = item_missing` (`schema.prisma:178`); tope 24 h dial `operator_refund_cap_24h_cents` (`backend/src/modules/settings/settings.constants.ts:219`), MX$5,000 (`HECHOS.md:30`); tablero `operatorRefunds` 24 h/30 d (`backend/src/modules/admin/admin.service.ts:1797-1808`) | Tope que bloquea + tarjeta del tablero. **Sin correo** por decisión del dueño (D-13, `HECHOS.md:33`) |
+| 14 | **Reembolsos del dueño**: total (`order_full`), de caso (`case_refund`) | súper-admin | `@MoneyOut` en `backend/src/modules/orders/admin-orders.controller.ts:325` y `backend/src/modules/vault/admin-replacement-cases.controller.ts:58`; 2× pide re-escribir, 5× bloquea (`HECHOS.md:32`; `settings.constants.ts:221`) | Solo súper-admin; topes contra error de dedo; reembolsos atorados en el tablero (`admin.service.ts:1794`) |
+| 15 | **Reembolsos manuales por SPEI** | súper-admin | `ManualRefund` (`schema.prisma:1854`); `@MoneyOut` de clase (`backend/src/modules/payments/refunds/admin-manual-refunds.controller.ts:18`) | Solo súper-admin; marca quién y cuándo (`HECHOS.md:32`) |
+| 16 | **Pago SPEI de buylist al vendedor** | súper-admin | `backend/src/modules/buylist/admin-buylist.controller.ts:629-632` (`@MoneyOut`) | Solo súper-admin |
+| 17 | **Oferta de buylist** (compromete dinero; precio a mano por línea) | operador | tope del operador `buylist_operator_offer_cap_cents` (`settings.constants.ts:263-265`): arriba, autoriza el súper-admin; cada precio a mano auditado (`admin-buylist.controller.ts:280-295`); bounty nunca paga más que el mercado (`HECHOS.md:27-28`) | Tope que pide autorización + bitácora. **Nadie resume** los precios a mano |
+| 18 | **Guía de buylist** (la paga la tienda; manual) | operador | costo capturado al confirmar o al cancelar (`admin-buylist.controller.ts:398-401`, `:422-436`) | Se captura. **Sin aviso** |
+| 19 | **Merma: piezas marcadas perdidas o dañadas** | personal | `POST /admin/inventory/adjustments`, motivo `perdida`/`danada`, **sin `@MoneyOut`** (`backend/src/modules/inventory/inventory.controller.ts:429-436`; roles exactos NO MEDIDOS) | Bitácora con motivo. **Sin aviso** |
+| 20 | **Contracargo** (dinero perdido + cuota) | banco del cliente | `charge.dispute.created` (`HECHOS.md:52`, `payments.service.ts:173`); §W.3 (c) | Congela las piezas. **Sin aviso al dueño** (NO MEDIDO si hoy hay alguno) |
+| 21 | **Créditos del proveedor de precios PSA** (proveedor de paga) | sistema | `grading_hook_enabled` «arranca el consumo de créditos de un proveedor de paga» (`settings.constants.ts:200-213`); tope diario propuesto en §Y.2 | Tope propuesto en §Y.2 |
+| — | **Saldo a favor y descuentos manuales** | — | **No existen**: `saldo a favor` está fuera de alcance (`PROJECT.md` «Fuera de alcance», §S.10); búsqueda de `discount|coupon|storeCredit` en `backend/src` ⇒ solo un fixture de Skydropx | **Nada que controlar.** Si se construyen, entran aquí |
+
+**Hoy no existe ningún correo al dueño.** Medido: `backend/src/modules/mail/mail.service.ts` solo envía
+verificación de correo, restablecer contraseña y aviso de candado (`:17`, `:25`, `:34`); D-13 retiró el correo
+interno `AVA-1`. ⇒ **El correo al dueño es pieza nueva** (Z.5); el panel reutiliza el `workQueue` del tablero
+(`admin.service.ts:2246-2253`) y su patrón «solo súper-admin» (`admin.service.ts:1796`).
+
+#### Z.2 Gravedad: correo inmediato o resumen diario
+
+- **🔴 Inmediato** — correo al dueño **en el momento** + panel: dinero que **ya se fue sin explicación**, o algo
+  que **puede seguir costando** si nadie actúa hoy (paquete desviado, saldo agotado, cobro sin guía).
+- **🟡 Resumen** — panel en el momento + **una línea en el resumen diario** por correo: gasto explicable que
+  conviene revisar, pero que no empeora por esperar un día.
+- **⚪ Solo panel** — lo que el dueño ya decidió ver solo en el panel (D-13, pregunta 91), mientras no diga otra
+  cosa (Z.8).
+
+#### Z.3 Los avisos — catálogo (todos encendidos por defecto)
+
+| ID | Qué lo dispara | Umbral de arranque | Gravedad | Qué dice (idea; el texto final es de ux-ui) |
+|---|---|---|---|---|
+| **AG-1** | ⭐ **La misma persona corrigió la dirección de un envío y compró su guía** (decidido, `HECHOS.md:60` (a)) | Siempre. **🔴 si cambió destinatario, calle o CP; 🟡 si solo cambió colonia, línea 2 o referencias** *(P-GAS-3)* | 🔴 / 🟡 | «{Persona} corrigió la dirección del pedido {N} ({qué campos}) y compró la guía ({paquetería}, MX$X).» Enlace al envío, donde se ve el antes y el después |
+| **AG-2** | Una persona **llegó al 80 %** de su tope diario de guías (TG-1) | 80 % | 🟡 | «{Persona} lleva MX$X en guías hoy (80 % de su tope).» |
+| **AG-3** | Una persona **chocó con su tope** de guías (TG-1) y se le negó la compra | — | 🔴 | «A {persona} se le negó una guía del pedido {N}: llegó a su tope de hoy (MX$X). Puedes comprarla tú o subir el tope.» |
+| **AG-4** | **Bucle cancelar-recomprar**: un envío con **2 o más guías canceladas**, o una persona con **3 o más cancelaciones en 24 h** | 2 por envío · 3 por persona/24 h | 🔴 | «El pedido {N} lleva {k} guías canceladas ({quién}). Saldo no recuperado: MX$X.» |
+| **AG-5** | **Lo cobrado por la guía ≠ lo cotizado** (incluye el seguro) | cualquier diferencia: 🟡; **más de MX$20**: 🔴 | 🟡 / 🔴 | «La guía del pedido {N} costó MX$X; se cotizó en MX$Y (+MX$Z).» |
+| **AG-6** | **Cargo extra de la paquetería** registrado (`ShipmentCostAdjustment`, cualquier tipo salvo el de cancelación, que es AG-8) | cualquiera: 🟡; **uno solo de más de MX$150**: 🔴 *(P-GAS-6)* | 🟡 / 🔴 | «Cargo extra de {paquetería} en el pedido {N}: {sobrepeso / zona extendida / devolución}, MX$X.» |
+| **AG-7** | **Saldo de Skydropx bajo** (cruza el umbral hacia abajo) **o no alcanza** para una guía que alguien intentó comprar | dial existente, MX$500 *(P-GAS-7)* | 🔴 | «Tu saldo de Skydropx es MX$X (umbral MX$Y).» / «Una guía no se pudo comprar por saldo.» **Un correo por cruce**: no se repite hasta que el saldo suba sobre el umbral y vuelva a bajar |
+| **AG-8** | **Reembolso de una cancelación que no llegó**: (a) Skydropx devolvió **menos** que el costo; o (b) no dijo cuánto devolvió y el sistema **no pudo comprobar** que el saldo regresó en **3 días** | (a) siempre · (b) 3 días | 🔴 | «La guía cancelada del pedido {N} no devolvió MX$X al saldo.» / «No pudimos confirmar que regresaran MX$X de la guía cancelada del pedido {N}.» |
+| **AG-9** | **Compra cobrada sin guía** (el veredicto `charged_not_found` de §19.27) | siempre | 🔴 | «Skydropx descontó MX$X por la guía del pedido {N} y no encontramos la guía. Revísalo en tu panel de Skydropx.» |
+| **AG-10** | **Guía comprada que no sale**: sin «salieron» (T.5) **ni** primer evento de la paquetería | **3 días** naturales *(P-GAS-8)* | 🟡 | «La guía del pedido {N} se compró hace {d} días y el paquete no ha salido. Si ya no va a salir, cancélala para recuperar el saldo.» Desaparece sola cuando sale |
+| **AG-11** | **Paquete devuelto o destruido** (`in_return`, `destroyed`) | siempre | ⚪ hoy (pregunta 91) → propuesta 🔴 *(P-GAS-5)* | «El paquete del pedido {N} {regresa / fue destruido}.» |
+| **AG-12** | **Excepción o retenido** (`exception`, `retained`) e **intento de entrega fallido** | siempre | ⚪ hoy → propuesta 🟡 *(P-GAS-5)* | «{Paquetería} reporta {excepción} en el pedido {N}.» |
+| **AG-13** | **Guía con margen negativo** u **opción más cara que la recomendada** | siempre | 🟡 | En el resumen: cuántas, quién y cuánto de más en total («3 guías, MX$140 por encima de la recomendada»). ⛔ Sin correo por cada una |
+| **AG-14** | **Reembolsos de operador**: alguien llega al **80 %** de su tope de MX$5,000 en 24 h, o **choca** con él | 80 % · tope | ⚪ (D-13) → propuesta 🟡 al 80 % y 🔴 al chocar *(P-GAS-4)* | «A {operador} se le negó un reembolso: llegó a su tope de 24 h.» |
+| **AG-15** | **Dinero que sale por una cuenta de súper-admin que no es el dueño** (reembolso total, de caso, SPEI marcado como pagado, pago de buylist) | siempre | 🔴 *(P-GAS-9)* | «{Persona} reembolsó / marcó pagado MX$X ({qué}).» |
+| **AG-16** | **Merma**: piezas marcadas **perdidas o dañadas** | cualquiera: 🟡; **más de MX$1,000 a costo por persona en 24 h**: 🔴 | 🟡 / 🔴 | «{Persona} marcó {k} piezas como {perdidas/dañadas} (MX$X a costo).» |
+| **AG-17** | **Contracargo** recibido | siempre | 🔴 | «Contracargo en el pedido {N}: MX$X. Las piezas quedaron congeladas.» |
+| **AG-18** | **Precio a mano en una oferta de buylist por encima del derivado** | **más de 20 %** por encima | 🟡 | En el resumen: cuántas líneas, quién y cuánto de más |
+| **AG-19** | **Créditos PSA**: el consumo del día llega al **80 % del tope** de §Y.2 | 80 % | 🟡 | «Créditos PSA hoy: X de Y.» |
+| **AG-20** | **Reembolso de Stripe atorado o fallido** (ya existe como `stuckRefunds` en el tablero, `admin.service.ts:1794`) | el criterio de hoy | 🟡 | En el resumen: cuántos y cuánto |
+
+*(Las cifras MX$20, MX$150, MX$1,000, 20 %, 80 %, 3 días son **defaults de product-owner**: todas son ajustes del
+dueño. Las que mueven más dinero o eligen bloquear frente a avisar están en Z.8.)*
+
+#### Z.4 Los topes — qué bloquean (configurables por el dueño)
+
+| ID | Qué limita | A quién | Arranque | Al rebasarlo |
+|---|---|---|---|---|
+| **TG-1** | ⭐ **Gasto en guías Skydropx por persona en 24 h móviles** (guía + seguro, lo que se descontó del saldo) | toda persona salvo el dueño (Z.0.5) | **MX$2,500** *(P-GAS-1)* | **Se bloquea** la compra a esa persona (Z.0.6) + **AG-3**. El dueño compra o sube el tope. Las guías canceladas con saldo devuelto **no** cuentan |
+| **TG-2** | **Guías por envío**: cuántas veces se puede re-emitir (cancelar y comprar otra) | toda persona salvo el dueño | **1 re-emisión** por envío (2.ª guía sí; 3.ª guía solo el dueño) *(P-GAS-2)* | **Se bloquea** la siguiente compra de ese envío a esa persona + **AG-4** |
+| **TG-3** | Reembolsos de operador en 24 h | operador | **ya existe**: MX$5,000 (`HECHOS.md:30`) | Sin cambio: bloquea (criterio 221). Solo se añade el aviso AG-14 |
+| **TG-4** | Oferta de buylist del operador | operador | **ya existe** (`buylist_operator_offer_cap_cents`) | Sin cambio: pide autorización del súper-admin |
+| **TG-5** | Créditos PSA por día | sistema | §Y.2 (P-JOY-5) | Sin cambio: lo define §Y |
+
+- **Concurrencia:** dos compras a la vez de la misma persona **no** pueden saltarse TG-1 ni TG-2 (la segunda ve la
+  primera). *(Cómo: arquitecto; misma clase que el tope de 24 h de reembolsos, §M4-SHIP.8.)*
+- **Sin tope de monto por guía**: el precio de cada guía ya se ve antes de comprar y el margen negativo pide
+  confirmación (T.3.8). ⛔ No se añade un tercer tope «por guía» *(decisión de product-owner: el gasto que se escapa
+  es el acumulado y el repetido, no el de una guía)*.
+- **El interruptor general** (`shipping_label_purchase`, T.4.7) sigue siendo el freno de emergencia: el correo
+  de un aviso 🔴 de guías lleva el enlace a ese ajuste.
+
+#### Z.5 Dónde llegan los avisos
+
+**Panel (siempre):**
+- **Tarjeta «Control del gasto» en el tablero**, solo súper-admin (como `manualRefunds`/`operatorRefunds`, que al
+  operador le llegan `null` — `admin.service.ts:1796`): avisos **sin ver** (🔴 y 🟡 por separado) y el gasto en
+  guías de hoy por persona. Reutiliza la tarjeta y el `workQueue` existentes; las alertas de paquetería que ya están
+  en `workQueue.shipping` (`API_CONTRACT.md:24495`) se **cuentan ahí**, no se duplican.
+- **Lista «Avisos de gasto»**: todos los avisos con fecha, gravedad, persona, monto y enlace al pedido/envío;
+  filtros por tipo, persona y «sin ver»; **marcar como visto** (individual y en bloque). Solo súper-admin.
+- El operador **no** ve la lista ni la tarjeta; solo ve el mensaje del bloqueo cuando le toca (Z.0.6).
+
+**Correo al dueño:**
+- **🔴 inmediato**, uno por hecho. **Sin repetir**: el mismo aviso sobre el mismo envío/persona no sale dos veces
+  (AG-7 una vez por cruce). **Freno anti-ruido**: más de **5** correos inmediatos en una hora ⇒ los siguientes se
+  juntan en **un** correo «y N avisos más» al cierre de esa hora.
+- **🟡 resumen diario**, a las **08:00 hora del centro de México** *(misma zona que P-FIN-1)*, con lo del día anterior:
+  por tipo, cuántos y cuánto; el gasto en guías por persona; y los 🔴 del día otra vez en una línea. **Si no hubo
+  nada, no sale correo.** Lo que el resumen dice **cuadra** con la lista del panel para ese día.
+- ⛔ Sin PII (Z.0.8). ⛔ Nunca al personal. Si el envío del correo falla, el aviso **sigue en el panel** (el panel
+  es la fuente; el correo es la notificación).
+
+#### Z.6 Lo que NO cambia (se verifica por ausencia, criterio 338)
+
+- D-13 (`HECHOS.md:33`): **ningún correo por cada reembolso de operador** (AG-14 solo avisa del 80 % y del
+  choque con el tope, y solo si el dueño dice sí en P-GAS-4).
+- Pregunta 91 (`HECHOS.md:41`): **ningún correo al cliente** por paquete devuelto; el dueño decide a mano.
+- Los topes existentes (MX$5,000 de reembolsos, 2×/5× de casos, tope de oferta de buylist) **no cambian de valor ni
+  de conducta**.
+- ⛔ Ningún tope bloquea la guía manual (T.10), ni un reembolso automático (pago fallido, contracargo), ni lo que
+  hace el sistema solo (cancelación automática, rastreo).
+- ⛔ El personal **no** recibe correos nuevos; el cliente **no** recibe nada de esta sección.
+
+#### Z.7 Qué se construye ya con Skydropx (D2) y qué va aparte
+
+**Con D2 (stream «Órdenes y dinero», junto a D2c/D2d/D2f):** la base de avisos (lista del panel, tarjeta del
+tablero, correo inmediato y resumen diario — Z.5), **TG-1**, **TG-2** y los avisos **AG-1 a AG-13**. *Por qué
+juntos:* TG-1 y TG-2 viven dentro de la compra de guía (D2c); AG-5, AG-7, AG-8 y AG-9 leen el saldo y la
+verificación que D2c/D2f ya construyen; AG-6 cuelga de la tarea de cargos extra; AG-10–AG-12 del rastreo (D2d). Hacerlos
+después obligaría a reabrir la compra de guía, que es la pieza más delicada.
+Criterios **319–333**.
+
+**Stream aparte** (Admin y auditoría + el dueño de cada módulo): **AG-14** (reembolsos de operador, depende de
+P-GAS-4), **AG-15** (súper-admin que no es el dueño), **AG-16** (merma), **AG-17** (contracargo, junto a §W.3 (c)),
+**AG-18** (precios a mano en buylist), **AG-19** (créditos PSA, junto a §Y.2) y **AG-20** (reembolsos atorados).
+Usan la misma base de Z.5. Criterios **334–337**.
+
+#### Z.8 Preguntas al dueño (lenguaje llano; cada una con recomendación — si no contesta, se construye con ella)
+
+Están en la sección final **«Preguntas — control del gasto (§Z)»**: **P-GAS-1** a **P-GAS-9**.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §Z (control del gasto)** *(2026-10-04)*: avisos por **SMS o WhatsApp**; avisos o correos **al personal**;
+  **aprobación previa del dueño guía por guía** como camino normal (el freno es el tope y el interruptor general);
+  **bloqueo automático de cuentas** del personal por un aviso; **conciliación automática** del saldo de Skydropx
+  contra su estado de cuenta (más allá de AG-8 y AG-9); tope de monto **por guía** (Z.4).
 - **De §W, §X y §Y** *(2026-10-04)*: contabilidad completa o emisión automática de CFDI (los exportes son insumo
   para el contador); conciliación bancaria automática y pago de SPEI desde la app (se sigue pagando en el banco y
   marcando en el panel); recalcular el precio exhibido por cada visita; consultar PSA de sellado o de gradeadas;
@@ -12374,6 +12570,115 @@ v1.80.11, `API_CONTRACT §M4-SHIP.19.19`; numeración siguiente a 305, medida co
    aparece en la tarjeta de «Salida de hoy» ni se le muestra al cliente. **⛔ Falla** si el aviso impide cotizar,
    comprar o capturar a mano, si falta en un envío con colonia escrita a mano, si aparece en uno con colonia de
    la lista, o si se queda pegado tras corregir la colonia o cargar el catálogo.
+
+**Control del gasto (§Z) — criterios nuevos del 2026-10-04** *(`HECHOS.md:60`; numeración siguiente a 318, medida
+con `Grep` sobre este `PROJECT.md` en `claude/skydropx-d` el 2026-10-04; ⚠️ NO MEDIDO si otra rama viva usa ≥ 319 —
+lo comprueba el orquestador antes de fusionar). **319–333 van con Skydropx (D2); 334–337, stream aparte; 338, por
+ausencia.** Todo lo de Skydropx se verifica **contra el doble** del proveedor (⛔ ninguna compra real, criterio 306).*
+
+319. 💰 **Avisos encendidos y topes con valor desde el primer día; solo el dueño los mueve** *(Z.0.1–Z.0.2)*: en una
+   instalación nueva **todos** los avisos AG-1…AG-20 están encendidos y TG-1/TG-2 tienen su valor de arranque
+   (Z.3, Z.4). El súper-admin apaga un aviso o cambia un umbral o tope **sin desplegar**, y cada cambio queda en
+   bitácora con quién, antes y después. El **operador** no ve esos ajustes y, si fuerza la petición, se rechaza
+   y queda en bitácora. **⛔ Falla** si algún aviso arranca apagado, si un tope arranca vacío o en cero, o si un
+   operador puede leer o cambiar un ajuste de §Z.
+320. 💰 **AG-1 — la misma persona corrige la dirección y compra la guía** *(Z.3; decidido, `HECHOS.md:60` (a))*: un
+   operador corrige la dirección de un envío (criterio 315) y luego compra su guía ⇒ **un** aviso con quién,
+   pedido, qué campos cambió, paquetería y monto, y enlace al antes/después del panel. Si cambió **destinatario,
+   calle o CP** ⇒ **correo inmediato**; si solo **colonia, línea 2 o referencias** ⇒ panel + resumen diario
+   (default de P-GAS-3). Si **corrige uno y compra otro**, no salta AG-1. Si quien corrige y compra es **el dueño**
+   ⇒ **sin** aviso (Z.0.5). **⛔ Falla** si el caso no genera aviso, si genera dos por el mismo envío, si el correo
+   lleva la dirección, el teléfono o el nombre del cliente, o si el dueño recibe aviso de sus propios actos.
+321. 💰 **TG-1 — tope de gasto en guías por persona en 24 h** *(Z.4)*: con el tope en MX$2,500 (arranque) y un operador
+   que ya gastó MX$2,400 en las últimas 24 h, una guía de MX$150 **se le niega** antes de llamar a Skydropx, con
+   *«Llegaste al tope de hoy; el dueño puede hacerlo»* (⛔ sin la cifra), queda el intento en bitácora y sale
+   **AG-3** (correo inmediato); el **dueño** compra esa misma guía sin tope; una guía **cancelada con el saldo
+   devuelto** deja de contar; al llegar al **80 %** sale **AG-2** (resumen), una vez por persona y día. **Carreras**
+   (N ≥ 10 rondas, se reporta la proporción; vale solo 10/10): dos compras simultáneas de la misma persona que
+   juntas rebasan el tope ⇒ **exactamente una** pasa. «Capturar a mano» sigue disponible para el bloqueado.
+   **⛔ Falla** si alguien que no es el dueño gasta por encima del tope, si el bloqueado ve la cifra del tope o
+   del saldo, si se llama a Skydropx antes de negar, o si el bloqueo impide la guía manual.
+322. 💰 **TG-2 y AG-4 — el bucle cancelar-recomprar** *(Z.3, Z.4)*: con el arranque (1 re-emisión por envío), un
+   operador compra la guía, la cancela y compra otra (**permitido**); la cancela otra vez e intenta una tercera ⇒
+   **se le niega** y sale **AG-4** (correo inmediato) con cuántas guías canceladas lleva el envío y cuánto saldo no
+   se recuperó; el **dueño** sí puede comprar la tercera. Una persona con **3 cancelaciones en 24 h** (en envíos
+   distintos) ⇒ **AG-4** también. Las cancelaciones **automáticas** del sistema (criterio 244) **no** cuentan para
+   el tope de la persona. **⛔ Falla** si un operador llega a una tercera guía del mismo envío, o si el bucle no
+   avisa.
+323. 💰 **AG-5 — lo cobrado ≠ lo cotizado** *(Z.3)*: con el doble cobrando **MX$5 más** que lo cotizado ⇒ aviso 🟡
+   (panel + resumen); cobrando **MX$25 más** ⇒ **correo inmediato**; cobrando **igual** ⇒ nada. El aviso dice
+   cotizado, cobrado y diferencia, seguro incluido. **⛔ Falla** si una diferencia no avisa, si una compra sin
+   diferencia avisa, o si el monto mostrado no es el que se registró en el P&L (T.7).
+324. 💰 **AG-6 — cargo extra de la paquetería** *(Z.3)*: cuando la tarea diaria registra un cargo extra (T.7) ⇒ aviso
+   con tipo, pedido y monto; de **más de MX$150** ⇒ correo inmediato; si no, panel + resumen. Leer **otra vez** el
+   mismo cargo ⇒ **sin** aviso nuevo. **⛔ Falla** si un cargo registrado no avisa, o si el mismo cargo avisa dos
+   veces.
+325. 💰 **AG-7 — saldo de Skydropx bajo o insuficiente** *(Z.3)*: con el umbral en MX$500 y el saldo pasando de MX$600
+   a MX$450 ⇒ **un** correo inmediato; siguientes lecturas bajo el umbral ⇒ **ninguno** más; el saldo sube a
+   MX$800 y vuelve a bajar a MX$400 ⇒ **otro** correo. Una compra negada por saldo insuficiente ⇒ correo
+   inmediato. El correo y el panel del dueño dicen la cifra; el operador sigue viendo solo «alcanza / no alcanza»
+   (T.11). **⛔ Falla** si el cruce no avisa, si avisa en cada lectura, o si el operador ve la cifra.
+326. 💰 **AG-8 — el reembolso de una cancelación que no llegó** *(Z.3; `API_CONTRACT.md:24311-24315`)*: con el doble
+   devolviendo **menos** que el costo al cancelar ⇒ correo inmediato con la diferencia; con el doble **sin decir**
+   cuánto devolvió, el sistema **comprueba solo** (`HECHOS.md:59`) que el saldo regresó; si a los **3 días** no lo
+   pudo comprobar ⇒ correo inmediato. Si lo comprueba ⇒ nada. *(Cómo se comprueba: arquitecto; que Skydropx
+   permita comprobarlo es NO MEDIDO, T.14 — mientras no se pueda, toda cancelación «sin decir cuánto» avisa a los
+   3 días.)* **⛔ Falla** si una devolución incompleta no avisa, o si una cancelación sin confirmar queda sin
+   aviso pasados los 3 días.
+327. 💰 **AG-9 — compra cobrada sin guía** *(Z.3; `API_CONTRACT §M4-SHIP.19.27`)*: cuando la verificación automática
+   concluye `charged_not_found` ⇒ **un** correo inmediato con pedido y monto. **⛔ Falla** si ese veredicto no
+   avisa o avisa más de una vez por compra.
+328. 💰 **AG-10 — guía comprada que no sale** *(Z.3)*: con el reloj inyectado, una guía comprada **sin** «salieron» ni
+   evento de la paquetería a los **3 días** ⇒ aviso 🟡 que sugiere cancelarla para recuperar el saldo; en cuanto
+   sale (marca o evento) el aviso **se resuelve solo**. A los 2 días ⇒ nada. **⛔ Falla** si no avisa al día 3, si
+   avisa antes, o si el aviso sigue «sin resolver» después de la salida.
+329. **AG-11 y AG-12 — paquete devuelto, destruido o con problemas** *(Z.3; T.6)*: `in_return`/`destroyed` y
+   `exception`/`retained`/intento fallido aparecen en la lista de avisos del panel. **Correo** solo si el dueño dice
+   sí en P-GAS-5 (inmediato para devuelto/destruido, resumen para lo demás); **mientras no conteste, solo panel**,
+   como hoy. Al cliente **nada** nuevo (pregunta 91). **⛔ Falla** si uno de esos estados no aparece en la lista,
+   o si sale un correo al dueño sin que él lo haya aceptado.
+330. **AG-13 — opciones caras y margen negativo, en el resumen** *(Z.3)*: tres compras de un día con margen negativo
+   o más caras que la recomendada ⇒ el resumen del día siguiente dice **cuántas, de quién y cuánto de más en
+   total**; ⛔ **ningún** correo inmediato por ellas. **⛔ Falla** si el total no cuadra con la bitácora de elección
+   (T.4.3), o si salen correos por cada una.
+331. **El panel: tarjeta «Control del gasto» y lista de avisos** *(Z.5)*: el súper-admin ve en el tablero los avisos
+   sin ver (🔴 y 🟡 aparte) y el gasto en guías de hoy por persona; la lista tiene fecha, gravedad, persona,
+   monto, enlace, filtros (tipo, persona, «sin ver») y «marcar visto» (queda quién y cuándo). Ningún aviso se
+   borra. El **operador** no recibe la tarjeta ni la lista (como `operatorRefunds`, que hoy le llega `null`). Las
+   alertas de paquetería ya contadas en el tablero **no** se cuentan dos veces. **⛔ Falla** si un operador ve la
+   lista o la tarjeta, si un aviso desaparece al marcarlo visto, o si una alerta se cuenta dos veces.
+332. **Correo inmediato: al dueño, sin repetir, sin ruido y sin datos del cliente** *(Z.0.4, Z.0.8, Z.5)*: un aviso 🔴
+   manda **un** correo a cada cuenta de súper-admin **con correo**, ⛔ a nadie más; el mismo aviso sobre el mismo
+   envío o persona no sale dos veces; con **6** avisos 🔴 en una hora, salen **5** correos y **uno** más con «y 1
+   aviso más»; ningún correo lleva dirección, teléfono, CLABE ni nombre del cliente (sí el nombre del miembro del
+   personal y el número de pedido); si el envío del correo falla, el aviso **sigue** en el panel. **⛔ Falla** si
+   un correo llega a una cuenta de personal o de cliente, si un aviso repite correo, si pasan más de 5 correos
+   inmediatos en una hora, o si un correo lleva PII del cliente.
+333. **Resumen diario** *(Z.5)*: con el reloj inyectado, a las **08:00 hora del centro de México** sale **un** correo
+   con lo 🟡 y 🔴 del día anterior (por tipo, cuántos y cuánto; gasto en guías por persona); un día **sin** avisos
+   ⇒ **ningún** correo; lo que dice el resumen **cuadra** con la lista del panel filtrada a ese día. **⛔ Falla** si
+   sale sin avisos, si sale dos veces el mismo día, o si no cuadra con el panel.
+334. 💰 **AG-14 — reembolsos de operador** *(stream aparte; Z.3; respeta D-13, `HECHOS.md:33`)*: un operador que
+   llega al 80 % de su tope de 24 h, o que **choca** con él, aparece en la lista del panel. **Correo** (resumen al
+   80 %, inmediato al chocar) **solo** si el dueño dice sí en P-GAS-4; mientras tanto, solo panel. ⛔ **Nunca** un
+   correo por cada reembolso. **⛔ Falla** si sale un correo por reembolso, o si sale cualquier correo de AG-14
+   sin el sí del dueño.
+335. 💰 **AG-15 — dinero que sale por un súper-admin que no es el dueño** *(stream aparte; Z.3)*: un reembolso total,
+   de caso, un SPEI marcado como pagado o un pago de buylist hecho por una cuenta de súper-admin **sin correo**
+   (`HECHOS.md:51` (d)) ⇒ correo inmediato al dueño; hecho por el dueño ⇒ nada. *(Sujeto a P-GAS-9.)* **⛔ Falla**
+   si un movimiento de dinero de otra cuenta de súper-admin no avisa.
+336. 💰 **AG-16 y AG-17 — merma y contracargos** *(stream aparte; Z.3)*: piezas marcadas perdidas o dañadas ⇒ aviso
+   🟡 con valor a costo; más de MX$1,000 a costo por la misma persona en 24 h ⇒ correo inmediato. Un contracargo
+   recibido ⇒ correo inmediato con pedido y monto. **⛔ Falla** si una merma o un contracargo no aparece en la
+   lista.
+337. **AG-18, AG-19 y AG-20 — buylist, créditos PSA y reembolsos atorados, en el resumen** *(stream aparte; Z.3)*:
+   un precio a mano de buylist más de 20 % por encima del derivado, el consumo de créditos PSA al 80 % del tope de
+   §Y.2, y los reembolsos de Stripe atorados aparecen en la lista y en el resumen diario, ⛔ sin correo inmediato.
+   **⛔ Falla** si alguno no aparece en el resumen del día siguiente.
+338. **Lo que NO cambia con §Z** *(Z.6; por ausencia)*: los topes existentes (MX$5,000 de reembolsos de operador, 2×/5×
+   de casos, tope de oferta de buylist) **conservan valor y conducta**; ningún tope de §Z bloquea la guía manual,
+   un reembolso automático ni un acto del sistema; el personal y los clientes **no** reciben ningún correo nuevo;
+   no hay correo por cada reembolso de operador. **⛔ Falla** si algo de esto cambia.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -16451,3 +16756,46 @@ ese frente:**
   por Skydropx y sale con **guía a mano**.
   **Qué confirmar**: **(a)** no —**vigente**—; **o (b)** sí, como un campo más de la corrección (10 dígitos,
   con el mismo antes/después y quién en la bitácora).
+
+## Preguntas — control del gasto (§Z, 2026-10-04, sesión 5) — ABIERTAS, cada una con su recomendación
+
+> Lo que usted ya dijo **no se pregunta**: el aviso cuando la misma persona corrige la dirección y compra la guía
+> está decidido (`HECHOS.md:60`). Si no contesta, se construye con la recomendación — **salvo P-GAS-4 y P-GAS-5**,
+> que tocan algo que usted ya había decidido: ahí, sin respuesta, **se queda como estaba**. Ninguna bloquea al
+> arquitecto. ⚠️ La tienda aún no ha vendido, así que **nadie sabe cuántas guías al día habrá** (NO MEDIDO): las
+> cifras se mueven después desde la configuración sin construir nada.
+
+- **P-GAS-1 · ¿Cuánto puede gastar en guías cada persona del equipo al día, y qué pasa si se pasa?**
+  **Recomendación:** **MX$2,500 en 24 horas por persona** (unas 12 guías si cada una cuesta ~MX$200; el costo real
+  por guía es NO MEDIDO hasta las primeras compras). Al pasarse, **se le bloquea**
+  la compra y le llega a usted un correo; usted la compra o sube el tope. *Alternativa:* que solo le avise y no
+  bloquee. §Z.4 TG-1, criterio 321.
+- **P-GAS-2 · ¿Cuántas veces puede alguien del equipo cancelar una guía y comprar otra para el mismo pedido?**
+  **Recomendación:** **una vez** (se equivocó de paquetería o de empaque); la tercera guía de un mismo pedido **solo
+  usted**. Y si alguien cancela **3 guías en un día**, le avisamos de inmediato. §Z.4 TG-2, criterio 322.
+- **P-GAS-3 · Cuando la misma persona corrige la dirección y compra la guía, ¿correo inmediato siempre?**
+  Pasa seguido por las colonias mal escritas (`HECHOS.md:57`), y un correo por cada una sería ruido.
+  **Recomendación:** **correo inmediato solo si cambió el destinatario, la calle o el código postal**; si solo
+  cambió la colonia, el número interior o las referencias, va en el **resumen diario**. §Z.3 AG-1, criterio 320.
+- **P-GAS-4 · Reembolsos que hace el equipo: usted dijo «solo verlo en el panel» (`HECHOS.md:33`). ¿Lo
+  mantenemos?** **Recomendación:** sigue **sin correo por cada reembolso**, pero **sí** le avisamos cuando alguien
+  llega al **80 %** de su tope de MX$5,000 (en el resumen) y **de inmediato** cuando choca con él.
+  **Sin respuesta: se queda solo en el panel.** §Z.3 AG-14, criterio 334.
+- **P-GAS-5 · Paquete devuelto o destruido: hoy solo sale en el panel. ¿Le mandamos correo?** Una devolución
+  cuesta la guía de regreso, y un paquete destruido es mercancía perdida. **Recomendación:** **correo inmediato**
+  para devuelto o destruido, y **en el resumen** los retenidos, las excepciones y los intentos de entrega fallidos.
+  Al cliente, nada nuevo. **Sin respuesta: se queda solo en el panel.** §Z.3 AG-11/AG-12, criterio 329.
+- **P-GAS-6 · ¿A partir de cuánto un cargo extra de la paquetería le avisamos de inmediato?** Todos salen en el
+  resumen. **Recomendación:** **más de MX$150** en un solo cargo (cerca de lo que cuesta otra guía). §Z.3 AG-6, criterio 324.
+- **P-GAS-7 · ¿Con cuánto saldo de Skydropx le avisamos?** Hoy está en **MX$500**; el saldo medido el 2026-10-04 era
+  **MX$965.16** (`API_CONTRACT.md:24847`, M-15). **Recomendación:** **MX$1,000** (unas 5 guías de ~MX$200, cifra
+  NO MEDIDA), para que le dé tiempo
+  de recargar antes de que alguien se quede sin poder comprar. Le llega **un** correo cada vez que baja de ahí.
+  §Z.3 AG-7, criterio 325.
+- **P-GAS-8 · ¿A los cuántos días le avisamos de una guía comprada cuyo paquete no ha salido?** **Recomendación:**
+  **3 días**, con la sugerencia de cancelarla para recuperar el saldo si ya no va a salir. §Z.3 AG-10, criterio 328.
+- **P-GAS-9 · Otras cuentas de súper-admin: ¿las vigilamos como al resto del equipo?** Usted puede crear
+  súper-admins sin correo (`HECHOS.md:51` (d)). **Recomendación:** **sí**: los avisos le llegan **solo a las
+  cuentas de súper-admin con correo** (la suya), los topes por persona aplican a todos **menos** a usted, y si otro
+  súper-admin hace salir dinero (reembolso, SPEI, pago de buylist) le avisamos **de inmediato**. §Z.0.4–Z.0.5, AG-15,
+  criterio 335.
