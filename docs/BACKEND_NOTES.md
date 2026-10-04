@@ -27344,3 +27344,47 @@ carrera, que corren N = 10 rondas forzadas dentro de la prueba):
 | 235 libreta sin validar colonia · sesión de invitado sin validar · retiro sin `addressMissing` | rojo · rojo · rojo |
 | `normalizeColonia` sin quitar acentos · `GET` sin `Cache-Control` · `/pedido` lee la orden · `complete` siempre `true` · `addressCorrected` siempre `false` | rojo · rojo · rojo · rojo · rojo |
 | Errata: `403` no-borde de la compra vuelve a `502` · todo `403` en vuelo (también el borde) · sin `warn` · `rawLabelUrl` leído en `shipments/` · segunda lectora en `label-proxy.ts` | rojo · rojo · rojo · rojo · rojo |
+
+## 59 · Errata v1.80.12.2 construida (parte backend): SKX-SEC-1 opción (a) con M-65, `address.missing` (2026-10-04, rama `claude/skydropx-d`; código en `f5b58a75` + `9117cb24`)
+
+Fuente: `API_CONTRACT §M4-SHIP.19.22.1/.2` (commit `4b3f3c10`), `ARCHITECTURE §4.60 (o)`. Fuera de este pase (son D2):
+`consignment-notes {consignmentNotes, hasMore}`, `PUT …/packages`, `ShipmentCostAdjustmentDTO` (§19.22.3/.4).
+
+### 59.1 Qué cambió y dónde
+
+| Pieza | Fichero |
+|---|---|
+| M-65 = `M-SDX-C2` (número confirmado: la última era M-64): tabla `ShipmentAddressRevision`, FK cascade, `@@unique([shipmentRequestId, fromVersion])`, CHECKs `fromVersion ≥ 0`, `changedKeys` no nulo y no vacío, `changedKeys ⊆` claves corregibles; idempotente, no toca `AuditLog` | `prisma/migrations/20261006130000_m65_sdx_c2_address_revision/migration.sql`, `schema.prisma` |
+| Paso 6 nuevo de `PUT …/address`: la revisión con los valores + bitácora `before {addressVersion}` / `after {addressVersion, changedKeys, revisionId}`, misma tx | `shipments/shipment-address.service.ts` |
+| Purga al anonimizar: `deleteMany` de revisiones con `shipmentRequest: { OR: [{userId}, {order:{userId}}] }` dentro de la tx del borrado suave | `admin/admin.service.ts` (`deleteUser`, rama suave) |
+| `shipmentAddressMissing` (fichero propio, sin ciclo de imports; compone `addressMissing` de la libreta) y `AdminShipmentDTO.address.missing` siempre presente, `complete = missing.length === 0` | `shipments/shipment-address-missing.ts`, `shipments.service.ts` (`addressStateOf`) |
+
+⚠️ **Precondición de despliegue (§19.22.1), sin cambio:** medir en producción `SELECT count(*) FROM "AuditLog" WHERE action
+= 'shipment.address_corrected'` ⇒ 0 antes de M-65. NO MEDIDO por mí (no tengo acceso a producción).
+
+`422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` de `quote`/`label` debe llamar a `shipmentAddressMissing` sobre el snapshot
+leído bajo candado: es de D2 (esos verbos no existen todavía).
+
+### 59.2 Pruebas y mutaciones
+
+- PS-112 (integración, `test/integration/sdx-c-address.e2e-spec.ts`, describe «PS-112»): retiro + envío directo de un
+  cliente registrado, dos correcciones a cada uno con canarios por corrida, borrado suave por HTTP; (1) canarios en
+  `AuditLog` = 0 sobre la tabla entera antes y después; (2) revisiones suyas = 0; (3) las 4 filas de bitácora siguen,
+  con `after` = exactamente `{addressVersion, changedKeys, revisionId}`; (4) la revisión de otro cliente intacta.
+- PS-102 y la carrera de PS-104 leen los valores de la revisión (antes leían `AuditLog.after`).
+- CHECKs de M-65 en el test de migración; `shipmentAddressMissing` en `test/sdx-c.address-rules.spec.ts`; el mock de
+  `deleteUser` en `test/admin.user-management.spec.ts` aserta el `deleteMany` con el `OR`.
+- M-65 aplicada a mano por segunda vez sobre `tcg_sdxc_mut` (con datos del arnés): esquema (`pg_dump --schema-only`) y
+  conteos de todas las tablas idénticos.
+
+Mutaciones (copia `git archive` del árbol entero; `f5b58a75`, y las dos últimas sobre `9117cb24`; N = 1, deterministas):
+
+| Mutación | Resultado |
+|---|---|
+| valores en `AuditLog.after` | rojo en (1) (5 filas con canario) y en PS-102 |
+| `deleteMany` solo por `shipmentRequest.userId` | rojo en (2) (quedan 2: las del envío directo) |
+| `deleteMany` sin filtro | rojo en (4) |
+| borrar la purga | rojo en (2) |
+| purgar y además borrar las filas de bitácora | rojo en (3) |
+| `complete` con la regla vieja (`addressMissing`) | **verde** con las pruebas de `f5b58a75` ⇒ se añadió la prueba de `9117cb24` ⇒ rojo |
+| `shipmentAddressMissing` sin `recipientName` | rojo (unitaria) |
