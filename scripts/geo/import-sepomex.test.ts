@@ -244,7 +244,7 @@ async function canon(svc: { resolvePostalCode(cp: string): Promise<{ entries: { 
 }
 
 test('arnés: `import` carga el extracto y resuelve por el cuerpo de la app; falla-cerrado y ROLLBACK', { skip }, async () => {
-  const { prisma, svc, load, ImportAbort, deriveFromFile, obtainVerified, localFile, readManifest } = await harness();
+  const { prisma, svc, load, m, ImportAbort, deriveFromFile, obtainVerified, localFile, readManifest } = await harness();
   try {
     const r1 = await load('harness');
     assert.deepEqual([r1.added, r1.removed, r1.inclusion.missing], [10, 0, 0]);
@@ -274,6 +274,18 @@ test('arnés: `import` carga el extracto y resuelve por el cuerpo de la app; fal
     await assert.rejects(
       load('harness', { manifest: m2, rows: await obtainVerified(localFile(f), m2) }),
       (e: unknown) => e instanceof ImportAbort && /\(3\) resolvePostalCode\(14210\)/.test(e.message),
+    );
+    assert.equal(await prisma.postalCode.count(), 0);
+    // …y en estricto, igual: (3) se comprueba DENTRO de la tx de la reconciliación (pisos del extracto sin 14210)
+    await assert.rejects(
+      load('strict', { manifest: m2, rows: await obtainVerified(localFile(f), m2), floors: { minRows: 9, minPostalCodes: 7, exactStates: 5 } }),
+      (e: unknown) => e instanceof ImportAbort && /\(3\) resolvePostalCode\(14210\)/.test(e.message),
+    );
+    assert.equal(await prisma.postalCode.count(), 0);
+    // (2) pisos de la TABLA en estricto: un manifiesto que dice 11 filas pasa el piso de 11; la tabla que queda (10) no ⇒ ROLLBACK
+    await assert.rejects(
+      load('strict', { floors: { minRows: 11, minPostalCodes: 8, exactStates: 5 }, manifest: { ...m, derived: { ...m.derived, rows: 11 } } }),
+      (e: unknown) => e instanceof ImportAbort && /\(2\) tabla: 10 filas < 11/.test(e.message),
     );
     assert.equal(await prisma.postalCode.count(), 0);
 
