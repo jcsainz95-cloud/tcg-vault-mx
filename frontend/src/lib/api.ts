@@ -152,6 +152,7 @@ import type {
   PriceSyncStatusResponse,
   UnifyRaritiesResponse,
   AdminUserSummaryDTO,
+  AdminUsersListResponse,
   AdminUserDetailDTO,
   AdminIneLinksDTO,
   AdminCreatedUserDTO,
@@ -2743,6 +2744,20 @@ export async function getMe(): Promise<UserDTO> {
   const current = getStoredUser();
   if (!current) throw new ApiClientError(401, { code: 'UNAUTHENTICATED', message: 'No session' });
   return delay(withMeDefaults(current), 150);
+}
+
+/**
+ * ⭐ v1.80.9 (§M6-U.5) — `POST /users/me/lock-notice/dismiss`: el titular cierra el aviso de candado
+ * del panel. `204`, idempotente. ⛔ No está en la allowlist de `PASSWORD_CHANGE_REQUIRED`: con
+ * temporal pendiente el aviso ni se pinta (DESIGN_SYSTEM §42.6).
+ */
+export async function dismissLockNotice(): Promise<void> {
+  if (!config.useMocks) {
+    await apiRequest<void>('/users/me/lock-notice/dismiss', { method: 'POST' });
+    return;
+  }
+  // MOCK: el servidor falso acusa el cierre sin estado propio (la sesión mock no trae `lockNotice`).
+  return delay(undefined, 150);
 }
 
 // ---------- Perfil de facturación CFDI (contrato §1) ----------
@@ -5754,10 +5769,14 @@ export interface AdminUsersFilters {
   pageSize?: number;
 }
 
-/** Listado paginado de usuarios con filtros q + status (contrato GET /admin/users). */
-export async function getAdminUsers(filters: AdminUsersFilters = {}): Promise<Paginated<AdminUserSummaryDTO>> {
+/**
+ * Listado paginado de usuarios con filtros q + status (contrato GET /admin/users).
+ * ⭐ v1.80.9 (§M6-U.7): `q` también busca por `username` (en el servidor); cada fila trae
+ * `email | null`, `username | null`, `lockedUntil | null`, y la raíz `lockState`.
+ */
+export async function getAdminUsers(filters: AdminUsersFilters = {}): Promise<AdminUsersListResponse> {
   if (!config.useMocks) {
-    return apiRequest<Paginated<AdminUserSummaryDTO>>('/admin/users', {
+    return apiRequest<AdminUsersListResponse>('/admin/users', {
       query: {
         q: filters.q,
         status: filters.status,
@@ -5770,12 +5789,17 @@ export async function getAdminUsers(filters: AdminUsersFilters = {}): Promise<Pa
   let data = fx.mockAdminUsersWithKyc();
   if (filters.q) {
     const q = filters.q.toLowerCase();
-    data = data.filter((u) => u.email.toLowerCase().includes(q) || u.name.toLowerCase().includes(q));
+    data = data.filter(
+      (u) =>
+        (u.email ?? '').toLowerCase().includes(q) ||
+        (u.username ?? '').includes(q.trim()) ||
+        u.name.toLowerCase().includes(q),
+    );
   }
   if (filters.status) data = data.filter((u) => u.status === filters.status);
   // MOCK: el filtro de identidad lo resuelve aquí el servidor falso (petición A5).
   if (filters.kycStatus) data = data.filter((u) => u.kycStatus === filters.kycStatus);
-  return delay(paginate(data, filters));
+  return delay({ ...paginate(data, filters), lockState: 'ok' as const });
 }
 
 /** Ficha 360° del usuario (contrato GET /admin/users/:id). CLABE/RFC enmascarados. */
@@ -5863,15 +5887,29 @@ export async function deleteUser(id: string): Promise<DeleteUserResponse> {
   return delay({ userId: id, mode: hasHistory ? 'soft' : 'hard' });
 }
 
-export interface CreateAdminUserInput {
-  email: string;
+interface CreateAdminUserBase {
   name: string;
-  role: Role;
   /** Si se omite, el backend autogenera una temporal de alta entropía y la devuelve UNA vez. */
   password?: string;
   phone?: string;
   locale?: Locale;
 }
+/**
+ * ⭐ v1.80.9 (§M6-U.6): el cuerpo se arma POR TIPO. Cliente ⇒ `email` y ⛔ nunca `username`;
+ * equipo ⇒ `username` y ⛔ nunca la clave `email` (aun vacía sería `422 staff_without_email`).
+ * La unión lo hace imposible de escribir mal desde el tipo.
+ */
+export type CreateAdminUserInput =
+  | (CreateAdminUserBase & { role: 'customer'; email: string; username?: never })
+  | (CreateAdminUserBase & { role: 'vault_operator' | 'super_admin'; username: string; email?: never });
+
+/** Reglas del usuario en el orden NORMATIVO del servidor (§M6-U.6 paso 3). Solo las usa el mock. */
+const MOCK_USERNAME_RULES: { rule: 'required' | 'length' | 'charset' | 'start'; fails: (u: string) => boolean }[] = [
+  { rule: 'required', fails: (u) => u.length === 0 },
+  { rule: 'length', fails: (u) => u.length < 3 || u.length > 30 },
+  { rule: 'charset', fails: (u) => !/^[a-z0-9._-]+$/.test(u) },
+  { rule: 'start', fails: (u) => !/^[a-z]/.test(u) },
+];
 
 /**
  * Alta de usuario por rol desde back-office (contrato §M6 · POST /admin/users, v1.7-admin-users,
@@ -5884,26 +5922,45 @@ export async function createAdminUser(input: CreateAdminUserInput): Promise<Admi
     return apiRequest<AdminCreatedUserDTO>('/admin/users', { method: 'POST', body: input });
   }
   // MOCK: pendiente de backend real — replica el shape 201 del contrato. Autogenera la
-  // temporal solo cuando el admin no envía password; simula 409 si el email ya existe.
-  const email = input.email.trim().toLowerCase();
-  if (fx.mockAdminUsers.some((u) => u.email.toLowerCase() === email)) {
-    throw new ApiClientError(409, { code: 'EMAIL_TAKEN', message: 'Email already registered' });
-  }
+  // temporal solo cuando el admin no envía password; simula 409 si el email/usuario ya existe.
   const autogenerated = !input.password;
   const tempPassword = autogenerated ? mockTempPassword() : undefined;
   const seq = Math.floor(Math.random() * 9000 + 1000);
+  const common = {
+    id: `u-new-${seq}`,
+    name: input.name,
+    locale: input.locale ?? ('es' as const),
+    status: 'active' as const,
+    authProvider: 'local' as const,
+    createdAt: new Date().toISOString(),
+  };
+  if (input.role !== 'customer') {
+    // MOCK (v1.80.9 §M6-U.6): servidor falso del alta de equipo — mismo orden de reglas y mismo
+    // `details`; `mustChangePassword: true` SIEMPRE (P-STF-6); `email: null`, `emailVerified: false`.
+    const username = input.username.trim().toLowerCase();
+    const failed = MOCK_USERNAME_RULES.find((r) => r.fails(username));
+    if (failed) {
+      throw new ApiClientError(422, {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid username',
+        details: { field: 'username', rule: failed.rule },
+      });
+    }
+    if (fx.mockAdminUsers.some((u) => u.username === username)) {
+      throw new ApiClientError(409, { code: 'USERNAME_TAKEN', message: 'Username already taken' });
+    }
+    return delay({
+      user: { ...common, email: null, username, role: input.role, emailVerified: false },
+      tempPassword,
+      mustChangePassword: true,
+    });
+  }
+  const email = input.email.trim().toLowerCase();
+  if (fx.mockAdminUsers.some((u) => (u.email ?? '').toLowerCase() === email)) {
+    throw new ApiClientError(409, { code: 'EMAIL_TAKEN', message: 'Email already registered' });
+  }
   return delay({
-    user: {
-      id: `u-new-${seq}`,
-      email,
-      name: input.name,
-      role: input.role,
-      locale: input.locale ?? 'es',
-      status: 'active',
-      emailVerified: true,
-      authProvider: 'local',
-      createdAt: new Date().toISOString(),
-    },
+    user: { ...common, email, username: null, role: input.role, emailVerified: true },
     tempPassword,
     mustChangePassword: autogenerated,
   });

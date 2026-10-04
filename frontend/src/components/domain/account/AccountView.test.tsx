@@ -203,3 +203,58 @@ describe('AccountView · un componente, dos puertas (DESIGN_SYSTEM §33.5/§33.6
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/login'));
   });
 });
+
+/**
+ * **UX-12 · «Mi cuenta» del equipo sin correo** (`DESIGN_SYSTEM §42.8`, criterio 263; `API_CONTRACT §M6-U.8 (b)`).
+ * Con `email: null`: «Usuario: ana» bajo el título, la sección `username` EN LUGAR de `email`, cero «SIN
+ * VERIFICAR» y cero enlaces a `forgot-password`. Canario: dejar `'email'` en `sectionsForRole`.
+ */
+describe('UX-12 · «Mi cuenta» sin correo', () => {
+  const ana: UserDTO = {
+    id: 'u-ana',
+    email: null,
+    username: 'ana',
+    name: 'Ana Operadora',
+    role: 'vault_operator',
+    locale: 'es',
+    authProvider: 'local',
+    emailVerified: false,
+    hasPassword: true,
+    mustChangePassword: false,
+    nameSource: 'user',
+  };
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    getMe.mockReset();
+  });
+
+  it('sectionsForRole(staff, sin correo) cambia `email` por `username`; con correo, como hoy', () => {
+    expect(sectionsForRole(true, false)).toEqual(['profile', 'username', 'password', 'session']);
+    expect(sectionsForRole(true, true)).toEqual(['profile', 'email', 'password', 'session']);
+  });
+
+  it('pinta «Usuario: ana», la sección Usuario y ningún rastro de correo', async () => {
+    setStoredUser(ana);
+    getMe.mockResolvedValue(ana);
+    const { container } = renderWithProviders(<AccountView surface="admin" />, 'es');
+    await screen.findByRole('heading', { level: 1, name: 'Mi cuenta' });
+    await waitFor(() => expect(getMe).toHaveBeenCalled());
+
+    expect(screen.getByText('Usuario: ana')).toBeInTheDocument();
+    expect(sectionIds()).toEqual(['profile', 'username', 'password', 'session']);
+    const section = document.getElementById('username')!;
+    expect(within(section).getByRole('heading', { level: 2, name: 'Usuario' })).toBeInTheDocument();
+    expect(within(section).getByText('ana')).toBeInTheDocument();
+    expect(within(section).getByText(/No se puede cambiar/)).toBeInTheDocument();
+    expect(within(section).queryByRole('button')).not.toBeInTheDocument();
+
+    expect(screen.queryByText(/SIN VERIFICAR/i)).not.toBeInTheDocument();
+    expect(container.querySelector('a[href*="forgot-password"]')).toBeNull();
+    expect(container.querySelector('a[href^="mailto:"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/\bnull\b|\bundefined\b/);
+    // El índice lo nombra igual que su título.
+    const index = screen.getByRole('navigation', { name: 'Secciones' });
+    expect(within(index).getByRole('link', { name: 'Usuario' })).toHaveAttribute('href', '#username');
+  });
+});

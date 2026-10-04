@@ -205,3 +205,24 @@ describe('PasswordPage · modos cambiar / crear / bloqueo', () => {
     expect(replace).toHaveBeenCalledWith('/login');
   });
 });
+
+/**
+ * **UX-12 (F-15) · PasswordPage con `email: null` NO entra en modo «crear»** (`DESIGN_SYSTEM §42.8` punto 3).
+ * Inalcanzable por contrato (una cuenta sin correo siempre tiene contraseña), pero si la invariante se rompe
+ * ⛔ no se pinta «te mandamos un enlace a …» ni se llama `forgotPassword(null)`.
+ */
+describe('UX-12 · PasswordPage sin correo', () => {
+  it('`hasPassword:false, email:null` ⇒ formulario de cambio, sin modo crear y sin forgotPassword', async () => {
+    const noEmail: UserDTO = { ...base, role: 'vault_operator', email: null, username: 'ana', hasPassword: false };
+    window.localStorage.clear();
+    setStoredUser(noEmail);
+    getMe.mockResolvedValue(noEmail);
+    forgotPassword.mockReset();
+    renderWithProviders(<PasswordPage surface="admin" />, 'es');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Cambiar contraseña' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Crear contraseña' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enviarme el enlace' })).not.toBeInTheDocument();
+    expect(forgotPassword).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toMatch(/\bnull\b/);
+  });
+});

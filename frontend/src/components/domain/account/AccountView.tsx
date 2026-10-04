@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import type { UserDTO } from '@/types/contract';
 import { ProfileSection } from './ProfileSection';
 import { EmailSection } from './EmailSection';
+import { UsernameSection } from './UsernameSection';
 import { AddressesSection } from './AddressesSection';
 import { BillingSection } from './BillingSection';
 import { KycSection } from './KycSection';
@@ -20,10 +21,14 @@ import { SectionError, type AccountSectionId } from './SectionShell';
 
 export type AccountSurface = 'storefront' | 'admin';
 
-/** Secciones por rol (DESIGN_SYSTEM §33.6, tabla): el staff no compra, no retira ni vende. */
-export function sectionsForRole(staff: boolean): AccountSectionId[] {
+/**
+ * Secciones por rol (DESIGN_SYSTEM §33.6, tabla): el staff no compra, no retira ni vende.
+ * ⭐ v1.80.9 (§42.8): el equipo SIN correo ve `username` en lugar de `email` (con `email: null` la
+ * sección de correo sería un hueco más un «SIN VERIFICAR» falso). `hasEmail` por defecto `true`.
+ */
+export function sectionsForRole(staff: boolean, hasEmail = true): AccountSectionId[] {
   return staff
-    ? ['profile', 'email', 'password', 'session']
+    ? ['profile', hasEmail ? 'email' : 'username', 'password', 'session']
     : ['profile', 'email', 'addresses', 'billing', 'kyc', 'password', 'session'];
 }
 
@@ -42,7 +47,8 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
   const meQuery = useQuery({ queryKey: ['me'], queryFn: getMe, enabled: ready && !!sessionUser });
   const user: UserDTO | null = meQuery.data ?? sessionUser;
   const staff = isStaffRole(user?.role);
-  const sections = useMemo(() => sectionsForRole(staff), [staff]);
+  const hasEmail = user?.email != null;
+  const sections = useMemo(() => sectionsForRole(staff, hasEmail), [staff, hasEmail]);
   const [hash, setHash] = useState<string>('');
 
   // Anclajes (`#profile`, `#password`…): al llegar con hash la sección recibe el foco (tabIndex=-1,
@@ -101,8 +107,11 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
         <div className="min-w-0 max-w-2xl">
           <p className="eyebrow">{t('eyebrow')}</p>
           <h1 className="mt-3 font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
-          {/* El correo, no el nombre (regla 2 de §33.0: un nombre inventado no es rótulo). */}
-          <p className="mt-3 break-all text-[15px] text-muted">{user.email}</p>
+          {/* El correo, no el nombre (regla 2 de §33.0: un nombre inventado no es rótulo).
+              ⭐ v1.80.9 (§42.8): sin correo, «Usuario: ana» — ⛔ nunca un hueco. */}
+          <p className="mt-3 break-all text-[15px] text-muted">
+            {user.email ?? t('usernameLine', { username: user.username ?? '—' })}
+          </p>
 
           {meQuery.isError && (
             <div className="mt-6">
@@ -114,8 +123,9 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
             <ProfileSection user={user} focusNameOnMount={hash === 'profile'} />
           )}
           {sections.includes('email') && <EmailSection user={user} canResend={!staff} />}
+          {sections.includes('username') && <UsernameSection username={user.username ?? '—'} />}
           {sections.includes('addresses') && <AddressesSection user={user} />}
-          {sections.includes('billing') && <BillingSection accountEmail={user.email} />}
+          {sections.includes('billing') && <BillingSection accountEmail={user.email ?? ''} />}
           {sections.includes('kyc') && <KycSection />}
           {sections.includes('password') && <PasswordSection user={user} />}
           {sections.includes('session') && <SessionSection surface={surface} />}
@@ -131,6 +141,8 @@ function sectionTitle(id: AccountSectionId, t: ReturnType<typeof useTranslations
       return t('profile.title');
     case 'email':
       return t('email.title');
+    case 'username':
+      return t('username.title');
     case 'addresses':
       return t('addresses.title');
     case 'billing':

@@ -250,7 +250,9 @@ export function BuylistKycForm({
 
   // Gating proactivo: espeja el guard server-side (solo bloquea con `false` explícito;
   // sesiones viejas sin el campo dejan decidir al backend).
-  const emailBlocked = ready && !!user && user.emailVerified === false;
+  // ⭐ v1.80.9 (§42.7): sin correo no hay «correo sin verificar»; el servidor responde
+  // `403 ACCOUNT_WITHOUT_EMAIL` y su texto sale por `getErrorMessage`.
+  const emailBlocked = ready && !!user && user.emailVerified === false && user.email != null;
 
   const ineComplete = !!ineFrontKey && !!ineBackKey;
 

@@ -79,7 +79,8 @@ function OperatorRefunds() {
         <span className="flex flex-col">
           <span>{r.user.name?.trim() || t('noName')}</span>
           <span className="text-muted">
-            {r.user.email}
+            {/* ⭐ v1.80.9 (§42.5.1, UX-8 = STF-27): `email ?? username`, ⛔ nunca un hueco. */}
+            {r.user.email ?? r.user.username ?? '—'}
             {!r.user.active && <> · {t('inactive')}</>}
           </span>
         </span>

@@ -4,6 +4,7 @@ import {
   formatSignedMoneyCents,
   formatDate,
   formatDateTimeMx,
+  formatTimeMx,
   formatAge,
 } from './format';
 
@@ -138,5 +139,22 @@ describe('formatAge', () => {
     expect(formatAge(null, 'es', now)).toBe('');
     expect(formatAge(undefined, 'es', now)).toBe('');
     expect(formatAge('no-es-una-fecha', 'es', now)).toBe('');
+  });
+});
+
+// ⭐ v1.80.9 (DESIGN_SYSTEM §42.5.3): hora del candado en CDMX, no en la zona del navegador.
+describe('formatTimeMx', () => {
+  it('pinta solo la hora en America/Mexico_City', () => {
+    // 18:00Z = 12:00 en CDMX (UTC-6, sin horario de verano desde 2022).
+    const es = formatTimeMx('2026-10-04T18:00:00.000Z', 'es');
+    expect(es).toMatch(/12:00/);
+    expect(es).not.toMatch(/2026|oct/i);
+    expect(formatTimeMx('2026-10-04T18:00:00.000Z', 'en')).toMatch(/12:00\s?PM/i);
+  });
+
+  it('entrada inválida ⇒ cadena vacía', () => {
+    expect(formatTimeMx(null)).toBe('');
+    expect(formatTimeMx(undefined)).toBe('');
+    expect(formatTimeMx('no-es-una-fecha')).toBe('');
   });
 });

@@ -26,7 +26,13 @@ vi.mock('@/i18n/navigation', () => ({
 
 const logout = vi.fn().mockResolvedValue(undefined);
 // v1.80: el menú sondea el contador de «Pedidos por preparar» (`usePickingSummary`); aquí no hay backend ⇒ rechaza.
-vi.mock('@/lib/api', () => ({ logout: () => logout(), getPickingListSummary: () => Promise.reject(new Error('no backend')) }));
+vi.mock('@/lib/api', () => ({
+  logout: () => logout(),
+  getPickingListSummary: () => Promise.reject(new Error('no backend')),
+  // v1.80.9 (§42.6): el shell consulta `/users/me` para el aviso de candado; sin aviso aquí.
+  getMe: () => Promise.reject(new Error('no backend')),
+  dismissLockNotice: () => Promise.resolve(),
+}));
 
 const operator: UserDTO = { id: 'u-op', email: 'op@tcghunt.mx', name: 'Op', role: 'vault_operator', locale: 'es' };
 

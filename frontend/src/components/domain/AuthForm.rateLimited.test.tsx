@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 
 function submit() {
-  fireEvent.change(screen.getByLabelText('Correo'), { target: { value: 'ash@example.com' } });
+  fireEvent.change(screen.getByLabelText('Correo o usuario'), { target: { value: 'ash@example.com' } });
   fireEvent.change(screen.getByLabelText('Contraseña'), { target: { value: 'pikachu-123' } });
   fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
 }

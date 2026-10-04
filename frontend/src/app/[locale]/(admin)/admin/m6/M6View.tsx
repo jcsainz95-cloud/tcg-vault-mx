@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Link } from '@/i18n/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,7 +20,6 @@ import {
   getAdminUserDisputes,
   getAdminUserAudit,
   type AdminUsersFilters,
-  type CreateAdminUserInput,
   type UserHistoryParams,
 } from '@/lib/api';
 import type {
@@ -39,7 +38,7 @@ import { ApiClientError } from '@/lib/api-client';
 import { cn } from '@/lib/cn';
 import { useSession } from '@/lib/session';
 import { useRole } from '@/lib/role';
-import { formatMoneyCents, formatDate } from '@/lib/format';
+import { formatMoneyCents, formatDate, formatTimeMx } from '@/lib/format';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
@@ -55,7 +54,49 @@ import { FinishBadge } from '@/components/domain/FinishBadge';
 // ⛔ P-78: la lista de estados KYC que alimentaba el `Select` de la ficha se RETIRA con él
 // (§34.10.3). El filtro del listado enumera sus opciones a mano porque su primera entrada
 // («Todas») no es un estado del enum.
-const CREATE_ROLES: Role[] = ['customer', 'vault_operator', 'super_admin'];
+/**
+ * ⭐ v1.80.9 (§M6-U.6, DESIGN_SYSTEM §42.3): el alta elige primero el TIPO de cuenta. Cliente ⇒ rol
+ * fijo `customer` y correo; Equipo ⇒ usuario y rol de equipo, ⛔ sin correo.
+ */
+type CreateKind = 'customer' | 'staff';
+type StaffRole = 'vault_operator' | 'super_admin';
+const STAFF_ROLES: StaffRole[] = ['vault_operator', 'super_admin'];
+const USERNAME_RULES = ['required', 'length', 'charset', 'start'] as const;
+type UsernameRule = (typeof USERNAME_RULES)[number];
+interface CreateFormState {
+  kind: CreateKind;
+  email: string;
+  username: string;
+  name: string;
+  staffRole: StaffRole;
+  password: string;
+}
+const EMPTY_CREATE_FORM: CreateFormState = {
+  kind: 'customer',
+  email: '',
+  username: '',
+  name: '',
+  staffRole: 'vault_operator',
+  password: '',
+};
+
+/** Identificador visible de una cuenta (§42.5.1): `email ?? username`, ⛔ nunca `null`/vacío. */
+function userIdentifier(u: { email: string | null; username?: string | null }): string {
+  return u.email ?? u.username ?? '—';
+}
+
+/**
+ * Hora de fin del candado por intentos si está VIGENTE (§42.5.3): `lockedUntil` no nulo **y en el
+ * futuro** respecto de la hora del navegador al pintar. ⛔ Sin contador ni temporizador. `null` ⇒ sin
+ * marca (también con entrada inválida).
+ */
+function activeLockTime(lockedUntil: string | null | undefined, locale: AppLocale): string | null {
+  if (!lockedUntil) return null;
+  const until = Date.parse(lockedUntil);
+  if (Number.isNaN(until) || until <= Date.now()) return null;
+  const time = formatTimeMx(lockedUntil, locale);
+  return time || null;
+}
 const PAGE_SIZE = 20;
 const HISTORY_PAGE_SIZE = 10;
 
@@ -91,6 +132,8 @@ export function M6View() {
     queryKey: ['admin-users', filters],
     queryFn: () => getAdminUsers(filters),
   });
+  // ⭐ v1.80.9 (§M6-U.7, §42.5.4): el almacén de candados no contestó ⇒ aviso discreto y ⛔ cero marcas.
+  const lockUnavailable = users.data?.lockState === 'unavailable';
 
   const detail = useQuery({
     queryKey: ['admin-user', selectedId],
@@ -148,23 +191,32 @@ export function M6View() {
   const [resetResult, setResetResult] = useState<ResetPasswordResponse | null>(null);
   const resetMutation = useMutation({
     mutationFn: () => resetUserPassword(selectedId!),
-    onSuccess: (res) => setResetResult(res),
+    onSuccess: (res) => {
+      setResetResult(res);
+      // ⭐ v1.80.9 (§42.4, UX-10): el restablecimiento LEVANTA el candado por intentos ⇒ la marca de la
+      // fila y de la ficha se refresca (sin esto seguiría diciendo «Bloqueado por intentos»).
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
+      qc.invalidateQueries({ queryKey: ['admin-user', selectedId] });
+    },
   });
 
   // --- Crear usuario (super_admin): alta por rol; la temp password (si se autogenera) se
   // muestra UNA sola vez con el MISMO patrón/panel que el reset M-15. ---
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateAdminUserInput>({ email: '', name: '', role: 'customer' });
+  const [createForm, setCreateForm] = useState<CreateFormState>(EMPTY_CREATE_FORM);
   const [createResult, setCreateResult] = useState<AdminCreatedUserDTO | null>(null);
+  const usernameRef = useRef<HTMLInputElement>(null);
   const createMutation = useMutation({
-    mutationFn: () =>
-      createAdminUser({
-        email: createForm.email.trim(),
-        name: createForm.name.trim(),
-        role: createForm.role,
-        // Vacío ⇒ el backend autogenera la temporal y la devuelve una vez.
-        password: createForm.password?.trim() ? createForm.password.trim() : undefined,
-      }),
+    mutationFn: () => {
+      // Vacío ⇒ el backend autogenera la temporal y la devuelve una vez.
+      const password = createForm.password.trim() ? createForm.password.trim() : undefined;
+      const name = createForm.name.trim();
+      // ⛔ El cuerpo se arma POR TIPO (§42.3.1, UX-6): Equipo nunca lleva la clave `email` (sería
+      // `422 staff_without_email`); Cliente nunca lleva `username`.
+      return createForm.kind === 'staff'
+        ? createAdminUser({ username: createForm.username.trim(), name, role: createForm.staffRole, password })
+        : createAdminUser({ email: createForm.email.trim(), name, role: 'customer', password });
+    },
     onSuccess: (res) => {
       setCreateOpen(false);
       setCreateResult(res);
@@ -173,19 +225,66 @@ export function M6View() {
   });
 
   function openCreate() {
-    setCreateForm({ email: '', name: '', role: 'customer', password: '' });
+    setCreateForm(EMPTY_CREATE_FORM);
     createMutation.reset();
     setCreateOpen(true);
   }
 
+  /** Cambiar de tipo vacía el identificador del otro tipo y el error previo del servidor (§42.3.1). */
+  function setCreateKind(kind: CreateKind) {
+    if (kind === createForm.kind) return;
+    setCreateForm((f) => ({ ...f, kind, email: '', username: '' }));
+    createMutation.reset();
+  }
+
+  /**
+   * Error del alta que va BAJO el campo de usuario (§42.3.3, UX-7): `422 VALIDATION_ERROR` con
+   * `details.field === 'username'` ⇒ el texto de su `details.rule`; `409 USERNAME_TAKEN` ⇒ el suyo.
+   * ⛔ Sin validación propia: el servidor es el juez y su orden es normativo.
+   */
+  function usernameErrorOf(err: unknown): string | null {
+    if (!(err instanceof ApiClientError)) return null;
+    if (err.code === 'USERNAME_TAKEN') return t('create.errorUsernameTaken');
+    if (err.code === 'VALIDATION_ERROR' && err.details?.field === 'username') {
+      const rule = err.details?.rule;
+      if (typeof rule === 'string' && (USERNAME_RULES as readonly string[]).includes(rule)) {
+        return t(`create.usernameError.${rule as UsernameRule}`);
+      }
+    }
+    return null;
+  }
+  const usernameError = createForm.kind === 'staff' ? usernameErrorOf(createMutation.error) : null;
+
+  // Con un error del usuario, el foco va al campo (§42.3.3).
+  useEffect(() => {
+    if (usernameError) usernameRef.current?.focus();
+  }, [usernameError]);
+
   // Traduce el errorCode del contrato a copy claro (409 EMAIL_TAKEN / 422 VALIDATION_ERROR / 403).
   function createErrorMessage(err: unknown): string {
-    const code = err instanceof ApiClientError ? err.code : undefined;
+    const apiErr = err instanceof ApiClientError ? err : null;
+    const code = apiErr?.code;
     if (code === 'EMAIL_TAKEN') return t('create.errorEmailTaken');
-    if (code === 'VALIDATION_ERROR') return t('create.errorValidation');
+    if (code === 'VALIDATION_ERROR') {
+      if (createForm.kind === 'staff') {
+        // `staff_without_email` es inalcanzable desde esta UI (Equipo no manda `email`); si llega, genérico.
+        return apiErr?.details?.rule === 'staff_without_email'
+          ? t('create.errorGeneric')
+          : t('create.errorValidationStaff');
+      }
+      return t('create.errorValidation');
+    }
     if (code === 'FORBIDDEN') return t('create.errorForbidden');
     return t('create.errorGeneric');
   }
+
+  const createIdentifier = createForm.kind === 'staff' ? createForm.username : createForm.email;
+  const usernameCanonical = createForm.username.trim().toLowerCase();
+  // «Se guardará como «luis.p».» — solo un `toLowerCase` visible, ⛔ no valida nada.
+  const usernameHint =
+    usernameCanonical && usernameCanonical !== createForm.username
+      ? `${t('create.usernameRule')} ${t('create.usernamePreview', { username: usernameCanonical })}`
+      : t('create.usernameRule');
 
   // --- Eliminar usuario (super_admin): híbrido hard/soft; 409 CANNOT_DELETE_SELF ---
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -214,12 +313,21 @@ export function M6View() {
 
   const columns: Column<AdminUserSummaryDTO>[] = [
     { key: 'name', header: t('table.name'), render: (u) => <span className="font-medium">{u.name}</span> },
-    { key: 'email', header: t('table.email'), render: (u) => <span className="tabular text-muted">{u.email}</span> },
+    /* ⭐ v1.80.9 (§42.5.1, UX-8 = STF-27): una sola regla de pintado, `email ?? username`. */
+    { key: 'identifier', header: t('table.identifier'), render: (u) => <span className="tabular text-muted">{userIdentifier(u)}</span> },
     { key: 'role', header: t('table.role'), render: (u) => <Badge tone="neutral">{u.role}</Badge> },
     {
       key: 'status',
       header: t('table.status'),
-      render: (u) => <UserStatusBadge status={u.status} t={t} />,
+      render: (u) => {
+        const lockTime = lockUnavailable ? null : activeLockTime(u.lockedUntil, locale);
+        return (
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <UserStatusBadge status={u.status} t={t} />
+            {lockTime && <LockMark time={lockTime} t={t} />}
+          </span>
+        );
+      },
     },
     {
       /* ⭐ P-78 (§34.10.1): sin esta columna **nadie se entera de que hay una INE esperando**
@@ -250,6 +358,7 @@ export function M6View() {
   }
 
   const totalPages = users.data ? Math.max(1, Math.ceil(users.data.total / PAGE_SIZE)) : 1;
+  const detailLockTime = d ? activeLockTime(d.lockedUntil, locale) : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -303,6 +412,12 @@ export function M6View() {
           </Button>
         )}
       </div>
+
+      {lockUnavailable && (
+        <Banner variant="info" role="status">
+          {t('lockUnavailable')}
+        </Banner>
+      )}
 
       {/* Tabla de usuarios */}
       <QueryState
@@ -359,10 +474,15 @@ export function M6View() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-h3 font-semibold">{d.name}</span>
                   <UserStatusBadge status={d.status} t={t} />
+                  {detailLockTime && <LockMark time={detailLockTime} t={t} />}
                   <Badge tone="neutral">{d.role}</Badge>
                   {d.authProvider && <Badge tone="info">{d.authProvider}</Badge>}
                 </div>
-                <span className="tabular text-sm text-muted">{d.email}</span>
+                {/* ⭐ v1.80.9 (§42.5.1): con correo, como hoy; sin correo, «Usuario: ana». */}
+                <span className="tabular text-sm text-muted">
+                  {d.email ?? (d.username ? t('usernameLine', { username: d.username }) : '—')}
+                </span>
+                {detailLockTime && <p className="text-xs text-muted">{t('lockHint')}</p>}
               </div>
 
               {/* KYC (CLABE/RFC enmascarados) */}
@@ -528,7 +648,7 @@ export function M6View() {
             </Button>
             <Button
               loading={createMutation.isPending}
-              disabled={!createForm.email.trim() || !createForm.name.trim()}
+              disabled={!createIdentifier.trim() || !createForm.name.trim()}
               onClick={() => createMutation.mutate()}
             >
               {t('create.submit')}
@@ -537,36 +657,82 @@ export function M6View() {
         }
       >
         <div className="flex flex-col gap-3">
-          <Input
-            label={t('create.email')}
-            type="email"
-            autoComplete="off"
-            value={createForm.email}
-            onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
-          />
+          {/* ⭐ v1.80.9 (§42.3.1): primera fila, «Tipo de cuenta» — Cliente (por defecto, el alta de hoy) o
+              Equipo. Radios nativos (flechas ←/→) con la piel de las pestañas de la ficha. */}
+          <fieldset className="flex flex-col gap-2">
+            <legend className="eyebrow">{t('create.kind')}</legend>
+            <div className="mt-2 flex gap-4 border-b border-border">
+              {(['customer', 'staff'] as const).map((k) => (
+                <label
+                  key={k}
+                  className={cn(
+                    'cursor-pointer px-1 pb-2 text-sm focus-within:shadow-focus',
+                    createForm.kind === k ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="create-kind"
+                    value={k}
+                    className="sr-only"
+                    checked={createForm.kind === k}
+                    onChange={() => setCreateKind(k)}
+                  />
+                  {k === 'customer' ? t('create.kindCustomer') : t('create.kindStaff')}
+                </label>
+              ))}
+            </div>
+            {createForm.kind === 'staff' && <p className="text-xs text-muted">{t('create.kindStaffNote')}</p>}
+          </fieldset>
+          {createForm.kind === 'customer' ? (
+            <Input
+              label={t('create.email')}
+              type="email"
+              autoComplete="off"
+              value={createForm.email}
+              onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
+            />
+          ) : (
+            /* §42.3.3: la regla SIEMPRE visible (hint) y el error del servidor, que la repite, bajo el campo. */
+            <Input
+              ref={usernameRef}
+              label={t('create.username')}
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="font-mono"
+              hint={usernameHint}
+              error={usernameError ?? undefined}
+              value={createForm.username}
+              onChange={(e) => setCreateForm((f) => ({ ...f, username: e.target.value }))}
+            />
+          )}
           <Input
             label={t('create.name')}
             value={createForm.name}
             onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
           />
-          <Select
-            label={t('create.role')}
-            options={CREATE_ROLES.map((r) => ({ value: r, label: t(`create.roleOption.${r}`) }))}
-            value={createForm.role}
-            onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value as Role }))}
-          />
+          {createForm.kind === 'staff' && (
+            <Select
+              label={t('create.role')}
+              options={STAFF_ROLES.map((r) => ({ value: r, label: t(`create.roleOption.${r}`) }))}
+              value={createForm.staffRole}
+              onChange={(e) => setCreateForm((f) => ({ ...f, staffRole: e.target.value as StaffRole }))}
+            />
+          )}
           <Input
             label={t('create.password')}
             type="text"
             autoComplete="off"
-            hint={t('create.passwordHint')}
-            value={createForm.password ?? ''}
+            hint={createForm.kind === 'staff' ? t('create.passwordHintStaff') : t('create.passwordHint')}
+            value={createForm.password}
             onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
           />
-          {createForm.role === 'super_admin' && (
+          {createForm.kind === 'staff' && createForm.staffRole === 'super_admin' && (
             <Banner variant="warning" role="status">{t('create.superAdminWarning')}</Banner>
           )}
-          {createMutation.isError && (
+          {createMutation.isError && !usernameError && (
             <Banner variant="danger" role="alert">{createErrorMessage(createMutation.error)}</Banner>
           )}
         </div>
@@ -582,10 +748,16 @@ export function M6View() {
         {createResult && (
           <div className="flex flex-col gap-4">
             <Banner variant="success" role="status">
-              {t('create.successBody', {
-                email: createResult.user.email,
-                role: t(`create.roleOption.${createResult.user.role}`),
-              })}
+              {/* ⭐ v1.80.9 (§42.3.5): el equipo dice su usuario y por dónde entra. */}
+              {createResult.user.username
+                ? t('create.successBodyStaff', {
+                    username: createResult.user.username,
+                    role: t(`create.roleOption.${createResult.user.role}`),
+                  })
+                : t('create.successBody', {
+                    email: userIdentifier(createResult.user),
+                    role: t(`create.roleOption.${createResult.user.role}`),
+                  })}
             </Banner>
             {createResult.tempPassword ? (
               <TempPasswordPanel
@@ -593,7 +765,9 @@ export function M6View() {
                 mustChangePassword={createResult.mustChangePassword}
               />
             ) : (
-              <p className="text-sm text-muted">{t('create.providedPasswordNote')}</p>
+              <p className="text-sm text-muted">
+                {createResult.user.username ? t('create.providedPasswordNoteStaff') : t('create.providedPasswordNote')}
+              </p>
             )}
           </div>
         )}
@@ -653,6 +827,15 @@ export function M6View() {
         <p>{blockTarget === 'blocked' ? t('blockQuestion') : t('unblockQuestion')}</p>
       </Modal>
     </div>
+  );
+}
+
+/** ⭐ v1.80.9 (§42.5.3): candado por intentos — otro tono y otra forma que «Bloqueada» (el bloqueo del admin). */
+function LockMark({ time, t }: { time: string; t: (key: string, values?: Record<string, string>) => string }) {
+  return (
+    <Badge tone="warning" shape="outline" data-testid="lock-mark">
+      {t('lockMark', { time })}
+    </Badge>
   );
 }
 

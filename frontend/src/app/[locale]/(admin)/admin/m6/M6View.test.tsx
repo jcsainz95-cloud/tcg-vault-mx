@@ -37,7 +37,7 @@ describe('M6View · Usuarios / KYC', () => {
   it('filtra por búsqueda (q) sobre correo/nombre', async () => {
     renderWithProviders(<M6View />, 'es');
     await screen.findAllByText('Ana López');
-    fireEvent.change(screen.getByLabelText('Buscar (correo o nombre)'), { target: { value: 'bruno' } });
+    fireEvent.change(screen.getByLabelText('Buscar (correo, usuario o nombre)'), { target: { value: 'bruno' } });
     await waitForRemoved();
     expect((await screen.findAllByText('Bruno Díaz')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Ana López')).not.toBeInTheDocument();
@@ -290,7 +290,8 @@ describe('M6View · Usuarios / KYC', () => {
     // El fixture puebla ip (proyección super_admin) → la columna IP aparece.
     // (DataTable pinta tabla desktop + card mobile, de ahí findAll.)
     expect((await screen.findAllByText('187.190.10.4')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('user.create').length).toBeGreaterThan(0);
+    // v1.80.9 (§42.5.5): `user.create` gana rótulo («Alta de la cuenta»); antes salía crudo.
+    expect(screen.getAllByText('Alta de la cuenta').length).toBeGreaterThan(0);
   });
 });
 
