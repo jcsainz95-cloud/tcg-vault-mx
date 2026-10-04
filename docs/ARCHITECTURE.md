@@ -24,6 +24,7 @@
 > | **v1.80.8.8** | Errata (2026-10-04, rama `claude/precios-s5`, sobre `352b849a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES` §17.2/§17.4/§17.5/§18, PR #68, `FRONTEND_NOTES §84`). **Aceptado y normado lo construido:** paso **4-bis** de SRF-11 (candado de envío **después** de `Order`, única excepción al orden de candados, interbloqueo solo vía `40P01 ⇒ 503`/reentrega); fila `order.full_refund_closed` en la rama directo (forma declarada); `?refundReview=` en §0-Q (clase L); M3 sobre no `settled` ⇒ **`422`** (el `400` de SRF-13 era errata); SRF-8 ⇒ `409 CONFLICT`; mutaciones de SRF-6/7/8/11 sustituidas por las que muerden (SRF-8: una nueva NO MEDIDA); SFP-7 sin `updatedAt`; PS-51 admite `IN_PROGRESS` **o** `NOT_RETRYABLE` (clasificación por el estado releído). **Endurecido:** el CAS publicante del `PATCH` de M1 condiciona el `status` leído exacto (un `200` de carrera pasa a `409 CONFLICT`), prueba **SFP-10**. `D-SFP-1` cerrada (reportado por backend). ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.8.8, §M4-SHIP.18.12 (10), §M4-SHIP.17.6, §M1 `M1-SFP`, §0-Q | §4.36.5 (c-quater), §4.57 (w), §9 | **Sí** (backend: una condición en `claimListed` + pruebas SFP-10, SRF-13, SRF-8, SRF-4, PS-51, `C-EQ-1`) |
 > | **v1.80.8.9** | Errata (2026-10-04, rama `claude/precios-s5`; ⛔ sha NO MEDIDO por el arquitecto; origen: diagnóstico de backend sobre production `aab55abe`, relayado por el orquestador — 17 filas VENTA `reason=null` que «Publicar todo» no cerraba). (1) **`publish-all` termina con el barrido VQ entero** (`sweepUnreasonedSaleQueue`, un solo cuerpo, falla-seguro, ⛔ no en replay); «Actualizar precios ahora» (`price-ingest`) **no** barre. (2) La reconciliación de `price-ingest` abre/cierra con **`saleQueueKeyOf`** (con `cardProductId`). (3) **`context` entra a la clave de dedupe** de `escalatePending` (siete componentes, sin DDL) y el deep-link de M1 filtra `context='inventory'` — cierra el residual de S48-M1. Paso de despliegue reescrito con qué cierra qué. ⛔ Sin schema, migración, endpoint ni forma nueva. Norma: `API_CONTRACT` rev v1.80.8.9, §M2 `M2-VQ9` | §4.36.5 (c-quinquies), (c-bis) 5 | **Sí** (backend: VQ-10…VQ-14) |
 > | **v1.80.9** | Feature (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md` «Usuarios de back-office SIN correo…» (a)(b)(c) + default del orquestador; `PROJECT §U`, criterios 256–270, P-STF-1…8 con su default). `User.email` opcional; `User.username` (`@unique`, canónico en minúsculas) y `User.lockNoticeAt`; **5 CHECK** (email XOR usuario; cliente ⇒ correo; forma del usuario; sin correo ⇒ no verificado; aviso solo sin correo). **Mismo `POST /auth/login`, misma llave `email`** = identificador (`@` ⇒ correo, si no ⇒ usuario); misma clave C7 para correos; cero enumeración. Alta de staff **sin** correo (staff con correo ⇒ `422`), `409 USERNAME_TAKEN`, `mustChangePassword` siempre; aviso de candado en el panel; `lockedUntil` en Usuarios leído del almacén; `403 ACCOUNT_WITHOUT_EMAIL`; denegación auditada a `vault_operator`. **Migración `M-STF` (número NO asignado).** Stream posterior a `precios-s5`. Norma: `API_CONTRACT` rev v1.80.9, §M6-U | §4.58, §11 `M-STF`, §9 `D-STF-1`/`D-STF-2` | **Sí** (backend + frontend + textos ux-ui) · 🔒 seguridad |
+> | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -27111,6 +27112,55 @@ regla que el guard ya cubre en todas las entradas medidas. Queda como invariante
   clase «columna que miente» que este proyecto ya pagó (§4.49).
 - **Permitir correo + usuario a la vez:** §4.58.1.
 
+### 4.59 LA DISPUTA DEL ENVÍO DIRECTO — derecho a reclamar sin ser dueño (v1.80.10, 2026-10-04, NORMATIVO, 💰 **DINERO**)
+
+Norma: `API_CONTRACT §E2E-ADM` (rev v1.80.10). Aquí, el porqué de F-2; los demás puntos de la errata no tienen diseño que
+justificar (son pantalla sobre contrato existente, o una validación de una línea).
+
+#### 4.59.1 El problema, medido
+La disputa de condición nació para la bóveda: autoriza «el titular de la pieza» (`disputes.service.ts:142-143`). El
+envío directo (§4.21, v1.21) llegó después con una regla opuesta y correcta: **la pieza nunca es del comprador en el
+sistema** (§4-G.0-1, `orders.service.ts:845-847`). Las dos reglas se cruzaron en silencio: el comprador con cuenta de un
+envío directo **no tiene vía** para disputar. La UI tampoco lo delataba, porque «Retiros» lee `GET /shipments` filtrado
+por `ShipmentRequest.userId` y ese envío nace con `userId: null` (`payments.service.ts:520`) ⇒ nunca aparece. El tester
+vio un `403` porque su fixture escribió `userId` en el envío (`admin-e2e/fixture-ship.js:26`); production no lo hace.
+
+#### 4.59.2 Por qué el derecho a disputar NO es titularidad
+- **Dar titularidad rompería más de lo que arregla.** `ownerType='customer'` mete la pieza en la bóveda, el portafolio,
+  el valor en custodia de M7, la elegibilidad de retiro y la de buylist: una carta que **ya salió por la puerta** podría
+  «retirarse» o venderse de vuelta. El derecho que se necesita es **haber comprado y recibido esta carta**, y ese hecho
+  ya está escrito en dos filas: la `OrderItem` (lo compró) y el `ShipmentItem` de un envío `entregado` (lo recibió).
+- **El ancla es la orden.** La misma pieza puede tener varias `OrderItem` (checkouts fallidos, reservas vencidas). Unir
+  «alguna línea mía» con «algún envío entregado de la pieza» dejaría disputar al que perdió la carrera la carta que
+  recibió otro. La línea y el envío tienen que ser **de la misma orden** (DSP-4).
+- **Nunca por correo.** Un invitado cuyo correo coincide con una cuenta no queda asociado sin reclamo explícito
+  (`PROJECT` criterio 56); autorizar por correo sería esa asociación silenciosa (DSP-10).
+- **Un solo `403`.** Pieza inexistente, ajena, no entregada o reembolsada responden igual: no se ofrece un oráculo de
+  qué piezas existen ni de quién son. No hace falta código nuevo.
+- **Lo reembolsado no se disputa.** Una línea con `PaymentRefund` (o `missing` en el envío) ya tiene su remedio en el
+  libro de reembolsos (§4.57 envío); dejarla disputar abriría un segundo money-out sobre la misma carta.
+
+#### 4.59.3 Por qué se escribe `Dispute.orderItemId`
+La columna existe (`schema.prisma:1941`; desde qué migración, NO MEDIDO) y ningún código de `disputes` la escribe (solo
+la proyecta, `disputes.service.ts:36`, `:71`). La recompra (`resolve repurchase`) busca el precio con la `OrderItem`
+más reciente por pieza ordenando por un uuid (`disputes.service.ts:282-285`): con dos líneas de la misma pieza el precio
+es arbitrario. En la vía B la línea que autorizó **es** la que se pagó; guardarla quita la búsqueda. La vía A queda como
+está (sin cambio de conducta en bóveda).
+
+#### 4.59.4 El invitado (abierto)
+`Dispute.userId` es `NOT NULL` y v1.21 decidió no volverlo opcional: el invitado escribe a soporte. Lo que v1.21 no vio es
+que la única compensación disponible para él es el **reembolso total** de M3 (`arrived_damaged`, §M3 v1.80.8.6); no hay
+recompra **por carta**, que es lo que `PROJECT` 56b promete con «las mismas reglas». Cerrarlo exige schema (disputa
+anclada a orden y línea, `userId` opcional) ⇒ no entra en una errata. `D-DSP-1`.
+
+#### 4.59.5 Alternativas descartadas
+- **Escribir `ShipmentRequest.userId` en el envío directo de un comprador con cuenta** (lo que hizo el fixture): hace
+  aparecer el envío en «Retiros» y en `GET /shipments`, que **son la superficie de retiros de bóveda** (cobro propio,
+  dirección propia, reembolsos `shipment_fee`); y `kind` se deriva en un sitio de `userId` (`D-DSP-3`). Mezcla dos
+  conceptos y cambia la cara de una tabla de dinero.
+- **Un endpoint nuevo `POST /orders/:id/disputes`:** dos puertas para la misma fila; la regla de ventana, tipo y `NOT_RAW`
+  se duplicaría. La vía B entra por la misma puerta.
+
 ---
 
 ## 5. Decisiones transversales
@@ -27880,6 +27930,34 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **v1.80.10 — `D-DSP-1` (de `PROJECT`, abierta, para product-owner; medida 2026-10-04 por lectura):** un invitado no
+> tiene vía de **compensación por carta** tras la entrega: no puede crear `Dispute` (`schema.prisma:1937`, decisión v1.21)
+> y M3 solo reembolsa la orden **entera** (`API_CONTRACT §M3`, v1.80.8.6). `PROJECT` 56b pide «las mismas reglas». ¿Basta
+> el reembolso total, o se construye la disputa por carta del invitado (schema)? §4.59.4.
+>
+> **v1.80.10 — `D-DSP-2` (abierta, para product-owner; medida 2026-10-04):** en la vía A (bóveda), una pieza **sin envío
+> entregado** se puede disputar con plazo `now + 7 d` (`disputes.service.ts:157-167`). `PROJECT` cuenta la ventana «desde
+> la entrega del envío». ¿Se disputa una carta que sigue en la bóveda? La vía B ya exige entrega; la A no se toca hasta
+> que product-owner conteste.
+>
+> **v1.80.10 — `D-DSP-3` (abierta, backend, baja; medida 2026-10-04):** `GET /admin/orders/:id` deriva
+> `shipments[].kind` de `ShipmentRequest.userId` (`admin-orders.controller.ts:227`); el contrato lo deriva de `orderId` +
+> `Order.fulfillmentMode` (§M4, v1.21.2). Hoy da el mismo valor porque todo envío de una orden nace con `userId: null`;
+> deja de darlo el día que alguien escriba `userId` en un envío de orden (exactamente lo que hizo el fixture del tester).
+>
+> **v1.80.10 — `D-DSP-4` (abierta, para product-owner; medida 2026-10-04 por lectura):** una carta **repuesta** (caso
+> «Por reponer», §M4-SHIP.15) llega con otro `inventoryItemId` que no tiene `OrderItem` de la orden ⇒ la vía B la rechaza
+> (`403`). ¿Se disputa la reposición? Si sí, la vía B se ancla también en la línea de reposición del caso.
+>
+> **v1.80.10 — `D-BL-SKIP-1` (abierta, para product-owner + ux-ui):** una carta `skip` (no comprada) que **llega en el
+> paquete**: §H dice que se registra y corren sus plazos, que se anclan en `rejectedAt`; pero rechazarla manda un correo
+> de rechazo por carta que diría algo falso (§M5-V). La UI ya no ofrece decisión sobre una `skip` (`API_CONTRACT
+> §E2E-ADM.2`); ¿qué hace el operador con la que llegó?
+>
+> **v1.80.10 — `D-PHONE-1` (abierta, backend, stream «Cuentas y acceso»; medida 2026-10-04):** `POST /auth/register` exige
+> `phone` en el contrato (§1; criterio 128(a)) y `RegisterDto` lo tiene `@IsOptional` (`auth.dto.ts:17-19`). Manda el
+> contrato. Que el formulario lo exija hoy: NO MEDIDO.
+>
 > **v1.80.9 — `D-STF-1` (de `PROJECT`, no de código; para product-owner; medida 2026-10-04 por lectura en
 > `claude/precios-s5`):** los criterios **256** y **261** dicen que el intento de un `vault_operator` es «rechazado y
 > auditado, **como hoy**». Hoy es rechazado **pero no auditado**: `@Roles(Role.super_admin)` en

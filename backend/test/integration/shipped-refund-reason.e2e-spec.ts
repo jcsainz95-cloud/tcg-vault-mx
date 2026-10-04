@@ -290,6 +290,10 @@ describe('💰 §M4-SHIP.18.12 — reembolso TOTAL «depende de si ya salió» (
       const list = await db.adminOrders(`?refundReview=pending&pageSize=100&q=${d.order.orderNumber}`);
       expect(list.status).toBe(200);
       expect(list.body.data.map((x: any) => [x.id, x.refundReviewPending])).toEqual([[d.order.id, true]]);
+      // QA MENOR-1: la fila del listado lleva SOLO `refundReviewPending`; ⛔ ninguna de las cinco columnas crudas.
+      for (const k of ['fullRefundAfterShipment', 'shippedRefundReason', 'shippedRefundNote', 'shippedRefundReasonAt', 'shippedRefundReasonByUserId']) {
+        expect(list.body.data[0]).not.toHaveProperty(k);
+      }
       const det = await db.adminOrder(d.order.id);
       expect(det.body.fullRefundReview).toMatchObject({ afterShipment: true, pending: true, reason: null, note: null, recordedAt: null, recordedBy: null });
       expect(det.body.shipmentShipped).toBe(true);

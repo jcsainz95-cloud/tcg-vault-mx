@@ -2,7 +2,35 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.9**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.10**).
+>
+> **Rev v1.80.10 — ERRATA DEL RECORRIDO E2E DEL PANEL: EL COMPRADOR DEL ENVÍO DIRECTO PUEDE DISPUTAR SIN SER TITULAR;
+> EL CLIENTE DADO DE ALTA POR EL ADMIN LLEVA CELULAR; LO DEMÁS YA ESTABA EN EL CONTRATO Y LE FALTA PANTALLA (2026-10-04,
+> arquitecto, rama `claude/precios-s5`; ⛔ sha del árbol NO MEDIDO por el arquitecto: sin Bash).** Origen: recorrido E2E
+> del panel de un tester-e2e sobre el código de production `279d96de`/`aab55abe` el 2026-10-04 (relayado por el
+> orquestador; guiones y capturas en el scratchpad de la sesión, `admin-e2e/`). ⛔ Las líneas de código de abajo las
+> **leyó el arquitecto en el árbol `claude/precios-s5`** el 2026-10-04; pueden no coincidir con production.
+> ⛔ **Sin schema, sin migración, sin enum, sin endpoint nuevo, sin código de error nuevo.** Norma entera:
+> [§E2E-ADM](#E2E-ADM). Porqué: `ARCHITECTURE §4.59`.
+>
+> | # | Falla | Lo medido | Decisión | ¿Rompe? | Construye |
+> |---|---|---|---|---|---|
+> | **F-2** | `POST /disputes` ⇒ `403` sobre una carta de envío directo | La guarda es solo `item.ownerUserId === userId` (`disputes.service.ts:143`) y el envío directo nunca da titularidad (`orders.service.ts:845-847`). ⚠️ El `403` que vio el tester salió de un **fixture que no reproduce production**: escribió `ShipmentRequest.userId = cliente` (`admin-e2e/fixture-ship.js:26`), y production escribe `userId: null` (`payments.service.ts:520`, `orders.service.ts:1661`) ⇒ en production ese envío **ni aparece** en «Retiros» (`shipments.service.ts:565-566`). **El hueco real es mayor:** el comprador con cuenta de un envío directo **no tiene ninguna vía** para disputar (ni pantalla ni API) | **Segunda vía de autorización, sin titularidad:** el comprador de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** ([§E2E-ADM.1](#E2E-ADM)). La pantalla es el **detalle del pedido** (`/orders/[orderId]`), no «Retiros». **Invitado:** sin vía por API (decisión v1.21, vigente) — y ⚠️ **hoy no existe vía para compensarle UNA carta** (`D-DSP-1`, para product-owner) | **No** (un `403` pasa a `201` solo en ese caso) | backend 💰 (`disputes`) + frontend (pedidos) |
+> | **F-4** | En M5 una línea «no comprada» ofrece Aprobar/Ajustar/Rechazar; el `422` llega en inglés | El DTO **ya** trae `offerDecision` (`null` = pre-ciclo, `buy`, `skip`; `buylist.service.ts:1985`). El `422` **ya** es `error.code = ITEM_NOT_OFFERED` con `details { itemId, offerDecision }` (`:6404-6409`). Su copy **ya** está escrito (`DESIGN_SYSTEM §27.2`) y su cableado sigue pendiente (`error-audience.ts:148-160`). Botones sin condición por línea: `M5View.tsx:1154-1173` | **Sin campo nuevo.** Regla de botones por `offerDecision` y mensaje por `error.code` ([§E2E-ADM.2](#E2E-ADM)) | **No** | frontend |
+> | **F-9** | No hay pantalla para los diales del ciclo de buylist | Los **diez** ya están en `GET/PUT /admin/settings` (`settings.constants.ts:1137-1146`) y en el contrato (§M10, tabla de los diez, con validación y regla cruzada). Faltan en los tipos (`frontend/src/types/contract.ts`: 0 coincidencias de `buylistMinimumOfferNetCents`) y en la pantalla (`M10View.tsx:89-90` solo trae los dos topes AML) | **Sin cambio de contrato:** se construye la pantalla ([§E2E-ADM.3](#E2E-ADM)) | **No** | frontend (+ textos ux-ui) |
+> | **F-8** | `422` de `PUT /admin/settings` con IVA = 200 | Por clave: `details.errors: Record<claveDelDTO, string>` para **toda** clave (`settings.service.ts:573-603`). Regla cruzada: **otra** forma, `details.rule` + tres montos (`:841-846`) | **Confirmado: S-5 ya vale para todas las claves.** Se declara la segunda forma junto a la primera y la regla de la pantalla. Sin tokens por causa ([§E2E-ADM.4](#E2E-ADM)) | **No** | frontend |
+> | **F-7** | El alta de usuario no pide celular | El contrato lo tiene **opcional** (§M6 `POST /admin/users`; §M6-U) y el código también (`admin.controller.ts:83`, `admin.service.ts:710-713`); `PROJECT` criterio **128(b)** lo exige para **cliente** | `role = customer` ⇒ `phone` **obligatorio** (`trim` no vacío) ⇒ `422 VALIDATION_ERROR {field:'phone', rule:'customer_phone_required'}`. Staff: opcional ([§E2E-ADM.5](#E2E-ADM)) | **Sí** (alta de cliente sin celular por API: `201` ⇒ `422`) | backend + frontend |
+> | **F-11** | Ventas sin filtro por estado; «Con piezas» en bóvedas | `?status=` **ya** está en el contrato (§M3, §0-Q) y en el código (`admin-orders.controller.ts:52`, `:85-86`); `M3View` no lo usa. «Con piezas» es un filtro **del lado del cliente** sobre el binder (`MasterSetBinder.tsx:287`, `:338-339`); `GET /admin/vaults` ya lista solo clientes con ≥ 1 pieza **por contrato** (entrada `GET /api/v1/admin/vaults`; en código **NO MEDIDO**) | **Sin cambio de contrato** ([§E2E-ADM.6](#E2E-ADM)) | **No** | frontend (+ ux-ui para `P-BOVEDA-CLIENTE-PIEZAS`) |
+> | **F-1** | `MX$NaN` | Detalle (cliente y admin): el total vive **solo** en `breakdown.totalCents` (`orders.service.ts:1969`, `:1990`; el admin no añade `totalCents`, `admin-orders.controller.ts:159-183`). Fila de la **lista** admin: `totalCents` de primer nivel (`:135-136`). §M3 decía «detalle con desglose» sin forma | **Se escribe la forma** del dinero del detalle de M3 ([§E2E-ADM.7](#E2E-ADM)) | **No** | frontend (ya en curso) |
+>
+> - **Backend 💰 (`disputes`, stream «Órdenes y dinero», modelo fuerte):** vía B de `create` + `orderItemId` + `resolve` lee
+>   `dispute.orderItemId`; pruebas **DSP-1…DSP-12** con sus mutaciones. **Backend (`admin`, stream «Cuentas y acceso»):**
+>   **ADM-PH-1…4**. **Frontend:** detalle del pedido con «Abrir disputa» (**OD-DSP-1…7**), M5 (**M5-NC-1…4**), M10 (**M10-BL-1…4**),
+>   M3 filtro de estado (**M3-ST-1**), M6 celular (**M6-PH-1/2**), F-1. **ux-ui:** rótulo «No comprada», textos de M10, copy
+>   del `422` de M10 por campo, y dónde vive «Mis disputas» para quien compra sin bóveda. **QA:** ninguna es carrera; el ciclo
+>   F-2 se recorre entero (O-4): compra directa real ⇒ entregado ⇒ disputa desde el pedido ⇒ aparece en M8.
+> - **Orquestador:** el fixture del tester (`fixture-ship.js:26`) debe escribir `userId: null` como production; con
+>   `userId = cliente` fabrica un estado que production no produce.
 >
 > **Rev v1.80.9 — USUARIOS DE BACK-OFFICE SIN CORREO: el staff nuevo entra con NOMBRE DE USUARIO por la MISMA pantalla
 > de login; el correo queda solo para clientes (2026-10-04, arquitecto, rama `claude/precios-s5`; ⛔ sha del árbol NO
@@ -10520,7 +10548,8 @@ el 3DS — precisamente la UX que el propio contrato describe.
   **positiva** (nunca "≠ otro"), de modo que un envío con `userId=null` **jamás** aparezca en la lista de nadie
   (una consulta mal escrita del tipo `where: { userId: { not: X } }` o un `findUnique` sin comparar dueño sí lo
   expondría — es el riesgo #1 de esta migración y QA debe cubrirlo con un caso negativo).
-- **`POST /disputes` (`customer`) — SIN cambios.** El invitado **no** abre disputa por API (criterio 56b se cumple
+- **`POST /disputes` (`customer`) — SIN cambios** *(⭐ v1.80.10: gana la vía del comprador con cuenta de un envío
+  directo, [§E2E-ADM.1](#E2E-ADM); para el invitado esta línea sigue vigente y su hueco por carta es `D-DSP-1`)*. El invitado **no** abre disputa por API (criterio 56b se cumple
   por correo a soporte citando su `orderNumber`); el súper-admin evalúa y, si procede, ejecuta **reembolso en M3**
   (`POST /admin/orders/:id/refund`), que ya funciona sobre cualquier orden. Consecuencia consciente: en v1.5 **no
   se crea fila `Dispute`** para un invitado (se evita volver `Dispute.userId` nullable); la trazabilidad queda en
@@ -11926,8 +11955,233 @@ Err: `422 DISPUTE_WINDOW_CLOSED` (fuera de 7 días desde entrega), `422 NOT_RAW`
 
 **Resolución (back-office §M8):** idéntica política para raw y sellado — **VENTAS FINALES**. El súper-admin resuelve `reject` (`→rechazada`) o `repurchase` (`→resuelta_recompra`, money-out): **recompra al precio pagado**; el **cliente conserva el ítem** y el ítem **NO** regresa al inventario (sin `InventoryMovement`, sin revertir titularidad/stock). La resolución se apoya en: **gradeadas** → grado + `certNumber` del slab (verificable en la graduadora); **raw NM** → estándar/política de condición propio; la evidencia del cliente llegó **por correo a soporte** (fuera del sistema).
 
+> ⭐ **v1.80.10 — `POST /disputes` tiene DOS vías de autorización** (bóveda, la de siempre; y **comprador del envío
+> directo**, sin titularidad). Norma, pruebas y el caso del invitado: [§E2E-ADM.1](#E2E-ADM).
+
 ### GET /api/v1/disputes — `customer` → lista propia.
 ### GET /api/v1/disputes/:id — `customer` → estado + resolución.
+
+#### <a id="E2E-ADM"></a>§E2E-ADM — Errata v1.80.10: lo que el recorrido E2E del panel encontró (2026-10-04, **NORMATIVA**, 💰 en .1)
+
+Cabecera, origen y tabla: rev **v1.80.10**. Porqué: `ARCHITECTURE §4.59`. ⛔ Sin schema, migración, enum, endpoint ni
+código de error nuevos. Las líneas citadas son del árbol `claude/precios-s5`, leídas el 2026-10-04.
+
+##### E2E-ADM.1 — F-2 · Disputa del comprador de un envío directo (💰, módulo `disputes`)
+
+**Estado medido.** `create` autoriza solo si `item.ownerUserId === userId` (`disputes.service.ts:142-143`). Una pieza de
+envío directo **nunca** recibe titularidad: queda de la plataforma todo el ciclo (`orders.service.ts:845-847`, invariante
+§4-G.0-1), y su `ShipmentRequest` nace con `userId: null` (`payments.service.ts:520`; reenvío `orders.service.ts:1661`).
+Así que el comprador con cuenta de un envío directo **no puede disputar por ninguna vía**: la API le da `403` y la
+pantalla que ofrece «Abrir disputa» (`vault/WithdrawalsList.tsx:196`, alimentada por `GET /shipments`) **nunca le muestra
+ese envío** (`shipments.service.ts:565-566`, filtro positivo por `userId`). `PROJECT` §B «Excepción 1» y M8 no distinguen
+destino: la disputa de condición aplica a toda carta entregada.
+
+**Norma — `POST /disputes`, orden de evaluación (el `403` siempre antes que cualquier `422`, como hoy):**
+
+```
+create(userId, inventoryItemId, description):
+  item = InventoryItem(inventoryItemId)
+  si item no existe                                         → 403 FORBIDDEN
+  VÍA A (bóveda) — SIN CAMBIO:
+    si item.ownerUserId === userId                          → autorizada; orderItemId := null (como hoy)
+  VÍA B (comprador del envío directo) — NUEVA, sin titularidad:
+    auth = el ShipmentItem si que cumpla TODO esto (si hay varios, el de deliveredAt más reciente):
+      si.inventoryItemId = inventoryItemId
+      si.prepStatus ≠ 'missing'                     y si no tiene PaymentRefund (en ningún estado)
+      si.shipmentRequest.status = 'entregado'       y si.shipmentRequest.deliveredAt ≠ null
+      o := si.shipmentRequest.order  (vía shipmentRequest.orderId; ⛔ nunca vía shipmentRequest.userId)
+      o.userId = userId                             (⛔ jamás por correo: criterio 56)
+      o.fulfillmentMode = 'direct_ship'             y o.status = 'settled'
+      oi := la OrderItem de o con oi.inventoryItemId = inventoryItemId, sin PaymentRefund
+    si no hay auth                                          → 403 FORBIDDEN (mismo cuerpo que hoy)
+    orderItemId := oi.id ; deliveredAt := auth.shipmentRequest.deliveredAt
+  productType = 'graded'                                    → 422 NOT_RAW            (sin cambio)
+  now > deliveredAt + 7 d                                   → 422 DISPUTE_WINDOW_CLOSED (sin cambio)
+  Dispute.create({ userId, inventoryItemId, orderItemId, type, status:'abierta', description, deadlineAt })
+```
+
+- **⛔ Sin titularidad.** La vía B **no escribe nada** en `InventoryItem`: ni `ownerType`, ni `ownerUserId`, ni
+  `ownershipStatus`. La pieza sigue siendo de la plataforma (§4-G.0-1).
+- **El ancla es la orden, no la pieza.** La misma pieza puede tener varias `OrderItem` (un checkout `failed`, otro
+  `settled` de otra persona): la vía B exige que **el envío entregado sea de la misma orden** que la línea del
+  solicitante. Una orden `refunded`/`chargeback`/`failed`/`pending` no autoriza.
+- **Un solo `403` para todo lo que no autoriza** (pieza inexistente, ajena, no entregada, reembolsada): mismo código y
+  mismo cuerpo, sin oráculo. *Que no se haya entregado todavía es «no tienes derecho a disputar esto», no un estado que
+  el cliente pueda corregir.*
+- **`Dispute.orderItemId` se escribe en la vía B** (columna existente, `schema.prisma:1941`; hoy nunca se escribe y
+  ya viaja en el DTO, `disputes.service.ts:36`, `:71`). La vía A sigue en `null`.
+- **`POST /admin/disputes/:id/resolve` (`repurchase`):** el precio pagado sale de **`dispute.orderItemId` cuando no es
+  `null`**; si es `null`, como hoy (`disputes.service.ts:282-285`). *Hoy busca la `OrderItem` más reciente por pieza con
+  `orderBy: { id: 'desc' }` sobre un uuid: con dos líneas para la misma pieza el orden es arbitrario.*
+- **Listas y detalle del cliente sin cambio:** `GET /disputes` filtra por `Dispute.userId` (`disputes.service.ts:191-204`)
+  y la vía B escribe el `userId` de la sesión ⇒ la disputa aparece donde ya aparecen las demás.
+- **Sin cambio de forma** en ninguna respuesta.
+
+**Pantalla (frontend).** El punto de entrada del envío directo es el **detalle del pedido** (`GET /orders/:orderId`), que
+ya trae lo necesario (§4 v1.80.2, §M4-SHIP.16): por línea, «Abrir disputa» **solo si** `fulfillmentMode='direct_ship'` ∧
+`shipment.status='entregado'` ∧ `now ≤ shipment.deliveredAt + 7 d` ∧ `items[].card.productType ≠ 'graded'` (si falta el
+dato, no se bloquea por ese eje — misma regla que `WithdrawalsList.tsx:108-117`) ∧ `items[].refund == null` ∧
+`items[].replacement == null` ∧ sin disputa activa para ese `inventoryItemId` (cruce con `GET /disputes`, como
+`WithdrawalsList.tsx:70-78`); con disputa activa, «Disputa abierta». El modal es **el mismo** de «Retiros» (descripción
+≥ 10, `evidenceContact` tras el `201`). ⚠️ Extraerlo a `frontend/src/components/` es **zona compartida**: un stream a la
+vez. «Retiros» **no cambia**. El servidor es la autoridad: el `403` sigue siendo posible y se pinta con su `error.code`.
+
+**Invitado.** **No hay vía por API, y es la decisión vigente** (v1.21, §4-G «`POST /disputes` — SIN cambios»):
+`POST /disputes` exige sesión y `Dispute.userId` es `NOT NULL` (`schema.prisma:1937`). El invitado escribe a soporte
+citando su `orderNumber` (`PROJECT` criterio 56b). ⚠️ **Lo que hoy existe para compensarle es el reembolso TOTAL de M3**
+(`POST /admin/orders/:id/refund` con `shippedReason:'arrived_damaged'`, §M3 v1.80.8.6). **No existe vía para compensar
+UNA carta de un invitado** tras la entrega (ni fila `Dispute`, ni reembolso por línea), y `PROJECT` 56b pide «las mismas
+reglas» (recompra al precio pagado **por carta**). ⇒ **`D-DSP-1`, abierta, para product-owner:** ¿basta el reembolso total,
+o se construye la disputa por carta del invitado (exige anclar `Dispute` a la orden y volver `userId` opcional ⇒ schema)?
+Un invitado que **reclamó** su pedido (`claimedAt`, `Order.userId` = él) entra por la vía B como cualquier cliente.
+
+**Pruebas que deben fallar HOY y su mutación** (backend, integración contra Postgres real; la orden y el envío se crean
+por el **camino real de liquidación** —`userId: null` en el envío—, nunca con un fixture que ponga `userId` al envío):
+
+| Prueba | Caso | Espera | Mutación que la pone en rojo |
+|---|---|---|---|
+| **DSP-1** *(falla hoy)* | Comprador con cuenta, `direct_ship` `settled`, envío `entregado` hace 1 d, carta raw | `201`; fila con `userId` = comprador, `orderItemId` = su línea, `deadlineAt = deliveredAt + 7 d`; aparece en `GET /disputes`; pieza **sin cambios** (`ownerType`, `ownerUserId`, `ownershipStatus` idénticos antes/después) | volver a solo `ownerUserId === userId` ⇒ `403` |
+| **DSP-2** | Otro cliente, misma pieza | `403 FORBIDDEN`, cero filas `Dispute` | quitar `o.userId = userId` ⇒ `201` |
+| **DSP-3** | Comprador, envío en `enviado` | `403`, cero filas | quitar `status = 'entregado'` ⇒ `201` |
+| **DSP-4** | Pieza con línea en orden `failed` de X y línea en orden `settled` entregada de Y; pide X | `403` a X | anclar por pieza en vez de por orden (cualquier `OrderItem` del usuario + cualquier envío entregado de la pieza) ⇒ `201` |
+| **DSP-5** | Orden `refunded` con envío entregado | `403` | quitar `o.status = 'settled'` ⇒ `201` |
+| **DSP-6** | Línea marcada `missing` y reembolsada (`item_missing`) dentro de un envío entregado | `403` | quitar `prepStatus ≠ 'missing'` **y** el filtro de `PaymentRefund` ⇒ `201` (las dos condiciones se prueban por separado: **DSP-6a** solo `missing`, **DSP-6b** solo reembolso) |
+| **DSP-7** | Carta `graded` de envío directo entregado: **(a)** la pide el comprador; **(b)** la pide un ajeno | (a) `422 NOT_RAW`; (b) `403` | evaluar `NOT_RAW` antes que la autorización ⇒ (b) recibe `422` (oráculo) ⇒ rojo |
+| **DSP-8** | Entregado hace 8 d | `422 DISPUTE_WINDOW_CLOSED` | tomar `deliveredAt` de otro envío / `now + 7 d` ⇒ `201` |
+| **DSP-9** | Vía A (bóveda) | Las pruebas de hoy siguen verdes | — (regresión) |
+| **DSP-10** | Pedido de invitado (`userId: null`); cliente con cuenta cuyo correo = `guestEmail`, **sin reclamar** | `403` | autorizar por correo ⇒ `201` |
+| **DSP-11** | Pedido de invitado **reclamado** (`claimedAt`, `userId` = reclamante) | `201` | — |
+| **DSP-12** | Dos `OrderItem` de la misma pieza con precios distintos; disputa por vía B; `resolve repurchase` | el texto de resolución lleva el `unitPriceCents` de **`dispute.orderItemId`** | volver a `findFirst … orderBy id desc` ⇒ con la semilla que ordena la otra línea primero, rojo (la semilla se fija, ⛔ no se confía en el orden de uuids) |
+
+Frontend (`OrderDetailView`, mocks): **OD-DSP-1** directo entregado < 7 d, raw ⇒ botón, y enviar llama `createDispute
+({inventoryItemId, description})`; **OD-DSP-2** orden `vault` ⇒ sin botón; **OD-DSP-3** envío `enviado` ⇒ sin botón;
+**OD-DSP-4** 8 d ⇒ sin botón; **OD-DSP-5** `graded` ⇒ sin botón; **OD-DSP-6** `refund ≠ null` ⇒ sin botón; **OD-DSP-7**
+disputa activa ⇒ «Disputa abierta». Mutación: quitar cualquiera de las condiciones ⇒ su prueba en rojo. **E2E (O-4):**
+compra directa real con cuenta ⇒ el operador marca entregado ⇒ el cliente abre la disputa **desde el pedido** ⇒ la
+disputa aparece en M8.
+
+##### E2E-ADM.2 — F-4 · M5: la línea «no comprada» (frontend)
+
+**Sin campo nuevo.** `AdminSellItemDTO` ya trae `offerDecision: 'buy' | 'skip' | null` (`null` = línea **pre-ciclo**;
+`buylist.service.ts:1967-1985`). Dentro del ciclo **toda** línea tiene decisión (la emisión exige clasificar todas,
+`OFFER_LINES_MISMATCH`). Regla de la fila en verificación, **por línea**:
+
+| `offerDecision` | Rótulo | Aprobar | Ajustar | Rechazar |
+|---|---|---|---|---|
+| `skip` | **«No comprada»** (ux-ui) | ⛔ | ⛔ | ⛔ |
+| `buy` | — | ✅ | ⛔ (`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`, criterio 150) | ✅ (motivo) |
+| `null` (pre-ciclo) | — | ✅ | ✅ | ✅ (como hoy) |
+
+- **Rechazar sobre `skip` no se ofrece**, y aquí se resuelve una contradicción del propio contrato: §M5 v1.51.20 decía
+  que rechazar era «la vía correcta a un clic» para una `skip`; §M5-V (predicado de pagabilidad) dice que **no** se
+  rechazan las `skip` porque `rechazada` manda al vendedor un correo de rechazo por carta que diría algo falso, y
+  `DESIGN_SYSTEM §27.2` (normativo) le dice al operador «ninguna acción sobre esa carta». **Manda §M5-V.** El servidor
+  **no cambia** (sigue aceptando `reject` sobre cualquier línea, `buylist.service.ts:6402-6403`). ⚠️ El caso de una carta
+  `skip` que **llegó físicamente en el paquete** (los plazos de §H se anclan en `rejectedAt`) queda **abierto**:
+  `D-BL-SKIP-1`, para product-owner + ux-ui.
+- **El mensaje va por `error.code`.** Un `422 ITEM_NOT_OFFERED` (o `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`) se pinta con
+  `error.<CODE>` de `DESIGN_SYSTEM §27.2` (copy ya escrito); ⛔ `apiError.message` (inglés) no es alcanzable. Ambos
+  códigos pasan de `DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES` a la lista de cableados (`error-audience.ts:148-167`), que
+  es su trip-wire.
+- **Pruebas (frontend, `M5View`, mocks):** **M5-NC-1** línea `skip` ⇒ rótulo y **ningún** botón de decisión (mutación:
+  pintar los tres siempre ⇒ rojo); **M5-NC-2** línea `buy` ⇒ Aprobar y Rechazar, **sin** Ajustar (mutación: Ajustar visible
+  ⇒ rojo); **M5-NC-3** línea `null` ⇒ los tres (regresión); **M5-NC-4** el servidor responde `422 ITEM_NOT_OFFERED` ⇒ el
+  banner trae el copy de §27.2 y **no** «This line was not purchased» (mutación: pintar `message` ⇒ rojo).
+
+##### E2E-ADM.3 — F-9 · M10: los diez diales del ciclo de buylist (frontend)
+
+**Medido:** los diez están en `SETTING_DTO_MAP` (`settings.constants.ts:1137-1146`) ⇒ `GET /admin/settings` los devuelve
+y `PUT /admin/settings` los edita, auditados (`settings.update`), sin redeploy. Su tabla (DTO, clave, default, qué
+gobierna, validación) está en §M10 «DIEZ diales nuevos del CICLO DE ADQUISICIÓN», y es **la fuente**: no se repite aquí.
+**Lo que falta es solo frontend:** los diez en el tipo de `GET /admin/settings` de `frontend/src/types/contract.ts` y en
+`M10View` (su lista `DIALS`, `:84` en adelante, solo trae de buylist `buylistCapPerRequestCents`/`buylistCapPerMonthCents`,
+`:89-90`, que son los topes AML, no el ciclo).
+
+- **Agrupación:** plazos (días hábiles, enteros) — `buylistOfferIssueDeadlineBusinessDays`,
+  `buylistOfferAcceptDeadlineBusinessDays`, `buylistShipDeadlineBusinessDays`; montos (centavos ⇄ pesos en la UI) —
+  `buylistMinimumRequestCents`, `buylistShippingFeeCents`, `buylistMinimumOfferNetCents`, `buylistOperatorOfferCapCents`;
+  alertas y sugerencias (enteros) — `buylistShipmentConfirmAlertBusinessDays`, `buylistOfferReissueAlertCount`,
+  `buylistVariantPositionCap`. El orden y los textos los fija ux-ui.
+- **El `PUT` manda solo las claves cambiadas** (body parcial, §M10). La regla cruzada se evalúa sobre el estado
+  resultante en el servidor; la UI ⛔ no la reimplementa como guarda (puede avisar, no bloquear).
+- **Quedan fuera, a propósito:** `buylist_no_offer_expiry_enabled` (interruptor de despliegue, no dial de negocio,
+  `settings.constants.ts:292-297`) e `ine_retention_days` (dial interno sin formalizar, `:157-160`). Exponerlos es otra
+  errata.
+- **Pruebas (frontend, mocks):** **M10-BL-1** los diez nombres de la tabla de §M10 se pintan y son editables (la lista de
+  la prueba se copia de la tabla; mutación: quitar uno ⇒ rojo); **M10-BL-2** editar uno manda un `PUT` con **solo** esa
+  clave; **M10-BL-3** criterio 127 por lo negativo: ni «umbral de guía» ni «recorte material» aparecen; **M10-BL-4** el
+  `422` cruzado pinta el copy con los tres montos de `details` (abajo).
+
+##### E2E-ADM.4 — F-8 · Forma del `422` de `PUT /admin/settings` (confirmada; frontend)
+
+**Ya era general.** S-5 (v1.80.8.7) se midió para `premiumFloorSalePublish`, pero el bucle de validación es el mismo para
+**toda** clave del DTO (`settings.service.ts:573-603`). Hay **dos** formas de `422 VALIDATION_ERROR` en este `PUT`, y
+la pantalla distingue por la forma de `details`:
+
+| Causa | `details` | Medido |
+|---|---|---|
+| Una o más claves inválidas o desconocidas (p. ej. `ivaPct: 200`) | `{ errors: Record<claveDelDTO, string> }` — **una entrada por clave mala**, todas a la vez; ⛔ no escribe ninguna | `settings.service.ts:598-603` |
+| Regla cruzada de los tres diales (§M10) | `{ rule: 'buylist_fee_plus_min_net_le_min_request', shippingFeeCents, minimumOfferNetCents, minimumRequestCents }` | `:841-846` |
+
+(Además, `422 FX_MANUAL_RATE_REQUIRED` tiene **código propio**, §M2-F.)
+
+- **El texto de `errors[clave]` es diagnóstico, ⛔ no es token** (S-5): la UI **no lo pinta**. Marca cada campo cuya clave
+  viene en `errors` y pinta un copy **por campo** de ux-ui que dice la regla de esa clave (la columna «Validación» de la
+  tabla de §M10 es la fuente de la regla; ⛔ la UI no deduce nada del texto del servidor). La regla cruzada se pinta con
+  su copy y los tres montos de `details`.
+- **No se acuñan tokens por causa.** Cada dial tiene **una** regla escrita en el contrato, así que la clave basta para
+  decir qué se rompió. *Un token por causa duplicaría en el servidor una tabla que ya existe en el contrato.*
+
+##### E2E-ADM.5 — F-7 · `POST /admin/users`: el cliente lleva celular (backend + frontend)
+
+**Medido:** `phone` es opcional en el contrato (§M6 `POST /admin/users`: `"phone": "string?"`; §M6-U.4) y en el código
+(`admin.controller.ts:83` `@IsOptional`; `admin.service.ts:710-713` solo rechaza un no-string). `PROJECT` criterio
+**128(b)**: el alta desde M6 **no se completa sin celular cuando la cuenta es de CLIENTE**; para staff **no** es
+obligatorio. **Norma:**
+
+- Tras validar `role` (y, para cliente, el correo como hoy): **`role = customer` ⇒ `phone` obligatorio**:
+  `typeof phone === 'string' && phone.trim() !== ''`; si no ⇒ **`422 VALIDATION_ERROR`**,
+  `details: { field: 'phone', rule: 'customer_phone_required' }`, ⛔ sin escritura. Se guarda **recortado**.
+- **El predicado es el mismo que el de `422 PHONE_REQUIRED`** (`buylist.service.ts:1432`: `phone == null ||
+  phone.trim() === ''`): un celular que el alta acepta nunca lo rechaza después la puerta de venta. ⛔ No se añade
+  formato (no hay regla de formato en `PROJECT`; inventarla aquí haría que un número aceptado por `PATCH /users/me` fuera
+  rechazado en el alta).
+- **Staff** (`vault_operator`, `super_admin`): `phone` opcional, como hoy. Con v1.80.9 (§M6-U, aún no construida) el staff
+  además va **sin correo**; las dos reglas son independientes. En la lista de §M6-U.2 esto es el paso **2-bis**.
+- **Rompe:** un alta de cliente por API sin celular pasa de `201` a `422`. Quien la use (pruebas, scripts) se ajusta;
+  **NO MEDIDO** cuántas pruebas lo hacen.
+- **Pruebas (backend):** **ADM-PH-1** cliente sin `phone` ⇒ `422 {field:'phone', rule:'customer_phone_required'}` y el
+  conteo de `User` no cambia (mutación: quitar la guarda ⇒ `201`); **ADM-PH-2** `phone: "   "` ⇒ `422` (mutación: comprobar
+  `!== undefined` en vez de `trim` ⇒ `201`); **ADM-PH-3** `vault_operator` sin `phone` ⇒ `201` (mutación: exigirlo a todo
+  rol ⇒ `422`); **ADM-PH-4** cliente con `" 5512345678 "` ⇒ `201` y se guarda `"5512345678"`. **Frontend (M6):**
+  **M6-PH-1** con rol Cliente el campo celular es obligatorio y el `422` marca el campo por `details.field`; **M6-PH-2** con
+  rol de staff no lo es.
+- ⚠️ **Desviación vecina, ya normada:** `POST /auth/register` exige `phone` en el contrato (§1, `Req: { email, password,
+  name, phone, locale? }`; criterio 128(a)) pero `RegisterDto` lo tiene `@IsOptional` (`auth.dto.ts:17-19`). El contrato
+  manda: es `D-PHONE-1` (`ARCHITECTURE §9`), backend, stream «Cuentas y acceso». Que el formulario de registro lo exija
+  hoy: **NO MEDIDO**.
+
+##### E2E-ADM.6 — F-11 · Filtros que ya existen en la API (frontend)
+
+- **Ventas (`GET /admin/orders`):** `?status=` está en el contrato (§M3, §0-Q: dominio `OrderStatus` completo, un token,
+  fuera de dominio ⇒ `400` con `details.allowed`) y en el código (`admin-orders.controller.ts:52`, `:85-86`). Falta el
+  control en `M3View` (selector «Todos» + los cinco estados). **M3-ST-1:** elegir un estado manda `?status=<valor>` y
+  «Todos» no manda el parámetro (mutación: no enviarlo ⇒ rojo).
+- **«Con piezas» (`P-BOVEDA-CLIENTE-PIEZAS`):** **no toca la API.** Es el filtro `pieceFilter` del binder, del lado del
+  cliente (`MasterSetBinder.tsx:287`, `:338-339`), sobre `GET /admin/vaults/:userId/master-sets/:setId`. Lo pendiente es
+  la decisión de ux-ui (abrir en «Con piezas» o quitar el modo binder en la vista de cliente). `GET /admin/vaults` (la
+  lista) ya es, por contrato, «clientes con ≥ 1 pieza» y no tiene ni necesita ese parámetro; que el servicio lo cumpla:
+  **NO MEDIDO** por el arquitecto.
+
+##### E2E-ADM.7 — F-1 · El dinero del detalle de un pedido (contrato inequívoco)
+
+- **`GET /orders/:orderId` (cliente) y `GET /admin/orders/:id` (admin):** el total es **`breakdown.totalCents`**
+  (`BreakdownDTO`, §4 y §M10-IVA). ⛔ **Ninguno de los dos detalles lleva `totalCents` de primer nivel** (medido:
+  `orders.service.ts:1982-2003`; el admin añade columnas por `select`, sin `totalCents`, `admin-orders.controller.ts:157-183`).
+  Leer `order.totalCents` en un detalle da `undefined` ⇒ `MX$NaN`.
+- **`GET /admin/orders` (lista):** cada fila **sí** trae `totalCents` de primer nivel (la columna de `Order`,
+  `admin-orders.controller.ts:135-136`) y **no** trae `breakdown`.
+- El detalle admin trae además `shippingFeeCents` de primer nivel (columna, `:164`); para pintar dinero manda `breakdown`.
 
 ---
 
@@ -17723,7 +17977,9 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     filtro no hay forma de que el operador **descubra** que hay piezas congeladas — hoy solo se sabrían llamando a
     la API a mano. Mismo guard, misma proyección y misma paginación que sin filtro. **Dueño de la UI: WS «Admin y
     auditoría»** (ver ARCHITECTURE §4.21c-bis › «Requisito pendiente»).
-- `GET /api/v1/admin/orders/:id` — detalle con desglose + línea de Stripe + CFDI. Incluye además **dos banderas operativas de back-office** (solo en este detalle admin, **no** en `OrderSummaryDTO` ni en el detalle del cliente): `chargebackNeedsManual: boolean` (un contracargo llegó cuando la carta **ya se había enviado**, hay que pelear la disputa con la guía; ver §9) y `disputeOutcome: "won" | "lost" | null` (resultado del cierre de la disputa Stripe). El enum `OrderStatus` **no cambia**: `won → settled`, `lost → chargeback`; estas banderas dan el matiz que el enum no expresa.
+- `GET /api/v1/admin/orders/:id` — detalle con desglose + línea de Stripe + CFDI. ⭐ **v1.80.10 (F-1):** el total es
+  **`breakdown.totalCents`**; ⛔ el detalle **no** lleva `totalCents` de primer nivel (la **fila de la lista** sí).
+  [§E2E-ADM.7](#E2E-ADM). Incluye además **dos banderas operativas de back-office** (solo en este detalle admin, **no** en `OrderSummaryDTO` ni en el detalle del cliente): `chargebackNeedsManual: boolean` (un contracargo llegó cuando la carta **ya se había enviado**, hay que pelear la disputa con la guía; ver §9) y `disputeOutcome: "won" | "lost" | null` (resultado del cierre de la disputa Stripe). El enum `OrderStatus` **no cambia**: `won → settled`, `lost → chargeback`; estas banderas dan el matiz que el enum no expresa.
 - **v1.21-guest-checkout — pedidos de invitado en M3:** un pedido de invitado se ve **igual** que uno con cuenta
   (PROJECT pregunta abierta v1.5-6: no se crea "usuario fantasma"). El listado y el detalle ganan, **aditivo**:
   `isGuestOrder: boolean` (= `guestEmail != null`), `guestEmail?: string` (contacto operativo de back-office, ya
@@ -25320,6 +25576,9 @@ lleva `@HttpCode` explícito en cada ruta.
   > | **`null`** *(línea sin decisión en una oferta ya emitida)* | — | **`422 ITEM_NOT_OFFERED`** · `details: { itemId, offerDecision: null }` |
   > | **`buy`** | **`null`** ⚠️ | **`500 OFFERED_PRICE_MISSING`** · `details: { itemId }` · **no escribe nada, no paga** |
   >
+  > - ⚠️ **v1.80.10 (F-4): lo de «rechazar es la vía correcta» para una `skip` queda SUPERADO por §M5-V** (rechazar una
+  >   `skip` manda un correo de rechazo falso) **y por `DESIGN_SYSTEM §27.2`**: la UI no ofrece ninguna decisión sobre una
+  >   `skip`; el servidor no cambia. La carta `skip` que llegó físicamente es `D-BL-SKIP-1`. [§E2E-ADM.2](#E2E-ADM).
   > - **El discriminador entre el `422` y el `500` es UNA pregunta: ¿le debemos dinero a esta línea?** **No** (`skip`
   >   o sin decisión) ⇒ **`422` accionable**: el operador no hizo nada irreparable y **la vía correcta está a un
   >   clic** — **`decision:"reject"` con su motivo**, que ancla §H y manda el correo por carta. **Sí, y no sabemos
@@ -26744,6 +27003,8 @@ sin correo con transacciones viola (1) y el `DELETE` responde `500`.
 @IsString`). **Orden de validación (NORMATIVO, todo `422 VALIDATION_ERROR` con `details.field`):**
 1. `name` y `role` como hoy (`admin.service.ts:692-701`).
 2. `role = customer` ⇒ `username` presente ⇒ `field:'username'`; `email` obligatorio y válido (como hoy, `:686-690`).
+   **2-bis (⭐ v1.80.10, F-7):** `role = customer` ⇒ `phone` obligatorio (`trim` no vacío) ⇒ `422 VALIDATION_ERROR`
+   `details: { field:'phone', rule:'customer_phone_required' }`; staff opcional. [§E2E-ADM.5](#E2E-ADM).
 3. `role ∈ {vault_operator, super_admin}` ⇒ `email` presente (aun vacío) ⇒ `field:'email'` (`details.rule:'staff_without_email'`);
    `username` obligatorio: `u = trim(username).toLowerCase()`; regla que falla en `details.rule`, evaluadas en este
    orden: `required` (vacío) → `length` (3–30) → `charset` (solo `a-z 0-9 . _ -`; cubre espacio, `@`, acento, ñ) →
@@ -27575,6 +27836,8 @@ la decisión, pero las tres son condición de aceptación)*:
     "password": "string? (>= 8; si se omite, el backend autogenera una temporal de alta entropía)",
     "phone": "string?", "locale": "es | en? (default es)" }
   ```
+  - ⭐ **v1.80.10 (F-7, criterio 128(b)):** `phone` es **obligatorio cuando `role = customer`** (`trim` no vacío ⇒ si no,
+    `422 VALIDATION_ERROR {field:'phone', rule:'customer_phone_required'}`); opcional para staff. [§E2E-ADM.5](#E2E-ADM).
   - `email`: se **lowercasea** antes de persistir/validar unicidad (mismo trato que `/auth/register`).
   - `name`: **requerido** (columna `User.name` es NOT NULL).
   - `role`: `@IsIn(customer | vault_operator | super_admin)`. Crear `vault_operator`/`super_admin` es alta de staff.
@@ -27790,6 +28053,9 @@ la decisión, pero las tres son condición de aceptación)*:
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
+> ⭐ **v1.80.10 (F-8/F-9):** las **dos** formas del `422` de este `PUT` (por clave y cruzada) y la regla de la pantalla:
+> [§E2E-ADM.4](#E2E-ADM). Los diez diales del ciclo de buylist **ya** están en el DTO; falta su pantalla:
+> [§E2E-ADM.3](#E2E-ADM).
 - 🚧⛔ **v1.66 / v1.66.1 — `catalogSyncFromDate` SALDRÁ DE ESTE DTO Y DE ESTE `PUT`, y todavía NO ha salido.** El
   corte del sync de catálogo **dejará de ser un dial y pasará a ser un valor DERIVADO que se mueve solo**
   ([`§M2-CS.4`](#M2-CS4), `<!-- CANON: corte-de-catalogo -->`, **`estado: PROYECTADA`**; decisión del dueño,

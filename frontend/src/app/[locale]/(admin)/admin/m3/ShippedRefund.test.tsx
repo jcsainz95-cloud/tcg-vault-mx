@@ -73,6 +73,10 @@ describe('§40.2 · el diálogo de reembolso total (M3)', () => {
     expect(dialog).toHaveTextContent('Elige uno de los dos para poder reembolsar.');
     expect(confirmBtn(dialog)).toBeDisabled();
 
+    // QA s5 MENOR-3: con la nota escrita y SIN motivo, sigue apagado (la exigencia del motivo es la que muerde aquí).
+    fireEvent.change(within(dialog).getByLabelText('Qué pasó'), { target: { value: '  guía sin movimiento 10 días  ' } });
+    expect(confirmBtn(dialog)).toBeDisabled(); // falta el motivo
+    fireEvent.change(within(dialog).getByLabelText('Qué pasó'), { target: { value: '' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: /No llegó/ }));
     expect(confirmBtn(dialog)).toBeDisabled(); // falta la nota
     fireEvent.change(within(dialog).getByLabelText('Qué pasó'), { target: { value: '  guía sin movimiento 10 días  ' } });

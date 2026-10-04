@@ -8301,11 +8301,22 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   **y ahora también** `backend/src/modules/admin/admin.service.ts` (`users?: UsersService`, `deleteUser` lanza si falta —
   añadido en este pase por `eraseClabe`, v1.80.7 punto 19, siguiendo el mismo patrón para no romper 27 construcciones
   manuales del servicio en los unitarios).
+  **Y también (techlead C-3, 2026-10-04, sobre `4d994c55`)** `backend/src/modules/inventory/inventory.service.ts:672`
+  (`@Optional() audit?: AuditService`, previo) y **`:677`** (`@Optional() priceSync?: PriceSyncJobService`, nuevo en
+  v1.80.8.9 `M2-VQ9`), con su consumo en `:2052-2060` (`sweepSaleQueueAfterPublishAll`). **Este es peor que el
+  original:** si falta, no lanza — deja un `logger.error` y `publish-all` responde `200` igual (falla-seguro a
+  propósito, pero el tipo sigue mintiendo). Hoy lo vigila **VQ-10** (integración, DI real). Motivo del `@Optional()`:
+  no tocar 98 construcciones manuales `new InventoryService(` en 30 specs (medido 2026-10-04 sobre `1b1ab19a`:
+  `grep -rn "new InventoryService(" backend/test | wc -l` ⇒ 98; `grep -rln …` ⇒ 30).
 - **Impacto:** el tipo miente: en producción son dependencias duras; solo los unitarios legacy que construyen el servicio
   a mano las omiten. Un módulo mal cableado se descubre en la primera petición, no al arrancar.
-- **Corrección:** dependencias requeridas; los unitarios que construyen a mano pasan un doble (patrón `usersStubM61`).
-- **Disparador:** el próximo `@Optional()` nuevo, o el próximo unitario nuevo de esos servicios.
-- **Comprobación de cierre:** `rg -n "@Optional\(\) private readonly (prep|manual|users)" backend/src/modules` ⇒ **0**.
+- **Corrección:** dependencias requeridas; los unitarios que construyen a mano pasan un doble (patrón `usersStubM61`);
+  para `InventoryService`, una factoría `makeInventoryService()` en `test/helpers/` que sustituya las construcciones a mano.
+- **Disparador:** el próximo `@Optional()` nuevo, o el próximo unitario nuevo de esos servicios. ⚠ **YA SALTÓ**
+  (2026-10-04): `inventory.service.ts:677` es ese `@Optional()` nuevo. Se anota y no se paga en este pase (el techlead
+  no lo exige para fusionar); el siguiente `@Optional()` o el siguiente spec que construya `InventoryService` a mano lo paga.
+- **Comprobación de cierre:** `rg -n "@Optional\(\) private readonly (prep|manual|users|audit|priceSync)" backend/src/modules` ⇒ **0**
+  **y** `rg -n "new InventoryService\(" backend/test` ⇒ solo dentro de la factoría.
 
 ### SHIP-D4 · `@Body() body: unknown` sin DTO en `prep-items`/`prepared`
 - **Dónde:** `backend/src/modules/shipments/admin-shipments.controller.ts:90` (`markItem`) y `:99` (`prepare`); la forma se
@@ -8624,6 +8635,109 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Comprobación:** `grep -c "^## 0.55 " docs/BACKEND_NOTES.md` ⇒ **1**.
 
 ---
+
+## Backend · 2026-10-04 · gate del techlead sobre `4d994c55` (rama `claude/precios-s5`, D-1…D-6, D-9)
+
+> Deuda aceptable del veredicto «APROBADO CON CONDICIONES» del techlead sobre `4d994c55`. Las condiciones C-1/C-2 se
+> cerraron en código en este pase (BACKEND_NOTES §21); C-3 amplía **SHIP-D3** (arriba). D-7/D-8 son de frontend.
+
+### PS5-D1 · ✅ CERRADA en este pase (2026-10-04) · Dos copias de «bloquear envíos → `afterShipment` → cancelar» en `onFullRefund`
+- **Dónde era:** `backend/src/modules/payments/refunds/full-refund.service.ts:212-220` (paso (1)+(2)) y `:230-235` (4-bis).
+- **Cierre:** un solo `lockAndCloseShipments(tx, orderId, exceptIds, …) → { lockedIds, anyShippedOut }`, sobre el helper
+  común `lockShipmentsOfOrder` + `isShippedOut` de `refund-review.ts` (C-1). Juez: SRF-9/SRF-10/SRF-11 (BACKEND_NOTES §21).
+- **Comprobación de cierre:** `rg -n "lockShipments\(|SHIPPED_OUT_STATUSES as readonly" backend/src/modules/payments` ⇒ **0**.
+
+### PS5-D2 · P3 💰 · `claimListed` con dos modos y el precio escrito por tres vías
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:2118-2192` (`claimListed`: el CAS cambia según `audited`)
+  y `:2774-2780`; el precio entra por `fields`, por `lineListPriceCents` y por `audited.writtenListPriceCents`.
+- **Impacto:** hoy coinciden (también con `listPriceCents: null`, gracias a `fields`), pero `writtenListPriceCents` es una
+  TERCERA expresión del precio en vez de salir de lo que el `UPDATE` escribe de verdad: un cambio en una vía y no en las
+  otras haría que la bitácora antes/después de M1 mienta sobre el precio publicado.
+- **Corrección:** `writtenListPriceCents` derivado del `data` del `UPDATE` (una sola expresión), y separar los dos modos
+  de `claimListed` (o nombrarlos) en vez de ramificar por `audited`.
+- **Disparador:** el próximo cambio en cómo `publish`/`updateItem` deciden el precio que se escribe.
+- **Comprobación de cierre:** un solo sitio calcula el precio escrito (`rg -n "writtenListPriceCents" backend/src` ⇒
+  solo asignación desde el `data`), y SFP-1…SFP-10 verdes.
+
+### PS5-D3 · ✅ CERRADA en este pase (2026-10-04) · Docblock huérfano encima de `sweepSaleQueueAfterPublishAll`
+- **Dónde era:** `inventory.service.ts:2046-2050`: el docblock de `openPendingEntriesFor` quedó encima del de
+  `sweepSaleQueueAfterPublishAll` (dos seguidos; el primero describía otra función).
+- **Cierre:** movido encima de `openPendingEntriesFor`. Solo comentarios.
+
+### PS5-D4 · P3 💰 · `releaseReservedOfUnsettledRefund` escribe `toStatus: 'listed'` a mano y relee `locationId` tras el `UPDATE`
+- **Dónde:** `backend/src/modules/payments/refunds/release-unsettled-refund.ts:58` (relectura de `locationId` por pieza
+  después del `updateMany`) y `:63` (`toStatus: 'listed'` literal en vez de `releaseReservationData.status`).
+- **Impacto:** si la liberación cambia de destino (`releaseReservationData`), la bitácora (`InventoryMovement`) seguiría
+  diciendo `listed`: mentiría sobre a dónde fue la pieza. La relectura por pieza es una consulta extra (N pequeño).
+- **Corrección:** `toStatus: releaseReservationData.status` y leer `locationId` en el mismo `SELECT … FOR UPDATE` de
+  `lockReservedOfOrder` (ya bloquea esas filas).
+- **Disparador:** el próximo cambio a `releaseReservationData` o al destino de la liberación.
+- **Comprobación de cierre:** `rg -n "toStatus: 'listed'" backend/src/modules/payments/refunds/release-unsettled-refund.ts`
+  ⇒ **0**; SRF-1/SRF-2/SRF-12 verdes.
+
+### PS5-D5 · P3 · Comprobación «canónica premium» escrita dos veces en el mismo predicado
+- **Dónde:** `backend/src/common/pricing-curve.ts:646-648`: `!CANONICAL_RARITIES.some((c) => c.key === r && c.premium) ||
+  !isPremiumCanonicalRarity(r)`.
+- **Impacto:** la segunda es redundante y además acepta coincidencias por patrón: despista a quien lea cuál de las dos
+  manda. Sin efecto de conducta conocido (⚠ equivalencia NO MEDIDA sobre todas las rarezas).
+- **Corrección:** una sola comprobación (la exacta por `key`), con un unitario que recorra `CANONICAL_RARITIES`.
+- **Disparador:** el próximo cambio a `validatePremiumFloorSalePublish` o a `CANONICAL_RARITIES`.
+- **Comprobación de cierre:** `rg -n "isPremiumCanonicalRarity" backend/src/common/pricing-curve.ts` ⇒ solo su definición
+  (o solo un uso), PF-6/PF-8 verdes.
+
+### PS5-D6 · ✅ CERRADA en este pase (2026-10-04) · Cabecera de M-62 decía «los cuatro campos del motivo van juntos»
+- **Dónde era:** `backend/prisma/migrations/20261004120000_m62_shipped_refund_reason/migration.sql:11` contra `:51-56`: el
+  CHECK permite `shippedRefundNote` NULL con motivo (bien dicho en `:51`).
+- **Cierre:** solo el comentario de la cabecera (motivo, cuándo y quién juntos; nota opcional con motivo, ⛔ nunca sin
+  él). ⛔ DDL intacto. M-62 no está en `main` ni en `production` (medido 2026-10-04: `git cat-file -e origin/{main,production}:<migración>` ⇒ no existe);
+  efecto en BD locales ya migradas: BACKEND_NOTES §21.
+
+### PS5-D9 · P3 · PF-11 es un censo sobre texto fuente, no una prueba de conducta
+- **Dónde:** `backend/test/pricing.premium-floor-sale.spec.ts:436+` (PF-11 «candado de fuente: quién pasa QUÉ política»).
+- **Impacto:** comprueba la FORMA del código, no la conducta. Aceptable porque la conducta la cubren PF-3, PF-7 y PF-10
+  en integración (y las mutaciones de BACKEND_NOTES §15 —«compra lee el dial», «checkout sin política»— muerden allí).
+  Riesgo: que alguien la cuente como la prueba principal y borre las de integración.
+- **Corrección:** ninguna obligatoria; si se toca, nombrar en su docblock las pruebas de conducta que la respaldan.
+- **Disparador:** el próximo cambio a quién pasa `policy` a `premiumFloorGuard`/`resolvePendingReason`, o borrar PF-3/7/10.
+- **Comprobación de cierre:** PF-3, PF-7 y PF-10 siguen existiendo y verdes; PF-11 los cita.
+
+## Frontend · 2026-10-04 · gate del techlead sobre `4d994c55` (rama `claude/precios-s5`, D-7; D-8 cerrada)
+
+> Anotado por frontend a petición del orquestador. D-8 se cerró en código en este pase (`FRONTEND_NOTES` §85); D-7 se
+> queda como deuda porque su arreglo vive en `frontend/src/components/ui/`, zona compartida que un stream no toca sin
+> que el orquestador la serialice.
+
+### PS5-FE-D7 · P3 · El diálogo de confirmación «Cancelar con foco + verbo» está copiado en cada pantalla
+- **Dónde (medido 2026-10-04 con `rg -ln "cancelRef|setCancelEl|cancelEl" frontend/src/app --glob '!*.test.*'` ⇒ 10
+  ficheros):** tres componentes locales con nombre propio — `m10/sections/PremiumFloorSection.tsx:393` (`ConfirmModal`),
+  `m4/reponer/[caseId]/ReplacementCaseView.tsx:437` (`ConfirmDialog`), `m2/sections/fx/FxDialogs.tsx:42`
+  (`FxConfirmDialog`) — y el mismo patrón en línea (`Modal` + ref al «Cancelar» + `setTimeout(focus)`) en
+  `m1/SealedFinalPrice.tsx`, `m3/RefundOrderDialog.tsx`, `m3/[orderId]/M3OrderDetailView.tsx` (registro del motivo),
+  `m4/LocateItemControl.tsx`, `m4/ShipPreparationCard.tsx`, `m4/ShipmentsQueue.tsx`, `m4/VaultPlacementCard.tsx` y
+  `manual-refunds/[id]/ManualRefundDetailView.tsx`. Todas las rutas bajo `frontend/src/app/[locale]/(admin)/admin/`.
+- **Riesgo:** Bajo, sin dinero en juego por sí mismo. La regla de los diálogos de dinero (foco inicial en «Cancelar»,
+  el verbo lleva la cifra, `loading` bloquea el doble clic) se reescribe a mano cada vez; una copia que la olvide no la
+  caza ninguna prueba común.
+- **Disparador:** el próximo diálogo de confirmación nuevo, o cualquier cambio de `DESIGN_SYSTEM` a la regla de foco/
+  botones de los diálogos de confirmación — lo que llegue antes. Requiere que el orquestador abra `components/ui/` a un
+  solo stream.
+- **Cómo se cierra:** `components/ui/ConfirmModal.tsx` (`title`, `confirmLabel`, `onConfirm`, `loading`, `variant`,
+  foco inicial en «Cancelar» y retorno del foco al disparador), con su prueba unitaria; las tres copias con nombre
+  migran primero, las en línea al tocarse.
+- **Prueba que lo demuestra:** unitaria de `ConfirmModal` (foco inicial en «Cancelar», `Escape` cierra, `loading`
+  deshabilita el verbo). Candado estático: `rg -n "function (Confirm(Modal|Dialog)|FxConfirmDialog)" frontend/src/app`
+  ⇒ **0** (hoy 3).
+
+### PS5-FE-D8 · ✅ CERRADA en este pase (2026-10-04) · `MAX_LIST_PRICE_CENTS` dentro del componente y dos listas de invalidación
+- **Dónde era:** `m1/SealedFinalPrice.tsx` exportaba la cota desde un componente `'use client'` y tenía DOS listas de
+  claves a invalidar: tras guardar (6 claves) y en «Recargar» (3, sin `sealed-sets`/`sealed-set-detail`/
+  `sealed-price-status`) ⇒ «Recargar» tras un `409/422` no refrescaba el panel de «Sellado», justo donde el editor vive
+  con `layout='panel'`.
+- **Cierre:** `m1/sealed-final-price.ts` con `MAX_LIST_PRICE_CENTS` y `SEALED_FINAL_PRICE_INVALIDATES` (una lista, los
+  dos momentos). Candados: `SealedFinalPrice.test.tsx` «techlead D-8» (mutación: devolver «Recargar» a las 3 claves ⇒
+  rojo) y `sealed-final-price.test.ts` (la cota ↔ la cifra que cita `DESIGN_SYSTEM §39`; mutación `50_000_000` ⇒ rojo).
+- **Pendiente fuera de frontend:** el contrato no declara la cota de `listPriceCents` (solicitud al arquitecto en
+  `FRONTEND_NOTES` §85).
 
 ## Frontend · 2026-09-29 · release s5 (7b9c196e)
 

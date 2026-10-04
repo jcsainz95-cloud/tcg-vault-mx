@@ -2044,11 +2044,6 @@ export class InventoryService {
   }
 
   /**
-   * Entradas `open` de la cola de precio pendiente para las variantes de estas piezas, EN LOTE
-   * (`Map<pendingQueueKey, entryId>`). Es una LECTURA: no escala nada — quien escala es el intento
-   * de publicación, y ésa es justamente la diferencia que la fase 8 vino a marcar.
-   */
-  /**
    * 💰 v1.80.8.9 (`M2-VQ9` punto 1) — el barrido VQ al final de `publish-all`. ⛔ No copia el cuerpo: llama a
    * `PriceSyncJobService.sweepUnreasonedSaleQueue('publish-all')`, el mismo que corre al final de un `price-sync`
    * completo. Falla-seguro: un error ⇒ `logger.error` y la respuesta del lote no cambia.
@@ -2064,6 +2059,11 @@ export class InventoryService {
     }
   }
 
+  /**
+   * Entradas `open` de la cola de precio pendiente para las variantes de estas piezas, EN LOTE
+   * (`Map<pendingQueueKey, entryId>`). Es una LECTURA: no escala nada — quien escala es el intento
+   * de publicación, y ésa es justamente la diferencia que la fase 8 vino a marcar.
+   */
   private async openPendingEntriesFor(items: PublishableItem[]): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     if (items.length === 0) return map;

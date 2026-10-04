@@ -8,10 +8,13 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { ShippedRefundReason } from '@prisma/client';
+import { ShipmentStatus, ShippedRefundReason } from '@prisma/client';
 import {
   isRefundReviewPending,
+  isShippedOut,
+  lockShipmentsOfOrder,
   REFUND_REVIEW_PENDING_WHERE,
+  SHIPPED_OUT_STATUSES,
   toFullRefundReviewDTO,
 } from '../src/modules/payments/refunds/refund-review';
 import { stripComments } from './helpers/strip-comments';
@@ -128,5 +131,58 @@ describe('SRF-13 — por ausencia (criterio 253)', () => {
     const src = readFileSync(join(SRC, 'modules/orders/order-refund.service.ts'), 'utf8');
     const body = stripComments(src.slice(src.indexOf('async recordShippedRefundReason('), src.indexOf('/** §M4-SHIP.18.10')));
     expect(body).not.toMatch(/executeRefund|createRows|stripe|inventoryItem|inventoryMovement|mail|notify/i);
+  });
+});
+
+/**
+ * Techlead C-1 (2026-10-04) — «ya salió» es UNA regla: `SHIPPED_OUT_STATUSES` + `isShippedOut` + `lockShipmentsOfOrder`
+ * en `refund-review.ts`, leídos por M3 tx1, `onFullRefund` (rama directo) y el detalle de M3. Si M3 y `onFullRefund`
+ * leyeran listas distintas, M3 dejaría de pedir el motivo o la invariante de `onFullRefund` daría 500.
+ */
+describe('C-1 — «ya salió»: un predicado, un helper de candado, tres lectores', () => {
+  it('`isShippedOut` sobre TODOS los estados del schema ⇒ solo enviado|entregado', () => {
+    const all = Object.values(ShipmentStatus);
+    expect(all.filter(isShippedOut).sort()).toEqual(['entregado', 'enviado']);
+    expect([...SHIPPED_OUT_STATUSES].sort()).toEqual(all.filter(isShippedOut).sort());
+  });
+
+  const SRC = join(__dirname, '..', 'src');
+  const READERS = ['modules/orders/order-refund.service.ts', 'modules/payments/refunds/full-refund.service.ts', 'modules/orders/admin-orders.controller.ts'];
+
+  it.each(READERS)('%s usa `isShippedOut` y ⛔ no escribe la lista a mano (ni literal ni copia)', (rel) => {
+    const code = stripComments(readFileSync(join(SRC, rel), 'utf8'));
+    expect(code).toMatch(/\bisShippedOut\b/);
+    expect(code).not.toMatch(/['"](?:enviado|entregado)['"]/);
+    expect(code).not.toMatch(/SHIPPED_OUT_STATUSES\s*[:=]/); // usarla sí; ⛔ definir otra
+  });
+
+  it('M3 tx1 y `onFullRefund` bloquean los envíos de la orden con el MISMO helper; ⛔ ninguno importa la regla de un servicio', () => {
+    for (const rel of READERS.slice(0, 2)) expect(stripComments(readFileSync(join(SRC, rel), 'utf8'))).toMatch(/\blockShipmentsOfOrder\(/);
+    for (const rel of READERS) expect(readFileSync(join(SRC, rel), 'utf8')).not.toMatch(/import[^;]*\b(?:isShippedOut|SHIPPED_OUT_STATUSES|lockShipmentsOfOrder)\b[^;]*from '[^']*\.service'/);
+  });
+
+  it('`lockShipmentsOfOrder`: ids de la orden (id asc., salvo `exceptIds`), `FOR UPDATE`, y el estado leído BAJO el candado', async () => {
+    const findMany = jest.fn(async () => [{ id: 'b' }, { id: 'c' }]);
+    const queryRaw = jest.fn(async () => [
+      { id: 'b', status: 'enviado' },
+      { id: 'c', status: 'guia' },
+    ]);
+    const out = await lockShipmentsOfOrder({ shipmentRequest: { findMany }, $queryRaw: queryRaw } as never, 'o1', ['a']);
+    expect(findMany).toHaveBeenCalledWith({ where: { orderId: 'o1', id: { notIn: ['a'] } }, select: { id: true }, orderBy: { id: 'asc' } });
+    const [strings, ids] = queryRaw.mock.calls[0] as unknown as [TemplateStringsArray, string[]];
+    expect(strings.join('?')).toMatch(/FROM "ShipmentRequest" WHERE id = ANY\(\?::text\[\]\) ORDER BY id FOR UPDATE/);
+    expect(ids).toEqual(['b', 'c']);
+    expect(out).toEqual([
+      { id: 'b', status: 'enviado' },
+      { id: 'c', status: 'guia' },
+    ]);
+  });
+
+  it('`lockShipmentsOfOrder` sin envíos ⇒ [] y ⛔ ningún `FOR UPDATE`; sin `exceptIds` ⇒ toda la orden', async () => {
+    const findMany = jest.fn(async () => []);
+    const queryRaw = jest.fn();
+    expect(await lockShipmentsOfOrder({ shipmentRequest: { findMany }, $queryRaw: queryRaw } as never, 'o1')).toEqual([]);
+    expect(findMany).toHaveBeenCalledWith({ where: { orderId: 'o1' }, select: { id: true }, orderBy: { id: 'asc' } });
+    expect(queryRaw).not.toHaveBeenCalled();
   });
 });

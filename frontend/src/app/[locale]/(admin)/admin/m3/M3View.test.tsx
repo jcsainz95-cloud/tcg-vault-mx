@@ -28,9 +28,11 @@ describe('M3View · Ventas / órdenes (refund)', () => {
     renderWithProviders(<M3View />, 'es');
     // v1.80 (§37.11): la fila titula con el FOLIO (`orderNumber`), enlazado al detalle; el id solo si no hay folio.
     expect((await screen.findAllByText('TCG-009001')).length).toBeGreaterThan(0);
-    // Fixture: solo ord-9001 está settled → tabla desktop + card mobile = 2 renders máx.
+    // Fixture: settled = ord-9001, ord-5006 y ord-5008 (los dos últimos, §M4-SHIP.18.12 para el E2E de s5) →
+    // tabla desktop + card mobile = 2 renders máx. por orden. Las `pending`/`chargeback`/`refunded` no lo ofrecen.
     const refundButtons = screen.getAllByRole('button', { name: 'Reembolsar' });
-    expect(refundButtons.length).toBeLessThanOrEqual(2);
+    expect(refundButtons.length).toBeGreaterThan(0);
+    expect(refundButtons.length).toBeLessThanOrEqual(2 * 3);
   });
 
   it('el refund exige motivo, llama a POST /admin/orders/:id/refund y confirma', async () => {
