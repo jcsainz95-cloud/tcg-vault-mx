@@ -4,7 +4,15 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.16 (2026-10-04) — CAPTURAR GUÍA: LA DIRECCIÓN SE CORRIGE ENTERA, COMPRA EN VUELO, PROMOCIÓN, ALERTAS DE
+> Estado: **v4.17 (2026-10-04) — «CAPTURAR A MANO» EN EL PASO 4: SOLO SI NO HAY GUÍA NI COMPRA PENDIENTE (§43 sin
+> contradicción; resuelve el desacuerdo de `FRONTEND_NOTES.md:19163-19169`; ux-ui sin Bash, sha NO MEDIDO por mí):**
+> **SK1**, **SK6**, **§43.1** punto 6 y **UX-SDX-2** reescritos; **§43.5a** nueva con la matriz por estado: «Capturar a
+> mano» presente en pasos 1–3 (deshabilitado solo durante la compra) y en el paso 4 **solo** en «Skydropx no creó la
+> guía»; ausente en `labeled`, `processing`, `in_progress` e `in_flight`. Ratifica lo construido por frontend
+> (`CaptureLabelDialog.tsx`, rama `stage === 'notCreated'`). El «en los cuatro» del resumen de v4.15 (abajo) queda
+> sustituido por esto. **Cero tokens nuevos.** Lo que sigue es la v4.16 con esos cambios dentro de §43.
+>
+> Estado anterior: **v4.16 (2026-10-04) — CAPTURAR GUÍA: LA DIRECCIÓN SE CORRIGE ENTERA, COMPRA EN VUELO, PROMOCIÓN, ALERTAS DE
 > GUÍA Y `AV-18`/`AV-19` (§43 actualizada; `API_CONTRACT §M4-SHIP.19.20` errata v1.80.12; `HECHOS.md:50`, fila 2026-10-04
 > «En «Capturar guía» el dueño (y quien prepare) puede corregir TODA la dirección…»; fichero:línea re-leídos en el
 > worktree `claude/skydropx-d`, HEAD `4f926e5c` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):**
@@ -23056,12 +23064,12 @@ dueño); ~~no diseña `AV-18`/`AV-19`~~ (v4.16: sí, §43.12b–c); no diseña e
 
 | # | Regla | De dónde sale |
 |---|---|---|
-| **SK1** | **Una ventana, dos caminos.** «Capturar guía» abre **el mismo** diálogo de hoy; con Skydropx encendido ese diálogo tiene cuatro pasos y **«Capturar a mano» está visible en los cuatro**. ⛔ Ningún botón «Cotizar envío» en ninguna tarjeta. ⛔ Ningún segundo formulario de guía | `HECHOS.md` fila «Skydropx vive dentro de la ventana…» · §19.19.13 · §37.3a · PS-101 |
+| **SK1** | **Una ventana, dos caminos.** «Capturar guía» abre **el mismo** diálogo de hoy; con Skydropx encendido ese diálogo tiene cuatro pasos y **«Capturar a mano» está disponible mientras no exista ni guía ni compra pendiente** *(v4.17)*: pasos 1, 2 y 3 (en el 3, deshabilitado solo durante la petición de compra) y, en el paso 4, **solo** en «Skydropx no creó la guía». ⛔ En el paso 4 con guía (`labeled`), en proceso (`processing`), comprándose (`in_progress`) o sin confirmar (`in_flight`), no se pinta: la matriz y el porqué están en §43.5a. ⛔ Ningún botón «Cotizar envío» en ninguna tarjeta. ⛔ Ningún segundo formulario de guía | `HECHOS.md` fila «Skydropx vive dentro de la ventana…» · §19.19.13 · §37.3a · PS-101 |
 | **SK2** | **La compra la hace una persona con un clic que lleva la cifra escrita.** El botón dice «Comprar guía por {monto}» y encima la frase «Se cobrará {monto} de tu saldo de Skydropx». ⛔ Ninguna compra sin ese clic: ni al elegir, ni al volver de una re-cotización, ni al reintentar | `HECHOS.md` fila «Skydropx — Carta Porte…» («guía por guía») · §19.19.7 · T.4.1 · criterio 220 aplicado al costo |
 | **SK3** | **Ninguna cifra la calcula la pantalla** (S1 de §37 extendida): precio, desglose, IVA, seguro, margen, cobertura, valor de la caja, «cobrado al cliente», vigencia y el monto de la frase de dinero **llegan del servidor** (`ShipmentQuoteDTO`/`ShipmentRateDTO`) y se pintan tal cual. ⛔ Ni sumar el seguro, ni restar el IVA, ni decidir «recomendada», «oculta» o «vencida» con un reloj propio | §19.19.4 («⛔ Desaparecen…»), §19.19.5, §37.0 S1 |
 | **SK4** | **El botón de compra no se pinta si no se puede comprar** (`labelOptions.canPurchase = false`): en su lugar, la frase que dice por qué y «Capturar a mano». ⛔ Ni apagado ni oculto sin texto | §19.19.7 (`canPurchase`), §35.11, §37.0 S6 |
 | **SK5** | **La compra que no sabemos si ocurrió se trata como ocurrida.** *(v4.16)* `200 {outcome:'in_flight'}` es la vía normal ⇒ paso 4 «Compra sin confirmar» (§43.5). Ante **cualquier** `5xx` o error de red de `POST …/label`, la ventana **relee** `GET /admin/shipments/:id` y decide por el estado, ⛔ nunca por el status: `label ≠ null` ⇒ «Guía comprada»; `labelPending ≠ null` ⇒ «Compra sin confirmar» / «Guía en proceso»; `labelPending = null ∧ label = null` ⇒ «No se compró nada» y vuelve el paso 3 (la compra exige un clic nuevo, SK2). **Si la relectura también falla** ⇒ «Compra sin confirmar» (falla cerrado): sin botón de compra y sin «Capturar a mano». *Un reintento a ciegas es la guía duplicada* | §19.20.5, §19.7 paso 9 ⚠️, `ARCHITECTURE §4.60 (l)` fila 2 |
-| **SK6** | **Errores por `error.code` (y `details.missing`/`reason`/`op`), nunca por el status solo.** Cada uno dice **qué no se escribió**, **qué no se cobró** y **el remedio**; todos ofrecen «Capturar a mano» salvo los que lo hacen imposible (guía ya comprada). ⛔ Nada cae a «Algo salió mal» | §19.19.13 último párrafo, §37.0 S4, PS-101 |
+| **SK6** | **Errores por `error.code` (y `details.missing`/`reason`/`op`), nunca por el status solo.** Cada uno dice **qué no se escribió**, **qué no se cobró** y **el remedio**; todos ofrecen «Capturar a mano» salvo los que lo hacen imposible o peligroso: guía ya comprada (`409 SHIPMENT_ALREADY_LABELED`, `labeled`, `processing`) o compra que quizá existe (`in_progress`, `in_flight`, relectura fallida) — §43.5a. ⛔ Nada cae a «Algo salió mal» | §19.19.13 último párrafo, §37.0 S4, PS-101 |
 | **SK7** | *(v4.16)* **La dirección del envío se corrige aquí; la del cliente no.** Destinatario, calle, interior, CP, colonia (⛔ solo de la lista del CP) y referencias se corrigen en el paso 1; municipio y estado **salen del CP** (no son campos); el teléfono **no** se corrige (P-ADR-1, default). La pantalla **dice** que solo cambia este envío y que queda a nombre de quien corrige. Cada guardado manda la `address.version` que el operador vio | `HECHOS.md:50` · §19.20.1 · PS-101 (corregida) |
 | **SK8** | **Toda ausencia tiene nombre** (§37.0 S8): días, recolección, entrega, plan, liga de rastreo, etiqueta, sucursal — «sin dato», nunca «—» ni `null` | §35.6a |
 | **SK9** | **El seguro se ve antes de elegir y en lo que se compra**: «Asegurado por {cobertura} · {costo}» en la cabecera de opciones y como renglón del desglose al comprar. ⛔ Ningún control para quitarlo ni para cambiar la cobertura en la ventana | `HECHOS.md` fila 2026-09-29 «todo paquete va ASEGURADO», fila «Skydropx — Carta Porte…» (escalones), §19.19.5 |
@@ -23089,8 +23097,10 @@ lista de opciones es una columna):
 4. **Cuerpo** del paso.
 5. **Región `role="status"` `aria-live="polite"`** siempre montada al final del cuerpo (cotizando, guardado, en proceso).
 6. **Pie** (`footer` del `Modal`), de izquierda a derecha en escritorio y apilado en móvil con la principal arriba:
-   - **«Capturar a mano»** — `Button variant="ghost"`, **en los cuatro pasos** (SK1). En el paso 3 con la compra en curso
-     va **deshabilitado** (no puede abandonarse una compra a medias desde aquí).
+   - **«Capturar a mano»** — `Button variant="ghost"`, en los pasos 1, 2 y 3 y, en el paso 4, **solo** en «Skydropx no
+     creó la guía» (SK1; matriz en §43.5a). En el paso 3 con la compra en curso va **deshabilitado** (no puede
+     abandonarse una compra a medias desde aquí). En el resto del paso 4 **no se pinta** (⛔ ni deshabilitado: no hay
+     nada que el operador pueda hacer para habilitarlo, y un botón muerto invita a buscar cómo).
    - **«Atrás»** — fantasma, en los pasos 2 y 3.
    - **La acción principal** del paso (primaria), una sola.
 
@@ -23467,12 +23477,38 @@ confirmar»** y `Banner variant="warning"` (no `danger`):
   vuelve a exigir el clic con la cifra, SK2). A los 2 min sin cambio: **«Sigue sin confirmar. Puedes cerrar: si la guía
   aparece, la tarjeta la mostrará; si no, el dueño puede liberarla a los 15 minutos.»**
 - ⛔ **Sin botón de compra y sin «Capturar a mano»** en este estado (una guía manual encima de una que quizá existe es el
-  doble costo); solo **«Cerrar»**.
+  doble costo); solo **«Cerrar»**. *(Excepción, v4.17: la sub-rama «Skydropx no creó la guía», ya fuera de `in_flight`,
+  sí lo ofrece — §43.5a.)*
 - *Por qué «15 minutos» va escrito:* es `T_UNKNOWN` (§19.20.2), la misma constante que habilita «Liberar»; si el
   contrato la cambia, este texto cambia con ella (clave con `{minutes}`, §43.13).
 
 **`in_flight` ≠ `processing`** (§19.20.5): en `processing` Skydropx **confirmó** la compra y falta el número; en
 `in_flight` no sabemos si existe. Los dos textos lo dicen así; ⛔ no se fusionan en uno.
+
+#### 43.5a «Capturar a mano» en el paso 4 — dónde sí y dónde no *(v4.17; resuelve la contradicción que reportó frontend en `FRONTEND_NOTES.md` §87, «Desacuerdos con el diseño»)*
+
+**La regla:** «Capturar a mano» se ofrece **solo cuando el envío no tiene guía ni compra que pueda existir**
+(`label = null ∧ labelPending = null`). Es la misma condición con la que el servidor acepta `POST …/tracking`; si la
+pantalla ofreciera el botón fuera de ella, el clic acabaría en `409 SHIPMENT_ALREADY_LABELED` (guía existente) o en una
+guía manual encima de otra que quizá existe (doble costo, SK5).
+
+| Estado del paso 4 | ¿Qué hay en el servidor? | «Capturar a mano» | Acciones del pie | Por qué |
+|---|---|---|---|---|
+| `labeled` — «Guía comprada» | `label ≠ null`, `labelSource:'skydropx'` | ⛔ no se pinta | «Listo» | La guía ya existe y está cobrada; una manual es una segunda guía. El servidor respondería `409 SHIPMENT_ALREADY_LABELED` |
+| `processing` — «Guía en proceso» | Skydropx **confirmó** la compra; `labelSource:'skydropx'` ya escrito (§19.7 paso 9) | ⛔ no se pinta | «Cerrar» | Igual que `labeled`: la guía existe, solo falta el número. `409` en el servidor |
+| `in_progress` — «Ya se está comprando» | Otra petición tiene el reclamo (`labelPending ≠ null`) | ⛔ no se pinta | «Cerrar» | Hay una compra viva de otra persona; capturar encima es la guía duplicada |
+| `in_flight` — «Compra sin confirmar» (incluida la relectura fallida de SK5) | `labelPending.state='in_flight'`: no sabemos si existe | ⛔ no se pinta | «Cerrar» | Falla cerrado (SK5): tratamos la compra como ocurrida hasta que el sistema diga otra cosa; la salida es «Liberar» del dueño a los 15 min (§43.8), no la captura manual |
+| «Skydropx no creó la guía» (sub-rama de `in_flight`: `labelPending` vuelve `null` sin `label`) | Nada: ni guía ni reclamo | ✅ **presente y habilitado**, `ghost` | «Volver a elegir» (primaria, paso 2) + «Capturar a mano» | Es el único estado del paso 4 equivalente a «antes de comprar»: no se cobró nada y el operador puede elegir otra opción o capturar la guía de otra paquetería |
+
+- ⛔ En los cuatro estados de la columna «no se pinta», el botón **no aparece**, ni deshabilitado (§43.1 punto 6).
+- Si el estado cambia **dentro** de la ventana (el sondeo de 5 s pasa de `in_flight` a «no creó la guía»), el pie se
+  repinta con el estado nuevo; el foco va a la línea de paso, como en todo cambio de estado.
+- Los pasos 1–3 no cambian: «Capturar a mano» presente y habilitado, salvo en el paso 3 **durante** la petición de
+  compra (deshabilitado, §43.1). Tras la relectura de SK5 con «No se compró nada» se vuelve al **paso 3**, donde el
+  botón está de nuevo.
+- **Implementación ratificada:** `frontend/src/app/[locale]/(admin)/admin/m4/CaptureLabelDialog.tsx`, rama del pie
+  `stage === 'notCreated'` (fichero leído por el informe de frontend, `FRONTEND_NOTES.md:19163-19169`; la línea exacta en
+  `CaptureLabelDialog.tsx` NO MEDIDA por mí). Es exactamente esta tabla; no hay que cambiar código.
 
 ---
 
@@ -24089,7 +24125,7 @@ reescribir la cabecera `:41-44`; `ShipmentNoticeParams` (`:62-75`) gana `carrier
 | ID | Qué asevera | Canario (debe ponerla roja) |
 |---|---|---|
 | **UX-SDX-1** = PS-101 (a) | `provider:'off'` ⇒ el diálogo es el formulario de hoy, sin «Paso n de 4»; `'skydropx'` ⇒ paso 1 con la `<dl>` del snapshot | Abrir siempre el flujo de cuatro pasos |
-| **UX-SDX-2** = PS-101 (b) | «Capturar a mano» presente y habilitado en los pasos 1, 2, 3 (antes de comprar) y 4; ⛔ ningún botón con nombre «Cotizar envío» en `ShipPreparationCard` ni en `ShipmentsQueue` | Quitar el enlace en un paso; añadir el botón |
+| **UX-SDX-2** = PS-101 (b) *(reescrito v4.17)* | «Capturar a mano» presente y habilitado en los pasos 1, 2 y 3 (antes de pulsar «Comprar») y, en el paso 4, **solo** en «Skydropx no creó la guía»; **ausente** (cero nodos con ese nombre, ni deshabilitado) en `labeled`, `processing`, `in_progress` e `in_flight` (incluida la relectura fallida de SK5) — matriz §43.5a; ⛔ ningún botón con nombre «Cotizar envío» en `ShipPreparationCard` ni en `ShipmentsQueue` | Quitar el enlace en un paso 1–3 o en «no creó la guía»; pintarlo en «Compra sin confirmar» o en `processing`; añadir el botón «Cotizar envío» |
 | ~~**UX-SDX-3**~~ | ⛔ **v4.16: sustituido por UX-SDX-18** (aseveraba lo contrario de `HECHOS.md:50`) | — |
 | **UX-SDX-4** = PS-101 (c) | Paso 2 con el fixture medido: la recomendada (99minutos) **preseleccionada** aunque no sea la más barata; las `hidden` no visibles hasta «Ver también…»; el texto de excluidas lleva «no disponibles por API» | Preseleccionar la más barata; mostrar las de sucursal |
 | **UX-SDX-5** | Cada fila con `days:null`, `pickup:null`, `deliveryKind:'unknown'`, `planType:null` ⇒ «sin dato» (o nada para el plan); el DOM no contiene `null`, `undefined` ni «—» suelto | Pintar el valor crudo |
