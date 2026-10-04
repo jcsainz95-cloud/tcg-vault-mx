@@ -18,6 +18,7 @@
 > | **4** | §9: ~~`INV-P2` sigue **ABIERTA** en la rama de release (`ItemVerb` sin `'price'`, `item-location.rules.ts:66`, leído 2026-09-29)~~ ✅ **`INV-P2` CERRADA en `b8a3e4ce`** (`item-location.rules.ts:71` = `'move' \| 'mark' \| 'status' \| 'price'`; prueba `backend/test/inventory.patch-price-guard.spec.ts`; leído 2026-09-29 por el arquitecto, sha NO MEDIDO por él; detalle en §9 y `API_CONTRACT` cabecera v1.80.8-release punto 5); `D-SHIP-5`/`D-SHIP-6` anotadas como cerradas por `7e803bd` (reportado por backend) | §9 | **No** (~~lo cierra~~ lo cerró la regla de fusión de `API_CONTRACT §M1`) |
 > | **v1.80.8.3** | 🔒💰 `charge.refunded` total lleva a `refunded` desde `CHARGE_REFUNDED_SOURCE_STATUSES = pending, failed, settled`; `failAndRelease` pasa a CAS `status:'pending'`. Supera el `WHERE status IN (settled, refunded)` de M5 (v1.80.5 fila 3 y §4.57 (q) fila M5, tachados). Norma: `API_CONTRACT` rev v1.80.8.3 | §4.57 (v) | **Sí** (backend) |
 > | **v1.80.8.4** | Errata (2026-10-02, rama `claude/post-release-s5`): la cola de VENTA la escriben **solo** los escritores del precio de venta de plataforma y siempre con motivo; `price-sync`/`syncCardPrice` ⛔ no escalan; **sin tercer motivo** (paridad schema↔contrato sin cambio); el sellado cierra su fila al resolver en publicación; **barrido VQ** cierra las filas `reason IS NULL` que ninguna pieza vendible necesita. Tacha §5 «`price-sync` sí escala pendientes», la lista de VENTA de §4.24c y el «sellado no cierra» de §4.36.5 (c). No toca guardarraíl ni curva. Norma: `API_CONTRACT` rev v1.80.8.4, §M2 `M2-VQ` | §4.36.5 (c-bis), §5, §4.24c | **Sí** (backend) |
+> | **v1.80.8.5** | 💰 Errata (2026-10-04, rama `claude/post-release-s5`; decisiones del dueño, `HECHOS.md` «Precios — decisiones del 2026-10-04» (a) y «Precios y reembolsos — respuestas a P-PRE-2…» (a)): en **VENTA**, la premium **ex / Double Rare** cuyo precio cae al piso **se publica al piso**; las demás premium siguen retenidas. El guardarraíl de venta pasa a ser el dial M10 **`premiumFloorSalePublish`** (`{mode:'all'|'none'|'only', rarities}`, **seed `{mode:'only', rarities:['Double Rare','Rare Holo EX']}`**, canónicas exactas de `rarity-catalog.ts:97`/`:112`), auditado y modificable sin código. `PROJECT §N.5-bis` / criterio 254. **COMPRA sin cambio** (constante `BUY_PREMIUM_FLOOR_POLICY = {mode:'none'}`). `PendingPriceReason` sin cambio; el barrido VQ gana una rama que cierra las `premium_at_floor` de VENTA cuya rareza el dial publica. Tacha §4.36.5 (a) VENTA, «Por qué funciona», tabla (b) fila VENTA y (c-bis) punto 6. Norma: `API_CONTRACT` rev v1.80.8.5, §M2 `M2-PF` | §4.36.5 (c-ter) | **Sí** (backend + control M10 en frontend + textos ux-ui) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -14447,8 +14448,11 @@ de rareza del sistema y tiene exactamente **tres** consumidores legítimos:
 
 **(a) La regla.** Para una carta de **rareza canónica `premium`**:
 
-- **VENTA:** si el precio resuelve con `basis === 'floor'` (el piso ganó el `max`) ⇒ **NO se publica**. La pieza queda
-  en su status de origen y la variante entra a `PendingPriceEntry` (`context='inventory'`).
+- ~~**VENTA:** si el precio resuelve con `basis === 'floor'` (el piso ganó el `max`) ⇒ **NO se publica**. La pieza queda
+  en su status de origen y la variante entra a `PendingPriceEntry` (`context='inventory'`).~~ **v1.80.8.5 — solo para
+  las rarezas que el dial M10 `premiumFloorSalePublish` NO publica. Seed `{mode:'only', rarities:['Double Rare','Rare
+  Holo EX']}` (decisión del dueño) ⇒ esas dos, con dato, se publican al piso como cualquier otra carta; el resto de
+  premium sigue retenido. Ver (c-ter).**
 - **COMPRA:** si la cotización resuelve con `basis === 'floor'` (el bin ganó el `max`) ⇒ **NO se cotiza**: el resultado
   es `status='precio_pendiente'`, `quotedPriceCents=null`.
 
@@ -14461,10 +14465,12 @@ cotiza por la vía normal.
 > curva** (`bountyGuardBasis`, `money.ts`): si cayó al bin en una chase ⇒ `premium_at_floor`. Bounty sin topar (paga lo
 > decidido) ⇒ la exención sigue. Norma y BG-1…BG-8: `API_CONTRACT §M2-B.11` punto 8.
 
-**Por qué funciona.** Que una chase resuelva al piso solo puede significar que su dato de mercado está **mal**
-(ausente, aplanado o absurdo). El guardarraíl convierte un error de dinero silencioso en una **cola visible**. Volumen
+**Por qué funciona.** ~~Que una chase resuelva al piso solo puede significar que su dato de mercado está **mal**
+(ausente, aplanado o absurdo).~~ El guardarraíl convierte un error de dinero silencioso en una **cola visible**. Volumen
 medido sobre un master set completo: **≈3 de 333** cartas — no es una alarma ruidosa, por eso puede bloquear la
-publicación sin entorpecer la operación.
+publicación sin entorpecer la operación. **v1.80.8.5: la premisa tachada resultó falsa en VENTA** — `premium` incluye
+ex/Double Rare cuyo mercado real cae bajo el piso (17 en VENTA, no ≈3); en el bin de COMPRA (mercado < ~MX$3.33 con la
+semilla) sigue siendo una señal fuerte. Ver (c-ter).
 
 **(b) Dónde se evalúa — DOS seams, uno por eje, cada uno con UN solo cuerpo.** El predicado es puro y vive en
 `common/` junto a la curva; **prohibido duplicarlo**:
@@ -14479,7 +14485,7 @@ export function premiumFloorGuard(rarityCanonical: string | null, basis: PriceBa
 
 | Eje | Seam único (servicio) | Consumidores que DEBEN pasar por él | Efecto de `premium_at_floor` |
 |---|---|---|---|
-| VENTA | `PricingService.computeSalePriceForItem` | `catalog.fetchSellable` / `toListingDTO`, `orders.salePriceOf` (checkout auth **y** guest), `inventory.bulkPublish`, `inventory.publish-all`, `master-set` (sugerido/efectivo del binder) | idéntico a `PRICE_PENDING`: `sellable=false`, no publica, **escala** a la cola |
+| VENTA | `PricingService.computeSalePriceForItem` | `catalog.fetchSellable` / `toListingDTO`, `orders.salePriceOf` (checkout auth **y** guest), `inventory.bulkPublish`, `inventory.publish-all`, `master-set` (sugerido/efectivo del binder) | ~~idéntico a `PRICE_PENDING`: `sellable=false`, no publica, **escala** a la cola~~ **v1.80.8.5:** lo de antes para las rarezas que `premiumFloorSalePublish` no publica; para `Double Rare`/`Rare Holo EX` (seed) **no dispara**: publica al piso (c-ter) |
 | COMPRA | `BuylistService.quoteCardForFinish` (núcleo compartido con `PricingService.loadPricingCurve`) | `POST /buylist/quote`, `POST /buylist/quote/batch`, `POST /buylist/requests` (`createRequest`), `GET /buylist/bounties` | `status='precio_pendiente'`, `quotedPriceCents=null` |
 
 **La escalada respeta la doctrina de escritura vigente y NO la cambia:** `POST /buylist/quote` y `/quote/batch` siguen
@@ -14699,12 +14705,114 @@ bucket que §4.24c define como inventario de plataforma. El §5 de este document
     GROUP BY 1,2,3;
    ```
    (aproximación por exceso: no compara `gradeKey` ni `sealedProductId` de la pieza; `plataforma_vendible=false` son
-   cotas seguras de lo que cierra el barrido). Las 17 `premium_at_floor` **no se mueven**: el guardarraíl y la curva
-   esperan decisión del dueño y esta errata no los toca.
+   cotas seguras de lo que cierra el barrido). ~~Las 17 `premium_at_floor` **no se mueven**: el guardarraíl y la curva
+   esperan decisión del dueño y esta errata no los toca.~~ **v1.80.8.5: el dueño decidió; de las 17, las `Double Rare`/`Rare
+   Holo EX` se publican al piso y sus filas se cierran; las demás premium siguen en la cola — (c-ter).**
 
 **Lo que NO cambia:** alcance de `price-sync` (sigue barriendo vendidas: desperdicia cuota del free tier, no es
 defecto de cola — se anota, no se decide aquí), `set-price-sync`, clave de dedupe, `counts`, forma de respuesta,
 `PendingPriceReason`, `PendingPriceStatus`.
+
+**(c-ter) v1.80.8.5 — En VENTA, la premium ex / Double Rare en el piso se publica al piso; el guardarraíl de venta es
+un dial con lista de rarezas (NORMATIVO, DINERO; sin schema, sin enum).** Contrato: `API_CONTRACT §M2` «v1.80.8.5»
+(ancla `M2-PF`), pruebas PF-1…PF-11.
+
+*Origen.* Decisiones del dueño, `HECHOS.md`: fila «Precios — decisiones del 2026-10-04» punto (a) (*«que se publiquen
+solas a 25»*) y fila «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1 (2026-10-04)» punto (a)
+(*«solo ex y double rare, lo demás por defecto»*: solo ex y Double Rare se publican al piso; las demás premium siguen
+retenidas para revisión; regla parametrizable sin código). Dato que la motiva: M2 VENTA tenía **17** `premium_at_floor` (cifra de `BACKEND_NOTES` §14; ⛔ composición
+NO MEDIDA por el arquitecto; el dueño las describe como «ex/Double Rare baratas»). Con la curva semilla
+(`pricing-curve.ts:108-121`: piso MX$25, 1.60× hasta MX$25) una carta cae al piso con mercado < MX$15.625, y la
+canónica `Double Rare` y el patrón `ex` son `premium` (`rarity-catalog.ts`, leído en ~72/~97). La premisa de (a) —«una
+chase en el piso solo puede ser dato malo»— era cierta para Illustration/SIR/Hyper y **falsa para Double Rare**, que
+abunda con mercado real bajo. El guardarraíl estaba reteniendo **inventario sano** del dueño.
+
+**Decisiones:**
+
+1. **Un dial con lista de rarezas, no un borrado.** `premiumFloorSalePublish` (`premium_floor_sale_publish`,
+   `{ mode: 'all'|'none'|'only', rarities: string[] }`, **seed `{mode:'only', rarities:['Double Rare','Rare Holo
+   EX']}`**) en `ConfigSetting`, editable por `PUT /admin/settings`. *Por qué:* deja **rastro** (bitácora del `PUT`),
+   se **revierte sin código** (`none`) y la lista se **cambia sin código** (añadir/quitar rarezas, o `all`).
+   *Descartados:* (i) **borrar** el guardarraíl de venta
+   — irreversible sin deploy; (ii) **on/off** (mi primer borrador) — no puede expresar la respuesta «solo ex/DR» sin
+   código; (iii) **lista fija en código** de rarezas exentas — la respuesta del dueño exigiría deploy; (iv) **meter
+   el dial dentro de `pricing_curve`** — tocaría el validador cruzado V1–V8, el editor y el preview de la curva (que
+   esta errata no debe tocar) por una opción que no es matemática de precio sino de publicación (§4.36.5d); (v)
+   **lista de rarezas RETENIDAS** en vez de publicadas — una rareza premium nueva del catálogo se publicaría al piso
+   sin que nadie lo decidiera; con lista de publicadas, en `only` lo nuevo se retiene por defecto.
+1-bis. **Qué canónicas son «ex y Double Rare» (medido en `backend/src/common/rarity-catalog.ts`, leído
+   2026-10-04).** `'Double Rare'` (`:97`, `premium:true`; es la rareza de las ex de Scarlet & Violet, comentario
+   `:49`) y `'Rare Holo EX'` (`:112`, `premium:true`, alias `rareholoex`/`rareex`; la **única** canónica con «ex»,
+   las EX de eras anteriores). «ex» también existe como **patrón** (`PREMIUM_WORDS`, `:72`), pero ese patrón solo
+   clasifica como premium una rareza cruda **sin mapear** (pass-through Title-case de `normalizeRarity`, `:152-158`):
+   **no es una canónica y no entra a la lista**. Mantener la comparación **exacta por canónica** fue la condición, y
+   se cumple: una cruda sin mapear con token `ex` **se retiene** (conservador); el remedio, si el dueño la quiere
+   publicar, es darle alias a una canónica en el catálogo (backend), no meter un patrón en el dial. ⚠️ «ex» en el
+   **nombre** de la carta no es su rareza: una «… ex» `Special Illustration Rare` o `Ultra Rare` sigue retenida —
+   es lo que el dueño dijo («lo demás por defecto»).
+2. **Lectura.** Fila ausente ⇒ seed (`only` con `Double Rare` y `Rare Holo EX`, la decisión del dueño, sin
+   migración ni seed obligatorio). Valor
+   almacenado que no pasa el validador ⇒ **`none`** + log de error: es el único caso en que el dial no lo puso nadie,
+   y en dinero lo ilegible va a la dirección conservadora. Una sola función lee el dial (`loadSalePremiumFloorPolicy`)
+   y una sola decide por rareza (`premiumFloorPublishes`); el guardarraíl y el barrido usan las dos. En `only` la
+   comparación es por **string canónico exacto**: una premium reconocida solo por patrón (`premiumByPattern`, sin
+   canónica en la lista) **se retiene** — dirección conservadora. El validador exige canónicas **premium**
+   (`isPremiumCanonicalRarity`): listar `Common` no tiene efecto y sería un error silencioso.
+3. **COMPRA queda fuera, a propósito.** El dueño habló de **publicar**. En COMPRA el guardarraíl protege otra cosa:
+   ofrecer el bin de MX$1 por una premium es **pagar de menos** (PROJECT §N.5, «carta perdida»), y con la semilla solo
+   dispara con mercado < ~MX$3.33 — ahí la premisa «dato malo» sí se sostiene. Se fija con una **constante de código**
+   (`BUY_PREMIUM_FLOOR_POLICY = { mode:'none', rarities:[] }`), no con el dial: un solo interruptor que moviera los dos ejes habría
+   convertido una decisión de venta en una de compra. El cierre por eje (S48-M1, `closePendingForVariant`) ya garantiza
+   que publicar en VENTA no apague el aviso de COMPRA.
+4. **El predicado sigue siendo uno.** `premiumFloorGuard`/`resolvePendingReason` ganan un tercer parámetro
+   **obligatorio** `policy`; si `premiumFloorPublishes(policy, rareza)` el guardarraíl devuelve `ok`. `no_market` se decide **antes** de mirar la
+   política (el dial no toca «sin dato ⇒ el piso no gana», §4.36.0). Obligatorio sin default = el compilador encuentra
+   a cada llamador, que es la lección del seam (§4.36.5b: «la regla un solo cuerpo se sostiene con tipos»).
+5. **Enum intacto.** `premium_at_floor` lo siguen usando COMPRA, la VENTA de rarezas que el dial no publica y las
+   filas históricas.
+   Retirarlo sería CLASE E (schema + migración + paridad + copy) para nada.
+6. **Las filas abiertas se acaban por dos vías ya existentes**, sin migración: los escritores que re-resuelven
+   (`publish-all`, `bulk-publish`, `price-ingest` b-ter) las cierran con `settlePendingForVariant(null, …)`; y el
+   **barrido VQ** gana una rama que cierra toda fila `open` `inventory` `premium_at_floor` **cuya rareza el dial
+   publica** (para esas rarezas ningún escritor de VENTA produce ya ese motivo, así que la fila es obsoleta; no hace
+   falta casar piezas como en (c-bis) 5; con `none` es no-op). La escritura vive en `PricingService` (dueño de la cola).
+   ⚠️ El candado VQ-5 (lista de escritores) se amplía con esa función; no se debilita.
+7. **Qué se pierde, dicho entero (riesgo aceptado por el dueño).** (i) Una carta **`Double Rare` o `Rare Holo EX`**
+   cuyo dato de mercado venga corrupto por debajo de MX$15.63 se venderá a MX$25 — la pérdida irreversible que §N.5
+   nombraba, **acotada a esas dos rarezas** (las de mercado real bajo más frecuente); el dueño la acepta al pedir
+   «solas». Illustration/SIR/Hyper/Ultra y demás premium **siguen protegidas** por el guardarraíl. El remedio es el
+   dial (`none`, o quitar una rareza de la lista). (ii) El diagnóstico «`premium_at_floor` sube y `no_market` plano ⇒
+   piso mal calibrado» (c) **sigue existiendo en VENTA, pero solo sobre las premium que no son DR/EX** — y ahí vuelve
+   a ser una señal fuerte, porque se quitó de la cuenta justo la rareza que la llenaba de falsos positivos. Un piso
+   mal tecleado hacia arriba **encarece** las DR/EX baratas (venta perdida, recuperable, §N.0) en vez de esconderlas;
+   `constantWon` del preview de la curva (`pricing-curve.ts:~184`) sigue cubriéndolo. Seguridad (blue team) debe conocer (i) — se lista en el resumen de entrega.
+
+**Consulta de solo lectura para el paso de despliegue** (de las filas abiertas, cuáles son DR/EX —se publican— y
+cuáles otra premium —siguen en la cola—; y de las DR/EX, cuáles aparecen solas al desplegar, cuáles esperan a
+`publish-all` y cuáles solo cierran en el barrido; ⛔ NO MEDIDO por el arquitecto):
+
+```sql
+SELECT COALESCE(c."rarityCanonical", c."rarity") AS rareza,
+       COALESCE(c."rarityCanonical", c."rarity") IN ('Double Rare','Rare Holo EX') AS se_publica,
+       e."productType",
+       (SELECT array_agg(DISTINCT i."status") FROM "InventoryItem" i
+         WHERE i."cardId" = e."cardId" AND i."productType" = e."productType" AND i."finish" = e."finish"
+           AND i."ownerType" = 'platform' AND i."status" IN ('in_stock','listed')) AS estados_vendibles,
+       count(*)
+  FROM "PendingPriceEntry" e
+  JOIN "Card" c ON c.id = e."cardId"
+ WHERE e.status = 'open' AND e.context = 'inventory' AND e.reason = 'premium_at_floor'
+ GROUP BY 1, 2, 3, 4
+ ORDER BY 2 DESC, 1;
+```
+
+(Aproximación: no compara `gradeKey` ni precio manual por pieza; nombres de tabla/columna según `schema.prisma`
+—`Card.rarityCanonical` en `:816`—, el resto ⛔ no verificado contra la BD real. Para `se_publica = true`: `listed` ⇒
+visible al desplegar, `in_stock` ⇒ tras `publish-all`, `NULL` ⇒ sin pieza vendible, solo cierra el barrido. Para
+`se_publica = false`: siguen en la cola «PREMIUM EN EL PISO» — es lo que el dueño verá ahí.)
+
+**Lo que NO cambia:** curva, piso, puntos, escalera, `no_market`, exención de override/bounty, clave de dedupe,
+`counts`, forma de respuestas, `PendingPriceReason`, COMPRA entera.
 
 **(d) Lo que el guardarraíl NO es.** No es un piso por rareza, no es una regla de precio y **no fija ningún monto**:
 solo decide **publicar / no publicar** y **cotizar / no cotizar**. Meter la rareza de vuelta al monto por esta puerta
