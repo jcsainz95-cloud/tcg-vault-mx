@@ -1,3 +1,213 @@
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de las erratas v1.80.12.6 y v1.80.12.7, antes de D2c** (`API_CONTRACT §M4-SHIP.19.26`, `§M4-SHIP.19.27`; `ARCHITECTURE §4.60 (s)`, `(t)`) · SHA **`eade24d3`** (rama `claude/skydropx-d`, medido con `git log -1`) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO
+> - **v1.80.12.6 (§19.26): APROBADO.** Cierra en diseño SDX-D-1, -2, -3 y -10 tal como pedí, y C-1…C-6 están
+>   completas como PS-116…PS-121. SDX-D-5 y SDX-I-1 las cerró el dueño (`HECHOS.md:58`). SDX-D-6 queda como deuda con
+>   disparador. El modo `operators` no abre un camino nuevo para gastar; solo cambia quién (ver 1.2).
+> - **v1.80.12.7 (§19.27): RECHAZADO tal como está escrito.** Hay **1 alto** (SDX-D-14: la adopción automática puede
+>   tomar una guía que no es de ese envío) y **3 medios** (SDX-D-15, -16, -17).
+>
+> **0 críticos · 1 alto · 3 medios · 2 bajos · 1 info** (todos nuevos; los de `ace57032` están abajo, en 0.2).
+>
+> **Lo mínimo para aprobar:** una errata del arquitecto que cierre SDX-D-14 y SDX-D-16 (condiciones **C-8** y **C-10**)
+> y que meta C-9, C-11 y C-12 como pruebas. **Hay otra vía** si no se quiere esperar la errata: D2c construye §19.26
+> completo y §19.27.2/.3 (serialización y foto del saldo), con la **adopción automática apagada** detrás de una
+> constante `INFLIGHT_ADOPTION_ENABLED = false`, igual que `INFLIGHT_NEGATIVE_VERIFIED`. En ese caso el job solo
+> escribe `label_verify_uncertain` y «Liberar» busca, pero **no adopta sin persona**. C-10 sigue siendo obligatoria en
+> las dos vías: no depende de la adopción.
+> **No es el veredicto de la release.** La fase completa (pentester + seguridad sobre D2 ya construido) sigue pendiente
+> en el gate E.
+
+**Lo que medí yo (2026-10-04).** Fue lectura y grep sobre el árbol vivo; **no ejecuté nada**, así que no hice copia.
+- Contrato y arquitectura leídos en `eade24d3`.
+- El código que cito coincide con `HEAD`: `git diff --quiet HEAD` sobre `shipping-provider/`,
+  `admin-shipments.controller.ts` y `audit/` da vacío.
+- Los ficheros sin commitear de D2a (`shipping-dials.ts`, migración `m66`) son obra en curso y solo los cité de
+  referencia.
+- **NO MEDIDO:** cualquier conducta de Skydropx con envíos reales (la cuenta nunca compró). Tampoco medí la duración
+  real de una compra con reintentos: la calculé con las constantes (ver SDX-D-16).
+
+## 0. Lo que traen las erratas, contra mi veredicto anterior
+
+### 0.1 v1.80.12.6 (§19.26), hallazgo por hallazgo
+| Mío | Estado en el diseño | Dónde | Prueba |
+|---|---|---|---|
+| SDX-D-1 | **Cerrado.** Hay una matriz con 4 filas; un id presente nunca se descarta; `null`, nunca `''`; un `400/422` con id va a «rechazo con id» con **un** solo parser | §19.26.1 | PS-116 = C-1 completa |
+| SDX-D-2 | **Cerrado.** Replay tachado sin condición; `purchase` tiene un solo llamador. ⚠️ Pero §19.27 hace que el job **sí** llame a `cancel` tras una adopción (SDX-D-15) | §19.26.2 | PS-117 (+ ampliada) = C-2 |
+| SDX-D-3 | **Cerrado.** Guarda previa `rate_already_purchased` (cero red) más el cinturón `provider_id_taken` (cero `500`, A intacta, B retenido, `confirmConflict` para liberar) | §19.26.3 | PS-118 = C-3 |
+| SDX-D-5 | **Cerrado por el dueño** (`HECHOS.md:58`): el personal también compra. El modelo de amenazas cambia (1.2, SDX-D-19) | §19.26.6 | PS-120 |
+| SDX-D-6 | **Deuda aceptada.** La API no tiene campo de referencia (lectura del arquitecto de `SKYDROPX_API_REFERENCIA.md:142-186`; yo no lo releí). La ventana de «Liberar» muestra con qué cuadrar, más `priceCents` | §19.26.5 | — |
+| SDX-D-10 | **Cerrado.** Reclamo deshecho y `409 allow_spend`; se distingue por clase antes del manejo genérico | §19.26.4 | PS-119 = C-4 |
+| SDX-I-1 | **Cerrado por el dueño:** cancelar sigue siendo operador o superior | §19.26.6 | PS-120 |
+| SDX-D-4 / C-7 | **Abierto, sin cambio.** Lo tiene devops antes de PG-1 | — | — |
+| SDX-D-7, -8, -9, -12, -13 | Sin cambio (deuda o release) | — | — |
+
+### 0.2 Qué cambia el modo `operators` en C-5
+- **C-5 (i)** («un segundo `super_admin` ⇒ `200`») **sigue igual**. El dueño amplió, no restringió.
+- **PS-120 ya trae** lo que el modo `operators` exige: `operators` + `vault_operator` ⇒ `200`; `super_admin_only` +
+  `vault_operator` ⇒ `403`; `label/cancel` funciona como operador con el dial en `disabled`; `label/release` como
+  operador ⇒ `403`.
+- **Le falta una fila** (C-13): el dial pasa de `operators` a `super_admin_only` entre dos llamadas del mismo operador
+  ⇒ la segunda da `403`. Hoy solo se prueba el paso a `disabled`, y la caché del dial que mordería a esta fila es
+  justo la del modo nuevo.
+- **La puerta se escribe con un conjunto explícito** `{vault_operator, super_admin}`, nunca como `role ≠ customer`.
+  Hoy son equivalentes porque `Role` tiene tres valores (`schema.prisma:16-20`); un rol nuevo mañana entraría a
+  comprar sin que nadie lo decidiera.
+
+## 1. Las preguntas del encargo
+
+### 1.1 ¿Puede la adopción tomar una guía que no es de ese envío? — **Sí. SDX-D-14 (Alta).**
+Candidato, según §19.27.4: id desconocido, `createdAt ≥ since − 2 min` **(sin cota superior)** o `createdAt` nulo, y
+`source` nulo o `'api'`. Cuadre: misma paquetería y **al menos uno** de {total, CP} legible e igual. La adopción corre
+**cada minuto hasta T+15 min y cada 10 min hasta T+24 h** (§19.27.5). La serialización de §19.27.2 solo ordena
+**nuestras** compras por API, y se levanta a los 15 min.
+
+| Origen de la guía ajena | ¿La adopta? |
+|---|---|
+| **Guía comprada en el panel de Skydropx** para otro pedido y capturada con «Capturar a mano». Se guarda número de rastreo, **no** `providerShipmentId`, así que no entra en `knownIds` | **Sí**, si es única y cuadra: misma paquetería y mismo CP (cualquier cliente del mismo CP) **o** mismo total (mismo empaque y zona ⇒ misma tarifa, que es justo el caso M-5). `source` en el listado: NO MEDIDO ⇒ nulo ⇒ entra |
+| Compra en el panel **durante la cola de 24 h** | **Sí**: sin cota superior en `createdAt`, cualquier compra del panel en las 24 h siguientes es candidata |
+| **El diseño empuja a esto**: mientras S verifica, `409 purchase_in_flight` bloquea las demás compras hasta 15 min y la ventana sigue ofreciendo «Capturar a mano» para S2 | El camino natural del personal es comprar S2 en el panel **dentro de la ventana de S** |
+| Otro envío nuestro en vuelo S' | **No**, cubierto por el paso 3 (`matches(c, S')`) |
+| Una guía ya conocida (persistida, cancelada, `label_failed` con `kept`, adoptada) | **No** (`knownIds`) |
+
+**Impacto.** S queda con la guía de **otro paquete**:
+- La etiqueta que se imprime para S lleva la dirección de otro cliente, y las cartas de S (custodia) van a parar ahí.
+- El rastreo de S marca «entregado» con los eventos de otro paquete.
+- La compra real de S, si existió, queda huérfana y sin vigilar: la conciliación es deuda de (t).
+- Si S ya estaba `cancelado`, el job cancela sola la guía ajena (SDX-D-15).
+
+No hace falta atacante: basta la operación normal. Por eso es **Alta**. Arreglarlo es barato (C-8).
+
+### 1.2 Modelo de amenazas con `operators` (`HECHOS.md:58`)
+- **Gastar saldo con credenciales de operador.** El personal entra con usuario y contraseña, **sin segundo factor**
+  (`HECHOS.md:50`). Con el dial en `operators`, una credencial robada compra guías. El daño tiene tope: solo envíos
+  preparados, un reclamo por envío, y `rate_already_purchased` corta comprar la misma tarifa dos veces. Lo que
+  **no** tiene tope es el bucle cancelar–recomprar: en cada vuelta se pierde lo que Skydropx no reembolsa (el
+  seguro, SEC-SDX-11, NO MEDIDO) ⇒ **SDX-D-19 (Baja)**.
+- **Desviar un paquete.** El mismo operador corrige la dirección completa (`PUT :id/address`, operador o superior,
+  `admin-shipments.controller.ts:15,116`; `HECHOS.md:50`) y compra la guía, sin un segundo par de ojos. El riesgo
+  marginal es bajo porque el operador **ya tiene la custodia física**, y queda bitácora con actor (revisión SKX-SEC-1).
+  Mitigación sugerida, sin contradecir al dueño: un aviso en el panel del dueño cuando la misma persona corrige la
+  dirección y compra la guía del mismo envío ⇒ SDX-D-19.
+- **«Liberar» es el único control de segregación que queda en el camino a una guía duplicada.** Recomiendo
+  **P-SDX-REL (a)**: solo el súper-admin (SDX-I-4).
+
+### 1.3 Cuando se encienda, ¿puede la liberación automática abrir una segunda compra pagada? — **Sí, por tres caminos.** SDX-D-16 (Media, hoy) y SDX-D-17 (Media, latente)
+La liberación no compra; compra el clic del operador que viene después. Una liberación falsa ⇒ dos guías pagadas.
+1. **Respuesta tardía de la compra (SDX-D-16).** Calculé la vida de una llamada de compra con las constantes
+   (`skydropx-client.ts:53,56,58,350,361`): 30 s por intento, un reintento tras `401` y tres tras `429` con
+   `Retry-After` de hasta 60 s ⇒ **5 intentos × 30 s + 3 × 60 s ≈ 330 s, más la obtención del token**. Eso son unos
+   6 minutos, y **un `POST` nuevo puede salir al minuto 5,5**. La liberación automática lee a T+5 y T+7.
+   - Peor: **todas** las escrituras de la respuesta (§19.7 paso 9, `API_CONTRACT:24208,24232`; §19.26.1;
+     §19.18.3) llevan `labelProcessingSince:{not:null}` en el `WHERE`, **no el `since` exacto** de su reclamo. Una
+     respuesta tardía del reclamo T1, tras liberar y recomprar con T2:
+     - si es éxito sin número, escribe su id sobre el reclamo **T2**;
+     - si es rechazo, **deshace el reclamo T2** con la compra T2 aún en vuelo ⇒ el envío vuelve a «comprable» ⇒ tercera compra.
+     - Y si la respuesta T2 encuentra después `count 0` con `status = picking`, §19.18.3 punto 1 **cancela la guía
+       buena**.
+   - Hoy la liberación manual exige más de 15 min (`too_early`), así que el solape no ocurre con la duración
+     calculada. Con la liberación automática a los 7 min, sí.
+   - **El otro lado es real ya desde el día 1:** la adopción empieza a T+1 min con la compra viva. Si la respuesta
+     llega después con un id Z distinto del adoptado, §19.18.3 punto 1 responde `409` y **Z se pierde sin
+     bitácora**. Eso contradice «un id presente nunca se descarta» (§19.26.1).
+2. **Envenenar el saldo con un reembolso (SDX-D-17).** Ver 1.4.
+3. **Una calibración débil (SDX-D-17).** La regla `M-PRD-8` acepta **K ≥ 5** compras limpias. Si el 10 % de las
+   compras tardan en aparecer o en debitarse, 5/5 limpias sale con probabilidad 0.9⁵ ≈ **59 %**: la muestra no ve la
+   cola. Además la calibración se hace sobre compras **que respondieron**, y las que quedan en vuelo ocurren justo
+   cuando Skydropx va lento. Es una **población distinta**: sesgo de selección.
+
+### 1.4 ¿Se puede envenenar con recargas, cargos extra o cancelaciones?
+| Movimiento en la ventana | Efecto | ¿Seguro? |
+|---|---|---|
+| Recarga | Saldo sube ⇒ `balance_moved` ⇒ incierto | Sí, falla cerrado |
+| Cargo extra (sobrepeso) de otra guía | Si es igual a `expectedChargeCents` ⇒ `charged_not_found`; si no, `balance_moved` | Sí, incierto |
+| Compra en el panel | Crea un candidato ⇒ la lectura no está limpia (negativo) **pero** puede adoptarse (SDX-D-14) | Negativo sí; positivo **no** |
+| **Reembolso de una cancelación anterior a `since`** que llega dentro de la ventana, **por la misma cifra** que nuestro cargo | Neto 0 ⇒ «saldo igual al centavo». Si además el listado tarda ⇒ **dos lecturas limpias falsas ⇒ `not_charged` falso** | **No.** La contaminación solo mira `label_cancelled` y `providerCancelConfirmedAt` **dentro de `[since, now]`**. Cuándo entra el reembolso al saldo: NO MEDIDO. La cifra igual **es el caso común**: el remedio documentado de `label_processing_stuck` es «cancela y re-emite» (§19.26.1), misma ruta y mismo empaque ⇒ misma tarifa (M-5). ⇒ **SDX-D-17** |
+| Recarga y cargo que se compensan | Neto 0 | No, pero es improbable: las recargas son cifras redondas. Se cubre con el libro de movimientos (`M-PRD-7`) |
+
+Hoy la liberación automática está **apagada**, así que el envenenamiento solo cambia el `reason` del incierto. Por eso
+SDX-D-17 es Media latente: bloquea el **encendido**, no D2c.
+
+### 1.5 ¿El job llama a `purchase` en algún camino? — **No.** Pero sí llama a `cancel`.
+- `purchase` tiene un solo llamador (§19.26.2, §19.27.5 «el reintento es un clic»). PS-117 ampliada lo cubre con
+  censo y con conducta. La lectura del listado va por la ruta **v1**, distinta de la de compra que vigila PS-99 (d). Bien.
+- **Pero** `found` sobre un S `cancelado` ⇒ §19.18.3 punto 3 ⇒ **`port.cancel`** post-commit. Es una mutación en
+  Skydropx hecha por un cron **sin actor**. Solo la protege el candado de entorno (`skydropx.adapter.ts:314`, por
+  `mutate`). Con una adopción bien atribuida, esa cancelación es deseable (devuelve saldo). Con la de SDX-D-14,
+  **cancela la guía viva de otro paquete** que ya va en camino ⇒ **SDX-D-15 (Media)**. PS-117 ampliada lo deja fuera
+  del censo a propósito («la `cancel` de §19.18.3 sigue en su función»).
+
+### 1.6 `409 purchase_in_flight` como denegación de servicio — **SDX-D-18 (Baja)**
+- **Falla cerrado, y no lo controla un atacante.** Solo bloquea un reclamo sin id de menos de 15 min, y eso exige un
+  fallo del proveedor o que el proceso muera entre el reclamo y el paso 7b. Un operador malicioso no puede fabricarlo.
+- **Peor caso**, con Skydropx degradado: cada intento queda en vuelo ⇒ **un intento cada 15 min**. Es aceptable: es
+  exactamente cuando no se debe comprar en paralelo.
+- **Efecto lateral:** empuja al personal al panel de Skydropx durante la ventana, lo que alimenta SDX-D-14. El texto
+  de la pantalla debería decir «no compres en el panel mientras tanto» (ux-ui).
+- **Detalles de construcción:**
+  - (a) `pg_advisory_xact_lock` **espera**. Si alguien metiera la red dentro de la tx del paso 7, el candado se
+    sostendría 30 s y las peticiones agotarían la tx interactiva o el pool. Hace falta una prueba de que el candado
+    se suelta antes de la red, o usar `pg_try_advisory_xact_lock` ⇒ `409`.
+  - (b) La clave `bigint` nueva comparte espacio con `FX_GATE_LOCK_KEY = 63_120_863` (`fx-mode.ts:515`) y con
+    `IVA_TRANSFER_GATE_LOCK_KEY = 64_440_950` (`iva-transfer.ts:259`). Los espacios de dos `int` no se cruzan con
+    `bigint`. Hace falta un censo de claves únicas.
+  - (c) `retryAfterSeconds = 5` supone que una compra dura ≤ 35 s, pero puede durar ~6 min (1.3). Es cosmético.
+
+## 2. Hallazgos nuevos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-D-14** | **Alta** | **La adopción automática puede atribuir a S una guía ajena** (panel, «Capturar a mano», cola de 24 h). Causas: `createdAt` sin cota superior; un `createdAt` nulo cuenta como candidato y puede ser **el único**; el cuadre es «paquetería + **uno** de {total, CP}»; y no se compara el destinatario. Detalle en 1.1 | §19.27.4 (candidatos, cuadre, paso 3), §19.27.5 fila `found`, §19.27.7 | **arquitecto** (errata) → backend |
+| **SDX-D-15** | Media | **El cron cancela en Skydropx sin actor** tras adoptar sobre un S `cancelado` (§19.18.3 p. 3). Junto con SDX-D-14, cancela la guía viva de otro paquete | §19.27.5 fila `found`, §19.18.3 p. 3, PS-117 ampliada | **arquitecto** → backend |
+| **SDX-D-16** | Media | **Respuesta tardía de la compra.** (a) Las escrituras del paso 9 y de §19.18.3 no condicionan por el `since` **exacto** ⇒ la respuesta de un reclamo liberado pisa o deshace el reclamo nuevo y puede cancelar la guía buena. (b) Tras una adopción, una respuesta con otro id ⇒ `409` y ese id se pierde sin bitácora. (c) La vida de una compra (~6 min calculados) no está atada por ninguna constante a `T_VERIFY_MIN` ni a `too_early` | §19.7 paso 9 (`API_CONTRACT:24208,24232`), §19.26.1, §19.18.3 p. 1–2, §19.27.7; `skydropx-client.ts:53,56,58,350,361` | **arquitecto** → backend |
+| **SDX-D-17** | Media (latente: liberación apagada) | **La evidencia negativa se puede envenenar y la regla de encendido es débil.** Un reembolso de una cancelación anterior a `since`, por la misma cifra, deja el saldo igual. K ≥ 5 no ve una cola del 10 % (59 %). La calibración se hace sobre compras que respondieron. Y la conciliación de huérfanas está como «disparador», no como requisito | §19.27.4 paso 4 (contaminación), §19.27.7 (`M-PRD-8`), deuda de (t) | **arquitecto** (regla) · **devops** (`M-PRD-7`/`-8`) |
+| **SDX-D-18** | Baja | `purchase_in_flight`: el candado espera (no es *try*), la clave `bigint` no tiene censo, `retryAfterSeconds` parte de una premisa equivocada, y la pantalla no avisa de no comprar en el panel. Detalle en 1.6 | §19.27.2 | backend · ux-ui (texto) |
+| **SDX-D-19** | Baja | Con `operators`: no hay segundo factor del personal (`HECHOS.md:50`); el bucle cancelar–recomprar no tiene tope; y una persona sola corrige la dirección y compra. Mitigación: un tope diario de compras por operador con alerta, y un aviso «misma persona corrigió y compró» en el panel del dueño | §19.26.6; `admin-shipments.controller.ts:15,116` | **humano** (decide si quiere tope y aviso) → arquitecto |
+| **SDX-I-4** | Info | P-SDX-REL: recomiendo **(a) solo el súper-admin**. Con el personal comprando, es la única segregación que queda en el camino a una guía duplicada | §19.27.6 | **humano** |
+
+`label_purchase_sent` lleva `balanceBeforeCents` (dato del súper-admin). Lo verifiqué: los lectores de la bitácora no
+seleccionan `before`/`after` (`audit.service.ts:105-117`). El listado de Skydropx trae direcciones (PII): el diseño
+prohíbe guardarlas o loguearlas (§19.27.4). Se verifica en la release.
+
+## 3. Condiciones antes de construir D2c, escritas como pruebas que deben fallar
+
+Mismas reglas que C-1…C-6: copia del árbol **entero** con su sha, mutación demostrada en rojo, carreras con barrera y
+N ≥ 10 con proporción, todo con el doble (⛔ nunca la red). C-1…C-6 quedan como PS-116…PS-121, sin cambio.
+
+| # | Prueba que debe fallar con el diseño actual | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|
+| **C-8** | Adopción estricta. S en vuelo desde T. El doble lista un **único** desconocido Y. **No** se adopta (incierto a T+15, **0** `purchase`, `providerShipmentId` nulo) en cada uno de estos casos: (a) Y con `createdAt = T+20 min` (compra de panel en la ventana) y (a') `T+3 h` en la cola; (b) Y con paquetería y CP iguales pero `totalCents` nulo; (c) Y con `createdAt` nulo; (d) Y con paquetería, total y CP iguales, pero `getShipment(Y)` trae otro destinatario o calle (comparado **en memoria**, sin log). Control positivo: Y con `createdAt ∈ [T−2 min, T + vida máx. de compra + 2 min]` y todo igual, destinatario y calle incluidos ⇒ se adopta | quitar la cota superior ⇒ (a)/(a') adoptan; volver a «uno de {total, CP}» ⇒ (b) adopta; aceptar `createdAt` nulo ⇒ (c); omitir la comparación del destinatario ⇒ (d) | SDX-D-14 | arquitecto → backend |
+| **C-9** | S `cancelado` y adopción por el job ⇒ `port.cancel` se llama **solo** si la adopción pasó el cuadre estricto de C-8. Con Y que pasa paquetería, total y CP pero falla el destinatario ⇒ **0** `cancel`, **0** adopción y alerta para una persona | cancelar antes de comparar el destinatario | SDX-D-15 | arquitecto → backend |
+| **C-10** | Respuesta tardía. (a) Reclamo T1 ⇒ el doble retiene la respuesta ⇒ liberar (reloj +16 min) ⇒ nuevo reclamo T2 (otra tarifa) ⇒ el doble suelta la respuesta de T1 en dos variantes, «éxito sin número `sdx-old`» y «rechazo sin id». Esperado: la fila de T2 **intacta byte a byte** (`labelProcessingSince = T2`, `providerShipmentId` nulo). En la de éxito, bitácora `label_conflict` (o la que norme el arquitecto) **con `sdx-old`** y una alerta. (b) Adopción de Y a T+1 min y luego la respuesta viva con Z ≠ Y ⇒ Z queda en la bitácora con alerta, **nunca** un `409` mudo; con Z = Y ⇒ `200` idempotente. (c) Unitaria: `T_VERIFY_MIN` y `too_early` > vida máxima de compra calculada con las constantes del cliente (intentos × timeout + esperas `429`) | `WHERE labelProcessingSince:{not:null}` en vez de `= since` ⇒ (a) en rojo; descartar el id en §19.18.3 p. 1 ⇒ (b); subir `MAX_429_RETRIES` ⇒ (c) | SDX-D-16 | arquitecto → backend |
+| **C-11** | (a) Con la `purchase` del doble demorada 10 s, un `POST …/label` de otro envío recibe `409 purchase_in_flight` en **< 1 s**: el candado se soltó antes de la red. Con N ≥ 10, se reporta la proporción. (b) Censo: toda constante usada en `pg_advisory_xact_lock(<bigint>)` en `backend/src` es única | meter `port.purchase` dentro de la tx del paso 7 ⇒ (a) espera ≥ 10 s; reutilizar `FX_GATE_LOCK_KEY` ⇒ (b) | SDX-D-18 | backend |
+| **C-12** | PS-127 gana una variante: un `label_cancelled` de **otro** envío con `createdAt = since − 2 h` (reembolso aún no observado), la constante inyectada en `true`, el saldo igual al centavo y el listado vacío en las dos lecturas ⇒ **no** se libera (contaminado o incierto) | limitar la contaminación a `[since, now]` | SDX-D-17 (la parte que se construye en D2c) | arquitecto → backend |
+| **C-13** | PS-120 gana dos filas: el dial pasa de `operators` a `super_admin_only` entre dos llamadas del mismo `vault_operator` ⇒ `200` y luego `403`; y la puerta compara contra el conjunto explícito `{vault_operator, super_admin}` (unitaria de la función de puerta con un rol fuera del conjunto ⇒ niega) | cachear el dial; escribir `role !== 'customer'` | C-5 / `HECHOS.md:58` | backend |
+
+**Requisito para encender `INFLIGHT_NEGATIVE_VERIFIED`** (no para D2c). Es una errata del arquitecto **con revisión
+de seguridad**, y exige:
+1. K justificada con proporción y N (O-3/O-15), no K ≥ 5 a secas: con la regla de tres, 0 fallos en 60 compras acota la cola por debajo del 5 % con 95 % de confianza.
+2. El tiempo hasta que el reembolso de una cancelación entra al saldo, medido, y la ventana de contaminación
+   ajustada a esa medida. Alternativa: el libro de movimientos (`M-PRD-7`).
+3. La conciliación «envíos de la cuenta que no son nuestros» **construida**, no como disparador.
+4. C-10 en verde.
+
+## 4. Deuda aceptada (no bloquea)
+- **SDX-D-6.** El disparador es el de §19.26.5.
+- **SDX-D-18 (c).** Cosmético.
+- **SDX-D-19.** Mientras el dueño no decida el tope y el aviso. Disparador: la primera compra de un operador con el
+  dial en `operators`, o el primer bucle cancelar–recomprar del mismo envío.
+
+## 5. Banderas para el humano
+1. **P-SDX-REL:** recomiendo (a), solo el súper-admin (SDX-I-4).
+2. **¿Tope diario de compras de guías por operador y aviso «misma persona corrigió la dirección y compró»?**
+   (SDX-D-19). Hoy el personal entra sin segundo factor (`HECHOS.md:50`).
+3. **Mientras la verificación esté activa, nadie compra guías en el panel de Skydropx a mano.** Es el vector
+   principal de SDX-D-14 hasta que C-8 esté construida.
+4. Siguen vigentes las banderas 3 de la revisión anterior: la fase completa de la release, PG-1 con el saldo medido
+   antes y después, y un pentest de terceros antes de operar con dinero real.
+
+---
+
 # VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO del delta Skydropx antes de D2c** (fila «🔒 Revisión» de `API_CONTRACT §M4-SHIP.19.19.15`; v1.80.11 … v1.80.12.5) · SHA **`ace57032`** (rama `claude/skydropx-d`) · 2026-10-04
 
 > ## VEREDICTO DE DISEÑO — **APROBADO CON CONDICIONES** sobre `ace57032`
