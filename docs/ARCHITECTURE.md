@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.4 — ERRATA DEL CATÁLOGO DE CP** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
+> orquestador `01c9dcfd`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.4**; norma en
+> `API_CONTRACT §M4-SHIP.19.24`; porqué en **§4.60 (q)**. Sin endpoint, columna ni migración. `C-GEO-1` (1) pasa de
+> «conteo igual» a inclusión + huella (`setDigest`) de un manifiesto commiteado; modo estricto (producción: una fila
+> ajena es alarma) o arnés (tolerada) según el blanco que ya usa el seed; el archivo de SEPOMEX vive fuera del repo
+> público salvo que el dueño decida otra cosa (pregunta **G-1**); Railway ante un arranque fallido, precondición medida.
+>
 > **Rev v1.80.12.3 — ERRATA MENOR TRAS LA FASE C** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
 > orquestador `cd761248`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.3**; norma en
 > `API_CONTRACT §M4-SHIP.19.23`; porqué en **§4.60 (p)**. Sin endpoint, columna ni migración nuevos. Mueve a D2a–D2c lo
@@ -27508,6 +27515,22 @@ filas `shipment.address_corrected` en producción) es **NO MEDIDA**.
 **NO MEDIDAS** (devops las mide antes de la ventana); si Skydropx acota la longitud de `street1` (línea 1 + 2) es NO
 MEDIDO y se cierra con `PG-1`.
 
+**(q) v1.80.12.4 — el catálogo de CP: inclusión + huella, dos modos por blanco, y el archivo fuera del repo público**
+(`DEVOPS_NOTES §79.2`–`§79.8`; norma en `API_CONTRACT §M4-SHIP.19.24`).
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **`C-GEO-1` (1) = toda fila del archivo presente e idéntica; en producción, además, la tabla es exactamente el conjunto (misma huella `setDigest`)** | «`count(*)` = filas del archivo» (v1.80.12.3) | El conteo confunde dos defectos que se compensan (falta una, sobra otra ⇒ verde) y a la vez rompe el arnés, que siembra colonias inventadas (devops lo midió: una fila de más ⇒ salida 1). La huella dice **qué** difiere y no se engaña con compensaciones; la inclusión es lo que el arnés sí puede cumplir |
+| **El modo (estricto/arnés) lo decide el blanco con la misma función que impide sembrar producción** (`assertSeedTarget`) | Una variable `GEO_BOOT_MODE=harness`; o que el seed deje de sembrar colonias inventadas | Una variable se pone en un panel que el repo no ve y no se puede candar. El blanco ya tiene una regla, probada y fail-closed; reutilizarla da **una** fuente: donde el seed puede escribir, sus filas son esperables; donde no, nadie más escribe la tabla (medido: la app no la escribe), así que una fila ajena **es una alarma**. Cambiar el seed no resolvía los specs que añaden filas |
+| **Fila ajena en producción ⇒ el arranque falla y no la borra** | Tolerarla con un aviso; o borrarla en el arranque | Tolerarla deja vivas colonias que nadie explica (el cliente elige una que la paquetería no conoce). Borrarla en el arranque convierte un camino que solo inserta en uno que destruye, y borra la prueba de quién la escribió. La reconciliación es un acto explícito (`import`), fuera del arranque |
+| **El repo lleva el manifiesto (hashes y cifras), no el archivo; el archivo, por defecto, en un objeto privado propio direccionado por su `sha256`, bajado solo cuando la tabla no coincide** | Commitear el archivo; volumen de Railway; descarga en el build; carga previa desde la máquina del dueño | El aviso de licencia es NO MEDIDO y el repo es público: commitearlo puede ser redistribuir, y eso lo decide el dueño (G-1), no el equipo. El objeto direccionado por contenido es tan fijo como un fichero del repo (la clave **es** la huella); con el manifiesto, los re-arranques no lo necesitan, así que el bucket solo es dependencia en el primer despliegue. El build necesitaría un secreto que Docker deja en la historia; el volumen es estado fuera del repo y de la base; la carga previa necesita una tabla que crea la propia release |
+| **El modo arnés nunca toca la red y sin archivo no carga** | Que CI tenga una copia del archivo | Un secreto de bucket en CI de un repo público es riesgo sin beneficio: lo que el arnés prueba son 5 CP, que siembra el seed; el importador se prueba con su extracto |
+
+**Deuda que deja (q):** la conducta de Railway ante un arranque fallido sigue **NO MEDIDA** y es precondición de la
+ventana (§19.24.8); si no conserva la versión anterior, `C-GEO-2` se revisa. El aviso de licencia del archivo es NO
+MEDIDO (lo lee el dueño al descargarlo; va verbatim al manifiesto). Que el extracto sintético no copie una línea
+literal del archivo oficial es NO MEDIDO (sin archivo); lo acota el candado de ≤ 20 filas.
+
 ---
 
 ## 5. Decisiones transversales
@@ -30905,7 +30928,10 @@ nunca borra en ese camino; si falla, el proceso sale ≠ 0 y la versión nueva n
 cargado): conteo = lo derivado del archivo; ≥ 100 000 filas, ≥ 25 000 CP, 32 estados (pisos NO MEDIDOS, devops los
 confirma contra el archivo); los cinco CP del arnés resuelven con colonias; forma válida. En la ventana: registro del
 importador + cinco `GET /geo/postal-codes/:cp` contra producción + una compra real del dueño con colonia de lista, escritos
-en la solicitud de fusión.
+en la solicitud de fusión. ⚠️ **v1.80.12.4:** «conteo = lo derivado» pasa a inclusión + huella del manifiesto
+`scripts/geo/sepomex.manifest.json`, con modo estricto en producción (fila ajena ⇒ el arranque falla) y modo arnés donde
+el seed puede escribir; el archivo vive donde decida el dueño (G-1; por defecto objeto privado propio). Norma:
+`API_CONTRACT §M4-SHIP.19.24`; porqué §4.60 (q).
 
 Forma normativa entera en `API_CONTRACT §M4-SHIP.19.2` y `.19.5`. Va **después** de `M-61` (~~que sigue sin construirse
 al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto~~ construida, ver arriba).

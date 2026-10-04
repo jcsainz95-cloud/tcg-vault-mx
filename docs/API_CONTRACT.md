@@ -2,9 +2,24 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.3**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.4**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.4 — ERRATA DEL CATÁLOGO DE CP: `C-GEO-1` (1) COMO INCLUSIÓN + HUELLA, DOS MODOS POR BLANCO, Y DÓNDE
+> VIVE EL ARCHIVO DE SEPOMEX (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador
+> `01c9dcfd`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§M4-SHIP.19.24](#M4-SHIP-19-24)**.
+> Porqué: `ARCHITECTURE §4.60 (q)`. Origen: `DEVOPS_NOTES §79.2`, `§79.3`, `§79.5`, `§79.8` (`DEVOPS_NOTES.md:13267-13365`).
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | `C-GEO-1` (1) «conteo = filas del archivo» hace fallar el arranque con las filas del arnés | (1) pasa a **inclusión** (toda fila derivada del archivo está, idéntica) más una **huella** del conjunto (`setDigest`) fijada en un **manifiesto** commiteado. En **producción** (blanco que el seed rechaza) la tabla debe ser **igual** al conjunto: una fila ajena **es alarma** (sale ≠ 0, no se borra). En **blancos del arnés** (los que el seed acepta) las ajenas se **toleran y se cuentan** | Sí: `scripts/geo/import-sepomex.ts:134-141,189-215` | devops |
+> | **2** | El archivo de SEPOMEX no se puede commitear sin decidir la licencia (repo público) | El repo lleva el **manifiesto** (hashes y cifras, no datos). El archivo vive donde el **dueño** decida (pregunta G-1): por defecto, **objeto privado del bucket propio**, direccionado por su `sha256`, que el arranque baja **solo** si la tabla no coincide con el manifiesto. ⛔ Sigue prohibido descargar de SEPOMEX o de cualquier origen no fijado | No (el cableado no existía) | devops, tras G-1 |
+> | **3** | Entornos del arnés (CI, `e2e-real`, DAST) sin archivo | En blanco del arnés, sin archivo ⇒ el arranque **no carga y sale 0** con aviso; los 5 CP los pone el seed. ⛔ El modo arnés nunca baja nada de la red | Sí: el `CMD` ya se puede cablear (§79.4) | devops |
+> | **4** | El extracto sintético | Se queda; regla: escrito a mano, ≤ 20 filas de datos, marca «SINTÉTICO» en la línea 1, ⛔ nunca derivado del archivo real; candado | No | devops |
+> | **5** | Railway ante un arranque fallido | Sigue **NO MEDIDO** y es **precondición** de la ventana; si no conserva la versión anterior, se para y se pide errata | No | orquestador / dueño |
+>
+> **Códigos de error, endpoints, columnas, migraciones:** ninguno.
 >
 > **Rev v1.80.12.3 — ERRATA MENOR: LO QUE LA FASE C NO PUEDE MEDIR, LA MUTACIÓN DE PS-104, LA GUARDA DE GUÍA EN D2,
 > PS-99 (d) Y EL CATÁLOGO DE CP EN LA VENTANA (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
@@ -23584,6 +23599,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.21** | **v1.80.12.1** — errata menor de D1: orden del filtro de tarifas, `C-SDX-7` (2) con `rawLabelUrl`/`rawTrackingUrl`, cubeta de capacidad 1, «en vuelo» por defecto en la compra, `C-SDX-1` con la fábrica, cuerpos NO MEDIDOS |
 | **.22** | 🔒💰 **v1.80.12.2** — `SKX-SEC-1`: el domicilio sale de la bitácora (`ShipmentAddressRevision`, `M-SDX-C2`, la anonimización la borra, PS-112); `address.missing`; respuestas de `consignment-notes` y `PUT …/packages`; `ShipmentCostAdjustmentDTO`; PS-101 con `DESIGN_SYSTEM §43.5a` v4.17 |
 | **.23** | 💰 **v1.80.12.3** — errata menor tras la fase C: PS-104 parcial/PS-105a/b/PS-106/PS-113 a D2a–D2c, criterio 315 parcial hasta D2c; mutación de PS-104 por pares; guarda «ya tiene guía» de D2a (`WHERE` con `trackingNumber`, `LABEL_IN_PROGRESS`); `line2` 200; PS-99 (d) definitiva; catálogo de CP en la ventana (`C-GEO-1`/`C-GEO-2`) |
+| **.24** | 💰 **v1.80.12.4** — catálogo de CP: `C-GEO-1` (1) como inclusión + `setDigest` del manifiesto; modo estricto (producción) y modo arnés por el blanco del seed; dónde vive el archivo (pregunta G-1 al dueño); extracto sintético con candado; Railway como precondición |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -25822,6 +25838,10 @@ recorre cero líneas): ese es su defecto, y deja de valer. **PS-99 (d) asevera, 
 
 El gate **E** (§19.19.15) ya no está bloqueado por PS-99 (d) en cuanto (d4) y (d5) estén construidas con sus canarios.
 
+> ⚠️ **v1.80.12.4:** `C-GEO-1` (1), el camino idempotente de `C-GEO-2`, «El archivo, fijado» y «Vista previa / staging /
+> CI» de abajo quedan **sustituidos** por [§19.24](#M4-SHIP-19-24). El resto (pisos, (3), (4), falla-cerrado, ventana,
+> reversa) sigue vigente.
+
 **M4-SHIP.19.23.6 — 💰 El catálogo de CP en la ventana de despliegue: `C-GEO-1` y `C-GEO-2`.** Medido: `M-64` crea
 `PostalCode` vacía y lo dice (`backend/prisma/migrations/20261006120000_m64_sdx_c_address/migration.sql:7-8`); con la tabla
 vacía `resolvePostalCode` responde `POSTAL_CODE_UNKNOWN` a todo CP ⇒ libreta e invitado rechazan toda dirección nueva y
@@ -25880,6 +25900,178 @@ escribir esto: Glob `scripts/geo/**` ⇒ 0).
 | **frontend** | `line2` hasta 200 en el paso 1 de la ventana |
 | **QA** | Gate de fase C: criterio 315 **parcial** (lista de §19.23.1); repite M1 y M3 de PS-104. Gate de D2c: PS-105b, PS-106, PS-113 y el resto del 315 |
 | **orquestador** | En la solicitud de fusión a `production`: `C-GEO-2` y los tres pasos de la ventana (§19.23.6) como condiciones |
+
+###### <a id="M4-SHIP-19-24"></a>M4-SHIP.19.24 — 💰 v1.80.12.4: el catálogo de CP — inclusión + huella, dos modos por blanco, y dónde vive el archivo (**NORMATIVA**, **DINERO**)
+
+> **Fuentes:** `DEVOPS_NOTES §79` (`DEVOPS_NOTES.md:13235-13385`); código leído por el arquitecto en `/home/user/tcg-skyd`
+> (rama `claude/skydropx-d`, HEAD dado por el orquestador `01c9dcfd`; ⛔ sha NO MEDIDO: sin Bash):
+> `scripts/geo/import-sepomex.ts`, `scripts/geo/sepomex-parse.ts`, `scripts/geo/fixtures/sepomex-extracto-sintetico.txt`,
+> `backend/prisma/seed-target-guard.ts`, `backend/prisma/seed-e2e.ts:85,1073`, `backend/prisma/e2e-fixtures.ts:119-127`.
+> 403 de `correosdemexico.gob.mx` y `datos.gob.mx`: medido por el orquestador y por devops (`§79.2`), no por el arquitecto.
+> **Manda** sobre §19.23.6 donde choque. Porqué: `ARCHITECTURE §4.60 (q)`. ⛔ Ningún endpoint, columna ni migración.
+
+**M4-SHIP.19.24.1 — Quién escribe `PostalCode`, medido.** Grep de escrituras en `backend/` (2026-10-04): solo
+`seed-e2e.ts:1073` (el arnés, `createMany … skipDuplicates`) y una prueba que inserta una fila que el CHECK rechaza
+(`sdx-c-address.e2e-spec.ts:81`). La app **no** escribe la tabla. El seed se niega a correr contra un blanco que no
+reconoce (`seed-e2e.ts:85` ⇒ `assertSeedTarget`, `seed-target-guard.ts:62-78`: local, servicio de compose sin punto,
+URL con «staging», o la escotilla `SEED_E2E_ALLOW_HOST` con el host exacto). **Consecuencia:** en un blanco que el seed
+rechaza, el único escritor legítimo es el importador, y una fila que el archivo no explica **no tiene autor legítimo**.
+En un blanco que el seed acepta, las filas ajenas son del arnés (seed y specs, que pueden añadir filas: comentario de
+`seed-e2e.ts:1071-1072`).
+
+**M4-SHIP.19.24.2 — El manifiesto (en el repo; sin datos).** `scripts/geo/sepomex.manifest.json`, generado por el
+importador desde el archivo (subcomando nuevo `manifest --file F`, sin base) y commiteado. Campos:
+
+```
+{
+  fileSha256: string,          // sha256 del TXT tal como se descargó
+  encoding: 'latin1' | 'utf-8',
+  derived: { rows, postalCodes, municipalities, states },   // tras descartes y colapso por clave
+  discarded: Record<DiscardReason, number>, duplicatesDropped: number,
+  setDigest: string,           // §19.24.3
+  sourceNotice: string         // la línea 1 del archivo, verbatim (el aviso de SEPOMEX; ver G-1)
+}
+```
+
+- ⛔ Un manifiesto cuyas cifras `derived` no alcancen `C_GEO_FLOORS` se rechaza al cargarlo (sale 1): los pisos se
+  comprueban también contra el manifiesto, no solo contra el archivo.
+- Hashes y cifras **no son el catálogo**: el manifiesto se puede publicar aunque el archivo no (G-1).
+- Un catálogo nuevo de SEPOMEX = manifiesto nuevo + `import` explícito (reconciliación, §79.9) corrido **antes** de
+  fusionar el manifiesto. Al revés, el arranque estricto vería filas que el manifiesto nuevo ya no explica y fallaría
+  cerrado, que es lo correcto.
+
+**M4-SHIP.19.24.3 — `setDigest`: una definición, dos implementaciones que deben coincidir.** El conjunto derivado es
+**único por clave** `(postalCode, neighborhood)` (se queda la primera, como ya hace `sepomex-parse.ts:15-17`; el
+`@@unique` de la tabla es esa clave). Serialización canónica de cada tupla: `postalCode TAB neighborhood TAB municipality
+TAB state LF`, con los valores **exactamente como se insertan** (UTF-8). Orden: por `postalCode` y luego `neighborhood`,
+**por bytes** (en TypeScript `Buffer.compare` sobre UTF-8; en SQL `COLLATE "C"`, ⛔ nunca la intercalación de la base).
+`setDigest` = sha256 hex de la concatenación. En SQL, sobre la tabla:
+
+```
+encode(sha256(convert_to(string_agg("postalCode"||E'\t'||neighborhood||E'\t'||municipality||E'\t'||state||E'\n', ''
+  ORDER BY "postalCode" COLLATE "C", neighborhood COLLATE "C"), 'UTF8')), 'hex')
+```
+
+Un valor con TAB o LF es un **descarte** del lector (motivo nuevo `separador_en_campo`), para que la serialización sea
+inyectiva.
+
+**M4-SHIP.19.24.4 — `C-GEO-1` (1), nuevo texto.** Sustituye a «`count(*)` = filas derivadas»:
+
+- **(1a) Inclusión:** toda tupla del conjunto derivado está en la tabla, **idéntica** en sus cuatro columnas. Se
+  informa siempre: `faltan` (claves del archivo ausentes), `discrepantes` (clave presente con municipio o estado
+  distinto) y `ajenas` (claves que el archivo no tiene), con hasta 10 ejemplos de cada una (CP y colonia: datos
+  públicos, no PII).
+- **(1b) Igualdad en modo estricto:** `setDigest(tabla) = manifest.setDigest`. Equivale a (1a) con `discrepantes = 0` y
+  `ajenas = 0`, en una sola consulta.
+
+**M4-SHIP.19.24.5 — Dos modos, decididos por el blanco y no por una variable.**
+
+| | **Estricto** | **Arnés** |
+|---|---|---|
+| **Cuándo** | El blanco **no** pasa `assertSeedTarget` (la **misma** función de `backend/prisma/seed-target-guard.ts`, importada, ⛔ no copiada). Producción en Railway (`*.railway.internal`, `*.rlwy.net`: llevan punto) cae aquí | El blanco pasa `assertSeedTarget` (local, compose, staging, escotilla) |
+| **Se clasifica** | La URL con la que `boot` **de verdad** se conecta | ídem |
+| **Tabla ya = manifiesto** (`setDigest` igual) y (3) se cumple | Sale 0, **cero escrituras**, ⛔ **no lee el archivo ni toca la red** | — |
+| **Si no** | Obtiene el archivo (§19.24.6), verifica `sha256 = manifest.fileSha256` **antes** de leerlo, deriva, comprueba que su `setDigest` = el del manifiesto (atrapa un cambio del lector), inserta lo que falte (`ON CONFLICT DO NOTHING`, ⛔ nunca borra), y verifica dentro de la transacción: (1b), (2), (3), (4). Falla ⇒ ROLLBACK, sale 1 | Con `--file`: igual, pero la verificación final es **(1a) con `faltan = 0`**; `discrepantes` y `ajenas` se **cuentan y se imprimen**, no fallan. Sin archivo: **no carga**, imprime `[sepomex] modo arnés: sin archivo, no se carga; los CP los siembra el arnés` y sale 0. ⛔ El modo arnés **nunca** baja nada de la red |
+| **Fila ajena o discrepante** | **Alarma:** sale 1 con la lista; ⛔ el arranque no la borra. Se corrige con `import` explícito (reconcilia) **fuera** del arranque, por quien tenga acceso, y se investiga quién la escribió (no hay escritor legítimo, §19.24.1) | Tolerada y contada |
+| **Sin manifiesto** | Sale 1 (la versión no se publica: es el estado correcto mientras G-1 esté abierta) | Sale 0 si no hay archivo; con archivo, exige **su** manifiesto (el del extracto vive junto a él en `scripts/geo/fixtures/`) |
+
+- **`--strict`** fuerza el modo estricto en cualquier blanco (pruebas, verificación local). ⛔ **No existe** opción que
+  afloje: ni `--harness`, ni variable de entorno. Lo que afloja es solo el blanco, y el blanco ya está guardado por la
+  misma regla que impide sembrar producción.
+- ⛔ En `boot`, la URL es `DATABASE_URL` **tal cual** (la misma que usa la app). El salto a `DATABASE_PUBLIC_URL` de
+  `resolveDatabaseUrl` (`import-sepomex.ts:92-100`) es para `verify`/`import` lanzados desde fuera de Railway; dentro
+  del contenedor `*.railway.internal` es la red correcta. Si la base se clasifica con una URL y se escribe con otra,
+  la clasificación no vale.
+
+**M4-SHIP.19.24.6 — Dónde vive el archivo.** El repo es público; el aviso de licencia del archivo es **NO MEDIDO**
+(`DEVOPS_NOTES §79.2`, de memoria de devops). Por eso la ubicación es **decisión del dueño (G-1)** y la norma admite
+exactamente dos, con el mismo arranque:
+
+| | **(A) Objeto privado del bucket propio** — por defecto si el aviso prohíbe redistribuir o si el dueño no decide | **(B) En el repositorio** |
+|---|---|---|
+| Ruta | Clave `geo/sepomex/<fileSha256>.txt` en el bucket de `S3_BUCKET` (direccionado por contenido: la clave **es** la huella). Credenciales: las `S3_*` que la app ya tiene en ejecución | `scripts/geo/data/CPdescarga.txt` (+ `.sha256`), copiado a la imagen (`DEVOPS_NOTES §79.4`) |
+| Quién lo pone | El dueño, una vez, desde la consola del proveedor del bucket (el contenedor no alcanza SEPOMEX: 403) | Se commitea |
+| Cuándo se baja | Solo en modo estricto y solo si la tabla **no** coincide con el manifiesto: en la práctica, el **primer** despliegue y cada catálogo nuevo. Re-arranques: nunca | No se baja |
+| Falla | Objeto ausente, `sha256` distinto o bucket caído ⇒ sale 1 ⇒ no se publica | — |
+| Precondición propia | El objeto **no** es legible sin credencial: `GET` anónimo a su URL ⇒ `403`/`404` (medición de devops tras subirlo; la política del bucket es NO MEDIDA — indicio de privado: `uploads.service.ts` firma URLs) | Ninguna |
+
+- ⛔ **Sigue prohibido** bajar de SEPOMEX, de `datos.gob.mx`, de un espejo de terceros o de cualquier URL que no esté
+  direccionada por el `sha256` del manifiesto. El objeto propio no es «descargar al arrancar» en el sentido de §19.23.6:
+  es contenido fijado, en almacenamiento propio, y solo cuando falta.
+- ⛔ **Descartadas:** volumen de Railway (subirle un archivo y fijarlo es NO MEDIDO y añade estado fuera del repo y de la
+  base); carga previa al despliegue desde la máquina del dueño (necesita la tabla, que crea `M-64` dentro del mismo
+  `migrate deploy` que trae el resto de la release); descarga en el `build` (necesita un secreto en el build, que en
+  Docker acaba en la historia de la imagen si va por `ARG`).
+
+**M4-SHIP.19.24.7 — El extracto sintético del arnés.** Revisado por el arquitecto
+(`scripts/geo/fixtures/sepomex-extracto-sintetico.txt`, 13 líneas): la línea 1 dice «EXTRACTO SINTÉTICO DE PRUEBA, escrito
+a mano… no es la fuente oficial»; 11 filas de datos. Las cuatro columnas que importan coinciden en varias filas con
+hechos públicos (p. ej. `06600` Juárez, Cuauhtémoc; `64000` Monterrey Centro) — **es inevitable y querido**: son los CP
+del arnés (`E2E_POSTAL_CODES`) y la prueba (3) los resuelve. Que alguna fila sea copia literal de la línea del archivo
+oficial (las 15 columnas) es **NO MEDIDO**: el arquitecto no tiene el archivo. Indicios de escritura a mano: `c_CP` vacío
+en todas, `id_asenta_cpcons` `0001`/`0002` correlativos, `|` final puesto a propósito (línea 12). Norma:
+
+- Se queda. ⛔ Nunca se genera filtrando el archivo real (ni `grep`, ni script); se escribe a mano.
+- **≤ 20 filas de datos** y la línea 1 contiene `SINTÉTICO`. **Candado** (en la prueba del importador): más de 20 filas o
+  sin la marca ⇒ rojo. Canario: añadir la fila 21 ⇒ rojo.
+- Si el dueño, en G-1, quiere riesgo cero también aquí, las colonias pasan a nombres inventados con los mismos CP (la
+  prueba (3) solo pide «≥ 1 colonia»): cambio de devops, sin efecto en el contrato.
+
+**M4-SHIP.19.24.8 — Railway ante un arranque que falla: precondición, no supuesto.** Todo el diseño de
+`C-GEO-2` («mientras falla, sigue sirviendo la versión anterior») **depende** de eso, y es **NO MEDIDO**
+(`DEVOPS_NOTES §79.5`; las afirmaciones de §26.4/§27.4/§29.7 no citan medición). Antes de abrir la ventana alguien lo
+mide y lo anota en `DEVOPS_NOTES` con fecha. Mediciones, de la más barata a la más cara:
+1. **Orquestador:** historial de despliegues de Railway en GitHub (`gh api repos/<repo>/deployments?environment=…` y sus
+   `statuses`): si hubo un despliegue de `production` en `failure`, ver si el anterior siguió `success`/activo y si la API
+   respondió en esa ventana. Sirve solo si ese historial existe.
+2. **Dueño:** leer la documentación de Railway sobre despliegues fallidos/healthcheck (desde aquí da 403, `§79.2`), o
+   mirar en su panel un despliegue fallido pasado.
+3. Un entorno de Railway que no sea `production` con un `CMD` que haga `exit 1` (`§79.5`). Hoy Railway solo tiene
+   `production` (`HECHOS.md:79-82`, 2026-09-11), así que esto implica crear uno: ⛔ no se le pide al dueño sin que 1 y 2
+   hayan fallado (O-6).
+
+**Si la medición dice que Railway NO conserva la anterior:** ⛔ no se abre la ventana; se pide errata al arquitecto (la
+alternativa es que un fallo del catálogo no tumbe la tienda entera, y eso cambia `C-GEO-2`).
+
+**M4-SHIP.19.24.9 — Pruebas y candados (devops; `scripts/geo/import-sepomex.test.ts`).** Cada una con su canario:
+
+| # | Qué | Canario ⇒ rojo |
+|---|---|---|
+| **G1** | Clasificación: `postgres.railway.internal`, `x.proxy.rlwy.net` ⇒ estricto; `localhost`, `postgres` ⇒ arnés; el importador llama a `assertSeedTarget` de `seed-target-guard.ts` (importada) | clasificar `*.railway.internal` como arnés ⇒ rojo |
+| **G2** | Estricto + 1 fila ajena ⇒ sale 1, la fila sigue, tabla idéntica (md5) | tolerar ajenas sin mirar el modo |
+| **G3** | Arnés + filas de `E2E_POSTAL_CODES` + archivo ⇒ sale 0, `ajenas` impresas | exigir igualdad también en arnés (es el fallo de `§79.8`) |
+| **G4** | Estricto, tabla = manifiesto, **sin** archivo y con el obtenedor de objeto como doble que cuenta llamadas ⇒ sale 0, **0** escrituras, **0** llamadas | leer el archivo antes de comparar la huella |
+| **G5** | Estricto, sin manifiesto ⇒ sale 1 | — (prueba directa) |
+| **G6** | Estricto, objeto con `sha256` distinto del manifiesto ⇒ sale 1 **antes** de interpretarlo, tabla idéntica | verificar el hash después de parsear |
+| **G7** | `setDigest` en TS = en SQL con filas que la intercalación de la base ordena distinto que los bytes (`Ángel`/`Zapata`, `a`/`B`, `ñ`) | quitar `COLLATE "C"` ⇒ huellas distintas |
+| **G8** | Estricto, falta **una** fila del archivo y nada más ⇒ la inserta, sale 0 (reparación sin borrar) | — |
+| **G9** | Estricto, fila con la clave del archivo y otro municipio ⇒ sale 1 | comparar por conteo o por clave en vez de por huella |
+| **G10** | Manifiesto con `derived` bajo los pisos ⇒ sale 1 | — |
+| **G11** | Candado del extracto (§19.24.7) | fila 21 ⇒ rojo |
+
+Las mutaciones de `§79.7` que se apoyaban en «sin conteo (1)» se re-declaran contra G2/G9. N = 1 vale para las
+deterministas; la de `kill -9` sigue con su N.
+
+**M4-SHIP.19.24.10 — Qué cambia para quién.**
+
+| Rol | Qué |
+|---|---|
+| **devops — ya** | `import-sepomex.ts:134-141` (`cheapFailures`: fuera la igualdad de conteo; (1a)/(1b) por huella), `:189-215` (`bootCatalog`: modo, manifiesto, camino sin archivo), `:83-103` (`resolveDatabaseUrl`: sin salto a `DATABASE_PUBLIC_URL` en `boot`), `:326-351` (`main`: `manifest`, `--strict`, `--file` opcional en `boot`); `sepomex-parse.ts:37` (motivo `separador_en_campo`); `import-sepomex.test.ts` (G1–G11); cablear el `CMD` y la imagen de `§79.4` **sin** el archivo (con el manifiesto si existe): con §19.24.5 el arnés ya no falla. Anotar en `DEVOPS_NOTES` |
+| **devops — tras G-1** | (A): obtenedor del objeto con las `S3_*`, la medición del `GET` anónimo, y G4/G6 con el doble; (B): `.dockerignore` y `Dockerfile.backend` con el archivo |
+| **dueño** | G-1 (abajo) y descargar el archivo una vez (`§79.3` 1) |
+| **orquestador** | La medición 1 de §19.24.8; en la solicitud `main` → `production`: el manifiesto commiteado, la medición de Railway con fecha, y los tres pasos de la ventana de §19.23.6 |
+| **backend** | Nada. `seed-target-guard.ts` no cambia; si cambia, es el mismo cambio para el seed y para el importador (una fuente) |
+
+**G-1 — Pregunta al dueño (en llano).** *El catálogo de códigos postales de Correos de México hay que bajarlo una vez
+desde su página (desde aquí está bloqueado). Al bajarlo, la primera línea del archivo trae un aviso; según devops, de
+memoria, dice que es «para uso particular… no permitida su distribución a terceros». Nuestro repositorio es público:
+meter el archivo ahí sería publicarlo.* Opciones:
+- **(A) Guardarlo privado** en el almacenamiento de fotos de la tienda (lo subes tú una vez desde la consola). No se
+  publica. Coste: un paso tuyo y que la tienda dependa de ese almacenamiento en el primer arranque.
+- **(B) Meterlo en el repositorio.** Lo más simple, pero queda público; aceptas el riesgo de que Correos lo considere
+  redistribución.
+- Recomendación del arquitecto: **(A)**, salvo que el aviso real (léelo al bajarlo y pégalo; va al manifiesto) no
+  prohíba redistribuir.
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
