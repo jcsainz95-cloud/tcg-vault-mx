@@ -13624,6 +13624,124 @@ release, sigue siendo obligatoria: aquí no se ha ejecutado nada.
 
 ---
 
+# Revisión de DISEÑO (blue team) — §M4-SHIP v1.81 «Envíos con Skydropx» · rama `claude/skydropx-envios` · sha **`62d0c46`** · 2026-09-29
+
+> Solo lectura sobre `API_CONTRACT §M4-SHIP.19` (.2–.17, mapa SDX-R1…R14, PS-67…PS-90, PS-SBX-1…12), §R.3/§R.7, §1
+> Direcciones, `GET /geo/postal-codes/:cp`; `ARCHITECTURE §4.58` y `M-62`; `PROJECT §T` (T.10/T.11); `SKYDROPX_LEVANTAMIENTO
+> §8`. Del código vigente medí solo lo que cambia una severidad: `disputes.service.ts:155-166` (ventana = `deliveredAt +
+> 7 d`), `main.ts:56` (`forbidNonWhitelisted: false`), `shipments.service.ts:1013-1151` (`entregado` ⇒ `in_custody →
+> withdrawn`, sin verbo inverso), `app.module.ts:46` (throttler global por IP). ⛔ Nada ejecutado; la red no llega a
+> Skydropx (no es hallazgo). Sin `PENTEST_NOTES` para esta versión (fase de diseño): SDX-R1…R14 es el insumo del red team.
+
+## 1. Lo que RESISTE (con su sitio)
+
+| Lente | Veredicto | Dónde |
+|---|---|---|
+| PII al tercero | Lista blanca `PurchaseInput.to` (nombre, `company=name`, tel, correo, calle, referencia) + niveles de dirección + valor declarado; `email` = `guestEmail` si existe; ⛔ pago/cartas/`User.email`; `C-SDX-2`/PS-85 asertan las claves exactas | §19.4 (6), T.11 |
+| Secretos | Solo env (`SKYDROPX_*`), token OAuth en memoria, ningún dial ni `GET /admin/settings` los lleva, `502 SHIPPING_PROVIDER_ERROR {provider, op, status}` sin cuerpo, `C-SDX-1` + canario (PS-86), SAST regla devops | §19.2, §19.4 (1)(5)(7), §19.13 |
+| `labelUrl` | Columna interna, fuera de todo DTO (lista blanca `toAdminShipmentRow`, PS-84), proxy operador+ `no-store` + bitácora `label_printed`, ⛔ sin redirect; DAST `label.pdf` sin sesión asignado a devops | §19.7, §19.8, §19.17 |
+| Una guía por N clics | CAS `labelProcessingSince` **antes** de la red, `providerShipmentId @unique`, `SHIPMENT_ALREADY_LABELED`, rechazo deshace el reclamo (PS-73 N≥10, PS-74) | §19.7 pasos 7–9 |
+| Cifras vistas / saldo | `expectedPriceCents/MarginCents` contra `ratesJson` del servidor, `QUOTE_EXPIRED` **sin comprar en la misma llamada**, `LABEL_CONFIRMATION_REQUIRED`, `SHIPPING_INSUFFICIENT_BALANCE` sin cifra al operador | §19.7 pasos 3–6 |
+| Guardas de negocio | `quote`/`label` reusan **las mismas funciones** de §M4-SHIP.6 (`preparedAt`, casos `open`, `ORDER_NOT_SETTLED`, origen reembolsado) bajo candado de fila; PS-69 muta la reimplementación | §19.6 paso 2 |
+| Costo | Ningún campo de costo en ningún cuerpo (PS-81), IVA `16/116` constante nombrada (no el dial), cargos extra `providerChargeId @unique` (PS-80 N=10), `chargedAt` propia | §19.11, §19.10 |
+| Rastreo | `applyCarrierStatus` un cuerpo, `@@unique(shipmentRequestId, providerEventKey)` + CAS de estado (PS-72), manual ⇒ `applied:false` y no se sondea, ⛔ sin ruta de webhook (SDX-R8, por ausencia), `delivered_to_branch` nunca `entregado` | §19.3, §19.10 |
+| Kill switch | `shipping_provider='off'` seed, fail-closed: `quote`/`label` ⇒ `404`, tres jobs no-op (PS-90); env faltante ⇒ `NOT_CONFIGURED` sin valor | §19.2 |
+| Dirección | `GET /geo/postal-codes/:cp` público, catálogo local (sin cuota del tercero), 60/min/IP, datos SEPOMEX; `PATCH …/address-neighborhood` operador+, solo `picking` sin guía, solo colonia/municipio/estado, `before/after` (PS-68); colonia de lista cerrada, `references` ≤ 70 sin control chars | §19.5, SDX-R9/R10 |
+| Autorización | Cotizar/comprar/etiqueta/cancelar/salida/refresco: operador+; saldo, catálogos, empaques, diales, jobs: `super_admin` (PS-90); elección con nombre en bitácora | §19.6–.13 |
+| Guía manual | `POST …/tracking` intacto + guarda `SHIPMENT_ALREADY_LABELED`; no pasa por el puerto; `departed` la acepta; `PATCH …/status` sin cambio; funciona con el dial `off` | §19.4, §19.7, §19.9, T.10 |
+
+## 2. Hallazgos (ninguno crítico ni alto)
+
+### MEDIA — entran al contrato antes de construir la parte que tocan (fase D); no exigen otra vuelta de seguridad
+
+**SEC-SDX-1 (dinero/cliente) · La ventana de disputa de 7 días se ancla a un sello del tercero.** §19.3 `delivered` ⇒
+`deliveredAt = event.occurredAt`; `disputes.service.ts:160,166` calcula `deadline = deliveredAt + 7 d`. Un `occurredAt`
+atrasado (sondeo tardío, evento histórico, transportista que fecha atrás) **consume** parte o toda la ventana antes de
+que `AV-17` salga; el correo anuncia una fecha ya vencida. Cierre: la ventana se calcula desde cuando **nosotros** lo
+supimos — `deliveredAt = max(event.occurredAt, observedAt)` para guía Skydropx (o disputas usa
+`max(deliveredAt, deliveredNoticeSentAt)`), `carrierStatusAt` conserva la fecha del transportista para el registro.
+Mutación en PS-78: `delivered` con `occurredAt = now − 8 d` ⇒ la disputa **sigue abierta**. Dueño: arquitecto → backend.
+
+**SEC-SDX-2 (correo/idempotencia) · El evento sintetizado con `occurredAt: updated_at ?? now` crea una llave nueva por
+sondeo.** §19.10: si la API solo da el estado actual (NO MEDIDO, PS-SBX-5), `providerEventKey = status:occurredAt` con
+`now` cambia en cada corrida ⇒ una fila de `ShipmentCarrierEvent` por hora, línea de tiempo pública que crece, y `AV-19`
+**repetido** en cada sondeo mientras el estado siga `delivery_attempt` (el sello `lastDeliveryAttemptAt <
+event.occurredAt` lo deja pasar). Rompe el criterio 241 en la rama de respaldo; PS-72 no lo ve porque el doble da fechas
+estables. Cierre: sintetizar **solo si `status ≠ carrierStatus` leído bajo el candado**, con llave `status:<updated_at>`
+y, sin `updated_at`, `status:<carrierStatusAt del cambio>` — nunca `now`. Añadir a PS-72 el doble «solo estado actual»
+×10 ⇒ 1 fila, 1 correo. Dueño: arquitecto → backend.
+
+**SEC-SDX-3 (dinero, carrera estrecha) · Compra que gana en Skydropx pero pierde el CAS a `guia`: rama no
+especificada.** Durante la llamada de red (paso 8) el envío puede pasar a `cancelado` (contracargo de un directo u
+`onFullRefund`, §19.8): `cancelProviderLabelIfAny` ve `labelSource IS NULL` y no cancela nada. Al volver, «éxito con
+número» hace `setTrackingFromProvider` con `WHERE status='picking'` ⇒ `count 0` y el contrato no dice qué pasa con la
+guía **ya pagada**; «éxito sin número» escribe `providerShipmentId` con `WHERE labelProcessingSince ≠ null` **sin**
+condición de estado ⇒ guía viva y pagada sobre un envío `cancelado`, sin alerta (`carrierStatus` sigue `null`, así que ni
+`label_live_on_cancelled`). Cierre: ambas ramas del paso 9 llevan `status:'picking'` en el `WHERE`; con `count 0` ⇒
+persistir `providerShipmentId`, `labelSource:'skydropx'`, sello `providerCanceledAt/Reason='auto_close'`, `port.cancel`
+post-commit y alerta `label_live_on_cancelled`; y los dos escritores de `cancelado` tratan `labelProcessingSince ≠ null`
+como «compra en vuelo» (alerta). Mutación en PS-83: `cancelado` entre el reclamo y la respuesta del doble ⇒ `cancel`
+llamado una vez, cero guías vivas. Dueño: arquitecto → backend.
+
+**SEC-SDX-4 (dinero/operación) · El escape de «`providerShipmentId = null` con reclamo puesto» no existe como verbo.**
+§19.7 paso 9 ⚠️ remite a `POST …/label/cancel {reason:'unknown'}` por el súper-admin; §19.8 lo rechaza (`labelSource ≠
+'skydropx'` ⇒ `409 LABEL_NOT_CANCELLABLE {not_provider}`) y el verbo es operador+. Resultado: envío atorado en
+`LABEL_IN_PROGRESS` para siempre, o —si se «libera» sin saber el id en Skydropx— una guía pagada huérfana y una segunda
+compra (**doble costo**), justo el caso que la búsqueda por referencia (NO MEDIDO, PS-SBX-6) pretende cerrar. Cierre:
+verbo **`super_admin`** explícito (`POST …/label/release`, o `cancel` con `reason:'unknown'` admitido) con precondición
+`labelProcessingSince ≠ null ∧ providerShipmentId IS NULL ∧ labelProcessingSince < now − 15 min`, `note` obligatoria («lo
+comprobé en el panel de Skydropx»), bitácora `shipment.label_released`; y si PS-SBX-1 confirma `Idempotency-Key`, el
+reintento del sondeo lo usa. Dueño: arquitecto → backend.
+
+**SEC-SDX-5 (SSRF / enlace al cliente) · Las URLs que devuelve el proveedor se consumen sin validar esquema ni host.**
+El proxy `label.pdf` hace `fetch(labelUrl)` desde el servidor y devuelve el cuerpo (§19.8): una URL manipulada o un
+cambio del proveedor (`http://`, host interno de Railway/metadata, redirección cross-host) convierte al operador en
+lector de red interna. `trackingUrl` se pone como `href` en `AV-4/5/17/18` y en los tres DTOs del cliente (§19.12) sin
+regla de forma. Es confianza en un tercero, no un atacante externo; sigue siendo el único sitio del sistema que hace
+`fetch` a una URL leída de una respuesta ajena. Cierre: `assertProviderUrl(url)` al **escribir** `labelUrl`/`trackingUrl`
+— `https:` obligatorio, host en lista blanca (`SKYDROPX_URL_HOSTS`, env, poblada con lo medido en PS-SBX-4/5), sin
+credenciales embebidas; el proxy no sigue redirecciones a otro host y limita tamaño (p. ej. 5 MB) y tipo
+(`application/pdf`). Mutación en PS-84/PS-88: doble con `labelUrl='http://169.254.169.254/'` ⇒ no se persiste, alerta.
+Dueño: arquitecto → backend (regla) · devops (env).
+
+### BAJA — deuda aceptada con disparador
+
+| # | Hallazgo | Disparador / cierre | Dueño |
+|---|---|---|---|
+| **SEC-SDX-6** | `ShipmentQuote.rawResponseJson` se guarda **sin redactar** (la cotización puede ecoar `address_to`) y **sin retención**: filas efímeras de 24 h que viven para siempre con carga cruda del tercero | Antes del primer mes en producción: `redactProviderPayload` también antes de persistir, y purga en el job diario (`expiresAt < now − 30 d` salvo la cotización comprada) | arquitecto → backend |
+| **SEC-SDX-7** | `redactProviderPayload` es **lista negra** (`phone,email,street1,name,reference`) sobre un esquema NO MEDIDO: no cubre `company`, `further_information` ni un renombre del proveedor. Y §19.5 manda `references` como `further_information` mientras §19.4 (6) lista `reference?` **y** `furtherInformation?`: `C-SDX-2` necesita una sola verdad | Al cerrar PS-SBX-3/4: log por **lista blanca** de claves (`op,status,ms,ids,codes`); el arquitecto fija en qué campo viaja `Address.references` | arquitecto → backend |
+| **SEC-SDX-8** | `label` con `quoteId` vencido re-cotiza con `force` en **cada** llamada (§19.7 paso 3): un operador (o un cliente que repite) consume la cuota de 2 rps y crea filas; no toca dinero | Cerrar en el contrato: reusar la cotización vigente (§19.6 paso 6) y solo `force` si no hay ninguna | arquitecto |
+| **SEC-SDX-9** | `applyCarrierStatus` paso 4 escribe `carrierStatus` sin orden temporal ⇒ eventos fuera de orden **retroceden** `carrierStatus` (tarjeta/alertas; `ShipmentStatus` no, por CAS). La alerta derivada solo se ve en envíos vivos: un `exception` tras `delivered` es invisible. `@@unique` del evento no incluye `providerShipmentId` (re-emisión) | Cierre barato con D1: `WHERE carrierStatusAt IS NULL OR carrierStatusAt <= event.occurredAt`; `@@unique([shipmentRequestId, providerShipmentId, providerEventKey])` | arquitecto → backend |
+| **SEC-SDX-10** (dinero/custodia) | Un `delivered` del tercero mueve `in_custody → withdrawn` (irreversible: sin verbo inverso, `shipments.service.ts:1141-1151`) aunque el paquete no haya llegado. Mitigado por `AV-17` + ventana de 7 d + disputas; NO MEDIDO que la resolución de una disputa pueda devolver `withdrawn → in_custody` | Primera disputa «no me llegó» sobre una guía Skydropx: el arquitecto confirma el camino de reversión en `disputes` (o lo añade) | arquitecto |
+| **SEC-SDX-11** (P&L) | `label/cancel` pone el costo a **0** asumiendo que el saldo regresa entero (seguro incluido; PS-SBX-8 NO MEDIDO). Si no regresa, el P&L subestima el costo; no explotable | PS-SBX-8: si no reembolsa (todo o el seguro) ⇒ `ShipmentCostAdjustment kind:'other'` con lo no devuelto en vez de 0 | arquitecto (errata v1.81.1) |
+| **SEC-SDX-12** | Con `shipping_provider='off'` el contrato define `quote`/`label`/jobs; **no** dice qué hacen `label/cancel`, `label.pdf`, `departed`, `refresh-tracking` (`Noop` ⇒ `NOT_CONFIGURED`?). Y PS-81 dice «`400` con `forbidNonWhitelisted` si aplica»: `main.ts:56` es `false` ⇒ el campo se **ignora**, no da `400` — la prueba debe asertar «sin efecto» | Una línea en §19.2: `off` ⇒ `label.pdf` y `label/cancel` **siguen** (son de seguridad/operación sobre guías ya compradas), `refresh-tracking` ⇒ `409 FEATURE_DISABLED`; PS-81 corregida | arquitecto |
+| **SEC-SDX-13** (PII/secretos) | `docs/specs/SKYDROPX_SANDBOX_RESULTADOS.md` (guion PS-SBX) va al **repo público**: además del token, las respuestas traen ids de cuenta, `label_url` firmadas y la plantilla de origen con **teléfono/correo del dueño** | `sbx-probe.ts` redacta por lista blanca y el revisor del PR lo comprueba antes de fusionar | devops |
+
+## 3. Banderas para el humano
+
+- **Datos personales a un tercero (T.11):** Skydropx recibirá nombre, teléfono, correo y dirección de cada cliente. Conviene
+  que el aviso de privacidad nombre a la paquetería/intermediario como encargado y que exista (o se pida) el acuerdo de
+  tratamiento de datos de Skydropx; no es técnico y no lo mide nadie del equipo.
+- **Un `delivered` de la paquetería cierra la custodia (SEC-SDX-10):** la carta deja de estar «en bóveda» por un dato
+  ajeno. La ventana de 7 días es la defensa del cliente; que la regla de disputa por «no me llegó» esté escrita donde el
+  operador la lea.
+- **Sin tope de gasto por operador (SDX-R6, aceptado):** el saldo prepagado es el único límite; la bitácora tiene nombre.
+  Si el saldo va a ser grande, pedir el dial de tope antes de operar.
+- **Saldo y sandbox:** ninguna prueba compra guías reales; PS-SBX-4 compra en sandbox. Antes de la primera guía real:
+  apagar los avisos propios de Skydropx (T.6) y medir el doble seguro «SOS Protección» (§4.58 (h)(4)).
+- Sigue vigente la fase de seguridad completa (pentester con SDX-R1…R14 + seguridad) **sobre el código**, por release.
+
+## 4. VEREDICTO
+
+**APROBADO** sobre el diseño en **`62d0c46`** (§M4-SHIP v1.81 + ARCHITECTURE §4.58, M-62). Sin hallazgos críticos ni altos.
+**El diseño §M4-SHIP v1.81 puede pasar a construcción (fases C y D).** Fase C no está tocada por ningún hallazgo. Antes
+de que backend construya la parte que lo toca en fase D, el arquitecto escribe en el contrato **SEC-SDX-1** (ventana de
+disputa desde `observedAt`), **SEC-SDX-2** (evento sintetizado solo al cambiar), **SEC-SDX-3** (rama «pagada pero
+cancelado»), **SEC-SDX-4** (verbo de liberación `super_admin`) y **SEC-SDX-5** (`assertProviderUrl` + proxy sin
+redirecciones), cada uno con su mutación en PS-78/72/83/74/84; no hace falta otra vuelta de seguridad de diseño: lo
+verifico en la fase de seguridad sobre el código. SEC-SDX-6…13 quedan como deuda con disparador.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · diseño `62d0c46` · §M4-SHIP v1.81 / ARCHITECTURE §4.58 · **APROBADO** (SEC-SDX-1…5 al contrato antes de D; 6…13 deuda)
 # Veredicto de seguridad sobre el CÓDIGO — stream §M4-SHIP «Preparar envíos» · sha FIJADO **`59a0c1f`** (rama `claude/envio-preparar`) · 2026-09-29
 
 > **En una línea:** las carreras de dinero que el pentester dejó sin disparar (`SHIP-P4`) las disparé en vivo con N≥10 y
