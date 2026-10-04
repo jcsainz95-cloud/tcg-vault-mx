@@ -13111,3 +13111,5 @@ mock no sirve (legítimos: miden en el pase real).
 `check-e2e-skip-census-canary.sh` 14/14 rc=0, **3/3** corridas cada uno (deterministas).
 
 **Rollback.** Revertir el commit (el gate vuelve a rojo mientras exista el spec).
+
+**gitleaks PR #70 (devops, 2026-10-04):** el job `gitleaks` (run 37192755201) marcaba 3 `generic-api-key` en dos specs de integración de backend (`staff-without-email.e2e-spec.ts:405,:412` @0a42d85a; `stf-errata-v1-80-9-1.e2e-spec.ts:167` @1d946722): contraseñas de ficción, medido que no aparecen en ningún `.env`, workflow ni `scripts/`. Añadidas a `[allowlist]` de `security/gitleaks.toml` **por valor exacto anclado** (no por ruta). Medido con gitleaks 8.30.1: rango `origin/production..HEAD` 3 → 0 hallazgos (21 commits); `sast-gitleaks-canary.sh` 11/11; una variante del valor con sufijo sigue roja. **Rollback:** revertir el commit (la PR vuelve a rojo).
