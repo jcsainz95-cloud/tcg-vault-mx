@@ -11,7 +11,8 @@
  *  - ESTRUCTURA estricta: una fila con otro número de campos que la cabecera (línea cortada, fichero corrupto) ⇒
  *    ERROR con su número de línea. Un fichero roto a mitad no se carga «hasta donde se pudo»: no se carga.
  *  - FILAS inválidas (API_CONTRACT §M4-SHIP.19.23.6, C-GEO-1 (1)): CP que no es `^\d{5}$`, campo vacío tras trim o
- *    carácter ilegible ⇒ la fila se DESCARTA y se cuenta por motivo (`discarded`); el importador imprime los motivos.
+ *    carácter ilegible, TAB/CR/LF dentro de un valor (§19.24.3) ⇒ la fila se DESCARTA y se cuenta por motivo
+ *    (`discarded`); el importador imprime los motivos.
  *  - `neighborhood` se guarda tal cual la fuente (solo `trim`): es el canónico (§19.5). La unicidad de la tabla es
  *    `(postalCode, neighborhood)`; SEPOMEX repite nombre dentro de un CP cuando cambia el tipo de asentamiento
  *    (p. ej. «Centro» colonia y «Centro» barrio). Se queda la PRIMERA y se cuentan las descartadas.
@@ -34,7 +35,7 @@ export interface ParseResult {
   stats: CatalogStats;
 }
 
-export type DiscardReason = 'cp_no_5_digitos' | 'campo_vacio' | 'caracter_ilegible';
+export type DiscardReason = 'cp_no_5_digitos' | 'campo_vacio' | 'caracter_ilegible' | 'separador_en_campo';
 
 export interface CatalogStats {
   postalCodes: number;
@@ -98,7 +99,7 @@ export function parseSepomex(buf: Buffer): ParseResult {
   let sourceLines = 0;
   let duplicatesDropped = 0;
   let duplicatesWithOtherMunicipality = 0;
-  const discarded: Record<DiscardReason, number> = { cp_no_5_digitos: 0, campo_vacio: 0, caracter_ilegible: 0 };
+  const discarded: Record<DiscardReason, number> = { cp_no_5_digitos: 0, campo_vacio: 0, caracter_ilegible: 0, separador_en_campo: 0 };
   for (let i = headerIdx + 1; i < lines.length; i++) {
     const raw = lines[i];
     if (raw.trim() === '') continue;
@@ -127,6 +128,11 @@ export function parseSepomex(buf: Buffer): ParseResult {
     }
     if (fields.some((v) => v.includes('\uFFFD'))) {
       discarded.caracter_ilegible++;
+      continue;
+    }
+    // TAB/CR/LF dentro de un valor romperían la serialización canónica de `setDigest` (API_CONTRACT §M4-SHIP.19.24.3).
+    if (fields.some((v) => /[\t\r\n]/.test(v))) {
+      discarded.separador_en_campo++;
       continue;
     }
     const key = `${row.postalCode}|${row.neighborhood}`;

@@ -2983,7 +2983,7 @@ Notas para frontend (importantes):
 |---|---|
 | **App nueva rota / regresión** | Railway (servicio `backend` → Deployments → **Redeploy** el deploy de `3b9d16f`) y Vercel (Deployments → **Promote to Production** el build previo). Alternativa Git: `git revert` del merge y push. |
 | **Datos** | **No se requiere restaurar DB para revertir el código.** M-31/M-32 son **aditivas**: sus columnas/tablas (`CardProduct`, `rarityCanonical`, `*.cardProductId`) quedan y son inertes para el resolver viejo (las columnas legacy `structuralFinishes`/`catalogFinishes`/`pricedFinishesSnapshot` se conservaron a propósito para reversibilidad — ver cabecera de la M-31). Solo se restaura del snapshot (§26.3 paso 3) si hubiera corrupción de datos, no por un rollback de código. |
-| **PG < 15 (falla de migración)** | `migrate deploy` falla en M-31 **dentro de su transacción** (Prisma envuelve cada migración) → **rollback atómico de M-31**, el contenedor sale ≠0, Railway reintenta (`ON_FAILURE`, max 10) y **mantiene activo el deploy anterior** (`3b9d16f`). Prod sigue sirviendo el código viejo. Corregir: subir Postgres a ≥15 o aplicar el fallback de índice normal (BACKEND_NOTES M-31, es cambio de **rol backend**). |
+| **PG < 15 (falla de migración)** | `migrate deploy` falla en M-31 **dentro de su transacción** (Prisma envuelve cada migración) → **rollback atómico de M-31**, el contenedor sale ≠0, Railway reintenta (`ON_FAILURE`, max 10) y ~~mantiene activo el deploy anterior~~ (`3b9d16f`). ⚠️ **Que Railway conserve el deploy anterior ante un arranque fallido es NO MEDIDO** (§79.5/§80.5: el único deploy fallido de `production` en el historial de GitHub es el primero, `cd530a13` 2026-08-15, sin versión anterior que conservar). Corregir: subir Postgres a ≥15 o aplicar el fallback de índice normal (BACKEND_NOTES M-31, es cambio de **rol backend**). |
 
 ### 26.5 Verificación de salud post-deploy (a ejecutar por quien tenga egress a prod)
 
@@ -3140,7 +3140,7 @@ deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es d
 | **Datos (código)** | **No se restaura la DB para revertir el código.** M-39/M-40 son **aditivas**: sus tablas/columnas (`SealedProduct`, `SealedSetGroup`, `*.sealedProductId`) quedan **inertes** para el código viejo. Solo se restaura del snapshot si hubiera **corrupción de datos**, no por un rollback de código. |
 | **Reshape P-34 aplicado y se quiere revertir el dinero** | Los backfills son **idempotentes y NO destructivos**, pero el paso 3 **reescribe** `buylist_price_rules` / `sale_price_rules` al shape tiered. Para volver al valor exacto previo: **restaurar esas dos filas de `ConfigSetting` desde el snapshot pre-deploy** (por eso el snapshot del paso 3 de §27.5). El compat on-read lee ambos shapes, así que el código viejo tolera el shape tiered si sólo se revierte código. |
 | **Backfill M-39 a revertir** | No destructivo (solo crea `SealedProduct` y liga FKs nullable). Revertir código deja esas filas inertes; no requiere acción de datos. |
-| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway reintiene y **mantiene activo el deploy anterior**. Prod sigue sirviendo el código viejo. |
+| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway reintenta y ~~mantiene activo el deploy anterior~~. ⚠️ **Que Railway conserve el deploy anterior ante un arranque fallido es NO MEDIDO** (§79.5/§80.5: el único deploy fallido de `production` en el historial de GitHub es el primero, `cd530a13` 2026-08-15, sin versión anterior que conservar). |
 
 > Orden de oro (§7): **datos primero** (snapshot antes de migrar y antes del paso 3), luego código.
 
@@ -3932,7 +3932,7 @@ editó la fila a mano y quedó corrupta: el backend **no apaga el catálogo** (c
 | **¿Y lo que publicó el cut-over?** | Esas piezas quedan `listed` y, bajo el código viejo, **vuelven a precio con la matemática vieja** (la de P-48, la del bug). No hay corrupción de datos, pero **es la consecuencia real de revertir**: si se revierte, se revierte el precio de todo, no solo de lo nuevo. Despublicar pieza por pieza es manual (M2) y solo se hace si el dueño lo pide. |
 | **Rollback a MITAD del cut-over por sets** | **No hay estado partido que reparar.** Los sets ya repriciados no quedan «a medio migrar»: el precio se resuelve **en lectura**, así que al revertir el código **todos** los sets —repriciados o no— vuelven a la matemática vieja a la vez. Las entradas de cola creadas por el guardarraíl quedan **abiertas e inertes** (el código viejo no las lee) y se cierran solas al volver a v2.0 y re-resolver. Los `InventoryBatch` de las `batchKey` usadas **se conservan**: si se vuelve a v2.0, hay que usar **claves nuevas** para repriciar de verdad (§29.4b-2). |
 | **Rollback SOLO de la fuente (P-47)** | Flip inverso del dial: `PUT /admin/settings` `{"price_provider":"pokemontcg_io"}` (§28.6). **Sin redeploy y sin migración.** Que esto sea una palanca independiente de la curva es **el beneficio operativo de haber serializado** (§29.3). |
-| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway **mantiene activo el deploy anterior**. Prod sigue sirviendo el código viejo. |
+| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0; ~~Railway mantiene activo el deploy anterior~~. ⚠️ **Que Railway conserve el deploy anterior ante un arranque fallido es NO MEDIDO** (§79.5/§80.5: el único deploy fallido de `production` en el historial de GitHub es el primero, `cd530a13` 2026-08-15, sin versión anterior que conservar). |
 | **Corrupción de datos (no rollback de código)** | Única razón para restaurar el snapshot del paso 0. |
 
 **No se requiere ventana de riesgo** (§4.36.9d / §N.9): no hay dinero vivo en tránsito que la migración
@@ -13241,6 +13241,10 @@ con `PostalCode` vacía toda dirección nueva es `422 POSTAL_CODE_UNKNOWN` y nad
 
 ### 79.0 Estado en una línea
 
+> ⚠️ **Superado en parte por §80 (2026-10-04, errata v1.80.12.4):** C-GEO-1 (1) ya no es igualdad de conteo sino
+> inclusión + huella; hay modo estricto/arnés; el `CMD` **ya está cableado** (modo arnés en compose/CI, estricto en
+> Railway). Lo de abajo queda como historia; manda §80.
+
 **El importador está hecho y probado; el cableado en el arranque NO, porque falta el archivo.** No se puede
 descargar desde este contenedor (79.2) y meterlo en el repo —que es público— es una decisión del dueño por tamaño y
 por licencia. ⛔ **Hasta que el archivo esté fijado y el `CMD` cableado, la fase C no se puede publicar** (C-GEO-2).
@@ -13383,3 +13387,116 @@ Datos: el `boot` solo inserta; para vaciar, la reversa de M-64 (`DROP TABLE "Pos
 con la versión anterior sirviendo. Un catálogo nuevo de SEPOMEX entra con `import` explícito (reconcilia altas,
 cambios y bajas, aborta si quita > 10 % sin `--allow-shrink`) **y** un nuevo `sha256` fijado. Revertir esta sección:
 `git revert` del commit (se va el paso de CI con él).
+
+---
+## §80 · Catálogo de CP, errata v1.80.12.4: inclusión + huella, dos modos por blanco, manifiesto y `CMD` cableado (2026-10-04, rama `claude/skydropx-d`)
+
+Fuente normativa: `API_CONTRACT §M4-SHIP.19.24` (`ab969d0f`), `ARCHITECTURE §4.60 (q)`. Manda sobre §79 donde choque.
+Resuelve las dos discrepancias de §79.8: (1) C-GEO-1 (1) es inclusión + huella, y las filas del arnés se toleran en
+modo arnés; (2) una fila con otro número de campos sigue siendo fichero roto (el contrato no lo cambia).
+
+### 80.0 Estado en una línea
+
+**Construido y cableado todo lo que no depende del archivo.** Falta G-1 (dónde vive el archivo: (A) objeto privado en
+`S3_BUCKET`, por defecto; o (B) repo), el archivo y su manifiesto. ⛔ **Hasta entonces el `CMD` hace que la imagen NO
+arranque en Railway** (modo estricto sin manifiesto ⇒ salida 1). Es el comportamiento que pide el contrato («la versión
+no se publica mientras G-1 esté abierta»), y depende de que Railway conserve la versión anterior: **NO MEDIDO** (80.5).
+Consecuencia práctica: **no fusionar esta rama a `production` antes de cerrar G-1**, o el despliegue falla.
+
+### 80.1 Qué cambió en `scripts/geo/`
+
+| Pieza | Qué |
+|---|---|
+| `sepomex-parse.ts` | Motivo de descarte nuevo `separador_en_campo` (TAB/CR/LF dentro de un valor: la serialización de `setDigest` tiene que ser inyectiva). |
+| `import-sepomex.ts` · `manifest --file F [--out M]` | Sin base. Escribe `{fileSha256, encoding, derived{rows,postalCodes,municipalities,states}, discarded, duplicatesDropped, setDigest, sourceNotice}`. Imprime si alcanza los pisos. Es lo que se commitea (no el archivo). |
+| · `setDigestOf` / `sqlSetDigest` | §19.24.3: `cp TAB colonia TAB municipio TAB estado LF`, orden por **bytes** (`Buffer.compare`; en SQL `COLLATE "C"`), sha256. |
+| · `classifyTarget` | Arnés ⇔ la URL pasa `assertSeedTarget` **importada** de `backend/prisma/seed-target-guard.ts` (incluida su escotilla `SEED_E2E_ALLOW_HOST`); si no, estricto. `--strict` lo fuerza; no hay opción que afloje. |
+| · `boot [--file F] [--strict]` | `DATABASE_URL` **tal cual** (sin salto a `DATABASE_PUBLIC_URL`). Estricto: sin manifiesto ⇒ 1; manifiesto bajo los pisos ⇒ 1; tabla = manifiesto + (3)(4) ⇒ 0 **sin escribir ni pedir el archivo**; si no, archivo con `sha256` comprobado **antes** de interpretarlo, su `setDigest` = el del manifiesto, `INSERT … ON CONFLICT DO NOTHING`, y dentro de la tx (1a)+(1b)+(2)+(3)+(4); ajena o discrepante ⇒ ALARMA y 1, sin borrar. Arnés: sin archivo ⇒ imprime `[sepomex] modo arnés: sin archivo, no se carga; los CP los siembra el arnés` y sale 0 **sin abrir la base**; con archivo ⇒ exige su manifiesto hermano y verifica (1a) `faltan = 0`, (3) y (4); ajenas/discrepantes se imprimen (hasta 10 ejemplos). |
+| · `verify` / `import` | Usan el manifiesto como fijación (sustituye al `.sha256` hermano de §79, que ya no existe). `import` comprueba al final `setDigest(tabla) = setDigest(archivo)`. |
+| `fixtures/sepomex-extracto-sintetico.manifest.json` | El manifiesto del extracto (10 filas, 8 CP, 5 estados): en modo arnés con `--file` se usa ése. |
+| `.github/workflows/ci.yml` | Sin cambios en este pase (el paso de §79.6 corre la prueba nueva). |
+
+**Interpretación mía, para que el arquitecto la confirme:** los pisos (2) se exigen solo en modo **estricto**. En arnés
+con el extracto (10 filas) no podrían cumplirse nunca, y §19.24.5 describe la verificación del arnés como «(1a) con
+`faltan = 0`», sin (2).
+
+### 80.2 El arranque, cableado (`Dockerfile.backend`, `.dockerignore`)
+
+- `.dockerignore`: `!scripts/geo`, y fuera `scripts/geo/fixtures` y `scripts/geo/*.test.ts`.
+- Runtime: `COPY scripts/geo/ /opt/geo/scripts/geo/` + enlace `/opt/geo/backend → /app` (el importador importa
+  `../../backend/src/…` y `../../backend/prisma/seed-target-guard`; en la imagen viven en `/app/src` y `/app/prisma`).
+  Un `RUN` de guarda hace fallar el **build** si falta el importador o el guard, o si viaja la prueba.
+- `CMD`: `… migrate deploy && TS_NODE_PROJECT=/app/tsconfig.json TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register
+  /opt/geo/scripts/geo/import-sepomex.ts boot && node dist/main.js`. Sin `--file`: hoy no hay archivo.
+- Quién queda en qué modo (por el host de `DATABASE_URL`, regla de `assertSeedTarget`):
+
+| Entorno | Host | Modo | Hoy (sin manifiesto) |
+|---|---|---|---|
+| Railway `production` | `*.railway.internal` (de memoria: NO MEDIDO) | estricto | **sale 1 ⇒ la versión no arranca** |
+| `docker-compose.yml` (dev) | `postgres` | arnés | sale 0 sin tocar base |
+| `docker-compose.staging.yml` (`e2e-real.yml`, DAST) | `postgres` | arnés | sale 0 sin tocar base; el seed pone `E2E_POSTAL_CODES` después |
+| CI `backend` (no usa la imagen) | `localhost` | — | corre la prueba (§79.6) |
+
+- Candado nuevo en la prueba (test 19): un solo `CMD`; `boot` va después de `migrate deploy` y antes de
+  `node dist/main.js`, unido con `&&`; sin `--file/--manifest` hoy; el `COPY` está; `.dockerignore` reincluye `scripts/geo`
+  y excluye prueba y extracto. Canarios 3/3 en ROJO: quitar `boot` del `CMD`, cambiar `&&` por `;`, dejar entrar la prueba.
+
+### 80.3 `docker build` — lo medido y lo NO MEDIDO
+
+- **`docker build -f Dockerfile.backend` completo: NO MEDIDO aquí.** Arranqué `dockerd` en el contenedor. La imagen
+  base se descarga, pero `apk upgrade` falla: `dl-cdn.alpinelinux.org` da `TLS: server certificate not trusted`, y con
+  la CA del proxy inyectada en una copia, **`HTTP 403: Forbidden`** (política de salida). No busqué rodeo. Lo miden los
+  workflows que construyen la imagen al empujar (NO MEDIDO hasta entonces).
+- **Medido (2026-10-04) con una réplica de la capa runtime** (`node:24-alpine`, sin `apk`/`npm`; `node_modules`, `src`,
+  `prisma`, `tsconfig.json` del backend local; las líneas de geo y el tramo `boot` del `CMD` **extraídos literales**
+  de `Dockerfile.backend`; contexto = raíz del repo, con su `.dockerignore`): build verde (el `RUN` de guarda pasa: el
+  importador está, la prueba no; en `/opt/geo/scripts/geo` solo `import-sepomex.{sh,ts}` y `sepomex-parse.ts`).
+  Ejecutado con `--network none` y `DATABASE_URL` con contraseña canario:
+  - host `postgres` ⇒ `modo arnés` · `sin archivo, no se carga` · **salida 0**;
+  - host `postgres.railway.internal` ⇒ `modo ESTRICTO` · `no hay manifiesto … la versión no se publica` · **salida 1**;
+  - host `x.proxy.rlwy.net` ⇒ ídem, **salida 1**;
+  - la contraseña canario aparece **0** veces en la salida.
+  Lo que esa réplica **no** prueba: el motor de Prisma para musl (en la imagen real lo genera `prisma generate` dentro
+  de Alpine) — por eso los tres casos son los que no abren conexión.
+
+### 80.4 Pruebas y mutaciones (2026-10-04, base local `tcg_devops_sepomex`, PG 16.13; medido por devops)
+
+- **Prueba:** 19/19 con base; 14 pasan + 5 saltadas sin base.
+- **G1–G11** (§19.24.9): G1 test 8 (+ test 9: `boot` sin salto a `DATABASE_PUBLIC_URL`) · G2/G4/G6/G8/G9 test 16 ·
+  G3 test 15 · G5 test 10 · G7 test 17 (tabla temporal con `COLLATE "und-x-icu"`; la prueba **comprueba la premisa**:
+  el orden ICU difiere del de bytes con `Zapata/Ángel/a/B/ñu/nz/Ñandú/Óscar`) · G10 test 11 · G11 test 13 (canarios
+  en la propia prueba: fila 21 y sin «SINTÉTICO» ⇒ rojo).
+- **Mutaciones** sobre copia (`git archive ab969d0f` + `scripts/geo` vivo), deterministas, N=1 cada una: **24/24 en
+  ROJO**, más 3/3 del cableado (80.2):
+  - de §19.24.9: G1 `*.railway.internal` como arnés · G2 tolerar ajenas sin mirar el modo · G3 igualdad también en
+    arnés · G4 leer el archivo antes de comparar la huella · G6 hash después de parsear · G7 sin `COLLATE "C"` ·
+    G9 por clave en vez de por huella (sin discrepantes ni (1b)) · G11 fila 21 en el extracto · `boot` salta a
+    `DATABASE_PUBLIC_URL` · G5 sin manifiesto pasa · G10 sin pisos del manifiesto · estricto sin archivo sale 0;
+  - **re-declaradas** de §79.7: «sin conteo (1)» ya no existe (el conteo se fue); su papel lo cubren G2 y G9. Las
+    demás siguen: `boot` borra · sin verificar tras cargar · sin sha256 · piso bajado a 20 000 · sin los CP del arnés ·
+    sin guarda de encogimiento · sin deduplicar · acepta líneas cortas · `import` borra y reinserta · sin Latin-1 ·
+    no descarta CP inválido · (nueva) no descarta separador en campo.
+- **`kill -9` a mitad de la transacción** de `boot --strict` (archivo sintético de 143 913 filas, tras ver el
+  `RowExclusiveLock` sobre `PostalCode`): tabla intacta **5/5** (N=5, autor devops). Después: `boot` carga en 5.1 s;
+  re-arranque sin archivo ⇒ «tabla = manifiesto, sin escribir» en 1.2 s.
+- Candados: `check-compose-images`, `check-workflow-cwd`, `check-secret-defaults`, `check-secret-masking` y
+  `check-stripe-webhook-failclosed` (lee el `CMD`) ⇒ 0.
+
+### 80.5 Railway ante un arranque fallido — sigue **NO MEDIDO**
+
+Medición del orquestador (2026-10-04): en los deployments de GitHub del entorno `marvelous-kindness / production`
+(160 en total) el **único** fallido es el primero (`cd530a13`, 2026-08-15): no había versión anterior que conservar, así
+que el historial **no** responde la pregunta. Corregidas las tablas de rollback de §26.4, §27.4 y §29.7, que lo daban por
+hecho. Siguiente medición por coste (§19.24.8): (2) el dueño lee la documentación de Railway o mira en su panel; (3)
+un entorno que no sea `production` con un `CMD` que haga `exit 1` (⛔ no se le pide al dueño sin que (2) falle, O-6).
+**Si Railway no conserva la anterior, no se abre la ventana** y se pide errata al arquitecto.
+
+### 80.6 Lo que falta (tras G-1) y rollback
+
+- **(A) objeto privado** (por defecto): obtenedor con las `S3_*` en `FileSource` (`import-sepomex.ts`), clave
+  `geo/sepomex/<fileSha256>.txt`, la medición del `GET` anónimo ⇒ 403/404, y G4/G6 con ese obtenedor. **(B) repo**:
+  `scripts/geo/data/CPdescarga.txt` y `--file` en el `CMD`.
+- En ambos: el dueño descarga el archivo y corre `scripts/geo/import-sepomex.sh manifest --file CPdescarga.txt --out
+  scripts/geo/sepomex.manifest.json` (sin base; imprime las cifras reales y si alcanza los pisos). Ese JSON se commitea.
+- **Rollback del cableado:** `git revert` del commit de esta sección: el `CMD` vuelve a `migrate deploy && node
+  dist/main.js` y la imagen deja de llevar `scripts/geo`. Datos: el `boot` nunca borra; ver §79.9.

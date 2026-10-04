@@ -114,6 +114,17 @@ COPY --chown=nestjs:nodejs security/secretos-publicados.sha256 ./security/secret
 # confundirlos hizo que el entrypoint exigiera `STAGING_*` aquí dentro, abortara, y
 # el contenedor muriera sin llegar a `node` (run 34531002011).
 COPY --chown=nestjs:nodejs security/secretos-exigidos-contenedor.txt ./security/secretos-exigidos-contenedor.txt
+# CATÁLOGO DE CP (M-64; API_CONTRACT §M4-SHIP.19.23.6 C-GEO-2 y §19.24; DEVOPS_NOTES §80). El importador corre en el
+# ARRANQUE, entre `migrate deploy` (crea `PostalCode`) y `node dist/main.js` (sirve): mientras no termina, la versión
+# nueva no recibe tráfico. Importa `../../backend/src/...` y `../../backend/prisma/seed-target-guard`: el enlace
+# `/opt/geo/backend → /app` le da esa forma sin duplicar fuente. Modo por BLANCO (assertSeedTarget): en Railway
+# (`*.railway.internal`) es ESTRICTO ⇒ sin `scripts/geo/sepomex.manifest.json` sale 1 y la versión NO se publica
+# (correcto mientras G-1 esté abierta); en compose/CI/e2e-real/DAST (host `postgres`) es ARNÉS ⇒ sin archivo sale 0
+# sin tocar base ni red.
+COPY --chown=nestjs:nodejs scripts/geo/ /opt/geo/scripts/geo/
+RUN ln -s /app /opt/geo/backend && test -f /opt/geo/backend/prisma/seed-target-guard.ts \
+ && test -f /opt/geo/scripts/geo/import-sepomex.ts && test ! -e /opt/geo/scripts/geo/import-sepomex.test.ts \
+ || (echo "ERROR: la imagen no trae el importador de CP o trae su prueba; revisar .dockerignore."; exit 1)
 # GUARD del CMD: sin npx, el arranque depende de esta ruta exacta del CLI de Prisma.
 # Si un bump de `prisma` la moviera, mejor fallar el BUILD aquí que crash-loopear en
 # Railway al arrancar. (En prisma 5.x: bin.prisma = "build/index.js".)
@@ -132,4 +143,4 @@ EXPOSE 3001
 # deliberadamente ruidoso: el modo de fallo alternativo es servir una API que acepta
 # webhooks forjados, y ése no avisa de nada. Rollback: redeploy del anterior mientras
 # se pone el `whsec_…` real (DEVOPS_NOTES §49.3).
-CMD ["sh", "-c", "sh ./scripts/webhook-secret-preflight.sh assert && sh ./scripts/secrets-preflight.sh assert && node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "sh ./scripts/webhook-secret-preflight.sh assert && sh ./scripts/secrets-preflight.sh assert && node node_modules/prisma/build/index.js migrate deploy && TS_NODE_PROJECT=/app/tsconfig.json TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register /opt/geo/scripts/geo/import-sepomex.ts boot && node dist/main.js"]

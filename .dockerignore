@@ -32,4 +32,10 @@ scripts
 !security/secretos-publicados.sha256
 !security/secretos-retirados.sha256
 !security/secretos-exigidos-contenedor.txt
+# M-64 / API_CONTRACT §M4-SHIP.19.24 — el importador del catálogo de CP corre en el ARRANQUE (CMD de
+# Dockerfile.backend, entre `migrate deploy` y `node dist/main.js`). Viaja `scripts/geo/` (el importador, su lector
+# y, cuando exista, `sepomex.manifest.json`); NO su prueba ni el extracto sintético del arnés. DEVOPS_NOTES §80.
+!scripts/geo
+scripts/geo/fixtures
+scripts/geo/*.test.ts
 *.md
