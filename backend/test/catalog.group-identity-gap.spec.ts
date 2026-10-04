@@ -1,7 +1,7 @@
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
 import { ivaDialsStub } from './helpers/iva-dials';
 
@@ -110,6 +110,7 @@ const GRADED_COMPLETA = () => ({
 /** `PricingService` con el CUERPO REAL de `tryGradeKeyFor` — sin esto el escenario no existe. */
 function pricingWithRealKey(): PricingService {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     loadGradedEstimateConfig: jest.fn(async () => DISABLED_GRADED_ESTIMATE_CONFIG),
     getGradedEstimatesBatch: jest.fn(async () => new Map()),

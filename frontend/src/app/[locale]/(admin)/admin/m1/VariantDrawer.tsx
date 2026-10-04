@@ -36,6 +36,7 @@ import { localUid } from '@/components/master-set/capture';
 import { QuickAddSection, type QuickAddTarget } from './QuickAdd';
 import { QuickRemoveSection } from './QuickRemove';
 import { ItemDetailModal } from './ItemDetailModal';
+import { SealedFinalPrice } from './SealedFinalPrice';
 
 /**
  * Drill-down de piezas por VARIANTE — P-17 (DESIGN_SYSTEM §16.4). Panel lateral (sheet 480px en
@@ -348,6 +349,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
               highlighted={highlighted}
               variantHasOverride={variantHasOverride}
               showCert={productType === 'graded'}
+              sealed={productType === 'sealed' ? { name: cardName, marketRefCents: marketRefCents ?? null } : null}
               locations={locations}
               onToast={onToast}
               onChanged={() => {
@@ -374,6 +376,7 @@ function PiecesSection({
   highlighted,
   variantHasOverride,
   showCert,
+  sealed,
   locations,
   onToast,
   onChanged,
@@ -386,6 +389,11 @@ function PiecesSection({
   highlighted: string[];
   variantHasOverride: boolean;
   showCert: boolean;
+  /**
+   * §39.2 (c): SOLO sellado ⇒ el precio por pieza es `SealedFinalPrice` con rótulo visible. `null` (raw/graded) ⇒
+   * el código de siempre, sin tocar (P-PRE-1: «se conserva como está, sin hacerlo más visible»).
+   */
+  sealed: { name: string; marketRefCents: number | null } | null;
   locations: VaultLocationDTO[];
   onToast?: (msg: string) => void;
   onChanged: () => void;
@@ -400,6 +408,7 @@ function PiecesSection({
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [priceInput, setPriceInput] = useState('');
   const [lossItem, setLossItem] = useState<InventoryItemDTO | null>(null);
+  const [sealedEditingId, setSealedEditingId] = useState<string | null>(null);
 
   // batchKey estable por sesión de publicación (replay idempotente en reintentos).
   const publishKeyRef = useRef<string | null>(null);
@@ -532,8 +541,32 @@ function PiecesSection({
                       </button>
                     )}
                     <StatusBadge domain="inventory" value={piece.status} />
-                    {/* Precio manual por pieza (gana sobre el de variante). */}
-                    {editingPriceId === piece.id ? (
+                    {sealed ? (
+                      <span className="ml-auto">
+                        <SealedFinalPrice
+                          layout="panel"
+                          piece={{
+                            id: piece.id,
+                            folio: piece.folio,
+                            status: piece.status,
+                            ownerType: piece.ownerType,
+                            hasLocation: piece.location != null,
+                            listPriceCents: piece.listPriceCents ?? null,
+                            resolvedSalePriceCents: piece.resolvedSalePriceCents,
+                            priceBasis: piece.priceBasis,
+                            name: sealed.name,
+                            marketRefCents: sealed.marketRefCents,
+                          }}
+                          editing={sealedEditingId === piece.id}
+                          onEditingChange={(open) => setSealedEditingId(open ? piece.id : null)}
+                          onDone={(msg) => {
+                            onToast?.(msg);
+                            onChanged();
+                          }}
+                        />
+                      </span>
+                    ) : /* Precio manual por pieza (gana sobre el de variante). */
+                    editingPriceId === piece.id ? (
                       <span className="flex items-end gap-2">
                         <Input
                           label={t('editPriceLabel')}

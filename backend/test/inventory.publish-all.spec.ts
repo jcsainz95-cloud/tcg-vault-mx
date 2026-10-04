@@ -1,4 +1,4 @@
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -112,7 +112,12 @@ function buildHarness() {
       }),
       // v2.0 (§4.36.5c): SALIDA simétrica de la cola — el mismo seam que escala CIERRA cuando el
       // precio vuelve a resolver. Antes de v2.0 el ingest no cerraba nada.
+      // v1.80.8.5 (PF-4): el cierre respeta el EJE — `context`/`OR` del `where` real de
+      // `closePendingForVariant` (S48-M1), si vienen. Sin esto el harness cerraría la fila de COMPRA.
       updateMany: jest.fn(async ({ where, data }: any) => {
+        const eq = (e: any, k: string, v: any) => (e[k] ?? null) === (v ?? null);
+        const orOk = (e: any) =>
+          !where.OR || where.OR.some((o: any) => Object.entries(o).every(([k, v]) => eq(e, k, v)));
         let count = 0;
         for (const e of pendingStore) {
           if (
@@ -120,7 +125,8 @@ function buildHarness() {
             e.productType === where.productType &&
             e.gradeKey === where.gradeKey &&
             e.finish === where.finish &&
-            e.status === where.status
+            e.status === where.status &&
+            orOk(e)
           ) {
             Object.assign(e, data);
             count++;
@@ -141,6 +147,7 @@ function buildHarness() {
     {} as PokeTraceProvider,
   );
   jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
+  jest.spyOn(pricing, 'loadSalePremiumFloorPolicy').mockResolvedValue(DEFAULT_SALE_PREMIUM_FLOOR_POLICY);
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({
     spreadPctBySubtype: {},
     fallbackPct: 25,
@@ -400,6 +407,83 @@ describe('publishAll — E4-bis: lo ya `listed` se RE-RESUELVE (§4.36.5b-bis)',
     const res = await h.svc.publishAll({}, 'admin');
     // Selecciona las DOS publicables (listed + in_stock) y NO la reservada.
     expect(res.summary.selected).toBe(2);
+  });
+});
+
+/**
+ * PF-4 (v1.80.8.5, API_CONTRACT §M2 `M2-PF`) — el ESCENARIO DEL DUEÑO con el seed del dial: una
+ * `Double Rare` y una `Illustration Rare` `in_stock`, mercado MX$10 (⇒ piso), cada una con su fila
+ * `open premium_at_floor` de VENTA, y la DR además con una fila de COMPRA. `publish-all`:
+ *  - publica la DR (al piso, MX$25) y cierra SU fila de venta; su fila de COMPRA sigue `open`;
+ *  - NO publica la IR y su fila sigue `open premium_at_floor`.
+ * Con el dial en `none`: las dos retenidas (la conducta hasta v1.80.8.4).
+ */
+describe('publishAll — PF-4: premium en el piso con el dial de VENTA (escenario del dueño)', () => {
+  function seedScenario(h: ReturnType<typeof buildHarness>) {
+    const dr = rawItem({ card: { rarity: 'Double Rare', rarityCanonical: 'Double Rare', setId: 'set-1' } });
+    const ir = rawItem({ card: { rarity: 'Illustration Rare', rarityCanonical: 'Illustration Rare', setId: 'set-1' } });
+    h.items.push(dr, ir);
+    const key = (cardId: string) => ({
+      cardId,
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish: 'normal',
+      cardProductId: null,
+      sealedProductId: null,
+      status: 'open',
+      reason: 'premium_at_floor',
+    });
+    h.pendingStore.push(
+      { id: 'dr-inv', ...key(dr.cardId), context: 'inventory' },
+      { id: 'dr-buy', ...key(dr.cardId), context: 'buylist' },
+      { id: 'ir-inv', ...key(ir.cardId), context: 'inventory' },
+    );
+    h.refsBatch.mockResolvedValue(
+      new Map([
+        [`${dr.cardId}|raw|raw:NM|normal`, { status: 'priced', referenceMxnCents: 1000 } as any],
+        [`${ir.cardId}|raw|raw:NM|normal`, { status: 'priced', referenceMxnCents: 1000 } as any],
+      ]),
+    );
+    return { dr, ir };
+  }
+  const statusOf = (h: ReturnType<typeof buildHarness>) =>
+    Object.fromEntries(h.pendingStore.map((e) => [e.id, [e.status, e.reason]]));
+
+  it('seed: la DR se publica (al piso) y cierra SOLO su fila de venta; la IR queda retenida', async () => {
+    const h = buildHarness();
+    const { dr, ir } = seedScenario(h);
+    const res = await h.svc.publishAll({}, 'admin');
+    expect(res.summary).toMatchObject({ selected: 2, published: 1, pendingPrice: 1, failed: 0 });
+    expect(dr.status).toBe('listed');
+    expect(ir.status).toBe('in_stock');
+    expect(statusOf(h)).toEqual({
+      'dr-inv': ['resolved', 'premium_at_floor'],
+      'dr-buy': ['open', 'premium_at_floor'],
+      'ir-inv': ['open', 'premium_at_floor'],
+    });
+    // El precio que se cobrará en lectura: el piso vigente (criterio 254).
+    const sale = h.pricing.decideSalePrice({
+      referenceMxnCents: 1000,
+      rarityCanonical: 'Double Rare',
+      curve: DEFAULT_PRICING_CURVE,
+      premiumFloorPolicy: DEFAULT_SALE_PREMIUM_FLOOR_POLICY,
+    });
+    expect(sale).toMatchObject({ priceCents: DEFAULT_PRICING_CURVE.sale.floorCents, basis: 'floor', pendingReason: null });
+    expect(sale.priceCents).toBe(2500);
+  });
+
+  it('dial `none`: las dos retenidas, ninguna fila se cierra', async () => {
+    const h = buildHarness();
+    (h.pricing.loadSalePremiumFloorPolicy as jest.Mock).mockResolvedValue({ mode: 'none', rarities: [] });
+    const { dr, ir } = seedScenario(h);
+    const res = await h.svc.publishAll({}, 'admin');
+    expect(res.summary).toMatchObject({ selected: 2, published: 0, pendingPrice: 2 });
+    expect([dr.status, ir.status]).toEqual(['in_stock', 'in_stock']);
+    expect(statusOf(h)).toEqual({
+      'dr-inv': ['open', 'premium_at_floor'],
+      'dr-buy': ['open', 'premium_at_floor'],
+      'ir-inv': ['open', 'premium_at_floor'],
+    });
   });
 });
 

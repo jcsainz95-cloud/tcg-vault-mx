@@ -220,6 +220,25 @@ describe('C-FULLREF-1 — el despachador `onFullRefund` y sus llamadores', () =>
     const reclaim = orders.slice(orders.indexOf('async reclaimVault('));
     expect(reclaim).toContain('unpackedItemIds');
   });
+
+  it('💰 v1.80.8.6 (§M4-SHIP.18.12 (8)) — `shippedReason` solo viaja desde `requestFullRefund` (M3), y una sola vez', () => {
+    const spans = FILES.flatMap((f) => callSpans(f.text, /\.onFullRefund\(/g).map((s) => ({ path: f.path, s })));
+    const withReason = spans.filter((x) => /shippedReason/.test(x.s));
+    expect(withReason.map((x) => x.path)).toEqual(['modules/orders/order-refund.service.ts']);
+    const orders = text('modules/orders/order-refund.service.ts');
+    const m3 = orders.slice(orders.indexOf('async requestFullRefund('), orders.indexOf('async recordShippedRefundReason('));
+    expect(callSpans(m3, /\.onFullRefund\(/g).filter((s) => /shippedReason/.test(s))).toHaveLength(1);
+  });
+
+  it('💰 v1.80.8.6 — `releaseReservedOfUnsettledRefund` lo llaman SOLO `onFullRefund` (las dos ramas de orden) y el barrido', () => {
+    const calls = census(/(?<!function )releaseReservedOfUnsettledRefund\(/g);
+    expect(calls).toEqual({
+      'modules/payments/refunds/full-refund.service.ts': 2, // rama directo + rama bóveda
+      'modules/orders/orders.service.ts': 1, // barrido (`releaseRefundedUnsettled`)
+    });
+    // y el cuerpo vive en UN sitio (⛔ un segundo cuerpo de liberación con `refund_release`).
+    expect(census(/reason: 'refund_release'/g)).toEqual({ 'modules/payments/refunds/release-unsettled-refund.ts': 1 });
+  });
 });
 
 describe('SEC-SHIP-M2 — el reclamo del intento dura MÁS que la peor llamada a Stripe', () => {

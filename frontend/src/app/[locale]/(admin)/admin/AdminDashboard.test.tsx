@@ -112,3 +112,43 @@ describe('AdminDashboard · hueco 9: neto ausente para el operador', () => {
     expect(container.textContent).not.toMatch(/NaN/);
   });
 });
+
+/**
+ * **SR-UI-9** (`DESIGN_SYSTEM §40.3 (e)`, contrato §M4-SHIP.18.12 (7)): `workQueue.refundReviews` `null` ⇒ la tarjeta
+ * NO existe; con `{pending:2, oldestRefundedAt}` ⇒ «2» y el enlace a `/admin/m3?refundReview=pending`.
+ */
+describe('AdminDashboard · SR-UI-9 «Reembolsos por revisar»', () => {
+  it('`refundReviews: null` ⇒ no existe la tarjeta', async () => {
+    const api = await import('@/lib/api');
+    vi.spyOn(api, 'getDashboard').mockResolvedValue({ ...mockDashboard, workQueue: { ...mockDashboard.workQueue, refundReviews: null } } as never);
+    renderWithProviders(<AdminDashboard />, 'es');
+    await screen.findByTestId('sales-gross');
+    expect(screen.queryByTestId('dashboard-refund-reviews')).toBeNull();
+    expect(screen.queryByText('Reembolsos por revisar')).toBeNull();
+  });
+
+  it('`{pending:2, oldestRefundedAt}` ⇒ «2» y el enlace a Ventas filtrado', async () => {
+    const api = await import('@/lib/api');
+    const oldest = new Date(Date.now() - 3 * 86_400_000 - 60_000).toISOString();
+    vi.spyOn(api, 'getDashboard').mockResolvedValue({
+      ...mockDashboard,
+      workQueue: { ...mockDashboard.workQueue, refundReviews: { pending: 2, oldestRefundedAt: oldest } },
+    } as never);
+    renderWithProviders(<AdminDashboard />, 'es');
+    const link = await screen.findByTestId('dashboard-refund-reviews');
+    expect(link).toHaveAttribute('href', '/admin/m3?refundReview=pending');
+    expect(link).toHaveTextContent('Falta el motivo · el más viejo hace 3 días');
+    const card = screen.getByText('Reembolsos por revisar').parentElement!;
+    expect(card.parentElement!.textContent).toContain('2');
+  });
+
+  it('`{pending:0}` ⇒ «Nada por revisar.»', async () => {
+    const api = await import('@/lib/api');
+    vi.spyOn(api, 'getDashboard').mockResolvedValue({
+      ...mockDashboard,
+      workQueue: { ...mockDashboard.workQueue, refundReviews: { pending: 0, oldestRefundedAt: null } },
+    } as never);
+    renderWithProviders(<AdminDashboard />, 'es');
+    expect(await screen.findByTestId('dashboard-refund-reviews')).toHaveTextContent('Nada por revisar.');
+  });
+});

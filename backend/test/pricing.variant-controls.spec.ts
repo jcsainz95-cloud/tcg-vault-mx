@@ -5,6 +5,9 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { PrismaClient } from '@prisma/client';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
+// v1.80.8.5 (`M2-PF`): el composer exige la política de VENTA; aquí, el seed del dial (sin fila).
+const SALE_SEED = DEFAULT_SALE_PREMIUM_FLOOR_POLICY;
 
 /**
  * v1.28 (P-18/P-22, §M2 / ARCHITECTURE §4.26a-b) — consola de precios por variante:
@@ -70,6 +73,7 @@ function build(opts: { existing?: ReturnType<typeof overrideRow> | null; referen
     },
   } as unknown as PrismaService;
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -446,7 +450,7 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualiza
   };
 
   it('sin fila: sugerido=efectivo por la CURVA, overrides null, SIN bloque bounty', () => {
-    const dto = composeVariantPricing(MKT, DEFAULT_PRICING_CURVE, null);
+    const dto = composeVariantPricing(MKT, DEFAULT_PRICING_CURVE, null, null, SALE_SEED);
     expect(dto).toEqual({
       // v1.62.2: el mercado que ENTRÓ al cálculo viaja de vuelta (§DTOs `MarketReferenceDTO`).
       market: {
@@ -461,7 +465,7 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualiza
   });
 
   it('no resoluble → null + source=pending (money-safe, nunca 0)', () => {
-    const dto = composeVariantPricing(null, DEFAULT_PRICING_CURVE, null);
+    const dto = composeVariantPricing(null, DEFAULT_PRICING_CURVE, null, null, SALE_SEED);
     expect(dto.buy).toEqual({
       suggestedCents: null,
       overrideCents: null,
@@ -487,7 +491,7 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualiza
       bountyTargetQty: 3,
       bountyAcquiredQty: 1,
     }) as never;
-    const dto = composeVariantPricing(MKT, DEFAULT_PRICING_CURVE, row);
+    const dto = composeVariantPricing(MKT, DEFAULT_PRICING_CURVE, row, null, SALE_SEED);
     // Bounty $75 > curva $40 ⇒ EFECTIVO, gana la precedencia #1.
     expect(dto.buy).toEqual({ suggestedCents: 4000, overrideCents: 300, effectiveCents: 7500, source: 'bounty', premiumAtFloor: false });
     expect(dto.sell).toEqual({ suggestedCents: 11500, overrideCents: 9900, effectiveCents: 9900, source: 'override', premiumAtFloor: false });

@@ -18,14 +18,31 @@
  * **Llamadores exactos (`C-FULLREF-1`):** M3 `refund` / `retry` (vía `executeRefund`, la tx de confirmación),
  * `onChargeRefunded` (webhook `charge.refunded` total), `unprepare` de un retiro (`'unprepared'`,
  * `onlyItemIds`) y `reclaim-vault` (`'reclaim'`, el único que pasa `unpackedConfirmed`/`unpackedItemIds`).
+ * 💰 v1.80.8.6: `shippedReason` lo pasa SOLO M3 `refund` (`requestFullRefund`, en su tx1, rama directo).
  *
- * **Orden de candados (⛔ ninguno nuevo):** envíos (`FOR UPDATE`, id asc.) → piezas (id asc.) → `Order` → libro.
- * El mismo que el preparado (§M4-SHIP.5) ⇒ M3, preparado y webhook se serializan sin interbloqueo.
+ * 💰 v1.80.8.6 (§M4-SHIP.18.12) — «depende de si ya salió»: el corte «enviado» se lee BAJO el candado de los envíos y
+ * se congela en `Order.fullRefundAfterShipment` con el sello; una orden NUNCA liquidada (estado bajo candado ∈
+ * `SETTLEABLE`) devuelve sus piezas `reserved` a la venta en la misma tx (`releaseReservedOfUnsettledRefund`, SSL-R1).
+ *
+ * **Orden de candados:** envíos (`FOR UPDATE`, id asc.) → piezas (id asc.) → `Order` → libro. El mismo que el
+ * preparado (§M4-SHIP.5) ⇒ M3, preparado y webhook se serializan sin interbloqueo. **Dos excepciones** (techlead C-2,
+ * 2026-10-04), ambas en la rama DIRECTO:
+ *  1. **(4-bis, SRF-11 — aceptada por el arquitecto):** tras `Order FOR UPDATE` se bloquean los envíos que NACIERON
+ *     entre el paso (1) y ese candado. Es segura porque el único que crea un envío de la orden (el settle de un
+ *     `succeeded` tardío) lo hace BAJO el candado de `Order`, que ya es nuestro: cuando lo vemos, su creador confirmó y
+ *     nadie más puede tenerlo bloqueado esperando `Order`.
+ *  2. **(M3 directo):** M3 tx1 (`order-refund.service.ts`) toma envíos → `Order` y DESPUÉS llama a `onFullRefund`, cuyo
+ *     `lockReservedOfOrder` bloquea piezas `reserved` por la orden ⇒ piezas DESPUÉS de `Order`. En una orden `settled`
+ *     la consulta no devuelve filas (no bloquea nada); solo con la anomalía sembrada de SRF-11 (liquidada con una pieza
+ *     aún `reserved`) bloquearía, y podría interbloquear (`40P01`) con quien tome pieza → `Order`. ⚠ NO MEDIDA como
+ *     carrera; anotada para el arquitecto en BACKEND_NOTES §21.
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { OrderStatus, Prisma, ShippedRefundReason } from '@prisma/client';
 import { CurrentPiece, currentPiecesOf, resolveOriginsBatch } from './origin';
 import { isSettleableOrderStatus } from '../settleable-order-statuses';
+import { lockReservedOfOrder, releaseReservedOfUnsettledRefund, reservedIdsOfOrder } from './release-unsettled-refund';
+import { isShippedOut, lockShipmentsOfOrder, SHIPPED_OUT_STATUSES } from './refund-review';
 
 export type FullRefundTrigger = 'm3' | 'charge_refunded' | 'unprepared' | 'reclaim';
 export type FullRefundTarget = { orderId: string } | { shipmentRequestId: string };
@@ -37,6 +54,12 @@ export interface FullRefundOpts {
   unpackedConfirmed?: boolean;
   /** SOLO `reclaim-vault` (v1.80.6, SEC-SHIP-B12): acota `unpackedConfirmed` a estas piezas. */
   unpackedItemIds?: string[];
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (2)/(4)) — SOLO M3 `refund` (`requestFullRefund`, `C-FULLREF-1`): el motivo cerrado de un
+   * reembolso total con el envío propio ya `enviado|entregado`, que la tx1 ya validó bajo el mismo candado. Se escribe
+   * con el sello (primera pasada).
+   */
+  shippedReason?: { reason: ShippedRefundReason; note: string | null; byUserId: string };
 }
 
 /** §M4-SHIP.18.6 — clase L derivada (⛔ no es enum de schema). */
@@ -81,6 +104,13 @@ export interface FullRefundPassResult {
    * la fila `Order`). `onChargeRefunded` decide con él la variante `vault` de `AV-3` (solo `settled`).
    */
   orderStatusUnderLock: OrderStatus | null;
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (2)) — ∃ envío propio de la orden en `enviado|entregado`, leído BAJO su candado en esta
+   * pasada (`false` en bóveda y retiro). Lo congelado es `Order.fullRefundAfterShipment` (primera pasada).
+   */
+  afterShipment: boolean;
+  /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (3)) — piezas `reserved` por la orden nunca liquidada devueltas a la venta EN ESTA pasada. */
+  releasedItemIds: string[];
 }
 
 type Tx = Prisma.TransactionClient;
@@ -104,7 +134,9 @@ export class FullRefundService {
       if (trigger === 'unprepared' || trigger === 'reclaim') {
         throw new Error(`onFullRefund: trigger '${trigger}' only reclaims vault orders (got a shipment target)`);
       }
-      return this.closeShipmentsOnFullRefund(tx, target, trigger, actorUserId);
+      // v1.80.8.7 Q-1: el cobro de un RETIRO no tiene `Order` que marcar ⇒ ⛔ nunca motivo «tras envío».
+      if (opts.shippedReason) throw new Error('onFullRefund: shippedReason only applies to an order (got a shipment target)');
+      return this.closeShipmentsOnFullRefund(tx, target, trigger, actorUserId, opts);
     }
     const order = await tx.order.findUnique({
       where: { id: target.orderId },
@@ -116,8 +148,10 @@ export class FullRefundService {
         if (trigger === 'unprepared' || trigger === 'reclaim') {
           throw new Error(`onFullRefund: trigger '${trigger}' only reclaims vault orders (got direct_ship)`);
         }
-        return this.closeShipmentsOnFullRefund(tx, target, trigger, actorUserId);
+        return this.closeShipmentsOnFullRefund(tx, target, trigger, actorUserId, opts);
       case 'vault':
+        // P-S11-4: una orden `vault` NUNCA es «enviada» (no tiene envío propio) ⇒ ⛔ nunca motivo «tras envío».
+        if (opts.shippedReason) throw new Error('onFullRefund: shippedReason does not apply to a vault order');
         return this.reclaimVaultOnFullRefund(tx, target.orderId, trigger, actorUserId, opts);
       default: {
         const mode: string = order.fulfillmentMode;
@@ -133,58 +167,41 @@ export class FullRefundService {
    * Cada envío del cobro en `picking | guia` ⇒ `cancelado` (CAS). Directo: sus piezas `picking` se quedan
    * `picking` (congeladas) y `chargebackNeedsManual=true`. Retiro: sus piezas no se tocan (nunca salieron de
    * la bóveda). Envío ya `cancelado|enviado|entregado` ⇒ no-op (idempotente). ⛔ Sin `AV-6`.
+   *
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (2)/(3)) — rama DIRECTO:
+   *  - (1) toma TODOS los envíos de la orden `FOR UPDATE` (id asc., cualquier estado) y lee su `status` DESPUÉS del
+   *    candado ⇒ `afterShipment = ∃ isShippedOut`. (⛔ La lectura previa al candado no decide: un `→enviado` que
+   *    confirma entre ella y el `FOR UPDATE` dejaría un paquete salido sin «por revisar» — SRF-9.)
+   *  - (3) luego las piezas `reserved` por la orden `FOR UPDATE` (id asc.), (4) luego `Order FOR UPDATE`;
+   *  - (4-bis) EXCEPCIÓN al orden de candados (aceptada por el arquitecto, SRF-11): los envíos nacidos entre (1) y (4)
+   *    se bloquean DESPUÉS de `Order` y se tratan igual que los de (1) (cabecera del fichero, excepción 1);
+   *  - si quien llama es M3 tx1, `Order` ya está bloqueada ANTES de entrar ⇒ (3) toma piezas después de `Order`
+   *    (cabecera, excepción 2: vacía salvo anomalía; NO MEDIDA como carrera);
+   *  - estado bajo candado ∈ `SETTLEABLE` (nunca liquidada) ⇒ `releaseReservedOfUnsettledRefund` (SSL-R1);
+   *  - primera pasada: congela `fullRefundAfterShipment` (y, si M3 lo trae, el motivo) con el sello y escribe
+   *    `order.full_refund_closed`. ⛔ Las pasadas siguientes no lo reescriben (criterio 250).
    */
   private async closeShipmentsOnFullRefund(
     tx: Tx,
     target: FullRefundTarget,
     trigger: FullRefundTrigger,
     actorUserId: string | null,
+    opts: FullRefundOpts = {},
   ): Promise<FullRefundPassResult> {
-    const isOrder = 'orderId' in target;
-    const where: Prisma.ShipmentRequestWhereInput = isOrder
-      ? { orderId: target.orderId }
-      : { id: (target as { shipmentRequestId: string }).shipmentRequestId };
-    const shipments = await tx.shipmentRequest.findMany({
-      where: { ...where, status: { in: ['picking', 'guia'] } },
-      select: { id: true },
-      orderBy: { id: 'asc' },
-    });
-    const ids = shipments.map((s) => s.id);
-    if (ids.length > 0) {
-      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ANY(${ids}::text[]) ORDER BY id FOR UPDATE`;
-    }
-    const closed: string[] = [];
-    const frozen: string[] = [];
-    for (const id of ids) {
-      const res = await tx.shipmentRequest.updateMany({
-        where: { id, status: { in: ['picking', 'guia'] } },
-        data: { status: 'cancelado' },
+    if (!('orderId' in target)) {
+      const shipments = await tx.shipmentRequest.findMany({
+        where: { id: target.shipmentRequestId, status: { in: ['picking', 'guia'] } },
+        select: { id: true },
+        orderBy: { id: 'asc' },
       });
-      if (res.count !== 1) continue;
-      closed.push(id);
-      if (isOrder) {
-        const lines = await tx.shipmentItem.findMany({
-          where: { shipmentRequestId: id, inventoryItem: { status: 'picking', ownerType: 'platform' } },
-          select: { inventoryItemId: true },
-        });
-        frozen.push(...lines.map((l) => l.inventoryItemId));
+      const ids = shipments.map((s) => s.id);
+      if (ids.length > 0) {
+        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ANY(${ids}::text[]) ORDER BY id FOR UPDATE`;
       }
-      await tx.auditLog.create({
-        data: {
-          actorUserId,
-          actorRole: null,
-          action: 'shipment.closed_by_full_refund',
-          entityType: 'ShipmentRequest',
-          entityId: id,
-          after: {
-            trigger,
-            ...(isOrder ? { orderId: target.orderId } : { shipmentRequestId: id }),
-            frozenItemIds: isOrder ? frozen : [],
-          },
-        },
-      });
-    }
-    if (!isOrder) {
+      const closed: string[] = [];
+      for (const id of ids) {
+        if (await this.cancelShipment(tx, id, trigger, actorUserId, { shipmentRequestId: id }, [])) closed.push(id);
+      }
       return {
         mode: 'withdrawal',
         sealedNow: false,
@@ -196,21 +213,74 @@ export class FullRefundService {
         chargebackNeedsManual: false,
         pieces: [],
         orderStatusUnderLock: null,
+        afterShipment: false,
+        releasedItemIds: [],
       };
     }
-    // `Order` FOR UPDATE y el sello (§18.2): se escribe UNA vez. v1.80.8.3: + `status` (`orderStatusUnderLock`).
-    const [row] = await tx.$queryRaw<{ fullRefundClosedAt: Date | null; chargebackNeedsManual: boolean; status: OrderStatus }[]>`
-      SELECT "fullRefundClosedAt", "chargebackNeedsManual", status FROM "Order" WHERE id = ${target.orderId} FOR UPDATE`;
+    const orderId = target.orderId;
+    const closed: string[] = [];
+    const frozen: string[] = [];
+    // (1) TODOS los envíos de la orden, FOR UPDATE id asc., su estado leído DESPUÉS del candado, y (2) el CAS
+    // `picking|guia → cancelado` de siempre.
+    const first = await this.lockAndCloseShipments(tx, orderId, [], trigger, actorUserId, closed, frozen);
+    let afterShipment = first.anyShippedOut;
+    // (3) piezas `reserved` por la orden (id asc.), (4) `Order` FOR UPDATE + sello. v1.80.8.3: + `status`.
+    const lockedReservedIds = await lockReservedOfOrder(tx, orderId);
+    const [row] = await tx.$queryRaw<{ fullRefundClosedAt: Date | null; chargebackNeedsManual: boolean; status: OrderStatus; orderNumber: string | null }[]>`
+      SELECT "fullRefundClosedAt", "chargebackNeedsManual", status, "orderNumber" FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+    // (4-bis) 💰 SRF-11 — un envío que NACIÓ entre (1) y el candado de `Order` (el settle de un `succeeded` tardío que
+    // confirmó ENTERO en esa ventana: crea el envío `picking` bajo el candado de `Order`, que ahora es nuestro y ya
+    // está confirmado). Sin esto la orden quedaría `refunded` con un envío vivo. Se bloquea y se cierra igual.
+    // ⚠ Envíos DESPUÉS de `Order`: excepción 1 al orden de candados (cabecera del fichero), aceptada por el arquitecto.
+    const late = await this.lockAndCloseShipments(tx, orderId, first.lockedIds, trigger, actorUserId, closed, frozen);
+    if (late.anyShippedOut) afterShipment = true;
+    // (5) SSL-R1: orden NUNCA liquidada ⇒ sus piezas apartadas vuelven a la venta en esta misma tx.
+    const releasedItemIds = isSettleableOrderStatus(row.status)
+      ? await releaseReservedOfUnsettledRefund(tx, orderId, trigger, actorUserId, { lockedReservedIds, orderNumber: row.orderNumber })
+      : [];
     const sealedNow = row.fullRefundClosedAt === null;
+    if (opts.shippedReason && (!sealedNow || !afterShipment)) {
+      // Invariante: M3 decidió «enviado» bajo el MISMO candado y sobre una orden `settled` sin sello.
+      throw new Error(`onFullRefund: shippedReason for order ${orderId} but afterShipment=${afterShipment}, sealedNow=${sealedNow}`);
+    }
     let needsManual = row.chargebackNeedsManual;
     if (closed.length > 0) needsManual = true;
+    const now = new Date();
     await tx.order.updateMany({
-      where: { id: target.orderId },
+      where: { id: orderId },
       data: {
         ...(closed.length > 0 ? { chargebackNeedsManual: true } : {}),
-        ...(sealedNow ? { fullRefundClosedAt: new Date() } : {}),
+        ...(sealedNow ? { fullRefundClosedAt: now, fullRefundAfterShipment: afterShipment } : {}),
+        ...(sealedNow && afterShipment && opts.shippedReason
+          ? {
+              shippedRefundReason: opts.shippedReason.reason,
+              shippedRefundNote: opts.shippedReason.note,
+              shippedRefundReasonAt: now,
+              shippedRefundReasonByUserId: opts.shippedReason.byUserId,
+            }
+          : {}),
       },
     });
+    if (sealedNow) {
+      await tx.auditLog.create({
+        data: {
+          actorUserId,
+          actorRole: null,
+          action: 'order.full_refund_closed',
+          entityType: 'Order',
+          entityId: orderId,
+          after: {
+            trigger,
+            statusAtClose: row.status,
+            closedShipmentIds: closed,
+            frozenItemIds: frozen,
+            afterShipment,
+            shippedReason: opts.shippedReason?.reason ?? null,
+            releasedItemIds,
+          },
+        },
+      });
+    }
     return {
       mode: 'direct_ship',
       sealedNow,
@@ -222,7 +292,70 @@ export class FullRefundService {
       chargebackNeedsManual: needsManual,
       pieces: [],
       orderStatusUnderLock: row.status,
+      afterShipment,
+      releasedItemIds,
     };
+  }
+
+  /**
+   * Rama directo, pasos (1)+(2) y (4-bis) — un solo cuerpo (techlead D-1, 2026-10-04): bloquea los envíos de la orden
+   * salvo `exceptIds` (`lockShipmentsOfOrder`), anota si alguno ya salió (`isShippedOut`, leído BAJO el candado) y
+   * cancela por CAS los `picking|guia` (acumula en `closed`/`frozen`).
+   */
+  private async lockAndCloseShipments(
+    tx: Tx,
+    orderId: string,
+    exceptIds: readonly string[],
+    trigger: FullRefundTrigger,
+    actorUserId: string | null,
+    closed: string[],
+    frozen: string[],
+  ): Promise<{ lockedIds: string[]; anyShippedOut: boolean }> {
+    const locked = await lockShipmentsOfOrder(tx, orderId, exceptIds);
+    const anyShippedOut = locked.some((s) => isShippedOut(s.status));
+    for (const s of locked) {
+      if (s.status !== 'picking' && s.status !== 'guia') continue;
+      if (await this.cancelShipment(tx, s.id, trigger, actorUserId, { orderId }, frozen)) closed.push(s.id);
+    }
+    return { lockedIds: locked.map((s) => s.id), anyShippedOut };
+  }
+
+  /** El CAS `picking|guia → cancelado` de un envío + su bitácora; en un directo, junta sus piezas congeladas. */
+  private async cancelShipment(
+    tx: Tx,
+    id: string,
+    trigger: FullRefundTrigger,
+    actorUserId: string | null,
+    owner: { orderId: string } | { shipmentRequestId: string },
+    frozen: string[],
+  ): Promise<boolean> {
+    const res = await tx.shipmentRequest.updateMany({
+      where: { id, status: { in: ['picking', 'guia'] } },
+      data: { status: 'cancelado' },
+    });
+    if (res.count !== 1) return false;
+    if ('orderId' in owner) {
+      const lines = await tx.shipmentItem.findMany({
+        where: { shipmentRequestId: id, inventoryItem: { status: 'picking', ownerType: 'platform' } },
+        select: { inventoryItemId: true },
+      });
+      frozen.push(...lines.map((l) => l.inventoryItemId));
+    }
+    await tx.auditLog.create({
+      data: {
+        actorUserId,
+        actorRole: null,
+        action: 'shipment.closed_by_full_refund',
+        entityType: 'ShipmentRequest',
+        entityId: id,
+        after: {
+          trigger,
+          ...owner,
+          frozenItemIds: 'orderId' in owner ? frozen : [],
+        },
+      },
+    });
+    return true;
   }
 
   // ============================================================ bóveda (§18.4, v1.80.6)
@@ -267,14 +400,24 @@ export class FullRefundService {
     if (shipmentIds.length > 0) {
       await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ANY(${shipmentIds}::text[]) ORDER BY id FOR UPDATE`;
     }
-    // (c) piezas FOR UPDATE, id asc.
-    if (pieceIds.length > 0) {
-      await tx.$queryRaw`SELECT id FROM "InventoryItem" WHERE id = ANY(${pieceIds}::text[]) ORDER BY id FOR UPDATE`;
+    // (c) piezas FOR UPDATE, id asc. 💰 v1.80.8.6: + las `reserved` POR la orden (§M4-SHIP.18.12 (3)), en el MISMO
+    // candado (un solo `ORDER BY id`: dos sentencias romperían el orden global de piezas).
+    const reservedBefore = await reservedIdsOfOrder(tx, orderId);
+    const lockIds = [...new Set([...pieceIds, ...reservedBefore])].sort();
+    if (lockIds.length > 0) {
+      await tx.$queryRaw`SELECT id FROM "InventoryItem" WHERE id = ANY(${lockIds}::text[]) ORDER BY id FOR UPDATE`;
     }
+    // Bajo el candado: las que SIGUEN `reserved` por la orden y bloqueamos (una nueva fuera del candado no se toca).
+    const lockedSet = new Set(lockIds);
+    const lockedReservedIds = (await reservedIdsOfOrder(tx, orderId)).filter((id) => lockedSet.has(id));
     // (d) Order FOR UPDATE + sello. v1.80.8.3: + `status` (`orderStatusUnderLock`, `statusAtClose`).
     const [head] = await tx.$queryRaw<{ fullRefundClosedAt: Date | null; chargebackNeedsManual: boolean; status: OrderStatus }[]>`
       SELECT "fullRefundClosedAt", "chargebackNeedsManual", status FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
     const firstPass = head.fullRefundClosedAt === null;
+    // (d-bis) 💰 SSL-R1: orden NUNCA liquidada ⇒ sus piezas apartadas vuelven a la venta en esta misma tx.
+    const releasedItemIds = isSettleableOrderStatus(head.status)
+      ? await releaseReservedOfUnsettledRefund(tx, orderId, trigger, actorUserId, { lockedReservedIds, orderNumber: order.orderNumber })
+      : [];
     const sealAt = firstPass ? now : (head.fullRefundClosedAt as Date);
     // (e) relectura de retiros: uno que no estaba en (b) ⇒ «en caja» (conservador).
     const liveAfter = await this.liveWithdrawalsOf(tx, pieceIds);
@@ -395,7 +538,17 @@ export class FullRefundService {
           action: 'order.full_refund_closed',
           entityType: 'Order',
           entityId: orderId,
-          after: { trigger, returnedItemIds: reclaimedNow, untouched, placementCancelled: placement.count === 1, statusAtClose: head.status },
+          after: {
+            trigger,
+            returnedItemIds: reclaimedNow,
+            untouched,
+            placementCancelled: placement.count === 1,
+            statusAtClose: head.status,
+            // 💰 v1.80.8.6 (§M4-SHIP.18.12 (2)): bóveda ⛔ nunca «enviada» (P-S11-4).
+            afterShipment: false,
+            shippedReason: null,
+            releasedItemIds,
+          },
         },
       });
     } else if (reclaimedNow.length > 0) {
@@ -421,6 +574,8 @@ export class FullRefundService {
       chargebackNeedsManual: needsManual,
       pieces: pieces.map((p) => ({ ...p, pendingConfirmation: p.state === 'returned' && needsManual })),
       orderStatusUnderLock: head.status,
+      afterShipment: false,
+      releasedItemIds,
     };
   }
 
@@ -523,7 +678,7 @@ export class FullRefundService {
         select: { originalInventoryItemId: true },
       }),
       tx.shipmentItem.findMany({
-        where: { inventoryItemId: { in: pieceIds }, shipmentRequest: { status: { in: ['enviado', 'entregado'] } } },
+        where: { inventoryItemId: { in: pieceIds }, shipmentRequest: { status: { in: [...SHIPPED_OUT_STATUSES] } } },
         select: { inventoryItemId: true },
       }),
       this.reclaimedByBatch(tx, pieceIds, ctx.sealAt),

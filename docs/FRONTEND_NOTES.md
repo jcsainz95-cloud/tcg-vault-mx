@@ -18884,3 +18884,118 @@ en `refund-math.test.ts`); `tsc --noEmit` limpio; `npm run lint` limpio; Playwri
 - **§37.20 «Reembolsos» — una entrada de menú, dos cubetas (2026-10-02, rama `claude/post-release-s5`, código en `ea853e0f`)** — HECHOS 2026-10-02 «Menú del panel: se queda como está; … se JUNTAN en UNA sola pestaña con dos cubetas». Menú: una entrada `/admin/refunds` (`admin.modules.refunds` = «Reembolsos»/“Refunds”, SÚPER) tras «Ventas»; badge = solo `summary.manualRefundsPending`. El detalle `/admin/manual-refunds/:id` sigue en su ruta y la ilumina vía `Item.activeAlso` (entra en la misma regla «gana la más específica» de `isActiveHref`, sin `if` a fuego). `/admin/refunds` = página de servidor + `refunds/tabs.ts` (sin `'use client'`) + `RefundsView` (patrón de pestañas de `M4View`; `SuperAdminOnly` envuelve la página entera; solo se monta la cubeta activa; las cubetas perdieron su `h1` y conservan `hint`). `/admin/manual-refunds` redirige con `redirect` de `@/i18n/navigation` conservando idioma. Candados (vitest salvo RF-6): RF-1 y §37.2b/P66-2 en `AdminPageTitles.test.tsx` (mismo commit que el menú); RF-2/3/4 en `AdminSidebar.test.tsx`; RF-5/7/8 + URL `replaceState` + gate en `refunds/RefundsView.test.tsx`; RF-6 en `e2e/m4-ship.spec.ts` (sin `mockOnly`: no lee folios). **Mutaciones (copia entera del árbol en `ea853e0f`, N=1, deterministas): las 12 en rojo** — RF-1, RF-2 (×2: sin `aria-disabled` / badge sin chequeo de rol), RF-3 (suma `stuckRefunds`), RF-4 (sin alias), RF-5 (×3: por defecto operadores / `h1` de cubeta / `pushState`), RF-6 (sin redirección: 2/2 viewports rojos), RF-7, RF-8, P66-2 (`h1` con otra clave); línea base restaurada 75/75. **RF-2 se escribió como «ningún enlace NAVEGABLE»**: el menú pinta las entradas SÚPER bloqueadas (`aria-disabled`) al operador, igual que hoy para Catálogo/Finanzas; ocultarlas sería cambiar §37.2b para todas (pendiente de ux-ui). Cierre: `tsc` limpio, lint limpio, vitest **197/197 ficheros, 2343/2343**, E2E de mocks completa (2 workers, build propio :3047) **247 passed / 8 skipped / 0 failed**, censo E2E = baseline (mockOnly 126).
 
 - **P-M5-DECLINE — «Declinar» y «Cancelar la oferta» en M5 (2026-10-02, rama `claude/post-release-s5`, código en `5ff5f920`)** — cierra §8.1 y el punto 3 de la lista de M5 de arriba (marcados ENTREGADO). `lib/api.ts`: `declineBuylistRequest` (`POST /admin/buylist/:id/decline`) y `cancelBuylistOffer` (`POST …/offer/cancel`), motivo interno recortado (vacío ⇒ `{}`), rama mock con `409 DECLINE_NOT_ALLOWED` / `409 OFFER_NOT_CANCELLABLE`. `M5View`: «Declinar» `secondary` en la ficha `cotizada` (`isTerminal === false`, fail-closed) y «Cancelar la oferta» en `ofertada` (tabla «Qué ofrece M5 en cada estado»), **los dos roles**; un diálogo §7.6 para los dos verbos con el copy de §25.8 (`admin.m5.desk.decline.*`) y motivo interno 0–500; el 409 se lee dentro del diálogo; al confirmar invalida `admin-buylist`, `admin-buylist-closed`, `buylist-pending-auth`, `buylist-live-sellers`, y avisa a nivel de página (`m5-page-notice`) porque la ficha sale de su pestaña. Con la mesa abierta y «Emitir» apagado por `noLines`, «Declinar» está en la misma fila de acciones de la ficha, a la vista: no se duplicó dentro de la mesa. `error.DECLINE_NOT_ALLOWED` = literal de §27.2 (sale de `DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES` a `…_LOT2_WIRED_…`, y el candado de literalidad lo compara). **Copy sin norma de ux-ui (neutro, a ratificar):** `admin.m5.desk.cancelOffer.*` (§23.6 solo da la consecuencia), `decline.done`, `cancelOffer.done`, `reasonTooLong`, `error.OFFER_NOT_CANCELLABLE`; el cuerpo de cancelar dice «con su plazo completo» sin el «7 días hábiles» de §23.6 (R4: es un dial). Testids nuevos: `m5-request-<id>`, `m5-closed-<id>`, `m5-close-confirm`. Pruebas: `M5View.decline.test.tsx` (DC-1 matriz 11 estados × 2 roles, DC-2..DC-4), `lib/api.buylist-decline.test.ts` (rama real: URL, método, cuerpo, 409), E2E de mocks `admin.spec.ts` «P-M5-DECLINE» (emitir → cancelar la oferta → declinar como operador → «Cerradas»; `mockOnly`: declinar es terminal y en real consumiría la `cotizada` del seed). **Mutaciones (copia del árbol en `5ff5f920`, N=1, deterministas): 11/11 rojas** — botón ausente, Declinar también en `ofertada`, Declinar solo súper-admin, Cancelar ausente, verbo cruzado, 409 al mensaje del servidor, sin invalidar la lista, endpoint `/reject`, motivo sin recortar, copy de §27.2 retocado, y el E2E con el botón ausente; línea base restaurada 72/72. Cierre: `tsc` y lint limpios, vitest **199/199 ficheros, 2373/2373**, E2E de mocks completa (2 workers) **248 passed / 8 skipped / 0 failed**; censo E2E **mockOnly 126 → 127** (el test nuevo; baseline de devops).
+
+## §84 · **Precios s5 — §39 (premium en el piso, precio final del sellado, cola «Listas para publicar») y §40 (reembolso total tras envío)** (2026-10-04, rama `claude/precios-s5`, base `3a31eeee`; contrato v1.80.8.5/.6/.7, diseño v4.11/v4.12; código en `5c324e3a` (§40 + tipos/i18n/mocks compartidos) y `a59e7c33` (§39))
+
+**§39 — DESIGN_SYSTEM v4.11, API_CONTRACT §M2-PF y §M1-SFP.**
+- `m10/sections/PremiumFloorSection.tsx` (montada en `M10View` entre `IvaTransferSection` y la ingesta, `id="premium-piso"`):
+  `getSettings` (`['admin-settings']`), `getRarityHealth` (`['rarity-health']`), `getPricingCurve` (`['pricing-curve']`,
+  `retry:false`). Clave ausente ⇒ `notAvailable` y todo deshabilitado (⛔ no se pinta el seed). Rarezas = `premium &&
+  mapped` + las guardadas que no vengan (`notInCatalog`); `premium && !mapped` en `<details>` de solo lectura. Orden:
+  marcadas **en el valor guardado** primero (ordenar por el borrador haría saltar las filas al hacer clic). `PUT`
+  parcial `{ premiumFloorSalePublish }` con `rarities: []` fuera de `only`; `422` ⇒ `errors.server` + diagnóstico de
+  `details.errors.premiumFloorSalePublish` (S-5). Mock: `mockSettings.premiumFloorSalePublish` = seed.
+- `m1/SealedFinalPrice.tsx`: un componente, dos sitios (cola y `VariantDrawer` con `productType==='sealed'`). Modo por
+  `sealedFinalPriceMode`: `listed` ⇒ «Guardar precio»; `in_stock` con ubicación ⇒ «Guardar y publicar» (una llamada
+  `{ listPriceCents, status:'listed' }`); sin ubicación ⇒ «Guardar precio»; otro estado/dueño ⇒ solo lectura.
+  `parseFinalPrice` sin coma flotante; tope `MAX_LIST_PRICE_CENTS = 100_000_000`. ⛔ `listPriceCents: null` imposible
+  por tipo (`UpdateInventoryItemInput.listPriceCents?: number`, D-SFP-2). Errores por `code` (+ `details.status`
+  traducido con `status.inventory`), editor abierto con lo tecleado.
+- `PendingPublishQueue`: folio = botón → `ItemDetailModal` (foco vuelve al folio, refresca `pending-publish`); frase
+  por `missing` con `pendingReason` (clave **presente** `null` ⇒ gradeada sin slab; **ausente** ⇒ «en la cola» / «avisa a
+  sistemas»); «—» + «sin precio»; origen traducido; nota nueva. `VariantDrawer`: solo la rama sellada cambia (prop
+  `sealed`); raw/graded byte a byte (FP-5 lo fija con snapshot).
+
+**§40 — DESIGN_SYSTEM v4.12, API_CONTRACT §M4-SHIP.18.12 (+ (9) de v1.80.8.7).**
+- `RefundOrderDialog`: `shipped = !vault ∧ (lo que dijo el servidor en un 422/409 ?? detail.shipmentShipped)`. El `422
+  REFUND_CONFIRMATION_REQUIRED` se ramifica por `details.required` (**bug latente de `:84-88` cerrado**: antes todo 422
+  pintaba la casilla de bóveda). `onDone(res, { shippedReason })`. Confirmar apagado mientras carga el detalle (§40.2;
+  dos pruebas viejas ganan el `waitFor(enabled)`).
+- `ShippedReasonFieldset` (diálogo y detalle), `m3/filters.ts` + `m3/page.tsx` de servidor (`?refundReview=pending`),
+  `M3View` (casilla + `replaceState` + marca + vacío), `M3OrderDetailView` (banner, registro único con confirmación,
+  lectura, texto de operador, banner §40.4 ⇔ `refunded ∧ settledAt === null`), tarjeta del tablero, enlace en
+  «Reembolsos». Tipos: `AdminOrderDetailDTO extends Omit<AdminOrderDTO,'settledAt'>` con `settledAt: string | null`.
+  `MOVEMENT_REASONS` (13) para SR-UI-10. Mocks: `m4-ship` decide 422/409 por el estado vivo del envío y guarda el motivo.
+
+**Desviaciones (decididas aquí, para ux-ui/arquitecto):**
+1. `admin.m1.publishQueue.origin` ya es la cabecera de columna (hoja), así que el mapa de §39.3 (c) / §39.4 vive en
+   **`originLabel.*`** (no `origin.*`).
+2. `reason.gradedNoSlab` usa el texto **provisional del contrato** («Le falta empresa y grado: captúralos en la pieza»,
+   §M1 «v1.80.8.7» punto 2); el final es de ux-ui.
+3. Dos claves que la tabla no trae: `admin.sealedFinalPrice.listedHint` (editor de una publicada) y
+   `admin.m10.premiumFloor.confirm.allWarningNoFloor` (variante sin cifra, misma doctrina §22.13d).
+4. Las confirmaciones usan el `Modal` compartido (`role="dialog"`), no `alertdialog` (§39.1 c, §39.2 d): cambiar el
+   componente compartido no era de este encargo. Foco inicial en «Cancelar», sí.
+5. La cola no tiene `Toaster`: el aviso de éxito del precio final es un `Banner` `role="status"` en la cola; en el
+   panel va por `onToast`.
+6. «Poner» vs «Cambiar precio final» se decide por `listPriceCents != null` (los dos ejemplos de §39.2 b/c no coinciden).
+7. Banner §40.4: regla del contrato (A-1), sin la condición extra `afterShipment === false` de §40.4.
+8. Error desconocido ⇒ `useErrorMessage('operator')` en vez de `common.errorGeneric` («No se pudo cargar…» es de carga).
+
+**Candados y mutaciones.** FP-1…5, PF-UI-1…4, LP-1, SR-UI-1…11 + §40.4. SR-UI-2/4 aseveran `Object.keys` del cuerpo
+(`toEqual` ignora claves `undefined`). **Mutaciones sobre copia del árbol ENTERO (`git archive a59e7c33`), N=1,
+deterministas: 22/22 rojas en su prueba objetivo** (FP-1…5, PF-UI-1…4, LP-1, SR-UI-1…11, A-1); copia restaurada 92/92.
+**Cierre:** `tsc` limpio, lint limpio, vitest **202/202 ficheros, 2436/2436**; `5c324e3a` solo también compila.
+Playwright no corrido (encargo). Ruido previo, no tocado: `mockAdminOrderRowAdditions` pisa `status` con `undefined`
+en órdenes sin origen ⇒ `IntlError status.order.undefined` en consola de `M3View.test`.
+
+## §85 · **Gate de QA y techlead sobre `4d994c55`**: IMPORTANTE-1 (`MX$NaN` en M3), IMPORTANTE-2 (E2E de §39/§40), MENOR-3, D-7/D-8 (2026-10-04, rama `claude/precios-s5`, base `1b1ab19a`)
+
+**IMPORTANTE-1 — `MX$NaN` en producción (detalle M3 y diálogo de reembolso total).** El detalle (`GET /admin/orders/:id`,
+contrato §11 `AdminOrderDetailDTO`, y errata v1.80.10 F-1) pone el total **solo** en `breakdown.totalCents`; la vista
+leía `o.totalCents` (`M3OrderDetailView.tsx:219`) y el diálogo `detail.data.totalCents` (`RefundOrderDialog.tsx:91`).
+- **Por qué tsc no lo veía:** `AdminOrderDetailDTO extends Omit<AdminOrderDTO,'settledAt'>` heredaba el `totalCents` de
+  `OrderSummaryDTO` (que es de la **fila** de la lista). Ahora el tipo se declara a mano desde el contrato, sin herencia y
+  con `breakdown: BreakdownDTO` obligatorio. Al quitar la herencia tsc marcó **exactamente 3 lectores** (los dos de arriba y
+  el paso `order={o}` del detalle al diálogo) y el mock — no había más.
+- **Lectores:** cabecera ⇒ `o.breakdown.totalCents` (`data-testid="m3-total"`); diálogo ⇒ `breakdown.totalCents −
+  refundedCents`; el detalle pasa al diálogo `refundDialogOrderOfDetail(o)` (proyección con el total del desglose). La fila
+  de la lista sigue leyendo `totalCents` de primer nivel (correcto: la lista sí lo trae).
+- **Mock:** `getAdminOrder` esparcía la fila de la lista (`...order`) ⇒ en local había `totalCents` en la raíz y el defecto
+  no se veía. Ahora proyecta **explícitamente** la forma del contrato; `mockAdminOrderDetailAdditions` aporta el
+  `breakdown` real de cada origen de `m4-ship`. De paso, `definedOnly` evita que un parcial sin origen pise `status` con
+  `undefined` (el ruido `status.order.undefined` que §84 dejó anotado, ya no sale en `M3View.test`).
+- **Mismo patrón en otros sitios (medido con tsc + `rg "\.totalCents" src`):** ninguno. El detalle del cliente
+  (`OrderDetailDTO`) nunca tuvo `totalCents` de primer nivel; los demás lectores son de filas de lista (`OrdersView`,
+  `M3View`, `M6View`, `ClaimableOrdersNotice`) o de retiros, y el contrato sí lo trae ahí.
+- **Prueba que falla con la forma real:** `m3/DetailTotal.test.tsx` sirve un detalle literal del contrato (sin `totalCents`
+  en la raíz): DT-1 cabecera, DT-2 diálogo (`MX$NaN` ⇒ rojo), DT-3 proyección, DT-4 el mock tiene la forma del contrato.
+  **Mutaciones (copia del árbol, deterministas, N=1):** volver a leer la raíz ⇒ **DT-1 y DT-2 rojas** (vitest) y, en un
+  navegador con build de producción, **las 2 specs de §40.2 rojas** con `m3-total` = «MX$NaN»; con la lectura sin
+  `as`, `tsc` da 2 errores TS2339; mock con `...order` ⇒ **DT-4 roja**.
+
+**IMPORTANTE-2 — `e2e/precios-s5.spec.ts`** (10 casos). Censo: `@real` agnósticos — dial de M10 (en real lee la regla
+vigente por API y la **restaura** en `finally`), «ninguna fila ofrece precio final fuera del sellado», tarjeta+filtro de
+«Reembolso por revisar»; `realOnly` — `400` del filtro, `403 MONEY_OUT_FORBIDDEN` del operador, `404`; `mockOnly` — cola
+con motivo (`INV-004204` premium retenida, `INV-000109` sellado), precio final del sellado (⛔ $0, confirmación, sale de
+la cola), reembolso total no enviado (`ord-5008`, sin motivo, total `MX$838.86`) y enviado (`ord-5006`, motivo
+obligatorio sin preselección, nota, motivo a la vista), «Reembolso por revisar» de punta a punta como el dueño (tablero →
+filtro → marca → formulario → confirmar → registro único: formulario y marca desaparecen) y la vista del operador.
+- **Fixtures nuevos (MOCK, marcados en el código):** `ord-5006/5007/5008` (directos de invitado; envíos `shp-7008/7009`
+  `enviado` y `shp-7010` `guia`, ⛔ fuera de la cola de preparar), `ord-5007` con `fullRefundAfterShipment` sin motivo,
+  `workQueue.refundReviews` del tablero (`mockRefundReviewsCounter`, `null` al operador), fila `inv-pub-4`
+  `premium_at_floor` y el sellado `inv-1009` en la cola mientras siga `in_stock` sin precio final.
+- **Hueco declarado, no escondido:** los recorridos de dinero de §40.2/§40.3 **no** tienen versión real: el seed no
+  siembra un directo liquidado con envío `enviado`/`guia` ni un reembolso total tras el envío sin motivo (QA los fabricó
+  con SQL y un `charge.refunded` firmado). Ver solicitudes abajo. Los `needsSeed` vacíos se quitaron: el censo
+  (`e2e-harness.test.ts`) prohíbe un `@real` que se salta solo, y un caso vacío en mock sería un verde que no mide nada.
+- **Corridas (mocks, build de producción, :3471):** el spec solo **9 passed / 1 skipped** (el `realOnly`); con los specs
+  vecinos que leen los mismos fixtures (`admin`, `m4-ship`, `m4-preparation`, `m4-vault-placement`,
+  `admin-m2-sealed-unmapped`, `orders-resume` + el nuevo) **71 passed / 3 skipped**, 0 rojos. **Contra backend real: NO
+  MEDIDO** — `scripts/stack-native.sh` guarda su estado en `.native-stack/` del árbol y reinicia el backend que no sirva
+  el árbol actual; con el agente backend trabajando en este mismo árbol, levantarlo podía tumbar su stack.
+
+**MENOR-3.** SR-UI-1 asevera ahora «nota escrita y SIN motivo ⇒ apagado» antes de «motivo sin nota ⇒ apagado».
+Mutación (quitar `(!shipped || shippedReason !== null)` de `canSubmit`) ⇒ **SR-UI-1 y SR-UI-3 rojas** (N=1, determinista).
+
+**Techlead D-8 (cerrada) / D-7 (deuda).** `m1/sealed-final-price.ts`: `MAX_LIST_PRICE_CENTS` fuera del componente y
+`SEALED_FINAL_PRICE_INVALIDATES`, **una** lista para «tras guardar» y «Recargar» (antes «Recargar» invalidaba 3 de 6
+claves y no refrescaba el panel de «Sellado»). Candados: «techlead D-8» en `SealedFinalPrice.test.tsx` (mutación: lista
+vieja en «Recargar» ⇒ rojo) y `sealed-final-price.test.ts` (cota ↔ `DESIGN_SYSTEM §39`; mutación `50_000_000` ⇒ rojo).
+⚠️ No tuve el texto literal de D-8; lo cerré por lo que el código medía (dos listas divergentes y la cota en un componente
+cliente sin ancla). D-7 ⇒ `TECH_DEBT` PS5-FE-D7 (`components/ui` es zona compartida).
+
+**Solicitudes.** (1) **Arquitecto:** declarar en §M1 la cota de `UpdateItemDto.listPriceCents` (`@Max 100_000_000`,
+`backend/src/modules/inventory/dto/inventory.dto.ts:57`); hoy solo la cita `DESIGN_SYSTEM §39`. (2) **Backend (seed
+E2E):** un directo `settled` con envío `enviado`, otro con `guia`, y uno `refunded` con `fullRefundAfterShipment=true` sin
+motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.

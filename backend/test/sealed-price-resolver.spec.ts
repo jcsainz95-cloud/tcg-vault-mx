@@ -4,7 +4,7 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { SealedCatalogService } from '../src/modules/catalog/sealed-catalog.service';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
@@ -258,6 +258,7 @@ describe('H-1 — inventory.bulkPublish es el 4º consumidor del resolver único
 
     const pricingInv = new PricingService(prismaInv, {} as any, {} as any, {} as any, {} as any, {} as any);
     jest.spyOn(pricingInv, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
+    jest.spyOn(pricingInv, 'loadSalePremiumFloorPolicy').mockResolvedValue(DEFAULT_SALE_PREMIUM_FLOOR_POLICY);
     jest.spyOn(pricingInv, 'loadSealedSpreads').mockResolvedValue(CTX_ON);
     jest
       .spyOn(pricingInv, 'getReferencesBatch')
@@ -416,6 +417,7 @@ describe('H-1 v1.43 (IMP-C) — bucle cerrado: dial OFF + override manual mata e
     const pricing = new PricingService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
     // Dial OFF (sourceOn=false): el mercado de FUENTE (tcgcsv) quedaría inerte; el override manual NO.
     jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
+    jest.spyOn(pricing, 'loadSalePremiumFloorPolicy').mockResolvedValue(DEFAULT_SALE_PREMIUM_FLOOR_POLICY);
     jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue(CTX_OFF);
     jest.spyOn(pricing, 'getVariantOverridesBatch').mockResolvedValue(new Map());
 

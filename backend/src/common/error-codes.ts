@@ -735,6 +735,13 @@ export const ErrorCode = {
   ITEM_ORIGIN_REFUNDED: 'ITEM_ORIGIN_REFUNDED',
   // 422 💰 — M3 total con cartas ya en manos del cliente sin `confirmPiecesWithCustomer:true`. `details: { required, items }`.
   REFUND_CONFIRMATION_REQUIRED: 'REFUND_CONFIRMATION_REQUIRED',
+  // 409 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)/(6)) — motivo «tras envío» sobre una orden que NO salió: M3 con
+  // `shippedReason` sin envío `enviado|entregado`, o `shipped-refund-reason` con `fullRefundAfterShipment=false`.
+  // `details: { afterShipment: false }`. No escribió nada.
+  SHIPPED_REFUND_REASON_NOT_APPLICABLE: 'SHIPPED_REFUND_REASON_NOT_APPLICABLE',
+  // 409 💰 v1.80.8.6 (§M4-SHIP.18.12 (6)) — `shipped-refund-reason` con un motivo DISTINTO del ya registrado (el
+  // mismo ⇒ `200 already_recorded`). `details: { reason }` (A-2, v1.80.8.7: ⛔ sin `recordedBy`). No escribió nada.
+  SHIPPED_REFUND_REASON_ALREADY_SET: 'SHIPPED_REFUND_REASON_ALREADY_SET',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

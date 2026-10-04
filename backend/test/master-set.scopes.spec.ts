@@ -9,7 +9,7 @@ import { VaultController } from '../src/modules/vault/vault.controller';
 import { AdminVaultsController } from '../src/modules/vault/admin-vaults.controller';
 import { InventoryController } from '../src/modules/inventory/inventory.controller';
 import { ROLES_KEY } from '../src/common/decorators/roles.decorator';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 
 /**
  * v1.20-master-set-everywhere (§4.20a/b/d) — contrato ÚNICO por scope + completitud por VARIANTE:
@@ -35,6 +35,7 @@ function buildPrisma(over: any = {}) {
 
 function buildPricing(over: any = {}) {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -356,6 +357,37 @@ describe('buyable — SOLO vista (iii); pieza listed más barata o null (§4.20d
     const res = await svc.binder('s1', { kind: 'user_vault', userId: 'u1' }, { includeBuyable: true });
     const missing = res.cells[0].variants.find((v) => v.finish === 'reverse_holo')!;
     expect(missing.buyable).toEqual({ inventoryItemId: 'i-premium-sana', salePriceCents: 115000 });
+  });
+
+  /**
+   * v1.80.8.5 (API_CONTRACT §M2 `M2-PF`) — el binder hereda la política de VENTA por el seam: con el seed
+   * del dial, una `Double Rare` en el piso SE OFRECE al piso (MX$25); con el dial en `none`, la misma
+   * pieza vuelve a no ofrecerse (la aserción original de arriba). La SIR de arriba sigue retenida con el seed.
+   */
+  it.each([
+    ['seed (DR publicada al piso)', DEFAULT_SALE_PREMIUM_FLOOR_POLICY, { inventoryItemId: 'i-dr-piso', salePriceCents: 2500 }],
+    ['dial none (DR retenida)', { mode: 'none' as const, rarities: [] }, null],
+  ])('M2-PF · %s: una Double Rare en el PISO en el binder', async (_g, policy, expected) => {
+    const refs = new Map([['c1|raw|raw_NM|reverse_holo', { status: 'priced', referenceMxnCents: 1000 }]]);
+    const { svc } = setupCustomerBinder(
+      [
+        {
+          id: 'i-dr-piso',
+          cardId: 'c1',
+          finish: 'reverse_holo',
+          productType: 'raw',
+          listPriceCents: null,
+          card: { rarity: 'Double Rare', rarityCanonical: 'Double Rare' },
+        },
+      ],
+      {
+        getReferencesBatch: jest.fn().mockResolvedValue(refs),
+        loadSalePremiumFloorPolicy: jest.fn(async () => policy),
+      },
+    );
+    const res = await svc.binder('s1', { kind: 'user_vault', userId: 'u1' }, { includeBuyable: true });
+    const missing = res.cells[0].variants.find((v) => v.finish === 'reverse_holo')!;
+    expect(missing.buyable).toEqual(expected);
   });
 
   it('vista admin (ii) y platform (i): buyable OMITIDO aunque haya faltantes', async () => {

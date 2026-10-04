@@ -6,7 +6,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PokemonTcgIoClient } from '../src/modules/catalog/pokemontcg-io.client';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
@@ -424,6 +424,7 @@ function masterSetPrisma(over: any = {}): PrismaService {
 
 function masterSetPricing(): PricingService {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReferencesBatch: jest.fn(async () => new Map()),
@@ -644,6 +645,7 @@ describe('M-47 (C) — logoUrl NO entra en las superficies que §4.39.5 PROHÍBE
       tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
       getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+      loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),

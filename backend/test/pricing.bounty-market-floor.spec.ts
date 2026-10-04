@@ -2,7 +2,7 @@ import { VariantControlsService } from '../src/modules/pricing/variant-controls.
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
-import { DEFAULT_PRICING_CURVE, PricingCurve } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, PricingCurve, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 
 /**
  * `pricing.bounty-market-floor.spec.ts` — **Q1 (§M2-B.8 / ARCHITECTURE §4.36.6): el piso del bounty
@@ -54,6 +54,7 @@ function build(opts: { curve?: PricingCurve; referenceMxnCents?: number | null }
     },
   } as unknown as PrismaService;
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => opts.curve ?? CURVE_BIN_700),
     getReference: jest.fn(async () =>
       opts.referenceMxnCents == null

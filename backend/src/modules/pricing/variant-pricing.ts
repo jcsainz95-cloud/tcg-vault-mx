@@ -1,6 +1,11 @@
 import { VariantPriceOverride } from '@prisma/client';
 import { PriceBasis, computeSalePriceFromCurve, quoteAcquisitionWithGuard } from '../../common/money';
-import { PricingCurve, premiumFloorGuard } from '../../common/pricing-curve';
+import {
+  BUY_PREMIUM_FLOOR_POLICY,
+  PremiumFloorPolicy,
+  PricingCurve,
+  premiumFloorGuard,
+} from '../../common/pricing-curve';
 import type { PriceSourceStr } from './pricing.types';
 // `import type` a propósito: el composer sigue siendo PURO y sin dependencias de infra — la
 // importación se borra al compilar y no crea arista de módulo con el servicio.
@@ -171,7 +176,13 @@ export function composeVariantPricing(
    * v2.0 (§4.36.5) — rareza CANÓNICA de la carta, SOLO para el veredicto del guardarraíl. No entra al
    * monto (criterio 84): `premiumFloorGuard` devuelve un booleano de publicación, jamás una cantidad.
    */
-  rarityCanonical: string | null = null,
+  rarityCanonical: string | null,
+  /**
+   * v1.80.8.5 (`M2-PF`, MONEY) — política del guardarraíl de VENTA (de `loadSalePremiumFloorPolicy()`,
+   * izada una vez por request). OBLIGATORIA y SOLO para `sellGuarded`: `buyGuarded` usa la constante de
+   * compra `BUY_PREMIUM_FLOOR_POLICY` (el dial no toca la compra).
+   */
+  salePremiumFloorPolicy: PremiumFloorPolicy,
 ): VariantPricingDTO {
   // ⭐ UNA resolución, dos usos: lo que se EMITE (`market`) y lo que ENTRA a la curva son la misma
   // variable. Emitir un mercado que la curva no vio es imposible por construcción (B-14(c)).
@@ -185,8 +196,8 @@ export function composeVariantPricing(
 
   // v1.80.2: `buy.guardBasis`, NO `buy.basis` — un bounty topado contra un mercado que cayó al bin en
   // una chase queda RETENIDO igual que en la cotización (misma decisión, mismo cuerpo).
-  const buyGuarded = premiumFloorGuard(rarityCanonical, buy.guardBasis) === 'premium_at_floor';
-  const sellGuarded = premiumFloorGuard(rarityCanonical, sell.basis) === 'premium_at_floor';
+  const buyGuarded = premiumFloorGuard(rarityCanonical, buy.guardBasis, BUY_PREMIUM_FLOOR_POLICY) === 'premium_at_floor';
+  const sellGuarded = premiumFloorGuard(rarityCanonical, sell.basis, salePremiumFloorPolicy) === 'premium_at_floor';
 
   // ⭐ v1.80.2.2 (§M2-B.11 punto 7 BC-9 y punto 8; errata D-3): «efectivo» y «lo que paga» salen del
   // MISMO resultado de `quoteAcquisitionWithGuard` que ya calculó `buy` — no se re-monta el peldaño 1 a

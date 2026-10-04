@@ -411,6 +411,16 @@ enum MovementReason {
   replacement
   // v1.80.4 (M-61, §M4-SHIP.18.4): la carta vuelve a la plataforma por un reembolso TOTAL de su compra.
   refund_return
+  // 💰 v1.80.8.6 (M-62, §M4-SHIP.18.12 (3)): `reserved → listed` porque la orden NUNCA liquidada que la apartaba se
+  // reembolsó entera (⛔ distinto de `refund_return`: aquélla vuelve del cliente congelada).
+  refund_release
+}
+
+// 💰 v1.80.8.6 (M-62, API_CONTRACT §M4-SHIP.18.12 (1)): por qué se reembolsó ENTERO un pedido YA ENVIADO.
+// PROJECT §S.11.4: «solo sería porque no llegó o estaban en mala condición». CLASE R (`business-rules.ts`).
+enum ShippedRefundReason {
+  not_arrived
+  arrived_damaged
 }
 
 // v1.20-master-set-everywhere (M-24): motivo OBLIGATORIO del ajuste de inventario por
@@ -515,7 +525,9 @@ model User {
   kycProfile                 KycProfile?
   billingProfile             BillingProfile?
   addresses                  Address[]
-  orders                     Order[]
+  orders                     Order[]                     @relation("OrderToUser")
+  // v1.80.8.6 (M-62, §M4-SHIP.18.12 (1)): órdenes cuyo motivo de «reembolso tras envío» registró este usuario.
+  shippedRefundReasons       Order[]                     @relation("ShippedRefundReasonBy")
   shipmentRequests           ShipmentRequest[]
   sellRequests               SellRequest[]
   disputes                   Dispute[]
@@ -1257,7 +1269,9 @@ model Order {
   // duro rompería el CHECK `claimedAt IS NOT NULL => userId IS NOT NULL`. Se conserva así el
   // comportamiento previo a M-25 (los usuarios se SOFT-borran, M-15).
   userId                  String?
-  user                    User?           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  // v1.80.8.6 (M-62): nombre EXPLÍCITO = el implícito de Prisma ("OrderToUser"), porque `Order` gana una segunda
+  // relación con `User` (`shippedRefundReasonBy`). ⛔ Sin DDL: el FK `Order_userId_fkey` no cambia.
+  user                    User?           @relation("OrderToUser", fields: [userId], references: [id], onDelete: Restrict)
   // v1.21 (M-25): correo del invitado, normalizado (trim + lowercase) por la aplicación.
   // `guestEmail != null` <=> el pedido NACIÓ como pedido de invitado (inmutable; sobrevive al reclamo).
   guestEmail              String?
@@ -1314,6 +1328,19 @@ model Order {
   refundedAt              DateTime?
   // v1.80.4 (M-61, §M4-SHIP.18.2): sello de `onFullRefund` — se escribe UNA vez, bajo el candado de la fila.
   fullRefundClosedAt      DateTime?
+  // 💰 v1.80.8.6 (M-62, API_CONTRACT §M4-SHIP.18.12 (1)/(2)): «¿el reembolso TOTAL llegó con el envío propio ya
+  // `enviado|entregado`?» — leído BAJO el candado de los envíos y congelado UNA vez, con el sello
+  // (`fullRefundClosedAt`), en la primera pasada de `onFullRefund`. ⛔ Sin backfill: `false` es la verdad en toda
+  // fila anterior (el corte no se registraba). CHECK `order_after_shipment_sealed`: `true` ⇒ sellada.
+  fullRefundAfterShipment     Boolean              @default(false)
+  // El motivo CERRADO de ese reembolso (PROJECT §S.11.4) + nota, quién y cuándo. Los cuatro van juntos (CHECK
+  // `order_shipped_refund_reason_shape`) y solo con `fullRefundAfterShipment`. «Reembolso por revisar» =
+  // `fullRefundAfterShipment ∧ shippedRefundReason IS NULL` (predicado DERIVADO, `refund-review.ts`).
+  shippedRefundReason         ShippedRefundReason?
+  shippedRefundNote           String?
+  shippedRefundReasonAt       DateTime?
+  shippedRefundReasonByUserId String?
+  shippedRefundReasonBy       User?                @relation("ShippedRefundReasonBy", fields: [shippedRefundReasonByUserId], references: [id], onDelete: Restrict)
 
   items            OrderItem[]
   // v1.68 (M-53, §4-R): piezas cuya reserva VIVA pertenece a esta orden (relación inversa; sin DDL propio).

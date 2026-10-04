@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { REFUND_REVIEW_PENDING_WHERE } from '../payments/refunds/refund-review';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
 import { SELL_REQUEST_LIVE_STATES } from '../../common/sell-request-states';
@@ -1670,16 +1671,19 @@ export class AdminService {
     const now = new Date();
     const summary = await this.prep.summary(role, now);
     const toPrepare = { ship: summary.ship, vault: summary.vault, toReplace: summary.toReplace, toReplaceOverdue: summary.toReplaceOverdue, stuckRefunds: summary.stuckRefunds };
-    if (!isSuperAdmin) return { toPrepare, manualRefunds: null, operatorRefunds: null };
+    // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): `refundReviews` — `null` para `vault_operator` (como `manualRefunds`).
+    if (!isSuperAdmin) return { toPrepare, manualRefunds: null, operatorRefunds: null, refundReviews: null };
     const opWhere = { requestedByRole: Role.vault_operator, status: { not: 'failed' as const } };
-    const [manualRefunds, last24h, last30d] = await Promise.all([
+    const [manualRefunds, last24h, last30d, reviews] = await Promise.all([
       this.manualRefunds ? this.manualRefunds.pendingSummary() : Promise.resolve(null),
       this.prisma.paymentRefund.aggregate({ where: { ...opWhere, createdAt: { gte: new Date(now.getTime() - 24 * 3600 * 1000) } }, _count: { _all: true }, _sum: { amountCents: true } }),
       this.prisma.paymentRefund.aggregate({ where: { ...opWhere, createdAt: { gte: new Date(now.getTime() - 30 * 24 * 3600 * 1000) } }, _sum: { amountCents: true } }),
+      this.prisma.order.aggregate({ where: REFUND_REVIEW_PENDING_WHERE, _count: { _all: true }, _min: { refundedAt: true } }),
     ]);
     return {
       toPrepare,
       manualRefunds,
+      refundReviews: { pending: reviews._count._all, oldestRefundedAt: reviews._min.refundedAt ? reviews._min.refundedAt.toISOString() : null },
       operatorRefunds: { last24hCount: last24h._count._all, last24hCents: last24h._sum.amountCents ?? 0, last30dCents: last30d._sum.amountCents ?? 0 },
     };
   }

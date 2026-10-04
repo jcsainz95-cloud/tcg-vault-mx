@@ -7,7 +7,8 @@ import { GradeKeyInput, LooseGradeKeyInput } from './pricing.types';
  *
  * ### Por qué existe
  * La cola de VENTA se escribe por una clave de SEIS componentes `(cardId, productType, gradeKey,
- * finish, cardProductId, sealedProductId)` — la del dedupe de `escalatePending`. Hasta aquí esa clave
+ * finish, cardProductId, sealedProductId)` con `context='inventory'` implícito — v1.80.8.9 (`M2-VQ9` punto 3): el
+ * dedupe de `escalatePending` son esos seis MÁS `context` (siete); la clave de VENTA fija `context='inventory'`. Hasta aquí esa clave
  * se DERIVABA de una pieza en dos sitios (`InventoryService.derivePublishSalePrice`, que escala/cierra
  * al publicar, y `PriceSyncJobService.queueKeyOfItem`, que el barrido VQ usa para decidir qué fila
  * «sin motivo» sigue siendo necesaria) y se SERIALIZABA de dos formas (`|`.join con `''` en
@@ -38,7 +39,8 @@ export type SaleQueueKeyItem = Pick<
   LooseGradeKeyInput;
 
 /**
- * Clave de la cola de VENTA. Los seis componentes del dedupe de `escalatePending`.
+ * Clave de la cola de VENTA: los seis componentes del dedupe de `escalatePending` con `context='inventory'`
+ * implícito (v1.80.8.9: el dedupe tiene siete; el séptimo, el eje, lo pone el llamador).
  * ⚠️ `cardProductId` es el `Int` de TCGplayer (`InventoryItem`/`PendingPriceEntry`), no el uuid de
  * `PriceReference.cardProductId`. `null` = set base / no sellado.
  */

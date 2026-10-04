@@ -398,6 +398,8 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   //
   //   · `no_market`        → `nopref` NO tiene `PriceReference` (ningún flujo se la da).
   //   · `premium_at_floor` → `floorpremium` es premium con mercado de MX$10: la venta cae al piso.
+  //     (v1.80.8.5, `M2-PF`: sigue retenida porque `Secret Rare` no está en el seed del dial
+  //     `premiumFloorSalePublish`; una `Double Rare`/`Rare Holo EX` en su lugar se publicaría al piso.)
   //
   // Estables durante la suite: el eje de COMPRA sí resuelve para `floorpremium`, pero desde v2.1.6
   // un cierre del eje de compra NO puede cerrar un `premium_at_floor` abierto por `inventory`

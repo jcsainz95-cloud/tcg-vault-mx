@@ -110,6 +110,7 @@ import { ACCEPTED_RAW_CONDITIONS } from '../../src/common/business-rules';
 import { BOUNTY_STATE_VALUES } from '../../src/modules/pricing/bounty-state';
 import { ADMIN_BOUNTY_SORT_VALUES } from '../../src/modules/pricing/admin-bounties.service';
 import { PENDING_PUBLISH_MISSING_VALUES } from '../../src/modules/inventory/inventory.controller';
+import { REFUND_REVIEW_FILTER_VALUES } from '../../src/modules/orders/admin-orders.controller';
 // ⭐ `EQ-D2` — dominio del eje `?state=` de `GET /admin/inventory/sealed-price-status` (M11 §10, clase L).
 import { SEALED_PRICE_STATE_VALUES } from '../../src/modules/inventory/sealed-product.service';
 import { PRICING_BRACKETS_AXIS_VALUES } from '../../src/modules/admin/admin.controller';
@@ -597,6 +598,13 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/refunds', param: 'kind', clazz: 'E', allowed: Object.values(PaymentRefundKind), valid: 'shipment_fee', alterno: 'order_remaining', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/refunds', param: 'status', clazz: 'E', allowed: Object.values(PaymentRefundStatus), valid: 'failed', alterno: 'requested', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/finance/shrinkage', param: 'reason', clazz: 'L', allowed: SHRINKAGE_REASON_VALUES, valid: 'damaged', alterno: 'lost', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)) — «reembolso por revisar» en M3: clase **L** de UN token (`pending` ⇔
+  // `REFUND_REVIEW_PENDING_WHERE`, predicado derivado, ⛔ no es enum). El contrato pide la fila de §0-Q «en el mismo
+  // commit» pero §0-Q punto 4 no la tenía ⇒ nació PENDIENTE-ARQUITECTO. ⭐ **v1.80.8.8 ((10).3) — `transcrita`** (el
+  // default): el arquitecto escribió la fila en la tabla de §0-Q punto 4 (clase **L**, dominio `pending`). Misma
+  // mudanza que `picking-list?destination=` en v1.78.1: 52 fijo, pendientes 19 → 18.
+  // Un solo token ⇒ sin `alterno`. Datos: SRF-4/5 dejan órdenes por revisar; sin ellas el filtro devuelve 0 vs la lista.
+  { route: 'GET /admin/orders', param: 'refundReview', clazz: 'L', allowed: REFUND_REVIEW_FILTER_VALUES, valid: 'pending', auth: 'admin', echoValue: false },
   { route: 'GET /admin/users/:id/audit', path: (c) => `/admin/users/${c.userId}/audit`, param: 'scope', clazz: 'R', allowed: USER_AUDIT_SCOPE_VALUES, valid: 'actor', alterno: 'both', auth: 'admin', echoValue: false },
   // ⚠️ `valid: 'price_desc'` y no `'price_asc'`: los dos sellados del fixture comparten `createdAt`
   // (mismo `createMany`), así que `newest` (default) = orden de inserción = price ASC ⇒ `price_asc`
@@ -1232,6 +1240,8 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       'GET /admin/finance/shrinkage?reason=',
       'GET /admin/inventory/master-sets?sort=',
       'GET /admin/manual-refunds?status=',
+      // ⛔ `GET /admin/orders?refundReview=` estuvo aquí desde v1.80.8.6 y **SALIÓ en v1.80.8.8** ((10).3): el
+      // arquitecto escribió su fila en §0-Q punto 4 (clase L, dominio `pending`).
       'GET /admin/refunds?kind=',
       'GET /admin/refunds?requestedByRole=',
       'GET /admin/refunds?status=',
@@ -1380,7 +1390,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // ⭐ 44 → **51** y 11 → **18** (§M4-SHIP, QA BLOQ-2(a) sobre `c20451f`): SIETE ejes nuevos con clase decidida
     // (v1.80.7.1 §M4-SHIP.1) y SIN fila en §0-Q (`D-EQ-4`). Subir el literal es a propósito la conversación que el
     // trinquete exige: los 18 pendientes bajan a 11 cuando el arquitecto escriba las siete filas — ⛔ no retirándolos.
-    expect(REGISTRO.length).toBe(51);
+    // 💰 51 → **52** y 18 → **19** (v1.80.8.6, §M4-SHIP.18.12 (7)): `?refundReview=` de `GET /admin/orders`, clase L,
+    // sin fila en §0-Q punto 4 (el contrato la pide «en el mismo commit»; no está) ⇒ PENDIENTE-ARQUITECTO.
+    // ⭐ v1.80.8.8 ((10).3) — 52 fijo y 19 → **18**: el arquitecto escribió la fila de `?refundReview=` en §0-Q punto 4.
+    // Se pagó una deuda; no salió ningún eje.
+    expect(REGISTRO.length).toBe(52);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.

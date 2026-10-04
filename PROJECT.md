@@ -1413,6 +1413,11 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
   procederemos» y el **mismo estado terminal**—; **queda auditado quién declinó** (§P.2, criterio 171).
   *(7ª ronda, D36)*: **no captura la dirección del vendedor** — **la lee de la solicitud**, donde el propio
   vendedor la eligió al crearla (§P.2.1).
+- **Staff sin correo** *(NUEVO 2026-10-04, §U)*: los miembros del equipo (operador de bóveda y súper-admin,
+  P-STF-1) que el dueño da de alta **desde ahora** no tienen correo: entran con **nombre de usuario +
+  contraseña** por **la misma pantalla de entrada que los clientes** (el campo acepta correo o usuario; con un
+  usuario de staff entran directo al panel) y, si la olvidan, **la restablece el dueño**. El rol no cambia lo que
+  pueden hacer. La cuenta del dueño **conserva su correo**; el staff que ya tiene correo sigue como está (P-STF-2).
 
 ## Funcionalidades del MVP
 
@@ -1542,18 +1547,28 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       producto sin excepción** (raw, sellado y gradeadas). El **checkout muestra un aviso explícito** de
       "ventas finales, sin reembolso salvo carta dañada/equivocada o error de la plataforma", con enlace a la
       **página de términos/políticas**.
-- [ ] **Excepción 1 — disputa de condición**: si la carta **llega/está dañada o equivocada**, aplica la
+- [ ] ~~**Excepción 1 — disputa de condición**: si la carta **llega/está dañada o equivocada**, aplica la
       **disputa de condición** (ventana de **7 días contados desde la entrega del envío** —cuando paquetería
       marca "entregado"—). **La evidencia se envía por correo a soporte** (no hay subida de foto en la app).
       La resolución usa: para **gradeadas**, el **grado y número de certificado** del slab (verificable en la
       graduadora); para **raw NM**, el **estándar/política de condición propio**. Si procede, el
       **súper-admin compensa recomprando al precio pagado** y el **cliente conserva la carta** (NO se exige
-      devolución; el envío de regreso no es requisito para compensar).
+      devolución; el envío de regreso no es requisito para compensar).~~
+      *(**RETIRADA el 2026-10-04** — `HECHOS.md` fila 2026-10-04 «Disputas: se quitan de la tienda…». Motivo: el
+      dueño quitó la disputa de la tienda — *«no debería haber disputas hasta después del envío, menos en
+      bóveda»*. **La excepción sigue existiendo, cambia la vía:**)*
+- [ ] **Excepción 1 — la carta llegó dañada o equivocada** *(reescrita 2026-10-04, **§V**)*: tras la entrega el
+      cliente **escribe a soporte** («¿Problema con tu pedido? Escríbenos»), con su número de pedido y sus fotos
+      por correo; ⛔ **no hay botón de disputa** en ninguna parte de la tienda. Si procede, el **súper-admin
+      compensa desde Ventas con el reembolso que lleva motivo «llegó en mala condición»** (§S.11.4). El cliente
+      **conserva la carta** (las cartas de un pedido enviado no vuelven a inventario). Para juzgar, siguen
+      valiendo el **grado y certificado** (gradeadas) y el **estándar NM** (raw). Criterios **271–273**.
 - [ ] **Excepción 2 — error de la plataforma (siempre se reembolsa)**: un **error nuestro** —por ejemplo, un
       **cobro duplicado** o **inventario fantasma** (compra de una carta de la que nunca tuvimos existencia
       real en bóveda)— **siempre se reembolsa**. NO es "arrepentimiento del comprador": es la **corrección de
       un error propio** y no está sujeto a la ventana de 7 días ni a la evidencia de la disputa de
-      condición. El **súper-admin ejecuta el reembolso** para restituir el cobro indebido.
+      condición *(2026-10-04: la disputa de condición se retiró de la tienda, §V; esta excepción no cambia)*. El
+      **súper-admin ejecuta el reembolso** para restituir el cobro indebido.
       *(⭐ **v1.80.4 · 2026-09-29** — dos precisiones del dueño, ambas **instancias de esta misma excepción**:
       **(a)** la **carta que no aparece o está dañada al preparar un envío** es inventario fantasma **descubierto
       al empacar** ⇒ se reembolsa **solo esa carta** (lo pagado por ella **más su parte de la comisión de
@@ -1562,10 +1577,21 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       bóveda deshace la venta**: las cartas dejan de ser del cliente y vuelven a la plataforma «en almacén» —
       §H, criterio **231**. Para una carta **de bóveda** (retiro o compra a bóveda) que falta o está dañada, el
       remedio primero es **reponerla**, no reembolsarla: §S.10.5.)*
+- [ ] **Excepción 3 — el pedido enviado NO LLEGÓ** *(NUEVA 2026-10-04; `HECHOS.md` filas 2026-10-02 «Cartas
+      apartadas… depende de si el pedido ya salió» y 2026-10-04 «Cartas apartadas (SSL-R1) — detalles»)*: tras
+      «enviado», un reembolso **total** solo puede ser porque el pedido **no llegó** o **llegó en mala
+      condición** (*«solo sería porque no llegó o estaban en mala condición»*). «Llegó en mala condición» ya
+      estaba cubierto por la Excepción 1 *(desde el 2026-10-04 la Excepción 1 se compensa justo con este
+      reembolso, §V)*; **«no llegó» entra como causa válida**. Lo ejecuta el **súper-admin**
+      con motivo obligatorio y las cartas **no** vuelven a inventario — §S.11.4, criterios **250–251**.
+      **(SUPUESTO:** el dueño no fijó ventana ni evidencia para «no llegó»; no se inventan — decide el súper-admin
+      caso por caso. Integrarlo con el rastreo de la paquetería queda fuera de alcance.)
 - [ ] **Contracargo bancario ≠ reembolso**: se aclara al cliente (en términos/FAQ) que un **contracargo** es
       un proceso que puede iniciar **con su banco de forma independiente**, distinto de la política de
       reembolsos de la plataforma.
 - [ ] **Contracargo**: revierte la carta al inventario de la plataforma y refleja el estado de la orden.
+      *(2026-10-04, §V.4: **sin cambio**. Es la «disputa» que el dueño quiere: *«que la disputa se abra en stripe
+      que el cliente la pele con ellos no con nosotros»*.)*
 
 ### C. Bóveda y portafolio (comprador)
 - [ ] **La bóveda es exclusiva de usuarios con cuenta** *(v1.5)*: un invitado **no puede** guardar en bóveda
@@ -2140,11 +2166,16 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       etiqueta cuando el operador lo capturó** y con la **tarifa congelada de MX$180 cuando no** (*fallback*).
       **Nunca entra al costo de la pieza** (sigue siendo el **bruto ofertado**) y **nunca cambia el neto
       pagado al vendedor** — ver §H, §P.4 y criterios **135/149/166**.
-- [ ] **M8 — Disputas**: registro de disputa con **evidencia recibida por correo a soporte** (no hay
+- [ ] ~~**M8 — Disputas**: registro de disputa con **evidencia recibida por correo a soporte** (no hay
       subida de foto en la app); resolución por **grado/cert** (gradeadas) o **estándar NM** (raw), y
       **recompra al precio pagado** como remedio (carta dañada/equivocada, ventana de **7 días desde la
-      entrega del envío**, **sin exigir devolución**; solo súper-admin). El **reembolso por error de la
+      entrega del envío**, **sin exigir devolución**; solo súper-admin).~~ El **reembolso por error de la
       plataforma** (cobro duplicado / inventario fantasma) se ejecuta en **M3** (no requiere disputa ni ventana).
+      *(**M8 RETIRADO el 2026-10-04** — `HECHOS.md` fila 2026-10-04 «Disputas: se quitan de la tienda…». Motivo:
+      el cliente ya no abre disputas; la carta dañada o equivocada se compensa desde **Ventas (M3)** con el
+      reembolso con motivo «llegó en mala condición» (§S.11.4, §V). **(SUPUESTO / default de P-DSP-1:** M8 queda
+      **en transición**: no entra ninguna disputa nueva, conserva solo lo necesario para **cerrar las que ya
+      existan**, y **se retira** cuando no quede ninguna abierta.) Criterio **272**.)*
 - [ ] **M9 — Reportes mínimos**: métricas de lanzamiento + **export**.
 - [ ] **M10 — Config y bitácora**: **diales editables sin deploy** + **auditoría global** (quién / qué / cuándo).
       Diales con **valores por defecto** (todos configurables): **markup de precio de venta** (% sobre la
@@ -2285,16 +2316,33 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       dueño quiere además un tope absoluto en pesos, es un dial nuevo y se dice.)*
 - [ ] **Ventas finales (sin reembolso voluntario)**: toda compra es **final**; no hay reembolso a solicitud
       del cliente, ni con la carta en bóveda ni ya enviada. Aplica a **todos los tipos de producto sin
-      excepción** (raw, sellado y gradeadas). Las **dos únicas excepciones** son la disputa de condición
-      (carta dañada/equivocada) y el error de la plataforma (cobro duplicado / inventario fantasma), descritas
-      abajo. Esta política se comunica en el **checkout** y en la **página de términos/políticas**.
-- [ ] **Disputas de condición (carta dañada o equivocada)**: vía de compensación por error de condición.
+      excepción** (raw, sellado y gradeadas). Las **únicas excepciones** son ~~la disputa de condición~~
+      la carta **dañada/equivocada** *(2026-10-04: ya no por disputa sino escribiendo a soporte, §V)*, el error de la plataforma (cobro duplicado / inventario fantasma), descritas
+      abajo, y *(⭐ **2026-10-04**)* el **pedido enviado que no llegó** (§B «Excepción 3», §S.11.4). Esta
+      política se comunica en el **checkout** y en la **página de términos/políticas**.
+      *(Coherencia, 2026-10-04: hasta hoy esta regla no dejaba reembolsar un pedido enviado que nunca llegó,
+      y la decisión del dueño sobre §S.11 dice que, tras el envío, el reembolso total solo puede ser por «no
+      llegó» o «llegó en mala condición». Se añade «no llegó» para que ambas reglas digan lo mismo.
+      **(SUPUESTO:** la **página de términos** describe el caso; el **aviso corto del checkout** no cambia de
+      texto en este pase —«ventas finales, sin reembolso salvo…» sigue siendo cierto en lo que dice—; si el
+      dueño quiere que lo mencione, lo dice.))*
+- [ ] ~~**Disputas de condición (carta dañada o equivocada)**: vía de compensación por error de condición.
       **La evidencia se envía por correo a soporte** (no hay subida de foto en la app). La resolución usa,
       para **gradeadas**, el **grado y número de certificado** del slab (verificable en la graduadora), y
       para **raw NM**, el **estándar/política de condición propio**. Decide el admin/súper-admin dentro de una
       **ventana de 7 días contados desde la entrega del envío** (cuando paquetería marca "entregado"); si
       procede, remedio = **recompra al precio pagado**, y el **cliente conserva la carta** (NO se exige
-      devolución; el envío de regreso no es requisito para compensar).
+      devolución; el envío de regreso no es requisito para compensar).~~
+      *(**RETIRADA el 2026-10-04** — `HECHOS.md` fila 2026-10-04 «Disputas: se quitan de la tienda…». Motivo:
+      *«no debería haber disputas hasta después del envío, menos en bóveda»*; *«sí, quita el botón y pon
+      escríbenos»*.)*
+- [ ] **Carta dañada o equivocada — se escribe a soporte, se compensa con reembolso** *(reescrita 2026-10-04,
+      §V)*: no hay disputa en la tienda. Tras la entrega, el cliente **escribe a soporte** con su número de pedido
+      y su evidencia; el **súper-admin** juzga (grado/cert en gradeadas, estándar NM en raw) y, si procede,
+      **reembolsa desde Ventas con motivo «llegó en mala condición»** (§S.11.4). El cliente conserva la carta.
+      Ni antes del envío ni con la carta en bóveda existe esta vía (palabras del dueño).
+      **(SUPUESTO / default de P-DSP-2:** la **ventana de 7 días desde la entrega** se conserva como **política
+      escrita en términos**, pero el sistema **no la aplica**: no hay disputa que cerrar; decide el súper-admin.)
 - [ ] **Error de la plataforma (siempre se reembolsa)**: un error propio —**cobro duplicado** o **inventario
       fantasma** (venta de una carta sin existencia real en bóveda)— **siempre se reembolsa**. No es
       arrepentimiento del comprador sino corrección de un error nuestro; **no aplica la ventana de 7 días ni la
@@ -2325,7 +2373,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
         existe y está en su cajón, y vuelve **a la venta** como hoy.
 - [ ] **Contracargo bancario (independiente)**: el cliente puede iniciar un **contracargo con su banco** por
       su cuenta; es un proceso ajeno a la política de reembolsos de la plataforma y se maneja según la regla
-      de contracargo (revierte la carta al inventario y refleja el estado de la orden).
+      de contracargo (revierte la carta al inventario y refleja el estado de la orden). *(2026-10-04: sin
+      cambio; es la vía que el dueño quiere para quien reclama al banco — §V.4.)*
 - [ ] **Buylist — plazos y devolución**: sin respuesta del usuario a un ajuste, o **carta rechazada por no
       estar en NM**: **7 días** para gestionar la devolución (**a costo del usuario**); **abandono a 30
       días**. Una carta **NM** abandonada **pasa a inventario**; una carta **no-NM** abandonada **NO entra al
@@ -2638,11 +2687,19 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **no** cambia condiciones comerciales — **y eso incluye la convención del precio: el invitado ve
       exactamente la misma cifra que un usuario con cuenta**.
 - [ ] **Seguimiento de su pedido por enlace tokenizado** (ver abajo).
-- [ ] **Disputa de condición y errores de plataforma**: aplican **igual** que a un usuario con cuenta
+- [ ] ~~**Disputa de condición y errores de plataforma**: aplican **igual** que a un usuario con cuenta
       (ventana de **7 días desde la entrega**, evidencia **por correo a soporte** citando el **número de
       pedido**; recompra al precio pagado o reembolso según §H). El invitado **no necesita cuenta** para
       abrir una disputa. *(SUPUESTO: la compensación por recompra a un invitado se ejecuta como **reembolso
-      por el monto pagado** —no hay bóveda ni saldo donde abonarlo—; ver preguntas abiertas v1.5.)*
+      por el monto pagado** —no hay bóveda ni saldo donde abonarlo—; ver preguntas abiertas v1.5.)*~~
+      *(**RETIRADA el 2026-10-04** — `HECHOS.md` fila 2026-10-04 «Disputas: se quitan de la tienda…»: ya no hay
+      disputa para nadie.)*
+- [ ] **Carta dañada/equivocada, pedido que no llegó y errores de plataforma — el invitado, por la MISMA vía que
+      todos** *(2026-10-04, §V.3)*: su página de seguimiento, con el pedido entregado, muestra «¿Problema con tu
+      pedido? Escríbenos» y el correo de soporte; escribe citando su **número de pedido**, y el súper-admin
+      **reembolsa desde Ventas** con motivo («no llegó» / «llegó en mala condición»). **No necesita cuenta** para
+      ser atendido ni compensado. *(Esto deja sin objeto `D-DSP-1` del arquitecto: no hace falta disputa del
+      invitado ni cambio de esquema.)*
 
 **Qué NO puede hacer un invitado**
 - [ ] **No puede guardar en bóveda** (decisión de producto, ver §C). Si intenta elegir "guardar en bóveda",
@@ -3224,6 +3281,37 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       para **todas** las rarezas (N.2), y el guardarraíl solo se ocupa del **dato presente pero malo**.
 - [ ] **Volumen esperado**: medido sobre un **master set completo**, ≈ **3 cartas de 333**. **No es una alarma
       ruidosa** y por eso puede bloquear publicación y cotización sin entorpecer la operación.
+
+**N.5-bis — Decisiones de precio del 2026-10-04 (cambian N.5 en VENTA y acotan el precio final a mano)**
+> **Fuente:** `HECHOS.md`, fila **«Precios — decisiones del 2026-10-04»**. Palabras del dueño, literales: *«que se
+> publiquen solas a 25; el precio final que pueda poner solo lo quiero para producto sellado; es mentira, el
+> proveedor sí nos trae precios de holo y reverse holo de las cartas, checa bien»*. Aquí se aterrizan **(a)** y
+> **(b)**; **(c)** (holo / reverse holo del proveedor) es una re-medición técnica, no un requisito nuevo, y no se
+> escribe aquí. El *cómo* es del arquitecto (zona dinero). Criterios **254–255**. **No se re-pregunta lo dicho.**
+- [ ] **(a) ex y Double Rare en el piso ⇒ se publican solas al piso (MX$25); las demás premium siguen
+      retenidas.** ✅ **Alcance DECIDIDO** (`HECHOS.md` 2026-10-04, «Precios y reembolsos — respuestas a P-PRE-2,
+      P-S11-3, P-S11-4 y P-PRE-1»: *«solo ex y double rare, lo demás por defecto»*). Las cartas **ex** y **Double
+      Rare** que el guardarraíl retenía en **VENTA** por «premium en el piso» **dejan de retenerse por estar en el
+      piso**: se publican solas con **precio de venta = piso vigente** (hoy **MX$25**, el dial de §N.2). **Todas
+      las demás rarezas premium siguen retenidas** como «premium en el piso» para revisión, como hoy. Qué rarezas
+      se publican al piso es una **regla parametrizable**, sin código para cambiarla (`HECHOS.md`, misma fila).
+      Esto **acota la viñeta VENTA** de la regla N.5 solo para ex / Double Rare en el piso. Sigue igual: el **dato
+      ausente** va a «precio pendiente» (N.2), la **precedencia** de N.6 (un override manual gana sobre el piso) y
+      el redondeo/piso de §N.
+      **(SUPUESTO:** la decisión habla de **publicar**, así que el eje de **COMPRA** de N.5 —no cotizar una
+      premium al bin de MX$1— **no cambia**. Si el dueño quiere tocarlo, lo dice.)
+      *(P-PRE-2 respondida 2026-10-04: al limitarlo a ex / Double Rare, una carta cara de otra rareza premium con
+      dato roto **sigue sin publicarse al piso** — el freno conserva su propósito para ellas.)*
+- [ ] **(b) Precio final a mano: SOLO para producto SELLADO.** La captura de un **precio final** a mano se ofrece
+      **solo para piezas selladas**, en dos sitios: **(1)** la cola **«Listas para publicar»** (en las filas de
+      sellado) y **(2)** el **panel del sellado (M11)**. Para **cartas sueltas y gradeadas** ⛔ **no se añade**
+      ninguna captura nueva de precio final (ni en «Listas para publicar» ni en otra pantalla). Es un override
+      manual del sellado: gana la precedencia de §K (`override manual > spread por presentación > …`), queda
+      **auditado** y **nunca** es $0.
+      **El override por pieza que YA existe para cartas sueltas y gradeadas** (hoy en el panel lateral de la
+      pieza, primer escalón de la precedencia de N.6) — ✅ **DECIDIDO (P-PRE-1, `HECHOS.md` 2026-10-04, «lo demás
+      por defecto»): se conserva como está, sin hacerlo más visible** (mismo sitio, mismo comportamiento; también
+      para gradeadas, cuyo precio hoy depende de ese override — §A, «override manual» de gradeadas).
 
 **N.6 — Precedencia, override y bounty revalidado (decisión 4, LOCKED)**
 - [ ] **Precedencia de VENTA**: `override por pieza > override de variante > curva (piso / mercado) >
@@ -6333,7 +6421,8 @@ pedido. **No es una incoherencia: es que no tiene dónde ir a mirarlo.**
 | **Cotizada / ofertada / vencida / no se siguió / piezas rechazadas / cancelada** | **📧 ya existen** | **⛔ No se rehacen.** §R **añade**, no reescribe lo que funciona |
 | **⛔⛔ Oferta PENDIENTE DE AUTORIZACIÓN** | **⛔ NADA, NI PORTAL NI CORREO — NO ES UN SUPUESTO, ES UNA PROHIBICIÓN** | `SellOfferState` es **admin-only** y *«EL CLIENTE NO DEBE ENTERARSE DE QUE EXISTE […] le filtraría el orden de magnitud de nuestro tope»* (`schema.prisma:211-213`). **⚠️ ÉSTE ES EL RIESGO NÚMERO UNO DE TODO §R**: un centro de avisos que se derive ingenuamente de *«cambió un estado»* **filtra esto solo**. Es el criterio **204** |
 
-**Disputas** *(hoy: cero)*
+**Disputas** *(hoy: cero)* — *(2026-10-04: **sin objeto** para disputas nuevas, §V; estos dos correos solo
+aplican a disputas que ya existieran al retirarlas — P-DSP-1)*
 
 | Evento | Propuesta | Razón |
 |---|---|---|
@@ -7180,15 +7269,24 @@ Decisión literal: *«no se puede cancelar, ¿estamos dando la opción?»* ⇒ *
 - **Ninguna pantalla ordena por apellido** (S.6).
 - **El contracargo** conserva su regla (la carta vuelve a la venta).
 
-#### S.11 💰 Cartas apartadas de un pedido reembolsado desde Stripe sin liquidar — **«depende de si ya salió»** · decisión del dueño del 2026-10-02 · ⚠️ dos preguntas abiertas (S.11.5)
+#### S.11 💰 Reembolso TOTAL de un pedido y sus cartas — **«depende de si ya salió»**, y vale para **CUALQUIER reembolso total** · decisiones del dueño del 2026-10-02 y del 2026-10-04 · ✅ sin preguntas abiertas (S.11.7) · *(reescrita 2026-10-04)*
 
-> **Fuente:** `HECHOS.md`, fila del **2026-10-02** «Cartas apartadas de un pedido reembolsado desde Stripe sin
+> **Fuente 1:** `HECHOS.md`, fila del **2026-10-02** «Cartas apartadas de un pedido reembolsado desde Stripe sin
 > liquidar (SSL-R1): depende de si el pedido ya salió». Palabras del dueño, literales: *«depende si ya realizamos
 > el envío o no; debe haber un punto donde confirmemos que el pedido fue enviado; si ya salió ahí no podemos
 > regresarlas a inventario y habría que checar por qué el reembolso, porque solo sería porque no llegó o estaban
-> en mala condición»*. **Lo dicho no se re-pregunta**; solo se preguntan los huecos de S.11.5. Deuda técnica que
-> esto decide: `SSL-R1` (`docs/TECH_DEBT.md`; `docs/API_CONTRACT.md §M4-VAULT.2-bis.2`, «Residual declarado»). El
-> *cómo* es del arquitecto y **no se escribe aquí**. Criterios verificables: **249–252**.
+> en mala condición»*.
+>
+> **Fuente 2:** `HECHOS.md`, fila del **2026-10-04** «Cartas apartadas (SSL-R1) — detalles del 2026-10-04».
+> Palabras del dueño, literales: **4a** *«como sugieres está bien»* ⇒ pedido NO enviado: las cartas vuelven solas a
+> la venta si nadie las tocó; con un clic si ya estaban palomeadas o empacadas. **4b** *«para cualquier
+> reembolso»* ⇒ la regla «enviado ⇒ no vuelven a inventario y el reembolso pide motivo "no llegó" / "llegó en mala
+> condición"» vale para **cualquier reembolso total**, no solo el del panel de Stripe.
+>
+> **Lo dicho no se re-pregunta** (P-S11-1 y P-S11-2 del borrador anterior, y P-S11-3 y P-S11-4, quedan
+> **respondidas** el 2026-10-04 — S.11.7). Deuda técnica que esto decide: `SSL-R1` (`docs/TECH_DEBT.md`;
+> `docs/API_CONTRACT.md §M4-VAULT.2-bis.2`, «Residual declarado»). El *cómo* es del arquitecto y **no se escribe
+> aquí**. Criterios verificables: **249–253**.
 > *(Numeración: los criterios **234–248** están reservados por **§T (Skydropx)** en la rama viva
 > `claude/skydropx-envios`, aún sin fusionar; por eso §S.11 empieza en el 249.)*
 >
@@ -7204,6 +7302,11 @@ minutos. *(Lo midió backend el 2026-09-28, Postgres real, N=1 por variante — 
 documento no lo re-midió.)* ⛔ «Soltarlas y ya» no sirve: si el pedido ya salió, la carta **la tiene el
 cliente**, y ponerla a la venta vendería algo que no está en el estante.
 
+**Desde el 2026-10-04 (4b) la regla deja de ser solo de ese caso.** Para **todo reembolso total** de un pedido cuyo
+envío ya salió, vale lo mismo: las cartas **no** vuelven a inventario y el reembolso tiene que decir **por qué**
+—«no llegó» o «llegó en mala condición»—. S.11.5 recorre uno por uno los reembolsos totales que existen hoy y dice
+cómo aplica a cada uno.
+
 ##### S.11.2 El punto de corte: «enviado», el que ya existe
 
 - **El punto donde se confirma que el pedido salió es la marca «enviado»** que ya existe en «Pedidos por
@@ -7217,16 +7320,18 @@ cliente**, y ponerla a la venta vendería algo que no está en el estante.
 
 - Las cartas que estaban apartadas por ese pedido **dejan de estar apartadas** y vuelven a inventario. ⛔ Ninguna
   carta queda apartada por un pedido reembolsado.
-- **Cómo vuelven — PREGUNTA ABIERTA P-S11-1** (las palabras del dueño dicen *que* vuelven, no *cómo*).
-  **(SUPUESTO / default mientras el dueño no diga otra cosa):**
+- **Cómo vuelven — ✅ DECIDIDO (4a, `HECHOS.md` 2026-10-04: *«como sugieres está bien»*):**
   - Si **nadie las tocó físicamente** (el pedido nunca entró a preparación —ninguna carta palomeada, sin
     paquete—), **vuelven solas a la venta**, como cuando vence un carrito, con su movimiento en la bitácora
-    («liberada por reembolso desde Stripe»). *Por qué:* nunca salieron del estante.
+    («liberada por reembolso»). *Por qué:* nunca salieron del estante.
   - Si **alguna ya estaba palomeada o en un paquete** (el pedido había entrado a preparación), esa carta **no
     vuelve sola a la venta**: queda **«en almacén»** y un **operador o el dueño confirma con un clic** que la
     regresó al estante (*«regresada»* ⇒ a la venta; *«no está»* ⇒ merma firmada), igual que la revisión que ya
     usa el reembolso total de bóveda (criterio **231**). *Por qué:* esa carta está en una mesa o en una caja, y
     venderla antes de que alguien la regrese es vender lo que no está en su lugar.
+  - *(Alcance de 4a: es la respuesta a P-S11-1, que preguntaba por el pedido **sin liquidar** reembolsado desde
+    Stripe. Lo que 4b extiende a todo reembolso total es la regla del **enviado** (S.11.4). Para los pedidos
+    **liquidados no enviados**, el reembolso total ya tiene regla y **no cambia** — ver S.11.5.)*
   - **(SUPUESTO, NO MEDIDO — lo confirma el arquitecto):** con el diseño de hoy, un pedido **sin liquidar no
     entra a «Pedidos por preparar»**, así que en el caso SSL-R1 estricto **siempre** aplicaría el primer
     sub-caso (vuelven solas). Si el arquitecto mide que sí puede entrar, aplica el segundo.
@@ -7234,44 +7339,363 @@ cliente**, y ponerla a la venta vendería algo que no está en el estante.
   MEDIDO:** una compra a bóveda sin liquidar todavía no tiene colocación en el cajón del cliente; si la tuviera,
   manda la regla del criterio **231** —«en almacén» y confirmación humana—, ⛔ no la venta directa.)
 
-##### S.11.4 Pedido ENVIADO ⇒ las cartas **NO vuelven**; el reembolso queda **para revisión a mano, con motivo**
+##### S.11.4 Pedido ENVIADO ⇒ las cartas **NO vuelven**; el reembolso **exige motivo** — vale para **cualquier reembolso total** (4b)
 
-- Las cartas **⛔ no vuelven a inventario ni a la venta**: el cliente las tiene (o las tuvo). Dejan de estar
-  «apartadas» **sin** volver a ser vendibles (cómo se registra su estado es del arquitecto).
-- El pedido queda marcado **«reembolso por revisar»**, visible en el panel (con contador en el tablero, como los
-  demás pendientes del dueño), hasta que se registre **por qué** se reembolsó.
+- Las cartas **⛔ no vuelven a inventario ni a la venta**: el cliente las tiene (o las tuvo). Si estaban
+  «apartadas», dejan de estarlo **sin** volver a ser vendibles (cómo se registra su estado es del arquitecto).
 - **Motivo obligatorio y cerrado**: solo **«no llegó»** o **«llegó en mala condición»** — ⛔ sin opción «otro»
   ni texto libre en lugar del motivo (*«solo sería porque no llegó o estaban en mala condición»*). Se guarda
   **quién y cuándo**; una nota libre **opcional** acompaña al motivo **(SUPUESTO)**.
-- **Registrar el motivo ⛔ no mueve dinero** (el reembolso ya lo hizo Stripe), ⛔ no mueve cartas y ⛔ no manda
-  correos nuevos al cliente. Es registro para que el dueño sepa qué pasó y lo vea después en reportes.
+- **Cuándo se captura el motivo depende de por dónde entra el reembolso:**
+  - **Desde el back-office (M3):** el motivo se elige **en la misma acción del reembolso**, antes de que se mueva
+    el dinero. Sin motivo, o con uno que no sea de los dos ⇒ **el reembolso no se hace** (⛔ no se llama a
+    Stripe). **(SUPUESTO:** las palabras del dueño —*«habría que checar por qué el reembolso»*— dicen que el
+    reembolso pide motivo; que en M3 se pida **antes** y no después es la lectura del product-owner, porque ahí
+    el sistema sí puede preguntar antes de cobrar.)
+  - **Desde el panel de Stripe:** el sistema no puede preguntar antes (el dinero ya se movió fuera de la tienda).
+    El pedido queda marcado **«reembolso por revisar»**, visible en el panel (con contador en el tablero, como
+    los demás pendientes del dueño), hasta que se registre el motivo.
+- **Registrar el motivo después (caso Stripe) ⛔ no mueve dinero** (el reembolso ya lo hizo Stripe), ⛔ no mueve
+  cartas y ⛔ no manda correos nuevos al cliente. Es registro para que el dueño sepa qué pasó y lo vea después en
+  reportes.
 - **Quién registra el motivo — (SUPUESTO / default): solo el súper-admin**, porque el reembolso total sigue siendo
-  solo suyo (§S.10.4) y es quien lo hizo en Stripe. Si el dueño quiere que el operador también pueda, lo dice
-  (no es pregunta prioritaria; se anota aquí para que el arquitecto no lo decida por su cuenta).
+  solo suyo (§S.10.4) y es quien lo hace en M3 o en Stripe. Si el dueño quiere que el operador también pueda, lo
+  dice (no es pregunta prioritaria; se anota aquí para que el arquitecto no lo decida por su cuenta).
+- ~~**«Llegó en mala condición» y la disputa de condición (§H):** es la misma situación que la disputa de condición
+  cuando el remedio es devolver **todo** el pedido. **(SUPUESTO:** las reglas de la disputa —ventana de 7 días
+  desde «entregado», evidencia por correo— siguen aplicando; el motivo no las sustituye, solo las registra.)~~
+  *(**RETIRADO el 2026-10-04**, `HECHOS.md` «Disputas: se quitan de la tienda…»: ya no hay disputa de condición.)*
+  **Desde el 2026-10-04 este reembolso ES la compensación** de la carta dañada o equivocada y del pedido que no
+  llegó: el cliente escribe a soporte y el súper-admin reembolsa aquí con el motivo que corresponda (§V.2).
 
-##### S.11.5 Preguntas abiertas de S.11 (para el dueño)
+##### S.11.5 Los reembolsos totales que existen hoy, y cómo aplica a cada uno *(revisado 2026-10-04 contra el contrato; no se re-midió el código)*
 
-- **P-S11-1 · Pedido no enviado: ¿las cartas vuelven solas a la venta, o con un clic?** Default: **solas** si
-  nadie las tocó; **con un clic** de operador o dueño si ya estaban palomeadas o en un paquete (S.11.3).
-- **P-S11-2 · ¿Esta regla vale solo para el caso de hoy, o para cualquier reembolso total?** El caso de hoy es
-  *reembolso total desde el panel de Stripe sobre un pedido sin liquidar* (SSL-R1). **Default: solo ese caso.**
-  *Por qué:* los demás reembolsos totales **ya tienen regla escrita** (M3 solo reembolsa pedidos liquidados; bóveda
-  = criterio **231**; carta que no sale al preparar = §S.10.3), y cambiarlos es otro pase de diseño. Si el dueño
-  dice «cualquiera», lo que cambia es que **todo** reembolso total de un pedido ya **enviado** —desde M3 o desde
-  Stripe— pediría también el motivo «no llegó» / «llegó en mala condición».
+| Reembolso total | Hoy (fuente) | NO enviado | ENVIADO («enviado» / «entregado») |
+|---|---|---|---|
+| **Panel de Stripe sobre pedido SIN liquidar** (SSL-R1) | Las cartas se quedan apartadas para siempre (`TECH_DEBT.md` SSL-R1, medido por backend 2026-09-28, N=1) | **Cambia:** regla 4a (S.11.3), criterio **249** | **Cambia:** «reembolso por revisar» + motivo después, criterio **250** |
+| **M3 — reembolso total** (súper-admin, pedido **liquidado** de envío directo) | Cierra el envío vivo; las cartas quedan congeladas y las resuelve un humano (`API_CONTRACT.md:756`, SEC-SHIP-A2) | **No cambia** (ya hay confirmación humana; nada queda apartado) | **Cambia:** motivo obligatorio **en la misma acción**, sin él no hay reembolso; las cartas no vuelven; criterio **251** |
+| **Panel de Stripe sobre pedido LIQUIDADO** | Mismo cierre que M3 (`API_CONTRACT.md:756`, `charge.refunded` total) | **No cambia** | **Cambia:** «reembolso por revisar» + motivo después, criterio **250** |
+| **Reembolso total de una compra A BÓVEDA** (§M4-SHIP, criterio **231**) | Deshace la venta: la carta vuelve «en almacén» y un humano confirma | **No cambia** (una compra a bóveda no tiene envío propio) | **No pide motivo** aunque alguna carta ya saliera en un retiro; lo retirado no se toca (**P-S11-4, decidido**) |
+| **Total alcanzado sumando reembolsos por carta** («no sale nada» al preparar, §S.10.3) | Ocurre **durante la preparación**, antes de «enviado» | **No cambia** | **No aplica** (por definición no salió) |
+| **Contracargo** | No es un reembolso nuestro (§H: proceso del banco). Con el envío en «enviado»/«entregado» las cartas **ya no se tocan** y queda para revisión manual (`API_CONTRACT.md:10150`) | **No cambia** | Cartas: **ya cumple** (no vuelven). Motivo: **no se pide** (**P-S11-3, decidido**) |
 
-##### S.11.6 Lo que NO cambia (se verifica por ausencia, criterio 252)
+*(Las filas «Hoy» se leyeron del contrato y del registro de deuda el 2026-10-04; **NO MEDIDO** contra el código. Lo
+confirma el arquitecto.)*
 
-- M3 **sigue sin** reembolsar pedidos sin liquidar; el **criterio 231** (reembolso total de bóveda), el
-  **contracargo** (la carta vuelve a la venta) y **§S.10** no cambian.
+##### S.11.6 Lo que NO cambia (se verifica por ausencia, criterio 253)
+
+- M3 **sigue sin** reembolsar pedidos sin liquidar.
+- El reembolso total de un pedido **liquidado no enviado** (M3 o Stripe) se comporta **igual que hoy**.
+- El **criterio 231** (reembolso total de bóveda) no cambia: **no** pide motivo, tampoco con cartas ya retiradas
+  (P-S11-4, decidido); el **contracargo** conserva su regla de cartas y **no** pide motivo (P-S11-3, decidido).
+- **§S.10** no cambia: el reembolso **por carta** al preparar sigue igual (ocurre antes de «enviado»).
 - La máquina de estados del envío **no gana estados**; el punto «enviado» es el de siempre.
-- Ningún correo nuevo al cliente; ningún movimiento de dinero nuevo.
+- Ningún correo nuevo al cliente; ningún movimiento de dinero nuevo (el reembolso de M3 manda **el** correo de
+  reembolso de siempre, ⛔ no uno adicional por el motivo).
+
+##### S.11.7 Preguntas de S.11 — ✅ todas respondidas
+
+*(P-S11-1 y P-S11-2 quedaron **respondidas** el 2026-10-04 — 4a y 4b de `HECHOS.md`. P-S11-3 y P-S11-4,
+**respondidas** el 2026-10-04 con su default — `HECHOS.md` «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3,
+P-S11-4 y P-PRE-1»: *«lo demás por defecto»*. No se re-pregunta ninguna.)*
+
+- **P-S11-3 · Contracargo de un pedido ya enviado ⇒ DECIDIDO: NO pide motivo.** Lo decide el banco del cliente,
+  no nosotros; las cartas de un pedido enviado ya no vuelven a inventario con un contracargo. Se queda como está.
+- **P-S11-4 · Compra a bóveda reembolsada completa con alguna carta ya retirada ⇒ DECIDIDO: NO pide motivo; lo
+  retirado no se toca.** La regla del «enviado» mira el envío **del propio pedido**, y una compra a bóveda no
+  tiene; las cartas ya retiradas siguen sin tocarse, como hoy (criterio 231).
+
+### U. Usuarios de back-office SIN correo — el correo es solo para clientes (transversal — NUEVO 2026-10-04, sesión 5 · preguntas P-STF resueltas por el dueño el 2026-10-04: P-STF-4 decidida por él, las demás «default aceptado»)
+
+> **Letra:** §T la usa la rama viva `claude/skydropx-envios` (Skydropx, criterios 234–248); por eso esta sección
+> es **§U**. **Criterios: 256–270** (lista global). ⚠️ **NO MEDIDO** por product-owner contra las demás ramas
+> `claude/*` (no tengo Bash): en este árbol el último criterio es el **255** y no hay reservas por encima en
+> `PENDIENTES.md`, `TRASPASO.md` ni `HANDOFF.md` (grep del 2026-10-04). Antes de fusionar, el orquestador comprueba
+> que ninguna rama viva usa 256–270.
+
+**Origen, citado de `HECHOS.md`** — fila **«Usuarios de back-office SIN correo; el correo es solo para clientes.»**
+(2026-10-04, sesión 5). Palabras del dueño: *«Necesito poder hacer usuarios de backoffice sin correo, correo solo
+para clientes»*. Confirmado por el dueño en la misma fila: **(a)** *«su propia cuenta de súper-admin conserva
+correo, solo para recuperar la contraseña»*; **(b)** *«el resto del staff entra con nombre de usuario +
+contraseña, sin doble verificación; si olvidan la contraseña, la restablece el dueño desde Usuarios»*. Default del
+orquestador, sin preguntar, en la misma fila: *«el aviso de candado al staff deja de ir por correo y queda en el
+panel»*. **(c)**, decidido por el dueño en la misma fila: **misma pantalla de login que los clientes** — *«¿no es
+más fácil que detecte usuario la misma página en mi cuenta y así entra directo a admin?»*; *«el campo acepta correo
+o usuario; si es un usuario de staff, entra directo al panel»*. Esto **reemplaza** el SUPUESTO de pantalla propia
+que tenía §U.3. Misma fila: *«las demás preguntas P-STF quedan con su default»*. Dato medido en esa fila (no lo re-medí): hoy `User.email` es obligatorio y único y el login es por correo.
+
+#### U.1 El problema, en lenguaje llano
+
+Hoy toda cuenta necesita un correo, también la de un operador de bóveda. El dueño no quiere dar de alta correos
+para su equipo: el correo es el canal con **clientes**. El equipo debe poder entrar con un **nombre de usuario** y
+una **contraseña** que el dueño administra.
+
+#### U.2 Alta de un miembro del equipo (criterios 256, 257, 260)
+
+- Desde **Usuarios** (M6), el súper-admin da de alta a un miembro del equipo con: **nombre** (el que se muestra,
+  como hoy), **nombre de usuario**, **rol** (`vault_operator` o `super_admin` — P-STF-1, default aceptado) y **contraseña
+  inicial** (la teclea el dueño o la genera el sistema y se muestra **una sola vez**, como el alta de hoy).
+  ⛔ **Sin campo de correo.** El celular **no** es obligatorio para staff (ya era así: D11, criterio de alta (b)).
+- **Reglas del nombre de usuario** *(SUPUESTO: valores de PO; el dueño puede cambiarlos)*:
+  - **3 a 30** caracteres.
+  - Solo letras **a–z** sin acentos ni ñ, dígitos **0–9**, punto **`.`**, guion bajo **`_`** y guion **`-`**;
+    **empieza con letra**. ⛔ Sin espacios y **sin `@`** — así un usuario **nunca** se confunde con un correo. Con
+    la pantalla de entrada compartida (§U.3) esta regla es **la que decide** qué se tecleó: con `@` es un correo,
+    sin `@` es un usuario.
+  - **Único sin distinguir mayúsculas**: si existe `luis.p`, se rechaza `Luis.P`. Se guarda y se muestra en
+    **minúsculas** *(SUPUESTO)*.
+  - **No se edita** después del alta en este corte *(P-STF-3, default aceptado 2026-10-04)*.
+- **Al primer ingreso, el staff debe cambiar la contraseña inicial**, la haya tecleado el dueño o la haya generado
+  el sistema *(P-STF-6, default aceptado 2026-10-04; hoy el alta solo obliga cuando la contraseña es
+  autogenerada)*.
+- El alta de un **cliente** desde Usuarios **no cambia**: sigue exigiendo correo (y celular, D11). ⛔ Un cliente
+  no tiene nombre de usuario.
+
+#### U.3 Cómo entra el equipo — DECISIÓN DEL DUEÑO: la MISMA pantalla de entrada que los clientes (criterios 258, 259)
+
+**Decidido por el dueño** (`HECHOS.md`, fila 2026-10-04 «Usuarios de back-office SIN correo», punto (c)): *«¿no es
+más fácil que detecte usuario la misma página en mi cuenta y así entra directo a admin?»*. No hay pantalla propia
+del equipo ni dirección aparte que compartir (resuelve P-STF-4).
+
+- **Un solo campo, «correo o usuario».** La pantalla de entrada de siempre acepta en ese campo un **correo** o un
+  **nombre de usuario**. Lo distingue la **forma** de lo tecleado, nunca la base de datos: **con `@` es un correo**
+  y se comporta **exactamente como hoy**; **sin `@` es un nombre de usuario** (los usuarios no pueden llevar `@`,
+  §U.2).
+- **Usuario de staff + contraseña correcta ⇒ entra directo al panel (back-office)**, con los permisos de su rol,
+  sin pasar por la tienda. *(Si debe cambiar su contraseña inicial o temporal, primero va a cambiarla: criterios
+  260 y 261.)*
+- **Quien entra con correo, entra como hoy** y llega a donde llega hoy: clientes, la cuenta del dueño y el staff
+  que ya tiene correo (§U.6). ⚠️ NO MEDIDO por PO a qué pantalla lleva hoy a un staff con correo; este cambio no
+  lo toca.
+- **Lo demás de la pantalla se queda y no se esconde:** Google, «crear cuenta» y «olvidé mi contraseña» siguen
+  ahí para los clientes. ⛔ Nada aparece, desaparece ni cambia **según la cuenta exista o no**; a lo sumo puede
+  variar según la **forma** de lo tecleado (con o sin `@`), que el usuario ya conoce.
+- **Lo único que cambia para el cliente** es que el campo ya no rechaza como «correo inválido» un texto sin `@`
+  (ahora es un usuario) y su etiqueta pasa a decir correo **o** usuario (texto final de ux-ui). Su entrada con
+  correo, su Google, su registro, su «olvidé» y su texto de candado (`HECHOS.md` 2026-10-04 «déjalo así») **no
+  cambian**.
+
+**Mensajes de error:** con un usuario tecleado, contraseña incorrecta, usuario inexistente y cuenta
+deshabilitada producen **la misma** respuesta y el mismo mensaje (*«Usuario o contraseña incorrectos»* o uno
+común para correo y usuario; texto final de ux-ui). ⛔ Ningún mensaje, código, tiempo de respuesta, enlace ni
+destino distinto revela si el usuario existe, ni si un nombre es de staff — la misma regla que hoy cumple el
+login por correo.
+
+#### U.4 Contraseña olvidada y contraseña propia (criterios 261, 262, 263)
+
+- **Si un miembro del equipo sin correo olvida su contraseña, la restablece el dueño desde Usuarios** (HECHOS
+  (b)). El sistema genera una temporal que se muestra **una sola vez** al dueño; al entrar, el staff **debe
+  cambiarla** antes de hacer cualquier otra cosa. La anterior deja de servir, el candado de intentos de esa cuenta
+  se levanta, y las sesiones que el staff tuviera abiertas se cierran *(SUPUESTO en este último punto; NO MEDIDO
+  por PO si el restablecimiento por admin de hoy ya lo hace — lo confirma el arquitecto)*.
+- **Para el staff sin correo no existe «olvidé mi contraseña»**: el enlace sigue en la pantalla compartida
+  (es de los clientes y del dueño), pero si alguien teclea ahí un **nombre de usuario**, no cambia nada y la
+  pantalla **contesta igual que con un correo inexistente** — mismo mensaje, mismo código, sin correo enviado. Así
+  ese formulario tampoco revela si un usuario existe. El «olvidé mi contraseña» de clientes y del dueño sigue
+  **igual que hoy**.
+- **El staff cambia su propia contraseña desde Mi cuenta**, con su contraseña actual. Este ciclo **ya falló una
+  vez** por estar a medias (el endpoint existía y la pantalla no — regla O-4 de `CLAUDE.md`), así que el
+  criterio 263 enumera el recorrido **entero**, de punta a punta, como lo hace el usuario.
+
+#### U.5 Candado por intentos: igual que hoy, pero el aviso va al panel (criterios 264, 265)
+
+- **Mismos límites que hoy** con el correo (contrato §1 «Límite de intentos por cuenta», C7): contador **por
+  nombre de usuario** (sin distinguir mayúsculas) y límite **por IP**, con los mismos números, la misma escalera
+  y la misma puerta del dispositivo conocido. Sin diferencia por rol.
+- **Qué ve el staff** con el candado puesto, en la pantalla de entrada compartida, cuando lo tecleado es un
+  usuario (sin `@`): los minutos que faltan y *«Si no recuerdas tu contraseña, pídele al administrador que la
+  restablezca»* — ⛔ sin enlace a restablecer (no tiene correo). Con un correo tecleado, el texto de candado es el
+  de hoy, sin cambios.
+- **Aviso de candado al staff sin correo: en el panel, no por correo** (default del orquestador, HECHOS). La
+  próxima vez que ese miembro del equipo entre, ve un aviso con el mismo contenido que hoy lleva el correo
+  (*hubo varios intentos fallidos de entrar a tu cuenta; si no fuiste tú, avísale al administrador*), hasta que lo
+  cierra. Como máximo **uno cada 24 h** por cuenta, igual que el correo de hoy.
+- **Qué ve el dueño:** en **Usuarios**, la fila de esa persona marca **«bloqueado por intentos hasta HH:MM»**
+  mientras dure el candado, y el historial de la persona (ficha 360°) muestra el evento de candado con su fecha.
+  Para levantarlo antes, **restablece la contraseña** (eso ya lo levanta hoy). ⛔ Sin correo al dueño por esto y
+  sin contador nuevo en el tablero *(P-STF-7, default aceptado 2026-10-04)*.
+- Quien **sí** tiene correo (el dueño y el staff existente con correo) sigue recibiendo el aviso **por correo,
+  como hoy** *(P-STF-5, default aceptado 2026-10-04)*.
+
+#### U.6 El staff que ya existe con correo (criterio 266)
+
+**P-STF-2, default aceptado 2026-10-04:** se queda **como está**. Sigue entrando con su correo por la pantalla de siempre,
+sigue pudiendo usar «olvidé mi contraseña» y sigue recibiendo sus avisos por correo. **Los nuevos se crean sin
+correo.** En este corte no hay forma de quitarle el correo a una cuenta existente ni de ponerle un nombre de
+usuario.
+
+#### U.7 Nada se rompe por no tener correo (criterios 267, 268, 269)
+
+- **Ningún correo de la tienda se intenta mandar a una cuenta sin correo.** Lo que hoy le mandaría un correo a
+  esa cuenta se **omite**, la acción que lo disparó termina igual, y nada queda como «correo fallido» ni se
+  reintenta. Los correos que van «a todos los súper-admin» llegan solo a los que tienen correo.
+- **Bitácora, auditoría, «quién es quién» y hojas imprimibles** muestran a ese miembro del equipo por su
+  **nombre** y/o **nombre de usuario** — ⛔ nunca un hueco, «null» ni «undefined» donde hoy va el correo.
+- **Usuarios:** el listado muestra el nombre de usuario, y la búsqueda lo encuentra por él.
+- **Una cuenta sin correo es solo de back-office** *(P-STF-8, default aceptado 2026-10-04; coherente con «un
+  miembro del staff no vende», D11)*: no compra, no tiene bóveda ni vende por buylist; si lo intenta, recibe un
+  rechazo claro.
+- **Un cliente no puede tener nombre de usuario**: aunque la pantalla de **entrada** ahora acepta usuarios, el
+  **registro** sigue pidiendo un correo válido (con `@`); un texto sin `@` en el registro se rechaza como hoy. No
+  hay forma de que un cliente se registre con un usuario ni de que un registro cree una cuenta sin correo.
+
+#### U.8 Lo que NO cambia (se verifica por ausencia, criterio 270)
+
+- La entrada de **clientes** con correo o Google, su registro, su texto de candado (HECHOS 2026-10-04 «déjalo
+  así») y su «olvidé mi contraseña». Lo único visible que cambia en esa pantalla es el campo «correo **o**
+  usuario» (§U.3).
+- La cuenta del **dueño**: conserva su correo, entra como hoy y recupera su contraseña por correo (HECHOS (a)).
+- Los **números del candado** (C7) y el límite por IP.
+- Lo que cada **rol** puede hacer: no tener correo no da ni quita permisos.
+- El alta de **clientes** desde Usuarios (correo + celular).
+- **Sin doble verificación** para nadie (HECHOS (b)).
+
+#### U.9 Preguntas de §U (para el dueño) — cada una con su default
+
+Ver la sección final **«Preguntas — usuarios de back-office sin correo (2026-10-04, sesión 5)»**: P-STF-1 a
+P-STF-8. **Todas cerradas el 2026-10-04**: P-STF-4 la decidió el dueño (misma pantalla); las otras siete,
+default aceptado.
+
+### V. Disputas fuera de la tienda — el cliente escribe a soporte o reclama a su banco (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-DSP abiertas)
+
+> **Fuente:** `HECHOS.md`, fila **2026-10-04** «Disputas: se quitan de la tienda. No hay disputa antes del envío ni
+> en bóveda; tras la entrega, el cliente escribe a soporte o reclama con su banco vía Stripe.» Palabras del dueño,
+> literales: *«que la disputa se abra en stripe que el cliente la pele con ellos no con nosotros»*; *«no debería
+> haber disputas hasta después del envío, menos en bóveda»*; y, a la propuesta del orquestador, *«sí, quita el
+> botón y pon escríbenos»*. Lo dicho **no se re-pregunta**.
+>
+> **Letra:** §T la usa la rama viva `claude/skydropx-envios` (criterios 234–248) y §U ya existe; por eso esta es
+> §V. **Criterios: 271–274** (medido el 2026-10-04 sobre este `PROJECT.md`: el último ocupado es el 270; **NO
+> MEDIDO** si otra rama viva distinta de la de Skydropx usa números ≥ 271 — lo comprueba el orquestador antes de
+> fusionar).
+>
+> **Sustituye:** la **«vía B»** de la errata `API_CONTRACT §E2E-ADM.1` (v1.80.10, F-2: disputa del comprador de un
+> envío directo desde el detalle del pedido) — dicho en la propia fila de `HECHOS.md`. Y retira, tachados en su
+> sitio y con fecha: §B «Excepción 1» (versión disputa), §F **M8**, §H «Disputas de condición», §J (disputa del
+> invitado), §S.11.4 (su relación con la disputa), criterios **7b** (parte), **22** y **56b**, decisiones **12**
+> y **22** (parte), y la pregunta v1.5-**4**.
+>
+> 💰 Toca reembolsos ⇒ **tres veredictos** antes de desplegar. El *cómo* es del arquitecto y **no se escribe aquí**.
+
+#### V.1 Qué ve el cliente
+
+- ⛔ **No hay botón de disputa en ninguna parte de la tienda**: ni en **«Mi bóveda»**, ni en **«Retiros»**, ni en
+  el **detalle del pedido**, ni en la **página de seguimiento del invitado**. *(Medido el 2026-10-04 por lectura:
+  hoy el botón vive en «Retiros», `frontend/src/app/[locale]/(storefront)/vault/WithdrawalsList.tsx:196`; la
+  errata v1.80.10 proponía añadirlo al detalle del pedido, y eso ya no se hace.)*
+- En un **pedido entregado** (con cuenta o como invitado), el cliente ve **«¿Problema con tu pedido?
+  Escríbenos»** con el **correo de soporte**. Antes de «entregado» la línea no aparece (*«no debería haber
+  disputas hasta después del envío»*).
+- **(SUPUESTO / default de P-DSP-4:** en un **retiro de bóveda entregado** la línea **no** aparece en este corte —
+  el dueño habló de «pedido»—; si la quiere también ahí, lo dice.)
+- Los textos que hoy prometen una disputa (términos, checkout, seguimiento del invitado: ventana, «recompra»,
+  «abrir disputa») se reescriben para decir **escríbenos a soporte**. El aviso corto del checkout («ventas
+  finales, sin reembolso salvo carta dañada/equivocada o error de la plataforma») **sigue siendo cierto** y no
+  cambia de sentido. *(Las claves concretas las localiza ux-ui/frontend.)*
+
+#### V.2 Cómo compensa el dueño
+
+- El cliente escribe a soporte con su **número de pedido** y su evidencia (fotos por correo, como hasta hoy).
+- El **súper-admin** decide caso por caso (grado/cert en gradeadas; estándar NM en raw) y, si procede, compensa
+  **desde Ventas (M3) con el reembolso que lleva motivo** —**«no llegó»** o **«llegó en mala condición»**—, el de
+  **§S.11.4** (criterio **251**). Las cartas de un pedido enviado **no vuelven a inventario**: el cliente se queda
+  con ellas. ⛔ No hay acción nueva de compensación: es la que ya existe.
+- **(SUPUESTO / default de P-DSP-3:** ese reembolso es **total**, porque es el único que existe después de
+  «enviado» (`Fuera de alcance`, §S.11: hoy no hay reembolso **por carta** tras el envío). Si en un pedido de 5
+  cartas llega mal **una**, en este corte el dueño elige entre reembolsar todo o arreglarlo fuera del sistema.)
+- **Errores de plataforma** (cobro duplicado, inventario fantasma) **no cambian**: M3, sin ventana.
+
+#### V.3 El invitado
+
+- **La misma vía:** su página de seguimiento, con el pedido entregado, muestra «¿Problema con tu pedido?
+  Escríbenos»; escribe a soporte con su número de pedido y el dueño reembolsa desde Ventas con motivo. **No necesita
+  cuenta.** Con esto `D-DSP-1` (compensación por carta del invitado, que pedía cambio de esquema) **queda sin
+  objeto**: no se construye disputa del invitado. *(La limitación «solo total» de V.2 le aplica igual que a un
+  cliente con cuenta.)*
+
+#### V.4 Contracargos de Stripe — **sin cambio**
+
+Es la vía que el dueño quiere: *«que la disputa se abra en stripe que el cliente la pele con ellos no con
+nosotros»*. Lo que pasa hoy *(medido el 2026-10-04 por lectura del código, sin ejecutar)*:
+
+- Al llegar **`charge.dispute.created`** (`backend/src/modules/payments/payments.service.ts:173`) el pedido pasa a
+  **«Contracargo»** y lo que pasa con las cartas **depende del pedido** (`payments.service.ts:795-1033`):
+  - **Envío directo, envío aún sin salir** (solicitado / preparando / guía): el envío **se cancela** y las cartas
+    **se congelan** fuera de venta hasta que un humano confirme dónde están.
+  - **Envío directo ya enviado o entregado:** las cartas **no se tocan** (las tiene el cliente).
+  - **Envío directo sin envío todavía:** las cartas apartadas **vuelven a la venta**.
+  - **Compra a bóveda:** las cartas que siguen en la bóveda del cliente **vuelven a la plataforma y a la venta**; las
+    ya retiradas no se tocan.
+  *(Precisión al encargo: «las piezas se congelan» es verdad solo en el primer caso.)*
+- **Qué ve el dueño:** en el detalle del pedido en Ventas, el estado **«Contracargo»** y, cuando alguna carta
+  necesita confirmación, el aviso **«Pendiente de confirmación humana — Hay cartas de este pedido cuyo paradero
+  físico nadie ha confirmado. Resuélvelo abajo.»** (`frontend/src/app/[locale]/(admin)/admin/m3/[orderId]/M3OrderDetailView.tsx:245-248`,
+  `frontend/messages/es.json:1608-1609`),
+  con las acciones para confirmarlo. La defensa (evidencia, guía) se lleva **en el panel de Stripe**, no en la
+  tienda. Al cerrarse: **ganada** ⇒ el pedido vuelve a «liquidado»; **perdida** ⇒ queda en «Contracargo»
+  (`payments.service.ts:1051-1083`). **NO MEDIDO:** si el dueño recibe algún correo al abrirse un contracargo.
+- Sigue abierta, aparte y sin cambio, la **pregunta 86** (qué le pasa al pedido mientras el contracargo está vivo).
+
+#### V.5 Lo que se retira del lado del sistema
+
+- **No se crean disputas nuevas por ninguna vía**: ni desde la tienda ni llamando directo al servidor (quitar el
+  botón sin cerrar la puerta dejaría la función viva). Criterio **272**.
+- **M8 y las disputas que ya existan** — default de **P-DSP-1**: M8 queda **en transición** —sin entradas nuevas,
+  con lo justo para **cerrar las abiertas** con las acciones de hoy— y **se retira** cuando no quede ninguna
+  abierta. Si el cliente tiene disputas viejas, las sigue viendo en modo lectura hasta que cierren. **NO MEDIDO**
+  cuántas disputas abiertas hay en producción (§R decía «hoy: cero» el 2026-09-14); lo cierra una consulta de
+  solo lectura de las disputas no cerradas, que corre el dueño o el orquestador por una vía admitida.
+
+#### V.6 El correo de soporte — de dónde sale (medido el 2026-10-04 por lectura)
+
+- **No es un dial de M10.** Sale de configuración del servidor: `DISPUTE_EVIDENCE_CONTACT` (y `SUPPORT_EMAIL`,
+  que cae a la anterior), con valor por defecto **`soporte@tcghunt.mx`** (`.env.example:349-350`,
+  `backend/src/modules/disputes/disputes.constants.ts:19`, `backend/src/modules/orders/guest-checkout.constants.ts:63`,
+  `backend/src/modules/buylist/mail-shell.ts:616-617`).
+- Hoy llega a la pantalla **solo** en el seguimiento del invitado (`support.evidenceContact`,
+  `PublicOrderTracking.tsx:255`) y en la respuesta de crear disputa. El detalle del pedido del cliente con cuenta
+  **no lo trae**; el frontend tiene un valor fijo de reserva (`checkout/support-contact.ts:14`).
+- **(SUPUESTO / default de P-DSP-5:** se usa **el mismo buzón y el mismo origen** que hoy —sin dial nuevo—; cómo
+  llega al detalle del pedido lo decide el arquitecto, ⛔ sin escribirlo a mano en la pantalla.)
+
+#### V.7 Desviaciones del arquitecto (`ARCHITECTURE §9`, `API_CONTRACT` v1.80.10) — qué queda de cada una
+
+| Desviación | Qué preguntaba | Queda |
+|---|---|---|
+| **D-DSP-1** | Compensación **por carta** del invitado (disputa del invitado ⇒ esquema) | **Sin objeto.** El invitado escribe a soporte y el dueño reembolsa desde Ventas (V.3). No hay esquema nuevo. El hueco «por carta» pasa a ser **P-DSP-3**, igual para todos |
+| **D-DSP-2** | ¿Se disputa una carta que sigue en la bóveda? | **Sin objeto — respondida por el dueño: no** (*«menos en bóveda»*). La disputa en bóveda (vía A) se retira entera |
+| **D-DSP-3** | `kind` del envío derivado de `userId` en el código vs. de la orden en el contrato | **Cambia de peso, no desaparece.** No depende de disputas; su detonante cercano (la vía B) ya no se construye. Sigue siendo una divergencia contrato/código de backend, baja |
+| **D-DSP-4** | ¿Se disputa una carta repuesta («Por reponer»)? | **Sin objeto.** No hay disputa; una carta repuesta que llegue mal se atiende por soporte y reembolso como cualquier otra |
+| *(errata F-2, vía B)* | Disputa del comprador del envío directo desde el pedido | **Sustituida** (fila de `HECHOS.md`): no se construye; sus pruebas DSP-1…12 y OD-DSP-1…7 quedan sin objeto |
+
+#### V.8 Lo que NO cambia (se verifica por ausencia, criterio 274)
+
+- Contracargos: su regla de cartas, estados y confirmación humana (V.4); y **no** piden motivo (P-S11-3).
+- El reembolso por **error de plataforma** (M3) y el reembolso **por carta al preparar** (§S.10).
+- El reembolso total y su regla «enviado ⇒ motivo» (§S.11): **se usa**, no se modifica.
+- «Ventas finales» como política; la evidencia sigue llegando **por correo**, sin subida de fotos.
+
+#### V.9 Preguntas de §V — cada una con su default
+
+Ver la sección final **«Preguntas — disputas fuera de la tienda (§V, 2026-10-04)»**: P-DSP-1 a P-DSP-5. Ninguna
+bloquea al arquitecto: si el dueño no contesta, se construye con el default.
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §V (disputas fuera de la tienda)** *(2026-10-04)*: cualquier **disputa iniciada por el cliente dentro de
+  la tienda** (antes del envío, en bóveda, en retiros o en pedidos — decisión del dueño); la disputa del invitado
+  con esquema propio (`D-DSP-1`); un formulario de contacto dentro de la app (es un correo a soporte); y, mientras
+  P-DSP-3 no diga otra cosa, el **reembolso por carta después de «enviado»**.
+- **De §U (usuarios de back-office sin correo)** *(2026-10-04)*: doble verificación para el staff (el dueño dijo
+  «sin doble verificación»); que el staff recupere su contraseña por su cuenta (sin correo no hay canal: la
+  restablece el dueño); pasar a usuario sin correo al staff que **ya** tiene correo (P-STF-2); cambiar el nombre
+  de usuario después del alta (P-STF-3); que un cliente tenga nombre de usuario.
 - **De §S.11 (cartas de un pedido reembolsado sin liquidar), a propósito** *(2026-10-02)*: que el sistema **actúe
   según el motivo** registrado (reclamar a la paquetería, abrir disputa, recobrar, pedir la carta de vuelta);
   integrar el motivo con Skydropx (paquete devuelto sigue siendo alerta a mano, `HECHOS.md` 2026-10-02); y
-  extender la regla a otros reembolsos totales **mientras P-S11-2 no diga lo contrario**.
+  ~~extender la regla a otros reembolsos totales mientras P-S11-2 no diga lo contrario~~ *(2026-10-04: el dueño
+  la extendió a **cualquier reembolso total** — 4b; sale de esta lista)*. Sigue fuera: pedir motivo a un
+  reembolso **parcial** (por carta) de un pedido ya enviado — el dueño habló de reembolso **total**; hoy no existe
+  reembolso por carta después de «enviado» (§S.10.3 ocurre al preparar).
 - **De «Pedidos por preparar» (§S), fuera de la versión construida** *(NUEVO v2.3, 2026-09-22)*: ~~**palomear y
   firmar** el pedido como preparado, y 💰 el **reembolso parcial por carta faltante** (este último **exige los
   tres veredictos antes de escribir una línea**).~~ *(2026-09-24: la **cubeta de bóveda y la sugerencia de cajón
@@ -7679,9 +8103,11 @@ nuevo, no como parte de §R**:
   igual (D46); lo que se retira es la comparación contra la cuenta.** Ver §P.2.3 y decisión **113**.
 - **Política de reembolsos — VENTAS FINALES**: no hay reembolso voluntario tras la compra (en bóveda o
   enviada); aplica a **todos los tipos de producto sin excepción** (raw, sellado y gradeadas). **Dos
-  excepciones**: (1) **disputa de condición** por carta **dañada/equivocada** (ventana de **7 días contados
+  excepciones**: (1) ~~**disputa de condición** por~~ carta **dañada/equivocada** (ventana de **7 días contados
   desde la entrega del envío** —paquetería marca "entregado"—, **evidencia por correo a soporte**; resolución
-  por **grado/cert** en gradeadas o **estándar NM** en raw) → el súper-admin **recompra al precio pagado** y
+  por **grado/cert** en gradeadas o **estándar NM** en raw) → el súper-admin ~~**recompra al precio pagado**~~
+  **reembolsa desde Ventas con motivo «llegó en mala condición»** *(2026-10-04, §V: sin disputa en la tienda; el
+  cliente escribe a soporte; la ventana de 7 días queda como texto de términos — P-DSP-2)* y
   el **cliente conserva la carta** (sin devolución); (2) **error
   de la plataforma** (**cobro duplicado** o **inventario fantasma**) → **siempre se reembolsa**, sin ventana
   de 7 días ni evidencia de disputa, porque es corrección de un error propio y no arrepentimiento del
@@ -7694,12 +8120,14 @@ nuevo, no como parte de §R**:
   falta **se repone primero** y, si no, **el dueño captura el monto** con el mercado a la vista y paga por
   tarjeta hasta donde alcance el cobro y **el resto por SPEI a mano**; y un **reembolso total de una compra a
   bóveda deshace la venta** (la carta vuelve a la plataforma). **§S.10**, **§H**, criterios **215–233**.)*
-- **Correo de evidencia / soporte de disputas**: la evidencia de una disputa de condición se envía por
+- **Correo de evidencia / soporte ~~de disputas~~** *(2026-10-04: ya no hay disputas en la tienda; es el correo
+  de «¿Problema con tu pedido? Escríbenos», §V.6)*: la evidencia ~~de una disputa de condición~~ de una carta
+  dañada/equivocada o de un pedido que no llegó se envía por
   **correo a un buzón de soporte** (no hay subida de foto en la app). Correo de contacto:
   **soporte@tcghunt.mx** *(corregido 2026-08-31: decía `soporte@tcgvault.mx` y afirmaba que convivía con un
   segundo dominio; **no hay dos dominios** — todos los buzones son de `tcghunt.mx`, ver decisión 36)*. Debe
   aparecer en términos/FAQ
-  y en el flujo de disputa.
+  y ~~en el flujo de disputa~~ en el pedido entregado (§V.1, criterio 271).
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos). La **CLABE**
   se guarda **cifrada en BD**; el **INE se almacena cifrado en R2 con retención** (`INE_RETENTION_DAYS`,
   default 180) ~~y se **verifica contra el nombre de la CLABE**~~.
@@ -7861,10 +8289,14 @@ nuevo, no como parte de §R**:
 7b. El **checkout muestra el aviso de "ventas finales, sin reembolso salvo carta dañada/equivocada o error
    de la plataforma"** (con enlace a los términos), y **existe una página de términos/políticas** que
    describe la política completa: ventas finales aplicables a todos los tipos de producto (raw, sellado y
-   gradeadas), la excepción de disputa de condición (ventana de 7 días contados desde la entrega del envío,
-   recompra al precio pagado con el cliente conservando la carta), la excepción de error de la plataforma
+   gradeadas), la excepción de ~~disputa de condición (ventana de 7 días contados desde la entrega del envío,
+   recompra al precio pagado con el cliente conservando la carta)~~ **carta dañada o equivocada** *(2026-10-04,
+   §V: se atiende **escribiendo a soporte** y se compensa con reembolso, el cliente conserva la carta; ⛔ los
+   términos ya no mencionan «abrir una disputa» ni «recompra» — criterio 271)*, la excepción de error de la plataforma
    (cobro duplicado / inventario fantasma se reembolsan siempre) y la aclaración de que el contracargo
-   bancario es un proceso independiente ante el banco del cliente.
+   bancario es un proceso independiente ante el banco del cliente. *(⭐ 2026-10-04: la página de términos
+   describe también la excepción del **pedido enviado que no llegó** — §H, §S.11.4; el aviso corto del checkout
+   no cambia de texto, SUPUESTO.)*
 7c. Un **cobro duplicado** o una **compra sin inventario real** (inventario fantasma) **se reembolsa**: el
    súper-admin puede ejecutar el reembolso en M3 sin depender de la ventana de 7 días ni de la evidencia de
    disputa, y la orden queda en estado `reembolsada`. *(⭐ **v1.80.4 · 2026-09-29**: el reembolso total de M3
@@ -8032,12 +8464,14 @@ nuevo, no como parte de §R**:
 21. En M7 el P&L calcula **ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia**, muestra
     **valor de inventario (a referencia y a costo)**, **valor en custodia de clientes** y el **IVA cobrado**
     (para conciliación/CFDI), con **export CSV**.
-22. En M8, ante una disputa de condición (carta dañada/equivocada, dentro de la ventana de **7 días contados
+22. ~~En M8, ante una disputa de condición (carta dañada/equivocada, dentro de la ventana de **7 días contados
     desde la entrega del envío** —cuando paquetería marca "entregado"—), la **evidencia se recibe por correo
     a soporte** (no hay subida de foto en la app); la resolución se apoya en el **grado/número de certificado**
     (gradeadas) o el **estándar NM** (raw). El admin puede ejecutar la **recompra al precio pagado** como
     remedio; la ejecución **no exige devolución de la carta** (el cliente la conserva) y solo la realiza el
-    súper-admin.
+    súper-admin.~~ *(**RETIRADO el 2026-10-04** — `HECHOS.md` fila 2026-10-04 «Disputas: se quitan de la
+    tienda…». Motivo: ya no entran disputas; M8 queda en transición y se retira — §V.5. Lo sustituyen los
+    criterios **271–274**.)*
 23. En M10 existe una **bitácora de auditoría global** (quién/qué/cuándo) y los **diales/config se editan
     sin necesidad de redeploy**.
 24. El **dashboard** muestra las ~8 tarjetas definidas (ganancia del periodo, ventas, cola de trabajo,
@@ -8169,10 +8603,12 @@ nuevo, no como parte de §R**:
     y **permite completar la compra como invitado**; el pedido **no se agrega en silencio** al historial de
     esa cuenta: requiere el **reclamo explícito** del titular tras iniciar sesión *(sujeto a confirmación
     del humano — ver preguntas abiertas v1.5)*.
-56b. Un invitado puede abrir una **disputa de condición** o reportar un **error de plataforma** con las
+56b. ~~Un invitado puede abrir una **disputa de condición** o reportar un **error de plataforma** con las
     **mismas reglas** que un usuario con cuenta (ventana de **7 días desde la entrega**, evidencia **por
     correo a soporte** citando su **número de pedido**); no se le exige crear cuenta para ser atendido ni
-    compensado.
+    compensado.~~ *(**RETIRADO el 2026-10-04** — `HECHOS.md` «Disputas: se quitan de la tienda…»: no hay
+    disputa para nadie. Lo que sigue vigente —el invitado es atendido y compensado sin crear cuenta, por la misma
+    vía que todos— pasa al criterio **273**.)*
 
 **Sellado (producto cerrado) — v1.6**
 57. El **precio de venta del sellado** se **deriva de TCGCSV** con la precedencia exacta: **(a)** si hay
@@ -10460,33 +10896,191 @@ total de bóveda (§S.10, §H, §D, §R.3 — v1.80.4 · 2026-09-29; decisiones 
    estado nuevo); **impresión de etiquetas: cero**; **sin aviso al cliente al colocar en bóveda**; el **envío
    directo no entra a «Por reponer»**; **ninguna pantalla ordena por apellido**; y el **contracargo** conserva su
    regla. **⛔ Falla** cualquiera que «aparezca porque parecía razonable».
+*(Criterios 249–253 **reescritos el 2026-10-04** con 4a y 4b de `HECHOS.md` — fila «Cartas apartadas (SSL-R1) —
+detalles del 2026-10-04». 254–255 son nuevos, de la fila «Precios — decisiones del 2026-10-04».)*
 249. 💰 **Pedido sin liquidar reembolsado desde Stripe y NO enviado ⇒ sus cartas vuelven a inventario** *(§S.11.3;
-   `HECHOS.md` 2026-10-02; cierra `SSL-R1`)*: pedido sin liquidar con cartas apartadas, reembolso total desde el
-   panel de Stripe ⇒ **al confirmarse** el reembolso, **ninguna** carta queda apartada por ese pedido. Con el
-   default de P-S11-1: si ninguna carta se palomeó ni se empacó, **vuelven a la venta** (el catálogo las lista) con
+   `HECHOS.md` 2026-10-02 y 2026-10-04 4a; cierra `SSL-R1`)*: pedido sin liquidar con cartas apartadas, reembolso
+   total desde el panel de Stripe ⇒ **al confirmarse** el reembolso, **ninguna** carta queda apartada por ese
+   pedido. Si ninguna carta se palomeó ni se empacó, **vuelven solas a la venta** (el catálogo las lista) con
    **un** movimiento en bitácora cada una; si alguna ya estaba palomeada o en un paquete, esa queda **«en almacén»,
-   no a la venta**, hasta que un operador o el súper-admin confirme *«regresada»* (⇒ a la venta) o *«no está»* (⇒
-   merma firmada, una sola vez). Un aviso duplicado de Stripe **no escribe nada nuevo** (N ≥ 10). Una compra a
-   bóveda con colocación ya hecha sigue el criterio **231**. *(Si el dueño responde P-S11-1 distinto, este
-   criterio se reescribe con su respuesta.)*
-250. 💰 **Pedido reembolsado ya ENVIADO ⇒ las cartas NO vuelven; queda «reembolso por revisar» con motivo
-   obligatorio** *(§S.11.4)*: con el envío en «enviado» o «entregado» al confirmarse el reembolso total ⇒ **ninguna**
-   carta del pedido vuelve a la venta ni a «en almacén», ninguna sigue apartada, y el pedido aparece como
-   **«reembolso por revisar»** en el panel y en el contador del tablero. Registrar el motivo admite **solo**
-   «no llegó» o «llegó en mala condición» (cualquier otro valor o vacío ⇒ se rechaza sin escribir), guarda **quién
-   y cuándo** y saca el pedido del contador; la nota es opcional. Registrarlo **no** llama a Stripe, **no** mueve
-   cartas y **no** manda correo. El operador ⇒ **403, auditado** (default de S.11.4). **⛔ Falla** si una carta de
-   un pedido enviado reaparece en el catálogo por este camino.
-251. **El corte es «enviado», leído al confirmar el reembolso, y nada queda apartado para siempre** *(§S.11.2)*:
-   mismo pedido con el envío en «guía» ⇒ se trata como **no enviado** (249); en «enviado» ⇒ como **enviado** (250).
-   Si «marcar enviado» y el reembolso llegan **a la vez**, el resultado es **uno de los dos** casos completo, ⛔
-   nunca una mezcla (cartas a la venta **y** pedido «por revisar») (N ≥ 10). Tras una pasada del barrido de
-   reservas, **ninguna** carta sigue apartada por un pedido reembolsado, y el barrido **deja de registrar error**
-   por esos pedidos.
-252. **Lo que NO cambia con §S.11 — se verifica por ausencia** *(S.11.6)*: M3 **sigue rechazando** el reembolso de
-   un pedido sin liquidar; el **criterio 231**, el **contracargo** y **§S.10** se comportan igual; la máquina de
-   envíos **no** gana estados; **ningún** correo nuevo al cliente y **ningún** movimiento de dinero nuevo. Mientras
-   P-S11-2 siga con su default, un reembolso total de un pedido **liquidado** **no** abre «reembolso por revisar».
+   no a la venta**, hasta que un operador o el súper-admin confirme con un clic *«regresada»* (⇒ a la venta) o
+   *«no está»* (⇒ merma firmada, una sola vez). Un aviso duplicado de Stripe **no escribe nada nuevo** (N ≥ 10).
+   Una compra a bóveda con colocación ya hecha sigue el criterio **231**.
+250. 💰 **Reembolso total desde el PANEL DE STRIPE de un pedido ya ENVIADO (liquidado o no) ⇒ las cartas NO
+   vuelven; queda «reembolso por revisar» con motivo obligatorio** *(§S.11.4, 4b)*: con el envío en «enviado» o
+   «entregado» al confirmarse el reembolso total ⇒ **ninguna** carta del pedido vuelve a la venta ni a «en
+   almacén», ninguna sigue apartada, y el pedido aparece como **«reembolso por revisar»** en el panel y en el
+   contador del tablero. Registrar el motivo admite **solo** «no llegó» o «llegó en mala condición» (cualquier
+   otro valor o vacío ⇒ se rechaza sin escribir), guarda **quién y cuándo** y saca el pedido del contador; la nota
+   es opcional. Registrarlo **no** llama a Stripe, **no** mueve cartas y **no** manda correo. El operador ⇒
+   **403, auditado** (default de S.11.4). Un aviso duplicado de Stripe no abre un segundo «por revisar» (N ≥ 10).
+   **⛔ Falla** si una carta de un pedido enviado reaparece en el catálogo por este camino.
+251. 💰 **Reembolso total desde M3 de un pedido ya ENVIADO ⇒ exige motivo en la misma acción; sin él no hay
+   reembolso** *(§S.11.4, 4b; el «antes» es SUPUESTO de PO)*: pedido liquidado con el envío en «enviado» o
+   «entregado»: M3 **sin motivo**, o con un motivo distinto de «no llegó» / «llegó en mala condición» ⇒ **se
+   rechaza sin llamar a Stripe y sin escribir nada**; con motivo válido ⇒ se reembolsa, el motivo queda guardado
+   con **quién y cuándo**, **ninguna** carta vuelve a la venta ni a «en almacén», y el pedido **no** entra a
+   «reembolso por revisar» (ya tiene motivo). El cliente recibe **el** correo de reembolso de siempre, ⛔ ninguno
+   adicional. Con el envío **antes** de «enviado», M3 **no** pide motivo y se comporta como hoy. El operador sigue
+   sin poder hacer el reembolso total (⇒ 403). **⛔ Falla** si una carta de ese pedido reaparece en el catálogo.
+252. **El corte es «enviado», leído al confirmar el reembolso, y nada queda apartado para siempre** *(§S.11.2)*:
+   mismo pedido con el envío en «guía» ⇒ se trata como **no enviado**; en «enviado» ⇒ como **enviado**. Si
+   «marcar enviado» y el reembolso llegan **a la vez**, el resultado es **uno de los dos** casos completo, ⛔
+   nunca una mezcla (cartas a la venta **y** pedido «por revisar») (N ≥ 10); si un reembolso de M3 se pidió sin
+   motivo con el pedido no enviado y al confirmarse ya está «enviado», el pedido queda **«reembolso por revisar»**
+   (como 250), ⛔ nunca con las cartas devueltas a la venta. Tras una pasada del barrido de reservas, **ninguna**
+   carta sigue apartada por un pedido reembolsado, y el barrido **deja de registrar error** por esos pedidos.
+253. **Lo que NO cambia con §S.11 — se verifica por ausencia** *(S.11.6)*: M3 **sigue rechazando** el reembolso de
+   un pedido sin liquidar; el reembolso total de un pedido **liquidado NO enviado** (M3 o Stripe) se comporta
+   igual que hoy; el **criterio 231** (también con cartas ya retiradas: **no** pide motivo y lo retirado no se
+   toca — P-S11-4, decidido 2026-10-04), el **contracargo** (sobre un pedido enviado **no** pide motivo — P-S11-3,
+   decidido 2026-10-04) y **§S.10** se comportan igual; la máquina de envíos **no** gana estados; **ningún** correo nuevo al
+   cliente y **ningún** movimiento de dinero nuevo.
+254. 💰 **Carta ex o Double Rare cuyo mercado cae por debajo del piso ⇒ se publica sola al piso (hoy MX$25); las
+   demás premium siguen retenidas** *(§N.5-bis (a); `HECHOS.md` «Precios — decisiones del 2026-10-04» (a) y
+   «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1» (a))*: una carta **ex** o **Double
+   Rare** con dato de mercado presente que, por la curva, resulta en el **piso** ⇒ se **publica** con **precio de
+   venta = piso vigente (MX$25 con los diales de hoy)**, ⛔ no entra a la cola de precio pendiente por «premium en
+   el piso», y el catálogo la lista a ese precio. Las ex / Double Rare que **hoy** están retenidas por esa razón
+   salen de la cola y se publican a MX$25 en el siguiente barrido. Una carta de **cualquier otra rareza premium**
+   en el piso **sigue retenida** como «premium en el piso» (⛔ no se publica; aparece en la cola para revisión),
+   igual que hoy. La lista de rarezas que se publican al piso es **parametrizable** (cambiarla no exige código).
+   **⛔ Falla** si se publica por **debajo** del piso, si una premium que no sea ex / Double Rare se publica al
+   piso, si una carta **sin** dato de mercado se publica por este camino (sigue en «precio pendiente», §N.2), o
+   si un override manual (por pieza o de variante) deja de ganar sobre el piso. La **compra** (buylist) no cambia
+   con este criterio (SUPUESTO, ver §N.5-bis).
+255. **Precio final a mano: solo para SELLADO** *(§N.5-bis (b); `HECHOS.md` «Precios — decisiones del
+   2026-10-04» (b))*: en **«Listas para publicar»** las filas de **sellado** ofrecen capturar el precio final y las
+   de **carta suelta y gradeada no** (⛔ ningún campo ni botón de precio final en esas filas); el **panel del
+   sellado (M11)** permite capturar el precio final de una pieza sellada. Capturarlo es un override manual
+   **auditado** (quién, cuándo, antes/después) que gana la precedencia del sellado (§K) y **nunca** acepta $0. El
+   override por pieza que **ya existe** para cartas sueltas/gradeadas **sigue funcionando igual** y en el mismo
+   sitio (**P-PRE-1, decidido 2026-10-04**; se verifica por ausencia: ni se quita ni se hace más visible).
+*(Criterios 256–270 **nuevos el 2026-10-04**, de `HECHOS.md` fila «Usuarios de back-office SIN correo; el correo es
+solo para clientes.» — §U. Ajustados el 2026-10-04 al punto (c) de esa fila (misma pantalla de entrada); P-STF-1…8
+cerradas el mismo día: P-STF-4 por decisión del dueño, el resto con default aceptado.)*
+256. **Alta de staff SIN correo desde Usuarios** *(§U.2)*: el súper-admin crea una cuenta con nombre, nombre de
+   usuario, rol `vault_operator` o `super_admin` (P-STF-1, default aceptado) y contraseña inicial (tecleada, o generada y
+   mostrada **una sola vez**). ⛔ El formulario de staff **no tiene** campo de correo y la cuenta queda **sin
+   correo**; el celular no es obligatorio. Queda en bitácora quién la creó y cuándo, ⛔ sin la contraseña. Un
+   `vault_operator` que intenta dar de alta ⇒ rechazado y auditado, como hoy. El alta de **cliente** sigue
+   exigiendo correo y celular.
+257. **Reglas del nombre de usuario** *(§U.2; valores SUPUESTO)*: se aceptan `ana`, `luis.p`, `op_2`, `m-r` y uno
+   de 30 caracteres. Se **rechazan**, sin crear la cuenta y con un mensaje que dice qué regla falla: 2 caracteres;
+   31 caracteres; con espacio; con `@`; con acento o ñ; que empieza con dígito, punto, guion o guion bajo; vacío.
+   Con `luis.p` existente, `Luis.P` y `LUIS.P` se rechazan como **ya usado**. El usuario se guarda y se muestra en
+   minúsculas. **⛔ Falla** si dos cuentas quedan con el mismo usuario salvo mayúsculas, también si se crean **a la
+   vez** (N ≥ 10 altas simultáneas del mismo usuario ⇒ exactamente **una** cuenta).
+258. **El staff entra por la MISMA pantalla que los clientes, con usuario + contraseña, y llega directo al
+   panel** *(§U.3; decisión del dueño, HECHOS 2026-10-04 punto (c))*: en la pantalla de entrada de siempre, el
+   campo acepta correo **o** usuario. (a) Usuario de staff correcto (en cualquier combinación de mayúsculas) + su
+   contraseña ⇒ entra y aterriza **directo en el panel (back-office)**, con los permisos de su rol, ⛔ sin pasar
+   por la tienda (salvo que deba cambiar su contraseña: entonces primero esa pantalla, criterios 260/261). (b)
+   Con un correo (`@`) todo sigue **como hoy**: un cliente entra a donde entra hoy; el dueño y el staff con
+   correo, igual que hoy. (c) Google, «crear cuenta» y «olvidé mi contraseña» siguen en la pantalla. (d) ⛔ No
+   existe una pantalla de entrada aparte para el equipo. QA recorre (a) desde la tienda hasta el panel sin
+   teclear direcciones a mano (regla O-4).
+259. **Los errores de entrada no revelan si el usuario existe** *(§U.3)*: en la pantalla compartida, (a) usuario
+   que existe con contraseña mala, (b) usuario que no existe, (c) cuenta de staff deshabilitada con contraseña
+   mala y (d) un texto sin `@` cualquiera (p. ej. la parte antes de la `@` del correo de un cliente) producen **la
+   misma** respuesta (código, cuerpo, mensaje, destino) y el mismo comportamiento del candado. Se verifica igual
+   que hoy con el correo (C7-3): misma secuencia en los cuatro casos. Los casos de **correo** (correo existente con
+   contraseña mala, correo inexistente) siguen indistinguibles entre sí **como hoy**. ⛔ Lo que se muestra puede
+   variar según la **forma** de lo tecleado (con o sin `@`), **nunca** según exista la cuenta. **⛔ Falla** si
+   algún mensaje, código, enlace o elemento que aparece o desaparece en la pantalla distingue un caso de otro.
+260. **La contraseña inicial obliga a cambiarla** *(§U.2; P-STF-6, default aceptado)*: tras el alta, sea la contraseña
+   tecleada por el dueño o generada, el primer ingreso lleva al staff **directo** a cambiarla y ⛔ no puede usar
+   ninguna otra pantalla ni acción del back-office hasta hacerlo. Cambiada, entra normal y la inicial ya no sirve.
+261. **El dueño restablece la contraseña del staff desde Usuarios** *(§U.4)*: el súper-admin pulsa «restablecer»
+   en la fila de la persona ⇒ ve una temporal **una sola vez**. Después: la contraseña anterior ⇒ no entra; la
+   temporal ⇒ entra y **debe cambiarla** (como 260); si había candado por intentos, **ya no** lo hay; las sesiones
+   que el staff tuviera abiertas dejan de servir *(SUPUESTO)*. Queda en bitácora quién restableció a quién y
+   cuándo, ⛔ sin la contraseña. ⛔ No se manda ningún correo. Un `vault_operator` ⇒ no puede restablecer a nadie
+   (rechazado y auditado).
+262. **Sin «olvidé mi contraseña» para el staff sin correo** *(§U.4)*: el enlace sigue en la pantalla compartida
+   (para clientes y dueño), pero ningún camino deja al staff sin correo recuperarla por su cuenta. Pedir «olvidé
+   mi contraseña» tecleando (a) un nombre de usuario que **existe** y (b) uno que **no existe** — en la pantalla y
+   directo al servidor — **no cambia nada**, ⛔ no manda ningún correo, y responde **exactamente lo mismo** (código,
+   cuerpo, mensaje) que hoy responde para un correo inexistente. **⛔ Falla** si (a) y (b) se distinguen entre sí
+   o de un correo inexistente, o si el formulario rechaza el usuario con un mensaje distinto («correo inválido» u
+   otro). El «olvidé mi contraseña» del **dueño** y de los **clientes** sigue funcionando igual.
+263. **El staff cambia su propia contraseña desde Mi cuenta — ciclo entero** *(§U.4; regla O-4)*: QA recorre y
+   reporta **cada paso**: (1) entrar con usuario + contraseña; (2) desde el menú del back-office llegar a **Mi
+   cuenta → Cambiar contraseña** (⛔ sin teclear la dirección a mano); (3) actual mala ⇒ marca el campo y **no**
+   cierra la sesión; (4) nueva igual a la actual ⇒ rechazada; (5) actual buena + nueva válida ⇒ guardada, la
+   sesión sigue viva y las demás sesiones de esa cuenta dejan de servir; (6) salir y entrar con la **nueva** ⇒
+   entra; (7) con la **vieja** ⇒ no entra. ⛔ Ningún correo en todo el ciclo y ⛔ ningún botón «crear contraseña»
+   ni «olvidé». Vale para `vault_operator` y `super_admin` sin correo.
+264. **Candado por intentos: por usuario y por IP, con los números de hoy** *(§U.5)*: contra un mismo nombre de
+   usuario, desde IPs distintas, los intentos libres, la escalera y el tope son **los mismos** que hoy con el
+   correo (contrato C7); `Ana` y `ana` comparten contador; con candado, la contraseña **correcta** tampoco entra; la
+   puerta del dispositivo conocido funciona igual. El límite por IP es **uno solo** para la pantalla compartida,
+   cuente lo tecleado como correo o como usuario. Intentos simultáneos contra un usuario no rebasan el número de
+   intentos libres (N ≥ 10, se exige N/N). Con candado y un usuario tecleado, la pantalla muestra los minutos y
+   *pídele al administrador que la restablezca*, ⛔ sin enlace a restablecer; con un correo tecleado, el texto de
+   hoy sin cambios.
+265. **Aviso de candado: en el panel para el staff sin correo; el dueño lo ve en Usuarios** *(§U.5)*: al ponerse
+   el candado sobre una cuenta **sin correo**: ⛔ **cero** correos; al siguiente ingreso de esa persona aparece un
+   aviso en su panel hasta que lo cierra; dos candados en 24 h ⇒ **un** aviso. El dueño ve en **Usuarios** la
+   marca «bloqueado por intentos hasta HH:MM» mientras dura, y el evento en el historial de la persona. Una cuenta
+   **con** correo (el dueño, el staff existente) recibe el aviso **por correo, como hoy** *(P-STF-5, default
+   aceptado)*.
+   Sobre un usuario **inexistente** no se registra nada (como hoy).
+266. **El staff que ya tiene correo sigue igual** *(§U.6; P-STF-2, default aceptado)*: una cuenta `vault_operator` o
+   `super_admin` creada antes de este cambio, con correo, entra con su correo por la pantalla de siempre, usa
+   «olvidé mi contraseña» y recibe sus avisos por correo **igual que hoy**. Ninguna cuenta existente pierde su
+   correo ni gana un usuario por este despliegue.
+267. **Ningún correo a una cuenta sin correo, y la acción termina igual** *(§U.7)*: con un `vault_operator` y un
+   `super_admin` sin correo, QA dispara cada acción que hoy manda correo a staff (el arquitecto entrega la lista
+   **medida** de esos envíos) ⇒ la acción termina con el **mismo** resultado que con una cuenta con correo, ⛔
+   **ningún** intento de envío a esa cuenta, ⛔ ningún error ni reintento por falta de correo. Los correos «a
+   todos los súper-admin» llegan **solo** a los que tienen correo.
+268. **Bitácora, auditoría y Usuarios funcionan sin correo** *(§U.7)*: toda pantalla que hoy identifica a un
+   miembro del equipo por su correo (bitácora de inventario, auditoría, historial 360°, «quién es quién» de la cola
+   de envíos, hoja imprimible, reembolsos de operador) muestra al staff sin correo por su **nombre y/o nombre de
+   usuario**. **⛔ Falla** si en cualquiera aparece un hueco, «null», «undefined» o un correo inventado. En
+   **Usuarios**, el listado muestra el nombre de usuario y la búsqueda encuentra la cuenta por él (también con
+   mayúsculas distintas); filtros y paginación siguen igual.
+269. **Un cliente no tiene usuario, y una cuenta sin correo no es cliente** *(§U.7)*: aunque la pantalla de
+   **entrada** acepta usuarios, el **registro** de clientes sigue exigiendo un correo válido: un texto **sin `@`**
+   (p. ej. `ana` o `luis.p`) en el registro ⇒ rechazado como correo inválido, ⛔ sin crear cuenta, en la pantalla
+   **y** directo al servidor; Google tampoco crea cuentas sin correo. No existe ningún camino para registrar o
+   crear un cliente con nombre de usuario o sin correo. Una cuenta de staff sin correo que intenta comprar, mandar
+   a bóveda o crear una solicitud de venta ⇒ rechazada con un mensaje claro, sin cobro ni registro a medias
+   *(P-STF-8, default aceptado)*.
+270. **Lo que NO cambia con §U — se verifica por ausencia** *(§U.8)*: la entrada de clientes con correo o Google,
+   su registro, su texto de candado y su «olvidé mi contraseña» se comportan **igual que hoy** (lo único que
+   cambia en la pantalla es que el campo acepta correo **o** usuario, §U.3); la cuenta del dueño conserva
+   su correo y recupera su contraseña por correo; los números del candado y del límite por IP no cambian; ningún
+   rol gana ni pierde permisos por no tener correo; **nadie** tiene doble verificación; el alta de clientes sigue
+   igual.
+*(Criterios 271–274 **nuevos el 2026-10-04**, de `HECHOS.md` fila «Disputas: se quitan de la tienda…» — §V. 💰 El
+273 toca reembolsos: tres veredictos.)*
+271. **Ningún botón de disputa en la tienda; el pedido entregado dice «Escríbenos»** *(§V.1)*: QA recorre como
+   cliente con cuenta **«Mi bóveda»**, **«Retiros»** (incluido un retiro entregado) y el **detalle de un pedido**
+   en cada estado, y como invitado su **página de seguimiento**: **en ninguna** aparece «Abrir disputa» ni otra
+   acción para abrir una disputa. En un pedido **entregado** (con cuenta y de invitado) aparece **«¿Problema con
+   tu pedido? Escríbenos»** con el correo de soporte, que es el **mismo** buzón que sirve el servidor (hoy
+   `soporte@tcghunt.mx`; se verifica cambiando la configuración en un entorno de prueba y viendo que la pantalla
+   cambia — ⛔ no puede estar escrito a mano en la pantalla). En un pedido **no entregado** la línea no aparece.
+   La página de términos ya no dice «abrir una disputa» ni «recompra»: dice que se escribe a soporte.
+272. **No se puede crear una disputa nueva por ninguna vía** *(§V.5)*: con sesión de cliente, una llamada directa
+   al servidor para crear una disputa —sobre una carta en bóveda, de un retiro entregado o de un envío directo
+   entregado— **se rechaza** y **no crea ninguna fila**. M8 no ofrece alta de disputas. *(Default P-DSP-1:)* una
+   disputa que ya existiera abierta **se puede cerrar** desde M8 con las acciones de hoy, y el cliente la sigue
+   viendo en lectura; con **cero** abiertas, M8 no aparece en el menú del panel.
+273. 💰 **La compensación es el reembolso con motivo, para cliente con cuenta e invitado** *(§V.2, §V.3)*: sobre
+   un pedido de envío directo **entregado** —uno con cuenta y uno de invitado—, el súper-admin reembolsa desde
+   Ventas eligiendo «llegó en mala condición» (y en otro, «no llegó»): el reembolso se hace, guarda el motivo,
+   quién y cuándo, y las cartas **no** vuelven a inventario (la misma conducta del criterio **251**, sin ningún
+   paso de disputa). El invitado no necesitó crear cuenta. Sin motivo ⇒ no hay reembolso (criterio 251).
+274. **Lo que NO cambia con §V — se verifica por ausencia** *(§V.4, §V.8)*: un `charge.dispute.created` de Stripe
+   produce **lo mismo que hoy** en cada uno de los cuatro casos de §V.4 (envío vivo ⇒ envío cancelado y cartas
+   congeladas; enviado/entregado ⇒ cartas sin tocar; sin envío ⇒ vuelven a la venta; bóveda ⇒ las que siguen en
+   bóveda vuelven a la plataforma), el pedido pasa a «Contracargo», el aviso «Pendiente de confirmación humana»
+   aparece cuando corresponde y el cierre ganado/perdido deja el pedido como hoy; el contracargo **no** pide
+   motivo. El reembolso por error de plataforma (M3) y el reembolso por carta al preparar (§S.10) se comportan
+   igual que hoy.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -10908,9 +11502,10 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    — hubo al menos un caso de una cadena correcta sustituida por la incorrecta usando esta línea como
    autoridad. La autoridad es la clave i18n, no el literal escrito aquí.)*
 12. **Política de reembolsos** → **VENTAS FINALES** para **todos los tipos de producto** (raw, sellado,
-   gradeadas): sin reembolso voluntario tras la compra. **Dos excepciones**: (a) disputa de condición por
+   gradeadas): sin reembolso voluntario tras la compra. **Dos excepciones**: (a) ~~disputa de condición por~~
    carta dañada/equivocada (ventana de **7 días contados desde la entrega del envío**, **evidencia por correo
-   a soporte** —ver decisión 22) con **recompra al precio pagado y el cliente conserva la carta** (sin
+   a soporte** —ver decisión 22) con ~~**recompra al precio pagado**~~ **reembolso con motivo desde Ventas**
+   *(2026-10-04, §V: sin disputa en la tienda)* **y el cliente conserva la carta** (sin
    devolución); (b) **error de la plataforma** (cobro duplicado / inventario fantasma) → **siempre se
    reembolsa**, sin ventana ni evidencia de disputa. El contracargo bancario es un proceso independiente ante
    el banco del cliente. El checkout muestra el aviso y hay página de términos.
@@ -10943,6 +11538,8 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    app). Resolución: **gradeadas** por grado/cert; **raw NM** por el estándar/política. La política de
    **ventas finales** (recompra/compensación, el cliente conserva la carta, no revierte inventario) **no
    cambia** (ver decisión 12). El correo de evidencia se documenta como dato de contacto.
+   *(2026-10-04: ya no hay «disputa de condición» en la tienda — §V. Sigue vigente: evidencia por correo,
+   grado/cert y estándar NM como base del juicio; la compensación es el reembolso con motivo.)*
 23. **KYC del buylist** → el **INE SÍ se almacena** como **imagen cifrada en R2 con retención**
    (`INE_RETENTION_DAYS`, default 180), ~~pedido en el paso de pago sobre el tope~~ **⚠ pedido DESDE LA
    COTIZACIÓN sobre el tope — corregido por D46, decisión 106** y **verificado contra el nombre
@@ -12504,9 +13101,10 @@ promesa:**
 3. **Reenvío del enlace**: ¿el invitado puede **auto-servirse** un enlace nuevo desde la página de "enlace
    expirado" (supuesto actual: sí, con respuesta neutra y límite de frecuencia), o prefieres que el reenvío
    **solo lo haga soporte** a petición?
-4. **Compensación de una disputa a un invitado**: el supuesto es **reembolso del monto pagado** (no hay
+4. ~~**Compensación de una disputa a un invitado**: el supuesto es **reembolso del monto pagado** (no hay
    bóveda ni saldo donde abonar la recompra) manteniendo el resto de la política (§H: el cliente conserva la
-   carta). ¿Confirmas?
+   carta). ¿Confirmas?~~ *(**Sin objeto desde el 2026-10-04**, §V.3: el invitado escribe a soporte y el dueño
+   reembolsa desde Ventas, como a todos.)*
 5. **Límite comercial para pedidos de invitado**: hoy **no se impone ninguno** (mismo precio, mismos
    límites). ¿Quieres un **monto máximo por pedido de invitado** o restringir ciertos productos (p. ej.
    gradeadas caras o sellado de alto valor) para bajar exposición a contracargos?
@@ -14303,3 +14901,86 @@ ese frente:**
    **Qué confirmar**: **(a)** los seis tal cual; **(b)** quitar los que nunca use —**menos casillas es
    mejor**: una casilla que no aplica **se acaba eligiendo por pereza**—; **o (c)** añadir los que le falten,
    con **sus palabras**, porque **ese texto lo va a leer un cliente**.
+
+## Preguntas — reembolsos totales y precios (2026-10-04, sesión 5) — ✅ TODAS RESPONDIDAS
+
+> Salieron de aterrizar las filas de `HECHOS.md` del **2026-10-04** («Cartas apartadas (SSL-R1) — detalles» y
+> «Precios — decisiones»). **Respondidas el mismo día** — `HECHOS.md` «Precios y reembolsos — respuestas a
+> P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1». Palabras del dueño: *«solo ex y double rare, lo demás por defecto»*.
+> No se re-preguntan.
+
+- ~~**P-S11-3 · Contracargo de un pedido ya enviado: ¿pide motivo?**~~ ⇒ ✅ **No pide motivo** (default
+  aceptado). §S.11.7, criterio 253. *(Sigue abierta, aparte: la pregunta **86** —qué le pasa al pedido mientras
+  un contracargo está vivo—.)*
+- ~~**P-S11-4 · Compra a bóveda reembolsada completa con alguna carta ya retirada: ¿pide motivo?**~~ ⇒ ✅ **No
+  pide motivo; lo retirado no se toca** (default aceptado). §S.11.7, criterio 253.
+- ~~**P-PRE-1 · ¿Se quita el precio a mano por pieza de sueltas y gradeadas?**~~ ⇒ ✅ **Se conserva como está,
+  sin hacerlo más visible** (default aceptado). §N.5-bis (b), criterio 255.
+- ~~**P-PRE-2 · Premium en el piso: ¿todas las rarezas premium, o solo ex / Double Rare?**~~ ⇒ ✅ **Solo ex y
+  Double Rare** (el dueño **cambió** el default). Las demás premium siguen retenidas «premium en el piso» para
+  revisión; la lista es parametrizable, sin código para cambiarla. §N.5-bis (a), criterio 254.
+
+## Preguntas — usuarios de back-office sin correo (§U, 2026-10-04, sesión 5) — ✅ CERRADAS el 2026-10-04
+
+> **Cierre (2026-10-04, `HECHOS.md` fila «Usuarios de back-office SIN correo», punto (c)):** P-STF-4 la decidió
+> el dueño — **misma pantalla de entrada que los clientes**, el campo acepta correo o usuario y un usuario de staff
+> entra directo al panel. Las otras siete quedan con su default: el dueño las vio sin objetar (**default
+> aceptado**, 2026-10-04).
+
+> Salen de aterrizar la fila de `HECHOS.md` **«Usuarios de back-office SIN correo; el correo es solo para
+> clientes.»** (2026-10-04). Lo que esa fila ya dice (cuenta del dueño con correo; staff con usuario + contraseña,
+> sin doble verificación; restablece el dueño; aviso de candado al panel) **no se pregunta**. Si el dueño no
+> contesta, se construye con el default. **Ninguna bloquea al arquitecto.**
+
+- **P-STF-1 · ¿Se puede dar de alta un SÚPER-ADMIN sin correo?** ✅ **Default aceptado (2026-10-04): sí**, el alta de equipo ofrece
+  `vault_operator` y `super_admin`. Ese súper-admin no puede recuperar su contraseña solo: se la restablece otro
+  súper-admin (el dueño). Si el dueño prefiere **solo operadores sin correo**, el alta de equipo ofrece únicamente
+  `vault_operator`. Criterio 256.
+- **P-STF-2 · El staff que ya existe con correo, ¿se pasa a usuario sin correo?** ✅ **Default aceptado
+  (2026-10-04): no**; se queda como
+  está y sigue entrando con su correo. Los nuevos se crean sin correo. Criterio 266.
+- **P-STF-3 · ¿Se puede cambiar el nombre de usuario después del alta?** ✅ **Default aceptado (2026-10-04): no**
+  en este corte (si alguien
+  necesita otro, se da de baja y se crea de nuevo). Fuera de alcance.
+- ~~**P-STF-4 · ¿Cómo llega el equipo a su pantalla de entrada?**~~ ✅ **Decidida por el dueño (2026-10-04),
+  distinta del default:** no hay pantalla propia; el equipo entra por **la misma pantalla que los clientes**, cuyo
+  campo acepta correo o usuario, y un usuario de staff entra directo al panel (*«¿no es más fácil que detecte
+  usuario la misma página en mi cuenta y así entra directo a admin?»*). §U.3, criterios 258, 259, 262, 269.
+- **P-STF-5 · La cuenta del dueño y el staff con correo, ¿siguen recibiendo el aviso de candado por correo?**
+  ✅ **Default aceptado (2026-10-04): sí, como hoy** (el dueño dijo que su correo es para recuperar la contraseña, y este aviso es de esa
+  misma familia). Si prefiere que su aviso también vaya solo al panel, se cambia. Criterio 265.
+- **P-STF-6 · Si el dueño teclea la contraseña inicial, ¿el staff igual debe cambiarla al primer ingreso?**
+  ✅ **Default aceptado (2026-10-04): sí, siempre** (así solo el staff conoce su contraseña). Hoy el alta solo obliga cuando la contraseña
+  es generada por el sistema. Criterio 260.
+- **P-STF-7 · ¿El dueño quiere un contador de cuentas bloqueadas en el tablero?** ✅ **Default aceptado
+  (2026-10-04): no**; lo ve en
+  Usuarios y en el historial de la persona (mismo criterio que D-13: «solo verlo en el panel»). Criterio 265.
+- **P-STF-8 · ¿Una cuenta de staff sin correo puede comprar o vender en la tienda?** ✅ **Default aceptado
+  (2026-10-04): no**; es solo de
+  back-office (sin correo no hay recibo ni avisos de pedido; y ya está escrito que el staff no vende, D11). Si un
+  miembro del equipo quiere comprar, usa una cuenta de cliente con su correo. Criterio 269.
+
+## Preguntas — disputas fuera de la tienda (§V, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
+
+> Salen de aterrizar la fila de `HECHOS.md` **2026-10-04 «Disputas: se quitan de la tienda…»**. Lo que esa fila ya
+> dice (sin botón, «Escríbenos» en el pedido entregado, compensación por reembolso con motivo, contracargos como hoy)
+> **no se pregunta**. Si el dueño no contesta, se construye con el default. **Ninguna bloquea al arquitecto.**
+
+- **P-DSP-1 · ¿Qué pasa con la pantalla de disputas del panel (M8) y con las disputas que ya estén abiertas?**
+  Default: M8 queda **en transición** —sin disputas nuevas, con lo justo para **cerrar las abiertas** con las
+  acciones de hoy— y **se retira** cuando no quede ninguna abierta; el cliente ve las suyas en lectura hasta que
+  cierren. **NO MEDIDO** cuántas hay abiertas hoy en producción. §V.5, criterio 272.
+- **P-DSP-2 · ¿Se conserva la «ventana de 7 días desde la entrega» para reclamar una carta dañada?** Default: se
+  queda **como texto de la política** en términos, pero el sistema no la aplica (no hay disputa que cerrar);
+  decides tú caso por caso. Alternativa: quitarla de los términos. §H.
+- **P-DSP-3 · Si en un pedido llega mal UNA carta de varias, ¿cómo compensas?** Hoy, después del envío, solo existe
+  el reembolso **total** del pedido. Default: en este corte, **solo total** (o lo arreglas fuera del sistema); el
+  reembolso **por carta** después del envío queda fuera de alcance. Si lo quieres, es trabajo nuevo de dinero
+  (diseño + tres veredictos). §V.2.
+- **P-DSP-4 · ¿«¿Problema con tu pedido? Escríbenos» también en un RETIRO de bóveda entregado?** Default: **no** en
+  este corte (dijiste «pedido»); y para compensar un retiro que llegó mal no hay hoy reembolso con motivo (el
+  reembolso total de una compra a bóveda no pide motivo, P-S11-4). ¿Lo quieres en retiros, y con qué compensación?
+  §V.1.
+- **P-DSP-5 · El correo de soporte, ¿sale de la configuración que ya existe o lo fijamos?** Medido: hoy **no es un
+  dial de M10**; sale de la configuración del servidor (`DISPUTE_EVIDENCE_CONTACT` / `SUPPORT_EMAIL`, por defecto
+  `soporte@tcghunt.mx`). Default: **el mismo buzón y el mismo origen**, sin dial nuevo. §V.6.

@@ -19,6 +19,8 @@ import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { RefundOrderDialog } from './RefundOrderDialog';
 
+const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
+
 /** Convierte pesos (texto) a centavos enteros; inválido/vacío → null (mismo helper que M5). */
 function pesosToCents(value: string): number | null {
   const trimmed = value.trim();
@@ -30,7 +32,7 @@ function pesosToCents(value: string): number | null {
 
 const M3_PAGE_SIZE = 25;
 
-export function M3View() {
+export function M3View({ initialRefundReview = false }: { initialRefundReview?: boolean } = {}) {
   const t = useTranslations('admin.m3');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tt = useTranslations('admin.m3.table');
@@ -38,6 +40,7 @@ export function M3View() {
   const te = useTranslations('error');
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
+  const tsr = useTranslations('admin.m3.shippedReason');
   const [refundTarget, setRefundTarget] = useState<AdminOrderDTO | null>(null);
   const [refundDone, setRefundDone] = useState<string | null>(null);
 
@@ -48,6 +51,8 @@ export function M3View() {
   const [to, setTo] = useState('');
   const [minPesos, setMinPesos] = useState('');
   const [maxPesos, setMaxPesos] = useState('');
+  // §40.3 (b): «Solo reembolsos por revisar», sincronizado con `?refundReview=pending`.
+  const [refundReview, setRefundReview] = useState(initialRefundReview);
   // Debounce (P-5): el estado del input es inmediato (UX), pero sólo el VALOR DEBOUNCED alimenta el
   // `queryKey`/params server-side — así no se dispara un fetch por pulsación. Las fechas (`type=date`)
   // cambian de golpe y no necesitan debounce.
@@ -61,6 +66,16 @@ export function M3View() {
   function resetPage() {
     setPage(1);
   }
+  // Marcar/desmarcar REEMPLAZA la entrada del historial (como §37.20 b) y vuelve a la página 1.
+  function changeRefundReview(next: boolean) {
+    setRefundReview(next);
+    resetPage();
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (next) url.searchParams.set('refundReview', 'pending');
+    else url.searchParams.delete('refundReview');
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  }
 
   const query = useQuery({
     queryKey: [
@@ -71,6 +86,7 @@ export function M3View() {
       to,
       minCents ?? '',
       maxCents ?? '',
+      refundReview ? 'review' : '',
     ],
     queryFn: () =>
       getAdminOrders({
@@ -81,6 +97,7 @@ export function M3View() {
         to: to || undefined,
         minCents: minCents ?? undefined,
         maxCents: maxCents ?? undefined,
+        ...(refundReview ? { refundReview: 'pending' as const } : {}),
       }),
   });
   const totalPages =
@@ -121,7 +138,21 @@ export function M3View() {
       ),
     },
     { key: 'customer', header: tt('customer'), render: customerCell },
-    { key: 'status', header: tt('status'), render: (o) => <StatusBadge domain="order" value={o.status} /> },
+    {
+      key: 'status',
+      header: tt('status'),
+      // §40.3 (a): la marca es TEXTO (no depende del color) y la ven los dos roles (N-15).
+      render: (o) => (
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <StatusBadge domain="order" value={o.status} />
+          {o.refundReviewPending === true && (
+            <span className={`${TAG} text-accent`} data-testid={`m3-review-chip-${o.id}`}>
+              {t('refundReview.chip')}
+            </span>
+          )}
+        </span>
+      ),
+    },
     { key: 'total', header: tt('total'), numeric: true, render: (o) => formatMoneyCents(o.totalCents, locale) },
     {
       key: 'refunded',
@@ -163,7 +194,7 @@ export function M3View() {
       {!isSuperAdmin && <Banner variant="warning">{te('MONEY_OUT_FORBIDDEN')}</Banner>}
       {refundDone && (
         <Banner variant="success" role="status">
-          {t('refundDone', { orderId: refundDone })}
+          {refundDone}
         </Banner>
       )}
 
@@ -228,6 +259,16 @@ export function M3View() {
             }}
           />
         </div>
+        <label className="flex min-h-[44px] items-center gap-2 text-sm text-text">
+          <input
+            type="checkbox"
+            className="h-5 w-5 accent-text"
+            checked={refundReview}
+            onChange={(e) => changeRefundReview(e.target.checked)}
+            data-testid="m3-refund-review-filter"
+          />
+          {t('refundReview.filter')}
+        </label>
       </div>
 
       <QueryState
@@ -238,7 +279,11 @@ export function M3View() {
       >
         {query.data &&
           (query.data.data.length === 0 ? (
-            <EmptyState title={t('empty')} />
+            refundReview ? (
+              <EmptyState title={t('refundReview.emptyTitle')} body={t('refundReview.emptyBody')} />
+            ) : (
+              <EmptyState title={t('empty')} />
+            )
           ) : (
             <div className="flex flex-col gap-4">
               <div className="rounded-lg border border-border bg-surface p-2">
@@ -276,9 +321,14 @@ export function M3View() {
         order={refundTarget}
         open={!!refundTarget}
         onClose={closeRefund}
-        onDone={(res) => {
+        onDone={(res, info) => {
+          const ref = refundTarget?.orderNumber ?? res.orderId;
           closeRefund();
-          setRefundDone(res.orderId);
+          setRefundDone(
+            info.shippedReason
+              ? t('shippedRefund.done', { ref, reason: tsr(info.shippedReason) })
+              : t('refundDone', { orderId: res.orderId }),
+          );
         }}
       />
     </div>

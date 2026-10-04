@@ -533,6 +533,8 @@ export class VariantControlsService {
     const ref = await this.pricing.getReference(card.id, productType, gradeKey, finish);
     // v1.62.2 (B-14(d)): la `PriceInfo` entera al composer — el mismo cuerpo, y por tanto el mismo
     // `market`, que devuelven el binder y la consola para esta variante.
-    return composeVariantPricing(ref, curve, row, card.rarityCanonical ?? card.rarity);
+    // v1.80.8.5 (`M2-PF`): la política de VENTA del loader (solo `sell`; `buy` usa la constante de compra).
+    const salePremiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
+    return composeVariantPricing(ref, curve, row, card.rarityCanonical ?? card.rarity, salePremiumFloorPolicy);
   }
 }

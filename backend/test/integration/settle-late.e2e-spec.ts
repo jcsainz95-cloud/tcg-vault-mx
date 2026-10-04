@@ -419,6 +419,8 @@ describe('SEC-SETTLE-LATE · el settle solo liquida desde pending/failed (Postgr
   });
 
   /**
+   * ⛔ SUPERADO en v1.80.8.6 (§M4-SHIP.18.12, SRF-1/SRF-12): el residual se cerró; ver el bloque «SRF-1 (antes
+   * RESIDUAL)» abajo. Texto original, conservado como historia:
    * RESIDUAL declarado (§M4-VAULT.2-bis.2, ⛔ no bloquea) — MEDICIÓN, ⛔ no norma. Orden `pending` con
    * piezas `reserved` (vencidas) reembolsada DESDE EL PANEL de Stripe (llega `charge.refunded` sin haber
    * liquidado) ⇒ `refunded` con sus piezas `reserved`; el `succeeded` tardío ya no las mueve (v1.80). ¿Qué
@@ -470,12 +472,13 @@ describe('SEC-SETTLE-LATE · el settle solo liquida desde pending/failed (Postgr
       const avisos = av3();
       expect(avisos).toHaveLength(1);
       expect(esVariantVault(avisos[0])).toBe(false);
-      expect((await piezasSL(o)).map((p) => [p.status, p.reservedByOrderId])).toEqual(o.items.map(() => ['reserved', o.order.id]));
+      // 💰 v1.80.8.6 (§M4-SHIP.18.12 (3), SRF-1 — cierra SSL-R1): las piezas apartadas vuelven a la venta en la misma tx.
+      expect((await piezasSL(o)).map((p) => [p.status, p.reservedByOrderId])).toEqual(o.items.map(() => ['listed', null]));
 
       await tardioNoOp(o, { status: 'refunded', warn: 1 });
       const fin = await foto(o);
       expect((fin.order[0] as { settledAt: Date | null }).settledAt).toBeNull();
-      expect(fin.movements).toHaveLength(0);
+      expect(fin.movements).toHaveLength(n); // un `refund_release` por pieza, y el tardío no añade nada
       expect(fin.placements).toHaveLength(0);
       expect(fin.shipments).toHaveLength(0);
     });
@@ -675,7 +678,13 @@ describe('SEC-SETTLE-LATE · el settle solo liquida desde pending/failed (Postgr
     );
   });
 
-  describe('RESIDUAL — barrido de reservas sobre una orden `refunded` sin liquidar (medición)', () => {
+  /**
+   * ~~RESIDUAL — barrido sobre una orden `refunded` sin liquidar~~ 💰 v1.80.8.6 (§M4-SHIP.18.12 (3)/(5), SRF-1/SRF-12):
+   * el residual SE CERRÓ. Ya no hay piezas `reserved` que barrer tras un `charge.refunded` total sobre una orden sin
+   * liquidar: se liberan en la misma tx con `refund_release`. Y el barrido, ante una que quedara (estado previo al
+   * despliegue), la libera SIN cancelar el PI (SRF-12, `shipped-refund-reason.e2e-spec.ts`).
+   */
+  describe('SRF-1 (antes RESIDUAL) — `charge.refunded` total sobre `pending` vencida: el barrido ya no tiene nada que hacer', () => {
     async function refundedSinLiquidar() {
       const o = await fx.mk(2, 'vault');
       await h.prisma.inventoryItem.updateMany({
@@ -697,28 +706,20 @@ describe('SEC-SETTLE-LATE · el settle solo liquida desde pending/failed (Postgr
       h.stripe.cancelOutcome = 'canceled';
     });
 
-    it('Stripe real (PI `succeeded` ⇒ cancelar lanza): el barrido NO suelta las piezas; pasada tras pasada', async () => {
+    it('Stripe real (PI `succeeded` ⇒ cancelar lanza): las piezas YA están `listed` (refund_release); el barrido no cancela el PI ni escribe', async () => {
       const o = await refundedSinLiquidar();
       h.stripe.cancelOutcome = 'throws-succeeded';
       const orders = h.app.get(OrdersService);
+      const ids = o.items.map((i) => i.id);
       for (let pasada = 0; pasada < 2; pasada += 1) {
         await orders.sweepExpiredReservations(new Date());
         expect((await piezas(o)).map((p) => [p.status, p.reservedByOrderId])).toEqual([
-          ['reserved', o.order.id],
-          ['reserved', o.order.id],
+          ['listed', null],
+          ['listed', null],
         ]);
       }
-      expect((await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } })).status).toBe('refunded');
-    });
-
-    it('contraste (doble que SÍ cancela, irreal para un PI reembolsado): el barrido las soltaría a `listed`', async () => {
-      const o = await refundedSinLiquidar();
-      h.stripe.cancelOutcome = 'canceled';
-      await h.app.get(OrdersService).sweepExpiredReservations(new Date());
-      expect((await piezas(o)).map((p) => [p.status, p.reservedByOrderId])).toEqual([
-        ['listed', null],
-        ['listed', null],
-      ]);
+      expect(await h.prisma.inventoryMovement.count({ where: { itemId: { in: ids }, reason: 'refund_release' } })).toBe(2);
+      expect(h.stripe.callLog.filter((c) => c === `cancel:${o.pi}`)).toHaveLength(0);
       expect((await h.prisma.order.findUniqueOrThrow({ where: { id: o.order.id } })).status).toBe('refunded');
     });
   });

@@ -27,6 +27,12 @@ export class RefundDto {
    * REFUND_CONFIRMATION_REQUIRED {required:['pieces_with_customer'], items}`.
    */
   @IsOptional() @IsBoolean() confirmPiecesWithCustomer?: boolean;
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)) — motivo CERRADO del reembolso total de un pedido YA ENVIADO
+   * (`not_arrived | arrived_damaged`, clase R `ACCEPTED_SHIPPED_REFUND_REASONS`). Solo `@IsOptional` (lo conserva el
+   * `whitelist`): el dominio lo valida el servicio para responder `400 {field:'shippedReason', allowed}`.
+   */
+  @IsOptional() shippedReason?: unknown;
 }
 
 /** 🔒 v1.80.5/.6 (§M4-SHIP.18.10) — `POST /admin/orders/:id/reclaim-vault`. */

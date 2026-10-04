@@ -9,7 +9,12 @@
  * Estado vivo en memoria del navegador: se reinicia con cada carga completa y con `resetMockM4Ship()`.
  * Los ids de piezas y clientes son los de `fixtures.ts` (Ash, Misty, Ana, Bruno, Gary).
  */
+import { SHIPPED_REFUND_REASONS } from '@/types/contract';
 import type {
+  FullRefundReviewDTO,
+  RecordShippedRefundReasonRequest,
+  RecordShippedRefundReasonResponse,
+  ShippedRefundReason,
   HoldingDTO,
   AdminOrderDetailDTO,
   AdminRefundRowDTO,
@@ -130,6 +135,10 @@ interface MockOriginOrder {
   /** `PaymentRefund` `order_full` viva (requested|submitted) ⇒ la carta no entra a una caja (SEC-SHIP-A5 (b)). */
   pendingFullRefund: boolean;
   fullRefundClosedAt: string | null;
+  /** MOCK §M4-SHIP.18.12 (1): sello «el reembolso total llegó con el pedido ya enviado». */
+  fullRefundAfterShipment?: boolean;
+  /** MOCK §M4-SHIP.18.12 (1)/(6): el motivo registrado (M3 o el registro posterior). */
+  shippedRefund?: { reason: ShippedRefundReason; note: string | null; at: string; by: { id: string; name: string | null } } | null;
   chargebackNeedsManual: boolean;
 }
 
@@ -170,6 +179,29 @@ const ORIGIN_ORDERS: Record<string, MockOriginOrder> = {
     priceConvention: 'IVA_INCLUSIVE', subtotalCents: 120_000, shippingFeeCents: 0, processingFeeCents: 5_749,
     ivaCents: 16_552, ivaRatePct: 16, totalCents: 125_749, pendingFullRefund: false, fullRefundClosedAt: null,
     chargebackNeedsManual: false,
+  },
+  // MOCK §M4-SHIP.18.12 (E2E `precios-s5.spec.ts`): directo de invitado YA ENVIADO (`shp-7008` `enviado`) ⇒ el
+  // reembolso total pide motivo (§40.2 (b)).
+  'ord-5006': {
+    id: 'ord-5006', orderNumber: 'TCG-000126', status: 'settled', fulfillmentMode: 'direct_ship', userId: null,
+    priceConvention: 'IVA_INCLUSIVE', subtotalCents: 65_000, shippingFeeCents: 15_000, processingFeeCents: 3_886,
+    ivaCents: 11_034, ivaRatePct: 16, totalCents: 83_886, pendingFullRefund: false, fullRefundClosedAt: null,
+    chargebackNeedsManual: false,
+  },
+  // MOCK §M4-SHIP.18.12: directo de invitado con guía pero SIN salir (`shp-7010` `guia`) ⇒ reembolso total SIN motivo.
+  'ord-5008': {
+    id: 'ord-5008', orderNumber: 'TCG-000128', status: 'settled', fulfillmentMode: 'direct_ship', userId: null,
+    priceConvention: 'IVA_INCLUSIVE', subtotalCents: 65_000, shippingFeeCents: 15_000, processingFeeCents: 3_886,
+    ivaCents: 11_034, ivaRatePct: 16, totalCents: 83_886, pendingFullRefund: false, fullRefundClosedAt: null,
+    chargebackNeedsManual: false,
+  },
+  // MOCK §M4-SHIP.18.12 (7): directo de invitado reembolsado COMPLETO desde Stripe con el envío ya fuera, SIN motivo
+  // ⇒ «Reembolso por revisar» (marca en M3, filtro, tarjeta del tablero y registro único).
+  'ord-5007': {
+    id: 'ord-5007', orderNumber: 'TCG-000127', status: 'refunded', fulfillmentMode: 'direct_ship', userId: null,
+    priceConvention: 'IVA_INCLUSIVE', subtotalCents: 65_000, shippingFeeCents: 15_000, processingFeeCents: 3_886,
+    ivaCents: 11_034, ivaRatePct: 16, totalCents: 83_886, pendingFullRefund: false, fullRefundClosedAt: isoDaysAgo(2),
+    fullRefundAfterShipment: true, shippedRefund: null, chargebackNeedsManual: false,
   },
   // M3: compra a bóveda de Ana ya liquidada y colocada (`ord-9001` del listado de M3).
   'ord-9001': {
@@ -450,6 +482,23 @@ function shipSeed(): MockShipOrder[] {
     { dto: shp7006, status: 'picking', shipmentTotalCents: 20_300, shipmentFeeCents: 17_500, shipmentIvaCents: 2_414, shipmentProcessingFeeCents: 2_800,
       meta: { 'sit-9006-1': { originOrderId: 'ord-4102', unitPriceCents: 55_000, refundId: null, caseId: null },
               'sit-9006-2': { originOrderId: 'ord-4102', unitPriceCents: 35_000, refundId: null, caseId: 'rc-9001' } } },
+    // MOCK §M4-SHIP.18.12: los envíos de `ord-5006` / `ord-5007` (YA FUERA) y `ord-5008` (con guía, aún NO sale).
+    // ⛔ Ninguno entra a la cola de preparar: no son `picking`.
+    ...([['5006', '7008', '126', 'enviado'], ['5007', '7009', '127', 'enviado'], ['5008', '7010', '128', 'guia']] as const).map(([n, shp, num, status]) => ({
+      dto: {
+        ...clone(shp7005),
+        shipmentId: `shp-${shp}`,
+        orderId: `ord-${n}`,
+        orderNumber: `TCG-000${num}`,
+        items: [
+          shipItem(`sit-${n}-1`, `inv-${n}`, `INV-00${n}`,
+            { name: 'Blastoise', setName: 'Base Set', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: 'https://images.pokemontcg.io/base1/2.png' },
+            { kind: 'assigned', label: 'C02-F01-S08' }, { prepStatus: 'picked', prepMarkedBy: MOCK_SHIP_OPERATOR }),
+        ],
+      },
+      status, shipmentTotalCents: 0, shipmentFeeCents: 0, shipmentIvaCents: 0, shipmentProcessingFeeCents: 0,
+      meta: { [`sit-${n}-1`]: { originOrderId: `ord-${n}`, unitPriceCents: 65_000, refundId: null, caseId: null } },
+    })),
   ];
 }
 let ships: MockShipOrder[] = shipSeed();
@@ -1570,6 +1619,25 @@ export function mockAdminOrderDetailAdditions(orderId: string): Partial<AdminOrd
   const manual = manualRefunds.filter((m) => m.originOrderId === orderId);
   const shipRows = ships.filter((s) => s.dto.orderId === orderId);
   const base: Partial<AdminOrderDetailDTO> = {
+    // MOCK §M4-SHIP.18.12 (7): `shipmentShipped` vivo y `fullRefundReview` (null si no hay reembolso total cerrado).
+    shipmentShipped: shipRows.some((s) => s.status === 'enviado' || s.status === 'entregado'),
+    fullRefundReview: origin ? fullRefundReviewOf(origin) : null,
+    // El total del detalle vive en `breakdown` (contrato §11), ⛔ nunca en la raíz (QA s5 IMPORTANTE-1).
+    ...(origin
+      ? {
+          breakdown: {
+            subtotalCents: origin.subtotalCents,
+            ivaCents: origin.ivaCents,
+            ivaRatePct: origin.ivaRatePct,
+            processingFeeCents: origin.processingFeeCents,
+            totalCents: origin.totalCents,
+            currency: 'MXN' as const,
+            priceConvention: origin.priceConvention,
+            ivaIncluded: origin.priceConvention === 'IVA_INCLUSIVE',
+            ...(origin.fulfillmentMode === 'direct_ship' ? { shippingFeeCents: origin.shippingFeeCents } : {}),
+          },
+        }
+      : {}),
     orderNumber: origin?.orderNumber ?? null,
     fulfillmentMode: origin?.fulfillmentMode,
     status: origin?.status,
@@ -1588,6 +1656,55 @@ export function mockAdminOrderDetailAdditions(orderId: string): Partial<AdminOrd
   return clone(base);
 }
 
+/**
+ * MOCK §M4-SHIP.18.12 (7): `workQueue.refundReviews` del tablero — `null` para el operador (el contador es del
+ * súper-admin); `pending` = órdenes con el predicado del servidor (reembolso total tras el envío, sin motivo).
+ */
+export function mockRefundReviewsCounter(): { pending: number; oldestRefundedAt: string | null } | null {
+  if (mockCallerRole() !== 'super_admin') return null;
+  const open = Object.values(origins)
+    .filter((o) => fullRefundReviewOf(o)?.pending === true)
+    .map((o) => o.fullRefundClosedAt!)
+    .sort();
+  return { pending: open.length, oldestRefundedAt: open[0] ?? null };
+}
+
+/** MOCK §M4-SHIP.18.12 (7): proyección de lectura del motivo. Un solo cuerpo (detalle, registro y fila). */
+function fullRefundReviewOf(origin: MockOriginOrder): FullRefundReviewDTO | null {
+  if (!origin.fullRefundClosedAt) return null;
+  const after = origin.fullRefundAfterShipment === true;
+  const r = origin.shippedRefund ?? null;
+  return {
+    afterShipment: after,
+    pending: after && r === null,
+    reason: r?.reason ?? null,
+    note: r?.note ?? null,
+    recordedAt: r?.at ?? null,
+    recordedBy: r ? r.by : null,
+  };
+}
+
+/** MOCK de `POST /admin/orders/:id/shipped-refund-reason` (§M4-SHIP.18.12 (6)): `@MoneyOut`, registro final. */
+export function mockRecordShippedRefundReason(orderId: string, body: RecordShippedRefundReasonRequest): RecordShippedRefundReasonResponse {
+  requireSuperAdmin();
+  const origin = origins[orderId];
+  if (!origin) throw new ApiFixtureNotFound(`Order ${orderId} not found`);
+  if (!(SHIPPED_REFUND_REASONS as readonly string[]).includes(body.reason)) {
+    throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'reason', { field: 'reason', allowed: [...SHIPPED_REFUND_REASONS] });
+  }
+  if (origin.fullRefundAfterShipment !== true) {
+    throw new ApiFixtureError(409, 'SHIPPED_REFUND_REASON_NOT_APPLICABLE', 'Not after shipment', { afterShipment: false });
+  }
+  const existing = origin.shippedRefund ?? null;
+  if (existing) {
+    if (existing.reason !== body.reason) throw new ApiFixtureError(409, 'SHIPPED_REFUND_REASON_ALREADY_SET', 'Already set', { reason: existing.reason });
+    return clone({ orderId, outcome: 'already_recorded' as const, fullRefundReview: fullRefundReviewOf(origin)! });
+  }
+  const note = body.note?.trim() ? body.note.trim().slice(0, 500) : null;
+  origin.shippedRefund = { reason: body.reason, note, at: nowIso(), by: { id: MOCK_SUPER.userId, name: MOCK_SUPER.name } };
+  return clone({ orderId, outcome: 'recorded' as const, fullRefundReview: fullRefundReviewOf(origin)! });
+}
+
 /** MOCK de `POST /admin/orders/:id/refund` (§M3 v1.80 / v1.80.4 / v1.80.5). Devuelve el nuevo estado. */
 export function mockRefundOrderTotal(orderId: string, body: RefundOrderRequest): RefundOrderResponse {
   requireSuperAdmin();
@@ -1597,6 +1714,18 @@ export function mockRefundOrderTotal(orderId: string, body: RefundOrderRequest):
   const remaining = origin.totalCents - refundedOnOrder(orderId);
   if (remaining <= 0) throw new ApiFixtureError(409, 'CONFLICT', 'Nothing left to refund');
   const pieces = vaultPieces.filter((p) => p.orderId === orderId);
+  // MOCK §M4-SHIP.18.12 (4): «enviado» se decide en la tx1 (aquí: el estado vivo de los envíos de la orden).
+  const shippedRow = origin.fulfillmentMode === 'direct_ship'
+    ? ships.find((s) => s.dto.orderId === orderId && (s.status === 'enviado' || s.status === 'entregado'))
+    : undefined;
+  if (shippedRow && !body.shippedReason) {
+    throw new ApiFixtureError(422, 'REFUND_CONFIRMATION_REQUIRED', 'Shipped order needs a reason', {
+      required: ['shipped_reason'], shipmentStatus: shippedRow.status,
+    });
+  }
+  if (!shippedRow && body.shippedReason) {
+    throw new ApiFixtureError(409, 'SHIPPED_REFUND_REASON_NOT_APPLICABLE', 'Order not shipped', { afterShipment: false });
+  }
   if (origin.fulfillmentMode === 'vault') {
     // Precondición 1 (tx1): una carta en un retiro preparado o con guía ⇒ deshacer el preparado primero.
     const packed = pieces.filter((p) => p.state === 'in_packed_withdrawal' || (p.state === 'in_custody' && p.shipmentId && (ships.find((s) => s.dto.shipmentId === p.shipmentId)?.dto.preparation.status === 'prepared' || ships.find((s) => s.dto.shipmentId === p.shipmentId)?.status === 'guia')));
@@ -1628,6 +1757,10 @@ export function mockRefundOrderTotal(orderId: string, body: RefundOrderRequest):
   executeRefund(row);
   origin.status = 'refunded';
   origin.fullRefundClosedAt = nowIso();
+  origin.fullRefundAfterShipment = !!shippedRow;
+  if (shippedRow && body.shippedReason) {
+    origin.shippedRefund = { reason: body.shippedReason, note: body.reason.trim().slice(0, 500) || null, at: nowIso(), by: { id: MOCK_SUPER.userId, name: MOCK_SUPER.name } };
+  }
   if (origin.fulfillmentMode === 'vault') {
     for (const p of pieces) {
       if (p.state === 'in_custody') {
@@ -1741,5 +1874,5 @@ export function mockHoldingWithdrawabilityOf(h: HoldingDTO): Pick<HoldingDTO, 'w
 /** Lo que §M4-SHIP.10 añade a cada FILA de la lista M3 (`customer`, `refundedCents`) + el estado vivo. */
 export function mockAdminOrderRowAdditions(orderId: string): Partial<AdminOrderDetailDTO> {
   const a = mockAdminOrderDetailAdditions(orderId);
-  return { orderNumber: a.orderNumber, fulfillmentMode: a.fulfillmentMode, status: a.status, customer: a.customer, refundedCents: a.refundedCents, chargebackNeedsManual: a.chargebackNeedsManual };
+  return { orderNumber: a.orderNumber, fulfillmentMode: a.fulfillmentMode, status: a.status, customer: a.customer, refundedCents: a.refundedCents, chargebackNeedsManual: a.chargebackNeedsManual, refundReviewPending: a.fullRefundReview?.pending === true };
 }

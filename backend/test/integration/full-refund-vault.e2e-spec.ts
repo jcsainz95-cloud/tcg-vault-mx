@@ -887,7 +887,16 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     const r = await db.invPatch(same.id, { status: 'in_stock', listPriceCents: 4321 });
     expect(r.status).toBeLessThan(300);
     expect(await db.piece(same.id)).toMatchObject({ status: 'in_stock', listPriceCents: 4321 });
-    expect(await db.audits(same.id, 'inventory.item_updated')).toHaveLength(0);
+    // ⭐ v1.80.8.7 (API_CONTRACT §M1 `M1-SFP` punto 1, criterio 255) — ACTUALIZADO a la forma nueva: el cambio de
+    // PRECIO ya deja UNA fila `inventory.item_updated` (antes: ninguna, solo el `status` la ganaba); el `status`
+    // sigue igual en los dos lados — lo que esta prueba fija (no se re-escribe `status`) no cambia.
+    const sameAudits = await db.audits(same.id, 'inventory.item_updated');
+    expect(sameAudits.map((a: any) => [a.before, a.after])).toEqual([
+      [
+        { status: 'in_stock', listPriceCents: null },
+        { status: 'in_stock', listPriceCents: 4321, fields: ['listPriceCents', 'status'] },
+      ],
+    ]);
     // el cambio real sigue pasando por la guarda y la escritura condicionada (PS-42), con su bitácora
     const listed = await db.mkPiece({ status: 'listed' });
     expect((await db.invPatch(listed.id, { status: 'in_stock' })).status).toBeLessThan(300);

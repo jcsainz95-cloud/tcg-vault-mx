@@ -26422,7 +26422,272 @@ clave; censo de uso), `test/pricing.sync-dto.spec.ts`, dos casos nuevos en `test
 | `buylist-intake-concurrency` (barrera de candado por tiempo, 10 s) | aislada en árbol vivo **5/5 verdes**; en corrida completa del árbol vivo verde 1/4; árbol `8a10153e` completo 1/1 verde. El cambio no toca su camino (`POST /buylist/requests`); §15 ya la midió intermitente sobre la base (7/8). **No atribuida con certeza: N pequeño** |
 | `npm audit --omit=dev` (parche de devops) | antes: 1 high (`brace-expansion`) + 6 moderate; después: **0 high / 0 critical** + los mismos 6 moderate (`@nestjs/core`, `multer`, `qs`) |
 
-## 17 · PR #68 — rojo de `backend-e2e` en PS-51: el fixture leía las líneas del envío en orden FÍSICO (2026-10-04, sobre `8a18b170`)
+## 15 · v1.80.8.5 — «Premium en el piso», en VENTA, se publica al piso según el dial `premiumFloorSalePublish` (2026-10-04, rama `claude/precios-s5`, sobre `9f08cd64`)
+
+Norma: `API_CONTRACT §M2 «v1.80.8.5»` (ancla `M2-PF`) y `ARCHITECTURE §4.36.5 (c-ter)`. Decisión del dueño: `HECHOS.md`
+2026-10-04, «Precios — decisiones» (a) y «Precios y reembolsos — respuestas…» (a) — solo `Double Rare` y `Rare Holo EX`
+se publican al piso (MX$25); el resto de premium sigue retenida `premium_at_floor`. **Sin schema, sin migración, sin
+endpoint nuevo.** El contrato cuadró con el código: no hubo nada que escalar al arquitecto.
+
+**1 · La regla, en un solo sitio (`common/pricing-curve.ts`).** `PremiumFloorPolicy`, `BUY_PREMIUM_FLOOR_POLICY`
+(`none`, congelada), `DEFAULT_SALE_PREMIUM_FLOOR_POLICY` (seed `only` DR/EX), `premiumFloorPublishes(policy, rareza)`
+(igualdad EXACTA de la canónica: un alias, un patrón o una cruda sin mapear con token `ex` **se retienen**),
+`validatePremiumFloorSalePublish` (el MISMO cuerpo para la puerta y la lectura) y `sanitizePremiumFloorSalePublish`
+(lectura money-safe: `undefined` ⇒ seed; inválido ⇒ `none` + problema; válido ⇒ copia). `premiumFloorGuard` y
+`resolvePendingReason` ganan `policy` **obligatorio**; `no_market` se decide antes de mirar la política.
+
+**2 · El dial.** `SettingKey.PREMIUM_FLOOR_SALE_PUBLISH = 'premium_floor_sale_publish'` en las cuatro estructuras de
+`settings.constants.ts`; DTO `premiumFloorSalePublish` en `GET/PUT /admin/settings` (auditado por `settings.update`).
+Validador: objeto con **exactamente** `{mode, rarities}` (una clave extra ⇒ 422 — decisión de backend, el contrato fija la
+forma exacta); `mode ∈ all|none|only`; `rarities` array de strings sin duplicados; vacío ⇔ `mode ≠ only`; con `only`,
+cada elemento es la `key` canónica de una rareza `premium:true` (alias como `doublerare` ⇒ 422: con comparación exacta no
+publicaría nada). Error ⇒ `422 VALIDATION_ERROR` con `details.errors.premiumFloorSalePublish: string`.
+Lector único: `PricingService.loadSalePremiumFloorPolicy()` (fila inválida ⇒ `none` + `logger.error [MONEY]`).
+
+**3 · ¿Cachea `SettingsService`? NO (medido, 2026-10-04).** `SettingsService.get()` hace un `findUnique` por llamada
+(`settings.service.ts:229-233`); no hay memo, `Map` ni TTL en `backend/src/modules/settings/` (`grep -i "cache|ttl"`: solo
+un comentario «no cacheable» del preview de IVA). `loadSalePremiumFloorPolicy` se llama por request/lote ⇒ **un `PUT` del
+dial rige desde la siguiente petición**. Lo que NO medí: cachés fuera del backend (CDN / `revalidate` del frontend sobre el
+catálogo) — no es mi carpeta.
+
+**4 · Quién pasa QUÉ política (candado PF-11, `test/pricing.premium-floor-sale.spec.ts`).**
+| Llamador | Política |
+|---|---|
+| `buylist.service.ts` (cotización/`createRequest` y vitrina de bounties) | `BUY_PREMIUM_FLOOR_POLICY` (⛔ no lee el dial) |
+| `variant-pricing.composeVariantPricing` | `buy` ⇒ `BUY_PREMIUM_FLOOR_POLICY`; `sell` ⇒ parámetro **obligatorio** `salePremiumFloorPolicy` |
+| `PricingService.decideSalePrice` | campo **obligatorio** `premiumFloorPolicy`; `computeSalePriceForItem` lo carga si no viene |
+| catálogo (`fetchSellable` iza una vez; uso single ⇒ seam), checkout auth/guest (`orders.salePriceOf` ⇒ seam), `inventory` (`PublishPricingCtx.premiumFloorPolicy`, izada por corrida en publish-all, cola «listas para publicar» y re-evaluación), binder (`master-set` consola y `resolveBuyables`), `price-ingest` (reconciliación), `admin-bounties`, `variant-controls`, barrido VQ | `loadSalePremiumFloorPolicy()` una vez por request/lote |
+
+`composeVariantPricing`: el parámetro `rarityCanonical` pierde su default `= null` (no se puede poner un obligatorio
+detrás de uno con default). Ningún llamador de `src/` dependía del default; los de pruebas pasan `null` explícito.
+
+**5 · Barrido VQ, rama nueva.** `sweepUnreasonedSaleQueue()` lee la política UNA vez y devuelve
+`{ closed, kept, premiumFloorClosed }` (campo nuevo; antes `{closed, kept}`). Rama nueva: filas `open ∧ inventory ∧
+premium_at_floor` con `card.rarityCanonical ?? card.rarity`; cierra las que `premiumFloorPublishes` publica, sin casar
+piezas; `none` ⇒ no-op sin consultar. Escritura en `PricingService.closeStalePremiumFloorSaleRows(ids)` (repite
+`status/context/reason` en el `where`; `resolvedPriceRefId = null`). VQ-5: escrituras crudas de la cola en
+`pricing.service.ts` 5 → **6**. Log con el mismo tope `VQ_SWEEP_LOG_ID_CAP`.
+
+**6 · Pruebas.** Nuevas: `test/pricing.premium-floor-sale.spec.ts` (PF-1, PF-2, PF-3 cotización, PF-6, PF-8 puerta +
+loader + `SettingsService.update`, PF-9, PF-11 con canario) y `test/integration/premium-floor-sale.e2e-spec.ts` (PF-3 con
+`createRequest`, PF-7 catálogo + `stockCount` + checkout auth y guest con seed y con `none`, PF-8 por HTTP con bitácora,
+PF-10 escenario del dueño + 2.ª corrida no-op). PF-4 en `inventory.publish-all.spec.ts` (su harness ahora respeta el `OR`
+por eje de `closePendingForVariant`; sin eso la fila de COMPRA se cerraba en el doble), PF-5 en
+`price-ingest.service.spec.ts`. Las 12 que cambian, parametrizadas (`none` conserva la aserción original): `pricing-curve.spec`,
+`pricing.premium-floor-guard`, `inventory.bulk-publish-escalate` (+DR seed/none), `inventory.publish-all` (+PF-4),
+`price-ingest.service` (+PF-5), `master-set.scopes` (+DR en el binder seed/none), `pricing.pending-close-scope`,
+`pricing.vq-sale-queue` (VQ-8 con `none`; forma `premiumFloorClosed`), `sale-queue-vq.e2e` (VQ-9 con `none`, restaura el
+dial), `pricing-visibility.e2e` (+DR publicada al piso con el seed), `pricing.bounty-cap` (firma), comentarios de
+`seed-e2e.ts`/`e2e-fixtures.ts` (`floorpremium` es `Secret Rare` ⇒ sigue retenida con el seed). ⛔ Ninguna aserción de
+COMPRA cambió de valor. Además ~35 specs con dobles de `PricingService` ganaron `loadSalePremiumFloorPolicy` (seed) en el
+mock — solo forma del doble, ninguna aserción.
+
+**Mediciones (autor: backend, 2026-10-04; todas deterministas ⇒ N=1 por corrida):**
+| Medición | Resultado |
+|---|---|
+| `tsc --noEmit` / `eslint` de los ficheros tocados | limpio / limpio |
+| Unitaria completa, base `9f08cd64` (copia del árbol entero) | 383/384 suites, 6443/6444 — la roja es `enum-values-parity` (`MovementReason`: el contrato ya trae `refund_release` de v1.80.8.6 y el schema no) |
+| Unitaria completa, este cambio | 384/385 suites, 6500/6501 — la MISMA roja preexistente, ninguna otra |
+| Integración completa (BD propia `tcg_pf580`, Postgres/Redis compartidos) | 69/70 suites, 1464/1465: la roja era PF-3 (`BUYLIST_MINIMUM_NOT_MET`, fixture sin línea sana); corregido el fixture ⇒ PF-e2e + VQ-9 + pricing-visibility **47/47** |
+| Mutaciones unitarias (copia del árbol entero) | **21/21 muerden** (en la 1.ª pasada «sin fila ⇒ `all`» SOBREVIVIÓ: en producción `getRaw` nunca devuelve `undefined` — cae a `SETTING_DEFAULTS` —, así que esa rama solo la ejercía un doble; se añadió la prueba pura de `sanitize…` y se re-midió roja, junto con la mutación de `SETTING_DEFAULTS`): guard ignora `policy`; `only`≡`all`; `policy` antes que `pending`; sin fila ⇒ `all`; basura ⇒ `all`; `SETTING_DEFAULTS` ⇒ `all`; seed sin `Rare Holo EX`; comparación por patrón; seam con `none` fijo; compra lee el dial; cierre sin eje; ctx de inventory sin política; `price-ingest` sin política; `where` sin `context/reason`; cerrar sin mirar la rareza; barrido sin rama nueva; validador acepta no-premium; validador acepta `only` vacío; `sellGuarded` sin política; `buyGuarded` con el dial; canario literal en `decideSalePrice` |
+| Mutaciones de integración (copia, BD `tcg_pf580_mut`; control sin mutar 21/21 verde) | **5/5 muerden**: checkout sin política; catálogo sin política; compra lee el dial; barrido sin rama nueva; barrido sin mirar la rareza |
+
+**Lo que NO medí:** el número real de filas DR/EX vs otras premium en la cola de producción (la consulta de
+`ARCHITECTURE §4.36.5 (c-ter)` la corre el orquestador); el frontend (control de M10).
+
+## 17 · v1.80.8.6 + v1.80.8.7 (9) — reembolso TOTAL «depende de si ya salió»: `M-62`, SRF-1…SRF-13 (2026-10-04, rama `claude/precios-s5`, sobre `64ce47bb`)
+
+Norma: `API_CONTRACT §M4-SHIP.18.12` (1)–(9); porqué: `ARCHITECTURE §4.57 (w)`. Cierra `SSL-R1`.
+
+### 17.1 Qué se construyó (dónde)
+| Pieza | Fichero |
+|---|---|
+| `M-62` (aditiva, sin backfill): enum `ShippedRefundReason`, `MovementReason + refund_release`, 5 columnas de `Order`, FK RESTRICT, CHECKs `order_shipped_refund_reason_shape` y `order_after_shipment_sealed` | `prisma/migrations/20261004120000_m62_shipped_refund_reason/` · `schema.prisma` (la relación `Order.user` se nombra `"OrderToUser"` = el nombre implícito ⇒ ⛔ sin DDL; medido con `prisma migrate diff`) |
+| Clase R `ACCEPTED_SHIPPED_REFUND_REASONS` (lista exacta + subconjunto + «nadie lo deriva») | `common/business-rules.ts` · `test/enum-values-parity.spec.ts` |
+| `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE`, `409 SHIPPED_REFUND_REASON_ALREADY_SET` | `common/error-codes.ts` |
+| Predicado único «por revisar» (`isRefundReviewPending` + `REFUND_REVIEW_PENDING_WHERE`) y `FullRefundReviewDTO` | `payments/refunds/refund-review.ts` (paridad: `test/refund-review.spec.ts`) |
+| Cuerpo único `releaseReservedOfUnsettledRefund` + `lockReservedOfOrder` | `payments/refunds/release-unsettled-refund.ts` |
+| Corte «enviado» bajo candado, liberación SSL-R1, sello + motivo, bitácora `order.full_refund_closed` (`afterShipment`, `shippedReason`, `releasedItemIds`) | `payments/refunds/full-refund.service.ts` |
+| M3 tx1: TODOS los envíos `FOR UPDATE` + estado tras candado; `422 required:['shipped_reason']` / `409 NOT_APPLICABLE` antes de `createRows`; nota = `reason` recortado a 500; `order.refund.after.shippedReason` | `orders/order-refund.service.ts`, `orders/dto/orders.dto.ts` |
+| Verbo `POST /admin/orders/:id/shipped-refund-reason` (`@MoneyOut`, cuerpo crudo validado entero) | `orders/admin-orders.controller.ts`, `OrderRefundService.recordShippedRefundReason` |
+| `GET /admin/orders`: `refundReviewPending` por fila + `?refundReview=pending` (clase L); detalle: `fullRefundReview`, `shipmentShipped`, `settledAt: string \| null` siempre presente (A-1) | `orders/admin-orders.controller.ts` |
+| Tablero `workQueue.refundReviews` (`null` al operador) | `admin/admin.service.ts` |
+| Barrido: rama `refunded ∧ settledAt IS NULL` sin `closePaymentIntent`, log `info` | `orders/orders.service.ts` (`releaseRefundedUnsettled`) |
+
+### 17.2 Decisiones de implementación que otros roles deben saber
+1. **La rama directo escribe ahora `order.full_refund_closed`** en la primera pasada (antes solo la bóveda). La norma (2)
+   dice «`after` gana `afterShipment`, `shippedReason`, `releasedItemIds`»: en la rama directo no existía la fila, y sin
+   ella esos tres campos no tendrían dónde vivir. `after` del directo: `{ trigger, statusAtClose, closedShipmentIds,
+   frozenItemIds, afterShipment, shippedReason, releasedItemIds }`. ⚠️ Para el arquitecto: no estaba escrito que el
+   directo ganara la fila; si no la quiere, se quita sin tocar nada más.
+2. **SRF-11 «la ventana» — defecto encontrado y cerrado (fuera del texto de la norma, dentro de su criterio).** En la
+   rama directo, si el `succeeded` tardío confirma ENTERO entre la lectura de envíos del reembolso y su candado de
+   `Order`, el settle crea un envío `picking` que la pasada no vio: la orden quedaba `refunded` con un envío VIVO
+   (exactamente el rojo de SRF-11, «envío creado para una orden refunded»). Arreglo: tras el `FOR UPDATE` de `Order`, se
+   releen los envíos de la orden que no estaban en el primer candado, se bloquean y se cierran igual (paso 4-bis). Es un
+   candado `ShipmentRequest` DESPUÉS de `Order` — solo en esa ventana; en el camino normal la lista está vacía. Prueba
+   propia: SRF-11 «la VENTANA» (espía sobre `lockReservedOfOrder` que deja confirmar el settle entero en medio), y su
+   mutación (quitar el 4-bis) la pone roja.
+3. **Rama bóveda:** las `reserved` por la orden entran al MISMO `FOR UPDATE` de piezas (unión con las de la cadena, un
+   solo `ORDER BY id`), y bajo el candado se relee cuáles siguen `reserved` por ella: un id rancio no llega al cuerpo.
+4. **El verbo nuevo valida el cuerpo crudo** (`@Body() body: unknown`): el `ValidationPipe` global es `whitelist` sin
+   `forbidNonWhitelisted`, así que con una clase DTO una clave desconocida se borraría en silencio y el contrato pide
+   `400`. `note` vacía tras `trim` ⇒ `null`.
+5. `C-EQ-1`: `?refundReview=` entra al REGISTRO como clase L `PENDIENTE-ARQUITECTO` (52 filas, 19 pendientes): el
+   contrato pide la fila de §0-Q «en el mismo commit» y §0-Q punto 4 no la tiene (medido: `grep refundReview
+   docs/API_CONTRACT.md` ⇒ solo §M3, §M4-SHIP.18.12 y el tablero).
+
+### 17.3 M-62 — los dos conteos de SOLO LECTURA previos al despliegue (⛔ no corridos contra producción)
+Los corre quien tenga la credencial donde ya vive (vía de `CLAUDE.md` «Secretos»), con un usuario de solo lectura:
+```sql
+-- (1) Órdenes reembolsadas cuyo envío propio YA salió. Esperado 0 (HECHOS: sin ventas reales al 2026-09-11).
+--     > 0 ⇒ vuelve al orquestador: ¿se le muestran al dueño como «por revisar»? (⛔ M-62 no hace backfill).
+SELECT count(*) AS refunded_after_shipment
+  FROM "Order" o
+ WHERE o.status = 'refunded'
+   AND EXISTS (SELECT 1 FROM "ShipmentRequest" s
+                WHERE s."orderId" = o.id AND s.status IN ('enviado', 'entregado'));
+
+-- (2) Piezas apartadas por una orden reembolsada NUNCA liquidada (SSL-R1). Esperado 0; si > 0, las libera el barrido
+--     (rama `refunded ∧ settledAt IS NULL`, `refund_release`) en su siguiente pasada tras el despliegue.
+SELECT count(*) AS reserved_by_unsettled_refunded
+  FROM "InventoryItem" i
+  JOIN "Order" o ON o.id = i."reservedByOrderId"
+ WHERE i.status = 'reserved'
+   AND o.status = 'refunded'
+   AND o."settledAt" IS NULL;
+```
+Ninguna de las dos toca columnas de `M-62`: se pueden correr ANTES de migrar (que es cuando importan).
+
+### 17.4 Rojo primero, verde después, mutaciones (medido por mí; esquema propio `s11`/`s11_mut` en `tcg_marketplace`)
+- **Rojo antes del código:** la spec `shipped-refund-reason.e2e-spec.ts` contra el `src/` de `64ce47bb` (schema y
+  migración nuevos, servicios viejos): **29 rojas / 6 verdes de 35** (las 6 verdes son controles: `failed` sin
+  `refund_release`, el cuerpo único llamado directo, SRF-9/SRF-10 en el orden «reembolso/M3 primero», barrido sobre
+  liquidada, M3 sobre `pending`).
+- **Verde con el código:** 35/35 (y 37/37 con SRF-11 «anomalía»). Carreras, cada una N=10 por variante (proporción
+  de verdes, cero tiradas inválidas): SRF-6 forzado 10/10 · suelto 10/10; SRF-9 enviado-primero 10/10 (A) ·
+  reembolso-primero 10/10 (B) · suelta 10/10 (las 10 cayeron en A); SRF-10 m3-primero 10/10 (A) · enviado-primero
+  10/10 (B) · suelta 10/10 (2 A / 8 B); SRF-11 directo y bóveda × pago/reembolso primero 10/10 cada una (pago-primero:
+  9–10 de 10 con `503` + reentrega por `40P01`, como SL-10) · ventana 10/10; SRF-12 barrido-vs-webhook 20/20.
+- **Mutaciones** (cada una sobre copia del árbol ENTERO, `run-mut.sh`; «rojo» = la prueba nombrada falla):
+
+| # | Mutación | Resultado |
+|---|---|---|
+| SRF-1 | quitar la llamada a `releaseReservedOfUnsettledRefund` | **rojo** (2/2 variantes) |
+| SRF-2 | escribir el movimiento sin `count === 1` | **rojo** en el cuerpo llamado con un id rancio. ⚠️ La reentrega ×10 NO lo ve: en una reentrega el estado bajo candado ya es `refunded` y el cuerpo ni se llama; y el candado de piezas filtra `status='reserved'` (EvalPlanQual) ⇒ el `count` es un segundo cinturón |
+| SRF-3 | `reservationGuard` (legadas `null`) en el `WHERE` y en el candado | **rojo** en directo; bóveda verde (su lista de ids sale de `reservedIdsOfOrder`, `reservedByOrderId` exacto: segundo cinturón) |
+| SRF-4 | escribir `fullRefundAfterShipment` en toda pasada, `false` en las siguientes | **rojo** (2/2) |
+| SRF-5 | quitar `@MoneyOut()` | **rojo** |
+| SRF-6 | (contrato) quitar `shippedRefundReason: null` del CAS | ⚠️ **SOBREVIVE** (2/2 verdes, N=10 c/u): el `FOR UPDATE` de `Order` ya serializa; el segundo lee el motivo del primero y da `409`. Quitando ADEMÁS el `FOR UPDATE` (SRF-6b): **rojo**, forzado 0/10 verdes, suelto 2/10 |
+| SRF-7 | (contrato) mover la comprobación después de `createRows` | ⚠️ **SOBREVIVE**: el `422` se lanza dentro de la tx1 ⇒ rollback de la fila; Stripe va post-commit. Quitar la comprobación (SRF-7b): **rojo** |
+| SRF-8 | (contrato) leer envíos con el `findMany` filtrado `picking\|guia` | ⚠️ SRF-8 **SOBREVIVE** (su envío está en `guia`, entra al filtro). La misma mutación la caza SRF-10: enviado-primero 0/10, suelta 3/10 |
+| SRF-9 | `afterShipment` con la lectura previa al `FOR UPDATE` | **rojo**: enviado-primero 0/10, suelta 3/10 (mezcla `enviado`+`afterShipment=false`) |
+| SRF-10 | bloquear en tx1 solo `picking\|guia` | **rojo**: enviado-primero 0/10, suelta 3/10 |
+| SRF-11 | (contrato) liberar antes de leer el estado bajo candado | ⚠️ las 5 carreras **SOBREVIVEN** (N=10 c/u): el settle saca las piezas de `reserved` en la misma tx en que pone `settled`, y el candado de piezas filtra por `reserved` ⇒ nunca hay pieza que liberar de una liquidada. Prueba añadida «anomalía sembrada» (liquidada con pieza aún `reserved`): **rojo** en directo |
+| SRF-11w | quitar el 4-bis (envíos nacidos en la ventana) | **rojo**: 0/10 (orden `refunded` con envío vivo) |
+| SRF-12 | conservar `closePaymentIntent` en la rama `refunded` | **rojo** (3/3 pruebas; carrera 0/20) |
+| SRF-13 | pedir `shipped_reason` en bóveda con `already_withdrawn` | **rojo** |
+
+⚠️ **Para el arquitecto (no lo resolví yo):** las mutaciones que §M4-SHIP.18.12 (8) asigna a SRF-6, SRF-7, SRF-8 y SRF-11
+no pueden poner roja su prueba con el algoritmo normado: cada una quita un cinturón que la norma duplica (FOR UPDATE +
+CAS en (6); tx1 con rollback en (4); el estado bajo candado + el filtro de piezas en (3)). Medido arriba qué sí muerde.
+
+## 18 · v1.80.8.7 `M1-SFP` construida — bitácora antes/después del `PATCH` de M1, `pendingReason` en la cola, precio derivado del sellado en el listado (2026-10-04, rama `claude/precios-s5`, sobre `2b99b5c2`; código en `64ce47bb`)
+
+Contrato: `API_CONTRACT §M1` «v1.80.8.7» (`M1-SFP`, puntos 1–9). Arquitectura: §4.36.5 (c-quater). Criterio 255.
+⛔ Sin schema, migración, enum, endpoint ni código de error nuevos.
+
+**`D-SFP-1` — CERRADA por backend** (medido 2026-10-04 sobre `64ce47bb`): SFP-1…SFP-6 verdes con sus mutaciones
+(SFP-5 con proporción, N=10 forzada + N=10 suelta, los dos caminos). El registro en `ARCHITECTURE §9` es del
+arquitecto (no lo toco). `D-SFP-2` (`listPriceCents: null`) sigue **fuera**: no se tocó su conducta.
+
+### Qué hace el código (`inventory/inventory.service.ts`)
+1. **Un solo cuerpo** del `before/after`: `itemUpdatedAudit(read, written, fields)` (pura; `null` si ni `status` ni
+   `listPriceCents` cambian; `fields` ordenado) y `writeItemUpdatedAudit(tx, actor, id, …)`, que escribe con el
+   handle `tx` de la escritura auditada. Es el **único** literal `'inventory.item_updated'` de `inventory/` (SFP-6).
+2. **No publicante:** `guardedItemUpdate(tx, item, data, { listPriceCents: <leído> })` — el precio leído entra al CAS
+   (`P2025` ⇒ `409 CONFLICT`); lo leído se fija **antes** de escribir. `move`/`mark` no pasan la condición.
+3. **Publicante:** `claimListed(…, audited)` corre dentro de `$transaction(VAULT_VERB_TX_OPTIONS)` con
+   `listPriceCents: <leído>` en el `updateMany`; `count 0` ⇒ relee en la tx: plataforma ∧ `in_stock|listed` ⇒
+   `409 CONFLICT`; si no ⇒ `422 ITEM_NOT_PUBLISHABLE { status: <releído> }`. `resolvePublishSalePrice` sigue antes y
+   fuera. **Los caminos de lote** (`bulk-publish`, `publish-all`, reevaluación/auto-publicación) **no pasan
+   `audited`**: sin tx nueva, sin precio en el CAS, sin esta bitácora (no son la captura del criterio 255; ARCH lo
+   declara «lo que NO cubre»).
+4. **`pendingReason`** (`PendingPublishState` + fila de `pending-publish`, siempre presente): `pendingKey == null` ⇒
+   `null` (gradeada sin slab); si no ⇒ `derived.pendingReason ?? 'no_market'` — **la misma expresión** con la que
+   `resolvePublishSalePrice` escala (incluido el sellado). ⛔ No lee `PendingPriceEntry`.
+5. **Listado** (`listItems` → `sealedSalePricesOf`): solo `sealed ∧ platform ∧ in_stock|listed`;
+   `loadPublishPricingCtx` una vez por página (ninguna consulta sin elegibles); `derivePublishSalePrice(item, null,
+   ctx)`; `ok:false` ⇒ `{ null, 'pending' }`. En el resto de filas las claves no viajan. No escribe.
+
+### Pruebas
+- Unitarias: `backend/test/inventory.sealed-final-price.spec.ts` (39). El arnés hace **rollback de verdad** en
+  `$transaction` (SFP-3 mide «nada escrito», no «el doble no se llamó»).
+- Integración (Postgres real): `backend/test/integration/inventory-price-audit.e2e-spec.ts` (20). SFP-3 se mide con
+  un **TRIGGER** `BEFORE INSERT ON "AuditLog"` que lanza para las piezas de la prueba (se crea y se borra en la
+  propia prueba, también en `afterAll`). SFP-5 forzada usa `row-lock-barrier.ts` (2 peticiones bloqueadas
+  comprobadas en `pg_stat_activity`).
+- **Rojo antes** (sobre `2b99b5c2`, sin el código): unitaria 23/39 rojas (SFP-1 6/6, SFP-2 2/2, SFP-3 2/3 —la de
+  `status` ya tenía bitácora—, SFP-5 3/3, SFP-6 1/2, SFP-7 6/6, SFP-8 3/9); integración 13/20 rojas (SFP-1 3/3,
+  SFP-2 2/2, SFP-3 1/1, SFP-5 4/4 —forzada 10/10 `[200,200]` sin filas, suelta 10/10—, SFP-7, SFP-9 primera,
+  SFP-8). Verdes antes, como dice el contrato: SFP-4 (candado) y el `422` de SFP-9.
+- **Actualizadas a la forma nueva (no borradas):** `inventory.pending-publish.spec.ts` (4b: el publicante ahora SÍ
+  escribe una fila), `inventory.patch-price-guard.spec.ts` (3: `audit@tx` + precio en el CAS),
+  `inventory.graded-cert.spec.ts` (CAS con `listPriceCents` + doble de `auditLog`),
+  `integration/full-refund-vault.e2e-spec.ts` PS-42b (`{status igual, listPriceCents}` deja una fila con el
+  `status` igual en los dos lados).
+
+### Mutaciones (sobre copia `git archive` + mis ficheros, esquema propio; N=1 deterministas salvo SFP-5)
+| Mutación | Resultado |
+|---|---|
+| M1 volver a `if (statusChanges)` | SFP-1 rojo: unit 4, integ 3 |
+| M2 quitar la bitácora del publicante | SFP-2 rojo: unit 2, integ 2 |
+| M3a bitácora del no publicante DESPUÉS del commit, fuera de la tx | SFP-3 rojo: unit 2, integ 1 |
+| M3b bitácora del publicante DESPUÉS del commit | SFP-3 rojo: unit 1, integ 1 |
+| M4 sin comparar valores (fila siempre) | SFP-4 rojo: unit 2, integ 1 |
+| M5 quitar `listPriceCents` del CAS no publicante | forzada **10/10 rojas**, suelta **9/10 rojas** (N=10 c/u); unit 1 |
+| M5b quitar `listPriceCents` del CAS publicante | forzada **10/10 rojas**, suelta **10/10 rojas** (N=10 c/u); unit 1 |
+| M6 segundo literal en `claimListed` (canario) | SFP-6 rojo |
+| M7 `pendingReason` constante `'no_market'` | SFP-7 rojo: unit 2, integ 2 |
+| M8a fórmula propia (mercado sin spread) | SFP-8 rojo: unit 1, integ 1 |
+| M8b campos también en raw/graded | SFP-8 rojo: unit 3, integ 1 |
+| M9 memoizar `loadSalePremiumFloorPolicy` | SFP-9 rojo: integ 1 |
+
+Sin mutación: SFP-5 verde **10/10 forzada** y **10/10 suelta** en los dos caminos (formas medidas en la suelta:
+`[200,409]` 10/10 en ambos caminos).
+
+### Para otros roles / decisiones abiertas
+- **Contrato vs schema (menor):** SFP-7 dice «`PendingPriceEntry` idéntica (conteo y `updatedAt`)», pero el modelo
+  **no tiene `updatedAt`** (`schema.prisma`, `model PendingPriceEntry`). La prueba compara la fila ENTERA y el conteo.
+- **Residual del «antes» exacto (para el arquitecto):** el CAS publicante condiciona `status ∈ {in_stock, listed}`
+  (como dice el contrato) más el precio, no el `status` exacto. Si un lote publica la pieza `in_stock → listed` sin
+  tocar su precio entre la lectura y el CAS del `PATCH`, la fila del `PATCH` dirá `before.status: in_stock`. La
+  cadena sigue cuadrando porque el lote no escribe `inventory.item_updated`; no lo cambié porque el contrato no lo
+  pide y cambiaría un `200` actual por `409`.
+- **Frontend:** `pendingReason` viaja siempre (`null` incluido); `resolvedSalePriceCents`/`priceBasis` en el listado
+  solo en sellado de plataforma `in_stock|listed` (claves ausentes en el resto).
+
+### 17.4-bis Suites completas sobre copia del árbol ENTERO (`git archive 8b343b12`)
+- **Unitaria:** 387/387 suites, **6561/6561** pruebas.
+- **Integración** (BD propia `tcg_s11`): 71/72 suites, **1527/1529** pruebas. Las 2 rojas son
+  `buylist-intake-concurrency.e2e-spec.ts` (la barrera no ve 2 bloqueos en `SellRequestItem`): **3/3 rojas** repetidas
+  aislada, y **también roja sobre `64ce47bb`** (antes de este trabajo) en la misma BD ⇒ no es de este cambio; en la corrida
+  previa sobre el esquema `s11` de `tcg_marketplace` había pasado ⇒ dependiente del estado/entorno de la BD, NO MEDIDO por
+  qué. Dueño: backend (stream buylist). La spec SRF entera verde dentro de la corrida completa (37/37, todas las carreras
+  10/10 · 20/20).
+- (Una corrida anterior en esquemas `s11` dentro de `tcg_marketplace` dio rojas en `iva-price-convention` y
+  `replacement-cases`: consultan `pg_enum` sin filtrar por esquema y veían el enum duplicado — artefacto del aislamiento
+  por esquema, no del código; esquemas ya borrados.)
+
+### 17.5 Discrepancias con el texto del contrato (para el arquitecto; ⛔ no cambiadas)
+1. **SRF-13 «M3 sobre `pending` ⇒ `400` como hoy»:** hoy es **`422 VALIDATION_ERROR {status}`**
+   (`order-refund.service.ts`, `BusinessException.validation`). Conservé la conducta de hoy; la prueba fija el código y los
+   `details`, y acepta 400|422 en el status hasta que el contrato diga cuál.
+2. **§0-Q punto 4 sin la fila `?refundReview=`** (ver 17.2 (5)).
+3. **SRF-8 `PATCH →enviado` tras la tx1:** medido `409 CONFLICT` (el CAS del envío ve `cancelado`), la prueba lo fija.
+4. **Mutaciones de SRF-6/7/8/11** que no muerden (17.4).
+5. **Bitácora `order.full_refund_closed` en la rama directo** (17.2 (1)).
+## 17-bis · PR #68 — rojo de `backend-e2e` en PS-51: el fixture leía las líneas del envío en orden FÍSICO (2026-10-04, sobre `8a18b170`)
 
 **Síntoma (CI, run 37054037762, job 110994253030, evento `pull_request`; el `push` del mismo sha salió verde):**
 `TypeError: Cannot read properties of undefined (reading 'id')` en `shipments-prep.e2e-spec.ts:506` — `row` (la fila
@@ -26473,3 +26738,144 @@ las 10 con esa firma. El dinero está bien (una sola `create`, el perdedor no es
 (1) clasificar en la MISMA sentencia que el reclamo (bajo el candado de fila) y contestar `IN_PROGRESS` si perdió contra
 un reclamo vigente; (2) que PS-51 acepte cualquiera de los dos `409` (el invariante de dinero es «una `create`»).
 Ninguna se hace sin decisión del arquitecto.
+
+## 19 · v1.80.8.8 construida — CAS publicante por `status` leído (SFP-10), SRF-13 `422`, fila del directo (SRF-4), PS-51 con los dos `409`, `C-EQ-1`; y por qué `buylist-intake-concurrency` salía roja (2026-10-04, rama `claude/precios-s5`; código en `60048797`)
+
+Norma: `API_CONTRACT` rev v1.80.8.8 (cabecera, §M1 «v1.80.8.7» punto 1 + SFP-10, §M4-SHIP.18.12 (10), §M4-SHIP.17.6 paso 0
++ PS-51, §0-Q punto 4). ⛔ Sin schema, migración, enum, endpoint ni código de error nuevos.
+
+### 19.1 Qué cambió
+| Pieza | Dónde |
+|---|---|
+| `claimListed` con `audited` (solo el `PATCH` publicante) condiciona `status: <leído>` exacto + `listPriceCents` leído; los lotes siguen con `status ∈ PUBLISHABLE_ORIGIN_STATUSES`. `count 0` ⇒ la relectura de siempre (`409 CONFLICT` si sigue publicable) | `inventory.service.ts` (`claimListed`) |
+| SFP-10 unitaria (lote publica entre lectura y CAS ⇒ `409`, sin fila; forma exacta del `where`) | `test/inventory.sealed-final-price.spec.ts` |
+| SFP-10 integración: `publish-all` REAL; forzada (el lote se encola PRIMERO en el candado de fila, el `PATCH` detrás — FIFO comprobado con `pg_stat_activity`) y suelta. Oráculo del «antes real»: TRIGGER `AFTER UPDATE` que anota viejo/nuevo `status`/precio de cada `UPDATE` de la pieza | `test/integration/inventory-price-audit.e2e-spec.ts` |
+| Dos unitarias que fijaban la forma vieja del `where` (`status: {in:[in_stock,listed]}`) pasan a `status: 'in_stock'` (el leído; subconjunto estricto, la guarda anti-double-sell sigue excluyendo `reserved`) | `test/inventory.graded-cert.spec.ts`, `test/inventory.pending-publish.spec.ts` |
+| SRF-13 fija `[422, 'VALIDATION_ERROR', {status:'pending'}]` exacto | `shipped-refund-reason.e2e-spec.ts` |
+| SRF-4 (ya aseveraba UNA fila y cero en la reentrega ×10) ahora fija la forma declarada en (10).2: las **siete** claves exactas de `after`, `entityType:'Order'`, `actorRole:null` | ídem |
+| SRF-11: títulos «SRF-11 «ventana»» y «SRF-11 «anomalía sembrada»» | ídem |
+| PS-51: el perdedor vale si es `409 REFUND_ATTEMPT_IN_PROGRESS {attemptStartedAt}` o `409 REFUND_NOT_RETRYABLE {status ≠ 'requested'}`; rojo un `2xx`, otro código o `NOT_RETRYABLE` con `requested`; imprime la proporción de cada clase | `shipments-prep.e2e-spec.ts` |
+| `C-EQ-1`: `GET /admin/orders?refundReview=` pasa a `transcrita`; registro 52 fijo, pendientes **19 → 18** | `enum-query-axes.e2e-spec.ts` |
+
+### 19.2 Mediciones (autor: backend; BD `tcg_orq_b8_mut`, esquemas propios `dev1`/`mut`; Postgres/Redis compartidos)
+| Prueba / mutación (copia `git archive HEAD` del árbol ENTERO, `60048797`) | Resultado |
+|---|---|
+| SFP-10 **antes** del código (rojo primero) | forzada **0/10 verdes** (las 10: `200`, `before.status:'in_stock'`, traza `in_stock>listed` del lote antes del `PATCH`); suelta **7/10 verdes** (3 con el defecto) |
+| SFP-10 con el código, 3 corridas × N=10 | forzada **30/30** (`409 CONFLICT`, cero filas, la pieza `listed` con su precio). Suelta **30/30 válidas**: `409` 4/30, `200` con `before.status` = el real (`in_stock`) 26/30 (por corrida: 1/9, 3/7, 0/10) |
+| Mutación SFP-10 (volver al conjunto en el CAS auditado) | **rojo**: forzada 0/10, suelta 3/10 con `before.status:'in_stock'` sobre pieza ya `listed` |
+| Mutación SRF-13 (`validation` → `badRequest`) | **rojo** (`400` en vez de `422`) |
+| Mutación SRF-4 (quitar el `auditLog.create` del directo) | **rojo** (2/2 variantes: `order.full_refund_closed` 0 filas) |
+| Mutación nueva de SRF-8 (quitar la rama `¬shipped ∧ shippedReason ⇒ 409 NOT_APPLICABLE` de la tx1) | **rojo**, como predijo el arquitecto: `500 INTERNAL` en vez de `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE` |
+| PS-51, 3 corridas × N=10 (árbol vivo, load 2–4) | **30/30 OK**, una `create` por tirada; perdedor `IN_PROGRESS` **30/30**, `NOT_RETRYABLE` **0/30** (no observado aquí; §17-bis lo midió 1/400) |
+
+### 19.3 `buylist-intake-concurrency` roja «3/3 en BD nueva, verde en otras» — diagnóstico (no era la conducta)
+- **Causa (medida):** `kyc-ine-links.e2e-spec.ts` K-7 hace `PUT /users/me/kyc {clabe:'…599'}` a `customer2` y su
+  `afterAll` restauraba la decisión de KYC pero **no** la CLABE. `buylist-intake-concurrency` da de alta con
+  `CLABE_B` (`…568`) y `buylist.service.ts:1475-1477` contesta `422 CLABE_NOT_OWN_NAME` **antes** de abrir la
+  transacción ⇒ ninguna alta llega al `INSERT "SellRequestItem"` ⇒ `esperarBloqueoDeFila` revienta a los 10 s
+  (`row-lock-barrier.ts:84`). Depende de si `kyc-ine-links` corrió antes **y** ninguna `seedE2E` (que borra los
+  `KycProfile`, paso 3) corrió en medio — por eso unas BD/órdenes rojas y otras verdes. Jest reordena las suites
+  rojas al principio de la siguiente corrida, así que una vez roja tiende a repetirse.
+- **Reproducido:** esquema nuevo ⇒ `kyc-ine-links` sola ⇒ `buylist-intake-concurrency` sola: **roja 3/3** (las
+  respuestas ya recibidas: dos `422 CLABE_NOT_OWN_NAME`). Sobre una BD sin esa suite delante: verde 4/4.
+- **Arreglo (solo pruebas, nada debilitado):** (1) `buylist-intake-concurrency` **presta** la CLABE de archivo como
+  ya prestaba el tope (la deja `null`, el estado del fixture) y la devuelve tal cual en el `afterAll`; si la barrera
+  no llega, el error ahora trae las respuestas ya recibidas. (2) `kyc-ine-links` devuelve la CLABE que había antes.
+  Medido: sobre el estado contaminado (CLABE `…599` en archivo) **verde 4/4**; tras `kyc-ine-links` arreglada, la
+  CLABE de `customer2` queda `NULL`. ⛔ La comprobación de CLABE propia no se tocó.
+
+### 19.4 Para otros roles
+- **QA:** SFP-10 y PS-51 imprimen sus proporciones (`SFP-10 suelta formas`, `[PS-RACE PS-51 perdedor]`).
+- Ningún cambio de forma de respuesta. El `409 CONFLICT` de la ventana del lote ya lo trata la pantalla (§39.2 (f)).
+
+## 20 · v1.80.8.9 construida (`M2-VQ9`) — «Publicar todo» barre la cola; la cola por eje y con la clave entera (2026-10-04, rama `claude/precios-s5`; código en `e5834a96`)
+
+Norma: `API_CONTRACT §M2 «v1.80.8.9»` (ancla `M2-VQ9`), `ARCHITECTURE §4.36.5 (c-quinquies)`. ⛔ Sin schema, migración,
+endpoint ni forma de respuesta nuevos.
+
+### 20.1 Qué cambió
+| Pieza | Dónde |
+|---|---|
+| `sweepUnreasonedSaleQueue(origin: 'price-sync' \| 'publish-all' = 'price-sync')`: el mismo cuerpo, sus líneas de log dicen quién barrió | `jobs/price-sync.service.ts` |
+| `publishAll` llama `sweepSaleQueueAfterPublishAll()` después del bucle y antes de armar la respuesta. Falla-seguro (`logger.error`, `200` intacto). El replay sale antes y no barre. `PriceSyncJobService` se inyecta `@Optional()` (los unitarios construyen con 3 args): sin él, `logger.error` — ⛔ nunca un salto mudo | `inventory.service.ts` |
+| `reconcilePublishedPrices` abre/cierra con `saleQueueKeyOf(item, pricing)` (con `cardProductId`); la lectura de referencias no cambia | `pricing/price-ingest.service.ts` |
+| `escalatePending`: `context` entra al `findFirst` del dedupe (siete componentes). El cierre no cambia | `pricing/pricing.service.ts` |
+| Deep-link de M1 (`openPendingEntriesFor`): `context: 'inventory'` | `inventory.service.ts` |
+| Censo de `saleQueueKeyOf`: + `price-ingest.service.ts: 2` (tercer llamador legítimo, por contrato) | `test/pricing.sale-queue-key.parity.spec.ts` |
+| VQ-10…VQ-14 | `test/integration/sale-queue-publish-all-sweep.e2e-spec.ts` (nuevo) |
+
+⚠️ VQ-10 llama a `publish-all` **sin filtro** (lo que pide el contrato): publica también piezas vendibles que otras
+suites dejaron. La prueba las **devuelve** a `in_stock` al terminar. Las filas de cola que el lote escale para
+ellas se quedan (son filas legítimas).
+
+### 20.2 Mediciones (autor: backend; esquemas `dev1`/`mut` de `tcg_orq_b8_mut`; deterministas ⇒ N=1 por corrida)
+| | Resultado |
+|---|---|
+| Rojo primero (spec nueva contra el código de `60048797`) | **6 rojas / 1 verde de 7**; la verde es VQ-11 (a) (sin barrido no hay nada que el replay pueda ejecutar: la muerde su mutación) |
+| Con el código | **7/7**; `sale-queue-vq` y `premium-floor-sale` siguen verdes (31/31 las tres) |
+| (M1) quitar la llamada al barrido de `publishAll` | **rojo** VQ-10, VQ-11 (b), VQ-11 (c) |
+| (M2) llamar solo a la rama `null` | **rojo** VQ-10 ((viii) sigue `open`) y VQ-11 (b) |
+| VQ-11 (a): barrer antes del chequeo de replay | **rojo** VQ-11 (a) |
+| VQ-11 (b): quitar el `try/catch` | **rojo** VQ-11 (b) |
+| VQ-11 (c): barrer solo «sin filtro» | **rojo** VQ-11 (c) (y (b), que usa filtro) |
+| VQ-12: volver a la clave de cuatro componentes | **rojo** VQ-12 |
+| VQ-13: quitar `context` del `where` del dedupe | **rojo** VQ-13 |
+| VQ-13 (C) canario: quitar el dedupe entero | **rojo** VQ-13 (y VQ-10) |
+| VQ-14: quitar `context:'inventory'` del deep-link | **rojo** VQ-14 |
+
+Ninguna prueba existente aseveraba una fila compartida entre ejes (la suite completa lo dice: ver el informe final).
+
+## 21 · Condiciones de los gates sobre `4d994c55`: techlead C-1/C-2/C-3 + D-1/D-3/D-6, QA MENOR-1 (2026-10-04, rama `claude/precios-s5`; código en `0ceedf77`)
+
+⛔ Sin schema, endpoint ni conducta nuevos, salvo MENOR-1 (el listado de M3 deja de llevar dos columnas que el contrato
+no declara). Base medida: `HEAD` era `1b1ab19a` (mismo árbol que `fe44901e`, que nombraba el encargo:
+`git diff --stat fe44901e 1b1ab19a` vacío; el remoto apunta a `1b1ab19a`).
+
+### 21.1 Qué cambió
+| Pieza | Dónde |
+|---|---|
+| **C-1** — «ya salió» en un solo sitio: `SHIPPED_OUT_STATUSES` (tipada contra `ShipmentStatus`), `isShippedOut(status)` y `lockShipmentsOfOrder(tx, orderId, exceptIds?)` («bloquear los envíos de la orden y leer su estado BAJO el candado») | `payments/refunds/refund-review.ts` |
+| M3 tx1 usa el helper y el predicado (antes: su propio `FOR UPDATE` y el literal `'enviado' \|\| 'entregado'`) | `orders/order-refund.service.ts` |
+| `onFullRefund` rama directo: pasos (1)+(2) y (4-bis) en un cuerpo, `lockAndCloseShipments` (**cierra D-1**); la clase `already_withdrawn` de bóveda lee la misma constante | `payments/refunds/full-refund.service.ts` |
+| El detalle de M3 (`shipmentShipped`) usa `isShippedOut`; el controlador ya no importa de `full-refund.service` | `orders/admin-orders.controller.ts` |
+| **C-2** — la cabecera de `full-refund.service.ts` y el docblock de `closeShipmentsOnFullRefund` dicen las DOS excepciones al orden de candados (ver 21.3) | `full-refund.service.ts` |
+| **MENOR-1** — `GET /admin/orders`: la fila ya no lleva `fullRefundAfterShipment` ni `shippedRefundReason` crudos (se quitan junto a las otras tres); `refundReviewPending` se sigue derivando de ellas. El detalle no cambia (`fullRefundReview`) | `orders/admin-orders.controller.ts` |
+| **D-3** — el docblock de `openPendingEntriesFor` vuelve encima de su función | `inventory/inventory.service.ts` |
+| **D-6** — cabecera de M-62: «motivo, cuándo y quién juntos; nota opcional CON motivo». ⛔ DDL intacto | `prisma/migrations/20261004120000_m62_shipped_refund_reason/migration.sql` |
+| **C-3** + D-2, D-4, D-5, D-9 anotadas (D-1, D-3, D-6 como cerradas) | `docs/TECH_DEBT.md` (SHIP-D3 ampliada; PS5-D1…D6, D9) |
+| Pruebas: `C-1` en `test/refund-review.spec.ts` (+5: `isShippedOut` sobre todo el enum; censo de los tres lectores sin literal ni lista propia; mismo helper en M3 y `onFullRefund`; forma del helper con y sin `exceptIds`); `test/admin-orders.list-review-columns.spec.ts` (nuevo, 2); SRF-4 gana la aserción de las cinco columnas ausentes en la fila | `test/` |
+
+**Frontend:** el listado de M3 en `frontend/src` no lee `fullRefundAfterShipment` ni `shippedRefundReason` (medido:
+`grep -rn` en `frontend/src` ⇒ solo `lib/mock/m4-ship.ts`, el mock del detalle). Nada que cambiar allí.
+
+**M-62 y el checksum de Prisma (D-6):** cambiar el comentario cambia el checksum de una migración ya aplicada en BD
+locales. Medido en `tcg_fix_be_mut`: aplicada con el texto de `HEAD~1`, luego `prisma migrate deploy` ⇒ «No pending
+migrations to apply» y `prisma migrate status` ⇒ «Database schema is up to date!». `migrate dev` (no lo usamos) podría
+pedir reset en una BD de desarrollo: NO MEDIDO. M-62 no está en `main` ni en `production`
+(`git cat-file -e origin/{main,production}:<migración>` ⇒ no existe).
+
+### 21.2 Mediciones (autor: backend; copia `git archive HEAD` del árbol ENTERO en `0ceedf77`)
+| | Resultado |
+|---|---|
+| Unitaria completa | **388/388 suites, 6572/6572 pruebas** (161 s) |
+| Integración completa (`tcg_fix_be`, `--runInBand`, carga 1 min al terminar 7.66 con 4 CPU) | **73/73 suites, 1538/1538 pruebas** (562 s) |
+| SRF-9 (N=10 por orden) | `enviado-primero` **10/10**, `reembolso-primero` **10/10**, `suelta` **10/10**; inválidas 0 en las tres |
+| SRF-10 (N=10 por orden) | `m3-primero` **10/10**, `enviado-primero` **10/10**, `suelta` **10/10**; inválidas 0 en las tres |
+| Mut. MENOR-1: devolver las dos columnas a `...o` | **rojo** `list-review-columns` «ninguna de las cinco columnas crudas» |
+| Mut. C-1 (a): `SHIPPED_OUT_STATUSES = ['enviado']` | **rojo** «`isShippedOut` sobre TODOS los estados» |
+| Mut. C-1 (b): M3 vuelve a un literal `'enviado'` | **rojo** censo «… no escribe la lista a mano» |
+| Mut. C-1 (c) conductual: `lockShipmentsOfOrder` devuelve el estado leído ANTES del `FOR UPDATE` (`tcg_fix_be_mut`) | **rojo**: SRF-9 `enviado-primero` 0/10, `suelta` 0/10; SRF-10 `enviado-primero` 0/10, `suelta` 0/10 (N=10 cada una; `m3-primero`/`reembolso-primero` 10/10, como se espera: ahí el estado no cambia en la ventana). Desenlace típico: `enviado,shipped/shipped,after=false` — paquete salido sin «por revisar» |
+
+Las mutaciones (a)–(c) se hicieron sobre una SEGUNDA copia (`git archive HEAD`), nunca sobre el árbol vivo.
+
+### 21.3 Para el arquitecto — las dos excepciones al orden de candados (techlead C-2)
+Orden documentado: envíos → piezas → `Order` → libro. Excepciones, ambas en la rama directo de `onFullRefund`:
+1. **(4-bis, SRF-11) — ya aceptada por el arquitecto.** Envíos bloqueados DESPUÉS de `Order`. Segura porque el único
+   creador de un envío de la orden (settle de un `succeeded` tardío) lo crea bajo el candado de `Order`.
+2. **M3 directo — ⚠ NO MEDIDA como carrera.** M3 tx1 toma envíos → `Order` y luego llama a `onFullRefund`, cuyo
+   `lockReservedOfOrder` bloquea piezas `reserved` por la orden ⇒ **piezas después de `Order`**. En una orden `settled`
+   la consulta no devuelve filas (no bloquea nada). Solo con la anomalía sembrada de SRF-11 (orden liquidada con una
+   pieza aún `reserved`) bloquearía, y podría dar `40P01` contra quien tome pieza → `Order`. Medición que lo cerraría:
+   sembrar esa anomalía y correr M3 contra un verbo que tome pieza → `Order` de la misma orden con barrera de fila
+   (N ≥ 10 por orden), contando `40P01`/`500`. Decisión pedida: aceptarla como 4-bis, o que M3 tome las piezas
+   `reserved` antes de `Order` (cambio del orden en M3 tx1, no en `onFullRefund`).

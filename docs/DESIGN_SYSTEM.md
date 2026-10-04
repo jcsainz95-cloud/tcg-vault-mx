@@ -4,7 +4,59 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.10 (2026-10-02) — «Reembolsos»: una entrada de menú, dos cubetas (decisión del dueño, `HECHOS.md`
+> Estado: **v4.14 (2026-10-04) — EQUIPO SIN CORREO (§42 NUEVA; `PROJECT §U`, criterios 256–270; `HECHOS.md` fila
+> 2026-10-04 «Usuarios de back-office SIN correo», puntos (a)(b)(c); `API_CONTRACT` v1.80.9 §M6-U; fichero:línea medidos
+> en el worktree `claude/precios-s5`, HEAD `43c42b3d` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):**
+> **§42.1** login: la etiqueta «Correo o usuario», `type="text"`, el candado por cuenta con usuario tecleado dice
+> «pídele al administrador» sin enlace, y «Usuario o contraseña incorrectos» con usuario tecleado — ⛔ la rama del aviso
+> de los 6 intentos (`HECHOS.md:40`) no se toca. **§42.2** «Olvidé mi contraseña» deja de rechazar un usuario en el
+> navegador (criterio 262). **§42.3** alta en Usuarios con selector Cliente/Equipo, regla del usuario visible y un
+> error por regla. **§42.4** restablecer: «no se manda correo». **§42.5** Usuarios: «Correo o usuario», marca
+> «Bloqueado por intentos hasta HH:MM», `lockState:'unavailable'`. **§42.6** aviso de candado en el panel. **§42.7**
+> `403 ACCOUNT_WITHOUT_EMAIL`. **§42.8** «Mi cuenta» sin correo. **Cero tokens nuevos, cero pares de contraste
+> nuevos.** Lo que sigue es la v4.13 sin cambio.
+>
+> Estado anterior: **v4.13 (2026-10-04) — TODOS LOS CORREOS (§41 NUEVA, amplía §31 de «los ocho» a los 30 renders que
+> existen hoy en el código; fuente: auditoría ux-review del 2026-10-04 sobre `60048797` + lectura propia del código en
+> este worktree):** **§41.2** un solo formato de asunto (**sin prefijo de marca**: la marca la pone el remitente) —
+> los ocho asuntos congelados de §31.9 **no cambian**, cambian los otros veintiuno. **§41.3** regla de saludo
+> (`Hola Ana:` / `Hola:` · `Hi Ana,` / `Hi,`; nunca `Hola :`). **§41.4** tono del CTA para los treinta. **§41.5**
+> dinero: **una** forma en los dos idiomas, la misma que ya imprime la web (`MX$1,250.00`, medido en
+> `frontend/src/lib/format.ts:29-40`) — ⚠ **corrige el ejemplo de §9.3**, que tenía un espacio que nadie implementó.
+> **§41.7** norma de los trece correos sin diseño. **§41.8** invitado ≡ registrado (13 ≡ 15). **§41.9** CLABE
+> cambiada. **§41.10** reposición de sellado. **§41.13** lista de cambios para backend con fichero:línea, **§41.14**
+> candados ML-1…ML-23. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.12 sin cambio
+> (salvo el ejemplo de §9.3 y un puntero al inicio de §31).
+>
+> Estado anterior: **v4.12 (2026-10-04) — reembolso total «depende de si ya salió» (errata de contrato v1.80.8.6,
+> `API_CONTRACT §M4-SHIP.18.12`, `ARCHITECTURE §4.57 (w)`, `PROJECT §S.11`, criterios 249–253; `HECHOS.md` filas
+> 2026-10-02 «Cartas apartadas…» y 2026-10-04 «Cartas apartadas (SSL-R1) — detalles» 4a/4b):** **§40 NUEVA.**
+> **§40.2** — el diálogo de reembolso total de «Ventas» con el pedido **ya enviado**: aviso «las cartas no vuelven a
+> inventario», motivo obligatorio de **dos** opciones («No llegó» / «Llegó en mala condición», ⛔ sin «otro»), el texto
+> libre de siempre pasa a ser la nota, y el `422 REFUND_CONFIRMATION_REQUIRED {required:['shipped_reason']}` re-pinta
+> el selector sin perder lo escrito. **§40.3** — «Reembolso por revisar»: marca y filtro (`?refundReview=pending`) en el
+> listado de «Ventas», formulario de una sola vez en el detalle (solo súper-admin, con confirmación; el operador ve el
+> estado), y tarjeta del tablero. **§40.4** — el pedido reembolsado **sin liquidar**: qué se dice de las cartas que
+> volvieron solas a la venta. **§40.5** — historial de la pieza: «Liberada por reembolso» (y tres motivos que hoy no
+> tienen texto — medido). **§40.6** — «Reembolsos» (§37.20) **sigue con dos cubetas**; gana solo un enlace. **Cero
+> tokens nuevos.** Una solicitud al arquitecto (A-1) y una nota (A-2) en §40.12. Lo que sigue es la v4.11 sin cambio.
+>
+> Estado anterior: **v4.11 (2026-10-04) — precios del 2026-10-04 (decisiones del dueño, `HECHOS.md` 2026-10-04, filas
+> «Precios — decisiones del 2026-10-04» (a)(b) y «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y
+> P-PRE-1» (a)(d)):** **§39 NUEVA.** **§39.1** — control de «Configuración» para el dial `premiumFloorSalePublish`
+> (`API_CONTRACT` v1.80.8.5, ancla `M2-PF`): tres modos (**«Publicar solo estas rarezas»** por defecto con *Double Rare*
+> y *Rare Holo EX* · «Publicar todas al piso» · «Retener todas»), selector de rarezas premium de
+> `GET /admin/pricing/rarities`, un texto por modo que dice qué le pasa a una carta cuyo mercado cae bajo el piso,
+> el aviso **«“ex” en el nombre no es la rareza»**, confirmación y errores del validador. **§39.2** — **precio final a
+> mano SOLO para sellado** (`PROJECT §N.5-bis (b)`, criterio **255**): campo en las filas de **sellado** de «Listas
+> para publicar» (levanta D10 solo para sellado) y en el panel del sellado de «Sellado»; mismo verbo
+> `PATCH /admin/inventory/items/:id { listPriceCents }` (INV-SP-8), con «Guardar y publicar» cuando la pieza ya tiene
+> ubicación; ⛔ ninguna fila de carta suelta o gradeada lo gana (P-PRE-1: su override por pieza **se queda como
+> está**). **§39.3** — «Listas para publicar»: folio que abre la pieza, **motivo por fila** y origen traducido.
+> **Cero tokens nuevos.** Cuatro solicitudes al arquitecto en §39.6 (una toca el criterio 255: la bitácora del precio
+> solo no guarda antes/después — medido). Lo que sigue es la v4.10 sin cambio.
+>
+> Estado anterior: **v4.10 (2026-10-02) — «Reembolsos»: una entrada de menú, dos cubetas (decisión del dueño, `HECHOS.md`
 > 2026-10-02 «Menú del panel: se queda como está; «Reembolsos manuales (SPEI)» y «Reembolsos de operadores» se
 > JUNTAN…»):** las dos entradas `/admin/manual-refunds` y `/admin/refunds` pasan a **una sola**, **«Reembolsos» /
 > “Refunds”**, en el **mismo sitio** (grupo «Día a día», justo tras «Ventas», SÚPER), con el badge de **transferencias
@@ -2118,7 +2170,11 @@ no del set entero).
 
 ### 9.3 Formato de números, dinero y fechas (localizado)
 - Usar `Intl.NumberFormat`/`Intl.DateTimeFormat`. Dinero siempre en **MXN** en ambos idiomas:
-  `MX$ 1,250.00`. Convertir centavos→unidades en la capa de formato (nunca mostrar centavos crudos).
+  `MX$1,250.00`. Convertir centavos→unidades en la capa de formato (nunca mostrar centavos crudos).
+  ⚠ **v4.13 — el ejemplo decía `MX$ 1,250.00` (con espacio) y nunca se implementó así**: la web imprime
+  `MX$1,250.00` en los dos idiomas (`frontend/src/lib/format.ts:29-40`, fijado por `format.test.ts:36-48`). Manda
+  lo implementado, porque el correo y el portal **repiten la misma cifra** y dos formas para un hecho es el
+  defecto. El correo adopta esta forma exacta (§41.5).
 - Fechas: ES "13 ago 2026", EN "Aug 13, 2026". `capturedDate` del precio se muestra localizada.
 - El símbolo de moneda no cambia con el idioma (siempre MXN); solo cambian separadores/labels.
 
@@ -14792,6 +14848,13 @@ pantalla** y **qué sale por la red**.*
 
 ## 31. LOS OCHO CORREOS — el sistema de diseño del medio «correo» (v3.9)
 
+> **v4.13 — esta sección sigue mandando sobre el MEDIO, y §41 la amplía a todos los correos que existen hoy
+> (30 renders por idioma).** Lo que §41 cambia de aquí, dicho una vez: **(a)** el asunto tiene una regla para todos
+> (§41.2) y los ocho de §31.9 **la cumplen ya** — no se tocan; **(b)** el saludo en inglés lleva **coma**
+> (`Hi Ana,`), lo que cambia **un carácter** en cinco de los ocho (§41.3); **(c)** el dinero se escribe
+> `MX$1,250.00` en los dos idiomas (§41.5), lo que cambia el **formato** —no el contenido— de las cifras de la
+> cadena vinculante `rule` en español. Todo lo demás de §31 queda igual.
+
 > **Origen:** el dueño mandó una propuesta de diseño del **correo 1** y pidió, literal: *«adecua con nuestro
 > logo pero algo así»* y *«hay que mover el diseño a que todos se hablen con la propuesta que te mandé»*.
 >
@@ -21163,3 +21226,1737 @@ nombre de menú, y coincide con la palabra del dueño («cubetas»). ⛔ Ningún
 |---|---|---|
 | **N-9** | arquitecto | **Ninguna solicitud.** Esta sección no pide campo, endpoint ni permiso nuevo. Si un día se quiere un contador en la pestaña de operadores (p. ej. filas `requested` atascadas), haría falta en el `summary`; hoy **no** se pide |
 | **N-10** | frontend | El orden de los dos cambios importa para el candado §37.2b: menú + `PAGES` + filas del test en el **mismo** commit; si no, P66-2 queda en rojo por una página que ya no está en el menú |
+
+---
+
+## 39. Precios del 2026-10-04 — premium en el piso (dial), precio final del sellado y la cola «Listas para publicar» (v4.11)
+
+**Fuentes (citadas, no resumidas de memoria):**
+
+- `HECHOS.md` 2026-10-04, fila **«Precios — decisiones del 2026-10-04»**: *«que se publiquen solas a 25; el precio
+  final que pueda poner solo lo quiero para producto sellado…»* — puntos (a) y (b).
+- `HECHOS.md` 2026-10-04, fila **«Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1»**: *«solo
+  ex y double rare, lo demás por defecto»* — puntos (a) (solo ex y Double Rare se publican al piso; regla
+  parametrizable) y (d) (el precio a mano por pieza de sueltas y gradeadas **se conserva como está, sin hacerlo más
+  visible**).
+- `PROJECT.md` §N.5-bis (a)(b) y criterios **254** y **255**.
+- `API_CONTRACT.md` v1.80.8.5, [§M2 «v1.80.8.5»](#M2-PF) (el dial), §M1 `#M1-patch-price-guard` (INV-SP-8, el
+  verbo del precio) y §M1 `GET /admin/inventory/pending-publish` (la cola).
+
+**Lo que medí antes de redactar (2026-10-04, worktree `/home/user/tcg-precios`, rama `claude/precios-s5`; sin Bash,
+lectura de ficheros):**
+
+| Medición | Resultado |
+|---|---|
+| El dial en el frontend | `rg premiumFloorSalePublish frontend/src` = **0**. `SettingsDTO` (`types/contract.ts:5040`) no lo declara |
+| Lista de rarezas | `getRarityHealth()` (`lib/api.ts:5494`) ya llama a `GET /admin/pricing/rarities`; filas `{ canonical, raw?, premium, mapped, cardCount }` (`types/contract.ts:4436-4445`). La lista sale **del catálogo**: una canónica sin cartas **no viene** |
+| Piso de venta en vivo | `getPricingCurve()` (`lib/api.ts:5446`) → `sale.floorCents` (`types/contract.ts:4347`). El piso **no** es un dial de settings: es de la curva |
+| Caché de settings | `rg -i "cache\|ttl" backend/src/modules/settings` = 1 acierto y es un comentario «no cacheable» (`settings.controller.ts:113`). **No hay TTL** ⇒ el texto dice «al guardar». Si backend añade caché, ver §39.6 S-4 |
+| M10 hoy | `M10View.tsx:83-107` retícula de diales escalares; diales con regla propia van en **sección propia** (`IvaTransferSection`, montada en `:441`) |
+| La cola | `PendingPublishQueue.tsx`: folio en texto plano (`:187-189`); `MissingCell` pinta solo «Ubicación»/«Precio» (`:23-48`); precio nulo ⇒ siempre «Sin precio resoluble» (`:202-206`, `es.json:1527`); origen ⇒ `row.acquisitionType` **crudo** salvo `buylist` (`:220`); nota «Esta cola solo mira» (`:233`, `es.json:1531`) |
+| DTO de la cola | `PendingPublishRowDTO` (`types/contract.ts:3822-3854`; contrato `:28240-28249`) trae `missing`, `pendingPriceEntryId`, `priceBasis`, `listPriceCents`, `resolvedSalePriceCents`, `locationId`, `productType`. **No trae el motivo** del pendiente de precio (`no_market` / `premium_at_floor`) ⇒ solicitud S-1 |
+| Etiquetas de origen | Ya existen en `admin.m1.acquisitionLabel.*` (`es.json:1391-1395`), pero dicen «Buylist (conversión)» y la cola dice «Compra a vendedor» (`es.json:1525`) ⇒ la cola gana su propio mapa (abajo) |
+| El verbo del precio | `UpdateItemDto.listPriceCents`: `@IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS)` (`inventory.dto.ts:149`), `MAX_LIST_PRICE_CENTS = 100_000_000` (`:57`) ⇒ **MX$1,000,000.00** como máximo. Rol: el controlador es `vault_operator + super_admin` (`inventory.controller.ts:88`) |
+| Bitácora del precio solo | `inventory.service.ts:2494`: «El precio solo no gana bitácora nueva»; `:2509-2521` escribe `before/after` **solo si cambia `status`**; el controlador registra `inventory.update` **sin** antes/después (`inventory.controller.ts:647-653`). Criterio 255 pide «quién, cuándo, antes/después» ⇒ solicitud S-3 |
+| El panel del sellado | `M11View.tsx:118-126` abre `VariantDrawer` con `productType:'sealed'`. El precio por pieza ya es editable ahí (`VariantDrawer.tsx:535-591`), pero **escondido**: el número (o «—») es el botón, sin rótulo, y se edita también sobre `reserved`/terminales (solo se excluye vendida, `:486-488`). Las piezas (`InventoryItemDTO`, `types/contract.ts:2521-2551`) **no traen el precio derivado**; el grupo trae el **mercado** (`marketRefCents`, `M11View.tsx:73`) ⇒ solicitud S-2 |
+
+### 39.1 «Configuración» › Premium en el piso (venta) — el dial `premiumFloorSalePublish`
+
+**Dónde:** sección propia en `/admin/m10` («Configuración»), **entre** el dial del IVA (`IvaTransferSection`,
+`M10View.tsx:441`) y el proveedor de ingesta (`:443`). ⛔ No va en la retícula de diales (`:303-333`): tiene su propio
+borrador, su propia confirmación y su propio botón de guardar, igual que el IVA y la ingesta. Rol: la página ya es
+súper-admin; la sección no añade candado propio.
+
+**Por qué sección propia:** el valor es un **objeto** (`{ mode, rarities }`), su validez depende de las dos mitades a
+la vez (lista vacía ⇔ modo ≠ `only`), y un cambio publica o retira cartas de la tienda al momento. Guardarlo con el
+mismo botón que la tarifa de envío lo haría pasar por un número más.
+
+#### (a) Anatomía (de arriba abajo)
+
+```
+┌─ Cartas premium en el piso (venta) ─────────────────────────────── h2 ─┐
+│ Cuando el mercado de una carta cae por debajo del piso de venta        │
+│ (MX$25.00), … aquí decides cuáles se publican solas al piso …          │  intro (prosa, text-sm muted)
+│                                                                        │
+│ ¿Qué hacer con una premium cuyo mercado cae bajo el piso?   ← legend   │
+│ (●) Publicar solo estas rarezas            [VALOR INICIAL]             │
+│     Las de las rarezas marcadas abajo se publican solas a MX$25.00 …   │  help por modo (text-sm)
+│ ( ) Publicar todas al piso                                             │
+│     Toda premium … Ojo: una carta cara con un dato roto también …      │
+│ ( ) Retener todas                                                      │
+│     Ninguna premium se publica al piso …                               │
+│                                                                        │
+│ ┌ Rarezas que se publican al piso · 2 marcadas ───────── fieldset ──┐ │
+│ │ [x] Double Rare          las «ex» de Escarlata y Púrpura · 412 c. │ │
+│ │ [x] Rare Holo EX         las «EX» de eras anteriores · sin cartas │ │
+│ │ [ ] Illustration Rare                                    · 870 c. │ │
+│ │ [ ] Special Illustration Rare                            · 310 c. │ │
+│ │ [ ] Ultra Rare …                                                  │ │
+│ └───────────────────────────────────────────────────────────────────┘ │
+│ ▸ Rarezas premium sin mapear (siempre se retienen) · 3   ← <details>   │
+│                                                                        │
+│ ▌La rareza manda, no el nombre                 ← Banner info, SIEMPRE  │
+│ ▌Que una carta se llame «ex» no la hace Double Rare. Una Charizard ex… │
+│                                                                        │
+│ Qué pasa al guardar: las publicadas cambian al momento; las de caja …  │  efecto (text-xs muted)
+│ No cambia lo que pagamos al comprar …                                  │
+│ Solo súper-admin · queda en bitácora.                     (mono 11px)  │
+│ [Guardar regla de premium]  [Cancelar]                                 │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Modo = `RadioGroup`** (§6.4) en `fieldset` + `legend`; cada opción con su ayuda **visible siempre** (⛔ tooltip):
+  las tres consecuencias se leen antes de elegir, no después. Orden fijo: `only` · `all` · `none`. La etiqueta
+  **«Valor inicial»** (`Badge` neutro) va junto a `only` porque es el seed del contrato y la decisión del dueño; no
+  marca la opción guardada (esa la marca el radio).
+- **Rarezas = lista de `Checkbox`** (§6.4), ⛔ no un `select multiple` (no se ve qué está marcado sin abrirlo).
+  - **Qué filas:** las de `GET /admin/pricing/rarities` con `premium && mapped`, **más** toda rareza del valor
+    guardado que no venga en la lista (p. ej. `Rare Holo EX` sin cartas en el catálogo): se pinta igual, marcada,
+    con «sin cartas en el catálogo hoy». ⛔ Nunca se descarta en silencio una rareza guardada: desmarcarla sin que el
+    dueño la vea sería cambiar la regla a sus espaldas.
+  - **Orden:** marcadas primero; luego por `cardCount` desc (el orden del endpoint).
+  - **Nombre de la rareza:** la **canónica tal cual** (`lang="en"`, son nombres del juego, no se traducen). Pista
+    en `text-xs muted` **solo** para las dos del seed: «las «ex» de Escarlata y Púrpura» (Double Rare) y «las «EX»
+    de eras anteriores» (Rare Holo EX) — son las dos que el dueño llamó «ex y double rare» y la pista es lo que une
+    su frase con el nombre técnico.
+  - **Cuenta:** «412 cartas en el catálogo» en mono `tabular-nums` a la derecha (`cardCount`).
+  - **Con modo ≠ `only`:** el `fieldset` queda `disabled` (opacidad 0.5, §6.4) y **conserva** la última selección en
+    pantalla con la nota «Solo cuenta con «Publicar solo estas rarezas»». Al volver a `only`, la selección
+    reaparece tal cual. Lo que **se envía** con `all`/`none` es `rarities: []` (el validador exige lista vacía).
+  - **Más de 12 filas:** campo de filtro (`Input` con lupa) arriba de la lista; filtra por subcadena sin
+    distinguir mayúsculas; ⛔ el filtro **nunca oculta una marcada** (las marcadas siempre visibles).
+- **«Rarezas premium sin mapear (siempre se retienen)»** — `<details>` plegado, solo si hay filas `premium &&
+  !mapped`. Lista de solo lectura (sin casilla: el validador rechazaría una no canónica) y el texto que explica que se
+  retienen siempre aunque el nombre diga «ex», y que publicarlas exige darlas de alta en el catálogo de rarezas
+  (trabajo de sistemas). Es la respuesta en pantalla a «¿por qué esta carta ex sigue retenida?» cuando la rareza
+  cruda no está mapeada (contrato M2-PF, «"ex" como PATRÓN no es una canónica»).
+- **Aviso «La rareza manda, no el nombre»** — `Banner` **info**, `role="note"`, **siempre visible** (en los tres
+  modos: con `none` también hay quien pregunta por qué una «ex» no salió). ⛔ No es `warning`: no hay nada mal, es
+  la regla.
+- **Bloque «Qué pasa al guardar»** — prosa `text-xs muted`, siempre visible; y la línea «Solo súper-admin · queda
+  en bitácora» en mono 11 px (§7.6).
+
+**La cifra del piso:** `{floor}` = `formatMoneyCents(curve.sale.floorCents)` de `getPricingCurve()`. Si la curva no
+carga, **cede la cifra, nunca el texto** (misma doctrina que §22.13d): se usan las variantes `…NoFloor` que dicen «el
+piso de venta» sin número. ⛔ Nunca «MX$25» a fuego en el copy: el piso es un dial de M2 y puede cambiar.
+
+#### (b) Estados
+
+| Estado | Qué se pinta |
+|---|---|
+| Cargando settings | `QueryState` de la sección (skeleton de 3 radios) |
+| Settings sin la clave (`premiumFloorSalePublish` ausente en el `GET`) | `Banner` info «Este servidor todavía no tiene este ajuste.» y la sección **deshabilitada**. ⛔ No se asume el seed en pantalla: pintar «Publicar solo estas rarezas» marcado sobre un servidor que no lo aplica sería afirmar una regla que no corre |
+| Rarezas cargando | lista en skeleton; los radios ya operan |
+| Rarezas con error | `Banner` danger dentro del `fieldset` «No pude cargar la lista de rarezas…» + «Reintentar». Con `all`/`none` se puede guardar igual; con `only` **solo** si la selección guardada no cambió (las rarezas guardadas se pintan desde el valor, sin cuenta) |
+| Sin cambios | «Guardar regla de premium» `disabled` |
+| `only` con 0 marcadas | error inline bajo el `fieldset` (`aria-describedby`), botón `disabled`: «Marca al menos una rareza, o elige «Retener todas».» |
+| Guardando | botón `loading` con label persistente (§8.3) |
+| Guardado | `Banner` success `role="status"` con el texto de efecto |
+| `422 VALIDATION_ERROR` | `Banner` danger `role="alert"` «No se guardó: el servidor rechazó la regla. Nada cambió.» + el `message` del servidor debajo en mono 11 px (diagnóstico). La pantalla ya impide las cinco causas del validador (modo fuera del enum, `only` vacío, `all`/`none` con lista, no canónica, no premium, duplicados); si llega, es una discrepancia y el `message` es lo único que la explica. ⛔ No se mapea por `details` (el contrato no fija su forma para este validador — S-5) |
+| Otro error | `common.errorGeneric`, `role="alert"` |
+
+#### (c) Confirmación antes de guardar (`Modal`, §7.6)
+
+Todo cambio de este dial **publica o retira cartas al momento**, así que se confirma. `role="alertdialog"`.
+
+- Título: «¿Cambiar la regla de premium en el piso?»
+- Dos líneas, **antes → ahora**, en palabras: «Antes: publicar solo Double Rare y Rare Holo EX» · «Ahora: publicar
+  todas al piso». La lista de rarezas se une con el formateador de listas del idioma (`Intl.ListFormat`, §9.3), ⛔ no
+  con comas concatenadas.
+- Con destino **`all`**: `Banner` warning dentro del modal: «Con «Publicar todas», cualquier premium con un dato de
+  mercado roto saldría a la venta a {floor}.» (es la razón por la que el dueño eligió `only`).
+- Con destino **`none`** o con rarezas **quitadas**: línea `text-sm`: «Las cartas de las rarezas que dejas de publicar
+  desaparecen de la tienda al guardar. Lo ya vendido se queda vendido.»
+- Botones: `secondary` «Cancelar» · `primary` **«Guardar regla»** (no `destructive`: ninguna dirección es la
+  peligrosa por sí misma).
+
+#### (d) Textos — tabla de claves (namespace `admin.m10.premiumFloor`)
+
+| Clave | ES | EN |
+|---|---|---|
+| `title` | Cartas premium en el piso (venta) | Premium cards at the floor (sale) |
+| `intro` | Cuando el mercado de una carta cae por debajo del piso de venta ({floor}), la tienda la vende al piso. Para las cartas comunes eso es lo normal. En las rarezas premium (ex, Illustration, Special Illustration, Ultra…) un mercado tan bajo a veces es un dato roto, así que aquí decides cuáles se publican solas al piso y cuáles se quedan fuera de la venta, en la cola de precio pendiente de «Catálogo y precios», para que las revises. | When a card's market drops below the sale floor ({floor}), the store sells it at the floor. For common cards that's normal. For premium rarities (ex, Illustration, Special Illustration, Ultra…) a market that low is sometimes bad data, so here you decide which ones go on sale at the floor by themselves and which stay off sale, in the pending-price queue under “Catalog & pricing”, for you to review. |
+| `introNoFloor` | *(igual que `intro`, con «del piso de venta» en lugar de «del piso de venta ({floor})»)* | *(same as `intro`, without “({floor})”)* |
+| `legend` | ¿Qué hacer con una premium cuyo mercado cae bajo el piso? | What should happen to a premium card whose market drops below the floor? |
+| `defaultTag` | Valor inicial | Default |
+| `mode.only.label` | Publicar solo estas rarezas | Publish only these rarities |
+| `mode.only.help` | Las cartas de las rarezas que marques abajo se publican solas a {floor}. Las de cualquier otra rareza premium se quedan fuera de la venta, en la cola de precio pendiente, hasta que alguien las revise. | Cards of the rarities you tick below go on sale at {floor} by themselves. Cards of any other premium rarity stay off sale, in the pending-price queue, until someone reviews them. |
+| `mode.all.label` | Publicar todas al piso | Publish all at the floor |
+| `mode.all.help` | Toda carta premium cuyo mercado caiga bajo el piso se publica sola a {floor}, sea de la rareza que sea. Ojo: una carta cara con un dato de mercado roto también saldría a {floor}. | Every premium card whose market drops below the floor goes on sale at {floor} by itself, whatever its rarity. Careful: an expensive card with bad market data would also go out at {floor}. |
+| `mode.none.label` | Retener todas | Hold all |
+| `mode.none.help` | Ninguna premium se publica al piso: si su mercado cae bajo el piso, se queda fuera de la venta, en la cola de precio pendiente, hasta que alguien le ponga precio. Es la regla de antes. | No premium card is published at the floor: if its market drops below the floor, it stays off sale, in the pending-price queue, until someone prices it. This is the old rule. |
+| `*.helpNoFloor` *(×3, `mode.only/all/none`)* | *(misma frase con «al piso» en lugar de «a {floor}»)* | *(same sentence with “at the floor” instead of “at {floor}”)* |
+| `rarities.legend` | Rarezas que se publican al piso | Rarities published at the floor |
+| `rarities.selected` | {count, plural, =0 {Ninguna marcada} one {# marcada} other {# marcadas}} | {count, plural, =0 {None ticked} one {# ticked} other {# ticked}} |
+| `rarities.cardCount` | {count, plural, one {# carta en el catálogo} other {# cartas en el catálogo}} | {count, plural, one {# card in the catalog} other {# cards in the catalog}} |
+| `rarities.notInCatalog` | sin cartas en el catálogo hoy | no cards in the catalog today |
+| `rarities.hintDoubleRare` | las «ex» de Escarlata y Púrpura | Scarlet & Violet “ex” cards |
+| `rarities.hintRareHoloEx` | las «EX» de eras anteriores | older-era “EX” cards |
+| `rarities.disabledNote` | Solo cuenta con «Publicar solo estas rarezas». | Only applies with “Publish only these rarities”. |
+| `rarities.filter` | Filtrar rarezas | Filter rarities |
+| `rarities.loadError` | No pude cargar la lista de rarezas. «Publicar todas» y «Retener todas» se pueden guardar igual; para marcar rarezas, reintenta. | I couldn't load the rarity list. “Publish all” and “Hold all” can still be saved; to tick rarities, retry. |
+| `unmapped.title` | Rarezas premium sin mapear (siempre se retienen) · {count} | Unmapped premium rarities (always held) · {count} |
+| `unmapped.body` | El catálogo trae estas rarezas con un nombre que el sistema no reconoce. Se tratan como premium y se retienen siempre, aunque el nombre diga «ex». Para poder publicarlas al piso hay que darlas de alta en el catálogo de rarezas (trabajo de sistemas); después aparecen arriba para marcarlas. | The catalog brings these rarities under a name the system doesn't recognize. They're treated as premium and always held, even if the name says “ex”. To publish them at the floor they must be added to the rarity catalog (a systems task); then they show up above to be ticked. |
+| `exWarning.title` | La rareza manda, no el nombre | The rarity decides, not the name |
+| `exWarning.body` | Que una carta se llame «ex» no la hace Double Rare. Una <b>Charizard ex</b> de rareza <b>Special Illustration Rare</b> o <b>Ultra Rare</b> sigue retenida aunque marques Double Rare: la regla mira la rareza de la carta, no su nombre. | A card being called “ex” doesn't make it Double Rare. A <b>Charizard ex</b> whose rarity is <b>Special Illustration Rare</b> or <b>Ultra Rare</b> stays held even if you tick Double Rare: the rule looks at the card's rarity, not its name. |
+| `effect` | Qué pasa al guardar: las cartas que ya están publicadas cambian al momento (aparecen a {floor} o dejan de mostrarse). Las que están en caja sin publicar salen con el siguiente «Publicar todo» de «Inventario» o con la siguiente actualización de precios. Lo que ya se vendió se queda vendido. Ninguna carta genera aviso propio. | What happens on save: cards already listed change right away (they appear at {floor} or stop showing). Cards in a box not yet listed go out with the next “Publish all” in “Inventory” or the next price update. What's already sold stays sold. No card triggers its own alert. |
+| `effectNoFloor` | *(igual con «aparecen al piso»)* | *(same with “appear at the floor”)* |
+| `buyNote` | No cambia lo que pagamos al comprar: una premium barata sigue sin cotizarse en «Vender». | Doesn't change what we pay when buying: a cheap premium card still isn't quoted in “Sell”. |
+| `audit` | Solo súper-admin · queda en bitácora. | Super-admin only · logged. |
+| `save` | Guardar regla de premium | Save premium rule |
+| `saved` | Regla guardada. Las publicadas ya cambiaron; las de caja salen con el siguiente «Publicar todo». | Rule saved. Listed cards have already changed; boxed ones go out with the next “Publish all”. |
+| `notAvailable` | Este servidor todavía no tiene este ajuste. | This server doesn't have this setting yet. |
+| `errors.emptyOnly` | Marca al menos una rareza, o elige «Retener todas». | Tick at least one rarity, or choose “Hold all”. |
+| `errors.server` | No se guardó: el servidor rechazó la regla. Nada cambió. | Not saved: the server rejected the rule. Nothing changed. |
+| `confirm.title` | ¿Cambiar la regla de premium en el piso? | Change the premium-at-floor rule? |
+| `confirm.before` | Antes: {summary} | Before: {summary} |
+| `confirm.after` | Ahora: {summary} | Now: {summary} |
+| `summary.only` | publicar solo {list} | publish only {list} |
+| `summary.all` | publicar todas al piso | publish all at the floor |
+| `summary.none` | retener todas | hold all |
+| `confirm.allWarning` | Con «Publicar todas», cualquier premium con un dato de mercado roto saldría a la venta a {floor}. | With “Publish all”, any premium card with bad market data would go on sale at {floor}. |
+| `confirm.removing` | Las cartas de las rarezas que dejas de publicar desaparecen de la tienda al guardar. Lo ya vendido se queda vendido. | Cards of the rarities you stop publishing disappear from the store on save. What's already sold stays sold. |
+| `confirm.confirm` | Guardar regla | Save rule |
+
+`<b>` va **dentro** de la clave (rich text de next-intl, como `RICH_BOLD` en `M10View.tsx:123-125`); ⛔ partir la frase.
+Los nombres de rareza dentro de `exWarning.body` no se traducen en EN ni en ES (son nombres del juego). Los rótulos
+de otras pantallas citados en copy («Catálogo y precios», «Inventario», «Vender») son los del menú (§38.2), ⛔ nunca
+«M2»/«M1».
+
+### 39.2 Precio final a mano — SOLO sellado («Listas para publicar» y el panel de «Sellado»)
+
+**La regla, en una línea:** el componente nuevo **`SealedFinalPrice`** se pinta **solo** si `productType ===
+'sealed'`. Ninguna otra rama lo monta. Para carta suelta y gradeada **no cambia nada** — ni en la cola (sigue sin
+campo) ni en el panel de la pieza (el override por pieza existente se queda en su sitio y con su aspecto: P-PRE-1, «sin
+hacerlo más visible»).
+
+**Verbo:** `PATCH /admin/inventory/items/:id`:
+- **«Guardar precio»** ⇒ `{ listPriceCents }`. No publica (contrato, tabla INV-SP-8: «el precio no cambia el
+  `status`»).
+- **«Guardar y publicar»** ⇒ `{ listPriceCents, status: 'listed' }` en **una** llamada: corre el pipeline de
+  publicación de v1.51 **antes de escribir** (contrato §M1 `:11914-11920`), así que si no puede publicar **no se
+  guarda nada**. ⛔ Dos llamadas (precio y luego publicar) dejarían un estado intermedio que la cola no ve (ver «por
+  qué», abajo).
+
+#### (a) Cuándo se ofrece cada botón
+
+| Pieza | Qué se ve | Botón(es) del editor |
+|---|---|---|
+| Plataforma `in_stock` **con** ubicación | precio actual + «Poner/Cambiar precio final» | **«Guardar y publicar»** (único) |
+| Plataforma `in_stock` **sin** ubicación | ídem | **«Guardar precio»** (único) + texto «Se publicará sola en cuanto le pongas ubicación» |
+| Plataforma `listed` (solo en el panel) | ídem | **«Guardar precio»** — re-precia una publicada; el texto lo dice |
+| Cualquier otra (`reserved`, vendida, terminal, de cliente) | el precio en **solo lectura**, sin lápiz | — (el `422` es el candado; la pantalla no ofrece lo que el servidor va a rechazar) |
+
+**Por qué «Guardar y publicar» es el único botón cuando ya hay ubicación:** el predicado de la cola es `in_stock ∧
+(sin ubicación ∨ sin precio)`. Si la pieza ya tiene ubicación y le guardamos precio **sin** publicar, deja de cumplir
+el predicado y **sale de la cola sin estar a la venta**: queda `in_stock`, con precio, en una caja, sin pantalla que la
+señale — la contradicción exacta de la fase 8 («ninguna pieza adquirida se queda invisible»). Por eso en ese caso el
+gesto de guardar **es** el de publicar, y el texto del botón lo dice. Sin ubicación, guardar no la saca de la cola
+(sigue faltando ubicación) y el disparo (b) de la auto-publicación la publica al ponérsela.
+
+#### (b) Anatomía — fila de sellado en «Listas para publicar»
+
+La celda «Precio de venta» de una fila **de sellado** pasa a tener tres líneas:
+
+```
+MX$1,180.00  · automático                 ← precio actual (mono tabular) + base (text-xs muted)
+[✎ Cambiar precio final]                  ← Button secondary sm, icono Pencil, aria-label con el folio
+```
+Sin precio resoluble:
+```
+—  · sin precio                           ← ⛔ nunca MX$0.00 (§7.3)
+[✎ Poner precio final]
+```
+Al pulsar, la celda se convierte en el editor (inline, ⛔ no modal todavía):
+
+```
+Precio final (MXN)
+[MX$ 1,250.00      ]  Gana sobre el automático. Nunca $0.
+[Guardar y publicar]  [Cancelar]
+```
+
+- **Precio actual:** `resolvedSalePriceCents` + etiqueta de base. Si `listPriceCents != null` ⇒ «precio final a
+  mano»; si no, por `priceBasis`: `market` «automático», `floor` «piso», `override` «precio de variante»,
+  `pending`/`null` ⇒ «sin precio». ⛔ La UI **no** deduce la base comparando cifras (contrato `PriceBasis`).
+- **Input:** `Input` §6.2 con prefijo `MX$`, `inputMode="decimal"`, ancho 9rem, **prellenado** con el precio final si
+  lo hay; si no, **vacío** (⛔ prellenado con el automático: el campo es para decidir un número, no para aceptar uno).
+  Validación al escribir: vacío ⇒ botón deshabilitado sin error; `≤ 0` o no numérico ⇒ «Escribe un precio mayor que
+  cero.»; más de 2 decimales ⇒ «Máximo dos decimales.»; `> 1,000,000.00` ⇒ «El precio máximo es MX$1,000,000.00.»
+  (`MAX_LIST_PRICE_CENTS`, medido). Igual al actual ⇒ botón deshabilitado.
+- **Teclado:** `Enter` = pulsar el botón principal (abre la confirmación); `Esc` = Cancelar y el foco vuelve al botón
+  «Cambiar precio final» de esa fila.
+- **Una fila editando a la vez:** abrir otra cierra la anterior sin guardar.
+
+#### (c) Anatomía — el panel del sellado («Sellado» › detalle de presentación)
+
+En `VariantDrawer`, **solo con `productType === 'sealed'`**, la lista de piezas sustituye el botón-número escondido
+(`VariantDrawer.tsx:569-591`) por el mismo `SealedFinalPrice`, con rótulo visible:
+
+```
+INV-001944  [En stock]   Precio final: automático            [✎ Poner precio final]   [📄] [📣] [⚠]
+INV-001945  [Listada]    Precio final: MX$1,250.00 a mano     [✎ Cambiar]             [📄] [👁] [⚠]
+INV-001946  [Reservada]  MX$1,250.00                          (solo lectura)
+```
+
+- Precio actual en el panel: `listPriceCents` ⇒ «MX$X a mano». Sin él ⇒ «automático» **sin cifra** hasta que el
+  contrato dé el precio derivado de la pieza (S-2); bajo el rótulo, en `text-xs muted`, «Mercado: {price}» con el
+  `marketRefCents` del grupo cuando exista (es **referencia**, se rotula «Mercado», ⛔ nunca como precio de venta).
+- Cuando S-2 exista, «automático» gana la cifra y la base, idéntico a la cola.
+- La regla de botones de (a) aplica igual (la pieza trae `location`).
+- **Rama `raw`/`graded`:** ⛔ **sin cambio alguno** (P-PRE-1). Ni rótulo nuevo, ni lápiz visible, ni cambio de qué
+  estados permiten editar.
+
+#### (d) Confirmación (`Modal`, §7.6) — siempre, antes del `PATCH`
+
+`role="alertdialog"`, foco inicial en «Cancelar».
+
+- Título: «¿Fijar el precio final de {name}?» (`{name}` = `sealedProductName`, o «este sellado» si falta; ⛔ nunca
+  el nombre del ancla, P-79c).
+- Cuerpo, en dos líneas de cifras (mono tabular): «Ahora: MX$1,180.00 (automático)» → «Nuevo: MX$1,250.00, fijo a mano».
+  Sin precio actual: «Ahora: sin precio».
+- Efecto, una frase según el caso de (a):
+  - con ubicación: «Se publica en la tienda a MX$1,250.00 al confirmar.»
+  - sin ubicación: «No se publica todavía: le falta ubicación. Saldrá sola a MX$1,250.00 en cuanto se la pongas.»
+  - ya publicada: «Ya está a la venta: el precio nuevo se ve en la tienda al confirmar.»
+- Nota: «Gana sobre el precio automático hasta que lo cambies. Queda en bitácora a tu nombre.»
+- Botones: `secondary` «Cancelar» · `primary` con el **verbo y la cifra**: «Publicar a MX$1,250.00» / «Guardar
+  MX$1,250.00».
+
+#### (e) Después de guardar
+
+| Caso | Qué pasa en pantalla |
+|---|---|
+| Publicada (`200` con `status:'listed'`) | toast success «{folio} publicada a {price}.»; se invalidan `pending-publish`, `admin-inventory`, `sealed-*`; la fila **sale** de la cola (ya no cumple el predicado) |
+| Guardada sin ubicación | toast «Precio final guardado en {folio}. Saldrá sola al ponerle ubicación.»; la fila **se queda**, ahora con «Le falta: Ubicación» y el precio nuevo con «precio final a mano» |
+| Re-precio de una publicada (panel) | toast «Precio de {folio} cambiado a {price}.» |
+
+#### (f) Errores (en el editor, `Banner` danger `role="alert"`, ⛔ solo toast — §8.3; el editor sigue abierto con lo tecleado)
+
+| Respuesta | Texto | Acción ofrecida |
+|---|---|---|
+| `422 ITEM_NOT_ADJUSTABLE` `details.status = 'reserved'` | Está apartada en un pedido en curso. Si el pedido no se paga, vuelve a estar libre en unos minutos y podrás cambiarla. No se guardó nada. | «Recargar» |
+| `422 ITEM_NOT_ADJUSTABLE` (cualquier otro `status`/`ownerType`) | Esta pieza ya no se puede re-preciar: está «{status}». No se guardó nada. | «Recargar» (la fila suele desaparecer) |
+| `409 CONFLICT` | La pieza cambió mientras la editabas. Recarga y vuelve a intentarlo; no se guardó nada. | «Recargar» |
+| `422 ITEM_NOT_PUBLISHABLE` (solo «Guardar y publicar») | No se pudo publicar: está «{status}». No se guardó el precio. | «Recargar» |
+| `422 PRICE_PENDING` (solo «Guardar y publicar»; no debería ocurrir con precio final) | No se pudo publicar: el servidor no resolvió el precio. No se guardó nada. | «Ver en la cola de precio pendiente» si trae `details.pendingPriceEntryId` |
+| `422 VALIDATION_ERROR` | El precio no es válido: debe ser mayor que cero y como máximo MX$1,000,000.00. | — |
+| Otro / red | `common.errorGeneric` | «Reintentar» |
+
+`{status}` se traduce con `status.inventory.*` (`es.json:4559-`), ⛔ nunca el valor crudo.
+
+### 39.3 «Listas para publicar» — folio que abre la pieza, motivo por fila y origen traducido
+
+Aplica a la **misma** cola en sus dos montajes (`M1View.tsx:289` sin filtro y `M11View.tsx:100` con
+`productType="sealed"`).
+
+**(a) Folio enlazado.** El folio pasa a ser un **botón** (mono 13 px, subrayado al hover, foco visible §8.2) que abre
+`ItemDetailModal` de esa pieza (`itemId = row.inventoryItemId`; la cola carga `getLocations` con la misma
+`queryKey: ['locations']` que M1/M11 para pasárselas). Nombre accesible: «Abrir la pieza {folio}». ⛔ No es un enlace
+a otra página: el operador no pierde la cola. Al cerrar el modal, el foco vuelve al folio y la cola se refresca
+(`pending-publish`), porque desde el modal se puede mover o publicar.
+
+**(b) Motivo por fila.** La columna «Le falta» conserva sus chips (`Ubicación` / `Precio` / `Por revisar`) y gana
+**debajo una frase por cada cosa que falta** (`text-xs`, tinta `text-text`, ⛔ no `accent`: el chip ya avisa; la frase
+explica). La celda «Precio de venta» deja de decir «Sin precio resoluble» y pasa a «—» con la base «sin precio»
+(§39.2 (b)), el enlace a la cola de precio pendiente se queda cuando hay `pendingPriceEntryId`.
+
+| Falta | Condición | Frase |
+|---|---|---|
+| ubicación | `missing` incluye `location` | Sin ubicación: se publica sola en cuanto se la pongas. |
+| precio | `productType === 'sealed'` | El sellado no tiene precio automático: ponle precio final. *(el botón de §39.2 está en la misma fila)* |
+| precio | carta, `pendingReason === 'no_market'` *(S-1)* | El proveedor no trae precio de mercado para esta carta. |
+| precio | carta, `pendingReason === 'premium_at_floor'` *(S-1)* | Rareza premium con mercado bajo el piso: retenida para revisión. *(+ para súper-admin, enlace «Ver la regla» → `/admin/m10#premium-piso`)* |
+| precio | carta, sin `pendingReason` y **con** `pendingPriceEntryId` | Sin precio; el motivo está en la cola de precio pendiente. |
+| precio | carta, sin `pendingReason` y **sin** `pendingPriceEntryId` | Sin precio y sin entrada en la cola de precio pendiente: avisa a sistemas. |
+| — | `missing` vacío o ausente | *(sin cambio: chip «Por revisar», `MissingCell` `:26-34`)* |
+
+Las filas **«sin `pendingReason`»** son el **estado de hoy** (el DTO no lo trae) y el de un backend anterior a S-1: la
+frase **no inventa** un motivo, manda a donde está. ⛔ No se deduce `premium_at_floor` de la rareza de la carta en el
+cliente: es una decisión de dinero del servidor (y depende del dial de §39.1).
+
+La sección de §39.1 en «Configuración» lleva `id="premium-piso"` con `scroll-mt` para que el enlace aterrice (§22.12 nº13.e).
+
+**(c) Origen traducido.** `acquisitionType` se pinta con un mapa propio de la cola (⛔ crudo nunca):
+
+| `acquisitionType` | ES | EN |
+|---|---|---|
+| `aportacion_en_especie` | Aportación en especie | In-kind contribution |
+| `buylist` | Compra a vendedor *(clave existente, se mueve)* | Bought from a seller |
+| `compra` | Compra directa | Direct purchase |
+| desconocido | Origen desconocido | Unknown origin |
+
+**(d) La nota del pie.** «Esta cola solo mira…» (`es.json:1531`) deja de ser verdad para el sellado y se reescribe
+(clave `note`, tabla de §39.4).
+
+### 39.4 i18n — claves nuevas y cambiadas (paridad ES/EN en el mismo cambio)
+
+**`admin.m10.premiumFloor.*`** — todas **nuevas**, tabla de §39.1 (d).
+
+**`admin.m1.publishQueue.*`**
+
+| Estado | Clave | ES | EN |
+|---|---|---|---|
+| **cambia** | `note` | Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. Solo el producto sellado admite aquí un precio final a mano. | This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set final price here. |
+| **se retira** | `noSalePrice` | — | — |
+| **se retira** | `originBuylist` *(pasa a `origin.buylist`)* | — | — |
+| nueva | `openPiece` | Abrir la pieza {folio} | Open item {folio} |
+| nueva | `basis.manual` | precio final a mano | hand-set final price |
+| nueva | `basis.market` | automático | automatic |
+| nueva | `basis.floor` | piso | floor |
+| nueva | `basis.override` | precio de variante | variant price |
+| nueva | `basis.none` | sin precio | no price |
+| nueva | `reason.location` | Sin ubicación: se publica sola en cuanto se la pongas. | No location: it goes on sale by itself once you set one. |
+| nueva | `reason.sealedNoPrice` | El sellado no tiene precio automático: ponle precio final. | This sealed item has no automatic price: set a final price. |
+| nueva | `reason.no_market` | El proveedor no trae precio de mercado para esta carta. | The provider has no market price for this card. |
+| nueva | `reason.premium_at_floor` | Rareza premium con mercado bajo el piso: retenida para revisión. | Premium rarity with market below the floor: held for review. |
+| nueva | `reason.seeRule` | Ver la regla | See the rule |
+| nueva | `reason.inQueue` | Sin precio; el motivo está en la cola de precio pendiente. | No price; the reason is in the pending-price queue. |
+| nueva | `reason.noEntry` | Sin precio y sin entrada en la cola de precio pendiente: avisa a sistemas. | No price and no pending-price entry: tell the systems team. |
+| nueva | `origin.aportacion_en_especie` | Aportación en especie | In-kind contribution |
+| nueva | `origin.buylist` | Compra a vendedor | Bought from a seller |
+| nueva | `origin.compra` | Compra directa | Direct purchase |
+| nueva | `origin.unknown` | Origen desconocido | Unknown origin |
+
+**`admin.sealedFinalPrice.*`** (compartido por la cola y el panel — namespace propio para que ninguno de los dos
+dueños de namespace lo arrastre)
+
+| Clave | ES | EN |
+|---|---|---|
+| `rowLabel` | Precio final | Final price |
+| `auto` | automático | automatic |
+| `manual` | {price} a mano | {price} set by hand |
+| `market` | Mercado: {price} | Market: {price} |
+| `set` | Poner precio final | Set final price |
+| `change` | Cambiar precio final | Change final price |
+| `setAria` | Poner precio final de {folio} | Set final price for {folio} |
+| `changeAria` | Cambiar precio final de {folio} | Change final price for {folio} |
+| `label` | Precio final (MXN) | Final price (MXN) |
+| `hint` | Gana sobre el automático. Nunca $0. | Overrides the automatic price. Never $0. |
+| `noLocationHint` | Se publicará sola en cuanto le pongas ubicación. | It'll go on sale by itself once you set a location. |
+| `saveOnly` | Guardar precio | Save price |
+| `saveAndPublish` | Guardar y publicar | Save and publish |
+| `errPositive` | Escribe un precio mayor que cero. | Enter a price above zero. |
+| `errDecimals` | Máximo dos decimales. | Two decimals at most. |
+| `errMax` | El precio máximo es {max}. | The maximum price is {max}. |
+| `confirm.title` | ¿Fijar el precio final de {name}? | Set the final price for {name}? |
+| `confirm.thisSealed` | este sellado | this sealed item |
+| `confirm.now` | Ahora: {price} ({basis}) | Now: {price} ({basis}) |
+| `confirm.nowNone` | Ahora: sin precio | Now: no price |
+| `confirm.new` | Nuevo: {price}, fijo a mano | New: {price}, set by hand |
+| `confirm.effectPublish` | Se publica en la tienda a {price} al confirmar. | It goes on sale in the store at {price} when you confirm. |
+| `confirm.effectNoLocation` | No se publica todavía: le falta ubicación. Saldrá sola a {price} en cuanto se la pongas. | Not published yet: it has no location. It'll go on sale at {price} by itself once you set one. |
+| `confirm.effectListed` | Ya está a la venta: el precio nuevo se ve en la tienda al confirmar. | It's already on sale: the new price shows in the store when you confirm. |
+| `confirm.note` | Gana sobre el precio automático hasta que lo cambies. Queda en bitácora a tu nombre. | Overrides the automatic price until you change it. Logged under your name. |
+| `confirm.publish` | Publicar a {price} | Publish at {price} |
+| `confirm.save` | Guardar {price} | Save {price} |
+| `done.published` | {folio} publicada a {price}. | {folio} listed at {price}. |
+| `done.savedNoLocation` | Precio final guardado en {folio}. Saldrá sola al ponerle ubicación. | Final price saved on {folio}. It'll go on sale once it has a location. |
+| `done.repriced` | Precio de {folio} cambiado a {price}. | {folio} price changed to {price}. |
+| `errors.reserved` | Está apartada en un pedido en curso. Si el pedido no se paga, vuelve a estar libre en unos minutos y podrás cambiarla. No se guardó nada. | It's held by an order in progress. If the order isn't paid, it frees up in a few minutes and you can change it. Nothing was saved. |
+| `errors.notAdjustable` | Esta pieza ya no se puede re-preciar: está «{status}». No se guardó nada. | This item can no longer be repriced: it's “{status}”. Nothing was saved. |
+| `errors.conflict` | La pieza cambió mientras la editabas. Recarga y vuelve a intentarlo; no se guardó nada. | The item changed while you were editing. Reload and try again; nothing was saved. |
+| `errors.notPublishable` | No se pudo publicar: está «{status}». No se guardó el precio. | Couldn't publish: it's “{status}”. The price wasn't saved. |
+| `errors.pricePending` | No se pudo publicar: el servidor no resolvió el precio. No se guardó nada. | Couldn't publish: the server couldn't resolve the price. Nothing was saved. |
+| `errors.validation` | El precio no es válido: debe ser mayor que cero y como máximo {max}. | Invalid price: it must be above zero and at most {max}. |
+| `reload` | Recargar | Reload |
+
+`{price}` y `{max}` llegan **formateados** por `formatMoneyCents` (§9.3), ⛔ nunca un número crudo en el ICU.
+
+**Se quedan sin cambio:** `admin.drawer.editPrice`, `editPriceLabel`, `priceMustBePositive` (los sigue usando la rama
+`raw`/`graded` del panel, P-PRE-1); `admin.m11.queue.*`.
+
+### 39.5 Lista de cambios para frontend (fichero:línea, medido en este worktree el 2026-10-04)
+
+| Fichero | Línea(s) | Cambio |
+|---|---|---|
+| `src/types/contract.ts` | `:5040-` (`SettingsDTO`) | + `premiumFloorSalePublish?: { mode: 'all' \| 'none' \| 'only'; rarities: string[] }` (contrato M2-PF) |
+| `src/types/contract.ts` | `:3822-3854` (`PendingPublishRowDTO`) | + `pendingReason?: PendingPriceReason \| null` **cuando el arquitecto lo declare** (S-1). Hasta entonces la UI ya funciona con las filas «sin `pendingReason`» de §39.3 (b) |
+| `src/app/[locale]/(admin)/admin/m10/sections/PremiumFloorSection.tsx` | **nuevo** | §39.1: lee `getSettings` (misma `queryKey ['admin-settings']`), `getRarityHealth` (`lib/api.ts:5494`), `getPricingCurve` (`:5446`, `retry:false`, cede la cifra); borrador propio; `updateSettings({ premiumFloorSalePublish })` parcial; confirmación; `id="premium-piso"` |
+| `…/admin/m10/M10View.tsx` | `:441-443` | montar `<PremiumFloorSection />` entre `IvaTransferSection` y la ingesta |
+| `…/admin/m1/SealedFinalPrice.tsx` | **nuevo** | §39.2: lectura + editor inline + confirmación + `PATCH` (`updateInventoryItem`); props: pieza (`id`, `folio`, `status`, `ownerType`, `hasLocation`, `listPriceCents`, `resolvedSalePriceCents?`, `priceBasis?`, `name?`, `marketRefCents?`), `onDone`. Errores por `error.code` (+ `details.status`) |
+| `…/admin/m1/PendingPublishQueue.tsx` | `:23-48` (`MissingCell`) | + la frase de motivo por cada `missing` (§39.3 b) |
+| idem | `:104-107` (comentario D10) | reescribir: «solo visibilidad» salvo el precio final del **sellado** (§39.2, criterio 255) |
+| idem | `:117-120` | + `useQuery(['locations'], getLocations)` y estado `detailId` para `ItemDetailModal` |
+| idem | `:187-189` | folio ⇒ `button` que abre `ItemDetailModal` (§39.3 a) |
+| idem | `:196-216` | precio actual + base (§39.2 b); fila `sealed` ⇒ `<SealedFinalPrice>`; «Sin precio resoluble» ⇒ «—» + `basis.none`; el enlace a la cola pendiente se queda |
+| idem | `:220` | origen por `origin.*` (§39.3 c) |
+| idem | `:233` | `note` con su texto nuevo |
+| `…/admin/m1/VariantDrawer.tsx` | `:375-390` (props de la lista de piezas) | + `productType` (o `isSealed`) desde el componente padre (`:85`, ya lo tiene) |
+| idem | `:535-591` | si `productType === 'sealed'` ⇒ `<SealedFinalPrice>` con rótulo visible, editable **solo** en plataforma `in_stock\|listed`; si no ⇒ **el código actual, sin tocar** (P-PRE-1) |
+| idem | `:430-437` (`editPrice`) | se queda para `raw`/`graded`; el sellado usa la mutación de `SealedFinalPrice` |
+| `frontend/messages/es.json` | `:1513-1531` | `publishQueue`: claves de §39.4 (cambia `note`; se retiran `noSalePrice`, `originBuylist`) |
+| idem | `:3732-` (`admin.m10`) | + `premiumFloor` |
+| idem | bloque `admin` | + `sealedFinalPrice` |
+| `frontend/messages/en.json` | mismos bloques | paridad (líneas de `en.json` **NO MEDIDAS**) |
+| `…/admin/m1/PendingPublishQueue.test.tsx` | `:82`, `:85-96` | `'Compra a vendedor'` sigue (clave movida, mismo texto); el caso «sin precio resoluble» pasa a afirmar «—» + la frase `reason.inQueue` + el enlace, y ⛔ `MX$0.00` |
+
+### 39.6 Solicitudes y notas a otros roles
+
+| # | Para | Solicitud / nota |
+|---|---|---|
+| **S-1** | arquitecto | **`PendingPublishRowDTO` gana `pendingReason?: 'no_market' \| 'premium_at_floor' \| null`** (aditivo; el `reason` de la fila `PendingPriceEntry` abierta de `pendingPriceEntryId`). Sin él, el motivo de una **carta** sin precio no se puede pintar (medido: el DTO no lo trae, `contract.ts:3822-3854`). La UI ya degrada a «el motivo está en la cola» |
+| **S-2** | arquitecto | **El precio derivado de una pieza sellada en el panel** (`resolvedSalePriceCents` + `priceBasis` en las filas de `InventoryItemDTO` que lista `VariantDrawer`, al menos para `productType='sealed'`). Hoy el panel solo puede decir «automático» sin cifra; la cola sí la tiene |
+| **S-3** | arquitecto (→ backend) | **Criterio 255 pide bitácora con antes/después y el código no la escribe para el precio solo.** Medido: `inventory.service.ts:2494` («El precio solo no gana bitácora nueva»), `:2509-2521` (antes/después solo si cambia `status`), `inventory.controller.ts:647-653` (`inventory.update` sin antes/después). La confirmación de §39.2 dice «Queda en bitácora a tu nombre» — es verdad (quién/cuándo), pero el **antes/después** que pide el criterio falta. Decide el arquitecto si `listPriceCents` entra en `before/after` |
+| **S-4** | backend | Si `SettingsService` llega a cachear lecturas, avisar: el texto «las publicadas cambian al momento» (§39.1 `effect`) tendría que decir el TTL (contrato M2-PF «Reversión»). Hoy no hay caché (medido arriba) |
+| **S-5** | arquitecto | El `422 VALIDATION_ERROR` del validador de `premiumFloorSalePublish` no tiene forma de `details` fijada en el contrato; la UI muestra el `message` del servidor. Si se fija (`details.field` / `details.reason`), §39.1 (b) puede mapear textos por causa. No bloquea |
+| **N-11** | product-owner | **¿Quién puede fijar el precio final del sellado?** El verbo admite `vault_operator` (`inventory.controller.ts:88`) y la cola es `vault_operator+`; PROJECT §N.5-bis (b) no dice rol. Este diseño lo deja **como el verbo** (operador y súper-admin). Si el dueño lo quiere solo para súper-admin, es cambio de backend (403) y aquí se gatea el botón |
+| **N-12** | product-owner | **Volver al precio automático** (quitar el precio final) **no está diseñado**: el `PATCH` no declara `listPriceCents: null` y su conducta con `null` no está medida. Si hace falta, pasa por arquitecto |
+| **N-13** | frontend | `SealedFinalPrice` es **un** componente para los dos sitios: la regla de botones de §39.2 (a) no se duplica. Candados sugeridos: **FP-1** fila `raw` y `graded` de la cola ⇒ `queryByRole('button', { name: /precio final/i })` = null (criterio 255 por ausencia); **FP-2** fila `sealed` `in_stock` con ubicación ⇒ el único botón del editor es «Guardar y publicar» y el `PATCH` lleva `status:'listed'` en la **misma** llamada; **FP-3** sin ubicación ⇒ «Guardar precio», cuerpo **sin** `status`; **FP-4** `422 ITEM_NOT_ADJUSTABLE {status:'reserved'}` ⇒ texto `errors.reserved` y el input conserva lo tecleado; **FP-5** panel `raw` ⇒ el DOM de la lista de piezas es el de hoy (snapshot acotado a la celda de precio); **PF-UI-1** con `only` y 0 marcadas, «Guardar» deshabilitado y el error visible; **PF-UI-2** al pasar a `all`, el `PUT` lleva `rarities: []`; **PF-UI-3** una rareza guardada ausente de `/rarities` se pinta marcada con «sin cartas en el catálogo hoy»; **PF-UI-4** el aviso «La rareza manda» está en los tres modos; **LP-1** origen `aportacion_en_especie` ⇒ «Aportación en especie», ⛔ el literal crudo en el DOM |
+
+**Contraste:** ningún color nuevo. Frases de motivo en `text-text` sobre `surface` (ya verificado AA en §10); chips y
+estados vacíos de precio en `text-accent` como hoy; disabled del `fieldset` a 0.5 de opacidad como el resto de §6.4
+(texto deshabilitado, exento de AA por WCAG 1.4.3, y acompañado de la nota en tinta normal que dice por qué).
+
+---
+
+## 40. Reembolso TOTAL «depende de si ya salió» — el motivo del enviado, «Reembolso por revisar» y la carta que vuelve sola (v4.12, 2026-10-04 · `API_CONTRACT §M4-SHIP.18.12` v1.80.8.6)
+
+### 40.0 Fuente, alcance y reglas duras
+
+**Fuentes (citadas, no resumidas de memoria):**
+
+- `HECHOS.md` 2026-10-02, fila **«Cartas apartadas de un pedido reembolsado desde Stripe sin liquidar (SSL-R1):
+  depende de si el pedido ya salió»** — *«si ya salió ahí no podemos regresarlas a inventario y habría que checar por
+  qué el reembolso, porque solo sería porque no llegó o estaban en mala condición»* (citado en `PROJECT §S.11`, Fuente 1).
+- `HECHOS.md` 2026-10-04, fila **«Cartas apartadas (SSL-R1) — detalles del 2026-10-04»**: **4a** *«como sugieres está
+  bien»* (no enviado ⇒ vuelven solas a la venta si nadie las tocó) y **4b** *«para cualquier reembolso»* (la regla del
+  enviado vale para todo reembolso total) (citado en `PROJECT §S.11`, Fuente 2).
+- `PROJECT §S.11` y criterios **249–253**; `API_CONTRACT §M4-SHIP.18.12` (1)–(7) — (7) es la lista de pantalla;
+  `ARCHITECTURE §4.57 (w)`.
+
+**Lo que este diseño cubre:** (1) el diálogo de reembolso total de «Ventas» (M3) cuando el pedido ya salió y cuando
+no; (2) «Reembolso por revisar» en listado, filtro, detalle y tablero; (3) el pedido reembolsado sin liquidar en el
+detalle; (4) el movimiento `refund_release` en el historial de la pieza; (5) el encaje con «Reembolsos» (§37.20).
+
+**Reglas duras (de PROJECT/contrato; la pantalla no las relaja):**
+
+1. **Dos motivos y solo dos.** `not_arrived` «No llegó» y `arrived_damaged` «Llegó en mala condición». ⛔ Sin opción
+   «otro», ⛔ sin texto libre **en lugar** del motivo, ⛔ sin motivo preseleccionado (un valor por defecto es un motivo
+   que nadie eligió).
+2. **La pantalla no decide «enviado».** `shipmentShipped` (detalle) solo sirve para pedir el motivo **antes** de enviar;
+   quien decide es la tx1 del servidor (contrato (7)). Por eso el `422` existe y se maneja (§40.2 c).
+3. **El motivo registrado después no se edita.** Una vez, con confirmación, y luego solo lectura (contrato (6)).
+4. **Registrar el motivo no mueve dinero, cartas ni correos.** Ningún texto de esta sección puede sugerir lo contrario.
+5. **El menú no cambia** (§37.20, decisión del dueño 2026-10-02): ni entrada nueva, ni badge que sume «por revisar».
+6. **Cero tokens nuevos.** Todo sale de lo ya usado en §37.10 (`Banner` `warning`/`info`/`danger`, versalita mono
+   `text-accent`, `Textarea` con contador, `StatCard`).
+
+**Lo medido antes de redactar (2026-10-04, worktree `/home/user/tcg-precios`, rama `claude/precios-s5`; sin Bash,
+lectura de ficheros — ⛔ sha NO MEDIDO, el encargo dice HEAD `f0dac0a6`):**
+
+| Medición | Resultado |
+|---|---|
+| Diálogo de reembolso total | `m3/RefundOrderDialog.tsx`: un solo `Input` de motivo (`:141`), cuerpo `isVault ? body : directBody` (`:132`), y el `422 REFUND_CONFIRMATION_REQUIRED` **siempre** se trata como «cartas en mano del cliente» (`:84-88`) — ⚠️ con el `422 … ['shipped_reason']` nuevo pintaría la casilla de bóveda equivocada. Se corrige en §40.2 c |
+| Tipo del `422` | `types/contract.ts:2065-2068`: `required: ('pieces_with_customer')[]`, `items` obligatorio. No admite `shipped_reason` ni `shipmentStatus` |
+| Listado de «Ventas» | `m3/M3View.tsx`: filtros en estado **local** (`:45-63`), ⛔ nada en la URL; `m3/page.tsx:3-5` no lee `searchParams`. Hoy `/admin/m3?refundReview=pending` (el enlace del tablero, contrato (7)) **no filtraría** |
+| Detalle | `m3/[orderId]/M3OrderDetailView.tsx`: banners en `:186-207`, columna principal desde `:210`, `RefundOrderDialog` en `:375-383` |
+| Tablero | `AdminDashboard.tsx:181-200` tarjeta SPEI (`StatCard`, `null` ⇒ no existe), `:202-219` operadores; tipo `contract.ts:2505-2507` |
+| Historial de la pieza | `m1/ItemDetailModal.tsx:393` pinta `t('movementReason.' + reason)` con `t = useTranslations('admin.m1')` (`:43`); `es.json`/`en.json:1485-1495` tienen **9** motivos. El schema tiene **12** (`backend/prisma/schema.prisma:396-414`): faltan texto para `adjustment`, `replacement` y `refund_return` (y el tipo `contract.ts:2593-2603` no tiene `replacement` ni `refund_return`). Qué pinta `next-intl` con la clave ausente en producción: **NO MEDIDO** |
+| `settledAt` en el detalle admin | El controlador mezcla `getOrder('', id, true)` con columnas propias (`backend/src/modules/orders/admin-orders.controller.ts:140-195`); si `getOrder` emite `settledAt`: **NO MEDIDO**. El contrato (§M3) no lo declara para el detalle admin ⇒ solicitud **A-1** (§40.10) |
+| «Reembolsos» | `refunds/RefundsView.tsx:74-77` cabecera con `h1` + `hint`; dos pestañas (`:79-111`), implementado según §37.20 |
+
+---
+
+### 40.1 Los dos motivos — un solo juego de textos para todas las superficies
+
+| Valor (`ShippedRefundReason`) | Rótulo ES / EN | Ayuda bajo la opción ES / EN |
+|---|---|---|
+| `not_arrived` | **«No llegó»** / “Didn't arrive” | «El paquete se perdió o el cliente no lo recibió.» / “The parcel was lost or the customer never got it.” |
+| `arrived_damaged` | **«Llegó en mala condición»** / “Arrived in bad condition” | «Llegó, pero las cartas no estaban como se vendieron.» / “It arrived, but the cards weren't as sold.” |
+
+Mismo rótulo en el diálogo (§40.2), en el formulario del detalle (§40.3 c), en la lectura (§40.3 d) y en el aviso de
+éxito. ⛔ Ningún sitio traduce el valor crudo (`not_arrived`) al DOM.
+
+**Control:** `fieldset` + `legend` con dos `input type="radio"` del mismo `name` (patrón de `M3OrderDetailView.tsx:255-275`:
+`h-5 w-5 accent-text`, rótulo `text-sm text-text`, ayuda `text-muted` en bloque). Área táctil ≥ 44 px por fila (la
+`label` entera es el blanco). **Ninguna marcada al abrir.**
+
+---
+
+### 40.2 El diálogo de reembolso total de «Ventas» (M3, solo súper-admin)
+
+Lee `detail.data.shipmentShipped` (contrato (7)). Mientras el detalle carga, el `Skeleton` de hoy y **el botón de
+confirmar deshabilitado** (hoy no lo está: `:107`). Si el detalle **falla**, el diálogo se comporta como «no enviado» y
+el `422` de (c) es la red.
+
+#### (a) Pedido NO enviado (`shipmentShipped === false`) — sin cambio de conducta
+
+- **Compra a bóveda:** §37.10 tal cual (P-S11-4: ⛔ nunca pide motivo de envío).
+- **Envío directo:** `directBody` de hoy, **sin cambio** — *«Se devuelve lo que queda del cobro. Si el envío sigue
+  vivo, se cierra: sus cartas quedan congeladas hasta que confirmes dónde están.»* (`es.json:1613`).
+- **Sobre «las cartas apartadas que vuelven a la venta»:** **en este diálogo no aplica y no se dice.** «Ventas» solo
+  reembolsa pedidos **liquidados** (contrato (4): «exige `settled`, sin cambio»), y las cartas de un pedido liquidado
+  ya no están «apartadas»: si el pedido no salió, quedan **congeladas** y un humano confirma dónde están (lo que ya
+  dice `directBody`; criterio 253: «se comporta igual que hoy»). La vuelta **sola** a la venta (4a) solo ocurre en un
+  pedido **sin liquidar** reembolsado desde Stripe, que nunca pasa por este diálogo; se cuenta en el detalle (§40.4).
+  ⛔ Prometer aquí «vuelven a la venta» sería falso.
+
+#### (b) Pedido ENVIADO (`shipmentShipped === true`) — motivo obligatorio
+
+Orden de arriba abajo (el título, «Reembolsar», y la pregunta `refundQuestion` no cambian):
+
+1. **Aviso** — `Banner variant="warning"` (estático, ⛔ sin `role="alert"`: no es un error), título **«Este pedido ya
+   salió»** / “This order has already shipped”, cuerpo **«Las cartas no vuelven a inventario: el cliente las tiene o
+   las tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición.»** / “The cards don't go back
+   into inventory: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad
+   condition.”
+2. **Lo que queda por devolver** — `tv('remaining')` como hoy.
+3. **Cuerpo** (sustituye a `directBody` en este caso) — **«Se devuelve lo que queda del cobro. El envío no se toca y
+   las cartas no vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el
+   correo de reembolso de siempre.»** / “What's left of the charge is refunded. The shipment isn't touched and the
+   cards don't go back into inventory or on sale. The reason is saved under your name. The customer gets the usual
+   refund email.”
+4. **Motivo** — `fieldset` de §40.1, `legend` **«¿Por qué se reembolsa? (obligatorio)»** / “Why is it being
+   refunded? (required)”. Debajo, mientras no haya opción marcada, `text-xs text-muted`: **«Elige uno de los dos para
+   poder reembolsar.»** / “Pick one of the two to be able to refund.”
+5. **Nota** — el mismo campo de texto de hoy (`reason`, obligatorio en M3; contrato (4) cita `orders.dto.ts:23`), con **otro rótulo y otra ayuda** en este caso: rótulo **«Qué pasó»** / “What happened”, ayuda
+   **«Obligatorio. Queda como nota del motivo y en bitácora. Máximo 500 caracteres.»** / “Required. Saved as the
+   reason's note and in the audit log. 500 characters max.” Pasa a `Textarea` con `maxLength={500}` y
+   `counter={{ max: 500 }}` (patrón `M3OrderDetailView.tsx:276`): el servidor recorta a 500 (contrato (4)) y la
+   pantalla no deja escribir lo que se perdería en silencio.
+6. `moneyOutNote` y el botón **«Reembolsar {amount}»** (destructivo) como hoy. Habilitado solo con **motivo marcado
+   ∧ nota no vacía** (∧ detalle cargado).
+
+**Cuerpo del `POST`:** `{ reason: nota.trim(), shippedReason }`. ⛔ Con `shipmentShipped === false` el cuerpo **no**
+lleva `shippedReason` (si lo llevara: `409 …NOT_APPLICABLE`, (c)).
+
+**Éxito:** el diálogo cierra y el aviso de la página (listado y detalle) dice **«Reembolso hecho del pedido {ref}.
+Motivo guardado: «{reason}». Las cartas no vuelven a inventario.»** / “Order {ref} refunded. Reason saved: “{reason}”.
+The cards don't go back into inventory.” (`{reason}` = rótulo de §40.1; el diálogo lo conoce, ⛔ no hace falta que lo
+devuelva el servidor). Sin motivo de envío: `refundDone` de hoy.
+
+#### (c) Respuestas nuevas del `POST` (se distinguen por `error.code` **y** `details.required`)
+
+| Respuesta | Qué hace la pantalla | ES | EN |
+|---|---|---|---|
+| `422 REFUND_CONFIRMATION_REQUIRED {required:['shipped_reason'], shipmentStatus}` (la pantalla creía «no enviado») | Pasa al modo (b) **sin perder la nota escrita** (la copia al `Textarea`); invalida el detalle; foco a la `legend` del motivo; `Banner danger role="alert"` | **«Este pedido salió mientras tenías abierto el diálogo (envío {status}). No se reembolsó nada. Elige por qué se reembolsa y confirma otra vez.»** | “This order shipped while you had the dialog open (shipment {status}). Nothing was refunded. Pick why it's being refunded and confirm again.” |
+| `422 REFUND_CONFIRMATION_REQUIRED {required:['pieces_with_customer'], items}` | **Sin cambio** (§37.10, casilla de cartas en mano) | (sin cambio) | (sin cambio) |
+| `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE {afterShipment:false}` | Quita el motivo, vuelve al modo (a), invalida el detalle, conserva la nota | **«Este pedido no ha salido: no lleva motivo de envío. No se reembolsó nada. Revisa y confirma otra vez.»** | “This order hasn't shipped: it takes no shipping reason. Nothing was refunded. Check and confirm again.” |
+| `400 VALIDATION_ERROR {field:'shippedReason'}` | No debería ocurrir desde la UI (solo dos radios) | **«Elige «No llegó» o «Llegó en mala condición».»** | “Pick “Didn't arrive” or “Arrived in bad condition”.” |
+| `403 MONEY_OUT_FORBIDDEN` | Como hoy (`getError`) | (sin cambio) | (sin cambio) |
+
+`{status}` se pinta con `status.shipment` (la misma traducción que la lista de envíos del detalle, `:299`).
+⛔ Ninguna de estas respuestas movió dinero: todas dicen «No se reembolsó nada».
+
+---
+
+### 40.3 «Reembolso por revisar» — pedidos enviados reembolsados desde el panel de Stripe
+
+**Definición de pantalla:** `refundReviewPending === true` (fila del listado) / `fullRefundReview.pending === true`
+(detalle). ⛔ La pantalla no lo recalcula con otros campos: el predicado es uno y es del servidor (contrato (1)).
+
+#### (a) Marca en el listado de «Ventas»
+
+En la columna **Estado**, a la derecha del `StatusBadge` («Reembolsada»), versalita mono **«Por revisar»** / “To
+review” en `text-accent` (`font-mono text-[11px] uppercase tracking-[0.06em]`, el mismo `TAG` de
+`M3OrderDetailView.tsx:27`), `data-testid="m3-review-chip-{id}"`. En móvil envuelve bajo el badge. El significado no
+depende del color: la palabra está escrita. Visible para los **dos** roles (la fila es la misma para ambos; contrato
+(7) «mismo guard»).
+
+#### (b) Filtro
+
+En la fila de filtros de `M3View` (tras «Monto máx.»), una casilla **«Solo reembolsos por revisar»** / “Only refunds
+to review” (`h-5 w-5 accent-text`, `label` ≥ 44 px de alto). Marcada ⇒ `refundReview: 'pending'` en la consulta y
+**en la URL**:
+
+- `/admin/m3?refundReview=pending` llega **ya filtrado** (es el destino de la tarjeta del tablero). La página de
+  servidor lee `searchParams` (patrón de `refunds/page.tsx:9-11`) y pasa el valor inicial a `M3View`.
+- Marcar/desmarcar **reemplaza** la entrada del historial (`replaceState`, como §37.20 b), vuelve a la página 1.
+  Cualquier otro valor del parámetro ⇒ casilla desmarcada (⛔ no se manda al servidor: daría `400`).
+- Se combina con búsqueda, fechas y montos (todo reduce).
+- **Vacío con el filtro:** `EmptyState` título **«No hay reembolsos por revisar.»** / “No refunds to review.”, texto
+  **«Aquí aparecen los pedidos que ya habían salido y se reembolsaron completos desde el panel de Stripe, hasta que
+  alguien registre por qué.»** / “Orders that had already shipped and were fully refunded from the Stripe dashboard
+  show up here until someone records why.”
+
+#### (c) En el detalle — el formulario, una sola vez
+
+Con `fullRefundReview?.pending === true`, **primero** (tras los banners de `:186-207`, antes de «Cartas»):
+
+1. `Banner variant="warning" role="status"` título **«Reembolso por revisar»** / “Refund to review”, cuerpo
+   **«Este pedido se reembolsó completo desde el panel de Stripe cuando ya había salido. Las cartas no vuelven a
+   inventario. Falta registrar por qué.»** / “This order was fully refunded from the Stripe dashboard after it had
+   shipped. The cards don't go back into inventory. The reason still needs recording.”
+2. **Solo súper-admin** — sección `data-testid="m3-refund-review"`, `h2` **«Registrar el motivo»** / “Record the
+   reason”:
+   - `fieldset` de §40.1, `legend` **«¿Por qué se reembolsó? (obligatorio)»** / “Why was it refunded? (required)”.
+   - `Textarea` **«Nota (opcional)»** / “Note (optional)”, `maxLength={500}`, contador 500.
+   - Texto `text-xs text-muted`: **«Solo queda registrado: no mueve dinero ni cartas y no avisa al cliente. Una vez
+     guardado no se cambia.»** / “It's only recorded: it doesn't move money or cards and doesn't notify the customer.
+     Once saved it can't be changed.”
+   - Botón `primary` **«Registrar motivo»** / “Record reason”, habilitado con motivo marcado.
+   - **Confirmación** (`Modal`, foco inicial en «Cancelar», como `:69-71`): título **«¿Registrar «{reason}» como
+     motivo?»** / “Record “{reason}” as the reason?”; cuerpo **«Queda guardado a tu nombre y ya no se puede cambiar.»**
+     / “It's saved under your name and can't be changed afterwards.”; confirmar **«Registrar»** / “Record”.
+     *Por qué hay confirmación:* el registro es final (regla 3) y un radio mal tocado no tendría arreglo.
+3. **Operador** (`vault_operator`): ve el banner y, en lugar del formulario, `text-sm text-muted` **«Solo el
+   súper-admin puede registrar el motivo.»** / “Only the super-admin can record the reason.” ⛔ Sin botón
+   deshabilitado (no hay nada que él pueda completar).
+
+**Respuestas de `POST /admin/orders/:id/shipped-refund-reason`:**
+
+| Respuesta | Qué hace la pantalla | ES | EN |
+|---|---|---|---|
+| `200 {outcome:'recorded'}` | Aviso `info role="status"`; invalida detalle, listado y tablero; el bloque pasa a lectura (d) | **«Motivo registrado: «{reason}».»** | “Reason recorded: “{reason}”.” |
+| `200 {outcome:'already_recorded'}` | Igual, otro texto | **«Ese motivo ya estaba registrado. No se cambió nada.»** | “That reason was already recorded. Nothing changed.” |
+| `409 SHIPPED_REFUND_REASON_ALREADY_SET {reason}` | `danger role="alert"`; invalida el detalle | **«Alguien ya registró otro motivo: «{reason}». El motivo no se cambia.»** | “Someone already recorded a different reason: “{reason}”. The reason can't be changed.” |
+| `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE` | `danger`; invalida el detalle | **«Este pedido no había salido cuando se reembolsó: no lleva motivo de envío.»** | “This order hadn't shipped when it was refunded: it takes no shipping reason.” |
+| `403 MONEY_OUT_FORBIDDEN` | `danger` (no debería verse: el operador no tiene formulario) | **«Solo el súper-admin puede registrar el motivo. El intento quedó registrado.»** | “Only the super-admin can record the reason. The attempt was logged.” |
+| `400 VALIDATION_ERROR` | `danger`, conserva lo elegido | **«Elige «No llegó» o «Llegó en mala condición». La nota admite hasta 500 caracteres.»** | “Pick “Didn't arrive” or “Arrived in bad condition”. The note takes up to 500 characters.” |
+
+`{reason}` = rótulo de §40.1 (en el `409 …ALREADY_SET`, el de `details.reason`).
+
+#### (d) En el detalle — la lectura (motivo ya registrado)
+
+Con `fullRefundReview?.afterShipment === true ∧ pending === false` (registrado después **o** en el propio reembolso de
+M3), sección de solo lectura `data-testid="m3-refund-review-done"`, `h2` **«Reembolso tras el envío»** / “Refund after
+shipping”:
+
+- **«Motivo: {reason}»** / “Reason: {reason}”
+- **«Nota: {note}»** / “Note: {note}” (`note === null` ⇒ la línea no se pinta)
+- **«Registrado por {name} · {date}»** / “Recorded by {name} · {date}” (`formatDateTimeMx`; `recordedBy.name === null`
+  ⇒ `admin.m3.nameMissing` de hoy)
+- **«Las cartas no volvieron a inventario.»** / “The cards didn't go back into inventory.”
+
+Visible para los dos roles. ⛔ Sin botón de editar.
+
+#### (e) Tarjeta del tablero
+
+`workQueue.refundReviews` (contrato (7)); **`null` ⇒ la tarjeta no existe** (operador; regla S6, como
+`AdminDashboard.tsx:180-181`). `StatCard` entre «Reembolsos por pagar (SPEI)» y «Reembolsos de operadores» (las tres de
+reembolsos juntas):
+
+| Parte | ES | EN |
+|---|---|---|
+| `label` | **Reembolsos por revisar** | **Refunds to review** |
+| `value` | `pending` | |
+| `sub` (enlace a `/admin/m3?refundReview=pending`, `data-testid="dashboard-refund-reviews"`, mismas clases que `:186-190`) con `pending > 0 ∧ oldestRefundedAt` | **«Falta el motivo · el más viejo hace {days, plural, one {# día} other {# días}}»** | “Reason missing · oldest {days, plural, one {# day} other {# days}} ago” |
+| `sub` con `pending === 0` | **«Nada por revisar.»** | “Nothing to review.” |
+
+`{days}` con el `daysSince` que ya existe (`AdminDashboard.tsx:32`). ⛔ Sin `text-accent` ni rojo: como la tarjeta SPEI.
+
+---
+
+### 40.4 El pedido reembolsado SIN liquidar — las cartas que volvieron solas (4a, criterio 249)
+
+En el detalle, con `status === 'refunded' ∧ fullRefundReview?.afterShipment === false ∧` **el pedido nunca se
+liquidó** (ver la condición de datos abajo): `Banner variant="info" role="status"`, título **«Reembolsado antes de
+quedar pagado»** / “Refunded before it was paid”, cuerpo **«Stripe reembolsó este pedido antes de que la tienda lo
+diera por pagado, así que nunca se preparó. Las cartas que tenía apartadas volvieron solas a la venta; cada una
+lleva «Liberada por reembolso» en su historial.»** / “Stripe refunded this order before the store marked it as paid,
+so it was never prepared. The cards it was holding went back on sale by themselves; each one shows “Released by
+refund” in its history.”
+
+- **Condición de datos:** hace falta saber si el pedido se liquidó. El detalle admin **no declara** `settledAt`
+  (medido arriba, §40.0) ⇒ **solicitud A-1**. Hasta que el arquitecto lo declare, el banner **no se pinta** (⛔ no se
+  infiere de otro campo): la verdad sigue visible en el historial de cada pieza (§40.5).
+- ⛔ Este caso **no** lleva «por revisar», ni motivo, ni formulario (contrato (3): `chargebackNeedsManual` no sube).
+- El cliente no ve nada nuevo (criterio 253: ningún correo nuevo).
+
+---
+
+### 40.5 Historial de la pieza — «Liberada por reembolso»
+
+En `ItemDetailModal` (historial, `:381-414`), el movimiento `refund_release` se pinta como cualquier otro: rótulo
+**«Liberada por reembolso»** / “Released by refund”, debajo `Apartada → A la venta` (los estados ya traducidos de
+`status.inventory`) y la `note` del servidor tal cual (*«pedido {n} reembolsado sin liquidar»*). Sin actor visible
+(hoy el historial no pinta actores; el barrido escribe `actorUserId = null`).
+
+**Se cierran en el mismo cambio los tres motivos que hoy no tienen texto** (medido en §40.0; criterio de «ningún
+valor crudo en el DOM»):
+
+| `MovementReason` | ES | EN |
+|---|---|---|
+| `refund_release` *(nuevo)* | Liberada por reembolso | Released by refund |
+| `refund_return` *(v1.80.4, sin texto hoy)* | Devuelta por reembolso | Returned by refund |
+| `replacement` *(v1.80.1, sin texto hoy)* | Reposición | Replacement |
+| `adjustment` *(v1.20, sin texto hoy)* | Ajuste por levantamiento | Stock-count adjustment |
+
+*Por qué «Liberada» y no «Devuelta»:* `refund_return` ya es la carta de bóveda que **vuelve** de manos del cliente a la
+plataforma; `refund_release` es la carta que **nunca salió del estante** y solo deja de estar apartada. Dos hechos
+distintos, dos palabras.
+
+---
+
+### 40.6 «Reembolsos» (§37.20) — sigue con dos cubetas; gana un enlace
+
+**Decisión: «Reembolso por revisar» NO es una tercera cubeta.** Razones:
+
+1. El dueño pidió **dos** cubetas, SPEI y operadores (`HECHOS.md` 2026-10-02, fila «Menú del panel…»). Una tercera
+   contradice sus palabras.
+2. Lo que se revisa es un **pedido** (falta su motivo), no un reembolso por pagar ni una fila del libro: su sitio
+   natural es «Ventas», que es donde están el detalle y el formulario, y adonde el contrato manda la tarjeta (7).
+3. El badge del menú se queda **solo SPEI** (§37.20 a): «por revisar» ya tiene su cifra en el tablero.
+
+**Lo que sí cambia:** bajo el `hint` de la cabecera (`RefundsView.tsx:76`), un enlace `text-sm underline` **«Pedidos
+enviados reembolsados desde Stripe que esperan motivo: verlos en Ventas →»** / “Shipped orders refunded from Stripe
+that need a reason: see them in Sales →” a `/admin/m3?refundReview=pending`. **Sin número** (el `summary` que usa esta
+página no lo trae y ⛔ no se pide campo para esto). La página ya es solo súper-admin (`:26`).
+
+---
+
+### 40.7 Accesibilidad (además de §8.2 y §37.14)
+
+- Los dos `fieldset` de motivo llevan `legend` visible; el «(obligatorio)» está **en** la `legend` (lo lee el lector
+  de pantalla), ⛔ no solo un asterisco.
+- Tras el `422 …shipped_reason`, el foco va a la `legend` del motivo (`tabIndex={-1}`) y el `Banner` con
+  `role="alert"` se anuncia una vez.
+- Orden de tabulación del diálogo enviado: aviso (no enfocable) → radios → nota → Cancelar → Reembolsar.
+- La marca «Por revisar» es texto; la casilla del filtro tiene `label` asociada.
+- Ningún cambio de layout entre los modos (a) y (b) mueve el botón de confirmar fuera del pie del `Modal`.
+
+### 40.8 Contraste — cero pares nuevos
+
+`text-accent` sobre `surface` (marca «Por revisar»), `Banner` `warning`/`info`/`danger` y `text-muted` ya están
+verificados AA (§10, §37.15). Ningún color nuevo.
+
+### 40.9 i18n — claves nuevas y cambiadas (paridad ES/EN en el mismo cambio)
+
+| Estado | Clave | ES | EN |
+|---|---|---|---|
+| nueva | `admin.m3.shippedReason.not_arrived` | No llegó | Didn't arrive |
+| nueva | `admin.m3.shippedReason.arrived_damaged` | Llegó en mala condición | Arrived in bad condition |
+| nueva | `admin.m3.shippedReason.hint.not_arrived` | El paquete se perdió o el cliente no lo recibió. | The parcel was lost or the customer never got it. |
+| nueva | `admin.m3.shippedReason.hint.arrived_damaged` | Llegó, pero las cartas no estaban como se vendieron. | It arrived, but the cards weren't as sold. |
+| nueva | `admin.m3.shippedRefund.title` | Este pedido ya salió | This order has already shipped |
+| nueva | `admin.m3.shippedRefund.warning` | Las cartas no vuelven a inventario: el cliente las tiene o las tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición. | The cards don't go back into inventory: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition. |
+| nueva | `admin.m3.shippedRefund.body` | Se devuelve lo que queda del cobro. El envío no se toca y las cartas no vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre. | What's left of the charge is refunded. The shipment isn't touched and the cards don't go back into inventory or on sale. The reason is saved under your name. The customer gets the usual refund email. |
+| nueva | `admin.m3.shippedRefund.legend` | ¿Por qué se reembolsa? (obligatorio) | Why is it being refunded? (required) |
+| nueva | `admin.m3.shippedRefund.pickOne` | Elige uno de los dos para poder reembolsar. | Pick one of the two to be able to refund. |
+| nueva | `admin.m3.shippedRefund.noteLabel` | Qué pasó | What happened |
+| nueva | `admin.m3.shippedRefund.noteHint` | Obligatorio. Queda como nota del motivo y en bitácora. Máximo 500 caracteres. | Required. Saved as the reason's note and in the audit log. 500 characters max. |
+| nueva | `admin.m3.shippedRefund.done` | Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Las cartas no vuelven a inventario. | Order {ref} refunded. Reason saved: “{reason}”. The cards don't go back into inventory. |
+| nueva | `admin.m3.shippedRefund.error.required` | Este pedido salió mientras tenías abierto el diálogo (envío {status}). No se reembolsó nada. Elige por qué se reembolsa y confirma otra vez. | This order shipped while you had the dialog open (shipment {status}). Nothing was refunded. Pick why it's being refunded and confirm again. |
+| nueva | `admin.m3.shippedRefund.error.notApplicable` | Este pedido no ha salido: no lleva motivo de envío. No se reembolsó nada. Revisa y confirma otra vez. | This order hasn't shipped: it takes no shipping reason. Nothing was refunded. Check and confirm again. |
+| nueva | `admin.m3.shippedRefund.error.invalid` | Elige «No llegó» o «Llegó en mala condición». | Pick “Didn't arrive” or “Arrived in bad condition”. |
+| nueva | `admin.m3.refundReview.chip` | Por revisar | To review |
+| nueva | `admin.m3.refundReview.filter` | Solo reembolsos por revisar | Only refunds to review |
+| nueva | `admin.m3.refundReview.emptyTitle` | No hay reembolsos por revisar. | No refunds to review. |
+| nueva | `admin.m3.refundReview.emptyBody` | Aquí aparecen los pedidos que ya habían salido y se reembolsaron completos desde el panel de Stripe, hasta que alguien registre por qué. | Orders that had already shipped and were fully refunded from the Stripe dashboard show up here until someone records why. |
+| nueva | `admin.m3.refundReview.bannerTitle` | Reembolso por revisar | Refund to review |
+| nueva | `admin.m3.refundReview.bannerBody` | Este pedido se reembolsó completo desde el panel de Stripe cuando ya había salido. Las cartas no vuelven a inventario. Falta registrar por qué. | This order was fully refunded from the Stripe dashboard after it had shipped. The cards don't go back into inventory. The reason still needs recording. |
+| nueva | `admin.m3.refundReview.formTitle` | Registrar el motivo | Record the reason |
+| nueva | `admin.m3.refundReview.legend` | ¿Por qué se reembolsó? (obligatorio) | Why was it refunded? (required) |
+| nueva | `admin.m3.refundReview.noteLabel` | Nota (opcional) | Note (optional) |
+| nueva | `admin.m3.refundReview.effect` | Solo queda registrado: no mueve dinero ni cartas y no avisa al cliente. Una vez guardado no se cambia. | It's only recorded: it doesn't move money or cards and doesn't notify the customer. Once saved it can't be changed. |
+| nueva | `admin.m3.refundReview.cta` | Registrar motivo | Record reason |
+| nueva | `admin.m3.refundReview.confirmTitle` | ¿Registrar «{reason}» como motivo? | Record “{reason}” as the reason? |
+| nueva | `admin.m3.refundReview.confirmBody` | Queda guardado a tu nombre y ya no se puede cambiar. | It's saved under your name and can't be changed afterwards. |
+| nueva | `admin.m3.refundReview.confirm` | Registrar | Record |
+| nueva | `admin.m3.refundReview.operatorOnly` | Solo el súper-admin puede registrar el motivo. | Only the super-admin can record the reason. |
+| nueva | `admin.m3.refundReview.recorded` | Motivo registrado: «{reason}». | Reason recorded: “{reason}”. |
+| nueva | `admin.m3.refundReview.alreadyRecorded` | Ese motivo ya estaba registrado. No se cambió nada. | That reason was already recorded. Nothing changed. |
+| nueva | `admin.m3.refundReview.error.alreadySet` | Alguien ya registró otro motivo: «{reason}». El motivo no se cambia. | Someone already recorded a different reason: “{reason}”. The reason can't be changed. |
+| nueva | `admin.m3.refundReview.error.notApplicable` | Este pedido no había salido cuando se reembolsó: no lleva motivo de envío. | This order hadn't shipped when it was refunded: it takes no shipping reason. |
+| nueva | `admin.m3.refundReview.error.forbidden` | Solo el súper-admin puede registrar el motivo. El intento quedó registrado. | Only the super-admin can record the reason. The attempt was logged. |
+| nueva | `admin.m3.refundReview.error.invalid` | Elige «No llegó» o «Llegó en mala condición». La nota admite hasta 500 caracteres. | Pick “Didn't arrive” or “Arrived in bad condition”. The note takes up to 500 characters. |
+| nueva | `admin.m3.refundReview.doneTitle` | Reembolso tras el envío | Refund after shipping |
+| nueva | `admin.m3.refundReview.reasonLine` | Motivo: {reason} | Reason: {reason} |
+| nueva | `admin.m3.refundReview.noteLine` | Nota: {note} | Note: {note} |
+| nueva | `admin.m3.refundReview.byLine` | Registrado por {name} · {date} | Recorded by {name} · {date} |
+| nueva | `admin.m3.refundReview.cardsStayed` | Las cartas no volvieron a inventario. | The cards didn't go back into inventory. |
+| nueva | `admin.m3.unsettledRefund.title` | Reembolsado antes de quedar pagado | Refunded before it was paid |
+| nueva | `admin.m3.unsettledRefund.body` | Stripe reembolsó este pedido antes de que la tienda lo diera por pagado, así que nunca se preparó. Las cartas que tenía apartadas volvieron solas a la venta; cada una lleva «Liberada por reembolso» en su historial. | Stripe refunded this order before the store marked it as paid, so it was never prepared. The cards it was holding went back on sale by themselves; each one shows “Released by refund” in its history. |
+| nueva | `admin.dashboard.refundReviews.title` | Reembolsos por revisar | Refunds to review |
+| nueva | `admin.dashboard.refundReviews.detail` | Falta el motivo · el más viejo hace {days, plural, one {# día} other {# días}} | Reason missing · oldest {days, plural, one {# day} other {# days}} ago |
+| nueva | `admin.dashboard.refundReviews.detailNone` | Nada por revisar. | Nothing to review. |
+| nueva | `admin.refundsPage.reviewLink` | Pedidos enviados reembolsados desde Stripe que esperan motivo: verlos en Ventas → | Shipped orders refunded from Stripe that need a reason: see them in Sales → |
+| nueva | `admin.m1.movementReason.refund_release` | Liberada por reembolso | Released by refund |
+| nueva | `admin.m1.movementReason.refund_return` | Devuelta por reembolso | Returned by refund |
+| nueva | `admin.m1.movementReason.replacement` | Reposición | Replacement |
+| nueva | `admin.m1.movementReason.adjustment` | Ajuste por levantamiento | Stock-count adjustment |
+| **se queda** | `admin.m3.vaultRefund.directBody` · `admin.m3.refundReasonLabel` · `admin.m3.refundReasonHint` · `admin.m3.refundDone` | (sin cambio; siguen en el modo «no enviado») | (sin cambio) |
+
+⛔ Ningún copy con código «M-n» (P66-3). `{status}` se traduce con `status.shipment`; `{reason}` con
+`admin.m3.shippedReason.*`; `{date}` con `formatDateTimeMx`.
+
+### 40.10 Lista de cambios para frontend (fichero:línea, medido en este worktree el 2026-10-04)
+
+| Fichero | Línea(s) | Cambio |
+|---|---|---|
+| `src/types/contract.ts` | `:2061-2064` | `RefundOrderRequest` + `shippedReason?: ShippedRefundReason`; exportar `type ShippedRefundReason = 'not_arrived' \| 'arrived_damaged'` y `FullRefundReviewDTO` (contrato (7)) |
+| idem | `:2065-2068` | `RefundConfirmationRequiredDetails.required: ('pieces_with_customer' \| 'shipped_reason')[]`; `items?` opcional; + `shipmentStatus?: 'enviado' \| 'entregado'` |
+| idem | `:2100-2123` | `AdminOrderDetailDTO` + `shipmentShipped?: boolean`, `fullRefundReview?: FullRefundReviewDTO \| null` (y `settledAt` cuando A-1 se resuelva) |
+| idem | `:3977-3988` | `AdminOrderDTO` + `refundReviewPending?: boolean` |
+| idem | `:2505-2507` | `workQueue` + `refundReviews?: { pending: number; oldestRefundedAt: string \| null } \| null` |
+| idem | `:2593-2603` | `MovementReason` + `'replacement' \| 'refund_return' \| 'refund_release'` (paridad con `schema.prisma:396-414`) |
+| `src/lib/api.ts` | `:5005-5017`, `:5038` | `AdminOrdersFilters.refundReview?: 'pending'` y su paso a `query` (+ filtro en el mock) |
+| idem | tras `:5110` | nueva `recordShippedRefundReason(orderId, { reason, note? })` → `POST /admin/orders/:id/shipped-refund-reason` (+ mock con las cinco respuestas de §40.3 c) |
+| `…/admin/m3/page.tsx` | `:3-5` | página de servidor asíncrona que lee `searchParams.refundReview` (forma de `refunds/page.tsx:9-11`) y pasa `initialRefundReview` a `M3View` |
+| `…/admin/m3/M3View.tsx` | `:45-63` | estado `refundReview` inicializado desde la prop; `replaceState` al cambiar; `resetPage()` |
+| idem | `:65-85` | `refundReview` en `queryKey` y en `getAdminOrders` |
+| idem | `:124` | columna Estado: `StatusBadge` + marca «Por revisar» si `o.refundReviewPending` (§40.3 a) |
+| idem | `:230` (fin de la fila de filtros) | casilla de §40.3 b |
+| idem | `:240-241` | `EmptyState` con el texto «por revisar» cuando el filtro está activo |
+| idem | `:279-282` | `onDone` recibe el motivo elegido y pinta `shippedRefund.done` si lo hubo |
+| `…/admin/m3/RefundOrderDialog.tsx` | `:48-51`, `:63-71` | + estado `shippedReason` (sin valor inicial) y su reinicio al abrir |
+| idem | `:60-61` | `shipped = detail.data?.shipmentShipped === true \|\| requiredShipped` |
+| idem | `:74` | cuerpo con `shippedReason` **solo** en modo enviado |
+| idem | `:84-88` | ramificar por `details.required`: `shipped_reason` ⇒ modo enviado + error `required` + foco a la `legend`; `pieces_with_customer` ⇒ lo de hoy. + rama `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE` (§40.2 c) |
+| idem | `:107` | `canSubmit` exige `!detail.isLoading` y, en modo enviado, motivo marcado |
+| idem | `:126-141` | modo enviado: `Banner warning`, `shippedRefund.body` en vez de `directBody`, `fieldset` de motivo, `Textarea` (500) con rótulo/ayuda nuevos. Modo no enviado: **sin cambio** |
+| idem | `:39` (`onDone`) | firma `onDone(res, { shippedReason })` |
+| `…/admin/m3/[orderId]/M3OrderDetailView.tsx` | `:186-207` | banners «Reembolso por revisar» (§40.3 c-1) y «Reembolsado antes de quedar pagado» (§40.4, **solo** cuando A-1 dé `settledAt`) |
+| idem | `:210` (antes de «Cartas») | sección de formulario (súper-admin) / texto del operador / lectura (§40.3 c-d) |
+| idem | `:141-148` (junto a `retry`) | mutación `recordShippedRefundReason` con `refresh()` + invalidar la consulta del tablero |
+| idem | `:375-383` | `onDone` con el motivo (como `M3View`) |
+| `…/admin/AdminDashboard.tsx` | tras `:200` | `StatCard` de §40.3 e |
+| `…/admin/refunds/RefundsView.tsx` | `:76` | enlace `reviewLink` bajo el `hint` (§40.6) |
+| `…/admin/m1/ItemDetailModal.tsx` | `:393` | sin cambio de código (las claves nuevas bastan) |
+| `frontend/messages/es.json` · `en.json` | `:1336-1344` | + `admin.dashboard.refundReviews` |
+| idem | `:1485-1495` | + los cuatro `movementReason` de §40.5 |
+| idem | `:1534-` (`admin.m3`) | + `shippedReason`, `shippedRefund`, `refundReview`, `unsettledRefund` |
+| idem | `:4426-` (`admin.refundsPage`) | + `reviewLink` |
+| `…/admin/m3/RefundOrderDialog.test.tsx` · `M3View.test.tsx` | — | casos de §40.11 |
+
+### 40.11 Candados sugeridos (frontend los escribe con la pantalla; QA mide a 390×844 y 1280×800)
+
+- **SR-UI-1** (criterio 251) `shipmentShipped: true` ⇒ el aviso «Este pedido ya salió» está; ningún radio marcado;
+  «Reembolsar» deshabilitado hasta marcar uno **y** escribir la nota; el `POST` lleva `shippedReason`. *Mutación:*
+  preseleccionar `not_arrived` ⇒ rojo.
+- **SR-UI-2** `shipmentShipped: false` (directo y bóveda) ⇒ no hay `fieldset` de motivo y el cuerpo del `POST` **no**
+  tiene la clave `shippedReason` (`toEqual` exacto, como `RefundOrderDialog.test.tsx:82`).
+- **SR-UI-3** `422 {required:['shipped_reason'], shipmentStatus:'enviado'}` ⇒ aparece el selector, la nota escrita
+  **sigue** en el campo, **no** aparece la casilla de cartas en mano (`m3-confirm-pieces` ausente), el foco está en la
+  `legend`. *Mutación:* volver a la rama única de `:84-88` ⇒ rojo.
+- **SR-UI-4** `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE` ⇒ el selector desaparece y el segundo `POST` va sin
+  `shippedReason`.
+- **SR-UI-5** Listado con una fila `refundReviewPending: true` y otra `false` ⇒ «Por revisar» solo en la primera.
+- **SR-UI-6** `/admin/m3?refundReview=pending` ⇒ la casilla llega marcada y la primera llamada a `getAdminOrders`
+  lleva `refundReview: 'pending'`; `?refundReview=basura` ⇒ desmarcada y **sin** el parámetro.
+- **SR-UI-7** (criterio 250) Detalle `pending: true` como súper-admin ⇒ formulario; confirmar ⇒ `POST` con el motivo
+  elegido y `note` recortada u omitida si vacía; `200 recorded` ⇒ lectura sin botón. Como operador ⇒ banner + texto
+  `operatorOnly`, **ningún** `button` con «Registrar».
+- **SR-UI-8** `409 …ALREADY_SET {reason:'arrived_damaged'}` ⇒ el texto nombra «Llegó en mala condición» (⛔ el valor
+  crudo en el DOM).
+- **SR-UI-9** Tablero: `refundReviews: null` ⇒ no existe `dashboard-refund-reviews`; `{pending: 2, oldestRefundedAt}`
+  ⇒ «2» y el enlace apunta a `/admin/m3?refundReview=pending`.
+- **SR-UI-10** Historial con un movimiento de cada uno de los **12** `MovementReason` ⇒ ningún texto del DOM contiene
+  `movementReason.` ni un valor crudo (`refund_release`, `adjustment`…).
+- **SR-UI-11** (por ausencia, criterio 253) El menú del panel tiene las mismas entradas que antes; con
+  `manualRefundsPending: 0` el badge de «Reembolsos» **no** existe aunque el tablero traiga `refundReviews.pending: 3`
+  (el badge sigue leyendo solo SPEI; RF-3 sigue verde).
+
+### 40.12 Solicitudes y notas a otros roles
+
+| # | Para | Solicitud / nota |
+|---|---|---|
+| **A-1** | arquitecto | **Declarar `settledAt: string \| null` en `GET /admin/orders/:id`** (o un booleano equivalente en `FullRefundReviewDTO`, p. ej. `releasedOnRefund`). Sin él la pantalla no puede decir «volvieron solas a la venta» (§40.4) sin inferirlo. Medido: el controlador no lo selecciona en sus columnas propias (`admin-orders.controller.ts:143-161`); si `getOrder` lo emite: **NO MEDIDO**. No bloquea: el banner se omite hasta entonces |
+| **A-2** | arquitecto | El `409 SHIPPED_REFUND_REASON_ALREADY_SET {reason}` da el motivo ganador pero no **quién**; el texto dice «Alguien» y la lectura recargada muestra el nombre. Si se quiere el nombre en el propio error, haría falta `recordedBy` en `details`. **No se pide**; se anota |
+| **N-14** | product-owner | En «Ventas» la nota del motivo es **obligatoria** (es el `reason` que M3 ya exigía; contrato (4)), mientras que `PROJECT §S.11.4` la da como **opcional (SUPUESTO)**. En el registro posterior (Stripe) sí es opcional. Diferencia heredada del contrato, no de la pantalla; si el dueño la quiere opcional también en M3, es cambio de contrato |
+| **N-15** | product-owner | El operador **ve** la marca «Por revisar», el filtro y la lectura del motivo, pero no puede registrarlo. Lo dejo visible porque es estado del pedido que él ya consulta; si el dueño lo quiere oculto al operador, es cambio de pantalla (y de proyección si se quiere también en la API) |
+| **N-16** | frontend | Los tres `movementReason` sin texto (§40.5) son un hueco **anterior** a esta errata (v1.20, v1.80.1, v1.80.4) que se cierra aquí porque el candado SR-UI-10 los cubre; ⛔ no esperar a otro pase. El tipo `MovementReason` del front va en el mismo commit |
+
+---
+
+## 41. TODOS LOS CORREOS — §31 ampliado de «los ocho» a los que existen hoy (v4.13, 2026-10-04)
+
+### 41.0 Fuente, alcance y reglas duras
+
+- **Fuente.** La auditoría de ux-review del 2026-10-04 sobre `60048797` (renders HTML/texto y capturas de todos los
+  correos en ES y EN) **y mi propia lectura del código en este worktree** (rama `claude/precios-s5`, 2026-10-04).
+  Toda cita fichero:línea de §41 la medí yo leyendo el fichero. ⚠ **El SHA exacto del worktree que leí: NO MEDIDO**
+  (no tengo Bash). Un agente backend escribe en `backend/` en paralelo: **backend re-mide cada línea antes de
+  editarla**; si una cita no cuadra, manda el fichero, no esta tabla.
+- **Cuántos son.** El inventario tiene **28 números**; el 2 y el 5 tienen dos variantes (2a/2b, 5a/5b) ⇒ **30
+  renders por idioma**. El encargo dice «29»: **no reconcilié cómo contó el auditor (NO MEDIDO)**. §41 cubre los 30.
+- **Sigue mandando todo §31 sobre el medio**: §31.0 (las tres cosas que no se tocan: texto vinculante, los cinco
+  prohibidos, `MX$0.00`), §31.2 (lo que no sobrevive), §31.3–§31.8 (retícula, tipografía, marca, patrones, CTA, modo
+  oscuro), §31.11–§31.13. **Un correo de §41 se construye con `mailShell` y los patrones de §31.6, sin
+  excepciones.**
+- **Cero tokens nuevos, cero pares de contraste nuevos, cero patrones nuevos.** Lo nuevo son **reglas** (asunto,
+  saludo, dinero, tono, pie) y **dos helpers de código** (saludo y dinero) que no son diseño, son la forma de que
+  treinta plantillas no tengan que acordarse.
+- **Lo que §41 cambia de lo congelado en §31, de frente** (el resto de §31.13 #17 sigue: ninguna otra cadena de los
+  ocho se reescribe):
+  1. **Saludo EN: `Hi Ana:` → `Hi Ana,`** en los correos 1, 2, 3, 5 y 6. Es **puntuación del idioma**, no copy: el
+     correo 4 ya lo hace así (`buylist-mail.templates.ts:193`) y hoy los ocho **se contradicen entre sí**.
+  2. **Formato del dinero** en los ocho (`$840.00` → `MX$840.00` en ES; EN ya decía `MX$840.00`). ⚠ **Esto toca el
+     VALOR de la cadena vinculante `offerTermsCopy().rule` en español** (`buylist-mail.templates.ts:688-689,704-706`
+     interpola `money()`). **Paro y lo digo, como manda §31.0 regla 1:** cambia **cómo se escribe** la cifra, no la
+     cifra ni la frase; y como `rule` es **un cuerpo para tres lectores**, el portal cambia en el mismo commit y ML-3
+     sigue midiendo identidad. **La ratificación es de product-owner** (§41.15 P-2).
+  3. **Los asuntos de los ocho NO cambian** (§31.13 #18 sigue en pie): la regla de §41.2 **ya la cumplen**.
+
+### 41.1 Inventario — los 30, con su esqueleto de hoy
+
+**Esqueleto de hoy:** **S** = `mailShell` de §31 (`buylist/mail-shell.ts:587`) · **V** = `layout()` viejo de nueve
+líneas (Arial, `<h2>`, `max-width:520px`, `#111`, CTA con `border-radius:6px`) · **—** = sin plantilla.
+
+| # | Correo | Función · fichero:línea | Hoy | Familia (§41.6) |
+|---|---|---|---|---|
+| 1 | Oferta | `sellOfferTemplate` · `buylist/buylist-mail.templates.ts:343` | S | VENTA |
+| 2a/2b | Recordatorio (aceptar / enviar) | `sellOfferReminderTemplate` · `:765` | S | VENTA |
+| 3 | Oferta cancelada | `sellOfferCancelledTemplate` · `:581` | S | VENTA |
+| 4 | Carta no aceptada | `sellItemRejectedTemplate` · `:157` | S | VENTA |
+| 5a/5b | Solicitud vencida (sin respuesta / sin envío) | `sellRequestExpiredTemplate` · `:918` | S | VENTA |
+| 6 | Solicitud cerrada | `sellRequestNotPursuedTemplate` · `:1001` | S | VENTA |
+| 7 | Verifica tu correo | `emailVerificationTemplate` · `mail/mail.templates.ts:68` | **V** (`:33`) | CUENTA |
+| 8 | Restablece tu contraseña | `passwordResetTemplate` · `mail/mail.templates.ts:95` | **V** | CUENTA |
+| 9 | Candado del staff | `passwordLockAlertTemplate` · `mail/mail.templates.ts:128` | **V** | CUENTA |
+| 10 | Tu guía prepagada (vendedor) | `sellGuideTemplate` · `buylist/buylist-notice.templates.ts:94` | S | VENTA |
+| 11 | Tus cartas llegaron | `sellReceivedTemplate` · `:183` | S | VENTA |
+| 12 | Te pagamos | `sellPaidTemplate` · `:261` | S | VENTA |
+| 13 | Pedido de invitado | `guestOrderConfirmationTemplate` · `orders/mail/guest-order.templates.ts:127` | **V** (`:36`) | PEDIDO |
+| 14 | Enlace de invitado | `guestTrackingLinkTemplate` · `:167` | **V** | PEDIDO |
+| 15 | Pedido pagado (registrado) | `orderSettledTemplate` · `orders/mail/order-notice.templates.ts:104` | S | PEDIDO |
+| 16 | Reembolso total | `orderRefundedTemplate` · `:198` | S | PEDIDO |
+| 17 | Tu paquete ya tiene guía | `shipmentGuideTemplate` · `shipments/mail/shipment-notice.templates.ts:113` | S | ENVÍO |
+| 18 | Va en camino | `shipmentShippedTemplate` · `:161` | S | ENVÍO |
+| 19 | Envío cancelado | `shipmentCancelledTemplate` · `:205` | S | ENVÍO |
+| 20 | Aclaración: recompra | `disputeRepurchaseTemplate` · `disputes/mail/dispute-notice.templates.ts:111` | S | ACLARACIÓN |
+| 21 | Aclaración: no procedió | `disputeRejectedTemplate` · `:147` | S | ACLARACIÓN |
+| 22 | Identificación rechazada | `kycRejectedTemplate` · `admin/mail/kyc-notice.templates.ts:67` | S | IDENTIDAD |
+| 23 | Carta reembolsada | `refundNoticeTemplate` · `payments/refunds/mail/refund-notice.templates.ts:78` | S | REEMBOLSO |
+| 24 | Reposición en curso | `replacementPendingTemplate` · `:151` | S | REEMBOLSO |
+| 25 | Reembolso manual anunciado | `manualRefundAnnouncedTemplate` · `:190` | S | REEMBOLSO |
+| 26 | Reembolso manual pagado | `manualRefundPaidTemplate` · `:235` | S | REEMBOLSO |
+| 27 | CLABE cambiada | `clabeChangedTemplate` · `:272` | S | **CLABE** (propia) |
+| 28 | Reposición de sellado | `sendRestockEmail` · `catalog/sealed-restock-notify.service.ts:107-116` | **—** (HTML a mano, bilingüe, sin escape) | AVISO |
+
+⇒ **Cinco en el esqueleto viejo (7, 8, 9, 13, 14) y uno sin plantilla (28).** Los seis pasan a `mailShell`: no hay
+«correo con otro diseño» después de §41.
+
+### 41.2 ⭐ El asunto — UN formato para los treinta
+
+Hoy conviven tres (medido): **sin prefijo** (los ocho de §31.9 y el 9, `mail/mail.templates.ts:138,149`), **`TCG HUNT
+— …`** (los otros diecinueve, p. ej. `buylist-notice.templates.ts:137`, `refund-notice.templates.ts:139`) y
+**bilingüe con `·`** (el 28, `sealed-restock-notify.service.ts:108`).
+
+> ⭐ **Decisión: SIN PREFIJO DE MARCA. El asunto dice el hecho, en el idioma del destinatario.**
+> `<Hecho en una frase, mayúscula inicial, sin punto final>[ <referencia que el cliente reconoce>]`
+
+**Por qué sin prefijo, y no al revés:**
+1. **La marca ya está en la bandeja, una columna a la izquierda**: el remitente es `TCG HUNT
+   <no-reply@tcghunt.mx>` (`mail/resend-mail.adapter.ts:7`, valor que devops fija en `MAIL_FROM`). `TCG HUNT —` en
+   el asunto la **repite** y se come **11 de los ~35–40 caracteres** que un móvil enseña: en «TCG HUNT — Tu envío se
+   retrasa: estamos reponiendo una carta» el hecho llega cortado.
+2. **Los ocho congelados ya lo cumplen** ⇒ la regla **no toca ni un asunto ratificado** (§31.9, R1 de §25.4 sigue
+   intacta). Elegir el prefijo obligaba a reescribir ocho asuntos ratificados con PO; elegir sin prefijo cambia
+   diecinueve que **nadie** ratificó.
+3. **El bilingüe desaparece solo**, porque §41.10 manda un idioma por correo.
+
+**Reglas del asunto:**
+- ⛔ Ni marca, ni emoji, ni `¡…!`, ni MAYÚSCULAS de grito, ni el otro idioma.
+- **Referencia** solo si el cliente la **reconoce y ya la usaba**: el número de pedido (13–16, `TH-…`) y la referencia
+  del reembolso (23). ⛔ No se añade folio a asuntos que hoy no lo llevan (sería un cambio de producto).
+- R1 de §25.4 (el 1 no lleva el bruto) y §31.0 (los cinco prohibidos) aplican también al asunto: **ML-2 lo barre**.
+- ⚠ **Precondición — la regla depende del remitente:** si `MAIL_FROM` llega **sin** nombre visible, el default de código
+  es `no-reply@tcghunt.mx` (`resend-mail.adapter.ts:8`) y la marca **desaparece de la bandeja**. Valor real de
+  `MAIL_FROM` en producción: **NO MEDIDO**. ⇒ candado ML-14(b) y nota a devops (§41.15 D-1).
+
+**Los asuntos, uno por uno** (✅ = no cambia; ✏ = solo se quita `TCG HUNT — `; ⭐ = nuevo):
+
+| # | ES | EN | |
+|---|---|---|---|
+| 1 | Tenemos una oferta por tus cartas | We have an offer for your cards | ✅ |
+| 2a / 2b | Tu oferta vence mañana / (título de 2b, `:774-781`) | idem EN | ✅ |
+| 3 | Cancelamos la oferta que te mandamos | We cancelled the offer we sent you | ✅ |
+| 4 | Una carta de tu solicitud de venta fue rechazada | A card in your sell request was rejected | ✅ |
+| 5a / 5b · 6 | (= título, `:966`, `:1057`) | idem | ✅ |
+| 7 · 8 | Verifica tu correo · Restablece tu contraseña | Verify your email · Reset your password | ✅ |
+| 9 | Intentos fallidos de entrar a tu cuenta | Failed sign-in attempts on your account | ✅ |
+| 10 | Tu guía prepagada | Your prepaid label | ✏ |
+| 11 | Tus cartas llegaron | Your cards arrived | ✏ |
+| 12 | Te pagamos | We paid you | ✏ |
+| 13 · 15 | Confirmación de tu pedido `<n>` | Your order `<n>` is confirmed | ✏ (y **idénticos** entre sí, §41.8) |
+| 14 | Enlace de seguimiento de tu pedido `<n>` | Tracking link for your order `<n>` | ✏ |
+| 16 | Reembolso de tu pedido `<n>` | Refund for your order `<n>` | ✏ |
+| 17 | Tu guía de envío | Your tracking number | ✏ |
+| 18 | Tu paquete va en camino | Your package is on its way | ✏ |
+| 19 | Tu envío quedó cancelado | Your shipment was cancelled | ✏ |
+| 20 · 21 | Resolvimos tu aclaración | Your claim was resolved | ✏ (el mismo para los dos: el asunto no adelanta el sentido; el titular sí) |
+| 22 | Sobre tu identificación | About your ID | ✏ |
+| 23 | Reembolso de `<referencia>` | Refund for `<reference>` | ✏ |
+| 24 | Tu envío se retrasa: estamos reponiendo una carta | Your shipment is delayed: we are replacing a card | ✏ |
+| 25 | Te vamos a depositar tu reembolso | We will deposit your refund | ✏ |
+| 26 | Tu reembolso ya fue depositado | Your refund was deposited | ✏ |
+| 27 | Se actualizó tu CLABE | Your CLABE was updated | ✏ |
+| 28 | Volvió a estar disponible: `<producto>` | Back in stock: `<product>` | ⭐ (un idioma, §41.10) |
+
+### 41.3 ⭐ El saludo — una regla y un helper
+
+**Quién saluda** (es lo que hoy pasa, y se vuelve regla): saludan los correos cuyo destinatario es **siempre una
+cuenta con nombre conocido** — VENTA (1–6, 10–12), CUENTA (7–9) e IDENTIDAD (22). **No saludan** los que pueden
+llegar a un **invitado** o a un correo sin cuenta — PEDIDO, ENVÍO, ACLARACIÓN, REEMBOLSO, CLABE y AVISO (13–21,
+23–28) —: sus plantillas no reciben nombre (`order-notice.templates.ts:76-86`, `refund-notice.templates.ts:62-75`) y
+**13 ≡ 15** exige que el registrado no salude si el invitado no puede (§41.8).
+
+**Cómo saluda:**
+
+| | ES | EN |
+|---|---|---|
+| Con nombre | `Hola Ana:` | `Hi Ana,` |
+| Sin nombre (vacío, solo espacios, o `nameSource='derived'`) | `Hola:` | `Hi,` |
+
+- **El nombre lo decide `greetingName()`** (`mail/greeting-name.ts:22-26`: `null` si es derivado o queda vacío tras
+  `trim`). Es la regla que ya rige 7 y 8 (`mail/mail.templates.ts:49-58`) y que su propia cabecera dice que VENTA
+  debía adoptar «en su stream» (`greeting-name.ts:10-12`).
+- ⛔ **Nunca `Hola :`** (espacio antes de los dos puntos). Hoy sale así en el 22 porque el llamador pasa
+  `user.name ?? ''` (`admin/admin.service.ts:1226`) y la plantilla interpola `Hola ${name}:` (`kyc-notice.templates.ts:95`).
+  Mismo patrón, mismo riesgo, en 10–12 (`buylist-notice.templates.ts:119,203,282`) y en 1–3, 5, 6.
+- **EN con coma** (`Hi Ana,`), que es la convención del idioma; hoy 1, 2, 3, 5, 6, 10–12 y 22 escriben `Hi Ana:`.
+- **Un helper, dos salidas** (`{ html, text }`, el HTML escapado): el que ya existe en `mail/mail.templates.ts:49` se
+  mueve al esqueleto y lo usan todos. ⛔ Ninguna plantilla compone el saludo a mano.
+- El saludo va **igual en la parte de texto** (ML-15 lo mide en las dos).
+
+### 41.4 El CTA — la regla de §31.7 aplicada a los treinta
+
+> ⭐ **Bermellón `#B31217` si y solo si NO actuar le cuesta dinero al destinatario (o lo expone a perderlo). Si no,
+> tinta.** **Y el rótulo nombra el DESTINO real del enlace**, no una intención («ir a mi cuenta» que abre un pedido es
+> un rótulo falso).
+
+| # | Tono | Rótulo ES / EN | Por qué ese tono |
+|---|---|---|---|
+| 1, 2a, 2b | **Bermellón** | `VER Y RESPONDER LA OFERTA` / `VIEW AND RESPOND TO THE OFFER` · 2b `IR A MI SOLICITUD` | §31.7, sin cambio |
+| 3 | Tinta | `VER MI SOLICITUD` / `VIEW MY REQUEST` | §31.7 |
+| 4 | ⛔ ninguno | — | §31.10e |
+| 5a, 5b, 6 | Tinta | `COTIZAR DE NUEVO` / `GET A NEW QUOTE` | §31.7 |
+| 7 | Tinta | `VERIFICAR MI CORREO` / `VERIFY MY EMAIL` | §31.7 (hoy `Verificar correo`, en minúsculas y con radio 6px) |
+| 8 | Tinta | `RESTABLECER MI CONTRASEÑA` / `RESET MY PASSWORD` | §31.7 |
+| 9 | ⛔ **ninguno, deliberado** | — | Sin enlaces por diseño anti-phishing (`mail/mail.templates.ts:124-126`); la acción («cámbiala desde tu cuenta») va en prosa |
+| 10 | **Bermellón** | `IR A MI SOLICITUD` / `GO TO MY REQUEST` | Hay **plazo de envío** vigilado: si no deposita, la solicitud se cierra y **no se le compra nada** — es el mismo hecho que 2b, que ya es bermellón. Ya está así (`buylist-notice.templates.ts:132`) |
+| 11, 12 | Tinta | `IR A MI SOLICITUD` / `GO TO MY REQUEST` | Informan; no hay decisión |
+| 13, 14, 15, 16 | Tinta | `VER MI PEDIDO` / `SEE MY ORDER` | Informan. 13/14 abren la página tokenizada; 15/16 el detalle con sesión. **Mismo rótulo** (§41.8) |
+| 17, 18, 19 | Tinta | **Según destino:** `orders/<id>` ⇒ `VER MI PEDIDO` / `SEE MY ORDER`; `shipments/<id>` ⇒ `VER MI ENVÍO` / `SEE MY SHIPMENT` | ⚠ Hoy 17/18 dicen `VER MI ENVÍO` y 19 `IR A MI CUENTA` **aunque el enlace abra el pedido** (`shipment-notice.templates.ts:88-91,132,179,219`) |
+| 20, 21 | Tinta | `VER MI ACLARACIÓN` / `SEE MY CLAIM` | Sin cambio |
+| 22 | Tinta | `VOLVER A SUBIR MI IDENTIFICACIÓN` / `UPLOAD MY ID AGAIN` | Sin cambio |
+| 23, 24 | Tinta | `VER MI PEDIDO` / `VER MI ENVÍO` según destino | Sin cambio |
+| 25 sin CLABE | **Bermellón** | `REGISTRAR MI CLABE` / `REGISTER MY CLABE` | **Sin CLABE no hay depósito**: no actuar retiene su dinero. Ya está así (`refund-notice.templates.ts:219`) |
+| 25 con CLABE · 26 | Tinta | `VER MI CUENTA` / `SEE MY ACCOUNT` | Hoy `MI CUENTA`, sin verbo: un botón es una acción |
+| 27 | **Bermellón** | `REVISAR MI CUENTA` / `REVIEW MY ACCOUNT` | **Si no fue él, el siguiente depósito va a la cuenta de otro.** Ya está así (`:298`) |
+| 28 | Tinta | `VER EL PRODUCTO` / `SEE THE PRODUCT` | Informa (§41.10) |
+
+⇒ **Bermellón en 6 de 30** (1, 2a, 2b, 10, 25-sin-CLABE, 27). «Con avaricia» sigue siendo cierto. **Un solo CTA por
+correo**, y la URL en texto debajo **siempre** (§31.6g, ML-5).
+
+### 41.5 ⭐ El dinero — una forma, dos idiomas, la misma que la web
+
+**Medido:** las cuatro copias de `money()` del backend (`buylist-mail.templates.ts:293`,
+`order-notice.templates.ts:47`, `refund-notice.templates.ts:35`, `guest-order.templates.ts:48`) usan
+`Intl.NumberFormat('es-MX'|'en-US', {currency:'MXN'})` ⇒ **`$840.00` en ES y `MX$840.00` en EN**. En español se lee
+como **dólar**. La web ya lo resolvió: `formatMoneyCents` normaliza a `MX$` en los dos (`frontend/src/lib/format.ts:29-40`;
+`format.test.ts:36`: `690 → 'MX$6.90'` en `es` y en `en`).
+
+> ⭐ **Regla: el correo escribe el dinero EXACTAMENTE como la web: `MX$1,250.00` en los dos idiomas.**
+> **Un** formateador en el esqueleto (`mailMoney(cents)`), que reproduce el algoritmo de `format.ts:29-40` (Intl con
+> MXN, 2 decimales fijos, `$` → `MX$` si falta), y las cuatro copias se borran.
+
+- **Sobre el espacio de §9.3 (`MX$ 1,250.00`)**: el encargo pedía confirmarlo y **no lo confirmo**: la web nunca lo
+  imprimió con espacio (medido arriba) y el portal enseña la cadena `rule` del backend **al lado** de cifras que
+  formatea la web. Con espacio en el correo y sin espacio en la web, **la misma cifra tendría dos formas en la misma
+  pantalla**. §9.3 queda corregida. *Si se prefiere el espacio, cambia en `format.ts` y en el correo **en el mismo
+  commit**, nunca en uno solo* (§41.15 P-1).
+- **La resta (§31.6e) es el único patrón de montos.** Importe en su celda de ancho fijo, `align="right"`, en mono;
+  sustraendo con `−` (U+2212) **texto**; regla de tinta encima del neto. ⛔ **Nada de `monoRow("ETIQUETA: $x")`**
+  para dinero (lo que hacen hoy 25 y 26, `refund-notice.templates.ts:197-200,215,239,252`): una línea mono
+  con el importe pegado a la etiqueta **no alinea** y no se distingue del folio.
+- **Líneas de carta con importe → §31.6c** (`cardLineRows`, importe a la derecha); **sin importe → §31.6c con la
+  celda derecha vacía** (nunca `MX$0.00`, §31.0 regla 3).
+- **Importes en prosa** (la frase de `rule` en 1; la de la tarjeta en 25) usan **la misma cadena** de `mailMoney`.
+- ⛔ Ninguna cifra en la serif (§31.4). ⛔ Ninguna resta recalculada en la plantilla (criterio 207): el neto y el
+  total son **columnas persistidas** que la plantilla recibe.
+
+### 41.6 El pie — una línea de «por qué» por familia
+
+La línea variable del pie (§31.6h) se fija **por familia** — es el **hecho que origina** el correo — y tiene que ser
+**verdad para todo correo de la familia**.
+
+| Familia | Correos | ES | EN | Estado |
+|---|---|---|---|---|
+| VENTA | 1–6, 10–12 | Recibes este correo porque tienes una solicitud de venta con nosotros. | You are receiving this email because you have a sell request with us. | ✅ (`buylist-notice.templates.ts:57-61`) |
+| CUENTA · alta | 7 | Recibes este correo porque se creó una cuenta de TCG HUNT con esta dirección. | You are receiving this email because a TCG HUNT account was created with this address. | ⭐ nueva |
+| CUENTA · contraseña | 8 | Recibes este correo porque alguien pidió restablecer la contraseña de esta dirección. | You are receiving this email because someone asked to reset the password for this address. | ⭐ (la de §31.6h, nunca implementada) |
+| CUENTA · equipo | 9 | Recibes este correo porque esta dirección es de una cuenta del equipo de TCG HUNT. | You are receiving this email because this address belongs to a TCG HUNT staff account. | ⭐ nueva |
+| PEDIDO | 13–16 | Recibes este correo porque hiciste un pedido con nosotros. | You are receiving this email because you placed an order with us. | ✅ (`order-notice.templates.ts:56-60`); 13 y 14 la ganan |
+| ENVÍO | 17–19 | Recibes este correo porque tienes un envío con nosotros. | You are receiving this email because you have a shipment with us. | ✅ (`shipment-notice.templates.ts:56-60`) |
+| ACLARACIÓN | 20–21 | Recibes este correo porque abriste una aclaración con nosotros. | You are receiving this email because you opened a claim with us. | ✅ (`dispute-notice.templates.ts:44-48`) |
+| IDENTIDAD | 22 | Recibes este correo porque subiste una identificación a tu cuenta. | You are receiving this email because you uploaded an ID to your account. | ✅ (`kyc-notice.templates.ts:120-122`) |
+| REEMBOLSO | 23–26 | Recibes este correo porque tienes un pedido o un envío con nosotros. | You are receiving this email because you have an order or a shipment with us. | ✅ (`refund-notice.templates.ts:43-47`) — **cierta para 23–26, falsa para 27** |
+| **CLABE** | **27** | Recibes este correo porque cambió la CLABE registrada en tu cuenta. | You are receiving this email because the CLABE on your account changed. | ⭐ propia (§41.9) |
+| AVISO | 28 | Recibes este correo porque pediste que te avisáramos cuando este producto volviera. | You are receiving this email because you asked us to let you know when this product was back. | ⭐ nueva |
+
+- ⛔ **Sin enlace de baja** en ninguno (§31.6h). El 28 es un **aviso pedido y de una sola vez** — la suscripción se
+  sella al enviar (`sealed-restock-notify.service.ts:96-99`) —: no hay serie de la que darse de baja.
+
+### 41.7 ⭐ La norma de los trece correos sin diseño
+
+Para los trece que la auditoría marcó sin norma (9, 10–12, 13, 14, 15, 17–21, 28). **Todos**: `mailShell`, orden de
+§31.3, titular serif **22px**, prosa sans 15/1.55, eyebrow mono en MAYÚSCULAS **en la cadena**, URL de respaldo bajo
+el CTA, parte de texto a paridad (§31.12). **Copy: se conserva el que ya existe** (medido en las líneas citadas) salvo
+lo marcado ✏; lo que no se marca, no se toca.
+
+| # | Eyebrow ES / EN | Titular | Saludo | Montos | CTA | Pie | Copy: qué cambia |
+|---|---|---|---|---|---|---|---|
+| **9** | `SEGURIDAD DE LA CUENTA` / `ACCOUNT SECURITY` (sin folio, §31.6b) | ✏ = asunto: «Intentos fallidos de entrar a tu cuenta» / «Failed sign-in attempts on your account» (hoy «Intentos fallidos de entrar», `:150`) | Sí (§41.3) | No | ⛔ ninguno (§41.4) | CUENTA · equipo | El cuerpo (`:133-135`, `:144-146`) **no se toca**: es copy del contrato |
+| **10** | `TU SOLICITUD DE VENTA · <folio>` / `YOUR SELL REQUEST · <folio>` | sin cambio (`:101`) | Sí | No (⛔ a propósito, `:84-86`) | Bermellón | VENTA | Ninguno. El dato de la guía sigue en `monoRow` (es un identificador, no dinero) |
+| **11** | idem | sin cambio (`:190`) | Sí | No (criterio 211) | Tinta | VENTA | Ninguno |
+| **12** | idem | sin cambio (`:268`) | Sí | **Neto solo**: `totalsRows([], SE TE DEPOSITARON)` — ya así (`:288`); cambia el formato (§41.5) | Tinta | VENTA | Ninguno |
+| **13** | `TU PEDIDO · <n>` / `YOUR ORDER · <n>` | «Gracias por tu compra» / «Thanks for your purchase» | **No** | `TOTAL PAGADO` vía `totalsRows([])` | Tinta `VER MI PEDIDO` → enlace tokenizado | PEDIDO | ✏ §41.8: los textos sin `<strong>` (`:73,:107`) y la nota del enlace pasa a letra chica tras el CTA |
+| **14** | idem | sin cambio (`:86`, `:106`) | No | No | Tinta `VER MI PEDIDO` | PEDIDO | ✏ sin `<strong>` (`:88`, `:108`); `trackNote` en letra chica tras el CTA |
+| **15** | idem | sin cambio (`:110`) | No | `TOTAL PAGADO` (ya así, `:136`) | Tinta | PEDIDO | ✏ líneas de carta a §31.6c (§41.8) |
+| **17** | `TU PEDIDO · <n>` o `TU ENVÍO · <folio>` (ya así, `:95-101`) | sin cambio (`:119`) | No | No | Tinta, rótulo según destino (§41.4) | ENVÍO | Ninguno |
+| **18** | idem | sin cambio (`:167`) | No | No | idem | ENVÍO | ✏ **Si `carrier` es `null`, la línea es solo `Guía: <n>` / `Tracking: <n>`** — hoy imprime `Paquetería:  · Guía: …` con el hueco (`:175-176`). *Un aviso no finge un dato que no tiene* (su propia regla, `:171`) |
+| **19** | idem | sin cambio (`:211`) | No | No (`:201-203`) | idem | ENVÍO | ✏ **`next` («puedes volver a solicitarlo desde tu cuenta», `:215-217`) solo cuando es un retiro de bóveda** (`orderNumber == null`). En el envío de un pedido, que el cliente pueda «volver a solicitarlo»: **NO MEDIDO** ⇒ no se afirma (§41.15 P-4) |
+| **20** | `TU ACLARACIÓN · <folio>` / `YOUR CLAIM · <folio>` | sin cambio (`:117`) | No | No (la recompra no trae monto a la plantilla: `DisputeNoticeParams`, `:50-54`) | Tinta | ACLARACIÓN | Ninguno |
+| **21** | idem | sin cambio (`:153`) | No | No | Tinta | ACLARACIÓN | Ninguno. El buzón de respuesta (`:157-159`) sigue **en el cuerpo**, nunca solo en el pie |
+| **28** | `AVISO DE EXISTENCIA` / `BACK IN STOCK` (sin folio) | «Volvió a estar disponible» / «It's back in stock» | No | **No** (⛔ ni precio: puede cambiar antes del clic) | Tinta `VER EL PRODUCTO` | AVISO | ⭐ nuevo, §41.10 |
+
+### 41.8 ⭐ Invitado y registrado — el mismo hecho, la misma apariencia (13 ≡ 15)
+
+**Medido:** 13 sale en el esqueleto **viejo** (`guest-order.templates.ts:36,135-148`), con `<ul>` de viñetas y el
+total en una línea en negritas; 15 sale en `mailShell` con el total en la resta (`order-notice.templates.ts:123-141`).
+Son **el mismo hecho** —«tu pedido quedó confirmado»— y el criterio 206 garantiza que **ningún pedido recibe los dos**
+(`order-notice.templates.ts:92-96`): por eso **nadie los ve lado a lado, y por eso nadie lo había notado.**
+
+**Esqueleto común (los dos, en este orden):**
+1. Eyebrow `TU PEDIDO · <n>` / `YOUR ORDER · <n>` · titular «Gracias por tu compra» / «Thanks for your purchase».
+2. Prosa: «Tu pedido `<n>` quedó confirmado y lo estamos preparando.» (sin `<strong>`: la cadena es texto; el número
+   ya va en el eyebrow en mono).
+3. Regla · `LO QUE COMPRASTE` / `WHAT YOU BOUGHT` (`sectionLabelRow`) · **una §31.6c por carta**: `title` = nombre,
+   `meta` = `<set> · #<número>`, celda derecha **vacía** (las plantillas no reciben precio por línea; ⛔ no se
+   inventa).
+4. `totalsRows([], { TOTAL PAGADO / TOTAL PAID, mailMoney(totalCents) })`.
+5. Letra chica «Ventas finales…» (cadena ya idéntica en los dos: `guest-order.templates.ts:81-82` = `order-notice.templates.ts:117-119`).
+6. CTA tinta `VER MI PEDIDO` / `SEE MY ORDER` + URL de respaldo.
+7. Letra chica tras el CTA: **solo 13** — `trackNote` (enlace personal, caduca en 90 días) y `claimCta` (crear cuenta);
+   **los dos** — `invoice` (factura CFDI).
+8. Pie PEDIDO. **Sin saludo** en los dos (§41.3). **Asunto idéntico** (§41.2).
+
+**Lo único que puede diferir, y por qué:** el **destino** del CTA (token frente a sesión, `order-notice.templates.ts:98-101`)
+y las dos notas que solo son verdad para el invitado (enlace personal, crear cuenta). **Todo lo demás —incluido el
+orden— es igual**, y ML-20 lo mide.
+- 🟠 **La línea de factura (CFDI) hoy solo la lleva 13** (`guest-order.templates.ts:83-84`). Pedir factura es igual
+  de cierto para el registrado ⇒ **default: va en los dos.** Es pregunta de producto (§41.15 P-3).
+
+### 41.9 ⭐ CLABE cambiada (27)
+
+Medido (`refund-notice.templates.ts:272-305`) y tres defectos:
+1. **Fecha en ISO y UTC** (`:276`: `2026-10-03 15:00 UTC`). ⇒ **`formatDateTime(changedAt, l)`** —el formateador
+   **exportado** de `buylist-mail.templates.ts:279-286` (hora de `America/Mexico_City`, fecha completa), el mismo de los
+   plazos—. ⛔ No se escribe un quinto formateador. Frase: ES «La CLABE a la que te depositamos cambió el
+   `<fecha y hora>`.» / EN «The CLABE we deposit to changed on `<date and time>`.» (hoy `:291` pone la fecha delante).
+   ⚠ La parte de texto imprime hoy la fecha **suelta en una línea** (`:303`): lleva **la misma frase**.
+2. **Pie falso**: decía «porque tienes un pedido o un envío» (`:43-47`). ⇒ pie **CLABE** propio (§41.6).
+3. **El soporte no estaba en el cuerpo**: «escríbenos de inmediato a soporte» (`:283-285`) sin dirección, y la dirección
+   solo en el pie — que **no puede portar nada necesario** (§31.6h). ⇒ ES «Si no fuiste tú, escríbenos de inmediato a
+   `<soporte>`.» / EN «If this was not you, write to `<support>` right away.», con la dirección de la **misma cascada**
+   del pie (`supportEmail()`, `mail-shell.ts:616-618`, hoy privada ⇒ se exporta). Y pasa de **letra chica a prosa**
+   (`:296`): es la frase de seguridad del correo, no una nota al pie.
+- Sin cambio: eyebrow `TU CUENTA` sin folio; las dos máscaras (anterior / nueva) en `monoRow` (son identificadores,
+  no dinero — y este correo **no es del ciclo de venta**, así que la prohibición de CLABE enmascarada de §31.0 regla 2
+  no le aplica; la cabecera del fichero solo permite la máscara, `:8-9`); CTA bermellón (§41.4).
+
+### 41.10 ⭐ Reposición de sellado (28)
+
+Medido (`catalog/sealed-restock-notify.service.ts:106-117`): asunto y cuerpo **en los dos idiomas a la vez**, HTML a
+mano sin marca ni pie, **`productName` interpolado sin escapar** en el HTML (`:114-115`, que es justo lo que ML-10
+prohíbe) y **ningún enlace al producto**.
+
+- **Una plantilla de verdad**, `catalog/mail/` (mismo patrón que los otros módulos: local al dueño del hecho), sobre
+  `mailShell`.
+- **Un idioma.** Orden de decisión:
+  1. Suscriptor con cuenta (`SealedRestockSubscription.userId`, `prisma/schema.prisma:2102-2103`) ⇒ `User.locale`.
+  2. Invitado ⇒ el idioma en que se suscribió. ⚠ **Ese dato hoy NO existe**: ni el `Req` de
+     `POST /catalog/sealed/restock-subscriptions` (`API_CONTRACT.md:9284`) ni la tabla (`schema.prisma:2098-2116`)
+     guardan idioma ⇒ **solicitud al arquitecto** (§41.15 A-1).
+  3. **Mientras no exista: español** (§9.1: default español). Es un default, no un dato medido.
+- **Enlace al producto:** `appUrl('sellado/<inventoryItemId>', locale)` — la ficha del sellado existe en
+  `frontend/src/app/[locale]/(storefront)/sellado/[inventoryItemId]/page.tsx` y la API la sirve por **una pieza
+  del grupo** (`API_CONTRACT.md:9253-9257`). El job ya empareja contra piezas `listed` (`:80-84`) pero **no
+  selecciona su `id`**: backend lo añade y usa **una** pieza del grupo emparejado. Sin pieza ⇒ `appUrl('sellado')`.
+  ⛔ Nunca sin URL de respaldo. Y la ruta entra en `test/mail-links.frontend-routes.spec.ts`.
+- **Copy** (⭐ nuevo, sin promesas que el sistema no cumpla): prosa ES «El producto `<nombre>` que seguías volvió a
+  estar disponible.» / EN «The product `<name>` you were watching is back in stock.» (es la frase de hoy, `:111-112`,
+  partida por idioma). Letra chica ES «Te avisamos una sola vez por producto.» / EN «We only let you know once per
+  product.» — **cierta**: se sella `notifiedAt` (`:96-99`). ⛔ Ni precio, ni «date prisa», ni cuántas quedan.
+
+### 41.11 Copy — qué hay de nuevo y dónde está lo anterior
+
+- **Pase v3.9 de §31.10 (correos 3, 5a, 5b, 6 y el eyebrow de 2b): ya escrito, no se reescribe** → §31.10 y su
+  estimación en §31.15 (pase 3).
+- **Lo nuevo de §41**, y es todo lo que hay: los asuntos ✏/⭐ de §41.2 · el saludo de §41.3 · los rótulos de CTA
+  cambiados de §41.4 (7, 8, 17–19, 25, 26) · los pies ⭐ de §41.6 · las tres ✏ de §41.7 (9, 18, 19) · el orden de
+  13/15 de §41.8 · las dos frases de 27 (§41.9) · el copy de 28 (§41.10) · y la frase de la tarjeta de 25:
+  ES «Además, `<monto>` regresan a tu tarjeta; tu banco decide cuándo aparecen.» / EN «Also, `<amount>` goes back to
+  your card; your bank decides when it shows up.» (sustituye la segunda `monoRow` de `refund-notice.templates.ts:199`).
+- **Paridad ES/EN en el mismo cambio**, como siempre. Ratificación de PO en §41.15 P-2.
+
+### 41.12 Contraste — cero pares nuevos
+
+Todo §41 usa los pares de §31.11. El bermellón aparece en 6 de 30 CTA (papel sobre `#B31217` = 6.2:1) y en el token
+de fecha de 10 (6.2:1). El verde de éxito **sigue sin aparecer en ningún correo** — tampoco en 12, 16 o 26, que son
+buenas noticias: lo dice la palabra.
+
+### 41.13 Lista de cambios para backend (fichero:línea medidos en este worktree el 2026-10-04 — re-medir antes de editar)
+
+**Esqueleto (`buylist/mail-shell.ts`) — primero, porque los treinta dependen de él:**
+- **E-1** `mailMoney(cents)`: el algoritmo de `frontend/src/lib/format.ts:29-40`. Borrar `money()` de
+  `buylist-mail.templates.ts:293-299` (o reexportar el nuevo con ese nombre: lo importan `buylist-notice.templates.ts:15`
+  y `offerTermsCopy` en `:688-689`), `order-notice.templates.ts:47-53`, `refund-notice.templates.ts:35-41` y
+  `guest-order.templates.ts:48-53`.
+- **E-2** `greetingLine(name: string | null, locale)` → `{ html, text }`, con la tabla de §41.3; mover aquí el de
+  `mail/mail.templates.ts:49-58`.
+- **E-3** Exportar `supportEmail()` (`:616-618`).
+
+**Por correo:**
+
+| # | Fichero:línea | Cambio |
+|---|---|---|
+| 1 | `buylist-mail.templates.ts:467`, `:520` | Saludo por E-2 (EN con coma). Dinero por E-1 (incl. `rule`, `:688-706`). Asunto `:549` ✅ |
+| 2 | `:856`, `:896` | Saludo E-2. Neto E-1. Asunto `:885` ✅ |
+| 3 | `:609`, `:641` | Saludo E-2. (Copy de §31.10a si aún no está — pase 3 de §31.15) |
+| 4 | `:193`, `:220` | Saludo E-2 (ya con coma; gana el caso sin nombre) |
+| 5 | `:952`, `:978` | Saludo E-2 |
+| 6 | `:1040`, `:1067` | Saludo E-2 |
+| 1–6, 10–12 | llamadores en `buylist/buylist.service.ts` (p. ej. `:4500`, `:5081`, `:7703`) y `buylist-sweep.service.ts` | Pasar `greetingName(user)` (`mail/greeting-name.ts:22`) en vez del nombre crudo. Líneas exactas de cada llamador: **NO MEDIDAS** salvo las tres citadas |
+| 7, 8 | `mail/mail.templates.ts:68-120` | A `mailShell` (§31.9 fila 7/8): eyebrow `SEGURIDAD DE LA CUENTA`, CTA tinta de §41.4, URL de respaldo, pie §41.6, letra chica con el plazo del enlace. Borrar `layout()` `:33-43` y `button()` `:60-62` (adiós `border-radius:6px`, `#111`, `520px`) |
+| 9 | `mail/mail.templates.ts:128-153` | A `mailShell`, sin CTA, titular = asunto, pie CUENTA·equipo |
+| 10 | `buylist-notice.templates.ts:137`, `:119`, `:146` | Asunto sin prefijo; saludo E-2 |
+| 11 | `:213`, `:203`, `:222` | idem |
+| 12 | `:296`, `:282`, `:306`, `:273` | idem + E-1 |
+| 13 | `orders/mail/guest-order.templates.ts:71`, `:91`, `:127-164` | Asunto sin prefijo; a `mailShell` con el esqueleto de §41.8; sin `<strong>` en `:73`, `:93`; borrar `layout()` `:36-46`, `escapeHtml` `:27-34` (usar el del esqueleto) e `itemsHtml` `:112-120` |
+| 14 | `:85`, `:105`, `:167-185` | Asunto sin prefijo; a `mailShell`; sin `<strong>` en `:88`, `:108` |
+| 15 | `orders/mail/order-notice.templates.ts:143-145`, `:122`, `:133` | Asunto sin prefijo; líneas a `cardLineRows`; línea CFDI (default §41.8) |
+| 16 | `:232-234` | Asunto sin prefijo |
+| 17 | `shipments/mail/shipment-notice.templates.ts:148`, `:132` | Asunto sin prefijo; rótulo según destino |
+| 18 | `:190`, `:172-177`, `:179` | Asunto; línea sin `Paquetería:` cuando `carrier` es `null`; rótulo |
+| 19 | `:231`, `:215-219`, `:226` | Asunto; `next` solo en retiro; rótulo |
+| 20, 21 | `disputes/mail/dispute-notice.templates.ts:126`, `:162` | Asunto sin prefijo |
+| 22 | `admin/mail/kyc-notice.templates.ts:114`, `:95`, `:125`; `admin/admin.service.ts:1226` | Asunto; saludo E-2; el llamador pasa `greetingName(user)` en vez de `user.name ?? ''` |
+| 23 | `payments/refunds/mail/refund-notice.templates.ts:139`, `:93-97`, `:126` | Asunto; cada carta a `cardLineRows` (`title` nombre, `meta` set, `note` el motivo, `amount` E-1) |
+| 24 | `:176`, `:158`, `:169` | Asunto; cartas a `cardLineRows` **sin** importe |
+| 25 | `:222`, `:197-200`, `:215`, `:219` | Asunto; `totalsRows([], { POR TRANSFERENCIA / BY TRANSFER, transfer })`; la parte de tarjeta como frase (§41.11); rótulo `VER MI CUENTA` con CLABE |
+| 26 | `:259`, `:239`, `:252`, `:256` | Asunto; `totalsRows([], { TE DEPOSITAMOS / DEPOSITED, transfer })`; rótulo `VER MI CUENTA` |
+| 27 | `:301`, `:276`, `:283-285`, `:291`, `:296`, `:302`, `:303` | Asunto; fecha por `formatDateTime`; soporte en el cuerpo con E-3 y en prosa; pie CLABE; texto a paridad |
+| 28 | `catalog/sealed-restock-notify.service.ts:75`, `:81-82`, `:90`, `:106-117` | Plantilla nueva en `catalog/mail/`; un idioma (§41.10); `include` del `user.locale`; `select` del `id` de la pieza para el enlace; escape vía esqueleto |
+
+**Tests que hoy fijan lo que cambia** (medido por `grep`, puede haber más): `test/avisos.shipments.spec.ts:129-130`
+(asunto por `toContain`, sigue verde), `test/guest-checkout.guard-sweep-mail.spec.ts:245,266-267` (sigue verde),
+`test/users.kyc-cycle.spec.ts:329` (sigue verde), `test/mail.service.spec.ts:25-57` (sigue verde). Ninguno fija el
+prefijo `TCG HUNT —` por igualdad (NO MEDIDO en `test/avisos.*` por igualdad de HTML).
+
+**Zonas y streams (para el orquestador):** los cambios cruzan `mail/` (Cuentas y acceso), `orders`, `payments`,
+`shipments`, `disputes` (Órdenes y dinero), `admin` (Admin y auditoría), `catalog` (Catálogo y precios) y el esqueleto
+compartido `buylist/mail-shell.ts`. **E-1…E-3 van primero y solos**; el resto se puede repartir por módulo.
+
+### 41.14 Candados — ML-1…ML-13 ampliados a los treinta, y ML-14…ML-23 nuevos
+
+**Base común:** un registro exhaustivo `TODOS_LOS_CORREOS` en un spec (p. ej. `test/mail.all-templates.spec.ts`) que
+renderiza los **30 × 2 idiomas** con fixtures, y **falla si un fichero de plantillas exporta una función que no está
+en el registro** (mismo mecanismo de exhaustividad que `test/avisos.copy-guard.spec.ts` y
+`test/buylist.cycle-mail-pii.spec.ts`). Sin ese registro, «los treinta» se vuelve «los que alguien se acordó de poner».
+
+| # | Ampliación / nuevo | Rojo si… |
+|---|---|---|
+| **ML-1** | A los 30 | Quitando todo `<img>`, `TCG HUNT` no está en el texto visible; o algún `alt` contiene `TCG HUNT`; o no hay **exactamente un** `<img>` con `src` en `tcghunt.mx` |
+| **ML-2** | Se queda en VENTA (1–6, 10–12) + `subject` | Uno de los cinco prohibidos en `subject`/`html`/`text`. El resto ya lo barre `C-AV-9` |
+| **ML-3** | Sin cambio | `item.condition` del portal ≠ cadena del correo 1. ⭐ **Y añade:** `rule` del correo = `rule` del DTO del portal tras E-1 |
+| **ML-4** | A los 30 | Una `<td>` con texto sin `bgcolor` **y** `background-color` |
+| **ML-5** | A los 28 con CTA | La URL del `href` no aparece también como texto en `html` **y** en `text` |
+| **ML-6** | A los 30 | Aparece `MX$0.00`, `$0.00` o `0.00` junto a símbolo de moneda en cualquier render |
+| **ML-7** | A los de dinero: 1, 2, 12, 13, 15, 16, 23, 25, 26 | La parte `text` no contiene **cada** importe del HTML (misma cadena de E-1) y la URL completa |
+| **ML-8** | A los 30 (peor caso: 1 con 20 líneas, 13/15 con 20 cartas, 23 con 10) | `html` ≥ 90 000 bytes, o el CTA cae en la segunda mitad |
+| **ML-9** | A los 30 | `text-transform:uppercase` en cualquier render; o un eyebrow/rótulo/CTA con minúsculas en la cadena |
+| **ML-10** | A los 30 ⭐ (incluye 28: hoy **rojo**) | Un nombre/producto `"><script>alert(1)</script>` aparece sin escapar |
+| **ML-11** | Manual, a los 30 | Visto en Gmail web sin imágenes, Outlook Windows y Gmail Android oscuro: desaparece texto, marca o CTA. ⭐ Prioridad: los seis que cambian de esqueleto (7, 8, 9, 13, 14, 28) |
+| **ML-12, ML-13** | Sin cambio | (§31.14) |
+| **ML-14** ⭐ | Asunto | **(a)** Para los 30 × 2: el asunto **no empieza** por `TCG HUNT`, **no contiene** ` · ` ni el asunto del otro idioma, y los ocho de §31.9 son **byte a byte** los de hoy. **(b)** En no-local, `MAIL_FROM` tiene nombre visible `TCG HUNT` (validación de entorno al arrancar) |
+| **ML-15** ⭐ | Saludo | Para los 15 renders que saludan (1–6 con sus variantes, 7–12, 22), con `name` = `'Ana'`, `''`, `'   '` y `nameSource='derived'`, en `html` y `text`: ES `Hola Ana:` / `Hola:`, EN `Hi Ana,` / `Hi,`. **Rojo** con `/Hola\s+:/`, `/Hi\s+[,:]/`, `/Hi [^,\n]+:/`. **Y por ausencia:** los 15 que no saludan (13–21, 23–28) no contienen `Hola`/`Hi ` al inicio del cuerpo |
+| **ML-16** ⭐ | Dinero | **(a)** `mailMoney` con la tabla fija `690→MX$6.90`, `84000→MX$840.00`, `125000→MX$1,250.00`, `1685520→MX$16,855.20` — **la misma** que `frontend/src/lib/format.test.ts:36-48`, en `es` **y** `en` (mismo resultado). **(b)** En los 30 × 2, ningún `$` no precedido de `MX` (`/(?<!MX)\$\d/`). **(c)** 25 y 26 no emiten importes por `monoRow` (el importe vive en una `<td align="right">`) |
+| **ML-17** ⭐ | Tono del CTA | Tabla esperada: bermellón en {1, 2a, 2b, 10, 25-sin-CLABE, 27}, cero CTA en {4, 9}, tinta en el resto. **Rojo** si un CTA tiene el `bgcolor` contrario. **Y el rótulo nombra el destino:** si el `href` contiene `/orders/`, el rótulo es `VER MI PEDIDO`/`SEE MY ORDER` |
+| **ML-18** ⭐ | Pie | El «por qué» de cada correo = el de su familia (§41.6). **Rojo** si 27 contiene `pedido o un envío` / `order or a shipment`, o si dos familias comparten frase |
+| **ML-19** ⭐ | Un idioma | En los 30: `html lang` = locale pedido, y el render ES no contiene **ninguna** frase del render EN del mismo correo (y viceversa). ⭐ Hoy **rojo** en 28. **Y 28** con suscriptor registrado `locale='en'` sale en inglés; con invitado sin dato, en español |
+| **ML-20** ⭐ | 13 ≡ 15 | Con el mismo pedido: mismo asunto, eyebrow, titular, intro, rótulo de sección, líneas, etiqueta y cadena del total, letra chica «Ventas finales», rótulo del CTA y pie; y el **orden** de esos bloques es el mismo. Solo 13 contiene `trackNote` y `claimCta` |
+| **ML-21** ⭐ | Esqueleto único | Ningún render contiene `max-width:520px`, `border-radius`, `<h2`, `<h3` ni `color:#111`; todos contienen `<meta name="color-scheme" content="light">` y el pie en tinta |
+| **ML-22** ⭐ | CLABE (27) | El render no contiene `/\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/`; contiene `formatDateTime(changedAt, l)` en `html` y `text`; y la dirección de soporte aparece **fuera** de la banda del pie |
+| **ML-23** ⭐ | Sellado (28) | El render tiene CTA con `href` a `/<locale>/sellado/<id>` (o `/sellado`), la ruta está en `test/mail-links.frontend-routes.spec.ts`, y no contiene ningún importe |
+
+*Canarios:* ML-14…ML-23 tienen que nacer **rojos contra el código de hoy** (asuntos con prefijo, `Hola :` en 22,
+`$840.00` en ES, 19 con `IR A MI CUENTA` hacia un pedido, pie de 27, fecha ISO, 28 bilingüe y sin escape). Si alguno
+nace verde, el candado no mide lo que dice.
+
+### 41.15 Preguntas, solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **P-1** 🟠 | dueño / product-owner | **Dinero sin espacio** (`MX$1,250.00`, lo que ya imprime la web). Default: **sin espacio**. Si el dueño quiere el espacio, cambian web y correo **juntos** |
+| **P-2** | product-owner | **Ratificar el copy nuevo de §41.11** y el cambio de **formato** dentro de `offerTermsCopy().rule` en español (`$180.00` → `MX$180.00`; la frase no cambia) |
+| **P-3** 🟠 | dueño | **¿La línea de factura (CFDI) va también en el correo del registrado (15)?** Default: **sí**, en los dos (§41.8) |
+| **P-4** 🟠 | dueño / product-owner | **19 en un pedido:** ¿el cliente puede «volver a solicitar» el envío de un pedido cancelado? **NO MEDIDO.** Default: la frase sale **solo** en el retiro de bóveda |
+| **A-1** | arquitecto | **Idioma del suscriptor invitado del sellado:** `locale?: 'es' \| 'en'` en el `Req` de `POST /catalog/sealed/restock-subscriptions` (`API_CONTRACT.md:9284`) y columna en `SealedRestockSubscription` (`schema.prisma:2098`); el front manda el locale de la página. **No bloquea**: hasta entonces el invitado recibe español (§41.10) |
+| **D-1** | devops | **`MAIL_FROM` con nombre visible** (`TCG HUNT <no-reply@tcghunt.mx>`) en staging y prod — §41.2 depende de ello. Valor real: **NO MEDIDO**. ML-14(b) lo vigila al arrancar |
+| **N-1** | orquestador | Los cambios cruzan **seis módulos de cuatro streams** y la zona compartida `buylist/mail-shell.ts` (§41.13). E-1…E-3 primero y solos; y el traslado de `layout()` de `mail/` es el disparador declarado de **BE-43** (§31.15) |
+| **N-2** | QA | ML-11 no se automatiza: abrir los seis que cambian de esqueleto en las tres bandejas. Y ML-14…ML-23 se dan por buenos **solo** si se vieron rojos contra el código de hoy |
+
+---
+
+## 42. Equipo sin correo — entrar con usuario, alta de equipo, candado en el panel y «Mi cuenta» sin correo (v4.14, 2026-10-04 · `API_CONTRACT §M6-U` v1.80.9)
+
+### 42.0 Fuente, alcance y reglas duras
+
+**Fuente.** `HECHOS.md` fila 2026-10-04 «Usuarios de back-office SIN correo; el correo es solo para clientes.» (`HECHOS.md:43`):
+(a) el súper-admin dueño conserva su correo; (b) el resto del equipo entra con **usuario + contraseña**, sin doble
+verificación, y si la olvida **la restablece el dueño desde Usuarios**; default del orquestador: el aviso de candado
+va **al panel**; (c) **misma pantalla de entrada** que los clientes. `PROJECT §U` (`PROJECT.md:7367-7516`), criterios
+**256–270** (`PROJECT.md:10783-10877`). `API_CONTRACT §M6-U` (`API_CONTRACT.md:26633-26891`), en especial §M6-U.10.
+Todo fichero:línea de esta sección lo **leí** en el worktree `claude/precios-s5` el 2026-10-04 (HEAD `43c42b3d` según el
+orquestador; ⛔ el sha **no lo medí**: sin Bash). **Re-medir antes de editar.**
+
+**Reglas duras.**
+
+1. ⛔ **La rama `RATE_LIMITED` del login no se toca** (`HECHOS.md:40`, «déjalo así»): `AuthForm.tsx:141-143`, claves
+   `auth.rateLimitedByIp` / `auth.rateLimitedByIpRetryIn` (`es.json:1204-1205`) y `AuthForm.rateLimited.test.tsx`
+   quedan **byte a byte** como están.
+2. ⛔ **Nada en pantalla depende de si la cuenta existe.** Lo que se muestra puede variar según la **forma** de lo
+   tecleado (con o sin `@`) y según `error.code`; **nunca** según otro dato de la respuesta (criterio 259; §M6-U.10).
+3. ⛔ **Nunca `null`, `undefined` ni una celda vacía donde hoy va un correo** (criterio 268). La regla de pintado es
+   **una**: `email ?? username` (§42.5.1).
+4. **Lo del cliente no cambia** (criterio 270): su entrada con correo, Google, registro, «olvidé», su texto de candado y
+   el error de credenciales **con `@`** salen idénticos a hoy. Lo único que el cliente ve distinto es la etiqueta del
+   campo.
+5. **Cero tokens nuevos, cero pares de contraste nuevos.** Todo usa componentes que ya existen: `Input`, `Select`,
+   `Button`, `Banner` (`variant` info/warning), `Badge` (`tone` warning/neutral, `shape` outline/soft —
+   `status-map.ts:7-8`), `Modal`, `DataTable`. Los pares de contraste son los ya verificados en §10 para esos
+   componentes.
+
+### 42.1 Login — la MISMA pantalla, cuatro cambios mínimos en `AuthForm` (criterios 258, 259, 264, 270)
+
+Medido: el campo es `AuthForm.tsx:166` (`type="email"`, `autoComplete="email"`, etiqueta `t('email')` = «Correo»,
+`es.json:1181`); «olvidé» en `:180-184`; Google en `:192-194`; registro en `:196-201`; el aviso por cuenta (`perAccount`,
+`:108`) pinta su texto en `:137-140` y su enlace a `/forgot-password` en `:145-149`; el error genérico en `:153-157`
+(`error.INVALID_CREDENTIALS` = «Correo o contraseña incorrectos.», `es.json:4870`).
+
+**C-1 · El campo.** Solo en `mode === 'login'`:
+
+| Atributo | Hoy (`:166`) | Ahora (login) | Registro |
+|---|---|---|---|
+| `type` | `email` | **`text`** | `email` (sin cambio) |
+| `autoComplete` | `email` | **`username`** | `email` |
+| `autoCapitalize` / `autoCorrect` / `spellCheck` | — | **`none` / `off` / `false`** (en móvil, `Ana` en vez de `ana` es inofensivo — el servidor normaliza — pero el corrector convierte `luis.p` en `Luis. P`) | sin cambio |
+| `inputMode` | — | **`email`** (el teclado con `@` sirve a los dos) | sin cambio |
+| etiqueta | `auth.email` | **`auth.emailOrUsername`** | `auth.email` |
+| `name` | `email` | `email` (el contrato no cambia la llave, §M6-U.2) | `email` |
+
+⛔ Sin placeholder, sin texto de ayuda, sin «¿eres del equipo?». La pantalla no anuncia usuarios.
+
+**C-2 · Los enlaces no dependen de lo tecleado.** «¿Olvidaste tu contraseña?», Google y «Regístrate» se pintan
+siempre, en el mismo orden, con o sin `@` (hoy ya es así: `:180-201` no leen el campo). **Cambio de código: ninguno**;
+solo el candado STF-16 (§42.9 UX-2) que impide que alguien lo «mejore».
+
+**C-3 · El candado por cuenta con un usuario tecleado.** En `onSubmit` el valor ya se lee (`:77`); al capturar el
+`429` (`:98-99`) se guarda además **`typedUsername: !email.includes('@')`** en el estado `rateLimited`. Al pintar
+(`:137-149`), **solo** cuando `perAccount && typedUsername`:
+
+- texto `auth.lockedAskAdminRetryIn` (con minutos) o `auth.lockedAskAdmin` (sin cifra usable) — mismos minutos de
+  `retryAfterMinutes`, misma regla de §37.13;
+- ⛔ **sin** el `<Link href="/forgot-password">` de `:145-149` (el equipo sin correo no tiene por dónde recibirlo);
+- mismo `Banner variant="warning" role="alert"`, mismo contenedor con foco (`:134`).
+
+Con `@` tecleado: el aviso de hoy, **con** enlace, sin cambio. Rama `RATE_LIMITED`: sin cambio (regla dura 1).
+
+**C-4 · Credenciales incorrectas con un usuario tecleado** *(añadido por ux-ui sobre los tres puntos de §M6-U.10:
+`PROJECT §U.3` deja el texto a ux-ui y permite variar por la forma; ⚠️ el orquestador decide si entra en el encargo —
+§42.10 N-5)*. Hoy, quien teclea `ana` leería «**Correo** o contraseña incorrectos», que le dice que tecleó mal el
+campo. Regla: si `mode === 'login'`, `errorCode === 'INVALID_CREDENTIALS'` y lo tecleado **no** lleva `@` ⇒
+`auth.invalidCredentialsUsername`; en cualquier otro caso, el `tErr(errorCode)` de hoy (`:155`). El tecleo se toma del
+**mismo** submit que produjo el error (no del campo vivo, que el usuario pudo editar después).
+
+⛔ `USER_BLOCKED`, `VALIDATION_ERROR` (correo mal formado con `@`) y `INTERNAL`: sin cambio.
+
+**Claves i18n — `auth`** (catálogos `frontend/messages/{es,en}.json`, bloque `auth` en `:1178-1214`):
+
+| Clave | ES | EN |
+|---|---|---|
+| `auth.emailOrUsername` | Correo o usuario | Email or username |
+| `auth.lockedAskAdmin` | Demasiados intentos con este usuario. Espera unos minutos y vuelve a intentarlo. Si no recuerdas tu contraseña, pídele al administrador que la restablezca. | Too many attempts with this username. Wait a few minutes and try again. If you don't remember your password, ask the administrator to reset it. |
+| `auth.lockedAskAdminRetryIn` | Demasiados intentos con este usuario. Vuelve a intentarlo en {minutes, plural, one {# minuto} other {# minutos}}. Si no recuerdas tu contraseña, pídele al administrador que la restablezca. | Too many attempts with this username. Try again in {minutes, plural, one {# minute} other {# minutes}}. If you don't remember your password, ask the administrator to reset it. |
+| `auth.invalidCredentialsUsername` | Usuario o contraseña incorrectos. | Wrong username or password. |
+
+⛔ No cambian: `auth.email`, `auth.login.rateLimited*`, `auth.login.rateLimitedResetLink`, `auth.rateLimitedByIp*`,
+`error.INVALID_CREDENTIALS`.
+
+**Fuera de esta pantalla, decidido:** el panel de identidad del checkout (`InlineAuthPanel.tsx:152`, `type="email"`)
+**no cambia**: ahí entra quien va a comprar, y una cuenta sin correo no compra (§42.7). El registro tampoco
+(criterio 269).
+
+### 42.2 «¿Olvidaste tu contraseña?» — no rechazar un usuario en el navegador (criterio 262)
+
+Medido: `ForgotPasswordView.tsx:69-77` usa `type="email"`. Con `ana` el **navegador** bloquea el envío con su propio
+mensaje («incluye un signo @…»), que es distinto del que recibe un correo inexistente: el criterio 262 lo marca como
+falla («si el formulario rechaza el usuario con un mensaje distinto»). §M6-U.10 no lo lista (§42.10 N-1).
+
+**Cambio:** `type="text"`, `inputMode="email"`, `autoComplete="email"`, `autoCapitalize="none"`. **Nada más**: misma
+etiqueta «Correo», mismo subtítulo, mismo «Revisa tu correo / Si el correo existe…» (`es.json:1237-1247`). Con `ana`
+el servidor responde `200 {ok:true}` (§M6-U.3) y la pantalla pinta **lo mismo** que con un correo inexistente. ⛔ La
+pantalla no menciona usuarios ni al administrador: decirlo ahí sería anunciar que existen cuentas de equipo.
+
+### 42.3 Usuarios › «Crear usuario» — Cliente o Equipo (criterios 256, 257, 260)
+
+Medido: el modal de alta es `M6View.tsx:519-573`; estado `createForm` en `:157`, `openCreate` en `:175-179`, mutación
+en `:159-173` (manda siempre `email`), errores en `:182-188`, botón deshabilitado por `email`/`name` en `:531`; roles
+`CREATE_ROLES` en `:58`; resultado en `:575-600` (`successBody` con `{email}`, `:585-588`).
+
+**42.3.1 El selector — primera fila del modal.** «Tipo de cuenta», dos opciones: **Cliente** · **Equipo**. Por defecto
+**Cliente** (el alta de hoy no cambia, criterio 270). Forma: grupo de radios (`<fieldset>` + `<legend className="eyebrow">`,
+`role="radiogroup"` implícito), cada opción un `<label>` con la piel de las pestañas de la ficha (`M6View.tsx:744-747`:
+activa `border-b-2 border-primary text-text`, inactiva `text-muted hover:text-text`), radio `sr-only`, foco
+`focus-within:shadow-focus`. Flechas ←/→ cambian de opción (comportamiento nativo del radio).
+
+**Al cambiar de tipo se vacía el campo del otro tipo** (correo ↔ usuario) y el error de servidor previo
+(`createMutation.reset()`). El cuerpo que se manda se arma **por tipo**: ⛔ Equipo nunca lleva la clave `email`
+(sería `422 staff_without_email`); ⛔ Cliente nunca lleva `username`.
+
+**42.3.2 Campos por tipo, en este orden:**
+
+| Cliente (como hoy) | Equipo |
+|---|---|
+| Correo (`type="email"`, `:540-546`) | **Nombre de usuario** (nuevo) |
+| Nombre | Nombre |
+| — (rol fijo `customer`; el `Select` de rol no aparece) | **Rol**: `Select` con `vault_operator` (por defecto) y `super_admin` — rótulos `create.roleOption.*` de hoy |
+| Contraseña (hint de hoy) | Contraseña (hint de equipo) |
+| — | aviso `create.superAdminWarning` si rol = `super_admin` (hoy `:566-568`) |
+
+**Botón «Crear» deshabilitado** si falta el nombre o el identificador del tipo (correo **o** usuario, `trim()` vacío).
+
+**42.3.3 El nombre de usuario — la regla siempre visible.**
+`Input` con `label=create.username`, `autoComplete="off"`, `autoCapitalize="none"`, `autoCorrect="off"`,
+`spellCheck={false}`, clase `font-mono` en el valor (un usuario se lee carácter a carácter: `l`/`1`, `.`/`_`).
+- **Hint** = `create.usernameRule`. Si `trim().toLowerCase()` difiere de lo tecleado, se añade
+  `create.usernamePreview` («Se guardará como «luis.p».») — es solo `toLowerCase`, ⛔ no valida nada en el cliente.
+- ⛔ **Sin validación propia en el cliente**: el servidor es el juez y su orden es normativo (§M6-U.6 paso 3:
+  `required → length → charset → start`). Un validador duplicado en el front deriva y se contradice.
+- **Error del servidor** — `422 VALIDATION_ERROR` con `details.field === 'username'` ⇒ el texto de `details.rule`
+  **bajo el campo** (prop `error` de `Input`: sube la regla a bermellón y pone `aria-invalid`), y foco al campo.
+  `409 USERNAME_TAKEN` ⇒ igual, con `create.errorUsernameTaken`. Como el `Input` cambia el hint por el error
+  (`Input.tsx:55-63`), **cada texto de error repite la parte de la regla que falla**: la regla nunca desaparece sin
+  decir cuál era.
+- Otros `422` del equipo (nombre, rol, contraseña) ⇒ el banner de hoy con `create.errorValidationStaff`. `details.rule
+  === 'staff_without_email'` es inalcanzable desde esta UI (42.3.1); si llegara, `create.errorGeneric`.
+
+**42.3.4 La contraseña inicial.** Mismo campo (`:558-565`). Hint del equipo: `create.passwordHintStaff` (dice que **en
+los dos casos** tendrá que cambiarla al entrar: P-STF-6, `mustChangePassword: true` siempre, §M6-U.6 paso 4).
+
+**42.3.5 El resultado — una sola vez.** Mismo modal (`:575-600`):
+- Equipo ⇒ `create.successBodyStaff` con `{username}` y `{role}` (dice **por dónde** entra: la pantalla de siempre).
+- con `tempPassword` ⇒ `TempPasswordPanel` (`:676-711`) **sin cambio**: «se muestra UNA sola vez», copiar, y la nota de
+  cambio obligatorio (`mustChangePassword` llega `true`).
+- sin `tempPassword` (la tecleó el dueño) ⇒ `create.providedPasswordNoteStaff` en lugar de `providedPasswordNote`.
+- Cliente ⇒ `create.successBody` de hoy.
+
+**Claves i18n — `admin.m6.create`** (`es.json:3442-3464`):
+
+| Clave | ES | EN |
+|---|---|---|
+| `create.kind` | Tipo de cuenta | Account type |
+| `create.kindCustomer` | Cliente | Customer |
+| `create.kindStaff` | Equipo | Team |
+| `create.kindStaffNote` | Las cuentas del equipo no llevan correo: entran con su nombre de usuario y la contraseña que tú les das. | Team accounts have no email: they sign in with their username and the password you give them. |
+| `create.username` | Nombre de usuario | Username |
+| `create.usernameRule` | De 3 a 30 caracteres: letras a–z sin acentos ni ñ, números, punto (.), guion (-) y guion bajo (_). Empieza con una letra. | 3 to 30 characters: letters a–z without accents, numbers, dot (.), hyphen (-) and underscore (_). Starts with a letter. |
+| `create.usernamePreview` | Se guardará como «{username}». | It will be saved as “{username}”. |
+| `create.usernameError.required` | Escribe un nombre de usuario. | Enter a username. |
+| `create.usernameError.length` | Debe tener de 3 a 30 caracteres. | It must be 3 to 30 characters long. |
+| `create.usernameError.charset` | Solo letras a–z sin acentos ni ñ, números, punto (.), guion (-) y guion bajo (_). Sin espacios ni @. | Only letters a–z without accents, numbers, dot (.), hyphen (-) and underscore (_). No spaces or @. |
+| `create.usernameError.start` | Tiene que empezar con una letra. | It must start with a letter. |
+| `create.errorUsernameTaken` | Ese nombre de usuario ya existe (sin importar mayúsculas). Elige otro. | That username is already taken (case doesn't matter). Choose another one. |
+| `create.errorValidationStaff` | Revisa los datos: nombre, rol de equipo y contraseña de al menos 8 caracteres. | Check the details: name, team role and a password of at least 8 characters. |
+| `create.passwordHintStaff` | Déjala vacía para generar una temporal segura (se mostrará una sola vez). Sea cual sea, la tendrá que cambiar al entrar por primera vez. | Leave it empty to generate a secure temporary one (shown only once). Either way, they'll have to change it the first time they sign in. |
+| `create.successBodyStaff` | Cuenta de equipo creada: usuario {username}, rol {role}. Entra por la pantalla de «Iniciar sesión» de siempre, con su usuario y su contraseña. | Team account created: username {username}, role {role}. They sign in on the usual “Sign in” page, with their username and password. |
+| `create.providedPasswordNoteStaff` | Dale la contraseña que definiste por un canal seguro. Al entrar por primera vez tendrá que cambiarla. | Give them the password you set through a secure channel. They'll have to change it the first time they sign in. |
+
+`create.kindStaffNote` va como texto `text-xs text-muted` bajo el selector, **solo** con Equipo elegido.
+
+### 42.4 Restablecer contraseña — decir que no va correo (criterio 261)
+
+El diálogo ya existe y ya hace lo pedido (botón `M6View.tsx:470-477`, modal `:503-517`, `TempPasswordPanel` una sola
+vez; backend sin correo, §M6-U.6). **Dos cambios:**
+
+1. **Texto.** `admin.m6.resetHint` (`es.json:3422`) se reescribe — vale para todos los roles, porque el
+   restablecimiento por admin **no manda correo a nadie** (§M6-U.6: «ningún correo, no hay `mail` en el método»).
+2. **Refrescar la marca de candado.** Hoy `onSuccess` solo guarda el resultado (`M6View.tsx:151`); el restablecimiento
+   **levanta el candado**, así que debe invalidar `['admin-users']` y `['admin-user', selectedId]`. Sin esto, la fila
+   sigue diciendo «Bloqueado por intentos» después de quitarlo.
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m6.resetHint` *(reescrita)* | Genera una contraseña temporal que verás una sola vez, para que se la des tú. No se manda ningún correo. Cierra sus sesiones abiertas y quita el bloqueo por intentos, si lo tiene. | Generates a temporary password that you'll see only once, so you can hand it over yourself. No email is sent. It signs them out everywhere and lifts the failed-attempts lock, if any. |
+
+`resetOnce`, `resetShareNote`, `resetMustChangeNote`: sin cambio.
+
+### 42.5 Usuarios — listado, ficha, búsqueda y la marca de candado (criterios 265, 268)
+
+**42.5.1 Identificador.** Columna `email` (`M6View.tsx:217`) ⇒ clave `identifier`, cabecera `table.identifier`,
+celda `u.email ?? u.username`, `tabular text-muted` como hoy. Ficha: `M6View.tsx:365` ⇒ si hay correo, como hoy; si
+no, `admin.m6.usernameLine` («Usuario: ana»). Misma regla en «Reembolsos de operadores» (`OperatorRefundsView.tsx:82`).
+⛔ Si **los dos** fueran `null` (inalcanzable por el CHECK 1, §M6-U.1) se pinta «—», nunca vacío.
+
+**42.5.2 Búsqueda.** El backend ya busca por usuario (§M6-U.7). Solo cambia la etiqueta `searchLabel`
+(`es.json:3363`).
+
+**42.5.3 Marca «Bloqueado por intentos hasta HH:MM».** Con `lockedUntil` no nulo **y en el futuro** (comparado con la
+hora del navegador al pintar; ⛔ sin contador ni temporizador):
+- **Listado:** en la celda de estado (`:219-223`), **a la derecha** del `UserStatusBadge`, un
+  `<Badge tone="warning" shape="outline">` con `lockMark`. Es un estado distinto de «Bloqueada» (que es el bloqueo del
+  admin, `tone="danger"`): por eso **otro tono y otra forma**, y la palabra «intentos».
+- **Ficha:** el mismo badge junto al de estado (`:361`) y debajo, `text-xs text-muted`, `lockHint`.
+- La hora: **nuevo helper** `formatTimeMx(iso, locale)` en `frontend/src/lib/format.ts` (junto a `formatDateTimeMx`,
+  `:128-137`): `Intl.DateTimeFormat(localeTag[locale], { timeStyle: 'short', timeZone: 'America/Mexico_City' })`,
+  entrada inválida ⇒ `''` y sin badge. Solo la hora basta: el candado máximo es **60 min**
+  (`PASSWORD_LOCK_MAX_MS`, `backend/src/modules/auth/password-attempts.constants.ts:17`).
+- Vale para **cualquier** fila con `lockedUntil` (también clientes): el dato es el mismo.
+
+**42.5.4 `lockState: 'unavailable'`.** Sobre la tabla (entre filtros y `QueryState`, `:307`), un
+`<Banner variant="info" role="status">` con `lockUnavailable`. ⛔ Ninguna fila lleva marca (todas llegan `null`), y
+⛔ ningún texto dice «sin candado».
+
+**42.5.5 Historial de la persona (pestaña Actividad).** Tres rótulos nuevos en `auditAction` (patrón de
+`M6View.tsx:955-958`; el resto sigue crudo). ⚠️ Que el evento de candado aparezca en `scope=target` de esa persona es
+**NO MEDIDO** (§42.10 A-2).
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m6.table.identifier` | Correo o usuario | Email or username |
+| `admin.m6.searchLabel` *(reescrita)* | Buscar (correo, usuario o nombre) | Search (email, username or name) |
+| `admin.m6.usernameLine` | Usuario: {username} | Username: {username} |
+| `admin.m6.lockMark` | Bloqueado por intentos hasta {time} | Locked after failed attempts until {time} |
+| `admin.m6.lockHint` | Se quita solo a esa hora. Para quitarlo antes, restablece la contraseña. | It lifts on its own at that time. To lift it sooner, reset the password. |
+| `admin.m6.lockUnavailable` | Ahora no pudimos consultar quién está bloqueado por intentos, así que esta lista no lo marca. Vuelve a cargarla en un momento. | We couldn't check failed-attempt locks right now, so this list doesn't show them. Reload it in a moment. |
+| `admin.m6.auditAction.auth_password_lock` | Bloqueo por intentos fallidos | Locked after failed attempts |
+| `admin.m6.auditAction.user_reset_password` | Le restablecieron la contraseña | Password reset by an admin |
+| `admin.m6.auditAction.user_create` | Alta de la cuenta | Account created |
+
+(La clave `table.email` se queda: la usan otras pantallas — NO MEDIDO cuáles; no se borra.)
+
+### 42.6 Aviso de candado en el panel — se cierra, uno cada 24 h (criterio 265)
+
+Medido: `AdminShell.tsx:110-113` pinta `AdminTopbar` y `<main>{children}</main>`; el shell no consulta `/users/me`
+(lo hace `AccountView.tsx:42` con la clave `['me']`). `Banner` con `dismissible` solo se oculta en local
+(`Banner.tsx:42`, `:61-70`) — **no sirve** aquí: cerrar debe llegar al servidor.
+
+**Dónde:** primera cosa dentro de `<main>` (`AdminShell.tsx:112`), antes de `{children}`, en todas las pantallas del
+panel hasta que se cierre. **Datos:** `useQuery(['me'], getMe)` (misma clave que `AccountView`, así se comparte la
+caché), habilitada solo con sesión de staff y **sin** `mustChangePassword` (el `dismiss` no está en la allowlist,
+§M6-U.5: con temporal pendiente el aviso **no se pinta**; aparecerá después de cambiarla).
+
+**Forma:** `<Banner variant="warning" role="status" title={lockNotice.title}>` — `status`, no `alert`: ⛔ no roba el
+foco ni interrumpe al lector de pantalla al entrar. Cuerpo: `lockNotice.body` con `{since}` =
+`formatDateTimeMx(lockNotice.since, locale)` (`format.ts:128`) y un enlace `lockNotice.changeLink` a
+`/admin/account/password`. `action` = `<Button size="sm" variant="secondary">` `lockNotice.dismiss`.
+
+**Cerrar:** `POST /users/me/lock-notice/dismiss`. Botón en `loading` mientras va. `204` ⇒ `setQueryData(['me'],
+{...me, lockNotice: null})` y el aviso desaparece; el foco pasa al `<main>` (no se pierde en el `body`). Error ⇒ el
+aviso **se queda** y debajo, `font-mono text-xs text-accent`, `lockNotice.dismissError`. ⛔ Sin cierre optimista: si se
+oculta y el servidor no lo registró, reaparece en la siguiente entrada y parece un candado nuevo.
+
+**Uno cada 24 h** lo garantiza el servidor (`claimOnce`, §M6-U.4); el front pinta lo que trae `lockNotice`, sin
+lógica propia de tiempo. Cuentas **con** correo nunca traen `lockNotice` (CHECK 5): reciben el correo de hoy.
+
+El contenido sigue al correo de hoy (`backend/src/modules/mail/mail.templates.ts:143-146`) y añade lo que `PROJECT
+§U.5` pide (avisar al administrador):
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.lockNotice.title` | Hubo varios intentos fallidos de entrar a tu cuenta | There were several failed attempts to sign in to your account |
+| `admin.lockNotice.body` | Fue el {since}. Si fuiste tú, no tienes que hacer nada. Si no, tu contraseña sigue a salvo: cámbiala y avísale al administrador. | It was on {since}. If it was you, you don't need to do anything. If not, your password is still safe: change it and let the administrator know. |
+| `admin.lockNotice.changeLink` | Cambiar contraseña | Change password |
+| `admin.lockNotice.dismiss` | Entendido | Got it |
+| `admin.lockNotice.dismissError` | No pudimos cerrar el aviso. Intenta de nuevo. | We couldn't close this notice. Try again. |
+
+### 42.7 `403 ACCOUNT_WITHOUT_EMAIL` — una cuenta del equipo que intenta comprar o vender (criterio 269)
+
+**Mecanismo:** una clave nueva en el catálogo `error` (`es.json:4833` en adelante). `useErrorMessage`
+(`QueryState.tsx:210-233`) busca `error.<CODE>` ⇒ toda pantalla que ya cae a `getMessage(e)` la pinta sin código nuevo.
+Medido que cae ahí: el pago (`CheckoutView.tsx:229-231`). **NO MEDIDO** si caen ahí `ShipmentsView.tsx:148`,
+`BuylistKycForm.tsx:307`, `GuestOrderConfirmation.tsx:70` y `ClaimableOrdersNotice.tsx:83` — frontend lo comprueba; si
+alguno lo traga como genérico, se enruta a `getMessage`. ⛔ **No** se pinta el aviso de «verifica tu correo»
+(`EmailNotVerifiedNotice`): no hay correo que verificar.
+
+**Y lo que hoy la llevaría a ese callejón:** una cuenta sin correo tiene `emailVerified = false` (CHECK 4, §M6-U.1), así
+que `VerifyEmailBanner.tsx:24` le pintaría «Verifica tu correo» en la tienda, y `BuylistKycForm.tsx:253` la trataría
+como «correo sin verificar». Las dos condiciones ganan `&& user.email != null` (⚠️ que `user` de la sesión traiga
+`email: null` y no `undefined` lo fija `AuthUser` en `contract.ts`, §M6-U.10).
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.ACCOUNT_WITHOUT_EMAIL` | Esta es una cuenta del equipo y no tiene correo, así que no puede comprar, mandar a bóveda ni vender. Para eso, usa una cuenta de cliente. | This is a team account without an email, so it can't buy, send to the vault or sell. To do that, use a customer account. |
+
+### 42.8 «Mi cuenta» del equipo sin correo (criterio 263)
+
+Medido: `AccountView.tsx:105` pinta `user.email` bajo el título; `sectionsForRole` (`:24-28`) da al staff
+`['profile','email','password','session']`; `EmailSection.tsx:26` pinta el correo y un pill «SIN VERIFICAR»
+(`:34`) — con `email: null` sería un hueco más un estado falso. «Cambiar contraseña» ya existe y se llega por el menú
+sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el cajón; `PasswordSection.tsx:21-26`).
+
+**Cambios:**
+1. **Línea bajo el título** (`AccountView.tsx:105`): `user.email ?? t('usernameLine', {username})`.
+2. **La sección `email` se reemplaza por `username`** cuando `user.email === null`: `sectionsForRole(staff, hasEmail)`
+   devuelve `['profile','username','password','session']`. Sección nueva mínima (`SectionShell id="username"`), título
+   `account.username.title`; valor en `font-mono text-base text-text`; nota `text-xs text-muted`
+   `account.username.note`. ⛔ Sin pill de verificación, sin `mailto:`, sin botón. `AccountSectionId` y
+   `sectionTitle` (`AccountView.tsx:128-145`) ganan `'username'`.
+3. **Contraseña:** sin cambio de pantalla. Candado de defensa en `PasswordPage.tsx:65`: el modo «crear» (que llama a
+   `forgotPassword(user.email)`, `:96`, y pinta `{email}`, `:161`) **no puede activarse** con `user.email === null`
+   (`createMode = … && user?.email != null`). Inalcanzable por contrato (§M6-U.8 (b)); el candado evita un
+   `forgotPassword(null)` si la invariante se rompe. ⛔ Ningún «olvidé» ni «crear contraseña» en todo el ciclo.
+
+| Clave | ES | EN |
+|---|---|---|
+| `account.usernameLine` | Usuario: {username} | Username: {username} |
+| `account.username.title` | Usuario | Username |
+| `account.username.note` | Con este usuario entras en la misma pantalla que los clientes. No se puede cambiar; si necesitas otro, pídeselo al administrador. | You sign in with this username on the same page as customers. It can't be changed; if you need a different one, ask the administrator. |
+
+### 42.9 Lista de cambios para frontend y candados
+
+**Cambios** (fichero:línea leídos el 2026-10-04; re-medir antes de editar):
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| F-1 | `components/domain/AuthForm.tsx:166` | Login: `type="text"`, `autoComplete="username"`, `inputMode="email"`, `autoCapitalize="none"`, `autoCorrect="off"`, `spellCheck={false}`, etiqueta `auth.emailOrUsername`. Registro igual | 42.1 C-1 |
+| F-2 | `AuthForm.tsx:43`, `:77`, `:98-99`, `:137-149` | Guardar `typedUsername` del submit en `rateLimited`; con `perAccount && typedUsername` ⇒ `auth.lockedAskAdmin*` sin `<Link>`. ⛔ `:141-143` intactas | 42.1 C-3 |
+| F-3 | `AuthForm.tsx:101`, `:153-157` | `INVALID_CREDENTIALS` + login + sin `@` ⇒ `auth.invalidCredentialsUsername` | 42.1 C-4 (N-5) |
+| F-4 | `app/[locale]/(auth)/forgot-password/ForgotPasswordView.tsx:72-73` | `type="text"`, `inputMode="email"`, `autoCapitalize="none"` | 42.2 (N-1) |
+| F-5 | `app/[locale]/(admin)/admin/m6/M6View.tsx:58`, `:157-188`, `:519-573` | Selector Cliente/Equipo, campos por tipo, cuerpo por tipo, errores por `details.rule` y `USERNAME_TAKEN` | 42.3 |
+| F-6 | `M6View.tsx:575-600` | Resultado de equipo (`successBodyStaff`, `providedPasswordNoteStaff`) | 42.3.5 |
+| F-7 | `M6View.tsx:149-152` | `onSuccess` del reset invalida `['admin-users']` y `['admin-user', id]` | 42.4 |
+| F-8 | `M6View.tsx:217`, `:365` | `email ?? username` (+ `usernameLine` en la ficha) | 42.5.1 |
+| F-9 | `M6View.tsx:219-223`, `:361`, `:307` | Badge de candado, `lockHint`, banner `lockUnavailable` | 42.5.3–4 |
+| F-10 | `lib/format.ts` (tras `:137`) | `formatTimeMx` — ⚠️ zona compartida | 42.5.3 |
+| F-11 | `app/[locale]/(admin)/admin/refunds/OperatorRefundsView.tsx:82` | `email ?? username` | 42.5.1 |
+| F-12 | `components/layout/AdminShell.tsx:112` | Aviso de candado + `dismiss` — ⚠️ zona compartida | 42.6 |
+| F-13 | `components/domain/VerifyEmailBanner.tsx:24`, `components/domain/BuylistKycForm.tsx:253` | `&& user.email != null` | 42.7 |
+| F-14 | `components/domain/account/AccountView.tsx:24-28`, `:105`, `:116`, `:128-145` | Línea de usuario; sección `username` en lugar de `email` sin correo | 42.8 |
+| F-15 | `components/domain/account/PasswordPage.tsx:65` | `createMode` exige `user.email != null` | 42.8 |
+| F-16 | `frontend/messages/{es,en}.json` | Claves de §42.1–42.8 (reescritas: `admin.m6.resetHint`, `admin.m6.searchLabel`) | todas |
+
+**Candados sugeridos** (los que coinciden con `§M6-U.9` llevan su ID):
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-1** = STF-9 | `AuthForm` login: `type="text"`, `autoComplete="username"`, etiqueta «Correo o usuario»; registro `type="email"` | `type="email"` en login |
+| **UX-2** = STF-16 | Con `ana` y con `a@b.com` tecleados (y tras un `401` en cada uno): mismos enlaces, mismo orden, mismos `href` | Ocultar «olvidé» sin `@` |
+| **UX-3** = STF-22 | `429 TOO_MANY_PASSWORD_ATTEMPTS`: `ana` ⇒ texto `lockedAskAdmin*`, **cero** `a[href$="/forgot-password"]` dentro de `auth-rate-limited`; `a@b.com` ⇒ texto y enlace de hoy. `AuthForm.rateLimited.test.tsx` **sin diff** | Pintar siempre el enlace; tocar la rama `RATE_LIMITED` |
+| **UX-4** | `401 INVALID_CREDENTIALS`: `ana` ⇒ «Usuario o contraseña incorrectos.»; `a@b.com` ⇒ «Correo o contraseña incorrectos.» (igual que hoy); se toma el tecleo **del submit** (editar el campo después no cambia el banner) | Elegir el texto por el campo vivo |
+| **UX-5** | `ForgotPasswordView`: con `ana`, el submit llega a `forgotPassword('ana')` y pinta `sentBody`, igual que con `nadie@x.com` | Devolver `type="email"` |
+| **UX-6** | Alta Equipo: el DOM no tiene campo de correo; el cuerpo enviado **no tiene** la clave `email`; Cliente no manda `username`; cambiar de tipo vacía el otro campo | Mandar `email: ''` en Equipo |
+| **UX-7** | `422 {field:'username', rule}` para las cuatro reglas y `409 USERNAME_TAKEN` ⇒ cinco textos distintos bajo el campo, `aria-invalid="true"` | Mapear todo a `errorValidation` |
+| **UX-8** = STF-27 (front) | Fila M6 y de reembolsos de operador con `email:null, username:'ana'` ⇒ pinta `ana`; el DOM no contiene `null`, `undefined` ni celda vacía | Pintar `u.email` a pelo |
+| **UX-9** | `lockedUntil` futuro ⇒ badge con la hora de CDMX; pasado o `null` ⇒ sin badge; `lockState:'unavailable'` ⇒ banner info y **cero** badges | Badge por `lockedUntil != null` sin mirar la hora |
+| **UX-10** | Tras el reset, `invalidateQueries` con `['admin-users']` y `['admin-user', id]` | Quitar la invalidación |
+| **UX-11** | `AdminShell` con `lockNotice` ⇒ aviso; «Entendido» ⇒ **un** `POST …/dismiss`; `204` ⇒ desaparece; error ⇒ se queda + `dismissError`; con `mustChangePassword` ⇒ ni aviso ni llamada | Cierre optimista; pintar con temporal pendiente |
+| **UX-12** | «Mi cuenta» con `email:null` ⇒ «Usuario: ana», sección `username`, **cero** «SIN VERIFICAR», cero enlaces a `forgot-password`; `PasswordPage` con `hasPassword:false, email:null` **no** entra en modo crear | Dejar `'email'` en `sectionsForRole` |
+| **UX-13** | `VerifyEmailBanner` con `emailVerified:false, email:null` ⇒ `null` | Quitar `&& email != null` |
+| **UX-14** | `error.ACCOUNT_WITHOUT_EMAIL` existe en `es` y `en`; el pago con ese `403` pinta su texto y **no** el aviso de verificar | Tratarlo como `EMAIL_NOT_VERIFIED` |
+| **UX-15** | Paridad de catálogos: cada clave de §42 en los dos idiomas | Borrar una en `en.json` |
+
+### 42.10 Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **A-1** | arquitecto | **Ficha con el almacén caído.** `lockState` existe solo en el listado (§M6-U.7); en la ficha, `lockedUntil: null` no distingue «sin candado» de «no se pudo leer». Default de este diseño: la ficha no dice nada (no afirma «sin candado»). Si se quiere decirlo, `lockState` también en la ficha. No bloquea |
+| **A-2** | arquitecto / backend | **¿El evento `auth.password_lock` sale en `GET /admin/users/:id/audit?scope=target` de esa persona?** NO MEDIDO. El criterio 265 pide verlo en su historial; §42.5.5 pone el rótulo, pero si el `entityId` no es el usuario la fila no aparece |
+| **N-1** | orquestador | **`ForgotPasswordView.tsx:72` no está en §M6-U.10** y el criterio 262 lo exige («en la pantalla»). Entra al encargo de frontend (stream Cuentas y acceso) |
+| **N-2** | orquestador | **`VerifyEmailBanner` y `BuylistKycForm` tampoco están en §M6-U.10**; sin F-13 el equipo sin correo ve «Verifica tu correo» en la tienda |
+| **N-3** | product-owner | **El alta de cliente de hoy no pide celular** (`M6View.tsx:540-565`: correo, nombre, rol, contraseña), aunque `PROJECT §U.2` dice «sigue exigiendo correo (y celular, D11)». Este diseño **no lo cambia** (criterio 270: «como hoy»). Si el celular debe pedirse ahí, es otro encargo |
+| **N-4** | orquestador | **Zonas compartidas tocadas:** `frontend/src/lib/format.ts` (F-10), `frontend/src/components/layout/AdminShell.tsx` (F-12), `frontend/src/components/domain/*` (F-1…F-3, F-13…F-15) y `types/contract.ts` (§M6-U.10). Un solo stream a la vez |
+| **N-5** | orquestador | **F-3 (credenciales con usuario) va más allá de los tres puntos de §M6-U.10.** Lo sostiene `PROJECT §U.3` («texto final de ux-ui»; puede variar por la forma de lo tecleado) y no toca la rama `@`. Si se prefiere el cambio mínimo estricto, se omite F-3 y UX-4, y el equipo leerá «Correo o contraseña incorrectos» |

@@ -200,3 +200,14 @@ describe('§37.20 · RF-8 — nada navega a la lista vieja `/admin/manual-refund
     expect(hits).toEqual([]);
   });
 });
+
+describe('§40.6 — «por revisar» NO es una tercera cubeta: un enlace a «Ventas», sin número', () => {
+  it('dos pestañas y el enlace a `/admin/m3?refundReview=pending`', async () => {
+    renderWithProviders(<RefundsView initialTab={parseRefundsTab(undefined)} />, 'es');
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    const link = screen.getByTestId('refunds-review-link');
+    expect(link).toHaveAttribute('href', '/admin/m3?refundReview=pending');
+    expect(link.textContent).toBe('Pedidos enviados reembolsados desde Stripe que esperan motivo: verlos en Ventas →');
+    expect(link.textContent).not.toMatch(/\d/);
+  });
+});

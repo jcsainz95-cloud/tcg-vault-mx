@@ -2061,10 +2061,46 @@ export interface VaultPieceDTO {
 export interface RefundOrderRequest {
   reason: string;
   confirmPiecesWithCustomer?: boolean;
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)): motivo del reembolso total de un pedido YA ENVIADO. ⛔ Solo se manda
+   * cuando el pedido salió: con el pedido sin salir el servidor responde `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE`.
+   */
+  shippedReason?: ShippedRefundReason;
 }
+/**
+ * 💰 v1.80.8.6 (§M4-SHIP.18.12, clase R — NO SE DERIVA): «solo sería porque no llegó o estaban en mala condición»
+ * (`PROJECT §S.11.4`). Literal cerrado; su lista vive en `SHIPPED_REFUND_REASONS`.
+ */
+export const SHIPPED_REFUND_REASONS = ['not_arrived', 'arrived_damaged'] as const;
+export type ShippedRefundReason = (typeof SHIPPED_REFUND_REASONS)[number];
+/** §M4-SHIP.18.12 (7): en `GET /admin/orders/:id`; `null` si el reembolso total no se ha cerrado. */
+export interface FullRefundReviewDTO {
+  afterShipment: boolean;
+  /** = `isRefundReviewPending` del servidor. ⛔ La pantalla no lo recalcula. */
+  pending: boolean;
+  reason: ShippedRefundReason | null;
+  note: string | null;
+  recordedAt: string | null;
+  recordedBy: { id: string; name: string | null } | null;
+}
+/** `POST /admin/orders/:id/shipped-refund-reason` (§M4-SHIP.18.12 (6), `@MoneyOut`). */
+export interface RecordShippedRefundReasonRequest {
+  reason: ShippedRefundReason;
+  note?: string;
+}
+export interface RecordShippedRefundReasonResponse {
+  orderId: string;
+  outcome: 'recorded' | 'already_recorded';
+  fullRefundReview: FullRefundReviewDTO;
+}
+/**
+ * `422 REFUND_CONFIRMATION_REQUIRED`. v1.80.8.6: `required` gana `'shipped_reason'` (con `shipmentStatus`, sin
+ * `items`); `'pieces_with_customer'` sigue con `items`. ⛔ La pantalla ramifica por `required`, no por el código.
+ */
 export interface RefundConfirmationRequiredDetails {
-  required: ('pieces_with_customer')[];
-  items: { inventoryItemId: string; folio: string; state: 'already_withdrawn' }[];
+  required: ('pieces_with_customer' | 'shipped_reason')[];
+  items?: { inventoryItemId: string; folio: string; state: 'already_withdrawn' }[];
+  shipmentStatus?: 'enviado' | 'entregado';
 }
 export interface VaultPieceInPackedWithdrawalDetails {
   items: { inventoryItemId: string; folio?: string; shipmentId: string; shipmentStatus?: ShipmentStatus }[];
@@ -2096,8 +2132,40 @@ export interface ChargebackInventoryResponse {
   chargebackNeedsManual: false;
 }
 
-/** Detalle M3 (`GET /admin/orders/:id`), aditivo v1.80 / v1.80.2 / v1.80.4 (§M4-SHIP.10, .15.13, .18.6). */
-export interface AdminOrderDetailDTO extends AdminOrderDTO {
+/**
+ * Detalle M3 (`GET /admin/orders/:id`) — forma declarada en `API_CONTRACT §11 AdminOrderDetailDTO` + aditivos
+ * v1.80 / v1.80.2 / v1.80.4 (§M4-SHIP.10, .15.13, .18.6).
+ *
+ * ⛔ NO extiende `AdminOrderDTO`/`OrderSummaryDTO` (QA s5 IMPORTANTE-1, 2026-10-04): esa herencia le daba un
+ * `totalCents` en la RAÍZ que el detalle NO emite — el total vive en `breakdown.totalCents`. Leer la raíz pintaba
+ * «MX$NaN» en producción y tsc no lo veía. Declarado a mano para que un lector de `o.totalCents` NO compile.
+ */
+export interface AdminOrderDetailDTO {
+  id: string;
+  userId: string | null;
+  status: OrderStatus;
+  /** El total, el subtotal y el IVA de la orden. ⛔ No hay `totalCents` en la raíz del detalle. */
+  breakdown: BreakdownDTO;
+  cfdiStatus?: CfdiStatus;
+  invoiceRequested?: boolean;
+  stripePaymentIntentId?: string | null;
+  shippingFeeCents?: number;
+  paymentMethodBrand?: string;
+  paymentMethodLast4?: string;
+  guestEmail?: string | null;
+  claimedAt?: string;
+  createdAt: string;
+  /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): «Reembolso por revisar» (predicado del servidor). */
+  refundReviewPending?: boolean;
+  /**
+   * v1.80.8.7 (A-1): SIEMPRE presente en el detalle admin; `null` ⇔ la orden nunca se liquidó. ⛔ La clave
+   * ausente (servidor anterior) NO cuenta como `null`: la pantalla compara con `=== null`.
+   */
+  settledAt: string | null;
+  /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): ∃ envío de la orden `enviado|entregado` (vivo). Solo pide el motivo ANTES; decide la tx1. */
+  shipmentShipped?: boolean;
+  /** 💰 v1.80.8.6: `null` si el reembolso total no se ha cerrado. */
+  fullRefundReview?: FullRefundReviewDTO | null;
   orderNumber?: string | null;
   fulfillmentMode?: FulfillmentMode;
   isGuestOrder?: boolean;
@@ -2505,6 +2573,8 @@ export interface DashboardDTO {
     manualRefunds?: { pending: number; pendingCents: number; oldestCreatedAt: string | null } | null;
     /** v1.80.3 (SEC-SHIP-M1): SOLO super_admin (`null` para el operador). */
     operatorRefunds?: { last24hCount: number; last24hCents: number; last30dCents: number } | null;
+    /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): SOLO super_admin (`null` para el operador ⇒ la tarjeta no existe). */
+    refundReviews?: { pending: number; oldestRefundedAt: string | null } | null;
   };
   inventoryValueCents?: number;
   custodyValueCents?: number;
@@ -2548,6 +2618,13 @@ export interface InventoryItemDTO {
   tcgplayerProductId?: number | null;
   tcgplayerGroupId?: number | null;
   sealedMarketRef?: PriceInfo | null;
+  /**
+   * v1.80.8.7 (S-2, §M1 «v1.80.8.7» punto 3): SOLO en el LISTADO y SOLO en sellado de plataforma
+   * `in_stock | listed` — el precio de venta de hoy, misma derivación que `pending-publish`. En toda otra fila la
+   * clave no viaja (⛔ raw/graded: P-PRE-1).
+   */
+  resolvedSalePriceCents?: number | null;
+  priceBasis?: PriceBasis | null;
 }
 
 // ⭐ §M2 (v1.23-sealed) · `PUT /admin/pricing/sealed/items/:itemId/mapping` (`super_admin`, auditado):
@@ -2600,7 +2677,29 @@ export type MovementReason =
   | 'lost'
   | 'damaged'
   | 'buylist_convert'
-  | 'adjustment';
+  | 'adjustment'
+  // v1.80.1 (M-61, §M4-SHIP.15.2): traspaso de una reposición.
+  | 'replacement'
+  // v1.80.4 (M-61, §M4-SHIP.18.4): la carta vuelve a la plataforma por reembolso total.
+  | 'refund_return'
+  // 💰 v1.80.8.6 (M-62, §M4-SHIP.18.12 (3)): `reserved → listed` porque la orden NUNCA liquidada se reembolsó.
+  | 'refund_release';
+/** Lista exacta de `MovementReason` (paridad con `schema.prisma` y §Enums; la usa el candado SR-UI-10). */
+export const MOVEMENT_REASONS: readonly MovementReason[] = [
+  'alta',
+  'move',
+  'sale',
+  'settle',
+  'chargeback_return',
+  'withdrawal',
+  'lost',
+  'damaged',
+  'buylist_convert',
+  'adjustment',
+  'replacement',
+  'refund_return',
+  'refund_release',
+];
 
 // Historial de movimientos de un item (contrato §M1 · GET /admin/inventory/items/:id:
 // "detalle + historial de movimientos"). El backend devuelve los InventoryMovement
@@ -3846,6 +3945,12 @@ export interface PendingPublishRowDTO {
   priceBasis: PriceBasis | null;
   /** Deep-link a la cola de precio pendiente de M2. */
   pendingPriceEntryId: string | null;
+  /**
+   * v1.80.8.7 (S-1, §M1 «v1.80.8.7» punto 2): POR QUÉ le falta el precio — veredicto de HOY de la derivación.
+   * `null ∧ missing ∋ 'price'` ⇔ gradeada sin identidad de slab (regla del contrato). Opcional en el tipo solo
+   * para tolerar un servidor anterior (clave ausente ⇒ la UI no inventa motivo).
+   */
+  pendingReason?: PendingPriceReason | null;
   /** QUÉ LE FALTA. Vacío ⇒ la pieza ya no debería estar aquí. */
   missing: ('location' | 'price')[];
   acquisitionType: AcquisitionType;
@@ -3985,6 +4090,8 @@ export interface AdminOrderDTO extends OrderSummaryDTO {
   customer?: CustomerRefDTO | null;
   refundedCents?: number;
   chargebackNeedsManual?: boolean;
+  /** 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): «Reembolso por revisar» (predicado del servidor). */
+  refundReviewPending?: boolean;
 }
 
 // POST /admin/orders/:id/refund (contrato §M3, super_admin, money-out).
@@ -5124,6 +5231,20 @@ export interface SettingsDTO {
    * backend desde antes, sin UI hasta M11. Ausente ⇒ `off`. `PUT /admin/settings` parcial.
    */
   sealedRestockAlerts?: OnOff;
+  /**
+   * 💰 v1.80.8.5 (§M2 `M2-PF`): qué premiums cuyo precio de VENTA cae al piso se publican al piso. Seed
+   * `{ mode: 'only', rarities: ['Double Rare', 'Rare Holo EX'] }`. Opcional: un servidor anterior no la trae y la
+   * UI de M10 NO asume el seed (`DESIGN_SYSTEM §39.1 (b)`). Se edita SOLO desde su sección propia de M10.
+   */
+  premiumFloorSalePublish?: PremiumFloorSalePublish;
+}
+
+/** §M2 `M2-PF` — el dial `premiumFloorSalePublish`. `rarities` vacío ⇔ `mode !== 'only'` (validador del servidor). */
+export const PREMIUM_FLOOR_MODES = ['only', 'all', 'none'] as const;
+export type PremiumFloorSalePublishMode = (typeof PREMIUM_FLOOR_MODES)[number];
+export interface PremiumFloorSalePublish {
+  mode: PremiumFloorSalePublishMode;
+  rarities: string[];
 }
 
 /**

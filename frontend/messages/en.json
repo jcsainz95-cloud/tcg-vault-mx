@@ -1341,6 +1341,11 @@
       "operatorRefunds": {
         "title": "Operator refunds",
         "detail": "{count} in 24 h · {amount30d} in 30 days"
+      },
+      "refundReviews": {
+        "title": "Refunds to review",
+        "detail": "Reason missing · oldest {days, plural, one {# day} other {# days}} ago",
+        "detailNone": "Nothing to review."
       }
     },
     "m1": {
@@ -1491,7 +1496,11 @@
         "withdrawal": "Withdrawal",
         "lost": "Lost",
         "damaged": "Damaged",
-        "buylist_convert": "Buylist conversion"
+        "buylist_convert": "Buylist conversion",
+        "refund_release": "Released by refund",
+        "refund_return": "Returned by refund",
+        "replacement": "Replacement",
+        "adjustment": "Stock-count adjustment"
       },
       "locations": {
         "button": "Locations",
@@ -1522,13 +1531,35 @@
         "missingPrice": "Price",
         "missingUnknown": "To review",
         "origin": "Origin",
-        "originBuylist": "Bought from a seller",
         "salePrice": "Sale price",
-        "noSalePrice": "No resolvable price",
         "pendingPriceLink": "See in the pending price queue",
         "sealedMark": "SEALED",
         "sealedUnidentified": "Unidentified sealed product",
-        "note": "This queue only shows: no sale prices are captured here, nor inherited from the purchase cost."
+        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set final price here.",
+        "openPiece": "Open item {folio}",
+        "basis": {
+          "manual": "hand-set final price",
+          "market": "automatic",
+          "floor": "floor",
+          "override": "variant price",
+          "none": "no price"
+        },
+        "reason": {
+          "location": "No location: it goes on sale by itself once you set one.",
+          "sealedNoPrice": "This sealed item has no automatic price: set a final price.",
+          "no_market": "The provider has no market price for this card.",
+          "premium_at_floor": "Premium rarity with market below the floor: held for review.",
+          "seeRule": "See the rule",
+          "inQueue": "No price; the reason is in the pending-price queue.",
+          "noEntry": "No price and no pending-price entry: tell the systems team.",
+          "gradedNoSlab": "Missing grading company and grade: capture them on the item."
+        },
+        "originLabel": {
+          "aportacion_en_especie": "In-kind contribution",
+          "buylist": "Bought from a seller",
+          "compra": "Direct purchase",
+          "unknown": "Unknown origin"
+        }
       }
     },
     "m3": {
@@ -1670,6 +1701,63 @@
           "conflict": "One of the cards changed state while you were confirming. Nothing was done. Refresh and try again.",
           "alreadyResolved": "This order was already resolved. Nothing was done."
         }
+      },
+      "shippedReason": {
+        "not_arrived": "Didn't arrive",
+        "arrived_damaged": "Arrived in bad condition",
+        "hint": {
+          "not_arrived": "The parcel was lost or the customer never got it.",
+          "arrived_damaged": "It arrived, but the cards weren't as sold."
+        }
+      },
+      "shippedRefund": {
+        "title": "This order has already shipped",
+        "warning": "The cards don't go back into inventory: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition.",
+        "body": "What's left of the charge is refunded. The shipment isn't touched and the cards don't go back into inventory or on sale. The reason is saved under your name. The customer gets the usual refund email.",
+        "legend": "Why is it being refunded? (required)",
+        "pickOne": "Pick one of the two to be able to refund.",
+        "noteLabel": "What happened",
+        "noteHint": "Required. Saved as the reason's note and in the audit log. 500 characters max.",
+        "done": "Order {ref} refunded. Reason saved: “{reason}”. The cards don't go back into inventory.",
+        "error": {
+          "required": "This order shipped while you had the dialog open (shipment {status}). Nothing was refunded. Pick why it's being refunded and confirm again.",
+          "notApplicable": "This order hasn't shipped: it takes no shipping reason. Nothing was refunded. Check and confirm again.",
+          "invalid": "Pick “Didn't arrive” or “Arrived in bad condition”."
+        }
+      },
+      "refundReview": {
+        "chip": "To review",
+        "filter": "Only refunds to review",
+        "emptyTitle": "No refunds to review.",
+        "emptyBody": "Orders that had already shipped and were fully refunded from the Stripe dashboard show up here until someone records why.",
+        "bannerTitle": "Refund to review",
+        "bannerBody": "This order was fully refunded from the Stripe dashboard after it had shipped. The cards don't go back into inventory. The reason still needs recording.",
+        "formTitle": "Record the reason",
+        "legend": "Why was it refunded? (required)",
+        "noteLabel": "Note (optional)",
+        "effect": "It's only recorded: it doesn't move money or cards and doesn't notify the customer. Once saved it can't be changed.",
+        "cta": "Record reason",
+        "confirmTitle": "Record “{reason}” as the reason?",
+        "confirmBody": "It's saved under your name and can't be changed afterwards.",
+        "confirm": "Record",
+        "operatorOnly": "Only the super-admin can record the reason.",
+        "recorded": "Reason recorded: “{reason}”.",
+        "alreadyRecorded": "That reason was already recorded. Nothing changed.",
+        "error": {
+          "alreadySet": "Someone already recorded a different reason: “{reason}”. The reason can't be changed.",
+          "notApplicable": "This order hadn't shipped when it was refunded: it takes no shipping reason.",
+          "forbidden": "Only the super-admin can record the reason. The attempt was logged.",
+          "invalid": "Pick “Didn't arrive” or “Arrived in bad condition”. The note takes up to 500 characters."
+        },
+        "doneTitle": "Refund after shipping",
+        "reasonLine": "Reason: {reason}",
+        "noteLine": "Note: {note}",
+        "byLine": "Recorded by {name} · {date}",
+        "cardsStayed": "The cards didn't go back into inventory."
+      },
+      "unsettledRefund": {
+        "title": "Refunded before it was paid",
+        "body": "Stripe refunded this order before the store marked it as paid, so it was never prepared. The cards it was holding went back on sale by themselves; each one shows “Released by refund” in its history."
       }
     },
     "m4": {
@@ -3836,6 +3924,74 @@
             "charged": "Total the buyer pays"
           }
         }
+      },
+      "premiumFloor": {
+        "title": "Premium cards at the floor (sale)",
+        "intro": "When a card's market drops below the sale floor ({floor}), the store sells it at the floor. For common cards that's normal. For premium rarities (ex, Illustration, Special Illustration, Ultra…) a market that low is sometimes bad data, so here you decide which ones go on sale at the floor by themselves and which stay off sale, in the pending-price queue under “Catalog & pricing”, for you to review.",
+        "introNoFloor": "When a card's market drops below the sale floor, the store sells it at the floor. For common cards that's normal. For premium rarities (ex, Illustration, Special Illustration, Ultra…) a market that low is sometimes bad data, so here you decide which ones go on sale at the floor by themselves and which stay off sale, in the pending-price queue under “Catalog & pricing”, for you to review.",
+        "legend": "What should happen to a premium card whose market drops below the floor?",
+        "defaultTag": "Default",
+        "mode": {
+          "only": {
+            "label": "Publish only these rarities",
+            "help": "Cards of the rarities you tick below go on sale at {floor} by themselves. Cards of any other premium rarity stay off sale, in the pending-price queue, until someone reviews them.",
+            "helpNoFloor": "Cards of the rarities you tick below go on sale at the floor by themselves. Cards of any other premium rarity stay off sale, in the pending-price queue, until someone reviews them."
+          },
+          "all": {
+            "label": "Publish all at the floor",
+            "help": "Every premium card whose market drops below the floor goes on sale at {floor} by itself, whatever its rarity. Careful: an expensive card with bad market data would also go out at {floor}.",
+            "helpNoFloor": "Every premium card whose market drops below the floor goes on sale at the floor by itself, whatever its rarity. Careful: an expensive card with bad market data would also go out at the floor."
+          },
+          "none": {
+            "label": "Hold all",
+            "help": "No premium card is published at the floor: if its market drops below the floor, it stays off sale, in the pending-price queue, until someone prices it. This is the old rule.",
+            "helpNoFloor": "No premium card is published at the floor: if its market drops below the floor, it stays off sale, in the pending-price queue, until someone prices it. This is the old rule."
+          }
+        },
+        "rarities": {
+          "legend": "Rarities published at the floor",
+          "selected": "{count, plural, =0 {None ticked} one {# ticked} other {# ticked}}",
+          "cardCount": "{count, plural, one {# card in the catalog} other {# cards in the catalog}}",
+          "notInCatalog": "no cards in the catalog today",
+          "hintDoubleRare": "Scarlet & Violet “ex” cards",
+          "hintRareHoloEx": "older-era “EX” cards",
+          "disabledNote": "Only applies with “Publish only these rarities”.",
+          "filter": "Filter rarities",
+          "loadError": "I couldn't load the rarity list. “Publish all” and “Hold all” can still be saved; to tick rarities, retry."
+        },
+        "unmapped": {
+          "title": "Unmapped premium rarities (always held) · {count}",
+          "body": "The catalog brings these rarities under a name the system doesn't recognize. They're treated as premium and always held, even if the name says “ex”. To publish them at the floor they must be added to the rarity catalog (a systems task); then they show up above to be ticked."
+        },
+        "exWarning": {
+          "title": "The rarity decides, not the name",
+          "body": "A card being called “ex” doesn't make it Double Rare. A <b>Charizard ex</b> whose rarity is <b>Special Illustration Rare</b> or <b>Ultra Rare</b> stays held even if you tick Double Rare: the rule looks at the card's rarity, not its name."
+        },
+        "effect": "What happens on save: cards already listed change right away (they appear at {floor} or stop showing). Cards in a box not yet listed go out with the next “Publish all” in “Inventory” or the next price update. What's already sold stays sold. No card triggers its own alert.",
+        "effectNoFloor": "What happens on save: cards already listed change right away (they appear at the floor or stop showing). Cards in a box not yet listed go out with the next “Publish all” in “Inventory” or the next price update. What's already sold stays sold. No card triggers its own alert.",
+        "buyNote": "Doesn't change what we pay when buying: a cheap premium card still isn't quoted in “Sell”.",
+        "audit": "Super-admin only · logged.",
+        "save": "Save premium rule",
+        "saved": "Rule saved. Listed cards have already changed; boxed ones go out with the next “Publish all”.",
+        "notAvailable": "This server doesn't have this setting yet.",
+        "errors": {
+          "emptyOnly": "Tick at least one rarity, or choose “Hold all”.",
+          "server": "Not saved: the server rejected the rule. Nothing changed."
+        },
+        "confirm": {
+          "title": "Change the premium-at-floor rule?",
+          "before": "Before: {summary}",
+          "after": "Now: {summary}",
+          "allWarning": "With “Publish all”, any premium card with bad market data would go on sale at {floor}.",
+          "allWarningNoFloor": "With “Publish all”, any premium card with bad market data would go on sale at the floor.",
+          "removing": "Cards of the rarities you stop publishing disappear from the store on save. What's already sold stays sold.",
+          "confirm": "Save rule"
+        },
+        "summary": {
+          "only": "publish only {list}",
+          "all": "publish all at the floor",
+          "none": "hold all"
+        }
       }
     },
     "m7": {
@@ -4429,7 +4585,8 @@
         "spei": "SPEI transfers",
         "operators": "Operator refunds",
         "speiCount": "{count, plural, one {# pending} other {# pending}}"
-      }
+      },
+      "reviewLink": "Shipped orders refunded from Stripe that need a reason: see them in Sales →"
     },
     "refunds": {
       "hint": "What each operator has refunded while preparing shipments. No email: the panel is the notice.",
@@ -4476,6 +4633,52 @@
       "retry": "Retry",
       "retried": "Retry requested: {status}.",
       "noName": "an account with no name"
+    },
+    "sealedFinalPrice": {
+      "rowLabel": "Final price",
+      "auto": "automatic",
+      "manual": "{price} set by hand",
+      "market": "Market: {price}",
+      "set": "Set final price",
+      "change": "Change final price",
+      "setAria": "Set final price for {folio}",
+      "changeAria": "Change final price for {folio}",
+      "label": "Final price (MXN)",
+      "hint": "Overrides the automatic price. Never $0.",
+      "noLocationHint": "It'll go on sale by itself once you set a location.",
+      "listedHint": "It's already on sale: the new price shows in the store when you confirm.",
+      "saveOnly": "Save price",
+      "saveAndPublish": "Save and publish",
+      "errPositive": "Enter a price above zero.",
+      "errDecimals": "Two decimals at most.",
+      "errMax": "The maximum price is {max}.",
+      "confirm": {
+        "title": "Set the final price for {name}?",
+        "thisSealed": "this sealed item",
+        "now": "Now: {price} ({basis})",
+        "nowNone": "Now: no price",
+        "new": "New: {price}, set by hand",
+        "effectPublish": "It goes on sale in the store at {price} when you confirm.",
+        "effectNoLocation": "Not published yet: it has no location. It'll go on sale at {price} by itself once you set one.",
+        "effectListed": "It's already on sale: the new price shows in the store when you confirm.",
+        "note": "Overrides the automatic price until you change it. Logged under your name.",
+        "publish": "Publish at {price}",
+        "save": "Save {price}"
+      },
+      "done": {
+        "published": "{folio} listed at {price}.",
+        "savedNoLocation": "Final price saved on {folio}. It'll go on sale once it has a location.",
+        "repriced": "{folio} price changed to {price}."
+      },
+      "errors": {
+        "reserved": "It's held by an order in progress. If the order isn't paid, it frees up in a few minutes and you can change it. Nothing was saved.",
+        "notAdjustable": "This item can no longer be repriced: it's “{status}”. Nothing was saved.",
+        "conflict": "The item changed while you were editing. Reload and try again; nothing was saved.",
+        "notPublishable": "Couldn't publish: it's “{status}”. The price wasn't saved.",
+        "pricePending": "Couldn't publish: the server couldn't resolve the price. Nothing was saved.",
+        "validation": "Invalid price: it must be above zero and at most {max}."
+      },
+      "reload": "Reload"
     }
   },
   "locale": {

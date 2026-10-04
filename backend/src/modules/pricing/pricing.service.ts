@@ -79,6 +79,8 @@ import {
   normalizePricingCurve,
   resolvePendingReason,
   sanitizePricingCurve,
+  PremiumFloorPolicy,
+  sanitizePremiumFloorSalePublish,
 } from '../../common/pricing-curve';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
@@ -1167,6 +1169,35 @@ export class PricingService {
   }
 
   /**
+   * ⭐ v1.80.8.5 (API_CONTRACT §M2 `M2-PF`, ARCHITECTURE §4.36.5 c-ter, **MONEY**) — **EL ÚNICO LECTOR
+   * del dial de VENTA `premium_floor_sale_publish`.** Se iza UNA vez por request/lote, igual que la
+   * curva (BE-25). ⛔ Ningún llamador de VENTA construye una política literal (candado PF-11) y ⛔
+   * ningún llamador de COMPRA llama aquí (usa `BUY_PREMIUM_FLOOR_POLICY`).
+   *
+   * - fila AUSENTE ⇒ el seed `{ mode:'only', rarities:['Double Rare','Rare Holo EX'] }` (decisión del
+   *   dueño, HECHOS 2026-10-04);
+   * - valor almacenado que NO pasa el validador de la puerta ⇒ `{ mode:'none', rarities:[] }` (retener
+   *   todo: la dirección conservadora) + `logger.error`. La puerta `PUT /admin/settings` ya impide
+   *   llegar ahí; esto cubre una edición directa a la BD.
+   *
+   * Lectura sin caché: `SettingsService.get` hace un `findUnique` por llamada (medido, BACKEND_NOTES),
+   * así que un cambio del dial rige desde la siguiente petición.
+   */
+  async loadSalePremiumFloorPolicy(): Promise<PremiumFloorPolicy> {
+    // `getRaw` ya cae a `SETTING_DEFAULTS` (= el seed) cuando la fila no existe; `undefined` no es un
+    // valor JSON almacenable, así que `sanitize…` también lo lee como «sin fila» ⇒ seed.
+    const raw = await this.settings.getRaw(SettingKey.PREMIUM_FLOOR_SALE_PUBLISH);
+    const { policy, problem } = sanitizePremiumFloorSalePublish(raw);
+    if (problem != null) {
+      this.logger.error(
+        `[MONEY] El setting ${SettingKey.PREMIUM_FLOOR_SALE_PUBLISH} es INVÁLIDO en BD (${problem}): se ` +
+          'RETIENE toda premium en el piso de VENTA (`mode:none`). Corrígelo en M10 (PUT /admin/settings).',
+      );
+    }
+    return policy;
+  }
+
+  /**
    * v2.1 (P-48, §4.36.8a) — **DRY-RUN de la curva**. Evalúa una curva BORRADOR contra N mercados de
    * sonda y devuelve, por sonda, el resultado con el borrador Y con la curva **VIGENTE** (que se lee
    * de ESTE almacén, jamás del cliente: si el cliente pudiera echarla de vuelta, un cliente rancio
@@ -2013,8 +2044,11 @@ export class PricingService {
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
     // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, cardProductId,
     // sealedProductId, status='open')` — v1.30 añade `cardProductId`; v1.42 (M-40) añade `sealedProductId`.
+    // 💰 v1.80.8.9 (`M2-VQ9` punto 3): `context` entra a la clave — SIETE componentes. Cada eje tiene SU fila: uno ya
+    // no reutiliza ni reescribe el `reason` de la del otro, y el aviso de VENTA no vive en una fila de COMPRA que
+    // `?context=inventory` no muestra (VQ-13). El CIERRE no cambia (`closePendingForVariant`).
     const open = await this.prisma.pendingPriceEntry.findFirst({
-      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, context, status: 'open' },
     });
     if (open) {
       if (reason != null && open.reason !== reason) {
@@ -2129,6 +2163,22 @@ export class PricingService {
     if (ids.length === 0) return 0;
     const res = await this.prisma.pendingPriceEntry.updateMany({
       where: { id: { in: ids }, status: 'open', context: 'inventory', reason: null },
+      data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
+    });
+    return res.count;
+  }
+
+  /**
+   * v1.80.8.5 — **la ESCRITURA de la rama nueva del barrido VQ** (API_CONTRACT §M2 `M2-PF`, ARCHITECTURE
+   * §4.36.5 c-ter). Cierra (`resolved`, `resolvedAt=now`, `resolvedPriceRefId=null`) las filas `ids`
+   * que **sigan** `open`, `context='inventory'`, `reason='premium_at_floor'`: el `where` repite el
+   * predicado, así que ⛔ nunca toca COMPRA (`buylist`), ni `no_market`, ni `null`. ⛔ No decide QUÉ
+   * filas cerrar —eso es del barrido, que mira la rareza con `premiumFloorPublishes`—. Devuelve cuántas.
+   */
+  async closeStalePremiumFloorSaleRows(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const res = await this.prisma.pendingPriceEntry.updateMany({
+      where: { id: { in: ids }, status: 'open', context: 'inventory', reason: 'premium_at_floor' },
       data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
     });
     return res.count;
@@ -2841,6 +2891,11 @@ export class PricingService {
     controls?: VariantPriceControls | null;
     /** Curva izada UNA vez por request (BE-25). */
     curve: PricingCurve;
+    /**
+     * v1.80.8.5 (`M2-PF`, MONEY) — la política del guardarraíl de VENTA, de `loadSalePremiumFloorPolicy()`
+     * (izada una vez por request, como la curva). OBLIGATORIA como `rarityCanonical`: no se puede «olvidar».
+     */
+    premiumFloorPolicy: PremiumFloorPolicy;
   }): SalePriceDecision {
     // 1. EL MONTO — solo del valor de mercado (§4.36.1): `redondeo↑(max(piso, mercado × markup(mercado)))`,
     //    precedencia `sellOverrideCents > curva > pendiente`. Sin rareza, sin acabado.
@@ -2848,7 +2903,9 @@ export class PricingService {
     // 2. EL VEREDICTO — `no_market` (sin dato el PISO no gana, decisión LOCKED §4.36.0) o el guardarraíl
     //    `premium_at_floor` (una chase en el piso solo puede significar dato de mercado malo). NO dispara
     //    con `override` ni `bounty`: son decisiones deliberadas del admin y no se corrigen (§4.36.6).
-    const pendingReason = resolvePendingReason(price.basis, input.rarityCanonical);
+    //    v1.80.8.5 (`M2-PF`): el guardarraíl de VENTA consulta el dial — una premium cuya rareza el dial
+    //    publica, en el piso, sale con `priceCents = piso` y `pendingReason = null` (como una Common).
+    const pendingReason = resolvePendingReason(price.basis, input.rarityCanonical, input.premiumFloorPolicy);
     if (pendingReason != null) {
       // El monto se SUPRIME aquí, en el seam, y no en cada caller: así ninguna superficie puede
       // publicar/cobrar/ofrecer un precio que otra superficie ya considera no publicable.
@@ -2871,9 +2928,12 @@ export class PricingService {
     rarityCanonical: string | null;
     controls?: VariantPriceControls | null;
     curve?: PricingCurve;
+    /** v1.80.8.5 (`M2-PF`): si el llamador no la trae, se lee con `loadSalePremiumFloorPolicy()`. */
+    premiumFloorPolicy?: PremiumFloorPolicy;
   }): Promise<SalePriceDecision> {
     const curve = input.curve ?? (await this.loadPricingCurve());
-    return this.decideSalePrice({ ...input, curve });
+    const premiumFloorPolicy = input.premiumFloorPolicy ?? (await this.loadSalePremiumFloorPolicy());
+    return this.decideSalePrice({ ...input, curve, premiumFloorPolicy });
   }
 
   /**

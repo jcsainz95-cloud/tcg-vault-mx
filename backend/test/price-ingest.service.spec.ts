@@ -3,7 +3,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { usdToMxnCents } from '../src/common/money';
 import { cardNumberVariants } from '../src/modules/pricing/pricing.types';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 
 /**
  * WS-A (v1.14-price-ingest, §4.15c/§4.15d) — PriceIngestService:
@@ -804,6 +804,7 @@ describe('PriceIngestService — E4-ter: el barrido ABRE la cola, no solo la cie
     const real = PricingService.prototype;
     const pricing: any = {
       persistMarketReference: jest.fn(async () => {}),
+      loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
       tryGradeKeyFor: jest.fn(() => 'raw:NM'),
@@ -837,6 +838,38 @@ describe('PriceIngestService — E4-ter: el barrido ABRE la cola, no solo la cie
     expect(h.settled).toHaveLength(1);
     expect(h.settled[0].reason).toBe('premium_at_floor');
     expect(h.settled[0].key).toMatchObject({ cardId: 'db-1', productType: 'raw', finish: 'normal' });
+  });
+
+  /**
+   * PF-5 (v1.80.8.5, API_CONTRACT §M2 `M2-PF`) — la reconciliación de `price-ingest` re-resuelve con la
+   * política de VENTA: con el seed, la `Double Rare` raw `listed` en el piso CIERRA su fila (reason null)
+   * y la `Special Illustration Rare` queda `premium_at_floor`. Con `none`, las dos `premium_at_floor`.
+   */
+  it.each([
+    ['seed', DEFAULT_SALE_PREMIUM_FLOOR_POLICY, [null, 'premium_at_floor']],
+    ['none', { mode: 'none' as const, rarities: [] }, ['premium_at_floor', 'premium_at_floor']],
+  ])('PF-5 · dial %s: DR y SIR `listed` en el piso', async (_g, policy, expected) => {
+    const dr = listedItem({ id: 'inv-dr', cardId: 'db-dr', card: { rarity: 'Double Rare', rarityCanonical: 'Double Rare' } });
+    const sir = listedItem({
+      id: 'inv-sir',
+      cardId: 'db-sir',
+      card: { rarity: 'Special Illustration Rare', rarityCanonical: 'Special Illustration Rare' },
+    });
+    const h = buildIngest([dr, sir], 1000);
+    h.pricing.loadSalePremiumFloorPolicy.mockResolvedValue(policy);
+    h.pricing.getReferencesBatch.mockResolvedValue(
+      new Map([
+        ['db-dr|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 1000 }],
+        ['db-sir|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 1000 }],
+      ]),
+    );
+    await h.svc.ingestSet('local-sv8', fx);
+    expect(h.settled.map((s) => [s.key.cardId, s.reason])).toEqual([
+      ['db-dr', expected[0]],
+      ['db-sir', expected[1]],
+    ]);
+    // El cierre de la DR es POR SU EJE (el seam lo recibe con `context='inventory'`).
+    expect(h.pricing.settlePendingForVariant.mock.calls.every((c: unknown[]) => c[2] === 'inventory')).toBe(true);
   });
 
   it('feed que DEJA de reportar la variante: entra como `no_market`', async () => {

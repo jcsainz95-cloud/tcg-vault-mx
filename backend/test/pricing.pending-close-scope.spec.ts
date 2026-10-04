@@ -11,6 +11,8 @@ import {
   DEFAULT_PRICING_CURVE,
   resolveBuyFromCurve,
   resolvePendingReason,
+  BUY_PREMIUM_FLOOR_POLICY,
+  DEFAULT_SALE_PREMIUM_FLOOR_POLICY,
   resolveSaleFromCurve,
 } from '../src/common/pricing-curve';
 
@@ -97,8 +99,12 @@ describe('S48-M1 — el escenario EXACTO que reportó seguridad (mercado MX$10, 
     const premium = 'Special Illustration Rare';
     expect(sale).toMatchObject({ cents: 2500, basis: 'floor' });
     expect(buy).toMatchObject({ cents: 300, basis: 'market' });
-    expect(resolvePendingReason(sale.basis, premium)).toBe('premium_at_floor');
-    expect(resolvePendingReason(buy.basis, premium)).toBeNull();
+    // v1.80.8.5 (`M2-PF`): la VENTA con el seed del dial (SIR no está en la lista) y con `none` —la
+    // aserción original— sigue retenida; la COMPRA usa su constante.
+    for (const policy of [DEFAULT_SALE_PREMIUM_FLOOR_POLICY, { mode: 'none' as const, rarities: [] }]) {
+      expect(resolvePendingReason(sale.basis, premium, policy)).toBe('premium_at_floor');
+    }
+    expect(resolvePendingReason(buy.basis, premium, BUY_PREMIUM_FLOOR_POLICY)).toBeNull();
     // Es la asimetría de CONSTANTES lo que lo produce (V7 garantiza bin < floor).
     expect(DEFAULT_PRICING_CURVE.buy.binCents).toBeLessThan(DEFAULT_PRICING_CURVE.sale.floorCents);
   });

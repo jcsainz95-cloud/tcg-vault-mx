@@ -232,6 +232,10 @@ export const E2E_CARDS = {
    *   COMPRA: 1000 × 0.30 =  300 >  bin  100  ⇒ basis 'market' ⇒ SÍ se cotiza
    * Es además el escenario EXACTO de S48-M1 (las dos caras no resuelven juntas), así que la cola de
    * triage y su asimetría quedan cubiertas con datos de verdad y no solo en forma.
+   *
+   * v1.80.8.5 (API_CONTRACT §M2 `M2-PF`): sigue RETENIDA en VENTA porque su rareza (`Rare Secret` ⇒
+   * canónica `Secret Rare`) NO está en el seed del dial `premiumFloorSalePublish` (`only` Double Rare /
+   * Rare Holo EX). ⚠️ Cambiarle la rareza a una de esas dos la PUBLICARÍA al piso y vaciaría su fila.
    */
   floorpremium: { externalId: 'e2e-floor-premium', name: 'E2E Floor Premium', number: '98', rarity: 'Rare Secret', refNmCents: 1000, availableFinishes: ['normal'] },
   /**

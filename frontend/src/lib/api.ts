@@ -256,6 +256,8 @@ import type {
   ReclaimVaultRequest,
   ReclaimVaultResponse,
   RefundOrderRequest,
+  RecordShippedRefundReasonRequest,
+  RecordShippedRefundReasonResponse,
   ReplaceCaseRequest,
   ReplaceCaseResponse,
   ReplacementCaseDTO,
@@ -3220,6 +3222,8 @@ export async function getDashboard(): Promise<DashboardDTO> {
       operatorRefunds: ops
         ? { last24hCount: ops.refunds.last24h.count, last24hCents: ops.refunds.last24h.cents, last30dCents: ops.refunds.last30d.cents }
         : null,
+      // MOCK §M4-SHIP.18.12 (7): «Reembolso por revisar» (`null` para el operador).
+      refundReviews: m4ship.mockRefundReviewsCounter(),
     },
   });
 }
@@ -5012,6 +5016,11 @@ export interface AdminOrdersFilters {
   maxCents?: number;
   guest?: boolean;
   needsManual?: boolean;
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): «Reembolso por revisar». Clase L, UN solo valor; cualquier otro ⇒ `400`,
+   * así que la pantalla nunca manda otro (`parseRefundReview`).
+   */
+  refundReview?: 'pending';
   page?: number;
   pageSize?: number;
 }
@@ -5036,6 +5045,7 @@ export async function getAdminOrders(
         maxCents: filters.maxCents,
         guest: filters.guest === undefined ? undefined : String(filters.guest),
         needsManual: filters.needsManual === undefined ? undefined : String(filters.needsManual),
+        refundReview: filters.refundReview,
         page: filters.page,
         pageSize: filters.pageSize,
       },
@@ -5077,7 +5087,10 @@ export async function getAdminOrders(
   // El ORDEN (`createdAt desc`, recientes primero) lo aplica el server; el mock respeta el orden
   // de los fixtures (no re-ordena).
   // MOCK §M4-SHIP.10: cada fila gana `customer` y `refundedCents` (y su estado vivo) del servidor falso.
-  const rows = data.map((o) => ({ ...o, ...m4ship.mockAdminOrderRowAdditions(o.id) }) as AdminOrderDTO);
+  // (`definedOnly`: una orden SIN origen en `m4-ship` no debe pisar su `status` con `undefined` — FRONTEND_NOTES §84.)
+  let rows = data.map((o) => ({ ...o, ...definedOnly(m4ship.mockAdminOrderRowAdditions(o.id)) }) as AdminOrderDTO);
+  // MOCK §M4-SHIP.18.12 (7): `?refundReview=pending` filtra por el predicado del servidor.
+  if (filters.refundReview === 'pending') rows = rows.filter((o) => o.refundReviewPending === true);
   return delay(paginate(rows, filters));
 }
 
@@ -5119,7 +5132,58 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDT
     void _r;
     return { ...it, refund: null };
   });
-  return delay({ ...order, breakdown: order.breakdown ?? fx.mockOrderDetail.breakdown, items, ...additions, id: orderId });
+  // v1.80.8.7 (A-1): `settledAt` SIEMPRE presente en el detalle (`null` ⇔ nunca liquidada).
+  const settledAt = order.settledAt ?? (order.status === 'pending' || order.status === 'failed' ? null : order.createdAt);
+  // ⛔ Proyección EXPLÍCITA a la forma del contrato (§11 `AdminOrderDetailDTO`), no `...order`: la fila del listado
+  // trae `totalCents` en la raíz y el detalle real NO (vive en `breakdown`). Esparcir la fila hacía que el mock
+  // pintara bien lo que producción pintaba «MX$NaN» (QA s5 IMPORTANTE-1).
+  const detail: AdminOrderDetailDTO = {
+    id: orderId,
+    userId: order.userId ?? null,
+    orderNumber: order.orderNumber ?? null,
+    status: order.status,
+    breakdown: order.breakdown ?? fx.mockOrderDetail.breakdown,
+    cfdiStatus: order.cfdiStatus,
+    fulfillmentMode: order.fulfillmentMode,
+    isGuestOrder: order.isGuestOrder,
+    guestEmail: order.guestEmail,
+    customer: order.customer,
+    refundedCents: order.refundedCents,
+    chargebackNeedsManual: order.chargebackNeedsManual,
+    refundReviewPending: order.refundReviewPending,
+    createdAt: order.createdAt,
+    items,
+    ...definedOnly(additions),
+    settledAt,
+  };
+  return delay(detail);
+}
+
+/** MOCK: quita las claves `undefined` de un parcial antes de esparcirlo (no pisa lo que la fila sí sabe). */
+function definedOnly<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+/**
+ * 💰 `POST /admin/orders/:id/shipped-refund-reason` (§M4-SHIP.18.12 (6), v1.80.8.6). `@MoneyOut` ⇒ el operador
+ * recibe `403 MONEY_OUT_FORBIDDEN` auditado. Registro FINAL: `409 …ALREADY_SET {reason}` si ya hay otro motivo,
+ * `409 …NOT_APPLICABLE` si el pedido no había salido. ⛔ No mueve dinero, cartas ni correos.
+ */
+export async function recordShippedRefundReason(
+  orderId: string,
+  body: RecordShippedRefundReasonRequest,
+): Promise<RecordShippedRefundReasonResponse> {
+  if (!config.useMocks) {
+    return apiRequest<RecordShippedRefundReasonResponse>(`/admin/orders/${orderId}/shipped-refund-reason`, {
+      method: 'POST',
+      body,
+    });
+  }
+  try {
+    return await delay(m4ship.mockRecordShippedRefundReason(orderId, body));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /** `POST /admin/orders/:id/chargeback-inventory` (§M3, operador+; v1.80.4: también `vault` `refunded`). */

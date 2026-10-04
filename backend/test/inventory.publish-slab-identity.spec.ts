@@ -9,7 +9,7 @@ import {
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { BulkPublishRequest } from '../src/modules/inventory/dto/inventory.dto';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 
 /**
  * v1.53-b (M-1, enrutado por el gate) — **publicar un slab exige saber QUÉ GRADO ES.**
@@ -85,6 +85,7 @@ function buildHarness() {
     {} as PokeTraceProvider,
   );
   jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
+  jest.spyOn(pricing, 'loadSalePremiumFloorPolicy').mockResolvedValue(DEFAULT_SALE_PREMIUM_FLOOR_POLICY);
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({
     spreadPctBySubtype: {},
     fallbackPct: 25,

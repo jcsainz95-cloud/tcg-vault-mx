@@ -13,12 +13,38 @@
  * `POST /admin/orders/:id/reclaim-vault` (`super_admin`, custodia, ⛔ no dinero, auditado) — §M4-SHIP.18.10.
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, Role, ShippedRefundReason } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { orderFullRefundComponents } from '../../common/money';
 import { FullRefundService, VaultPieceState } from '../payments/refunds/full-refund.service';
 import { NON_FAILED, PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
+import { ACCEPTED_SHIPPED_REFUND_REASONS } from '../../common/business-rules';
+import {
+  FULL_REFUND_REVIEW_SELECT,
+  FullRefundReviewDTO,
+  isShippedOut,
+  lockShipmentsOfOrder,
+  ShippedOutStatus,
+  toFullRefundReviewDTO,
+} from '../payments/refunds/refund-review';
+
+/** 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)/(6)) — tope de la nota del motivo «tras envío». */
+export const SHIPPED_REFUND_NOTE_MAX = 500;
+
+export interface ShippedRefundReasonResponse {
+  orderId: string;
+  outcome: 'recorded' | 'already_recorded';
+  fullRefundReview: FullRefundReviewDTO;
+}
+
+/** Clase R: fuera de `ACCEPTED_SHIPPED_REFUND_REASONS` ⇒ `400 VALIDATION_ERROR {field, allowed}`. */
+function assertShippedReason(field: string, value: unknown): ShippedRefundReason {
+  if (typeof value !== 'string' || !(ACCEPTED_SHIPPED_REFUND_REASONS as readonly string[]).includes(value)) {
+    throw BusinessException.badRequest('VALIDATION_ERROR', `invalid ${field}`, { field, allowed: [...ACCEPTED_SHIPPED_REFUND_REASONS] });
+  }
+  return value as ShippedRefundReason;
+}
 
 export interface VaultPieceDTO {
   orderItemId: string;
@@ -62,9 +88,11 @@ export class OrderRefundService {
 
   async requestFullRefund(
     orderId: string,
-    dto: { reason: string; confirmPiecesWithCustomer?: boolean },
+    dto: { reason: string; confirmPiecesWithCustomer?: boolean; shippedReason?: unknown },
     actor: { id: string; role: Role },
   ): Promise<{ orderId: string; status: string; refundId: string | null; refund: PaymentRefundDTO }> {
+    // 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)) — `shippedReason` clase R, validado ANTES de leer nada (400 sin escribir).
+    const shippedReason = dto.shippedReason === undefined || dto.shippedReason === null ? null : assertShippedReason('shippedReason', dto.shippedReason);
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw BusinessException.notFound();
     if (!order.stripePaymentIntentId) {
@@ -76,15 +104,12 @@ export class OrderRefundService {
     const row = await this.prisma.$transaction(
       async (tx) => {
         // Candados: envíos de la orden (directo) / retiros vivos + piezas (bóveda) → Order → libro.
-        const shipments = await tx.shipmentRequest.findMany({
-          where: { orderId, status: { in: ['picking', 'guia'] } },
-          select: { id: true },
-          orderBy: { id: 'asc' },
-        });
-        if (shipments.length > 0) {
-          const ids = shipments.map((s) => s.id);
-          await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ANY(${ids}::text[]) ORDER BY id FOR UPDATE`;
-        }
+        // 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)): TODOS los envíos de la orden (cualquier estado), FOR UPDATE id asc., y su
+        // estado leído DESPUÉS del candado — decide «enviado» (⛔ la lectura sin candado de `picking|guia` no lo ve).
+        // Techlead C-1: el MISMO helper y el MISMO predicado que `onFullRefund` (`refund-review.ts`) ⇒ lo que M3 decide
+        // aquí y lo que `onFullRefund` exige como invariante no pueden divergir.
+        const shipments = await lockShipmentsOfOrder(tx, orderId);
+        const shippedStatus: ShippedOutStatus | null = shipments.map((s) => s.status).find(isShippedOut) ?? null;
         let vaultPreview: Awaited<ReturnType<FullRefundService['classifyVaultPieces']>> | null = null;
         if (order.fulfillmentMode === 'vault') {
           // Retiros vivos que contienen cartas vigentes de la compra, FOR UPDATE (id asc.), luego piezas.
@@ -109,6 +134,16 @@ export class OrderRefundService {
         const components = orderFullRefundComponents(order, nonFailed);
         if (components.amountCents <= 0) {
           throw BusinessException.conflict('CONFLICT', 'Nothing left to refund on this order', { refundedCents: order.totalCents - components.amountCents });
+        }
+        // 💰 v1.80.8.6 (§M4-SHIP.18.12 (4)) — el motivo «tras envío», ANTES de `createRows` (sin él: ni fila ni Stripe).
+        if (shippedStatus && !shippedReason) {
+          throw BusinessException.validation('REFUND_CONFIRMATION_REQUIRED', 'This order already shipped: a shipped refund reason is required', {
+            required: ['shipped_reason'],
+            shipmentStatus: shippedStatus,
+          });
+        }
+        if (!shippedStatus && shippedReason) {
+          throw BusinessException.conflict('SHIPPED_REFUND_REASON_NOT_APPLICABLE', 'This order has not shipped', { afterShipment: false });
         }
         let piecesWithCustomer: string[] = [];
         if (vaultPreview) {
@@ -143,7 +178,15 @@ export class OrderRefundService {
           throw e;
         }
         if (order.fulfillmentMode === 'direct_ship') {
-          await this.fullRefund.onFullRefund(tx, { orderId }, 'm3', actor.id);
+          await this.fullRefund.onFullRefund(
+            tx,
+            { orderId },
+            'm3',
+            actor.id,
+            shippedReason
+              ? { shippedReason: { reason: shippedReason, note: dto.reason.trim().slice(0, SHIPPED_REFUND_NOTE_MAX) || null, byUserId: actor.id } }
+              : {},
+          );
         }
         await tx.auditLog.create({
           data: {
@@ -152,7 +195,7 @@ export class OrderRefundService {
             action: 'order.refund',
             entityType: 'Order',
             entityId: orderId,
-            after: { reason: dto.reason, refundId: created.id, amountCents: created.amountCents },
+            after: { reason: dto.reason, refundId: created.id, amountCents: created.amountCents, shippedReason },
           },
         });
         return created;
@@ -168,6 +211,76 @@ export class OrderRefundService {
       refundId: finalRow.stripeRefundId,
       refund: (await this.ledger.toDtos([finalRow]))[0],
     };
+  }
+
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (6)) — `POST /admin/orders/:id/shipped-refund-reason`: registrar DESPUÉS el motivo de un
+   * reembolso total hecho tras «enviado» (p. ej. desde el panel de Stripe ⇒ «reembolso por revisar»). Súper-admin
+   * (`@MoneyOut` en el controlador). ⛔ Sin Stripe, ⛔ sin libro, ⛔ sin piezas ni `InventoryMovement`, ⛔ sin correo.
+   * El motivo NO se edita: el mismo ⇒ `already_recorded`; otro ⇒ `409 …ALREADY_SET {reason}` (A-2: sin `recordedBy`).
+   */
+  async recordShippedRefundReason(orderId: string, body: unknown, actor: { id: string; role: Role }): Promise<ShippedRefundReasonResponse> {
+    // Cuerpo: `{ reason, note? }` y NADA más (clave desconocida ⇒ 400). Validado antes de leer nada.
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'body must be an object', { field: 'reason', allowed: [...ACCEPTED_SHIPPED_REFUND_REASONS] });
+    }
+    const raw = body as Record<string, unknown>;
+    const unknownKey = Object.keys(raw).find((k) => k !== 'reason' && k !== 'note');
+    if (unknownKey) throw BusinessException.badRequest('VALIDATION_ERROR', `unknown field ${unknownKey}`, { field: unknownKey });
+    const reason = assertShippedReason('reason', raw.reason);
+    let note: string | null = null;
+    if (raw.note !== undefined && raw.note !== null) {
+      if (typeof raw.note !== 'string') throw BusinessException.badRequest('VALIDATION_ERROR', 'note must be a string', { field: 'note' });
+      const t = raw.note.trim();
+      if (t.length > SHIPPED_REFUND_NOTE_MAX) {
+        throw BusinessException.badRequest('VALIDATION_ERROR', `note must be at most ${SHIPPED_REFUND_NOTE_MAX} characters`, { field: 'note', max: SHIPPED_REFUND_NOTE_MAX });
+      }
+      note = t.length > 0 ? t : null;
+    }
+    const exists = await this.prisma.order.findUnique({ where: { id: orderId }, select: { id: true } });
+    if (!exists) throw BusinessException.notFound();
+    const outcome = await this.prisma.$transaction(
+      async (tx) => {
+        const decide = (row: { fullRefundAfterShipment: boolean; shippedRefundReason: ShippedRefundReason | null }) => {
+          if (!row.fullRefundAfterShipment) {
+            throw BusinessException.conflict('SHIPPED_REFUND_REASON_NOT_APPLICABLE', 'This order was not refunded after shipping', { afterShipment: false });
+          }
+          if (row.shippedRefundReason === reason) return 'already_recorded' as const;
+          if (row.shippedRefundReason !== null) {
+            throw BusinessException.conflict('SHIPPED_REFUND_REASON_ALREADY_SET', 'A shipped refund reason is already recorded', { reason: row.shippedRefundReason });
+          }
+          return null;
+        };
+        const [row] = await tx.$queryRaw<{ fullRefundAfterShipment: boolean; shippedRefundReason: ShippedRefundReason | null }[]>`
+          SELECT "fullRefundAfterShipment", "shippedRefundReason"::text AS "shippedRefundReason" FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+        const early = decide(row);
+        if (early) return early;
+        const cas = await tx.order.updateMany({
+          where: { id: orderId, fullRefundAfterShipment: true, shippedRefundReason: null },
+          data: { shippedRefundReason: reason, shippedRefundNote: note, shippedRefundReasonAt: new Date(), shippedRefundReasonByUserId: actor.id },
+        });
+        if (cas.count !== 1) {
+          const again = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { fullRefundAfterShipment: true, shippedRefundReason: true } });
+          const r = decide(again);
+          if (r) return r;
+          throw new Error(`shipped-refund-reason ${orderId}: CAS contó 0 sin motivo registrado (inesperado)`);
+        }
+        await tx.auditLog.create({
+          data: {
+            actorUserId: actor.id,
+            actorRole: actor.role,
+            action: 'order.shipped_refund_reason_recorded',
+            entityType: 'Order',
+            entityId: orderId,
+            after: { reason, note },
+          },
+        });
+        return 'recorded' as const;
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+    const fresh = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId }, select: FULL_REFUND_REVIEW_SELECT });
+    return { orderId, outcome, fullRefundReview: toFullRefundReviewDTO(fresh) as FullRefundReviewDTO };
   }
 
   /** §M4-SHIP.18.10 — re-correr el reclamo a mano (súper-admin). */

@@ -9,6 +9,9 @@ import { VariantControlsService } from '../src/modules/pricing/variant-controls.
 import { AuditService } from '../src/modules/audit/audit.service';
 import { composeVariantPricing } from '../src/modules/pricing/variant-pricing';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
+// v1.80.8.5 (`M2-PF`): el composer exige la política de VENTA; aquí, el seed del dial (sin fila).
+const SALE_SEED = DEFAULT_SALE_PREMIUM_FLOOR_POLICY;
 
 /**
  * E5 (ARCHITECTURE §4.36.6 · PROJECT §N.6, criterios 90/91) — **BOUNTY REVALIDADO CONTRA LA CURVA**.
@@ -33,6 +36,7 @@ const BOUNTY_CENTS = 5000; // $50: mejor que $3, peor que $250
 
 function pricingWith(referenceMxnCents: number, override: Record<string, unknown> | null) {
   return {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -265,7 +269,7 @@ describe('E5 — ALERTA EN EL BINDER (y solo ahí: sin correo, push ni dashboard
   } as never;
 
   it('bounty vigente ⇒ effective:true y la compra resuelve por bounty', () => {
-    const dto = composeVariantPricing(mkt(MARKET_LOW), DEFAULT_PRICING_CURVE, row, 'Double Rare');
+    const dto = composeVariantPricing(mkt(MARKET_LOW), DEFAULT_PRICING_CURVE, row, 'Double Rare', SALE_SEED);
     expect(dto.bounty).toMatchObject({ effective: true, curveQuoteCents: 300 });
     // v1.80 (§M2-B.11): paga `min(bounty, mercado)`; `priceCents` sigue siendo lo configurado.
     expect(dto.bounty).toMatchObject({ priceCents: BOUNTY_CENTS, payoutCents: MARKET_LOW, cappedByMarket: true });
@@ -273,20 +277,20 @@ describe('E5 — ALERTA EN EL BINDER (y solo ahí: sin correo, push ni dashboard
   });
 
   it('bounty REBASADO ⇒ effective:false + `curveQuoteCents` = la tarifa que lo rebasó', () => {
-    const dto = composeVariantPricing(mkt(MARKET_HIGH), DEFAULT_PRICING_CURVE, row, 'Double Rare');
+    const dto = composeVariantPricing(mkt(MARKET_HIGH), DEFAULT_PRICING_CURVE, row, 'Double Rare', SALE_SEED);
     expect(dto.bounty).toMatchObject({ effective: false, curveQuoteCents: 25000, priceCents: BOUNTY_CENTS });
     // La compra ya NO resuelve por bounty: paga la curva.
     expect(dto.buy).toMatchObject({ effectiveCents: 25000, source: 'market' });
   });
 
   it('curva SIN resolver ⇒ effective:true y `curveQuoteCents` null (el bounty explícito manda)', () => {
-    const dto = composeVariantPricing(null, DEFAULT_PRICING_CURVE, row, 'Double Rare');
+    const dto = composeVariantPricing(null, DEFAULT_PRICING_CURVE, row, 'Double Rare', SALE_SEED);
     expect(dto.bounty).toMatchObject({ effective: true, curveQuoteCents: null });
     expect(dto.buy).toMatchObject({ effectiveCents: BOUNTY_CENTS, source: 'bounty' });
   });
 
   it('bounty APAGADO ⇒ effective:false aunque su monto supere la curva', () => {
-    const dto = composeVariantPricing(mkt(MARKET_LOW), DEFAULT_PRICING_CURVE, { ...(row as object), bountyEnabled: false } as never, 'Double Rare');
+    const dto = composeVariantPricing(mkt(MARKET_LOW), DEFAULT_PRICING_CURVE, { ...(row as object), bountyEnabled: false } as never, 'Double Rare', SALE_SEED);
     expect(dto.bounty).toMatchObject({ effective: false });
     expect(dto.buy.source).toBe('market');
   });

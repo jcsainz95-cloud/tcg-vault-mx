@@ -31,6 +31,7 @@ import {
   reservationGuard,
   reservedUntilFrom,
 } from './reservation';
+import { lockReservedOfOrder, releaseReservedOfUnsettledRefund } from '../payments/refunds/release-unsettled-refund';
 import {
   computeCartBreakdown,
   BreakdownDTO,
@@ -1151,9 +1152,22 @@ export class OrdersService {
     for (const [orderId, itemIds] of byOrder) {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        select: { id: true, orderNumber: true, status: true, stripePaymentIntentId: true },
+        select: { id: true, orderNumber: true, status: true, stripePaymentIntentId: true, settledAt: true },
       });
       if (!order) continue;
+      // 💰 v1.80.8.6 (§M4-SHIP.18.12 (5)) — cierra el ruido de `SSL-R1`: orden `refunded` NUNCA liquidada. ⛔ Sin
+      // `closePaymentIntent` (el PI de un cargo reembolsado está `succeeded`: cancelar lanza — era el `error` perpetuo) y
+      // ⛔ sin `log error`. Mismo cuerpo de liberación que el reembolso total (`refund_release`).
+      if (order.status === 'refunded' && order.settledAt === null) {
+        const n = await this.releaseRefundedUnsettled(orderId);
+        if (n > 0) {
+          swept += 1;
+          this.logger.log(`order-reservation-sweep(refunded): ${n} piezas liberadas (pedido ${order.orderNumber ?? order.id}).`);
+        } else {
+          noop += 1;
+        }
+        continue;
+      }
       if (order.stripePaymentIntentId) {
         const closed = await this.closePaymentIntent(order.stripePaymentIntentId);
         if (!closed.closed) {
@@ -1204,6 +1218,22 @@ export class OrdersService {
       );
     }
     return { swept, skipped, legacy };
+  }
+
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (5)) — la rama del barrido para una orden `refunded` NUNCA liquidada: en UNA tx, piezas
+   * `reservedByOrderId = orden` `FOR UPDATE` (id asc.) → `Order FOR UPDATE` → relee `refunded ∧ settledAt IS NULL` (si
+   * no, nada) → el cuerpo único de liberación (`trigger 'sweep'`, sin actor). Devuelve cuántas liberó.
+   */
+  private async releaseRefundedUnsettled(orderId: string): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockedReservedIds = await lockReservedOfOrder(tx, orderId);
+      const [row] = await tx.$queryRaw<{ status: string; settledAt: Date | null; orderNumber: string | null }[]>`
+        SELECT status::text AS status, "settledAt", "orderNumber" FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+      if (!row || row.status !== 'refunded' || row.settledAt !== null) return 0;
+      const released = await releaseReservedOfUnsettledRefund(tx, orderId, 'sweep', null, { lockedReservedIds, orderNumber: row.orderNumber });
+      return released.length;
+    });
   }
 
   /**

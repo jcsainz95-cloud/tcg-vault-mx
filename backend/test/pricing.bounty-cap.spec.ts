@@ -11,6 +11,9 @@ import { buildGradeKey, tryBuildGradeKey } from '../src/modules/pricing/pricing.
 import { DEFAULT_PRICING_CURVE, PricingCurve, premiumFloorGuard, resolveBuyFromCurve } from '../src/common/pricing-curve';
 import { quoteAcquisitionWithGuard } from '../src/common/money';
 import { variantKey } from '../src/common/variant-key';
+import { BUY_PREMIUM_FLOOR_POLICY, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
+// v1.80.8.5 (`M2-PF`): el composer exige la política de VENTA; aquí, el seed del dial (sin fila).
+const SALE_SEED = DEFAULT_SALE_PREMIUM_FLOOR_POLICY;
 
 /**
  * v1.80 — TOPE DE PAGO DEL BOUNTY en las superficies de LECTURA (API_CONTRACT §M2-B.11 puntos 3 y 5):
@@ -52,25 +55,25 @@ const priced = (cents: number) => ({ status: 'priced', referenceMxnCents: cents 
 
 describe('composer — VariantPricingDTO.bounty.payoutCents / cappedByMarket (§M2-B.11 punto 5)', () => {
   it('bounty 1200 / mercado 1000 ⇒ paga 1000, topado; `priceCents` sigue siendo lo configurado', () => {
-    const dto = composeVariantPricing(priced(1000), CURVE_20, m30({ bountyPriceCents: 1200 }));
+    const dto = composeVariantPricing(priced(1000), CURVE_20, m30({ bountyPriceCents: 1200 }), null, SALE_SEED);
     expect(dto.bounty).toMatchObject({ priceCents: 1200, effective: true, payoutCents: 1000, cappedByMarket: true });
     expect(dto.buy).toMatchObject({ source: 'bounty', effectiveCents: 1000 });
   });
 
   it('bounty < mercado ⇒ paga el bounty, NO topado', () => {
-    const dto = composeVariantPricing(priced(1000), CURVE_20, m30({ bountyPriceCents: 800 }));
+    const dto = composeVariantPricing(priced(1000), CURVE_20, m30({ bountyPriceCents: 800 }), null, SALE_SEED);
     expect(dto.bounty).toMatchObject({ payoutCents: 800, cappedByMarket: false });
     expect(dto.buy.effectiveCents).toBe(800);
   });
 
   it('empate bounty == mercado ⇒ paga ese número, `cappedByMarket = false`', () => {
-    const dto = composeVariantPricing(priced(1000), CURVE_20, m30({ bountyPriceCents: 1000 }));
+    const dto = composeVariantPricing(priced(1000), CURVE_20, m30({ bountyPriceCents: 1000 }), null, SALE_SEED);
     expect(dto.bounty).toMatchObject({ payoutCents: 1000, cappedByMarket: false });
   });
 
   it('sin mercado ⇒ paga el bounty completo; mercado 0 (degenerado) ⇒ igual', () => {
     for (const ref of [null, { status: 'pending' } as any, priced(0)]) {
-      const dto = composeVariantPricing(ref, CURVE_20, m30({ bountyPriceCents: 5000 }));
+      const dto = composeVariantPricing(ref, CURVE_20, m30({ bountyPriceCents: 5000 }), null, SALE_SEED);
       expect(dto.bounty).toMatchObject({ effective: true, payoutCents: 5000, cappedByMarket: false });
       expect(dto.buy.effectiveCents).toBe(5000);
     }
@@ -78,13 +81,13 @@ describe('composer — VariantPricingDTO.bounty.payoutCents / cappedByMarket (§
 
   it('bounty NO efectivo (rebasado) ⇒ `payoutCents: null`, `cappedByMarket: false`', () => {
     // mercado 10000 ⇒ curva 2000; bounty 1500 < curva y < mercado ⇒ rebasado.
-    const dto = composeVariantPricing(priced(10000), CURVE_20, m30({ bountyPriceCents: 1500 }));
+    const dto = composeVariantPricing(priced(10000), CURVE_20, m30({ bountyPriceCents: 1500 }), null, SALE_SEED);
     expect(dto.bounty).toMatchObject({ effective: false, payoutCents: null, cappedByMarket: false });
     expect(dto.buy.source).toBe('market');
   });
 
   it('bounty apagado ⇒ no paga: `payoutCents: null`', () => {
-    const dto = composeVariantPricing(priced(1000), CURVE_20, m30({ bountyEnabled: false, bountyPriceCents: 1200 }));
+    const dto = composeVariantPricing(priced(1000), CURVE_20, m30({ bountyEnabled: false, bountyPriceCents: 1200 }), null, SALE_SEED);
     expect(dto.bounty).toMatchObject({ effective: false, payoutCents: null, cappedByMarket: false });
   });
 
@@ -95,7 +98,7 @@ describe('composer — VariantPricingDTO.bounty.payoutCents / cappedByMarket (§
       [500, 650],
       [10000, 30000],
     ]) {
-      const dto = composeVariantPricing(priced(market), CURVE_20, m30({ bountyPriceCents: b }));
+      const dto = composeVariantPricing(priced(market), CURVE_20, m30({ bountyPriceCents: b }), null, SALE_SEED);
       expect(dto.buy.source).toBe('bounty');
       expect(dto.bounty!.payoutCents).toBe(dto.buy.effectiveCents);
     }
@@ -115,6 +118,7 @@ function buylistOf(rows: any[], markets: Record<string, number>, curve: PricingC
     {
       gradeKeyFor: (i: any) => buildGradeKey(i),
       tryGradeKeyFor: (i: any) => tryBuildGradeKey(i),
+      loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => curve),
       getReferencesBatch: jest.fn(async (keys: any[]) => {
         const m = new Map<string, any>();
@@ -195,6 +199,7 @@ function consoleOf(rows: any[], markets: Record<string, number>, curve: PricingC
   }));
   const prisma = { variantPriceOverride: { findMany: jest.fn(async () => withCards) } } as unknown as PrismaService;
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => curve),
     getReferencesBatch: jest.fn(async (keys: any[]) => {
       const m = new Map<string, any>();
@@ -293,7 +298,7 @@ describe('BC-9(c) — publicado == pagado, POR VALOR (v1.80.2.2, §M2-B.11 punto
     const { data } = await svc.publicBounties();
     // La fórmula del contrato, con la MISMA fila (VariantPriceOverride ya es un VariantPriceControls).
     const q = quoteAcquisitionWithGuard(c.market, c.curve, row);
-    const presente = q.basis === 'bounty' && premiumFloorGuard(c.rarity, q.guardBasis) === 'ok';
+    const presente = q.basis === 'bounty' && premiumFloorGuard(c.rarity, q.guardBasis, BUY_PREMIUM_FLOOR_POLICY) === 'ok';
     expect({ presente: data.length === 1, publica: data[0]?.bountyPriceCents ?? null }).toEqual({
       presente,
       publica: presente ? q.priceCents : null,
@@ -304,13 +309,13 @@ describe('BC-9(c) — publicado == pagado, POR VALOR (v1.80.2.2, §M2-B.11 punto
 
   it.each(BC9_CASES.map((c) => [c.glosa, c] as const))('composer · %s', (_g, c) => {
     const override = m30({ bountyEnabled: c.controls.bountyEnabled ?? true, bountyPriceCents: c.controls.bountyPriceCents, buyOverrideCents: c.controls.buyOverrideCents ?? null });
-    const dto = composeVariantPricing(c.market == null ? null : priced(c.market), c.curve, override, c.rarity);
+    const dto = composeVariantPricing(c.market == null ? null : priced(c.market), c.curve, override, c.rarity, SALE_SEED);
     const b = dto.bounty!;
     expect(b.payoutCents).toBe(dto.buy.source === 'bounty' ? dto.buy.effectiveCents : null);
     expect(b.cappedByMarket).toBe(b.payoutCents != null && b.payoutCents < b.priceCents!);
     // Y lo que paga el composer es lo que paga la cotización (misma fórmula, misma fila).
     const q = quoteAcquisitionWithGuard(c.market, c.curve, override);
-    const guarded = premiumFloorGuard(c.rarity, q.guardBasis) === 'premium_at_floor';
+    const guarded = premiumFloorGuard(c.rarity, q.guardBasis, BUY_PREMIUM_FLOOR_POLICY) === 'premium_at_floor';
     expect(dto.buy.effectiveCents).toBe(guarded ? null : q.priceCents);
     expect(b.payoutCents).toBe(q.basis === 'bounty' && !guarded ? q.priceCents : null);
     // …y contra la tabla.

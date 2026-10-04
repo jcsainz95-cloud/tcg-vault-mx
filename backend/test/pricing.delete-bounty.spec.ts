@@ -5,7 +5,7 @@ import { PricingController } from '../src/modules/pricing/pricing.controller';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 
 /**
  * `pricing.delete-bounty.spec.ts` — **Q2 (§M2-B.9 / ARCHITECTURE §4.36.6b): `DELETE …/bounty`.**
@@ -70,6 +70,7 @@ function build(opts: { existing?: ReturnType<typeof overrideRow> | null; card?: 
     $transaction: jest.fn(async (cb: any) => cb(txClient)),
   } as unknown as PrismaService;
   const pricing = {
+    loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     getReference: jest.fn(async () =>
       (opts.referenceMxnCents ?? 10000) == null
