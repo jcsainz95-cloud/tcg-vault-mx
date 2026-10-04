@@ -13241,6 +13241,9 @@ con `PostalCode` vacía toda dirección nueva es `422 POSTAL_CODE_UNKNOWN` y nad
 
 ### 79.0 Estado en una línea
 
+> ⛔ **v1.80.12.5 (§81):** el catálogo ya **no** se carga en el arranque (`boot` y C-GEO-2 retirados) y la ventana de
+> 79.9 (a)(b)(c) queda sustituida por la de §81.4. Lo de abajo es historia.
+>
 > ⚠️ **Superado en parte por §80 (2026-10-04, errata v1.80.12.4):** C-GEO-1 (1) ya no es igualdad de conteo sino
 > inclusión + huella; hay modo estricto/arnés; el `CMD` **ya está cableado** (modo arnés en compose/CI, estricto en
 > Railway). Lo de abajo queda como historia; manda §80.
@@ -13397,6 +13400,15 @@ modo arnés; (2) una fila con otro número de campos sigue siendo fichero roto (
 
 ### 80.0 Estado en una línea
 
+> ⛔ **RETIRADA el 2026-10-04 por §81 (errata v1.80.12.5, `API_CONTRACT §M4-SHIP.19.25.4`).** La consigna «no
+> fusionar a `production` antes de cerrar G-1» existía **solo** porque el `CMD` de 80.2 corría `boot` y, en Railway
+> (estricto, sin manifiesto), la imagen no arrancaba. Ese `boot` era a su vez la respuesta a un problema que ya no
+> existe: con la colonia obligatoria de la lista, una tabla `PostalCode` vacía dejaba a la tienda **sin poder cobrar
+> envíos**. El dueño decidió (`HECHOS.md:57`) que la colonia funcione como en Mercado Libre: la lista ayuda, no
+> bloquea, y con la tabla vacía se vende con la colonia escrita. Sin ese hueco, mantener el `boot` era cambiar «no
+> vender un envío» por «no vender nada». El `boot` salió del `CMD` y del importador, y con él esta consigna. **G-1
+> queda sin urgencia.** Rige §81.
+
 **Construido y cableado todo lo que no depende del archivo.** Falta G-1 (dónde vive el archivo: (A) objeto privado en
 `S3_BUCKET`, por defecto; o (B) repo), el archivo y su manifiesto. ⛔ **Hasta entonces el `CMD` hace que la imagen NO
 arranque en Railway** (modo estricto sin manifiesto ⇒ salida 1). Es el comportamiento que pide el contrato («la versión
@@ -13500,3 +13512,108 @@ un entorno que no sea `production` con un `CMD` que haga `exit 1` (⛔ no se le 
   scripts/geo/sepomex.manifest.json` (sin base; imprime las cifras reales y si alcanza los pisos). Ese JSON se commitea.
 - **Rollback del cableado:** `git revert` del commit de esta sección: el `CMD` vuelve a `migrate deploy && node
   dist/main.js` y la imagen deja de llevar `scripts/geo`. Datos: el `boot` nunca borra; ver §79.9.
+
+---
+## §81 · Catálogo de CP, errata v1.80.12.5: `boot` fuera del arranque, candado G-BOOT, C-GEO-2 retirado (2026-10-04, rama `claude/skydropx-d`)
+
+Fuente normativa: `API_CONTRACT §M4-SHIP.19.25.4` (`59c62e67`), fila devops de §19.25.7; origen `HECHOS.md:57` (la
+colonia como Mercado Libre). **Manda sobre §79 y §80 donde choque.** Commits: `e3ad5220` (código, CMD, imagen, CI) y
+`011b5924` (dos casos de prueba más del modo estricto).
+
+### 81.0 Estado en una línea
+
+**Ningún arranque carga, lee ni verifica `PostalCode`.** Con la tabla vacía la imagen arranca y la tienda vende
+(colonia escrita a mano). El catálogo se carga **cuando exista el archivo** con `import --file` explícito, lo corre
+**el dueño donde ya vive la credencial**, y G-1 (dónde vive el archivo) queda **sin urgencia**. §80.0 («no fusionar
+antes de G-1») queda **retirada** (motivo en 80.0).
+
+### 81.1 Qué cambió
+
+| Pieza | Antes (§80) | Ahora |
+|---|---|---|
+| `Dockerfile.backend` `CMD` | `… migrate deploy && … import-sepomex.ts boot && node dist/main.js` | `… secrets-preflight.sh assert && … migrate deploy && node dist/main.js` (= el de antes de §80, byte a byte) |
+| Imagen | `COPY scripts/geo/ /opt/geo/…`, enlace `/opt/geo/backend → /app` y `RUN` de guarda | Fuera los tres. La imagen no lleva `scripts/geo` |
+| `.dockerignore` | `!scripts/geo` (+ fuera prueba y extracto) | Fuera la reinclusión; `scripts` sigue excluido entero salvo los dos preflights |
+| `import-sepomex.ts` | `manifest`, `boot`, `verify`, `import` | `manifest`, `import`, `verify`. ⛔ `boot`/`bootCatalog` retirados (código muerto con nombre de arranque invita a volver a cablearlo) |
+| `import` | reconcilia, sin modo; comprueba solo la huella | **por modo** (`assertSeedTarget`, como antes `boot`). **Estricto:** sin manifiesto ⇒ 1 (G5); manifiesto bajo pisos ⇒ 1 (G10); `sha256` antes de interpretar (G6); **reconcilia** (altas, cambios, bajas; > 10 % de bajas sin `--allow-shrink` ⇒ 1) y dentro de la tx (1b) huella = manifiesto, (2) pisos de la tabla, (3) los 5 CP del arnés por `resolvePostalCode`, (4) forma ⇒ si falla, ROLLBACK. **Arnés:** solo inserta (`ON CONFLICT DO NOTHING`; las ajenas son del seed y no se borran, G3), (1a) faltan = 0, (3), (4) |
+| `verify` | salida 3 si no cumple | Tabla vacía ⇒ `[sepomex] catálogo vacío: 0 filas (no cargado)` y **sale 2**, aunque no haya manifiesto. Cargada: estricto (2) del manifiesto y de la tabla, (1b), (3), (4), y con `--file` (1a) + **ALARMA** si hay ajenas o discrepantes (G2/G9; solo lectura, ⛔ no borra); no cumple ⇒ **sale 1** («cargado pero mal», el texto de §19.25.4) |
+| Base | `boot` sin salto; `verify`/`import` saltan a `DATABASE_PUBLIC_URL` | Sin `boot`, el salto aplica siempre: si `DATABASE_URL` es `*.railway.internal` se usa `DATABASE_PUBLIC_URL` (y sin ella sale 1). El modo se clasifica con la URL con la que se escribe |
+| Códigos de salida | 0 · 1 · 2 uso · 3 no cumple | **0** bien · **1** error, alarma o no cumple (nada escrito) · **2** `verify` con la tabla vacía · **64** uso (antes 2: se mueve para que «2» signifique una sola cosa) |
+| Prueba | 19 pruebas; test 19 exigía `boot` en el `CMD` | 20 pruebas. Test 20 = **G-BOOT**; G4 fuera; G5 por el CLI en `import`; G2/G9 en `verify`; G3/G6/G8 en `import`; nuevo `verify` vacía ⇒ 2; nuevo «`boot` ya no es subcomando ⇒ 64» |
+| CI | — | Job **`boot-no-geo`** en `ci.yml` (candado + canario) y en el `needs` de `ci-ok` |
+
+**Interpretación mía, para el arquitecto (§81.5):** §19.25.4 dice que los modos siguen en `import`/`verify` y que «en
+producción una fila ajena o discrepante es alarma (sale 1, ⛔ no borra)». Lo aplico a **`verify`**. A `import`
+estricto lo dejo **reconciliando**, porque §19.24.5 y §19.24.2 lo nombran como *el* acto que corrige una ajena y que
+carga un catálogo nuevo; si `import` estricto tampoco borrara, una colonia que SEPOMEX retire no podría salir nunca.
+
+### 81.2 G-BOOT (`scripts/check-boot-no-geo.sh` + canario)
+
+Norma: §19.25.4 «candado nuevo» y §19.25.6 fila **G-BOOT**. Estático (sin red, sin Docker, sin node). Comprueba, con
+los comentarios fuera (documentar el porqué no lo pone rojo) y uniendo las continuaciones `\`:
+(A) hay `CMD` y ningún `CMD`/`ENTRYPOINT` nombra `import-sepomex`, `scripts/geo` ni `/opt/geo`; (B) ninguna
+instrucción de `Dockerfile.backend` los nombra (la imagen no los lleva); (C) `.dockerignore` excluye `scripts` y no
+reincluye `scripts/geo` ni `scripts` entero; (D) ni `railway.json` ni `docker-compose*.yml` arrancan el importador.
+Canario (`check-boot-no-geo-canary.sh`), determinista: prístino verde + **10 mutaciones en ROJO con su bloque** —
+incluida la del contrato, que repone el `CMD` de v1.80.12.4 **idéntico byte a byte** al de `976b0e97` (medido con
+`diff`)— + **1 verde** (un comentario que documenta el `boot` retirado): **12/12**. El test 20 de la prueba del
+importador repite la comprobación por su cuenta (dos implementaciones) y corre el candado sobre una copia con el `boot`
+repuesto, exigiendo rojo.
+
+### 81.3 Mediciones (2026-10-04, devops)
+
+- **Prueba con base** (`tcg_devops_geo2_sepomex`, PG local; el nombre lleva «sepomex» porque la prueba **se niega** a
+  vaciar una base que no lo lleve, y no aflojé esa guarda): **20/20**, 3 corridas sobre el árbol vivo (con el trabajo
+  de backend sin commitear en ese momento) y 1 sobre la copia de `011b5924`. Sin base: 14 pasan + 6 saltadas.
+- **Mutaciones** sobre copia `git archive 011b5924` (árbol entero), deterministas, N=1 cada una: **16/16 en ROJO en la
+  prueba esperada** — reponer `boot` en el `CMD` (canario del contrato) · `.dockerignore` reincluye `scripts/geo` ·
+  `boot` vuelve como subcomando · `verify` vacía sale 1 · `verify` lee el manifiesto antes de mirar si está vacía ·
+  G5 sin manifiesto pasa · G10 sin pisos · G6 hash después de parsear · G2 `verify` estricto tolera ajenas · G9 por
+  clave · G3 el arnés reconcilia · estricto solo inserta · estricto sin el `check` en la tx · arnés sin (1a) ·
+  G7 sin `COLLATE "C"` · sin salto a `DATABASE_PUBLIC_URL`.
+- **Candados** re-corridos en el árbol vivo tras el cambio, todos 0: `check-stripe-webhook-failclosed` (+ canario),
+  `check-compose-images` (+ canario 10/10), `check-workflow-cwd` (80 invocaciones; + canario 8/8),
+  `check-secret-defaults` (+ canario: reconstruye la imagen desde los `COPY` y extrae el `CMD`: «4 ficheros»),
+  `check-secret-masking` (+ canario 5/5), `check-ci-ok --static` (25 jobs) + canario 10/10, `check-skydropx-spend-lock`,
+  `check-secret-absence-wording`, `check-boot-no-geo` + canario 12/12.
+- **`docker build -f Dockerfile.backend`: NO MEDIDO.** Mismo bloqueo que §80.3 (`apk` ⇒ 403 del proxy de salida). El
+  cambio deja el `CMD` y las capas de geo como estaban antes de §80, que sí se construyeron y desplegaron; que el build
+  de hoy pase lo dicen los workflows que construyen la imagen al empujar (NO MEDIDO hasta entonces).
+- **Que el job `boot-no-geo` y el paso del importador pasen en GitHub: NO MEDIDO** hasta el push.
+
+### 81.4 Cómo se carga el catálogo (cuando exista el archivo; sin urgencia)
+
+Lo corre **el dueño, en su máquina, donde la credencial ya vive** (`CLAUDE.md`, «Secretos», segunda vía), con
+`cd backend && npm ci && npx prisma generate` hecho:
+
+```bash
+scripts/geo/import-sepomex.sh manifest --file CPdescarga.txt --out scripts/geo/sepomex.manifest.json   # sin base
+railway run --service <servicio-de-la-API> --environment production -- \
+  scripts/geo/import-sepomex.sh import --file CPdescarga.txt --dry-run                                    # nada escrito
+railway run --service <servicio-de-la-API> --environment production -- \
+  scripts/geo/import-sepomex.sh import --file CPdescarga.txt                                              # una tx: carga entero y pasa C-GEO-1, o ROLLBACK
+railway run --service <servicio-de-la-API> --environment production -- \
+  scripts/geo/import-sepomex.sh verify --file CPdescarga.txt                                              # 0 cargado · 1 mal · 2 vacío
+```
+
+- El manifiesto se commitea (no el archivo; §79.2, licencia NO MEDIDA). ⛔ Ni descargar de SEPOMEX desde un script ni
+  de un origen no fijado. La app **no** necesita reiniciarse: lee la tabla en cada consulta.
+- El nombre del servicio y que `railway run` inyecte `DATABASE_PUBLIC_URL`: **NO MEDIDO** (§79.9).
+- **Condición de la ventana de esta release** (sustituye a 79.9 (a)(b)(c) y a §80.0; §19.25.5): el dueño hace una
+  compra con envío a domicilio **escribiendo la colonia a mano** (con la tabla vacía es el único camino) y, en
+  «Capturar guía», ve el aviso de revisión. §19.24.8 / §80.5 (Railway ante un arranque fallido) deja de ser
+  precondición por el catálogo; sigue NO MEDIDO y sigue importando para los otros `assert` del `CMD`.
+
+### 81.5 Para el arquitecto
+
+1. `import` estricto reconcilia (borra ajenas, corrige discrepantes) y `verify` estricto da la alarma sin borrar
+   (81.1). Si la intención de §19.25.4 era que `import` estricto tampoco borre, hace falta decir cómo sale del catálogo
+   una colonia que SEPOMEX retire.
+2. Códigos de salida: «no cumple» pasa de 3 a 1 (lo que dice §19.25.4) y «uso» de 2 a 64 para que 2 sea solo «vacía».
+
+### 81.6 Rollback
+
+`git revert 011b5924 e3ad5220`: vuelve el `boot` al `CMD`, la imagen vuelve a llevar `scripts/geo`, y **con ellos el
+bloqueo** (en Railway, sin manifiesto, la imagen no arranca: §80.0). El job `boot-no-geo` se va con el revert (si se
+revierte solo el código y no el job, G-BOOT se pone rojo, que es lo correcto). Datos: ninguno; este cambio no toca
+`PostalCode` ni migraciones.
