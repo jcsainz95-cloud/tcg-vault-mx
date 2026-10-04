@@ -285,6 +285,28 @@ describe('⭐ fase C (M-64): catálogo de CP, dirección de lista y corrección 
     });
   });
 
+  // ================================================================ address.missing (v1.80.12.2)
+
+  describe('`AdminShipmentDTO.address.missing` — siempre presente; `complete` ⇔ `missing` vacío (§M4-SHIP.19.22.2)', () => {
+    it('snapshot legado SIN destinatario pero con colonia/CP/teléfono ⇒ `missing:[recipientName]`, `complete:false`; completo ⇒ `[]`, `true`', async () => {
+      const d = await db.mkDirect();
+      await h.prisma.shipmentRequest.update({
+        where: { id: d.shipment.id },
+        data: { addressSnapshot: { line1: 'Calle 1', neighborhood: 'Centro', city: 'Álvaro Obregón', state: 'Ciudad de México', postalCode: '01000', country: 'MX', phone: '5512345678' } },
+      });
+      const g = await h.api('GET', `/admin/shipments/${d.shipment.id}`, { token: db.opToken });
+      expect(g.body.address).toMatchObject({ complete: false, missing: ['recipientName'] });
+      const list = await h.api('GET', `/admin/shipments?q=${d.shipment.id}`, { token: db.opToken });
+      expect(list.body.data[0].address).toMatchObject({ complete: false, missing: ['recipientName'] });
+      await h.prisma.shipmentRequest.update({
+        where: { id: d.shipment.id },
+        data: { addressSnapshot: { recipientName: 'Ana', line1: 'Calle 1', neighborhood: 'Centro', city: 'Álvaro Obregón', state: 'Ciudad de México', postalCode: '01000', country: 'MX', phone: '5512345678' } },
+      });
+      const g2 = await h.api('GET', `/admin/shipments/${d.shipment.id}`, { token: db.opToken });
+      expect(g2.body.address).toMatchObject({ complete: true, missing: [] });
+    });
+  });
+
   // ================================================================ PS-103 — validación
 
   describe('PS-103 — validación: cero escrituras y versión intacta', () => {
