@@ -4,7 +4,21 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.15 (2026-10-04) — CAPTURAR GUÍA CON SKYDROPX (§43 NUEVA; `API_CONTRACT §M4-SHIP.19.19` errata v1.80.11,
+> Estado: **v4.16 (2026-10-04) — CAPTURAR GUÍA: LA DIRECCIÓN SE CORRIGE ENTERA, COMPRA EN VUELO, PROMOCIÓN, ALERTAS DE
+> GUÍA Y `AV-18`/`AV-19` (§43 actualizada; `API_CONTRACT §M4-SHIP.19.20` errata v1.80.12; `HECHOS.md:50`, fila 2026-10-04
+> «En «Capturar guía» el dueño (y quien prepare) puede corregir TODA la dirección…»; fichero:línea re-leídos en el
+> worktree `claude/skydropx-d`, HEAD `4f926e5c` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):**
+> **§43.2** reescrita: el paso 1 se revisa y, con «Corregir dirección», se corrigen destinatario, calle, interior, CP,
+> colonia (de la lista del CP) y referencias; municipio y estado salen del CP; la pantalla dice que **solo cambia este
+> envío**; `409 CONFLICT {reason:'address_changed'}` y `409 QUOTE_EXPIRED {reason:'address_changed'}` con su texto; el
+> teléfono sigue fuera (P-ADR-1, abierta, default no). **SK5** y **SK7** reescritas. **§43.3b** «Cambiar empaque» para
+> el operador (`GET …/packages` operador+). **§43.3c** realce «Promoción» por `isPromo`. **§43.5** `outcome:'in_flight'`.
+> **§43.7** filas nuevas y corregidas. **§43.8** «Guía en proceso» / «Compra sin confirmar» por `labelPending`, las
+> cuatro `labelAlert` y «Liberar» por `canRelease`. **§43.12b–c** los correos `AV-18` y `AV-19`. **§43.17** A-1…A-5
+> cerradas por el contrato. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.15 con esos
+> cambios dentro de §43.
+>
+> Estado anterior: **v4.15 (2026-10-04) — CAPTURAR GUÍA CON SKYDROPX (§43 NUEVA; `API_CONTRACT §M4-SHIP.19.19` errata v1.80.11,
 > `ARCHITECTURE §4.60 (l)`, `HECHOS.md` filas 2026-10-04 «Skydropx vive dentro de la ventana «Capturar guía»…»,
 > «Skydropx — Carta Porte…» y «Disputas: se quitan de la tienda…»; precios y campos de
 > `docs/specs/SKYDROPX_API_PROD_RESULTADOS.md`; fichero:línea leídos en el worktree `claude/skydropx-d`, HEAD
@@ -22977,7 +22991,29 @@ sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el caj
 
 ---
 
-## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11)
+## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17`/`AV-18`/`AV-19` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11; **v4.16** · `§M4-SHIP.19.20` v1.80.12)
+
+> **v4.16 — qué cambió en esta sección y por qué.** Fuente: `HECHOS.md:50` (2026-10-04): *«En «Capturar guía» el dueño
+> (y quien prepare) puede corregir TODA la dirección del cliente antes de comprar la guía: calle, número, CP, colonia,
+> referencias y destinatario; queda registrado quién la cambió.»* — elegido por el dueño: *«Poder corregir todo»*. Norma:
+> `API_CONTRACT §M4-SHIP.19.20` (`API_CONTRACT.md:25131-25353`), que cierra A-1…A-5 y N-3 de §43.17.
+>
+> | Pieza | Antes (v4.15) | Ahora (v4.16) | Norma |
+> |---|---|---|---|
+> | Paso 1 | Solo se elegía la colonia (`PATCH …/address-neighborhood`) | Se corrigen seis campos con `PUT …/address`; el verbo de colonia **no se construye** | §19.20.1 |
+> | SK7 | «La dirección se revisa, no se reescribe» | «La dirección del envío se corrige aquí; la del cliente no» | `HECHOS.md:50` |
+> | SK5 | 5xx en la compra ⇒ «en vuelo» siempre | `200 in_flight` es la vía normal; ante 5xx/red se relee y decide `labelPending` | §19.20.5 |
+> | «Cambiar empaque» | NO MEDIDO para el operador | Operador+ | §19.20.3 |
+> | Promoción | Plan crudo y nota | Versalita «Promoción» si `isPromo` | §19.20.4 |
+> | Tarjetas | «Guía en proceso» y alertas sin dato (A-2) | `labelPending` y `labelAlert` en los dos DTO; «Liberar» ⇔ `canRelease` | §19.20.2 |
+> | Correos | `AV-17` | + `AV-18`, `AV-19` | §19.20.6 |
+>
+> **Re-medido para v4.16** (lectura en `/home/user/tcg-skyd`, 2026-10-04): `Grep -i 'skydropx|labelOptions|labelPending|
+> labelAlert|isPromo|address-neighborhood|postal-codes|in_flight'` en `frontend/src` ⇒ **0 ficheros** (sigue siendo un
+> encargo, no un acta). Las líneas que cita §43.14 **no se movieron**: `M4View.tsx:222-269` (`Modal`), `:145-146` (dos
+> puertas), `:210-214` (Banner de éxito); `ShipPreparationCard.tsx:698-716` (pie), `:544-564` (dirección de la tarjeta);
+> `ShipmentsQueue.tsx:208-209`; `es.json:1780-1796` (`admin.m4.tracking`); `shipment-notice.templates.ts:41`, `:87`,
+> `:113`, `:161`, `:205`.
 
 ### 43.0 Fuente, alcance, lo medido y las reglas duras
 
@@ -23009,7 +23045,7 @@ HEAD `79db38f1` es el que dio el orquestador, **NO MEDIDO por mí**):
 | Correos de envío | `backend/src/modules/shipments/mail/shipment-notice.templates.ts`: tres plantillas (`:113`, `:161`, `:205`); cabecera «⛔ Y NO HAY PLANTILLA DE «ENTREGADO»» `:41-44`; pie de familia ENVÍO `:56-60`; destino del CTA `shipmentUrl` `:87-92` (hoy el invitado **no** tiene CTA, `:88-89`). `supportEmail()` privada en `buylist/mail-shell.ts:616` (§41 E-3 la exporta) |
 
 **Lo que NO hace esta sección:** no cambia contrato, permisos ni datos; no decide quién compra (eso es el dial del
-dueño); no diseña `AV-18`/`AV-19` (fuera del encargo, §43.17 N-3); no diseña el «Escríbenos» de la **página** del pedido
+dueño); ~~no diseña `AV-18`/`AV-19`~~ (v4.16: sí, §43.12b–c); no diseña el «Escríbenos» de la **página** del pedido
 (es `PROJECT §V`, otro frente): solo **fija la frase** para que el correo y la página digan lo mismo (§43.12).
 
 **Cero tokens nuevos.** Todo sale de §2 (tinta, `text-muted`, `text-accent` = bermellón, `border-border`, `bg-surface`),
@@ -23024,9 +23060,9 @@ dueño); no diseña `AV-18`/`AV-19` (fuera del encargo, §43.17 N-3); no diseña
 | **SK2** | **La compra la hace una persona con un clic que lleva la cifra escrita.** El botón dice «Comprar guía por {monto}» y encima la frase «Se cobrará {monto} de tu saldo de Skydropx». ⛔ Ninguna compra sin ese clic: ni al elegir, ni al volver de una re-cotización, ni al reintentar | `HECHOS.md` fila «Skydropx — Carta Porte…» («guía por guía») · §19.19.7 · T.4.1 · criterio 220 aplicado al costo |
 | **SK3** | **Ninguna cifra la calcula la pantalla** (S1 de §37 extendida): precio, desglose, IVA, seguro, margen, cobertura, valor de la caja, «cobrado al cliente», vigencia y el monto de la frase de dinero **llegan del servidor** (`ShipmentQuoteDTO`/`ShipmentRateDTO`) y se pintan tal cual. ⛔ Ni sumar el seguro, ni restar el IVA, ni decidir «recomendada», «oculta» o «vencida» con un reloj propio | §19.19.4 («⛔ Desaparecen…»), §19.19.5, §37.0 S1 |
 | **SK4** | **El botón de compra no se pinta si no se puede comprar** (`labelOptions.canPurchase = false`): en su lugar, la frase que dice por qué y «Capturar a mano». ⛔ Ni apagado ni oculto sin texto | §19.19.7 (`canPurchase`), §35.11, §37.0 S6 |
-| **SK5** | **Tras un `502`/`503` en la COMPRA, nunca «no se compró nada» y nunca otro botón de compra.** Esa respuesta puede ser una **compra en vuelo** (Skydropx pudo crearla). La ventana relee el envío y lo dice; la salida es la tarjeta («guía en proceso») o «Liberar» del súper-admin. *Un reintento a ciegas es la guía duplicada* | §19.19.3 (4) matriz, §19.7 paso 9 ⚠️, `ARCHITECTURE §4.60 (l)` fila 2 |
+| **SK5** | **La compra que no sabemos si ocurrió se trata como ocurrida.** *(v4.16)* `200 {outcome:'in_flight'}` es la vía normal ⇒ paso 4 «Compra sin confirmar» (§43.5). Ante **cualquier** `5xx` o error de red de `POST …/label`, la ventana **relee** `GET /admin/shipments/:id` y decide por el estado, ⛔ nunca por el status: `label ≠ null` ⇒ «Guía comprada»; `labelPending ≠ null` ⇒ «Compra sin confirmar» / «Guía en proceso»; `labelPending = null ∧ label = null` ⇒ «No se compró nada» y vuelve el paso 3 (la compra exige un clic nuevo, SK2). **Si la relectura también falla** ⇒ «Compra sin confirmar» (falla cerrado): sin botón de compra y sin «Capturar a mano». *Un reintento a ciegas es la guía duplicada* | §19.20.5, §19.7 paso 9 ⚠️, `ARCHITECTURE §4.60 (l)` fila 2 |
 | **SK6** | **Errores por `error.code` (y `details.missing`/`reason`/`op`), nunca por el status solo.** Cada uno dice **qué no se escribió**, **qué no se cobró** y **el remedio**; todos ofrecen «Capturar a mano» salvo los que lo hacen imposible (guía ya comprada). ⛔ Nada cae a «Algo salió mal» | §19.19.13 último párrafo, §37.0 S4, PS-101 |
-| **SK7** | **La dirección se revisa, no se reescribe.** Solo la **colonia** se elige (de la lista del CP) si falta; calle, CP, destinatario, municipio y teléfono son de solo lectura. Lo que no se puede corregir aquí manda a «Capturar a mano» | §19.19.13 paso 1 («⛔ no se edita calle, CP ni destinatario»), §19.5, `PROJECT §T.2` · ⚠ ver §43.17 **A-1** |
+| **SK7** | *(v4.16)* **La dirección del envío se corrige aquí; la del cliente no.** Destinatario, calle, interior, CP, colonia (⛔ solo de la lista del CP) y referencias se corrigen en el paso 1; municipio y estado **salen del CP** (no son campos); el teléfono **no** se corrige (P-ADR-1, default). La pantalla **dice** que solo cambia este envío y que queda a nombre de quien corrige. Cada guardado manda la `address.version` que el operador vio | `HECHOS.md:50` · §19.20.1 · PS-101 (corregida) |
 | **SK8** | **Toda ausencia tiene nombre** (§37.0 S8): días, recolección, entrega, plan, liga de rastreo, etiqueta, sucursal — «sin dato», nunca «—» ni `null` | §35.6a |
 | **SK9** | **El seguro se ve antes de elegir y en lo que se compra**: «Asegurado por {cobertura} · {costo}» en la cabecera de opciones y como renglón del desglose al comprar. ⛔ Ningún control para quitarlo ni para cambiar la cobertura en la ventana | `HECHOS.md` fila 2026-09-29 «todo paquete va ASEGURADO», fila «Skydropx — Carta Porte…» (escalones), §19.19.5 |
 | **SK10** | **Al cliente, solo lo suyo**: liga de rastreo **solo** si Skydropx la dio (⛔ nunca construida con la guía), movimientos sin códigos, costos, actores ni detalle interno; el correo `AV-17` sin plazo ni la palabra «disputa» | `HECHOS.md` filas 2026-09-29 «liga de rastreo…» y 2026-10-04 «Disputas…», §19.12, `C-SDX-6` |
@@ -23037,8 +23073,9 @@ dueño); no diseña `AV-18`/`AV-19` (fuera del encargo, §43.17 N-3); no diseña
 
 **Apertura** (`GET /admin/shipments/:id`, §19.19.13 paso 0): mientras carga, el cuerpo del `Modal` muestra `Skeleton`
 de tres líneas. Con `labelOptions.provider = 'off'` ⇒ **el formulario de hoy, idéntico** (§43.6), sin línea de paso.
-Con `'skydropx'` ⇒ el flujo de abajo. Si el envío ya tiene `label.processing = true` ⇒ abre directamente en el paso 4
-(«Guía en proceso», §43.5). Si ya tiene guía (`labelSource ≠ null`) ⇒ no se ofrece cotizar (la tarjeta tiene sus propias
+Con `'skydropx'` ⇒ el flujo de abajo. Si el envío trae **`labelPending ≠ null`** *(v4.16, §19.20.2; antes
+`label.processing`)* ⇒ abre directamente en el paso 4 («Compra sin confirmar» o «Guía en proceso» según
+`labelPending.state`, §43.5). Si ya tiene guía (`labelSource ≠ null`) ⇒ no se ofrece cotizar (la tarjeta tiene sus propias
 acciones, §43.8); si alguien llega igualmente, el `409 SHIPMENT_ALREADY_LABELED` tiene copy (§43.7).
 
 **Esqueleto** (el `Modal` de hoy, `max-w-md`; en móvil es hoja inferior y en escritorio el ancho de 448 px basta: la
@@ -23058,7 +23095,9 @@ lista de opciones es una columna):
    - **La acción principal** del paso (primaria), una sola.
 
 **Cerrar la ventana:** Esc, la X y el fondo cierran en los pasos 1, 2 y 4 sin preguntar (nada se escribió, o ya se
-escribió todo). **Durante la petición de compra** (paso 3, ≤ 30 s, §19.19.3 (5)) el `onClose` que `M4View` pasa al
+escribió todo). *(v4.16)* Una corrección de dirección **a medio teclear** se descarta al cerrar: no se guardó nada y la
+dirección del envío sigue como estaba (lo que se guarda, se guarda solo con «Guardar dirección», §43.2). Mientras el
+`PUT …/address` está en curso, el `onClose` no cierra (mismo patrón que la compra; son ≤ 1 petición corta). **Durante la petición de compra** (paso 3, ≤ 30 s, §19.19.3 (5)) el `onClose` que `M4View` pasa al
 `Modal` **no cierra** y la región de estado dice «Comprando… no cierres esta ventana». *(No toca `Modal.tsx`.)* Si el
 navegador se cierra igual, el servidor ya tiene el reclamo: la tarjeta lo enseña como «guía en proceso».
 
@@ -23067,44 +23106,141 @@ regresa al paso en que estaba, con lo ya cotizado intacto.
 
 ---
 
-### 43.2 Paso 1 · Dirección — «revisa cómo irá en la guía»
+### 43.2 Paso 1 · Dirección — «revisa cómo irá en la guía y corrígela si hace falta» *(reescrita en v4.16)*
 
-Fuente: `addressSnapshot` y `address.complete` del `AdminShipmentDTO` (§19.5, §19.7 «gana `address.complete`»).
+Fuentes: `HECHOS.md:50` («Poder corregir todo»); `API_CONTRACT §M4-SHIP.19.20.1` (`API_CONTRACT.md:25139-25220`):
+`PUT /admin/shipments/:id/address` con `CorrectShipmentAddressReq`; `AdminShipmentDTO.addressSnapshot` (10 campos) y
+`address: { complete, version, corrected }`. ⛔ `PATCH …/address-neighborhood` **no se construye** (§19.20.1): elegir la
+colonia que falta es **un caso** de esta corrección.
 
-**Qué se ve** — una lista de definición (`<dl>`), etiqueta en `text-sm text-muted`, valor en `text-sm text-text`
-(dirección para leer, ⛔ nunca `muted` en el valor, §35.5):
+El paso tiene **dos modos** sobre el mismo cuerpo: **leer** (lo normal: casi toda dirección llega bien) y **corregir**.
+*Por qué no un formulario siempre abierto:* el caso frecuente es revisar y seguir; un formulario abierto invita a
+teclear por accidente sobre la dirección de otra persona y deja ambiguo si «Ver opciones» cotiza lo tecleado o lo
+guardado. Con dos modos, **lo que se cotiza es siempre lo guardado**.
+
+#### 43.2a Modo leer
+
+Una lista de definición (`<dl>`), etiqueta en `text-sm text-muted`, valor en `text-sm text-text` (⛔ nunca `muted` en el
+valor, §35.5):
 
 | Etiqueta | Valor | Ausencia (SK8) |
 |---|---|---|
 | Destinatario | `recipientName` | «Sin destinatario» en `text-accent` |
-| Calle y número | `line1` (+ `line2`) | — (no puede faltar: el checkout lo exige) |
-| Colonia | `neighborhood` | **dispara el selector** (abajo) |
-| CP | `postalCode` en `tabular` | ídem `missing` |
-| Municipio o alcaldía | `city` | — |
-| Estado | `state` | — |
-| Teléfono | `phone` en `tabular` | ídem `missing` |
+| Calle y número | `line1` | — (no puede faltar: el servidor lo exige) |
+| Interior | `line2` | fila omitida si es `null` |
+| Colonia | `neighborhood` | **«Falta la colonia»** en `text-accent` (abre el modo corregir, abajo) |
+| CP | `postalCode` en `tabular` | «Sin CP» en `text-accent` |
+| Municipio o alcaldía | `city` | «Sin dato» |
+| Estado | `state` | «Sin dato» |
+| Teléfono | `phone` en `tabular` | «Sin teléfono» en `text-accent` |
 | Referencias | `references` | «Sin referencias» (`text-muted`; es opcional) |
 
-Debajo, `text-sm text-muted`: **«La calle, el CP y el destinatario son los que el cliente pagó y no se cambian aquí. Si
-están mal, captura la guía a mano.»**
+- Si `address.corrected ≠ null`, bajo la `<dl>`, `text-sm text-text`: **«Corregida por {name} · {fecha y hora}.»**
+  (`{name}` nulo ⇒ «una cuenta sin nombre», §36.14; fecha en `America/Mexico_City`). Es la **última** corrección; el
+  historial está en la bitácora (§19.20.1).
+- Botón secundario **«Corregir dirección»** (`aria-expanded`, `aria-controls` al formulario), a la izquierda de la
+  acción principal. Se pinta en el paso 1 con el envío en `picking`, sin guía y sin compra pendiente (las tres guardas
+  del servidor, §19.20.1 paso 3); fuera de eso la ventana no está en el paso 1 (§43.1) y, si una carrera llega igual, el
+  `409` correspondiente tiene texto (43.2d). ⛔ Independiente de los diales de compra (§19.20.1: con
+  `purchase='disabled'` también se corrige).
+- **Acción principal** con `address.complete = true`: **«Ver opciones de envío»** ⇒ paso 2 (cotiza al entrar, §43.3).
+- Con `complete = false` y `missing` = solo `neighborhood` (o `postalCode`/`recipientName`/`line1`): **la ventana abre
+  directamente en modo corregir** con el foco en el primer campo de `missing`, y el texto de 43.2c.
+- Con `missing` que contiene **`phone`**: `Banner variant="warning"` con `tracking.sdx.error.phone` (§43.7) y **sin**
+  «Ver opciones de envío»: el teléfono no se corrige aquí (P-ADR-1); queda «Capturar a mano» como primaria. *(Si además
+  falta otra cosa, «Corregir dirección» sigue disponible: corregir lo demás no hace daño.)*
 
-**Colonia que falta** (`complete = false` con `neighborhood` vacío):
-- Texto (`text-sm text-text`): **«Falta la colonia y Skydropx no cotiza sin ella. Elige la del CP {cp}.»**
-- `Select` **«Colonia (de la lista del CP {cp})»**, `placeholder` «Elige una colonia», opciones de
-  `GET /geo/postal-codes/:cp` (`neighborhoods[]`). Mientras carga: «Buscando las colonias del CP {cp}…» en la región de
-  estado. ⛔ Sin texto libre (`PROJECT §T.2`).
-- Acción principal del paso: **«Guardar colonia y seguir»** ⇒ `PATCH …/address-neighborhood`. `200` ⇒ la `<dl>` se
-  repinta con el DTO devuelto (colonia y, si cambiaron, municipio/estado canónicos) y la región dice **«Colonia guardada:
-  {colonia}. Queda registrado a tu nombre.»**; el paso sigue en 1 para que el operador **vea** la dirección final antes de
-  cotizar (no se salta solo).
+#### 43.2b Modo corregir — el formulario
 
-**Lo que no se arregla aquí** (`missing` contiene `postalCode` o `phone`): `Banner variant="warning"` con el texto de
-§43.7 (`SHIPMENT_ADDRESS_INCOMPLETE`) y **sin** acción principal: solo «Capturar a mano».
+Encima de los campos, `text-sm text-text`, siempre visible mientras el modo está abierto:
 
-**Acción principal** con la dirección completa: **«Ver opciones de envío»** ⇒ paso 2 (que cotiza solo al entrar).
+> **«Esto corrige solo a dónde va este paquete. La dirección guardada en la cuenta del cliente y la que capturó al
+> pagar no cambian.»**
+> `text-sm text-muted`: **«Queda registrado a tu nombre, con lo que había antes.»**
 
-**Validación:** la decide el servidor (`complete`, `missing`, los `422` de §19.5). ⛔ La pantalla no valida CP ni teléfono
-con su propia regla (SK3: una segunda regla diverge de la primera).
+*(Por qué dos frases y no una: la primera responde «¿le estoy cambiando la libreta al cliente?» — la duda que hace
+dudar antes de corregir; la segunda responde «¿se va a saber quién fue?», que es la mitad de `HECHOS.md:50`.)*
+
+Campos, en el orden en que se lee una dirección mexicana y se escribe una guía. Todos con `Input` (§6) salvo colonia
+(`Select`) y referencias (`Textarea`); valores iniciales = el snapshot que se ve en el modo leer:
+
+| # | Campo (label) | Control | Ayuda (`hint`) | Va en el cuerpo |
+|---|---|---|---|---|
+| 1 | **Destinatario** | `Input type="text"` `autoComplete="off"` | «Quien recibe el paquete. Va en la etiqueta.» | `recipientName` |
+| 2 | **Calle y número** | `Input type="text"` | — | `line1` |
+| 3 | **Número interior o depto. (opcional)** | `Input type="text"` | — | `line2` (vacío ⇒ `null`) |
+| 4 | **CP** | `Input` `inputMode="numeric"` `maxLength={5}` `autoComplete="off"` | «5 dígitos. Al cambiarlo, la colonia, el municipio y el estado salen del CP nuevo.» | `postalCode` |
+| 5 | **Colonia (de la lista del CP {cp})** | `Select`, `placeholder` «Elige una colonia» | — | `neighborhood` |
+| 6 | **Referencias para el repartidor (opcional)** | `Textarea rows={2}` | «Por ejemplo: portón negro, entre calles… Hasta 70 caracteres; Skydropx no acepta más.» | `references` (vacío ⇒ `null`) |
+| — | **Municipio y estado** | ⛔ **no es campo**: línea `text-sm text-text` **«Municipio y estado: {city}, {state} (salen del CP).»** | — | ⛔ no se manda (el servidor los pone del CP) |
+| — | **Teléfono** | ⛔ **no es campo** (P-ADR-1, default): línea `text-sm text-muted` **«Teléfono: {phone}. No se corrige aquí.»** | — | ⛔ no se manda |
+
+*Nombres de campo:* «Número interior o depto.» y «Referencias para el repartidor» **no** reutilizan `addresses.line2`
+(«Interior / referencia», `es.json:5019`), que mezcla las dos cosas: aquí son dos campos distintos que viajan a dos
+sitios de la guía (§19.20.1, `further_information`).
+
+**El CP manda sobre colonia, municipio y estado.** Al quedar el CP con 5 dígitos **distintos** de los guardados:
+- se llama `GET /geo/postal-codes/:cp` (región de estado: **«Buscando las colonias del CP {cp}…»**);
+- `200` ⇒ el `Select` se rehace con `neighborhoods[]`; si la colonia elegida **está** en la lista nueva se conserva, si
+  no, vuelve al placeholder; la línea «Municipio y estado» se repinta con lo que devuelve la consulta;
+- `404`/`422 POSTAL_CODE_UNKNOWN` ⇒ bajo el campo CP (`error`): **«El CP {cp} no está en el catálogo de colonias.
+  Revísalo; si es correcto, captura la guía a mano.»** y el `Select` se vacía;
+- con menos de 5 dígitos no se consulta nada y el `Select` queda deshabilitado con su razón unida por
+  `aria-describedby`: **«Escribe los 5 dígitos del CP para ver sus colonias.»**
+- ⛔ Sin texto libre en colonia (`PROJECT §T.2`, §19.20.1: debe estar en la lista).
+
+**Validación:** la decide el servidor. La pantalla solo pone lo que es **formato del control** (`inputMode`,
+`maxLength={5}` del CP, que además es condición para consultar colonias). ⛔ No replica longitudes ni reglas: las cotas
+vigentes son las del validador compartido que backend cita en `BACKEND_NOTES` (§19.20.1: «NO MEDIDO por el arquitecto»)
+y una copia en pantalla divergiría (SK3). `400 VALIDATION_ERROR {field}` ⇒ el error va **bajo ese campo** con el texto
+de 43.2d.
+
+**Pie del paso en modo corregir:**
+- Primaria: **«Guardar dirección»** ⇒ `PUT …/address` con los seis campos y **`expectedAddressVersion = address.version`
+  que se leyó al abrir** (o al último guardado/relectura) — ⛔ nunca un número inventado ni `version + 1`.
+- Fantasma: **«Descartar cambios»** ⇒ vuelve al modo leer con el snapshot guardado; nada se escribió.
+- «Capturar a mano» sigue en el pie (SK1).
+- ⛔ **«Ver opciones de envío» no se pinta** en modo corregir: lo que se cotiza es lo guardado.
+
+#### 43.2c La colonia que falta (el caso de antes, ahora dentro del formulario)
+
+Con `complete = false` y `neighborhood` vacío, la ventana abre en modo corregir, foco en «Colonia», y encima de la
+frase de 43.2b: `text-sm text-text` **«Falta la colonia y Skydropx no cotiza sin ella. Elige la del CP {cp}.»** El resto
+es el formulario normal: el operador puede elegir solo la colonia y guardar.
+
+#### 43.2d Respuestas de «Guardar dirección»
+
+| Respuesta | Qué se ve | Después |
+|---|---|---|
+| `200 {outcome:'corrected', shipment}` | Región de estado: **«Dirección corregida. Queda registrado a tu nombre.»** | Modo leer con el DTO devuelto (incluida la línea «Corregida por…»); ⛔ el paso **no** avanza solo: el operador ve la dirección final y pulsa «Ver opciones de envío». **Toda cotización que la pantalla tuviera en memoria se tira** (§19.20.1: la vieja ya no es vigente); el paso 2 cotiza de nuevo |
+| `200 {outcome:'unchanged', shipment}` | **«No había nada que cambiar: la dirección ya era esa.»** | Modo leer; nada se escribió (ni bitácora) |
+| `409 CONFLICT {reason:'address_changed'}` | `Banner variant="warning"`: **«Alguien más corrigió esta dirección mientras la editabas. No se guardó tu cambio. Abajo está la que quedó: revísala y, si sigue mal, corrígela otra vez.»** | La ventana **relee** `GET /admin/shipments/:id`, vuelve al modo leer con el snapshot nuevo y su «Corregida por…», y toma la `version` nueva. ⛔ No re-manda lo tecleado (sería pisar la corrección del otro sin verla) |
+| `409 SHIPMENT_NOT_IN_PREPARATION {status}` | **«Este envío ya no está en preparación ({estado}). No se guardó la dirección.»** | «Cerrar» |
+| `409 SHIPMENT_ALREADY_LABELED {labelSource}` | **«Este envío ya tiene guía. No se guardó la dirección: con guía comprada, la dirección ya es la de la guía.»** | «Cerrar» |
+| `409 LABEL_IN_PROGRESS` | **«Hay una compra de guía en curso para este envío. No se guardó la dirección.»** | pasa al paso 4 |
+| `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {postalCode, allowed}` | bajo «Colonia»: **«Esa colonia no es del CP {cp}. No se guardó. Elige una de la lista.»** | el `Select` se rehace con `allowed` |
+| `422 POSTAL_CODE_UNKNOWN {postalCode}` | bajo «CP»: el texto de 43.2b | — |
+| `400 VALIDATION_ERROR {field}` | bajo el campo: `recipientName` ⇒ **«Escribe quién recibe.»** · `line1` ⇒ **«Escribe la calle y el número.»** · `postalCode` ⇒ **«El CP son 5 dígitos.»** · `references` ⇒ **«Las referencias no caben en la guía: acórtalas (hasta 70 caracteres).»** · `line2`/`neighborhood`/otro ⇒ **«Revisa este campo: el servidor no lo aceptó.»** | foco al primer campo con error; nada se guardó |
+| `403` | **«Tu cuenta no puede corregir direcciones de envío.»** | «Cerrar» |
+| `5xx` / red | **«No se pudo guardar la dirección: el servidor no respondió. No se cambió nada; vuelve a intentarlo.»** | el formulario queda con lo tecleado |
+
+*(El `422 SHIPMENT_ADDRESS_INCOMPLETE` de cotizar/comprar ahora **sí** se arregla aquí salvo el teléfono: §43.7.)*
+
+#### 43.2e Si el dueño decide que el teléfono también se corrige (P-ADR-1, **abierta**; default: no)
+
+Sin rediseño: el renglón «Teléfono: {phone}. No se corrige aquí.» se sustituye por un campo **«Teléfono»**
+(`Input type="tel"` `inputMode="numeric"` `maxLength={10}` `autoComplete="off"`, ayuda **«10 dígitos. La paquetería
+llama a este número si no encuentra el domicilio.»**), entre «Destinatario» y «Calle y número»; su error de `400`:
+**«El teléfono son 10 dígitos.»**; el `Banner` de teléfono de 43.2a cambia a abrir el modo corregir con el foco en
+«Teléfono»; la fila `phone` de §43.7 pasa a «Corrígelo en «Corregir dirección»». Claves preparadas en §43.13
+(`address.phone*`), **sin usar** hasta que la fila de `HECHOS.md` lo diga.
+
+#### 43.2f Accesibilidad del paso
+
+- Al entrar a modo corregir, foco al primer campo (o al primero de `missing`); al guardar o descartar, foco a la
+  línea de paso (`stepRef`).
+- La frase «Esto corrige solo…» va unida al formulario por `aria-describedby` del `<form>`.
+- Errores de campo con `aria-invalid` y el `error` de `Input` (§6); el `Banner` de conflicto con `role="alert"`.
 
 ---
 
@@ -23138,10 +23274,14 @@ Medido: **1 consulta (~1.9 s) en 15 de 20, 2–4 en 5 de 20, máximo 7.4 s** (N 
 | Cobrado al cliente | **«Cobrado al cliente por el envío: {bruto} ({neto} sin IVA).»** | `charged` |
 | Vigencia | `text-muted`: **«Precios válidos hasta {fecha y hora}.»** | `expiresAt` (formateado en `America/Mexico_City`) |
 
-**«Cambiar empaque»** despliega un `Select` con los empaques activos y re-cotiza con `{ packageCode }` (la lista vuelve
-a «Cotizando…»). Fuente de la lista: `GET /admin/shipping/packages` — **NO MEDIDO** si el operador puede leerla (§19.13
-solo dice `super_admin` para el `PUT`) ⇒ §43.17 **A-3**; si responde `403`, el botón no se pinta y el empaque queda como
-texto.
+**«Cambiar empaque»** *(v4.16: para operador y súper-admin, §19.20.3)* — botón fantasma que despliega un `Select`
+**«Empaque»** con **solo** los empaques `active` de `GET /admin/shipping/packages` (orden del servidor, `sortOrder`),
+cada opción **«{label} · {lengthCm}×{widthCm}×{heightCm} cm · {weightKg} kg»** y el actual preseleccionado. Elegir otro
+re-cotiza con `{ packageCode }` (la lista vuelve a «Cotizando…», §43.3a); ⛔ elegir no compra (SK2) y la opción que el
+operador tenía marcada se pierde (la cotización es otra), con la región de estado **«Cotizando con el empaque
+{label}…»**. Si la lista carga con **un solo** empaque activo: el botón no se pinta (no hay a qué cambiar). Si `GET
+…/packages` falla (red/`5xx`) — o, por defensa, un `403` —: el botón no se pinta y el empaque queda como texto, con
+`text-xs text-muted` **«No se pudo leer la lista de empaques.»** solo en el caso de error.
 
 **Cotización incompleta** (`completed = false` con tarifas): `Banner variant="info"` **«Skydropx no terminó de cotizar en
 20 segundos: estas son las opciones que alcanzó a dar.»** + botón secundario **«Volver a cotizar»** (`force: true`).
@@ -23163,6 +23303,7 @@ Cada fila es una `label` de bloque (toda el área pulsa el radio), `min-h-[44px]
 |---|---|---|
 | 1 | **«{carrierLabel} · {serviceName}»** a la izquierda; **{priceCents}** a la derecha | `text-base text-text` / `tabular text-lg font-medium` |
 | 1b | Si `recommended`: versalita **«Recomendada»** | `TAG text-text` (⛔ no bermellón: no es un aviso) |
+| 1c | *(v4.16)* Si **`isPromo = true`**: versalita **«Promoción»**, junto a «Recomendada» si las dos (separadas por « · ») | `TAG text-text` (`font-mono text-[11px] uppercase tracking-[0.06em]`, el mismo de «Recomendada»; la diferencia la dice la palabra. ⛔ Ni bermellón ni verde: no es aviso ni éxito, y un color propio sería un token nuevo) |
 | 2 | Días · recolección · entrega (tabla de abajo), separados por « · » | `text-sm text-text` |
 | 3 | **«Margen: {margen}»**; si `marginCents < 0`: **«Margen: −{abs} — este envío te cuesta más de lo que cobraste»** | `tabular text-sm`; negativo en `text-accent` |
 | 4 | Si `planType ≠ null`: **«Plan Skydropx: {planType}»** | `font-mono text-[11px] text-muted` |
@@ -23187,9 +23328,14 @@ paquetería con sucursal cerca»). Prometer «pasan por él» sería falso.
 
 *Por qué el plan se muestra crudo:* el código delata la promoción (`50PESOS_…`, `PROMO_1_PESO_…`; `ACQ_2026` es la tarifa
 normal — PROD §4.5, M-19), pero **qué códigos son promoción no lo dice la API**: decidirlo en pantalla sería una regla
-inventada (SK3). Bajo la lista, una sola vez, `text-xs text-muted`: **«“Plan” es el código de tarifa de Skydropx.
-Algunos son promociones con fecha (por ejemplo, 50PESOS_… o PROMO_…) y pueden dejar de existir.»** Si el dueño quiere un
-realce de «promoción», el dato es del servidor ⇒ §43.17 **A-4**.
+inventada (SK3). ~~Bajo la lista … §43.17 **A-4**.~~ *(v4.16, §19.20.4)* El servidor ya lo dice: **`isPromo`**
+(`isPromoPlan(planType)`: `PROMO_…` o `<n>PESOS_…`; `ACQ_2026` y lo no reconocido ⇒ `false`). La pantalla pinta el chip
+**«Promoción»** (plano 1c) **solo** con `isPromo = true` — ⛔ nunca por su cuenta mirando `planType` — y bajo la lista, una
+sola vez y **solo si alguna fila trae `isPromo`**, `text-xs text-muted`: **«“Promoción” son tarifas de promoción de
+Skydropx: pueden dejar de existir sin aviso. “Plan” es el código de tarifa tal como lo da Skydropx.»** ⛔ **Sin fecha de
+vencimiento**: el sufijo del código parece una fecha pero hay promociones vigentes el 2026-10-04 con sufijos `30042026`
+y `19082026` — su significado es NO MEDIDO (§19.20.4) y la pantalla no lo interpreta. La promoción **no cambia el
+orden** ni la preselección (siguen del servidor). En el paso 3, el resumen de la opción repite el chip.
 
 **Ejemplo con cifras medidas** (14210→44100, paquete A, PROD §4.4–§4.5; seguro $2,500 ⇒ $25; los precios de PROD §4.5
 son **sin** seguro, aquí se le suma porque `priceCents` lo incluye — es ilustración del diseño, ⛔ no la calcula la
@@ -23306,6 +23452,28 @@ llega solo, la tarjeta lo mostrará y el cliente recibirá su correo entonces.»
 **`outcome: 'in_progress'`** — **«Esta guía ya se está comprando (alguien la pidió hace un momento). No se compró otra.»**
 y la misma espera que `processing`.
 
+**`outcome: 'in_flight'`** *(v4.16, §19.20.5 — la vía normal de la compra sin respuesta; también se llega aquí al abrir
+con `labelPending.state = 'in_flight'` o tras la relectura de SK5)* — encabezado `font-serif text-xl` **«Compra sin
+confirmar»** y `Banner variant="warning"` (no `danger`):
+> **«Skydropx no contestó a tiempo y no sabemos si alcanzó a crear la guía. No la vuelvas a comprar: el sistema la busca
+> solo y, si aparece, la verás en la tarjeta del envío. Si en 15 minutos no aparece, el dueño puede liberarla.»**
+
+- Debajo, `text-sm text-text`: **«Pedida por {name} · {carrierLabel} · {serviceName} · desde {hora}.»** con
+  `labelPending.chosenBy.name`, `.carrierLabel`, `.serviceName`, `.since` (cada nulo se omite con su separador; `name`
+  nulo ⇒ «una cuenta sin nombre»).
+- La ventana relee el envío cada 5 s hasta 2 min, como `processing` (región **«Revisando…»**): si pasa a `processing` ⇒
+  el texto de `processing`; si llega `label` ⇒ «Guía comprada»; si `labelPending` queda `null` sin `label` (el reclamo
+  se deshizo) ⇒ **«Skydropx no creó la guía. No se compró nada.»** y el botón **«Volver a elegir»** (paso 2; la compra
+  vuelve a exigir el clic con la cifra, SK2). A los 2 min sin cambio: **«Sigue sin confirmar. Puedes cerrar: si la guía
+  aparece, la tarjeta la mostrará; si no, el dueño puede liberarla a los 15 minutos.»**
+- ⛔ **Sin botón de compra y sin «Capturar a mano»** en este estado (una guía manual encima de una que quizá existe es el
+  doble costo); solo **«Cerrar»**.
+- *Por qué «15 minutos» va escrito:* es `T_UNKNOWN` (§19.20.2), la misma constante que habilita «Liberar»; si el
+  contrato la cambia, este texto cambia con ella (clave con `{minutes}`, §43.13).
+
+**`in_flight` ≠ `processing`** (§19.20.5): en `processing` Skydropx **confirmó** la compra y falta el número; en
+`in_flight` no sabemos si existe. Los dos textos lo dicen así; ⛔ no se fusionan en uno.
+
 ---
 
 ### 43.6 «Capturar a mano» dentro de la ventana
@@ -23335,16 +23503,18 @@ frontend, §19.11 — no es de este diseño.)*
 | `…{missing:['consignment_note']}` | 3 | **«Falta la Carta Porte en «Configuración › Envíos». No se compró nada.»** | ídem |
 | `…{missing:['env']}` | 2, 3 | **«Faltan las credenciales de Skydropx en el servidor. No se cotizó ni se compró nada. Avisa al súper-admin.»** | ídem |
 | *(varios `missing`)* | | una frase por elemento, en el orden recibido | |
-| `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` | 1, 2 | `neighborhood` ⇒ vuelve al paso 1 con el selector (§43.2). `postalCode` ⇒ **«El CP no tiene 5 dígitos. Skydropx lo exige y aquí no se corrige: captura la guía a mano.»** `phone` ⇒ **«El teléfono no tiene 10 dígitos. Skydropx lo exige y aquí no se corrige: captura la guía a mano.»** | «Capturar a mano» |
-| `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {postalCode, allowed}` | 1 | **«Esa colonia no es del CP {cp}. No se guardó. Elige una de la lista.»** (la lista se rehace con `allowed`) | selector |
-| `422 POSTAL_CODE_UNKNOWN` / `404` de `GET /geo/…` | 1 | **«El CP {cp} no está en el catálogo de colonias: no se puede cotizar. Captura la guía a mano.»** | «Capturar a mano» |
+| `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` *(v4.16)* | 2, 3 | Todo lo que no sea `phone` ⇒ **«A la dirección le falta {lo de abajo} y Skydropx no cotiza sin ello. No se cotizó ni se compró nada. Corrígela en el paso 1.»** con `neighborhood` ⇒ «la colonia» · `postalCode` ⇒ «un CP de 5 dígitos» · `recipientName` ⇒ «el destinatario» · `line1` ⇒ «la calle» (varios ⇒ unidos con «, » e «y»). `phone` ⇒ **«El teléfono no tiene 10 dígitos. Skydropx lo exige y aquí no se corrige: captura la guía a mano.»** (P-ADR-1) | sin `phone`: vuelve al paso 1 **en modo corregir** con foco en el primer campo de `missing`. Con `phone`: «Capturar a mano» |
+| `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {postalCode, allowed}` | 1 (guardar) | bajo «Colonia»: **«Esa colonia no es del CP {cp}. No se guardó. Elige una de la lista.»** (la lista se rehace con `allowed`) | selector |
+| `422 POSTAL_CODE_UNKNOWN` / `404` de `GET /geo/…` | 1 | bajo «CP»: **«El CP {cp} no está en el catálogo de colonias. Revísalo; si es correcto, captura la guía a mano.»** *(v4.16: el CP ahora se corrige aquí)* | campo CP; «Capturar a mano» |
 | `422 SHIPPING_PROVIDER_REJECTED` con **op `quote`** — **dirección rechazada** | 2 | **«Skydropx rechazó la cotización de esta dirección. No se cotizó nada.»** + `text-sm` **«Skydropx dice: “{providerMessage}”»** (cita literal: puede venir en inglés; ⛔ no se traduce ni se reinterpreta) | «Atrás» para revisar, «Capturar a mano» |
 | `422 SHIPPING_PROVIDER_REJECTED` con **op `label`** | 3 | **«Skydropx rechazó la compra con esta opción. No se cobró nada y el envío sigue igual.»** + «Skydropx dice: “…”» | **«Elegir otra opción»** (vuelve al paso 2 con la `quote` del detalle) |
 | `409 SHIPPING_INSUFFICIENT_BALANCE {requiredCents}` — **saldo insuficiente** | 3 | Súper-admin: **«Tu saldo de Skydropx no alcanza para esta guía ({required}). No se cobró nada. Recarga en el panel de Skydropx y vuelve a intentarlo, o elige una opción más barata.»** Operador: **«El saldo de Skydropx de la tienda no alcanza para esta guía ({required}). No se cobró nada. Avisa al súper-admin, o elige una opción más barata.»** *(⛔ sin el saldo: el operador no lo ve, T.11)* | «Atrás», «Capturar a mano» |
 | `503 SHIPPING_PROVIDER_BUSY` / `502 SHIPPING_PROVIDER_ERROR` — **Skydropx caído**, op **`quote`** | 2 | **«Skydropx no respondió. No se cotizó nada. Vuelve a intentarlo en un momento o captura la guía a mano.»** | «Volver a cotizar» |
 | `502 SHIPPING_PROVIDER_ERROR {reason:'edge_blocked'}` — **borde bloqueado** | 2, 3 | **«La conexión con Skydropx fue bloqueada antes de llegar (es un defecto de nuestro servidor, no de Skydropx). No se cotizó ni se cobró nada. No sirve reintentar: avisa al súper-admin y captura la guía a mano.»** | ⛔ sin «Volver a cotizar» (cero reintentos, §19.19.3 (0)); «Capturar a mano» |
-| `503`/`502` con **op `label`** (o cualquier `5xx`/red en la compra) — **compra en vuelo** (SK5) | 3 | `Banner variant="warning"` (no `danger`): **«Skydropx no contestó a tiempo y no sabemos si alcanzó a crear la guía. No la vuelvas a comprar: el sistema la busca solo y, si aparece, la verás en la tarjeta del envío. Si en 15 minutos no aparece, el dueño puede liberarla.»** La ventana **relee el envío** y pasa al paso 4 «Guía en proceso» si `label.processing` | ⛔ **sin botón de compra** y sin «Capturar a mano» (una guía manual encima de una comprada es el doble costo); solo «Cerrar» |
-| `409 QUOTE_EXPIRED {quote}` | 3 | **«Los precios vencieron y volvimos a cotizar. No se compró nada. Revisa la cifra nueva y elige otra vez.»** | vuelve al paso 2 con la `quote` nueva; ⛔ ninguna opción queda preseleccionada salvo la recomendada nueva |
+| *(v4.16)* `200 {outcome:'in_flight'}` — **compra en vuelo, vía normal** (§19.20.5) | 3 → 4 | no es error: paso 4 «Compra sin confirmar» (§43.5) | ⛔ sin botón de compra ni «Capturar a mano» |
+| Cualquier `5xx` o error de red en `POST …/label` (incluido un `500` nuestro) — **cinturón** (SK5) | 3 | Mientras relee, región de estado **«Skydropx no contestó. Comprobando si se compró la guía…»**; ⛔ el botón de compra **desaparece** desde el error. Luego decide la relectura: `label ≠ null` ⇒ «Guía comprada» · `labelPending ≠ null` ⇒ paso 4 por `labelPending.state` · `labelPending = null ∧ label = null` ⇒ `Banner variant="info"` **«Skydropx no respondió y lo comprobamos: no se compró nada. Puedes volver a intentarlo.»** · **la relectura también falla** ⇒ paso 4 «Compra sin confirmar» (falla cerrado) | en el caso «no se compró nada», el paso 3 vuelve con su botón (clic nuevo, SK2); en los demás, solo «Cerrar» |
+| `409 QUOTE_EXPIRED {quote, reason:'expired'}` (o sin `reason`) | 3 | **«Los precios vencieron y volvimos a cotizar. No se compró nada. Revisa la cifra nueva y elige otra vez.»** | vuelve al paso 2 con la `quote` nueva; ⛔ ninguna opción queda preseleccionada salvo la recomendada nueva |
+| *(v4.16)* `409 QUOTE_EXPIRED {quote, reason:'address_changed'}` | 3 | `Banner variant="warning"`: **«La dirección de este envío cambió después de cotizar, así que estos precios ya no valen. No se compró nada. Volvimos a cotizar con la dirección nueva: revísala en el paso 1 y elige otra vez.»** | la ventana **relee** el envío (para que el paso 1 enseñe la dirección nueva con su «Corregida por…») y vuelve al paso 2 con la `quote` nueva; ⛔ ninguna opción preseleccionada salvo la recomendada nueva; «Atrás» lleva a la dirección |
 | `409 LABEL_PREVIEW_STALE {priceCents, marginCents}` | 3 | **«El precio cambió mientras confirmabas: ahora son {price} (margen {margin}). No se compró nada. Revísalo y compra otra vez.»** | el paso 3 se repinta con las cifras nuevas (S2 de §37) |
 | `422 LABEL_CONFIRMATION_REQUIRED {required}` | 3 | **«Esta opción necesita que confirmes {lo de abajo}. No se compró nada.»** con `negative_margin` ⇒ «que el margen es negativo» · `branch_delivery` ⇒ «que no entrega a domicilio» | repinta los avisos de §43.4 |
 | `422 RATE_NOT_IN_QUOTE` / `404` de la cotización | 3 | **«Esa opción ya no está en la cotización. No se compró nada. Vuelve a cotizar.»** | «Volver a cotizar» |
@@ -23353,7 +23523,8 @@ frontend, §19.11 — no es de este diseño.)*
 | `409 SHIPMENT_NOT_IN_PREPARATION {status, labelAutoCancelled:true}` | 3 | **«El envío se canceló mientras Skydropx respondía ({estado}). La guía que alcanzó a crearse se canceló sola para que el saldo regrese.»** | «Cerrar» |
 | `409 SHIPMENT_NOT_IN_PREPARATION {status}` (sin `labelAutoCancelled`) | 2, 3 | el texto de §37.3b con «No se cotizó ni se compró nada.» | «Cerrar» |
 | `409 SHIPMENT_NOT_PREPARED`, `SHIPMENT_HAS_OPEN_REPLACEMENTS`, `ORDER_NOT_SETTLED`, `WITHDRAWAL_LINE_ORIGIN_REFUNDED` | 2, 3 | los de §37.6 (`tracking.notPrepared` … `tracking.originRefunded`) con «No se cotizó ni se compró nada» en lugar de «No se guardó la guía» | sus enlaces de hoy |
-| `409 CONFLICT` | 3 | **«El envío cambió mientras comprabas. No se compró nada. Lo actualizamos: revísalo y vuelve a intentarlo.»** | relee el envío |
+| `409 CONFLICT` | 3 | **«El envío cambió mientras comprabas (por ejemplo, alguien corrigió la dirección). No se compró nada. Lo actualizamos: revísalo y vuelve a intentarlo.»** *(v4.16: §19.20.1 — una corrección entre el paso 2 y el 7 de la compra cae aquí)* | relee el envío y vuelve al paso 1 |
+| `409 CONFLICT {reason:'address_changed'}` | 1 (guardar) | ver §43.2d | relee |
 
 ---
 
@@ -23363,12 +23534,21 @@ frontend, §19.11 — no es de este diseño.)*
 
 - El pie **no cambia de forma** (`ShipPreparationCard.tsx:708-716`): **«Capturar guía»** abre la ventana. ⛔ Ningún
   «Cotizar envío» (SK1, PS-101).
-- **Guía en proceso** (envío `picking` con compra pendiente): en el plano 3, versalita `text-muted` **«Guía en proceso ·
-  {carrierLabel} · desde {hora}»** y el botón del pie pasa a **«Ver guía en proceso»** (abre en el paso 4). «Deshacer
-  preparado» **no se pinta** mientras haya compra pendiente (el servidor exige `labelProcessingSince = null` para
-  re-cotizar; deshacer encima de una compra es otra carrera). ⚠ El DTO de la cola de preparación **no trae hoy** ese dato
-  (NO MEDIDO que lo vaya a traer) ⇒ §43.17 **A-2**.
-- **«Liberar»** (solo súper-admin, alerta `label_unknown`): ver §43.8c.
+- *(v4.16, §19.20.2)* **Compra pendiente** ⇔ `ShipPreparationOrderDTO.labelPending ≠ null`. En el plano 3, versalita
+  `text-muted` según `labelPending.state`:
+  - `processing` ⇒ **«Guía en proceso · {carrierLabel} · desde {hora}»**;
+  - `in_flight` ⇒ **«Compra sin confirmar · {carrierLabel} · desde {hora}»** (⛔ no «en proceso»: no sabemos si existe).
+  `carrierLabel` nulo ⇒ se omite con su separador; `{hora}` = `since` en `America/Mexico_City`. El botón del pie pasa a
+  **«Ver guía en proceso»** / **«Ver compra sin confirmar»** (abre en el paso 4). «Deshacer preparado» (`:699-706`) **no
+  se pinta** mientras `labelPending ≠ null` (deshacer encima de una compra es otra carrera; el servidor exige
+  `labelProcessingSince = null` para re-cotizar — si también para deshacer: NO MEDIDO por mí, la regla de pantalla no
+  depende de ello).
+- *(v4.16)* **Dirección corregida** ⇔ `shipTo.addressCorrected = true` (§19.20.1): en el plano 2 (`:544-564`), tras la
+  última línea, versalita `text-muted` **«Dirección corregida»** — la tarjeta ya enseña la dirección corregida (lee el
+  mismo snapshot); el chip avisa al que empaca que no es la que el cliente tecleó. Sin `print:hidden`: también sirve
+  en la hoja impresa.
+- **Alertas de guía** (`labelAlert`, las cuatro) y **«Liberar»** (⇔ `labelAlert.canRelease`): §43.8c, en el plano 3,
+  encima del pie.
 
 #### 43.8b En «Envíos» (`ShipmentsQueue`, fila con `labelSource = 'skydropx'`)
 
@@ -23425,11 +23605,34 @@ Respuestas: `cancelled` ⇒ **«Guía cancelada. El envío volvió a «preparado
 en la paquetería, no aquí.»** · `503`/`502` ⇒ **«Skydropx no respondió. La guía sigue marcada para cancelar; vuelve a
 intentarlo.»**
 
-#### 43.8c «Liberar» — compra sin respuesta (súper-admin, `@MoneyOut`)
+#### 43.8c Las alertas de guía (`labelAlert`) y «Liberar» *(reescrita en v4.16, §19.20.2)*
 
-Solo en la tarjeta con alerta **`label_unknown`** (§19.18.4; cómo llega esa alerta al DTO: NO MEDIDO ⇒ §43.17 **A-2**), y
-solo para el súper-admin (al operador **no se le pinta**, §37.0 S6). Línea `text-accent`: **«Compra sin respuesta:
-Skydropx no confirmó si creó la guía.»** Botón fantasma **«Liberar»** ⇒ `Dialog`:
+**Fuente:** `labelAlert: { kind, since, canRelease } | null` en `AdminShipmentDTO` **y** `ShipPreparationOrderDTO`. **Una**
+alerta por envío; la precedencia la aplica el servidor (⛔ la pantalla no la recalcula ni decide umbrales: SK3). Se pinta
+**donde llegue** — tarjeta de «Preparar» (§43.8a) y bloque de «Envíos» (§43.8b) — sin filtrar por estado: si el DTO la
+trae, se ve. Forma común: `Banner variant="warning"` (`role="status"`, no `alert`: llega con la carga de la lista, no por
+una acción), título versalita, cuerpo `text-sm`, `{desde}` = `since` en `America/Mexico_City` con fecha si no es hoy.
+
+| `kind` | Título | Cuerpo | Acción |
+|---|---|---|---|
+| `label_unknown` | **Compra sin respuesta** | **«Desde {desde}, Skydropx no confirma si creó la guía. No la vuelvas a comprar.»** + si `canRelease = false`: **«Solo el dueño puede liberarla: avísale.»** | `canRelease = true` ⇒ botón fantasma **«Liberar»** (diálogo abajo). `canRelease = false` ⇒ **ningún** botón (⛔ ni apagado, §37.0 S6) |
+| `label_processing_stuck` | **Guía atorada en proceso** | **«Skydropx creó la guía hace más de 30 minutos (desde {desde}) y todavía no da el número. Suele llegar solo; si no, cancélala y compra otra.»** | «Cancelar guía y comprar otra» **si** la tarjeta lo ofrece por §43.8b (⚠ que `label/cancel` acepte una guía sin número: NO MEDIDO ⇒ §43.17 **A-6**); si no, ninguno |
+| `label_cancel_failed` | **Cancelación sin confirmar** | **«Pediste cancelar esta guía el {desde} y Skydropx no lo confirmó: el saldo puede no haber regresado. Vuelve a intentarlo.»** | botón secundario **«Reintentar cancelación»** ⇒ `POST …/label/cancel` (operador+, §19.20.2 «Reintento») con el diálogo de §43.8b en su variante de reintento (abajo) |
+| `label_live_on_cancelled` | **Guía viva en un envío cancelado** | **«El envío se canceló, pero la guía {trackingNumber} ya había salido con la paquetería (desde {desde}). Revísala en el panel de Skydropx y decide qué hacer.»** | ninguno (lo resuelve una persona en Skydropx, §19.8) |
+
+*Los «30 minutos» y los «15» de `label_unknown`/§43.5 son `T_STUCK`/`T_UNKNOWN` (§19.20.2); van como `{minutes}` en
+la clave para que un cambio de constante no deje un texto mintiendo.*
+
+**«Reintentar cancelación»** — el mismo `Dialog` de «Cancelar y re-emitir» con: título **«¿Volver a pedir la
+cancelación de la guía {trackingNumber}?»**, cuerpo **«La cancelación ya se pidió y Skydropx no la confirmó. La volvemos a
+pedir; no se compra nada.»**, el mismo campo de motivo (el cuerpo de la petición no cambia; si el contrato lo quita, el
+campo se quita), confirmar **«Pedir cancelación otra vez»**. Respuestas: `cancelled` ⇒ **«Skydropx confirmó la
+cancelación. El saldo regresa.»** · `already_cancelled` ⇒ **«Ya estaba confirmada. No se hizo nada.»** · el resto, las de
+§43.8b.
+
+**«Liberar»** (súper-admin, `@MoneyOut`) — **se pinta ⇔ `labelAlert.kind = 'label_unknown' ∧ labelAlert.canRelease =
+true`**. ⛔ La pantalla no mira el rol para decidirlo: `canRelease` ya lo dice (§19.20.2). Botón fantasma **«Liberar»** ⇒
+`Dialog`:
 
 | Pieza | ES | EN |
 |---|---|---|
@@ -23445,11 +23648,10 @@ Respuestas: `adopted` ⇒ **«La guía sí existía y quedó adoptada: {carrierL
 **«Todavía no: espera {minutes, plural, one {# minuto} other {# minutos}} antes de liberar.»** (`minutes` = techo de
 `retryAfterSeconds / 60`: es formato, no decisión).
 
-**Otras alertas de guía** (mismo bloque, `Banner warning`, cuando el DTO las exponga — A-2): `label_processing_stuck` ⇒
-**«La guía lleva más de 30 minutos en proceso.»** · `label_cancel_failed` ⇒ **«No se pudo cancelar la guía en
-Skydropx. Vuelve a intentar la cancelación.»** (con el botón de §43.8b, que el servidor admite como reintento) ·
-`label_live_on_cancelled` ⇒ **«El envío se canceló pero la guía ya había salido con la paquetería. Revísalo en el panel
-de Skydropx.»**
+~~**Otras alertas de guía** (… A-2) …~~ *(v4.16: sustituido por la tabla de arriba.)*
+
+Tras `released`/`adopted`, la tarjeta se relee: la alerta desaparece porque el servidor deja de mandarla (⛔ no se
+oculta en pantalla por haber pulsado).
 
 ---
 
@@ -23611,6 +23813,75 @@ marca a mano.
   importes. La cabecera «⛔ Y NO HAY PLANTILLA DE «ENTREGADO»» (`:41-44`) **se reescribe** (§19.12).
 - Parte de texto a paridad (§31.12): título, prosa, dato, frase de soporte, URL de rastreo si la hay, URL del CTA.
 
+### 43.12b El correo `AV-18` — «Tu paquete está en sucursal» *(v4.16, §19.20.6)*
+
+**Qué es** (`API_CONTRACT.md:24299`): aviso al destinatario cuando Skydropx reporta **`delivered_to_branch`**
+(`applyCarrierStatus`, post-commit); **una vez por envío** (sello `branchNoticeSentAt`). El envío **no** pasa a
+`entregado` (`API_CONTRACT.md:32518`, decisión 6): el paquete espera en una sucursal y **el cliente tiene que ir por
+él**. Contenido exigido por §19.20.6: qué sucursal si hay `branchName`, que **debe recogerlo**, paquetería y guía;
+«Rastrear mi paquete» solo con `trackingUrl`; ⛔ sin disputas ni plazos (`HECHOS.md:52`).
+
+Mismo esqueleto que `AV-17` (§43.12): familia **ENVÍO**, `mailShell`, orden de §31.3, titular serif 22 px, **sin saludo**
+(§41.3), ⛔ sin importes.
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto (§41.2) | **Tu paquete está en sucursal** | **Your package is at the branch** |
+| Eyebrow | `TU PEDIDO · <n>` / `TU ENVÍO · <folio>` (el de hoy, como `AV-17`) | `YOUR ORDER · <n>` / `YOUR SHIPMENT · <folio>` |
+| Titular | = asunto | = asunto |
+| Prosa 1 — con `branchName` | **«La paquetería dejó tu paquete en la sucursal {sucursal}. Para recibirlo, tienes que pasar a recogerlo ahí.»** | “The carrier left your package at the {branch} branch. To get it, you need to pick it up there.” |
+| Prosa 1 — sin `branchName` | **«La paquetería dejó tu paquete en una de sus sucursales. Para recibirlo, tienes que pasar a recogerlo.»** | “The carrier left your package at one of its branches. To get it, you need to pick it up there.” |
+| Prosa 2 | Con `carrier`: **«Si no sabes cuál es la sucursal o su horario, pregúntale a {paquetería} con tu número de guía.»** · sin `carrier`: **«Si no sabes cuál es la sucursal o su horario, pregúntale a la paquetería con tu número de guía.»** | “If you don't know which branch it is or its opening hours, ask {carrier} with your tracking number.” / “… ask the carrier with your tracking number.” |
+| Dato (`monoRow`) | `Paquetería: <carrier> · Guía: <n>`; sin `carrier` ⇒ `Guía: <n>` (regla ✏ del 18, §41.7) | `Carrier: <carrier> · Tracking: <n>` / `Tracking: <n>` |
+| Soporte (prosa, ⛔ no en el pie) | la **misma** frase de `AV-17` (pedido / retiro, §43.12) | ídem |
+| Letra chica (solo con `trackingUrl`) | **«Rastrear mi paquete en la paquetería: {url}»** | “Track my package with the carrier: {url}” |
+| CTA (tinta, uno) | según destino (§41.4): `VER MI PEDIDO` / `VER MI ENVÍO` | `SEE MY ORDER` / `SEE MY SHIPMENT` |
+| Pie | ENVÍO, sin cambio | ídem |
+
+- **Por qué «Rastrear mi paquete» es letra chica y no botón:** §41.4 fija **un** CTA por correo, y el CTA va a nuestra
+  página (que ya muestra «En sucursal: {sucursal}. Pasa a recogerlo.», §43.11). Es la misma decisión que en `AV-17`; la
+  frase «Rastrear mi paquete» que pide §19.20.6 se conserva como texto de la línea.
+- ⛔ **Sin dirección ni horario de la sucursal**: el contrato solo da `branchName` (`API_CONTRACT.md:24328-24329`);
+  inventarlos sería mentir. ⛔ **Sin plazo para recoger** («tienes N días»): no está medido cuánto guarda cada
+  paquetería (NO MEDIDO) y además lo prohíbe la regla de plazos.
+- `branchName` va **tal cual** lo da Skydropx (texto de un tercero, escapado por `mailShell`); ⛔ no se traduce.
+- ⛔ **Sin «por qué»** («no te encontraron», «tu opción era a sucursal»): `delivered_to_branch` no dice la causa, y
+  afirmar «ya no te lo llevarán a domicilio» sería adivinar lo que hará la paquetería.
+
+### 43.12c El correo `AV-19` — «La paquetería intentó entregar tu paquete» *(v4.16, §19.20.6)*
+
+**Qué es** (`API_CONTRACT.md:24300`): aviso cuando Skydropx reporta **`delivery_attempt`**; **uno por intento** (sello
+`lastDeliveryAttemptAt`, nunca dos por el mismo evento). El envío **no** cambia de estado. Contenido exigido por
+§19.20.6: paquetería, guía y qué hacer — comunicarse con la paquetería con su guía y «¿Problema con tu pedido?
+Escríbenos»; ⛔ sin disputas ni plazos.
+
+Mismo esqueleto que `AV-17`/`AV-18`: familia ENVÍO, sin saludo, sin importes, un CTA.
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto (§41.2) | **La paquetería intentó entregar tu paquete** | **The carrier tried to deliver your package** |
+| Eyebrow | `TU PEDIDO · <n>` / `TU ENVÍO · <folio>` | `YOUR ORDER · <n>` / `YOUR SHIPMENT · <folio>` |
+| Titular | = asunto | = asunto |
+| Prosa 1 | Con fecha: **«La paquetería intentó entregar tu paquete el {fecha y hora} y no pudo.»** · sin fecha: **«La paquetería intentó entregar tu paquete y no pudo.»** — `{fecha y hora}` = el `occurredAt` del intento (el que sella `lastDeliveryAttemptAt`) con `formatDateTime`, `America/Mexico_City` (§41.9) | “The carrier tried to deliver your package on {date and time} and couldn't.” / “The carrier tried to deliver your package and couldn't.” |
+| Prosa 2 — qué hacer | Con `carrier`: **«Comunícate con {paquetería} con tu número de guía para acordar otra entrega.»** · sin `carrier`: **«Comunícate con la paquetería con tu número de guía para acordar otra entrega.»** | “Contact {carrier} with your tracking number to arrange another delivery.” / “Contact the carrier with your tracking number …” |
+| Dato (`monoRow`) | `Paquetería: <carrier> · Guía: <n>`; sin `carrier` ⇒ `Guía: <n>` | `Carrier: <carrier> · Tracking: <n>` / `Tracking: <n>` |
+| Soporte (prosa, ⛔ no en el pie) | la **misma** frase de `AV-17`: pedido **«¿Problema con tu pedido? Escríbenos a {soporte} con tu número de pedido {n} y, si hace falta, fotos.»** · retiro **«¿Problema con tu envío? Escríbenos a {soporte} con la referencia {folio} y, si hace falta, fotos.»** | ídem `AV-17` |
+| Letra chica (solo con `trackingUrl`) | **«Rastrear mi paquete en la paquetería: {url}»** | “Track my package with the carrier: {url}” |
+| CTA (tinta, uno) | `VER MI PEDIDO` / `VER MI ENVÍO` | `SEE MY ORDER` / `SEE MY SHIPMENT` |
+| Pie | ENVÍO, sin cambio | ídem |
+
+- **El asunto no cambia entre el primer intento y el segundo** (son dos correos con el mismo asunto y fechas distintas en
+  la prosa): numerar «segundo intento» exigiría contar intentos, y el contrato da un sello, no un contador (NO MEDIDO que
+  exista la cuenta).
+- ⛔ Sin motivo del fallo («no había nadie», «dirección incorrecta»): Skydropx no lo da en forma fiable y el `detail`
+  es interno (SK10). ⛔ Sin «volverán mañana» ni número de intentos restantes: no está medido.
+- ⛔ Sin teléfono de la paquetería: no está en el contrato.
+
+**Comunes a `AV-18` y `AV-19`:** `{soporte}` = `supportEmail()` exportada (§41 E-3, `mail-shell.ts:616`), la misma
+cascada que el pie; el invitado tiene CTA (`customerUrl`, §19.12, `API_CONTRACT.md:24305-24312`); parte de texto a
+paridad (§31.12): título, prosas, dato, frase de soporte, URL de rastreo si la hay, URL del CTA; prohibidos en asunto,
+HTML y texto: plazo, días, «disputa»/“dispute”, «aclaración»/“claim”, `deadline`, importes.
+
 ---
 
 ### 43.13 Claves i18n ES/EN
@@ -23627,17 +23898,41 @@ Todas nuevas salvo las marcadas. Espacio de nombres: `admin.m4.tracking.sdx.*` (
 | `tracking.sdx.backToSkydropx` | Volver a Skydropx | Back to Skydropx |
 | `tracking.sdx.back` | Atrás | Back |
 | `tracking.sdx.close` | Cerrar | Close |
-| `tracking.sdx.address.recipient` … `.references` | Destinatario · Calle y número · Colonia · CP · Municipio o alcaldía · Estado · Teléfono · Referencias | Recipient · Street and number · Neighborhood · Postcode · Municipality or borough · State · Phone · References |
+| `tracking.sdx.address.recipient` / `.line1` / `.line2` / `.neighborhood` / `.postalCode` / `.city` / `.state` / `.phone` / `.references` *(v4.16: + `line2`; etiquetas del modo leer)* | Destinatario · Calle y número · Interior · Colonia · CP · Municipio o alcaldía · Estado · Teléfono · Referencias | Recipient · Street and number · Interior · Neighborhood · Postcode · Municipality or borough · State · Phone · References |
 | `tracking.sdx.address.recipientMissing` | Sin destinatario | No recipient |
+| `tracking.sdx.address.neighborhoodNone` *(v4.16)* | Falta la colonia | Neighborhood missing |
+| `tracking.sdx.address.postalCodeNone` / `.phoneNone` / `.noData` *(v4.16)* | Sin CP / Sin teléfono / Sin dato | No postcode / No phone / No data |
 | `tracking.sdx.address.referencesNone` | Sin referencias | No references |
-| `tracking.sdx.address.readOnly` | La calle, el CP y el destinatario son los que el cliente pagó y no se cambian aquí. Si están mal, captura la guía a mano. | The street, postcode and recipient are the ones the customer paid with and can't be changed here. If they're wrong, enter the label by hand. |
+| ~~`tracking.sdx.address.readOnly`~~ | ⛔ **se retira** (v4.16: contradice `HECHOS.md:50`) | — |
 | `tracking.sdx.address.neighborhoodMissing` | Falta la colonia y Skydropx no cotiza sin ella. Elige la del CP {cp}. | The neighborhood is missing and Skydropx won't quote without it. Choose the one for postcode {cp}. |
 | `tracking.sdx.address.neighborhoodLabel` | Colonia (de la lista del CP {cp}) | Neighborhood (from the list for postcode {cp}) |
 | `tracking.sdx.address.neighborhoodPlaceholder` | Elige una colonia | Choose a neighborhood |
 | `tracking.sdx.address.loadingNeighborhoods` | Buscando las colonias del CP {cp}… | Looking up neighborhoods for postcode {cp}… |
-| `tracking.sdx.address.saveNeighborhood` | Guardar colonia y seguir | Save neighborhood and continue |
-| `tracking.sdx.address.neighborhoodSaved` | Colonia guardada: {neighborhood}. Queda registrado a tu nombre. | Neighborhood saved: {neighborhood}. It's recorded in your name. |
+| ~~`tracking.sdx.address.saveNeighborhood`~~, ~~`.neighborhoodSaved`~~ | ⛔ **se retiran** (v4.16: el verbo de colonia no se construye) | — |
 | `tracking.sdx.address.cta` | Ver opciones de envío | See shipping options |
+| `tracking.sdx.address.corrected` *(v4.16)* | Corregida por {name} · {datetime}. | Corrected by {name} · {datetime}. |
+| `tracking.sdx.address.unnamed` *(v4.16)* | una cuenta sin nombre | an unnamed account |
+| `tracking.sdx.address.edit` *(v4.16)* | Corregir dirección | Correct address |
+| `tracking.sdx.address.scopeNote` *(v4.16)* | Esto corrige solo a dónde va este paquete. La dirección guardada en la cuenta del cliente y la que capturó al pagar no cambian. | This only corrects where this package goes. The address saved in the customer's account and the one they entered at checkout don't change. |
+| `tracking.sdx.address.auditNote` *(v4.16)* | Queda registrado a tu nombre, con lo que había antes. | It's recorded in your name, along with what was there before. |
+| `tracking.sdx.address.field.recipient` / `.line1` / `.line2` / `.postalCode` / `.references` *(v4.16, etiquetas del formulario)* | Destinatario / Calle y número / Número interior o depto. (opcional) / CP / Referencias para el repartidor (opcional) | Recipient / Street and number / Interior or apartment number (optional) / Postcode / Notes for the courier (optional) |
+| `tracking.sdx.address.hint.recipient` / `.postalCode` / `.references` *(v4.16)* | Quien recibe el paquete. Va en la etiqueta. / 5 dígitos. Al cambiarlo, la colonia, el municipio y el estado salen del CP nuevo. / Por ejemplo: portón negro, entre calles… Hasta 70 caracteres; Skydropx no acepta más. | Who receives the package. It goes on the label. / 5 digits. When you change it, the neighborhood, municipality and state come from the new postcode. / For example: black gate, between streets… Up to 70 characters; Skydropx doesn't accept more. |
+| `tracking.sdx.address.cityState` *(v4.16)* | Municipio y estado: {city}, {state} (salen del CP). | Municipality and state: {city}, {state} (from the postcode). |
+| `tracking.sdx.address.phoneReadOnly` *(v4.16)* | Teléfono: {phone}. No se corrige aquí. | Phone: {phone}. It can't be corrected here. |
+| `tracking.sdx.address.cpFirst` *(v4.16)* | Escribe los 5 dígitos del CP para ver sus colonias. | Type the 5-digit postcode to see its neighborhoods. |
+| `tracking.sdx.address.cpUnknown` *(v4.16)* | El CP {cp} no está en el catálogo de colonias. Revísalo; si es correcto, captura la guía a mano. | Postcode {cp} isn't in the neighborhood catalogue. Check it; if it's right, enter the label by hand. |
+| `tracking.sdx.address.save` / `.discard` *(v4.16)* | Guardar dirección / Descartar cambios | Save address / Discard changes |
+| `tracking.sdx.address.saving` *(v4.16)* | Guardando la dirección… | Saving the address… |
+| `tracking.sdx.address.saved` *(v4.16)* | Dirección corregida. Queda registrado a tu nombre. | Address corrected. It's recorded in your name. |
+| `tracking.sdx.address.unchanged` *(v4.16)* | No había nada que cambiar: la dirección ya era esa. | Nothing to change: the address was already that. |
+| `tracking.sdx.address.conflict` *(v4.16)* | Alguien más corrigió esta dirección mientras la editabas. No se guardó tu cambio. Abajo está la que quedó: revísala y, si sigue mal, corrígela otra vez. | Someone else corrected this address while you were editing it. Your change wasn't saved. The current one is below: check it and, if it's still wrong, correct it again. |
+| `tracking.sdx.address.notInPreparation` *(v4.16)* | Este envío ya no está en preparación ({status}). No se guardó la dirección. | This shipment is no longer being prepared ({status}). The address wasn't saved. |
+| `tracking.sdx.address.alreadyLabeled` *(v4.16)* | Este envío ya tiene guía. No se guardó la dirección: con guía comprada, la dirección ya es la de la guía. | This shipment already has a label. The address wasn't saved: once a label is bought, the address is the one on the label. |
+| `tracking.sdx.address.labelInProgress` *(v4.16)* | Hay una compra de guía en curso para este envío. No se guardó la dirección. | A label purchase is in progress for this shipment. The address wasn't saved. |
+| `tracking.sdx.address.forbidden` *(v4.16)* | Tu cuenta no puede corregir direcciones de envío. | Your account can't correct shipping addresses. |
+| `tracking.sdx.address.serverDown` *(v4.16)* | No se pudo guardar la dirección: el servidor no respondió. No se cambió nada; vuelve a intentarlo. | The address couldn't be saved: the server didn't respond. Nothing changed; try again. |
+| `tracking.sdx.address.invalid.recipient` / `.line1` / `.postalCode` / `.references` / `.other` *(v4.16)* | Escribe quién recibe. / Escribe la calle y el número. / El CP son 5 dígitos. / Las referencias no caben en la guía: acórtalas (hasta 70 caracteres). / Revisa este campo: el servidor no lo aceptó. | Enter who receives it. / Enter the street and number. / The postcode is 5 digits. / The notes don't fit on the label: shorten them (up to 70 characters). / Check this field: the server didn't accept it. |
+| `tracking.sdx.address.phone.label` / `.hint` / `.invalid` *(v4.16, copy listo; ⛔ **no** se añaden a `messages/` hasta que P-ADR-1 se responda «sí» en `HECHOS.md` — una clave sin lector es ruido)* | Teléfono / 10 dígitos. La paquetería llama a este número si no encuentra el domicilio. / El teléfono son 10 dígitos. | Phone / 10 digits. The carrier calls this number if it can't find the address. / The phone number is 10 digits. |
 | `tracking.sdx.quoting` | Cotizando con Skydropx… | Getting quotes from Skydropx… |
 | `tracking.sdx.quotingHint` | Suele tardar entre 2 y 7 segundos. | It usually takes 2 to 7 seconds. |
 | `tracking.sdx.quotingSlow` | Está tardando más de lo normal. Puedes esperar (hasta 20 segundos) o capturar a mano. | It's taking longer than usual. You can wait (up to 20 seconds) or enter it by hand. |
@@ -23665,7 +23960,10 @@ Todas nuevas salvo las marcadas. Espacio de nombres: `admin.m4.tracking.sdx.*` (
 | `tracking.sdx.options.margin` | Margen: {amount} | Margin: {amount} |
 | `tracking.sdx.options.marginNegative` | Margen: −{amount} — este envío te cuesta más de lo que cobraste | Margin: −{amount} — this shipment costs you more than you charged |
 | `tracking.sdx.options.plan` | Plan Skydropx: {plan} | Skydropx plan: {plan} |
-| `tracking.sdx.options.planNote` | «Plan» es el código de tarifa de Skydropx. Algunos son promociones con fecha (por ejemplo, 50PESOS_… o PROMO_…) y pueden dejar de existir. | “Plan” is Skydropx's rate code. Some are dated promotions (for example, 50PESOS_… or PROMO_…) and may stop existing. |
+| `tracking.sdx.options.planNote` | «Plan» es el código de tarifa de Skydropx. Algunos son promociones con fecha (por ejemplo, 50PESOS_… o PROMO_…) y pueden dejar de existir. — ⛔ **v4.16: se sustituye** por `options.promoNote` | — |
+| `tracking.sdx.options.promo` *(v4.16)* | Promoción | Promotion |
+| `tracking.sdx.options.promoNote` *(v4.16)* | «Promoción» son tarifas de promoción de Skydropx: pueden dejar de existir sin aviso. «Plan» es el código de tarifa tal como lo da Skydropx. | “Promotion” marks Skydropx promotional rates: they may disappear without notice. “Plan” is the rate code exactly as Skydropx gives it. |
+| `tracking.sdx.options.packageLabel` / `.packageOption` / `.quotingPackage` / `.packagesError` *(v4.16)* | Empaque / {label} · {length}×{width}×{height} cm · {kg} kg / Cotizando con el empaque {label}… / No se pudo leer la lista de empaques. | Packaging / {label} · {length}×{width}×{height} cm · {kg} kg / Getting quotes with the {label} packaging… / The packaging list couldn't be loaded. |
 | `tracking.sdx.options.showBranch` | Ver también {count, plural, one {# opción} other {# opciones}} sin entrega a domicilio | Also show {count, plural, one {# option} other {# options}} without home delivery |
 | `tracking.sdx.options.hideBranch` | Ocultar las opciones sin entrega a domicilio | Hide options without home delivery |
 | `tracking.sdx.options.excluded` | {total, plural, one {# opción no se muestra} other {# opciones no se muestran}}: {parts}. | {total, plural, one {# option isn't shown} other {# options aren't shown}}: {parts}. |
@@ -23701,9 +23999,31 @@ Todas nuevas salvo las marcadas. Espacio de nombres: `admin.m4.tracking.sdx.*` (
 | `tracking.sdx.processing.checking` | Revisando… | Checking… |
 | `tracking.sdx.processing.timeout` | Sigue en proceso. Puedes cerrar: el número llega solo, la tarjeta lo mostrará y el cliente recibirá su correo entonces. | Still in progress. You can close: the number arrives on its own, the card will show it and the customer will get their email then. |
 | `tracking.sdx.processing.inProgress` | Esta guía ya se está comprando (alguien la pidió hace un momento). No se compró otra. | This label is already being bought (someone requested it a moment ago). No other was bought. |
-| `tracking.sdx.error.*` | los textos de la tabla de §43.7, una clave por fila (`labelPurchaseDisabled`, `providerOff`, `ownerOnly`, `insuranceTier`, `insuranceTierAdmin`, `allowSpend`, `origin`, `packages`, `consignmentNote`, `env`, `postalCode`, `phone`, `neighborhoodNotInCp`, `postalCodeUnknown`, `rejectedQuote`, `rejectedLabel`, `providerSays`, `balanceOwner`, `balanceOperator`, `providerDownQuote`, `edgeBlocked`, `inFlight`, `quoteExpired`, `previewStale`, `confirmationRequired`, `rateGone`, `alreadyLabeledSkydropx`, `alreadyLabeledManual`, `labelInProgress`, `autoCancelled`, `conflict`) con su EN | EN de cada fila: misma estructura «qué pasó · qué no se escribió/cobró · remedio» |
+| `tracking.sdx.inFlight.title` *(v4.16)* | Compra sin confirmar | Purchase not confirmed |
+| `tracking.sdx.inFlight.body` *(v4.16; sustituye a `error.inFlight`)* | Skydropx no contestó a tiempo y no sabemos si alcanzó a crear la guía. No la vuelvas a comprar: el sistema la busca solo y, si aparece, la verás en la tarjeta del envío. Si en {minutes, plural, one {# minuto} other {# minutos}} no aparece, el dueño puede liberarla. | Skydropx didn't answer in time and we don't know whether it created the label. Don't buy it again: the system looks for it on its own and, if it turns up, you'll see it on the shipment card. If it hasn't turned up in {minutes, plural, one {# minute} other {# minutes}}, the owner can release it. |
+| `tracking.sdx.inFlight.who` *(v4.16)* | Pedida por {name} · {carrier} · {service} · desde {time}. | Requested by {name} · {carrier} · {service} · since {time}. |
+| `tracking.sdx.inFlight.notCreated` *(v4.16)* | Skydropx no creó la guía. No se compró nada. | Skydropx didn't create the label. Nothing was bought. |
+| `tracking.sdx.inFlight.chooseAgain` *(v4.16)* | Volver a elegir | Choose again |
+| `tracking.sdx.inFlight.timeout` *(v4.16)* | Sigue sin confirmar. Puedes cerrar: si la guía aparece, la tarjeta la mostrará; si no, el dueño puede liberarla a los {minutes, plural, one {# minuto} other {# minutos}}. | Still not confirmed. You can close: if the label turns up, the card will show it; if not, the owner can release it after {minutes, plural, one {# minute} other {# minutes}}. |
+| `tracking.sdx.inFlight.checking` *(v4.16)* | Skydropx no contestó. Comprobando si se compró la guía… | Skydropx didn't answer. Checking whether the label was bought… |
+| `tracking.sdx.inFlight.nothingBought` *(v4.16)* | Skydropx no respondió y lo comprobamos: no se compró nada. Puedes volver a intentarlo. | Skydropx didn't respond and we checked: nothing was bought. You can try again. |
+| `tracking.sdx.error.*` | los textos de la tabla de §43.7, una clave por fila (`labelPurchaseDisabled`, `providerOff`, `ownerOnly`, `insuranceTier`, `insuranceTierAdmin`, `allowSpend`, `origin`, `packages`, `consignmentNote`, `env`, `postalCode`, `phone`, `neighborhoodNotInCp`, `postalCodeUnknown`, `rejectedQuote`, `rejectedLabel`, `providerSays`, `balanceOwner`, `balanceOperator`, `providerDownQuote`, `edgeBlocked`, ~~`inFlight`~~ (v4.16 ⇒ `inFlight.body`), `quoteExpired`, `previewStale`, `confirmationRequired`, `rateGone`, `alreadyLabeledSkydropx`, `alreadyLabeledManual`, `labelInProgress`, `autoCancelled`, `conflict`) con su EN | EN de cada fila: misma estructura «qué pasó · qué no se escribió/cobró · remedio» |
+| `tracking.sdx.error.addressIncomplete` *(v4.16)* | A la dirección le falta {missing} y Skydropx no cotiza sin ello. No se cotizó ni se compró nada. Corrígela en el paso 1. | The address is missing {missing} and Skydropx won't quote without it. Nothing was quoted or bought. Correct it in step 1. |
+| `tracking.sdx.error.missing.neighborhood` / `.postalCode` / `.recipientName` / `.line1` *(v4.16)* | la colonia / un CP de 5 dígitos / el destinatario / la calle | the neighborhood / a 5-digit postcode / the recipient / the street |
+| `tracking.sdx.error.postalCode` | ⛔ **se retira** (v4.16: el CP se corrige en el paso 1 ⇒ `addressIncomplete`) | — |
+| `tracking.sdx.error.postalCodeUnknown` *(v4.16, texto nuevo)* | = `address.cpUnknown` (una sola clave; ésta se retira) | — |
+| `tracking.sdx.error.quoteExpiredAddress` *(v4.16)* | La dirección de este envío cambió después de cotizar, así que estos precios ya no valen. No se compró nada. Volvimos a cotizar con la dirección nueva: revísala en el paso 1 y elige otra vez. | This shipment's address changed after the quote, so these prices are no longer valid. Nothing was bought. We quoted again with the new address: check it in step 1 and choose again. |
+| `tracking.sdx.error.conflict` *(v4.16, texto cambiado)* | El envío cambió mientras comprabas (por ejemplo, alguien corrigió la dirección). No se compró nada. Lo actualizamos: revísalo y vuelve a intentarlo. | The shipment changed while you were buying (for example, someone corrected the address). Nothing was bought. We've updated it: check it and try again. |
 | `prep.ship.guide.processing` (en `admin.m4.prep.ship`) | Guía en proceso · {carrier} · desde {time} | Label in progress · {carrier} · since {time} |
 | `prep.ship.guide.viewProcessing` | Ver guía en proceso | See label in progress |
+| `prep.ship.guide.inFlight` *(v4.16)* | Compra sin confirmar · {carrier} · desde {time} | Purchase not confirmed · {carrier} · since {time} |
+| `prep.ship.guide.viewInFlight` *(v4.16)* | Ver compra sin confirmar | See unconfirmed purchase |
+| `prep.ship.addressCorrected` *(v4.16)* | Dirección corregida | Address corrected |
+| `admin.m4.labelAlert.unknown.title` / `.body` / `.ownerOnly` *(v4.16)* | Compra sin respuesta / Desde {since}, Skydropx no confirma si creó la guía. No la vuelvas a comprar. / Solo el dueño puede liberarla: avísale. | Purchase without an answer / Since {since}, Skydropx hasn't confirmed whether it created the label. Don't buy it again. / Only the owner can release it: let them know. |
+| `admin.m4.labelAlert.stuck.title` / `.body` *(v4.16)* | Guía atorada en proceso / Skydropx creó la guía hace más de {minutes, plural, one {# minuto} other {# minutos}} (desde {since}) y todavía no da el número. Suele llegar solo; si no, cancélala y compra otra. | Label stuck in progress / Skydropx created the label more than {minutes, plural, one {# minute} other {# minutes}} ago (since {since}) and still hasn't given the number. It usually arrives on its own; if not, cancel it and buy another. |
+| `admin.m4.labelAlert.cancelFailed.title` / `.body` / `.retry` *(v4.16)* | Cancelación sin confirmar / Pediste cancelar esta guía el {since} y Skydropx no lo confirmó: el saldo puede no haber regresado. Vuelve a intentarlo. / Reintentar cancelación | Cancellation not confirmed / You asked to cancel this label on {since} and Skydropx didn't confirm it: the balance may not have come back. Try again. / Retry cancellation |
+| `admin.m4.labelAlert.liveOnCancelled.title` / `.body` *(v4.16)* | Guía viva en un envío cancelado / El envío se canceló, pero la guía {number} ya había salido con la paquetería (desde {since}). Revísala en el panel de Skydropx y decide qué hacer. | Live label on a cancelled shipment / The shipment was cancelled, but label {number} had already gone out with the carrier (since {since}). Check it in the Skydropx panel and decide what to do. |
+| `admin.m4.labelAlert.retryDialog.title` / `.body` / `.confirm` / `.done` / `.already` *(v4.16)* | ¿Volver a pedir la cancelación de la guía {number}? / La cancelación ya se pidió y Skydropx no la confirmó. La volvemos a pedir; no se compra nada. / Pedir cancelación otra vez / Skydropx confirmó la cancelación. El saldo regresa. / Ya estaba confirmada. No se hizo nada. | Ask again to cancel label {number}? / The cancellation was already requested and Skydropx didn't confirm it. We'll request it again; nothing is bought. / Request cancellation again / Skydropx confirmed the cancellation. The balance comes back. / It was already confirmed. Nothing was done. |
 | `admin.m4.carrierStatus.*` | tabla de §43.8b | tabla de §43.8b |
 | `admin.m4.label.*` | los textos de §43.8b–c (línea de guía, quién, elección, dinero, alerta, acciones, cancelar, liberar, alertas de guía) | ídem |
 | `admin.m4.tabs.departure` | Salida de hoy | Today's drop-off |
@@ -23714,6 +24034,9 @@ Todas nuevas salvo las marcadas. Espacio de nombres: `admin.m4.tracking.sdx.*` (
 | `orders.shipment.trackingLink`, `track.trackingLink` | Rastrear en la paquetería | Track with the carrier |
 
 Plurales ICU (§9.4). Paridad ES/EN en el mismo commit (UX-SDX-14).
+
+*(v4.16)* Los textos de `AV-18` y `AV-19` (§43.12b–c) **no** van a `frontend/messages/`: viven en la plantilla de
+backend (`shipment-notice.templates.ts`), en ES y EN, como `AV-17`; su paridad la vigila ML-25/ML-26 (§43.15).
 
 ---
 
@@ -23736,9 +24059,28 @@ Plurales ICU (§9.4). Paridad ES/EN en el mismo commit (UX-SDX-14).
 | FS-13 | `frontend/messages/es.json:1780-1796` y `en.json:1780-…` (`admin.m4.tracking`), `es.json:2074-2078` (`prep.ship.guide`), `es.json:1137-1150` (`orders.shipment`), `es.json:5036-5053` (`track`) | Claves de §43.13 | 43.13 |
 | FS-14 | MSW (`lib/mock/…`) | Fixtures con las cifras medidas de PROD §4.4–§4.6 (99minutos recomendada y más cara, J&T en `excluded.unavailable`, una de sucursal PuntoPost $1.19, `planType` de promo) para PS-101 | 43.3 |
 
+**v4.16 — cambios que se suman o sustituyen** (fichero:línea re-leídos el 2026-10-04 en `/home/user/tcg-skyd`, HEAD
+`4f926e5c` según el orquestador; re-medir antes de editar):
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FS-15 | `m4/CaptureLabelDialog.tsx` (nuevo, FS-1) — paso 1 | Modo leer / modo corregir; `PUT …/address` con `expectedAddressVersion = address.version` leída; la cotización en memoria se **tira** tras `corrected`; relectura en `409 CONFLICT {reason:'address_changed'}`; `GET /geo/postal-codes/:cp` al cambiar el CP. ⛔ No implementar `PATCH …/address-neighborhood` (no se construye) | 43.2 |
+| FS-16 | ídem — paso 3/4 | `outcome:'in_flight'` ⇒ paso 4 «Compra sin confirmar»; ante `5xx`/red ⇒ relectura y decisión por `label`/`labelPending`; relectura fallida ⇒ «sin confirmar». ⛔ Nunca decidir por `status` | 43.5, SK5 |
+| FS-17 | ídem — paso 2 | «Cambiar empaque» con `GET /admin/shipping/packages` (solo `active`; sin botón con 1 activo o con error); chip «Promoción» ⇔ `isPromo`; `promoNote` solo si alguna fila `isPromo` | 43.3b–c |
+| FS-18 | ídem — §43.7 | `QUOTE_EXPIRED` ramifica por `details.reason` (`expired` / `address_changed`); `SHIPMENT_ADDRESS_INCOMPLETE` sin `phone` vuelve al paso 1 en modo corregir | 43.7 |
+| FS-19 | `m4/ShipPreparationCard.tsx:698-716` | Con `order.labelPending ≠ null`: línea `guide.processing` o `guide.inFlight` por `state`, botón `guide.viewProcessing`/`viewInFlight`, y **sin** «Deshacer preparado» (`:699-706`). `labelAlert` (§43.8c) encima del pie | 43.8a, 43.8c |
+| FS-20 | `m4/ShipPreparationCard.tsx:544-564` | Chip `prep.ship.addressCorrected` con `shipTo.addressCorrected` | 43.8a |
+| FS-21 | `m4/ShipmentsQueue.tsx:208-209` (FS-6) | Bloque de `labelAlert` (las cuatro), «Reintentar cancelación», «Liberar» ⇔ `labelAlert.canRelease` (⛔ no por rol) | 43.8c |
+| FS-22 | `types/contract.ts`, `lib/api.ts` — ⚠ **zona compartida** (amplía FS-12) | `CorrectShipmentAddressReq`; `address: { complete, version, corrected }` en `AdminShipmentDTO`; `LabelPendingDTO`, `LabelAlertDTO`, `labelPending`/`labelAlert` en `AdminShipmentDTO` **y** `ShipPreparationOrderDTO`; `shipTo.addressCorrected`; `ShipmentRateDTO.isPromo`; `outcome` de `label` + `'in_flight'`; `QUOTE_EXPIRED.details.reason`; llamada `correctShipmentAddress` (`PUT`) y `listShippingPackages`. ⛔ Quitar de FS-12 `address-neighborhood` | 19.20 |
+| FS-23 | `frontend/messages/es.json:1780-1796` / `en.json:1780-…` (`admin.m4.tracking`), `es.json:2074-…` (`prep.ship.guide`) | Claves v4.16 de §43.13; retirar `address.readOnly`, `address.saveNeighborhood`, `address.neighborhoodSaved`, `error.inFlight`, `error.postalCode`, `error.postalCodeUnknown`, `options.planNote` (ninguna existe hoy: medido, `es.json:1780-1796` solo tiene las 15 claves de la captura manual) | 43.13 |
+| FS-24 | MSW (`lib/mock/…`) (amplía FS-14) | Fixtures: una tarifa con `isPromo:true` (`50PESOS_30042026`) y una con `ACQ_2026`/`false`; envío con `address.corrected`; los cuatro `labelAlert` con `canRelease` `true`/`false`; `labelPending` `in_flight` y `processing`; `label` que responde `200 in_flight`; `PUT …/address` con `409 CONFLICT {reason:'address_changed'}` | 43.15 |
+
 **Backend (correo, §43.12):** `backend/src/modules/shipments/mail/shipment-notice.templates.ts` — plantilla `AV-17` nueva;
 reescribir la cabecera `:41-44`; `ShipmentNoticeParams` (`:62-75`) gana `carrierStatusAt` y `customerUrl`; `shipmentUrl`
 (`:87-92`) cede al `customerUrl` del servicio; usar `supportEmail()` exportada (§41 E-3, `mail-shell.ts:616`).
+*(v4.16)* Mismo fichero: plantillas **`AV-18`** y **`AV-19`** (§43.12b–c) junto a las tres de hoy (`:113`, `:161`,
+`:205`); `ShipmentNoticeParams` gana además `branchName: string | null` (AV-18) y `attemptAt: string | null` (AV-19, el
+`occurredAt` del intento). La frase de soporte se escribe **una vez** (helper) y la usan `AV-17/18/19`.
 
 ---
 
@@ -23748,7 +24090,7 @@ reescribir la cabecera `:41-44`; `ShipmentNoticeParams` (`:62-75`) gana `carrier
 |---|---|---|
 | **UX-SDX-1** = PS-101 (a) | `provider:'off'` ⇒ el diálogo es el formulario de hoy, sin «Paso n de 4»; `'skydropx'` ⇒ paso 1 con la `<dl>` del snapshot | Abrir siempre el flujo de cuatro pasos |
 | **UX-SDX-2** = PS-101 (b) | «Capturar a mano» presente y habilitado en los pasos 1, 2, 3 (antes de comprar) y 4; ⛔ ningún botón con nombre «Cotizar envío» en `ShipPreparationCard` ni en `ShipmentsQueue` | Quitar el enlace en un paso; añadir el botón |
-| **UX-SDX-3** | Paso 1 sin colonia ⇒ `Select` de colonia y **sin** «Ver opciones de envío» hasta guardarla; calle, CP, destinatario y teléfono **no** son campos editables (no hay `input` con esos valores) | Un `Input` de calle |
+| ~~**UX-SDX-3**~~ | ⛔ **v4.16: sustituido por UX-SDX-18** (aseveraba lo contrario de `HECHOS.md:50`) | — |
 | **UX-SDX-4** = PS-101 (c) | Paso 2 con el fixture medido: la recomendada (99minutos) **preseleccionada** aunque no sea la más barata; las `hidden` no visibles hasta «Ver también…»; el texto de excluidas lleva «no disponibles por API» | Preseleccionar la más barata; mostrar las de sucursal |
 | **UX-SDX-5** | Cada fila con `days:null`, `pickup:null`, `deliveryKind:'unknown'`, `planType:null` ⇒ «sin dato» (o nada para el plan); el DOM no contiene `null`, `undefined` ni «—» suelto | Pintar el valor crudo |
 | **UX-SDX-6** | Cabecera con `insurance` ⇒ «Asegurado por MX$2,500.00. El seguro cuesta MX$25.00…»; el paso 3 tiene el renglón «Seguro (cobertura MX$2,500.00)»; **no existe** control para quitar el seguro | Ocultar el renglón; checkbox de seguro |
@@ -23756,13 +24098,31 @@ reescribir la cabecera `:41-44`; `ShipmentNoticeParams` (`:62-75`) gana `carrier
 | **UX-SDX-8** = PS-101 (d) (SK2, SK4) | `canPurchase:false` ⇒ **cero** botones con nombre que empiece por «Comprar guía»; aparece el texto de §43.4 según `purchase`; `canPurchase:true` ⇒ un botón «Comprar guía por {monto}» y encima «Se cobrará {monto}…» con el **mismo** monto | Botón apagado; botón sin cifra |
 | **UX-SDX-9** | Margen negativo o sucursal ⇒ aviso pintado y el cuerpo enviado lleva `confirmNegativeMargin`/`confirmBranchDelivery: true`; sin aviso ⇒ el cuerpo **no** los lleva en `true` | Mandar siempre `true` |
 | **UX-SDX-10** = PS-101 (e) | `409 QUOTE_EXPIRED` ⇒ vuelve al paso 2 con la cifra nueva y **cero** `POST …/label` adicionales sin un clic nuevo; `LABEL_PREVIEW_STALE` ⇒ paso 3 con la cifra nueva | Recomprar sola tras re-cotizar |
-| **UX-SDX-11** ⭐💰 (SK5) | `503`/`502` en `POST …/label` ⇒ texto de «compra en vuelo»; **cero** botones «Comprar guía» y **cero** «Capturar a mano» en ese estado; una segunda llamada a `POST …/label` **no** se puede disparar desde el DOM (N ≥ 10 clics simulados ⇒ 1 llamada) | Tratar el 503 como «no se compró nada» y repintar el botón |
+| **UX-SDX-11** ⭐💰 (SK5, *v4.16*) | (a) `200 {outcome:'in_flight'}` ⇒ «Compra sin confirmar»; (b) `503`/`500`/error de red en `POST …/label` con la relectura devolviendo `labelPending.state='in_flight'` ⇒ el mismo texto; (c) ídem con la relectura **fallando** ⇒ el mismo texto; en (a)(b)(c) **cero** botones «Comprar guía» y **cero** «Capturar a mano», y N ≥ 10 clics simulados ⇒ **1** llamada a `POST …/label`; (d) `503` con relectura `labelPending:null, label:null` ⇒ «no se compró nada» y el botón vuelve, pero **0** llamadas nuevas sin un clic | Decidir por el status (tratar el 503 como «no se compró nada» sin releer); con la relectura fallida, repintar el botón |
 | **UX-SDX-12** | Los errores se eligen por `error.code`: un `409` con `code:'SHIPPING_INSUFFICIENT_BALANCE'` y otro con `code:'QUOTE_EXPIRED'` dan textos distintos; un `502` con `reason:'edge_blocked'` no ofrece «Volver a cotizar» | Ramificar por `status` |
 | **UX-SDX-13** = PS-101 (f) | `outcome:'labeled'` ⇒ número + «Imprimir etiqueta»; `processing` ⇒ «Guía en proceso» y relectura cada 5 s (reloj falso) que se detiene a los 2 min; `trackingUrl:null` ⇒ ningún enlace de rastreo | Enlace construido con la guía |
 | **UX-SDX-14** | Paridad: cada clave de §43.13 existe en `es` y `en`; `grep -nE '\bM1?[0-9]\b'` sobre las claves nuevas ⇒ 0 (P66-3) | Borrar una en `en.json` |
 | **UX-SDX-15** | Cliente: `trackingUrl` presente ⇒ un `a[target=_blank][rel~=noopener]` con «Rastrear en la paquetería»; ausente ⇒ cero enlaces externos en la sección; `timeline` con `exception` **no** puede llegar (el DTO no lo trae) y los siete `kind` tienen rótulo | Construir la URL; rótulo crudo |
-| **UX-SDX-16** | Al operador, «Liberar» **no** está en el DOM; al súper-admin, solo con la alerta `label_unknown` | Pintarlo apagado al operador |
+| **UX-SDX-16** *(v4.16)* | «Liberar» está en el DOM ⇔ `labelAlert.kind='label_unknown' ∧ canRelease=true`; con `canRelease=false` **no** está (ni apagado) y aparece «Solo el dueño puede liberarla: avísale.»; se prueba con la sesión de **súper-admin** y `canRelease:false` (el rol no decide) | Decidir por el rol de la sesión; pintarlo apagado |
 | **UX-SDX-17** | `ShippingSection`: pasar a `operators` abre el diálogo y **no** manda `PUT` hasta confirmar; escalones no crecientes ⇒ error bajo la fila y cero `PUT` | Guardar sin confirmar |
+| **UX-SDX-18** ⭐ = PS-101 (corregida) *(v4.16)* | Paso 1 con `provider:'skydropx'`: «Corregir dirección» abre un formulario con **seis** controles editables (destinatario, calle, interior, CP, colonia `select`, referencias) y **ningún** control para municipio, estado ni teléfono; «Ver opciones de envío» **no** está mientras el formulario está abierto; el cuerpo del `PUT` lleva `expectedAddressVersion` **igual** a la `address.version` del fixture y **no** lleva `city`/`state`/`phone` | `Input` de municipio o teléfono; mandar sin `expectedAddressVersion` o con `version+1` |
+| **UX-SDX-19** *(v4.16)* | La frase «Esto corrige solo a dónde va este paquete…» está visible en modo corregir y unida al `form` por `aria-describedby` | Quitarla |
+| **UX-SDX-20** 💰 *(v4.16)* | Cotizar (fixture `quote` A) ⇒ «Atrás» ⇒ corregir ⇒ `200 corrected` ⇒ «Ver opciones de envío» ⇒ se llama `POST …/quote` **de nuevo** y la lista pinta la `quote` B; **cero** nodos con el precio de A | Mostrar la cotización previa tras corregir (canario de PS-101) |
+| **UX-SDX-21** *(v4.16)* | `PUT …/address` ⇒ `409 CONFLICT {reason:'address_changed'}` ⇒ texto `address.conflict`, **una** llamada a `GET /admin/shipments/:id`, modo leer con el snapshot nuevo, y el siguiente `PUT` lleva la `version` nueva; **cero** re-envíos automáticos | Re-mandar lo tecleado con la versión nueva sin clic |
+| **UX-SDX-22** *(v4.16)* | `POST …/label` ⇒ `409 QUOTE_EXPIRED {reason:'address_changed'}` ⇒ texto `error.quoteExpiredAddress` (≠ el de `reason:'expired'`), relectura del envío, paso 2 con la `quote` nueva y **0** `POST …/label` adicionales | Mismo texto para los dos `reason`; recomprar solo |
+| **UX-SDX-23** *(v4.16)* | Cambiar CP a uno de 5 dígitos ⇒ **una** llamada a `GET /geo/postal-codes/:cp`; la línea «Municipio y estado» muestra lo devuelto; colonia que no está en la lista nueva vuelve al placeholder; con 4 dígitos, **cero** llamadas y `select` deshabilitado con su razón | Conservar la colonia vieja con otro CP; consultar en cada tecla |
+| **UX-SDX-24** *(v4.16)* | Chip «Promoción» ⇔ `isPromo:true`: el fixture `planType:'50PESOS_30042026', isPromo:false` ⇒ **sin** chip; `planType:'ACQ_2026', isPromo:true` ⇒ **con** chip (la pantalla obedece al flag, no al código) | Derivar la promo de `planType` en la pantalla |
+| **UX-SDX-25** *(v4.16)* | «Cambiar empaque» visible para una sesión de **operador** con 2+ empaques activos; las opciones son solo los `active:true`; elegir otro manda `POST …/quote {packageCode}` y **0** `POST …/label` | Ofrecer inactivos; ocultarlo al operador |
+| **UX-SDX-26** *(v4.16)* | Tarjeta de «Preparar» con `labelPending.state='in_flight'` ⇒ «Compra sin confirmar · …» y **sin** «Deshacer preparado»; con `'processing'` ⇒ «Guía en proceso · …»; los cuatro `labelAlert.kind` pintan su título en `ShipPreparationCard` **y** en `ShipmentsQueue` | Un solo texto para los dos `state`; «Deshacer» visible con compra pendiente |
+
+**Correo (backend, v4.16):** **ML-25** ⭐ — `AV-18` en ES y EN: asunto exacto de §43.12b; con `branchName` lo contiene;
+contiene «tienes que pasar a recogerlo» / “pick it up”; la frase de soporte de `supportEmail()` **fuera** del pie; **no**
+contiene `/disput|aclaraci|\d+ d[ií]as|\d+ days|plazo|deadline|claim/i` en asunto, HTML ni texto; con `trackingUrl:null` no hay URL de rastreo; invitado ⇒ CTA a
+`/pedido?token=`; cero importes (`/\$\d/` ⇒ 0). Canario: plantilla con «Tienes 7 días para recogerlo» ⇒ rojo.
+**ML-26** ⭐ — `AV-19` en ES y EN: asunto exacto de §43.12c; con `attemptAt` la prosa trae la fecha formateada en
+`America/Mexico_City`; contiene «Comunícate con» / “Contact” y la frase de soporte fuera del pie; mismas prohibiciones y
+cero importes; **dos** intentos con `occurredAt` distintos ⇒ dos renders con el mismo asunto y fechas distintas.
+Canario: «Este es tu segundo intento» o un plazo ⇒ rojo. Los dos entran en ML-1…ML-23 como los renders 30 y 31.
 
 **Correo (backend, en el registro de §41.14):** **ML-24** ⭐ — `AV-17` en ES y EN: asunto exacto de §43.12; contiene la
 frase de soporte con la dirección de `supportEmail()` **fuera** del pie; **no** contiene `/disput|aclaraci|7 d[ií]as|7
@@ -23775,7 +24135,8 @@ disputa» ⇒ rojo. Y entra en ML-1…ML-23 como el render 29.
 ### 43.16 Contraste — cero pares nuevos
 
 Bermellón sobre papel (margen negativo, «sin entrega a domicilio», alertas) y tinta/`muted` sobre papel son pares de
-§10. El verde **no** aparece en la ventana: «Guía comprada» lo dice la palabra (como §41.12 en el correo).
+§10. *(v4.16: el chip «Promoción», «Dirección corregida», las cuatro `labelAlert` y el formulario del paso 1 usan
+solo `text-text`, `text-muted`, `text-accent` y los `Banner`/`Input` de §6–§7 ⇒ cero pares nuevos.)* El verde **no** aparece en la ventana: «Guía comprada» lo dice la palabra (como §41.12 en el correo).
 
 ---
 
@@ -23789,6 +24150,12 @@ Bermellón sobre papel (margen negativo, «sin entrega a domicilio», alertas) y
 | **A-4** | arquitecto / dueño | **Promoción visible.** `planType` se muestra crudo (§43.3c). Si el dueño quiere un realce «promoción · vence …», el servidor debe derivarlo (`promo: boolean`, fecha si la hay); la pantalla no adivina códigos |
 | **A-5** | arquitecto | **Qué devuelve la compra en vuelo.** §19.7 paso 9 dice «(o `503`/`502`)» para el rechazo y que el timeout tras el `POST` deja el reclamo; no fija la respuesta HTTP del caso «en vuelo». §43.7 lo trata por `op:'label'` + `5xx` y relee el envío. Si llega otra forma (p. ej. `200 processing`), el diseño ya lo cubre en §43.5 |
 | **N-1** | orquestador | **Zonas compartidas:** `frontend/src/lib/` y `types/contract.ts` (FS-12), mensajes (FS-13). `components/ui/Modal.tsx` **no** se toca. `ShippingSection` y `DepartureBoard` viven en sus carpetas de ruta |
-| **N-2** | orquestador | **Fase C antes que D** (§19.19.15): el paso 1 depende de `GET /geo/postal-codes` y `PATCH …/address-neighborhood`, que hoy no existen (`grep` ⇒ 0). Frontend puede construir contra MSW desde ya (F-D1) |
+| **N-2** | orquestador | **Fase C antes que D** (§19.19.15): el paso 1 depende de `GET /geo/postal-codes` y ~~`PATCH …/address-neighborhood`~~ **`PUT …/address`** (v4.16), que hoy no existen (`grep` ⇒ 0). Frontend puede construir contra MSW desde ya (F-D1) |
 | **N-3** | orquestador | `AV-18` («en sucursal») y `AV-19` («intentaron entregarte») tienen fila en el plan de §19.19.15 «UX» pero **no están en este encargo**: quedan sin copy. Siguen el mismo patrón que §43.12 (familia ENVÍO, sin saludo, sin importes) |
+| **v4.16 — estado de A-1…A-5 y N-3** | — | **Cerradas por `API_CONTRACT §M4-SHIP.19.20`** (v1.80.12): A-1 ⇒ §19.20.1 (corrección completa, `HECHOS.md:50`); A-2 ⇒ §19.20.2 (`labelPending`, `labelAlert`); A-3 ⇒ §19.20.3 (operador+); A-4 ⇒ §19.20.4 (`isPromo`); A-5 ⇒ §19.20.5 (`200 in_flight`); N-3 ⇒ §19.20.6 (`AV-18`/`AV-19`, §43.12b–c). Las filas de arriba quedan como historia |
+| **A-6** *(v4.16)* | arquitecto | **¿`label/cancel` acepta una guía `label_processing_stuck`** (creada en Skydropx, `providerShipmentId ≠ null`, sin `trackingNumber`, `labelSource` aún nulo)? §19.20.2 dice «si no, cancelar y re-emitir», pero §43.8b ofrece «Cancelar guía y comprar otra» solo con guía (`labelSource='skydropx'`). Default de este diseño: la alerta se pinta **sin** botón hasta que el contrato lo diga. No bloquea |
+| **A-7** *(v4.16)* | arquitecto / backend | **`AV-19` necesita la fecha del intento** (`attemptAt` = `occurredAt` del evento que sella `lastDeliveryAttemptAt`) y **`AV-18` el `branchName`** en `ShipmentNoticeParams`. El contrato da los datos (§19.12) pero no fija los nombres del parámetro; si llegan nulos, cada correo tiene su variante sin el dato (§43.12b–c). No bloquea |
+| **P-ADR-1** *(v4.16)* | product-owner → dueño | ¿El **teléfono** también se corrige en el paso 1? Abierta (`API_CONTRACT.md:25210-25213`); default **no**. El diseño del «sí» está listo en §43.2e (un campo más, sin rediseño) |
+| **N-5** *(v4.16)* | orquestador / dueño | Con Skydropx **apagado** (`provider:'off'`) la ventana sigue siendo el formulario de hoy (UX-SDX-1) y **no** ofrece corregir la dirección, aunque el verbo lo permite (§19.20.1: «con Skydropx apagado la dirección corregida es la que el operador escribe en la guía manual»). `HECHOS.md:50` habla de corregir «antes de comprar la guía», que es el modo Skydropx. Si el dueño lo quiere también en modo manual, el paso 1 de §43.2 se monta encima del formulario manual sin cambio de copy |
+| **N-6** *(v4.16)* | seguridad / QA | La pantalla de corrección escribe PII ajena con el nombre del operador en la bitácora; qué hace la anonimización con esas filas: NO MEDIDO (lo anota §19.20.9 para seguridad). El diseño no muestra la bitácora: solo la **última** corrección («Corregida por…») |
 | **N-4** | QA | Los días que muestra la API son un entero (`days`, PROD §4.6) y **no** está medido si son hábiles o naturales: por eso el copy dice «estimado de la paquetería» y no «días hábiles» como `PROJECT §T.3.3`. Si `PG-1` lo mide, se ajusta el rótulo |
