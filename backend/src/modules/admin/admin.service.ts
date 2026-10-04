@@ -549,7 +549,8 @@ const ADMIN_USER_DETAIL_SELECT = {
       updatedAt: true,
     },
   },
-  // Las 11 columnas de `AddressDTO` (§11) — las MISMAS que `/users/me/addresses`.
+  // Las 12 columnas de `AddressDTO` (§11; v1.81: + `references`; `complete` se deriva) — las MISMAS que
+  // `/users/me/addresses` (`ADDRESS_ROW_KEYS`).
   addresses: {
     select: {
       id: true,
@@ -562,6 +563,7 @@ const ADMIN_USER_DETAIL_SELECT = {
       postalCode: true,
       country: true,
       phone: true,
+      references: true,
       isDefault: true,
     },
   },

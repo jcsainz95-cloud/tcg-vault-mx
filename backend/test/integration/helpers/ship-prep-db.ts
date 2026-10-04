@@ -117,6 +117,7 @@ export class ShipPrepDb {
         userId,
         recipientName: 'Destinatario Prep',
         line1: 'Calle 1',
+        neighborhood: 'Centro', // ⭐ v1.81 (M-64): completa (colonia + CP 5 + tel 10), si no el retiro da ADDRESS_INCOMPLETE
         city: 'CDMX',
         state: 'CDMX',
         postalCode: '01000',

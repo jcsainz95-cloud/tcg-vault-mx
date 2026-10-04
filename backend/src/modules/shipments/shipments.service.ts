@@ -56,6 +56,14 @@ import { CustomerTransferView, ManualRefundService } from '../payments/refunds/m
 import { PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { customerDisplayName } from '../vault/customer-display-name';
 import { originsBeingRefunded } from '../payments/refunds/origin';
+import { addressMissing, isAddressComplete } from '../users/address-rules';
+
+/** ⭐ v1.80.12 (§M4-SHIP.19.20.1) — el bloque `address` de `AdminShipmentDTO`. */
+export interface ShipmentAddressStateDTO {
+  complete: boolean;
+  version: number;
+  corrected: { at: string; by: { userId: string; name: string | null } } | null;
+}
 
 /** `P-84` · clase **E** (§4.37): estados de envío filtrables, DERIVADOS del schema. */
 const SHIPMENT_STATUS_FILTER_VALUES: readonly ShipmentStatus[] = Object.values(ShipmentStatus);
@@ -137,6 +145,10 @@ export interface ShipPreparationOrderDTO {
     postalCode: string;
     country: string;
     phone: string;
+    /** ⭐ v1.81 (M-64): décimo campo del snapshot (`null` en los anteriores). */
+    references: string | null;
+    /** ⭐ v1.80.12 (§M4-SHIP.19.20.1): el operador corrigió la dirección de este envío (`addressCorrectedAt ≠ null`). */
+    addressCorrected: boolean;
   };
   /** ⭐ v1.80 (§M4-SHIP.3) — la preparación (marcas, conteos, `refundPreviewCents` del servidor). */
   preparation: ShipPreparationStateDTO;
@@ -379,6 +391,17 @@ export class ShipmentsService {
             : 'NOT_FOUND';
       throw BusinessException.validation(code, 'Some items are not eligible', { ineligible });
     }
+    // ⭐ v1.81 (M-64, §M4-SHIP.19.5, criterio 235): una dirección vieja de la libreta (`complete=false`) no sirve
+    // para un retiro hasta completarla. ANTES de la tx y del PaymentIntent. Va DESPUÉS de
+    // la elegibilidad de las piezas: «esa pieza ya no es tuya» (`NOT_FOUND`, `ITEM_ORIGIN_REFUNDED`…) manda sobre la dirección
+    // (precedencia medida en `full-refund-vault.e2e-spec.ts`, PS-55/63/65).
+    const missing = addressMissing(address);
+    if (missing.length > 0) {
+      throw BusinessException.validation('ADDRESS_INCOMPLETE', 'The selected address is incomplete; complete it and retry', {
+        addressId: address.id,
+        missing,
+      });
+    }
 
     const breakdown = await this.breakdown();
 
@@ -425,6 +448,8 @@ export class ShipmentsService {
               postalCode: address.postalCode,
               country: address.country,
               phone: address.phone,
+              // ⭐ v1.81 (M-64): décimo campo (§M4-SHIP.19.5).
+              references: address.references,
             },
             status: 'solicitado',
             shippingFeeCents: breakdown.subtotalCents,
@@ -662,6 +687,7 @@ export class ShipmentsService {
     preparedAt: string | null;
     preparedBy: { userId: string; name: string | null } | null;
     missingCount: number;
+    address: ShipmentAddressStateDTO;
   }> {
     const buyerId = s.userId ?? s.order?.userId ?? null;
     const buyer = buyerId ? await this.prisma.user.findUnique({ where: { id: buyerId }, select: { email: true, name: true, nameSource: true } }) : null;
@@ -674,7 +700,26 @@ export class ShipmentsService {
       preparedAt: s.preparedAt ? s.preparedAt.toISOString() : null,
       preparedBy,
       missingCount: s.items.filter((i) => i.prepStatus === 'missing').length,
+      address: await this.addressStateOf(s),
     };
+  }
+
+  /**
+   * ⭐ v1.80.12 (§M4-SHIP.19.20.1, «lo que ve la pantalla») — `address` del `AdminShipmentDTO` (fila y detalle):
+   * `complete` (misma regla que la libreta, sobre el SNAPSHOT), `version` (lo que la pantalla manda como
+   * `expectedAddressVersion`) y la ÚLTIMA corrección (el historial entero es la bitácora `shipment.address_corrected`).
+   */
+  private async addressStateOf(s: ShipmentRequest): Promise<ShipmentAddressStateDTO> {
+    const snap = (s.addressSnapshot ?? {}) as Record<string, unknown>;
+    let corrected: ShipmentAddressStateDTO['corrected'] = null;
+    if (s.addressCorrectedAt && s.addressCorrectedByUserId) {
+      const by = await this.prisma.user.findUnique({ where: { id: s.addressCorrectedByUserId }, select: { name: true } });
+      corrected = {
+        at: s.addressCorrectedAt.toISOString(),
+        by: { userId: s.addressCorrectedByUserId, name: nullIfBlank(by?.name ?? null) },
+      };
+    }
+    return { complete: isAddressComplete(snap), version: s.addressVersion, corrected };
   }
 
   async adminGet(id: string) {
@@ -1000,7 +1045,7 @@ export class ShipmentsService {
       destination,
       requestedAt: s.requestedAt.toISOString(),
       customer,
-      shipTo: snapshot,
+      shipTo: { ...snapshot, addressCorrected: s.addressCorrectedAt != null },
       preparation: view.preparation,
       items,
     };
@@ -1043,7 +1088,7 @@ export class ShipmentsService {
    */
   private static addressSnapshotOf(
     raw: Prisma.JsonValue,
-  ): ShipPreparationOrderDTO['shipTo'] {
+  ): Omit<ShipPreparationOrderDTO['shipTo'], 'addressCorrected'> {
     const s =
       raw !== null && typeof raw === 'object' && !Array.isArray(raw)
         ? (raw as Record<string, unknown>)
@@ -1061,6 +1106,7 @@ export class ShipmentsService {
       postalCode: str('postalCode'),
       country: str('country'),
       phone: str('phone'),
+      references: opt('references'),
     };
   }
 

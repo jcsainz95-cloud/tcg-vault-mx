@@ -19,6 +19,8 @@ import {
 } from './dto/users.dto';
 import { assertPersonName } from './person-name';
 import { AddressDTO, toAddressDTO } from './address-dto';
+import { blankToNull } from './address-rules';
+import { PostalCodeService } from '../shipping-provider/geo/postal-code';
 
 /** `BillingProfileDTO` del contrato §11 (v1.67.1): seis campos, `rfcMasked` y nada más. */
 export interface BillingProfileDTO {
@@ -49,6 +51,9 @@ export class UsersService {
     // 🔒 v1.80.3 (SEC-SHIP-A3): `AV-16` al cambiar la CLABE. `@Optional()`: los unitarios construyen el servicio a
     // mano y el correo es best-effort (⛔ un fallo del correo NO puede hacer fallar el `PUT`).
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // ⭐ v1.81 (M-64): la lista de colonias por CP. `@Optional()` por el mismo motivo que el correo (unitarios a
+    // mano); sin él, crear/editar una dirección con colonia LANZA (⛔ nunca se guarda sin validar).
+    @Optional() private readonly postalCodes?: PostalCodeService,
   ) {}
 
   // ================================================================ 🔒 setClabe — EL escritor de la CLABE
@@ -251,10 +256,16 @@ export class UsersService {
    * 400 `VALIDATION_ERROR` `details.field='recipientName'`). ⛔ El servidor NO lo deriva de
    * `User.name` (puede ser fabricado, y «cómo te llamas» ≠ «a nombre de quién va el paquete»); el
    * pre-relleno es cosa del front y solo con `nameSource !== 'derived'` (ARCHITECTURE §4.47.4).
+   *
+   * ⭐ v1.81 (M-64, §M4-SHIP.19.5, criterio 235): la colonia es de la LISTA del CP y se guarda el canónico; `city`
+   * y `state` se SOBRESCRIBEN con el municipio/estado de esa colonia (`PostalCodeService.canonicalize`, el mismo
+   * cuerpo que sirve `GET /geo/postal-codes/:cp`, `C-SDX-3`). Orden: `400` del pipe ⇒ `422 ADDRESS_NOT_MX` ⇒
+   * `422 POSTAL_CODE_UNKNOWN` / `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE`. ⛔ Nada se escribe antes de validar.
    */
   async createAddress(userId: string, dto: AddressDto) {
     const recipientName = assertPersonName(dto.recipientName, 'recipientName');
     this.assertMx(dto.country);
+    const geo = await this.requirePostalCodes().canonicalize(dto.postalCode, dto.neighborhood);
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
@@ -263,13 +274,14 @@ export class UsersService {
       userId,
       recipientName,
       line1: dto.line1,
-      line2: dto.line2,
-      neighborhood: dto.neighborhood,
-      city: dto.city,
-      state: dto.state,
-      postalCode: dto.postalCode,
+      line2: blankToNull(dto.line2),
+      neighborhood: geo.neighborhood,
+      city: geo.city,
+      state: geo.state,
+      postalCode: geo.postalCode,
       country: dto.country,
       phone: dto.phone,
+      references: blankToNull(dto.references),
       isDefault: dto.isDefault,
     };
     return toAddressDTO(await this.prisma.address.create({ data })); // S49-R4
@@ -279,8 +291,20 @@ export class UsersService {
    * v1.67: `recipientName?` con la misma validación si viene; ⛔ **no vaciable** (ni `null` ni `""`):
    * una dirección que ya tiene destinatario no vuelve a no tenerlo. Es el remedio de
    * `422 RECIPIENT_NAME_REQUIRED` (`PATCH { recipientName }` y reintentar el retiro).
+   *
+   * ⭐ v1.81 (M-64, §M4-SHIP.19.5): `postalCode` sin `neighborhood` ⇒ `400 {field:'neighborhood',
+   * reason:'required_with_postal_code'}`. Si el PATCH toca CP, colonia, ciudad o estado, el par resultante
+   * (CP, colonia) se valida contra la lista y se escriben colonia/ciudad/estado CANÓNICOS. Única excepción
+   * (decisión de backend, BACKEND_NOTES §58): una dirección vieja SIN colonia a la que solo se le cambia ciudad o
+   * estado se escribe tal cual — no hay colonia que validar y la dirección sigue `complete:false`.
    */
   async updateAddress(userId: string, id: string, dto: UpdateAddressDto) {
+    if (dto.postalCode !== undefined && dto.neighborhood === undefined) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'neighborhood is required when postalCode changes', {
+        field: 'neighborhood',
+        reason: 'required_with_postal_code',
+      });
+    }
     // Lista blanca explícita, campo a campo y SOLO los presentes (un PATCH no debe escribir `undefined`
     // sobre lo que no vino; y un campo nuevo del DTO no se escribe solo — misma norma que `updateMe`).
     const data: Prisma.AddressUpdateInput = {};
@@ -288,21 +312,36 @@ export class UsersService {
       data.recipientName = assertPersonName(dto.recipientName, 'recipientName');
     }
     if (dto.line1 !== undefined) data.line1 = dto.line1;
-    if (dto.line2 !== undefined) data.line2 = dto.line2;
+    if (dto.line2 !== undefined) data.line2 = blankToNull(dto.line2);
     if (dto.neighborhood !== undefined) data.neighborhood = dto.neighborhood;
     if (dto.city !== undefined) data.city = dto.city;
     if (dto.state !== undefined) data.state = dto.state;
     if (dto.postalCode !== undefined) data.postalCode = dto.postalCode;
     if (dto.country !== undefined) data.country = dto.country;
     if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.references !== undefined) data.references = blankToNull(dto.references);
     if (dto.isDefault !== undefined) data.isDefault = dto.isDefault;
     if (dto.country) this.assertMx(dto.country);
     const existing = await this.prisma.address.findUnique({ where: { id } });
     if (!existing || existing.userId !== userId) throw BusinessException.notFound();
+    const touchesGeo = [dto.postalCode, dto.neighborhood, dto.city, dto.state].some((v) => v !== undefined);
+    const neighborhood = dto.neighborhood ?? existing.neighborhood;
+    if (touchesGeo && neighborhood != null) {
+      const geo = await this.requirePostalCodes().canonicalize(dto.postalCode ?? existing.postalCode, neighborhood);
+      data.postalCode = geo.postalCode;
+      data.neighborhood = geo.neighborhood;
+      data.city = geo.city;
+      data.state = geo.state;
+    }
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
     return toAddressDTO(await this.prisma.address.update({ where: { id }, data })); // S49-R4
+  }
+
+  private requirePostalCodes(): PostalCodeService {
+    if (!this.postalCodes) throw new Error('PostalCodeService no disponible');
+    return this.postalCodes;
   }
 
   async deleteAddress(userId: string, id: string) {

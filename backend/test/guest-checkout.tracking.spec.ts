@@ -1,3 +1,4 @@
+import { fakePostalCodes } from './helpers/fake-postal-codes';
 import { GuestCheckoutService } from '../src/modules/orders/guest-checkout.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -121,7 +122,8 @@ function shipmentRow(overrides: Record<string, unknown> = {}) {
     pickingAt: new Date('2026-08-01T10:06:00.000Z'),
     shippedAt: new Date('2026-08-02T10:00:00.000Z'),
     deliveredAt: null,
-    addressSnapshot: {},
+    // El envío nace con la MISMA foto que la orden (`payments.service.ts` la copia al liquidar).
+    addressSnapshot: { ...(orderRow().shippingAddressSnapshot as object) },
     ...overrides,
   };
 }
@@ -144,6 +146,7 @@ function buildService(order: any, validation: any) {
     {} as StripeService,
     tokens as OrderAccessTokenService,
     {} as GuestOrderMailService,
+    fakePostalCodes(),
   );
   return { svc, prisma, tokens };
 }
@@ -230,6 +233,16 @@ describe('POST /orders/guest/track — MINIMIZACIÓN DE DATOS (§4-G.3, criterio
       shippedAt: new Date('2026-08-02T10:00:00.000Z'),
       deliveredAt: undefined,
     });
+  });
+
+  it('⭐ v1.80.12 (§M4-SHIP.19.20.1): con envío, la dirección es la DEL ENVÍO (la corregida), no la del pedido', async () => {
+    const corrected = { ...(orderRow().shippingAddressSnapshot as object), city: 'Álvaro Obregón', state: 'Ciudad de México', postalCode: '01010', recipientName: 'Ana Gómez' };
+    const { svc } = buildService(orderRow({ shipmentRequests: [shipmentRow({ addressSnapshot: corrected })] }), okValidation);
+    const dto: any = await svc.track('clear-token');
+    expect(dto.shipping).toMatchObject({ city: 'Álvaro Obregón', state: 'Ciudad de México', postalCodeMasked: '***10', recipientNameMasked: 'Ana G.' });
+    // Sin envío ⇒ la del pedido.
+    const { svc: svc2 } = buildService(orderRow(), okValidation);
+    expect(((await svc2.track('clear-token')) as any).shipping).toMatchObject({ city: 'Ciudad de México', postalCodeMasked: '***00' });
   });
 
   it('de la tarjeta SOLO marca y últimos 4 (nunca PAN, BIN ni clientSecret)', async () => {

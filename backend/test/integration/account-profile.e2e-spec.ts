@@ -18,14 +18,15 @@ const ME_KEYS = [
 
 const ADDRESS_KEYS = [
   'id', 'recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode', 'country', 'phone', 'isDefault',
+  'references', 'complete', // ⭐ v1.81 (M-64)
 ].sort();
 
 const MX_ADDRESS = {
   line1: 'Calle Prueba 1',
-  neighborhood: 'Roma',
+  neighborhood: 'Roma Norte', // ⭐ v1.81 (M-64): de la lista del CP (catálogo del arnés, `E2E_POSTAL_CODES`)
   city: 'CDMX',
   state: 'CDMX',
-  postalCode: '06700',
+  postalCode: '06600',
   country: 'MX',
   phone: '5512345678',
 };

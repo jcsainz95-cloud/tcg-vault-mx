@@ -13,10 +13,12 @@ import {
   IsString,
   Matches,
   MaxLength,
+  MinLength,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { GUEST_MAX_ITEMS } from '../guest-checkout.constants';
+import { ADDRESS_LIMITS, PHONE_PATTERN, POSTAL_CODE_PATTERN } from '../../users/address-rules';
 
 /**
  * DTOs del GUEST CHECKOUT (API_CONTRACT §4-G.1/.2/.3/.4/.9). Todo lo que falla aquí sale como
@@ -26,13 +28,26 @@ import { GUEST_MAX_ITEMS } from '../guest-checkout.constants';
  * (anti-enumeración: el checkout JAMÁS consulta `User`).
  */
 export class GuestAddressInput {
-  @IsString() @MaxLength(200) line1!: string;
-  @IsOptional() @IsString() @MaxLength(200) line2?: string;
-  @IsOptional() @IsString() @MaxLength(120) neighborhood?: string;
-  @IsString() @MaxLength(120) city!: string;
-  @IsString() @MaxLength(120) state!: string;
+  // ⭐ v1.81 (M-64): las cotas salen de `users/address-rules.ts` (UN juego con la libreta y la corrección de la
+  // dirección del envío, §M4-SHIP.19.20.1). Los valores no cambian respecto de v1.80 salvo la colonia.
+  @IsString() @MaxLength(ADDRESS_LIMITS.line1) line1!: string;
+  @IsOptional() @IsString() @MaxLength(ADDRESS_LIMITS.line2) line2?: string;
+  /**
+   * ⭐ v1.81 (§M4-SHIP.19.5, criterio 235): OBLIGATORIA y de la lista de `GET /geo/postal-codes/:cp`. Aquí solo
+   * forma (1..120 tras trim); la pertenencia la decide el servicio (`422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` /
+   * `422 POSTAL_CODE_UNKNOWN`) y se guarda el canónico.
+   */
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(1)
+  @MaxLength(ADDRESS_LIMITS.neighborhood)
+  neighborhood!: string;
+  /** v1.81: se sobrescribe con el municipio canónico del CP (en CDMX, la alcaldía). */
+  @IsString() @MaxLength(ADDRESS_LIMITS.city) city!: string;
+  /** v1.81: se sobrescribe con el estado canónico del CP. */
+  @IsString() @MaxLength(ADDRESS_LIMITS.state) state!: string;
   /** CP mexicano: exactamente 5 dígitos. */
-  @Matches(/^\d{5}$/) postalCode!: string;
+  @Matches(POSTAL_CODE_PATTERN) postalCode!: string;
   /**
    * País: se acepta CUALQUIER string en la capa de validación a propósito, para que un país
    * distinto de "MX" salga como `422 ADDRESS_NOT_MX` (código del contrato) y no como un
@@ -40,9 +55,11 @@ export class GuestAddressInput {
    */
   @IsString() @MaxLength(2) country!: string;
   /** Teléfono MX de contacto de paquetería: 10 dígitos. */
-  @Matches(/^\d{10}$/) phone!: string;
+  @Matches(PHONE_PATTERN) phone!: string;
   /** Quien recibe (el invitado no tiene `User.name`). */
-  @IsString() @MaxLength(120) recipientName!: string;
+  @IsString() @MaxLength(ADDRESS_LIMITS.recipientName) recipientName!: string;
+  /** ⭐ v1.81 (§M4-SHIP.19.5): referencias para el repartidor, opcional, ≤ 70 (va a la guía). */
+  @IsOptional() @IsString() @MaxLength(ADDRESS_LIMITS.references) references?: string;
 }
 
 export class GuestQuoteDto {

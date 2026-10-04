@@ -38,6 +38,7 @@ import {
   E2E_LOCATIONS,
   E2E_ADDRESS_RECIPIENT,
   E2E_PICKUP_ADDRESS,
+  E2E_POSTAL_CODES,
   E2E_SELL_REQUESTS,
   E2E_SET,
   E2E_SETTINGS,
@@ -1067,6 +1068,10 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       });
     }
   }
+  // 12a. ⭐ v1.81 (M-64): el catálogo de CP del arnés (`E2E_POSTAL_CODES`). Idempotente (`@@unique([postalCode,
+  // neighborhood])` + `skipDuplicates`): re-sembrar no duplica ni pisa lo que un spec haya añadido.
+  await prisma.postalCode.createMany({ data: [...E2E_POSTAL_CODES], skipDuplicates: true });
+
   // 12b. Las DOS imágenes, EN EL BUCKET. Sin el objeto se mediría un marco vacío (`naturalWidth`
   // = 0), que es peor que no medir: el `<img>` existe y el test pasa por la forma.
   // **Best effort a propósito:** el seed corre también donde no hay object storage (`npm run

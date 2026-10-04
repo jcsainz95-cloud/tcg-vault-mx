@@ -29,7 +29,8 @@ describe('ShipmentsService — invariante de retiro (WS-H)', () => {
     city: 'c',
     state: 's',
     postalCode: '00000',
-    phone: '1',
+    phone: '5500000000', // ⭐ v1.81 (M-64): dirección COMPLETA (colonia + CP 5 + tel 10), si no ⇒ ADDRESS_INCOMPLETE
+    neighborhood: 'Centro',
   };
 
   function buildService(item: Record<string, unknown>) {

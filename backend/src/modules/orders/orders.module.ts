@@ -11,12 +11,14 @@ import { GuestOrderTokensModule } from './guest-order-tokens.module';
 import { RejectAuthenticatedGuard } from './guards/reject-authenticated.guard';
 import { PricingModule } from '../pricing/pricing.module';
 import { CatalogModule } from '../catalog/catalog.module';
+import { GeoModule } from '../shipping-provider/geo/geo.module';
 
 @Module({
   // JwtModule.register({}) (sin secreto por defecto): lo usa RejectAuthenticatedGuard para
   // DETECTAR una sesión válida en los endpoints públicos de invitado; el secreto se pasa
   // explícitamente en cada verify (mismo patrón que JwtAuthGuard). No autentica a nadie.
-  imports: [PricingModule, CatalogModule, GuestOrderTokensModule, JwtModule.register({})],
+  // ⭐ v1.81 (M-64): `GeoModule` — la colonia del invitado contra la lista del CP (§M4-SHIP.19.5).
+  imports: [PricingModule, CatalogModule, GuestOrderTokensModule, JwtModule.register({}), GeoModule],
   providers: [OrdersService, GuestCheckoutService, OrderClaimService, OrderRefundService, RejectAuthenticatedGuard],
   controllers: [OrdersController, AdminOrdersController, GuestOrdersController],
   exports: [OrdersService, GuestCheckoutService],

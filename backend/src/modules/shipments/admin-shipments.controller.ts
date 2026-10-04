@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -6,6 +6,7 @@ import { ShipmentsService } from './shipments.service';
 import { AuditService } from '../audit/audit.service';
 import { TrackingDto, UpdateStatusDto } from './dto/shipments.dto';
 import { ShipmentPrepService } from './shipment-prep.service';
+import { ShipmentAddressService } from './shipment-address.service';
 
 /**
  * M4 — Retiros / envíos (vault_operator+). API_CONTRACT §M4.
@@ -17,6 +18,7 @@ export class AdminShipmentsController {
     private readonly shipments: ShipmentsService,
     private readonly audit: AuditService,
     private readonly prep: ShipmentPrepService,
+    private readonly address: ShipmentAddressService,
   ) {}
 
   @Get()
@@ -105,6 +107,16 @@ export class AdminShipmentsController {
   @HttpCode(200)
   unprepare(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     return this.prep.unprepare(id, user);
+  }
+
+  /**
+   * 💰 ⭐ v1.80.12 (§M4-SHIP.19.20.1) — corregir TODA la dirección del envío (operador+, con Skydropx encendido o
+   * apagado). Solo el snapshot del envío; CAS sobre `addressVersion`; bitácora `shipment.address_corrected`.
+   */
+  @Put(':id/address')
+  @HttpCode(200)
+  correctAddress(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.address.correct(id, body, user);
   }
 
   @Patch(':id/status')

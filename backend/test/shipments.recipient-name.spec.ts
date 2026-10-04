@@ -13,6 +13,7 @@ import { ivaDialsStub } from './helpers/iva-dials';
 /** Los NUEVE campos del `addressSnapshot` (contrato §5) — los mismos que `Order.shippingAddressSnapshot`. */
 const SNAPSHOT_KEYS = [
   'recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode', 'country', 'phone',
+  'references', // ⭐ v1.81 (M-64): décimo campo
 ].sort();
 
 function build(recipientName: string | null, userName = 'Nombre De Cuenta') {
@@ -28,6 +29,7 @@ function build(recipientName: string | null, userName = 'Nombre De Cuenta') {
     postalCode: '01000',
     country: 'MX',
     phone: '5555555555',
+    references: 'Junto a la farmacia',
   };
   const prisma: any = {
     address: { findUnique: jest.fn().mockResolvedValue(address) },
@@ -118,7 +120,7 @@ describe('ShipmentsService.create — addressSnapshot de NUEVE campos (v1.67)', 
     expect(res.shipmentId).toBe('ship1');
     const snapshot = prisma.shipmentRequest.create.mock.calls[0][0].data.addressSnapshot;
     expect(Object.keys(snapshot).sort()).toEqual(SNAPSHOT_KEYS);
-    expect(Object.keys(snapshot)).toHaveLength(9);
+    expect(Object.keys(snapshot)).toHaveLength(10); // ⭐ v1.81 (M-64): + references
     expect(snapshot).toEqual({
       recipientName: 'Ana Pérez',
       line1: address.line1,
@@ -129,6 +131,7 @@ describe('ShipmentsService.create — addressSnapshot de NUEVE campos (v1.67)', 
       postalCode: address.postalCode,
       country: address.country,
       phone: address.phone,
+      references: 'Junto a la farmacia',
     });
     expect(snapshot.recipientName).not.toBe('Otro Nombre De Cuenta');
   });

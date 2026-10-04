@@ -674,11 +674,29 @@ model Address {
   postalCode    String
   country       String   @default("MX")
   phone         String
+  // ⭐ v1.81 (M-64 = `M-SDX-C`, API_CONTRACT §M4-SHIP.19.5): «referencias» para el repartidor, ≤ 70, opcional.
+  // Viaja a la guía como `further_information`. Sin backfill.
+  references    String?
   isDefault     Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([userId])
+}
+
+// ⭐ v1.81 (M-64 = `M-SDX-C`, API_CONTRACT §M4-SHIP.19.5) — catálogo LOCAL de códigos postales (SEPOMEX): una fila por
+// (CP, colonia). Lo carga devops (`scripts/geo/import-sepomex.ts`), ⛔ no la migración: es dato, no esquema.
+// Lector único: `resolvePostalCode` (`shipping-provider/geo/`), que sirve `GET /geo/postal-codes/:cp` Y valida en
+// el servidor (`C-SDX-3`: un cuerpo, pantalla y servidor no divergen).
+model PostalCode {
+  id           String @id @default(uuid())
+  postalCode   String // ^\d{5}$ (CHECK)
+  state        String
+  municipality String // en CDMX, la alcaldía
+  neighborhood String // tal cual la fuente (el canónico que se guarda)
+
+  @@unique([postalCode, neighborhood])
+  @@index([postalCode])
 }
 
 // ============================= CATALOG =============================
@@ -1519,6 +1537,12 @@ model ShipmentRequest {
   // v1.80 (M-61, §M4-SHIP.2): sello de «preparado» (hito DENTRO de `picking`, ⛔ no un estado nuevo). CHECK: van juntos.
   preparedAt            DateTime?
   preparedByUserId      String? // de la SESIÓN. Sin FK dura (patrón AuditLog)
+  // ⭐ v1.80.12 (M-64 = `M-SDX-C`, API_CONTRACT §M4-SHIP.19.20.1) — corrección de la dirección del envío
+  // (`PUT /admin/shipments/:id/address`). `addressVersion` es el CAS: sube 1 por corrección. CHECKs: versión ≥ 0;
+  // los dos sellos van juntos; versión 0 ⇔ sin corrección. Sin backfill (filas existentes en 0).
+  addressVersion           Int       @default(0)
+  addressCorrectedAt       DateTime?
+  addressCorrectedByUserId String? // de la SESIÓN. Sin FK dura (patrón AuditLog)
 
   items            ShipmentItem[]
   refunds          PaymentRefund[]
