@@ -748,6 +748,16 @@ export const ErrorCode = {
   // 409 💰 v1.80.8.6 (§M4-SHIP.18.12 (6)) — `shipped-refund-reason` con un motivo DISTINTO del ya registrado (el
   // mismo ⇒ `200 already_recorded`). `details: { reason }` (A-2, v1.80.8.7: ⛔ sin `recordedBy`). No escribió nada.
   SHIPPED_REFUND_REASON_ALREADY_SET: 'SHIPPED_REFUND_REASON_ALREADY_SET',
+  // Envíos con Skydropx (§M4-SHIP.19.4 (5), §19.19.3 matriz). Los lanza `shipping-provider/`.
+  // 502 — respuesta no transitoria ni rechazo de negocio (`403`, `404`, segundo `401`, redirección, cuerpo
+  // ilegible). `details: { provider, op, status, reason? }` (`reason:'edge_blocked'` = borde, §19.19.3 (0)).
+  SHIPPING_PROVIDER_ERROR: 'SHIPPING_PROVIDER_ERROR',
+  // 503 — transitorio (red, timeout, `5xx` tras reintentos, `429` tras 3 esperas). `details: { provider, op }`.
+  SHIPPING_PROVIDER_BUSY: 'SHIPPING_PROVIDER_BUSY',
+  // 422 — el proveedor rechazó (`400`/`422`). `details: { provider, op, providerCode?, providerMessage? }`.
+  SHIPPING_PROVIDER_REJECTED: 'SHIPPING_PROVIDER_REJECTED',
+  // 409 — falta configuración: `details: { missing: ['env' | 'allow_spend' | 'insurance_tier' | …] }`.
+  SHIPPING_PROVIDER_NOT_CONFIGURED: 'SHIPPING_PROVIDER_NOT_CONFIGURED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
