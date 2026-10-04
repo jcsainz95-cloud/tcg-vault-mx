@@ -4,6 +4,14 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.5 — LA COLONIA COMO MERCADO LIBRE** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
+> orquestador `76de8268`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.5**; norma en
+> `API_CONTRACT §M4-SHIP.19.25`; porqué en **§4.60 (r)**. Origen: `HECHOS.md:57` (decisión del dueño). La lista de
+> colonias del CP **ayuda, no bloquea**: colonia obligatoria como texto (lista o escrita), `city`/`state` del catálogo
+> solo si conoce el CP; `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` retirado; `boot` sale del arranque y `C-GEO-2` se retira;
+> el operador ve en «Capturar guía» si la colonia se comprobó (`neighborhoodCheck`, calculado al leer). Sin endpoint,
+> columna ni migración.
+>
 > **Rev v1.80.12.4 — ERRATA DEL CATÁLOGO DE CP** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
 > orquestador `01c9dcfd`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.4**; norma en
 > `API_CONTRACT §M4-SHIP.19.24`; porqué en **§4.60 (q)**. Sin endpoint, columna ni migración. `C-GEO-1` (1) pasa de
@@ -27531,6 +27539,28 @@ ventana (§19.24.8); si no conserva la versión anterior, `C-GEO-2` se revisa. E
 MEDIDO (lo lee el dueño al descargarlo; va verbatim al manifiesto). Que el extracto sintético no copie una línea
 literal del archivo oficial es NO MEDIDO (sin archivo); lo acota el candado de ≤ 20 filas.
 
+**(r) 💰 v1.80.12.5 — la colonia como Mercado Libre: el catálogo de CP ayuda, no bloquea** (`HECHOS.md:57`, decisión del
+dueño 2026-10-04: «si, hazlo como mercado libre»; norma en `API_CONTRACT §M4-SHIP.19.25`). Corrige una decisión **del
+equipo** —(e)/§19.5, (p) fila `C-GEO-2`, (q) entera en lo que toca al arranque— que nunca preguntó al dueño si la tienda
+debía dejar de vender cuando el catálogo no conoce una colonia. La respuesta es no.
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **La colonia es obligatoria como texto; la lista del CP solo propone** | Colonia de lista obligatoria (v1.80.12); o colonia opcional | La lista obligatoria convierte un catálogo incompleto (fraccionamientos nuevos, SEPOMEX tarda) o vacío en ventas perdidas, y su remedio («Escríbenos») no deja guardar ni pagar (N-7 de ux-ui). Opcional deja guías sin colonia, que Skydropx necesita (`area_level3`). Texto obligatorio conserva lo que la paquetería necesita y quita el bloqueo |
+| **El servidor decide si la colonia es del catálogo, comparando; el cliente no lo declara** | Un campo `neighborhoodSource: 'list' \| 'manual'` en el cuerpo | El servidor puede comprobarlo; creerle al cliente un dato comprobable es abrir una segunda fuente. Y una colonia escrita que sí está en la lista se guarda con la grafía canónica: el cliente que escribe «san angel» no fabrica una colonia nueva |
+| **Con el CP en el catálogo, municipio y estado los pone el catálogo; si no, lo escrito** | Aceptar siempre lo escrito; o exigir que el CP exista | El catálogo sabe el municipio de un CP aunque no sepa la colonia nueva: aceptar lo escrito ahí sería tirar información buena. Exigir el CP es el bloqueo que el dueño quitó |
+| **«¿Se comprobó la colonia?» se calcula al leer, contra el catálogo; no se guarda** | Una columna/clave en el snapshot con el origen al escribir | Una marca escrita con la tabla vacía diría «a mano» para siempre aunque el catálogo se cargue después y la colonia sea buena: dos fuentes para un hecho, y una de ellas envejece. Leer cuesta una consulta por fila, el patrón que ya usa `corrected` |
+| **El aviso al operador no bloquea** | Bloquear cotizar/comprar con colonia no comprobada | `HECHOS.md:50` y `:57`: el operador corrige en «Capturar guía». Si Skydropx rechaza la colonia, la compra ya falla de forma segura (`422 SHIPPING_PROVIDER_REJECTED`, cero compra) |
+| **`boot` sale del arranque; el catálogo se carga con `import` explícito cuando haya archivo** | Dejar `boot` en el `CMD` en un modo que avise y salga 0; o `boot \|\| true` | El candado de arranque existía **solo** para que nadie se quedara sin poder pagar un envío; con colonia escrita ese motivo desaparece y lo que queda es su coste: una imagen que no arranca sin G-1 (`DEVOPS_NOTES §80.0`). Un `boot` que nunca falla es un paso de arranque que no protege nada y tapa errores reales (`\|\| true` silencia también la alarma de fila ajena). La alarma vive donde se carga: en `import`/`verify`. Y el candado **G-BOOT** impide que el arranque vuelva a depender del catálogo |
+| **El importador conserva manifiesto, huella y modos** | Simplificarlo a «cargar el TXT» | Las razones de (q) para cargar bien (fijación, inclusión + huella, alarma en producción) siguen intactas; lo único que cambió es **cuándo** se carga y que no cargar ya no es una emergencia |
+
+**Deuda que deja (r):** si Skydropx rechaza colonias que no están en su propia lista es **NO MEDIDO** (`PS-SBX-9`): si las
+rechaza, cada colonia escrita mal cuesta una corrección del operador, no una venta. El cálculo de `neighborhoodCheck` en
+la lista de envíos es una consulta por fila (mismo patrón y misma deuda que `corrected`). G-1 queda abierta **sin
+urgencia** (el día que el dueño quiera cargar el catálogo). Que el estado escrito a mano sea texto libre y no una lista
+de las 32 entidades es decisión de alcance mínimo: si las guías empiezan a rebotar por el estado, se cierra con una lista
+cerrada (errata), no antes.
+
 ---
 
 ## 5. Decisiones transversales
@@ -30931,7 +30961,10 @@ importador + cinco `GET /geo/postal-codes/:cp` contra producción + una compra r
 en la solicitud de fusión. ⚠️ **v1.80.12.4:** «conteo = lo derivado» pasa a inclusión + huella del manifiesto
 `scripts/geo/sepomex.manifest.json`, con modo estricto en producción (fila ajena ⇒ el arranque falla) y modo arnés donde
 el seed puede escribir; el archivo vive donde decida el dueño (G-1; por defecto objeto privado propio). Norma:
-`API_CONTRACT §M4-SHIP.19.24`; porqué §4.60 (q).
+`API_CONTRACT §M4-SHIP.19.24`; porqué §4.60 (q). ⚠️ **v1.80.12.5:** el catálogo **ya no se carga en el arranque** ni
+bloquea nada: `C-GEO-2` retirado, `boot` fuera del `CMD`, `PostalCode` puede quedar vacía en producción y la tienda vende
+con colonias escritas; se carga con `import` explícito cuando exista el archivo (G-1 sin urgencia). La condición de
+ventana es una compra del dueño con colonia escrita a mano. Norma: `API_CONTRACT §M4-SHIP.19.25`; porqué §4.60 (r).
 
 Forma normativa entera en `API_CONTRACT §M4-SHIP.19.2` y `.19.5`. Va **después** de `M-61` (~~que sigue sin construirse
 al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto~~ construida, ver arriba).

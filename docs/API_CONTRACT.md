@@ -2,9 +2,24 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.4**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.5**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.5 — LA COLONIA COMO MERCADO LIBRE: EL CATÁLOGO DE CP AYUDA, NO BLOQUEA (2026-10-04, arquitecto, rama
+> `claude/skydropx-d`, HEAD dado por el orquestador `76de8268`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma
+> entera: **[§M4-SHIP.19.25](#M4-SHIP-19-25)**. Porqué: `ARCHITECTURE §4.60 (r)`. Origen: `HECHOS.md:57` (decisión del
+> dueño, 2026-10-04), que sustituye una decisión **del equipo** (§19.5, §19.23.6, §19.24).
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | Colonia obligatoria **de la lista** del CP | Colonia obligatoria **como texto**: de la lista o escrita («Mi colonia no está»). `city`/`state` obligatorios en el cuerpo; con el CP en el catálogo los pone el catálogo, si no, lo escrito. Colonia escrita que sí está en la lista ⇒ se guarda la canónica. Libreta, invitado y `PUT …/address`: **una** función `resolveAddressGeo` que nunca rechaza por geografía | **Sí**: `postal-code.ts:117-137`, `users.service.ts:260-340`, `guest-checkout.*`, `shipment-address.service.ts:64-119` y las tres pantallas | backend 💰 + frontend |
+> | **2** | `boot` en el `CMD` hace que la imagen no arranque en Railway sin G-1 | **`boot` sale del arranque** (y del importador); `C-GEO-2` retirado; el catálogo se carga con `import` explícito cuando exista el archivo; candado **G-BOOT** | **Sí**: `Dockerfile.backend:117-127,146`, `scripts/geo/` | devops |
+> | **3** | ¿El operador sabe si la colonia se comprobó? | `AdminShipmentDTO.address.neighborhoodCheck`, **calculado al leer** contra el catálogo (no se guarda); aviso en el paso 1 de «Capturar guía», sin bloquear | Aditivo | backend + frontend + ux-ui |
+> | **4** | G-1 y P-ADR-2 | G-1 **sin urgencia** (ya no bloquea); P-ADR-2 **retirada** (la respondió el dueño) | No | — |
+>
+> **Códigos de error:** `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` **retirado**; `POSTAL_CODE_UNKNOWN` queda **solo** como `404`
+> de `GET /geo/postal-codes/:cp`. **Endpoints, columnas, migraciones nuevos:** ninguno.
 >
 > **Rev v1.80.12.4 — ERRATA DEL CATÁLOGO DE CP: `C-GEO-1` (1) COMO INCLUSIÓN + HUELLA, DOS MODOS POR BLANCO, Y DÓNDE
 > VIVE EL ARCHIVO DE SEPOMEX (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador
@@ -7250,8 +7265,9 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
   · `502 SHIPPING_PROVIDER_ERROR {provider, op, status}` · `503 SHIPPING_PROVIDER_BUSY` (transitorio, familia §0-T:
   reintentar) · `404 LABEL_NOT_AVAILABLE {labelSource?}` · `409 LABEL_NOT_CANCELLABLE {reason:
   'not_provider'|'already_picked_up'|'status', carrierStatus?}` · 🔒 **v1.81.1** `409 LABEL_NOT_RELEASABLE {reason:
-  'not_in_progress'|'has_provider_id'|'too_early', retryAfterSeconds?}` (§M4-SHIP.19.18.4) · `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {postalCode,
-  allowed: string[]}` · `422 POSTAL_CODE_UNKNOWN {postalCode}` (también `404` en `GET /geo/postal-codes/:cp`) · `422
+  'not_in_progress'|'has_provider_id'|'too_early', retryAfterSeconds?}` (§M4-SHIP.19.18.4) · ~~`422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {postalCode,
+  allowed: string[]}`~~ (⛔ **RETIRADO en v1.80.12.5**, §M4-SHIP.19.25) · ~~`422 POSTAL_CODE_UNKNOWN {postalCode}`~~ (v1.80.12.5: queda **solo** el
+  `404 POSTAL_CODE_UNKNOWN` de `GET /geo/postal-codes/:cp`) · `422
   ADDRESS_INCOMPLETE {addressId, missing: ('neighborhood'|'postalCode'|'phone')[]}`. Emisor nuevo de **`404
   FEATURE_DISABLED`**: `quote`/`label` con el dial `shipping_provider='off'`. Todos en `common/error-codes.ts`.
 - 💰🔒 **v1.80.11 — Skydropx con la API medida (⛔ ningún código nuevo; emisores y `details` nuevos, norma en
@@ -9170,7 +9186,7 @@ Req: `{ name?, phone?, locale? }` → Res `200`: **la misma forma que `GET /user
 - `GET /api/v1/users/me/addresses` — `customer` → `{ data: AddressDTO[] }` (`recipientName: string | null`; **`null`
   solo en filas anteriores a `M-52`**).
 - `POST /api/v1/users/me/addresses` — `customer` — Req: `{ recipientName, line1, line2?, neighborhood, city, state, postalCode, country, phone, references?, isDefault? }`. **`recipientName` OBLIGATORIO** (v1.67): trim, **1..120**; vacío/ausente ⇒ `400 VALIDATION_ERROR` (`details.field='recipientName'`). Err **`422 ADDRESS_NOT_MX`** si `country != "MX"`.
-  ⭐ **v1.81 (§M4-SHIP.19.5, criterio 235) — la libreta queda al nivel del invitado:** `neighborhood` **OBLIGATORIA y de la lista del CP** (`422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` / `422 POSTAL_CODE_UNKNOWN`); `postalCode` `^\d{5}$`; `phone` `^\d{10}$`; `references?` ≤ 70. `PATCH` con `postalCode` nuevo **exige** `neighborhood`. `AddressDTO` gana `references: string | null` y `complete: boolean`; una dirección vieja con `complete:false` no sirve para un retiro (`422 ADDRESS_INCOMPLETE {addressId, missing}`) hasta completarla. Fuente de colonias: **`GET /api/v1/geo/postal-codes/:cp`** (público).
+  ⭐ **v1.81 (§M4-SHIP.19.5, criterio 235) — la libreta queda al nivel del invitado:** `neighborhood` **OBLIGATORIA y de la lista del CP** (`422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` / `422 POSTAL_CODE_UNKNOWN`) — ⚠️ **v1.80.12.5 ([§M4-SHIP.19.25](#M4-SHIP-19-25)): obligatoria como TEXTO, de la lista o escrita; los dos `422` se retiran; con el CP fuera del catálogo se guardan colonia, `city` y `state` escritos; `PATCH` con `postalCode` exige además `city` y `state`**; `postalCode` `^\d{5}$`; `phone` `^\d{10}$`; `references?` ≤ 70. `PATCH` con `postalCode` nuevo **exige** `neighborhood`. `AddressDTO` gana `references: string | null` y `complete: boolean`; una dirección vieja con `complete:false` no sirve para un retiro (`422 ADDRESS_INCOMPLETE {addressId, missing}`) hasta completarla. Fuente de colonias: **`GET /api/v1/geo/postal-codes/:cp`** (público).
 - `PATCH /api/v1/users/me/addresses/:id` — `customer` — Req: los mismos campos, todos opcionales; **`recipientName?`** con la misma validación si viene (⛔ **no se puede poner a `null` ni a `""`**: una dirección que ya tiene destinatario no vuelve a no tenerlo). Es **el remedio** de `422 RECIPIENT_NAME_REQUIRED`.
 - `DELETE /api/v1/users/me/addresses/:id` — `customer`
 - **Pre-relleno permitido en el front, nunca en el servidor:** al crear una dirección, el formulario **puede** proponer
@@ -10330,7 +10346,9 @@ GuestAddressInput = {
   line1: string, line2?: string,
   neighborhood: string,        // ⭐ v1.81 — OBLIGATORIA y DE LA LISTA de `GET /geo/postal-codes/:cp` (§M4-SHIP.19.5);
                                //   fuera de la lista ⇒ 422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE; CP sin colonias ⇒ 422 POSTAL_CODE_UNKNOWN
+                               //   ⚠️ v1.80.12.5 (§M4-SHIP.19.25): obligatoria como TEXTO, de la lista o escrita; sin 422 geográficos
   city: string, state: string, // v1.81: se sobrescriben con el municipio/estado canónicos del CP cuando la fuente los da
+                               //   ⚠️ v1.80.12.5: obligatorios 1..120 tras trim; CP fuera del catálogo ⇒ se guardan tal cual
   postalCode: string,          // ^\d{5}$
   country: "MX",               // literal; cualquier otro valor → 422 ADDRESS_NOT_MX
   phone: string,               // 10 dígitos MX (contacto de paquetería)
@@ -23956,6 +23974,11 @@ llevan NO MEDIDO y su PS-SBX):**
 
 ###### M4-SHIP.19.5 — Dirección: colonia obligatoria de lista por CP (zona compartida `users` + `orders`; fase C, ⛔ antes de todo lo demás)
 
+> ⚠️ **v1.80.12.5 — LA REGLA DE ESTA SECCIÓN QUEDA SUSTITUIDA por [§19.25](#M4-SHIP-19-25)** (`HECHOS.md:57`): la colonia
+> es obligatoria **como texto** (de la lista o escrita a mano); `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` y el `422
+> POSTAL_CODE_UNKNOWN` se retiran; `city`/`state` los pone el catálogo solo si conoce el CP. Siguen vigentes: el `GET
+> /geo/postal-codes/:cp` (con su `404`), `references`, `complete`, `ADDRESS_INCOMPLETE` y las cotas.
+
 **Norma (criterio 235).** En `GuestAddressInput` (§4-G.1/.2) y en `POST/PATCH /users/me/addresses` (§1 Direcciones):
 - `neighborhood: string` pasa a **OBLIGATORIO**, 1..120 tras trim, y **debe ser una de las colonias que
   `GET /geo/postal-codes/:cp` devuelve para ese `postalCode`** (comparación exacta tras `normalizeColonia` = trim +
@@ -25216,6 +25239,10 @@ autorización, `HECHOS.md:48`); el informe lo arma backend leyendo la bitácora,
 
 **M4-SHIP.19.20.1 — 💰 `PUT /api/v1/admin/shipments/:shipmentId/address` — corregir la dirección del envío (A-1).**
 
+> ⚠️ **v1.80.12.5 ([§19.25.1](#M4-SHIP-19-25)):** el cuerpo gana `city` y `state` (obligatorios, 1..120); el paso 2 pasa a
+> `resolveAddressGeo` y **no** emite `422` geográficos; `city`/`state` del cuerpo se escriben solo si el CP no está en el
+> catálogo. PS-103 se sustituye (§19.25.6).
+
 *Quién:* **operador+** (`vault_operator`, `super_admin`) — el mismo rol que `POST …/tracking` («quien puede capturar la
 guía»). ⛔ No depende del dial `shipping_label_purchase` ni de `shipping_provider`: con Skydropx apagado la dirección
 corregida es la que el operador escribe en la guía manual. `customer` ⇒ `403`.
@@ -25414,7 +25441,7 @@ proporción en las de carrera; mutación demostrada roja).
 | # | Qué asevera | Mutación que la pone roja |
 |---|---|---|
 | **PS-102** 💰 | Corrección completa: `200 corrected`; `ShipmentRequest.addressSnapshot` con los seis campos nuevos y `city`/`state` **canónicos** del CP (aunque el cuerpo traiga otros); la fila `Address` del cliente y `Order.shippingAddressSnapshot` **idénticas byte a byte** a antes; `addressVersion` +1; `addressCorrectedAt`/`ByUserId` = ahora/actor; **una** fila `shipment.address_corrected` con `before`/`after` **solo** de las claves cambiadas y el actor (⭐ v1.80.12.2: **una** `ShipmentAddressRevision` con los valores de las claves cambiadas y **una** fila de bitácora **sin valores**, §19.22.1); mismo cuerpo dos veces ⇒ la segunda `unchanged`, cero bitácora y cero revisión | escribir también en `Address` (o en la orden); bitácora con el snapshot entero sin actor; aceptar `city` del cuerpo |
-| **PS-103** | Validación: colonia fuera del CP ⇒ `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}`; CP sin colonias ⇒ `422 POSTAL_CODE_UNKNOWN`; CP de 4 dígitos, `references` de 71, `recipientName` vacío ⇒ `400 {field}`; en todos, **cero** escrituras y versión intacta; la colonia tecleada en minúsculas sin acentos se guarda como el canónico | guardar la colonia tecleada sin pasar por `resolvePostalCode` |
+| **PS-103** ⚠️ **SUSTITUIDA en v1.80.12.5 (§19.25.6)** | ~~Validación: colonia fuera del CP ⇒ `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}`;~~ CP sin colonias ⇒ `422 POSTAL_CODE_UNKNOWN`; CP de 4 dígitos, `references` de 71, `recipientName` vacío ⇒ `400 {field}`; en todos, **cero** escrituras y versión intacta; la colonia tecleada en minúsculas sin acentos se guarda como el canónico | guardar la colonia tecleada sin pasar por `resolvePostalCode` |
 | **PS-104** 💰 | Guardas, en el orden del paso 3: `guia`/`enviado` (incluida toda guía manual) ⇒ `409 SHIPMENT_NOT_IN_PREPARATION`; `picking` con guía Skydropx en proceso (`labelSource='skydropx'`) ⇒ `409 SHIPMENT_ALREADY_LABELED`; compra en vuelo (`labelProcessingSince` puesto, sin `labelSource`) ⇒ `409 LABEL_IN_PROGRESS`; `expectedAddressVersion` viejo ⇒ `409 CONFLICT {reason:'address_changed'}`. **Carrera:** dos correcciones distintas con la misma versión, concurrentes ⇒ exactamente **una** `200` y una `409` por ronda; **N = 10 rondas, se reporta la proporción**. ⭐ **v1.80.12.3 (§19.23.1):** las filas `labelSource='skydropx'` y «compra en vuelo» son de **D2a** (columnas de `M-SDX-D`); en fase C se mide la fila legada (`trackingNumber` en `picking` ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource:'manual'}`) | ~~quitar `addressVersion` del `WHERE` del CAS (gana la última escritura)~~ ⭐ **v1.80.12.3 (§19.23.2, D-SDX-5): por pares** — M1 quitar la comparación de versión del paso 3 **y** `addressVersion` del `WHERE` ⇒ rojo; M2 quitar el candado **y** `addressVersion` del `WHERE` ⇒ rojo; M3 solo el candado ⇒ **verde 10/10**; M4 solo `addressVersion` del `WHERE` ⇒ **verde 10/10** |
 | **PS-105** 💰 | La cotización muere con la corrección: cotizar (v0) ⇒ corregir (v1) ⇒ `GET …/quote` `404`; `POST …/quote` sin `force` **llama** al doble (no reutiliza); `POST …/label` con el `quoteId` viejo ⇒ `409 QUOTE_EXPIRED {reason:'address_changed'}` y **cero** `purchase`; corrección inyectada entre el paso 2 y el 7 de `label` ⇒ `409 CONFLICT` y **cero** `purchase`. ⭐ **v1.80.12.3 (§19.23.1): no construible en fase C**; se parte en **PS-105a** (D2b: `GET` `404` y `POST …/quote` sin reutilizar) y **PS-105b** (D2c: `quoteId` viejo e inyección entre el paso 2 y el 7) | quitar `addressVersion` de la vigencia, o del `WHERE` del paso 7 ⇒ compra con la cotización de la dirección vieja |
 | **PS-106** 💰 | La compra lleva la dirección corregida: el doble recibe `address_to.street1` (línea 1 + 2), `name`/`company`, `further_information` y `postal_code`/`area_level1..3` **del snapshot corregido**, nunca de la libreta ni de la orden. ⭐ **v1.80.12.3: D2c** (necesita la compra; §19.23.1) | armar `address_to` desde `Order.shippingAddressSnapshot` o desde `Address` |
@@ -25842,6 +25869,10 @@ El gate **E** (§19.19.15) ya no está bloqueado por PS-99 (d) en cuanto (d4) y 
 > CI» de abajo quedan **sustituidos** por [§19.24](#M4-SHIP-19-24). El resto (pisos, (3), (4), falla-cerrado, ventana,
 > reversa) sigue vigente.
 
+> ⚠️ **v1.80.12.5 ([§19.25.4](#M4-SHIP-19-25)):** `C-GEO-2` queda **RETIRADO entero** (el catálogo ya no se carga en el
+> arranque ni bloquea nada) y las condiciones de ventana (a)(b)(c) se sustituyen por la de §19.25.5. `C-GEO-1` sigue
+> como definición de «catálogo cargado» para `import`/`verify`.
+
 **M4-SHIP.19.23.6 — 💰 El catálogo de CP en la ventana de despliegue: `C-GEO-1` y `C-GEO-2`.** Medido: `M-64` crea
 `PostalCode` vacía y lo dice (`backend/prisma/migrations/20261006120000_m64_sdx_c_address/migration.sql:7-8`); con la tabla
 vacía `resolvePostalCode` responde `POSTAL_CODE_UNKNOWN` a todo CP ⇒ libreta e invitado rechazan toda dirección nueva y
@@ -25909,6 +25940,11 @@ escribir esto: Glob `scripts/geo/**` ⇒ 0).
 > `backend/prisma/seed-target-guard.ts`, `backend/prisma/seed-e2e.ts:85,1073`, `backend/prisma/e2e-fixtures.ts:119-127`.
 > 403 de `correosdemexico.gob.mx` y `datos.gob.mx`: medido por el orquestador y por devops (`§79.2`), no por el arquitecto.
 > **Manda** sobre §19.23.6 donde choque. Porqué: `ARCHITECTURE §4.60 (q)`. ⛔ Ningún endpoint, columna ni migración.
+>
+> ⚠️ **v1.80.12.5 ([§19.25.4](#M4-SHIP-19-25)):** todo lo de esta sección que habla de **`boot`** o del **arranque**
+> (§19.24.5 «tabla ya = manifiesto», «sin manifiesto ⇒ la versión no se publica», la URL de `boot`; G4; §19.24.8 como
+> precondición; §19.24.10 «cablear el `CMD`») queda **retirado**. Siguen: manifiesto, `setDigest`, (1a)/(1b), modos por
+> blanco **en `import`/`verify`**, §19.24.6 (sin urgencia: G-1 ya no bloquea) y §19.24.7.
 
 **M4-SHIP.19.24.1 — Quién escribe `PostalCode`, medido.** Grep de escrituras en `backend/` (2026-10-04): solo
 `seed-e2e.ts:1073` (el arnés, `createMany … skipDuplicates`) y una prueba que inserta una fila que el CHECK rechaza
@@ -26072,6 +26108,207 @@ meter el archivo ahí sería publicarlo.* Opciones:
   redistribución.
 - Recomendación del arquitecto: **(A)**, salvo que el aviso real (léelo al bajarlo y pégalo; va al manifiesto) no
   prohíba redistribuir.
+
+> ⚠️ **v1.80.12.5:** G-1 deja de bloquear la release y `boot` sale del arranque. Ver [§19.25](#M4-SHIP-19-25).
+
+###### <a id="M4-SHIP-19-25"></a>M4-SHIP.19.25 — 💰 v1.80.12.5: la colonia como Mercado Libre — el catálogo de CP AYUDA, no bloquea (**NORMATIVA**, **DINERO + PII**)
+
+> **Fuente:** `HECHOS.md:57` (2026-10-04, palabras del dueño: «si, hazlo como mercado libre»): *si el CP está en el
+> catálogo se muestra la lista de colonias más «Mi colonia no está» para escribirla a mano; si el CP no está (o el
+> catálogo aún vacío), el cliente escribe colonia, municipio y estado. La tienda nunca deja de vender por el catálogo;
+> las colonias mal escritas se corrigen en «Capturar guía»* (`HECHOS.md:50`). **Sustituye** la colonia obligatoria de la
+> lista, que fue decisión **del equipo**, no del dueño: §19.5 (`422 POSTAL_CODE_UNKNOWN`, `422
+> NEIGHBORHOOD_NOT_IN_POSTAL_CODE`, `city`/`state` impuestos), §19.20.1 paso 2, PS-103, §19.23.6 (`C-GEO-2`) y §19.24
+> (`boot` estricto en el arranque, G-1 como bloqueo). **Manda** sobre todas ellas donde choque. Porqué: `ARCHITECTURE
+> §4.60 (r)`. Código leído por el arquitecto en `/home/user/tcg-skyd` (rama `claude/skydropx-d`, HEAD dado por el
+> orquestador `76de8268`; ⛔ sha NO MEDIDO: sin Bash). Líneas citadas: Read/Grep del 2026-10-04 sobre ese árbol.
+> ⛔ **Ningún código de error nuevo, ningún endpoint nuevo, ninguna columna, ninguna migración.** Un código **sale**
+> (`NEIGHBORHOOD_NOT_IN_POSTAL_CODE`) y otro **se queda solo como `404` del `GET`** (`POSTAL_CODE_UNKNOWN`).
+
+**M4-SHIP.19.25.1 — 💰 La regla de la dirección (UNA función, cuatro entradas).**
+
+Aplica igual a: **libreta** (`POST`/`PATCH /users/me/addresses`, §1), **invitado** (`GuestAddressInput` en
+`POST /checkout/guest/session`, §4-G.2), **retiro** (usa la dirección de la libreta tal como quedó guardada: ⛔ sin
+validación geográfica propia) y **corrección del operador** (`PUT /admin/shipments/:id/address`, §19.20.1).
+
+*Lo que se exige del cuerpo (forma ⇒ `400 VALIDATION_ERROR {field, reason}`, nunca `422`):*
+
+| Campo | Regla | Cambio |
+|---|---|---|
+| `postalCode` | `^\d{5}$` | sin cambio |
+| `neighborhood` | **obligatoria**, texto 1..120 tras trim — **de la lista o escrita a mano**, el servidor no distingue por el cuerpo | deja de exigirse que esté en la lista |
+| `city` | **obligatoria**, 1..120 tras trim | libreta: ya lo era; **invitado: gana `MinLength(1)` tras trim** (hoy acepta `""`, `guest-checkout.dto.ts:46`); **`PUT …/address`: entra al cuerpo** (hoy se ignora, §19.20.1) |
+| `state` | **obligatoria**, 1..120 tras trim | ídem `city` (`guest-checkout.dto.ts:48`) |
+| `PATCH` libreta con `postalCode` | exige **`neighborhood`, `city` y `state`** en el mismo cuerpo ⇒ si falta alguno, `400 {field:<el primero que falte, en ese orden>, reason:'required_with_postal_code'}` | antes solo `neighborhood` (`users.service.ts:302-307`) |
+
+*Por qué `city`/`state` se piden siempre aunque el CP esté en el catálogo:* la pantalla ya los tiene (del `GET` o
+escritos) y una regla de forma que dependiera de la base no la puede decidir el pipe. Con el CP en el catálogo el
+servidor los **sobrescribe** (abajo); mandarlos no cuesta nada y quita una rama.
+
+*La resolución — `PostalCodeService.resolveAddressGeo(postalCode, neighborhood, city, state)`, sustituye a
+`canonicalize` (`postal-code.ts:117-137`).* ⛔ **Nunca lanza por geografía**: solo devuelve qué guardar.
+
+```ts
+export type NeighborhoodCheck = 'in_catalog' | 'not_in_postal_code_list' | 'postal_code_not_in_catalog';
+export interface ResolvedAddressGeo {
+  postalCode: string; neighborhood: string; city: string; state: string;
+  check: NeighborhoodCheck;   // para la prueba y el registro; ⛔ NO se persiste (§19.25.3)
+}
+// 1. rec = resolvePostalCode(postalCode)                          — EL cuerpo de C-SDX-3, sin cambio
+// 2. rec = null                       ⇒ { neighborhood, city, state } tal como vinieron (trim)       check 'postal_code_not_in_catalog'
+// 3. rec ∧ normalizeColonia(neighborhood) casa con una entrada e  ⇒ { e.neighborhood, e.municipality, e.state } (canónicos)  check 'in_catalog'
+// 4. rec ∧ no casa                    ⇒ { neighborhood tal cual (trim), municipality y state DEL CP } check 'not_in_postal_code_list'
+//    «del CP» = los mismos valores que `GET /geo/postal-codes/:cp` mostró (`mostCommon`, postal-code.ts:78-83) — pantalla y servidor no divergen
+```
+
+- **Colonia escrita a mano que SÍ está en la lista** (pregunta del encargo): cae en el caso 3 — se guarda **la grafía
+  canónica** y municipio/estado de esa colonia. El cliente no declara de dónde vino la colonia; lo decide el servidor
+  comparando con el catálogo (⛔ ni un campo `neighborhoodSource` en el cuerpo: sería creerle al cliente un dato que el
+  servidor puede comprobar).
+- **CP en el catálogo, `city`/`state` del cuerpo distintos:** ganan los del catálogo (casos 3 y 4). El cliente no puede
+  contradecir al catálogo en lo que el catálogo sí sabe; lo que **no** sabe (la colonia nueva) se acepta.
+- **CP fuera del catálogo, o catálogo vacío:** se guarda lo escrito. Nada se rechaza.
+- **Orden de validación en la libreta** (sustituye el comentario de `users.service.ts:262-263`): `400` del pipe ⇒
+  `400 recipientName` ⇒ `422 ADDRESS_NOT_MX` ⇒ resolución (sin error). En el invitado: ídem, antes de reservar y del
+  PaymentIntent (`guest-checkout.service.ts:171-174`, sin cambio de posición).
+- **`POST /checkout/guest/quote`** con `shippingAddress`: **deja de resolver** la geografía (`guest-checkout.service.ts:
+  100-104`: solo forma y `ADDRESS_NOT_MX`). No persiste nada y ya no hay nada que rechazar.
+- **`PUT /admin/shipments/:id/address`** (§19.20.1): `CorrectShipmentAddressReq` gana **`city: string; state: string`**
+  (obligatorios, 1..120). Paso 2 pasa a `resolveAddressGeo` (sin `422`); el resto del algoritmo, sin cambio. `city` y
+  `state` del cuerpo solo se escriben en el caso 2 (CP fuera del catálogo). `country` sigue `MX`; `phone` sigue fuera
+  (P-ADR-1).
+- **Lo que viaja a Skydropx:** el snapshot tal cual (`area_level3` = colonia, `area_level2` = municipio, `area_level1` =
+  estado, §19.19.8). Si la paquetería no reconoce una colonia escrita a mano, la compra vuelve `422
+  SHIPPING_PROVIDER_REJECTED` (falla segura: cero compra) y el operador la corrige en el paso 1. Si Skydropx **rechaza**
+  colonias fuera de su lista es **NO MEDIDO** (`PS-SBX-9`).
+
+*Códigos de error — qué pasa con cada uno:*
+
+| Código | Antes (v1.80.12…12.4) | Ahora |
+|---|---|---|
+| `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {postalCode, allowed}` | libreta, invitado (`quote` y `session`), `PUT …/address` | ⛔ **RETIRADO.** Ningún emisor. Sale de `backend/src/common/error-codes.ts:763` y de `frontend/src/types/contract.ts:569`. Ninguna versión publicada lo emitió (la fase C no ha llegado a `production`: `CLAUDE.md` «Cómo se publica»; ⛔ NO MEDIDO por el arquitecto contra Railway) |
+| `422 POSTAL_CODE_UNKNOWN {postalCode}` | ídem | ⛔ **retirado como `422`.** Ningún verbo de escritura lo emite |
+| `404 POSTAL_CODE_UNKNOWN {postalCode}` en `GET /geo/postal-codes/:cp` | sí | **sigue.** Es la respuesta de la consulta y la pantalla la lee como «escribe a mano». La línea de `error-codes.ts:765` se queda |
+| `400 VALIDATION_ERROR {field:'neighborhood', reason:'required_with_postal_code'}` | `PATCH` libreta | sigue, y ahora también con `field:'city'` / `'state'` |
+| `422 ADDRESS_INCOMPLETE {addressId, missing}` (retiro) | `neighborhood`/`postalCode`/`phone` | **sin cambio** |
+| `422 SHIPMENT_ADDRESS_INCOMPLETE {missing}` (`quote`/`label`) | `shipmentAddressMissing` | **sin cambio** |
+
+*`AddressDTO.complete` y `AdminShipmentDTO.address.missing`:* **sin cambio.** La colonia sigue siendo obligatoria (como
+texto), así que `addressMissing` (`users/address-rules.ts:39-45`) y `shipmentAddressMissing` miden lo mismo. Una colonia
+escrita a mano **no** es «incompleta». Las direcciones viejas sin colonia siguen `complete:false` y se completan con el
+`PATCH` — ahora también con colonia escrita a mano.
+
+**M4-SHIP.19.25.2 — La pantalla del cliente (libreta, alta inline del buylist, invitado).** El texto y la forma los
+pone ux-ui (`DESIGN_SYSTEM §43.18`); el contrato fija la conducta:
+
+1. CP con 5 dígitos ⇒ `GET /geo/postal-codes/:cp`.
+2. `200` ⇒ lista de colonias (orden alfabético, única preseleccionada, como hoy) **más la opción «Mi colonia no está»**,
+   que abre un campo de texto para la colonia. Municipio y estado se muestran **como los da el CP** (no editables) y se
+   mandan en el cuerpo.
+3. `404 POSTAL_CODE_UNKNOWN` ⇒ tres campos de texto: colonia, municipio, estado. ⛔ Sin «Escríbenos» como única salida.
+4. **Cualquier otro fallo** del `GET` (`429` del `@Throttle 60/min`, `5xx`, red) ⇒ lo mismo que el `404` (texto libre),
+   con «reintentar» opcional. ⛔ **Ningún fallo de la consulta bloquea guardar ni pagar.**
+5. Un `422` geográfico ya no existe: se retira el manejo de `allowed` (`allowedOverride`) en las tres pantallas.
+
+**M4-SHIP.19.25.3 — 💰 «Capturar guía»: el operador ve si la colonia se comprobó.** `ShipmentAddressStateDTO`
+(`AdminShipmentDTO.address`, fila y detalle; §19.22.2) gana:
+
+```ts
+neighborhoodCheck: NeighborhoodCheck;   // 'in_catalog' | 'not_in_postal_code_list' | 'postal_code_not_in_catalog'
+```
+
+- **Se calcula al leer, no se guarda:** `resolvePostalCode(snapshot.postalCode)` y la comparación del caso 3 sobre
+  `snapshot.neighborhood` (**la misma** función, `C-SDX-3`). Una sola fuente: el catálogo. *Por qué no una columna:* una
+  marca guardada al escribir quedaría vieja el día que se cargue el catálogo (toda dirección capturada con la tabla vacía
+  diría «a mano» para siempre, aunque su colonia sea correcta) y sería **un segundo sitio** para un hecho que el catálogo
+  ya responde. Coste: una consulta por fila, el mismo patrón que `corrected` (`shipments.service.ts:716-727`).
+- Snapshot sin colonia o con CP mal formado ⇒ `'postal_code_not_in_catalog'` (y `missing` ya lo dice).
+- **La pantalla (paso 1):** `neighborhoodCheck ≠ 'in_catalog'` ⇒ un **aviso** junto a la colonia, del tipo «Colonia
+  escrita por el cliente: revísala antes de comprar» (texto de ux-ui). ⛔ **No bloquea** cotizar ni comprar, ni la guía a
+  mano: es para revisar (`HECHOS.md:50`, `:57`). Con el catálogo vacío el aviso aparece en **todos** los envíos — es
+  cierto (nada se comprobó); ux-ui decide si el texto distingue «CP fuera del catálogo» de «colonia fuera de la lista».
+- Tras `PUT …/address` el valor se recalcula (es lectura): si el operador elige una colonia de la lista, el aviso se va.
+- Solo en `AdminShipmentDTO`. ⛔ Ni en `AddressDTO` del cliente ni en `ShipPreparationOrderDTO` (la tarjeta de la cola no
+  lo necesita; se ve al abrir la ventana).
+
+**M4-SHIP.19.25.4 — 💰 El catálogo vacío ya no bloquea: `boot` sale del arranque.**
+
+*Lo que estaba:* `Dockerfile.backend:146` corre `… migrate deploy && … import-sepomex.ts boot && node dist/main.js`; en
+Railway el modo es estricto y sin manifiesto `boot` sale 1 ⇒ **la imagen no arranca** (`DEVOPS_NOTES §80.0`, §80.2,
+medido por devops con una réplica de la capa runtime; ⛔ no por el arquitecto). Eso existía **solo** porque una tabla
+vacía dejaba a la tienda sin poder cobrar envíos (§19.23.6). Con §19.25.1 una tabla vacía cuesta **ayuda**, no ventas.
+Mantener un candado de arranque cuyo motivo desapareció es cambiar «no vender un envío» por «no vender nada».
+
+*Decisión:*
+
+| Pieza | Queda |
+|---|---|
+| **`boot` en el `CMD`** | ⛔ **Sale.** El `CMD` vuelve a `… secrets-preflight.sh assert && … migrate deploy && node dist/main.js` (`Dockerfile.backend:146`). La imagen **deja de llevar** `scripts/geo` (`Dockerfile.backend:117-127`, `.dockerignore` `!scripts/geo`). Ningún arranque lee, carga ni verifica `PostalCode` |
+| **Subcomando `boot`** | ⛔ **Se retira** del importador (código y pruebas que solo existen para él). Código muerto con nombre de arranque invita a volver a cablearlo |
+| **Candado nuevo (devops)** | Prueba: el `CMD` de `Dockerfile.backend` **no** contiene `import-sepomex` ni `scripts/geo`. Canario: reponer `boot` en el `CMD` ⇒ rojo. Es el candado de «la tienda nunca deja de vender por el catálogo» al nivel del arranque. Sustituye al test 19 de `DEVOPS_NOTES §80.2`, que exigía lo contrario |
+| **`C-GEO-1`** (qué es «catálogo cargado»: (1a)/(1b) inclusión + huella, (2) pisos, (3) los cinco CP del arnés, (4) forma) | **Sigue**, como definición de lo que `import` deja y `verify` comprueba |
+| **`C-GEO-2`** (cargar en el mismo arranque, antes de recibir tráfico; falla-cerrado) | ⛔ **RETIRADO entero.** No hay hueco que tapar: con la tabla vacía la tienda vende con colonias escritas |
+| **Manifiesto `scripts/geo/sepomex.manifest.json`, `setDigest`, `sha256` del archivo** | **Siguen** como fijación del archivo para `import` (`CLAUDE.md`: «toda dependencia externa va fijada»). Sin manifiesto, `import` sale 1: **no** afecta al arranque |
+| **Modos estricto/arnés** (`assertSeedTarget`) | **Siguen** en `import`/`verify`: en producción una fila ajena o discrepante es alarma (sale 1, ⛔ no borra) |
+| **G1–G11** (§19.24.9) | Siguen las que prueban `import`/`verify`/`manifest`/el lector (G1, G2, G3, G6, G7, G8, G9, G10, G11, re-apuntadas a `import`/`verify` donde nombraban `boot`). **G4** (camino barato de `boot` sin archivo) se retira con `boot`. **G5** pasa a «`import` estricto sin manifiesto ⇒ sale 1» |
+| **El extracto sintético** (§19.24.7) | Sin cambio |
+| **§19.24.8** (Railway ante un arranque fallido) | **Deja de ser precondición de esta release**: ya ningún fallo del catálogo tumba el arranque. Sigue NO MEDIDO y sigue importando para los otros `assert` del `CMD` (webhook, secretos), que no cambian aquí |
+
+*Cómo se carga el catálogo, cuando exista el archivo (sin urgencia):* **`import-sepomex.sh import --file F`** —un acto
+explícito, fuera del arranque— contra la base de producción por `DATABASE_PUBLIC_URL` (`resolveDatabaseUrl`,
+`import-sepomex.ts`, ya lo hace para `import`/`verify`), corrido por **el dueño, donde la credencial ya vive**
+(`CLAUDE.md`, «Secretos»: segunda vía), o por quien él autorice. Transaccional: o carga entero y pasa `C-GEO-1`, o
+`ROLLBACK`. ⛔ Sigue prohibido descargar de SEPOMEX o de un origen no fijado. La app **no** necesita reiniciarse: lee la
+tabla en cada consulta.
+
+*Qué hace el importador con una tabla vacía en producción:*
+- **`import`** (estricto, por blanco): tabla vacía ⇒ carga normal (todo es «falta»), verifica (1b)+(2)+(3)+(4), commit.
+- **`verify`**: tabla vacía ⇒ imprime `[sepomex] catálogo vacío: 0 filas (no cargado)` y **sale 2** (distinto de 1,
+  que es «cargado pero mal»). Es un informe, no un candado: ⛔ nada en el arranque ni en el despliegue lo llama.
+- **La app** con la tabla vacía: `GET /geo/postal-codes/:cp` ⇒ `404` para todo CP; toda dirección cae en el caso 2;
+  `neighborhoodCheck = 'postal_code_not_in_catalog'` en todo envío. **Vende.**
+
+*`PostalCode` y `M-64`:* sin cambio (la tabla existe, vacía hasta el `import`). ⛔ Ninguna migración.
+
+**M4-SHIP.19.25.5 — G-1 y P-ADR-2.**
+- **G-1** (dónde vive el archivo de SEPOMEX, §19.24.6): **deja de bloquear la release** y pasa a **sin urgencia**. La
+  pregunta al dueño sigue escrita en §19.24 para el día que quiera cargar el catálogo; ⛔ no se le hace ahora (O-6: hoy
+  no hace falta para vender). Las dos ubicaciones de §19.24.6 siguen siendo las únicas admitidas.
+- **P-ADR-2** (`DESIGN_SYSTEM §43.18l`, «colonia que no está en la lista de un CP que sí está»): **RETIRADA — la
+  respondió el dueño** (`HECHOS.md:57`): «Mi colonia no está» y escribirla. Se descarta «elige la más cercana y escribe
+  la tuya en Referencias». **N-7** del mismo cuadro (el «Escríbenos» que no deja guardar) queda **resuelta** por la
+  misma fila.
+- La condición de ventana de §19.23.6 «(c) el dueño verifica una compra eligiendo la colonia de la lista» se sustituye
+  por: **el dueño hace una compra con envío a domicilio escribiendo la colonia a mano** (con la tabla vacía es el único
+  camino) y, en «Capturar guía», ve el aviso de §19.25.3. Las condiciones (a) y (b) de §19.23.6 (registro del
+  importador, cinco `GET` contra producción) **se retiran** de esta release.
+
+**M4-SHIP.19.25.6 — Pruebas que DEBEN fallar.** Mismas reglas que §19.16 (copia del árbol entero con su sha).
+
+| # | Qué asevera | Mutación que la pone roja |
+|---|---|---|
+| **PS-103** (sustituye su texto de §19.20.8) | `PUT …/address`: (a) CP del catálogo + colonia de la lista en minúsculas sin acentos ⇒ se guarda el canónico y `city`/`state` del catálogo **aunque el cuerpo traiga otros**; (b) CP del catálogo + colonia que no está ⇒ `200 corrected`, colonia tal cual (trim), `city`/`state` del CP; (c) CP fuera del catálogo ⇒ `200 corrected` con colonia, `city` y `state` del cuerpo; (d) CP de 4 dígitos, `references` de 71, `recipientName`, `city` o `state` vacíos ⇒ `400 {field}`, **cero** escrituras y versión intacta | volver a lanzar `422` en (b) o (c); aceptar `city` del cuerpo con el CP en el catálogo ⇒ (a) rojo |
+| **PS-114** 💰 | **Libreta e invitado**, sobre base real: los casos (a)(b)(c) de PS-103 en `POST /users/me/addresses` y en `POST /checkout/guest/session`; **con `PostalCode` vacía**, un invitado con CP `20000` y colonia escrita **crea la orden y su PaymentIntent** (la tienda vende con el catálogo vacío); `PATCH` con `postalCode` sin `city` ⇒ `400 {field:'city', reason:'required_with_postal_code'}`; `POST /checkout/guest/quote` con colonia inventada ⇒ `200` | reintroducir `POSTAL_CODE_UNKNOWN` en la sesión del invitado ⇒ rojo (orden no creada); quitar la exigencia de `city` en el `PATCH` ⇒ rojo |
+| **PS-115** | `address.neighborhoodCheck`: los tres valores; **mismo envío leído antes y después de insertar su CP en `PostalCode`** ⇒ pasa de `'postal_code_not_in_catalog'` a `'in_catalog'` sin tocar el envío; tras `PUT …/address` con colonia de la lista ⇒ `'in_catalog'`; ausente en `AddressDTO` y en `ShipPreparationOrderDTO` | guardar la marca al escribir ⇒ el caso «después de cargar» sigue diciendo lo viejo |
+| **G-BOOT** (devops) | El `CMD` de `Dockerfile.backend` no contiene `import-sepomex` ni `scripts/geo`; la imagen no copia `scripts/geo` | reponer `… import-sepomex.ts boot &&` en el `CMD` ⇒ rojo |
+| **E2E** (frontend Playwright + QA) | Invitado con un CP que el arnés **no** siembra (fuera de `E2E_POSTAL_CODES`, `backend/prisma/e2e-fixtures.ts`): escribe colonia, municipio y estado y **paga**; libreta con CP del arnés y «Mi colonia no está» ⇒ guarda; «Capturar guía» de ese pedido muestra el aviso | ocultar los campos de texto cuando el `GET` responde `404` ⇒ el flujo no llega a pagar |
+
+Con PS-103 sustituido, la fila de §19.20.8 y la mutación «guardar la colonia tecleada sin pasar por
+`resolvePostalCode`» quedan sin efecto. Las pruebas de `sdx-c.address-rules.spec.ts:29-73` que asertan los `422` se
+re-escriben a los cuatro casos de `resolveAddressGeo`.
+
+**M4-SHIP.19.25.7 — Qué cambia para quién (fichero:línea leído el 2026-10-04 en `/home/user/tcg-skyd`).**
+
+| Rol | Qué |
+|---|---|
+| **backend 💰** (`users` + `orders` + `shipments` + `shipping-provider/geo`: zonas de dos streams, se serializa) | `shipping-provider/geo/postal-code.ts:117-137` — `canonicalize` ⇒ `resolveAddressGeo` (cuatro casos, sin lanzar) y una función de comprobación para el DTO; `:99-115` `describe` sin cambio (reusa `mostCommon`). `users/users.service.ts:260-288` (`createAddress`), `:295-340` (`updateAddress`: `required_with_postal_code` también para `city`/`state`; comentario `:262-263`). `users/dto/users.dto.ts:41-44,65-66` (comentarios). `orders/dto/guest-checkout.dto.ts:35-48` (`city`/`state` con trim + `MinLength(1)`; comentario de la colonia). `orders/guest-checkout.service.ts:100-104` (`quote` sin resolución) y `:171-174` (`session` con `resolveAddressGeo`). `shipments/shipment-address.service.ts:64-81` (`parseCorrectAddressBody` + `city`/`state` con `requiredText`), `:97` y `wanted` `:111-119` (caso 2 usa los del cuerpo). `shipments/shipments.service.ts:716-727` (`addressStateOf` + `neighborhoodCheck`; tipo `:60-69`). `common/error-codes.ts:763` fuera. Pruebas: `test/sdx-c.address-rules.spec.ts:29-73`, `test/integration/sdx-c-address.e2e-spec.ts` (PS-103), PS-114, PS-115. `BACKEND_NOTES`: anotarlo |
+| **frontend** | `components/domain/PostalCodeNeighborhoodFields.tsx` (entero: opción «Mi colonia no está» + campo de texto; con `unknown` **o** `failed`, tres campos de texto; fuera `allowedOverride` `:37-38,67,82-85`; `city`/`state` dejan de ser solo lectura cuando no hay `data` `:95-97`; fuera el «Escríbenos» como salida `:90-92,158-162`). `hooks/usePostalCodeLookup.ts:22-28,46,59` (fuera `allowedOverride`; `:57` sigue leyendo `404` como `unknown`). `components/domain/AddressManager.tsx:379-380,410-416,438,525,590` (fuera el manejo de los `422`). `(storefront)/checkout/GuestCheckoutView.tsx:245-249`, `GuestCheckoutForm.tsx:33-37,273` (ídem; mandar `city`/`state` escritos). `(admin)/admin/m4/capture/AddressStep.tsx:69-70,101-102` (fuera `allowedOverride`; colonia, municipio y estado editables como texto si el CP no está; aviso con `neighborhoodCheck`) y `CaptureLabelDialog.tsx:136,551-556,874` (fuera los `422`; el `PUT` manda `city`/`state`). `types/contract.ts:569` (`AddressErrorCode` = `'ADDRESS_INCOMPLETE'`), `:1529-1540` (`neighborhoodCheck` + `NeighborhoodCheck`), `:1546` (`CorrectShipmentAddressReq` + `city`/`state`), `:6011-6017` (comentario). `lib/api.ts:1383,1421-1426` y `lib/mock/skydropx.ts:231-234` (fuera los `422` del doble; `:213` `404` se queda). `messages/es.json`/`en.json` con los textos de ux-ui. Pruebas: `GuestCheckoutColonia.test.tsx`, `AddressManager.colonia.test.tsx`, `AddressManager.test.tsx`, `i18n-client-address.test.ts`, `CaptureLabelDialog.test.tsx`; el E2E de §19.25.6 |
+| **ux-ui** | `DESIGN_SYSTEM §43.18` (cliente: «Mi colonia no está», tres campos con CP desconocido o consulta fallida, fuera «Escríbenos» como única salida, CA-2) y §43.2b (paso 1: campos de texto y el aviso de `neighborhoodCheck`); P-ADR-2 y N-7 de §43.18l a cerradas |
+| **devops** | `Dockerfile.backend:146` (`CMD` sin `boot`), `:117-127` (fuera `COPY scripts/geo` y su `RUN` de guarda); `.dockerignore` (`!scripts/geo` fuera); `scripts/geo/import-sepomex.ts` (retirar `boot`: `bootCatalog` y su rama en `main` — las líneas de §19.24.10 son de antes de §80, **re-medir**); `verify` con tabla vacía ⇒ sale 2; `import-sepomex.test.ts` (test 19 de §80.2 ⇒ **G-BOOT**; G4 fuera; G5 a `import`). `DEVOPS_NOTES §80.0` («no fusionar antes de G-1») ⇒ retirada, con nota a §19.25. Rollback de este cambio: `git revert` del commit (vuelve el `boot`, y con él el bloqueo) |
+| **product-owner** | `PROJECT §T.2` y criterio 235 («no se puede guardar ni pagar con ella» ⇒ colonia de lista **o** escrita; nunca se bloquea por el catálogo), con la cita de `HECHOS.md:57` |
+| **QA** | PS-103, PS-114, PS-115, el E2E; en el gate, comprobar con la tabla **vacía** que un invitado paga |
+| **seguridad** | Nada nuevo que revisar fuera de lo ya visto: la colonia escrita es texto ≤ 120 que ya se aceptaba en `line1`/`line2` (mismo render, mismo destino) |
+| **orquestador** | Quitar de la solicitud `main` → `production` las condiciones de `C-GEO-2`, §19.24.8 y las tres de §19.23.6; poner la de §19.25.5 |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
