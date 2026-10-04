@@ -661,6 +661,20 @@ describe('💰 §M4-SHIP.18.12 — reembolso TOTAL «depende de si ya salió» (
       expect(ok).toBe(N);
     });
 
+    it.each<[Mode]>([['direct_ship'], ['vault']])(
+      '%s LIQUIDADA con una pieza aún `reserved` por ella (anomalía sembrada) ⇒ el reembolso total NO la libera: la decisión es del estado BAJO candado, no de la pieza',
+      async (mode) => {
+        const o = await mkPending(mode, 1);
+        // Liquidada (fuera del settle, a propósito): la pieza se queda `reserved` por la orden — el único estado en que
+        // «liberar antes de leer el status bajo candado» se distingue de la norma.
+        await h.prisma.order.update({ where: { id: o.order.id }, data: { status: 'settled', settledAt: new Date() } });
+        expect((await refundFull(o)).status).toBe(200);
+        expect((await db.order(o.order.id)).status).toBe('refunded');
+        expect((await piezas([o.pieces[0].id])).map((p) => [p.status, p.reservedByOrderId])).toEqual([['reserved', o.order.id]]);
+        expect(await movs([o.pieces[0].id], 'refund_release')).toHaveLength(0);
+      },
+    );
+
     it(`direct_ship — la VENTANA: el settle confirma ENTERO entre la lectura de envíos del reembolso y su candado de piezas (N=${N}) ⇒ el envío creado se cierra`, async () => {
       const out: string[] = [];
       for (let t = 0; t < N; t += 1) {
