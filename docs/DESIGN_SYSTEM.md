@@ -4,7 +4,17 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.18 (2026-10-04) — LA DIRECCIÓN DEL CLIENTE CON COLONIA DE LISTA (§43.18 NUEVA; `API_CONTRACT §M4-SHIP.19.5`
+> Estado: **v4.19 (2026-10-04) — LA COLONIA COMO MERCADO LIBRE: LA LISTA AYUDA, NO BLOQUEA (§43.18m NUEVA; `HECHOS.md:57`
+> «si, hazlo como mercado libre»; ux-ui sin Bash, HEAD `76de8268` dado por el orquestador, NO MEDIDO por mí):**
+> **CA-1** y **CA-2** se sustituyen por **CA-6…CA-9**; **§43.18d** y P-ADR-2 quedan superadas (ya no hay «Escríbenos»
+> para el CP ni para la colonia); **§43.18m** diseña los cuatro modos de la colonia (lista · «Mi colonia no está» ·
+> todo a mano · consultando/falló), el layout en 390 px, el estado de 32 entidades como `<select>` nativo, el aviso
+> «Escrita a mano» en «Capturar guía» (**condicional** al dato del contrato, C-3) y el formulario del operador que ya
+> no borra la colonia escrita; **§43.18i** con las claves nuevas/retiradas; **§43.18j** FC-16…FC-27; **§43.18k**
+> UX-ADR-1 y UX-ADR-7 reescritos, UX-ADR-8…13 nuevos. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que
+> sigue es la v4.18 con esos cambios.
+>
+> Estado anterior: **v4.18 (2026-10-04) — LA DIRECCIÓN DEL CLIENTE CON COLONIA DE LISTA (§43.18 NUEVA; `API_CONTRACT §M4-SHIP.19.5`
 > y errata `§19.23.4`; juzga lo que frontend construyó sin diseño, `FRONTEND_NOTES.md` §88.3; ux-ui sin Bash, HEAD
 > `5d597185` dado por el orquestador, NO MEDIDO por mí):** **§43.18b** orden de campos (referencias antes que teléfono,
 > igual que §43.2b) en libreta, alta del buylist e invitado; **§43.18c** contador de referencias ratificado, sin
@@ -23010,7 +23020,7 @@ sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el caj
 
 ---
 
-## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17`/`AV-18`/`AV-19` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11; **v4.16** · `§M4-SHIP.19.20` v1.80.12; **v4.18** · §43.18 la dirección del cliente, `§M4-SHIP.19.5`)
+## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17`/`AV-18`/`AV-19` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11; **v4.16** · `§M4-SHIP.19.20` v1.80.12; **v4.18** · §43.18 la dirección del cliente, `§M4-SHIP.19.5`; **v4.19** · §43.18m la colonia ayuda, no bloquea, `HECHOS.md:57`)
 
 > **v4.16 — qué cambió en esta sección y por qué.** Fuente: `HECHOS.md:50` (2026-10-04): *«En «Capturar guía» el dueño
 > (y quien prepare) puede corregir TODA la dirección del cliente antes de comprar la guía: calle, número, CP, colonia,
@@ -23208,7 +23218,10 @@ sitios de la guía (§19.20.1, `further_information`).
   Revísalo; si es correcto, captura la guía a mano.»** y el `Select` se vacía;
 - con menos de 5 dígitos no se consulta nada y el `Select` queda deshabilitado con su razón unida por
   `aria-describedby`: **«Escribe los 5 dígitos del CP para ver sus colonias.»**
-- ⛔ Sin texto libre en colonia (`PROJECT §T.2`, §19.20.1: debe estar en la lista).
+- ~~⛔ Sin texto libre en colonia (`PROJECT §T.2`, §19.20.1: debe estar en la lista).~~ **v4.19 (`HECHOS.md:57`):**
+  la colonia del cliente puede venir escrita a mano y el operador es quien la revisa; el formulario gana el mismo paso
+  a mano que el del cliente y **no borra** una colonia guardada que no esté en la lista — §43.18m.6 (en parte
+  **condicional** a C-4 del contrato).
 
 **Validación:** la decide el servidor. La pantalla solo pone lo que es **formato del control** (`inputMode`,
 `maxLength={5}` del CP, que además es condición para consultar colonias). ⛔ No replica longitudes ni reglas: las cotas
@@ -24233,11 +24246,15 @@ MEDIDO** por mí): `components/domain/PostalCodeNeighborhoodFields.tsx` (1-136),
 
 | # | Regla | De dónde sale |
 |---|---|---|
-| **CA-1** | **La colonia solo se elige de la lista del CP; municipio y estado salen del CP y no son campos.** ⛔ Ningún campo de texto libre para colonia, ciudad o estado, tampoco como «otra» | §19.5 («debe ser una de las colonias…»), `PROJECT §T.2`, §43.2b |
-| **CA-2** | **Si el catálogo no tiene lo del cliente, el remedio es una persona: «Escríbenos a {contact}».** ⛔ No se ofrece un camino que el servidor no tiene (no hay texto libre ni alta de CP: `422 POSTAL_CODE_UNKNOWN`, §19.5; el catálogo lo carga devops desde SEPOMEX, §19.23.6). ⛔ No se sugiere «pon otro CP» ni «elige cualquier colonia»: eso manda el paquete a otro sitio. `{contact}` = `SUPPORT_CONTACT_FALLBACK`, la misma constante que ya usan `wrongEmail`, `partialFail` y `incompleteBody` | §V («Escríbenos»), §43.12 |
+| ~~CA-1~~ | *(v4.19: **sustituida por CA-6/CA-7**, `HECHOS.md:57`; se deja el texto para la historia)* **La colonia solo se elige de la lista del CP; municipio y estado salen del CP y no son campos.** ⛔ Ningún campo de texto libre para colonia, ciudad o estado, tampoco como «otra» | §19.5 («debe ser una de las colonias…»), `PROJECT §T.2`, §43.2b |
+| ~~CA-2~~ | *(v4.19: **sustituida por CA-7/CA-8**: el remedio ya no es una persona sino escribirlo a mano)* **Si el catálogo no tiene lo del cliente, el remedio es una persona: «Escríbenos a {contact}».** ⛔ No se ofrece un camino que el servidor no tiene (no hay texto libre ni alta de CP: `422 POSTAL_CODE_UNKNOWN`, §19.5; el catálogo lo carga devops desde SEPOMEX, §19.23.6). ⛔ No se sugiere «pon otro CP» ni «elige cualquier colonia»: eso manda el paquete a otro sitio. `{contact}` = `SUPPORT_CONTACT_FALLBACK`, la misma constante que ya usan `wrongEmail`, `partialFail` y `incompleteBody` | §V («Escríbenos»), §43.12 |
 | **CA-3** | **El servidor decide SI la dirección está incompleta (`complete`); la pantalla solo nombra QUÉ falta.** La marca aparece ⇔ `complete === false` (⛔ un DTO sin el campo no se marca, como ya hace frontend); el «falta {…}» sale de `addressMissingFields` (`AddressManager.tsx:68`) o del `missing` del `422`. Si la lista sale vacía con `complete:false`, texto genérico — ⛔ nunca la marca sin texto | §19.5 (`complete`, `422 ADDRESS_INCOMPLETE {missing}`) |
 | **CA-4** | **Un botón apagado nunca está mudo** (§15.9): «Pagar envío y solicitar» deshabilitado lleva `aria-describedby` a **todos** los motivos visibles, no al primero | §15.9, §33.10b |
 | **CA-5** | **Mismas palabras para el mismo hueco** en la fila de la libreta, el bloque del retiro y el formulario: «la colonia» · «un CP de 5 dígitos» · «un teléfono de 10 dígitos», una sola fuente de claves | — |
+| **CA-6** *(v4.19)* | **La lista del CP ayuda, no bloquea.** Con lista, la colonia se elige de un `<select>` y **siempre** hay «Mi colonia no está» para escribirla a mano. Municipio y estado siguen saliendo del CP (no son campos) mientras haya respuesta del CP | `HECHOS.md:57` |
+| **CA-7** *(v4.19)* | **Sin lista, se escribe.** CP fuera del catálogo, catálogo vacío o respuesta con 0 colonias ⇒ colonia, municipio y estado son campos (estado: `<select>` de las 32 entidades). ⛔ Ningún texto de este caso es un **error** (no `text-accent`, no `role="alert"`): el CP del cliente no está mal por no estar en nuestro catálogo | `HECHOS.md:57` («la tienda nunca deja de vender por el catálogo») |
+| **CA-8** *(v4.19)* | **Nunca atascado.** Con 5 dígitos en el CP, en **todo** estado de la consulta (consultando, falló, lista, sin lista) hay un camino visible para terminar la dirección. ⛔ «Escríbenos» ya no es remedio de la colonia ni del CP (sigue siéndolo en otros sitios: §V, §43.12) | `HECHOS.md:57` |
+| **CA-9** *(v4.19)* | **Lo escrito no se borra solo.** Una colonia guardada que no está en la lista del CP abre en modo a mano con su valor (cliente al editar, operador al corregir); lo tecleado a mano se conserva al ir y volver de la lista. Solo **cambiar el CP** (acto del usuario) devuelve la colonia a la lista | UX-SDX-23 se acota: aplica al **cambio** de CP, no a abrir el formulario |
 
 #### 43.18b El formulario — orden de campos *(cambia: referencias suben, teléfono baja)*
 
@@ -24251,8 +24268,10 @@ alta inline del buylist (`BuylistPickupAddressField.tsx`, que monta los mismos c
 | 2 | `addresses.line1` | `Input autoComplete="address-line1"` | — |
 | 3 | `addresses.line2` | `Input autoComplete="address-line2"` | — |
 | 4 | `addresses.postalCode` | `Input inputMode="numeric" maxLength={5} autoComplete="postal-code"`, `tabular-nums` | `geo.cpHint` |
-| 5 | `addresses.neighborhood` | `Select` de la lista (CA-1) | `geo.notListed` (43.18d) |
-| — | línea «Municipio y estado» | ⛔ no es campo: `geo.cityState` en `text-sm text-text`, solo con respuesta del CP | — |
+| 5 | `addresses.neighborhood` | `Select` de la lista **o** `Input` a mano (v4.19, §43.18m) | ~~`geo.notListed`~~ · botón «Mi colonia no está» / `geo.manualHint` (§43.18m) |
+| — | línea «Municipio y estado» | ⛔ no es campo **mientras haya respuesta del CP**: `geo.cityState` en `text-sm text-text` | — |
+| 5a | `addresses.city` *(v4.19, solo modo «todo a mano»)* | `Input autoComplete="address-level2"` | — |
+| 5b | `addresses.state` *(v4.19, solo modo «todo a mano»)* | `Select` nativo, 32 entidades, `autoComplete="address-level1"` | — |
 | 6 | `addresses.references` | `Textarea rows={2}` con contador (43.18c) | `referencesHint` |
 | 7 | `addresses.phone` | `Input type="tel" inputMode="tel" autoComplete="tel"` | `addresses.phoneHint` (**también** en invitado) |
 | 8 | País | texto fijo `countryMx` (sin cambio) | — |
@@ -24279,6 +24298,10 @@ del operador (§43.2b), así que el cliente y el operador ven la misma direcció
 
 #### 43.18d CP que no está en el catálogo, y colonia que no aparece *(cambia)*
 
+> **v4.19 — SUPERADA por §43.18m** (`HECHOS.md:57`). Ni el CP fuera del catálogo ni la colonia que no aparece se
+> resuelven ya con «Escríbenos»: se escriben a mano. `geo.cpUnknown`, `geo.notListed` y `geo.noNeighborhoods` se
+> retiran (43.18i). Se conserva el texto de abajo solo como historia; ⛔ no se implementa.
+
 Hoy el cliente lee «Revisa que esté bien escrito» y nada más: si su CP es correcto, **no tiene salida**. El remedio es
 «Escríbenos» (CA-2). Tres situaciones, tres textos, cada uno en su sitio:
 
@@ -24303,6 +24326,8 @@ pondría el teclado sobre la mitad de la lista en 390×844. En escritorio el nat
 Ratifico también `text-base` (16 px: iOS no hace zoom al enfocar) y `w-full` con el ▾ en `pr-6`.
 
 **Cambios:**
+*(v4.19: ratifico los dos cambios, ya construidos en `PostalCodeNeighborhoodFields.tsx:15-25`; la preselección de
+colonia única **no** aplica si la colonia guardada es una escrita a mano, CA-9.)*
 1. **Orden alfabético** de las opciones en `PostalCodeNeighborhoodFields.tsx:101`
    (`[...neighborhoods].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))`). En el celular no hay
    búsqueda por letra: el orden es lo único que hace encontrable una colonia entre 30. Solo presentación: ⛔ el valor de
@@ -24376,16 +24401,16 @@ Cambios:
 | `checkout.guest.phoneHelp` | **Se retira** (`GuestCheckoutForm.tsx:284` pasa a `ta('phoneHint')`; retirar si no tiene otro lector) | — | — |
 | `addresses.postalCodeInvalid` | **Cambia** (la regla ahora es exacta: decirla) | El código postal son 5 dígitos. | The postal code is 5 digits. |
 | `addresses.phoneInvalid` | **Cambia** | El teléfono son 10 dígitos. | The phone number is 10 digits. |
-| `addresses.geo.cpHint` | Ratifico | 5 dígitos. La colonia, el municipio y el estado salen del CP. | 5 digits. Neighborhood, municipality and state come from the postal code. |
+| `addresses.geo.cpHint` | ~~Ratifico~~ **v4.19: cambia** (texto nuevo en §43.18m.8) | 5 dígitos. La colonia, el municipio y el estado salen del CP. | 5 digits. Neighborhood, municipality and state come from the postal code. |
 | `addresses.geo.cpFirst` | Ratifico | Escribe los 5 dígitos del CP para ver sus colonias. | Type the 5-digit postal code to see its neighborhoods. |
 | `addresses.geo.loading` | Ratifico | Buscando las colonias del CP {cp}… | Looking up the neighborhoods for postal code {cp}… |
 | `addresses.geo.placeholder` | Ratifico | Elige una colonia | Choose a neighborhood |
-| `addresses.geo.noNeighborhoods` | **Cambia** (el remedio está en el CP; aquí solo el motivo) | Sin colonias: este CP no está en el catálogo. | No neighborhoods: this postal code isn’t in the catalog. |
-| `addresses.geo.cpUnknown` | **Cambia** (43.18d; `{contact}` = `SUPPORT_CONTACT_FALLBACK`) | No encontramos el CP {cp} en nuestro catálogo y sin él no podemos enviar. Revisa que esté bien escrito; si es correcto, escríbenos a {contact} con tu CP. | We couldn’t find postal code {cp} in our catalog, and we can’t ship without it. Check it’s typed correctly; if it’s right, email us at {contact} with your postal code. |
-| `addresses.geo.notListed` | **Nueva** (43.18d) | ¿No aparece tu colonia? Escríbenos a {contact} con tu CP y el nombre de tu colonia. | Your neighborhood isn’t listed? Email us at {contact} with your postal code and its name. |
+| `addresses.geo.noNeighborhoods` | ~~Cambia~~ **v4.19: se retira** (sin lista no hay `Select` que motivar; §43.18m) | Sin colonias: este CP no está en el catálogo. | No neighborhoods: this postal code isn’t in the catalog. |
+| `addresses.geo.cpUnknown` | ~~Cambia~~ **v4.19: se retira** (la sustituye `geo.cpNotInCatalog`, que no es error) | No encontramos el CP {cp} en nuestro catálogo y sin él no podemos enviar. Revisa que esté bien escrito; si es correcto, escríbenos a {contact} con tu CP. | We couldn’t find postal code {cp} in our catalog, and we can’t ship without it. Check it’s typed correctly; if it’s right, email us at {contact} with your postal code. |
+| `addresses.geo.notListed` | ~~Nueva~~ **v4.19: se retira** (la sustituye el botón `geo.notListedCta`) | ¿No aparece tu colonia? Escríbenos a {contact} con tu CP y el nombre de tu colonia. | Your neighborhood isn’t listed? Email us at {contact} with your postal code and its name. |
 | `addresses.geo.failed` | Ratifico | No se pudieron consultar las colonias del CP {cp}. | We couldn’t look up the neighborhoods for postal code {cp}. |
-| `addresses.geo.notInCp` | Ratifico | Esa colonia no es del CP {cp}. No se guardó nada: elige una de la lista. | That neighborhood isn’t in postal code {cp}. Nothing was saved: choose one from the list. |
-| `addresses.geo.neighborhoodRequired` | Ratifico | Elige la colonia de la lista del CP. | Choose the neighborhood from the postal code’s list. |
+| `addresses.geo.notInCp` | Ratifico · **v4.19: condicional C-2** (se retira si el contrato deja de emitir `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` al cliente) | Esa colonia no es del CP {cp}. No se guardó nada: elige una de la lista. | That neighborhood isn’t in postal code {cp}. Nothing was saved: choose one from the list. |
+| `addresses.geo.neighborhoodRequired` | ~~Ratifico~~ **v4.19: cambia** (nombra la salida; §43.18m.8) | Elige la colonia de la lista del CP. | Choose the neighborhood from the postal code’s list. |
 | `addresses.geo.cityState` | Ratifico (= `tracking.sdx.address.cityState`) | Municipio y estado: {city}, {state} (salen del CP). | Municipality and state: {city}, {state} (from the postal code). |
 | `addresses.geo.noData` | Ratifico | sin dato | no data |
 | `addresses.incomplete.row` | **Cambia** (pasa a ser el genérico de CA-3) | Dirección incompleta: le faltan datos para la guía. | Incomplete address: it’s missing details for the label. |
@@ -24401,8 +24426,8 @@ Cambios:
 | `shipments.addressIncomplete.notCharged` | **Nueva** (43.18h.2) | No se solicitó el retiro ni se cobró nada: completa la dirección. | The withdrawal wasn’t requested and nothing was charged: complete the address. |
 | `shipments.addressIncomplete.saved` | **Nueva** (43.18h.4) | Dirección completa. Revisa el costo del envío y paga para solicitar el retiro. | Address complete. Check the shipping cost and pay to request the withdrawal. |
 | `shipments.addressIncomplete.missing.*`, `.and` | **Se retiran** (CA-5) | — | — |
-| `error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE` | Ratifico | Esa colonia no es del código postal. No se guardó nada: elige una de la lista. | That neighborhood isn’t in the postal code. Nothing was saved: choose one from the list. |
-| `error.POSTAL_CODE_UNKNOWN` | **Cambia** (43.18d: el remedio vive en el campo) | Ese código postal no está en nuestro catálogo y no se guardó nada. En el campo «Código postal» te decimos qué hacer. | That postal code isn’t in our catalog and nothing was saved. The “Postal code” field tells you what to do. |
+| `error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE` | Ratifico · **v4.19: condicional C-2** (igual que `geo.notInCp`; el operador lo sigue usando si el contrato lo mantiene en `PUT …/address`) | Esa colonia no es del código postal. No se guardó nada: elige una de la lista. | That neighborhood isn’t in the postal code. Nothing was saved: choose one from the list. |
+| `error.POSTAL_CODE_UNKNOWN` | **Cambia** (43.18d: el remedio vive en el campo) · **v4.19: condicional C-2** — con `HECHOS.md:57` el cliente no debería recibirlo nunca; si el contrato lo sigue emitiendo en sus flujos, eso es una contradicción para el arquitecto, no un texto | Ese código postal no está en nuestro catálogo y no se guardó nada. En el campo «Código postal» te decimos qué hacer. | That postal code isn’t in our catalog and nothing was saved. The “Postal code” field tells you what to do. |
 | `error.ADDRESS_INCOMPLETE` | Ratifico (queda como genérico de `getMessage`; el retiro ya no lo usa, 43.18h.2) | A la dirección elegida le faltan datos para la guía (colonia, CP o teléfono). Complétala para continuar; no se cobró nada. | The selected address is missing data for the label (neighborhood, postal code or phone). Complete it to continue; nothing was charged. |
 
 Paridad ES/EN en el mismo commit (candado `i18n-parity` que ya existe).
@@ -24411,10 +24436,10 @@ Paridad ES/EN en el mismo commit (candado `i18n-parity` que ya existe).
 
 | # | Fichero:línea | Cambio | § |
 |---|---|---|---|
-| FC-1 | `components/domain/PostalCodeNeighborhoodFields.tsx:66` | `geo.cpUnknown` con `{ cp, contact: SUPPORT_CONTACT_FALLBACK }` (`checkout/support-contact.ts:14`, como `ClaimableOrdersNotice.tsx:17`) | 43.18d |
+| ~~FC-1~~ *(v4.19: superado por FC-16/FC-17)* | `components/domain/PostalCodeNeighborhoodFields.tsx:66` | `geo.cpUnknown` con `{ cp, contact: SUPPORT_CONTACT_FALLBACK }` (`checkout/support-contact.ts:14`, como `ClaimableOrdersNotice.tsx:17`) | 43.18d |
 | FC-2 | ídem `:101` | Opciones en orden alfabético `localeCompare('es', {sensitivity:'base'})`; valores intactos | 43.18e |
 | FC-3 | ídem (con `onResolved`/hook) | Una sola colonia y ninguna elegida ⇒ preseleccionada | 43.18e |
-| FC-4 | ídem tras `:108`, y `:78` | Línea `geo.notListed` (`text-xs text-muted`) con lista ≥ 1; su id en el `aria-describedby` del `Select` | 43.18d |
+| ~~FC-4~~ *(v4.19: superado por FC-17)* | ídem tras `:108`, y `:78` | Línea `geo.notListed` (`text-xs text-muted`) con lista ≥ 1; su id en el `aria-describedby` del `Select` | 43.18d |
 | FC-5 | `components/domain/AddressManager.tsx:254-266` | `rowMissing` con `addressMissingFields` (`:68`) + `joinMissing`; genérico sin lista; objetivo ≥ 24 px; `aria-describedby` al renglón `:253`; abre modo completar | 43.18f |
 | FC-6 | `AddressManager.tsx:559-579` | Referencias **antes** que teléfono | 43.18b |
 | FC-7 | `(storefront)/checkout/GuestCheckoutForm.tsx:274-296`, `:49-50` | Ídem en el invitado y en `FIELD_ORDER` | 43.18b |
@@ -24427,6 +24452,28 @@ Paridad ES/EN en el mismo commit (candado `i18n-parity` que ya existe).
 | FC-14 | `components/ui/Textarea.tsx:62` ⚠ zona compartida | Contador `text-accent` con `length > max`; ⛔ sin `maxLength` en referencias | 43.18c |
 | FC-15 | `frontend/messages/es.json` / `en.json` (`:514`, `:846-856`, `:5470-5472`, `:5486-5539`) | Tabla de 43.18i | 43.18i |
 
+**v4.19 — FC-16…FC-27** (fichero:línea leídos el 2026-10-04 sobre el árbol `/home/user/tcg-skyd`, HEAD `76de8268`
+según el orquestador, NO MEDIDO por mí; **re-medir antes de editar**). Rutas relativas a `frontend/src/`.
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FC-16 | `components/domain/PostalCodeNeighborhoodFields.tsx:9`, `:54-55`, `:90-92` | Quitar el import de `SUPPORT_CONTACT_FALLBACK` y `geo.cpUnknown`: con el CP desconocido el `Input` del CP **no** lleva `error` (solo `postalCodeError` de quien monta). Comentario de cabecera a v4.19 | 43.18m.4, CA-7 |
+| FC-17 | ídem `:93-94`, `:158-162` | Fuera la línea `geo.notListed`; en su sitio, el botón `geo.notListedCta` (modo lista) / `geo.typeInstead` (consultando, falló) / `geo.backToList` (a mano con lista) — **un solo hueco**, mismo `id`, 43.18m.2 | 43.18m.2–3 |
+| FC-18 | ídem `:27-43` (props) y `:127-139` | El modo (`list` · `manualNeighborhood` · `manualAll`) vive en el componente; props nuevas `city`, `state`, `onCity`, `onState`, `cityError`, `stateError` y un `initialManual` (CA-9). En modo a mano el `Select` se sustituye por `Input` (`autoComplete="address-level3"`) con el **mismo** `id`/label; el `ref` reenviado pasa a `HTMLInputElement \| HTMLSelectElement` | 43.18m.1–2 |
+| FC-19 | ídem `:99-109` (`reason`/`describedBy`) | `noNeighborhoods` desaparece (sin lista no hay `Select`); `describedBy` del control de colonia = motivo + error + `manualHint`/`cpNotInCatalog` según el modo | 43.18m.4 |
+| FC-20 | ídem `:145-152` | Tras «Reintentar», separador `·` y botón `geo.typeInstead` ⇒ `manualAll`. ⛔ El `role="alert"` se queda solo en el texto del fallo | 43.18m.5 |
+| FC-21 | ídem `:164-168` | `geo.cityState` solo en `list`/`manualNeighborhood` con respuesta; en `manualAll`, en su lugar, `Input` de municipio y `Select` de estado (43.18m.4). Una respuesta `200` con `neighborhoods: []` cuenta como «sin lista» (prellenar municipio/estado si vienen) | 43.18m.4 |
+| FC-22 | `components/domain/AddressManager.tsx:483`, y `checkout/GuestCheckoutForm.tsx:254-255` (`onResolved`) | ⛔ No poner `neighborhood: match` cuando `match === ''` y la colonia guardada no está en la lista **y el CP no cambió** desde que se abrió: abrir en `manualNeighborhood` con su valor (CA-9). Igual con la preselección de colonia única (`resolveNeighborhoodMatch`, `:23-25`): no pisa una colonia escrita | 43.18m.6, CA-9 |
+| FC-23 | `AddressManager.tsx:492`, `:395`, `:410-420`, `:555-558`; `GuestCheckoutForm.tsx:41-52`, `:105-121`, `:33-37` | Validación por modo (lista ⇒ `neighborhoodRequired`; a mano ⇒ `neighborhoodTypeRequired`; `manualAll` ⇒ además `cityRequired`/`stateRequired`); `FIELD_KEYS` y `FIELD_ORDER` ganan `city`, `state` **tras** `neighborhood`; `focusField === 'neighborhood'` enfoca el control vigente (input o select). Las ramas `NEIGHBORHOOD_NOT_IN_POSTAL_CODE`/`POSTAL_CODE_UNKNOWN` quedan **condicionales a C-2** | 43.18m.7 |
+| FC-24 | `lib/mx-states.ts` (**nuevo**, ⚠ zona compartida `frontend/src/lib/`) | Las 32 entidades (43.18m.4) en orden alfabético `es`; el `value` lo fija C-1 | 43.18m.4 |
+| FC-25 | `app/[locale]/(admin)/admin/m4/capture/AddressStep.tsx:101-107`, `:143`, `:147-165`, `:111-112`, `:175` | Formulario del operador: ⛔ `onResolved` ya no borra la colonia guardada fuera de la lista (abre a mano, CA-9); botón `notListedCta`/`backToList`; CP desconocido ⇒ `cpUnknown` nuevo + municipio y estado editables (**C-4**) | 43.18m.6 |
+| FC-26 | `AddressStep.tsx:191-201` (`AddressReadView`) y el pie del paso 1 | Marca `manualMark` bajo Colonia, `manualCityStateMark` bajo Estado y línea `manualReview.*` sobre la acción principal — **solo si existe el dato (C-3)**; ⛔ no deducirlo en la pantalla | 43.18m.6 |
+| FC-27 | `messages/es.json` / `en.json` (`:5497-5529` y `admin.m4.tracking.sdx.address` `:1818-1864`) | Tabla 43.18m.8; paridad en el mismo commit | 43.18m.8 |
+
+*Sobre el hook (`hooks/usePostalCodeLookup.ts`):* ratifico que **no** cambia. El modo es estado de la pantalla, no de
+la consulta; `unknown` (`:57`) y `failed` (`:58`) ya distinguen lo que el diseño necesita. Si frontend prefiere exponer
+`empty = !!data && data.neighborhoods.length === 0` desde el hook, está bien: lo comparten cliente y operador.
+
 ⛔ El hook `usePostalCodeLookup` (que comparte la ventana del operador) **no** necesita cambio: FC-2/FC-3 son de
 presentación del componente del cliente. Si frontend prefiere ordenar en el hook, ordena también la lista del operador,
 y eso está bien (mismo motivo).
@@ -24435,19 +24482,268 @@ y eso está bien (mismo motivo).
 
 | ID | Qué asevera | Canario (debe ponerla roja) |
 |---|---|---|
-| **UX-ADR-1** | CP `404` ⇒ bajo «Código postal» el texto contiene `soporte@tcghunt.mx` y «Revisa»; el `Select` apagado con `geo.noNeighborhoods` en su `aria-describedby`; **cero** `input[type=text]` para colonia, municipio o estado | Texto sin correo; campo libre de colonia |
+| **UX-ADR-1** *(reescrito v4.19)* | CP `404` (y, en otra corrida, `200` con `neighborhoods: []`) ⇒ hay `input[type=text]` de colonia, `input[type=text]` de municipio y `select` de estado con 32 `option` + placeholder; el texto `geo.cpNotInCatalog` está presente y **no** contiene `@` ni «Escríbenos»; el `Input` del CP **no** tiene `aria-invalid` ni texto de error; el foco **sigue** en el CP; el `POST`/`PATCH` lleva lo tecleado en `neighborhood`, `city` y `state` | Volver a `geo.cpUnknown` con correo; dejar el `Select` apagado sin campo; pintar el caso como error |
 | **UX-ADR-2** | Fixture con colonias desordenadas ⇒ las `option` salen en orden alfabético y el `value` de cada una es el del fixture; fixture con **una** colonia ⇒ elegida sin interacción y el `POST` la lleva; con dos ⇒ placeholder | Sin ordenar; preseleccionar con 2+ |
 | **UX-ADR-3** | Libreta: `complete:false, neighborhood:null` ⇒ «Dirección incompleta: falta la colonia.»; `complete:true` con `neighborhood:null` ⇒ **sin** marca (manda el servidor); `complete:false` sin hueco deducible ⇒ el genérico | Deducir la marca de los campos; marca sin texto |
 | **UX-ADR-4** | Retiro con destinatario **y** dirección incompletos ⇒ el botón de pagar está `disabled` y su `aria-describedby` contiene `recipient-required` **y** `address-incomplete`; `422 ADDRESS_INCOMPLETE` ⇒ bajo el botón `notCharged` y **no** el texto de `error.ADDRESS_INCOMPLETE` | Solo el primer id; `getMessage` duplicado |
 | **UX-ADR-5** | En libreta e invitado, el `textarea` de referencias precede en el DOM al `input[type=tel]`; `FIELD_ORDER` coincide con el orden del DOM | Teléfono antes de referencias |
 | **UX-ADR-6** | Pegar 80 caracteres en referencias ⇒ el valor conserva los 80 (sin `maxLength`), el contador «80 / 70» tiene `text-accent` y al validar aparece `referencesTooLong` | `maxLength={70}`; contador siempre `muted` |
-| **UX-ADR-7** | Paridad ES/EN de las claves de 43.18i; `shipments.addressIncomplete.missing` **no** existe en `es.json` ni `en.json` | Dejar las dos copias |
+| **UX-ADR-7** *(ampliado v4.19)* | Paridad ES/EN de las claves de 43.18i y §43.18m.8; `shipments.addressIncomplete.missing`, `addresses.geo.cpUnknown`, `addresses.geo.notListed` y `addresses.geo.noNeighborhoods` **no** existen en `es.json` ni `en.json`; ningún valor bajo `addresses.geo.*` contiene `{contact}` | Dejar las copias viejas; reintroducir «Escríbenos» en la colonia |
+| **UX-ADR-8** *(v4.19)* | Fixture con lista ⇒ botón «Mi colonia no está» visible (`type="button"`); pulsarlo ⇒ el `select` de colonia desaparece, aparece `input[type=text]` con label «Colonia» **enfocado**, y `geo.cityState` sigue visible; teclear «Fracc. Los Pinos» ⇒ el `POST` lleva `neighborhood:"Fracc. Los Pinos"` con `city`/`state` **del CP**; «Elegir de la lista del CP {cp}» ⇒ vuelve el `select` **enfocado**; volver a «Mi colonia no está» ⇒ el input conserva «Fracc. Los Pinos» | El `select` como único control; no mover el foco al pulsar; perder lo tecleado al alternar |
+| **UX-ADR-9** *(v4.19)* | CP `500` ⇒ visibles «Reintentar» **y** «Escribir la colonia a mano»; este último ⇒ los tres campos de «todo a mano» con `geo.manualAllIntro`. Consulta **pendiente** (handler MSW que no resuelve) ⇒ «Escribir la colonia a mano» visible y usable antes de que llegue respuesta | Sin salida mientras carga o tras fallar |
+| **UX-ADR-10** *(v4.19)* | Con el cliente ya en modo a mano (elegido durante «consultando»), resolver después la consulta con lista ⇒ el modo **no** cambia solo (sigue el `input`, aparece «Elegir de la lista del CP {cp}»); cambiar el CP a otro con lista ⇒ vuelve el `select` con placeholder | Arrancarle el campo al llegar la respuesta; conservar el modo a mano tras cambiar de CP |
+| **UX-ADR-11** *(v4.19)* | Libreta: editar una dirección guardada con `neighborhood:"Fracc. Los Pinos"` y CP cuyo fixture **no** la contiene (incluido un fixture de **una** colonia) ⇒ abre en modo a mano con ese valor; «Guardar» sin tocar ⇒ el `PATCH` lleva `"Fracc. Los Pinos"` (⛔ ni `""` ni la colonia única). **La misma prueba** en «Corregir dirección» del operador (`AddressStep`) con el `PUT` | Placeholder al abrir; preselección de la colonia única encima de la escrita |
+| **UX-ADR-12** *(v4.19, condicional C-3)* | Operador, modo leer: snapshot con el dato «colonia escrita a mano» ⇒ bajo el valor de Colonia, `sdx.address.manualMark`; con «todo a mano» ⇒ además `manualCityStateMark` bajo Estado y la línea `manualReview.all`; **«Ver opciones de envío» habilitado** en los dos casos; sin el dato ⇒ **cero** marcas | Sin marca; bloquear la cotización por la marca; deducir la marca en la pantalla comparando contra la lista |
+| **UX-ADR-13** *(v4.19)* | Cada `option` del `select` de colonia (menos el placeholder) tiene un `value` presente en la lista del fixture: ⛔ ninguna opción centinela tipo «Mi colonia no está» dentro del `select` | Meter la salida como `option` (acabaría guardada como nombre de colonia) |
 
 #### 43.18l Solicitudes y notas
 
 | # | Para | Qué |
 |---|---|---|
-| **P-ADR-2** | product-owner → dueño | **Colonia que no está en la lista de un CP que sí está** (fraccionamientos nuevos, que SEPOMEX tarda en publicar). Hoy el diseño dice «Escríbenos» (CA-2). Alternativa común en tiendas mexicanas: «elige la más cercana y escribe la tuya en Referencias» — el servidor ya lo admite (colonia de lista + `references` ≤ 70), pero **imprime en la guía una colonia que no es la del cliente**: es una decisión de entrega del dueño, no de diseño. Default: no se ofrece. Si el dueño dice sí, cambia solo el texto de `geo.notListed` |
-| **N-7** | dueño / orquestador | «Escríbenos» resuelve **hablar**, no **guardar**: mientras el CP no esté en el catálogo, ese cliente no puede guardar esa dirección ni pagar un envío a ella (si puede comprar a bóveda sin dirección: NO MEDIDO). Qué hace el dueño con ese correo (pedir a devops cargar el CP, vender por otra vía) no tiene camino en la app ni en el contrato. NO MEDIDO cuántos CP reales faltan en SEPOMEX |
+| ~~P-ADR-2~~ | *(v4.19: **resuelta** por `HECHOS.md:57` — se escribe a mano con «Mi colonia no está»; ⛔ no «elige la más cercana»)* | **Colonia que no está en la lista de un CP que sí está** (fraccionamientos nuevos, que SEPOMEX tarda en publicar). Hoy el diseño dice «Escríbenos» (CA-2). Alternativa común en tiendas mexicanas: «elige la más cercana y escribe la tuya en Referencias» — el servidor ya lo admite (colonia de lista + `references` ≤ 70), pero **imprime en la guía una colonia que no es la del cliente**: es una decisión de entrega del dueño, no de diseño. Default: no se ofrece. Si el dueño dice sí, cambia solo el texto de `geo.notListed` |
+| ~~N-7~~ | *(v4.19: **cerrada** por `HECHOS.md:57`: el cliente guarda y paga con la dirección escrita a mano)* | «Escríbenos» resuelve **hablar**, no **guardar**: mientras el CP no esté en el catálogo, ese cliente no puede guardar esa dirección ni pagar un envío a ella (si puede comprar a bóveda sin dirección: NO MEDIDO). Qué hace el dueño con ese correo (pedir a devops cargar el CP, vender por otra vía) no tiene camino en la app ni en el contrato. NO MEDIDO cuántos CP reales faltan en SEPOMEX |
 | **N-8** | QA | Capturas a `360×740` y `390×844`: el `Select` con 30+ colonias (fixture largo) abierto y cerrado con el nombre más largo, la hoja de «Completar dirección» con el teclado abierto, y el bloque del retiro. NO MEDIDO por mí |
 | **N-9** | techlead | Deuda no bloqueante: los botones de texto de la fila de la libreta («Editar», «Borrar», «Marcar predeterminada») miden ~16 px de alto; FC-5 solo corrige «Completar dirección» |
+| **N-10** *(v4.19)* | QA | Capturas a `360×740` y `390×844` de los cuatro modos de 43.18m.1 (y del modo «todo a mano» con el teclado abierto en la hoja de la libreta, «Guardar» visible). NO MEDIDO por mí |
+
+#### 43.18m La colonia como Mercado Libre: la lista ayuda, no bloquea *(v4.19, nueva)*
+
+**Por qué existe.** `HECHOS.md:57` (2026-10-04, «si, hazlo como mercado libre»): si el CP está en el catálogo se
+muestra su lista **más** «Mi colonia no está»; si no está (o el catálogo aún está vacío), el cliente escribe colonia,
+municipio y estado; la tienda nunca deja de vender por el catálogo; las colonias mal escritas se corrigen en «Capturar
+guía». Sustituye CA-1/CA-2 y §43.18d (que eran decisión del equipo, no del dueño). Reglas: **CA-6…CA-9** (43.18a).
+
+**Lo que leí** (2026-10-04, árbol `/home/user/tcg-skyd`, HEAD `76de8268` dado por el orquestador, NO MEDIDO por mí):
+`components/domain/PostalCodeNeighborhoodFields.tsx` (1-172), `hooks/usePostalCodeLookup.ts` (1-79),
+`(admin)/admin/m4/capture/AddressStep.tsx` (`:80-230`), `messages/es.json` `:1815-1864` y `:5486-5544`, y por `grep`
+las líneas citadas de `AddressManager.tsx`, `GuestCheckoutForm.tsx` y `CaptureLabelDialog.tsx`.
+
+**Cero tokens nuevos, cero pares de contraste nuevos:** `Input`, `Select`, botón de texto subrayado (el de
+«Reintentar», `PostalCodeNeighborhoodFields.tsx:148`), `text-text`/`text-muted`/`text-accent` sobre papel (§10).
+
+**Dependencias del contrato** (las decide el arquitecto; esta sección **no** las asume):
+
+| # | Qué necesita la pantalla | Si no existe |
+|---|---|---|
+| **C-1** | Que libreta, invitado y alta del buylist acepten `neighborhood` libre y, con el CP fuera del catálogo, `city` y `state` del cliente. Y **qué valor** lleva `state` (nombre libre o uno de 32 canónicos) | Sin esto la decisión del dueño no se puede construir: bloquea FC-16…FC-24 |
+| **C-2** | Si `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` y `422 POSTAL_CODE_UNKNOWN` siguen existiendo en los flujos del cliente | Si se retiran, se retiran sus ramas (FC-23) y `geo.notInCp`; si se quedan, **contradicen** `HECHOS.md:57` y lo señalo |
+| **C-3** | Un dato en `AdminShipmentDTO` (snapshot) que diga si la colonia (y municipio/estado) **no salió de la lista** del CP. Recomendación de diseño: que lo **derive el servidor** al guardar, no que lo declare el cliente (el cliente no sabe de catálogos y una bandera suya se puede mentir sin querer). Nombre: el que ponga el arquitecto | 43.18m.6 (aviso) no se construye; ⛔ la pantalla **no** lo deduce comparando contra la lista (UX-ADR-12) |
+| **C-4** | Que `PUT /admin/shipments/:id/address` acepte la colonia libre y, con CP fuera del catálogo, municipio y estado | El operador no puede corregir a texto libre; el formulario igual **no debe borrar** la colonia escrita (CA-9, FC-25 parte 1, que no depende de C-4) |
+
+##### 43.18m.1 Los cuatro modos de la colonia
+
+Con el CP de **5 dígitos** (con menos, como hoy: `Select` apagado con `geo.cpFirst`, sin botones — el CP es
+obligatorio de todos modos, así que nadie queda atascado por eso):
+
+| Estado de la consulta | Modo | Control de colonia | Municipio y estado | Salida (un solo hueco bajo el control) |
+|---|---|---|---|---|
+| Consultando | auto | `Select` apagado, motivo `geo.loading` | — | botón **`geo.typeInstead`** ⇒ «todo a mano» |
+| Falló (red, `5xx`, `429`) | auto | `Select` apagado; `geo.failed` + «Reintentar» | — | botón **`geo.typeInstead`** tras «Reintentar» ⇒ «todo a mano» |
+| Lista (≥ 1 colonia) | **lista** | `Select` | línea `geo.cityState` | botón **`geo.notListedCta`** ⇒ «colonia a mano» |
+| Lista, y el cliente pulsó «Mi colonia no está» | **colonia a mano** | `Input` + `geo.manualHint` | línea `geo.cityState` (siguen del CP) | botón **`geo.backToList`** ⇒ «lista» |
+| `404`/`422 POSTAL_CODE_UNKNOWN`, o `200` con 0 colonias (catálogo vacío incluido) | **todo a mano** (automático) | `Input` + `geo.manualHint` | `Input` municipio + `Select` estado | ninguna (no hay lista a la que volver) |
+| Consultando/falló y el cliente pulsó «Escribir la colonia a mano» | **todo a mano** (elegido) | ídem | ídem | `geo.backToList` **solo si** después llega una lista |
+
+*Por qué catálogo vacío y CP desconocido son el mismo modo:* el cliente no puede distinguirlos ni le sirve hacerlo;
+para él es «no tienen mi CP». Un solo texto, un solo camino.
+
+##### 43.18m.2 «Mi colonia no está» — cómo se ve, cómo se elige, cómo se vuelve *(punto 1 del encargo)*
+
+- **Un botón de texto, no una opción del `<select>`.** `type="button"`, `text-sm text-text underline
+  underline-offset-2 hover:text-accent`, alineado a la izquierda **justo bajo** el control de colonia, `min-h-6 py-1.5`
+  (objetivo ≥ 24 px, WCAG 2.5.8). *Por qué no una `option` al final de la lista* (lo que haría el nativo «más a mano»):
+  su `value` acabaría guardado como nombre de colonia en cuanto un camino de código no lo filtre (UX-ADR-13), y en iOS
+  cambiar de modo desde la rueda del sistema esconde el campo nuevo detrás del «Listo». El botón se ve **antes** de abrir
+  la lista, que es justo cuando el cliente ya sabe que la suya es nueva.
+- **Elegirlo** ⇒ el `Select` se sustituye **en el mismo sitio** por un `Input` con el **mismo label** «Colonia» y el
+  mismo `id` (la etiqueta y el orden de tabulación no se mueven); `autoComplete="address-level3"`; hint
+  `geo.manualHint`; **el foco pasa al `Input`** (lo pidió el cliente: no es un cambio de contexto, WCAG 3.2.2). Municipio
+  y estado siguen como línea del CP (el CP sí es conocido). El botón del hueco pasa a ser **«Elegir de la lista del CP
+  {cp}»** (`geo.backToList`).
+- **Volver** ⇒ vuelve el `Select` **enfocado**; si lo escrito coincide con una colonia de la lista (`matchNeighborhood`,
+  la misma comparación de hoy), queda elegida esa; si no, placeholder. **Lo escrito se conserva en memoria** (CA-9): si
+  pulsa otra vez «Mi colonia no está», el `Input` reaparece con su texto.
+- **Mientras se consulta o si falló**, el mismo hueco dice **«Escribir la colonia a mano»** (`geo.typeInstead`): «Mi
+  colonia no está» no tiene sentido cuando todavía no hay lista que mirar.
+- ⛔ El modo **no cambia solo** (WCAG 3.2.2): si el cliente está escribiendo a mano y llega la lista, solo aparece
+  «Elegir de la lista del CP {cp}». Lo único que reinicia el modo es **cambiar el CP** (acto del cliente): vuelve a
+  «auto» y, con lista, al `Select` con la regla de UX-SDX-23; lo tecleado sigue en memoria.
+
+**En un celular de 390 px** (formulario a una columna, ~358 px de ancho útil; en la libreta, dentro de la hoja del
+`Modal` a `100dvh` con pie fijo, §43.18e):
+
+```
+Código postal
+[ 45130                         ]
+5 dígitos. Con él te mostramos las colonias de tu zona.
+
+Colonia
+[ Elige una colonia           ▾ ]
+Mi colonia no está                      ← botón de texto, ≥ 24 px
+Municipio y estado: Zapopan, Jalisco (salen del CP).
+```
+tras pulsar «Mi colonia no está»:
+```
+Colonia
+[ Fracc. Los Pinos|             ]       ← foco aquí, teclado abierto
+Escríbela como aparece en un recibo de luz o de agua.
+La revisamos antes de enviar.
+Elegir de la lista del CP 45130         ← botón de texto
+Municipio y estado: Zapopan, Jalisco (salen del CP).
+```
+- Todo apilado, ⛔ nada en dos columnas a ningún ancho (mismo criterio que el resto del formulario).
+- El cambio de `Select` a `Input` **no** desplaza lo de abajo más que la línea del hint (≈ 2 renglones a 390 px).
+- `text-base` (16 px) en el `Input`, como el `Select`: iOS no hace zoom al enfocar.
+
+##### 43.18m.3 Accesibilidad del cambio de modo
+
+- El botón **no** lleva `aria-expanded` (no despliega nada: sustituye el control). Su nombre accesible es el texto
+  visible; con el foco movido al control nuevo, el lector anuncia «Colonia, campo de texto» y su hint, que basta.
+- `aria-describedby` del control de colonia: motivo (si lo hay) + error (si lo hay) + `geo.manualHint` en modo a mano
+  (+ `geo.cpNotInCatalog`/`geo.manualAllIntro` en «todo a mano»).
+- El hueco del botón es **uno** con `id` estable: el lector no encuentra dos botones de modo a la vez.
+
+##### 43.18m.4 CP fuera del catálogo o catálogo vacío — «todo a mano» *(punto 2 del encargo)*
+
+Al llegar `404`/`422 POSTAL_CODE_UNKNOWN` (o `200` con 0 colonias), sin mover el foco del CP (WCAG 3.2.2):
+
+```
+Código postal
+[ 99999                         ]
+5 dígitos. Con él te mostramos las colonias de tu zona.
+
+No tenemos la lista de colonias del CP 99999. Si está
+bien escrito, escribe tu colonia, municipio y estado:
+los revisamos antes de enviar.
+
+Colonia
+[                               ]
+Escríbela como aparece en un recibo de luz o de agua.
+La revisamos antes de enviar.
+
+Municipio o alcaldía
+[                               ]
+
+Estado
+[ Elige un estado             ▾ ]
+```
+- **`geo.cpNotInCatalog`** va entre el CP y la colonia, `text-sm text-text` en un `<p aria-live="polite">` (se anuncia
+  al aparecer sin robar el foco). ⛔ **No** es el `error` del CP: ni `text-accent`, ni `aria-invalid`, ni `role="alert"`
+  (CA-7). «Si está bien escrito» deja la puerta a corregir un CP mal tecleado sin acusar al cliente.
+- **Municipio o alcaldía** (`addresses.city`, cambia de «Ciudad»): `Input autoComplete="address-level2"`. Si la
+  respuesta `200` vacía trae `municipality`, se prellena (editable).
+- **Estado** (`addresses.state`): **`<select>` nativo** con las 32 entidades en orden alfabético `es` y placeholder
+  `geo.statePlaceholder`, `autoComplete="address-level1"`. *Por qué no texto libre:* son 32 valores fijos, la guía
+  necesita el nombre bien escrito y en 390 px la rueda del sistema es más rápida que teclear «Michoacán» con acento.
+  Etiquetas: Aguascalientes · Baja California · Baja California Sur · Campeche · Chiapas · Chihuahua · Ciudad de México ·
+  Coahuila · Colima · Durango · Estado de México · Guanajuato · Guerrero · Hidalgo · Jalisco · Michoacán · Morelos ·
+  Nayarit · Nuevo León · Oaxaca · Puebla · Querétaro · Quintana Roo · San Luis Potosí · Sinaloa · Sonora · Tabasco ·
+  Tamaulipas · Tlaxcala · Veracruz · Yucatán · Zacatecas. **El `value` de cada opción lo fija C-1** (ideal: la misma
+  grafía que el catálogo guarda en `state`, para que dirección a mano y dirección de lista se lean igual en la guía);
+  las etiquetas no se traducen en EN (son nombres propios). Prellenado si la respuesta trae `state`.
+- Orden de tabulación: CP → colonia → municipio → estado → referencias → teléfono (43.18b, filas 5a/5b).
+
+##### 43.18m.5 Mientras se consulta el CP o si falla *(punto 3 del encargo)*
+
+- **Consultando:** el `Select` apagado con `geo.loading` (`aria-live`, como hoy) y, debajo, **«Escribir la colonia a
+  mano»** desde el primer instante. ⛔ Sin temporizador que lo haga aparecer «si tarda»: un botón que aparece solo a los
+  N segundos se mueve bajo el dedo, y la consulta no reintenta sola (`usePostalCodeLookup.ts:52`), así que una petición
+  colgada no tiene fin visible.
+- **Falló:** `geo.failed` en `text-accent` con `role="alert"` (ratifico: aquí **sí** falló algo nuestro) y en la misma
+  línea `Reintentar · Escribir la colonia a mano` (dos botones de texto, separador `·` `aria-hidden`). En 390 px la línea
+  se parte en dos renglones; los dos botones conservan ≥ 24 px de alto.
+- **Elegir a mano desde aquí** ⇒ «todo a mano» (no sabemos qué CP es, así que no hay municipio ni estado que mostrar),
+  con **`geo.manualAllIntro`** en el sitio de `geo.cpNotInCatalog` y foco al `Input` de colonia. Si luego llega una
+  lista (p. ej. el cliente pulsó «Reintentar» antes y la respuesta llega tarde), aparece «Elegir de la lista del CP
+  {cp}»; ⛔ el modo no cambia solo (43.18m.2, UX-ADR-10).
+- Lo que se manda en «todo a mano» elegido es lo tecleado; si el CP sí está en el catálogo, que el servidor ponga los
+  canónicos de municipio y estado es decisión del contrato (C-1), no de la pantalla.
+
+##### 43.18m.6 «Capturar guía» — el operador ve la colonia escrita a mano *(punto 4 del encargo)*
+
+**El aviso (condicional a C-3).** En el modo leer (§43.2a, `AddressReadView`):
+
+| Fila | Qué se añade | Estilo |
+|---|---|---|
+| Colonia | bajo el valor, **`manualMark`** «Escrita a mano por el cliente · no está en la lista del CP {cp}» | `font-mono text-[11px] text-accent`, como los demás avisos de la `<dl>` |
+| Estado (solo «todo a mano») | bajo el valor, **`manualCityStateMark`** «Municipio y estado escritos a mano: el CP {cp} no está en el catálogo» | ídem |
+| Sobre la acción principal | **`manualReview.neighborhood`** o **`manualReview.all`** | `text-sm text-text` |
+
+- ⛔ **No bloquea.** «Ver opciones de envío» sigue habilitado: el dueño dijo que la tienda no deja de vender por el
+  catálogo, y Skydropx cotiza por CP. El aviso pide **revisar**, no confirmar: ⛔ sin casilla «ya la revisé» (fricción
+  diaria para algo que el operador ve de un vistazo, y no habría dato donde guardarla).
+- Tras corregir la colonia a una **de la lista**, la marca desaparece si el servidor recalcula el dato (C-3: por eso la
+  recomendación de que lo derive el servidor).
+- ⛔ La tarjeta de «Salida de hoy» **no** gana marca: el operador ve la dirección en el paso 1 de todos modos, y una
+  marca más en la cola compite con las de dinero (`AV-*`).
+
+**El formulario «Corregir dirección» (§43.2b):**
+1. **Sin condición (CA-9, FC-25):** al abrir con una colonia guardada que **no** está en la lista del CP guardado, el
+   formulario abre con la colonia **a mano** y su valor; ⛔ hoy `AddressStep.tsx:104-105` la cambia por `''` en cuanto
+   llega la lista, y un «Guardar dirección» sin tocar la borraría. Esto es un defecto en cuanto existan colonias escritas,
+   con o sin C-4.
+2. **Con C-4:** el mismo botón que el cliente con el texto del operador (**`notListedCta`** «La colonia no está en la
+   lista» / **`backToList`**), label **`neighborhoodManualLabel`** «Colonia (escrita a mano)» en modo a mano; CP
+   desconocido ⇒ `cpUnknown` nuevo y **municipio y estado editables** (mismos controles de 43.18m.4, labels
+   `field.city`/`field.state`). Sin C-4: el formulario conserva el `Select` y el `cpUnknown` actual («captura la guía a
+   mano»), más el punto 1.
+
+##### 43.18m.7 Validación y errores
+
+| Caso | Dónde | Texto |
+|---|---|---|
+| Modo lista, sin colonia elegida | bajo el control | `geo.neighborhoodRequired` (nombra la salida) |
+| Modo a mano, colonia vacía (solo espacios cuenta como vacía) | bajo el `Input` | `geo.neighborhoodTypeRequired` |
+| «Todo a mano», municipio vacío | bajo el `Input` | `geo.cityRequired` |
+| «Todo a mano», sin estado | bajo el `Select` | `geo.stateRequired` |
+| `400 {field:'neighborhood'\|'city'\|'state', max}` por longitud | bajo ese campo | `geo.tooLong` con `{max}` (⛔ la pantalla no replica la cota: la da el servidor, como §43.2b) |
+
+Mismo momento de validar que hoy (salir del campo en invitado, «Guardar» en libreta); el resumen de errores del
+invitado sigue el orden del DOM con `city` y `state` tras `neighborhood` (FC-23).
+
+##### 43.18m.8 Textos ES/EN — clave exacta
+
+Cliente: `addresses.*` (`messages/es.json:5486-5544` y `en.json`). Operador: `admin.m4.tracking.sdx.address.*`
+(`es.json:1818-1864`). «Ratifico» = sin tocar.
+
+| Clave | Veredicto | ES | EN |
+|---|---|---|---|
+| `addresses.city` | **Cambia** (México dice municipio o alcaldía) | Municipio o alcaldía | Municipality or borough |
+| `addresses.state` | Ratifico | Estado | State |
+| `addresses.geo.cpHint` | **Cambia** (ya no es cierto que todo salga del CP) | 5 dígitos. Con él te mostramos las colonias de tu zona. | 5 digits. We use it to show the neighborhoods in your area. |
+| `addresses.geo.cpFirst` · `.loading` · `.placeholder` · `.failed` · `.cityState` · `.noData` | Ratifico | — | — |
+| `addresses.geo.neighborhoodRequired` | **Cambia** | Elige tu colonia de la lista; si no aparece, usa «Mi colonia no está». | Choose your neighborhood from the list; if it isn’t there, use “My neighborhood isn’t listed”. |
+| `addresses.geo.notListedCta` | **Nueva** | Mi colonia no está | My neighborhood isn’t listed |
+| `addresses.geo.typeInstead` | **Nueva** | Escribir la colonia a mano | Type my neighborhood instead |
+| `addresses.geo.backToList` | **Nueva** | Elegir de la lista del CP {cp} | Choose from the list for postal code {cp} |
+| `addresses.geo.manualHint` | **Nueva** | Escríbela como aparece en un recibo de luz o de agua. La revisamos antes de enviar. | Type it as it appears on an electricity or water bill. We check it before shipping. |
+| `addresses.geo.cpNotInCatalog` | **Nueva** (sustituye `cpUnknown`) | No tenemos la lista de colonias del CP {cp}. Si está bien escrito, escribe tu colonia, municipio y estado: los revisamos antes de enviar. | We don’t have the neighborhood list for postal code {cp}. If it’s correct, type your neighborhood, municipality and state: we check them before shipping. |
+| `addresses.geo.manualAllIntro` | **Nueva** | Escribe tu colonia, municipio y estado: los revisamos antes de enviar. | Type your neighborhood, municipality and state: we check them before shipping. |
+| `addresses.geo.statePlaceholder` | **Nueva** | Elige un estado | Choose a state |
+| `addresses.geo.neighborhoodTypeRequired` | **Nueva** | Escribe el nombre de tu colonia. | Type your neighborhood’s name. |
+| `addresses.geo.cityRequired` | **Nueva** | Escribe tu municipio o alcaldía. | Type your municipality or borough. |
+| `addresses.geo.stateRequired` | **Nueva** | Elige tu estado. | Choose your state. |
+| `addresses.geo.tooLong` | **Nueva** | Hasta {max} caracteres: acórtalo. | Up to {max} characters: shorten it. |
+| `addresses.geo.cpUnknown` · `.notListed` · `.noNeighborhoods` | **Se retiran** | — | — |
+| `addresses.geo.notInCp` · `error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE` · `error.POSTAL_CODE_UNKNOWN` | **Condicional C-2** | (43.18i) | (43.18i) |
+| `admin.m4.tracking.sdx.address.manualMark` | **Nueva** (C-3) | Escrita a mano por el cliente · no está en la lista del CP {cp} | Typed in by the customer · not on postal code {cp}’s list |
+| `admin.m4.tracking.sdx.address.manualCityStateMark` | **Nueva** (C-3) | Municipio y estado escritos a mano: el CP {cp} no está en el catálogo | Municipality and state typed in: postal code {cp} isn’t in the catalog |
+| `admin.m4.tracking.sdx.address.manualReview.neighborhood` | **Nueva** (C-3) | El cliente escribió la colonia a mano. Revísala antes de ver opciones de envío; si está mal escrita, corrígela. | The customer typed the neighborhood in. Check it before viewing shipping options; if it’s misspelled, correct it. |
+| `admin.m4.tracking.sdx.address.manualReview.all` | **Nueva** (C-3) | El cliente escribió colonia, municipio y estado a mano (el CP {cp} no está en el catálogo). Revísalos antes de ver opciones de envío; si algo está mal escrito, corrígelo. | The customer typed the neighborhood, municipality and state in (postal code {cp} isn’t in the catalog). Check them before viewing shipping options; if anything is misspelled, correct it. |
+| `admin.m4.tracking.sdx.address.notListedCta` | **Nueva** (C-4) | La colonia no está en la lista | The neighborhood isn’t on the list |
+| `admin.m4.tracking.sdx.address.backToList` | **Nueva** (C-4) | Elegir de la lista del CP {cp} | Choose from the list for postal code {cp} |
+| `admin.m4.tracking.sdx.address.neighborhoodManualLabel` | **Nueva** (C-4) | Colonia (escrita a mano) | Neighborhood (typed in) |
+| `admin.m4.tracking.sdx.address.field.city` / `.field.state` | **Nuevas** (C-4) | Municipio o alcaldía / Estado | Municipality or borough / State |
+| `admin.m4.tracking.sdx.address.cpUnknown` | **Cambia solo con C-4** (sin C-4, ratifico el actual) | El CP {cp} no está en el catálogo de colonias. Revísalo; si es correcto, escribe colonia, municipio y estado. | Postal code {cp} isn’t in the neighborhood catalog. Check it; if it’s right, type the neighborhood, municipality and state. |
+| `admin.m4.tracking.sdx.address.hint.postalCode` | **Cambia solo con C-4** | 5 dígitos. Al cambiarlo, la colonia vuelve a la lista del CP nuevo. | 5 digits. When you change it, the neighborhood goes back to the new postal code’s list. |
+
+Paridad ES/EN en el mismo commit (`i18n-parity`; y `lib/i18n-skydropx.test.ts:48` lista
+`admin.m4.tracking.sdx.address.cpUnknown`, que **sigue** existiendo).
+
+##### 43.18m.9 Solicitudes
+
+| # | Para | Qué |
+|---|---|---|
+| **S-1** | arquitecto | C-1…C-4 de arriba. La mínima para que el dueño tenga lo que pidió es **C-1**; **C-3** es la que da sentido a «las colonias mal escritas se corrigen en Capturar guía» (sin ella el operador no sabe cuáles mirar) |
+| **S-2** | product-owner | `PROJECT §T.2` y el criterio 235 dicen hoy «colonia de la lista»; con `HECHOS.md:57` cambian. No lo toco: lo anoto |
+| **S-3** | frontend | FC-25 punto 1 (no borrar la colonia al abrir «Corregir») **no** depende del contrato y conviene que salga con el primer commit que acepte colonias escritas, o el operador las borraría al guardar sin tocar |
