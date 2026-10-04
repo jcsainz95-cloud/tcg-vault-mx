@@ -101,6 +101,8 @@ describe('§40.2 · el diálogo de reembolso total (M3)', () => {
     fireEvent.click(confirmBtn(dialog));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][1]).toEqual({ reason: 'cobro doble' });
+    // `toEqual` ignora claves con `undefined`: se exige que la clave NO EXISTA.
+    expect(Object.keys(post.mock.calls[0][1])).toEqual(['reason']);
   });
 
   it('SR-UI-3 · `422 {required:["shipped_reason"]}` ⇒ selector, la nota SIGUE, ⛔ sin casilla de bóveda, foco en la `legend`', async () => {
@@ -151,6 +153,7 @@ describe('§40.2 · el diálogo de reembolso total (M3)', () => {
     fireEvent.click(confirmBtn(dialog));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
     expect(post.mock.calls[1][1]).toEqual({ reason: 'nota' });
+    expect(Object.keys(post.mock.calls[1][1])).toEqual(['reason']);
   });
 
   it('el `422 {required:["pieces_with_customer"]}` sigue siendo la casilla de bóveda (sin regresión)', async () => {
