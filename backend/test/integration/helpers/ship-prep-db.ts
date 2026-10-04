@@ -649,6 +649,11 @@ export class ShipPrepDb {
     const mine = await p.shipmentRequest.findMany({ where: { OR: [{ id: { in: shipmentIds } }, { orderId: { in: orderIds } }, { userId: { in: this.users } }] }, select: { id: true } });
     const allShipmentIds = [...new Set([...shipmentIds, ...mine.map((s) => s.id)])];
     await p.paymentRefund.deleteMany({ where: { shipmentRequestId: { in: allShipmentIds } } });
+    // ⭐💰 Skydropx D2 (M-66/M-68): los libros de la guía son RESTRICT (registro de dinero) ⇒ se borran antes que el envío.
+    await p.shipmentPaidLabel.deleteMany({ where: { shipmentRequestId: { in: allShipmentIds } } });
+    await p.shipmentLabelAttempt.deleteMany({ where: { shipmentRequestId: { in: allShipmentIds } } });
+    await p.shipmentCostAdjustment.deleteMany({ where: { shipmentRequestId: { in: allShipmentIds } } });
+    await p.spendAlert.deleteMany({ where: { OR: [{ shipmentRequestId: { in: allShipmentIds } }, { subjectUserId: { in: this.users } }] } });
     await p.shipmentItem.deleteMany({ where: { OR: [{ shipmentRequestId: { in: allShipmentIds } }, { inventoryItemId: { in: itemIds } }] } });
     await p.shipmentRequest.deleteMany({ where: { id: { in: allShipmentIds } } });
     await p.orderAccessToken.deleteMany({ where: { orderId: { in: orderIds } } });
