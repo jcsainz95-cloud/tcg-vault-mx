@@ -2,7 +2,35 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.8.9**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.9**).
+>
+> **Rev v1.80.9 — USUARIOS DE BACK-OFFICE SIN CORREO: el staff nuevo entra con NOMBRE DE USUARIO por la MISMA pantalla
+> de login; el correo queda solo para clientes (2026-10-04, arquitecto, rama `claude/precios-s5`; ⛔ sha del árbol NO
+> MEDIDO por el arquitecto: sin Bash; HEAD dado por el orquestador: `9a0c4561`).** Origen: `HECHOS.md` fila
+> «Usuarios de back-office SIN correo; el correo es solo para clientes.» (2026-10-04), **incluido su punto (c)** «Misma
+> pantalla de login que los clientes», que **reemplaza** el SUPUESTO de pantalla propia de `PROJECT §U.3` / criterio
+> **258** (product-owner reescribe §U por su lado; este contrato sigue a HECHOS, que manda). Criterios **256–270**;
+> P-STF-1…8 con su **default** (el dueño no las ha contestado; P-STF-4 queda **sin objeto** por (c)). Norma entera:
+> [§M6-U](#M6-U). Porqué: `ARCHITECTURE §4.58`. **Se construye en un stream POSTERIOR a `precios-s5`, en rama propia.**
+>
+> | # | Qué | Decisión | ¿Rompe? | Construye |
+> |---|---|---|---|---|
+> | **1** | Schema | `User.email` → **opcional**; `User.username` nuevo (`@unique`, guardado **canónico en minúsculas**, sin `citext`); `User.lockNoticeAt` nuevo. **Cinco CHECK**: exactamente uno de `email`/`username`; `customer` ⇒ `email`; formato canónico del usuario; sin correo ⇒ `emailVerified=false`; aviso de panel solo sin correo. **Migración `M-STF` — número NO asignado** (M-62 tomada; lo asigna quien construya). Toda fila existente queda válida **sin backfill** | No (DDL aditivo + `DROP NOT NULL`) | backend |
+> | **2** | `POST /auth/login` | **Mismo endpoint, misma llave `email`**, que ahora es «identificador»: con `@` ⇒ correo (validación de hoy); sin `@` ⇒ nombre de usuario. Mismo orden C7, mismo `argon2` dummy, **misma clave de cubo** para los correos (los contadores vivos sobreviven al despliegue) | No (un `400` de «no es correo» pasa a `401` cuando no hay `@`) | backend + frontend (AuthForm, mínimo) |
+> | **3** | `POST /auth/forgot-password` | Sin `@` ⇒ **el mismo camino** que un correo inexistente (`200 {ok:true}`, nada se escribe) | No | backend |
+> | **4** | `POST /admin/users` | Staff ⇒ **`username` obligatorio y `email` prohibido**; cliente ⇒ `email` obligatorio y `username` prohibido. Staff ⇒ `mustChangePassword=true` **siempre** (P-STF-6). `409 USERNAME_TAKEN` nuevo | **Sí** (alta de staff con correo pasa a `422`) | backend + frontend |
+> | **5** | Reset por admin, cambio propio | Ya existen y ya hacen lo pedido (medido); solo cambia **qué cubo** limpian (el del identificador de la cuenta) | No | backend |
+> | **6** | Aviso de candado | Sin correo ⇒ **aviso en el panel** (`GET /users/me` `lockNotice` + `POST /users/me/lock-notice/dismiss`), mismo tope 1/24 h. Con correo ⇒ correo, como hoy (P-STF-5) | No (aditivo) | backend + frontend |
+> | **7** | `GET /admin/users` (+ ficha) | `username`, `email: string \| null`, `lockedUntil`; `?q=` busca también por usuario | No (aditivo; `email` se vuelve anulable) | backend + frontend |
+> | **8** | Cuenta sin correo en la tienda | `403 ACCOUNT_WITHOUT_EMAIL` (código nuevo) en las **cinco** rutas que ya llevan `@RequireEmailVerified` | No | backend + frontend (texto) |
+> | **9** | Alta/reset por `vault_operator` | `403` **y auditado** (`user.admin_action_denied`). ⚠️ `PROJECT` dice «como hoy»: **hoy NO se audita** (medido) ⇒ es conducta nueva | No | backend |
+>
+> - **Backend:** migración + `STF-1…STF-30` ([§M6-U.9](#M6-U)), cada una con su mutación. **Frontend:** AuthForm (tres
+>   cambios, ninguno en el aviso de los 6 intentos de `HECHOS.md:40`), alta y fila de Usuarios, aviso en el panel, «Mi
+>   cuenta» sin correo, `ACCOUNT_WITHOUT_EMAIL`, tipos de `contract.ts`. **ux-ui:** cinco piezas de texto/pantalla
+>   ([§M6-U.10](#M6-U)). **QA:** STF-6 y STF-20 son carreras ⇒ **N ≥ 10 por ronda, 10 rondas, proporción**; el ciclo de
+>   263 se recorre entero (O-4). **Orquestador:** antes de fusionar, comprobar que ninguna rama viva usa 256–270 ni el
+>   número de migración elegido (NO MEDIDO por el arquitecto).
 >
 > **Rev v1.80.8.9 — ERRATA: «PUBLICAR TODO» CIERRA LAS FILAS «SIN MOTIVO»; LA COLA SE ESCRIBE POR EJE Y CON LA CLAVE
 > ENTERA (2026-10-04, arquitecto, rama `claude/precios-s5`; ⛔ sha del árbol NO MEDIDO por el arquitecto: sin Bash).**
@@ -6693,6 +6721,12 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
     HTTP; ⛔ **no se ensancha la lista de política para poder probarlo** (sería construir el buylist de graduadas para
     satisfacer un test). Su cobertura es **unitaria**, ensanchando la lista en un mock.
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
+- **`403 ACCOUNT_WITHOUT_EMAIL` (v1.80.9, NUEVO):** una cuenta del equipo **sin correo** intenta una acción de cliente.
+  Lo emite `EmailVerifiedGuard` **antes** de mirar `emailVerified`, en las cinco rutas con `@RequireEmailVerified`
+  (`POST /checkout/session`, `GET /orders/claimable`, `POST /orders/claim`, `POST /buylist/requests`, `POST /shipments`).
+  El front muestra un texto propio (no el banner de verificar). [§M6-U.8 (c)](#M6-U).
+- **`409 USERNAME_TAKEN` (v1.80.9, NUEVO):** `POST /admin/users` con un nombre de usuario ya usado (sin distinguir
+  mayúsculas). Solo `super_admin` lo ve ⇒ no es oráculo público. [§M6-U.6](#M6-U).
 - <a id="password-change-required"></a>**`403 PASSWORD_CHANGE_REQUIRED` (v1.67 — decisión del dueño 2026-09-11, ARCHITECTURE §4.47.2):**
   la cuenta de la sesión tiene **`mustChangePassword=true`** (contraseña temporal puesta por el admin: `POST
   /admin/users/:id/reset-password`, o alta admin sin `password`) y la petición **no está en la allowlist**. Lo emite
@@ -8518,6 +8552,10 @@ v1.80.8.1: faltaba en esta lista — se pinta con `auth.rateLimitedByIp*`, sin e
 Req: `{ email, password, deviceToken? }` → Res `200`: `{ user, accessToken, refreshToken, deviceToken }`.
 Err: `401 INVALID_CREDENTIALS`, `403 USER_BLOCKED`, **`429 TOO_MANY_PASSWORD_ATTEMPTS`** (v1.80, por cuenta),
 `429 RATE_LIMITED` (5/min por IP, SEC-C1; faltaba en esta lista).
+> ⭐ **v1.80.9 ([§M6-U.2](#M6-U)):** `email` es el **identificador**: con `@` ⇒ correo (validación de hoy, `400` si
+> está mal formado); **sin `@` ⇒ nombre de usuario** (sin validación de formato: cualquier cadena sin `@` va al camino
+> del `401`). `user` gana `username: string | null` y `email` pasa a `string | null`. La llave del cuerpo **no se
+> renombra** (razón: `ARCHITECTURE §4.58.3`).
 > ⭐ **v1.80.8.1 (errata):** los dos `429` **se pintan distinto**, por `error.code`: `TOO_MANY_PASSWORD_ATTEMPTS` ⇒ aviso
 > «con este correo» + enlace «Restablecer contraseña»; `RATE_LIMITED` ⇒ `auth.rateLimitedByIp*`, ⛔ sin enlace ni
 > «correo». Regla entera en la cabecera v1.80.8.1. `POST /auth/register` solo recibe `RATE_LIMITED` (throttle 5/min
@@ -8602,6 +8640,9 @@ Solicita el link de restablecimiento. **SIEMPRE responde `200`** exista o no el 
 Si el email existe, emite `AuthToken(password_reset, 1h)`, rota tokens de reset previos y envía el correo
 (`${APP_BASE_URL}/<locale>/reset-password?token=<claro>`). Rate-limit **3/hora por IP** (+ tope por email en servicio).
 Req: `{ email: string }` → Res `200`: `{ ok: true }` (genérico; nunca revela existencia).
+- ⭐ **v1.80.9 ([§M6-U.3](#M6-U)):** un valor **sin `@`** (p. ej. un nombre de usuario) ya **no** es `400`: recorre **el
+  mismo código** que un correo inexistente (búsqueda por `email` ⇒ sin fila ⇒ `200 { ok: true }`; cero tokens, cero
+  correos). ⛔ Nunca se busca por `username` aquí. Con `@` y mal formado ⇒ `400 VALIDATION_ERROR`, como hoy.
 - Cuenta solo-Google (sin `passwordHash`): el flujo **fija** una contraseña (habilita login local, igual que el
   reset admin). No cambia la respuesta genérica.
 - Rate-limit excedido → `429 RATE_LIMITED`.
@@ -8670,7 +8711,7 @@ que las pruebas tienen que demostrar.
 **Reglas (valores normativos, constantes con nombre en `modules/auth/`):**
 | Regla | Valor |
 |---|---|
-| Clave del login | `blindIndex("auth-pw:v1:" + normalizeEmail(email))` — **la misma** `normalizeEmail` que usa la búsqueda del usuario (`common/validation/credentials.ts`) |
+| Clave del login | `blindIndex("auth-pw:v1:" + normalizeEmail(email))` — **la misma** `normalizeEmail` que usa la búsqueda del usuario (`common/validation/credentials.ts`). ⭐ **v1.80.9:** el argumento es el **identificador** tecleado (correo **o** usuario), normalizado con **la misma función** (`trim().toLowerCase()`): para un correo la clave es **bit a bit la de hoy**; un usuario no lleva `@`, así que su clave nunca coincide con la de un correo. Para una cuenta, su clave es la de **su** identificador (`email ?? username`; el CHECK garantiza que hay exactamente uno). [§M6-U.4](#M6-U) |
 | Clave de `change-password` | `"auth-cp:v1:" + userId` |
 | Clave del dispositivo | `"auth-pwdev:v1:" + deviceToken.jti` — **v1.80.1:** `jti` = **`sid` de la sesión** (`login`/`google`: nuevo; `refresh`: el heredado; `reset-password`: aleatorio) |
 | ⭐ Tope agregado por vía dispositivo (v1.80.1) | Clave `"auth-pwdevagg:v1:" + userId`. **30 intentos en 24 h** (ventana **fija** desde el primero), contados con `bump` **antes** de `argon2`, **fallidos o no**, solo cuando el `deviceToken` es válido y de esa cuenta. **Al superarlo, el intento usa el cubo de la cuenta** (no es un `429` propio). Lo limpian `reset-password`, reset por admin y el script de rescate; ⛔ **no** el acierto |
@@ -26589,6 +26630,266 @@ Err `403`, `400 VALIDATION_ERROR`.
   `nameSource='user'`) — **se decide en ese stream, no aquí**. Mientras, el listado y la ficha de M6 **pueden** exponer
   `nameSource` (aditivo, opcional) para que el buscador entienda por qué «Juan Pérez» no encuentra a «jcsainz95».
 
+<a id="M6-U"></a>
+### M6-U. USUARIOS DE BACK-OFFICE SIN CORREO — el staff entra con nombre de usuario; el correo es solo para clientes (v1.80.9, **NORMATIVA**, SEGURIDAD; `PROJECT §U`, criterios 256–270)
+
+> **Sección NUEVA. No renumera ni mueve nada.** Origen: `HECHOS.md` fila «Usuarios de back-office SIN correo…»
+> (2026-10-04), puntos (a), (b), default del orquestador y **(c) misma pantalla de login**. P-STF-1…8 se construyen con
+> su **default** (`PROJECT` «Preguntas — usuarios de back-office sin correo»): **1** sí hay súper-admin sin correo;
+> **2** el staff con correo se queda como está; **3** el usuario no se edita; **4** *sin objeto* (HECHOS (c));
+> **5** quien tiene correo recibe el aviso de candado por correo; **6** contraseña inicial **siempre** obliga a
+> cambiarla; **7** sin contador en el tablero; **8** una cuenta sin correo no compra ni vende.
+> Todas las líneas de código citadas las **leyó** el arquitecto en el árbol `claude/precios-s5` el 2026-10-04.
+> Porqué de cada decisión: `ARCHITECTURE §4.58`.
+
+#### M6-U.1 Modelo (migración `M-STF`, número NO asignado)
+
+| Campo | Antes | Ahora |
+|---|---|---|
+| `User.email` | `String @unique` (`schema.prisma:498`) | `String? @unique` — `NULL` solo en cuentas de staff sin correo |
+| `User.username` | — | `String? @unique` — **canónico**: se guarda en minúsculas; Postgres admite varios `NULL` en un `UNIQUE` |
+| `User.lockNoticeAt` | — | `DateTime?` — «hay un aviso de candado pendiente en el panel desde…». Solo cuentas sin correo |
+
+**CHECK (SQL a mano en la migración, precedente `M-62`, `migrations/20261004120000_m62_shipped_refund_reason/migration.sql:53-59`):**
+1. `user_login_identity_xor`: `("email" IS NULL) <> ("username" IS NULL)` — **exactamente uno**.
+2. `user_customer_has_email`: `"role" <> 'customer' OR "email" IS NOT NULL`. Con (1) ⇒ **un cliente nunca tiene usuario**.
+3. `user_username_canonical`: `"username" IS NULL OR "username" ~ '^[a-z][a-z0-9._-]{2,29}$'` — 3–30, minúsculas,
+   empieza con letra, sin `@`, sin espacio, sin acento ni ñ (criterio 257).
+4. `user_no_email_unverified`: `"email" IS NOT NULL OR NOT "emailVerified"`.
+5. `user_lock_notice_no_email`: `"lockNoticeAt" IS NULL OR "email" IS NULL`.
+
+**Compatibilidad:** toda fila existente tiene `email NOT NULL` (columna `NOT NULL` hoy) y `username` nace `NULL` ⇒ los
+cinco CHECK se cumplen **sin backfill**. ⛔ Ninguna cuenta existente pierde su correo ni gana usuario (criterio 266).
+**Las otras columnas `email` NO cambian** (medido): `BillingProfile.email String` (`schema.prisma:647`, correo de
+facturación del cliente) y `SealedRestockSubscription.email String` (`schema.prisma:2101`, correo del suscriptor;
+`@@index([email])` `:2114`). `Order.guestEmail` (`:1277`) tampoco.
+
+**Anonimización (soft-delete, `admin.service.ts:1499-1514`):** además de lo de hoy, `username: null`. Con el correo
+`deleted+<uuid>@anon.invalid` que ya escribe (`:1505`), la fila sigue cumpliendo (1)–(5). ⛔ Sin esto, borrar a un staff
+sin correo con transacciones viola (1) y el `DELETE` responde `500`.
+
+#### M6-U.2 Entrar: `POST /auth/login`, misma pantalla (criterios 258, 259, 264)
+
+- **Req sin cambio de forma:** `{ email: string, password: string, deviceToken?: string }`. `email` = **identificador**:
+  - `trim()` y longitud **1–254**; fuera ⇒ `400 VALIDATION_ERROR` (estructural, como hoy).
+  - **Contiene `@`** ⇒ es correo: formato `EMAIL_REGEX` (`common/validation/credentials.ts:12`); mal formado ⇒ `400
+    VALIDATION_ERROR` `details.field='email'`, **igual que hoy**. Búsqueda `findUnique({ email: normalizeEmail(x) })`.
+  - **No contiene `@`** ⇒ es usuario: `findUnique({ username: normalizeEmail(x) })` (la misma `trim().toLowerCase()`; el
+    backend puede darle un alias `normalizeIdentifier`, pero **una sola función**). ⛔ **Sin validar el formato**:
+    `"a b"` o `"José"` no producen `400` sino el `401` de siempre (no existe fila que case, por el CHECK 3).
+- **Orden C7 intacto** (`auth.service.ts:412-455`): normalizar → buscar → `deviceToken` → cubo → `reserve` (o `429`) →
+  `argon2` (**dummy** si no hay fila o no hay hash, `:433`) → `401` | limpiar cubo → `403 USER_BLOCKED` → `200`.
+- **Cubo de la cuenta:** `accountKey(identificadorNormalizado)` — misma función y mismo dominio `auth-pw:v1:`
+  (`password-attempts.service.ts:32`). Para un correo, **la misma clave de hoy**.
+- **Throttle por IP:** el `@Throttle 5/min` del endpoint (`auth.controller.ts:40`) **es el mismo**: misma ruta ⇒ mismo
+  límite, sin nada nuevo.
+- **Res `200`:** `user` = `{ id, email: string | null, username: string | null, name, role, locale, emailVerified,
+  mustChangePassword }` (`publicUser`, `auth.service.ts:55-69`, gana `username`). El front ya manda al staff a `/admin`
+  (`homeForRole`, `frontend/src/lib/account-routes.ts:21-23`) y, con `mustChangePassword`, a `/admin/account/password`
+  (`:31-35`). **Nada nuevo en el ruteo.**
+- **Errores — cero enumeración (259):** usuario existente con contraseña mala, usuario inexistente, cuenta
+  deshabilitada con contraseña mala, correo inexistente y correo existente con contraseña mala ⇒ **la misma secuencia**
+  (`401 INVALID_CREDENTIALS` ×5, luego `429 TOO_MANY_PASSWORD_ATTEMPTS` con el mismo `Retry-After`), **los mismos
+  cuerpos** y **una** llamada a `argon2.verify` por intento que llega al paso de verificar. `403 USER_BLOCKED` solo con
+  la contraseña correcta (como hoy).
+- **JWT:** el claim `email` se emite como hoy; `null` en cuentas sin correo (`auth.service.ts:99`). ⛔ No se añade
+  `username` al token (nadie lo lee: medido `rg "CurrentUser\('email'\)"` ⇒ 0 en `backend/src`). `req.user.email`
+  pasa a `string | null` (`current-user.decorator.ts:5`, `jwt-auth.guard.ts:86`). `JwtAuthGuard` añade `email: true` a
+  su `select` (`jwt-auth.guard.ts:71-74`) y puebla **`req.user.hasEmail`** **desde la BD** (no desde el token).
+- `POST /auth/google` **sin cambio**: Google siempre trae correo; una cuenta sin correo no puede enlazarse.
+- `POST /auth/register` **sin cambio**: `@IsEmail` (`dto/auth.dto.ts:6`) ⇒ algo sin `@` es `400`; y el CHECK 2 es el
+  respaldo en la BD.
+
+#### M6-U.3 Olvidé mi contraseña y verificación (criterios 262, 267)
+
+- `POST /auth/forgot-password`: `ForgotPasswordDto.email` deja `@IsEmail` (`dto/auth.dto.ts:61`) por la misma regla
+  que el login (1–254; con `@` ⇒ formato o `400`). El servicio **no cambia**: busca **solo por `email`**
+  (`auth.service.ts:243`) ⇒ un usuario nunca casa ⇒ `200 { ok: true }` por el mismo código que un correo inexistente.
+  ⛔ Prohibido buscar por `username` aquí (sería un camino para mandar algo a una cuenta sin canal).
+- `POST /auth/verify-email/resend` (`auth.service.ts:193-203`): cuenta con `email = null` ⇒ **`200 { ok: true }` sin
+  emitir token ni correo** (paso nuevo, antes del de «ya verificado»). Hoy sin este paso emitiría un token y llamaría a
+  `mail.send` con `to: null` (`mail.service.ts:22`).
+
+#### M6-U.4 Candado por intentos y aviso (criterios 264, 265)
+
+- **Una cuenta, un cubo.** `passwordAttemptKeysForUser(pii, user)` (`password-attempts.service.ts:27-36`) recibe
+  `{ id, email, username }` y deriva `account` de **`email ?? username`**. Lo usan `clearForUser` (`:141-144`, reset
+  por admin `admin.service.ts:1389` y `reset-password` `auth.service.ts:308`), `changePassword` (`auth.service.ts:350`,
+  hoy `accountKey(user.email)`) y el script de rescate. ⛔ `accountKey(user.email)` con `email = null` se prohíbe
+  (lanzaría o, peor, contaría en el cubo de `""`).
+- **Aviso (`notifyLock`, `password-attempts.service.ts:150-178`):** misma puerta de hoy (staff, `active`,
+  `claimOnce(LOCK_MAIL_KEY_PREFIX + id, 24 h)`, `:172-175`). Ganada la reclamación:
+  - con `email` ⇒ `mail.sendPasswordLockAlert` (**como hoy**, P-STF-5);
+  - **sin `email`** ⇒ `user.updateMany({ where: { id, email: null }, data: { lockNoticeAt: now } })`. ⛔ Cero correos.
+  Sigue fuera del camino de la respuesta (`setImmediate`, sin `await`). Cuenta inexistente ⇒ nada (`:161`).
+- `LockedAccount.email` (`:44`) pasa a `string | null` y gana `username`.
+- **Lectura del candado para Usuarios:** el almacén gana `peekLockMs(key): Promise<number>` (ms que faltan; `0` sin
+  candado) en `LoginAttemptStore` (`login-attempt.store.ts:46-63`) — Redis `PTTL` de la clave de candado, memoria por la
+  entrada. ⛔ Ni columna ni bitácora como fuente: **el almacén es la única fuente** del candado.
+
+#### M6-U.5 El aviso en el panel
+
+- `GET /users/me` (`users.service.ts:151-183`) gana `username: string | null`, `email: string | null` y
+  **`lockNotice: { since: string } | null`** (`lockNoticeAt` en ISO). Ya está en la allowlist de
+  `PASSWORD_CHANGE_REQUIRED`.
+- **NUEVO `POST /api/v1/users/me/lock-notice/dismiss`** — autenticado, cualquier rol. `updateMany({ where: { id },
+  data: { lockNoticeAt: null } })`. Res **`204`**, idempotente (sin aviso ⇒ `204`). ⛔ **No** está en la allowlist de
+  `PASSWORD_CHANGE_REQUIRED` (con temporal pendiente, primero se cambia la contraseña). Sin bitácora (es un acuse de
+  lectura; el candado ya quedó en `auth.password_lock`).
+
+#### M6-U.6 Alta y restablecimiento en Usuarios (criterios 256, 257, 260, 261)
+
+**`POST /api/v1/admin/users` — `super_admin`.** Req: `{ name, role, email?, username?, password?, phone?, locale? }`
+(`CreateAdminUserDto`, `admin.controller.ts:78-85`: `email` pasa a `@IsOptional`, `username` nuevo `@IsOptional
+@IsString`). **Orden de validación (NORMATIVO, todo `422 VALIDATION_ERROR` con `details.field`):**
+1. `name` y `role` como hoy (`admin.service.ts:692-701`).
+2. `role = customer` ⇒ `username` presente ⇒ `field:'username'`; `email` obligatorio y válido (como hoy, `:686-690`).
+3. `role ∈ {vault_operator, super_admin}` ⇒ `email` presente (aun vacío) ⇒ `field:'email'` (`details.rule:'staff_without_email'`);
+   `username` obligatorio: `u = trim(username).toLowerCase()`; regla que falla en `details.rule`, evaluadas en este
+   orden: `required` (vacío) → `length` (3–30) → `charset` (solo `a-z 0-9 . _ -`; cubre espacio, `@`, acento, ñ) →
+   `start` (empieza con letra). Se guarda `u`.
+4. `password` como hoy (`:718-732`). **`mustChangePassword`**: staff ⇒ **`true` siempre** (P-STF-6); cliente ⇒ como hoy
+   (`autogenerated`, `:734`).
+5. Escritura: staff ⇒ `email: null`, `username: u`, **`emailVerified: false`** (CHECK 4); cliente como hoy.
+6. `P2002`: `meta.target` incluye `username` ⇒ **`409 USERNAME_TAKEN`** (NUEVO); `email` ⇒ `409 EMAIL_TAKEN` (hoy).
+   La unicidad la decide **el índice único**, no un `findFirst` previo (criterio 257, carrera).
+Res `201`: `{ user: { id, email: string | null, username: string | null, name, role, locale, status, emailVerified,
+authProvider, createdAt }, tempPassword?, mustChangePassword }`. Auditoría `user.create` (`admin.controller.ts:187-200`):
+`after` gana `username` y `hasEmail` (⛔ nunca la contraseña).
+⚠️ **Rompe:** un alta de staff **con** correo por API, que hoy es `201`, pasa a `422`. Quien lo use (pruebas,
+scripts) se ajusta; **NO MEDIDO** cuántas pruebas lo hacen.
+
+**`POST /api/v1/admin/users/:id/reset-password` — `super_admin`. Ya hace lo que pide 261 (medido):** temporal de alta
+entropía devuelta una vez (`admin.service.ts:1377`, `:1390`), `mustChangePassword: true` (`:1383`), **`tokenVersion +1`
+⇒ cierra las sesiones** (`:1385`; el guard rechaza la versión previa, `jwt-auth.guard.ts:79`), levanta el candado
+(`:1389`), bitácora `user.reset_password` sin contraseña (`admin.controller.ts:397-404`), ⛔ ningún correo (no hay
+`mail` en el método). **Único cambio:** `select` de `:1370` gana `username` para que `clearForUser` limpie el cubo
+correcto (M6-U.4).
+
+**Rechazo a `vault_operator` (256, 261) — conducta NUEVA.** Hoy `@Roles(Role.super_admin)` (`admin.controller.ts:181`,
+`:394`) responde `403` **sin bitácora** (medido: `rg "audit" backend/src/common/guards` ⇒ solo `money-out.guard.ts`).
+Norma: en estas **dos** rutas, `vault_operator` ⇒ `403 FORBIDDEN` (mismo cuerpo que el `RolesGuard`) **y** fila
+`user.admin_action_denied` `{ actorUserId, actorRole, entityType:'User', entityId: <id o null>, after: { attempted:
+'create' | 'reset_password' } }`. Cómo se cablea (handler con chequeo explícito, o metadato que lea el guard) lo decide
+backend; lo que fija la prueba es **403 + fila**. `customer` ⇒ `403` como hoy (el guard de clase,
+`admin.controller.ts:115`), sin fila.
+
+**`PATCH /admin/users/:id/status`** (`admin.service.ts:1345-1351`): respuesta gana `username`, `email` anulable. Sin
+cambio de conducta.
+
+#### M6-U.7 Usuarios: listado, búsqueda y marca de candado (criterios 265, 268)
+
+`GET /admin/users` (`admin.service.ts:811-893`) — `AdminUserSummaryDTO` gana:
+- `username: string | null`; `email: string | null` (⛔ siempre presente como clave; `null`, nunca omitida ni `""`);
+- `lockedUntil: string | null` — ISO = ahora + `peekLockMs(cubo de la cuenta)`; `null` sin candado. Se calcula para
+  las filas de **la página** (≤ 100, una lectura por fila, en lote si el almacén lo permite).
+- Nivel raíz: **`lockState: 'ok' | 'unavailable'`** — si el almacén no contesta, `lockedUntil: null` en todas y
+  `'unavailable'`; ⛔ el listado **no** falla por eso.
+- `?q=`: la cláusula de `:836-840` gana `{ username: { contains: q.trim().toLowerCase() } }` dentro de **su** `OR` (la
+  norma `L-3` de `AND: [...]` no cambia). `ADMIN_USERS_QUERY_KEYS` (`admin.controller.ts:94`) **no** cambia.
+La ficha `GET /admin/users/:id` (cabecera `toAdminUserHeader`, `admin.service.ts:190-214`, **los dos DTOs**) gana
+`username` y `lockedUntil`; `email` anulable.
+
+#### M6-U.8 Lo que hoy asume `user.email` no nulo — lista medida y norma de cada uno (criterios 267, 268, 269)
+
+**(a) Correos que hoy pueden ir a una cuenta de staff (lista para QA, criterio 267).** Medido con `rg "mail\.send\(|\.send(PasswordLockAlert|PasswordReset|EmailVerification)\(" backend/src`:
+
+| # | Envío | Dónde | ¿Llega a staff hoy? | Norma con cuenta sin correo |
+|---|---|---|---|---|
+| E-1 | Aviso de candado | `password-attempts.service.ts:172-175` → `mail.service.ts:34-42` | **Sí, solo staff** | Panel (M6-U.4). Cero correos |
+| E-2 | Restablecer contraseña | `auth.service.ts:242-251` | Sí (staff con correo) | Inalcanzable: se busca por `email` |
+| E-3 | Verificación de correo | `auth.service.ts:171-187`, vía `register` (solo clientes) y **`resend`** (`:193-203`, cualquier rol) | `resend`: sí | `resend` sin correo ⇒ no-op (M6-U.3) |
+| E-4 | Avisos al **cliente** de una orden, retiro, reembolso, disputa, venta, KYC, CLABE | `payments.service.ts:67`/`:117`; `refund-ledger.service.ts:524`, `:575`; `manual-refund.service.ts:641`, `:661`; `shipments.service.ts:1660`; `shipment-prep.service.ts:870`; `disputes.service.ts:128`; `buylist.service.ts:4524`, `:4589`, `:4614`, `:5684`, `:7113`; `jobs/buylist-sweep.service.ts:523`; `admin.service.ts:1227`; `users.service.ts:124` | Sí, si un staff **con** correo compra/vende (las rutas admiten los tres roles: `orders.controller.ts:14`, `buylist.controller.ts:110`) | Inalcanzable para una cuenta sin correo: no puede ser parte cliente (M6-U.8 (c)). **Y aun así**, cada sitio: `email == null` ⇒ **omitir** con `logger.warn`, sin error, sin reintento. Ya lo hacen `payments.service.ts:94`, `disputes.service.ts:122`, `admin.service.ts:1214`, `buylist.service.ts:4494`, `:4576`, `:4603`, `:5673`, `:7092`, `buylist-sweep.service.ts:517`; **no** lo hacen (medido): `users.service.ts:123`, `refund-ledger.service.ts:540-542`, `:569-570`, `manual-refund.service.ts:634`, `:659`, `shipment-prep.service.ts:868`, `shipments.service.ts:1546-1572`. Al volverse `string \| null` el tipo de Prisma, **`tsc` los señala todos** |
+| E-5 | Reabasto de sellado / pedido de invitado | `sealed-restock-notify.service.ts:116`; `guest-order-mail.service.ts:111` | No (`SealedRestockSubscription.email`, `Order.guestEmail`) | Sin cambio |
+
+**«A todos los súper-admin»: hoy NO existe ningún envío así** (medido: `rg "where: \{ role" backend/src` ⇒ solo
+`refund-reports.service.ts:103`, un listado, y conteos en `admin.service.ts:1855`, `:2068`). La norma queda para el
+futuro: un envío a un rol filtra `email: { not: null }`.
+
+**(b) Dónde se identifica a un miembro del equipo (criterio 268).**
+
+| Superficie | Hoy | Norma |
+|---|---|---|
+| Actor en bitácoras de preparación, reembolsos, envíos, motivo tras envío | por **`name`** (`vault-preparation.view.ts:130`, `refund-ledger.service.ts:591`, `manual-refund.service.ts:181`, `refund-review.ts:44`, `shipments.service.ts:694`, `refund-reports.service.ts:61`, `shipment-prep.service.ts:245`) | Sin cambio: `name` es `NOT NULL` (`schema.prisma:502`) y el alta lo exige |
+| Reembolsos de operador (lista de operadores) | `user.email` (`refund-reports.service.ts:103`, `:112`, `:140`; front `OperatorRefundsView.tsx:82`) | DTO gana `username`; `email: string \| null`. El front pinta `email ?? username` |
+| Usuarios (listado y ficha) | `email` (`M6View.tsx:217`, `:365`) | M6-U.7; el front pinta `email ?? username` |
+| «Mi cuenta» del staff | `user.email` (`AccountView.tsx:105`) | Pinta `email ?? username` |
+| «Crear contraseña» | `forgotPassword(user.email)` (`PasswordPage.tsx:96`, `:161`) | Solo con `hasPassword=false`; una cuenta sin correo **siempre** tiene contraseña (el alta la pone, y solo la anonimización la quita). El front no lo pinta si `email` es `null` |
+| Auditoría por usuario | `actorUserId` sin correo (`audit.service.ts:110`) | Sin cambio en backend. ⚠️ Cómo pinta el front al actor: **NO MEDIDO** — frontend lo comprueba |
+| Exportes CSV | `admin.service.ts:1812` | Sin `email` (medido: `rg email` en `admin.service.ts` no aparece después de `:1505`) ⇒ sin cambio |
+| Refs de **cliente** (órdenes, ventas, bóveda, envíos, casos, master set, KYC) | `email: string` | **Siguen `string`** en el contrato: por (c) apuntan siempre a una cuenta con correo (invariante **I-STF-1**). Si el backend encuentra `null` (invariante rota), registra `logger.error('I-STF-1')` y emite `""` — inalcanzable; STF-28 lo vigila |
+
+**(c) Una cuenta sin correo no es cliente (269, P-STF-8).** `EmailVerifiedGuard` (`email-verified.guard.ts:17-34`),
+**antes** de mirar `emailVerified`: `req.user.hasEmail === false` ⇒ **`403 ACCOUNT_WITHOUT_EMAIL`** (código NUEVO,
+mensaje «Las cuentas del equipo sin correo no pueden comprar ni vender. Usa una cuenta de cliente.»). Aplica a las
+**cinco** rutas que hoy llevan `@RequireEmailVerified` (medido): `POST /checkout/session` (`orders.controller.ts:32`),
+`GET /orders/claimable` (`:65`), `POST /orders/claim` (`:77`), `POST /buylist/requests` (`buylist.controller.ts:111`),
+`POST /shipments` (`shipments.controller.ts:21`). Comprar —también «a bóveda»— entra por `checkout/session`; ⚠️ que no
+haya **otra** vía de alta de orden o colocación para una cuenta: **NO MEDIDO** más allá de esas cinco (backend lo
+confirma con `rg "@Post" backend/src/modules/{orders,vault,payments}`). **I-STF-1:** ninguna fila
+`Order.userId`, `SellRequest.userId`, `ShipmentRequest.userId`, `Dispute.userId`, `InventoryItem.ownerUserId`,
+`ManualRefund.customerUserId`, `ReplacementCase.customerUserId` apunta a una cuenta con `email IS NULL`. La sostiene
+el guard (no hay trigger; razón en `ARCHITECTURE §4.58.6`).
+
+#### M6-U.9 Pruebas que deben fallar, con su mutación (`STF-1…STF-30`)
+
+Reglas: **(i)** cada prueba se escribe **antes** del código y se ve **roja**; **(ii)** la mutación se aplica sobre una
+**copia del árbol entero** (O-9) y la prueba debe ponerse **roja**; **(iii)** las de carrera (STF-6, STF-20) corren
+**N ≥ 10 peticiones simultáneas por ronda, R = 10 rondas**, y se reporta la proporción (`10/10` exigido en verde; con
+la mutación, la proporción de rondas rojas, sin redondear a «falla»).
+
+| ID | Crit. | Prueba | Mutación que debe ponerla roja |
+|---|---|---|---|
+| STF-1 | 256 | `super_admin` `POST /admin/users {name, username:'ana', role:'vault_operator'}` ⇒ `201`; `user.email === null`, `user.username === 'ana'`, `mustChangePassword: true`, `tempPassword` presente; en BD `email IS NULL`, `emailVerified = false`; fila `user.create` con `after.username='ana'`, `after.hasEmail=false` y **ninguna** clave con `password` | Persistir `email: 'ana@staff.local'` (o `''`) ⇒ roja; quitar `username` del `after` ⇒ roja |
+| STF-2 | 256 | Staff **con** `email` ⇒ `422 field:'email'`; cliente **con** `username` ⇒ `422 field:'username'`; cliente sin `email` ⇒ `422` (hoy); `super_admin` sin correo ⇒ `201` (P-STF-1) | Quitar la regla del paso 3 ⇒ `201` ⇒ roja |
+| STF-3 | 256 | `vault_operator` `POST /admin/users` ⇒ `403 FORBIDDEN`, **una** fila `user.admin_action_denied {attempted:'create'}`, cero filas `User` nuevas | No escribir la fila ⇒ roja |
+| STF-4 | 256/269 | SQL directo: `INSERT` cliente con `email NULL` ⇒ viola `user_customer_has_email`; fila con correo **y** usuario ⇒ viola `user_login_identity_xor`; `username='Ana'` ⇒ viola `user_username_canonical`; sin correo con `emailVerified=true` ⇒ viola el CHECK 4 | Borrar cualquiera de los CHECK de la migración ⇒ su caso roja |
+| STF-5 | 257 | Tabla: aceptan `ana`, `luis.p`, `op_2`, `m-r`, uno de 30; rechazan (sin crear fila, con su `details.rule`) 2 car. (`length`), 31 (`length`), `"a b"` (`charset`), `"a@b"` (`charset`), `"josé"`/`"niño"` (`charset`), `"1ab"`/`".ab"`/`"-ab"`/`"_ab"` (`start`), `""` (`required`). Con `luis.p`: `Luis.P` y `LUIS.P` ⇒ `409 USERNAME_TAKEN`; `Luis.Q` ⇒ guardado `luis.q` | Regex `{2,30}` ⇒ el de 31 pasa ⇒ roja; quitar el `toLowerCase()` ⇒ `Luis.Q` falla el CHECK (`500`) y `Luis.P` crea fila ⇒ roja |
+| STF-6 | 257 | **Carrera:** N = 10 altas simultáneas del mismo usuario con mayúsculas variadas ⇒ exactamente **1** `201` y **9** `409 USERNAME_TAKEN`; `count(username='rafa') = 1`. R = 10 ⇒ **10/10** | Quitar `@unique` de `username` y validar con `findFirst` previo ⇒ ≥ 1 ronda con 2+ filas; se reporta la proporción |
+| STF-7 | 258 | Login `{email:'ANA', password}` de la cuenta `ana` ⇒ `200`, `user.username='ana'`, `user.email=null`, `role='vault_operator'`; con la sesión, `GET /admin/users` ⇒ `200` (tras cambiar la temporal) | Buscar `username` sin `toLowerCase()` ⇒ `401` ⇒ roja |
+| STF-8 | 258/269 | `POST /auth/register {email:'ana', …}` ⇒ `400`, cero filas; login de un cliente por correo ⇒ `200` igual que hoy | Cambiar `@IsEmail` de `RegisterDto` por `@IsString` ⇒ `201` (y CHECK 2 lo para con `500`) ⇒ roja |
+| STF-9 | 258 | **Front (Vitest):** `AuthForm` en `login` pinta el campo con `type="text"`, `autoComplete="username"`, etiqueta `auth.emailOrUsername`; en `register`, `type="email"` como hoy; respuesta con `role:'vault_operator'` ⇒ `router.push('/admin')` | `type="email"` en login ⇒ roja |
+| STF-10 | 259 | Cinco casos (usuario existente/clave mala; usuario inexistente; usuario deshabilitado/clave mala; correo inexistente; correo existente/clave mala), 6 intentos cada uno ⇒ **la misma secuencia** `401×5, 429`, cuerpos **idénticos** byte a byte (salvo nada), mismo `Retry-After` | En `login`, si no hay fila y no hay `@`, lanzar `401` con otro `message` (o saltarse `reserve`) ⇒ roja |
+| STF-11 | 259 | Espía en `argon2.verify`: usuario inexistente ⇒ **1** llamada con `DUMMY_PASSWORD_HASH`; usuario existente ⇒ 1 con su hash | `if (!user) throw` antes de `argon2` ⇒ 0 llamadas ⇒ roja |
+| STF-12 | 259/262 | `POST /auth/forgot-password {email:'ana'}` (existe la cuenta `ana`) ⇒ `200 {ok:true}`, **cero** `AuthToken`, **cero** `mail.send`, cuerpo idéntico al de `{email:'nadie@x.com'}` | Dejar `@IsEmail` en `ForgotPasswordDto` ⇒ `400` ⇒ roja; buscar por `username` ⇒ token emitido ⇒ roja |
+| STF-13 | 260 | Alta de staff con contraseña **tecleada** ⇒ `mustChangePassword: true`; login ⇒ `200` con `true`; `GET /admin/users` ⇒ `403 PASSWORD_CHANGE_REQUIRED`; `change-password` ⇒ `200`; después `GET` ⇒ `200` y la inicial ⇒ `401` | `mustChangePassword = autogenerated` (la regla de hoy, `admin.service.ts:734`) ⇒ roja |
+| STF-14 | 261 | Cuenta `ana` con 5 fallos (candado puesto) y una sesión abierta. Reset por `super_admin` ⇒ la vieja ⇒ `401`; la temporal ⇒ `200` (**no** `429`) con `mustChangePassword`; el access token previo ⇒ `401`; **cero** `mail.send`; fila `user.reset_password` sin contraseña | `clearForUser` con clave de `user.email` (`null` ⇒ `''`) ⇒ la temporal da `429` ⇒ roja |
+| STF-15 | 261 | `vault_operator` `POST /admin/users/:id/reset-password` ⇒ `403` + fila `user.admin_action_denied {attempted:'reset_password'}`; el hash no cambia | No escribir la fila ⇒ roja |
+| STF-16 | 262 | **Front:** con `"ana"` tecleado y con `"a@b.com"` tecleado, `AuthForm` pinta **los mismos** enlaces (Google, registro, «olvidé») en el mismo orden | Ocultar «olvidé» cuando no hay `@` ⇒ roja |
+| STF-17 | 263 | Backend, cuenta `ana`: `change-password` actual mala ⇒ `422 CURRENT_PASSWORD_INCORRECT` y la sesión sigue (`GET /users/me` ⇒ `200`); igual a la actual ⇒ `422 PASSWORD_SAME_AS_CURRENT`; buena ⇒ `200` con par nuevo, el par viejo de **otra** sesión ⇒ `401`; login con la nueva ⇒ `200`, con la vieja ⇒ `401`; cero `mail.send` | `accountKey(user.email)` sin cambio (`auth.service.ts:350`) ⇒ `TypeError`/`500` ⇒ roja |
+| STF-17-E2E | 263 | **Playwright (frontend), recorrido O-4 que QA reporta paso a paso:** login `ana` → menú del back-office → «Mi cuenta» → «Cambiar contraseña» (⛔ sin URL a mano) → pasos (3)–(7) del criterio | Quitar el enlace a `/admin/account` del menú (`AdminTopbar.tsx`) ⇒ roja |
+| STF-18 | 264 | 3 fallos con `Ana` + 2 con `ana` ⇒ el 6.º (cualquier forma, **también con la contraseña correcta**) ⇒ `429` | Clave del cubo con el identificador **sin** normalizar ⇒ roja |
+| STF-19 | 264/270 | Vector fijo: `accountKey('Owner@X.com') === blindIndex('auth-pw:v1:owner@x.com')` (la de hoy); `accountKey('ana')` ≠ cualquier clave con `@` | Otro dominio (`auth-pwu:v1:`) para todo identificador ⇒ roja |
+| STF-20 | 264 | **Carrera:** N = 10 intentos simultáneos con clave mala contra `ana` ⇒ **exactamente 5** llamadas a `argon2.verify` y `5×401 + 5×429`. R = 10 ⇒ **10/10** | Partir `acquire` en leer + escribir (no atómico) ⇒ rondas con > 5; se reporta la proporción |
+| STF-21 | 264 | Misma IP, 6 logins en 60 s con usuarios distintos ⇒ el 6.º `429 RATE_LIMITED` | Quitar `@Throttle` de `login` ⇒ roja |
+| STF-22 | 264/270 | **Front:** `429 TOO_MANY_PASSWORD_ATTEMPTS` con `"ana"` tecleado ⇒ minutos + `auth.lockedAskAdmin`, **sin** enlace a `/forgot-password`; con `"a@b.com"` ⇒ el aviso de hoy, con enlace; `429 RATE_LIMITED` ⇒ **idéntico a hoy** en los dos casos (`AuthForm.rateLimited.test.tsx` sin tocar) | Pintar siempre el enlace ⇒ roja; tocar la rama `RATE_LIMITED` ⇒ la prueba existente roja |
+| STF-23 | 265 | Candado sobre `ana`: **cero** `mail.send`; `lockNoticeAt` ≠ `null`; `GET /users/me` ⇒ `lockNotice.since`; `dismiss` ⇒ `204` y `lockNotice: null`; **segundo** candado en < 24 h ⇒ `lockNoticeAt` sigue `null`. Staff **con** correo ⇒ **1** correo y `lockNoticeAt` `null`. Usuario inexistente ⇒ cero filas `auth.password_lock`, cero escrituras | Escribir `lockNoticeAt` **antes** de `claimOnce` ⇒ el segundo candado reaparece ⇒ roja; llamar a `sendPasswordLockAlert` sin mirar `email` ⇒ roja |
+| STF-24 | 265 | Tras 5 fallos de `ana`, `GET /admin/users` ⇒ su fila `lockedUntil` ∈ [ahora+55 s, ahora+60 s], las demás `null`, `lockState:'ok'`; tras el reset ⇒ `null`; con el almacén lanzando ⇒ `200`, `lockState:'unavailable'`, todas `null` | Devolver siempre `null` ⇒ roja; propagar el error del almacén ⇒ `500` ⇒ roja |
+| STF-25 | 266 | Operador sembrado **con** correo antes de la migración: tras migrar, `email` igual y `username` `null`; entra con su correo; `forgot-password` ⇒ **1** correo; candado ⇒ **1** correo | Backfill de `username` en la migración ⇒ roja (y viola el CHECK 1) |
+| STF-26 | 267 | Tabla E-1…E-3 con `vault_operator` **y** `super_admin` sin correo: la acción termina con el mismo resultado que con correo y `mail.send` **0** veces; `verify-email/resend` ⇒ `200`, cero `AuthToken` | Quitar el paso nuevo de `resendVerification` ⇒ token emitido ⇒ roja |
+| STF-27 | 268 | `GET /admin/users?q=ANA` y `?q=na` encuentran `ana`; la fila trae `"email": null` (clave presente) y `"username":"ana"`; reporte de reembolsos por operador: fila de `ana` con `username`. **Front:** fila de M6 y de reembolsos de operador con `email:null` pintan `ana`, y el DOM no contiene `null`, `undefined` ni una celda vacía | Quitar la cláusula `username` de `q` ⇒ roja; pintar `u.email` a pelo ⇒ roja |
+| STF-28 | 269 | Con `ana` (contraseña ya cambiada): `POST /checkout/session`, `POST /buylist/requests`, `POST /shipments`, `POST /orders/claim`, `GET /orders/claimable` ⇒ `403 ACCOUNT_WITHOUT_EMAIL` exacto; cero filas nuevas en `Order`/`SellRequest`/`ShipmentRequest`; cero llamadas a Stripe. Consulta I-STF-1 sobre la BD de la suite ⇒ 0 filas | Que el guard solo mire `emailVerified` ⇒ `EMAIL_NOT_VERIFIED` ⇒ roja (se asevera el código exacto) |
+| STF-29 | 270 | Las suites **existentes** de C7, `auth`, Google, `register` y `forgot-password` pasan **sin editar sus aserciones** (solo fixtures que creaban staff con correo por API, si las hay) | Cambiar `PASSWORD_FREE_ATTEMPTS` a 6 ⇒ las C7 existentes rojas (canario de que la suite muerde) |
+| STF-30 | — | Soft-delete de un staff sin correo con transacciones (sembradas por SQL) ⇒ `200 mode:'soft'`, `username` `null`, correo `deleted+…@anon.invalid` | No anular `username` ⇒ CHECK 1 ⇒ `500` ⇒ roja |
+
+#### M6-U.10 Frontend y ux-ui
+
+- **AuthForm (cambio mínimo, tres puntos; ⛔ la rama `RATE_LIMITED` de `HECHOS.md:40` no se toca):** (1) en `login`,
+  el campo `name="email"` (`AuthForm.tsx:166`) pasa a `type="text"`, `autoComplete="username"`, etiqueta
+  `auth.emailOrUsername`; en `register` queda igual; (2) los enlaces de la pantalla (Google, «olvidé» `:181`, registro `:197`)
+  **no** dependen de lo tecleado; (3) aviso por cuenta (`perAccount`, `:108`; su enlace está en `:146`): si lo
+  tecleado no lleva `@` ⇒ texto `auth.lockedAskAdmin` sin enlace. Depende de lo **tecleado**, no de la respuesta ⇒ no
+  es oráculo. ⛔ Ninguna rama depende de la **respuesta** más allá de `error.code`.
+- **Usuarios (M6View):** alta con selector de tipo — «Cliente» (correo + celular, como hoy) / «Equipo» (nombre, nombre
+  de usuario con la regla visible, rol `vault_operator`/`super_admin`, contraseña opcional; ⛔ sin correo); errores por
+  `details.rule` y `USERNAME_TAKEN`; columna identificador (`email ?? username`); marca «bloqueado por intentos hasta
+  HH:MM» desde `lockedUntil`; con `lockState:'unavailable'`, un aviso discreto (no una marca falsa).
+- **Panel:** `AdminShell` lee `lockNotice` de `/users/me` y pinta el aviso hasta `dismiss`.
+- **Mi cuenta:** `email ?? username`. **`ACCOUNT_WITHOUT_EMAIL`:** su texto.
+- **Tipos (`frontend/src/types/contract.ts`):** `AuthUser`, `UserDTO` (me), `AdminUserSummaryDTO`, cabeceras de ficha,
+  respuesta de alta y fila de operador: `email: string | null`, `username: string | null`; `lockNotice`,
+  `lockedUntil`, `lockState`.
+
 <a id="M6-K"></a>
 ### M6-K. LA VERIFICACIÓN DE IDENTIDAD — leer el INE, decidir con motivo, y que el cliente lo sepa (v1.69, **NORMATIVA**, **PII**; P-78)
 
@@ -29393,6 +29694,8 @@ AdminUserSummaryDTO = { id: string, email: string, name: string, role: Role, sta
                         createdAt: string,
                         kycStatus: KycStatus }   // ⭐ v1.71 (A5, §M6-L.1): 'none' cuando no hay perfil
                      // 🚧 `A5-b` (§M6-L.6) añadirá `ineSubmittedAt: string | null` — exige `M-56`. NO está en v1.71.
+                     // ⭐ v1.80.9 (§M6-U.7): email: string | null, + username: string | null, + lockedUntil: string | null.
+                     //    AdminUserListResponse gana `lockState: 'ok' | 'unavailable'` en la raíz.
 AdminUserListResponse = { data: AdminUserSummaryDTO[], page: number, pageSize: number, total: number }
 
 // ---------- M6 — ficha 360° (`GET /admin/users/:id`) ----------
@@ -29527,6 +29830,7 @@ UserAuditEntryDTO= { id, actorUserId, actorRole: Role, action, entityType, entit
 AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, status: UserStatus,
                                emailVerified: boolean, authProvider: AuthProvider, createdAt: string },
                         tempPassword?: string, mustChangePassword: boolean }
+// ⭐ v1.80.9 (§M6-U.6): user.email: string | null, + user.username: string | null.
 ```
 
 ---

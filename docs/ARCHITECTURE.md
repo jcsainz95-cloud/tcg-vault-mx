@@ -23,6 +23,7 @@
 > | **v1.80.8.7** | Errata (2026-10-04, rama `claude/precios-s5`, sobre `f0dac0a6`; responde a `DESIGN_SYSTEM §39.6` S-1…S-5 (v4.11) y §40.12 A-1/A-2 (v4.12); `PROJECT §N.5-bis (b)`, criterio 255). **S-3:** todo `PATCH /admin/inventory/items/:id` que cambie `status` o `listPriceCents` escribe `inventory.item_updated` con `before/after {status, listPriceCents}` y el actor, **en la misma tx**, en los dos caminos, con el precio leído dentro del CAS (`409 CONFLICT` si cambió) — hoy un cambio de solo precio no deja antes/después (`D-SFP-1`). **S-1:** `PendingPublishRowDTO.pendingReason` (veredicto de hoy de la derivación, ⛔ no la fila de la cola). **S-2:** el listado de M1 trae `resolvedSalePriceCents`/`priceBasis` solo para sellado de plataforma `in_stock\|listed`. **S-4:** sin caché del dial (medido). **S-5:** forma `details.errors` del `422` de settings (medida). **A-1:** `AdminOrderDetailDTO.settledAt: string \| null` (ya emitido). **A-2:** el `409 …ALREADY_SET` no gana `recordedBy`. Defaults registrados: N-11 (operador + súper-admin), Q-1, N-14, N-15; Q-2 medido (no es `SSL-R1`). **Fuera:** N-12 (`listPriceCents:null`, `D-SFP-2`). ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.8.7, §M1 `M1-SFP`, §M4-SHIP.18.12 (9) | §4.36.5 (c-quater), §4.57 (w), §9 | **Sí** (backend + tipos/pantallas frontend + un texto ux-ui) |
 > | **v1.80.8.8** | Errata (2026-10-04, rama `claude/precios-s5`, sobre `352b849a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES` §17.2/§17.4/§17.5/§18, PR #68, `FRONTEND_NOTES §84`). **Aceptado y normado lo construido:** paso **4-bis** de SRF-11 (candado de envío **después** de `Order`, única excepción al orden de candados, interbloqueo solo vía `40P01 ⇒ 503`/reentrega); fila `order.full_refund_closed` en la rama directo (forma declarada); `?refundReview=` en §0-Q (clase L); M3 sobre no `settled` ⇒ **`422`** (el `400` de SRF-13 era errata); SRF-8 ⇒ `409 CONFLICT`; mutaciones de SRF-6/7/8/11 sustituidas por las que muerden (SRF-8: una nueva NO MEDIDA); SFP-7 sin `updatedAt`; PS-51 admite `IN_PROGRESS` **o** `NOT_RETRYABLE` (clasificación por el estado releído). **Endurecido:** el CAS publicante del `PATCH` de M1 condiciona el `status` leído exacto (un `200` de carrera pasa a `409 CONFLICT`), prueba **SFP-10**. `D-SFP-1` cerrada (reportado por backend). ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.8.8, §M4-SHIP.18.12 (10), §M4-SHIP.17.6, §M1 `M1-SFP`, §0-Q | §4.36.5 (c-quater), §4.57 (w), §9 | **Sí** (backend: una condición en `claimListed` + pruebas SFP-10, SRF-13, SRF-8, SRF-4, PS-51, `C-EQ-1`) |
 > | **v1.80.8.9** | Errata (2026-10-04, rama `claude/precios-s5`; ⛔ sha NO MEDIDO por el arquitecto; origen: diagnóstico de backend sobre production `aab55abe`, relayado por el orquestador — 17 filas VENTA `reason=null` que «Publicar todo» no cerraba). (1) **`publish-all` termina con el barrido VQ entero** (`sweepUnreasonedSaleQueue`, un solo cuerpo, falla-seguro, ⛔ no en replay); «Actualizar precios ahora» (`price-ingest`) **no** barre. (2) La reconciliación de `price-ingest` abre/cierra con **`saleQueueKeyOf`** (con `cardProductId`). (3) **`context` entra a la clave de dedupe** de `escalatePending` (siete componentes, sin DDL) y el deep-link de M1 filtra `context='inventory'` — cierra el residual de S48-M1. Paso de despliegue reescrito con qué cierra qué. ⛔ Sin schema, migración, endpoint ni forma nueva. Norma: `API_CONTRACT` rev v1.80.8.9, §M2 `M2-VQ9` | §4.36.5 (c-quinquies), (c-bis) 5 | **Sí** (backend: VQ-10…VQ-14) |
+> | **v1.80.9** | Feature (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md` «Usuarios de back-office SIN correo…» (a)(b)(c) + default del orquestador; `PROJECT §U`, criterios 256–270, P-STF-1…8 con su default). `User.email` opcional; `User.username` (`@unique`, canónico en minúsculas) y `User.lockNoticeAt`; **5 CHECK** (email XOR usuario; cliente ⇒ correo; forma del usuario; sin correo ⇒ no verificado; aviso solo sin correo). **Mismo `POST /auth/login`, misma llave `email`** = identificador (`@` ⇒ correo, si no ⇒ usuario); misma clave C7 para correos; cero enumeración. Alta de staff **sin** correo (staff con correo ⇒ `422`), `409 USERNAME_TAKEN`, `mustChangePassword` siempre; aviso de candado en el panel; `lockedUntil` en Usuarios leído del almacén; `403 ACCOUNT_WITHOUT_EMAIL`; denegación auditada a `vault_operator`. **Migración `M-STF` (número NO asignado).** Stream posterior a `precios-s5`. Norma: `API_CONTRACT` rev v1.80.9, §M6-U | §4.58, §11 `M-STF`, §9 `D-STF-1`/`D-STF-2` | **Sí** (backend + frontend + textos ux-ui) · 🔒 seguridad |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -27036,6 +27037,82 @@ frontend: M3, tablero.
 
 ---
 
+### 4.58 USUARIOS DE BACK-OFFICE SIN CORREO — una cuenta, un identificador, un cubo (v1.80.9, 2026-10-04, NORMATIVO, **SEGURIDAD**)
+
+Norma, códigos y pruebas: `API_CONTRACT §M6-U`. Aquí, el **porqué** de cada decisión y las alternativas descartadas.
+Origen: `HECHOS.md` fila «Usuarios de back-office SIN correo…» (2026-10-04), puntos (a), (b), default del orquestador
+y **(c) misma pantalla de login**. Stream: **«Cuentas y acceso»** (`auth`, `users`, `mail`) + `admin` (Usuarios) +
+zona compartida `prisma/` y `common/guards`; se construye **después** de `precios-s5`, en rama propia.
+
+#### 4.58.1 Exactamente un identificador por cuenta (CHECK `email XOR username`)
+El dueño conserva su correo y el staff nuevo tiene usuario; **nadie necesita los dos**. Permitir ambos abriría **dos
+cubos C7 para una cuenta** (uno por correo, otro por usuario) ⇒ 10 intentos libres en vez de 5: es exactamente el
+defecto que C7 cerró al hacer la clave independiente de lo que el atacante elige (§4.57). Con XOR, `email ?? username`
+es **el** identificador y de él sale **la** clave. Si un día se quiere pasar staff existente a usuario (P-STF-2
+alternativa), se hace **cambiando** el identificador, no sumando otro. Con el CHECK `customer ⇒ email`, «un cliente no
+tiene usuario» lo garantiza la BD, no solo el DTO.
+
+#### 4.58.2 Unicidad sin distinguir mayúsculas: forma canónica + `@unique`, no `citext` ni índice sobre `lower()`
+| Opción | Por qué no / por qué sí |
+|---|---|
+| `citext` | Exige `CREATE EXTENSION` en Railway (permiso **NO MEDIDO**) y en cada BD de CI; Prisma lo trata como tipo nativo `@db.Citext`, con la extensión bajo `previewFeatures` — una dependencia nueva para un solo campo |
+| `UNIQUE (lower(username))` | Prisma **no** expresa índices de expresión: `findUnique({ username })` deja de existir (no hay `@unique` que lo respalde) y `migrate diff` vería un índice que el schema no declara |
+| ✅ **Guardar en minúsculas + `@unique` + CHECK de forma canónica** | La comparación sin mayúsculas se vuelve **igualdad**: el índice único normal la decide, **también en la carrera** (criterio 257, STF-6), y el CHECK 3 hace imposible guardar `Ana`. Es lo que ya hace el correo (`normalizeEmail`, `credentials.ts:15`), así que el sistema tiene **una** regla de normalización, no dos |
+
+#### 4.58.3 Misma pantalla, mismo endpoint, **misma llave `email`** en el cuerpo
+HECHOS (c) pide la misma pantalla. Un endpoint aparte (`/auth/staff-login`) duplicaría el orden C7, el dummy de
+`argon2`, el `deviceToken` y el throttle — dos copias del código que más cuidado pide. Se queda **un** `login` con una
+bifurcación de **búsqueda** (`@` ⇒ correo, si no ⇒ usuario), que **no** bifurca la respuesta.
+**Por qué no se renombra `email` a `identifier`:** Vercel y Railway publican del mismo push y **no** controlamos cuál
+termina primero (`HECHOS.md`, despliegue). Con la llave intacta, todas las combinaciones funcionan: front nuevo + back
+viejo ⇒ los correos entran y un usuario da `400` (pero aún no existe ninguna cuenta con usuario: las crea el back
+nuevo); front viejo + back nuevo ⇒ el campo `type="email"` del navegador impide teclear usuarios, los correos entran.
+Renombrar habría dado una ventana de `400` **para todos**. El nombre engañoso se documenta en el contrato; no se paga
+con una caída.
+**Por qué un usuario mal formado da `401` y no `400`:** si el formato decidiera el código, «`ana`» y «`a b`» se
+distinguirían por la respuesta — no revela existencia, pero sí la regla, y no aporta nada al usuario legítimo. Para el
+correo se conserva el `400` de hoy (criterio 270: los clientes no notan nada).
+
+#### 4.58.4 La clave del cubo no cambia para los correos
+`accountKey` sigue siendo `blindIndex("auth-pw:v1:" + trim().toLowerCase())`. Para un correo es **bit a bit** la de
+hoy ⇒ los contadores y candados vivos en Redis **sobreviven al despliegue** (cambiar el dominio los pondría a cero: un
+atacante a media escalera recuperaría sus 5 libres). Un usuario no tiene `@` ⇒ su clave nunca colisiona con la de un
+correo, sin necesidad de dominio propio.
+
+#### 4.58.5 El aviso de candado en el panel: una columna, y el almacén como única fuente del candado
+- **`User.lockNoticeAt`** es el hecho «hay un aviso que esta persona no ha leído». No se deriva de `AuditLog` porque
+  «leído» no está en ninguna parte y la bitácora es de mejor esfuerzo (`notifyLock` no la espera,
+  `password-attempts.service.ts:71-73`). El tope 1/24 h es **el mismo** `claimOnce` del correo (`:172-175`): un
+  candado, una puerta, dos canales.
+- **«Bloqueado hasta HH:MM» en Usuarios** se **lee del almacén** (`peekLockMs`), no se copia a la BD: copiarlo crearía
+  dos fuentes para el candado, y la de la BD mentiría tras un `reset` en Redis o un reinicio del almacén en memoria.
+  Si el almacén no contesta, el listado lo **dice** (`lockState:'unavailable'`) en vez de pintar «sin candado».
+
+#### 4.58.6 «Sin correo no es cliente»: en el guard que ya existe, no en un trigger
+Las cinco rutas de cliente con compromiso ya pasan por `EmailVerifiedGuard` (`@RequireEmailVerified`: `orders.controller.ts:32`,
+`:65`, `:77`; `buylist.controller.ts:111`; `shipments.controller.ts:21`). Una cuenta sin correo ya caería ahí con
+`EMAIL_NOT_VERIFIED` (CHECK 4 ⇒ `emailVerified=false`), pero ese texto le diría «verifica tu correo» a quien no tiene
+correo; por eso un código propio **antes** del de verificación. Un trigger que impida `Order.userId` → cuenta sin
+correo sería defensa más dura, pero son **siete** tablas (I-STF-1) y PL/pgSQL fuera de Prisma: desproporcionado para una
+regla que el guard ya cubre en todas las entradas medidas. Queda como invariante con prueba (STF-28).
+
+#### 4.58.7 Lo que ya existía y no se reconstruye (medido 2026-10-04)
+- Reset por admin: temporal una vez, `mustChangePassword`, `tokenVersion +1` (cierra sesiones), levanta el candado, sin
+  correo, bitácora sin contraseña — `admin.service.ts:1361-1391`, `admin.controller.ts:392-406`.
+- Cambio de la propia contraseña: `POST /auth/change-password` (`auth.service.ts:328-397`) y su pantalla de staff
+  `/admin/account/password` (`frontend/src/lib/account-routes.ts:31-35`), con enlace a `/admin/account` en
+  `AdminTopbar.tsx` (medido por `rg`; el recorrido de punta a punta **NO MEDIDO** — es STF-17-E2E).
+- Ruteo del staff al panel tras el login: `homeForRole` (`account-routes.ts:21-23`).
+- Botón de restablecer en Usuarios: `M6View.tsx:476`, `:513`.
+
+#### 4.58.8 Alternativas descartadas
+- **Pantalla propia «Entrada del equipo»** (SUPUESTO de PO, §U.3): sustituida por HECHOS (c).
+- **Correo ficticio para el staff** (`ana@staff.local`): fabrica un dato que miente, mandaría correos a la nada y es la
+  clase «columna que miente» que este proyecto ya pagó (§4.49).
+- **Permitir correo + usuario a la vez:** §4.58.1.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist; ⭐ v1.80.2: y los **reembolsos manuales** de casos «Por reponer» que no caben en el cobro de Stripe, tabla `ManualRefund`, §4.57 (m)). Ninguna vista de usuario muestra saldo. El sistema **nunca** transfiere solo: todo SPEI lo ejecuta el súper-admin fuera y lo registra.
@@ -27802,6 +27879,19 @@ Riesgos técnicos:
 ---
 
 ## 9. Desviaciones detectadas
+
+> **v1.80.9 — `D-STF-1` (de `PROJECT`, no de código; para product-owner; medida 2026-10-04 por lectura en
+> `claude/precios-s5`):** los criterios **256** y **261** dicen que el intento de un `vault_operator` es «rechazado y
+> auditado, **como hoy**». Hoy es rechazado **pero no auditado**: `@Roles(Role.super_admin)` en
+> `admin.controller.ts:181` y `:394` corta en el `RolesGuard`, y el único guard que audita es `money-out.guard.ts:33-34`
+> (`rg -i audit backend/src/common/guards`). El contrato v1.80.9 **construye** la auditoría (`user.admin_action_denied`,
+> STF-3/STF-15) porque el criterio la pide; lo que es falso es el «como hoy». Y `PROJECT §U.3`/criterio 258 (pantalla
+> propia) está superado por `HECHOS.md` (c): lo reescribe product-owner.
+>
+> **v1.80.9 — `D-STF-2` (abierta, backend; medida 2026-10-04):** siete envíos al cliente no comprueban `email` nulo
+> antes de `mail.send` (`users.service.ts:123`, `refund-ledger.service.ts:540-542`, `:569-570`,
+> `manual-refund.service.ts:634`, `:659`, `shipment-prep.service.ts:868`, `shipments.service.ts:1546-1572`). Hoy no
+> es defecto (`email` es `NOT NULL`); lo será con `M-STF`. **Cierra con:** §M6-U.8 (a) fila E-4; `tsc` los señala.
 
 > **v1.80.8.8 — `D-SFP-1` CERRADA (reportado por backend, `BACKEND_NOTES` §18, medido por él el 2026-10-04 sobre
 > `64ce47bb`: SFP-1…SFP-6 verdes con sus mutaciones, SFP-5 N=10 forzada + N=10 suelta en los dos caminos; ⛔ no
@@ -30321,6 +30411,22 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.80.9-staff-sin-correo (**M-STF — número NO asignado**: usuarios de back-office sin correo — **DDL ADITIVO + `DROP NOT NULL` + 5 CHECK, SIN backfill**, §4.58)
+
+⚠️ **Número:** `M-62` está tomada (arriba). `M-63` no aparece en ningún `.md` de este árbol (`rg "M-63"` ⇒ 0, 2026-10-04);
+**NO MEDIDO** en las demás ramas `claude/*`. Lo asigna quien construya, tras comprobarlo; carpeta
+`<timestamp>_m<NN>_staff_without_email`.
+Forma normativa entera: `API_CONTRACT §M6-U.1`. Pasos SQL, en este orden:
+1. `ALTER TABLE "User" ALTER COLUMN "email" DROP NOT NULL;` (solo metadatos).
+2. `ALTER TABLE "User" ADD COLUMN "username" TEXT, ADD COLUMN "lockNoticeAt" TIMESTAMP(3);` (nullable, sin default).
+3. `CREATE UNIQUE INDEX "User_username_key" ON "User"("username");` (columna toda `NULL` ⇒ inmediato).
+4. Los cinco `ADD CONSTRAINT … CHECK` de §M6-U.1. Validan la tabla `User` entera (tamaño **NO MEDIDO**; es la tabla de
+   cuentas, no de movimientos). Toda fila existente los cumple: `email` era `NOT NULL`, `username` nace `NULL`.
+**Datos:** ninguna fila cambia. **Reversión:** el código se revierte sin tocar la BD **solo si no existe aún ninguna
+cuenta con `email IS NULL`**; si existe, primero bloquearla/borrarla (con el código viejo, Prisma tiparía `email` como
+`string` y leería `null` — efecto **NO MEDIDO**). Reversión de la BD: soltar los CHECK, el índice y las columnas, y
+`SET NOT NULL` en `email` (falla si hay `NULL`, que es lo correcto).
 
 ### v1.80.8.6-reembolso-tras-envio (**M-62**: corte «enviado» del reembolso total y su motivo — **DDL ADITIVO + 1 enum + 1 valor + CHECKs, SIN backfill**, §4.57 (w))
 
