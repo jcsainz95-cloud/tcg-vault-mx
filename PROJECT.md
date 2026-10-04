@@ -1562,6 +1562,14 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       bóveda deshace la venta**: las cartas dejan de ser del cliente y vuelven a la plataforma «en almacén» —
       §H, criterio **231**. Para una carta **de bóveda** (retiro o compra a bóveda) que falta o está dañada, el
       remedio primero es **reponerla**, no reembolsarla: §S.10.5.)*
+- [ ] **Excepción 3 — el pedido enviado NO LLEGÓ** *(NUEVA 2026-10-04; `HECHOS.md` filas 2026-10-02 «Cartas
+      apartadas… depende de si el pedido ya salió» y 2026-10-04 «Cartas apartadas (SSL-R1) — detalles»)*: tras
+      «enviado», un reembolso **total** solo puede ser porque el pedido **no llegó** o **llegó en mala
+      condición** (*«solo sería porque no llegó o estaban en mala condición»*). «Llegó en mala condición» ya
+      estaba cubierto por la Excepción 1; **«no llegó» entra como causa válida**. Lo ejecuta el **súper-admin**
+      con motivo obligatorio y las cartas **no** vuelven a inventario — §S.11.4, criterios **250–251**.
+      **(SUPUESTO:** el dueño no fijó ventana ni evidencia para «no llegó»; no se inventan — decide el súper-admin
+      caso por caso. Integrarlo con el rastreo de la paquetería queda fuera de alcance.)
 - [ ] **Contracargo bancario ≠ reembolso**: se aclara al cliente (en términos/FAQ) que un **contracargo** es
       un proceso que puede iniciar **con su banco de forma independiente**, distinto de la política de
       reembolsos de la plataforma.
@@ -2285,9 +2293,16 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       dueño quiere además un tope absoluto en pesos, es un dial nuevo y se dice.)*
 - [ ] **Ventas finales (sin reembolso voluntario)**: toda compra es **final**; no hay reembolso a solicitud
       del cliente, ni con la carta en bóveda ni ya enviada. Aplica a **todos los tipos de producto sin
-      excepción** (raw, sellado y gradeadas). Las **dos únicas excepciones** son la disputa de condición
-      (carta dañada/equivocada) y el error de la plataforma (cobro duplicado / inventario fantasma), descritas
-      abajo. Esta política se comunica en el **checkout** y en la **página de términos/políticas**.
+      excepción** (raw, sellado y gradeadas). Las **únicas excepciones** son la disputa de condición
+      (carta dañada/equivocada), el error de la plataforma (cobro duplicado / inventario fantasma), descritas
+      abajo, y *(⭐ **2026-10-04**)* el **pedido enviado que no llegó** (§B «Excepción 3», §S.11.4). Esta
+      política se comunica en el **checkout** y en la **página de términos/políticas**.
+      *(Coherencia, 2026-10-04: hasta hoy esta regla no dejaba reembolsar un pedido enviado que nunca llegó,
+      y la decisión del dueño sobre §S.11 dice que, tras el envío, el reembolso total solo puede ser por «no
+      llegó» o «llegó en mala condición». Se añade «no llegó» para que ambas reglas digan lo mismo.
+      **(SUPUESTO:** la **página de términos** describe el caso; el **aviso corto del checkout** no cambia de
+      texto en este pase —«ventas finales, sin reembolso salvo…» sigue siendo cierto en lo que dice—; si el
+      dueño quiere que lo mencione, lo dice.))*
 - [ ] **Disputas de condición (carta dañada o equivocada)**: vía de compensación por error de condición.
       **La evidencia se envía por correo a soporte** (no hay subida de foto en la app). La resolución usa,
       para **gradeadas**, el **grado y número de certificado** del slab (verificable en la graduadora), y
@@ -3224,6 +3239,34 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       para **todas** las rarezas (N.2), y el guardarraíl solo se ocupa del **dato presente pero malo**.
 - [ ] **Volumen esperado**: medido sobre un **master set completo**, ≈ **3 cartas de 333**. **No es una alarma
       ruidosa** y por eso puede bloquear publicación y cotización sin entorpecer la operación.
+
+**N.5-bis — Decisiones de precio del 2026-10-04 (cambian N.5 en VENTA y acotan el precio final a mano)**
+> **Fuente:** `HECHOS.md`, fila **«Precios — decisiones del 2026-10-04»**. Palabras del dueño, literales: *«que se
+> publiquen solas a 25; el precio final que pueda poner solo lo quiero para producto sellado; es mentira, el
+> proveedor sí nos trae precios de holo y reverse holo de las cartas, checa bien»*. Aquí se aterrizan **(a)** y
+> **(b)**; **(c)** (holo / reverse holo del proveedor) es una re-medición técnica, no un requisito nuevo, y no se
+> escribe aquí. El *cómo* es del arquitecto (zona dinero). Criterios **254–255**. **No se re-pregunta lo dicho.**
+- [ ] **(a) Premium en el piso ⇒ se publica sola al piso (MX$25).** Las cartas que el guardarraíl retenía en
+      **VENTA** por «premium en el piso» (en la práctica, ex / Double Rare baratas) **dejan de retenerse por estar
+      en el piso**: se publican solas con **precio de venta = piso vigente** (hoy **MX$25**, el dial de §N.2).
+      Esto **reemplaza la viñeta VENTA** de la regla N.5 para el caso «piso». Sigue igual: el **dato ausente**
+      va a «precio pendiente» (N.2), la **precedencia** de N.6 (un override manual gana sobre el piso) y el
+      redondeo/piso de §N.
+      **(SUPUESTO:** la decisión habla de **publicar**, así que el eje de **COMPRA** de N.5 —no cotizar una
+      premium al bin de MX$1— **no cambia**. Si el dueño quiere tocarlo, lo dice.)
+      **Bandera de dinero (no es decisión nueva, es lo que el dueño acepta):** el guardarraíl existía para que un
+      **dato malo** en una carta cara no la vendiera al piso. Con (a), una carta premium cara cuyo dato de
+      mercado llegue roto **se publicaría a MX$25**. Ver **P-PRE-2**.
+- [ ] **(b) Precio final a mano: SOLO para producto SELLADO.** La captura de un **precio final** a mano se ofrece
+      **solo para piezas selladas**, en dos sitios: **(1)** la cola **«Listas para publicar»** (en las filas de
+      sellado) y **(2)** el **panel del sellado (M11)**. Para **cartas sueltas y gradeadas** ⛔ **no se añade**
+      ninguna captura nueva de precio final (ni en «Listas para publicar» ni en otra pantalla). Es un override
+      manual del sellado: gana la precedencia de §K (`override manual > spread por presentación > …`), queda
+      **auditado** y **nunca** es $0.
+      **El override por pieza que YA existe para cartas sueltas** (hoy en el panel lateral de la pieza, primer
+      escalón de la precedencia de N.6) — **PREGUNTA ABIERTA P-PRE-1**. **Default mientras no responda: se
+      conserva como está, sin hacerlo más visible** (mismo sitio, mismo comportamiento; también para gradeadas,
+      cuyo precio hoy depende de ese override — §A, «override manual» de gradeadas).
 
 **N.6 — Precedencia, override y bounty revalidado (decisión 4, LOCKED)**
 - [ ] **Precedencia de VENTA**: `override por pieza > override de variante > curva (piso / mercado) >
@@ -7180,15 +7223,24 @@ Decisión literal: *«no se puede cancelar, ¿estamos dando la opción?»* ⇒ *
 - **Ninguna pantalla ordena por apellido** (S.6).
 - **El contracargo** conserva su regla (la carta vuelve a la venta).
 
-#### S.11 💰 Cartas apartadas de un pedido reembolsado desde Stripe sin liquidar — **«depende de si ya salió»** · decisión del dueño del 2026-10-02 · ⚠️ dos preguntas abiertas (S.11.5)
+#### S.11 💰 Reembolso TOTAL de un pedido y sus cartas — **«depende de si ya salió»**, y vale para **CUALQUIER reembolso total** · decisiones del dueño del 2026-10-02 y del 2026-10-04 · ⚠️ dos preguntas abiertas (S.11.7) · *(reescrita 2026-10-04)*
 
-> **Fuente:** `HECHOS.md`, fila del **2026-10-02** «Cartas apartadas de un pedido reembolsado desde Stripe sin
+> **Fuente 1:** `HECHOS.md`, fila del **2026-10-02** «Cartas apartadas de un pedido reembolsado desde Stripe sin
 > liquidar (SSL-R1): depende de si el pedido ya salió». Palabras del dueño, literales: *«depende si ya realizamos
 > el envío o no; debe haber un punto donde confirmemos que el pedido fue enviado; si ya salió ahí no podemos
 > regresarlas a inventario y habría que checar por qué el reembolso, porque solo sería porque no llegó o estaban
-> en mala condición»*. **Lo dicho no se re-pregunta**; solo se preguntan los huecos de S.11.5. Deuda técnica que
-> esto decide: `SSL-R1` (`docs/TECH_DEBT.md`; `docs/API_CONTRACT.md §M4-VAULT.2-bis.2`, «Residual declarado»). El
-> *cómo* es del arquitecto y **no se escribe aquí**. Criterios verificables: **249–252**.
+> en mala condición»*.
+>
+> **Fuente 2:** `HECHOS.md`, fila del **2026-10-04** «Cartas apartadas (SSL-R1) — detalles del 2026-10-04».
+> Palabras del dueño, literales: **4a** *«como sugieres está bien»* ⇒ pedido NO enviado: las cartas vuelven solas a
+> la venta si nadie las tocó; con un clic si ya estaban palomeadas o empacadas. **4b** *«para cualquier
+> reembolso»* ⇒ la regla «enviado ⇒ no vuelven a inventario y el reembolso pide motivo "no llegó" / "llegó en mala
+> condición"» vale para **cualquier reembolso total**, no solo el del panel de Stripe.
+>
+> **Lo dicho no se re-pregunta** (P-S11-1 y P-S11-2 del borrador anterior quedan **respondidas**); solo se
+> preguntan los huecos de S.11.7. Deuda técnica que esto decide: `SSL-R1` (`docs/TECH_DEBT.md`;
+> `docs/API_CONTRACT.md §M4-VAULT.2-bis.2`, «Residual declarado»). El *cómo* es del arquitecto y **no se escribe
+> aquí**. Criterios verificables: **249–253**.
 > *(Numeración: los criterios **234–248** están reservados por **§T (Skydropx)** en la rama viva
 > `claude/skydropx-envios`, aún sin fusionar; por eso §S.11 empieza en el 249.)*
 >
@@ -7204,6 +7256,11 @@ minutos. *(Lo midió backend el 2026-09-28, Postgres real, N=1 por variante — 
 documento no lo re-midió.)* ⛔ «Soltarlas y ya» no sirve: si el pedido ya salió, la carta **la tiene el
 cliente**, y ponerla a la venta vendería algo que no está en el estante.
 
+**Desde el 2026-10-04 (4b) la regla deja de ser solo de ese caso.** Para **todo reembolso total** de un pedido cuyo
+envío ya salió, vale lo mismo: las cartas **no** vuelven a inventario y el reembolso tiene que decir **por qué**
+—«no llegó» o «llegó en mala condición»—. S.11.5 recorre uno por uno los reembolsos totales que existen hoy y dice
+cómo aplica a cada uno.
+
 ##### S.11.2 El punto de corte: «enviado», el que ya existe
 
 - **El punto donde se confirma que el pedido salió es la marca «enviado»** que ya existe en «Pedidos por
@@ -7217,16 +7274,18 @@ cliente**, y ponerla a la venta vendería algo que no está en el estante.
 
 - Las cartas que estaban apartadas por ese pedido **dejan de estar apartadas** y vuelven a inventario. ⛔ Ninguna
   carta queda apartada por un pedido reembolsado.
-- **Cómo vuelven — PREGUNTA ABIERTA P-S11-1** (las palabras del dueño dicen *que* vuelven, no *cómo*).
-  **(SUPUESTO / default mientras el dueño no diga otra cosa):**
+- **Cómo vuelven — ✅ DECIDIDO (4a, `HECHOS.md` 2026-10-04: *«como sugieres está bien»*):**
   - Si **nadie las tocó físicamente** (el pedido nunca entró a preparación —ninguna carta palomeada, sin
     paquete—), **vuelven solas a la venta**, como cuando vence un carrito, con su movimiento en la bitácora
-    («liberada por reembolso desde Stripe»). *Por qué:* nunca salieron del estante.
+    («liberada por reembolso»). *Por qué:* nunca salieron del estante.
   - Si **alguna ya estaba palomeada o en un paquete** (el pedido había entrado a preparación), esa carta **no
     vuelve sola a la venta**: queda **«en almacén»** y un **operador o el dueño confirma con un clic** que la
     regresó al estante (*«regresada»* ⇒ a la venta; *«no está»* ⇒ merma firmada), igual que la revisión que ya
     usa el reembolso total de bóveda (criterio **231**). *Por qué:* esa carta está en una mesa o en una caja, y
     venderla antes de que alguien la regrese es vender lo que no está en su lugar.
+  - *(Alcance de 4a: es la respuesta a P-S11-1, que preguntaba por el pedido **sin liquidar** reembolsado desde
+    Stripe. Lo que 4b extiende a todo reembolso total es la regla del **enviado** (S.11.4). Para los pedidos
+    **liquidados no enviados**, el reembolso total ya tiene regla y **no cambia** — ver S.11.5.)*
   - **(SUPUESTO, NO MEDIDO — lo confirma el arquitecto):** con el diseño de hoy, un pedido **sin liquidar no
     entra a «Pedidos por preparar»**, así que en el caso SSL-R1 estricto **siempre** aplicaría el primer
     sub-caso (vuelven solas). Si el arquitecto mide que sí puede entrar, aplica el segundo.
@@ -7234,44 +7293,79 @@ cliente**, y ponerla a la venta vendería algo que no está en el estante.
   MEDIDO:** una compra a bóveda sin liquidar todavía no tiene colocación en el cajón del cliente; si la tuviera,
   manda la regla del criterio **231** —«en almacén» y confirmación humana—, ⛔ no la venta directa.)
 
-##### S.11.4 Pedido ENVIADO ⇒ las cartas **NO vuelven**; el reembolso queda **para revisión a mano, con motivo**
+##### S.11.4 Pedido ENVIADO ⇒ las cartas **NO vuelven**; el reembolso **exige motivo** — vale para **cualquier reembolso total** (4b)
 
-- Las cartas **⛔ no vuelven a inventario ni a la venta**: el cliente las tiene (o las tuvo). Dejan de estar
-  «apartadas» **sin** volver a ser vendibles (cómo se registra su estado es del arquitecto).
-- El pedido queda marcado **«reembolso por revisar»**, visible en el panel (con contador en el tablero, como los
-  demás pendientes del dueño), hasta que se registre **por qué** se reembolsó.
+- Las cartas **⛔ no vuelven a inventario ni a la venta**: el cliente las tiene (o las tuvo). Si estaban
+  «apartadas», dejan de estarlo **sin** volver a ser vendibles (cómo se registra su estado es del arquitecto).
 - **Motivo obligatorio y cerrado**: solo **«no llegó»** o **«llegó en mala condición»** — ⛔ sin opción «otro»
   ni texto libre en lugar del motivo (*«solo sería porque no llegó o estaban en mala condición»*). Se guarda
   **quién y cuándo**; una nota libre **opcional** acompaña al motivo **(SUPUESTO)**.
-- **Registrar el motivo ⛔ no mueve dinero** (el reembolso ya lo hizo Stripe), ⛔ no mueve cartas y ⛔ no manda
-  correos nuevos al cliente. Es registro para que el dueño sepa qué pasó y lo vea después en reportes.
+- **Cuándo se captura el motivo depende de por dónde entra el reembolso:**
+  - **Desde el back-office (M3):** el motivo se elige **en la misma acción del reembolso**, antes de que se mueva
+    el dinero. Sin motivo, o con uno que no sea de los dos ⇒ **el reembolso no se hace** (⛔ no se llama a
+    Stripe). **(SUPUESTO:** las palabras del dueño —*«habría que checar por qué el reembolso»*— dicen que el
+    reembolso pide motivo; que en M3 se pida **antes** y no después es la lectura del product-owner, porque ahí
+    el sistema sí puede preguntar antes de cobrar.)
+  - **Desde el panel de Stripe:** el sistema no puede preguntar antes (el dinero ya se movió fuera de la tienda).
+    El pedido queda marcado **«reembolso por revisar»**, visible en el panel (con contador en el tablero, como
+    los demás pendientes del dueño), hasta que se registre el motivo.
+- **Registrar el motivo después (caso Stripe) ⛔ no mueve dinero** (el reembolso ya lo hizo Stripe), ⛔ no mueve
+  cartas y ⛔ no manda correos nuevos al cliente. Es registro para que el dueño sepa qué pasó y lo vea después en
+  reportes.
 - **Quién registra el motivo — (SUPUESTO / default): solo el súper-admin**, porque el reembolso total sigue siendo
-  solo suyo (§S.10.4) y es quien lo hizo en Stripe. Si el dueño quiere que el operador también pueda, lo dice
-  (no es pregunta prioritaria; se anota aquí para que el arquitecto no lo decida por su cuenta).
+  solo suyo (§S.10.4) y es quien lo hace en M3 o en Stripe. Si el dueño quiere que el operador también pueda, lo
+  dice (no es pregunta prioritaria; se anota aquí para que el arquitecto no lo decida por su cuenta).
+- **«Llegó en mala condición» y la disputa de condición (§H):** es la misma situación que la disputa de condición
+  cuando el remedio es devolver **todo** el pedido. **(SUPUESTO:** las reglas de la disputa —ventana de 7 días
+  desde «entregado», evidencia por correo— siguen aplicando; el motivo no las sustituye, solo las registra.)
 
-##### S.11.5 Preguntas abiertas de S.11 (para el dueño)
+##### S.11.5 Los reembolsos totales que existen hoy, y cómo aplica a cada uno *(revisado 2026-10-04 contra el contrato; no se re-midió el código)*
 
-- **P-S11-1 · Pedido no enviado: ¿las cartas vuelven solas a la venta, o con un clic?** Default: **solas** si
-  nadie las tocó; **con un clic** de operador o dueño si ya estaban palomeadas o en un paquete (S.11.3).
-- **P-S11-2 · ¿Esta regla vale solo para el caso de hoy, o para cualquier reembolso total?** El caso de hoy es
-  *reembolso total desde el panel de Stripe sobre un pedido sin liquidar* (SSL-R1). **Default: solo ese caso.**
-  *Por qué:* los demás reembolsos totales **ya tienen regla escrita** (M3 solo reembolsa pedidos liquidados; bóveda
-  = criterio **231**; carta que no sale al preparar = §S.10.3), y cambiarlos es otro pase de diseño. Si el dueño
-  dice «cualquiera», lo que cambia es que **todo** reembolso total de un pedido ya **enviado** —desde M3 o desde
-  Stripe— pediría también el motivo «no llegó» / «llegó en mala condición».
+| Reembolso total | Hoy (fuente) | NO enviado | ENVIADO («enviado» / «entregado») |
+|---|---|---|---|
+| **Panel de Stripe sobre pedido SIN liquidar** (SSL-R1) | Las cartas se quedan apartadas para siempre (`TECH_DEBT.md` SSL-R1, medido por backend 2026-09-28, N=1) | **Cambia:** regla 4a (S.11.3), criterio **249** | **Cambia:** «reembolso por revisar» + motivo después, criterio **250** |
+| **M3 — reembolso total** (súper-admin, pedido **liquidado** de envío directo) | Cierra el envío vivo; las cartas quedan congeladas y las resuelve un humano (`API_CONTRACT.md:756`, SEC-SHIP-A2) | **No cambia** (ya hay confirmación humana; nada queda apartado) | **Cambia:** motivo obligatorio **en la misma acción**, sin él no hay reembolso; las cartas no vuelven; criterio **251** |
+| **Panel de Stripe sobre pedido LIQUIDADO** | Mismo cierre que M3 (`API_CONTRACT.md:756`, `charge.refunded` total) | **No cambia** | **Cambia:** «reembolso por revisar» + motivo después, criterio **250** |
+| **Reembolso total de una compra A BÓVEDA** (§M4-SHIP, criterio **231**) | Deshace la venta: la carta vuelve «en almacén» y un humano confirma | **No cambia** (una compra a bóveda no tiene envío propio) | Ver **P-S11-4** (si alguna carta ya salió en un retiro) |
+| **Total alcanzado sumando reembolsos por carta** («no sale nada» al preparar, §S.10.3) | Ocurre **durante la preparación**, antes de «enviado» | **No cambia** | **No aplica** (por definición no salió) |
+| **Contracargo** | No es un reembolso nuestro (§H: proceso del banco). Con el envío en «enviado»/«entregado» las cartas **ya no se tocan** y queda para revisión manual (`API_CONTRACT.md:10150`) | **No cambia** | Cartas: **ya cumple** (no vuelven). Motivo: ver **P-S11-3** |
 
-##### S.11.6 Lo que NO cambia (se verifica por ausencia, criterio 252)
+*(Las filas «Hoy» se leyeron del contrato y del registro de deuda el 2026-10-04; **NO MEDIDO** contra el código. Lo
+confirma el arquitecto.)*
 
-- M3 **sigue sin** reembolsar pedidos sin liquidar; el **criterio 231** (reembolso total de bóveda), el
-  **contracargo** (la carta vuelve a la venta) y **§S.10** no cambian.
+##### S.11.6 Lo que NO cambia (se verifica por ausencia, criterio 253)
+
+- M3 **sigue sin** reembolsar pedidos sin liquidar.
+- El reembolso total de un pedido **liquidado no enviado** (M3 o Stripe) se comporta **igual que hoy**.
+- El **criterio 231** (reembolso total de bóveda) no cambia mientras **P-S11-4** siga con su default; el
+  **contracargo** conserva su regla de cartas, y mientras **P-S11-3** siga con su default **no** pide motivo.
+- **§S.10** no cambia: el reembolso **por carta** al preparar sigue igual (ocurre antes de «enviado»).
 - La máquina de estados del envío **no gana estados**; el punto «enviado» es el de siempre.
-- Ningún correo nuevo al cliente; ningún movimiento de dinero nuevo.
+- Ningún correo nuevo al cliente; ningún movimiento de dinero nuevo (el reembolso de M3 manda **el** correo de
+  reembolso de siempre, ⛔ no uno adicional por el motivo).
+
+##### S.11.7 Preguntas abiertas de S.11 (para el dueño)
+
+*(P-S11-1 y P-S11-2 quedaron **respondidas** el 2026-10-04 — 4a y 4b de `HECHOS.md`; no se re-preguntan.)*
+
+- **P-S11-3 · ¿El contracargo también pide motivo cuando el pedido ya salió?** Un contracargo no lo hacemos
+  nosotros: lo decide el banco del cliente, y la política de la tienda ya lo trata aparte de los reembolsos. Las
+  cartas de un pedido enviado **ya no vuelven** a inventario con un contracargo, así que esa parte ya está bien.
+  **Default: el contracargo NO pide motivo** (el motivo lo pone el banco, no nosotros) y se queda como está.
+- **P-S11-4 · Compra a bóveda reembolsada completa cuando alguna de sus cartas ya salió en un retiro: ¿pide
+  motivo?** Una compra a bóveda no se envía; sus cartas salen después, si el cliente pide un retiro. Hoy, al
+  reembolsar la compra completa, las cartas que ya salieron en un retiro **no se tocan** (criterio 231).
+  **Default: no pide motivo** — la regla del «enviado» mira el envío **del propio pedido**, y una compra a bóveda
+  no tiene; las cartas ya retiradas siguen sin tocarse, como hoy.
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De §S.11 (cartas de un pedido reembolsado sin liquidar), a propósito** *(2026-10-02)*: que el sistema **actúe
   según el motivo** registrado (reclamar a la paquetería, abrir disputa, recobrar, pedir la carta de vuelta);
   integrar el motivo con Skydropx (paquete devuelto sigue siendo alerta a mano, `HECHOS.md` 2026-10-02); y
-  extender la regla a otros reembolsos totales **mientras P-S11-2 no diga lo contrario**.
+  ~~extender la regla a otros reembolsos totales mientras P-S11-2 no diga lo contrario~~ *(2026-10-04: el dueño
+  la extendió a **cualquier reembolso total** — 4b; sale de esta lista)*. Sigue fuera: pedir motivo a un
+  reembolso **parcial** (por carta) de un pedido ya enviado — el dueño habló de reembolso **total**; hoy no existe
+  reembolso por carta después de «enviado» (§S.10.3 ocurre al preparar).
 - **De «Pedidos por preparar» (§S), fuera de la versión construida** *(NUEVO v2.3, 2026-09-22)*: ~~**palomear y
   firmar** el pedido como preparado, y 💰 el **reembolso parcial por carta faltante** (este último **exige los
   tres veredictos antes de escribir una línea**).~~ *(2026-09-24: la **cubeta de bóveda y la sugerencia de cajón
@@ -7864,7 +7958,9 @@ nuevo, no como parte de §R**:
    gradeadas), la excepción de disputa de condición (ventana de 7 días contados desde la entrega del envío,
    recompra al precio pagado con el cliente conservando la carta), la excepción de error de la plataforma
    (cobro duplicado / inventario fantasma se reembolsan siempre) y la aclaración de que el contracargo
-   bancario es un proceso independiente ante el banco del cliente.
+   bancario es un proceso independiente ante el banco del cliente. *(⭐ 2026-10-04: la página de términos
+   describe también la excepción del **pedido enviado que no llegó** — §H, §S.11.4; el aviso corto del checkout
+   no cambia de texto, SUPUESTO.)*
 7c. Un **cobro duplicado** o una **compra sin inventario real** (inventario fantasma) **se reembolsa**: el
    súper-admin puede ejecutar el reembolso en M3 sin depender de la ventana de 7 días ni de la evidencia de
    disputa, y la orden queda en estado `reembolsada`. *(⭐ **v1.80.4 · 2026-09-29**: el reembolso total de M3
@@ -10460,33 +10556,61 @@ total de bóveda (§S.10, §H, §D, §R.3 — v1.80.4 · 2026-09-29; decisiones 
    estado nuevo); **impresión de etiquetas: cero**; **sin aviso al cliente al colocar en bóveda**; el **envío
    directo no entra a «Por reponer»**; **ninguna pantalla ordena por apellido**; y el **contracargo** conserva su
    regla. **⛔ Falla** cualquiera que «aparezca porque parecía razonable».
+*(Criterios 249–253 **reescritos el 2026-10-04** con 4a y 4b de `HECHOS.md` — fila «Cartas apartadas (SSL-R1) —
+detalles del 2026-10-04». 254–255 son nuevos, de la fila «Precios — decisiones del 2026-10-04».)*
 249. 💰 **Pedido sin liquidar reembolsado desde Stripe y NO enviado ⇒ sus cartas vuelven a inventario** *(§S.11.3;
-   `HECHOS.md` 2026-10-02; cierra `SSL-R1`)*: pedido sin liquidar con cartas apartadas, reembolso total desde el
-   panel de Stripe ⇒ **al confirmarse** el reembolso, **ninguna** carta queda apartada por ese pedido. Con el
-   default de P-S11-1: si ninguna carta se palomeó ni se empacó, **vuelven a la venta** (el catálogo las lista) con
+   `HECHOS.md` 2026-10-02 y 2026-10-04 4a; cierra `SSL-R1`)*: pedido sin liquidar con cartas apartadas, reembolso
+   total desde el panel de Stripe ⇒ **al confirmarse** el reembolso, **ninguna** carta queda apartada por ese
+   pedido. Si ninguna carta se palomeó ni se empacó, **vuelven solas a la venta** (el catálogo las lista) con
    **un** movimiento en bitácora cada una; si alguna ya estaba palomeada o en un paquete, esa queda **«en almacén»,
-   no a la venta**, hasta que un operador o el súper-admin confirme *«regresada»* (⇒ a la venta) o *«no está»* (⇒
-   merma firmada, una sola vez). Un aviso duplicado de Stripe **no escribe nada nuevo** (N ≥ 10). Una compra a
-   bóveda con colocación ya hecha sigue el criterio **231**. *(Si el dueño responde P-S11-1 distinto, este
-   criterio se reescribe con su respuesta.)*
-250. 💰 **Pedido reembolsado ya ENVIADO ⇒ las cartas NO vuelven; queda «reembolso por revisar» con motivo
-   obligatorio** *(§S.11.4)*: con el envío en «enviado» o «entregado» al confirmarse el reembolso total ⇒ **ninguna**
-   carta del pedido vuelve a la venta ni a «en almacén», ninguna sigue apartada, y el pedido aparece como
-   **«reembolso por revisar»** en el panel y en el contador del tablero. Registrar el motivo admite **solo**
-   «no llegó» o «llegó en mala condición» (cualquier otro valor o vacío ⇒ se rechaza sin escribir), guarda **quién
-   y cuándo** y saca el pedido del contador; la nota es opcional. Registrarlo **no** llama a Stripe, **no** mueve
-   cartas y **no** manda correo. El operador ⇒ **403, auditado** (default de S.11.4). **⛔ Falla** si una carta de
-   un pedido enviado reaparece en el catálogo por este camino.
-251. **El corte es «enviado», leído al confirmar el reembolso, y nada queda apartado para siempre** *(§S.11.2)*:
-   mismo pedido con el envío en «guía» ⇒ se trata como **no enviado** (249); en «enviado» ⇒ como **enviado** (250).
-   Si «marcar enviado» y el reembolso llegan **a la vez**, el resultado es **uno de los dos** casos completo, ⛔
-   nunca una mezcla (cartas a la venta **y** pedido «por revisar») (N ≥ 10). Tras una pasada del barrido de
-   reservas, **ninguna** carta sigue apartada por un pedido reembolsado, y el barrido **deja de registrar error**
-   por esos pedidos.
-252. **Lo que NO cambia con §S.11 — se verifica por ausencia** *(S.11.6)*: M3 **sigue rechazando** el reembolso de
-   un pedido sin liquidar; el **criterio 231**, el **contracargo** y **§S.10** se comportan igual; la máquina de
-   envíos **no** gana estados; **ningún** correo nuevo al cliente y **ningún** movimiento de dinero nuevo. Mientras
-   P-S11-2 siga con su default, un reembolso total de un pedido **liquidado** **no** abre «reembolso por revisar».
+   no a la venta**, hasta que un operador o el súper-admin confirme con un clic *«regresada»* (⇒ a la venta) o
+   *«no está»* (⇒ merma firmada, una sola vez). Un aviso duplicado de Stripe **no escribe nada nuevo** (N ≥ 10).
+   Una compra a bóveda con colocación ya hecha sigue el criterio **231**.
+250. 💰 **Reembolso total desde el PANEL DE STRIPE de un pedido ya ENVIADO (liquidado o no) ⇒ las cartas NO
+   vuelven; queda «reembolso por revisar» con motivo obligatorio** *(§S.11.4, 4b)*: con el envío en «enviado» o
+   «entregado» al confirmarse el reembolso total ⇒ **ninguna** carta del pedido vuelve a la venta ni a «en
+   almacén», ninguna sigue apartada, y el pedido aparece como **«reembolso por revisar»** en el panel y en el
+   contador del tablero. Registrar el motivo admite **solo** «no llegó» o «llegó en mala condición» (cualquier
+   otro valor o vacío ⇒ se rechaza sin escribir), guarda **quién y cuándo** y saca el pedido del contador; la nota
+   es opcional. Registrarlo **no** llama a Stripe, **no** mueve cartas y **no** manda correo. El operador ⇒
+   **403, auditado** (default de S.11.4). Un aviso duplicado de Stripe no abre un segundo «por revisar» (N ≥ 10).
+   **⛔ Falla** si una carta de un pedido enviado reaparece en el catálogo por este camino.
+251. 💰 **Reembolso total desde M3 de un pedido ya ENVIADO ⇒ exige motivo en la misma acción; sin él no hay
+   reembolso** *(§S.11.4, 4b; el «antes» es SUPUESTO de PO)*: pedido liquidado con el envío en «enviado» o
+   «entregado»: M3 **sin motivo**, o con un motivo distinto de «no llegó» / «llegó en mala condición» ⇒ **se
+   rechaza sin llamar a Stripe y sin escribir nada**; con motivo válido ⇒ se reembolsa, el motivo queda guardado
+   con **quién y cuándo**, **ninguna** carta vuelve a la venta ni a «en almacén», y el pedido **no** entra a
+   «reembolso por revisar» (ya tiene motivo). El cliente recibe **el** correo de reembolso de siempre, ⛔ ninguno
+   adicional. Con el envío **antes** de «enviado», M3 **no** pide motivo y se comporta como hoy. El operador sigue
+   sin poder hacer el reembolso total (⇒ 403). **⛔ Falla** si una carta de ese pedido reaparece en el catálogo.
+252. **El corte es «enviado», leído al confirmar el reembolso, y nada queda apartado para siempre** *(§S.11.2)*:
+   mismo pedido con el envío en «guía» ⇒ se trata como **no enviado**; en «enviado» ⇒ como **enviado**. Si
+   «marcar enviado» y el reembolso llegan **a la vez**, el resultado es **uno de los dos** casos completo, ⛔
+   nunca una mezcla (cartas a la venta **y** pedido «por revisar») (N ≥ 10); si un reembolso de M3 se pidió sin
+   motivo con el pedido no enviado y al confirmarse ya está «enviado», el pedido queda **«reembolso por revisar»**
+   (como 250), ⛔ nunca con las cartas devueltas a la venta. Tras una pasada del barrido de reservas, **ninguna**
+   carta sigue apartada por un pedido reembolsado, y el barrido **deja de registrar error** por esos pedidos.
+253. **Lo que NO cambia con §S.11 — se verifica por ausencia** *(S.11.6)*: M3 **sigue rechazando** el reembolso de
+   un pedido sin liquidar; el reembolso total de un pedido **liquidado NO enviado** (M3 o Stripe) se comporta
+   igual que hoy; el **criterio 231**, el **contracargo** (sin motivo, mientras P-S11-3 y P-S11-4 sigan con su
+   default) y **§S.10** se comportan igual; la máquina de envíos **no** gana estados; **ningún** correo nuevo al
+   cliente y **ningún** movimiento de dinero nuevo.
+254. 💰 **Carta premium cuyo mercado cae por debajo del piso ⇒ se publica sola al piso (hoy MX$25)** *(§N.5-bis (a);
+   `HECHOS.md` «Precios — decisiones del 2026-10-04» (a))*: una carta de rareza **premium** —**incluidas Double
+   Rare / ex**— con dato de mercado presente que, por la curva, resulta en el **piso** ⇒ se **publica** con
+   **precio de venta = piso vigente (MX$25 con los diales de hoy)**, ⛔ no entra a la cola de precio pendiente por
+   «premium en el piso», y el catálogo la lista a ese precio. Las que **hoy** están retenidas por esa razón salen
+   de la cola y se publican a MX$25 en el siguiente barrido. **⛔ Falla** si se publica por **debajo** del piso, si
+   una carta **sin** dato de mercado se publica por este camino (sigue en «precio pendiente», §N.2), o si un
+   override manual (por pieza o de variante) deja de ganar sobre el piso. La **compra** (buylist) no cambia con
+   este criterio (SUPUESTO, ver §N.5-bis).
+255. **Precio final a mano: solo para SELLADO** *(§N.5-bis (b); `HECHOS.md` «Precios — decisiones del
+   2026-10-04» (b))*: en **«Listas para publicar»** las filas de **sellado** ofrecen capturar el precio final y las
+   de **carta suelta y gradeada no** (⛔ ningún campo ni botón de precio final en esas filas); el **panel del
+   sellado (M11)** permite capturar el precio final de una pieza sellada. Capturarlo es un override manual
+   **auditado** (quién, cuándo, antes/después) que gana la precedencia del sellado (§K) y **nunca** acepta $0. El
+   override por pieza que **ya existe** para cartas sueltas/gradeadas **sigue funcionando igual** y en el mismo
+   sitio mientras **P-PRE-1** siga con su default (se verifica por ausencia: ni se quita ni se hace más visible).
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -14303,3 +14427,24 @@ ese frente:**
    **Qué confirmar**: **(a)** los seis tal cual; **(b)** quitar los que nunca use —**menos casillas es
    mejor**: una casilla que no aplica **se acaba eligiendo por pereza**—; **o (c)** añadir los que le falten,
    con **sus palabras**, porque **ese texto lo va a leer un cliente**.
+
+## Preguntas abiertas — reembolsos totales y precios (2026-10-04, sesión 5)
+
+> Salen de aterrizar las filas de `HECHOS.md` del **2026-10-04** («Cartas apartadas (SSL-R1) — detalles» y
+> «Precios — decisiones»). **Ninguna bloquea al arquitecto:** cada una tiene default y se diseña con él.
+
+- **P-S11-3 · Contracargo de un pedido ya enviado: ¿pide motivo?** Default: **no** (lo decide el banco, no
+  nosotros; las cartas ya no vuelven a inventario). Detalle en §S.11.7. *(Relacionada, sin resolver: la
+  pregunta **86** —qué le pasa al pedido mientras un contracargo está vivo—.)*
+- **P-S11-4 · Compra a bóveda reembolsada completa con alguna carta ya salida en un retiro: ¿pide motivo?**
+  Default: **no**; las cartas ya retiradas siguen sin tocarse (criterio 231). Detalle en §S.11.7.
+- **P-PRE-1 · El precio fijado a mano por pieza para cartas SUELTAS (y gradeadas), que hoy existe en el panel
+  lateral: ¿lo quitamos, o solo no añadimos la captura nueva?** Usted dijo *«el precio final que pueda poner
+  solo lo quiero para producto sellado»*. Eso puede querer decir «no me pongan el campo nuevo en las cartas» o
+  «quiten también el que ya está». Ojo: las gradeadas hoy dependen de ese precio a mano. **Default: se conserva
+  como está, sin hacerlo más visible.** §N.5-bis (b), criterio 255.
+- **P-PRE-2 · Premium en el piso: ¿todas las rarezas premium, o solo ex / Double Rare?** Su decisión
+  (*«que se publiquen solas a 25»*) se tomó viendo ex / Double Rare baratas. Aplicada a **todas** las rarezas
+  premium, una carta cara (por ejemplo una Special Illustration Rare) cuyo precio de mercado llegue **roto** se
+  publicaría a MX$25 sin que nadie la revise — que es lo que el freno evitaba. **Default: todas, como está
+  escrito en `HECHOS.md`.** Si prefiere limitarlo a ex / Double Rare, lo dice. §N.5-bis (a), criterio 254.
