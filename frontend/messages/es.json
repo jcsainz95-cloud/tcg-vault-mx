@@ -4502,13 +4502,13 @@
           "legend": "¿Quién puede comprar guías?",
           "disabled": "Nadie (compra apagada)",
           "disabledNote": "Se puede cotizar y ver precios, pero nadie compra. Es el valor inicial.",
-          "superAdminOnly": "Solo yo",
-          "superAdminOnlyNote": "Cada guía la compras tú con tu clic; ese clic es tu autorización y queda con tu nombre.",
-          "operators": "También los operadores",
-          "operatorsNote": "Los operadores gastan del saldo con su nombre en la bitácora. No hay tope aparte del saldo.",
+          "superAdminOnly": "Solo los súper-admin",
+          "superAdminOnlyNote": "Cada guía la compra un súper-admin con su clic y queda a su nombre.",
+          "operators": "También el personal",
+          "operatorsNote": "El personal compra con su nombre en la bitácora, hasta su tope de 24 horas y su recompra por envío (en «Control del gasto»). Tú no tienes tope.",
           "serverKey": "Además, el servidor necesita su propia autorización para gastar. Si falta, nadie compra aunque aquí diga que sí.",
-          "confirmTitle": "¿Dejar que los operadores compren guías?",
-          "confirmBody": "Podrán gastar el saldo de Skydropx sin pedirte permiso, cada guía a su nombre. No hay tope aparte del saldo.",
+          "confirmTitle": "¿Dejar que el personal compre guías?",
+          "confirmBody": "Podrá gastar el saldo de Skydropx sin pedirte permiso, cada guía a su nombre y hasta su tope de 24 horas. Te avisamos según «Control del gasto».",
           "confirm": "Sí, dejar que compren"
         },
         "tiers": {
@@ -4588,7 +4588,100 @@
         "providerNote": "Apagar congela el rastreo de las guías ya compradas.",
         "save": "Guardar envíos",
         "saved": "Ajustes de envío guardados.",
-        "saveError": "No se guardó: el servidor rechazó un valor. Revisa el campo marcado."
+        "saveError": "No se guardó: el servidor rechazó un valor. Revisa el campo marcado.",
+        "lowBalanceHint": "Debajo de esta cifra te llega un correo (aviso AG-7), una vez por cada vez que baja."
+      },
+      "spend": {
+        "title": "Control del gasto",
+        "subtitle": "Solo el súper-admin. Cada cambio queda en la bitácora. Todos los avisos arrancan encendidos.",
+        "notAvailable": "Este servidor todavía no tiene los ajustes de control del gasto.",
+        "staff": {
+          "title": "Topes del personal"
+        },
+        "cap": {
+          "label": "Tope de guías por persona en 24 horas",
+          "hint": "Cuenta lo que cada persona gastó en guías en las últimas 24 horas, no desde la medianoche. Al llegar, se le niega la compra sin decirle la cifra y te avisamos; puede seguir capturando guías a mano. Tú no tienes tope; los súper-admin sin correo sí.",
+          "error": "El tope mínimo es MX$1.00. Para que nadie compre, usa «¿Quién puede comprar guías?» en Envíos."
+        },
+        "reissue": {
+          "label": "Recompras de guía por envío",
+          "hint": "Cuántas veces el personal puede cancelar la guía de un envío y comprar otra. Después, la siguiente la compras tú. 0 = ninguna.",
+          "error": "De 0 a 10."
+        },
+        "when": {
+          "title": "Cuándo avisar"
+        },
+        "warnPct": {
+          "label": "Avisar cuando alguien llegue a este porcentaje de su tope",
+          "hint": "Va en el resumen diario.",
+          "error": "Del 1 al 99."
+        },
+        "shipmentCancels": {
+          "label": "Avisar cuando un envío lleve estas guías canceladas",
+          "hint": "Correo inmediato.",
+          "error": "Del 1 al 10."
+        },
+        "personCancels": {
+          "label": "Avisar cuando una persona cancele estas guías en 24 horas",
+          "hint": "Correo inmediato. No cuentan las que el sistema cancela solo.",
+          "error": "Del 1 al 50."
+        },
+        "drift": {
+          "label": "Correo inmediato si lo cobrado por una guía pasa lo cotizado por más de",
+          "hint": "Cualquier diferencia menor va en el resumen.",
+          "error": "No puede ser negativo."
+        },
+        "extra": {
+          "label": "Correo inmediato si un cargo extra de la paquetería pasa de",
+          "hint": "Los menores van en el resumen.",
+          "error": "No puede ser negativo."
+        },
+        "refundDays": {
+          "label": "Avisar si Skydropx no confirma el reembolso de una guía cancelada en",
+          "hint": "Hoy Skydropx no siempre dice cuánto devuelve; por eso avisamos aunque quizá sí regresó.",
+          "error": "Del 1 al 30."
+        },
+        "notShippedDays": {
+          "label": "Avisar si una guía comprada no sale en",
+          "hint": "El aviso se quita solo cuando el paquete sale o la guía se cancela.",
+          "error": "Del 1 al 30."
+        },
+        "days": "días",
+        "lowBalanceNote": "El aviso de saldo bajo usa «Avisar si el saldo baja de», en Envíos.",
+        "alerts": {
+          "legend": "Avisos encendidos",
+          "option": "{code} · {title}",
+          "immediate": "Correo inmediato",
+          "digest": "Resumen diario",
+          "byAmount": "Inmediato o resumen, según el monto",
+          "byCase": "Inmediato o resumen, según el caso",
+          "note": "Un aviso apagado no se registra: ni en la lista ni en el correo. Lo que pase mientras está apagado no se puede ver después."
+        },
+        "save": "Guardar control del gasto",
+        "saved": "Ajustes de control del gasto guardados.",
+        "offTitle": "¿Apagar {n, plural, one {# aviso} other {# avisos}}?",
+        "offBody": "Mientras estén apagados no se registran. Lo que pase no se podrá ver después: {list}.",
+        "offConfirm": "Sí, apagarlos",
+        "back": "Volver"
+      },
+      "ownerOnly": {
+        "note": "Solo el dueño puede cambiar esto.",
+        "denied": "No se guardó nada: solo el dueño puede cambiar {fields}.",
+        "field": {
+          "operatorLabelCap24hCents": "el tope de guías por persona",
+          "shippingLabelReissueMaxPerShipment": "las recompras por envío",
+          "spendAlertsDisabled": "qué avisos están encendidos",
+          "spendAlertLabelCapWarnPct": "el porcentaje de aviso del tope",
+          "spendAlertShipmentCancelCount": "las guías canceladas por envío",
+          "spendAlertPersonCancelCount24h": "las guías canceladas por persona",
+          "spendAlertChargeDriftImmediateCents": "la diferencia de cobro",
+          "spendAlertExtraChargeImmediateCents": "el cargo extra",
+          "skydropxLowBalanceCents": "el saldo bajo",
+          "spendAlertCancelRefundDays": "los días del reembolso",
+          "spendAlertLabelNotShippedDays": "los días sin salir",
+          "shippingLabelPurchase": "quién puede comprar guías",
+          "other": "un ajuste del dueño"
+        }
       }
     },
     "m7": {

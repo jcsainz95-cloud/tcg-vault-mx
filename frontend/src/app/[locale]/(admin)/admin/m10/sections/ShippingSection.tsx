@@ -24,6 +24,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { pesosToCents } from '../../m4/pesosToCents';
+import { useIsOwner, useOwnerOnlyDenied } from '../../_owner/useIsOwner';
 
 /**
  * **«Configuración › Envíos (Skydropx)»** (`DESIGN_SYSTEM §43.10` · contrato `§M4-SHIP.19.19.12`,
@@ -116,7 +117,11 @@ export function ShippingSection() {
 function PurchaseDial({ value, onSaved }: { value: ShippingLabelPurchase; onSaved: () => void }) {
   const t = useTranslations('admin.m10.shipping.purchase');
   const tc = useTranslations('common');
+  const tOwner = useTranslations('admin.m10.ownerOnly');
   const getError = useErrorMessage('operator');
+  const ownerDenied = useOwnerOnlyDenied();
+  // 🔒 v1.80.12.10 (§19.30.2 (1)): el interruptor es del DUEÑO; a los demás se les ve deshabilitado con su frase.
+  const { isOwner } = useIsOwner();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const backRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -136,11 +141,13 @@ function PurchaseDial({ value, onSaved }: { value: ShippingLabelPurchase; onSave
     else m.mutate(v); // cerrar la puerta no pregunta
   };
   return (
-    <fieldset className="flex flex-col gap-2" data-testid="shipping-purchase">
+    // §43.19.10b: `id="compra-guias"` es el destino del enlace de los correos y del detalle de un aviso.
+    <fieldset id="compra-guias" className="flex flex-col gap-2" data-testid="shipping-purchase">
       <legend className="mb-2 text-base font-medium text-text">{t('legend')}</legend>
+      {!isOwner && <p className="text-sm text-muted" data-testid="shipping-purchase-owner-only">{tOwner('note')}</p>}
       {PURCHASE.map((v) => (
         <label key={v} className="flex items-start gap-3">
-          <input type="radio" name="shipping-purchase" className="mt-1" checked={value === v} disabled={m.isPending} onChange={() => choose(v)} />
+          <input type="radio" name="shipping-purchase" className="mt-1" checked={value === v} disabled={m.isPending || !isOwner} onChange={() => choose(v)} />
           <span className="flex flex-col">
             <span className="text-sm text-text">{t(PURCHASE_KEY[v])}</span>
             <span className="text-sm text-muted">{t(`${PURCHASE_KEY[v]}Note`)}</span>
@@ -150,7 +157,7 @@ function PurchaseDial({ value, onSaved }: { value: ShippingLabelPurchase; onSave
       <p className="text-sm text-muted">{t('serverKey')}</p>
       {m.isError && (
         <Banner variant="danger" role="alert">
-          {getError(m.error)}
+          {ownerDenied(m.error) ?? getError(m.error)}
         </Banner>
       )}
       <Modal
@@ -188,7 +195,10 @@ function ShippingForm({
   tc: ReturnType<typeof useTranslations>;
 }) {
   const t = useTranslations('admin.m10.shipping');
+  const tOwner = useTranslations('admin.m10.ownerOnly');
   const locale = useLocale() as AppLocale;
+  const { isOwner } = useIsOwner();
+  const ownerDenied = useOwnerOnlyDenied();
   const [tiers, setTiers] = useState<TierRow[]>(
     (settings.shippingInsuranceTiers ?? []).map((x) => ({ coverage: centsToPesos(x.coverageCents), cost: centsToPesos(x.costCents), measuredAt: x.measuredAt.slice(0, 10) })),
   );
@@ -226,9 +236,10 @@ function ShippingForm({
         shippingDropoffPoints: dropoffs,
         skydropxOriginAddressTemplateId: origin || null,
         shippingLabelFormat: format,
-        skydropxLowBalanceCents: pesosToCents(lowBalance) ?? 0,
         shippingTrackingPollMinutes: Number(poll),
       };
+      // 🔒 §19.30.2 (1): el saldo bajo es dial del dueño; un no dueño ⛔ no lo manda (el servidor lo quitaría igual).
+      if (isOwner) patch.skydropxLowBalanceCents = pesosToCents(lowBalance) ?? 0;
       return updateSettings(patch);
     },
     onSuccess: () => {
@@ -237,7 +248,7 @@ function ShippingForm({
     },
     onError: (e) => {
       const err = asApiError(e);
-      setServerError(err?.status === 422 || err?.status === 400 ? `${t('saveError')} ${err.message}` : getError(e));
+      setServerError(ownerDenied(e) ?? (err?.status === 422 || err?.status === 400 ? `${t('saveError')} ${err.message}` : getError(e)));
     },
   });
 
@@ -407,7 +418,15 @@ function ShippingForm({
           value={format}
           onChange={(e) => setFormat(e.target.value as 'standard' | 'thermal')}
         />
-        <Input label={t('lowBalanceThreshold')} prefix="MX$" inputMode="decimal" value={lowBalance} onChange={(e) => setLowBalance(e.target.value)} />
+        <Input
+          label={t('lowBalanceThreshold')}
+          prefix="MX$"
+          inputMode="decimal"
+          value={lowBalance}
+          disabled={!isOwner}
+          hint={isOwner ? t('lowBalanceHint') : `${t('lowBalanceHint')} ${tOwner('note')}`}
+          onChange={(e) => setLowBalance(e.target.value)}
+        />
         <Input label={t('pollMinutes')} inputMode="numeric" value={poll} onChange={(e) => setPoll(e.target.value)} />
         <div className="flex flex-col gap-1">
           <Select

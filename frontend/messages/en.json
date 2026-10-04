@@ -4502,13 +4502,13 @@
           "legend": "Who can buy labels?",
           "disabled": "Nobody (buying off)",
           "disabledNote": "Quotes and prices still work, but nobody buys. This is the starting value.",
-          "superAdminOnly": "Only me",
-          "superAdminOnlyNote": "You buy every label with your own click; that click is your authorization and it's recorded in your name.",
-          "operators": "Operators too",
-          "operatorsNote": "Operators spend from the balance with their name in the log. There's no cap other than the balance.",
+          "superAdminOnly": "Super admins only",
+          "superAdminOnlyNote": "Each label is bought by a super admin with their own click and recorded in their name.",
+          "operators": "Staff too",
+          "operatorsNote": "Staff buy with their name in the log, up to their 24-hour limit and their rebuy per shipment (in “Spending control”). You have no limit.",
           "serverKey": "On top of this, the server needs its own authorization to spend. If it's missing, nobody buys even if this says yes.",
-          "confirmTitle": "Let operators buy labels?",
-          "confirmBody": "They'll be able to spend the Skydropx balance without asking you, each label in their name. There's no cap other than the balance.",
+          "confirmTitle": "Let staff buy labels?",
+          "confirmBody": "They'll be able to spend the Skydropx balance without asking you, each label in their name and up to their 24-hour limit. You'll get alerts according to “Spending control”.",
           "confirm": "Yes, let them buy"
         },
         "tiers": {
@@ -4588,7 +4588,100 @@
         "providerNote": "Turning it off freezes tracking of labels already bought.",
         "save": "Save shipping",
         "saved": "Shipping settings saved.",
-        "saveError": "Not saved: the server rejected a value. Check the marked field."
+        "saveError": "Not saved: the server rejected a value. Check the marked field.",
+        "lowBalanceHint": "Below this amount you get an email (alert AG-7), once each time it drops."
+      },
+      "spend": {
+        "title": "Spending control",
+        "subtitle": "Super admin only. Every change is logged. All alerts start switched on.",
+        "notAvailable": "This server doesn't have the spending control settings yet.",
+        "staff": {
+          "title": "Staff limits"
+        },
+        "cap": {
+          "label": "Label spend limit per person over 24 hours",
+          "hint": "Counts what each person spent on labels in the last 24 hours, not since midnight. When they hit it, the purchase is refused without telling them the amount and you get an alert; they can still enter labels by hand. You have no limit; super admins without an email do.",
+          "error": "The minimum limit is MX$1.00. To stop everyone from buying, use “Who can buy labels?” in Shipping."
+        },
+        "reissue": {
+          "label": "Label rebuys per shipment",
+          "hint": "How many times staff can cancel a shipment's label and buy another. After that, you buy the next one. 0 = none.",
+          "error": "0 to 10."
+        },
+        "when": {
+          "title": "When to alert"
+        },
+        "warnPct": {
+          "label": "Alert when someone reaches this percentage of their limit",
+          "hint": "Goes in the daily summary.",
+          "error": "1 to 99."
+        },
+        "shipmentCancels": {
+          "label": "Alert when a shipment has this many cancelled labels",
+          "hint": "Immediate email.",
+          "error": "1 to 10."
+        },
+        "personCancels": {
+          "label": "Alert when a person cancels this many labels in 24 hours",
+          "hint": "Immediate email. Labels the system cancels on its own don't count.",
+          "error": "1 to 50."
+        },
+        "drift": {
+          "label": "Immediate email if a label's charge exceeds the quote by more than",
+          "hint": "Any smaller difference goes in the summary.",
+          "error": "Can't be negative."
+        },
+        "extra": {
+          "label": "Immediate email if a carrier extra charge is over",
+          "hint": "Smaller ones go in the summary.",
+          "error": "Can't be negative."
+        },
+        "refundDays": {
+          "label": "Alert if Skydropx doesn't confirm the refund of a cancelled label within",
+          "hint": "Skydropx doesn't always say how much it refunds; that's why we alert even if it may have come back.",
+          "error": "1 to 30."
+        },
+        "notShippedDays": {
+          "label": "Alert if a bought label hasn't shipped within",
+          "hint": "The alert clears itself when the parcel ships or the label is cancelled.",
+          "error": "1 to 30."
+        },
+        "days": "days",
+        "lowBalanceNote": "The low-balance alert uses “Alert if the balance drops below”, in Shipping.",
+        "alerts": {
+          "legend": "Alerts switched on",
+          "option": "{code} · {title}",
+          "immediate": "Immediate email",
+          "digest": "Daily summary",
+          "byAmount": "Immediate or summary, depending on the amount",
+          "byCase": "Immediate or summary, depending on the case",
+          "note": "A switched-off alert isn't recorded: not in the list and not by email. What happens while it's off can't be seen later."
+        },
+        "save": "Save spending control",
+        "saved": "Spending control settings saved.",
+        "offTitle": "Switch off {n, plural, one {# alert} other {# alerts}}?",
+        "offBody": "While they're off they aren't recorded. What happens can't be seen later: {list}.",
+        "offConfirm": "Yes, switch them off",
+        "back": "Back"
+      },
+      "ownerOnly": {
+        "note": "Only the owner can change this.",
+        "denied": "Nothing was saved: only the owner can change {fields}.",
+        "field": {
+          "operatorLabelCap24hCents": "the per-person label limit",
+          "shippingLabelReissueMaxPerShipment": "the rebuys per shipment",
+          "spendAlertsDisabled": "which alerts are on",
+          "spendAlertLabelCapWarnPct": "the limit alert percentage",
+          "spendAlertShipmentCancelCount": "the cancelled labels per shipment",
+          "spendAlertPersonCancelCount24h": "the cancelled labels per person",
+          "spendAlertChargeDriftImmediateCents": "the charge difference",
+          "spendAlertExtraChargeImmediateCents": "the extra charge",
+          "skydropxLowBalanceCents": "the low balance",
+          "spendAlertCancelRefundDays": "the refund days",
+          "spendAlertLabelNotShippedDays": "the days without shipping",
+          "shippingLabelPurchase": "who can buy labels",
+          "other": "an owner setting"
+        }
       }
     },
     "m7": {

@@ -22,15 +22,18 @@ beforeEach(() => {
     addressTemplates: [{ id: 'tpl', alias: 'Verapaz', addressType: 'from', isDefault: true, postalCode: '14210' }],
   });
   vi.spyOn(api, 'listShippingPackages').mockResolvedValue([]);
+  // 🔒 v1.80.12.10: el interruptor y el saldo bajo son diales del dueño ⇒ estas pruebas corren con la sesión del dueño.
+  vi.spyOn(api, 'getMe').mockResolvedValue({ id: 'u-sa1', email: 'd@x.mx', name: 'Dueño', role: 'super_admin', locale: 'es', isOwner: true });
 });
 
 describe('UX-SDX-17 · la puerta de compra y los escalones', () => {
-  it('pasar a «También los operadores» abre el diálogo y NO manda PUT hasta confirmar', async () => {
+  it('pasar a «También el personal» abre el diálogo y NO manda PUT hasta confirmar', async () => {
     const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
     renderWithProviders(<ShippingSection />, 'es');
     const group = await screen.findByTestId('shipping-purchase');
-    fireEvent.click(within(group).getByRole('radio', { name: /También los operadores/ }));
-    const dialog = await screen.findByRole('dialog', { name: '¿Dejar que los operadores compren guías?' });
+    await waitFor(() => expect(within(group).getByRole('radio', { name: /También el personal/ })).toBeEnabled());
+    fireEvent.click(within(group).getByRole('radio', { name: /También el personal/ }));
+    const dialog = await screen.findByRole('dialog', { name: '¿Dejar que el personal compre guías?' });
     expect(put).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sí, dejar que compren' }));
     await waitFor(() => expect(put).toHaveBeenCalledWith({ shippingLabelPurchase: 'operators' }));
@@ -38,7 +41,9 @@ describe('UX-SDX-17 · la puerta de compra y los escalones', () => {
   it('bajar a «Nadie» no pregunta', async () => {
     const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
     renderWithProviders(<ShippingSection />, 'es');
-    fireEvent.click(within(await screen.findByTestId('shipping-purchase')).getByRole('radio', { name: /Nadie/ }));
+    const group = await screen.findByTestId('shipping-purchase');
+    await waitFor(() => expect(within(group).getByRole('radio', { name: /Nadie/ })).toBeEnabled());
+    fireEvent.click(within(group).getByRole('radio', { name: /Nadie/ }));
     await waitFor(() => expect(put).toHaveBeenCalledWith({ shippingLabelPurchase: 'disabled' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });

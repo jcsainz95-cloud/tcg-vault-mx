@@ -31,6 +31,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 import { IvaTransferSection } from './sections/IvaTransferSection';
 import { ShippingSection } from './sections/ShippingSection';
+import { SpendControlSection } from './sections/SpendControlSection';
 import { PremiumFloorSection } from './sections/PremiumFloorSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
@@ -448,6 +449,10 @@ export function M10View() {
       {/* ⭐ §43.10 — «Envíos (Skydropx)»: sección propia porque gobierna dinero (la puerta de compra, los
           escalones de seguro). Después del premium en el piso y antes de la ingesta (FS-8). */}
       <ShippingSection />
+
+      {/* 💰 §43.19.10a — «Control del gasto»: justo después de «Envíos», sección propia (gobierna dinero); diales del
+          dueño (§19.30.2 (1)). `id="control-gasto"` es el destino del enlace «Cambiar el tope» de un aviso. */}
+      <SpendControlSection />
 
       {/* Sección 1b: proveedor de la INGESTA MASIVA (bulk). Separado a propósito de los
           per-carta de arriba para que el humano no los confunda (P-47). */}
