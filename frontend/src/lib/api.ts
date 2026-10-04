@@ -1627,6 +1627,8 @@ export interface AdminShipmentsFilters {
   status?: string;
   /** v1.80 (§M4-SHIP.10): número de pedido, correo, nombre del cliente o destinatario; `id` exacto. */
   q?: string;
+  /** 🔒 v1.80.12.10 (§19.30.8 S-GAS-2): igualdad exacta `^ENV-\d{6,}$` (el enlace de un aviso de retiro). */
+  folio?: string;
   page?: number;
   pageSize?: number;
 }
@@ -1640,7 +1642,7 @@ export async function getAdminShipments(
 ): Promise<Paginated<AdminShipmentDTO>> {
   if (!config.useMocks) {
     return apiRequest<Paginated<AdminShipmentDTO>>('/admin/shipments', {
-      query: { status: filters.status, q: filters.q?.trim() || undefined, page: filters.page, pageSize: filters.pageSize },
+      query: { status: filters.status, q: filters.q?.trim() || undefined, folio: filters.folio, page: filters.page, pageSize: filters.pageSize },
     });
   }
   // MOCK §M4-SHIP.10: cada fila gana `customer`, `preparedAt`, `missingCount`… del servidor falso vivo,
@@ -1651,6 +1653,7 @@ export async function getAdminShipments(
     return sdx.mockDecorateAdminShipment({ ...s, ...(m4ship.mockShipAdminAdditions(s.id) ?? {}), ...(live ? { status: live } : {}) });
   });
   if (filters.status) data = data.filter((s) => s.status === filters.status);
+  if (filters.folio) data = data.filter((s) => s.folio === filters.folio);
   const q = filters.q?.trim().toLowerCase();
   if (q) {
     data = data.filter((s) =>

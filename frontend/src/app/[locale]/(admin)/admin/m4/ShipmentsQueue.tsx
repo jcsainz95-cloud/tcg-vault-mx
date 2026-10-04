@@ -66,7 +66,7 @@ const MANUAL_TRANSITIONS: Partial<Record<ShipmentStatus, ShipmentStatus[]>> = {
  * §M4-SHIP.9/.10): quién es quién (número de pedido y COMPRADOR), búsqueda `?q=`, guía, enviado/entregado
  * con confirmación y el «Cancelar» que solo existe en `solicitado`.
  */
-export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminShipmentDTO) => void }) {
+export function ShipmentsQueue({ onCaptureGuide, initialFolio = null }: { onCaptureGuide: (s: AdminShipmentDTO) => void; initialFolio?: string | null }) {
   const t = useTranslations('admin.m4');
   const ts = useTranslations('shipments');
   const tStatus = useTranslations('status.shipment');
@@ -86,9 +86,11 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
   const tooLong = search.trim().length > 200;
   const q = tooLong ? '' : debounced.trim();
 
+  // 🔒 S-GAS-2: `?folio=` (enlace de un aviso de retiro) filtra por igualdad exacta; se quita con su ✕.
+  const [folioFilter, setFolioFilter] = useState<string | null>(initialFolio);
   const shipments = useQuery({
-    queryKey: ['admin-shipments', statusFilter, q],
-    queryFn: () => getAdminShipments({ status: statusFilter || undefined, q: q || undefined }),
+    queryKey: ['admin-shipments', statusFilter, q, folioFilter ?? ''],
+    queryFn: () => getAdminShipments({ status: statusFilter || undefined, q: q || undefined, folio: folioFilter ?? undefined }),
   });
 
   // --- Cambio de estado manual (contrato §M4 · PATCH /admin/shipments/:id/status) ---
@@ -170,6 +172,14 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
           />
         </div>
       </div>
+      {folioFilter && (
+        <p className="flex items-center gap-1 text-sm text-text" data-testid="shipments-folio-filter">
+          {t('folioFilter', { folio: folioFilter })}
+          <Button size="sm" variant="ghost" aria-label={t('folioFilterRemove', { folio: folioFilter })} onClick={() => setFolioFilter(null)}>
+            ✕
+          </Button>
+        </p>
+      )}
       {statusChanged && (
         <Banner variant="success" role="status">
           {t('statusActions.changed', { id: statusChanged })}

@@ -18,3 +18,12 @@ export function parseM4Tab(raw: string | string[] | undefined): M4Tab {
   const v = Array.isArray(raw) ? raw[0] : raw;
   return isM4Tab(v) ? v : M4_TABS[0];
 }
+
+/**
+ * 🔒 v1.80.12.10 (§19.30.8 S-GAS-2): `?folio=ENV-000045` — el enlace de un aviso de gasto de un retiro (sin pedido) abre
+ * «Envíos» filtrado por ese folio. Fuera de formato ⇒ se ignora (el servidor respondería `400`).
+ */
+export function parseFolio(v: string | string[] | undefined): string | null {
+  const one = Array.isArray(v) ? v[0] : v;
+  return one && /^ENV-\d{6,}$/.test(one) ? one : null;
+}

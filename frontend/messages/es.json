@@ -1322,7 +1322,9 @@
       "m4Badge": "{count, plural, one {# pedido por preparar} other {# pedidos por preparar}}",
       "m4BadgeOverdue": "con casos vencidos",
       "manualRefundsBadge": "{count, plural, one {# transferencia pendiente} other {# transferencias pendientes}}",
-      "refunds": "Reembolsos"
+      "refunds": "Reembolsos",
+      "spendAlerts": "Avisos de gasto",
+      "spendAlertsBadge": "{count, plural, one {# aviso inmediato sin ver} other {# avisos inmediatos sin ver}}"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
@@ -1369,6 +1371,15 @@
         "title": "Reembolsos por revisar",
         "detail": "Falta el motivo · el más viejo hace {days, plural, one {# día} other {# días}}",
         "detailNone": "Nada por revisar."
+      },
+      "spendControl": {
+        "title": "Control del gasto",
+        "unseen": "{immediate, plural, =0 {Nada inmediato} one {# inmediato} other {# inmediatos}} y {digest, plural, =0 {nada del resumen} one {# del resumen} other {# del resumen}} sin ver",
+        "labels24h": "Guías, últimas 24 h",
+        "personCap": "{name}: {cents} de {cap}",
+        "personNoCap": "{name}: {cents} · sin tope",
+        "noLabels": "Nadie compró guías en las últimas 24 h.",
+        "more": "y {n} más"
       }
     },
     "m1": {
@@ -2753,7 +2764,9 @@
         "print": "Imprimir lista",
         "printTitle": "Salida de hoy · {date}",
         "withdrawal": "Retiro de bóveda"
-      }
+      },
+      "folioFilter": "Solo el envío {folio}",
+      "folioFilterRemove": "Quitar el filtro del envío {folio}"
     },
     "m5": {
       "title": "Solicitudes de venta",
@@ -5263,6 +5276,249 @@
         "validation": "El precio no es válido: debe ser mayor que cero y como máximo {max}."
       },
       "reload": "Recargar"
+    },
+    "spendAlerts": {
+      "subtitle": "Lo que el sistema detectó solo sobre dinero que nos cuesta. Los inmediatos te llegan también por correo; el resto, en el resumen diario de las 08:00.",
+      "filters": {
+        "kind": "Tipo",
+        "kindAll": "Todos",
+        "kindOption": "{code} · {title}",
+        "severity": "Gravedad",
+        "severityAll": "Todas",
+        "severityImmediate": "Inmediatos",
+        "severityDigest": "Del resumen",
+        "from": "Desde",
+        "to": "Hasta",
+        "unseen": "Solo sin ver",
+        "subject": "Solo de {name}",
+        "subjectRemove": "Quitar el filtro «Solo de {name}»",
+        "subjectUnknown": "esta persona",
+        "clear": "Limpiar filtros"
+      },
+      "col": {
+        "select": "Seleccionar aviso {code}",
+        "selectPage": "Seleccionar los de esta página",
+        "when": "Cuándo",
+        "severity": "Gravedad",
+        "alert": "Aviso",
+        "who": "Quién",
+        "amount": "Monto",
+        "ref": "Pedido / envío",
+        "status": "Estado"
+      },
+      "occurrences": "{n} veces · la última {time}",
+      "severityTag": {
+        "immediate": "Inmediato",
+        "digest": "Resumen"
+      },
+      "noSubject": "Del sistema",
+      "filterBySubject": "Ver solo los avisos de {name}",
+      "noAmount": "sin monto",
+      "orderRef": "Pedido {orderNumber}",
+      "shipmentRef": "Envío {folio}",
+      "noRef": "—",
+      "seenBy": "Visto por {name} · {date}",
+      "unseenTag": "Sin ver",
+      "markSeen": "Marcar visto",
+      "markSelected": "Marcar como vistos ({n})",
+      "marked": "{updated, plural, one {# aviso marcado} other {# avisos marcados}} como visto.",
+      "skipped": "{skipped, plural, one {# aviso no se marcó: es sobre ti y lo marca el dueño.} other {# avisos no se marcaron: son sobre ti y los marca el dueño.}}",
+      "resolved": "Se resolvió solo · {date}",
+      "mutedTag": "Apagado: sin correo",
+      "mail": {
+        "not_applicable": "Va en el resumen de las 08:00",
+        "pending": "Correo en camino",
+        "sending": "Correo en camino",
+        "sent": "Correo enviado · {time}",
+        "batched": "Va en el correo de lote de esa hora",
+        "batch_sent": "Enviado en el correo de lote · {time}",
+        "failed": "El correo falló; lo reintentamos",
+        "failed_unknown": "No sabemos si el correo salió; no lo reenviamos para no duplicarlo",
+        "no_recipient": "Sin correo: no hay cuenta de dueño con correo"
+      },
+      "empty": "Todavía no hay avisos de gasto. Cuando el sistema detecte algo aparecerá aquí; si es inmediato, también te llegará por correo.",
+      "emptyFiltered": "Ningún aviso con estos filtros.",
+      "forbidden": "Esta página es solo del súper-admin.",
+      "summary": {
+        "title": "Resumen de un día",
+        "day": "Día",
+        "note": "Es lo mismo que dice el correo del resumen de ese día.",
+        "byKind": "Por tipo",
+        "colAlert": "Aviso",
+        "colImmediate": "Inmediatos",
+        "colDigest": "Del resumen",
+        "colAmount": "Monto",
+        "byKindEmpty": "Ningún aviso ese día.",
+        "labelSpend": "Gasto en guías por persona",
+        "labelSpendRow": "{name}: {cents} en {labels, plural, one {# guía} other {# guías}}",
+        "labelSpendEmpty": "Nadie compró guías ese día.",
+        "costly": "Elecciones caras",
+        "costlyRow": "{count, plural, one {# guía} other {# guías}} por encima de la recomendada o con margen negativo: {over} de más ({byPerson})",
+        "costlyNone": "Ninguna."
+      },
+      "detail": {
+        "back": "← Avisos de gasto",
+        "who": "Quién",
+        "ref": "Pedido / envío",
+        "first": "Primera vez",
+        "last": "Última vez",
+        "count": "Veces",
+        "mail": "Correo",
+        "seen": "Visto",
+        "markSeen": "Marcar como visto",
+        "stopPurchases": "Frenar la compra de guías",
+        "changeCap": "Cambiar el tope",
+        "notFound": "Ese aviso no existe.",
+        "copy": "Copiar",
+        "copied": "Copiado"
+      },
+      "fact": {
+        "changedKeys": "Qué cambió",
+        "carrierName": "Paquetería",
+        "chargedCents": "Cobrado",
+        "quotedCents": "Cotizado",
+        "diffCents": "Diferencia",
+        "amountCents": "Monto",
+        "priceCents": "Precio de la guía",
+        "usedCents": "Llevaba",
+        "capCents": "Tope",
+        "unrecoveredCents": "Saldo no recuperado",
+        "balanceCents": "Saldo",
+        "thresholdCents": "Umbral",
+        "requiredCents": "Hacía falta",
+        "refundedCents": "Devuelto",
+        "unrefundedCents": "Sin devolver",
+        "expectedChargeCents": "Cobro esperado",
+        "marginCents": "Margen",
+        "recommendedPriceCents": "Recomendada",
+        "overRecommendedCents": "De más sobre la recomendada",
+        "correctionAt": "Corrigió a las",
+        "revisionCount": "Correcciones",
+        "cancelledCount": "Guías canceladas",
+        "unknownRefunds": "Cancelaciones sin cifra de reembolso",
+        "daysSincePurchase": "Días desde la compra",
+        "pct": "Aviso al",
+        "actors": "Quiénes",
+        "kind": "Tipo de cargo",
+        "cancelKind": "Cómo se canceló",
+        "cause": "Causa",
+        "status": "Estado de la paquetería",
+        "providerReference": "Folio en Skydropx"
+      },
+      "noData": "sin dato",
+      "ref": {
+        "order": "el pedido {orderNumber}",
+        "shipment": "el envío {folio}",
+        "none": "un envío"
+      },
+      "personNone": "una cuenta sin nombre",
+      "and": "y",
+      "field": {
+        "recipientName": "destinatario",
+        "line1": "calle y número",
+        "line2": "interior",
+        "postalCode": "CP",
+        "neighborhood": "colonia",
+        "city": "municipio",
+        "state": "estado",
+        "country": "país",
+        "references": "referencias"
+      },
+      "chargeKind": {
+        "overweight": "sobrepeso",
+        "extended_zone": "zona extendida",
+        "return": "devolución",
+        "other": "otro cargo"
+      },
+      "cancelKind": {
+        "reissue": "recompra",
+        "auto_close": "cancelación automática al cerrar el envío",
+        "orphan_auto": "guía de más cancelada sola",
+        "orphan_manual": "guía de más cancelada por una persona"
+      },
+      "kind": {
+        "AG-1": {
+          "title": "Corrigió la dirección y compró la guía",
+          "text": "{person} corrigió la dirección de {ref} ({fields}) y compró su guía: {carrier}, {charged}."
+        },
+        "AG-2": {
+          "title": "Cerca del tope de guías",
+          "text": "{person} lleva {used} en guías en las últimas 24 horas: el {pct} % de su tope de {cap}."
+        },
+        "AG-3": {
+          "title": "Guía negada por el tope",
+          "text": "A {person} se le negó la guía de {ref} ({price}): con ella pasaba su tope de {cap} en 24 horas (llevaba {used}). Puedes comprarla tú o subir su tope."
+        },
+        "AG-4": {
+          "title": "Cancelar y volver a comprar",
+          "textShipment": "{ref} lleva {k} guías canceladas ({who}). Saldo no recuperado: {unrecovered}{unknown}.",
+          "textPerson": "{person} canceló {k} guías en las últimas 24 horas. Saldo no recuperado: {unrecovered}{unknown}.",
+          "unknown": "; sin cifra de reembolso en {u}",
+          "denied": "Se negó otra guía de {ref}: ya había usado su recompra."
+        },
+        "AG-5": {
+          "title": "Se cobró distinto de lo cotizado",
+          "text": "La guía de {ref} se cobró en {charged}; se cotizó en {quoted} ({diff})."
+        },
+        "AG-6": {
+          "title": "Cargo extra de la paquetería",
+          "text": "Cargo extra de {carrier} en {ref}: {type}, {amount}."
+        },
+        "AG-7": {
+          "title": "Saldo de Skydropx bajo",
+          "textOpen": "Tu saldo de Skydropx bajó a {balance} (avisamos debajo de {threshold}). Recarga en el panel de Skydropx.",
+          "textInsufficient": "Una guía de {ref} no se pudo comprar: el saldo no alcanzaba (hacían falta {required})."
+        },
+        "AG-8": {
+          "title": "Reembolso de cancelación que no llegó",
+          "textA": "La guía cancelada de {ref} costó {charged} y Skydropx devolvió {refunded}: faltan {unrefunded}.",
+          "textB": "Se canceló la guía de {ref} y Skydropx no dijo cuánto devolvió; no podemos confirmar que regresaran {charged}. Revísalo en tu panel de Skydropx."
+        },
+        "AG-9": {
+          "title": "Cobro sin guía o guía de más",
+          "charged_not_found": "Skydropx descontó {amount} por la guía de {ref} y no encontramos la guía. Búscala en tu panel de Skydropx como «Pedido {reference}».",
+          "orphan": "Skydropx tiene una guía pagada de un intento anterior de {ref} («Pedido {reference}», {amount}) que no se canceló sola. Cancélala en tu panel de Skydropx para recuperar el saldo.",
+          "duplicate": "Skydropx creó dos guías para la misma compra de {ref} («Pedido {reference}»): se cobró dos veces. Cancela la que sobra en tu panel de Skydropx.",
+          "orphan_auto_cancelled": "Cancelamos sola una guía de más de {ref} («Pedido {reference}», {amount}). No tienes que hacer nada; si el saldo no regresa, te avisamos.",
+          "orphan_fuse": "Hoy ya se cancelaron solas varias guías de más y, por seguridad, dejamos de cancelarlas solas hasta mañana. Revisa las guías de más en tu panel de Skydropx.",
+          "other": "Hay dinero de guías de {ref} que no cuadra. Revísalo en tu panel de Skydropx."
+        },
+        "AG-10": {
+          "title": "Guía comprada que no sale",
+          "text": "La guía de {ref} ({carrier}, {charged}) se compró hace {d} días y el paquete no ha salido. Si ya no va a salir, cancélala para recuperar el saldo."
+        },
+        "AG-11": {
+          "title": "Paquete devuelto o destruido",
+          "text": "El paquete de {ref} ({carrier}) {status, select, destroyed {fue destruido por la paquetería} other {viene de regreso a la tienda}}. La guía costó {charged}."
+        },
+        "AG-12": {
+          "title": "Incidencia de la paquetería",
+          "text": "{carrier} reporta {status, select, retained {el paquete retenido} delivery_attempt {un intento de entrega fallido} other {una incidencia}} en {ref}."
+        },
+        "AG-13": {
+          "title": "Guía cara o con margen negativo",
+          "text": "{person} compró la guía de {ref} {parts}.",
+          "negative": "con margen negativo ({margin})",
+          "over": "{over} por encima de la recomendada ({price} contra {recommended})"
+        },
+        "AG-21": {
+          "title": "Cambió la cuenta del dueño",
+          "titleNoOwner": "No hay cuenta de dueño",
+          "textChanged": "La cuenta del dueño pasó de {previous} a {current}.",
+          "textNoOwner": "Ninguna cuenta está marcada como la del dueño: nadie queda sin tope, nadie puede cambiar los ajustes de gasto y los correos no salen."
+        },
+        "AG-22": {
+          "title": "Cambio en cuentas del personal",
+          "text": "{person} {act, select, staff_created {creó la cuenta de} staff_password_reset {restableció la contraseña de} staff_status_changed {cambió el estado de} staff_deleted {borró la cuenta de} owner_account_denied {intentó cambiar la cuenta del dueño:} owner_setting_denied {intentó cambiar ajustes del dueño:} other {hizo un cambio en}} {target}."
+        },
+        "generic": {
+          "title": "Aviso {code}",
+          "text": "Abre el aviso para ver los datos."
+        }
+      },
+      "prev": "Anterior",
+      "next": "Siguiente",
+      "pageInfo": "Página {page} de {totalPages} · {total, plural, one {# aviso} other {# avisos}}"
     }
   },
   "locale": {

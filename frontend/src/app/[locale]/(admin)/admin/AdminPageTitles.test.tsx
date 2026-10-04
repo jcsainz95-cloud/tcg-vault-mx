@@ -73,6 +73,8 @@ import VaultsPage from './vaults/page';
 import { RefundsView } from './refunds/RefundsView';
 // eslint-disable-next-line import/first
 import { parseRefundsTab } from './refunds/tabs';
+// eslint-disable-next-line import/first
+import { SpendAlertsView } from './spend-alerts/SpendAlertsView';
 
 /**
  * Fusión release-s5: `m4/page.tsx` pasó a componente de SERVIDOR asíncrono (lee `?tab=`), que el render
@@ -86,6 +88,11 @@ function M4Page() {
 /** v4.10 (§37.20): `refunds/page.tsx` también es de servidor asíncrono; se mide lo que devuelve sin `?tab=`. */
 function RefundsPage() {
   return <RefundsView initialTab={parseRefundsTab(undefined)} />;
+}
+
+/** v4.20 (§43.19.8): `spend-alerts/page.tsx` también es de servidor asíncrono (lee los filtros); se mide sin ellos. */
+function SpendAlertsPage() {
+  return <SpendAlertsView />;
 }
 
 /** v4.12 (§40.3 b): `m3/page.tsx` también es de servidor asíncrono (lee `?refundReview=`); se mide sin el parámetro. */
@@ -111,6 +118,7 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/m12': M12Page,
   '/admin/vaults': VaultsPage,
   '/admin/refunds': RefundsPage,
+  '/admin/spend-alerts': SpendAlertsPage,
 };
 
 const MODULES_ES = es.admin.modules as Record<string, string>;
@@ -150,6 +158,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     // pestaña con dos cubetas»): UNA entrada «Reembolsos», en el mismo hueco tras «Ventas», SÚPER.
     // ⛔ ninguna entrada a `/admin/manual-refunds` (la lista vive en la cubeta SPEI; el detalle sigue en su ruta).
     ['Día a día', '/admin/refunds', 'Reembolsos', 'Refunds', true],
+    // v4.20 (§43.19.8, GAS-1): «Avisos de gasto», SÚPER, justo tras «Reembolsos».
+    ['Día a día', '/admin/spend-alerts', 'Avisos de gasto', 'Spending alerts', true],
     // «Pedidos por preparar»: elección del dueño (HECHOS.md, 2026-09-29) sobre el «Preparar y
     // enviar» que proponía §37.2b. Menú y `h1` salen de la MISMA clave (`admin.modules.m4`).
     ['Día a día', '/admin/m4', 'Pedidos por preparar', 'Orders to prepare', false],
@@ -189,17 +199,17 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     expect(nav.querySelector(':scope > div:first-child > p')).toBeNull();
   });
 
-  it('RF-1 (§37.20): una sola entrada de reembolsos, entre «Ventas» y «Pedidos por preparar»; ninguna a la lista vieja', () => {
+  it('RF-1 (§37.20): una sola entrada de reembolsos, entre «Ventas» y «Avisos de gasto» (v4.20); ninguna a la lista vieja', () => {
     pathState.pathname = '/admin';
     renderWithProviders(<AdminSidebar />, 'es');
     const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') ?? '');
-    // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16.
-    expect(hrefs).toHaveLength(16);
+    // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16; v4.20 añade «Avisos de gasto» ⇒ 17.
+    expect(hrefs).toHaveLength(17);
     expect(hrefs.filter((h) => h.startsWith('/admin/manual-refunds'))).toEqual([]);
     const refunds = screen.getAllByRole('link').filter((a) => /Reembolsos/.test(a.textContent ?? ''));
     expect(refunds.map((a) => a.getAttribute('href'))).toEqual(['/admin/refunds']);
     const i = hrefs.indexOf('/admin/refunds');
-    expect([hrefs[i - 1], hrefs[i + 1]]).toEqual(['/admin/m3', '/admin/m4']);
+    expect([hrefs[i - 1], hrefs[i + 1]]).toEqual(['/admin/m3', '/admin/spend-alerts']);
   });
 
   it('en inglés, los mismos nombres de la tabla', () => {

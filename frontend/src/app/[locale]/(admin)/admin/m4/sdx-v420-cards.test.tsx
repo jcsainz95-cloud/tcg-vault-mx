@@ -348,3 +348,20 @@ describe('PS-164 (S-GAS-1) · «Salida de hoy» con folio', () => {
     expect(document.body.textContent).not.toContain(UUID);
   });
 });
+
+describe('S-GAS-2 (§19.30.8) · «Envíos» filtrado por folio (el enlace de un aviso de retiro)', () => {
+  it('`?folio=ENV-000047` ⇒ `GET /admin/shipments` con `folio`; su chip lo quita; fuera de formato ⇒ se ignora', async () => {
+    const { parseFolio } = await import('./tabs');
+    expect(parseFolio('ENV-000047')).toBe('ENV-000047');
+    expect(parseFolio(['ENV-1000000'])).toBe('ENV-1000000');
+    expect(parseFolio('ENV-47')).toBeNull();
+    expect(parseFolio('x')).toBeNull();
+    const list = vi.spyOn(api, 'getAdminShipments').mockResolvedValue({ data: [row()], page: 1, pageSize: 20, total: 1 });
+    renderWithProviders(<ShipmentsQueue onCaptureGuide={() => {}} initialFolio="ENV-000047" />, 'es');
+    expect(await screen.findByTestId('shipments-folio-filter')).toHaveTextContent('Solo el envío ENV-000047');
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ folio: 'ENV-000047' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar el filtro del envío ENV-000047' }));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ folio: undefined })));
+    expect(screen.queryByTestId('shipments-folio-filter')).not.toBeInTheDocument();
+  });
+});

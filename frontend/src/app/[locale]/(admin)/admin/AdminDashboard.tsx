@@ -10,6 +10,7 @@ import { formatMoneyCents, formatDate } from '@/lib/format';
 import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
+import type { SpendControlDTO } from '@/types/contract';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
@@ -25,6 +26,52 @@ function QueueLink({ href, label, count }: { href: string; label: string; count:
     >
       {label} <span className="tabular font-medium text-text">{count}</span>
     </Link>
+  );
+}
+
+/**
+ * «Control del gasto» (`DESIGN_SYSTEM §43.19.9`). ⛔ GAS-4: cada cifra tal cual del DTO — ni barra de progreso ni color
+ * por cercanía al tope (sería calcular un porcentaje en pantalla). «Últimas 24 h», ⛔ nunca «hoy»: es la ventana
+ * móvil del tope. Personas en el orden del servidor, máximo 5.
+ */
+function SpendControlCard({ data }: { data: SpendControlDTO }) {
+  const t = useTranslations('admin.dashboard.spendControl');
+  const locale = useLocale() as AppLocale;
+  const money = (c: number) => formatMoneyCents(c, locale);
+  const shown = data.labelSpend24h.slice(0, 5);
+  const rest = data.labelSpend24h.length - shown.length;
+  return (
+    <StatCard
+      label={t('title')}
+      // Bermellón SOLO si hay inmediatos sin ver (el patrón de `dataHealth`).
+      className={data.unseenImmediate > 0 ? '[&_span.tabular]:text-accent' : undefined}
+      value={<span data-testid="dashboard-spend-control-value">{data.unseenImmediate}</span>}
+      sub={
+        <div className="flex flex-col gap-1" data-testid="dashboard-spend-control">
+          <Link
+            href="/admin/spend-alerts?unseen=true"
+            className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+          >
+            {t('unseen', { immediate: data.unseenImmediate, digest: data.unseenDigest })}
+          </Link>
+          <span>{t('labels24h')}</span>
+          {shown.length === 0 ? (
+            <span>{t('noLabels')}</span>
+          ) : (
+            <ul className="flex flex-col">
+              {shown.map((p) => (
+                <li key={p.userId}>
+                  {p.capCents === null
+                    ? t('personNoCap', { name: p.name?.trim() || '—', cents: money(p.cents) })
+                    : t('personCap', { name: p.name?.trim() || '—', cents: money(p.cents), cap: money(p.capCents) })}
+                </li>
+              ))}
+            </ul>
+          )}
+          {rest > 0 && <span>{t('more', { n: rest })}</span>}
+        </div>
+      }
+    />
   );
 }
 
@@ -235,6 +282,8 @@ export function AdminDashboard() {
                 }
               />
             )}
+            {/* 💰 v1.80.12.9 (§19.29.9, DESIGN_SYSTEM §43.19.9): solo súper-admin; `null` ⇒ la tarjeta NO existe (GAS-1). */}
+            {isSuperAdmin && query.data.workQueue.spendControl && <SpendControlCard data={query.data.workQueue.spendControl} />}
             <StatCard
               label={t('inventoryValue')}
               value={formatMoneyCents(query.data.inventoryValueCents ?? 0, locale)}

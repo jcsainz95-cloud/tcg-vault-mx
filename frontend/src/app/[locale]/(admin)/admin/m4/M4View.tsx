@@ -28,7 +28,7 @@ export { pesosToCents };
  * `ShipmentsQueue`; hueco 15 (confirmar enviado/entregado) lo cubre la confirmación de §37.6 (S9) de
  * `ShipmentsQueue`; hueco 1 («Ubicar», solo envío directo) en `ShipPreparationCard`.
  */
-export function M4View({ initialTab = 'preparar' }: { initialTab?: M4Tab }) {
+export function M4View({ initialTab = 'preparar', initialFolio = null }: { initialTab?: M4Tab; initialFolio?: string | null }) {
   const t = useTranslations('admin.m4');
   const tModules = useTranslations('admin.modules'); // §37.2a-2: h1 = rótulo del menú (candado P66-2)
   const ts = useTranslations('admin.m4.prep.ship');
@@ -151,7 +151,7 @@ export function M4View({ initialTab = 'preparar' }: { initialTab?: M4Tab }) {
       <div role="tabpanel" id={`m4-panel-${tab}`} aria-labelledby={`m4-tab-${tab}`}>
         {tab === 'preparar' && <PreparationQueue onCaptureGuide={openFromCard} />}
         {tab === 'reponer' && <ReplacementCasesPanel />}
-        {tab === 'envios' && <ShipmentsQueue onCaptureGuide={openFromRow} />}
+        {tab === 'envios' && <ShipmentsQueue onCaptureGuide={openFromRow} initialFolio={initialFolio} />}
         {tab === 'salida' && <DepartureBoard />}
       </div>
 
