@@ -191,6 +191,24 @@ jobs:
       # nunca desde CI. DEVOPS_NOTES §78.
       - name: Sonda Skydropx — prueba de solo lectura (PS-99 d)
         run: ../scripts/skydropx/run-prod-probe.sh test
+      # M-64: el importador del catálogo de CP de SEPOMEX (scripts/geo/). Su prueba
+      # corre contra una base DEDICADA (`tcg_sepomex_ci`, la crea `migrate deploy`
+      # porque el usuario del servicio es superusuario), nunca contra `tcg_ci`: la
+      # prueba vacía la tabla. Mide carga, resolución por `resolvePostalCode`,
+      # idempotencia y que todo fallo deja la tabla idéntica. DEVOPS_NOTES §79.
+      - name: Importador SEPOMEX — prueba con base dedicada (M-64)
+        run: |
+          SEPOMEX_TEST_DATABASE_URL="$(printf '%s' "$DATABASE_URL" | sed 's#/tcg_ci?#/tcg_sepomex_ci?#')"
+          case "$SEPOMEX_TEST_DATABASE_URL" in
+            *"/tcg_sepomex_ci?"*) ;;
+            *) echo "::error::no pude derivar la base dedicada de DATABASE_URL"; exit 1 ;;
+          esac
+          export SEPOMEX_TEST_DATABASE_URL
+          DATABASE_URL="$SEPOMEX_TEST_DATABASE_URL" npx prisma migrate deploy
+          out="$(../scripts/geo/import-sepomex.sh test)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          # La parte con base NO puede saltarse en verde.
+          printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base se saltó"; exit 1; }
       - name: Build
         run: npm run build --if-present
 
