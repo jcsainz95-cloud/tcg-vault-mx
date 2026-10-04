@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { TrackingDto, UpdateStatusDto } from './dto/shipments.dto';
 import { ShipmentPrepService } from './shipment-prep.service';
 import { ShipmentAddressService } from './shipment-address.service';
+import { ShipmentQuoteService } from './label-quote.service';
 
 /**
  * M4 — Retiros / envíos (vault_operator+). API_CONTRACT §M4.
@@ -19,6 +20,7 @@ export class AdminShipmentsController {
     private readonly audit: AuditService,
     private readonly prep: ShipmentPrepService,
     private readonly address: ShipmentAddressService,
+    private readonly quotes: ShipmentQuoteService,
   ) {}
 
   @Get()
@@ -117,6 +119,23 @@ export class AdminShipmentsController {
   @HttpCode(200)
   correctAddress(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
     return this.address.correct(id, body, user);
+  }
+
+  /**
+   * 💰 ⭐ v1.81 D2b (§M4-SHIP.19.6 + §19.19.4/.5) — cotizar desde la ventana «Capturar guía» (operador+). Solo inserta la
+   * cotización; ⛔ no escribe el envío; ⛔ no pasa por la puerta de compra (solo exige `shipping_provider='skydropx'`).
+   */
+  @Post(':id/quote')
+  @HttpCode(200)
+  quote(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.quotes.quote(id, body, user);
+  }
+
+  /** ⭐ v1.81 D2b — la cotización vigente (en plazo y de la dirección vigente, §19.20.1) o `404`. */
+  @Header('Cache-Control', 'no-store')
+  @Get(':id/quote')
+  currentQuote(@Param('id') id: string) {
+    return this.quotes.current(id);
   }
 
   @Patch(':id/status')

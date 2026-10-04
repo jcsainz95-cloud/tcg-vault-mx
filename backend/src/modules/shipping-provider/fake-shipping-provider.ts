@@ -13,9 +13,11 @@
  * Programable: resultados de compra en cola (número / `null` / `error_detail` / en vuelo / rechazo), barrera en la
  * compra, estado y eventos por envío, cancelación que acepta o rechaza con `refundedCents`, saldo, cargos extra.
  */
+import { randomUUID } from 'crypto';
 import { buildPurchaseBody } from './skydropx.adapter';
 import { completedQuotationFixture } from './fixtures/skydropx-quotation.fixture';
 import { insuranceEchoOf, normalizeRates } from './rate-normalization';
+import { redactProviderPayload } from './redact';
 import { ShippingProviderError, ShippingProviderPurchaseInFlightError } from './shipping-provider.errors';
 import {
   AddressTemplateSummary,
@@ -77,9 +79,16 @@ export class FakeShippingProvider implements ShippingProviderPort {
   defaultTrackingUrl: string | null = null;
 
   private seq = 0;
+  /** Ids únicos por instancia: una BD de pruebas reutilizada no ve el `fake-quotation-1` de una corrida anterior. */
+  private readonly tag = randomUUID().slice(0, 8);
   private readonly quotations = new Map<string, { id: string; coverageCents: number }>();
   private readonly ratesById = new Map<string, ProviderRate>();
   private readonly shipments = new Map<string, ProviderShipmentState>();
+
+  /** Olvida las cotizaciones vistas (M-5): la siguiente de cada ruta+medidas nace con id nuevo y su propio seguro. */
+  forgetQuotations(): void {
+    this.quotations.clear();
+  }
 
   callsOf(op: string): FakeCall[] {
     return this.calls.filter((c) => c.op === op);
@@ -92,7 +101,7 @@ export class FakeShippingProvider implements ShippingProviderPort {
     let entry = this.reuseQuotations ? this.quotations.get(key) : undefined;
     if (!entry) {
       this.seq += 1;
-      entry = { id: `fake-quotation-${this.seq}`, coverageCents: p.coverageCents };
+      entry = { id: `fake-quotation-${this.tag}-${this.seq}`, coverageCents: p.coverageCents };
       this.quotations.set(key, entry);
     }
     const raw = this.quotationFixture();
@@ -128,7 +137,8 @@ export class FakeShippingProvider implements ShippingProviderPort {
       rates,
       excluded,
       insuranceEcho,
-      raw: { id: entry.id, is_completed: this.quoteCompleted },
+      // Como el adaptador real: la respuesta ENTERA ya redactada por lista blanca (D2b recalcula `excluded` de aquí).
+      raw: redactProviderPayload(raw),
     };
   }
 
@@ -144,7 +154,7 @@ export class FakeShippingProvider implements ShippingProviderPort {
       throw ShippingProviderError.rejected('purchase', outcome.providerCode ?? 'rejected', outcome.providerMessage ?? 'rechazada');
     }
     this.seq += 1;
-    const providerShipmentId = `fake-shipment-${this.seq}`;
+    const providerShipmentId = `fake-shipment-${this.tag}-${this.seq}`;
     const rate = this.ratesById.get(input.rateId) ?? null;
     if (outcome.kind === 'error_detail') {
       return {

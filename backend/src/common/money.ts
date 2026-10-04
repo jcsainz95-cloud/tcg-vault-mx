@@ -1084,3 +1084,16 @@ export function subtractRefundComponents(a: RefundComponents, b: RefundComponent
     compensationCents: a.compensationCents - b.compensationCents,
   };
 }
+
+/**
+ * ⭐💰 v1.81 (API_CONTRACT §M4-SHIP.19.11, §19.19.4) — el IVA del COSTO de una guía de Skydropx cuando el proveedor no
+ * da la línea (`vat_fee: null`) o el total de la compra derivó del cotizado: **16/116** de `(total − tarifa de gestión)`.
+ * Es la regla que el panel MIDIÓ (levantamiento M1; PROD §4.3: `vat_fee = 16 % × (amount + extras)`), ⛔ NO el dial
+ * `iva_pct`: el P&L histórico no cambia si el dial se mueve (`IVA-5`). Fracción entera, sin coma flotante en el divisor.
+ */
+export const SKYDROPX_IVA_FRACTION = { numerator: 16, denominator: 116 } as const;
+
+/** `round(taxableCents × 16/116)` en aritmética entera (half-up de `Math.round` sobre el cociente exacto). */
+export function skydropxComputedIvaCents(taxableCents: number): number {
+  return Math.round((taxableCents * SKYDROPX_IVA_FRACTION.numerator) / SKYDROPX_IVA_FRACTION.denominator);
+}

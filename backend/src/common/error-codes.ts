@@ -770,6 +770,27 @@ export const ErrorCode = {
   // ⭐💰 409 — v1.80.12.3 (§M4-SHIP.19.23.3, D2a): hay un reclamo de compra vivo (`labelProcessingSince ≠ null`, sin
   // `labelSource`: la compra salió o está saliendo a Skydropx). Sin `details`. Catálogo del contrato: `API_CONTRACT.md:7259`.
   LABEL_IN_PROGRESS: 'LABEL_IN_PROGRESS',
+  // ⭐💰 Skydropx D2b/D2c (§M4-SHIP.19.6–.8, §19.18.4, §19.29.4; catálogo §0 del contrato). Los emite `shipments/`.
+  // 422 — la dirección del envío no se puede comprar: `details: { missing: ShipmentAddressMissingField[] }` (§19.22.2).
+  SHIPMENT_ADDRESS_INCOMPLETE: 'SHIPMENT_ADDRESS_INCOMPLETE',
+  // 422 — `rateId` no está en la cotización indicada.
+  RATE_NOT_IN_QUOTE: 'RATE_NOT_IN_QUOTE',
+  // 409 — cotización vencida o de otra dirección: `details: { quote: ShipmentQuoteDTO, reason: 'expired'|'address_changed' }`.
+  QUOTE_EXPIRED: 'QUOTE_EXPIRED',
+  // 409 — las cifras que vio el operador ya no son las de la tarifa: `details: { priceCents, marginCents }`.
+  LABEL_PREVIEW_STALE: 'LABEL_PREVIEW_STALE',
+  // 422 — falta confirmar margen negativo / entrega en sucursal: `details: { required, marginCents? }`.
+  LABEL_CONFIRMATION_REQUIRED: 'LABEL_CONFIRMATION_REQUIRED',
+  // 409 — saldo de Skydropx insuficiente: `details: { requiredCents }` (⛔ sin el saldo, T.11).
+  SHIPPING_INSUFFICIENT_BALANCE: 'SHIPPING_INSUFFICIENT_BALANCE',
+  // 404 — sin etiqueta que servir: `details: { labelSource? }`.
+  LABEL_NOT_AVAILABLE: 'LABEL_NOT_AVAILABLE',
+  // 409 — la guía no se puede cancelar: `details: { reason: 'not_provider'|'already_picked_up'|'status', carrierStatus? }`.
+  LABEL_NOT_CANCELLABLE: 'LABEL_NOT_CANCELLABLE',
+  // 409 — `label/release` no aplica: `details: { reason, retryAfterSeconds?, otherShipmentId? }` (§19.18.4, §19.26.3).
+  LABEL_NOT_RELEASABLE: 'LABEL_NOT_RELEASABLE',
+  // 403 💰 — TG-1/TG-2 (§19.29.4): `details: { limit: 'daily_spend'|'reissue' }` (⛔ sin cifras).
+  LABEL_PURCHASE_LIMIT: 'LABEL_PURCHASE_LIMIT',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
