@@ -4,7 +4,22 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.10 (2026-10-02) — «Reembolsos»: una entrada de menú, dos cubetas (decisión del dueño, `HECHOS.md`
+> Estado: **v4.11 (2026-10-04) — precios del 2026-10-04 (decisiones del dueño, `HECHOS.md` 2026-10-04, filas
+> «Precios — decisiones del 2026-10-04» (a)(b) y «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y
+> P-PRE-1» (a)(d)):** **§39 NUEVA.** **§39.1** — control de «Configuración» para el dial `premiumFloorSalePublish`
+> (`API_CONTRACT` v1.80.8.5, ancla `M2-PF`): tres modos (**«Publicar solo estas rarezas»** por defecto con *Double Rare*
+> y *Rare Holo EX* · «Publicar todas al piso» · «Retener todas»), selector de rarezas premium de
+> `GET /admin/pricing/rarities`, un texto por modo que dice qué le pasa a una carta cuyo mercado cae bajo el piso,
+> el aviso **«“ex” en el nombre no es la rareza»**, confirmación y errores del validador. **§39.2** — **precio final a
+> mano SOLO para sellado** (`PROJECT §N.5-bis (b)`, criterio **255**): campo en las filas de **sellado** de «Listas
+> para publicar» (levanta D10 solo para sellado) y en el panel del sellado de «Sellado»; mismo verbo
+> `PATCH /admin/inventory/items/:id { listPriceCents }` (INV-SP-8), con «Guardar y publicar» cuando la pieza ya tiene
+> ubicación; ⛔ ninguna fila de carta suelta o gradeada lo gana (P-PRE-1: su override por pieza **se queda como
+> está**). **§39.3** — «Listas para publicar»: folio que abre la pieza, **motivo por fila** y origen traducido.
+> **Cero tokens nuevos.** Cuatro solicitudes al arquitecto en §39.6 (una toca el criterio 255: la bitácora del precio
+> solo no guarda antes/después — medido). Lo que sigue es la v4.10 sin cambio.
+>
+> Estado anterior: **v4.10 (2026-10-02) — «Reembolsos»: una entrada de menú, dos cubetas (decisión del dueño, `HECHOS.md`
 > 2026-10-02 «Menú del panel: se queda como está; «Reembolsos manuales (SPEI)» y «Reembolsos de operadores» se
 > JUNTAN…»):** las dos entradas `/admin/manual-refunds` y `/admin/refunds` pasan a **una sola**, **«Reembolsos» /
 > “Refunds”**, en el **mismo sitio** (grupo «Día a día», justo tras «Ventas», SÚPER), con el badge de **transferencias
@@ -21163,3 +21178,483 @@ nombre de menú, y coincide con la palabra del dueño («cubetas»). ⛔ Ningún
 |---|---|---|
 | **N-9** | arquitecto | **Ninguna solicitud.** Esta sección no pide campo, endpoint ni permiso nuevo. Si un día se quiere un contador en la pestaña de operadores (p. ej. filas `requested` atascadas), haría falta en el `summary`; hoy **no** se pide |
 | **N-10** | frontend | El orden de los dos cambios importa para el candado §37.2b: menú + `PAGES` + filas del test en el **mismo** commit; si no, P66-2 queda en rojo por una página que ya no está en el menú |
+
+---
+
+## 39. Precios del 2026-10-04 — premium en el piso (dial), precio final del sellado y la cola «Listas para publicar» (v4.11)
+
+**Fuentes (citadas, no resumidas de memoria):**
+
+- `HECHOS.md` 2026-10-04, fila **«Precios — decisiones del 2026-10-04»**: *«que se publiquen solas a 25; el precio
+  final que pueda poner solo lo quiero para producto sellado…»* — puntos (a) y (b).
+- `HECHOS.md` 2026-10-04, fila **«Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1»**: *«solo
+  ex y double rare, lo demás por defecto»* — puntos (a) (solo ex y Double Rare se publican al piso; regla
+  parametrizable) y (d) (el precio a mano por pieza de sueltas y gradeadas **se conserva como está, sin hacerlo más
+  visible**).
+- `PROJECT.md` §N.5-bis (a)(b) y criterios **254** y **255**.
+- `API_CONTRACT.md` v1.80.8.5, [§M2 «v1.80.8.5»](#M2-PF) (el dial), §M1 `#M1-patch-price-guard` (INV-SP-8, el
+  verbo del precio) y §M1 `GET /admin/inventory/pending-publish` (la cola).
+
+**Lo que medí antes de redactar (2026-10-04, worktree `/home/user/tcg-precios`, rama `claude/precios-s5`; sin Bash,
+lectura de ficheros):**
+
+| Medición | Resultado |
+|---|---|
+| El dial en el frontend | `rg premiumFloorSalePublish frontend/src` = **0**. `SettingsDTO` (`types/contract.ts:5040`) no lo declara |
+| Lista de rarezas | `getRarityHealth()` (`lib/api.ts:5494`) ya llama a `GET /admin/pricing/rarities`; filas `{ canonical, raw?, premium, mapped, cardCount }` (`types/contract.ts:4436-4445`). La lista sale **del catálogo**: una canónica sin cartas **no viene** |
+| Piso de venta en vivo | `getPricingCurve()` (`lib/api.ts:5446`) → `sale.floorCents` (`types/contract.ts:4347`). El piso **no** es un dial de settings: es de la curva |
+| Caché de settings | `rg -i "cache\|ttl" backend/src/modules/settings` = 1 acierto y es un comentario «no cacheable» (`settings.controller.ts:113`). **No hay TTL** ⇒ el texto dice «al guardar». Si backend añade caché, ver §39.6 S-4 |
+| M10 hoy | `M10View.tsx:83-107` retícula de diales escalares; diales con regla propia van en **sección propia** (`IvaTransferSection`, montada en `:441`) |
+| La cola | `PendingPublishQueue.tsx`: folio en texto plano (`:187-189`); `MissingCell` pinta solo «Ubicación»/«Precio» (`:23-48`); precio nulo ⇒ siempre «Sin precio resoluble» (`:202-206`, `es.json:1527`); origen ⇒ `row.acquisitionType` **crudo** salvo `buylist` (`:220`); nota «Esta cola solo mira» (`:233`, `es.json:1531`) |
+| DTO de la cola | `PendingPublishRowDTO` (`types/contract.ts:3822-3854`; contrato `:28240-28249`) trae `missing`, `pendingPriceEntryId`, `priceBasis`, `listPriceCents`, `resolvedSalePriceCents`, `locationId`, `productType`. **No trae el motivo** del pendiente de precio (`no_market` / `premium_at_floor`) ⇒ solicitud S-1 |
+| Etiquetas de origen | Ya existen en `admin.m1.acquisitionLabel.*` (`es.json:1391-1395`), pero dicen «Buylist (conversión)» y la cola dice «Compra a vendedor» (`es.json:1525`) ⇒ la cola gana su propio mapa (abajo) |
+| El verbo del precio | `UpdateItemDto.listPriceCents`: `@IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS)` (`inventory.dto.ts:149`), `MAX_LIST_PRICE_CENTS = 100_000_000` (`:57`) ⇒ **MX$1,000,000.00** como máximo. Rol: el controlador es `vault_operator + super_admin` (`inventory.controller.ts:88`) |
+| Bitácora del precio solo | `inventory.service.ts:2494`: «El precio solo no gana bitácora nueva»; `:2509-2521` escribe `before/after` **solo si cambia `status`**; el controlador registra `inventory.update` **sin** antes/después (`inventory.controller.ts:647-653`). Criterio 255 pide «quién, cuándo, antes/después» ⇒ solicitud S-3 |
+| El panel del sellado | `M11View.tsx:118-126` abre `VariantDrawer` con `productType:'sealed'`. El precio por pieza ya es editable ahí (`VariantDrawer.tsx:535-591`), pero **escondido**: el número (o «—») es el botón, sin rótulo, y se edita también sobre `reserved`/terminales (solo se excluye vendida, `:486-488`). Las piezas (`InventoryItemDTO`, `types/contract.ts:2521-2551`) **no traen el precio derivado**; el grupo trae el **mercado** (`marketRefCents`, `M11View.tsx:73`) ⇒ solicitud S-2 |
+
+### 39.1 «Configuración» › Premium en el piso (venta) — el dial `premiumFloorSalePublish`
+
+**Dónde:** sección propia en `/admin/m10` («Configuración»), **entre** el dial del IVA (`IvaTransferSection`,
+`M10View.tsx:441`) y el proveedor de ingesta (`:443`). ⛔ No va en la retícula de diales (`:303-333`): tiene su propio
+borrador, su propia confirmación y su propio botón de guardar, igual que el IVA y la ingesta. Rol: la página ya es
+súper-admin; la sección no añade candado propio.
+
+**Por qué sección propia:** el valor es un **objeto** (`{ mode, rarities }`), su validez depende de las dos mitades a
+la vez (lista vacía ⇔ modo ≠ `only`), y un cambio publica o retira cartas de la tienda al momento. Guardarlo con el
+mismo botón que la tarifa de envío lo haría pasar por un número más.
+
+#### (a) Anatomía (de arriba abajo)
+
+```
+┌─ Cartas premium en el piso (venta) ─────────────────────────────── h2 ─┐
+│ Cuando el mercado de una carta cae por debajo del piso de venta        │
+│ (MX$25.00), … aquí decides cuáles se publican solas al piso …          │  intro (prosa, text-sm muted)
+│                                                                        │
+│ ¿Qué hacer con una premium cuyo mercado cae bajo el piso?   ← legend   │
+│ (●) Publicar solo estas rarezas            [VALOR INICIAL]             │
+│     Las de las rarezas marcadas abajo se publican solas a MX$25.00 …   │  help por modo (text-sm)
+│ ( ) Publicar todas al piso                                             │
+│     Toda premium … Ojo: una carta cara con un dato roto también …      │
+│ ( ) Retener todas                                                      │
+│     Ninguna premium se publica al piso …                               │
+│                                                                        │
+│ ┌ Rarezas que se publican al piso · 2 marcadas ───────── fieldset ──┐ │
+│ │ [x] Double Rare          las «ex» de Escarlata y Púrpura · 412 c. │ │
+│ │ [x] Rare Holo EX         las «EX» de eras anteriores · sin cartas │ │
+│ │ [ ] Illustration Rare                                    · 870 c. │ │
+│ │ [ ] Special Illustration Rare                            · 310 c. │ │
+│ │ [ ] Ultra Rare …                                                  │ │
+│ └───────────────────────────────────────────────────────────────────┘ │
+│ ▸ Rarezas premium sin mapear (siempre se retienen) · 3   ← <details>   │
+│                                                                        │
+│ ▌La rareza manda, no el nombre                 ← Banner info, SIEMPRE  │
+│ ▌Que una carta se llame «ex» no la hace Double Rare. Una Charizard ex… │
+│                                                                        │
+│ Qué pasa al guardar: las publicadas cambian al momento; las de caja …  │  efecto (text-xs muted)
+│ No cambia lo que pagamos al comprar …                                  │
+│ Solo súper-admin · queda en bitácora.                     (mono 11px)  │
+│ [Guardar regla de premium]  [Cancelar]                                 │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Modo = `RadioGroup`** (§6.4) en `fieldset` + `legend`; cada opción con su ayuda **visible siempre** (⛔ tooltip):
+  las tres consecuencias se leen antes de elegir, no después. Orden fijo: `only` · `all` · `none`. La etiqueta
+  **«Valor inicial»** (`Badge` neutro) va junto a `only` porque es el seed del contrato y la decisión del dueño; no
+  marca la opción guardada (esa la marca el radio).
+- **Rarezas = lista de `Checkbox`** (§6.4), ⛔ no un `select multiple` (no se ve qué está marcado sin abrirlo).
+  - **Qué filas:** las de `GET /admin/pricing/rarities` con `premium && mapped`, **más** toda rareza del valor
+    guardado que no venga en la lista (p. ej. `Rare Holo EX` sin cartas en el catálogo): se pinta igual, marcada,
+    con «sin cartas en el catálogo hoy». ⛔ Nunca se descarta en silencio una rareza guardada: desmarcarla sin que el
+    dueño la vea sería cambiar la regla a sus espaldas.
+  - **Orden:** marcadas primero; luego por `cardCount` desc (el orden del endpoint).
+  - **Nombre de la rareza:** la **canónica tal cual** (`lang="en"`, son nombres del juego, no se traducen). Pista
+    en `text-xs muted` **solo** para las dos del seed: «las «ex» de Escarlata y Púrpura» (Double Rare) y «las «EX»
+    de eras anteriores» (Rare Holo EX) — son las dos que el dueño llamó «ex y double rare» y la pista es lo que une
+    su frase con el nombre técnico.
+  - **Cuenta:** «412 cartas en el catálogo» en mono `tabular-nums` a la derecha (`cardCount`).
+  - **Con modo ≠ `only`:** el `fieldset` queda `disabled` (opacidad 0.5, §6.4) y **conserva** la última selección en
+    pantalla con la nota «Solo cuenta con «Publicar solo estas rarezas»». Al volver a `only`, la selección
+    reaparece tal cual. Lo que **se envía** con `all`/`none` es `rarities: []` (el validador exige lista vacía).
+  - **Más de 12 filas:** campo de filtro (`Input` con lupa) arriba de la lista; filtra por subcadena sin
+    distinguir mayúsculas; ⛔ el filtro **nunca oculta una marcada** (las marcadas siempre visibles).
+- **«Rarezas premium sin mapear (siempre se retienen)»** — `<details>` plegado, solo si hay filas `premium &&
+  !mapped`. Lista de solo lectura (sin casilla: el validador rechazaría una no canónica) y el texto que explica que se
+  retienen siempre aunque el nombre diga «ex», y que publicarlas exige darlas de alta en el catálogo de rarezas
+  (trabajo de sistemas). Es la respuesta en pantalla a «¿por qué esta carta ex sigue retenida?» cuando la rareza
+  cruda no está mapeada (contrato M2-PF, «"ex" como PATRÓN no es una canónica»).
+- **Aviso «La rareza manda, no el nombre»** — `Banner` **info**, `role="note"`, **siempre visible** (en los tres
+  modos: con `none` también hay quien pregunta por qué una «ex» no salió). ⛔ No es `warning`: no hay nada mal, es
+  la regla.
+- **Bloque «Qué pasa al guardar»** — prosa `text-xs muted`, siempre visible; y la línea «Solo súper-admin · queda
+  en bitácora» en mono 11 px (§7.6).
+
+**La cifra del piso:** `{floor}` = `formatMoneyCents(curve.sale.floorCents)` de `getPricingCurve()`. Si la curva no
+carga, **cede la cifra, nunca el texto** (misma doctrina que §22.13d): se usan las variantes `…NoFloor` que dicen «el
+piso de venta» sin número. ⛔ Nunca «MX$25» a fuego en el copy: el piso es un dial de M2 y puede cambiar.
+
+#### (b) Estados
+
+| Estado | Qué se pinta |
+|---|---|
+| Cargando settings | `QueryState` de la sección (skeleton de 3 radios) |
+| Settings sin la clave (`premiumFloorSalePublish` ausente en el `GET`) | `Banner` info «Este servidor todavía no tiene este ajuste.» y la sección **deshabilitada**. ⛔ No se asume el seed en pantalla: pintar «Publicar solo estas rarezas» marcado sobre un servidor que no lo aplica sería afirmar una regla que no corre |
+| Rarezas cargando | lista en skeleton; los radios ya operan |
+| Rarezas con error | `Banner` danger dentro del `fieldset` «No pude cargar la lista de rarezas…» + «Reintentar». Con `all`/`none` se puede guardar igual; con `only` **solo** si la selección guardada no cambió (las rarezas guardadas se pintan desde el valor, sin cuenta) |
+| Sin cambios | «Guardar regla de premium» `disabled` |
+| `only` con 0 marcadas | error inline bajo el `fieldset` (`aria-describedby`), botón `disabled`: «Marca al menos una rareza, o elige «Retener todas».» |
+| Guardando | botón `loading` con label persistente (§8.3) |
+| Guardado | `Banner` success `role="status"` con el texto de efecto |
+| `422 VALIDATION_ERROR` | `Banner` danger `role="alert"` «No se guardó: el servidor rechazó la regla. Nada cambió.» + el `message` del servidor debajo en mono 11 px (diagnóstico). La pantalla ya impide las cinco causas del validador (modo fuera del enum, `only` vacío, `all`/`none` con lista, no canónica, no premium, duplicados); si llega, es una discrepancia y el `message` es lo único que la explica. ⛔ No se mapea por `details` (el contrato no fija su forma para este validador — S-5) |
+| Otro error | `common.errorGeneric`, `role="alert"` |
+
+#### (c) Confirmación antes de guardar (`Modal`, §7.6)
+
+Todo cambio de este dial **publica o retira cartas al momento**, así que se confirma. `role="alertdialog"`.
+
+- Título: «¿Cambiar la regla de premium en el piso?»
+- Dos líneas, **antes → ahora**, en palabras: «Antes: publicar solo Double Rare y Rare Holo EX» · «Ahora: publicar
+  todas al piso». La lista de rarezas se une con el formateador de listas del idioma (`Intl.ListFormat`, §9.3), ⛔ no
+  con comas concatenadas.
+- Con destino **`all`**: `Banner` warning dentro del modal: «Con «Publicar todas», cualquier premium con un dato de
+  mercado roto saldría a la venta a {floor}.» (es la razón por la que el dueño eligió `only`).
+- Con destino **`none`** o con rarezas **quitadas**: línea `text-sm`: «Las cartas de las rarezas que dejas de publicar
+  desaparecen de la tienda al guardar. Lo ya vendido se queda vendido.»
+- Botones: `secondary` «Cancelar» · `primary` **«Guardar regla»** (no `destructive`: ninguna dirección es la
+  peligrosa por sí misma).
+
+#### (d) Textos — tabla de claves (namespace `admin.m10.premiumFloor`)
+
+| Clave | ES | EN |
+|---|---|---|
+| `title` | Cartas premium en el piso (venta) | Premium cards at the floor (sale) |
+| `intro` | Cuando el mercado de una carta cae por debajo del piso de venta ({floor}), la tienda la vende al piso. Para las cartas comunes eso es lo normal. En las rarezas premium (ex, Illustration, Special Illustration, Ultra…) un mercado tan bajo a veces es un dato roto, así que aquí decides cuáles se publican solas al piso y cuáles se quedan fuera de la venta, en la cola de precio pendiente de «Catálogo y precios», para que las revises. | When a card's market drops below the sale floor ({floor}), the store sells it at the floor. For common cards that's normal. For premium rarities (ex, Illustration, Special Illustration, Ultra…) a market that low is sometimes bad data, so here you decide which ones go on sale at the floor by themselves and which stay off sale, in the pending-price queue under “Catalog & pricing”, for you to review. |
+| `introNoFloor` | *(igual que `intro`, con «del piso de venta» en lugar de «del piso de venta ({floor})»)* | *(same as `intro`, without “({floor})”)* |
+| `legend` | ¿Qué hacer con una premium cuyo mercado cae bajo el piso? | What should happen to a premium card whose market drops below the floor? |
+| `defaultTag` | Valor inicial | Default |
+| `mode.only.label` | Publicar solo estas rarezas | Publish only these rarities |
+| `mode.only.help` | Las cartas de las rarezas que marques abajo se publican solas a {floor}. Las de cualquier otra rareza premium se quedan fuera de la venta, en la cola de precio pendiente, hasta que alguien las revise. | Cards of the rarities you tick below go on sale at {floor} by themselves. Cards of any other premium rarity stay off sale, in the pending-price queue, until someone reviews them. |
+| `mode.all.label` | Publicar todas al piso | Publish all at the floor |
+| `mode.all.help` | Toda carta premium cuyo mercado caiga bajo el piso se publica sola a {floor}, sea de la rareza que sea. Ojo: una carta cara con un dato de mercado roto también saldría a {floor}. | Every premium card whose market drops below the floor goes on sale at {floor} by itself, whatever its rarity. Careful: an expensive card with bad market data would also go out at {floor}. |
+| `mode.none.label` | Retener todas | Hold all |
+| `mode.none.help` | Ninguna premium se publica al piso: si su mercado cae bajo el piso, se queda fuera de la venta, en la cola de precio pendiente, hasta que alguien le ponga precio. Es la regla de antes. | No premium card is published at the floor: if its market drops below the floor, it stays off sale, in the pending-price queue, until someone prices it. This is the old rule. |
+| `*.helpNoFloor` *(×3, `mode.only/all/none`)* | *(misma frase con «al piso» en lugar de «a {floor}»)* | *(same sentence with “at the floor” instead of “at {floor}”)* |
+| `rarities.legend` | Rarezas que se publican al piso | Rarities published at the floor |
+| `rarities.selected` | {count, plural, =0 {Ninguna marcada} one {# marcada} other {# marcadas}} | {count, plural, =0 {None ticked} one {# ticked} other {# ticked}} |
+| `rarities.cardCount` | {count, plural, one {# carta en el catálogo} other {# cartas en el catálogo}} | {count, plural, one {# card in the catalog} other {# cards in the catalog}} |
+| `rarities.notInCatalog` | sin cartas en el catálogo hoy | no cards in the catalog today |
+| `rarities.hintDoubleRare` | las «ex» de Escarlata y Púrpura | Scarlet & Violet “ex” cards |
+| `rarities.hintRareHoloEx` | las «EX» de eras anteriores | older-era “EX” cards |
+| `rarities.disabledNote` | Solo cuenta con «Publicar solo estas rarezas». | Only applies with “Publish only these rarities”. |
+| `rarities.filter` | Filtrar rarezas | Filter rarities |
+| `rarities.loadError` | No pude cargar la lista de rarezas. «Publicar todas» y «Retener todas» se pueden guardar igual; para marcar rarezas, reintenta. | I couldn't load the rarity list. “Publish all” and “Hold all” can still be saved; to tick rarities, retry. |
+| `unmapped.title` | Rarezas premium sin mapear (siempre se retienen) · {count} | Unmapped premium rarities (always held) · {count} |
+| `unmapped.body` | El catálogo trae estas rarezas con un nombre que el sistema no reconoce. Se tratan como premium y se retienen siempre, aunque el nombre diga «ex». Para poder publicarlas al piso hay que darlas de alta en el catálogo de rarezas (trabajo de sistemas); después aparecen arriba para marcarlas. | The catalog brings these rarities under a name the system doesn't recognize. They're treated as premium and always held, even if the name says “ex”. To publish them at the floor they must be added to the rarity catalog (a systems task); then they show up above to be ticked. |
+| `exWarning.title` | La rareza manda, no el nombre | The rarity decides, not the name |
+| `exWarning.body` | Que una carta se llame «ex» no la hace Double Rare. Una <b>Charizard ex</b> de rareza <b>Special Illustration Rare</b> o <b>Ultra Rare</b> sigue retenida aunque marques Double Rare: la regla mira la rareza de la carta, no su nombre. | A card being called “ex” doesn't make it Double Rare. A <b>Charizard ex</b> whose rarity is <b>Special Illustration Rare</b> or <b>Ultra Rare</b> stays held even if you tick Double Rare: the rule looks at the card's rarity, not its name. |
+| `effect` | Qué pasa al guardar: las cartas que ya están publicadas cambian al momento (aparecen a {floor} o dejan de mostrarse). Las que están en caja sin publicar salen con el siguiente «Publicar todo» de «Inventario» o con la siguiente actualización de precios. Lo que ya se vendió se queda vendido. Ninguna carta genera aviso propio. | What happens on save: cards already listed change right away (they appear at {floor} or stop showing). Cards in a box not yet listed go out with the next “Publish all” in “Inventory” or the next price update. What's already sold stays sold. No card triggers its own alert. |
+| `effectNoFloor` | *(igual con «aparecen al piso»)* | *(same with “appear at the floor”)* |
+| `buyNote` | No cambia lo que pagamos al comprar: una premium barata sigue sin cotizarse en «Vender». | Doesn't change what we pay when buying: a cheap premium card still isn't quoted in “Sell”. |
+| `audit` | Solo súper-admin · queda en bitácora. | Super-admin only · logged. |
+| `save` | Guardar regla de premium | Save premium rule |
+| `saved` | Regla guardada. Las publicadas ya cambiaron; las de caja salen con el siguiente «Publicar todo». | Rule saved. Listed cards have already changed; boxed ones go out with the next “Publish all”. |
+| `notAvailable` | Este servidor todavía no tiene este ajuste. | This server doesn't have this setting yet. |
+| `errors.emptyOnly` | Marca al menos una rareza, o elige «Retener todas». | Tick at least one rarity, or choose “Hold all”. |
+| `errors.server` | No se guardó: el servidor rechazó la regla. Nada cambió. | Not saved: the server rejected the rule. Nothing changed. |
+| `confirm.title` | ¿Cambiar la regla de premium en el piso? | Change the premium-at-floor rule? |
+| `confirm.before` | Antes: {summary} | Before: {summary} |
+| `confirm.after` | Ahora: {summary} | Now: {summary} |
+| `summary.only` | publicar solo {list} | publish only {list} |
+| `summary.all` | publicar todas al piso | publish all at the floor |
+| `summary.none` | retener todas | hold all |
+| `confirm.allWarning` | Con «Publicar todas», cualquier premium con un dato de mercado roto saldría a la venta a {floor}. | With “Publish all”, any premium card with bad market data would go on sale at {floor}. |
+| `confirm.removing` | Las cartas de las rarezas que dejas de publicar desaparecen de la tienda al guardar. Lo ya vendido se queda vendido. | Cards of the rarities you stop publishing disappear from the store on save. What's already sold stays sold. |
+| `confirm.confirm` | Guardar regla | Save rule |
+
+`<b>` va **dentro** de la clave (rich text de next-intl, como `RICH_BOLD` en `M10View.tsx:123-125`); ⛔ partir la frase.
+Los nombres de rareza dentro de `exWarning.body` no se traducen en EN ni en ES (son nombres del juego). Los rótulos
+de otras pantallas citados en copy («Catálogo y precios», «Inventario», «Vender») son los del menú (§38.2), ⛔ nunca
+«M2»/«M1».
+
+### 39.2 Precio final a mano — SOLO sellado («Listas para publicar» y el panel de «Sellado»)
+
+**La regla, en una línea:** el componente nuevo **`SealedFinalPrice`** se pinta **solo** si `productType ===
+'sealed'`. Ninguna otra rama lo monta. Para carta suelta y gradeada **no cambia nada** — ni en la cola (sigue sin
+campo) ni en el panel de la pieza (el override por pieza existente se queda en su sitio y con su aspecto: P-PRE-1, «sin
+hacerlo más visible»).
+
+**Verbo:** `PATCH /admin/inventory/items/:id`:
+- **«Guardar precio»** ⇒ `{ listPriceCents }`. No publica (contrato, tabla INV-SP-8: «el precio no cambia el
+  `status`»).
+- **«Guardar y publicar»** ⇒ `{ listPriceCents, status: 'listed' }` en **una** llamada: corre el pipeline de
+  publicación de v1.51 **antes de escribir** (contrato §M1 `:11914-11920`), así que si no puede publicar **no se
+  guarda nada**. ⛔ Dos llamadas (precio y luego publicar) dejarían un estado intermedio que la cola no ve (ver «por
+  qué», abajo).
+
+#### (a) Cuándo se ofrece cada botón
+
+| Pieza | Qué se ve | Botón(es) del editor |
+|---|---|---|
+| Plataforma `in_stock` **con** ubicación | precio actual + «Poner/Cambiar precio final» | **«Guardar y publicar»** (único) |
+| Plataforma `in_stock` **sin** ubicación | ídem | **«Guardar precio»** (único) + texto «Se publicará sola en cuanto le pongas ubicación» |
+| Plataforma `listed` (solo en el panel) | ídem | **«Guardar precio»** — re-precia una publicada; el texto lo dice |
+| Cualquier otra (`reserved`, vendida, terminal, de cliente) | el precio en **solo lectura**, sin lápiz | — (el `422` es el candado; la pantalla no ofrece lo que el servidor va a rechazar) |
+
+**Por qué «Guardar y publicar» es el único botón cuando ya hay ubicación:** el predicado de la cola es `in_stock ∧
+(sin ubicación ∨ sin precio)`. Si la pieza ya tiene ubicación y le guardamos precio **sin** publicar, deja de cumplir
+el predicado y **sale de la cola sin estar a la venta**: queda `in_stock`, con precio, en una caja, sin pantalla que la
+señale — la contradicción exacta de la fase 8 («ninguna pieza adquirida se queda invisible»). Por eso en ese caso el
+gesto de guardar **es** el de publicar, y el texto del botón lo dice. Sin ubicación, guardar no la saca de la cola
+(sigue faltando ubicación) y el disparo (b) de la auto-publicación la publica al ponérsela.
+
+#### (b) Anatomía — fila de sellado en «Listas para publicar»
+
+La celda «Precio de venta» de una fila **de sellado** pasa a tener tres líneas:
+
+```
+MX$1,180.00  · automático                 ← precio actual (mono tabular) + base (text-xs muted)
+[✎ Cambiar precio final]                  ← Button secondary sm, icono Pencil, aria-label con el folio
+```
+Sin precio resoluble:
+```
+—  · sin precio                           ← ⛔ nunca MX$0.00 (§7.3)
+[✎ Poner precio final]
+```
+Al pulsar, la celda se convierte en el editor (inline, ⛔ no modal todavía):
+
+```
+Precio final (MXN)
+[MX$ 1,250.00      ]  Gana sobre el automático. Nunca $0.
+[Guardar y publicar]  [Cancelar]
+```
+
+- **Precio actual:** `resolvedSalePriceCents` + etiqueta de base. Si `listPriceCents != null` ⇒ «precio final a
+  mano»; si no, por `priceBasis`: `market` «automático», `floor` «piso», `override` «precio de variante»,
+  `pending`/`null` ⇒ «sin precio». ⛔ La UI **no** deduce la base comparando cifras (contrato `PriceBasis`).
+- **Input:** `Input` §6.2 con prefijo `MX$`, `inputMode="decimal"`, ancho 9rem, **prellenado** con el precio final si
+  lo hay; si no, **vacío** (⛔ prellenado con el automático: el campo es para decidir un número, no para aceptar uno).
+  Validación al escribir: vacío ⇒ botón deshabilitado sin error; `≤ 0` o no numérico ⇒ «Escribe un precio mayor que
+  cero.»; más de 2 decimales ⇒ «Máximo dos decimales.»; `> 1,000,000.00` ⇒ «El precio máximo es MX$1,000,000.00.»
+  (`MAX_LIST_PRICE_CENTS`, medido). Igual al actual ⇒ botón deshabilitado.
+- **Teclado:** `Enter` = pulsar el botón principal (abre la confirmación); `Esc` = Cancelar y el foco vuelve al botón
+  «Cambiar precio final» de esa fila.
+- **Una fila editando a la vez:** abrir otra cierra la anterior sin guardar.
+
+#### (c) Anatomía — el panel del sellado («Sellado» › detalle de presentación)
+
+En `VariantDrawer`, **solo con `productType === 'sealed'`**, la lista de piezas sustituye el botón-número escondido
+(`VariantDrawer.tsx:569-591`) por el mismo `SealedFinalPrice`, con rótulo visible:
+
+```
+INV-001944  [En stock]   Precio final: automático            [✎ Poner precio final]   [📄] [📣] [⚠]
+INV-001945  [Listada]    Precio final: MX$1,250.00 a mano     [✎ Cambiar]             [📄] [👁] [⚠]
+INV-001946  [Reservada]  MX$1,250.00                          (solo lectura)
+```
+
+- Precio actual en el panel: `listPriceCents` ⇒ «MX$X a mano». Sin él ⇒ «automático» **sin cifra** hasta que el
+  contrato dé el precio derivado de la pieza (S-2); bajo el rótulo, en `text-xs muted`, «Mercado: {price}» con el
+  `marketRefCents` del grupo cuando exista (es **referencia**, se rotula «Mercado», ⛔ nunca como precio de venta).
+- Cuando S-2 exista, «automático» gana la cifra y la base, idéntico a la cola.
+- La regla de botones de (a) aplica igual (la pieza trae `location`).
+- **Rama `raw`/`graded`:** ⛔ **sin cambio alguno** (P-PRE-1). Ni rótulo nuevo, ni lápiz visible, ni cambio de qué
+  estados permiten editar.
+
+#### (d) Confirmación (`Modal`, §7.6) — siempre, antes del `PATCH`
+
+`role="alertdialog"`, foco inicial en «Cancelar».
+
+- Título: «¿Fijar el precio final de {name}?» (`{name}` = `sealedProductName`, o «este sellado» si falta; ⛔ nunca
+  el nombre del ancla, P-79c).
+- Cuerpo, en dos líneas de cifras (mono tabular): «Ahora: MX$1,180.00 (automático)» → «Nuevo: MX$1,250.00, fijo a mano».
+  Sin precio actual: «Ahora: sin precio».
+- Efecto, una frase según el caso de (a):
+  - con ubicación: «Se publica en la tienda a MX$1,250.00 al confirmar.»
+  - sin ubicación: «No se publica todavía: le falta ubicación. Saldrá sola a MX$1,250.00 en cuanto se la pongas.»
+  - ya publicada: «Ya está a la venta: el precio nuevo se ve en la tienda al confirmar.»
+- Nota: «Gana sobre el precio automático hasta que lo cambies. Queda en bitácora a tu nombre.»
+- Botones: `secondary` «Cancelar» · `primary` con el **verbo y la cifra**: «Publicar a MX$1,250.00» / «Guardar
+  MX$1,250.00».
+
+#### (e) Después de guardar
+
+| Caso | Qué pasa en pantalla |
+|---|---|
+| Publicada (`200` con `status:'listed'`) | toast success «{folio} publicada a {price}.»; se invalidan `pending-publish`, `admin-inventory`, `sealed-*`; la fila **sale** de la cola (ya no cumple el predicado) |
+| Guardada sin ubicación | toast «Precio final guardado en {folio}. Saldrá sola al ponerle ubicación.»; la fila **se queda**, ahora con «Le falta: Ubicación» y el precio nuevo con «precio final a mano» |
+| Re-precio de una publicada (panel) | toast «Precio de {folio} cambiado a {price}.» |
+
+#### (f) Errores (en el editor, `Banner` danger `role="alert"`, ⛔ solo toast — §8.3; el editor sigue abierto con lo tecleado)
+
+| Respuesta | Texto | Acción ofrecida |
+|---|---|---|
+| `422 ITEM_NOT_ADJUSTABLE` `details.status = 'reserved'` | Está apartada en un pedido en curso. Si el pedido no se paga, vuelve a estar libre en unos minutos y podrás cambiarla. No se guardó nada. | «Recargar» |
+| `422 ITEM_NOT_ADJUSTABLE` (cualquier otro `status`/`ownerType`) | Esta pieza ya no se puede re-preciar: está «{status}». No se guardó nada. | «Recargar» (la fila suele desaparecer) |
+| `409 CONFLICT` | La pieza cambió mientras la editabas. Recarga y vuelve a intentarlo; no se guardó nada. | «Recargar» |
+| `422 ITEM_NOT_PUBLISHABLE` (solo «Guardar y publicar») | No se pudo publicar: está «{status}». No se guardó el precio. | «Recargar» |
+| `422 PRICE_PENDING` (solo «Guardar y publicar»; no debería ocurrir con precio final) | No se pudo publicar: el servidor no resolvió el precio. No se guardó nada. | «Ver en la cola de precio pendiente» si trae `details.pendingPriceEntryId` |
+| `422 VALIDATION_ERROR` | El precio no es válido: debe ser mayor que cero y como máximo MX$1,000,000.00. | — |
+| Otro / red | `common.errorGeneric` | «Reintentar» |
+
+`{status}` se traduce con `status.inventory.*` (`es.json:4559-`), ⛔ nunca el valor crudo.
+
+### 39.3 «Listas para publicar» — folio que abre la pieza, motivo por fila y origen traducido
+
+Aplica a la **misma** cola en sus dos montajes (`M1View.tsx:289` sin filtro y `M11View.tsx:100` con
+`productType="sealed"`).
+
+**(a) Folio enlazado.** El folio pasa a ser un **botón** (mono 13 px, subrayado al hover, foco visible §8.2) que abre
+`ItemDetailModal` de esa pieza (`itemId = row.inventoryItemId`; la cola carga `getLocations` con la misma
+`queryKey: ['locations']` que M1/M11 para pasárselas). Nombre accesible: «Abrir la pieza {folio}». ⛔ No es un enlace
+a otra página: el operador no pierde la cola. Al cerrar el modal, el foco vuelve al folio y la cola se refresca
+(`pending-publish`), porque desde el modal se puede mover o publicar.
+
+**(b) Motivo por fila.** La columna «Le falta» conserva sus chips (`Ubicación` / `Precio` / `Por revisar`) y gana
+**debajo una frase por cada cosa que falta** (`text-xs`, tinta `text-text`, ⛔ no `accent`: el chip ya avisa; la frase
+explica). La celda «Precio de venta» deja de decir «Sin precio resoluble» y pasa a «—» con la base «sin precio»
+(§39.2 (b)), el enlace a la cola de precio pendiente se queda cuando hay `pendingPriceEntryId`.
+
+| Falta | Condición | Frase |
+|---|---|---|
+| ubicación | `missing` incluye `location` | Sin ubicación: se publica sola en cuanto se la pongas. |
+| precio | `productType === 'sealed'` | El sellado no tiene precio automático: ponle precio final. *(el botón de §39.2 está en la misma fila)* |
+| precio | carta, `pendingReason === 'no_market'` *(S-1)* | El proveedor no trae precio de mercado para esta carta. |
+| precio | carta, `pendingReason === 'premium_at_floor'` *(S-1)* | Rareza premium con mercado bajo el piso: retenida para revisión. *(+ para súper-admin, enlace «Ver la regla» → `/admin/m10#premium-piso`)* |
+| precio | carta, sin `pendingReason` y **con** `pendingPriceEntryId` | Sin precio; el motivo está en la cola de precio pendiente. |
+| precio | carta, sin `pendingReason` y **sin** `pendingPriceEntryId` | Sin precio y sin entrada en la cola de precio pendiente: avisa a sistemas. |
+| — | `missing` vacío o ausente | *(sin cambio: chip «Por revisar», `MissingCell` `:26-34`)* |
+
+Las filas **«sin `pendingReason`»** son el **estado de hoy** (el DTO no lo trae) y el de un backend anterior a S-1: la
+frase **no inventa** un motivo, manda a donde está. ⛔ No se deduce `premium_at_floor` de la rareza de la carta en el
+cliente: es una decisión de dinero del servidor (y depende del dial de §39.1).
+
+La sección de §39.1 en «Configuración» lleva `id="premium-piso"` con `scroll-mt` para que el enlace aterrice (§22.12 nº13.e).
+
+**(c) Origen traducido.** `acquisitionType` se pinta con un mapa propio de la cola (⛔ crudo nunca):
+
+| `acquisitionType` | ES | EN |
+|---|---|---|
+| `aportacion_en_especie` | Aportación en especie | In-kind contribution |
+| `buylist` | Compra a vendedor *(clave existente, se mueve)* | Bought from a seller |
+| `compra` | Compra directa | Direct purchase |
+| desconocido | Origen desconocido | Unknown origin |
+
+**(d) La nota del pie.** «Esta cola solo mira…» (`es.json:1531`) deja de ser verdad para el sellado y se reescribe
+(clave `note`, tabla de §39.4).
+
+### 39.4 i18n — claves nuevas y cambiadas (paridad ES/EN en el mismo cambio)
+
+**`admin.m10.premiumFloor.*`** — todas **nuevas**, tabla de §39.1 (d).
+
+**`admin.m1.publishQueue.*`**
+
+| Estado | Clave | ES | EN |
+|---|---|---|---|
+| **cambia** | `note` | Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. Solo el producto sellado admite aquí un precio final a mano. | This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set final price here. |
+| **se retira** | `noSalePrice` | — | — |
+| **se retira** | `originBuylist` *(pasa a `origin.buylist`)* | — | — |
+| nueva | `openPiece` | Abrir la pieza {folio} | Open item {folio} |
+| nueva | `basis.manual` | precio final a mano | hand-set final price |
+| nueva | `basis.market` | automático | automatic |
+| nueva | `basis.floor` | piso | floor |
+| nueva | `basis.override` | precio de variante | variant price |
+| nueva | `basis.none` | sin precio | no price |
+| nueva | `reason.location` | Sin ubicación: se publica sola en cuanto se la pongas. | No location: it goes on sale by itself once you set one. |
+| nueva | `reason.sealedNoPrice` | El sellado no tiene precio automático: ponle precio final. | This sealed item has no automatic price: set a final price. |
+| nueva | `reason.no_market` | El proveedor no trae precio de mercado para esta carta. | The provider has no market price for this card. |
+| nueva | `reason.premium_at_floor` | Rareza premium con mercado bajo el piso: retenida para revisión. | Premium rarity with market below the floor: held for review. |
+| nueva | `reason.seeRule` | Ver la regla | See the rule |
+| nueva | `reason.inQueue` | Sin precio; el motivo está en la cola de precio pendiente. | No price; the reason is in the pending-price queue. |
+| nueva | `reason.noEntry` | Sin precio y sin entrada en la cola de precio pendiente: avisa a sistemas. | No price and no pending-price entry: tell the systems team. |
+| nueva | `origin.aportacion_en_especie` | Aportación en especie | In-kind contribution |
+| nueva | `origin.buylist` | Compra a vendedor | Bought from a seller |
+| nueva | `origin.compra` | Compra directa | Direct purchase |
+| nueva | `origin.unknown` | Origen desconocido | Unknown origin |
+
+**`admin.sealedFinalPrice.*`** (compartido por la cola y el panel — namespace propio para que ninguno de los dos
+dueños de namespace lo arrastre)
+
+| Clave | ES | EN |
+|---|---|---|
+| `rowLabel` | Precio final | Final price |
+| `auto` | automático | automatic |
+| `manual` | {price} a mano | {price} set by hand |
+| `market` | Mercado: {price} | Market: {price} |
+| `set` | Poner precio final | Set final price |
+| `change` | Cambiar precio final | Change final price |
+| `setAria` | Poner precio final de {folio} | Set final price for {folio} |
+| `changeAria` | Cambiar precio final de {folio} | Change final price for {folio} |
+| `label` | Precio final (MXN) | Final price (MXN) |
+| `hint` | Gana sobre el automático. Nunca $0. | Overrides the automatic price. Never $0. |
+| `noLocationHint` | Se publicará sola en cuanto le pongas ubicación. | It'll go on sale by itself once you set a location. |
+| `saveOnly` | Guardar precio | Save price |
+| `saveAndPublish` | Guardar y publicar | Save and publish |
+| `errPositive` | Escribe un precio mayor que cero. | Enter a price above zero. |
+| `errDecimals` | Máximo dos decimales. | Two decimals at most. |
+| `errMax` | El precio máximo es {max}. | The maximum price is {max}. |
+| `confirm.title` | ¿Fijar el precio final de {name}? | Set the final price for {name}? |
+| `confirm.thisSealed` | este sellado | this sealed item |
+| `confirm.now` | Ahora: {price} ({basis}) | Now: {price} ({basis}) |
+| `confirm.nowNone` | Ahora: sin precio | Now: no price |
+| `confirm.new` | Nuevo: {price}, fijo a mano | New: {price}, set by hand |
+| `confirm.effectPublish` | Se publica en la tienda a {price} al confirmar. | It goes on sale in the store at {price} when you confirm. |
+| `confirm.effectNoLocation` | No se publica todavía: le falta ubicación. Saldrá sola a {price} en cuanto se la pongas. | Not published yet: it has no location. It'll go on sale at {price} by itself once you set one. |
+| `confirm.effectListed` | Ya está a la venta: el precio nuevo se ve en la tienda al confirmar. | It's already on sale: the new price shows in the store when you confirm. |
+| `confirm.note` | Gana sobre el precio automático hasta que lo cambies. Queda en bitácora a tu nombre. | Overrides the automatic price until you change it. Logged under your name. |
+| `confirm.publish` | Publicar a {price} | Publish at {price} |
+| `confirm.save` | Guardar {price} | Save {price} |
+| `done.published` | {folio} publicada a {price}. | {folio} listed at {price}. |
+| `done.savedNoLocation` | Precio final guardado en {folio}. Saldrá sola al ponerle ubicación. | Final price saved on {folio}. It'll go on sale once it has a location. |
+| `done.repriced` | Precio de {folio} cambiado a {price}. | {folio} price changed to {price}. |
+| `errors.reserved` | Está apartada en un pedido en curso. Si el pedido no se paga, vuelve a estar libre en unos minutos y podrás cambiarla. No se guardó nada. | It's held by an order in progress. If the order isn't paid, it frees up in a few minutes and you can change it. Nothing was saved. |
+| `errors.notAdjustable` | Esta pieza ya no se puede re-preciar: está «{status}». No se guardó nada. | This item can no longer be repriced: it's “{status}”. Nothing was saved. |
+| `errors.conflict` | La pieza cambió mientras la editabas. Recarga y vuelve a intentarlo; no se guardó nada. | The item changed while you were editing. Reload and try again; nothing was saved. |
+| `errors.notPublishable` | No se pudo publicar: está «{status}». No se guardó el precio. | Couldn't publish: it's “{status}”. The price wasn't saved. |
+| `errors.pricePending` | No se pudo publicar: el servidor no resolvió el precio. No se guardó nada. | Couldn't publish: the server couldn't resolve the price. Nothing was saved. |
+| `errors.validation` | El precio no es válido: debe ser mayor que cero y como máximo {max}. | Invalid price: it must be above zero and at most {max}. |
+| `reload` | Recargar | Reload |
+
+`{price}` y `{max}` llegan **formateados** por `formatMoneyCents` (§9.3), ⛔ nunca un número crudo en el ICU.
+
+**Se quedan sin cambio:** `admin.drawer.editPrice`, `editPriceLabel`, `priceMustBePositive` (los sigue usando la rama
+`raw`/`graded` del panel, P-PRE-1); `admin.m11.queue.*`.
+
+### 39.5 Lista de cambios para frontend (fichero:línea, medido en este worktree el 2026-10-04)
+
+| Fichero | Línea(s) | Cambio |
+|---|---|---|
+| `src/types/contract.ts` | `:5040-` (`SettingsDTO`) | + `premiumFloorSalePublish?: { mode: 'all' \| 'none' \| 'only'; rarities: string[] }` (contrato M2-PF) |
+| `src/types/contract.ts` | `:3822-3854` (`PendingPublishRowDTO`) | + `pendingReason?: PendingPriceReason \| null` **cuando el arquitecto lo declare** (S-1). Hasta entonces la UI ya funciona con las filas «sin `pendingReason`» de §39.3 (b) |
+| `src/app/[locale]/(admin)/admin/m10/sections/PremiumFloorSection.tsx` | **nuevo** | §39.1: lee `getSettings` (misma `queryKey ['admin-settings']`), `getRarityHealth` (`lib/api.ts:5494`), `getPricingCurve` (`:5446`, `retry:false`, cede la cifra); borrador propio; `updateSettings({ premiumFloorSalePublish })` parcial; confirmación; `id="premium-piso"` |
+| `…/admin/m10/M10View.tsx` | `:441-443` | montar `<PremiumFloorSection />` entre `IvaTransferSection` y la ingesta |
+| `…/admin/m1/SealedFinalPrice.tsx` | **nuevo** | §39.2: lectura + editor inline + confirmación + `PATCH` (`updateInventoryItem`); props: pieza (`id`, `folio`, `status`, `ownerType`, `hasLocation`, `listPriceCents`, `resolvedSalePriceCents?`, `priceBasis?`, `name?`, `marketRefCents?`), `onDone`. Errores por `error.code` (+ `details.status`) |
+| `…/admin/m1/PendingPublishQueue.tsx` | `:23-48` (`MissingCell`) | + la frase de motivo por cada `missing` (§39.3 b) |
+| idem | `:104-107` (comentario D10) | reescribir: «solo visibilidad» salvo el precio final del **sellado** (§39.2, criterio 255) |
+| idem | `:117-120` | + `useQuery(['locations'], getLocations)` y estado `detailId` para `ItemDetailModal` |
+| idem | `:187-189` | folio ⇒ `button` que abre `ItemDetailModal` (§39.3 a) |
+| idem | `:196-216` | precio actual + base (§39.2 b); fila `sealed` ⇒ `<SealedFinalPrice>`; «Sin precio resoluble» ⇒ «—» + `basis.none`; el enlace a la cola pendiente se queda |
+| idem | `:220` | origen por `origin.*` (§39.3 c) |
+| idem | `:233` | `note` con su texto nuevo |
+| `…/admin/m1/VariantDrawer.tsx` | `:375-390` (props de la lista de piezas) | + `productType` (o `isSealed`) desde el componente padre (`:85`, ya lo tiene) |
+| idem | `:535-591` | si `productType === 'sealed'` ⇒ `<SealedFinalPrice>` con rótulo visible, editable **solo** en plataforma `in_stock\|listed`; si no ⇒ **el código actual, sin tocar** (P-PRE-1) |
+| idem | `:430-437` (`editPrice`) | se queda para `raw`/`graded`; el sellado usa la mutación de `SealedFinalPrice` |
+| `frontend/messages/es.json` | `:1513-1531` | `publishQueue`: claves de §39.4 (cambia `note`; se retiran `noSalePrice`, `originBuylist`) |
+| idem | `:3732-` (`admin.m10`) | + `premiumFloor` |
+| idem | bloque `admin` | + `sealedFinalPrice` |
+| `frontend/messages/en.json` | mismos bloques | paridad (líneas de `en.json` **NO MEDIDAS**) |
+| `…/admin/m1/PendingPublishQueue.test.tsx` | `:82`, `:85-96` | `'Compra a vendedor'` sigue (clave movida, mismo texto); el caso «sin precio resoluble» pasa a afirmar «—» + la frase `reason.inQueue` + el enlace, y ⛔ `MX$0.00` |
+
+### 39.6 Solicitudes y notas a otros roles
+
+| # | Para | Solicitud / nota |
+|---|---|---|
+| **S-1** | arquitecto | **`PendingPublishRowDTO` gana `pendingReason?: 'no_market' \| 'premium_at_floor' \| null`** (aditivo; el `reason` de la fila `PendingPriceEntry` abierta de `pendingPriceEntryId`). Sin él, el motivo de una **carta** sin precio no se puede pintar (medido: el DTO no lo trae, `contract.ts:3822-3854`). La UI ya degrada a «el motivo está en la cola» |
+| **S-2** | arquitecto | **El precio derivado de una pieza sellada en el panel** (`resolvedSalePriceCents` + `priceBasis` en las filas de `InventoryItemDTO` que lista `VariantDrawer`, al menos para `productType='sealed'`). Hoy el panel solo puede decir «automático» sin cifra; la cola sí la tiene |
+| **S-3** | arquitecto (→ backend) | **Criterio 255 pide bitácora con antes/después y el código no la escribe para el precio solo.** Medido: `inventory.service.ts:2494` («El precio solo no gana bitácora nueva»), `:2509-2521` (antes/después solo si cambia `status`), `inventory.controller.ts:647-653` (`inventory.update` sin antes/después). La confirmación de §39.2 dice «Queda en bitácora a tu nombre» — es verdad (quién/cuándo), pero el **antes/después** que pide el criterio falta. Decide el arquitecto si `listPriceCents` entra en `before/after` |
+| **S-4** | backend | Si `SettingsService` llega a cachear lecturas, avisar: el texto «las publicadas cambian al momento» (§39.1 `effect`) tendría que decir el TTL (contrato M2-PF «Reversión»). Hoy no hay caché (medido arriba) |
+| **S-5** | arquitecto | El `422 VALIDATION_ERROR` del validador de `premiumFloorSalePublish` no tiene forma de `details` fijada en el contrato; la UI muestra el `message` del servidor. Si se fija (`details.field` / `details.reason`), §39.1 (b) puede mapear textos por causa. No bloquea |
+| **N-11** | product-owner | **¿Quién puede fijar el precio final del sellado?** El verbo admite `vault_operator` (`inventory.controller.ts:88`) y la cola es `vault_operator+`; PROJECT §N.5-bis (b) no dice rol. Este diseño lo deja **como el verbo** (operador y súper-admin). Si el dueño lo quiere solo para súper-admin, es cambio de backend (403) y aquí se gatea el botón |
+| **N-12** | product-owner | **Volver al precio automático** (quitar el precio final) **no está diseñado**: el `PATCH` no declara `listPriceCents: null` y su conducta con `null` no está medida. Si hace falta, pasa por arquitecto |
+| **N-13** | frontend | `SealedFinalPrice` es **un** componente para los dos sitios: la regla de botones de §39.2 (a) no se duplica. Candados sugeridos: **FP-1** fila `raw` y `graded` de la cola ⇒ `queryByRole('button', { name: /precio final/i })` = null (criterio 255 por ausencia); **FP-2** fila `sealed` `in_stock` con ubicación ⇒ el único botón del editor es «Guardar y publicar» y el `PATCH` lleva `status:'listed'` en la **misma** llamada; **FP-3** sin ubicación ⇒ «Guardar precio», cuerpo **sin** `status`; **FP-4** `422 ITEM_NOT_ADJUSTABLE {status:'reserved'}` ⇒ texto `errors.reserved` y el input conserva lo tecleado; **FP-5** panel `raw` ⇒ el DOM de la lista de piezas es el de hoy (snapshot acotado a la celda de precio); **PF-UI-1** con `only` y 0 marcadas, «Guardar» deshabilitado y el error visible; **PF-UI-2** al pasar a `all`, el `PUT` lleva `rarities: []`; **PF-UI-3** una rareza guardada ausente de `/rarities` se pinta marcada con «sin cartas en el catálogo hoy»; **PF-UI-4** el aviso «La rareza manda» está en los tres modos; **LP-1** origen `aportacion_en_especie` ⇒ «Aportación en especie», ⛔ el literal crudo en el DOM |
+
+**Contraste:** ningún color nuevo. Frases de motivo en `text-text` sobre `surface` (ya verificado AA en §10); chips y
+estados vacíos de precio en `text-accent` como hoy; disabled del `fieldset` a 0.5 de opacidad como el resto de §6.4
+(texto deshabilitado, exento de AA por WCAG 1.4.3, y acompañado de la nota en tinta normal que dice por qué).
