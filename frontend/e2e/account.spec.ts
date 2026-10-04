@@ -7,6 +7,7 @@ import {
   loginAs,
   loginAsDisposable,
   needsSeed,
+  reserveChangePasswordSlot,
   reserveLoginSlot,
 } from './utils/auth';
 import {
@@ -79,6 +80,8 @@ async function changeTemporaryPassword(page: Page, current: string, next: string
   await page.getByLabel(t('es', 'auth.changePassword.temporaryLabel')).fill(current);
   await page.getByLabel(t('es', 'account.password.new'), { exact: true }).fill(next);
   await page.getByLabel(t('es', 'account.password.confirm'), { exact: true }).fill(next);
+  // `POST /auth/change-password` tiene su propio cupo por IP (`utils/state.ts`).
+  if (IS_REAL) await reserveChangePasswordSlot('account.spec · temporal → definitiva');
   await page.getByRole('button', { name: t('es', 'auth.changePassword.submit') }).click();
 }
 
@@ -167,6 +170,7 @@ test.describe('cuenta · contraseña temporal bloqueante (§33.8) · cliente', (
     await page.getByLabel(t('es', 'account.password.current')).fill(creds.password);
     await page.getByLabel(t('es', 'account.password.new'), { exact: true }).fill('nueva-larga-2026');
     await page.getByLabel(t('es', 'account.password.confirm'), { exact: true }).fill('nueva-larga-2026');
+    if (IS_REAL) await reserveChangePasswordSlot('account.spec · cambio normal');
     await page.getByRole('button', { name: t('es', 'account.password.submit') }).click();
     await expect(page.getByRole('status')).toHaveText(t('es', 'account.password.successTitle'));
     await expect(page.getByRole('button', { name: t('es', 'account.password.changeAgain') })).toBeVisible();

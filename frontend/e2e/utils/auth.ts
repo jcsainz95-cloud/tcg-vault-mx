@@ -63,7 +63,7 @@ export type { SeedRole, InjectedSession };
  *
  * Se re-exporta desde `./auth` para que ningún spec tenga que importar `./state` (plumbing).
  */
-export { reserveLoginSlot } from './state';
+export { reserveLoginSlot, reserveChangePasswordSlot } from './state';
 
 /** Regex de estructura de moneda MXN (`MX$1,234.00`): asserts por FORMATO, no por monto de fixture. */
 export const MONEY_RE = /MX\$[\d,]+\.\d{2}/;

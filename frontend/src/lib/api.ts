@@ -2994,6 +2994,18 @@ export const MOCK_TEMP_PASSWORD_EMAILS: Record<string, Role> = {
   'operador.temporal@example.com': 'vault_operator',
 };
 
+/**
+ * ⭐ MOCK v1.80.9 (§M6-U.2): cuentas del EQUIPO SIN CORREO, para recorrer en mock el ciclo de
+ * STF-17-E2E (entrar con usuario → «Mi cuenta» → «Cambiar contraseña»). Lo tecleado SIN `@` que
+ * esté aquí entra como esa cuenta: `email: null`, `username`, y —como todo alta de staff (P-STF-6)—
+ * con la temporal pendiente. Cualquier contraseña vale (el mock no guarda contraseñas). Nombres
+ * tomados de los ejemplos del contrato (`ana`, `jefa`, §M6-U.9).
+ */
+export const MOCK_STAFF_USERNAMES: Record<string, Role> = {
+  ana: 'vault_operator',
+  jefa: 'super_admin',
+};
+
 export async function login(input: { email: string; password: string }): Promise<AuthResponse> {
   if (!config.useMocks) {
     // v1.80 (C7): cada login manda el último `deviceToken` de este navegador, si hay. Uno ajeno,
@@ -3001,6 +3013,26 @@ export async function login(input: { email: string; password: string }): Promise
     const deviceToken = getDeviceToken();
     const body: LoginRequest = deviceToken ? { ...input, deviceToken } : { ...input };
     return persistSession(await apiRequest<AuthResponse>('/auth/login', { method: 'POST', body }));
+  }
+  const typed = input.email.trim().toLowerCase();
+  const staffRole = typed.includes('@') ? undefined : MOCK_STAFF_USERNAMES[typed];
+  if (staffRole) {
+    return delay(
+      persistSession(
+        mockAuthResponse({
+          id: `u-mock-${typed}`,
+          email: null,
+          username: typed,
+          role: staffRole,
+          name: staffRole === 'super_admin' ? 'Jefa Sin Correo' : 'Ana Operadora',
+          emailVerified: false,
+          mustChangePassword: true,
+          hasPassword: true,
+          nameSource: 'user',
+        }),
+      ),
+      400,
+    );
   }
   const tempRole = MOCK_TEMP_PASSWORD_EMAILS[input.email.toLowerCase()];
   if (tempRole) {
@@ -5977,7 +6009,13 @@ export async function createAdminUser(input: CreateAdminUserInput): Promise<Admi
       });
     }
     if (fx.mockAdminUsers.some((u) => u.username === username)) {
-      throw new ApiClientError(409, { code: 'USERNAME_TAKEN', message: 'Username already taken' });
+      // TD-5 (techlead sobre da6d910e): el servidor real manda `details.field` en este 409
+      // (`admin.service.ts`, rama `P2002` de `username`); el falso no lo traía y ya divergía.
+      throw new ApiClientError(409, {
+        code: 'USERNAME_TAKEN',
+        message: 'Username already taken',
+        details: { field: 'username' },
+      });
     }
     return delay({
       user: { ...common, email: null, username, role: input.role, emailVerified: false },
