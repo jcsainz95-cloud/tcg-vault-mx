@@ -4,7 +4,18 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.17 (2026-10-04) — «CAPTURAR A MANO» EN EL PASO 4: SOLO SI NO HAY GUÍA NI COMPRA PENDIENTE (§43 sin
+> Estado: **v4.18 (2026-10-04) — LA DIRECCIÓN DEL CLIENTE CON COLONIA DE LISTA (§43.18 NUEVA; `API_CONTRACT §M4-SHIP.19.5`
+> y errata `§19.23.4`; juzga lo que frontend construyó sin diseño, `FRONTEND_NOTES.md` §88.3; ux-ui sin Bash, HEAD
+> `5d597185` dado por el orquestador, NO MEDIDO por mí):** **§43.18b** orden de campos (referencias antes que teléfono,
+> igual que §43.2b) en libreta, alta del buylist e invitado; **§43.18c** contador de referencias ratificado, sin
+> `maxLength` y en bermellón pasado el tope; **§43.18d** CP fuera del catálogo y colonia que no aparece ⇒ «Escríbenos a
+> {contact}» (⛔ sin camino que el servidor no tenga); **§43.18e** `<select>` nativo ratificado en ≤ 390 px, orden
+> alfabético y preselección de colonia única; **§43.18f–h** la fila «Dirección incompleta» nombra lo que falta, modo
+> «Completar dirección» del formulario y cuatro arreglos del bloque del retiro; **§43.18i** veredicto clave por clave
+> ES/EN (`addresses.line2` ratificada); **§43.18j** FC-1…FC-15; **§43.18k** UX-ADR-1…7. **Cero tokens nuevos, cero
+> pares de contraste nuevos.** Lo que sigue es la v4.17 sin cambio.
+>
+> Estado anterior: **v4.17 (2026-10-04) — «CAPTURAR A MANO» EN EL PASO 4: SOLO SI NO HAY GUÍA NI COMPRA PENDIENTE (§43 sin
 > contradicción; resuelve el desacuerdo de `FRONTEND_NOTES.md:19163-19169`; ux-ui sin Bash, sha NO MEDIDO por mí):**
 > **SK1**, **SK6**, **§43.1** punto 6 y **UX-SDX-2** reescritos; **§43.5a** nueva con la matriz por estado: «Capturar a
 > mano» presente en pasos 1–3 (deshabilitado solo durante la compra) y en el paso 4 **solo** en «Skydropx no creó la
@@ -22999,7 +23010,7 @@ sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el caj
 
 ---
 
-## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17`/`AV-18`/`AV-19` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11; **v4.16** · `§M4-SHIP.19.20` v1.80.12)
+## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17`/`AV-18`/`AV-19` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11; **v4.16** · `§M4-SHIP.19.20` v1.80.12; **v4.18** · §43.18 la dirección del cliente, `§M4-SHIP.19.5`)
 
 > **v4.16 — qué cambió en esta sección y por qué.** Fuente: `HECHOS.md:50` (2026-10-04): *«En «Capturar guía» el dueño
 > (y quien prepare) puede corregir TODA la dirección del cliente antes de comprar la guía: calle, número, CP, colonia,
@@ -24195,3 +24206,248 @@ solo `text-text`, `text-muted`, `text-accent` y los `Banner`/`Input` de §6–§
 | **N-5** *(v4.16)* | orquestador / dueño | Con Skydropx **apagado** (`provider:'off'`) la ventana sigue siendo el formulario de hoy (UX-SDX-1) y **no** ofrece corregir la dirección, aunque el verbo lo permite (§19.20.1: «con Skydropx apagado la dirección corregida es la que el operador escribe en la guía manual»). `HECHOS.md:50` habla de corregir «antes de comprar la guía», que es el modo Skydropx. Si el dueño lo quiere también en modo manual, el paso 1 de §43.2 se monta encima del formulario manual sin cambio de copy |
 | **N-6** *(v4.16)* | seguridad / QA | La pantalla de corrección escribe PII ajena con el nombre del operador en la bitácora; qué hace la anonimización con esas filas: NO MEDIDO (lo anota §19.20.9 para seguridad). El diseño no muestra la bitácora: solo la **última** corrección («Corregida por…») |
 | **N-4** | QA | Los días que muestra la API son un entero (`days`, PROD §4.6) y **no** está medido si son hábiles o naturales: por eso el copy dice «estimado de la paquetería» y no «días hábiles» como `PROJECT §T.3.3`. Si `PG-1` lo mide, se ajusta el rótulo |
+
+---
+
+### 43.18 La dirección del CLIENTE con colonia de lista (fase C) — libreta, alta del buylist, invitado y retiro *(v4.18)*
+
+**Por qué existe.** Frontend construyó el lado del cliente de la fase C (`API_CONTRACT §M4-SHIP.19.5`, criterio 235;
+errata `§19.23.4` para `line2` 0..200) **sin** diseño del cliente: aplicó lo mínimo coherente con §43.2b y lo dejó
+pendiente en `FRONTEND_NOTES.md` §88.3 (`:19241-19250`). Esta subsección **juzga lo construido**: ratifica lo que está
+bien y dice, con fichero:línea, lo que cambia. §43.2b sigue siendo la del **operador**; ésta es la del **cliente**.
+
+**Lo que leí** (worktree `/home/user/tcg-skyd`, 2026-10-04; ⛔ sin Bash: HEAD `5d597185` dado por el orquestador, **NO
+MEDIDO** por mí): `components/domain/PostalCodeNeighborhoodFields.tsx` (1-136), `hooks/usePostalCodeLookup.ts` (1-79),
+`components/domain/AddressManager.tsx` (`:225-324` fila, `:375-390` errores del servidor, `:450-462` validación local,
+`:530-601` campos, `:608-644` `AddressFormModal`), `(storefront)/checkout/GuestCheckoutForm.tsx` (`:41-52`
+`FIELD_ORDER`, `:112-141`, `:212-303`), `(storefront)/shipments/ShipmentsView.tsx` (`:119-127`, `:161-197`, `:215-216`,
+`:335-345`, `:383-414`, `joinMissing` `:430`), `components/ui/Textarea.tsx` (1-69), `components/ui/Select.tsx` (1-61),
+`components/ui/Modal.tsx` (1-72), `(storefront)/checkout/support-contact.ts:14` (`SUPPORT_CONTACT_FALLBACK =
+'soporte@tcghunt.mx'`), y `frontend/messages/es.json`/`en.json` `addresses.*` (`:5486-5539`),
+`shipments.addressIncomplete.*` (`:846-856`), `error.*` (`:5470-5472`), `checkout.guest.phoneHelp` (`es.json:514`).
+
+**Cero tokens nuevos, cero pares de contraste nuevos** (todo es `text-text`, `text-muted`, `text-accent` sobre papel,
+§10; `rule-note`, `Input`, `Select`, `Textarea`, `Button`, `Modal` de §6–§7).
+
+#### 43.18a Reglas (se revisan en el PR)
+
+| # | Regla | De dónde sale |
+|---|---|---|
+| **CA-1** | **La colonia solo se elige de la lista del CP; municipio y estado salen del CP y no son campos.** ⛔ Ningún campo de texto libre para colonia, ciudad o estado, tampoco como «otra» | §19.5 («debe ser una de las colonias…»), `PROJECT §T.2`, §43.2b |
+| **CA-2** | **Si el catálogo no tiene lo del cliente, el remedio es una persona: «Escríbenos a {contact}».** ⛔ No se ofrece un camino que el servidor no tiene (no hay texto libre ni alta de CP: `422 POSTAL_CODE_UNKNOWN`, §19.5; el catálogo lo carga devops desde SEPOMEX, §19.23.6). ⛔ No se sugiere «pon otro CP» ni «elige cualquier colonia»: eso manda el paquete a otro sitio. `{contact}` = `SUPPORT_CONTACT_FALLBACK`, la misma constante que ya usan `wrongEmail`, `partialFail` y `incompleteBody` | §V («Escríbenos»), §43.12 |
+| **CA-3** | **El servidor decide SI la dirección está incompleta (`complete`); la pantalla solo nombra QUÉ falta.** La marca aparece ⇔ `complete === false` (⛔ un DTO sin el campo no se marca, como ya hace frontend); el «falta {…}» sale de `addressMissingFields` (`AddressManager.tsx:68`) o del `missing` del `422`. Si la lista sale vacía con `complete:false`, texto genérico — ⛔ nunca la marca sin texto | §19.5 (`complete`, `422 ADDRESS_INCOMPLETE {missing}`) |
+| **CA-4** | **Un botón apagado nunca está mudo** (§15.9): «Pagar envío y solicitar» deshabilitado lleva `aria-describedby` a **todos** los motivos visibles, no al primero | §15.9, §33.10b |
+| **CA-5** | **Mismas palabras para el mismo hueco** en la fila de la libreta, el bloque del retiro y el formulario: «la colonia» · «un CP de 5 dígitos» · «un teléfono de 10 dígitos», una sola fuente de claves | — |
+
+#### 43.18b El formulario — orden de campos *(cambia: referencias suben, teléfono baja)*
+
+Lo construido (libreta `AddressManager.tsx:533-593` e invitado `GuestCheckoutForm.tsx:218-301`) pone el teléfono
+**entre** la colonia y las referencias, y parte en dos lo que describe el lugar. Orden normativo, el mismo en libreta,
+alta inline del buylist (`BuylistPickupAddressField.tsx`, que monta los mismos campos) e invitado:
+
+| # | Campo | Control | Ayuda (`hint`) |
+|---|---|---|---|
+| 1 | `addresses.recipientName` (invitado: `checkout.guest.recipientName`) | `Input autoComplete="name"` | `recipientNameHint` (libreta) |
+| 2 | `addresses.line1` | `Input autoComplete="address-line1"` | — |
+| 3 | `addresses.line2` | `Input autoComplete="address-line2"` | — |
+| 4 | `addresses.postalCode` | `Input inputMode="numeric" maxLength={5} autoComplete="postal-code"`, `tabular-nums` | `geo.cpHint` |
+| 5 | `addresses.neighborhood` | `Select` de la lista (CA-1) | `geo.notListed` (43.18d) |
+| — | línea «Municipio y estado» | ⛔ no es campo: `geo.cityState` en `text-sm text-text`, solo con respuesta del CP | — |
+| 6 | `addresses.references` | `Textarea rows={2}` con contador (43.18c) | `referencesHint` |
+| 7 | `addresses.phone` | `Input type="tel" inputMode="tel" autoComplete="tel"` | `addresses.phoneHint` (**también** en invitado) |
+| 8 | País | texto fijo `countryMx` (sin cambio) | — |
+| 9 | «Usar como predeterminada» (solo libreta) | sin cambio | — |
+
+*Por qué así:* 2–6 se leen como se escribe un sobre en México y son lo que va impreso en el bloque de destino de la
+guía; las referencias acompañan al lugar (`further_information`), no al teléfono. Es además el orden de la ventana
+del operador (§43.2b), así que el cliente y el operador ven la misma dirección en la misma secuencia.
+
+- El resumen de errores del invitado sigue el orden del DOM: `FIELD_ORDER` (`GuestCheckoutForm.tsx:41-52`) pasa a
+  `… 'neighborhood', 'references', 'phone', 'terms'`.
+- ⛔ Al completar los 5 dígitos del CP **no** se mueve el foco solo al `Select` (WCAG 3.2.2: un cambio de contexto al
+  teclear). El anuncio de «Buscando las colonias…» ya va por `aria-live` (`PostalCodeNeighborhoodFields.tsx:110`).
+
+#### 43.18c Contador de referencias (hasta 70) *(ratifico, con un cambio en el componente)*
+
+- Ratifico `Textarea counter={{ max: 70 }}` («{n} / 70», versalita mono `text-muted`, a la derecha de la ayuda) y que
+  el contador sea `aria-hidden` (el tope ya lo dice la ayuda en texto).
+- ⛔ **Sin `maxLength`** en el `textarea`: un pegado de 90 caracteres se cortaría en silencio y la guía saldría con
+  media frase. Se deja escribir de más y se dice.
+- **Cambio:** pasado el tope, el contador pasa a `text-accent` (`components/ui/Textarea.tsx:62`, ⚠ zona compartida:
+  `length > counter.max ? 'text-accent' : 'text-muted'`). El error `referencesTooLong` llega al validar (salir del
+  campo en invitado, «Guardar» en libreta), como hoy.
+
+#### 43.18d CP que no está en el catálogo, y colonia que no aparece *(cambia)*
+
+Hoy el cliente lee «Revisa que esté bien escrito» y nada más: si su CP es correcto, **no tiene salida**. El remedio es
+«Escríbenos» (CA-2). Tres situaciones, tres textos, cada uno en su sitio:
+
+| Situación | Dónde | Texto | Por qué ahí |
+|---|---|---|---|
+| `404`/`422 POSTAL_CODE_UNKNOWN` en la consulta o al guardar | `error` del `Input` del CP | `geo.cpUnknown` (con `{cp}` y `{contact}`) | es el campo que hay que revisar; el `Select` queda apagado con su motivo `geo.noNeighborhoods` |
+| `422 POSTAL_CODE_UNKNOWN` al pagar como invitado | junto al botón (`error.<CODE>`, como hoy) | `error.POSTAL_CODE_UNKNOWN` (sin el correo: remite al campo) | el botón dice que no se creó nada; el remedio vive **una** vez, en el campo |
+| La lista llegó, pero la colonia del cliente no está | línea `text-xs text-muted` bajo el `Select`, siempre que hay lista (≥ 1 colonia) | `geo.notListed` | la pregunta nace al abrir la lista; ⛔ no se pinta antes de que haya lista ni con el CP desconocido (ahí manda `cpUnknown`) |
+
+- El correo va **en texto**, no como enlace: el `error` de `Input` es una cadena (`Input.tsx:9`) y así lo hacen ya
+  `wrongEmail`/`partialFail`. En `geo.notListed` se admite enlace `mailto:` con `t.rich` si frontend lo prefiere;
+  ⛔ con el mismo texto visible.
+- `geo.notListed` entra en el `aria-describedby` del `Select` junto al motivo y al error.
+- `geo.failed` (red/`5xx`, con «Reintentar»): **ratifico**; no es el CP del cliente, así que ⛔ no lleva «Escríbenos».
+
+#### 43.18e El `Select` de colonias en un celular (≤ 390 px) *(ratifico el control nativo; dos cambios)*
+
+**Ratifico `<select>` nativo, ⛔ sin Combobox con búsqueda** — excepción explícita a §6.3 («si la lista es larga,
+Combobox»): en iOS el nativo abre la rueda del sistema y en Android una lista a pantalla completa, ambos con
+desplazamiento propio, sin teclado encima y con el tamaño de letra del sistema; un combobox propio con 30+ opciones
+pondría el teclado sobre la mitad de la lista en 390×844. En escritorio el nativo ya busca por la primera letra.
+Ratifico también `text-base` (16 px: iOS no hace zoom al enfocar) y `w-full` con el ▾ en `pr-6`.
+
+**Cambios:**
+1. **Orden alfabético** de las opciones en `PostalCodeNeighborhoodFields.tsx:101`
+   (`[...neighborhoods].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))`). En el celular no hay
+   búsqueda por letra: el orden es lo único que hace encontrable una colonia entre 30. Solo presentación: ⛔ el valor de
+   cada opción no cambia (el servidor compara contra su lista, §19.5). Vale también para la lista `allowed` del `422`.
+2. **Una sola colonia ⇒ preseleccionada** cuando no hay ninguna elegida (el CP la determina). El `Select` sigue
+   habilitado; ⛔ no se preselecciona con 2 o más.
+
+**Lo que se acepta y se mide:** con un nombre largo (p. ej. «Unidad Habitacional …»), el `<select>` cerrado lo corta
+con «…» a ~35 caracteres en 390 px; el nombre completo se ve en el selector del sistema y, ya guardada, en la fila de la
+libreta. Captura de QA en `360×740` y `390×844` con la colonia más larga del fixture: NO MEDIDO.
+
+El formulario de la libreta vive en el `Modal` (`Modal.tsx:54`: en móvil, hoja a `100dvh` con cuerpo desplazable y pie
+fijo): **ratifico**; «Guardar» queda visible con el teclado abierto.
+
+#### 43.18f La fila «Dirección incompleta» en la libreta *(cambia)*
+
+Ratifico la forma (`AddressManager.tsx:254-266`): renglón mono `text-[11px] text-accent` bajo la dirección y enlace
+«Completar dirección» en tinta subrayada, hermano del de destinatario (`:238-249`). Cambia:
+- **El texto nombra lo que falta** (CA-3, CA-5): `addresses.incomplete.rowMissing` con `{missing}` = las palabras de
+  `addresses.incomplete.missing.*` unidas con `addresses.incomplete.and` (la `joinMissing` de `ShipmentsView.tsx:430`,
+  movida donde la usen los dos); sin lista ⇒ `addresses.incomplete.row` (genérico).
+- **Objetivo táctil ≥ 24 px** (WCAG 2.2, 2.5.8) para este botón: `py-1.5` (o `min-h-6`) sin cambiar su aspecto. Los
+  botones vecinos de la fila («Editar», «Borrar») tienen la misma talla: deuda **no bloqueante**, fuera de este encargo.
+- El botón lleva `aria-describedby` al renglón de la dirección (`:253`): con varias direcciones incompletas hay varios
+  «Completar dirección» y el lector debe saber de cuál es.
+- Abre `AddressFormModal` en **modo completar** (43.18g).
+
+#### 43.18g «Completar dirección» — el formulario en modo completar *(nuevo)*
+
+`AddressFormModal` (`AddressManager.tsx:608-644`) gana un modo «completar», que usan la fila de la libreta y el bloque
+del retiro:
+- Título: `addresses.incomplete.cta` («Completar dirección») en lugar de «Editar dirección».
+- Encima de los campos, `text-sm text-text`: `addresses.incomplete.formIntro` (con `{missing}`) o
+  `formIntroGeneric` sin lista. Responde «¿qué me falta?» y «¿esto cambia mi libreta?» (sí, es un `PATCH` de la libreta).
+- Foco al primer campo que falta (ya construido: `focusField`). Mismos campos, mismo orden (43.18b), mismo «Guardar».
+
+#### 43.18h Retiro con dirección incompleta *(ratifico la estructura; cuatro cambios)*
+
+Ratifico (`ShipmentsView.tsx:335-345`, `:383-399`): bloque `rule-note` bajo el selector de direcciones, motivo en mono
+`text-[11px] text-accent`, «Completar dirección» como `Button variant="secondary" size="sm"`, y «Pagar envío y
+solicitar» **deshabilitado** (no oculto) con el motivo enlazado — hermano del bloque de destinatario (§33.10b). Ratifico
+que sin dirección completa no se pide cotización (no hay cifra que mostrar).
+
+Cambios:
+1. **Texto del bloque** sin «no se cobró nada»: el bloque aparece **antes** de cualquier intento de pago y esa frase
+   hace preguntar «¿cobrar qué?». Nuevo `shipments.addressIncomplete.required`/`.generic` (43.18i).
+2. **`422 ADDRESS_INCOMPLETE` al pagar** (`:179-189`): el mensaje bajo el botón deja de ser `getMessage(e)` (que repite
+   lo del bloque) y pasa a `shipments.addressIncomplete.notCharged` — lo único que el bloque no dice: que **no** se pidió
+   el retiro ni se cobró. El bloque aparece/actualiza con el `missing` del servidor (ya construido).
+3. **`aria-describedby` del botón** (`:388-394`) con **los dos** ids cuando faltan destinatario y dirección
+   (`'recipient-required address-incomplete'`), no solo el primero (CA-4).
+4. **Después de guardar** (`:408-413`): el bloque desaparece y su botón con él, así que el foco **no** puede volver al
+   que abrió el modal. Foco al radio de la dirección elegida en el selector, y región `role="status"` con
+   `shipments.addressIncomplete.saved`. La cotización se pide sola al quedar completa (ya construido).
+- El modal se abre en **modo completar** (43.18g). Las palabras de `{missing}` salen de `addresses.incomplete.missing.*`
+  (CA-5); `shipments.addressIncomplete.missing.*` y `.and` se retiran.
+
+#### 43.18i Textos ES/EN — clave exacta y veredicto
+
+`addresses.*` en `frontend/messages/es.json:5486-5539` / `en.json:5486-5539`; `shipments.addressIncomplete.*` en
+`:846-856`; `error.*` en `:5470-5472`. «Ratifico» = el texto que ya está en `es.json`/`en.json`, sin tocar.
+
+| Clave | Veredicto | ES | EN |
+|---|---|---|---|
+| `addresses.line2` | **Ratifico** (deja de mezclar interior y referencias, como §43.2b) | Número interior o depto. (opcional) | Unit or apt. number (optional) |
+| `addresses.line2TooLong` | Ratifico | Hasta {max} caracteres: acórtalo. | Up to {max} characters: shorten it. |
+| `addresses.references` | Ratifico | Referencias para el repartidor (opcional) | Directions for the courier (optional) |
+| `addresses.referencesHint` | Ratifico | Por ejemplo: portón negro, entre calles… Hasta {max} caracteres; van impresas en la guía. | For example: black gate, between streets… Up to {max} characters; printed on the label. |
+| `addresses.referencesTooLong` | Ratifico | Las referencias no caben en la guía: acórtalas (hasta {max} caracteres). | The directions don’t fit on the label: shorten them (up to {max} characters). |
+| `addresses.phoneHint` | **Cambia** (una sola ayuda para libreta e invitado; la del invitado decía otra cosa) | 10 dígitos. Solo lo usa la paquetería, si necesita llamar para entregar. | 10 digits. Only the carrier uses it, if they need to call to deliver. |
+| `checkout.guest.phoneHelp` | **Se retira** (`GuestCheckoutForm.tsx:284` pasa a `ta('phoneHint')`; retirar si no tiene otro lector) | — | — |
+| `addresses.postalCodeInvalid` | **Cambia** (la regla ahora es exacta: decirla) | El código postal son 5 dígitos. | The postal code is 5 digits. |
+| `addresses.phoneInvalid` | **Cambia** | El teléfono son 10 dígitos. | The phone number is 10 digits. |
+| `addresses.geo.cpHint` | Ratifico | 5 dígitos. La colonia, el municipio y el estado salen del CP. | 5 digits. Neighborhood, municipality and state come from the postal code. |
+| `addresses.geo.cpFirst` | Ratifico | Escribe los 5 dígitos del CP para ver sus colonias. | Type the 5-digit postal code to see its neighborhoods. |
+| `addresses.geo.loading` | Ratifico | Buscando las colonias del CP {cp}… | Looking up the neighborhoods for postal code {cp}… |
+| `addresses.geo.placeholder` | Ratifico | Elige una colonia | Choose a neighborhood |
+| `addresses.geo.noNeighborhoods` | **Cambia** (el remedio está en el CP; aquí solo el motivo) | Sin colonias: este CP no está en el catálogo. | No neighborhoods: this postal code isn’t in the catalog. |
+| `addresses.geo.cpUnknown` | **Cambia** (43.18d; `{contact}` = `SUPPORT_CONTACT_FALLBACK`) | No encontramos el CP {cp} en nuestro catálogo y sin él no podemos enviar. Revisa que esté bien escrito; si es correcto, escríbenos a {contact} con tu CP. | We couldn’t find postal code {cp} in our catalog, and we can’t ship without it. Check it’s typed correctly; if it’s right, email us at {contact} with your postal code. |
+| `addresses.geo.notListed` | **Nueva** (43.18d) | ¿No aparece tu colonia? Escríbenos a {contact} con tu CP y el nombre de tu colonia. | Your neighborhood isn’t listed? Email us at {contact} with your postal code and its name. |
+| `addresses.geo.failed` | Ratifico | No se pudieron consultar las colonias del CP {cp}. | We couldn’t look up the neighborhoods for postal code {cp}. |
+| `addresses.geo.notInCp` | Ratifico | Esa colonia no es del CP {cp}. No se guardó nada: elige una de la lista. | That neighborhood isn’t in postal code {cp}. Nothing was saved: choose one from the list. |
+| `addresses.geo.neighborhoodRequired` | Ratifico | Elige la colonia de la lista del CP. | Choose the neighborhood from the postal code’s list. |
+| `addresses.geo.cityState` | Ratifico (= `tracking.sdx.address.cityState`) | Municipio y estado: {city}, {state} (salen del CP). | Municipality and state: {city}, {state} (from the postal code). |
+| `addresses.geo.noData` | Ratifico | sin dato | no data |
+| `addresses.incomplete.row` | **Cambia** (pasa a ser el genérico de CA-3) | Dirección incompleta: le faltan datos para la guía. | Incomplete address: it’s missing details for the label. |
+| `addresses.incomplete.rowMissing` | **Nueva** | Dirección incompleta: falta {missing}. | Incomplete address: missing {missing}. |
+| `addresses.incomplete.cta` | Ratifico (también título del modo completar) | Completar dirección | Complete address |
+| `addresses.incomplete.missing.neighborhood` / `.postalCode` / `.phone` | **Nuevas** (se mudan de `shipments.addressIncomplete.missing.*`, mismo texto) | la colonia / un CP de 5 dígitos / un teléfono de 10 dígitos | the neighborhood / a 5-digit postal code / a 10-digit phone number |
+| `addresses.incomplete.and` | **Nueva** (se muda de `shipments.addressIncomplete.and`) | y | and |
+| `addresses.incomplete.formIntro` | **Nueva** (43.18g) | A esta dirección le falta {missing}. Lo que guardes se queda en tu libreta de direcciones. | This address is missing {missing}. What you save stays in your address book. |
+| `addresses.incomplete.formIntroGeneric` | **Nueva** | A esta dirección le faltan datos para la guía. Lo que guardes se queda en tu libreta de direcciones. | This address is missing details for the label. What you save stays in your address book. |
+| `shipments.addressIncomplete.required` | **Cambia** (43.18h.1) | A la dirección elegida le falta {missing}. Complétala para pagar el envío y solicitar el retiro. | The selected address is missing {missing}. Complete it to pay for shipping and request the withdrawal. |
+| `shipments.addressIncomplete.generic` | **Cambia** | A la dirección elegida le faltan datos para la guía. Complétala para pagar el envío y solicitar el retiro. | The selected address is missing details for the label. Complete it to pay for shipping and request the withdrawal. |
+| `shipments.addressIncomplete.cta` | Ratifico | Completar dirección | Complete address |
+| `shipments.addressIncomplete.notCharged` | **Nueva** (43.18h.2) | No se solicitó el retiro ni se cobró nada: completa la dirección. | The withdrawal wasn’t requested and nothing was charged: complete the address. |
+| `shipments.addressIncomplete.saved` | **Nueva** (43.18h.4) | Dirección completa. Revisa el costo del envío y paga para solicitar el retiro. | Address complete. Check the shipping cost and pay to request the withdrawal. |
+| `shipments.addressIncomplete.missing.*`, `.and` | **Se retiran** (CA-5) | — | — |
+| `error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE` | Ratifico | Esa colonia no es del código postal. No se guardó nada: elige una de la lista. | That neighborhood isn’t in the postal code. Nothing was saved: choose one from the list. |
+| `error.POSTAL_CODE_UNKNOWN` | **Cambia** (43.18d: el remedio vive en el campo) | Ese código postal no está en nuestro catálogo y no se guardó nada. En el campo «Código postal» te decimos qué hacer. | That postal code isn’t in our catalog and nothing was saved. The “Postal code” field tells you what to do. |
+| `error.ADDRESS_INCOMPLETE` | Ratifico (queda como genérico de `getMessage`; el retiro ya no lo usa, 43.18h.2) | A la dirección elegida le faltan datos para la guía (colonia, CP o teléfono). Complétala para continuar; no se cobró nada. | The selected address is missing data for the label (neighborhood, postal code or phone). Complete it to continue; nothing was charged. |
+
+Paridad ES/EN en el mismo commit (candado `i18n-parity` que ya existe).
+
+#### 43.18j Lista de cambios para frontend (fichero:línea leídos el 2026-10-04 — re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FC-1 | `components/domain/PostalCodeNeighborhoodFields.tsx:66` | `geo.cpUnknown` con `{ cp, contact: SUPPORT_CONTACT_FALLBACK }` (`checkout/support-contact.ts:14`, como `ClaimableOrdersNotice.tsx:17`) | 43.18d |
+| FC-2 | ídem `:101` | Opciones en orden alfabético `localeCompare('es', {sensitivity:'base'})`; valores intactos | 43.18e |
+| FC-3 | ídem (con `onResolved`/hook) | Una sola colonia y ninguna elegida ⇒ preseleccionada | 43.18e |
+| FC-4 | ídem tras `:108`, y `:78` | Línea `geo.notListed` (`text-xs text-muted`) con lista ≥ 1; su id en el `aria-describedby` del `Select` | 43.18d |
+| FC-5 | `components/domain/AddressManager.tsx:254-266` | `rowMissing` con `addressMissingFields` (`:68`) + `joinMissing`; genérico sin lista; objetivo ≥ 24 px; `aria-describedby` al renglón `:253`; abre modo completar | 43.18f |
+| FC-6 | `AddressManager.tsx:559-579` | Referencias **antes** que teléfono | 43.18b |
+| FC-7 | `(storefront)/checkout/GuestCheckoutForm.tsx:274-296`, `:49-50` | Ídem en el invitado y en `FIELD_ORDER` | 43.18b |
+| FC-8 | `GuestCheckoutForm.tsx:284` | `hint={ta('phoneHint')}`; retirar `checkout.guest.phoneHelp` si no tiene otro lector | 43.18i |
+| FC-9 | `AddressManager.tsx:608-644` (`AddressFormModal`) | Modo completar: título `incomplete.cta` + `formIntro`/`formIntroGeneric` encima de los campos | 43.18g |
+| FC-10 | `(storefront)/shipments/ShipmentsView.tsx:179-189` | `422 ADDRESS_INCOMPLETE` ⇒ `reqError = t('addressIncomplete.notCharged')` | 43.18h |
+| FC-11 | `ShipmentsView.tsx:388-394` | `aria-describedby` con los dos ids cuando faltan los dos | 43.18h |
+| FC-12 | `ShipmentsView.tsx:403-414` | Modo completar; al guardar, foco al radio de la dirección elegida + `role="status"` con `.saved` | 43.18h |
+| FC-13 | `ShipmentsView.tsx:216`, `:430` | Palabras de `addresses.incomplete.missing.*`/`.and`; `joinMissing` compartida con la fila | 43.18f, h |
+| FC-14 | `components/ui/Textarea.tsx:62` ⚠ zona compartida | Contador `text-accent` con `length > max`; ⛔ sin `maxLength` en referencias | 43.18c |
+| FC-15 | `frontend/messages/es.json` / `en.json` (`:514`, `:846-856`, `:5470-5472`, `:5486-5539`) | Tabla de 43.18i | 43.18i |
+
+⛔ El hook `usePostalCodeLookup` (que comparte la ventana del operador) **no** necesita cambio: FC-2/FC-3 son de
+presentación del componente del cliente. Si frontend prefiere ordenar en el hook, ordena también la lista del operador,
+y eso está bien (mismo motivo).
+
+#### 43.18k Candados (Testing Library contra MSW)
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-ADR-1** | CP `404` ⇒ bajo «Código postal» el texto contiene `soporte@tcghunt.mx` y «Revisa»; el `Select` apagado con `geo.noNeighborhoods` en su `aria-describedby`; **cero** `input[type=text]` para colonia, municipio o estado | Texto sin correo; campo libre de colonia |
+| **UX-ADR-2** | Fixture con colonias desordenadas ⇒ las `option` salen en orden alfabético y el `value` de cada una es el del fixture; fixture con **una** colonia ⇒ elegida sin interacción y el `POST` la lleva; con dos ⇒ placeholder | Sin ordenar; preseleccionar con 2+ |
+| **UX-ADR-3** | Libreta: `complete:false, neighborhood:null` ⇒ «Dirección incompleta: falta la colonia.»; `complete:true` con `neighborhood:null` ⇒ **sin** marca (manda el servidor); `complete:false` sin hueco deducible ⇒ el genérico | Deducir la marca de los campos; marca sin texto |
+| **UX-ADR-4** | Retiro con destinatario **y** dirección incompletos ⇒ el botón de pagar está `disabled` y su `aria-describedby` contiene `recipient-required` **y** `address-incomplete`; `422 ADDRESS_INCOMPLETE` ⇒ bajo el botón `notCharged` y **no** el texto de `error.ADDRESS_INCOMPLETE` | Solo el primer id; `getMessage` duplicado |
+| **UX-ADR-5** | En libreta e invitado, el `textarea` de referencias precede en el DOM al `input[type=tel]`; `FIELD_ORDER` coincide con el orden del DOM | Teléfono antes de referencias |
+| **UX-ADR-6** | Pegar 80 caracteres en referencias ⇒ el valor conserva los 80 (sin `maxLength`), el contador «80 / 70» tiene `text-accent` y al validar aparece `referencesTooLong` | `maxLength={70}`; contador siempre `muted` |
+| **UX-ADR-7** | Paridad ES/EN de las claves de 43.18i; `shipments.addressIncomplete.missing` **no** existe en `es.json` ni `en.json` | Dejar las dos copias |
+
+#### 43.18l Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **P-ADR-2** | product-owner → dueño | **Colonia que no está en la lista de un CP que sí está** (fraccionamientos nuevos, que SEPOMEX tarda en publicar). Hoy el diseño dice «Escríbenos» (CA-2). Alternativa común en tiendas mexicanas: «elige la más cercana y escribe la tuya en Referencias» — el servidor ya lo admite (colonia de lista + `references` ≤ 70), pero **imprime en la guía una colonia que no es la del cliente**: es una decisión de entrega del dueño, no de diseño. Default: no se ofrece. Si el dueño dice sí, cambia solo el texto de `geo.notListed` |
+| **N-7** | dueño / orquestador | «Escríbenos» resuelve **hablar**, no **guardar**: mientras el CP no esté en el catálogo, ese cliente no puede guardar esa dirección ni pagar un envío a ella (si puede comprar a bóveda sin dirección: NO MEDIDO). Qué hace el dueño con ese correo (pedir a devops cargar el CP, vender por otra vía) no tiene camino en la app ni en el contrato. NO MEDIDO cuántos CP reales faltan en SEPOMEX |
+| **N-8** | QA | Capturas a `360×740` y `390×844`: el `Select` con 30+ colonias (fixture largo) abierto y cerrado con el nombre más largo, la hoja de «Completar dirección» con el teclado abierto, y el bloque del retiro. NO MEDIDO por mí |
+| **N-9** | techlead | Deuda no bloqueante: los botones de texto de la fila de la libreta («Editar», «Borrar», «Marcar predeterminada») miden ~16 px de alto; FC-5 solo corrige «Completar dirección» |
