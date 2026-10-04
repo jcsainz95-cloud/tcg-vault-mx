@@ -24,6 +24,7 @@
 > | **v1.80.8.8** | Errata (2026-10-04, rama `claude/precios-s5`, sobre `352b849a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES` §17.2/§17.4/§17.5/§18, PR #68, `FRONTEND_NOTES §84`). **Aceptado y normado lo construido:** paso **4-bis** de SRF-11 (candado de envío **después** de `Order`, única excepción al orden de candados, interbloqueo solo vía `40P01 ⇒ 503`/reentrega); fila `order.full_refund_closed` en la rama directo (forma declarada); `?refundReview=` en §0-Q (clase L); M3 sobre no `settled` ⇒ **`422`** (el `400` de SRF-13 era errata); SRF-8 ⇒ `409 CONFLICT`; mutaciones de SRF-6/7/8/11 sustituidas por las que muerden (SRF-8: una nueva NO MEDIDA); SFP-7 sin `updatedAt`; PS-51 admite `IN_PROGRESS` **o** `NOT_RETRYABLE` (clasificación por el estado releído). **Endurecido:** el CAS publicante del `PATCH` de M1 condiciona el `status` leído exacto (un `200` de carrera pasa a `409 CONFLICT`), prueba **SFP-10**. `D-SFP-1` cerrada (reportado por backend). ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.8.8, §M4-SHIP.18.12 (10), §M4-SHIP.17.6, §M1 `M1-SFP`, §0-Q | §4.36.5 (c-quater), §4.57 (w), §9 | **Sí** (backend: una condición en `claimListed` + pruebas SFP-10, SRF-13, SRF-8, SRF-4, PS-51, `C-EQ-1`) |
 > | **v1.80.8.9** | Errata (2026-10-04, rama `claude/precios-s5`; ⛔ sha NO MEDIDO por el arquitecto; origen: diagnóstico de backend sobre production `aab55abe`, relayado por el orquestador — 17 filas VENTA `reason=null` que «Publicar todo» no cerraba). (1) **`publish-all` termina con el barrido VQ entero** (`sweepUnreasonedSaleQueue`, un solo cuerpo, falla-seguro, ⛔ no en replay); «Actualizar precios ahora» (`price-ingest`) **no** barre. (2) La reconciliación de `price-ingest` abre/cierra con **`saleQueueKeyOf`** (con `cardProductId`). (3) **`context` entra a la clave de dedupe** de `escalatePending` (siete componentes, sin DDL) y el deep-link de M1 filtra `context='inventory'` — cierra el residual de S48-M1. Paso de despliegue reescrito con qué cierra qué. ⛔ Sin schema, migración, endpoint ni forma nueva. Norma: `API_CONTRACT` rev v1.80.8.9, §M2 `M2-VQ9` | §4.36.5 (c-quinquies), (c-bis) 5 | **Sí** (backend: VQ-10…VQ-14) |
 > | **v1.80.9** | Feature (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md` «Usuarios de back-office SIN correo…» (a)(b)(c) + default del orquestador; `PROJECT §U`, criterios 256–270, P-STF-1…8 con su default). `User.email` opcional; `User.username` (`@unique`, canónico en minúsculas) y `User.lockNoticeAt`; **5 CHECK** (email XOR usuario; cliente ⇒ correo; forma del usuario; sin correo ⇒ no verificado; aviso solo sin correo). **Mismo `POST /auth/login`, misma llave `email`** = identificador (`@` ⇒ correo, si no ⇒ usuario); misma clave C7 para correos; cero enumeración. Alta de staff **sin** correo (staff con correo ⇒ `422`), `409 USERNAME_TAKEN`, `mustChangePassword` siempre; aviso de candado en el panel; `lockedUntil` en Usuarios leído del almacén; `403 ACCOUNT_WITHOUT_EMAIL`; denegación auditada a `vault_operator`. **Migración `M-STF` (número NO asignado).** Stream posterior a `precios-s5`. Norma: `API_CONTRACT` rev v1.80.9, §M6-U | §4.58, §11 `M-STF`, §9 `D-STF-1`/`D-STF-2` | **Sí** (backend + frontend + textos ux-ui) · 🔒 seguridad |
+> | **v1.80.9.1** | Errata (2026-10-04, rama `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`, ⛔ sha NO MEDIDO por el arquitecto; cierra C-1 del techlead; origen `BACKEND_NOTES §22`, `DESIGN_SYSTEM §42.10 A-1`, decisión del dueño sobre TD-4). Aceptados tal cual: **D-1** (rama `@` = `isEmail` de hoy), **D-2** (anonimización anula también `lockNoticeAt`), **D-3** (`M-63`, `20261005120000_m63_staff_username`), **D-5** (`rule:'customer_without_username'`, `field` en todo `422` del alta). **Cambian:** **D-4** el resiliente degradado/Redis sin contestar ⇒ `peekLockMs` lanza `LoginAttemptStoreUnavailableError` sin `markDown` ⇒ `lockState:'unavailable'`; **A-1** `lockState` en la ficha; **TD-9** sin servicio ⇒ lanza, y solo la clase del almacén ⇒ `'unavailable'`; **TD-4** reset desde Usuarios a cualquier rol (normado + STF-36), script con `ADMIN_USERNAME` y `emailVerified` solo con correo; ⛔ no se prohíbe el súper-admin sin correo. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` §M6-U.11 | §4.58.5, §4.58.9, §11 `M-63` | **Sí** (backend; frontend: `lockState` de la ficha) · 🔒 seguridad |
 > | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
@@ -27088,6 +27089,10 @@ correo, sin necesidad de dominio propio.
 - **«Bloqueado hasta HH:MM» en Usuarios** se **lee del almacén** (`peekLockMs`), no se copia a la BD: copiarlo crearía
   dos fuentes para el candado, y la de la BD mentiría tras un `reset` en Redis o un reinicio del almacén en memoria.
   Si el almacén no contesta, el listado lo **dice** (`lockState:'unavailable'`) en vez de pintar «sin candado».
+  ⭐ **v1.80.9.1:** «no contesta» incluye el **modo degradado** del almacén resiliente (Redis caído o fuera de plazo):
+  en ese modo el listado y la ficha dicen `'unavailable'`, no la memoria de la réplica. Lo construido en v1.80.9 no
+  cumplía esta frase (`login-attempt.store.ts:600-608` leía la memoria y nunca lanzaba); razón y alternativa
+  descartada en §4.58.9.
 
 #### 4.58.6 «Sin correo no es cliente»: en el guard que ya existe, no en un trigger
 Las cinco rutas de cliente con compromiso ya pasan por `EmailVerifiedGuard` (`@RequireEmailVerified`: `orders.controller.ts:32`,
@@ -27111,6 +27116,59 @@ regla que el guard ya cubre en todas las entradas medidas. Queda como invariante
 - **Correo ficticio para el staff** (`ana@staff.local`): fabrica un dato que miente, mandaría correos a la nada y es la
   clase «columna que miente» que este proyecto ya pagó (§4.49).
 - **Permitir correo + usuario a la vez:** §4.58.1.
+
+#### 4.58.9 Errata v1.80.9.1 — lo que la construcción encontró (2026-10-04, arquitecto, NORMATIVO; cierra C-1 del techlead)
+
+Norma y pruebas: `API_CONTRACT §M6-U.11`. Origen: `BACKEND_NOTES §22`, valoración del techlead, `DESIGN_SYSTEM §42.10
+A-1`, decisión del dueño sobre TD-4 (2026-10-04). Las líneas citadas las leyó el arquitecto en la rama
+`claude/staff-sin-correo`.
+
+**D-1, D-2, D-3, D-5 — se aceptan tal como se construyeron.** D-1: el contrato decía a la vez «`EMAIL_REGEX`» e «igual
+que hoy»; manda «igual que hoy» (criterio 270), que es `isEmail` de class-validator. D-2: sin anular `lockNoticeAt`, el
+CHECK 5 rompe el soft-delete; era un hueco del plano, no una desviación. D-3: el número lo asignó el orquestador; la
+carpeta se llama `…_m63_staff_username` y se documenta así. D-5: aditivo y coherente con el resto del alta.
+
+**D-4 — opción (a): el almacén resiliente dice «degradado» y el panel pinta `unavailable`.** Backend construyó (b)
+(degradado ⇒ leer la memoria) con un argumento serio: la memoria es la que decide el `429` en ese modo. Se descarta por
+tres razones medidas en el código:
+1. **La memoria de una réplica no es «el candado».** En modo degradado solo conoce las claves que **esta** réplica tocó
+   (`login-attempt.store.ts:515-521`, N-C7-6). Si los 5 fallos los atendió otra réplica, esta pinta «sin candado»
+   mientras Redis —que volverá con su clave y su TTL— y la otra réplica dicen «bloqueado». El operador que lee el panel
+   para decidir si restablecer a alguien recibiría un «no» falso. §4.58.5 prometía exactamente lo contrario.
+2. **Leer no puede cambiar el modo del login.** La lectura de (b) llamaba a `markDown` si Redis no contestaba
+   (`:605`): un listado de 100 filas bajo carga podía mandar **el login de todas las cuentas** a memoria durante
+   `fallbackMs`. La interfaz dice «lectura sin efectos» (`:63-68`); `markDown` es un efecto. En (a) el `peek` no
+   marca caído: si Redis está muerto, el siguiente `acquire` del login lo descubrirá por sí mismo.
+3. **El coste de (a) es un aviso, el de (b) una afirmación falsa.** Con (a), cuando Redis falla el operador ve «no se
+   pudo leer el candado» durante la ventana; con (b), ve «sin candado» sin saber que puede ser falso. En un campo que
+   informa una decisión de seguridad, se prefiere el silencio honesto.
+**Forma:** clase `LoginAttemptStoreUnavailableError`; el resiliente la lanza si `degraded` o si el primario falla, sin
+`markDown`. Memoria pura (sin `REDIS_URL`) sigue diciendo `'ok'`: ahí la memoria **es** la fuente configurada, y su
+límite multi-réplica es N-C7-6 con su mismo disparador.
+
+**A-1 — la ficha gana `lockState`.** Mismo hecho, misma regla, misma función (`lockedUntilOf`); sin él, la ficha
+repetía la ambigüedad que el listado había cerrado. Aditivo en los dos DTOs.
+
+**TD-9 — fallar en alto también aquí.** `lockedUntilOf` traducía a `'unavailable'` dos cosas que no lo son: la falta del
+servicio (`admin.service.ts:965`, error de cableado que SEC-C7-OPT ya decidió que **no** tiene rama muda,
+`:637-641`, `:1449-1454`) y **cualquier** excepción (p. ej. una cuenta sin identificador, que es el CHECK 1 roto). Regla:
+solo `LoginAttemptStoreUnavailableError` ⇒ `'unavailable'`; todo lo demás se propaga. Un `500` en el panel ante una
+invariante rota es lo correcto: la alternativa es un panel que la tapa.
+
+**TD-4 — el súper-admin sin correo se rescata desde Usuarios, y el script gana `ADMIN_USERNAME` (decisión del dueño,
+2026-10-04: «dame la capacidad de moverlo desde mi cuenta»).**
+- **(a) Vía normal:** el reset de siempre (`POST /admin/users/:id/reset-password`) hecho por el dueño con su cuenta.
+  Ya funciona (medido por el orquestador y releído: `admin.service.ts:1448-1478` no filtra por el rol del
+  destinatario; `M6View.tsx:584-597` pinta el botón para toda cuenta no borrada). Lo que faltaba es que **nadie lo
+  cierre sin querer**: queda normado y con prueba (STF-36), cuya mutación es justo «negarse a un `super_admin`».
+- **(b) Script, red de último recurso** (cuando ningún súper-admin puede entrar): gana `ADMIN_USERNAME`. Coste bajo y
+  cierra el único caso en que (a) no sirve. Al construirlo aparece un defecto latente del script que el arquitecto
+  encontró al leerlo: escribe **siempre** `emailVerified = true` (`reset-admin-password.ts:175`), lo que con una
+  cuenta sin correo viola el CHECK 4 y haría fallar el rescate justo cuando más falta hace. Hoy es inalcanzable (busca
+  solo por correo); con `ADMIN_USERNAME` se volvería alcanzable, así que la regla nueva lo condiciona a `email != null`.
+- **(c) Descartado: prohibir el súper-admin sin correo** (o «que no quede ninguno con correo»). Contradice P-STF-1 y la
+  decisión del dueño, y obliga a una regla de conteo en tres rutas (alta, cambio de estado, borrado) con su propia
+  carrera, para cubrir un caso que (a) + (b) ya cubren.
 
 ### 4.59 LA DISPUTA DEL ENVÍO DIRECTO — derecho a reclamar sin ser dueño (v1.80.10, 2026-10-04, NORMATIVO, 💰 **DINERO**)
 
@@ -30490,11 +30548,12 @@ productivas); las migraciones solo redefinen esquema.~~
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
 
-### v1.80.9-staff-sin-correo (**M-STF — número NO asignado**: usuarios de back-office sin correo — **DDL ADITIVO + `DROP NOT NULL` + 5 CHECK, SIN backfill**, §4.58)
+### v1.80.9-staff-sin-correo (**M-63**: usuarios de back-office sin correo — **DDL ADITIVO + `DROP NOT NULL` + 5 CHECK, SIN backfill**, §4.58)
 
-⚠️ **Número:** `M-62` está tomada (arriba). `M-63` no aparece en ningún `.md` de este árbol (`rg "M-63"` ⇒ 0, 2026-10-04);
-**NO MEDIDO** en las demás ramas `claude/*`. Lo asigna quien construya, tras comprobarlo; carpeta
-`<timestamp>_m<NN>_staff_without_email`.
+⭐ **v1.80.9.1 (D-3):** número asignado por el orquestador: **`M-63`**. Carpeta construida:
+**`prisma/migrations/20261005120000_m63_staff_username/`** (`BACKEND_NOTES §22`, tabla 21.1; existencia medida por el arquitecto con
+`Glob backend/prisma/migrations/2026100512*/*` ⇒ `…/20261005120000_m63_staff_username/migration.sql`, 2026-10-04). ~~Número NO asignado; carpeta
+`<timestamp>_m<NN>_staff_without_email`~~ — retirado.
 Forma normativa entera: `API_CONTRACT §M6-U.1`. Pasos SQL, en este orden:
 1. `ALTER TABLE "User" ALTER COLUMN "email" DROP NOT NULL;` (solo metadatos).
 2. `ALTER TABLE "User" ADD COLUMN "username" TEXT, ADD COLUMN "lockNoticeAt" TIMESTAMP(3);` (nullable, sin default).
