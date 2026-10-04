@@ -1413,6 +1413,10 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
   procederemos» y el **mismo estado terminal**—; **queda auditado quién declinó** (§P.2, criterio 171).
   *(7ª ronda, D36)*: **no captura la dirección del vendedor** — **la lee de la solicitud**, donde el propio
   vendedor la eligió al crearla (§P.2.1).
+- **Staff sin correo** *(NUEVO 2026-10-04, §U — borrador)*: los miembros del equipo (operador de bóveda y, según
+  P-STF-1, súper-admin) que el dueño da de alta **desde ahora** no tienen correo: entran con **nombre de usuario +
+  contraseña** por su propia pantalla y, si la olvidan, **la restablece el dueño**. El rol no cambia lo que pueden
+  hacer. La cuenta del dueño **conserva su correo**; el staff que ya tiene correo sigue como está (P-STF-2).
 
 ## Funcionalidades del MVP
 
@@ -7359,7 +7363,143 @@ P-S11-4 y P-PRE-1»: *«lo demás por defecto»*. No se re-pregunta ninguna.)*
   retirado no se toca.** La regla del «enviado» mira el envío **del propio pedido**, y una compra a bóveda no
   tiene; las cartas ya retiradas siguen sin tocarse, como hoy (criterio 231).
 
+### U. Usuarios de back-office SIN correo — el correo es solo para clientes (transversal — NUEVO 2026-10-04, sesión 5 · ⚠ BORRADOR de product-owner para aprobación del dueño)
+
+> **Letra:** §T la usa la rama viva `claude/skydropx-envios` (Skydropx, criterios 234–248); por eso esta sección
+> es **§U**. **Criterios: 256–270** (lista global). ⚠️ **NO MEDIDO** por product-owner contra las demás ramas
+> `claude/*` (no tengo Bash): en este árbol el último criterio es el **255** y no hay reservas por encima en
+> `PENDIENTES.md`, `TRASPASO.md` ni `HANDOFF.md` (grep del 2026-10-04). Antes de fusionar, el orquestador comprueba
+> que ninguna rama viva usa 256–270.
+
+**Origen, citado de `HECHOS.md`** — fila **«Usuarios de back-office SIN correo; el correo es solo para clientes.»**
+(2026-10-04, sesión 5). Palabras del dueño: *«Necesito poder hacer usuarios de backoffice sin correo, correo solo
+para clientes»*. Confirmado por el dueño en la misma fila: **(a)** *«su propia cuenta de súper-admin conserva
+correo, solo para recuperar la contraseña»*; **(b)** *«el resto del staff entra con nombre de usuario +
+contraseña, sin doble verificación; si olvidan la contraseña, la restablece el dueño desde Usuarios»*. Default del
+orquestador, sin preguntar, en la misma fila: *«el aviso de candado al staff deja de ir por correo y queda en el
+panel»*. Dato medido en esa fila (no lo re-medí): hoy `User.email` es obligatorio y único y el login es por correo.
+
+#### U.1 El problema, en lenguaje llano
+
+Hoy toda cuenta necesita un correo, también la de un operador de bóveda. El dueño no quiere dar de alta correos
+para su equipo: el correo es el canal con **clientes**. El equipo debe poder entrar con un **nombre de usuario** y
+una **contraseña** que el dueño administra.
+
+#### U.2 Alta de un miembro del equipo (criterios 256, 257, 260)
+
+- Desde **Usuarios** (M6), el súper-admin da de alta a un miembro del equipo con: **nombre** (el que se muestra,
+  como hoy), **nombre de usuario**, **rol** (`vault_operator` o `super_admin` — ver P-STF-1) y **contraseña
+  inicial** (la teclea el dueño o la genera el sistema y se muestra **una sola vez**, como el alta de hoy).
+  ⛔ **Sin campo de correo.** El celular **no** es obligatorio para staff (ya era así: D11, criterio de alta (b)).
+- **Reglas del nombre de usuario** *(SUPUESTO: valores de PO; el dueño puede cambiarlos)*:
+  - **3 a 30** caracteres.
+  - Solo letras **a–z** sin acentos ni ñ, dígitos **0–9**, punto **`.`**, guion bajo **`_`** y guion **`-`**;
+    **empieza con letra**. ⛔ Sin espacios y **sin `@`** — así un usuario **nunca** se confunde con un correo.
+  - **Único sin distinguir mayúsculas**: si existe `luis.p`, se rechaza `Luis.P`. Se guarda y se muestra en
+    **minúsculas** *(SUPUESTO)*.
+  - **No se edita** después del alta en este corte *(SUPUESTO — P-STF-3)*.
+- **Al primer ingreso, el staff debe cambiar la contraseña inicial**, la haya tecleado el dueño o la haya generado
+  el sistema *(SUPUESTO — P-STF-6; hoy el alta solo obliga cuando la contraseña es autogenerada)*.
+- El alta de un **cliente** desde Usuarios **no cambia**: sigue exigiendo correo (y celular, D11). ⛔ Un cliente
+  no tiene nombre de usuario.
+
+#### U.3 Cómo entra el equipo — DECISIÓN: una pantalla propia, «Entrada del equipo» (criterios 258, 259)
+
+**Decisión de PO (SUPUESTO para que el dueño lo confirme):** el staff sin correo entra por una **pantalla propia**
+del back-office, no por la de clientes. Pide **nombre de usuario + contraseña** y nada más: sin Google, sin
+«crear cuenta», sin «olvidé mi contraseña».
+
+**Por qué una propia y no la misma pantalla:**
+1. **Los clientes no cambian, literalmente.** El encargo dice que los clientes siguen entrando con correo o
+   Google sin cambios, y `HECHOS.md` fila «Login: el aviso tras 6 intentos SEGUIDOS … se queda como está»
+   (2026-10-04) dice *«Sin cambio en AuthForm»*. Mezclar «correo o usuario» en la pantalla de clientes cambia su
+   etiqueta, su validación y el texto del candado.
+2. **Lo que ofrece la pantalla de clientes no aplica al staff sin correo:** Google, registro, «olvidé mi
+   contraseña» y el aviso de candado con enlace a restablecer «con este correo». En una pantalla compartida
+   habría que esconderlos según lo que se teclea, y eso es justo donde se cuela una pista de si la cuenta existe.
+3. **Cierra solo el «cliente que entra o se registra con un usuario»:** la pantalla de clientes sigue aceptando
+   solo correos; un usuario tecleado ahí es un correo inválido, como hoy.
+
+**Lo que cuesta:** el equipo tiene que saber la dirección de su pantalla (P-STF-4). El dueño **sigue entrando
+con su correo por la pantalla de siempre**, como hoy; los miembros del equipo que ya tienen correo, también
+(§U.6).
+
+**Mensajes de error:** contraseña incorrecta, usuario inexistente y cuenta deshabilitada producen **la misma**
+respuesta y el mismo mensaje (*«Usuario o contraseña incorrectos»*, texto final de ux-ui). ⛔ Ningún mensaje,
+código, tiempo de respuesta ni enlace distinto revela si el usuario existe — la misma regla que hoy cumple el
+login por correo.
+
+#### U.4 Contraseña olvidada y contraseña propia (criterios 261, 262, 263)
+
+- **Si un miembro del equipo sin correo olvida su contraseña, la restablece el dueño desde Usuarios** (HECHOS
+  (b)). El sistema genera una temporal que se muestra **una sola vez** al dueño; al entrar, el staff **debe
+  cambiarla** antes de hacer cualquier otra cosa. La anterior deja de servir, el candado de intentos de esa cuenta
+  se levanta, y las sesiones que el staff tuviera abiertas se cierran *(SUPUESTO en este último punto; NO MEDIDO
+  por PO si el restablecimiento por admin de hoy ya lo hace — lo confirma el arquitecto)*.
+- **Para el staff sin correo no existe «olvidé mi contraseña»**: ni enlace en su pantalla ni camino que lo
+  imite. El «olvidé mi contraseña» de clientes y el del dueño siguen **igual que hoy**.
+- **El staff cambia su propia contraseña desde Mi cuenta**, con su contraseña actual. Este ciclo **ya falló una
+  vez** por estar a medias (el endpoint existía y la pantalla no — regla O-4 de `CLAUDE.md`), así que el
+  criterio 263 enumera el recorrido **entero**, de punta a punta, como lo hace el usuario.
+
+#### U.5 Candado por intentos: igual que hoy, pero el aviso va al panel (criterios 264, 265)
+
+- **Mismos límites que hoy** con el correo (contrato §1 «Límite de intentos por cuenta», C7): contador **por
+  nombre de usuario** (sin distinguir mayúsculas) y límite **por IP**, con los mismos números, la misma escalera
+  y la misma puerta del dispositivo conocido. Sin diferencia por rol.
+- **Qué ve el staff** con el candado puesto, en su pantalla: los minutos que faltan y *«Si no recuerdas tu
+  contraseña, pídele al administrador que la restablezca»* — ⛔ sin enlace a restablecer (no tiene correo).
+- **Aviso de candado al staff sin correo: en el panel, no por correo** (default del orquestador, HECHOS). La
+  próxima vez que ese miembro del equipo entre, ve un aviso con el mismo contenido que hoy lleva el correo
+  (*hubo varios intentos fallidos de entrar a tu cuenta; si no fuiste tú, avísale al administrador*), hasta que lo
+  cierra. Como máximo **uno cada 24 h** por cuenta, igual que el correo de hoy.
+- **Qué ve el dueño:** en **Usuarios**, la fila de esa persona marca **«bloqueado por intentos hasta HH:MM»**
+  mientras dure el candado, y el historial de la persona (ficha 360°) muestra el evento de candado con su fecha.
+  Para levantarlo antes, **restablece la contraseña** (eso ya lo levanta hoy). ⛔ Sin correo al dueño por esto y
+  sin contador nuevo en el tablero *(SUPUESTO — P-STF-7)*.
+- Quien **sí** tiene correo (el dueño y el staff existente con correo) sigue recibiendo el aviso **por correo,
+  como hoy** *(SUPUESTO — P-STF-5)*.
+
+#### U.6 El staff que ya existe con correo (criterio 266)
+
+**Default (pregunta P-STF-2):** se queda **como está**. Sigue entrando con su correo por la pantalla de siempre,
+sigue pudiendo usar «olvidé mi contraseña» y sigue recibiendo sus avisos por correo. **Los nuevos se crean sin
+correo.** En este corte no hay forma de quitarle el correo a una cuenta existente ni de ponerle un nombre de
+usuario.
+
+#### U.7 Nada se rompe por no tener correo (criterios 267, 268, 269)
+
+- **Ningún correo de la tienda se intenta mandar a una cuenta sin correo.** Lo que hoy le mandaría un correo a
+  esa cuenta se **omite**, la acción que lo disparó termina igual, y nada queda como «correo fallido» ni se
+  reintenta. Los correos que van «a todos los súper-admin» llegan solo a los que tienen correo.
+- **Bitácora, auditoría, «quién es quién» y hojas imprimibles** muestran a ese miembro del equipo por su
+  **nombre** y/o **nombre de usuario** — ⛔ nunca un hueco, «null» ni «undefined» donde hoy va el correo.
+- **Usuarios:** el listado muestra el nombre de usuario, y la búsqueda lo encuentra por él.
+- **Una cuenta sin correo es solo de back-office** *(SUPUESTO — P-STF-8; coherente con «un miembro del staff no
+  vende», D11)*: no compra, no tiene bóveda ni vende por buylist; si lo intenta, recibe un rechazo claro.
+- **Un cliente no puede tener nombre de usuario**: el registro sigue pidiendo correo; no hay forma de que un
+  cliente se registre ni entre con un usuario.
+
+#### U.8 Lo que NO cambia (se verifica por ausencia, criterio 270)
+
+- La entrada de **clientes** (correo o Google), su texto de candado (HECHOS 2026-10-04 «déjalo así») y su
+  «olvidé mi contraseña».
+- La cuenta del **dueño**: conserva su correo, entra como hoy y recupera su contraseña por correo (HECHOS (a)).
+- Los **números del candado** (C7) y el límite por IP.
+- Lo que cada **rol** puede hacer: no tener correo no da ni quita permisos.
+- El alta de **clientes** desde Usuarios (correo + celular).
+- **Sin doble verificación** para nadie (HECHOS (b)).
+
+#### U.9 Preguntas de §U (para el dueño) — cada una con su default
+
+Ver la sección final **«Preguntas — usuarios de back-office sin correo (2026-10-04, sesión 5)»**: P-STF-1 a
+P-STF-8.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §U (usuarios de back-office sin correo)** *(2026-10-04)*: doble verificación para el staff (el dueño dijo
+  «sin doble verificación»); que el staff recupere su contraseña por su cuenta (sin correo no hay canal: la
+  restablece el dueño); pasar a usuario sin correo al staff que **ya** tiene correo (P-STF-2); cambiar el nombre
+  de usuario después del alta (P-STF-3); que un cliente tenga nombre de usuario.
 - **De §S.11 (cartas de un pedido reembolsado sin liquidar), a propósito** *(2026-10-02)*: que el sistema **actúe
   según el motivo** registrado (reclamar a la paquetería, abrir disputa, recobrar, pedir la carta de vuelta);
   integrar el motivo con Skydropx (paquete devuelto sigue siendo alerta a mano, `HECHOS.md` 2026-10-02); y
@@ -10617,6 +10757,86 @@ detalles del 2026-10-04». 254–255 son nuevos, de la fila «Precios — decisi
    **auditado** (quién, cuándo, antes/después) que gana la precedencia del sellado (§K) y **nunca** acepta $0. El
    override por pieza que **ya existe** para cartas sueltas/gradeadas **sigue funcionando igual** y en el mismo
    sitio (**P-PRE-1, decidido 2026-10-04**; se verifica por ausencia: ni se quita ni se hace más visible).
+*(Criterios 256–270 **nuevos el 2026-10-04**, de `HECHOS.md` fila «Usuarios de back-office SIN correo; el correo es
+solo para clientes.» — §U. ⚠ Borrador de PO; los marcados SUPUESTO dependen de P-STF-1…8.)*
+256. **Alta de staff SIN correo desde Usuarios** *(§U.2)*: el súper-admin crea una cuenta con nombre, nombre de
+   usuario, rol `vault_operator` (y `super_admin`, según P-STF-1) y contraseña inicial (tecleada, o generada y
+   mostrada **una sola vez**). ⛔ El formulario de staff **no tiene** campo de correo y la cuenta queda **sin
+   correo**; el celular no es obligatorio. Queda en bitácora quién la creó y cuándo, ⛔ sin la contraseña. Un
+   `vault_operator` que intenta dar de alta ⇒ rechazado y auditado, como hoy. El alta de **cliente** sigue
+   exigiendo correo y celular.
+257. **Reglas del nombre de usuario** *(§U.2; valores SUPUESTO)*: se aceptan `ana`, `luis.p`, `op_2`, `m-r` y uno
+   de 30 caracteres. Se **rechazan**, sin crear la cuenta y con un mensaje que dice qué regla falla: 2 caracteres;
+   31 caracteres; con espacio; con `@`; con acento o ñ; que empieza con dígito, punto, guion o guion bajo; vacío.
+   Con `luis.p` existente, `Luis.P` y `LUIS.P` se rechazan como **ya usado**. El usuario se guarda y se muestra en
+   minúsculas. **⛔ Falla** si dos cuentas quedan con el mismo usuario salvo mayúsculas, también si se crean **a la
+   vez** (N ≥ 10 altas simultáneas del mismo usuario ⇒ exactamente **una** cuenta).
+258. **El staff entra por su pantalla, con usuario + contraseña** *(§U.3)*: en «Entrada del equipo», el usuario
+   correcto (en cualquier combinación de mayúsculas) y su contraseña ⇒ entra al back-office con los permisos de su
+   rol. La pantalla **no** ofrece Google, ni crear cuenta, ni «olvidé mi contraseña». La pantalla de **clientes** no
+   cambia: con un usuario tecleado en el campo de correo **no** entra nadie (validación de correo de siempre).
+259. **Los errores de entrada no revelan si el usuario existe** *(§U.3)*: en «Entrada del equipo», (a) usuario que
+   existe con contraseña mala, (b) usuario que no existe, (c) cuenta deshabilitada con contraseña mala y (d) un
+   correo de cliente tecleado como usuario producen **la misma** respuesta (código, cuerpo, mensaje) y el mismo
+   comportamiento del candado. Se verifica igual que hoy con el correo (C7-3): misma secuencia en los cuatro
+   casos. **⛔ Falla** si algún mensaje, código o enlace distingue un caso de otro.
+260. **La contraseña inicial obliga a cambiarla** *(§U.2; SUPUESTO — P-STF-6)*: tras el alta, sea la contraseña
+   tecleada por el dueño o generada, el primer ingreso lleva al staff **directo** a cambiarla y ⛔ no puede usar
+   ninguna otra pantalla ni acción del back-office hasta hacerlo. Cambiada, entra normal y la inicial ya no sirve.
+261. **El dueño restablece la contraseña del staff desde Usuarios** *(§U.4)*: el súper-admin pulsa «restablecer»
+   en la fila de la persona ⇒ ve una temporal **una sola vez**. Después: la contraseña anterior ⇒ no entra; la
+   temporal ⇒ entra y **debe cambiarla** (como 260); si había candado por intentos, **ya no** lo hay; las sesiones
+   que el staff tuviera abiertas dejan de servir *(SUPUESTO)*. Queda en bitácora quién restableció a quién y
+   cuándo, ⛔ sin la contraseña. ⛔ No se manda ningún correo. Un `vault_operator` ⇒ no puede restablecer a nadie
+   (rechazado y auditado).
+262. **Sin «olvidé mi contraseña» para el staff sin correo** *(§U.4)*: ni la pantalla «Entrada del equipo» ni
+   ningún otro sitio ofrece recuperarla por su cuenta; pedir «olvidé mi contraseña» tecleando un nombre de usuario
+   (en cualquier pantalla o directo al servidor) **no cambia nada** y responde lo mismo que hoy responde para un
+   correo inexistente. El «olvidé mi contraseña» del **dueño** y de los **clientes** sigue funcionando igual.
+263. **El staff cambia su propia contraseña desde Mi cuenta — ciclo entero** *(§U.4; regla O-4)*: QA recorre y
+   reporta **cada paso**: (1) entrar con usuario + contraseña; (2) desde el menú del back-office llegar a **Mi
+   cuenta → Cambiar contraseña** (⛔ sin teclear la dirección a mano); (3) actual mala ⇒ marca el campo y **no**
+   cierra la sesión; (4) nueva igual a la actual ⇒ rechazada; (5) actual buena + nueva válida ⇒ guardada, la
+   sesión sigue viva y las demás sesiones de esa cuenta dejan de servir; (6) salir y entrar con la **nueva** ⇒
+   entra; (7) con la **vieja** ⇒ no entra. ⛔ Ningún correo en todo el ciclo y ⛔ ningún botón «crear contraseña»
+   ni «olvidé». Vale para `vault_operator` y `super_admin` sin correo.
+264. **Candado por intentos: por usuario y por IP, con los números de hoy** *(§U.5)*: contra un mismo nombre de
+   usuario, desde IPs distintas, los intentos libres, la escalera y el tope son **los mismos** que hoy con el
+   correo (contrato C7); `Ana` y `ana` comparten contador; con candado, la contraseña **correcta** tampoco entra; la
+   puerta del dispositivo conocido funciona igual. El límite por IP aplica a la pantalla del equipo igual que a la
+   de clientes. Intentos simultáneos contra un usuario no rebasan el número de intentos libres (N ≥ 10, se exige
+   N/N). Con candado, la pantalla muestra los minutos y *pídele al administrador que la restablezca*, ⛔ sin
+   enlace a restablecer.
+265. **Aviso de candado: en el panel para el staff sin correo; el dueño lo ve en Usuarios** *(§U.5)*: al ponerse
+   el candado sobre una cuenta **sin correo**: ⛔ **cero** correos; al siguiente ingreso de esa persona aparece un
+   aviso en su panel hasta que lo cierra; dos candados en 24 h ⇒ **un** aviso. El dueño ve en **Usuarios** la
+   marca «bloqueado por intentos hasta HH:MM» mientras dura, y el evento en el historial de la persona. Una cuenta
+   **con** correo (el dueño, el staff existente) recibe el aviso **por correo, como hoy** *(SUPUESTO — P-STF-5)*.
+   Sobre un usuario **inexistente** no se registra nada (como hoy).
+266. **El staff que ya tiene correo sigue igual** *(§U.6; default de P-STF-2)*: una cuenta `vault_operator` o
+   `super_admin` creada antes de este cambio, con correo, entra con su correo por la pantalla de siempre, usa
+   «olvidé mi contraseña» y recibe sus avisos por correo **igual que hoy**. Ninguna cuenta existente pierde su
+   correo ni gana un usuario por este despliegue.
+267. **Ningún correo a una cuenta sin correo, y la acción termina igual** *(§U.7)*: con un `vault_operator` y un
+   `super_admin` sin correo, QA dispara cada acción que hoy manda correo a staff (el arquitecto entrega la lista
+   **medida** de esos envíos) ⇒ la acción termina con el **mismo** resultado que con una cuenta con correo, ⛔
+   **ningún** intento de envío a esa cuenta, ⛔ ningún error ni reintento por falta de correo. Los correos «a
+   todos los súper-admin» llegan **solo** a los que tienen correo.
+268. **Bitácora, auditoría y Usuarios funcionan sin correo** *(§U.7)*: toda pantalla que hoy identifica a un
+   miembro del equipo por su correo (bitácora de inventario, auditoría, historial 360°, «quién es quién» de la cola
+   de envíos, hoja imprimible, reembolsos de operador) muestra al staff sin correo por su **nombre y/o nombre de
+   usuario**. **⛔ Falla** si en cualquiera aparece un hueco, «null», «undefined» o un correo inventado. En
+   **Usuarios**, el listado muestra el nombre de usuario y la búsqueda encuentra la cuenta por él (también con
+   mayúsculas distintas); filtros y paginación siguen igual.
+269. **Un cliente no tiene usuario, y una cuenta sin correo no es cliente** *(§U.7)*: el registro de clientes
+   sigue exigiendo correo; no existe ningún camino (pantalla ni servidor) para registrar o crear un cliente con
+   nombre de usuario o sin correo. Una cuenta de staff sin correo que intenta comprar, mandar a bóveda o crear una
+   solicitud de venta ⇒ rechazada con un mensaje claro, sin cobro ni registro a medias *(SUPUESTO — P-STF-8)*.
+270. **Lo que NO cambia con §U — se verifica por ausencia** *(§U.8)*: la entrada de clientes (correo o Google),
+   su texto de candado y su «olvidé mi contraseña» se comportan **igual que hoy**; la cuenta del dueño conserva
+   su correo y recupera su contraseña por correo; los números del candado y del límite por IP no cambian; ningún
+   rol gana ni pierde permisos por no tener correo; **nadie** tiene doble verificación; el alta de clientes sigue
+   igual.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -14451,3 +14671,33 @@ ese frente:**
 - ~~**P-PRE-2 · Premium en el piso: ¿todas las rarezas premium, o solo ex / Double Rare?**~~ ⇒ ✅ **Solo ex y
   Double Rare** (el dueño **cambió** el default). Las demás premium siguen retenidas «premium en el piso» para
   revisión; la lista es parametrizable, sin código para cambiarla. §N.5-bis (a), criterio 254.
+
+## Preguntas — usuarios de back-office sin correo (§U, 2026-10-04, sesión 5) — ⏳ ABIERTAS, cada una con su default
+
+> Salen de aterrizar la fila de `HECHOS.md` **«Usuarios de back-office SIN correo; el correo es solo para
+> clientes.»** (2026-10-04). Lo que esa fila ya dice (cuenta del dueño con correo; staff con usuario + contraseña,
+> sin doble verificación; restablece el dueño; aviso de candado al panel) **no se pregunta**. Si el dueño no
+> contesta, se construye con el default. **Ninguna bloquea al arquitecto.**
+
+- **P-STF-1 · ¿Se puede dar de alta un SÚPER-ADMIN sin correo?** Default: **sí**, el alta de equipo ofrece
+  `vault_operator` y `super_admin`. Ese súper-admin no puede recuperar su contraseña solo: se la restablece otro
+  súper-admin (el dueño). Si el dueño prefiere **solo operadores sin correo**, el alta de equipo ofrece únicamente
+  `vault_operator`. Criterio 256.
+- **P-STF-2 · El staff que ya existe con correo, ¿se pasa a usuario sin correo?** Default: **no**; se queda como
+  está y sigue entrando con su correo. Los nuevos se crean sin correo. Criterio 266.
+- **P-STF-3 · ¿Se puede cambiar el nombre de usuario después del alta?** Default: **no** en este corte (si alguien
+  necesita otro, se da de baja y se crea de nuevo). Fuera de alcance.
+- **P-STF-4 · ¿Cómo llega el equipo a su pantalla de entrada?** Default: por una **dirección propia del
+  back-office** que el dueño le comparte; la tienda y la pantalla de clientes **no** la enlazan. Alternativa: un
+  enlace discreto «Entrada del equipo» al pie de la pantalla de clientes. §U.3, criterio 258.
+- **P-STF-5 · La cuenta del dueño y el staff con correo, ¿siguen recibiendo el aviso de candado por correo?**
+  Default: **sí, como hoy** (el dueño dijo que su correo es para recuperar la contraseña, y este aviso es de esa
+  misma familia). Si prefiere que su aviso también vaya solo al panel, se cambia. Criterio 265.
+- **P-STF-6 · Si el dueño teclea la contraseña inicial, ¿el staff igual debe cambiarla al primer ingreso?**
+  Default: **sí, siempre** (así solo el staff conoce su contraseña). Hoy el alta solo obliga cuando la contraseña
+  es generada por el sistema. Criterio 260.
+- **P-STF-7 · ¿El dueño quiere un contador de cuentas bloqueadas en el tablero?** Default: **no**; lo ve en
+  Usuarios y en el historial de la persona (mismo criterio que D-13: «solo verlo en el panel»). Criterio 265.
+- **P-STF-8 · ¿Una cuenta de staff sin correo puede comprar o vender en la tienda?** Default: **no**; es solo de
+  back-office (sin correo no hay recibo ni avisos de pedido; y ya está escrito que el staff no vende, D11). Si un
+  miembro del equipo quiere comprar, usa una cuenta de cliente con su correo. Criterio 269.
