@@ -27086,3 +27086,137 @@ Ver la cifra en el commit de cierre de esta sección (copia `git archive HEAD` d
   `a@b.c`.
 - §M6-U.6 2-bis (v1.80.10, F-7, `customer_phone_required`) **no está construido** en esta rama (medido:
   `rg customer_phone_required backend/src` ⇒ 0). No es parte de este encargo.
+
+## 57 · Skydropx fase D1 construida — D1a cliente, D1b adaptador y doble, D1c URLs y etiqueta; PS-99 en cuatro capas (2026-10-04, rama `claude/skydropx-d`, sobre `79db38f1`; código en `e8bfcfc0` + `c150fab5`)
+
+Fuente: `API_CONTRACT §M4-SHIP.19.19` (errata v1.80.11; §19.19.3, .4, .7, .9, .15, .16, .17), §19.4, §19.8, §19.18.5;
+`ARCHITECTURE §4.60 (l)`; medición `docs/specs/SKYDROPX_API_PROD_RESULTADOS.md` (PROD §n). ⛔ Cero llamadas a
+`*.skydropx.com` en todo el trabajo: transporte grabador, `FakeShippingProvider` y el fixture medido.
+
+### 57.1 Dónde vive cada pieza (`backend/src/modules/shipping-provider/`)
+
+| Pieza | Fichero | Norma |
+|---|---|---|
+| Puerto y tipos (`QuoteInput`, `ProviderRate`, `PurchaseInput`, `ProviderShipmentState`…) | `shipping-provider.port.ts` | §19.4 con los tipos de §19.19.4/.8 |
+| Errores con status ya decidido (`502/503/422/409`), «compra en vuelo», `SkydropxMutationForbiddenError` | `shipping-provider.errors.ts` | matriz §19.19.3 (4), §19.19.7 |
+| Cliente: UA, origen, token, cubeta, matriz, timeouts, `mutate()` | `http/skydropx-client.ts`, `http/skydropx-origin.ts`, `http/token-bucket.ts` | §19.19.3 (0)–(7) |
+| Candado de ejecución (ÚNICO lector de `SKYDROPX_ALLOW_SPEND`) | `spend-gate.ts` | §19.19.7, PS-99 (b) |
+| Importes a centavos exactos (bigint, half-up una vez) | `decimal-cents.ts` | §19.19.4, PS-94 |
+| Filtro + contadores, eco del seguro, recomendada (puras) | `rate-normalization.ts` | §19.19.4 |
+| Adaptador real (cotizar con sondeo, comprar, rastreo, cancelar, saldo, cargos, catálogos) + cuerpos puros | `skydropx.adapter.ts` | §19.19.4, .8, .10 |
+| `redactProviderPayload` (lista blanca) | `redact.ts` | §19.4 (5), SEC-SDX-6/7 |
+| `assertProviderUrl`, `providerUrlsFrom`, `resolveUrlHosts` | `provider-url.ts` | §19.18.5, §19.19.9 |
+| Proxy acotado de la etiqueta (`Authorization` solo al host de la API) | `label-proxy.ts` | §19.8, §19.18.5, §19.19.9 |
+| `Noop`, `FakeShippingProvider` (+ fixture medido) | `noop-shipping-provider.adapter.ts`, `fake-shipping-provider.ts`, `fixtures/skydropx-quotation.fixture.ts` | §19.16, §19.19.7, PS-70/94 |
+| Selección del adaptador y módulo Nest | `shipping-provider.factory.ts`, `shipping-provider.module.ts` | §19.19.7, §19.19.12 |
+| Códigos `SHIPPING_PROVIDER_{ERROR,BUSY,REJECTED,NOT_CONFIGURED}` | `common/error-codes.ts` (⚠️ zona compartida: **solo** cuatro líneas añadidas al final) | §19.4 (5) |
+| Veto de red PS-99 (c) | `test/setup/forbid-skydropx-network.ts` (+ `forbidden-network.ts` sin efectos), en `setupFiles` de **los dos** `jest.config` | §19.19.17 |
+
+⚠️ **Lo que D1 NO hace (es D2):** `ShippingProviderModule` está construido pero **no** importado en `AppModule` ni
+inyectado en `shipments` (no toqué `shipments/` ni `app.module.ts`); el endpoint `label.pdf`, la bitácora
+`provider_url_rejected`/`label_printed`, el `insuranceCoverageFor`, el IVA `'computed'` (`SKYDROPX_IVA_FRACTION` en
+`common/money.ts`), la persistencia de `ShipmentQuote` y toda migración (`M-SDX-C`/`M-SDX-D`) quedan para D2.
+
+### 57.2 Contrato para quien construya D2 (cómo se usa)
+
+- **Selección:** `selectShippingProvider(process.env)` ⇒ `{ port, kind: 'skydropx'|'fake'|'noop', urlHosts, client }`.
+  `NODE_ENV=test` ⇒ solo `Noop` o `Fake` (`SHIPPING_PROVIDER_ADAPTER=fake`); `fake` con `SKYDROPX_ALLOW_SPEND=true` ⇒ el
+  arranque lanza. Sin `SKYDROPX_BASE_URL/CLIENT_ID/CLIENT_SECRET` ⇒ `Noop` (`409 {missing:['env']}`).
+- **Errores:** todo lo que sale del puerto es `ShippingProviderError` (`.toBusinessException()` da el `code` + status de
+  la matriz). La compra lanza **`ShippingProviderPurchaseInFlightError`** (`purchaseInFlight: true`) en timeout, red,
+  `5xx`, `404`, cualquier otro `4xx` no listado, `3xx` o `2xx` sin id: ⛔ no deshacer el reclamo — es «compra en vuelo»
+  (§19.7 paso 9 ⚠️). `400/422` ⇒ `SHIPPING_PROVIDER_REJECTED` (deshacer el reclamo). `403` ⇒ `502` (`reason:'edge_blocked'`
+  si es el borde), **no** en vuelo. `SkydropxMutationForbiddenError` ⇒ `409 {missing:['allow_spend']}`.
+- **Cotizar:** `QuoteResult` trae, además de lo del contrato, `excluded` (los cinco contadores) e `insuranceEcho
+  {ok, echoedProtected, echoedDeclaredValueCents}`. Con `ok:false`, `rate.insuranceCents` es `null` y D2b pone el
+  `costCents` del escalón (`insuranceSource:'tier_table'`). La recomendada: `pickRecommendedRateId(rates con priceCents,
+  shipping_preferred_carriers)`.
+- **Comprar:** `PurchaseInput.from.snapshot` (el `skydropx_origin_snapshot`, o `null`); `package.coverageCents`
+  (el escalón). Las URLs del resultado son **crudas**: pasarlas por `providerUrlsFrom(result, selection.urlHosts)` antes de
+  escribir; `rejected[]` trae `{field, host}` para la bitácora.
+- **Rastreo:** `ProviderShipmentState` gana `unknownCarrierStatus` (valor fuera de los 12) y `statusUpdatedAt` (para la
+  llave del evento sintético sin `now`, SEC-SDX-2); `ProviderEvent.status` es `null` cuando el valor crudo no es uno de
+  los 12 (evento no aplicado, `rawStatus` lo conserva).
+- **Etiqueta:** `downloadLabelPdf(labelUrl, { api: selection.client, allowedHosts: selection.urlHosts })` ⇒ `Buffer` o
+  `502 {op:'label_download', reason?}`. Con `kind:'fake'` no hay `client`: D2 decide qué sirve el doble.
+- **Doble:** `FakeShippingProvider` reutiliza `providerQuotationId` por ruta+medidas (M-5) y su eco dice el seguro de la
+  primera; resultados de compra en cola (`labeled`/`processing`/`error_detail`/`in_flight`/`rejected`), `purchaseBarrier`,
+  `setShipment`/`pushEvent`, `cancelOutcomes`, `balanceCents`, `extraChargeList`; `callsOf('purchase')[i].input.body` es
+  el cuerpo que el real mandaría (`buildPurchaseBody`).
+
+### 57.3 Decisiones que el contrato no fijaba
+
+1. **Cubeta de capacidad 1** (salidas espaciadas ≥ `1000/rps` ms), no capacidad `rps`: el contrato dice
+   `TokenBucket(SKYDROPX_RPS, 1000 ms)` y PS-93 exige «espaciado ≥ 500 ms»; una cubeta de 2 deja salir dos en el mismo
+   milisegundo. Cumple las dos lecturas.
+2. **Compra con un `4xx` no listado (409, 405…) o `3xx` ⇒ «en vuelo»**, no rechazo: la matriz solo nombra `400/422`
+   (rechazo) y `404` (en vuelo). Liberar el reclamo de una guía que sí existe es la guía duplicada; retenerlo de más solo
+   cuesta una nota del súper-admin. La **protección** (`/protect`) usa la clase de la compra (gasta: sin reintento de
+   `5xx`) pero con timeout de 10 s.
+3. **Un `403` JSON que no es del borde ⇒ `502` sin `reason`**, sin reintento (§19.4 (5)).
+4. **El candado se evalúa antes de CADA intento**, no solo una vez: un `401` que reintenta la compra vuelve a pasar por
+   `assertMutationAllowed`. Lee `process.env` en cada llamada (sin caché).
+5. **`CI` con cualquier valor no vacío niega** (también `CI=false`): falla cerrado; nadie pone `CI` en producción.
+6. **Token con `created_at` del proveedor ya «caducado»** al llegar (reloj desfasado) ⇒ se cuenta desde el reloj local,
+   para no pedir un token por llamada.
+7. **`SKYDROPX_URL_HOSTS` ausente ⇒ solo el host de la API** (derivado de `SKYDROPX_BASE_URL`), sin host literal en el
+   código (`C-SDX-1`). El comodín `*.dominio` admite **un** nivel.
+8. **Cuerpos NO MEDIDOS** que elegí (se corrigen con `PG-1`/`PG-3`): cancelación `{ reason }`; protección
+   `{ package_protected: true, declared_value }`; `refundedCents` de `refunded_amount`/`refund_amount` si viene;
+   compra con cabecera `Idempotency-Key` (inocua si no la soporta). Estado del transportista: el primero que exista de
+   `included[package].tracking_status|status`, `attributes.tracking_status|shipment_status|status`.
+9. **`SKYDROPX_CLIENT_SECRET` se lee solo en `shipping-provider.factory.ts`** (C-SDX-1 dice «solo en `config`»: lo leí
+   como «en un solo sitio de configuración»; `backend/src/config/` es zona compartida y no lo toqué).
+
+### 57.4 Discrepancias con el contrato (para el arquitecto; ⛔ no cambié el contrato)
+
+- **D-SDX-1 · Orden del filtro de tarifas** (`API_CONTRACT.md:24712`): dice «`success === true` primero (si no ⇒
+  `unavailable`)», pero en la API **medida** las tarifas `no_coverage` llegan con `success:false` (PROD §4.6, la de
+  Paquetexpress Express Next Day) — con ese orden `noCoverage` y `notApplicable` serían **siempre 0**. Construí:
+  `no_coverage`/`not_applicable` por `status` primero, después `success`. Con el fixture: `unavailable` 2 (J&T),
+  `noCoverage` 12, `notApplicable` 5. Si el arquitecto quiere el orden literal, cambia una línea y los conteos de PS-94.
+- **D-SDX-2 · `C-SDX-7` (2) tal como está escrito no es satisfacible** (`API_CONTRACT.md:24568-24570`): «`labelUrl:`/
+  `trackingUrl:` como clave de escritura en `backend/src` ⇒ un sitio». Medido hoy: `trackingUrl:` ya aparece en
+  `orders/mail/guest-order.templates.ts:66` y `orders/guest-order-mail.service.ts:67,89` (otro concepto: la liga a
+  `/pedido`), y el puerto **produce** `PurchaseResult` con esas claves (adaptador, doble). Propongo acotarlo a escrituras
+  Prisma (`data: { labelUrl … }`) en `backend/src/modules/shipments/`. No lo implementé (es de D2); sí `C-SDX-7` (1).
+- **D-SDX-3 · PS-99 (d), dos piezas de devops sin construir:** `scripts/skydropx/prod-probe.ts` no existe (D0) y
+  `.env.example` no trae `SKYDROPX_ALLOW_SPEND=` (D0'). Mi prueba aserta «nunca con valor» (verde si falta); cuando
+  devops lo añada, endurecer a «presente y vacío».
+- **Tipos del puerto ampliados** (sin cambio de conducta normada): `QuoteResult.excluded/insuranceEcho`,
+  `PurchaseInput.from.snapshot` y `package.coverageCents`, `ProviderShipmentState.unknownCarrierStatus/statusUpdatedAt`,
+  `ProviderEvent.status | null`, y `catalogs?()` partido en `packagings?/consignmentNote?/searchConsignmentNotes?/
+  addressTemplates?` (la forma nueva de `GET /admin/shipping/catalogs`, §19.19.6).
+
+### 57.5 Pruebas y mutaciones (medido por mí sobre copias `git archive` del árbol ENTERO)
+
+Ficheros: `test/skydropx.no-real-purchase.spec.ts` (PS-99 a–d), `test/skydropx-client.spec.ts` (PS-91/92/93),
+`test/skydropx-adapter.spec.ts` (PS-94, PS-95 lado adaptador, PS-70 fixture, PS-85/96/97 lado cuerpo, parsers, doble),
+`test/skydropx-provider-url.spec.ts` (PS-100, PS-84/88 lado `shipping-provider`, `C-SDX-7` (1), `C-SDX-1`),
+`test/shipping-provider.factory.spec.ts`. Helpers: `test/helpers/skydropx-recorder.ts` (grabador, reloj virtual,
+`withSpendGateOpen` — abre el candado solo con un grabador, para probar la matriz de la COMPRA).
+
+⚠️ Honestidad de orden: las pruebas se escribieron **junto** al código, no antes; la «roja primero» se demuestra con
+la mutación de cada una (tabla en el informe del encargo y abajo). Dos mutaciones salieron **verdes** en la primera
+pasada y eso cambió las pruebas (`c150fab5`): el canario de PS-99 (c) importaba la clase del fichero que **instala** el
+veto (el import lo reinstalaba), y «redondear cada `extra_fee`» no mordía porque la normalización solo se probaba con
+un combustible.
+
+Instrumento de la mutación PS-99 (c): con el veto quitado, el canario haría un `fetch` real; se corrió con un
+`--require` de scratchpad que corta `net/tls.connect` hacia `*.skydropx.com` **antes de DNS**, para que el rojo sea
+«otra clase de error» sin abrir conexión.
+
+**Mutaciones (copia de `c150fab5`, N = 1 cada una — todas deterministas: reloj virtual, sin carrera):** 17 de 17 **rojas**.
+
+| Mutación | Rojo |
+|---|---|
+| PS-99 (a) quitar `assertMutationAllowed` de `mutate()` | 2/27 |
+| PS-99 (b) `evaluateMutationGate` ignora `CI` | 4/27 |
+| PS-99 (c) quitar el veto de `setupFiles` (con el corte de socket de scratchpad) | 5/27 |
+| PS-99 (d) un `/cancellations` en otro fichero · leer `SKYDROPX_ALLOW_SPEND` fuera de `spend-gate.ts` | 1/27 · 1/27 |
+| PS-91 quitar el `User-Agent` · tratar el `403` del borde como transitorio | 1/40 · 5/40 |
+| PS-92 token por llamada · `401` sin límite | 2/40 · 1/40 |
+| PS-93 compra en el reintento genérico | 7/40 |
+| PS-94 `parseFloat×100` · redondear cada `extra_fee` · admitir `success:false` | 4/46 · 1/46 · 3/46 |
+| PS-100 token siempre · PS-84 seguir `Location` sin `assertProviderUrl` | 2/68 · 2/28 |
+| M-5 el doble no reutiliza · C-SDX-1 URL de Skydropx en el código | 1/46 · 1/28 |
