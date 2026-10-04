@@ -198,6 +198,12 @@ services:
       # Si algún día staging necesita la llave, la vía es la SONDA de abajo, no
       # quitarle el `:-`. DEVOPS_NOTES §32.12.
       POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY:-}
+      # Envíos (fase D, §19.19.7 / §19.19.15 D0'): esta pila es la de E2E y DAST, NUNCA
+      # producción ⇒ adaptador DOBLE fijo, sin pass-through (no se puede encender
+      # desde fuera). ⛔ Ninguna credencial de Skydropx ni la llave de gasto en este
+      # compose: `environment:` es allow-list, así que NO pasan aunque el host las
+      # tenga. Candado: scripts/check-skydropx-spend-lock.sh (DEVOPS_NOTES §78).
+      SHIPPING_PROVIDER_ADAPTER: fake
       # Sonda de SOLO LECTURA (§4.38h.1-quater): con llave presente, `on` ⇒ el ingest
       # pregunta y NO escribe. Segunda forma admitida de incapacitar el entorno.
       POKEMONPRICETRACKER_GRADED_PROBE: ${POKEMONPRICETRACKER_GRADED_PROBE:-}

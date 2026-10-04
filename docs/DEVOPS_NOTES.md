@@ -13111,3 +13111,122 @@ mock no sirve (legítimos: miden en el pase real).
 `check-e2e-skip-census-canary.sh` 14/14 rc=0, **3/3** corridas cada uno (deterministas).
 
 **Rollback.** Revertir el commit (el gate vuelve a rojo mientras exista el spec).
+
+## §78 · Skydropx fase D — D0 (sonda de solo lectura) y D0' (entorno sin llaves) (2026-10-04, rama `claude/skydropx-d`)
+
+Fuente normativa: `API_CONTRACT §M4-SHIP.19.19.15` (piezas D0 y D0'), `§19.19.7` (puerta de compra), `§19.19.12`
+(variables), `§19.19.17` (PS-99, capa (d) = `C-SDX-8`), `§19.19.18` (los `M-PRD-n`); `ARCHITECTURE §4.60`;
+`HECHOS.md:48` (credenciales de producción en el entorno; ⛔ comprar una guía real exige autorización del dueño
+guía por guía). Cierra la discrepancia **D-SDX-3** de `BACKEND_NOTES §57.4`.
+
+### 78.1 D0' — qué quedó en el entorno
+
+| Dónde | Qué | Por qué |
+|---|---|---|
+| `.env.example` (bloque «Envíos con Skydropx») | `SKYDROPX_BASE_URL=`, `SKYDROPX_CLIENT_ID=`, `SKYDROPX_CLIENT_SECRET=`, `SKYDROPX_RPS=`, `SKYDROPX_URL_HOSTS=` vacías; `SHIPPING_PROVIDER_ADAPTER=fake`; **`SKYDROPX_ALLOW_SPEND=` vacía** con el aviso «solo producción, solo por instrucción del dueño» | §19.19.12; §19.19.15 D0' pide literalmente `SHIPPING_PROVIDER_ADAPTER=fake` en la plantilla (quien copia la plantilla corre con el doble) |
+| `docker-compose.staging.yml` (la pila de `e2e-real.yml` y del DAST) | `SHIPPING_PROVIDER_ADAPTER: fake` **literal**, sin `${…}`; ninguna `SKYDROPX_*` | Esa pila corre `NODE_ENV=production` y **sin `CI` dentro del contenedor**: el candado de ejecución solo queda cerrado porque la llave no llega. `environment:` es allow-list, así que lo que no se nombra no pasa |
+| `docker-compose.yml` (dev) | `SHIPPING_PROVIDER_ADAPTER: ${SHIPPING_PROVIDER_ADAPTER:-fake}`; ninguna credencial | El dev puede pedir `skydropx`, pero sin credenciales cae a Noop (`409 {missing:['env']}`) |
+| `scripts/stack-native.sh` (arnés E2E de QA) | `export SHIPPING_PROVIDER_ADAPTER=fake` (fijo) y `unset SKYDROPX_ALLOW_SPEND SKYDROPX_CLIENT_ID SKYDROPX_CLIENT_SECRET` | El contenedor de Claude puede tener las credenciales de producción en su entorno (`HECHOS.md:48`); el arnés no las hereda |
+| CI | Ningún workflow nombra `SKYDROPX_*` (medido 2026-10-04: `grep -rniE 'skydropx' .github/` ⇒ 9 líneas, todas en `ci.yml`: comentarios, nombres de paso/job y las rutas del candado y del lanzador de la prueba; `grep -rE 'SKYDROPX_' .github/` ⇒ 0) | PS-99 (d) |
+
+⛔ **`SKYDROPX_ALLOW_SPEND`** la pone devops **solo** en Railway (producción) y **solo** cuando el orquestador lo pide
+con la instrucción del dueño (§19.19.7). Las credenciales van a Railway al salir a producción; nunca a GitHub.
+
+### 78.2 El candado `check-skydropx-spend-lock.sh` (+ canario)
+
+Job `skydropx-spend-lock` de `ci.yml` (en el `needs` de `ci-ok`). Bloques: **(A)** `.github/` no nombra
+`SKYDROPX_CLIENT_ID|CLIENT_SECRET|ALLOW_SPEND` ni lee `secrets.*`/`vars.*` con «skydropx»; **(B)** ningún
+`docker-compose*.yml` nombra esas tres (ni como clave ni como `${…}`) ni usa `env_file:`; **(C)** `.env.example`
+trae `SKYDROPX_ALLOW_SPEND=` **una vez y vacía**, y las dos credenciales vacías; **(D)** la pila E2E con `fake`
+(compose de staging literal + `stack-native.sh` exporta y hace `unset`); **(E)** el catálogo de secretos que el CI
+genera (`security/secretos-exigidos*.txt`) no lista `SKYDROPX_*`; **(F)** la sonda y su prueba existen, un
+workflow corre `run-prod-probe.sh test` y ninguno corre la sonda.
+
+El canario (`check-skydropx-spend-lock-canary.sh`) copia lo que el candado lee, exige **VERDE** en el prístino y
+planta **21** fugas, cada una con **ROJO** nombrando su bloque. Determinista (sin carreras): una corrida por
+mutación. Medido 2026-10-04 en este árbol: **22/22**.
+
+Con esto **D-SDX-3** queda cerrado del lado de devops; backend puede endurecer su aserción de
+`.env.example` de «nunca con valor» a «presente y vacía» (`backend/test/skydropx.no-real-purchase.spec.ts`).
+
+### 78.3 D0 — la sonda `scripts/skydropx/prod-probe.ts`
+
+**Qué mide** (§19.19.18, todo sin gastar):
+
+| Id | Qué hace | Qué sale en el informe |
+|---|---|---|
+| saldo | `GET /api/v1/finance/credits` al empezar y al terminar | saldo y moneda, y `balanceUnchanged` (si cambió ⇒ código de salida 3) |
+| **M-PRD-1** | Cotiza 14210→06600, paquete A (25×18×*h* cm, 1 kg), con `package_protected:true` y `declared_value` ∈ {2500, 2501, 3000, 5000, 7500, 10000, 10001, 15000, 20000, 30000, 50000, 100000}; **cambia el alto 1 cm por petición** (`--height-base`, default 20) para esquivar la reutilización (M-5); si el eco de `packages[0]` no coincide o el id ya se vio, reintenta una vez con +37 cm | por fila: valor declarado, alto, eco (`package_protected`, `declared_value`, `protection_value`), los `protection_value_total` distintos de las tarifas, `echoMatches`, cociente seguro/valor |
+| **M-PRD-2** | La misma cotización dos veces (control de reutilización) y otras dos con `order_id` distintos; guarda el estado con `--state` para repetir a +1 h y +25 h con `--followup` | `controlReused`, `orderIdBreaksReuse`, `twoOrderIdsDiffer`, códigos HTTP |
+| **M-PRD-3** | Lee las plantillas (`GET /address_templates`) y cotiza con la de origen en las dos formas posibles (`address_template_from_id` arriba, y `address_from.address_template_id`) | `requires_origin_verification` (arriba y por tarifa), si la plantilla vuelve en el eco, tarifas exitosas |
+| **M-PRD-4** | `GET /finance/extra-charges` (y `extra_charges` si 404) | código y **forma** (claves y tipos, sin valores) |
+| **M-PRD-5** | `GET /office_points?rate_id=…&direction=delivery` con una tarifa de M-PRD-1 (99minutos si la hay) | código y forma |
+| **M-PRD-6** | `GET /shipments` con `reference`, `q`, `search`, `filter[reference]`, `external_reference` | código, `total_count`, claves de `meta` por parámetro |
+
+Unas 60–80 peticiones a ≤ 1.67 req/s (≥ 600 ms entre peticiones; `SKYDROPX_RPS` solo puede hacerlo **más lento**).
+
+**La garantía de cero gasto** (tres capas, cada una probada):
+1. **Lista blanca antes de la red** (`assertReadOnlyRequest`): solo `POST /api/v1/oauth/token`,
+   `POST /api/v1|v2/quotations` y `GET`, siempre al host de la API y por `https:`. La ruta se compara **después** de
+   normalizar la URL y a la red viaja esa misma URL normalizada. Todo lo demás (`POST /api/v2/shipments` = compra,
+   `/cancellations`, `/protect`, `/pickups`, `/orders`, `PUT/PATCH/DELETE`, otro host) lanza
+   `ProbeForbiddenRequestError` sin abrir conexión.
+2. **Pre-vuelo** con el mismo `evaluateMutationGate` del backend (`spend-gate.ts`, importado): la sonda **no arranca**
+   si `SKYDROPX_ALLOW_SPEND` trae cualquier valor, si el candado diría `allowed`, en CI (`CI` puesto) ni bajo pruebas.
+3. **Su prueba** (`prod-probe.test.ts`, `node:test`, corre en el job `backend` de `ci.yml`): 30 peticiones vetadas
+   (compra, cancelación, protección, trucos `..`/`%2e%2e`, mayúsculas, otro host, `http:`, credenciales en URL) con
+   **cero** llamadas al transporte; una corrida **entera** contra un doble en memoria (`probe-stub.ts`) que registra
+   cada petición (solo token, cotizaciones y GET; exactamente 19 POST); el pre-vuelo; y un estático que exige que la
+   única llamada a la red esté en `request()` **después** del veto. Mutaciones medidas el 2026-10-04 (copia en el
+   scratchpad, árbol `scripts/skydropx` + `backend` de este HEAD): **9/9 en ROJO** (quitar el veto, POST libre,
+   compra en la lista, ignorar la llave, imprimir el token, una compra en la corrida, aceptar otro host, saltarse la
+   normalización, ignorar `CI`); sin mutar, 6/6 verdes. Deterministas: N=1 por mutación.
+
+**Secretos y salida.** Las credenciales salen solo de `SKYDROPX_CLIENT_ID`/`SKYDROPX_CLIENT_SECRET` del entorno y
+nunca se imprimen. El informe **no vuelca respuestas**: se arma con campos elegidos (lista blanca por construcción,
+SEC-SDX-13); los ids de cotización, tarifa y plantilla salen como huella `fp:<sha256[0..10]>`; de la plantilla de
+origen solo sale tipo y si es la predeterminada (ni alias, ni nombre, ni teléfono, ni correo, ni RFC). Toda línea
+pasa además por un redactor (token, credenciales, ids de plantilla y tarifa, correos, teléfonos, cadenas largas
+tipo token). Antes de pegar un informe en el repo (que es público), el revisor lo lee igual.
+
+**Cómo se corre** — ⛔ **no** desde CI ni desde este contenedor (sin red a Skydropx: medido 403 el 2026-09-29). Lo
+corre una sesión del entorno con acceso a Internet, donde las credenciales ya están (`HECHOS.md:48`; no se le pide
+nada al dueño):
+
+```bash
+cd backend && npm ci && cd ..
+scripts/skydropx/run-prod-probe.sh test            # la prueba propia: 6/6 antes de tocar la red
+scripts/skydropx/run-prod-probe.sh dry-run         # ensayo contra el doble: el plan de peticiones, sin red
+scripts/skydropx/run-prod-probe.sh run \
+  --state "$SCRATCH/sdx-probe-state.json" --out "$SCRATCH/sdx-probe-informe.json"
+# a +1 h y a +25 h (M-PRD-2, duración de la reutilización):
+scripts/skydropx/run-prod-probe.sh run --followup --state "$SCRATCH/sdx-probe-state.json"
+```
+
+Opciones: `--only M-PRD-1,M-PRD-3`, `--values 2500,3000,…`, `--height-base N` (1..150; si M-PRD-1 sale con eco que
+no coincide, repetir con otro valor), `--state`, `--followup`, `--out`. `SKYDROPX_BASE_URL` es opcional: sin ella usa
+`https://pro.skydropx.com/api/v1` (PROD §1; no es secreta). Códigos de salida: `0` bien · `1` abortada (token, borde
+403/1010) · `2` el pre-vuelo no la deja arrancar · `3` **el saldo cambió** (parar e investigar) · `4` una petición
+vetada (defecto de la sonda: no hubo red). El estado y el informe van al scratchpad, **no** al repo; lo que se
+publique va a `docs/specs/` ya revisado.
+
+**Rollback.** La sonda no cambia nada en Skydropx (solo lee y cotiza; las cotizaciones no gastan, PROD §0), así que
+no hay nada que revertir del lado del proveedor. Si el saldo de después difiere del de antes (salida 3): no se
+repite la corrida; se compara contra `GET /finance/credits` en el panel y se avisa al orquestador. Del lado del
+repo, revertir D0/D0' es `git revert` del commit; el candado `skydropx-spend-lock` se iría con él (es el mismo
+commit), y PS-99 (d) volvería a apoyarse solo en el estático de backend.
+
+### 78.4 De paso
+
+- `security/secretos-publicados.sha256` estaba **desfasado** en `3238ece1` (medido: `check-secret-defaults.sh` ⇒
+  `(E) El manifiesto está DESFASADO`, sobre una copia `git archive HEAD`). Cuatro valores nuevos, todos ficción de
+  pruebas/documentación ya commiteados por backend (p. ej. `SKYDROPX_CLIENT_SECRET: 'secret'` de
+  `backend/test/shipping-provider.factory.spec.ts`). Regenerado; el resultado es idéntico desde una copia limpia de
+  HEAD con los cambios de este commit, y el candado vuelve a VERDE.
+- **Discrepancia con el encargo**, para el orquestador: el encargo decía «todas vacías», incluida
+  `SHIPPING_PROVIDER_ADAPTER`; §19.19.15 D0' dice `SHIPPING_PROVIDER_ADAPTER=fake` en `.env.example`. Seguí el
+  contrato (manda sobre el encargo). Si se quiere vacía (⇒ `skydropx` ⇒ Noop sin credenciales), es una línea y el
+  candado no la mira.
+- `gitleaks` no está instalado en este contenedor: que los valores inventados del doble (`probe-stub.ts`, todos con
+  `_dummy`, que la allowlist global reconoce) no disparen `generic-api-key` es **NO MEDIDO** aquí; lo mide el SAST
+  del PR.

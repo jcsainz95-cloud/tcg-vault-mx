@@ -239,6 +239,11 @@ services:
       # operador la exporte a propósito. Ver DEVOPS_NOTES §32.12 y ARCHITECTURE
       # §4.38(r.6.1).
       POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY:-}
+      # Envíos (fase D, §19.19.15 D0'): el doble en memoria por defecto. El dev puede
+      # pedir `skydropx`, pero sin credenciales (ninguna pasa por este compose) el
+      # backend cae a Noop. ⛔ Ninguna credencial de Skydropx ni la llave de gasto
+      # aquí. Candado: scripts/check-skydropx-spend-lock.sh (DEVOPS_NOTES §78).
+      SHIPPING_PROVIDER_ADAPTER: ${SHIPPING_PROVIDER_ADAPTER:-fake}
       # Sonda de SOLO LECTURA del ingest de graded (§4.38h.1-quater): con la llave
       # presente, `on` hace que el barrido PREGUNTE al proveedor y NO ESCRIBA nada.
       # Es la segunda forma admitida de incapacitar un entorno (§4.38r.6.1). NO es un

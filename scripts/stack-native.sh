@@ -195,6 +195,14 @@ psql_as_postgres() {
 # en vez de heredar éste. Si tocas esta línea, no deshagas aquella.
 export NODE_ENV="${NODE_ENV:-development}"
 export PORT="$BACKEND_PORT"
+# --- Envíos: la pila E2E corre con el DOBLE de Skydropx (§19.19.15 D0') -------
+# FIJO, no `:-`: este arnés es el que QA usa para la E2E, y un entorno con las
+# credenciales de producción (como el contenedor de Claude, HECHOS.md:48) no puede
+# convertirlo en un cliente real. La llave de gasto y las credenciales se QUITAN del
+# entorno heredado: con `fake` + llave girada el backend ni arranca (PS-98).
+# Candado: scripts/check-skydropx-spend-lock.sh (DEVOPS_NOTES §78).
+export SHIPPING_PROVIDER_ADAPTER=fake
+unset SKYDROPX_ALLOW_SPEND SKYDROPX_CLIENT_ID SKYDROPX_CLIENT_SECRET
 # --- Secretos del arnés nativo: generados, nunca escritos en el repo (S-88-1) --
 # Aquí había literales: `tcg_local_dev_password` dentro del DATABASE_URL, dos
 # secretos JWT y la clave de S3. Eran «de desarrollo local», y ese es justo el

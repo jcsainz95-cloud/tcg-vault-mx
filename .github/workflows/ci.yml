@@ -185,6 +185,12 @@ jobs:
         run: npm run typecheck --if-present
       - name: Test
         run: npm test --if-present
+      # 💰🔒 PS-99 (d): la sonda D0 de Skydropx (scripts/skydropx/) NO puede llamar a
+      # compra, cancelación ni protección. Su prueba corre aquí, SIN red y SIN
+      # credenciales (contra un doble en memoria). La sonda en sí no se ejecuta
+      # nunca desde CI. DEVOPS_NOTES §78.
+      - name: Sonda Skydropx — prueba de solo lectura (PS-99 d)
+        run: ../scripts/skydropx/run-prod-probe.sh test
       - name: Build
         run: npm run build --if-present
 
@@ -627,6 +633,21 @@ jobs:
         run: ./scripts/check-secret-defaults-canary.sh
 
   # ---------------------------------------------------------------------------
+  # 💰🔒 PS-99 (d) / C-SDX-8 — ningún workflow, compose ni plantilla reparte las
+  # llaves de Skydropx; la pila E2E corre con el adaptador doble. El canario
+  # planta cada forma de fuga en una copia y exige ROJO. DEVOPS_NOTES §78.
+  # ---------------------------------------------------------------------------
+  skydropx-spend-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ninguna pila de pruebas recibe las llaves de Skydropx
+        run: ./scripts/check-skydropx-spend-lock.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-skydropx-spend-lock-canary.sh
+
+  # ---------------------------------------------------------------------------
   # 🔒 S-CI-1 — UN SCRIPT QUE SE INVOCA DESDE CI TIENE QUE EXISTIR BAJO EL CWD DEL
   # PASO QUE LO INVOCA. 2026-09-11, hallazgo ALTA de seguridad (re-veredicto).
   #
@@ -747,7 +768,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, skydropx-spend-lock]
     if: always()
     runs-on: ubuntu-latest
     steps:
