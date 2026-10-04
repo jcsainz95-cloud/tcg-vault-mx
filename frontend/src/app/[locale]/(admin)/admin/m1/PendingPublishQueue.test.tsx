@@ -82,13 +82,17 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     expect(screen.getAllByText('Compra a vendedor').length).toBe(2);
   });
 
-  it('sin precio resoluble NO pinta MX$0.00 y enlaza a la cola de precio pendiente', async () => {
+  it('sin precio resoluble NO pinta MX$0.00: «—» + «sin precio», la frase del motivo y el enlace a la cola', async () => {
     stub([
       row({ missing: ['price'], resolvedSalePriceCents: null, priceBasis: null, pendingPriceEntryId: 'ppe-77' }),
     ]);
     renderWithProviders(<PendingPublishQueue />, 'es');
 
-    expect(await screen.findByText('Sin precio resoluble')).toBeInTheDocument();
+    // §39.3 (b): «Sin precio resoluble» se retira; la celda dice «—» con la base «sin precio».
+    expect(await screen.findByText('—')).toBeInTheDocument();
+    expect(screen.getByText('· sin precio')).toBeInTheDocument();
+    // Servidor sin `pendingReason` (clave ausente) y con entrada ⇒ no inventa motivo, manda a la cola.
+    expect(screen.getByText('Sin precio; el motivo está en la cola de precio pendiente.')).toBeInTheDocument();
     expect(screen.queryByText('MX$0.00')).not.toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: 'Ver en la cola de precio pendiente' }),
@@ -113,11 +117,11 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     expect(await screen.findByTestId('publish-missing-unknown')).toBeInTheDocument();
   });
 
-  it('declara su alcance: aquí no se capturan precios de venta', async () => {
+  it('declara su alcance: no captura precios de sueltas ni gradeadas; solo el sellado admite precio final', async () => {
     stub([row()]);
     renderWithProviders(<PendingPublishQueue />, 'es');
     expect(
-      await screen.findByText(/no se capturan precios de venta aquí ni se heredan del costo de compra/),
+      await screen.findByText(/no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra/),
     ).toBeInTheDocument();
     // Y no hay ningún botón de «publicar»: la pieza sale sola (criterio 125).
     expect(screen.queryByRole('button', { name: /publicar/i })).not.toBeInTheDocument();

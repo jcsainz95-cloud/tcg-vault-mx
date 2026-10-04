@@ -30,6 +30,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 import { IvaTransferSection } from './sections/IvaTransferSection';
+import { PremiumFloorSection } from './sections/PremiumFloorSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
 
@@ -439,6 +440,9 @@ export function M10View() {
           envío — un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene
           guardián, y aquí el guardián es el servidor (`PUT /admin/settings/iva-transfer`). */}
       <IvaTransferSection />
+
+      {/* §39.1 — premium en el piso (venta): sección propia, entre el IVA y la ingesta. */}
+      <PremiumFloorSection />
 
       {/* Sección 1b: proveedor de la INGESTA MASIVA (bulk). Separado a propósito de los
           per-carta de arriba para que el humano no los confunda (P-47). */}
