@@ -158,10 +158,18 @@ describe('INV-SP-8 — `PATCH {listPriceCents}` solo sobre plataforma en venta',
     const res: any = await svc.updateItem('p', { listPriceCents: 12345 });
     expect(res.listPriceCents).toBe(12345);
     expect(rows[0]).toMatchObject({ status: 'in_stock', listPriceCents: 12345 });
-    expect(writes).toEqual(['update@tx']); // sin movimiento y sin bitácora nueva (v1.80.2.3 p.4)
+    // Sin movimiento. ⭐ v1.80.8.7 (`M1-SFP` punto 1, criterio 255) — ACTUALIZADO a la forma nueva: el cambio de
+    // solo precio YA deja su bitácora `inventory.item_updated` con antes/después, en la misma tx (antes:
+    // «sin bitácora nueva», v1.80.2.3 p.4), y el precio leído entra al CAS.
+    expect(writes).toEqual(['update@tx', 'audit@tx']);
     expect(tx.inventoryItem.update).toHaveBeenCalledWith({
-      where: { id: 'p', status: 'in_stock', ownerType: 'platform', ownerUserId: null },
+      where: { id: 'p', status: 'in_stock', ownerType: 'platform', ownerUserId: null, listPriceCents: SEEDED_PRICE },
       data: { listPriceCents: 12345 },
+    });
+    expect(tx.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: 'inventory.item_updated',
+      before: { status: 'in_stock', listPriceCents: SEEDED_PRICE },
+      after: { status: 'in_stock', listPriceCents: 12345, fields: ['listPriceCents'] },
     });
   });
 

@@ -127,6 +127,10 @@ function buildUpdatePrisma(item: any) {
       // reflejarlo: un `update` plano ya no es el camino de publicación.
       updateMany: jest.fn(async () => ({ count: 1 })),
     },
+    // ⭐ v1.80.8.7 (`M1-SFP` punto 1): el PATCH publicante escribe su bitácora `inventory.item_updated` dentro
+    // de la tx de `claimListed`; el doble tiene que poder recibirla (la forma la fija
+    // `inventory.sealed-final-price.spec.ts`).
+    auditLog: { create: jest.fn(async ({ data }: any) => data) },
   };
   return prisma;
 }
@@ -219,8 +223,15 @@ describe('InventoryService.updateItem — gradeada (certNumber)', () => {
     // todo o nada; M-1 de QA sobre `b8a3e4ce`): ⛔ ningún `update` por `id` previo al CAS.
     expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledTimes(1);
+    // ⭐ v1.80.8.7 (`M1-SFP` punto 1) — forma nueva del CAS publicante del `PATCH`: condiciona ADEMÁS al
+    // `listPriceCents` LEÍDO (el «antes» de su bitácora es exacto o `409`).
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith({
-      where: { id: 'inv-10', ownerType: 'platform', status: { in: ['in_stock', 'listed'] } },
+      where: {
+        id: 'inv-10',
+        ownerType: 'platform',
+        status: { in: ['in_stock', 'listed'] },
+        listPriceCents: gradedInStock.listPriceCents,
+      },
       data: { certNumber: 'PSA-99999999', status: 'listed' },
     });
   });

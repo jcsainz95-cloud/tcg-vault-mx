@@ -293,6 +293,13 @@ export interface PendingPublishState {
   pendingQueueKey?: string;
   resolvedSalePriceCents: number | null;
   priceBasis: PriceBasis | null;
+  /**
+   * ⭐ v1.80.8.7 (S-1, API_CONTRACT §M1 `M1-SFP` punto 2) — **por qué HOY no se publica por precio**: el
+   * veredicto de la MISMA derivación pura que decide `missing` (⛔ no la fila `PendingPriceEntry` abierta, que
+   * puede no existir o traer el motivo con que nació). `null` sin `'price'` en `missing`, y `null` con
+   * `'price'` ⇔ gradeada sin identidad de slab (sin variante no hay motivo de mercado — regla del contrato).
+   */
+  pendingReason: PendingReason | null;
 }
 
 /**
@@ -410,6 +417,74 @@ type PublishPriceDerivation =
  * conjunto de status de origen permitido; hoy solo describe el error `PRICE_PENDING` por-línea.
  */
 const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
+
+/**
+ * ⭐ v1.80.8.7 (API_CONTRACT §M1 `M1-SFP` punto 1, ARCHITECTURE §4.36.5 (c-quater), criterio 255; cierra
+ * `D-SFP-1`) — lo que la bitácora del `PATCH /admin/inventory/items/:id` registra de una pieza: las DOS
+ * claves siempre, aunque solo cambie una (quien lea la fila no reconstruye la otra).
+ */
+export interface ItemAuditState {
+  status: InventoryStatus;
+  listPriceCents: number | null;
+}
+
+/** Quién hizo el `PATCH` (el `actor` que `updateItem` recibe del controlador). */
+type ItemAuditActor = { id: string; role: Role } | undefined;
+
+/**
+ * ⭐ v1.80.8.7 — **EL ÚNICO cuerpo del `before/after` de `inventory.item_updated`** (SFP-6: un segundo literal
+ * de la acción en `inventory/` es rojo). Devuelve `null` si ni `status` ni `listPriceCents` cambian (valor
+ * escrito = valor leído): un `PATCH` solo de identidad, o con el mismo precio, no deja fila (SFP-4).
+ * `fields` = claves del cuerpo saneado, en orden alfabético.
+ */
+export function itemUpdatedAudit(
+  read: ItemAuditState,
+  written: ItemAuditState,
+  fields: string[],
+): { action: string; before: ItemAuditState; after: ItemAuditState & { fields: string[] } } | null {
+  if (read.status === written.status && read.listPriceCents === written.listPriceCents) return null;
+  return {
+    action: 'inventory.item_updated',
+    before: { status: read.status, listPriceCents: read.listPriceCents },
+    after: { status: written.status, listPriceCents: written.listPriceCents, fields: [...fields].sort() },
+  };
+}
+
+/**
+ * ⭐ v1.80.8.7 — escribe la fila de `itemUpdatedAudit` **con el handle `tx` de la escritura** que audita: si el
+ * `INSERT` falla, la `$transaction` se revierte y el cambio NO se confirma (SFP-3). La llaman los dos caminos
+ * de `updateItem` (no publicante, tras `guardedItemUpdate`; publicante, dentro de `claimListed`). ⛔ Ni en el
+ * controlador ni después del `commit`: un precio sin su bitácora es lo que el criterio 255 prohíbe.
+ */
+async function writeItemUpdatedAudit(
+  tx: Prisma.TransactionClient,
+  actor: ItemAuditActor,
+  id: string,
+  read: ItemAuditState,
+  written: ItemAuditState,
+  fields: string[],
+): Promise<void> {
+  const diff = itemUpdatedAudit(read, written, fields);
+  if (diff == null) return;
+  await tx.auditLog.create({
+    data: {
+      actorUserId: actor?.id ?? null,
+      actorRole: actor?.role ?? null,
+      action: diff.action,
+      entityType: 'InventoryItem',
+      entityId: id,
+      before: diff.before as unknown as Prisma.InputJsonValue,
+      after: diff.after as unknown as Prisma.InputJsonValue,
+    },
+  });
+}
+
+/** Claves del cuerpo saneado del `PATCH` que viajan (las `undefined` no son parte del cuerpo). */
+function patchKeys(patch: object): string[] {
+  return Object.entries(patch)
+    .filter(([, v]) => v !== undefined)
+    .map(([k]) => k);
+}
 
 /**
  * [v1.20 §4.20e] Allowlist de status AJUSTABLES por levantamiento físico. Solo una pieza de
@@ -1797,6 +1872,7 @@ export class InventoryService {
         missing,
         resolvedSalePriceCents: derived.salePriceCents,
         priceBasis: derived.priceBasis,
+        pendingReason: null,
       };
     }
     missing.push('price');
@@ -1813,6 +1889,10 @@ export class InventoryService {
       // `pending` NO es «no sé»: es el veredicto explícito de que la variante no tiene precio
       // publicable. El storefront ya lo trata así (§N.5) y la cola dice lo mismo, no otra cosa.
       priceBasis: 'pending',
+      // ⭐ v1.80.8.7 (S-1): el MISMO motivo con que `resolvePublishSalePrice` escalaría esta pieza
+      // (`derived.pendingReason ?? 'no_market'`, también para el sellado) — una sola respuesta para la cola y
+      // para M2. Sin variante (gradeada sin slab, `pendingKey == null`) no se escala ⇒ `null`.
+      pendingReason: derived.pendingKey == null ? null : (derived.pendingReason ?? 'no_market'),
     };
   }
 
@@ -1945,6 +2025,8 @@ export class InventoryService {
         listPriceCents: item.listPriceCents,
         resolvedSalePriceCents: state.resolvedSalePriceCents,
         priceBasis: state.priceBasis,
+        // ⭐ v1.80.8.7 (S-1): siempre presente (`null` incluido).
+        pendingReason: state.pendingReason,
         pendingPriceEntryId: entryId,
         missing: state.missing,
         acquisitionType: item.acquisitionType,
@@ -2009,12 +2091,29 @@ export class InventoryService {
     item: PublishableItem,
     lineListPriceCents?: number,
     fields: Prisma.InventoryItemUpdateManyMutationInput = {},
+    audited?: {
+      /** La `$transaction` del `PATCH`: el CAS y su bitácora se confirman juntos o no se confirman. */
+      tx: Prisma.TransactionClient;
+      actor: ItemAuditActor;
+      /** Lo LEÍDO por el `PATCH` (el «antes» exacto: su precio entra al CAS). */
+      read: ItemAuditState;
+      /** El precio que este `UPDATE` deja escrito. */
+      writtenListPriceCents: number | null;
+      /** Claves del cuerpo saneado. */
+      fields: string[];
+    },
   ): Promise<void> {
-    const claimed = await this.prisma.inventoryItem.updateMany({
+    // ⭐ v1.80.8.7 (`M1-SFP` punto 1) — SOLO el `PATCH` publicante pasa `audited`: el CAS va dentro de su tx y
+    // condiciona ADEMÁS al `listPriceCents` leído (dos re-precios simultáneos ⇒ uno pierde con `409`, en vez
+    // de dos filas con el mismo «antes»). Los caminos de lote (`bulk-publish`, `publish-all`, reevaluación)
+    // no cambian: ni tx propia, ni precio en el CAS, ni esta bitácora (no son la captura del criterio 255).
+    const db = audited?.tx ?? this.prisma;
+    const claimed = await db.inventoryItem.updateMany({
       where: {
         id: item.id,
         ownerType: 'platform',
         status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
+        ...(audited ? { listPriceCents: audited.read.listPriceCents } : {}),
       },
       data: {
         ...fields,
@@ -2023,10 +2122,37 @@ export class InventoryService {
       },
     });
     if (claimed.count !== 1) {
+      if (audited) {
+        // Relee en la MISMA tx: si sigue siendo de plataforma y publicable, lo único que cambió es el precio
+        // ⇒ `409 CONFLICT` («la pieza cambió mientras la editabas»). Si no, manda el status RELEÍDO (el
+        // verdadero), no el leído antes del CAS.
+        const now = await audited.tx.inventoryItem.findUnique({
+          where: { id: item.id },
+          select: { status: true, ownerType: true },
+        });
+        if (now && now.ownerType === 'platform' && PUBLISHABLE_ORIGIN_STATUSES.includes(now.status)) {
+          throw BusinessException.conflict('CONFLICT', 'Item changed while operating on it; reload and retry');
+        }
+        throw BusinessException.validation(
+          'ITEM_NOT_PUBLISHABLE',
+          'item can no longer be published (concurrent status transition)',
+          { status: now?.status ?? item.status },
+        );
+      }
       throw BusinessException.validation(
         'ITEM_NOT_PUBLISHABLE',
         'item can no longer be published (concurrent status transition)',
         { status: item.status },
+      );
+    }
+    if (audited) {
+      await writeItemUpdatedAudit(
+        audited.tx,
+        audited.actor,
+        item.id,
+        audited.read,
+        { status: 'listed', listPriceCents: audited.writtenListPriceCents },
+        audited.fields,
       );
     }
   }
@@ -2360,8 +2486,49 @@ export class InventoryService {
       }),
       this.prisma.inventoryItem.count({ where }),
     ]);
-    const data = await this.attachSealedMarketRefs(rows);
+    const salePrices = await this.sealedSalePricesOf(rows);
+    const data = (await this.attachSealedMarketRefs(rows)).map((r) => {
+      const price = salePrices.get(r.id);
+      return price ? { ...r, ...price } : r;
+    });
     return { data, page: q.page, pageSize: q.pageSize, total };
+  }
+
+  /**
+   * ⭐ v1.80.8.7 (S-2, API_CONTRACT §M1 `M1-SFP` punto 3) — **el precio de venta que el sellado de plataforma
+   * tiene HOY**, para el listado de M1 (el editor de `DESIGN_SYSTEM §39.2 (a)`).
+   *
+   * - Solo `productType='sealed' ∧ ownerType='platform' ∧ status ∈ {in_stock, listed}`; en toda otra fila las
+   *   claves **no viajan** (⛔ raw/graded: P-PRE-1 «sin hacerlo más visible»; ⛔ `reserved`/vendida: su precio es
+   *   el de la línea del pedido).
+   * - Cálculo: `derivePublishSalePrice(item, null, ctx)` — el cuerpo de la cola `pending-publish`, ⛔ ninguna
+   *   otra fórmula — con `loadPublishPricingCtx` **una vez por página** (ninguna consulta si no hay elegibles).
+   *   `ok:true` ⇒ `{ salePriceCents, priceBasis }` (con `listPriceCents` presente: ese monto y `'override'`);
+   *   `ok:false` ⇒ `{ null, 'pending' }`.
+   * - ⛔ No escribe: la derivación es pura (sin escalada ni cierre de la cola de M2).
+   */
+  private async sealedSalePricesOf(
+    rows: PublishableItem[],
+  ): Promise<Map<string, { resolvedSalePriceCents: number | null; priceBasis: PriceBasis }>> {
+    const out = new Map<string, { resolvedSalePriceCents: number | null; priceBasis: PriceBasis }>();
+    const eligible = rows.filter(
+      (r) =>
+        r.productType === 'sealed' &&
+        r.ownerType === 'platform' &&
+        (r.status === 'in_stock' || r.status === 'listed'),
+    );
+    if (eligible.length === 0) return out;
+    const ctx = await this.loadPublishPricingCtx(eligible);
+    for (const item of eligible) {
+      const d = this.derivePublishSalePrice(item, null, ctx);
+      out.set(
+        item.id,
+        d.ok
+          ? { resolvedSalePriceCents: d.salePriceCents, priceBasis: d.priceBasis }
+          : { resolvedSalePriceCents: null, priceBasis: 'pending' },
+      );
+    }
+    return out;
   }
 
   /**
@@ -2499,7 +2666,12 @@ export class InventoryService {
       //  - Cuerpo SOLO de identidad (`certNumber`, `gradeValue`, `gradingCompany`, `sealedSubtype`) ⇒ como hoy,
       //    sin guarda (v1.80.2.3 p.2: es la vía de reparación de identidad, también sobre piezas de cliente).
       // ⛔ Sin `InventoryMovement`: `listed ↔ in_stock` y re-preciar son visibilidad/valor, no un hecho físico
-      // (ARCHITECTURE §4.57 (o)). El precio solo no gana bitácora nueva (v1.80.2.3 p.4: la del controller basta).
+      // (ARCHITECTURE §4.57 (o)).
+      // ⭐ v1.80.8.7 (`M1-SFP` punto 1, criterio 255; tacha «el precio solo no gana bitácora» de v1.80.2.3 p.4):
+      // todo cambio de `status` O de `listPriceCents` deja UNA fila `inventory.item_updated` con
+      // `before/after {status, listPriceCents}` y el actor, en ESTA tx (`writeItemUpdatedAudit`), y el precio
+      // leído entra al CAS (`guardedItemUpdate(..., { listPriceCents })`): el «antes» es exacto o `409`.
+      // La fila `inventory.update` del controlador se queda (rastro de «se llamó al verbo», sin diff).
       const guardedVerb: 'status' | 'price' | null =
         patch.status !== undefined ? 'status' : patch.listPriceCents !== undefined ? 'price' : null;
       if (guardedVerb === null) {
@@ -2513,20 +2685,16 @@ export class InventoryService {
         assertOperable(item, guardedVerb);
         const { status: nextStatus, ...fields } = patch;
         const statusChanges = nextStatus !== undefined && nextStatus !== item.status;
-        const row = await this.guardedItemUpdate(tx, item, statusChanges ? patch : fields);
-        if (statusChanges) {
-          await tx.auditLog.create({
-            data: {
-              actorUserId: actor?.id ?? null,
-              actorRole: actor?.role ?? null,
-              action: 'inventory.item_updated',
-              entityType: 'InventoryItem',
-              entityId: id,
-              before: { status: item.status } as Prisma.InputJsonValue,
-              after: { status: nextStatus, fields: Object.keys(patch) } as Prisma.InputJsonValue,
-            },
-          });
-        }
+        // Lo LEÍDO se fija ANTES de escribir (es el «antes» de la bitácora y la condición del CAS).
+        const read: ItemAuditState = { status: item.status, listPriceCents: item.listPriceCents };
+        const written: ItemAuditState = {
+          status: statusChanges ? nextStatus : read.status,
+          listPriceCents: patch.listPriceCents !== undefined ? patch.listPriceCents : read.listPriceCents,
+        };
+        const row = await this.guardedItemUpdate(tx, item, statusChanges ? patch : fields, {
+          listPriceCents: read.listPriceCents,
+        });
+        await writeItemUpdatedAudit(tx, actor, id, read, written, patchKeys(patch));
         return row;
       }, VAULT_VERB_TX_OPTIONS);
       return toAdminInventoryItemRow(updated);
@@ -2558,7 +2726,20 @@ export class InventoryService {
     // pieza entre la lectura de arriba y aquí, el CAS no casa ⇒ `422 ITEM_NOT_PUBLISHABLE` y NADA
     // escrito (INV-SP-8, todo o nada). ⛔ No volver a un `update` por `id` previo: ese orden escribía el
     // precio y LUEGO perdía el CAS (M-1 de QA; candado `inventory-patch-publish-race.e2e-spec.ts`).
-    await this.claimListed(resulting, patch.listPriceCents, fields);
+    // ⭐ v1.80.8.7 (`M1-SFP` punto 1): el CAS y su bitácora `inventory.item_updated` van en UNA `$transaction`
+    // (si la fila de bitácora falla, no se publica); el precio leído entra al CAS (cambió ⇒ `409 CONFLICT`).
+    // `resolvePublishSalePrice` sigue ANTES y fuera de ella, sin cambio.
+    await this.prisma.$transaction(
+      (tx) =>
+        this.claimListed(resulting, patch.listPriceCents, fields, {
+          tx,
+          actor,
+          read: { status: raw.status, listPriceCents: raw.listPriceCents },
+          writtenListPriceCents: patch.listPriceCents !== undefined ? patch.listPriceCents : raw.listPriceCents,
+          fields: patchKeys(patch),
+        }),
+      VAULT_VERB_TX_OPTIONS,
+    );
     return toAdminInventoryItemRow({ ...resulting, status: 'listed' });
   }
 
@@ -2884,7 +3065,7 @@ export class InventoryService {
   private async readGuardedItem(
     tx: Prisma.TransactionClient,
     id: string,
-  ): Promise<GuardedItem & { id: string; locationId: string | null }> {
+  ): Promise<GuardedItem & { id: string; locationId: string | null; listPriceCents: number | null }> {
     const item = await tx.inventoryItem.findUnique({ where: { id } });
     if (!item) throw BusinessException.notFound();
     return item;
@@ -2905,6 +3086,11 @@ export class InventoryService {
     tx: Prisma.TransactionClient,
     item: GuardedItem & { id: string },
     data: Prisma.InventoryItemUncheckedUpdateInput,
+    /**
+     * ⭐ v1.80.8.7 (`M1-SFP` punto 1) — SOLO el `PATCH`: condiciona además al `listPriceCents` LEÍDO (`null`
+     * incluido), para que el «antes» de su bitácora sea exacto. ⛔ `move`/`mark` no lo pasan (sin cambio).
+     */
+    expected?: { listPriceCents: number | null },
   ) {
     try {
       // PROJECTION-EXEMPT: helper privado dentro de la `$transaction`; `moveItem`/`markItem`/`updateItem`
@@ -2915,6 +3101,7 @@ export class InventoryService {
           status: item.status,
           ownerType: item.ownerType,
           ownerUserId: item.ownerUserId,
+          ...(expected ? { listPriceCents: expected.listPriceCents } : {}),
         },
         data,
       });

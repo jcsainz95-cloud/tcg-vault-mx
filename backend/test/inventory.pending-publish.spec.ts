@@ -474,12 +474,15 @@ describe('⚠️⚠️ (4) el bypass del PATCH, CERRADO', () => {
 });
 
 // =============================================================================================
-// 🔒 `#M1-merge-rule` (v1.80.7.2) — la bitácora `inventory.item_updated` (before/after) es del camino NO
-// publicante de `updateItem`. El camino PUBLICANTE (`→ listed` desde un estado que no era `listed`) sigue el
-// pipeline de v1.51 (`assertPublishableGuards` + `claimListed`) y NO la escribe (BACKEND_NOTES «Release s5» §6).
-// Antes esto solo lo sostenía cómo estaba escrito el código; estas pruebas lo fijan. El `$transaction` de este
-// arnés corre sobre el MISMO cliente, así que el espía ve también las escrituras hechas dentro de una tx.
-describe('🔒 (4b) `PATCH → listed` (camino PUBLICANTE) NO escribe `inventory.item_updated`', () => {
+// 🔒 `#M1-merge-rule` (v1.80.7.2) — la bitácora `inventory.item_updated` (before/after) era SOLO del camino NO
+// publicante de `updateItem` (BACKEND_NOTES «Release s5» §6).
+// ⭐ v1.80.8.7 (API_CONTRACT §M1 `M1-SFP` punto 1, criterio 255; cierra `D-SFP-1`) — **ACTUALIZADAS a la forma
+// nueva** (el contrato manda actualizar, no borrar): el camino PUBLICANTE (`→ listed` desde un estado que no
+// era `listed`) TAMBIÉN escribe UNA fila con `before/after {status, listPriceCents}`, dentro de la tx de
+// `claimListed`. Los rechazos siguen sin fila. El `$transaction` de este arnés corre sobre el MISMO cliente,
+// así que el espía ve también las escrituras hechas dentro de una tx. (Detalle completo:
+// `inventory.sealed-final-price.spec.ts`.)
+describe('🔒 (4b) `PATCH → listed` (camino PUBLICANTE) escribe UNA `inventory.item_updated` (v1.80.8.7)', () => {
   const actor = { id: 'op-1', role: 'operador' } as any;
 
   it('ancla: el MISMO arnés SÍ ve la bitácora en el camino NO publicante (`listed → in_stock`)', async () => {
@@ -491,16 +494,21 @@ describe('🔒 (4b) `PATCH → listed` (camino PUBLICANTE) NO escribe `inventory
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
   });
 
-  it('`in_stock → listed` con precio resoluble: publica y NO escribe la bitácora', async () => {
+  it('`in_stock → listed` con precio resoluble: publica y escribe UNA fila (precio igual en los dos lados)', async () => {
     const { svc, prisma, rows, writes } = build([item({ id: 'a', locationId: 'loc-1', priced: true })]);
     const res: any = await svc.updateItem('a', { status: 'listed' } as UpdateItemDto, actor);
     expect(res.status).toBe('listed');
     expect(rows[0].status).toBe('listed');
-    expect(prisma.auditLog.create).not.toHaveBeenCalled();
-    expect(writes.filter((w) => w.startsWith('audit:'))).toEqual([]);
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: 'inventory.item_updated',
+      before: { status: 'in_stock', listPriceCents: null },
+      after: { status: 'listed', listPriceCents: null, fields: ['status'] },
+    });
+    expect(writes.filter((w) => w.startsWith('audit:'))).toEqual(['audit:inventory.item_updated']);
   });
 
-  it('`in_stock → listed` con `listPriceCents` y campo de identidad: publica y NO escribe la bitácora', async () => {
+  it('`in_stock → listed` con `listPriceCents` y campo de identidad: publica y escribe UNA fila', async () => {
     const { svc, prisma, rows } = build([item({ id: 'a', locationId: 'loc-1' })]);
     const res: any = await svc.updateItem(
       'a',
@@ -509,7 +517,11 @@ describe('🔒 (4b) `PATCH → listed` (camino PUBLICANTE) NO escribe `inventory
     );
     expect(res.status).toBe('listed');
     expect(rows[0]).toMatchObject({ status: 'listed', listPriceCents: 77_700 });
-    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      before: { status: 'in_stock', listPriceCents: null },
+      after: { status: 'listed', listPriceCents: 77_700, fields: ['gradeValue', 'listPriceCents', 'status'] },
+    });
   });
 
   it('`in_stock → listed` sin precio ⇒ `422 PRICE_PENDING` y tampoco bitácora', async () => {
