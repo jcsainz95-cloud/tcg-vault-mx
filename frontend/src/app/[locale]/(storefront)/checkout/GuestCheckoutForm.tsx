@@ -38,7 +38,7 @@ export interface GuestCheckoutFormProps {
   allowedNeighborhoods?: string[] | null;
 }
 
-const FIELD_ORDER: GuestField[] = [
+export const FIELD_ORDER: GuestField[] = [
   'email',
   'emailConfirmed',
   'recipientName',
@@ -46,13 +46,14 @@ const FIELD_ORDER: GuestField[] = [
   'line2',
   'postalCode',
   'neighborhood',
-  'phone',
+  // §43.18b: referencias antes que teléfono (mismo orden que el DOM: el resumen de errores lo sigue).
   'references',
+  'phone',
   'terms',
 ];
 
 /** id del control en el DOM (para los enlaces del resumen de errores). */
-const FIELD_ID: Record<GuestField, string> = {
+export const FIELD_ID: Record<GuestField, string> = {
   email: 'guest-email',
   emailConfirmed: 'guest-email-confirm',
   recipientName: 'guest-recipientName',
@@ -271,18 +272,7 @@ export function GuestCheckoutForm({
             }
             allowedOverride={allowedNeighborhoods}
           />
-          <Input
-            id={FIELD_ID.phone}
-            label={ta('phone')}
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            value={state.address.phone}
-            onChange={(e) => onAddressChange({ phone: e.target.value })}
-            onBlur={() => onBlurField('phone')}
-            error={visible('phone') ? messageFor('phone') : undefined}
-            hint={t('guest.phoneHelp')}
-          />
+          {/* §43.18b: las referencias acompañan al lugar, antes que el teléfono. */}
           <Textarea
             id={FIELD_ID.references}
             label={ta('references')}
@@ -293,6 +283,18 @@ export function GuestCheckoutForm({
             onChange={(e) => onAddressChange({ references: e.target.value })}
             onBlur={() => onBlurField('references')}
             error={visible('references') ? messageFor('references') : undefined}
+          />
+          <Input
+            id={FIELD_ID.phone}
+            label={ta('phone')}
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={state.address.phone}
+            onChange={(e) => onAddressChange({ phone: e.target.value })}
+            onBlur={() => onBlurField('phone')}
+            error={visible('phone') ? messageFor('phone') : undefined}
+            hint={ta('phoneHint')}
           />
           {/* País fijo MX, mismo tratamiento que el formulario de direcciones (§15.3). */}
           <div className="flex flex-col">

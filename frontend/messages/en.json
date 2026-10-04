@@ -511,7 +511,6 @@
       "contactGroup": "CONTACT",
       "shippingGroup": "SHIPPING",
       "recipientName": "Recipient name",
-      "phoneHelp": "Only the courier uses it to deliver.",
       "errorSummary": "Check {count, plural, one {# field} other {# fields}}.",
       "formIncomplete": "Check the highlighted fields above (for example your phone) to continue to payment.",
       "acceptTerms": "I accept the terms and the privacy notice, and I understand that all sales are final.",
@@ -844,15 +843,11 @@
       "errorTitle": "Could not open the dispute"
     },
     "addressIncomplete": {
-      "required": "The selected address is missing {missing}. Complete it to request the withdrawal; nothing was charged.",
-      "generic": "The selected address is missing data for the label. Complete it to request the withdrawal; nothing was charged.",
+      "required": "The selected address is missing {missing}. Complete it to pay for shipping and request the withdrawal.",
+      "generic": "The selected address is missing details for the label. Complete it to pay for shipping and request the withdrawal.",
       "cta": "Complete address",
-      "and": "and",
-      "missing": {
-        "neighborhood": "the neighborhood",
-        "postalCode": "a 5-digit postal code",
-        "phone": "a 10-digit phone"
-      }
+      "notCharged": "The withdrawal wasn’t requested and nothing was charged: complete the address.",
+      "saved": "Address complete. Check the shipping cost and pay to request the withdrawal."
     }
   },
   "shipmentStage": {
@@ -5468,7 +5463,7 @@
     "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
     "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved.",
     "NEIGHBORHOOD_NOT_IN_POSTAL_CODE": "That neighborhood isn’t in the postal code. Nothing was saved: choose one from the list.",
-    "POSTAL_CODE_UNKNOWN": "We couldn’t find that postal code in the neighborhood catalog. Check it’s typed correctly.",
+    "POSTAL_CODE_UNKNOWN": "That postal code isn’t in our catalog and nothing was saved. The “Postal code” field tells you what to do.",
     "ADDRESS_INCOMPLETE": "The selected address is missing data for the label (neighborhood, postal code or phone). Complete it to continue; nothing was charged."
   },
   "payment": {
@@ -5495,8 +5490,8 @@
     "cancel": "Cancel",
     "save": "Save",
     "required": "Required field",
-    "postalCodeInvalid": "Invalid postal code",
-    "phoneInvalid": "Invalid phone number",
+    "postalCodeInvalid": "The postal code is 5 digits.",
+    "phoneInvalid": "The phone number is 10 digits.",
     "line1": "Street and number",
     "line2": "Unit or apt. number (optional)",
     "neighborhood": "Neighborhood",
@@ -5515,7 +5510,7 @@
     "edit": "Edit",
     "editTitle": "Edit address",
     "line2TooLong": "Up to {max} characters: shorten it.",
-    "phoneHint": "10 digits. The carrier calls this number if they can’t find the address.",
+    "phoneHint": "10 digits. Only the carrier uses it, if they need to call to deliver.",
     "references": "Directions for the courier (optional)",
     "referencesHint": "For example: black gate, between streets… Up to {max} characters; printed on the label.",
     "referencesTooLong": "The directions don’t fit on the label: shorten them (up to {max} characters).",
@@ -5524,17 +5519,27 @@
       "cpFirst": "Type the 5-digit postal code to see its neighborhoods.",
       "loading": "Looking up the neighborhoods for postal code {cp}…",
       "placeholder": "Choose a neighborhood",
-      "noNeighborhoods": "No neighborhoods: check the postal code.",
-      "cpUnknown": "We couldn’t find postal code {cp} in the neighborhood catalog. Check it’s typed correctly.",
+      "noNeighborhoods": "No neighborhoods: this postal code isn’t in the catalog.",
+      "cpUnknown": "We couldn’t find postal code {cp} in our catalog, and we can’t ship without it. Check it’s typed correctly; if it’s right, email us at {contact} with your postal code.",
       "failed": "We couldn’t look up the neighborhoods for postal code {cp}.",
       "notInCp": "That neighborhood isn’t in postal code {cp}. Nothing was saved: choose one from the list.",
       "neighborhoodRequired": "Choose the neighborhood from the postal code’s list.",
       "cityState": "Municipality and state: {city}, {state} (from the postal code).",
-      "noData": "no data"
+      "noData": "no data",
+      "notListed": "Your neighborhood isn’t listed? Email us at {contact} with your postal code and its name."
     },
     "incomplete": {
-      "row": "Incomplete address: missing the neighborhood, a 5-digit postal code or a 10-digit phone.",
-      "cta": "Complete address"
+      "row": "Incomplete address: it’s missing details for the label.",
+      "cta": "Complete address",
+      "rowMissing": "Incomplete address: missing {missing}.",
+      "missing": {
+        "neighborhood": "the neighborhood",
+        "postalCode": "a 5-digit postal code",
+        "phone": "a 10-digit phone number"
+      },
+      "and": "and",
+      "formIntro": "This address is missing {missing}. What you save stays in your address book.",
+      "formIntroGeneric": "This address is missing details for the label. What you save stays in your address book."
     }
   },
   "track": {

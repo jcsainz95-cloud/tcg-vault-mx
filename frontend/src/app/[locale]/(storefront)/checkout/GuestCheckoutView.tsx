@@ -19,6 +19,7 @@ import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { CheckoutIdentityGate, type IdentityMode } from './CheckoutIdentityGate';
 import { GuestCheckoutForm, type Destination } from './GuestCheckoutForm';
 import { GuestOrderConfirmation } from './GuestOrderConfirmation';
+import { SUPPORT_CONTACT_FALLBACK } from './support-contact';
 import { InlineAuthPanel } from './InlineAuthPanel';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { pruneCandidates, pushUnavailableNotice } from './unavailable-notice';
@@ -252,7 +253,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
           setAllowedNeighborhoods(allowed);
           setServerAddressError({ field: 'neighborhood', message: ta('geo.notInCp', { cp }) });
         } else {
-          setServerAddressError({ field: 'postalCode', message: ta('geo.cpUnknown', { cp }) });
+          setServerAddressError({
+            field: 'postalCode',
+            message: ta('geo.cpUnknown', { cp, contact: SUPPORT_CONTACT_FALLBACK }),
+          });
         }
         setPayError(getMessage(e));
       } else if (e instanceof ApiClientError && e.code === 'PAYMENT_IN_PROGRESS') {

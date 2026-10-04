@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import {
@@ -20,6 +20,7 @@ import { Modal } from '@/components/ui/Modal';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PostalCodeNeighborhoodFields } from './PostalCodeNeighborhoodFields';
+import { SUPPORT_CONTACT_FALLBACK } from '@/app/[locale]/(storefront)/checkout/support-contact';
 
 /**
  * WS-F · F2 — Gestor de direcciones de envío (contrato §1, solo MX). Lista + alta + editar + marcar
@@ -73,6 +74,25 @@ export function addressMissingFields(a: Pick<AddressDTO, 'neighborhood' | 'posta
   return out;
 }
 
+/** «a, b y c» — une lo que falta con la conjunción del idioma (sin `Intl.ListFormat`: jsdom/Node varían). */
+export function joinMissing(parts: string[], and: string): string {
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} ${and} ${parts[parts.length - 1]}`;
+}
+
+/**
+ * §43.18 CA-5: **una sola fuente** de palabras para el mismo hueco — la fila de la libreta, el formulario en
+ * modo completar y el bloque del retiro dicen lo mismo (`addresses.incomplete.missing.*` + `.and`).
+ * Lista vacía ⇒ `''` (quien monta pinta el genérico: ⛔ nunca la marca sin texto, CA-3).
+ */
+export function useMissingText(): (missing: readonly AddressIncompleteField[]) => string {
+  const t = useTranslations('addresses');
+  return useCallback(
+    (missing) => joinMissing(missing.map((m) => t(`incomplete.missing.${m}`)), t('incomplete.and')),
+    [t],
+  );
+}
+
 /** Campo al que va el foco al abrir el formulario. */
 export type AddressFocusField = 'recipientName' | AddressIncompleteField;
 
@@ -106,7 +126,9 @@ function formFromAddress(a: AddressDTO): AddressInput {
   };
 }
 
-type EditorState = { mode: 'create' } | { mode: 'edit'; address: AddressDTO; focusField?: AddressFocusField };
+type EditorState =
+  | { mode: 'create' }
+  | { mode: 'edit'; address: AddressDTO; focusField?: AddressFocusField; completeMissing?: AddressIncompleteField[] };
 
 export function AddressManager({
   selectable,
@@ -170,9 +192,10 @@ export function AddressManager({
                 onSetDefault={() => setDefaultMut.mutate(a.id)}
                 onEdit={() => setEditor({ mode: 'edit', address: a })}
                 onComplete={() => setEditor({ mode: 'edit', address: a, focusField: 'recipientName' })}
-                onCompleteAddress={() =>
-                  setEditor({ mode: 'edit', address: a, focusField: addressMissingFields(a)[0] ?? 'neighborhood' })
-                }
+                onCompleteAddress={() => {
+                  const missing = addressMissingFields(a);
+                  setEditor({ mode: 'edit', address: a, focusField: missing[0] ?? 'neighborhood', completeMissing: missing });
+                }}
                 onDelete={() => deleteMut.mutate(a.id)}
                 busy={setDefaultMut.isPending || deleteMut.isPending}
               />
@@ -190,6 +213,7 @@ export function AddressManager({
         open={editor !== null}
         address={editor?.mode === 'edit' ? editor.address : undefined}
         focusField={editor?.mode === 'edit' ? editor.focusField : undefined}
+        completeMissing={editor?.mode === 'edit' ? editor.completeMissing : undefined}
         defaultRecipientName={defaultRecipientName}
         onClose={() => setEditor(null)}
         onSaved={(saved) => {
@@ -227,10 +251,14 @@ function AddressRow({
   busy: boolean;
 }) {
   const t = useTranslations('addresses');
+  const missingText = useMissingText();
+  const lineId = useId();
   const line = [address.line1, address.line2, address.neighborhood].filter(Boolean).join(', ');
   const cityLine = `${address.city}, ${address.state} ${address.postalCode} · ${address.country}`;
   const missingRecipient = addressMissingRecipient(address);
   const incomplete = addressIncomplete(address);
+  // §43.18f (CA-3): la marca ⇔ `complete === false` (servidor); el texto nombra lo que falta o es el genérico.
+  const rowMissing = incomplete ? missingText(addressMissingFields(address)) : '';
 
   const body = (
     <>
@@ -250,15 +278,19 @@ function AddressRow({
         ) : (
           <p className="truncate text-sm text-text">{t('recipientLine', { name: address.recipientName ?? '' })}</p>
         )}
-        <p className="mt-0.5 truncate text-sm text-text">{line}</p>
+        <p id={lineId} className="mt-0.5 truncate text-sm text-text">
+          {line}
+        </p>
         {incomplete && (
           <p className="mt-1 flex flex-wrap items-baseline gap-x-3 font-mono text-[11px] text-accent" data-testid="address-incomplete">
-            <span>{t('incomplete.row')}</span>
+            <span>{rowMissing ? t('incomplete.rowMissing', { missing: rowMissing }) : t('incomplete.row')}</span>
+            {/* §43.18f: objetivo táctil ≥ 24 px (WCAG 2.5.8) y, con varias filas incompletas, dice de cuál es. */}
             <button
               type="button"
               onClick={onCompleteAddress}
               disabled={busy}
-              className="font-mono text-[11px] text-text underline underline-offset-2 hover:text-accent disabled:opacity-50"
+              aria-describedby={lineId}
+              className="py-1.5 font-mono text-[11px] text-text underline underline-offset-2 hover:text-accent disabled:opacity-50"
             >
               {t('incomplete.cta')}
             </button>
@@ -379,7 +411,9 @@ export function addressServerFieldError(
     const allowed = Array.isArray(d.allowed) ? d.allowed.filter((x): x is string => typeof x === 'string') : undefined;
     return { field: 'neighborhood', message: t('geo.notInCp', { cp }), allowed };
   }
-  if (error.code === 'POSTAL_CODE_UNKNOWN') return { field: 'postalCode', message: t('geo.cpUnknown', { cp }) };
+  if (error.code === 'POSTAL_CODE_UNKNOWN') {
+    return { field: 'postalCode', message: t('geo.cpUnknown', { cp, contact: SUPPORT_CONTACT_FALLBACK }) };
+  }
   if (error.code === 'VALIDATION_ERROR' && typeof d.field === 'string' && FIELD_KEYS.has(d.field)) {
     if (d.field === 'neighborhood') return { field: 'neighborhood', message: t('geo.neighborhoodRequired') };
     if (d.field === 'postalCode') return { field: 'postalCode', message: t('postalCodeInvalid') };
@@ -556,6 +590,16 @@ export function AddressFormFields({
           allowedOverride={state.allowedOverride}
         />
       </div>
+      {/* §43.18b: las referencias acompañan al lugar (van antes que el teléfono, como §43.2b). */}
+      <Textarea
+        label={t('references')}
+        hint={t('referencesHint', { max: String(REFERENCES_MAX) })}
+        rows={2}
+        counter={{ max: REFERENCES_MAX }}
+        value={form.references ?? ''}
+        onChange={(e) => set('references', e.target.value)}
+        error={errors.references}
+      />
       <div data-field="phone">
         <Input
           label={t('phone')}
@@ -568,15 +612,6 @@ export function AddressFormFields({
           error={errors.phone}
         />
       </div>
-      <Textarea
-        label={t('references')}
-        hint={t('referencesHint', { max: String(REFERENCES_MAX) })}
-        rows={2}
-        counter={{ max: REFERENCES_MAX }}
-        value={form.references ?? ''}
-        onChange={(e) => set('references', e.target.value)}
-        error={errors.references}
-      />
       {/* País fijo MX (envío solo nacional en el MVP). */}
       <div className="flex flex-col">
         <span className="eyebrow">{t('country')}</span>
@@ -609,6 +644,7 @@ export function AddressFormModal({
   open,
   address,
   focusField,
+  completeMissing,
   defaultRecipientName,
   onClose,
   onSaved,
@@ -616,18 +652,26 @@ export function AddressFormModal({
   open: boolean;
   address?: AddressDTO;
   focusField?: AddressFocusField;
+  /**
+   * §43.18g · **modo completar** (fila «Dirección incompleta» y bloque del retiro): título «Completar
+   * dirección» y, encima de los campos, qué falta y que lo guardado queda en la libreta. `[]` ⇒ genérico.
+   */
+  completeMissing?: AddressIncompleteField[];
   defaultRecipientName?: string;
   onClose: () => void;
   onSaved: (saved: AddressDTO) => void;
 }) {
   const t = useTranslations('addresses');
+  const missingText = useMissingText();
   const state = useAddressForm(onSaved, { address, defaultRecipientName });
+  const completing = !!address && completeMissing !== undefined;
+  const introMissing = completing ? missingText(completeMissing) : '';
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={address ? t('editTitle') : t('newTitle')}
+      title={completing ? t('incomplete.cta') : address ? t('editTitle') : t('newTitle')}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -639,6 +683,11 @@ export function AddressFormModal({
         </>
       }
     >
+      {completing && (
+        <p className="mb-4 text-sm text-text" data-testid="address-complete-intro">
+          {introMissing ? t('incomplete.formIntro', { missing: introMissing }) : t('incomplete.formIntroGeneric')}
+        </p>
+      )}
       <AddressFormFields state={state} focusField={open ? focusField : undefined} />
     </Modal>
   );

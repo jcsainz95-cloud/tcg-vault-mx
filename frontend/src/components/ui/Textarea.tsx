@@ -59,7 +59,12 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
           <span />
         )}
         {counter && (
-          <span className="tabular shrink-0 font-mono text-xs text-muted" aria-hidden>
+          // §43.18c: pasado el tope, bermellón (sin `maxLength`: se deja escribir de más y se dice).
+          <span
+            className={cn('tabular shrink-0 font-mono text-xs', length > counter.max ? 'text-accent' : 'text-muted')}
+            aria-hidden
+            data-testid="textarea-counter"
+          >
             {length} / {counter.max}
           </span>
         )}

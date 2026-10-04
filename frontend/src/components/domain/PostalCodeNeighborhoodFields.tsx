@@ -1,11 +1,28 @@
 'use client';
 
-import { forwardRef, useId } from 'react';
+import { forwardRef, useId, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { usePostalCodeLookup } from '@/hooks/usePostalCodeLookup';
 import type { PostalCodeDTO } from '@/types/contract';
+import { SUPPORT_CONTACT_FALLBACK } from '@/app/[locale]/(storefront)/checkout/support-contact';
+
+/**
+ * §43.18e: orden alfabético de PRESENTACIÓN (en el celular no hay búsqueda por letra). ⛔ El valor de cada
+ * opción no cambia: el servidor compara contra su lista (§19.5).
+ */
+export function sortNeighborhoods(list: readonly string[]): string[] {
+  return [...list].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+}
+
+/**
+ * §43.18e: si el CP tiene UNA sola colonia y no hay ninguna elegida, el CP la determina ⇒ se preselecciona.
+ * ⛔ Con 2 o más, `match` tal cual (placeholder si no había).
+ */
+export function resolveNeighborhoodMatch(match: string, list: readonly string[]): string {
+  return match === '' && list.length === 1 ? list[0] : match;
+}
 
 export interface PostalCodeNeighborhoodFieldsProps {
   postalCode: string;
@@ -34,8 +51,8 @@ export interface PostalCodeNeighborhoodFieldsProps {
  * `Select` de esa lista (⛔ sin texto libre); municipio y estado **no son campos**: se muestran tal
  * como los da el CP, porque el servidor los sobrescribe con los canónicos.
  *
- * ⛔ Diseño del cliente NO escrito por ux-ui (§43 es la ventana del operador): copy y orden aplican lo
- * mínimo coherente con §43.2b — anotado en `FRONTEND_NOTES` para ux-ui.
+ * Diseño del cliente: `DESIGN_SYSTEM §43.18` (v4.18) — `<select>` nativo con opciones en orden alfabético,
+ * colonia única preseleccionada y «Escríbenos a {contact}» para el CP o la colonia fuera del catálogo.
  */
 export const PostalCodeNeighborhoodFields = forwardRef<HTMLSelectElement, PostalCodeNeighborhoodFieldsProps>(
   function PostalCodeNeighborhoodFields(
@@ -59,11 +76,22 @@ export const PostalCodeNeighborhoodFields = forwardRef<HTMLSelectElement, Postal
     const tc = useTranslations('common');
     const reasonId = useId();
     const errId = useId();
+    const notListedId = useId();
     const cp = postalCode;
-    const lookup = usePostalCodeLookup(cp, { allowedOverride, selected: neighborhood, onResolved });
-    const { cpComplete, neighborhoods } = lookup;
+    const lookup = usePostalCodeLookup(cp, {
+      allowedOverride,
+      selected: neighborhood,
+      // §43.18e: una sola colonia ⇒ ya elegida (el `match` vacío es «no había ninguna válida»).
+      onResolved: (data, match) => onResolved(data, resolveNeighborhoodMatch(match, allowedOverride ?? data.neighborhoods)),
+    });
+    const { cpComplete } = lookup;
+    const neighborhoods = useMemo(() => sortNeighborhoods(lookup.neighborhoods), [lookup.neighborhoods]);
 
-    const cpMessage = postalCodeError ?? (lookup.unknown ? t('geo.cpUnknown', { cp }) : undefined);
+    // §43.18d (CA-2): CP fuera del catálogo ⇒ el remedio es una persona, «Escríbenos a {contact}».
+    const cpMessage =
+      postalCodeError ?? (lookup.unknown ? t('geo.cpUnknown', { cp, contact: SUPPORT_CONTACT_FALLBACK }) : undefined);
+    // §43.18d: «¿No aparece tu colonia?» solo cuando HAY lista (≥ 1); ⛔ ni antes ni con el CP desconocido.
+    const showNotListed = cpComplete && !lookup.unknown && neighborhoods.length > 0;
     // Municipio y estado SOLO de la respuesta de ESTE CP: nunca los de un CP anterior ni los tecleados.
     const city = lookup.data?.municipality ?? '';
     const state = lookup.data?.state ?? '';
@@ -75,7 +103,10 @@ export const PostalCodeNeighborhoodFields = forwardRef<HTMLSelectElement, Postal
         : lookup.unknown
           ? t('geo.noNeighborhoods')
           : null;
-    const describedBy = [reason ? reasonId : null, neighborhoodError ? errId : null].filter(Boolean).join(' ') || undefined;
+    const describedBy =
+      [reason ? reasonId : null, neighborhoodError ? errId : null, showNotListed ? notListedId : null]
+        .filter(Boolean)
+        .join(' ') || undefined;
 
     return (
       <>
@@ -122,6 +153,11 @@ export const PostalCodeNeighborhoodFields = forwardRef<HTMLSelectElement, Postal
           {neighborhoodError && (
             <p id={errId} className="font-mono text-xs text-accent">
               {neighborhoodError}
+            </p>
+          )}
+          {showNotListed && (
+            <p id={notListedId} className="text-xs text-muted" data-testid="neighborhood-not-listed">
+              {t('geo.notListed', { contact: SUPPORT_CONTACT_FALLBACK })}
             </p>
           )}
         </div>

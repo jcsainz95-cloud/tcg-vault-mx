@@ -23,6 +23,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { createGuestCheckoutSession, getPostalCode } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { GuestCheckoutView } from './GuestCheckoutView';
+import { FIELD_ID, FIELD_ORDER } from './GuestCheckoutForm';
 import { clearUnavailableNotice } from './unavailable-notice';
 
 function seedCart(ids: string[]) {
@@ -116,14 +117,65 @@ describe('checkout de invitado · colonia de lista por CP (v1.81)', () => {
     expect(screen.getByRole('combobox', { name: 'Colonia' })).toHaveAttribute('aria-invalid', 'true');
   });
 
-  it('CP fuera del catálogo ⇒ mensaje bajo el CP y la colonia no se puede elegir', async () => {
+  it('UX-ADR-1 · CP fuera del catálogo ⇒ bajo el CP «Revisa…» y «escríbenos a soporte@tcghunt.mx»; colonia apagada', async () => {
     const usr = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
     await fillGuestForm(usr, '99999');
     expect(
-      await screen.findByText('No encontramos el CP 99999 en el catálogo de colonias. Revisa que esté bien escrito.'),
+      await screen.findByText(
+        'No encontramos el CP 99999 en nuestro catálogo y sin él no podemos enviar. Revisa que esté bien escrito; si es correcto, escríbenos a soporte@tcghunt.mx con tu CP.',
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Colonia' })).toBeDisabled();
+    const colonia = screen.getByRole('combobox', { name: 'Colonia' });
+    expect(colonia).toBeDisabled();
+    expect(colonia).toHaveAccessibleDescription(/Sin colonias: este CP no está en el catálogo\./);
+    expect(screen.queryByTestId('neighborhood-not-listed')).toBeNull();
+  });
+
+  it('UX-ADR-2 · CP con una sola colonia ⇒ ya elegida, y la session la lleva sin tocar el select', async () => {
+    const usr = userEvent.setup();
+    vi.mocked(createGuestCheckoutSession).mockResolvedValue(guestSession());
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await fillGuestForm(usr, '06600');
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Colonia' })).toHaveValue('Juárez'));
+    await usr.click(screen.getByRole('button', { name: /Pagar/ }));
+    await waitFor(() => expect(createGuestCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createGuestCheckoutSession).mock.calls[0][0].shippingAddress).toMatchObject({
+      neighborhood: 'Juárez',
+      postalCode: '06600',
+    });
+  });
+
+  it('UX-ADR-2 · con dos colonias: orden alfabético y placeholder (sin preselección)', async () => {
+    const usr = userEvent.setup();
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await fillGuestForm(usr, '44100');
+    await screen.findByRole('option', { name: 'Americana' });
+    const colonia = screen.getByRole('combobox', { name: 'Colonia' });
+    expect(Array.from((colonia as HTMLSelectElement).options).map((o) => o.value)).toEqual(['', 'Americana', 'Guadalajara Centro']);
+    expect(colonia).toHaveValue('');
+    expect(screen.getByTestId('neighborhood-not-listed')).toHaveTextContent(/Escríbenos a soporte@tcghunt\.mx/);
+  });
+
+  it('UX-ADR-5 · referencias antes que teléfono en el DOM, y FIELD_ORDER sigue el orden del DOM', async () => {
+    const usr = userEvent.setup();
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await usr.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    const refs = screen.getByLabelText('Referencias para el repartidor (opcional)');
+    const tel = document.querySelector('input[type="tel"]')!;
+    expect(refs.compareDocumentPosition(tel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // El teléfono del invitado lleva la MISMA ayuda que la libreta (§43.18i).
+    expect(tel).toHaveAccessibleDescription('10 dígitos. Solo lo usa la paquetería, si necesita llamar para entregar.');
+    // Grupo «Envío» (§43.18b). La casilla de lectura del correo vive en otro grupo: no entra en esta cuenta.
+    const shippingIds = FIELD_ORDER.slice(FIELD_ORDER.indexOf('recipientName'), FIELD_ORDER.indexOf('terms')).map(
+      (f) => FIELD_ID[f],
+    );
+    expect(shippingIds).toContain('guest-references');
+    const domOrder = Array.from(document.querySelectorAll<HTMLElement>('[id^="guest-"]'))
+      .map((el) => el.id)
+      .filter((id) => shippingIds.includes(id));
+    expect(domOrder).toEqual(shippingIds);
+    expect(domOrder.indexOf('guest-references')).toBeLessThan(domOrder.indexOf('guest-phone'));
   });
 
   it('422 POSTAL_CODE_UNKNOWN de la session ⇒ aviso bajo el CP', async () => {
@@ -137,8 +189,14 @@ describe('checkout de invitado · colonia de lista por CP (v1.81)', () => {
     await usr.selectOptions(screen.getByRole('combobox', { name: 'Colonia' }), 'Guadalajara Centro');
     await usr.click(screen.getByRole('button', { name: /Pagar/ }));
     expect(
-      await screen.findByText('No encontramos el CP 44100 en el catálogo de colonias. Revisa que esté bien escrito.'),
+      await screen.findByText(
+        'No encontramos el CP 44100 en nuestro catálogo y sin él no podemos enviar. Revisa que esté bien escrito; si es correcto, escríbenos a soporte@tcghunt.mx con tu CP.',
+      ),
     ).toBeInTheDocument();
     expect(screen.getByLabelText('Código postal')).toHaveAttribute('aria-invalid', 'true');
+    // Junto al botón: el error remite al campo, ⛔ sin repetir el correo (el remedio vive UNA vez).
+    const nearButton = screen.getByText(/Ese código postal no está en nuestro catálogo y no se guardó nada\./);
+    expect(nearButton).not.toHaveTextContent('soporte@tcghunt.mx');
+    expect(screen.getAllByText(/soporte@tcghunt\.mx con tu CP\./)).toHaveLength(1);
   });
 });

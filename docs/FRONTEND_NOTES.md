@@ -19271,3 +19271,75 @@ Mutaciones (copia `git archive f0009e92` del árbol ENTERO + mis ficheros encima
 | M7 doble de «Capturar guía» sin cota de `line2` | rojo (1) |
 | M8 invitado: municipio/estado no salen del CP | rojo (1) |
 | M9 el hook no consulta el CP | rojo (8, incluye «Capturar guía») |
+
+## §89 · **Dirección del cliente — diseño v4.18 (`DESIGN_SYSTEM §43.18`) sobre lo construido en §88** (2026-10-04, rama `claude/skydropx-d`, base `5fb5085a`)
+
+Cierra §88.3 (los cuatro puntos los juzgó ux-ui en §43.18). FC-1…FC-15 (§43.18j) y UX-ADR-1…7 (§43.18k).
+
+### 89.1 Qué cambió
+- **CP fuera del catálogo (FC-1, §43.18d):** `geo.cpUnknown` lleva `{contact}` = `SUPPORT_CONTACT_FALLBACK`
+  (`checkout/support-contact.ts`) en los TRES sitios que lo pintan: el componente (consulta `404`), `addressServerFieldError`
+  de la libreta (`422` al guardar) y `GuestCheckoutView` (`422` de la session). Junto al botón del invitado queda
+  `error.POSTAL_CODE_UNKNOWN`, que remite al campo **sin** el correo (el remedio vive una vez).
+- **`PostalCodeNeighborhoodFields` (⚠️ zona compartida `components/`):** opciones ordenadas con `sortNeighborhoods`
+  (`localeCompare('es', {sensitivity:'base'})`, valores intactos; FC-2); `resolveNeighborhoodMatch` preselecciona la
+  colonia cuando la lista del CP tiene UNA y no hay ninguna válida elegida (FC-3; se aplica al envolver `onResolved`, así
+  que llega en el mismo `setForm`/`onAddressChange` que municipio y estado — sin un segundo `set` que pise al primero);
+  línea `geo.notListed` (`text-xs text-muted`, `data-testid="neighborhood-not-listed"`) bajo el select solo con lista ≥ 1
+  y CP conocido, con su id en el `aria-describedby` del select (FC-4). El hook `usePostalCodeLookup` **no** cambió: la
+  ventana del operador sigue con el orden del servidor.
+- **Orden de campos (FC-6/FC-7):** referencias antes que teléfono en la libreta (y por tanto en el alta inline del buylist,
+  que monta `AddressFormFields`) y en el invitado; `FIELD_ORDER` igual. `FIELD_ORDER`/`FIELD_ID` pasan a exportarse (los
+  lee el candado UX-ADR-5).
+- **Teléfono del invitado (FC-8):** `hint={ta('phoneHint')}`; `checkout.guest.phoneHelp` retirada (no tenía otro lector).
+- **Contador (FC-14, ⚠️ zona compartida `components/ui/Textarea.tsx`):** `text-accent` con `length > max`, `text-muted`
+  hasta el tope; `data-testid="textarea-counter"`. Los demás usuarios del contador (motivos de admin, 500) ponen
+  `maxLength` y nunca rebasan: sin cambio visible para ellos. Referencias sigue **sin** `maxLength`.
+- **Fila de la libreta (FC-5):** `rowMissing` con las palabras de `useMissingText()`; sin hueco deducible ⇒ `row`
+  (genérico); la marca sigue saliendo SOLO de `complete === false`. «Completar dirección» con `py-1.5` (≥ 24 px) y
+  `aria-describedby` al renglón de la dirección (`useId`).
+- **Modo completar (FC-9):** `AddressFormModal` gana `completeMissing?: AddressIncompleteField[]`: con él (y `address`),
+  título `incomplete.cta` y, encima de los campos, `formIntro`/`formIntroGeneric` (`data-testid="address-complete-intro"`).
+  Lo usan la fila de la libreta y el bloque del retiro.
+- **Una sola fuente de palabras (FC-13, CA-5):** `joinMissing` y `useMissingText` viven en `AddressManager.tsx`
+  (exportadas); `ShipmentsView` las importa. `shipments.addressIncomplete.missing.*`/`.and` retiradas.
+- **Retiro (FC-10…FC-12):** `422 ADDRESS_INCOMPLETE` ⇒ `reqError = addressIncomplete.notCharged`; el botón apagado
+  apunta a `recipient-required` **y** `address-incomplete` cuando faltan los dos; al guardar en modo completar, región
+  `role="status"` (`data-testid="address-saved-status"`, siempre montada para que el lector anuncie el cambio) con
+  `addressIncomplete.saved` y foco al radio marcado del selector cuando la lista refrescada ya trae la dirección completa.
+  El aviso se limpia al elegir otra dirección.
+- **Textos (FC-15):** la tabla de §43.18i entera en es/en.
+
+### 89.2 Decisiones propias (para ux-ui, sin norma explícita)
+1. La región `saved` usa `text-[13px] leading-[1.7] text-text` (el mismo cuerpo que `rule-note`) y `empty:mt-0` para no
+   dejar hueco cuando está vacía. §43.18h.4 no fija estilo.
+2. Preselección de colonia única: si la dirección guardada tenía una colonia que NO está en la lista de un CP con una sola
+   colonia, se preselecciona la del CP (la vieja ya no era válida). Con la lista `allowed` de un `422` no se preselecciona
+   (no llega por `onResolved`); sí se ordena.
+3. `geo.notListed` va en texto plano (sin `mailto:`), como `cpUnknown`.
+
+### 89.3 Pruebas y mutaciones (medido por mí)
+Nuevas/ajustadas: `AddressManager.colonia.test.tsx` (10 → 20: UX-ADR-1/2/3/5/6, `notListed`, contador en el tope, modo
+completar y «Editar» sin intro), `GuestCheckoutColonia.test.tsx` (4 → 7: UX-ADR-1/2/5 y el error junto al botón sin
+correo), `ShipmentsView.test.tsx` (+2: UX-ADR-4 doble id y §43.18h.4 foco + status; textos y `notCharged` en los dos
+existentes), `lib/i18n-client-address.test.ts` (nuevo, UX-ADR-7: 37 claves con paridad de placeholders, `{contact}`,
+claves retiradas).
+
+Suites (árbol vivo, load < 3,2): `tsc` 0 · `next lint` 0 · vitest **221/221 ficheros, 2705/2705** (incluye `i18n-parity`) ·
+Playwright modo mock `guest-checkout` + `checkout-retry` + `buylist` **45/45** (N=1, 2 workers, build propio :3061;
+contra el stack real: NO MEDIDO) · censo `check-e2e-skip-census.sh` = baseline (mockOnly 135).
+
+Mutaciones (copia `git archive 5fb5085a` del árbol ENTERO + mis ficheros encima; N=1, todas deterministas; copia borrada):
+**22/22 rojas** — FC-1 sin `{contact}` (2) · FC-2 sin ordenar (2) · FC-3 preselección con 2+ (4) · FC-3 sin preselección (2) ·
+FC-4 fuera del `aria-describedby` (1) · FC-4 con CP desconocido (2) · FC-5 texto genérico siempre (2) · FC-5 marca deducida
+de los campos (2) · FC-5 sin `aria-describedby` (1) · FC-6 teléfono antes (1) · FC-7 `FIELD_ORDER` viejo (1) · FC-8 otra
+ayuda (1) · FC-9 sin título de completar (2) · FC-10 vuelve a `getMessage` (1) · FC-11 solo el primer id (1) · FC-12 sin
+foco (1) · FC-12 sin status (1) · FC-13 palabras de otra fuente (5) · FC-14 contador siempre gris (1) · FC-14 `maxLength`
+(1) · FC-15 dejar `shipments.addressIncomplete.missing` (1). ⚠️ **FC-7 sobrevivió en la primera tirada**: el candado
+cortaba `FIELD_ORDER` en `'phone'` y con el orden viejo dejaba fuera `references`. Se corrigió (corta en `'terms'` y
+exige `guest-references`) y la mutación quedó roja.
+
+### 89.4 Lo que NO hice
+- Capturas `360×740`/`390×844` del select con 30+ colonias y de la hoja de completar (N-8, de QA): NO MEDIDO.
+- Objetivo táctil de «Editar»/«Borrar»/«Marcar predeterminada» (N-9): fuera de este encargo, deuda no bloqueante.
+- El ≥ 24 px de «Completar dirección» se asevera por clase (`py-1.5`), no por medida: jsdom no hace layout.
