@@ -26738,3 +26738,89 @@ las 10 con esa firma. El dinero está bien (una sola `create`, el perdedor no es
 (1) clasificar en la MISMA sentencia que el reclamo (bajo el candado de fila) y contestar `IN_PROGRESS` si perdió contra
 un reclamo vigente; (2) que PS-51 acepte cualquiera de los dos `409` (el invariante de dinero es «una `create`»).
 Ninguna se hace sin decisión del arquitecto.
+
+## 19 · v1.80.8.8 construida — CAS publicante por `status` leído (SFP-10), SRF-13 `422`, fila del directo (SRF-4), PS-51 con los dos `409`, `C-EQ-1`; y por qué `buylist-intake-concurrency` salía roja (2026-10-04, rama `claude/precios-s5`; código en `60048797`)
+
+Norma: `API_CONTRACT` rev v1.80.8.8 (cabecera, §M1 «v1.80.8.7» punto 1 + SFP-10, §M4-SHIP.18.12 (10), §M4-SHIP.17.6 paso 0
++ PS-51, §0-Q punto 4). ⛔ Sin schema, migración, enum, endpoint ni código de error nuevos.
+
+### 19.1 Qué cambió
+| Pieza | Dónde |
+|---|---|
+| `claimListed` con `audited` (solo el `PATCH` publicante) condiciona `status: <leído>` exacto + `listPriceCents` leído; los lotes siguen con `status ∈ PUBLISHABLE_ORIGIN_STATUSES`. `count 0` ⇒ la relectura de siempre (`409 CONFLICT` si sigue publicable) | `inventory.service.ts` (`claimListed`) |
+| SFP-10 unitaria (lote publica entre lectura y CAS ⇒ `409`, sin fila; forma exacta del `where`) | `test/inventory.sealed-final-price.spec.ts` |
+| SFP-10 integración: `publish-all` REAL; forzada (el lote se encola PRIMERO en el candado de fila, el `PATCH` detrás — FIFO comprobado con `pg_stat_activity`) y suelta. Oráculo del «antes real»: TRIGGER `AFTER UPDATE` que anota viejo/nuevo `status`/precio de cada `UPDATE` de la pieza | `test/integration/inventory-price-audit.e2e-spec.ts` |
+| Dos unitarias que fijaban la forma vieja del `where` (`status: {in:[in_stock,listed]}`) pasan a `status: 'in_stock'` (el leído; subconjunto estricto, la guarda anti-double-sell sigue excluyendo `reserved`) | `test/inventory.graded-cert.spec.ts`, `test/inventory.pending-publish.spec.ts` |
+| SRF-13 fija `[422, 'VALIDATION_ERROR', {status:'pending'}]` exacto | `shipped-refund-reason.e2e-spec.ts` |
+| SRF-4 (ya aseveraba UNA fila y cero en la reentrega ×10) ahora fija la forma declarada en (10).2: las **siete** claves exactas de `after`, `entityType:'Order'`, `actorRole:null` | ídem |
+| SRF-11: títulos «SRF-11 «ventana»» y «SRF-11 «anomalía sembrada»» | ídem |
+| PS-51: el perdedor vale si es `409 REFUND_ATTEMPT_IN_PROGRESS {attemptStartedAt}` o `409 REFUND_NOT_RETRYABLE {status ≠ 'requested'}`; rojo un `2xx`, otro código o `NOT_RETRYABLE` con `requested`; imprime la proporción de cada clase | `shipments-prep.e2e-spec.ts` |
+| `C-EQ-1`: `GET /admin/orders?refundReview=` pasa a `transcrita`; registro 52 fijo, pendientes **19 → 18** | `enum-query-axes.e2e-spec.ts` |
+
+### 19.2 Mediciones (autor: backend; BD `tcg_orq_b8_mut`, esquemas propios `dev1`/`mut`; Postgres/Redis compartidos)
+| Prueba / mutación (copia `git archive HEAD` del árbol ENTERO, `60048797`) | Resultado |
+|---|---|
+| SFP-10 **antes** del código (rojo primero) | forzada **0/10 verdes** (las 10: `200`, `before.status:'in_stock'`, traza `in_stock>listed` del lote antes del `PATCH`); suelta **7/10 verdes** (3 con el defecto) |
+| SFP-10 con el código, 3 corridas × N=10 | forzada **30/30** (`409 CONFLICT`, cero filas, la pieza `listed` con su precio). Suelta **30/30 válidas**: `409` 4/30, `200` con `before.status` = el real (`in_stock`) 26/30 (por corrida: 1/9, 3/7, 0/10) |
+| Mutación SFP-10 (volver al conjunto en el CAS auditado) | **rojo**: forzada 0/10, suelta 3/10 con `before.status:'in_stock'` sobre pieza ya `listed` |
+| Mutación SRF-13 (`validation` → `badRequest`) | **rojo** (`400` en vez de `422`) |
+| Mutación SRF-4 (quitar el `auditLog.create` del directo) | **rojo** (2/2 variantes: `order.full_refund_closed` 0 filas) |
+| Mutación nueva de SRF-8 (quitar la rama `¬shipped ∧ shippedReason ⇒ 409 NOT_APPLICABLE` de la tx1) | **rojo**, como predijo el arquitecto: `500 INTERNAL` en vez de `409 SHIPPED_REFUND_REASON_NOT_APPLICABLE` |
+| PS-51, 3 corridas × N=10 (árbol vivo, load 2–4) | **30/30 OK**, una `create` por tirada; perdedor `IN_PROGRESS` **30/30**, `NOT_RETRYABLE` **0/30** (no observado aquí; §17-bis lo midió 1/400) |
+
+### 19.3 `buylist-intake-concurrency` roja «3/3 en BD nueva, verde en otras» — diagnóstico (no era la conducta)
+- **Causa (medida):** `kyc-ine-links.e2e-spec.ts` K-7 hace `PUT /users/me/kyc {clabe:'…599'}` a `customer2` y su
+  `afterAll` restauraba la decisión de KYC pero **no** la CLABE. `buylist-intake-concurrency` da de alta con
+  `CLABE_B` (`…568`) y `buylist.service.ts:1475-1477` contesta `422 CLABE_NOT_OWN_NAME` **antes** de abrir la
+  transacción ⇒ ninguna alta llega al `INSERT "SellRequestItem"` ⇒ `esperarBloqueoDeFila` revienta a los 10 s
+  (`row-lock-barrier.ts:84`). Depende de si `kyc-ine-links` corrió antes **y** ninguna `seedE2E` (que borra los
+  `KycProfile`, paso 3) corrió en medio — por eso unas BD/órdenes rojas y otras verdes. Jest reordena las suites
+  rojas al principio de la siguiente corrida, así que una vez roja tiende a repetirse.
+- **Reproducido:** esquema nuevo ⇒ `kyc-ine-links` sola ⇒ `buylist-intake-concurrency` sola: **roja 3/3** (las
+  respuestas ya recibidas: dos `422 CLABE_NOT_OWN_NAME`). Sobre una BD sin esa suite delante: verde 4/4.
+- **Arreglo (solo pruebas, nada debilitado):** (1) `buylist-intake-concurrency` **presta** la CLABE de archivo como
+  ya prestaba el tope (la deja `null`, el estado del fixture) y la devuelve tal cual en el `afterAll`; si la barrera
+  no llega, el error ahora trae las respuestas ya recibidas. (2) `kyc-ine-links` devuelve la CLABE que había antes.
+  Medido: sobre el estado contaminado (CLABE `…599` en archivo) **verde 4/4**; tras `kyc-ine-links` arreglada, la
+  CLABE de `customer2` queda `NULL`. ⛔ La comprobación de CLABE propia no se tocó.
+
+### 19.4 Para otros roles
+- **QA:** SFP-10 y PS-51 imprimen sus proporciones (`SFP-10 suelta formas`, `[PS-RACE PS-51 perdedor]`).
+- Ningún cambio de forma de respuesta. El `409 CONFLICT` de la ventana del lote ya lo trata la pantalla (§39.2 (f)).
+
+## 20 · v1.80.8.9 construida (`M2-VQ9`) — «Publicar todo» barre la cola; la cola por eje y con la clave entera (2026-10-04, rama `claude/precios-s5`; código en `e5834a96`)
+
+Norma: `API_CONTRACT §M2 «v1.80.8.9»` (ancla `M2-VQ9`), `ARCHITECTURE §4.36.5 (c-quinquies)`. ⛔ Sin schema, migración,
+endpoint ni forma de respuesta nuevos.
+
+### 20.1 Qué cambió
+| Pieza | Dónde |
+|---|---|
+| `sweepUnreasonedSaleQueue(origin: 'price-sync' \| 'publish-all' = 'price-sync')`: el mismo cuerpo, sus líneas de log dicen quién barrió | `jobs/price-sync.service.ts` |
+| `publishAll` llama `sweepSaleQueueAfterPublishAll()` después del bucle y antes de armar la respuesta. Falla-seguro (`logger.error`, `200` intacto). El replay sale antes y no barre. `PriceSyncJobService` se inyecta `@Optional()` (los unitarios construyen con 3 args): sin él, `logger.error` — ⛔ nunca un salto mudo | `inventory.service.ts` |
+| `reconcilePublishedPrices` abre/cierra con `saleQueueKeyOf(item, pricing)` (con `cardProductId`); la lectura de referencias no cambia | `pricing/price-ingest.service.ts` |
+| `escalatePending`: `context` entra al `findFirst` del dedupe (siete componentes). El cierre no cambia | `pricing/pricing.service.ts` |
+| Deep-link de M1 (`openPendingEntriesFor`): `context: 'inventory'` | `inventory.service.ts` |
+| Censo de `saleQueueKeyOf`: + `price-ingest.service.ts: 2` (tercer llamador legítimo, por contrato) | `test/pricing.sale-queue-key.parity.spec.ts` |
+| VQ-10…VQ-14 | `test/integration/sale-queue-publish-all-sweep.e2e-spec.ts` (nuevo) |
+
+⚠️ VQ-10 llama a `publish-all` **sin filtro** (lo que pide el contrato): publica también piezas vendibles que otras
+suites dejaron. La prueba las **devuelve** a `in_stock` al terminar. Las filas de cola que el lote escale para
+ellas se quedan (son filas legítimas).
+
+### 20.2 Mediciones (autor: backend; esquemas `dev1`/`mut` de `tcg_orq_b8_mut`; deterministas ⇒ N=1 por corrida)
+| | Resultado |
+|---|---|
+| Rojo primero (spec nueva contra el código de `60048797`) | **6 rojas / 1 verde de 7**; la verde es VQ-11 (a) (sin barrido no hay nada que el replay pueda ejecutar: la muerde su mutación) |
+| Con el código | **7/7**; `sale-queue-vq` y `premium-floor-sale` siguen verdes (31/31 las tres) |
+| (M1) quitar la llamada al barrido de `publishAll` | **rojo** VQ-10, VQ-11 (b), VQ-11 (c) |
+| (M2) llamar solo a la rama `null` | **rojo** VQ-10 ((viii) sigue `open`) y VQ-11 (b) |
+| VQ-11 (a): barrer antes del chequeo de replay | **rojo** VQ-11 (a) |
+| VQ-11 (b): quitar el `try/catch` | **rojo** VQ-11 (b) |
+| VQ-11 (c): barrer solo «sin filtro» | **rojo** VQ-11 (c) (y (b), que usa filtro) |
+| VQ-12: volver a la clave de cuatro componentes | **rojo** VQ-12 |
+| VQ-13: quitar `context` del `where` del dedupe | **rojo** VQ-13 |
+| VQ-13 (C) canario: quitar el dedupe entero | **rojo** VQ-13 (y VQ-10) |
+| VQ-14: quitar `context:'inventory'` del deep-link | **rojo** VQ-14 |
+
+Ninguna prueba existente aseveraba una fila compartida entre ejes (la suite completa lo dice: ver el informe final).
