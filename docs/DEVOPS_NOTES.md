@@ -13085,3 +13085,29 @@ jest y @nestjs/cli del artefacto —, o que upstream publique braces arreglado. 
 se renueva **con nueva medición**, no copiando esta.
 
 **Rollback:** revertir el commit. Los tres gates vuelven a rojo por braces (que es el estado sin decisión).
+
+## §77 · Censo E2E: `mockOnly 127/26 → 135/27` y `realOnly 16/5 → 19/6` por `precios-s5.spec.ts` (2026-10-04, rama `claude/precios-s5`, PR #69)
+
+**Síntoma (medido por el orquestador):** job `e2e-skip-census` rojo en la PR #69 (run 37182993065, job 111379130538).
+
+**Qué crece y por qué (medido por devops, 2026-10-04, sobre `84aabc68`).** Todo el crecimiento sale de
+`frontend/e2e/precios-s5.spec.ts` (frontend, `0f3dda00`, FRONTEND_NOTES §85): `grep -rwo` da **8** `mockOnly` y
+**3** `realOnly` en ese fichero, y 0 de las otras tres claves. Contraprueba: copia de `frontend/e2e` sin ese fichero
+→ gate rc=0, las cinco claves = baseline anterior (127/26, 34/9, 5/3, 15/7, 16/5).
+
+**Motivo (dueño: frontend).** Los casos de dinero de §39/§40 son `mockOnly` porque el seed E2E no tiene pedidos
+directos liquidados en `enviado`/`guia` ni un reembolso tras envío sin motivo. Los `realOnly` son 400/403/404 que el
+mock no sirve (legítimos: miden en el pase real).
+
+**PENDIENTE P-CENSO-S5 (abierto 2026-10-04):**
+- **backend** (`backend/prisma/seed-e2e.ts`): sembrar un pedido directo liquidado en `enviado`, otro en `guia` y uno
+  reembolsado con `fullRefundAfterShipment=true` sin motivo.
+- **frontend** (`frontend/e2e/precios-s5.spec.ts`): convertir esos casos `mockOnly` en `@real`.
+- **devops**: regenerar el baseline a la baja (`--update --motivo`) en el mismo diff de la conversión.
+- **Comprobación:** `grep -cw mockOnly frontend/e2e/precios-s5.spec.ts` baja de 8 y `check-e2e-skip-census.sh`
+  muestra `mockOnly` por debajo de 135.
+
+**Medido tras `--update` (devops, 2026-10-04):** `check-e2e-skip-census.sh` rc=0 y
+`check-e2e-skip-census-canary.sh` 14/14 rc=0, **3/3** corridas cada uno (deterministas).
+
+**Rollback.** Revertir el commit (el gate vuelve a rojo mientras exista el spec).
