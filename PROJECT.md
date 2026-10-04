@@ -7969,11 +7969,11 @@ El orden es interno, como hoy.
 ### T. Envíos con Skydropx — cotizar, comprar la guía e imprimir la etiqueta desde la plataforma (transversal — ⭐ **NUEVO v1.81 · 2026-09-29 · BORRADOR de product-owner para aprobación del dueño; las seis decisiones de `HECHOS.md` NO se re-preguntan**)
 
 > **Fuente y autoridad, en este orden:** **(1)** `HECHOS.md`, seis filas «Envíos con Skydropx» del **2026-09-29**
-> (decisiones del dueño, literales abajo en T.0); **(2)** `docs/specs/SKYDROPX_TRASPASO.md` §3, §4 paso 1 y §7
+> (decisiones del dueño, literales abajo en T.0), y ⭐ las filas del **2026-10-02/04** (decisiones 7–12, T.0); **(2)** `docs/specs/SKYDROPX_TRASPASO.md` §3, §4 paso 1 y §7
 > (qué ya está hecho, qué choca y el orden); **(3)** `docs/specs/SKYDROPX_LEVANTAMIENTO.md` §11.5 (flujos F1–F9),
 > §12 (avisos), §8.2/§8.3 (reglas de la API y mapeo de estados), §9 (dinero), §10.1 (empaques, colonia); **(4)**
-> este documento: §S.10 y criterios 215–233 (**«preparado» es un hito con sello y la guía lo exige** — el botón
-> «Cotizar envío» cuelga de ahí), §S.2 y criterio 210 (que **esta sección reabre**). **Aquí van requisitos de
+> este documento: §S.10 y criterios 215–233 (**«preparado» es un hito con sello y la guía lo exige** — la ventana
+> «Capturar guía» cuelga de ahí; ~~el botón «Cotizar envío»~~, retirado el 2026-10-04), §S.2 y criterio 210 (que **esta sección reabre**). **Aquí van requisitos de
 > negocio**; el *cómo* (schema, cliente HTTP, consulta periódica o webhook, códigos de error, cómo se modelan
 > «guía en proceso» y «en sucursal» en la máquina) es del **arquitecto** y no se repite aquí.
 >
@@ -7984,6 +7984,16 @@ El orden es interno, como hoy.
 > **Orden de dependencia (traspaso §7.3), que no es disciplina sino necesidad:** esta sección **se construye
 > encima de §S.10** (palomear, «preparado», reembolsos) y **después** del endurecimiento de dirección (T.2), en el
 > stream «Órdenes y dinero». No se construye nada de T mientras §S.10 esté a medias.
+>
+> ⭐ **Actualización 2026-10-04 (product-owner) — alinea §T con las decisiones del dueño posteriores al 2026-09-29 y
+> con la errata v1.80.11 del arquitecto** (`docs/API_CONTRACT.md` §M4-SHIP.19.19; `docs/ARCHITECTURE.md` §4.60).
+> Lo que cambia, en una línea cada uno: **(1)** todo Skydropx vive **dentro de la ventana «Capturar guía»** — ya no
+> hay botón «Cotizar envío» suelto (T.3); **(2)** el seguro se paga **por escalones según el valor del pedido**, sin
+> tope que recorte (T.3.2, T.9); **(3)** la Carta Porte está **decidida**: `49101600` «Coleccionables» (T.4.2,
+> T.9); **(4)** **no hay sandbox**: las pruebas usan dobles y **la única compra real la hace el dueño con su clic**
+> (T.4.7, T.13); **(5)** las preguntas **88–91** pasan de SUPUESTO a **DECIDIDO** con su default (T.6, T.7); **(6)**
+> el correo «Entregado» (`AV-17`) **ya no anuncia plazo de disputa** y lleva «Escríbenos» (T.6). Criterios
+> reescritos: 234, 236, 237, 238, 241, 242, 245; nuevos: **306–314**. Lo que sigue **NO MEDIDO** está en **T.14**.
 
 #### T.0 Las seis decisiones del dueño (2026-09-29) — **decididas, no se vuelven a preguntar**
 
@@ -7995,6 +8005,21 @@ El orden es interno, como hoy.
 | 4 | **Liga de rastreo al cliente solo si Skydropx la da**; si no, clave de rastreo + paquetería, como hoy. ⛔ Nunca una URL armada por nosotros | *«ver si skydrop les da la liga si no solo les damos clave de rastreo y la compañía con la que fue»* | T.8 · criterio 243 |
 | 5 | **SÍ hay correo de «Entregado», automático** al confirmarse la entrega. **Sustituye** la mitad «ninguno al entregar» del criterio 210 | *«si hay que crear el mail de Entregado automático a la entrega»* | T.6, §R.3, criterio **210 reescrito** · 242 |
 | 6 | Si la paquetería deja el paquete **EN SUCURSAL**, va un **correo APARTE** («tu paquete está en sucursal») y el envío **NO** pasa a `entregado` | *«sí, manda el de sucursal aparte»* | T.6 · criterios 241–242 |
+
+**Decisiones posteriores (2026-10-02 y 2026-10-04) — también decididas, ⛔ no se re-preguntan.** Se citan por su
+fila de `HECHOS.md` (fecha y primeras palabras):
+
+| # | Decisión | Fila de `HECHOS.md` | Dónde queda |
+|---|---|---|---|
+| 7 | **Skydropx vive dentro de la ventana «Capturar guía»**: ahí se **revisa la dirección** (precargada con la del cliente), se **ven las opciones**, se **elige** y **regresa la guía**. Palabras: *«en la ventana de capturar guía es donde debe entrar skydrop para hacer todo más fácil, ahí elijo, ahí reviso la dirección y ahí me da las opciones, que regrese la guía»* | «Skydropx vive dentro de la ventana "Capturar guía"…» (registrada 2026-10-04) | T.3, T.4.9 · criterios 236, 308, 309 |
+| 8 | **Carta Porte: código SAT `49101600` «Coleccionables»** para las cartas. Palabras: *«son coleccionables»* | «Skydropx — Carta Porte: 49101600 Coleccionables…» (2026-10-04) | T.4.2, T.9 · criterio 312 |
+| 9 | **Seguro por escalones**: siempre asegurado, y se paga **el escalón que cubra el valor del pedido** — pedido ≤ $2,500 ⇒ cobertura $2,500 (costo medido **$25**); mayor ⇒ el escalón que lo cubra (medido: $10,000 ⇒ **$170**). Palabras: *«para el seguro haz una regla de pagar el que aplique»*, *«dependiendo del pedido hay que pagar el seguro si es un pedido de menos de 2500 el 25 y así»*. La tabla completa y el máximo: **NO MEDIDOS** | misma fila (2026-10-04) | T.3.2, T.7, T.9 · criterio 311 |
+| 10 | **Credenciales de PRODUCCIÓN** en variables del entorno (no en repo ni chat), por instrucción explícita del dueño. ⛔ **Comprar guías reales requiere autorización explícita del dueño guía por guía**; toda compra real la autoriza **él con su clic**; ⛔ **CI y pruebas nunca compran** | misma fila (2026-10-04) y «Skydropx vive dentro de la ventana…» | T.4.7, T.13 · criterios 306, 307 |
+| 11 | **Preguntas 88–91: el dueño acepta los defaults.** Palabras: *«de las preguntas de skydropx déjalas como las mapeaste»* ⇒ cargo extra lo absorbe la tienda · mes contable = el mes del cargo · tarifa vencida la absorbe la tienda · paquete devuelto ⇒ alerta al admin, a mano, sin correo | «~~Skydropx — preguntas 88–91…~~ ⇒ RESPONDIDAS 2026-10-02» | T.6, T.7 · criterios 238, 241 |
+| 12 | **Disputas fuera de la tienda**: ⛔ sin botón de disputa; tras la entrega, «¿Problema con tu pedido? **Escríbenos**». ⇒ el correo «Entregado» **ya no anuncia el plazo de 7 días para disputar** | «Disputas: se quitan de la tienda…» (2026-10-04) | T.6 · criterio 242 |
+
+> La decisión 3 (*el operador elige*) **sigue**: el operador puede recorrer la ventana, revisar y elegir. Lo que la
+> decisión 10 añade es que el **clic que gasta saldo** lo da el dueño mientras él no diga otra cosa (T.4.7).
 
 **Y lo que ya estaba vigente y NO cambia:** la **tarifa al cliente** — dial `shipping_fee_cents` = 17,500 **neto**, el
 cliente paga **MX$175 + IVA = MX$203** (`common/money.ts:438-458`). Con Skydropx cambia **lo que nos cuesta** la
@@ -8009,8 +8034,9 @@ guía y cómo se compra, ⛔ **no lo que se cobra**. La **tarifa en vivo en el c
 
 **Dentro (los dos flujos que sacan un paquete de la tienda):**
 - **Compra de invitado con envío directo** (§J): pago → envío en «en preparación» → cubeta ENVÍO → palomear →
-  «preparado» (§S.10.2) → **cotizar, elegir y comprar la guía en Skydropx** → **imprimir la etiqueta** → «Salida de
-  hoy» → rastreo automático → «Entregado».
+  «preparado» (§S.10.2) → **ventana «Capturar guía»: revisar la dirección, ver las opciones, elegir y comprar la
+  guía en Skydropx, y la guía regresa ahí mismo** (decisión 7) → **imprimir la etiqueta** → «Salida de hoy» →
+  rastreo automático → «Entregado».
 - **Retiro de bóveda** (§D): solicitud → pago de MX$203 (+ comisión) → «en preparación» → el mismo camino.
 - **Lo que necesita para funcionar y también entra:** colonia obligatoria de lista por CP y libreta endurecida
   (T.2), empaques estándar y origen como configuración (T.9), el costo real al P&L (T.7), los correos nuevos
@@ -8024,6 +8050,10 @@ guía y cómo se compra, ⛔ **no lo que se cobra**. La **tarifa en vivo en el c
 - **Recolección** (que la paquetería pase a la tienda): fuera, por la decisión 2 (*él lleva los paquetes*).
 - **Compra automática de guía** (sin que el operador elija): fuera, por la decisión 3. Queda como fase posterior
   posible, no prometida.
+- **Sandbox de Skydropx**: fuera *(2026-10-04, decisión 10)*. No se prueba contra sandbox: las pruebas y la pila
+  E2E usan un **doble** del proveedor; la única compra real es la que hace **el dueño con su clic** (T.4.7, T.13).
+- **Tope de valor declarado que recorte el seguro**: fuera *(decisión 9)*. Si el valor del pedido supera el
+  escalón más alto configurado, **no se cotiza por Skydropx** y el pedido sale con guía manual (T.3.2).
 - **Registrar en Skydropx guías hechas fuera de Skydropx** para rastrearlas (`external_shipments`, levantamiento
   R10): fuera de este corte.
 - **Webhooks de Skydropx**: el *cómo* del rastreo (consulta periódica o webhook) es del arquitecto; el requisito
@@ -8059,37 +8089,64 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
   ⛔ No se mete en el mismo commit que la compra de guía.
 - Criterio **235**.
 
-#### T.3 El operador cotiza, compara y elige — en la tarjeta de la cubeta ENVÍO, después de «preparado»
+#### T.3 En la ventana «Capturar guía»: revisar la dirección, ver las opciones y elegir — después de «preparado»
 
-> Decisión 3 del dueño: *«que me traigas las opciones con los costos y elija dentro de mi plataforma»*.
+> Decisión 3 del dueño: *«que me traigas las opciones con los costos y elija dentro de mi plataforma»*. Decisión 7
+> (2026-10-02): *«en la ventana de capturar guía es donde debe entrar skydrop (…) ahí elijo, ahí reviso la dirección
+> y ahí me da las opciones, que regrese la guía»*. ⭐ **Sustituye** el botón «Cotizar envío» suelto del borrador
+> v1.81 (errata v1.80.11, `API_CONTRACT §M4-SHIP.19.19.13`).
 
-1. **El botón «Cotizar envío» aparece solo con el pedido «preparado»** (§S.10.2, criterio 217). Un retiro exige
-   además **cero casos «Por reponer» abiertos** (criterio 225). Antes de eso, ⛔ no se pinta el botón apagado
-   (`DESIGN_SYSTEM §35.11`: nada de afordancias deshabilitadas).
-2. **El sistema arma el paquete solo:** elige el **empaque estándar** según el contenido (sobre de 1 kg para
-   cartas; caja para sellado o volumen — T.9), marca **seguro con valor declarado** (decisión 1) y cotiza en
-   Skydropx. La cotización es **asíncrona** (segundos): indicador de espera, ⛔ sin bloquear la pantalla.
-   - **Valor declarado** *(SUPUESTO)*: la **suma de lo pagado por las cartas** del envío (retiro: valor de
-     mercado de hoy de las cartas). El costo del seguro por encima del valor por defecto está **NO MEDIDO**
-     (`HECHOS.md`, T1); si la prima por valor alto resulta desproporcionada, el dueño decide un tope — se le
-     enseña la cifra, no se le pregunta antes.
-3. **Lista de opciones, ordenada por precio.** Cada fila: **paquetería y servicio** · **precio con IVA y seguro
-   incluidos** · **días hábiles** estimados · **dónde se entrega el paquete** (la sucursal de siempre / otra
-   sucursal / requiere recolección) · **margen del envío** (cobrado sin IVA − costo neto de guía + seguro).
-   Encima de la lista: pedido, destinatario, destino, empaque elegido y **lo cobrado al cliente** (MX$203 /
-   MX$175 sin IVA).
-4. **Preseleccionada la preferida: 99minutos**, si cubre el CP de destino; si no, **la siguiente en el orden de
-   preferencia** que el dueño configure (T.9). Se marca visiblemente cuál es *«la recomendada»*.
-5. **Se ocultan las opciones de sucursal a sucursal** (el destinatario tendría que ir a recogerlo — PuntoPost y
-   similares): se promete **entrega a domicilio** (§J, §D). Hay un enlace *«ver todas las opciones»* que las
-   muestra marcadas como *«no entrega a domicilio»*; elegir una de esas **exige confirmación explícita**
-   *(SUPUESTO: se permite con confirmación, no se prohíbe — puede ser la única cobertura de un destino)*.
-6. **El operador puede elegir cualquier opción visible**, no solo la recomendada. Elegir una **con margen
-   negativo** pide **confirmación explícita** con la cifra a la vista *(SUPUESTO: no se bloquea; el dueño ya
-   decidió absorber la diferencia con la tarifa fija)*.
-7. **Si Skydropx no devuelve ninguna opción** (sin cobertura, sin saldo, caído): la tarjeta lo dice y ofrece
-   **capturar guía manual**, como hoy (T.10). ⛔ El pedido nunca queda atorado por Skydropx.
-- Criterio **236**.
+1. **Una sola puerta: la ventana «Capturar guía» que ya existe** en la tarjeta de la cubeta ENVÍO (§S.10, la que
+   hoy pide paquetería y número). ⛔ **No hay** un botón «Cotizar envío» aparte, ni un segundo formulario. La
+   ventana se ofrece **solo con el pedido «preparado»** (§S.10.2, criterio 217); un retiro exige además **cero
+   casos «Por reponer» abiertos** (criterio 225). Antes de eso, ⛔ no se pinta apagada (`DESIGN_SYSTEM §35.11`).
+   - Con la integración **apagada** (súper-admin, T.9), la ventana es **la de hoy** (captura a mano) y nada más.
+   - Con la integración **encendida**, la ventana lleva los pasos de abajo, y el enlace **«Capturar a mano»** está
+     visible **en todos los pasos** (T.10: ⛔ el pedido nunca queda atorado por Skydropx).
+2. **Paso 1 — Revisar la dirección.** La ventana abre con la dirección **precargada con la del cliente** —la que
+   quedó congelada en el pedido o retiro—, tal como irá en la guía: destinatario, calle, colonia, CP,
+   municipio/alcaldía, estado, teléfono y referencias. Si falta la colonia, se elige **de la lista del CP** (T.2);
+   ⛔ no se editan calle, CP ni destinatario.
+3. **Paso 2 — El sistema arma el paquete y cotiza solo.** Elige el **empaque estándar** según el contenido (sobre
+   para cartas; caja para sellado o volumen — T.9; cambiable, y al cambiarlo se vuelve a cotizar) y marca el
+   **seguro** (decisiones 1 y 9). La cotización tarda segundos: indicador de espera, ⛔ sin bloquear la pantalla.
+   - **Seguro por escalones** (decisión 9): **siempre asegurado**, con **el escalón que cubra el valor del
+     pedido** — p. ej. un pedido de MX$1,800 ⇒ cobertura $2,500 a $25; uno de MX$6,000 ⇒ el escalón siguiente que
+     lo cubra (medido: $10,000 a $170). Un pedido de **exactamente** el valor de un escalón va en ese escalón. ⛔
+     **Nunca** se asegura por debajo del valor (no se recorta al escalón menor) ni se manda sin seguro.
+   - **Valor del pedido para el seguro** *(SUPUESTO, sin cambio desde v1.81)*: la **suma de lo pagado por las
+     cartas** del envío; en un retiro, el **valor de mercado de hoy** de las cartas (sin mercado, lo pagado). *Es lo
+     que va en la caja.* El dueño dijo «el pedido»: si quiere el **total cobrado** (con envío y comisión), es un
+     cambio de una línea — con cartas de cientos de pesos rara vez cruza un escalón.
+   - **Sin escalón que cubra** (pedido mayor que el escalón más alto configurado): ⛔ **no se cotiza** por Skydropx;
+     la ventana lo dice (*«El valor del pedido supera el seguro configurado»*) y ofrece «Capturar a mano» (el dueño
+     asegura en el panel de Skydropx). El súper-admin ve que falta un escalón. ⛔ No hay tope que recorte.
+   - **El valor a asegurar lo calcula el sistema**, no se teclea en la ventana.
+4. **Lista de opciones, ordenada por precio.** Cada fila: **paquetería y servicio** · **precio con IVA y seguro
+   incluidos** · **días** estimados · **si la paquetería recoge o hay que llevar el paquete a sucursal** (dato que
+   da Skydropx por opción) · **dónde se entrega al destinatario** (a domicilio / en sucursal) · **margen del envío**
+   (cobrado sin IVA − costo neto de guía + seguro) · la **promoción** si Skydropx la marca. Encima de la lista:
+   pedido, destino, empaque, **seguro** (*«asegurado por $2,500 · $25»*) y **lo cobrado al cliente** (MX$203 /
+   MX$175 sin IVA). Al pie, **cuántas opciones no se muestran y por qué** (*«3 no disponibles por API»*).
+5. **Preseleccionada la preferida: 99minutos** cuando aparece en la cotización — **aunque no sea la más barata**
+   (decisión 2; medido: nunca está entre las tres más baratas y cubre 7 de 10 destinos probados, `API_CONTRACT
+   §M4-SHIP.19.19.1` M-10); si no aparece, **la siguiente del orden de preferencia** que el dueño configure (T.9);
+   si no hay ninguna configurada que cubra, **la más barata a domicilio**. Se marca visiblemente *«la
+   recomendada»*. **99minutos no recoge** (medido: `pickup:false` en todas sus tarifas): su fila dice **«llevar a
+   sucursal»**, y eso cuadra con la decisión 2 (*él lleva los paquetes*).
+6. **Lo que no aparece:** **J&T** no se ofrece (medido: Skydropx la devuelve con precio pero **no disponible por
+   API**, 45 de 45 tarifas) — cuenta en el pie *«no disponibles por API»*; tampoco las opciones **sin cobertura**,
+   las **multi-paquete** ni las tarifas cuyo **desglose no cuadra** (no se compra a ciegas).
+7. **Se ocultan las opciones que entregan en sucursal** (el destinatario tendría que ir a recogerlo): se promete
+   **entrega a domicilio** (§J, §D). *«Ver todas las opciones»* las muestra marcadas *«no entrega a domicilio»*;
+   elegir una **exige confirmación explícita** *(SUPUESTO: se permite con confirmación, no se prohíbe — puede ser la
+   única cobertura de un destino)*.
+8. **Se puede elegir cualquier opción visible**, no solo la recomendada. Elegir una **con margen negativo** pide
+   **confirmación explícita** con la cifra a la vista *(SUPUESTO: no se bloquea; el dueño ya decidió absorber la
+   diferencia con la tarifa fija)*. Medido: 99minutos con caja grande puede salir con margen negativo.
+9. **Si Skydropx no devuelve ninguna opción** (sin cobertura, sin saldo, caído): la ventana lo dice y ofrece
+   **«Capturar a mano»**, como hoy (T.10).
+- Criterios **236**, **308**, **310**, **311**, **313**, **314**.
 
 #### T.4 💰 Comprar la guía — validaciones, bitácora, «guía en proceso» y qué pasa si falla
 
@@ -8097,8 +8154,10 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
    **(b)** **tarifa vigente**: las tarifas valen **24 h** (R4); si venció, **se re-cotiza sola** y, si el precio
    cambió, **se avisa y se vuelve a confirmar** con la cifra nueva — ⛔ nunca se compra a una cifra que el
    operador no vio.
-2. **«Comprar guía con la opción elegida»** compra en Skydropx con la **Carta Porte fija** (código SAT de
-   contenido y código de empaque, configurados una vez — T.9) y guarda **solo, desde la respuesta**: paquetería,
+2. **«Comprar guía» (paso 3 de la ventana)** compra en Skydropx con la **Carta Porte decidida**: código SAT
+   **`49101600` «Coleccionables»** (decisión 8) y el **código de empaque del empaque usado** (sobre / caja, T.9),
+   ambos configurados, ⛔ no fijos en el código; **siempre con seguro** al escalón de T.3.3 — en la cotización **y**
+   en la compra. Guarda **solo, desde la respuesta**: paquetería,
    servicio, número de guía, **costo, IVA del costo, seguro**, la **etiqueta (PDF)** y la **liga de rastreo si
    viene** (puede venir vacía — decisión 4).
 3. **Bitácora de la elección** (auditoría, consultable): **qué opción se eligió, cuál era la recomendada, quién
@@ -8115,16 +8174,37 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
    ⛔ Un fallo de Skydropx nunca deja un envío sin poder salir: siempre queda la guía manual (T.10).
 6. **Doble clic o dos operadores a la vez** ⇒ **una sola guía comprada, un solo cargo al saldo, un solo correo**
    (N ≥ 10). *Una guía duplicada es dinero tirado.*
-7. **El operador puede comprar guías** (es la decisión 3) aunque gaste saldo prepagado: queda **con su nombre**.
-   *(SUPUESTO: sin tope de gasto aparte del saldo — el precio por guía es acotado y visible; el candado es el
-   margen negativo con confirmación y la bitácora. Si el dueño quiere tope, es un dial de M10.)*
+7. 💰 **Quién da el clic que gasta saldo — la puerta de compra** *(⭐ reescrito 2026-10-04, decisión 10: «comprar
+   guías reales requiere autorización explícita del dueño guía por guía»)*:
+   - Un ajuste del súper-admin con **tres posiciones**: **compra apagada** (*default de arranque*) · **solo el
+     dueño compra** · **los operadores también compran**. Cambiarlo queda auditado y ⛔ no requiere desplegar.
+   - **Mientras el dueño no diga otra cosa, como máximo «solo el dueño compra»**: cada guía real la compra **él**,
+     apretando «Comprar guía»; **su clic es la autorización de esa guía** y queda en la bitácora con su nombre.
+   - El **operador** recorre la ventana igual (revisa la dirección, cotiza, elige — decisión 3), pero con la compra
+     apagada o «solo el dueño» **no ve el botón «Comprar guía»**: ve *«La compra de guías está desactivada»* o
+     *«Solo el dueño compra guías por ahora»* y el enlace «Capturar a mano». ⛔ No se le pinta un botón que va a
+     fallar, y ⛔ no se le dice qué llave falta.
+   - Pasar a «los operadores también compran» es **decisión del dueño** (de la decisión 3 se desprende que puede
+     querer hacerlo); entonces el operador compra y queda **con su nombre**. *(SUPUESTO, sin cambio: sin tope de
+     gasto aparte del saldo — el precio por guía es acotado y visible; el candado es el margen negativo con
+     confirmación y la bitácora.)*
+   - Además del ajuste, el servidor de **producción** necesita un **permiso de gasto** que solo devops pone y solo
+     cuando el dueño lo indique; ⛔ **ningún** otro entorno (local, CI, vista previa, el entorno de los agentes) lo
+     tiene. ⛔ **Ningún agente** cambia el ajuste, pone el permiso ni compra.
+   - ⛔ **Ninguna prueba y ningún CI puede comprar una guía real** (criterio 306).
 8. **Re-emitir una guía** *(SUPUESTO, alcance mínimo)*: mientras la paquetería **no haya recogido** el paquete
    (Skydropx aún en `created`), el operador puede **cancelar la guía en Skydropx y comprar otra** (equivocó de
    opción, cambió el empaque). El saldo regresa; la cancelada queda en bitácora; el correo de guía **se vuelve a
    mandar** con el número nuevo (el sello ya se reinicia hoy si cambia el número). ⛔ Esto **no** cancela el
    envío (§S.10.8 intacto). Si el dueño no lo quiere, se quita y una guía mal comprada se resuelve en el panel
-   de Skydropx.
-- Criterios **237**, **244**.
+   de Skydropx. *(Que la cancelación devuelva **todo** el saldo, seguro incluido, es **NO MEDIDO** — T.14.)*
+9. ⭐ **La guía regresa en la misma ventana** (decisión 7: *«que regrese la guía»*). Tras comprar, el paso 4 de la
+   ventana muestra **paquetería, número de guía, «Imprimir etiqueta»** (abre el PDF) y, si Skydropx dio liga,
+   **«Rastreo»**. Si el número **tarda** («guía en proceso», punto 4), la ventana lo dice (*«Guía en proceso: te
+   avisamos cuando tenga número»*) y lo sigue esperando un rato *(arquitecto: hasta 2 min)*; después se cierra y
+   la tarjeta queda en «guía en proceso». ⛔ El operador no tiene que ir a otra pantalla ni al panel de Skydropx a
+   buscar la guía.
+- Criterios **237**, **244**, **306**, **307**, **309**, **312**.
 
 #### T.5 La etiqueta se IMPRIME, y «Salida de hoy» — **reabre por escrito §S.2 «Impresión de etiquetas: cero»**
 
@@ -8136,7 +8216,11 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
 > como sustituida, no se borra.
 
 - **Imprimir etiqueta** desde la tarjeta, en cuanto la guía existe; **reimprimible** mientras el envío esté vivo
-  (se rompió, se manchó). ⛔ La etiqueta no se edita: es la de Skydropx tal cual.
+  (se rompió, se manchó). ⛔ La etiqueta no se edita: es la de Skydropx tal cual. También se imprime desde el paso
+  4 de la ventana «Capturar guía» (T.4.9).
+- **Formato de la etiqueta** *(SUPUESTO, pregunta P-SDX-1)*: **hoja normal** (carta/A4), que sirve con cualquier
+  impresora de oficina; la alternativa es **térmica** (rollo de etiquetas). Qué impresora tiene el dueño es **NO
+  MEDIDO**; es un ajuste del súper-admin (T.9), así que cambiarlo no exige construir nada.
 - **Vista «Salida de hoy»** (F4): los envíos **con guía y sin salir**, **agrupados por paquetería y sucursal de
   entrega** —*«99minutos · Periférico Sur 4249: N paquetes»*— y, si hubo respaldo, **su propio grupo**. La
   dirección de la sucursal sale de la configuración (T.9). Imprimible como lista de control (número de pedido,
@@ -8166,14 +8250,17 @@ arquitecto (R8: sin doc oficial de firma, empieza por consulta). Un evento **rep
 | `delivered_to_branch` (en sucursal) | ⛔ **NO** pasa a «entregado»; queda como «en sucursal» (cómo se modela: arquitecto). Si luego llega `delivered` ⇒ entregado | 📧 ⭐ **«Tu paquete está en sucursal»** (decisión 6), aparte y **una vez** | — |
 | `delivery_attempt` (intento fallido) | sin cambio de estado | 📧 ⭐ **«Intentaron entregarte»** *(decisión del product-owner, abajo)* | 🔔 alerta |
 | `exception` · `retained` | sin cambio | ⛔ ninguno | 🔔 alerta con el detalle |
-| `in_return` · `destroyed` (regresa / destruido) | sin cambio | ⛔ ninguno en este corte *(SUPUESTO; ver pregunta 91)* | 🔔 alerta; **el dueño decide** a mano (pregunta 91) |
+| `in_return` · `destroyed` (regresa / destruido) | sin cambio | ⛔ ninguno *(**DECIDIDO**, pregunta 91, 2026-10-02)* | 🔔 alerta; **el dueño decide** a mano, caso por caso (pregunta 91, **DECIDIDO**) |
 | `canceled` | «cancelado» **solo si lo canceló la tienda** (T.4.8 / T.8); si lo canceló la paquetería ⇒ sin cambio | — | 🔔 alerta si fue la paquetería |
 
 - **Correo de «Entregado»** (decisión 5): sale **solo cuando la paquetería confirma la entrega vía Skydropx**
   (`delivered`). ⛔ **No** sale cuando el operador marca «entregado» a mano en un envío con **guía manual** (T.10):
   ahí no hay confirmación de la paquetería y la regla anterior sigue. Contenido: pedido, paquetería, guía, fecha
-  de entrega y **la ventana de 7 días para disputar** (§H) — *es el argumento que el dueño descartó en la
-  pregunta 74 y ahora acepta con la entrega confirmada*.
+  de entrega y **«¿Problema con tu pedido? Escríbenos»** con el correo de soporte. ⭐ *(Reescrito 2026-10-04,
+  decisión 12 — «Disputas: se quitan de la tienda…»: el borrador v1.81 decía «la ventana de 7 días para
+  disputar»; ⛔ **ya no se anuncia ningún plazo de disputa** ni se enlaza a abrir una, porque la disputa ya no
+  existe en la tienda, §V.)* Vale igual para un **retiro de bóveda** entregado (la fila de `HECHOS.md` del
+  2026-10-04: *«el retiro de bóveda entregado también muestra "Escríbenos"»*).
 - **Correo «en sucursal»** (decisión 6): dice **qué sucursal** (si Skydropx la da), que **lo tiene que recoger**, y
   la guía. ⛔ **No** pasa el envío a «entregado»; el cliente aún no tiene el paquete. Si después llega `delivered`,
   sale «Entregado» (dos hechos, dos correos).
@@ -8205,16 +8292,20 @@ arquitecto (R8: sin doc oficial de firma, empieza por consulta). Un evento **rep
   como **ajustes de costo del envío con fecha propia**, ⛔ nunca sobrescribiendo el costo original. El P&L y M7
   los **suman al costo** de ese envío y los muestran **por separado** (*«ajustes de paquetería»*), con la fecha
   del cargo.
-  - *(SUPUESTO — pregunta 88)* **el cargo extra se ABSORBE**: no se le cobra al cliente después (no hay
-    mecanismo para cobrar a un invitado sin cuenta y la tarifa fija ya es la política de absorber).
-  - *(SUPUESTO — pregunta 89)* **el ajuste cae en el mes en que llegó el cargo** (su fecha propia), no en el
-    mes del envío: es lo que evita reabrir un mes cerrado.
+  - *(**DECIDIDO** 2026-10-02 — pregunta 88)* **el cargo extra se ABSORBE**: no se le cobra al cliente después.
+  - *(**DECIDIDO** 2026-10-02 — pregunta 89)* **el ajuste cae en el mes en que llegó el cargo** (su fecha
+    propia), no en el mes del envío: no reabre un mes cerrado.
 - **Tarifa vencida en un retiro** (R4: la solicitud se paga antes de que el operador cotice, y la cotización
-  vale 24 h): si al comprar la guía sale **más cara** que cuando se cotizó, *(SUPUESTO — pregunta 90)* **lo
-  absorbe la tienda**: el cliente ya pagó MX$203 fijo y no se le vuelve a cobrar. Con la decisión 3 el operador
+  vale 24 h): si al comprar la guía sale **más cara** que cuando se cotizó, *(**DECIDIDO** 2026-10-02 — pregunta
+  90)* **lo absorbe la tienda**: el cliente ya pagó MX$203 fijo y no se le vuelve a cobrar. Con la decisión 3 el operador
   **cotiza al preparar**, así que el caso es raro: la diferencia solo aparece si el operador deja pasar 24 h
   entre cotizar y comprar, y ahí la pantalla se lo avisa (T.4.1).
-- **Seguro:** el costo del seguro es **costo del envío** (decisión 1), en su renglón.
+- **Seguro:** el costo del seguro es **costo del envío** (decisión 1), en su renglón, y es **el del escalón
+  pagado** (decisión 9: $25 hasta $2,500; $170 hasta $10,000 — lo medido). Si la API cobra por el seguro algo
+  distinto a lo cotizado, manda lo cobrado *(NO MEDIDO hasta la primera guía real, T.14)*.
+- **IVA del costo** *(medido el 2026-10-04 sobre 283 tarifas, `API_CONTRACT §M4-SHIP.19.19.1` M-7)*: Skydropx
+  **sí desglosa** el IVA de cada tarifa; el cálculo 16/116 queda **solo de respaldo** cuando no venga. Si el seguro
+  lleva IVA propio es **NO MEDIDO** (en el peor caso el costo neto queda sobrestimado, error conservador).
 - ⛔ **Lo que no cambia:** `Order.shippingFeeCents` / `ShipmentRequest.shippingFeeCents` (lo cobrado) y la
   convención de IVA (criterio 214).
 - Criterio **238**.
@@ -8248,18 +8339,25 @@ arquitecto (R8: sin doc oficial de firma, empieza por consulta). Un evento **rep
 | Ajuste | Qué es | Default / nota |
 |---|---|---|
 | **Dirección de origen** | La plantilla de origen en Skydropx (CP **14210**, Jardines en la Montaña, Tlalpan), con nombre, teléfono, correo y referencia | La captura el dueño; se guarda su identificador |
-| **Paquetería preferente y orden de respaldo** | Lista ordenada; la primera que cubra el destino queda preseleccionada | **99minutos** primero (decisión 2); el respaldo lo ordena el dueño *(SUPUESTO: si no configura respaldo, la más barata que entregue a domicilio)* |
-| **Sucursal de entrega por paquetería** | Nombre y dirección de la sucursal donde el dueño deja los paquetes (para «Salida de hoy») | 99minutos: Punto99, Periférico Sur 4249 — **sin confirmar** (`HECHOS.md`: dirección de directorio web, T3) |
-| **Empaques estándar** | Al menos dos: **sobre** (cartas; 1 kg — el mínimo que cobra Skydropx, §10.1 M2) y **caja** (sellado/volumen), cada uno con medidas, peso y **código de empaque de Skydropx** | *(SUPUESTO de arranque, el dueño corrige medidas: sobre 25×20×3 cm · 1 kg; caja 30×25×15 cm · 2 kg)* |
-| **Regla de empaque** | Cómo se elige el empaque según el contenido | *(SUPUESTO: sellado o > N cartas ⇒ caja; si no, sobre. N es dial, seed 60)* — el operador puede cambiarlo antes de cotizar |
-| **Carta Porte** | Código SAT de contenido (cartas coleccionables) y de embalaje | Los captura el dueño (T2 del levantamiento: **NO MEDIDO** cuál corresponde) |
+| **Integración encendida / apagada** | Si la ventana «Capturar guía» usa Skydropx o solo la captura a mano | Arranca **apagada**; la enciende el súper-admin |
+| **Compra de guías** ⭐ | **Apagada** · **solo el dueño compra** · **los operadores también compran** (T.4.7) | Arranca **apagada** (decisión 10). Mientras el dueño no diga otra cosa, como máximo «solo el dueño» |
+| **Paquetería preferente y orden de respaldo** | Lista ordenada; la primera que cubra el destino queda preseleccionada | **99minutos** primero (decisión 2; su código en Skydropx es `ninetynineminutes`, medido); el respaldo lo ordena el dueño *(SUPUESTO: si no configura respaldo, la más barata que entregue a domicilio)* |
+| **Sucursal de entrega por paquetería** | Nombre y dirección de la sucursal donde el dueño deja los paquetes (para «Salida de hoy») | 99minutos: Punto99, Periférico Sur 4249 — **sin confirmar** (dirección de directorio web, **NO MEDIDO**) |
+| **Escalones de seguro** ⭐ | Tabla «cobertura → costo» (decisión 9); se usa el escalón **más bajo que cubra** el valor del pedido | Arranca con lo **medido** el 2026-10-04: **$2,500 → $25** y **$10,000 → $170**. Los escalones intermedios y el máximo son **NO MEDIDOS**: se miden **cotizando sin comprar** y el súper-admin los añade. ⛔ **Sin tope de valor declarado** que recorte: sin escalón que cubra ⇒ guía manual (T.3.3) |
+| **Empaques estándar** | Al menos dos: **sobre** (cartas) y **caja** (sellado/volumen), cada uno con medidas, peso (kilos **enteros**, mínimo 1 — Skydropx no acepta menos ni decimales) y **código de empaque de Skydropx** | Arranque (medidas ESTIMADAS, el dueño las corrige): **sobre 25×18×3 cm · 1 kg · código `5H4`** (bolsa de plástico); **caja 49×23×21 cm · 5 kg · código `4G`** (caja de cartón). Códigos medidos; que todas las paqueterías acepten `5H4` al comprar es **NO MEDIDO** (si una lo rechaza, se elige otra opción o la caja) |
+| **Regla de empaque** | Cómo se elige el empaque según el contenido | *(SUPUESTO: sellado o > N cartas ⇒ caja; si no, sobre. N es dial, seed 60)* — el operador puede cambiarlo en la ventana (re-cotiza) |
+| **Carta Porte** | Código SAT del contenido | ⭐ **`49101600` «Coleccionables»** — **DECIDIDO** por el dueño (decisión 8). Viene puesto de arranque; el súper-admin puede buscar y elegir otro (8 dígitos) |
+| **Formato de la etiqueta** ⭐ | Hoja normal o térmica | *(SUPUESTO, pregunta P-SDX-1)* **hoja normal** (carta/A4) |
 | **Umbral de saldo bajo** | Alerta en el tablero cuando el saldo de Skydropx baja del umbral | *(SUPUESTO: seed MX$500; sin correo, solo panel)* |
 | **Refresco del rastreo** | Cada cuánto se consulta Skydropx | *(SUPUESTO: 60 min)* |
-| **Credenciales** | `client_id` / `client_secret` y URL base (sandbox / producción) | **Solo en el almacén de secretos** del proveedor (Railway / GitHub); ⛔ nunca en el repo (es público), ni en pantalla, ni en registros, ni por chat. La URL base es variable, no constante (R11) |
+| **Credenciales** | `client_id` / `client_secret` y URL base — **de PRODUCCIÓN** (decisión 10; ⛔ no hay sandbox) | Hoy viven como **variables del entorno** de los agentes, por instrucción explícita del dueño; al salir a producción, en el **almacén de secretos** de Railway. ⛔ Nunca en el repo (es público), ni en GitHub/CI, ni en pantalla, ni en registros, ni por chat. La URL base es variable, no constante (R11) |
 
 - El **saldo actual** de la cuenta se muestra en la pantalla de configuración y en el tablero (leído de Skydropx,
   no copiado).
-- Criterio **245**.
+- Ver **los escalones de seguro** y **cotizar** funcionan con la compra **apagada**: cotizar no gasta saldo
+  (medido: ~120 consultas el 2026-10-04 con el saldo intacto). Así se puede medir la tabla de seguros desde la
+  plataforma sin comprar nada.
+- Criterios **245**, **307**, **311**.
 
 #### T.10 La guía manual sigue existiendo — como respaldo, no como camino normal
 
@@ -8295,14 +8393,56 @@ arquitecto (R8: sin doc oficial de firma, empieza por consulta). Un evento **rep
 - **Los estados públicos del cliente** siguen siendo los mismos; nada interno se filtra.
 - **El resto del catálogo de correos §R.3** no cambia: los tres nuevos (Entregado, en sucursal, intento fallido)
   son **los únicos** que esta sección añade.
+- ⛔ **Ningún botón «Cotizar envío»** aparte de la ventana «Capturar guía» (decisión 7); ⛔ **ninguna compra real**
+  desde pruebas, CI ni agentes (decisión 10).
 
-#### T.13 Qué se le pide al dueño fuera de este documento (peticiones ya justificadas, traspaso §7.4 — no son preguntas de producto)
+#### T.13 Qué se le pide al dueño fuera de este documento — ⭐ reescrito 2026-10-04 (⛔ ya no hay sandbox)
 
-- Abrir la red del entorno a `sb-pro.skydropx.com` y `pro.skydropx.com` (medido: 403 en el túnel, 2026-09-29).
-- Credenciales de **sandbox** en el almacén de secretos, **nunca por chat** (el repo es público).
-- La URL de la **colección OpenAPI oficial** (cierra webhooks y `tracking_url_provider`; no bloquea).
-- **Apagar los avisos propios de Skydropx** al cliente en su panel, antes de la primera guía real (T.6).
-- Los pendientes de medición T1–T7 del levantamiento (§10.3, §11.6) **no bloquean el diseño**: ajustan defaults.
+> **Lo que se retira** de la versión v1.81 (O-6: una petición que ya no aplica se retira explícitamente): ~~abrir
+> la red a `sb-pro.skydropx.com`~~ y ~~credenciales de sandbox~~. **No hay sandbox**: el dueño cargó las
+> credenciales de **producción** en el entorno, por instrucción explícita (decisión 10). Las pruebas usan un
+> **doble** del proveedor; la **medición** contra la API real se hace **cotizando y leyendo, sin comprar** (cotizar
+> no gasta saldo, medido el 2026-10-04); la **primera guía real** la compra **el dueño con su clic**, sobre un pedido
+> real, con la compra en «solo el dueño» (T.4.7).
+
+- **Ahora: nada.** *(Las credenciales ya están; la URL base no es secreta — si falta en el entorno, la toma la
+  medición de la referencia.)*
+- **Pregunta de producto P-SDX-1 — su impresora** (abajo, con default): ¿imprime en **hoja normal** o en
+  **impresora térmica** de etiquetas? Default: **hoja normal** (carta/A4).
+- **Al salir a producción:** credenciales en el almacén de Railway; indicar a devops que **active el permiso de
+  gasto** en producción; poner la compra en **«solo el dueño compra»**; y **comprar él la primera guía** (la que
+  cierra lo NO MEDIDO de la compra, T.14).
+- **En su panel de Skydropx, antes de la primera guía real:** **apagar los avisos propios de Skydropx** al cliente
+  (T.6) y **confirmar la sucursal Punto99** donde deja los paquetes (T.9).
+- **No bloquea:** la URL de la **colección OpenAPI oficial**, si la consigue (cierra webhooks, `Idempotency-Key` y
+  la liga de rastreo).
+
+#### T.14 Lo que sigue NO MEDIDO (de `API_CONTRACT §M4-SHIP.19.19.18`, 2026-10-04) — y qué hace la tienda mientras
+
+> Dos instrumentos: **medir sin gastar** (cotizar y leer en producción; lo hace devops cuando el orquestador lo
+> encargue, ⛔ sin pedirle nada al dueño) y **la primera guía real** (la compra el dueño). Mientras no se mida, rige
+> el default de la columna derecha. **Ningún criterio de §T se da por cumplido apoyándose en algo de esta tabla.**
+
+| NO MEDIDO | Se cierra con | Mientras tanto |
+|---|---|---|
+| **Tabla completa de escalones de seguro** y el **máximo asegurable** (¿escalones o proporcional?) | medir sin gastar (cotizar con varios valores) | Dos escalones medidos ($2,500 → $25; $10,000 → $170); lo que no cubran ⇒ guía manual |
+| Si Skydropx **reutiliza una cotización** para pedidos iguales y cuánto dura | medir sin gastar | El sistema lo tolera; la vigencia de 24 h se cuenta desde la **primera** vez que la vimos |
+| Qué exige la **verificación del origen** al comprar | medir sin gastar + primera guía | Origen por la plantilla del dueño, con sus datos completos |
+| Forma de los **cargos extra** de Skydropx | medir sin gastar (puede venir vacío hasta el primer cargo real) | T.7 con fecha propia |
+| Forma de las **sucursales de entrega** por opción | medir sin gastar | La sucursal configurada (T.9) |
+| Si se puede **buscar una guía** en Skydropx por nuestra referencia | medir sin gastar + primera guía | Sin búsqueda: el súper-admin libera a mano una compra que quedó en duda |
+| **Forma de la respuesta de compra**, cuánto tarda el número, de dónde se descarga la **etiqueta**, si da **liga de rastreo**, si lo **cobrado** (envío y seguro) = lo **cotizado**, si el **seguro lleva IVA** | **primera guía real** (el dueño) | Lectura tolerante; la etiqueta de un sitio no reconocido se guarda sin PDF hasta que devops lo autoriza; sin liga ⇒ clave + paquetería (T.8) |
+| Si el rastreo trae **historial** o solo el **estado actual** | primera guía + sus primeros días | Se construye la línea de tiempo con lo que haya |
+| Si Skydropx acepta una **clave para no duplicar** una compra | colección OpenAPI o soporte — ⛔ **nunca** probándolo con una compra repetida | Una compra que se cortó **no se reintenta a ciegas**: queda «en duda» y la resuelve una persona |
+| Si la misma tarifa reutilizada se puede comprar para **dos envíos** | soporte / segunda guía real | Si Skydropx la rechaza, se re-cotiza |
+| Si **cancelar una guía devuelve todo** el saldo, seguro incluido | solo si el dueño **autoriza aparte** cancelar una guía | Se registra como costo cero tras cancelar |
+| Conducta ante **saturación** (demasiadas peticiones) | se observa en registros; ⛔ no se fuerza | Reintento con espera y aviso «ocupado» |
+| **Por qué J&T** sale no disponible por API | el dueño en su panel o soporte | J&T no se ofrece (criterio 314) |
+| **Webhooks** de Skydropx (eventos, firma) | colección OpenAPI | Consulta periódica |
+| Si todas las paqueterías aceptan el **código de sobre `5H4`** al comprar | primeras guías | Si una lo rechaza: otra opción o la caja |
+| **La impresora del dueño** (térmica u hoja) | pregunta **P-SDX-1** | Hoja normal |
+| **Los avisos propios de Skydropx** al cliente; la **sucursal Punto99**; **precios sin promoción** | el dueño en su panel (T.13) | La promoción se ve en la fila de cada opción (T.3.4) |
+| **La URL base** en el entorno | el dueño la re-añade (no es secreta) | La de la referencia de producción |
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De §W, §X y §Y** *(2026-10-04)*: contabilidad completa o emisión automática de CFDI (los exportes son insumo
@@ -8631,13 +8771,17 @@ nuevo, no como parte de §R**:
 > Registradas como datos/preferencias del humano; el stack y la arquitectura los decide el arquitecto.
 - **Pagos**: **Stripe**; **sin balance/saldo** de dinero en la plataforma (liquidación por transacción).
 - **Envíos** *(⭐ v1.81 · 2026-09-29 — §T; dato del dueño, no decisión de diseño)*: **Skydropx (API PRO)** como
-  plataforma de paquetería —cuenta **ya existente** del dueño, **saldo prepagado** que recarga él—; **sandbox**
-  para diseñar y probar, ⛔ **sin generar guías reales ni gastar saldo en pruebas**; credenciales **solo en el
-  almacén de secretos** (repo público); **URL base en variable de entorno** (el host de la doc es dudoso,
-  levantamiento R11). Límites conocidos de la API que el arquitecto tiene que respetar: **token de 2 h, 2
-  peticiones/segundo, tarifas válidas 24 h, cotización asíncrona, guía posiblemente asíncrona**; **firma de
-  webhooks no documentada** ⇒ rastreo por **consulta periódica** hasta tener la colección OpenAPI oficial. La red
-  del entorno de trabajo **bloquea `*.skydropx.com`** (medido 2026-09-29): hay que abrirla antes de construir.
+  plataforma de paquetería —cuenta **ya existente** del dueño, **saldo prepagado** que recarga él—; ~~**sandbox**
+  para diseñar y probar~~ ⭐ *(2026-10-04, fila de `HECHOS.md` «Skydropx — Carta Porte: 49101600…»)* **sin
+  sandbox: credenciales de PRODUCCIÓN** en variables del entorno por instrucción explícita del dueño; las pruebas
+  usan **dobles**, se mide **cotizando sin comprar**, y ⛔ **ninguna prueba, CI ni agente genera guías reales ni
+  gasta saldo** — la compra real la autoriza el dueño con su clic (§T.4.7); credenciales ⛔ nunca en el repo
+  (público) ni en CI; **URL base en variable de entorno** (producción medida: `https://pro.skydropx.com/api/v1`).
+  Límites conocidos de la API que el arquitecto tiene que respetar: **token de 2 h, 2 peticiones/segundo, tarifas
+  válidas 24 h, cotización asíncrona, guía posiblemente asíncrona**; **firma de webhooks no documentada** ⇒
+  rastreo por **consulta periódica** hasta tener la colección OpenAPI oficial. ~~La red del entorno de trabajo
+  bloquea `*.skydropx.com` (medido 2026-09-29)~~ — superado: la medición del 2026-10-04 contra producción se hizo
+  desde el entorno (`API_CONTRACT §M4-SHIP.19.19`, fuente PROD).
 - **Impuestos**: ~~precios mostrados **sin IVA**; **IVA 16%** se desglosa como **línea aparte en checkout** y
   se incluye en el total.~~ **Facturación CFDI manual por correo** en el MVP (sin PAC): el cliente solicita
   factura enviando sus datos fiscales; el IVA cobrado se guarda para M7.
@@ -11868,11 +12012,16 @@ y los correos de entrega (§T, §S.2, §R.3, §D, §J — v1.81 · 2026-09-29; s
 se re-preguntan; lo marcado SUPUESTO espera su palabra)**
 > Los que llevan 💰 **exigen los tres veredictos antes de desplegar**; toda la sección lleva **revisión de
 > seguridad** (tercero externo, datos personales, secretos). Las carreras se verifican con **N ≥ 10 y proporción
-> con N y autor**; las mutaciones, sobre **copia del árbol entero** con su sha. **Todo contra sandbox: ⛔ ninguna
-> prueba compra una guía real ni gasta saldo de producción.**
+> con N y autor**; las mutaciones, sobre **copia del árbol entero** con su sha. ⭐ *(Reescrito 2026-10-04,
+> decisión 10:)* **⛔ No hay sandbox. Toda prueba —unitaria, de integración y E2E— corre contra un DOBLE del
+> proveedor; ninguna prueba, ningún CI y ningún agente compra una guía real ni gasta saldo** (criterio 306). La
+> **única** compra real es la que hace **el dueño con su clic**. Lo que depende de la primera guía real está en
+> **T.14 (NO MEDIDO)** y no se da por cumplido antes. Decisiones 7–12: **2026-10-02/04**, filas de `HECHOS.md`
+> citadas en T.0.
 
 234. **Alcance: los dos flujos que sacan un paquete, y ninguno más** *(T.1)*: un **pedido de invitado con envío
-   directo** y un **retiro de bóveda** recorren, de punta a punta, pago → preparado → cotizar → comprar guía →
+   directo** y un **retiro de bóveda** recorren, de punta a punta **contra el doble del proveedor**, pago →
+   preparado → ventana «Capturar guía» (revisar dirección → opciones → elegir → comprar → la guía regresa) →
    etiqueta → «Salida de hoy» → rastreo → «Entregado». **Se verifica por ausencia**: una **compra a bóveda** no
    ofrece cotizar ni guía; el **buylist** no cambia ni una pantalla; el **checkout** sigue cobrando **MX$203**
    sin preguntar destino ni paquetería; **no existe** botón de recolección ni compra de guía sin elegir.
@@ -11884,45 +12033,51 @@ se re-preguntan; lo marcado SUPUESTO espera su palabra)**
    imprime en la guía**. Una dirección **guardada antes** sin colonia **pide completarla** al elegirse para un
    retiro. **⛔ Falla** si un pedido nuevo puede quedar pagado sin colonia, o si el precio, el IVA o las políticas
    del checkout cambian por este endurecimiento.
-236. **Cotizar: solo con «preparado», empaque estándar, seguro, y la lista con precio, días, dónde se entrega y
-   margen; 99minutos preseleccionada si cubre; sucursal-a-sucursal oculto** *(T.3; decisiones 1, 2, 3)*: el
-   botón «Cotizar envío» **no existe** (ni apagado) hasta «preparado» (y, en un retiro, cero casos abiertos);
-   al cotizar, el sistema **elige el empaque** (sobre/caja según la regla de T.9, cambiable antes de cotizar),
-   **marca seguro con valor declarado** en **toda** cotización (⛔ falla una cotización sin seguro) y muestra
+236. **Cotizar dentro de la ventana «Capturar guía»: solo con «preparado», empaque estándar, seguro por escalón, y
+   la lista con precio, días, recolección o sucursal, dónde se entrega y margen; 99minutos preseleccionada si
+   cubre; entrega en sucursal oculta** *(T.3; decisiones 1, 2, 3, 7, 9 — ⭐ reescrito 2026-10-04)*: la ventana
+   «Capturar guía» **no se ofrece** (ni apagada) hasta «preparado» (y, en un retiro, cero casos abiertos); dentro,
+   tras revisar la dirección, el sistema **elige el empaque** (sobre/caja según la regla de T.9, cambiable ⇒
+   re-cotiza), **asegura** al escalón de T.3.3 en **toda** cotización (⛔ falla una cotización sin seguro) y muestra
    **una lista ordenada por precio** donde cada opción trae **paquetería y servicio, precio con IVA y seguro
-   incluidos, días hábiles, dónde se entrega y margen** (cobrado sin IVA − costo neto), con **lo cobrado al
-   cliente** encima; **99minutos queda preseleccionada** cuando aparece en la cotización, y si no, **la
-   siguiente del orden configurado**; se marca cuál es *«la recomendada»*; las opciones **de sucursal a
-   sucursal no se muestran** por defecto y **«ver todas»** las enseña marcadas, exigiendo confirmación para
-   elegirlas; elegir una opción con **margen negativo** exige confirmación con la cifra a la vista; si Skydropx
-   **no devuelve opciones**, la tarjeta lo dice y ofrece **guía manual**. **⛔ Falla** si la lista esconde el
-   seguro o el IVA en el precio, si preselecciona la más barata en vez de la preferida, o si el pedido queda
+   incluidos, días, si recogen o hay que llevar a sucursal, dónde se entrega y margen** (cobrado sin IVA − costo
+   neto), con **lo cobrado al cliente** y el **seguro** encima; **99minutos queda preseleccionada** cuando aparece
+   en la cotización —aunque no sea la más barata—, y si no, **la siguiente del orden configurado**; se marca cuál
+   es *«la recomendada»*; las opciones que **entregan en sucursal** no se muestran por defecto y **«ver todas»** las
+   enseña marcadas, exigiendo confirmación para elegirlas; elegir una opción con **margen negativo** exige
+   confirmación con la cifra a la vista; si Skydropx **no devuelve opciones**, la ventana lo dice y ofrece
+   **«Capturar a mano»**. **⛔ Falla** si existe un botón «Cotizar envío» fuera de la ventana, si la lista esconde
+   el seguro o el IVA en el precio, si preselecciona la más barata en vez de la preferida, o si el pedido queda
    bloqueado sin salida cuando Skydropx no responde.
 237. 💰 **Comprar la guía: saldo, tarifa vigente, Carta Porte fija, todo guardado solo, bitácora de la elección,
    «guía en proceso», y si falla se elige otra sin perder nada** *(T.4)*: antes de comprar se comprueba **saldo
    suficiente** (sin saldo ⇒ mensaje y **nada escrito**) y **vigencia de la tarifa (24 h)** — vencida ⇒ **se
    re-cotiza sola** y, si el precio cambió, **se vuelve a confirmar con la cifra nueva** (⛔ falla si se compra a
-   una cifra que el operador no vio); la compra lleva la **Carta Porte configurada** y guarda **desde la
-   respuesta**: paquetería, servicio, número, **costo, IVA, seguro, etiqueta PDF y liga de rastreo (puede venir
+   una cifra que el operador no vio); la compra lleva la **Carta Porte configurada** (`49101600`, criterio 312) y
+   el **mismo seguro** que la cotización, y guarda **desde la respuesta**: paquetería, servicio, número, **costo, IVA, seguro, etiqueta PDF y liga de rastreo (puede venir
    vacía)**; queda en bitácora **qué opción se eligió, cuál era la recomendada, quién y cuándo, y el precio y
    margen vistos**; si el número **tarda**, el envío queda *«guía en proceso»* (⛔ no «guía», ⛔ sin correo) y el
    sistema **vuelve a preguntar solo** hasta tenerlo, y entonces pasa a «guía» con **el correo de guía una sola
    vez**; si Skydropx **rechaza** la compra, el error se muestra en llano, el envío **no cambia de estado**, y el
    operador **elige otra opción** de la misma cotización o re-cotiza; **doble clic o dos operadores** ⇒ **una**
-   guía, **un** cargo al saldo, **un** correo (N ≥ 10, proporción). El operador **sí puede comprar** (decisión 3)
-   y queda con su nombre.
+   guía, **un** cargo al saldo, **un** correo (N ≥ 10, proporción). **Quién puede comprar** lo decide el ajuste de
+   T.4.7 (criterio 307): con «los operadores también compran», el operador compra y queda con su nombre; con «solo
+   el dueño», solo el súper-admin. *(⭐ 2026-10-04: sustituye «el operador sí puede comprar» del borrador v1.81.)*
+   *(Todo lo anterior se verifica **contra el doble**; que la respuesta real tenga esa forma es **NO MEDIDO**
+   hasta la primera guía del dueño, T.14.)*
 238. 💰 **El costo real, su IVA y el seguro entran solos al P&L; los cargos extra son ajustes con fecha propia; el
    margen se ve** *(T.7; cierra D1, D2, D3 del levantamiento)*: tras comprar, `shippingCostCents`,
    `shippingCostIvaCents` y el seguro del envío **vienen de la respuesta de Skydropx** (⛔ falla si cualquiera
-   llega desde la pantalla o queda en cero con guía Skydropx); si la API no desglosa el IVA, se **calcula como
-   16/116 del envío sin la tarifa de gestión** y se marca *calculado*; el P&L **resta el costo neto** (no el
+   llega desde la pantalla o queda en cero con guía Skydropx); el IVA se toma **del desglose de Skydropx** (medido:
+   viene en 283 de 283 tarifas) y **solo** si no viene se **calcula como 16/116 del envío sin la tarifa de
+   gestión** y se marca *calculado*; el seguro es **el del escalón pagado** (criterio 311); el P&L **resta el costo neto** (no el
    bruto) — con una guía de MX$76.25 con IVA la ganancia del envío sube exactamente el IVA acreditable respecto
    a hoy; la tarjeta muestra **cobrado · costo · seguro · margen** antes y después de comprar, y margen negativo
    **en rojo**; la **tarea diaria** de cargos extra crea **ajustes** con su fecha, **nunca** sobrescribe el
    costo original, **no duplica** un cargo ya leído (N ≥ 10 sobre la misma respuesta), y M7 los muestra
-   **aparte** (*«ajustes de paquetería»*) sumados al costo del **mes en que llegó el cargo** (SUPUESTO, pregunta
-   89); **nada se le cobra al cliente** por un cargo extra (SUPUESTO, pregunta 88); una tarifa vencida más cara
-   en un retiro **la absorbe la tienda** (SUPUESTO, pregunta 90). `shippingFeeCents` (lo cobrado) y la convención
+   **aparte** (*«ajustes de paquetería»*) sumados al costo del **mes en que llegó el cargo** (**DECIDIDO**,
+   pregunta 89); **nada se le cobra al cliente** por un cargo extra (**DECIDIDO**, pregunta 88); una tarifa
+   vencida más cara en un retiro **la absorbe la tienda** (**DECIDIDO**, pregunta 90) — las tres del 2026-10-02. `shippingFeeCents` (lo cobrado) y la convención
    de IVA (criterio 214) **no cambian**.
 239. **La etiqueta se imprime — §S.2 reabierto** *(T.5)*: con guía Skydropx la tarjeta ofrece **«Imprimir
    etiqueta»** (el PDF de Skydropx, tal cual, ⛔ no editable) desde que existe el número, y **reimprimir**
@@ -11947,23 +12102,27 @@ se re-preguntan; lo marcado SUPUESTO espera su palabra)**
    sucursal», el estado ⛔ NO pasa a entregado**, y un `delivered` posterior sí lo pasa; `delivery_attempt` ⇒
    **alerta al admin** en tablero y tarjeta + correo al cliente (242), sin cambio de estado;
    `exception`/`retained`/`in_return`/`destroyed` ⇒ **alerta al admin con el detalle**, sin cambio de estado y
-   **sin correo al cliente**; `canceled` **por la paquetería** ⇒ alerta, sin cambiar el estado (solo se cancela
+   **sin correo al cliente** (**DECIDIDO**, pregunta 91, 2026-10-02: el dueño resuelve a mano caso por caso); `canceled` **por la paquetería** ⇒ alerta, sin cambiar el estado (solo se cancela
    lo que canceló la tienda). Un envío **sin novedad** en una hora *(SUPUESTO: dial, seed 60 min)* **se vuelve a
    consultar**; un envío **cerrado** (entregado/cancelado) **deja de consultarse**; el **mismo evento dos veces**
    (consulta repetida, webhook duplicado) **no escribe ni manda nada** (N ≥ 10, proporción). Las alertas **no
    mandan correo al dueño** (solo panel, como D-13) y **no cambian estado solas**. **⛔ Falla** si un
    `delivered_to_branch` pasa a entregado, si «Entregado» sale sin `delivered`, o si un envío con guía **manual**
    se consulta a Skydropx.
-242. **Los correos nuevos: «Entregado» solo con confirmación, «en sucursal» aparte, «intentaron entregarte» — y el
-   catálogo pasa de 15 a 18** *(T.6, §R.3; criterio 206)*: **«Entregado»** llega **solo** con `delivered` vía
-   Skydropx, lleva pedido, paquetería, guía, fecha y la **ventana de 7 días para disputar**, y ⛔ **no** llega
-   cuando el operador marca entregado a mano un envío con guía manual; **«en sucursal»** dice qué sucursal (si
+242. **Los correos nuevos: «Entregado» solo con confirmación y sin plazo de disputa, «en sucursal» aparte,
+   «intentaron entregarte» — tres filas nuevas en el catálogo** *(T.6, §R.3; criterio 206)*: **«Entregado»**
+   llega **solo** con `delivered` vía Skydropx, lleva pedido, paquetería, guía, fecha y **«¿Problema con tu
+   pedido? Escríbenos»** con el correo de soporte (⭐ 2026-10-04, decisión 12: ⛔ **falla** si menciona un plazo
+   de 7 días, la palabra «disputa» o un enlace para abrirla; vale igual para un retiro de bóveda entregado), y ⛔
+   **no** llega cuando el operador marca entregado a mano un envío con guía manual; **«en sucursal»** dice qué sucursal (si
    Skydropx la da) y que **debe recogerlo**, **una vez**, y ⛔ **no** es «Entregado»; **«intentaron entregarte»**
    sale **una vez por intento** (⛔ nunca dos por el mismo evento). **Por ausencia**: paquete que regresa /
    excepción / retenido ⇒ **nada al cliente**; guía reemitida ⇒ **el mismo** correo de guía con el número nuevo,
    ⛔ no uno nuevo. Al invitado **todos** llegan al **correo del pedido** (`guestEmail`), al registrado al de su
    cuenta, ⛔ nunca al del `addressSnapshot` ni a una cuenta anonimizada (regla de hoy, `§12.1`). **El criterio
-   206 se verifica con 18.**
+   206 se verifica con el catálogo vigente + estas tres.** *(El borrador v1.81 decía «de 15 a 18»; el contrato
+   cuenta **19** — `API_CONTRACT.md:24258`, «`C-AV-1` pasa a 19». **NO MEDIDO** por product-owner contra §R.3: QA
+   verifica contra el número del contrato, y si §R.3 y el contrato no cuadran, lo reconcilia el arquitecto.)*
 243. **Liga de rastreo solo si Skydropx la da; el invitado recibe su liga con token; línea de tiempo con datos
    mínimos** *(T.8; decisión 4)*: si la guía trae **URL de rastreo de Skydropx**, los correos de guía, salida,
    sucursal y Entregado y las páginas del cliente muestran **«Rastrear mi paquete»** con **esa** URL; si viene
@@ -11982,22 +12141,28 @@ se re-preguntan; lo marcado SUPUESTO espera su palabra)**
    que sobrevive (contracargo, reembolso total desde M3 o Stripe, cierre por «no sale nada») **y** el paquete
    **no ha sido recogido** (Skydropx en `created`): entonces se cancela, **el saldo regresa**, y queda en
    bitácora; si el paquete **ya salió**, ⛔ **no** se intenta cancelar y se levanta **alerta al admin** (lo
-   resuelve una persona). **Re-emitir** (SUPUESTO T.4.8): mientras no haya salido, el operador puede **cancelar y
+   resuelve una persona). *(Que el saldo regrese **completo**, seguro incluido, es **NO MEDIDO** — T.14; se
+   verifica contra el doble.)* **Re-emitir** (SUPUESTO T.4.8): mientras no haya salido, el operador puede **cancelar y
    comprar otra** guía desde la tarjeta; la cancelada queda en bitácora con motivo, el saldo regresa, el envío
    **sigue en «guía»** (⛔ nunca pasa a cancelado ni a «en preparación»), y el correo de guía **se reenvía** con
    el número nuevo; re-emitir sobre un paquete **ya recogido** se rechaza. Cancelar y re-emitir **a la vez** ⇒
    una sola guía viva (N ≥ 10). **⛔ Falla** si aparece un botón «Cancelar envío» en «en preparación» o «con
    guía» por esta vía.
-245. **Configuración: origen, preferente y respaldo, sucursal, empaques con códigos, Carta Porte, saldo bajo,
-   credenciales solo en secretos; todo súper-admin y auditado** *(T.9)*: la pantalla de ajustes tiene la
+245. **Configuración: integración y compra, origen, preferente y respaldo, sucursal, escalones de seguro, empaques
+   con códigos, Carta Porte, formato de etiqueta, saldo bajo, credenciales solo en secretos; todo súper-admin y
+   auditado** *(T.9 — ⭐ ampliado 2026-10-04)*: la pantalla de ajustes tiene **integración encendida/apagada**
+   (arranca apagada), la **compra de guías** en tres posiciones (arranca **apagada**, criterio 307), la
    **dirección de origen** (plantilla Skydropx, CP 14210), la **lista ordenada de paqueterías** (99minutos
-   primero), la **sucursal de entrega por paquetería** (para «Salida de hoy»), **al menos dos empaques**
-   estándar con medidas, peso y **código de empaque de Skydropx**, la **regla de empaque**, los **códigos de
-   Carta Porte**, el **umbral de saldo bajo** y el **intervalo de refresco**; cada cambio queda **auditado**
+   primero), la **sucursal de entrega por paquetería** (para «Salida de hoy»), la **tabla de escalones de seguro**
+   (arranca con $2,500 → $25 y $10,000 → $170; coberturas crecientes, ⛔ rechaza una tabla desordenada), **al
+   menos dos empaques** estándar con medidas, peso **en kilos enteros ≥ 1** (⛔ rechaza 1.5) y **código de empaque
+   de Skydropx** (arranque `5H4` sobre, `4G` caja), la **regla de empaque**, la **Carta Porte** (arranca en
+   `49101600`; ⛔ rechaza un código que no tenga 8 dígitos), el **formato de etiqueta** (arranca en hoja normal), el
+   **umbral de saldo bajo** y el **intervalo de refresco**; cada cambio queda **auditado**
    (quién, cuándo, antes → después); el **saldo** se muestra **leído en vivo**; con saldo bajo el **tablero**
    avisa (⛔ sin correo). **⛔ Falla** si el operador puede abrir o editar estos ajustes, si `client_id`,
-   `client_secret` o la URL base aparecen en el repositorio, en cualquier respuesta de API, en pantalla o en
-   registros (candado estático + canario), o si la URL base está fija en el código.
+   `client_secret` o la URL base aparecen en el repositorio, en GitHub/CI, en cualquier respuesta de API, en
+   pantalla o en registros (candado estático + canario), o si la URL base está fija en el código.
 246. **A Skydropx sale lo necesario para entregar, y nada más** *(T.11; se verifica por ausencia y lo audita
    seguridad)*: la petición de cotizar y de comprar lleva **nombre del destinatario, teléfono, correo del pedido
    (`guestEmail` si es invitado), dirección, referencias y valor declarado**; ⛔ **nunca** datos de pago, ni el
@@ -12018,8 +12183,78 @@ se re-preguntan; lo marcado SUPUESTO espera su palabra)**
    consulta periódica, **no hay** ruta de webhook de Skydropx); la **cubeta de bóveda** no ofrece cotizar ni
    guía; el **buylist** no cambia; **§S.10 sigue entero** (palomear, preparado con sello, reembolso por carta,
    «Por reponer», **sin cancelar a mano** un envío pagado — criterio 222); los **estados públicos** del cliente
-   son los mismos; y de los correos, **solo** los tres de 242 son nuevos (206 = 18). **⛔ Falla** cualquiera que
-   «aparezca porque parecía razonable».
+   son los mismos; y de los correos, **solo** los tres de 242 son nuevos (206 = el número del contrato, ver 242);
+   ⭐ *(2026-10-04)* **no existe** botón «Cotizar envío» fuera de la ventana «Capturar guía», ni sandbox, ni
+   tope de valor declarado que recorte el seguro. **⛔ Falla** cualquiera que «aparezca porque parecía
+   razonable».
+
+**Envíos con Skydropx — criterios nuevos de la actualización 2026-10-04** *(decisiones 7–12 de T.0; errata
+v1.80.11, `API_CONTRACT §M4-SHIP.19.19`; numeración siguiente a 305, medida con `Grep` el 2026-10-04)*
+
+306. ⭐💰🔒 **Puerta de compra: ninguna prueba ni ningún CI puede comprar una guía real** *(T.4.7, T.13; decisión
+   10)*: QA comprueba, cada una con **su canario** (la mutación que la pone roja, sobre copia del árbol entero
+   con su sha): **(a)** en cualquier prueba, el adaptador **real** de Skydropx se niega a comprar, cancelar o
+   proteger una guía y **no sale ni una petición** que gaste (sí puede pedir token y cotizar); **(b)** la regla que
+   decide si se puede gastar dice **«no»** en pruebas, en CI y sin el permiso de gasto, y **«sí» solo** en
+   producción con el permiso puesto; **(c)** en toda suite, **cualquier** petición a Skydropx se corta **antes de
+   salir** a la red; **(d)** el CI **no tiene** credenciales de Skydropx ni el permiso de gasto, y las rutas que
+   gastan existen en **un solo** sitio del código, junto a la puerta. La pila E2E corre **con el doble** del
+   proveedor, y un servidor configurado con el doble **y** con permiso de gasto **no arranca**. **⛔ Falla** si
+   cualquiera de las cuatro capas se puede quitar sin que una prueba se ponga roja.
+307. 💰 **La compra la autoriza el dueño con su clic** *(T.4.7; decisiones 3 y 10)*: en una instalación nueva la
+   compra arranca **apagada**: «Comprar guía» **no aparece** para nadie y el servidor rechaza la compra **sin
+   llamar a Skydropx ni escribir nada**; en **«solo el dueño compra»**, el súper-admin compra y queda en la
+   bitácora **con su nombre**, y el **operador** recorre la ventana (dirección, opciones, elegir) **sin** botón de
+   compra, con el texto *«Solo el dueño compra guías por ahora»* y «Capturar a mano» (si fuerza la petición ⇒
+   rechazo + intento en bitácora); en **«los operadores también compran»**, el operador compra con su nombre. Lo
+   que la ventana ofrece **coincide** con lo que el servidor acepta en todas las combinaciones de ajuste y rol; sin
+   el permiso de gasto del servidor, nadie compra. Cotizar **sí** funciona con la compra apagada. **⛔ Falla** si
+   un operador puede comprar con «solo el dueño», si existe un botón de compra que el servidor va a rechazar, o si
+   algún agente o proceso automático cambia el ajuste.
+308. **La ventana «Capturar guía» es la única puerta, con cuatro pasos y salida manual en todos** *(T.3.1–T.3.2;
+   decisión 7)*: con la integración **apagada**, la ventana es la captura a mano de hoy y nada más; **encendida**,
+   la ventana muestra **(1)** la dirección **precargada con la del cliente** (la del pedido o retiro), con
+   selector de colonia **de la lista del CP** si falta y ⛔ sin poder editar calle, CP ni destinatario — no avanza
+   sin colonia; **(2)** las opciones; **(3)** confirmar y comprar; **(4)** la guía. **«Capturar a mano»** está
+   visible **en los cuatro pasos**. **⛔ Falla** si hay un botón «Cotizar envío» en la tarjeta o un segundo
+   formulario de guía, o si algún paso deja al operador sin la salida manual.
+309. **La guía (y la etiqueta) regresan en la misma ventana** *(T.4.9, T.5; decisión 7: «que regrese la guía»)*:
+   tras comprar, **sin cerrar la ventana**, el operador ve **paquetería, número de guía y «Imprimir etiqueta»**
+   (abre el PDF) y, si Skydropx dio liga, **«Rastreo»**; si el número tarda, la ventana dice *«Guía en proceso»*,
+   lo sigue esperando un rato y, si no llega, se cierra dejando la tarjeta en «guía en proceso» (y el número
+   aparece solo después, criterio 237). La etiqueta sale en el **formato configurado** (arranque: hoja normal).
+   **⛔ Falla** si para ver la guía o imprimir la etiqueta hay que ir a otra pantalla o al panel de Skydropx.
+   *(Contra el doble; de dónde descarga la etiqueta la API real es **NO MEDIDO**, T.14.)*
+310. **Cada opción dice su precio con IVA y si recogen o hay que llevar a sucursal** *(T.3.4)*: cada fila muestra
+   **paquetería y servicio**, **precio con IVA y seguro incluidos** (y el desglose a la vista: envío, IVA, tarifa
+   de gestión, seguro), **días**, **«recogen»** o **«llevar a sucursal»** según lo que Skydropx diga **de esa
+   opción** (⛔ no inferido de la paquetería), **dónde se entrega** al destinatario y **margen**; si Skydropx marca
+   una promoción, se ve. Al pie, **cuántas opciones quedaron fuera y por qué**. **⛔ Falla** si un precio mostrado
+   no incluye el IVA o el seguro, si el desglose no suma el precio, o si una opción sin dato de recolección se
+   muestra como «recogen».
+311. 💰 **Seguro por escalones: siempre asegurado, al escalón que cubra** *(T.3.3, T.7, T.9; decisión 9)*: con la
+   tabla de arranque, un pedido de **MX$300** ⇒ cobertura **$2,500** a **$25**; uno de **exactamente $2,500** ⇒
+   **$2,500** (no el siguiente); uno de **$2,500.01** ⇒ **$10,000** a **$170**; y **lo mismo** viaja en la
+   cotización **y** en la compra (seguro activado y cobertura explícita — ⛔ nunca omitido ni desactivado); un
+   pedido **mayor que el escalón más alto** ⇒ **no se cotiza** por Skydropx, la ventana dice que el valor supera el
+   seguro configurado y ofrece «Capturar a mano», **sin** llamar a Skydropx; el valor a asegurar lo **calcula el
+   servidor** (un valor mandado desde la pantalla **no tiene efecto**). **⛔ Falla** si se asegura por debajo del
+   valor del pedido, si se recorta al escalón mayor, o si una cotización o compra sale sin seguro.
+312. **Carta Porte `49101600` y el código del empaque usado viajan en la compra** *(T.4.2, T.9; decisión 8)*: en
+   una instalación nueva el ajuste ya trae **`49101600`**, y toda compra lleva **ese** código (del ajuste, ⛔ no
+   fijo en el código) y el **código del empaque elegido** (`5H4` sobre / `4G` caja). Cambiar la Carta Porte a un
+   valor que no sea de 8 dígitos se **rechaza**. **⛔ Falla** si la compra puede salir sin Carta Porte o con un
+   código de empaque que no corresponde al empaque elegido.
+313. **99minutos: preferida y sin recolección** *(T.3.5; decisión 2)*: cuando 99minutos aparece en la cotización
+   queda **preseleccionada como «la recomendada» aunque otra sea más barata**, y su fila dice **«llevar a
+   sucursal»**; **no existe** forma de pedirle recolección (ni a ninguna otra paquetería); en «Salida de hoy» sus
+   paquetes salen agrupados en **su sucursal configurada**. Si 99minutos **no cubre** el destino, se preselecciona
+   la siguiente del orden configurado. **⛔ Falla** si se preselecciona la más barata en lugar de 99minutos, o si
+   aparece un botón o verbo de recolección.
+314. **J&T no aparece** *(T.3.6)*: con el fixture medido (J&T con precio pero **no disponible por API**), **ninguna
+   fila** de J&T se muestra — ni con «ver todas»— y cuenta en el pie *«no disponibles por API»*; lo mismo para
+   cualquier opción marcada no disponible, sin cobertura, multi-paquete o con desglose que no cuadra. **⛔ Falla**
+   si J&T se puede elegir o comprar.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -16026,7 +16261,12 @@ ese frente:**
 - **P-JOY-6 · ¿La regla nueva vale también para el badge de la rejilla y la burbuja de destacadas?** Default: **no,
   solo la vitrina**; la rejilla, destacadas y la ficha siguen como hoy. Consecuencia: una carta barata puede estar en
   la vitrina y salir sin badge en la rejilla. §Y.4, criterio 304.
-## Preguntas abiertas — Envíos con Skydropx (§T, v1.81 · 2026-09-29)
+## Preguntas abiertas — Envíos con Skydropx (§T, v1.81 · 2026-09-29; ⭐ actualizado 2026-10-04)
+
+> ✅ **88–91 RESPONDIDAS el 2026-10-02**: el dueño acepta los defaults tal como se mapearon (*«de las preguntas de
+> skydropx déjalas como las mapeaste»*, fila de `HECHOS.md` «~~Skydropx — preguntas 88–91…~~ ⇒ RESPONDIDAS
+> 2026-10-02»). Quedan como **DECIDIDO** en T.6, T.7 y los criterios 238 y 241. Se conservan abajo como registro.
+> **Única pregunta abierta de §T: P-SDX-1** (al final), con default; no bloquea.
 
 > **Solo las que de verdad quedan abiertas.** Del levantamiento (§6, §9, §11.2) ya están contestadas por sus
 > seis decisiones en `HECHOS.md`: la tarifa (no cambia), cuándo se compra la guía (al preparar, eligiendo el
@@ -16037,7 +16277,7 @@ ese frente:**
 > empaques, umbral de saldo bajo, orden de respaldo) **no son preguntas**: los captura usted en la pantalla de
 > ajustes (§T.9) y traen un valor de arranque.
 
-88. **[ABIERTA — NO BLOQUEA — dinero, chico] Cuando Skydropx cobra un extra DESPUÉS de comprar la guía
+88. **[✅ RESPONDIDA 2026-10-02: (a) se absorbe] [era: ABIERTA — NO BLOQUEA — dinero, chico] Cuando Skydropx cobra un extra DESPUÉS de comprar la guía
    (sobrepeso, zona extendida, devolución): ¿se le cobra al cliente o lo absorbe la tienda?**
    **El hecho**: los cargos extra existen y llegan días después (levantamiento §8.1, §9 D3). Hoy no tienen dónde
    caer; con §T.7 caen como **ajuste** al costo de ese envío.
@@ -16046,13 +16286,13 @@ ese frente:**
    cobro nuevo, y es zona de dinero).
    **Qué confirmar**: **(a)** se absorbe —**vigente**—; **o (b)** se cobra al cliente, y entonces **cómo** (es
    trabajo nuevo: un cobro posterior, con su correo y su consentimiento).
-89. **[ABIERTA — NO BLOQUEA — contable] El ajuste por cargo extra, ¿en qué mes cae en el P&L: en el mes del
+89. **[✅ RESPONDIDA 2026-10-02: (a) mes del cargo] [era: ABIERTA — NO BLOQUEA — contable] El ajuste por cargo extra, ¿en qué mes cae en el P&L: en el mes del
    envío o en el mes en que llegó el cargo?**
    **Default escrito (SUPUESTO)**: **en el mes del cargo** (su fecha propia). Razón: no reabre un mes ya cerrado
    y M7 lo muestra aparte como *«ajustes de paquetería»*, así que el costo del envío original no se reescribe.
    **Qué confirmar**: **(a)** mes del cargo —**vigente**—; **o (b)** mes del envío (M7 tendría que **re-emitir**
    el mes anterior); su contador puede tener opinión.
-90. **[ABIERTA — NO BLOQUEA — dinero, raro] Si en un RETIRO la cotización venció (24 h) y al comprar la guía sale
+90. **[✅ RESPONDIDA 2026-10-02: (a) la absorbe la tienda] [era: ABIERTA — NO BLOQUEA — dinero, raro] Si en un RETIRO la cotización venció (24 h) y al comprar la guía sale
    más cara, ¿quién absorbe la diferencia?**
    **El hecho**: el retiro se paga **antes** de que el operador cotice (levantamiento R4). Con su decisión 3 el
    operador cotiza **al preparar**, así que la diferencia solo aparece si deja pasar más de 24 h entre cotizar y
@@ -16060,7 +16300,7 @@ ese frente:**
    **Default escrito (SUPUESTO)**: **la absorbe la tienda**. Razón: el cliente ya pagó **MX$203 fijo**; volverle a
    cobrar rompe la tarifa fija que usted mantuvo.
    **Qué confirmar**: **(a)** la absorbe la tienda —**vigente**—; **o (b)** otra cosa, y dígala en forma de regla.
-91. **[ABIERTA — NO BLOQUEA — operación] Cuando un paquete NO se pudo entregar y REGRESA (o queda retenido /
+91. **[✅ RESPONDIDA 2026-10-02: (a) a mano, caso por caso, sin correo] [era: ABIERTA — NO BLOQUEA — operación] Cuando un paquete NO se pudo entregar y REGRESA (o queda retenido /
    con excepción), ¿qué hace la tienda: reexpedir con guía nueva (a costo nuestro o del cliente), o reembolsar?
    ¿Y se le escribe al cliente?**
    **El hecho**: Skydropx reporta `in_return`, `exception`, `retained`, `destroyed` (levantamiento §8.2 R7); hoy
@@ -16073,3 +16313,11 @@ ese frente:**
    **Qué confirmar**: **(a)** a mano, caso por caso —**vigente**—; **o (b)** una regla (por ejemplo: *«primer
    regreso: reexpedir a nuestro costo; segundo: reembolsar»*) y **si el cliente recibe correo** cuando su paquete
    regresa — con eso se vuelve requisito y correo del catálogo.
+
+- **P-SDX-1 · [ABIERTA — NO BLOQUEA — operación] ¿En qué imprime usted las etiquetas: hoja normal o impresora
+  térmica de etiquetas?** *(2026-10-04; la pide el arquitecto, `API_CONTRACT §M4-SHIP.19.19.8` y `.18`)*
+  **El hecho**: Skydropx entrega la etiqueta en formato **hoja** (carta/A4, cualquier impresora de oficina) o
+  **térmico** (rollo de etiquetas adhesivas, impresora especial). Qué impresora tiene usted es **NO MEDIDO**.
+  **Default (SUPUESTO, T.5/T.9)**: **hoja normal**. Es un ajuste de la pantalla de configuración: si compra una
+  térmica después, lo cambia usted sin construir nada.
+  **Qué confirmar**: **(a)** hoja normal —**vigente**—; **o (b)** térmica (y, si la sabe, la medida del rollo).
