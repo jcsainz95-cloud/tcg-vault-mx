@@ -1,3 +1,161 @@
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de la errata v1.80.12.9 (control del gasto §Z y cierres C-14…C-18)** (`API_CONTRACT §M4-SHIP.19.29`; `ARCHITECTURE §4.60 (v)`) · SHA **`0363f7e2`** (rama `claude/skydropx-d`, medido con `git log -1` y `git fetch`: local = remoto) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO
+> - **C-14…C-18: CERRADAS en diseño.** C-14 cierra SDX-D-21 lo bastante para construir D2d. Queda un residuo bajo
+>   (SDX-Z-5), que entra en D2d como C-19.
+> - **§Z (TG-1, TG-2, avisos, `isOwnerAccount`, endpoints): APROBADO CON CONDICIONES.** No hay críticos ni altos. Hay
+>   **3 medios**: el «dueño» se deduce de un dato que no lo garantiza (SDX-Z-1); un súper-admin vigilado puede apagar su
+>   propia vigilancia (SDX-Z-2); y cancelar con reembolso desconocido baja el contador del tope (SDX-Z-3).
+> - **D2c: DESBLOQUEADA**, con C-22 y C-23 dentro (abajo, como pruebas que deben fallar).
+> - **D2d: DESBLOQUEADA**, con C-19 dentro.
+> - **D2g: DESBLOQUEADA para construir.** C-20 y C-21 deben estar en verde **antes de fusionar D2g** y, en cualquier caso,
+>   antes de que el dueño encienda `shipping_label_purchase` en producción.
+>
+> **0 críticos · 0 altos · 3 medios · 3 bajos · 3 info** (todos nuevos).
+>
+> **Lo mínimo para aprobar la errata entera:** una errata del arquitecto que meta C-20…C-23 (y C-19 en §19.29.1.5), y la
+> medición de SDX-Z-1 en producción (la corre el dueño, solo lectura). **No es el veredicto de la release.** La fase
+> completa sigue pendiente en el gate E.
+
+**Lo que medí yo (2026-10-04).** Lectura y grep sobre el árbol vivo y sobre `HEAD`. **No ejecuté nada**, así que no hice
+copia. Lo que hay en `backend/` sin commitear (D2a en curso) **no** lo revisé.
+- Contrato `:27119-27500` (§19.29 entera), `:26977-27003` (§19.28.6), `:24006-24012` (`PurchaseInput`), `:24373-24385`
+  (`auto_close`). Arquitectura `:27687-27722`. `HECHOS.md:51,58,62`.
+- **¿Algún verbo cambia el rol de una cuenta?** Medí `git grep` de `user.update|updateMany|upsert` en `backend/src`,
+  `backend/prisma/*.ts` y scripts, más `UPDATE "User"` crudo. **Ningún** escritor toca `role` después del alta:
+  `admin.service.ts:1456-1462` (solo `status`), `:1489-1497` (contraseña), `:1616-1630` (anonimizar), `auth.service.ts:132,
+  222,301,388,499` (versión de token, verificación, contraseña, enlace de Google por correo **existente**),
+  `users.service.ts:225-237` (`updateMe` arma `data` a mano: `name`, `phone`, `locale`), `reset-admin-password.ts:214`
+  (contraseña). `seed.ts:55,74` hace `upsert` con `update: {}`. Y **ningún** verbo añade correo a una cuenta sin correo:
+  no hay flujo de cambio de correo (`git grep changeEmail|newEmail` ⇒ 0), y el alta de staff con correo da `422`
+  (`admin.service.ts:730-735`). **Respuesta a la pregunta del arquitecto: no existe hoy.** El hueco está en otro sitio
+  (SDX-Z-1).
+- `M-63` (`20261005120000_m63_staff_username/migration.sql:11-12`): **sin backfill**, «ninguna cuenta existente pierde su
+  correo». Antes de v1.80.9 el correo era obligatorio para todos.
+- `admin.service.ts:1473-1499` (`resetPassword`) y `audited-super-admin.guard.ts:44`: **cualquier** súper-admin restablece
+  la contraseña de **cualquier** cuenta, incluida otra de súper-admin, y la temporal vuelve en la respuesta.
+  `updateUserStatus` (`:1456`) tampoco filtra por rol.
+- `money-out.guard.ts:32-46`: lee el rol del JWT; si no es `super_admin` escribe `money_out.blocked` y responde `403
+  MONEY_OUT_FORBIDDEN`. `audit.service.ts:101-115`: la bitácora por usuario que ve el operador **nunca** trae
+  `before/after`, así que las cifras de `label_purchase_limited` no le llegan por ahí.
+- `settings.controller.ts:18-19`: hoy `@Roles(super_admin)` de clase, como dice la errata.
+
+## 1. ¿Cierran C-14…C-18?
+
+| Cond. | Estado | Por qué | Prueba |
+|---|---|---|---|
+| **C-14** (SDX-D-21) | **Cerrada.** D2d desbloqueada | (b) prohíbe cancelar si la guía vigente es `manual`, y eso por sí solo mata el camino de SDX-D-21 («Liberar» y capturar a mano). (c) añade una defensa independiente por número de rastreo. (a) falla cerrado sin rastreo. (d) limita el radio de un parseo roto a 3 por día. Residuo en SDX-Z-5 | PS-130 (a)(b)(c) + control positivo |
+| **C-15** (SDX-D-20) | **Cerrada**, con un ajuste (SDX-Z-4) | `folioTokenOf` anclado a `^PEDIDO ENV-(\d{6,})-(\d{2})$`. Para forjarlo, un campo del cliente tendría que volver **entero** como `reference`. La neutralización enumera seis campos, y la colonia, el municipio y el estado (ahora texto libre del cliente, `HECHOS` «Colonia como Mercado Libre») viajan en la cotización y no están en la lista | PS-129 (i)(j), PS-135 (c)(d) |
+| **C-16** (SDX-D-24) | **Cerrada** | I-SENT es una columna (`sentAt`) con `@@unique(envío, since)`, escrita en la tx del 7b, y el fallo de esa escritura da 0 `purchase`. Ya no se busca en JSON | PS-134 (c)(d) |
+| **C-17** (SDX-D-22) | **Cerrada** | Doble CAS (fila del envío y fila del intento con `sentAt: null`), con el CAS inverso al liberar. Las dos ramas se excluyen **por fila**, así que el desfase de reloj entre instancias ya no decide nada | PS-137 |
+| **C-18** (SDX-D-23) | **Cerrada** | `-NN` fijo, `\d{6,}`, `lpad` con `greatest(6, length)`; `attemptNo` en una fila sin purga, `1 + max` bajo el candado de fila. Buen hallazgo del arquitecto: el `lpad` de `M-67` truncaba | PS-135 (d)(e) |
+
+## 2. Las preguntas del encargo
+
+### 2.1 ¿Se pueden saltar los topes?
+
+| Vía | Juicio |
+|---|---|
+| **Carrera** (dos `POST …/label` a la vez) | **Resiste.** `checkLabelLimits` va dentro de la tx de `pg_try_advisory_xact_lock`, y el `INSERT` del intento va en la misma tx. El segundo ve el intento del primero o recibe `purchase_in_flight`. PS-140 con N ≥ 10 |
+| **Comprobación previa (paso 2) contra la del paso 7** | **Resiste.** La del paso 2 es solo lectura y sirve para negar antes de la red. La que manda es la del paso 7 |
+| **Otra cuenta (operador)** | Por diseño, el tope es por persona. Dos operadores suman 2 × MX$2,500, y eso es aceptado. Un operador no puede crear cuentas (alta solo súper-admin, `AuditedSuperAdmin('create')`). **Un súper-admin vigilado sí puede:** crea N operadores y gasta N × tope ⇒ SDX-Z-2 |
+| **«Capturar a mano»** | Fuera de los topes por decisión (criterio 338), y es correcto: no gasta de nuestro saldo. **Excepto** si quien captura compró la guía en el **panel de Skydropx** con nuestra cuenta: esa compra no pasa por TG-1/TG-2 ni lleva folio, y la conciliación solo mira guías con folio ⇒ **nada** avisa salvo AG-7 (saldo bajo) ⇒ SDX-I-7 |
+| **Cancelar para bajar el contador** | **Se puede. SDX-Z-3 (Media).** `spendOfPaidLabel` = `unrefundedCents ?? 0` para una cancelada. Con `CANCEL_REFUND_VERIFIABLE = false`, toda cancelación sin cifra cuenta **0** al instante. El bucle es: compra MX$2,500, cancela todo (vuelve a 0), compra otra vez. Lo acota TG-2 (2 guías pagadas por envío) y el número de envíos preparados. Lo **detectan** AG-4 (iii) a las 3 cancelaciones en 24 h (🔴 con correo) y AG-8 al día 3, pero el tope **preventivo** queda roto justo en el caso que el dueño quería cubrir: que Skydropx no devuelva el dinero (SEC-SDX-11, NO MEDIDO) |
+| **`auto_close` como vía de cancelación** | No aporta. Solo lo disparan el contracargo y el reembolso total (`API_CONTRACT:24373-24376`), que tienen su propio tope y su aviso (AG-14) |
+| **Súper-admin vigilado** | **Puede subir su tope o apagar los avisos.** Ver SDX-Z-2 |
+
+### 2.2 ¿Se puede conseguir `isOwnerAccount`?
+
+- **Cambio de rol: no** (medido arriba, ningún escritor de `role` ni de `email` después del alta).
+- **Alta nueva de súper-admin con correo: no** (`422 staff_without_email`).
+- **Cuentas heredadas: sí, y es la forma probable. SDX-Z-1 (Media).** Todo súper-admin dado de alta **antes de v1.80.9**
+  tiene correo, porque `M-63` no hizo backfill (`migration.sql:11-12`). Cada uno de esos `isOwnerAccount = true`
+  significa: exento de TG-1/TG-2, sus actos no generan avisos «sobre una persona», y **recibe los correos del dueño**
+  (nombres del personal, montos, gasto por persona). La premisa de §19.29.3, «hoy la única forma de ser súper-admin con
+  correo es ser la cuenta del dueño», **no se cumple por construcción. Es un hecho de datos sin medir.** Cuántos
+  súper-admin con correo hay en producción: **NO MEDIDO.** Lo mide el dueño con una consulta de solo lectura (C-20).
+- **Tomar la cuenta del dueño: sí. Es parte de SDX-Z-2.** Cualquier súper-admin pulsa «Restablecer contraseña» sobre la
+  cuenta del dueño (`admin.service.ts:1473-1499`, sin filtro de rol ni de dueño), recibe la temporal y entra **como
+  dueño**. Ya no tiene topes y sus actos dejan de avisar. Antes de §Z ser súper-admin y ser el dueño daba los mismos
+  poderes, así que esto no ganaba nada. **§Z crea un escalón nuevo («el dueño») y no protege la entrada.** Se nota: el
+  dueño queda fuera de su sesión y sin poder entrar hasta que use «olvidé mi contraseña». Queda bitácora
+  `user.reset_password`. Bloquear o borrar al dueño (`updateUserStatus`, `deleteUser`) deja al sistema **sin
+  destinatario** (`no_recipient`, solo un `warn` en el log).
+
+### 2.3 ¿Los correos al dueño filtran datos del cliente? — **No, por diseño.**
+La lista blanca por tipo (`toSpendAlertMail`), AG-1 con `changedKeys` sin valores, `facts` sin PII y PS-153 con
+canarios en **cada** tipo cubren lo que pedí. Lo que viaja (nombre del personal, número de pedido, folio, montos) no es
+del cliente. Una sola condición de forma: el «enlace al interruptor `shipping_label_purchase`» debe llevar a una
+**página**. Nunca un GET que cambie estado ni un enlace con token, porque los escáneres de correo siguen los enlaces ⇒
+SDX-I-8.
+
+### 2.4 ¿Se puede inundar al dueño o tapar un aviso grave?
+- **Inundar: no.** Como máximo 5 correos más 1 de lote por hora de reloj (en el cambio de hora pueden juntarse 10 en dos
+  minutos, y es aceptable). El `dedupKey` único impide repetir: AG-3 repetido sube `occurrenceCount`, no manda correo. El
+  envío es a lo sumo una vez (`failed_unknown` no se reintenta).
+- **Tapar: se puede retrasar, no perder. SDX-Z-6 (Baja).** El cupo de 5 se reparte por orden de llegada. Un operador
+  que corrige la dirección y compra en 5 envíos genera 5 AG-1 🔴 reales y gasta el cupo de la hora. El siguiente 🔴 del
+  sistema (fusible de huérfanas, paquete destruido, gasto sin explicar) baja al lote y llega hasta ~65 min después, como
+  una línea entre otras. Ningún aviso se pierde: sigue en el panel y en el resumen.
+- **Apagar avisos:** `spend_alerts_disabled` hace `no-op` **sin fila**. En manos del dueño es su decisión. En manos de
+  otro súper-admin borra la evidencia ⇒ SDX-Z-2.
+
+### 2.5 ¿El operador ve o marca avisos sobre sí mismo? — **No.**
+`@Roles(op, sa)` + `@MoneyOut()` de clase: el operador recibe `403 MONEY_OUT_FORBIDDEN` con `money_out.blocked` en
+**todas** las rutas, incluidos los `GET` (`money-out.guard.ts:32-46`), y `workQueue.spendControl = null`. La bitácora por
+usuario que sí ve no trae `after` (`audit.service.ts:101-115`). La negativa `LABEL_PURCHASE_LIMIT` no lleva cifras.
+**El súper-admin vigilado sí puede:** lista y marca como vistos los avisos sobre sí mismo. Con eso los saca de la tarjeta
+del dueño (`unseenImmediate`), aunque no del correo ni del resumen ⇒ parte de SDX-Z-2.
+
+## 3. Hallazgos nuevos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-Z-1** | Media | `isOwnerAccount` deduce «dueño» de «súper-admin con correo». Todo súper-admin anterior a v1.80.9 tiene correo (`M-63` sin backfill), así que sería «dueño»: exento de topes, sin avisos sobre él, destinatario de los correos. Cuántos hay en producción: NO MEDIDO | §19.29.3; `M-63:11-12` | **humano** (medir) → arquitecto (errata) → backend |
+| **SDX-Z-2** | Media | Un súper-admin que no es el dueño controla su propia vigilancia, en contra de P-GAS-9 («vigilar también a otros súper-admin») y de «configurable **por el dueño**» (`HECHOS.md:62`): **(i)** cambia los diales de §Z (tope hasta 1e8, recompras hasta 10, `spend_alerts_disabled`, que ni siquiera deja fila); **(ii)** restablece la contraseña del dueño y entra como él, o lo bloquea y deja el sistema sin destinatario; **(iii)** crea operadores para multiplicar el tope; **(iv)** marca como vistos los avisos sobre sí mismo. Todo queda en bitácora, pero **nada avisa al dueño** | §19.29.3, §19.29.8 (SettingsController), §19.29.9 (`seen`); `admin.service.ts:1456,1473-1499` | arquitecto → backend |
+| **SDX-Z-3** | Media | TG-1 falla abierto con el reembolso desconocido: una guía cancelada con `unrefundedCents = null` cuenta 0 al instante. Con `CANCEL_REFUND_VERIFIABLE = false` es **toda** cancelación sin cifra. Bucle compra–cancela–compra por encima del tope, acotado por envíos × (1 + recompras). Se detecta (AG-4 (iii), AG-8), pero no se previene | §19.29.4 (`spendOfPaidLabel`), PS-139 («con `null` ⇒ 0») | arquitecto → backend |
+| **SDX-Z-4** | Baja | C-15 enumera seis campos de `PurchaseInput.to`. La colonia, el municipio y el estado (texto libre del cliente) viajan en la **cotización** sin neutralizar, y no hay normalización Unicode (`ＥＮＶ－`, guiones tipográficos) antes del patrón | §19.29.1.2 | arquitecto → backend |
+| **SDX-Z-5** | Baja | Residuo de C-14 con el envío `cancelado`. Si S llevaba una guía **manual** que ya salió (contracargo o reembolso total en tránsito) y la comparación de rastreo falla (formato con guiones, rastreo maestro contra rastreo de bulto), (b) pasa por «cancelado» y se cancela la guía en tránsito. Además, el fusible cuenta filas que se escriben **después** de `cancel`: una cancelación con resultado desconocido no gasta fusible | §19.29.1.5 (b)(c)(d) | arquitecto → backend (D2d) |
+| **SDX-Z-6** | Baja | El cupo de 5 correos por hora se gasta por orden de llegada. Los avisos 🔴 de una persona retrasan hasta el lote (~65 min) un 🔴 del sistema | §19.29.5 | arquitecto → backend (D2g) |
+| **SDX-I-7** | Info | Una guía comprada en el **panel de Skydropx** (sin folio, id desconocido) no pasa por TG ni genera AG. Solo AG-7 la delata. Las credenciales del panel deben ser solo del dueño | §19.28.6, §19.29.6 AG-9 | humano; arquitecto (opcional: AG-9 `cause:'unattributed'`) |
+| **SDX-I-8** | Info | El enlace al interruptor en el correo debe llevar a la página de ajustes, nunca a un GET que actúe ni a un token | §19.29.5 | backend / ux-ui |
+| **SDX-I-9** | Info | La cuenta del dueño pasa a ser la única identidad sin tope y la que recibe los avisos, y entra sin segundo factor (`HECHOS.md:50`). Es la cuenta más valiosa del sistema | §19.29.3 | humano |
+
+## 4. Condiciones, escritas como pruebas que deben fallar
+
+Mismas reglas que C-1…C-18: copia del árbol **entero** con su sha, mutación demostrada en rojo, carreras con barrera
+y N ≥ 10 con su proporción y su autor, reloj y constantes inyectados, ⛔ nunca la red.
+
+| # | Antes de | Prueba que debe fallar con el diseño actual | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|---|
+| **C-19** | D2d | PS-130 gana **(d)**: S `cancelado` cuya guía vigente es `manual` con `trackingNumber = "1Z-999-AA1"` y `getShipment(Y)` con rastreo `"1Z999AA1"` y estado de paquetería `in_transit` ⇒ **0** `cancel` y AG-9 🔴. Dos reglas nuevas: `normalize` quita **todo** lo que no sea alfanumérico; y se exige que `getShipment(Y)` no muestre movimiento de paquetería (`carrierStatus ∈ {null, created}`). **(e)** Fusible: el doble de `cancel` lanza un *timeout* (resultado desconocido) tres veces ⇒ la 4.ª huérfana **no** se cancela. El fusible cuenta una fila de intención escrita **antes** de llamar (por ejemplo `ShipmentPaidLabel.cancelKind='orphan_auto'` con un sello previo), no la bitácora posterior | quitar la condición de movimiento ⇒ (d); normalizar solo espacios ⇒ (d); contar solo los éxitos ⇒ (e) | SDX-Z-5 | arquitecto → backend |
+| **C-20** | fusionar D2g / encender en prod | **(a)** Medición del dueño, de solo lectura: `SELECT count(*) FROM "User" WHERE role='super_admin' AND email IS NOT NULL AND status='active' AND "deletedAt" IS NULL` ⇒ esperado **1**. Si sale > 1, el arquitecto decide (quitar el correo a los heredados, o marcar al dueño de forma explícita). **(b)** Prueba: con dos súper-admin con correo activos en la base, `spend-watch` crea **un** aviso 🔴 `owner_set_changed` (o el arranque registra `error`), y el conjunto «dueño» queda **fijado**: un id nuevo que aparezca en el conjunto respecto de la corrida anterior ⇒ aviso al conjunto anterior. Con la errata actual no hay nada que lo detecte | quitar la comprobación ⇒ (b) en verde sin aviso | SDX-Z-1 | humano (a); arquitecto → backend (b) |
+| **C-21** | fusionar D2g | Con un súper-admin **sin** correo (vigilado) V: **(a)** `PUT /admin/settings` de `operatorLabelCap24hCents`, `shippingLabelReissueMaxPerShipment`, `spendAlertsDisabled` o cualquier dial de §19.29.8 ⇒ `403` con bitácora (solo `isOwnerAccount` los cambia), **o** bien se permite pero crea un aviso 🔴 con correo inmediato al dueño (decide el arquitecto; prefiero el `403`). **(b)** `POST /admin/users/<dueño>/reset-password` y `PATCH …/<dueño>/status` hechos por V ⇒ `403` con bitácora. El dueño se restablece por «olvidé mi contraseña» o con el script de rescate. **(c)** V da de alta un operador ⇒ aviso al dueño (🟡 en el resumen basta). **(d)** `POST /admin/spend-alerts/seen` de V sobre un aviso con `subjectUserId = V` ⇒ `updated: 0` y el aviso sigue sin ver. **(e)** `spend_alerts_disabled` apaga el **correo**, no la fila: un tipo apagado sigue creando el aviso en el panel con `mailStatus='not_applicable'` | `@MoneyOut()` a secas sin `isOwnerAccount` ⇒ (a); `resetPassword` sin filtro ⇒ (b); `seen` sin excluir al sujeto ⇒ (d); `no-op` sin fila ⇒ (e) | SDX-Z-2 | arquitecto → backend |
+| **C-22** | D2c | PS-139 cambia una fila: guía cancelada con `unrefundedCents = null` ⇒ cuenta **`chargedCents`** en TG-1 (falla cerrado) mientras el reembolso no esté confirmado. Y PS-138 gana: operador con tope 250000 compra 15 guías de 15000 (225000), las cancela todas con reembolso **desconocido** y pide otra de 30000 ⇒ `403 LABEL_PURCHASE_LIMIT {limit:'daily_spend'}` y **0** llamadas al doble. Con reembolso **entero** conocido sigue pasando (fila actual de PS-138). El P&L puede seguir con su supuesto; el tope no | `unrefundedCents ?? 0` ⇒ compra la 16.ª | SDX-Z-3 | arquitecto → backend |
+| **C-23** | D2c | PS-135 (c) se amplía: la fixture pone «Pedido ENV-000046-01» también en colonia, municipio, estado, `line2` y referencias, y en una variante con `ＥＮＶ－000046－01` (ancho completo) y con `‐`/`–`. Ni el cuerpo de la **cotización** ni el de la **compra** que recibe el doble contienen, tras NFKC, `/ENV\s*[-‐–—]\s*\d/i` fuera de `address_to.reference`. La neutralización se aplica **por construcción** a todo campo de texto de `address_to` en los dos puertos, recorriendo las llaves, no con una lista | lista fija de seis campos ⇒ la colonia pasa; sin NFKC ⇒ el ancho completo pasa | SDX-Z-4 | arquitecto → backend |
+| **C-24** | D2g (no bloquea) | PS-153 gana: 5 AG-1 🔴 del mismo sujeto en 10 min y luego un AG-9 🔴 `orphan_fuse` ⇒ el AG-9 sale como correo **individual** en esa hora. Regla sugerida: como máximo 2 correos inmediatos por `subjectUserId` y hora; lo demás de esa persona va al lote | cupo solo global ⇒ el AG-9 baja al lote | SDX-Z-6 | arquitecto → backend |
+
+## 5. Deuda aceptada (no bloquea)
+- **Tope por persona, no por equipo.** Dos operadores suman dos topes. Disparador: el dueño pide un tope global de
+  guías al día.
+- **Comprobar el reembolso de una cancelación** (`CANCEL_REFUND_VERIFIABLE = false`). Con C-22 deja de ser un hueco del
+  tope y queda como deuda de exactitud del P&L. Disparador: `M-PRD-7` mide `transaction_stats`.
+- **La puerta de la hora de reloj** (hasta 10 correos en dos minutos alrededor del cambio de hora). Disparador: queja
+  del dueño.
+- SDX-I-5 sigue aceptada (el folio secuencial; `§19.29.1.7`).
+
+## 6. Banderas para el humano
+1. **Mide cuántos súper-admin con correo hay** (C-20 (a)). La consulta es de solo lectura y la corres tú donde ya vive la
+   credencial. Si sale más de uno, el sistema trataría a esa persona como «el dueño».
+2. **Las credenciales del panel de Skydropx, solo tuyas.** Una guía comprada en el panel no pasa por los topes ni avisa
+   (SDX-I-7).
+3. **Tu cuenta pasa a ser la más valiosa:** sin tope y la que recibe los avisos. Conviene un segundo factor en ella
+   antes de operar con el gasto encendido (SDX-I-9).
+4. Siguen vigentes: la fase completa de la release, PG-1 con el saldo medido antes y después, y un pentest de terceros
+   antes de operar con dinero real.
+
+---
+
 # VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de la errata v1.80.12.8 (el folio nuestro), antes de D2c** (`API_CONTRACT §M4-SHIP.19.28`; `ARCHITECTURE §4.60 (u)`) · SHA **`2612064e`** (rama `claude/skydropx-d`, medido con `git log -1` y `git fetch`: local = remoto) · 2026-10-04
 
 > ## VEREDICTO DE DISEÑO
