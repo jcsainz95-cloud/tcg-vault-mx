@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.7 — 💰 LA COMPRA EN VUELO SE VERIFICA SOLA** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado
+> por el orquestador `41e22eca`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.7**; norma en
+> `API_CONTRACT §M4-SHIP.19.27`; porqué en **§4.60 (t)**. Origen: `HECHOS.md:59`. Una compra en vuelo a la vez; foto del
+> saldo tras el reclamo; el job adopta la guía si aparece en los envíos recientes y libera solo si dos lecturas tardías
+> dicen «ni envío ni cargo» (apagado hasta calibrar con compras reales); el reintento es un clic; «Liberar», respaldo. Sin
+> endpoint, columna ni migración.
+>
 > **Rev v1.80.12.6 — 🔒💰 REVISIÓN DE DISEÑO DE SEGURIDAD ANTES DE D2c Y QUIÉN COMPRA** (2026-10-04, arquitecto, rama
 > `claude/skydropx-d`, HEAD dado por el orquestador `31ba38cc`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a
 > **v1.80.12.6**; norma en `API_CONTRACT §M4-SHIP.19.26`; porqué en **§4.60 (s)**. Origen: `SECURITY_NOTES.md:1-137`
@@ -27585,6 +27592,40 @@ cerrada (errata), no antes.
 **Deuda que deja (s):** `findByReference` no existe (sin llave medida) ⇒ «Liberar» depende de que una persona mire el
 panel; disparador en §19.26.5. Qué hace Skydropx con un envío creado con error es NO MEDIDO (`PG-n`). La guarda previa
 puede bloquear una compra legítima si Skydropx admite la misma `rate_id` dos veces (`PG-2`).
+
+**(t) 💰 v1.80.12.7 — la compra en vuelo se verifica sola** (norma en `API_CONTRACT §M4-SHIP.19.27`; origen
+`HECHOS.md:59`: «lo más automático posible», lo manual como respaldo). Una idea gobierna el diseño: **la evidencia
+positiva basta sola; la negativa exige dos testigos independientes, tardíos y sin nadie más moviendo nada.** Un falso
+«encontrada» se evita con unicidad y cuadre; un falso «no cobró» costaría una guía duplicada, así que se exige más.
+
+```
+compra ─► timeout/5xx/red ─► «en vuelo» (reclamo retenido; bloquea otras compras ≤ 15 min)
+   │                              │ job cada min
+   │                              ├─ envío desconocido, único, que cuadra ─► ADOPTA (guía)            [desde el día 1]
+   │                              ├─ 2 lecturas limpias (0 envíos ∧ saldo igual) ─► LIBERA solo ─► operador re-cotiza y compra (clic)
+   │                              │                                                [apagado hasta calibrar]
+   │                              └─ 15 min sin decidir ─► INCIERTO {reason} ─► «Liberar» (respaldo, P-SDX-REL)
+   └─ paso 7b: foto del saldo tras el reclamo (bitácora)
+```
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **Combinar listado de envíos + saldo** | Solo saldo | El saldo no dice de quién es un movimiento: lo mueven compras del panel, recargas, reembolsos de cancelación y cargos extra. Su igualdad es buen testigo negativo, nunca positivo |
+| | Solo listado | Con 0 envíos en la cuenta no se midió si el envío aparece, cuándo, ni con qué campos (SONDA:100-103). Un listado que tarda hace pasar un «no está todavía» por «no existe» |
+| | Webhooks | Ninguna ruta de lectura existe (PROD §6) y la referencia solo habla de cambios de estado; no se diseña sobre lo no documentado |
+| **Una compra en vuelo a la vez** (candado consultivo, ≤ 15 min) | Dejar compras en paralelo y cuadrar por campos | Sin serialización el delta del saldo y el envío nuevo no son atribuibles. El costo es esperar ≤ 30 s en la compra normal; el bloqueo largo solo existe si una compra quedó en vuelo, y se levanta a los 15 min |
+| **Foto del saldo DESPUÉS del reclamo** | Reusar la lectura del paso 6 | Antes del reclamo, otra compra que termine en medio quedaría dentro o fuera de la foto sin saberlo |
+| **Dos lecturas limpias, ≥ 2 min, desde el min 5, saldo igual al centavo y sin contaminación** | Una lectura; «el saldo no bajó» (delta ≤ 0) | Una recarga simultánea hace subir el saldo aunque hayamos pagado; un débito con retraso pasa por «no bajó» en la primera lectura |
+| **Liberación automática apagada hasta calibrar** (`INFLIGHT_NEGATIVE_VERIFIED`) | Encenderla ya con tiempos supuestos | No se sabe cuándo se descuenta el saldo ni cuándo aparece el envío: la cuenta nunca compró. La calibración pasiva sobre las compras reales del negocio lo mide sin gastar de más, con proporción (O-3) |
+| **Constantes en código, no diales** | Un dial del súper-admin | Son hechos medidos, no preferencias del dueño; un dial permitiría encenderla sin la medición. Cambian por errata con la cita |
+| **El reintento es un clic** | Reintentar la compra desde el job | C-2 / SDX-D-2 (un solo llamador de `purchase`), CA #16 (nadie compra a una cifra que no vio) y la puerta exige actor. La automatización llega hasta el dinero, no lo cruza |
+| **Estado en la bitácora** (`label_purchase_sent`, `label_verify_*`) | Columnas en `ShipmentRequest` | `M-66` lo está construyendo D2a ahora; cambiarlo a mitad pisa una zona compartida. Ya hay precedente (`label_conflict`). Son ≤ 4 filas por compra en vuelo |
+
+**Deuda que deja (t):** el estado de la verificación vive en `AuditLog` (sin índice por `entityId`, `schema.prisma:2186-2189`;
+a este volumen basta) — **disparador:** más de una compra en vuelo por semana o una consulta lenta en el job ⇒ columnas en
+una migración propia. No hay vigilancia de **guías huérfanas tras una liberación** (una creada después de 24 h, o tras un
+falso `not_charged`) — **disparador:** antes de encender `INFLIGHT_NEGATIVE_VERIFIED`, el arquitecto diseña la
+conciliación «envíos de la cuenta que no son nuestros». `transaction_stats` podría sustituir al saldo (`M-PRD-7`).
 
 ---
 
