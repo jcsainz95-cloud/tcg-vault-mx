@@ -30,6 +30,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 import { IvaTransferSection } from './sections/IvaTransferSection';
+import { ShippingSection } from './sections/ShippingSection';
 import { PremiumFloorSection } from './sections/PremiumFloorSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
@@ -443,6 +444,10 @@ export function M10View() {
 
       {/* §39.1 — premium en el piso (venta): sección propia, entre el IVA y la ingesta. */}
       <PremiumFloorSection />
+
+      {/* ⭐ §43.10 — «Envíos (Skydropx)»: sección propia porque gobierna dinero (la puerta de compra, los
+          escalones de seguro). Después del premium en el piso y antes de la ingesta (FS-8). */}
+      <ShippingSection />
 
       {/* Sección 1b: proveedor de la INGESTA MASIVA (bulk). Separado a propósito de los
           per-carta de arriba para que el humano no los confunda (P-47). */}
