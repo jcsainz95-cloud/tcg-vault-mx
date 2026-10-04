@@ -26458,7 +26458,9 @@ bloque `FAIL` al final, por eso aparecen «justo antes». PS-51 corre en serie: 
 | Mutación B — orden físico invertido forzado, CON `alignLines` | **20/20 verdes** |
 | Después — suite sola, árbol vivo, BD usada | **20/20 corridas verdes (N=20)**; PS-51 10/10 en cada una (200 tiradas) |
 | Unitaria completa | **384/384 suites · 6444/6444** |
-| Integración completa ×2 (árbol vivo, `tcg_ps51`) | ver commit (rellenado al terminar) |
+| Integración completa, árbol vivo, BD `tcg_ps51`, 5 corridas (load 2.8–9; otro agente corría su integración a la vez en las dos primeras) | `shipments-prep` **verde 5/5** (PS-51 10/10 en cada una). Totales: 1441/1443 · 1439/1443 · 1441/1443 · 1440/1443 · 1442/1443. Las rojas, todas en suites que NO usan los ficheros tocados: `buylist-intake-concurrency` 4/5 (la barrera por tiempo de 10 s de §16: «Esperaba 2 petición(es) bloqueada(s)… SellRequestItem»), `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` 2/5, `replacement-cases` PS-23 timeout 30 s 1/5 (load ~9), `graded-estimate` 3b 1/5. Las tres de la corrida 2 re-corridas solas con load < 3: **459/459** |
+| Integración completa, copia `git archive` del HEAD SIN este arreglo, misma BD | **69/69 · 1443/1443** (1 corrida, load ~3.6); la de arranque sobre BD nueva, también 69/69 · 1443/1443 |
+| ⚠️ NO MEDIDO | si `buylist-intake-concurrency` / `enum-query-axes` C-EQ-1 rojos dependen de la BD usada o de la carga: no los perseguí (fuera del encargo) |
 
 **⚠️ ABIERTO — para el arquitecto (no lo toqué):** segunda intermitencia de PS-51, distinta: `BAD(200:ok, 409:
 REFUND_NOT_RETRYABLE, create=1)` — **1 tirada de 400** (40 corridas × N=10, antes del arreglo; 0 de 200 después, que
