@@ -4,6 +4,11 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.1 — ERRATA MENOR DE D1** (2026-10-04, arquitecto, rama `claude/skydropx-d`; ⛔ sha NO MEDIDO: sin Bash).
+> `API_CONTRACT` sube a **v1.80.12.1**; norma en `API_CONTRACT §M4-SHIP.19.21`; porqué en **§4.60 (n)**. Toca código
+> construido en dos puntos pequeños (backend, D1c y D1a): renombrar las URLs crudas del puerto y el `403` no-borde de la
+> compra ⇒ «en vuelo».
+>
 > **Rev v1.80.12 — ERRATA DE LA VENTANA «CAPTURAR GUÍA»** (2026-10-04, arquitecto, rama `claude/skydropx-d`; ⛔ sha NO
 > MEDIDO por el arquitecto: sin Bash. Origen: `HECHOS.md:50` (el dueño eligió «Poder corregir todo»), `HECHOS.md:52`
 > (disputas fuera de la tienda), `DESIGN_SYSTEM §43.17` A-1…A-5 y N-3, `PROJECT.md:12123-12125`. `API_CONTRACT` sube a
@@ -27446,6 +27451,16 @@ contrato; nada estaba construido.
 **Deuda que deja (m):** P-ADR-1 (¿se corrige también el teléfono?, product-owner → dueño); qué dirección leen hoy las
 superficies del cliente (NO MEDIDO, lo mide backend); qué hace la anonimización con las filas de bitácora que guardan
 direcciones (NO MEDIDO, seguridad).
+
+**(n) v1.80.12.1 — errata menor de D1** (`BACKEND_NOTES §57.3`/`§57.4`; norma en `API_CONTRACT §M4-SHIP.19.21`).
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **El filtro de tarifas mira `status` antes que `success`** | `success` primero (texto de v1.80.11) | Lo medido manda: las `no_coverage` llegan con `success:false` (`SKYDROPX_API_PROD_RESULTADOS.md:227-228`); con `success` primero los contadores `noCoverage`/`notApplicable` no significarían nada. Lo construido ya lo hace |
+| **La URL cruda del proveedor cambia de nombre en la frontera** (`rawLabelUrl`/`rawTrackingUrl`); solo `providerUrlsFrom` las lee | Acotar el `rg` de `labelUrl:` a escrituras Prisma en `shipments/` (propuesta de backend) | Un `rg` de la clave no distingue un `data:{}` de Prisma de un DTO que copia la columna ya validada, y `trackingUrl:` ya existe en `orders/` con otro significado. Con el nombre distinto, saltarse la validación deja de compilar y el candado es una sola búsqueda sin excepciones |
+| **En la compra, «en vuelo» es el defecto**: solo `400/422` y lo que se corta antes de la aplicación (borde, `401`, `429`, puerta) deshacen el reclamo | Enumerar los status que son «en vuelo» | Liberar el reclamo de una guía que sí se creó es la guía duplicada (dinero); retenerlo de más cuesta una nota del súper-admin (`label/release`). Por eso el `403` que no es del borde también queda en vuelo |
+| **Un solo lector del secreto**, la fábrica del proveedor | «Solo en `config/`» literal | El riesgo es que el secreto se lea en varios sitios, no la carpeta; `config/` es zona compartida y la declaración opcional en `env.validation.ts` no es una lectura |
+| **`protect` sin llamador** en D2 | Llamarla tras comprar | M-8: la cotización y la compra ya aceptan `package_protected`/`declared_value`; una segunda mutación que gasta, con cuerpo NO MEDIDO, no aporta nada |
 
 ---
 

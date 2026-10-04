@@ -2,9 +2,18 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.1**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.1 — ERRATA MENOR: LAS DISCREPANCIAS DE D1 (`BACKEND_NOTES §57.3`/`§57.4`) (2026-10-04, arquitecto, rama
+> `claude/skydropx-d`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§M4-SHIP.19.21](#M4-SHIP-19-21)**.
+> ⛔ Ningún endpoint, código de error, columna ni DTO nuevo. Resumen: **D-SDX-1** el filtro de tarifas mira `status`
+> **antes** que `success` (lo construido se ratifica); **D-SDX-2** `C-SDX-7` (2) se re-escribe: el puerto entrega las URLs
+> como **`rawLabelUrl`/`rawTrackingUrl`** y solo `providerUrlsFrom` las lee (cambio pequeño en D1c); **D-SDX-3** PS-99 (d)
+> sin cambio; **§57.3** cubeta de capacidad 1 ✅, «en vuelo» por defecto en la compra ✅ **ampliado** al `403` que no es del
+> borde, `SKYDROPX_CLIENT_SECRET` leído en la fábrica ✅ (`C-SDX-1` reescrito), cuerpos de cancelación ✅ NO MEDIDO y
+> `protect` **sin llamador** en D2.
 >
 > **Rev v1.80.12 — ERRATA DE LA VENTANA «CAPTURAR GUÍA»: EL OPERADOR CORRIGE TODA LA DIRECCIÓN DEL ENVÍO; EL DTO DICE
 > LA COMPRA PENDIENTE Y LAS ALERTAS DE GUÍA; LA COMPRA EN VUELO RESPONDE `200 in_flight`; LA VÍA B DE DISPUTAS QUEDA
@@ -88,7 +97,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -23534,6 +23543,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.18** | 🔒💰 **v1.81.1** — cierres de la revisión de seguridad (SEC-SDX-1…5 al contrato; SEC-SDX-6…13 decididas); verbo `label/release`; `C-SDX-7` |
 | **.19** | ⭐💰🔒 **v1.80.11** — la fase D con la API de **producción** medida: cliente (User-Agent, reintentos), forma real de la tarifa, reutilización de cotizaciones, **seguro por escalones**, Carta Porte `49101600`, **puerta de compra** (dos llaves + candado de ejecución, PS-99), ventana «Capturar guía», `M-SDX-C/D`, plan de construcción por piezas, PS-91…PS-101, lo que sigue NO MEDIDO |
 | **.20** | ⭐💰 **v1.80.12** — corregir **toda** la dirección del envío (`PUT …/address`, sustituye a `address-neighborhood`), `labelPending`/`labelAlert` en los dos DTO, `providerCancelConfirmedAt`, empaques legibles por el operador, `isPromo`, `200 in_flight`, `AV-18/19` en esta fase, conteo 19, vía B de disputas sustituida; PS-102…PS-111 |
+| **.21** | **v1.80.12.1** — errata menor de D1: orden del filtro de tarifas, `C-SDX-7` (2) con `rawLabelUrl`/`rawTrackingUrl`, cubeta de capacidad 1, «en vuelo» por defecto en la compra, `C-SDX-1` con la fábrica, cuerpos NO MEDIDOS |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -23846,7 +23856,7 @@ export interface PurchaseInput {
 export interface PurchaseResult {
   providerShipmentId: string; carrierName: string;
   trackingNumber: string | null;      // null ⇒ «guía en proceso» (R5)
-  labelUrl: string | null; trackingUrl: string | null;
+  labelUrl: string | null; trackingUrl: string | null;   // ⭐ v1.80.12.1 (§19.21.2): RENOMBRADAS a rawLabelUrl / rawTrackingUrl — crudas, sin validar; solo providerUrlsFrom las lee
   totalCents: number; ivaCents: number | null; insuranceCents: number | null;
   error: { code: string; message: string; detail?: string } | null;   // `error_detail` ⇒ NO se guarda como guía (§19.7)
   raw: unknown;
@@ -24468,7 +24478,7 @@ rechaza. ⛔ Ninguna prueba unitaria/E2E habla con Skydropx; el guion PS-SBX es 
 | **PS-83** 💰 | **Cancelación automática:** contracargo de un directo con guía Skydropx `created` ⇒ envío `cancelado` **y** `providerCanceledAt/Reason='auto_close'` **y** `cancel` en el doble; con `carrierStatus='in_transit'` ⇒ envío `cancelado`, **sin** `cancel`, alerta `label_live_on_cancelled`; `onFullRefund` total ídem; `C-SDX-5` verde con los dos llamadores; el doble fallando ⇒ sello puesto, alerta `label_cancel_failed`, reintento por el verbo ⇒ `cancel` llamado. 🔒 **v1.81.1 (SEC-SDX-3):** el envío pasa a `cancelado` (contracargo) **entre el reclamo y la respuesta del doble** (doble con barrera en `purchase`), en las dos variantes «con número» y «sin número» (N≥10 cada una) ⇒ `409 SHIPMENT_NOT_IN_PREPARATION {labelAutoCancelled:true}`, `providerShipmentId` **persistido**, `labelSource='skydropx'`, `providerCanceledAt/Reason='auto_close'`, `status='cancelado'`, `trackingNumber NULL`, `cancel` llamado **una** vez con ese id, **cero** `AV-4`, cero guías vivas (`providerCanceledAt IS NULL ∧ providerShipmentId ≠ null` = 0 filas); `label/cancel` sobre él ⇒ `already_cancelled`. **(SEC-SDX-11):** doble `cancel` con `refundedCents = priceCents − 2500` ⇒ `ShipmentCostAdjustment {kind:'other', amountCents:2500, providerChargeId:'cancel:<id>'}` y el P&L del mes lo suma; con `refundedCents:null` ⇒ sin ajuste | cancelar en Skydropx tras `picked_up`; omitir la llamada en uno de los dos escritores; quitar `status:'picking'` de una rama del paso 9 ⇒ guía viva sobre `cancelado` |
 | **PS-84** 🔒 | **`labelUrl` nunca viaja:** los JSON serializados de `GET /admin/shipments`, `/:id`, `label`, `departure`, `/orders/:id`, `guest/track`, `/shipments/:id`, `workQueue` **no contienen** `labelUrl`, `rawResponseJson`, `providerRateId`, `client_secret`, ni el token (escaneo por regex); `GET …/label.pdf` como `customer` ⇒ `403`, anónimo ⇒ `401`, operador ⇒ `application/pdf` + `no-store` + bitácora `label_printed`; guía manual ⇒ `404 LABEL_NOT_AVAILABLE`. 🔒 **v1.81.1 (SEC-SDX-5, `C-SDX-7`):** doble con `labelUrl='http://169.254.169.254/latest/'` ⇒ `labelUrl NULL`, `labelAvailable:false`, bitácora `provider_url_rejected {host}`, **cero** `fetch` a esa URL; `https://user:pw@pro.skydropx.com/x` ⇒ rechazada; `https://evil.example/x.pdf` (fuera de `SKYDROPX_URL_HOSTS`) ⇒ rechazada; `https://labels.skydropx.com/x.pdf` con `*.skydropx.com` en la lista ⇒ aceptada; proxy: el doble HTTP responde `302 Location: http://10.0.0.1/` ⇒ `502 {op:'label_download'}` sin seguirla; `Content-Type: text/html` ⇒ `502`; 6 MB ⇒ `502` abortado; **estático**: `rg "fetch\("` en `shipping-provider/` ⇒ solo el cliente (a `SKYDROPX_BASE_URL`) y `label-proxy` (con `assertProviderUrl` en la misma función); `labelUrl`/`trackingUrl` solo se escriben vía `providerUrlsFrom()` (`rg "labelUrl:"` en `backend/src` ⇒ un sitio) | spread de la fila; redirigir a `labelUrl`; escribir `labelUrl` sin `assertProviderUrl`; `redirect:'follow'` |
 | **PS-85** 🔒 | **PII al tercero (`C-SDX-2`):** el cuerpo que recibe el doble en `purchase` tiene **exactamente** `to.{street1,name,company,phone,email,furtherInformation?}` (🔒 v1.81.1, SEC-SDX-7: `furtherInformation = Address.references`; **sin** `reference`) y el log capturado del adaptador solo trae las claves de la lista blanca de §19.4 (5)/(7) (`company`, `further_information` tampoco aparecen); con `guestEmail` ⇒ `email = guestEmail` aunque la orden esté reclamada; sin `Order.*` de pago, sin cartas; `quote` manda solo CP/estado/municipio/colonia; el log del adaptador (capturado) no contiene el teléfono ni la calle | mandar el `addressSnapshot` entero; `User.email` |
-| **PS-86** 🔒 | **Secretos (`C-SDX-1`):** prueba estática: ninguna cadena `skydropx.com` fuera de `env.validation.ts`/comentarios; `client_secret` solo en `config`; canario: introducir `const BASE='https://sb-pro…'` en el adaptador ⇒ rojo. `GET /admin/settings` no contiene `SKYDROPX_*` | (la mutación **es** la prueba) |
+| **PS-86** 🔒 | **Secretos (`C-SDX-1`):** prueba estática: ninguna cadena `skydropx.com` fuera de `env.validation.ts`/comentarios; `client_secret` solo en `config` (⭐ v1.80.12.1, §19.21.5: `SKYDROPX_CLIENT_SECRET` en el código de `backend/src` ⇒ solo `shipping-provider.factory.ts` —el único lector— y, cuando D2a la declare, `config/env.validation.ts`); canario: introducir `const BASE='https://sb-pro…'` en el adaptador ⇒ rojo. `GET /admin/settings` no contiene `SKYDROPX_*` | (la mutación **es** la prueba) |
 | **PS-87** | **Liga del invitado en correos:** `AV-4/5/17/18/19/12` de un pedido con `guestEmail` llevan `/pedido?token=<token vigente>`; con el token vencido ⇒ se emite uno nuevo (los viejos `revoked`, bitácora `reissue` actor `system:mail`) y el correo lleva el nuevo; registrado ⇒ `/orders/<id>`; retiro ⇒ `/shipments/<id>`; `mail-links.frontend-routes` verde con `pedido`; ⛔ el token no aparece en el log | volver a `cuenta/pedidos`; loguear el token |
 | **PS-88** | **`trackingUrl` solo si vino:** doble con `trackingUrl:null` ⇒ ningún correo ni DTO tiene `<a href` con la guía dentro ni `trackingUrl`; con URL ⇒ `AV-4/5/17/18` llevan **esa** URL exacta y los tres DTOs del cliente la traen; `C-SDX-6` (grep de `rastreo.`/`tracking?` construido en `frontend/src` y plantillas ⇒ 0). 🔒 **v1.81.1 (SEC-SDX-5):** doble con `trackingUrl='http://evil.example/t'` o `'javascript:alert(1)'` ⇒ `trackingUrl NULL`, ningún correo ni DTO lleva `href` con ella, bitácora `provider_url_rejected` | construir `https://…/${trackingNumber}`; persistir `trackingUrl` sin `assertProviderUrl` |
 | **PS-89** | **Línea de tiempo pública:** `guest/track`, `/orders/:id`, `/shipments/:id` con la secuencia `created → picked_up → last_mile → delivery_attempt → delivered_to_branch → delivered` ⇒ `timeline` de 6 con los `kind` fijos y `at_branch.branchName`; `exception` no aparece; sin `detail`, sin `carrierStatus`, sin `providerShipmentId` (conjunto de claves exacto); `publicStatus` sigue `enviado` durante `at_branch`; token de otro pedido ⇒ sus eventos, no éstos | filtrar el `detail` solo en una de las tres superficies; título «en sucursal» |
@@ -24630,7 +24640,9 @@ escribir y proxy acotado (PS-84/PS-88; norma §19.18.5). `C-AV-1` = 19, `C-AV-3a
 - **`C-SDX-7`** (estático, con canario): (1) `rg "fetch\("` en `backend/src/modules/shipping-provider/` ⇒ solo el
   cliente HTTP (a `SKYDROPX_BASE_URL`) y `label-proxy` (con `assertProviderUrl` en la misma función); (2)
   `labelUrl:`/`trackingUrl:` como clave de escritura en `backend/src` ⇒ **un** sitio (`providerUrlsFrom`); canario:
-  introducir `labelUrl: result.labelUrl` en otro fichero ⇒ rojo. PS-84/PS-88 ampliadas.
+  introducir `labelUrl: result.labelUrl` en otro fichero ⇒ rojo. PS-84/PS-88 ampliadas. ⭐ **v1.80.12.1: el punto (2)
+  queda SUSTITUIDO por [§19.21.2](#M4-SHIP-19-21)** (tal como está no es satisfacible: `trackingUrl:` existe en
+  `orders/` con otro significado y los DTO de `shipments` la llevan).
 - **Devops:** env `SKYDROPX_URL_HOSTS` (§19.13), poblada con los hosts **medidos** en PS-SBX-4/5 (el de `label_url`
   puede ser un bucket); red de los contenedores abierta a esos hosts.
 
@@ -24724,7 +24736,7 @@ escribir y proxy acotado (PS-84/PS-88; norma §19.18.5). `C-AV-1` = 19, `C-AV-3a
 2. **Token:** como §19.4 (1) — form-urlencoded, en memoria, `expiresAt = created_at + expires_in − 300 s` (sin
    `created_at` ⇒ reloj local); ⛔ nunca en BD ni en log; una sola petición de token en vuelo por proceso (las demás la
    esperan).
-3. **≤ 2 req/s:** un único `TokenBucket(SKYDROPX_RPS, 1000 ms)` por proceso delante de **todo** — token, cotización,
+3. **≤ 2 req/s:** (⭐ v1.80.12.1, §19.21.3: **capacidad 1**, una salida cada `⌈1000 / SKYDROPX_RPS⌉` ms) un único `TokenBucket(SKYDROPX_RPS, 1000 ms)` por proceso delante de **todo** — token, cotización,
    **cada consulta del sondeo de cotización**, compra, rastreo, descarga de etiqueta al host de la API. (La medición usó
    ≥ 0.6 s entre peticiones, PROD §0.)
 4. **Matriz de reintentos (normativa):**
@@ -24771,9 +24783,12 @@ escribir y proxy acotado (PS-84/PS-88; norma §19.18.5). `C-AV-1` = 19, `C-AV-3a
   `expiresAt = (el primer `requestedAt` que **nuestro sistema** registró para ese `providerQuotationId`, en cualquier envío) +
   24 h` — ⛔ nunca `now + 24 h` sobre un id ya visto (la cotización de Skydropx puede ser más vieja que nuestra petición; su
   fecha de creación no viene en la respuesta, M-6). Si el id es nuevo para nosotros, `requestedAt` de esta petición.
-- **Qué tarifas se ofrecen (filtro, en este orden; cada descarte suma a `excluded`):** `success === true` (si no ⇒
-  `unavailable`: J&T, M-11) · `status ∈ {price_found_internal, price_found_external}` (`no_coverage` ⇒ `noCoverage`;
-  `not_applicable` ⇒ `notApplicable`) · `shipment_creation_type === 'single'` (si no ⇒ `multipackage`) · `total ≠ null` y
+- **Qué tarifas se ofrecen (filtro, en este orden; cada descarte suma a `excluded` **una** vez por tarifa):** ⭐
+  **v1.80.12.1 (D-SDX-1, §19.21.1) — orden corregido, `status` antes que `success`:** `status === 'no_coverage'` ⇒
+  `noCoverage` · `status === 'not_applicable'` ⇒ `notApplicable` · `success !== true` **o** `status ∉
+  {price_found_internal, price_found_external}` (incl. `pending`, ausente o desconocido) ⇒ `unavailable` (J&T, M-11) ·
+  ~~`success === true` primero~~ (las `no_coverage` medidas llegan con `success:false`, PROD §4.6 —
+  `SKYDROPX_API_PROD_RESULTADOS.md:227-228`) · `shipment_creation_type === 'single'` (si no ⇒ `multipackage`) · `total ≠ null` y
   **el desglose cuadra**: `|amount + Σextra + vat_fee + service_fee − total| ≤ 1 centavo` (si no ⇒ `breakdownMismatch` +
   log `warn`: una tarifa cuyo desglose no cuadra no se compra a ciegas).
 - **Normalización a centavos — exacta:** importes en cadena ⇒ `decimalStringToCents` (parte entera y decimal por separado,
@@ -25294,7 +25309,7 @@ matriz de §19.19.3 (4) para la **compra**:
 
 | Qué pasó en `POST /api/v2/shipments` | Reclamo (`labelProcessingSince`) | Respuesta de `POST …/label` |
 |---|---|---|
-| `5xx`, error de red, timeout (30 s), o `404` — **la petición salió y no sabemos si se creó** | **se conserva** (§19.7 paso 9 ⚠️) | **`200 { outcome:'in_flight', shipment }`** con `shipment.labelPending.state = 'in_flight'` |
+| `5xx`, error de red, timeout (30 s), o `404` — **la petición salió y no sabemos si se creó** (⭐ v1.80.12.1, §19.21.4: y **todo** lo que no esté en las otras dos filas: `3xx`, `402`, `403` que no es del borde, `405`, `409`, cualquier `4xx` no listado, `2xx` sin id legible) | **se conserva** (§19.7 paso 9 ⚠️) | **`200 { outcome:'in_flight', shipment }`** con `shipment.labelPending.state = 'in_flight'` |
 | `400`/`422` | se deshace | `422 SHIPPING_PROVIDER_REJECTED` (sin cambio) |
 | Antes de que salga la compra: `403` del borde, segundo `401`, `429` agotado, `SkydropxMutationForbiddenError` | se deshace | `502 {reason:'edge_blocked'}` / `502` / `503 SHIPPING_PROVIDER_BUSY` / `409 …NOT_CONFIGURED {missing:['allow_spend']}` (sin cambio) |
 
@@ -25351,6 +25366,127 @@ proporción en las de carrera; mutación demostrada roja).
 | **product-owner** | `PROJECT §T.2` y el paso 1 de la ventana (`PROJECT.md:8083-8084`, `:12217-12218`) a la corrección completa; criterio 242 a «16 → 19»; P-ADR-1 (teléfono) |
 | **seguridad** | En la fase por release: el verbo nuevo escribe PII ajena en la bitácora (antes/después) — qué hace la anonimización de cuenta con esas filas: NO MEDIDO |
 | **orquestador** | El encargo de fase C cita esta sección (no §19.5 para el verbo de colonia); D2a lleva las dos columnas nuevas |
+
+###### <a id="M4-SHIP-19-21"></a>M4-SHIP.19.21 — v1.80.12.1: errata menor — las discrepancias de D1 (**NORMATIVA**, **DINERO**)
+
+> **Fuente:** `BACKEND_NOTES.md:27147-27189` (§57.3 decisiones sin contrato, §57.4 D-SDX-1…3), código D1 en
+> `claude/skydropx-d` (`e8bfcfc0` + `c150fab5`, shas citados por backend; ⛔ NO MEDIDOS por el arquitecto: sin Bash).
+> ⛔ Ningún endpoint, código de error, columna, DTO ni migración nuevos. **Manda** sobre §19.4, §19.18.5 y §19.19 donde
+> choque; lo demás sigue vigente.
+
+**M4-SHIP.19.21.1 — D-SDX-1: el filtro de tarifas mira `status` antes que `success`.** Medido por el arquitecto: en
+`docs/specs/SKYDROPX_API_PROD_RESULTADOS.md:227-228` la tarifa `no_coverage` (Paquetexpress «Express Next Day») llega con
+`"success": false`; J&T llega con precio, `success:false` y `status:"price_found_internal"` (`:186`). Con el orden literal
+de §19.19.4 (`success` primero) `noCoverage` y `notApplicable` serían siempre 0 y el operador vería «no disponible» donde
+el dato dice «sin cobertura». **Norma** (sustituye la viñeta «Qué tarifas se ofrecen» de §19.19.4; cada tarifa cuenta en
+**un** contador):
+
+1. `status === 'no_coverage'` ⇒ `noCoverage`.
+2. `status === 'not_applicable'` ⇒ `notApplicable`.
+3. `success !== true`, **o** `status` ausente / no cadena / ∉ `{price_found_internal, price_found_external}` (p. ej.
+   `pending` de una cotización que no completó) ⇒ `unavailable`. Un elemento que no es objeto ⇒ `unavailable`.
+4. `shipment_creation_type !== 'single'` ⇒ `multipackage`.
+5. Desglose ilegible o que no cuadra (> 1 centavo) ⇒ `breakdownMismatch` + log `warn`.
+
+Es exactamente lo construido (`backend/src/modules/shipping-provider/rate-normalization.ts:7-13` y `:52-68`, leído por el
+arquitecto): **se ratifica, cero cambio de código**. Los conteos del fixture que reporta backend (unavailable 2,
+noCoverage 12, notApplicable 5; `BACKEND_NOTES.md:27176`) son los que PS-94 aserta — **NO MEDIDOS** por el arquitecto.
+La mutación «admitir `success:false`» de PS-94 sigue valiendo (la tarifa J&T `price_found_internal` entraría).
+
+**M4-SHIP.19.21.2 — D-SDX-2: `C-SDX-7` (2) se re-escribe con nombres que no colisionan.** Medido por el arquitecto
+(Grep `(labelUrl|trackingUrl)\s*:` en `backend/src`, 2026-10-04): `trackingUrl:` aparece en
+`orders/guest-order-mail.service.ts:67,89` y `orders/mail/guest-order.templates.ts:66` (la liga a `/pedido`, otro
+concepto), y en `shipping-provider/` en el puerto, el adaptador, el doble y `provider-url.ts` (`:67-68`, `:88-89`).
+Además los DTO de `shipments` llevarán `trackingUrl` (§19.12, `AdminShipmentDTO`) leída de la columna. Un `rg` de la
+**clave** no distingue «escribir una URL cruda» de «copiar la columna ya validada a un DTO».
+
+- **Propuesta de backend (acotar a escrituras Prisma en `shipments/`): rechazada.** Un `rg` no sabe si un
+  `trackingUrl:` está dentro de un `data:{}` de Prisma o de un DTO; el candado acabaría con lista de excepciones o con
+  falsos verdes.
+- **Decisión: el dato crudo cambia de nombre en la frontera.** En `PurchaseResult` (y por herencia
+  `ProviderShipmentState`) `labelUrl`/`trackingUrl` se **renombran** a **`rawLabelUrl`/`rawTrackingUrl`**
+  (`string | null`, sin validar). `providerUrlsFrom(result, urlHosts)` es la **única** función que los lee y devuelve
+  `{ labelUrl, trackingUrl, rejected[] }` ya validados (sin cambio de forma de salida). Fuera de `shipping-provider/`
+  el dominio **no puede** obtener una URL del proveedor sin pasar por ella: `labelUrl: result.labelUrl` deja de compilar.
+- **`C-SDX-7` (2), nuevo texto (estático, con canario):**
+  (a) `rg "rawLabelUrl|rawTrackingUrl" backend/src --glob '!modules/shipping-provider/**'` ⇒ **0** (dentro de
+  `shipping-provider/` los producen el adaptador y el doble y los consume `provider-url.ts`);
+  (b) `rg "label_url|tracking_url" backend/src --glob '!modules/shipping-provider/**'` ⇒ **0** (nadie lee la URL del
+  `raw` del proveedor por la puerta de atrás).
+  Canario: introducir `labelUrl: result.rawLabelUrl` en un fichero de `shipments/` ⇒ **rojo** en (a).
+- **Lo que sigue igual:** `ProviderEvent`/el `event` de `applyCarrierStatus` (§19.3) llevan `labelUrl?`/`trackingUrl?`
+  **ya validados** (el sondeo los construye desde `providerUrlsFrom`); los tres escritores de §19.18.5 y la rama §19.18.3
+  escriben las columnas desde la salida de `providerUrlsFrom` o con `null`.
+- **Quién y cuándo:** backend, antes de D2c/D2d (renombrar en `shipping-provider.port.ts`, `skydropx.adapter.ts`,
+  `fake-shipping-provider.ts`, `provider-url.ts` y sus pruebas; D2 aún no consume el puerto, `BACKEND_NOTES.md:27115`).
+  `C-SDX-7` (1) sin cambio.
+
+**M4-SHIP.19.21.3 — Cubeta de capacidad 1 (§57.3.1): ✅ VALIDADA.** §19.19.3 (3) dice `TokenBucket(SKYDROPX_RPS,
+1000 ms)` y PS-93 exige espaciado ≥ 500 ms: una cubeta de capacidad 2 dejaría salir dos peticiones en el mismo
+milisegundo y PS-93 no se cumpliría. **Norma:** capacidad **1**, una salida cada `⌈1000 / SKYDROPX_RPS⌉` ms (con el
+default 2 ⇒ 500 ms; con 1 ⇒ 1000 ms), un solo reloj por proceso. La medición de producción usó ≥ 0.6 s entre
+peticiones (PROD §0, citado en §19.19.3): 500 ms está dentro de «≤ 2 req/s», no por debajo.
+
+**M4-SHIP.19.21.4 — 💰 Compra: «en vuelo» es el defecto (§57.3.2): ✅ VALIDADA y AMPLIADA.** La matriz de §19.19.3 (4) y
+la tabla de §19.20.5 nombran pocas respuestas; el resto queda así, **solo para `POST /api/v2/shipments`**:
+
+| Respuesta | Reclamo | Por qué |
+|---|---|---|
+| `400`/`422` | se deshace ⇒ `422 SHIPPING_PROVIDER_REJECTED` | Skydropx dijo que no |
+| Antes de salir o probado no procesado: `403` **del borde** (regla 0), 2.º `401`, `429` agotado, `SkydropxMutationForbiddenError` | se deshace (sin cambio, §19.20.5) | Cloudflare / el token / el límite cortan antes de la aplicación |
+| **Todo lo demás**: `5xx`, red, timeout, `404`, **`3xx`**, **`402`**, **`403` JSON que no es del borde**, `405`, `409`, cualquier `4xx` no listado, **`2xx` sin id legible** | **se conserva** ⇒ `200 {outcome:'in_flight'}` | no hay prueba de que no se creó la guía |
+
+- **Corrección a §57.3.3 (solo en la compra):** backend trata el `403` JSON que no es del borde como `502` **sin**
+  «en vuelo» (`BACKEND_NOTES.md:27128-27129`, `:27156`). Para la **compra** pasa a «en vuelo»: un `403` de la aplicación
+  (cuenta suspendida, permiso, saldo — su semántica en Skydropx es NO MEDIDO) no prueba que no se procesó, y la regla
+  que el propio backend escribió en §57.3.2 («liberar el reclamo de una guía que sí existe es la guía duplicada; retenerlo
+  de más solo cuesta una nota del súper-admin») lo cubre. En lecturas, cotización y cancelación el `403` no-borde sigue
+  ⇒ `502` sin reintento (sin cambio).
+- **Saldo insuficiente** (forma NO MEDIDA: `402`, `422` u otro) cae en «rechazo» si es `400/422` y en «en vuelo» si no;
+  ambas son seguras (ninguna compra dos veces). Se cierra con `PG-1`/`PG-n`.
+- **Prueba:** PS-109 gana tres filas — `3xx`, `409` y `403` JSON no-borde ⇒ `200 in_flight`, **1** llamada, reclamo
+  conservado. **Mutación:** devolver `502` sin «en vuelo» al `403` no-borde ⇒ rojo.
+
+**M4-SHIP.19.21.5 — `SKYDROPX_CLIENT_SECRET` se lee en la fábrica (§57.3.9): ✅ VALIDADA; `C-SDX-1` reescrito.** El
+propósito de `C-SDX-1` es **un solo lector** del secreto, no una carpeta. Medido por el arquitecto (Grep
+`SKYDROPX_CLIENT_SECRET` en `backend/src`, 2026-10-04): solo `shipping-provider/shipping-provider.factory.ts:12` (comentario)
+y `:35` (lectura); `config/env.validation.ts` no lo menciona. **Norma:** en el **código** de `backend/src`
+`SKYDROPX_CLIENT_SECRET` aparece **solo** en `shipping-provider.factory.ts` (el único que lee el valor y lo pasa al
+cliente en memoria) y, si D2a lo declara como opcional en `config/env.validation.ts` (§19.13), **también** ahí como
+declaración (⛔ sin leer el valor para otra cosa). La prueba de PS-86 admite ese segundo fichero cuando exista. Las
+otras dos (`SKYDROPX_BASE_URL`, `SKYDROPX_CLIENT_ID`) siguen la misma regla. SDX-R1 («solo `env.validation.ts`») se lee
+con esta norma.
+
+**M4-SHIP.19.21.6 — Cuerpos NO MEDIDOS (§57.3.8): ✅ VALIDADOS como provisionales.**
+- **Cancelación** `{ reason }` y `refundedCents` leído de `refunded_amount`/`refund_amount` si viene: NO MEDIDOS; se
+  cierran con **`PG-3`** (§19.19.18). Si el cuerpo es incorrecto, Skydropx responde `4xx` ⇒ `422` + sello revertido
+  (§19.8): la guía sigue viva y el operador lo ve; ⛔ ningún dinero se pierde. `refundedCents` ≠ `null` antes de `PG-3`
+  escribe el ajuste de SEC-SDX-11 **y** log `warn cancel_refund_unverified {refundedCents}` hasta que `PG-3` confirme el
+  campo.
+- **Protección** (`POST /shipments/{id}/protect`, `{ package_protected, declared_value }`): **sin llamador en D2**. M-8
+  midió que la cotización acepta `package_protected`/`declared_value` y §19.19.8 los manda en la compra; `protect?`
+  queda en el puerto y en la lista cerrada de mutantes (PS-99 (a)/(d) la cubren), pero ⛔ ninguna pieza de D2 la llama.
+  Llamarla exige errata del arquitecto.
+- **`Idempotency-Key`** en la compra: se manda (inocua si se ignora); ⛔ el replay de §19.18.4 (3a) **no se ejecuta**
+  hasta que conste que es idempotente (sin cambio).
+- **Estado del transportista** (orden de lectura de campos, `BACKEND_NOTES.md:27166-27167`): parser tolerante, NO MEDIDO
+  hasta `PG-1` (sin cambio de §19.19.10).
+
+**M4-SHIP.19.21.7 — D-SDX-3: PS-99 (d) no cambia.** `scripts/skydropx/prod-probe.ts` (D0) y `SKYDROPX_ALLOW_SPEND=` vacío
+en `.env.example` (D0') son de **devops** (§19.19.15) y la norma de PS-99 (d) sigue literal: «presente y vacío». La
+aserción transitoria de backend («nunca con valor», verde si falta; `BACKEND_NOTES.md:27183-27185`) vale **solo** hasta
+que devops entregue; en cuanto existan, backend la endurece a «presente y vacío». La prueba de que el probe rechaza
+`POST /api/v2/shipments` antes de la red es **de devops** (prueba propia del probe, sin cambio). ⛔ El gate **E**
+(§19.19.15) no se abre con la aserción transitoria.
+
+**M4-SHIP.19.21.8 — Qué cambia para quién.**
+
+| Rol | Qué |
+|---|---|
+| **backend** | Renombrar `rawLabelUrl`/`rawTrackingUrl` + `C-SDX-7` (2) nuevo con canario (§19.21.2); `403` no-borde de la compra ⇒ «en vuelo» + filas de PS-109 (§19.21.4); log `cancel_refund_unverified`; PS-86 admite `env.validation.ts` si D2a lo declara; endurecer PS-99 (d) cuando devops entregue. Sin cambio: filtro, cubeta, fábrica |
+| **devops** | Nada nuevo: D0 y D0' tal como están |
+| **frontend / ux-ui** | Nada |
+| **QA** | PS-109 con las tres filas nuevas; `C-SDX-7` (2) nuevo |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
