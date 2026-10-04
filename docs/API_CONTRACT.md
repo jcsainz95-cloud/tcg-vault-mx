@@ -2,9 +2,28 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.8**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.9**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.9 — 🔒💰 CONTROL DEL GASTO EN GUÍAS (§Z, D2) Y LOS CIERRES C-14…C-18 DE LA REVISIÓN DE v1.80.12.8
+> (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador `2612064e` o posterior; ⛔ sha NO MEDIDO por
+> el arquitecto: sin Bash).** Norma entera: **[§M4-SHIP.19.29](#M4-SHIP-19-29)**. Porqué: `ARCHITECTURE §4.60 (v)`. Origen:
+> `PROJECT.md §Z` (criterios 319–333, 338), `HECHOS.md:62` (límites aceptados y dos correos nuevos), `SECURITY_NOTES.md:1-190`
+> (veredicto sobre `2612064e`: D2c APROBADO CON CONDICIONES C-15…C-18; §19.28.6 RECHAZADA, SDX-D-21 alto ⇒ C-14).
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | C-14 / SDX-D-21 | La huérfana solo se cancela sola con `getShipment` legible y rastreo propio, guía vigente **Skydropx** con otro id (o envío cancelado), rastreo ajeno a todo envío nuestro y **fusible** de 3 en 24 h; si no, 0 `cancel` y aviso. **Sustituye §19.28.6** | No (D2d sin construir) | backend 💰 (D2d) |
+> | **2** | C-15…C-18 | Patrón `ENV-` neutralizado en los campos del cliente; `folioTokenOf` anclado al texto entero; I-SENT y `n` desde una fila de dominio (no del JSON de la bitácora); 7b.2 con CAS `count = 1`; token `ENV-000045-01` (folio `\d{6,}`, intento de 2 dígitos); el default del folio deja de truncar | **Sí**, en `M-67` (default) y en el formato del token de v1.80.12.8 (sin construir) | backend 💰 (D2c) |
+> | **3** | TG-1 / TG-2 | Tope MX$2,500 por persona en 24 h y una recompra por envío, comprobados **dentro** de la tx del candado de compra; exento solo **el dueño** (`isOwnerAccount`: súper-admin con correo); negativa `403 LABEL_PURCHASE_LIMIT` sin cifras | No | backend 💰 (D2c) |
+> | **4** | Libros nuevos | `ShipmentLabelAttempt` (reclamos) y `ShipmentPaidLabel` (guías pagadas) | — | backend 💰 (`M-68`) |
+> | **5** | Avisos | `SpendAlert` + correo inmediato al dueño (5/h + lote) + resumen 08:00 MX; AG-1…AG-13 (AG-11 con correo entra con D2d); AG-14…AG-20 reservados | Sí, pequeño: `SettingsController` pasa a `@MoneyOut()` de clase; seed del saldo bajo 50000 → 100000 | backend + frontend + ux-ui |
+> | **6** | Pruebas | PS-129/130/134/135 ampliadas; **PS-137…PS-159** | — | backend + frontend |
+>
+> **Códigos de error nuevos:** `403 LABEL_PURCHASE_LIMIT {limit}`. **Migración:** `M-68` (`M-GAS-1`). **Endpoints:**
+> `GET /admin/spend-alerts`, `…/summary`, `…/:id`, `POST …/seen`. **Jobs:** `spend-watch`, `spend-digest`. **DTO:**
+> `SpendAlertDTO`, `SpendAlertSummaryDTO`, `labelOptions.limit`, `workQueue.spendControl`.
 >
 > **Rev v1.80.12.8 — 🔒💰 EL FOLIO NUESTRO VIAJA EN LA COMPRA Y LA ADOPCIÓN CUADRA POR FOLIO EXACTO; LA COMPRA TIENE VIDA
 > MÁXIMA; LAS RESPUESTAS ESCRIBEN POR EL `since` EXACTO (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
@@ -224,7 +243,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -23681,6 +23700,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.26** | 🔒💰 **v1.80.12.6** — revisión de diseño de seguridad antes de D2c: un id de compra nunca se descarta (SDX-D-1), sin replay de la compra (SDX-D-2), `P2002` del id y `rateId` ya comprada (SDX-D-3), candado tras el reclamo (SDX-D-10), referencia en la compra (SDX-D-6), quién compra/cancela/libera (`HECHOS.md:58`), PS-116…PS-121 |
 | **.27** | 💰 **v1.80.12.7** — la compra en vuelo se verifica sola (`HECHOS.md:59`): una compra en vuelo a la vez, foto del saldo tras el reclamo, `recoverInFlightLabel` por envíos recientes + saldo, adopción automática, liberación automática tras calibrar, «Liberar» de respaldo, P-SDX-REL reformulada, PS-122…PS-128 |
 | **.28** | 🔒💰 **v1.80.12.8** — folio `ENV-000045` en `address_to.reference`, adopción por folio exacto (SDX-D-14), vida máxima de compra y `since` exacto (SDX-D-16), cancelación solo por folio y conciliación de huérfanas (SDX-D-15), contaminación y regla de encendido (SDX-D-17), `pg_try_advisory_xact_lock` y censo (SDX-D-18), `not_sent`, PS-129…PS-136 |
+| **.29** | 🔒💰 **v1.80.12.9** — control del gasto (§Z, D2): TG-1/TG-2 en la tx del candado, el dueño como única excepción, libros `ShipmentLabelAttempt`/`ShipmentPaidLabel`, avisos AG-1…AG-13 con correo al dueño y resumen diario (`M-68`); C-14 (sustituye §19.28.6), C-15…C-18, SDX-I-5/6; PS-137…PS-159 |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -24207,6 +24227,9 @@ aplicado al costo: *nadie compra a una cifra que no vio*, T.4.1).
    > CONFLICT {reason:'purchase_in_flight'}` si **otro** envío tiene una compra sin id de menos de `T_UNKNOWN` (§19.27.2);
    > tras su commit va el **paso 7b**: segunda lectura del saldo y bitácora `shipment.label_purchase_sent` con la foto
    > (§19.27.3).
+   > 💰 **v1.80.12.9 ([§19.29.4](#M4-SHIP-19-29)):** el paso 2 gana la comprobación previa de TG-2/TG-1 (solo lectura, antes
+   > de toda red) y el paso 7, dentro del candado consultivo, la que manda + `INSERT ShipmentLabelAttempt`; negativa `403
+   > LABEL_PURCHASE_LIMIT {limit}` sin cifras. El 7b.2 hace CAS (§19.29.1.4).
 7. **Reclamo (el candado de «una sola guía»):** CAS `updateMany({ where: { id, status:'picking', preparedAt:{not:null},
    labelSource:null, labelProcessingSince:null }, data: { labelProcessingSince: now, providerQuotationId, providerRateId:
    rateId, chosenRateJson: rate, recommendedRateJson: quote.rates.find(recommended) ?? null, rateChosenByUserId: actor,
@@ -24557,7 +24580,7 @@ Skydropx; por qué el borrador partió de 15: NO MEDIDO, y no cambia el resultad
 | SDX-R3 | **`labelUrl` expuesta** ⇒ etiqueta (nombre, tel, dirección) descargable sin sesión | Columna interna; solo `GET …/label.pdf` con `@Roles(vault_operator, super_admin)`, proxy, `no-store`, bitácora `label_printed`; `avisos.seals-out-of-dto`-style: `labelUrl` fuera de todo DTO (PS-84) | Pedir `label.pdf` como `customer`/anónimo ⇒ 401/403; buscar `labelUrl` en cualquier JSON |
 | SDX-R4 | **Guía duplicada / doble cargo al saldo** (doble clic, dos operadores, reintento HTTP) | Reclamo CAS `labelProcessingSince` antes de la red; `providerShipmentId @unique`; `SHIPMENT_ALREADY_LABELED`; PS-73 N ≥ 10 | 10 `POST …/label` simultáneos con barrera ⇒ 1 `purchase` en el doble |
 | SDX-R5 | **Compra a cifra no vista / margen negativo silencioso** | `expectedPriceCents/MarginCents` + `QUOTE_EXPIRED` + `LABEL_CONFIRMATION_REQUIRED` | Mandar `expected*` distintos; cotización vencida por reloj inyectado |
-| SDX-R6 | **Operador gasta saldo sin límite** (SUPUESTO T.4.7: sin tope aparte del saldo) | Bitácora de la elección con nombre; `wasRecommended`; `GET /admin/shipments?labelSource=skydropx` + `label.chosenBy`; alerta de saldo bajo. **Deuda aceptada con disparador:** si el dueño quiere tope ⇒ dial `operator_label_cap_24h_cents` con la misma puerta de §M4-SHIP.5 paso 6 | Contar compras por operador en bitácora; comprobar que el operador no ve `balanceCents` |
+| SDX-R6 | **Operador gasta saldo sin límite** (SUPUESTO T.4.7: sin tope aparte del saldo) | Bitácora de la elección con nombre; `wasRecommended`; `GET /admin/shipments?labelSource=skydropx` + `label.chosenBy`; alerta de saldo bajo. **Deuda aceptada con disparador:** si el dueño quiere tope ⇒ dial `operator_label_cap_24h_cents` con la misma puerta de §M4-SHIP.5 paso 6. 💰 **v1.80.12.9: disparada** (`HECHOS.md:62`) ⇒ TG-1/TG-2 en [§19.29.4](#M4-SHIP-19-29) | Contar compras por operador en bitácora; comprobar que el operador no ve `balanceCents` |
 | SDX-R7 | **Rate limit / DoS al proveedor** (nos bloquean) | Token bucket 2 rps por proceso; `refresh-tracking` `@Throttle 6/min`; `/geo` sirve del catálogo local; lotes de 50 en el sondeo | Ráfaga de `refresh-tracking` y `quote` ⇒ `429`/`503`, nunca `500` |
 | SDX-R8 | **Eventos/estado inyectados** (un webhook falso) | ⛔ No hay ruta de webhook en v1.81 (por ausencia, criterio 248); `applyCarrierStatus` solo lo llama el sondeo autenticado con OAuth | `POST /webhooks/skydropx` ⇒ 404 |
 | SDX-R9 | **Colonia como vector** (texto libre al tercero, inyección en la etiqueta) | Lista cerrada por CP validada en servidor (`C-SDX-3`); `references` ≤ 70, sin control chars (`@Matches(/^[^\x00-\x1f\x7f]*$/)`) | Colonia fuera de lista ⇒ 422; `references` con `\n` ⇒ 400 |
@@ -26823,6 +26846,10 @@ orquestador `41e22eca`, ⛔ no medido por el arquitecto: sin Bash).
 
 **M4-SHIP.19.28.1 — El folio: qué es, dónde viaja y si vuelve (respuesta al dueño).**
 
+> 🔒 **v1.80.12.9 ([§19.29.1.1–.2](#M4-SHIP-19-29), C-15/C-18):** token `ENV-000045-01` (folio `\d{6,}`, intento de **dos**
+> dígitos), `n` = `ShipmentLabelAttempt.attemptNo`, default de BD sin truncar, `folioTokenOf` anclado al texto entero y el
+> patrón `ENV-` neutralizado en los campos del cliente. Donde abajo dice `-1`, léase `-01`.
+
 | Pregunta | Respuesta | Evidencia |
 |---|---|---|
 | ¿Hay un número nuestro por envío? | **No.** `Order.orderNumber` (`TCG-000123`) existe solo en pedidos; el retiro de bóveda tiene `orderId = null` y ningún número legible | `schema.prisma:1344-1346`, `:1525-1529` |
@@ -26932,6 +26959,10 @@ providerReference: string | null;  // folioTokenOf(address_to.reference) — el 
 
 **M4-SHIP.19.28.5 — 💰 «No salió» es un hecho local: se libera solo desde el primer día.**
 
+> 🔒 **v1.80.12.9 ([§19.29.1.3–.4](#M4-SHIP-19-29), C-16/C-17):** la prueba de I-SENT es la columna
+> `ShipmentLabelAttempt.sentAt` de `(envío, since)`, ⛔ no una búsqueda en el JSON de la bitácora; el 7b.2 hace CAS con
+> `count = 1`; un reloj para `since`, `notAfter` y el job.
+
 - **Invariante I-SENT (normativa):** la fila `shipment.label_purchase_sent {since, providerReference, …}` se **comitea
   antes** de que salga **cualquier** intento de `POST /api/v2/shipments` de ese reclamo. (§19.27.3 ya lo ordenaba; ahora
   es invariante con prueba.)
@@ -26944,6 +26975,10 @@ providerReference: string | null;  // folioTokenOf(address_to.reference) — el 
   §19.27.1): ninguna fila «sin 7b» es de un código viejo.
 
 **M4-SHIP.19.28.6 — 💰 La conciliación de huérfanas se construye ya (D2d), con el folio.**
+
+> 🔒 **v1.80.12.9 — RECHAZADA por seguridad (SDX-D-21, alto) y SUSTITUIDA en lo que cancela por
+> [§19.29.1.5](#M4-SHIP-19-29) (C-14):** cuatro condiciones y un fusible antes de cualquier `cancel` sin persona. Lo demás
+> (detectar huérfanas, alerta `label_orphan`) sigue, y cada huérfana escribe su `ShipmentPaidLabel` (§19.29.4).
 
 - En cada corrida que ya lee el listado (sin peticiones nuevas): todo envío con `providerReference` legible, `id ∉
   knownIds`, `createdAt ≤ now − PURCHASE_MAX_LIFE_MS`, cuyo intento `(folio, n)` **no** es el reclamo vigente de su envío
@@ -27076,6 +27111,514 @@ el orquestador `13957d99`, ⛔ no medido por el arquitecto: sin Bash).
 - **SDX-D-19** (tope diario por operador y aviso «la misma persona corrigió la dirección y compró»): medido el
   2026-10-04, `HECHOS.md:60` ya trae la respuesta del dueño (entra el aviso; «y más» ⇒ el product-owner propone el
   conjunto de controles de gasto). Va product-owner → arquitecto; aquí no se diseña.
+- 🔒💰 **v1.80.12.9 ([§19.29](#M4-SHIP-19-29)):** SDX-D-19 queda diseñado allí (§Z: TG-1, TG-2, AG-1…AG-13). Además, §19.29.1
+  cierra C-14…C-18 y SDX-I-6 de la revisión de seguridad de esta errata (`SECURITY_NOTES.md:1-190`, veredicto sobre `2612064e`):
+  **§19.28.6 (cancelación automática de huérfanas) queda SUSTITUIDA por §19.29.1.5**; el formato del token de §19.28.1,
+  por §19.29.1.1; la fuente de I-SENT y de `n` (§19.28.1, §19.28.5), por la fila `ShipmentLabelAttempt` (§19.29.2).
+
+###### <a id="M4-SHIP-19-29"></a>M4-SHIP.19.29 — 🔒💰 v1.80.12.9: control del gasto en guías (§Z, D2: TG-1, TG-2, AG-1…AG-13, la base de avisos al dueño) y los cierres C-14…C-18 de la revisión de v1.80.12.8 (**NORMATIVA**, **DINERO + TERCERO**)
+
+> **Fuentes:** `PROJECT.md §Z` (commit `77eecb4a` según el orquestador; leído en `PROJECT.md:8510-8693`, criterios
+> **319–333** en `:12579-12660`, **338** en `:12678`); `HECHOS.md:62` (2026-10-04, «Control del gasto — límites aceptados
+> como se recomendaron (P-GAS-1,2,3,6,7,8,9) y DOS correos nuevos (P-GAS-4, P-GAS-5)»); `HECHOS.md:51` (a)(d) (la cuenta del
+> dueño conserva correo; súper-admins sin correo); `HECHOS.md:58`, `:59`, `:61`; `SECURITY_NOTES.md:1-190` (veredicto sobre
+> `2612064e`, commit `e299c296` según el orquestador: D2c **APROBADO CON CONDICIONES** C-15…C-18; §19.28.6 **RECHAZADA**,
+> SDX-D-21 alto ⇒ C-14 bloquea D2d; uniones con §Z en su §2.5). Código leído por el arquitecto el 2026-10-04 en
+> `/home/user/tcg-skyd` (Read/Grep, ⛔ sin ejecutar nada; HEAD dado por el orquestador `2612064e` o posterior, ⛔ sha NO
+> MEDIDO: sin Bash). **Manda** sobre §19.7 pasos 2, 7 y 7b, §19.8, §19.10, §19.13 (`workQueue`), §19.27.3, §19.28.1
+> (formato y fuente de `n`), §19.28.5 (fuente de I-SENT), §19.28.6 (entera) y SDX-R6 de §19.14, donde choque.
+> **Sí hay migración:** **`M-68` (`M-GAS-1`)**, después de `M-67`. Porqué: `ARCHITECTURE §4.60 (v)`.
+
+**M4-SHIP.19.29.0 — Qué entra aquí y qué no (respuesta a `PROJECT §Z.7`).**
+
+| Pieza | Aquí (D2) | Stream aparte |
+|---|---|---|
+| Base de avisos (§Z.5): tabla, lista, tarjeta, correo inmediato con freno 5/h, resumen diario 08:00 MX | **sí** — pieza nueva **D2g** | — |
+| TG-1, TG-2 | **sí** — D2c | — |
+| AG-1…AG-5, AG-7, AG-8 (a), AG-9 (`charged_not_found`), AG-13 | **sí** — D2c | — |
+| AG-6, AG-8 (b), AG-9 (huérfanas/duplicados), AG-10, AG-11, AG-12 | **sí** — D2d | — |
+| **AG-11 con correo inmediato** («paquete devuelto o destruido», P-GAS-5 = sí, `HECHOS.md:62`) | **sí, entra con D2d.** Decisión del arquitecto: cuelga de `applyCarrierStatus` (D2d la construye) y usa la base de D2g sin pieza nueva; dejarlo fuera obligaría a reabrir `applyCarrierStatus` después | — |
+| **AG-14** («reembolsos del personal», P-GAS-4 = sí) | el **tipo** queda reservado en el enum (sin disparador) | **sí**: cuelga de `POST …/prepared` (módulo `payments/refunds`, otro stream); solo añade el disparador sobre la base de D2g |
+| AG-15…AG-20 | tipos reservados en el enum (sin disparador) | **sí** (§Z.7) |
+
+**M4-SHIP.19.29.1 — 🔒💰 Cierres de la revisión de seguridad de v1.80.12.8 (C-14…C-18, SDX-I-5, SDX-I-6).**
+
+1. **C-18 / SDX-D-23 — formato del token (sustituye el formato de §19.28.1).**
+   - Folio: **`ENV-` + al menos 6 dígitos**. El default de base de datos de `M-67` se corrige: ⛔ `lpad(x, 6, '0')`
+     **trunca** en Postgres un texto de más de 6 caracteres (`lpad('1000000', 6, '0') = '100000'`: el folio 1 000 000
+     repetiría el 100 000 y chocaría con el `@unique`). Norma: `'ENV-' || lpad(s::text, greatest(6, length(s::text)), '0')`
+     con `s = nextval('shipment_folio_seq')`. Unitaria/migración: secuencia puesta en 999999 ⇒ `ENV-999999`, la siguiente
+     `ENV-1000000`.
+   - Intento: **dos dígitos fijos** `01…99`. Token = `<folio>-<NN>` (`ENV-000045-01`); texto que viaja: **`Pedido
+     ENV-000045-01`**. Intento 100 ⇒ no se compra: claim deshecho, `409 CONFLICT {reason:'attempts_exhausted'}` (se captura a
+     mano; nunca ocurre en la práctica con TG-2).
+   - **`n` sale de `ShipmentLabelAttempt.attemptNo`** (§19.29.2), una fila de dominio sin purga, ⛔ ya no de contar
+     `shipment.label_purchase_sent` en la bitácora.
+2. **C-15 / SDX-D-20 — el folio no se puede forjar con datos del cliente.**
+   - **Neutralizar al armar la compra:** en **todo** campo de `PurchaseInput.to` que no sea `reference` (`name`, `company`,
+     `street1`, `phone`, `email`, `furtherInformation`) se sustituye cada coincidencia de `/E\s*N\s*V\s*-(?=\s*\d)/gi` por
+     `ENV ` (guion fuera). Una función pura `neutralizeFolioPattern(text)`, ⛔ un solo cuerpo, aplicada en el servicio antes
+     del puerto. Lo guardado en `ShipmentRequest.addressSnapshot` **no** cambia (es lo que escribió el cliente; solo cambia
+     lo que viaja).
+   - **`folioTokenOf(text)` anclado:** `trim` + mayúsculas; acepta **solo** el texto entero
+     `^PEDIDO ENV-(\d{6,})-(\d{2})$` y devuelve `ENV-<g1>-<g2>`; cualquier otra cosa (texto con prefijo, sufijo, dos
+     tokens, intento de 1 o 3 dígitos) ⇒ `null`. Sustituye a `/\bENV-\d{6}-\d{1,3}\b/` de §19.28.1.
+3. **C-16 / SDX-D-24 — `not_sent` no falla abierto.** La prueba de I-SENT ya no busca en el JSON de la bitácora: lee
+   **`ShipmentLabelAttempt.sentAt`** de la fila `(shipmentRequestId, since)` (§19.29.2), una columna escrita en la misma tx
+   que la bitácora del 7b. Si la escritura del 7b.2 falla (cualquier excepción) ⇒ **0** `purchase`: se deshace el reclamo en
+   tx nueva (`data` de la rama de rechazo; el intento pasa a `not_charged`, `outcomeReason:'sent_write_failed'`) y responde
+   `503 SHIPPING_PROVIDER_BUSY`; si también falla el deshacer, el job lo libera como `not_sent` a la vida máxima.
+4. **C-17 / SDX-D-22 — el 7b.2 con CAS.** Sustituye el paso 2 de §19.27.3. En **una** tx, en este orden:
+   (a) `updateMany ShipmentRequest {where:{id, labelProcessingSince: since, providerShipmentId: null}, data:{labelProcessingSince:
+   since}}` ⇒ exige `count = 1`; (b) `attemptNo = 1 + max(attemptNo)` de los intentos de S (bajo el candado de fila que (a)
+   tomó); (c) `updateMany ShipmentLabelAttempt {where:{shipmentRequestId, since, outcome:'pending', sentAt: null}, data:{sentAt:
+   now, attemptNo, providerReference}}` ⇒ exige `count = 1`; (d) bitácora `shipment.label_purchase_sent` (con
+   `providerReference`, como §19.28.1). Cualquier `count ≠ 1` ⇒ rollback y **0** `purchase` (una liberación entró antes: el
+   reclamo ya no es este). **Un reloj:** `since`, `notAfter` y el `now` del job salen del **mismo** `Clock` inyectado de la
+   aplicación (⛔ `since` nunca de `now()` de Postgres). Liberar (`not_sent`, `not_charged`, «Liberar») hace en su tx el CAS
+   inverso sobre la misma fila del intento (`outcome:'pending' ∧ sentAt` según el caso) ⇒ las dos ramas se excluyen por fila.
+5. **C-14 / SDX-D-21 — cancelación automática de huérfanas (SUSTITUYE la primera viñeta de «Qué se hace» de §19.28.6).**
+   El job cancela una huérfana o duplicado Y **solo si se cumplen las cuatro**; si falta una ⇒ **0** `cancel`, alerta
+   `label_orphan` para una persona y aviso **AG-9** (§19.29.6):
+   - (a) `getShipment(Y)` **legible** y con número de rastreo `t_Y ≠ null` (sin número no se puede descartar que sea la guía
+     del paquete: falla cerrado);
+   - (b) el envío S de Y está `cancelado`, **o** su guía vigente es **`labelSource='skydropx'` con `providerShipmentId ≠ Y`**
+     (⛔ una guía vigente `manual` ⇒ no se cancela nunca: la captura a mano no guarda id y puede ser Y);
+   - (c) `normalize(t_Y)` (trim, mayúsculas, sin espacios) **no** es igual a ningún `ShipmentRequest.trackingNumber`
+     normalizado de **ningún** envío nuestro, de cualquier origen;
+   - (d) **fusible:** hay **< 3** `shipment.label_orphan_cancelled` con actor `system:label-verify` en las últimas 24 h
+     (constante `ORPHAN_AUTO_CANCEL_MAX_24H = 3` en `label-verify.constants.ts`). La 4.ª ⇒ **0** `cancel`, bitácora
+     `shipment.orphan_cancel_fused {providerShipmentId}` y AG-9 🔴 `cause:'orphan_fuse'` (una vez por día MX).
+   Las comprobaciones (a)–(c) se hacen en la misma corrida, justo antes de `cancel`, sin caché.
+6. **SDX-I-6:** el folio **nunca** es llave de búsqueda ni parámetro de ruta en superficies de cliente, invitado o
+   públicas (§1–§5, §4-G). Solo viaja en DTOs de admin (§19.28.11) y en la etiqueta. Un filtro `?folio=` en
+   `GET /admin/shipments` es admin y queda permitido.
+7. **SDX-I-5:** el folio **sigue secuencial**. El dueño pidió «pedido 1 2 3 en adelante» (`HECHOS.md:61`); no se pregunta.
+
+**M4-SHIP.19.29.2 — 💰 Schema `M-68` (`M-GAS-1`): el libro de intentos, el libro de guías pagadas y los avisos.**
+
+*Por qué dos tablas de dinero nuevas (razón entera en `ARCHITECTURE §4.60 (v)`):* `ShipmentRequest` solo guarda **la guía
+vigente** (al cancelar, §19.8 la deja en nulo y el costo en 0) y la bitácora es JSON sin índice: ninguna de las dos sostiene
+una **suma bajo candado** (TG-1) ni un **conteo de guías pagadas por envío** (TG-2) que incluya canceladas, huérfanas y
+duplicados. El precedente es `PaymentRefund` para el tope de reembolsos (§M4-SHIP.5 paso 6).
+
+```prisma
+enum LabelAttemptOutcome { pending labeled not_charged released_unverified }
+enum PaidLabelOrigin     { response adopted orphan duplicate }
+enum LabelCancelKind     { reissue auto_close orphan_auto orphan_manual }
+
+// Un reclamo de compra (paso 7). ⛔ Sin purga.
+model ShipmentLabelAttempt {
+  id                    String   @id @default(uuid())
+  shipmentRequestId     String
+  shipmentRequest       ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  since                 DateTime            // = labelProcessingSince del reclamo, el MISMO valor (igualdad exacta)
+  actorUserId           String              // quien reclamó (sin FK dura, patrón AuditLog). ⛔ nunca un actor de sistema
+  capExempt             Boolean             // isOwnerAccount(actor) leído de BD en la tx del paso 7 (§19.29.3)
+  rateId                String
+  carrierName           String
+  expectedChargeCents   Int                 // chosenRateJson.priceCents: lo que vio el operador, seguro incluido
+  recommendedPriceCents Int?                // recommendedRateJson.priceCents; null si no había recomendada
+  marginCents           Int                 // rate.marginCents al reclamar
+  attemptNo             Int?                // 1..99, en el 7b.2 (C-17/C-18)
+  providerReference     String?  @unique    // 'ENV-000045-01', en el 7b.2
+  sentAt                DateTime?           // commit del 7b.2 — LA prueba de I-SENT (C-16)
+  outcome               LabelAttemptOutcome @default(pending)
+  outcomeReason         String?             // 'rejected' | 'balance' | 'forbidden' | 'deadline' | 'sent_write_failed' | 'not_sent' | 'auto_verified' | 'manual_verified' | 'manual'
+  outcomeAt             DateTime?
+  createdAt             DateTime @default(now())
+  paidLabels            ShipmentPaidLabel[]
+  @@unique([shipmentRequestId, since])
+  @@unique([shipmentRequestId, attemptNo])
+  @@index([actorUserId, since])
+}
+
+// Una guía que Skydropx cobró por nosotros: la de la respuesta, la adoptada, una huérfana o un duplicado. ⛔ Sin purga.
+model ShipmentPaidLabel {
+  id                 String   @id @default(uuid())
+  providerShipmentId String   @unique
+  shipmentRequestId  String
+  attemptId          String?                // el intento al que la atribuye el folio; null ⇔ sin folio atribuible
+  attempt            ShipmentLabelAttempt? @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+  origin             PaidLabelOrigin
+  chargedCents       Int                    // response/adopted: el shippingCostCents escrito (§19.11); orphan/duplicate: expectedChargeCents del intento
+  cancelledAt        DateTime?
+  cancelKind         LabelCancelKind?
+  cancelledByUserId  String?                // null ⇔ el sistema
+  unrefundedCents    Int?                   // shippingCostCents − refundedCents si Skydropx lo dijo; null si no lo dijo (SEC-SDX-11)
+  refundAlertedAt    DateTime?              // AG-8 (b) ya evaluado
+  createdAt          DateTime @default(now())
+  @@index([shipmentRequestId])
+  @@index([cancelledByUserId, cancelledAt])
+}
+
+enum SpendAlertKind {
+  label_after_address_fix  // AG-1
+  label_cap_warning        // AG-2
+  label_cap_blocked        // AG-3
+  label_reissue_loop       // AG-4
+  label_charge_drift       // AG-5
+  carrier_extra_charge     // AG-6
+  provider_balance_low     // AG-7
+  cancel_refund_missing    // AG-8
+  label_charged_unexplained // AG-9
+  label_not_shipped        // AG-10
+  parcel_returned          // AG-11
+  parcel_problem           // AG-12
+  label_costly_choice      // AG-13
+  operator_refund_cap      // AG-14 — reservado, sin disparador en D2
+  super_admin_money_out    // AG-15 — reservado
+  shrinkage                // AG-16 — reservado
+  chargeback               // AG-17 — reservado
+  buylist_manual_price     // AG-18 — reservado
+  psa_credits              // AG-19 — reservado
+  stuck_refund             // AG-20 — reservado
+}
+enum SpendAlertSeverity { immediate digest }      // 🔴 / 🟡 (Z.2)
+enum SpendAlertMailStatus { not_applicable pending sending sent batched batch_sent failed failed_unknown no_recipient }
+
+model SpendAlert {
+  id              String   @id @default(uuid())
+  kind            SpendAlertKind
+  severity        SpendAlertSeverity
+  dedupKey        String   @unique            // §19.29.6; un aviso «abierto» de AG-7 usa 'ag7:open'
+  subjectUserId   String?                     // persona vigilada; null ⇔ hecho del sistema o del proveedor
+  shipmentRequestId String?
+  orderId         String?
+  amountCents     Int?
+  facts           Json                        // LISTA BLANCA por tipo (§19.29.6). ⛔ PII del cliente
+  occurrenceCount Int      @default(1)
+  firstOccurredAt DateTime @default(now())
+  lastOccurredAt  DateTime @default(now())
+  resolvedAt      DateTime?                   // AG-7 y AG-10: se resuelven solos
+  seenAt          DateTime?
+  seenByUserId    String?
+  mailStatus      SpendAlertMailStatus
+  mailedAt        DateTime?
+  mailAttempts    Int      @default(0)
+  batchHour       DateTime?                   // AG con correo diferido al lote «y N más» (§19.29.7)
+  @@index([firstOccurredAt])
+  @@index([severity, seenAt])
+  @@index([kind, firstOccurredAt])
+  @@index([subjectUserId, firstOccurredAt])
+  @@index([mailStatus, batchHour])
+}
+
+model SpendDigestRun {
+  day        DateTime @id @db.Date               // el día MX que resume (el de ayer a las 08:00)
+  status     String                              // 'sending' | 'sent' | 'empty' | 'failed'
+  alertCount Int
+  sentAt     DateTime?
+  attempts   Int @default(0)
+}
+```
+
+- **CHECKs** (SQL crudo, patrón de `M-64`): `expectedChargeCents >= 0`; `attemptNo BETWEEN 1 AND 99`;
+  `(sentAt IS NULL) = (providerReference IS NULL) = (attemptNo IS NULL)`; `outcome='pending' ⇒ outcomeAt IS NULL`;
+  `chargedCents >= 0`; `unrefundedCents >= 0`; `(cancelledAt IS NULL) = (cancelKind IS NULL)`; `cancelKind='reissue' ⇒
+  cancelledByUserId IS NOT NULL`; `occurrenceCount >= 1`; `(seenAt IS NULL) = (seenByUserId IS NULL)`.
+- **Migración:** solo `CREATE` (tablas y enums vacíos; ⛔ sin backfill: la cuenta nunca compró, §19.27.1). Diales nuevos
+  sembrados con `ON CONFLICT DO NOTHING` (§19.29.8). **El seed del saldo bajo pasa de 50000 a 100000** (`HECHOS.md:62`,
+  «saldo bajo de Skydropx en MX$1,000»): ⚠️ **NO MEDIDO** por el arquitecto si `M-66` ya está aplicada en alguna base
+  persistente (producción). Backend lo mide (`git log origin/production -- backend/prisma/migrations/20261007120000_m66_sdx_d_skydropx`):
+  **no** aplicada ⇒ se corrige la línea de `M-66` (`migration.sql:328`) y nada en `M-68`; **sí** aplicada ⇒ `M-68` hace
+  `UPDATE "ConfigSetting" SET "valueJson"='100000'::jsonb, "updatedBy"='migration:m68-gas' WHERE key='skydropx_low_balance_cents'
+  AND "valueJson"='50000'::jsonb AND "updatedBy"='migration:m66-sdx-d'` (solo si nadie la movió). En ambos casos
+  `SETTING_DEFAULTS` pasa a `100000` (`settings.constants.ts:533`) y el candado `test/sdx-d.dials.spec.ts:34` aserta el seed
+  **efectivo tras todas las migraciones**.
+- `C-ENUM`: los cinco enums entran en §Enums con paridad contra `schema.prisma`.
+- **Invariantes (con prueba, PS-159):** (I-1) todo `ShipmentRequest` con `labelSource='skydropx'` tiene su
+  `ShipmentPaidLabel` con el mismo `providerShipmentId`, `origin ∈ {response, adopted}` y `chargedCents =
+  shippingCostCents`, escritos en **la misma tx** por **una** función (`recordPaidLabel`); (I-2) toda fila de intento con
+  `sentAt ≠ null` tiene su `shipment.label_purchase_sent` con el mismo `providerReference`.
+
+**M4-SHIP.19.29.3 — 💰 Quién es «el dueño» en el sistema (Z.0.4–Z.0.5, P-GAS-9; pedido por seguridad, 2.5).**
+
+```ts
+// spend-alerts/owner.ts — función PURA, conjunto explícito (patrón C-13). ⛔ Ni role !== 'vault_operator' ni role === 'super_admin' a secas.
+export function isOwnerAccount(u: { role: Role; email: string | null; status: UserStatus; deletedAt: Date | null }): boolean {
+  return u.role === Role.super_admin && u.email !== null && u.status === UserStatus.active && u.deletedAt === null;
+}
+```
+
+- **Por qué así:** `HECHOS.md:51` (a) — la cuenta de súper-admin del dueño **conserva correo**; el resto del staff entra
+  sin correo, y `POST /admin/users` **prohíbe** correo al staff (v1.80.9, punto 4: alta de staff con correo ⇒ `422`). Hoy la
+  única forma de ser «súper-admin con correo» es ser la cuenta del dueño.
+- **Se lee de la base en la tx** (paso 7 y cada disparador), ⛔ nunca del JWT.
+- **Lo que decide:** exento de TG-1/TG-2 (`HECHOS.md:62`: «al pasarlo solo el dueño compra»; «la tercera la compra el
+  dueño»); sus actos no generan avisos «sobre una persona» (AG-1…AG-4, AG-13; Z.0.5); destinatario de los correos (Z.5).
+  Un **súper-admin sin correo** es persona vigilada (P-GAS-9).
+- ⚠️ **NO MEDIDO por el arquitecto:** si algún verbo puede **cambiar el rol** de una cuenta con correo a `super_admin`
+  (Grep de `role:` en escrituras de `admin.service.ts`). Si existe, esa cuenta pasaría a ser «dueño». Backend lo mide y lo
+  reporta en `BACKEND_NOTES`; si existe, el arquitecto decide (errata). Mientras tanto, PS-145 aserta la tabla de verdad.
+
+**M4-SHIP.19.29.4 — 💰 TG-1 y TG-2: dónde y en qué orden (sustituye pasos 2 y 7 de §19.7 en lo que añade).**
+
+```ts
+// shipments/label-spend.ts — UN cuerpo para las dos comprobaciones y para la tarjeta del tablero.
+spendOfPaidLabel(p)   = p.cancelledAt ? (p.unrefundedCents ?? 0) : p.chargedCents;
+spendOfAttempt(a)     = a.paidLabels.length > 0 ? Σ spendOfPaidLabel(p)
+                      : (a.outcome === 'pending' || a.outcome === 'released_unverified') ? a.expectedChargeCents
+                      : 0;                                   // not_charged (incl. not_sent) ⇒ 0; 'labeled' siempre tiene paidLabel
+labelSpend24h(db, userId, now) = Σ spendOfAttempt(a)  WHERE a.actorUserId = userId ∧ a.since > now − 24 h
+paidLabelsOf(db, shipmentId)   = count(ShipmentPaidLabel WHERE shipmentRequestId = S)          // response, adopted, orphan, duplicate; canceladas incluidas
+                               + count(ShipmentLabelAttempt WHERE S ∧ outcome ∈ {pending, released_unverified} ∧ sin paidLabel)
+checkLabelLimits(db, actorRow, shipmentId, priceCents, now): null | 'reissue' | 'daily_spend'
+  isOwnerAccount(actorRow) ⇒ null
+  paidLabelsOf(S) ≥ 1 + dial shipping_label_reissue_max_per_shipment ⇒ 'reissue'
+  labelSpend24h(actor) + priceCents > dial operator_label_cap_24h_cents ⇒ 'daily_spend'
+```
+
+- **TG-1 cuenta (seguridad 2.5):** los reclamos en vuelo e inciertos por `expectedChargeCents` hasta resolverse; `not_sent`,
+  `not_charged` y los rechazos sin id lo descuentan; la guía adoptada o huérfana se atribuye al **intento**, y el intento
+  a **quien reclamó** (⛔ nunca a `system:label-verify`); una cancelación solo descuenta lo devuelto (`unrefundedCents`; con
+  `null`, se asume devuelto como el P&L — SEC-SDX-11 — y lo vigila AG-8 (b)). Ventana: 24 h **móviles** sobre `since`
+  (`>`, estricto). Bloquea si **la suma con esta guía** pasa del tope (`>`): MX$2,400 + MX$150 > MX$2,500 ⇒ niega
+  (criterio 321); igual al tope ⇒ pasa.
+- **TG-2 cuenta guías pagadas, nunca el `n` del token (seguridad 2.5):** un intento que no costó (`PurchaseDeadlineError`,
+  rechazo sin id, `not_sent`) **no** gasta la recompra; una huérfana o un duplicado **sí** cuentan. Un «Liberar» sin
+  verificar (`released_unverified`) cuenta (falla cerrado; el dueño compra la siguiente).
+- **Orden en el paso 2** (tx con candado de fila; comprobación **previa, de solo lectura**, para cumplir «se niega antes de
+  llamar a Skydropx», criterio 321, ⛔ antes del re-cotizado del paso 3 y del saldo del paso 6): guardas existentes →
+  `rate_already_purchased` (§19.26.3 (a)) → **`checkLabelLimits`** (con `rate.priceCents` leído de `ratesJson`).
+- **Orden en el paso 7** (la comprobación **que manda**, dentro de la tx de `SKYDROPX_PURCHASE_LOCK_KEY`, como pide
+  seguridad 2.5): `pg_try_advisory_xact_lock` → `EXISTS purchase_in_flight` (§19.28.8) → **lectura de `actorRow` y
+  `checkLabelLimits`** → CAS del reclamo → **`INSERT ShipmentLabelAttempt`** (misma tx; `capExempt`, `expectedChargeCents`,
+  `recommendedPriceCents`, `marginCents`) → bitácora `label_requested` → commit. *Por qué `purchase_in_flight` antes que los
+  topes:* es pasajero (reintento en segundos) y, cuando se reintente, el tope ya ve el intento del otro. *Por qué no hace
+  falta candado por persona:* el candado consultivo ya serializa el paso 7 de **toda** la cuenta y la fila del intento se
+  inserta dentro.
+- **Negativa:** **`403 LABEL_PURCHASE_LIMIT {limit: 'daily_spend' | 'reissue'}`** (código nuevo). ⛔ Sin `capCents`,
+  `usedCents`, saldo ni ninguna cifra (Z.0.6, criterio 321 — a diferencia de `MONEY_OUT_LIMIT_EXCEEDED`, que es de
+  reembolsos y sí las trae). Rollback; **después** del rollback: bitácora `shipment.label_purchase_limited {limit,
+  shipmentId, priceCents, usedCents, capCents | reissueMax, paidLabels}` (la ve solo el súper-admin) y aviso AG-3 (tope) o
+  AG-4 (recompra). ⛔ Cero llamadas al proveedor. **«Capturar a mano»** (`POST …/tracking`) no mira ningún tope (Z.0.6,
+  criterio 338).
+- **La puerta va antes:** el dial de §19.19.7 (`disabled`/`super_admin_only`/`operators`), el rol con conjunto explícito
+  (C-13) y la env se evalúan en el paso 1 **sin cambio**; los topes solo se miran si la puerta dejó pasar.
+- **Escrituras del libro en cada rama existente** (todas en la tx de la rama, `since` exacto):
+
+| Rama (sección) | `ShipmentLabelAttempt` | `ShipmentPaidLabel` |
+|---|---|---|
+| Rechazo sin id, `forbidden`, saldo del 7b.1, deadline (§19.7 p.9, §19.26.4, §19.27.3, §19.28.2) | `not_charged` + `outcomeReason` | — |
+| Éxito con/sin número, «rechazo con id» (§19.7 p.9, §19.26.1) | `labeled` | `recordPaidLabel(origin:'response', chargedCents = shippingCostCents escrito)` |
+| `provider_id_taken` (§19.26.3 (b)) | sigue `pending` | — (el id es de otro envío) |
+| Respuesta vencida con id (§19.28.3, `label_orphan`) | sin cambio | `origin:'orphan'`, `attemptId` = el intento de **ese** `since` |
+| Adopción `found` (§19.27.5, §19.28.4) | `labeled` | `origin:'adopted'` |
+| `duplicate` (§19.28.4) | sin cambio | dos filas `origin:'duplicate'`, `attemptId` = el intento |
+| Huérfana tardía (§19.28.6) | sin cambio (o el `outcome` que tuviera) | `origin:'orphan'`, `attemptId` por `providerReference` |
+| `not_sent`, `not_charged`, «Liberar» `manual_verified` | `not_charged` | — |
+| «Liberar» `manual` (sin verificar) | `released_unverified` | — |
+| `label/cancel` aceptado (§19.8) | — | `cancelledAt`, `cancelKind:'reissue'`, `cancelledByUserId`, `unrefundedCents` |
+| `cancelProviderLabelIfAny` (auto_close) | — | `cancelKind:'auto_close'`, `cancelledByUserId: null` |
+| Cancelación de huérfana (§19.29.1.5) | — | `cancelKind:'orphan_auto'` (job) / `'orphan_manual'` (si una persona la cancela por el verbo) |
+
+- `labelOptions` (§19.19.7) gana **`limit: 'daily_spend' | 'reissue' | null`** — `reissue` si `paidLabelsOf(S)` ya llegó;
+  `daily_spend` solo si `labelSpend24h ≥ tope` (sin la cifra; la que depende del precio se sabe al pulsar). `null` para el
+  dueño. `canPurchase` no cambia de significado.
+
+**M4-SHIP.19.29.5 — La base de avisos (§Z.5): crear, no repetir, correo, panel.**
+
+```ts
+// spend-alerts/spend-alerts.service.ts — único escritor de SpendAlert (candado C-GAS-1: censo de `spendAlert.create|upsert|update`).
+raise(db, { kind, severity, dedupKey, subjectUserId?, shipmentRequestId?, orderId?, amountCents?, facts }): Promise<void>
+//  1. kind ∈ dial spend_alerts_disabled ⇒ no-op (ni panel ni correo).
+//  2. Persona vigilada: si el aviso es «sobre una persona» (AG-1…AG-4, AG-13) y subject es dueño ⇒ no-op.
+//  3. INSERT … ON CONFLICT (dedupKey) DO UPDATE SET occurrenceCount = +1, lastOccurredAt = now,
+//     severity = max(severity) — si sube de digest a immediate y mailStatus = 'not_applicable', pasa a 'pending'.
+//  4. mailStatus inicial: immediate ⇒ 'pending'; digest ⇒ 'not_applicable'.
+//  Dentro de la tx del hecho cuando la hay (outbox); después del rollback en las negativas (como la bitácora).
+resolve(db, dedupKey): Promise<void>     // AG-7 y AG-10: resolvedAt = now (y AG-7 reescribe dedupKey a 'ag7:closed:<id>')
+```
+
+- **Ningún aviso se borra** (sin verbo de borrado; censo). «Visto» deja quién y cuándo.
+- **Correo inmediato (outbox):** post-commit se llama `dispatchImmediate(alertId)`; además `spend-watch` (§19.29.7) recoge
+  los `pending`. Despacho **a lo sumo una vez**: bajo `pg_advisory_xact_lock(SPEND_MAIL_LOCK_KEY = 65_310_702)` (entra en
+  el censo de claves de §19.28.8) se cuentan los `sent|sending` con `mailedAt` en la **hora de reloj** en curso; `< 5`
+  (`SPEND_MAIL_HOURLY_MAX = 5`, constante: es mecanismo, no política) ⇒ `pending → sending`, `mailedAt = now`, commit,
+  envío, `sent` (o `failed`, `mailAttempts + 1`); `≥ 5` ⇒ `batched` con `batchHour`. `failed` se reintenta hasta 3 veces;
+  un `sending` de más de 10 min ⇒ `failed_unknown`, ⛔ no se reintenta (puede haber salido). Sin dueños con correo ⇒
+  `no_recipient` + log `warn` (el aviso sigue en el panel).
+- **El lote:** cerrada la hora H, `spend-watch` manda **un** correo «y N avisos más» con una línea por aviso `batched` de H
+  y los marca `batch_sent`. Con 6 avisos 🔴 en una hora: 5 correos + 1 de lote (criterio 332). El de lote no cuenta en el
+  tope de la hora siguiente (a lo sumo 6 correos por hora).
+- **Destinatarios:** toda cuenta con `isOwnerAccount` (§19.29.3), un correo a cada una, en su `locale`. ⛔ Nunca al personal
+  ni a clientes (criterio 332/338).
+- **Contenido (lista blanca, `toSpendAlertMail(alert)` por tipo):** qué pasó, cuánto, **nombre del miembro del personal**
+  (`User.name`), número de pedido (`Order.orderNumber`) o folio del envío, enlace `appUrl('admin/spend-alerts/<id>')`.
+  ⛔ Nombre, dirección, teléfono, correo o CLABE del cliente; ⛔ el texto de la dirección corregida (AG-1 dice **qué
+  campos**, no los valores). Los correos de un 🔴 de guías llevan además el enlace al interruptor
+  `shipping_label_purchase` (Z.4).
+- **Ids de correo:** `AVG-1` (aviso inmediato), `AVG-2` (lote «y N más»), `AVG-3` (resumen diario). Son internos: **no**
+  entran en §R.3 ni en `C-AV-1` (sigue en **19**). `AVA-1` sigue reservado. Plantillas en el módulo (patrón §R.1: inyecta
+  `MAIL_PORT` y renderiza local); `mail.service.ts` **no cambia**.
+
+**M4-SHIP.19.29.6 — Los avisos AG-1…AG-13: disparador, gravedad, llave y datos.** «Persona» = aviso sobre una persona
+(el dueño queda fuera); «Sistema» = hecho del sistema o del proveedor (siempre avisa). Días: `America/Mexico_City`.
+
+| AG | Disparador (pieza) | Gravedad | `dedupKey` | `facts` (lista blanca) |
+|---|---|---|---|---|
+| **1** · Persona | Cuando un intento obtiene guía (`recordPaidLabel` con `origin ∈ {response, adopted}`) y existe `shipment.address_corrected` de S con `actorUserId` = quien reclamó (D2c) | 🔴 si `changedKeys ∩ {recipientName, line1, postalCode, city, state, country} ≠ ∅`; 🟡 si solo `{neighborhood, line2, references}` | `ag1:<shipmentId>` (uno por envío; si un segundo dispara con más gravedad, sube a 🔴 y manda correo) | `changedKeys`, `carrierName`, `chargedCents`, `correctionAt`, `revisionCount` — ⛔ sin valores |
+| **2** · Persona | Tras el `INSERT` del intento (paso 7): `used_antes < pct·tope ≤ used_después` con `pct` = dial (D2c) | 🟡 | `ag2:<userId>:<díaMX>` | `usedCents`, `capCents`, `pct` |
+| **3** · Persona | Negativa `daily_spend` (D2c) | 🔴 | `ag3:<userId>:<díaMX>` (repetidas suben `occurrenceCount`) | `shipmentId`, `priceCents`, `usedCents`, `capCents` |
+| **4** · Persona | (i) Negativa `reissue`; (ii) `label/cancel` deja a S con ≥ dial `spend_alert_shipment_cancel_count` guías `reissue` canceladas; (iii) una persona llega a ≥ dial `spend_alert_person_cancel_count_24h` cancelaciones `reissue` en 24 h (⛔ `auto_close`/`orphan_*` no cuentan) (D2c) | 🔴 | (i)/(ii) `ag4:s:<shipmentId>`; (iii) `ag4:u:<userId>:<díaMX>` | `cancelledCount`, `unrecoveredCents` (Σ `unrefundedCents` conocidos), `unknownRefunds`, `actors` (nombres del personal) |
+| **5** · Sistema | `recordPaidLabel` con `origin ∈ {response, adopted}`: `diff = chargedCents − expectedChargeCents ≠ 0` (D2c) | 🟡; 🔴 si `diff >` dial `spend_alert_charge_drift_immediate_cents` | `ag5:<attemptId>` | `quotedCents`, `chargedCents`, `diffCents` (el monto **es** el de `shippingCostCents`, el del P&L) |
+| **6** · Sistema | `INSERT ShipmentCostAdjustment` del job de cargos (§19.10) con `providerChargeId` que **no** empieza por `cancel:` (D2d); ⛔ la `P2002` no avisa | 🟡; 🔴 si `amountCents >` dial `spend_alert_extra_charge_immediate_cents` | `ag6:<adjustmentId>` | `kind`, `carrierName`, `amountCents` |
+| **7** · Sistema | (i) `observeBalance(cents)` con `cents < dial skydropx_low_balance_cents` y sin aviso abierto ⇒ crea `ag7:open`; `cents ≥ umbral` ⇒ lo resuelve (histéresis por la llave única). Llamado por **toda** lectura de saldo: pasos 6 y 7b.1, `GET /admin/shipping/balance`, la lectura cacheada del tablero y `spend-watch` (D2c/D2f). (ii) Negativa por saldo insuficiente (pasos 6/7b) (D2c) | 🔴 | (i) `ag7:open`; (ii) `ag7:insufficient:<shipmentId>:<díaMX>` | `balanceCents`, `thresholdCents` / `requiredCents` |
+| **8** · Sistema | (a) `label/cancel` o cancelación automática con `refundedCents < shippingCostCents` (D2c); (b) `spend-watch`: `ShipmentPaidLabel` cancelada con `unrefundedCents IS NULL`, `cancelledAt ≤ now − dial spend_alert_cancel_refund_days` y `refundAlertedAt IS NULL` ⇒ avisa y sella (D2d). *Cómo se comprueba el reembolso:* hoy **no** se puede (saldo contaminado, §19.27.1; `transaction_stats` NO MEDIDO, `M-PRD-7`) ⇒ constante `CANCEL_REFUND_VERIFIABLE = false`: **toda** cancelación sin cifra avisa al día 3 (criterio 326). Se enciende por errata con la medición | 🔴 | `ag8:<paidLabelId>` | `chargedCents`, `refundedCents | null`, `unrefundedCents | null`, `cancelKind` |
+| **9** · Sistema | (a) `label_verify_uncertain` con `charged_not_found` (D2c); (b) huérfana o duplicado que §19.29.1.5 **no** canceló; (c) huérfana cancelada sola (D2d); (d) fusible (D2d) | (a)(b)(d) 🔴; (c) 🟡 | `ag9:nf:<attemptId>` · `ag9:o:<providerShipmentId>` · `ag9:fuse:<díaMX>` | `cause: 'charged_not_found'|'orphan'|'duplicate'|'orphan_auto_cancelled'|'orphan_fuse'`, `expectedChargeCents`, `providerReference` |
+| **10** · Sistema | `spend-watch`: `ShipmentRequest` `labelSource='skydropx' ∧ status='guia' ∧ providerCanceledAt IS NULL ∧ carrierStatus ∈ {null,'created'} ∧ labelPurchasedAt ≤ now − dial spend_alert_label_not_shipped_days días` ⇒ crea; en la misma corrida resuelve los abiertos cuyo envío salió (`status ∈ {enviado, entregado}` o `carrierStatus ∉ {null, created}`) o cuya guía se canceló (D2d) | 🟡 | `ag10:<paidLabelId>` | `daysSincePurchase`, `chargedCents`, `carrierName` |
+| **11** · Sistema | `applyCarrierStatus` con `in_return` o `destroyed`, post-commit (D2d). **Correo: sí** (`HECHOS.md:62`, P-GAS-5) | 🔴 | `ag11:<shipmentId>:<status>` | `status`, `carrierName`, `chargedCents` |
+| **12** · Sistema | `applyCarrierStatus` con `exception`, `retained` o `delivery_attempt` (D2d) | 🟡 | `ag12:<shipmentId>:<status>` (`delivery_attempt`: `…:<providerEventKey>`) | `status`, `carrierName` |
+| **13** · Persona | `recordPaidLabel` (response/adopted) con `marginCents < 0` **o** `expectedChargeCents > recommendedPriceCents` (D2c) | 🟡 (⛔ nunca correo inmediato) | `ag13:<attemptId>` | `marginCents`, `priceCents`, `recommendedPriceCents`, `overRecommendedCents` |
+
+- *AG-1, clasificación:* `HECHOS.md:62` dice «destinatario, calle o CP». `city`/`state`/`country` **no** están en ninguna
+  lista de `PROJECT §Z.3`; el arquitecto los pone en 🔴 (cambian el destino tanto como el CP). **Pregunta para
+  product-owner, no bloquea.** «Corrige uno y compra otro» ⇒ sin aviso (solo cuenta la corrección **del** que reclamó).
+- *AG-9 (b)(c)(d)* amplía AG-9 («cobrada sin guía») a las guías pagadas que no son la del paquete (huérfanas, duplicados,
+  fusible): es dinero que se fue sin explicación (Z.2 🔴). **Interpretación del arquitecto; product-owner la confirma.**
+- *AG-11/AG-12* sustituyen, **solo para el correo al dueño**, «⚪ solo panel» (pregunta 91 / T.6), por `HECHOS.md:62`. Al
+  cliente **nada** nuevo (§R.7 sin cambio; `C-AV-1` sigue 19).
+
+**M4-SHIP.19.29.7 — Jobs (cola `tcg-daily`, single-flight, disparables por `POST /admin/jobs/<name>`, §M10-ops).**
+
+| Job | Cron (env, default) | Qué hace |
+|---|---|---|
+| **`spend-watch`** | `SPEND_WATCH_CRON`, `*/5 * * * *` | (1) correos `pending`/`failed` (≤ 3 intentos) y `sending` vencidos (§19.29.5); (2) lote de cada hora cerrada con `batched`; (3) con `shipping_provider='skydropx'`: saldo por la lectura **cacheada 5 min** de §19.13 ⇒ `observeBalance` (AG-7), barrido AG-8 (b), crear/resolver AG-10. Con el proveedor `off`, solo (1) y (2) |
+| **`spend-digest`** | `SPEND_DIGEST_CRON`, `0 8 * * *` con **`tz: 'America/Mexico_City'`** en la repetición (`scheduler.service.ts:343-356` gana el parámetro). Si la versión instalada de BullMQ no admite `tz` (**NO MEDIDO**), `0 14 * * *` UTC: México no tiene horario de verano desde 2022 | `day` = ayer en MX (del `Clock`). `INSERT SpendDigestRun(day) ON CONFLICT DO NOTHING` ⇒ si no insertó y su `status ≠ 'failed'`, no-op (**una vez por día**). Avisos con `firstOccurredAt ∈ [day 00:00, day+1 00:00)` MX, de las dos gravedades. Cero ⇒ `status='empty'`, **sin correo**. Si no ⇒ **un** correo `AVG-3` a cada dueño: por tipo (cuántos, Σ `amountCents`), los 🔴 en una línea cada uno, AG-13 con cuántas/quién/cuánto de más, y el **gasto en guías por persona del día** (`spendOfAttempt` con `since` en el día MX). `POST /admin/jobs/spend-digest {day?}` re-manda solo un `failed` |
+
+- **El resumen cuadra con el panel:** la lista filtrada `?from=day&to=day` usa la **misma** frontera de día MX sobre
+  `firstOccurredAt` (§Convenciones) y la misma función de agregado (`summarizeSpendAlerts(where)`, un cuerpo para el correo y
+  para `GET …/summary`).
+
+**M4-SHIP.19.29.8 — Diales (`ConfigSetting`, `SETTING_DTO_MAP`, auditados como todo dial; seeds = `HECHOS.md:62` o
+`PROJECT §Z.3` aceptado entero por el dueño).**
+
+| Clave · DTO | Validador | Seed | AG / TG |
+|---|---|---|---|
+| `operator_label_cap_24h_cents` · `operatorLabelCap24hCents` | entero `[100, 100000000]` (⛔ 0: un tope en cero no arranca, criterio 319; para cerrar compras está el interruptor) | **250000** | TG-1 (el que SDX-R6 preveía) |
+| `shipping_label_reissue_max_per_shipment` · `shippingLabelReissueMaxPerShipment` | entero `[0, 10]` | **1** | TG-2 |
+| `spend_alerts_disabled` · `spendAlertsDisabled` | `string[]` sin repetidos ⊆ los códigos con disparador construido (`'AG-1'…'AG-13'` en D2) | **`[]`** (todos encendidos, Z.0.1) | todos |
+| `spend_alert_label_cap_warn_pct` · `spendAlertLabelCapWarnPct` | entero `[1, 99]` | **80** | AG-2 |
+| `spend_alert_shipment_cancel_count` · `spendAlertShipmentCancelCount` | entero `[1, 10]` | **2** | AG-4 |
+| `spend_alert_person_cancel_count_24h` · `spendAlertPersonCancelCount24h` | entero `[1, 50]` | **3** | AG-4 |
+| `spend_alert_charge_drift_immediate_cents` · `spendAlertChargeDriftImmediateCents` | entero ≥ 0 | **2000** | AG-5 |
+| `spend_alert_extra_charge_immediate_cents` · `spendAlertExtraChargeImmediateCents` | entero ≥ 0 | **15000** | AG-6 |
+| `skydropx_low_balance_cents` (existente) | sin cambio | **50000 → 100000** (§19.29.2) | AG-7 |
+| `spend_alert_cancel_refund_days` · `spendAlertCancelRefundDays` | entero `[1, 30]` | **3** | AG-8 (b) |
+| `spend_alert_label_not_shipped_days` · `spendAlertLabelNotShippedDays` | entero `[1, 30]` | **3** | AG-10 |
+
+- **El operador no ve ni cambia estos ajustes, y su intento queda en bitácora (criterio 319):** `SettingsController`
+  (`settings.controller.ts:18-19`, hoy `@Roles(Role.super_admin)` de clase ⇒ `403 FORBIDDEN` **mudo**) pasa a la
+  construcción de v1.80.7 (§M4-SHIP.8): **`@Roles(vault_operator, super_admin)` + `@MoneyOut()` de clase** ⇒ el operador
+  recibe `403 MONEY_OUT_FORBIDDEN` y `MoneyOutGuard` escribe `money_out.blocked`. *Por qué de clase:* los diales del
+  controlador mueven topes de dinero; dejar `GET` sin `@MoneyOut()` con el rol abierto se los enseñaría al operador. Alcance
+  medido: el controlador tiene `GET/PUT settings`, `GET/PUT settings/iva-transfer`, `…/preview` y `GET audit-log`
+  (`:27,32,96,133,176,205`), los seis solo de súper-admin hoy; para el operador cambia **solo el código** del `403`.
+- Constantes (⛔ no diales: mecanismo): `SPEND_MAIL_HOURLY_MAX = 5`, `ORPHAN_AUTO_CANCEL_MAX_24H = 3`,
+  `CANCEL_REFUND_VERIFIABLE = false`, `SPEND_MAIL_LOCK_KEY = 65_310_702`.
+
+**M4-SHIP.19.29.9 — Endpoints y DTO (panel; todo `@Roles(vault_operator, super_admin)` + `@MoneyOut()` de clase, `Cache-Control: no-store`).**
+
+- **`GET /api/v1/admin/spend-alerts`** — Query: `?kind=` (`SpendAlertKind`, clase **E**), `?severity=` (E), `?subjectUserId=`
+  (uuid), `?unseen=true` (clase **L**), `?from=&to=` (día MX sobre `firstOccurredAt`, §Convenciones), `?page=&pageSize=`
+  (≤ 100, defecto 25). Orden `firstOccurredAt desc`. Res `{ data: SpendAlertDTO[]; page; pageSize; total }`. §0-Q punto 4
+  registra los tres ejes.
+- **`GET /api/v1/admin/spend-alerts/summary?from&to`** ⇒ `SpendAlertSummaryDTO` (el mismo cuerpo que el correo del resumen).
+- **`GET /api/v1/admin/spend-alerts/:id`** ⇒ `SpendAlertDTO` (`404` si no existe).
+- **`POST /api/v1/admin/spend-alerts/seen`** — Req `{ ids: string[] (1..200, uuid) }`. `updateMany({ where:{ id:{in:ids},
+  seenAt:null }, data:{ seenAt: now, seenByUserId: actor } })` ⇒ `200 { updated: number }` (idempotente). Bitácora
+  `spend_alert.seen {count}`. ⛔ Sin verbo de borrado ni de «no visto».
+
+```ts
+export type SpendAlertCode = 'AG-1' | 'AG-2' | … | 'AG-20';          // mapa fijo kind ⇔ code (§19.29.2)
+export interface SpendAlertDTO {
+  id: string; code: SpendAlertCode; kind: SpendAlertKind; severity: 'immediate' | 'digest';
+  subject: { userId: string; name: string } | null;                 // miembro del personal; ⛔ nunca un cliente
+  shipment: { id: string; folio: string } | null;
+  order: { id: string; orderNumber: string | null } | null;
+  amountCents: number | null;
+  facts: Record<string, string | number | boolean | string[] | null>; // lista blanca por kind (§19.29.6)
+  occurrenceCount: number; firstOccurredAt: string; lastOccurredAt: string; resolvedAt: string | null;
+  seen: { at: string; by: { userId: string; name: string } } | null;
+  mail: { status: SpendAlertMailStatus; at: string | null };
+}
+export interface SpendAlertSummaryDTO {
+  from: string; to: string;
+  byKind: { code: SpendAlertCode; immediate: number; digest: number; amountCents: number }[];
+  labelSpendByPerson: { userId: string; name: string; cents: number; labels: number }[];
+  costlyChoices: { count: number; overRecommendedCents: number; byPerson: { userId: string; name: string; count: number }[] };
+}
+```
+
+- **Tablero (D2f):** `workQueue.spendControl: { unseenImmediate: number; unseenDigest: number; labelSpend24h: { userId:
+  string; name: string; cents: number; capCents: number | null }[] } | null` — `null` para `vault_operator` (como
+  `operatorRefunds`, `admin.service.ts:1796`). `labelSpend24h` usa **`labelSpend24h`** (el mismo predicado que TG-1: 24 h
+  móviles; ux-ui lo rotula «últimas 24 h»), `capCents: null` para el dueño. ⛔ **Sin doble conteo (criterio 331):**
+  `unseen*` excluye AG-7, AG-11 y AG-12, que ya cuenta `workQueue.shipping` (`lowBalance`, `withCarrierAlert`, §19.13);
+  siguen en la lista.
+- **Códigos de error nuevos:** `403 LABEL_PURCHASE_LIMIT {limit}`. `409 CONFLICT` gana `reason:'attempts_exhausted'`.
+- **Bitácora nueva:** `shipment.label_purchase_limited`, `shipment.orphan_cancel_fused`, `spend_alert.seen`.
+
+**M4-SHIP.19.29.10 — Pruebas que DEBEN fallar.** Reglas de §19.27.8 (copia del árbol **entero** con su sha, mutación
+demostrada roja, carreras con barrera y **N ≥ 10 con proporción y autor**, reloj y constantes inyectados, ⛔ nunca la red:
+PS-99). Las de seguridad primero.
+
+| # | Cierra | Qué asevera | Mutación que la pone roja |
+|---|---|---|---|
+| **PS-129** (ampliada) 💰🔒 | C-15 (b) | (i) El doble devuelve como `reference` de destino el texto del cliente «Pedido ENV-000046-01» para la guía de A, en la ventana de B, misma paquetería y CP ⇒ B **no** adopta; (j) `reference` «Pedido ENV-000045-01 casa azul» ⇒ no adopta | quitar el anclaje de `folioTokenOf` |
+| **PS-130** (ampliada) 💰🔒 | C-14 | (a) «Liberar» + captura a mano con el `trackingNumber` que `getShipment(Y)` da para la huérfana Y ⇒ **0** `cancel`, alerta `label_orphan` y AG-9 🔴; (b) `getShipment(Y)` ilegible, o `t_Y` nulo, o guía vigente `manual` ⇒ **0** `cancel` + alerta; (c) con 3 `label_orphan_cancelled` de sistema en 24 h, la 4.ª ⇒ **0** `cancel`, `orphan_cancel_fused` y AG-9 `orphan_fuse` (una por día). Control positivo: guía vigente `skydropx` con id ≠ Y y `t_Y` ajeno a todo rastreo nuestro ⇒ `cancel` **una** vez y AG-9 🟡 | quitar (c) de §19.29.1.5 ⇒ (a); aceptar guía vigente manual ⇒ (b); quitar el fusible ⇒ (c) |
+| **PS-134** (ampliada) 💰🔒 | C-16 | (c) **Integración contra Postgres real con el 7b real** (sin repositorio falso): reclamo, 7b comiteado, `purchase` del doble colgada, reloj en `since + 180 s` ⇒ el job **no** libera (0 `not_sent`); (d) el 7b.2 lanza al escribir ⇒ **0** `purchase`, intento `not_charged {sent_write_failed}`, `503` | buscar el envío del 7b por `createdAt` u otra forma de `since` ⇒ (c) libera; tragarse el error ⇒ (d) compra |
+| **PS-135** (ampliada) 🔒 | C-15 (a), C-18 | (c) `Address.references`, `recipientName` y `line1` con «Pedido ENV-000046-01» ⇒ el cuerpo que recibe el doble **no** contiene `/ENV-\d+-\d+/i` fuera de `address_to.reference`; `addressSnapshot` intacto. (d) Unitarias: «Pedido ENV-000045-1» ⇒ `null`; «Pedido ENV-000045-123» ⇒ `null`; «Pedido ENV-1000000-01» ⇒ `ENV-1000000-01`; «x ENV-000045-01» ⇒ `null`; migración con la secuencia en 999999 ⇒ `ENV-999999` y luego `ENV-1000000` (sin truncar). (e) El intento 2 lleva `-02` y sale de `attemptNo` | quitar `neutralizeFolioPattern` ⇒ (c); `\d{1,3}` ⇒ (d); `lpad(…, 6, …)` ⇒ (d) migración |
+| **PS-137** 💰🔒 | C-17 | Barrera entre el 7b.1 y el 7b.2; una liberación (`not_sent` forzada por reloj, o «Liberar») entra en medio ⇒ **0** `purchase`, por ronda, **N ≥ 10**, proporción (esperado 10/10). Unitaria: `since`, `notAfter` y el `now` del job salen del mismo `Clock` (un reloj falso movido mueve los tres) | quitar el CAS (a) o (c) del 7b.2 ⇒ sale `purchase` en alguna ronda |
+| **PS-138** 💰 | TG-1 conducta (321) | Tope 250000; operador con 240000 en 24 h; guía de 15000 ⇒ `403 LABEL_PURCHASE_LIMIT {limit:'daily_spend'}`, cuerpo **sin** dígitos de tope/uso ni claves `capCents`/`usedCents`, **0** llamadas al doble (ni `balance` ni `quote`, también con la cotización vencida), bitácora `label_purchase_limited`, **un** AG-3 🔴; el **dueño** compra esa guía; súper-admin **sin correo** ⇒ negado; cancelar una guía con reembolso entero ⇒ deja de contar y el operador compra; al cruzar 80 % sale **un** AG-2 (un segundo cruce el mismo día MX ⇒ ninguno); `POST …/tracking` del bloqueado ⇒ `200` | comprobar el tope solo en el paso 7 ⇒ hay llamadas de red antes; eximir por `role === super_admin`; devolver las cifras |
+| **PS-139** 💰 | TG-1 libro (determinista, filas por SQL) | `labelSpend24h` exacto con: intento a `now − 24 h` (no cuenta) y a `now − 24 h + 1 s` (cuenta); otro actor; `not_charged` ⇒ 0; `pending` y `released_unverified` ⇒ `expectedChargeCents`; guía con `chargedCents` ≠ esperado ⇒ manda `chargedCents`; cancelada con `unrefundedCents` 500 ⇒ 500, con `null` ⇒ 0; huérfana atribuida a un intento ⇒ cuenta a quien reclamó; adopción con actor `system:label-verify` ⇒ cuenta al reclamante | `>=` en la ventana; `pending` ⇒ 0; atribuir por el actor de la bitácora de adopción |
+| **PS-140** 💰 | TG-1 carrera (321) | Mismo operador, dos `POST …/label` simultáneos con barrera que juntos pasan el tope ⇒ **exactamente una** `purchase`, por ronda, **N ≥ 10**, proporción. Variante: el intento A del operador sigue `pending` a los 4 min (fuera de `T_INFLIGHT_BLOCK`) ⇒ B se niega por `daily_spend` | contar solo `chargedCents` ⇒ la variante compra; sacar `checkLabelLimits` de la tx del candado |
+| **PS-141** 💰 | TG-2 + AG-4 (322) | guía → cancelar → guía (permitido) → cancelar → 3.ª ⇒ `403 {limit:'reissue'}`, **0** red, **un** AG-4 🔴 (`ag4:s:`) con `cancelledCount` y `unrecoveredCents`; el dueño compra la 3.ª; un rechazo sin id o un `not_sent` entre medias **no** gasta la recompra; una huérfana o un duplicado de S **sí** cuentan; persona con 3 cancelaciones `reissue` en 24 h en envíos distintos ⇒ AG-4 (`ag4:u:`); `auto_close` no cuenta; el dueño cancelando ⇒ sin aviso | contar intentos (el `n`) en vez de guías pagadas; no contar huérfanas; contar `auto_close` |
+| **PS-142** 💰 | AG-1 (320) | Operador corrige `line1` y compra ⇒ **un** AG-1 🔴 con `changedKeys` y correo; solo `neighborhood` ⇒ 🟡 sin correo; corrige uno y compra otro ⇒ nada; el dueño corrige y compra ⇒ nada; re-emisión del mismo operador ⇒ sigue **uno**; el correo **no** contiene el nombre, la calle, el CP ni el teléfono de la fixture (canarios) | buscar correcciones de cualquier actor; llave por intento |
+| **PS-143** 💰 | AG-5 (323) | Doble cobra +500 ⇒ 🟡; +2500 ⇒ 🔴 y correo; igual ⇒ nada; por adopción también; `amountCents` = `shippingCostCents` escrito | comparar contra el total sin seguro; `≥` en el umbral |
+| **PS-144** 💰 | AG-6 (324) | Cargo 10000 ⇒ 🟡; 15001 ⇒ 🔴; 15000 ⇒ 🟡; releer el mismo cargo ⇒ ningún aviso nuevo; ajuste `cancel:` ⇒ ningún AG-6 | avisar en la `P2002`; no excluir `cancel:` |
+| **PS-145** 💰🔒 | Dueño (§19.29.3) | Tabla de verdad de `isOwnerAccount`: súper-admin con correo activo ⇒ sí; sin correo; con correo y `status` ≠ activo; borrado; `vault_operator` con correo; `customer`; un rol fuera del enum ⇒ no | `role === super_admin` a secas; `role !== vault_operator` |
+| **PS-146** 💰 | AG-7 (325) | Umbral inyectado 50000: 60000 → 45000 ⇒ **un** 🔴; más lecturas bajo ⇒ ninguno; 80000 (resuelve) → 40000 ⇒ otro; negativa por saldo ⇒ 🔴; el operador sigue sin cifra. **Carrera:** dos lecturas bajo el umbral simultáneas ⇒ **un** aviso, N ≥ 10, proporción | llave por lectura; sin resolver al subir |
+| **PS-147** 💰 | AG-8 (326) | Cancelación con `refundedCents < costo` ⇒ 🔴 con la diferencia; `refundedCents = null` ⇒ día 2 nada, día 3 🔴 una vez; reembolso entero ⇒ nada | no sellar `refundAlertedAt`; contar días desde la compra |
+| **PS-148** 💰 | AG-9 (327) | `charged_not_found` ⇒ **un** 🔴 aunque el job lo vuelva a ver; huérfana no cancelada ⇒ 🔴; duplicado ⇒ 🔴 | llave por corrida |
+| **PS-149** 💰 | AG-10 (328) | Reloj inyectado: día 2 nada; día 3 🟡; tras «salieron» ⇒ `resolvedAt`; guía cancelada ⇒ resuelto | contar desde `since`; no resolver |
+| **PS-150** | AG-11/AG-12 (329) | `in_return`/`destroyed` ⇒ 🔴 + correo al dueño; `exception`/`retained`/`delivery_attempt` ⇒ 🟡; al cliente **ningún** correo nuevo (`C-AV-1 = 19`, `C-AV-3b` intacto) | mandar `AV-*` al cliente |
+| **PS-151** | AG-13 (330) | Tres guías de un día con margen negativo o más caras que la recomendada ⇒ 3 avisos 🟡, **0** correos inmediatos; el resumen dice 3, quién, y `overRecommendedCents` = Σ (precio − recomendada) de `shipment.label_requested` | sumar `marginCents` |
+| **PS-152** | Panel (331) | Operador: `GET/POST …/spend-alerts*` ⇒ `403 MONEY_OUT_FORBIDDEN` + `money_out.blocked`; `workQueue.spendControl = null`; súper-admin marca visto ⇒ la fila sigue con `seen.by`; `unseen*` no cuenta AG-7/11/12 | `@Roles(super_admin)` a secas (403 mudo); contar AG-11 en la tarjeta |
+| **PS-153** | Correo (332) | Destinatarios: solo dueños (un súper-admin sin correo, un operador y un cliente ⇒ nada); 6 avisos 🔴 en una hora ⇒ 5 correos + 1 «y 1 aviso más»; el mismo `dedupKey` no manda dos; fallo del puerto de correo ⇒ el aviso sigue, `failed`, reintento; `sending` vencido ⇒ `failed_unknown` sin reenvío; **cada** tipo renderizado con la fixture canaria ⇒ cero nombre/dirección/teléfono/CLABE del cliente. **Carrera:** 10 avisos simultáneos ⇒ ≤ 5 individuales, N ≥ 10, proporción | contar sin el candado; reintentar `sending` |
+| **PS-154** | Resumen (333) | Reloj a las 08:00 MX: con avisos ⇒ un correo; sin avisos ⇒ ninguno; dos corridas el mismo día ⇒ uno; un aviso a las 23:30 MX entra en **ese** día (no en el siguiente por UTC); cifras = `GET …/summary` del mismo día | frontera de día en UTC; sin `SpendDigestRun` |
+| **PS-155** | Ajustes (319) | Instalación limpia: los diales de §19.29.8 con su seed, `spendAlertsDisabled = []`, `skydropxLowBalanceCents = 100000`; operador `GET/PUT /admin/settings` ⇒ `403 MONEY_OUT_FORBIDDEN` + bitácora; súper-admin cambia uno ⇒ bitácora antes/después; `operatorLabelCap24hCents = 0` ⇒ `422`; tipo en `spendAlertsDisabled` ⇒ no crea fila | seed 0 o vacío; validador que acepta 0 |
+| **PS-156** | Lo que no cambia (338) | `operator_refund_cap_24h_cents` sigue 500000 y el reembolso de operador no manda correo; casos 2×/5× y tope de buylist intactos; ningún correo nuevo a personal ni clientes; `POST …/tracking`, reembolsos automáticos y cancelación automática no miran TG-1/TG-2 | condicionar la guía manual al tope |
+| **PS-157** 🔒 | censo | `C-GAS-1`: escritores de `SpendAlert` solo en `spend-alerts.service.ts`; ningún `delete`; escritores de `ShipmentPaidLabel` solo `recordPaidLabel` y las ramas de cancelación de la tabla de §19.29.4; `SPEND_MAIL_LOCK_KEY` en el censo de claves de §19.28.8 | escribir un aviso desde `shipments/` directo |
+| **PS-158** (frontend) | DTO | Contra MSW: `403 LABEL_PURCHASE_LIMIT` ⇒ texto por `limit`, **sin cifras**, «Capturar a mano» visible; `labelOptions.limit`; lista con filtros y «marcar visto»; tarjeta oculta con `spendControl: null`; sección de M10 con los diales | ramificar por status; pintar cifras |
+| **PS-159** 💰 | Invariantes I-1, I-2 | Tras cada rama de PS-116…PS-136 y PS-138…PS-141: I-1 y I-2 se cumplen (consulta de paridad); una escritura de la guía sin `recordPaidLabel` ⇒ rojo | escribir `shippingCostCents` sin la fila del libro |
+**M4-SHIP.19.29.11 — Orden de construcción.**
+
+| Pieza | Qué | Quién | Depende de |
+|---|---|---|---|
+| **D2g · Base de avisos** | `M-68` (zona compartida `prisma/`, un agente, **después de `M-67`**); `spend-alerts/` (módulo nuevo: `raise`, `resolve`, `isOwnerAccount`, correo con freno y lote, plantillas `AVG-1/2/3`, endpoints, `summarize`); jobs `spend-watch` y `spend-digest`; diales; `SettingsController` con `@MoneyOut()` | backend 💰 | `M-67` |
+| **D2c** (amplía) | C-15…C-18; libro de intentos y guías pagadas en cada rama; TG-1/TG-2; AG-1…AG-5, AG-7, AG-8 (a), AG-9 (a), AG-13; `labelOptions.limit` | backend 💰 | D2g (interfaz `raise`; puede ir en paralelo con un doble de `raise`) |
+| **D2d** (amplía) | **C-14 (bloquea D2d)**; AG-6, AG-8 (b), AG-9 (b)(c)(d), AG-10, AG-11 (con correo), AG-12 | backend 💰 | D2c, D2g |
+| **D2f** (amplía) | `workQueue.spendControl` | backend | D2g |
+| **F-D6 · Avisos** | página `(admin)/admin/spend-alerts`, tarjeta, sección M10 «Control del gasto», negativa en la ventana | frontend | contrato |
+| **Revisión** | seguridad revisa el **diseño** de esta errata (§Z) antes de D2c-§Z (pidió verla, `SECURITY_NOTES.md:169-171`) | seguridad | — |
+
+**M4-SHIP.19.29.12 — Qué cambia para quién** (fichero:línea leído el 2026-10-04 en `/home/user/tcg-skyd`; ⛔ sha no medido).
+
+| Rol | Qué |
+|---|---|
+| **backend 💰 (modelo fuerte)** | **Prisma:** `M-68` (§19.29.2) y el default del folio de `M-67` (§19.29.1.1); seed del saldo bajo según la medición de `M-66` (`migration.sql:328`). **Settings:** `settings.constants.ts` — claves nuevas junto a `:219`/`:332`, `SETTING_DEFAULTS` (`:405` zona; `:533` ⇒ `100000`), validadores (`:1137`/`:1148` zona), `SETTING_DTO_MAP` (`:1194`/`:1222` zona); `test/sdx-d.dials.spec.ts:34` (seed efectivo 100000); `settings.controller.ts:18-19` (roles + `@MoneyOut()` de clase). **Tablero:** `admin.service.ts:1789-1810` (`workQueueAdditions` gana `spendControl`; `null` en `:1796`). **Jobs:** `jobs/scheduler.service.ts:343-356` (`repeat` con `tz`) + dos jobs. **Módulo nuevo** `modules/spend-alerts/`. **`shipments/` (D2c/D2d, sin construir):** §19.29.1 y §19.29.4–.6. `mail/mail.service.ts:17,25,34` **sin cambio**. PS-129/130/134/135 ampliadas, PS-137…PS-159; `C-GAS-1`. Medir y anotar en `BACKEND_NOTES`: si `M-66` está aplicada en producción; si algún verbo cambia el rol a `super_admin` (§19.29.3); si BullMQ admite `tz` |
+| **frontend** | `types/contract.ts` (zona `:5669` para los diales; `SpendAlertDTO`, `SpendAlertSummaryDTO`, `SpendAlertKind`/`Code`/`MailStatus`, `LABEL_PURCHASE_LIMIT`, `labelOptions.limit`, `workQueue.spendControl`, `reason:'attempts_exhausted'`); `admin/m10/sections/ShippingSection.tsx:201,229` (el umbral de saldo sigue ahí; seed de MSW `lib/mock/fixtures.ts:514` y `lib/mock/skydropx.ts:447` ⇒ 100000) + sección nueva «Control del gasto»; página nueva de avisos; tarjeta del tablero; `CaptureLabelDialog.tsx` (negativa por `limit`, sin cifras; «Capturar a mano» siempre). PS-158 |
+| **ux-ui** | Copys: negativa `daily_spend` («Llegaste al tope de hoy; el dueño puede hacerlo») y `reissue` («Este pedido ya tuvo su recompra; la siguiente guía la compra el dueño»), sin cifras; `attempts_exhausted`; tarjeta «Control del gasto» («últimas 24 h»); lista y filtros; textos de AG-1…AG-13 (Z.3 como idea) y de los correos `AVG-1` (con enlace al interruptor en los 🔴 de guías), `AVG-2` («y N avisos más»), `AVG-3` (resumen); sección M10 con los diales en pesos y porcentajes |
+| **devops** | Envs nuevas sin secreto en `.env.example`: `SPEND_WATCH_CRON`, `SPEND_DIGEST_CRON`; pila E2E con el puerto de correo doble para PS-153/154 |
+| **product-owner** | Confirmar: AG-1 con `city`/`state`/`country` en 🔴; AG-9 ampliado a huérfanas, duplicados y fusible; tarjeta con «últimas 24 h»; lote como sexto correo de la hora. Criterios 325 (el umbral de arranque pasa a MX$1,000) y 329 (el correo de AG-11 ya está aceptado, `HECHOS.md:62`) a ajustar |
+| **seguridad** | Revisión de diseño de §19.29 antes de D2c-§Z; verificar en la release C-14…C-18 y PS-137…PS-157 |
+| **orquestador** | Añadir `spend-alerts` al mapa de módulos de `CLAUDE.md` (stream «Órdenes y dinero» para D2; AG-14…AG-20 los añade «Admin y auditoría» sobre la misma base) |
+
+**M4-SHIP.19.29.13 — Lo que esta errata NO decide.** P-SDX-REL (sigue (a), solo súper-admin). AG-14…AG-20 (stream aparte;
+AG-14 con correo ya aceptado). Cómo comprobar el reembolso de una cancelación sin cifra (`CANCEL_REFUND_VERIFIABLE`, hasta
+`M-PRD-7`). Un tope por guía (fuera, Z.4).
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 

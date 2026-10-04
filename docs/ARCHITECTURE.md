@@ -4,6 +4,15 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.9 — 🔒💰 CONTROL DEL GASTO EN GUÍAS Y CIERRES C-14…C-18** (2026-10-04, arquitecto, rama
+> `claude/skydropx-d`, HEAD dado por el orquestador `2612064e` o posterior; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a
+> **v1.80.12.9**; norma en `API_CONTRACT §M4-SHIP.19.29`; porqué en **§4.60 (v)**. Origen: `PROJECT.md §Z`, `HECHOS.md:62`,
+> `SECURITY_NOTES.md:1-190`. Dos libros de dinero nuevos (reclamos y guías pagadas), topes dentro del candado de compra,
+> «el dueño» = súper-admin con correo, avisos persistidos con correo al dueño y resumen diario; la cancelación automática
+> de huérfanas con cuatro condiciones y fusible. Migración `M-68`.
+>
+> *(La rev v1.80.12.8 de este documento no tiene línea aquí; su porqué está en §4.60 (u).)*
+>
 > **Rev v1.80.12.7 — 💰 LA COMPRA EN VUELO SE VERIFICA SOLA** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado
 > por el orquestador `41e22eca`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.7**; norma en
 > `API_CONTRACT §M4-SHIP.19.27`; porqué en **§4.60 (t)**. Origen: `HECHOS.md:59`. Una compra en vuelo a la vez; foto del
@@ -27675,6 +27684,44 @@ huérfana (envío sin guía y huérfana viva): se cancela en el panel y se compr
 `label_orphan` de ese tipo. La alerta de huérfana se apaga al verla cancelada; si Skydropx no expone ese estado de forma
 legible, se queda en la bitácora a los 7 días. El folio impreso revela el volumen aproximado de envíos (aceptado por el
 dueño). `T_REFUND_LAG`/`T_DEBIT_LAG` a 30 días hasta medir. P-SDX-REL y SDX-D-19 (`HECHOS.md:60`) no se deciden aquí.
+🔒 **v1.80.12.9: la fila «El job cancela duplicados atribuidos por folio» queda acotada por (v) (SDX-D-21):** la atribución
+por folio dice **de quién** es la guía, no que **no vaya pegada al paquete** (una captura a mano tras «Liberar» puede ser la
+misma guía). El token pasa a `ENV-000045-01`.
+
+**(v) 🔒💰 v1.80.12.9 — control del gasto en guías (§Z) y cierres C-14…C-18** (norma en `API_CONTRACT §M4-SHIP.19.29`;
+origen `PROJECT.md §Z`, `HECHOS.md:62`, `SECURITY_NOTES.md:1-190`). Una idea gobierna: **los topes se suman sobre un libro
+de dinero, no sobre el estado de la guía vigente ni sobre la bitácora.**
+
+```
+paso 2 (fila)  ─ guardas ─ rate_already_purchased ─ checkLabelLimits (solo lectura, ANTES de toda red)
+paso 7 (candado de cuenta) ─ try-lock ─ purchase_in_flight ─ checkLabelLimits (MANDA) ─ CAS ─ INSERT ShipmentLabelAttempt
+7b.2 ─ CAS ShipmentRequest(since) ∧ CAS intento(pending, sentAt null) ─ sentAt, attemptNo, ENV-…-NN ─ POST
+respuesta / adopción / huérfana / duplicado ─ recordPaidLabel ─► ShipmentPaidLabel ─► AG-1, AG-5, AG-13
+cancelar ─► ShipmentPaidLabel.cancelledAt/unrefundedCents ─► AG-4, AG-8
+todo hecho ─► SpendAlert (dedupKey único) ─► correo inmediato (≤ 5/h + lote) | resumen 08:00 MX
+```
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **Dos libros nuevos** (`ShipmentLabelAttempt`, `ShipmentPaidLabel`) | Sumar desde `ShipmentRequest` | Guarda solo la guía vigente: al cancelar deja costo 0 e id nulo. Ni TG-2 (guías pagadas, incluidas canceladas) ni TG-1 (reclamos en vuelo) se pueden contar ahí |
+| | Sumar desde `AuditLog` | JSON sin índice ni tipos: una suma bajo candado sobre él falla en silencio por una llave mal leída (es exactamente SDX-D-24). La bitácora sigue siendo el rastro; el libro es el dato |
+| **Libro de intentos ≠ libro de guías** | Una sola tabla | Un intento puede dar 0 guías (rechazo, `not_sent`), 1 (normal) o 2 (duplicado), y una guía puede llegar sin respuesta (huérfana). TG-1 cuenta intentos sin guía por lo esperado y guías por lo cobrado; TG-2 cuenta guías (seguridad 2.5) |
+| **El dato duplicado `chargedCents = shippingCostCents`** | Leer el costo de `ShipmentRequest` al sumar | Tras cancelar, `ShipmentRequest` lo pone en 0. Se acepta la copia con **una** función escritora en la misma tx e invariante con prueba (PS-159) |
+| **I-SENT y `n` desde el intento** (C-16, C-18) | Buscar `label_purchase_sent` por `after.since` | Una búsqueda en JSON que no encuentra una fila existente libera compras vivas; una columna con `@@unique(envío, since)` no tiene ese modo de fallo, y no se purga |
+| **Topes dentro del candado de compra** | Candado por persona (como `lockOperatorRefundGate`) | El candado consultivo de §19.28.8 ya serializa el paso 7 de toda la cuenta; uno más sería una segunda llave con su propio orden de toma |
+| **Comprobación previa en el paso 2** | Solo la del paso 7 | El criterio 321 exige negar antes de llamar a Skydropx, y los pasos 3 (re-cotizar) y 6 (saldo) lo llaman. La del paso 7 sigue mandando |
+| **«El dueño» = súper-admin con correo, activo** | El rol `super_admin` | El dueño pidió vigilar también a otros súper-admin (P-GAS-9); el alta de staff prohíbe correo (v1.80.9), así que hoy solo su cuenta lo tiene. Conjunto explícito, como C-13 |
+| **Negativa sin cifras** (`LABEL_PURCHASE_LIMIT`) | Reusar `MONEY_OUT_LIMIT_EXCEEDED` | Ese código trae `capCents/usedCents` por norma (v1.80.7) y Z.0.6 prohíbe enseñar la cifra al personal |
+| **Avisos persistidos** (`SpendAlert`) | Derivarlos al leer, como la campana (§R.2.0) | La campana deriva un estado vigente; un aviso de gasto es un **hecho pasado** con «visto por», «no repetir» y resumen que debe cuadrar con el panel: necesita fila. No es segunda fuente del hecho (el hecho vive en los libros y la bitácora): es el registro de «se le avisó al dueño» |
+| **Correo a lo sumo una vez** (`sending` vencido ⇒ `failed_unknown`) | Al menos una vez | El criterio 332 castiga el correo repetido; un aviso no enviado sigue en el panel, que es la fuente |
+| **Huérfana: 4 condiciones + fusible** (C-14) | Cancelar si «el envío tiene otra guía viva» | La guía viva puede ser la misma huérfana capturada a mano; y una corrida con un parseo roto podría cancelar muchas: el fusible limita el radio |
+| **`SettingsController` con `@MoneyOut()` de clase** | Controlador aparte para los diales de §Z | El criterio 319 pide bitácora del intento del operador; el `403` de `RolesGuard` es mudo. Partir los diales en dos controladores daría dos escritores del mismo `ConfigSetting` (el umbral de saldo ya está construido en M10) |
+
+**Deuda que deja (v):** comprobar que el saldo regresó tras una cancelación sin cifra no se puede hoy (`CANCEL_REFUND_VERIFIABLE
+= false`: toda cancelación así avisa al día 3) — **disparador:** `M-PRD-7` mide `transaction_stats`. Con dos dueños con correo
+un fallo parcial del correo reenvía al que sí lo recibió (hoy hay uno). NO MEDIDO: si algún verbo cambia el rol de una cuenta
+con correo a `super_admin` (la convertiría en «dueño»); si BullMQ admite `tz` (respaldo: cron en UTC, sin horario de verano
+en México).
 
 ---
 
