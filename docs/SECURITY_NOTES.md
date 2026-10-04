@@ -1,3 +1,195 @@
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de la errata v1.80.12.8 (el folio nuestro), antes de D2c** (`API_CONTRACT §M4-SHIP.19.28`; `ARCHITECTURE §4.60 (u)`) · SHA **`2612064e`** (rama `claude/skydropx-d`, medido con `git log -1` y `git fetch`: local = remoto) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO
+> - **D2c (§19.28.1–.5, .7–.12): APROBADO CON CONDICIONES.** Las condiciones son C-15, C-16, C-17 y C-18, abajo,
+>   escritas como pruebas que deben fallar. C-8 y C-10…C-13 quedan **cerradas en diseño**. C-9 queda cerrada para la adopción.
+> - **§19.28.6, la rama «cancelación automática de una huérfana cuyo envío ya tiene otra guía viva»: RECHAZADA tal
+>   como está escrita.** Hay **1 alto** (SDX-D-21): el job puede cancelar la guía que va pegada al paquete. Esa rama es
+>   de **D2d**, no de D2c, así que **no bloquea empezar D2c**. Sí bloquea construir D2d hasta que haya una errata que
+>   cumpla C-14.
+>
+> **0 críticos · 1 alto · 2 medios · 2 bajos · 2 info** (todos nuevos).
+>
+> **Lo mínimo para aprobar la errata entera:** una línea de errata en §19.28.6 que cumpla C-14; que C-15, C-16 y C-18
+> entren en PS-129/PS-134/PS-135 y en el formato del token; y que C-17 entre en el 7b. **No es el veredicto de la release.** La fase completa sigue pendiente en el gate E.
+
+**Lo que medí yo (2026-10-04).** Fue lectura y grep sobre el árbol vivo. **No ejecuté nada**, así que no hice copia.
+- Contrato `:26810-27073`, arquitectura `:27636-27685`, `HECHOS.md:55-62`, `PROJECT.md:8625-8645` (§Z.4).
+- `skydropx-client.ts:304-335`: la puerta `spec.guard` corre **después** de `getToken()` y de `bucket.acquire()`, justo
+  antes de mandar la petición. Así que poner el `notAfter` de §19.28.2 en esa puerta es el sitio correcto: un token
+  lento no puede sacar un `POST` fuera de plazo. `:434-435` (`clearTimeout` en el `finally`) y `:339,375,388`
+  (`safeText` después): confirmo que hoy el cuerpo de la respuesta se lee **sin temporizador**.
+- `git grep "\.purchase(" HEAD -- backend/src` ⇒ **0** llamadores fuera de pruebas. No hay código viejo capaz de
+  comprar sin pasar por el 7b. Eso confirma §19.28.5, último punto.
+- `audit.service.ts:50-55`: `log()` no se traga el error. Si falla la escritura del 7b, la compra no sigue.
+- Lo que hay en `backend/` sin commitear (D2a en curso) no lo revisé.
+- **NO MEDIDO**, igual que el arquitecto: si `address_to.reference` vuelve en el listado o en el detalle, si Skydropx
+  lo trunca, y si alguna paquetería lo mezcla con `further_information`. Ninguna conducta real de Skydropx con envíos.
+
+## 1. ¿Cierra C-8…C-13?
+
+| Cond. | Estado | Por qué | Prueba |
+|---|---|---|---|
+| **C-8** (SDX-D-14) | **Cerrada**, condicionada a C-15 | La ventana tiene cota superior (+5 min). Un `createdAt` nulo ya no es candidato. El cuadre exige el folio exacto **con su intento**. La dirección de destino se busca por relación, no por posición. El total ya no sirve para cuadrar. Comparar el destinatario se sustituye por el folio, y lo acepto: es un dato que escribimos nosotros, no un parecido. **Pero** el argumento entero descansa en que nadie más que nosotros pueda poner `ENV-…` en lo que leemos ⇒ SDX-D-20 | PS-129 (a)…(h) |
+| **C-9** (SDX-D-15) | **Cerrada para la adopción** (§19.28.7). **Abierta para la conciliación nueva** | Cancelar tras adoptar exige el folio exacto. Pero §19.28.6 abre un segundo camino de `cancel` sin persona, y ese camino **no** prueba que la huérfana no sea la guía que va en el paquete ⇒ SDX-D-21 | PS-130 (ampliar: C-14) |
+| **C-10** (SDX-D-16) | **Cerrada** | Las escrituras usan `since` exacto. La clasificación de `count 0` nunca descarta un id (`label_orphan`). La compra tiene plazo y el cuerpo queda bajo temporizador. Las relaciones entre constantes se asertan. El job arranca en `since + 180 s` | PS-131 (a)…(d) |
+| **C-11** (SDX-D-18) | **Cerrada** | `pg_try_advisory_xact_lock`, clave `65_310_701` con censo. Comprobé las dos claves `bigint` existentes: no chocan (63_120_863, 64_440_950) | PS-132 |
+| **C-12** (SDX-D-17) | **Cerrada** | La contaminación se mide en `[since − T_REFUND_LAG, now]` (30 días hasta medir). Hay cable trampa. La regla de encendido pasa a N ≥ 60 con la cola de las lentas. Cumple los 4 requisitos que puse para encender `INFLIGHT_NEGATIVE_VERIFIED` | PS-133 |
+| **C-13** | **Cerrada** | PS-120 ampliada, tal como la pedí | PS-120 |
+
+## 2. Las preguntas del encargo
+
+### 2.1 El folio como dato que viaja a un tercero y se imprime en la etiqueta
+
+**¿Filtra algo?** Sí: el **volumen**, y nada más.
+- `ENV-` más 6 dígitos de secuencia global, sobre **todos** los `ShipmentRequest`, incluidos los retiros de bóveda.
+  Quien reciba dos paquetes separados por un tiempo sabe cuántos envíos hubo entre ellos. Eso cuenta la actividad de
+  la tienda **y la de custodia**.
+- El `-n` dice además que esa guía es una recompra.
+- No filtra PII, ni el id interno, ni Stripe, ni el número de pedido (§19.28.1 lo prohíbe y PS-135 (b) lo asevera).
+- El dueño lo aceptó (palabras relayadas en §19.28.1). ⚠️ La fila `HECHOS.md:61` recoge el folio, pero **no** recoge la
+  aceptación de que el volumen quede visible ⇒ bandera 1. Hay una alternativa sin coste para el cruce: un folio no
+  secuencial (por ejemplo, base32 aleatorio de 6 caracteres). El cruce funciona igual; lo que se pierde es el «pedido
+  1, 2, 3» que pidió el dueño. La decisión es suya ⇒ **SDX-I-5 (Info)**.
+- **Superficie:** el folio es enumerable. Hoy solo viaja en DTOs de admin (§19.28.11). Debe seguir así: ningún
+  endpoint de cliente, de invitado o público debe resolver nada por folio. Así nunca será una llave ⇒ **SDX-I-6**.
+
+**¿Se puede forjar o colisionar?**
+
+| Vía | ¿Adopta una guía ajena? | Juicio |
+|---|---|---|
+| Otro envío nuestro | No. El token lleva folio e intento, y `ENV-000046-1 ≠ ENV-000045-1` (PS-129 (e)) | Resiste |
+| Intento viejo del mismo envío | No: pasa a `label_orphan` (PS-129 (f)) | Resiste |
+| La dirección de **origen** con nuestra `reference` | No: se busca por relación (PS-129 (h)) | Resiste |
+| **El cliente escribe `ENV-000046-1`** (o «Pedido ENV-000046-1») en sus referencias, nombre o calle | **Depende de algo NO MEDIDO.** Si Skydropx, o una paquetería, devuelve `further_information` como `reference`, o mezcla los dos campos, el token que leemos **es el que escribió el cliente**. La secuencia es predecible. Si la guía de A cae en la ventana de B (posible, porque el bloqueo bajó a 3 min y la ventana dura +5), con la misma paquetería y el mismo CP, **B adopta la guía de A**: el paquete de B sale con la dirección de A. **Y en ese mundo el camino legítimo no funciona** (nuestro token nunca vuelve), así que la única adopción posible es la forjada. `folioTokenOf` busca con `\b…\b` en cualquier parte del texto, **sin anclar**, y nada impide que un campo del cliente lleve el patrón | **SDX-D-20 (Media).** Se arregla barato: anclar y sanear (C-15) |
+| Personal con acceso al panel que teclea el folio en una compra a mano | Sí, si cae en [−2, +5 min] con la misma paquetería y el mismo CP, y la compra por API no llegó a Skydropx. Si la compra por API sí llegó, sale `duplicate`. Si es por error, la guía es de ese mismo envío, que es lo correcto. Si es a propósito, quien lo hace ya tiene la custodia física y puede corregir la dirección | Info. No añade riesgo marginal (SDX-D-19 ya lo cubre) |
+
+**¿Qué pasa si Skydropx no lo devuelve o lo trunca?**
+- **No lo devuelve.** No hay adopción y sale «incierto», que lleva a «Liberar». Falla cerrado. La conciliación queda
+  ciega (no ve huérfanas) y la evidencia negativa no vota (§19.28.9: exige el folio en **todos** los candidatos). Se
+  pierde dinero sin vigilancia, pero no se pierde seguridad. Lo mide `M-PRD-7` tras PG-1.
+- **Lo trunca.** Si corta el texto en un sitio cualquiera, el token queda `null` y falla cerrado. **Excepto en un
+  caso:** con intento de dos dígitos, «Pedido ENV-000045-12» cortado en 19 caracteres da «Pedido ENV-000045-1», que
+  es un token **válido de otro intento**. Hoy el resultado es una huérfana falsa del intento 1. Con §19.28.6 tal como
+  está, eso alimenta la cancelación automática. Lo mismo ocurre al pasar de `ENV-999999`: con `\d{6}` exacto, el
+  folio 1 000 000 deja de leerse para siempre, sin aviso ⇒ **SDX-D-23 (Baja)**.
+
+### 2.2 La cancelación automática de un duplicado pagado: ¿puede cancelar una guía viva legítima? — **Sí. SDX-D-21 (Alta).**
+
+La regla (§19.28.6) dice: una huérfana (folio legible, id desconocido, intento que no es el vigente) cuyo envío
+«ya tiene **otra** guía viva» ⇒ `port.cancel` sin persona. El fallo está en «otra». **Nada comprueba que la guía viva
+del envío no sea la propia huérfana, capturada a mano.** El camino lo marca nuestra propia pantalla:
+1. S queda en vuelo. Skydropx tarda en listarla y a T+15 sale `label_unknown`.
+2. El súper-admin abre «Liberar». La ventana le dice «busca en el panel de Skydropx: **Pedido ENV-000045-1**»
+   (§19.28.11) y la encuentra: la compra sí se hizo.
+3. Libera. Ahora `labelPending = null`, así que aparece «Capturar a mano» (`API_CONTRACT:25254`, PS-101), y la
+   persona captura **el número de rastreo de esa misma guía**. Es lo sensato: la guía existe y está pagada.
+4. La captura a mano guarda paquetería y número, **no** `providerShipmentId` (`labelSource='manual'`,
+   `API_CONTRACT:23718`). Por eso su id no entra en `knownIds`.
+5. Más tarde el listado la muestra: id desconocido, token `(ENV-000045, 1)`, y el reclamo vigente ya no existe. Pasa a
+   `label_orphan`. Su envío «tiene otra guía viva» (la manual, que **es ella**). El resultado es **`port.cancel` sobre
+   la guía pegada al paquete**, que ya va con la paquetería.
+
+Impacto: un paquete con cartas en custodia viaja con una guía cancelada (devolución, retención o pérdida), y no hace
+falta atacante, solo seguir la operación normal. Por eso es **Alta**, la misma clase que SDX-D-14.
+
+Hay también un **riesgo de radio**. Es el único `cancel` masivo que puede hacer una máquina, y no tiene tope. Un fallo
+de parseo (SDX-D-23, o un cambio de forma en `included`) podría convertir muchas guías en «huérfanas» en una sola
+corrida. Pido un fusible.
+
+Lo que **sí** resiste, y es la mayoría de los casos:
+- La huérfana de un envío `cancelado` (no va a salir).
+- Los dos sobrantes de un `duplicate` cuando el envío ya tiene la guía buena **comprada por API**
+  (`providerShipmentId ≠` el de la huérfana).
+
+### 2.3 `not_sent` automático: ¿puede liberar una compra que sí salió?
+
+El diseño es correcto en la idea: I-SENT convierte «no salió» en un hecho local. Hay tres caminos por los que
+fallaría **abierto**, que ahora mismo significa una segunda compra pagada:
+1. **La búsqueda de la fila del 7b falla en silencio. SDX-D-24 (Media).** Se busca por `after.since` dentro del JSON
+   de la bitácora. Cualquier desajuste (formato ISO contra `Date`, milisegundos, zona horaria, otra llave) hace que
+   **toda** compra en vuelo parezca «no salió» y se libere a los 3 min. PS-134 (a) solo prueba la **ausencia**, y una
+   búsqueda rota pasa esa prueba en verde. Falta el control positivo **contra Postgres real**, con la fila escrita por
+   el 7b real (C-16).
+2. **Relojes distintos o un 7b lento sin CAS. SDX-D-22 (Baja).** El 7b.2 (§19.27.3) solo inserta en la bitácora: **no**
+   comprueba que el reclamo siga vivo. Hoy lo salva `notAfter` (120 s < 180 s), **si** `since`, `notAfter` y el `now`
+   del job vienen del mismo reloj. Con desfase de más de 60 s entre instancias, o con `since` sacado de `now()` de la
+   base y `notAfter` del reloj de la aplicación, el job libera, el 7b tardío inserta y el `POST` sale. Improbable,
+   pero el cinturón cuesta una línea: el 7b.2 hace un CAS sobre la fila en la misma tx (C-17).
+3. **Código que compra sin 7b.** Hoy no lo hay (medido: 0 llamadores). PS-117 (un solo llamador) y PS-134 (b) lo
+   vigilan. Resiste.
+
+### 2.4 `INFLIGHT_ADOPTION_ENABLED = true`: ¿justificado? — **Sí, con C-15 construida.**
+El argumento del arquitecto (§4.60 (u)) es correcto: una adopción falsa exige que nos vuelva **nuestro** token en un
+envío que no compramos. La única forma realista de que eso pase sin un insider es SDX-D-20. Con C-15, la acepto
+encendida. Además el apagado de emergencia es por errata y las pruebas la inyectan en `false`. Sin C-15, pediría
+`false` hasta que la segunda corrida de `M-PRD-7` mida que `reference` vuelve **exactamente como la mandamos**.
+
+### 2.5 Control del gasto (`HECHOS.md:62`, `PROJECT.md §Z.4`): ¿choca con §19.28? — **No choca, pero hay tres puntos de unión que el arquitecto debe fijar al meterlo.** No lo reviso todavía.
+- **TG-2 («una re-emisión por envío») no puede contarse con el `n` del token.** `n` cuenta intentos con
+  `label_purchase_sent`, e incluye los que no costaron nada (`PurchaseDeadlineError`, rechazo sin id). Con `n`, un fallo
+  de red gastaría la única recompra del operador. Al revés, contar solo las guías persistidas deja fuera las huérfanas y
+  los `duplicate`, que **sí** se pagaron. Se deben contar las **guías pagadas**: persistidas, adoptadas o huérfanas con
+  id.
+- **TG-1 (MX$2,500 en 24 h) y la compra en vuelo.**
+  - Un reclamo en vuelo o incierto cuenta por `expectedChargeCents` hasta que se resuelva. `not_sent` lo descuenta.
+  - La adopción y la huérfana se atribuyen a **quien reclamó** (el actor de `label_requested`), nunca a
+    `system:label-verify`.
+  - La cancelación automática solo descuenta lo que se devolvió (SEC-SDX-11: el seguro, NO MEDIDO).
+- **Concurrencia (§Z.4).** El candado `SKYDROPX_PURCHASE_LOCK_KEY` ya serializa el paso 7 de toda la cuenta. Si TG-1 y
+  TG-2 se comprueban **dentro** de esa tx, la concurrencia queda resuelta sin mecanismo nuevo.
+- Coherente: «la 3.ª la compra el dueño» y P-SDX-REL por defecto (solo súper-admin). Ojo: la excepción de §Z es **el
+  dueño** (Z.0.5), no el rol `super_admin` («vigilar también a otros súper-admin»).
+
+## 3. Hallazgos nuevos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-D-21** | **Alta** | La conciliación cancela sola una huérfana cuyo envío «tiene otra guía viva», sin comprobar que esa guía viva no sea **la misma**, capturada a mano tras «Liberar» (la captura manual no guarda `providerShipmentId`). Resultado: cancela la guía del paquete en tránsito. Además no hay fusible de cancelaciones automáticas. Detalle en 2.2 | §19.28.6 (primera viñeta de «Qué se hace»), PS-130 (fila de la huérfana), §4.60 (u) última fila | **arquitecto** (errata) → backend (D2d) |
+| **SDX-D-20** | Media | El folio se puede forjar con datos del cliente si Skydropx devuelve o mezcla `further_information` (o algún otro campo del cliente) en `reference` (NO MEDIDO). `folioTokenOf` no está anclado y los campos del cliente no se sanean del patrón. En ese mundo, la única adopción posible es la forjada | §19.28.1 (extracción), §19.28.4, PS-129, PS-135 | **arquitecto** → backend |
+| **SDX-D-24** | Media | `not_sent` falla abierto si la búsqueda de `label_purchase_sent` por `since` no encuentra una fila que existe, y PS-134 no lo detectaría (solo prueba la ausencia) | §19.28.5, PS-134 | **arquitecto** (prueba) → backend |
+| **SDX-D-22** | Baja | El 7b.2 no comprueba que el reclamo siga vivo. La seguridad de `not_sent` frente a un 7b tardío depende de que `since`, `notAfter` y el job compartan reloj | §19.27.3 paso 2, §19.28.2, §19.28.5 | backend (y arquitecto: una línea) |
+| **SDX-D-23** | Baja | Formato del token: con intento de dos dígitos, un truncado deja un token válido de otro intento; `\d{6}` exacto deja de leer al pasar del folio 999 999; `n` sale de contar la bitácora (si esas filas tuvieran purga, `n` se repetiría: **NO MEDIDO** si `shipment.*` tiene retención) | §19.28.1 | arquitecto → backend |
+| **SDX-I-5** | Info | El folio secuencial revela el volumen de envíos y de retiros de bóveda. Aceptado por el dueño según relato, sin fila en `HECHOS` | §19.28.1 | **humano** |
+| **SDX-I-6** | Info | El folio no debe ser nunca llave de búsqueda en superficies de cliente, invitado o públicas (es enumerable) | §19.28.11 | arquitecto (una línea) |
+
+## 4. Condiciones, escritas como pruebas que deben fallar
+
+Mismas reglas que C-1…C-13: copia del árbol **entero** con su sha, mutación demostrada en rojo, carreras con barrera
+y N ≥ 10 con su proporción, todo con el doble (⛔ nunca la red).
+
+| # | Antes de | Prueba que debe fallar con el diseño actual | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|---|
+| **C-14** | **D2d** (bloquea) | PS-130 gana tres filas. **(a)** S en vuelo; «Liberar»; captura a mano con el `trackingNumber` que `getShipment(Y)` devuelve para la huérfana Y (`ENV-000045-1`). El listado muestra después Y ⇒ **0** `cancel` y alerta `label_orphan` para una persona. **(b)** Si `getShipment(Y)` no se lee, o la guía viva de S es `labelSource='manual'` ⇒ **0** `cancel` y alerta. **(c)** Fusible: con 3 cancelaciones automáticas de huérfanas en las últimas 24 h, la 4.ª ⇒ **0** `cancel`, aviso 🔴 al dueño y bitácora. Control positivo: la guía viva de S es `skydropx` con `providerShipmentId ≠ Y` y el rastreo de Y ≠ todo número de rastreo nuestro ⇒ `cancel` **una** vez | quitar la comparación del rastreo ⇒ (a); aceptar una guía viva manual ⇒ (b); quitar el fusible ⇒ (c) | SDX-D-21 | arquitecto → backend |
+| **C-15** | D2c | **(a)** PS-135 gana: con `Address.references = "Pedido ENV-000046-1"`, y el mismo patrón en `name` y en `street1`, el cuerpo que recibe el doble **no** contiene ninguna coincidencia de `/ENV-\d+-\d+/i` fuera de `address_to.reference` (el patrón se neutraliza al armar la compra). **(b)** PS-129 gana: el doble devuelve como `reference` de destino el texto del cliente «Pedido ENV-000046-1» para la guía de A, dentro de la ventana de B, con la misma paquetería y el mismo CP ⇒ B **no** adopta. **(c)** Unitaria de `folioTokenOf`: solo acepta el texto **entero** (tras recortar y en mayúsculas) con la forma exacta que mandamos. «Pedido ENV-000045-01 casa azul» ⇒ `null`; «x ENV-000045-01» ⇒ `null` | quitar el saneado ⇒ (a)/(b); volver a `\b…\b` sin anclar ⇒ (c) | SDX-D-20 | arquitecto → backend |
+| **C-16** | D2c | PS-134 gana **(c)** de integración, contra Postgres real y con el 7b **real** (sin repositorio falso): reclamo, 7b comiteado, la `purchase` del doble colgada, reloj en `since + 180 s` ⇒ el job **no** sale `not_sent` (0 liberaciones). Y **(d)**: la escritura del 7b.2 falla ⇒ **0** `purchase` | buscar la fila por otra forma de `since` (por ejemplo, `Date` contra ISO, o `createdAt` en lugar de `after.since`) ⇒ (c) libera; tragarse el error del 7b.2 ⇒ (d) | SDX-D-24 | arquitecto → backend |
+| **C-17** | D2c | El 7b.2 hace, en la misma tx que la bitácora, `updateMany({id, labelProcessingSince: since, providerShipmentId: null})` y exige `count = 1`. Si no ⇒ **0** `purchase`. Prueba con barrera: una liberación (`not_sent` o «Liberar») entra entre el 7b.1 y el 7b.2 ⇒ **0** `purchase`, N ≥ 10, con su proporción. Además, unitaria: `since`, `notAfter` y el `now` del job salen de **un** reloj inyectado | quitar el CAS ⇒ sale `purchase` | SDX-D-22 | backend |
+| **C-18** | D2c | Formato del token: intento con ancho fijo de 2 (`-01`) y folio `\d{6,}`. Unitarias: «Pedido ENV-000045-1» (truncado de `-12`) ⇒ `null`; «Pedido ENV-1000000-01» ⇒ token. Y `n` sale de una fuente sin purga (si la bitácora `shipment.*` tiene retención, de un contador en la fila) | volver a `\d{1,3}` ⇒ el truncado se lee como intento 1 | SDX-D-23 | arquitecto → backend |
+
+**Para cuando el arquitecto meta §Z** (no son de D2c y no las reviso todavía): TG-2 cuenta guías pagadas, nunca `n`.
+TG-1 cuenta los reclamos en vuelo y los atribuye a quien reclamó. Las dos se comprueban dentro de la tx del candado
+`SKYDROPX_PURCHASE_LOCK_KEY` (2.5). La revisión de seguridad de esa errata vendrá después.
+
+## 5. Deuda aceptada (no bloquea)
+- **SDX-I-5.** Volumen visible en la etiqueta. Disparador: que el dueño diga que no lo quiere, o un competidor que lo
+  explote.
+- **La conciliación queda ciega si el folio no vuelve.** Se pierde dinero sin vigilancia, pero falla cerrado.
+  Disparador: la segunda corrida de `M-PRD-7` tras PG-1.
+- **Folio tecleado en el panel por el personal (2.1).** Lo cubre SDX-D-19 y §Z.
+- Siguen igual SDX-D-6 (ahora mitigada por `labelPending.providerReference`), SDX-D-18 (c) y SDX-D-19 (ahora la recoge
+  §Z, `HECHOS.md:60,62`).
+
+## 6. Banderas para el humano
+1. **El folio impreso cuenta cuántos envíos y retiros de bóveda hacemos.** El cruce funciona igual con un folio no
+   secuencial. Si lo aceptas, conviene que quede en `HECHOS.md` con tus palabras (hoy la fila 61 no lo dice).
+2. **P-SDX-REL sigue sin respuesta.** Queda el valor por defecto, solo súper-admin, y lo sigo recomendando.
+3. Mientras C-15 no esté construida, **nadie compra en el panel de Skydropx tecleando el folio a mano** salvo para el
+   mismo envío.
+4. Siguen vigentes: la fase completa de la release, PG-1 con el saldo medido antes y después (y ahora también: ¿vuelve
+   `reference` tal cual?), y un pentest de terceros antes de operar con dinero real.
+
+---
+
 # VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de las erratas v1.80.12.6 y v1.80.12.7, antes de D2c** (`API_CONTRACT §M4-SHIP.19.26`, `§M4-SHIP.19.27`; `ARCHITECTURE §4.60 (s)`, `(t)`) · SHA **`eade24d3`** (rama `claude/skydropx-d`, medido con `git log -1`) · 2026-10-04
 
 > ## VEREDICTO DE DISEÑO
