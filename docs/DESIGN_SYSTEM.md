@@ -4,7 +4,21 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.19 (2026-10-04) — LA COLONIA COMO MERCADO LIBRE: LA LISTA AYUDA, NO BLOQUEA (§43.18m NUEVA; `HECHOS.md:57`
+> Estado: **v4.20 (2026-10-04) — CAPTURAR GUÍA TRAS LAS ERRATAS v1.80.12.6–.9 Y EL CONTROL DEL GASTO (§43.19 NUEVA;
+> `API_CONTRACT §M4-SHIP.19.26`–`§19.29`; `HECHOS.md:58` «TAMBIÉN EL PERSONAL», `:59` «REGLA GENERAL», `:61` folio,
+> `:62` «Control del gasto — límites aceptados»; `PROJECT §Z`; ux-ui sin Bash, sha NO MEDIDO por mí):** el paso 3 deja
+> de decir «Solo el dueño» (texto por modo del dial); negativa por tope `403 LABEL_PURCHASE_LIMIT` **sin cifras** con
+> «Capturar a mano» siempre; un copy por `reason` del `409` (`rate_already_purchased`, `provider_id_taken`,
+> `purchase_in_flight` con su espera, `attempts_exhausted`, `stale_purchase_response`); `processing` con
+> `providerError`; **«Verificando con Skydropx…»** y sus seis resultados; `label_unknown` con su motivo y la alerta
+> nueva `label_orphan`; **«Liberar»** con los datos para cuadrar (folio `Pedido ENV-000045-01`, precio, destinatario)
+> y la casilla `confirmConflict`; **el folio** en tarjeta, fila, ventana y hoja de impresión; **«Avisos de gasto»**
+> (página y detalle), tarjeta **«Control del gasto»** del tablero («últimas 24 h»), sección **«Configuración › Control
+> del gasto»**, textos de **AG-1…AG-13** y correos **`AVG-1/2/3`**. Reglas nuevas **SK11…SK15** y **GAS-1…GAS-4**;
+> **FS-25…FS-43**; candados **UX-SDX-27…34**, **UX-GAS-1…7**, **ML-27…29**. **Cero tokens nuevos, cero pares de
+> contraste nuevos.** Lo que sigue es la v4.19 con marcas «→ §43.19» donde un texto viejo queda sustituido.
+>
+> Estado anterior: **v4.19 (2026-10-04) — LA COLONIA COMO MERCADO LIBRE: LA LISTA AYUDA, NO BLOQUEA (§43.18m NUEVA; `HECHOS.md:57`
 > «si, hazlo como mercado libre»; ux-ui sin Bash, HEAD `76de8268` dado por el orquestador, NO MEDIDO por mí):**
 > **CA-1** y **CA-2** se sustituyen por **CA-6…CA-9**; **§43.18d** y P-ADR-2 quedan superadas (ya no hay «Escríbenos»
 > para el CP ni para la colonia); **§43.18m** diseña los cuatro modos de la colonia (lista · «Mi colonia no está» ·
@@ -23020,7 +23034,7 @@ sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el caj
 
 ---
 
-## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17`/`AV-18`/`AV-19` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11; **v4.16** · `§M4-SHIP.19.20` v1.80.12; **v4.18** · §43.18 la dirección del cliente, `§M4-SHIP.19.5`; **v4.19** · §43.18m la colonia ayuda, no bloquea, `HECHOS.md:57`)
+## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17`/`AV-18`/`AV-19` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11; **v4.16** · `§M4-SHIP.19.20` v1.80.12; **v4.18** · §43.18 la dirección del cliente, `§M4-SHIP.19.5`; **v4.19** · §43.18m la colonia ayuda, no bloquea, `HECHOS.md:57`; **v4.20** · §43.19 erratas v1.80.12.6–.9 y control del gasto, `§M4-SHIP.19.26`–`.29`)
 
 > **v4.16 — qué cambió en esta sección y por qué.** Fuente: `HECHOS.md:50` (2026-10-04): *«En «Capturar guía» el dueño
 > (y quien prepare) puede corregir TODA la dirección del cliente antes de comprar la guía: calle, número, CP, colonia,
@@ -23451,7 +23465,8 @@ primaria:
 | Caso | ES |
 |---|---|
 | `labelOptions.purchase = 'disabled'` | **«La compra de guías está desactivada. Se activa en «Configuración › Envíos». Mientras, captura la guía a mano.»** |
-| `purchase = 'super_admin_only'` y el actor no es súper-admin | **«Solo el dueño compra guías por ahora. Avísale, o captura la guía a mano si ya la tienes.»** |
+| `purchase = 'super_admin_only'` y el actor no es súper-admin | ~~«Solo el dueño compra guías por ahora…»~~ **v4.20 → §43.19.1** (texto por modo del dial, sin «el dueño») |
+| *(v4.20)* `labelOptions.limit ≠ null` | **→ §43.19.1** (negativa por tope, sin cifras) |
 | cualquier otro `canPurchase = false` (p. ej. falta la llave del servidor) | **«La compra de guías no está habilitada en este servidor. No se cobró nada. Captura la guía a mano.»** |
 
 *(El tercer caso no dice qué llave falta: el DTO no lo dice al operador, §19.19.7 «⛔ No dice cuál llave falta»; el
@@ -23487,7 +23502,10 @@ llega solo, la tarjeta lo mostrará y el cliente recibirá su correo entonces.»
 y la misma espera que `processing`.
 
 **`outcome: 'in_flight'`** *(v4.16, §19.20.5 — la vía normal de la compra sin respuesta; también se llega aquí al abrir
-con `labelPending.state = 'in_flight'` o tras la relectura de SK5)* — encabezado `font-serif text-xl` **«Compra sin
+con `labelPending.state = 'in_flight'` o tras la relectura de SK5)* — ⚠ **v4.20: mientras el servidor verifica, este
+estado se pinta como «Verificando con Skydropx…» (§43.19.4); «Compra sin confirmar» queda para la relectura fallida y
+para el resultado incierto, con textos nuevos. Los textos de abajo que dicen «el dueño puede liberarla» quedan
+sustituidos.** Encabezado `font-serif text-xl` **«Compra sin
 confirmar»** y `Banner variant="warning"` (no `danger`):
 > **«Skydropx no contestó a tiempo y no sabemos si alcanzó a crear la guía. No la vuelvas a comprar: el sistema la busca
 > solo y, si aparece, la verás en la tarjeta del envío. Si en 15 minutos no aparece, el dueño puede liberarla.»**
@@ -23555,7 +23573,8 @@ frontend, §19.11 — no es de este diseño.)*
 |---|---|---|---|
 | `404 FEATURE_DISABLED {feature:'label_purchase'}` — **puerta de compra apagada** | 3 | **«La compra de guías está desactivada. No se cobró nada. Se activa en «Configuración › Envíos»; mientras, captura la guía a mano.»** | quita el botón (como `canPurchase=false`) |
 | `404 FEATURE_DISABLED` (sin `feature`) — Skydropx apagado | 2, 3 | **«Skydropx está apagado en «Configuración». No se cotizó ni se compró nada. Captura la guía a mano.»** | «Capturar a mano» primaria |
-| `403 FORBIDDEN {reason:'label_purchase_super_admin_only'}` | 3 | **«Solo el dueño compra guías por ahora. No se cobró nada y el intento quedó en bitácora.»** | quita el botón |
+| `403 FORBIDDEN {reason:'label_purchase_super_admin_only'}` | 3 | ~~«Solo el dueño compra guías por ahora…»~~ **v4.20 → §43.19.1** | quita el botón |
+| *(v4.20)* `403 LABEL_PURCHASE_LIMIT {limit}` · `409 CONFLICT {reason}` (`rate_already_purchased`, `provider_id_taken`, `purchase_in_flight`, `attempts_exhausted`, `stale_purchase_response`) · `200 processing` con `providerError` | 3 | **→ §43.19.1–.3** | ídem |
 | `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['insurance_tier'], insuredValueCents, maxCoverageCents}` — **falta escalón de seguro** | 2, 3 | **«Lo que va en la caja vale {insuredValue} y el seguro configurado cubre hasta {maxCoverage}. Sin un escalón que lo cubra no se cotiza ni se compra (todo paquete va asegurado). Captura la guía a mano y asegúralo en el panel de Skydropx.»** Súper-admin, además: **«Añade un escalón en «Configuración › Envíos».»** con enlace | «Capturar a mano» primaria |
 | `…NOT_CONFIGURED {missing:['allow_spend']}` | 3 | **«La compra de guías no está habilitada en este servidor. No se cobró nada. Captura la guía a mano.»** | quita el botón |
 | `…NOT_CONFIGURED {missing:['origin']}` | 2, 3 | **«Falta la dirección de origen en «Configuración › Envíos». No se cotizó nada.»** | «Capturar a mano» |
@@ -23690,6 +23709,10 @@ campo se quita), confirmar **«Pedir cancelación otra vez»**. Respuestas: `can
 cancelación. El saldo regresa.»** · `already_cancelled` ⇒ **«Ya estaba confirmada. No se hizo nada.»** · el resto, las de
 §43.8b.
 
+⚠ **v4.20:** `label_unknown` gana su motivo (`labelAlert.reason`), nace la alerta `label_orphan`, y el diálogo de
+«Liberar» se rediseña con los datos para cuadrar y la casilla de conflicto: **§43.19.5–.6** manda sobre lo de abajo
+donde choque («Solo el dueño puede liberarla» incluido).
+
 **«Liberar»** (súper-admin, `@MoneyOut`) — **se pinta ⇔ `labelAlert.kind = 'label_unknown' ∧ labelAlert.canRelease =
 true`**. ⛔ La pantalla no mira el rol para decidirlo: `canRelease` ya lo dice (§19.20.2). Botón fantasma **«Liberar»** ⇒
 `Dialog`:
@@ -23751,6 +23774,9 @@ que §39.1: sección propia porque gobierna dinero. Un `Banner` arriba con el **
 **«No se pudo leer el saldo: Skydropx no respondió.»**
 
 #### 43.10a ¿Quién puede comprar guías? (`shipping_label_purchase`) — la puerta
+
+⚠ **v4.20:** rótulos y frases de `super_admin_only` y `operators` (y el cuerpo de la confirmación) sustituidos por
+**§43.19.10b**: ya existe tope por persona (TG-1) y «Solo yo» no es cierto si hay otro súper-admin (§19.26.6).
 
 `fieldset` con tres radios, cada uno con su frase (§39.1: un texto por modo que dice qué pasa):
 
@@ -24747,3 +24773,730 @@ Paridad ES/EN en el mismo commit (`i18n-parity`; y `lib/i18n-skydropx.test.ts:48
 | **S-1** | arquitecto | C-1…C-4 de arriba. La mínima para que el dueño tenga lo que pidió es **C-1**; **C-3** es la que da sentido a «las colonias mal escritas se corrigen en Capturar guía» (sin ella el operador no sabe cuáles mirar) |
 | **S-2** | product-owner | `PROJECT §T.2` y el criterio 235 dicen hoy «colonia de la lista»; con `HECHOS.md:57` cambian. No lo toco: lo anoto |
 | **S-3** | frontend | FC-25 punto 1 (no borrar la colonia al abrir «Corregir») **no** depende del contrato y conviene que salga con el primer commit que acepte colonias escritas, o el operador las borraría al guardar sin tocar |
+
+---
+
+### 43.19 Erratas v1.80.12.6–.9: quién compra, los `409` por motivo, «Verificando…», «Liberar» de respaldo, el folio y el control del gasto *(v4.20, nueva)*
+
+#### 43.19.0 Fuente, lo leído y las reglas nuevas
+
+**Fuentes, en este orden:** `HECHOS.md:58` (2026-10-04, «Skydropx: comprar y cancelar guías lo puede hacer TAMBIÉN EL
+PERSONAL…»); `HECHOS.md:59` (2026-10-04, «REGLA GENERAL: los procesos se diseñan LO MÁS AUTOMÁTICOS POSIBLE…»);
+`HECHOS.md:61` (2026-10-04, «Skydropx: cada guía lleva NUESTRO FOLIO…»); `HECHOS.md:62` (2026-10-04, «Control del
+gasto — límites aceptados como se recomendaron…»); `PROJECT.md §Z` (`:8510-8693`, ideas de texto de Z.3 y reglas Z.0).
+Norma: `API_CONTRACT §M4-SHIP.19.26` (filas ux-ui de §19.26.6 y §19.26.8), **§19.27** (§19.27.10), **§19.28**
+(§19.28.8 «no compres en el panel», §19.28.13) y **§19.29** (§19.29.12; el encargo cita «§19.29.11», que en el contrato
+es el orden de construcción: la fila ux-ui está en **§19.29.12**). Donde esta subsección choca con §43.4–§43.10, **manda
+ésta** (las marcas «→ §43.19» están puestas en cada sitio).
+
+**Lo que leí** (2026-10-04, árbol `/home/user/tcg-skyd`, rama `claude/skydropx-d`; ⛔ sin Bash, sha **NO MEDIDO** por mí):
+`API_CONTRACT.md:26426-27621`; `PROJECT.md:8510-8693`; `HECHOS.md:51-62`; `frontend/src/app/[locale]/(admin)/admin/m4/
+CaptureLabelDialog.tsx` (entero, 1-1068); `m4/capture/sdx-errors.ts` (entero, 1-213); `m4/capture/QuoteViews.tsx`
+(`:207-260` por `grep`); `m4/LabelActions.tsx` (entero, 1-297); `m4/print/PrintSheetView.tsx:40-99`;
+`m4/ShipPreparationCard.tsx:500-519` y `:648`; `m4/ShipmentsQueue.tsx:186-199` y `:287`; `m4/M4View.tsx:76-77` (`grep`);
+`m10/sections/ShippingSection.tsx:139`, `:171`, `:190-239`, `:410`; `m10/M10View.tsx:443-450` (`grep`);
+`admin/AdminDashboard.tsx:150-259`; `components/layout/AdminSidebar.tsx:35-103`; `types/contract.ts:1560-1619`;
+`messages/es.json:1936-2015`, `:2560-2669`, `:4410-4469` (y las mismas líneas en `en.json` por `grep`).
+
+**Medido, que cambia el diseño:**
+- El paso 3 y el error `403` dicen hoy «Solo el dueño compra guías por ahora» (`es.json:1957`, `:1998`) y la alerta
+  «Solo el dueño puede liberarla» (`:2575`): con `HECHOS.md:58` y §19.26.6 son falsos (el dial habla de súper-admins, no
+  del dueño).
+- «Configuración › Envíos» dice «No hay tope aparte del saldo» dos veces (`es.json:4424`, `:4427`): con TG-1 es falso.
+- La tarjeta enseña el **uuid** del envío como referencia (`ShipPreparationCard.tsx:515-517`, `ShipmentsQueue.tsx:196`,
+  la cabecera de la ventana `CaptureLabelDialog.tsx:931-935`) y «Liberar» pide buscar por `orderNumber ?? id`
+  (`LabelActions.tsx:51`, `:200`): ni el uno ni el otro está en el panel de Skydropx. El folio los sustituye.
+- La ventana relee 2 min y para (`CaptureLabelDialog.tsx:71-72`, `:450-496`); la verificación dura hasta 15 min.
+- `CONFLICT` en la compra cae siempre al mismo texto («El envío cambió mientras comprabas», `sdx-errors.ts:207-209`):
+  con cinco `reason` nuevos ese texto mentiría en cuatro.
+
+**Cero tokens nuevos, cero pares de contraste nuevos** (§43.19.16).
+
+**Reglas nuevas (se revisan en el PR):**
+
+| # | Regla | De dónde sale |
+|---|---|---|
+| **SK11** | **El personal no ve cifras de los topes.** Ninguna pantalla a la que llegue un operador pinta el tope, lo que lleva gastado, el porcentaje ni el saldo. La negativa dice **qué** pasó y **quién** puede hacerlo, nunca **cuánto** | `PROJECT §Z.0.6`, §19.29.4 «⛔ Sin `capCents`…», criterio 321 |
+| **SK12** | **Un tope nunca tapa la salida a mano.** Con `labelOptions.limit ≠ null` o un `403 LABEL_PURCHASE_LIMIT`, «Capturar a mano» está presente y es la acción **primaria** | `PROJECT §Z.0.6`, criterio 338, §19.29.4 |
+| **SK13** | **Mientras el sistema comprueba una compra, nadie la compra otra vez — tampoco en el panel de Skydropx.** Todo texto de compra pendiente («Verificando…», `purchase_in_flight`, `provider_id_taken`) lo dice con esas palabras y da el folio para buscar | §19.28.8 «Ux-ui», §19.27.2 |
+| **SK14** | **Automático primero** (`HECHOS.md:59`). Ningún texto manda a «Liberar» ni a llamar a nadie **mientras** la verificación sigue; «Liberar» aparece solo en el resultado incierto (`label_unknown`) y su texto dice que es **respaldo**. Tras «no se creó», la compra la vuelve a pedir la persona con un clic (SK2): reintentar es un clic, no un cron | §19.27.5 (las tres razones), §19.27.6 |
+| **SK15** | **El folio es de admin.** `ENV-…` aparece en tarjeta, fila, ventana, hoja de impresión, «Liberar» y avisos; ⛔ en ninguna superficie de cliente, invitado ni pública | §19.29.1.6 (SDX-I-6) |
+| **GAS-1** | **Los avisos los ve el dueño.** Página, detalle, tarjeta del tablero y sección de Configuración existen **solo** para el súper-admin: el menú las marca `superAdminOnly`, la tarjeta no se pinta con `spendControl = null` (⛔ ni vacía), y la página, si un operador llega por URL, dice que es solo del súper-admin | `PROJECT §Z.5`, §19.29.9 (`@MoneyOut()` de clase), criterio 331 |
+| **GAS-2** | **Sin datos del cliente** en avisos ni correos: ni nombre, dirección, teléfono, correo ni CLABE del cliente. AG-1 dice **qué campos** cambiaron, ⛔ nunca los valores. Sí van el nombre del **miembro del personal**, el número de pedido y el folio | `PROJECT §Z.0.8`, §19.29.5 «Contenido» |
+| **GAS-3** | **Ningún aviso se borra ni se «des-ve».** «Marcar como visto» deja quién y cuándo; no hay botón de borrar, archivar ni deshacer | `PROJECT §Z.0.7`, §19.29.9 |
+| **GAS-4** | **Una cifra, una fuente.** El panel pinta `amountCents`, `facts` y el resumen **tal cual** llegan (`summary` es el mismo cuerpo que el correo `AVG-3`); ⛔ la pantalla no suma, no resta, no calcula porcentajes ni días | SK3 extendida; §19.29.7 «El resumen cuadra con el panel» |
+
+---
+
+#### 43.19.1 Paso 3 · quién puede comprar y la negativa por tope
+
+**Sin poder comprar por el dial** (sustituye la fila `super_admin_only` de §43.4 y la de `403 FORBIDDEN` de §43.7). La
+frase dice lo que hace el dial, ⛔ sin afirmar «el dueño» (§19.26.6):
+
+| Caso | Clave | ES | EN |
+|---|---|---|---|
+| `canPurchase=false ∧ purchase='super_admin_only'` (el actor no es súper-admin) | `buy.superAdminOnly` (sustituye `buy.ownerOnly`) | Ahora mismo solo los súper-admin compran guías (así está en «Configuración › Envíos»). Avísale a uno, o captura la guía a mano si ya la tienes. | Right now only super admins buy labels (that's the setting in “Settings › Shipping”). Let one know, or enter the label by hand if you already have it. |
+| `403 FORBIDDEN {reason:'label_purchase_super_admin_only'}` (el dial cambió entre abrir y pulsar) | `error.superAdminOnly` (sustituye `error.ownerOnly`) | Ahora mismo solo los súper-admin compran guías. No se cobró nada y el intento quedó en bitácora. | Right now only super admins buy labels. Nothing was charged and the attempt was logged. |
+
+**La negativa por tope** (TG-1 / TG-2, §19.29.4). Dos entradas, el mismo texto:
+- **Antes de pulsar:** `labelOptions.limit ≠ null` ⇒ en el sitio del botón (como `canPurchase=false`, SK4) la frase de
+  abajo, `text-sm text-text`, y «Capturar a mano» pasa a **primaria** (SK12). Además, en el **paso 2**, bajo la cabecera de
+  la cotización, `text-sm text-muted` **`options.limitNote`**: el operador puede ver opciones (le sirven para la guía a
+  mano), pero sabe desde ahí que no comprará.
+- **Al pulsar:** `403 LABEL_PURCHASE_LIMIT {limit}` (el caso `daily_spend` que depende del precio solo se sabe aquí) ⇒
+  `Banner variant="danger" role="alert"` con la misma frase + «No se cobró nada.», el botón **desaparece** (efecto
+  `blockPurchase`) y «Capturar a mano» pasa a primaria. ⛔ **0** `POST …/label` más sin cambiar de envío.
+
+| `limit` | Clave | ES | EN |
+|---|---|---|---|
+| `daily_spend` | `buy.limit.dailySpend` | Llegaste a tu tope de guías de las últimas 24 horas. El dueño puede comprarla; tú puedes capturarla a mano si ya tienes la guía. | You've reached your label limit for the last 24 hours. The owner can buy it; you can enter it by hand if you already have the label. |
+| `reissue` | `buy.limit.reissue` | Este envío ya tuvo su recompra de guía. La siguiente la compra el dueño; tú puedes capturarla a mano si ya tienes la guía. | This shipment already had its label rebuy. The owner buys the next one; you can enter it by hand if you already have the label. |
+| (respuesta `403`, sufijo) | `error.limitNothing` | No se cobró nada y el intento quedó en bitácora. | Nothing was charged and the attempt was logged. |
+| (paso 2) | `options.limitNote` | Puedes ver las opciones, pero esta guía no la puedes comprar tú: {motivo}. | You can see the options, but you can't buy this label yourself: {reason}. |
+
+`{motivo}` en `options.limitNote`: `daily_spend` ⇒ «llegaste a tu tope de las últimas 24 horas» / “you've reached your
+limit for the last 24 hours”; `reissue` ⇒ «este envío ya tuvo su recompra» / “this shipment already had its rebuy”
+(claves `options.limitReason.dailySpend` / `.reissue`).
+
+- *Por qué «el dueño» aquí sí y arriba no:* la excepción del tope es **solo** la cuenta del dueño (`isOwnerAccount`,
+  §19.29.3; un súper-admin sin correo **sí** tiene tope, P-GAS-9). En la puerta del dial, en cambio, entra cualquier
+  súper-admin.
+- ⛔ Ni cifra, ni porcentaje, ni «te faltan…» (SK11). El texto **no** se pinta como `warning` amable: es una negativa.
+
+#### 43.19.2 Los `409 CONFLICT` de la compra — un texto por `reason`
+
+`sdx-errors.ts` ramifica `CONFLICT` **por `details.reason` primero**; sin `reason` (o uno desconocido) cae al texto de
+hoy (`error.conflict`, la corrección de dirección). ⛔ Nunca por status (UX-SDX-12).
+
+| `reason` (detalles) | Clave | ES | EN | Qué hace la ventana |
+|---|---|---|---|---|
+| `rate_already_purchased` `{otherShipmentId}` | `error.rateAlreadyPurchased` | Esa opción de paquetería ya se usó para comprar la guía de otro envío, y Skydropx no garantiza que sirva dos veces. No se compró nada. Cambia el empaque para cotizar de nuevo, o captura la guía a mano. | That carrier option was already used to buy another shipment's label, and Skydropx doesn't guarantee it works twice. Nothing was bought. Change the packaging to get a new quote, or enter the label by hand. | `Banner danger` en el paso 3 + **«Elegir otra opción»** (paso 2, donde está «Cambiar empaque»); «Capturar a mano» presente. ⛔ Sin enlace al otro envío (el `409` no trae su folio) |
+| `provider_id_taken` `{otherShipmentId}` | `error.providerIdTaken` | Skydropx contestó con una guía que ya es de otro envío. No se guardó en éste. No la vuelvas a comprar, ni aquí ni en el panel de Skydropx: la compra queda detenida hasta que un súper-admin la revise. | Skydropx answered with a label that already belongs to another shipment. It wasn't saved on this one. Don't buy it again, here or in the Skydropx panel: the purchase stays on hold until a super admin reviews it. | relee el envío ⇒ paso 4 (el reclamo **se conserva**, §19.26.3 (b)); el texto queda como `Banner warning` **encima** de la vista de §43.19.4 mientras dure la ventana; ⛔ sin compra ni «Capturar a mano» (SK5) |
+| `purchase_in_flight` `{otherShipmentId \| null, otherFolio \| null, retryAfterSeconds}` | `error.purchaseInFlight` · `error.purchaseInFlightFolio` | Otra guía se está comprando en este momento{ (envío {folio})}. Se compran de una en una para que el sistema pueda comprobar cada compra. No se compró nada. Podrás intentarlo de nuevo en {espera}; mientras tanto, no compres esta guía en el panel de Skydropx. | Another label is being bought right now{ (shipment {folio})}. Labels are bought one at a time so the system can check each purchase. Nothing was bought. You can try again in {wait}; meanwhile, don't buy this label in the Skydropx panel. | **se queda en el paso 3** (PS-128 (d)); ver «La espera» abajo |
+| `attempts_exhausted` | `error.attemptsExhausted` | Este envío ya no admite más intentos de compra con Skydropx. No se compró nada. Captura la guía a mano. | This shipment can't take any more purchase attempts with Skydropx. Nothing was bought. Enter the label by hand. | `blockPurchase` + «Capturar a mano» primaria (como `canPurchase=false`) |
+| `stale_purchase_response` | `error.stalePurchase` | La respuesta de Skydropx llegó tarde, cuando esta compra ya se había resuelto por otro lado. No se guardó en este envío; si creó una guía de más, el sistema la detecta y la avisa. | Skydropx's answer arrived late, after this purchase had already been settled another way. It wasn't saved on this shipment; if it created an extra label, the system detects it and flags it. | relee el envío y decide por el estado (mismo camino que SK5) con este texto como `Banner info` |
+| *(sin `reason` o desconocido)* | `error.conflict` (sin cambio) | — | — | sin cambio (§43.7) |
+
+`{folio}` = `otherFolio` (`ENV-000046`); si es `null`, el paréntesis entero se omite (clave sin folio). ⛔ Nunca el
+`otherShipmentId` (uuid) en pantalla ni como enlace (PS-136: «`otherShipmentId:null` ⇒ su texto sin enlace»).
+
+**La espera de `purchase_in_flight`.** `retryAfterSeconds` lo da el servidor (1 s si el candado está ocupado; hasta
+3 min si otra compra se está verificando, §19.28.8): la pantalla **no** lo calcula ni lo alarga (SK3).
+- `{espera}`: `≤ 5` ⇒ «unos segundos» / “a few seconds”; `< 60` ⇒ «{n} segundos»; `≥ 60` ⇒ «{m}:{ss} minutos» (formato,
+  no decisión). El número del `Banner` cuenta hacia atrás **visualmente** una vez por segundo **fuera** de la región
+  viva (un lector de pantalla no oye 180 anuncios).
+- El botón «Comprar guía por {monto}» queda **pintado y deshabilitado** con `aria-describedby` al `Banner` (aquí sí
+  apagado: el motivo está escrito al lado y se resuelve solo; §37.0 S6 prohíbe el botón muerto **sin texto**).
+- Al llegar a 0: el botón se habilita, el `Banner` pasa a `info` con **`error.purchaseInFlightReady`** «Ya puedes
+  intentarlo de nuevo. No se compró nada todavía.» / “You can try again now. Nothing has been bought yet.”, y la región
+  viva lo anuncia **una** vez. ⛔ **No** compra sola al llegar a 0 (SK2): hace falta el clic.
+- «Atrás» y «Capturar a mano» siguen disponibles durante la espera (este envío no tiene compra; el que la tiene es otro).
+
+#### 43.19.3 Paso 4 · `processing` con `providerError`
+
+`200 {outcome:'processing', shipment, providerError:{code, message}}` (§19.26.1: Skydropx creó el envío **y** reportó un
+error; el reclamo se conserva). La vista de «Guía en proceso» (§43.5) gana, encima de su texto, `Banner
+variant="warning" role="status"`:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Cuerpo | `processing.providerError` | Skydropx reportó un problema al crear la guía; la guardamos para revisarla. No la vuelvas a comprar: si el número de guía no llega, la tarjeta del envío te avisará. | Skydropx reported a problem while creating the label; we kept it so it can be checked. Don't buy it again: if the tracking number doesn't arrive, the shipment card will let you know. |
+| Cita | `error.providerSays` (existe) | Skydropx dice: “{message}” | — |
+
+- `code` no se pinta (es técnico); `message` va **literal** entre comillas, ⛔ ni traducido ni reinterpretado.
+- Solo en la respuesta inmediata: el `providerError` no viaja en el DTO del envío, así que al reabrir la ventana se ve el
+  «Guía en proceso» de siempre (y, a los 30 min, la alerta `label_processing_stuck`). ⛔ Sin «Capturar a mano» (§43.5a,
+  `processing`).
+
+#### 43.19.4 «Verificando con Skydropx…» y sus resultados
+
+**Cuándo:** paso 4 con `labelPending.state = 'in_flight'` **y** el envío **sin** `labelAlert.kind = 'label_unknown'`.
+La pantalla decide por lo que dice el servidor (la alerta aparece cuando el servidor da la verificación por incierta), ⛔
+nunca comparando `verifyingUntil` con su propio reloj (SK3).
+
+```
+Paso 4 de 4 · Guía
+Verificando con Skydropx…                        ← font-serif text-xl
+┌ ⚠ ───────────────────────────────────────────┐
+│ Skydropx no contestó a tiempo. El sistema está │  Banner warning, role="status"
+│ comprobando solo si se creó la guía, buscando  │
+│ su folio. No la vuelvas a comprar, ni aquí ni  │
+│ en el panel de Skydropx. Suele resolverse en   │
+│ pocos minutos; a más tardar a las 14:35.       │
+└────────────────────────────────────────────────┘
+Folio en Skydropx: Pedido ENV-000045-01          ← mono, seleccionable, «Copiar»
+Pedida por Ana · 99minutos · Día siguiente · desde 14:20.
+Revisando…                                        ← text-muted; región viva
+```
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Título | `verify.title` | Verificando con Skydropx… | Checking with Skydropx… |
+| Banner | `verify.body` | Skydropx no contestó a tiempo. El sistema está comprobando solo si se creó la guía, buscando su folio. No la vuelvas a comprar, ni aquí ni en el panel de Skydropx. Suele resolverse en pocos minutos; a más tardar a las {time}. | Skydropx didn't answer in time. The system is checking on its own whether the label was created, by looking for its reference. Don't buy it again, here or in the Skydropx panel. It usually settles in a few minutes; at the latest by {time}. |
+| Banner sin `verifyingUntil` | `verify.bodyNoTime` | (la misma, sin la última frase) | (same, without the last sentence) |
+| Folio | `verify.folio` | Folio en Skydropx: {reference} | Skydropx reference: {reference} |
+| Pie de espera | `verify.timeout` | Puedes cerrar: el resultado aparecerá en la tarjeta del envío. | You can close this: the result will show on the shipment card. |
+
+- `{time}` = `verifyingUntil` en `America/Mexico_City` (`formatTimeMx`). `{reference}` = `"Pedido " +
+  labelPending.providerReference` (el texto **exacto** que va en la etiqueta y en el panel); `null` ⇒ la fila se omite
+  (la compra no llegó a llevar folio). Botón fantasma **«Copiar folio»** (`verify.copy` / “Copy reference”), patrón de
+  «Copiar guía».
+- La línea «Pedida por…» es la de hoy (`inFlight.who`).
+- **Relectura** (PS-128 (a)): cada 5 s los primeros 2 min, luego **cada 30 s** hasta `verifyingUntil + 60 s`; después,
+  `verify.timeout` y se para. La región viva dice «Revisando…» solo al entrar, ⛔ no en cada vuelta.
+- ⛔ Sin «Comprar» y sin «Capturar a mano» (SK5, SK13); pie: solo **«Cerrar»**.
+- `provider_id_taken` (§43.19.2) pinta su `Banner` **encima** y sustituye `verify.body` (no se está comprobando nada
+  útil: el conflicto lo resuelve una persona).
+
+**Los resultados** — los decide la relectura, por estado (⛔ nunca por el tiempo):
+
+| Lo que trae la relectura | Resultado | Texto (clave · ES · EN) | Pie |
+|---|---|---|---|
+| `label ≠ null` (adoptada por folio, o llegó la respuesta) | **Encontrada** | la vista «Guía comprada» (§43.5) con, bajo el título, `verify.found` · «Skydropx sí la había creado: la encontramos por su folio. No se compró otra.» · “Skydropx had created it after all: we found it by its reference. No other label was bought.” | «Listo» |
+| `labelPending.state='processing'` | **Creada, sin número** | la vista «Guía en proceso» (§43.5) | «Cerrar» |
+| `labelPending=null ∧ label=null ∧ lastLabelRelease.via='auto_verified'` | **No se creó** | `verify.notCharged` · «Comprobamos con Skydropx: no se creó la guía ni se cobró. Puedes comprarla de nuevo.» · “We checked with Skydropx: the label wasn't created and nothing was charged. You can buy it again.” | «Cotizar de nuevo» (primaria) + «Capturar a mano» |
+| ídem con `via='auto_not_sent'` | **No salió** | `verify.notSent` · «La compra no llegó a salir hacia Skydropx: no se creó la guía ni se cobró. Puedes comprarla de nuevo.» · “The purchase never reached Skydropx: no label was created and nothing was charged. You can buy it again.” | ídem |
+| ídem con `via='manual_verified'` | **Liberada tras comprobar** | `verify.manualVerified` · «Un súper-admin la liberó después de que comprobamos con Skydropx que no se creó. Puedes comprarla de nuevo.» · “A super admin released it after we checked with Skydropx that it wasn't created. You can buy it again.” | ídem |
+| ídem con `via='manual'` | **Liberada sin comprobar** | `verify.manual` · «Un súper-admin la liberó tras revisarla en el panel de Skydropx. Puedes comprarla de nuevo; si la guía anterior aparece después, el sistema la detecta como guía de más.» · “A super admin released it after checking the Skydropx panel. You can buy it again; if the earlier label shows up later, the system flags it as an extra label.” | ídem |
+| ídem con `lastLabelRelease = null` (el reclamo se deshizo: rechazo) | **No se creó** (hoy) | `inFlight.notCreated` (sin cambio) | ídem |
+| `labelPending.state='in_flight'` **y** `labelAlert.kind='label_unknown'` | **No pudimos comprobarlo** | ver «Incierto» abajo | «Cerrar» |
+| la relectura falla | — | se sigue esperando (sin cambio, `:487-489`); si nunca se pudo leer, «Compra sin confirmar» de §43.5 con el texto nuevo `inFlight.body` | «Cerrar» |
+
+- **«Cotizar de nuevo»** (`verify.requote`, “Get a new quote”; sustituye el rótulo de `inFlight.chooseAgain`): va al paso 2
+  y **pide** cotización (`POST …/quote` sin `force`: el servidor reutiliza la vigente, SEC-SDX-8). ⛔ **0** `POST …/label`
+  hasta el clic con la cifra del paso 3 (SK2, PS-128 (b)). «Capturar a mano» presente: no hay guía ni reclamo (§43.5a).
+
+**Incierto** (`label_unknown`, a los 15 min). Encabezado **«Compra sin confirmar»** (§43.5) con el `Banner warning`
+**nuevo**:
+
+| Clave | ES | EN |
+|---|---|---|
+| `inFlight.body` (cambia) | Skydropx no contestó a tiempo y el sistema no pudo comprobar solo si se creó la guía: {motivo} No la vuelvas a comprar. Esta compra ya no detiene las demás. Un súper-admin puede liberarla después de buscar en el panel de Skydropx el folio de abajo. | Skydropx didn't answer in time and the system couldn't check on its own whether the label was created: {reason} Don't buy it again. This purchase no longer holds up other ones. A super admin can release it after searching the Skydropx panel for the reference below. |
+| `inFlight.timeout` (cambia) | Sigue sin confirmar. Puedes cerrar: si la guía aparece, la tarjeta la mostrará. | Still unconfirmed. You can close this: if the label shows up, the card will show it. |
+
+`{motivo}` = la frase de `labelAlert.reason` de §43.19.5 (con su punto final). Sin `reason` (servidor viejo o aún sin
+escribir) ⇒ `reason.none`. Debajo, el folio y «Pedida por…» como en «Verificando». ⛔ Sin «Liberar» en la ventana:
+vive en la tarjeta (§43.8c), donde el súper-admin tiene los datos (§43.19.6).
+
+#### 43.19.5 Las alertas de guía: `label_unknown` con su motivo y `label_orphan`
+
+**`label_unknown`** (§43.8c) — el cuerpo gana el motivo y el «solo el dueño» cambia:
+
+| Clave | ES | EN |
+|---|---|---|
+| `labelAlert.unknown.body` (cambia) | Desde {since}, Skydropx no confirma si creó la guía y el sistema no pudo comprobarlo solo: {reason} No la vuelvas a comprar. | Since {since}, Skydropx hasn't confirmed whether it created the label and the system couldn't check on its own: {reason} Don't buy it again. |
+| `labelAlert.unknown.superAdminOnly` (sustituye `.ownerOnly`) | Un súper-admin puede liberarla tras revisarla en el panel de Skydropx: avísale. | A super admin can release it after checking the Skydropx panel: let them know. |
+
+**El motivo** (`labelAlert.reason`, `InFlightUncertainReason`; claves `reason.*`, compartidas con la ventana). En lengua
+del dueño (§19.27.10), una frase con punto final:
+
+| `reason` | ES | EN |
+|---|---|---|
+| `conflict` | Skydropx contestó con una guía que ya es de otro envío. | Skydropx answered with a label that already belongs to another shipment. |
+| `charged_not_found` | Skydropx descontó el saldo, pero no encontramos la guía. | Skydropx took the money from the balance, but we couldn't find the label. |
+| `ambiguous` | Encontramos un envío parecido en Skydropx, pero no pudimos confirmar que sea éste. | We found a similar shipment in Skydropx, but couldn't confirm it's this one. |
+| `balance_moved` | El saldo de Skydropx se movió por otra causa y no sirve para comprobarlo. | The Skydropx balance moved for another reason, so it can't be used to check. |
+| `unreadable` | Skydropx no respondió a la comprobación. | Skydropx didn't respond to the check. |
+| `not_calibrated` | Aún no podemos comprobar solos que una guía no se creó. | We can't yet check on our own that a label wasn't created. |
+| `duplicate` | Skydropx creó dos guías para esta misma compra. | Skydropx created two labels for this same purchase. |
+| `null` → `reason.none` | Todavía estamos terminando la comprobación. | We're still finishing the check. |
+
+- `charged_not_found` dice «descontó el saldo» **sin cifra** (SK11): que hubo cobro es lo que el operador necesita para no
+  comprar otra; cuánto, lo ve el dueño en AG-9.
+
+**`label_orphan`** (nueva, §19.28.6; precedencia la da el servidor). Mismo `Banner warning role="status"` de §43.8c:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Título | `labelAlert.orphan.title` | Guía de más en Skydropx | Extra label in Skydropx |
+| Cuerpo | `labelAlert.orphan.body` | Desde {since}, Skydropx tiene una guía pagada de un intento anterior de este envío que no es la que usamos. Hay que cancelarla en el panel de Skydropx para recuperar el saldo: avisa a un súper-admin. No compres otra por esto. | Since {since}, Skydropx has a paid label from an earlier attempt on this shipment that isn't the one we use. It needs to be cancelled in the Skydropx panel to get the balance back: let a super admin know. Don't buy another one because of this. |
+
+- ⛔ Sin botón (no hay verbo para adoptar ni cancelar una huérfana desde aquí, §19.28.6) y ⛔ sin «Liberar». Desaparece
+  cuando el servidor deja de mandarla (⛔ no se oculta por pulsar nada).
+
+#### 43.19.6 «Liberar» — los datos para cuadrar en el panel y la casilla de conflicto
+
+Sustituye el cuerpo del diálogo de §43.8c. Sigue **solo** con `labelAlert.kind='label_unknown' ∧ canRelease` (P-SDX-REL
+sigue en (a), solo súper-admin: §19.28.14). Se abre con foco en «Volver».
+
+```
+¿Liberar este envío?
+El sistema no pudo comprobar solo si Skydropx creó esta guía:
+Encontramos un envío parecido en Skydropx, pero no pudimos confirmar que sea éste.
+Antes de liberar, búscala en el panel de Skydropx con estos datos.
+
+BUSCA EN EL PANEL   Pedido ENV-000045-01            [Copiar]
+DESTINATARIO        Ana López
+DIRECCIÓN           Av. Juárez 120, Centro · CP 44100
+PAQUETERÍA          99minutos · Día siguiente
+PRECIO              MX$148.50
+PEDIDA POR          Ana (operadora) · 4 oct, 14:20
+
+Al pulsar, volvemos a buscarla: si existe, la adoptamos y no se compra otra;
+si no, el envío vuelve a «preparado».
+
+[ ] Revisé en el panel de Skydropx: la guía que devolvió Skydropx es del otro    ← solo con conflicto
+    envío y éste no tiene guía propia.
+Qué revisaste (obligatorio)  [                                          ]
+                                                   [Volver]  [Buscar y liberar]
+```
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Intro | `release.intro` | El sistema no pudo comprobar solo si Skydropx creó esta guía: {reason} Antes de liberar, búscala en el panel de Skydropx con estos datos. | The system couldn't check on its own whether Skydropx created this label: {reason} Before releasing it, look for it in the Skydropx panel with these details. |
+| `<dt>` | `release.data.reference` · `.recipient` · `.address` · `.carrier` · `.price` · `.chosenBy` | Busca en el panel · Destinatario · Dirección · Paquetería · Precio · Pedida por | Search the panel for · Recipient · Address · Carrier · Price · Requested by |
+| Sin folio | `release.data.noReference` | Esta compra no llegó a llevar folio: búscala por destinatario, hora y precio. | This purchase never got a reference: look it up by recipient, time and price. |
+| Cierre | `release.body` (cambia) | Al pulsar, volvemos a buscarla: si existe, la adoptamos y no se compra otra; si no, el envío vuelve a «preparado». | When you press it, we look again: if it exists, we adopt it and no other is bought; if not, the shipment goes back to “prepared”. |
+| Casilla | `release.conflict.label` | Revisé en el panel de Skydropx: la guía que devolvió Skydropx es del otro envío y éste no tiene guía propia. | I checked the Skydropx panel: the label Skydropx returned belongs to the other shipment and this one has no label of its own. |
+| Casilla sin marcar | `release.conflict.required` | Marca la casilla: este envío tuvo un conflicto con otro y hay que revisarlo en el panel antes de liberarlo. | Tick the box: this shipment had a conflict with another one and it has to be checked in the panel before releasing it. |
+
+**Los datos** (`<dl>` de dos columnas, `<dt>` versalita mono `text-muted`, `<dd>` `text-sm text-text`; en 390 px se apila):
+- **Busca en el panel:** `"Pedido " + labelPending.providerReference`, `font-mono` seleccionable + «Copiar» (`verify.copy`);
+  es lo único que Skydropx guarda **nuestro** (§19.28.1). `null` ⇒ `release.data.noReference`.
+- **Destinatario / Dirección:** del snapshot que ya tiene la superficie (`addressSnapshot` en «Envíos», `shipTo` en
+  «Preparar»): destinatario; `line1`, colonia · CP. ⛔ Sin teléfono ni referencias (no sirven para cuadrar).
+- **Paquetería:** `labelPending.carrierLabel · serviceName`. **Precio:** `labelPending.priceCents` (`formatMoneyCents`;
+  es lo que se ve en el panel, §19.26.5). **Pedida por:** `chosenBy.name · {since con fecha}` (`useSince`).
+- Cada dato ausente ⇒ «sin dato» (SK8); ⛔ la fila no desaparece salvo el folio, que tiene su frase.
+
+**La casilla `confirmConflict`** (§19.26.3 (b)): se pinta ⇔ `labelAlert.reason = 'conflict'` **o** el servidor respondió
+`409 LABEL_NOT_RELEASABLE {reason:'provider_conflict'}`. Sin marcar por defecto. *Por qué aquí sí una casilla* (§43.4 la
+prohíbe en la compra): no es un trámite diario, es un caso raro que el contrato exige confirmar explícitamente; una
+casilla nombra **lo que se comprobó**. Pulsar con la casilla pintada y sin marcar ⇒ error bajo ella
+(`release.conflict.required`, `aria-invalid`), foco a la casilla, **0** peticiones. Marcada ⇒ el cuerpo lleva
+`confirmConflict: true`; ⛔ sin casilla pintada, el cuerpo **no** lo lleva.
+
+**Respuestas** (sustituyen `released` de §43.8c; `adopted` sin cambio):
+
+| Respuesta | Clave | ES | EN |
+|---|---|---|---|
+| `released`, `verdict.outcome='not_charged'` | `release.releasedVerified` | Comprobamos con Skydropx que no se creó ni se cobró. El envío volvió a «preparado». | We checked with Skydropx that it wasn't created or charged. The shipment went back to “prepared”. |
+| `released`, `'not_sent'` | `release.releasedNotSent` | La compra no había llegado a salir. El envío volvió a «preparado». | The purchase had never gone out. The shipment went back to “prepared”. |
+| `released`, `'pending'`/`'uncertain'` | `release.releasedUnverified` | Liberado con tu nota: el sistema no pudo comprobarlo ({reason}). El envío volvió a «preparado»; si la guía aparece después, se detecta como guía de más y queda como aviso. | Released with your note: the system couldn't check it ({reason}). The shipment went back to “prepared”; if the label shows up later, it's flagged as an extra label. |
+| `409 LABEL_NOT_RELEASABLE {reason:'provider_conflict'}` | `release.providerConflict` | Este envío tuvo un conflicto con otro envío. Revísalo en el panel de Skydropx y marca la casilla para liberarlo. | This shipment had a conflict with another shipment. Check it in the Skydropx panel and tick the box to release it. |
+
+`{reason}` en `releasedUnverified` = la frase de `verdict.reason` **sin** punto final (`reason.*`). Las demás respuestas
+(`not_in_progress`, `has_provider_id`, `too_early`) sin cambio.
+
+#### 43.19.7 El folio — dónde se ve
+
+`folio` (`ENV-000045`) llega en `AdminShipmentDTO` y `ShipPreparationOrderDTO` (§19.28.11). Se pinta en `tabular`,
+siempre precedido de **«Envío»** (clave `prep.ship.shipmentRef`, ya existe: «Envío» / “Shipment”), y **sustituye al
+uuid** donde hoy se ve:
+
+| Superficie | Dónde (hoy) | Cómo queda |
+|---|---|---|
+| Tarjeta de «Preparar» | `ShipPreparationCard.tsx:515-517` («Envío {uuid}») | **«Envío ENV-000045»**. En un retiro (sin `orderNumber`), el título serif «Retiro de bóveda» se queda y el folio va al lado: es su única referencia legible |
+| Fila de «Envíos» | `ShipmentsQueue.tsx:196` (`{s.id}`) | **«Envío ENV-000045»** en el mismo hueco y estilo |
+| Cabecera de la ventana | `CaptureLabelDialog.tsx:931-935` («{ref} · {uuid}») | **«{orderNumber} · Envío ENV-000045»**; retiro ⇒ «Retiro de bóveda · Envío ENV-000045» |
+| Hoja de impresión | `print/PrintSheetView.tsx:66` (h2 con pedido o «Retiro») | tras el número o «Retiro», versalita mono `text-muted` **«Envío ENV-000045»** (solo destino `ship`; la bóveda no tiene folio). *Por qué:* la etiqueta impresa dice «Pedido ENV-000045-01»; quien empaca cuadra hoja y etiqueta por ese número |
+| «Verificando», «Liberar», avisos | §43.19.4, §43.19.6, §43.19.11 | con el intento: **«Pedido ENV-000045-01»** — el texto exacto de la etiqueta y del panel |
+
+- **Sin folio** (servidor anterior a `M-67`): se pinta lo de hoy (el uuid), ⛔ nunca vacío.
+- *Por qué «Envío ENV-000045» y no «Pedido ENV-000045»:* en el panel la palabra «Pedido» ya es el `TCG-000123` del
+  cliente; el folio es del **envío** (un pedido puede tener retiro, reposición…). La etiqueta dice «Pedido» porque así
+  lo pidió el dueño para la paquetería (`HECHOS.md:61`), y la pantalla la cita literal donde hay que buscarla.
+- El sufijo de intento (`-01`) **solo** donde se busca en Skydropx; en la cola y en la hoja, el folio sin intento.
+- ⛔ «Salida de hoy» no lo pinta: su DTO no lo trae (S-GAS-1).
+- ⛔ Ninguna superficie de cliente (SK15). UX-SDX-34 lo barre.
+
+---
+
+#### 43.19.8 «Avisos de gasto» — la página y el detalle
+
+**Ruta** `/admin/spend-alerts` (lista) y `/admin/spend-alerts/[id]` (detalle: es a donde lleva el correo, §19.29.5).
+**Menú** (`AdminSidebar.tsx`, grupo `daily`, justo después de «Reembolsos»): `{ href: '/admin/spend-alerts', key:
+'spendAlerts', superAdminOnly: true }`, rótulo **`admin.modules.spendAlerts`** «Avisos de gasto» / “Spending alerts”; el
+`h1` de la página es esa misma cadena (§37.2a-2). Sin badge en esta versión (S-GAS-3): el número sin ver vive en la
+tarjeta del tablero.
+
+**Cabecera:** `h1` + `text-sm text-muted` **`spendAlerts.subtitle`** «Lo que el sistema detectó solo sobre dinero que
+nos cuesta. Los inmediatos te llegan también por correo; el resto, en el resumen diario de las 08:00.» / “What the system
+caught on its own about money that costs us. Immediate ones also reach you by email; the rest go in the 08:00 daily
+summary.”
+
+**Filtros** (un `form` en línea que escribe la URL: `?kind=&severity=&subjectUserId=&from=&to=&unseen=true&page=`, y se
+re-pinta al volver atrás):
+
+| Control | Rótulo ES / EN | Opciones |
+|---|---|---|
+| `Select` | Tipo / Type | «Todos» + las trece de §43.19.11 («AG-1 · Corrigió la dirección y compró la guía»…). ⛔ AG-14…AG-20 no se listan (sin disparador en D2) |
+| `Select` | Gravedad / Severity | Todas · Inmediatos · Del resumen / All · Immediate · Daily summary |
+| fechas | Desde · Hasta / From · To | día en `America/Mexico_City` (§Convenciones del contrato) |
+| `Checkbox` | Solo sin ver / Unseen only | — |
+| chip (si hay `subjectUserId`) | «Solo de {name}» con ✕ / “Only {name}” | se pone pulsando el nombre de una persona en una fila |
+| botón de texto | Limpiar filtros / Clear filters | — |
+
+**La lista** — `<table>` desde `md`; en móvil, una tarjeta por aviso con el mismo orden. Orden del servidor
+(`firstOccurredAt desc`), 25 por página con `Pagination` (§6.6).
+
+| Columna | Contenido | Notas |
+|---|---|---|
+| ☐ | casilla de selección (`aria-label` «Seleccionar aviso {code}») | encabezado: «Seleccionar los de esta página» |
+| Cuándo | `firstOccurredAt` (fecha y hora MX); con `occurrenceCount > 1`: `text-xs text-muted` «{n} veces · la última {hora}» | |
+| Gravedad | versalita mono: **«Inmediato»** en `text-accent` / **«Resumen»** en `text-muted` | ⛔ sin color de fondo |
+| Aviso | **título** (`text-sm font-semibold`, enlace al detalle) + la frase de §43.19.11 (`text-sm text-text`) | la frase sale de `facts`, sin cálculo (GAS-4) |
+| Quién | `subject.name` como botón de texto (filtra por esa persona); `null` ⇒ `spendAlerts.noSubject` «Del sistema» / “System” | ⛔ nunca un cliente (el DTO no lo trae) |
+| Monto | `amountCents` en `tabular`, alineado a la derecha; `null` ⇒ «sin monto» | |
+| Pedido / envío | `order.orderNumber` ⇒ enlace «Pedido TCG-000123» a `/admin/m3/{order.id}`; sin pedido ⇒ «Envío ENV-000045» como texto (S-GAS-2) | |
+| Estado | `seen ≠ null` ⇒ «Visto por {name} · {fecha}» (`text-muted`); `null` ⇒ **«Sin ver»** (`font-semibold`) + botón fantasma «Marcar visto»; `resolvedAt` ⇒ además «Se resolvió solo · {fecha}»; debajo, `text-xs text-muted`, el estado del correo (tabla de abajo) | |
+
+**Estado del correo** (`mail.status`, clave `spendAlerts.mail.*`):
+
+| `status` | ES | EN |
+|---|---|---|
+| `not_applicable` | Va en el resumen de las 08:00 | Goes in the 08:00 summary |
+| `pending` · `sending` | Correo en camino | Email on its way |
+| `sent` | Correo enviado · {hora} | Email sent · {time} |
+| `batched` | Va en el correo de lote de esa hora | Goes in that hour's batch email |
+| `batch_sent` | Enviado en el correo de lote · {hora} | Sent in the batch email · {time} |
+| `failed` | El correo falló; lo reintentamos | The email failed; we'll retry |
+| `failed_unknown` | No sabemos si el correo salió; no lo reenviamos para no duplicarlo | We don't know if the email went out; we won't resend it to avoid a duplicate |
+| `no_recipient` | Sin correo: no hay cuenta de dueño con correo | No email: there's no owner account with an email |
+
+**Marcar como visto:** fila ⇒ `POST …/seen {ids:[id]}`; selección ⇒ botón secundario **«Marcar como vistos ({n})»** /
+“Mark as seen ({n})” sobre la tabla (aparece con ≥ 1 seleccionado). Resultado en `role="status"`: «{updated, plural,
+one {# aviso marcado} other {# avisos marcados}} como visto.» y la lista se relee: la fila **se queda** con «Visto
+por…» (GAS-3). ⛔ Sin deshacer.
+
+**Vacíos:** sin filtros ⇒ `EmptyState` **«Todavía no hay avisos de gasto. Cuando el sistema detecte algo aparecerá aquí;
+si es inmediato, también te llegará por correo.»**; con filtros ⇒ **«Ningún aviso con estos filtros.»** + «Limpiar
+filtros». Carga ⇒ `Skeleton` de 5 filas; error ⇒ `QueryState` (patrón de siempre). `403 MONEY_OUT_FORBIDDEN` (operador
+por URL) ⇒ **«Esta página es solo del súper-admin.»** / “This page is for the super admin only.” (GAS-1).
+
+**«Resumen de un día»** — sección plegable (`<details>`) sobre la lista, cerrada por defecto, con un campo de fecha (por
+defecto **ayer**, día MX) que lee `GET …/summary?from=&to=`. Nota `text-sm text-muted`: **«Es lo mismo que dice el correo
+del resumen de ese día.»** Tres bloques, **tal cual** del DTO (GAS-4):
+- **Por tipo** — tabla Aviso · Inmediatos · Del resumen · Monto (`byKind`).
+- **Gasto en guías por persona** — «{name}: {cents} en {labels, plural, one {# guía} other {# guías}}» (`labelSpendByPerson`).
+- **Elecciones caras** — «{count, plural, one {# guía} other {# guías}} por encima de la recomendada o con margen negativo:
+  {overRecommended} de más ({byPerson: "Ana 2, Luis 1"})» (`costlyChoices`); `count = 0` ⇒ «Ninguna.»
+
+**El detalle** `/admin/spend-alerts/[id]`: enlace de vuelta **«← Avisos de gasto»** (patrón de
+`ManualRefundDetailView.tsx:214`); título = el título del aviso (`font-serif text-2xl`), versalita de gravedad, la
+frase, y una `<dl>` con **solo** las claves de `facts` que tienen rótulo (lista blanca en pantalla también):
+
+| `facts` | Rótulo ES / EN | Formato |
+|---|---|---|
+| `changedKeys` | Qué cambió / What changed | nombres de campo de §43.19.11 (AG-1), unidos con «, » |
+| `carrierName` | Paquetería / Carrier | texto |
+| `chargedCents` · `quotedCents` · `diffCents` · `amountCents` · `priceCents` · `usedCents` · `capCents` · `unrecoveredCents` · `balanceCents` · `thresholdCents` · `requiredCents` · `refundedCents` · `unrefundedCents` · `expectedChargeCents` · `marginCents` · `recommendedPriceCents` · `overRecommendedCents` | Cobrado · Cotizado · Diferencia · Monto · Precio de la guía · Llevaba · Tope · Saldo no recuperado · Saldo · Umbral · Hacía falta · Devuelto · Sin devolver · Cobro esperado · Margen · Recomendada · De más sobre la recomendada | `formatMoneyCents`; `null` ⇒ «sin dato» |
+| `correctionAt` | Corrigió a las / Corrected at | fecha y hora MX |
+| `revisionCount` · `cancelledCount` · `unknownRefunds` · `daysSincePurchase` · `pct` | Correcciones · Guías canceladas · Cancelaciones sin cifra de reembolso · Días desde la compra · Aviso al | entero (`pct` con «%») |
+| `actors` | Quiénes / Who | nombres unidos con «, » |
+| `kind` · `cancelKind` · `cause` · `status` | Tipo de cargo · Cómo se canceló · Causa · Estado de la paquetería | rótulo de §43.19.11 o de `admin.m4.carrierStatus` |
+| `providerReference` | Folio en Skydropx / Skydropx reference | «Pedido {valor}», mono, con «Copiar» |
+| *(otra clave)* | — | ⛔ no se pinta |
+
+Más: Quién · Pedido / envío · Primera vez · Última vez · Veces · Correo · Visto. **Acciones:** «Marcar como visto»
+(primaria, si no está visto); en los 🔴 de guías (AG-1, AG-3, AG-4, AG-5, AG-7, AG-8, AG-9) enlace **«Frenar la compra de
+guías»** a `/admin/m10#compra-guias`; en AG-2/AG-3, **«Cambiar el tope»** a `/admin/m10#control-gasto`. ⛔ Abrir el
+detalle **no** lo marca visto (lo hace la persona: es «quién y cuándo», GAS-3). `404` ⇒ **«Ese aviso no existe.»**
+
+#### 43.19.9 La tarjeta «Control del gasto» del tablero
+
+`StatCard` en `AdminDashboard.tsx`, **después** de la de reembolsos de operadores (`:220-237`), solo con
+`isSuperAdmin ∧ workQueue.spendControl` (`null` ⇒ no existe, GAS-1):
+
+```
+CONTROL DEL GASTO
+2                                              ← unseenImmediate; bermellón si > 0
+2 inmediatos y 5 del resumen sin ver            ← enlace a /admin/spend-alerts?unseen=true
+Guías, últimas 24 h
+Ana: MX$1,240.00 de MX$2,500.00
+Luis: MX$310.00 de MX$2,500.00
+Tú: MX$820.00 · sin tope
+```
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Rótulo | `dashboard.spendControl.title` | Control del gasto | Spending control |
+| Valor | — | `unseenImmediate` (en `text-accent` si > 0, con el patrón de `dataHealth` `:257-258`) | — |
+| Enlace | `dashboard.spendControl.unseen` | {immediate, plural, =0 {Nada inmediato} one {# inmediato} other {# inmediatos}} y {digest, plural, =0 {nada del resumen} one {# del resumen} other {# del resumen}} sin ver | {immediate, plural, =0 {No immediate} one {# immediate} other {# immediate}} and {digest, plural, =0 {no summary alerts} one {# summary alert} other {# summary alerts}} unseen |
+| Subtítulo | `dashboard.spendControl.labels24h` | Guías, últimas 24 h | Labels, last 24 h |
+| Persona con tope | `dashboard.spendControl.personCap` | {name}: {cents} de {cap} | {name}: {cents} of {cap} |
+| Persona sin tope (`capCents = null`, el dueño) | `dashboard.spendControl.personNoCap` | {name}: {cents} · sin tope | {name}: {cents} · no limit |
+| Vacío | `dashboard.spendControl.noLabels` | Nadie compró guías en las últimas 24 h. | Nobody bought labels in the last 24 h. |
+| Más de 5 | `dashboard.spendControl.more` | y {n} más | and {n} more |
+
+- **«últimas 24 h», nunca «hoy»**: es la misma ventana móvil que el tope (§19.29.9; el resumen diario sí es «del día»).
+- Personas en el orden del servidor, máximo 5. ⛔ Sin barra de progreso ni color por cercanía al tope (sería calcular un
+  porcentaje en pantalla, GAS-4); el aviso del 80 % ya lo da AG-2.
+- ⛔ No cuenta AG-7, AG-11 ni AG-12: el servidor los excluye porque ya están en la tarjeta de envíos (criterio 331); la
+  pantalla no suma nada.
+
+#### 43.19.10 «Configuración» — la sección «Control del gasto» y lo que cambia en «Envíos»
+
+##### 43.19.10a Sección nueva `SpendControlSection` (súper-admin)
+
+En `M10View.tsx`, **justo después** de `<ShippingSection />` (`:450`), `id="control-gasto"`, mismo patrón que §39.1/§43.10
+(sección propia porque gobierna dinero). Título **«Control del gasto»** / “Spending control”; subtítulo **«Solo el
+súper-admin. Cada cambio queda en la bitácora. Todos los avisos arrancan encendidos.»** / “Super admin only. Every change
+is logged. All alerts start switched on.”
+
+**(1) Topes del personal**
+
+| Campo (dial) | Control | Rótulo ES | Ayuda ES | Error ES |
+|---|---|---|---|---|
+| `operatorLabelCap24hCents` | `Input` pesos (`prefix="MX$"`, `inputMode="decimal"`, `pesosToCents`) | Tope de guías por persona en 24 horas | Cuenta lo que cada persona gastó en guías en las últimas 24 horas, no desde la medianoche. Al llegar, se le niega la compra sin decirle la cifra y te avisamos; puede seguir capturando guías a mano. Tú no tienes tope; los súper-admin sin correo sí. | El tope mínimo es MX$1.00. Para que nadie compre, usa «¿Quién puede comprar guías?» en Envíos. |
+| `shippingLabelReissueMaxPerShipment` | `Input` entero (`inputMode="numeric"`) | Recompras de guía por envío | Cuántas veces el personal puede cancelar la guía de un envío y comprar otra. Después, la siguiente la compras tú. 0 = ninguna. | De 0 a 10. |
+
+**(2) Cuándo avisar**
+
+| Campo | Control | Rótulo ES | Ayuda ES | Error ES |
+|---|---|---|---|---|
+| `spendAlertLabelCapWarnPct` | entero + sufijo «%» | Avisar cuando alguien llegue a este porcentaje de su tope | Va en el resumen diario. | Del 1 al 99. |
+| `spendAlertShipmentCancelCount` | entero | Avisar cuando un envío lleve estas guías canceladas | Correo inmediato. | Del 1 al 10. |
+| `spendAlertPersonCancelCount24h` | entero | Avisar cuando una persona cancele estas guías en 24 horas | Correo inmediato. No cuentan las que el sistema cancela solo. | Del 1 al 50. |
+| `spendAlertChargeDriftImmediateCents` | pesos | Correo inmediato si lo cobrado por una guía pasa lo cotizado por más de | Cualquier diferencia menor va en el resumen. | No puede ser negativo. |
+| `spendAlertExtraChargeImmediateCents` | pesos | Correo inmediato si un cargo extra de la paquetería pasa de | Los menores van en el resumen. | No puede ser negativo. |
+| `spendAlertCancelRefundDays` | entero + sufijo «días» | Avisar si Skydropx no confirma el reembolso de una guía cancelada en | Hoy Skydropx no siempre dice cuánto devuelve; por eso avisamos aunque quizá sí regresó. | Del 1 al 30. |
+| `spendAlertLabelNotShippedDays` | entero + «días» | Avisar si una guía comprada no sale en | El aviso se quita solo cuando el paquete sale o la guía se cancela. | Del 1 al 30. |
+| (saldo bajo) | — | — | Línea `text-sm text-muted` con enlace: **«El aviso de saldo bajo usa «Avisar si el saldo baja de», en Envíos.»** (el dial se queda en `ShippingSection`, §19.29.12) | — |
+
+**(3) Qué avisos están encendidos** (`spendAlertsDisabled`). `fieldset` con leyenda **«Avisos encendidos»**; una casilla
+por AG-1…AG-13, **marcada = encendido**, rótulo «AG-{n} · {título}» (§43.19.11) + `text-xs text-muted` con la gravedad
+(«Correo inmediato» / «Resumen diario» / «Inmediato o resumen, según el monto»). Lo que se manda es la lista de **los
+desmarcados**. Nota: **«Un aviso apagado no se registra: ni en la lista ni en el correo. Lo que pase mientras está apagado
+no se puede ver después.»**
+
+**Guardar** — **«Guardar control del gasto»** ⇒ **«Ajustes de control del gasto guardados.»**; `422` ⇒ bajo su campo; nada
+se guarda a medias. **Si el guardado apaga algún aviso que estaba encendido**, `Dialog` antes del `PUT` (foco en «Volver»):
+título **«¿Apagar {n, plural, one {# aviso} other {# avisos}}?»**, cuerpo **«Mientras estén apagados no se registran. Lo
+que pase no se podrá ver después: {lista}.»**, confirmar **«Sí, apagarlos»**. Encender, o mover cifras: sin
+confirmación (queda en bitácora).
+
+EN de la sección (mismas claves, `admin.m10.spend.*`): “Staff limits” · “Label spend limit per person over 24 hours” ·
+“Counts what each person spent on labels in the last 24 hours, not since midnight. When they hit it, the purchase is
+refused without telling them the amount and you get an alert; they can still enter labels by hand. You have no limit;
+super admins without an email do.” · “The minimum limit is MX$1.00. To stop everyone from buying, use “Who can buy
+labels?” in Shipping.” · “Label rebuys per shipment” · “How many times staff can cancel a shipment's label and buy
+another. After that, you buy the next one. 0 = none.” · “0 to 10.” · “When to alert” · “Alert when someone reaches this
+percentage of their limit” · “Goes in the daily summary.” · “1 to 99.” · “Alert when a shipment has this many cancelled
+labels” · “Immediate email.” · “1 to 10.” · “Alert when a person cancels this many labels in 24 hours” · “Immediate
+email. Labels the system cancels on its own don't count.” · “1 to 50.” · “Immediate email if a label's charge exceeds
+the quote by more than” · “Any smaller difference goes in the summary.” · “Can't be negative.” · “Immediate email if a
+carrier extra charge is over” · “Smaller ones go in the summary.” · “Alert if Skydropx doesn't confirm the refund of a
+cancelled label within” · “Skydropx doesn't always say how much it refunds; that's why we alert even if it may have
+come back.” · “Alert if a bought label hasn't shipped within” · “The alert clears itself when the parcel ships or the
+label is cancelled.” · “The low-balance alert uses “Alert if the balance drops below”, in Shipping.” · “days” ·
+“Alerts switched on” · “Immediate email” · “Daily summary” · “Immediate or summary, depending on the amount” · “A
+switched-off alert isn't recorded: not in the list and not by email. What happens while it's off can't be seen later.” ·
+“Save spending control” · “Spending control settings saved.” · “Switch off {n, plural, one {# alert} other {# alerts}}?”
+· “While they're off they aren't recorded. What happens can't be seen later: {list}.” · “Yes, switch them off”.
+
+##### 43.19.10b Lo que cambia en «Envíos» (`ShippingSection`, §43.10)
+
+| Clave (`admin.m10.shipping.purchase.*`) | ES (nuevo) | EN (nuevo) |
+|---|---|---|
+| `superAdminOnly` (`es.json:4421`) | Solo los súper-admin | Super admins only |
+| `superAdminOnlyNote` | Cada guía la compra un súper-admin con su clic y queda a su nombre. | Each label is bought by a super admin with their own click and recorded in their name. |
+| `operators` (`:4423`) | También el personal | Staff too |
+| `operatorsNote` (`:4424`) | El personal compra con su nombre en la bitácora, hasta su tope de 24 horas y su recompra por envío (en «Control del gasto»). Tú no tienes tope. | Staff buy with their name in the log, up to their 24-hour limit and their rebuy per shipment (in “Spending control”). You have no limit. |
+| `confirmTitle` | ¿Dejar que el personal compre guías? | Let staff buy labels? |
+| `confirmBody` (`:4427`) | Podrá gastar el saldo de Skydropx sin pedirte permiso, cada guía a su nombre y hasta su tope de 24 horas. Te avisamos según «Control del gasto». | They'll be able to spend the Skydropx balance without asking you, each label in their name and up to their 24-hour limit. You'll get alerts according to “Spending control”. |
+
+- El `fieldset` de compra (`ShippingSection.tsx:139`) gana `id="compra-guias"` (destino del enlace de los correos y del
+  detalle de un aviso).
+- «Avisar si el saldo baja de» (`:410`) gana `hint`: **«Debajo de esta cifra te llega un correo (aviso AG-7), una vez por
+  cada vez que baja.»** / “Below this amount you get an email (alert AG-7), once each time it drops.”
+
+#### 43.19.11 Los avisos AG-1…AG-13 — título, frase y nombres
+
+Clave `spendAlerts.kind.<code>.title` y `.text`. **`{ref}`** = con pedido «el pedido {orderNumber}» / “order
+{orderNumber}”; sin pedido «el envío {folio}» / “shipment {folio}”. **`{persona}`** = `subject.name` (sin nombre ⇒ «una
+cuenta sin nombre», §36.14). Montos con `formatMoneyCents` (MX$, como el correo, §41.5). Todo dato sale de `facts`,
+`amountCents` y las referencias del DTO (GAS-4); ⛔ ningún dato del cliente (GAS-2).
+
+| AG | Título ES · EN | Frase ES | Frase EN |
+|---|---|---|---|
+| 1 | Corrigió la dirección y compró la guía · Corrected the address and bought the label | {persona} corrigió la dirección de {ref} ({campos}) y compró su guía: {paquetería}, {cobrado}. | {person} corrected the address of {ref} ({fields}) and bought its label: {carrier}, {charged}. |
+| 2 | Cerca del tope de guías · Close to the label limit | {persona} lleva {usado} en guías en las últimas 24 horas: el {pct} % de su tope de {tope}. | {person} has spent {used} on labels in the last 24 hours: {pct}% of their {cap} limit. |
+| 3 | Guía negada por el tope · Label refused by the limit | A {persona} se le negó la guía de {ref} ({precio}): con ella pasaba su tope de {tope} en 24 horas (llevaba {usado}). Puedes comprarla tú o subir su tope. | {person} was refused the label for {ref} ({price}): it would have taken them over their {cap} 24-hour limit (they had spent {used}). You can buy it yourself or raise their limit. |
+| 4 (envío) | Cancelar y volver a comprar · Cancel and buy again | {ref} lleva {k} guías canceladas ({quiénes}). Saldo no recuperado: {no recuperado}{; sin cifra de reembolso en {u}}. | {ref} has {k} cancelled labels ({who}). Balance not recovered: {unrecovered}{; no refund amount for {u}}. |
+| 4 (persona) | (el mismo) | {persona} canceló {k} guías en las últimas 24 horas. Saldo no recuperado: {no recuperado}{; sin cifra de reembolso en {u}}. | {person} cancelled {k} labels in the last 24 hours. Balance not recovered: {unrecovered}{; no refund amount for {u}}. |
+| 5 | Se cobró distinto de lo cotizado · Charged differently from the quote | La guía de {ref} se cobró en {cobrado}; se cotizó en {cotizado} ({diferencia con signo}). | The label for {ref} was charged {charged}; it was quoted at {quoted} ({signed difference}). |
+| 6 | Cargo extra de la paquetería · Carrier extra charge | Cargo extra de {paquetería} en {ref}: {tipo}, {monto}. | Extra charge from {carrier} on {ref}: {type}, {amount}. |
+| 7 (abierto) | Saldo de Skydropx bajo · Low Skydropx balance | Tu saldo de Skydropx bajó a {saldo} (avisamos debajo de {umbral}). Recarga en el panel de Skydropx. | Your Skydropx balance dropped to {balance} (we alert below {threshold}). Top it up in the Skydropx panel. |
+| 7 (sin saldo) | (el mismo) | Una guía de {ref} no se pudo comprar: el saldo no alcanzaba (hacían falta {requerido}). | A label for {ref} couldn't be bought: the balance wasn't enough ({required} was needed). |
+| 8 (a) | Reembolso de cancelación que no llegó · Cancellation refund that didn't arrive | La guía cancelada de {ref} costó {cobrado} y Skydropx devolvió {devuelto}: faltan {sin devolver}. | The cancelled label for {ref} cost {charged} and Skydropx refunded {refunded}: {unrefunded} is missing. |
+| 8 (b) | (el mismo) | Se canceló la guía de {ref} y Skydropx no dijo cuánto devolvió; no podemos confirmar que regresaran {cobrado}. Revísalo en tu panel de Skydropx. | The label for {ref} was cancelled and Skydropx didn't say how much it refunded; we can't confirm that {charged} came back. Check it in your Skydropx panel. |
+| 9 `charged_not_found` | Cobro sin guía o guía de más · Charge without a label, or extra label | Skydropx descontó {monto} por la guía de {ref} y no encontramos la guía. Búscala en tu panel de Skydropx como «Pedido {folio}». | Skydropx charged {amount} for the label for {ref} and we couldn't find the label. Look it up in your Skydropx panel as “Pedido {reference}”. |
+| 9 `orphan` | (el mismo) | Skydropx tiene una guía pagada de un intento anterior de {ref} («Pedido {folio}», {monto}) que no se canceló sola. Cancélala en tu panel de Skydropx para recuperar el saldo. | Skydropx has a paid label from an earlier attempt on {ref} (“Pedido {reference}”, {amount}) that wasn't cancelled automatically. Cancel it in your Skydropx panel to get the balance back. |
+| 9 `duplicate` | (el mismo) | Skydropx creó dos guías para la misma compra de {ref} («Pedido {folio}»): se cobró dos veces. Cancela la que sobra en tu panel de Skydropx. | Skydropx created two labels for the same purchase on {ref} (“Pedido {reference}”): it charged twice. Cancel the extra one in your Skydropx panel. |
+| 9 `orphan_auto_cancelled` | (el mismo) | Cancelamos sola una guía de más de {ref} («Pedido {folio}», {monto}). No tienes que hacer nada; si el saldo no regresa, te avisamos. | We automatically cancelled an extra label for {ref} (“Pedido {reference}”, {amount}). You don't need to do anything; if the balance doesn't come back, we'll let you know. |
+| 9 `orphan_fuse` | (el mismo) | Hoy ya se cancelaron solas varias guías de más y, por seguridad, dejamos de cancelarlas solas hasta mañana. Revisa las guías de más en tu panel de Skydropx. | Several extra labels were already cancelled automatically today, so for safety we stopped cancelling them automatically until tomorrow. Check the extra labels in your Skydropx panel. |
+| 10 | Guía comprada que no sale · Bought label that hasn't shipped | La guía de {ref} ({paquetería}, {cobrado}) se compró hace {d} días y el paquete no ha salido. Si ya no va a salir, cancélala para recuperar el saldo. | The label for {ref} ({carrier}, {charged}) was bought {d} days ago and the parcel hasn't shipped. If it isn't going to, cancel it to get the balance back. |
+| 11 | Paquete devuelto o destruido · Parcel returned or destroyed | El paquete de {ref} ({paquetería}) {in_return: viene de regreso a la tienda · destroyed: fue destruido por la paquetería}. La guía costó {cobrado}. | The parcel for {ref} ({carrier}) {in_return: is on its way back to the store · destroyed: was destroyed by the carrier}. The label cost {charged}. |
+| 12 | Incidencia de la paquetería · Carrier issue | {paquetería} reporta {exception: una incidencia · retained: el paquete retenido · delivery_attempt: un intento de entrega fallido} en {ref}. | {carrier} reports {exception: an issue · retained: the parcel held · delivery_attempt: a failed delivery attempt} on {ref}. |
+| 13 | Guía cara o con margen negativo · Expensive label or negative margin | {persona} compró la guía de {ref} {con margen negativo ({margen})}{ y }{{de más} por encima de la recomendada ({precio} contra {recomendada})}. | {person} bought the label for {ref} {with a negative margin ({margin})}{ and }{{over} above the recommended one ({price} vs {recommended})}. |
+
+- **AG-1 `{campos}`** (`changedKeys`, claves `spendAlerts.field.*`): `recipientName` destinatario / recipient · `line1`
+  calle y número / street and number · `line2` interior / unit · `postalCode` CP / postal code · `neighborhood` colonia /
+  neighborhood · `city` municipio / municipality · `state` estado / state · `country` país / country · `references`
+  referencias / references. Unidos con «, » y «y». ⛔ Nunca los valores.
+- **AG-4:** «(envío)» si `shipment ≠ null`; «(persona)» si `shipment = null ∧ subject ≠ null`. `{quiénes}` = `actors`
+  unidos. El tramo «; sin cifra…» solo con `unknownRefunds > 0`.
+- **AG-5 `{diferencia con signo}`** = `diffCents` con «+» o «−» (U+2212) delante; es el dato del servidor, ⛔ no una resta.
+- **AG-6 `{tipo}`** = rótulo del `kind` del ajuste (`spendAlerts.chargeKind.*`); un valor sin rótulo ⇒ «otro cargo» /
+  “other charge” (S-GAS-4: la lista de valores no la medí).
+- **AG-7:** «(abierto)» ⇔ `facts.balanceCents ≠ undefined`; «(sin saldo)» ⇔ `facts.requiredCents ≠ undefined`. Con
+  `resolvedAt`, la fila suma «Se resolvió solo · {fecha}» (el saldo volvió a subir).
+- **AG-8:** «(a)» ⇔ `refundedCents ≠ null`; «(b)» si no.
+- **AG-9:** por `facts.cause`. `{folio}` = `providerReference` (`ENV-000045-01`).
+- **AG-13:** cada tramo solo si su dato lo dice (`marginCents < 0` / `overRecommendedCents > 0`, comparaciones con cero
+  sobre datos del servidor, no cálculo de dinero); si están los dos, unidos por «y».
+- Títulos para el filtro y la sección de Configuración: «AG-{n} · {título}».
+
+#### 43.19.12 Los correos al dueño — `AVG-1` (inmediato), `AVG-2` (lote «y N más») y `AVG-3` (resumen de las 08:00)
+
+Siguen §41: `mailShell`, **asunto sin prefijo de marca** (§41.2), saludo por `greetingName()` (§41.3: la cuenta del dueño
+tiene nombre), dinero con `mailMoney` (`MX$`, §41.5), **un** CTA con la URL en texto debajo (§41.4), un idioma por correo
+(el `locale` de la cuenta). Familia nueva **GASTO**, pie (§41.6): **«Recibes este correo porque esta dirección es la de la
+cuenta del dueño de TCG HUNT. Los datos del cliente no van en el correo: están en el panel.»** / “You are receiving this
+email because this address belongs to the TCG HUNT owner's account. Customer details aren't included in emails: they're in
+the panel.” ⛔ Nunca nombre, dirección, teléfono, correo ni CLABE del cliente (GAS-2, PS-153). Horas en
+`America/Mexico_City`.
+
+**`AVG-1` — aviso inmediato (uno por aviso 🔴).**
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto | {título}: {ref corta} — p. ej. «Guía negada por el tope: pedido TCG-000123» | {title}: {short ref} — e.g. “Label refused by the limit: order TCG-000123” |
+| Titular (serif) | {título} | {title} |
+| Cuerpo | la frase de §43.19.11 | idem EN |
+| Filas (mono, etiqueta–valor) | Quién · Pedido · Envío · Monto · Cuándo (solo las que tienen dato) | Who · Order · Shipment · Amount · When |
+| Frenar (solo AG-1, AG-3, AG-4, AG-5, AG-7, AG-8, AG-9) | Si quieres frenar ya todas las compras de guías, cámbialo en «¿Quién puede comprar guías?»: {url} | If you want to stop all label purchases now, change it in “Who can buy labels?”: {url} |
+| CTA | **`VER EL AVISO`** → `admin/spend-alerts/<id>` — **bermellón** (§41.4: es un 🔴, no actuar sigue costando) | **`SEE THE ALERT`** |
+
+`{ref corta}` = «pedido TCG-000123» / «envío ENV-000045» / sin ref ⇒ solo el título (AG-7 abierto, AG-9 fusible). El enlace
+de «Frenar» va **en prosa con su URL**, ⛔ no como segundo botón (un CTA por correo). Un aviso que sube de 🟡 a 🔴 (AG-1)
+manda este correo con el titular del aviso, sin «actualización».
+
+**`AVG-2` — lote «y N avisos más» (los que pasaron de 5 en una hora).**
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto | {n, plural, one {# aviso de gasto más} other {# avisos de gasto más}} entre las {h1} y las {h2} | {n, plural, one {# more spending alert} other {# more spending alerts}} between {h1} and {h2} |
+| Titular | Y {n} avisos más | And {n} more alerts |
+| Intro | En esa hora hubo más avisos inmediatos de los que te mandamos uno por uno. Aquí van juntos: | That hour there were more immediate alerts than we send one by one. Here they are together: |
+| Una línea por aviso | {hora} · {título} · {ref corta} · {monto} (cada línea enlazada a su detalle) | {time} · {title} · {short ref} · {amount} |
+| CTA | **`VER LOS AVISOS`** → `admin/spend-alerts?severity=immediate&from=<día>&to=<día>` — bermellón | **`SEE THE ALERTS`** |
+
+**`AVG-3` — resumen diario (08:00 MX, lo del día anterior; sin avisos ⇒ no sale).**
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto | Resumen de gasto del {día} — p. ej. «Resumen de gasto del 3 de octubre» | Spending summary for {day} — e.g. “Spending summary for October 3” |
+| Titular | Lo que nos costó dinero el {día} | What cost us money on {day} |
+| 1 · Inmediatos (si hubo) | «Lo inmediato» + una línea por 🔴: {hora} · {título} · {ref corta} · {monto} | “Immediate” |
+| 2 · Por tipo | tabla: Aviso · Inmediatos · Del resumen · Monto (`byKind`, cifras alineadas a la derecha) | Alert · Immediate · Summary · Amount |
+| 3 · Guías por persona | «Gasto en guías por persona»: {nombre} · {n} guías · {monto} (`labelSpendByPerson`) | “Label spend by person” |
+| 4 · Elecciones caras (si `count > 0`) | {count} guías por encima de la recomendada o con margen negativo, {de más} de más: {Ana 2, Luis 1}. | {count} labels above the recommended option or with a negative margin, {over} over: {Ana 2, Luis 1}. |
+| Nota | Las cifras son las mismas que verás en el panel para ese día. | These figures match what you'll see in the panel for that day. |
+| CTA | **`VER EL DÍA EN EL PANEL`** → `admin/spend-alerts?from=<día>&to=<día>` — **tinta** (informa; los 🔴 ya salieron en su momento) | **`SEE THE DAY IN THE PANEL`** |
+
+- El cuerpo de 2–4 es `summarizeSpendAlerts` (el mismo que `GET …/summary`, §19.29.7): ⛔ la plantilla no suma (GAS-4).
+- Plantillas en `modules/spend-alerts/` (patrón §R.1); `mail.service.ts` no cambia (§19.29.5). Son internos: no entran
+  en el inventario de los 30 de §41.1 ni en `C-AV-1`.
+
+#### 43.19.13 Claves i18n — dónde viven
+
+Paridad ES/EN en el mismo commit (`i18n-parity`). Todas las de arriba, en estos espacios:
+
+| Espacio | Fichero:línea de hoy | Nuevas / cambian / se retiran |
+|---|---|---|
+| `admin.m4.tracking.sdx.buy.*` | `es.json:1938-1959` | nuevas `superAdminOnly`, `limit.dailySpend`, `limit.reissue`; **se retira** `ownerOnly` (`:1957`) |
+| `admin.m4.tracking.sdx.options.*` | `es.json:1893-1937` | nuevas `limitNote`, `limitReason.dailySpend`, `limitReason.reissue` |
+| `admin.m4.tracking.sdx.processing.*` | `es.json:1976-1982` | nueva `providerError` |
+| `admin.m4.tracking.sdx.inFlight.*` | `es.json:1983-1994` | cambian `body`, `timeout`, `chooseAgain` (valor ⇒ «Cotizar de nuevo», o se sustituye por `verify.requote`) |
+| `admin.m4.tracking.sdx.verify.*` | — | nuevas `title`, `body`, `bodyNoTime`, `folio`, `copy`, `timeout`, `found`, `notCharged`, `notSent`, `manualVerified`, `manual`, `requote` |
+| `admin.m4.tracking.sdx.reason.*` | — | nuevas (siete + `none`), compartidas por ventana, alerta y «Liberar» |
+| `admin.m4.tracking.sdx.error.*` | `es.json:1995-…` | nuevas `superAdminOnly`, `limitNothing`, `rateAlreadyPurchased`, `providerIdTaken`, `purchaseInFlight`, `purchaseInFlightFolio`, `purchaseInFlightReady`, `wait.seconds`/`.fewSeconds`/`.minutes`, `attemptsExhausted`, `stalePurchase`; **se retira** `ownerOnly` (`:1998`) |
+| `admin.m4.labelAlert.*` | `es.json:2571-2598` | cambia `unknown.body`; nueva `unknown.superAdminOnly`; **se retira** `unknown.ownerOnly` (`:2575`); nuevas `orphan.title`, `orphan.body` |
+| `admin.m4.label.release.*` | `es.json:2646-2658` | cambia `body`; nuevas `intro`, `data.*`, `conflict.label`, `conflict.required`, `releasedVerified`, `releasedNotSent`, `releasedUnverified`, `providerConflict` |
+| `admin.m10.shipping.purchase.*` | `es.json:4417-4429` | cambian `superAdminOnly`, `superAdminOnlyNote`, `operators`, `operatorsNote`, `confirmTitle`, `confirmBody`; nueva `lowBalanceHint` |
+| `admin.m10.spend.*` | — | toda la sección de §43.19.10a |
+| `admin.modules.spendAlerts` | `es.json:1306` (zona) | nueva |
+| `admin.dashboard.spendControl.*` | `es.json:1333` (zona, junto a `operatorRefunds` `:1364`) | nuevas |
+| `admin.spendAlerts.*` | — | página, filtros, columnas, `mail.*`, `kind.<code>.title/.text`, `field.*`, `chargeKind.*`, vacíos, detalle |
+
+⚠ Las tres claves que se retiran tienen lectores: `QuoteViews.tsx:226` (`t('ownerOnly')`), `sdx-errors.ts:112` y
+`LabelActions.tsx:75`; y quizá pruebas (`lib/i18n-skydropx.test.ts`, NO MEDIDO por mí cuáles listan). Se retiran en el
+mismo commit que sus lectores.
+
+#### 43.19.14 Lista de cambios para frontend (fichero:línea leídos el 2026-10-04 — re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FS-25 | `types/contract.ts:1577-1583` — ⚠ **zona compartida** | `LabelPendingDTO` gana `priceCents`, `providerReference`, `verifyingUntil`; `:1584` `LabelAlertKind` + `'label_orphan'`; `:1585-1590` `LabelAlertDTO.reason`; `InFlightUncertainReason` (con `'duplicate'`); `:1596-1598` `processing` + `providerError?`; `:1606-1609` `ReleaseShipmentLabelRes.verdict`; `AdminShipmentDTO.folio`, `.lastLabelRelease`; `ShipPreparationOrderDTO.folio`; `labelOptions.limit`; `SpendAlertDTO`, `SpendAlertSummaryDTO`, `SpendAlertKind/Code/MailStatus`; `workQueue.spendControl` (junto a `:2974`); los diales de §19.29.8 en el DTO de ajustes | 19.26–19.29 |
+| FS-26 | `lib/api.ts` — ⚠ **zona compartida** | `releaseShipmentLabel(id, note, confirmConflict?)`; `listSpendAlerts`, `getSpendAlertSummary`, `getSpendAlert`, `markSpendAlertsSeen` | 43.19.6, .8 |
+| FS-27 | `m4/capture/QuoteViews.tsx:211-226` | `canBuy` exige además `options.limit == null`; texto en el sitio del botón: `super_admin_only` ⇒ `buy.superAdminOnly`; `limit` ⇒ `buy.limit.*`; aviso `options.limitNote` en el paso 2 | 43.19.1 |
+| FS-28 | `m4/capture/sdx-errors.ts:111-113`, `:207-209` | `FORBIDDEN` ⇒ `error.superAdminOnly`; caso nuevo `LABEL_PURCHASE_LIMIT` (`blockPurchase`, `manualPrimary`); `CONFLICT` por `reason` antes del texto de hoy, con efectos nuevos `waitRetry {seconds}` (`purchase_in_flight`), `toPendingConflict` (`provider_id_taken`), `blockPurchase` (`attempts_exhausted`), `toOptions` sin cotización (`rate_already_purchased`, «Elegir otra opción»), `rereadDecide` (`stale_purchase_response`) | 43.19.1–.2 |
+| FS-29 | `m4/CaptureLabelDialog.tsx:369-377`, `:726-757` | `processing` con `providerError` ⇒ el `Banner` de §43.19.3; la espera de `purchase_in_flight` (botón pintado y deshabilitado, cuenta atrás fuera de la región viva, aviso al terminar, ⛔ compra sola) | 43.19.2–.3 |
+| FS-30 | `CaptureLabelDialog.tsx:71-72`, `:450-496` | Relectura: 5 s hasta 2 min y luego **30 s** hasta `verifyingUntil + 60 s`; al pasar a `labelPending=null ∧ label=null`, guardar `lastLabelRelease.via` para el texto; al llegar `label` desde `in_flight`, marcar «encontrada» | 43.19.4 |
+| FS-31 | `CaptureLabelDialog.tsx:1021-1068` (`PendingView`), `:765-773` | Vista «Verificando» (sin `labelAlert.kind='label_unknown'`), vista «Incierto» con `reason.*`, «no se creó» por `via`, folio con «Copiar»; pie de `notCreated` ⇒ «Cotizar de nuevo» (`runQuote({})` siempre) + «Capturar a mano»; `provider_id_taken` encima | 43.19.4 |
+| FS-32 | `CaptureLabelDialog.tsx:931-935`; `M4View.tsx:76-77` | `CaptureTarget` gana `folio`; cabecera «{orderNumber} · Envío {folio}» (sin uuid) | 43.19.7 |
+| FS-33 | `m4/LabelActions.tsx:69-86`, `:101-106` | `label_unknown`: cuerpo con `reason`, `unknown.superAdminOnly`; caso `label_orphan` (sin botón) antes del `default` | 43.19.5 |
+| FS-34 | `LabelActions.tsx:48-55`, `:119`, `:133-210` | `AlertProps`/`ReleaseDialog` reciben `labelPending` y la dirección (snapshot o `shipTo`); `<dl>` de datos con «Copiar»; casilla `confirmConflict` ⇔ `reason='conflict'` o tras `409 provider_conflict` (`:175-179` gana la rama); respuestas por `verdict` (`:162-171`) | 43.19.6 |
+| FS-35 | `m4/ShipPreparationCard.tsx:515-517`, `:648` | Folio en lugar del uuid; pasar `labelPending` y `shipTo` a `LabelAlertBlock` | 43.19.7, .6 |
+| FS-36 | `m4/ShipmentsQueue.tsx:196`, `:287` | Folio en lugar de `s.id`; pasar el envío a `LabelAlertBlock` | 43.19.7, .6 |
+| FS-37 | `m4/print/PrintSheetView.tsx:66` | «Envío {folio}» tras el número o «Retiro» (solo `ship`) | 43.19.7 |
+| FS-38 | `m10/sections/ShippingSection.tsx:139`, `:171`, `:410` | `id="compra-guias"` en el `fieldset`; textos nuevos del dial (vía claves); `hint` del saldo bajo | 43.19.10b |
+| FS-39 | `m10/M10View.tsx:450` + nuevo `m10/sections/SpendControlSection.tsx` | Sección «Control del gasto» con `id="control-gasto"`, diales, casillas de avisos y diálogo de apagado | 43.19.10a |
+| FS-40 | `admin/AdminDashboard.tsx:237` (tras la tarjeta de `operatorRefunds`) | Tarjeta «Control del gasto» ⇔ `isSuperAdmin ∧ spendControl` | 43.19.9 |
+| FS-41 | `components/layout/AdminSidebar.tsx:50-56` — ⚠ **zona compartida** | Entrada `spendAlerts` (`superAdminOnly`) tras «Reembolsos», sin badge; candado `AdminPageTitles.test.tsx` con el `h1` nuevo | 43.19.8 |
+| FS-42 | nuevos `(admin)/admin/spend-alerts/page.tsx` + `SpendAlertsView.tsx`, `spend-alerts/[id]/page.tsx` + vista de detalle | Lista con filtros en URL, selección y «Marcar como vistos», resumen de un día, detalle con `<dl>` de `facts` en lista blanca | 43.19.8, .11 |
+| FS-43 | `messages/es.json` / `en.json` (líneas de §43.19.13); MSW `lib/mock/skydropx.ts` (`:447`, seed `100000`), `lib/mock/fixtures.ts:514` (seed) y manejadores nuevos de `spend-alerts` | Claves; fixtures: los cinco `reason` de `409`, `LABEL_PURCHASE_LIMIT` con los dos `limit`, `processing`+`providerError`, `labelPending` con `verifyingUntil`/`providerReference`/`priceCents`, `lastLabelRelease.via` en sus cuatro valores, `labelAlert.reason` en los ocho, `label_orphan`, `verdict`, `folio`, avisos de los 13 tipos con `facts` y un `SpendAlertSummaryDTO` cuya suma por tipo **no** cuadra a propósito (UX-GAS-5) | todas |
+
+**Backend (correo, §43.19.12):** tres plantillas en `modules/spend-alerts/` (`AVG-1/2/3`) con el pie GASTO; `mail/mail.service.ts`
+sin cambio.
+
+#### 43.19.15 Candados (Testing Library contra MSW; los que coinciden con el contrato llevan su ID)
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-SDX-27** | Sesión de operador, `purchase='super_admin_only'`, `canPurchase=false` ⇒ texto `buy.superAdminOnly`; `403 {reason:'label_purchase_super_admin_only'}` ⇒ `error.superAdminOnly`; en ES y EN, el DOM de la ventana **no** contiene `/dueño\|owner/i` | Dejar «Solo el dueño…» |
+| **UX-SDX-28** 💰 = PS-158 (negativa) | (a) `labelOptions.limit:'daily_spend'` y `'reissue'` ⇒ **cero** botones «Comprar guía», su texto en el sitio del botón y «Capturar a mano» **primario**; (b) `POST …/label` ⇒ `403 LABEL_PURCHASE_LIMIT` con cada `limit` ⇒ textos distintos, el botón desaparece, **0** `POST …/label` más; (c) en los dos, el texto de la ventana no contiene dígitos ni «MX$» salvo el precio de la guía ya pintado en el paso 3 (`/\d/` sobre el `Banner` ⇒ 0) | Pintar el tope o lo usado; quitar «Capturar a mano» |
+| **UX-SDX-29** 💰 | Cada `reason` de `409 CONFLICT` da su texto (cinco distintos entre sí y del de `error.conflict`); `purchase_in_flight`: se queda en el paso 3, el botón **deshabilitado** hasta `retryAfterSeconds` (reloj falso) y luego habilitado, **0** `POST …/label` sin un clic nuevo, el texto contiene «panel de Skydropx»; con `otherShipmentId:null, otherFolio:null` ⇒ texto sin paréntesis y **cero** enlaces; `provider_id_taken` ⇒ paso 4 sin «Comprar» ni «Capturar a mano» | Ramificar `CONFLICT` sin mirar `reason`; comprar sola al acabar la cuenta |
+| **UX-SDX-30** | `200 processing` con `providerError:{message:'X'}` ⇒ «Guía en proceso» + `Banner` con «Skydropx dice: “X”» literal; **cero** «Capturar a mano» | Traducir o esconder el mensaje |
+| **UX-SDX-31** 💰 = PS-128 | (a) `in_flight` con `verifyingUntil` y sin `label_unknown` ⇒ «Verificando con Skydropx…», el folio «Pedido ENV-000045-01», **cero** «Comprar» y «Capturar a mano»; relectura cada 30 s pasados 2 min (reloj falso) hasta `verifyingUntil + 60 s`; (b) relectura con `labelPending:null` y `via` ∈ {`auto_verified`, `auto_not_sent`, `manual_verified`, `manual`} ⇒ cuatro textos distintos y «Cotizar de nuevo», **0** `POST …/label` hasta el clic; (c) relectura con `label` ⇒ «Guía comprada» + `verify.found`; (d) con `labelAlert.kind='label_unknown'` ⇒ «Compra sin confirmar» con la frase de su `reason` | Dejar de releer a los 2 min; texto único para los cuatro `via`; decidir «incierto» por el reloj de la pantalla |
+| **UX-SDX-32** | Los ocho `labelAlert.reason` (siete + `null`) pintan su frase en `ShipPreparationCard` **y** en `ShipmentsQueue`; `label_orphan` pinta su título y **cero** botones; `canRelease:false` ⇒ `unknown.superAdminOnly` | Pintar `reason` crudo; «Liberar» en `label_orphan` |
+| **UX-SDX-33** 💰 | «Liberar»: la `<dl>` trae «Pedido ENV-000045-01», el precio formateado de `priceCents` y el destinatario; `providerReference:null` ⇒ `release.data.noReference`; con `reason:'conflict'` la casilla está y, sin marcar, **0** `POST` y error bajo ella; marcada ⇒ el cuerpo lleva `confirmConflict:true`; **sin** conflicto el cuerpo **no** lleva la clave; `409 provider_conflict` ⇒ aparece la casilla; las respuestas por `verdict.outcome` dan textos distintos | Mandar siempre `confirmConflict:true`; buscar por `orderNumber ?? id` |
+| **UX-SDX-34** = PS-136 (folio) | `folio` en la tarjeta, la fila, la cabecera de la ventana y la hoja de impresión, y el uuid del fixture **no** aparece en esos cuatro sitios; las superficies de cliente (`OrderShipmentBlock`, `PublicOrderTracking`, `ShipmentDetailView`, `WithdrawalsList`) con un DTO que traiga `folio` por error ⇒ `/ENV-\d/` en su DOM **0** | Pintar el folio al cliente; seguir enseñando el uuid |
+| **UX-GAS-1** = PS-158 / PS-152 (pantalla) | Sesión de operador: `spendControl:null` ⇒ **cero** nodos de la tarjeta; el menú no tiene «Avisos de gasto»; `/admin/spend-alerts` con `403 MONEY_OUT_FORBIDDEN` ⇒ «Esta página es solo del súper-admin.» | Tarjeta vacía para el operador; entrada de menú sin `superAdminOnly` |
+| **UX-GAS-2** | Lista: cambiar cada filtro escribe su parámetro en la URL y pide `GET …/spend-alerts` con él; «Marcar como vistos (2)» manda `{ids:[a,b]}`; tras `200` las dos filas **siguen** con «Visto por {name}»; no hay botón de borrar ni de «no visto» | Quitar la fila al marcarla; botón «Borrar» |
+| **UX-GAS-3** | Tarjeta: contiene «últimas 24 h» y **no** «hoy»; `capCents:null` ⇒ «sin tope»; con 7 personas, 5 filas y «y 2 más»; `unseenImmediate:0` ⇒ valor sin `text-accent` | Rotular «hoy»; color por cercanía al tope |
+| **UX-GAS-4** | Configuración: `operatorLabelCap24hCents` en 0 ⇒ error bajo el campo y **0** `PUT`; desmarcar AG-6 y guardar ⇒ diálogo; «Volver» ⇒ **0** `PUT`; confirmar ⇒ `PUT` con `spendAlertsDisabled:['AG-6']`; marcar uno de vuelta ⇒ `PUT` **sin** diálogo | Guardar el apagado sin confirmar; mandar los marcados en lugar de los desmarcados |
+| **UX-GAS-5** (GAS-4) | Con un `SpendAlertSummaryDTO` cuyas filas **no** suman lo que dice otra parte del fixture, la pantalla pinta cada cifra tal cual llegó; los textos de AG-5 pintan `diffCents` aunque no sea `chargedCents − quotedCents` | Sumar o restar en pantalla |
+| **UX-GAS-6** (GAS-2) | Los trece textos de §43.19.11 renderizados con un fixture cuyos `facts` traen además claves con PII de canario (`recipientName:'CANARIO'`, `phone`) ⇒ `CANARIO` y el teléfono **no** aparecen en lista ni detalle (lista blanca en pantalla) | Pintar todas las claves de `facts` |
+| **UX-GAS-7** | Paridad: cada clave nueva de §43.19.13 existe en `es` y `en`; las tres retiradas (`buy.ownerOnly`, `error.ownerOnly`, `labelAlert.unknown.ownerOnly`) no existen en ninguno | Dejar una retirada viva |
+
+**Correo (backend):** **ML-27** ⭐ — `AVG-1` de los trece tipos en ES y EN con la fixture canaria de §41 (nombre,
+dirección, teléfono, correo y CLABE del cliente) ⇒ **ninguno** en asunto, HTML ni texto; asunto sin «TCG HUNT»; el enlace
+a `admin/m10#compra-guias` **solo** en AG-1, 3, 4, 5, 7, 8 y 9; **un** botón; dinero con `MX$`. Canario: plantilla que
+interpola `addressSnapshot` ⇒ rojo. **ML-28** — `AVG-2` con 6 avisos en una hora ⇒ el sexto correo lista **una** línea y su
+asunto dice «1 aviso de gasto más». **ML-29** — `AVG-3`: secciones 2–4 iguales a `GET …/summary` del mismo día (mismo
+fixture); con `costlyChoices.count = 0` la sección 4 no está; CTA en tinta. (PS-153/154 miden envío, freno y frontera de
+día; éstos, el texto.)
+
+#### 43.19.16 Contraste — cero pares nuevos
+
+«Inmediato», «Sin ver» con valor > 0, la cuenta de la tarjeta y los errores usan `text-accent` sobre papel; el resto
+`text-text`/`text-muted` sobre papel/superficie, `Banner`, `Checkbox`, `Input`, `Select`, `Pagination` y `StatCard` de
+§6–§7: todos pares de §10. El correo usa la tinta y el bermellón de §41.12. ⛔ Ni verde ni amarillo para la gravedad: la
+dice la palabra.
+
+#### 43.19.17 Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **S-GAS-1** | arquitecto | **«Salida de hoy» sin folio.** El DTO de `GET /admin/shipments/departure` no lleva `folio` (§19.28.11 solo lo pone en `AdminShipmentDTO` y `ShipPreparationOrderDTO`); en la ventanilla, el paquete lleva «Pedido ENV-…» impreso. Propuesta aditiva: `folio` en cada fila. No bloquea |
+| **S-GAS-2** | arquitecto | **El aviso de un retiro no tiene a dónde enlazar.** Sin pedido no hay ruta de detalle del envío en el panel; la fila pinta «Envío ENV-…» como texto. Si se quiere enlace: `?folio=` en «Envíos» (§19.29.1.6 lo permite en admin). No bloquea |
+| **S-GAS-3** | arquitecto | **Badge del menú.** El menú lee otro resumen (`AdminSidebar.tsx:55`, `s.manualRefundsPending`), no el `workQueue`; un badge de «sin ver» necesitaría el dato ahí. Esta versión va sin badge |
+| **S-GAS-4** | arquitecto / backend | **AG-6 `kind`:** los valores de `ShipmentCostAdjustment.kind` que pueden llegar en `facts` — NO MEDIDOS por mí. Con la lista, se escriben sus rótulos; mientras, «otro cargo» |
+| **S-GAS-5** | arquitecto | **AG-4 no distingue «se le negó la 3.ª guía» (i) de «van k canceladas» (ii)** en `facts`; el texto usa una frase para los dos. Si el dueño debe leer «se le negó», hace falta un campo (`trigger`) |
+| **S-GAS-6** | product-owner | Confirmar «últimas 24 h» en la tarjeta (§19.29.12 lo pide); el diseño ya lo rotula así |
+| **N-GAS-1** | orquestador | **P-SDX-REL** sigue en (a): los textos dicen «un súper-admin». Si el dueño elige (b), cambian `labelAlert.unknown.superAdminOnly` y `inFlight.body` (una frase cada uno); el diálogo de «Liberar» no cambia |
+| **N-GAS-2** | orquestador | SK2 (§43.0) cita `HECHOS.md` fila «Skydropx — Carta Porte…» («guía por guía»); `HECHOS.md:58` la sustituye en quién compra. SK2 sigue en pie en lo que dice (un clic con la cifra), no en quién |
+| **N-GAS-3** | frontend | Las tres claves retiradas (`ownerOnly`) se borran en el **mismo commit** que sus tres lectores (§43.19.13) |
