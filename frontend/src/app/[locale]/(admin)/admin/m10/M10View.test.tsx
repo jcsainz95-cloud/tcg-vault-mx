@@ -52,6 +52,37 @@ describe('M10View · Config y bitácora', () => {
     expect((await screen.findAllByText('order.refund')).length).toBeGreaterThan(0);
   });
 
+  /**
+   * Errata del contrato 2026-10-04: los eventos del sistema (p. ej. `auth.password_lock` disparado
+   * desde el login) llegan con `actorUserId` y `actorRole` en null. La celda de actor pinta «—»
+   * (no un hueco, no un Badge vacío, no «null») y el resto de la fila se pinta normal.
+   */
+  it('un evento del sistema sin actor (actorUserId/actorRole null) pinta «—» en Actor', async () => {
+    vi.spyOn(api, 'getAuditLog').mockResolvedValue({
+      data: [
+        { id: 'al-sys', actorUserId: null, actorRole: null, action: 'auth.password_lock', entityType: 'User', entityId: 'u-ana', createdAt: '2026-10-04T09:00:00Z' },
+        { id: 'al-hum', actorUserId: 'u-admin', actorRole: 'super_admin', action: 'settings.update', entityType: 'ConfigSetting', entityId: 'shipping_fee_cents', createdAt: '2026-10-04T08:00:00Z' },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 2,
+    });
+    renderWithProviders(<M10View />, 'es');
+    const lockCell = (await screen.findAllByText('auth.password_lock'))[0];
+    const table = lockCell.closest('table')!;
+    const headers = Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent?.trim());
+    const col = headers.indexOf('Actor');
+    expect(col).toBeGreaterThanOrEqual(0);
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    const sysRow = rows.find((tr) => tr.textContent?.includes('auth.password_lock'))!;
+    const humRow = rows.find((tr) => tr.textContent?.includes('settings.update'))!;
+    expect(sysRow.querySelectorAll('td')[col].textContent?.trim()).toBe('—');
+    // La fila con actor humano sigue pintando id y rol.
+    expect(humRow.querySelectorAll('td')[col].textContent).toContain('u-admin');
+    expect(humRow.querySelectorAll('td')[col].textContent).toContain('super_admin');
+    expect(table.textContent).not.toMatch(/\bnull\b|\bundefined\b/);
+  });
+
   it('ya NO muestra el dial MUERTO de venta (salesMarkupPct)', async () => {
     renderWithProviders(<M10View />, 'es');
     // Espera a que carguen los diales.
