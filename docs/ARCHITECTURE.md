@@ -20,6 +20,7 @@
 > | **v1.80.8.4** | Errata (2026-10-02, rama `claude/post-release-s5`): la cola de VENTA la escriben **solo** los escritores del precio de venta de plataforma y siempre con motivo; `price-sync`/`syncCardPrice` ⛔ no escalan; **sin tercer motivo** (paridad schema↔contrato sin cambio); el sellado cierra su fila al resolver en publicación; **barrido VQ** cierra las filas `reason IS NULL` que ninguna pieza vendible necesita. Tacha §5 «`price-sync` sí escala pendientes», la lista de VENTA de §4.24c y el «sellado no cierra» de §4.36.5 (c). No toca guardarraíl ni curva. Norma: `API_CONTRACT` rev v1.80.8.4, §M2 `M2-VQ` | §4.36.5 (c-bis), §5, §4.24c | **Sí** (backend) |
 > | **v1.80.8.5** | 💰 Errata (2026-10-04, rama `claude/post-release-s5`; decisiones del dueño, `HECHOS.md` «Precios — decisiones del 2026-10-04» (a) y «Precios y reembolsos — respuestas a P-PRE-2…» (a)): en **VENTA**, la premium **ex / Double Rare** cuyo precio cae al piso **se publica al piso**; las demás premium siguen retenidas. El guardarraíl de venta pasa a ser el dial M10 **`premiumFloorSalePublish`** (`{mode:'all'|'none'|'only', rarities}`, **seed `{mode:'only', rarities:['Double Rare','Rare Holo EX']}`**, canónicas exactas de `rarity-catalog.ts:97`/`:112`), auditado y modificable sin código. `PROJECT §N.5-bis` / criterio 254. **COMPRA sin cambio** (constante `BUY_PREMIUM_FLOOR_POLICY = {mode:'none'}`). `PendingPriceReason` sin cambio; el barrido VQ gana una rama que cierra las `premium_at_floor` de VENTA cuya rareza el dial publica. Tacha §4.36.5 (a) VENTA, «Por qué funciona», tabla (b) fila VENTA y (c-bis) punto 6. Norma: `API_CONTRACT` rev v1.80.8.5, §M2 `M2-PF` | §4.36.5 (c-ter) | **Sí** (backend + control M10 en frontend + textos ux-ui) |
 > | **v1.80.8.6** | 💰 Errata (2026-10-04, rama `claude/precios-s5`; `HECHOS.md` 2026-10-02 «Cartas apartadas … (SSL-R1)», 2026-10-04 «Cartas apartadas (SSL-R1) — detalles» 4a/4b y «Precios y reembolsos — respuestas…» (b)(c); `PROJECT §S.11`, criterios 249–253): reembolso TOTAL «depende de si ya salió». Corte = envío propio en `enviado\|entregado` **leído bajo candado** y congelado en `Order.fullRefundAfterShipment` con el sello. Orden nunca liquidada ⇒ sus piezas `reserved` vuelven a la venta en la misma tx (`refund_release`) y el barrido limpia las anteriores ⇒ **cierra `SSL-R1`**. Enviado ⇒ cartas quietas y motivo cerrado `ShippedRefundReason`: en M3 obligatorio antes de Stripe; por Stripe, «reembolso por revisar» (predicado derivado, ⛔ no `OrderStatus`) + verbo `shipped-refund-reason` + `workQueue.refundReviews`. **Migración `M-62`**. Tacha §4.57 (v) fila «Piezas `reserved` … Sin cambio». Norma: `API_CONTRACT` rev v1.80.8.6, §M4-SHIP.18.12 | §4.57 (w), §11 `M-62` | **Sí** (backend + frontend M3/tablero + textos ux-ui) · 🔒 seguridad |
+> | **v1.80.8.7** | Errata (2026-10-04, rama `claude/precios-s5`, sobre `f0dac0a6`; responde a `DESIGN_SYSTEM §39.6` S-1…S-5 (v4.11) y §40.12 A-1/A-2 (v4.12); `PROJECT §N.5-bis (b)`, criterio 255). **S-3:** todo `PATCH /admin/inventory/items/:id` que cambie `status` o `listPriceCents` escribe `inventory.item_updated` con `before/after {status, listPriceCents}` y el actor, **en la misma tx**, en los dos caminos, con el precio leído dentro del CAS (`409 CONFLICT` si cambió) — hoy un cambio de solo precio no deja antes/después (`D-SFP-1`). **S-1:** `PendingPublishRowDTO.pendingReason` (veredicto de hoy de la derivación, ⛔ no la fila de la cola). **S-2:** el listado de M1 trae `resolvedSalePriceCents`/`priceBasis` solo para sellado de plataforma `in_stock\|listed`. **S-4:** sin caché del dial (medido). **S-5:** forma `details.errors` del `422` de settings (medida). **A-1:** `AdminOrderDetailDTO.settledAt: string \| null` (ya emitido). **A-2:** el `409 …ALREADY_SET` no gana `recordedBy`. Defaults registrados: N-11 (operador + súper-admin), Q-1, N-14, N-15; Q-2 medido (no es `SSL-R1`). **Fuera:** N-12 (`listPriceCents:null`, `D-SFP-2`). ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.8.7, §M1 `M1-SFP`, §M4-SHIP.18.12 (9) | §4.36.5 (c-quater), §4.57 (w), §9 | **Sí** (backend + tipos/pantallas frontend + un texto ux-ui) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -14815,6 +14816,29 @@ visible al desplegar, `in_stock` ⇒ tras `publish-all`, `NULL` ⇒ sin pieza ve
 **Lo que NO cambia:** curva, piso, puntos, escalera, `no_market`, exención de override/bounty, clave de dedupe,
 `counts`, forma de respuestas, `PendingPriceReason`, COMPRA entera.
 
+**(c-quater) v1.80.8.7 — El precio final del sellado: bitácora con antes/después, motivo en la cola, precio derivado
+en el panel (NORMATIVO; sin schema).** Contrato: `API_CONTRACT §M1` «v1.80.8.7» (ancla `M1-SFP`), pruebas SFP-1…SFP-9.
+Origen: `PROJECT §N.5-bis (b)`, criterio 255; solicitudes S-1…S-5 de `DESIGN_SYSTEM §39.6`.
+
+| Punto | Decisión | Alternativa descartada | Por qué |
+|---|---|---|---|
+| **S-3** dónde se audita | En `updateItem`, **misma tx** que la escritura, **una** fila `inventory.item_updated` con `before/after {status, listPriceCents}` en los dos caminos (publicante y no) | (a) Enriquecer la fila `inventory.update` del controlador; (b) acción nueva `inventory.price_set`; (c) solo para sellado | (a) el controlador escribe **después** y fuera de la tx (`inventory.controller.ts:646-653`): un fallo deja precio sin bitácora, y no tiene el valor leído. (b) dos búsquedas para la historia de una pieza; `item_updated` ya existe con `before/after` (`inventory.service.ts:2522`) y §M1 v1.80.8-release ya la prometía. (c) una rama por tipo es un sitio más que diverge; auditar no hace más visible el override de sueltas (P-PRE-1 intacto) |
+| **S-3** el «antes» | El `listPriceCents` leído entra al CAS de los dos caminos ⇒ `409 CONFLICT` si cambió | Aceptar la carrera; o `SELECT … FOR UPDATE` | Sin CAS, dos re-precios simultáneos dejan dos filas con el mismo «antes» — la bitácora deja de ser cadena. El `409` ya existe y la pantalla ya lo trata (`DESIGN_SYSTEM §39.2 (f)`). `FOR UPDATE` no tiene precedente en `inventory/` (0 aciertos, leído) y el CAS sí (`guardedItemUpdate`) |
+| **S-1** de dónde sale el motivo | Del veredicto de la derivación pura (`derivePublishSalePrice`, que ya lo calcula y lo tira) | Leer `reason` de la `PendingPriceEntry` abierta (lo que pidió ux-ui) | La entrada puede no existir (solo la abre un intento de publicar) o traer el motivo con que nació (dial cambiado, barrido pendiente). La cola tiene que decir por qué **hoy** no se publica, y con cero consultas nuevas |
+| **S-1** gradeada sin slab | `pendingReason: null` con `missing ∋ price`, regla declarada | Tercer literal (`no_slab_identity`) | Un literal fuera de `PendingPriceReason` es un dominio clase L nuevo con su paridad; el caso es único y está medido (`inventory.service.ts:1723-1733`) |
+| **S-2** precio derivado | En el **listado** de M1, solo sellado de plataforma `in_stock\|listed`, mismo cuerpo que la cola, contexto izado una vez por página | (a) Endpoint propio; (b) para todo tipo | (a) el panel ya lista con ese endpoint (`VariantDrawer.tsx:112-122`); (b) P-PRE-1 «sin hacerlo más visible» y criterio 255 por ausencia |
+| **S-4** caché | Ninguna (medido) y prohibida sin errata | TTL corto | El dial decide qué se publica; un TTL haría que la pantalla de M10 mintiera durante el TTL |
+| **S-5** `422` del dial | Se declara la forma medida `details.errors[clave]: string`; sin tokens por causa | `details.field/reason` por causa | La UI ya impide las seis causas; un dominio de tokens sería paridad que mantener para cero conducta |
+| **N-11** rol | Operador y súper-admin (lo que permite el verbo, `inventory.controller.ts:88`) — **default**, no decisión del dueño | Solo súper-admin | PROJECT no dice rol; el verbo y la cola ya son `vault_operator+` |
+| **N-12** quitar el precio | **Fuera de alcance**; desviación `D-SFP-2` | Diseñarlo aquí | Conducta no definida; diseñarla sin pedido sería inventar producto. El riesgo (una `listed` sin precio invisible) se documenta |
+| **A-1** «reembolsado sin liquidar» | `settledAt: string \| null` del detalle admin (ya emitido, `orders.service.ts:1956`) | Booleano nuevo en `FullRefundReviewDTO` | Un booleano sería un segundo nombre del mismo hecho |
+| **A-2** quién en el `409` | No se añade | `details.recordedBy` | Una sola fuente del «quién» (`FullRefundReviewDTO.recordedBy`), que la pantalla relee tras el `409` |
+
+**Invariante que queda escrito:** *ningún cambio de `status` o `listPriceCents` por el `PATCH` de M1 se confirma sin su
+fila `inventory.item_updated` con el valor realmente sustituido y el valor escrito* (SFP-1, SFP-2, SFP-3, SFP-5).
+**Lo que NO cubre:** los otros escritores de `listPriceCents` (precio por línea de `bulk-publish`, alta) — no son la
+captura del criterio 255; ⛔ NO MEDIDO si la pantalla los usa para sellado.
+
 **(d) Lo que el guardarraíl NO es.** No es un piso por rareza, no es una regla de precio y **no fija ningún monto**:
 solo decide **publicar / no publicar** y **cotizar / no cotizar**. Meter la rareza de vuelta al monto por esta puerta
 contradice §N.10 y está prohibido.
@@ -26859,6 +26883,12 @@ pone a la venta una carta de un pedido cuyo envío ya salió; entre «marcar env
 **uno** de los dos casos completo (SRF-9, SRF-10, N ≥ 10).
 
 **Preguntas (⛔ no bloquean la construcción; default aplicado entre paréntesis):**
+> **v1.80.8.7 — cerradas.** Q-1: el default se registra como norma (sin motivo, sin «por revisar»; medido que la rama
+> retiro no toca `Order`, `full-refund.service.ts:103-107`). Q-2: **medido — no es `SSL-R1`**: el contracargo libera
+> las `reserved` en la misma tx en las dos ramas (`payments.service.ts:882-910` directo, `:976-1013` bóveda). Divergencia
+> anotada, sin cambio: esa rama usa `reservationGuard` (incluye legadas `null`), que la norma (3) de v1.80.8.6 excluye a
+> propósito; la carrera contracargo vs `succeeded` tardío queda NO MEDIDA. Más N-14 y N-15 (defaults) y A-1/A-2. Todo en
+> `API_CONTRACT §M4-SHIP.18.12 (9)`.
 - **Q-1 (para product-owner → dueño si hace falta):** el reembolso total del **cobro de un retiro** (tarifa de envío de
   bóveda, `ShipmentRequest.stripePaymentIntentId`) tras «enviado» no está en la tabla §S.11.5. *(Default: no pide
   motivo — no es un pedido, las cartas son del cliente y no vuelven en ningún caso; la rama retiro de `onFullRefund` no
@@ -27640,6 +27670,20 @@ Riesgos técnicos:
 ---
 
 ## 9. Desviaciones detectadas
+
+> **v1.80.8.7 — `D-SFP-1` (abierta, backend; medida 2026-10-04 por lectura en el árbol vivo `claude/precios-s5`, ⛔ sha
+> NO MEDIDO):** el `PATCH /admin/inventory/items/:id` no deja antes/después de un cambio de **solo precio** (la
+> bitácora `inventory.item_updated` va solo `if (statusChanges)`, `inventory.service.ts:2517-2529`; el comentario
+> `:2501-2502` lo declara) ni del camino que publica (`claimListed`, `:2008-2032`); el controlador escribe
+> `inventory.update` sin diff (`inventory.controller.ts:646-653`). Incumple el criterio 255. **Cierra con:** la norma
+> de `API_CONTRACT §M1` «v1.80.8.7» punto 1 y SFP-1…SFP-6 en verde con sus mutaciones (SFP-5 con proporción, N ≥ 10).
+>
+> **v1.80.8.7 — `D-SFP-2` (abierta, SIN DUEÑO hasta que el dueño lo pida; fuera de alcance):** `PATCH { listPriceCents:
+> null }` no está definido por el contrato y, por lectura de código, pasa el DTO (`@IsOptional()`,
+> `dto/inventory.dto.ts:149`) y se escribiría (`inventory.service.ts:2503-2504`, `:2516`) — ⛔ NO MEDIDO por prueba.
+> Riesgo: una pieza `listed` sin precio derivable quedaría `listed` sin precio, fuera del catálogo y fuera de
+> «Listas para publicar». Mitigación vigente: el frontend no envía `null` (`API_CONTRACT §M1` «v1.80.8.7» punto 7).
+> **Cierra con:** errata que defina «volver al automático» (o que rechace `null` con `400`), a petición del dueño.
 
 > **v1.80 — `D-C7-1` (abierta, backend):** no existe tope de intentos **por cuenta** en `POST /auth/login` ni en
 > `POST /auth/change-password` (solo por IP: `auth.controller.ts:35-41,76`; leído 2026-09-28). Diseño y cierre en

@@ -2,7 +2,71 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.8.6**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.8.7**).
+>
+> **Rev v1.80.8.7 — ERRATA: EL PRECIO FINAL DEL SELLADO QUEDA EN BITÁCORA CON ANTES/DESPUÉS; LA COLA «LISTAS PARA
+> PUBLICAR» DICE EL MOTIVO; EL PANEL DEL SELLADO TRAE EL PRECIO DERIVADO (2026-10-04, arquitecto, rama
+> `claude/precios-s5`, sobre `f0dac0a6`; responde a las solicitudes S-1…S-5 de ux-ui, `DESIGN_SYSTEM §39.6`, v4.11).**
+> ⛔ **Sin schema, sin migración, sin enum nuevo, sin endpoint nuevo, sin código de error nuevo.** Dos campos
+> **aditivos** en respuestas existentes y una **norma de auditoría** en un verbo existente. Norma entera:
+> [§M1 «v1.80.8.7»](#M1-SFP). Porqué: `ARCHITECTURE §4.36.5 (c-quater)`.
+>
+> - **Origen:** `PROJECT §N.5-bis (b)` y criterio **255** (*«Capturarlo es un override manual **auditado** (quién,
+>   cuándo, antes/después)»*); `HECHOS.md` fila «Precios — decisiones del 2026-10-04» (b) y fila «Precios y
+>   reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1» (d) (P-PRE-1: el override por pieza de sueltas y
+>   gradeadas «se conserva como está»).
+> - **⭐ LA REGLA (para backend y frontend):**
+>   1. **S-3 — bitácora con antes/después (criterio 255).** Todo `PATCH /admin/inventory/items/:id` que **cambie**
+>      `status` o `listPriceCents` escribe **una** fila `AuditLog` `action:'inventory.item_updated'` **en la misma
+>      transacción que la escritura**, con `actorUserId`/`actorRole` de la sesión, `before: { status, listPriceCents }`
+>      (lo leído) y `after: { status, listPriceCents, fields }` (lo escrito). Vale para los **dos** caminos del verbo
+>      (el que publica y el que no) y para todo `productType` (⛔ sin rama por tipo). La escritura del precio se
+>      condiciona también al `listPriceCents` leído ⇒ un precio cambiado entre lectura y escritura ⇒ `409 CONFLICT`
+>      (código ya existente) y el «antes» de la bitácora es siempre el valor realmente sustituido. *Medido hoy: un
+>      cambio de solo precio no escribe antes/después* (`inventory.service.ts:2501-2502` y `:2517-2529`;
+>      `inventory.controller.ts:647-653`; leído 2026-10-04 en el árbol vivo, ⛔ sha NO MEDIDO).
+>   2. **S-1 — `PendingPublishRowDTO` gana `pendingReason: PendingPriceReason | null`** (aditivo; tipado opcional en
+>      el front para servidores anteriores). Es el **veredicto de hoy** de la misma derivación que ya decide
+>      `missing` (`derivePublishSalePrice`), ⛔ no una relectura de la fila de la cola de M2. `null` con
+>      `missing` ∋ `'price'` ⇔ gradeada sin identidad de slab (único camino, medido).
+>   3. **S-2 — `GET /admin/inventory/items` gana por fila `resolvedSalePriceCents?` y `priceBasis?`**, **solo** en
+>      piezas `sealed` de plataforma `in_stock | listed`; ausentes en toda otra fila (⛔ raw/graded: P-PRE-1). Mismo
+>      cuerpo y mismos valores que la cola para la misma pieza.
+>   4. **S-4 — el dial `premiumFloorSalePublish` rige desde la siguiente petición: no hay caché ni TTL** (medido).
+>      ⛔ Cachear esa clave exige errata.
+>   5. **S-5 — forma del `422` de `PUT /admin/settings`:** `details.errors: Record<claveDelDTO, string>` (medido); el
+>      texto es diagnóstico, ⛔ no es token. No se acuñan tokens por causa para `premiumFloorSalePublish`.
+> - **Defaults de producto aplicados (⛔ no se le preguntó al dueño; se registran como default):** **N-11** fija el
+>   precio final quien hoy puede llamar al verbo: `vault_operator` y `super_admin` (`inventory.controller.ts:88`,
+>   sin `@Roles` propio en el `PATCH`, `:640-655`). **Q-1** (de v1.80.8.6): el reembolso total del cobro de un
+>   **retiro** tras «enviado» **no pide motivo** — registrado en [§M4-SHIP.18.12](#M4-SHIP-18-12) (9). **Q-2**
+>   medido: un contracargo sobre una orden nunca liquidada **sí** devuelve sus piezas `reserved` a la venta en la
+>   misma tx ⇒ **no** es un `SSL-R1` por otro camino (detalle en §M4-SHIP.18.12 (9)). **N-14** (`DESIGN_SYSTEM
+>   §40.12`, v4.12): la nota del motivo en M3 sigue **obligatoria** (es el `reason` que M3 ya exigía). **N-15:** el
+>   operador ve marca, filtro y motivo en solo lectura. Ambos en §M4-SHIP.18.12 (9).
+> - **Solicitudes de ux-ui sobre v1.80.8.6 (`DESIGN_SYSTEM §40.12`, v4.12):** **A-1** — `settledAt` del detalle admin
+>   **ya se emite** (`orders.service.ts:1956`, conservado por `admin-orders.controller.ts:172`); `AdminOrderDetailDTO`
+>   pasa de `settledAt?: string` a **`settledAt: string | null`** (lo construido) y el banner «Reembolsado antes de
+>   quedar pagado» ⇔ `status==='refunded' ∧ settledAt===null`. **A-2** — **no** se añade `recordedBy` al `409
+>   SHIPPED_REFUND_REASON_ALREADY_SET` (una sola fuente: `FullRefundReviewDTO.recordedBy`). §M4-SHIP.18.12 (9).
+> - **FUERA de esta errata (dicho para que nadie lo construya por inferencia):** **N-12** «volver al precio
+>   automático» (`listPriceCents: null`): hoy el DTO lo **deja pasar** y el servicio lo **escribiría** (lectura de
+>   código, ⛔ NO MEDIDO por prueba) — conducta **no definida** por el contrato ⇒ desviación `D-SFP-2` en
+>   `ARCHITECTURE §9`; ⛔ el frontend **no** envía `null`. Una pantalla para leer el antes/después (`AuditLogDTO` no
+>   expone `before/after`, `:28985` de este documento) — la evidencia del criterio 255 es la fila de `AuditLog`. El
+>   precio por línea de `bulk-publish` y el del alta (`POST /items`): otros escritores de `listPriceCents`, no
+>   tocados.
+> - **Qué se tacha:** §M1 errata v1.80.2.3 punto 4 «sin auditoría nueva (la del controller sigue igual)» y el
+>   comentario de código que la repite («El precio solo no gana bitácora nueva»); §M2 `M2-PF` «Reversión» (el
+>   «**NO MEDIDO** si cachea»); §M1 `pending-publish` «el alcance D10 "solo visibilidad"» en lo que toca a
+>   `pendingReason` (sigue siendo lectura). En `ARCHITECTURE`: §4.57 (w) Q-1 y Q-2 (respondidas).
+> - **Backend:** [SFP-1…SFP-9](#M1-SFP). **Frontend:** tipos (`PendingPublishRowDTO.pendingReason?`,
+>   `InventoryItemDTO.resolvedSalePriceCents?`/`priceBasis?`, `AdminOrderDetailDTO.settledAt: string | null`), §39.3
+>   (b) con `pendingReason`, §39.2 (c) con la cifra, banner de §40.4 con A-1. Backend: **nada** por A-1/A-2/N-14/N-15.
+>   **ux-ui:** un texto para «gradeada sin empresa/grado» (§M1 «v1.80.8.7» punto 2). **QA:** SFP-1…SFP-9 (SFP-5 de
+>   carrera: N ≥ 10, proporción). **Seguridad:** nada nuevo de superficie; el criterio 255 es evidencia de auditoría.
+> - ⚠️ **Orden de construcción:** `inventory.service.ts` lo está tocando la construcción de v1.80.8.5 en este mismo
+>   árbol. Esta errata se construye **después** de que v1.80.8.5 esté commiteada (zona compartida de un solo stream).
 >
 > **Rev v1.80.8.6 — 💰 ERRATA: REEMBOLSO TOTAL Y SUS CARTAS «DEPENDE DE SI YA SALIÓ» (`PROJECT §S.11`, criterios
 > 249–253; §B «Excepción 3» y §H «no llegó») — CIERRA `SSL-R1` (2026-10-04, arquitecto, rama `claude/precios-s5`).**
@@ -12018,6 +12082,8 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **Predicado de la cola:** `ownerType='platform'` ∧ `status='in_stock'` ∧ ( `locationId IS NULL` **∨** precio de
   > venta **no resoluble** ). Cada fila dice **QUÉ LE FALTA** (`missing: ("location" | "price")[]`) y, si falta
   > precio, trae `pendingPriceEntryId` para el **deep-link a la cola de precio pendiente de M2**.
+  > **v1.80.8.7 (S-1):** y **por qué** le falta el precio — `pendingReason: PendingPriceReason | null`, de la misma
+  > derivación pura (sigue siendo lectura). Valores en [§M1 «v1.80.8.7»](#M1-SFP) punto 2.
   > **⚠️ AUTO-PUBLICACIÓN: «ubicación + precio ⇒ publicada», SIN BOTÓN (criterio 125).** La pieza **sale sola** de
   > esta cola en cuanto no le falta nada — *sin depender de que alguien se acuerde de apretar un botón*. La
   > publicación **se intenta** en los tres momentos en que puede dejar de faltar algo: **(a)** al convertir desde M5,
@@ -12120,7 +12186,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > pipeline de v1.51 ya corre `assertPublishableGuards` (plataforma `in_stock`) **antes de escribir**
   > (`inventory.service.ts:2410-2412`) y rechaza con `422 ITEM_NOT_PUBLISHABLE`; ahí `listPriceCents` **alimenta** la
   > resolución de precio (v1.51) y nunca llega a una pieza ajena. ⛔ Sin `InventoryMovement` (re-preciar no es un hecho
-  > físico), sin auditoría nueva (la del controller sigue igual).
+  > físico), ~~sin auditoría nueva (la del controller sigue igual).~~ **v1.80.8.7: el cambio de precio SÍ escribe
+  > `inventory.item_updated` con antes/después, en la misma tx y con el precio leído en el CAS — [§M1
+  > «v1.80.8.7»](#M1-SFP) (criterio 255).**
   >
   > **5 · Prueba que debe estar ROJA primero — invariante INV-SP-8 (hermana de INV-SP-7, v1.79.7):** *«ninguna pieza
   > que no sea de plataforma en venta recibe `listPriceCents` desde M1»*. Fichero unitario nuevo
@@ -12154,9 +12222,171 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **Al fusionar ambos streams:** las secciones 7 (v1.79.7) y esta se leen como **una sola guarda con dos campos**;
   > si `assertOperable` acaba con un solo verbo `'edit'` para `status` y `price`, el contrato no cambia — lo que se
   > fija es la conducta de la tabla del punto 1, no el nombre del verbo.
+- <a id="M1-SFP"></a>**v1.80.8.7 — PRECIO FINAL DEL SELLADO: BITÁCORA CON ANTES/DESPUÉS, MOTIVO EN LA COLA Y PRECIO
+  DERIVADO EN EL PANEL (NORMATIVO).** Origen: `PROJECT §N.5-bis (b)`, criterio **255**; solicitudes S-1…S-5 de
+  `DESIGN_SYSTEM §39.6` (v4.11). Porqué y alternativas: `ARCHITECTURE §4.36.5 (c-quater)`. ⛔ Sin schema, sin
+  migración, sin enum, sin endpoint, sin código de error nuevos.
+  > **Lo medido por el arquitecto (lectura de ficheros en el árbol vivo `claude/precios-s5`, 2026-10-04; ⛔ sha NO
+  > MEDIDO — sin Bash — y la construcción de v1.80.8.5 está editando `inventory.service.ts` a la vez: las líneas
+  > pueden haberse desplazado):**
+  > (a) camino **no publicante** del `PATCH`: la bitácora `inventory.item_updated` se escribe **solo** `if
+  > (statusChanges)` (`inventory.service.ts:2517-2529`) y con `before: { status }` / `after: { status, fields }` —
+  > sin precio; el comentario `:2501-2502` dice «El precio solo no gana bitácora nueva». (b) camino **publicante**
+  > (`:2534-2562`): `claimListed` (`:2008-2032`) escribe `status` + precio **sin** bitácora propia. (c) el controlador
+  > escribe `inventory.update` **sin** `before/after` tras el servicio y fuera de su tx (`inventory.controller.ts:646-653`).
+  > (d) el CAS del camino no publicante condiciona a `{ id, status, ownerType, ownerUserId }` (`guardedItemUpdate`,
+  > `:2904-2927`), **no** al precio. (e) `AuditService.log` acepta `before/after` (`audit.service.ts:12-13`, `:62-63`)
+  > y `AuditLogDTO` **no** los expone (este documento, `AuditLogDTO`). ⇒ Criterio 255 **incumplido** en «antes/después»
+  > para el cambio de solo precio y para «Guardar y publicar». Desviación `D-SFP-1` (`ARCHITECTURE §9`).
+
+  **1 · S-3 — la norma de auditoría del `PATCH /admin/inventory/items/:id` (criterio 255).**
+  - **Cuándo:** el `PATCH` **cambia** `status` **o** `listPriceCents` (valor escrito ≠ valor leído). En los **dos**
+    caminos (no publicante: `readGuardedItem` → `assertOperable` → `guardedItemUpdate`; publicante:
+    `assertPublishableGuards` → `resolvePublishSalePrice` → `claimListed`). Para **todo** `productType` (⛔ sin rama
+    por tipo: la bitácora no es visibilidad, así que no contradice P-PRE-1 «sin hacerlo más visible»). Un `PATCH` que
+    no cambia ninguno de los dos (precio igual al leído; solo identidad: `certNumber`, `gradeValue`,
+    `gradingCompany`, `sealedSubtype`) ⇒ **sin** esta fila (conducta de hoy).
+  - **Qué — UNA fila `AuditLog`:**
+    ```ts
+    { actorUserId: sesión.id, actorRole: sesión.role,          // QUIÉN (el `actor` que updateItem ya recibe)
+      action: 'inventory.item_updated', entityType: 'InventoryItem', entityId: id,
+      before: { status: InventoryStatus, listPriceCents: number | null },   // lo LEÍDO en esta petición
+      after:  { status: InventoryStatus, listPriceCents: number | null,    // lo ESCRITO
+                fields: string[] } }                                       // claves del cuerpo saneado, orden alfabético
+    // CUÁNDO = AuditLog.createdAt. Las dos claves van SIEMPRE en before y after (aunque solo cambie una):
+    // quien lea la fila no tiene que reconstruir el estado de la otra.
+    ```
+    *Por qué la misma `action` y no una nueva:* `inventory.item_updated` ya existe con `before/after` para el
+    `status` (`:2522`) y §M1 v1.80.8-release ya la prometía con «los campos que cambió»; una segunda acción para el
+    mismo verbo partiría la bitácora de una pieza en dos búsquedas.
+  - **Atomicidad:** la fila se escribe **en la misma `$transaction`** que el cambio (`VAULT_VERB_TX_OPTIONS`); si su
+    escritura falla, **no** se escribe el cambio. ⛔ Ni en el controlador ni después del `commit`: un precio sin su
+    bitácora es justo lo que el criterio 255 prohíbe. El camino publicante entra en esa `$transaction`
+    (`claimListed` recibe el handle `tx`); `resolvePublishSalePrice` sigue **antes** y fuera de ella, sin cambio.
+  - **El «antes» es exacto — el `listPriceCents` leído entra al CAS en los dos caminos:**
+    - no publicante: `guardedItemUpdate` condiciona **además** a `listPriceCents: <leído>` (`null` incluido) cuando lo
+      llama el `PATCH` (⛔ `move`/`mark` sin cambio); `P2025` ⇒ `409 CONFLICT` (ya existente).
+    - publicante: el `updateMany` de `claimListed` condiciona **además** a `listPriceCents: <leído>`; `count 0` ⇒
+      relee en la misma tx: plataforma ∧ `status ∈ PUBLISHABLE_ORIGIN_STATUSES` (solo cambió el precio) ⇒ **`409
+      CONFLICT`**; si no ⇒ `422 ITEM_NOT_PUBLISHABLE { status: <releído> }` (hoy manda el leído antes; el releído es
+      el verdadero).
+    - *Coste:* dos operadores re-preciando la misma pieza en el mismo instante ⇒ uno recibe `409` («La pieza cambió
+      mientras la editabas», `DESIGN_SYSTEM §39.2 (f)`, ya diseñado). Sin esto, dos filas con el mismo «antes» y
+      una cadena antes/después que no cuadra.
+  - **Un cuerpo:** el armado de `before/after` es **una** función (`itemUpdatedAudit(read, written, fields)`, nombre
+    orientativo; devuelve `null` si `status` y `listPriceCents` no cambian) que llaman los dos caminos. ⛔ Dos
+    redacciones del objeto.
+  - **Sin cambio:** la fila `inventory.update` del controlador se queda (sin diff; es el rastro de «se llamó al
+    verbo», también en los `PATCH` de identidad). ⛔ Sin `InventoryMovement` (re-preciar no es un hecho físico).
+    Códigos y forma de respuesta del `PATCH`: los de hoy.
+  - *Lectura del antes/después:* en la BD (`AuditLog.before/after`). ⛔ Esta errata **no** añade pantalla ni campo a
+    `AuditLogDTO`; si el dueño quiere verlo en pantalla, es solicitud nueva a product-owner.
+
+  **2 · S-1 — `PendingPublishRowDTO.pendingReason: PendingPriceReason | null`** (`GET /admin/inventory/pending-publish`).
+  - **De dónde sale:** de la **misma** derivación pura que ya decide `missing` (`pendingPublishStateOf` →
+    `derivePublishSalePrice`, `inventory.service.ts:1789-1817` y `:1661-1772`), que **ya calcula** el motivo
+    (`pendingReason` en la rama raw/graded, `:1750-1761`) y hoy lo descarta. `PendingPublishState` gana el campo; la
+    fila lo proyecta. ⛔ **No** se lee de la fila `PendingPriceEntry` abierta. *Por qué:* (i) la entrada puede **no
+    existir** (solo la abre un intento de publicar; esta cola es un `GET` que no escribe, `:1781-1783`); (ii) puede
+    traer el motivo **con el que se abrió** y no el de hoy (el dial cambió y el barrido aún no pasó — carrera
+    aceptada en [§M2 `M2-PF`](#M2-PF)); (iii) cero consultas nuevas. El veredicto de hoy es lo que decide si la pieza
+    se publica, y es lo que la fila tiene que decir.
+  - **Valores (exhaustivos, medidos):**
+
+    | Fila | `missing` | `pendingReason` | Fuente |
+    |---|---|---|---|
+    | raw/graded con slab, sin dato de mercado | ∋ `price` | `'no_market'` | `resolvePendingReason`, `pricing-curve.ts:710` |
+    | raw/graded con slab, premium en el piso que el dial **no** publica | ∋ `price` | `'premium_at_floor'` | `pricing-curve.ts:711`, dial vigente |
+    | **sellado** sin `listPriceCents` y sin precio derivable | ∋ `price` | `'no_market'` | la derivación da `null` (`:1690-1695`); `'no_market'` es **el mismo** motivo con que `resolvePublishSalePrice` escala ese caso (`:1632`) — una sola respuesta para la cola y para M2 |
+    | **gradeada sin identidad de slab** (sin `gradingCompany`/`gradeValue`) | ∋ `price` | **`null`** | `:1723-1733`: sin variante no hay motivo de mercado ni entrada en la cola (`pendingPriceEntryId` también `null`) |
+    | cualquier fila sin `price` en `missing` | solo `location` | `null` | — |
+
+    ⇒ **`pendingReason === null ∧ missing ∋ 'price'` ⇔ gradeada sin identidad de slab.** Es una regla del contrato,
+    no una deducción del cliente: el front la pinta con su propio texto («Le falta empresa y grado: captúralos en la
+    pieza», texto final de **ux-ui**). La fila de `DESIGN_SYSTEM §39.3 (b)` «sin `pendingReason` y sin
+    `pendingPriceEntryId` ⇒ avisa a sistemas» queda solo para un **servidor anterior** a esta errata (campo ausente).
+  - **Forma:** el backend **siempre** lo envía (`null` incluido). El tipo del front lo declara opcional
+    (`pendingReason?:`) solo para tolerar un servidor anterior. `PendingPriceReason` es el enum de §Enums: ⛔ ningún
+    literal nuevo, ⛔ paridad schema↔contrato sin cambio.
+  - Sigue siendo **lectura**: ⛔ el `GET` no abre, cierra ni re-motiva entradas de la cola.
+
+  **3 · S-2 — precio derivado de la pieza sellada en `GET /admin/inventory/items`.**
+  - Cada fila gana **`resolvedSalePriceCents?: number | null`** y **`priceBasis?: PriceBasis | null`** — **mismos
+    nombres, mismo enum y misma semántica** que `PendingPublishRowDTO` — **presentes solo si** `productType='sealed' ∧
+    ownerType='platform' ∧ status ∈ {in_stock, listed}` (las que el editor de `DESIGN_SYSTEM §39.2 (a)` puede tocar).
+    En **toda otra fila las claves no viajan** (⛔ raw/graded: P-PRE-1 «sin hacerlo más visible»; ⛔ `reserved`/vendida:
+    su precio es el de la línea del pedido, §M1 v1.80.2.3 punto 3).
+  - **Cálculo:** `derivePublishSalePrice(item, null, ctx)` — el cuerpo de la cola, ⛔ ninguna otra fórmula — con
+    `loadPublishPricingCtx` **una vez por página** sobre las filas elegibles (curva, dial, spreads, referencias en lote;
+    ninguna consulta si la página no tiene elegibles). `ok:true` ⇒ `{ salePriceCents, priceBasis }`; `ok:false` ⇒
+    `{ null, 'pending' }`. Con `listPriceCents` presente la derivación devuelve ese monto con `priceBasis:'override'`
+    (`:1669-1673`): el front distingue «a mano» por `listPriceCents != null`, como en la cola.
+  - ⛔ **No escribe** (sin escalada ni cierre de la cola de M2). ⛔ `GET …/items/:id` **no** cambia en esta errata.
+  - `sealedMarketRef` sigue igual (referencia, ⛔ no precio de venta).
+
+  **4 · S-4 — el dial rige desde la siguiente petición; no hay caché.** Medido: `SettingsService.get` hace un
+  `findUnique` por llamada (`settings.service.ts:229-233`; `getRaw` delega, `:776-778`) y
+  `loadSalePremiumFloorPolicy` lo llama por request/lote sin memo (`pricing.service.ts:1188-1203`);
+  `rg -i "cache|ttl" backend/src/modules/settings` = solo un comentario (`settings.controller.ts:113`, medido por
+  ux-ui y re-leído). **Norma:** ⛔ ninguna caché de servidor sobre `premium_floor_sale_publish`; añadir una exige errata
+  (y el TTL entra al texto de M10). *Lo que sí tarda, y no es del servidor:* una pestaña ya abierta del comprador
+  repinta con su propio `staleTime` de React Query (30 s global, `frontend/src/components/Providers.tsx:12`); el
+  checkout re-resuelve el precio en el servidor, así que **no se cobra** con el dial viejo.
+
+  **5 · S-5 — forma del `422` del `PUT /admin/settings` por validador de clave** (vale para todas las claves de
+  `SETTING_VALIDATORS`, incluida `premiumFloorSalePublish`). Medido (`settings.service.ts:570-603`):
+  `422 VALIDATION_ERROR`, `message: 'Invalid settings payload'`, **`details: { errors: { [claveDelDTO]: string } }`**
+  — una entrada por clave rechazada. El `string` es el mensaje del validador (inglés, diagnóstico; para este dial,
+  `validatePremiumFloorSalePublish`, `pricing-curve.ts:629-656`): ⛔ **no es token estable**, ⛔ la UI no ramifica por
+  su texto. La UI **puede** mostrar `details.errors.premiumFloorSalePublish` en vez de `message` (es más preciso).
+  ⛔ No se acuñan `details.field`/`details.reason` por causa para este dial: la pantalla ya impide las seis causas
+  (`DESIGN_SYSTEM §39.1 (b)`); un `422` aquí es discrepancia, y un dominio de tokens nuevo (clase L) sería un sitio
+  más que mantener en paridad para cero conducta. (El `422` de la validación **cruzada** de diales de buylist,
+  `:841`, tiene su propia forma y no cambia.)
+
+  **6 · Roles (N-11, default registrado).** Fija el precio final quien hoy puede llamar al verbo: **`vault_operator`
+  y `super_admin`** (`@Roles` de clase, `inventory.controller.ts:88`; el `PATCH`, `:640-655`, no lo estrecha). PROJECT
+  §N.5-bis (b) no dice rol; ⛔ no se le preguntó al dueño. Si lo quiere solo súper-admin: cambio de backend (403) +
+  gate del botón, por errata.
+
+  **7 · FUERA de alcance (N-12): «volver al precio automático».** El contrato **no define** `listPriceCents: null`
+  en este `PATCH` (la regla es `@Min(1)`). Lectura de código: `@IsOptional()` deja pasar `null`
+  (`dto/inventory.dto.ts:149`; semántica de `class-validator`, ⛔ NO MEDIDO por prueba) y el camino no publicante lo
+  trataría como verbo `'price'` y lo escribiría (`inventory.service.ts:2503-2504`, `:2516`). Riesgo si se usa: una
+  pieza `listed` sin precio derivable quedaría `listed` y sin precio ⇒ el catálogo la descarta y **no** entra a
+  «Listas para publicar» (predicado `in_stock`) — la clase de invisibilidad que cerró v1.51. ⛔ **El frontend no envía
+  `null`.** Desviación `D-SFP-2` (`ARCHITECTURE §9`): se diseña si el dueño lo pide.
+
+  **8 · Pruebas (backend; QA las corre). Deterministas ⇒ N=1 es medida, salvo SFP-5 (carrera, N ≥ 10 por orden
+  forzado y N ≥ 10 suelta, con proporción). Mutaciones sobre copia del árbol ENTERO.**
+
+  | # | Caso | Esperado | Debe estar ROJA hoy | Mutación que la pone roja |
+  |---|---|---|---|---|
+  | **SFP-1** | `PATCH { listPriceCents: 125000 }` como `vault_operator` sobre sellado plataforma `in_stock` con `listPriceCents` 100000; y sobre otro con `null`; y sobre uno `listed` | `200`; **exactamente una** fila `inventory.item_updated` por `PATCH` con `actorUserId`/`actorRole` del operador, `before {status, listPriceCents: 100000 \| null}`, `after {status (igual), listPriceCents:125000, fields:['listPriceCents']}` | **Sí** (hoy: cero filas con diff) | volver a `if (statusChanges)` |
+  | **SFP-2** | «Guardar y publicar»: `PATCH { listPriceCents:125000, status:'listed' }` sobre sellado `in_stock` con ubicación; y `{ status:'listed' }` solo, sobre una carta con precio derivable | `200`; una fila con `before {in_stock, null}` / `after {listed, 125000, fields:['listPriceCents','status']}`; la segunda con `listPriceCents` igual en ambos lados | **Sí** | quitar la bitácora del camino publicante |
+  | **SFP-3** | Atomicidad: doble de `tx.auditLog.create` que lanza, en los dos caminos | respuesta de error; releída la pieza: `status` y `listPriceCents` **intactos** | **Sí** (hoy no hay fila que falle en el no publicante de precio) | escribir la bitácora fuera de la tx (o en el controlador) |
+  | **SFP-4** | Sin cambio ⇒ sin fila: precio igual al leído; `PATCH` de solo `certNumber`; rechazos `422 ITEM_NOT_ADJUSTABLE` (`reserved`, cliente), `422 PRICE_PENDING`, `422 ITEM_NOT_PUBLISHABLE`, `409 CONFLICT` | **cero** filas `inventory.item_updated` nuevas; la de `inventory.update` del controlador solo en los `200` (como hoy) | No (candado de lo que no debe pasar) | escribir la fila antes de la guarda, o sin comparar valores |
+  | **SFP-5** ⭐ | Carrera: dos `PATCH` de precio (A, B) sobre la misma pieza; barrera forzada «ambos leen antes de escribir» N ≥ 10 + suelta N ≥ 10; y la variante publicante | forzada: **un** `200` y **un** `409 CONFLICT`, precio final = el del ganador, **una** fila cuyo `before` es el inicial. Suelta: eso, o dos `200` en serie con `fila2.before.listPriceCents === fila1.after.listPriceCents`. ⛔ Rojo: dos filas con el mismo `before` | **Sí** en la forzada | quitar `listPriceCents` del CAS (reportar proporción) |
+  | **SFP-6** | Estático: el objeto `before/after` de `inventory.item_updated` se arma en **un** sitio y lo llaman los dos caminos de `updateItem` | un solo constructor; un segundo literal `action: 'inventory.item_updated'` en `inventory/` ⇒ rojo | — | canario: copiar el literal en `claimListed` ⇒ rojo |
+  | **SFP-7** | S-1, dial seed: raw `Special Illustration Rare` con ubicación, mercado 1000c; raw sin referencia; `Double Rare` mercado 1000c **sin** ubicación; sellado sin precio; gradeada sin `gradingCompany`; luego dial `none` | `pendingReason` = `'premium_at_floor'` · `'no_market'` · `null` (`missing:['location']`, `priceBasis:'floor'`, 2500) · `'no_market'` · `null` (`pendingPriceEntryId:null`); con `none` la DR pasa a `missing:['location','price']`, `'premium_at_floor'`. El `GET` deja `PendingPriceEntry` idéntica (conteo y `updatedAt`) | **Sí** (campo ausente) | leer el motivo de la entrada abierta (sembrar una `premium_at_floor` vieja para la raw sin referencia ⇒ esperado `'no_market'`); constante `'no_market'` |
+  | **SFP-8** | S-2: `GET /admin/inventory/items?cardId=&productType=sealed&ownerType=platform` y la misma pieza en `pending-publish` (sin ubicación); sellado con `listPriceCents`; sellado `reserved`; sellado de cliente; raw; graded | valores **iguales** a los de la cola para la misma pieza; con precio a mano ⇒ ese monto y `'override'`; en las demás filas `'resolvedSalePriceCents' in row === false` y lo mismo para `priceBasis`; `PendingPriceEntry` intacta; número de consultas igual con 1 y con 50 filas selladas | **Sí** | fórmula propia (p. ej. mercado sin spread) ⇒ desigualdad con la cola; campos en raw ⇒ rojo |
+  | **SFP-9** | S-4/S-5: `PUT` del dial a `none` y, en el mismo proceso, `GET pending-publish` inmediato; `PUT` inválido (`mode:'only'`, `rarities:[]`) | la DR del SFP-7 ya sale `premium_at_floor` sin esperar; `422` con `details.errors.premiumFloorSalePublish` string y nada escrito | No (candado) | memoizar `loadSalePremiumFloorPolicy` |
+
+  Ficheros sugeridos: unitarias en `backend/test/inventory.sealed-final-price.spec.ts`; integración (Postgres real) en
+  `backend/test/integration/inventory-price-audit.e2e-spec.ts`. ⛔ Ninguna prueba existente se debilita: las de
+  `inventory.patch-price-guard.spec.ts` y `inventory-move-mark-guards.e2e-spec.ts` que afirmen «una sola fila de
+  bitácora» o la forma vieja de `after` se **actualizan a la forma nueva**, no se borran.
+
+  **9 · Trabajo resultante.** **Backend:** `inventory.service.ts` (`updateItem` dos caminos, `claimListed` con `tx` y
+  precio en el CAS, `guardedItemUpdate` con condición de precio opcional, `PendingPublishState.pendingReason`,
+  `listItems` con el precio derivado), comentario `:2501-2502` reescrito, pruebas SFP-1…SFP-9. **Frontend:**
+  `types/contract.ts` (`PendingPublishRowDTO.pendingReason?`, `InventoryItemDTO.resolvedSalePriceCents?`/
+  `priceBasis?`), `DESIGN_SYSTEM §39.3 (b)` y `§39.2 (c)` con los campos nuevos; ⛔ ningún `PATCH` con
+  `listPriceCents: null`. **ux-ui:** un texto para «gradeada sin identidad de slab» en la cola (punto 2).
 - **Sellado — referencia de mercado TCGCSV (v1.19, READ-ONLY en M1):** para items `productType=sealed`, `GET /admin/inventory/items` (cada fila) y `GET .../items/:id` exponen además:
   - `tcgplayerProductId?: number` y `tcgplayerGroupId?: number` — mapeo curado al producto de TCGplayer/TCGCSV (`null`/omitidos si no mapeado; M-23).
   - `sealedMarketRef?: PriceInfo` — **valor de referencia de mercado** del producto sellado (`source: "tcgcsv"`, MXN con FX+colchón, `capturedDate` del último ingest). `null`/omitido si el item no está mapeado o aún no hay ingest. En listados se resuelve por lote (`getReferencesBatch`, sin N+1).
+  - **v1.80.8.7 (S-2) — solo en el LISTADO:** `resolvedSalePriceCents?: number | null` y `priceBasis?: PriceBasis | null`, presentes solo en sellado de plataforma `in_stock | listed` (el precio de venta que la pieza tiene hoy, misma derivación que `pending-publish`). Norma: [§M1 «v1.80.8.7»](#M1-SFP) punto 3.
   - **Semántica (PROJECT 3e):** es **informativo** — una sugerencia junto al campo `listPriceCents`. NO cambia la regla de publicación (el sellado publica SOLO con precio manual), NO se usa para valuar ni vender, y NO aparece en la superficie pública. El **mapeo se edita únicamente** por `PUT /admin/pricing/sealed/items/:itemId/mapping` (§M2, `super_admin`); `PATCH .../items/:id` lo ignora.
 - `POST /api/v1/admin/inventory/items/:id/move` — Req `{ toLocationId, note? }` → registra `InventoryMovement`.
 - `POST /api/v1/admin/inventory/items/:id/mark` — Req `{ mark: "lost" | "damaged", note }` → `status` y movimiento; disponible para reposición (M7/tope M10). ⭐ **v1.79.7 (D-SHIP-5): solo piezas de PLATAFORMA `in_stock | listed`**; toda pieza de cliente ⇒ `422 ITEM_NOT_ADJUSTABLE` (sección 1 y 2 abajo, corregidas).
@@ -12383,7 +12613,8 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > ITEM_IN_ANOTHER_SHIPMENT` es **solo de `move`** (v1.79.7, D-SHIP-5: `mark` rechaza toda pieza de cliente con `422`
   > antes de consultar retiros, y esta misma tabla ya lo dice en la fila de `mark`). **`PATCH`:** los de v1.51 + `422
   > ITEM_NOT_ADJUSTABLE` + `409 CONFLICT`; su bitácora `inventory.item_updated` gana **`before`/`after`** de los campos
-  > que cambió (incluido `status`).
+  > que cambió (incluido `status`). *(v1.80.8.7: medido que lo construido solo la escribe cuando cambia `status` en
+  > el camino no publicante; la forma exacta, los dos caminos y el precio los fija [§M1 «v1.80.8.7»](#M1-SFP).)*
   > ⛔ **La pantalla** (`ItemDetailModal` y similares) no ofrece «Marcar perdida/dañada» sobre piezas de cliente ni sobre
   > estados fuera de `in_stock|listed`; ofrece «Mover» según la tabla (frontend).
 - Ubicaciones: `GET /api/v1/admin/locations`, `POST /api/v1/admin/locations` (`{ zone, box, row, slot }`).
@@ -13248,8 +13479,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       { "mode": "none", "rarities": [] } }` (retener todo) o `{ "mode": "only", "rarities": [ … ] }` ⇒ desde la siguiente lectura
       del dial el catálogo vuelve a ocultar las piezas de las rarezas que dejan de publicarse y el checkout las rechaza; las filas `premium_at_floor` se
       reabren en el siguiente `publish-all` o barrido `price-ingest`. Lo ya vendido al piso **queda vendido** (no se
-      re-precia una orden). ⚠️ Si `SettingsService` cachea lecturas, el efecto llega tras su TTL — **NO MEDIDO** si
-      cachea; backend lo dice en `BACKEND_NOTES` y, si cachea, el TTL entra en el texto del control (ux-ui).
+      re-precia una orden). ~~⚠️ Si `SettingsService` cachea lecturas, el efecto llega tras su TTL — **NO MEDIDO** si
+      cachea; backend lo dice en `BACKEND_NOTES` y, si cachea, el TTL entra en el texto del control (ux-ui).~~
+      **v1.80.8.7 (S-4): medido — no hay caché ni TTL; rige desde la siguiente petición, y ⛔ cachear esta clave
+      exige errata. [§M1 «v1.80.8.7»](#M1-SFP) punto 4.**
     - **Paso de despliegue (va en la solicitud de fusión):** sin tocar el dial (el seed ya es la respuesta del dueño),
       tras el deploy: (1) las `Double Rare`/`Rare Holo EX` en el piso **`listed`** ya se venden a MX$25 sin hacer
       nada; (2) **un** `publish-all` sin filtro (botón «Publicar todo» de M1) publica las **`in_stock`** de esas dos
@@ -22424,6 +22657,50 @@ N ≥ 10 cada una, reportadas como proporción).**
 `releaseReservedOfUnsettledRefund` solo desde `onFullRefund` y el barrido. Paridad de enums: líneas
 `ShippedRefundReason` (clase R) y `MovementReason` (+ `refund_release`) de §Enums.
 
+**(9) v1.80.8.7 — preguntas cerradas con su default, una medición y dos solicitudes de ux-ui (`DESIGN_SYSTEM §40.12`,
+v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del arquitecto en el árbol vivo
+`claude/precios-s5`, 2026-10-04 (⛔ sha NO MEDIDO).
+- **Q-1 — DEFAULT registrado (⛔ no se preguntó al dueño):** el reembolso total del **cobro de un retiro** (tarifa de
+  envío de bóveda, PI en `ShipmentRequest`) después de «enviado» **no pide motivo**, **no** marca «reembolso por
+  revisar» y **no** escribe `fullRefundAfterShipment` (no hay `Order` que marcar). *Medido:* la rama retiro de
+  `onFullRefund` va directa a `closeShipmentsOnFullRefund` sin leer ni escribir `Order`
+  (`payments/refunds/full-refund.service.ts:103-107`), y `opts.shippedReason` solo lo pasa M3, que es por orden
+  (`C-FULLREF-1`). *Por qué el default:* no es un pedido (§S.11.5 habla de pedidos), las cartas son del cliente y no
+  vuelven a inventario en ningún caso. Si el dueño lo quiere con motivo: errata (columna en `ShipmentRequest` +
+  migración).
+- **Q-2 — MEDIDO: el contracargo sobre una orden nunca liquidada NO es un `SSL-R1` por otro camino.**
+  `charge.dispute.created` (`payments.service.ts:795-817`): **directo** sin envío (una orden sin liquidar no tiene
+  envío, (a) arriba) cae en la rama «sin envío» (`:882-910`) ⇒ piezas `reserved` por esta orden **o legadas**
+  (`reservationGuard`) ⇒ `releaseReservationData` + `InventoryMovement{chargeback_return}` en la misma tx y
+  `Order → chargeback`; **bóveda** (`:936-1033`) ⇒ `status ∈ {in_custody, reserved}` con `reservedByOrderId ∈ {esta,
+  null}` ⇒ `listed` + `chargeback_return` en la misma tx. Las piezas **vuelven a la venta**; ⛔ esta norma no se
+  amplía. Dos observaciones, ⛔ no cambian nada aquí: (i) esa rama libera también las **legadas** (`null`), que la
+  norma (3) excluye a propósito — divergencia anterior (v1.68, §4-R.2 regla 2), anotada en `ARCHITECTURE §4.57 (w)`;
+  (ii) la carrera contracargo vs `succeeded` tardío (el handler no toma `Order FOR UPDATE` ni lee su `status`) queda
+  **NO MEDIDA** — un contracargo llega días después del cobro y el `succeeded` segundos después; si QA la quiere
+  cubrir, es caso nuevo (N ≥ 10), no de esta errata.
+- **A-1 — `settledAt` del detalle admin: YA SE EMITE; se fija su forma.** *Medido:* `getOrder` devuelve
+  `settledAt: order.settledAt` (`orders/orders.service.ts:1956`) y el controlador admin lo conserva (esparce
+  `...detail` primero y sus columnas propias no traen `settledAt`; `orders/admin-orders.controller.ts:140-172`). El
+  contrato ya lo declaraba en `AdminOrderDetailDTO`, pero como `settledAt?: string`; lo construido emite **`null`**
+  cuando nunca se liquidó ⇒ se corrige a **`settledAt: string | null`** (siempre presente en el detalle).
+  **Regla de pantalla:** «Reembolsado antes de quedar pagado» ⇔ `status === 'refunded' ∧ settledAt === null` —
+  conducta de (3)/(5): sus piezas `reserved` por la orden se liberaron en la misma tx o las libera el barrido. ⛔ La
+  ausencia de la clave (servidor anterior) **no** cuenta como `null`: sin la clave, el banner no se pinta. ⛔ Sin
+  booleano nuevo en `FullRefundReviewDTO`: sería un segundo nombre del mismo hecho.
+- **A-2 — DECIDIDO: el `409 SHIPPED_REFUND_REASON_ALREADY_SET` NO gana `recordedBy`.** Se queda `details: { reason }`.
+  *Por qué:* quién lo registró ya viaja en **un** sitio, `FullRefundReviewDTO.recordedBy` (7), que la pantalla
+  relee tras el `409`; ponerlo también en el error es una segunda proyección del mismo hecho (y una resolución de
+  nombre de usuario en un camino de error), con su propia forma de divergir. El `reason` sí va en el error porque
+  decide qué hace la pantalla (mismo motivo ⇒ no es el caso; otro ⇒ avisar); el nombre solo informa.
+- **N-14 — DEFAULT registrado:** la nota del motivo en **M3** sigue **obligatoria** (es el `reason: string` que M3 ya
+  exigía, `orders.dto.ts:23`, y (4) lo copia a `shippedRefundNote`); en el registro posterior (6) sigue
+  **opcional**. `PROJECT §S.11.4` la da como opcional (SUPUESTO): la diferencia es heredada, no se crea aquí. Si el
+  dueño la quiere opcional en M3: errata (el `reason` de M3 dejaría de ser obligatorio solo con `shippedReason`).
+- **N-15 — DEFAULT registrado:** el `vault_operator` **ve** la marca «Por revisar», el filtro `?refundReview=pending`
+  y el motivo registrado (solo lectura); **no** puede registrarlo (`@MoneyOut`, (6)). Es lo que ya dicen (7) y el
+  guard. Ocultárselo sería cambio de pantalla y de proyección, por errata.
+
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
 #### <a id="M5-T"></a>⚠️⚠️ §M5-T — INVARIANTE T: **ningún verbo de transición pisa una fila terminal o cerrada** (v1.56 — NORMATIVA, DINERO, gobierna TODO el ciclo)
@@ -26991,7 +27268,8 @@ la decisión, pero las tres son condición de aceptación)*:
   'none' | 'only', rarities: string[] }`, **seed `{ mode:'only', rarities:['Double Rare','Rare Holo EX'] }`** (respuesta
   del dueño a P-PRE-2: «solo ex y double rare»), DATA sin DDL; en las cuatro
   estructuras de `settings.constants.ts`). Se expone en este `GET` y se edita por este `PUT`; inválido ⇒ `422
-  VALIDATION_ERROR` (reglas en §M2 «v1.80.8.5»). Decide qué premiums cuyo precio de VENTA cae al piso **se publican al
+  VALIDATION_ERROR` (reglas en §M2 «v1.80.8.5»; **v1.80.8.7 (S-5):** `details.errors.premiumFloorSalePublish: string`,
+  diagnóstico y ⛔ no token — forma de todas las claves de este `PUT`, [§M1 «v1.80.8.7»](#M1-SFP) punto 5). Decide qué premiums cuyo precio de VENTA cae al piso **se publican al
   piso** (`all` todas · `only` las de la lista · `none` ninguna ⇒ `premium_at_floor`). Fila ausente ⇒ seed; valor
   almacenado inválido ⇒ se lee como `none` + log de error (dirección conservadora). No afecta COMPRA. Norma entera:
   [§M2 «v1.80.8.5»](#M2-PF). **Frontend M10:** un control de tres modos + selector múltiple de rarezas `premium:true`
@@ -28519,6 +28797,9 @@ PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, 
                          locationId: string | null, listPriceCents: number | null,
                          resolvedSalePriceCents: number | null, priceBasis: PriceBasis | null,
                          pendingPriceEntryId: string | null,
+                         pendingReason: PendingPriceReason | null, // v1.80.8.7 (S-1): veredicto de HOY de la derivación,
+                                                                   // ⛔ no la fila de la cola; null ∧ missing∋price ⇔ gradeada
+                                                                   // sin identidad de slab. §M1 «v1.80.8.7» punto 2
                          missing: ("location" | "price")[],
                          acquisitionType: AcquisitionType, sourceSellRequestItemId: string | null,
                          createdAt: string }
@@ -28825,7 +29106,8 @@ AdminOrderDetailDTO = { id: string, userId: string | null, orderNumber: string |
                         chargebackNeedsManual: boolean, disputeOutcome: "won" | "lost" | null,
                         isGuestOrder: boolean, guestEmail?: string, claimedAt?: string,
                         billing?: AdminOrderBillingDTO,     // ⚠️ SOLO `super_admin` — ver abajo
-                        createdAt: string, settledAt?: string }
+                        createdAt: string,
+                        settledAt: string | null }          // v1.80.8.7 (A-1): siempre presente; null ⇔ nunca liquidada (orders.service.ts:1956)
 // ⚠️ `billing` es la PROYECCIÓN del `billingSnapshot`, NO el snapshot. Diferencias que importan:
 //   * `rfcMasked`, NUNCA `rfcEnc`. El blob cifrado no le sirve a nadie que lo lea: es ilegible Y es fuga.
 //     El RFC va enmascarado incluso para `super_admin`, igual que en `getUser`/`kycProfile` (§3.4).
