@@ -27,8 +27,10 @@
 --   DELETE FROM "ConfigSetting" WHERE key IN ('shipping_provider','shipping_label_purchase',
 --     'skydropx_origin_address_template_id','skydropx_origin_snapshot','shipping_preferred_carriers',
 --     'shipping_dropoff_points','shipping_consignment_note','shipping_package_rule_box_min_cards',
---     'skydropx_low_balance_cents','shipping_tracking_poll_minutes','shipping_insurance_tiers','shipping_label_format');
---     -- ⚠️ pierde lo que el súper-admin haya capturado (la bitácora conserva el antes/después)
+--     'skydropx_low_balance_cents','shipping_tracking_poll_minutes','shipping_insurance_tiers','shipping_label_format')
+--     AND "updatedBy" = 'migration:m66-sdx-d';
+--     -- solo las filas que ESTA migración escribió y nadie tocó (§11.0: no se destruye config de un operador); las que
+--     -- el súper-admin editó quedan como claves inertes (el código revertido no las lee; la bitácora tiene el antes/después)
 --   DROP TABLE IF EXISTS "ShippingPackage";
 --   DROP TABLE IF EXISTS "ShipmentCostAdjustment";
 --   DROP TABLE IF EXISTS "ShipmentCarrierEvent";
