@@ -2,7 +2,33 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.8.7**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.8.8**).
+>
+> **Rev v1.80.8.8 — ERRATA: SE RESUELVEN LAS DUDAS DE LA CONSTRUCCIÓN DE v1.80.8.6 / v1.80.8.7 Y LA SEGUNDA
+> INTERMITENCIA DE PS-51 (2026-10-04, arquitecto, rama `claude/precios-s5`, sobre `352b849a` — sha dado por el
+> orquestador, ⛔ NO MEDIDO por el arquitecto: sin Bash). Origen: `BACKEND_NOTES` §17.2, §17.4, §17.5 y §18 «Para
+> otros roles» (rama `claude/precios-s5`); PR #68 (rama `claude/post-release-s5`, resumen del orquestador);
+> `FRONTEND_NOTES §84` «Desviaciones».** ⛔ **Sin schema, sin migración, sin enum, sin endpoint, sin código de error
+> nuevos.** Lecturas del arquitecto en el árbol vivo `claude/precios-s5` el 2026-10-04.
+>
+> | # | Duda | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | **1** | SRF-11 paso 4-bis: candado de envío **después** de `Order` | **ACEPTADO y normado** como excepción acotada al orden de candados. Interbloqueo posible solo contra un verbo envío→`Order` sobre un envío nacido milisegundos antes; `40P01` ⇒ quien muere no escribe (`503`/reentrega). [§M4-SHIP.18.12 (10).1](#M4-SHIP-18-12) | **No** (es lo construido) | nadie |
+> | **2** | Fila `order.full_refund_closed` en la rama directo | **ACEPTADA y declarada** con su `after` exacto. (10).2 | **No** | backend: SRF-4 asevera la fila (si falta) |
+> | **3** | `?refundReview=` sin fila en §0-Q | **Fila añadida** a [§0-Q punto 4](#enum-query-filter): clase **L**, dominio `pending`. `C-EQ-1` pasa de `PENDIENTE-ARQUITECTO` a declarado | **No** (conducta ya construida) | backend: mover el eje en `C-EQ-1` |
+> | **4** | M3 sobre orden no `settled`: `400` (SRF-13) vs `422` (código) | **`422 VALIDATION_ERROR {status}`** — gana el código; el `400` de SRF-13 era errata. (10).4 | **No** | backend: SRF-13 fija `422` exacto |
+> | **5** | SRF-8: `PATCH →enviado` tras la tx1 | **`409 CONFLICT`** es el contractual (guarda `TRANSITIONS`, antes de toda tx). (10).5 | **No** | nadie (la prueba ya lo fija) |
+> | **6** | Mutaciones de SRF-6/7/8/11 que no muerden | **Texto corregido** con las que backend midió que muerden; SRF-8 gana una mutación nueva (NO MEDIDA) y SRF-11 una prueba nombrada («anomalía sembrada»). (10).6 y tabla (8) | **No** | backend: medir la mutación nueva de SRF-8 |
+> | **7** | SFP-7 cita `PendingPriceEntry.updatedAt` (no existe) | Corregido: «conteo y filas enteras». [§M1 «v1.80.8.7» punto 8](#M1-SFP) | **No** | nadie |
+> | **8** | CAS publicante del `PATCH` condiciona `status ∈ {in_stock, listed}`, no el leído | **SE ENDURECE:** el CAS publicante auditado condiciona el `status` **leído** exacto ⇒ un lote que publica en la ventana convierte el `200` en `409 CONFLICT`. Prueba nueva **SFP-10**. §M1 «v1.80.8.7» punto 1 | **Sí** (un `200` de carrera pasa a `409`) | backend: una condición + SFP-10 |
+> | **9** | PS-51: el perdedor ve `submitted` y contesta `REFUND_NOT_RETRYABLE` | **Opción (2):** con `count 0` se clasifica por el estado **releído**; los dos `409` son correctos. PS-51 acepta ambos y reporta la proporción. [§M4-SHIP.17.6](#M4-SHIP-17-6) paso 0 | **No** (es lo construido) | backend (rama de la PR #68): ampliar PS-51 |
+> | **10** | `FRONTEND_NOTES §84` desviaciones | Ninguna toca contrato; las 6 y 7 **son** el contrato. (10).7 | **No** | nadie |
+>
+> - **Backend:** (2) SRF-4 asevera la fila del directo si aún no lo hace; (3) mover `refundReview` en `C-EQ-1`; (4) SRF-13 a `422` exacto; (6) medir la mutación nueva de SRF-8
+>   y nombrar «SRF-11 anomalía» en la spec; (8) condición de `status` en `claimListed` auditado + SFP-10 con su mutación;
+>   (9) PS-51 en la rama donde vive su arreglo. **Frontend:** nada. **ux-ui:** opcional — `DESIGN_SYSTEM §40.4` puede
+>   quitar la condición `afterShipment === false` (redundante, (10).7). **QA:** SFP-10 (carrera, N ≥ 10 forzada,
+>   proporción) y PS-51 con la proporción de cada `409`.
 >
 > **Rev v1.80.8.7 — ERRATA: EL PRECIO FINAL DEL SELLADO QUEDA EN BITÁCORA CON ANTES/DESPUÉS; LA COLA «LISTAS PARA
 > PUBLICAR» DICE EL MOTIVO; EL PANEL DEL SELLADO TRAE EL PRECIO DERIVADO (2026-10-04, arquitecto, rama
@@ -6392,6 +6418,7 @@
   | Endpoint | Param | Dominio | Clase |
   |---|---|---|---|
   | `GET /admin/orders` (§M3) | `status` | `OrderStatus` | **E** |
+  | `GET /admin/orders` (§M3) | `refundReview` **(v1.80.8.6; fila v1.80.8.8)** | `pending` (un solo token) — canónico en **§M4-SHIP.18.12 (7)**. Partición **computada** (`isRefundReviewPending` = `fullRefundAfterShipment ∧ shippedRefundReason IS NULL`): ⛔ ningún enum de `schema.prisma` la espeja ni la recorta | **L** |
   | `GET /admin/disputes` (§M8) | `status` | `DisputeStatus` | **E** |
   | `GET /admin/shipments` (§M4) | `status` | `ShipmentStatus` | **E** |
   | `GET /admin/inventory/items` (§M1) | `status` | `InventoryStatus` | **E** |
@@ -12270,6 +12297,18 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       relee en la misma tx: plataforma ∧ `status ∈ PUBLISHABLE_ORIGIN_STATUSES` (solo cambió el precio) ⇒ **`409
       CONFLICT`**; si no ⇒ `422 ITEM_NOT_PUBLISHABLE { status: <releído> }` (hoy manda el leído antes; el releído es
       el verdadero).
+    - 💰 **v1.80.8.8 — el `status` leído también entra al CAS del camino publicante.** El `updateMany` de
+      `claimListed` **cuando lo llama el `PATCH`** (`audited`) condiciona `status: <leído>` exacto en lugar de
+      `status ∈ PUBLISHABLE_ORIGIN_STATUSES` (hoy, `inventory.service.ts:2115-2116`). `count 0` ⇒ la relectura de
+      siempre (`:2129-2140`): plataforma ∧ publicable ⇒ `409 CONFLICT`; si no ⇒ `422 ITEM_NOT_PUBLISHABLE`. *Por qué
+      se endurece:* con la condición por conjunto, un lote (`bulk-publish`, `publish-all`, reevaluación) que publica
+      la pieza `in_stock → listed` **sin** tocar su precio entre la lectura y el CAS deja una fila que dice
+      `before.status: 'in_stock'` atribuida al operador, cuando lo que sustituyó fue `listed` (`BACKEND_NOTES` §18,
+      «Residual del antes exacto»). Eso incumple el invariante de `ARCHITECTURE §4.36.5 (c-quater)` («con el valor
+      realmente sustituido»), y una bitácora de auditoría que miente sobre el antes no se puede usar como evidencia del
+      criterio 255. *Coste:* un `200` en esa ventana de milisegundos pasa a `409 CONFLICT` — código ya existente y ya
+      tratado por la pantalla (`DESIGN_SYSTEM §39.2 (f)`); el operador relee y repite. ⛔ Los caminos de lote **no
+      cambian** (no pasan `audited`). El camino no publicante ya condicionaba el `status` leído (`guardedItemUpdate`).
     - *Coste:* dos operadores re-preciando la misma pieza en el mismo instante ⇒ uno recibe `409` («La pieza cambió
       mientras la editabas», `DESIGN_SYSTEM §39.2 (f)`, ya diseñado). Sin esto, dos filas con el mismo «antes» y
       una cadena antes/después que no cuadra.
@@ -12368,9 +12407,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   | **SFP-4** | Sin cambio ⇒ sin fila: precio igual al leído; `PATCH` de solo `certNumber`; rechazos `422 ITEM_NOT_ADJUSTABLE` (`reserved`, cliente), `422 PRICE_PENDING`, `422 ITEM_NOT_PUBLISHABLE`, `409 CONFLICT` | **cero** filas `inventory.item_updated` nuevas; la de `inventory.update` del controlador solo en los `200` (como hoy) | No (candado de lo que no debe pasar) | escribir la fila antes de la guarda, o sin comparar valores |
   | **SFP-5** ⭐ | Carrera: dos `PATCH` de precio (A, B) sobre la misma pieza; barrera forzada «ambos leen antes de escribir» N ≥ 10 + suelta N ≥ 10; y la variante publicante | forzada: **un** `200` y **un** `409 CONFLICT`, precio final = el del ganador, **una** fila cuyo `before` es el inicial. Suelta: eso, o dos `200` en serie con `fila2.before.listPriceCents === fila1.after.listPriceCents`. ⛔ Rojo: dos filas con el mismo `before` | **Sí** en la forzada | quitar `listPriceCents` del CAS (reportar proporción) |
   | **SFP-6** | Estático: el objeto `before/after` de `inventory.item_updated` se arma en **un** sitio y lo llaman los dos caminos de `updateItem` | un solo constructor; un segundo literal `action: 'inventory.item_updated'` en `inventory/` ⇒ rojo | — | canario: copiar el literal en `claimListed` ⇒ rojo |
-  | **SFP-7** | S-1, dial seed: raw `Special Illustration Rare` con ubicación, mercado 1000c; raw sin referencia; `Double Rare` mercado 1000c **sin** ubicación; sellado sin precio; gradeada sin `gradingCompany`; luego dial `none` | `pendingReason` = `'premium_at_floor'` · `'no_market'` · `null` (`missing:['location']`, `priceBasis:'floor'`, 2500) · `'no_market'` · `null` (`pendingPriceEntryId:null`); con `none` la DR pasa a `missing:['location','price']`, `'premium_at_floor'`. El `GET` deja `PendingPriceEntry` idéntica (conteo y `updatedAt`) | **Sí** (campo ausente) | leer el motivo de la entrada abierta (sembrar una `premium_at_floor` vieja para la raw sin referencia ⇒ esperado `'no_market'`); constante `'no_market'` |
+  | **SFP-7** | S-1, dial seed: raw `Special Illustration Rare` con ubicación, mercado 1000c; raw sin referencia; `Double Rare` mercado 1000c **sin** ubicación; sellado sin precio; gradeada sin `gradingCompany`; luego dial `none` | `pendingReason` = `'premium_at_floor'` · `'no_market'` · `null` (`missing:['location']`, `priceBasis:'floor'`, 2500) · `'no_market'` · `null` (`pendingPriceEntryId:null`); con `none` la DR pasa a `missing:['location','price']`, `'premium_at_floor'`. El `GET` deja `PendingPriceEntry` idéntica (~~conteo y `updatedAt`~~ **v1.80.8.8:** conteo y **cada fila entera** igual antes y después — el modelo no tiene `updatedAt`, `schema.prisma` `model PendingPriceEntry`; lo que cambiaría una escritura es `status`, `reason`, `resolvedAt`, `resolvedPriceRefId`) | **Sí** (campo ausente) | leer el motivo de la entrada abierta (sembrar una `premium_at_floor` vieja para la raw sin referencia ⇒ esperado `'no_market'`); constante `'no_market'` |
   | **SFP-8** | S-2: `GET /admin/inventory/items?cardId=&productType=sealed&ownerType=platform` y la misma pieza en `pending-publish` (sin ubicación); sellado con `listPriceCents`; sellado `reserved`; sellado de cliente; raw; graded | valores **iguales** a los de la cola para la misma pieza; con precio a mano ⇒ ese monto y `'override'`; en las demás filas `'resolvedSalePriceCents' in row === false` y lo mismo para `priceBasis`; `PendingPriceEntry` intacta; número de consultas igual con 1 y con 50 filas selladas | **Sí** | fórmula propia (p. ej. mercado sin spread) ⇒ desigualdad con la cola; campos en raw ⇒ rojo |
   | **SFP-9** | S-4/S-5: `PUT` del dial a `none` y, en el mismo proceso, `GET pending-publish` inmediato; `PUT` inválido (`mode:'only'`, `rarities:[]`) | la DR del SFP-7 ya sale `premium_at_floor` sin esperar; `422` con `details.errors.premiumFloorSalePublish` string y nada escrito | No (candado) | memoizar `loadSalePremiumFloorPolicy` |
+  | **SFP-10** ⭐ (v1.80.8.8) | Carrera «el lote publica en la ventana»: sellado de plataforma `in_stock` con ubicación y precio P; el `PATCH { listPriceCents: Q, status:'listed' }` lee la pieza; barrera forzada: **antes** de su CAS, un camino de lote que no escribe precio (`publish-all`: `claimListed(item)` sin precio de línea) la publica `in_stock → listed`; luego el CAS del `PATCH`. N ≥ 10 forzada (+ N ≥ 10 suelta, proporción) | forzada: el `PATCH` recibe **`409 CONFLICT`**, la pieza queda `listed` con precio P, **cero** filas `inventory.item_updated` del `PATCH`. Suelta: eso, o `200` con una fila cuyo `before.status` es el que la pieza **tenía de verdad** al escribirse (`in_stock` si el lote no había pasado). ⛔ Rojo: `200` con `before.status:'in_stock'` sobre una pieza que ya estaba `listed` | **Sí** en la forzada (hoy da `200` con `before.status:'in_stock'`) | volver a `status: { in: PUBLISHABLE_ORIGIN_STATUSES }` en el CAS auditado (reportar proporción) |
 
   Ficheros sugeridos: unitarias en `backend/test/inventory.sealed-final-price.spec.ts`; integración (Postgres real) en
   `backend/test/integration/inventory-price-audit.e2e-spec.ts`. ⛔ Ninguna prueba existente se debilita: las de
@@ -21872,14 +21912,23 @@ Todos **`@Roles(super_admin)`**, lectura, `Cache-Control: no-store`, sin bitáco
 6. **Recomendado, NO exigido (queda como deuda con disparador):** tope por cliente/correo en 30 d para faltantes. Se
    activa si `operator-summary` muestra una tasa anómala.
 
-###### M4-SHIP.17.6 — 🔒💰 SEC-SHIP-M2: el reintento tras 24 h, paginado y con reclamo (medio)
+###### <a id="M4-SHIP-17-6"></a>M4-SHIP.17.6 — 🔒💰 SEC-SHIP-M2: el reintento tras 24 h, paginado y con reclamo (medio)
 
 `executeRefund(fila)` — **pasos normativos** (sustituyen a los pasos 1–4 de §M4-SHIP.7 donde choquen):
 0. **Reclamo (lease):** `updateMany({ where: { id, status:'requested', OR: [{ attemptStartedAt: null }, {
    attemptStartedAt: { lt: now − REFUND_ATTEMPT_LEASE_MS } }] }, data: { attemptStartedAt: now, attemptCount: {
-   increment: 1 } } })`, **fuera** de toda transacción larga. `count 0` ⇒ otro intento la tiene: desde `retry` ⇒ **`409
-   REFUND_ATTEMPT_IN_PROGRESS {attemptStartedAt}`**; desde el post-commit del preparado/caso ⇒ se omite con `log warn`
-   (el otro intento terminará). `REFUND_ATTEMPT_LEASE_MS = 5 min`, **una** constante, que debe ser **mayor** que el
+   increment: 1 } } })`, **fuera** de toda transacción larga. ~~`count 0` ⇒ otro intento la tiene: desde `retry` ⇒
+   **`409 REFUND_ATTEMPT_IN_PROGRESS {attemptStartedAt}`**~~ 💰 **v1.80.8.8 — `count 0` ⇒ se relee la fila y se
+   clasifica por el estado RELEÍDO:** `status = 'requested'` ⇒ otro intento la tiene: desde `retry` ⇒ **`409
+   REFUND_ATTEMPT_IN_PROGRESS {attemptStartedAt}`**; `status ≠ 'requested'` (el otro intento ya terminó: `submitted`,
+   `succeeded` o `failed`) ⇒ desde `retry` ⇒ **`409 REFUND_NOT_RETRYABLE {status}`** (el mismo de la guarda de entrada
+   de `retry`). Es lo construido (`refund-ledger.service.ts:223-226` y `:420-427`, leído 2026-10-04 en
+   `claude/precios-s5`). *Por qué no se clasifica bajo candado en la misma sentencia (opción (1) de la PR #68):* el
+   dinero ya es correcto con el reclamo (una sola `refunds.create`); un candado nuevo en el camino de dinero compraría
+   solo cambiar el nombre del `409`, y el nombre que daría (`IN_PROGRESS`) sería **más viejo** que el releído — cuando
+   el perdedor contesta, el intento ya terminó. La pantalla trata los dos (`ShipPreparationCard.tsx:461` y `:467`):
+   ambos llevan a releer la fila. Desde el post-commit del preparado/caso (`executeAndNotify`, `:443-449`): `requested`
+   ⇒ se omite con `log warn` (el otro intento terminará); `≠ requested` ⇒ toma la fila releída, sin llamar a Stripe. `REFUND_ATTEMPT_LEASE_MS = 5 min`, **una** constante, que debe ser **mayor** que el
    timeout configurado del cliente Stripe (⛔ NO MEDIDO ese timeout: backend lo lee de `StripeService` y una prueba
    asevera `LEASE > timeout`).
 1. Se relee la fila; si **`attemptCount > 1`** (hubo un intento anterior que pudo llegar a Stripe) ⇒ **búsqueda
@@ -21946,7 +21995,7 @@ dueño con nota), pero ya **no** es silencioso: su pantalla lo dice.
 | **PS-48** 💰 | `case_refund` `failed` + orden `chargeback` ⇒ `to-manual` `409 CASE_ORIGIN_NOT_SETTLED`, cero `ManualRefund`; `failureCode='charge_disputed'` con orden `settled` ⇒ ídem; `paid` de una `pending` cuya orden pasó a `chargeback` sin `confirmOriginNotSettled` ⇒ `422 … {required:['origin_not_settled']}`; con `true` ⇒ `200` y la bitácora lo registra | quitar el `FOR UPDATE`+chequeo de la orden en `to-manual` ⇒ `ManualRefund` creada |
 | **PS-49** 🔒 | Fixture de dos operadores: `operator-summary` da las sumas 24 h/7 d/30 d, `capUsedCents` **igual** al `usedCents` del tope, `missingRatePct` y `selfReplaced30d` exactos; `/finance/shrinkage?actorUserId=` cuenta la original de un caso **una** vez (nacimiento), ⛔ no en su traspaso `replacement`; operador ⇒ `403` en los tres; ~~**un** `AVA-1` por acto aunque se llame dos veces (N≥10 simultáneas)~~ ⭐ v1.80.4: **cero** correos internos al preparar con filas de operador (D-13) | (a) contar `toStatus ∈ {lost,damaged}` sin excluir `fromStatus` ⇒ doble conteo; ~~(b) no reclamar `adminNotifiedAt` ⇒ dos correos~~ (v1.80.4: retirada con `AVA-1`) |
 | **PS-50** 💰 | Doble de Stripe con **25** reembolsos sobre el PI y el de la fila en el lugar 23; `attemptCount = 1` previo y llave expirada ⇒ `retry` lo **encuentra** (cero `refunds.create`) | buscar en una sola página ⇒ crea otro |
-| **PS-51** 💰 | Dos `retry` simultáneos con la llave de Stripe expirada (barrera tras el reclamo, N≥10) ⇒ exactamente **una** llamada `refunds.create` por tirada; el otro `409 REFUND_ATTEMPT_IN_PROGRESS` | quitar el reclamo ⇒ dos `create` en ≥1 tirada |
+| **PS-51** 💰 | Dos `retry` simultáneos con la llave de Stripe expirada (barrera tras el reclamo, N≥10) ⇒ exactamente **una** llamada `refunds.create` por tirada; el otro ~~`409 REFUND_ATTEMPT_IN_PROGRESS`~~ 💰 **v1.80.8.8:** un `409` que es **`REFUND_ATTEMPT_IN_PROGRESS`** (el perdedor releyó `requested`) **o `REFUND_NOT_RETRYABLE {status ≠ 'requested'}`** (releyó con el ganador ya terminado), §M4-SHIP.17.6 paso 0; ⛔ rojo cualquier `2xx` del perdedor, cualquier otro código, o `REFUND_NOT_RETRYABLE` con `status:'requested'`. El reporte da la proporción de cada `409` sobre N | quitar el reclamo ⇒ dos `create` en ≥1 tirada (sin cambio: el candado de dinero es la cuenta de `create`, no el nombre del `409`) |
 | **PS-52** 💰 | **Re-compra:** X→Y (caso C1, origen O1); contracargo de O1 ⇒ Y a plataforma; U re-compra Y en O2 ⇒ `resolveOrigin(Y) = O2`; un segundo evento de disputa de O1 ⇒ Y **no** se toca. **Ciclo** forzado por fixture (A→B→A) ⇒ `needsManual`, cero escrituras | (a) precedencia del caso sobre la compra ⇒ origen O1; (b) quitar `originOrderItemId` del filtro de la cadena ⇒ Y revertida por O1 |
 | **PS-53** 💰 | `reissue` de una `cancelled` ⇒ fila nueva `pending` con el mismo importe y componentes, `reissuedFromId`, **cero** `AV-14`; repetir ⇒ `200` misma fila; sobre `pending`/`paid` ⇒ `409 MANUAL_REFUND_NOT_CANCELLED`; `INV-MR-1` verde; el cliente ve `transferStatus:'cancelled'` antes y `'pending'` después; `C-MREF-1` con tres sitios | índice parcial sin `status <> 'cancelled'` ⇒ la re-emisión choca (o, al revés, dos vivas) |
 | **PS-54** | **D-11:** `paid` sin `speiReference` ⇒ `200`, `speiReference null`, `AV-15` sin clave; con clave inválida ⇒ `400` | exigir `speiReference` |
@@ -22528,7 +22577,8 @@ redacciones.
 - `opts` gana **`shippedReason?: { reason: ShippedRefundReason; note: string | null; byUserId: string }`** — **solo**
   lo pasa M3 `refund` (`C-FULLREF-1` lo enumera: un segundo sitio ⇒ rojo).
 - Bitácora `order.full_refund_closed`: `after` gana `afterShipment: boolean`, `shippedReason: ShippedRefundReason |
-  null` y `releasedItemIds: string[]`.
+  null` y `releasedItemIds: string[]`. 💰 **v1.80.8.8:** la escriben **las dos ramas de orden** en la primera pasada
+  (también la directo, que antes no tenía fila) — forma exacta en (10).2.
 - *Por qué bajo candado y no la lectura de hoy:* con la lectura sin candado, un `→enviado` que confirma entre la
   lectura y el `FOR UPDATE` deja `afterShipment=false` sobre un paquete que ya salió — pedido reembolsado, cartas
   `shipped` y **sin** «por revisar»: ninguno de los dos desenlaces de §S.11 (criterio 252). Es la mutación de SRF-9.
@@ -22644,14 +22694,14 @@ N ≥ 10 cada una, reportadas como proporción).**
 | **SRF-3** | 249 | Pieza legada (`reservedByOrderId=null`) en las líneas de la orden **y** pieza re-reservada por otra orden B: ninguna se toca | usar `reservationGuard(orderId)` en el `WHERE` |
 | **SRF-4** | 250 | Directo `settled`, envío `enviado` (y variante `entregado`): `charge.refunded` total ⇒ piezas siguen `shipped`/`delivered`, cero movimientos, envío intacto, `fullRefundAfterShipment=true`, `refundReviewPending=true`, `workQueue.refundReviews.pending=1`, aparece en `?refundReview=pending`; `AV-3` = 1; reentrega ×10 ⇒ sigue 1 | escribir `fullRefundAfterShipment` en toda pasada con `false` por defecto |
 | **SRF-5** | 250 | `shipped-refund-reason`: súper-admin válido ⇒ `200 recorded`, campos + quién/cuándo, contador baja a 0, **cero** llamadas a Stripe, cero `InventoryMovement`, cero correos; vacío / `otro` ⇒ `400` sin escribir; operador ⇒ `403 MONEY_OUT_FORBIDDEN` + fila de auditoría; orden sin `afterShipment` ⇒ `409 …NOT_APPLICABLE`; repetir igual ⇒ `already_recorded`; distinto ⇒ `409 …ALREADY_SET` | quitar `@MoneyOut()` (403 mudo o 200 al operador) |
-| **SRF-6** | 250 | Dos registros simultáneos con motivos distintos (N ≥ 10): exactamente uno `recorded`, el otro `409 …ALREADY_SET`; el motivo final es el del ganador | quitar `shippedRefundReason: null` del `WHERE` del CAS |
-| **SRF-7** | 251 | M3 sobre directo enviado: sin `shippedReason` ⇒ `422 required:['shipped_reason']`, **cero** filas `PaymentRefund`, **cero** llamadas a Stripe, sin bitácora; `'otro'` ⇒ `400`; válido ⇒ `refunded`, motivo + nota (= `reason`) + quién/cuándo, **no** «por revisar», piezas `shipped` sin movimiento, **un** `AV-3`; operador ⇒ `403` | mover la comprobación después de `createRows` |
-| **SRF-8** | 251/252 | M3 sobre directo con envío en `guia` sin motivo ⇒ conducta de hoy (envío `cancelado`, congeladas, `needsManual`; PS-57… verdes); con motivo ⇒ `409 …NOT_APPLICABLE` sin escribir; tras la tx1, `PATCH →enviado` ⇒ un `409` (`CONFLICT` u `ORDER_NOT_SETTLED`, según qué guarda corte primero; la prueba fija el que mida) y ningún `AV-5` | leer el estado del envío con el `findMany` filtrado `picking\|guia` (el de hoy) |
+| **SRF-6** | 250 | Dos registros simultáneos con motivos distintos (N ≥ 10): exactamente uno `recorded`, el otro `409 …ALREADY_SET`; el motivo final es el del ganador | ~~quitar `shippedRefundReason: null` del `WHERE` del CAS~~ (medido: **sobrevive**, el `FOR UPDATE` de `Order` ya serializa) ⇒ **v1.80.8.8:** quitar `shippedRefundReason: null` del CAS **y** el `FOR UPDATE` de `Order` (medido por backend: forzada 0/10 verdes, suelta 2/10 verdes, N=10 c/u). Los dos cinturones se conservan; cada uno solo es redundante con el otro |
+| **SRF-7** | 251 | M3 sobre directo enviado: sin `shippedReason` ⇒ `422 required:['shipped_reason']`, **cero** filas `PaymentRefund`, **cero** llamadas a Stripe, sin bitácora; `'otro'` ⇒ `400`; válido ⇒ `refunded`, motivo + nota (= `reason`) + quién/cuándo, **no** «por revisar», piezas `shipped` sin movimiento, **un** `AV-3`; operador ⇒ `403` | ~~mover la comprobación después de `createRows`~~ (medido: **sobrevive**, el `422` dentro de la tx1 revierte la fila y Stripe va post-commit) ⇒ **v1.80.8.8:** quitar la comprobación `shipped ∧ shippedReason ausente ⇒ 422` (medido por backend: **rojo**). El orden «antes de `createRows`» sigue normado: es lo que hace que la tx1 no escriba nada que luego tenga que revertir |
+| **SRF-8** | 251/252 | M3 sobre directo con envío en `guia` sin motivo ⇒ conducta de hoy (envío `cancelado`, congeladas, `needsManual`; PS-57… verdes); con motivo ⇒ `409 …NOT_APPLICABLE` sin escribir; tras la tx1, `PATCH →enviado` ⇒ ~~un `409` (`CONFLICT` u `ORDER_NOT_SETTLED`, según qué guarda corte primero; la prueba fija el que mida)~~ **`409 CONFLICT`** (v1.80.8.8, (10).5) y ningún `AV-5` | ~~leer el estado del envío con el `findMany` filtrado `picking\|guia` (el de hoy)~~ (medido: **sobrevive** — su envío está en `guia` y entra al filtro; esa mutación la caza **SRF-10**) ⇒ **v1.80.8.8:** quitar de la tx1 la rama `¬shipped ∧ shippedReason presente ⇒ 409 NOT_APPLICABLE` (esperado rojo: el invariante de `onFullRefund` lanza y sale `500`, no `409`). ⚠️ **NO MEDIDA** — backend la mide y la reporta |
 | **SRF-9** | 252 ⭐ | **Carrera `PATCH →enviado` vs `charge.refunded` total** (directo `settled`, envío `guia` preparado), N ≥ 10 por orden forzado + N ≥ 10 suelta. Desenlaces admitidos, **exactamente** uno de: (A) enviado ganó ⇒ envío `enviado`, piezas `shipped`, `afterShipment=true`, por revisar, `needsManual` sin subir; (B) reembolso ganó ⇒ envío `cancelado`, piezas `picking` congeladas, `needsManual=true`, `afterShipment=false`, el `PATCH` recibe un `409` (`ORDER_NOT_SETTLED` o `CONFLICT`), cero `AV-5`. ⛔ Rojo cualquier mezcla (piezas `shipped` con `afterShipment=false`, o `cancelado` con `afterShipment=true`) | calcular `afterShipment` con la lectura previa al `FOR UPDATE` (esperado: rojo en el orden forzado «enviado confirma entre lectura y candado»; reportar proporción) |
 | **SRF-10** | 252 | **Carrera `PATCH →enviado` vs M3 tx1** (envío `guia`), N ≥ 10 por orden: (A) M3 primero ⇒ envío `cancelado`, `PATCH` 409; (B) enviado primero ⇒ M3 sin motivo `422` y **cero** llamadas a Stripe; con motivo ⇒ reembolsa y registra. ⛔ Nunca reembolso sin motivo de un pedido enviado | bloquear en tx1 solo envíos `picking\|guia` |
-| **SRF-11** | 249/252 | **Carrera `charge.refunded` (orden `pending`) vs `succeeded` tardío** (amplía SL-10), N ≥ 10 por orden: o `refunded` + piezas `listed` + `refund_release`, o `settled` y luego el camino liquidado. ⛔ Rojo: piezas `listed` con la orden `settled`, o envío creado para una orden `refunded` | liberar piezas **antes** de leer `status` bajo candado |
+| **SRF-11** | 249/252 | **Carrera `charge.refunded` (orden `pending`) vs `succeeded` tardío** (amplía SL-10), N ≥ 10 por orden: o `refunded` + piezas `listed` + `refund_release`, o `settled` y luego el camino liquidado. ⛔ Rojo: piezas `listed` con la orden `settled`, o envío creado para una orden `refunded`. 💰 **v1.80.8.8 — dos pruebas más, nombradas:** **SRF-11 «ventana»** (el settle confirma ENTERO entre la lectura de envíos y el `FOR UPDATE` de `Order`, espía en `lockReservedOfOrder`) ⇒ el envío nacido en la ventana termina `cancelado` y la orden nunca queda `refunded` con envío vivo; **SRF-11 «anomalía sembrada»** (orden `settled` con una pieza aún `reserved` por ella) ⇒ la pasada ⛔ no la libera | ~~liberar piezas **antes** de leer `status` bajo candado~~ (medido: las 5 carreras **sobreviven** — el settle saca las piezas de `reserved` en la misma tx que pone `settled` y el candado de piezas filtra `reserved`) ⇒ **v1.80.8.8:** esa mutación la caza **«anomalía sembrada»** (medido por backend: rojo en directo); quitar el paso 4-bis la caza **«ventana»** (medido por backend: 0/10 verdes, N=10) |
 | **SRF-12** | 252 | Barrido: orden `refunded` nunca liquidada con piezas `reserved` vencidas (estado previo al despliegue, sembrado) ⇒ una pasada las libera con `refund_release`, `closePaymentIntent` **no** se llama, **cero** `logger.error`; segunda pasada ⇒ nada. Carrera barrido vs webhook sobre la misma orden (N ≥ 10) ⇒ un movimiento por pieza, nunca dos | conservar la llamada a `closePaymentIntent` en esa rama |
-| **SRF-13** | 253 | Por ausencia: contracargo con envío enviado ⇒ `afterShipment` sin tocar, nada «por revisar» (P-S11-3); M3 total de bóveda con `already_withdrawn` ⇒ **no** pide `shipped_reason` (P-S11-4); M3 sobre `pending` ⇒ `400` como hoy; plantillas de correo: mismo conjunto que antes (censo); máquina de envíos: `TRANSITIONS` igual | añadir `shipped_reason` al camino de bóveda |
+| **SRF-13** | 253 | Por ausencia: contracargo con envío enviado ⇒ `afterShipment` sin tocar, nada «por revisar» (P-S11-3); M3 total de bóveda con `already_withdrawn` ⇒ **no** pide `shipped_reason` (P-S11-4); M3 sobre `pending` ⇒ ~~`400`~~ **`422 VALIDATION_ERROR {status:'pending'}`** como hoy (v1.80.8.8, (10).4; ⛔ la prueba fija el código HTTP exacto, no `400\|422`); plantillas de correo: mismo conjunto que antes (censo); máquina de envíos: `TRANSITIONS` igual | añadir `shipped_reason` al camino de bóveda |
 
 `C-FULLREF-1` (estático) gana: `opts.shippedReason` solo desde `requestFullRefund` (un segundo sitio ⇒ rojo) y
 `releaseReservedOfUnsettledRefund` solo desde `onFullRefund` y el barrido. Paridad de enums: líneas
@@ -22700,6 +22750,83 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 - **N-15 — DEFAULT registrado:** el `vault_operator` **ve** la marca «Por revisar», el filtro `?refundReview=pending`
   y el motivo registrado (solo lectura); **no** puede registrarlo (`@MoneyOut`, (6)). Es lo que ya dicen (7) y el
   guard. Ocultárselo sería cambio de pantalla y de proyección, por errata.
+
+**(10) v1.80.8.8 — lo que la construcción dejó al arquitecto (`BACKEND_NOTES` §17.2, §17.4, §17.5 de
+`claude/precios-s5`).** ⛔ Sin schema, verbo, enum ni código de error nuevos. Lecturas del arquitecto en el árbol vivo
+`claude/precios-s5`, 2026-10-04 (HEAD `352b849a` según el orquestador; ⛔ sha NO MEDIDO por el arquitecto).
+
+- **(10).1 — Paso 4-bis de la rama directo: ACEPTADO, y es la ÚNICA excepción al orden «envíos → piezas → `Order`».**
+  *Lo medido:* la rama directo toma envíos (1) → piezas → `Order` (`full-refund.service.ts:209-224`) y, **después**
+  del `FOR UPDATE` de `Order`, relee los envíos de la orden que no estaban en el primer candado, los bloquea y los
+  cierra con el mismo CAS (`:225-236`). En el camino normal la lista está vacía (una sola consulta extra). Solo se
+  llena cuando un `succeeded` tardío confirmó el settle **entero** entre (1) y el candado de `Order` (el settle crea
+  el envío `picking` bajo **su** candado de `Order`, `payments.service.ts:518`, y lo suelta al confirmar). Sin el
+  4-bis, la orden quedaba `refunded` con un envío vivo — el rojo de SRF-11 que backend encontró (§17.2 (2)).
+  - *Por qué el candado fuera de orden es aceptable y no se rediseña:* el estado bajo candado de `Order` en ese caso
+    es `settled` (el settle ya confirmó) ⇒ la pasada sigue el camino liquidado normal (envío cancelado, piezas
+    `picking` congeladas, `needsManual`) — el desenlace (B) de SRF-11, nunca «piezas a la venta y orden liquidada».
+    La alternativa (abortar y reintentar la pasada entera al detectar un envío nuevo) añade un bucle en un camino de
+    dinero para un caso de milisegundos, y el resultado sería el mismo.
+  - **Interbloqueo con `→enviado` (la pregunta), medido por lectura:** `updateStatus` toma el envío
+    (`shipments.service.ts:1219`) y, para `→guia|→enviado`, después `Order FOR UPDATE` (`assertCanAdvance`,
+    `shipment-prep.service.ts:815`, **antes** de la guarda de `preparedAt`, `:820`); `POST …/tracking` igual
+    (`shipments.service.ts:1433-1434`). Si un operador lanza uno de esos verbos sobre el envío **nacido en la ventana**
+    mientras la pasada sostiene `Order`, el ciclo envío↔`Order` existe ⇒ Postgres lo rompe con `40P01`. Quien muere
+    **no escribe nada** y sale `503` (filtro global, `all-exceptions.filter.ts:96`): si muere la pasada, Stripe
+    reentrega y la siguiente ve el envío en (1); si muere el `PATCH`, su reintento ve `cancelado` ⇒ `409 CONFLICT`.
+    Contra `→enviado` en concreto el ciclo **no es alcanzable** por la conducta: el envío nace `picking` sin
+    `preparedAt`, y `→enviado` exige `guia` (`TRANSITIONS`, `:1192-1198`, antes de la tx). Contra M3 tampoco: M3 exige
+    `settled` antes de su tx1, así que el envío ya existe en su paso (1) y la lista del 4-bis está vacía.
+    ⛔ **Sin prueba nueva exigida:** reproducirlo pide un tercer actor sobre un envío de milisegundos de vida y el
+    desenlace ya está cubierto por la clase `40P01 ⇒ 503 + reentrega` (SL-10). **NO MEDIDO** por prueba; si QA o
+    seguridad lo quieren medir, es caso nuevo (N ≥ 10, proporción de `40P01`).
+  - ⛔ **Regla para el siguiente:** ningún otro sitio gana un candado de envío después de `Order` por analogía con
+    este. Un segundo caso vuelve al arquitecto.
+
+- **(10).2 — `order.full_refund_closed` en la rama directo: ACEPTADA y DECLARADA.** Sin la fila, `afterShipment`,
+  `shippedReason` y `releasedItemIds` del directo no tendrían dónde vivir, y (2) ya los pedía. Se escribe **una vez**,
+  en la primera pasada (`sealedNow`), en la misma tx (`full-refund.service.ts:264-283`):
+  ```ts
+  { actorUserId, actorRole: null, action: 'order.full_refund_closed', entityType: 'Order', entityId: orderId,
+    after: { trigger, statusAtClose: OrderStatus, closedShipmentIds: string[], frozenItemIds: string[],
+             afterShipment: boolean, shippedReason: ShippedRefundReason | null, releasedItemIds: string[] } }
+  ```
+  La de bóveda conserva su forma (`trigger, returnedItemIds, untouched, placementCancelled, statusAtClose,
+  afterShipment:false, shippedReason:null, releasedItemIds`, `:516-536`). ⛔ Pasadas siguientes del directo: sin fila
+  (no hay nada nuevo que registrar; la bóveda escribe `order.vault_reclaimed` solo si reclama). Prueba: SRF-4 (rama
+  directo) asevera **una** fila con `after.afterShipment:true` y `after.shippedReason:null`, y su reentrega ×10 **cero**
+  filas nuevas — ⚠️ **NO MEDIDO** si la spec ya lo asevera: backend lo comprueba y, si falta, lo añade (mutación:
+  quitar el `auditLog.create` de la rama directo ⇒ rojo). La rama retiro sigue sin fila de `Order` (no toca `Order`, Q-1).
+
+- **(10).3 — `?refundReview=` en §0-Q:** fila añadida al registro del punto 4 (clase **L**, dominio `pending`). Backend
+  mueve el eje en `C-EQ-1` de `PENDIENTE-ARQUITECTO` a declarado (la conducta ya está construida: §17.1).
+
+- **(10).4 — M3 sobre una orden no `settled` ⇒ `422 VALIDATION_ERROR {status}`, y no `400`.** *Lo medido:*
+  `order-refund.service.ts:94-95` (`BusinessException.validation`, antes de la tx1, sin candado); bajo candado, un
+  estado que cambió ⇒ `409 CONFLICT` (`:132-133`). *Por qué gana el código:* el `400` de §0 es **entrada mal formada**;
+  el cuerpo aquí es válido y lo que falla es una **precondición de estado** del recurso, que este contrato expresa con
+  `422` (como `REFUND_CONFIRMATION_REQUIRED`). El `400` de SRF-13 era una errata de redacción mía: ninguna otra línea
+  del contrato lo norma. ⛔ La prueba fija `422` exacto (hoy acepta `400|422`). Mutación que debe ponerla roja: cambiar
+  `BusinessException.validation` por `badRequest` en esa guarda.
+
+- **(10).5 — SRF-8, `PATCH →enviado` tras la tx1 ⇒ `409 CONFLICT` es el contractual.** *Lo medido:* tras la tx1 el
+  envío es `cancelado`, y `updateStatus` rechaza `cancelado → enviado` por `TRANSITIONS` **antes** de abrir su tx y
+  antes de mirar la orden (`shipments.service.ts:1192-1198`) ⇒ determinista, no depende de qué guarda corte primero.
+  `ORDER_NOT_SETTLED` solo es alcanzable en la **carrera** (SRF-9 (B)), donde los dos `409` siguen admitidos.
+
+- **(10).6 — Mutaciones de SRF-6/7/8/11: el texto de (8) se corrige con lo que backend midió que muerde.** Ninguna
+  de las cuatro originales podía poner roja su prueba porque cada una quitaba un cinturón que la norma **duplica**
+  (`FOR UPDATE` + CAS en (6); tx1 con rollback en (4); estado bajo candado + filtro `reserved` del candado de piezas en
+  (3)). ⛔ **Los cinturones se conservan**; lo que cambia es qué mutación demuestra que la prueba muerde. SRF-8 gana
+  una mutación nueva **NO MEDIDA** (backend la mide); SRF-11 gana dos pruebas nombradas («ventana», «anomalía
+  sembrada»). Proporciones citadas: de backend (§17.4), N=10 c/u, ⛔ no re-medidas por el arquitecto.
+
+- **(10).7 — `FRONTEND_NOTES §84` desviaciones 1–8: ninguna toca contrato.** La 6 («Poner/Cambiar» por
+  `listPriceCents != null`) **es** la regla de §M1 «v1.80.8.7» punto 3 («el front distingue “a mano” por
+  `listPriceCents != null`»). La 7 (banner de §40.4 solo con `status==='refunded' ∧ settledAt===null`) **es** A-1 de
+  (9); la condición extra `afterShipment === false` de `DESIGN_SYSTEM §40.4` es **redundante**: una orden nunca
+  liquidada no tiene envío (medido (a)) ⇒ su `afterShipment` es siempre `false`. ux-ui puede quitarla; no hay nada que
+  construir. 1–5 y 8 son claves i18n, componentes y textos (ux-ui / frontend).
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 

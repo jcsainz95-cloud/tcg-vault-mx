@@ -21,6 +21,7 @@
 > | **v1.80.8.5** | 💰 Errata (2026-10-04, rama `claude/post-release-s5`; decisiones del dueño, `HECHOS.md` «Precios — decisiones del 2026-10-04» (a) y «Precios y reembolsos — respuestas a P-PRE-2…» (a)): en **VENTA**, la premium **ex / Double Rare** cuyo precio cae al piso **se publica al piso**; las demás premium siguen retenidas. El guardarraíl de venta pasa a ser el dial M10 **`premiumFloorSalePublish`** (`{mode:'all'|'none'|'only', rarities}`, **seed `{mode:'only', rarities:['Double Rare','Rare Holo EX']}`**, canónicas exactas de `rarity-catalog.ts:97`/`:112`), auditado y modificable sin código. `PROJECT §N.5-bis` / criterio 254. **COMPRA sin cambio** (constante `BUY_PREMIUM_FLOOR_POLICY = {mode:'none'}`). `PendingPriceReason` sin cambio; el barrido VQ gana una rama que cierra las `premium_at_floor` de VENTA cuya rareza el dial publica. Tacha §4.36.5 (a) VENTA, «Por qué funciona», tabla (b) fila VENTA y (c-bis) punto 6. Norma: `API_CONTRACT` rev v1.80.8.5, §M2 `M2-PF` | §4.36.5 (c-ter) | **Sí** (backend + control M10 en frontend + textos ux-ui) |
 > | **v1.80.8.6** | 💰 Errata (2026-10-04, rama `claude/precios-s5`; `HECHOS.md` 2026-10-02 «Cartas apartadas … (SSL-R1)», 2026-10-04 «Cartas apartadas (SSL-R1) — detalles» 4a/4b y «Precios y reembolsos — respuestas…» (b)(c); `PROJECT §S.11`, criterios 249–253): reembolso TOTAL «depende de si ya salió». Corte = envío propio en `enviado\|entregado` **leído bajo candado** y congelado en `Order.fullRefundAfterShipment` con el sello. Orden nunca liquidada ⇒ sus piezas `reserved` vuelven a la venta en la misma tx (`refund_release`) y el barrido limpia las anteriores ⇒ **cierra `SSL-R1`**. Enviado ⇒ cartas quietas y motivo cerrado `ShippedRefundReason`: en M3 obligatorio antes de Stripe; por Stripe, «reembolso por revisar» (predicado derivado, ⛔ no `OrderStatus`) + verbo `shipped-refund-reason` + `workQueue.refundReviews`. **Migración `M-62`**. Tacha §4.57 (v) fila «Piezas `reserved` … Sin cambio». Norma: `API_CONTRACT` rev v1.80.8.6, §M4-SHIP.18.12 | §4.57 (w), §11 `M-62` | **Sí** (backend + frontend M3/tablero + textos ux-ui) · 🔒 seguridad |
 > | **v1.80.8.7** | Errata (2026-10-04, rama `claude/precios-s5`, sobre `f0dac0a6`; responde a `DESIGN_SYSTEM §39.6` S-1…S-5 (v4.11) y §40.12 A-1/A-2 (v4.12); `PROJECT §N.5-bis (b)`, criterio 255). **S-3:** todo `PATCH /admin/inventory/items/:id` que cambie `status` o `listPriceCents` escribe `inventory.item_updated` con `before/after {status, listPriceCents}` y el actor, **en la misma tx**, en los dos caminos, con el precio leído dentro del CAS (`409 CONFLICT` si cambió) — hoy un cambio de solo precio no deja antes/después (`D-SFP-1`). **S-1:** `PendingPublishRowDTO.pendingReason` (veredicto de hoy de la derivación, ⛔ no la fila de la cola). **S-2:** el listado de M1 trae `resolvedSalePriceCents`/`priceBasis` solo para sellado de plataforma `in_stock\|listed`. **S-4:** sin caché del dial (medido). **S-5:** forma `details.errors` del `422` de settings (medida). **A-1:** `AdminOrderDetailDTO.settledAt: string \| null` (ya emitido). **A-2:** el `409 …ALREADY_SET` no gana `recordedBy`. Defaults registrados: N-11 (operador + súper-admin), Q-1, N-14, N-15; Q-2 medido (no es `SSL-R1`). **Fuera:** N-12 (`listPriceCents:null`, `D-SFP-2`). ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.8.7, §M1 `M1-SFP`, §M4-SHIP.18.12 (9) | §4.36.5 (c-quater), §4.57 (w), §9 | **Sí** (backend + tipos/pantallas frontend + un texto ux-ui) |
+> | **v1.80.8.8** | Errata (2026-10-04, rama `claude/precios-s5`, sobre `352b849a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES` §17.2/§17.4/§17.5/§18, PR #68, `FRONTEND_NOTES §84`). **Aceptado y normado lo construido:** paso **4-bis** de SRF-11 (candado de envío **después** de `Order`, única excepción al orden de candados, interbloqueo solo vía `40P01 ⇒ 503`/reentrega); fila `order.full_refund_closed` en la rama directo (forma declarada); `?refundReview=` en §0-Q (clase L); M3 sobre no `settled` ⇒ **`422`** (el `400` de SRF-13 era errata); SRF-8 ⇒ `409 CONFLICT`; mutaciones de SRF-6/7/8/11 sustituidas por las que muerden (SRF-8: una nueva NO MEDIDA); SFP-7 sin `updatedAt`; PS-51 admite `IN_PROGRESS` **o** `NOT_RETRYABLE` (clasificación por el estado releído). **Endurecido:** el CAS publicante del `PATCH` de M1 condiciona el `status` leído exacto (un `200` de carrera pasa a `409 CONFLICT`), prueba **SFP-10**. `D-SFP-1` cerrada (reportado por backend). ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.8.8, §M4-SHIP.18.12 (10), §M4-SHIP.17.6, §M1 `M1-SFP`, §0-Q | §4.36.5 (c-quater), §4.57 (w), §9 | **Sí** (backend: una condición en `claimListed` + pruebas SFP-10, SRF-13, SRF-8, SRF-4, PS-51, `C-EQ-1`) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -14835,7 +14836,18 @@ Origen: `PROJECT §N.5-bis (b)`, criterio 255; solicitudes S-1…S-5 de `DESIGN_
 | **A-2** quién en el `409` | No se añade | `details.recordedBy` | Una sola fuente del «quién» (`FullRefundReviewDTO.recordedBy`), que la pantalla relee tras el `409` |
 
 **Invariante que queda escrito:** *ningún cambio de `status` o `listPriceCents` por el `PATCH` de M1 se confirma sin su
-fila `inventory.item_updated` con el valor realmente sustituido y el valor escrito* (SFP-1, SFP-2, SFP-3, SFP-5).
+fila `inventory.item_updated` con el valor realmente sustituido y el valor escrito* (SFP-1, SFP-2, SFP-3, SFP-5;
+**v1.80.8.8:** + SFP-10).
+
+**v1.80.8.8 — el `status` del «antes» en el camino publicante.** Backend construyó el CAS publicante con `status ∈
+{in_stock, listed}` + precio leído (como decía el contrato) y señaló el residual: un lote que publica la pieza
+`in_stock → listed` sin tocar el precio entre la lectura y el CAS deja `before.status:'in_stock'` falso
+(`BACKEND_NOTES` §18). Decisión: **se endurece** — el CAS auditado condiciona el `status` leído exacto.
+
+| Opción | Qué pasa | Por qué sí / no |
+|---|---|---|
+| **Endurecer (elegida)** | Ese `200` de ventana pasa a `409 CONFLICT`; el operador relee y repite | El invariante de arriba dice «valor **realmente** sustituido» y vale para las dos claves; una fila de auditoría que atribuye al operador una transición que hizo un lote no sirve de evidencia del criterio 255. Coste: una condición; `409` ya existe y la pantalla ya lo trata (`DESIGN_SYSTEM §39.2 (f)`). Los lotes no cambian |
+| Aceptar y documentar | `before.status` = «lo leído», puede no ser lo sustituido | El precio sí es exacto y el lote no escribe `inventory.item_updated`, así que la cadena de **precio** cuadra; pero la de `status` no, y habría que explicar en cada lectura de la bitácora que el «antes» de `status` es aproximado |
 **Lo que NO cubre:** los otros escritores de `listPriceCents` (precio por línea de `bulk-publish`, alta) — no son la
 captura del criterio 255; ⛔ NO MEDIDO si la pantalla los usa para sellado.
 
@@ -26882,6 +26894,26 @@ bloquean `picking|guia`; para decidir «enviado» hay que leer el estado **despu
 pone a la venta una carta de un pedido cuyo envío ya salió; entre «marcar enviado» y el reembolso, el resultado es
 **uno** de los dos casos completo (SRF-9, SRF-10, N ≥ 10).
 
+**v1.80.8.8 — lo que la construcción trajo de vuelta (`API_CONTRACT §M4-SHIP.18.12 (10)`).**
+- **Orden de candados: una excepción, acotada y con nombre.** El orden de la pasada sigue siendo envíos → piezas →
+  `Order`. El **paso 4-bis** (rama directo, `full-refund.service.ts:225-236`) bloquea, **después** de `Order`, solo los
+  envíos que nacieron entre la primera lectura y ese candado — el settle de un `succeeded` tardío que confirmó entero
+  en la ventana. Se acepta porque: (i) en el camino normal la lista está vacía; (ii) cuando no lo está, el estado bajo
+  candado es `settled` y la pasada sigue el camino liquidado — el desenlace (B) de SRF-11; (iii) el único ciclo posible
+  es contra un verbo envío → `Order` (`→guia`/`tracking`, `shipment-prep.service.ts:815`) sobre un envío de
+  milisegundos de vida, y se resuelve en la clase ya aceptada `40P01 ⇒ 503` + reentrega (SL-10), sin escritura del que
+  muere. `→enviado` no es alcanzable sobre ese envío (nace `picking` sin preparar; `TRANSITIONS` lo corta antes de la
+  tx). ⛔ No sienta precedente: otro candado fuera de orden vuelve al arquitecto.
+- **Bitácora:** el directo gana `order.full_refund_closed` en la primera pasada (antes solo la bóveda), con
+  `afterShipment`, `shippedReason`, `releasedItemIds` además de `trigger, statusAtClose, closedShipmentIds,
+  frozenItemIds`. Una fila por cierre en las dos ramas de orden.
+- **Cinturones dobles, mutación que muerde:** SRF-6 (`FOR UPDATE` + CAS), SRF-7 (tx1 con rollback + comprobación
+  antes de `createRows`) y SRF-11 (estado bajo candado + filtro `reserved`) tienen dos defensas cada uno; se conservan
+  ambas y el contrato nombra la mutación que quita **la suficiente** para que la prueba muerda (medido por backend,
+  `BACKEND_NOTES` §17.4). Lección para el diseño de pruebas: *una mutación que quita un cinturón duplicado mide la
+  redundancia, no la prueba.*
+- **M3 sobre no `settled`:** `422 VALIDATION_ERROR {status}` (precondición de estado), no `400` (entrada mal formada).
+
 **Preguntas (⛔ no bloquean la construcción; default aplicado entre paréntesis):**
 > **v1.80.8.7 — cerradas.** Q-1: el default se registra como norma (sin motivo, sin «por revisar»; medido que la rama
 > retiro no toca `Order`, `full-refund.service.ts:103-107`). Q-2: **medido — no es `SSL-R1`**: el contracargo libera
@@ -27671,6 +27703,11 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **v1.80.8.8 — `D-SFP-1` CERRADA (reportado por backend, `BACKEND_NOTES` §18, medido por él el 2026-10-04 sobre
+> `64ce47bb`: SFP-1…SFP-6 verdes con sus mutaciones, SFP-5 N=10 forzada + N=10 suelta en los dos caminos; ⛔ no
+> re-medido por el arquitecto).** Queda abierto, por errata v1.80.8.8 y no como desviación: el CAS publicante con el
+> `status` leído exacto (SFP-10), que backend construye.
+>
 > **v1.80.8.7 — `D-SFP-1` (abierta, backend; medida 2026-10-04 por lectura en el árbol vivo `claude/precios-s5`, ⛔ sha
 > NO MEDIDO):** el `PATCH /admin/inventory/items/:id` no deja antes/después de un cambio de **solo precio** (la
 > bitácora `inventory.item_updated` va solo `if (statusChanges)`, `inventory.service.ts:2517-2529`; el comentario
