@@ -501,8 +501,15 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
     expect(h.stripe.refundCreateCalls.length - c).toBe(0);
   });
 
-  it(`PS-51 💰 — dos \`retry\` simultáneos con la llave expirada (barrera en la fila del libro, N=${N}) ⇒ exactamente UNA llamada a Stripe; el otro 409 REFUND_ATTEMPT_IN_PROGRESS`, async () => {
+  // 💰 v1.80.8.8 (§M4-SHIP.17.6 paso 0, fila PS-51): con `count 0` el perdedor relee la fila y se clasifica por el
+  // estado RELEÍDO ⇒ dos `409` correctos: `REFUND_ATTEMPT_IN_PROGRESS` (releyó `requested`: el ganador sigue con
+  // Stripe) o `REFUND_NOT_RETRYABLE {status ≠ 'requested'}` (releyó con el ganador ya terminado). ⛔ Rojo: un `2xx`
+  // del perdedor, cualquier otro código, o `NOT_RETRYABLE` con `status:'requested'`. El candado de DINERO sigue siendo
+  // la cuenta de `refunds.create` (exactamente una por tirada), no el nombre del `409`. Se reporta la proporción de
+  // cada `409` sobre N.
+  it(`PS-51 💰 — dos \`retry\` simultáneos con la llave expirada (barrera en la fila del libro, N=${N}) ⇒ exactamente UNA llamada a Stripe; el otro 409 REFUND_ATTEMPT_IN_PROGRESS o REFUND_NOT_RETRYABLE {status ≠ requested}`, async () => {
     const outcomes: string[] = [];
+    const perdedor: Record<string, number> = {};
     for (let t = 0; t < N; t += 1) {
       const d = await db.mkDirect();
       await db.mark(d.shipment.id, d.lines[0].id, { status: 'picked' });
@@ -521,10 +528,21 @@ describe('§M4-SHIP — cubeta ENVÍO: palomear, preparar, reembolsar la carta q
       );
       h.stripe.refundDelayMs = 0;
       const creates = h.stripe.refundCreateCalls.length - c;
-      const one200 = [a, b].filter((r) => r.status === 200).length === 1;
-      const one409 = [a, b].some((r) => r.status === 409 && r.body.error.code === 'REFUND_ATTEMPT_IN_PROGRESS');
-      outcomes.push(`${creates === 1 && one200 && one409 ? 'OK' : 'BAD'}(${code(a)},${code(b)},create=${creates})`);
+      const ganadores = [a, b].filter((r) => r.status >= 200 && r.status < 300);
+      const one200 = ganadores.length === 1 && ganadores[0].status === 200;
+      const loser = one200 ? (a === ganadores[0] ? b : a) : null;
+      let clase = 'otro';
+      if (loser && loser.status === 409) {
+        const e = loser.body?.error;
+        if (e?.code === 'REFUND_ATTEMPT_IN_PROGRESS' && typeof e.details?.attemptStartedAt === 'string') clase = 'IN_PROGRESS';
+        else if (e?.code === 'REFUND_NOT_RETRYABLE' && typeof e.details?.status === 'string' && e.details.status !== 'requested')
+          clase = `NOT_RETRYABLE:${e.details.status}`;
+      }
+      perdedor[clase] = (perdedor[clase] ?? 0) + 1;
+      outcomes.push(`${creates === 1 && one200 && clase !== 'otro' ? 'OK' : 'BAD'}(${code(a)},${code(b)},perdedor=${clase},create=${creates})`);
     }
+    // eslint-disable-next-line no-console
+    console.log(`[PS-RACE PS-51 perdedor] N=${N} · ${Object.entries(perdedor).map(([k, v]) => `${k} ${v}/${N}`).join(' · ')}`);
     expect(report('PS-51', outcomes, (o) => o.startsWith('OK'))).toBe(N);
   });
 

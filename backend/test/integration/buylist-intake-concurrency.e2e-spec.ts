@@ -93,6 +93,8 @@ describe('§6 / SEC-A2 — altas simultáneas de buylist: cero `5xx`', () => {
   const creadas: string[] = [];
   /** El tope mensual que había ANTES, para devolverlo tal cual. */
   let capPrevio: { habia: boolean; valor: number | null } | null = null;
+  /** La CLABE de archivo que había ANTES (la suite escribe `CLABE_B`), para devolverla tal cual. */
+  let clabePrevia: { clabeEnc: string | null; clabeHmac: string | null } = { clabeEnc: null, clabeHmac: null };
 
   beforeAll(async () => {
     h = await E2EHarness.create();
@@ -122,13 +124,20 @@ describe('§6 / SEC-A2 — altas simultáneas de buylist: cero `5xx`', () => {
     // motivo por el que la transacción es `SERIALIZABLE`—: solo se le da cabecera a esta suite.
     const kyc = await h.prisma.kycProfile.findUnique({
       where: { userId },
-      select: { capPerMonthCentsOverride: true },
+      select: { capPerMonthCentsOverride: true, clabeEnc: true, clabeHmac: true },
     });
     capPrevio = { habia: kyc !== null, valor: kyc?.capPerMonthCentsOverride ?? null };
+    clabePrevia = { clabeEnc: kyc?.clabeEnc ?? null, clabeHmac: kyc?.clabeHmac ?? null };
+    // ⭐ La CLABE de archivo, PRESTADA igual que el tope (medido 2026-10-04, `tcg_orq_b8`): si otra suite dejó a
+    // `customer2` con OTRA CLABE en su KYC (`kyc-ine-links` K-7 escribía `…599` y no la retiraba), las altas de esta
+    // suite —que traen `CLABE_B`— contestan `422 CLABE_NOT_OWN_NAME` ANTES de abrir la transacción, ninguna llega al
+    // `INSERT "SellRequestItem"` y la barrera revienta por tiempo. Era la causa de «roja 3/3 en una BD, verde en
+    // otras»: dependía de qué suites habían corrido antes y de si una `seedE2E` había limpiado la KYC en medio.
+    // ⛔ La comprobación de CLABE propia no se desactiva: se parte de «sin CLABE en archivo», el estado del fixture.
     await h.prisma.kycProfile.upsert({
       where: { userId },
       create: { userId, capPerMonthCentsOverride: CAP_SUITE_CENTS },
-      update: { capPerMonthCentsOverride: CAP_SUITE_CENTS },
+      update: { capPerMonthCentsOverride: CAP_SUITE_CENTS, clabeEnc: null, clabeHmac: null },
     });
 
     // El helper avisa con `logger.warn('serializable-retry …')` en CADA reintento. Espiarlo es la
@@ -153,7 +162,7 @@ describe('§6 / SEC-A2 — altas simultáneas de buylist: cero `5xx`', () => {
     if (capPrevio?.habia) {
       await h.prisma.kycProfile.update({
         where: { userId },
-        data: { capPerMonthCentsOverride: capPrevio.valor },
+        data: { capPerMonthCentsOverride: capPrevio.valor, ...clabePrevia },
       });
     } else if (capPrevio) {
       await h.prisma.kycProfile.deleteMany({ where: { userId } });
@@ -189,11 +198,21 @@ describe('§6 / SEC-A2 — altas simultáneas de buylist: cero `5xx`', () => {
       { timeout: 30000, maxWait: 30000 },
     );
     await candadoPuesto.promesa;
-    const peticiones = Array.from({ length: CONC }, () => alta());
+    // Las que contestan ANTES de bloquearse se anotan: si la barrera no llega, el error dice POR QUÉ (un alta que
+    // responde `4xx` sin llegar a la transacción no es «la operación dejó de pedir el candado»).
+    const tempranas: string[] = [];
+    const peticiones = Array.from({ length: CONC }, () =>
+      alta().then((r) => {
+        tempranas.push(`${r.status} ${JSON.stringify(r.body)?.slice(0, 200)}`);
+        return r;
+      }),
+    );
     try {
       // ⛔ No es un `sleep`: si el alta dejara de escribir `SellRequestItem` dentro de la
       // transacción (o dejara de referenciar `Card`), esto REVIENTA en vez de medir en falso.
       await esperarBloqueoDeFila(h.prisma, 'SellRequestItem', CONC);
+    } catch (e) {
+      throw new Error(`${(e as Error).message}\nRespuestas ya recibidas antes de soltar: ${JSON.stringify(tempranas)}`);
     } finally {
       todasBloqueadas.abrir();
       await tx;

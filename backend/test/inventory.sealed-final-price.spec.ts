@@ -552,6 +552,42 @@ describe('SFP-5 (unitaria, determinista) — el precio leído entra al CAS en lo
 });
 
 // =============================================================================================
+describe('SFP-10 (unitaria, determinista; v1.80.8.8) — el `status` LEÍDO entra exacto al CAS publicante', () => {
+  it('un lote publica `in_stock → listed` (sin tocar el precio) entre la lectura y el CAS ⇒ 409 CONFLICT, sin fila', async () => {
+    const { svc, prisma, rows, itemUpdated } = build([row({ id: 'a', listPriceCents: 90000 })]);
+    const real = prisma.inventoryItem.findUnique.getMockImplementation();
+    prisma.inventoryItem.findUnique.mockImplementation(async (args: any) => {
+      const r = await real(args);
+      // La lectura del `PATCH` ya ocurrió (`in_stock`); el lote (`publish-all`) publica SIN precio de línea.
+      if (args.include?.card && !args.include?.movements) rows[0].status = 'listed';
+      return r;
+    });
+    const e = await err(
+      svc.updateItem('a', { listPriceCents: 125000, status: 'listed' } as UpdateItemDto, OPERATOR),
+    );
+    expect(e.getStatus()).toBe(409);
+    expect(e.code).toBe('CONFLICT');
+    // La pieza queda como la dejó el lote: `listed` con SU precio; ⛔ ninguna fila que diga `before.status:'in_stock'`.
+    expect(rows[0]).toMatchObject({ status: 'listed', listPriceCents: 90000 });
+    expect(itemUpdated()).toEqual([]);
+  });
+
+  // (Una pieza ya `listed` con `{status:'listed'}` no cambia de status ⇒ va por el camino NO publicante, que ya
+  // condicionaba el leído en `guardedItemUpdate`. El publicante siempre parte de `in_stock`.)
+  it('forma del CAS auditado: `status` = el leído (`in_stock`) exacto, ⛔ no el conjunto publicable', async () => {
+    const { svc, tx } = build([row({ id: 'a', listPriceCents: 90000 })]);
+    await svc.updateItem('a', { listPriceCents: 125000, status: 'listed' } as UpdateItemDto, OPERATOR);
+    expect(tx.inventoryItem.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.inventoryItem.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'a',
+      ownerType: 'platform',
+      status: 'in_stock',
+      listPriceCents: 90000,
+    });
+  });
+});
+
+// =============================================================================================
 describe('SFP-6 — estático: el objeto antes/después se arma en UN sitio y lo llaman los dos caminos', () => {
   const dir = join(__dirname, '../src/modules/inventory');
   const files = (d: string): string[] =>

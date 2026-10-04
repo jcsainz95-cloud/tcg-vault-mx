@@ -2112,8 +2112,13 @@ export class InventoryService {
       where: {
         id: item.id,
         ownerType: 'platform',
-        status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
-        ...(audited ? { listPriceCents: audited.read.listPriceCents } : {}),
+        // 💰 v1.80.8.8 (`M1-SFP` punto 1, SFP-10): el `PATCH` auditado condiciona el `status` LEÍDO exacto, no el
+        // conjunto. Con el conjunto, un lote que publica `in_stock → listed` sin tocar el precio entre la lectura y
+        // este CAS dejaba una fila `before.status:'in_stock'` falsa (lo sustituido era `listed`) ⇒ ahora `count 0` y
+        // la relectura de abajo da `409 CONFLICT`. Los lotes (sin `audited`) siguen con el conjunto.
+        ...(audited
+          ? { status: audited.read.status, listPriceCents: audited.read.listPriceCents }
+          : { status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] } }),
       },
       data: {
         ...fields,
@@ -2123,8 +2128,9 @@ export class InventoryService {
     });
     if (claimed.count !== 1) {
       if (audited) {
-        // Relee en la MISMA tx: si sigue siendo de plataforma y publicable, lo único que cambió es el precio
-        // ⇒ `409 CONFLICT` («la pieza cambió mientras la editabas»). Si no, manda el status RELEÍDO (el
+        // Relee en la MISMA tx: si sigue siendo de plataforma y publicable, lo que cambió es el precio o el
+        // `status` dentro del conjunto (un lote la publicó, v1.80.8.8) ⇒ `409 CONFLICT` («la pieza cambió
+        // mientras la editabas»). Si no, manda el status RELEÍDO (el
         // verdadero), no el leído antes del CAS.
         const now = await audited.tx.inventoryItem.findUnique({
           where: { id: item.id },

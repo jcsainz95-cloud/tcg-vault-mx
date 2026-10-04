@@ -440,9 +440,11 @@ describe('⚠️⚠️ (4) el bypass del PATCH, CERRADO', () => {
     const res: any = await svc.updateItem('a', { status: 'listed' } as UpdateItemDto);
     expect(res.status).toBe('listed');
     expect(rows[0].status).toBe('listed');
+    // 💰 v1.80.8.8 (SFP-10): el CAS del `PATCH` condiciona el `status` LEÍDO exacto (`in_stock`), más estricto que
+    // el conjunto publicable `{in_stock, listed}` de antes ⇒ la guarda anti-double-sell sigue excluyendo `reserved`.
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ status: { in: ['in_stock', 'listed'] } }),
+        where: expect.objectContaining({ status: 'in_stock' }),
       }),
     );
   });

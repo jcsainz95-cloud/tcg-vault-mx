@@ -88,6 +88,7 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
   let operatorToken: string;
   let customerToken: string;
   let userId: string;
+  let clabePrevia: { clabeEnc: string | null; clabeHmac: string | null } = { clabeEnc: null, clabeHmac: null };
 
   beforeAll(async () => {
     h = await E2EHarness.create();
@@ -96,6 +97,12 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
     customerToken = await h.login(E2E_USERS.customer2.email, E2E_USERS.customer2.password);
     const u = await h.prisma.user.findUnique({ where: { email: E2E_USERS.customer2.email } });
     userId = u!.id;
+    // La CLABE de archivo ANTES de esta suite (K-7 escribe otra): se devuelve tal cual en el `afterAll`.
+    const k = await h.prisma.kycProfile.findUnique({
+      where: { userId },
+      select: { clabeEnc: true, clabeHmac: true },
+    });
+    clabePrevia = { clabeEnc: k?.clabeEnc ?? null, clabeHmac: k?.clabeHmac ?? null };
   });
 
   afterAll(async () => {
@@ -112,6 +119,11 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
           reviewedBy: null,
           verifiedAt: null,
           verifiedBy: null,
+          // …y la CLABE de archivo como estaba. Sin esto, la `…599` de K-7 se quedaba en `customer2` y la
+          // siguiente suite que le da de alta una solicitud con su propia CLABE recibía `422 CLABE_NOT_OWN_NAME`
+          // (medido 2026-10-04: `buylist-intake-concurrency` roja cada vez que corría después de ésta).
+          clabeEnc: clabePrevia.clabeEnc,
+          clabeHmac: clabePrevia.clabeHmac,
         },
       });
       await h.prisma.auditLog.deleteMany({ where: { action: 'user.kyc.reveal_ine', entityId: userId } });

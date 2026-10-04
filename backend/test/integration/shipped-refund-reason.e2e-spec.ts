@@ -16,10 +16,12 @@
  *  SRF-8  M3 sobre directo en `guia`: conducta de hoy; con motivo ⇒ 409; `→enviado` después ⇒ 409, sin AV-5.
  *  SRF-9  ⭐ carrera `PATCH →enviado` vs `charge.refunded` (N ≥ 10 por orden forzado + N ≥ 10 suelta).
  *  SRF-10 carrera `PATCH →enviado` vs M3 tx1 (N ≥ 10 por orden forzado + N ≥ 10 suelta).
- *  SRF-11 carrera `charge.refunded` (pending) vs `succeeded` tardío (N ≥ 10 por orden, + la ventana del envío).
+ *  SRF-11 carrera `charge.refunded` (pending) vs `succeeded` tardío (N ≥ 10 por orden), y las dos pruebas nombradas
+ *         por v1.80.8.8 (10).6: SRF-11 «ventana» (mutación: quitar el paso 4-bis) y SRF-11 «anomalía sembrada»
+ *         (mutación: liberar antes de leer el estado bajo candado).
  *  SRF-12 barrido: orden `refunded` sin liquidar (estado previo al despliegue) ⇒ libera sin `closePaymentIntent`,
  *         sin `logger.error`; segunda pasada nada; carrera barrido vs webhook (N ≥ 10).
- *  SRF-13 por ausencia: contracargo, bóveda `already_withdrawn`, M3 sobre `pending`.
+ *  SRF-13 por ausencia: contracargo, bóveda `already_withdrawn`, M3 sobre `pending` (⇒ `422` exacto, v1.80.8.8).
  *  A-1    `settledAt: string | null` en el detalle admin (siempre presente).
  *
  * Carreras: barrera de FILA (`ShipPrepDb.holdRow` + `forced`): una tirada sin entrelazado observado ⇒ `INVALIDA`
@@ -292,9 +294,22 @@ describe('💰 §M4-SHIP.18.12 — reembolso TOTAL «depende de si ya salió» (
       expect(det.body.fullRefundReview).toMatchObject({ afterShipment: true, pending: true, reason: null, note: null, recordedAt: null, recordedBy: null });
       expect(det.body.shipmentShipped).toBe(true);
       expect(av3()).toHaveLength(1);
+      // 💰 v1.80.8.8 (10).2 — la rama directo escribe UNA fila `order.full_refund_closed` con la forma declarada EXACTA
+      // (las siete claves). Mutación que la pone roja: quitar el `auditLog.create` de la rama directo.
       const log = await db.audits(d.order.id, 'order.full_refund_closed');
       expect(log).toHaveLength(1);
-      expect(log[0].after).toMatchObject({ afterShipment: true, shippedReason: null, releasedItemIds: [] });
+      expect([log[0].entityType, log[0].actorRole]).toEqual(['Order', null]);
+      expect(Object.keys(log[0].after as object).sort()).toEqual(
+        ['afterShipment', 'closedShipmentIds', 'frozenItemIds', 'releasedItemIds', 'shippedReason', 'statusAtClose', 'trigger'],
+      );
+      expect(log[0].after).toMatchObject({
+        statusAtClose: 'settled',
+        closedShipmentIds: [],
+        frozenItemIds: [],
+        afterShipment: true,
+        shippedReason: null,
+        releasedItemIds: [],
+      });
       // reentrega ×10 (eventos distintos: cada uno CORRE la pasada) ⇒ nada cambia.
       for (let i = 0; i < N; i += 1) expect((await db.chargeRefunded(d.pi, d.order.totalCents)).status).toBe(200);
       const o2 = await db.order(d.order.id);
@@ -662,7 +677,7 @@ describe('💰 §M4-SHIP.18.12 — reembolso TOTAL «depende de si ya salió» (
     });
 
     it.each<[Mode]>([['direct_ship'], ['vault']])(
-      '%s LIQUIDADA con una pieza aún `reserved` por ella (anomalía sembrada) ⇒ el reembolso total NO la libera: la decisión es del estado BAJO candado, no de la pieza',
+      'SRF-11 «anomalía sembrada» — %s LIQUIDADA con una pieza aún `reserved` por ella ⇒ el reembolso total NO la libera: la decisión es del estado BAJO candado, no de la pieza',
       async (mode) => {
         const o = await mkPending(mode, 1);
         // Liquidada (fuera del settle, a propósito): la pieza se queda `reserved` por la orden — el único estado en que
@@ -675,7 +690,7 @@ describe('💰 §M4-SHIP.18.12 — reembolso TOTAL «depende de si ya salió» (
       },
     );
 
-    it(`direct_ship — la VENTANA: el settle confirma ENTERO entre la lectura de envíos del reembolso y su candado de piezas (N=${N}) ⇒ el envío creado se cierra`, async () => {
+    it(`SRF-11 «ventana» — direct_ship: el settle confirma ENTERO entre la lectura de envíos del reembolso y su candado de piezas (N=${N}) ⇒ el envío creado se cierra`, async () => {
       const out: string[] = [];
       for (let t = 0; t < N; t += 1) {
         const o = await mkPending('direct_ship', 2);
@@ -816,12 +831,12 @@ describe('💰 §M4-SHIP.18.12 — reembolso TOTAL «depende de si ya salió» (
       expect([o.status, o.fullRefundAfterShipment, o.shippedRefundReason]).toEqual(['refunded', false, null]);
     });
 
-    it('M3 sobre una orden `pending` ⇒ el rechazo de hoy, sin escribir', async () => {
+    it('M3 sobre una orden `pending` ⇒ 422 VALIDATION_ERROR {status} exacto (v1.80.8.8 (10).4), sin escribir', async () => {
       const o = await mkPending('direct_ship', 1);
       const r = await db.m3Refund(o.order.id, { reason: 'x', shippedReason: 'not_arrived' });
-      expect(r.body.error.code).toBe('VALIDATION_ERROR');
-      expect(r.body.error.details).toEqual({ status: 'pending' });
-      expect([400, 422]).toContain(r.status);
+      // ⛔ El código HTTP EXACTO, no `400|422`: es una precondición de estado (422), no entrada mal formada (400).
+      // Mutación que la pone roja: `BusinessException.validation` → `badRequest` en esa guarda.
+      expect([r.status, r.body.error.code, r.body.error.details]).toEqual([422, 'VALIDATION_ERROR', { status: 'pending' }]);
       expect((await db.order(o.order.id)).status).toBe('pending');
       expect(await db.refunds({ orderId: o.order.id })).toHaveLength(0);
     });

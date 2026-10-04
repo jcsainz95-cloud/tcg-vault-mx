@@ -224,12 +224,13 @@ describe('InventoryService.updateItem — gradeada (certNumber)', () => {
     expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledTimes(1);
     // ⭐ v1.80.8.7 (`M1-SFP` punto 1) — forma nueva del CAS publicante del `PATCH`: condiciona ADEMÁS al
-    // `listPriceCents` LEÍDO (el «antes» de su bitácora es exacto o `409`).
+    // `listPriceCents` LEÍDO (el «antes» de su bitácora es exacto o `409`). 💰 v1.80.8.8 (SFP-10): y el `status`
+    // LEÍDO exacto, no el conjunto `{in_stock, listed}`.
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith({
       where: {
         id: 'inv-10',
         ownerType: 'platform',
-        status: { in: ['in_stock', 'listed'] },
+        status: gradedInStock.status,
         listPriceCents: gradedInStock.listPriceCents,
       },
       data: { certNumber: 'PSA-99999999', status: 'listed' },

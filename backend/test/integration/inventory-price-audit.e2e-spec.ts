@@ -15,6 +15,10 @@
  * - SFP-7: `pendingReason` en «Listas para publicar».
  * - SFP-8: `resolvedSalePriceCents`/`priceBasis` en el listado de M1, solo sellado de plataforma.
  * - SFP-9: el dial rige desde la siguiente petición (sin caché) y la forma del `422` del `PUT`.
+ * - SFP-10 ⭐ (v1.80.8.8): «el lote publica en la ventana». Un `publish-all` REAL publica la pieza `in_stock → listed`
+ *   (sin precio de línea) entre la lectura del `PATCH` publicante y su CAS ⇒ el `PATCH` recibe `409 CONFLICT` y no deja
+ *   fila. Forzada con candado de fila (el lote se encola PRIMERO en la cola FIFO del candado, el `PATCH` detrás) y
+ *   suelta, con proporción. El oráculo del «antes real» es un TRIGGER que anota cada `UPDATE` de la pieza en la BD.
  *
  * ⚠️ El dial `premium_floor_sale_publish` es fila COMPARTIDA de `ConfigSetting`: se guarda y se restaura.
  */
@@ -46,6 +50,9 @@ const CARDS: Record<Slug, { rarity: string; n: string }> = {
   graded: { rarity: 'Rare', n: '7' },
 };
 const cardId = (s: Slug) => `${PREFIX}${s}`;
+/** SFP-10: set y carta PROPIOS ⇒ el `publish-all` filtrado por `setId` solo ve las piezas de SFP-10. */
+const SFP10_SET = 'e2e-sfp10-set';
+const SFP10_CARD = `${PREFIX}sfp10`;
 
 describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola, precio derivado (v1.80.8.7)', () => {
   let h: E2EHarness;
@@ -59,7 +66,7 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
   let seq = 0;
 
   async function cleanup() {
-    const ids = Object.keys(CARDS).map((s) => cardId(s as Slug));
+    const ids = [...Object.keys(CARDS).map((s) => cardId(s as Slug)), SFP10_CARD];
     const its = await h.prisma.inventoryItem.findMany({
       where: { cardId: { in: ids } },
       select: { id: true },
@@ -72,8 +79,8 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
     await h.prisma.inventoryItem.deleteMany({ where: { cardId: { in: ids } } });
     await h.prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: ids } } });
     await h.prisma.priceReference.deleteMany({ where: { cardId: { in: ids } } });
-    await h.prisma.card.deleteMany({ where: { setId: SET_ID } });
-    await h.prisma.cardSet.deleteMany({ where: { id: SET_ID } });
+    await h.prisma.card.deleteMany({ where: { setId: { in: [SET_ID, SFP10_SET] } } });
+    await h.prisma.cardSet.deleteMany({ where: { id: { in: [SET_ID, SFP10_SET] } } });
   }
 
   async function setDial(value: unknown) {
@@ -194,6 +201,9 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
     if (h) {
       await h.prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS sfp_fail_audit ON "AuditLog"`);
       await h.prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS sfp_fail_audit()`);
+      await h.prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS sfp10_trace ON "InventoryItem"`);
+      await h.prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS sfp10_trace_fn()`);
+      await h.prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS sfp10_trace`);
       await cleanup();
       if (dialBefore === undefined)
         await h.prisma.configSetting.deleteMany({ where: { key: DIAL_KEY } });
@@ -620,5 +630,183 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
       }
       expect(await pendingSnapshot()).toEqual(before);
     });
+  });
+
+  // ===========================================================================================
+  describe('SFP-10 ⭐ (v1.80.8.8) — el lote publica la pieza entre la lectura del `PATCH` y su CAS', () => {
+    const P = 90000; // el precio que la pieza ya tiene (el lote lo respeta: `override`)
+    const Q = 125000; // el que trae el `PATCH`
+
+    beforeAll(async () => {
+      await h.prisma.cardSet.create({
+        data: { id: SFP10_SET, externalId: SFP10_SET, name: 'E2E SFP-10' },
+      });
+      await h.prisma.card.create({
+        data: {
+          id: SFP10_CARD,
+          externalId: SFP10_CARD,
+          setId: SFP10_SET,
+          name: 'SFP sfp10',
+          number: '1',
+          rarity: 'Sealed',
+          rarityCanonical: 'Sealed',
+          availableFinishes: ['normal'],
+        },
+      });
+      // Oráculo del «antes REAL»: cada `UPDATE` de una pieza de SFP-10 queda anotado con su viejo y su nuevo valor,
+      // en el orden en que el motor los confirmó. ⛔ No se infiere de las respuestas HTTP: se lee de la BD.
+      await h.prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS sfp10_trace`);
+      await h.prisma.$executeRawUnsafe(
+        `CREATE TABLE sfp10_trace (seq bigserial PRIMARY KEY, item_id text NOT NULL, old_status text,
+           new_status text, old_price int, new_price int)`,
+      );
+      await h.prisma.$executeRawUnsafe(`
+        CREATE OR REPLACE FUNCTION sfp10_trace_fn() RETURNS trigger AS $$
+        BEGIN
+          INSERT INTO sfp10_trace (item_id, old_status, new_status, old_price, new_price)
+          VALUES (NEW.id, OLD.status::text, NEW.status::text, OLD."listPriceCents", NEW."listPriceCents");
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await h.prisma.$executeRawUnsafe(
+        `CREATE TRIGGER sfp10_trace AFTER UPDATE ON "InventoryItem" FOR EACH ROW
+           WHEN (NEW."cardId" = '${SFP10_CARD}') EXECUTE FUNCTION sfp10_trace_fn()`,
+      );
+    });
+
+    afterAll(async () => {
+      await h.prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS sfp10_trace ON "InventoryItem"`);
+      await h.prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS sfp10_trace_fn()`);
+      await h.prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS sfp10_trace`);
+    });
+
+    async function mkPiece() {
+      seq += 1;
+      return h.prisma.inventoryItem.create({
+        data: {
+          folio: `SFP10-${RUN}-${String(seq).padStart(4, '0')}`,
+          cardId: SFP10_CARD,
+          productType: 'sealed',
+          sealedSubtype: 'box',
+          sealedCondition: 'mint',
+          finish: 'normal',
+          acquisitionType: 'compra',
+          ownerType: 'platform',
+          status: 'in_stock',
+          locationId: shelf,
+          listPriceCents: P,
+        } as never,
+      });
+    }
+
+    const lote = () =>
+      h.api('POST', '/admin/inventory/publish-all', {
+        token: op,
+        json: { setId: SFP10_SET, productType: 'sealed' },
+      });
+    const elPatch = (id: string) => patch(id, { listPriceCents: Q, status: 'listed' });
+    const trace = (id: string) =>
+      h.prisma.$queryRawUnsafe<
+        { old_status: string; new_status: string; old_price: number | null; new_price: number | null }[]
+      >(
+        `SELECT old_status, new_status, old_price, new_price FROM sfp10_trace WHERE item_id = $1 ORDER BY seq`,
+        id,
+      );
+
+    /**
+     * Veredicto de UNA tirada. Formas admitidas:
+     *  - `409`: el `PATCH` perdió ⇒ `CONFLICT`, cero filas, la pieza `listed` con P (la dejó el lote).
+     *  - `200`: UNA fila cuyo `before` es lo que la pieza tenía DE VERDAD cuando el `PATCH` escribió (la fila del
+     *    oráculo P→Q), `after = {listed, Q}`, y la pieza `listed` con Q.
+     * ⛔ Rojo: cualquier otra cosa — en particular `200` con `before.status:'in_stock'` sobre una pieza que el lote ya
+     * había dejado `listed` (lo que daba el CAS por conjunto).
+     */
+    async function verdict(id: string, pr: any, lr: any) {
+      const rows = await audits(id);
+      const s = await state(id);
+      const t = await trace(id);
+      const mine = t.filter((x) => x.old_price === P && x.new_price === Q);
+      let forma = `patch=${pr.status}`;
+      let ok = false;
+      if (lr.status !== 200) {
+        forma += `,lote=${lr.status}`;
+      } else if (pr.status === 409) {
+        ok =
+          pr.body?.error?.code === 'CONFLICT' &&
+          rows.length === 0 &&
+          s.status === 'listed' &&
+          s.listPriceCents === P &&
+          mine.length === 0;
+      } else if (pr.status === 200 && mine.length === 1 && rows.length === 1) {
+        const b = rows[0].before as any;
+        const a = rows[0].after as any;
+        forma += `,antesReal=${mine[0].old_status}`;
+        ok =
+          b.status === mine[0].old_status &&
+          b.listPriceCents === mine[0].old_price &&
+          a.status === 'listed' &&
+          a.listPriceCents === Q &&
+          s.status === 'listed' &&
+          s.listPriceCents === Q;
+      }
+      const tag = `${forma} filas=${rows.length} antes=${rows
+        .map((r) => (r.before as any).status)
+        .join('/')} traza=${t.map((x) => `${x.old_status}>${x.new_status}:${x.old_price}>${x.new_price}`).join('|')} final=${s.status}/${s.listPriceCents}`;
+      return { ok, forma, tag };
+    }
+
+    it(`forzada — el lote se encola PRIMERO en el candado y el \`PATCH\` (que ya leyó \`in_stock\`) detrás: 409 CONFLICT y cero filas (N=${N})`, async () => {
+      const fallos: string[] = [];
+      for (let i = 0; i < N; i += 1) {
+        const it0 = await mkPiece();
+        const candado = diferida();
+        const soltar = diferida();
+        const tx = h.prisma.$transaction(
+          async (t) => {
+            await t.$executeRawUnsafe(`SELECT id FROM "InventoryItem" WHERE id = $1 FOR UPDATE`, it0.id);
+            candado.abrir();
+            await soltar.promesa;
+          },
+          { timeout: 30000, maxWait: 30000 },
+        );
+        let pl: Promise<any> = Promise.resolve(null);
+        let pp: Promise<any> = Promise.resolve(null);
+        try {
+          await candado.promesa;
+          // 1) El lote: su `claimListed` (sin precio de línea) se bloquea en el `UPDATE` de la pieza — comprobado.
+          pl = lote();
+          await esperarBloqueoDeFila(h.prisma, 'InventoryItem', 1);
+          // 2) El `PATCH`: su lectura NO espera (lee `in_stock`, el lote aún no confirma) y su CAS se encola DETRÁS
+          //    del lote — comprobado.
+          pp = elPatch(it0.id);
+          await esperarBloqueoDeFila(h.prisma, 'InventoryItem', 2);
+        } finally {
+          soltar.abrir();
+        }
+        await tx;
+        const [lr, pr] = await Promise.all([pl, pp]);
+        const v = await verdict(it0.id, pr, lr);
+        // En la forzada SOLO vale el 409, y el oráculo tiene que mostrar que el lote escribió primero.
+        const t = await trace(it0.id);
+        const loteFirst = t.length >= 1 && t[0].old_status === 'in_stock' && t[0].new_status === 'listed' && t[0].new_price === P;
+        if (!(v.ok && pr.status === 409 && loteFirst && lr.body?.summary?.published >= 1))
+          fallos.push(`#${i}: ${v.tag} publicadas=${lr.body?.summary?.published}`);
+      }
+      expect({ rojas: fallos.length, de: N, fallos }).toEqual({ rojas: 0, de: N, fallos: [] });
+    }, 180000);
+
+    it(`suelta — \`PATCH\` y lote a la vez: 409, o 200 con el «antes» REAL (N=${N}, se reporta la proporción)`, async () => {
+      const fallos: string[] = [];
+      const formas: Record<string, number> = {};
+      for (let i = 0; i < N; i += 1) {
+        const it0 = await mkPiece();
+        const [pr, lr] = await Promise.all([elPatch(it0.id), lote()]);
+        const v = await verdict(it0.id, pr, lr);
+        formas[v.forma] = (formas[v.forma] ?? 0) + 1;
+        if (!v.ok) fallos.push(`#${i}: ${v.tag}`);
+      }
+      // eslint-disable-next-line no-console
+      console.log(`SFP-10 suelta formas (N=${N}): ${JSON.stringify(formas)}`);
+      expect({ rojas: fallos.length, de: N, fallos }).toEqual({ rojas: 0, de: N, fallos: [] });
+    }, 180000);
   });
 });
