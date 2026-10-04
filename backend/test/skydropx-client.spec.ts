@@ -60,7 +60,7 @@ const PURCHASE_INPUT = {
   rateId: 'fixture-rate-05',
   printingFormat: 'standard' as const,
   from: { templateId: 'tpl-verapaz', snapshot: null },
-  to: { street1: 'Calle Falsa 123', name: 'Ana Pérez', company: 'Ana Pérez', phone: '5512345678', email: 'ana@example.com' },
+  to: { street1: 'Calle Falsa 123', name: 'Ana Pérez', company: 'Ana Pérez', phone: '5512345678', email: 'ana@example.com', reference: 'Pedido ENV-000045-01' },
   package: { coverageCents: 250000, consignmentNote: '49101600', packageType: '5H4' },
   idempotencyKey: 'label:s1:r1',
 };

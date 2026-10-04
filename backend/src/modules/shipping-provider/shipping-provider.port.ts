@@ -97,11 +97,16 @@ export interface PurchaseInput {
   rateId: string;
   printingFormat: 'standard' | 'thermal';
   from: { templateId: string; snapshot: OriginSnapshot | null };
-  /** T.11 + SEC-SDX-7: SOLO esto. `furtherInformation` = `Address.references` (≤ 70). ⛔ sin `reference`. */
-  to: { street1: string; name: string; company: string; phone: string; email: string; furtherInformation?: string };
+  /**
+   * T.11 + SEC-SDX-7: SOLO esto. `furtherInformation` = `Address.references` (≤ 70). 🔒💰 v1.80.12.8 (§19.28.11): gana
+   * `reference` = «Pedido <folio>-<NN>» — NUESTRO folio, ⛔ nunca datos del cliente (lo arma el servicio).
+   */
+  to: { street1: string; name: string; company: string; phone: string; email: string; reference: string; furtherInformation?: string };
   package: { coverageCents: number; consignmentNote: string; packageType: string };
   /** `label:<shipmentId>:<rateId>` — que Skydropx lo respete es NO MEDIDO (§19.19.18). */
   idempotencyKey: string;
+  /** 💰 v1.80.12.8 (§19.28.2): epoch ms; pasado el plazo ningún intento sale (`PurchaseDeadlineError`). */
+  notAfter?: number;
 }
 
 export interface ProviderError {
@@ -111,7 +116,11 @@ export interface ProviderError {
 }
 
 export interface PurchaseResult {
-  providerShipmentId: string;
+  /**
+   * 💰 v1.80.12.6 (§19.26.1, SDX-D-1): `null` ⇔ la respuesta no trae id LEGIBLE (ausente o vacío tras `trim`). ⛔ Nunca
+   * `''`. Con id **y** `error` ⇒ «rechazo con id» (el servicio conserva el reclamo y persiste el id).
+   */
+  providerShipmentId: string | null;
   carrierName: string | null;
   /** `null` ⇒ «guía en proceso» (R5). */
   trackingNumber: string | null;
@@ -124,7 +133,7 @@ export interface PurchaseResult {
   rawTrackingUrl: string | null;
   totalCents: number | null;
   insuranceCents: number | null;
-  /** `error_detail.error_code ≠ null` ⇒ rama de rechazo (§19.7 paso 9). */
+  /** `error_detail.error_code ≠ null`: sin id ⇒ rechazo (se deshace el reclamo); CON id ⇒ «rechazo con id» (§19.26.1). */
   error: ProviderError | null;
   raw: unknown;
 }
@@ -136,7 +145,8 @@ export interface ProviderEvent {
   rawStatus: string;
 }
 
-export interface ProviderShipmentState extends Omit<PurchaseResult, 'raw'> {
+export interface ProviderShipmentState extends Omit<PurchaseResult, 'raw' | 'providerShipmentId'> {
+  providerShipmentId: string;
   carrierStatus: ProviderCarrierStatus | null;
   /** Valor de estado que llegó y NO es uno de los 12 (log `unknown_carrier_status`). */
   unknownCarrierStatus: string | null;
@@ -175,6 +185,32 @@ export interface AddressTemplateSummary {
   postalCode: string | null;
 }
 
+/**
+ * 💰 v1.80.12.7 (§19.27.4) + 🔒 v1.80.12.8 (§19.28.4): un envío del listado de Skydropx, para verificar una compra en
+ * vuelo por SOLO LECTURA. `postalCodeTo` ⛔ solo para cuadrar en memoria (nunca al log, a BD ni a un DTO).
+ */
+export interface RecentProviderShipment {
+  providerShipmentId: string;
+  createdAt: string | null;
+  carrierName: string | null;
+  totalCents: number | null;
+  postalCodeTo: string | null;
+  /** `'api'` según la referencia §3.4; NO MEDIDO en el listado. */
+  source: string | null;
+  /** `error_detail.error_code ≠ null`. */
+  hasError: boolean;
+  /** `folioTokenOf(address_to.reference)` — el TOKEN (`ENV-000045-01`), nunca el texto crudo; `null` si no se lee. */
+  providerReference: string | null;
+}
+
+export interface RecentShipmentsResult {
+  /** Sobre reconocible en TODAS las páginas leídas. */
+  readable: boolean;
+  /** La lectura llegó, demostrablemente, hasta `createdFrom`. */
+  coversFrom: boolean;
+  shipments: RecentProviderShipment[];
+}
+
 export interface ShippingProviderPort {
   readonly name: 'skydropx';
   quote(input: QuoteInput): Promise<QuoteResult>;
@@ -183,6 +219,8 @@ export interface ShippingProviderPort {
   cancel(providerShipmentId: string, reason: string): Promise<CancelResult>;
   protect?(providerShipmentId: string, coverageCents: number): Promise<void>;
   balance(): Promise<{ balanceCents: number; currency: 'MXN' }>;
+  /** 💰 §19.27.4: `GET /api/v1/shipments` (⛔ siempre v1), ≤ `RECENT_SHIPMENTS_MAX_PAGES` páginas, sin `raw`. */
+  recentShipments(createdFrom: Date): Promise<RecentShipmentsResult>;
   extraCharges(from: Date, to: Date): AsyncIterable<ProviderExtraCharge>;
   packagings?(): Promise<CatalogRow[]>;
   consignmentNote?(code: string): Promise<{ code: string; description: string } | null>;

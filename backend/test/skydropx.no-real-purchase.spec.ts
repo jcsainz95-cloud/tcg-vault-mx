@@ -63,7 +63,7 @@ const PURCHASE_INPUT = {
   rateId: 'fixture-rate-05',
   printingFormat: 'standard' as const,
   from: { templateId: 'tpl', snapshot: null },
-  to: { street1: 'Calle 1', name: 'Ana', company: 'Ana', phone: '5512345678', email: 'a@example.com' },
+  to: { street1: 'Calle 1', name: 'Ana', company: 'Ana', phone: '5512345678', email: 'a@example.com', reference: 'Pedido ENV-000045-01' },
   package: { coverageCents: 250000, consignmentNote: '49101600', packageType: '5H4' },
   idempotencyKey: 'label:s1:r1',
 };

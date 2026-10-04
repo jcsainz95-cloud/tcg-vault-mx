@@ -18,7 +18,13 @@ import { buildPurchaseBody } from './skydropx.adapter';
 import { completedQuotationFixture } from './fixtures/skydropx-quotation.fixture';
 import { insuranceEchoOf, normalizeRates } from './rate-normalization';
 import { redactProviderPayload } from './redact';
-import { ShippingProviderError, ShippingProviderPurchaseInFlightError } from './shipping-provider.errors';
+import {
+  PurchaseDeadlineError,
+  ShippingProviderError,
+  ShippingProviderPurchaseInFlightError,
+  SkydropxMutationForbiddenError,
+} from './shipping-provider.errors';
+import { folioTokenOf } from './folio-token';
 import {
   AddressTemplateSummary,
   CancelResult,
@@ -32,12 +38,16 @@ import {
   PurchaseResult,
   QuoteInput,
   QuoteResult,
+  RecentProviderShipment,
+  RecentShipmentsResult,
   ShippingProviderPort,
 } from './shipping-provider.port';
 
 export type FakePurchaseOutcome =
   | {
       kind: 'labeled';
+      /** Id a devolver (p. ej. el de OTRO envío, PS-118 (b)); por defecto uno nuevo. */
+      providerShipmentId?: string;
       trackingNumber?: string;
       carrierName?: string;
       labelUrl?: string | null;
@@ -45,10 +55,17 @@ export type FakePurchaseOutcome =
       totalCents?: number | null;
       insuranceCents?: number | null;
     }
-  | { kind: 'processing'; labelUrl?: string | null }
-  | { kind: 'error_detail'; code: string; message: string }
+  | { kind: 'processing'; labelUrl?: string | null; providerShipmentId?: string }
+  /** `2xx` con `error_detail`: con id (por defecto) ⇒ «rechazo con id» (§19.26.1); `withoutId` ⇒ rechazo sin id. */
+  | { kind: 'error_detail'; code: string; message: string; withoutId?: boolean }
   | { kind: 'in_flight' }
-  | { kind: 'rejected'; providerCode?: string; providerMessage?: string };
+  /** `400/422`; con `providerShipmentId` ⇒ el cuerpo trae id (⇒ «rechazo con id», §19.26.1). */
+  | { kind: 'rejected'; providerCode?: string; providerMessage?: string; providerShipmentId?: string }
+  /** Errores ANTES de que salga la compra (§19.20.5 fila 3): plazo, candado, borde, `429` agotado. */
+  | { kind: 'deadline' }
+  | { kind: 'forbidden' }
+  | { kind: 'edge_blocked' }
+  | { kind: 'busy' };
 
 export type FakeCancelOutcome = CancelResult | { throws: ShippingProviderError };
 
@@ -74,6 +91,20 @@ export class FakeShippingProvider implements ShippingProviderPort {
   purchaseBarrier: (() => Promise<void>) | null = null;
   readonly cancelOutcomes: FakeCancelOutcome[] = [];
   balanceCents = 96516;
+  /** Saldo por secuencia (§19.27.3, PS-123): se consume uno por llamada; un `Error` se lanza. Vacía ⇒ `balanceCents`. */
+  readonly balanceSequence: (number | Error)[] = [];
+  /** Gancho en `balance()` (PS-105b: inyecta una corrección entre el paso 2 y el 7). Se llama ANTES de responder. */
+  onBalance: (() => Promise<void>) | null = null;
+  /** Gancho en `purchase()` ANTES de responder (PS-134 (b): consulta la BD en el momento de la compra). */
+  onPurchase: ((input: PurchaseInput) => Promise<void>) | null = null;
+  /** Reloj del doble para `createdAt` del listado (las pruebas lo atan al reloj de la guía). */
+  now: () => Date = () => new Date();
+  /** Envíos que el listado muestra ADEMÁS de los creados por `purchase` (candidatos ajenos, PS-124/PS-129). */
+  readonly recentExtra: RecentProviderShipment[] = [];
+  /** Sustituye por completo la respuesta del listado (ilegible, sin cobertura…). */
+  recentOverride: ((createdFrom: Date) => RecentShipmentsResult | Promise<RecentShipmentsResult>) | null = null;
+  /** Lo que `purchase` creó, con lo que el listado real devolvería (folio de `address_to`, CP, total, fecha). */
+  private readonly created: RecentProviderShipment[] = [];
   extraChargeList: ProviderExtraCharge[] = [];
   defaultLabelUrl: string | null = null;
   defaultTrackingUrl: string | null = null;
@@ -83,6 +114,7 @@ export class FakeShippingProvider implements ShippingProviderPort {
   private readonly tag = randomUUID().slice(0, 8);
   private readonly quotations = new Map<string, { id: string; coverageCents: number }>();
   private readonly ratesById = new Map<string, ProviderRate>();
+  private readonly postalByRate = new Map<string, string>();
   private readonly shipments = new Map<string, ProviderShipmentState>();
 
   /** Olvida las cotizaciones vistas (M-5): la siguiente de cada ruta+medidas nace con id nuevo y su propio seguro. */
@@ -130,7 +162,10 @@ export class FakeShippingProvider implements ShippingProviderPort {
     const { rates, excluded } = normalizeRates(this.quoteCompleted ? raw.rates : [], {
       insuranceEchoOk: insuranceEcho.ok,
     });
-    for (const r of rates) this.ratesById.set(r.rateId, r);
+    for (const r of rates) {
+      this.ratesById.set(r.rateId, r);
+      this.postalByRate.set(r.rateId, input.to.postalCode);
+    }
     return {
       providerQuotationId: entry.id,
       completed: this.quoteCompleted,
@@ -143,22 +178,44 @@ export class FakeShippingProvider implements ShippingProviderPort {
   }
 
   async purchase(input: PurchaseInput): Promise<PurchaseResult> {
-    // Se registra el CUERPO que el adaptador real mandaría (PS-85/PS-96/PS-97 lo inspeccionan).
+    // Se registra el CUERPO que el adaptador real mandaría (PS-85/PS-96/PS-97/PS-135 lo inspeccionan).
     this.calls.push({ op: 'purchase', input: { input, body: buildPurchaseBody(input) } });
     if (this.purchaseBarrier) await this.purchaseBarrier();
+    if (this.onPurchase) await this.onPurchase(input);
     const outcome: FakePurchaseOutcome = this.purchaseOutcomes.shift() ?? { kind: 'labeled' };
-    if (outcome.kind === 'in_flight') {
-      throw new ShippingProviderPurchaseInFlightError(ShippingProviderError.busy('purchase'));
-    }
-    if (outcome.kind === 'rejected') {
-      throw ShippingProviderError.rejected('purchase', outcome.providerCode ?? 'rejected', outcome.providerMessage ?? 'rechazada');
+    switch (outcome.kind) {
+      case 'in_flight':
+        throw new ShippingProviderPurchaseInFlightError(ShippingProviderError.busy('purchase'));
+      case 'deadline':
+        throw new PurchaseDeadlineError('purchase');
+      case 'forbidden':
+        throw new SkydropxMutationForbiddenError('test_runtime', 'purchase');
+      case 'edge_blocked':
+        throw ShippingProviderError.error('purchase', 403, 'edge_blocked');
+      case 'busy':
+        throw ShippingProviderError.busy('purchase');
+      case 'rejected': {
+        const e = ShippingProviderError.rejected('purchase', outcome.providerCode ?? 'rejected', outcome.providerMessage ?? 'rechazada');
+        if (outcome.providerShipmentId) {
+          this.remember(outcome.providerShipmentId, input, null, true);
+          throw new ShippingProviderError(e.code, e.httpStatus, { ...e.details, providerShipmentId: outcome.providerShipmentId });
+        }
+        throw e;
+      }
+      default:
+        break;
     }
     this.seq += 1;
-    const providerShipmentId = `fake-shipment-${this.tag}-${this.seq}`;
+    const ownId =
+      (outcome.kind === 'labeled' || outcome.kind === 'processing') && outcome.providerShipmentId
+        ? outcome.providerShipmentId
+        : `fake-shipment-${this.tag}-${this.seq}`;
     const rate = this.ratesById.get(input.rateId) ?? null;
     if (outcome.kind === 'error_detail') {
+      const id = outcome.withoutId ? null : ownId;
+      if (id) this.remember(id, input, rate, true);
       return {
-        providerShipmentId,
+        providerShipmentId: id,
         carrierName: rate?.carrierName ?? null,
         trackingNumber: null,
         rawLabelUrl: null,
@@ -166,14 +223,14 @@ export class FakeShippingProvider implements ShippingProviderPort {
         totalCents: null,
         insuranceCents: null,
         error: { code: outcome.code, message: outcome.message },
-        raw: { id: providerShipmentId },
+        raw: { id },
       };
     }
     const labeled = outcome.kind === 'labeled' ? outcome : null;
     const state: ProviderShipmentState = {
-      providerShipmentId,
+      providerShipmentId: ownId,
       carrierName: labeled?.carrierName ?? rate?.carrierName ?? null,
-      trackingNumber: labeled ? (labeled.trackingNumber ?? `FAKE${String(this.seq).padStart(8, '0')}`) : null,
+      trackingNumber: labeled ? (labeled.trackingNumber ?? `FAKE${this.tag.toUpperCase()}${String(this.seq).padStart(6, '0')}`) : null,
       rawLabelUrl: outcome.labelUrl === undefined ? this.defaultLabelUrl : outcome.labelUrl,
       rawTrackingUrl: labeled && labeled.trackingUrl !== undefined ? labeled.trackingUrl : this.defaultTrackingUrl,
       totalCents: labeled && labeled.totalCents !== undefined ? labeled.totalCents : (rate?.totalCents ?? null),
@@ -186,11 +243,12 @@ export class FakeShippingProvider implements ShippingProviderPort {
       unknownCarrierStatus: null,
       statusUpdatedAt: null,
       events: [],
-      raw: { id: providerShipmentId },
+      raw: { id: ownId },
     };
-    this.shipments.set(providerShipmentId, state);
+    if (!this.shipments.has(ownId)) this.shipments.set(ownId, state);
+    this.remember(ownId, input, rate, false, state.totalCents);
     return {
-      providerShipmentId,
+      providerShipmentId: ownId,
       carrierName: state.carrierName,
       trackingNumber: state.trackingNumber,
       rawLabelUrl: state.rawLabelUrl,
@@ -200,6 +258,75 @@ export class FakeShippingProvider implements ShippingProviderPort {
       error: null,
       raw: state.raw,
     };
+  }
+
+  /** Lo que el listado de Skydropx mostraría de un envío creado (con el folio de `address_to.reference`). */
+  private remember(id: string, input: PurchaseInput, rate: ProviderRate | null, hasError: boolean, totalCents: number | null = rate?.totalCents ?? null): void {
+    if (this.created.some((c) => c.providerShipmentId === id)) return;
+    if (!this.shipments.has(id)) {
+      this.shipments.set(id, {
+        providerShipmentId: id,
+        carrierName: rate?.carrierName ?? null,
+        trackingNumber: null,
+        rawLabelUrl: null,
+        rawTrackingUrl: null,
+        totalCents,
+        insuranceCents: null,
+        error: hasError ? { code: 'X', message: 'error' } : null,
+        carrierStatus: null,
+        unknownCarrierStatus: null,
+        statusUpdatedAt: null,
+        events: [],
+        raw: { id },
+      });
+    }
+    this.created.push({
+      providerShipmentId: id,
+      createdAt: this.now().toISOString(),
+      carrierName: rate?.carrierName ?? null,
+      totalCents,
+      postalCodeTo: this.postalCodeOf(input),
+      source: 'api',
+      hasError,
+      providerReference: folioTokenOf(input.to.reference),
+    });
+  }
+
+  /** El CP con el que se cotizó la tarifa (la compra real no lleva CP en `address_to`: lo pone la cotización). */
+  private postalCodeOf(input: PurchaseInput): string | null {
+    return this.postalByRate.get(input.rateId) ?? null;
+  }
+
+  /** Envía un envío creado FUERA de `purchase` al listado y al detalle (una guía comprada en el panel, una tardía…). */
+  addListed(entry: RecentProviderShipment, state: Partial<ProviderShipmentState> = {}): void {
+    this.recentExtra.push(entry);
+    this.shipments.set(entry.providerShipmentId, {
+      providerShipmentId: entry.providerShipmentId,
+      carrierName: entry.carrierName,
+      trackingNumber: null,
+      rawLabelUrl: null,
+      rawTrackingUrl: null,
+      totalCents: entry.totalCents,
+      insuranceCents: null,
+      error: entry.hasError ? { code: 'X', message: 'error' } : null,
+      carrierStatus: null,
+      unknownCarrierStatus: null,
+      statusUpdatedAt: null,
+      events: [],
+      raw: { id: entry.providerShipmentId },
+      ...state,
+    });
+  }
+
+  /** Lo creado por `purchase` (para que una prueba lo retire del listado o cambie su fecha). */
+  get createdShipments(): RecentProviderShipment[] {
+    return this.created;
+  }
+
+  async recentShipments(createdFrom: Date): Promise<RecentShipmentsResult> {
+    this.calls.push({ op: 'recentShipments', input: createdFrom });
+    if (this.recentOverride) return this.recentOverride(createdFrom);
+    return { readable: true, coversFrom: true, shipments: [...this.created, ...this.recentExtra] };
   }
 
   async getShipment(providerShipmentId: string): Promise<ProviderShipmentState> {
@@ -240,7 +367,10 @@ export class FakeShippingProvider implements ShippingProviderPort {
 
   async balance(): Promise<{ balanceCents: number; currency: 'MXN' }> {
     this.calls.push({ op: 'balance', input: null });
-    return { balanceCents: this.balanceCents, currency: 'MXN' };
+    if (this.onBalance) await this.onBalance();
+    const next = this.balanceSequence.length > 0 ? this.balanceSequence.shift()! : this.balanceCents;
+    if (next instanceof Error) throw next;
+    return { balanceCents: next, currency: 'MXN' };
   }
 
   async *extraCharges(from: Date, to: Date): AsyncIterable<ProviderExtraCharge> {

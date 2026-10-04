@@ -75,6 +75,7 @@ const PURCHASE_INPUT: PurchaseInput = {
     company: 'Ana Pérez',
     phone: '5512345678',
     email: 'ana@example.com',
+    reference: 'Pedido ENV-000045-01',
     furtherInformation: 'Casa azul',
   },
   package: { coverageCents: 250000, consignmentNote: '49101600', packageType: '5H4' },
@@ -326,13 +327,14 @@ describe('Cotizar con el adaptador real (cuerpo, sondeo, eco) — PS-95 / PS-96 
 });
 
 describe('Comprar — cuerpo (§19.19.8, PS-85 / PS-96 / PS-97 lado cuerpo) y parser tolerante', () => {
-  it('cuerpo exacto: address_to SOLO {street1,name,company,phone,email,further_information}; seguro y Carta Porte', () => {
+  // 🔒💰 v1.80.12.8 (§19.28.11, PS-135 (b) reescribe PS-85): `address_to` gana `reference` = NUESTRO folio.
+  it('cuerpo exacto: address_to SOLO {street1,name,company,phone,email,reference,further_information}; seguro y Carta Porte', () => {
     const body = buildPurchaseBody(PURCHASE_INPUT) as { shipment: Record<string, unknown> };
     const s = body.shipment;
     expect(Object.keys(s.address_to as object).sort()).toEqual(
-      ['company', 'email', 'further_information', 'name', 'phone', 'street1'].sort(),
+      ['company', 'email', 'further_information', 'name', 'phone', 'reference', 'street1'].sort(),
     );
-    expect(s.address_to).not.toHaveProperty('reference');
+    expect((s.address_to as Record<string, unknown>).reference).toBe('Pedido ENV-000045-01');
     expect(s.address_from).toEqual({
       address_template_id: 'tpl-verapaz',
       street1: 'Origen 1',
@@ -558,13 +560,13 @@ describe('FakeShippingProvider — el doble con la realidad medida', () => {
   it('getShipment / eventos / cancelación programables', async () => {
     const fake = new FakeShippingProvider();
     const p = await fake.purchase(PURCHASE_INPUT);
-    fake.pushEvent(p.providerShipmentId, 'picked_up', '2026-10-05T10:00:00Z');
-    const s = await fake.getShipment(p.providerShipmentId);
+    fake.pushEvent(p.providerShipmentId!, 'picked_up', '2026-10-05T10:00:00Z');
+    const s = await fake.getShipment(p.providerShipmentId!);
     expect(s.carrierStatus).toBe('picked_up');
     expect(s.events).toHaveLength(1);
     fake.cancelOutcomes.push({ ok: false, code: 'x', message: 'no' }, { ok: true, refundedCents: 4625 });
-    expect(await fake.cancel(p.providerShipmentId, 'r')).toEqual({ ok: false, code: 'x', message: 'no' });
-    expect(await fake.cancel(p.providerShipmentId, 'r')).toEqual({ ok: true, refundedCents: 4625 });
+    expect(await fake.cancel(p.providerShipmentId!, 'r')).toEqual({ ok: false, code: 'x', message: 'no' });
+    expect(await fake.cancel(p.providerShipmentId!, 'r')).toEqual({ ok: true, refundedCents: 4625 });
     await expect(fake.getShipment('nope')).rejects.toBeInstanceOf(ShippingProviderError);
   });
 

@@ -23,7 +23,7 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { Logger } from '@nestjs/common';
 import { assertMutationAllowed } from '../spend-gate';
-import { ShippingProviderError, ShippingProviderPurchaseInFlightError } from '../shipping-provider.errors';
+import { PurchaseDeadlineError, ShippingProviderError, ShippingProviderPurchaseInFlightError } from '../shipping-provider.errors';
 import { Clock, systemClock, TokenBucket } from './token-bucket';
 import { skydropxApiHost, skydropxOrigin } from './skydropx-origin';
 
@@ -106,7 +106,11 @@ export interface SkydropxClientOptions {
 export type RetryClass = 'read' | 'purchase' | 'cancel';
 
 export type MutationRequest =
-  | { op: 'purchase'; body: unknown; idempotencyKey: string }
+  /**
+   * 💰 v1.80.12.8 (§19.28.2): `notAfter` (epoch ms del reloj del cliente) = vida máxima de la compra. La puerta de CADA
+   * intento lo comprueba junto con `assertMutationAllowed`: pasado el plazo ⇒ `PurchaseDeadlineError` (⛔ no «en vuelo»).
+   */
+  | { op: 'purchase'; body: unknown; idempotencyKey: string; notAfter?: number }
   | { op: 'cancel'; providerShipmentId: string; body: unknown }
   | { op: 'protect'; providerShipmentId: string; body: unknown };
 
@@ -199,7 +203,11 @@ export class SkydropxClient {
 
   async mutate(request: MutationRequest): Promise<ProviderResponse> {
     const op = request.op;
-    const guard = () => assertMutationAllowed(op);
+    const notAfter = request.op === 'purchase' ? request.notAfter : undefined;
+    const guard = () => {
+      assertMutationAllowed(op);
+      if (notAfter !== undefined && this.clock.now() > notAfter) throw new PurchaseDeadlineError(op);
+    };
     guard();
     let url: string;
     let retry: RetryClass;
@@ -318,7 +326,7 @@ export class SkydropxClient {
       if (token) headers.Authorization = `Bearer ${token.value}`;
 
       const started = this.clock.now();
-      let res: TransportResponse;
+      let res: MaterializedResponse;
       try {
         res = await this.callTransport(spec, headers);
       } catch (err) {
@@ -336,8 +344,7 @@ export class SkydropxClient {
 
       const status = res.status;
       if (status >= 200 && status < 300) {
-        const text = await safeText(res);
-        const json = parseJson(text);
+        const json = parseJson(res.text);
         this.logCall(spec, status, started, 'log');
         if (json === undefined) {
           const e = ShippingProviderError.error(spec.op, status, 'unparseable');
@@ -372,8 +379,7 @@ export class SkydropxClient {
       }
 
       if (status === 403) {
-        const text = await safeText(res);
-        const edge = isEdgeBlock(text);
+        const edge = isEdgeBlock(res.text);
         this.logCall(spec, status, started, 'error', edge ? 'edge_blocked' : undefined);
         // El borde (Cloudflare) corta ANTES de la aplicación: la compra no se procesó ⇒ `502 edge_blocked`, reclamo deshecho.
         // ⭐ v1.80.12.1 (§M4-SHIP.19.21.4): un `403` JSON que NO es del borde viene de la aplicación (cuenta, permiso,
@@ -385,10 +391,13 @@ export class SkydropxClient {
       }
 
       if (status === 400 || status === 422) {
-        const text = await safeText(res);
-        const { providerCode, providerMessage } = rejectionOf(parseJson(text));
+        const body = parseJson(res.text);
+        const { providerCode, providerMessage } = rejectionOf(body);
         this.logCall(spec, status, started, 'warn', undefined, providerCode);
-        throw ShippingProviderError.rejected(spec.op, providerCode, providerMessage);
+        const rejected = ShippingProviderError.rejected(spec.op, providerCode, providerMessage);
+        // 💰 §19.26.1: el cuerpo viaja al adaptador (que saca el id con EL parser de sobre); ⛔ nunca a `details`.
+        rejected.providerBody = body;
+        throw rejected;
       }
 
       if (status >= 500) {
@@ -412,7 +421,11 @@ export class SkydropxClient {
     }
   }
 
-  private async callTransport(spec: SendSpec, headers: Record<string, string>): Promise<TransportResponse> {
+  /**
+   * 💰 v1.80.12.8 (§19.28.2 (1), C-10 (d)): el temporizador de cada intento cubre las cabeceras **y el cuerpo** — un cuerpo
+   * que no termina de llegar no cuelga la compra. El cuerpo se lee AQUÍ, antes del `clearTimeout`.
+   */
+  private async callTransport(spec: SendSpec, headers: Record<string, string>): Promise<MaterializedResponse> {
     const timeoutMs = spec.retry === 'purchase' && spec.op === 'purchase' ? this.purchaseTimeoutMs : this.defaultTimeoutMs;
     const controller = new AbortController();
     let timedOut = false;
@@ -421,14 +434,25 @@ export class SkydropxClient {
       controller.abort();
     }, timeoutMs);
     (timer as { unref?: () => void }).unref?.();
+    // El plazo manda aunque el transporte no honre la señal (un cuerpo que nunca termina): se compite con él.
+    const aborted = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    });
+    aborted.catch(() => undefined);
     try {
-      return await this.transport({
-        method: spec.method,
-        url: spec.url,
-        headers,
-        body: spec.body,
-        signal: controller.signal,
-      });
+      const res = await Promise.race([
+        this.transport({
+          method: spec.method,
+          url: spec.url,
+          headers,
+          body: spec.body,
+          signal: controller.signal,
+        }),
+        aborted,
+      ]);
+      const text = await Promise.race([res.text(), aborted]);
+      if (timedOut) throw new Error('timeout');
+      return { status: res.status, headers: res.headers, text };
     } catch {
       throw new TransportFailure(timedOut ? 'timeout' : 'network');
     } finally {
@@ -454,12 +478,11 @@ export class SkydropxClient {
   }
 }
 
-async function safeText(res: TransportResponse): Promise<string> {
-  try {
-    return await res.text();
-  } catch {
-    return '';
-  }
+/** La respuesta con el cuerpo YA leído (bajo el temporizador del intento). */
+interface MaterializedResponse {
+  status: number;
+  headers: { get(name: string): string | null };
+  text: string;
 }
 
 /** `undefined` ⇔ no es JSON. */

@@ -16,6 +16,13 @@ export type ShippingProviderErrorCode =
   | typeof ErrorCode.SHIPPING_PROVIDER_NOT_CONFIGURED;
 
 export class ShippingProviderError extends Error {
+  /**
+   * 💰 v1.80.12.6 (§M4-SHIP.19.26.1, SDX-D-1): el cuerpo JSON de un `400/422` de la COMPRA, para que el adaptador saque
+   * el id con EL parser de sobre (`parseShipmentEnvelope`) — un rechazo CON id no se descarta. ⛔ No va a `details`
+   * (nunca viaja al cliente) ni al log.
+   */
+  providerBody?: unknown;
+
   constructor(
     public readonly code: ShippingProviderErrorCode,
     public readonly httpStatus: number,
@@ -88,5 +95,17 @@ export class SkydropxMutationForbiddenError extends ShippingProviderError {
       `skydropx mutation forbidden (${reason}) op=${op}`,
     );
     this.name = 'SkydropxMutationForbiddenError';
+  }
+}
+
+/**
+ * 💰 v1.80.12.8 (§M4-SHIP.19.28.2, SDX-D-16 (c), C-10 (c)): la compra pasó su plazo (`notAfter`) ANTES de salir un
+ * intento (p. ej. tras esperas de `429`). Es `503 SHIPPING_PROVIDER_BUSY` y ⛔ NO «en vuelo»: un intento nuevo solo sale
+ * tras `401`/`429`, que ya se tratan como «no procesado» ⇒ deshacer el reclamo es seguro.
+ */
+export class PurchaseDeadlineError extends ShippingProviderError {
+  constructor(public readonly op: string) {
+    super(ErrorCode.SHIPPING_PROVIDER_BUSY, HttpStatus.SERVICE_UNAVAILABLE, { provider: 'skydropx', op }, `purchase deadline passed op=${op}`);
+    this.name = 'PurchaseDeadlineError';
   }
 }

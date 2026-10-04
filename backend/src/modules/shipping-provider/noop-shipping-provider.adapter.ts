@@ -10,6 +10,7 @@ import {
   ProviderShipmentState,
   PurchaseResult,
   QuoteResult,
+  RecentShipmentsResult,
   ShippingProviderPort,
 } from './shipping-provider.port';
 
@@ -33,6 +34,9 @@ export class NoopShippingProviderAdapter implements ShippingProviderPort {
     return this.fail();
   }
   async balance(): Promise<{ balanceCents: number; currency: 'MXN' }> {
+    return this.fail();
+  }
+  async recentShipments(): Promise<RecentShipmentsResult> {
     return this.fail();
   }
   // eslint-disable-next-line require-yield

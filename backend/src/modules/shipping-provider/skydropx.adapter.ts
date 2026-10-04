@@ -16,6 +16,7 @@ import { Clock, systemClock } from './http/token-bucket';
 import { insuranceEchoOf, normalizeRates } from './rate-normalization';
 import { redactProviderPayload } from './redact';
 import { ShippingProviderError, ShippingProviderPurchaseInFlightError } from './shipping-provider.errors';
+import { folioTokenOf } from './folio-token';
 import {
   AddressTemplateSummary,
   CancelResult,
@@ -29,10 +30,21 @@ import {
   PurchaseResult,
   QuoteInput,
   QuoteResult,
+  RecentProviderShipment,
+  RecentShipmentsResult,
   ShippingProviderPort,
 } from './shipping-provider.port';
 
 export const QUOTE_POLL_INTERVAL_MS = 1_500;
+/** 💰 §19.27.4: páginas máximas del listado de envíos por lectura (20 por página). */
+export const RECENT_SHIPMENTS_MAX_PAGES = 3;
+export const RECENT_SHIPMENTS_PER_PAGE = 20;
+/**
+ * 💰 §19.27.7: ¿el listado viene ordenado por `created_at` desc? NO MEDIDO (la cuenta nunca compró) ⇒ `false`: `coversFrom`
+ * solo por `total_count`. Lo enciende una errata del arquitecto con la medición (`M-PRD-7`). Lo re-exporta
+ * `shipments/label-verify.constants.ts` (un solo valor, dos lectores).
+ */
+export const RECENT_SHIPMENTS_ORDER_VERIFIED = false;
 export const QUOTE_POLL_TIMEOUT_MS = 20_000;
 const MAX_PAGES = 200;
 
@@ -52,7 +64,9 @@ function str(v: unknown): string | null {
 }
 function idOf(v: unknown): string | null {
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
-  return str(v);
+  const s = str(v);
+  // 💰 §19.26.1: id LEGIBLE = no vacío tras `trim` (⛔ nunca se persiste `''` ni espacios).
+  return s && s.trim() !== '' ? s.trim() : null;
 }
 
 function assertPositiveInt(name: string, v: number): void {
@@ -108,6 +122,8 @@ export function buildPurchaseBody(input: PurchaseInput): Record<string, unknown>
     company: input.to.company,
     phone: input.to.phone,
     email: input.to.email,
+    // 🔒💰 v1.80.12.8 (§19.28.1): NUESTRO folio por intento — «Pedido ENV-000045-01». ⛔ Nunca datos del cliente.
+    reference: input.to.reference,
   };
   if (input.to.furtherInformation) addressTo.further_information = input.to.furtherInformation;
   return {
@@ -133,21 +149,40 @@ interface ParsedShipment {
   id: string | null;
   attrs: Obj;
   pkg: Obj;
+  /** 🔒 §19.28.1: la dirección de DESTINO, por RELACIÓN (`relationships.address_to.data.id`), ⛔ nunca por posición. */
+  addressTo: Obj | null;
 }
 
-/** Objeto o arreglo (v2 «siempre arreglo», NO MEDIDO) ⇒ el primero; JSON:API `data.attributes` + `included`. */
+/**
+ * UN recurso de envío (`data[i]`) con el `included` compartido (§19.28.1: «una entrada por recurso»). El paquete es el
+ * primer `package(s)` relacionado (forma NO MEDIDA, tolerante); la dirección de destino se busca por la relación
+ * `address_to` — la primera dirección de `included` puede ser la de ORIGEN (cuya `reference` es de nuestra plantilla).
+ */
+function parseShipmentResource(dataObj: Obj, included: readonly unknown[]): ParsedShipment {
+  const attrs = asObj(dataObj.attributes) ?? dataObj;
+  const inc = included.map(asObj).filter((i): i is Obj => i !== null);
+  const rel = (name: string): Obj | null => asObj(asObj(asObj(dataObj.relationships)?.[name])?.data);
+  const pkgRel = rel('packages') ?? rel('package');
+  const pkgEntry =
+    (pkgRel ? inc.find((i) => (i.type === 'package' || i.type === 'packages') && idOf(i.id) === idOf(pkgRel.id)) : undefined) ??
+    inc.find((i) => i.type === 'package' || i.type === 'packages') ??
+    null;
+  const pkg = asObj(pkgEntry?.attributes) ?? pkgEntry ?? {};
+  const toRel = rel('address_to');
+  const toId = toRel ? idOf(toRel.id) : null;
+  const toEntry = toId ? inc.find((i) => (i.type === 'address' || i.type === 'addresses') && idOf(i.id) === toId) ?? null : null;
+  return { id: idOf(dataObj.id), attrs, pkg, addressTo: toEntry ? (asObj(toEntry.attributes) ?? toEntry) : null };
+}
+
+/** Objeto o arreglo (v2 «siempre arreglo», NO MEDIDO) ⇒ el primero; JSON:API `data.attributes` + `included`. EL parser. */
 function parseShipmentEnvelope(json: unknown): ParsedShipment {
   let root: unknown = json;
   if (Array.isArray(root)) root = root[0];
   const rootObj = asObj(root) ?? {};
   let data: unknown = 'data' in rootObj ? rootObj.data : rootObj;
   if (Array.isArray(data)) data = data[0];
-  const dataObj = asObj(data) ?? {};
-  const attrs = asObj(dataObj.attributes) ?? dataObj;
   const included = Array.isArray(rootObj.included) ? rootObj.included : [];
-  const pkgEntry = included.map(asObj).find((i) => i && (i.type === 'package' || i.type === 'packages')) ?? null;
-  const pkg = asObj(pkgEntry?.attributes) ?? pkgEntry ?? {};
-  return { id: idOf(dataObj.id), attrs, pkg };
+  return parseShipmentResource(asObj(data) ?? {}, included);
 }
 
 function firstStr(...vals: unknown[]): string | null {
@@ -271,18 +306,34 @@ export class SkydropxAdapter implements ShippingProviderPort {
   }
 
   async purchase(input: PurchaseInput): Promise<PurchaseResult> {
-    const res = await this.client.mutate({
-      op: 'purchase',
-      body: buildPurchaseBody(input),
-      idempotencyKey: input.idempotencyKey,
-    });
+    let res;
+    try {
+      res = await this.client.mutate({
+        op: 'purchase',
+        body: buildPurchaseBody(input),
+        idempotencyKey: input.idempotencyKey,
+        ...(input.notAfter !== undefined ? { notAfter: input.notAfter } : {}),
+      });
+    } catch (err) {
+      // 💰 §19.26.1: un `400/422` de la compra que trae id LEGIBLE no se descarta — el id llega al servicio en
+      // `details.providerShipmentId` (EL mismo parser de sobre) y va a «rechazo con id».
+      if (err instanceof ShippingProviderError && err.code === 'SHIPPING_PROVIDER_REJECTED' && err.providerBody !== undefined) {
+        const id = parseShipmentEnvelope(err.providerBody).id;
+        if (id) {
+          const withId = new ShippingProviderError(err.code, err.httpStatus, { ...err.details, providerShipmentId: id }, err.message);
+          throw withId;
+        }
+      }
+      throw err;
+    }
     const parsed = parseShipmentEnvelope(res.json);
     const fields = purchaseFields(parsed);
     if (!parsed.id && !fields.error) {
       // 2xx sin id y sin error: no sabemos si se creó ⇒ «compra en vuelo» (⛔ no se reintenta).
       throw new ShippingProviderPurchaseInFlightError(ShippingProviderError.error('purchase', res.status, 'no_id'));
     }
-    return { providerShipmentId: parsed.id ?? '', ...fields, raw: redactProviderPayload(res.json) };
+    // ⛔ Nunca `''`: sin id legible ⇒ `null` (con `error` ⇒ rechazo sin id; el servicio deshace el reclamo).
+    return { providerShipmentId: parsed.id, ...fields, raw: redactProviderPayload(res.json) };
   }
 
   async getShipment(providerShipmentId: string): Promise<ProviderShipmentState> {
@@ -346,6 +397,59 @@ export class SkydropxAdapter implements ShippingProviderPort {
       throw ShippingProviderError.error('balance', res.status, 'unexpected_shape');
     }
     return { balanceCents, currency: 'MXN' };
+  }
+
+  /**
+   * 💰 §19.27.4 + §19.28.1/.4 — los envíos RECIENTES, para verificar una compra en vuelo por SOLO LECTURA. ⛔ Siempre la
+   * ruta **v1** (`/api/v2/shipments` es la de compra y solo debe aparecer en `mutate`, PS-99 (d)). Cada elemento por EL
+   * parser de sobre (por recurso, con el `included` compartido); el folio de la dirección de destino por relación. ⛔ Sin
+   * `raw`: el listado trae direcciones (PII) y no se guarda ni se loguea.
+   */
+  async recentShipments(createdFrom: Date): Promise<RecentShipmentsResult> {
+    const shipments: RecentProviderShipment[] = [];
+    let readable = true;
+    let coversFrom = false;
+    let read = 0;
+    for (let page = 1; page <= RECENT_SHIPMENTS_MAX_PAGES; page += 1) {
+      const res = await this.client.get('recent_shipments', `/shipments?page=${page}&per_page=${RECENT_SHIPMENTS_PER_PAGE}`);
+      const root = asObj(res.json);
+      if (!root || !Array.isArray(root.data)) {
+        readable = false;
+        break;
+      }
+      const included = Array.isArray(root.included) ? root.included : [];
+      for (const item of root.data) {
+        const obj = asObj(item);
+        if (!obj) continue;
+        const p = parseShipmentResource(obj, included);
+        if (!p.id) continue;
+        const ed = asObj(p.attrs.error_detail);
+        shipments.push({
+          providerShipmentId: p.id,
+          createdAt: firstStr(p.attrs.created_at),
+          carrierName: firstStr(p.attrs.carrier_name, p.pkg.carrier_name),
+          totalCents: decimalToCents(p.attrs.total),
+          postalCodeTo: p.addressTo ? firstStr(p.addressTo.postal_code, p.addressTo.zip, p.addressTo.zip_code) : null,
+          source: firstStr(p.attrs.source),
+          hasError: !!ed && ed.error_code !== null && ed.error_code !== undefined,
+          providerReference: p.addressTo ? folioTokenOf(firstStr(p.addressTo.reference)) : null,
+        });
+      }
+      read += root.data.length;
+      const meta = asObj(root.meta);
+      const totalCount = meta && typeof meta.total_count === 'number' ? meta.total_count : null;
+      if (totalCount !== null && totalCount <= read) {
+        coversFrom = true;
+        break;
+      }
+      const last = shipments[shipments.length - 1];
+      if (RECENT_SHIPMENTS_ORDER_VERIFIED && last?.createdAt && Date.parse(last.createdAt) < createdFrom.getTime()) {
+        coversFrom = true;
+        break;
+      }
+      if (root.data.length === 0) break;
+    }
+    return { readable, coversFrom: readable && coversFrom, shipments };
   }
 
   async *extraCharges(from: Date, to: Date): AsyncIterable<ProviderExtraCharge> {
