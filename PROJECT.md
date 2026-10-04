@@ -3246,27 +3246,30 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > proveedor sí nos trae precios de holo y reverse holo de las cartas, checa bien»*. Aquí se aterrizan **(a)** y
 > **(b)**; **(c)** (holo / reverse holo del proveedor) es una re-medición técnica, no un requisito nuevo, y no se
 > escribe aquí. El *cómo* es del arquitecto (zona dinero). Criterios **254–255**. **No se re-pregunta lo dicho.**
-- [ ] **(a) Premium en el piso ⇒ se publica sola al piso (MX$25).** Las cartas que el guardarraíl retenía en
-      **VENTA** por «premium en el piso» (en la práctica, ex / Double Rare baratas) **dejan de retenerse por estar
-      en el piso**: se publican solas con **precio de venta = piso vigente** (hoy **MX$25**, el dial de §N.2).
-      Esto **reemplaza la viñeta VENTA** de la regla N.5 para el caso «piso». Sigue igual: el **dato ausente**
-      va a «precio pendiente» (N.2), la **precedencia** de N.6 (un override manual gana sobre el piso) y el
-      redondeo/piso de §N.
+- [ ] **(a) ex y Double Rare en el piso ⇒ se publican solas al piso (MX$25); las demás premium siguen
+      retenidas.** ✅ **Alcance DECIDIDO** (`HECHOS.md` 2026-10-04, «Precios y reembolsos — respuestas a P-PRE-2,
+      P-S11-3, P-S11-4 y P-PRE-1»: *«solo ex y double rare, lo demás por defecto»*). Las cartas **ex** y **Double
+      Rare** que el guardarraíl retenía en **VENTA** por «premium en el piso» **dejan de retenerse por estar en el
+      piso**: se publican solas con **precio de venta = piso vigente** (hoy **MX$25**, el dial de §N.2). **Todas
+      las demás rarezas premium siguen retenidas** como «premium en el piso» para revisión, como hoy. Qué rarezas
+      se publican al piso es una **regla parametrizable**, sin código para cambiarla (`HECHOS.md`, misma fila).
+      Esto **acota la viñeta VENTA** de la regla N.5 solo para ex / Double Rare en el piso. Sigue igual: el **dato
+      ausente** va a «precio pendiente» (N.2), la **precedencia** de N.6 (un override manual gana sobre el piso) y
+      el redondeo/piso de §N.
       **(SUPUESTO:** la decisión habla de **publicar**, así que el eje de **COMPRA** de N.5 —no cotizar una
       premium al bin de MX$1— **no cambia**. Si el dueño quiere tocarlo, lo dice.)
-      **Bandera de dinero (no es decisión nueva, es lo que el dueño acepta):** el guardarraíl existía para que un
-      **dato malo** en una carta cara no la vendiera al piso. Con (a), una carta premium cara cuyo dato de
-      mercado llegue roto **se publicaría a MX$25**. Ver **P-PRE-2**.
+      *(P-PRE-2 respondida 2026-10-04: al limitarlo a ex / Double Rare, una carta cara de otra rareza premium con
+      dato roto **sigue sin publicarse al piso** — el freno conserva su propósito para ellas.)*
 - [ ] **(b) Precio final a mano: SOLO para producto SELLADO.** La captura de un **precio final** a mano se ofrece
       **solo para piezas selladas**, en dos sitios: **(1)** la cola **«Listas para publicar»** (en las filas de
       sellado) y **(2)** el **panel del sellado (M11)**. Para **cartas sueltas y gradeadas** ⛔ **no se añade**
       ninguna captura nueva de precio final (ni en «Listas para publicar» ni en otra pantalla). Es un override
       manual del sellado: gana la precedencia de §K (`override manual > spread por presentación > …`), queda
       **auditado** y **nunca** es $0.
-      **El override por pieza que YA existe para cartas sueltas** (hoy en el panel lateral de la pieza, primer
-      escalón de la precedencia de N.6) — **PREGUNTA ABIERTA P-PRE-1**. **Default mientras no responda: se
-      conserva como está, sin hacerlo más visible** (mismo sitio, mismo comportamiento; también para gradeadas,
-      cuyo precio hoy depende de ese override — §A, «override manual» de gradeadas).
+      **El override por pieza que YA existe para cartas sueltas y gradeadas** (hoy en el panel lateral de la
+      pieza, primer escalón de la precedencia de N.6) — ✅ **DECIDIDO (P-PRE-1, `HECHOS.md` 2026-10-04, «lo demás
+      por defecto»): se conserva como está, sin hacerlo más visible** (mismo sitio, mismo comportamiento; también
+      para gradeadas, cuyo precio hoy depende de ese override — §A, «override manual» de gradeadas).
 
 **N.6 — Precedencia, override y bounty revalidado (decisión 4, LOCKED)**
 - [ ] **Precedencia de VENTA**: `override por pieza > override de variante > curva (piso / mercado) >
@@ -7223,7 +7226,7 @@ Decisión literal: *«no se puede cancelar, ¿estamos dando la opción?»* ⇒ *
 - **Ninguna pantalla ordena por apellido** (S.6).
 - **El contracargo** conserva su regla (la carta vuelve a la venta).
 
-#### S.11 💰 Reembolso TOTAL de un pedido y sus cartas — **«depende de si ya salió»**, y vale para **CUALQUIER reembolso total** · decisiones del dueño del 2026-10-02 y del 2026-10-04 · ⚠️ dos preguntas abiertas (S.11.7) · *(reescrita 2026-10-04)*
+#### S.11 💰 Reembolso TOTAL de un pedido y sus cartas — **«depende de si ya salió»**, y vale para **CUALQUIER reembolso total** · decisiones del dueño del 2026-10-02 y del 2026-10-04 · ✅ sin preguntas abiertas (S.11.7) · *(reescrita 2026-10-04)*
 
 > **Fuente 1:** `HECHOS.md`, fila del **2026-10-02** «Cartas apartadas de un pedido reembolsado desde Stripe sin
 > liquidar (SSL-R1): depende de si el pedido ya salió». Palabras del dueño, literales: *«depende si ya realizamos
@@ -7237,8 +7240,8 @@ Decisión literal: *«no se puede cancelar, ¿estamos dando la opción?»* ⇒ *
 > reembolso»* ⇒ la regla «enviado ⇒ no vuelven a inventario y el reembolso pide motivo "no llegó" / "llegó en mala
 > condición"» vale para **cualquier reembolso total**, no solo el del panel de Stripe.
 >
-> **Lo dicho no se re-pregunta** (P-S11-1 y P-S11-2 del borrador anterior quedan **respondidas**); solo se
-> preguntan los huecos de S.11.7. Deuda técnica que esto decide: `SSL-R1` (`docs/TECH_DEBT.md`;
+> **Lo dicho no se re-pregunta** (P-S11-1 y P-S11-2 del borrador anterior, y P-S11-3 y P-S11-4, quedan
+> **respondidas** el 2026-10-04 — S.11.7). Deuda técnica que esto decide: `SSL-R1` (`docs/TECH_DEBT.md`;
 > `docs/API_CONTRACT.md §M4-VAULT.2-bis.2`, «Residual declarado»). El *cómo* es del arquitecto y **no se escribe
 > aquí**. Criterios verificables: **249–253**.
 > *(Numeración: los criterios **234–248** están reservados por **§T (Skydropx)** en la rama viva
@@ -7326,9 +7329,9 @@ cómo aplica a cada uno.
 | **Panel de Stripe sobre pedido SIN liquidar** (SSL-R1) | Las cartas se quedan apartadas para siempre (`TECH_DEBT.md` SSL-R1, medido por backend 2026-09-28, N=1) | **Cambia:** regla 4a (S.11.3), criterio **249** | **Cambia:** «reembolso por revisar» + motivo después, criterio **250** |
 | **M3 — reembolso total** (súper-admin, pedido **liquidado** de envío directo) | Cierra el envío vivo; las cartas quedan congeladas y las resuelve un humano (`API_CONTRACT.md:756`, SEC-SHIP-A2) | **No cambia** (ya hay confirmación humana; nada queda apartado) | **Cambia:** motivo obligatorio **en la misma acción**, sin él no hay reembolso; las cartas no vuelven; criterio **251** |
 | **Panel de Stripe sobre pedido LIQUIDADO** | Mismo cierre que M3 (`API_CONTRACT.md:756`, `charge.refunded` total) | **No cambia** | **Cambia:** «reembolso por revisar» + motivo después, criterio **250** |
-| **Reembolso total de una compra A BÓVEDA** (§M4-SHIP, criterio **231**) | Deshace la venta: la carta vuelve «en almacén» y un humano confirma | **No cambia** (una compra a bóveda no tiene envío propio) | Ver **P-S11-4** (si alguna carta ya salió en un retiro) |
+| **Reembolso total de una compra A BÓVEDA** (§M4-SHIP, criterio **231**) | Deshace la venta: la carta vuelve «en almacén» y un humano confirma | **No cambia** (una compra a bóveda no tiene envío propio) | **No pide motivo** aunque alguna carta ya saliera en un retiro; lo retirado no se toca (**P-S11-4, decidido**) |
 | **Total alcanzado sumando reembolsos por carta** («no sale nada» al preparar, §S.10.3) | Ocurre **durante la preparación**, antes de «enviado» | **No cambia** | **No aplica** (por definición no salió) |
-| **Contracargo** | No es un reembolso nuestro (§H: proceso del banco). Con el envío en «enviado»/«entregado» las cartas **ya no se tocan** y queda para revisión manual (`API_CONTRACT.md:10150`) | **No cambia** | Cartas: **ya cumple** (no vuelven). Motivo: ver **P-S11-3** |
+| **Contracargo** | No es un reembolso nuestro (§H: proceso del banco). Con el envío en «enviado»/«entregado» las cartas **ya no se tocan** y queda para revisión manual (`API_CONTRACT.md:10150`) | **No cambia** | Cartas: **ya cumple** (no vuelven). Motivo: **no se pide** (**P-S11-3, decidido**) |
 
 *(Las filas «Hoy» se leyeron del contrato y del registro de deuda el 2026-10-04; **NO MEDIDO** contra el código. Lo
 confirma el arquitecto.)*
@@ -7337,26 +7340,24 @@ confirma el arquitecto.)*
 
 - M3 **sigue sin** reembolsar pedidos sin liquidar.
 - El reembolso total de un pedido **liquidado no enviado** (M3 o Stripe) se comporta **igual que hoy**.
-- El **criterio 231** (reembolso total de bóveda) no cambia mientras **P-S11-4** siga con su default; el
-  **contracargo** conserva su regla de cartas, y mientras **P-S11-3** siga con su default **no** pide motivo.
+- El **criterio 231** (reembolso total de bóveda) no cambia: **no** pide motivo, tampoco con cartas ya retiradas
+  (P-S11-4, decidido); el **contracargo** conserva su regla de cartas y **no** pide motivo (P-S11-3, decidido).
 - **§S.10** no cambia: el reembolso **por carta** al preparar sigue igual (ocurre antes de «enviado»).
 - La máquina de estados del envío **no gana estados**; el punto «enviado» es el de siempre.
 - Ningún correo nuevo al cliente; ningún movimiento de dinero nuevo (el reembolso de M3 manda **el** correo de
   reembolso de siempre, ⛔ no uno adicional por el motivo).
 
-##### S.11.7 Preguntas abiertas de S.11 (para el dueño)
+##### S.11.7 Preguntas de S.11 — ✅ todas respondidas
 
-*(P-S11-1 y P-S11-2 quedaron **respondidas** el 2026-10-04 — 4a y 4b de `HECHOS.md`; no se re-preguntan.)*
+*(P-S11-1 y P-S11-2 quedaron **respondidas** el 2026-10-04 — 4a y 4b de `HECHOS.md`. P-S11-3 y P-S11-4,
+**respondidas** el 2026-10-04 con su default — `HECHOS.md` «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3,
+P-S11-4 y P-PRE-1»: *«lo demás por defecto»*. No se re-pregunta ninguna.)*
 
-- **P-S11-3 · ¿El contracargo también pide motivo cuando el pedido ya salió?** Un contracargo no lo hacemos
-  nosotros: lo decide el banco del cliente, y la política de la tienda ya lo trata aparte de los reembolsos. Las
-  cartas de un pedido enviado **ya no vuelven** a inventario con un contracargo, así que esa parte ya está bien.
-  **Default: el contracargo NO pide motivo** (el motivo lo pone el banco, no nosotros) y se queda como está.
-- **P-S11-4 · Compra a bóveda reembolsada completa cuando alguna de sus cartas ya salió en un retiro: ¿pide
-  motivo?** Una compra a bóveda no se envía; sus cartas salen después, si el cliente pide un retiro. Hoy, al
-  reembolsar la compra completa, las cartas que ya salieron en un retiro **no se tocan** (criterio 231).
-  **Default: no pide motivo** — la regla del «enviado» mira el envío **del propio pedido**, y una compra a bóveda
-  no tiene; las cartas ya retiradas siguen sin tocarse, como hoy.
+- **P-S11-3 · Contracargo de un pedido ya enviado ⇒ DECIDIDO: NO pide motivo.** Lo decide el banco del cliente,
+  no nosotros; las cartas de un pedido enviado ya no vuelven a inventario con un contracargo. Se queda como está.
+- **P-S11-4 · Compra a bóveda reembolsada completa con alguna carta ya retirada ⇒ DECIDIDO: NO pide motivo; lo
+  retirado no se toca.** La regla del «enviado» mira el envío **del propio pedido**, y una compra a bóveda no
+  tiene; las cartas ya retiradas siguen sin tocarse, como hoy (criterio 231).
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De §S.11 (cartas de un pedido reembolsado sin liquidar), a propósito** *(2026-10-02)*: que el sistema **actúe
@@ -10592,25 +10593,30 @@ detalles del 2026-10-04». 254–255 son nuevos, de la fila «Precios — decisi
    carta sigue apartada por un pedido reembolsado, y el barrido **deja de registrar error** por esos pedidos.
 253. **Lo que NO cambia con §S.11 — se verifica por ausencia** *(S.11.6)*: M3 **sigue rechazando** el reembolso de
    un pedido sin liquidar; el reembolso total de un pedido **liquidado NO enviado** (M3 o Stripe) se comporta
-   igual que hoy; el **criterio 231**, el **contracargo** (sin motivo, mientras P-S11-3 y P-S11-4 sigan con su
-   default) y **§S.10** se comportan igual; la máquina de envíos **no** gana estados; **ningún** correo nuevo al
+   igual que hoy; el **criterio 231** (también con cartas ya retiradas: **no** pide motivo y lo retirado no se
+   toca — P-S11-4, decidido 2026-10-04), el **contracargo** (sobre un pedido enviado **no** pide motivo — P-S11-3,
+   decidido 2026-10-04) y **§S.10** se comportan igual; la máquina de envíos **no** gana estados; **ningún** correo nuevo al
    cliente y **ningún** movimiento de dinero nuevo.
-254. 💰 **Carta premium cuyo mercado cae por debajo del piso ⇒ se publica sola al piso (hoy MX$25)** *(§N.5-bis (a);
-   `HECHOS.md` «Precios — decisiones del 2026-10-04» (a))*: una carta de rareza **premium** —**incluidas Double
-   Rare / ex**— con dato de mercado presente que, por la curva, resulta en el **piso** ⇒ se **publica** con
-   **precio de venta = piso vigente (MX$25 con los diales de hoy)**, ⛔ no entra a la cola de precio pendiente por
-   «premium en el piso», y el catálogo la lista a ese precio. Las que **hoy** están retenidas por esa razón salen
-   de la cola y se publican a MX$25 en el siguiente barrido. **⛔ Falla** si se publica por **debajo** del piso, si
-   una carta **sin** dato de mercado se publica por este camino (sigue en «precio pendiente», §N.2), o si un
-   override manual (por pieza o de variante) deja de ganar sobre el piso. La **compra** (buylist) no cambia con
-   este criterio (SUPUESTO, ver §N.5-bis).
+254. 💰 **Carta ex o Double Rare cuyo mercado cae por debajo del piso ⇒ se publica sola al piso (hoy MX$25); las
+   demás premium siguen retenidas** *(§N.5-bis (a); `HECHOS.md` «Precios — decisiones del 2026-10-04» (a) y
+   «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1» (a))*: una carta **ex** o **Double
+   Rare** con dato de mercado presente que, por la curva, resulta en el **piso** ⇒ se **publica** con **precio de
+   venta = piso vigente (MX$25 con los diales de hoy)**, ⛔ no entra a la cola de precio pendiente por «premium en
+   el piso», y el catálogo la lista a ese precio. Las ex / Double Rare que **hoy** están retenidas por esa razón
+   salen de la cola y se publican a MX$25 en el siguiente barrido. Una carta de **cualquier otra rareza premium**
+   en el piso **sigue retenida** como «premium en el piso» (⛔ no se publica; aparece en la cola para revisión),
+   igual que hoy. La lista de rarezas que se publican al piso es **parametrizable** (cambiarla no exige código).
+   **⛔ Falla** si se publica por **debajo** del piso, si una premium que no sea ex / Double Rare se publica al
+   piso, si una carta **sin** dato de mercado se publica por este camino (sigue en «precio pendiente», §N.2), o
+   si un override manual (por pieza o de variante) deja de ganar sobre el piso. La **compra** (buylist) no cambia
+   con este criterio (SUPUESTO, ver §N.5-bis).
 255. **Precio final a mano: solo para SELLADO** *(§N.5-bis (b); `HECHOS.md` «Precios — decisiones del
    2026-10-04» (b))*: en **«Listas para publicar»** las filas de **sellado** ofrecen capturar el precio final y las
    de **carta suelta y gradeada no** (⛔ ningún campo ni botón de precio final en esas filas); el **panel del
    sellado (M11)** permite capturar el precio final de una pieza sellada. Capturarlo es un override manual
    **auditado** (quién, cuándo, antes/después) que gana la precedencia del sellado (§K) y **nunca** acepta $0. El
    override por pieza que **ya existe** para cartas sueltas/gradeadas **sigue funcionando igual** y en el mismo
-   sitio mientras **P-PRE-1** siga con su default (se verifica por ausencia: ni se quita ni se hace más visible).
+   sitio (**P-PRE-1, decidido 2026-10-04**; se verifica por ausencia: ni se quita ni se hace más visible).
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -14428,23 +14434,20 @@ ese frente:**
    mejor**: una casilla que no aplica **se acaba eligiendo por pereza**—; **o (c)** añadir los que le falten,
    con **sus palabras**, porque **ese texto lo va a leer un cliente**.
 
-## Preguntas abiertas — reembolsos totales y precios (2026-10-04, sesión 5)
+## Preguntas — reembolsos totales y precios (2026-10-04, sesión 5) — ✅ TODAS RESPONDIDAS
 
-> Salen de aterrizar las filas de `HECHOS.md` del **2026-10-04** («Cartas apartadas (SSL-R1) — detalles» y
-> «Precios — decisiones»). **Ninguna bloquea al arquitecto:** cada una tiene default y se diseña con él.
+> Salieron de aterrizar las filas de `HECHOS.md` del **2026-10-04** («Cartas apartadas (SSL-R1) — detalles» y
+> «Precios — decisiones»). **Respondidas el mismo día** — `HECHOS.md` «Precios y reembolsos — respuestas a
+> P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1». Palabras del dueño: *«solo ex y double rare, lo demás por defecto»*.
+> No se re-preguntan.
 
-- **P-S11-3 · Contracargo de un pedido ya enviado: ¿pide motivo?** Default: **no** (lo decide el banco, no
-  nosotros; las cartas ya no vuelven a inventario). Detalle en §S.11.7. *(Relacionada, sin resolver: la
-  pregunta **86** —qué le pasa al pedido mientras un contracargo está vivo—.)*
-- **P-S11-4 · Compra a bóveda reembolsada completa con alguna carta ya salida en un retiro: ¿pide motivo?**
-  Default: **no**; las cartas ya retiradas siguen sin tocarse (criterio 231). Detalle en §S.11.7.
-- **P-PRE-1 · El precio fijado a mano por pieza para cartas SUELTAS (y gradeadas), que hoy existe en el panel
-  lateral: ¿lo quitamos, o solo no añadimos la captura nueva?** Usted dijo *«el precio final que pueda poner
-  solo lo quiero para producto sellado»*. Eso puede querer decir «no me pongan el campo nuevo en las cartas» o
-  «quiten también el que ya está». Ojo: las gradeadas hoy dependen de ese precio a mano. **Default: se conserva
-  como está, sin hacerlo más visible.** §N.5-bis (b), criterio 255.
-- **P-PRE-2 · Premium en el piso: ¿todas las rarezas premium, o solo ex / Double Rare?** Su decisión
-  (*«que se publiquen solas a 25»*) se tomó viendo ex / Double Rare baratas. Aplicada a **todas** las rarezas
-  premium, una carta cara (por ejemplo una Special Illustration Rare) cuyo precio de mercado llegue **roto** se
-  publicaría a MX$25 sin que nadie la revise — que es lo que el freno evitaba. **Default: todas, como está
-  escrito en `HECHOS.md`.** Si prefiere limitarlo a ex / Double Rare, lo dice. §N.5-bis (a), criterio 254.
+- ~~**P-S11-3 · Contracargo de un pedido ya enviado: ¿pide motivo?**~~ ⇒ ✅ **No pide motivo** (default
+  aceptado). §S.11.7, criterio 253. *(Sigue abierta, aparte: la pregunta **86** —qué le pasa al pedido mientras
+  un contracargo está vivo—.)*
+- ~~**P-S11-4 · Compra a bóveda reembolsada completa con alguna carta ya retirada: ¿pide motivo?**~~ ⇒ ✅ **No
+  pide motivo; lo retirado no se toca** (default aceptado). §S.11.7, criterio 253.
+- ~~**P-PRE-1 · ¿Se quita el precio a mano por pieza de sueltas y gradeadas?**~~ ⇒ ✅ **Se conserva como está,
+  sin hacerlo más visible** (default aceptado). §N.5-bis (b), criterio 255.
+- ~~**P-PRE-2 · Premium en el piso: ¿todas las rarezas premium, o solo ex / Double Rare?**~~ ⇒ ✅ **Solo ex y
+  Double Rare** (el dueño **cambió** el default). Las demás premium siguen retenidas «premium en el piso» para
+  revisión; la lista es parametrizable, sin código para cambiarla. §N.5-bis (a), criterio 254.
