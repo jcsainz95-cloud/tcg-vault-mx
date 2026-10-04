@@ -14,6 +14,7 @@
  * `KycProfile`; el reembolso del caso crea la fila (no bloquea una existente) ⇒ sin ciclo.
  */
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../../common/customer-email';
 import { ManualRefund, ManualRefundSource, ManualRefundStatus, OrderStatus, Prisma, ReplacementCaseSource, Role } from '@prisma/client';
 import { MANUAL_REFUND_STATUS_VALUES } from '../../../common/enum-values';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -197,7 +198,7 @@ export class ManualRefundService {
           processingFeeCents: r.processingFeeCents,
           compensationCents: r.compensationCents,
         },
-        customer: { userId: r.customer.id, fullName: customerDisplayName(r.customer), email: r.customer.email },
+        customer: { userId: r.customer.id, fullName: customerDisplayName(r.customer), email: customerEmailOrBlank(r.customer.email, 'ManualRefundDTO.customer', r.customer.id) },
         beneficiaryName: nullIfBlank(kyc?.legalName) ?? customerDisplayName(r.customer),
         clabeOnFile: Boolean(kyc?.clabeEnc),
         clabeMasked: maskClabe(clabe) ?? null,
@@ -633,6 +634,11 @@ export class ManualRefundService {
       for (const r of rows) {
         const user = await this.prisma.user.findUnique({ where: { id: r.customerUserId }, select: { email: true, locale: true, anonymizedAt: true } });
         if (!user || user.anonymizedAt) continue;
+        // v1.80.9 (D-STF-2, §M6-U.8 (a) E-4): cuenta sin correo ⇒ se omite con aviso, sin error ni reintento.
+        if (!user.email) {
+          this.logger.warn(`AV-14 omitido para ${r.id}: la cuenta no tiene correo`);
+          continue;
+        }
         const kyc = await this.prisma.kycProfile.findUnique({ where: { userId: r.customerUserId }, select: { clabeEnc: true } });
         const clabe = this.pii.tryDecryptOptional(kyc?.clabeEnc).value;
         // «y MX$A regresan a tu tarjeta»: la fila Stripe viva del mismo caso (⛔ no la fallida que esta sustituye).
@@ -658,6 +664,11 @@ export class ManualRefundService {
       const r = await this.prisma.manualRefund.findUniqueOrThrow({ where: { id } });
       const user = await this.prisma.user.findUnique({ where: { id: r.customerUserId }, select: { email: true, locale: true, anonymizedAt: true } });
       if (!user || user.anonymizedAt) return;
+      // v1.80.9 (D-STF-2): sin correo ⇒ se omite con aviso.
+      if (!user.email) {
+        this.logger.warn(`AV-15 omitido para ${id}: la cuenta no tiene correo`);
+        return;
+      }
       await this.mail.send({ ...manualRefundPaidTemplate({ transferCents: r.amountCents, speiReference: r.speiReference }, user.locale), to: user.email });
     } catch (e) {
       this.logger.error(`AV-15 falló para ${id}: ${(e as Error).message}`);

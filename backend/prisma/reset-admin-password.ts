@@ -52,7 +52,8 @@ export const LOCK_CLEAR_TIMEOUT_MS = 2000;
 /** Lo mínimo de Prisma que usa el script (inyectable para la prueba unitaria). */
 export interface ResetPrismaLike {
   user: {
-    findUnique(args: { where: { email: string } }): Promise<{ id?: string; email: string; role: string } | null>;
+    // v1.80.9: `email` anulable en el schema; el script busca POR correo, así que la fila hallada siempre lo trae.
+    findUnique(args: { where: { email: string } }): Promise<{ id?: string; email: string | null; role: string } | null>;
     update(args: { where: { email: string }; data: Record<string, unknown> }): Promise<unknown>;
   };
 }
@@ -177,7 +178,7 @@ export async function resetStaffPassword(
   });
 
   // v1.80.1: DESPUÉS de la escritura, y sin que un fallo aquí haga fallar el script.
-  const lock = await clearPasswordLock({ id: user.id, email: user.email }, env, opts);
+  const lock = await clearPasswordLock({ id: user.id, email: user.email ?? email }, env, opts);
   if (lock.cleared) {
     log(`[reset-admin-password] candado de intentos (C7) limpiado en Redis para ${email}.`);
   } else {

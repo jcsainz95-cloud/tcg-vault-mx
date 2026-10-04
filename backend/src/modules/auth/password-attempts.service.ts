@@ -2,7 +2,8 @@ import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { Role, UserStatus } from '@prisma/client';
 import { BusinessException } from '../../common/business.exception';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
-import { normalizeEmail } from '../../common/validation/credentials';
+import { normalizeIdentifier } from '../../common/validation/credentials';
+import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 import { NameSourceLike } from '../mail/greeting-name';
@@ -26,10 +27,17 @@ import {
  */
 export function passwordAttemptKeysForUser(
   pii: Pick<PiiCryptoService, 'blindIndex'>,
-  user: { id: string; email: string },
+  user: { id: string; email: string | null; username?: string | null },
 ): { account: string; changePassword: string; deviceAggregate: string } {
+  // v1.80.9 (§M6-U.4, §4.58.1): UNA cuenta, UN cubo — el de su identificador (`email ?? username`; el CHECK
+  // `user_login_identity_xor` garantiza exactamente uno). ⛔ Sin identificador NO se deriva nada: contar en el cubo
+  // de `""` mezclaría cuentas ajenas.
+  const identifier = user.email ?? user.username ?? null;
+  if (identifier === null) {
+    throw new Error(`passwordAttemptKeysForUser: la cuenta ${user.id} no trae ni correo ni usuario`);
+  }
   return {
-    account: pii.blindIndex(ACCOUNT_KEY_DOMAIN + normalizeEmail(user.email)),
+    account: pii.blindIndex(ACCOUNT_KEY_DOMAIN + normalizeIdentifier(identifier)),
     changePassword: CHANGE_PASSWORD_KEY_PREFIX + user.id,
     deviceAggregate: DEVICE_AGGREGATE_KEY_PREFIX + user.id,
   };
@@ -41,7 +49,8 @@ export type PasswordLockVia = 'account' | 'device' | 'change_password';
 /** Lo que necesita el aviso sobre la cuenta (si existe). Nunca se vuelca a la bitácora entero. */
 export interface LockedAccount {
   id: string;
-  email: string;
+  email: string | null;
+  username?: string | null;
   name: string;
   nameSource?: NameSourceLike | null;
   locale?: string | null;
@@ -81,14 +90,31 @@ export class PasswordAttemptsService {
     private readonly pii: PiiCryptoService,
     private readonly audit: AuditService,
     private readonly mail: MailService,
+    // v1.80.9 (§M6-U.4): el aviso de candado de una cuenta SIN correo se escribe en `User.lockNoticeAt`.
+    private readonly prisma: PrismaService,
   ) {}
 
-  accountKey(email: string): string {
-    return passwordAttemptKeysForUser(this.pii, { id: '', email }).account;
+  /**
+   * v1.80.9 (§M6-U.4/.7): ms que le quedan al candado del cubo de la cuenta (`0` sin candado). Lectura sin efectos
+   * del almacén — la ÚNICA fuente del candado (§4.58.5). Si el almacén lanza, lanza: el llamador decide
+   * (`GET /admin/users` lo convierte en `lockState:'unavailable'`).
+   */
+  async lockMsForUser(user: { id: string; email: string | null; username?: string | null }): Promise<number> {
+    return this.store.peekLockMs(this.accountKeyForUser(user));
+  }
+
+  /** Clave del cubo de un IDENTIFICADOR tecleado (correo o usuario), normalizado con `normalizeIdentifier`. */
+  accountKey(identifier: string): string {
+    return passwordAttemptKeysForUser(this.pii, { id: '', email: identifier }).account;
+  }
+
+  /** v1.80.9: el cubo de la CUENTA (el de su identificador). ⛔ Nunca `accountKey(user.email)`: puede ser `null`. */
+  accountKeyForUser(user: { id: string; email: string | null; username?: string | null }): string {
+    return passwordAttemptKeysForUser(this.pii, user).account;
   }
 
   changePasswordKey(userId: string): string {
-    return passwordAttemptKeysForUser(this.pii, { id: userId, email: '' }).changePassword;
+    return CHANGE_PASSWORD_KEY_PREFIX + userId;
   }
 
   deviceKey(jti: string): string {
@@ -97,7 +123,7 @@ export class PasswordAttemptsService {
 
   /** v1.80.1: clave del tope agregado por vía dispositivo de una cuenta (§4.57.10.1 b). */
   deviceAggregateKey(userId: string): string {
-    return passwordAttemptKeysForUser(this.pii, { id: userId, email: '' }).deviceAggregate;
+    return DEVICE_AGGREGATE_KEY_PREFIX + userId;
   }
 
   /**
@@ -138,7 +164,7 @@ export class PasswordAttemptsService {
    * falta: son del dueño. ⛔ El acierto NO pasa por aquí: limpiar el agregado al entrar le
    * regalaría al ladrón de un dispositivo otros 30 por cada login del dueño (§4.57.10.1 b).
    */
-  async clearForUser(user: { id: string; email: string }): Promise<void> {
+  async clearForUser(user: { id: string; email: string | null; username?: string | null }): Promise<void> {
     const k = passwordAttemptKeysForUser(this.pii, user);
     await this.clear(k.account, k.changePassword, k.deviceAggregate);
   }
@@ -170,10 +196,21 @@ export class PasswordAttemptsService {
         })
         .catch((e: unknown) => this.logger.error(`auth.password_lock: bitácora falló (${String(e)})`));
       if (!STAFF_ROLES.has(user.role) || user.status !== UserStatus.active) return;
+      // v1.80.9 (§M6-U.4): la MISMA puerta (1 cada 24 h por cuenta) y dos canales. Ganada la reclamación: con correo ⇒
+      // correo, como hoy (P-STF-5); SIN correo ⇒ aviso en el panel (`lockNoticeAt`), ⛔ cero correos. El `where`
+      // lleva `email: null` para no escribir nunca el aviso en una cuenta con correo (CHECK `user_lock_notice_no_email`).
+      const email = user.email;
       this.store
         .claimOnce(LOCK_MAIL_KEY_PREFIX + user.id, PASSWORD_LOCK_MAIL_EVERY_MS)
-        .then((first) => (first ? this.mail.sendPasswordLockAlert(user) : undefined))
-        .catch((e: unknown) => this.logger.error(`auth.password_lock: correo falló (${String(e)})`));
+        .then(async (first) => {
+          if (!first) return;
+          if (email) {
+            await this.mail.sendPasswordLockAlert({ ...user, email });
+          } else {
+            await this.prisma.user.updateMany({ where: { id: user.id, email: null }, data: { lockNoticeAt: new Date() } });
+          }
+        })
+        .catch((e: unknown) => this.logger.error(`auth.password_lock: aviso falló (${String(e)})`));
     });
   }
 }

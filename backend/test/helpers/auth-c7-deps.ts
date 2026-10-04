@@ -7,6 +7,7 @@
  * Cada llamada devuelve un almacén nuevo ⇒ los contadores no se filtran entre specs.
  */
 import { randomBytes } from 'crypto';
+import { PrismaService } from '../../src/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PiiCryptoService } from '../../src/common/crypto/pii-crypto.service';
@@ -30,6 +31,7 @@ export function makeC7Deps(
     store?: LoginAttemptStore;
     audit?: { log: jest.Mock };
     mail?: { sendPasswordLockAlert: jest.Mock };
+    prisma?: { user: { updateMany: jest.Mock } };
   } = {},
 ): C7Deps {
   const config =
@@ -49,6 +51,8 @@ export function makeC7Deps(
     new PiiCryptoService(config),
     audit as unknown as AuditService,
     mail as unknown as MailService,
+    // v1.80.9 (§M6-U.4): el aviso de candado SIN correo escribe `lockNoticeAt`. Doble con `updateMany` contado.
+    (opts.prisma ?? { user: { updateMany: jest.fn(async () => ({ count: 1 })) } }) as unknown as PrismaService,
   );
   const devices = new DeviceTokenService(new JwtService({}), config);
   return { attempts, devices, store, audit, mail };

@@ -60,6 +60,12 @@ export interface LoginAttemptStore {
    * clave (NX) y NO se renueva. Devuelve el valor tras incrementar. Al vencer la ventana, vuelve a 1.
    */
   bump(key: string, ttlMs: number): Promise<number>;
+  /**
+   * v1.80.9 (§M6-U.4, §4.58.5) — ms que le quedan al candado de `key` (`0` sin candado). Lectura SIN efectos: no
+   * cuenta, no alarga, no repone. Sirve a «bloqueado hasta HH:MM» en Usuarios: el almacén es la única fuente del
+   * candado (ni columna ni bitácora).
+   */
+  peekLockMs(key: string): Promise<number>;
 }
 
 /** Token DI del almacén. */
@@ -200,6 +206,12 @@ export class MemoryLoginAttemptStore implements LoginAttemptStore {
   async reset(key: string): Promise<void> {
     this.entries.delete(key);
     this.windows.delete(key);
+  }
+
+  async peekLockMs(key: string): Promise<number> {
+    const e = this.entries.get(key);
+    if (!e) return 0;
+    return Math.max(0, e.lockExpiresAt - this.clock());
   }
 
   async claimOnce(key: string, ttlMs: number): Promise<boolean> {
@@ -473,6 +485,13 @@ export class RedisLoginAttemptStore implements PrimaryLoginAttemptStore {
     await this.client.del(...this.keys(key));
   }
 
+  /** v1.80.9: `PTTL` de la clave de candado; `-2`/`-1` (no existe / sin TTL) ⇒ `0`. */
+  async peekLockMs(key: string): Promise<number> {
+    const [, lockKey] = this.keys(key);
+    const pttl = Number(await this.client.pttl(lockKey));
+    return pttl > 0 ? pttl : 0;
+  }
+
   async claimOnce(key: string, ttlMs: number): Promise<boolean> {
     const r = await this.client.set(`${this.prefix}m:${key}`, '1', 'PX', ttlMs, 'NX');
     return r === 'OK';
@@ -571,6 +590,20 @@ export class ResilientLoginAttemptStore implements LoginAttemptStore, OnModuleIn
     } catch (e) {
       this.markDown('reset', e);
       this.fallback.markReset(key);
+    }
+  }
+
+  /**
+   * v1.80.9: misma regla que `acquire` para saber QUIÉN manda: degradado ⇒ la memoria (que es la que decide el `429`
+   * en ese modo); si Redis no contesta ⇒ se marca caído y se lee la memoria. Nunca lanza por un Redis caído.
+   */
+  async peekLockMs(key: string): Promise<number> {
+    if (this.degraded) return this.fallback.peekLockMs(key);
+    try {
+      return await withTimeout(this.primary.peekLockMs(key), this.timeoutMs);
+    } catch (e) {
+      this.markDown('peekLockMs', e);
+      return this.fallback.peekLockMs(key);
     }
   }
 

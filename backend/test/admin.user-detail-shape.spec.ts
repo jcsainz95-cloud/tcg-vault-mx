@@ -33,8 +33,9 @@ const CLABE = '012345678901234567';
 const RFC = 'XAXX010101000';
 
 /** `AdminUserDetailDTO` (§11) — `super_admin`. */
+// v1.80.9 (§M6-U.7): los DOS DTOs ganan `username` y `lockedUntil`.
 const SUPER_KEYS = [
-  'id', 'email', 'name', 'nameSource', 'phone', 'locale', 'role', 'status', 'emailVerified',
+  'id', 'email', 'username', 'lockedUntil', 'name', 'nameSource', 'phone', 'locale', 'role', 'status', 'emailVerified',
   'authProvider', 'avatarUrl', 'mustChangePassword', 'deletedAt', 'anonymizedAt', 'createdAt',
   'updatedAt', 'recentShipmentRecipients', 'kycProfile', 'billingProfile', 'addresses', 'orders',
   'sellRequests', 'disputes', 'ownedItems',
@@ -48,7 +49,7 @@ const SUPER_KEYS = [
  * movimientos por persona no es de su rol.
  */
 const OPERATOR_KEYS = [
-  'id', 'email', 'name', 'nameSource', 'phone', 'locale', 'role', 'status', 'emailVerified',
+  'id', 'email', 'username', 'lockedUntil', 'name', 'nameSource', 'phone', 'locale', 'role', 'status', 'emailVerified',
   'deletedAt', 'createdAt', 'updatedAt', 'kycProfile', 'billingProfile', 'addresses', 'orders',
   'sellRequests', 'disputes', 'ownedItems',
 ].sort();

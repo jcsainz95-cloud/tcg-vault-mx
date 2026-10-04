@@ -121,6 +121,11 @@ export class UsersService {
         select: { email: true, locale: true, anonymizedAt: true },
       });
       if (!user || user.anonymizedAt) return;
+      // v1.80.9 (D-STF-2, §M6-U.8 (a) E-4): cuenta sin correo ⇒ se omite con aviso, sin error ni reintento.
+      if (!user.email) {
+        this.logger.warn(`AV-16 omitido para ${change.userId}: la cuenta no tiene correo`);
+        return;
+      }
       await this.mail.send({
         ...clabeChangedTemplate(
           { previousMasked: change.previousMasked, newMasked: change.newMasked, changedAt: change.changedAt },
@@ -150,7 +155,9 @@ export class UsersService {
    */
   private toMeDTO(user: {
     id: string;
-    email: string;
+    email: string | null;
+    username: string | null;
+    lockNoticeAt: Date | null;
     name: string;
     nameSource: NameSource;
     phone: string | null;
@@ -166,7 +173,9 @@ export class UsersService {
   }) {
     return {
       id: user.id,
+      // v1.80.9 (§M6-U.5): `email: string | null` + `username` + el aviso de candado pendiente del panel.
       email: user.email,
+      username: user.username,
       name: user.name,
       nameSource: user.nameSource,
       phone: user.phone,
@@ -179,7 +188,16 @@ export class UsersService {
       avatarUrl: user.avatarUrl ?? undefined,
       hasPassword: user.passwordHash != null,
       mustChangePassword: user.mustChangePassword,
+      lockNotice: user.lockNoticeAt ? { since: user.lockNoticeAt.toISOString() } : null,
     };
+  }
+
+  /**
+   * v1.80.9 (§M6-U.5) — `POST /users/me/lock-notice/dismiss`: acuse de lectura del aviso de candado. Idempotente
+   * (sin aviso ⇒ no-op). Sin bitácora: el candado ya quedó en `auth.password_lock`.
+   */
+  async dismissLockNotice(userId: string): Promise<void> {
+    await this.prisma.user.updateMany({ where: { id: userId }, data: { lockNoticeAt: null } });
   }
 
   async me(userId: string) {

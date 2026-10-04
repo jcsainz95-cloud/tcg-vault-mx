@@ -137,6 +137,11 @@ export class FakeRedisAttemptStore implements PrimaryLoginAttemptStore {
     });
   }
 
+  /** v1.80.9: `PTTL` del candado (como el `peekLockMs` de `RedisLoginAttemptStore`). */
+  peekLockMs(key: string): Promise<number> {
+    return this.gate(() => this.lockPttl(key));
+  }
+
   claimOnce(key: string, ttlMs: number): Promise<boolean> {
     return this.gate(() => {
       const now = this.clock();

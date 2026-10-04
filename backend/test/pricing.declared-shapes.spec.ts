@@ -179,7 +179,8 @@ describe('auditoría de la norma — `PATCH /admin/users/:id/status` ya no devue
     const svc = new AdminService(prisma, {} as never, {} as never, {} as never);
     await svc.updateUserStatus('u1', 'blocked');
     const select = (captured[0].select ?? {}) as Record<string, boolean>;
-    expect(Object.keys(select).sort()).toEqual(['createdAt', 'email', 'id', 'name', 'role', 'status']);
+    // v1.80.9 (§M6-U.6): + `username`.
+    expect(Object.keys(select).sort()).toEqual(['createdAt', 'email', 'id', 'name', 'role', 'status', 'username']);
     for (const secreto of ['passwordHash', 'tokenVersion', 'googleId', 'anonymizedAt']) {
       expect(select).not.toHaveProperty(secreto);
     }

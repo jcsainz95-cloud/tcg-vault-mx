@@ -73,13 +73,14 @@ describe('§M6-L.1 — `kycStatus` viaja en cada fila, SIEMPRE con valor', () =>
     }
   });
 
-  it('la fila es EXACTAMENTE `AdminUserSummaryDTO`: siete claves, ni una más', async () => {
+  it('la fila es EXACTAMENTE `AdminUserSummaryDTO`: nueve claves (v1.80.9), ni una más', async () => {
     const { ctrl } = build([
       { id: 'u1', email: 'a@x.mx', name: 'A', role: Role.customer, status: UserStatus.active, createdAt: new Date(0), kycProfile: { kycStatus: KycStatus.verified } },
     ]);
     const res: any = await ctrl.list({});
     expect(Object.keys(res.data[0]).sort()).toEqual(
-      ['createdAt', 'email', 'id', 'kycStatus', 'name', 'role', 'status'].sort(),
+      // v1.80.9 (§M6-U.7): + `username` y `lockedUntil` (nueve claves).
+      ['createdAt', 'email', 'id', 'kycStatus', 'lockedUntil', 'name', 'role', 'status', 'username'].sort(),
     );
     // ⛔ `kycProfile` NO se reenvía crudo: viaja el ESTADO, nunca el objeto de identidad.
     expect(res.data[0]).not.toHaveProperty('kycProfile');
@@ -111,7 +112,8 @@ describe('§M6-L.3 — el `where` se arma como `AND: [...]` (candado `L-3`)', ()
     expect(where.AND).toHaveLength(2);
     expect(where).not.toHaveProperty('OR');
     expect(where.AND).toEqual([
-      { OR: [{ email: { contains: 'ana', mode: 'insensitive' } }, { name: { contains: 'ana', mode: 'insensitive' } }] },
+      // v1.80.9 (§M6-U.7): el `OR` del buscador gana la cláusula `username` DENTRO de su cláusula.
+      { OR: [{ email: { contains: 'ana', mode: 'insensitive' } }, { name: { contains: 'ana', mode: 'insensitive' } }, { username: { contains: 'ana' } }] },
       { OR: [{ kycProfile: { is: null } }, { kycProfile: { is: { kycStatus: 'none' } } }] },
     ]);
   });

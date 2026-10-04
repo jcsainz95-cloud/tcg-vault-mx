@@ -760,7 +760,8 @@ export class PaymentsService {
               select: { email: true, locale: true, anonymizedAt: true },
             })
             .then((u) =>
-              u && !u.anonymizedAt ? { email: u.email, locale: order.locale ?? u.locale } : null,
+              // v1.80.9 (§M6-U.8 (a) E-4): sin correo ⇒ sin destinatario ⇒ el `logger.warn` de abajo.
+              u && !u.anonymizedAt && u.email ? { email: u.email, locale: order.locale ?? u.locale } : null,
             );
       if (!recipient) {
         this.logger.warn(`order notice mail skipped for ${order.id}: no recipient email`);

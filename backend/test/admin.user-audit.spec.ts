@@ -1,4 +1,5 @@
 import { Role } from '@prisma/client';
+import { AUDITED_SUPER_ADMIN_KEY, AuditedSuperAdminGuard } from '../src/modules/admin/audited-super-admin.guard';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
@@ -195,9 +196,13 @@ describe('AdminUsersController.userAudit — normaliza scope y respeta rol', () 
 });
 
 describe('Guards de rol (403 sin rol suficiente)', () => {
-  it('POST /admin/users exige super_admin (metadata @Roles en el método)', () => {
-    const roles = Reflect.getMetadata(ROLES_KEY, AdminUsersController.prototype.createUser);
-    expect(roles).toEqual([Role.super_admin]);
+  // v1.80.9 (§M6-U.6, D-STF-1): alta y reset dejan `@Roles(super_admin)` (403 SIN bitácora) por el guard de ruta
+  // `AuditedSuperAdminGuard` (403 + fila `user.admin_action_denied`). La conducta (403 + fila) la miden STF-3/STF-15.
+  it('POST /admin/users exige super_admin (guard auditado en el método)', () => {
+    expect(Reflect.getMetadata(AUDITED_SUPER_ADMIN_KEY, AdminUsersController.prototype.createUser)).toBe('create');
+    expect(Reflect.getMetadata('__guards__', AdminUsersController.prototype.createUser)).toEqual([AuditedSuperAdminGuard]);
+    expect(Reflect.getMetadata(AUDITED_SUPER_ADMIN_KEY, AdminUsersController.prototype.resetPassword)).toBe('reset_password');
+    expect(Reflect.getMetadata('__guards__', AdminUsersController.prototype.resetPassword)).toEqual([AuditedSuperAdminGuard]);
   });
 
   it('/admin/users es vault_operator+ a nivel de clase (cubre el audit read)', () => {

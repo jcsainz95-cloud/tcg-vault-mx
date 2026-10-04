@@ -11,7 +11,7 @@ import { MailService } from '../mail/mail.service';
 import { ChangePasswordDto, RegisterDto, LoginDto } from './dto/auth.dto';
 import { GoogleTokenVerifier } from './google-token-verifier';
 import { AuthTokenService } from './auth-token.service';
-import { normalizeEmail } from '../../common/validation/credentials';
+import { normalizeIdentifier } from '../../common/validation/credentials';
 import { DeviceTokenService } from './device-token.service';
 import { PasswordAttemptsService } from './password-attempts.service';
 
@@ -57,9 +57,11 @@ export class AuthService {
     // v1.67 (D-CTA-1, contrato §1): gana `mustChangePassword` y NADA más. Con `true`, login/google
     // responden 200 igual (sin sesión no hay forma de cambiarla) y el front navega a la pantalla de
     // cambio; toda otra ruta autenticada responde 403 PASSWORD_CHANGE_REQUIRED (guard).
+    // v1.80.9 (§M6-U.2): `email: string | null` y gana `username` (staff sin correo). Nada más.
     return {
       id: u.id,
       email: u.email,
+      username: u.username,
       name: u.name,
       role: u.role,
       locale: u.locale,
@@ -169,10 +171,13 @@ export class AuthService {
 
   /** Emite el token de verificación y envía el correo (best-effort). */
   private async sendVerificationEmail(user: User, requestIp?: string | null): Promise<void> {
+    // v1.80.9: sin correo no hay a quién verificar (el llamador ya lo filtra; esto es defensa en profundidad).
+    if (!user.email) return;
+    const email = user.email;
     const clear = await this.tokens.issue(user.id, AuthTokenType.email_verification, requestIp);
     const link = this.buildFrontendLink(user, 'verify-email', clear);
     try {
-      await this.mail.sendEmailVerification(user, link);
+      await this.mail.sendEmailVerification({ ...user, email }, link);
       await this.audit.log({
         actorUserId: user.id,
         actorRole: user.role,
@@ -193,6 +198,8 @@ export class AuthService {
   async resendVerification(userId: string, requestIp?: string | null): Promise<{ ok: true }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw BusinessException.notFound();
+    // v1.80.9 (§M6-U.3, E-3): cuenta SIN correo ⇒ `200 {ok:true}` sin emitir token ni correo (antes del «ya verificado»).
+    if (user.email === null) return { ok: true };
     if (user.emailVerified) return { ok: true }; // ya verificado → no reenvía
     const recent = await this.tokens.countIssuedLastHour(userId, AuthTokenType.email_verification);
     if (recent >= MAX_EMAILS_PER_HOUR) {
@@ -242,13 +249,16 @@ export class AuthService {
   async forgotPassword(email: string, requestIp?: string | null): Promise<{ ok: true }> {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     // Solo procesa cuentas activas (una cuenta blocked/deleted no debe re-habilitarse por reset).
-    if (user && user.status === UserStatus.active) {
+    // v1.80.9 (§M6-U.3): se busca SOLO por `email` (⛔ nunca por `username`): un usuario nunca casa y sale por el
+    // mismo `{ ok: true }` que un correo inexistente. `user.email` no es null aquí (se encontró por él).
+    if (user && user.email && user.status === UserStatus.active) {
+      const email = user.email;
       const recent = await this.tokens.countIssuedLastHour(user.id, AuthTokenType.password_reset);
       if (recent < MAX_EMAILS_PER_HOUR) {
         const clear = await this.tokens.issue(user.id, AuthTokenType.password_reset, requestIp);
         const link = this.buildFrontendLink(user, 'reset-password', clear);
         try {
-          await this.mail.sendPasswordReset(user, link);
+          await this.mail.sendPasswordReset({ ...user, email }, link);
           await this.audit.log({
             actorUserId: user.id,
             action: 'auth.password_reset_requested',
@@ -347,7 +357,8 @@ export class AuthService {
     // atacante que bloquea el login del dueño desde fuera no le impide cambiarla desde dentro). Cada
     // intento que llega al paso 3 se reserva; con candado ⇒ 429 sin argon2 (⛔ nunca 401).
     const cpKey = this.attempts.changePasswordKey(user.id);
-    const accountKey = this.attempts.accountKey(user.email);
+    // v1.80.9 (§M6-U.4): el cubo de la CUENTA (su identificador: `email ?? username`), nunca `accountKey(user.email)`.
+    const accountKey = this.attempts.accountKeyForUser(user);
     const gate = await this.attempts.reserve(cpKey);
     this.attempts.notifyLock(gate, { via: 'change_password', accountKey, user, actorUserId: user.id });
     // 3. La actual, verificada contra el hash real.
@@ -410,9 +421,14 @@ export class AuthService {
    *    atacante 5 intentos libres cada vez que el dueño entra.
    */
   async login(dto: LoginDto) {
-    const email = normalizeEmail(dto.email);
-    const accountKey = this.attempts.accountKey(email);
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    // v1.80.9 (§M6-U.2): `dto.email` es el IDENTIFICADOR (correo o usuario). Con `@` ⇒ se busca por correo; sin `@`
+    // ⇒ por usuario. UNA normalización (`trim().toLowerCase()`) y UNA clave de cubo por identificador: para un correo,
+    // bit a bit la de antes (§4.58.4). La bifurcación es de BÚSQUEDA: el resto del orden C7 no cambia.
+    const identifier = normalizeIdentifier(dto.email);
+    const accountKey = this.attempts.accountKey(identifier);
+    const user = await this.prisma.user.findUnique({
+      where: identifier.includes('@') ? { email: identifier } : { username: identifier },
+    });
     const device = await this.devices.verify(dto.deviceToken);
     let viaDevice = device !== null && user !== null && device.userId === user.id;
     // v1.80.1 (§4.57.10.1 b): tope agregado por cuenta de intentos por vía dispositivo — `bump`

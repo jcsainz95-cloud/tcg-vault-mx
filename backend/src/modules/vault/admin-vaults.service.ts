@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
@@ -73,7 +74,7 @@ export class AdminVaultsService {
     // «Bóvedas de clientes» (un nombre fabricado del correo sale `null`).
     return {
       ...base,
-      owner: { userId: user.id, name: customerDisplayName(user), email: user.email },
+      owner: { userId: user.id, name: customerDisplayName(user), email: customerEmailOrBlank(user.email, 'AdminVault.owner', user.id) },
     };
   }
 
@@ -158,7 +159,8 @@ export class AdminVaultsService {
 
     let rows: AdminVaultSummaryDTO[] = [...agg.entries()].map(([userId, a]) => {
       const u = userById.get(userId)!;
-      return { userId, name: customerDisplayName(u), email: u.email, ...a };
+      // v1.80.9 (I-STF-1): dueño de bóveda = cliente ⇒ con correo; `null` ⇒ log + `""`.
+      return { userId, name: customerDisplayName(u), email: customerEmailOrBlank(u.email, 'AdminVaultSummary', userId), ...a };
     });
 
     rows = this.sortRows(rows, q.sort);

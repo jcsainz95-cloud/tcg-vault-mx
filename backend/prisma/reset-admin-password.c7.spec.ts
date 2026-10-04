@@ -38,6 +38,7 @@ function expectedKeys(user: { id: string; email: string }): string[] {
     new PiiCryptoService(new ConfigService({ PII_HMAC_KEY: HMAC_KEY })),
     {} as never,
     {} as never,
+    {} as never, // v1.80.9: PrismaService (solo lo usa el aviso de candado sin correo)
   );
   return [attempts.accountKey(user.email), attempts.changePasswordKey(user.id), attempts.deviceAggregateKey(user.id)].flatMap(
     (k) => loginAttemptRedisKeys(k),

@@ -231,7 +231,7 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
       select: { id: true, email: true },
     });
     customer2Id = u.id;
-    customer2Email = u.email;
+    customer2Email = u.email!;
 
     const port = h.app.get<MailPort>(MAIL_PORT);
     bandeja = [];

@@ -34,7 +34,7 @@ describe('§M4-SHIP.16 — publicStatus y shipment del cliente registrado (Postg
 
   it('PO-1 / PO-4 — directo con cuenta: tras tracking ⇒ `shipment.carrier/trackingNumber` y `publicStatus:guia`; enviado ⇒ +shippedAt; entregado ⇒ +deliveredAt; LISTA CERRADA del envío', async () => {
     const u = await db.mkUser('PO-1');
-    const tok = await db.loginCustomer(u.email);
+    const tok = await db.loginCustomer(u.email!);
     const d = await db.mkDirect({ userId: u.id, guestEmail: null });
     let o = await db.clientOrder(d.order.id, tok);
     expect(o.status).toBe(200);
@@ -69,7 +69,7 @@ describe('§M4-SHIP.16 — publicStatus y shipment del cliente registrado (Postg
 
   it('PO-2 / PO-5 — «no sale nada» con todo reembolsado ⇒ `reembolsado`; contracargo de un directo ⇒ `en_revision`; nunca `pagado`/`preparando` con envío cancelado; re-expedición toma el envío vivo', async () => {
     const u = await db.mkUser('PO-2');
-    const tok = await db.loginCustomer(u.email);
+    const tok = await db.loginCustomer(u.email!);
     const d = await db.mkDirect({ userId: u.id, guestEmail: null });
     for (const l of d.lines) await db.mark(d.shipment.id, l.id, { status: 'missing', missingReason: 'not_found' });
     const close = await db.prepare(d.shipment.id, OWNER_EXAMPLE.totalCents);
@@ -110,7 +110,7 @@ describe('§M4-SHIP.16 — publicStatus y shipment del cliente registrado (Postg
 
   it('PO-3 — PARIDAD: para 12 combinaciones el `status` de `POST /orders/guest/track` y el `publicStatus` de `GET /orders/:id` son idénticos', async () => {
     const u = await db.mkUser('PO-3');
-    const tok = await db.loginCustomer(u.email);
+    const tok = await db.loginCustomer(u.email!);
     // un pedido reclamado: tiene dueño (GET /orders/:id) Y correo de invitado (track por token)
     const d = await db.mkDirect({ userId: u.id, guestEmail: `po3.${RUN}@e2e.local` });
     const tokens = h.app.get(OrderAccessTokenService);
@@ -152,7 +152,7 @@ describe('§M4-SHIP.16 — publicStatus y shipment del cliente registrado (Postg
 
   it('PO-6 / PO-7 — orden `vault` ⇒ `shipment:null`; línea con caso `open` ⇒ `items[].replacement.status:open`; `refunded` con SPEI pending ⇒ `refund.byTransferCents>0`; sin `reason`/CLABE/actor; orden ajena ⇒ 403 sin cuerpo', async () => {
     const u = await db.mkUser('PO-6');
-    const tok = await db.loginCustomer(u.email);
+    const tok = await db.loginCustomer(u.email!);
     const drawer = await db.mkDrawer();
     const vo = await db.mkVaultOrder(u.id, { placement: 'pending', locationId: drawer.id });
     const items = await h.prisma.vaultPlacementItem.findMany({ where: { placementId: vo.placement!.id } });
@@ -177,7 +177,7 @@ describe('§M4-SHIP.16 — publicStatus y shipment del cliente registrado (Postg
     expect(json).not.toMatch(/motivo interno|012345678901234567|openedBy|resolvedBy|marketRef|referenceCents/);
     // PO-7: orden ajena ⇒ 403 sin cuerpo de envío
     const other = await db.mkUser('PO-7');
-    const tok2 = await db.loginCustomer(other.email);
+    const tok2 = await db.loginCustomer(other.email!);
     const denied = await db.clientOrder(vo.order.id, tok2);
     expect(denied.status).toBe(403);
     expect(JSON.stringify(denied.body)).not.toMatch(/shipment|publicStatus/);

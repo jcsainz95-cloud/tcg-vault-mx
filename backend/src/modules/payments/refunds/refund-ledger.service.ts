@@ -539,6 +539,8 @@ export class RefundLedgerService {
     if (!userId) return null;
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, locale: true, anonymizedAt: true } });
     if (!user || user.anonymizedAt) return null;
+    // v1.80.9 (D-STF-2, §M6-U.8 (a) E-4): sin correo ⇒ sin destinatario (el llamador omite con `logger.warn`).
+    if (!user.email) return null;
     return { email: user.email, locale: row.order?.locale ?? user.locale };
   }
 
@@ -567,7 +569,8 @@ export class RefundLedgerService {
         ? { email: order.guestEmail, locale: order.locale }
         : await this.prisma.user
             .findUnique({ where: { id: order.userId ?? '' }, select: { email: true, locale: true, anonymizedAt: true } })
-            .then((u) => (u && !u.anonymizedAt ? { email: u.email, locale: order.locale ?? u.locale } : null));
+            // v1.80.9 (D-STF-2): sin correo ⇒ sin destinatario ⇒ el `logger.warn` de abajo.
+            .then((u) => (u && !u.anonymizedAt && u.email ? { email: u.email, locale: order.locale ?? u.locale } : null));
       if (!recipient) {
         this.logger.warn(`AV-3 omitido para ${orderId}: sin destinatario`);
         return;

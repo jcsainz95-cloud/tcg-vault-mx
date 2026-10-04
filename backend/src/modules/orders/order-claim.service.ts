@@ -34,7 +34,8 @@ export class OrderClaimService {
       where: { id: userId },
       select: { email: true, emailVerified: true },
     });
-    if (!user || !user.emailVerified) return null;
+    // v1.80.9: una cuenta sin correo no tiene nada que reclamar (y el guard ya la paró con ACCOUNT_WITHOUT_EMAIL).
+    if (!user || !user.emailVerified || !user.email) return null;
     return normalizeEmail(user.email);
   }
 

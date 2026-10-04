@@ -10,6 +10,7 @@
  * que el operador vio (CA #16): distinto ⇒ `409 REFUND_PREVIEW_STALE`, cero escrituras.
  */
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import {
   InventoryStatus,
   MissingReason,
@@ -178,8 +179,8 @@ export class ShipmentPrepService {
    */
   customerOf(s: {
     userId: string | null;
-    user?: { name: string; nameSource?: NameSource | null; email?: string } | null;
-    order: { userId: string | null; guestEmail: string | null; user?: { name: string; nameSource?: NameSource | null; email?: string } | null } | null;
+    user?: { name: string; nameSource?: NameSource | null; email?: string | null } | null;
+    order: { userId: string | null; guestEmail: string | null; user?: { name: string; nameSource?: NameSource | null; email?: string | null } | null } | null;
     addressSnapshot: Prisma.JsonValue;
   }): { userId: string | null; email: string | null; lastName: string | null; fullName: string | null } {
     const buyerId = s.userId ?? s.order?.userId ?? null;
@@ -198,7 +199,8 @@ export class ShipmentPrepService {
     if (!buyerId) return null;
     const u = await db.user.findUnique({ where: { id: buyerId }, select: { email: true, name: true, nameSource: true } });
     if (!u) return null;
-    return { userId: buyerId, fullName: customerDisplayName(u), email: u.email };
+    // v1.80.9 (I-STF-1): el comprador es cliente ⇒ con correo; `null` ⇒ log + `""`.
+    return { userId: buyerId, fullName: customerDisplayName(u), email: customerEmailOrBlank(u.email, 'ShipmentPrep.customerRef', buyerId) };
   }
 
   refundDtos(rows: PaymentRefund[]): Promise<PaymentRefundDTO[]> {
@@ -867,6 +869,11 @@ export class ShipmentPrepService {
       if (cases.length === 0) return;
       const user = await this.prisma.user.findUnique({ where: { id: cases[0].customerUserId }, select: { email: true, locale: true, anonymizedAt: true } });
       if (!user || user.anonymizedAt) return;
+      // v1.80.9 (D-STF-2, §M6-U.8 (a) E-4): sin correo ⇒ se omite con aviso, sin error ni reintento.
+      if (!user.email) {
+        this.logger.warn(`AV-13 omitido para ${shipmentId}: la cuenta no tiene correo`);
+        return;
+      }
       await this.mail.send({
         ...replacementPendingTemplate(
           { shipmentId, cards: cases.map((c) => ({ name: c.originalInventoryItem.card.name, setName: c.originalInventoryItem.card.set?.name ?? null, reason: c.missingReason })) },

@@ -495,7 +495,15 @@ enum AuthTokenType {
 
 model User {
   id                 String       @id @default(uuid())
-  email              String       @unique
+  // v1.80.9 (M-63, §M6-U.1): `NULL` solo en cuentas de staff SIN correo (entran con `username`). CHECK
+  // `user_login_identity_xor`: exactamente uno de `email`/`username`; `user_customer_has_email`: cliente ⇒ correo.
+  email              String?      @unique
+  // v1.80.9 (M-63): nombre de usuario del staff, guardado CANÓNICO en minúsculas (CHECK `user_username_canonical`,
+  // `^[a-z][a-z0-9._-]{2,29}$`). La unicidad sin mayúsculas la decide este índice único, no un `findFirst`.
+  username           String?      @unique
+  // v1.80.9 (M-63, §M6-U.4/5): aviso de candado pendiente en el panel desde… Solo cuentas sin correo
+  // (CHECK `user_lock_notice_no_email`). Lo escribe `notifyLock` tras ganar `claimOnce`; lo borra `dismiss`.
+  lockNoticeAt       DateTime?
   // v1.1 (M-3): nullable — null para cuentas creadas SOLO con Google (sin contraseña).
   passwordHash       String?
   role               Role         @default(customer)

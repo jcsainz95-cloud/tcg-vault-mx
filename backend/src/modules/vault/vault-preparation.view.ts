@@ -8,6 +8,7 @@ import {
   VaultPlacementStatus,
   VaultZone,
 } from '@prisma/client';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import {
   LocationView,
   PreparationCardDTO,
@@ -325,7 +326,7 @@ export function toVaultPreparationOrder(
   names: Map<string, string | null>,
 ): VaultPreparationOrderDTO {
   const userId = p.order.userId as string;
-  const user = p.order.user as { id: string; name: string; nameSource: NameSource; email: string };
+  const user = p.order.user as { id: string; name: string; nameSource: NameSource; email: string | null };
   const items = p.items.map((pi) =>
     toVaultPreparationItem(pi, userId, withdrawals.has(pi.inventoryItemId)),
   );
@@ -337,7 +338,8 @@ export function toVaultPreparationOrder(
     orderId: p.orderId,
     orderNumber: nullIfBlank(p.order.orderNumber),
     requestedAt: p.createdAt.toISOString(),
-    customer: { userId, email: user.email, lastName: lastNameOf(fullName), fullName },
+    // v1.80.9 (I-STF-1): el titular de una colocación es cliente ⇒ con correo; `null` ⇒ log + `""`.
+    customer: { userId, email: customerEmailOrBlank(user.email, 'VaultPreparationOrder.customer', userId), lastName: lastNameOf(fullName), fullName },
     suggestedLocation: suggestionOf(drawers),
     preparation: preparationStateOf(p, items, names),
     items,

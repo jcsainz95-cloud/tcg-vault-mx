@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { customerEmailOrBlank } from '../../common/customer-email';
 import {
   Address,
   Card,
@@ -149,7 +150,7 @@ export interface ShipPreparationOrderDTO {
 export type PreparationOrderDTO = ShipPreparationOrderDTO | VaultPreparationOrderDTO;
 
 /** El join a `Order` que §M4-PREP necesita: el folio legible y el discriminador de destino. */
-type PreparationOrderJoin = { orderNumber: string | null; fulfillmentMode: FulfillmentMode; userId?: string | null; guestEmail?: string | null; user?: { name: string; nameSource?: NameSource | null; email?: string } | null } | null;
+type PreparationOrderJoin = { orderNumber: string | null; fulfillmentMode: FulfillmentMode; userId?: string | null; guestEmail?: string | null; user?: { name: string; nameSource?: NameSource | null; email?: string | null } | null } | null;
 
 /** `ShipmentItem` con la pieza, su carta (+set) y su ubicación resueltas (§M4-PREP). */
 type PreparationShipmentItem = ShipmentItem & {
@@ -163,7 +164,7 @@ type PreparationShipmentItem = ShipmentItem & {
 type PreparationShipmentRow = ShipmentRequest & {
   items: PreparationShipmentItem[];
   order?: PreparationOrderJoin;
-  user?: { name: string; nameSource?: NameSource | null; email?: string } | null;
+  user?: { name: string; nameSource?: NameSource | null; email?: string | null } | null;
 };
 
 /** ShipmentItem con la carta (y su set) resueltos, para el ClientShipmentItemDTO (v1.17). */
@@ -664,7 +665,7 @@ export class ShipmentsService {
   }> {
     const buyerId = s.userId ?? s.order?.userId ?? null;
     const buyer = buyerId ? await this.prisma.user.findUnique({ where: { id: buyerId }, select: { email: true, name: true, nameSource: true } }) : null;
-    const customer: CustomerRefDTO | null = buyerId && buyer ? { userId: buyerId, fullName: customerDisplayName(buyer), email: buyer.email } : null;
+    const customer: CustomerRefDTO | null = buyerId && buyer ? { userId: buyerId, fullName: customerDisplayName(buyer), email: customerEmailOrBlank(buyer.email, 'Shipments.adminIdentity', buyerId) } : null;
     const preparedBy = s.preparedByUserId
       ? { userId: s.preparedByUserId, name: nullIfBlank((await this.prisma.user.findUnique({ where: { id: s.preparedByUserId }, select: { name: true } }))?.name ?? null) }
       : null;
@@ -1545,7 +1546,8 @@ export class ShipmentsService {
         where: { id: shipment.userId },
         select: { email: true, locale: true, anonymizedAt: true },
       });
-      if (!user || user.anonymizedAt) return null;
+      // v1.80.9 (D-STF-2, §M6-U.8 (a) E-4): sin correo ⇒ sin destinatario (el llamador omite con aviso).
+      if (!user || user.anonymizedAt || !user.email) return null;
       return { email: user.email, locale: user.locale, orderNumber: null, orderId: null };
     }
     if (shipment.orderId) {
@@ -1567,7 +1569,8 @@ export class ShipmentsService {
           orderId: null,
         };
       }
-      if (!order.user || order.user.anonymizedAt) return null;
+      // v1.80.9 (D-STF-2): sin correo ⇒ sin destinatario.
+      if (!order.user || order.user.anonymizedAt || !order.user.email) return null;
       return {
         email: order.user.email,
         locale: order.locale ?? order.user.locale,
