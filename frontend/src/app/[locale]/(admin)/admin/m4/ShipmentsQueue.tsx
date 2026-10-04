@@ -193,7 +193,10 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
                       ) : isWithdrawal ? (
                         <span className="font-serif text-lg text-text">{t('withdrawal')}</span>
                       ) : null}
-                      <span className="tabular text-sm font-medium text-muted">{s.id}</span>
+                      {/* 🔒 §43.19.7: «Envío ENV-000045» en el hueco del uuid; sin folio (servidor anterior) ⇒ lo de hoy. */}
+                      <span className="tabular text-sm font-medium text-muted" data-testid={`shipment-ref-${s.id}`}>
+                        {s.folio ? `${t('prep.shipmentRef')} ${s.folio}` : s.id}
+                      </span>
                       <StatusBadge domain="shipment" value={s.status} />
                       {s.items && <span className="text-xs text-muted">{t('itemCount', { count: s.items.length })}</span>}
                     </div>
@@ -284,7 +287,22 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
                 {s.labelSource === 'skydropx' && s.label && <SkydropxLabelBlock shipment={s} />}
                 {/* §43.8c (FS-21): las cuatro alertas de guía, donde lleguen; «Liberar» ⇔ `canRelease`. */}
                 {s.labelAlert && (
-                  <LabelAlertBlock shipmentId={s.id} alert={s.labelAlert} refText={refOf(s)} trackingNumber={s.label?.trackingNumber ?? s.trackingNumber ?? null} />
+                  <LabelAlertBlock
+                    shipmentId={s.id}
+                    alert={s.labelAlert}
+                    trackingNumber={s.label?.trackingNumber ?? s.trackingNumber ?? null}
+                    labelPending={s.labelPending ?? null}
+                    recipient={
+                      s.addressSnapshot
+                        ? {
+                            recipientName: s.addressSnapshot.recipientName ?? null,
+                            line1: s.addressSnapshot.line1 ?? null,
+                            neighborhood: s.addressSnapshot.neighborhood ?? null,
+                            postalCode: s.addressSnapshot.postalCode ?? null,
+                          }
+                        : null
+                    }
+                  />
                 )}
                 {s.labelSource !== 'skydropx' && (s.carrier || s.trackingNumber) && (
                   <p className="text-sm text-muted">

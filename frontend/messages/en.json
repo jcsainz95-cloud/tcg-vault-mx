@@ -2618,8 +2618,8 @@
       "labelAlert": {
         "unknown": {
           "title": "Purchase without an answer",
-          "body": "Since {since}, Skydropx hasn't confirmed whether it created the label. Don't buy it again.",
-          "ownerOnly": "Only the owner can release it: let them know."
+          "body": "Since {since}, Skydropx hasn't confirmed whether it created the label and the system couldn't check on its own: {reason} Don't buy it again.",
+          "superAdminOnly": "A super admin can release it after checking the Skydropx panel: let them know."
         },
         "stuck": {
           "title": "Label stuck in progress",
@@ -2641,6 +2641,10 @@
           "confirm": "Request cancellation again",
           "done": "Skydropx confirmed the cancellation. The balance comes back.",
           "already": "It was already confirmed. Nothing was done."
+        },
+        "orphan": {
+          "title": "Extra label in Skydropx",
+          "body": "Since {since}, Skydropx has a paid label from an earlier attempt on this shipment that isn't the one we use. It needs to be cancelled in the Skydropx panel to get the balance back: let a super admin know. Don't buy another one because of this."
         }
       },
       "carrierStatus": {
@@ -2693,7 +2697,7 @@
         "release": {
           "cta": "Release",
           "title": "Release this shipment?",
-          "body": "First we look for the label in Skydropx; if it exists, we adopt it and no other is bought. If it doesn't turn up, the shipment goes back to “prepared” and can be bought again. Before that, check in the Skydropx panel that there's no shipment with reference {ref}.",
+          "body": "When you press it, we look again: if it exists, we adopt it and no other is bought; if not, the shipment goes back to “prepared”.",
           "note": "What you checked (required)",
           "noteHint": "10 to 300 characters.",
           "confirm": "Search and release",
@@ -2701,7 +2705,27 @@
           "released": "There was no label in Skydropx. The shipment went back to “prepared”.",
           "notInProgress": "This shipment no longer has a pending purchase. Nothing was done.",
           "hasProviderId": "Skydropx did create this shipment; only its number is missing. It resolves on its own, or cancel the label.",
-          "tooEarly": "Not yet: wait {minutes, plural, one {# minute} other {# minutes}} before releasing."
+          "tooEarly": "Not yet: wait {minutes, plural, one {# minute} other {# minutes}} before releasing.",
+          "intro": "The system couldn't check on its own whether Skydropx created this label: {reason} Before releasing it, look for it in the Skydropx panel with these details.",
+          "data": {
+            "reference": "Search the panel for",
+            "recipient": "Recipient",
+            "address": "Address",
+            "carrier": "Carrier",
+            "price": "Price",
+            "chosenBy": "Requested by",
+            "noReference": "This purchase never got a reference: look it up by recipient, time and price.",
+            "none": "no data",
+            "postalCode": "ZIP {cp}"
+          },
+          "conflict": {
+            "label": "I checked the Skydropx panel: the label Skydropx returned belongs to the other shipment and this one has no label of its own.",
+            "required": "Tick the box: this shipment had a conflict with another one and it has to be checked in the panel before releasing it."
+          },
+          "releasedVerified": "We checked with Skydropx that it wasn't created or charged. The shipment went back to “prepared”.",
+          "releasedNotSent": "The purchase had never gone out. The shipment went back to “prepared”.",
+          "releasedUnverified": "Released with your note: the system couldn't check it ({reason}). The shipment went back to “prepared”; if the label shows up later, it's flagged as an extra label.",
+          "providerConflict": "This shipment had a conflict with another shipment. Check it in the Skydropx panel and tick the box to release it."
         },
         "cost": "Cost {cost}",
         "margin": "margin {margin}"

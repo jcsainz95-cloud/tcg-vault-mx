@@ -28,6 +28,7 @@ import { openLabelPdf } from './capture/label-pdf';
 export function DepartureBoard() {
   const t = useTranslations('admin.m4.departure');
   const tLabel = useTranslations('admin.m4.label');
+  const tPrep = useTranslations('admin.m4.prep');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const getError = useErrorMessage('operator');
@@ -153,7 +154,10 @@ export function DepartureBoard() {
                     </label>
                     <ul className="flex flex-col gap-1">
                       {g.shipments.map((x) => {
-                        const ref = x.orderNumber ?? x.shipmentId;
+                        // 🔒 v1.80.12.10 (S-GAS-1): el paquete lleva «Pedido ENV-…» impreso ⇒ la fila dice su folio
+                        // (⛔ nunca el uuid si hay folio).
+                        const folioRef = x.folio ? `${tPrep('shipmentRef')} ${x.folio}` : null;
+                        const ref = x.orderNumber ?? folioRef ?? x.shipmentId;
                         return (
                           <li key={x.shipmentId} className="flex flex-wrap items-center gap-3 text-sm text-text" data-testid={`departure-row-${x.shipmentId}`}>
                             <input
@@ -167,6 +171,11 @@ export function DepartureBoard() {
                             <span className="tabular">
                               {t('row', { ref, recipient: x.recipientName, city: x.city, number: x.trackingNumber })}
                             </span>
+                            {x.orderNumber && folioRef && (
+                              <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted" data-testid={`departure-folio-${x.shipmentId}`}>
+                                {folioRef}
+                              </span>
+                            )}
                             {x.labelAvailable && (
                               <Button
                                 size="sm"

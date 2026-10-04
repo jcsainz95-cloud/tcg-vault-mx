@@ -128,12 +128,12 @@ describe('UX-SDX-26 · las cuatro alertas también en «Envíos»', () => {
 });
 
 describe('UX-SDX-16 · «Liberar» ⇔ canRelease (⛔ nunca por el rol)', () => {
-  it('súper-admin con canRelease:false ⇒ sin «Liberar» (ni apagado) y con «Solo el dueño puede liberarla: avísale.»', async () => {
+  it('súper-admin con canRelease:false ⇒ sin «Liberar» (ni apagado) y con «Un súper-admin puede liberarla…» (v4.20)', async () => {
     role.superAdmin = true;
     serveRows([row({ status: 'picking', labelAlert: alert('label_unknown', false) })]);
     renderWithProviders(<ShipmentsQueue onCaptureGuide={() => {}} />, 'es');
     const block = await screen.findByTestId('label-alert-shp-9');
-    expect(within(block).getByText('Solo el dueño puede liberarla: avísale.')).toBeInTheDocument();
+    expect(within(block).getByText('Un súper-admin puede liberarla tras revisarla en el panel de Skydropx: avísale.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Liberar' })).not.toBeInTheDocument();
   });
   it('operador con canRelease:true ⇒ «Liberar» presente; el diálogo manda la nota y pinta el resultado', async () => {
@@ -145,7 +145,8 @@ describe('UX-SDX-16 · «Liberar» ⇔ canRelease (⛔ nunca por el rol)', () =>
     const dialog = await screen.findByRole('dialog', { name: '¿Liberar este envío?' });
     fireEvent.change(within(dialog).getByLabelText('Qué revisaste (obligatorio)'), { target: { value: 'Revisé el panel: no hay envío TCG-000123' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar y liberar' }));
-    await waitFor(() => expect(rel).toHaveBeenCalledWith('shp-9', 'Revisé el panel: no hay envío TCG-000123'));
+    // v4.20 (§43.19.6): sin casilla pintada, `confirmConflict` va en `false` ⇒ la clave no viaja (lo prueba la rama real).
+    await waitFor(() => expect(rel).toHaveBeenCalledWith('shp-9', 'Revisé el panel: no hay envío TCG-000123', false));
     expect(await screen.findByText('No había guía en Skydropx. El envío volvió a «preparado».')).toBeInTheDocument();
   });
   it('409 LABEL_NOT_RELEASABLE too_early ⇒ minutos redondeados hacia arriba', async () => {

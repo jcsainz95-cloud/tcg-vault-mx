@@ -512,8 +512,9 @@ export function ShipPreparationCard({
                 {t('withdrawal')}
               </span>
             )}
-            <span className={LABEL}>
-              {t('shipmentRef')} <span className="tabular">{shipmentId}</span>
+            {/* 🔒 §43.19.7: «Envío ENV-000045» sustituye al uuid; sin folio (servidor anterior a M-67) ⇒ lo de hoy. */}
+            <span className={LABEL} data-testid={`prep-shipment-ref-${shipmentId}`}>
+              {t('shipmentRef')} <span className="tabular">{order.folio ?? shipmentId}</span>
             </span>
             {order.orderId && (
               <Link
@@ -645,7 +646,19 @@ export function ShipPreparationCard({
         )}
         {/* ⭐ §43.8c: la alerta de guía, donde llegue y sin filtrar por estado. */}
         {labelAlert && (
-          <LabelAlertBlock shipmentId={shipmentId} alert={labelAlert} refText={ref} trackingNumber={null} testId={`ship-label-alert-${shipmentId}`} />
+          <LabelAlertBlock
+            shipmentId={shipmentId}
+            alert={labelAlert}
+            trackingNumber={null}
+            labelPending={labelPending}
+            recipient={{
+              recipientName: order.shipTo.recipientName,
+              line1: order.shipTo.line1,
+              neighborhood: order.shipTo.neighborhood ?? null,
+              postalCode: order.shipTo.postalCode,
+            }}
+            testId={`ship-label-alert-${shipmentId}`}
+          />
         )}
       </div>
 

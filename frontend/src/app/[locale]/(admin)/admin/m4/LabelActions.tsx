@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { cancelShipmentLabel, releaseShipmentLabel } from '@/lib/api';
@@ -11,10 +11,15 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Textarea } from '@/components/ui/Textarea';
-import { formatDateTimeMx, formatTimeMx } from '@/lib/format';
+import { formatDateTimeMx, formatMoneyCents, formatTimeMx } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import { LABEL_T_STUCK_MINUTES, type LabelAlertDTO } from '@/types/contract';
+import {
+  LABEL_T_STUCK_MINUTES,
+  type InFlightUncertainReason,
+  type LabelAlertDTO,
+  type LabelPendingDTO,
+} from '@/types/contract';
 import { TAG } from './prep-shared';
 
 /**
@@ -45,19 +50,41 @@ export function useSince() {
   };
 }
 
+/**
+ * El destinatario y la dirección que «Liberar» enseña para cuadrar en el panel (§43.19.6): del snapshot que ya tiene la
+ * superficie (`addressSnapshot` en «Envíos», `shipTo` en «Preparar»). ⛔ Sin teléfono ni referencias.
+ */
+export interface ReleaseRecipient {
+  recipientName: string | null;
+  line1: string | null;
+  neighborhood: string | null;
+  postalCode: string | null;
+}
+
+/** La frase de un `InFlightUncertainReason` (§43.19.5), compartida por ventana, alerta y «Liberar». */
+export function useReasonText() {
+  const t = useTranslations('admin.m4.tracking.sdx.reason');
+  return (reason: InFlightUncertainReason | null | undefined, withPeriod = true) => {
+    const text = reason && t.has(reason) ? t(reason) : t('none');
+    return withPeriod ? text : text.replace(/\.\s*$/, '');
+  };
+}
+
 interface AlertProps {
   shipmentId: string;
   alert: LabelAlertDTO;
-  /** Referencia del envío (`orderNumber ?? id`) para el cuerpo de «Liberar». */
-  refText: string;
   trackingNumber: string | null;
+  /** 💰 §43.19.6: el reclamo vigente (folio, precio, paquetería, quién) para cuadrar en el panel. */
+  labelPending?: LabelPendingDTO | null;
+  recipient?: ReleaseRecipient | null;
   testId?: string;
 }
 
 /** Una alerta de guía (`labelAlert`), con su acción si la tiene. `role="status"`: llega con la lista. */
-export function LabelAlertBlock({ shipmentId, alert, refText, trackingNumber, testId }: AlertProps) {
+export function LabelAlertBlock({ shipmentId, alert, trackingNumber, labelPending, recipient, testId }: AlertProps) {
   const t = useTranslations('admin.m4.labelAlert');
   const tLabel = useTranslations('admin.m4.label');
+  const reasonText = useReasonText();
   const since = useSince()(alert.since);
   const [dialog, setDialog] = useState<'release' | 'retry' | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -69,10 +96,11 @@ export function LabelAlertBlock({ shipmentId, alert, refText, trackingNumber, te
   switch (alert.kind) {
     case 'label_unknown':
       title = t('unknown.title');
+      // §43.19.5: el cuerpo gana el motivo; sin `canRelease`, «un súper-admin» (⛔ no «el dueño»: P-SDX-REL en (a)).
       body = (
         <>
-          <p>{t('unknown.body', { since })}</p>
-          {!alert.canRelease && <p>{t('unknown.ownerOnly')}</p>}
+          <p>{t('unknown.body', { since, reason: reasonText(alert.reason) })}</p>
+          {!alert.canRelease && <p>{t('unknown.superAdminOnly')}</p>}
         </>
       );
       // UX-SDX-16: el botón existe ⇔ `canRelease` (⛔ ni apagado sin él).
@@ -98,6 +126,11 @@ export function LabelAlertBlock({ shipmentId, alert, refText, trackingNumber, te
         </Button>
       );
       break;
+    case 'label_orphan':
+      // 🔒💰 §43.19.5 (§19.28.6): ⛔ sin botón (no hay verbo para adoptar ni cancelar una huérfana desde aquí) y sin «Liberar».
+      title = t('orphan.title');
+      body = <p>{t('orphan.body', { since })}</p>;
+      break;
     case 'label_live_on_cancelled':
     default:
       title = t('liveOnCancelled.title');
@@ -116,7 +149,17 @@ export function LabelAlertBlock({ shipmentId, alert, refText, trackingNumber, te
           {result}
         </p>
       )}
-      <ReleaseDialog open={dialog === 'release'} shipmentId={shipmentId} refText={refText} onClose={() => setDialog(null)} onDone={setResult} />
+      {alert.kind === 'label_unknown' && alert.canRelease && (
+        <ReleaseDialog
+          open={dialog === 'release'}
+          shipmentId={shipmentId}
+          alert={alert}
+          labelPending={labelPending ?? null}
+          recipient={recipient ?? null}
+          onClose={() => setDialog(null)}
+          onDone={setResult}
+        />
+      )}
       <CancelLabelDialog
         open={dialog === 'retry'}
         variant="retry"
@@ -129,43 +172,74 @@ export function LabelAlertBlock({ shipmentId, alert, refText, trackingNumber, te
   );
 }
 
-/** «¿Liberar este envío?» — `POST …/label/release` con la nota obligatoria (§43.8c). */
+/**
+ * 💰 «¿Liberar este envío?» — `POST …/label/release` con la nota obligatoria (§43.8c + §43.19.6). Enseña los datos para
+ * cuadrar en el panel de Skydropx (el folio «Pedido ENV-…» primero: es lo único NUESTRO que Skydropx guarda) y, con un
+ * conflicto (`reason='conflict'` o `409 provider_conflict`), la casilla `confirmConflict`: sin marcar ⇒ 0 peticiones.
+ */
 export function ReleaseDialog({
   open,
   shipmentId,
-  refText,
+  alert,
+  labelPending,
+  recipient,
   onClose,
   onDone,
 }: {
   open: boolean;
   shipmentId: string;
-  refText: string;
+  alert: LabelAlertDTO;
+  labelPending: LabelPendingDTO | null;
+  recipient: ReleaseRecipient | null;
   onClose: () => void;
   onDone: (msg: string) => void;
 }) {
   const t = useTranslations('admin.m4.label.release');
   const tCancel = useTranslations('admin.m4.label.cancel');
+  const tv = useTranslations('admin.m4.tracking.sdx.verify');
+  const locale = useLocale() as AppLocale;
+  const reasonText = useReasonText();
   const getError = useErrorMessage('operator');
   const invalidate = useInvalidateShipments();
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** §43.19.6: la casilla aparece con `reason='conflict'` o cuando el servidor la pidió (`409 provider_conflict`). */
+  const [conflictAsked, setConflictAsked] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [checkError, setCheckError] = useState(false);
+  const [copied, setCopied] = useState(false);
   const backRef = useRef<HTMLButtonElement>(null);
+  const checkRef = useRef<HTMLInputElement>(null);
+  const checkErrId = useId();
   useEffect(() => {
     if (open) {
       setNote('');
       setError(null);
+      setConflictAsked(false);
+      setConfirmed(false);
+      setCheckError(false);
+      setCopied(false);
       backRef.current?.focus();
     }
   }, [open]);
+  const showConflict = alert.reason === 'conflict' || conflictAsked;
   const m = useMutation({
-    mutationFn: () => releaseShipmentLabel(shipmentId, note.trim()),
+    // ⛔ Sin casilla pintada, el cuerpo NO lleva `confirmConflict` (lo decide `releaseShipmentLabel`).
+    mutationFn: () => releaseShipmentLabel(shipmentId, note.trim(), showConflict && confirmed),
     onSuccess: (res) => {
       invalidate();
       const l = res.shipment.label;
+      const v = res.verdict;
       onDone(
         res.outcome === 'adopted'
           ? t('adopted', { carrier: l?.chosen.carrierLabel ?? res.shipment.carrier ?? '', number: l?.trackingNumber ?? res.shipment.trackingNumber ?? '' })
-          : t('released'),
+          : v?.outcome === 'not_charged'
+            ? t('releasedVerified')
+            : v?.outcome === 'not_sent'
+              ? t('releasedNotSent')
+              : v && (v.outcome === 'pending' || v.outcome === 'uncertain')
+                ? t('releasedUnverified', { reason: reasonText(v.reason, false) })
+                : t('released'),
       );
       onClose();
     },
@@ -173,6 +247,10 @@ export function ReleaseDialog({
       const err = asApiError(e);
       const d = (err?.details ?? {}) as Record<string, unknown>;
       if (err?.code === 'LABEL_NOT_RELEASABLE') {
+        if (d.reason === 'provider_conflict') {
+          setConflictAsked(true);
+          return setError(t('providerConflict'));
+        }
         if (d.reason === 'not_in_progress') return setError(t('notInProgress'));
         if (d.reason === 'has_provider_id') return setError(t('hasProviderId'));
         if (d.reason === 'too_early') return setError(t('tooEarly', { minutes: Math.ceil(Number(d.retryAfterSeconds ?? 60) / 60) }));
@@ -180,6 +258,30 @@ export function ReleaseDialog({
       setError(getError(e));
     },
   });
+  function submit() {
+    if (showConflict && !confirmed) {
+      // ⛔ 0 peticiones: el error bajo la casilla y el foco a ella.
+      setCheckError(true);
+      checkRef.current?.focus();
+      return;
+    }
+    m.mutate();
+  }
+  const none = t('data.none');
+  const reference = labelPending?.providerReference ?? null;
+  const refText = reference ? `Pedido ${reference}` : null;
+  const address = recipient
+    ? [[recipient.line1, recipient.neighborhood].map((x) => x?.trim()).filter(Boolean).join(', '), recipient.postalCode ? t('data.postalCode', { cp: recipient.postalCode }) : null]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
+  const carrier = [labelPending?.carrierLabel, labelPending?.serviceName].filter(Boolean).join(' · ');
+  const chosenBy = labelPending?.chosenBy
+    ? `${labelPending.chosenBy.name?.trim() || none} · ${formatDateTimeMx(labelPending.since, locale)}`
+    : labelPending
+      ? formatDateTimeMx(labelPending.since, locale)
+      : '';
+  const DT = cn(TAG, 'text-muted');
   return (
     <Modal
       open={open}
@@ -190,14 +292,64 @@ export function ReleaseDialog({
           <Button ref={backRef} variant="secondary" onClick={onClose} disabled={m.isPending}>
             {tCancel('back')}
           </Button>
-          <Button loading={m.isPending} onClick={() => m.mutate()}>
+          <Button loading={m.isPending} onClick={submit}>
             {t('confirm')}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-3">
-        <p className="text-sm text-text">{t('body', { ref: refText })}</p>
+        <p className="text-sm text-text">{t('intro', { reason: reasonText(alert.reason) })}</p>
+        <dl className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]" data-testid="release-data">
+          <dt className={DT}>{t('data.reference')}</dt>
+          <dd className="text-sm text-text">
+            {refText ? (
+              <span className="flex flex-wrap items-baseline gap-3">
+                <span className="select-all font-mono text-[15px]">{refText}</span>
+                <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard?.writeText(refText).then(() => setCopied(true))}>
+                  {copied ? tv('copied') : tv('copy')}
+                </Button>
+              </span>
+            ) : (
+              t('data.noReference')
+            )}
+          </dd>
+          <dt className={DT}>{t('data.recipient')}</dt>
+          <dd className="text-sm text-text">{recipient?.recipientName?.trim() || none}</dd>
+          <dt className={DT}>{t('data.address')}</dt>
+          <dd className="text-sm text-text">{address || none}</dd>
+          <dt className={DT}>{t('data.carrier')}</dt>
+          <dd className="text-sm text-text">{carrier || none}</dd>
+          <dt className={DT}>{t('data.price')}</dt>
+          <dd className="tabular text-sm text-text">{labelPending?.priceCents != null ? formatMoneyCents(labelPending.priceCents, locale) : none}</dd>
+          <dt className={DT}>{t('data.chosenBy')}</dt>
+          <dd className="text-sm text-text">{chosenBy || none}</dd>
+        </dl>
+        <p className="text-sm text-text">{t('body')}</p>
+        {showConflict && (
+          <div className="flex flex-col gap-1">
+            <label className="flex items-start gap-2 text-sm text-text">
+              <input
+                ref={checkRef}
+                type="checkbox"
+                className="mt-1"
+                checked={confirmed}
+                aria-invalid={checkError || undefined}
+                aria-describedby={checkError ? checkErrId : undefined}
+                onChange={(e) => {
+                  setConfirmed(e.target.checked);
+                  if (e.target.checked) setCheckError(false);
+                }}
+              />
+              <span>{t('conflict.label')}</span>
+            </label>
+            {checkError && (
+              <p id={checkErrId} className="text-sm text-accent">
+                {t('conflict.required')}
+              </p>
+            )}
+          </div>
+        )}
         <Textarea label={t('note')} hint={t('noteHint')} value={note} onChange={(e) => setNote(e.target.value)} />
         {error && (
           <Banner variant="danger" role="alert">

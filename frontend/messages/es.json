@@ -2618,8 +2618,8 @@
       "labelAlert": {
         "unknown": {
           "title": "Compra sin respuesta",
-          "body": "Desde {since}, Skydropx no confirma si creó la guía. No la vuelvas a comprar.",
-          "ownerOnly": "Solo el dueño puede liberarla: avísale."
+          "body": "Desde {since}, Skydropx no confirma si creó la guía y el sistema no pudo comprobarlo solo: {reason} No la vuelvas a comprar.",
+          "superAdminOnly": "Un súper-admin puede liberarla tras revisarla en el panel de Skydropx: avísale."
         },
         "stuck": {
           "title": "Guía atorada en proceso",
@@ -2641,6 +2641,10 @@
           "confirm": "Pedir cancelación otra vez",
           "done": "Skydropx confirmó la cancelación. El saldo regresa.",
           "already": "Ya estaba confirmada. No se hizo nada."
+        },
+        "orphan": {
+          "title": "Guía de más en Skydropx",
+          "body": "Desde {since}, Skydropx tiene una guía pagada de un intento anterior de este envío que no es la que usamos. Hay que cancelarla en el panel de Skydropx para recuperar el saldo: avisa a un súper-admin. No compres otra por esto."
         }
       },
       "carrierStatus": {
@@ -2693,7 +2697,7 @@
         "release": {
           "cta": "Liberar",
           "title": "¿Liberar este envío?",
-          "body": "Primero buscamos la guía en Skydropx; si existe, la adoptamos y no se compra otra. Si no aparece, el envío vuelve a «preparado» y se puede comprar de nuevo. Antes, revisa en el panel de Skydropx que no haya un envío con la referencia {ref}.",
+          "body": "Al pulsar, volvemos a buscarla: si existe, la adoptamos y no se compra otra; si no, el envío vuelve a «preparado».",
           "note": "Qué revisaste (obligatorio)",
           "noteHint": "De 10 a 300 caracteres.",
           "confirm": "Buscar y liberar",
@@ -2701,7 +2705,27 @@
           "released": "No había guía en Skydropx. El envío volvió a «preparado».",
           "notInProgress": "Este envío ya no tiene una compra pendiente. No se hizo nada.",
           "hasProviderId": "Skydropx sí creó este envío; solo falta su número. Se resuelve solo, o cancela la guía.",
-          "tooEarly": "Todavía no: espera {minutes, plural, one {# minuto} other {# minutos}} antes de liberar."
+          "tooEarly": "Todavía no: espera {minutes, plural, one {# minuto} other {# minutos}} antes de liberar.",
+          "intro": "El sistema no pudo comprobar solo si Skydropx creó esta guía: {reason} Antes de liberar, búscala en el panel de Skydropx con estos datos.",
+          "data": {
+            "reference": "Busca en el panel",
+            "recipient": "Destinatario",
+            "address": "Dirección",
+            "carrier": "Paquetería",
+            "price": "Precio",
+            "chosenBy": "Pedida por",
+            "noReference": "Esta compra no llegó a llevar folio: búscala por destinatario, hora y precio.",
+            "none": "sin dato",
+            "postalCode": "CP {cp}"
+          },
+          "conflict": {
+            "label": "Revisé en el panel de Skydropx: la guía que devolvió Skydropx es del otro envío y éste no tiene guía propia.",
+            "required": "Marca la casilla: este envío tuvo un conflicto con otro y hay que revisarlo en el panel antes de liberarlo."
+          },
+          "releasedVerified": "Comprobamos con Skydropx que no se creó ni se cobró. El envío volvió a «preparado».",
+          "releasedNotSent": "La compra no había llegado a salir. El envío volvió a «preparado».",
+          "releasedUnverified": "Liberado con tu nota: el sistema no pudo comprobarlo ({reason}). El envío volvió a «preparado»; si la guía aparece después, se detecta como guía de más y queda como aviso.",
+          "providerConflict": "Este envío tuvo un conflicto con otro envío. Revísalo en el panel de Skydropx y marca la casilla para liberarlo."
         },
         "cost": "Costo {cost}",
         "margin": "margen {margin}"

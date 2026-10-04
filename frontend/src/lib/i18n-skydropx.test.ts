@@ -55,7 +55,8 @@ const REQUIRED = [
   'admin.m4.tracking.sdx.inFlight.nothingBought',
   'admin.m4.tracking.sdx.error.quoteExpiredAddress',
   'admin.m4.tracking.sdx.error.addressIncomplete',
-  'admin.m4.labelAlert.unknown.ownerOnly',
+  'admin.m4.labelAlert.unknown.superAdminOnly',
+  'admin.m4.labelAlert.orphan.title',
   'admin.m4.labelAlert.stuck.body',
   'admin.m4.labelAlert.retryDialog.confirm',
   ...SINGLE,
@@ -72,6 +73,7 @@ const RETIRED = [
   'admin.m4.tracking.sdx.buy.ownerOnly',
   'admin.m4.tracking.sdx.error.ownerOnly',
   'admin.m4.tracking.sdx.inFlight.chooseAgain',
+  'admin.m4.labelAlert.unknown.ownerOnly',
 ];
 
 const ours = (cat: Record<string, string>) => Object.keys(cat).filter((k) => ROOTS.some((r) => k.startsWith(r)) || SINGLE.includes(k));
