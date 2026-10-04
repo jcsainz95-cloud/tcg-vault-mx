@@ -18,6 +18,7 @@ import {
   SealedGroupKind,
   SealedSubtype,
   ReplacementCaseSource,
+  ShippedRefundReason,
 } from '@prisma/client';
 import {
   ACQUISITION_TYPE_VALUES,
@@ -38,7 +39,7 @@ import {
   MANUAL_REFUND_STATUS_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
-import { ACCEPTED_RAW_CONDITIONS } from '../src/common/business-rules';
+import { ACCEPTED_RAW_CONDITIONS, ACCEPTED_SHIPPED_REFUND_REASONS } from '../src/common/business-rules';
 // `H3-d`: un candado de código mira CÓDIGO. Ver el docstring del helper.
 import { stripComments } from './helpers/strip-comments';
 
@@ -342,6 +343,34 @@ describe('CLASE R — `RawCondition` expresa una REGLA, no el schema (D4, §4.37
       /Object\.values\(RawCondition\)|RAW_CONDITION_VALUES/.test(stripComments(readFileSync(f, 'utf8'))),
     );
     expect(offenders.map((f) => f.replace(SRC, 'src'))).toEqual([]);
+  });
+});
+
+describe('CLASE R — `ShippedRefundReason` (💰 v1.80.8.6, M-62, §M4-SHIP.18.12): «solo no llegó o llegó en mala condición»', () => {
+  // PROJECT §S.11.4 / HECHOS 2026-10-02 (SSL-R1). La lista es la REGLA del dueño, no un espejo del enum.
+  it('lista EXACTA: `not_arrived` y `arrived_damaged`, y nada más', () => {
+    expect([...ACCEPTED_SHIPPED_REFUND_REASONS]).toEqual(['not_arrived', 'arrived_damaged']);
+  });
+
+  it('SUBCONJUNTO del enum de Prisma (la regla no acepta lo que la BD no sabe guardar)', () => {
+    const schemaValues = Object.values(ShippedRefundReason) as string[];
+    for (const v of ACCEPTED_SHIPPED_REFUND_REASONS) expect(schemaValues).toContain(v);
+    expect(ACCEPTED_SHIPPED_REFUND_REASONS.length).toBeLessThanOrEqual(schemaValues.length);
+  });
+
+  it('ningún DTO/servicio deriva el dominio del enum (`Object.values(ShippedRefundReason)` fuera de las pruebas)', () => {
+    const offenders: string[] = [];
+    const walkSrc = (dir: string): void => {
+      for (const name of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, name.name);
+        if (name.isDirectory()) walkSrc(p);
+        else if (p.endsWith('.ts') && !p.endsWith('.spec.ts')) {
+          if (/Object\.values\(\s*ShippedRefundReason\s*\)/.test(stripComments(readFileSync(p, 'utf8')))) offenders.push(p);
+        }
+      }
+    };
+    walkSrc(join(__dirname, '..', 'src'));
+    expect(offenders).toEqual([]);
   });
 });
 

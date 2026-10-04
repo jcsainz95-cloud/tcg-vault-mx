@@ -18,6 +18,8 @@ import { RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { customerDisplayName } from '../vault/customer-display-name';
 import { refundedCentsOf } from './order-public-status';
+import { FULL_REFUND_REVIEW_SELECT, isRefundReviewPending, REFUND_REVIEW_PENDING_WHERE, toFullRefundReviewDTO } from '../payments/refunds/refund-review';
+import { SHIPPED_OUT_STATUSES } from '../payments/refunds/full-refund.service';
 
 /**
  * M3 — Ventas / órdenes. vault_operator (lectura); super_admin (reembolso, money-out).
@@ -26,6 +28,12 @@ import { refundedCentsOf } from './order-public-status';
 /** `P-84` · clase **E** (§4.37): los estados de pedido por los que el back-office puede filtrar,
  * DERIVADOS del schema — nunca una lista escrita a mano. */
 const ORDER_STATUS_FILTER_VALUES: readonly OrderStatus[] = Object.values(OrderStatus);
+
+/**
+ * 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)) — `?refundReview=` · clase **L** (un solo valor: modo de consulta, ⛔ no existe en
+ * el schema). `pending` ⇔ `REFUND_REVIEW_PENDING_WHERE` (el mismo predicado de `isRefundReviewPending`).
+ */
+export const REFUND_REVIEW_FILTER_VALUES = ['pending'] as const;
 
 @Controller('admin/orders')
 @Roles(Role.vault_operator, Role.super_admin)
@@ -59,6 +67,8 @@ export class AdminOrdersController {
     @Query('q') q?: string,
     @Query('minCents') minCents?: string,
     @Query('maxCents') maxCents?: string,
+    // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): «reembolso por revisar» (clase L, `pending`).
+    @Query('refundReview') refundReview?: string,
   ) {
     // Validación TRANSVERSAL (paginación/fecha/monto/`q`) → 400 VALIDATION_ERROR (§Convenciones),
     // mismos nombres/semántica que `GET /admin/buylist`.
@@ -83,6 +93,9 @@ export class AdminOrdersController {
     // EXACTAMENTE como estaba (misma forma de respuesta y mismo comportamiento por defecto).
     if (needsManual === 'true') where.chargebackNeedsManual = true;
     if (needsManual === 'false') where.chargebackNeedsManual = false;
+    if (parseEnumFilter('refundReview', refundReview, REFUND_REVIEW_FILTER_VALUES) === 'pending') {
+      Object.assign(where, REFUND_REVIEW_PENDING_WHERE);
+    }
     if (f.dateRange) where.createdAt = f.dateRange;
     // v1.25 (§M3): rango de MONTO sobre `totalCents` — total canónico de la orden (gte/lte).
     if (f.centsRange) where.totalCents = f.centsRange;
@@ -117,8 +130,11 @@ export class AdminOrdersController {
     // `shippingAddressSnapshot`) ya viajan en la fila; el back-office está protegido por rol y el
     // correo del comprador es dato de contacto operativo (mismo criterio que AdminSellerRef.email).
     return {
-      data: data.map(({ user, refunds, ...o }) => ({
+      // 💰 v1.80.8.6: las columnas del motivo «tras envío» ⛔ no viajan crudas; la fila lleva `refundReviewPending`
+      // (una sola fuente: el detalle trae `fullRefundReview`).
+      data: data.map(({ user, refunds, shippedRefundNote: _n, shippedRefundReasonAt: _a, shippedRefundReasonByUserId: _b, ...o }) => ({
         ...o,
+        refundReviewPending: isRefundReviewPending(o),
         isGuestOrder: o.guestEmail != null,
         // v1.80 (§M4-SHIP.10): `CustomerRefDTO | null` (`null` ⇔ invitado) y lo devuelto por Stripe.
         customer: user ? { userId: user.id, fullName: customerDisplayName(user), email: user.email } : null,
@@ -153,6 +169,12 @@ export class AdminOrdersController {
         paymentMethodBrand: true,
         paymentMethodLast4: true,
         fullRefundClosedAt: true,
+        // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): las columnas de `fullRefundReview` (⛔ no se esparcen crudas).
+        fullRefundAfterShipment: true,
+        shippedRefundReason: true,
+        shippedRefundNote: true,
+        shippedRefundReasonAt: true,
+        shippedRefundReasonBy: FULL_REFUND_REVIEW_SELECT.shippedRefundReasonBy,
         // v1.80 (§M4-SHIP.10): el comprador, el libro, los envíos y la colocación — en la MISMA consulta.
         user: { select: { id: true, name: true, nameSource: true, email: true } },
         refunds: { orderBy: { createdAt: 'asc' }, include: { orderItem: { select: { inventoryItemId: true } } } },
@@ -163,7 +185,26 @@ export class AdminOrdersController {
     // ⭐ v1.80.4 (§M4-SHIP.18.6) — `vaultPieces`, DERIVADO en la lectura (un cuerpo con el cierre).
     const vaultPieces = extra?.fulfillmentMode === 'vault' ? await this.refunds.vaultPieces(id) : undefined;
     if (!extra) throw BusinessException.notFound();
-    const { user: buyer, refunds: rows, shipmentRequests, vaultPlacement, ...cols } = extra;
+    const {
+      user: buyer,
+      refunds: rows,
+      shipmentRequests,
+      vaultPlacement,
+      fullRefundAfterShipment,
+      shippedRefundReason,
+      shippedRefundNote,
+      shippedRefundReasonAt,
+      shippedRefundReasonBy,
+      ...cols
+    } = extra;
+    const fullRefundReview = toFullRefundReviewDTO({
+      fullRefundClosedAt: extra.fullRefundClosedAt,
+      fullRefundAfterShipment,
+      shippedRefundReason,
+      shippedRefundNote,
+      shippedRefundReasonAt,
+      shippedRefundReasonBy,
+    });
     const refundDtos = await this.ledger.toDtos(rows);
     // ⭐ v1.80.2 (§M4-SHIP.15.13): las transferencias SPEI de los casos de esta orden — SOLO súper-admin (dinero y PII).
     const manualRows = user.role === Role.super_admin ? await this.prisma.manualRefund.findMany({ where: { orderId: id }, select: { id: true, status: true, amountCents: true } }) : null;
@@ -190,6 +231,12 @@ export class AdminOrdersController {
         trackingNumber: s.trackingNumber,
       })),
       vaultPlacement: vaultPlacement ?? null,
+      // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): el registro del motivo y el estado VIVO del envío (lo usa el diálogo de M3
+      // para pedir el motivo antes de enviar; quien decide es la tx1, ⛔ no este campo).
+      fullRefundReview,
+      shipmentShipped: shipmentRequests.some((s) => (SHIPPED_OUT_STATUSES as readonly string[]).includes(s.status)),
+      // v1.80.8.7 A-1: `settledAt: string | null`, SIEMPRE presente (lo emite `getOrder`; se fija aquí su presencia).
+      settledAt: (detail as { settledAt?: Date | string | null }).settledAt ?? null,
       ...(manualRefunds ? { manualRefunds, manualRefundedCents: manualRows!.filter((m) => m.status === 'paid').reduce((a, m) => a + m.amountCents, 0) } : {}),
       ...(vaultPieces ? { vaultPieces } : {}),
     };
@@ -282,6 +329,18 @@ export class AdminOrdersController {
     @Headers('idempotency-key') _idempotencyKey?: string,
   ) {
     return this.refunds.requestFullRefund(id, dto, user);
+  }
+
+  /**
+   * 💰 v1.80.8.6 (§M4-SHIP.18.12 (6)) — registrar el motivo de un reembolso total hecho tras «enviado». `@MoneyOut()`:
+   * el operador recibe `403 MONEY_OUT_FORBIDDEN` AUDITADO (criterio 250). Cuerpo crudo (`unknown`): el servicio lo
+   * valida entero (clave desconocida ⇒ 400; el `whitelist` global la borraría en silencio).
+   */
+  @Post(':id/shipped-refund-reason')
+  @MoneyOut()
+  @HttpCode(200)
+  async shippedRefundReason(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.refunds.recordShippedRefundReason(id, body, user);
   }
 
   /**
