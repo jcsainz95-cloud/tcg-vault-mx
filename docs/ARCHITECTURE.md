@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.3 — ERRATA MENOR TRAS LA FASE C** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
+> orquestador `cd761248`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.3**; norma en
+> `API_CONTRACT §M4-SHIP.19.23`; porqué en **§4.60 (p)**. Sin endpoint, columna ni migración nuevos. Mueve a D2a–D2c lo
+> que la fase C no puede medir (PS-104 parcial, PS-105a/b, PS-106, PS-113 nueva), declara por pares la mutación de PS-104,
+> fija la guarda «ya tiene guía» de D2a, `line2` = 200, PS-99 (d) definitiva y la carga del catálogo de CP en el
+> despliegue (`C-GEO-1`/`C-GEO-2`, §11 `v1.81-skydropx`).
+>
 > **Rev v1.80.12.2 — `SKX-SEC-1` Y LO QUE PIDIÓ FRONTEND** (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado
 > por el orquestador `fae954ce`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.2**; norma en
 > `API_CONTRACT §M4-SHIP.19.22`; porqué en **§4.60 (o)**. Toca código construido de la fase C (bitácora de la corrección
@@ -27486,6 +27493,21 @@ de `claude/staff-sin-correo`; `FRONTEND_NOTES §87`; norma en `API_CONTRACT §M4
 revisiones de los envíos de ese pedido (regla escrita en `API_CONTRACT §19.22.1`). La precondición de despliegue (cero
 filas `shipment.address_corrected` en producción) es **NO MEDIDA**.
 
+**(p) v1.80.12.3 — errata menor tras la fase C** (`BACKEND_NOTES §58.2`–`§58.5`; norma en `API_CONTRACT §M4-SHIP.19.23`).
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **Una prueba vive en el hito donde existe lo que mide**; se mueve con nombre y fila (PS-104 parcial ⇒ D2a, PS-105a ⇒ D2b, PS-105b/PS-106/PS-113 ⇒ D2c), y el criterio 315 se reporta **parcial** hasta D2c | Medir en fase C con sustitutos (columnas falsas, un doble de `label`) | Un sustituto mide el sustituto. Lo que se pierde no es la prueba sino su **rastro**: por eso cada una queda en la tabla del plan (§19.19.15) y el criterio no se da por cumplido antes de tiempo |
+| **Con dos muros, la mutación se declara por pares**: quitar los dos ⇒ rojo; quitar cada uno solo ⇒ verde 10/10 | Una sola mutación «quitar el `WHERE`» | Backend midió que esa sale verde 10/10: el candado y la comparación bajo candado bastan solos. Una mutación que deja en pie un muro suficiente no mide nada; el par (M2 rojo, M3 verde) es lo que prueba que el **segundo** muro muerde. Es la lección de (o) en otra forma: el rival que salta el primer muro es el que hay que imaginar |
+| **El `WHERE` del CAS expresa el predicado entero de la guarda** (también `trackingNumber:null` en D2) | Solo `labelSource:null`, como decía §19.20.1 | Sin backfill, una guía manual legada tiene `labelSource` nulo y número puesto; un `WHERE` que mire solo `labelSource` dejaría pasar justo la fila que la guarda rechaza. Defensa en profundidad que no defiende lo mismo que la guarda no es defensa |
+| **La guarda nueva entra en el mismo pase que su columna (D2a)** | Dejarla para D2c, que es quien escribe `labelProcessingSince` | No debe existir un despliegue con la columna en el esquema y un lector que no la mire: el día que algo la escriba (D2c, o una reparación a mano), la corrección pasaría por encima |
+| **El catálogo de CP se carga en el arranque, tras `migrate deploy` y antes de servir; si falla, la versión nueva no se publica** (`C-GEO-2`) | Cargarlo a mano tras el despliegue; o descargarlo de SEPOMEX al arrancar | A mano deja un hueco en el que nadie puede pagar un envío. Descargarlo ata cada arranque a un tercero sin versión fijada. Fijado y en el arranque, el peor caso es «sigue la versión anterior», que no lee la tabla |
+| **«Cargado» se define por completitud contra el archivo, pisos y canarios funcionales** (`C-GEO-1`) | «La tabla no está vacía» | Un archivo truncado deja la tabla no vacía y media república sin CP: el cliente de Monterrey no puede pagar y nadie lo ve hasta que se queja |
+
+**Deuda que deja (p):** las cifras de los pisos de `C-GEO-1` y la conducta de Railway ante un healthcheck fallido son
+**NO MEDIDAS** (devops las mide antes de la ventana); si Skydropx acota la longitud de `street1` (línea 1 + 2) es NO
+MEDIDO y se cierra con `PG-1`.
+
 ---
 
 ## 5. Decisiones transversales
@@ -30874,6 +30896,16 @@ esta fila). En el texto de abajo, `M-62a` = `M-SDX-C` y `M-62b` = `M-SDX-D`.
 **`M-SDX-C2`** (número propuesto **M-65**; si `M-SDX-D` ya lo tomó, el siguiente libre): tabla `ShipmentAddressRevision`
 + unique `(shipmentRequestId, fromVersion)` + 3 CHECK; aditiva, idempotente, sin backfill, ⛔ no toca `AuditLog`. Reversa:
 `DROP TABLE` (pierde los valores intermedios; quién/cuándo siguen en la bitácora). Norma: `API_CONTRACT §M4-SHIP.19.22.1`.
+
+⭐ **v1.80.12.3 — paso de ventana de `M-64`: el catálogo `PostalCode`** (norma: `API_CONTRACT §M4-SHIP.19.23.6`). `M-64`
+crea la tabla **vacía**; vacía, toda dirección nueva es `422 POSTAL_CODE_UNKNOWN` y nadie paga un envío. **`C-GEO-2`:** el
+importador de devops (archivo SEPOMEX fijado con `sha256`) corre en el **mismo arranque**, después de `prisma migrate
+deploy` y **antes** de `node dist/main.js` (o en un comando previo al despliegue con la misma semántica); idempotente,
+nunca borra en ese camino; si falla, el proceso sale ≠ 0 y la versión nueva no recibe tráfico. **`C-GEO-1`** (catálogo
+cargado): conteo = lo derivado del archivo; ≥ 100 000 filas, ≥ 25 000 CP, 32 estados (pisos NO MEDIDOS, devops los
+confirma contra el archivo); los cinco CP del arnés resuelven con colonias; forma válida. En la ventana: registro del
+importador + cinco `GET /geo/postal-codes/:cp` contra producción + una compra real del dueño con colonia de lista, escritos
+en la solicitud de fusión.
 
 Forma normativa entera en `API_CONTRACT §M4-SHIP.19.2` y `.19.5`. Va **después** de `M-61` (~~que sigue sin construirse
 al escribir esto: ⛔ NO MEDIDO hoy por el arquitecto~~ construida, ver arriba).

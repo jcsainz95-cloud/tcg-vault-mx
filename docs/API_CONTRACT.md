@@ -2,9 +2,27 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.2**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.3**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.3 — ERRATA MENOR: LO QUE LA FASE C NO PUEDE MEDIR, LA MUTACIÓN DE PS-104, LA GUARDA DE GUÍA EN D2,
+> PS-99 (d) Y EL CATÁLOGO DE CP EN LA VENTANA (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
+> orquestador `cd761248`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera:
+> **[§M4-SHIP.19.23](#M4-SHIP-19-23)**. Porqué: `ARCHITECTURE §4.60 (p)`. Origen: `BACKEND_NOTES §58.2 (1)(3)`, `§58.3`
+> (D-SDX-4, D-SDX-5), `§58.4`, `§58.5` (`BACKEND_NOTES.md:27246-27298`, `:27312-27314`).
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | D-SDX-4: PS-105, PS-106, dos filas de PS-104 y la carrera «corrección contra compra» (criterio 315 (e)) no se pueden medir en fase C | Se **mueven** a su hito: PS-104 (dos guardas) ⇒ **D2a**; PS-105 se parte: **PS-105a** ⇒ D2b, **PS-105b** ⇒ D2c; PS-106 ⇒ D2c; la carrera ⇒ **PS-113** nueva, D2c. El criterio 315 no se da por cumplido hasta el gate de D2c | No | backend (D2a–D2c) |
+> | **2** | D-SDX-5: la mutación de PS-104 no puede morder (el candado del paso 3 es un primer muro) | Se declara **por pares**: M1 «comparación del paso 3 + versión del `WHERE`» y M2 «candado + versión del `WHERE`» ⇒ rojas; M3 «solo el candado» y M4 «solo la versión del `WHERE`» ⇒ verdes 10/10 (cada muro solo basta) | No (solo la declaración) | backend + QA |
+> | **3** | La guarda «ya tiene guía» de fase C usa `trackingNumber` | En **D2a**: `labelSourceOf` de §19.2, `WHERE` con `labelSource`, `trackingNumber` **y** `labelProcessingSince` nulos (⭐ corrige §19.20.1 paso 5, que omitía `trackingNumber`), `409 LABEL_IN_PROGRESS` en el paso 3 y en `error-codes.ts` | Sí, en D2a: `shipment-address.service.ts:55-61,129,181-191` | backend |
+> | **4** | `line2` | **0..200** (la de `GuestAddressInput`, como ya mandaba §19.20.1); el `0..120` de §19.20.1 era un error de transcripción | No | — |
+> | **5** | PS-99 (d) con aserción transitoria | Devops ya entregó: (d) pasa a «presente **una vez** y vacío» para las tres llaves y verifica que la sonda y su prueba existen y que CI las corre | Sí: `skydropx.no-real-purchase.spec.ts:255-262` | backend |
+> | **6** | `PostalCode` nace vacía ⇒ toda dirección nueva `422 POSTAL_CODE_UNKNOWN` | **`C-GEO-1`** (qué es «catálogo cargado») y **`C-GEO-2`** (se carga en el mismo arranque, después de `M-64` y **antes** de recibir tráfico; si falla, la versión nueva no se publica) | No | devops |
+>
+> **Códigos de error nuevos:** ninguno (`LABEL_IN_PROGRESS` ya estaba en el catálogo del contrato, `API_CONTRACT.md:496`;
+> lo que falta es su línea en `backend/src/common/error-codes.ts`). **Endpoints, columnas, migraciones:** ninguno.
 >
 > **Rev v1.80.12.2 — ERRATA: SKX-SEC-1 (EL DOMICILIO SALE DE LA BITÁCORA), `address.missing`, DOS RESPUESTAS SIN
 > FORMA, `ShipmentCostAdjustmentDTO` Y PS-101 CON EL DISEÑO v4.17 (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD
@@ -23565,6 +23583,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.20** | ⭐💰 **v1.80.12** — corregir **toda** la dirección del envío (`PUT …/address`, sustituye a `address-neighborhood`), `labelPending`/`labelAlert` en los dos DTO, `providerCancelConfirmedAt`, empaques legibles por el operador, `isPromo`, `200 in_flight`, `AV-18/19` en esta fase, conteo 19, vía B de disputas sustituida; PS-102…PS-111 |
 | **.21** | **v1.80.12.1** — errata menor de D1: orden del filtro de tarifas, `C-SDX-7` (2) con `rawLabelUrl`/`rawTrackingUrl`, cubeta de capacidad 1, «en vuelo» por defecto en la compra, `C-SDX-1` con la fábrica, cuerpos NO MEDIDOS |
 | **.22** | 🔒💰 **v1.80.12.2** — `SKX-SEC-1`: el domicilio sale de la bitácora (`ShipmentAddressRevision`, `M-SDX-C2`, la anonimización la borra, PS-112); `address.missing`; respuestas de `consignment-notes` y `PUT …/packages`; `ShipmentCostAdjustmentDTO`; PS-101 con `DESIGN_SYSTEM §43.5a` v4.17 |
+| **.23** | 💰 **v1.80.12.3** — errata menor tras la fase C: PS-104 parcial/PS-105a/b/PS-106/PS-113 a D2a–D2c, criterio 315 parcial hasta D2c; mutación de PS-104 por pares; guarda «ya tiene guía» de D2a (`WHERE` con `trackingNumber`, `LABEL_IN_PROGRESS`); `line2` 200; PS-99 (d) definitiva; catálogo de CP en la ventana (`C-GEO-1`/`C-GEO-2`) |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -23968,6 +23987,9 @@ checkout por defecto: el catálogo local responde en milisegundos y no gasta cuo
 — antes «`M-62` parte 1»; número sin asignar: `Address.references`, tabla `PostalCode`, seed), antes de cualquier verbo de §19.6+. Es compatible hacia
 atrás: el checkout de invitado **rechaza pedidos nuevos sin colonia** desde ese despliegue (criterio 235) y las
 direcciones viejas se completan al usarse.
+⭐ **v1.80.12.3 (§19.23.6):** con `PostalCode` vacía **toda** dirección nueva es `422 POSTAL_CODE_UNKNOWN` (nadie paga un
+envío). Qué cuenta como catálogo cargado (**`C-GEO-1`**) y cuándo se carga respecto de `M-64` (**`C-GEO-2`**: en el mismo
+arranque, antes de recibir tráfico) es norma de §19.23.6.
 
 ###### M4-SHIP.19.6 — `POST /api/v1/admin/shipments/:shipmentId/quote` — cotizar (operador+)
 
@@ -25068,10 +25090,10 @@ imprimir, cancelar y re-emitir, «Liberar» del súper-admin).
 | **D1a · Cliente** | `skydropx-client.ts`: origen, User-Agent, token, cubeta, matriz de reintentos, timeouts, `assertMutationAllowed` + `evaluateMutationGate`, transporte inyectable | backend 💰 | D0' | PS-91, PS-92, PS-93, **PS-99 (a)(b)** |
 | **D1b · Adaptador** | `SkydropxAdapter` (quote con sondeo y eco del seguro, normalización exacta, purchase, getShipment tolerante, cancel con `refundedCents`, balance, extraCharges, catálogos), `Noop`, **`FakeShippingProvider`** con los fixtures medidos (PROD §4.6) | backend 💰 | D1a | PS-94, PS-95 (adaptador), PS-70 (fixture real) |
 | **D1c · URLs y etiqueta** | `assertProviderUrl`, `providerUrlsFrom`, proxy `label.pdf` (auth solo al host de la API) | backend | D1a | PS-84, PS-88, **PS-100** |
-| **D2a · Esquema y diales** | `M-SDX-D` con el delta de §19.19.14; enums y paridad (`C-ENUM`); las cuatro tablas de diales (`SettingKey`, `SETTING_DEFAULTS`, `SETTING_VALIDATORS`, `SETTING_DTO_MAP`) | backend 💰 (zona compartida `prisma/`, un agente) | C construida | paridad de enums; PS-96 (validadores), PS-97 |
-| **D2b · Cotizar** | `quote`/`GET quote`: guardas, empaque, `insuredValueCents` + `insuranceCoverageFor`, reutilización y vigencia, recomendada, `excluded` | backend 💰 | D1b, D2a | PS-69, PS-70, PS-71, PS-95, **PS-96** |
+| **D2a · Esquema y diales** | `M-SDX-D` con el delta de §19.19.14; enums y paridad (`C-ENUM`); las cuatro tablas de diales (`SettingKey`, `SETTING_DEFAULTS`, `SETTING_VALIDATORS`, `SETTING_DTO_MAP`); ⭐ v1.80.12.3: la guarda «ya tiene guía» de `PUT …/address` con las columnas nuevas (§19.23.3) | backend 💰 (zona compartida `prisma/`, un agente) | C construida | paridad de enums; PS-96 (validadores), PS-97; ⭐ **PS-104** filas D2a (§19.23.1) |
+| **D2b · Cotizar** | `quote`/`GET quote`: guardas, empaque, `insuredValueCents` + `insuranceCoverageFor`, reutilización y vigencia, recomendada, `excluded` | backend 💰 | D1b, D2a | PS-69, PS-70, PS-71, PS-95, **PS-96**; ⭐ **PS-105a** (§19.23.1) |
 | **🔒 Revisión** | seguridad revisa el **delta** v1.80.11 (puerta de compra, `Authorization` al host de la etiqueta, unicidad de `ShipmentQuote`) **sobre el diseño**, antes de D2c | seguridad | D2b en paralelo | — |
-| **D2c · Comprar** | `label` con la puerta (dial, rol, env), reclamo, cuerpo de §19.19.8, ramas de resultado, `label/cancel`, `label/release`, cancelación automática, `labelOptions` en el DTO | backend 💰 | D2b + revisión | PS-73, PS-74, PS-76, PS-81, PS-82, PS-83, PS-85, **PS-97**, **PS-98** |
+| **D2c · Comprar** | `label` con la puerta (dial, rol, env), reclamo, cuerpo de §19.19.8, ramas de resultado, `label/cancel`, `label/release`, cancelación automática, `labelOptions` en el DTO | backend 💰 | D2b + revisión | PS-73, PS-74, PS-76, PS-81, PS-82, PS-83, PS-85, **PS-97**, **PS-98**; ⭐ **PS-105b**, **PS-106**, **PS-113** (§19.23.1) |
 | **D2d · Rastreo** | `applyCarrierStatus`, los tres jobs, `refresh-tracking`, relleno de `labelUrl` nulo, estado desconocido | backend | D1b, D2a | PS-72, PS-75, PS-77, PS-78, PS-79, PS-80 |
 | **D2e · Correos y cliente** | `AV-17` (sin plazo de disputa), `AV-18`, `AV-19`, `customerUrl`, `timeline`, `C-AV-3a/3b`, `C-AV-1 = 19` | backend | D2d | PS-87, PS-88, PS-89 |
 | **D2f · Dinero y ajustes** | P&L (`shippingAdjustmentsCents`, `shippingInsuranceCents`), `workQueue.shipping`, `GET/PUT …/packages`, `catalogs` (forma nueva), `balance` | backend 💰 | D2a | PS-80, PS-81, PS-90 |
@@ -25193,7 +25215,7 @@ export interface CorrectShipmentAddressReq {
   expectedAddressVersion: number;   // la `address.version` que el operador vio (CA #16: nadie corrige sobre una foto que no vio)
   recipientName: string;            // destinatario, 1..120 tras trim
   line1: string;                    // calle y número exterior, 1..200 tras trim
-  line2: string | null;             // número interior / depto., 0..120 (vacío ⇒ null)
+  line2: string | null;             // número interior / depto., 0..200 (vacío ⇒ null) — ⭐ v1.80.12.3: decía 0..120; manda GuestAddressInput (§19.23.4)
   postalCode: string;               // ^\d{5}$
   neighborhood: string;             // obligatoria; DEBE estar en resolvePostalCode(postalCode).neighborhoods
   references: string | null;        // ≤ 70 (viaja como further_information, SEC-SDX-7); vacío ⇒ null
@@ -25221,6 +25243,9 @@ se ignoran): `city` y `state` se **sobrescriben con el canónico** del CP (§19.
 5. CAS: `updateMany({ where:{ id, status:'picking', labelSource:null, labelProcessingSince:null, addressVersion:
    expectedAddressVersion }, data:{ addressSnapshot: next, addressVersion: { increment: 1 }, addressCorrectedAt: now,
    addressCorrectedByUserId: actor } })`; `count 0` ⇒ relee y responde el `409` del paso 3 que corresponda.
+   ⭐ **v1.80.12.3 (§19.23.3):** el `WHERE` lleva **también `trackingNumber: null`** (sin backfill, una fila con número y
+   `labelSource` nulo es una guía manual: el `WHERE` expresa el predicado entero de `labelSourceOf`). En fase C, sin
+   `labelSource`/`labelProcessingSince`, el `WHERE` es `{id, status:'picking', trackingNumber:null, addressVersion}`.
 6. ~~Bitácora **`shipment.address_corrected`** en la **misma tx** (`entityType 'ShipmentRequest'`, actor de la sesión):
    `before:{ <solo las claves de changed, valor viejo> }`, `after:{ <solo las claves de changed, valor nuevo>,
    addressVersion }`. *Es el «antes/después y quién» de `HECHOS.md:50`.*~~ 🔒 **v1.80.12.2 — SUSTITUIDO por §19.22.1
@@ -25374,9 +25399,9 @@ proporción en las de carrera; mutación demostrada roja).
 |---|---|---|
 | **PS-102** 💰 | Corrección completa: `200 corrected`; `ShipmentRequest.addressSnapshot` con los seis campos nuevos y `city`/`state` **canónicos** del CP (aunque el cuerpo traiga otros); la fila `Address` del cliente y `Order.shippingAddressSnapshot` **idénticas byte a byte** a antes; `addressVersion` +1; `addressCorrectedAt`/`ByUserId` = ahora/actor; **una** fila `shipment.address_corrected` con `before`/`after` **solo** de las claves cambiadas y el actor (⭐ v1.80.12.2: **una** `ShipmentAddressRevision` con los valores de las claves cambiadas y **una** fila de bitácora **sin valores**, §19.22.1); mismo cuerpo dos veces ⇒ la segunda `unchanged`, cero bitácora y cero revisión | escribir también en `Address` (o en la orden); bitácora con el snapshot entero sin actor; aceptar `city` del cuerpo |
 | **PS-103** | Validación: colonia fuera del CP ⇒ `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE {allowed}`; CP sin colonias ⇒ `422 POSTAL_CODE_UNKNOWN`; CP de 4 dígitos, `references` de 71, `recipientName` vacío ⇒ `400 {field}`; en todos, **cero** escrituras y versión intacta; la colonia tecleada en minúsculas sin acentos se guarda como el canónico | guardar la colonia tecleada sin pasar por `resolvePostalCode` |
-| **PS-104** 💰 | Guardas, en el orden del paso 3: `guia`/`enviado` (incluida toda guía manual) ⇒ `409 SHIPMENT_NOT_IN_PREPARATION`; `picking` con guía Skydropx en proceso (`labelSource='skydropx'`) ⇒ `409 SHIPMENT_ALREADY_LABELED`; compra en vuelo (`labelProcessingSince` puesto, sin `labelSource`) ⇒ `409 LABEL_IN_PROGRESS`; `expectedAddressVersion` viejo ⇒ `409 CONFLICT {reason:'address_changed'}`. **Carrera:** dos correcciones distintas con la misma versión, concurrentes ⇒ exactamente **una** `200` y una `409` por ronda; **N = 10 rondas, se reporta la proporción** | quitar `addressVersion` del `WHERE` del CAS (gana la última escritura) |
-| **PS-105** 💰 | La cotización muere con la corrección: cotizar (v0) ⇒ corregir (v1) ⇒ `GET …/quote` `404`; `POST …/quote` sin `force` **llama** al doble (no reutiliza); `POST …/label` con el `quoteId` viejo ⇒ `409 QUOTE_EXPIRED {reason:'address_changed'}` y **cero** `purchase`; corrección inyectada entre el paso 2 y el 7 de `label` ⇒ `409 CONFLICT` y **cero** `purchase` | quitar `addressVersion` de la vigencia, o del `WHERE` del paso 7 ⇒ compra con la cotización de la dirección vieja |
-| **PS-106** 💰 | La compra lleva la dirección corregida: el doble recibe `address_to.street1` (línea 1 + 2), `name`/`company`, `further_information` y `postal_code`/`area_level1..3` **del snapshot corregido**, nunca de la libreta ni de la orden | armar `address_to` desde `Order.shippingAddressSnapshot` o desde `Address` |
+| **PS-104** 💰 | Guardas, en el orden del paso 3: `guia`/`enviado` (incluida toda guía manual) ⇒ `409 SHIPMENT_NOT_IN_PREPARATION`; `picking` con guía Skydropx en proceso (`labelSource='skydropx'`) ⇒ `409 SHIPMENT_ALREADY_LABELED`; compra en vuelo (`labelProcessingSince` puesto, sin `labelSource`) ⇒ `409 LABEL_IN_PROGRESS`; `expectedAddressVersion` viejo ⇒ `409 CONFLICT {reason:'address_changed'}`. **Carrera:** dos correcciones distintas con la misma versión, concurrentes ⇒ exactamente **una** `200` y una `409` por ronda; **N = 10 rondas, se reporta la proporción**. ⭐ **v1.80.12.3 (§19.23.1):** las filas `labelSource='skydropx'` y «compra en vuelo» son de **D2a** (columnas de `M-SDX-D`); en fase C se mide la fila legada (`trackingNumber` en `picking` ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource:'manual'}`) | ~~quitar `addressVersion` del `WHERE` del CAS (gana la última escritura)~~ ⭐ **v1.80.12.3 (§19.23.2, D-SDX-5): por pares** — M1 quitar la comparación de versión del paso 3 **y** `addressVersion` del `WHERE` ⇒ rojo; M2 quitar el candado **y** `addressVersion` del `WHERE` ⇒ rojo; M3 solo el candado ⇒ **verde 10/10**; M4 solo `addressVersion` del `WHERE` ⇒ **verde 10/10** |
+| **PS-105** 💰 | La cotización muere con la corrección: cotizar (v0) ⇒ corregir (v1) ⇒ `GET …/quote` `404`; `POST …/quote` sin `force` **llama** al doble (no reutiliza); `POST …/label` con el `quoteId` viejo ⇒ `409 QUOTE_EXPIRED {reason:'address_changed'}` y **cero** `purchase`; corrección inyectada entre el paso 2 y el 7 de `label` ⇒ `409 CONFLICT` y **cero** `purchase`. ⭐ **v1.80.12.3 (§19.23.1): no construible en fase C**; se parte en **PS-105a** (D2b: `GET` `404` y `POST …/quote` sin reutilizar) y **PS-105b** (D2c: `quoteId` viejo e inyección entre el paso 2 y el 7) | quitar `addressVersion` de la vigencia, o del `WHERE` del paso 7 ⇒ compra con la cotización de la dirección vieja |
+| **PS-106** 💰 | La compra lleva la dirección corregida: el doble recibe `address_to.street1` (línea 1 + 2), `name`/`company`, `further_information` y `postal_code`/`area_level1..3` **del snapshot corregido**, nunca de la libreta ni de la orden. ⭐ **v1.80.12.3: D2c** (necesita la compra; §19.23.1) | armar `address_to` desde `Order.shippingAddressSnapshot` o desde `Address` |
 | **PS-107** | Roles y diales: `vault_operator` y `super_admin` ⇒ `200`; `customer` ⇒ `403`; con `shipping_provider='off'` y `shipping_label_purchase='disabled'` ⇒ `200` igual | condicionar el verbo al dial de compra |
 | **PS-108** 💰 | `labelStateOf` con reloj falso: las cuatro alertas en su umbral exacto (14:59 ⇒ `null`, 15:00 ⇒ `label_unknown`), la precedencia, `canRelease` solo para súper-admin, `labelPending.state` por `providerShipmentId`; **en los dos DTO** (`AdminShipmentDTO` y `ShipPreparationOrderDTO`); cancelación automática con `port.cancel` lanzando ⇒ `label_cancel_failed` a los 2 min; reintento con `ok` ⇒ `providerCancelConfirmedAt` y la alerta se apaga; **re-emisión aceptada ⇒ la guía siguiente entra al sondeo** (`providerCanceledAt` nulo) | no escribir `providerCancelConfirmedAt`; no limpiar `providerCanceledAt` al re-emitir |
 | **PS-109** 💰 | Compra con timeout ⇒ `200 {outcome:'in_flight'}`, **1** llamada en el transporte, reclamo conservado, `labelPending.state='in_flight'`; con `5xx` ⇒ ídem; con `404` ⇒ ídem; `403` del borde ⇒ `502 edge_blocked` y reclamo **deshecho** (`labelPending = null`) | responder `503` en vuelo; deshacer el reclamo tras un timeout |
@@ -25388,7 +25413,7 @@ proporción en las de carrera; mutación demostrada roja).
 
 | Rol | Qué |
 |---|---|
-| **backend 💰 (stream de envíos, modelo fuerte)** | **Fase C:** `PUT …/address` (en lugar de `address-neighborhood`) + tres columnas en `M-SDX-C`, PS-102…PS-107. **D2a:** `ShipmentQuote.addressVersion`, `ShipmentRequest.providerCancelConfirmedAt` en `M-SDX-D`. **D2b:** vigencia por versión, `isPromo` (`promo-plan.ts`, PS-111). **D2c:** `addressVersion` en el paso 2 y el CAS del paso 7, `in_flight` (PS-109), confirmación de cancelación y limpieza del sello al re-emitir, `labelPending`/`labelAlert` (PS-108). **D2f:** `GET …/packages` operador+ (PS-110). ⛔ Nada en D1a–c |
+| **backend 💰 (stream de envíos, modelo fuerte)** | **Fase C:** `PUT …/address` (en lugar de `address-neighborhood`) + tres columnas en `M-SDX-C`, ~~PS-102…PS-107~~ ⭐ v1.80.12.3 (§19.23.1): PS-102, PS-103, PS-104 (sin las dos filas de D2a), PS-107 y la carrera contra la guía manual; PS-104 (filas D2a) ⇒ D2a, PS-105a ⇒ D2b, PS-105b/PS-106/PS-113 ⇒ D2c. **D2a:** `ShipmentQuote.addressVersion`, `ShipmentRequest.providerCancelConfirmedAt` en `M-SDX-D`. **D2b:** vigencia por versión, `isPromo` (`promo-plan.ts`, PS-111). **D2c:** `addressVersion` en el paso 2 y el CAS del paso 7, `in_flight` (PS-109), confirmación de cancelación y limpieza del sello al re-emitir, `labelPending`/`labelAlert` (PS-108). **D2f:** `GET …/packages` operador+ (PS-110). ⛔ Nada en D1a–c |
 | **frontend** | Paso 1 editable (PS-101), «Cambiar empaque» con `GET …/packages`, `isPromo`, `in_flight`, tarjetas de preparación y de envíos con `labelPending`/`labelAlert`; tipos en `contract.ts` (zona compartida) |
 | **ux-ui** | Copy del paso 1 editable (campos, «Corregida por…», `409 CONFLICT {reason:'address_changed'}`, `QUOTE_EXPIRED {reason:'address_changed'}`), `outcome:'in_flight'`, realce de promoción con `isPromo`, `AV-18`, `AV-19` |
 | **product-owner** | `PROJECT §T.2` y el paso 1 de la ventana (`PROJECT.md:8083-8084`, `:12217-12218`) a la corrección completa; criterio 242 a «16 → 19»; P-ADR-1 (teléfono) |
@@ -25500,7 +25525,8 @@ con esta norma.
 - **Estado del transportista** (orden de lectura de campos, `BACKEND_NOTES.md:27166-27167`): parser tolerante, NO MEDIDO
   hasta `PG-1` (sin cambio de §19.19.10).
 
-**M4-SHIP.19.21.7 — D-SDX-3: PS-99 (d) no cambia.** `scripts/skydropx/prod-probe.ts` (D0) y `SKYDROPX_ALLOW_SPEND=` vacío
+**M4-SHIP.19.21.7 — D-SDX-3: PS-99 (d) no cambia.** ⭐ **v1.80.12.3: devops entregó; lo que asevera ya (d) está en
+§19.23.5** y la aserción transitoria deja de valer. `scripts/skydropx/prod-probe.ts` (D0) y `SKYDROPX_ALLOW_SPEND=` vacío
 en `.env.example` (D0') son de **devops** (§19.19.15) y la norma de PS-99 (d) sigue literal: «presente y vacío». La
 aserción transitoria de backend («nunca con valor», verde si falta; `BACKEND_NOTES.md:27183-27185`) vale **solo** hasta
 que devops entregue; en cuanto existan, backend la endurece a «presente y vacío». La prueba de que el probe rechaza
@@ -25702,6 +25728,158 @@ el arquitecto).
 | **devops / orquestador** | Número de `M-SDX-C2`; la medición de la precondición antes de desplegar |
 | **seguridad** | Verifica PS-112 en la release; `SKX-SEC-1` pasa de «condición» a «cerrado en diseño, pendiente de verificación» |
 | **QA** | PS-112, PS-102 corregida, PS-101 corregida |
+
+###### <a id="M4-SHIP-19-23"></a>M4-SHIP.19.23 — 💰 v1.80.12.3: errata menor — lo que la fase C no puede medir, la mutación de PS-104, la guarda de guía en D2, PS-99 (d) y el catálogo de CP en la ventana (**NORMATIVA**, **DINERO**)
+
+> **Fuentes:** `BACKEND_NOTES §58.2 (1)(3)`, `§58.3` (D-SDX-4, D-SDX-5), `§58.4`, `§58.5` (`BACKEND_NOTES.md:27246-27298`,
+> `:27312-27314`) y `§59`; código y pruebas leídos por el arquitecto en `/home/user/tcg-skyd` (rama `claude/skydropx-d`,
+> HEAD dado por el orquestador `cd761248`; ⛔ sha NO MEDIDO: sin Bash). Las proporciones de carrera de abajo son **de
+> backend** (N = 10, sobre `eea04309`, BD `tcg_sdxc_mut`, `BACKEND_NOTES.md:27283-27289`, `:27324-27342`); ⛔ NO MEDIDAS por
+> el arquitecto. **Manda** sobre §19.20.1 (paso 5, cota de `line2`), §19.20.8 (PS-104…PS-106), §19.20.9, §19.21.7 y
+> §19.19.15 donde choque. Porqué: `ARCHITECTURE §4.60 (p)`. ⛔ Ningún endpoint, columna, migración ni DTO nuevos.
+
+**M4-SHIP.19.23.1 — D-SDX-4: cada prueba a su hito, sin perder ninguna.** Medido por el arquitecto: en fase C no existen
+`ShipmentQuote.addressVersion`, `labelSource` ni `labelProcessingSince` (son `M-SDX-D`, §19.20.1 «Schema») ni los verbos
+`quote`/`label` (D2b/D2c); el código de fase C lo declara (`shipment-address.service.ts:11-16`) y la prueba también
+(`sdx-c-address.e2e-spec.ts:7-8`).
+
+| Prueba | Qué asevera (texto normativo: §19.20.8 salvo PS-113) | Hito | Mutación que la pone roja |
+|---|---|---|---|
+| **PS-104** (filas D2a) | `picking` con `labelSource='skydropx'` (sembrada respetando los CHECK de §19.2: con `providerShipmentId`) ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource:'skydropx'}`; `picking` con `labelProcessingSince` puesto y `labelSource` nulo ⇒ `409 LABEL_IN_PROGRESS`; en ambas, **cero** escrituras (versión, snapshot, revisión y bitácora intactos) | **D2a** (el mismo pase que crea las columnas, §19.23.3) | dejar el cuerpo de fase C de `labelSourceOf` ⇒ la fila `skydropx` se corrige; quitar la guarda `LABEL_IN_PROGRESS` ⇒ `409 CONFLICT` en vez de `LABEL_IN_PROGRESS`; guarda **y** `labelProcessingSince` del `WHERE` ⇒ `200 corrected` |
+| **PS-104** (fase C, se queda) | Fila **legada** (`trackingNumber` en `picking`, sin `labelSource`) ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource:'manual'}` — construida en `sdx-c-address.e2e-spec.ts:356-360`; sigue valiendo en D2 (es la mitad derivada de `labelSourceOf`) | fase C | — |
+| **PS-105a** | Cotizar (v0) ⇒ corregir (v1) ⇒ `GET …/quote` `404`; `POST …/quote` sin `force` **llama** al doble (no reutiliza) | **D2b** | quitar `addressVersion` de la vigencia (§19.6 paso 6) |
+| **PS-105b** | `POST …/label` con el `quoteId` de v0 tras corregir ⇒ `409 QUOTE_EXPIRED {quote, reason:'address_changed'}` y **cero** `purchase`; corrección **inyectada entre el paso 2 y el 7** de `label` ⇒ `409 CONFLICT` y **cero** `purchase`. *Inyección:* el `balance()` del doble (paso 6, fuera de la tx por norma de §19.7) ejecuta y espera un `PUT …/address`; es determinista, sin barrera. Si D2c retuviera el candado de fila durante el saldo, la inyección se bloquea: eso mismo es la violación de §19.7 paso 6 | **D2c** | quitar la comparación del paso 2 ⇒ compra con la cotización vieja; quitar `addressVersion` del `WHERE` del paso 7 ⇒ compra tras la inyección (entre el paso 2 y el 7 **no** hay candado: el `WHERE` es el único muro, y por eso esta mutación sí muerde, a diferencia de la de PS-104) |
+| **PS-106** | La compra lleva la dirección corregida (texto de §19.20.8) | **D2c** | armar `address_to` desde la orden o la libreta |
+| **PS-113** 💰 (nueva: la segunda carrera del criterio 315 (e)) | `PUT …/address` y `POST …/label` (cotización vigente de v0, doble que registra cada `purchase` con su `address_to`) entrelazados por barrera de fila, **orden alternado** en la cola del candado, **N = 10 rondas, se reporta la proporción**. Por ronda: **(1)** a lo sumo **una** `purchase`; **(2)** si hubo `purchase`, su `address_to` es exactamente el `addressSnapshot` final del envío y `quote.addressVersion = ShipmentRequest.addressVersion` final (⛔ nunca una compra con la dirección vieja tras una corrección aceptada); **(3)** si la corrección respondió `200 corrected`, o no hubo `purchase` o la `purchase` lleva la dirección nueva — que con una cotización de v0 significa **cero** `purchase` (`label` ⇒ `409 QUOTE_EXPIRED {reason:'address_changed'}` o `409 CONFLICT`); **(4)** si `label` reclamó primero, la corrección responde `409 LABEL_IN_PROGRESS` (o `SHIPMENT_ALREADY_LABELED`) y el snapshot queda en v0. Vale solo **10/10** (criterio 315: «vale solo 10/10») | **D2c** | Dos mutaciones, una por orden de la carrera: **(i)** quitar `addressVersion` del `WHERE` del paso 7 de `label` (muerde cuando la corrección entra entre el paso 2 y el 7); **(ii)** quitar la guarda `LABEL_IN_PROGRESS` **y** `labelProcessingSince` del `WHERE` de `PUT …/address` (muerde cuando `label` reclama primero: dos muros, por pares como §19.23.2). Cada una se corre con N = 10 y se reporta la proporción de rondas `MAL`; sus pruebas **deterministas** son PS-105b (i) y las filas D2a de PS-104 (ii). Una mutación con 0 rondas `MAL` de 10 **no** se da por buena: indica que la barrera no produce ese orden, y se ajusta la barrera |
+| **Carrera fase C** (se queda) | Corrección contra captura de guía **manual**, orden alternado, N = 10 (`sdx-c-address.e2e-spec.ts:396-424`; backend reporta 10/10) | fase C | — (sin cambio) |
+
+**Criterio 315 y los gates.** El gate del stream de fase C certifica **(a)**, **(b)**, **(c)**, **(e)** primera carrera
+(PS-104) y **(f)** salvo «con guía comprada / en proceso». **(d)**, la segunda carrera de **(e)** (PS-113) y la parte de
+**(f)** con guía Skydropx se certifican en el gate de **D2c** (las filas D2a de PS-104 en el de D2a). ⛔ Ningún veredicto
+declara el criterio 315 **cumplido** antes del gate de D2c; el de fase C lo reporta **parcial**, con esta lista.
+
+**M4-SHIP.19.23.2 — D-SDX-5: la mutación de PS-104, por pares.** El paso 3 toma el candado de fila y compara la versión
+**bajo** el candado; el perdedor de la carrera ya ve la versión nueva y responde `409` antes del CAS. El `addressVersion` del
+`WHERE` (paso 5) es un **segundo muro**: quitarlo solo no puede poner roja la prueba, porque no existe escritor que no pase
+por el candado (`ARCHITECTURE §4.60 (o)`, la lección del contracargo). Una mutación que deja en pie un muro que basta no
+mide nada. **Norma:**
+
+| Mutación (sobre `shipment-address.service.ts`) | Resultado exigido | Qué demuestra | Reportado por backend (N = 10) |
+|---|---|---|---|
+| **M1** quitar la comparación de versión del paso 3 (`:190`) **y** `addressVersion` del `WHERE` (`:129`) | **rojo** (cualquier ronda `MAL`) | la prueba detecta «gana la última escritura» | «guarda + `WHERE`» ⇒ 0/10 `ok` |
+| **M2** quitar el candado (`:102`) **y** `addressVersion` del `WHERE` | **rojo** | la carrera es real: sin ningún muro, la barrera la produce | 0/10 `ok` |
+| **M3** quitar **solo** el candado | **verde 10/10** | **el `WHERE` muerde** (M2 y M3 solo difieren en él) | 10/10 `ok` |
+| **M4** quitar **solo** `addressVersion` del `WHERE` | **verde 10/10** | **candado + comparación bastan** (M1 y M4 solo difieren en la comparación) | 10/10 `ok` |
+
+- M3 o M4 con **alguna** ronda `MAL` no es «la prueba es frágil»: es un muro que no aguanta solo ⇒ defecto, al rol dueño.
+- La mutación de una sola tirada no vale (O-3): las cuatro se corren con las N = 10 rondas forzadas de la prueba.
+- QA repite **M1 y M3** (un muro cada una) en su gate, sobre copia del árbol entero con su sha.
+- La misma forma vale para las guardas de guía en D2a (§19.23.3): la guarda bajo candado y su columna en el `WHERE` son dos
+  muros; las mutaciones se declaran por pares igual.
+
+**M4-SHIP.19.23.3 — 💰 D2a: la guarda «ya tiene guía» con las columnas de `M-SDX-D`.** Fase C usa `trackingNumber` como
+sustituto (medido: `shipment-address.service.ts:59-61` devuelve `trackingNumber ? 'manual' : null`; `:129` lleva
+`trackingNumber: null` en el `WHERE`; `:181-191` sin guarda de compra en vuelo; `LABEL_IN_PROGRESS` ⇒ 0 en
+`backend/src/common/error-codes.ts`, Grep 2026-10-04). En **D2a**, en el **mismo** pase que crea las columnas (⛔ no
+puede existir un despliegue con `labelSource` en el esquema y una guarda que no lo lea):
+
+1. **`labelSourceOf(row)`** = `row.labelSource ?? (row.trackingNumber ? 'manual' : null)` (§19.2). Firma:
+   `(row: Pick<ShipmentRequest, 'labelSource' | 'trackingNumber'>) => ShipmentLabelSource | null`. Los lectores no cambian.
+2. **Paso 3, en este orden:** `status ≠ 'picking'` ⇒ `409 SHIPMENT_NOT_IN_PREPARATION {status}`; `labelSourceOf(row) ≠
+   null` ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource}`; `labelProcessingSince ≠ null` ⇒ **`409 LABEL_IN_PROGRESS`** (sin
+   `details`); versión ⇒ `409 CONFLICT {reason:'address_changed', addressVersion}`.
+3. **`WHERE` del paso 5:** `{ id, status:'picking', labelSource:null, trackingNumber:null, labelProcessingSince:null,
+   addressVersion: expectedAddressVersion }`. ⭐ Corrige §19.20.1 paso 5, que omitía `trackingNumber:null`: sin backfill
+   (`ARCHITECTURE §11`) una fila legada con número y `labelSource` nulo es guía manual, y el `WHERE` tiene que expresar el
+   **mismo** predicado que la guarda, entero.
+4. `count 0` ⇒ relee ⇒ la misma función de guardas ⇒ el `409` que corresponda (sin cambio: `:137-141`).
+5. `LABEL_IN_PROGRESS` entra en `backend/src/common/error-codes.ts` (junto a `SHIPMENT_ALREADY_LABELED`, `:769`). No es un
+   código nuevo del contrato (`API_CONTRACT.md:496`, §19.7); es la línea que faltaba en el catálogo del código.
+6. Pruebas: las filas D2a de PS-104 (§19.23.1); la fila legada sigue.
+
+**M4-SHIP.19.23.4 — `line2`: 0..200, confirmado.** §19.20.1 ya mandaba la cota de `GuestAddressInput` donde difiriera;
+backend la midió en 200 (`BACKEND_NOTES.md:27248-27250`) y el arquitecto lee `ADDRESS_LIMITS.line2 = 200`
+(`backend/src/modules/users/address-rules.ts:17`). El `0..120` de §19.20.1 era un error de transcripción, corregido en su
+sitio. **Un juego** de cotas para libreta, invitado y corrección. Frontend: el campo «línea 2» de la ventana admite 200
+(dónde fija hoy su cota: NO MEDIDO — Grep de `maxLength` 120/200 en `frontend/src` ⇒ 0). ⚠️ NO MEDIDO: si Skydropx acota la
+longitud de `street1` (línea 1 + 2, §19.19.8); si la acota, la compra vuelve `422 SHIPPING_PROVIDER_REJECTED` (falla
+segura: cero compra, guía a mano) y se cierra con `PG-1`; ⛔ no cambia la cota de la tienda.
+
+**M4-SHIP.19.23.5 — 🔒 PS-99 (d): lo que asevera ya.** Medido por el arquitecto (Read/Glob en el árbol de trabajo,
+2026-10-04): `.env.example:845,847,848` (`SKYDROPX_BASE_URL=`, `SKYDROPX_CLIENT_ID=`, `SKYDROPX_CLIENT_SECRET=`) y `:864`
+(`SKYDROPX_ALLOW_SPEND=`), los cuatro vacíos; existen `scripts/skydropx/prod-probe.ts`, `prod-probe.test.ts`,
+`probe-stub.ts` y `run-prod-probe.sh`; la prueba propia rechaza `POST /api/v2/shipments` (`prod-probe.test.ts:31`) con
+**cero** llamadas al transporte (`:86`); CI la corre (`.github/workflows/ci.yml:188-193`, `run-prod-probe.sh test`). Que
+estén **commiteados** (`ab39213a`, `28a93acb`) lo midió el orquestador, no el arquitecto. La aserción transitoria de
+`backend/test/skydropx.no-real-purchase.spec.ts:255-262` («nunca con valor») es verde con la línea **borrada** (el `for`
+recorre cero líneas): ese es su defecto, y deja de valer. **PS-99 (d) asevera, además de sus tres pruebas actuales
+(`:204-253`, sin cambio):**
+
+| # | Qué | Canario ⇒ rojo |
+|---|---|---|
+| **(d4)** | `.env.example` existe y tiene **exactamente una** línea `^\s*SKYDROPX_ALLOW_SPEND\s*=`, con valor `''` tras quitar comentario y espacios. Lo mismo para `SKYDROPX_CLIENT_ID` y `SKYDROPX_CLIENT_SECRET` (el repositorio es público: un valor ahí es una fuga, no una plantilla) | borrar la línea ⇒ rojo (hoy verde); `SKYDROPX_ALLOW_SPEND=true` ⇒ rojo; una segunda línea `SKYDROPX_ALLOW_SPEND=` ⇒ rojo (dos fuentes) |
+| **(d5)** | La sonda y su prueba existen (`scripts/skydropx/prod-probe.ts`, `scripts/skydropx/prod-probe.test.ts`) y un workflow de `.github/workflows/` invoca `run-prod-probe.sh test` (búsqueda en el texto). ⛔ Backend **no** re-ejecuta la prueba de la sonda: es `node:test` de devops y corre en su paso de CI; (d5) asegura que no desaparece ni sale de CI sin que nadie lo note | borrar `prod-probe.test.ts` ⇒ rojo; quitar el paso de `ci.yml` ⇒ rojo |
+
+El gate **E** (§19.19.15) ya no está bloqueado por PS-99 (d) en cuanto (d4) y (d5) estén construidas con sus canarios.
+
+**M4-SHIP.19.23.6 — 💰 El catálogo de CP en la ventana de despliegue: `C-GEO-1` y `C-GEO-2`.** Medido: `M-64` crea
+`PostalCode` vacía y lo dice (`backend/prisma/migrations/20261006120000_m64_sdx_c_address/migration.sql:7-8`); con la tabla
+vacía `resolvePostalCode` responde `POSTAL_CODE_UNKNOWN` a todo CP ⇒ libreta e invitado rechazan toda dirección nueva y
+nadie paga un envío (`BACKEND_NOTES.md:27293-27295`). El arranque de producción corre `prisma migrate deploy && node
+dist/main.js` (`DEVOPS_NOTES.md:517`, citado, no re-medido). El importador lo está escribiendo devops (no existía al
+escribir esto: Glob `scripts/geo/**` ⇒ 0).
+
+**`C-GEO-1` — qué cuenta como «catálogo cargado».** Las cuatro, sobre la base destino:
+1. **Completo:** `SELECT count(*) FROM "PostalCode"` = las filas que el importador derivó del archivo fijado (tras
+   descartar las inválidas y colapsar duplicados exactos de `(postalCode, neighborhood)`, que el `@@unique` exige). El
+   importador imprime las dos cifras, los descartes por motivo y el `sha256` del archivo.
+2. **Pisos** (contra un archivo truncado o equivocado): **≥ 100 000 filas**, **≥ 25 000 CP distintos**, **exactamente 32**
+   `state` distintos. ⚠️ Los dos primeros son órdenes de magnitud de memoria del arquitecto (SEPOMEX publica del orden de
+   10⁵ asentamientos y unos 3×10⁴ CP): **NO MEDIDOS**. Devops mide el archivo fijado y anota sus cifras en
+   `DEVOPS_NOTES`; si el archivo no alcanza un piso, **se para** y se pide errata al arquitecto — ⛔ el piso no se baja en
+   el script.
+3. **Funcional:** los cinco CP del arnés (`E2E_POSTAL_CODES`: `01000`, `06600`, `14210`, `44100`, `64000`) resuelven por
+   `resolvePostalCode` con **≥ 1** colonia y `source:'local'`. En producción, por `GET /api/v1/geo/postal-codes/:cp`
+   (público, sin credencial) ⇒ `200`, `neighborhoods.length ≥ 1`.
+4. **Forma:** todo `postalCode` cumple `^\d{5}$` (el CHECK `postal_code_five_digits` de `M-64` ya lo impone) y `state`,
+   `municipality`, `neighborhood` no vacíos tras trim.
+
+**`C-GEO-2` — cuándo se carga.**
+- **Después de `M-64`** (necesita la tabla) y **antes de que la versión con fase C reciba tráfico**: en el **mismo
+  arranque** que corre `migrate deploy`, entre la migración y `node dist/main.js`, o en un comando previo al despliegue
+  del proveedor con la misma semántica (lo elige devops). Con eso no hay hueco: mientras carga, sirve la versión anterior,
+  que no lee `PostalCode` (`M-64` es aditiva).
+- **Idempotente y barato al re-arrancar:** si `C-GEO-1` (1), (2) y (4) ya se cumplen, no recarga. En ese camino ⛔ nunca
+  borra filas (inserta con `ON CONFLICT DO NOTHING` o equivalente); una recarga que reemplace el catálogo es un modo
+  explícito, fuera del arranque.
+- **Falla-cerrado:** carga o verificación fallida ⇒ el proceso sale con código ≠ 0 ⇒ el healthcheck no pasa ⇒ la versión
+  nueva no recibe tráfico. Que Railway conserve la anterior en ese caso: **NO MEDIDO** por el arquitecto; devops lo mide
+  o lo cita **antes** de abrir la ventana (CLAUDE.md: «lo que se mide en la ventana de despliegue, se prepara ANTES»).
+- **El archivo, fijado:** copia de SEPOMEX en el repositorio (o artefacto fijado) con su `sha256`, que el importador
+  verifica antes de cargar. ⛔ Nunca se descarga de SEPOMEX en el arranque (CLAUDE.md: «toda dependencia externa va
+  fijada»). Formato vigente: NO MEDIDO por el arquitecto; lo mide devops.
+- ⛔ **Prohibido:** cargar a mano después del despliegue (es el hueco: nadie paga envío mientras tanto) y servir producción
+  con el catálogo del arnés (5 CP).
+- **Vista previa / staging:** el mismo camino. **CI:** lo decide devops; si el importador corre ahí también, las filas
+  del arnés sobreviven porque el arranque nunca borra.
+- **Orden con `M-65`:** independiente (`C-GEO` solo toca `PostalCode`); la precondición de `M-65` (§19.22.1) sigue igual.
+- **En la ventana:** (a) el registro del importador (filas, CP, estados, `sha256`) en `DEVOPS_NOTES` y en la solicitud de
+  fusión; (b) `C-GEO-1` (3) con los cinco `GET` contra producción; (c) el dueño verifica en su tienda una compra con envío
+  a domicilio eligiendo la colonia de la lista. Las tres van en el cuerpo de la solicitud `main` → `production`.
+- **Reversa:** con el código revertido, `PostalCode` puede quedarse llena (la versión anterior no la lee); el `DROP` de la
+  reversa de `M-64` la vacía con la tabla.
+
+**M4-SHIP.19.23.7 — Qué cambia para quién.**
+
+| Rol | Qué |
+|---|---|
+| **backend 💰 — ya (cierre de fase C)** | `test/skydropx.no-real-purchase.spec.ts:255-262` ⇒ (d4) y (d5) con sus canarios (§19.23.5); declarar y correr M1–M4 de PS-104 sobre `sdx-c-address.e2e-spec.ts:370-394` (§19.23.2) y anotarlas en `BACKEND_NOTES`. ⛔ Sin cambio de código de producción en fase C |
+| **backend 💰 — D2a** | `shipments/shipment-address.service.ts:11-16` (cabecera), `:55-61` (`labelSourceOf`), `:129` (`WHERE`), `:181-191` (guarda `LABEL_IN_PROGRESS`); `common/error-codes.ts:769` (`LABEL_IN_PROGRESS`); filas D2a de PS-104 tras `sdx-c-address.e2e-spec.ts:360` (§19.23.3) |
+| **backend 💰 — D2b / D2c** | PS-105a (D2b); PS-105b, PS-106 y **PS-113** (D2c) — §19.23.1 |
+| **devops** | El importador con `C-GEO-1` y `C-GEO-2`: archivo fijado con `sha256`, carga en el arranque tras `migrate deploy` y antes de servir, idempotente, falla-cerrado; medir las cifras del archivo y si Railway conserva la versión anterior ante un healthcheck fallido; anotar en `DEVOPS_NOTES` |
+| **frontend** | `line2` hasta 200 en el paso 1 de la ventana |
+| **QA** | Gate de fase C: criterio 315 **parcial** (lista de §19.23.1); repite M1 y M3 de PS-104. Gate de D2c: PS-105b, PS-106, PS-113 y el resto del 315 |
+| **orquestador** | En la solicitud de fusión a `production`: `C-GEO-2` y los tres pasos de la ventana (§19.23.6) como condiciones |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
