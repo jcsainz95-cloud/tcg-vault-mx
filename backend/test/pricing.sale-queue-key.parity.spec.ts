@@ -225,7 +225,7 @@ describe('D-1 — la clave del barrido VQ ES la `pendingKey` de `derivePublishSa
 describe('D-1 — censo: la derivación y la serialización viven en UN sitio', () => {
   const SRC = join(__dirname, '..', 'src');
 
-  it('`saleQueueKeyOf`/`sealedSaleQueueKeyOf` solo los usan la publicación y el barrido', () => {
+  it('`saleQueueKeyOf`/`sealedSaleQueueKeyOf` solo los usan la publicación, el barrido y la reconciliación de price-ingest', () => {
     expect(identCensus(SRC, /\b(?:saleQueueKeyOf|sealedSaleQueueKeyOf)\b/g)).toEqual({
       // definiciones + llamada interna (`saleQueueKeyOf` → `sealedSaleQueueKeyOf`)
       'modules/pricing/sale-queue-key.ts': 3,
@@ -233,6 +233,9 @@ describe('D-1 — censo: la derivación y la serialización viven en UN sitio', 
       'modules/inventory/inventory.service.ts': 4,
       // import + barrido
       'jobs/price-sync.service.ts': 2,
+      // 💰 v1.80.8.9 (`M2-VQ9` punto 2, VQ-12): import + `reconcilePublishedPrices` — la reconciliación abre/cierra
+      // con la MISMA clave que la publicación (antes armaba una de cuatro componentes sin `cardProductId`).
+      'modules/pricing/price-ingest.service.ts': 2,
     });
   });
 

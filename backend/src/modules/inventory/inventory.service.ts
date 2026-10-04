@@ -60,6 +60,7 @@ import { toCardDTO } from '../catalog/catalog.service';
 import { PublishReevaluationResult, VariantPublishRef } from './inventory-publish.port';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
 import { AuditService } from '../audit/audit.service';
+import { PriceSyncJobService } from '../../jobs/price-sync.service';
 import {
   activeWithdrawalsOf,
   customerDrawersOf,
@@ -669,6 +670,11 @@ export class InventoryService {
     // @Optional() — el módulo lo provee (AuditModule es @Global); los tests unitarios que construyen
     // el servicio con 3 args lo dejan `undefined` (el precio manual se ejercita sin auditor en unit).
     @Optional() private readonly audit?: AuditService,
+    // 💰 v1.80.8.9 (`M2-VQ9` punto 1): el barrido VQ al final de `publishAll` — el MISMO cuerpo que el final del
+    // `price-sync` completo (`PricingModule` lo exporta; este módulo ya lo importa). @Optional() por los tests
+    // unitarios que construyen el servicio con 3 args: sin él, `publishAll` registra `logger.error` (falla-seguro)
+    // en vez de saltarse el barrido en silencio — y VQ-10 (integración, DI real) mide que en la app SÍ barre.
+    @Optional() private readonly priceSync?: PriceSyncJobService,
   ) {}
 
   /**
@@ -2042,11 +2048,33 @@ export class InventoryService {
    * (`Map<pendingQueueKey, entryId>`). Es una LECTURA: no escala nada — quien escala es el intento
    * de publicación, y ésa es justamente la diferencia que la fase 8 vino a marcar.
    */
+  /**
+   * 💰 v1.80.8.9 (`M2-VQ9` punto 1) — el barrido VQ al final de `publish-all`. ⛔ No copia el cuerpo: llama a
+   * `PriceSyncJobService.sweepUnreasonedSaleQueue('publish-all')`, el mismo que corre al final de un `price-sync`
+   * completo. Falla-seguro: un error ⇒ `logger.error` y la respuesta del lote no cambia.
+   */
+  private async sweepSaleQueueAfterPublishAll(): Promise<void> {
+    try {
+      if (!this.priceSync) throw new Error('PriceSyncJobService no inyectado');
+      await this.priceSync.sweepUnreasonedSaleQueue('publish-all');
+    } catch (e) {
+      this.logger.error(
+        `publish-all · barrido VQ falló (las piezas YA se publicaron; la cola queda como estaba): ${(e as Error).message}`,
+      );
+    }
+  }
+
   private async openPendingEntriesFor(items: PublishableItem[]): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     if (items.length === 0) return map;
     const rows = await this.prisma.pendingPriceEntry.findMany({
-      where: { status: 'open', cardId: { in: [...new Set(items.map((i) => i.cardId))] } },
+      // 💰 v1.80.8.9 (`M2-VQ9` punto 3): el deep-link de M1 es de VENTA ⇒ solo `context='inventory'`. Sin esto, con
+      // una fila de COMPRA y una de VENTA en la misma clave ganaba la más antigua aunque fuera la de COMPRA (VQ-14).
+      where: {
+        status: 'open',
+        context: 'inventory',
+        cardId: { in: [...new Set(items.map((i) => i.cardId))] },
+      },
       select: {
         id: true,
         cardId: true,
@@ -2312,6 +2340,12 @@ export class InventoryService {
         }
       }
     }
+
+    // 💰 v1.80.8.9 (`M2-VQ9` punto 1): barrido VQ entero (rama `null` + rama `premium_at_floor`) DESPUÉS del bucle
+    // —las filas que el bucle reclasificó ya llevan motivo y el barrido no las ve— y ANTES de armar la respuesta.
+    // En toda ejecución real, con o sin filtro (el predicado del barrido es global). ⛔ El replay por `batchKey`
+    // devolvió arriba lo guardado y no llega aquí. Falla-seguro: las piezas ya se publicaron; la cola es higiene.
+    await this.sweepSaleQueueAfterPublishAll();
 
     const response: PublishAllResponse = {
       ...(req.batchKey ? { batchKey: req.batchKey } : {}),

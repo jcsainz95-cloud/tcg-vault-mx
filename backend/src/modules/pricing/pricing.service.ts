@@ -2044,8 +2044,11 @@ export class PricingService {
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
     // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, cardProductId,
     // sealedProductId, status='open')` — v1.30 añade `cardProductId`; v1.42 (M-40) añade `sealedProductId`.
+    // 💰 v1.80.8.9 (`M2-VQ9` punto 3): `context` entra a la clave — SIETE componentes. Cada eje tiene SU fila: uno ya
+    // no reutiliza ni reescribe el `reason` de la del otro, y el aviso de VENTA no vive en una fila de COMPRA que
+    // `?context=inventory` no muestra (VQ-13). El CIERRE no cambia (`closePendingForVariant`).
     const open = await this.prisma.pendingPriceEntry.findFirst({
-      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, context, status: 'open' },
     });
     if (open) {
       if (reason != null && open.reason !== reason) {

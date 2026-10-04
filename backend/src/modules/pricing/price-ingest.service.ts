@@ -21,6 +21,7 @@ import {
 } from '../inventory/inventory-publish.port';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido.
 import { hasManualPrice } from '../../common/money';
+import { saleQueueKeyOf } from './sale-queue-key';
 // v1.50.3 (§4.38m.2): la fecha de negocio del gate de EVIDENCIA — la MISMA que usa la lectura.
 import { businessDateCdmx } from '../../common/graded-estimate';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
@@ -1031,11 +1032,13 @@ export class PriceIngestService {
         });
         // §4.36.5c: el MISMO seam abre y cierra. `reason != null` ⇒ entra a la cola; `null` ⇒ se cierra
         // la entrada abierta de esa clave si el mercado volvió a resolver.
-        await this.pricing.settlePendingForVariant(
-          decision.pendingReason,
-          { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
-          'inventory',
-        );
+        // 💰 v1.80.8.9 (`M2-VQ9` punto 2): la fila que se abre/cierra lleva la clave de cola ENTERA
+        // (`saleQueueKeyOf`, con `cardProductId`), la misma que la publicación y el barrido. Con la de cuatro
+        // componentes una promo cerraba/abría la fila del set base (fantasma) y nunca la suya (VQ-12). ⛔ La lectura
+        // de referencia (`refs` por `key`, arriba) no cambia: mismo precio; cambia QUÉ fila.
+        const queueKey = saleQueueKeyOf(item, this.pricing);
+        if (queueKey == null) continue;
+        await this.pricing.settlePendingForVariant(decision.pendingReason, queueKey, 'inventory');
         if (decision.pendingReason != null) opened++;
         else closed++;
       }

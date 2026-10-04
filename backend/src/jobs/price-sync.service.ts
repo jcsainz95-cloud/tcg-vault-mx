@@ -9,6 +9,9 @@ import { PremiumFloorPolicy, premiumFloorPublishes } from '../common/pricing-cur
 /** Tope de ids que el log del barrido VQ enumera (techlead D-6): el resto se resume con un conteo. */
 export const VQ_SWEEP_LOG_ID_CAP = 20;
 
+/** 💰 v1.80.8.9 (`M2-VQ9` punto 1) — quién corrió el barrido VQ (va en sus líneas de log). */
+export type VqSweepOrigin = 'price-sync' | 'publish-all';
+
 /**
  * PriceSyncJobService — Job diario `price-sync` (ARCHITECTURE §5). Recorre las piezas en bóveda
  * (InventoryItem no `withdrawn`/`lost`, de plataforma y de clientes), respeta cache diario y escribe
@@ -128,11 +131,15 @@ export class PriceSyncJobService {
    *
    * Uso de la llave de COLA (`tryGradeKeyFor`), no de patrimonio (SK-5 intacto).
    */
-  async sweepUnreasonedSaleQueue(): Promise<{ closed: number; kept: number; premiumFloorClosed: number }> {
+  async sweepUnreasonedSaleQueue(
+    // 💰 v1.80.8.9 (`M2-VQ9` punto 1): QUIÉN barre. Hay dos llamadores de este ÚNICO cuerpo — el final de un
+    // `price-sync` completo y el final de `publish-all` (`InventoryService.publishAll`) — y el log lo dice.
+    origin: VqSweepOrigin = 'price-sync',
+  ): Promise<{ closed: number; kept: number; premiumFloorClosed: number }> {
     // v1.80.8.5 (`M2-PF`): la política se lee UNA vez, al empezar.
     const policy = await this.pricing.loadSalePremiumFloorPolicy();
-    const { closed, kept } = await this.sweepUnreasonedRows();
-    const premiumFloorClosed = await this.sweepStalePremiumFloorRows(policy);
+    const { closed, kept } = await this.sweepUnreasonedRows(origin);
+    const premiumFloorClosed = await this.sweepStalePremiumFloorRows(policy, origin);
     return { closed, kept, premiumFloorClosed };
   }
 
@@ -148,6 +155,7 @@ export class PriceSyncJobService {
    */
   private async sweepStalePremiumFloorRows(
     policy: PremiumFloorPolicy,
+    origin: VqSweepOrigin,
   ): Promise<number> {
     if (policy.mode === 'none') return 0;
     const rows = await this.prisma.pendingPriceEntry.findMany({
@@ -162,7 +170,7 @@ export class PriceSyncJobService {
     const shown = toClose.slice(0, VQ_SWEEP_LOG_ID_CAP).join(', ');
     const rest = toClose.length - VQ_SWEEP_LOG_ID_CAP;
     this.logger.log(
-      `price-sync · barrido VQ: ${closed} fila(s) «premium en el piso» de VENTA cerradas (su rareza ` +
+      `${origin} · barrido VQ: ${closed} fila(s) «premium en el piso» de VENTA cerradas (su rareza ` +
         `se publica al piso según premium_floor_sale_publish=${policy.mode}): ${shown}` +
         (rest > 0 ? ` … (+${rest} más)` : ''),
     );
@@ -170,7 +178,7 @@ export class PriceSyncJobService {
   }
 
   /** v1.80.8.4 — rama original del barrido: filas `reason IS NULL` de VENTA sin pieza vendible. */
-  private async sweepUnreasonedRows(): Promise<{ closed: number; kept: number }> {
+  private async sweepUnreasonedRows(origin: VqSweepOrigin): Promise<{ closed: number; kept: number }> {
     const rows = await this.prisma.pendingPriceEntry.findMany({
       where: { status: 'open', context: 'inventory', reason: null },
       select: {
@@ -210,7 +218,7 @@ export class PriceSyncJobService {
       const shown = toClose.slice(0, VQ_SWEEP_LOG_ID_CAP).join(', ');
       const rest = toClose.length - VQ_SWEEP_LOG_ID_CAP;
       this.logger.log(
-        `price-sync · barrido VQ: ${closed} fila(s) «sin motivo» de VENTA cerradas (ninguna pieza ` +
+        `${origin} · barrido VQ: ${closed} fila(s) «sin motivo» de VENTA cerradas (ninguna pieza ` +
           `vendible de plataforma las necesita): ${shown}` +
           (rest > 0 ? ` … (+${rest} más)` : ''),
       );
@@ -218,7 +226,7 @@ export class PriceSyncJobService {
     const kept = rows.length - toClose.length;
     if (kept > 0) {
       this.logger.log(
-        `price-sync · barrido VQ: ${kept} fila(s) «sin motivo» de piezas vendibles se dejan para publish-all.`,
+        `${origin} · barrido VQ: ${kept} fila(s) «sin motivo» de piezas vendibles se dejan para publish-all.`,
       );
     }
     return { closed, kept };
