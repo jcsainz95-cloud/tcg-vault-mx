@@ -8701,6 +8701,44 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Disparador:** el próximo cambio a quién pasa `policy` a `premiumFloorGuard`/`resolvePendingReason`, o borrar PF-3/7/10.
 - **Comprobación de cierre:** PF-3, PF-7 y PF-10 siguen existiendo y verdes; PF-11 los cita.
 
+## Frontend · 2026-10-04 · gate del techlead sobre `4d994c55` (rama `claude/precios-s5`, D-7; D-8 cerrada)
+
+> Anotado por frontend a petición del orquestador. D-8 se cerró en código en este pase (`FRONTEND_NOTES` §85); D-7 se
+> queda como deuda porque su arreglo vive en `frontend/src/components/ui/`, zona compartida que un stream no toca sin
+> que el orquestador la serialice.
+
+### PS5-FE-D7 · P3 · El diálogo de confirmación «Cancelar con foco + verbo» está copiado en cada pantalla
+- **Dónde (medido 2026-10-04 con `rg -ln "cancelRef|setCancelEl|cancelEl" frontend/src/app --glob '!*.test.*'` ⇒ 10
+  ficheros):** tres componentes locales con nombre propio — `m10/sections/PremiumFloorSection.tsx:393` (`ConfirmModal`),
+  `m4/reponer/[caseId]/ReplacementCaseView.tsx:437` (`ConfirmDialog`), `m2/sections/fx/FxDialogs.tsx:42`
+  (`FxConfirmDialog`) — y el mismo patrón en línea (`Modal` + ref al «Cancelar» + `setTimeout(focus)`) en
+  `m1/SealedFinalPrice.tsx`, `m3/RefundOrderDialog.tsx`, `m3/[orderId]/M3OrderDetailView.tsx` (registro del motivo),
+  `m4/LocateItemControl.tsx`, `m4/ShipPreparationCard.tsx`, `m4/ShipmentsQueue.tsx`, `m4/VaultPlacementCard.tsx` y
+  `manual-refunds/[id]/ManualRefundDetailView.tsx`. Todas las rutas bajo `frontend/src/app/[locale]/(admin)/admin/`.
+- **Riesgo:** Bajo, sin dinero en juego por sí mismo. La regla de los diálogos de dinero (foco inicial en «Cancelar»,
+  el verbo lleva la cifra, `loading` bloquea el doble clic) se reescribe a mano cada vez; una copia que la olvide no la
+  caza ninguna prueba común.
+- **Disparador:** el próximo diálogo de confirmación nuevo, o cualquier cambio de `DESIGN_SYSTEM` a la regla de foco/
+  botones de los diálogos de confirmación — lo que llegue antes. Requiere que el orquestador abra `components/ui/` a un
+  solo stream.
+- **Cómo se cierra:** `components/ui/ConfirmModal.tsx` (`title`, `confirmLabel`, `onConfirm`, `loading`, `variant`,
+  foco inicial en «Cancelar» y retorno del foco al disparador), con su prueba unitaria; las tres copias con nombre
+  migran primero, las en línea al tocarse.
+- **Prueba que lo demuestra:** unitaria de `ConfirmModal` (foco inicial en «Cancelar», `Escape` cierra, `loading`
+  deshabilita el verbo). Candado estático: `rg -n "function (Confirm(Modal|Dialog)|FxConfirmDialog)" frontend/src/app`
+  ⇒ **0** (hoy 3).
+
+### PS5-FE-D8 · ✅ CERRADA en este pase (2026-10-04) · `MAX_LIST_PRICE_CENTS` dentro del componente y dos listas de invalidación
+- **Dónde era:** `m1/SealedFinalPrice.tsx` exportaba la cota desde un componente `'use client'` y tenía DOS listas de
+  claves a invalidar: tras guardar (6 claves) y en «Recargar» (3, sin `sealed-sets`/`sealed-set-detail`/
+  `sealed-price-status`) ⇒ «Recargar» tras un `409/422` no refrescaba el panel de «Sellado», justo donde el editor vive
+  con `layout='panel'`.
+- **Cierre:** `m1/sealed-final-price.ts` con `MAX_LIST_PRICE_CENTS` y `SEALED_FINAL_PRICE_INVALIDATES` (una lista, los
+  dos momentos). Candados: `SealedFinalPrice.test.tsx` «techlead D-8» (mutación: devolver «Recargar» a las 3 claves ⇒
+  rojo) y `sealed-final-price.test.ts` (la cota ↔ la cifra que cita `DESIGN_SYSTEM §39`; mutación `50_000_000` ⇒ rojo).
+- **Pendiente fuera de frontend:** el contrato no declara la cota de `listPriceCents` (solicitud al arquitecto en
+  `FRONTEND_NOTES` §85).
+
 ## Frontend · 2026-09-29 · release s5 (7b9c196e)
 
 > Deuda **no bloqueante** del release s5, anotada por frontend a petición del orquestador (DoD). Fuentes: veredicto del

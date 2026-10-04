@@ -18938,3 +18938,64 @@ deterministas: 22/22 rojas en su prueba objetivo** (FP-1…5, PF-UI-1…4, LP-1,
 **Cierre:** `tsc` limpio, lint limpio, vitest **202/202 ficheros, 2436/2436**; `5c324e3a` solo también compila.
 Playwright no corrido (encargo). Ruido previo, no tocado: `mockAdminOrderRowAdditions` pisa `status` con `undefined`
 en órdenes sin origen ⇒ `IntlError status.order.undefined` en consola de `M3View.test`.
+
+## §85 · **Gate de QA y techlead sobre `4d994c55`**: IMPORTANTE-1 (`MX$NaN` en M3), IMPORTANTE-2 (E2E de §39/§40), MENOR-3, D-7/D-8 (2026-10-04, rama `claude/precios-s5`, base `1b1ab19a`)
+
+**IMPORTANTE-1 — `MX$NaN` en producción (detalle M3 y diálogo de reembolso total).** El detalle (`GET /admin/orders/:id`,
+contrato §11 `AdminOrderDetailDTO`, y errata v1.80.10 F-1) pone el total **solo** en `breakdown.totalCents`; la vista
+leía `o.totalCents` (`M3OrderDetailView.tsx:219`) y el diálogo `detail.data.totalCents` (`RefundOrderDialog.tsx:91`).
+- **Por qué tsc no lo veía:** `AdminOrderDetailDTO extends Omit<AdminOrderDTO,'settledAt'>` heredaba el `totalCents` de
+  `OrderSummaryDTO` (que es de la **fila** de la lista). Ahora el tipo se declara a mano desde el contrato, sin herencia y
+  con `breakdown: BreakdownDTO` obligatorio. Al quitar la herencia tsc marcó **exactamente 3 lectores** (los dos de arriba y
+  el paso `order={o}` del detalle al diálogo) y el mock — no había más.
+- **Lectores:** cabecera ⇒ `o.breakdown.totalCents` (`data-testid="m3-total"`); diálogo ⇒ `breakdown.totalCents −
+  refundedCents`; el detalle pasa al diálogo `refundDialogOrderOfDetail(o)` (proyección con el total del desglose). La fila
+  de la lista sigue leyendo `totalCents` de primer nivel (correcto: la lista sí lo trae).
+- **Mock:** `getAdminOrder` esparcía la fila de la lista (`...order`) ⇒ en local había `totalCents` en la raíz y el defecto
+  no se veía. Ahora proyecta **explícitamente** la forma del contrato; `mockAdminOrderDetailAdditions` aporta el
+  `breakdown` real de cada origen de `m4-ship`. De paso, `definedOnly` evita que un parcial sin origen pise `status` con
+  `undefined` (el ruido `status.order.undefined` que §84 dejó anotado, ya no sale en `M3View.test`).
+- **Mismo patrón en otros sitios (medido con tsc + `rg "\.totalCents" src`):** ninguno. El detalle del cliente
+  (`OrderDetailDTO`) nunca tuvo `totalCents` de primer nivel; los demás lectores son de filas de lista (`OrdersView`,
+  `M3View`, `M6View`, `ClaimableOrdersNotice`) o de retiros, y el contrato sí lo trae ahí.
+- **Prueba que falla con la forma real:** `m3/DetailTotal.test.tsx` sirve un detalle literal del contrato (sin `totalCents`
+  en la raíz): DT-1 cabecera, DT-2 diálogo (`MX$NaN` ⇒ rojo), DT-3 proyección, DT-4 el mock tiene la forma del contrato.
+  **Mutaciones (copia del árbol, deterministas, N=1):** volver a leer la raíz ⇒ **DT-1 y DT-2 rojas** (vitest) y, en un
+  navegador con build de producción, **las 2 specs de §40.2 rojas** con `m3-total` = «MX$NaN»; con la lectura sin
+  `as`, `tsc` da 2 errores TS2339; mock con `...order` ⇒ **DT-4 roja**.
+
+**IMPORTANTE-2 — `e2e/precios-s5.spec.ts`** (10 casos). Censo: `@real` agnósticos — dial de M10 (en real lee la regla
+vigente por API y la **restaura** en `finally`), «ninguna fila ofrece precio final fuera del sellado», tarjeta+filtro de
+«Reembolso por revisar»; `realOnly` — `400` del filtro, `403 MONEY_OUT_FORBIDDEN` del operador, `404`; `mockOnly` — cola
+con motivo (`INV-004204` premium retenida, `INV-000109` sellado), precio final del sellado (⛔ $0, confirmación, sale de
+la cola), reembolso total no enviado (`ord-5008`, sin motivo, total `MX$838.86`) y enviado (`ord-5006`, motivo
+obligatorio sin preselección, nota, motivo a la vista), «Reembolso por revisar» de punta a punta como el dueño (tablero →
+filtro → marca → formulario → confirmar → registro único: formulario y marca desaparecen) y la vista del operador.
+- **Fixtures nuevos (MOCK, marcados en el código):** `ord-5006/5007/5008` (directos de invitado; envíos `shp-7008/7009`
+  `enviado` y `shp-7010` `guia`, ⛔ fuera de la cola de preparar), `ord-5007` con `fullRefundAfterShipment` sin motivo,
+  `workQueue.refundReviews` del tablero (`mockRefundReviewsCounter`, `null` al operador), fila `inv-pub-4`
+  `premium_at_floor` y el sellado `inv-1009` en la cola mientras siga `in_stock` sin precio final.
+- **Hueco declarado, no escondido:** los recorridos de dinero de §40.2/§40.3 **no** tienen versión real: el seed no
+  siembra un directo liquidado con envío `enviado`/`guia` ni un reembolso total tras el envío sin motivo (QA los fabricó
+  con SQL y un `charge.refunded` firmado). Ver solicitudes abajo. Los `needsSeed` vacíos se quitaron: el censo
+  (`e2e-harness.test.ts`) prohíbe un `@real` que se salta solo, y un caso vacío en mock sería un verde que no mide nada.
+- **Corridas (mocks, build de producción, :3471):** el spec solo **9 passed / 1 skipped** (el `realOnly`); con los specs
+  vecinos que leen los mismos fixtures (`admin`, `m4-ship`, `m4-preparation`, `m4-vault-placement`,
+  `admin-m2-sealed-unmapped`, `orders-resume` + el nuevo) **71 passed / 3 skipped**, 0 rojos. **Contra backend real: NO
+  MEDIDO** — `scripts/stack-native.sh` guarda su estado en `.native-stack/` del árbol y reinicia el backend que no sirva
+  el árbol actual; con el agente backend trabajando en este mismo árbol, levantarlo podía tumbar su stack.
+
+**MENOR-3.** SR-UI-1 asevera ahora «nota escrita y SIN motivo ⇒ apagado» antes de «motivo sin nota ⇒ apagado».
+Mutación (quitar `(!shipped || shippedReason !== null)` de `canSubmit`) ⇒ **SR-UI-1 y SR-UI-3 rojas** (N=1, determinista).
+
+**Techlead D-8 (cerrada) / D-7 (deuda).** `m1/sealed-final-price.ts`: `MAX_LIST_PRICE_CENTS` fuera del componente y
+`SEALED_FINAL_PRICE_INVALIDATES`, **una** lista para «tras guardar» y «Recargar» (antes «Recargar» invalidaba 3 de 6
+claves y no refrescaba el panel de «Sellado»). Candados: «techlead D-8» en `SealedFinalPrice.test.tsx` (mutación: lista
+vieja en «Recargar» ⇒ rojo) y `sealed-final-price.test.ts` (cota ↔ `DESIGN_SYSTEM §39`; mutación `50_000_000` ⇒ rojo).
+⚠️ No tuve el texto literal de D-8; lo cerré por lo que el código medía (dos listas divergentes y la cota en un componente
+cliente sin ancla). D-7 ⇒ `TECH_DEBT` PS5-FE-D7 (`components/ui` es zona compartida).
+
+**Solicitudes.** (1) **Arquitecto:** declarar en §M1 la cota de `UpdateItemDto.listPriceCents` (`@Max 100_000_000`,
+`backend/src/modules/inventory/dto/inventory.dto.ts:57`); hoy solo la cita `DESIGN_SYSTEM §39`. (2) **Backend (seed
+E2E):** un directo `settled` con envío `enviado`, otro con `guia`, y uno `refunded` con `fullRefundAfterShipment=true` sin
+motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
