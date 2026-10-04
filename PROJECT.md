@@ -7994,6 +7994,9 @@ El orden es interno, como hoy.
 > (T.4.7, T.13); **(5)** las preguntas **88–91** pasan de SUPUESTO a **DECIDIDO** con su default (T.6, T.7); **(6)**
 > el correo «Entregado» (`AV-17`) **ya no anuncia plazo de disputa** y lleva «Escríbenos» (T.6). Criterios
 > reescritos: 234, 236, 237, 238, 241, 242, 245; nuevos: **306–314**. Lo que sigue **NO MEDIDO** está en **T.14**.
+> ⭐ **2026-10-04, errata v1.80.12** (`API_CONTRACT §M4-SHIP.19.20`): **(7)** el operador corrige **toda** la
+> dirección del envío en «Capturar guía» (`HECHOS.md:50`; T.2, T.3 paso 1); criterios reescritos **242** (catálogo
+> 16 → 19) y **308**; nuevo **315**; pregunta nueva **P-ADR-1** (teléfono).
 
 #### T.0 Las seis decisiones del dueño (2026-09-29) — **decididas, no se vuelven a preguntar**
 
@@ -8079,10 +8082,33 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
   añaden campos separados de número exterior/interior: en México el número va dentro de la calle y Skydropx no
   los exige (R2).
 - **Direcciones ya guardadas sin colonia** (las de antes de este cambio): al **elegirlas para un retiro** se pide
-  completar la colonia **antes de pagar**. *(SUPUESTO — para pedidos de invitado **ya pagados** sin colonia,
-  el operador puede **completar la colonia de la lista del CP** desde la tarjeta antes de cotizar, y queda
-  auditado quién y cuándo; ⛔ no puede cambiar calle, CP ni ciudad. Alternativa si el dueño no lo quiere: ese
-  pedido sale con guía manual.)*
+  completar la colonia **antes de pagar**. Para pedidos **ya pagados** sin colonia (o con la dirección mal), la
+  remedia el operador en «Capturar guía» con la corrección de abajo (elegir la colonia es un caso de ella).
+  ~~*(SUPUESTO — el operador puede **completar la colonia de la lista del CP** desde la tarjeta antes de cotizar,
+  y queda auditado quién y cuándo; ⛔ no puede cambiar calle, CP ni ciudad.)*~~ ⛔ **Sustituido el 2026-10-04 por
+  decisión del dueño** (`HECHOS.md:50`), abajo.
+- ⭐ **El operador corrige TODA la dirección del envío en «Capturar guía»** — **DECIDIDO por el dueño**
+  (`HECHOS.md:50`, 2026-10-04, elegido entre «solo revisar y elegir colonia» y «poder corregir todo»: *«Poder
+  corregir todo»*; diseño: `API_CONTRACT §M4-SHIP.19.20.1`, errata v1.80.12). Quién: **quien puede capturar la
+  guía** (operador y súper-admin), con la integración encendida **o apagada**.
+  - **Qué se corrige:** **destinatario**, **calle y número** (línea 1), **número interior / depto.** (línea 2),
+    **CP**, **colonia** (⛔ de la lista del CP, como en T.2) y **referencias** (≤ 70).
+  - **Municipio/alcaldía y estado salen del CP**, nunca se teclean: al cambiar el CP se recalculan solos. El país
+    es MX. El **teléfono no** se corrige aquí *(SUPUESTO, pregunta **P-ADR-1**)*.
+  - **Solo afecta a este envío.** ⛔ **No** cambia la libreta del cliente ni la dirección que el cliente capturó al
+    pagar (esa queda como evidencia). Lo que sí ve el cliente después es a dónde va su paquete: la del envío.
+  - **Bitácora:** cada corrección deja **el antes y el después** (solo de lo que cambió) **y quién la hizo**; la
+    ventana muestra *«Corregida por {nombre} · {fecha}»*. Guardar sin cambiar nada **no** deja registro.
+  - **Al cambiar la dirección, la cotización anterior deja de valer:** la ventana vuelve a cotizar y ⛔ ninguna
+    guía se compra con una cotización hecha para la dirección vieja (tampoco si la corrección entra mientras otro
+    compra).
+  - **Dos personas corrigiendo a la vez:** gana **una**; la otra recibe *«la dirección cambió»* y ve la nueva
+    antes de volver a intentar (⛔ nadie corrige sobre una dirección que no vio).
+  - **Cuándo se puede:** solo mientras el pedido está **en preparación** y **sin guía** (ni comprada, ni en
+    proceso de compra, ni capturada a mano).
+  - ⛔ **No cambia** lo que se le cobró al cliente por envío: si la dirección corregida sale más cara, lo absorbe
+    la tienda (misma regla que la pregunta 90, `HECHOS.md:41`).
+  - Criterio **315**.
 - **Nada de esto cambia el precio ni las políticas** del checkout (§J: mismo precio, mismos impuestos).
 - ⚠️ **Orden de construcción** (traspaso §7.2.4): este endurecimiento toca la cuenta del cliente (`users`) y el
   checkout (`orders`) — dos streams; va como **paso aparte y previo** a la guía, serializado por el arquitecto.
@@ -8105,8 +8131,12 @@ pagado sin colonia **no se podría cotizar** — el cliente ya pagó y el operad
      visible **en todos los pasos** (T.10: ⛔ el pedido nunca queda atorado por Skydropx).
 2. **Paso 1 — Revisar la dirección.** La ventana abre con la dirección **precargada con la del cliente** —la que
    quedó congelada en el pedido o retiro—, tal como irá en la guía: destinatario, calle, colonia, CP,
-   municipio/alcaldía, estado, teléfono y referencias. Si falta la colonia, se elige **de la lista del CP** (T.2);
-   ⛔ no se editan calle, CP ni destinatario.
+   municipio/alcaldía, estado, teléfono y referencias. ⭐ **Se puede corregir toda** (decisión del dueño
+   2026-10-04, `HECHOS.md:50`; detalle en T.2): destinatario, calle, línea 2, CP, colonia (de la lista del CP) y
+   referencias; municipio y estado salen del CP; el teléfono no *(P-ADR-1)*. La corrección es **solo de este
+   envío** (no toca la libreta del cliente), queda en bitácora con antes, después y quién, y **invalida la
+   cotización**: el paso 2 vuelve a cotizar. Sin colonia no se avanza. ~~⛔ no se editan calle, CP ni
+   destinatario.~~ *(sustituido 2026-10-04)*
 3. **Paso 2 — El sistema arma el paquete y cotiza solo.** Elige el **empaque estándar** según el contenido (sobre
    para cartas; caja para sellado o volumen — T.9; cambiable, y al cambiarlo se vuelve a cotizar) y marca el
    **seguro** (decisiones 1 y 9). La cotización tarda segundos: indicador de espera, ⛔ sin bloquear la pantalla.
@@ -12120,9 +12150,11 @@ se re-preguntan; lo marcado SUPUESTO espera su palabra)**
    excepción / retenido ⇒ **nada al cliente**; guía reemitida ⇒ **el mismo** correo de guía con el número nuevo,
    ⛔ no uno nuevo. Al invitado **todos** llegan al **correo del pedido** (`guestEmail`), al registrado al de su
    cuenta, ⛔ nunca al del `addressSnapshot` ni a una cuenta anonimizada (regla de hoy, `§12.1`). **El criterio
-   206 se verifica con el catálogo vigente + estas tres.** *(El borrador v1.81 decía «de 15 a 18»; el contrato
-   cuenta **19** — `API_CONTRACT.md:24258`, «`C-AV-1` pasa a 19». **NO MEDIDO** por product-owner contra §R.3: QA
-   verifica contra el número del contrato, y si §R.3 y el contrato no cuadran, lo reconcilia el arquitecto.)*
+   206 se verifica con el catálogo vigente + estas tres: el catálogo pasa de 16 a 19** (`AV-1…AV-16` +
+   **`AV-17…AV-19`**: «Entregado», «en sucursal», «intentaron entregarte»; `AVA-1` está retirado y no cuenta).
+   *(⭐ 2026-10-04, errata v1.80.12, `API_CONTRACT §M4-SHIP.19.20.6` y la reconciliación «El catálogo §R.3 pasa de
+   16 a 19» de §19.12. ~~El borrador v1.81 decía «de 15 a 18»~~: dejaba fuera una fila — §R.3 ya tenía 16 antes de
+   Skydropx. `AV-18` y `AV-19` se escriben en esta fase, con el patrón de `AV-17`.)*
 243. **Liga de rastreo solo si Skydropx la da; el invitado recibe su liga con token; línea de tiempo con datos
    mínimos** *(T.8; decisión 4)*: si la guía trae **URL de rastreo de Skydropx**, los correos de guía, salida,
    sucursal y Entregado y las páginas del cliente muestran **«Rastrear mi paquete»** con **esa** URL; si viene
@@ -12214,8 +12246,9 @@ v1.80.11, `API_CONTRACT §M4-SHIP.19.19`; numeración siguiente a 305, medida co
 308. **La ventana «Capturar guía» es la única puerta, con cuatro pasos y salida manual en todos** *(T.3.1–T.3.2;
    decisión 7)*: con la integración **apagada**, la ventana es la captura a mano de hoy y nada más; **encendida**,
    la ventana muestra **(1)** la dirección **precargada con la del cliente** (la del pedido o retiro), con
-   selector de colonia **de la lista del CP** si falta y ⛔ sin poder editar calle, CP ni destinatario — no avanza
-   sin colonia; **(2)** las opciones; **(3)** confirmar y comprar; **(4)** la guía. **«Capturar a mano»** está
+   **la dirección completa editable** (destinatario, calle, línea 2, CP, colonia de la lista del CP y referencias;
+   municipio y estado salen del CP — criterio 315) ~~y ⛔ sin poder editar calle, CP ni destinatario~~
+   *(sustituido 2026-10-04, `HECHOS.md:50`)* — no avanza sin colonia; **(2)** las opciones; **(3)** confirmar y comprar; **(4)** la guía. **«Capturar a mano»** está
    visible **en los cuatro pasos**. **⛔ Falla** si hay un botón «Cotizar envío» en la tarjeta o un segundo
    formulario de guía, o si algún paso deja al operador sin la salida manual.
 309. **La guía (y la etiqueta) regresan en la misma ventana** *(T.4.9, T.5; decisión 7: «que regrese la guía»)*:
@@ -12255,6 +12288,26 @@ v1.80.11, `API_CONTRACT §M4-SHIP.19.19`; numeración siguiente a 305, medida co
    fila** de J&T se muestra — ni con «ver todas»— y cuenta en el pie *«no disponibles por API»*; lo mismo para
    cualquier opción marcada no disponible, sin cobertura, multi-paquete o con desglose que no cuadra. **⛔ Falla**
    si J&T se puede elegir o comprar.
+315. 💰 **El operador corrige toda la dirección del envío en «Capturar guía», y la guía sale a la corregida**
+   *(T.2, T.3 paso 1; decisión del dueño 2026-10-04, `HECHOS.md:50`; `API_CONTRACT §M4-SHIP.19.20.1`; lo verifica
+   **QA**)*: el operador (y el súper-admin) cambia destinatario, calle, línea 2, CP, colonia y referencias de un
+   envío **en preparación y sin guía** — con la integración encendida **y** apagada — y:
+   **(a)** el envío queda con lo tecleado, **municipio y estado los del CP** aunque se intente mandar otros, y la
+   colonia **de la lista del CP** (otra colonia o un CP sin colonias ⇒ rechazo **sin guardar nada**);
+   **(b)** la **libreta del cliente** y la **dirección del pedido** quedan **idénticas** a antes;
+   **(c)** la bitácora tiene **una** entrada con **antes y después** (solo de lo que cambió) y **quién**, y la
+   ventana muestra *«Corregida por {nombre} · {fecha}»*; guardar lo mismo otra vez ⇒ **sin** entrada nueva;
+   **(d)** la cotización previa **muere**: la ventana re-cotiza, y comprar con la cotización vieja ⇒ rechazo y
+   **cero** compras en Skydropx (contra el doble); la guía comprada lleva la dirección **corregida**, ⛔ nunca la de
+   la libreta ni la del pedido;
+   **(e)** **carreras** (N ≥ 10 rondas cada una, **se reporta la proporción**; vale solo 10/10): dos correcciones
+   distintas a la vez sobre la misma dirección ⇒ **exactamente una** se guarda y la otra recibe «la dirección
+   cambió» y ve la nueva; una corrección que entra **mientras otro compra** la guía ⇒ **cero** compras con la
+   dirección vieja;
+   **(f)** con guía comprada, en proceso o capturada a mano, o fuera de preparación ⇒ rechazo; un **cliente** ⇒
+   rechazo; el **teléfono** no cambia por esta vía *(P-ADR-1)*; lo cobrado de envío al cliente **no** cambia.
+   **⛔ Falla** si alguna de (a)–(f) no se cumple, si una sola ronda de carrera deja dos correcciones guardadas o
+   una compra con la dirección vieja, o si la corrección toca la libreta o la orden.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -14051,7 +14104,8 @@ promesa:**
    excepción ⇒ **alerta al admin y nada al cliente**, el dueño resuelve a mano (91); **re-emitir guía** antes de
    que salga (§T.4.8); valor declarado = lo pagado por las cartas (§T.3.2); margen negativo **se confirma, no se
    bloquea** (§T.3.6); sucursal-a-sucursal **se permite con confirmación** desde «ver todas» (§T.3.5); el
-   operador puede **completar la colonia** de un pedido ya pagado (§T.2); sin tope de gasto de guía aparte del
+   operador puede **completar la colonia** de un pedido ya pagado (§T.2) *(⭐ sustituido 2026-10-04 por decisión
+   del dueño, `HECHOS.md:50`: corrige **toda** la dirección del envío — §T.2, criterio 315)*; sin tope de gasto de guía aparte del
    saldo (§T.4.7); defaults de empaques, regla de empaque, umbral de saldo bajo (MX$500) y refresco (60 min)
    (§T.9).
 
@@ -16266,7 +16320,7 @@ ese frente:**
 > ✅ **88–91 RESPONDIDAS el 2026-10-02**: el dueño acepta los defaults tal como se mapearon (*«de las preguntas de
 > skydropx déjalas como las mapeaste»*, fila de `HECHOS.md` «~~Skydropx — preguntas 88–91…~~ ⇒ RESPONDIDAS
 > 2026-10-02»). Quedan como **DECIDIDO** en T.6, T.7 y los criterios 238 y 241. Se conservan abajo como registro.
-> **Única pregunta abierta de §T: P-SDX-1** (al final), con default; no bloquea.
+> **Preguntas abiertas de §T: P-SDX-1 y P-ADR-1** (al final), con default; no bloquean.
 
 > **Solo las que de verdad quedan abiertas.** Del levantamiento (§6, §9, §11.2) ya están contestadas por sus
 > seis decisiones en `HECHOS.md`: la tarifa (no cambia), cuándo se compra la guía (al preparar, eligiendo el
@@ -16321,3 +16375,13 @@ ese frente:**
   **Default (SUPUESTO, T.5/T.9)**: **hoja normal**. Es un ajuste de la pantalla de configuración: si compra una
   térmica después, lo cambia usted sin construir nada.
   **Qué confirmar**: **(a)** hoja normal —**vigente**—; **o (b)** térmica (y, si la sabe, la medida del rollo).
+
+- **P-ADR-1 · [ABIERTA — NO BLOQUEA — operación] Al corregir la dirección en «Capturar guía», ¿también se puede
+  corregir el TELÉFONO del destinatario?** *(2026-10-04; la abre el arquitecto, `API_CONTRACT §M4-SHIP.19.20.1`)*
+  **El hecho**: usted eligió *«Poder corregir todo»* y la decisión enumera calle, número, CP, colonia, referencias
+  y destinatario (`HECHOS.md:50`); el **teléfono no está** en la lista. La paquetería lo usa para avisar al
+  destinatario.
+  **Default (SUPUESTO, T.2)**: **no** se corrige ahí. Si el teléfono no tiene 10 dígitos, ese envío no se cotiza
+  por Skydropx y sale con **guía a mano**.
+  **Qué confirmar**: **(a)** no —**vigente**—; **o (b)** sí, como un campo más de la corrección (10 dígitos,
+  con el mismo antes/después y quién en la bitácora).
