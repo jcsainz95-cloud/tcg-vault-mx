@@ -5242,6 +5242,14 @@
     "updated": "Last updated:",
     "spanishOnly": "Legal notice available in Spanish only.",
     "draftTitle": "Draft — not published",
-    "draftBody": "This text is a draft pending legal review and the data controller's details. The owner fills in the highlighted gaps; while any remain, this page is not published on the store."
+    "draftBody": "This text is a draft pending legal review and the data controller's details. The owner fills in the highlighted gaps; while any remain, this page is not published on the store.",
+    "opensInNewTab": "(opens in a new tab)",
+    "sites": {
+      "register": "By creating your account you accept the <terms>Terms</terms> and the <privacy>Privacy notice</privacy>.",
+      "googleSignIn": "If you sign in with Google for the first time, we create your account and you accept the <terms>Terms</terms> and the <privacy>Privacy notice</privacy>.",
+      "checkout": "What we do with your data: <privacy>Privacy notice</privacy>.",
+      "sellForm": "We use your CLABE to pay you by bank transfer in your name, and your ID (if we ask for it) to verify your identity. Details in the <privacy>Privacy notice</privacy>.",
+      "accountIne": "What we use your ID for and when we delete it: <privacy>Privacy notice</privacy>."
+    }
   }
 }

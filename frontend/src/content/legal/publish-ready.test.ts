@@ -11,9 +11,13 @@
  * La conducta que protege a producción mientras tanto NO depende de que alguien corra esto: la
  * página da 404 y el pie no la enlaza (`legal-gate.ts`, `legal-gate.test.ts`).
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { stripComments } from '@/test/strip-comments';
 import { privacyNoticeEs } from './privacidad.es';
 import { findLegalMarkers } from './legal-gate';
+import { PRIVACY_NOTICE_SITES, missingUses } from './privacy-sites';
 import es from '../../../messages/es.json';
 import en from '../../../messages/en.json';
 
@@ -30,6 +34,20 @@ describe.runIf(run)('criterio 501 · listo para publicar (LEGAL_PUBLISH_CHECK=1)
       expect(v.trim(), loc).not.toMatch(/^\[.*\]$|^$/);
     }
   });
+});
+
+/**
+ * LEG-5 (API_CONTRACT v1.84.1 §14.14 E-9): los SIETE sitios usan el componente del aviso. Un caso por
+ * sitio, para que el rojo NOMBRE el sitio que falta. Los de lotes 2 y 3 (tras F-SKY / F-PNL) están
+ * rojos aquí hasta construirse: así ningún lote se queda olvidado antes de `sk_live_`.
+ */
+describe.runIf(run)('criterio 501 · LEG-5 — los siete sitios enlazan el aviso', () => {
+  for (const site of PRIVACY_NOTICE_SITES) {
+    it(`sitio ${site.id} · ${site.name} (${site.file}, lote ${site.lote})`, () => {
+      const src = stripComments(readFileSync(join(__dirname, '../../..', site.file), 'utf8'), site.file);
+      expect(missingUses(site, src), `sitio ${site.id} · ${site.name}: falta el componente del aviso`).toEqual([]);
+    });
+  }
 });
 
 describe.skipIf(run)('criterio 501 · puerta de publicación', () => {

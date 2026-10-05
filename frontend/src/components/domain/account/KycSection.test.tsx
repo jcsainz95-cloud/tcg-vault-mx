@@ -141,3 +141,22 @@ describe('KycSection · v1.80.7 · «CLABE actualizada el …»', () => {
     expect(screen.queryByTestId('kyc-clabe-updated-at')).not.toBeInTheDocument();
   });
 });
+
+/** LIVE-8 · sitio 6 del aviso (DESIGN_SYSTEM §80.2): justo debajo de `ine.privacy`, en el bloque de subida. */
+describe('KycSection · LIVE-8 · enlace al aviso de privacidad (sitio 6)', () => {
+  it('con los uploaders: la frase del aviso va justo después de la línea `ine.privacy`', async () => {
+    renderWithProviders(<KycSection />, 'es');
+    await screen.findByText('INE — frente');
+    const note = screen.getByTestId('privacy-site-accountIne');
+    expect(note.textContent).toBe('Para qué usamos tu INE y cuándo la borramos: Aviso de privacidad.');
+    expect(note.previousElementSibling?.textContent).toMatch(/se guarda cifrada/);
+  });
+
+  it('`pending` (sin uploaders): no se pinta', async () => {
+    getKyc.mockResolvedValue(kyc({ kycStatus: 'pending', ineOnFile: true }));
+    renderWithProviders(<KycSection />, 'es');
+    await screen.findByText('Verificación de identidad');
+    await waitFor(() => expect(document.body.textContent).not.toMatch(/Cargando/));
+    expect(screen.queryByTestId('privacy-site-accountIne')).toBeNull();
+  });
+});

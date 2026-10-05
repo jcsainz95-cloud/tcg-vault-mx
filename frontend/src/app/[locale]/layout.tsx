@@ -8,6 +8,8 @@ import { getMessages, getTranslations } from 'next-intl/server';
 import { routing, type AppLocale } from '@/i18n/routing';
 import { Providers } from '@/components/Providers';
 import { NONCE_HEADER } from '@/security/csp';
+import { PrivacyLinkProvider } from '@/components/legal/PrivacyNoticeLink';
+import { privacyLinkVisible } from './(storefront)/footer';
 import '../globals.css';
 
 /*
@@ -137,7 +139,11 @@ export default async function LocaleLayout({
       </head>
       <body className="min-h-dvh bg-bg font-sans text-text antialiased">
         <NextIntlClientProvider messages={messages}>
-          <Providers>{children}</Providers>
+          {/* LIVE-8 (DESIGN_SYSTEM §80.6 F-7): la decisión del pie, calculada AQUÍ en el servidor —donde
+              `VERCEL_ENV` existe— y pasada a los enlaces de cliente. Ver `PrivacyNoticeLink.tsx`. */}
+          <PrivacyLinkProvider linked={privacyLinkVisible()}>
+            <Providers>{children}</Providers>
+          </PrivacyLinkProvider>
         </NextIntlClientProvider>
       </body>
     </html>

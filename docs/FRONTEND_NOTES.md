@@ -19230,3 +19230,59 @@ motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
 - **Suites**: tsc 0; lint sin avisos; vitest 218 ficheros / 2620 pruebas verdes (1 fichero / 3 saltadas:
   `check:legal`, rojo a propósito, §94.3). `e2e/csp.spec.ts` contra `next start` propio: `report-only`
   42/42 y `enforce` 42/42 (14 casos × N=3 cada uno).
+
+### 94.5 LIVE-8 · enlaces al aviso de privacidad — lote 1 (§14.14 E-9; DESIGN_SYSTEM §80) — medido 2026-10-05 sobre `9c137657` + este cambio
+
+- **Componente** `src/components/legal/PrivacyNoticeLink.tsx` (§80.1): `PrivacyNoticeLink` con
+  `variant: 'inline' | 'nav'`; `PrivacySiteNote site=…` pinta una frase `privacy.sites.*` con sus
+  etiquetas `<terms>`/`<privacy>` (`t.rich`); `TermsInlineLink` da a «Términos» la misma conducta
+  `inline` (pestaña nueva, subrayado, icono, «(se abre en otra pestaña)» solo para lector).
+  Sin página servida: `inline` pinta el mismo texto en un `<span>` sin foco; `nav` no pinta nada.
+- **F-7 (riesgo de §80.6) — cerrado así:** la decisión es `privacyLinkVisible()` de
+  `(storefront)/footer.ts` (no una copia) y la calcula **el servidor** en `app/[locale]/layout.tsx`, que la
+  pasa con `PrivacyLinkProvider`; los componentes de cliente la leen del contexto. El fichero del
+  componente no lee `process.env` ni importa el módulo legal (el aviso entero no entra al paquete del
+  cliente). Sin proveedor ⇒ sin enlace (falla hacia lo seguro). Sitio 1 (pie de la tienda) migrado a
+  `variant="nav"`, sin cambio visible.
+- **Sitios del lote 1** (choques medidos con `git diff $(git merge-base HEAD origin/<rama>) origin/<rama> -- <f>`
+  contra `claude/skydropx-d` y `claude/arreglos-panel`: **0 líneas** en los cuatro ficheros, ninguno excluido):
+  2a registro y 2b «Entrar» (`AuthForm.tsx`), 4 checkout con cuenta (`CheckoutView.tsx`, tras ventas
+  finales y antes de CFDI), 5 formulario de venta (`BuylistKycForm.tsx`, fuera de la sección INE, siempre
+  visible), 6 INE de «Mi cuenta» (`KycSection.tsx`, bajo `ine.privacy`). `ine.privacy` («cifrada») sin tocar.
+  ⚠ `messages/es.json`/`en.json` sí tienen diff en las dos ramas (zona compartida): aquí solo se añaden
+  claves dentro de `privacy.*`, al final del fichero — en `arreglos-panel` hay un trozo que también toca
+  el final (`@@ -5235,5`), así que es posible un conflicto textual al fusionar (NO MEDIDO con merge de prueba).
+- **Textos**: `privacy.opensInNewTab` y `privacy.sites.{register,googleSignIn,checkout,sellForm,accountIne}`,
+  ES/EN verbatim de §80.3 (comprobado con un script contra el DESIGN_SYSTEM). `guestCheckout` no se añade
+  (lote 2).
+- **LEG-5**: `src/content/legal/privacy-sites.ts` lista los siete sitios con fichero, lote y patrón JSX.
+  Suite normal (`privacy-sites.test.ts`): exige los del lote 1 (los de lote 2/3, saltados con su lote).
+  `npm run check:legal`: exige los siete, un caso por sitio. **Hoy rojo por: marcadores del aviso, razón
+  social, sitio 3 (lote 2) y sitio 7 (lote 3)**; los cinco sitios del lote 1 en verde.
+- **Prueba existente ajustada**: `AuthForm.staff.test.tsx › UX-2` — la firma de enlaces de «Entrar» gana
+  `a:/terminos:Términos (se abre en otra pestaña)` (leyenda 2b). El invariante que vigila (la firma no
+  cambia con lo tecleado ni tras un 401) sigue igual.
+- **Mutaciones (autor: frontend; copia del árbol entero; N=3 cada una, todas rojas 3/3):**
+  | Mutación | Prueba que muerde |
+  |---|---|
+  | el cliente decide leyendo `process.env` (F-7) | `PrivacyNoticeLink.test › F-7 vista previa` (sola, 3/3) y UX-PRIV-1 |
+  | idem, build + `next start` con `LEGAL_DRAFT_PREVIEW=1` | `e2e/privacy-links.spec.ts` 6/6 rojos (2 casos × N=3), en el enlace de la frase |
+  | quitar `target="_blank"` | UX-PRIV-1 (6 casos) |
+  | quitar el texto oculto | UX-PRIV-1 (8 casos) |
+  | sin página ⇒ `<a href=/privacidad>` | UX-PRIV-2 (7 casos) |
+  | `nav` con `target="_blank"` | UX-PRIV-3 |
+  | quitar `underline` | UX-PRIV-4 |
+  | quitar `<privacy>` de `en.json › checkout` | UX-PRIV-5 + render EN |
+  | quitar el sitio 5 | `privacy-sites.test` nombra «sitio 5 · formulario de venta»; `check:legal` también |
+  | quitar la leyenda 2b | `privacy-sites.test` (sitio 2) y `AuthForm.privacy.test` |
+  | leyenda de registro tras Google | `AuthForm.privacy.test › 2a` (el candado estático no ve el orden; esta sí) |
+  | layout con `linked={false}` | `PrivacyNoticeLink.test › layout pasa privacyLinkVisible()` |
+- **Suites**: tsc 0; lint sin avisos; vitest 221 ficheros / 2657 pruebas verdes (12 saltadas: 9 de la puerta
+  `check:legal` fuera de su modo, 2 sitios de lotes 2/3, 1 marcador). E2E contra `next start` propio:
+  sin borrador `privacy-links` + `csp` 48/48 (N=3); con `LEGAL_DRAFT_PREVIEW=1` `privacy-links` 6/6 (N=3,
+  pie enlazando en `/es`) y `csp` 39 verdes + 3 saltadas (el 404 de `/privacidad` no aplica con borrador).
+  La primera versión del spec buscaba el pie en `/es/register`, que vive en `(auth)` y no tiene pie: rojo
+  3/3 del spec, no del código; se corrigió el spec y se re-midió.
+- **No cubierto por render**: el sitio 4 (`CheckoutView`) solo lo vigila el candado estático LEG-5 y el
+  componente; no hay prueba de render de su posición (la vista necesita sesión y carrito). E2E de los
+  sitios 4–6 (rutas con sesión): NO MEDIDO.

@@ -578,3 +578,19 @@ describe('BuylistKycForm — ningún intento fallido puede quedarse mudo (P-4)',
     expectRevealed(targets, 'Error del servidor. Intenta de nuevo.');
   });
 });
+
+/** LIVE-8 · sitio 5 del aviso (DESIGN_SYSTEM §80.2): SIEMPRE visible, porque la CLABE se pide siempre. */
+describe('BuylistKycForm — LIVE-8 · enlace al aviso de privacidad (sitio 5)', () => {
+  const FRASE =
+    'Tu CLABE la usamos para pagarte por transferencia a tu nombre, y tu INE —si te la pedimos— para verificar tu identidad. Detalles en el Aviso de privacidad.';
+  it('con la INE pedida: la frase va DESPUÉS de la sección de la INE (fuera de ella)', () => {
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    const note = screen.getByTestId('privacy-site-sellForm');
+    expect(note.textContent).toBe(FRASE);
+    expect(note.closest('section')).toBeNull();
+  });
+  it('con la INE en archivo (sin uploaders): la frase sigue', () => {
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} ineOnFile />, 'es');
+    expect(screen.getByTestId('privacy-site-sellForm').textContent).toBe(FRASE);
+  });
+});

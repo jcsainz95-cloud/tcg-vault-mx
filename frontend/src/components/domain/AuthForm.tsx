@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 import { buildPasswordChangeRedirect, homeForRole, passwordRouteForRole, safeNext as safeNextOf } from '@/lib/account-routes';
 import { TOO_MANY_PASSWORD_ATTEMPTS, retryAfterMinutes } from '@/lib/password-attempts';
 import type { UserDTO } from '@/types/contract';
@@ -224,6 +225,12 @@ export function AuthForm({
         {loading ? t('loading') : mode === 'login' ? t('loginCta') : t('registerCta')}
       </Button>
 
+      {/* LIVE-8 · sitio 2a (DESIGN_SYSTEM §80.2, criterio 504): bajo «Crear cuenta» y ANTES del
+          divisor, para que se lea antes de «Continuar con Google». */}
+      {mode === 'register' && (
+        <PrivacySiteNote site="register" className="mt-4 text-center text-[13px] leading-[1.6] text-muted" />
+      )}
+
       {mode === 'login' && (
         <Link href="/forgot-password" className="mt-5 text-center text-sm text-accent hover:text-text">
           {t('forgotPassword')}
@@ -239,6 +246,11 @@ export function AuthForm({
       <div className="mt-6">
         <GoogleSignInButton onSuccess={(_role, user) => redirectAfterAuth(user)} />
       </div>
+      {/* LIVE-8 · sitio 2b (§80.2 nota 2b): «Continuar con Google» desde «Entrar» también CREA cuenta
+          si el correo no existe (`auth.service.ts:527`). */}
+      {mode === 'login' && (
+        <PrivacySiteNote site="googleSignIn" className="mt-4 text-center text-[13px] leading-[1.6] text-muted" />
+      )}
 
       <Link
         href={mode === 'login' ? '/register' : '/login'}

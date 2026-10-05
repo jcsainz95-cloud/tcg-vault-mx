@@ -5242,6 +5242,14 @@
     "updated": "Última actualización:",
     "spanishOnly": "Legal notice available in Spanish only.",
     "draftTitle": "Borrador — no publicado",
-    "draftBody": "Este texto es un borrador pendiente de revisión legal y de los datos del responsable. Los huecos resaltados los llena el dueño; mientras existan, esta página no se publica en la tienda."
+    "draftBody": "Este texto es un borrador pendiente de revisión legal y de los datos del responsable. Los huecos resaltados los llena el dueño; mientras existan, esta página no se publica en la tienda.",
+    "opensInNewTab": "(se abre en otra pestaña)",
+    "sites": {
+      "register": "Al crear tu cuenta aceptas los <terms>Términos</terms> y el <privacy>Aviso de privacidad</privacy>.",
+      "googleSignIn": "Si entras con Google por primera vez, creamos tu cuenta y aceptas los <terms>Términos</terms> y el <privacy>Aviso de privacidad</privacy>.",
+      "checkout": "Qué hacemos con tus datos: <privacy>Aviso de privacidad</privacy>.",
+      "sellForm": "Tu CLABE la usamos para pagarte por transferencia a tu nombre, y tu INE —si te la pedimos— para verificar tu identidad. Detalles en el <privacy>Aviso de privacidad</privacy>.",
+      "accountIne": "Para qué usamos tu INE y cuándo la borramos: <privacy>Aviso de privacidad</privacy>."
+    }
   }
 }
