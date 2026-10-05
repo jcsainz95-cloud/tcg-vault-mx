@@ -28422,3 +28422,71 @@ Carga durante las corridas: 3–10 (otro agente vivo); ninguna roja por tiempo.
 2. **Techo de `NO_ENUM_POR_RUTA` 51 → 52** por `?description=` de la búsqueda de Carta Porte (texto libre, §19.22.3). ¿Se ratifica?
 3. **Catálogos/saldo con `shipping_provider = 'off'`**: construido «funcionan» (68.2 (2)); ¿se confirma, o `404 FEATURE_DISABLED`?
 4. **`labelProcessing`** = `labelProcessingSince ≠ null` (68.2 (1)): ¿se confirma?
+
+## 69 · B-1 construida — la liga del invitado en los avisos: token NUEVO sin rotar (`API_CONTRACT §M4-SHIP.19.35.1`, PS-87 reescrita, SDX-R14 de §19.35.6, `ARCHITECTURE §4.60 (ab)`; resuelve P-D2E-1 de §67.4) (2026-10-05, rama `claude/skydropx-d`, desde `a132cf59`; código y pruebas en `37899dac` + el commit de esta sección)
+
+⛔ `prisma/` intacto (ni migración, ni enum, ni código de error, ni `AuditLog.action` nuevo: se reusa `order.tracking_link.reissue`).
+⛔ `OrderAccessTokenService` sin cambiar (se usa `issue(id, { rotate: false })` tal cual). ⛔ Ninguna prueba compra (PS-99): el doble.
+
+### 69.1 Qué y dónde
+
+| Pieza | Fichero |
+|---|---|
+| **`orderMailLinkOf`** — UN cuerpo para todo aviso de pedido: `order.userId ≠ null` (registrado **o reclamado**) ⇒ `orders/<id>` sin token; `userId = null ∧ guestEmail` ⇒ sin origen público ⇒ `null`; `createdAt` < now − 365 d ⇒ `null`; si no ⇒ `issue(rotate:false)` (90 d) + `AuditLog order.tracking_link.reissue` (`actorUserId` nulo, `after = {actor:'system:mail', notice, rotated:false, expiresAt}`, ⛔ ni claro ni hash) ⇒ `pedido?token=<claro>`. Cualquier fallo ⇒ `null` + `warn` sin claro ni mensaje crudo; ⛔ nunca lanza. ⛔ No consulta `resendQuotaExceeded` ni revoca | `shipments/guest-mail-link.ts` (nuevo) |
+| `resolveRecipient` ya **no** resuelve el enlace: devuelve `link` (`{kind:'shipment'}` \| `{kind:'order', order}`); el enlace lo resuelve `claimAndNotify` **después** de ganar el sello (`customerUrlFor`), y `claimAndNotify` recibe el aviso (`AV-4/5/6/17/18/19`) para la bitácora. Sin `MAIL_PORT`, sin destinatario o sello perdido ⇒ se sale antes ⇒ cero tokens. `recipientEmailOf` (la compra de la guía) ⇒ cero tokens | `shipments/shipments.service.ts` |
+| `ShipmentsModule` importa `GuestOrderTokensModule` (el módulo mínimo sin dependencias que ya usaba `payments`); `OrderAccessTokenService` entra `@Optional()` al final del constructor (pruebas legacy) | `shipments/shipments.module.ts` |
+| **`AV-12`** por su propio camino con el MISMO cuerpo: tras reclamar `customerNotifiedAt`, si el grupo tiene pedido ⇒ `customerUrl = orderMailLinkOf(…, 'AV-12')`; un retiro (sin pedido) conserva su enlace de siempre (N-8, `vault?tab=withdrawals`). La plantilla gana `customerUrl?: string \| null` (string ⇒ ese enlace; `null` ⇒ sin CTA; ausente ⇒ el de siempre) | `payments/refunds/refund-ledger.service.ts`, `payments/refunds/mail/refund-notice.templates.ts` |
+
+### 69.2 Decisiones que el contrato no fijaba
+
+1. **Sin `APP_PUBLIC_URL` no se acuña token** (el enlace no se puede escribir; un token que nadie recibe es una puerta abierta más).
+2. **Bitácora `after`** lleva `actor`, `notice`, `rotated:false` y `expiresAt` (el `expiresAt` como el reenvío de soporte); el actor va en `after.actor` porque `actorUserId` es nulo (el mismo patrón que `system:carrier-poll`).
+3. **Si la bitácora falla después de emitir**, el aviso sale sin CTA y ese token queda vivo sin haber viajado (el claro se descarta). Inofensivo, y la alternativa (revocarlo) sería tocar la tabla en un camino de error.
+4. **`AV-12` de un pedido de registrado** sigue `orders/<id>` (antes salía de la plantilla, ahora del cuerpo: mismo enlace). **Cambio de conducta para el invitado en `AV-12`:** antes su CTA era `orders/<id>` (página que exige sesión que el invitado no tiene); ahora es su `pedido?token=`.
+5. `avisos.shipments.spec.ts` B3 (invitado ⇒ sin botón; reclamado ⇒ sin botón) codificaba la regla anterior: **reescrita por el contrato** (invitado ⇒ `pedido?token`, reclamado ⇒ `orders/<id>` y cero tokens), más dos casos (sin emisor / la emisión falla ⇒ el aviso sale igual sin CTA y el log sin claro) y el de 365 días.
+
+### 69.3 Pruebas
+
+- **Integración nueva** `test/integration/sdx-b1-guest-mail-link.e2e-spec.ts` (10; puerto `CARRIER_NOTICES` real, doble del proveedor,
+  bandeja contada, `Logger`/`console` capturados): PS-87 **(a)** AV-4·AV-5·AV-18 con `Xᵢ` distintos, settle + todos `200`, filas = settle + 3,
+  tres `reissue` `system:mail` sin claro ni hash, log sin `Xᵢ`, y **(f)** tras `resend-link` los cuatro `410 TOKEN_REVOKED`; **(b)** reclamado
+  ⇒ `orders/<id>`, cero filas, el viejo sigue `410`; **(c)** registrado/retiro; **(d)** `recipientEmailOf` ×3 ⇒ 0 filas y la compra deja
+  solo la del AV-4; **(e)** sello perdido (disparos directos de AV-4 y AV-18) ⇒ 0; **(e) carrera** 5 disparos simultáneos del mismo AV-18
+  ⇒ 1 correo y 1 fila, **10/10** rondas (N = 10, autor backend, en la corrida completa); **(g)** con 5 filas, AV-19 con liga que abre;
+  **(h)** 366 días ⇒ sin CTA, 0 filas; AV-4 manual (`setTracking`), AV-5 a mano y AV-6; **AV-12** invitado (token) y registrado (`orders/<id>`).
+- **Unitaria nueva** `test/sdx-b1.guest-mail-link.spec.ts` (9): la regla sin BD (no consulta cupo ni revoca; `userId ≠ null` nunca emite;
+  365/364 días; sin origen; fallo de emisión o de bitácora ⇒ `null` sin claro en el log), la plantilla de AV-12 con `customerUrl`, y
+  candados estáticos: dos lectores exactos de `orderMailLinkOf`, el enlace después de `sealed.count !== 1` y de `claimed.count === 0`,
+  `resolveRecipient` sin emisión, el cuerpo sin `rotate: true`/`resendQuotaExceeded`/`revokeAll`.
+- **Reescrita por el contrato:** `test/avisos.shipments.spec.ts` (bloque CTA, ver 69.2 (5)).
+- **Rojo primero:** la integración sobre el código de `a132cf59` (copia `mut/` con los cuatro ficheros de `src` de `a132cf59` y sin
+  `guest-mail-link.ts`): **8/10 rojas** (verdes solo (c) y (h), que ya eran la conducta de antes); carrera `0/10` (`1 correo / 0 filas`).
+
+### 69.4 Suites y mutaciones
+
+Copia `git archive a132cf59` del árbol ENTERO + mis ficheros superpuestos (= el `backend/` de `37899dac`, comprobado con `diff -r`),
+scratchpad `be-b1/tree`, BD propia `tcg_be_b1`; mutaciones en `be-b1/mut` con BD `tcg_be_b1m` (`mut.py` aplica UNA, corre y restaura;
+`diff -r` contra `tree` tras cada tanda). Carga 3–7 (otro agente backend vivo).
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **412/412 suites · 7187/7187** |
+| Integración (`stack-native.sh test:integration`) | **98/98 suites · 1963/1963** |
+| `tsc --noEmit`; `eslint` de los ficheros tocados | 0 errores; 0 avisos |
+
+| # | Mutación | Integración (N = 3 cada una) | Unitaria |
+|---|---|---|---|
+| M1 | `issue(…, { rotate: true })` | **(a)** rojo 3/3 (+ AV-4 manual) | 3 rojas |
+| M2 | emitir con `userId ≠ null` si hay `guestEmail` | **(b)** rojo 3/3 (sola) | 2 rojas |
+| M3 | emitir en `resolveRecipient` | **(d)** rojo 3/3 (+ (a), (e), carrera, (g), AV-4 manual) | 3 rojas (estática) |
+| M4 | consultar `resendQuotaExceeded` antes de emitir | **(g)** rojo 3/3 (sola) | 5 rojas |
+| M5 | resolver el enlace ANTES del sello | (e), carrera (`1 correo / 6 filas`, 0/10), (a), (d), (g) rojo 3/3 | 2 rojas (estática) |
+| M6 | AV-12 sin el cuerpo para el invitado (`first.order && first.order.userId`) | AV-12 rojo 3/3 (sola) | **sobrevive** (la unitaria no mira el camino de AV-12 por conducta; la integración sí) |
+
+### 69.5 Preguntas y notas
+
+1. **`after` de la bitácora** lleva `actor` y `expiresAt` además de `{notice, rotated}` (69.2 (2)). Si el arquitecto quiere el conjunto
+   exacto `{notice, rotated}`, es una línea; ⛔ claro y hash no están en ningún caso (PS-87 (a)).
+2. El encabezado de `test/integration/sdx-d2e-notices.e2e-spec.ts` (línea 15) todavía dice que el invitado quedó fuera por P-D2E-1: es
+   un comentario; no lo toqué porque ese fichero lo edita B-2 (PS-89) en paralelo.
+3. Nota para product-owner (del contrato, no bloquea): `PROJECT` T.8 «el mismo token» es irrealizable al pie de la letra.
