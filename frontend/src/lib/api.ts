@@ -1693,18 +1693,6 @@ export async function getAdminShipments(
 }
 
 /**
- * Detalle admin de un envío (contrato §M4 · `GET /admin/shipments/:id`): las líneas con `id` (`shipmentItemId`),
- * folio, carta y `prepStatus`. Lo usa el diálogo SPEI de retiro entregado (§60.4 b paso 2).
- */
-export async function getAdminShipment(id: string): Promise<AdminShipmentDTO> {
-  if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${id}`);
-  if (id === m4ship.MOCK_DELIVERED_WITHDRAWAL.id) return delay(structuredClone(m4ship.MOCK_DELIVERED_WITHDRAWAL));
-  const row = fx.mockAdminShipments.find((s) => s.id === id);
-  if (!row) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
-  return delay({ ...row, ...(m4ship.mockShipAdminAdditions(id) ?? {}) });
-}
-
-/**
  * 💰 `GET /admin/manual-refunds/withdrawal-delivered/preview?shipmentItemId=&amountCents=` (contrato v1.82 §PNL.3,
  * súper-admin, `no-store`): referencias y topes D-12 para la cifra que el dueño escribe. Sin `amountCents` ⇒ solo
  * referencias, `confirmation: null`.
@@ -2149,9 +2137,13 @@ async function mockSdx<T>(fn: () => T): Promise<T> {
 /**
  * `GET /admin/shipments/:id` (§M4, operador+). La ventana lo lee al abrir (paso 0 de §19.19.13) y para
  * RELEER tras un `5xx`/red de la compra (§19.20.5) o un `409 CONFLICT {reason:'address_changed'}`.
+ * También lo usa el diálogo SPEI de retiro entregado (§60.4 b paso 2: las líneas con `id` = `shipmentItemId`,
+ * folio, carta y `prepStatus`). Fusión panel+skydropx: las dos ramas declaraban esta función; queda una, con el
+ * retiro entregado del mock del panel como caso propio.
  */
 export async function getAdminShipment(shipmentId: string): Promise<AdminShipmentDTO> {
   if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}`);
+  if (shipmentId === m4ship.MOCK_DELIVERED_WITHDRAWAL.id) return delay(structuredClone(m4ship.MOCK_DELIVERED_WITHDRAWAL));
   return mockSdx(() => sdx.mockDecorateAdminShipment(mockLiveAdminRow(shipmentId)));
 }
 
