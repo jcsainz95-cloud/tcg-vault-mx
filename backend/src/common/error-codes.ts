@@ -225,6 +225,11 @@ export const ErrorCode = {
   // NO existe o está inactivo (soft-deleted). El backend deriva la identidad del sellado desde el
   // `SealedProduct` persistido; un id muerto no puede dar identidad. 422 (por-línea en el lote).
   SEALED_PRODUCT_NOT_FOUND: 'SEALED_PRODUCT_NOT_FOUND',
+  // 💰 v1.83 (§M11-SP.4): un escritor de `listPriceCents` (alta, lote, «encontrada», línea de `bulk-publish`, `PATCH`)
+  // recibió precio para una pieza SELLADA ligada a un `SealedProduct`: el precio del sellado es del producto y lo pone
+  // el dueño con `PUT /admin/inventory/sealed-products/:id/sale-price`. `details: { sealedProductId, itemId? }`. Todo o
+  // nada (un lote entero se rechaza). Lo recibe cualquier rol, también el dueño. 422.
+  SEALED_PRICE_IS_PER_PRODUCT: 'SEALED_PRICE_IS_PER_PRODUCT',
   // v1.39.1 (P-38, §4.34d): se envió `manualMarketMxnCents` en una línea de alta de sellado cuyo
   // mercado YA está resuelto (live/caché priced). El override manual SOLO llena el HUECO de precio
   // (mercado null): JAMÁS pisa un mercado vivo. Money-safe. NO se dispara por rol (vault_operator+ lo

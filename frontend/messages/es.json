@@ -1477,19 +1477,23 @@
         "title": "Detalle de pieza",
         "certNumber": "Certificado",
         "movements": "Historial de movimientos",
-        "noMovements": "Sin movimientos registrados."
+        "noMovements": "Sin movimientos registrados.",
+        "sealedPriceByProduct": "Lo fija el producto",
+        "seeSheet": "Ver en «Precios del sellado»"
       },
       "publish": {
         "title": "Publicar en Compra",
         "priceLabel": "Precio de venta (MXN)",
         "priceInvalid": "Captura un precio válido (número ≥ 0).",
-        "priceRequiredSealed": "El sellado requiere precio manual (MXN) para publicarse.",
+        "priceRequiredSealed": "Sin producto: el precio de esta pieza lo pone el dueño.",
         "priceHint": "Opcional: sin precio manual, el precio de venta se deriva de la referencia en el servidor.",
         "action": "Publicar",
         "unlist": "Retirar de venta",
         "success": "Item publicado en Compra · {folio}.",
         "unlistSuccess": "Item retirado de venta · {folio}.",
-        "error": "No se pudo actualizar el item."
+        "error": "No se pudo actualizar el item.",
+        "sealedPricePending": "No se publicó: el producto no tiene precio. Lo pone el dueño en «Precios del sellado».",
+        "priceLabelSealed": "Precio antes de IVA (MXN)"
       },
       "move": {
         "title": "Mover de ubicación",
@@ -1562,10 +1566,10 @@
         "pendingPriceLink": "Ver en la cola de precio pendiente",
         "sealedMark": "SELLADO",
         "sealedUnidentified": "Sellado sin identificar",
-        "note": "Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. Solo el producto sellado admite aquí un precio final a mano.",
+        "note": "Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. Solo el producto sellado admite aquí un precio a mano, antes de IVA.",
         "openPiece": "Abrir la pieza {folio}",
         "basis": {
-          "manual": "precio final a mano",
+          "manual": "a mano, antes de IVA",
           "market": "automático",
           "floor": "piso",
           "override": "precio de variante",
@@ -1573,7 +1577,7 @@
         },
         "reason": {
           "location": "Sin ubicación: se publica sola en cuanto se la pongas.",
-          "sealedNoPrice": "El sellado no tiene precio automático: ponle precio final.",
+          "sealedNoPrice": "Sin mercado ni precio del dueño: se pone en «Precios del sellado».",
           "no_market": "El proveedor no trae precio de mercado para esta carta.",
           "premium_at_floor": "Rareza premium con mercado bajo el piso: retenida para revisión.",
           "seeRule": "Ver la regla",
@@ -1586,7 +1590,8 @@
           "buylist": "Compra a vendedor",
           "compra": "Compra directa",
           "unknown": "Origen desconocido"
-        }
+        },
+        "sealedPriceLink": "Ponle precio en «Precios del sellado»"
       }
     },
     "m3": {
@@ -4128,10 +4133,10 @@
     },
     "m11": {
       "title": "Sellado",
-      "subtitle": "Sube producto, ponle precio y publícalo. Aquí también actualizas los precios de mercado de toda la colección.",
+      "subtitle": "Sube producto, revisa sus precios y publícalo. Aquí también actualizas los precios de mercado de toda la colección.",
       "inventory": {
         "title": "Inventario de sellado",
-        "subtitle": "Da de alta producto sellado, edita precio y formato por pieza, y publica o despublica desde el detalle de cada presentación."
+        "subtitle": "Da de alta producto sellado, cambia su formato y publícalo o despublícalo desde el detalle de cada presentación. El precio va en «Precios del sellado»."
       },
       "queue": {
         "title": "Listas para publicar (sellado)",
@@ -4233,6 +4238,83 @@
         "currentGroup": "Conectado ahora a: {groupId}",
         "setMainCta": "Conectar y actualizar",
         "unlinkCta": "Desconectar"
+      },
+      "priceSheet": {
+        "title": "Precios del sellado",
+        "subtitle": "Un precio por producto, con IVA: lo que escribes es lo que paga el cliente por cada pieza. Si no pones precio, se vende al automático (mercado + tu margen + IVA). Escribe el tuyo solo donde quieras mandar tú.",
+        "filters": {
+          "set": "Set",
+          "allSets": "Todos",
+          "search": "Buscar producto",
+          "scopeLegend": "Qué productos",
+          "onHand": "Solo con existencias",
+          "all": "Incluir sin existencias"
+        },
+        "col": {
+          "product": "Producto",
+          "pieces": "Piezas",
+          "cost": "Costo promedio",
+          "owner": "Tu precio, con IVA",
+          "automatic": "Automático, con IVA",
+          "effective": "Se vende a, con IVA",
+          "net": "Sin IVA",
+          "netHelp": "Lo que queda de «Se vende a» al quitarle el IVA. Sobre esta cifra se calcula el margen.",
+          "market": "Mercado",
+          "margin": "Margen",
+          "marginHelp": "Sin IVA menos costo promedio. Informativo."
+        },
+        "net": {
+          "rate": "IVA {rate} %"
+        },
+        "pieces": {
+          "inStock": "{n, plural, one {# en caja} other {# en caja}}",
+          "listed": "{n, plural, one {# publicada} other {# publicadas}}",
+          "reserved": "{n, plural, one {# apartada} other {# apartadas}}",
+          "none": "sin existencias"
+        },
+        "cost": {
+          "range": "{min}–{max}",
+          "without": "{n, plural, one {# sin costo} other {# sin costo}}",
+          "none": "sin costo registrado"
+        },
+        "owner": {
+          "none": "sin fijar"
+        },
+        "automatic": {
+          "subtype": "margen de la presentación +{pct} sobre mercado, antes de IVA",
+          "global": "margen general +{pct} sobre mercado, antes de IVA",
+          "none": "sin mercado"
+        },
+        "origin": {
+          "product": "tuyo",
+          "automatic": "automático",
+          "pending": "Sin precio: no se vende"
+        },
+        "market": {
+          "asOf": "al {date}"
+        },
+        "margin": {
+          "loss": "{pct} · pérdida",
+          "noPrice": "sin precio",
+          "noCost": "sin costo"
+        },
+        "inactive": "Retirado del catálogo",
+        "legacy": {
+          "shadowed": "{count, plural, one {# pieza tenía precio propio ({range}); ya no cuenta: manda el tuyo.} other {# piezas tenían precio propio ({range}); ya no cuenta: manda el tuyo.}}",
+          "active": "{count, plural, one {# pieza cobra su precio propio ({range}), no el de esta fila.} other {# piezas cobran su precio propio ({range}), no el de esta fila.}}",
+          "shadowedNoRange": "{count, plural, one {# pieza tenía precio propio; ya no cuenta: manda el tuyo.} other {# piezas tenían precio propio; ya no cuenta: manda el tuyo.}}",
+          "activeNoRange": "{count, plural, one {# pieza cobra su precio propio, no el de esta fila.} other {# piezas cobran su precio propio, no el de esta fila.}}",
+          "fix": "Pon tu precio para que todas cobren lo mismo."
+        },
+        "unlinked": "{n, plural, one {# pieza de sellado no está ligada a un producto: no sale en esta hoja y su precio se pone pieza por pieza, en el detalle de su presentación.} other {# piezas de sellado no están ligadas a un producto: no salen en esta hoja y su precio se pone pieza por pieza, en el detalle de su presentación.}}",
+        "empty": "No hay sellado en existencia ligado a un producto.",
+        "emptyCta": "Incluir sin existencias",
+        "emptyFiltered": "Ningún producto coincide.",
+        "clearFilters": "Quitar filtros",
+        "pageInfo": "Mostrando {from}–{to} de {total}",
+        "prev": "Anterior",
+        "next": "Siguiente",
+        "footOwner": "Solo el dueño cambia estos precios. Quedan en bitácora a su nombre."
       }
     },
     "decksMetaRefresh": {
@@ -4455,7 +4537,8 @@
         "delta": {
           "eyebrow": "Lo que cambia nuestro neto, por pieza",
           "body": "Con esta posición nos quedamos con {amount} menos por cada pieza de lista de {price}. Multiplícalo por las piezas que vendas.",
-          "none": "Esta posición no mueve nuestro neto."
+          "none": "Esta posición no mueve nuestro neto.",
+          "sealedOwnerPrice": "No aplica al sellado con precio tuyo: lo que paga el cliente es el que escribiste y no cambia con esta fracción."
         },
         "blocked": {
           "invalid": "Corrige la fracción para poder guardar.",
@@ -4815,15 +4898,15 @@
         "cogs": "Costo de lo vendido",
         "stripeFees": "Comisiones Stripe",
         "shippingCost": "Costo de envío (paquetería, neto)",
+        "shippingCostMissing": "{count, plural, one {# envío liquidado no tiene costo de paquetería capturado. Revísalo: su ingreso cuenta completo como ganancia.} other {# envíos liquidados no tienen costo de paquetería capturado. Revísalos: su ingreso cuenta completo como ganancia.}}",
+        "profit": "Ganancia del periodo",
         "shippingAdjustments": "Incluye ajustes de paquetería",
         "shippingInsurance": "Incluye seguro del envío",
         "refunds": "Reembolsos (mercancía y envío, sin IVA)",
         "refundedFees": "Comisión de plataforma devuelta",
         "compensations": "Compensaciones por carta perdida",
         "signAdds": "suma",
-        "signSubtracts": "resta",
-        "shippingCostMissing": "{count, plural, one {# envío liquidado no tiene costo de paquetería capturado. Revísalo: su ingreso cuenta completo como ganancia.} other {# envíos liquidados no tienen costo de paquetería capturado. Revísalos: su ingreso cuenta completo como ganancia.}}",
-        "profit": "Ganancia del periodo"
+        "signSubtracts": "resta"
       },
       "values": {
         "title": "Valor de inventario y custodia",
@@ -5267,7 +5350,9 @@
         "mustBePositive": "Debe ser mayor a 0.",
         "auditNotice": "Es un override auditado: queda registrado a tu nombre y alimenta la valuación de esta pieza.",
         "pendingIfEmpty": "Sin precio de mercado manual, la aportación queda deshabilitada; captúralo arriba para habilitarla.",
-        "suggestion": "Referencia informativa (última conocida): {amount}. No fija el precio."
+        "suggestion": "Referencia informativa (última conocida): {amount}. No fija el precio.",
+        "staffNoMarket": "Este producto no trae precio de mercado. Se da de alta igual y queda sin precio hasta que el dueño se lo ponga en «Precios del sellado».",
+        "pendingIfEmptyStaff": "Sin precio de mercado, la compra se da de alta sin precio, pero la aportación en especie no se puede registrar: su costo sale del mercado. Pide al dueño que le ponga mercado al producto en «Catálogo y precios» y vuelve a intentarlo."
       }
     },
     "manualRefunds": {
@@ -5499,16 +5584,16 @@
       "noName": "una cuenta sin nombre"
     },
     "sealedFinalPrice": {
-      "rowLabel": "Precio final",
+      "rowLabel": "Antes de IVA",
       "auto": "automático",
       "manual": "{price} a mano",
       "market": "Mercado: {price}",
-      "set": "Poner precio final",
-      "change": "Cambiar precio final",
-      "setAria": "Poner precio final de {folio}",
-      "changeAria": "Cambiar precio final de {folio}",
-      "label": "Precio final (MXN)",
-      "hint": "Gana sobre el automático. Nunca $0.",
+      "set": "Poner precio",
+      "change": "Cambiar precio",
+      "setAria": "Poner precio de {folio}",
+      "changeAria": "Cambiar precio de {folio}",
+      "label": "Precio antes de IVA (MXN)",
+      "hint": "Gana sobre el automático. El cliente paga este precio más el IVA que se traslada. Para escribirlo con IVA, liga la pieza a su producto.",
       "noLocationHint": "Se publicará sola en cuanto le pongas ubicación.",
       "listedHint": "Ya está a la venta: el precio nuevo se ve en la tienda al confirmar.",
       "saveOnly": "Guardar precio",
@@ -5517,22 +5602,22 @@
       "errDecimals": "Máximo dos decimales.",
       "errMax": "El precio máximo es {max}.",
       "confirm": {
-        "title": "¿Fijar el precio final de {name}?",
+        "title": "¿Fijar el precio de {name}?",
         "thisSealed": "este sellado",
         "now": "Ahora: {price} ({basis})",
         "nowNone": "Ahora: sin precio",
-        "new": "Nuevo: {price}, fijo a mano",
-        "effectPublish": "Se publica en la tienda a {price} al confirmar.",
-        "effectNoLocation": "No se publica todavía: le falta ubicación. Saldrá sola a {price} en cuanto se la pongas.",
+        "new": "Nuevo: {price} antes de IVA, fijo a mano",
+        "effectPublish": "Se publica en la tienda al confirmar. El cliente verá {price} más el IVA que se traslada.",
+        "effectNoLocation": "No se publica todavía: le falta ubicación. Saldrá sola en cuanto se la pongas; el cliente verá {price} más el IVA que se traslada.",
         "effectListed": "Ya está a la venta: el precio nuevo se ve en la tienda al confirmar.",
         "note": "Gana sobre el precio automático hasta que lo cambies. Queda en bitácora a tu nombre.",
-        "publish": "Publicar a {price}",
-        "save": "Guardar {price}"
+        "publish": "Publicar · {price} antes de IVA",
+        "save": "Guardar · {price} antes de IVA"
       },
       "done": {
-        "published": "{folio} publicada a {price}.",
-        "savedNoLocation": "Precio final guardado en {folio}. Saldrá sola al ponerle ubicación.",
-        "repriced": "Precio de {folio} cambiado a {price}."
+        "published": "{folio} publicada: {price} antes de IVA.",
+        "savedNoLocation": "Precio guardado en {folio}. Saldrá sola al ponerle ubicación.",
+        "repriced": "Precio de {folio} cambiado a {price} antes de IVA."
       },
       "errors": {
         "reserved": "Está apartada en un pedido en curso. Si el pedido no se paga, vuelve a estar libre en unos minutos y podrás cambiarla. No se guardó nada.",
@@ -5542,7 +5627,65 @@
         "pricePending": "No se pudo publicar: el servidor no resolvió el precio. No se guardó nada.",
         "validation": "El precio no es válido: debe ser mayor que cero y como máximo {max}."
       },
-      "reload": "Recargar"
+      "reload": "Recargar",
+      "storePrice": "En la tienda: {price}",
+      "readOnly": "{price} antes de IVA"
+    },
+    "sealedProductPrice": {
+      "blockTitle": "Precio del producto · {n, plural, one {# pieza} other {# piezas}}",
+      "blockTitleNoCount": "Precio del producto · todas sus piezas",
+      "withVat": "con IVA",
+      "staffNote": "Lo pone el dueño en «Precios del sellado».",
+      "set": "Poner precio",
+      "change": "Cambiar",
+      "setProduct": "Poner precio del producto",
+      "changeProduct": "Cambiar precio del producto",
+      "setAria": "Poner precio de {name}",
+      "changeAria": "Cambiar precio de {name}",
+      "label": "Tu precio, con IVA (MXN)",
+      "hint": "Es lo que paga el cliente por cada pieza, exacto.",
+      "appliesTo": "{n, plural, =0 {Todavía no tiene piezas: se aplicará a las que entren.} one {Se aplica a su # pieza.} other {Se aplica a sus # piezas.}}",
+      "appliesToAll": "Se aplica a todas sus piezas.",
+      "marginPreview": "Sin IVA: {net} · margen {cents} · {pct}",
+      "save": "Guardar",
+      "confirm": {
+        "title": "¿Cambiar el precio de {name}?",
+        "nowOwner": "Ahora: {price} con IVA (tuyo)",
+        "nowAuto": "Ahora: sin precio tuyo; se vende a {price} con IVA ({origin})",
+        "nowNone": "Ahora: sin precio",
+        "new": "Nuevo: {price} con IVA para todas sus piezas. Es lo que pagará el cliente.",
+        "effect": "{n, plural, =0 {Se aplicará a las piezas que entren.} one {Cambia al momento en la tienda para su # pieza en caja o publicada.} other {Cambia al momento en la tienda para sus # piezas en caja y publicadas.}}",
+        "reserved": "{n, plural, one {La # apartada en un pedido en curso conserva el precio con que se apartó.} other {Las # apartadas en un pedido en curso conservan el precio con que se apartaron.}}",
+        "legacy": "{count, plural, one {La # que tenía precio propio deja de usarlo y cobra este.} other {Las # que tenían precio propio dejan de usarlo y cobran este.}}",
+        "note": "No se retira nada de la tienda. Queda en bitácora a tu nombre.",
+        "save": "Guardar {price}"
+      },
+      "done": {
+        "saved": "{name}: {price} con IVA para {n, plural, one {su # pieza} other {sus # piezas}}.",
+        "published": "{k, plural, one {Se puso a la venta sola: #.} other {Se pusieron a la venta solas: #.}}",
+        "missingLocation": "{m, plural, one {# sigue en caja: le falta ubicación.} other {# siguen en caja: les falta ubicación.}}",
+        "notPublished": "{x, plural, one {# no se pudo publicar sola: revísala en «Listas para publicar».} other {# no se pudieron publicar solas: revísalas en «Listas para publicar».}}",
+        "autoPublishFailed": "El precio se guardó, pero no se pudo intentar publicar las piezas en caja. Siguen en «Listas para publicar».",
+        "seeQueue": "Ver «Listas para publicar»"
+      },
+      "errors": {
+        "conflict": "Alguien cambió este precio mientras lo editabas: ahora es {current} con IVA. No se guardó nada. Ya recargué la fila: revisa y vuelve a guardar si sigue siendo tu precio.",
+        "conflictNone": "Alguien cambió este precio mientras lo editabas: ya no tiene precio tuyo. No se guardó nada. Ya recargué la fila: revisa y vuelve a guardar.",
+        "forbidden": "Solo el dueño puede cambiar el precio del sellado. No se guardó nada.",
+        "notFound": "Este producto ya no existe. No se guardó nada.",
+        "perProduct": "El precio del sellado es del producto, no de la pieza. No se guardó nada.",
+        "perProductLink": "Ir a «Precios del sellado»",
+        "ownerOnly": "Solo el dueño pone precio al sellado."
+      },
+      "reload": "Recargar",
+      "piece": {
+        "product": "{price} · precio del producto",
+        "legacy": "{price} · precio propio antiguo",
+        "legacyHelp": "Esta pieza cobra un precio que se le puso antes. En cuanto pongas el precio del producto, cobra ese.",
+        "automatic": "{price} · automático",
+        "pending": "— · sin precio",
+        "unlinkedStaff": "Sin producto: su precio lo pone el dueño."
+      }
     },
     "spendAlerts": {
       "subtitle": "Lo que el sistema detectó solo sobre dinero que nos cuesta. Los inmediatos le llegan también por correo al dueño; el resto va en el resumen diario de las 08:00.",
@@ -5988,8 +6131,6 @@
     "NOT_FOUND": "No encontramos lo que buscabas.",
     "CONFLICT": "Hubo un conflicto con el estado actual.",
     "CONFLICT_WITH_DETAILS": "{closed, select, yes {Esta solicitud ya está cerrada (quedó en «{status}»), así que esta acción ya no aplica.} other {Esta acción no aplica al estado actual de la solicitud («{status}»).}} No es un fallo de la aplicación y reintentar no lo cambia: actualiza la vista para ver el estado real.",
-    "CONFLICT_ITEM_FINAL": "Esta carta ya no admite decisiones: ya entró al inventario o ya se le pagó al vendedor, así que no se aprueba, ajusta ni rechaza. No se guardó nada y reintentar no lo cambia: actualizamos la solicitud para que veas su estado real.",
-    "CONFLICT_ITEM_FINAL_WITH_DETAILS": "{itemStatus, select, convertida_inventario {Esta carta ya entró al inventario, así que aquí ya no se aprueba, ajusta ni rechaza; si hay algo que corregir en la pieza, se hace desde «Inventario».} pagada {Esta carta ya se le pagó al vendedor, así que ya no se aprueba, ajusta ni rechaza.} other {Esta carta ya no admite decisiones: no se aprueba, ajusta ni rechaza.}} No se guardó nada y reintentar no lo cambia: actualizamos la solicitud para que veas su estado real.",
     "RATE_LIMITED": "Demasiadas solicitudes, intenta más tarde.",
     "TOO_MANY_PASSWORD_ATTEMPTS": "Demasiados intentos. Vuelve a intentarlo más tarde.",
     "TOO_MANY_PASSWORD_ATTEMPTS_WITH_DETAILS": "Demasiados intentos. Vuelve a intentarlo en {minutes} min.",
@@ -6095,6 +6236,8 @@
     "ITEM_ORIGIN_REFUNDED": "Una carta de tu retiro viene de una compra que se está reembolsando y no se puede enviar. Quítala y vuelve a intentarlo.",
     "DECLINE_NOT_ALLOWED": "Esta solicitud no se puede declinar en el punto en que está. Si ya tiene una oferta enviada, la vía es cancelar la oferta, que es el aviso que le corresponde al vendedor; si ya cerró, no hay nada que declinar. Vuelve a cargarla para ver su estado. No se guardó nada.",
     "OFFER_NOT_CANCELLABLE": "Esta oferta ya no se puede cancelar: no hay una oferta viva o la solicitud ya avanzó (una aceptada no se cancela por aquí). Vuelve a cargarla para ver su estado. No se guardó nada.",
+    "CONFLICT_ITEM_FINAL": "Esta carta ya no admite decisiones: ya entró al inventario o ya se le pagó al vendedor, así que no se aprueba, ajusta ni rechaza. No se guardó nada y reintentar no lo cambia: actualizamos la solicitud para que veas su estado real.",
+    "CONFLICT_ITEM_FINAL_WITH_DETAILS": "{itemStatus, select, convertida_inventario {Esta carta ya entró al inventario, así que aquí ya no se aprueba, ajusta ni rechaza; si hay algo que corregir en la pieza, se hace desde «Inventario».} pagada {Esta carta ya se le pagó al vendedor, así que ya no se aprueba, ajusta ni rechaza.} other {Esta carta ya no admite decisiones: no se aprueba, ajusta ni rechaza.}} No se guardó nada y reintentar no lo cambia: actualizamos la solicitud para que veas su estado real.",
     "ADDRESS_INCOMPLETE": "A la dirección elegida le faltan datos para la guía (colonia, CP o teléfono). Complétala para continuar; no se cobró nada.",
     "DISPUTES_DISCONTINUED": "Ya no se abren aclaraciones desde la tienda. Si tienes un problema con tu pedido, escríbenos con tu número de pedido.",
     "DISPUTES_DISCONTINUED_WITH_DETAILS": "Ya no se abren aclaraciones desde la tienda. Si tienes un problema con tu pedido, escríbenos a {contact} con tu número de pedido.",

@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { BusinessException } from '../src/common/business.exception';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * 🔒 v1.80.3 §M4-SHIP.17.1 (2) (SEC-SHIP-A1, D-SHIP-6) — `PATCH /admin/inventory/items/:id` con
@@ -118,7 +119,7 @@ function build(target: Row, opts: { activeWithdrawal?: boolean } = {}) {
   const svc = new InventoryService(
     prisma as PrismaService,
     { getReference: jest.fn() } as unknown as PricingService,
-    { getNumber: jest.fn() } as unknown as SettingsService,
+    { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService,
   );
   return { svc, prisma, tx, rows, log };
 }

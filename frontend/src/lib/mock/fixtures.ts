@@ -7241,3 +7241,143 @@ export function mockPhysicalInventory(userId: string): CustomerPhysicalInventory
     items: [],
   };
 }
+
+// ===== §M11-SP — servidor falso de la hoja «Precios del sellado» y del `PUT …/sale-price` =====
+// MOCK: pendiente de backend real en la demo. Las cifras de la primera fila son las del primer vector de §M11-SP.12.5
+// (`P 145000`, `avg 90000` ⇒ `N 125000`, margen `35000`, `2800` bps) con `(t, r) = (100, 16)`. Este fichero es
+// simulador del servidor (excepción argumentada de `frontend-never-multiplies.test.ts`): aquí SÍ se deriva `N`.
+type SheetRow = import('@/types/contract').SealedPriceSheetRowDTO;
+const SHEET_IVA = { ratePct: 16, transferPct: 100 };
+
+function sheetNet(displayCents: number | null): number | null {
+  if (displayCents == null) return null;
+  return Math.round((displayCents * 100) / (100 + SHEET_IVA.ratePct));
+}
+function sheetMargin(net: number | null, avg: number | null): { cents: number; bps: number } | null {
+  if (net == null || avg == null || net === 0) return null;
+  const cents = net - avg;
+  return { cents, bps: Math.round((cents * 10000) / net) };
+}
+function sheetRecompute(r: SheetRow): SheetRow {
+  const displayPriceCents = r.ownerDisplayPriceCents ?? r.automaticDisplayPriceCents;
+  const netPriceCents = sheetNet(displayPriceCents);
+  return {
+    ...r,
+    effectiveOrigin: r.ownerDisplayPriceCents != null ? 'product' : r.automaticDisplayPriceCents != null ? 'automatic' : 'pending',
+    displayPriceCents,
+    netPriceCents,
+    legacyPiecePrices: { ...r.legacyPiecePrices, shadowed: r.ownerDisplayPriceCents != null },
+    margin: sheetMargin(netPriceCents, r.cost.avgCents),
+  };
+}
+
+const mockSheetRows: SheetRow[] = [
+  sheetRecompute({
+    sealedProductId: 'sp-ssp-etb',
+    name: 'Surging Sparks Elite Trainer Box',
+    subtype: 'etb',
+    imageUrl: null,
+    active: true,
+    set: { id: 'sv08', name: 'Surging Sparks' },
+    pieces: { inStock: 3, listed: 3, reserved: 1 },
+    cost: { avgCents: 90000, minCents: 85000, maxCents: 95000, withoutCost: 1 },
+    ownerDisplayPriceCents: 145000,
+    automaticListPriceCents: 118320,
+    automaticDisplayPriceCents: 137251,
+    automaticSource: 'subtype_spread',
+    appliedSpreadPct: 16,
+    effectiveOrigin: 'product',
+    displayPriceCents: null,
+    netPriceCents: null,
+    market: { status: 'priced', referenceMxnCents: 102000, source: 'tcgcsv', capturedDate: '2026-10-03' },
+    legacyPiecePrices: { count: 2, minDisplayCents: 127600, maxDisplayCents: 150800, shadowed: true },
+    margin: null,
+  }),
+  sheetRecompute({
+    sealedProductId: 'sp-pre-bundle',
+    name: 'Prismatic Evolutions Booster Bundle',
+    subtype: 'bundle',
+    imageUrl: null,
+    active: true,
+    set: { id: 'sv8pt5', name: 'Prismatic Evolutions' },
+    pieces: { inStock: 2, listed: 0, reserved: 0 },
+    cost: { avgCents: null, minCents: null, maxCents: null, withoutCost: 2 },
+    ownerDisplayPriceCents: null,
+    automaticListPriceCents: null,
+    automaticDisplayPriceCents: null,
+    automaticSource: null,
+    appliedSpreadPct: null,
+    effectiveOrigin: 'pending',
+    displayPriceCents: null,
+    netPriceCents: null,
+    market: null,
+    legacyPiecePrices: { count: 0, minDisplayCents: null, maxDisplayCents: null, shadowed: false },
+    margin: null,
+  }),
+  sheetRecompute({
+    sealedProductId: 'sp-scr-box',
+    name: 'Stellar Crown Booster Box',
+    subtype: 'box',
+    imageUrl: null,
+    active: true,
+    set: { id: 'sv07', name: 'Stellar Crown' },
+    pieces: { inStock: 1, listed: 2, reserved: 0 },
+    cost: { avgCents: 200000, minCents: 200000, maxCents: 200000, withoutCost: 0 },
+    ownerDisplayPriceCents: null,
+    automaticListPriceCents: 217000,
+    automaticDisplayPriceCents: 251720,
+    automaticSource: 'global_spread',
+    appliedSpreadPct: 22,
+    effectiveOrigin: 'automatic',
+    displayPriceCents: null,
+    netPriceCents: null,
+    market: { status: 'priced', referenceMxnCents: 177869, source: 'tcgcsv', capturedDate: '2026-10-04' },
+    legacyPiecePrices: { count: 2, minDisplayCents: 116000, maxDisplayCents: 139200, shadowed: false },
+    margin: null,
+  }),
+];
+
+export function mockSealedPriceSheet(
+  params: { setId?: string; q?: string; scope?: 'on_hand' | 'all'; page?: number; pageSize?: number },
+  canEdit: boolean,
+): import('@/types/contract').SealedPriceSheetResponse {
+  const q = params.q?.trim().toLowerCase();
+  let data = mockSheetRows.filter((r) => (params.setId ? r.set.id === params.setId : true));
+  if (q) data = data.filter((r) => r.name.toLowerCase().includes(q));
+  if ((params.scope ?? 'on_hand') === 'on_hand') {
+    data = data.filter((r) => r.pieces.inStock + r.pieces.listed + r.pieces.reserved > 0);
+  }
+  const pageSize = params.pageSize ?? 50;
+  const page = params.page ?? 1;
+  return {
+    data: data.slice((page - 1) * pageSize, page * pageSize),
+    page,
+    pageSize,
+    total: data.length,
+    unlinkedCount: 3,
+    canEdit,
+    iva: { ...SHEET_IVA },
+  };
+}
+
+export function mockSetSealedSalePrice(
+  id: string,
+  body: import('@/types/contract').SetSealedSalePriceRequest,
+): import('@/types/contract').SetSealedSalePriceResponse {
+  const idx = mockSheetRows.findIndex((r) => r.sealedProductId === id);
+  if (idx < 0) throw new ApiFixtureNotFound('SealedProduct not found');
+  const row = mockSheetRows[idx]!;
+  const current = row.ownerDisplayPriceCents;
+  const idempotent = body.displayPriceCents === current && body.expectedDisplayPriceCents === current;
+  if (!idempotent && body.expectedDisplayPriceCents !== current) {
+    throw new ApiFixtureError(409, 'CONFLICT', 'Sealed product price changed', { currentDisplayPriceCents: current });
+  }
+  const published = row.pieces.inStock;
+  const next = sheetRecompute({
+    ...row,
+    ownerDisplayPriceCents: body.displayPriceCents,
+    pieces: { ...row.pieces, inStock: 0, listed: row.pieces.listed + published },
+  });
+  mockSheetRows[idx] = next;
+  return { data: next, autoPublish: { published, missingLocation: 0, notPublished: 0 } };
+}

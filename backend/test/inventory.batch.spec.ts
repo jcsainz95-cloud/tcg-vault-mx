@@ -15,6 +15,7 @@ import {
   MAX_BATCH_QTY,
   MAX_LIST_PRICE_CENTS,
 } from '../src/modules/inventory/dto/inventory.dto';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * WS-E (v1.16-master-set, §4.17b) + endurecimiento WS-E — ESCRITURA POR LOTE:
@@ -71,6 +72,7 @@ function buildPricing(over: any = {}): PricingService {
 }
 
 const settings = {
+  ...ivaDialsStub(),
   getNumber: jest.fn(async () => 70),
 } as unknown as SettingsService;
 

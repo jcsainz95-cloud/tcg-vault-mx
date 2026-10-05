@@ -12,6 +12,7 @@ import {
 } from '../src/common/pricing-curve';
 import { computeSealedSalePrice } from '../src/common/money';
 import { BusinessException } from '../src/common/business.exception';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * ⭐ v1.80.8.7 — PRECIO FINAL DEL SELLADO (API_CONTRACT §M1 `M1-SFP`, ARCHITECTURE §4.36.5 (c-quater),
@@ -28,7 +29,11 @@ import { BusinessException } from '../src/common/business.exception';
 
 type AnyRow = Record<string, any>;
 
-const OPERATOR = { id: 'op-1', role: 'vault_operator' } as any;
+// 💰 v1.83 (§M11-SP.4): el precio de un sellado SIN producto solo lo escribe el dueño (`super_admin`, D-SP-1); un
+// operador recibe `403` (lo miden SP-9 en `sealed-price.sp.spec.ts` y la integración). Lo que esta suite mide —la
+// bitácora y el CAS del `PATCH`— no depende del rol, así que el actor pasa a ser el dueño. El nombre se conserva para
+// no tocar las 25 referencias.
+const OPERATOR = { id: 'op-1', role: 'super_admin' } as any;
 
 function row(o: AnyRow): AnyRow {
   const id = o.id as string;
@@ -226,6 +231,7 @@ function build(seed: AnyRow[], opts: { openPending?: AnyRow[] } = {}) {
     escalatePending: jest.fn(async () => 'ppe-new'),
   } as unknown as PricingService;
   const svc = new InventoryService(prisma as PrismaService, pricing, {
+    ...ivaDialsStub(),
     getNumber: jest.fn(),
   } as unknown as SettingsService);
   const itemUpdated = () => audits.filter((a) => a.data.action === 'inventory.item_updated');

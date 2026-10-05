@@ -28965,3 +28965,262 @@ con el Prisma del árbol, `{ not: 'skip' }` **sí descarta los NULL** (SKP-5b ro
 | unitarios completos | **397/397 suites · 6732/6732** |
 | integración completa (antes de adaptar `buylist-pay-verdicts`) | 82/83 · los 2 rojos = assert 3 y B1 (ver 60.6) |
 | integración completa (final) | **82/83 suites · 1636/1639 (2 skipped)**. El rojo: `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` = el conocido **P-INT-CEQ1-VAULTS**; aislado **2/3 verde, 1/3 rojo** (N=3) — intermitente, ajeno a buylist |
+
+## 75 · v1.83 §M11-SP + errata v1.83.1 §M11-SP.12 construidas — el precio del sellado es del PRODUCTO, lo pone el dueño CON IVA (2026-10-05, rama `claude/precio-sellado`, desde `435da147`)
+
+> **Renumerada en la fusión con `claude/arreglos-panel` (2026-10-05, orquestador):** en la rama `claude/precio-sellado`
+> esta sección era la **§57** (y sus subsecciones 57.1…57.10); el panel trae su propia §57 (Skydropx D1) hasta la §74.
+> Las referencias «`BACKEND_NOTES §57.x`» escritas en la rama de sellado (contrato §M11-SP, `ARCHITECTURE §4.62`,
+> `FRONTEND_NOTES`, comentarios de código) apuntan **aquí, a §75.x**. Contenido sin cambios salvo esos números.
+
+Fuente: `API_CONTRACT` rev v1.83 §M11-SP y errata v1.83.1 §M11-SP.12 (manda donde choca); `ARCHITECTURE §4.62` /
+§4.62.8; `HECHOS.md` filas «Precio del sellado (responde P-SELLADO-PRECIO…)» y «Precio del sellado — respuestas a
+P-SP-1/2/3» (2026-10-05): por producto, solo el dueño, editable sin retirar, el automático como respaldo y **el dueño
+escribe el precio CON IVA**.
+
+### 75.1 Qué se construyó (dónde vive)
+
+| Pieza | Dónde |
+|---|---|
+| **`M-71`**: `SealedProduct.ownerDisplayPriceCents Int?` + CHECK `1…100_000_000`, **sin relleno**, idempotente (`ADD COLUMN IF NOT EXISTS`, CHECK quitar-si-existe y poner), reversa en la cabecera | `prisma/migrations/20261021120000_m71_sealed_product_owner_display_price/` (nombre de §M11-SP.12.12) |
+| `manualSaleOf` (producto > pieza; raw/graded solo pieza; `sealedProduct` **obligatoria** en el tipo, SP-3), `computeSealedSaleOf`, `listEquivalentCentsOf`, **`saleDisplayCentsOf`** (el camino único a `P`), `SealedPriceOrigin`, `SEALED_SALE_PRICE_INCLUDE`; `SealedSpreadResult` gana `origin` y `fixedDisplayCents` | `common/money.ts` |
+| `resolveSealedSalePrice(item, ref, ctx, dials)` — `dials` obligatorio; peldaño 1 = `P` del dueño con su `L` equivalente. Se retira `computeSealedSalePriceForItem` (sin llamadores, no conocía el producto) | `pricing.service.ts` |
+| Los tres sitios de venta pasan por `saleDisplayCentsOf`: checkout (`derivedSaleDecision`, `SaleDecision.fixedDisplayCents`), catálogo (`toListingRow`), rejilla/ficha de sellado (`fromPriceCents`; el representante se elige por **`P`**) | `orders.service.ts`, `catalog.service.ts`, `sealed-catalog.service.ts` |
+| Los sitios que decidían con `hasManualPrice`/`listPriceCents` pasan por `manualSaleOf` (con el `include` del producto): checkout, catálogo (lote de overrides y rama raw), publicación (`derivePublishSalePrice`, `loadPublishPricingCtx`, reprecio fresco), binder de master set, `price-ingest`, barrido VQ de `price-sync`, export `.xlsx` | ídem + `inventory.service.ts`, `master-set.service.ts`, `price-ingest.service.ts`, `jobs/price-sync.service.ts` |
+| **`PUT /admin/inventory/sealed-products/:id/sale-price`** `{displayPriceCents, expectedDisplayPriceCents}`: `@Roles(super_admin)` de método + `canSetSealedSalePrice` en el servicio; una tx con lectura, doble clic idempotente, CAS (`409 { currentDisplayPriceCents }`), bitácora `sealed_product.sale_price_set` (`before`, `after.{ownerDisplayPriceCents, pieces, ivaDials}`) y cierre de la cola del producto; **después** del commit `reevaluateForPublication` (best-effort) ⇒ `autoPublish`; la fila se relee al final | `inventory/sealed-price.service.ts`, `inventory.controller.ts`, `dto/inventory.dto.ts` (`SetSealedSalePriceDto`) |
+| Cierre de la cola con el handle `tx` (VQ-5: toda escritura de la cola en `pricing.service`) | `PricingService.closeSealedProductSaleQueue` |
+| **`GET /admin/inventory/sealed-price-sheet`** (`vault_operator+`; `?setId&q&scope=on_hand|all&page&pageSize≤100`): filas de 12.4, margen sobre el **neto fiscal** (`sealedMarginOf`), `iva`, `canEdit`, `unlinkedCount`; consultas constantes | `inventory/sealed-price.service.ts` |
+| `canSetSealedSalePrice` (hoy `super_admin`, `D-SP-1`) y la regla SP.4 (`assertSealedPriceWriters`) en alta, lote (todo el lote), «encontrada», `bulk-publish` (todo el lote) y `PATCH` | `inventory/sealed-price.policy.ts`, `inventory.service.ts` |
+| `SEALED_PRICE_IS_PER_PRODUCT` | `common/error-codes.ts` |
+| A-1: `sealedProductId` (toda fila sellada; ⛔ raw/graded) y `sealedProductPieces` (misma agregación que la hoja, un `groupBy` por página); `resolvedDisplayPriceCents`, `sealedPriceOrigin`, `sealedProductDisplayPriceCents` en las filas S-2 del listado y en la cola | `inventory/sealed-product-pieces.ts`, `inventory.service.ts` |
+| El alta sin precio de un sellado cuyo producto ya tiene precio del dueño ⇒ ⛔ no escala a la cola | `escalateSealedAltaIfPriceless` |
+
+### 75.2 Decisiones de implementación (y dónde me aparté de una lectura literal)
+
+1. **Nombre de la carpeta de `M-71`.** El encargo decía `…_m71_sealed_product_owner_price`; §M11-SP.12.12 (la errata,
+   que manda) dice `…_m71_sealed_product_owner_display_price`. Usé el de la errata.
+2. **Diales del `PUT`: se leen JUSTO antes de la tx, no dentro.** `SettingsService.getIvaDials` usa su propio handle;
+   llamarlo dentro de la tx pediría una segunda conexión (la clase I1). Es la misma petición y el mismo instante a
+   efectos del contrato (con ellos se reconstruye el `L` equivalente); si el arquitecto quiere la lectura literal «en
+   la tx», hace falta un `getIvaDials(db)` en `settings` (otro stream). → **pregunta Q-3**.
+3. **Paso 2 (doble clic) y `autoPublish`.** El paso 2 no escribe NADA en la tx (ni precio ni bitácora), pero el disparo
+   post-commit **sí corre** (es idempotente: no publica nada nuevo si el primer clic ya lo hizo), para que `autoPublish`
+   nunca sea `null` sin que el intento haya lanzado. → **pregunta Q-2**.
+4. **El sellado con precio de PIEZA (legado) corta antes del resolvedor** en checkout y publicación (`manualSaleOf ⇒
+   piece`), como hacía `hasManualPrice`. Es la misma decisión (`manualSaleOf` ES los peldaños 1–2) y no cambia ninguna
+   cifra; solo ahorra las lecturas de mercado. Con precio del PRODUCTO, `manualSaleOf` devuelve `product` y la pieza
+   queda sombreada (SP-2 lo mide con la mutación del contrato).
+5. **Export `.xlsx`, columna «Precio venta» (escala `L`)**: con precio del dueño exporta su **`L` equivalente** con los
+   diales del momento (una lectura por export, solo si hay alguno). Mezclar `P` en una columna `L` sería leerse mal en
+   silencio (`money.ts`, convención). No lo norma el contrato. → **pregunta Q-4**.
+6. **`sealedProductId` en el listado**: antes viajaba en TODA fila (el listado es un spread de la fila de Prisma, así
+   que raw/graded llevaban `sealedProductId: null`). Ahora, como pide §M11-SP.12.7, solo en filas selladas; ⛔ ausente en
+   raw/graded. La relación `sealedProduct` (que el `include` trae para decidir el precio) ⛔ no viaja.
+7. **«encontrada»** (`AdjustmentFoundItemInput`) no declara `sealedProductId` ni `manualMarketMxnCents` (el pipe con
+   `whitelist` los borra): el caso «ligado ⇒ 422» de SP.4 es **inalcanzable** por ese escritor; la regla se llama igual
+   (misma función) y hoy solo puede dar el `403` de «sin producto». → **nota Q-6**.
+8. **Sin actor (o sin rol) = no dueño** en todo el servicio (falla cerrado). Los métodos `createItem`/`batchCreate`/
+   `adjust`/`bulkPublish` ganan `actorRole?` y el controlador lo pasa.
+9. **Margen**: `sealedMarginOf(P, avg, r)` = `N = taxBaseCentsOf(P, r)`, `cents = N − avg`, `bps = round(cents·10⁴/N)`
+   (los cuatro vectores de 12.5, medidos en unitaria y los tres de `r=16` además por HTTP).
+10. **Respuesta del `PUT`, `data`**: la fila se construye con el mismo cuerpo que la hoja, sin filtro de `scope`.
+
+### 75.3 Pruebas existentes que cambiaron (ninguna se debilita)
+
+- **Dobles de `SettingsService`**: 33 ficheros existentes ganan `...ivaDialsStub()` (el helper que ya existía, `test/helpers/
+  iva-dials.ts`): la publicación, la cola, el listado y `salePriceOf` leen los diales. Solo dobles.
+- **Rompen a propósito por el contrato (rol y SP.4):** el actor pasa a ser el dueño donde la prueba mide la MECÁNICA de
+  un precio o un mercado a mano de sellado (`inventory.sealed.spec`, `inventory.sealed-product-alta.spec`,
+  `inventory.pending-reason-writers.spec`, `inventory.bulk-publish-escalate.spec`, `inventory.sealed-final-price.spec`,
+  `test/integration/inventory-price-audit.e2e-spec.ts`). La prueba «vault_operator puede fijar el precio manual
+  (decisión del humano v1.39.1)» se **invierte** (operador ⇒ 403, sin pieza ni override ni bitácora; dueño ⇒ procede):
+  la decisión la cambió el dueño el 2026-10-05. «LOTE · con `listPriceCents` NO se escala nada» se sustituye por dos:
+  el `422` del lote entero y «producto con precio del dueño ⇒ no se escala».
+- **Formas exactas**: `sealed-pricing.spec` (`computeSealedSalePrice` gana `origin`/`fixedDisplayCents`),
+  `sealed-price-resolver.spec` (firma con `dials`).
+- **Censos**: `iva-derivacion-cableada.spec` pasa a censar `saleDisplayCentsOf(` en los tres sitios (y ⛔
+  `displayPriceCentsOf(` en checkout y catálogo); el censo de emisiones de `ivaTransferPct:` gana la bitácora del `PUT`
+  (admin-only). `pricing.vq-sale-queue.spec` (VQ-5): 6 → **7** escrituras crudas de la cola, todas en
+  `pricing.service.ts`, + censo de `closeSealedProductSaleQueue`. `enum-query-axes` (C-EQ-1): fila transcrita del
+  `?scope=` de la hoja + fixture (k); trinquete 52 → 53, pendientes 18.
+
+### 75.4 Pruebas nuevas (SP-1…SP-19) y sus mutaciones (medido por backend, 2026-10-05)
+
+`test/sealed-price.sp.spec.ts` (37 unitarias) y `test/integration/sealed-price.e2e-spec.ts` (28 de integración). Todas
+las mutaciones sobre **copia `git archive` del árbol ENTERO** (`scratchpad/be-sellado/mut`, sha `97c92eee`; la de SP-6
+con la prueba de `757a3bdd`), BD `tcg_be_sell`. Deterministas ⇒ N=1 es medida; las carreras con su proporción (75.5).
+
+| Prueba | Mutación | Resultado |
+|---|---|---|
+| 💰 SP-1 | `saleDisplayCentsOf` ignora `fixedDisplayCents` (⇒ 699) · peldaños 1–2 invertidos · raw lee el producto | ROJA ×3 (1, 3 y 1 pruebas) |
+| 💰 SP-2 | el checkout vuelve al override por pieza primero (`listPriceCents > 0` antes que el producto) | ROJA (la sesión cobra 1160) |
+| 💰 SP-2 | el catálogo deriva `P` desde el `L` equivalente (`fixedDisplayCents: null`) | ROJA (ficha 699) |
+| SP-3 | `sealedProduct?` opcional | ROJA (`TS2578 Unused '@ts-expect-error'`, la suite no compila) |
+| 💰 SP-4 | sin `@Roles(super_admin)` de método · sin el predicado en el servicio | ROJA ×2 (unitaria; ver 75.2 sobre la defensa en dos puntas) |
+| 💰 SP-5 | CAS sin `ownerDisplayPriceCents` en el `where` | ROJA: forzada **10/10** rondas rojas; suelta **10/10** |
+| 💰 SP-6 | el PI se crea con un total re-preciado tras reservar | ROJA: forzada **10/10**; suelta **5/10** (las que la sesión precio antes del `PUT`) |
+| 💰 SP-7 | fan-out de `listPriceCents` a las piezas en la tx del `PUT` | ROJA (SP-7, SP-16 y SP-6 forzada **10/10** `PUT_BLOQUEADO`) |
+| SP-8 | bitácora fuera de la tx (`void this.prisma.auditLog.create(…).catch()`) | ROJA (el TRIGGER ya no revierte el precio) |
+| SP-8/10 | contar vendidas (`shipped`) entre las piezas | ROJA (SP-10: costo) |
+| 💰 SP-9 | el lote sin la regla · la regla aplicada a raw · solo la 1.ª línea | ROJA ×3 (integración, unitaria, unitaria) |
+| SP-10 | margen sobre `P` · consulta por fila | ROJA (4 vectores) · ROJA (1 vs 50 difiere) |
+| SP-11 | cerrar la cola de VENTA de todo el sellado (sin `sealedProductId`) | ROJA (Y/inventory se cierra) |
+| 💰 SP-12 | un relleno en `M-71` | ROJA |
+| SP-13 | canario: escribir `ownerDisplayPriceCents` en `claimListed` | ROJA |
+| 💰 SP-15 | `Math.floor` en `listEquivalentCentsOf` | ROJA (exhaustiva, aleatoria, extremos; y SP-17) |
+| 💰 SP-16 | sin el disparo (`autoPublish` inventado) · el disparo dentro de la tx | ROJA ×2 |
+| SP-17 | contar `sealedProductPieces` con las filas de la página | ROJA |
+| 💰 SP-18 | «guardar `L`» (el `L` equivalente del alta, con el dial neutro, y `P` re-derivado) | ROJA (SP-18 y SP-2) |
+| SP-19 | canario: `displayPriceCentsOf` directo en `catalog.service.ts` | ROJA (SP-19 y la pieza 7 del censo IVA) |
+
+SP-14 hoy mide la tabla **pre-fusión** (`super_admin` ⇒ sí; `vault_operator`/`customer`/sin actor ⇒ no). La tabla de
+PS-145 (dueño marcado ⇒ sí; súper-admin sin marca ⇒ no) la activa el stream que fusione segundo con Skydropx (SP.3).
+
+### 75.5 Carreras (N = 10 forzada + N = 10 suelta por corrida)
+
+| | Forzada | Suelta |
+|---|---|---|
+| SP-5 (CAS) | **10/10** ok | 200+409 **10/10**; dos `200` en serie 0/10 |
+| SP-6 (re-precio vs checkout) | **10/10** ok | línea A **7/10**, B **3/10**; «PI = total de la sesión = Σ líneas» **10/10** |
+
+Esa fila es la corrida SIN mutación sobre la copia `97c92eee` (BASE de 75.4). Además: en el árbol vivo (2 corridas)
+SP-5 10/10 y 10/10, SP-6 forzada 10/10 y suelta 8/2 y 9/1; y en las **11** corridas con mutaciones que no tocan ni el
+CAS ni el checkout (I1, I2, I6…I14 de 75.4) SP-5 forzada y suelta **10/10** en las 11, SP-6 forzada **10/10** en las 11
+y la suelta repartió A/B entre 5/5 y 10/0 con el invariante siempre en pie. (La corrida final de 75.7 añade una más.)
+
+Forzada = candado de fila (`row-lock-barrier.ts`): SP-5 bloquea `"SealedProduct"` (los dos `PUT` esperan en el CAS);
+SP-6 bloquea la pieza y espera el `INSERT "OrderItem"` de la sesión (pide `FOR KEY SHARE` por la FK) — la sesión ya
+precio fuera de su tx, el `PUT` confirma, y se suelta.
+
+### 75.6 `M-71` sobre una base CON datos (2026-10-05, `tcg_be_sell`)
+
+Base tras la integración completa del sha de partida + 3 `SealedProduct` y 6 piezas selladas sembradas (precios de
+legado iguales, distintos y ausentes, y una sin producto): **46 tablas, 118 piezas**. Huella = conteo por tabla + `md5`
+de `SealedProduct` (columnas previas) y de `InventoryItem` (`status`, `listPriceCents`, `sealedProductId`, `updatedAt`,
+costo) + filas `sealed_product.*` de bitácora. **Igual** tras `prisma migrate deploy`, tras **re-aplicar** el fichero con
+`psql` (`NOTICE … already exists, skipping`), tras la **reversa** de la cabecera y tras volver a aplicar. 3/3 filas
+`NULL`; CHECK rechaza `0` y `100000001`. SP-12 lo repite en cada corrida sobre un esquema temporal.
+
+### 75.7 Suites completas (medido por backend, 2026-10-05, copia `git archive HEAD` del árbol ENTERO)
+
+| Suite | Sha | Resultado |
+|---|---|---|
+| `tsc --noEmit`, `npm run lint` | `adc426b5` | 0 errores |
+| Unitaria (`npx jest`) | `adc426b5` | **392/392 suites, 6659/6659 pruebas** |
+| Integración (BD `tcg_be_sell`) | `adc426b5` | **77/78 suites, 1606/1607** — la roja es `stf-errata-v1-80-9-1` STF-32 (`store.degraded` con plazos reales de 100/400 ms, módulo `auth`, ⛔ no tocado aquí); load de 15 min **8.26** al terminar. Repetida aislada con carga baja: **10/10 verde** (load 2.9–6.6) |
+| Integración | `dd51dad7` | 77/78, 1593/1607 — las 14 rojas eran `vault-sealed-enum-filters`, contaminada por **residuo de una corrida de mutación matada a mitad** (2 piezas de cliente del fixture compartido). Verde 27/27 tras barrer; corregido en `adc426b5` (75.3, limpieza por prefijo y comprador propio) |
+| Integración | `88aa1083` | 76/78, 1584/1599 — las 2 rojas eran el registro de C-EQ-1 (`?scope=`) y `inventory-price-audit` con el operador; las dos corregidas después (`97c92eee`, `176f6c25`) |
+| Unitaria / integración del sha de partida `435da147` (referencia) | `435da147` | 390/391 (la roja: `pii-crypto`, artefacto de exportar `PII_ENCRYPTION_KEY` al correr la unitaria; sin ella, verde) / **77/77, 1571/1571** |
+
+En la corrida de `adc426b5`, SP-5: forzada 10/10, suelta 200+409 10/10; SP-6: forzada 10/10, suelta A 9/10 · B 1/10.
+
+### 75.8 Preguntas para el arquitecto (⛔ no las resolví yo)
+
+- **Q-1 (nombre de carpeta).** El encargo del orquestador nombra `20261021120000_m71_sealed_product_owner_price`;
+  `API_CONTRACT §M11-SP.12.12` (`docs/API_CONTRACT.md`, bloque «12.12 · `M-71` sin relleno») nombra
+  `…_owner_display_price`. Usé el de la errata. ¿Confirmas?
+- **Q-2 (paso 2 y `autoPublish`).** §M11-SP.2 paso 2 («`200` sin escribir nada») y §M11-SP.12.6 («`autoPublish: null`
+  ⇔ el intento lanzó»): en el doble clic idempotente, ¿se dispara la reevaluación (es lo que construí: no escribe en la
+  tx, la reevaluación es idempotente y `autoPublish` sale con cuentas) o se omite y entonces qué `autoPublish` va?
+- **Q-3 (diales «leídos en la tx»).** §M11-SP.12.4 (bitácora, «diales leídos en la tx»): los leo inmediatamente antes
+  de la tx (75.2.2). ¿Vale, o hace falta `getIvaDials(db)` en `settings` (otro stream)?
+- **Q-4 (export `.xlsx`).** `inventory.service.ts` (`exportInventoryXlsx`, columna «Precio venta») estaba en la lista
+  (m2) del contrato pero su conducta con precio del dueño no está normada: exporto el `L` equivalente (75.2.5).
+- **Q-5 (`sealedProductId` en raw/graded del listado).** Antes viajaba como `null` en toda fila (spread de Prisma);
+  ahora ⛔ ausente en raw/graded por §M11-SP.12.7. Es un cambio de forma observable para el front (aditivo para sellado,
+  sustractivo para raw/graded).
+- **Q-6 («encontrada»).** El DTO no declara `sealedProductId`: la fila «ligado ⇒ 422» de SP.4 para ese escritor es hoy
+  inalcanzable. ¿Se quiere declarar el campo (ligar al alta por ajuste) o se deja así?
+
+### 75.9 Errata v1.83.2 (§M11-SP.13) construida — SP-20, SP-16b, SP-9 (backend, 2026-10-05, commit `cf12d215`)
+
+**Qué cambió (código).** Solo `inventory/inventory.service.ts`:
+- **Export `.xlsx` (Q-4, §M11-SP.13.4).** `INVENTORY_EXPORT_COLUMNS`: la 17 (`sellMxn`) pasa a «Precio venta antes de IVA
+  MXN»; nueva 18 `productDisplayMxn` «Precio del producto con IVA MXN» (`width` 22). Con `m = manualSaleOf(it)`:
+  `product` ⇒ 17 vacía y 18 = `m.displayCents` exacto (también con legado sombreado); `piece` ⇒ 17 = `m.listCents`
+  (`firstPresentAmount` con el override de variante, que con pieza presente da la pieza) y 18 vacía; `null` ⇒ 17 =
+  `sellOverrideCents` o vacía, 18 vacía. **Se retiró la lectura de `getIvaDials` del export** y el uso de
+  `listEquivalentCentsOf` (import quitado del fichero).
+- **`sellOverrideCents` está en escala `L` (lo pide SP-20; medido leyendo el código):** el checkout lo resuelve en
+  `computeSalePriceFromCurve` (`common/money.ts`, peldaño 2) ⇒ `sale.priceCents` ⇒ `instrument(sale.priceCents, …)` como
+  `listPriceCents` (`orders.service.ts`, final de `resolveSaleDecision`) ⇒ `derivedSaleDecision` deriva `P` con
+  `saleDisplayCentsOf` (IVA encima). Es el mismo hueco que `listPriceCents` ⇒ la columna 17 lo rotula bien.
+- **Q-2 y Q-6 sin cambio de conducta:** lo construido ya era lo normado (paso 2 retorna dentro de la tx y el disparo
+  post-commit corre en los dos caminos; el DTO de «encontrada» no declara `sealedProductId` y la lista blanca del
+  `ValidationPipe` lo quita). Solo se actualizó el comentario de `adjustFound` (la llamada a `assertSealedPriceWriters`
+  se queda).
+
+**Pruebas nuevas.**
+| # | Dónde | Qué |
+|---|---|---|
+| 💰 SP-20 (3 casos) | `test/inventory.export-xlsx.spec.ts` | cabeceras 17/18 y 18 columnas; tabla A…F del contrato + **G** (raw sin pieza con `sellOverrideCents 800` ⇒ 17 `8`, 18 vacía); **cero** llamadas a `getIvaDials` (doble con diales **(50,16)**, no neutros, para que cualquier derivación se vea) |
+| 💰 SP-16b | `test/integration/sealed-price.e2e-spec.ts` (bloque SP-16) | 1.er `PUT` 700 con disparo que lanza ⇒ `null`, A `in_stock`; fila `open` de cola del producto puesta después; 2.º `PUT` idéntico ⇒ `200`, `{1,0,0}`, A `listed`, bitácora sigue en 1, cola y fila de `SealedProduct` **idénticas**; 3.º ⇒ `{0,0,0}` |
+| SP-9 (v1.83.2) | ídem (bloque SP-9) | «encontrada» sellado con `listPriceCents` y `sealedProductId: X` en el cuerpo: operador `403 FORBIDDEN`, nada creado; dueño `201`, pieza con `sealedProductId: null` y `listPriceCents 5000`; cero piezas en X |
+
+**Roja primero (SP-20, sobre el árbol vivo antes del código):** 3/3 rojas — A/B salían `6.48` en la 17 (el `L`
+equivalente con (50,16)) y nada en la 18; `getIvaDials` llamado 1 vez; cabeceras distintas. SP-16b y SP-9 normaban lo
+construido ⇒ verdes desde el principio; su rojo se demostró por mutación.
+
+**Mutaciones** (copia `git archive cf12d215` del árbol ENTERO en `scratchpad/be-sellado2/mut`, BD `tcg_be_sell2`;
+deterministas ⇒ N=1 por mutante, como dice §M11-SP.13.9): **8/8 mordidas.**
+| Mutante | Prueba que muerde |
+|---|---|
+| M1 la 17 lleva el `L` equivalente del producto | SP-20 tabla |
+| M2 la 17 lleva el legado sombreado (B ⇒ 10) | SP-20 tabla |
+| M3 la 17 lleva `P` | SP-20 tabla |
+| M4 una lectura de `getIvaDials` en el export | SP-20 «cero lecturas» |
+| M5 la 18 lleva la pieza en `origin = 'piece'` | SP-20 tabla |
+| M6 el paso 2 sale sin disparar (`autoPublish: null`) | SP-16b (`null` en vez de `{1,0,0}`) |
+| M7 el paso 2 no sale (el CAS pasa y escribe) | SP-16b (bitácora 2 ≠ 1) |
+| M8 canario: `@IsOptional() @IsString() sealedProductId?` en `AdjustmentFoundItemInput` | SP-9 — muerde ya en la línea del **operador**: `422 SEALED_PRICE_IS_PER_PRODUCT` en vez de `403` (la fila «ligado ⇒ 422 para cualquier rol» vuelve a aplicar, que es justo lo que el canario debe anunciar) |
+
+**Suites (medido por backend, copia `git archive cf12d215` del árbol ENTERO en `scratchpad/be-sellado2/tree`, BD
+`tcg_be_sell2`, s3-local `:9000` del clon `tcg-sellado`):**
+| Suite | Resultado | Carga al empezar |
+|---|---|---|
+| `tsc --noEmit`, `npm run lint` | 0 errores | — |
+| Unitaria (`npx jest`) | **392/392 suites, 6662/6662** (+3 = SP-20) | 3.76 |
+| Integración | **78/78 suites, 1609/1609** (+2 = SP-16b, SP-9) | 7.28 (al terminar 5.97) |
+
+**Aviso que no es pregunta (lo pide §M11-SP.13.4 para la solicitud de fusión):** la columna 17 del export cambia de
+nombre y aparece una 18; si el dueño tiene fórmulas sobre la hoja exportada: **NO MEDIDO**.
+
+**Preguntas al arquitecto:** ninguna nueva.
+
+### 75.10 Tras el gate de techlead (sobre `4f367aea`): D-8 cerrada, SP-18 con redundancia, deuda anotada (backend, 2026-10-05, commit `75b6c363`)
+
+**D-8 cerrada (código).** `inventory/sealed-price.service.ts#setSalePrice`: si la relectura posterior al commit no
+encuentra el producto (borrado entre el commit y la relectura), ahora lanza `404 NOT_FOUND` (código ya listado para el
+`PUT …/sale-price` en el contrato) en vez de devolver `200` con `data: undefined`. El precio y su bitácora ya quedaron
+confirmados en la tx; lo que no hay es fila que devolver. Prueba: «D-8» en `test/sealed-price.sp.spec.ts` (doble clic
+idempotente + relectura `null` ⇒ `rejects { code: 'NOT_FOUND' }`).
+
+**SP-18 con redundancia (QA menor 2).** Con el dial 100 → 50, `P = 129 900` da ida y vuelta exacta `P → L → P` en los
+dos diales, así que la mutación «`P` derivado desde el `L` equivalente» pasaba SP-18. Se añadió un producto con
+`P = 7000`, que **no** la da en ninguno de los dos (100/16: `L` 6034 ⇒ 6999; 50/16: `L` 6481 ⇒ 6999 — búsqueda
+exhaustiva por múltiplos de 100: el menor `P` que falla en ambos es 6500, y 7000 también). Se afirma `[ficha, quote] =
+[7000, 7000]` con dial 100 y con dial 50, y `qo100 = o100` (antes solo se comparaba el quote consigo mismo).
+⚠️ Con el `P = 700` que sugería el encargo la redundancia es solo a medias: 700 sí falla en 100/16 (699) pero en
+50/16 da 700 exacto.
+
+**Deuda anotada** en `docs/TECH_DEBT.md` (sección «Backend · 2026-10-05 · stream Precio del sellado»): `SPS-D1`, `D2`,
+`D3`, `D4` (va en el encargo de SP-14; incluye el espejo de frontend, cuya mitad es de frontend), `D7`; `SPS-D8`
+marcada cerrada.
+
+**Mutaciones (medido por backend; copias `git archive 75b6c363` del árbol ENTERO en `scratchpad/be-sell3/`, BD
+`tcg_be_sell3`):**
+| Mutante | Prueba | Resultado |
+|---|---|---|
+| M-A: `orders.service.ts:326` `unitPriceCents: displayPriceCentsOf(d.listPriceCents, …)` (P desde el `L` equivalente) | SP-18 | **roja 4/4** (N=4: 1 corrida de la integración completa + 3 de SP-18 sola), siempre en la nueva aserción `[7000, 6999] ≠ [7000, 7000]` (línea 982). En la corrida completa también cayó SP-2 (lo esperado) y dos `PS-57/PS-57c` por timeout de 30 s con carga ~15 en 4 CPU (O-16: no cuentan como rojo; ajenas a la mutación) |
+| D-8: quitar el `throw` (volver a `rowsOf(product ? [product] : [])`) | «D-8» unitaria | **roja 1/1** («Received promise resolved instead of rejected»); determinista |
+
+**Suites (medido por backend, copia `git archive 75b6c363` del árbol ENTERO en `scratchpad/be-sell3/tree`):**
+| Suite | Resultado | Carga al empezar |
+|---|---|---|
+| `tsc --noEmit`, `npm run lint` | 0 errores | 7.12 |
+| Unitaria (`npx jest`) | **392/392 suites, 6663/6663** (+1 = D-8) | 7.12 (al terminar 14.75) |
+| Integración `sealed-price.e2e-spec.ts` (BD `tcg_be_sell3`, `stack-native.sh test:integration`) | **30/30** | 7.53 |
+
+La integración completa **no** se corrió sobre el árbol sin mutar (solo la de `sealed-price`, como pedía el encargo).
+
+**Preguntas al arquitecto:** ninguna nueva.

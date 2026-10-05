@@ -18,6 +18,7 @@ import { VariantDrawer } from '../m1/VariantDrawer';
 import { PendingPublishQueue } from '../m1/PendingPublishQueue';
 import { SealedPriceStatusSection } from './sections/SealedPriceStatusSection';
 import { SealedDialsPanel } from './sections/SealedDialsPanel';
+import { SealedPriceSheet } from './sections/SealedPriceSheet';
 
 /**
  * §diseño §1/§2 — pantalla «Sellado» reordenada en TRES CAPAS por cómo se USA, no por cómo se
@@ -59,6 +60,8 @@ export function M11View() {
     void queryClient.invalidateQueries({ queryKey: ['admin-inventory'] });
     void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
     void queryClient.invalidateQueries({ queryKey: ['sealed-price-status'] });
+    // §M11-SP (SP-F-5): la hoja pinta automático, mercado y conteos que estas acciones mueven.
+    void queryClient.invalidateQueries({ queryKey: ['sealed-price-sheet'] });
   }
 
   function openSealedGroup(_setId: string, group: SealedInventoryGroupDTO) {
@@ -93,8 +96,15 @@ export function M11View() {
         />
       </section>
 
+      {/* ── Capa 1 · Hoja «Precios del sellado» (§70.2): ENTRE el inventario y la cola. ──── */}
+      <section id="precios-sellado" className="flex scroll-mt-24 flex-col gap-3">
+        <h2 className="text-h2 font-semibold">{t('priceSheet.title')}</h2>
+        <p className="max-w-[70ch] text-sm text-muted">{t('priceSheet.subtitle')}</p>
+        <SealedPriceSheet />
+      </section>
+
       {/* ── Capa 1 · Cola «Listas para publicar» FILTRADA a sellado (junto al inventario). ── */}
-      <section className="flex flex-col gap-1">
+      <section id="listas-para-publicar" className="flex scroll-mt-24 flex-col gap-1">
         <h2 className="text-h2 font-semibold">{t('queue.title')}</h2>
         <p className="text-sm text-muted">{t('queue.subtitle')}</p>
         <PendingPublishQueue productType="sealed" />

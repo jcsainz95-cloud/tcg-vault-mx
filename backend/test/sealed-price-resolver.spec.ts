@@ -27,6 +27,8 @@ function realPricing(): PricingService {
   );
 }
 
+// v1.83.1 (§M11-SP.12.3): `dials` es obligatorio en el resolvedor (aquí sin precio del dueño: no influyen).
+const DIALS_100_16 = { ivaTransferPct: 100, ivaRatePct: 16 };
 const CTX_ON = { spreadPctBySubtype: { box: 18 }, fallbackPct: 25, sourceOn: true };
 const CTX_OFF = { spreadPctBySubtype: { box: 18 }, fallbackPct: 25, sourceOn: false };
 const PRICED = { status: 'priced' as const, referenceMxnCents: 100000 };
@@ -100,32 +102,32 @@ describe('PricingService.resolveSealedSalePrice — regla ÚNICA de override', (
   const svc = () => realPricing();
 
   it('override>0 gana (precedencia máxima)', () => {
-    const r = svc().resolveSealedSalePrice({ listPriceCents: 99900, sealedSubtype: 'box' }, PRICED, CTX_ON);
+    const r = svc().resolveSealedSalePrice({ productType: 'sealed', sealedProduct: null, listPriceCents: 99900, sealedSubtype: 'box' }, PRICED, CTX_ON, DIALS_100_16);
     expect(r).toMatchObject({ salePriceCents: 99900, source: 'override' });
   });
 
   it('override=0 DEGENERADO → se ignora → mercado×spread (NO cobra gratis)', () => {
-    const r = svc().resolveSealedSalePrice({ listPriceCents: 0, sealedSubtype: 'box' }, PRICED, CTX_ON);
+    const r = svc().resolveSealedSalePrice({ productType: 'sealed', sealedProduct: null, listPriceCents: 0, sealedSubtype: 'box' }, PRICED, CTX_ON, DIALS_100_16);
     expect(r).toMatchObject({ salePriceCents: 118000, source: 'subtype_spread' });
   });
 
   it('override NEGATIVO → se ignora → mercado×spread', () => {
-    const r = svc().resolveSealedSalePrice({ listPriceCents: -1, sealedSubtype: 'box' }, PRICED, CTX_ON);
+    const r = svc().resolveSealedSalePrice({ productType: 'sealed', sealedProduct: null, listPriceCents: -1, sealedSubtype: 'box' }, PRICED, CTX_ON, DIALS_100_16);
     expect(r.salePriceCents).toBe(118000);
   });
 
   it('override=0 + dial OFF (sin market efectivo) → pending (no publicable)', () => {
-    const r = svc().resolveSealedSalePrice({ listPriceCents: 0, sealedSubtype: 'box' }, PRICED, CTX_OFF);
+    const r = svc().resolveSealedSalePrice({ productType: 'sealed', sealedProduct: null, listPriceCents: 0, sealedSubtype: 'box' }, PRICED, CTX_OFF, DIALS_100_16);
     expect(r.status).toBe('pending');
     expect(r.salePriceCents).toBeNull();
   });
 
   it('sin override + market → mercado×spread; sin market → pending', () => {
     expect(
-      svc().resolveSealedSalePrice({ listPriceCents: null, sealedSubtype: 'box' }, PRICED, CTX_ON).salePriceCents,
+      svc().resolveSealedSalePrice({ productType: 'sealed', sealedProduct: null, listPriceCents: null, sealedSubtype: 'box' }, PRICED, CTX_ON, DIALS_100_16).salePriceCents,
     ).toBe(118000);
     expect(
-      svc().resolveSealedSalePrice({ listPriceCents: null, sealedSubtype: 'box' }, PENDING, CTX_ON).salePriceCents,
+      svc().resolveSealedSalePrice({ productType: 'sealed', sealedProduct: null, listPriceCents: null, sealedSubtype: 'box' }, PENDING, CTX_ON, DIALS_100_16).salePriceCents,
     ).toBeNull();
   });
 });
@@ -195,7 +197,7 @@ describe('H-1 — mismo precio en catálogo, Compra (orders) y grid para overrid
     const orders = new OrdersService(
       {} as any,
       pricingOrders,
-      {} as any,
+      ivaDialsStub() as any,
       {} as any,
       {} as any,
     );
@@ -264,7 +266,7 @@ describe('H-1 — inventory.bulkPublish es el 4º consumidor del resolver único
       .spyOn(pricingInv, 'getReferencesBatch')
       .mockResolvedValue(new Map([['c1|sealed|sealed:tcg:100|normal', PRICED as any]]));
 
-    const inventory = new InventoryService(prismaInv, pricingInv, {} as any);
+    const inventory = new InventoryService(prismaInv, pricingInv, ivaDialsStub() as any);
 
     const res = await inventory.bulkPublish(
       { items: [{ inventoryItemId: 'iA' }, { inventoryItemId: 'iB' }] } as any,
@@ -421,7 +423,7 @@ describe('H-1 v1.43 (IMP-C) — bucle cerrado: dial OFF + override manual mata e
     jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue(CTX_OFF);
     jest.spyOn(pricing, 'getVariantOverridesBatch').mockResolvedValue(new Map());
 
-    const inventory = new InventoryService(prisma, pricing, {} as any);
+    const inventory = new InventoryService(prisma, pricing, ivaDialsStub() as any);
     const publish = () =>
       inventory.bulkPublish({ items: [{ inventoryItemId: item.id }] } as any, 'admin-1');
 

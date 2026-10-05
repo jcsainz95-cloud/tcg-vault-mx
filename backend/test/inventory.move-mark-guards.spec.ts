@@ -7,6 +7,7 @@ import { BusinessException } from '../src/common/business.exception';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { assertOperable } from '../src/modules/inventory/item-location.rules';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * Guardas de `move` y `mark` (M1). *El defecto, medido por techlead y QA sobre `16a3170`:* ninguno de
@@ -136,7 +137,7 @@ function build(target: Row, opts: { activeWithdrawal?: boolean } = {}) {
   const svc = new InventoryService(
     prisma as PrismaService,
     {} as PricingService,
-    { getNumber: jest.fn() } as unknown as SettingsService,
+    { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService,
   );
   // El disparador de publicación tiene sus propias pruebas (inventory.pending-publish.spec.ts).
   jest.spyOn(svc as any, 'tryAutoPublish').mockResolvedValue(undefined);

@@ -131,8 +131,11 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
     });
   }
 
+  // 💰 v1.83 (§M11-SP.4): el precio de un sellado SIN producto (todas las piezas selladas de esta suite) solo lo
+  // escribe el dueño — un operador recibe `403` (SP-9, `sealed-price.e2e-spec.ts`). Lo que esta suite mide (bitácora,
+  // CAS, carreras del `PATCH`) no depende del rol, así que el `PATCH` va con el token del dueño.
   const patch = (id: string, json: Record<string, unknown>) =>
-    h.api('PATCH', `/admin/inventory/items/${id}`, { token: op, json });
+    h.api('PATCH', `/admin/inventory/items/${id}`, { token: admin, json });
   const audits = (id: string) =>
     h.prisma.auditLog.findMany({
       where: { action: 'inventory.item_updated', entityId: id },
@@ -159,8 +162,8 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
     op = await h.login(E2E_USERS.operator.email, E2E_USERS.operator.password);
     admin = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
     operatorId = (
-      await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.operator.email } })
-    ).id;
+      await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.admin.email } })
+    ).id; // v1.83: el actor del `PATCH` es el dueño (ver `patch`); el nombre se conserva
     customerId = (
       await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.customer.email } })
     ).id;
@@ -239,7 +242,7 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
       ).toEqual([
         {
           u: operatorId,
-          r: 'vault_operator',
+          r: 'super_admin',
           b: { status, listPriceCents: price },
           a: { status, listPriceCents: 125000, fields: ['listPriceCents'] },
           t: 'InventoryItem',

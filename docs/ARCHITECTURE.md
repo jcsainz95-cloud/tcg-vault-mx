@@ -147,6 +147,10 @@
 > | **v1.80.9.1** | Errata (2026-10-04, rama `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`, ⛔ sha NO MEDIDO por el arquitecto; cierra C-1 del techlead; origen `BACKEND_NOTES §55` (errata de 55.2.1 en §56.3), `DESIGN_SYSTEM §42.10 A-1`, decisión del dueño sobre TD-4). Aceptados tal cual: **D-1** (rama `@` = `isEmail` de hoy), **D-2** (anonimización anula también `lockNoticeAt`), **D-3** (`M-63`, `20261005120000_m63_staff_username`), **D-5** (`rule:'customer_without_username'`, `field` en todo `422` del alta). **Cambian:** **D-4** el resiliente degradado/Redis sin contestar ⇒ `peekLockMs` lanza `LoginAttemptStoreUnavailableError` sin `markDown` ⇒ `lockState:'unavailable'`; **A-1** `lockState` en la ficha; **TD-9** sin servicio ⇒ lanza, y solo la clase del almacén ⇒ `'unavailable'`; **TD-4** reset desde Usuarios a cualquier rol (normado + STF-36), script con `ADMIN_USERNAME` y `emailVerified` solo con correo; ⛔ no se prohíbe el súper-admin sin correo. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` §M6-U.11 | §4.58.5, §4.58.9, §11 `M-63` | **Sí** (backend; frontend: `lockState` de la ficha) · 🔒 seguridad |
 > | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
 > | **v1.82** | 💰 Stream «Arreglos del panel» (2026-10-05, rama `claude/arreglos-panel` desde `production` `3e09685a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md:44`, `:45`, REGLA GENERAL de `/home/user/tcg-skyd/HECHOS.md:59`; `PROJECT §V`; `SECURITY_NOTES.md:77`). **PNL-1** disputas fuera: `POST /disputes` ⇒ `410`, M8 en transición, `GET /support/contact` con **un** resolutor del buzón, «Escríbenos» en pedido directo / retiro / invitado entregados — **sustituye F-2 de v1.80.10**. **PNL-2** reembolso de UNA carta de un directo entregado (`item_delivered`, fórmula `item_missing`, súper-admin, motivo cerrado; cubre al invitado ⇒ cierra `D-DSP-1`). **PNL-3** retiro entregado ⇒ SPEI capturado (`ManualRefund` `withdrawal_delivered`, sin caso). **PNL-4** rechazar varias cartas de una solicitud con **un** correo; «Declinar» en la mesa; `receive → verify` en un clic. **PNL-5** F-4/F-7/F-8/F-9/F-11 de v1.80.10 vigentes. **PNL-6** `R69-1`. **Migración `M-70`** (número elegido para no chocar con `M-64…M-68` de Skydropx). Norma: `API_CONTRACT` rev v1.82, §PNL | §4.61, §9, §11 `M-70` | **Sí** (backend 💰 `orders`/`payments`/`disputes`/`buylist`; frontend tienda + M3/M5/M10/M6/reembolsos; ux-ui textos) · 🔒 seguridad |
+> | **v1.83** | 💰 Feature (2026-10-05, rama `claude/precio-sellado`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md:50` (1)–(4) y `:38` (b)). El precio del sellado es **del producto** (`SealedProduct.ownerSalePriceCents`, `L`; **`M-71`** con relleno que no mueve ningún precio efectivo); precedencia **producto > pieza (legado) > mercado×spread > pendiente**, por **un** resolvedor cuyo tipo exige el producto; verbo `PUT …/sealed-products/:id/sale-price` con CAS sobre el precio leído y bitácora en la tx, ⛔ sin escribir piezas ⇒ sin candado con el checkout; **solo el dueño** (hoy `super_admin`, converge a `isOwner` al fusionar Skydropx, `D-SP-1`); el personal da de alta sin precio (`422 SEALED_PRICE_IS_PER_PRODUCT`); hoja `GET …/sealed-price-sheet` con costo, automático, `P`, mercado y margen sobre `L`; el modal de pago muestra el total de la **sesión** (`D-SP-2`). Norma: `API_CONTRACT` rev v1.83, §M11-SP | §4.62, §9 `D-SP-1`…`D-SP-3`, §11 `M-71` | **Sí** (backend 💰 + frontend M11/M1/checkout 💰 + textos ux-ui) |
+> | **v1.83.1** | 💰 Errata (2026-10-05, rama `claude/precio-sellado`, HEAD dado por el orquestador `8a64f27f`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md:51`: el dueño escribe el precio **con IVA**; solicitudes A-1, A-2, A-4, N-1, N-2 de `DESIGN_SYSTEM §70.8`). Se guarda **`P`** (`SealedProduct.ownerDisplayPriceCents`), porque `P = L + round(L·t·r/10⁴)` no alcanza todos los enteros (MX$7.00 sin `L` con 100/16); un dial que se mueve conserva lo que paga el cliente; un camino a `P` (`saleDisplayCentsOf`) en los tres sitios de venta; margen sobre el neto fiscal `taxBaseCentsOf(P, r)`; el `PUT` **dispara la auto-publicación** tras confirmar; `sealedProductId` y conteo en las filas; `M-71` **sin relleno** (sería una segunda fórmula en SQL); sellado sin producto sigue en `L` (`D-SP-4`); #69 llama «precio final» a `L` (`D-SP-5`); SP.6 provisional hasta §X. Norma: `API_CONTRACT` §M11-SP.12 | §4.62.8, §9 `D-SP-2`, `D-SP-4`, `D-SP-5`, §11 `M-71` | **Sí** (backend 💰 + frontend + ux-ui; nada de v1.83 estaba construido) |
+> | **v1.83.2** | 💰 Errata (2026-10-05, rama `claude/precio-sellado`, HEAD dado por el orquestador `eb36e388`, ⛔ sha NO MEDIDO por el arquitecto; responde a `BACKEND_NOTES §57.8` Q-1…Q-6 y a A-3/A-5 de `DESIGN_SYSTEM §70.8`). Carpeta de `M-71` = `…_owner_display_price` (Q-1); el doble clic no escribe pero **dispara** la auto-publicación, y es el reintento si el primero dio `null` (Q-2); diales de la bitácora leídos en la petición antes de la tx, sin firma nueva en `settings` (Q-3); 💰 el export `.xlsx` deja de exportar el `L` equivalente: columna 17 «antes de IVA» y **columna 18 nueva «Precio del producto con IVA»**, ambas STORED (Q-4); `sealedProductId` se lee por `productType` (Q-5); «encontrada» no liga a producto (Q-6); `sealedProductId` del detalle declarado tal cual (A-5); A-3 aplazada. ⛔ Sin migración ni enum. Norma: `API_CONTRACT` §M11-SP.13 | §4.62.9, §11 `M-71` | **Sí** (backend: export + pruebas; frontend SP-F) |
+> | **v1.83.3** | 💰 Errata (2026-10-05, rama `claude/precio-sellado`, HEAD dado por el orquestador `4f367aea`, ⛔ sha NO MEDIDO por el arquitecto; condiciones de QA y techlead sobre `4f367aea`). **C-1:** SP.6 se **difiere** (checkout es zona de «Órdenes y dinero» y F-SKY lo toca; disparador: primera rama con base post-F-SKY que toque `checkout`) y se **reduce** por `HECHOS.md:49`: ⛔ aviso y segundo clic retirados; F-SP-5 = el botón y el modal dicen el total de la **sesión**; `D-SP-2` sigue abierta; texto llano para la solicitud de fusión. **QA menor 3:** el reintento tras `autoPublish: null` es «Listas para publicar», no re-guardar (la UI lo deshabilita). **C-2:** la ausencia de `sealedProductId` falla **cerrado** por un helper único (`canEditSealedPiecePrice`); `SealedFinalPrice.canEdit` obligatorio. ⛔ Sin backend, migración ni forma nueva. Norma: `API_CONTRACT` §M11-SP.6, §M11-SP.13.2, §M11-SP.13.5.1, §M11-SP.13.11 | §4.62.10, §9 `D-SP-2` | **Sí** (frontend: C-2 ya; F-SP-5 tras F-SKY) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 > | **v1.81 / v1.81.1 ⟨skydropx⟩** | Frente `claude/skydropx-envios` (2026-09-29, base `8fd637fb`), fusionado en v1.80.11: diseño de envíos con Skydropx y cierres de la revisión de seguridad. Su cabecera va abajo, verbatim | §4.60, §11 `M-SDX-C/D` | ver su tabla |
 > | **v1.80.11** | Consolidación + fase D con la API medida (arriba) | §4.60 (l) | **Sí** |
@@ -27377,6 +27381,172 @@ anclada a orden y línea, `userId` opcional) ⇒ no entra en una errata. `D-DSP-
 - **Un endpoint nuevo `POST /orders/:id/disputes`:** dos puertas para la misma fila; la regla de ventana, tipo y `NOT_RAW`
   se duplicaría. La vía B entra por la misma puerta.
 
+### 4.62 EL PRECIO DEL SELLADO ES DEL PRODUCTO — un hecho por producto, leído en vivo, que solo pone el dueño (v1.83, 2026-10-05, NORMATIVO, 💰 **DINERO**)
+
+Norma: `API_CONTRACT §M11-SP` (rev v1.83). Fuente: `HECHOS.md:50`. Aquí, el porqué y lo descartado.
+
+#### 4.62.1 Dónde vive el precio: una columna en `SealedProduct`
+- **El producto ya existe.** `SealedProduct` (v1.39, M-39) es la identidad «set + presentación» y la pieza ya la
+  referencia (`InventoryItem.sealedProductId`). Inventar otra identidad (p. ej. el grupo `(cardId, subtype, productId,
+  condición)` de la pestaña Sellado) metería la condición en el precio, que la regla vigente excluye (§4.23b) y el
+  dueño también («todas las piezas al mismo precio»).
+- **Columna, no tabla.** El precio del dueño es **un** valor por producto, sin vigencias ni canales. Una tabla
+  `SealedProductPrice` 1:1 sería un `JOIN` más en cada lectura de dinero sin ganar nada; su historia ya tiene sitio: la
+  bitácora (`sealed_product.sale_price_set`, con antes/después y el número de piezas afectadas).
+- ~~**Escala `L`.** Igual que `listPriceCents`, para que la derivación única a `P` (§4.44, `displayPriceCentsOf`) no tenga
+  una rama nueva. La hoja muestra `P` al lado para que el dueño vea lo que ve el cliente (P-SP-3).~~ ⛔ **v1.83.1:
+  escala `P`** (`ownerDisplayPriceCents`) — el dueño escribe con IVA (`HECHOS.md:51` (3)). Porqué: §4.62.8.
+
+#### 4.62.2 Por qué las piezas leen el precio del producto en vez de recibir una copia
+- **Copiar a cada pieza (fan-out) fue lo primero que se descarta:** (a) la pieza `reserved` no admite `listPriceCents`
+  (allowlist de §M1 v1.80.2.3) ⇒ al liberarse volvería con el precio **viejo**; (b) cada pieza que entre después tendría
+  que copiarlo en el alta, y una que no lo copie vende a otro precio; (c) el verbo del dueño tocaría N filas que el
+  checkout también toca ⇒ `409` del dueño contra compradores y bloqueos entre los dos. Con la lectura en vivo, el
+  verbo escribe **una** fila que el checkout solo lee.
+- **Producto por encima de la pieza (y no al revés).** El dueño dijo «todas las piezas al mismo precio»: si la pieza
+  ganara, un `listPriceCents` viejo dejaría a esa pieza fuera de su decisión sin que lo vea. Con el producto arriba, el
+  legado solo manda mientras el dueño no haya decidido, y la hoja lo enseña (`legacyPiecePrices`).
+- **El legado no se borra.** Rollback barato: quitar la columna devuelve **exactamente** los precios de hoy. ~~El relleno
+  de `M-71` solo copia al producto donde **todas** sus piezas en existencia ya tienen el mismo precio: ahí el peldaño 1 da
+  el mismo número que el 2 y ningún cliente ve un cambio.~~ ⛔ **v1.83.1: `M-71` va sin relleno** (§4.62.8 (e)). Donde
+  hay legado, decide el dueño (⛔ «el mayor» venderá caro algo que él marcó barato; ⛔ «el más reciente» depende del
+  orden de captura).
+
+#### 4.62.3 Por qué hace falta tocar sitios que «no son del sellado»
+La precedencia del sellado vive en un solo cuerpo (`resolveSealedSalePrice`), pero **nueve** sitios cortan antes con el
+override por pieza genérico (`hasManualPrice`, `firstPresentAmount`; lista en `API_CONTRACT §M11-SP` (m2)). Mientras el
+override por pieza fue el peldaño 1 de todos, el corte era inocuo. Con el producto encima, un sitio que siga cortando
+cobra (o muestra, o reconcilia) el precio de la pieza: la ficha dice 2000 y el checkout cobra 1000. La defensa es de
+**tipo**, no de disciplina: `manualSaleOf` exige la propiedad `sealedProduct` (no opcional), así que una consulta que
+olvide traerla **no compila**; y SP-2 compara todos los sitios contra la misma pieza.
+
+#### 4.62.4 Por qué el verbo no compite con la compra
+El checkout precia **fuera** de su transacción y reserva dentro (v1.68.1, por el pool); el cobro usa los congelados
+de la orden. Un precio del producto que cambia entre «preciar» y «reservar» deja la orden con el precio **leído**, que es
+el que la sesión devuelve. Añadir un candado (p. ej. `SELECT … FOR SHARE` del producto en la reserva) no protege a nadie
+—la orden ya tiene un total coherente— y mete en la ruta de dinero más caliente una espera sobre la fila que el dueño
+edita. Lo que **sí** falta está en la pantalla: el modal enseña el total de la cotización (`D-SP-2`).
+
+#### 4.62.5 Por qué el modal y no «el precio que vio»
+`HECHOS.md:49` pide cobrar el precio que el cliente vio. Hacerlo bien exige que el carrito lleve un precio **firmado y con
+vigencia** (si no, el cliente lo inventa) que la sesión respete, en las dos rutas (cuenta e invitado) — diseño de §X,
+del stream «Órdenes y dinero», con una pregunta abierta de vigencia (P-POR-3). Esta rev no lo improvisa dentro de un
+stream de inventario. Lo mínimo que no puede esperar —porque el dueño ahora abre la ventana a voluntad— es que **nadie
+pague una cifra que la pantalla no le mostró**: el modal enseña el total de la sesión y, si cambió, pide otro clic.
+
+#### 4.62.6 Solo el dueño, sin esperar a Skydropx
+El dueño se identifica hoy por `super_admin` (no hay otra marca en `production`). Depender de `User.isOwner` (rama sin
+fusionar) bloquearía este stream. Se construye contra **un** predicado con cuerpo de una línea; la fusión cambia esa
+línea. Mientras tanto, un súper-admin del personal también puede fijar precio (`D-SP-1`): es el mismo riesgo que hoy
+tienen todos los diales de dinero y se cierra igual que ellos.
+
+#### 4.62.7 Alternativas descartadas
+- **Mantener el precio por pieza y añadir «aplicar a todas»:** una acción masiva que copia ⇒ los tres problemas de 4.62.2,
+  y el precio deja de ser «del producto» en cuanto entra una pieza nueva.
+- **Precio por `(producto, condición)`:** contradice la regla vigente y a `HECHOS.md:50` (2). Si el dueño quiere una caja
+  dañada más barata, es una decisión nueva.
+- **Fijar el precio de venta a través del mercado a mano** (lo que hoy puede hacer el personal en el alta): mezcla dos
+  hechos (referencia de mercado y decisión de venta) y deja la decisión en quien da de alta. Queda solo para el dueño
+  (P-SP-1; confirmado por `HECHOS.md:51` (1)).
+
+#### 4.62.8 v1.83.1 — el dueño escribe el precio con IVA (`HECHOS.md:51` (3)): qué se guarda y por qué
+
+Norma: `API_CONTRACT §M11-SP.12`.
+
+**(a) Se guarda `P`, no `L`.** La tentación era guardar `L` (la escala de todo lo demás) y derivar `L` desde lo tecleado.
+No funciona: `P = L + round(L·t·r/10⁴)` es estrictamente creciente pero **salta enteros**, porque cada vez que `L·k` cruza
+un medio el redondeo sube 1 y `P` avanza 2. Con 100/16, `L=603 ⇒ 699` y `L=604 ⇒ 701`: **MX$7.00 no tiene `L`**, ni
+MX$12.00; por aritmética, 4 de cada 29 precios en pesos cerrados. Guardar `L` obliga a una de dos cosas malas: cobrar un
+centavo distinto de lo que el dueño escribió («manda el suyo», `HECHOS.md:50` (1), roto en silencio) o rechazarle el
+precio. Además el hecho que el dueño decide es `P`; guardar un derivado para reconstruir el hecho es la flecha que `R3`
+prohíbe (§4.44.c). El coste medido es pequeño: solo **tres** sitios de venta derivan `P`, y pasan a un único
+`saleDisplayCentsOf`.
+
+**(b) La vuelta que sí es exacta.** `L → P → L` es identidad para todo `L ≥ 1` y todo `(t, r)` enteros (con `k = t·r/10⁴`,
+el error de `P` frente a `L(1+k)` es ≤ ½ y al dividir entre `1+k` queda < ½). Por eso el `L` equivalente de un precio del
+dueño (`round(P/(1+k))`) es un derivado limpio para lo que necesita `L` (reglas «> 0», escala de `resolvedSalePriceCents`),
+y por eso **nunca** se re-deriva `P` desde él.
+
+**(c) Un dial que se mueve conserva lo que paga el cliente.** El dueño dijo «lo que paga el cliente». El dial de traslación
+es un dial de **margen** (§4.44.g) que mueve `P` de lo automático; para un producto con precio del dueño mueve el `L`
+equivalente y nada más. El neto real no depende de `t` (el IVA sale de `G` con `r`, `R2`), así que ese producto no gana ni
+pierde margen por el dial. Lo que sí hay que decirle al dueño es que el costo en pesos que le enseña la pantalla del dial
+no aplica a esos productos.
+
+**(d) El margen va sobre el neto fiscal, y eso corrige también a v1.83.** v1.83 ponía el margen sobre `L`. Con `t < 100`,
+`L` **no** es lo que queda después del IVA: el IVA se calcula con la tasa entera sobre el agregado. El neto por pieza es
+`taxBaseCentsOf(P, r)`, que no depende de `t`. Con los defaults (`t = 100`) coincide exactamente con `L` (por (b)), así
+que nada cambia en el caso de hoy; con otro dial, la cifra de v1.83 habría sobrestimado el margen en el IVA absorbido.
+
+**(e) `M-71` sin relleno.** El relleno de v1.83 copiaba un `L` común. Copiar un `P` exige derivarlo en SQL con los diales
+del momento: una **segunda implementación** de `displayPriceCentsOf`, en el lenguaje donde nadie la va a probar con los
+candados de `money.ts`. Sin relleno ningún precio se mueve (el legado sigue en el peldaño 2) y la hoja ya señala esos
+productos. El precio de quitar el relleno es que el dueño teclea una vez el precio de los productos con legado; se mide
+cuántos antes de desplegar.
+
+**(f) A-2: el verbo del dueño publica, después de confirmar.** El contrato ya prometía intentar publicar cuando el precio
+se vuelve resoluble (§M1, momento (c)); el `PUT` es ese momento para un sellado sin mercado, y sin el disparo la pieza con
+ubicación queda en caja sin estar en ninguna pantalla. Va **después** del commit por la misma razón que el disparo por
+ubicación: el precio es una decisión que no debe deshacer una guarda de publicación ni una carrera con un checkout, y la
+transacción del dueño sigue sin escribir piezas (§4.62.4 intacto). Descartado: la casilla «publicar también» de ux-ui
+(manual donde puede ser automático) y meter `claimListed` en la tx (bloquea N piezas en el verbo del dueño).
+
+**(g) Lo que no se arregla aquí.** El sellado **sin producto** sigue con su precio por pieza en `L` (`D-SP-4`): esa columna
+es de raw/graded también, y meter `P` para un tipo y `L` para otro rompe la regla de que la convención viaja con el
+importe. SP.6 (aviso y segundo clic) **contradice en la letra** a `HECHOS.md:49` y es provisional hasta §X (`D-SP-2`).
+
+#### 4.62.9 v1.83.2 — lo que la construcción preguntó (`BACKEND_NOTES §57.8`)
+
+Norma: `API_CONTRACT §M11-SP.13`.
+
+**(a) Un verbo idempotente repite el efecto idempotente y omite el que deja huella.** El doble clic del `PUT` no escribe
+precio, bitácora ni cola (escribirlas dos veces sería contar dos veces un hecho), pero sí vuelve a intentar publicar:
+publicar es idempotente y, si el primer intento falló, el segundo clic es el reintento natural del dueño. Así
+`autoPublish` tiene una sola regla («`null` ⇔ este intento lanzó») y la pantalla no distingue casos.
+
+**(b) Lo informativo no justifica tocar la frontera de otro stream.** Los diales de la bitácora sirven para reconstruir un
+derivado (`L` equivalente); el dinero cobrado sale de `P` y de los diales que cada orden congela. Leerlos un instante
+antes de la tx tiene un error posible solo en esa reconstrucción. Leerlos dentro exigía una firma nueva en `settings`
+(«Cuentas y acceso») o una segunda conexión: coste real a cambio de exactitud en un dato que no decide nada.
+
+**(c) Un fichero que sale del sistema sigue la regla del dinero: la escala viaja con la cifra, y solo lo guardado.** El
+export ponía el `L` equivalente del precio del dueño bajo «Precio venta»: un derivado dependiente del dial, y una cifra
+distinta de la que el dueño tecleó, bajo un rótulo que no decía la escala. Dos columnas STORED, una por escala, ambas
+rotuladas, elegidas por `manualSaleOf` (el mismo camino que la venta). Descartado: `P` en la columna de `L` (mezcla de
+escalas en una columna, `money.ts`) y `P` derivado para todas las piezas (derivar en un fichero que se declara «sin
+derivar»).
+
+**(d) La ausencia de una clave no es un dato.** El front decide «ligada / sin producto» por `productType` y luego por el
+valor (`string`/`null`), nunca por si la clave vino. Por eso listado (ausente en raw/graded) y detalle (`null` en
+raw/graded) pueden diferir sin daño, y no se cambia ninguno de los dos.
+
+**(e) Una regla que hoy no se alcanza se deja puesta.** «Encontrada» no admite producto; la regla del precio por
+producto sigue llamándose en ese escritor para que abrir la puerta (declarar el campo) no la deje sin candado.
+
+#### 4.62.10 v1.83.3 — condiciones de los gates sobre `4f367aea`
+
+Norma: `API_CONTRACT §M11-SP.6`, `§M11-SP.13.2`, `§M11-SP.13.5.1`, `§M11-SP.13.11`.
+
+**(a) Un cambio de conducta en el código que cobra no se construye en dos ramas a la vez.** El checkout es zona de
+«Órdenes y dinero» y F-SKY lo modifica; SP.6 era una pieza menor de este stream sobre esa zona. Se difiere con un
+disparador explícito (primera rama con base post-F-SKY que toque `checkout`) en vez de «más adelante», para que no
+quede como pendiente sin dueño. El riesgo mientras tanto (pantalla ≠ cobro si el dueño re-precia en los segundos del
+pago) ya existía con el ingest diario; se le dice al dueño con números en la solicitud de fusión.
+
+**(b) No se construye lo que nace para retirarse y contradice al dueño.** El aviso y el segundo clic de SP.6 eran
+provisionales (12.10) y contradecían `HECHOS.md:49` («no vale la pena actualizar»). Al diferirlo, se poda: queda solo
+que la pantalla diga el total que Stripe cobra, que §X también conservaba. Cobrar el precio visto sigue siendo §X.
+Descartado: construir el aviso igualmente «porque estaba diseñado» (código que el dueño dijo no querer, y claves de texto
+que habría que borrar).
+
+**(c) El reintento es del sitio que ya publica, no de un botón que la UI apaga.** La semántica del servidor (el `PUT`
+idéntico reintenta la publicación) se queda porque protege reintentos de red; la ruta humana es «Listas para
+publicar». Descartado: habilitar «Guardar» con el mismo precio (un botón que no cambia nada visible confunde).
+
+**(d) La ausencia de una clave no abre un permiso** (extiende §4.62.9 (d)). El respaldo «clave ausente = servidor
+anterior» heredaba «editable por cualquiera». Un helper único que exige `'unlinked'` explícito y pasa por
+`canSetSealedPrice`, y una prop obligatoria, hacen que el caso desconocido sea solo lectura y que olvidar el permiso no
+compile.
 > ⛔ **v1.82 — §4.59 entera queda SUSTITUIDA por §4.61.1** (`HECHOS.md:44`: el dueño saca las disputas de la tienda). La vía
 > B no se construye. Lo de arriba queda como registro de por qué el derecho a reclamar no es titularidad, que §4.61.2 reusa.
 
@@ -28807,6 +28977,42 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **v1.83 — `D-SP-1` (abierta, temporal; se cierra al fusionar con Skydropx):** «solo el dueño fija el precio del
+> sellado» (`HECHOS.md:50` (4)) se construye como `role === 'super_admin'`; un súper-admin del personal también puede.
+> Cierre: el cuerpo de `canSetSealedSalePrice` (backend) y `canSetSealedPrice` (frontend) pasa a `isOwnerAccount` /
+> `me.isOwner` (`M-68`), con SP-14. `API_CONTRACT §M11-SP.3`.
+>
+> **v1.83 — `D-SP-2` (abierta, 💰, frontend; medida 2026-10-05 por lectura):** el modal de pago pinta el total de la
+> **cotización** (`CheckoutView.tsx:406-408`; `GuestCheckoutView.tsx:494-496`) y el `PaymentIntent` se crea por el de la
+> **sesión** (`orders.service.ts:1515-1518`). Si el precio cambió entre las dos, Stripe cobra una cifra que la pantalla no
+> mostró. Cierre: §M11-SP.6 (F-SP-5). Queda abierta después la parte de `HECHOS.md:49` («se cobra el precio que vio»),
+> que es diseño de §X.
+> **v1.83.1 (N-2):** SP.6 **avisa y cobra el actual**, lo que contradice en la letra a `HECHOS.md:49` («no vale la pena
+> actualizar»; P-POR-3 = no avisar). Es **provisional**: vive hasta que §X entre en `main`, y ese PR retira el aviso y el
+> segundo clic (el total de la sesión en el modal se queda). Se le dice al dueño en la solicitud de fusión.
+> `API_CONTRACT §M11-SP.12.10`.
+> **v1.83.3 (C-1):** sigue **abierta**. **Medición vigente: 2026-10-05, QA sobre `4f367aea`, N=1, lectura de código para
+> la pantalla** (`CheckoutView.tsx:406-408`, `GuestCheckoutView.tsx:494`; ejemplo de QA: pantalla MX$1,516.83, cobro
+> MX$1,569.01; el cobro cuadra por dentro: PI = total de la sesión = Σ líneas). El cierre se **difiere**: F-SP-5
+> reescrita (solo el total de la sesión; ⛔ aviso y segundo clic retirados por `HECHOS.md:49`), en la primera rama con
+> base post-F-SKY que toque `checkout`. Antes de encargarla, **se re-mide** (O-5). `API_CONTRACT §M11-SP.6`.
+>
+> **v1.83.1 — `D-SP-4` (abierta, residual; dimensión NO MEDIDA):** el sellado **sin producto** conserva su precio por pieza
+> en `listPriceCents` (`L`, antes de IVA), aunque el dueño escribe con IVA (`HECHOS.md:51` (3)). Mitigación: el editor lo
+> rotula «antes de IVA» con el `P` del servidor al lado. Medición que la dimensiona: `unlinkedCount` de la hoja en
+> producción. Cierre: ligar esas piezas a su producto, o columna nueva por errata si el dueño lo pide.
+> `API_CONTRACT §M11-SP.12.11`.
+>
+> **v1.83.1 — `D-SP-5` (abierta, frontend + ux-ui; medida 2026-10-05 por lectura):** #69 llama **«Precio final»** a `L` y
+> confirma **«Se publica en la tienda a {L}»** (`frontend/messages/es.json:4682`, `:4690`, `:4705`; el valor es el
+> `listPriceCents` tecleado, `SealedFinalPrice.tsx:154`, `:159`, `:340`), mientras la tienda enseña `P` (con los defaults,
+> `1.16·L`). Cierre: pieza ligada ⇒ el editor nuevo (escribe `P`); pieza sin producto ⇒ rótulo «antes de IVA» y `P` del
+> servidor. `API_CONTRACT §M11-SP.12.11`.
+>
+> **v1.83 — `D-SP-3` (cerrada al medir; premisa del encargo):** «hoy un sellado publicado solo cambia de precio
+> retirándolo» es cierto en `ItemDetailModal.tsx:61-73`/`:134-136`, **no** en M11: `SealedFinalPrice` en modo `'reprice'`
+> (`SealedFinalPrice.tsx:42-47`, montado en `VariantDrawer.tsx:546`) ya re-precia por pieza una `listed` desde #69.
+> Lo que faltaba es que el precio sea **del producto** y **solo del dueño**.
 > **v1.82 — `D-PNL-1` (de `PROJECT`, no de código; para product-owner; medida 2026-10-05 por lectura):** `PROJECT §V`
 > (borrador del 2026-10-04) quedó **atrás de `HECHOS.md:44`**: §V.1 pone por defecto que el **retiro** entregado **no**
 > muestra «Escríbenos» (P-DSP-4) y §V.2/§V.3 que la compensación es **solo total** (P-DSP-3, `PROJECT.md:7589-7605`,
@@ -31406,6 +31612,24 @@ productivas); las migraciones solo redefinen esquema.~~
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
 
+### v1.83-precio-sellado (**M-71**: precio del dueño por producto sellado — **DDL ADITIVO + 1 CHECK + relleno que no mueve precios efectivos**, §4.62)
+
+- **Carpeta:** `prisma/migrations/20261021120000_m71_sealed_product_owner_price/` (posterior a `M-70` del panel,
+  `20261020120000`, y a `M-64`…`M-68` de Skydropx, `20261006…`–`20261009…`; medido con `Glob` en los tres árboles el
+  2026-10-05). Si al fusionar otro stream ya tomó `M-71`, se renumera **esta**.
+- **Schema:** `model SealedProduct { … ownerSalePriceCents Int? }` — comentario en el modelo: «`L` del dueño; `null` =
+  automático; escritor único: `PUT /admin/inventory/sealed-products/:id/sale-price` (y el relleno de M-71)».
+- **SQL, relleno, bitácora, despliegue y rollback:** texto exacto en `API_CONTRACT §M11-SP.7`. ⛔ No toca
+  `InventoryItem`. Hay datos (preámbulo de §11): la columna es anulable y el relleno es un `UPDATE … WHERE` acotado.
+- ⛔ **v1.83.1 — SUSTITUYE lo de arriba:** columna **`ownerDisplayPriceCents Int?`** (`P`, con IVA) + CHECK
+  `1…100000000`, **sin relleno** y sin filas de bitácora (§4.62.8 (e)). Carpeta
+  `20261021120000_m71_sealed_product_owner_display_price/`. Comentario del modelo: «`P` del dueño (lo que paga el
+  cliente); `null` = automático; escritor único: `PUT /admin/inventory/sealed-products/:id/sale-price`». SQL y rollback:
+  `API_CONTRACT §M11-SP.12.12`.
+- ✅ **v1.83.2 (Q-1):** construida con ese nombre — `Glob backend/prisma/migrations/2026102*/*` ⇒
+  `20261021120000_m71_sealed_product_owner_display_price/migration.sql` (leído por el arquitecto 2026-10-05, sha NO
+  MEDIDO). El nombre `…_owner_price` queda retirado. Prueba sobre base con datos: `BACKEND_NOTES §57.6` (reportado por
+  backend).
 ### v1.82-arreglos-panel (**M-70**: reembolso de una carta tras la entrega y SPEI de retiro entregado — **DDL ADITIVO + 2 valores de enum + 4 columnas + `DROP NOT NULL` + 4 CHECK + 1 índice parcial, SIN backfill**, §4.61)
 
 Forma normativa entera: `API_CONTRACT §PNL.7`. Carpeta: **`prisma/migrations/20261020120000_m70_panel_refunds/`**.

@@ -10,6 +10,7 @@ import {
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { BulkPublishRequest } from '../src/modules/inventory/dto/inventory.dto';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * fix/variant-composition-regression — REGRESIÓN DE DINERO en la cola M2 del SELLADO.
@@ -172,7 +173,7 @@ function buildHarness() {
     ),
   };
 
-  const settings = { getNumber: jest.fn(async () => 100) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 100) } as unknown as SettingsService;
   const pricing = new PricingService(
     prisma as PrismaService,
     settings,

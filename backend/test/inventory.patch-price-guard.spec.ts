@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { BusinessException } from '../src/common/business.exception';
 import { assertOperable } from '../src/modules/inventory/item-location.rules';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * ⭐ INV-SP-8 (API_CONTRACT §M1 errata v1.80.2.3, `#M1-patch-price-guard`; regla de fusión
@@ -117,7 +118,7 @@ function build(target: Row) {
   const svc = new InventoryService(
     prisma as PrismaService,
     { getReference: jest.fn() } as unknown as PricingService,
-    { getNumber: jest.fn() } as unknown as SettingsService,
+    { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService,
   );
   return { svc, prisma, tx, rows, writes };
 }

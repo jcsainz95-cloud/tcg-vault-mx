@@ -34,6 +34,11 @@ export interface SealedFinalPricePiece {
   name?: string | null;
   /** Referencia de MERCADO del grupo (panel): se rotula «Mercado», ⛔ nunca como precio de venta. */
   marketRefCents?: number | null;
+  /**
+   * §M11-SP.12.4 / D-SP-4 — el `P` de esta pieza que calcula el SERVIDOR (lo que paga el cliente). Se pinta «En la
+   * tienda: {P}» bajo el `L`; ausente ⇒ no se pinta. ⛔ La UI no lo deriva de `L` (UX-SP-21).
+   */
+  resolvedDisplayPriceCents?: number | null;
 }
 
 type Mode = 'publish' | 'save' | 'reprice';
@@ -82,13 +87,23 @@ export function SealedFinalPrice({
   editing,
   onEditingChange,
   onDone,
+  canEdit,
+  staffNote = false,
 }: {
   piece: SealedFinalPricePiece;
   layout: 'queue' | 'panel';
   editing: boolean;
   onEditingChange: (open: boolean) => void;
   onDone: (message: string) => void;
+  /**
+   * §M11-SP.3/SP.4 — la pieza SIN producto la precia solo el dueño; el personal la lee. **Obligatorio, sin valor por
+   * defecto** (C-2): quien monta esto lo decide con `sealedPieceEditMode(...) === 'piece'`, que falla cerrado.
+   */
+  canEdit: boolean;
+  /** Personal sobre pieza sin producto: «Sin producto: su precio lo pone el dueño.» (§70.3 (a)). */
+  staffNote?: boolean;
 }) {
+  const tsp = useTranslations('admin.sealedProductPrice');
   const t = useTranslations('admin.sealedFinalPrice');
   const tq = useTranslations('admin.m1.publishQueue');
   const tInv = useTranslations('status.inventory');
@@ -202,13 +217,23 @@ export function SealedFinalPrice({
 
   const priceText = currentCents != null ? formatMoneyCents(currentCents, locale) : '—';
   const hasFinal = piece.listPriceCents != null;
+  // D-SP-4: el `P` del servidor, solo si llega (⛔ nunca ×1.16 en el cliente, UX-SP-21).
+  const storeLine =
+    typeof piece.resolvedDisplayPriceCents === 'number' ? (
+      <span className="tabular text-xs text-text" data-testid={`sealed-store-price-${piece.id}`}>
+        {t('storePrice', { price: formatMoneyCents(piece.resolvedDisplayPriceCents, locale) })}
+      </span>
+    ) : null;
 
   // ── Lectura ─────────────────────────────────────────────────────────────────────────────────────
   const reading =
     layout === 'queue' ? (
-      <span className="flex flex-wrap items-baseline gap-1" data-testid={`sealed-final-price-${piece.id}`}>
-        <span className={currentCents != null ? 'tabular font-mono text-text' : 'tabular font-mono text-accent'}>{priceText}</span>{' '}
-        <span className="text-xs text-muted">· {basisLabel}</span>
+      <span className="flex flex-col" data-testid={`sealed-final-price-${piece.id}`}>
+        <span className="flex flex-wrap items-baseline gap-1">
+          <span className={currentCents != null ? 'tabular font-mono text-text' : 'tabular font-mono text-accent'}>{priceText}</span>{' '}
+          <span className="text-xs text-muted">· {basisLabel}</span>
+        </span>
+        {storeLine}
       </span>
     ) : (
       <span className="flex flex-col" data-testid={`sealed-final-price-${piece.id}`}>
@@ -225,6 +250,7 @@ export function SealedFinalPrice({
             </>
           )}
         </span>
+        {storeLine}
         {typeof piece.marketRefCents === 'number' && (
           <span className="tabular text-xs text-muted">{t('market', { price: formatMoneyCents(piece.marketRefCents, locale) })}</span>
         )}
@@ -234,8 +260,21 @@ export function SealedFinalPrice({
   if (mode === null) {
     // `reserved`, vendida, terminal o de cliente: solo lectura, sin lápiz (la pantalla no ofrece lo que el `422` rechaza).
     return (
-      <span className="tabular font-mono text-xs text-text" data-testid={`sealed-final-price-${piece.id}`}>
-        {piece.listPriceCents != null ? formatMoneyCents(piece.listPriceCents, locale) : '—'}
+      <span className="flex flex-col">
+        <span className="tabular font-mono text-xs text-text" data-testid={`sealed-final-price-${piece.id}`}>
+          {piece.listPriceCents != null ? t('readOnly', { price: formatMoneyCents(piece.listPriceCents, locale) }) : '—'}
+        </span>
+        {storeLine}
+      </span>
+    );
+  }
+
+  if (!canEdit) {
+    // §M11-SP.3: el personal LEE el precio de la pieza sin producto; ⛔ sin botón deshabilitado (§8).
+    return (
+      <span className="flex flex-col gap-1">
+        {reading}
+        {staffNote && <span className="text-xs text-muted">{tsp('piece.unlinkedStaff')}</span>}
       </span>
     );
   }

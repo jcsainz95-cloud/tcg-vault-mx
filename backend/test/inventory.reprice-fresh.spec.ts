@@ -10,6 +10,7 @@ import {
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { BulkPublishRequest } from '../src/modules/inventory/dto/inventory.dto';
 import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.26 (P-7 ⑤, §M1 / §4.24e) — PUBLICAR + REPRECIAR FRESCO desde el Master Set.
@@ -75,7 +76,7 @@ function buildHarness() {
     },
   };
 
-  const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
   const pricing = new PricingService(
     prisma as PrismaService,
     settings,

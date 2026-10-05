@@ -189,8 +189,9 @@ describe('SealedAddFlow (P-38, §16.8a) · alta dedicada de sellado con SealedPr
     expect(item).not.toHaveProperty('manualMarketMxnCents');
   });
 
-  it('precio manual (vault_operator): SOLO cuando marketRef es null; valida >0 y mapea a manualMarketMxnCents', async () => {
-    roleState.role = 'vault_operator';
+  // §M11-SP.4 / `HECHOS.md:51` (1) (2026-10-05): el mercado a mano en el alta es SOLO del dueño (antes vault_operator+).
+  it('precio manual (dueño): SOLO cuando marketRef es null; valida >0 y mapea a manualMarketMxnCents', async () => {
+    roleState.role = 'super_admin';
     vi.spyOn(api, 'listSealedProducts').mockResolvedValue(LIST);
     const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000600']));
     renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
@@ -199,7 +200,7 @@ describe('SealedAddFlow (P-38, §16.8a) · alta dedicada de sellado con SealedPr
     fireEvent.click(await screen.findByRole('option', { name: /Booster Bundle/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
 
-    // El campo de precio manual aparece (marketRef null + vault_operator+).
+    // El campo de precio manual aparece (marketRef null + dueño).
     const manual = await screen.findByLabelText('Precio de mercado manual (MX$)');
     // Vacío por defecto (jamás 0 ni sugerido).
     expect((manual as HTMLInputElement).value).toBe('');
@@ -219,7 +220,7 @@ describe('SealedAddFlow (P-38, §16.8a) · alta dedicada de sellado con SealedPr
   });
 
   it('IMP-1 (dead-end): dial off ⇒ effectiveMarketCents null aunque marketRef traiga caché → MUESTRA el manual y NO promete valor de mercado', async () => {
-    roleState.role = 'vault_operator';
+    roleState.role = 'super_admin';
     // Dial `off`: el mercado GATEADO es null en TODOS los productos, aunque `marketRef` traiga un valor
     // de caché. La UI del alta debe keyear en `effectiveMarketCents` (autoritativo), NO en `marketRef`.
     const OFF_LIST: SealedProductListResponse = {
@@ -268,5 +269,33 @@ describe('SealedAddFlow (P-38, §16.8a) · alta dedicada de sellado con SealedPr
 
     await screen.findByRole('radio', { name: /Aportación/ });
     expect(screen.queryByLabelText('Precio de mercado manual (MX$)')).not.toBeInTheDocument();
+  });
+
+  /**
+   * **UX-SP-10 = F-SP-4** (`DESIGN_SYSTEM §70.3 (c)`): el personal, con un producto sin mercado, ⛔ no ve el campo de
+   * mercado manual; lee la nota y el cuerpo del lote va SIN `manualMarketMxnCents`. Canario: dejar `canManualMarket`
+   * con `vault_operator`.
+   */
+  it('UX-SP-10 · vault_operator sin mercado ⇒ sin campo manual, nota del personal y el lote sin manualMarketMxnCents', async () => {
+    roleState.role = 'vault_operator';
+    vi.spyOn(api, 'listSealedProducts').mockResolvedValue(LIST);
+    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000800']));
+    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
+    fireEvent.click(await screen.findByRole('option', { name: /Booster Bundle/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect(await screen.findByTestId('sealed-add-staff-no-market')).toHaveTextContent(
+      'Este producto no trae precio de mercado. Se da de alta igual y queda sin precio hasta que el dueño se lo ponga en «Precios del sellado».',
+    );
+    expect(screen.queryByLabelText('Precio de mercado manual (MX$)')).not.toBeInTheDocument();
+    expect(screen.getByText(/la aportación en especie no se puede registrar/)).toBeInTheDocument();
+    // La COMPRA sí se da de alta (sin precio; §M11-SP.12.9).
+    fireEvent.click(screen.getByRole('radio', { name: /Comprar/ }));
+    fireEvent.change(screen.getByLabelText('Precio pagado (MXN)'), { target: { value: '700' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const item = spy.mock.calls[0][0].items[0];
+    expect(item).toMatchObject({ productType: 'sealed', sealedProductId: 'sp-bundle' });
+    expect(item).not.toHaveProperty('manualMarketMxnCents');
+    expect(item).not.toHaveProperty('listPriceCents');
   });
 });

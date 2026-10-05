@@ -378,12 +378,33 @@ export function quoteAcquisitionWithGuard(
  * `source` = de dónde salió el precio (SealedSpreadSource del contrato).
  */
 export type SealedSpreadSource = 'override' | 'subtype_spread' | 'global_spread';
+
+/**
+ * 💰 v1.83 (`API_CONTRACT §M11-SP.1`, unión de CLASE L, ADMIN-ONLY) — de QUÉ peldaño salió el precio de venta
+ * de una pieza sellada: `product` = `SealedProduct.ownerDisplayPriceCents` (el dueño, por producto) · `piece` =
+ * `InventoryItem.listPriceCents` (legado por pieza) · `automatic` = mercado × spread · `pending` = sin precio.
+ * ⛔ Nunca viaja a `/catalog/*` (la cara pública sigue diciendo `override`).
+ */
+export type SealedPriceOrigin = 'product' | 'piece' | 'automatic' | 'pending';
+
 export interface SealedSpreadResult {
+  /**
+   * **`L`** — escala de `listPriceCents` (antes de IVA). Con precio del dueño (`origin='product'`) es el **`L`
+   * equivalente** de su `P` con los diales de la petición (`listEquivalentCentsOf`): sirve a las reglas «`> 0` /
+   * vendible» y a la instrumentación; ⛔ NUNCA se re-deriva `P` desde él (`P → L → P` no es identidad, §M11-SP.12.1).
+   */
   salePriceCents: number | null;
   status: 'priced' | 'pending';
   source: SealedSpreadSource;
   /** null cuando source='override'. */
   appliedSpreadPct: number | null;
+  /** v1.83 — de qué peldaño salió (interno/admin). */
+  origin: SealedPriceOrigin;
+  /**
+   * v1.83.1 (§M11-SP.12.3) — **`P` fijo del dueño** (lo que paga el cliente, IVA dentro), `≠ null ⇔ origin='product'`.
+   * Los sitios de venta lo pasan a `saleDisplayCentsOf`, que lo cobra TAL CUAL.
+   */
+  fixedDisplayCents: number | null;
 }
 
 /**
@@ -414,21 +435,114 @@ export function computeSealedSalePrice(
   // H-1: override presente ⇔ > 0 (un 0/negativo es degenerado ⇒ se ignora, cae a mercado×spread).
   if (overrideCents != null && overrideCents > 0) {
     // BE-27: clamp final del override (persistible en `*Cents`, Int32).
-    return { salePriceCents: clampCents(overrideCents), status: 'priced', source: 'override', appliedSpreadPct: null };
+    return {
+      salePriceCents: clampCents(overrideCents),
+      status: 'priced',
+      source: 'override',
+      appliedSpreadPct: null,
+      // v1.83: el override de ESTA función es el de la PIEZA (peldaño 2). El del producto lo resuelve
+      // `computeSealedSaleOf` antes de llegar aquí.
+      origin: 'piece',
+      fixedDisplayCents: null,
+    };
   }
   const hasSubtypeSpread = sealedSubtype != null && spreadPctBySubtype[sealedSubtype] != null;
   const spread = hasSubtypeSpread ? spreadPctBySubtype[sealedSubtype as string] : fallbackPct;
   const source: SealedSpreadSource = hasSubtypeSpread ? 'subtype_spread' : 'global_spread';
   if (marketMxnCents == null) {
     // Sin mercado y sin override → pendiente (no publicable). NUNCA se inventa un precio.
-    return { salePriceCents: null, status: 'pending', source, appliedSpreadPct: spread };
+    return { salePriceCents: null, status: 'pending', source, appliedSpreadPct: spread, origin: 'pending', fixedDisplayCents: null };
   }
   return {
     salePriceCents: clampCents(Math.round(marketMxnCents * (1 + spread / 100))),
     status: 'priced',
     source,
     appliedSpreadPct: spread,
+    origin: 'automatic',
+    fixedDisplayCents: null,
   };
+}
+
+/**
+ * 💰 v1.83.1 (`API_CONTRACT §M11-SP.1` + `§M11-SP.12.3`) — **la proyección del precio del dueño que TODO lector
+ * de una pieza tiene que traer.** Es un `include` de Prisma (sin importar Prisma: objeto plano `as const`).
+ */
+export const SEALED_SALE_PRICE_INCLUDE = {
+  sealedProduct: { select: { ownerDisplayPriceCents: true } },
+} as const;
+
+/** El precio del dueño del producto de una pieza (la proyección de `SEALED_SALE_PRICE_INCLUDE`). */
+export interface SealedProductSaleRef {
+  ownerDisplayPriceCents: number | null;
+}
+
+/**
+ * Lo que una pieza necesita para decidir su precio MANUAL de venta. ⚠️ `sealedProduct` es **obligatoria** (puede ser
+ * `null`, no puede faltar): un `findMany` que olvide `SEALED_SALE_PRICE_INCLUDE` **no compila** al llegar aquí
+ * (SP-3). Así una lectura nueva no puede decidir un precio sin ver el del producto.
+ */
+export interface ManualSaleInput {
+  productType: string;
+  listPriceCents: number | null;
+  sealedProduct: SealedProductSaleRef | null;
+}
+
+/** El precio manual de venta: del producto (`P`, con IVA) o de la pieza (`L`, sin IVA). Escalas distintas a propósito. */
+export type ManualSale =
+  | { origin: 'product'; displayCents: number }
+  | { origin: 'piece'; listCents: number };
+
+/**
+ * 💰 v1.83.1 (`§M11-SP.1`, `§M11-SP.12.3`) — **EL ÚNICO predicado de «esta pieza tiene precio de venta a mano»**.
+ *
+ * - **Sellado:** producto (`SealedProduct.ownerDisplayPriceCents > 0`, peldaño 1) **>** pieza (`listPriceCents > 0`,
+ *   legado, peldaño 2) **>** `null`.
+ * - **Raw / graded:** solo la pieza (⛔ jamás lee `sealedProduct`, aunque viniera poblado — P-PRE-1).
+ *
+ * H-1: `<= 0` cuenta como AUSENTE en los dos peldaños. Sustituye a `hasManualPrice(item)` en toda decisión de venta.
+ */
+export function manualSaleOf(item: ManualSaleInput): ManualSale | null {
+  if (item.productType === 'sealed') {
+    const p = item.sealedProduct?.ownerDisplayPriceCents ?? null;
+    if (isPresentAmount(p)) return { origin: 'product', displayCents: p };
+  }
+  if (isPresentAmount(item.listPriceCents)) return { origin: 'piece', listCents: item.listPriceCents };
+  return null;
+}
+
+/**
+ * 💰 v1.83.1 — **el precio de venta del sellado con los cuatro peldaños** (`§M11-SP.1` tabla, `§M11-SP.12.3`):
+ * producto (`P` del dueño) > pieza (`L` legado) > mercado × spread > pendiente.
+ *
+ * Peldaño 1: `fixedDisplayCents = P` (se cobra tal cual) y `salePriceCents = listEquivalentCentsOf(P, dials)` (`L`
+ * equivalente, para las reglas sobre `L`). Peldaños 2–4: el cuerpo de siempre (`computeSealedSalePrice`). ⛔ Ninguna
+ * segunda fórmula: los diales llegan IZADOS por el llamador (una lectura por petición).
+ */
+export function computeSealedSaleOf(
+  manual: ManualSale | null,
+  sealedSubtype: string | null,
+  marketMxnCents: number | null,
+  spreadPctBySubtype: Record<string, number>,
+  fallbackPct: number,
+  dials: IvaDials,
+): SealedSpreadResult {
+  if (manual?.origin === 'product') {
+    return {
+      salePriceCents: listEquivalentCentsOf(manual.displayCents, dials),
+      status: 'priced',
+      source: 'override',
+      appliedSpreadPct: null,
+      origin: 'product',
+      fixedDisplayCents: manual.displayCents,
+    };
+  }
+  return computeSealedSalePrice(
+    manual?.origin === 'piece' ? manual.listCents : null,
+    sealedSubtype,
+    marketMxnCents,
+    spreadPctBySubtype,
+    fallbackPct,
+  );
 }
 
 /**
@@ -511,6 +625,31 @@ export function displayPriceCentsOf(
   ivaRatePct: number,
 ): number {
   return listPriceCents + Math.round((listPriceCents * ivaTransferPct * ivaRatePct) / 10_000);
+}
+
+/**
+ * 💰 v1.83.1 (`§M11-SP.12.1`) — **`L` equivalente de un `P` FIJO con ESTOS diales** (lo que el resto del sistema llama
+ * «antes de IVA»): `round(P × 10000 / (10000 + t·r))`, en aritmética entera (mitad hacia arriba sobre positivos).
+ *
+ * - `L → P → L` es **exacto** para todo `L ≥ 1` y todo `(t, r)` enteros en `[0,100]` (SP-15).
+ * - `P → L → P` **NO** es identidad (con 100/16, MX$7.00 ⇒ `L` 603 ⇒ 699). ⛔ Por eso **nunca** se re-deriva un `P`
+ *   desde este valor: con precio del dueño, `P` sale de la columna (`saleDisplayCentsOf`).
+ * - `≥ 1` si `P ≥ 1` (`t·r ≤ 10⁴`). Cota: `P·10⁴ ≤ 10¹² < 2⁵³` ⇒ el producto intermedio es exacto.
+ */
+export function listEquivalentCentsOf(displayCents: number, d: IvaDials): number {
+  return Math.round((displayCents * 10_000) / (10_000 + d.ivaTransferPct * d.ivaRatePct));
+}
+
+/**
+ * 💰 v1.83.1 (`§M11-SP.12.1`, E-3) — **EL camino a `P` de una decisión de VENTA.** Precio del dueño ⇒ el suyo, tal
+ * cual; si no ⇒ la derivación de siempre (`displayPriceCentsOf`). Los tres sitios de venta (checkout, catálogo,
+ * sellado) y las proyecciones admin de `P` pasan por aquí — candado SP-19.
+ */
+export function saleDisplayCentsOf(
+  s: { listPriceCents: number; fixedDisplayCents: number | null },
+  d: IvaDials,
+): number {
+  return s.fixedDisplayCents ?? displayPriceCentsOf(s.listPriceCents, d.ivaTransferPct, d.ivaRatePct);
 }
 
 /**

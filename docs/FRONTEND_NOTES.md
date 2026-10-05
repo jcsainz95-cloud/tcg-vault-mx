@@ -19930,3 +19930,145 @@ mock contando solo `buy` (pierde las `null`) ⇒ 3/3 (1) · mock sin «∃ ≥1 
 
 **Mediciones (copia del árbol entero, idéntica al vivo por `diff -rq`):** `tsc` 0 · lint 0 · vitest **222/222 ficheros,
 2640/2640**.
+
+## Hotfix D-SP-5 · textos de `admin.sealedFinalPrice.*` (SP-F-8b, solo textos) — 2026-10-05
+
+Rama `claude/hotfix-texto-sellado` desde `production` `3e09685a`. El editor del sellado escribe `listPriceCents`
+(`L`, antes de IVA) y la tienda cobra `P` (IVA trasladado encima); los textos decían «Precio final» y «Se publica en la
+tienda a {price}». Se aplican los 16 textos corregidos de la tabla D-SP-5 (`DESIGN_SYSTEM §70.5`, rama de sellado) en
+`es.json` y `en.json`. **Sin cambio de conducta**: `{price}` sigue siendo el `L` tecleado y el JSX no se toca.
+
+- **Fuera a propósito:** `storePrice` («En la tienda: {price}») — necesita `resolvedDisplayPriceCents` del servidor,
+  que en `production` no existe; y el sufijo «antes de IVA» en la lectura de la cola / solo lectura
+  (`SealedFinalPrice.tsx:208-212`, `:234-240`), que es JSX, no texto. Ambos van con el stream de sellado.
+- **Cola «Listas para publicar» (`admin.m1.publishQueue.*`, `es.json:1554/1557/1565` y pares `en`)**, cerrada en
+  el mismo hotfix a petición del orquestador: `note` «…un precio a mano, antes de IVA» / «…a hand-set price here,
+  before VAT»; `basis.manual` (va junto a la cifra) «a mano, antes de IVA» / «set by hand, before VAT»;
+  `reason.sealedNoPrice` «…ponle precio.» / «…set a price.». Redacción de frontend con el léxico de D-SP-5;
+  pendiente de que ux-ui la ratifique. Ya no queda «precio final»/«final price» en ninguno de los dos catálogos.
+- **Candado UX-SP-18** (`src/lib/i18n-sealed-final-price-iva.test.ts`): ningún valor de `admin.sealedFinalPrice.*`
+  ni de `admin.m1.publishQueue.*` (es/en) contiene «precio final»/«final price»; `confirm.effectPublish` menciona IVA/VAT; `label` dice
+  «antes de IVA»/«before VAT». `SealedFinalPrice.test.tsx` actualizada solo en los textos que fijaba; las comprobaciones
+  de ausencia (`/precio final/i`) pasan a los rótulos nuevos (`/^(Poner|Cambiar) precio de /i`, `/Antes de IVA/`)
+  para no quedar vacías.
+- **Mediciones (2026-10-05, árbol vivo):** `tsc --noEmit` 0 errores · `npm run lint` sin avisos · Vitest **212/212
+  ficheros, 2551/2551 pruebas** (incluye `i18n-parity`). Mutaciones deterministas N=1 sobre `git archive` del árbol
+  entero (tree `3b0e01ab`): `label` es ⇒ «Precio final (MXN)» deja UX-SP-18 rojo (2/4: «ningún texto» es + `label`);
+  `rowLabel` en ⇒ «Final price» + `effectPublish` en viejo ⇒ rojo (2/4: «ningún texto» en + `effectPublish`). Copia borrada.
+- **Segunda pasada (`publishQueue`, 2026-10-05):** tsc 0 · lint sin avisos · Vitest **212/212, 2554/2554** (load ~15-20
+  con 4 CPU; sin rojos). Mutaciones N=1 sobre `git archive` del tree `795f4d90`: `basis.manual` es ⇒ «precio final a
+  mano» ⇒ rojo (2/7); `note` en ⇒ «…hand-set final price here.» ⇒ rojo (1/7). Copia borrada.
+
+## §102 · **SP-F — el precio del sellado es del PRODUCTO** (`DESIGN_SYSTEM §70` v6.1 + `API_CONTRACT §M11-SP` v1.83 / v1.83.1 §M11-SP.12 / v1.83.2 §M11-SP.13) — 2026-10-05, rama `claude/precio-sellado`, base `66b72c15`
+
+> **Renumerada en la fusión con `claude/arreglos-panel` (2026-10-05, orquestador):** en la rama `claude/precio-sellado`
+> esta sección era la **§88**; el panel trae su propia §88 (Fase C en el cliente) y llega hasta la §101. Las referencias
+> «`FRONTEND_NOTES §88`» escritas en la rama de sellado (p. ej. la que decide `admin.m1.publishQueue.reason.sealedNoPrice`)
+> apuntan **aquí, a §102**. Contenido sin cambios.
+
+Decisiones del dueño: `HECHOS.md:50` y `:51` (2026-10-05): respaldo automático, precio **por producto**, se edita en la
+hoja de sellado sin retirar, **solo el dueño**; mercado a mano en el alta solo el dueño; el personal ve costo y margen;
+el dueño escribe el precio **CON IVA** (lo que paga el cliente).
+
+**Antes de construir (medido en este árbol):** el hotfix D-SP-5 (`claude/hotfix-texto-sellado` `2d65791b` + `cc6506c0`)
+**no** estaba en esta rama (`git merge-base --is-ancestor` ⇒ no). Se portó byte a byte en `eeb69f91` (diff de los cinco
+ficheros contra la rama hotfix = 0) para que la fusión no choque; sobre eso va SP-F.
+
+### Qué se construyó (SP-F-1…SP-F-12, SP-F-17…SP-F-19)
+| # | Dónde | Qué |
+|---|---|---|
+| SP-F-1 | `src/types/contract.ts` | `SealedPriceOrigin`, `SealedPriceSheetRowDTO` (campos de 12.4, ⛔ sin `ownerPriceCents`/`automaticPriceCents`/`effectivePriceCents`), `SealedPriceSheetResponse` con `iva`, `SealedAutoPublishDTO`, `SetSealedSalePriceRequest/Response`, `SealedProductPiecesDTO`; `InventoryItemDTO` y `PendingPublishRowDTO` + `sealedProductId?`, `sealedProductPieces?`, `sealedPriceOrigin?`, `sealedProductDisplayPriceCents?`, `resolvedDisplayPriceCents?`; `AdminInventoryItemDetailDTO.sealedProductId: string \| null` (13.6) |
+| SP-F-2 | `src/lib/api.ts` | `getSealedPriceSheet(query)` y `setSealedProductSalePrice(id, { displayPriceCents, expectedDisplayPriceCents })` (los dos obligatorios, 13.7). Mock: servidor falso en `lib/mock/fixtures.ts` (`mockSealedPriceSheet`, `mockSetSealedSalePrice`: CAS ⇒ `409 { currentDisplayPriceCents }`, idempotente, `autoPublish`) y `403` si el dial de demo no es dueño |
+| SP-F-3 | `src/lib/sealed-price-role.ts` (**nuevo**) | `canSetSealedPrice(role)` = `super_admin` (D-SP-1; pasa a `isOwner` al fusionar Skydropx). **Fuera de `role.tsx` a propósito**: 30 tests hacen `vi.mock('@/lib/role')` con solo `useRole`; un predicado puro dentro del módulo simulado habría obligado a replicarlo en cada doble (se probaría el doble, no el predicado) |
+| SP-F-4/5 | `m11/sections/SealedPriceSheet.tsx` (**nuevo**), `m11/M11View.tsx` | La hoja, montada en capa 1 **entre** inventario y cola, `id="precios-sellado"`; la cola gana `id="listas-para-publicar"` (ancla de los avisos). `invalidateAggregates` + `'sealed-price-sheet'` |
+| SP-F-6 | `m1/SealedProductPriceEditor.tsx` (**nuevo**) | El editor único (hoja, panel, cola). Envía lo tecleado exacto; `expected` fijado al abrir; `409` ⇒ banner + recarga automática y el `expected` pasa al del servidor; `403` ⇒ recarga (llega `canEdit:false`); `404` ⇒ «Recargar»; red ⇒ «Reintentar». ⛔ Sin casilla ni `bulkPublishItems` |
+| SP-F-7 | `m1/sealed-final-price.ts` | `'sealed-price-sheet'` en `SEALED_FINAL_PRICE_INVALIDATES`; `marginPreview(P, avg, r)` (12.5); `formatBpsPct`, `formatSpreadPct` |
+| SP-F-8 | `m1/SealedFinalPrice.tsx` | Solo para la pieza **sin producto** (y servidor anterior): «En la tienda: {P}» con `resolvedDisplayPriceCents` del servidor; `canEdit` (solo dueño en sin producto) + «Sin producto: su precio lo pone el dueño.»; lectura de solo-lectura con «{L} antes de IVA» (`admin.sealedFinalPrice.readOnly`, clave nueva de frontend) |
+| SP-F-9 | `m1/VariantDrawer.tsx`, `m1/SealedProductPriceBlock.tsx` (**nuevo**), `m1/SealedPiecePriceLabel.tsx` (**nuevo**) | Bloque «Precio del producto · N piezas» una vez por producto ligado; filas ligadas en lectura con `resolvedDisplayPriceCents` y el rótulo por `sealedPriceOrigin` |
+| SP-F-10 | `m1/PendingPublishQueue.tsx` | Fila ligada: rótulo + editor del producto (dueño); ligada sin precio ⇒ enlace a `#precios-sellado` (⛔ M2). Sin producto: `SealedFinalPrice` de hoy, solo dueño, con su enlace a M2 |
+| SP-F-11 | `m1/SealedAddFlow.tsx` | `canManualMarket = canSetSealedPrice(role)`; nota del personal sin mercado; `pendingIfEmptyStaff` |
+| SP-F-12 | `m1/ItemDetailModal.tsx` | Lee `sealedProductId` **del detalle** (A-5 respondida en 13.6, ⛔ sin prop provisional). Ligado: sin input, «Lo fija el producto» + enlace, sin `ManualPriceBadge`, ⛔ `listPriceCents` en el PATCH; `422 PRICE_PENDING` y `422 SEALED_PRICE_IS_PER_PRODUCT` con su texto junto al botón. Sin producto: input «Precio antes de IVA (MXN)» solo dueño; `403` ⇒ `errors.ownerOnly` |
+| SP-F-17/18 | `messages/es.json`, `en.json` | Todas las claves de §70.5 salvo `checkout.priceChanged.*` (ver «No construido») |
+| SP-F-19 | `m10/sections/IvaTransferSection.tsx` | La línea fija `delta.sealedOwnerPrice`, también con delta 0 |
+
+**Regla Q-5 (13.5), corregida por §M11-SP.13.5.1 (v1.83.3, C-2 del techlead, 2026-10-05):** en sellado se decide por
+`productType` primero y luego por `sealedProductId`, **siempre por el helper** de `src/lib/sealed-price-role.ts`:
+`sealedPieceLinkOf(row)` ⇒ `'linked'` (`string`) · `'unlinked'` (`null`) · `'unknown'` (clave ausente, u otro
+`productType`); `canEditSealedPiecePrice(role, row) = link === 'unlinked' && canSetSealedPrice(role)` es la única
+puerta del editor por pieza. **Se retiró** el respaldo «clave ausente = servidor anterior ⇒ conducta de hoy»: el
+servidor anterior ya mandaba la clave en el listado (§13.5, BACKEND_NOTES §57.2.6), así que no cubría lo que decía y
+**fallaba abierto** (`canEdit={id === null ? canSetPrice : true}` + default `canEdit = true` ⇒ un `vault_operator` veía
+el editor). Ahora `'unknown'` ⇒ **solo lectura** para todos (ni editor por pieza, ni de producto, ni nota del
+personal). `SealedFinalPrice.canEdit` es obligatorio, sin valor por defecto. `VariantDrawer`, `PendingPublishQueue` e
+`ItemDetailModal` pasan por el helper; ningún componente compara `sealedProductId` con `null` para decidir un permiso
+(quedan `typeof … === 'string'` solo para estrechar el tipo del id al agrupar/montar el editor de producto).
+Pruebas: **F-SP-9** `src/lib/sealed-price-role.test.ts` (2 roles × 5 filas), **F-SP-10**
+`m1/SealedProductPrice.panel-queue.test.tsx` (cola y panel sin la clave, `vault_operator` y `super_admin`), **F-SP-11**
+`m1/SealedFinalPrice.canEdit-required.test.tsx` (`@ts-expect-error`, lo muerde `tsc`). Las fixtures de
+`SealedFinalPrice.test.tsx` pasaron a `sealedProductId: null` explícito (probaban el editor de la pieza sin producto
+apoyándose en la clave ausente).
+
+**Techlead D-6 (2026-10-05):** la cifra del producto (bloque del panel, fila de la cola y la línea «Ahora» del editor)
+sale de **un** cálculo, `m1/sealed-product-price-target.ts → productPriceTargetOf(rows)`: dueño ⇒ `product`; si no, el
+`P` de una pieza `automatic` ⇒ `automatic`; si no, `pending` sin cifra. La cola pintaba antes «Ahora: sin precio tuyo;
+se vende a {P de esa pieza} (tuyo)» con una pieza `piece`/`pending`; ahora «Ahora: sin precio».
+
+### Desviaciones conscientes (para ux-ui / techlead)
+1. **Aviso tras guardar = nota al margen (`Banner`), no `Toast`.** El `Toast` del proyecto no admite enlaces ni una
+   variante de aviso, y §70.2 (d) exige ambos (y que no se autodescarte). `SealedPriceSavedNotice` es un `Banner`
+   `success`/`warning` descartable a mano, pintado en el sitio del editor (hoja, bloque del panel, cabecera de la cola).
+2. **`< md` sin bloques:** la hoja es una tabla con `overflow-x-auto` y «Producto» `sticky left-0` en todos los anchos.
+   El patrón de bloques de `DataTable` duplicaría el DOM (y los botones del editor) si se hace por CSS. Pendiente si
+   ux-ui lo considera bloqueante.
+3. **Confirmación con `role="dialog"`**, no `alertdialog`: es el `Modal` compartido (el mismo que ya usa #69). Cambiarlo
+   es tocar `components/ui/Modal.tsx` (zona compartida); foco inicial en «Cancelar» sí.
+4. **Buscar sin icono de lupa**: `Input.prefix` es `string`.
+5. **Censo `frontend-never-multiplies`:** `marginPreview` hace `round(P·100/(100+r))`, que el censo prohíbe. El contrato
+   (12.5) lo manda y §70 lo llama la única cuenta del cliente. Excepción **acotada** a `m1/sealed-final-price.ts`, a ese
+   patrón y a **una** ocurrencia, con su propia prueba (si aparece una segunda, rojo). Los demás patrones siguen mirando
+   ese fichero.
+6. **`pendingIfEmptyStaff` sin «M2»:** el texto de §70.5 dice «…mercado al producto **en M2**…»; el candado P66-3
+   (`AdminPageTitles.test.tsx`, §37.2: ningún texto cita un código M-n, el menú ya no los muestra) lo pone rojo. Se
+   escribe con el rótulo del menú: «en «Catálogo y precios»» / «in “Catalog & pricing”». Para que ux-ui lo ratifique.
+
+### No construido en este encargo (y por qué)
+- **SP-F-13…SP-F-16 (§70.4, «el total cambió» en `CheckoutView`/`GuestCheckoutView`, UX-SP-11…14)**: el encargo es «la
+  pantalla del precio del sellado» y §M11-SP.13.7 acota SP-F a SP-F-1…12; `(storefront)/checkout/*` es zona del stream
+  «Órdenes y dinero» (N-3 de §70.8 pide serializarlo). **Pregunta al orquestador**; mientras, SP.6 sigue abierto y las
+  claves `checkout.priceChanged.*` no se añadieron (no quedan huérfanas).
+- **A-3** (`?attention=true`): aplazada por el contrato.
+
+### Candados (`DESIGN_SYSTEM §70.7`)
+UX-SP-1…7, 17, 19, 20 en `m11/sections/SealedPriceSheet.test.tsx`; UX-SP-8 en `m1/sealed-final-price.test.ts`;
+UX-SP-9, 15, 21, 22 en `m1/SealedProductPrice.panel-queue.test.tsx`; UX-SP-10 en `SealedAddFlow.test.tsx` e
+`ItemDetailModal.test.tsx`; UX-SP-16 en `src/lib/i18n-sealed-product-price.test.ts`; UX-SP-18 (hotfix) intacto;
+UX-SP-23 en `IvaTransferSection.test.tsx`; SP-F-5 en `M11View.test.tsx`. E2E corto: `e2e/sealed-price-sheet.spec.ts`
+(`mockOnly`; sin versión real: el seed no siembra un `SealedProduct` con piezas ligadas y costo).
+Pruebas viejas que cambiaron **porque cambió la decisión** (no para pasar): `SealedAddFlow.test.tsx` (el mercado manual
+pasa de `vault_operator+` a solo dueño, `HECHOS.md:51` (1)) y `SealedFinalPrice.test.tsx` (texto nuevo de
+`reason.sealedNoPrice`, §70.5).
+
+⚠️ **Fusión con `claude/hotfix-texto-sellado`:** `admin.m1.publishQueue.reason.sealedNoPrice` cambia en los dos lados
+(hotfix «…ponle precio.»; aquí el de §70.5). Conflicto esperado de una línea por idioma: gana el de esta rama.
+
+### Mediciones (2026-10-05, copia del árbol ENTERO en scratchpad `fe-sellado/tree`, `git ls-files -co` sobre `eeb69f91` + este trabajo sin commitear)
+- `tsc --noEmit` 0 errores · `next lint --dir src --dir e2e` sin avisos.
+- Vitest completa **215/215 ficheros, 2729/2729 pruebas** (`--maxWorkers=2`, load 6-8 con 4 CPU). Una primera corrida
+  dio 2 rojas legítimas (P66-3: «M2» en `pendingIfEmptyStaff`), corregidas (desviación 6) y re-medidas.
+- Playwright `e2e/sealed-price-sheet.spec.ts` contra servidor propio de mocks (build de producción, `:3471`,
+  `E2E_MOCK_PORT`): **1/1** (tras ajustar un selector que también casaba con la ayuda de «Margen»). El servidor lo
+  levanta y lo apaga Playwright; puerto libre comprobado después.
+- Mutaciones (deterministas, N=1 cada una = medida) sobre otra copia, cada una contra su fichero de pruebas: **13/13
+  rojas** — M1 enviar `round(P/1.16)` (UX-SP-17), M2 `expected` releído al enviar (UX-SP-2), M3 lápiz sin `canEdit`
+  (UX-SP-1), M4 `r` fijo en 16 y M5 margen sobre `P` (UX-SP-8), M6 ligada enlaza a M2 (UX-SP-15), M7 «En la tienda» =
+  `L×1.16` en el cliente (UX-SP-21), M8 bloque con `resolvedSalePriceCents` (UX-SP-22), M9 mercado manual para
+  `vault_operator` (UX-SP-10), M10 `autoPublish:null` sin aviso (UX-SP-19), M11 legado sin mirar `shadowed` (UX-SP-6),
+  M12 detalle ligado manda `listPriceCents` (UX-SP-10), M13 línea de M10 solo con delta ≠ 0 (UX-SP-23). Copias
+  borradas al terminar.
+- **C-2 / D-6 (2026-10-05, copia del árbol ENTERO en scratchpad `fe-sell2/tree`, `git ls-files -co` sobre `dc5977d3`
+  + este trabajo sin commitear):** `tsc` 0 · lint sin avisos · Vitest completa **218/218 ficheros, 2756/2756** (`--maxWorkers=2`,
+  load ~9 con 4 CPU). Pruebas escritas primero y medidas rojas sobre el código anterior (8 rojas). Mutaciones
+  deterministas (N=1 cada una = medida): **7/7 rojas** — helper con el ternario viejo (F-SP-9 y F-SP-10), ausente ⇒
+  `unlinked` (F-SP-9/10), cola y panel montando con el ternario viejo (F-SP-10, una cada uno), default `canEdit = true`
+  + montaje sin la prop (F-SP-10), `canEdit` opcional (F-SP-11, `tsc` TS2578), «Ahora» con el `P` de la fila (D-6).
+  Copia borrada al terminar.

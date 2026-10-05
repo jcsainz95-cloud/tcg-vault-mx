@@ -19,12 +19,13 @@ import { SettingsService } from '../settings/settings.service';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
   PriceBasis,
-  displayPriceCentsOf,
-  hasManualPrice,
+  SEALED_SALE_PRICE_INCLUDE,
   ivaIsIncluded,
+  manualSaleOf,
+  saleDisplayCentsOf,
   sealedPriceBasisOf,
 } from '../../common/money';
-import type { IvaDials } from '../../common/money';
+import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { PremiumFloorPolicy, PricingCurve } from '../../common/pricing-curve';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
@@ -346,7 +347,11 @@ export function yearFromReleaseDate(releaseDate?: string | null): number | null 
   return m ? parseInt(m[1], 10) : null;
 }
 
-type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
+// 💰 v1.83 (§M11-SP.1, SP-3): con el precio del dueño del producto (`SEALED_SALE_PRICE_INCLUDE`) — obligatorio.
+type ItemWithCard = InventoryItem & {
+  card: Card & { set?: CardSet | null };
+  sealedProduct: SealedProductSaleRef | null;
+};
 
 /**
  * `GroupedListingDTO` del contrato (§DTOs), **declarado como tipo a propósito** (v2.1.7).
@@ -683,7 +688,7 @@ export class CatalogService {
   private async fetchSellable(where: Prisma.InventoryItemWhereInput): Promise<SellableRow[]> {
     const items = await this.prisma.inventoryItem.findMany({
       where,
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
       orderBy: { createdAt: 'desc' },
     });
     if (items.length === 0) return [];
@@ -717,7 +722,8 @@ export class CatalogService {
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       items
         // H-1 (E5-bis): `<= 0` es AUSENTE, así que esas piezas TAMBIÉN necesitan precio derivado.
-        .filter((i) => i.productType !== 'sealed' && !hasManualPrice(i))
+        // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(i) != null` (raw/graded: solo la pieza).
+        .filter((i) => i.productType !== 'sealed' && manualSaleOf(i) == null)
         // v1.53 (§4.40.4b): sin identidad de slab no hay clave de variante que buscar.
         .flatMap((i) => {
           const gk = this.pricing.tryGradeKeyFor(i);
@@ -836,6 +842,11 @@ export class CatalogService {
     // v2.0 (P-48, §4.36.7a): QUÉ determinó el precio. Server-side SIEMPRE (SEC-A1); la UI OBEDECE este
     // dato para la regla de visibilidad del «Valor de mercado» — jamás lo infiere comparando cifras.
     let priceBasis: PriceBasis = 'pending';
+    // 💰 v1.83.1 (§M11-SP.12.3): `P` fijo del dueño (sellado con precio de producto) o `null`.
+    let fixedDisplayCents: number | null = null;
+    // ⭐ Los diales, izados (o leídos UNA vez en uso single) ANTES de resolver: el sellado los necesita para
+    // el `L` equivalente del precio del dueño, y la derivación de `P` de abajo usa los MISMOS.
+    const dials = await this.ivaDialsOf(ctx);
 
     if (item.productType === 'sealed') {
       // v1.23-sealed-sales (§4.23a/§4.23b): precio del sellado por precedencia money-safe
@@ -849,8 +860,9 @@ export class CatalogService {
       // dial encendido (§4.23a); con off el sellado solo se vende con override. `referenceValue` =
       // valor de mercado TCGCSV cuando el gate lo deja pasar, si no `pending`.
       const marketPriced = this.pricing.gateSealedMarketCents(marketRef, sealedCtx.sourceOn) != null;
-      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, sealedCtx);
+      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, sealedCtx, dials);
       if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
+      fixedDisplayCents = sale.fixedDisplayCents;
       // v2.0 (§4.36.7a): el sellado NO cambia de matemática (criterio 85) — solo DERIVA su basis del
       // `priceSource` que ya tenía: override⇒override; subtype/global_spread⇒market; sin precio⇒pending.
       priceBasis = sealedPriceBasisOf(sale);
@@ -867,12 +879,14 @@ export class CatalogService {
           ? { status: 'pending' }
           : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
 
-      if (hasManualPrice(item)) {
+      // v1.83 (§M11-SP.1): el predicado único (raw/graded: solo la pieza; ⛔ nunca el producto).
+      const manual = manualSaleOf(item);
+      if (manual?.origin === 'piece') {
         // Override manual POR PIEZA → gana siempre (precio directo sin regla; intención más
         // específica — v1.28 §4.26b: gana también sobre el sellOverride de la variante).
         // v2.0 (§4.36.6): peldaño 1 de la precedencia de VENTA ⇒ `priceBasis = "override"` (y por
         // §N.7 la ficha NO muestra «Valor de mercado»: el mercado no produjo este precio).
-        salePriceCents = item.listPriceCents;
+        salePriceCents = manual.listCents;
         priceBasis = 'override';
       } else {
         // v2.0 (P-48, §4.36.1): precio de venta por la CURVA sobre el VALOR DE MERCADO — ya no
@@ -939,11 +953,9 @@ export class CatalogService {
     // `P = round(L × (1 + t·r))` (`ARCHITECTURE §4.44.b`, `API_CONTRACT §M10-IVA.3`). El servidor
     // manda la cifra **ya hecha**; ⛔ el frontend no multiplica nada (§4.44.i). Si el front la
     // compusiera, cada superficie sería un sitio donde el precio puede salir distinto.
-    const dials = await this.ivaDialsOf(ctx);
+    // 💰 v1.83.1 (E-3): EL camino a `P` — precio del dueño tal cual; si no, la derivación desde `L` (SP-19).
     const displayPriceCents =
-      salePriceCents == null
-        ? undefined
-        : displayPriceCentsOf(salePriceCents, dials.ivaTransferPct, dials.ivaRatePct);
+      salePriceCents == null ? undefined : saleDisplayCentsOf({ listPriceCents: salePriceCents, fixedDisplayCents }, dials);
 
     const dto: ListingDTO = {
       inventoryItemId: item.id,

@@ -95,9 +95,36 @@ describe('§M10-IVA.3 · ⛔ el frontend nunca multiplica', () => {
     .filter((rel) => !/\.test\.tsx?$/.test(rel))
     .filter((rel) => !SIMULADORES_DEL_SERVIDOR.includes(rel));
 
+  /**
+   * ⭐ **Una excepción CONTRACTUAL, acotada a un fichero, a un patrón y a UNA ocurrencia** (2026-10-05, SP-F).
+   *
+   * `API_CONTRACT §M11-SP.12.5` **manda** al cliente calcular el margen en vivo del editor del precio del sellado:
+   * `N = round(P·100/(100+r))` —la base gravable de un `P` que el dueño acaba de teclear y que todavía no existe en el
+   * servidor—. `DESIGN_SYSTEM §70.2 (d)` lo llama «la **única** cuenta de dinero del cliente» (N-4), informativa: ⛔ no
+   * se envía ni se pinta como precio, y su candado son los cuatro vectores del contrato (UX-SP-8,
+   * `sealed-final-price.test.ts`), los mismos que SP-10 de backend.
+   *
+   * ⛔ No exime el fichero entero: los demás patrones lo siguen mirando, y si aparece una **segunda** ocurrencia del
+   * `(100 + r)` —en este fichero o en cualquier otro— esto se pone rojo.
+   */
+  const EXCEPCION_CONTRACTUAL = {
+    rel: 'src/app/[locale]/(admin)/admin/m1/sealed-final-price.ts',
+    patron: /\b100\s*\+\s*\w*[Ii]vaRate/,
+    ocurrencias: 1,
+  };
+
   it.each(PROHIBIDO)('⛔ ninguna pantalla hace: $porque', ({ patron }) => {
-    const ofensores = ficheros.filter((rel) => patron.test(soloCodigo(rel)));
+    const esLaExcepcion = (rel: string) =>
+      rel === EXCEPCION_CONTRACTUAL.rel && patron.source === EXCEPCION_CONTRACTUAL.patron.source;
+    const ofensores = ficheros.filter((rel) => !esLaExcepcion(rel) && patron.test(soloCodigo(rel)));
     expect(ofensores).toEqual([]);
+  });
+
+  it('⭐ la excepción contractual del margen en vivo (§M11-SP.12.5) es UNA ocurrencia, en UN fichero', () => {
+    const codigo = soloCodigo(EXCEPCION_CONTRACTUAL.rel);
+    const global = new RegExp(EXCEPCION_CONTRACTUAL.patron.source, 'g');
+    expect(codigo.match(global)?.length ?? 0).toBe(EXCEPCION_CONTRACTUAL.ocurrencias);
+    expect(codigo).toMatch(/export function marginPreview\(/);
   });
 
   /**

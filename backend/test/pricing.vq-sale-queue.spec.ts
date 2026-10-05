@@ -231,7 +231,13 @@ describe('VQ-5 — candado: lista CERRADA de escritores de la cola y `syncCardPr
         SRC,
         /\bpendingPriceEntry\s*\.\s*(?:create|createMany|createManyAndReturn|update|updateMany|updateManyAndReturn|upsert|delete|deleteMany)\b/g,
       ),
-    ).toEqual({ 'modules/pricing/pricing.service.ts': 6 });
+    ).toEqual({ 'modules/pricing/pricing.service.ts': 7 });
+    // 💰 v1.83 (§M11-SP.2 paso 5): la SÉPTIMA escritura es `closeSealedProductSaleQueue` — el `PUT` del precio del
+    // dueño cierra la cola de SU producto con el handle `tx` del verbo; vive aquí (VQ-5), no en `inventory`.
+    expect(identCensus(SRC, /\bcloseSealedProductSaleQueue\b/g)).toEqual({
+      'modules/inventory/sealed-price.service.ts': 1,
+      'modules/pricing/pricing.service.ts': 1,
+    });
     // Ni SQL crudo sobre la tabla (la puerta lateral del censo anterior).
     expect(identCensus(SRC, /"PendingPriceEntry"/g)).toEqual({});
     // El barrido delega la escritura; la usa SOLO `price-sync`.

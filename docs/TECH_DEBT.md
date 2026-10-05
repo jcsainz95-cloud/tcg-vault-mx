@@ -13,6 +13,73 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-10-05 · stream «Precio del sellado» — gate del techlead sobre `4f367aea` (rama `claude/precio-sellado`)
+
+> Deuda **no bloqueante** señalada por el techlead (APROBADO CON CONDICIONES; las condiciones están cerradas). Las
+> líneas citan el árbol `4f367aea` del gate. **D-8 se cerró en este pase** (era de pocas líneas). D-5 y D-6 no entran en
+> este encargo de backend (D-6 la trata el commit de frontend `6f473fe0`).
+
+### SPS-D1 · P3 · `computeSealedSalePrice` exportada se puede llamar sin el peldaño 1; `SealedSpreadResult` no es unión discriminada
+- **Dónde:** `backend/src/common/money.ts:428` (export de `computeSealedSalePrice`) y `:403-407` (`origin` +
+  `fixedDisplayCents: number | null` como campos sueltos).
+- **Qué es:** el resolvedor completo (producto > pieza > automático > pendiente) es `computeSealedSaleOf`; la función
+  interna del peldaño «pieza/automático» sigue exportada y un llamante nuevo puede usarla directamente y saltarse el
+  precio del dueño. Y el tipo permite combinaciones imposibles (`origin: 'automatic'` con `fixedDisplayCents ≠ null`),
+  que hoy solo sostiene un comentario (`≠ null ⇔ origin='product'`).
+- **Dirección:** dejar de exportar `computeSealedSalePrice` (o renombrarla a algo que diga «sin peldaño 1» y censarla) y
+  tipar `SealedSpreadResult` como unión discriminada por `origin` (`{ origin: 'product'; fixedDisplayCents: number }
+  | { origin: 'piece' | 'automatic' | 'pending'; fixedDisplayCents: null }`), para que el compilador haga la invariante.
+- **Disparador:** el próximo sitio de venta que necesite un precio de sellado, o el próximo cambio a la precedencia.
+
+### SPS-D2 · P3 · La hoja de precios re-expresa la precedencia fuera del resolvedor
+- **Dónde:** `backend/src/modules/inventory/sealed-price.service.ts:253` (`display = owner ?? automaticDisplay`) y
+  `:287` (`effectiveOrigin` por ternario).
+- **Qué es:** la hoja calcula «producto antes que automático» con su propio `??`/ternario en vez de leer `origin` y
+  `fixedDisplayCents` del resolvedor único. Hoy coinciden (la hoja solo muestra producto/automático/pendiente); si la
+  precedencia cambia, la hoja puede contar otra cosa que el checkout.
+- **Dirección:** derivar `displayPriceCents` y `effectiveOrigin` de la salida de `resolveSealedSalePrice` (o de un helper
+  único que la hoja y los sitios de venta compartan), conservando que la hoja ⛔ no lea el legado por pieza como efectivo.
+- **Disparador:** cualquier cambio a la precedencia de §M11-SP (o un peldaño nuevo).
+
+### SPS-D3 · P3 · El filtro «plataforma, ligada, en existencia» está escrito tres veces
+- **Dónde:** `backend/src/modules/inventory/sealed-product-pieces.ts:32-36`, `sealed-price.service.ts:96-98`
+  (`piecesWhere`) y `:133-135` (`onHand`).
+- **Qué es:** los tres comparten `SEALED_PIECE_STATUSES`, pero `ownerType: 'platform'` y la forma del `where` están
+  copiados; si uno cambia (p. ej. contar `consignment`), los conteos de la hoja, del listado y del filtro «en existencia»
+  divergen en silencio.
+- **Dirección:** un solo constructor `sealedPieceWhere(ids?)` en `sealed-product-pieces.ts`, usado por los tres (el
+  `onHand` lo envuelve en `some`).
+- **Disparador:** el próximo cambio a qué piezas «cuentan» para el producto.
+
+### SPS-D4 · P2 · La convergencia SP-14 con `isOwner` exige firma nueva y lectura de BD (va en el encargo de SP-14)
+- **Dónde:** `backend/src/modules/inventory/sealed-price.policy.ts:18` (`canSetSealedSalePrice` = `super_admin`, D-SP-1)
+  + sus **7** llamadas en `backend/src` (2 de `canSetSealedSalePrice` en `sealed-price.service.ts`, 5 de
+  `assertSealedPriceWriters` en `inventory.service.ts`); espejo en `frontend/src/lib/sealed-price-role.ts:12` + sus 4 usos (dueño de esa
+  mitad: frontend).
+- **Qué es:** el predicado es hoy **puro y síncrono** sobre el rol. Converger con `isOwner` (que distingue al dueño entre
+  los súper-admins) exige **otra firma** (async, con la lectura de BD o el dato ya resuelto en el actor) y tocar las 7
+  llamadas, más el espejo de frontend. No es un cambio de una línea y no debe colarse en otro encargo.
+- **Dirección:** decidirlo en el encargo de SP-14 (arquitecto): o el `Actor` trae `isOwner` resuelto por el guard (la
+  firma pura se conserva), o el predicado pasa a async con lectura. La tabla SP-14 de `test/sealed-price.sp.spec.ts`
+  cambia con él.
+- **Disparador:** la fusión con la rama que trae `isOwner` (SP-14 «al fusionar»).
+
+### SPS-D7 · P3 · `getIvaDials` se lee una vez por pieza en `sellableStatusFor`
+- **Dónde:** `backend/src/modules/orders/orders.service.ts:305-306` (`salePriceOf` llama a `getIvaDials`), invocado en
+  bucle desde `:1869`.
+- **Qué es:** N piezas ⇒ N lecturas de los diales (consultas extra y, en teoría, dos posiciones del dial en una misma
+  respuesta si el dueño lo mueve a mitad). En el checkout real los diales se leen una vez por carrito; este camino es
+  solo el de «¿resuelve?».
+- **Dirección:** leer los diales una vez fuera del bucle y pasarlos a `salePriceOf(item, dials)`.
+- **Disparador:** que ese bucle aparezca en un perfil de latencia, o el próximo cambio a `sellableStatusFor`.
+
+### SPS-D8 · ✅ CERRADA en este pase (2026-10-05) · Relectura del `PUT …/sale-price` sin producto ⇒ `data: undefined`
+- **Dónde estaba:** `backend/src/modules/inventory/sealed-price.service.ts:375-376` (árbol `4f367aea`).
+- **Qué era:** si el producto desaparecía entre el commit y la relectura, `const [data] = rowsOf([])` daba `200` con
+  `data: undefined`.
+- **Cierre:** `404 NOT_FOUND` explícito antes de `rowsOf`; prueba unitaria «D-8» en `test/sealed-price.sp.spec.ts` (roja
+  sin el arreglo; ver `BACKEND_NOTES §57.10`).
+
 ## Backend · 2026-09-28 · SEC-SETTLE-LATE (sobre `2fb61f1`)
 
 ### SSL-R1 · Piezas `reserved` de una orden `refunded` SIN liquidar nunca se sueltan: el barrido las salta en cada pasada (backend · API_CONTRACT §M4-VAULT.2-bis.2 «Residual», 2026-09-28)

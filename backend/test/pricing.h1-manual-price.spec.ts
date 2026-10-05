@@ -139,7 +139,7 @@ describe('E5-bis — una pieza con `listPriceCents = 0` da el MISMO precio en TO
   it('publicación (`resolvePublishSalePrice`): deriva por la curva en vez de listar a $0', async () => {
     const { InventoryService } = await import('../src/modules/inventory/inventory.service');
     const pricing = pricingMock();
-    const svc = new InventoryService({} as PrismaService, pricing, {} as SettingsService);
+    const svc = new InventoryService({} as PrismaService, pricing, ivaDialsStub() as unknown as SettingsService);
     const ctx = await (svc as never as { loadPublishPricingCtx: (i: unknown[]) => Promise<unknown> })
       .loadPublishPricingCtx([ITEM({ status: 'in_stock' })]);
     const resolved = await (
@@ -153,7 +153,7 @@ describe('E5-bis — una pieza con `listPriceCents = 0` da el MISMO precio en TO
   it('un `0` en la LÍNEA de bulk-publish no enmascara el override de la PIEZA', async () => {
     const { InventoryService } = await import('../src/modules/inventory/inventory.service');
     const pricing = pricingMock();
-    const svc = new InventoryService({} as PrismaService, pricing, {} as SettingsService);
+    const svc = new InventoryService({} as PrismaService, pricing, ivaDialsStub() as unknown as SettingsService);
     const item = ITEM({ status: 'in_stock', listPriceCents: 9900 });
     const ctx = await (svc as never as { loadPublishPricingCtx: (i: unknown[]) => Promise<unknown> }).loadPublishPricingCtx([item]);
     const resolved = await (

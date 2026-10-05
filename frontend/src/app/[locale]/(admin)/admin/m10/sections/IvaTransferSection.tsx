@@ -207,6 +207,11 @@ export function IvaTransferSection() {
                       price: formatMoneyCents(data.samplePriceCents, locale),
                     })}
               </p>
+              {/* §70.9 (SP.12.2): el precio CON IVA del dueño no se mueve con esta fracción. Línea FIJA, también
+                  con delta 0; ⛔ sin cifra ni conteo (el preview no los trae y la UI no los calcula). */}
+              <p className="mt-2 max-w-xl text-xs leading-relaxed text-muted" data-testid="iva-transfer-sealed-owner-price">
+                {t('delta.sealedOwnerPrice')}
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">

@@ -5,6 +5,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.21.2 (T1, §M3 / ARCHITECTURE §4.21c-bis) — DESENLACE HUMANO de una pieza congelada por un
@@ -120,7 +121,8 @@ function build(
   const svc = new OrdersService(
     prisma as PrismaService,
     pricing as PricingService,
-    {} as SettingsService,
+    // v1.83.1: `salePriceOf` lee los diales (el `L` equivalente del precio del dueño).
+    ivaDialsStub() as unknown as SettingsService,
     {} as StripeService,
     {} as CatalogService,
   );

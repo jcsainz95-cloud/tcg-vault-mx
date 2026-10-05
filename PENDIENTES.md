@@ -6,6 +6,20 @@
 > Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## Orden de fusión de las ramas vivas (2026-10-05, sesión 5) — para no pisarse
+
+> Pedido del dueño (2026-10-05): «sé muy cuidadoso de no pisarte». Cinco ramas vivas, cada una en su worktree, todas desde `production` = `3e09685a`.
+> Comparten ficheros (`frontend/src/lib/api.ts`, `frontend/src/types/contract.ts`, `frontend/messages/*.json`, `backend/prisma/schema.prisma`, cabeceras de `docs/*.md`), así que se fusionan **de una en una**: cada rama trae `production` al día (merge, nunca rebase), corre la suite entera de nuevo y solo entonces abre su PR → `production`.
+
+| Orden | Rama | Worktree | Migraciones / números reservados | Medido |
+|---|---|---|---|---|
+| 1 | `claude/hotfix-texto-sellado` (D-SP-5: «Precio final» engaña; solo textos) | `/home/user/tcg-hotfix` | ninguno | 2026-10-05 |
+| 2 | `claude/arreglos-panel` (§PNL v1.82/.1) | `/home/user/tcg-panel` | M-70 · contrato v1.82 · diseño v5.0/§60 · criterios 400–418 | 2026-10-05 |
+| 3 | `claude/skydropx-d` (Skydropx + control del gasto) | `/home/user/tcg-skyd` | M-64…M-68 (M-69 libre) · v1.80.11–v1.80.12.13 · diseño v4.15–v4.22/§43 · criterios 319–338 | 2026-10-05 |
+| 4 | `claude/precio-sellado` (§M11-SP v1.83/.1) | `/home/user/tcg-sellado` | M-71 · v1.83 · diseño v6.x/§70 | 2026-10-05 |
+| 5 | `claude/listo-real` (dinero real) | `/home/user/tcg-real` | v1.84 · criterios 500+ | 2026-10-05 |
+
+**Comprobación al fusionar cada una:** `git merge-base --is-ancestor origin/production HEAD` tras traer `production`; suite unitaria + integración + vitest sobre `git archive` del árbol entero; paridad de enums y C-EQ-1 en verde; y, en la rama 3 o la 4 (la que fusione segunda), SP-14 (`canSetSealedSalePrice` ⇒ `isOwner`).
 ## Abiertos añadidos 2026-10-05 (sesión 5)
 
 | # | Qué | Dueño | Medido | Comprobación |

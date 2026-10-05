@@ -9,6 +9,7 @@ import {
   PokeTraceProvider,
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.36-sealed-alta (M-37, P-35 · ARCHITECTURE §4.32c · API_CONTRACT §M1) — el alta de SELLADO reusa
@@ -112,7 +113,7 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
     $transaction: jest.fn(async (fn: any) => fn(prisma)),
   };
 
-  const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
   const pricing = new PricingService(
     prisma as PrismaService,
     settings,

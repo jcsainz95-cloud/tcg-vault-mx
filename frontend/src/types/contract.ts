@@ -3232,6 +3232,20 @@ export interface InventoryItemDTO {
    */
   resolvedSalePriceCents?: number | null;
   priceBasis?: PriceBasis | null;
+  /**
+   * §M11-SP.12.7 / 13.5 — identidad del producto. Regla: se decide por `productType` PRIMERO. En `sealed` la clave
+   * viene siempre (`string` = ligada, `null` = sin producto); en raw/graded el listado no la trae y ⛔ no se lee.
+   * (El detalle `GET …/items/:id` la trae en toda fila, raw/graded `null`, §M11-SP.13.6.)
+   */
+  sealedProductId?: string | null;
+  /** §M11-SP.12.7 — solo filas S-2 ligadas: el conteo del PRODUCTO (⛔ no las filas de la página). */
+  sealedProductPieces?: SealedProductPiecesDTO;
+  /** §M11-SP.1/12.4 — solo filas S-2: de qué peldaño sale el precio. */
+  sealedPriceOrigin?: SealedPriceOrigin;
+  /** §M11-SP.12.4 — solo filas S-2: `P` del dueño del producto; `null` = no hay. Es el `expected` del editor. */
+  sealedProductDisplayPriceCents?: number | null;
+  /** §M11-SP.12.4 — solo filas S-2: el `P` de ESTA pieza (con IVA). ⛔ `resolvedSalePriceCents` es `L`. */
+  resolvedDisplayPriceCents?: number | null;
 }
 
 // ⭐ §M2 (v1.23-sealed) · `PUT /admin/pricing/sealed/items/:itemId/mapping` (`super_admin`, auditado):
@@ -3326,6 +3340,12 @@ export interface InventoryMovementDTO {
 // Detalle por pieza del back-office (GET /admin/inventory/items/:id): el item + movimientos.
 export interface AdminInventoryItemDetailDTO extends InventoryItemDTO {
   movements: InventoryMovementDTO[];
+  /**
+   * §M11-SP.13.6 (A-5) — en el DETALLE viaja en toda fila (raw/graded `null`). `ItemDetailModal` decide por
+   * `productType` primero: sellado + `string` ⇒ ligado («Lo fija el producto»), sellado + `null` ⇒ sin producto.
+   * El detalle ⛔ no trae `sealedPriceOrigin` ni `resolvedDisplayPriceCents`.
+   */
+  sealedProductId: string | null;
 }
 
 // ===== v1.16-master-set: Master Set + inventario a escala (§M1) =====
@@ -3921,6 +3941,98 @@ export interface SealedPriceStatusResponse {
   page: number;
   pageSize: number;
   total: number;
+}
+
+// ===== §M11-SP (v1.83 + v1.83.1 §M11-SP.12 + v1.83.2 §M11-SP.13): el precio del sellado es del PRODUCTO =====
+/**
+ * De QUÉ peldaño salió el precio de venta de un sellado (§M11-SP.1): `product` = precio del dueño del producto;
+ * `piece` = `listPriceCents` por pieza (legado, o el de un sellado SIN producto); `automatic` = mercado × margen;
+ * `pending` = sin precio.
+ */
+export type SealedPriceOrigin = 'product' | 'piece' | 'automatic' | 'pending';
+
+/**
+ * Fila de la hoja «Precios del sellado» (`GET /admin/inventory/sealed-price-sheet`, §M11-SP.5 con los campos de
+ * precio de §M11-SP.12.4). Vocabulario (`DESIGN_SYSTEM §70.0-bis`): `P` = con IVA (lo que paga el cliente), `N` = sin
+ * IVA (`netPriceCents`), `L` = antes de IVA (`automaticListPriceCents`; la hoja NO lo pinta).
+ * ⛔ Retirados (no construidos): `ownerPriceCents`, `automaticPriceCents`, `effectivePriceCents`.
+ */
+export interface SealedPriceSheetRowDTO {
+  sealedProductId: string;
+  name: string;
+  subtype: SealedSubtype;
+  imageUrl: string | null;
+  active: boolean;
+  set: SetRefDTO;
+  /** Piezas de plataforma ligadas a ESTE producto. */
+  pieces: { inStock: number; listed: number; reserved: number };
+  /** Sobre las piezas de `pieces`; `0` es un costo válido. Con `scope=all` y sin piezas: todo `null`, `withoutCost 0`. */
+  cost: { avgCents: number | null; minCents: number | null; maxCents: number | null; withoutCost: number };
+  /** `P` del dueño (peldaño 1), lo tecleado; `null` = no hay. */
+  ownerDisplayPriceCents: number | null;
+  /** `L` automático (peldaño 3), siempre calculado. ⛔ La hoja no lo pinta. */
+  automaticListPriceCents: number | null;
+  /** Su `P`. */
+  automaticDisplayPriceCents: number | null;
+  /** `null` ⇔ `automaticListPriceCents` null. */
+  automaticSource: 'subtype_spread' | 'global_spread' | null;
+  /** Puntos de markup sobre el mercado, aplicados a `L` (§M11-SP.12.8). `null` ⇔ `automaticSource` null. */
+  appliedSpreadPct: number | null;
+  effectiveOrigin: 'product' | 'automatic' | 'pending';
+  /** LO QUE PAGA EL CLIENTE por una pieza sin precio propio: owner ?? automaticDisplay. */
+  displayPriceCents: number | null;
+  /** `N` = sin IVA, por pieza, informativo (calculado por el servidor). */
+  netPriceCents: number | null;
+  /** Referencia de mercado (MXN, `capturedDate`): `null` o `status: 'priced'`, ⛔ nunca `pending` (§M11-SP.13.7). */
+  market: PriceInfo | null;
+  /** `P` de las piezas con `listPriceCents > 0` (peldaño 2); `shadowed` ⇔ hay precio del dueño. */
+  legacyPiecePrices: { count: number; minDisplayCents: number | null; maxDisplayCents: number | null; shadowed: boolean };
+  /** Informativo: `netPriceCents − cost.avgCents`; `bps = round(cents·10000/N)`. */
+  margin: { cents: number; bps: number } | null;
+}
+
+export type SealedPriceSheetScope = 'on_hand' | 'all';
+
+/** `GET /admin/inventory/sealed-price-sheet` (`vault_operator+`, §M11-SP.5 + 12.4 + 13.7). */
+export interface SealedPriceSheetResponse {
+  data: SealedPriceSheetRowDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+  /** Piezas selladas de plataforma en existencia SIN `sealedProductId` (cuenta global). */
+  unlinkedCount: number;
+  /** El servidor dice si quien pide puede fijar precio (§M11-SP.3). */
+  canEdit: boolean;
+  /** Diales de IVA de la petición: `ratePct` = tasa `r` (margen en vivo), `transferPct` = fracción `t`. */
+  iva: { ratePct: number; transferPct: number };
+}
+
+/** Cuentas del intento de auto-publicación tras el `PUT` (§M11-SP.12.6). Cuentas a cero ≠ `null` (13.2). */
+export interface SealedAutoPublishDTO {
+  published: number;
+  missingLocation: number;
+  notPublished: number;
+}
+
+/** Req de `PUT /admin/inventory/sealed-products/:id/sale-price` (§M11-SP.12.4): los DOS campos obligatorios. */
+export interface SetSealedSalePriceRequest {
+  /** `P`, entero `1…100_000_000`: lo tecleado, exacto. */
+  displayPriceCents: number;
+  /** El `ownerDisplayPriceCents` que la pantalla mostró; `null` = «no tenía». */
+  expectedDisplayPriceCents: number | null;
+}
+
+/** Res `200` del `PUT`. `autoPublish: null` ⇔ el intento de publicar lanzó (el precio SÍ se guardó). */
+export interface SetSealedSalePriceResponse {
+  data: SealedPriceSheetRowDTO;
+  autoPublish: SealedAutoPublishDTO | null;
+}
+
+/** Conteo del producto en las filas S-2 del listado y en las `sealed` de la cola (§M11-SP.12.7). */
+export interface SealedProductPiecesDTO {
+  inStock: number;
+  listed: number;
+  reserved: number;
 }
 
 /**
@@ -4563,6 +4675,16 @@ export interface PendingPublishRowDTO {
   acquisitionType: AcquisitionType;
   sourceSellRequestItemId: string | null;
   createdAt: string;
+  /** §M11-SP.12.7 / 13.5 — filas `sealed`: `string` = ligada, `null` = sin producto. Raw/graded: ausente, ⛔ no se lee. */
+  sealedProductId?: string | null;
+  /** §M11-SP.12.7 — filas `sealed` ligadas: conteo del producto. */
+  sealedProductPieces?: SealedProductPiecesDTO;
+  /** §M11-SP.1 — filas `sealed`. */
+  sealedPriceOrigin?: SealedPriceOrigin;
+  /** §M11-SP.12.4 — filas `sealed`: `P` del dueño del producto (el `expected` del editor). */
+  sealedProductDisplayPriceCents?: number | null;
+  /** §M11-SP.12.4 — filas `sealed`: el `P` de esta pieza. */
+  resolvedDisplayPriceCents?: number | null;
 }
 
 /** v1.82 (§PNL.4) — `POST /admin/buylist/:id/reject-items`. `itemIds` 1–200 sin repetidos; `reason` 3–500 tras `trim()`. */

@@ -837,6 +837,10 @@ model SealedProduct {
   marketUsdCents     Int?
   marketUpdatedAt    DateTime?
   active             Boolean         @default(true)
+  // v1.83.1 (§M11-SP.12.1, M-71): `P` del dueño — lo que paga el cliente por pieza, IVA DENTRO, exactamente lo
+  // tecleado (sin redondeo). `null` = el dueño no lo ha fijado ⇒ manda el automático. CHECK 1…100_000_000 en BD.
+  // Lo escribe SOLO `SealedPriceService.setSalePrice` (SP-13); se lee por `manualSaleOf`/`saleDisplayCentsOf`.
+  ownerDisplayPriceCents Int?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 
