@@ -13,6 +13,8 @@
  *    `occurredAt` (la fecha del transportista); si no hay, y `deliveredAt ≠ null` ⇒ `deliveredAt` (la de la tienda: Skydropx
  *    marcada `entregado` a mano, o guía manual). ⛔ Nunca dos `delivered` (ni evento + fecha, ni dos eventos: manda el primero).
  *    El título ya dice «entregado» (`publicStatus`) y la línea no puede contradecirlo; el `AV-17` sigue mudo en ese caso (242).
+ *  - ⭐ v1.80.12.17 (§19.36.2 (2), B-6) — `shipped.at = min(shippedAt, primer occurredAt de un MOVIMIENTO de la guía vigente)`
+ *    (`MOVEMENT_KINDS`): «Salió» no puede quedar después de que el transportista ya lo movió. ⛔ `shippedAt` en BD no cambia.
  *  - Solo los eventos de la guía VIGENTE (`providerShipmentId` del envío): una guía re-emitida no hereda la historia de la
  *    cancelada (decisión de D2e, BACKEND_NOTES §67).
  */
@@ -42,6 +44,12 @@ const KIND_OF: Partial<Record<CarrierStatus, CustomerTimelineKind>> = {
   delivered_to_branch: 'at_branch',
   delivered: 'delivered',
 };
+
+/**
+ * §19.36.2 (2): los `kind` que son MOVIMIENTO del transportista (acotan `shipped.at`). ⛔ Ni `label_created` (la guía existe, el
+ * paquete no se ha movido) ni los estados sin `kind` (`exception`, `retained`, …).
+ */
+const MOVEMENT_KINDS: ReadonlySet<CustomerTimelineKind> = new Set(['in_transit', 'out_for_delivery', 'delivery_attempt', 'at_branch', 'delivered']);
 
 export interface TimelineEventRow {
   status: CarrierStatus;
@@ -74,8 +82,21 @@ export const CUSTOMER_TIMELINE_EVENTS_SELECT = {
 export function toCustomerTimeline(events: readonly TimelineEventRow[], shipment: TimelineShipmentRow): CustomerTimelineEntry[] {
   const out: { e: CustomerTimelineEntry; t: number; i: number }[] = [];
   const push = (e: CustomerTimelineEntry, t: number) => out.push({ e, t, i: out.length });
-  if (shipment.shippedAt) push({ kind: 'shipped', at: shipment.shippedAt.toISOString() }, shipment.shippedAt.getTime());
   const fromProvider = shipment.labelSource === 'skydropx' && !!shipment.providerShipmentId;
+  if (shipment.shippedAt) {
+    // ⭐ v1.80.12.17 (§19.36.2 (2), B-6): «Salió» se FECHA con la cota que da el propio dato — a más tardar el primer
+    // movimiento del transportista en la guía vigente. ⛔ `shippedAt` en BD no cambia; sin movimientos (o guía manual) ⇒ igual.
+    let t = shipment.shippedAt.getTime();
+    if (fromProvider) {
+      for (const ev of events) {
+        if (ev.providerShipmentId !== shipment.providerShipmentId) continue;
+        const kind = KIND_OF[ev.status];
+        if (kind && MOVEMENT_KINDS.has(kind)) t = Math.min(t, ev.occurredAt.getTime());
+      }
+    }
+    // Empuja PRIMERO: en un empate con ese movimiento, `shipped` va antes (el desempate de siempre, `i`).
+    push({ kind: 'shipped', at: new Date(t).toISOString() }, t);
+  }
   let delivered = false;
   if (fromProvider) {
     for (const ev of events) {

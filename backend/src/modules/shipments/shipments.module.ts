@@ -25,6 +25,7 @@ import { ShipmentLabelProcessingJob } from './label-processing.job';
 import { ShipmentExtraChargesJob } from './extra-charges.job';
 import { ShipmentDepartureService } from './departure.service';
 import { GuestOrderTokensModule } from '../orders/guest-order-tokens.module';
+import { ShippingWorkQueueService } from './shipping-work-queue.service';
 
 @Module({
   // ⭐ v1.80.12 (M-64): `GeoModule` — la corrección de la dirección valida contra la lista del CP (§M4-SHIP.19.20.1).
@@ -48,6 +49,8 @@ import { GuestOrderTokensModule } from '../orders/guest-order-tokens.module';
     ShipmentLabelProcessingJob,
     ShipmentExtraChargesJob,
     ShipmentDepartureService,
+    // C-TL-1 (gate techlead sobre 31af0883): `workQueue.shipping` del tablero con el reloj y `tUnknownMs` de ESTE módulo.
+    ShippingWorkQueueService,
     // ⭐ D2e (§19.12): los correos AV-17/18/19 al cliente — sello y envío en `ShipmentsService.notifyCarrierNotice`.
     { provide: CARRIER_NOTICES, inject: [ShipmentsService], useFactory: mailCarrierNotices },
     // 💰 §19.8: el post-commit de la cancelación automática, por token (los escritores viven en `payments/`).
@@ -75,6 +78,8 @@ import { GuestOrderTokensModule } from '../orders/guest-order-tokens.module';
     ShipmentTrackingPollJob,
     ShipmentLabelProcessingJob,
     ShipmentExtraChargesJob,
+    // C-TL-1: el tablero (`admin/dashboard-shipping.service.ts`) lo inyecta normal (⛔ `ModuleRef` con `strict:false`).
+    ShippingWorkQueueService,
   ],
 })
 export class ShipmentsModule {}

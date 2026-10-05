@@ -314,25 +314,30 @@ export function shipmentCancelledTemplate(
   const intro = en
     ? 'This shipment will not go out. Nothing left our warehouse.'
     : 'Este envío no va a salir. Nada salió de nuestro almacén.';
-  const next = en
-    ? 'If you still want your cards shipped, you can request it again from your account.'
-    : 'Si todavía quieres que te enviemos tus cartas, puedes volver a solicitarlo desde tu cuenta.';
+  // C-TL-2 (§41.4 fila 19, §41.13 fila 19): «vuelve a solicitarlo desde tu cuenta» SOLO en un retiro de bóveda — un pedido no
+  // se «vuelve a solicitar» desde la cuenta (y el invitado no tiene cuenta).
+  const next = params.orderNumber
+    ? ''
+    : en
+      ? 'If you still want your cards shipped, you can request it again from your account.'
+      : 'Si todavía quieres que te enviemos tus cartas, puedes volver a solicitarlo desde tu cuenta.';
   const url = shipmentUrl(params, l);
-  const ctaLabel = en ? 'GO TO MY ACCOUNT' : 'IR A MI CUENTA';
+  // §41.4 fila 19: el rótulo nombra el DESTINO real del enlace (⛔ «IR A MI CUENTA» que abre un pedido).
+  const ctaLabel = ctaLabelOf(params, en);
   const blocks = [
     eyebrowRow(eyebrow(params, en), folio(params)),
     headingRow(title, 22),
     spacerRow(24),
     proseRow(intro),
-    spacerRow(16),
-    proseRow(next),
+    ...(next ? [spacerRow(16), proseRow(next)] : []),
     spacerRow(32),
     ...(url ? [ctaRows(url, ctaLabel, 'ink')] : []),
   ];
   return {
-    subject: en ? `${BRAND} — Your shipment was cancelled` : `${BRAND} — Tu envío quedó cancelado`,
+    // §41.2 fila 19 ✏: sin prefijo de marca.
+    subject: en ? 'Your shipment was cancelled' : 'Tu envío quedó cancelado',
     html: mailShell({ locale: l, title, preheader: `${title}. ${intro}`, blocks, footerWhy: shipmentFooterWhy(en) }),
-    text: [title, '', intro, '', next, ...(url ? ['', url] : []), '', BRAND].join('\n'),
+    text: [title, '', intro, ...(next ? ['', next] : []), ...(url ? ['', url] : []), '', BRAND].join('\n'),
   };
 }
 

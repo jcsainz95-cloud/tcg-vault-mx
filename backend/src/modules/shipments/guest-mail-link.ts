@@ -80,8 +80,17 @@ export async function orderMailLinkOf(
   } catch (e) {
     // ⛔ Ni el claro ni el mensaje crudo (un error de Prisma puede citar valores): solo la clase/código. Si la bitácora falló
     // DESPUÉS de emitir, ese token queda vivo sin haber viajado a nadie (inofensivo: el claro se descarta aquí).
-    const code = (e as { code?: unknown } | null)?.code;
-    deps.logger.warn(`${notice} for order ${order.id}: guest link not issued (${e instanceof Error ? e.name : 'error'}${code ? ` ${String(code)}` : ''}); mail goes without CTA`);
+    deps.logger.warn(`${notice} for order ${order.id}: guest link not issued (${safeErrorTag(e)}); mail goes without CTA`);
     return null;
   }
+}
+
+/**
+ * La etiqueta de un error que SÍ puede ir al log: la clase (`name`) y, si lo hay, el `code` (Prisma `P2002`, Node `ECONNRESET`).
+ * ⛔ Nunca `message`: puede citar el enlace con token del correo o valores de la fila (D-8 del gate techlead sobre 31af0883).
+ * La usan los `catch` de los avisos: este fichero, `ShipmentsService.claimAndNotify` y `RefundLedgerService.notifyCustomer`.
+ */
+export function safeErrorTag(e: unknown): string {
+  const code = (e as { code?: unknown } | null)?.code;
+  return `${e instanceof Error ? e.name : 'error'}${code ? ` ${String(code)}` : ''}`;
 }

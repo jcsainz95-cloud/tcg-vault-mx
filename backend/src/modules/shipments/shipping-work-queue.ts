@@ -19,12 +19,13 @@
  */
 import { Prisma } from '@prisma/client';
 import { CARRIER_ALERT_STATUSES, carrierAlertActive, labelAlertOf } from './label-view';
+import { ORPHAN_ALERT_TTL_MS } from './label-verify.constants';
 
 type Db = Pick<Prisma.TransactionClient, 'shipmentRequest'>;
 type AlertDb = Pick<Prisma.TransactionClient, 'shipmentRequest' | 'auditLog'>;
 
-/** La ventana de `label_orphan` del DTO (`ShipmentsService.labelFieldsOf`, `alertShipmentIds`): 7 días. */
-const ORPHAN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+// La ventana de `label_orphan` (§19.28.6, 7 días) es `ORPHAN_ALERT_TTL_MS` (`label-verify.constants.ts`): UNA constante para
+// el DTO (`ShipmentsService.labelFieldsOf`), `?alert=true` y el tablero (C-TL-1 del gate techlead sobre 31af0883).
 
 export interface ShippingWorkQueueDTO {
   lowBalance: boolean | null;
@@ -46,12 +47,17 @@ export interface ShippingWorkQueueDeps {
   tUnknownMs: number;
 }
 
-export async function countCarrierAlerts(db: Db): Promise<number> {
+/** Los envíos con `carrierAlert ≠ null` (§19.3): superconjunto ancho en SQL y, fila a fila, `carrierAlertActive`. */
+export async function carrierAlertShipmentIds(db: Db): Promise<string[]> {
   const rows = await db.shipmentRequest.findMany({
     where: { carrierStatus: { in: [...CARRIER_ALERT_STATUSES, 'canceled'] } },
-    select: { status: true, labelSource: true, carrierStatus: true, providerCanceledAt: true },
+    select: { id: true, status: true, labelSource: true, carrierStatus: true, providerCanceledAt: true },
   });
-  return rows.filter((r) => carrierAlertActive(r)).length;
+  return rows.filter((r) => carrierAlertActive(r)).map((r) => r.id);
+}
+
+export async function countCarrierAlerts(db: Db): Promise<number> {
+  return (await carrierAlertShipmentIds(db)).length;
 }
 
 /**
@@ -60,7 +66,7 @@ export async function countCarrierAlerts(db: Db): Promise<number> {
  */
 export async function labelAlertShipmentIds(db: AlertDb, now: Date, tUnknownMs: number): Promise<string[]> {
   const orphans = await db.auditLog.findMany({
-    where: { action: 'shipment.label_orphan', entityType: 'ShipmentRequest', createdAt: { gt: new Date(now.getTime() - ORPHAN_WINDOW_MS) } },
+    where: { action: 'shipment.label_orphan', entityType: 'ShipmentRequest', createdAt: { gt: new Date(now.getTime() - ORPHAN_ALERT_TTL_MS) } },
     orderBy: { createdAt: 'desc' },
     select: { entityId: true, createdAt: true },
   });
@@ -79,6 +85,16 @@ export async function labelAlertShipmentIds(db: AlertDb, now: Date, tUnknownMs: 
   return candidates
     .filter((row) => labelAlertOf(row, now, null, { tUnknownMs, orphanSince: orphanSince.get(row.id) ?? null }) !== null)
     .map((row) => row.id);
+}
+
+/**
+ * `?alert=true` (§19.20.2 «Filtro y tablero»): `carrierAlert ≠ null ∨ labelAlert ≠ null` = la UNIÓN de los dos cuerpos de
+ * arriba (C-TL-1). ⛔ Ninguna consulta ancha propia: el SQL de cada alerta vive en un solo sitio, el mismo que cuenta el
+ * tablero. `actorRole` no cambia SI hay alerta (solo `canRelease`), así que no entra aquí.
+ */
+export async function alertShipmentIdsOf(db: AlertDb, now: Date, tUnknownMs: number): Promise<string[]> {
+  const [carrier, label] = await Promise.all([carrierAlertShipmentIds(db), labelAlertShipmentIds(db, now, tUnknownMs)]);
+  return [...new Set([...carrier, ...label])];
 }
 
 export async function countLabelAlerts(db: AlertDb, now: Date, tUnknownMs: number): Promise<number> {

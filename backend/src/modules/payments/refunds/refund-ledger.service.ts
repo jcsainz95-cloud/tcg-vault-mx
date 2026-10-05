@@ -33,7 +33,7 @@ import { orderRefundedTemplate } from '../../orders/mail/order-notice.templates'
 import { FullRefundService } from './full-refund.service';
 import { Av12Params, refundNoticeTemplate } from './mail/refund-notice.templates';
 import { OrderAccessTokenService } from '../../orders/order-access-token.service';
-import { orderMailLinkOf } from '../../shipments/guest-mail-link';
+import { orderMailLinkOf, safeErrorTag } from '../../shipments/guest-mail-link';
 
 /** Espacio del advisory lock de la PUERTA POR OPERADOR (§M4-SHIP.5 paso 6). Namespace propio. */
 export const OPERATOR_REFUND_GATE_NAMESPACE = 80_125_061;
@@ -543,7 +543,8 @@ export class RefundLedgerService {
         await this.mail.send({ ...refundNoticeTemplate(params, recipient.locale), to: recipient.email });
       }
     } catch (e) {
-      this.logger.error(`AV-12 falló: ${(e as Error).message}`);
+      // D-8 (gate techlead sobre 31af0883): ⛔ el mensaje crudo (podría citar el enlace con token): solo clase y código.
+      this.logger.error(`AV-12 falló (${safeErrorTag(e)})`);
     }
   }
 

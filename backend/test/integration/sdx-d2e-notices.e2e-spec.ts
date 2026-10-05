@@ -12,7 +12,7 @@
  *  - PS-78 (corregida y ampliada §19.33.2): `delivered` de hace 8 d ⇒ `deliveredAt ≈ now`, AV-17 sin plazo y con «Escríbenos»;
  *    estado desconocido ⇒ `exception` con `detail`, alerta, `?alert=true`, cero correos, llave propia.
  *  - PS-72 ampliada (§19.33.4): `in_transit` fechado 5 s ANTES de la compra avanza desde `created`.
- *  - PS-87 (lo construible: registrado ⇒ `/orders/<id>`, retiro ⇒ `/shipments/<id>`; el invitado: BACKEND_NOTES §67 P-D2E-1).
+ *  - PS-87 (lo construible: registrado ⇒ `/orders/<id>`, retiro ⇒ `/shipments/<id>`; el invitado ⇒ `/pedido?token`, construido en B-1: `sdx-b1-guest-mail-link.e2e-spec.ts`, BACKEND_NOTES §69).
  *  - PS-88 (`trackingUrl` solo si vino, exacta en AV-4/5/17/18 y en las tres superficies; URL hostil ⇒ NULL + bitácora).
  *  - PS-89 (línea de tiempo pública en `guest/track`, `/orders/:id`, `/shipments/:id`).
  */
@@ -447,9 +447,14 @@ describe('⭐ D2e — correos del transportista al cliente y lo que el cliente v
       const shippedAt = { guest: (await row(g.id)).shippedAt, order: (await row(reg.shipment.id)).shippedAt, shipment: (await row(w.shipment.id)).shippedAt };
       for (const [name, x] of Object.entries(surfaces)) {
         expect({ name, trackingUrl: x.trackingUrl }).toEqual({ name, trackingUrl: TRACK_OK });
-        // Los seis del transportista con su kind fijo y en orden; `shipped` = `shippedAt` (§19.12) en su lugar por `at`.
+        // Los seis del transportista con su kind fijo y en orden; `shipped` en su lugar por `at`. ⭐ v1.80.12.17 (§19.36.2 (2),
+        // B-6): `shipped.at = min(shippedAt, primer movimiento)` — aquí `picked_up` a t − 8 d, antes que la salida (≈ ahora);
+        // `shippedAt` en BD no cambia.
         expect({ name, kinds: x.timeline.map((e: any) => e.kind).filter((k: string) => k !== 'shipped') }).toEqual({ name, kinds: providerKinds });
-        expect({ name, shipped: x.timeline.filter((e: any) => e.kind === 'shipped') }).toEqual({ name, shipped: [{ kind: 'shipped', at: shippedAt[name as keyof typeof shippedAt]!.toISOString() }] });
+        const firstMove = t - 8 * D;
+        const shippedMs = Math.min(shippedAt[name as keyof typeof shippedAt]!.getTime(), firstMove);
+        expect(shippedMs).toBe(firstMove);
+        expect({ name, shipped: x.timeline.filter((e: any) => e.kind === 'shipped') }).toEqual({ name, shipped: [{ kind: 'shipped', at: iso(shippedMs) }] });
         const ats = x.timeline.map((e: any) => Date.parse(e.at));
         expect(ats).toEqual([...ats].sort((a, b) => a - b));
         for (const e of x.timeline) expect(Object.keys(e).sort()).toEqual(e.kind === 'at_branch' ? ['at', 'branchName', 'kind'] : ['at', 'kind']);

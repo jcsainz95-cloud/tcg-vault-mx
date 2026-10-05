@@ -116,7 +116,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly decksMetaRefresh: DecksMetaRefreshService,
     // ⭐💰 D2d (API_CONTRACT §M4-SHIP.19.10): los tres jobs de Skydropx (no-op con `shipping_provider='off'`). `@Optional()`
     // SOLO por las pruebas unitarias que construyen el planificador a mano con la lista posicional de antes; en la app
-    // `ShipmentsModule` los exporta y `JobsModule` lo importa (lo asevera `sdx-d2d-jobs.e2e-spec.ts` con el AppModule real).
+    // `ShipmentsModule` los exporta y `JobsModule` lo importa (lo asevera `sdx-d2d-charges.e2e-spec.ts:132-133` con el AppModule real).
     @Optional() private readonly shipmentTrackingPoll?: ShipmentTrackingPollJob,
     @Optional() private readonly shipmentLabelProcessing?: ShipmentLabelProcessingJob,
     @Optional() private readonly shipmentExtraCharges?: ShipmentExtraChargesJob,

@@ -7,6 +7,8 @@
  *  - PS-89 ampliada (§19.35.3 (2)): guía Skydropx con `created`, `in_transit` y `PATCH …/status {to:'entregado'}` ⇒ última
  *    entrada `delivered` con `at = deliveredAt`; cero `AV-17`. Con `delivered` del transportista (y `deliveredAt` puesto por él)
  *    ⇒ **una** `delivered`, la del evento.
+ *  - PS-89 (c) (v1.80.12.17, §19.36.2 (2), B-6): `shipped.at = min(shippedAt, primer movimiento de la guía vigente)`; `shippedAt`
+ *    en BD sin tocar; con la salida antes del primer movimiento, sin cambio.
  */
 import { createLabelWorld, buyBody, dial, errCode, purchaseOn, ready, restoreDials, LabelWorld } from './helpers/label-db';
 import { R } from './helpers/ship-prep-db';
@@ -88,7 +90,51 @@ describe('B-2 (§19.35.2/.3) — PS-89: 7 con `shipped`; `entregado` a mano ⇒ 
     expect(ats).toEqual([...ats].sort((a, b) => a - b));
     // La `delivered` es la del transportista (⛔ no la `deliveredAt` de la tienda, que es «ahora»).
     expect(tl.filter((e) => e.kind === 'delivered')).toEqual([{ kind: 'delivered', at: iso(t - 4 * D) }]);
-    expect(tl.find((e) => e.kind === 'shipped')).toEqual({ kind: 'shipped', at: r.shippedAt!.toISOString() });
+    // ⭐ v1.80.12.17 (§19.36.2 (2), B-6): «Salió» se fecha a más tardar con el primer movimiento (`picked_up`, t − 8 d); la
+    // salida de la tienda (`shippedAt` ≈ ahora) queda en BD sin tocar.
+    expect(tl.find((e) => e.kind === 'shipped')).toEqual({ kind: 'shipped', at: iso(t - 8 * D) });
+    expect(r.shippedAt!.getTime()).toBeGreaterThan(t - H);
+  });
+
+  it('PS-89 (c) (§19.36.2 (2), B-6): `created` T, `picked_up` T+1h, `delivered_to_branch` T+3h, salida T+5h ⇒ shipped T+1h; BD sigue T+5h', async () => {
+    const s = await labeled();
+    const T = w.clock.now().getTime() - 10 * H;
+    w.fake.pushEvent(s.psid, 'created', iso(T));
+    w.fake.pushEvent(s.psid, 'picked_up', iso(T + H));
+    w.fake.pushEvent(s.psid, 'delivered_to_branch', iso(T + 3 * H));
+    // El sondeo corre a T+5h (refresh adelanta 1 s): la transición a `enviado` pone `shippedAt = T+5h`.
+    w.clock.set(new Date(T + 5 * H - 1000));
+    await refresh(s.id);
+    const r = await row(s.id);
+    expect(r.shippedAt!.toISOString()).toBe(iso(T + 5 * H));
+    const tl = await timelineOf(s.orderId);
+    expect(tl).toEqual([
+      { kind: 'label_created', at: iso(T) },
+      { kind: 'shipped', at: iso(T + H) },
+      { kind: 'in_transit', at: iso(T + H) },
+      { kind: 'at_branch', at: iso(T + 3 * H) },
+    ]);
+    expect((await row(s.id)).shippedAt!.toISOString()).toBe(iso(T + 5 * H));
+  });
+
+  it('PS-89 (c) (§19.36.2 (2), B-6): salida a T+30min, ANTES del primer movimiento ⇒ shipped = shippedAt, sin cambio', async () => {
+    const s = await labeled();
+    const p = await api('PATCH', `/admin/shipments/${s.id}/status`, { to: 'enviado' });
+    expect(errCode(p)).toBe('200');
+    const S = (await row(s.id)).shippedAt!.getTime();
+    const T = S - 30 * 60_000;
+    w.fake.pushEvent(s.psid, 'created', iso(T));
+    w.fake.pushEvent(s.psid, 'picked_up', iso(T + H));
+    w.fake.pushEvent(s.psid, 'delivered_to_branch', iso(T + 3 * H));
+    w.clock.set(new Date(T + 5 * H));
+    await refresh(s.id);
+    const tl = await timelineOf(s.orderId);
+    expect(tl).toEqual([
+      { kind: 'label_created', at: iso(T) },
+      { kind: 'shipped', at: iso(S) },
+      { kind: 'in_transit', at: iso(T + H) },
+      { kind: 'at_branch', at: iso(T + 3 * H) },
+    ]);
   });
 
   it('PS-89 ampliada (§19.35.3 (2)): `created`, `in_transit` y `entregado` A MANO ⇒ última `delivered` con `at = deliveredAt`; cero AV-17', async () => {

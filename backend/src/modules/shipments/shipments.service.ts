@@ -63,7 +63,7 @@ import {
 } from './mail/shipment-notice.templates';
 import { appUrl } from '../buylist/mail-shell';
 import { CarrierNotice, CarrierNoticeEvent } from './carrier-notices';
-import { OrderMailLinkTarget, OrderMailNotice, orderMailLinkOf } from './guest-mail-link';
+import { OrderMailLinkTarget, OrderMailNotice, orderMailLinkOf, safeErrorTag } from './guest-mail-link';
 import { OrderAccessTokenService } from '../orders/order-access-token.service';
 import { CUSTOMER_TIMELINE_EVENTS_SELECT, providerTrackingUrlOf, toCustomerTimeline } from './customer-timeline';
 import { CustomerRefDTO, ShipPreparationItemDTO, ShipPreparationStateDTO, ShipmentPrepService } from './shipment-prep.service';
@@ -74,7 +74,8 @@ import { originsBeingRefunded } from '../payments/refunds/origin';
 import { addressMissing } from '../users/address-rules';
 import { ShipmentAddressMissingField, shipmentAddressMissing } from './shipment-address-missing';
 import { NeighborhoodCheck, PostalCodeService } from '../shipping-provider/geo/postal-code';
-import { DEFAULT_LABEL_VERIFY_CONFIG, LABEL_VERIFY_CONFIG, LabelVerifyConfig } from './label-verify.constants';
+import { DEFAULT_LABEL_VERIFY_CONFIG, LABEL_VERIFY_CONFIG, LabelVerifyConfig, ORPHAN_ALERT_TTL_MS } from './label-verify.constants';
+import { alertShipmentIdsOf } from './shipping-work-queue';
 import { LabelClock, SHIPMENTS_LABEL_CLOCK, systemLabelClock } from './label-clock';
 import {
   CarrierAlertDTO,
@@ -83,7 +84,6 @@ import {
   LabelOptionsDTO,
   LabelPendingDTO,
   ShipmentLabelDTO,
-  CARRIER_ALERT_STATUSES,
   carrierAlertActive,
   labelAlertOf,
   toLabelPendingDTO,
@@ -785,7 +785,7 @@ export class ShipmentsService {
     if (labelSourceFilter === 'skydropx') and.push({ labelSource: 'skydropx' });
     else if (labelSourceFilter === 'manual') and.push({ OR: [{ labelSource: 'manual' }, { labelSource: null, trackingNumber: { not: null } }] });
     // `?alert=true` — clase L, dominio `true`: `carrierAlert ≠ null ∨ labelAlert ≠ null`, con las MISMAS funciones del DTO.
-    if (parseEnumFilter('alert', filters.alert, SHIPMENT_ALERT_FILTER_VALUES) === 'true') and.push({ id: { in: await this.alertShipmentIds(actorRole ?? null) } });
+    if (parseEnumFilter('alert', filters.alert, SHIPMENT_ALERT_FILTER_VALUES) === 'true') and.push({ id: { in: await this.alertShipmentIds() } });
     // `?folio=` — igualdad exacta, `^ENV-\d{6,}$`; fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}`. Admin (SDX-I-6).
     const folio = parseFolioFilter(filters.folio);
     if (folio !== undefined) and.push({ folio });
@@ -908,7 +908,7 @@ export class ShipmentsService {
       uncertainReason = (reason as InFlightUncertainReason | undefined) ?? null;
     }
     const orphan = await this.prisma.auditLog.findFirst({
-      where: { entityId: s.id, action: 'shipment.label_orphan', createdAt: { gt: new Date(this.labelClock.now().getTime() - 7 * 24 * 60 * 60 * 1000) } },
+      where: { entityId: s.id, action: 'shipment.label_orphan', createdAt: { gt: new Date(this.labelClock.now().getTime() - ORPHAN_ALERT_TTL_MS) } },
       orderBy: { createdAt: 'desc' },
       select: { createdAt: true },
     });
@@ -939,38 +939,14 @@ export class ShipmentsService {
   }
 
   /**
-   * `?alert=true` (§19.20.2 «Filtro y tablero»): los envíos con `carrierAlert ≠ null ∨ labelAlert ≠ null`. Una consulta
-   * ANCHA (superconjunto de los predicados de las dos alertas) y después la derivación EXACTA con las mismas funciones que
-   * pintan el DTO (`labelAlertOf`, `carrierAlertActive`): un solo cuerpo, ⛔ ninguna segunda definición en SQL.
+   * `?alert=true` (§19.20.2 «Filtro y tablero»): los envíos con `carrierAlert ≠ null ∨ labelAlert ≠ null` = `alertShipmentIdsOf`
+   * (`shipping-work-queue.ts`), la unión de `carrierAlertShipmentIds` y `labelAlertShipmentIds` — los MISMOS cuerpos que cuenta
+   * el tablero y que pintan el DTO (`carrierAlertActive`, `labelAlertOf`). ⛔ Ninguna segunda definición en SQL.
    */
-  private async alertShipmentIds(actorRole: Role | null): Promise<string[]> {
-    const now = this.labelClock.now();
-    const orphanFrom = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const orphans = await this.prisma.auditLog.findMany({
-      where: { action: 'shipment.label_orphan', entityType: 'ShipmentRequest', createdAt: { gt: orphanFrom } },
-      orderBy: { createdAt: 'desc' },
-      select: { entityId: true, createdAt: true },
-    });
-    const orphanSince = new Map<string, Date>();
-    for (const o of orphans) if (o.entityId && !orphanSince.has(o.entityId)) orphanSince.set(o.entityId, o.createdAt);
-    const candidates = await this.prisma.shipmentRequest.findMany({
-      where: {
-        OR: [
-          { status: 'cancelado', labelSource: 'skydropx', providerCanceledAt: null },
-          { providerShipmentId: { not: null }, providerCanceledAt: { not: null }, providerCancelConfirmedAt: null },
-          { labelProcessingSince: { not: null } },
-          { carrierStatus: { in: [...CARRIER_ALERT_STATUSES, 'canceled'] } },
-          ...(orphanSince.size > 0 ? [{ id: { in: [...orphanSince.keys()] } }] : []),
-        ],
-      },
-    });
-    return candidates
-      .filter(
-        (row) =>
-          carrierAlertActive(row) ||
-          labelAlertOf(row, now, actorRole, { tUnknownMs: this.labelCfg.tUnknownMs, orphanSince: orphanSince.get(row.id) ?? null }) !== null,
-      )
-      .map((row) => row.id);
+  private async alertShipmentIds(): Promise<string[]> {
+    // C-TL-1 (gate techlead sobre 31af0883): la UNIÓN de los dos cuerpos que cuenta el tablero (`shipping-work-queue.ts`), con el
+    // MISMO reloj y el MISMO `tUnknownMs` que el DTO. ⛔ Ninguna consulta ancha aquí.
+    return alertShipmentIdsOf(this.prisma, this.labelClock.now(), this.labelCfg.tUnknownMs);
   }
 
   /**
@@ -1721,7 +1697,8 @@ export class ShipmentsService {
     let shipped = false;
     let delivered = false;
     if (row.status === 'guia') {
-      if (this.prep) await this.prep.assertCanAdvance(tx, id, 'enviado');
+      // D-1 (gate techlead sobre 31af0883): sin `ShipmentPrepService` la guarda NO se salta — falla ruidoso.
+      await this.requirePrep().assertCanAdvance(tx, id, 'enviado');
       const moved = await tx.shipmentRequest.updateMany({ where: { id, status: 'guia' }, data: { status: 'enviado', shippedAt: at.now } });
       if (moved.count === 1) {
         shipped = true;
@@ -2150,9 +2127,9 @@ export class ShipmentsService {
       await this.mail.send({ ...msg, to: to.email });
     } catch (e) {
       // ⛔ NUNCA propaga: un fallo de correo no revierte una transición ni tumba el endpoint.
-      this.logger.error(
-        `shipment mail failed for ${id}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      // D-8 (gate techlead sobre 31af0883): ⛔ el mensaje crudo (puede citar el enlace con token o valores de Prisma): solo
+      // la clase y el código, como `guest-mail-link.ts`.
+      this.logger.error(`shipment mail failed for ${id} (${safeErrorTag(e)})`);
     }
   }
 
