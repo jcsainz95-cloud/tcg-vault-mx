@@ -2,9 +2,21 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.14**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.15**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.15 — LAS DOS PREGUNTAS DE C1 (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador
+> `3f40b70c`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.34](#M4-SHIP-19-34)**. Porqué: `ARCHITECTURE §4.60
+> (aa)`. Origen: `BACKEND_NOTES.md §66.5`.
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | G2 «⛔ sin más formas» frente a AG-22 `target: {userId, name, role}` | El objeto persona de `SpendFactValue` gana **`role?: Role`** (opcional: AG-21 no lo lleva; AG-22 siempre, y solo con rol de personal). ⛔ No se quita `role` de `facts.target` | Sí, una línea de tipo (`spend-alerts.service.ts:74`) y quitar el subtipo de `staff-control.service.ts:79-84` | backend (una línea, a quien el orquestador asigne `spend-alerts/`) · frontend: **nada** para G2 (ya conforme, medido) |
+> | **2** | `POST /admin/jobs/spend-digest` con `{day: null}` / `{day: ''}` | **CONFIRMADO `400 VALIDATION_ERROR {field:'day'}`**: solo la **ausencia** del campo es «sin día» | No (lo construido es la norma) | — |
+>
+> **Pruebas:** ninguna nueva; la de tipos de G2 (`test/sdx-c1.facts-type.spec.ts`) se ajusta al tipo nuevo. **Migración:** ninguna.
+> **Códigos de error nuevos:** ninguno. **Enums:** ninguno cambia.
 >
 > **Rev v1.80.12.14 — ERRATA TRAS D2d (RASTREO) Y D2g (AVISOS AL DUEÑO), Y LAS COSTURAS C1/C2 (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado por
 > el orquestador `8be66ef1`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.33](#M4-SHIP-19-33)**. Porqué:
@@ -337,7 +349,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.14 → v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.15 → v1.80.12.14 → v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -23815,6 +23827,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.31** | 💰 **v1.80.12.12** — errata tras D2b/D2c/`M-67`/`M-68`: seis enums en §0, generación de la cotización reutilizada, PS-73/PS-122 reescritas, dos `reason` de `409`, `cancel` sin respuesta, la compra de punta a punta en la E2E con el doble (`SHIPPING_FAKE_PURCHASE`), S-GAS-7…9, `isOwner` en la ficha, y el plan para cerrar la fase D; PS-166…PS-170 |
 | **.32** | **v1.80.12.13** — errata tras D2c-cierre: filas de §0-Q (`labelSource`, `alert`, los cuatro de `spend-alerts`), `requestedAt` al reutilizar, `?folio=` fuera de §0-Q, `label.pdf` cancelado, «envío vivo», 12 CHECK de `M-66`, el dueño en la pila E2E, `T-FLAKY-RFC-1`, y la **partición D2d ∥ D2g** por fichero; PS-168 (e) |
 | **.33** | 💰 **v1.80.12.14** — errata tras D2d y D2g: PS-75 reescrita (manda el criterio 241), estado desconocido como `exception`, P-SDX-PNL-1 al dueño, término `created` en el CAS, AG-8 (b)/AG-10 en D2g, `withCarrierAlert`, G1…G6 de D2g, costuras C1/C2 al detalle; PS-171, PS-172 |
+| **.34** | **v1.80.12.15** — las dos preguntas de C1: `role?: Role` en el objeto persona de `SpendFactValue`; `{day: null}`/`{day: ''}` ⇒ `400` confirmado; encargos pendientes de frontend (G5) y ux-ui (G3) re-medidos |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -27635,7 +27648,7 @@ resolve(db, dedupKey): Promise<void>     // AG-7 y AG-10: resolvedAt = now (y AG
 | Job | Cron (env, default) | Qué hace |
 |---|---|---|
 | **`spend-watch`** | `SPEND_WATCH_CRON`, `*/5 * * * *` | (1) correos `pending`/`failed` (≤ 3 intentos) y `sending` vencidos (§19.29.5); (2) lote de cada hora cerrada con `batched`; (3) con `shipping_provider='skydropx'`: saldo por la lectura **cacheada 5 min** de §19.13 ⇒ `observeBalance` (AG-7), barrido AG-8 (b), crear/resolver AG-10. Con el proveedor `off`, solo (1) y (2) |
-| **`spend-digest`** | `SPEND_DIGEST_CRON`, `0 8 * * *` con **`tz: 'America/Mexico_City'`** en la repetición (`scheduler.service.ts:343-356` gana el parámetro). Si la versión instalada de BullMQ no admite `tz` (**NO MEDIDO**), `0 14 * * *` UTC: México no tiene horario de verano desde 2022 | `day` = ayer en MX (del `Clock`). `INSERT SpendDigestRun(day) ON CONFLICT DO NOTHING` ⇒ si no insertó y su `status ≠ 'failed'`, no-op (**una vez por día**). Avisos con `firstOccurredAt ∈ [day 00:00, day+1 00:00)` MX, de las dos gravedades. Cero ⇒ `status='empty'`, **sin correo**. Si no ⇒ **un** correo `AVG-3` a cada dueño: por tipo (cuántos, Σ `amountCents`), los 🔴 en una línea cada uno, AG-13 con cuántas/quién/cuánto de más, y el **gasto en guías por persona del día** (`spendOfAttempt` con `since` en el día MX). `POST /admin/jobs/spend-digest {day?}` re-manda solo un `failed` |
+| **`spend-digest`** | `SPEND_DIGEST_CRON`, `0 8 * * *` con **`tz: 'America/Mexico_City'`** en la repetición (`scheduler.service.ts:343-356` gana el parámetro). Si la versión instalada de BullMQ no admite `tz` (**NO MEDIDO**), `0 14 * * *` UTC: México no tiene horario de verano desde 2022 | `day` = ayer en MX (del `Clock`). `INSERT SpendDigestRun(day) ON CONFLICT DO NOTHING` ⇒ si no insertó y su `status ≠ 'failed'`, no-op (**una vez por día**). Avisos con `firstOccurredAt ∈ [day 00:00, day+1 00:00)` MX, de las dos gravedades. Cero ⇒ `status='empty'`, **sin correo**. Si no ⇒ **un** correo `AVG-3` a cada dueño: por tipo (cuántos, Σ `amountCents`), los 🔴 en una línea cada uno, AG-13 con cuántas/quién/cuánto de más, y el **gasto en guías por persona del día** (`spendOfAttempt` con `since` en el día MX). `POST /admin/jobs/spend-digest {day?}` re-manda solo un `failed` (⭐ v1.80.12.15, [§19.34.2](#M4-SHIP-19-34): solo la **ausencia** de `day` es «sin día»; `null`, `''` o fuera de forma ⇒ `400 {field:'day'}`) |
 
 - **El resumen cuadra con el panel:** la lista filtrada `?from=day&to=day` usa la **misma** frontera de día MX sobre
   `firstOccurredAt` (§Convenciones) y la misma función de agregado (`summarizeSpendAlerts(where)`, un cuerpo para el correo y
@@ -27689,7 +27702,7 @@ export interface SpendAlertDTO {
   shipment: { id: string; folio: string } | null;
   order: { id: string; orderNumber: string | null } | null;
   amountCents: number | null;
-  facts: Record<string, string | number | boolean | string[] | null>; // lista blanca por kind (§19.29.6). ⭐ v1.80.12.14 (§19.33.7 G2): el valor gana `{ userId: string; name: string | null }` (AG-21, AG-22) = `SpendFactValue`
+  facts: Record<string, string | number | boolean | string[] | null>; // lista blanca por kind (§19.29.6). ⭐ v1.80.12.14 (§19.33.7 G2): el valor gana `{ userId: string; name: string | null }` (AG-21, AG-22) = `SpendFactValue`. ⭐ v1.80.12.15 (§19.34.1): el objeto gana `role?: Role` (solo AG-22 `target`)
   occurrenceCount: number; firstOccurredAt: string; lastOccurredAt: string; resolvedAt: string | null;
   seen: { at: string; by: { userId: string; name: string } } | null;
   mail: { status: SpendAlertMailStatus; at: string | null };
@@ -27885,7 +27898,8 @@ leído de la base.
    | `owner_account_denied` | rechazo de (b) | 🔴 |
    | `owner_setting_denied` | rechazo de (1) | 🔴 |
    `dedupKey` `ag22:<actorId>:<act>:<targetUserId | claves unidas con ','>:<díaMX>`. `facts`: `act`, `target: {userId, name,
-   role} | null`, `keys: string[] | null`. ⛔ Ninguna contraseña ni correo. Actos sobre **clientes** no avisan (fuera de §Z).
+   role} | null`, `keys: string[] | null` (⭐ v1.80.12.15, [§19.34.1](#M4-SHIP-19-34): `role` es parte del tipo `SpendFactValue`,
+   siempre presente en AG-22 y siempre de personal). ⛔ Ninguna contraseña ni correo. Actos sobre **clientes** no avisan (fuera de §Z).
    *Por qué aviso y no `403`:* `HECHOS.md:51` (d) deja al súper-admin rescatar personal; lo que se cierra es el silencio.
 4. **(d) `POST /admin/spend-alerts/seen`** (sustituye el `where` de §19.29.9): actor no dueño ⇒ `where` añade
    `OR: [{ subjectUserId: null }, { subjectUserId: { not: actor } }]` **y** `kind ≠ owner_account_changed` (⛔ un
@@ -28537,7 +28551,7 @@ en su sitio. Según `BACKEND_NOTES §65.1` y el orquestador, D2g los construyó 
 | # | Pregunta | Decisión | Construye |
 |---|---|---|---|
 | **G1** | Un no dueño manda un dial del dueño con valor **inválido**: ¿`422` o `403`? | **`422` primero — RATIFICADO.** La validación por clave no revela nada que el formulario no diga y un cuerpo inválido no escribe nada; el `403` sigue protegiendo toda escritura válida. Que `sdx-d-schema` siga siendo verdad con el súper-admin del seed es consecuencia, no razón | — |
-| **G2** | `facts` con objetos (AG-21 `previousOwner`/`currentOwner`, AG-22 `target`) | **Se amplía el tipo** (aditivo), ⛔ no se aplana — lo construido y §19.30.1 (6)/§19.30.2 (3) ya dicen objeto: `type SpendFactValue = string \| number \| boolean \| string[] \| null \| { userId: string; name: string \| null }` y `facts: Record<string, SpendFactValue>` en `SpendAlertDTO` (§19.29.9) y en `SpendFacts` del servicio. ⛔ Sin más formas: un objeto nuevo en `facts` es errata. Quita el cast del llamador | backend en **C1** (`spend-alerts/`, ya sin D2g vivo) + frontend (`types/contract.ts`) |
+| **G2** | `facts` con objetos (AG-21 `previousOwner`/`currentOwner`, AG-22 `target`) | **Se amplía el tipo** (aditivo), ⛔ no se aplana — lo construido y §19.30.1 (6)/§19.30.2 (3) ya dicen objeto: `type SpendFactValue = string \| number \| boolean \| string[] \| null \| { userId: string; name: string \| null }` y `facts: Record<string, SpendFactValue>` en `SpendAlertDTO` (§19.29.9) y en `SpendFacts` del servicio. ⛔ Sin más formas: un objeto nuevo en `facts` es errata. Quita el cast del llamador. ⭐ **v1.80.12.15 ([§19.34.1](#M4-SHIP-19-34)):** el objeto persona gana `role?: Role` (AG-22 `target`; era la norma de §19.30.2 (3) y el tipo lo omitía) | backend en **C1** (`spend-alerts/`, ya sin D2g vivo) + frontend (`types/contract.ts`) |
 | **G3** | Enlaces de `AVG-2/3` sin filtros | **Sin `?` — RATIFICADO** (manda PS-153; un candado «ninguna `?`» se audita con un `grep`, «una `?` que no actúe» no). Los filtros de la lista los pone la página. ux-ui corrige la sugerencia de `DESIGN_SYSTEM §43.19.12`. ⛔ No afecta al `?folio=` de S-GAS-2: ese enlace es del panel, no del correo | ux-ui |
 | **G4** | AG-21 en A→B→A→B: el segundo A→B no avisa | **No se acepta**: cada cambio de la marca del dueño es un hecho de seguridad nuevo. `dedupKey` = `ag21:<anterior\|none>:<actual\|none>:<instante>` con el `now` ISO de la corrida que lo detecta (`spend-watch.service.ts:160`). Sigue «a lo sumo una vez por cambio»: la fila de `SpendOwnerWatch` se actualiza en la **misma** tx. **PS-160 (amplía):** A→B→A→B ⇒ **3** AG-21 y 3 correos individuales; la misma corrida dos veces sin cambio ⇒ 0. *Mutación:* llave sin instante ⇒ 2 | backend en **C1** |
 | **G5** | `order_ship` no existe | **Errata de S-GAS-2 (§19.30.8):** `SpendAlertDTO.shipment.kind: ShipmentKind \| null` — el tipo existente (`shipments.service.ts:141-142`, `'guest_direct_ship' \| 'vault_withdrawal'`), con la regla construida (orden `direct_ship` ⇒ `guest_direct_ship`; sin orden ⇒ `vault_withdrawal`; otro ⇒ `null`). RATIFICADO lo construido | frontend (tipo) |
@@ -28558,7 +28572,7 @@ D2d y D2g entregados y commiteados (lo están, según el orquestador). Copia de 
     `SpendWatchService.run()` y `SpendDigestService.run({})`. Single-flight: el de cada servicio (su candado consultivo), ⛔ nada
     nuevo.
   - `admin-jobs.controller.ts`: `POST /admin/jobs/spend-watch` (sin cuerpo) y `POST /admin/jobs/spend-digest {day?:
-    'YYYY-MM-DD'}` (fuera de formato ⇒ `400 VALIDATION_ERROR {field:'day'}`), súper-admin y auditados como los demás disparos;
+    'YYYY-MM-DD'}` (fuera de formato ⇒ `400 VALIDATION_ERROR {field:'day'}`; ⭐ v1.80.12.15, §19.34.2: `null` y `''` también), súper-admin y auditados como los demás disparos;
     `200` con el resultado de `run`; servicio ausente ⇒ `404` (como D2d).
   - G2 (tipo de `facts`) y G4 (llave de AG-21) en `spend-alerts/`.
   - **PS-172 (nueva):** (a) unitaria del planificador: crons por defecto y por env, enrutado de los dos nombres, sin servicios no
@@ -28580,9 +28594,69 @@ D2d y D2g entregados y commiteados (lo están, según el orquestador). Copia de 
 | **C2** (backend, mismo agente) | `departure::date` en `NO_ENUM_POR_RUTA`, techo 51 |
 | **D2e** (backend) | PS-75 reescrita (.1); estado desconocido como `exception` + PS-78 (.2); término `created` del CAS + PS-72 (.4) |
 | **D2f** (backend 💰) | `withCarrierAlert` por `carrierAlertActive` + PS-171 (.6); ⛔ nada de P-SDX-PNL-1 hasta la respuesta |
-| **frontend** | `types/contract.ts`: `SpendFactValue` (G2), `shipment.kind: ShipmentKind \| null` (G5) |
-| **ux-ui** | `DESIGN_SYSTEM §43.19.12`: enlaces de `AVG-2/3` sin filtros (G3) |
+| **frontend** | `types/contract.ts`: `SpendFactValue` (G2), `shipment.kind: ShipmentKind \| null` (G5). ⭐ **v1.80.12.15 (§19.34.3), re-medido el 2026-10-05:** G2 **ya conforme** (`contract.ts:5896` trae `role?: Role`, que es justo lo que §19.34.1 fija) ⇒ nada; **G5 sigue pendiente** (`contract.ts:5905` dice `kind?: … \| 'order_ship'`) |
+| **ux-ui** | `DESIGN_SYSTEM §43.19.12`: enlaces de `AVG-2/3` sin filtros (G3). ⭐ **v1.80.12.15 (§19.34.3), re-medido el 2026-10-05:** **sigue pendiente** (`DESIGN_SYSTEM.md:25412` y `:25425` aún llevan `?severity=…&from=…&to=` / `?from=…&to=`); las respuestas de §19.34 no lo cambian |
 | **dueño** | P-SDX-PNL-1 |
+
+###### <a id="M4-SHIP-19-34"></a>M4-SHIP.19.34 — v1.80.12.15: las dos preguntas de C1 (**NORMATIVA**)
+
+> **Fuente:** `BACKEND_NOTES.md §66.5` (C1, código en `a4758aa6` según esa sección). Leído por el arquitecto el 2026-10-05 en
+> `/home/user/tcg-skyd` (Read/Grep, ⛔ sin ejecutar nada; ⛔ sha NO MEDIDO: sin Bash; el orquestador dio `3f40b70c`):
+> `spend-alerts.service.ts:74-76`, `staff-control.service.ts:34-40,71-85`, `spend-alert-text.ts:145-153`,
+> `spend-alert.view.ts:22,101`, `frontend/src/types/contract.ts:8,1314,5896,5905,5909`, `DESIGN_SYSTEM.md:25412,25425,25654-25672`.
+> **Migración:** ninguna. **Códigos de error nuevos:** ninguno. **Enums:** ninguno cambia. ⛔ Ningún criterio nuevo de `PROJECT`.
+
+**M4-SHIP.19.34.1 — G2 frente a AG-22 `target`: el objeto persona gana `role?: Role`. ⛔ No se quita `role` de `facts.target`.**
+El «⛔ sin más formas» de G2 (§19.33.7) prohíbe **objetos nuevos**; el `role` de AG-22 **no es nuevo**: es norma desde
+§19.30.2 (3) (`target: {userId, name, role} | null`), lo usan el correo (`targetOf`, `spend-alert-text.ts:147-153`: «{nombre}
+({rol})») **y el panel** (`DESIGN_SYSTEM §43.20.3`: clave `target` = «{name} ({role})», `role.super_admin`/`role.vault_operator`).
+G2 lo omitió al escribir el tipo: error del documento, se corrige el tipo. Quitarlo obligaría a releer el rol en el envío del
+correo y al DTO a otra fuente (el rol **de ahora**, no el del momento del acto) — segunda fuente de un hecho que la fila ya guarda.
+```ts
+type SpendPersonFact = { userId: string; name: string | null; role?: Role };   // Role de §0 ('customer' | 'vault_operator' | 'super_admin')
+type SpendFactValue  = string | number | boolean | string[] | null | SpendPersonFact;
+// SpendAlertDTO.facts: Record<string, SpendFactValue>   (§19.29.9; SpendFacts del servicio ≡ este tipo)
+```
+- **Opcional** porque AG-21 (`previousOwner`/`currentOwner`) **no** lo lleva (el dueño es súper-admin por definición,
+  `isOwnerAccount`); en AG-22 `target` **siempre** lo lleva cuando `target ≠ null`, y **siempre** con rol de personal (`report`
+  devuelve sin escribir si el destino no está en `STAFF_ROLES`, `staff-control.service.ts:73`). El tipo dice `Role` y no un
+  subconjunto para no acuñar un tercer nombre del mismo dominio; la garantía «solo personal» es del servidor, y el lector ya
+  tolera un rol sin rótulo (§43.20.3: «rol desconocido ⇒ solo el nombre»).
+- ⛔ Sigue valiendo «sin más formas»: un objeto con **otra** forma en `facts`, o un campo nuevo en este, es errata.
+- **Backend (una línea + quitar el rodeo):** `SpendFactValue` en `spend-alerts.service.ts:74` gana `role?: Role`;
+  `staff-control.service.ts:79-84` deja de construir un subtipo y su comentario de «preguntado al arquitecto» se borra;
+  `test/sdx-c1.facts-type.spec.ts` (G2) ajusta la igualdad de tipos al tipo nuevo (sigue juzgándola el compilador) y
+  `test/sdx-d2g.units.spec.ts` puede volver al literal con `role`. *Mutación:* quitar `role?` del tipo ⇒ el literal con `role`
+  en una posición tipada deja de compilar (rojo). ⛔ Ningún cambio de conducta: lo que viaja hoy es lo mismo.
+  - **Quién:** el orquestador lo asigna; ⚠️ toca `spend-alerts/`. Que ni D2e ni D2f tengan `spend-alerts/` en su columna de
+    §19.32.9 / §19.33.10 es lectura del contrato, **NO MEDIDO** en el árbol vivo. Si alguno lo toca, va al final de ese agente;
+    si no, puede ir con quien cierre después, sin bloquear a nadie (el código ya funciona).
+- **Frontend:** **nada para G2** — `contract.ts:5896` ya es `{ userId: string; name: string | null; role?: Role }`. El `|
+  undefined` de `facts: Record<string, SpendAlertFactValue | undefined>` (`:5909`) es tolerancia de lectura (clave ausente) y se
+  acepta; ⛔ no cambia el contrato.
+
+**M4-SHIP.19.34.2 — `POST /admin/jobs/spend-digest {day?}`: CONFIRMADO, solo la AUSENCIA es «sin día».**
+```
+body sin la clave 'day'            ⇒ run({})            (el día por defecto: ayer en MX, §19.29.7)
+'day' presente y ∉ YYYY-MM-DD real ⇒ 400 VALIDATION_ERROR {field:'day'}, sin correr ni auditar
+   (incluye null, '', no-string, '2026-02-30')
+```
+- *Por qué:* el tipo es `day?: 'YYYY-MM-DD'` — `null` no es un valor del dominio, y en un disparo **manual** de re-envío un `null`
+  es casi siempre un formulario o un script roto: correr «ayer» en silencio re-mandaría (o no) **otro** día del que el súper-admin
+  quería. Fallar con `400` es lo que se nota hoy. Mismo criterio que el contrato ya aplica a `null` explícito en otros cuerpos
+  (p. ej. `bounty.targetQty: null` explícito ⇒ `422 BOUNTY_TARGET_REQUIRED` en `PUT /admin/pricing/variant-controls/…`).
+- **Construido así** (`BACKEND_NOTES §66.3 (1)`, PS-172 (b)(c)): nada que cambiar. ⛔ Frontend no llama a este disparo
+  (Grep `spend-digest` en `frontend/src`, 2026-10-05: 0).
+
+**M4-SHIP.19.34.3 — Encargos pendientes que esta errata re-mide (2026-10-05, Grep sobre el árbol de trabajo).**
+
+| Rol | Encargo | Estado medido | Qué cambia por §19.34 |
+|---|---|---|---|
+| **frontend** | **G2** `SpendFactValue` en `types/contract.ts` | **Hecho** (`contract.ts:5896`) | Nada: ya trae `role?: Role`, que es lo que .1 fija |
+| **frontend** | **G5** `SpendAlertDTO.shipment.kind: ShipmentKind \| null` | **Pendiente**: `contract.ts:5905` = `kind?: 'vault_withdrawal' \| 'guest_direct_ship' \| 'order_ship'` | Nada. Lo que hay que escribir: `kind: AdminShipmentKind \| null` (el `AdminShipmentKind` de `contract.ts:1314` **es** `ShipmentKind`; ⛔ no se acuña otro alias), **obligatorio** (el servidor siempre lo manda, `spend-alert.view.ts:101`), y fuera `'order_ship'`. Quien lea `shipment.kind` para elegir el enlace (S-GAS-2) trata `null` como «sin orden ⇒ envíos por folio»; el compilador encuentra a los lectores |
+| **ux-ui** | **G3** `DESIGN_SYSTEM §43.19.12`: CTA de `AVG-2/3` sin `?` | **Pendiente**: `:25412` (`?severity=immediate&from=…&to=…`) y `:25425` (`?from=…&to=…`) | Nada. Los dos CTA apuntan a `admin/spend-alerts` a secas; los filtros los pone la página (PS-153) |
+
+⛔ Ningún otro encargo nace de esta errata.
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 

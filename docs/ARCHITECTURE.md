@@ -27831,6 +27831,18 @@ y **un hecho nuevo del transportista entra por la puerta que ya existe antes que
 amountCents > 0` obliga a escribir ese ajuste cuando se sepa lo no devuelto. NO MEDIDO: si BullMQ instalado admite `tz` (lo
 mide C1); los commits que el orquestador cita (`e367ca20`, `636b6d19`, `8be66ef1`).
 
+**(aa) v1.80.12.15 — las dos preguntas de C1** (norma en `API_CONTRACT §M4-SHIP.19.34`; origen `BACKEND_NOTES.md §66.5`). Una
+idea: **cuando un tipo omite lo que la norma ya decía, se corrige el tipo, no la norma** — «sin más formas» cierra la puerta a
+formas nuevas, no a las que ya estaban escritas.
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **El objeto persona de `facts` gana `role?: Role`** | Quitar `role` de AG-22 `target` y que el correo lo relea de `User` | `role` era norma (§19.30.2 (3)) y lo leen correo y panel; releerlo da el rol **de ahora**, no el del acto: segunda fuente de un hecho que la fila ya guarda |
+| **`role` opcional y de tipo `Role`** | Dos formas de persona; un subconjunto `StaffRole` nuevo | Una sola forma basta (AG-21 no lo lleva); un alias nuevo sería un tercer nombre del mismo dominio, y la garantía «solo personal» ya es del servidor |
+| **`spend-digest {day: null \| ''}` ⇒ `400`** | `null` como ausente | En un re-envío manual, `null` es un cliente roto; correr «ayer» en silencio actúa sobre otro día del pedido |
+
+**Deuda que deja (aa):** ninguna nueva. NO MEDIDO: el sha `3f40b70c` y si D2e/D2f tocan `spend-alerts/` en el árbol vivo.
+
 ---
 
 ## 5. Decisiones transversales
