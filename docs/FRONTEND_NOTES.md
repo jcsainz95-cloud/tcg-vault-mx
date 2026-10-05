@@ -19286,3 +19286,61 @@ motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
 - **No cubierto por render**: el sitio 4 (`CheckoutView`) solo lo vigila el candado estático LEG-5 y el
   componente; no hay prueba de render de su posición (la vista necesita sesión y carrito). E2E de los
   sitios 4–6 (rutas con sesión): NO MEDIDO.
+
+### 94.6 LIVE-2 pantalla «Tu sesión caducó por seguridad» (§14.2 + §14.15 E2-4; DESIGN_SYSTEM §81) y CSP-5 por evento del DOM (§14.15 E2-2) — medido 2026-10-05 sobre `5ea58917` + este cambio
+
+**LIVE-2 — mecanismo (sin tocar `components/layout/*`, que cambian `arreglos-panel` y `skydropx-d`):**
+1. `lib/api-client.ts › refreshTokens`: el `401` del refresh ahora **lee el cuerpo**; si
+   `error.details.reason === 'session_max_age'` llama a `markSessionMaxAgeLogout()`. El cierre de sesión no
+   cambia (`null` ⇒ `clearClientSession`). Sin `reason`, otro `reason`, cuerpo ilegible o error de red ⇒ ninguna marca.
+2. `lib/session.ts`: `markSessionMaxAgeLogout` / `consumeSessionMaxAgeLogout` — marca en memoria del módulo
+   (patrón `markIntentionalLogout`), **de un solo uso** y con ventana de 10 s. Solo la pestaña que recibió el
+   `401` la tiene (§81.2.6).
+3. Los guards de hoy (`PrivateRouteGuard.tsx:77`, `AdminShell.tsx:70`) siguen mandando a `/login?next=<ruta>`.
+   `AuthForm` (solo `mode === 'login'`) consume la marca al montar y hace
+   `router.replace({ pathname: '/login', query: { next, reason: 'session_max_age' } })` ⇒ el estado queda en el
+   URL como inactividad (recargar lo repinta, §81.2.5). El registro no consume la marca.
+4. `login/page.tsx`: `reason` ⇒ `notice` por tabla (`inactivity`, `session_max_age` ⇒ `sessionMaxAge`); otro valor ⇒ sin aviso.
+5. `AuthForm`: `Banner variant="warning" role="status"` con `auth.sessionMaxAgeLogout` en la posición del de
+   inactividad. Desaparece al **enviar** o al **pulsar Google** (`onClickCapture` en el contenedor del botón, sin
+   tocar `GoogleSignInButton`) y no vuelve en esa visita. Se aplicó también al de inactividad (§81.2.7, recomendado).
+6. `messages/{es,en}.json`: `auth.sessionMaxAgeLogout` bajo `auth.inactivityLogout`, texto verbatim de §81.3.
+
+- **Consecuencia aceptada:** el URL pasa un instante por `/login?next=<ruta>` antes de reescribirse con `reason`
+  (un `replace`, sin entrada en el historial). §81.6 N-2 (refresh que muere en una página pública sin guard):
+  sin redirección, como hoy; si el usuario entra al login en < 10 s ve el aviso (es verdad), después no.
+
+**CSP-5 — reescrita sobre `securitypolicyviolation`** (`e2e/csp.spec.ts`): oyente en `addInitScript`; `antes` =
+eventos `script-src*` con `blockedURI === 'inline'` en `/es/login` tal cual; luego `/es/login` con
+`<script>window.__csp5 = true;</script>` (en línea, sin `src`, sin nonce) inyectado en el HTML; exige `≥ antes + 1`
+y `disposition` `report`/`enforce` según la fase; en `enforce`, `window.__csp5` sin definir. La consola deja de ser oráculo.
+
+⚠ **Desviación medida de la letra de E2-2 paso 3 (solicitud al arquitecto):** E2-2 dice inyectar el `<script>`
+tras cargar la página. Medido con sondas contra `next start` (Chromium del entorno, N=1 por sonda y fase): un
+`<script>` en línea creado por código (`createElement` + `textContent`, desde `page.evaluate` **y** desde un
+`setTimeout` de la página) **no produce ningún evento y se ejecuta** en `report-only` **y en `enforce`**
+(`'strict-dynamic'` le pasa la confianza). La primera versión así escrita salió roja 3/3 en cada fase **sin
+mutación**. El mismo `<script>` en el HTML (del parser) dispara `script-src-elem inline` con `report` / `enforce`
+(y en `enforce` no se ejecuta). Por eso la inyección es en la respuesta HTML; el oráculo es el evento, como pide E2-2.
+Dato para seguridad (no lo cierra frontend): con esta política, un gadget de DOM-XSS que **cree** scripts en línea
+no queda bloqueado por la CSP en este Chromium (NO MEDIDO en otros motores).
+
+**Pruebas nuevas:** `src/lib/api-client.session-max-age.test.ts` (6), `src/components/domain/AuthForm.sessionMaxAge.test.tsx`
+(16: UX-SMA-1…6 + registro + Google + inactividad), `e2e/session-max-age.spec.ts` (`@real`, 4: tienda `/account`,
+panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, necesita el bundle sin mocks).
+
+**Mediciones (autor: frontend; copia del árbol entero `git archive 5ea58917` + este diff):**
+- tsc 0 · lint sin avisos · vitest **223 ficheros (+1 saltado) / 2677 pruebas verdes** (12 saltadas, las de §94.5).
+- Mutaciones unitarias, N=3 cada una, todas **3/3 rojas** y restauradas (sin mutación: verde): M1 ignorar
+  `details` en el interceptor · M2 marcar todo `401` · M3 quitar la rama de `page.tsx` · M4 no ocultar al enviar ·
+  M5a `danger` · M5b `role="alert"` · M6 borrar la clave de `en.json` · M7 el login no consume la marca ·
+  M8 la marca no se borra al leerla · M9 Google no oculta.
+- E2E contra `next start` propio (`:3417`, bundle sin mocks, API ficticia `127.0.0.1:3999`; carga < 8 al arrancar cada corrida):
+  | Build | Spec | Resultado |
+  |---|---|---|
+  | `report-only` | `csp.spec` + `session-max-age.spec`, `--repeat-each 3` | **54/54 verdes** |
+  | `enforce` (`CSP_MODE` cambiado en la copia) | idem | **54/54 verdes** |
+  | `report-only` + `script-src-elem 'unsafe-inline'` | CSP-5 | **5/5 rojas** (paso 4: 0 eventos) |
+  | `enforce` + `script-src-elem 'unsafe-inline'` | CSP-5 | **5/5 rojas** (paso 4: 0 eventos) |
+  | `report-only` + M1 (interceptor ignora `details`) | `session-max-age.spec`, `--repeat-each 3` | UX-SMA-2 tienda **3/3 rojas**, panel **3/3 rojas**; UX-SMA-3 y la recarga EN 6/6 verdes (no dependen de la marca) |
+- Copia borrada al terminar (logs incluidos; los números de arriba son el registro).
