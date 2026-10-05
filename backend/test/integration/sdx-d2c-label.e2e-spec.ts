@@ -10,7 +10,7 @@
  * variante), PS-131 (a) (respuesta vencida), PS-132 (a, a'), PS-134 (b), PS-138…PS-143 (topes y avisos), PS-159 (I-1, I-2),
  * PS-160 (c). Lo que necesita `label/cancel`, `label/release` o el job de verificación queda fuera (ver BACKEND_NOTES §62).
  */
-import { Prisma } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { E2EHarness } from './helpers/e2e-app';
 import { R, ShipPrepDb } from './helpers/ship-prep-db';
 import { buyBody, createLabelWorld, dial, errCode, purchaseOn, ready, restoreDials } from './helpers/label-db';
@@ -723,13 +723,15 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
     let inflight409 = 0;
     let labeled409 = 0;
     const bad: string[] = [];
+    const barrierDb = new PrismaClient();
     for (let i = 0; i < N; i += 1) {
       const s = await readyQuoted();
       bandeja = [];
       fake.purchaseBarrier = () => new Promise((res) => setTimeout(res, 300));
       const gate = diferida();
       const held = diferida();
-      const holder = h.prisma.$transaction(
+      // La barrera y su observador van por un cliente APARTE: el pool de la app (5) es de las 10 peticiones.
+      const holder = barrierDb.$transaction(
         async (tx) => {
           await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${s.id} FOR UPDATE`;
           held.abrir();
@@ -739,7 +741,7 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
       );
       await held.promesa;
       const pending = Promise.all(Array.from({ length: 10 }, () => buy(s.id, buyBody(s.q, s.rate))));
-      await esperarBloqueoDeFila(h.prisma, 'ShipmentRequest', 2);
+      await esperarBloqueoDeFila(barrierDb as unknown as Parameters<typeof esperarBloqueoDeFila>[0], 'ShipmentRequest', 2);
       gate.abrir();
       await holder;
       const rs = await pending;
@@ -769,6 +771,7 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
       if (ok) good += 1;
       else bad.push(JSON.stringify({ n, codes, mails: bandeja.length, again: errCode(again) }));
     }
+    await barrierDb.$disconnect();
     // eslint-disable-next-line no-console
     console.log(`PS-73: 409 purchase_in_flight en ${inflight409} de ${N * 9} respuestas no ganadoras; 409 SHIPMENT_ALREADY_LABELED en ${labeled409}`);
     expect({ proportion: `${good}/${N}`, bad }).toEqual({ proportion: `${N}/${N}`, bad: [] });
@@ -790,7 +793,7 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
       await h.prisma.shipmentRequest.update({ where: { id: s.id }, data: { trackingNumber: `MAN73-${RUN}`, carrier: 'dhl', labelSource: 'manual' } });
       holder = h.prisma.$transaction(
         async (tx) => {
-          await tx.$queryRaw`SELECT pg_advisory_xact_lock(${SKYDROPX_PURCHASE_LOCK_KEY}::bigint)`;
+          await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(${SKYDROPX_PURCHASE_LOCK_KEY}::bigint)`;
           held.abrir();
           await gate.promesa;
         },

@@ -252,7 +252,7 @@ describe('💰 D2b — cotizar la guía (§M4-SHIP.19.6 + §19.19.4/.5)', () => 
       expect(quoteCalls()).toBe(2);
     });
 
-    it('PS-95: el MISMO `providerQuotationId` para dos envíos ⇒ dos filas, cero 500; `expiresAt` = primera observación + 24 h', async () => {
+    it('PS-95: el MISMO `providerQuotationId` para dos envíos ⇒ dos filas, cero 500; `expiresAt` = el de la generación viva (§19.31.2)', async () => {
       fake.reuseQuotations = true;
       const a = await readyDirect([1111]);
       const b = await readyDirect([2222]);
@@ -264,10 +264,13 @@ describe('💰 D2b — cotizar la guía (§M4-SHIP.19.6 + §19.19.4/.5)', () => 
       const rows = await h.prisma.shipmentQuote.findMany({ where: { providerQuotationId: ra.body.providerQuotationId } });
       expect(rows.map((q) => q.shipmentRequestId).sort()).toEqual([a.shipment.id, b.shipment.id].sort());
       expect(rb.body.expiresAt).toBe(ra.body.expiresAt); // ⛔ no `now + 24 h` sobre un id ya visto
-      // mismo envío con `force` ⇒ la fila se ACTUALIZA (una sola), `requestedAt` intacto
+      // mismo envío con `force` ⇒ la fila se ACTUALIZA (una sola). ⭐ v1.80.12.12 (§19.31.2 punto 5, sustituye «`requestedAt`
+      // intacto»): `requestedAt = now` (así «la vigente» es la última que se pidió) y ⛔ `expiresAt` NO se alarga (sigue viva).
       const again = await quote(a.shipment.id, { force: true });
       expect(again.body.quoteId).toBe(ra.body.quoteId);
-      expect(again.body.requestedAt).toBe(ra.body.requestedAt);
+      expect(again.body.requestedAt).toBe(clock.now().toISOString());
+      expect(again.body.requestedAt).not.toBe(ra.body.requestedAt);
+      expect(again.body.expiresAt).toBe(ra.body.expiresAt);
       expect(await h.prisma.shipmentQuote.count({ where: { shipmentRequestId: a.shipment.id } })).toBe(1);
     });
   });
