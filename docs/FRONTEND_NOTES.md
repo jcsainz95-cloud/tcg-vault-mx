@@ -19693,3 +19693,23 @@ stripeFees − shippingCost − refunds − refundedFees − compensations` (`:1
 - **NO MEDIDO / para arquitecto-backend:** `admin.service.ts:1784` suma `insuranceCostCents` tal cual, mientras
   `shippingCostCents` es NETO de IVA (`:1781`). Si `insuranceCostCents` llega con IVA, el «Incluye seguro del envío» estaría
   en una base distinta del renglón que lo contiene (y en teoría podría excederlo). No lo medí; solo lo leí.
+
+## §96 · NT2-a — un único patrón P66-3 para los barridos de copy (2026-10-05, rama `claude/skydropx-d`, base `7d930c4e`)
+
+### 96.1 Qué cambió
+- `frontend/src/lib/i18n-p66-3.testkit.ts` (solo pruebas; no lo importa la app): `P66_3_CODE_RE =
+  /\b(M-?1?[0-9]|AG-[0-9]+|AV-[0-9]+)\b/` (sin bandera `g`), `get()`, `flatten()`, `P66_3_KNOWN_HITS` y
+  `p66_3Offenders(locale, entries)`.
+- Lo usan los cuatro barridos: `lib/i18n-pnl.test.ts`, `lib/i18n-shipping-alerts.test.ts`, `lib/i18n-skydropx.test.ts`
+  y `admin/AdminPageTitles.test.tsx` (P66-1 y P66-3). Antes tres usaban `M1?[0-9]` (no caza «M-1») y dos solo
+  miraban «M»; `get()` y `flat()` estaban copiados.
+- `AdminPageTitles` barría **líneas** de `messages/*.json`; ahora barre **valores** aplanados. Con el patrón
+  ampliado, las líneas de clave `admin.m10.spend.kind.AG-1…AG-22` habrían sido falsos aciertos (son claves, no texto).
+
+### 96.2 Acierto real que afloró (no cambié el texto)
+- `admin.m10.shipping.lowBalanceHint` — ES «Debajo de esta cifra le llega un correo al dueño (aviso AG-7), una vez por
+  cada vez que baja.» / EN «Below this amount the owner gets an email (alert AG-7), once each time it drops.» Es el
+  literal de `DESIGN_SYSTEM.md:25349`/`:25795` y lo afirma `SpendControlSection.test.tsx:141`, pero choca con P66-3.
+  Queda en `P66_3_KNOWN_HITS` con su motivo; `p66_3Offenders` marca `stale:` si deja de acertar, así que la excepción
+  no puede sobrevivir al arreglo. Decisión de copy: orquestador → ux-ui.
+- Ningún «M-n» con guion en `messages/*.json` (grep medido 2026-10-05 sobre `7d930c4e`).

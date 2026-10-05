@@ -1,11 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ComponentType, ReactNode } from 'react';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import es from '../../../../../messages/es.json';
 import en from '../../../../../messages/en.json';
+import { P66_3_CODE_RE, flatten, p66_3Offenders } from '@/lib/i18n-p66-3.testkit';
 
 /**
  * # §37.2 (P-66 I2) — el menú del panel rotula por NOMBRE, y cada página se titula igual
@@ -123,7 +122,6 @@ const PAGES: Record<string, ComponentType> = {
 
 const MODULES_ES = es.admin.modules as Record<string, string>;
 const MODULES_EN = en.admin.modules as Record<string, string>;
-const CODE_RE = /\bM1?[0-9]\b/;
 
 describe('§37.2 · P66-1 — los rótulos del menú no llevan código M-n', () => {
   it.each([
@@ -132,20 +130,19 @@ describe('§37.2 · P66-1 — los rótulos del menú no llevan código M-n', () 
   ] as const)('%s: ningún `admin.modules.*` empieza por M\\d ni contiene un código', (_locale, modules) => {
     for (const [key, label] of Object.entries(modules)) {
       expect(label, `admin.modules.${key}`).not.toMatch(/^M\d/);
-      expect(label, `admin.modules.${key}`).not.toMatch(CODE_RE);
+      expect(label, `admin.modules.${key}`).not.toMatch(P66_3_CODE_RE);
     }
   });
 });
 
-describe('§37.2 · P66-3 — barrido de copy: ninguna cadena cita un código M-n', () => {
-  it.each(['es', 'en'])('messages/%s.json: `grep -nE "\\bM1?[0-9]\\b"` = 0', (locale) => {
-    const raw = readFileSync(resolve(__dirname, `../../../../../messages/${locale}.json`), 'utf8');
-    const hits = raw
-      .split('\n')
-      .map((line, i) => ({ n: i + 1, line }))
-      .filter(({ line }) => CODE_RE.test(line))
-      .map(({ n, line }) => `${n}: ${line.trim().slice(0, 120)}`);
-    expect(hits).toEqual([]);
+describe('§37.2 · P66-3 — barrido de copy: ningún texto cita un código «M-n», «AG-n» ni «AV-n»', () => {
+  // Barre VALORES, no líneas: las claves `admin.m10.spend.kind.AG-n` no son texto visible. Patrón único en
+  // `lib/i18n-p66-3.testkit` (caza «M-1» con y sin guion; el grep `\bM1?[0-9]\b` no lo cazaba).
+  it.each([
+    ['es', es],
+    ['en', en],
+  ] as const)('messages/%s.json: 0 textos con código', (locale, cat) => {
+    expect(p66_3Offenders(locale, flatten(cat))).toEqual([]);
   });
 });
 

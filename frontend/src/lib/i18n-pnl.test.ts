@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import es from '../../messages/es.json';
 import en from '../../messages/en.json';
+import { get, p66_3Offenders } from './i18n-p66-3.testkit';
 
 /**
  * UX-PNL-6 (`DESIGN_SYSTEM §43.23.3` FS-68): las 7 claves nuevas de `admin.m7.pnl` existen en ES y EN con el texto de
@@ -8,12 +9,7 @@ import en from '../../messages/en.json';
  * texto de `admin.m7.pnl.*` cita un código «M-n», «AG-n» ni «AV-n» (P66-3).
  */
 
-function get(obj: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((o, k) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), obj);
-}
-
-// El grep de §43.23.5 (`\bM1?[0-9]\b`) NO caza «M-1» (el guion); aquí se acepta el guion opcional, que es el canario de UX-PNL-6.
-const CODE = /\b(M-?1?[0-9]|AG-[0-9]+|AV-[0-9]+)\b/;
+// P66-3: patrón único en `./i18n-p66-3.testkit` (caza «M-1» con y sin guion; el grep de §43.23.5 no lo cazaba).
 
 const EXPECTED: Record<string, { es: string; en: string }> = {
   formula: {
@@ -50,10 +46,9 @@ describe('UX-PNL-6 · i18n del estado de resultados (§43.23.3)', () => {
   });
 
   it('ningún texto de admin.m7.pnl.* nombra un código «M-n», «AG-n» ni «AV-n» (P66-3)', () => {
-    const offenders = (['es', 'en'] as const).flatMap((l) => {
-      const obj = get(l === 'es' ? es : en, 'admin.m7.pnl') as Record<string, string>;
-      return Object.entries(obj).filter(([, v]) => CODE.test(v)).map(([k]) => `${l}:${k}`);
-    });
+    const offenders = (['es', 'en'] as const).flatMap((l) =>
+      p66_3Offenders(l, get(l === 'es' ? es : en, 'admin.m7.pnl') as Record<string, string>),
+    );
     expect(offenders).toEqual([]);
   });
 });

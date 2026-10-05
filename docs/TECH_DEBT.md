@@ -8870,6 +8870,29 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Disparador:** el próximo job `shipment-*` nuevo o cambio en `process`.
 - **Comprobación de cierre:** `rg -n "process\(\{ ?name: 'shipment-" backend/test/integration` ⇒ ≥ 3.
 
+## Frontend · Skydropx · 2026-10-05 · gate techlead sobre `7d930c4e` (rama `claude/skydropx-d`, D-11; NT2-a cerrada)
+
+> Escribe: frontend, a petición del techlead (re-pase sobre `7d930c4e`).
+
+### SDX-FE-D11 · P3 · `StatCard` recibe el color de acento por un selector arbitrario sobre su DOM
+
+**Qué:** tres llamadas pintan de bermellón la cifra de `StatCard` con `className="[&_span.tabular]:text-accent"`
+(`frontend/src/app/[locale]/(admin)/admin/AdminDashboard.tsx:47`, `:101`, `:366`, medido 2026-10-05 sobre `7d930c4e`).
+El selector depende de que `StatCard` pinte su valor en un `<span class="tabular">`: es la estructura interna del
+componente usada como API. Si `StatCard` cambia ese marcado, el acento se pierde en silencio (ninguna prueba lo
+afirma por color).
+
+**Dirección:** prop `tone?: 'default' | 'accent'` en `frontend/src/components/ui/StatCard.tsx` (zona compartida: un
+stream a la vez) que aplique `text-accent` al valor; sustituir las tres llamadas y retirar el selector.
+
+**Comprobación de cierre:** `grep -rn "\[&_span.tabular\]" frontend/src` = 0 y una prueba de `StatCard` que afirme
+la clase del valor con `tone="accent"`.
+
+### SDX-FE-NT2a · ✅ CERRADA en este pase (2026-10-05) · Cuatro definiciones divergentes del patrón P66-3
+
+Unificado en `frontend/src/lib/i18n-p66-3.testkit.ts` (`P66_3_CODE_RE`, con y sin guion) y usado por los cuatro
+barridos. Ver `docs/FRONTEND_NOTES.md §96`.
+
 ## Frontend · 2026-10-04 · gate del techlead sobre `4d994c55` (rama `claude/precios-s5`, D-7; D-8 cerrada)
 
 > Anotado por frontend a petición del orquestador. D-8 se cerró en código en este pase (`FRONTEND_NOTES` §85); D-7 se
