@@ -445,7 +445,21 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
           // La sesión YA precio (fuera de su tx) y está bloqueada DENTRO de su tx: el `INSERT "OrderItem"` de la orden
           // pide `FOR KEY SHARE` sobre la pieza (FK) y espera al `FOR UPDATE` de la prueba — antes de reservarla.
           await esperarBloqueoDeFila(h.prisma, 'OrderItem', 1);
-          putRes = await put(X.id, { displayPriceCents: 2000, expectedDisplayPriceCents: 1000 });
+          // ⛔ El `PUT` no escribe piezas ⇒ NO puede esperar a la reserva del checkout (§4.62.4). Si lo hiciera (p. ej.
+          // un fan-out de `listPriceCents`), se quedaría bloqueado detrás del candado de la prueba: se le da un plazo
+          // y, vencido, se registra `PUT_BLOQUEADO` y se suelta — la prueba falla en vez de colgarse.
+          const putP = put(X.id, { displayPriceCents: 2000, expectedDisplayPriceCents: 1000 });
+          const bloqueado = await Promise.race([
+            putP.then(() => false),
+            new Promise<boolean>((r) => setTimeout(() => r(true), 15_000)),
+          ]);
+          if (bloqueado) {
+            soltar.abrir();
+            await putP.catch(() => undefined);
+            putRes = { status: 'PUT_BLOQUEADO' };
+          } else {
+            putRes = await putP;
+          }
         } finally {
           soltar.abrir();
         }
