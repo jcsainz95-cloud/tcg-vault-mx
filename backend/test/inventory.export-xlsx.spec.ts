@@ -352,6 +352,79 @@ describe('VK-8 · export .xlsx = séptimo lector de SK-5 (v1.80.2.2, MONEY)', ()
   );
 });
 
+// ================================================================================================ SP-20
+/**
+ * 💰 SP-20 (API_CONTRACT §M11-SP.13.4, errata v1.83.2, Q-4) — el export lleva DOS columnas de venta STORED, una por
+ * escala, ambas por `manualSaleOf` (un solo camino):
+ *  - 17 «Precio venta antes de IVA MXN» (escala `L`): la pieza (`listPriceCents`) o el override de variante.
+ *  - 18 «Precio del producto con IVA MXN» (escala `P`): lo que TECLEÓ el dueño, exacto.
+ * Con precio del producto la 17 va VACÍA (también con legado sombreado). ⛔ El export no lee diales ni deriva.
+ */
+describe('💰 SP-20 — export `.xlsx`: col 17 «antes de IVA» y col 18 «del producto con IVA», sin diales', () => {
+  const sealed = (over: any) =>
+    ITEM({ productType: 'sealed', rawCondition: null, sealedCondition: 'mint', tcgplayerProductId: null, ...over });
+  // Diales NO neutros a propósito: con ellos el `L` equivalente de 700 sería 648 (≠ 603 del neutro) — cualquier
+  // derivación se vería. Y el doble cuenta las lecturas: el export debe hacer CERO.
+  const getIvaDials = jest.fn(async () => ({ ivaTransferPct: 50, ivaRatePct: 16 }));
+  const dialSettings = { getIvaDials, getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const X = { ownerDisplayPriceCents: 700 };
+  const Y = { ownerDisplayPriceCents: null };
+  const rows = [
+    sealed({ id: 'A', folio: 'A', cardId: 'cA', sealedProduct: X, listPriceCents: null }),
+    sealed({ id: 'B', folio: 'B', cardId: 'cB', sealedProduct: X, listPriceCents: 1000 }), // legado sombreado
+    sealed({ id: 'C', folio: 'C', cardId: 'cC', sealedProduct: Y, listPriceCents: 1000 }),
+    sealed({ id: 'D', folio: 'D', cardId: 'cD', sealedProduct: null, listPriceCents: 1200 }), // sin producto
+    ITEM({ id: 'E', folio: 'E', cardId: 'cE', listPriceCents: 500, sealedProduct: null }), // raw
+    sealed({ id: 'F', folio: 'F', cardId: 'cF', sealedProduct: Y, listPriceCents: null }), // ligado sin precio alguno
+    // m = null con override de VARIANTE (escala `L`, el mismo hueco que `listPriceCents`): sigue en la 17.
+    ITEM({ id: 'G', folio: 'G', cardId: 'cG', listPriceCents: null, sealedProduct: null }),
+  ];
+  const overrides = [
+    { cardId: 'cG', productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', buyOverrideCents: null, sellOverrideCents: 800 },
+  ];
+
+  async function exportRows() {
+    getIvaDials.mockClear();
+    const svc = new InventoryService(buildPrisma(rows, overrides) as PrismaService, buildPricing(new Map()), dialSettings);
+    const ws = await loadSheet(await svc.exportInventoryXlsx({}));
+    const out: Record<string, [unknown, unknown]> = {};
+    for (let r = 2; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const v = (c: number) => row.getCell(c).value ?? null;
+      out[String(row.getCell(colIndex('folio')).value)] = [v(17), v(18)];
+    }
+    return { ws, out };
+  }
+
+  it('cabeceras: 17 «Precio venta antes de IVA MXN», 18 «Precio del producto con IVA MXN» (width 22); 18 columnas', async () => {
+    expect(INVENTORY_EXPORT_COLUMNS.length).toBe(18);
+    expect(INVENTORY_EXPORT_COLUMNS[16].header).toBe('Precio venta antes de IVA MXN');
+    expect(INVENTORY_EXPORT_COLUMNS[17]).toMatchObject({ header: 'Precio del producto con IVA MXN', width: 22 });
+    const { ws } = await exportRows();
+    const headers = (ws.getRow(1).values as any[]).slice(1);
+    expect(headers[16]).toBe('Precio venta antes de IVA MXN');
+    expect(headers[17]).toBe('Precio del producto con IVA MXN');
+  });
+
+  it('A/B (producto 700): 17 vacía, 18 = 7.00; C/D/E: la pieza en la 17; F vacía/vacía; G: override en la 17', async () => {
+    const { out } = await exportRows();
+    expect(out).toEqual({
+      A: [null, 7],
+      B: [null, 7],
+      C: [10, null],
+      D: [12, null],
+      E: [5, null],
+      F: [null, null],
+      G: [8, null],
+    });
+  });
+
+  it('CERO lecturas de diales en el export (el export no deriva `L` ni `P`)', async () => {
+    await exportRows();
+    expect(getIvaDials).not.toHaveBeenCalled();
+  });
+});
+
 describe('InventoryController.exportXlsx — cabeceras de descarga (P-31)', () => {
   function buildRes() {
     return { setHeader: jest.fn(), send: jest.fn() } as any;

@@ -38,7 +38,6 @@ import {
   firstPresentAmount,
   hasManualPrice,
   IvaDials,
-  listEquivalentCentsOf,
   manualSaleOf,
   PriceBasis,
   saleDisplayCentsOf,
@@ -621,7 +620,11 @@ export const INVENTORY_EXPORT_COLUMNS: ReadonlyArray<{ header: string; key: stri
   { header: 'Costo MXN', key: 'costMxn', width: 12 },
   { header: 'Precio mercado MXN', key: 'marketMxn', width: 18 },
   { header: 'Precio compra MXN', key: 'buyMxn', width: 18 },
-  { header: 'Precio venta MXN', key: 'sellMxn', width: 18 },
+  // 💰 v1.83.2 (API_CONTRACT §M11-SP.13.4, Q-4): la 17 se rotula por su ESCALA (`L`, antes de IVA) y la 18 lleva lo
+  // que TECLEÓ el dueño para el producto (`P`, con IVA), exacto. Las dos salen de `manualSaleOf` (un solo camino);
+  // ⛔ el export no lee diales ni deriva una escala desde la otra (§M1: STORED, sin derivar).
+  { header: 'Precio venta antes de IVA MXN', key: 'sellMxn', width: 18 },
+  { header: 'Precio del producto con IVA MXN', key: 'productDisplayMxn', width: 22 },
 ];
 
 /**
@@ -3405,6 +3408,8 @@ export class InventoryService {
     // 💰 v1.83 (§M11-SP.4): la línea «encontrada» es un escritor de `listPriceCents` más. (Su DTO no declara
     // `sealedProductId` ni `manualMarketMxnCents`, así que hoy solo puede darse «sellado sin producto»; la regla
     // es la misma función que en el alta para que el día que los declare no haga falta acordarse.)
+    // v1.83.2 (§M11-SP.13.8, Q-6): NORMADO — «encontrada» no liga a producto (ligar es del alta); la fila «ligado ⇒
+    // 422» es n/a y esta llamada SE QUEDA (canario en SP-9 de la integración).
     assertSealedPriceWriters([sealedPriceLineOf(dto.item)], { role: actorRole });
     if (dto.batchKey) {
       const existing = await this.prisma.inventoryBatch.findUnique({
@@ -3805,8 +3810,13 @@ export class InventoryService {
    *  - «Precio mercado» = `PriceReference` de la variante del item (mercado del día, MXN al FX vivo).
    *  - «Precio compra»  = override de COMPRA manual (`VariantPriceOverride.buyOverrideCents`, M-30);
    *     NO recomputa la regla del cotizador por rareza (eso sería inventar). Vacío si no hay override.
-   *  - «Precio venta»   = precio manual POR PIEZA (`listPriceCents`) ó, en su defecto, el override de
-   *     VENTA de la variante (`sellOverrideCents`). NO deriva mercado×markup. Vacío si ninguno.
+   *  - «Precio venta antes de IVA» (col 17, escala `L`) = precio manual POR PIEZA (`listPriceCents`) ó, en su
+   *     defecto, el override de VENTA de la variante (`sellOverrideCents`, también escala `L`: el checkout lo
+   *     trata como `listPriceCents` y deriva `P` de él). NO deriva mercado×markup. Vacío si ninguno, y VACÍO
+   *     cuando manda el precio del producto (v1.83.2, §M11-SP.13.4), aunque la pieza tenga legado sombreado.
+   *  - «Precio del producto con IVA» (col 18, escala `P`) = `SealedProduct.ownerDisplayPriceCents` tal cual lo
+   *     tecleó el dueño, solo cuando `manualSaleOf(...).origin = 'product'`. Vacío en otro caso.
+   * ⛔ Cero lecturas de diales: ninguna columna se deriva.
    */
   async exportInventoryXlsx(filters: {
     setId?: string;
@@ -3858,12 +3868,6 @@ export class InventoryService {
     // El dial del sellado, UNA vez por export y solo si hay sellado que gatear (D-4: `sealedSourceOnFor`,
     // el mismo cuerpo que los otros seis lectores; por debajo es `loadSealedSpreads()` una vez).
     const sourceOn = await this.pricing.sealedSourceOnFor(items);
-    // 💰 v1.83.1 (§M11-SP.12.3): la columna «Precio venta» es escala `L` (antes de IVA). Para el precio del dueño
-    // por producto (`P`) se exporta su `L` equivalente con los diales de ESTE momento — una lectura por export y
-    // solo si hay alguna pieza con precio de producto.
-    const exportDials = items.some((it) => manualSaleOf(it)?.origin === 'product')
-      ? await this.settings.getIvaDials()
-      : null;
 
     // Overrides M-30 (compra/venta) EN LOTE por la MISMA llave de variante que las referencias
     // (`variantKey`, P-30 H2: prohibida la interpolación a mano). Por lectura no existe fila M-30 con
@@ -3910,12 +3914,15 @@ export class InventoryService {
       // H-1 (E5-bis): con `??`, un `listPriceCents = 0` ENMASCARABA el `sellOverrideCents` de la
       // variante y el reporte enseñaba $0 donde el sistema cobra el override. Misma precedencia, con
       // «presente ⇔ > 0».
-      // v1.83 (§M11-SP.1): el predicado único — producto (su `L` equivalente) > pieza > override de variante.
+      // 💰 v1.83.2 (§M11-SP.13.4): el predicado único decide la COLUMNA, no una conversión. Producto ⇒ su `P`
+      // en la 18 y la 17 vacía (el legado sombreado no se cobra, no se exporta); si no ⇒ pieza > override de
+      // variante en la 17 (escala `L`) y la 18 vacía.
       const manual = manualSaleOf(it);
       const sellCents =
         manual?.origin === 'product'
-          ? listEquivalentCentsOf(manual.displayCents, exportDials as IvaDials)
+          ? null
           : firstPresentAmount(manual?.origin === 'piece' ? manual.listCents : null, ov?.sellOverrideCents);
+      const productDisplayCents = manual?.origin === 'product' ? manual.displayCents : null;
       sheet.addRow({
         folio: it.folio,
         card: it.card?.name ?? '',
@@ -3934,6 +3941,7 @@ export class InventoryService {
         marketMxn: this.centsToMxn(marketCents),
         buyMxn: this.centsToMxn(buyCents),
         sellMxn: this.centsToMxn(sellCents),
+        productDisplayMxn: this.centsToMxn(productDisplayCents),
       });
     }
 

@@ -11,13 +11,15 @@
  *  - SP-7  el `PUT` (con `reevaluateForPublication` doblado) no toca ninguna pieza; la `listed` pendiente reaparece.
  *  - SP-8  bitácora: una fila, en la misma tx (TRIGGER que la hace fallar ⇒ precio intacto), `pieces` exacto,
  *          el `200` idempotente no escribe.
- *  - SP-9  💰 la tabla de §M11-SP.4 por HTTP (cinco escritores + mercado a mano + raw con operador).
+ *  - SP-9  💰 la tabla de §M11-SP.4 por HTTP (cinco escritores + mercado a mano + raw con operador); v1.83.2
+ *           (§M11-SP.13.8): «encontrada» no liga a producto (fila n/a, con canario).
  *  - SP-10 hoja: piezas, costo, automático = `resolvedSalePriceCents` de `GET …/items`, `P`, neto, margen sobre `N`,
  *          vectores de 12.5, dial de fuente off/on, `t = 50`.
  *  - SP-11 cierre de la cola de ESE producto (`context='inventory'`); N-1: la aportación sin mercado re-escala.
  *  - SP-12 💰 `M-71`: sobre un esquema temporal (columna, CHECK, sin relleno, idempotente, cero bitácora) y el
  *          precio efectivo del legado igual (peldaño 2).
  *  - SP-16 💰 A-2: el `PUT` publica lo publicable DESPUÉS del commit; si el intento lanza, `autoPublish: null`.
+ *  - SP-16b 💰 v1.83.2 (§M11-SP.13.2): el doble clic no escribe en la tx, pero el disparo corre (es el reintento).
  *  - SP-17 A-1: `sealedProductId` / `sealedProductPieces` en el listado.
  *  - SP-18 💰 el dial de traslación 100 → 50 por su verbo: el `P` del dueño no se mueve; el automático baja.
  *
@@ -584,6 +586,43 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       expect([await ownerPrice(X.id), (await auditRows(X.id)).length]).toEqual([129_900, 1]);
       expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: A.id } })).status).toBe('in_stock');
     });
+    // 💰 v1.83.2 (API_CONTRACT §M11-SP.13.2, Q-2): el doble clic NO escribe en la tx (ni precio, ni bitácora, ni cola)
+    // pero el disparo post-commit SÍ corre: volver a guardar el mismo precio ES el reintento del dueño cuando el
+    // primer clic dio `autoPublish: null`. Cuentas a cero ≠ `null`.
+    it('SP-16b · doble clic tras un disparo que lanzó: 200, A listed, `autoPublish {1,0,0}`, cero bitácora/cola nuevas; 3.º ⇒ {0,0,0} (≠ null)', async () => {
+      const X = await product({ owner: null });
+      const A = await piece(X, { status: 'in_stock' });
+      const spy = jest.spyOn(h.app.get(InventoryService), 'reevaluateForPublication').mockRejectedValueOnce(new Error('boom sp16b'));
+      try {
+        const r1 = await put(X.id, { displayPriceCents: 700, expectedDisplayPriceCents: null });
+        expect({ s: r1.status, a: r1.body.autoPublish }).toEqual({ s: 200, a: null });
+      } finally {
+        spy.mockRestore();
+      }
+      const status = async () => (await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: A.id } })).status;
+      expect(await status()).toBe('in_stock');
+      // Una fila `open` de la cola de ESTE producto, puesta DESPUÉS del primer clic: si el paso 2 cerrara la cola
+      // (escritura de la tx), dejaría de estar `open`.
+      await h.prisma.pendingPriceEntry.create({
+        data: { cardId: ANCHOR, productType: 'sealed', gradeKey: `sealed:tcg:${X.tcgplayerProductId}`, finish: 'normal', sealedProductId: X.id, context: 'inventory', status: 'open', reason: 'no_market' },
+      });
+      const queue = () =>
+        h.prisma.pendingPriceEntry.findMany({ where: { sealedProductId: X.id }, orderBy: { id: 'asc' } });
+      const productRow = () => h.prisma.sealedProduct.findUniqueOrThrow({ where: { id: X.id } });
+      const [q0, p0] = [await queue(), await productRow()];
+
+      const r2 = await put(X.id, { displayPriceCents: 700, expectedDisplayPriceCents: 700 });
+      expect({ s: r2.status, a: r2.body.autoPublish }).toEqual({ s: 200, a: { published: 1, missingLocation: 0, notPublished: 0 } });
+      expect(await status()).toBe('listed');
+      expect((await auditRows(X.id)).length).toBe(1);
+      expect(await queue()).toEqual(q0);
+      expect(await productRow()).toEqual(p0);
+
+      const r3 = await put(X.id, { displayPriceCents: 700, expectedDisplayPriceCents: 700 });
+      expect({ s: r3.status, a: r3.body.autoPublish }).toEqual({ s: 200, a: { published: 0, missingLocation: 0, notPublished: 0 } });
+      expect((await auditRows(X.id)).length).toBe(1);
+      expect(await queue()).toEqual(q0);
+    });
   });
 
   // ============================================================================================ SP-8
@@ -682,6 +721,29 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       expect(await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: u.id }, select: { status: true, listPriceCents: true } })).toEqual({ status: 'in_stock', listPriceCents: null });
       const pAdm = await h.api('PATCH', `/admin/inventory/items/${u.id}`, { token: admin, json: { listPriceCents: 4000 } });
       expect(pAdm.status).toBe(200);
+    });
+    // v1.83.2 (API_CONTRACT §M11-SP.13.8, Q-6): «encontrada» NO liga a producto. `AdjustmentFoundItemInput` no declara
+    // `sealedProductId` ⇒ la lista blanca del `ValidationPipe` lo quita y la fila «ligado ⇒ 422» de ese escritor es
+    // n/a. CANARIO: si alguien declara el campo, la del dueño da 422 SEALED_PRICE_IS_PER_PRODUCT en vez de crearse
+    // sin producto — y hay que volver a SP.4 (`assertSealedPriceWriters` en `adjustFound` se queda para eso).
+    it('SP-9 (v1.83.2) · «encontrada» sellado con `listPriceCents` y `sealedProductId` en el cuerpo: operador 403 sin nada creado; dueño ⇒ creada SIN producto', async () => {
+      const X = await product({ owner: null });
+      const n0 = await count();
+      const found = {
+        reason: 'encontrada',
+        item: { productType: 'sealed', cardId: ANCHOR, sealedSubtype: 'etb', acquisitionType: 'compra', listPriceCents: 5000, sealedProductId: X.id },
+      };
+      const rOp = await h.api('POST', '/admin/inventory/adjustments', { token: op, json: found });
+      expect({ s: rOp.status, c: rOp.body.error?.code }).toEqual({ s: 403, c: 'FORBIDDEN' });
+      expect(await count()).toBe(n0);
+      const rAdm = await h.api('POST', '/admin/inventory/adjustments', { token: admin, json: found });
+      expect(rAdm.status).toBe(201);
+      const ids: string[] = rAdm.body.data?.inventoryItemIds ?? rAdm.body.inventoryItemIds;
+      expect(ids).toHaveLength(1);
+      expect(
+        await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: ids[0] }, select: { productType: true, sealedProductId: true, listPriceCents: true } }),
+      ).toEqual({ productType: 'sealed', sealedProductId: null, listPriceCents: 5000 });
+      expect(await h.prisma.inventoryItem.count({ where: { sealedProductId: X.id } })).toBe(0);
     });
     it('PATCH y bulk-publish sobre sellado LIGADO ⇒ 422 (también el dueño) con itemId; nada escrito', async () => {
       const X = await product({ owner: null });
