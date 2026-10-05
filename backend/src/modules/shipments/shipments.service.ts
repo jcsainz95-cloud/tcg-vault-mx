@@ -14,6 +14,9 @@ import {
   PreparationItemStatus,
   Prisma,
   ReplacementCaseStatus,
+  Role,
+  ShipmentCostAdjustmentKind,
+  ShippingIvaSource,
   ShipmentItem,
   ShipmentRequest,
   ShipmentStatus,
@@ -28,6 +31,8 @@ import { StripeService } from '../payments/stripe.service';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
   computeShipmentBreakdown,
+  netShippingRevenueCents,
+  shipmentNetRevenueCents,
   shippingFeeDisplayCentsOf,
 } from '../../common/money';
 import { parseEnumFilter } from '../../common/enum-filter';
@@ -59,6 +64,19 @@ import { originsBeingRefunded } from '../payments/refunds/origin';
 import { addressMissing } from '../users/address-rules';
 import { ShipmentAddressMissingField, shipmentAddressMissing } from './shipment-address-missing';
 import { NeighborhoodCheck, PostalCodeService } from '../shipping-provider/geo/postal-code';
+import { DEFAULT_LABEL_VERIFY_CONFIG, LABEL_VERIFY_CONFIG, LabelVerifyConfig } from './label-verify.constants';
+import { LabelClock, SHIPMENTS_LABEL_CLOCK, systemLabelClock } from './label-clock';
+import {
+  InFlightUncertainReason,
+  LabelAlertDTO,
+  LabelOptionsDTO,
+  LabelPendingDTO,
+  ShipmentLabelDTO,
+  labelAlertOf,
+  toLabelPendingDTO,
+  toShipmentLabelDTO,
+} from './label-view';
+import { labelSourceOf } from './label-source';
 
 /** ⭐ v1.80.12 (§M4-SHIP.19.20.1) — el bloque `address` de `AdminShipmentDTO`. */
 export interface ShipmentAddressStateDTO {
@@ -74,6 +92,20 @@ export interface ShipmentAddressStateDTO {
    * capturados pasan a `'in_catalog'` sin tocarlos. Solo en `AdminShipmentDTO`.
    */
   neighborhoodCheck: NeighborhoodCheck;
+}
+
+/** ⭐ v1.80.12.2 (§M4-SHIP.19.22.4): un ajuste de costo en `AdminShipmentDTO` (lista blanca; ⛔ `providerChargeId`). */
+export interface ShipmentCostAdjustmentDTO {
+  id: string;
+  kind: ShipmentCostAdjustmentKind;
+  providerChargeType: string;
+  amountCents: number;
+  ivaCents: number;
+  ivaSource: ShippingIvaSource;
+  netCents: number;
+  chargedAt: string;
+  observedAt: string;
+  note: string | null;
 }
 
 /** `P-84` · clase **E** (§4.37): estados de envío filtrables, DERIVADOS del schema. */
@@ -242,6 +274,10 @@ function toAdminShipmentRow(s: ShipmentRequest) {
     stripePaymentIntentId: s.stripePaymentIntentId,
     carrier: s.carrier,
     trackingNumber: s.trackingNumber,
+    // ⭐ v1.80.12.8 (M-67, §19.28.11): NUESTRO folio (admin; ⛔ nunca en superficies de cliente, SDX-I-6).
+    folio: s.folio,
+    // ⭐ v1.81 (§19.7): `manual | skydropx | null` — la lectura de `labelSourceOf` (fila legada ⇒ `manual`).
+    labelSource: labelSourceOf(s),
     requestedAt: s.requestedAt,
     pickingAt: s.pickingAt,
     shippedAt: s.shippedAt,
@@ -269,6 +305,9 @@ export class ShipmentsService {
     // ⭐ v1.80.12.5 (§M4-SHIP.19.25.3): `address.neighborhoodCheck` de `AdminShipmentDTO`. `@Optional()` por los tests
     // unitarios legacy que construyen el servicio a mano; quien lea `address` sin él falla ruidoso (`requirePostalCodes`).
     @Optional() private readonly postalCodes?: PostalCodeService,
+    // ⭐💰 v1.81 D2c (§19.20.2): umbrales de `labelPending`/`labelAlert` y el reloj de la guía (C-17: un reloj).
+    @Optional() @Inject(LABEL_VERIFY_CONFIG) private readonly labelCfg: LabelVerifyConfig = DEFAULT_LABEL_VERIFY_CONFIG,
+    @Optional() @Inject(SHIPMENTS_LABEL_CLOCK) private readonly labelClock: LabelClock = systemLabelClock,
   ) {}
 
   private requirePostalCodes(): PostalCodeService {
@@ -643,6 +682,7 @@ export class ShipmentsService {
     userId?: string,
     kind?: string,
     q?: string,
+    actorRole?: Role,
   ) {
     const where: Prisma.ShipmentRequestWhereInput = {};
     // ⭐ v1.80 (§M4-SHIP.10) — `?q=` (gramática de §M3: trim, vacío ≡ ausente, ≤ 200 ⇒ 400): contains
@@ -693,7 +733,7 @@ export class ShipmentsService {
       this.prisma.shipmentRequest.count({ where }),
     ]);
     const rows = [];
-    for (const s of data) rows.push({ ...this.withAdminKind(s), ...(await this.adminIdentity(s)) });
+    for (const s of data) rows.push({ ...this.withAdminKind(s), ...(await this.adminIdentity(s)), ...(await this.labelFieldsOf(s, actorRole ?? null)) });
     return { data: rows, page, pageSize, total };
   }
 
@@ -745,7 +785,99 @@ export class ShipmentsService {
     return { complete: missing.length === 0, version: s.addressVersion, corrected, missing, neighborhoodCheck };
   }
 
-  async adminGet(id: string) {
+  /**
+   * ⭐💰 v1.81 D2c — lo de la guía de Skydropx en `AdminShipmentDTO` (fila y detalle): `label` (§19.7), `labelPending` y
+   * `labelAlert` (§19.20.2 con §19.27.9 y §19.28.11) y `costAdjustments` (§19.22.4). Lista blanca; ⛔ `labelUrl` no viaja.
+   */
+  private async labelFieldsOf(s: ShipmentRequest, actorRole: Role | null): Promise<{
+    label: ShipmentLabelDTO | null;
+    labelPending: LabelPendingDTO | null;
+    labelAlert: LabelAlertDTO | null;
+    costAdjustments: ShipmentCostAdjustmentDTO[];
+  }> {
+    const chosenByName = s.rateChosenByUserId
+      ? nullIfBlank((await this.prisma.user.findUnique({ where: { id: s.rateChosenByUserId }, select: { name: true } }))?.name ?? null)
+      : null;
+    const adjustments = await this.prisma.shipmentCostAdjustment.findMany({ where: { shipmentRequestId: s.id }, orderBy: [{ chargedAt: 'asc' }, { id: 'asc' }] });
+    const costAdjustments: ShipmentCostAdjustmentDTO[] = adjustments.map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      providerChargeType: a.providerChargeType,
+      amountCents: a.amountCents,
+      ivaCents: a.ivaCents,
+      ivaSource: a.ivaSource,
+      netCents: a.amountCents - a.ivaCents,
+      chargedAt: a.chargedAt.toISOString(),
+      observedAt: a.observedAt.toISOString(),
+      note: a.note,
+    }));
+    let label: ShipmentLabelDTO | null = null;
+    if (s.labelSource === 'skydropx') {
+      const charged = s.orderId
+        ? await this.prisma.order.findUnique({ where: { id: s.orderId }, select: { subtotalCents: true, shippingFeeCents: true, ivaCents: true, ivaRatePct: true, priceConvention: true } })
+        : null;
+      const chargedNet = charged ? netShippingRevenueCents(charged) : shipmentNetRevenueCents(s);
+      label = toShipmentLabelDTO(s, chosenByName, chargedNet, costAdjustments.reduce((t, a) => t + a.netCents, 0));
+    }
+    let providerReference: string | null = null;
+    let uncertainReason: InFlightUncertainReason | null = null;
+    if (s.labelProcessingSince) {
+      const attempt = await this.prisma.shipmentLabelAttempt.findUnique({
+        where: { shipmentRequestId_since: { shipmentRequestId: s.id, since: s.labelProcessingSince } },
+        select: { providerReference: true },
+      });
+      providerReference = attempt?.providerReference ?? null;
+      const uncertain = await this.prisma.auditLog.findFirst({
+        where: { entityId: s.id, action: 'shipment.label_verify_uncertain', after: { path: ['since'], equals: s.labelProcessingSince.toISOString() } },
+        orderBy: { createdAt: 'desc' },
+        select: { after: true },
+      });
+      const reason = (uncertain?.after as { reason?: string } | null)?.reason;
+      uncertainReason = (reason as InFlightUncertainReason | undefined) ?? null;
+    }
+    const orphan = await this.prisma.auditLog.findFirst({
+      where: { entityId: s.id, action: 'shipment.label_orphan', createdAt: { gt: new Date(this.labelClock.now().getTime() - 7 * 24 * 60 * 60 * 1000) } },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    return {
+      label,
+      labelPending: toLabelPendingDTO(s, chosenByName, providerReference, this.labelCfg.tUnknownMs),
+      labelAlert: labelAlertOf(s, this.labelClock.now(), actorRole, { tUnknownMs: this.labelCfg.tUnknownMs, orphanSince: orphan?.createdAt ?? null, uncertainReason }),
+      costAdjustments,
+    };
+  }
+
+  /**
+   * ⭐💰 v1.81 D2c — `lastLabelRelease` (§19.27.9, solo detalle): la última `shipment.label_released` de las últimas 24 h si
+   * el envío quedó «preparado sin guía»; si no, `null`. ⛔ Sin importes.
+   */
+  private async lastLabelReleaseOf(s: ShipmentRequest): Promise<{ at: string; via: string } | null> {
+    if (s.labelSource !== null || s.labelProcessingSince !== null) return null;
+    const r = await this.prisma.auditLog.findFirst({
+      where: { entityId: s.id, action: 'shipment.label_released', createdAt: { gt: new Date(this.labelClock.now().getTime() - 24 * 60 * 60 * 1000) } },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true, after: true },
+    });
+    if (!r) return null;
+    return { at: r.createdAt.toISOString(), via: String((r.after as { via?: string } | null)?.via ?? 'manual') };
+  }
+
+  /** §R.5 — el destinatario del envío (el MISMO cuerpo que los avisos), para `address_to.email` de la compra (T.11). */
+  async recipientEmailOf(shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId'>): Promise<string | null> {
+    return (await this.resolveRecipient(shipment))?.email ?? null;
+  }
+
+  /** ⭐💰 v1.81 D2c — `AV-4` de una guía de Skydropx (`setTrackingFromProvider`): el MISMO sello y la misma plantilla que `setTracking`. */
+  async notifyLabelCaptured(id: string): Promise<void> {
+    const row = await this.prisma.shipmentRequest.findUnique({ where: { id } });
+    if (!row || !row.carrier || !row.trackingNumber) return;
+    await this.claimAndNotify(id, 'trackingNoticeSentAt', row, (l, p) =>
+      shipmentGuideTemplate({ ...p, carrier: row.carrier as string, trackingNumber: row.trackingNumber as string }, l),
+    );
+  }
+
+  async adminGet(id: string, actor?: { id: string; role: Role }, labelOptionsFor?: (actor: { id: string; role: Role }, shipmentId: string) => Promise<LabelOptionsDTO>) {
     const shipment = await this.prisma.shipmentRequest.findUnique({
       where: { id },
       include: {
@@ -766,6 +898,9 @@ export class ShipmentsService {
     return {
       ...this.withAdminKind(shipment),
       ...(await this.adminIdentity(shipment)),
+      ...(await this.labelFieldsOf(shipment, actor?.role ?? null)),
+      lastLabelRelease: await this.lastLabelReleaseOf(shipment),
+      ...(actor && labelOptionsFor ? { labelOptions: await labelOptionsFor(actor, id) } : {}),
       refunds,
       items: shipment.items.map((si) => ({ ...si, prepStatus: si.prepStatus, missingReason: si.missingReason })),
     };
@@ -1494,13 +1629,25 @@ export class ShipmentsService {
     const data = {
       carrier,
       trackingNumber,
+      // ⭐ v1.81 (§19.7 «POST …/tracking con Skydropx»): la captura a mano AFIRMA su origen (antes se derivaba).
+      labelSource: 'manual' as const,
       ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
-      ...(shippingCostIvaCents !== undefined ? { shippingCostIvaCents } : {}),
+      ...(shippingCostIvaCents !== undefined ? { shippingCostIvaCents, shippingIvaSource: 'manual' as const } : {}),
     };
     const relabelled = await this.prisma.$transaction(
       async (tx) => {
         // ⭐ v1.80 (§M4-SHIP.6) — candado de la fila y las guardas de la guía bajo él (un cuerpo en `prep`).
-        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
+        // ⭐💰 v1.81 (§19.7, criterio 247; §19.22.5): ⛔ no se captura a mano encima de una guía de Skydropx ni con una compra
+        // en curso (la MISMA condición con que la ventana pinta «Capturar a mano»: `label = null ∧ labelPending = null`).
+        // Se leen EN la misma sentencia que toma el candado (la lectura ya es bajo él).
+        const [locked] = await tx.$queryRaw<{ labelSource: string | null; labelProcessingSince: Date | null }[]>`
+          SELECT "labelSource"::text AS "labelSource", "labelProcessingSince" FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
+        if (locked?.labelSource === 'skydropx') {
+          throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Shipment already has a Skydropx label', { labelSource: 'skydropx' });
+        }
+        if ((locked?.labelProcessingSince ?? null) !== null) {
+          throw BusinessException.conflict('LABEL_IN_PROGRESS', 'A label purchase is in progress for this shipment');
+        }
         if (advances && this.prep) await this.prep.assertCanAdvance(tx, id, 'guia');
         // ⭐⭐ `REL-C` — EL AVANCE DE ESTADO, Y SU PRECONDICIÓN ES UN CONJUNTO, NO UNA LECTURA. ⭐ v1.80: y la
         // guía exige `preparedAt` y cero casos `open` TAMBIÉN en el `WHERE` (§M4-SHIP.6, §M4-SHIP.15.6).

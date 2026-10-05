@@ -19,12 +19,13 @@
  * defensa en profundidad (BACKEND_NOTES §58); las de Skydropx las escribirá D2c (`label`), y PS-104 las siembra.
  */
 import { Injectable } from '@nestjs/common';
-import { Prisma, Role, ShipmentLabelSource, ShipmentRequest } from '@prisma/client';
+import { Prisma, Role, ShipmentRequest } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
 import { optionalText, requiredPostalCode, requiredText } from '../users/address-rules';
 import { ShipmentsService } from './shipments.service';
+import { labelSourceOf } from './label-source';
 
 export interface CorrectShipmentAddressReq {
   expectedAddressVersion: number;
@@ -59,13 +60,8 @@ export const CORRECTABLE_SNAPSHOT_KEYS = [
 ] as const;
 type CorrectableKey = (typeof CORRECTABLE_SNAPSHOT_KEYS)[number];
 
-/**
- * §19.2 / §19.23.3 (1) — `labelSourceOf(row) = row.labelSource ?? (row.trackingNumber ? 'manual' : null)`. UN helper:
- * sin backfill (`ARCHITECTURE §11`), una fila con número y `labelSource` nulo es una guía manual anterior a v1.81.
- */
-export function labelSourceOf(row: Pick<ShipmentRequest, 'labelSource' | 'trackingNumber'>): ShipmentLabelSource | null {
-  return row.labelSource ?? (row.trackingNumber ? 'manual' : null);
-}
+/** §19.2 / §19.23.3 (1) — UN helper; vive en `label-source.ts` (sin ciclo de imports) y se re-exporta aquí. */
+export { labelSourceOf };
 
 /** El cuerpo, validado en el SERVIDOR con `400 VALIDATION_ERROR {field}` (el pipe global no emite `field`). */
 export function parseCorrectAddressBody(raw: unknown): CorrectShipmentAddressReq {

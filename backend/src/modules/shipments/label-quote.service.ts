@@ -26,7 +26,7 @@ import { emptyExcluded, normalizeRates, pickRecommendedRateId } from '../shippin
 import { isPromoPlan } from '../shipping-provider/promo-plan';
 import { ShipmentPrepService } from './shipment-prep.service';
 import { shipmentAddressMissing } from './shipment-address-missing';
-import { labelSourceOf } from './shipment-address.service';
+import { labelSourceOf } from './label-source';
 import { insuranceCoverageFor, maxCoverageCentsOf } from './insurance';
 import { neutralizeOutboundAddress } from './folio-neutralize';
 import { ExcludedRatesDTO, ShipmentQuoteDTO, ShipmentRateDTO } from './label-dto';

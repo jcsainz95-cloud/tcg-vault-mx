@@ -14,6 +14,12 @@ import { FakeShippingProvider } from '../../../src/modules/shipping-provider/fak
 import { SHIPPING_PROVIDER_SELECTION } from '../../../src/modules/shipping-provider/shipping-provider.module';
 import { ShippingProviderSelection } from '../../../src/modules/shipping-provider/shipping-provider.factory';
 import { ManualLabelClock, SHIPMENTS_LABEL_CLOCK } from '../../../src/modules/shipments/label-clock';
+import { LABEL_SPEND_KEY } from '../../../src/modules/shipments/label-purchase.service';
+import {
+  DEFAULT_LABEL_VERIFY_CONFIG,
+  LABEL_VERIFY_CONFIG,
+  LabelVerifyConfig,
+} from '../../../src/modules/shipments/label-verify.constants';
 
 /** Dirección completa del arnés (CP 01000 · San Ángel, `E2E_POSTAL_CODES`). */
 export const READY_ADDRESS = {
@@ -34,20 +40,43 @@ export interface LabelWorld {
   db: ShipPrepDb;
   fake: FakeShippingProvider;
   clock: ManualLabelClock;
+  /**
+   * 🔒 La llave de entorno de la compra, SUSTITUIDA (PS-99): ⛔ ninguna prueba pone `SKYDROPX_ALLOW_SPEND`. Solo el DOBLE
+   * puede «comprar» aquí; la llave real vive en `spend-gate.ts` y el candado de ejecución en el cliente real.
+   */
+  spend: { on: boolean };
+  /** La configuración de verificación inyectada (§19.27.8): ⛔ las pruebas no cambian `label-verify.constants.ts`. */
+  cfg: LabelVerifyConfig;
 }
 
-export async function createLabelWorld(run: string, selection: Partial<ShippingProviderSelection> = {}): Promise<LabelWorld> {
+export async function createLabelWorld(
+  run: string,
+  selection: Partial<ShippingProviderSelection> = {},
+  cfgOver: Partial<LabelVerifyConfig> = {},
+): Promise<LabelWorld> {
   const fake = new FakeShippingProvider();
   fake.reuseQuotations = false;
   fake.defaultLabelUrl = 'https://pro.skydropx.com/labels/x.pdf';
   const clock = new ManualLabelClock(new Date());
   const sel: ShippingProviderSelection = { port: fake, kind: 'fake', urlHosts: ['pro.skydropx.com'], client: null, ...selection };
+  const spend = { on: true };
+  // Las pruebas desactivan la adopción por folio por defecto (§19.28.4: «las pruebas lo inyectan en `false`»).
+  const cfg: LabelVerifyConfig = { ...DEFAULT_LABEL_VERIFY_CONFIG, adoptionEnabled: false, ...cfgOver };
+  fake.now = () => clock.now();
   const h = await E2EHarness.create((b) =>
-    b.overrideProvider(SHIPPING_PROVIDER_SELECTION).useValue(sel).overrideProvider(SHIPMENTS_LABEL_CLOCK).useValue(clock),
+    b
+      .overrideProvider(SHIPPING_PROVIDER_SELECTION)
+      .useValue(sel)
+      .overrideProvider(SHIPMENTS_LABEL_CLOCK)
+      .useValue(clock)
+      .overrideProvider(LABEL_SPEND_KEY)
+      .useValue({ turned: () => spend.on })
+      .overrideProvider(LABEL_VERIFY_CONFIG)
+      .useValue(cfg),
   );
   const db = new ShipPrepDb(h, run);
   await db.init();
-  return { h, db, fake, clock };
+  return { h, db, fake, clock, spend, cfg };
 }
 
 const touchedDials = new Map<string, Prisma.JsonValue | undefined>();
@@ -93,3 +122,22 @@ export async function ready(db: ShipPrepDb, shipmentId: string, address: Record<
 }
 
 export const errCode = (r: R) => (r.status >= 200 && r.status < 300 ? `${r.status}` : `${r.status}:${r.body?.error?.code}`);
+
+/** Encendido para COMPRAR (doble + llave sustituida): proveedor, plantilla y dial de compra (la carta porte tiene default). */
+export async function purchaseOn(h: E2EHarness, mode: 'operators' | 'super_admin_only' = 'operators'): Promise<void> {
+  await providerOn(h);
+  await dial(h, 'shipping_label_purchase', mode);
+}
+
+/** El cuerpo de `POST …/label` con las cifras que vio el operador (y las dos confirmaciones dadas). */
+export function buyBody(q: { quoteId: string }, rate: { rateId: string; priceCents: number; marginCents: number }, over: Record<string, unknown> = {}) {
+  return {
+    quoteId: q.quoteId,
+    rateId: rate.rateId,
+    expectedPriceCents: rate.priceCents,
+    expectedMarginCents: rate.marginCents,
+    confirmNegativeMargin: true,
+    confirmBranchDelivery: true,
+    ...over,
+  };
+}

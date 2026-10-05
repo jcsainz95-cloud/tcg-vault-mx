@@ -8,6 +8,7 @@ import { TrackingDto, UpdateStatusDto } from './dto/shipments.dto';
 import { ShipmentPrepService } from './shipment-prep.service';
 import { ShipmentAddressService } from './shipment-address.service';
 import { ShipmentQuoteService } from './label-quote.service';
+import { ShipmentLabelService } from './label-purchase.service';
 
 /**
  * M4 — Retiros / envíos (vault_operator+). API_CONTRACT §M4.
@@ -21,6 +22,7 @@ export class AdminShipmentsController {
     private readonly prep: ShipmentPrepService,
     private readonly address: ShipmentAddressService,
     private readonly quotes: ShipmentQuoteService,
+    private readonly labels: ShipmentLabelService,
   ) {}
 
   @Get()
@@ -33,6 +35,7 @@ export class AdminShipmentsController {
     @Query('pageSize') pageSize = '20',
     // ⭐ v1.80 (§M4-SHIP.10): búsqueda `q` (gramática de §M3).
     @Query('q') q?: string,
+    @CurrentUser() user?: { id: string; role: Role },
   ) {
     return this.shipments.adminList(
       status,
@@ -41,6 +44,7 @@ export class AdminShipmentsController {
       userId,
       kind,
       q,
+      user?.role,
     );
   }
 
@@ -82,8 +86,9 @@ export class AdminShipmentsController {
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.shipments.adminGet(id);
+  get(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    // ⭐💰 v1.81 D2c: el detalle gana `labelOptions` calculado PARA el actor (§19.19.7) y las alertas de guía (§19.20.2).
+    return this.shipments.adminGet(id, user, (actor, shipmentId) => this.labels.labelOptionsFor(actor, shipmentId));
   }
 
   /** ⭐ v1.80 (§M4-SHIP.5) — palomear / marcar faltante (con motivo) / deshacer UNA carta de un envío. */
@@ -136,6 +141,17 @@ export class AdminShipmentsController {
   @Get(':id/quote')
   currentQuote(@Param('id') id: string) {
     return this.quotes.current(id);
+  }
+
+  /**
+   * 💰🔒 ⭐ v1.81 D2c (§M4-SHIP.19.7 con §19.18.3, §19.19.7/.8, §19.20, §19.26–§19.30) — comprar la guía con la tarifa
+   * elegida. Operador+ por la ruta; la PUERTA (dial `shipping_label_purchase` + rol con conjunto explícito + env) va en el
+   * servicio, antes del reclamo.
+   */
+  @Post(':id/label')
+  @HttpCode(200)
+  label(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.labels.purchase(id, body, user);
   }
 
   @Patch(':id/status')

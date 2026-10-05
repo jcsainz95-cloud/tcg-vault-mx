@@ -138,6 +138,24 @@ export interface PurchaseResult {
   raw: unknown;
 }
 
+/**
+ * 💰 v1.80.12.6 (§19.26.1) — el `PurchaseResult` de un `422` CON id (el id viaja en `details.providerShipmentId` del error):
+ * sin URLs ni cifras. Vive aquí para que los campos `raw*` sigan sin escribirse fuera de `shipping-provider/` (`C-SDX-7` (2)).
+ */
+export function rejectedWithIdResult(providerShipmentId: string, error: ProviderError): PurchaseResult {
+  return {
+    providerShipmentId,
+    carrierName: null,
+    trackingNumber: null,
+    rawLabelUrl: null,
+    rawTrackingUrl: null,
+    totalCents: null,
+    insuranceCents: null,
+    error,
+    raw: null,
+  };
+}
+
 export interface ProviderEvent {
   /** `null` ⇔ el valor crudo no es uno de los 12 ⇒ evento NO aplicado + log `unknown_carrier_status` (§19.19.10). */
   status: ProviderCarrierStatus | null;

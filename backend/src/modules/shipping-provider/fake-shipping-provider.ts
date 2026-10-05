@@ -154,9 +154,13 @@ export class FakeShippingProvider implements ShippingProviderPort {
     ];
     const protection = fakeInsuranceCostCents(echoedCoverage) / 100;
     if (Array.isArray(raw.rates)) {
-      raw.rates = (raw.rates as Record<string, unknown>[]).map((r) =>
-        r.success === true ? { ...r, protection_value_total: protection } : r,
-      );
+      // Como la API real: la `rate_id` es de SU cotización (otra cotización ⇒ otras ids; la misma ⇒ las mismas). Sin esto,
+      // dos envíos cotizados compartirían ids y la guarda `rate_already_purchased` (§19.26.3 (a)) mordería en falso.
+      raw.rates = (raw.rates as Record<string, unknown>[]).map((r) => ({
+        ...r,
+        ...(typeof r.id === 'string' ? { id: `${r.id}@${entry.id}` } : {}),
+        ...(r.success === true ? { protection_value_total: protection } : {}),
+      }));
     }
     const insuranceEcho = insuranceEchoOf(raw.packages, p.coverageCents);
     const { rates, excluded } = normalizeRates(this.quoteCompleted ? raw.rates : [], {
