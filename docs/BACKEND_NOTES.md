@@ -27259,3 +27259,58 @@ En la corrida de `adc426b5`, SP-5: forzada 10/10, suelta 200+409 10/10; SP-6: fo
   sustractivo para raw/graded).
 - **Q-6 («encontrada»).** El DTO no declara `sealedProductId`: la fila «ligado ⇒ 422» de SP.4 para ese escritor es hoy
   inalcanzable. ¿Se quiere declarar el campo (ligar al alta por ajuste) o se deja así?
+
+### 57.9 Errata v1.83.2 (§M11-SP.13) construida — SP-20, SP-16b, SP-9 (backend, 2026-10-05, commit `cf12d215`)
+
+**Qué cambió (código).** Solo `inventory/inventory.service.ts`:
+- **Export `.xlsx` (Q-4, §M11-SP.13.4).** `INVENTORY_EXPORT_COLUMNS`: la 17 (`sellMxn`) pasa a «Precio venta antes de IVA
+  MXN»; nueva 18 `productDisplayMxn` «Precio del producto con IVA MXN» (`width` 22). Con `m = manualSaleOf(it)`:
+  `product` ⇒ 17 vacía y 18 = `m.displayCents` exacto (también con legado sombreado); `piece` ⇒ 17 = `m.listCents`
+  (`firstPresentAmount` con el override de variante, que con pieza presente da la pieza) y 18 vacía; `null` ⇒ 17 =
+  `sellOverrideCents` o vacía, 18 vacía. **Se retiró la lectura de `getIvaDials` del export** y el uso de
+  `listEquivalentCentsOf` (import quitado del fichero).
+- **`sellOverrideCents` está en escala `L` (lo pide SP-20; medido leyendo el código):** el checkout lo resuelve en
+  `computeSalePriceFromCurve` (`common/money.ts`, peldaño 2) ⇒ `sale.priceCents` ⇒ `instrument(sale.priceCents, …)` como
+  `listPriceCents` (`orders.service.ts`, final de `resolveSaleDecision`) ⇒ `derivedSaleDecision` deriva `P` con
+  `saleDisplayCentsOf` (IVA encima). Es el mismo hueco que `listPriceCents` ⇒ la columna 17 lo rotula bien.
+- **Q-2 y Q-6 sin cambio de conducta:** lo construido ya era lo normado (paso 2 retorna dentro de la tx y el disparo
+  post-commit corre en los dos caminos; el DTO de «encontrada» no declara `sealedProductId` y la lista blanca del
+  `ValidationPipe` lo quita). Solo se actualizó el comentario de `adjustFound` (la llamada a `assertSealedPriceWriters`
+  se queda).
+
+**Pruebas nuevas.**
+| # | Dónde | Qué |
+|---|---|---|
+| 💰 SP-20 (3 casos) | `test/inventory.export-xlsx.spec.ts` | cabeceras 17/18 y 18 columnas; tabla A…F del contrato + **G** (raw sin pieza con `sellOverrideCents 800` ⇒ 17 `8`, 18 vacía); **cero** llamadas a `getIvaDials` (doble con diales **(50,16)**, no neutros, para que cualquier derivación se vea) |
+| 💰 SP-16b | `test/integration/sealed-price.e2e-spec.ts` (bloque SP-16) | 1.er `PUT` 700 con disparo que lanza ⇒ `null`, A `in_stock`; fila `open` de cola del producto puesta después; 2.º `PUT` idéntico ⇒ `200`, `{1,0,0}`, A `listed`, bitácora sigue en 1, cola y fila de `SealedProduct` **idénticas**; 3.º ⇒ `{0,0,0}` |
+| SP-9 (v1.83.2) | ídem (bloque SP-9) | «encontrada» sellado con `listPriceCents` y `sealedProductId: X` en el cuerpo: operador `403 FORBIDDEN`, nada creado; dueño `201`, pieza con `sealedProductId: null` y `listPriceCents 5000`; cero piezas en X |
+
+**Roja primero (SP-20, sobre el árbol vivo antes del código):** 3/3 rojas — A/B salían `6.48` en la 17 (el `L`
+equivalente con (50,16)) y nada en la 18; `getIvaDials` llamado 1 vez; cabeceras distintas. SP-16b y SP-9 normaban lo
+construido ⇒ verdes desde el principio; su rojo se demostró por mutación.
+
+**Mutaciones** (copia `git archive cf12d215` del árbol ENTERO en `scratchpad/be-sellado2/mut`, BD `tcg_be_sell2`;
+deterministas ⇒ N=1 por mutante, como dice §M11-SP.13.9): **8/8 mordidas.**
+| Mutante | Prueba que muerde |
+|---|---|
+| M1 la 17 lleva el `L` equivalente del producto | SP-20 tabla |
+| M2 la 17 lleva el legado sombreado (B ⇒ 10) | SP-20 tabla |
+| M3 la 17 lleva `P` | SP-20 tabla |
+| M4 una lectura de `getIvaDials` en el export | SP-20 «cero lecturas» |
+| M5 la 18 lleva la pieza en `origin = 'piece'` | SP-20 tabla |
+| M6 el paso 2 sale sin disparar (`autoPublish: null`) | SP-16b (`null` en vez de `{1,0,0}`) |
+| M7 el paso 2 no sale (el CAS pasa y escribe) | SP-16b (bitácora 2 ≠ 1) |
+| M8 canario: `@IsOptional() @IsString() sealedProductId?` en `AdjustmentFoundItemInput` | SP-9 — muerde ya en la línea del **operador**: `422 SEALED_PRICE_IS_PER_PRODUCT` en vez de `403` (la fila «ligado ⇒ 422 para cualquier rol» vuelve a aplicar, que es justo lo que el canario debe anunciar) |
+
+**Suites (medido por backend, copia `git archive cf12d215` del árbol ENTERO en `scratchpad/be-sellado2/tree`, BD
+`tcg_be_sell2`, s3-local `:9000` del clon `tcg-sellado`):**
+| Suite | Resultado | Carga al empezar |
+|---|---|---|
+| `tsc --noEmit`, `npm run lint` | 0 errores | — |
+| Unitaria (`npx jest`) | **392/392 suites, 6662/6662** (+3 = SP-20) | 3.76 |
+| Integración | **78/78 suites, 1609/1609** (+2 = SP-16b, SP-9) | 7.28 (al terminar 5.97) |
+
+**Aviso que no es pregunta (lo pide §M11-SP.13.4 para la solicitud de fusión):** la columna 17 del export cambia de
+nombre y aparece una 18; si el dueño tiene fórmulas sobre la hoja exportada: **NO MEDIDO**.
+
+**Preguntas al arquitecto:** ninguna nueva.
