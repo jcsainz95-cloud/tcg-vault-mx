@@ -103,6 +103,13 @@ regexes = [
   # ponían rojo un run: esto deja limpio el modo `git` manual/local.
   '''^A-Strong-Secret-123$''',
   '''^asB64\.length$''',
+  # Skydropx C-TL-1 (2026-10-05): `tok-de-prueba-123` es el token FICTICIO de
+  # la URL de seguimiento en backend/test/sdx-tl31af.units.spec.ts:193
+  # (commit 0b630899; `...pedido?token=tok-de-prueba-123`). generic-api-key lo
+  # ve como secreto por el nombre `token=`. Se permite por VALOR EXACTO anclado
+  # (como `A-Strong-Secret-123`), sin patron amplio: cualquier otro `token=...`
+  # sigue siendo rojo.
+  '''^tok-de-prueba-123$''',
 ]
 paths = [
   '''\.env\.example$''',
