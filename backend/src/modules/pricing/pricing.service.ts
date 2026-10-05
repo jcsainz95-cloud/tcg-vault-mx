@@ -37,7 +37,6 @@ import {
 import {
   usdToMxnCents,
   computeSalePriceFromCurve,
-  computeSealedSalePrice,
   computeSealedSaleOf,
   manualSaleOf,
   CurvePriceResult,
@@ -1887,24 +1886,10 @@ export class PricingService {
     );
   }
 
-  /**
-   * v1.23-sealed-sales (§4.23d) — precio de VENTA del sellado por presentación (SEC-A1). Lee el
-   * contexto de spreads e invoca la pura `computeSealedSalePrice`. `marketMxnCents` = el
-   * `sealedMarketRef` YA gateado por el dial (el llamador pasa `null` si `sourceOn=false`).
-   */
-  async computeSealedSalePriceForItem(
-    item: { listPriceCents: number | null; sealedSubtype: string | null },
-    marketMxnCents: number | null,
-  ): Promise<SealedSpreadResult> {
-    const { spreadPctBySubtype, fallbackPct } = await this.loadSealedSpreads();
-    return computeSealedSalePrice(
-      item.listPriceCents,
-      item.sealedSubtype,
-      marketMxnCents,
-      spreadPctBySubtype,
-      fallbackPct,
-    );
-  }
+  // 💰 v1.83 (§M11-SP, SP-19 / techlead «ninguna segunda fórmula»): aquí vivía `computeSealedSalePriceForItem`, un
+  // segundo camino al precio del sellado SIN el peldaño del producto. No tenía llamadores (medido: `rg
+  // computeSealedSalePriceForItem backend/` ⇒ solo su definición) y se retira: el único camino es
+  // `resolveSealedSalePrice`.
 
   /**
    * Sincroniza el precio de una carta (cache diario) desde el proveedor POR CARTA. Devuelve el
