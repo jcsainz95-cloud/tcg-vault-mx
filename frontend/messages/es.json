@@ -4550,7 +4550,10 @@
       },
       "source": {
         "case_excess": "Excedente del caso {card} · {folio}",
-        "stripe_failed": "Tarjeta rechazada por Stripe · caso {card} · {folio}"
+        "stripe_failed": "Tarjeta rechazada por Stripe · caso {card} · {folio}",
+        "withdrawal_delivered": "Retiro entregado · {card} · {folio} · {reason}",
+        "withdrawal_delivered_unknown": "Retiro entregado",
+        "unknown": "—"
       },
       "originNotSettled": "en disputa / reembolsada",
       "noClabe": "Sin CLABE registrada",
@@ -4646,6 +4649,14 @@
         "notConvertibleStatus": "Este reembolso todavía puede salir por Stripe ({status}): pasarlo a transferencia sería pagar dos veces. Reintenta el reembolso o espera.",
         "notConvertibleKind": "Solo los reembolsos de un caso «Por reponer» se pasan a transferencia.",
         "originNotSettled": "La compra de origen está {status, select, chargeback {en disputa} other {reembolsada}}{disputed, select, yes { (Stripe rechazó por disputa)} other {}}: el banco ya está resolviendo ese dinero. No se crea nada."
+      },
+      "withdrawal": {
+        "title": "Retiro entregado",
+        "folio": "Retiro",
+        "card": "Carta",
+        "reason": "Motivo",
+        "note": "Qué pasó",
+        "deliveredAt": "Entregado el"
       }
     },
     "refundsPage": {
@@ -4655,7 +4666,49 @@
         "operators": "Reembolsos de operadores",
         "speiCount": "{count, plural, one {# pendiente} other {# pendientes}}"
       },
-      "reviewLink": "Pedidos enviados reembolsados desde Stripe que esperan motivo: verlos en Ventas →"
+      "reviewLink": "Pedidos enviados reembolsados desde Stripe que esperan motivo: verlos en Ventas →",
+      "withdrawalDelivered": {
+        "cta": "Devolver una carta de un retiro entregado",
+        "title": "Devolver una carta de un retiro entregado",
+        "back": "Atrás",
+        "step1": {
+          "heading": "1 · Buscar el retiro",
+          "label": "Buscar el retiro",
+          "hint": "Folio del retiro, nombre o correo del cliente.",
+          "empty": "Nada coincide con «{q}».",
+          "notDelivered": "Aún no está entregado ({status})."
+        },
+        "step2": {
+          "heading": "2 · ¿Qué carta? · {folio}",
+          "legend": "¿Qué carta?",
+          "notShipped": "Esta carta no salió en el retiro: se resuelve en «Por reponer».",
+          "next": "Continuar"
+        },
+        "step3": {
+          "heading": "3 · Monto y motivo",
+          "title": "Devolver por transferencia: {card}",
+          "noOrigin": "Sin compra de origen conocida",
+          "legend": "¿Qué pasó con esta carta? (obligatorio)",
+          "noteLabel": "Qué pasó y de dónde sale la cifra",
+          "noteHint": "Queda en bitácora; el cliente no la ve.",
+          "allTransfer": "Todo va por transferencia (cubeta SPEI): no se toca la tarjeta.",
+          "confirm": "Crear transferencia de {amount}"
+        },
+        "done": "Transferencia de {amount} creada para {customer}. Se le avisa por correo{clabe, select, no { y se le pide registrar su CLABE} other {}}.",
+        "viewTransfer": "Ver transferencia",
+        "error": {
+          "not_withdrawal": "Esto es un envío de un pedido, no un retiro: esa carta se reembolsa desde Ventas, en el pedido. No se creó nada.",
+          "not_delivered": "Este retiro ya no figura como entregado. No se creó nada.",
+          "not_shipped": "Esta carta no salió en el retiro (faltó o llegó dañada al preparar): se resuelve en «Por reponer». No se creó nada.",
+          "toReplaceLink": "Ir a «Por reponer»",
+          "already_refunded": "Esta carta ya tiene una transferencia viva. No se creó otra.",
+          "viewTransfer": "Ver la transferencia",
+          "no_reference": "Esta carta no tiene con qué compararse: ni compra de origen ni precio de mercado. Sin referencia no hay tope contra errores de dedo, así que no se puede capturar aquí. No se creó nada. Avísale al equipo técnico.",
+          "forbidden": "Solo el súper-admin puede reembolsar. El intento quedó registrado.",
+          "note": "Escribe qué pasó y de dónde sale la cifra (de 3 a 500 caracteres).",
+          "reason": "Elige «No llegó» o «Llegó en mala condición»."
+        }
+      }
     },
     "refunds": {
       "hint": "Lo que cada operador ha devuelto al preparar envíos. Sin correo: el panel es el aviso.",

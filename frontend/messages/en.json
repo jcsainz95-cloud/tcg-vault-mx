@@ -4550,7 +4550,10 @@
       },
       "source": {
         "case_excess": "Case excess {card} · {folio}",
-        "stripe_failed": "Card refund rejected by Stripe · case {card} · {folio}"
+        "stripe_failed": "Card refund rejected by Stripe · case {card} · {folio}",
+        "withdrawal_delivered": "Delivered withdrawal · {card} · {folio} · {reason}",
+        "withdrawal_delivered_unknown": "Delivered withdrawal",
+        "unknown": "—"
       },
       "originNotSettled": "disputed / refunded",
       "noClabe": "No CLABE on file",
@@ -4646,6 +4649,14 @@
         "notConvertibleStatus": "This refund can still go through Stripe ({status}): moving it to a transfer would pay twice. Retry the refund or wait.",
         "notConvertibleKind": "Only “To replace” case refunds can be moved to a bank transfer.",
         "originNotSettled": "The origin purchase is {status, select, chargeback {disputed} other {refunded}}{disputed, select, yes { (Stripe rejected due to a dispute)} other {}}: the bank is already resolving that money. Nothing is created."
+      },
+      "withdrawal": {
+        "title": "Delivered withdrawal",
+        "folio": "Withdrawal",
+        "card": "Card",
+        "reason": "Reason",
+        "note": "What happened",
+        "deliveredAt": "Delivered on"
       }
     },
     "refundsPage": {
@@ -4655,7 +4666,49 @@
         "operators": "Operator refunds",
         "speiCount": "{count, plural, one {# pending} other {# pending}}"
       },
-      "reviewLink": "Shipped orders refunded from Stripe that need a reason: see them in Sales →"
+      "reviewLink": "Shipped orders refunded from Stripe that need a reason: see them in Sales →",
+      "withdrawalDelivered": {
+        "cta": "Refund a card from a delivered withdrawal",
+        "title": "Refund a card from a delivered withdrawal",
+        "back": "Back",
+        "step1": {
+          "heading": "1 · Find the withdrawal",
+          "label": "Find the withdrawal",
+          "hint": "Withdrawal number, customer's name or email.",
+          "empty": "Nothing matches “{q}”.",
+          "notDelivered": "Not delivered yet ({status})."
+        },
+        "step2": {
+          "heading": "2 · Which card? · {folio}",
+          "legend": "Which card?",
+          "notShipped": "This card didn't ship in the withdrawal: it's handled under “To replace”.",
+          "next": "Continue"
+        },
+        "step3": {
+          "heading": "3 · Amount and reason",
+          "title": "Refund by bank transfer: {card}",
+          "noOrigin": "No known origin purchase",
+          "legend": "What happened to this card? (required)",
+          "noteLabel": "What happened and where the figure comes from",
+          "noteHint": "Saved in the audit log; the customer doesn't see it.",
+          "allTransfer": "It all goes by bank transfer (SPEI bucket): the card isn't touched.",
+          "confirm": "Create {amount} transfer"
+        },
+        "done": "{amount} transfer created for {customer}. They're notified by email{clabe, select, no { and asked to register their CLABE} other {}}.",
+        "viewTransfer": "View transfer",
+        "error": {
+          "not_withdrawal": "This is an order shipment, not a withdrawal: that card is refunded from Sales, in the order. Nothing was created.",
+          "not_delivered": "This withdrawal no longer shows as delivered. Nothing was created.",
+          "not_shipped": "This card didn't ship in the withdrawal (missing or damaged when prepared): it's handled under “To replace”. Nothing was created.",
+          "toReplaceLink": "Go to “To replace”",
+          "already_refunded": "This card already has a live transfer. Another one wasn't created.",
+          "viewTransfer": "View the transfer",
+          "no_reference": "This card has nothing to compare against: no origin purchase and no market price. Without a reference there's no typo guard, so it can't be entered here. Nothing was created. Tell the tech team.",
+          "forbidden": "Only the super-admin can refund. The attempt was logged.",
+          "note": "Say what happened and where the figure comes from (3 to 500 characters).",
+          "reason": "Pick “Didn't arrive” or “Arrived in bad condition”."
+        }
+      }
     },
     "refunds": {
       "hint": "What each operator has refunded while preparing shipments. No email: the panel is the notice.",

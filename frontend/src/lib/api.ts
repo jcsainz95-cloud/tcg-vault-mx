@@ -77,6 +77,9 @@ import type {
   PreparationDestination,
   RefundOrderResponse,
   RefundDeliveredItemRequest,
+  WithdrawalDeliveredPreviewDTO,
+  CreateWithdrawalDeliveredRefundRequest,
+  CreateWithdrawalDeliveredRefundResponse,
   RefundDeliveredItemResponse,
   DeliveredRefundDTO,
   RevealClabeResponse,
@@ -1558,6 +1561,8 @@ export async function getAdminShipments(
   });
   if (filters.status) data = data.filter((s) => s.status === filters.status);
   const q = filters.q?.trim().toLowerCase();
+  // MOCK v1.82 §PNL.3: el retiro ENTREGADO de demo solo entra a las BÚSQUEDAS (no a la cola de envíos).
+  if (q) data = [...data, { ...m4ship.MOCK_DELIVERED_WITHDRAWAL, items: m4ship.MOCK_DELIVERED_WITHDRAWAL.items?.map(({ inventoryItemId }) => ({ inventoryItemId })) }];
   if (q) {
     data = data.filter((s) =>
       s.id === filters.q?.trim() ||
@@ -1566,6 +1571,61 @@ export async function getAdminShipments(
     );
   }
   return delay(paginate(data, filters));
+}
+
+/**
+ * Detalle admin de un envío (contrato §M4 · `GET /admin/shipments/:id`): las líneas con `id` (`shipmentItemId`),
+ * folio, carta y `prepStatus`. Lo usa el diálogo SPEI de retiro entregado (§60.4 b paso 2).
+ */
+export async function getAdminShipment(id: string): Promise<AdminShipmentDTO> {
+  if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${id}`);
+  if (id === m4ship.MOCK_DELIVERED_WITHDRAWAL.id) return delay(structuredClone(m4ship.MOCK_DELIVERED_WITHDRAWAL));
+  const row = fx.mockAdminShipments.find((s) => s.id === id);
+  if (!row) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
+  return delay({ ...row, ...(m4ship.mockShipAdminAdditions(id) ?? {}) });
+}
+
+/**
+ * 💰 `GET /admin/manual-refunds/withdrawal-delivered/preview?shipmentItemId=&amountCents=` (contrato v1.82 §PNL.3,
+ * súper-admin, `no-store`): referencias y topes D-12 para la cifra que el dueño escribe. Sin `amountCents` ⇒ solo
+ * referencias, `confirmation: null`.
+ */
+export async function previewWithdrawalDeliveredRefund(
+  shipmentItemId: string,
+  amountCents: number | null,
+): Promise<WithdrawalDeliveredPreviewDTO> {
+  if (!config.useMocks) {
+    return apiRequest<WithdrawalDeliveredPreviewDTO>('/admin/manual-refunds/withdrawal-delivered/preview', {
+      query: { shipmentItemId, amountCents: amountCents ?? undefined },
+    });
+  }
+  try {
+    return await delay(m4ship.mockWithdrawalDeliveredPreview(shipmentItemId, amountCents));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * 💰 `POST /admin/manual-refunds/withdrawal-delivered` (contrato v1.82 §PNL.3, `@MoneyOut`): crea la transferencia
+ * SPEI de UNA carta de un retiro ENTREGADO, con el monto que CAPTURÓ el dueño. ⛔ Cero Stripe. Respuestas:
+ * `201 { manualRefund }`, `409 ITEM_REFUND_NOT_AVAILABLE { reason, manualRefundId? }`,
+ * `422 CASE_REFUND_CONFIRMATION_REQUIRED` / `422 CASE_REFUND_ABOVE_LIMIT`, `403`, `400 { field }`.
+ */
+export async function createWithdrawalDeliveredRefund(
+  body: CreateWithdrawalDeliveredRefundRequest,
+): Promise<CreateWithdrawalDeliveredRefundResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CreateWithdrawalDeliveredRefundResponse>('/admin/manual-refunds/withdrawal-delivered', {
+      method: 'POST',
+      body,
+    });
+  }
+  try {
+    return await delay({ manualRefund: m4ship.mockCreateWithdrawalDeliveredRefund(body) });
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /**

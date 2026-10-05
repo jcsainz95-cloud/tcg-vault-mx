@@ -26,6 +26,8 @@ import {
   respondSellRequest,
   getSupportContact,
   refundDeliveredItem,
+  previewWithdrawalDeliveredRefund,
+  createWithdrawalDeliveredRefund,
   getDisputes,
   getSellRequests,
   getSellRequest,
@@ -594,6 +596,21 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     expect(String(url)).toMatch(/\/admin\/orders\/ord-1\/items\/oi-1\/refund-delivered$/);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual({ reason: 'not_arrived', note: 'abc', expectedRefundCents: 31458 });
+  });
+
+  it('§PNL.3 · preview → GET …/withdrawal-delivered/preview?shipmentItemId&amountCents; create → POST …/withdrawal-delivered', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { amountCents: 100 }));
+    await previewWithdrawalDeliveredRefund('sit-1', 100);
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/admin\/manual-refunds\/withdrawal-delivered\/preview\?shipmentItemId=sit-1&amountCents=100$/);
+    fetchMock.mockResolvedValueOnce(makeRes(200, { amountCents: null }));
+    await previewWithdrawalDeliveredRefund('sit-1', null);
+    expect(String(fetchMock.mock.calls[1][0])).toMatch(/preview\?shipmentItemId=sit-1$/);
+    fetchMock.mockResolvedValueOnce(makeRes(201, { manualRefund: { id: 'mr-1' } }));
+    await createWithdrawalDeliveredRefund({ shipmentItemId: 'sit-1', reason: 'not_arrived', note: 'abc', amountCents: 100 });
+    const [url, init] = fetchMock.mock.calls[2];
+    expect(String(url)).toMatch(/\/admin\/manual-refunds\/withdrawal-delivered$/);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ shipmentItemId: 'sit-1', reason: 'not_arrived', note: 'abc', amountCents: 100 });
   });
 
   it('F6 · getDisputes → GET /disputes (unwrap data)', async () => {

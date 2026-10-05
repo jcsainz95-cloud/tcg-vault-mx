@@ -1644,7 +1644,8 @@ export type PaymentRefundKind = 'item_missing' | 'order_remaining' | 'shipment_f
 export type PaymentRefundStatus = 'requested' | 'submitted' | 'succeeded' | 'failed';
 export type ReplacementCaseSource = 'withdrawal' | 'vault_purchase';
 export type ReplacementCaseStatus = 'open' | 'replaced' | 'found' | 'refunded' | 'voided';
-export type ManualRefundSource = 'case_excess' | 'stripe_failed';
+/** v1.82 (§PNL.3, M-70): + `withdrawal_delivered` = SPEI de UNA carta de un retiro YA ENTREGADO (sin caso). */
+export type ManualRefundSource = 'case_excess' | 'stripe_failed' | 'withdrawal_delivered';
 export type ManualRefundStatus = 'pending' | 'paid' | 'cancelled';
 
 /** §M4-SHIP.10 — `{ userId, fullName, email }`; `fullName` null ⇔ `customerDisplayName` derivado. */
@@ -1996,7 +1997,18 @@ export interface ManualRefundDTO {
   beneficiaryName: string | null; // VIVO: KycProfile.legalName ?? customerDisplayName(User)
   clabeOnFile: boolean; // VIVO
   clabeMasked: string | null; // ⛔ NUNCA la CLABE entera en este DTO
-  case: { id: string; source: ReplacementCaseSource; card: PreparationItemDTO['card']; folio: string; reason: string };
+  /** ⚠️ v1.82 (§PNL.3): `null` ⇔ `source = 'withdrawal_delivered'`. ⛔ Leerlo sin guarda tumba la cubeta. */
+  case: { id: string; source: ReplacementCaseSource; card: PreparationItemDTO['card']; folio: string; reason: string } | null;
+  /** v1.82 (§PNL.3): solo `withdrawal_delivered` (si no, `null`/ausente): de qué retiro entregado y qué carta. */
+  withdrawal?: {
+    shipmentId: string;
+    shipmentItemId: string;
+    card: PreparationItemDTO['card'];
+    folio: string;
+    reason: ShippedRefundReason;
+    note: string;
+    deliveredAt: string | null;
+  } | null;
   origin: { orderId: string; orderNumber: string | null; orderStatus: OrderStatus } | null;
   paymentRefundId: string | null;
   createdAt: string;
@@ -2015,6 +2027,33 @@ export interface ManualRefundDTO {
   reissuedFromId: string | null;
   reissuedAsId: string | null;
 }
+/**
+ * v1.82 (§PNL.3) — `GET /admin/manual-refunds/withdrawal-delivered/preview?shipmentItemId=&amountCents=` (súper-admin):
+ * el subconjunto de `CaseRefundPreviewDTO` sin las cifras de Stripe. `paidReferenceCents` `null` ⇔ sin compra de origen.
+ */
+export interface WithdrawalDeliveredPreviewDTO {
+  amountCents: number | null;
+  paidReferenceCents: number | null;
+  market: { cents: number; capturedDate: string } | null;
+  referenceCents: number;
+  confirmAboveCents: number;
+  limitCents: number;
+  confirmation: 'none' | 'reinforced' | 'blocked' | null;
+}
+/** v1.82 (§PNL.3) — `POST /admin/manual-refunds/withdrawal-delivered`. El monto LO CAPTURA el dueño. */
+export interface CreateWithdrawalDeliveredRefundRequest {
+  shipmentItemId: string;
+  reason: ShippedRefundReason;
+  /** 3–500 tras `trim()`. */
+  note: string;
+  amountCents: number;
+  /** Obligatorio `true` si `amountCents > 2·R` (el diálogo de re-escribir). */
+  confirmAboveReference?: boolean;
+}
+export interface CreateWithdrawalDeliveredRefundResponse {
+  manualRefund: ManualRefundDTO;
+}
+
 export interface ManualRefundsFilters {
   status?: ManualRefundStatus;
   q?: string;
