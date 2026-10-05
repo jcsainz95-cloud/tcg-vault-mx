@@ -4,7 +4,15 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.15 (2026-10-05) — ENLACES AL AVISO DE PRIVACIDAD (§80 NUEVA; `API_CONTRACT` v1.84.1 §14.14 E-9;
+> Estado: **v4.16 (2026-10-05) — AVISO «TU SESIÓN CADUCÓ POR SEGURIDAD» EN EL LOGIN (§81 NUEVA; `API_CONTRACT`
+> v1.84.1 §14.2 LIVE-2, líneas 31283-31285; hallazgo de los gates QA B-2 y techlead C-1):** ante el `401` del refresh
+> con `details.reason:'session_max_age'`, el login pinta el **mismo** `Banner warning role="status"` que ya usa el
+> cierre por inactividad, con la clave nueva **`auth.sessionMaxAgeLogout`** («Tu sesión caducó por seguridad. Vuelve a
+> entrar.» / «Your session expired for security reasons. Log in again.»). Llega por `?reason=session_max_age`
+> (conservando `next`), desaparece al primer intento de entrar, igual en tienda (30 d) y panel (7 d). **Cero tokens
+> nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.15 sin cambio.
+>
+> Estado anterior: **v4.15 (2026-10-05) — ENLACES AL AVISO DE PRIVACIDAD (§80 NUEVA; `API_CONTRACT` v1.84.1 §14.14 E-9;
 > `PROJECT §LEG.3`, criterios 503–505, P-LEG-9):** un componente con dos variantes (`inline` en pestaña nueva y
 > subrayado; `nav` en la misma pestaña), sus dos estados (con enlace / sin enlace), los siete sitios con su posición
 > y los textos ES/EN en `privacy.sites.*`. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la
@@ -23162,3 +23170,112 @@ vecino ya es enlace y se pinta igual.
 | **N-1** | product-owner | **«Aceptas» frente a «reconoces haber leído».** El criterio 504 fija «Al crear tu cuenta **aceptas** los Términos y el Aviso de privacidad»; el §10 del aviso dice «Al crear tu cuenta… **reconoces haber leído** este aviso». No son lo mismo (un aviso de privacidad se da a conocer; los términos se aceptan). Este diseño usa el texto del criterio, verbatim. Va al abogado con P-LEG-9; si cambia, cambian `register` y `googleSignIn`, nada más |
 | **N-2** | orquestador / product-owner | **`ine.privacy` dice «se guarda cifrada»** (`es.json:1052`, texto de §34.8 punto 5) y eso es **NO MEDIDO** (`PROJECT §LEG.4` T-10: la app no cifra la imagen; depende de que R2 cifre en reposo). Esa línea queda **junto** a los enlaces de los sitios 5 y 6. Si no se confirma, el valor de reemplazo es: «Tu INE se guarda en un almacenamiento privado, solo la ve el responsable de la tienda y se borra al cumplirse el periodo de retención.» / «Your ID is stored privately, only the store owner sees it, and it's deleted when the retention period ends.» Medición que lo cierra: la configuración de cifrado del bucket en Cloudflare (devops) |
 | **N-3** | orquestador | Zonas compartidas que toca el lote 1: `frontend/src/components/domain/` (`AuthForm`, `BuylistKycForm`, `account/KycSection`) y `messages/*.json`. Un solo stream a la vez |
+
+## 81. Login tras el tope absoluto de sesión — «Tu sesión caducó por seguridad» (v4.16, 2026-10-05 · `API_CONTRACT` v1.84.1 §14.2 LIVE-2 · gates QA B-2 y techlead C-1)
+
+> **Por qué §81:** sigue a §80 en este árbol; §43/§60/§70 están tomadas en otros worktrees (nota de §80). Las ramas
+> remotas **NO MEDIDAS** (ux-ui sin Bash).
+>
+> **Fuente leída (2026-10-05, árbol `/home/user/tcg-real`):** `API_CONTRACT.md:31256-31285` (§14.2; el texto ES lo
+> propone el contrato y aquí se fija); `frontend/src/app/[locale]/(auth)/login/page.tsx:3-15` (hoy solo reconoce
+> `reason === 'inactivity'`); `components/domain/AuthForm.tsx:19-29` (prop `notice?: 'inactivity'`) y `:146-152` (el
+> aviso de inactividad: `Banner variant="warning" role="status"`); `components/ui/Banner.tsx` (variantes y `role`);
+> `lib/inactivity.tsx:52-56` (`router.replace({ pathname: '/login', query: { reason: 'inactivity' } })`);
+> `lib/api-client.ts:169` (el `401` del refresh se descarta sin leer el cuerpo ⇒ hoy el `reason` se pierde);
+> `components/layout/PrivateRouteGuard.tsx:77` y `AdminShell.tsx:70` (`/login?next=<ruta>` al ver la sesión vacía);
+> `messages/es.json:1183-1223` y `en.json:1183-1223` (espacio `auth.*`). Estado medido por QA (10/10, dato de QA
+> relayado por el orquestador, N=10): hoy se llega a `/es/login` **sin texto**.
+>
+> ⛔ **Cero tokens nuevos, cero pares de contraste nuevos, cero componentes nuevos.** Es el aviso de inactividad con
+> otro texto.
+
+### 81.1 El componente — el mismo aviso que el cierre por inactividad
+
+| | Decisión |
+|---|---|
+| Componente | **`Banner`** (`components/ui/Banner.tsx`), **`variant="warning"`**, **`role="status"`**, sin `title`, sin `action`, **sin `dismissible`** |
+| Por qué `warning` y no `info` | Es la **misma familia** que `auth.inactivityLogout` («tu sesión se cerró por X»), que hoy usa `warning` + `status` (`AuthForm.tsx:149`). Dos avisos que dicen lo mismo con distinta causa no pueden verse distintos. En la dirección 5a `warning` es una **regla al margen** bermellón con texto `muted`, no una caja roja: no se lee como error. ⛔ **Nunca `danger` ni `role="alert"`**: el usuario no hizo nada mal y no hay nada que corregir |
+| Contenido | Una sola frase, `auth.sessionMaxAgeLogout` (§81.3). Sin enlace, sin icono, sin cifra de días |
+| Dónde | Dentro del contenedor de avisos de `AuthForm` (`:146`, `empty:hidden [&>*]:mt-7`), **en la posición del aviso de inactividad**: debajo del `h1` «Iniciar sesión», encima de los campos. Los dos motivos son excluyentes (un `reason` por URL), así que **nunca** se pintan juntos |
+| Solo en | `mode === 'login'`. El registro no lo pinta aunque le llegue el parámetro |
+
+### 81.2 Cuándo aparece y cuándo desaparece
+
+1. **Aparece** cuando el login se abre con **`?reason=session_max_age`** (mismo valor que `details.reason` del
+   contrato, para no traducir nombres). Si además hay `next`, **se conservan los dos**:
+   `/es/login?next=%2Fvault&reason=session_max_age`. Tras entrar, el destino sigue siendo `next` (o el home del rol),
+   exactamente como hoy.
+2. **Quién pone el parámetro** (conducta exigida; el mecanismo es de frontend): el `401` del refresh con
+   `reason:'session_max_age'` debe acabar en ese URL. Hoy `api-client.ts:169` devuelve `null` sin leer el cuerpo y los
+   guards (`PrivateRouteGuard.tsx:77`, `AdminShell.tsx:70`) redirigen solo con `next`. Una forma posible —**no
+   normativa**—: el interceptor lee `error.details.reason` y deja una marca de un solo uso (patrón
+   `markIntentionalLogout` de `session.ts:56-67`) que los guards añaden como `reason` al `replace`.
+3. **Sin `reason`, o con cualquier otro valor** ⇒ igual que hoy (sin aviso). `inactivity` sigue con su texto.
+4. **Desaparece** en cuanto el usuario **intenta entrar**: al enviar el formulario (correo/usuario + contraseña) o al
+   pulsar «Continuar con Google». Así un error de credenciales o un 429 que salga después **no** se apila bajo un
+   aviso que ya cumplió. No vuelve a mostrarse en esa visita aunque el intento falle. ⛔ Sin botón de cerrar: es una
+   línea, no estorba, y una `X` más es una parada de tabulación sin valor.
+5. **Recargar** `/login?reason=session_max_age` lo vuelve a pintar (el estado vive en el URL, como inactividad). Se
+   acepta.
+6. **Otras pestañas** que solo ven la sesión vaciada (no recibieron el `401`) llegan al login como hoy, **sin** aviso.
+   Se acepta: solo la pestaña que recibió el motivo puede afirmarlo, y ninguna otra debe inventarlo.
+7. **Recomendado, no lo revisa el gate:** que el punto 4 aplique también al aviso de inactividad (un solo estado
+   «aviso ya visto» en `AuthForm`). Hoy el de inactividad se queda tras un intento fallido.
+
+### 81.3 Los textos — ES y EN exactos, con su clave
+
+Espacio **`auth.*`** (`es.json:1183`, `en.json:1183`). La clave sigue el patrón de su gemela `auth.inactivityLogout`
+(causa + `Logout`). **No choca**: ninguna clave `sessionMaxAge*` existe hoy en `messages/` (Grep 2026-10-05). Va
+**justo debajo** de `inactivityLogout` en los dos ficheros, mismo orden.
+
+| Clave | ES | EN |
+|---|---|---|
+| `auth.inactivityLogout` *(existe, sin cambio)* | Tu sesión se cerró por inactividad. | Your session was closed due to inactivity. |
+| **`auth.sessionMaxAgeLogout`** **nueva** | Tu sesión caducó por seguridad. Vuelve a entrar. | Your session expired for security reasons. Log in again. |
+
+**Decisiones de redacción:**
+- ES es **verbatim** el texto del contrato (§14.2, `:31284`). Tuteo, como el resto de `auth.*`.
+- EN dice «Log in» porque así se titula la pantalla (`auth.loginTitle` = «Log in», `en.json:1184`).
+- **El mismo texto para tienda (30 días) y panel (7 días).** ⛔ Sin cifra de días: el tope depende del rol, una cifra
+  equivocada confunde más que ninguna, y «por seguridad» ya dice que no es un fallo.
+- ⛔ Nunca «expiró tu token», «sesión inválida», «error» ni «no autorizado»: el usuario no hizo nada mal.
+
+### 81.4 Contraste y accesibilidad
+
+- **Contraste:** los pares del aviso de inactividad, sin cambio — texto `muted #6E695E` sobre papel ~4.8:1 (AA
+  texto) y regla `accent #B31217` sobre papel ~6.2:1 (≥ 3:1 UI), recalculados en §80.4. Oscuro: los mismos tokens
+  que ya usa el `Banner` en ese tema; ninguno nuevo.
+- **`role="status"`** (región viva cortés): el lector lo anuncia al cargar la página sin interrumpir. ⛔ No `alert`.
+- **Foco:** no se mueve al aviso. El foco inicial del login queda como hoy (el aviso no es enfocable, no tiene
+  `tabIndex`). Orden de tabulación: sin cambios.
+- **Al desaparecer** (punto 4) no se anuncia nada: el siguiente aviso (error o 429) trae su propio `role`.
+- Movimiento: ninguno.
+
+### 81.5 Lista para frontend y candados
+
+| # | Qué |
+|---|---|
+| F-1 | `login/page.tsx`: `reason === 'session_max_age'` ⇒ `notice="sessionMaxAge"`; `AuthForm` amplía `notice?: 'inactivity' \| 'sessionMaxAge'` |
+| F-2 | `AuthForm`: pinta `Banner variant="warning" role="status"` con `t('sessionMaxAgeLogout')` en la posición del de inactividad; lo oculta al enviar o al pulsar Google |
+| F-3 | El `401` del refresh con `details.reason === 'session_max_age'` termina en `/login?…&reason=session_max_age` conservando `next` (tienda y panel). Sin `reason` ⇒ URL de hoy |
+| F-4 | `es.json` y `en.json`: `auth.sessionMaxAgeLogout` bajo `auth.inactivityLogout` |
+
+**Candados sugeridos** (los escribe frontend; ux-ui solo dice qué deben morder):
+
+| Id | Qué afirma | Mutación que lo pone rojo |
+|---|---|---|
+| UX-SMA-1 | `/login?reason=session_max_age` pinta un `role="status"` con el texto exacto de `auth.sessionMaxAgeLogout` | quitar la rama de `page.tsx` |
+| UX-SMA-2 | Refresh `401 {details:{reason:'session_max_age'}}` en una ruta privada de tienda **y** en `/admin` ⇒ `replace` con `reason=session_max_age` **y** el `next` de hoy | ignorar `details` en el interceptor |
+| UX-SMA-3 | Refresh `401` **sin** `reason` ⇒ `replace` igual que hoy (sin `reason`) | poner `session_max_age` a todo `401` |
+| UX-SMA-4 | Tras enviar el formulario, el aviso ya no está en el DOM | no ocultarlo al enviar |
+| UX-SMA-5 | El aviso no es `role="alert"` ni `variant="danger"` | cambiar a `danger`/`alert` |
+| UX-SMA-6 | Paridad: la clave existe en ES y EN | borrarla de `en.json` |
+
+### 81.6 Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **N-1** | orquestador | Zonas compartidas: `frontend/src/lib/` (`api-client.ts`, `session.ts`), `frontend/src/components/` (`layout/*`, `domain/AuthForm`) y `messages/*.json`. Un solo stream a la vez |
+| **N-2** | arquitecto (informativo, no bloquea) | Si el refresh muere en una página **pública** de la tienda (sin guard), probablemente no hay redirección al login: las dos que encontré son `PrivateRouteGuard.tsx:77` y `AdminShell.tsx:70`
+(Grep en `components/layout/`; que no haya otra en todo `frontend/src` es **NO MEDIDO** — lo cierra un Grep de
+`pathname: '/login'` en todo el árbol). El contrato pide «el mismo flujo de hoy», así que este diseño **no añade** una redirección nueva ahí: el usuario verá la tienda deslogueada sin aviso. Si se quiere avisar también en ese caso, haría falta decidirlo (p. ej. un aviso en la tienda); no se diseña sin pedido |
