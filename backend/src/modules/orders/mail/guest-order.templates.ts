@@ -1,3 +1,4 @@
+import { privacyNoticeHtml } from '../../buylist/mail-shell';
 import { MailMessage } from '../../mail/mail.port';
 
 /**
@@ -33,7 +34,8 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function layout(title: string, bodyHtml: string): string {
+/** v1.84.4 (`API_CONTRACT §14.17` E4-5, criterio 507): el pie lleva el enlace «Aviso de privacidad». */
+function layout(title: string, bodyHtml: string, locale: Locale): string {
   return [
     `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#111">`,
     `<h2 style="margin:0 0 16px">${BRAND}</h2>`,
@@ -41,6 +43,7 @@ function layout(title: string, bodyHtml: string): string {
     bodyHtml,
     `<hr style="border:none;border-top:1px solid #eee;margin:24px 0"/>`,
     `<p style="font-size:12px;color:#888">${BRAND}</p>`,
+    `<p style="font-size:12px;color:#888">${privacyNoticeHtml(locale, 'color:#888;text-decoration:underline')}</p>`,
     `</div>`,
   ].join('');
 }
@@ -145,6 +148,7 @@ export function guestOrderConfirmationTemplate(
       `<p style="font-size:12px;color:#666">${t.finalSale}</p>`,
       `<p style="font-size:12px;color:#666">${t.invoice}</p>`,
     ].join(''),
+    l,
   );
   const text = [
     t.confirmTitle,
@@ -179,6 +183,7 @@ export function guestTrackingLinkTemplate(
       `<p style="margin:24px 0"><a href="${escapeHtml(url)}" style="background:#111;color:#fff;padding:12px 18px;border-radius:6px;text-decoration:none">${t.trackCta}</a></p>`,
       `<p style="font-size:12px;color:#666">${t.trackNote}</p>`,
     ].join(''),
+    l,
   );
   const text = [t.resendTitle, '', `${t.trackCta}: ${url}`, t.trackNote].join('\n');
   return { subject: t.resendSubject(params.orderNumber), html, text };

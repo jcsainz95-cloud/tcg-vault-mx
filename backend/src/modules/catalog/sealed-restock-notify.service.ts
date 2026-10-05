@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { privacyNoticeHtml } from '../buylist/mail-shell';
 
 const JOB = 'sealed-restock-notify';
 
@@ -112,7 +113,9 @@ export class SealedRestockNotifyService {
       `The product "${productName}" you were watching is back in stock at TCG HUNT.`;
     const html =
       `<p>El producto <strong>${productName}</strong> que seguías volvió a estar disponible en TCG HUNT.</p>` +
-      `<p>The product <strong>${productName}</strong> you were watching is back in stock at TCG HUNT.</p>`;
+      `<p>The product <strong>${productName}</strong> you were watching is back in stock at TCG HUNT.</p>` +
+      // v1.84.4 (`API_CONTRACT §14.17` E4-5, criterio 507): todo correo lleva el enlace al aviso.
+      `<p style="font-size:12px;color:#888">${privacyNoticeHtml('es', 'color:#888;text-decoration:underline')}</p>`;
     await this.mail.send({ to: email, subject, text, html });
   }
 }

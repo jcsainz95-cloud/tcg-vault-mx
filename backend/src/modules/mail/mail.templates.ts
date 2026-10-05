@@ -1,3 +1,4 @@
+import { privacyNoticeHtml } from '../buylist/mail-shell';
 import { MailMessage } from './mail.port';
 
 /**
@@ -30,7 +31,8 @@ function escapeHtml(value: string): string {
 // P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4 — mayúsculas, con espacio).
 const BRAND = 'TCG HUNT';
 
-function layout(title: string, bodyHtml: string): string {
+/** v1.84.4 (`API_CONTRACT §14.17` E4-5, criterio 507): el pie lleva el enlace «Aviso de privacidad». */
+function layout(title: string, bodyHtml: string, locale: Locale): string {
   return [
     `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#111">`,
     `<h2 style="margin:0 0 16px">${BRAND}</h2>`,
@@ -38,6 +40,7 @@ function layout(title: string, bodyHtml: string): string {
     bodyHtml,
     `<hr style="border:none;border-top:1px solid #eee;margin:24px 0"/>`,
     `<p style="font-size:12px;color:#888">${BRAND}</p>`,
+    `<p style="font-size:12px;color:#888">${privacyNoticeHtml(locale, 'color:#888;text-decoration:underline')}</p>`,
     `</div>`,
   ].join('');
 }
@@ -77,6 +80,7 @@ export function emailVerificationTemplate(link: string, name: string | null, loc
       html: layout(
         'Verify your email',
         `<p>${hi.html}</p><p>Confirm your email address to unlock buying, withdrawing and selling on ${BRAND}.</p>${button(safeLink, 'Verify email')}<p style="font-size:13px;color:#555">This link expires in 24 hours. If the button doesn't work, copy this URL:</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
+        l,
       ),
       text: `${hi.text}\n\nVerify your email for ${BRAND} (link expires in 24 hours):\n${link}\n\nIf you didn't create an account, ignore this message.`,
     };
@@ -87,6 +91,7 @@ export function emailVerificationTemplate(link: string, name: string | null, loc
     html: layout(
       'Verifica tu correo',
       `<p>${hi.html}</p><p>Confirma tu correo para poder comprar, retirar y vender en ${BRAND}.</p>${button(safeLink, 'Verificar correo')}<p style="font-size:13px;color:#555">Este enlace caduca en 24 horas. Si el botón no funciona, copia esta URL:</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
+      l,
     ),
     text: `${hi.text}\n\nVerifica tu correo en ${BRAND} (el enlace caduca en 24 horas):\n${link}\n\nSi no creaste una cuenta, ignora este mensaje.`,
   };
@@ -104,6 +109,7 @@ export function passwordResetTemplate(link: string, name: string | null, locale?
       html: layout(
         'Reset your password',
         `<p>${hi.html}</p><p>We received a request to reset your ${BRAND} password.</p>${button(safeLink, 'Reset password')}<p style="font-size:13px;color:#555">This link expires in 1 hour. If you didn't request it, ignore this email.</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
+        l,
       ),
       text: `${hi.text}\n\nReset your ${BRAND} password (link expires in 1 hour):\n${link}\n\nIf you didn't request this, ignore this email.`,
     };
@@ -114,6 +120,7 @@ export function passwordResetTemplate(link: string, name: string | null, locale?
     html: layout(
       'Restablece tu contraseña',
       `<p>${hi.html}</p><p>Recibimos una solicitud para restablecer tu contraseña de ${BRAND}.</p>${button(safeLink, 'Restablecer contraseña')}<p style="font-size:13px;color:#555">Este enlace caduca en 1 hora. Si no lo solicitaste, ignora este correo.</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
+      l,
     ),
     text: `${hi.text}\n\nRestablece tu contraseña de ${BRAND} (el enlace caduca en 1 hora):\n${link}\n\nSi no lo solicitaste, ignora este correo.`,
   };
@@ -136,7 +143,7 @@ export function passwordLockAlertTemplate(name: string | null, locale?: string |
     return {
       to: '',
       subject: 'Failed sign-in attempts on your account',
-      html: layout('Failed sign-in attempts', `<p>${hi.html}</p><p>${body}</p>`),
+      html: layout('Failed sign-in attempts', `<p>${hi.html}</p><p>${body}</p>`, l),
       text: `${hi.text}\n\n${body}`,
     };
   }
@@ -147,7 +154,7 @@ export function passwordLockAlertTemplate(name: string | null, locale?: string |
   return {
     to: '',
     subject: 'Intentos fallidos de entrar a tu cuenta',
-    html: layout('Intentos fallidos de entrar', `<p>${hi.html}</p><p>${body}</p>`),
+    html: layout('Intentos fallidos de entrar', `<p>${hi.html}</p><p>${body}</p>`, l),
     text: `${hi.text}\n\n${body}`,
   };
 }
