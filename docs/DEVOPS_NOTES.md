@@ -13341,3 +13341,59 @@ se apaga con *Disable workflow*. `stack-native.sh`: revertir vuelve a reutilizar
 | D-3 | Simulacro (§83.5 pasos 2–4) en su terminal | la base de producción solo se alcanza donde vive la credencial (este entorno: `403 CONNECT`) | antes del cambio |
 | D-4 | Solo si la sonda de C6 sale rc 2 «hace falta autorización»: autorizar **6 intentos más** (ronda de control) | ya autorizó 6 (`HECHOS.md` 2026-10-05); el control solo hace falta si rotando XFF no hay ningún 429 | en la ventana, si pasa |
 | D-5 | Nada más. `UPTIME_*_URL` solo si el dominio del backend ya no es el de §23.2 | NO MEDIDO desde aquí; si cambió, el vigía lo avisará en rojo | si el vigía avisa |
+
+### 83.10 · E-8 (v1.84.1) — sonda de TTFB en producción (`scripts/ttfb-probe.sh` + `.github/workflows/ttfb-probe.yml`)
+
+> Norma: `API_CONTRACT §14.14 E-8` y el umbral de `§14.3`; porqué en `ARCHITECTURE §4.63.11`. Escrito sobre
+> `6480d86b`, commit de la sonda `004b2324`. Medido el 2026-10-05 en local (sin producción: el proxy de este entorno
+> niega `tcghunt.mx`, §83 cabecera).
+
+- **Qué mide.** 1 `GET` de calentamiento (descartado) + **N = 10** `GET` secuenciales a `TTFB_URL`
+  (def. `https://tcghunt.mx/es`), `curl -w %{time_starttransfer}`, sin seguir redirecciones. **11 GET por corrida**,
+  ruta pública, sin secreto; no es carga ni escaneo. p50/p90 en ms por **rango más cercano** (N=10 ⇒ 5.ª y 9.ª
+  muestra ordenada, sin interpolar). Imprime también `MUESTRAS_MS` y `X_VERCEL_CACHE` (para leer un p50 bajo como
+  caché del borde y no como render).
+- **Etiqueta.** `despues` si alguna `content-security-policy*` lleva `'nonce-`; `antes` si ninguna. Producción hoy
+  sirve la estática `frame-ancestors 'none'` (`origin/production:frontend/next.config.mjs:75`, leído 2026-10-05) ⇒
+  se espera `antes` con `CSP_CABECERAS=1`. Las 11 respuestas deben dar la misma etiqueta; si cambia a mitad (despliegue
+  en curso) ⇒ muestra inválida, repetir.
+- **E-6 en Vercel.** `CSP_CABECERAS=<n> (aplicadas=<a> report_only=<r>)` dice si la del middleware **sustituye** a la
+  estática (1 cabecera) o salen las dos; `E6_FRAME_ANCESTORS=si|no` dice si alguna **aplicada** trae
+  `frame-ancestors 'none'`. `no` ⇒ alarma (invariante de §14.3, en las dos fases).
+- **Umbral (§14.3),** solo con `despues`: p90 > 800 ms, o p90 − p90(antes) > 300 ms ⇒ `UMBRAL=ROJO`. El p90 de antes
+  lo toma el workflow del **último comentario `ETIQUETA=antes` escrito por `github-actions[bot]`** en el issue (el repo
+  es público: el comentario de cualquier otra cuenta se ignora). Sin corrida antes ⇒ «subida NO comparada», dicho.
+- **rc:** 0 válida sin alarma · 3 válida con alarma (umbral o E-6) · 1 muestra inválida (no-200, 30x, conexión,
+  timeout, etiqueta mezclada) y **no imprime p50/p90** · 2 no concluyente (argumentos, URL no https).
+- **Workflow.** Disparadores: `push` a `main`, `schedule` diario `17 14 * * *` (08:17 CDMX) y `workflow_dispatch`;
+  `pull_request` que toque la sonda solo corre el canario. Job `autoprueba` (canario) ⇒ job `medicion` (`issues:
+  write`): crea si falta la etiqueta `ttfb` y el issue único `[ttfb] TTFB de la tienda publicada…`, mide, y **comenta
+  siempre** (con fecha, evento, sha de `main` que disparó, salida entera y URL del run). Run rojo si rc ≠ 0. Acción
+  única `actions/checkout@v5`, como el resto del repo. ⚠️ El sha del comentario es el de `main` que disparó; **lo
+  medido es lo que sirve producción** (que publica desde `production`): en F1, `main` avanza y producción sigue sin
+  nonce ⇒ `antes`, que es justo lo que pide E-8.
+- **Cómo se lee desde una sesión:** `gh api "repos/jcsainz95-cloud/tcg-vault-mx/issues?labels=ttfb&state=all"` y los
+  `…/issues/<n>/comments` (la API de `actions/*` la niega el proxy, §83.3). Hoy: 0 issues `ttfb` (medido 2026-10-05).
+- **Canario** `scripts/check-ttfb-probe-canary.sh` (en `ttfb-probe.yml` y en `ci.yml` job `live-candados`): **24/24**,
+  servidor de mentira en `127.0.0.1` que **cuenta** las peticiones (exactamente 11, todas `GET /es`). Casos: sin CSP;
+  solo estática; Report-Only+nonce con estática (2 cabeceras); Report-Only+nonce **sustituyendo** (E-6 roto ⇒ rc 3);
+  enforce; cabecera en mayúsculas; lenta 400 ms (umbral p90 y subida ⇒ rc 3; subida ≤ 300 ⇒ verde); calentamiento
+  lento descartado; 500; 500 en la petición 6; 307 (dice adónde); antes→después a mitad; servidor caído; `http`; `--n`
+  no entero. Mutaciones internas cazadas: sin detección de nonce, aceptar cualquier código, no descartar calentamiento.
+  - Estabilidad: **10/10** verdes (N=10, devops, 2026-10-05) con load 9–12 en 4 CPU.
+  - Mutaciones externas sobre copia `git archive 004b2324` (devops, N=3 cada una): quitar la alarma E-6 **3/3 rojo**;
+    quitar la comparación de subida **3/3 rojo**; quitar la etiqueta mezclada **3/3 rojo**; aceptar 30x **3/3 rojo**;
+    control sin mutar rc 0.
+  - Prueba manual contra un servidor propio en `127.0.0.1:18437` (matado por PID): 11 GET servidos, `despues`,
+    `CSP_CABECERAS=2`, `E6_FRAME_ANCESTORS=si`, rc 0.
+- **NO MEDIDO:** que `GITHUB_TOKEN` pueda crear el issue/etiqueta en este repo (ningún workflow ha abierto aún un issue:
+  las etiquetas del repo son las de GitHub por defecto, medido por la API 2026-10-05). Lo cierra la primera corrida
+  tras F1; si falla con 403, el dueño revisa *Settings → Actions → General → Workflow permissions*. Tampoco medido si
+  `/es` responde 200 directo en producción o redirige (p. ej. a `www`): si redirige, la sonda sale rc 1 diciendo
+  adónde, y se fija la variable de repositorio `TTFB_URL`.
+- **Secuencia (E-8):** F1 (merge a `main`) dispara la corrida `antes` ⇒ el orquestador espera ese comentario antes de
+  abrir `main → production`. Tras F2, la primera corrida diaria o manual (*Actions → TTFB Probe (E-8) → Run workflow*)
+  da `despues`. El commit de `enforce` cita los dos comentarios.
+- **Rollback:** borrar `ttfb-probe.yml` (o *Disable workflow*) y el paso E-8 de `live-candados`. El issue queda como
+  registro; nada más depende de esto.
+- **Dueño:** nada. `TTFB_URL` solo si la primera corrida sale rc 1 por redirección; permisos solo si sale 403.
