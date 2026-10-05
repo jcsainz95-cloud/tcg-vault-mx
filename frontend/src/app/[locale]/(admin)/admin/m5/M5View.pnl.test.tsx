@@ -330,3 +330,44 @@ describe('F-33 · el mock de `PATCH …/decision` espeja el peldaño ITEM_FINAL 
     }
   });
 });
+
+/**
+ * v1.82.3 · contrato §PNL.12.3 — **«Rechazar solicitud» lo enciende el SERVIDOR (`isRejectable`)**.
+ * El defecto: `allItemsRejected` era la copia local de la Regla C **sin el filtro `skip`**; con una `skip` viva la
+ * solicitud quedaba en `verificacion` sin salida en el panel. Se borró: la pantalla lee `req.isRejectable === true`.
+ * Las filas se fuerzan con `isRejectable` explícito: aquí se mide la PANTALLA, no la derivación del mock
+ * (ésa vive en `lib/mock/rejectability.test.ts`).
+ */
+describe('§PNL.12 · FE-SKP — «Rechazar solicitud» sale de `isRejectable`', () => {
+  const rejected = (id: string, name: string): SellItemDTO => ({
+    ...item(id, name, 'buy'), itemStatus: 'rechazada', rejectionReason: 'mala condición', rejectedAt: '2026-09-04T00:00:00.000Z',
+  });
+  async function renderRow(r: ReturnType<typeof row>) {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({ data: [r], page: 1, pageSize: 25, total: 1 });
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('tab', { name: new RegExp(`^${TAB_LABELS.verificando}`) }));
+    await screen.findByText('sr-pnl');
+  }
+
+  it('FE-SKP-1 · `isRejectable: true` con las `buy` rechazadas y una `skip` viva ⇒ botón visible y llama `POST …/reject`', async () => {
+    const r = { ...row('verificacion', [rejected('it-a', 'Alakazam'), rejected('it-b', 'Blastoise'), item('it-s', 'Squirtle', 'skip')]), isRejectable: true };
+    const spy = vi.spyOn(api, 'rejectBuylistRequest').mockResolvedValue({ ...r, status: 'rechazada', isTerminal: true, isRejectable: false });
+    await renderRow(r);
+    fireEvent.click(screen.getByRole('button', { name: 'Rechazar solicitud' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar solicitud completa' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rechazar solicitud' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-pnl', { reason: undefined }));
+  });
+
+  it('FE-SKP-2 · todas `rechazada` pero `isRejectable: false` ⇒ sin botón', async () => {
+    await renderRow({ ...row('verificacion', [rejected('it-a', 'Alakazam'), rejected('it-b', 'Blastoise')]), isRejectable: false });
+    expect(screen.queryByRole('button', { name: 'Rechazar solicitud' })).not.toBeInTheDocument();
+  });
+
+  it('FE-SKP-2 · todas `rechazada` y `isRejectable` AUSENTE (backend previo a v1.82.3) ⇒ sin botón: fail-closed', async () => {
+    const legacy: Record<string, unknown> = { ...row('verificacion', [rejected('it-a', 'Alakazam'), rejected('it-b', 'Blastoise')]) };
+    delete legacy.isRejectable;
+    await renderRow(legacy as unknown as ReturnType<typeof row>);
+    expect(screen.queryByRole('button', { name: 'Rechazar solicitud' })).not.toBeInTheDocument();
+  });
+});

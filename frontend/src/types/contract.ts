@@ -4129,6 +4129,18 @@ export interface AdminBuylistDTO {
    */
   isPayable: boolean;
   /**
+   * v1.82.3 ([§PNL.12](docs/API_CONTRACT.md)) — **DERIVADO SERVER-SIDE, ADMIN-ONLY.** ¿Ofrece M5 «Rechazar solicitud»?
+   * ```
+   * Línea que CUENTA  :=  offerDecision IS NULL  OR  offerDecision <> 'skip'
+   * isRejectable      :=  isTerminal === false  ∧  ∃ ≥1 línea que cuenta  ∧  toda línea que cuenta está `rechazada`
+   * ```
+   * Existe para borrar `allItemsRejected` de `M5View` — la copia local de la regla **sin el filtro `skip`**, que dejaba
+   * atorada en `verificacion` una solicitud con las `buy` rechazadas y una `skip` viva. **El cliente no recompone la
+   * regla**: lee `=== true` (campo ausente ⇒ sin botón, fail-closed como `isTerminal === false`).
+   * ⛔ Jamás en el DTO del vendedor.
+   */
+  isRejectable: boolean;
+  /**
    * v1.61 (§M5-V.5, `BL-45`) — **ADITIVO, DERIVADO SERVER-SIDE, ADMIN-ONLY.** Cuántas líneas
    * **`offerDecision='buy'`** siguen **sin veredicto** (`itemStatus ∉ {aprobada, rechazada,
    * convertida_inventario}`). ⚠️ **Las `skip` NO cuentan** (§M5-V.0): nunca pueden aprobarse.

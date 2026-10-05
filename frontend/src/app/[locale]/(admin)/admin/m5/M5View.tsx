@@ -1162,24 +1162,16 @@ export function M5View() {
           //  - revelar CLABE / pagar SPEI solo en verificación o por-pagar.
           const canDecide = req.status === 'recibida' || req.status === 'verificacion';
           const showMoneyOut = req.status === 'verificacion' || req.status === 'aprobada';
-          // «Rechazar solicitud» (v1.24): cierre explícito del hueco de estado (bug P-4). El
-          // endpoint SÓLO cierra si TODOS los ítems ya están `rechazada`; para no ofrecer un
-          // botón que siempre daría 422, se muestra exactamente en esa precondición y nunca
-          // sobre una solicitud ya terminal.
-          const allItemsRejected =
-            req.items.length > 0 && req.items.every((it) => it.itemStatus === 'rechazada');
-          // ⚠️ `isTerminal` lo DERIVA EL SERVIDOR (contrato §M5 · v1.51, ARCHITECTURE §4.39c
-          // sitio 9). Aquí vivía `REQUEST_TERMINAL`, la QUINTA copia del set terminal y la única
-          // fuera del backend: escrita a mano con TRES estados, se quedó corta cuando el enum
-          // creció a CUATRO, y sobre una solicitud `expirada` ofrecía un botón que el servidor
-          // contesta con 409. Se borró y NO se sustituyó por otra constante de frontend: la copia
-          // se cura eliminando la NECESIDAD de la copia, no moviéndola de archivo.
+          // «Rechazar solicitud» (v1.24): cierre explícito del hueco de estado (bug P-4). Desde v1.82.3
+          // (contrato §PNL.12.3) la precondición la DERIVA EL SERVIDOR: `isRejectable = isTerminal === false ∧
+          // Regla C` (las líneas `skip` no cuentan). Aquí vivía `allItemsRejected`, la copia local de la regla
+          // SIN el filtro `skip` — exactamente el defecto: con una `skip` viva la solicitud quedaba atorada en
+          // `verificacion` sin botón. Se borró y NO se sustituye por otra copia: el servidor le dice.
           //
-          // `=== false` y no `!req.isTerminal` a propósito: si el campo faltara (backend anterior
-          // a v1.51), fallar hacia «no ofrecer la acción» deja al operador sin un botón; fallar al
-          // revés le ofrece un cierre que el servidor rechaza. Fail-closed, como todo lo que toca
-          // el cierre de una solicitud.
-          const canRejectRequest = req.isTerminal === false && allItemsRejected;
+          // `=== true` a propósito: si el campo faltara (backend anterior a v1.82.3), fallar hacia «no ofrecer la
+          // acción» deja al operador sin un botón; fallar al revés le ofrece un cierre que el servidor rechaza.
+          // Fail-closed, como `isTerminal === false` (lo que vivía aquí desde v1.51 ya está dentro de `isRejectable`).
+          const canRejectRequest = req.isRejectable === true;
           return (
             <div key={req.id} data-testid={`m5-request-${req.id}`} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">

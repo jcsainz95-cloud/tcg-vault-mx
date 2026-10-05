@@ -4811,9 +4811,11 @@ export async function rejectBuylistRequest(
       details: { status: req.status },
     });
   }
-  // Guard de precondición: sólo cierra si TODOS los ítems ya están `rechazada`.
-  const nonRejected = req.items.filter((it) => it.itemStatus !== 'rechazada');
-  if (nonRejected.length > 0) {
+  // Guard de precondición (v1.82.3 §PNL.12.1 b): la Regla C — las `skip` NO cuentan. `details` lista solo los estados de
+  // las líneas que cuentan; si no hay ninguna, los de todas (fail-closed). Las `skip` no se escriben.
+  const counting = fx.mockCountingItems(req.items);
+  const nonRejected = counting.length > 0 ? counting.filter((it) => it.itemStatus !== 'rechazada') : req.items;
+  if (!fx.mockRuleC(req)) {
     throw new ApiClientError(422, {
       code: 'REQUEST_HAS_NON_REJECTED_ITEMS',
       message: 'The sell request still has non-rejected items',
@@ -4999,9 +5001,10 @@ export async function rejectBuylistItems(
     it!.abandonDeadlineAt = deadlines.abandonDeadlineAt;
   }
   // Auto-transición (§M5 «(1)»): si no queda ninguna carta de la compra sin rechazar, la solicitud se cierra sola.
-  const live = req.items.filter((it) => it.offerDecision !== 'skip' && it.itemStatus !== 'rechazada');
-  if (live.length === 0) req.status = 'rechazada';
-  return delay({ items: items.map((it) => ({ ...it! })), requestClosed: live.length === 0 });
+  // v1.82.3 §PNL.12.1 a: la misma Regla C que `isRejectable` y `POST …/reject` (una copia en el servidor falso).
+  const closed = fx.mockRuleC(req);
+  if (closed) req.status = 'rechazada';
+  return delay({ items: items.map((it) => ({ ...it! })), requestClosed: closed });
 }
 
 /**

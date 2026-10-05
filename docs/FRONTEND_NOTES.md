@@ -19241,3 +19241,35 @@ decisión y no lo pide §60.14; si una carta pagada debe poder convertirse (o el
 
 **Mediciones (copia del árbol entero, idéntica al vivo por `diff -r`):** `tsc` 0 · lint 0 · vitest **221/221 ficheros,
 2629/2629** · i18n es = en (4289 claves).
+
+## §91 · **Errata v1.82.3 — «Rechazar solicitud» sale de `isRejectable` (contrato §PNL.12.3; FE-SKP-1/2)** (2026-10-05, rama `claude/arreglos-panel`, base `b06ac1ca`)
+
+**Qué cambió.** `M5View.tsx`: `canRejectRequest = req.isRejectable === true`. ⛔ **Se borró `allItemsRejected`**: era la
+copia local de la Regla C **sin el filtro `skip`** — el defecto (con una `skip` viva la solicitud quedaba en
+`verificacion` sin salida). El `isTerminal === false` que vivía junto a ella ya está dentro de `isRejectable`
+(§PNL.12.1 d). Botón, diálogo y verbo (`openRejectRequest`, `POST …/reject`) sin cambios; `rejectRequestConsequence`
+se queda (la propuesta de §PNL.12.4 espera a ux-ui y no bloquea).
+
+**Tipo.** `AdminBuylistDTO.isRejectable: boolean` (obligatorio, como lo pidió el orquestador y como lo escribe la
+proyección del contrato; §PNL.12.3 lo escribe `?:`). La pantalla igual lo lee fail-closed (`=== true`), y FE-SKP-2 prueba
+el campo ausente con un cast deliberado.
+
+**Servidor falso (`lib/mock/fixtures.ts`, `lib/api.ts`).** Una sola copia de la regla: `mockCountingItems`
+(`offerDecision !== 'skip'`: en JS conserva `null`, a diferencia del `<>` de SQL) y `mockRuleC`. La usan la proyección
+(`isRejectable = !terminal ∧ Regla C`), la guarda de `POST …/reject` (`422 REQUEST_HAS_NON_REJECTED_ITEMS` con
+`nonRejectedItemStatuses` de las líneas que cuentan; con 0 líneas que cuentan, los de todas) y el auto-cierre de
+`reject-items` (que ya filtraba `skip` a mano; misma conducta, ahora por el helper). ⚠️ La decisión por carta del mock
+**no** auto-cierra (no lo hacía antes; fuera de este alcance).
+
+**Pruebas.** `m5/M5View.pnl.test.tsx` · FE-SKP-1 (`isRejectable: true`, `buy` rechazadas + `skip` viva ⇒ botón, diálogo,
+`rejectBuylistRequest('sr-pnl', …)`), FE-SKP-2 (todas `rechazada` con `false` ⇒ sin botón; con el campo ausente ⇒ sin
+botón). `lib/mock/rejectability.test.ts` · la derivación del mock (SKP-1/3, SKP-4, SKP-5 pre-ciclo, 0 líneas que cuentan,
+terminal) y la guarda de `/reject` (cierra la atorada con la `skip` intacta; `422` solo con `['aprobada']`; `422`
+fail-closed). Las 3 de FE-SKP y 7 de 8 del mock salieron **rojas antes del cambio**. M5-NC-1…4 sin tocar.
+
+**Mutaciones (copia del árbol entero, N=3 cada una, deterministas):** volver al `every(itemStatus === 'rechazada')` local
+⇒ 3/3 rojo (FE-SKP-1 y las dos FE-SKP-2) · `isRejectable !== false` ⇒ 3/3 (1) · mock sin el filtro `skip` ⇒ 3/3 (4) ·
+mock contando solo `buy` (pierde las `null`) ⇒ 3/3 (1) · mock sin «∃ ≥1 línea que cuenta» ⇒ 3/3 (2).
+
+**Mediciones (copia del árbol entero, idéntica al vivo por `diff -rq`):** `tsc` 0 · lint 0 · vitest **222/222 ficheros,
+2640/2640**.
