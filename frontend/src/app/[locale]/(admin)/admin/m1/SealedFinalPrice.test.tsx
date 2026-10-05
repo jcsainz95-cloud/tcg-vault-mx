@@ -79,8 +79,8 @@ beforeEach(() => {
 });
 
 async function openEditorAndType(folio: string, value: string) {
-  fireEvent.click(await screen.findByRole('button', { name: `Poner precio final de ${folio}` }));
-  const input = await screen.findByLabelText('Precio final (MXN)');
+  fireEvent.click(await screen.findByRole('button', { name: `Poner precio de ${folio}` }));
+  const input = await screen.findByLabelText('Precio antes de IVA (MXN)');
   fireEvent.change(input, { target: { value } });
   return input as HTMLInputElement;
 }
@@ -111,8 +111,8 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
     ]);
     renderWithProviders(<PendingPublishQueue />, 'es');
     await screen.findByRole('button', { name: 'Abrir la pieza INV-000002' });
-    expect(screen.queryByRole('button', { name: /precio final/i })).toBeNull();
-    expect(screen.queryByLabelText('Precio final (MXN)')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^(Poner|Cambiar) precio de /i })).toBeNull();
+    expect(screen.queryByLabelText('Precio antes de IVA (MXN)')).toBeNull();
   });
 
   it('FP-2 · sellado in_stock CON ubicación ⇒ el único botón del editor es «Guardar y publicar» y el PATCH lleva `status:"listed"` en la MISMA llamada', async () => {
@@ -129,17 +129,17 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
     expect(within(editor).queryByRole('button', { name: 'Guardar precio' })).toBeNull();
 
     fireEvent.click(within(editor).getByRole('button', { name: 'Guardar y publicar' }));
-    const dialog = await screen.findByRole('dialog', { name: '¿Fijar el precio final de Surging Sparks Booster Box?' });
+    const dialog = await screen.findByRole('dialog', { name: '¿Fijar el precio de Surging Sparks Booster Box?' });
     expect(dialog).toHaveTextContent('Ahora: sin precio');
-    expect(dialog).toHaveTextContent('Nuevo: MX$1,250.00, fijo a mano');
-    expect(dialog).toHaveTextContent('Se publica en la tienda a MX$1,250.00 al confirmar.');
+    expect(dialog).toHaveTextContent('Nuevo: MX$1,250.00 antes de IVA, fijo a mano');
+    expect(dialog).toHaveTextContent('Se publica en la tienda al confirmar. El cliente verá MX$1,250.00 más el IVA que se traslada.');
     // Foco inicial en «Cancelar».
     await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Cancelar' })).toHaveFocus());
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Publicar a MX$1,250.00' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Publicar · MX$1,250.00 antes de IVA' }));
 
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
     expect(patch.mock.calls[0]).toEqual(['inv-s1', { listPriceCents: 125_000, status: 'listed' }]);
-    expect(await screen.findByRole('status')).toHaveTextContent('INV-001950 publicada a MX$1,250.00.');
+    expect(await screen.findByRole('status')).toHaveTextContent('INV-001950 publicada: MX$1,250.00 antes de IVA.');
   });
 
   it('FP-3 · sellado SIN ubicación ⇒ «Guardar precio» y el cuerpo NO lleva `status`', async () => {
@@ -153,7 +153,7 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
     fireEvent.click(within(editor).getByRole('button', { name: 'Guardar precio' }));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('No se publica todavía: le falta ubicación.');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar MX$980.50' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar · MX$980.50 antes de IVA' }));
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
     expect(patch.mock.calls[0][1]).toEqual({ listPriceCents: 98_050 });
     expect(Object.keys(patch.mock.calls[0][1])).not.toContain('status');
@@ -167,12 +167,12 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
     renderWithProviders(<PendingPublishQueue />, 'es');
     const input = await openEditorAndType('INV-001950', '1250');
     fireEvent.click(screen.getByRole('button', { name: 'Guardar y publicar' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Publicar a MX$1,250.00' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publicar · MX$1,250.00 antes de IVA' }));
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Está apartada en un pedido en curso.');
     expect(alert).toHaveTextContent('No se guardó nada.');
     expect(within(alert).getByRole('button', { name: 'Recargar' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Precio final (MXN)')).toBe(input);
+    expect(screen.getByLabelText('Precio antes de IVA (MXN)')).toBe(input);
     expect(input.value).toBe('1250');
   });
 
@@ -182,12 +182,12 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
     renderWithProviders(<PendingPublishQueue />, 'es');
     await openEditorAndType('INV-001950', '1250');
     fireEvent.click(screen.getByRole('button', { name: 'Guardar y publicar' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Publicar a MX$1,250.00' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publicar · MX$1,250.00 antes de IVA' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('La pieza cambió mientras la editabas.');
 
     spy.mockRejectedValueOnce(new ApiClientError(422, { code: 'ITEM_NOT_PUBLISHABLE', message: 'x', details: { status: 'lost' } }));
     fireEvent.click(screen.getByRole('button', { name: 'Guardar y publicar' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Publicar a MX$1,250.00' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publicar · MX$1,250.00 antes de IVA' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('No se pudo publicar: está «'));
     expect(screen.getByRole('alert').textContent).not.toMatch(/«lost»/);
   });
@@ -213,20 +213,20 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
     renderWithProviders(<PendingPublishQueue />, 'es');
     const input = await openEditorAndType('INV-001950', '12');
     fireEvent.keyDown(input, { key: 'Escape' });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Poner precio final de INV-001950' })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Poner precio de INV-001950' })).toHaveFocus());
 
     await openEditorAndType('INV-001950', '12');
-    fireEvent.click(screen.getByRole('button', { name: 'Poner precio final de INV-001951' }));
-    expect(screen.getAllByLabelText('Precio final (MXN)')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Poner precio de INV-001951' }));
+    expect(screen.getAllByLabelText('Precio antes de IVA (MXN)')).toHaveLength(1);
     expect(screen.queryByTestId('sealed-final-price-editor-inv-s1')).toBeNull();
   });
 
-  it('precio final ya puesto ⇒ «Cambiar precio final», prellenado con él, base «precio final a mano»', async () => {
+  it('precio final ya puesto ⇒ «Cambiar precio», prellenado con él, base «precio final a mano»', async () => {
     stub([sealedRow({ listPriceCents: 118_000, resolvedSalePriceCents: 118_000, priceBasis: 'override', missing: ['location'], locationId: null })]);
     renderWithProviders(<PendingPublishQueue />, 'es');
     expect(await screen.findByTestId('sealed-final-price-inv-s1')).toHaveTextContent('MX$1,180.00 · precio final a mano');
-    fireEvent.click(screen.getByRole('button', { name: 'Cambiar precio final de INV-001950' }));
-    expect((screen.getByLabelText('Precio final (MXN)') as HTMLInputElement).value).toBe('1180.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar precio de INV-001950' }));
+    expect((screen.getByLabelText('Precio antes de IVA (MXN)') as HTMLInputElement).value).toBe('1180.00');
     // Igual al actual ⇒ nada que guardar.
     expect(screen.getByRole('button', { name: 'Guardar precio' })).toBeDisabled();
   });
@@ -291,7 +291,7 @@ describe('§39.2 (c) · el panel de «Sellado» (VariantDrawer)', () => {
     return { ...base, productType: 'sealed', ownerType: 'platform', ...over } as InventoryItemDTO;
   }
 
-  it('sellado: rótulo «Precio final», cifra derivada (S-2) y «Mercado» como referencia; reserved en solo lectura', async () => {
+  it('sellado: rótulo «Antes de IVA», cifra derivada (S-2) y «Mercado» como referencia; reserved en solo lectura', async () => {
     const rows = [
       await sealedPiece({ id: 'p-1', folio: 'INV-001944', status: 'in_stock', location: undefined, listPriceCents: undefined, resolvedSalePriceCents: null, priceBasis: 'pending' }),
       await sealedPiece({ id: 'p-2', folio: 'INV-001945', status: 'listed', listPriceCents: 125_000, resolvedSalePriceCents: 125_000, priceBasis: 'override' }),
@@ -303,13 +303,13 @@ describe('§39.2 (c) · el panel de «Sellado» (VariantDrawer)', () => {
       'es',
     );
     const p1 = await screen.findByTestId('sealed-final-price-p-1');
-    expect(p1).toHaveTextContent('Precio final: — · sin precio');
+    expect(p1).toHaveTextContent('Antes de IVA: — · sin precio');
     expect(p1).toHaveTextContent('Mercado: MX$1,100.00');
-    expect(screen.getByTestId('sealed-final-price-p-2')).toHaveTextContent('Precio final: MX$1,250.00 a mano');
-    expect(screen.getByRole('button', { name: 'Poner precio final de INV-001944' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Cambiar precio final de INV-001945' })).toBeInTheDocument();
+    expect(screen.getByTestId('sealed-final-price-p-2')).toHaveTextContent('Antes de IVA: MX$1,250.00 a mano');
+    expect(screen.getByRole('button', { name: 'Poner precio de INV-001944' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cambiar precio de INV-001945' })).toBeInTheDocument();
     // `reserved`: solo lectura, sin lápiz.
-    expect(screen.queryByRole('button', { name: /precio final de INV-001946/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /precio de INV-001946/ })).toBeNull();
     expect(screen.getByTestId('sealed-final-price-p-3')).toHaveTextContent('MX$1,250.00');
     // ⛔ El botón-número escondido de raw/graded no aparece en sellado.
     expect(screen.queryByRole('button', { name: /^Editar precio de/ })).toBeNull();
@@ -320,7 +320,7 @@ describe('§39.2 (c) · el panel de «Sellado» (VariantDrawer)', () => {
     delete (rows[0] as Partial<InventoryItemDTO>).resolvedSalePriceCents;
     vi.spyOn(api, 'getAdminInventory').mockResolvedValue({ data: rows, page: 1, pageSize: 100, total: 1 });
     renderWithProviders(<VariantDrawer cardId="c-s" cardName="Box" cardNumber="" finish="normal" productType="sealed" onClose={() => {}} />, 'es');
-    expect(await screen.findByTestId('sealed-final-price-p-1')).toHaveTextContent('Precio final: automático');
+    expect(await screen.findByTestId('sealed-final-price-p-1')).toHaveTextContent('Antes de IVA: automático');
   });
 
   it('re-precio de una publicada ⇒ «Guardar precio», sin `status`', async () => {
@@ -329,14 +329,14 @@ describe('§39.2 (c) · el panel de «Sellado» (VariantDrawer)', () => {
     const patch = vi.spyOn(api, 'updateInventoryItem').mockResolvedValue({} as InventoryItemDTO);
     const onToast = vi.fn();
     renderWithProviders(<VariantDrawer cardId="c-s" cardName="Box" cardNumber="" finish="normal" productType="sealed" onClose={() => {}} onToast={onToast} />, 'es');
-    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar precio final de INV-001945' }));
-    fireEvent.change(screen.getByLabelText('Precio final (MXN)'), { target: { value: '1300' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar precio de INV-001945' }));
+    fireEvent.change(screen.getByLabelText('Precio antes de IVA (MXN)'), { target: { value: '1300' } });
     fireEvent.click(screen.getByRole('button', { name: 'Guardar precio' }));
-    const dialog = await screen.findByRole('dialog', { name: '¿Fijar el precio final de Box?' });
+    const dialog = await screen.findByRole('dialog', { name: '¿Fijar el precio de Box?' });
     expect(dialog).toHaveTextContent('Ya está a la venta');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar MX$1,300.00' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar · MX$1,300.00 antes de IVA' }));
     await waitFor(() => expect(patch).toHaveBeenCalledWith('p-2', { listPriceCents: 130_000 }));
-    await waitFor(() => expect(onToast).toHaveBeenCalledWith('Precio de INV-001945 cambiado a MX$1,300.00.'));
+    await waitFor(() => expect(onToast).toHaveBeenCalledWith('Precio de INV-001945 cambiado a MX$1,300.00 antes de IVA.'));
   });
 
   /**
@@ -352,8 +352,8 @@ describe('§39.2 (c) · el panel de «Sellado» (VariantDrawer)', () => {
     expect(cell.outerHTML).toMatchInlineSnapshot(
       `"<button type="button" class="ml-auto font-mono tabular-nums text-xs text-text hover:text-accent" aria-label="Editar precio de INV-000201">MX$1,500.00</button>"`,
     );
-    expect(screen.queryByText(/Precio final/)).toBeNull();
-    expect(screen.queryByRole('button', { name: /precio final/i })).toBeNull();
+    expect(screen.queryByText(/Antes de IVA/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^(Poner|Cambiar) precio de /i })).toBeNull();
     expect(screen.queryByTestId(/^sealed-final-price/)).toBeNull();
   });
 });
@@ -370,7 +370,7 @@ describe('techlead D-8 · una sola lista de invalidaciones', () => {
     renderWithProviders(<PendingPublishQueue />, 'es');
     await openEditorAndType('INV-001950', '1250');
     fireEvent.click(screen.getByRole('button', { name: 'Guardar y publicar' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Publicar a MX$1,250.00' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publicar · MX$1,250.00 antes de IVA' }));
     const alert = await screen.findByRole('alert');
     inv.mockClear();
     fireEvent.click(within(alert).getByRole('button', { name: 'Recargar' }));
@@ -378,7 +378,7 @@ describe('techlead D-8 · una sola lista de invalidaciones', () => {
 
     inv.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Guardar y publicar' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Publicar a MX$1,250.00' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Publicar · MX$1,250.00 antes de IVA' }));
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(inv).toHaveBeenCalled());
     const onSave = new Set(firstKeys());

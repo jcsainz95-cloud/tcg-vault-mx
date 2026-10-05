@@ -4679,16 +4679,16 @@
       "noName": "una cuenta sin nombre"
     },
     "sealedFinalPrice": {
-      "rowLabel": "Precio final",
+      "rowLabel": "Antes de IVA",
       "auto": "automático",
       "manual": "{price} a mano",
       "market": "Mercado: {price}",
-      "set": "Poner precio final",
-      "change": "Cambiar precio final",
-      "setAria": "Poner precio final de {folio}",
-      "changeAria": "Cambiar precio final de {folio}",
-      "label": "Precio final (MXN)",
-      "hint": "Gana sobre el automático. Nunca $0.",
+      "set": "Poner precio",
+      "change": "Cambiar precio",
+      "setAria": "Poner precio de {folio}",
+      "changeAria": "Cambiar precio de {folio}",
+      "label": "Precio antes de IVA (MXN)",
+      "hint": "Gana sobre el automático. El cliente paga este precio más el IVA que se traslada. Para escribirlo con IVA, liga la pieza a su producto.",
       "noLocationHint": "Se publicará sola en cuanto le pongas ubicación.",
       "listedHint": "Ya está a la venta: el precio nuevo se ve en la tienda al confirmar.",
       "saveOnly": "Guardar precio",
@@ -4697,22 +4697,22 @@
       "errDecimals": "Máximo dos decimales.",
       "errMax": "El precio máximo es {max}.",
       "confirm": {
-        "title": "¿Fijar el precio final de {name}?",
+        "title": "¿Fijar el precio de {name}?",
         "thisSealed": "este sellado",
         "now": "Ahora: {price} ({basis})",
         "nowNone": "Ahora: sin precio",
-        "new": "Nuevo: {price}, fijo a mano",
-        "effectPublish": "Se publica en la tienda a {price} al confirmar.",
-        "effectNoLocation": "No se publica todavía: le falta ubicación. Saldrá sola a {price} en cuanto se la pongas.",
+        "new": "Nuevo: {price} antes de IVA, fijo a mano",
+        "effectPublish": "Se publica en la tienda al confirmar. El cliente verá {price} más el IVA que se traslada.",
+        "effectNoLocation": "No se publica todavía: le falta ubicación. Saldrá sola en cuanto se la pongas; el cliente verá {price} más el IVA que se traslada.",
         "effectListed": "Ya está a la venta: el precio nuevo se ve en la tienda al confirmar.",
         "note": "Gana sobre el precio automático hasta que lo cambies. Queda en bitácora a tu nombre.",
-        "publish": "Publicar a {price}",
-        "save": "Guardar {price}"
+        "publish": "Publicar · {price} antes de IVA",
+        "save": "Guardar · {price} antes de IVA"
       },
       "done": {
-        "published": "{folio} publicada a {price}.",
-        "savedNoLocation": "Precio final guardado en {folio}. Saldrá sola al ponerle ubicación.",
-        "repriced": "Precio de {folio} cambiado a {price}."
+        "published": "{folio} publicada: {price} antes de IVA.",
+        "savedNoLocation": "Precio guardado en {folio}. Saldrá sola al ponerle ubicación.",
+        "repriced": "Precio de {folio} cambiado a {price} antes de IVA."
       },
       "errors": {
         "reserved": "Está apartada en un pedido en curso. Si el pedido no se paga, vuelve a estar libre en unos minutos y podrás cambiarla. No se guardó nada.",

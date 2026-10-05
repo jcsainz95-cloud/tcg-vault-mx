@@ -19111,3 +19111,26 @@ motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
 - STF-17-E2E en mock: 2/2. Mutaciones deterministas, N=1 cada una, todas rojas y restauradas: enlace «Mi cuenta»
   (real 2/2, mock 2/2), M-5 en navegador (2/2, el `403` de QA reproducido), M-5 Vitest, A-1, STF-36, M-3, M-4 ×2,
   TD-5; canario B-1 con el `temp-actors.ts` previo ⇒ `422 staff_without_email`.
+
+## Hotfix D-SP-5 · textos de `admin.sealedFinalPrice.*` (SP-F-8b, solo textos) — 2026-10-05
+
+Rama `claude/hotfix-texto-sellado` desde `production` `3e09685a`. El editor del sellado escribe `listPriceCents`
+(`L`, antes de IVA) y la tienda cobra `P` (IVA trasladado encima); los textos decían «Precio final» y «Se publica en la
+tienda a {price}». Se aplican los 16 textos corregidos de la tabla D-SP-5 (`DESIGN_SYSTEM §70.5`, rama de sellado) en
+`es.json` y `en.json`. **Sin cambio de conducta**: `{price}` sigue siendo el `L` tecleado y el JSX no se toca.
+
+- **Fuera a propósito:** `storePrice` («En la tienda: {price}») — necesita `resolvedDisplayPriceCents` del servidor,
+  que en `production` no existe; y el sufijo «antes de IVA» en la lectura de la cola / solo lectura
+  (`SealedFinalPrice.tsx:208-212`, `:234-240`), que es JSX, no texto. Ambos van con el stream de sellado.
+- **Fuera de alcance (otras claves):** `admin.m1.pendingPublish.*` aún dice «precio final» en `note`, `basis.manual`
+  («precio final a mano») y `reason.sealedNoPrice` (`es.json:1554/1557/1565` y pares `en`). No son de
+  `admin.sealedFinalPrice.*`; pendiente de que ux-ui los incluya.
+- **Candado UX-SP-18** (`src/lib/i18n-sealed-final-price-iva.test.ts`): ningún valor de `admin.sealedFinalPrice.*`
+  (es/en) contiene «precio final»/«final price»; `confirm.effectPublish` menciona IVA/VAT; `label` dice
+  «antes de IVA»/«before VAT». `SealedFinalPrice.test.tsx` actualizada solo en los textos que fijaba; las comprobaciones
+  de ausencia (`/precio final/i`) pasan a los rótulos nuevos (`/^(Poner|Cambiar) precio de /i`, `/Antes de IVA/`)
+  para no quedar vacías.
+- **Mediciones (2026-10-05, árbol vivo):** `tsc --noEmit` 0 errores · `npm run lint` sin avisos · Vitest **212/212
+  ficheros, 2551/2551 pruebas** (incluye `i18n-parity`). Mutaciones deterministas N=1 sobre `git archive` del árbol
+  entero (tree `3b0e01ab`): `label` es ⇒ «Precio final (MXN)» deja UX-SP-18 rojo (2/4: «ningún texto» es + `label`);
+  `rowLabel` en ⇒ «Final price» + `effectPublish` en viejo ⇒ rojo (2/4: «ningún texto» en + `effectPublish`). Copia borrada.

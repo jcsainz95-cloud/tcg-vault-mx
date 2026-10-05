@@ -4679,16 +4679,16 @@
       "noName": "an account with no name"
     },
     "sealedFinalPrice": {
-      "rowLabel": "Final price",
+      "rowLabel": "Before VAT",
       "auto": "automatic",
       "manual": "{price} set by hand",
       "market": "Market: {price}",
-      "set": "Set final price",
-      "change": "Change final price",
-      "setAria": "Set final price for {folio}",
-      "changeAria": "Change final price for {folio}",
-      "label": "Final price (MXN)",
-      "hint": "Overrides the automatic price. Never $0.",
+      "set": "Set price",
+      "change": "Change price",
+      "setAria": "Set price for {folio}",
+      "changeAria": "Change price for {folio}",
+      "label": "Price before VAT (MXN)",
+      "hint": "Overrides the automatic price. The customer pays this price plus the VAT passed on. To write it VAT included, link the item to its product.",
       "noLocationHint": "It'll go on sale by itself once you set a location.",
       "listedHint": "It's already on sale: the new price shows in the store when you confirm.",
       "saveOnly": "Save price",
@@ -4697,22 +4697,22 @@
       "errDecimals": "Two decimals at most.",
       "errMax": "The maximum price is {max}.",
       "confirm": {
-        "title": "Set the final price for {name}?",
+        "title": "Set the price for {name}?",
         "thisSealed": "this sealed item",
         "now": "Now: {price} ({basis})",
         "nowNone": "Now: no price",
-        "new": "New: {price}, set by hand",
-        "effectPublish": "It goes on sale in the store at {price} when you confirm.",
-        "effectNoLocation": "Not published yet: it has no location. It'll go on sale at {price} by itself once you set one.",
+        "new": "New: {price} before VAT, set by hand",
+        "effectPublish": "It goes on sale in the store when you confirm. The customer will see {price} plus the VAT passed on.",
+        "effectNoLocation": "Not published yet: it has no location. It'll go on sale by itself once you set one; the customer will see {price} plus the VAT passed on.",
         "effectListed": "It's already on sale: the new price shows in the store when you confirm.",
         "note": "Overrides the automatic price until you change it. Logged under your name.",
-        "publish": "Publish at {price}",
-        "save": "Save {price}"
+        "publish": "Publish · {price} before VAT",
+        "save": "Save · {price} before VAT"
       },
       "done": {
-        "published": "{folio} listed at {price}.",
-        "savedNoLocation": "Final price saved on {folio}. It'll go on sale once it has a location.",
-        "repriced": "{folio} price changed to {price}."
+        "published": "{folio} listed: {price} before VAT.",
+        "savedNoLocation": "Price saved on {folio}. It'll go on sale once it has a location.",
+        "repriced": "{folio} price changed to {price} before VAT."
       },
       "errors": {
         "reserved": "It's held by an order in progress. If the order isn't paid, it frees up in a few minutes and you can change it. Nothing was saved.",
