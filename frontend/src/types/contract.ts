@@ -6199,8 +6199,10 @@ export interface AuditLogDTO {
 }
 
 // ---- M7: Finanzas (contrato §M7) ----
-// GET /admin/finance/pnl?from=&to= (contrato §M7, v1.4-finance):
-// profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents.
+// GET /admin/finance/pnl?from=&to= (contrato §M7, v1.4-finance; forma completa §M10-IVA.8 / §M4-SHIP.19.36.1):
+// profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents
+//             − refundsCents − refundedFeesCents − compensationsCents.
+// ⛔ `shippingAdjustmentsCents` y `shippingInsuranceCents` YA están dentro de `shippingCostCents`: no se suman a nada.
 export interface PnlDTO {
   incomeCents: number;
   shippingRevenueCents: number;
@@ -6226,6 +6228,20 @@ export interface PnlDTO {
    * envíos no tienen costo: revísalos»*—. La pantalla lo rotula así y ⛔ **no lo suma a nada**.
    */
   shippingCostMissingCount: number;
+  /**
+   * §M4-SHIP.19.36.1 / §19.11 — «ajustes de paquetería»: cargos extra de la paquetería (netos de IVA) contados en el mes
+   * de su cargo. ⛔ **Ya están DENTRO de `shippingCostCents`**: la pantalla los muestra como «Incluye…», sin signo.
+   */
+  shippingAdjustmentsCents: number;
+  /** §M4-SHIP.19.36.1 / §19.11 — seguro del envío del periodo. ⛔ Ya está DENTRO de `shippingCostCents` (informativo). */
+  shippingInsuranceCents: number;
+  /** §M10-IVA.8 (v1.80.7) — reembolsos del periodo, mercancía + envío NETOS de IVA. Resta en `profitCents`. */
+  refundsCents: number;
+  /** §M10-IVA.8 (v1.80.7) — comisión de plataforma (`processingFee`) devuelta en el periodo. Resta en `profitCents`. */
+  refundedFeesCents: number;
+  /** §M10-IVA.8 (v1.80.7) — compensaciones por carta perdida pagadas en el periodo. Resta en `profitCents`. */
+  compensationsCents: number;
+  /** Ganancia del periodo calculada por el SERVIDOR. ⛔ El cliente nunca la recalcula (GAS-4). */
   profitCents: number;
 }
 

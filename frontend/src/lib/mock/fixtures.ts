@@ -4412,7 +4412,10 @@ export const mockAuditLog: AuditLogDTO[] = [
 ];
 
 // ---- M7: Finanzas ----
-// P&L (v1.4-finance): incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents = profitCents.
+// P&L (§M10-IVA.8 / §M4-SHIP.19.36.1): incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents −
+// shippingCostCents − refundsCents − refundedFeesCents − compensationsCents = profitCents.
+// N-PNL-1 (DESIGN_SYSTEM §43.23.8): los cinco campos nuevos ≠ 0; ajustes y seguro MENORES que `shippingCostCents`
+// (están dentro de él) para que la pantalla de dev sea una pantalla posible.
 export const mockPnl: PnlDTO = {
   incomeCents: 1_250_000,
   shippingRevenueCents: 52_500,
@@ -4426,7 +4429,14 @@ export const mockPnl: PnlDTO = {
   // importe y ⛔ no una afirmación fiscal. En el fixture va `> 0` **a propósito**: el aviso es una
   // rama de render que, con un `0` clavado, nadie vería nunca en `dev`.
   shippingCostMissingCount: 2,
-  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800,
+  // §19.36.1 — «Incluye…» de `shippingCostCents` (⛔ no entran en la resta: ya van dentro de los 31_800).
+  shippingAdjustmentsCents: 4_200,
+  shippingInsuranceCents: 2_500,
+  // §M10-IVA.8 (v1.80.7) — lo devuelto en el periodo; restan en la ganancia.
+  refundsCents: 35_000,
+  refundedFeesCents: 1_400,
+  compensationsCents: 12_000,
+  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800 - 35_000 - 1_400 - 12_000,
 };
 
 // v1.28 (P-24): breakdown por tipo — campos top-level = Σ del breakdown (invariante del contrato).

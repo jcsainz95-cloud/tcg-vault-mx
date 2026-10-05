@@ -26,16 +26,33 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 
-/** Fila del desglose del P&L (fórmula: ingresos + envío − COGS − Stripe = ganancia). */
-function PnlLine({ label, value, sign }: { label: string; value: string; sign: '+' | '−' | '=' }) {
-  const tone = sign === '−' ? 'text-danger' : sign === '=' ? 'text-text' : 'text-text';
+/**
+ * Renglón con signo del P&L (§43.23.1/.4): forma parte de la fórmula. El signo visible es `aria-hidden` y se OYE por el
+ * `sr-only` («suma»/«resta», `srSign`) que va antes del rótulo. `data-sign` y `pnl-amount` son el enganche de UX-PNL-1.
+ */
+function PnlLine({ label, value, sign, srSign }: { label: string; value: string; sign: '+' | '−'; srSign: string }) {
+  const tone = sign === '−' ? 'text-danger' : 'text-text';
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
-      <span className="flex items-center gap-2 text-sm">
-        <span aria-hidden className={`w-4 tabular font-semibold ${sign === '−' ? 'text-danger' : 'text-muted'}`}>{sign}</span>
+    <div data-testid="pnl-line" data-sign={sign} className="flex items-start justify-between gap-3 py-1.5">
+      <span className="flex items-start gap-2 text-sm">
+        <span aria-hidden="true" className={`w-4 shrink-0 tabular font-semibold ${sign === '−' ? 'text-danger' : 'text-muted'}`}>{sign}</span>
+        <span className="sr-only">{srSign}</span>
         <span className="text-muted">{label}</span>
       </span>
-      <span className={`tabular font-medium ${tone}`}>{value}</span>
+      <span data-testid="pnl-amount" className={`tabular font-medium ${tone}`}>{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Sub-renglón «Incluye…» (§43.23.2): desglose de «Costo de envío», ⛔ NO parte de la fórmula. Sin signo (ni visible ni
+ * `sr-only`), sin `data-sign`, monto `text-muted font-normal` (⛔ nunca `text-danger`: no resta nada por sí mismo).
+ */
+function PnlIncluded({ label, value }: { label: string; value: string }) {
+  return (
+    <div data-testid="pnl-included" className="flex items-start justify-between gap-3 pb-1 pl-6 text-xs">
+      <span className="text-muted">{label}</span>
+      <span data-testid="pnl-amount" className="tabular font-normal text-muted">{value}</span>
     </div>
   );
 }
@@ -45,6 +62,8 @@ export function M7View() {
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
+  const adds = t('pnl.signAdds');
+  const subtracts = t('pnl.signSubtracts');
 
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -101,11 +120,27 @@ export function M7View() {
           {pnl.data && (
             <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-5">
               <div className="flex flex-col divide-y divide-border">
-                <PnlLine sign="+" label={t('pnl.income')} value={formatMoneyCents(pnl.data.incomeCents, locale)} />
-                <PnlLine sign="+" label={t('pnl.shippingRevenue')} value={formatMoneyCents(pnl.data.shippingRevenueCents, locale)} />
-                <PnlLine sign="−" label={t('pnl.cogs')} value={formatMoneyCents(pnl.data.cogsCents, locale)} />
-                <PnlLine sign="−" label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.stripeFeesCents, locale)} />
-                <PnlLine sign="−" label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.shippingCostCents, locale)} />
+                {/*
+                 * 💰 §M4-SHIP.19.36.1 / §43.23.1 — los OCHO renglones con signo son la fórmula de arriba, en el orden del
+                 * servidor, y se pintan SIEMPRE (también en 0: un «MX$0.00» con signo es un dato). Los «Incluye…» van
+                 * bajo «Costo de envío» en el MISMO hijo del `divide-y`, y solo si `> 0` (⛔ no `??`: criterio 202(c)).
+                 */}
+                <PnlLine sign="+" srSign={adds} label={t('pnl.income')} value={formatMoneyCents(pnl.data.incomeCents, locale)} />
+                <PnlLine sign="+" srSign={adds} label={t('pnl.shippingRevenue')} value={formatMoneyCents(pnl.data.shippingRevenueCents, locale)} />
+                <PnlLine sign="−" srSign={subtracts} label={t('pnl.cogs')} value={formatMoneyCents(pnl.data.cogsCents, locale)} />
+                <PnlLine sign="−" srSign={subtracts} label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.stripeFeesCents, locale)} />
+                <div>
+                  <PnlLine sign="−" srSign={subtracts} label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.shippingCostCents, locale)} />
+                  {pnl.data.shippingAdjustmentsCents > 0 && (
+                    <PnlIncluded label={t('pnl.shippingAdjustments')} value={formatMoneyCents(pnl.data.shippingAdjustmentsCents, locale)} />
+                  )}
+                  {pnl.data.shippingInsuranceCents > 0 && (
+                    <PnlIncluded label={t('pnl.shippingInsurance')} value={formatMoneyCents(pnl.data.shippingInsuranceCents, locale)} />
+                  )}
+                </div>
+                <PnlLine sign="−" srSign={subtracts} label={t('pnl.refunds')} value={formatMoneyCents(pnl.data.refundsCents, locale)} />
+                <PnlLine sign="−" srSign={subtracts} label={t('pnl.refundedFees')} value={formatMoneyCents(pnl.data.refundedFeesCents, locale)} />
+                <PnlLine sign="−" srSign={subtracts} label={t('pnl.compensations')} value={formatMoneyCents(pnl.data.compensationsCents, locale)} />
               </div>
               {/*
                * ⭐ **§M10-IVA.8 — `shippingCostMissingCount`: UNA SEÑAL PARA UN HUMANO, NO UN
@@ -131,7 +166,8 @@ export function M7View() {
                   <TrendingUp size={18} className={pnl.data.profitCents >= 0 ? 'text-success' : 'text-danger'} />
                   {t('pnl.profit')}
                 </span>
-                <span className={`tabular text-h2 font-bold ${pnl.data.profitCents >= 0 ? 'text-success' : 'text-danger'}`}>
+                {/* ⛔ GAS-4: `profitCents` del servidor, tal cual — nunca la suma de lo pintado (UX-PNL-3). */}
+                <span data-testid="pnl-profit" className={`tabular text-h2 font-bold ${pnl.data.profitCents >= 0 ? 'text-success' : 'text-danger'}`}>
                   {formatMoneyCents(pnl.data.profitCents, locale)}
                 </span>
               </div>
