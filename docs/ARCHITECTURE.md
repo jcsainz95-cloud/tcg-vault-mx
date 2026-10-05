@@ -154,6 +154,7 @@
 > | **v1.84** | 🔒💰 Plan (2026-10-05, rama `claude/listo-real` desde `production` = `3e09685a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **Listo para dinero real:** cierra las condiciones «antes de `sk_live_`» de `SECURITY_NOTES.md:14048-14050` — C1 `qs`, S5-1 (claim `sat`, tope 30 d cliente / 7 d staff), SEC-HDR-2 (CSP con nonce, Report-Only primero), TD-4 ⟨orders⟩ (CAS `pending → failed`), C2 (lectura fresca del cargo en Stripe en la cubeta SPEI en vez de la lista de códigos; también detecta pedidos pagados **en modo prueba**), DAST `full` previo, C6 (medición) — más MSH-1, salud con `stripeMode`, telemetría CSP/errores sin cuenta nueva, `/privacidad`, respaldos con simulacro, censo y limpieza de datos de prueba, guion de cobro de punta a punta y guía del cambio de claves. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.84, §14 | §4.63 | **Sí** (backend `auth`, `orders` 💰, `payments` 💰, `shipments` 💰, `health`; frontend; devops) · 🔒 seguridad |
 > | **v1.84.1** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `bed71dc8`, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES §57`, `FRONTEND_NOTES §94`, `DEVOPS_NOTES §83`). Ratifica refresh con `ignoreExpiration` y caducidad a mano **después** del tope, con el borde a `>=` (SES-7/8); `ttlSeconds()` propio; `413` sin cuerpo; `upgrade-insecure-requests` solo en `enforce`. CSP: `style-src` + `https://accounts.google.com/gsi/style`; mutación de CSP-5 y «sustituye, no interseca» corregidas, con invariante `frame-ancestors`. TTFB se mide **en producción** con sonda de devops (antes = F1, después = F2). Enlaces al aviso en tres lotes con candado en `check:legal`. Texto de C6 corregido; **P-10** al dueño (N de C6). ⛔ Sin schema, migración, enum ni código nuevo. Norma: `API_CONTRACT §14.14` | §4.63.3, §4.63.5, §4.63.7, §4.63.9, §4.63.10, §4.63.11 | **Sí** (backend un carácter + 2 pruebas; frontend CSP + enlaces; devops sonda TTFB; ux-ui textos) |
 > | **v1.84.2** | Errata (2026-10-05, rama `claude/listo-real`, gates sobre `241d4dca` dado por el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **E2-1:** guía del dueño gana la casilla «`check:legal` verde (criterios 500–508)» + «QA aprobó 500–508» (el candado solo mide 501 y 503–505). **E2-2:** CSP-5 pasa a contar eventos `securitypolicyviolation` (`script-src*` + `blockedURI='inline'`) antes/después de inyectar; la mutación de E-5 solo mordía en `enforce`. **E2-3:** `message` de `/telemetry/client-error` se limpia **en el servidor** (query/fragmento pegados, `nombre=valor` de secretos, JWT), TLM-6/7/8. **E2-4:** texto de LIVE-2 sigue en este stream. **E2-5:** `report-uri` solo; comprobación de entrega antes de `enforce`; `report-to` = decisión pendiente **D-CSP-RT**. ⛔ Sin schema, migración, enum, código ni forma nueva. Norma: `API_CONTRACT §14.15` | §4.63.7, §4.63.12 | **Sí** (backend limpieza + 3 pruebas; frontend CSP-5 + texto LIVE-2; devops casilla en la guía; ux-ui texto) |
+> | **v1.84.5** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `1eb6bdcd`, ⛔ sha NO MEDIDO por el arquitecto; origen: 2 rojas medidas por el orquestador tras la fusión, `sdx-d2g.units.spec.ts:252` y `sdx-d2g-mail.e2e-spec.ts:231`). **Choque B, opción (1):** el enlace «Aviso de privacidad» (507, E4-5) va en los correos a clientes; los solo-staff (AVG-1/2/3) no lo llevan; **SDX-I-8 intacta**. `MailShellOptions.audience?: 'customer' \| 'staff'` (defecto `'customer'`), `'staff'` solo en `spend-alert.mail.ts`; PRIV-5/PRIV-6 nuevas; mutaciones MUT-B1…B5. Interpretación de `PROJECT §LEG.3` marcada (PO anota). ⛔ Sin schema, migración, enum, código ni forma nueva. Norma: `API_CONTRACT §14.18` | §4.63.7, §4.63.15 | **Sí** (backend: un campo + 3 llamadas + 2 pruebas) |
 > | **v1.84.4** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `aa71664a`, ⛔ sha NO MEDIDO por el arquitecto; origen `HECHOS.md` 2026-10-05 sesión 6 «Salir en vivo SIN datos fiscales…»). **Aviso de privacidad en modo provisional:** se publica (no 404) con una frase fija en lugar de razón social/RFC/domicilio y contacto `soporte@tcghunt.mx`; ningún corchete pasa a permitido; `check:legal` se parte en `check:legal:provisional` (casilla de hoy) y `check:legal` final (casilla de regularización). Criterios 500 (parte), 501 (cláusula de bloqueo), 506 y 507 (razón social) quedan como **excepción aceptada por el dueño**; sitios 3/7 y el enlace del aviso en correos (hallazgo: no construido) **siguen bloqueando**. Norma: `API_CONTRACT §14.17`; porqué: §4.63.14. |
 > | **v1.84.3** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `a047c3cb`, ⛔ sha NO MEDIDO por el arquitecto; origen `FRONTEND_NOTES §94.6`). **E3-1:** CSP-5 inyecta el script **en el HTML servido** (bajo `'strict-dynamic'` un script creado por código hereda la confianza: sin evento, se ejecuta incluso en `enforce`). **E3-2:** la comprobación de entrega de E2-5 usa esa técnica, no la consola. **E3-3:** perímetro de la CSP escrito (no cubre DOM-XSS que cree scripts) como dato para la fase de seguridad; candado pendiente **XSS-SINK-1** (lint `error` de sumideros, frontend, antes de `enforce`); el de semgrep es `WARNING` y no bloquea. **E3-4:** LIVE-2 por marca de un solo uso en el login ratificado, y aviso de inactividad que se oculta al primer intento. ⛔ Sin schema, migración, enum, código ni forma nueva. Norma: `API_CONTRACT §14.16` | §4.63.3, §4.63.13 | **Sí** (frontend: lint XSS-SINK-1; resto ya construido o procedimiento) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
@@ -28351,6 +28352,8 @@ El dueño lo ve en Railway (réplicas del servicio).
 - **v1.84.4 — modo provisional:** el dueño decidió salir sin datos fiscales (`HECHOS.md` 2026-10-05, sesión 6). El aviso
   se publica con una frase fija en lugar de razón social/RFC/domicilio; el candado distingue «provisional declarado» de
   «marcador olvidado». Porqué en §4.63.14; norma en `API_CONTRACT §14.17`.
+- **v1.84.5 — choque B:** el pie «Aviso de privacidad» va en los correos a clientes; los solo-staff (AVG-1/2/3) no lo
+  llevan y SDX-I-8 queda intacta. Porqué en §4.63.15; norma en `API_CONTRACT §14.18`.
 
 #### 4.63.8 Datos de prueba — limpiar antes, detectar después
 Dos capas, porque cada una sola falla. La **limpieza** (censo + reembolso en modo prueba, `API_CONTRACT §14.8`) deja
@@ -28514,6 +28517,30 @@ inventar datos y sin que el candado deje de servir.
   fechada para que nadie, leyendo `PROJECT` sobre el contrato (regla de conflicto), revierta esta errata.
 - **Riesgo residual escrito:** el texto publicado es el borrador del product-owner sin validar por abogado (P-LEG-4). Por
   eso §14.10 pide que el dueño lo lea donde está el botón.
+
+#### 4.63.15 Errata v1.84.5 — choque B: pie de privacidad vs. SDX-I-8 (norma: `API_CONTRACT §14.18`)
+Dos reglas mías chocaron al fusionar: E4-5 («el pie de **todos** los correos enlaza el aviso») y SDX-I-8 («todo enlace de
+AVG-1/2/3 es una página `admin/…`»). Se decide la opción (1): los correos solo-staff no llevan el pie de privacidad.
+
+- **Qué dice `PROJECT.md`.** §LEG.3 dice «pie de todos los correos» (letra amplia). El criterio 507 —lo que QA mide—
+  enumera seis familias (verificación, contraseña, confirmación con cuenta, invitado, buylist, centro de avisos), **todas a
+  clientes**. Y el objeto de §LEG es informar a los **titulares** cuyos datos recaba la tienda («al crear tu cuenta,
+  comprar o vendernos cartas», §LEG.2 punto 10; los sitios de §LEG.3 son «donde se dan datos»). Un aviso del gasto de
+  guías dirigido al dueño —que es el responsable— o a un empleado no es un punto donde un cliente da datos. Aun así la letra
+  de §LEG.3 admite la lectura amplia ⇒ **lo trato como ambiguo y lo marco**; la regla del encargo es elegir la opción que no
+  debilite SDX-I-8, y coincide con la lectura del 507.
+- **Por qué no la opción (2).** SDX-I-8 es una regla cerrada («todo enlace es `admin/…`») y su prueba es una expresión
+  regular de prefijo. Admitir `/privacidad` la convierte en una lista de excepciones: la siguiente página pública «sin
+  acción ni token» pide entrar por el mismo argumento, y la propiedad que hoy se comprueba con un prefijo pasa a depender de
+  juzgar cada página. Además, para el destinatario (dueño o personal) el enlace no informa nada que necesite. Coste de (1):
+  tres correos internos pierden una fila que nadie leía.
+- **Por qué un campo con defecto `'customer'` y no un shell aparte.** Un `staffMailShell` duplicaría el esqueleto (dos
+  fuentes para un hecho). Con el campo, el error por olvido es «enlace legal de más», que en un AVG caza SDX-I-8; el error
+  peligroso («cliente sin enlace») exige escribir `audience: 'staff'`, y eso solo se permite en un fichero (PRIV-6) y
+  rompe PRIV-1 en cualquier plantilla de cliente.
+- **Correos mixtos son de cliente.** Verificación, contraseña y bloqueo pueden llegar a un empleado, pero también a un
+  cliente: llevan el pie. «Solo-staff» se decide por la **consulta de destinatarios**, no por el tema del correo.
+- **Choque A:** las 4 plantillas de la fusión son de cliente (§14.18 E5-5); no hay decisión.
 
 ---
 

@@ -2,13 +2,25 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84.4**, cuarta
-> errata de v1.84, stream «Listo para dinero real», rama `claude/listo-real`; antes v1.84.3, v1.84.2, v1.84.1, v1.80.10 y v1.80.9.1)
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84.5**, quinta
+> errata de v1.84, stream «Listo para dinero real», rama `claude/listo-real`; antes v1.84.4, v1.84.3, v1.84.2, v1.84.1, v1.80.10 y v1.80.9.1)
 > — **fusionada encima de** errata **v1.83.3** (`claude/precio-sellado`) y errata **v1.82.3** (`claude/arreglos-panel`, que ya
 > lleva rev **v1.80.12.17** de `claude/skydropx-d`). ⛔ Sigue siendo la **única** línea «Versión de API»: en la fusión
 > listo-real+sellado del 2026-10-05 (agente de fusión, sin cambiar contenido) las cabeceras de listo-real van primero y las
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
+>
+> **Errata v1.84.5 — CHOQUE B: PIE DE PRIVACIDAD (E4-5) vs. ENLACES DE LOS CORREOS DE GASTO (SDX-I-8) (2026-10-05,
+> arquitecto, árbol `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `1eb6bdcd`; ⛔ sha NO
+> MEDIDO por el arquitecto: sin Bash).** Origen: el orquestador midió 2 rojas tras la fusión
+> (`sdx-d2g.units.spec.ts:252`, `integration/sdx-d2g-mail.e2e-spec.ts:231`): `mailShell` emite el pie de privacidad en
+> **todo** correo, incluidos AVG-1/2/3. Norma entera: [§14.18](#LIVE-E5). Porqué: `ARCHITECTURE §4.63.15`.
+> ⛔ **Sin schema, sin migración, sin enum, sin código de error, sin endpoint, sin forma nueva.**
+>
+> | # | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|
+> | E5-1 | **Opción (1).** El enlace «Aviso de privacidad» (criterio 507, E4-5) va en el pie de los correos **a clientes**; los correos **solo-staff** (hoy: AVG-1/2/3, `spend-alert.mail.ts`) **no** lo llevan. **SDX-I-8 queda intacta** (sin excepción para `/privacidad`) | Sí (3 correos internos pierden una fila) | backend · antes del cambio a `sk_live_` |
+> | E5-2 | ⚠️ Interpretación de `PROJECT.md` **marcada**: §LEG.3 dice «pie de **todos** los correos»; el criterio 507 (lo que se mide) enumera seis familias, **todas a clientes**. Ambiguo en la letra ⇒ se elige la opción que **no debilita SDX-I-8**. Product-owner anota la acotación en 507/§LEG.3 | No | product-owner (nota) |
 >
 > **Errata v1.84.4 — AVISO DE PRIVACIDAD EN «MODO PROVISIONAL» (2026-10-05, arquitecto, árbol `/home/user/tcg-real`,
 > rama `claude/listo-real`, HEAD dado por el orquestador `aa71664a`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
@@ -420,7 +432,7 @@
 > | **4** | SDX-Z-4 / C-23 | La neutralización del folio recorre **todas** las llaves de texto del destino, con NFKC y guiones tipográficos, en la **cotización** y en la **compra** | No | backend (D2c) |
 > | **5** | SDX-Z-5 / C-19 | Rastreo normalizado alfanumérico; la huérfana sin movimiento de paquetería; el fusible cuenta una **intención** escrita antes de `cancel` | No | backend 💰 (D2d) |
 > | **6** | SDX-Z-6 / C-24 | Como mucho **2** correos inmediatos por persona y hora | No | backend (D2g) |
-> | **7** | SDX-I-8 | Los enlaces de los correos son páginas; nunca un GET que actúe ni un token | No | backend + frontend |
+> | **7** | SDX-I-8 | Los enlaces de los correos son páginas; nunca un GET que actúe ni un token. *(v1.84.5, [§14.18](#LIVE-E5): **intacta** — AVG-1/2/3 son solo-staff y **no** llevan el pie de privacidad; todo enlace sigue siendo `admin/…`)* | No | backend + frontend |
 >
 > **Códigos de error nuevos:** `403 OWNER_ONLY_SETTING {keys}`, `403 OWNER_ACCOUNT_PROTECTED`. **Migración:** `M-68` gana
 > `User.isOwner`, `SpendOwnerWatch`, `SpendAlert.muted`, `ShipmentPaidLabel.autoCancelIntentAt`. **Avisos nuevos:** AG-21,
@@ -29035,6 +29047,9 @@ Resultado: 5 AG-1 🔴 de una persona en 10 min ⇒ 2 correos + 3 al lote; un AG
 ajustes** en la sección de envíos (donde está `shipping_label_purchase`). ⛔ Ningún enlace a `/api/`, ⛔ ningún token ni
 parámetro que actúe, ⛔ ninguna página que cambie estado al cargarse (el interruptor exige clic + `PUT` con sesión del
 dueño, §19.30.2 (1)). Los escáneres de correo siguen los enlaces: lo que siguen no debe hacer nada.
+*(v1.84.5, [§14.18](#LIVE-E5): «todo enlace» incluye el pie. AVG-1/2/3 son correos **solo-staff** y por eso **no** llevan
+el enlace «Aviso de privacidad» de E4-5; ⛔ no se abre excepción a esta regla para `/privacidad` ni para ninguna otra
+página pública.)*
 
 **M4-SHIP.19.30.10 — Preguntas al dueño (lenguaje llano; ⛔ el arquitecto no las decide).**
 1. **¿Cuántas cuentas de súper-admin con correo hay hoy? (C-20 (a), solo lectura).** Córrala usted donde ya vive la
@@ -39567,7 +39582,8 @@ legalPublishProblems(mode: 'provisional' | 'final', { doc, messages: {es, en}, s
 | 507 razón social y enlace al aviso en correos | Razón social: **no** (no hay dato). Enlace «Aviso de privacidad» en el pie de **todos** los correos: **construible hoy y no construido** | Razón social: **excepción aceptada**. Enlace: ⛔ **bloquea** — lo construye backend (abajo) |
 | 508 el buzón publicado recibe | Se cumple con `soporte@tcghunt.mx` (`DEVOPS_NOTES.md:6226`); QA re-mide con un correo enviado desde fuera y el dueño confirma que lo leyó | QA + dueño |
 
-**Backend — enlace al aviso en los correos (507, hallazgo E4-5):** en el pie común de **todas** las familias de correo
+**Backend — enlace al aviso en los correos (507, hallazgo E4-5):** *(v1.84.5, [§14.18](#LIVE-E5): «todas» = todas las
+familias **a clientes**; los correos solo-staff no lo llevan.)* En el pie común de **todas** las familias de correo
 (verificación, restablecer contraseña, confirmación con cuenta, confirmación de invitado, buylist, centro de avisos) un
 enlace «Aviso de privacidad» a `<URL pública de la tienda>/es/privacidad` (la misma base que ya usan los enlaces de los
 correos; nombre de la variable NO MEDIDO por el arquitecto). Dónde está el pie común: **NO MEDIDO**; backend lo mide y,
@@ -39576,3 +39592,67 @@ renderizar una de cada familia ⇒ contiene el enlace; mutación: quitarlo del p
 publicarse con el aviso ya `published` (mismo despliegue F2): si `check:legal:provisional` estuviera rojo en producción,
 el correo enlazaría a un `404` — por eso la casilla de §14.10 va antes del cambio de claves.
 **Error del arquitecto, dicho:** §14.14 E-9 contó siete sitios y dejó fuera los correos, que `PROJECT §LEG.3` sí listaba.
+
+### <a id="LIVE-E5"></a>14.18 Errata v1.84.5 — choque B: el pie de privacidad no va en los correos solo-staff (2026-10-05, NORMATIVA)
+
+Origen: tras fusionar production + Skydropx + panel + sellado + listo-real, el orquestador midió sobre una copia de
+`1eb6bdcd` **2 rojas**: `backend/test/sdx-d2g.units.spec.ts:252` y `backend/test/integration/sdx-d2g-mail.e2e-spec.ts:231`
+(SDX-I-8, [§M4-SHIP.19.30.9](#M4-SHIP-19-30)). Causa (leída por el arquitecto en el árbol `/home/user/tcg-real`, sha NO
+MEDIDO): `mailShell` emite **siempre** `privacyRow` (`backend/src/modules/buylist/mail-shell.ts:644-652`), y
+`spend-alert.mail.ts:141,183,242` arma AVG-1/2/3 con `mailShell` ⇒ el pie lleva `href="<origen>/es/privacidad"`, que no es
+`…/admin/…`. Porqué: `ARCHITECTURE §4.63.15`. ⛔ Sin schema, migración, enum, código de error, endpoint ni forma nueva.
+
+#### E5-1 · Decisión: opción (1)
+- El enlace «Aviso de privacidad» de E4-5 va en el pie de **todo correo cuyo destinatario puede ser un cliente**. Los
+  correos **solo-staff** no lo llevan.
+- **Solo-staff** = el constructor del correo obtiene sus destinatarios **por construcción** de cuentas de personal (consulta
+  por `isOwner`/`role`), nunca de un cliente. Medido hoy (2026-10-05, Grep de `mail.send(` en `backend/src`): **solo**
+  `spendAlertImmediateMail`, `spendAlertBatchMail` y `spendDigestMail` (`spend-alert.mail.ts`; destinatarios en
+  `spend-mail.service.ts:52-55,88` — dueño, `super_admin`, `vault_operator`). ⚠️ Un correo **mixto** (verificación,
+  contraseña, `passwordLockAlertTemplate`: puede ir a un cliente o a un empleado) **es de cliente** y lleva el pie.
+- **SDX-I-8 no cambia**: ninguna excepción para `/privacidad` ni para otra página pública. La opción (2) se descarta (§4.63.15).
+- Criterio 507 queda acotado a los correos a clientes. ⚠️ **Interpretación marcada**: `PROJECT §LEG.3` dice «pie de todos los
+  correos»; el criterio 507 enumera seis familias, todas a clientes. Product-owner anota la acotación junto al 507 y en
+  §LEG.3 citando esta errata; si el dueño la rechaza, se revierte con una línea (E5-2 punto 1) y SDX-I-8 vuelve a chocar
+  — entonces es pregunta al dueño, no al equipo.
+
+#### E5-2 · Qué hace backend, exactamente
+1. `MailShellOptions` gana **`audience?: 'customer' | 'staff'`**, por defecto `'customer'`. Con `'staff'`, `mailShell`
+   **no** emite `privacyRow` **ni** el `spacerRow(16)` que lo separa de la banda (el resto del esqueleto —preheader, marca,
+   cuerpo, `spacerRow(32)`, pie en tinta— idéntico). Con `'customer'` o ausente: exactamente como hoy.
+   ⛔ El defecto es `'customer'` a propósito: olvidar el campo deja el enlace legal puesto (y, si es un AVG, lo caza
+   SDX-I-8), nunca lo quita en silencio.
+2. `spend-alert.mail.ts`: las **tres** llamadas a `mailShell` (`:141`, `:183`, `:242`) pasan `audience: 'staff'`.
+   Nada más cambia en ese fichero (ni URLs, ni texto plano).
+3. ⛔ Ningún otro fichero de `src/` pasa `audience: 'staff'`. Ampliar la lista exige errata del arquitecto con la consulta de
+   destinatarios citada.
+4. `privacyNoticeHtml`, `privacyNoticeUrl`, los pies a mano (`mail.templates.ts:43`, `guest-order.templates.ts:46`,
+   `sealed-restock-notify.service.ts:121`): **sin cambio**.
+
+#### E5-3 · Qué cambia en cada prueba
+| Prueba | Cambio |
+|---|---|
+| `sdx-d2g.units.spec.ts:235-261` (SDX-I-8, AVG-1/2/3 + digest) | **Ninguno.** Pasa a verde por E5-2. ⛔ No se añade `privacidad` a la expresión permitida |
+| `integration/sdx-d2g-mail.e2e-spec.ts:227-234` (canarios por tipo de aviso) | **Ninguno.** Pasa a verde por E5-2 |
+| `mail.privacy-footer.spec.ts` PRIV-0…PRIV-4 | **Sin cambio de aserciones.** Solo la cabecera (`:17-29`) dice «todos los correos **a clientes**; los solo-staff, PRIV-5/6 (v1.84.5)» |
+| `mail.privacy-footer.spec.ts` **PRIV-5 (nueva)** | Renderiza los tres constructores de `spend-alert.mail.ts` (un AVG-1 de 🔴 de guías, un AVG-2, un AVG-3) con origen configurado **y** sin origen: el `html` y el `text` **no** contienen `privacidad` ni la etiqueta («Aviso de privacidad» / «Privacy notice»); CONTROL: el mismo `html` **sí** contiene el pie en tinta (`footerDescriptor(l)`), para que «no hay pie» no pase por «no hay nada» |
+| `mail.privacy-footer.spec.ts` **PRIV-6 (nueva)** | Barrido de `src/` (sin comentarios, con `stripComments`): los ficheros con `audience:\s*['"]staff['"]` son **exactamente** `[modules/spend-alerts/spend-alert.mail.ts]`, y en él hay **exactamente 3** apariciones (CONTROL: el barrido ve algo) |
+
+#### E5-4 · Mutaciones que tienen que seguir mordiendo (deterministas: N=1 por mutación, dicho como tal)
+| # | Mutación (en una copia del árbol **entero**, O-9) | Rojas esperadas |
+|---|---|---|
+| MUT-B1 | `mailShell` ignora `audience` (emite `privacyRow` siempre) — es el estado de `1eb6bdcd` | `sdx-d2g.units.spec.ts` SDX-I-8, `sdx-d2g-mail.e2e-spec.ts` canarios, PRIV-5 |
+| MUT-B2 | El defecto pasa a `'staff'` (o se invierte la condición) | PRIV-1 en las 26 plantillas `*Template` que usan `mailShell` (las 5 de pie a mano —verificación, contraseña, bloqueo, invitado ×2— siguen verdes: no pasan por el shell), ES y EN |
+| MUT-B3 | `audience: 'staff'` en una plantilla de cliente (p. ej. `refundNoticeTemplate`) | PRIV-1 `refundNoticeTemplate` [es/en] y PRIV-6 |
+| MUT-B4 | Quitar `audience: 'staff'` de **una** de las tres llamadas de `spend-alert.mail.ts` (p. ej. la de `spendDigestMail`) | SDX-I-8 unitaria (el digest es `mails[3]`), PRIV-5 y PRIV-6 (cuenta ≠ 3) |
+| MUT-B5 (ya existía) | `spendAlertUrl` añade `?token=x` | SDX-I-8 unitaria y e2e — confirma que la regla sigue entera |
+
+Backend reporta cada mutación con sus rojas reales y el sha de la copia; la e2e (`sdx-d2g-mail`) con N=1 basta para
+MUT-B1/B5 (render determinista), dicho como tal.
+
+#### E5-5 · Choque A (PRIV-0 y las 4 plantillas de la fusión)
+Las cuatro son **de cliente**, no solo-staff: `sellItemsRejectedTemplate` va al vendedor (`buylist.service.ts:7256-7277`,
+`to: user.email`); `shipmentDeliveredTemplate`/`shipmentAtBranchTemplate`/`shipmentDeliveryAttemptTemplate` son AV-17/18/19
+del centro de avisos al cliente (`shipments.service.ts:1004,1010,1023`). Llevan el pie; no necesitan decisión. Nota: en el
+árbol leído por el arquitecto (sha NO MEDIDO) `RENDERS` **ya las contiene** (`mail.privacy-footer.spec.ts:101,157-162`);
+el orquestador re-mide antes de enrutar.
