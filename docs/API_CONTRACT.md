@@ -2,9 +2,24 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.83.2** y **v1.83.1**
-> sobre la rev **v1.83**, stream «precio del sellado», rama `claude/precio-sellado`; antes: rev **v1.80.10**; errata
-> **v1.80.9.1** al stream «staff sin correo»).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.83.3**, **v1.83.2** y
+> **v1.83.1** sobre la rev **v1.83**, stream «precio del sellado», rama `claude/precio-sellado`; antes: rev **v1.80.10**;
+> errata **v1.80.9.1** al stream «staff sin correo»).
+>
+> **Errata v1.83.3 — CONDICIONES DE LOS GATES (2026-10-05, arquitecto, rama `claude/precio-sellado` en
+> `/home/user/tcg-sellado`, HEAD dado por el orquestador `4f367aea`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
+> Origen: veredictos sobre `4f367aea` (QA aprobado con condiciones; techlead aprobado con condiciones), relayados por el
+> orquestador. Norma: **[§M11-SP.6](#M11-SP)** (reescrita), **[§M11-SP.13.2](#M11-SP-13)** y **[§M11-SP.13.5](#M11-SP-13)**.
+> Porqué: `ARCHITECTURE §4.62.10`. ⛔ Sin endpoint, campo, migración, enum ni código de error nuevo; ⛔ backend sin cambio.
+>
+> | # | Condición | Decisión | Construye · cuándo |
+> |---|---|---|---|
+> | **C-1** (techlead, bloqueante) | SP.6 decía «bloquea este stream» y SP-F-13…16 / F-SP-5 se difirieron | 💰 **SP.6 se DIFIERE** con disparador: tras fusionar Skydropx (F-SKY) a `main`, en la primera rama que parta de esa base y toque `(storefront)/checkout`. Y **se reduce**: por `HECHOS.md:49` (no avisar), ⛔ **aviso y segundo clic retirados**; lo único que se construirá es que el modal pinte el total de la **sesión** (F-SP-5 reescrita). `D-SP-2` sigue **abierta** (medida 2026-10-05). Texto para la solicitud de fusión en SP.6 | frontend · ⛔ no en esta rama |
+> | **QA menor 3** | 13.2 (2) prometía «volver a guardar el mismo precio es el reintento»; la UI deshabilita «Guardar» si no cambió (`SealedProductPriceEditor.tsx:145-146`, `:275`) | El reintento del dueño tras `autoPublish: null` es **«Publicar» en «Listas para publicar»** (ya lo dice F-SP-8). La semántica del servidor del paso 2 **no cambia** | nadie (texto) |
+> | **C-2** (techlead) | Respaldo «clave ausente = servidor anterior» (`FRONTEND_NOTES §88`, Regla Q-5) falla **abierto** (`VariantDrawer.tsx:605`, `PendingPublishQueue.tsx:381`: `sealedProductId === null ? canSetPrice : true`; `SealedFinalPrice.tsx:90` `canEdit = true`) | Se **retira**. Un solo helper en `frontend/src/lib/sealed-price-role.ts` que pasa por `canSetSealedPrice` y **falla cerrado**; `canEdit` de `SealedFinalPrice` **obligatorio**, sin default. Pruebas **F-SP-9**, **F-SP-10** | frontend · ya, en esta rama |
+>
+> - **Preguntas al dueño:** ninguna. **Aviso** para la solicitud de fusión: el texto llano de SP.6 (el total del modal de
+>   pago). **product-owner:** reconciliar `PROJECT §X.2` y el criterio 298 con `HECHOS.md:49` (sin aviso).
 >
 > **Errata v1.83.2 — RESPUESTAS A LAS SEIS PREGUNTAS DE BACKEND (`BACKEND_NOTES §57.8`) Y CIERRE DE LO QUE LE FALTA A
 > SP-F (2026-10-05, arquitecto, rama `claude/precio-sellado` en `/home/user/tcg-sellado`, HEAD dado por el orquestador
@@ -29746,7 +29761,61 @@ alta **sin precio**. Antecedente: `HECHOS.md:38` (b) y lo construido en #69 (`Se
   «Publicar» (encadenarlo o no: ux-ui). Pieza sin producto: el editor por pieza de hoy, solo dueño.
 
 **SP.6 · 💰 «Nadie paga una cifra que no vio» — el cliente con la carta en el carrito.**
-- **Decisión (bloquea este stream, frontend):** el modal de pago muestra el total de la **sesión**
+
+> ⛔ **v1.83.3 (C-1 del techlead) — SP.6 se DIFIERE y se REDUCE. Esta caja SUSTITUYE el texto tachado de abajo.**
+>
+> **Qué se difiere y por qué.** `(storefront)/checkout/*` es zona del stream «Órdenes y dinero», y la rama de Skydropx
+> (F-SKY) también la toca; construirlo aquí garantiza un choque de conducta sobre el código que cobra. Por eso
+> SP-F-13…16 (`DESIGN_SYSTEM §70.4`, UX-SP-11…14) y F-SP-5 **no** se construyen en `claude/precio-sellado`, y SP.6
+> **no bloquea** este stream. ⛔ Ninguna prueba de este stream exige F-SP-5.
+>
+> **Disparador.** Cuando F-SKY esté fusionada en `main`: la **primera rama que parta de esa base y toque
+> `(storefront)/checkout`** construye F-SP-5 (reescrita abajo). Si ninguna rama lo toca en ese pase, el orquestador
+> abre una propia, pequeña, con solo eso. Se encarga a **frontend**; ⛔ backend sin cambio.
+>
+> **Qué se construirá (reducido por `HECHOS.md:49`).** `HECHOS.md:49` (2026-10-04, «Portada: se cobra el precio que el
+> cliente VIO…»): «se le cobra al cliente el precio que vio, no vale la pena actualizar» — responde P-POR-3: **no
+> avisar**. El aviso «el precio de esta carta cambió» y el segundo clic de la versión anterior iban a construirse solo
+> para retirarse cuando entre §X (12.10). Se **retiran ya** (⛔ no se construyen nunca). Queda una sola regla, que
+> no contradice a HECHOS y que §X conservaba de todos modos:
+> - **F-SP-5 (reescrita):** en `CheckoutView` y `GuestCheckoutView`, el importe del botón de pago y el `amountLabel`
+>   del modal de Stripe salen del **total de la sesión** (`CheckoutSessionResult.breakdown.totalCents`; invitado: el de
+>   su sesión), ⛔ nunca de la cotización. Si la sesión aún no existe, el botón no pinta importe. Mutación: volver a
+>   `query.data.breakdown.totalCents` ⇒ rojo con una sesión cuyo total ≠ el de la cotización.
+>
+> **Cobrar el precio visto** (lo que de verdad pide `HECHOS.md:49`) exige un precio firmado y con vigencia en el
+> carrito: diseño de §X (P-POR-3 «cuánto tiempo vale»), ⛔ no diseñado. F-SP-5 no lo cumple: hace que la pantalla diga
+> lo que Stripe cobra, que es el **mínimo** de honradez.
+>
+> **`D-SP-2` sigue ABIERTA** (`ARCHITECTURE §9`). **Medición vigente: 2026-10-05, QA sobre `4f367aea`, N=1, por
+> lectura de código para la pantalla** (el cobro, por prueba: SP-6): el modal pinta el total de la cotización
+> (`CheckoutView.tsx:406-408`, `GuestCheckoutView.tsx:494`; el arquitecto lee el `amountLabel` en `:407` y `:495`, mismo
+> árbol, sin Bash) y Stripe cobra el de la sesión; por dentro el cobro cuadra (PI = total de la sesión = Σ líneas).
+> Se cierra con F-SP-5 reescrita; la parte de `HECHOS.md:49` queda en §X.
+>
+> **Texto llano para la solicitud de fusión (lo pega el orquestador tal cual):**
+> > **Lo que todavía no está bien en el pago, y por qué no se arregla en este cambio.** Si usted cambia el precio de un
+> > sellado justo mientras un cliente está pagando ese producto, la pantalla de pago del cliente le puede enseñar el
+> > total **de antes** y la tarjeta se le cobra con el total **de ahora**. Ejemplo medido por QA: la pantalla dice
+> > MX$1,516.83 y la tarjeta se cobra MX$1,569.01. El pedido y el cobro quedan cuadrados entre sí (lo que se cobra es la
+> > suma de lo que se vendió); lo que falla es solo lo que la pantalla enseña en ese momento. Solo pasa si el precio
+> > cambia en esos segundos; con qué frecuencia ocurre en su tienda no lo hemos medido. Ya pasaba antes, cuando la
+> > actualización diaria de precios coincidía con un pago; con este cambio usted puede provocarlo al editar un precio.
+> > Mientras no se arregle: evite cambiar el precio de un producto que sabe que alguien está comprando.
+> > **No se arregla aquí** porque esa pantalla la está cambiando también la entrega de Skydropx, y tocarla en las dos a la
+> > vez arriesga el código que cobra. Se arregla **después de publicar Skydropx**: la pantalla de pago enseñará siempre
+> > el total que se va a cobrar.
+> > **No habrá aviso de «el precio cambió»**: usted dijo que se cobra el precio que el cliente vio y que no vale la pena
+> > avisar. Cobrar exactamente el precio que vio es un cambio más grande (guardar el precio en el carrito con una
+> > vigencia) que todavía no está diseñado.
+>
+> **Si reconciliar con `HECHOS.md:49` cambia lo que se construye:** sí — lo reduce (sin aviso, sin segundo clic, sin
+> claves `checkout.priceChanged.*`). `PROJECT §X.2` (segundo punto, «Default de P-POR-3») y el criterio **298** dicen lo
+> contrario: los reconcilia **product-owner** con HECHOS. Si el dueño quisiera el aviso después de todo, se reabre por
+> errata.
+
+- ~~**Decisión (bloquea este stream, frontend):** el modal de pago muestra el total de la **sesión**~~ *(v1.83.3:
+  sustituido por la caja de arriba; se conserva como registro)*
   (`CheckoutSessionResult.breakdown.totalCents`; invitado: el de su sesión), ⛔ no el de la cotización. Si difiere del
   total que la pantalla mostraba, **antes** de montar Stripe se pinta el aviso por línea de `PROJECT §X.2` («El precio de
   esta carta cambió: antes MX$A, ahora MX$B», texto de ux-ui) y se re-cotiza; el cliente paga con un **segundo clic** sobre
@@ -29828,7 +29897,7 @@ forzada + N ≥ 10 suelta, proporción). Mutaciones sobre **copia del árbol ENT
 | **F-SP-2** | El editor manda `expectedPriceCents` = el `ownerPriceCents` mostrado; `409` ⇒ banner + recargar, el texto tecleado se conserva | mandar `expectedPriceCents` releído al enviar |
 | 💰 **F-SP-3** | `SealedFinalPrice` sobre pieza **ligada** llama a `PUT …/sale-price`, ⛔ nunca `updateInventoryItem` con `listPriceCents`; «a mano» se lee de `sealedPriceOrigin` | volver a `updateInventoryItem` |
 | **F-SP-4** | `SealedAddFlow` e `ItemDetailModal`: sin campo de precio para sellado ligado; el cuerpo nunca trae `listPriceCents`; el mercado a mano solo con `canSetSealedPrice` | mandar `listPriceCents` |
-| 💰 **F-SP-5** | `CheckoutView` y `GuestCheckoutView`: con sesión cuyo total ≠ el de la cotización, el modal **no** se abre hasta un segundo clic sobre el total nuevo, y su `amountLabel` es el de la sesión | `amountLabel` desde `query.data` |
+| 💰 **F-SP-5** | ~~`CheckoutView` y `GuestCheckoutView`: con sesión cuyo total ≠ el de la cotización, el modal **no** se abre hasta un segundo clic sobre el total nuevo, y su `amountLabel` es el de la sesión~~ **v1.83.3: DIFERIDA y reescrita en SP.6** (solo el total de la sesión, sin segundo clic; tras F-SKY) | `amountLabel` desde `query.data` |
 | **F-SP-6** | Tipos: `SealedPriceSheetRowDTO`, `SealedPriceOrigin`, `SEALED_PRICE_IS_PER_PRODUCT` en `types/contract.ts` con paridad del contrato | — |
 
 **SP.9 · Zonas compartidas** (líneas leídas en `/home/user/tcg-sellado` el 2026-10-05; qué toca cada rama viva medido solo por
@@ -30078,7 +30147,9 @@ de alta él mismo con mercado a mano; el operador reintenta.
   lo quiere así, las salidas son revertir (1) o «aportación con costo pendiente» (⛔ no diseñada: toca el costo congelado).
 
 **12.10 · N-2 — SP.6 es PROVISIONAL, y contradice a `HECHOS.md:49` en la letra.** `HECHOS.md:49` (2026-10-04): «se le cobra al
-cliente el precio que vio, no vale la pena actualizar» (respuesta a P-POR-3: ⛔ no avisar ni re-cobrar). SP.6 **avisa y cobra
+cliente el precio que vio, no vale la pena actualizar» (respuesta a P-POR-3: ⛔ no avisar ni re-cobrar). ⛔ **v1.83.3: superado por la caja de SP.6** — el aviso y el
+segundo clic se retiran sin construirse; F-SP-5 queda solo con el total de la sesión y se difiere hasta después de F-SKY.
+Texto original, como registro: SP.6 **avisa y cobra
 el actual**. Se mantiene **solo** porque el precio firmado del carrito (§X) no existe (SP.2, «Cuando exista…») y sin él la
 alternativa es peor: Stripe cobra una cifra que la pantalla no mostró (`D-SP-2`). **Vida:** hasta que §X entre en `main`; en
 ese PR se retira el aviso y el segundo clic de F-SP-5 (el `amountLabel` = total de la sesión **se queda**). La solicitud de
@@ -30175,8 +30246,13 @@ La de la cabecera de v1.83 y SP.7 (`…_owner_price`) queda retirada. Sin cambio
 - **El disparo de 12.6 corre igual** después de la tx (idempotente: `reevaluateForPublication` no publica lo ya
   publicado). `autoPublish` lleva las cuentas de **este** intento; `null ⇔ este intento lanzó`, sin excepción.
 - *Por qué:* (1) la regla de 12.6 no tiene casos especiales y el front no tiene que distinguir «doble clic» de «guardado»;
-  (2) si el primer clic dio `autoPublish: null`, **volver a guardar el mismo precio es el reintento** del dueño, sin
-  pantalla nueva; (3) lo que no se escribe es lo que dejaría huella doble (bitácora); publicar es idempotente.
+  (2) ~~si el primer clic dio `autoPublish: null`, **volver a guardar el mismo precio es el reintento** del dueño, sin
+  pantalla nueva~~ **v1.83.3 (QA menor 3):** un `PUT` repetido (red, segunda pestaña, doble envío) **reintenta** la
+  publicación en el servidor; ⛔ pero **la UI no ofrece** volver a guardar el mismo precio: el editor deshabilita
+  «Guardar» si el número no cambió (`DESIGN_SYSTEM §70.2`; `SealedProductPriceEditor.tsx:145-146`, `:275`, leído
+  2026-10-05). **El reintento del dueño tras `autoPublish: null` es «Publicar» en «Listas para publicar»** (el aviso de
+  F-SP-8 enlaza ahí, `#listas-para-publicar`). ⛔ No se habilita «Guardar» con el mismo precio para esto; (3) lo que no
+  se escribe es lo que dejaría huella doble (bitácora); publicar es idempotente.
 - Cuentas a cero ≠ `null`: `{ published: 0, missingLocation: 0, notPublished: 0 }` = «no había piezas en caja».
 
 **13.3 · Q-3 — diales de la bitácora: en la petición, antes de la tx.** Vale lo construido (q2). ⛔ Sin
@@ -30220,6 +30296,45 @@ La de la cabecera de v1.83 y SP.7 (`…_owner_price`) queda retirada. Sin cambio
 - `sealedProductPieces`, `sealedProductDisplayPriceCents`, `resolvedDisplayPriceCents` y `sealedPriceOrigin` siguen con
   sus condiciones (12.4, 12.7): las cuatro solo en filas S-2 del listado (`platform ∧ in_stock|listed`) y en filas
   `sealed` de la cola.
+
+**13.5.1 · 💰 v1.83.3 (C-2 del techlead) — la ausencia falla CERRADO, por un solo helper.** Sustituye la «Regla Q-5» de
+`FRONTEND_NOTES §88` en lo que tiene de respaldo.
+- **Se retira** «clave ausente ⇒ servidor anterior ⇒ conducta de hoy». *Por qué:* esa conducta es «editable por
+  cualquiera»: `VariantDrawer.tsx:605` y `PendingPublishQueue.tsx:381` hacen `canEdit={sealedProductId === null ?
+  canSetPrice : true}` y `SealedFinalPrice.tsx:90` trae `canEdit = true` por defecto (leído 2026-10-05) ⇒ con la clave
+  ausente un `vault_operator` ve el editor de precio por pieza. El servidor lo frena (SP.4: `422`/`403`), pero el
+  contrato del front es que **la ausencia de un dato nunca abre un permiso** (`ARCHITECTURE §4.62.9 (d)`). Durante la
+  ventana en que el front nuevo hable con un back anterior, nadie edita el precio del sellado desde el panel o la cola
+  durante unos minutos y el automático sigue vendiendo: coste aceptado.
+- **Un helper, en `frontend/src/lib/sealed-price-role.ts`** (junto a `canSetSealedPrice`; puro; firmas, ⛔ no
+  implementación):
+  ```ts
+  export type SealedPieceLink = 'linked' | 'unlinked' | 'unknown';
+  // productType !== 'sealed' ⇒ 'unknown' (raw/graded no montan nada de esto; P-PRE-1).
+  // sealed: typeof id === 'string' ⇒ 'linked' · id === null ⇒ 'unlinked' · clave ausente/otro ⇒ 'unknown'.
+  export function sealedPieceLinkOf(row: { productType: ProductType; sealedProductId?: string | null }): SealedPieceLink;
+
+  // ÚNICA puerta del editor de precio POR PIEZA (SealedFinalPrice, D-SP-4):
+  //   = sealedPieceLinkOf(row) === 'unlinked' && canSetSealedPrice(role)
+  // 'linked' ⇒ false (su precio es del producto: editor de producto, SP-F-6) · 'unknown' ⇒ false.
+  export function canEditSealedPiecePrice(role: Role, row: { productType: ProductType; sealedProductId?: string | null }): boolean;
+  ```
+  - El editor de **producto** en panel y cola se ofrece solo si `sealedPieceLinkOf(row) === 'linked'` **y**
+    `canSetSealedPrice(role)` (más la regla del `expected` de 13.7). La hoja sigue con `canEdit` del servidor.
+  - `'unknown'` en sellado ⇒ **solo lectura** (la rama de lectura de `SealedFinalPrice` con `canEdit={false}`), ⛔ ni
+    editor por pieza ni editor de producto.
+  - ⛔ Ningún componente vuelve a comparar `sealedProductId` con `null`/`string` para decidir un permiso:
+    `VariantDrawer`, `PendingPublishQueue` e `ItemDetailModal` pasan por el helper.
+- **`SealedFinalPrice`:** `canEdit: boolean` **obligatorio**, ⛔ sin valor por defecto (que olvidarlo no compile); cada
+  montaje le pasa `canEditSealedPiecePrice(role, row)`. `staffNote` solo si `sealedPieceLinkOf(row) === 'unlinked' &&
+  !canSetSealedPrice(role)`.
+- **Pruebas** (deterministas ⇒ N=1 es medida; mutación sobre copia del árbol ENTERO, O-9):
+
+  | # | Caso | Esperado | Mutación que la pone roja |
+  |---|---|---|---|
+  | 💰 **F-SP-9** | Pura: `canEditSealedPiecePrice` con `{super_admin, vault_operator}` × `{sealed id 'x', sealed null, sealed sin clave, raw sin clave, raw null}` | `true` **solo** en `super_admin` × `sealed null`; todo lo demás `false` | volver a `id === null ? canSetSealedPrice(role) : true` ⇒ «sealed sin clave» da `true` |
+  | 💰 **F-SP-10** | Render: fila sellada de la cola y del panel **sin** clave `sealedProductId`, rol `vault_operator` y luego `super_admin` | ningún input de precio ni botón «Guardar», en ambos roles; el precio se lee | default `canEdit = true` en `SealedFinalPrice` o montaje que no pase por el helper |
+  | **F-SP-11** | Estático: un `// @ts-expect-error` que monta `SealedFinalPrice` sin `canEdit` | compila solo si la prop es obligatoria | volver la prop opcional |
 
 **13.6 · A-5 — `sealedProductId` en `GET /admin/inventory/items/:id`: ya viaja; se declara.** (q5)
 - `sealedProductId: string | null` **en toda fila** (raw/graded `null`, porque el detalle pasa por la lista blanca
@@ -30275,6 +30390,17 @@ SP-F-1…SP-F-12. ⛔ Ningún endpoint ni campo nuevo; estas son las precisiones
 | **ux-ui** | §70.3 (c): retirar la prop provisional (A-5) y la fila «ausente ⇒ servidor anterior» de §70.3 (a); §70.8: A-3 aplazada, A-5 respondida | cuando el orquestador lo encargue; ⛔ no bloquea a frontend (manda el contrato) |
 | **QA** | SP-16b, SP-20, SP-9; recorrido O-4 del export: el dueño fija MX$1,450.00 ⇒ exporta ⇒ la col 18 dice `1450.00` y la 17 está vacía en esas piezas | gate del stream |
 | **orquestador** | Aviso de 13.4 en la solicitud de fusión | fusión |
+
+**13.11 · v1.83.3 — cambios por rol** (condiciones de los gates sobre `4f367aea`).
+
+| Rol | Qué | Cuándo |
+|---|---|---|
+| **frontend** | 13.5.1: helper `sealedPieceLinkOf` / `canEditSealedPiecePrice`, `canEdit` obligatorio en `SealedFinalPrice`, montajes de `VariantDrawer`/`PendingPublishQueue`/`ItemDetailModal` por el helper; F-SP-9…11; corregir la «Regla Q-5» de `FRONTEND_NOTES §88` | ya, en esta rama |
+| **frontend** | F-SP-5 reescrita (SP.6): importe del botón y `amountLabel` = total de la sesión | ⛔ no en esta rama: tras F-SKY en `main` (disparador de SP.6) |
+| **ux-ui** | `DESIGN_SYSTEM §70.4` (SP-F-13…16, UX-SP-11…14): marcar el aviso «el total cambió» y el segundo clic **retirados**; queda solo «el botón dice el total que se cobra» | cuando el orquestador lo encargue; no bloquea |
+| **product-owner** | `PROJECT §X.2` (punto «Default de P-POR-3») y criterio **298**: reconciliar con `HECHOS.md:49` (sin aviso; se cobra el actual y la pantalla lo dice hasta que §X respete el visto) | cuando el orquestador lo encargue; no bloquea |
+| **QA** | F-SP-9…11; ⛔ F-SP-5 fuera de este stream; el recorrido O-4 de SP.10 pierde su último paso (aviso y segundo clic) | re-gate del stream |
+| **orquestador** | Pegar el texto llano de SP.6 en la solicitud de fusión; anotar el disparador de F-SP-5 en `PENDIENTES.md` | fusión |
 
 ---
 

@@ -29,6 +29,7 @@
 > | **v1.83** | 💰 Feature (2026-10-05, rama `claude/precio-sellado`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md:50` (1)–(4) y `:38` (b)). El precio del sellado es **del producto** (`SealedProduct.ownerSalePriceCents`, `L`; **`M-71`** con relleno que no mueve ningún precio efectivo); precedencia **producto > pieza (legado) > mercado×spread > pendiente**, por **un** resolvedor cuyo tipo exige el producto; verbo `PUT …/sealed-products/:id/sale-price` con CAS sobre el precio leído y bitácora en la tx, ⛔ sin escribir piezas ⇒ sin candado con el checkout; **solo el dueño** (hoy `super_admin`, converge a `isOwner` al fusionar Skydropx, `D-SP-1`); el personal da de alta sin precio (`422 SEALED_PRICE_IS_PER_PRODUCT`); hoja `GET …/sealed-price-sheet` con costo, automático, `P`, mercado y margen sobre `L`; el modal de pago muestra el total de la **sesión** (`D-SP-2`). Norma: `API_CONTRACT` rev v1.83, §M11-SP | §4.62, §9 `D-SP-1`…`D-SP-3`, §11 `M-71` | **Sí** (backend 💰 + frontend M11/M1/checkout 💰 + textos ux-ui) |
 > | **v1.83.1** | 💰 Errata (2026-10-05, rama `claude/precio-sellado`, HEAD dado por el orquestador `8a64f27f`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md:51`: el dueño escribe el precio **con IVA**; solicitudes A-1, A-2, A-4, N-1, N-2 de `DESIGN_SYSTEM §70.8`). Se guarda **`P`** (`SealedProduct.ownerDisplayPriceCents`), porque `P = L + round(L·t·r/10⁴)` no alcanza todos los enteros (MX$7.00 sin `L` con 100/16); un dial que se mueve conserva lo que paga el cliente; un camino a `P` (`saleDisplayCentsOf`) en los tres sitios de venta; margen sobre el neto fiscal `taxBaseCentsOf(P, r)`; el `PUT` **dispara la auto-publicación** tras confirmar; `sealedProductId` y conteo en las filas; `M-71` **sin relleno** (sería una segunda fórmula en SQL); sellado sin producto sigue en `L` (`D-SP-4`); #69 llama «precio final» a `L` (`D-SP-5`); SP.6 provisional hasta §X. Norma: `API_CONTRACT` §M11-SP.12 | §4.62.8, §9 `D-SP-2`, `D-SP-4`, `D-SP-5`, §11 `M-71` | **Sí** (backend 💰 + frontend + ux-ui; nada de v1.83 estaba construido) |
 > | **v1.83.2** | 💰 Errata (2026-10-05, rama `claude/precio-sellado`, HEAD dado por el orquestador `eb36e388`, ⛔ sha NO MEDIDO por el arquitecto; responde a `BACKEND_NOTES §57.8` Q-1…Q-6 y a A-3/A-5 de `DESIGN_SYSTEM §70.8`). Carpeta de `M-71` = `…_owner_display_price` (Q-1); el doble clic no escribe pero **dispara** la auto-publicación, y es el reintento si el primero dio `null` (Q-2); diales de la bitácora leídos en la petición antes de la tx, sin firma nueva en `settings` (Q-3); 💰 el export `.xlsx` deja de exportar el `L` equivalente: columna 17 «antes de IVA» y **columna 18 nueva «Precio del producto con IVA»**, ambas STORED (Q-4); `sealedProductId` se lee por `productType` (Q-5); «encontrada» no liga a producto (Q-6); `sealedProductId` del detalle declarado tal cual (A-5); A-3 aplazada. ⛔ Sin migración ni enum. Norma: `API_CONTRACT` §M11-SP.13 | §4.62.9, §11 `M-71` | **Sí** (backend: export + pruebas; frontend SP-F) |
+> | **v1.83.3** | 💰 Errata (2026-10-05, rama `claude/precio-sellado`, HEAD dado por el orquestador `4f367aea`, ⛔ sha NO MEDIDO por el arquitecto; condiciones de QA y techlead sobre `4f367aea`). **C-1:** SP.6 se **difiere** (checkout es zona de «Órdenes y dinero» y F-SKY lo toca; disparador: primera rama con base post-F-SKY que toque `checkout`) y se **reduce** por `HECHOS.md:49`: ⛔ aviso y segundo clic retirados; F-SP-5 = el botón y el modal dicen el total de la **sesión**; `D-SP-2` sigue abierta; texto llano para la solicitud de fusión. **QA menor 3:** el reintento tras `autoPublish: null` es «Listas para publicar», no re-guardar (la UI lo deshabilita). **C-2:** la ausencia de `sealedProductId` falla **cerrado** por un helper único (`canEditSealedPiecePrice`); `SealedFinalPrice.canEdit` obligatorio. ⛔ Sin backend, migración ni forma nueva. Norma: `API_CONTRACT` §M11-SP.6, §M11-SP.13.2, §M11-SP.13.5.1, §M11-SP.13.11 | §4.62.10, §9 `D-SP-2` | **Sí** (frontend: C-2 ya; F-SP-5 tras F-SKY) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -27364,6 +27365,31 @@ raw/graded) pueden diferir sin daño, y no se cambia ninguno de los dos.
 **(e) Una regla que hoy no se alcanza se deja puesta.** «Encontrada» no admite producto; la regla del precio por
 producto sigue llamándose en ese escritor para que abrir la puerta (declarar el campo) no la deje sin candado.
 
+#### 4.62.10 v1.83.3 — condiciones de los gates sobre `4f367aea`
+
+Norma: `API_CONTRACT §M11-SP.6`, `§M11-SP.13.2`, `§M11-SP.13.5.1`, `§M11-SP.13.11`.
+
+**(a) Un cambio de conducta en el código que cobra no se construye en dos ramas a la vez.** El checkout es zona de
+«Órdenes y dinero» y F-SKY lo modifica; SP.6 era una pieza menor de este stream sobre esa zona. Se difiere con un
+disparador explícito (primera rama con base post-F-SKY que toque `checkout`) en vez de «más adelante», para que no
+quede como pendiente sin dueño. El riesgo mientras tanto (pantalla ≠ cobro si el dueño re-precia en los segundos del
+pago) ya existía con el ingest diario; se le dice al dueño con números en la solicitud de fusión.
+
+**(b) No se construye lo que nace para retirarse y contradice al dueño.** El aviso y el segundo clic de SP.6 eran
+provisionales (12.10) y contradecían `HECHOS.md:49` («no vale la pena actualizar»). Al diferirlo, se poda: queda solo
+que la pantalla diga el total que Stripe cobra, que §X también conservaba. Cobrar el precio visto sigue siendo §X.
+Descartado: construir el aviso igualmente «porque estaba diseñado» (código que el dueño dijo no querer, y claves de texto
+que habría que borrar).
+
+**(c) El reintento es del sitio que ya publica, no de un botón que la UI apaga.** La semántica del servidor (el `PUT`
+idéntico reintenta la publicación) se queda porque protege reintentos de red; la ruta humana es «Listas para
+publicar». Descartado: habilitar «Guardar» con el mismo precio (un botón que no cambia nada visible confunde).
+
+**(d) La ausencia de una clave no abre un permiso** (extiende §4.62.9 (d)). El respaldo «clave ausente = servidor
+anterior» heredaba «editable por cualquiera». Un helper único que exige `'unlinked'` explícito y pasa por
+`canSetSealedPrice`, y una prop obligatoria, hacen que el caso desconocido sea solo lectura y que olvidar el permiso no
+compile.
+
 ---
 
 ## 5. Decisiones transversales
@@ -28147,6 +28173,11 @@ Riesgos técnicos:
 > actualizar»; P-POR-3 = no avisar). Es **provisional**: vive hasta que §X entre en `main`, y ese PR retira el aviso y el
 > segundo clic (el total de la sesión en el modal se queda). Se le dice al dueño en la solicitud de fusión.
 > `API_CONTRACT §M11-SP.12.10`.
+> **v1.83.3 (C-1):** sigue **abierta**. **Medición vigente: 2026-10-05, QA sobre `4f367aea`, N=1, lectura de código para
+> la pantalla** (`CheckoutView.tsx:406-408`, `GuestCheckoutView.tsx:494`; ejemplo de QA: pantalla MX$1,516.83, cobro
+> MX$1,569.01; el cobro cuadra por dentro: PI = total de la sesión = Σ líneas). El cierre se **difiere**: F-SP-5
+> reescrita (solo el total de la sesión; ⛔ aviso y segundo clic retirados por `HECHOS.md:49`), en la primera rama con
+> base post-F-SKY que toque `checkout`. Antes de encargarla, **se re-mide** (O-5). `API_CONTRACT §M11-SP.6`.
 >
 > **v1.83.1 — `D-SP-4` (abierta, residual; dimensión NO MEDIDA):** el sellado **sin producto** conserva su precio por pieza
 > en `listPriceCents` (`L`, antes de IVA), aunque el dueño escribe con IVA (`HECHOS.md:51` (3)). Mitigación: el editor lo
