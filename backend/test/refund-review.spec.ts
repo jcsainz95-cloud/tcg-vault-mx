@@ -108,7 +108,11 @@ describe('SRF-13 — por ausencia (criterio 253)', () => {
       'sellReceivedTemplate',
       'sellRequestExpiredTemplate',
       'sellRequestNotPursuedTemplate',
+      // ⭐ D2e (§19.12): AV-18, AV-17 y AV-19 (los del transportista).
+      'shipmentAtBranchTemplate',
       'shipmentCancelledTemplate',
+      'shipmentDeliveredTemplate',
+      'shipmentDeliveryAttemptTemplate',
       'shipmentGuideTemplate',
       'shipmentShippedTemplate',
     ]);

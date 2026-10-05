@@ -271,8 +271,33 @@ import type {
   VoidCaseRequest,
   VoidCaseResponse,
   GuestOrderPublicStatus,
+  CancelShipmentLabelRes,
+  CorrectShipmentAddressReq,
+  CorrectShipmentAddressRes,
+  DepartedResultDTO,
+  DepartureBoardDTO,
+  PostalCodeDTO,
+  ReleaseShipmentLabelRes,
+  ReleaseShipmentLabelReq,
+  MarkSpendAlertsSeenRes,
+  SpendAlertDTO,
+  SpendAlertListFilters,
+  SpendAlertListRes,
+  SpendAlertSummaryDTO,
+  ShipmentLabelRequest,
+  ShipmentLabelResponse,
+  ShipmentQuoteDTO,
+  ShipmentQuoteRequest,
+  ShippingBalanceDTO,
+  ShippingCatalogsDTO,
+  ShippingPackageDTO,
+  ConsignmentNotesSearchDTO,
 } from '@/types/contract';
 import * as m4ship from './mock/m4-ship';
+import * as sdx from './mock/skydropx';
+import * as spendMock from './mock/spend-alerts';
+import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
+import { matchNeighborhood } from './address-rules';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
@@ -1361,12 +1386,23 @@ export interface AddressInput {
   recipientName: string;
   line1: string;
   line2?: string;
-  neighborhood?: string;
+  /**
+   * v1.80.12.5 (§M4-SHIP.19.25.1, `HECHOS.md:57`): OBLIGATORIA como texto 1..120, de la lista de
+   * `GET /geo/postal-codes/:cp` o escrita a mano (⛔ sin `422` geográficos). `PATCH` con `postalCode` exige
+   * `neighborhood`, `city` y `state` (`400 {field, reason:'required_with_postal_code'}`).
+   */
+  neighborhood: string;
+  /** v1.80.12.5: obligatorio 1..120; con el CP en el catálogo el servidor pone el municipio del CP. */
   city: string;
+  /** v1.80.12.5: obligatorio 1..120; con el CP en el catálogo el servidor pone el estado del CP. */
   state: string;
+  /** v1.81: `^\d{5}$`. */
   postalCode: string;
   country: string;
+  /** v1.81: `^\d{10}$`. */
   phone: string;
+  /** ⭐ v1.81: opcional, ≤ 70. En `PATCH`, `null` la borra. */
+  references?: string | null;
   isDefault?: boolean;
 }
 
@@ -1380,9 +1416,39 @@ export async function listAddresses(): Promise<AddressDTO[]> {
 }
 
 /**
+ * MOCK v1.80.12.5 (§M4-SHIP.19.25.1): `resolveAddressGeo` del servidor, con el MISMO catálogo que sirve
+ * `getPostalCode` en mocks. ⛔ Nunca lanza por geografía: CP fuera del catálogo ⇒ lo escrito (caso 2); colonia
+ * que casa ⇒ canónicos (caso 3); colonia que no casa ⇒ la escrita con municipio y estado DEL CP (caso 4).
+ */
+function mockCanonicalAddress(input: { postalCode: string; neighborhood: string; city: string; state: string }): { neighborhood: string; city: string; state: string } {
+  if (!/^\d{5}$/.test(input.postalCode)) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'postalCode must be 5 digits' });
+  }
+  for (const field of ['neighborhood', 'city', 'state'] as const) {
+    const v = (input[field] ?? '').trim();
+    if (v.length < 1 || v.length > 120) {
+      throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: `${field} must be 1..120`, details: { field } });
+    }
+  }
+  let cp: PostalCodeDTO;
+  try {
+    cp = sdx.mockPostalCode(input.postalCode);
+  } catch {
+    return { neighborhood: input.neighborhood.trim(), city: input.city.trim(), state: input.state.trim() };
+  }
+  const canonical = matchNeighborhood(input.neighborhood, cp.neighborhoods);
+  return { neighborhood: canonical || input.neighborhood.trim(), city: cp.municipality, state: cp.state };
+}
+
+/** MOCK: `complete` derivado como en el servidor (colonia ∧ CP de 5 ∧ teléfono de 10). */
+function mockAddressComplete(a: Pick<AddressDTO, 'neighborhood' | 'postalCode' | 'phone'>): boolean {
+  return !!a.neighborhood && /^\d{5}$/.test(a.postalCode) && /^\d{10}$/.test(a.phone);
+}
+
+/**
  * Alta de dirección (contrato POST /users/me/addresses). El backend valida `country="MX"`
  * (`422 ADDRESS_NOT_MX` en otro caso). Si `isDefault=true`, se marca como predeterminada
- * (y las demás dejan de serlo). Reglas de longitud del contrato: `postalCode≥3`, `phone≥7`.
+ * (y las demás dejan de serlo). v1.81: CP de 5, teléfono de 10, colonia de la lista del CP.
  */
 export async function createAddress(input: AddressInput): Promise<AddressDTO> {
   if (!config.useMocks) {
@@ -1400,7 +1466,15 @@ export async function createAddress(input: AddressInput): Promise<AddressDTO> {
       details: { field: 'recipientName' },
     });
   }
-  const created: AddressDTO = { id: `addr-new-${fx.mockAddresses.length + 1}`, ...input };
+  const canonical = mockCanonicalAddress(input);
+  const created: AddressDTO = {
+    id: `addr-new-${fx.mockAddresses.length + 1}`,
+    ...input,
+    ...canonical,
+    references: input.references?.trim() || null,
+    complete: false,
+  };
+  created.complete = mockAddressComplete(created);
   if (created.isDefault) fx.mockAddresses.forEach((a) => (a.isDefault = false));
   fx.mockAddresses.push(created);
   return delay(created);
@@ -1417,8 +1491,29 @@ export async function updateAddress(id: string, input: Partial<AddressInput>): P
     throw new ApiClientError(422, { code: 'ADDRESS_NOT_MX', message: 'Only MX addresses are allowed' });
   }
   if (input.isDefault) fx.mockAddresses.forEach((a) => (a.isDefault = false));
-  fx.mockAddresses[idx] = { ...fx.mockAddresses[idx], ...input };
-  return delay({ ...fx.mockAddresses[idx] });
+  const prev = fx.mockAddresses[idx];
+  const next: AddressDTO = { ...prev, ...input, references: input.references === undefined ? prev.references : input.references?.trim() || null };
+  // MOCK v1.80.12.5 (§M4-SHIP.19.25.1): `PATCH` con `postalCode` exige `neighborhood`, `city` y `state` (el primero
+  // que falte, en ese orden); tocar CP, colonia, ciudad o estado con colonia resuelve con `resolveAddressGeo`;
+  // una fila vieja SIN colonia a la que solo se cambia ciudad/estado se escribe tal cual (BACKEND_NOTES §58.2 p. 5).
+  if (input.postalCode !== undefined) {
+    for (const field of ['neighborhood', 'city', 'state'] as const) {
+      if (input[field] === undefined) {
+        throw new ApiClientError(400, {
+          code: 'VALIDATION_ERROR',
+          message: `${field} is required with postalCode`,
+          details: { field, reason: 'required_with_postal_code' },
+        });
+      }
+    }
+  }
+  const touchesGeo = [input.postalCode, input.neighborhood, input.city, input.state].some((v) => v !== undefined);
+  if (touchesGeo && next.neighborhood) {
+    Object.assign(next, mockCanonicalAddress({ postalCode: next.postalCode, neighborhood: next.neighborhood ?? '', city: next.city, state: next.state }));
+  }
+  next.complete = mockAddressComplete(next);
+  fx.mockAddresses[idx] = next;
+  return delay({ ...next });
 }
 
 /** Borra una dirección (contrato DELETE /users/me/addresses/:id). */
@@ -1532,6 +1627,10 @@ export interface AdminShipmentsFilters {
   status?: string;
   /** v1.80 (§M4-SHIP.10): número de pedido, correo, nombre del cliente o destinatario; `id` exacto. */
   q?: string;
+  /** 🔒 v1.80.12.10 (§19.30.8 S-GAS-2): igualdad exacta `^ENV-\d{6,}$` (el enlace de un aviso de retiro). */
+  folio?: string;
+  /** v1.80.12.13 (§19.3, §19.20.2; §0-Q clase L, dominio `true`): la UNIÓN `carrierAlert ≠ null ∨ labelAlert ≠ null`. */
+  alert?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -1540,21 +1639,39 @@ export interface AdminShipmentsFilters {
  * COLA ADMIN de envíos de CLIENTES (contrato §M4 · GET /admin/shipments, `vault_operator+`).
  * Distinta de getShipments() (los envíos del PROPIO usuario). Paginada; filtros `?status=` y `?q=`.
  */
+/**
+ * MOCK §M4-SHIP.10: cada fila gana `customer`, `preparedAt`, `missingCount`… del servidor falso vivo, y su `status` es
+ * el vivo (el preparado puede haberla cerrado). MOCK §M4-SHIP.19.20: y las piezas de Skydropx (guía, alerta, compra
+ * pendiente). ⭐ Una fuente para la lista y para `workQueue.shipping` del tablero (§19.35.5: «el MISMO cuerpo»).
+ */
+function mockLiveAdminShipments(): AdminShipmentDTO[] {
+  return fx.mockAdminShipments.map((s) => {
+    const live = m4ship.mockShipStatusOf(s.id);
+    return sdx.mockDecorateAdminShipment({ ...s, ...(m4ship.mockShipAdminAdditions(s.id) ?? {}), ...(live ? { status: live } : {}) });
+  });
+}
+
 export async function getAdminShipments(
   filters: AdminShipmentsFilters = {},
 ): Promise<Paginated<AdminShipmentDTO>> {
   if (!config.useMocks) {
     return apiRequest<Paginated<AdminShipmentDTO>>('/admin/shipments', {
-      query: { status: filters.status, q: filters.q?.trim() || undefined, page: filters.page, pageSize: filters.pageSize },
+      query: {
+        status: filters.status,
+        q: filters.q?.trim() || undefined,
+        folio: filters.folio,
+        // ⛔ solo `'true'`: `false` es `400` en el servidor (dominio `true`, como `refundReview`).
+        alert: filters.alert ? 'true' : undefined,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
     });
   }
-  // MOCK §M4-SHIP.10: cada fila gana `customer`, `preparedAt`, `missingCount`… del servidor falso vivo,
-  // y su `status` es el vivo (el preparado puede haberla cerrado).
-  let data = fx.mockAdminShipments.map((s) => {
-    const live = m4ship.mockShipStatusOf(s.id);
-    return { ...s, ...(m4ship.mockShipAdminAdditions(s.id) ?? {}), ...(live ? { status: live } : {}) };
-  });
+  let data = mockLiveAdminShipments();
   if (filters.status) data = data.filter((s) => s.status === filters.status);
+  if (filters.folio) data = data.filter((s) => s.folio === filters.folio);
+  // MOCK §19.20.2: `?alert=true` = la UNIÓN de las dos alertas, sobre las MISMAS filas decoradas que ve la lista.
+  if (filters.alert) data = data.filter((s) => s.carrierAlert != null || s.labelAlert != null);
   const q = filters.q?.trim().toLowerCase();
   if (q) {
     data = data.filter((s) =>
@@ -1598,7 +1715,11 @@ export async function getAdminPreparationQueue(
   // MOCK §M4-VAULT: las dos fuentes (envíos + colocaciones pendientes), como el servidor.
   // MOCK §M4-SHIP: la cubeta ENVÍO sale del servidor falso VIVO (`mock/m4-ship`), con marcas,
   // `preparation` y `refund` por carta; `fixtures.mockPreparationQueue` queda como semilla de forma.
-  const all: PreparationOrderDTO[] = [...m4ship.mockShipPreparationQueue(), ...fx.mockVaultPreparationQueue()];
+  const all: PreparationOrderDTO[] = [
+    // MOCK §M4-SHIP.19.20: dirección corregida, `labelPending` y `labelAlert` del servidor falso de Skydropx.
+    ...m4ship.mockShipPreparationQueue().map(sdx.mockDecoratePrep),
+    ...fx.mockVaultPreparationQueue(),
+  ];
   return delay(
     sortPreparationOrders(all.filter((o) => !filters.destination || o.destination === filters.destination)),
   );
@@ -1756,7 +1877,8 @@ export async function retryRefund(refundId: string): Promise<PaymentRefundDTO> {
 /** `GET /admin/shipments/picking-list/summary` — el contador DERIVADO del badge (§M4-SHIP.11, `no-store`). */
 export async function getPickingListSummary(): Promise<PickingListSummaryDTO> {
   if (!config.useMocks) return apiRequest<PickingListSummaryDTO>('/admin/shipments/picking-list/summary');
-  return delay(m4ship.mockPickingListSummary(fx.mockVaultPreparationQueue().length));
+  // MOCK S-GAS-3 (§19.30.8): `spendAlertsUnseenImmediate` con el mismo predicado que la tarjeta del tablero.
+  return delay({ ...m4ship.mockPickingListSummary(fx.mockVaultPreparationQueue().length), spendAlertsUnseenImmediate: spendMock.mockSpendAlertsUnseenImmediate() });
 }
 
 // ---------- §M4-SHIP.15 · apartado «Por reponer» ----------
@@ -1939,6 +2061,207 @@ export async function getOperatorRefundSummary(): Promise<OperatorRefundSummaryR
   } catch (e) {
     throw translateFixtureError(e);
   }
+}
+
+// ---------- ⭐ Skydropx: la ventana «Capturar guía» y lo que cuelga de ella (contrato §M4-SHIP.19.19 / .19.20) ----------
+// MOCK: pendiente de backend real — el cotizar/comprar de la fase D no existe todavía; las ramas mock son el
+// servidor falso de `mock/skydropx.ts` (conducta del contrato, cifras medidas de PROD §4.4–§4.6).
+
+/** MOCK: la fila admin VIVA (fixture + servidor falso de §M4-SHIP + estado vivo), sin decorar. */
+function mockLiveAdminRow(shipmentId: string): AdminShipmentDTO {
+  const base = fx.mockAdminShipments.find((s) => s.id === shipmentId);
+  if (!base) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
+  const live = m4ship.mockShipStatusOf(shipmentId);
+  return { ...base, ...(m4ship.mockShipAdminAdditions(shipmentId) ?? {}), ...(live ? { status: live } : {}) };
+}
+async function mockSdx<T>(fn: () => T): Promise<T> {
+  try {
+    return await delay(fn());
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * `GET /admin/shipments/:id` (§M4, operador+). La ventana lo lee al abrir (paso 0 de §19.19.13) y para
+ * RELEER tras un `5xx`/red de la compra (§19.20.5) o un `409 CONFLICT {reason:'address_changed'}`.
+ */
+export async function getAdminShipment(shipmentId: string): Promise<AdminShipmentDTO> {
+  if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}`);
+  return mockSdx(() => sdx.mockDecorateAdminShipment(mockLiveAdminRow(shipmentId)));
+}
+
+/** `PUT /admin/shipments/:id/address` (§19.20.1, operador+): corrige la dirección DEL ENVÍO con CAS por versión. */
+export async function correctShipmentAddress(shipmentId: string, body: CorrectShipmentAddressReq): Promise<CorrectShipmentAddressRes> {
+  if (!config.useMocks) return apiRequest<CorrectShipmentAddressRes>(`/admin/shipments/${shipmentId}/address`, { method: 'PUT', body });
+  return mockSdx(() => sdx.mockCorrectAddress(mockLiveAdminRow(shipmentId), body));
+}
+
+/** `GET /geo/postal-codes/:cp` (§19.5, público): colonias, municipio y estado del CP. */
+export async function getPostalCode(cp: string): Promise<PostalCodeDTO> {
+  if (!config.useMocks) return apiRequest<PostalCodeDTO>(`/geo/postal-codes/${encodeURIComponent(cp)}`);
+  return mockSdx(() => sdx.mockPostalCode(cp));
+}
+
+/** `POST /admin/shipments/:id/quote` (§19.19.4, operador+). ⛔ Sin `declaredValueCents`: el seguro lo decide el servidor. */
+export async function quoteShipment(shipmentId: string, body: ShipmentQuoteRequest = {}): Promise<ShipmentQuoteDTO> {
+  if (!config.useMocks) return apiRequest<ShipmentQuoteDTO>(`/admin/shipments/${shipmentId}/quote`, { method: 'POST', body });
+  return mockSdx(() => sdx.mockQuote(mockLiveAdminRow(shipmentId), body));
+}
+
+/**
+ * 💰 `POST /admin/shipments/:id/label` (§19.7 + §19.19.7 + §19.20.5). Manda lo que el operador VIO
+ * (`expectedPriceCents`/`expectedMarginCents`); ⛔ esta función nunca reintenta (un reintento a ciegas es la
+ * guía duplicada): el `5xx`/red sube tal cual y la ventana RELEE el envío.
+ */
+export async function purchaseShipmentLabel(shipmentId: string, body: ShipmentLabelRequest): Promise<ShipmentLabelResponse> {
+  if (!config.useMocks) return apiRequest<ShipmentLabelResponse>(`/admin/shipments/${shipmentId}/label`, { method: 'POST', body });
+  return mockSdx(() => {
+    const res = sdx.mockPurchaseLabel(mockLiveAdminRow(shipmentId), body);
+    if (res.outcome === 'labeled') m4ship.mockSetShipStatus(shipmentId, 'guia');
+    return res;
+  });
+}
+
+/**
+ * `GET /admin/shipments/:id/label.pdf` (§19.8, operador+): proxy autenticado. La sesión viaja por la cabecera
+ * (`requestBlob`), así que la pantalla abre/descarga un `blob:` — ⛔ nunca la URL de Skydropx.
+ */
+export async function fetchShipmentLabelPdf(shipmentId: string): Promise<BlobResponse> {
+  if (!config.useMocks) return requestBlob(`/admin/shipments/${shipmentId}/label.pdf`);
+  return mockSdx(() => ({ blob: new Blob(['%PDF-1.4 MOCK'], { type: 'application/pdf' }), filename: `guia-${shipmentId}.pdf` }));
+}
+
+/** `POST /admin/shipments/:id/label/cancel` (§19.8, operador+): cancelar y re-emitir (o reintentar la cancelación). */
+export async function cancelShipmentLabel(shipmentId: string, reason: string): Promise<CancelShipmentLabelRes> {
+  if (!config.useMocks) return apiRequest<CancelShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/cancel`, { method: 'POST', body: { reason } });
+  return mockSdx(() => {
+    const res = sdx.mockCancelLabel(mockLiveAdminRow(shipmentId));
+    m4ship.mockSetShipStatus(shipmentId, 'picking');
+    return res;
+  });
+}
+
+/**
+ * `POST /admin/shipments/:id/label/release` (§19.18.4, súper-admin, `@MoneyOut`). 💰 v1.80.12.6 (§19.26.3 (b)):
+ * `confirmConflict: true` SOLO si la pantalla pintó la casilla y la persona la marcó; ⛔ si no, la clave no viaja.
+ */
+export async function releaseShipmentLabel(shipmentId: string, note: string, confirmConflict = false): Promise<ReleaseShipmentLabelRes> {
+  const body: ReleaseShipmentLabelReq = confirmConflict ? { note, confirmConflict: true } : { note };
+  if (!config.useMocks) return apiRequest<ReleaseShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/release`, { method: 'POST', body });
+  return mockSdx(() => sdx.mockReleaseLabel(mockLiveAdminRow(shipmentId), body));
+}
+
+// ---------- 💰 Avisos de gasto (contrato §M4-SHIP.19.29.9 + §19.30; súper-admin, `@MoneyOut()` de clase) ----------
+// MOCK: pendiente de backend real — `modules/spend-alerts/` (D2g) se está construyendo; las ramas mock son el
+// servidor falso de `mock/spend-alerts.ts`.
+
+/** `GET /admin/spend-alerts` — filtros en query, orden `firstOccurredAt desc`, 25 por página. */
+export async function listSpendAlerts(filters: SpendAlertListFilters = {}): Promise<SpendAlertListRes> {
+  if (!config.useMocks) {
+    return apiRequest<SpendAlertListRes>('/admin/spend-alerts', {
+      query: {
+        kind: filters.kind,
+        severity: filters.severity,
+        subjectUserId: filters.subjectUserId,
+        unseen: filters.unseen ? 'true' : undefined,
+        muted: filters.muted === undefined ? undefined : String(filters.muted),
+        from: filters.from,
+        to: filters.to,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
+  }
+  return mockSdx(() => spendMock.mockListSpendAlerts(filters));
+}
+
+/** `GET /admin/spend-alerts/summary?from&to` — el mismo cuerpo que el correo del resumen (GAS-4: se pinta tal cual). */
+export async function getSpendAlertSummary(from: string, to: string): Promise<SpendAlertSummaryDTO> {
+  if (!config.useMocks) return apiRequest<SpendAlertSummaryDTO>('/admin/spend-alerts/summary', { query: { from, to } });
+  return mockSdx(() => spendMock.mockSpendAlertSummary(from, to));
+}
+
+/** `GET /admin/spend-alerts/:id` (`404` si no existe). ⛔ Abrirlo NO lo marca visto (GAS-3). */
+export async function getSpendAlert(id: string): Promise<SpendAlertDTO> {
+  if (!config.useMocks) return apiRequest<SpendAlertDTO>(`/admin/spend-alerts/${encodeURIComponent(id)}`);
+  return mockSdx(() => spendMock.mockGetSpendAlert(id));
+}
+
+/** `POST /admin/spend-alerts/seen {ids}` — idempotente; ⛔ sin borrar ni «no visto». `skipped` desde v1.80.12.10. */
+export async function markSpendAlertsSeen(ids: string[]): Promise<MarkSpendAlertsSeenRes> {
+  if (!config.useMocks) return apiRequest<MarkSpendAlertsSeenRes>('/admin/spend-alerts/seen', { method: 'POST', body: { ids } });
+  return mockSdx(() => spendMock.mockMarkSpendAlertsSeen(ids));
+}
+
+/** `POST /admin/shipments/:id/refresh-tracking` (§19.10, operador+, 6/min). */
+export async function refreshShipmentTracking(shipmentId: string): Promise<AdminShipmentDTO> {
+  if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}/refresh-tracking`, { method: 'POST' });
+  return mockSdx(() => {
+    if ((fx.mockSettings.shippingProvider ?? 'off') !== 'skydropx') {
+      throw new fx.ApiFixtureError(404, 'FEATURE_DISABLED', 'shipping provider off');
+    }
+    return sdx.mockDecorateAdminShipment(mockLiveAdminRow(shipmentId));
+  });
+}
+
+/** `GET /admin/shipments/departure?date=` (§19.9, operador+). */
+export async function getDepartureBoard(date?: string): Promise<DepartureBoardDTO> {
+  if (!config.useMocks) return apiRequest<DepartureBoardDTO>('/admin/shipments/departure', { query: { date } });
+  return mockSdx(() => sdx.mockDepartureBoard((id) => m4ship.mockShipStatusOf(id)));
+}
+
+/** `POST /admin/shipments/departed` (§19.9, operador+): «Ya los dejé en la sucursal». */
+export async function markShipmentsDeparted(shipmentIds: string[]): Promise<DepartedResultDTO> {
+  if (!config.useMocks) return apiRequest<DepartedResultDTO>('/admin/shipments/departed', { method: 'POST', body: { shipmentIds } });
+  return mockSdx(() =>
+    sdx.mockDeparted(shipmentIds, (id) => {
+      m4ship.mockSetShipStatus(id, 'enviado');
+      const i = fx.mockAdminShipments.findIndex((x) => x.id === id);
+      if (i >= 0) fx.mockAdminShipments[i] = { ...fx.mockAdminShipments[i], status: 'enviado' };
+    }),
+  );
+}
+
+/** `GET /admin/shipping/packages` (§19.20.3: operador+). */
+export async function listShippingPackages(): Promise<ShippingPackageDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ packages: ShippingPackageDTO[] }>('/admin/shipping/packages');
+    return res.packages;
+  }
+  return mockSdx(() => sdx.mockShippingPackages());
+}
+
+/** `PUT /admin/shipping/packages` (§19.13, súper-admin): reemplazo entero. */
+export async function putShippingPackages(packages: ShippingPackageDTO[]): Promise<ShippingPackageDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ packages: ShippingPackageDTO[] }>('/admin/shipping/packages', { method: 'PUT', body: { packages } });
+    return res.packages;
+  }
+  return mockSdx(() => sdx.mockPutShippingPackages(packages));
+}
+
+/** `GET /admin/shipping/catalogs` (§19.19.6, súper-admin). */
+export async function getShippingCatalogs(): Promise<ShippingCatalogsDTO> {
+  if (!config.useMocks) return apiRequest<ShippingCatalogsDTO>('/admin/shipping/catalogs');
+  return mockSdx(() => sdx.mockShippingCatalogs());
+}
+
+/**
+ * `GET /admin/shipping/catalogs/consignment-notes?description=` (§19.19.6 + §19.22.3, súper-admin): solo la primera
+ * página; `hasMore` ⇒ la pantalla pide afinar. `description` 3..60 tras trim (si no, `400 {field:'description'}`).
+ */
+export async function searchConsignmentNotes(description: string): Promise<ConsignmentNotesSearchDTO> {
+  if (!config.useMocks) {
+    return apiRequest<ConsignmentNotesSearchDTO>('/admin/shipping/catalogs/consignment-notes', { query: { description } });
+  }
+  return mockSdx(() => sdx.mockSearchConsignmentNotes(description));
+}
+
+/** `GET /admin/shipping/balance` (§19.13, súper-admin; leído en vivo). */
+export async function getShippingBalance(): Promise<ShippingBalanceDTO> {
+  if (!config.useMocks) return apiRequest<ShippingBalanceDTO>('/admin/shipping/balance');
+  return mockSdx(() => sdx.mockShippingBalance());
 }
 
 /**
@@ -2723,6 +3046,8 @@ export async function updateMe(input: UpdateMeInput): Promise<UserDTO> {
 function withMeDefaults(u: UserDTO): UserDTO {
   return {
     ...u,
+    // MOCK §19.30.3: `isOwner` — el súper-admin del selector «Ver como» es el dueño (salvo `tcg.owner=false`).
+    isOwner: u.isOwner ?? spendMock.mockIsOwner(),
     hasPassword: u.hasPassword ?? u.authProvider !== 'google',
     mustChangePassword: u.mustChangePassword ?? false,
     nameSource: u.nameSource ?? (u.authProvider === 'google' ? 'google' : 'user'),
@@ -3249,6 +3574,16 @@ export async function changePassword(input: ChangePasswordRequest): Promise<Chan
 }
 
 // ---------- Admin ----------
+function mockShippingWorkQueue(): NonNullable<DashboardDTO['workQueue']['shipping']> {
+  const rows = mockLiveAdminShipments();
+  return {
+    lowBalance: sdx.mockShippingBalance().lowBalance,
+    withCarrierAlert: rows.filter((r) => r.carrierAlert != null).length,
+    withLabelAlert: rows.filter((r) => r.labelAlert != null).length,
+    labelProcessing: rows.filter((r) => r.labelPending != null).length,
+  };
+}
+
 export async function getDashboard(): Promise<DashboardDTO> {
   if (!config.useMocks) return apiRequest<DashboardDTO>('/admin/dashboard');
   // MOCK §M4-SHIP.11/.17.5: `toPrepare` (con bóveda y «Por reponer»), `manualRefunds` y
@@ -3271,6 +3606,11 @@ export async function getDashboard(): Promise<DashboardDTO> {
         : null,
       // MOCK §M4-SHIP.18.12 (7): «Reembolso por revisar» (`null` para el operador).
       refundReviews: m4ship.mockRefundReviewsCounter(),
+      // MOCK §19.29.9 (D2f): «Control del gasto» (`null` para el operador ⇒ la tarjeta no existe, GAS-1).
+      spendControl: spendMock.mockSpendControl(),
+      // MOCK §19.13 + §19.35.5 (D2f/B-3): «Alertas de envíos», los dos roles; cuenta sobre las MISMAS filas que
+      // `GET /admin/shipments` (⛔ ningún umbral propio). `lowBalance` sin la cifra (T.11).
+      shipping: mockShippingWorkQueue(),
     },
   });
 }
@@ -6131,7 +6471,16 @@ export async function getSettings(): Promise<SettingsDTO> {
  */
 export async function updateSettings(patch: EditableSettingsPatch): Promise<SettingsDTO> {
   if (!config.useMocks) return apiRequest<SettingsDTO>('/admin/settings', { method: 'PUT', body: patch });
-  fx.setMockSettings(patch);
+  // MOCK 🔒 v1.80.12.10 (§19.30.2 (1)): un no dueño que MUEVE una clave del dueño ⇒ `403 OWNER_ONLY_SETTING {keys}` y
+  // nada se escribe; si las manda IGUALES a lo vigente, se quitan del cuerpo antes de escribir.
+  const body: EditableSettingsPatch = { ...patch };
+  if (!spendMock.mockIsOwner()) {
+    const current = fx.mockSettings as unknown as Record<string, unknown>;
+    const moved = OWNER_ONLY_SETTING_DTO_KEYS.filter((k) => k in body && JSON.stringify(body[k]) !== JSON.stringify(current[k])).sort();
+    if (moved.length) throw new ApiClientError(403, { code: 'OWNER_ONLY_SETTING', message: 'owner only', details: { keys: moved } });
+    for (const k of OWNER_ONLY_SETTING_DTO_KEYS) delete body[k];
+  }
+  fx.setMockSettings(body);
   return delay(fx.mockSettings);
 }
 

@@ -27,6 +27,7 @@ import type {
 import { AgeStamp, CardInfo, DASH, LABEL, TAG } from './prep-shared';
 import type { QueueNotice } from './VaultPlacementCard';
 import { LocateItemControl } from './LocateItemControl';
+import { LabelAlertBlock, useSince } from './LabelActions';
 
 /**
  * **La tarjeta de ENVÍO, interactiva** (`DESIGN_SYSTEM §37.3–§37.5` · contrato `§M4-SHIP.3/.5/.6`,
@@ -120,6 +121,10 @@ export function ShipPreparationCard({
   const uid = useId();
 
   const { shipmentId, preparation } = order;
+  // ⭐ §19.20.2 (FS-19): compra pendiente ⇔ `labelPending ≠ null`; alerta de guía del servidor (⛔ sin umbral propio).
+  const labelPending = order.labelPending ?? null;
+  const labelAlert = order.labelAlert ?? null;
+  const sinceOf = useSince();
   const isWithdrawal = order.kind === 'vault_withdrawal';
   const ref = order.orderNumber ?? shipmentId;
   const refId = `prep-ref-${shipmentId}`;
@@ -507,8 +512,9 @@ export function ShipPreparationCard({
                 {t('withdrawal')}
               </span>
             )}
-            <span className={LABEL}>
-              {t('shipmentRef')} <span className="tabular">{shipmentId}</span>
+            {/* 🔒 §43.19.7: «Envío ENV-000045» sustituye al uuid; sin folio (servidor anterior a M-67) ⇒ lo de hoy. */}
+            <span className={LABEL} data-testid={`prep-shipment-ref-${shipmentId}`}>
+              {t('shipmentRef')} <span className="tabular">{order.folio ?? shipmentId}</span>
             </span>
             {order.orderId && (
               <Link
@@ -561,6 +567,12 @@ export function ShipPreparationCard({
         <p className="print:hidden">
           <span className={LABEL}>{tm4('phone')}</span> <span className="tabular">{shipTo.phone}</span>
         </p>
+        {/* ⭐ §43.8a (FS-20): la dirección del ENVÍO se corrigió en «Capturar guía»; sin `print:hidden` (sirve en la hoja). */}
+        {shipTo.addressCorrected && (
+          <p data-testid={`prep-address-corrected-${shipmentId}`} className={cn(TAG, 'text-muted')}>
+            {ts('addressCorrected')}
+          </p>
+        )}
       </div>
 
       {/* Plano 3 · paso actual y conteo (§37.3a / §37.3c). */}
@@ -620,6 +632,34 @@ export function ShipPreparationCard({
           )}
           {cardNotice && <p className="text-sm text-text">{cardNotice}</p>}
         </div>
+        {/* ⭐ §43.8a: la compra pendiente con su estado — «en proceso» (creada) ≠ «sin confirmar» (no sabemos). */}
+        {labelPending && (
+          <p data-testid={`ship-label-pending-${shipmentId}`} className={cn(TAG, 'text-muted')}>
+            {labelPending.state === 'in_flight'
+              ? labelPending.carrierLabel
+                ? ts('guide.inFlight', { carrier: labelPending.carrierLabel, time: sinceOf(labelPending.since) })
+                : ts('guide.inFlightNoCarrier', { time: sinceOf(labelPending.since) })
+              : labelPending.carrierLabel
+                ? ts('guide.processing', { carrier: labelPending.carrierLabel, time: sinceOf(labelPending.since) })
+                : ts('guide.processingNoCarrier', { time: sinceOf(labelPending.since) })}
+          </p>
+        )}
+        {/* ⭐ §43.8c: la alerta de guía, donde llegue y sin filtrar por estado. */}
+        {labelAlert && (
+          <LabelAlertBlock
+            shipmentId={shipmentId}
+            alert={labelAlert}
+            trackingNumber={null}
+            labelPending={labelPending}
+            recipient={{
+              recipientName: order.shipTo.recipientName,
+              line1: order.shipTo.line1,
+              neighborhood: order.shipTo.neighborhood ?? null,
+              postalCode: order.shipTo.postalCode,
+            }}
+            testId={`ship-label-alert-${shipmentId}`}
+          />
+        )}
       </div>
 
       {/* Plano 4 · las cartas por ubicación (§35.4), cada una con su marca y su línea de dinero. */}
@@ -696,14 +736,19 @@ export function ShipPreparationCard({
           </>
         ) : (
           <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <Button
-              variant="ghost"
-              className="self-start sm:min-h-[44px]"
-              disabled={unprepare.isPending}
-              onClick={() => setUnprepareOpen(true)}
-            >
-              {ts('unprepare.cta')}
-            </Button>
+            {/* §43.8a: «Deshacer preparado» NO se pinta con una compra de guía pendiente (otra carrera). */}
+            {labelPending ? (
+              <span />
+            ) : (
+              <Button
+                variant="ghost"
+                className="self-start sm:min-h-[44px]"
+                disabled={unprepare.isPending}
+                onClick={() => setUnprepareOpen(true)}
+              >
+                {ts('unprepare.cta')}
+              </Button>
+            )}
             <div className="flex flex-col items-start gap-2 sm:items-end">
               <Button
                 variant="primary"
@@ -712,7 +757,7 @@ export function ShipPreparationCard({
                 aria-describedby={openReplacements > 0 ? guideReasonId : undefined}
                 onClick={() => onCaptureGuide(order)}
               >
-                {ts('guide.cta')}
+                {labelPending ? (labelPending.state === 'in_flight' ? ts('guide.viewInFlight') : ts('guide.viewProcessing')) : ts('guide.cta')}
               </Button>
               {openReplacements > 0 && (
                 <p id={guideReasonId} className="text-sm text-text sm:text-right">

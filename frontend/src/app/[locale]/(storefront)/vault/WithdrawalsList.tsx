@@ -9,6 +9,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { createDispute, getDisputes, getShipments } from '@/lib/api';
 import type { CreateDisputeResponse, ShipmentDTO } from '@/types/contract';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
+import { ShipmentTimeline, TrackingLink } from '@/components/domain/ShipmentTrackingExtras';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Modal } from '@/components/ui/Modal';
@@ -167,7 +168,10 @@ export function WithdrawalsList() {
                         {s.carrier} · {t('tracking')} {s.trackingNumber}
                       </span>
                     )}
+                    {/* ⭐ §43.11 (FS-11): liga solo si Skydropx la dio. */}
+                    <TrackingLink url={s.trackingUrl} />
                   </div>
+                  <ShipmentTimeline events={s.timeline} className="mt-2" />
 
                   {/* Destinatario + dirección + total del retiro (contrato §5: addressSnapshot / montos). */}
                   {(addressSummary(s.addressSnapshot) || s.totalCents != null) && (

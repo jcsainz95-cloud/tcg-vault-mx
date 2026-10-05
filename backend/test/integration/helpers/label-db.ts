@@ -1,0 +1,163 @@
+/**
+ * label-db.ts — ⭐💰 el arnés de la guía de Skydropx (D2b/D2c) contra Postgres REAL. Propiedad: backend.
+ *
+ * - La app Nest real con el proveedor sustituido por el DOBLE (`FakeShippingProvider`, ⛔ nunca la red: PS-99) en la
+ *   selección `SHIPPING_PROVIDER_SELECTION` (el único punto de inyección de `shipments`), y el reloj de la guía
+ *   (`SHIPMENTS_LABEL_CLOCK`) por uno manual (PS-71 «reloj a +24 h», PS-108, PS-137…).
+ * - `ready()` deja un envío cotizable: dirección COMPLETA (CP 01000 del catálogo del arnés), líneas `picked`, `preparedAt`.
+ * - `dial()` escribe diales y `restoreDials()` los devuelve a su estado previo (fila borrada si no existía).
+ */
+import { Prisma } from '@prisma/client';
+import { E2EHarness } from './e2e-app';
+import { ShipPrepDb, R } from './ship-prep-db';
+import { FakeShippingProvider } from '../../../src/modules/shipping-provider/fake-shipping-provider';
+import { SHIPPING_PROVIDER_SELECTION } from '../../../src/modules/shipping-provider/shipping-provider.module';
+import { ShippingProviderSelection } from '../../../src/modules/shipping-provider/shipping-provider.factory';
+import { ManualLabelClock, SHIPMENTS_LABEL_CLOCK } from '../../../src/modules/shipments/label-clock';
+import { LABEL_SPEND_KEY } from '../../../src/modules/shipments/label-purchase.service';
+import {
+  DEFAULT_LABEL_VERIFY_CONFIG,
+  LABEL_VERIFY_CONFIG,
+  LabelVerifyConfig,
+} from '../../../src/modules/shipments/label-verify.constants';
+import { CARRIER_NOTICES, CarrierNotice, CarrierNoticeEvent } from '../../../src/modules/shipments/carrier-notices';
+
+/**
+ * ⭐ D2d — el puerto de los avisos AV-17/18/19 (§19.3 paso 5) SUSTITUIDO por un registro: D2d decide QUÉ hecho ocurrió y lo
+ * entrega post-commit; los correos son de D2e. Las pruebas cuentan entregas (PS-72 «1 correo», PS-75, PS-78).
+ */
+export class NoticeRecorder {
+  readonly calls: { shipmentId: string; notice: CarrierNotice; event: CarrierNoticeEvent }[] = [];
+  async notify(shipmentId: string, notice: CarrierNotice, event: CarrierNoticeEvent): Promise<void> {
+    this.calls.push({ shipmentId, notice, event });
+  }
+  of(shipmentId: string, notice?: CarrierNotice) {
+    return this.calls.filter((c) => c.shipmentId === shipmentId && (!notice || c.notice === notice));
+  }
+}
+
+/** Dirección completa del arnés (CP 01000 · San Ángel, `E2E_POSTAL_CODES`). */
+export const READY_ADDRESS = {
+  recipientName: 'Ana Gómez Ruiz',
+  line1: 'Av. Revolución 1500',
+  line2: 'Int. 4',
+  neighborhood: 'San Ángel',
+  city: 'Álvaro Obregón',
+  state: 'Ciudad de México',
+  postalCode: '01000',
+  country: 'MX',
+  phone: '5512345678',
+  references: 'Portón negro',
+};
+
+export interface LabelWorld {
+  h: E2EHarness;
+  db: ShipPrepDb;
+  fake: FakeShippingProvider;
+  clock: ManualLabelClock;
+  /**
+   * 🔒 La llave de entorno de la compra, SUSTITUIDA (PS-99): ⛔ ninguna prueba pone `SKYDROPX_ALLOW_SPEND`. Solo el DOBLE
+   * puede «comprar» aquí; la llave real vive en `spend-gate.ts` y el candado de ejecución en el cliente real.
+   */
+  spend: { on: boolean };
+  /** La configuración de verificación inyectada (§19.27.8): ⛔ las pruebas no cambian `label-verify.constants.ts`. */
+  cfg: LabelVerifyConfig;
+  /** ⭐ D2d: lo que `applyCarrierStatus` entregó al puerto de avisos (AV-17/18/19). */
+  notices: NoticeRecorder;
+}
+
+export async function createLabelWorld(
+  run: string,
+  selection: Partial<ShippingProviderSelection> = {},
+  cfgOver: Partial<LabelVerifyConfig> = {},
+): Promise<LabelWorld> {
+  const fake = new FakeShippingProvider();
+  fake.reuseQuotations = false;
+  fake.defaultLabelUrl = 'https://pro.skydropx.com/labels/x.pdf';
+  const clock = new ManualLabelClock(new Date());
+  const sel: ShippingProviderSelection = { port: fake, kind: 'fake', urlHosts: ['pro.skydropx.com'], client: null, ...selection };
+  const spend = { on: true };
+  // Las pruebas desactivan la adopción por folio por defecto (§19.28.4: «las pruebas lo inyectan en `false`»).
+  const cfg: LabelVerifyConfig = { ...DEFAULT_LABEL_VERIFY_CONFIG, adoptionEnabled: false, ...cfgOver };
+  fake.now = () => clock.now();
+  const notices = new NoticeRecorder();
+  const h = await E2EHarness.create((b) =>
+    b
+      .overrideProvider(SHIPPING_PROVIDER_SELECTION)
+      .useValue(sel)
+      .overrideProvider(SHIPMENTS_LABEL_CLOCK)
+      .useValue(clock)
+      .overrideProvider(LABEL_SPEND_KEY)
+      .useValue({ turned: () => spend.on })
+      .overrideProvider(LABEL_VERIFY_CONFIG)
+      .useValue(cfg)
+      .overrideProvider(CARRIER_NOTICES)
+      .useValue(notices),
+  );
+  const db = new ShipPrepDb(h, run);
+  await db.init();
+  return { h, db, fake, clock, spend, cfg, notices };
+}
+
+const touchedDials = new Map<string, Prisma.JsonValue | undefined>();
+
+/** Escribe un dial (y recuerda el valor previo para `restoreDials`). */
+export async function dial(h: E2EHarness, key: string, value: unknown): Promise<void> {
+  if (!touchedDials.has(key)) {
+    const prev = await h.prisma.configSetting.findUnique({ where: { key } });
+    touchedDials.set(key, prev ? prev.valueJson : undefined);
+  }
+  await h.prisma.configSetting.upsert({
+    where: { key },
+    update: { valueJson: value as Prisma.InputJsonValue, updatedBy: 'e2e' },
+    create: { key, valueJson: value as Prisma.InputJsonValue, updatedBy: 'e2e' },
+  });
+}
+
+export async function restoreDials(h: E2EHarness): Promise<void> {
+  for (const [key, prev] of touchedDials) {
+    if (prev === undefined) await h.prisma.configSetting.deleteMany({ where: { key } });
+    else await h.prisma.configSetting.update({ where: { key }, data: { valueJson: prev as Prisma.InputJsonValue } });
+  }
+  touchedDials.clear();
+}
+
+/** Encendido mínimo para cotizar: proveedor `skydropx` y plantilla de origen. */
+export async function providerOn(h: E2EHarness): Promise<void> {
+  await dial(h, 'shipping_provider', 'skydropx');
+  await dial(h, 'skydropx_origin_address_template_id', 'fake-template-verapaz');
+}
+
+/** Deja el envío cotizable: dirección completa, todas las líneas `picked` y `preparedAt` (sin pasar por el verbo). */
+export async function ready(db: ShipPrepDb, shipmentId: string, address: Record<string, unknown> = READY_ADDRESS): Promise<void> {
+  const p = db.h.prisma;
+  await p.shipmentItem.updateMany({
+    where: { shipmentRequestId: shipmentId },
+    data: { prepStatus: 'picked', prepMarkedAt: new Date(), prepMarkedByUserId: db.operatorId },
+  });
+  await p.shipmentRequest.update({
+    where: { id: shipmentId },
+    data: { addressSnapshot: address as Prisma.InputJsonValue, preparedAt: new Date(), preparedByUserId: db.operatorId },
+  });
+}
+
+export const errCode = (r: R) => (r.status >= 200 && r.status < 300 ? `${r.status}` : `${r.status}:${r.body?.error?.code}`);
+
+/** Encendido para COMPRAR (doble + llave sustituida): proveedor, plantilla y dial de compra (la carta porte tiene default). */
+export async function purchaseOn(h: E2EHarness, mode: 'operators' | 'super_admin_only' = 'operators'): Promise<void> {
+  await providerOn(h);
+  await dial(h, 'shipping_label_purchase', mode);
+}
+
+/** El cuerpo de `POST …/label` con las cifras que vio el operador (y las dos confirmaciones dadas). */
+export function buyBody(q: { quoteId: string }, rate: { rateId: string; priceCents: number; marginCents: number }, over: Record<string, unknown> = {}) {
+  return {
+    quoteId: q.quoteId,
+    rateId: rate.rateId,
+    expectedPriceCents: rate.priceCents,
+    expectedMarginCents: rate.marginCents,
+    confirmNegativeMargin: true,
+    confirmBranchDelivery: true,
+    ...over,
+  };
+}

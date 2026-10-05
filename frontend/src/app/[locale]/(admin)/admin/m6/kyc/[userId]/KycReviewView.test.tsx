@@ -54,6 +54,8 @@ function detail(overrides: Partial<AdminUserDetailDTO> = {}): AdminUserDetailDTO
         postalCode: '44160',
         country: 'MX',
         phone: '3312345678',
+        references: null,
+        complete: true,
         isDefault: true,
       },
       {
@@ -65,6 +67,8 @@ function detail(overrides: Partial<AdminUserDetailDTO> = {}): AdminUserDetailDTO
         postalCode: '45010',
         country: 'MX',
         phone: '3398765432',
+        references: null,
+        complete: true,
         isDefault: false,
       },
     ],

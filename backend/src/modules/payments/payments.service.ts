@@ -14,6 +14,8 @@ import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleabl
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { orderRefundedTemplate, orderSettledTemplate } from '../orders/mail/order-notice.templates';
 import { FullRefundService } from './refunds/full-refund.service';
+import { afterAutoCloseVia, cancelProviderLabelIfAny } from '../shipments/label-auto-close';
+import { ModuleRef } from '@nestjs/core';
 import { RefundLedgerService } from './refunds/refund-ledger.service';
 import { currentPiecesOf, resolveOriginsBatch } from './refunds/origin';
 
@@ -41,6 +43,8 @@ export class PaymentsService {
     // motivo que el correo: los tests unitarios legacy construyen este servicio a mano.
     @Optional() private readonly fullRefund?: FullRefundService,
     @Optional() private readonly ledger?: RefundLedgerService,
+    // 💰 v1.81 (§M4-SHIP.19.8): el post-commit de la cancelación automática de la guía (por token; ⛔ ciclo de módulos).
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
   /**
@@ -695,9 +699,10 @@ export class PaymentsService {
       // ¿El cobro de un RETIRO? Total ⇒ el retiro vivo se cierra (§M4-SHIP.17.2, rama retiro).
       const shipment = await this.prisma.shipmentRequest.findUnique({ where: { stripePaymentIntentId: pi }, select: { id: true } });
       if (!shipment || !fullyRefunded || !this.fullRefund) return;
-      await this.prisma.$transaction(async (tx) => {
-        await this.fullRefund!.onFullRefund(tx, { shipmentRequestId: shipment.id }, 'charge_refunded', null);
+      const pass = await this.prisma.$transaction(async (tx) => {
+        return this.fullRefund!.onFullRefund(tx, { shipmentRequestId: shipment.id }, 'charge_refunded', null);
       });
+      await afterAutoCloseVia(this.moduleRef, pass?.closedShipmentIds ?? []);
       return;
     }
     if (!fullyRefunded) {
@@ -731,10 +736,12 @@ export class PaymentsService {
           where: { id: order.id, status: { in: [...CHARGE_REFUNDED_SOURCE_STATUSES] } },
           data: { status: 'refunded', refundedAt: new Date() },
         });
-        return { transitioned: moved.count === 1, statusUnderLock: pass.orderStatusUnderLock };
+        return { transitioned: moved.count === 1, statusUnderLock: pass.orderStatusUnderLock, closed: pass.closedShipmentIds ?? [] };
       },
       { maxWait: 10_000, timeout: 30_000 },
     );
+    // 💰 §19.8: la guía de los envíos cerrados se cancela en Skydropx DESPUÉS del commit (best-effort).
+    await afterAutoCloseVia(this.moduleRef, outcome.closed);
     // ⭐ `AV-3` (§R.3) — POST-COMMIT y best-effort; una vez: quien hizo la TRANSICIÓN a `refunded`
     // (M3 en su tx de confirmación o este webhook, el que llegue primero; el otro no manda nada).
     // v1.80.8.3: variante `vault` ⇔ `vault` ∧ estado bajo candado `settled` (una nunca liquidada no tuvo bóveda).
@@ -852,6 +859,7 @@ export class PaymentsService {
    * confirmado dónde está la carta — se perdería la única señal de que faltaba una decisión.
    */
   private async onChargeDisputeDirectShip(order: Order & { items: OrderItem[] }): Promise<void> {
+    const closed: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       // Envío de FULFILLMENT de esta orden (el más reciente). Un retiro de bóveda no lleva
       // `orderId`, así que esta consulta nunca lo confunde con el envío de la orden.
@@ -870,10 +878,12 @@ export class PaymentsService {
         // basta —`READ COMMITTED` no bloquea el `findFirst` de arriba— y `needsManual` ya es
         // monótono, así que el peor caso de `count === 0` es «otro lo cerró primero», no una
         // regresión de estado.
-        await tx.shipmentRequest.updateMany({
+        const moved = await tx.shipmentRequest.updateMany({
           where: { id: shipment!.id, status: { in: ['solicitado', 'picking', 'guia'] } },
           data: { status: 'cancelado' },
         });
+        // 💰 §M4-SHIP.19.8 «Cancelación automática» (criterio 244, `C-SDX-5`): sello en ESTA tx, `cancel` post-commit.
+        if (moved.count === 1 && (await cancelProviderLabelIfAny(tx, shipment!.id, 'auto_close')) === 'sealed') closed.push(shipment!.id);
         // La pieza NO se toca: queda CONGELADA en `picking` (fuera de venta) hasta que un humano
         // confirme dónde está físicamente.
         needsManual = true;
@@ -921,6 +931,7 @@ export class PaymentsService {
         },
       });
     });
+    await afterAutoCloseVia(this.moduleRef, closed);
   }
 
   /**

@@ -19,9 +19,28 @@
 import { KycStatus, UserStatus } from '@prisma/client';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
+import { PiiCryptoService } from '../../src/common/crypto/pii-crypto.service';
 
 /** Marca única de esta corrida: todo lo que siembro lleva este prefijo y se borra al final. */
 const TAG = `a5queue${Date.now().toString(36)}`;
+
+/**
+ * `T-FLAKY-RFC-1` (API_CONTRACT §M4-SHIP.19.32.8) — el RFC que el fixture de `L-6` siembra (cifrado, por la MISMA rutina que el
+ * producto). Formato de persona física válido y ajeno a todo nombre/correo/usuario de las suites.
+ */
+const RFC_FIXTURE = 'QUXV640229HZ1';
+
+/** Todas las LLAVES de un JSON (recursivo en objetos y arreglos). */
+function jsonKeys(v: unknown, out: string[] = []): string[] {
+  if (Array.isArray(v)) for (const x of v) jsonKeys(x, out);
+  else if (v !== null && typeof v === 'object') {
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      out.push(k);
+      jsonKeys(x, out);
+    }
+  }
+  return out;
+}
 
 type Row = { id: string; email: string; kycStatus: string };
 type ListBody = { data: Row[]; page: number; pageSize: number; total: number };
@@ -92,8 +111,8 @@ describe('`A5` · §M6-L — el estado de identidad en el listado y su filtro', 
       const comoOperador = await list('?pageSize=100', operatorToken);
       const claves = (b: ListBody) => Object.keys(b.data[0]).sort();
       expect(claves(comoOperador.body)).toEqual(claves(comoAdmin.body));
-      // v1.80.9 (§M6-U.7): + `lockedUntil` y `username` (el mismo DTO para los dos roles).
-      expect(claves(comoAdmin.body)).toEqual(['createdAt', 'email', 'id', 'kycStatus', 'lockedUntil', 'name', 'role', 'status', 'username']);
+      // v1.80.9 (§M6-U.7): + `lockedUntil` y `username` (el mismo DTO para los dos roles). 🔒 D2g (§19.30.3): + `isOwner`.
+      expect(claves(comoAdmin.body)).toEqual(['createdAt', 'email', 'id', 'isOwner', 'kycStatus', 'lockedUntil', 'name', 'role', 'status', 'username']);
     });
 
     it('el usuario SIN FILA en `KycProfile` emite `none` (no `null`, no clave ausente)', async () => {
@@ -224,18 +243,36 @@ describe('`A5` · §M6-L — el estado de identidad en el listado y su filtro', 
 
   // ---------------------------------------------------------------- L-6
   describe('`L-6` — el listado sigue SIN acercarse al documento (`K-2` re-ejecutado)', () => {
+    let rfcCipher = '';
+    let rfcUserId = '';
+    beforeAll(async () => {
+      // El fixture PROPIO de L-6: un usuario `verified` con su RFC cifrado en `KycProfile.rfcEnc`.
+      rfcUserId = await seedUser('conRfc', KycStatus.verified);
+      rfcCipher = h.app.get(PiiCryptoService).encrypt(RFC_FIXTURE);
+      await h.prisma.kycProfile.update({ where: { userId: rfcUserId }, data: { rfcEnc: rfcCipher } });
+    });
+
     it.each([
       ['super_admin', () => adminToken],
       ['vault_operator', () => operatorToken],
     ])('con token %s el JSON no matchea `/kyc_ine\\//` ni trae `rejectionReason`/`ineOnFile`', async (_rol, tok) => {
-      for (const query of ['?pageSize=100', '?kycStatus=pending&pageSize=100', '?kycStatus=rejected&pageSize=100']) {
+      // ⭐ La primera consulta trae SEGURO al usuario con RFC (la prueba mira algo, no una página que no lo contiene).
+      const conRfc = await list(`?q=${TAG}.conRfc&pageSize=100`, tok());
+      expect(conRfc.body.data.map((r) => r.id)).toEqual([rfcUserId]);
+      for (const query of [`?q=${TAG}.conRfc&pageSize=100`, '?pageSize=100', '?kycStatus=pending&pageSize=100', '?kycStatus=rejected&pageSize=100']) {
         const res = await list(query, tok());
         expect(res.status).toBe(200);
         expect(res.text).not.toMatch(/kyc_ine\//);
         expect(res.text).not.toMatch(/rejectionReason/);
         expect(res.text).not.toMatch(/ineOnFile/);
         expect(res.text).not.toMatch(/clabe/i);
-        expect(res.text).not.toMatch(/rfc/i);
+        // ⭐ `T-FLAKY-RFC-1` (§19.32.8): lo que `L-6` quiere decir es «ni el CAMPO ni el VALOR del documento». Antes se buscaba
+        // la subcadena `/rfc/i` en TODO el texto y casaba, 1 vez de cada 256, el usuario `m-r${hex}` que otra suite crea
+        // (`staff-without-email.e2e-spec.ts:220-221`) cuando su sufijo empezaba por `fc`: rojo de la PRUEBA, no del listado.
+        // Ahora: ninguna LLAVE que case `/rfc/i` y ningún VALOR del RFC sembrado aquí (ni en claro ni cifrado).
+        expect(jsonKeys(res.body).filter((k) => /rfc/i.test(k))).toEqual([]);
+        expect(res.text).not.toContain(RFC_FIXTURE);
+        expect(res.text).not.toContain(rfcCipher);
       }
     });
 

@@ -375,6 +375,12 @@ jobs:
           echo "Seed sintético: $SEED_CMD"
           docker compose -f "$COMPOSE" exec -T backend \
             sh -c "export PATH=/app/node_modules/.bin:\$PATH; $SEED_CMD"
+          # El DUEÑO de la pila (§M4-SHIP.19.31.5 (5)): las pruebas que compran giran el
+          # dial como `isOwner`. M-68 corre en la migración, ANTES del seed, sobre una base
+          # vacía ⇒ nadie queda marcado (medido 2026-10-05). set-owner.ts es el único
+          # escritor admitido (C-OWN-1); el correo sale del fixture de backend, no de aquí.
+          docker compose -f "$COMPOSE" exec -T backend \
+            sh -c 'export PATH=/app/node_modules/.bin:$PATH; OWNER_EMAIL="$(ts-node -T -e "process.stdout.write(require(\"./prisma/e2e-fixtures\").E2E_USERS.admin.email)")" && [ -n "$OWNER_EMAIL" ] && OWNER_EMAIL="$OWNER_EMAIL" ts-node -T prisma/set-owner.ts'
 
       # -----------------------------------------------------------------------
       # PARIDAD DEL PROVEEDOR DE PRECIO (`I-PP5`, API_CONTRACT §M10-PP).

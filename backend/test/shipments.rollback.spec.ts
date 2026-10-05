@@ -13,7 +13,7 @@ import { ivaDialsStub } from './helpers/iva-dials';
 describe('ShipmentsService.create — rollback del PaymentIntent (A2 / BE-7)', () => {
   function buildService(stripeReject: unknown) {
     // v1.67 (M-52): con destinatario; sin él, `create` corta en 422 RECIPIENT_NAME_REQUIRED antes del PI.
-    const address = { id: 'addr1', userId: 'userA', recipientName: 'Ana Pérez', country: 'MX', line1: 'x', city: 'c', state: 's', postalCode: '00000', phone: '1' };
+    const address = { id: 'addr1', userId: 'userA', recipientName: 'Ana Pérez', country: 'MX', line1: 'x', city: 'c', state: 's', postalCode: '00000', phone: '5500000000', neighborhood: 'Centro' }; // ⭐ v1.81: completa
     const prisma: any = {
       address: { findUnique: jest.fn().mockResolvedValue(address) },
       inventoryItem: {

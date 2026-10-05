@@ -64,6 +64,13 @@ export function PrintSheetView({ destination, shipmentId, placementId }: { desti
                 <li key={key} className="break-inside-avoid border-t border-border pt-4" data-testid={`print-order-${key}`}>
                   <h2 className="flex flex-wrap items-baseline gap-2">
                     {o.orderNumber ? <span className="tabular text-lg font-semibold text-text">{o.orderNumber}</span> : <span className="font-serif text-lg text-text">{t('withdrawal')}</span>}
+                    {/* 🔒 §43.19.7: la etiqueta impresa dice «Pedido ENV-000045-01»; quien empaca cuadra hoja y etiqueta por
+                        este número. Solo destino `ship` (la bóveda no tiene folio); sin folio ⇒ nada. */}
+                    {o.destination === 'ship' && o.folio && (
+                      <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted" data-testid={`print-folio-${key}`}>
+                        {t('shipmentRef')} <span className="tabular">{o.folio}</span>
+                      </span>
+                    )}
                     <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">{t(`destination.${o.destination}`)}</span>
                   </h2>
                   <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-text">

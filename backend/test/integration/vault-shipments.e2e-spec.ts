@@ -169,6 +169,7 @@ describe('E2E — Bóveda/portafolio y retiros', () => {
         json: {
           recipientName: 'Foreign Recipient',
           line1: '1 Foreign St',
+          neighborhood: 'Downtown', // ⭐ v1.81: la forma pide colonia; el país se decide después (422)
           city: 'Austin',
           state: 'TX',
           postalCode: '73301',
@@ -201,7 +202,7 @@ describe('E2E — Bóveda/portafolio y retiros', () => {
       });
       const snapshot = si!.shipmentRequest.addressSnapshot as Record<string, unknown>;
       expect(Object.keys(snapshot).sort()).toEqual(
-        ['recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode', 'country', 'phone'].sort(),
+        ['recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode', 'country', 'phone', 'references'].sort(),
       );
       expect(snapshot.recipientName).toBe('Ana Destinataria');
       expect(snapshot.recipientName).not.toBe(E2E_USERS.customer.name); // no es User.name

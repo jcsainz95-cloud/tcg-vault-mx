@@ -10,7 +10,9 @@ import {
   ruleRow,
   smallPrintRow,
   spacerRow,
+  supportEmail,
 } from '../../buylist/mail-shell';
+import { formatDateTime } from '../../buylist/buylist-mail.templates';
 
 /**
  * # Plantillas LOCALES al módulo `shipments` — los avisos `AV-4`, `AV-5` y `AV-6` (§R.3, v1.74)
@@ -38,10 +40,19 @@ import {
  * ⛔ Tampoco viaja el **domicilio** (ni el `addressSnapshot`, ni una parte de él): el destinatario se
  * resuelve **por id** (§R.5) y el correo no repite a dónde va.
  *
- * ## ⛔ Y NO HAY PLANTILLA DE «ENTREGADO»
- * Es el criterio **210**, confirmado explícitamente por el dueño: **dos correos de envío (guía y
- * salida) y NINGUNO al entregar**. Su ausencia aquí es la mitad que se verifica **por exceso**
- * (`test/avisos.shipments.spec.ts` § «C-AV-3»). *No se añade «porque parecía razonable».*
+ * ## ⭐ v1.81 (D2e, §M4-SHIP.19.12) — «ENTREGADO» EXISTE, PERO SOLO CON LA PALABRA DEL TRANSPORTISTA
+ * El criterio **210** se reescribió: con guía **manual** siguen siendo **dos correos de envío (guía y
+ * salida) y NINGUNO al entregar** (`C-AV-3a`, intacto: `updateStatus` sigue sin rama de `entregado`).
+ * Con guía de **Skydropx** la paquetería confirma la entrega y entonces sí sale `AV-17` (`C-AV-3b`),
+ * más `AV-18` (en sucursal) y `AV-19` (intento fallido). ⛔ **Ninguno de los tres cuelga de
+ * `updateStatus`**: los dispara `applyCarrierStatus` (post-commit) por el puerto `CARRIER_NOTICES`, con
+ * su sello propio (`deliveredNoticeSentAt`, `branchNoticeSentAt`, `lastDeliveryAttemptAt`).
+ * ⛔ Ninguno anuncia un plazo ni la palabra «disputa» (`HECHOS.md:52`, DESIGN_SYSTEM §43.12).
+ *
+ * ## ⭐ D2e — el enlace y la liga de rastreo los decide el SERVICIO, no la plantilla
+ * `customerUrl` lo resuelve el servicio (§19.12, PS-87); la plantilla solo lo pinta. `trackingUrl` viaja
+ * **solo** si Skydropx la dio y pasó `assertProviderUrl` (PS-88): ⛔ ninguna plantilla construye una URL
+ * con la guía (`C-SDX-6`), y va como letra chica con la URL visible (§41.4: un solo CTA).
  */
 
 type Locale = 'es' | 'en';
@@ -72,6 +83,14 @@ export interface ShipmentNoticeParams {
   orderId?: string | null;
   carrier?: string | null;
   trackingNumber?: string | null;
+  /**
+   * ⭐ D2e (§19.12, PS-87) — el enlace del CTA, RESUELTO POR EL SERVICIO (retiro ⇒ `shipments/<id>`; registrado ⇒
+   * `orders/<id>`; invitado ⇒ `pedido?token=…`). `null` ⇒ sin CTA. `undefined` ⇒ la ruta por defecto de
+   * {@link shipmentUrl} (llamadores que aún no pasan por el servicio: las pruebas de plantilla de antes de D2e).
+   */
+  customerUrl?: string | null;
+  /** ⭐ D2e (PS-88) — la liga de rastreo de la paquetería, SOLO si Skydropx la dio (ya validada al escribirla). */
+  trackingUrl?: string | null;
 }
 
 /**
@@ -85,6 +104,7 @@ export interface ShipmentNoticeParams {
  *  - Retiro de bóveda ⇒ detalle del envío.
  */
 function shipmentUrl(params: ShipmentNoticeParams, locale: Locale): string | undefined {
+  if (params.customerUrl !== undefined) return params.customerUrl ?? undefined;
   if (params.orderNumber) {
     return params.orderId ? appUrl(`orders/${encodeURIComponent(params.orderId)}`, locale) : undefined;
   }
@@ -98,6 +118,82 @@ function eyebrow(params: ShipmentNoticeParams, en: boolean): string {
 
 function folio(params: ShipmentNoticeParams): string {
   return params.orderNumber ?? params.shipmentId;
+}
+
+/**
+ * ⭐ D2e (§43.12) — la frase de soporte, escrita UNA vez para `AV-17/18/19`: pedido ⇒ «¿Problema con tu pedido?» con el
+ * número; retiro ⇒ «¿Problema con tu envío?» con la referencia (el folio). `{soporte}` = `supportEmail()`, la MISMA cascada
+ * que el pie (⛔ dos buzones). Va en la PROSA, ⛔ no en el pie (§31.6h: en el pie no vive nada que el lector necesite).
+ */
+function supportLine(params: ShipmentNoticeParams, en: boolean): string {
+  const to = supportEmail();
+  if (params.orderNumber) {
+    return en
+      ? `Problem with your order? Write to ${to} with your order number ${params.orderNumber} and, if needed, photos.`
+      : `¿Problema con tu pedido? Escríbenos a ${to} con tu número de pedido ${params.orderNumber} y, si hace falta, fotos.`;
+  }
+  return en
+    ? `Problem with your shipment? Write to ${to} with reference ${params.shipmentId} and, if needed, photos.`
+    : `¿Problema con tu envío? Escríbenos a ${to} con la referencia ${params.shipmentId} y, si hace falta, fotos.`;
+}
+
+/** §41.7 regla ✏ del 18: `Paquetería: <c> · Guía: <n>`; sin `carrier` ⇒ `Guía: <n>`; sin número ⇒ nada. */
+function carrierDato(params: ShipmentNoticeParams, en: boolean): string {
+  if (!params.trackingNumber) return '';
+  if (!params.carrier) return en ? `Tracking: ${params.trackingNumber}` : `Guía: ${params.trackingNumber}`;
+  return en
+    ? `Carrier: ${params.carrier} · Tracking: ${params.trackingNumber}`
+    : `Paquetería: ${params.carrier} · Guía: ${params.trackingNumber}`;
+}
+
+/** La liga de rastreo como letra chica (§43.12b–c); `null` ⇒ ninguna. ⛔ Nunca construida con la guía (`C-SDX-6`). */
+function trackLine(params: ShipmentNoticeParams, en: boolean): string {
+  if (!params.trackingUrl) return '';
+  return en ? `Track my package with the carrier: ${params.trackingUrl}` : `Rastrear mi paquete en la paquetería: ${params.trackingUrl}`;
+}
+
+function ctaLabelOf(params: ShipmentNoticeParams, en: boolean): string {
+  return params.orderNumber ? (en ? 'SEE MY ORDER' : 'VER MI PEDIDO') : en ? 'SEE MY SHIPMENT' : 'VER MI ENVÍO';
+}
+
+function asDate(v: Date | string | null | undefined): Date | null {
+  if (!v) return null;
+  const d = v instanceof Date ? v : new Date(v);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/**
+ * El esqueleto común de `AV-17/18/19` (§43.12: familia ENVÍO, sin saludo, sin importes, un CTA): eyebrow, titular = asunto,
+ * prosas, dato, frase de soporte, letra chica de rastreo, CTA. La parte de texto a paridad (§31.12).
+ */
+function carrierNotice(
+  params: ShipmentNoticeParams,
+  l: Locale,
+  title: string,
+  proses: string[],
+  track: string,
+): Omit<MailMessage, 'to'> {
+  const en = l === 'en';
+  const dato = carrierDato(params, en);
+  const soporte = supportLine(params, en);
+  const url = shipmentUrl(params, l);
+  const blocks = [
+    eyebrowRow(eyebrow(params, en), folio(params)),
+    headingRow(title, 22),
+    spacerRow(24),
+    ...proses.flatMap((p, i) => (i === 0 ? [proseRow(p)] : [spacerRow(16), proseRow(p)])),
+    ...(dato ? [spacerRow(24), ruleRow(), spacerRow(24), monoRow(dato)] : []),
+    spacerRow(24),
+    proseRow(soporte),
+    ...(track ? [spacerRow(16), smallPrintRow(track)] : []),
+    spacerRow(32),
+    ...(url ? [ctaRows(url, ctaLabelOf(params, en), 'ink')] : []),
+  ];
+  return {
+    subject: title,
+    html: mailShell({ locale: l, title, preheader: `${title}. ${proses[0]}`, blocks, footerWhy: shipmentFooterWhy(en) }),
+    text: [title, '', ...proses.flatMap((p) => [p, '']), ...(dato ? [dato, ''] : []), soporte, ...(track ? ['', track] : []), ...(url ? ['', url] : []), '', BRAND].join('\n'),
+  };
 }
 
 /**
@@ -128,8 +224,11 @@ export function shipmentGuideTemplate(
   const nota = en
     ? 'The carrier may take a few hours to show movement on this number.'
     : 'La paquetería puede tardar unas horas en mostrar movimiento con este número.';
+  // ⭐ D2e (§19.12, PS-88): la liga de rastreo SOLO si Skydropx la dio; letra chica (un solo CTA, §41.4).
+  const track = trackLine(params, en);
   const url = shipmentUrl(params, l);
-  const ctaLabel = en ? 'SEE MY SHIPMENT' : 'VER MI ENVÍO';
+  // N-SDX-4 (DESIGN_SYSTEM §41.4 fila 17, §43.22.10): el rótulo nombra el DESTINO (pedido ⇒ «VER MI PEDIDO»; retiro ⇒ «VER MI ENVÍO»).
+  const ctaLabel = ctaLabelOf(params, en);
   const blocks = [
     eyebrowRow(eyebrow(params, en), folio(params)),
     headingRow(title, 22),
@@ -141,13 +240,15 @@ export function shipmentGuideTemplate(
     monoRow(dato),
     spacerRow(24),
     smallPrintRow(nota),
+    ...(track ? [spacerRow(16), smallPrintRow(track)] : []),
     spacerRow(32),
     ...(url ? [ctaRows(url, ctaLabel, 'ink')] : []),
   ];
   return {
-    subject: en ? `${BRAND} — Your tracking number` : `${BRAND} — Tu guía de envío`,
+    // N-SDX-5 (§41.2 fila 17 ✏): sin prefijo de marca — el remitente ya la lleva.
+    subject: en ? 'Your tracking number' : 'Tu guía de envío',
     html: mailShell({ locale: l, title, preheader: `${title}. ${dato}`, blocks, footerWhy: shipmentFooterWhy(en) }),
-    text: [`${title}`, '', intro, '', dato, '', nota, ...(url ? ['', url] : []), '', BRAND].join('\n'),
+    text: [`${title}`, '', intro, '', dato, '', nota, ...(track ? ['', track] : []), ...(url ? ['', url] : []), '', BRAND].join('\n'),
   };
 }
 
@@ -168,28 +269,29 @@ export function shipmentShippedTemplate(
   const intro = en
     ? 'Your package left our hands and is now with the carrier.'
     : 'Tu paquete salió de nuestras manos y ya va con la paquetería.';
-  // ⛔ Si no hay número, NO se escribe una línea vacía ni un «—»: el dato no existe y no se finge.
-  const dato =
-    params.trackingNumber
-      ? en
-        ? `Carrier: ${params.carrier ?? ''} · Tracking: ${params.trackingNumber}`
-        : `Paquetería: ${params.carrier ?? ''} · Guía: ${params.trackingNumber}`
-      : '';
+  // ⛔ Si no hay número, NO se escribe una línea vacía ni un «—»: el dato no existe y no se finge. N-SDX-5 (§41.7 ✏ del 18):
+  // sin paquetería ⇒ solo `Guía: <n>` (⛔ «Paquetería:  · Guía: …» con el hueco) — la regla de `carrierDato`, un cuerpo.
+  const dato = carrierDato(params, en);
+  // ⭐ D2e (§19.12, PS-88): ídem `AV-4`.
+  const track = trackLine(params, en);
   const url = shipmentUrl(params, l);
-  const ctaLabel = en ? 'SEE MY SHIPMENT' : 'VER MI ENVÍO';
+  // N-SDX-4 (§41.4 fila 18): rótulo según destino.
+  const ctaLabel = ctaLabelOf(params, en);
   const blocks = [
     eyebrowRow(eyebrow(params, en), folio(params)),
     headingRow(title, 22),
     spacerRow(24),
     proseRow(intro),
     ...(dato ? [spacerRow(24), ruleRow(), spacerRow(24), monoRow(dato)] : []),
+    ...(track ? [spacerRow(16), smallPrintRow(track)] : []),
     spacerRow(32),
     ...(url ? [ctaRows(url, ctaLabel, 'ink')] : []),
   ];
   return {
-    subject: en ? `${BRAND} — Your package is on its way` : `${BRAND} — Tu paquete va en camino`,
+    // N-SDX-5 (§41.2 fila 18 ✏): sin prefijo de marca.
+    subject: en ? 'Your package is on its way' : 'Tu paquete va en camino',
     html: mailShell({ locale: l, title, preheader: `${title}. ${intro}`, blocks, footerWhy: shipmentFooterWhy(en) }),
-    text: [title, '', intro, ...(dato ? ['', dato] : []), ...(url ? ['', url] : []), '', BRAND].join('\n'),
+    text: [title, '', intro, ...(dato ? ['', dato] : []), ...(track ? ['', track] : []), ...(url ? ['', url] : []), '', BRAND].join('\n'),
   };
 }
 
@@ -212,24 +314,112 @@ export function shipmentCancelledTemplate(
   const intro = en
     ? 'This shipment will not go out. Nothing left our warehouse.'
     : 'Este envío no va a salir. Nada salió de nuestro almacén.';
-  const next = en
-    ? 'If you still want your cards shipped, you can request it again from your account.'
-    : 'Si todavía quieres que te enviemos tus cartas, puedes volver a solicitarlo desde tu cuenta.';
+  // C-TL-2 (§41.4 fila 19, §41.13 fila 19): «vuelve a solicitarlo desde tu cuenta» SOLO en un retiro de bóveda — un pedido no
+  // se «vuelve a solicitar» desde la cuenta (y el invitado no tiene cuenta).
+  const next = params.orderNumber
+    ? ''
+    : en
+      ? 'If you still want your cards shipped, you can request it again from your account.'
+      : 'Si todavía quieres que te enviemos tus cartas, puedes volver a solicitarlo desde tu cuenta.';
   const url = shipmentUrl(params, l);
-  const ctaLabel = en ? 'GO TO MY ACCOUNT' : 'IR A MI CUENTA';
+  // §41.4 fila 19: el rótulo nombra el DESTINO real del enlace (⛔ «IR A MI CUENTA» que abre un pedido).
+  const ctaLabel = ctaLabelOf(params, en);
   const blocks = [
     eyebrowRow(eyebrow(params, en), folio(params)),
     headingRow(title, 22),
     spacerRow(24),
     proseRow(intro),
-    spacerRow(16),
-    proseRow(next),
+    ...(next ? [spacerRow(16), proseRow(next)] : []),
     spacerRow(32),
     ...(url ? [ctaRows(url, ctaLabel, 'ink')] : []),
   ];
   return {
-    subject: en ? `${BRAND} — Your shipment was cancelled` : `${BRAND} — Tu envío quedó cancelado`,
+    // §41.2 fila 19 ✏: sin prefijo de marca.
+    subject: en ? 'Your shipment was cancelled' : 'Tu envío quedó cancelado',
     html: mailShell({ locale: l, title, preheader: `${title}. ${intro}`, blocks, footerWhy: shipmentFooterWhy(en) }),
-    text: [title, '', intro, '', next, ...(url ? ['', url] : []), '', BRAND].join('\n'),
+    text: [title, '', intro, ...(next ? ['', next] : []), ...(url ? ['', url] : []), '', BRAND].join('\n'),
   };
+}
+
+/**
+ * **`AV-17` — ENTREGADO, con la palabra del transportista** (§19.12, DESIGN_SYSTEM §43.12, ML-24).
+ *
+ * Lo dispara `applyCarrierStatus` con `delivered` (post-commit, sello `deliveredNoticeSentAt`, solo `labelSource='skydropx'`
+ * por CHECK). ⛔ Nunca la marca a mano (criterio 210.b, `C-AV-3a`). La fecha es la del transportista (`carrierStatusAt`).
+ * ⛔ Sin plazo de disputa ni la palabra (`HECHOS.md:50/52`): lleva «¿Problema con tu pedido? Escríbenos».
+ */
+export function shipmentDeliveredTemplate(
+  params: ShipmentNoticeParams & { carrierStatusAt?: Date | string | null },
+  locale?: string | null,
+): Omit<MailMessage, 'to'> {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const at = asDate(params.carrierStatusAt);
+  const prose = at
+    ? en
+      ? `The carrier confirmed delivery on ${formatDateTime(at, l)}.`
+      : `La paquetería confirmó la entrega el ${formatDateTime(at, l)}.`
+    : en
+      ? 'The carrier confirmed your package was delivered.'
+      : 'La paquetería confirmó la entrega de tu paquete.';
+  const track = params.trackingUrl ? (en ? `Tracking with the carrier: ${params.trackingUrl}` : `Rastreo en la paquetería: ${params.trackingUrl}`) : '';
+  return carrierNotice(params, l, en ? 'Your package was delivered' : 'Tu paquete fue entregado', [prose], track);
+}
+
+/**
+ * **`AV-18` — EN SUCURSAL** (§19.12, §19.20.6, DESIGN_SYSTEM §43.12b, ML-25). `delivered_to_branch` (⛔ el envío NO pasa a
+ * `entregado`); una vez por envío (sello `branchNoticeSentAt`). `branchName` tal cual lo dio Skydropx (escapado por el shell).
+ * ⛔ Sin dirección, horario ni plazo para recoger: el contrato no los da.
+ */
+export function shipmentAtBranchTemplate(
+  params: ShipmentNoticeParams & { branchName?: string | null },
+  locale?: string | null,
+): Omit<MailMessage, 'to'> {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const branch = params.branchName?.trim() || null;
+  const p1 = branch
+    ? en
+      ? `The carrier left your package at the ${branch} branch. To get it, you need to pick it up there.`
+      : `La paquetería dejó tu paquete en la sucursal ${branch}. Para recibirlo, tienes que pasar a recogerlo ahí.`
+    : en
+      ? 'The carrier left your package at one of its branches. To get it, you need to pick it up there.'
+      : 'La paquetería dejó tu paquete en una de sus sucursales. Para recibirlo, tienes que pasar a recogerlo.';
+  const p2 = params.carrier
+    ? en
+      ? `If you don't know which branch it is or its opening hours, ask ${params.carrier} with your tracking number.`
+      : `Si no sabes cuál es la sucursal o su horario, pregúntale a ${params.carrier} con tu número de guía.`
+    : en
+      ? "If you don't know which branch it is or its opening hours, ask the carrier with your tracking number."
+      : 'Si no sabes cuál es la sucursal o su horario, pregúntale a la paquetería con tu número de guía.';
+  return carrierNotice(params, l, en ? 'Your package is at the branch' : 'Tu paquete está en sucursal', [p1, p2], trackLine(params, en));
+}
+
+/**
+ * **`AV-19` — INTENTARON ENTREGARTE** (§19.12, §19.20.6, DESIGN_SYSTEM §43.12c, ML-26). `delivery_attempt`; UNO POR INTENTO
+ * (sello `lastDeliveryAttemptAt` reclamado con `< occurredAt`). `attemptAt` = el `occurredAt` del intento. El asunto NO cambia
+ * entre intentos (⛔ sin contador: el contrato da un sello, no una cuenta). ⛔ Sin motivo, plazo ni teléfono.
+ */
+export function shipmentDeliveryAttemptTemplate(
+  params: ShipmentNoticeParams & { attemptAt?: Date | string | null },
+  locale?: string | null,
+): Omit<MailMessage, 'to'> {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const at = asDate(params.attemptAt);
+  const p1 = at
+    ? en
+      ? `The carrier tried to deliver your package on ${formatDateTime(at, l)} and couldn't.`
+      : `La paquetería intentó entregar tu paquete el ${formatDateTime(at, l)} y no pudo.`
+    : en
+      ? "The carrier tried to deliver your package and couldn't."
+      : 'La paquetería intentó entregar tu paquete y no pudo.';
+  const p2 = params.carrier
+    ? en
+      ? `Contact ${params.carrier} with your tracking number to arrange another delivery.`
+      : `Comunícate con ${params.carrier} con tu número de guía para acordar otra entrega.`
+    : en
+      ? 'Contact the carrier with your tracking number to arrange another delivery.'
+      : 'Comunícate con la paquetería con tu número de guía para acordar otra entrega.';
+  return carrierNotice(params, l, en ? 'The carrier tried to deliver your package' : 'La paquetería intentó entregar tu paquete', [p1, p2], trackLine(params, en));
 }

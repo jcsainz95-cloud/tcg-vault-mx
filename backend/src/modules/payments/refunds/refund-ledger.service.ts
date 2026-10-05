@@ -17,6 +17,8 @@
  *  - `AV-12` post-commit, best-effort, con sello `customerNotifiedAt` reclamado por `updateMany`.
  *  - El TOPE del operador (§M4-SHIP.8): `lockOperatorRefundGate` + `usedCents` en 24 h rodantes.
  */
+import { ModuleRef } from '@nestjs/core';
+import { afterAutoCloseVia } from '../../shipments/label-auto-close';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { MissingReason, PaymentRefund, PaymentRefundKind, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -30,6 +32,8 @@ import { readFrozenCardFacts } from '../../orders/order-item-card';
 import { orderRefundedTemplate } from '../../orders/mail/order-notice.templates';
 import { FullRefundService } from './full-refund.service';
 import { Av12Params, refundNoticeTemplate } from './mail/refund-notice.templates';
+import { OrderAccessTokenService } from '../../orders/order-access-token.service';
+import { orderMailLinkOf, safeErrorTag } from '../../shipments/guest-mail-link';
 
 /** Espacio del advisory lock de la PUERTA POR OPERADOR (§M4-SHIP.5 paso 6). Namespace propio. */
 export const OPERATOR_REFUND_GATE_NAMESPACE = 80_125_061;
@@ -92,6 +96,11 @@ export class RefundLedgerService {
     private readonly settings: SettingsService,
     private readonly fullRefund: FullRefundService,
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // 💰 v1.81 (§M4-SHIP.19.8): post-commit de la cancelación automática de la guía (por token; ⛔ ciclo de módulos).
+    @Optional() private readonly moduleRef?: ModuleRef,
+    // 🔒 v1.80.12.16 (§M4-SHIP.19.35.1): la liga del invitado en `AV-12` (token nuevo SIN rotar, el MISMO cuerpo que los avisos de
+    // envío). `@Optional()` por los tests unitarios legacy; sin él el invitado va sin CTA.
+    @Optional() private readonly orderTokens?: OrderAccessTokenService,
   ) {}
 
   // ================================================================ el libro
@@ -287,6 +296,7 @@ export class RefundLedgerService {
       return this.markFailed(row.id, `stripe_${stripeStatus}`, actor, stripeId);
     }
     const succeeded = stripeStatus === 'succeeded';
+    const closedShipmentIds: string[] = [];
     const result = await this.prisma.$transaction(async (tx) => {
       const cas = await tx.paymentRefund.updateMany({
         where: { id: row.id, status: 'requested' },
@@ -308,7 +318,8 @@ export class RefundLedgerService {
       // nada (la orden podía pasar a `chargeback` entre ella y el `FOR UPDATE`, y entonces la pasada SÍ escribía y el
       // log mentía), y el cierre por reembolso total procede aunque haya contracargo — igual que el webhook
       // (`payments.service.ts · onChargeRefunded`): un hecho de Stripe, una consecuencia. La caza: PS-57d.
-      await this.fullRefund.onFullRefund(tx, { orderId: row.orderId }, 'm3', actor?.id ?? null);
+      const pass = await this.fullRefund.onFullRefund(tx, { orderId: row.orderId }, 'm3', actor?.id ?? null);
+      closedShipmentIds.push(...(pass?.closedShipmentIds ?? []));
       // `count 1` ⇒ esta tx hizo la TRANSICIÓN `settled → refunded` y manda `AV-3` (una vez).
       const transitioned = await tx.order.updateMany({
         where: { id: row.orderId, status: 'settled' },
@@ -333,6 +344,8 @@ export class RefundLedgerService {
       }
       return { notify: transitioned.count === 1 };
     });
+    // 💰 §M4-SHIP.19.8: la guía de los envíos cerrados se cancela en Skydropx DESPUÉS del commit (best-effort).
+    await afterAutoCloseVia(this.moduleRef, closedShipmentIds);
     if (result.notify && row.orderId) await this.sendOrderRefundedNotice(row.orderId);
     // PROJECTION-EXEMPT: fila INTERNA del libro; todo caller proyecta con `toDtos` antes de responder.
     return this.prisma.paymentRefund.findUniqueOrThrow({ where: { id: row.id } });
@@ -477,7 +490,7 @@ export class RefundLedgerService {
         include: {
           orderItem: { select: { cardSnapshot: true } },
           replacementCase: { select: { customerUserId: true, originalInventoryItem: { select: { card: { select: { name: true, set: { select: { name: true } } } } } } } },
-          order: { select: { id: true, orderNumber: true, guestEmail: true, locale: true, userId: true } },
+          order: { select: { id: true, orderNumber: true, guestEmail: true, locale: true, userId: true, createdAt: true } },
           shipmentRequest: { select: { id: true, userId: true } },
         },
       });
@@ -520,11 +533,18 @@ export class RefundLedgerService {
           nothingShips,
           variant: isCase ? 'case_refund' : 'item_missing',
           totalCents: group.reduce((a, r) => a + r.amountCents, 0),
+          // 🔒 v1.80.12.16 (§19.35.1): el CTA de un PEDIDO lo resuelve el MISMO cuerpo que los avisos de envío — sello ganado
+          // (`customerNotifiedAt`) y destinatario presentes ⇒ registrado/reclamado `orders/<id>`, invitado token SIN rotar,
+          // > 365 días sin CTA. Un retiro (sin pedido) conserva su enlace de siempre (N-8).
+          ...(first.order
+            ? { customerUrl: await orderMailLinkOf({ prisma: this.prisma, tokens: this.orderTokens, logger: this.logger }, first.order, recipient.locale, 'AV-12') }
+            : {}),
         };
         await this.mail.send({ ...refundNoticeTemplate(params, recipient.locale), to: recipient.email });
       }
     } catch (e) {
-      this.logger.error(`AV-12 falló: ${(e as Error).message}`);
+      // D-8 (gate techlead sobre 31af0883): ⛔ el mensaje crudo (podría citar el enlace con token): solo clase y código.
+      this.logger.error(`AV-12 falló (${safeErrorTag(e)})`);
     }
   }
 

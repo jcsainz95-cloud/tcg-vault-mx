@@ -1,3 +1,4 @@
+import { fakePostalCodes } from './helpers/fake-postal-codes';
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
@@ -20,6 +21,8 @@ import { ADDRESS_DTO_KEYS } from '../src/modules/users/address-dto';
 const ME_KEYS = [
   'id', 'email', 'username', 'lockNotice', 'name', 'nameSource', 'phone', 'role', 'locale', 'kycStatus', 'status',
   'authProvider', 'emailVerified', 'avatarUrl', 'hasPassword', 'mustChangePassword',
+  // 🔒 D2g (API_CONTRACT §M4-SHIP.19.30.3): + `isOwner` (= `isOwnerAccount` de la fila; `false` para todo cliente).
+  'isOwner',
 ].sort();
 
 function baseUser(over: Record<string, unknown> = {}) {
@@ -56,7 +59,7 @@ function build(user: Record<string, unknown>, addresses: Record<string, unknown>
       update: jest.fn(async ({ where, data }: any) => ({ ...addresses.find((a) => a.id === where.id), ...data })),
     },
   };
-  const svc = new UsersService(prisma as PrismaService, {} as SettingsService, {} as PiiCryptoService, {} as never);
+  const svc = new UsersService(prisma as PrismaService, {} as SettingsService, {} as PiiCryptoService, {} as never, undefined, fakePostalCodes());
   return { svc, prisma };
 }
 
@@ -151,6 +154,7 @@ describe('UsersService.updateMe — trim, 1..120, nameSource=user, misma forma q
 describe('UsersService direcciones — recipientName obligatorio al crear, no vaciable al editar (v1.67)', () => {
   const body = {
     line1: 'Av. Siempre Viva 742',
+    neighborhood: 'San Ángel', // ⭐ v1.81 (M-64): obligatoria y de la lista del CP
     city: 'CDMX',
     state: 'CDMX',
     postalCode: '01000',
@@ -195,15 +199,17 @@ describe('UsersService direcciones — recipientName obligatorio al crear, no va
     expect(errors.map((e) => e.property)).toContain('recipientName');
   });
 
-  const old = { id: 'a-old', userId: 'u1', recipientName: null, ...body, line2: null, neighborhood: null, isDefault: true };
+  const old = { id: 'a-old', userId: 'u1', recipientName: null, ...body, line2: null, neighborhood: null, references: null, isDefault: true };
 
   it('lista/proyecta `recipientName: null` en filas anteriores a M-52 (contrato §11)', async () => {
     const { svc } = build(baseUser(), [old]);
     const { data } = await svc.listAddresses('u1');
     expect(data[0]).toHaveProperty('recipientName', null);
     expect(Object.keys(data[0]).sort()).toEqual(
-      ['id', 'recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode', 'country', 'phone', 'isDefault'].sort(),
+      ['id', 'recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode', 'country', 'phone', 'references', 'isDefault', 'complete'].sort(),
     );
+    // ⭐ v1.81: la fila vieja sin colonia sale `complete:false` y `references:null` (sin backfill).
+    expect(data[0]).toMatchObject({ complete: false, references: null });
   });
 
   it('PATCH con recipientName válido lo escribe recortado (remedio de RECIPIENT_NAME_REQUIRED)', async () => {
@@ -244,6 +250,7 @@ describe('UsersService direcciones — norma «nunca `data: dto`»: lista blanca
   const body = {
     recipientName: 'Ana Pérez',
     line1: 'Av. Siempre Viva 742',
+    neighborhood: 'San Ángel',
     city: 'CDMX',
     state: 'CDMX',
     postalCode: '01000',
@@ -261,7 +268,7 @@ describe('UsersService direcciones — norma «nunca `data: dto`»: lista blanca
     const data = prisma.address.create.mock.calls[0][0].data;
     expect(data).not.toHaveProperty('intruso');
     expect(Object.keys(data).sort()).toEqual(
-      ['userId', 'recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode', 'country', 'phone', 'isDefault'].sort(),
+      ['userId', 'recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode', 'country', 'phone', 'references', 'isDefault'].sort(),
     );
   });
 

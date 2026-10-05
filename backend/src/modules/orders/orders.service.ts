@@ -18,6 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentPiece, currentPiecesOf } from '../payments/refunds/origin';
 import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
+import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlOf, toCustomerTimeline } from '../shipments/customer-timeline';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
@@ -236,8 +237,9 @@ export class OrdersService {
    * ⭐ v1.80.2 (§M4-SHIP.16) — `CustomerOrderShipmentDTO`: LISTA BLANCA (⛔ nunca un spread de la fila). Fuera, por
    * contrato: costos, sellos de aviso, `stripePaymentIntentId`, `preparedBy*`, actores y el `addressSnapshot` crudo.
    */
-  private toCustomerOrderShipment(s: ShipmentRequest & { items: { prepStatus: PreparationItemStatus }[] }) {
+  private toCustomerOrderShipment(s: ShipmentRequest & { items: { prepStatus: PreparationItemStatus }[]; carrierEvents?: TimelineEventRow[] }) {
     const a = (s.addressSnapshot ?? {}) as Partial<Record<'recipientName' | 'city' | 'state' | 'postalCode', string>>;
+    const trackingUrl = providerTrackingUrlOf(s);
     return {
       id: s.id,
       status: s.status,
@@ -249,6 +251,9 @@ export class OrdersService {
       deliveredAt: s.deliveredAt ? s.deliveredAt.toISOString() : null,
       shipTo: { recipientName: a.recipientName ?? '', city: a.city ?? '', state: a.state ?? '', postalCode: a.postalCode ?? '' },
       missingCount: s.items.filter((i) => i.prepStatus === 'missing').length,
+      // ⭐ D2e (§19.12, PS-88/PS-89): la liga de rastreo SOLO si Skydropx la dio (ausente si no) y la línea de tiempo pública.
+      ...(trackingUrl ? { trackingUrl } : {}),
+      timeline: toCustomerTimeline(s.carrierEvents ?? [], s),
     };
   }
 
@@ -1956,7 +1961,8 @@ export class OrdersService {
       // ⭐ v1.80.2 (§M4-SHIP.16): envíos (con sus líneas para `missingCount`) y el libro en la MISMA consulta.
       include: {
         items: { include: { refund: true } },
-        shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { items: { select: { prepStatus: true } } } },
+        // ⭐ D2e (§19.12, PS-89): + los eventos del transportista para la línea de tiempo pública.
+        shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { items: { select: { prepStatus: true } }, carrierEvents: CUSTOMER_TIMELINE_EVENTS_SELECT } },
         refunds: true,
       },
     });

@@ -7,6 +7,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
+import { ShipmentTimeline, TrackingLink } from '@/components/domain/ShipmentTrackingExtras';
 import { TRACKING_STATUS_KEY, TRACKING_STEPS, stepForStatus } from '@/app/[locale]/pedido/tracking-status';
 import type { CustomerOrderShipmentDTO, FulfillmentMode, GuestOrderPublicStatus } from '@/types/contract';
 
@@ -103,6 +104,8 @@ export function OrderShipmentBlock({
         ) : (
           <span className="font-mono text-[11px] uppercase tracking-label text-muted">{t('trackingNone')}</span>
         )}
+        {/* ⭐ §43.11 (FS-9): liga SOLO si Skydropx la dio (⛔ nunca construida con la guía). */}
+        <TrackingLink url={shipment.trackingUrl} />
       </div>
       {step && (
         <div className="mt-5">
@@ -115,6 +118,8 @@ export function OrderShipmentBlock({
           />
         </div>
       )}
+      {/* ⭐ §43.11: movimientos bajo el stepper; el título del estado NO cambia. */}
+      <ShipmentTimeline events={shipment.timeline} className="mt-4" />
       <p className="mt-4 text-sm text-text" data-testid="order-ship-to">
         {t('to', { name: shipment.shipTo.recipientName, city: shipment.shipTo.city, state: shipment.shipTo.state, zip: shipment.shipTo.postalCode })}
       </p>

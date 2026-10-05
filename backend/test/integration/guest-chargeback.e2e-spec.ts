@@ -22,6 +22,7 @@ import { ShipmentsService } from '../../src/modules/shipments/shipments.service'
 const RUN = Date.now().toString(36);
 const ADDRESS = {
   line1: 'Av. Reforma 100',
+  neighborhood: 'Juárez', // ⭐ v1.81 (M-64): obligatoria y de la lista del CP
   city: 'Ciudad de México',
   state: 'CDMX',
   postalCode: '06600',

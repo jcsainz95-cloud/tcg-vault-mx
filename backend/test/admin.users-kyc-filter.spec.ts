@@ -74,14 +74,14 @@ describe('§M6-L.1 — `kycStatus` viaja en cada fila, SIEMPRE con valor', () =>
     }
   });
 
-  it('la fila es EXACTAMENTE `AdminUserSummaryDTO`: nueve claves (v1.80.9), ni una más', async () => {
+  it('la fila es EXACTAMENTE `AdminUserSummaryDTO`: diez claves (v1.80.9 + `isOwner` de D2g), ni una más', async () => {
     const { ctrl } = build([
       { id: 'u1', email: 'a@x.mx', name: 'A', role: Role.customer, status: UserStatus.active, createdAt: new Date(0), kycProfile: { kycStatus: KycStatus.verified } },
     ]);
     const res: any = await ctrl.list({});
     expect(Object.keys(res.data[0]).sort()).toEqual(
-      // v1.80.9 (§M6-U.7): + `username` y `lockedUntil` (nueve claves).
-      ['createdAt', 'email', 'id', 'kycStatus', 'lockedUntil', 'name', 'role', 'status', 'username'].sort(),
+      // v1.80.9 (§M6-U.7): + `username` y `lockedUntil` (nueve claves). 🔒 D2g (§M4-SHIP.19.30.3): + `isOwner` (diez).
+      ['createdAt', 'email', 'id', 'isOwner', 'kycStatus', 'lockedUntil', 'name', 'role', 'status', 'username'].sort(),
     );
     // ⛔ `kycProfile` NO se reenvía crudo: viaja el ESTADO, nunca el objeto de identidad.
     expect(res.data[0]).not.toHaveProperty('kycProfile');

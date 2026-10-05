@@ -104,6 +104,8 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
       billingProfile: { deleteMany: jest.fn(async () => ({})) },
       address: { deleteMany: jest.fn(async () => ({})) },
       portfolioSnapshot: { deleteMany: jest.fn(async () => ({})) },
+      // ⭐ v1.80.12.2 (SKX-SEC-1): los valores de las correcciones de dirección de sus envíos.
+      shipmentAddressRevision: { deleteMany: jest.fn(async () => ({})) },
       user: { update: jest.fn(async () => ({})) },
     };
     const prisma: any = {
@@ -175,6 +177,10 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
     expect(kycData).toMatchObject({ rfcEnc: null, legalName: null, ineFrontKey: null, ineBackKey: null }); // la CLABE la anula `users.eraseClabe` (v1.80.7, C-CLABE-1)
     expect(tx.billingProfile.deleteMany).toHaveBeenCalled();
     expect(tx.address.deleteMany).toHaveBeenCalled();
+    // ⭐ v1.80.12.2: retiros (userId) Y envíos directos (order.userId), en la MISMA tx.
+    expect(tx.shipmentAddressRevision.deleteMany).toHaveBeenCalledWith({
+      where: { shipmentRequest: { OR: [{ userId: 'u1' }, { order: { userId: 'u1' } }] } },
+    });
   });
 
   /**

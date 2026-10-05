@@ -47,7 +47,7 @@ import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { QueryState } from '@/components/ui/QueryState';
+import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 
@@ -188,6 +188,14 @@ export function M6View() {
   // --- Reset de contraseña (super_admin): la temp password se muestra UNA sola vez ---
   const session = useSession();
   const isSelf = !!session.user && session.user.id === selectedId;
+  // 🔒 v1.80.12.10 (§19.30.2 (b)): la cuenta del dueño no se restablece, bloquea ni borra desde otra cuenta, y ni el
+  // propio dueño se bloquea o se borra. Solo para mostrar (⛔ no autoriza): el servidor responde
+  // `403 OWNER_ACCOUNT_PROTECTED`, que también se pinta. Con ≤ 1 dueño, `isOwner ∧ ¬isSelf` ⇒ el actor no es el dueño.
+  const ownerTarget = d?.isOwner === true;
+  const canResetTarget = !ownerTarget || isSelf;
+  const canBlockOrDeleteTarget = !ownerTarget;
+  const ownerProtected = (e: unknown) => e instanceof ApiClientError && e.code === 'OWNER_ACCOUNT_PROTECTED';
+  const getError = useErrorMessage('operator');
   const [resetResult, setResetResult] = useState<ResetPasswordResponse | null>(null);
   const resetMutation = useMutation({
     mutationFn: () => resetUserPassword(selectedId!),
@@ -299,7 +307,7 @@ export function M6View() {
     },
     onError: (err) => {
       const code = err instanceof ApiClientError ? err.code : undefined;
-      setDeleteError(code === 'CANNOT_DELETE_SELF' ? t('deleteSelfError') : t('deleteError'));
+      setDeleteError(code === 'CANNOT_DELETE_SELF' ? t('deleteSelfError') : code === 'OWNER_ACCOUNT_PROTECTED' ? t('ownerProtected') : t('deleteError'));
     },
   });
 
@@ -312,7 +320,16 @@ export function M6View() {
   }, [selectedId]);
 
   const columns: Column<AdminUserSummaryDTO>[] = [
-    { key: 'name', header: t('table.name'), render: (u) => <span className="font-medium">{u.name}</span> },
+    {
+      key: 'name',
+      header: t('table.name'),
+      render: (u) => (
+        <span className="inline-flex flex-wrap items-baseline gap-2">
+          <span className="font-medium">{u.name}</span>
+          {u.isOwner === true && <OwnerTag label={t('ownerTag')} />}
+        </span>
+      ),
+    },
     /* ⭐ v1.80.9 (§42.5.1, UX-8 = STF-27): una sola regla de pintado, `email ?? username`. */
     { key: 'identifier', header: t('table.identifier'), render: (u) => <span className="tabular text-muted">{userIdentifier(u)}</span> },
     { key: 'role', header: t('table.role'), render: (u) => <Badge tone="neutral">{u.role}</Badge> },
@@ -477,6 +494,7 @@ export function M6View() {
               <div className="flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-h3 font-semibold">{d.name}</span>
+                  {ownerTarget && <OwnerTag label={t('ownerTag')} />}
                   <UserStatusBadge status={d.status} t={t} />
                   {detailLockTime && <LockMark time={detailLockTime} t={t} />}
                   <Badge tone="neutral">{d.role}</Badge>
@@ -574,8 +592,15 @@ export function M6View() {
                 </div>
               )}
 
+              {ownerTarget && (
+                <p className="text-sm text-muted" data-testid="m6-owner-account">
+                  {/* §43.20.6: el propio dueño lee su nota; los demás, la de «desde otra cuenta». */}
+                  {isSelf ? t('ownerAccountSelf') : t('ownerAccount')}
+                </p>
+              )}
+
               {/* Bloquear / activar */}
-              {d.status !== 'deleted' && (
+              {d.status !== 'deleted' && canBlockOrDeleteTarget && (
                 <div className="flex items-center justify-between border-t border-border pt-3">
                   <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
                   {d.status === 'blocked' ? (
@@ -591,10 +616,11 @@ export function M6View() {
               )}
 
               {/* Gestión de cuenta (super_admin): reset de contraseña + eliminar */}
-              {d.status !== 'deleted' && (
+              {d.status !== 'deleted' && (canResetTarget || canBlockOrDeleteTarget) && (
                 <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
                   <span className="text-sm font-semibold">{t('accountTitle')}</span>
                   {/* Reset de contraseña */}
+                  {canResetTarget && (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="max-w-md text-xs text-muted">{t('resetHint')}</p>
                     <Button
@@ -606,10 +632,12 @@ export function M6View() {
                       <KeyRound size={16} /> {t('resetPassword')}
                     </Button>
                   </div>
+                  )}
                   {resetMutation.isError && (
-                    <Banner variant="danger" role="alert">{t('resetError')}</Banner>
+                    <Banner variant="danger" role="alert">{ownerProtected(resetMutation.error) ? t('ownerProtected') : t('resetError')}</Banner>
                   )}
                   {/* Eliminar usuario */}
+                  {canBlockOrDeleteTarget && (
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
                     <p className="max-w-md text-xs text-muted">{t('deleteHint')}</p>
                     <Button
@@ -621,7 +649,8 @@ export function M6View() {
                       <Trash2 size={16} /> {t('deleteUser')}
                     </Button>
                   </div>
-                  {isSelf && <p className="text-xs text-muted">{t('deleteSelfHint')}</p>}
+                  )}
+                  {isSelf && canBlockOrDeleteTarget && <p className="text-xs text-muted">{t('deleteSelfHint')}</p>}
                 </div>
               )}
             </div>
@@ -835,6 +864,11 @@ export function M6View() {
         }
       >
         <p>{blockTarget === 'blocked' ? t('blockQuestion') : t('unblockQuestion')}</p>
+        {statusMutation.isError && (
+          <Banner variant="danger" role="alert">
+            {ownerProtected(statusMutation.error) ? t('ownerProtected') : getError(statusMutation.error)}
+          </Banner>
+        )}
       </Modal>
     </div>
   );
@@ -1190,5 +1224,17 @@ function ActivityTab({ userId, locale }: { userId: string; locale: AppLocale }) 
         <p className="py-6 text-center text-sm text-muted">{t('historyEmpty')}</p>
       )}
     </QueryState>
+  );
+}
+
+/**
+ * «Dueño» junto al nombre (`DESIGN_SYSTEM §43.20.6`): versalita mono `text-muted`, ⛔ sin color — es un dato, no un aviso.
+ * Solo para mostrar (`isOwner` del DTO); ⛔ no autoriza.
+ */
+function OwnerTag({ label }: { label: string }) {
+  return (
+    <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted" data-testid="m6-owner-tag">
+      {label}
+    </span>
   );
 }

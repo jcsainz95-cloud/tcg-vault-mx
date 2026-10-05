@@ -185,6 +185,38 @@ jobs:
         run: npm run typecheck --if-present
       - name: Test
         run: npm test --if-present
+      # 💰🔒 PS-99 (d): la sonda D0 de Skydropx (scripts/skydropx/) NO puede llamar a
+      # compra, cancelación ni protección. Su prueba corre aquí, SIN red y SIN
+      # credenciales (contra un doble en memoria). La sonda en sí no se ejecuta
+      # nunca desde CI. DEVOPS_NOTES §78.
+      - name: Sonda Skydropx — prueba de solo lectura (PS-99 d)
+        run: ../scripts/skydropx/run-prod-probe.sh test
+      # M-64: el importador del catálogo de CP de SEPOMEX (scripts/geo/). Su prueba
+      # corre contra una base DEDICADA (`tcg_sepomex_ci`, la crea `migrate deploy`
+      # porque el usuario del servicio es superusuario), nunca contra `tcg_ci`: la
+      # prueba vacía la tabla. Mide carga por modo, resolución por `resolvePostalCode`,
+      # idempotencia, `verify` (vacía ⇒ 2) y que todo fallo deja la tabla idéntica.
+      # Ningún arranque lo corre (G-BOOT, job `boot-no-geo`). DEVOPS_NOTES §79–§81.
+      - name: Importador SEPOMEX — prueba con base dedicada (M-64)
+        run: |
+          SEPOMEX_TEST_DATABASE_URL="$(printf '%s' "$DATABASE_URL" | sed 's#/tcg_ci?#/tcg_sepomex_ci?#')"
+          case "$SEPOMEX_TEST_DATABASE_URL" in
+            *"/tcg_sepomex_ci?"*) ;;
+            *) echo "::error::no pude derivar la base dedicada de DATABASE_URL"; exit 1 ;;
+          esac
+          export SEPOMEX_TEST_DATABASE_URL
+          DATABASE_URL="$SEPOMEX_TEST_DATABASE_URL" npx prisma migrate deploy
+          # Reporter TAP FORZADO: desde Node 23 el reporter por defecto es `spec` también
+          # sin TTY, y su resumen sale «ℹ skipped N», no «# skipped N». MEDIDO 2026-10-05
+          # (devops, I-1): Node 22.22.2 ⇒ «# skipped 6»; Node 24.21.0 ⇒ «ℹ skipped 6», misma
+          # prueba sin base. Con Node 24 aquí, el grep de abajo era rojo SIEMPRE, con o sin
+          # saltos — el «se saltó» mentía desde que el paso existe.
+          out="$(NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--test-reporter=tap" ../scripts/geo/import-sepomex.sh test)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          # Formato desconocido ≠ prueba saltada: si no hay resumen TAP, se dice eso.
+          printf '%s\n' "$out" | grep -Eq '^# tests [1-9][0-9]*$' || { echo "::error::sin resumen TAP «# tests N» (¿cambió el reporter?): no puedo saber si la parte con base corrió"; exit 1; }
+          # La parte con base NO puede saltarse en verde.
+          printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base se saltó"; exit 1; }
       - name: Build
         run: npm run build --if-present
 
@@ -627,6 +659,40 @@ jobs:
         run: ./scripts/check-secret-defaults-canary.sh
 
   # ---------------------------------------------------------------------------
+  # 💰🔒 PS-99 (d) / C-SDX-8 — ningún workflow, compose ni plantilla reparte las
+  # llaves de Skydropx; la pila E2E corre con el adaptador doble. El canario
+  # planta cada forma de fuga en una copia y exige ROJO. DEVOPS_NOTES §78.
+  # ---------------------------------------------------------------------------
+  skydropx-spend-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ninguna pila de pruebas recibe las llaves de Skydropx
+        run: ./scripts/check-skydropx-spend-lock.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-skydropx-spend-lock-canary.sh
+
+  # ---------------------------------------------------------------------------
+  # 💰 G-BOOT — «la tienda nunca deja de vender por el catálogo de CP», al nivel
+  # del arranque (API_CONTRACT §M4-SHIP.19.25.4, decisión del dueño HECHOS.md:57).
+  # Hasta v1.80.12.4 el CMD corría `import-sepomex.ts boot` y en Railway, sin
+  # manifiesto, la imagen NO arrancaba. Este candado impide que vuelva: ni el
+  # CMD/ENTRYPOINT, ni la imagen, ni .dockerignore, ni railway.json, ni compose
+  # cargan el importador. El canario repone el `boot` literal y exige ROJO.
+  # DEVOPS_NOTES §81.
+  # ---------------------------------------------------------------------------
+  boot-no-geo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Ningún arranque carga ni verifica el catálogo de CP (G-BOOT)
+        run: ./scripts/check-boot-no-geo.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-boot-no-geo-canary.sh
+
+  # ---------------------------------------------------------------------------
   # 🔒 S-CI-1 — UN SCRIPT QUE SE INVOCA DESDE CI TIENE QUE EXISTIR BAJO EL CWD DEL
   # PASO QUE LO INVOCA. 2026-09-11, hallazgo ALTA de seguridad (re-veredicto).
   #
@@ -747,7 +813,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, skydropx-spend-lock, boot-no-geo]
     if: always()
     runs-on: ubuntu-latest
     steps:

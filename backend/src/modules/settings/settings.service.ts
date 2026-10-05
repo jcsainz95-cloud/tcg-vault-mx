@@ -524,6 +524,51 @@ export class SettingsService implements OnModuleInit {
   }
 
   /**
+   * 🔒 D2g (§M4-SHIP.19.30.2 (1)) — la validación POR CLAVE de `update` (lista blanca + validador de cada dial), sin tocar la
+   * base. Es el MISMO cuerpo que usa `update` (extraído, no copiado): el controlador la corre ANTES de la comprobación de los
+   * diales del dueño, para que un cuerpo inválido siga siendo `422` para cualquiera. Lanza `422 VALIDATION_ERROR` igual que antes.
+   */
+  validatePayload(dtoPartial: Record<string, unknown>): { dtoKey: string; settingKey: SettingKeyType; value: unknown }[] {
+    const errors: Record<string, string> = Object.create(null) as Record<string, string>;
+    const validated: { dtoKey: string; settingKey: SettingKeyType; value: unknown }[] = [];
+
+    for (const [dtoKey, value] of Object.entries(dtoPartial)) {
+      // ⚠️ Propiedad PROPIA y NO `SETTING_DTO_MAP[dtoKey]`: con `__proto__`, `constructor` o
+      // `toString` el acceso indexado devuelve un heredado TRUTHY y la clave desconocida se colaba
+      // hasta el `upsert`. (`hasOwnProperty.call` y no `Object.hasOwn` porque el target del build es
+      // ES2021; son equivalentes y esto no obliga a mover la configuración de compilación.)
+      if (!Object.prototype.hasOwnProperty.call(SETTING_DTO_MAP, dtoKey)) {
+        errors[dtoKey] = 'unknown setting key';
+        continue;
+      }
+      const settingKey = SETTING_DTO_MAP[dtoKey];
+      // Defensa en profundidad: aunque `hasOwn` ya lo garantiza, el valor tiene que ser una clave
+      // string real antes de tocar la BD (un `upsert` con clave no-string es un 500, no un 422).
+      if (typeof settingKey !== 'string') {
+        errors[dtoKey] = 'unknown setting key';
+        continue;
+      }
+      const validate = SETTING_VALIDATORS[settingKey];
+      const msg = validate ? validate(value) : null;
+      if (msg) {
+        errors[dtoKey] = msg;
+        continue;
+      }
+      validated.push({ dtoKey, settingKey, value });
+    }
+
+    if (Object.keys(errors).length > 0) {
+      // `{ ...errors }` para que el serializador reciba un objeto normal (el de prototipo nulo es
+      // para ACUMULAR con claves hostiles, no necesariamente para viajar).
+      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid settings payload', {
+        errors: { ...errors },
+      });
+    }
+
+    return validated;
+  }
+
+  /**
    * Actualiza uno o varios diales (upsert). Devuelve los cambios aplicados.
    * Fix correctness #2: valida CADA dial por tipo+rango antes de persistir y RECHAZA
    * keys desconocidas con 422 (antes se ignoraban en silencio). La validación es
@@ -567,41 +612,7 @@ export class SettingsService implements OnModuleInit {
     // Resultado: el error se PERDÍA, `Object.keys(errors).length` seguía en 0 y la petición
     // continuaba como si fuera válida. Es la MISMA clase de agujero que la lista blanca, un nivel más
     // abajo — y por eso las dos puntas se cierran juntas.
-    const errors: Record<string, string> = Object.create(null) as Record<string, string>;
-    const validated: { dtoKey: string; settingKey: SettingKeyType; value: unknown }[] = [];
-
-    for (const [dtoKey, value] of Object.entries(dtoPartial)) {
-      // ⚠️ Propiedad PROPIA y NO `SETTING_DTO_MAP[dtoKey]`: con `__proto__`, `constructor` o
-      // `toString` el acceso indexado devuelve un heredado TRUTHY y la clave desconocida se colaba
-      // hasta el `upsert`. (`hasOwnProperty.call` y no `Object.hasOwn` porque el target del build es
-      // ES2021; son equivalentes y esto no obliga a mover la configuración de compilación.)
-      if (!Object.prototype.hasOwnProperty.call(SETTING_DTO_MAP, dtoKey)) {
-        errors[dtoKey] = 'unknown setting key';
-        continue;
-      }
-      const settingKey = SETTING_DTO_MAP[dtoKey];
-      // Defensa en profundidad: aunque `hasOwn` ya lo garantiza, el valor tiene que ser una clave
-      // string real antes de tocar la BD (un `upsert` con clave no-string es un 500, no un 422).
-      if (typeof settingKey !== 'string') {
-        errors[dtoKey] = 'unknown setting key';
-        continue;
-      }
-      const validate = SETTING_VALIDATORS[settingKey];
-      const msg = validate ? validate(value) : null;
-      if (msg) {
-        errors[dtoKey] = msg;
-        continue;
-      }
-      validated.push({ dtoKey, settingKey, value });
-    }
-
-    if (Object.keys(errors).length > 0) {
-      // `{ ...errors }` para que el serializador reciba un objeto normal (el de prototipo nulo es
-      // para ACUMULAR con claves hostiles, no necesariamente para viajar).
-      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid settings payload', {
-        errors: { ...errors },
-      });
-    }
+    const validated = this.validatePayload(dtoPartial);
 
     // v1.51 (M-46, §4.39l / criterio 127) — VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES.
     await this.assertBuylistCrossDials(validated);
@@ -938,7 +949,7 @@ function truncateJson(raw: string): string {
  * motor las devuelva. Solo se ordenan las claves de los OBJETOS; el orden de los ARRAYS se conserva
  * porque en los diales que son listas (escalones de grading, puntos de la curva) **es significativo**.
  */
-function canonicalJson(v: unknown): string {
+export function canonicalJson(v: unknown): string {
   const canon = (x: unknown): unknown => {
     if (Array.isArray(x)) return x.map(canon);
     if (x !== null && typeof x === 'object') {

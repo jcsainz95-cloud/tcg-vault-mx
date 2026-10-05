@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { GuestAddressInput } from '@/types/contract';
 import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { PostalCodeNeighborhoodFields, type NeighborhoodMode } from '@/components/domain/PostalCodeNeighborhoodFields';
+import { LINE2_MAX, REFERENCES_MAX } from '@/lib/address-rules';
 import { VaultUpsellPanel } from './VaultUpsellPanel';
 import { suggestEmailTypo, type GuestErrors, type GuestField, type GuestFormState } from './guest-validation';
 
@@ -19,36 +22,57 @@ export interface GuestCheckoutFormProps {
   onBlurField: (field: GuestField) => void;
   /** true tras un intento de pago con errores: pinta el resumen `role="alert"` */
   submitAttempted: boolean;
+  /**
+   * Contador de intentos de pago (sube en CADA clic en pagar). El foco va al resumen solo cuando cambia
+   * este número — nunca cuando cambia el número de errores (FRONTEND_NOTES §91).
+   */
+  submitAttemptId: number;
   destination: Destination;
   onDestinationChange: (destination: Destination) => void;
   upsellOpen: boolean;
   shippingFeeLabel?: string;
   onDismissUpsell: () => void;
   onAccountReady: () => void;
+  /**
+   * Un `400 VALIDATION_ERROR {field, max}` de la sesión sobre la colonia, el municipio o el estado, pintado
+   * BAJO su campo (§43.18m.7, `geo.tooLong`). Lo retira quien monta al tocar ese campo. v1.80.12.5
+   * (§M4-SHIP.19.25): ⛔ ya no hay `422` geográficos que pintar.
+   */
+  serverAddressError?: { field: 'neighborhood' | 'city' | 'state'; message: string } | null;
+  /** El modo de la colonia (§43.18m.1): la validación de quien monta depende de él. */
+  onGeoModeChange?: (mode: NeighborhoodMode) => void;
 }
 
-const FIELD_ORDER: GuestField[] = [
+export const FIELD_ORDER: GuestField[] = [
   'email',
   'emailConfirmed',
   'recipientName',
   'line1',
+  'line2',
+  'postalCode',
+  'neighborhood',
+  // §43.18m.7 / FC-23: municipio y estado (solo existen en «todo a mano») van tras la colonia, como en el DOM.
   'city',
   'state',
-  'postalCode',
+  // §43.18b: referencias antes que teléfono (mismo orden que el DOM: el resumen de errores lo sigue).
+  'references',
   'phone',
   'terms',
 ];
 
 /** id del control en el DOM (para los enlaces del resumen de errores). */
-const FIELD_ID: Record<GuestField, string> = {
+export const FIELD_ID: Record<GuestField, string> = {
   email: 'guest-email',
   emailConfirmed: 'guest-email-confirm',
   recipientName: 'guest-recipientName',
   line1: 'guest-line1',
+  line2: 'guest-line2',
+  postalCode: 'guest-postalCode',
+  neighborhood: 'guest-neighborhood',
   city: 'guest-city',
   state: 'guest-state',
-  postalCode: 'guest-postalCode',
   phone: 'guest-phone',
+  references: 'guest-references',
   terms: 'guest-terms',
 };
 
@@ -72,12 +96,15 @@ export function GuestCheckoutForm({
   touched,
   onBlurField,
   submitAttempted,
+  submitAttemptId,
   destination,
   onDestinationChange,
   upsellOpen,
   shippingFeeLabel,
   onDismissUpsell,
   onAccountReady,
+  serverAddressError = null,
+  onGeoModeChange,
 }: GuestCheckoutFormProps) {
   const t = useTranslations('checkout');
   const ta = useTranslations('addresses');
@@ -88,11 +115,14 @@ export function GuestCheckoutForm({
   const visible = (field: GuestField) => !!errors[field] && (submitAttempted || !!touched[field]);
   const listed = FIELD_ORDER.filter((f) => !!errors[f]);
 
-  // El resumen recibe el foco al fallar el intento de pago: sustituye al scroll a ciegas.
+  // El resumen recibe el foco al fallar el intento de pago (DESIGN_SYSTEM §15.3): sustituye al scroll a ciegas.
+  // ⛔ Depende SOLO de `submitAttemptId` (cada clic en pagar). Con `listed.length` en las dependencias, la
+  // primera letra tecleada en un campo con error cambiaba el número de errores y el foco saltaba al resumen:
+  // solo entraba esa letra (FRONTEND_NOTES §91). El resumen se monta en el mismo render que sube el contador,
+  // así que el ref ya existe cuando corre el efecto; si no hay errores no hay resumen y no se mueve el foco.
   useEffect(() => {
-    if (submitAttempted && listed.length > 0) summaryRef.current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitAttempted, listed.length]);
+    if (submitAttemptId > 0) summaryRef.current?.focus();
+  }, [submitAttemptId]);
 
   function messageFor(field: GuestField): string {
     const code = errors[field];
@@ -102,6 +132,11 @@ export function GuestCheckoutForm({
     if (field === 'terms') return t('guest.acceptTermsRequired');
     if (field === 'postalCode') return ta('postalCodeInvalid');
     if (field === 'phone') return ta('phoneInvalid');
+    if (field === 'neighborhood') return ta(code === 'typeRequired' ? 'geo.neighborhoodTypeRequired' : 'geo.neighborhoodRequired');
+    if (field === 'city') return ta('geo.cityRequired');
+    if (field === 'state') return ta('geo.stateRequired');
+    if (field === 'line2') return ta('line2TooLong', { max: String(LINE2_MAX) });
+    if (field === 'references') return ta('referencesTooLong', { max: String(REFERENCES_MAX) });
     return ta('required');
   }
 
@@ -115,9 +150,16 @@ export function GuestCheckoutForm({
         return t('guest.recipientName');
       case 'terms':
         return t('guest.acceptTerms');
+      case 'references':
+        return ta('references');
       default:
         return ta(field);
     }
+  }
+
+  function geoError(field: 'neighborhood' | 'city' | 'state'): string | undefined {
+    if (serverAddressError?.field === field) return serverAddressError.message;
+    return visible(field) ? messageFor(field) : undefined;
   }
 
   const typo = suggestEmailTypo(state.email);
@@ -214,62 +256,63 @@ export function GuestCheckoutForm({
             error={visible('line1') ? messageFor('line1') : undefined}
           />
           <Input
+            id={FIELD_ID.line2}
             label={ta('line2')}
             autoComplete="address-line2"
             value={state.address.line2 ?? ''}
             onChange={(e) => onAddressChange({ line2: e.target.value })}
+            onBlur={() => onBlurField('line2')}
+            error={visible('line2') ? messageFor('line2') : undefined}
+          />
+          {/* v1.80.12.5 (§M4-SHIP.19.25, §43.18m): CP → colonia de la lista o escrita → municipio y estado
+              del CP; sin lista, los tres se escriben. La tienda nunca deja de vender por el catálogo. */}
+          <PostalCodeNeighborhoodFields
+            postalCodeId={FIELD_ID.postalCode}
+            neighborhoodId={FIELD_ID.neighborhood}
+            cityId={FIELD_ID.city}
+            stateId={FIELD_ID.state}
+            postalCode={state.address.postalCode}
+            neighborhood={state.address.neighborhood}
+            city={state.address.city}
+            state={state.address.state}
+            onPostalCode={(postalCode) => onAddressChange({ postalCode })}
+            onNeighborhood={(neighborhood) => onAddressChange({ neighborhood })}
+            onCity={(city) => onAddressChange({ city })}
+            onState={(st) => onAddressChange({ state: st })}
+            onModeChange={onGeoModeChange}
+            onBlurPostalCode={() => onBlurField('postalCode')}
+            onBlurNeighborhood={() => onBlurField('neighborhood')}
+            onBlurCity={() => onBlurField('city')}
+            onBlurState={() => onBlurField('state')}
+            postalCodeError={visible('postalCode') ? messageFor('postalCode') : undefined}
+            neighborhoodError={geoError('neighborhood')}
+            cityError={geoError('city')}
+            stateError={geoError('state')}
+          />
+          {/* §43.18b: las referencias acompañan al lugar, antes que el teléfono. */}
+          <Textarea
+            id={FIELD_ID.references}
+            label={ta('references')}
+            hint={ta('referencesHint', { max: String(REFERENCES_MAX) })}
+            rows={2}
+            counter={{ max: REFERENCES_MAX }}
+            value={state.address.references ?? ''}
+            onChange={(e) => onAddressChange({ references: e.target.value })}
+            onBlur={() => onBlurField('references')}
+            error={visible('references') ? messageFor('references') : undefined}
           />
           <Input
-            label={ta('neighborhood')}
-            value={state.address.neighborhood ?? ''}
-            onChange={(e) => onAddressChange({ neighborhood: e.target.value })}
+            id={FIELD_ID.phone}
+            label={ta('phone')}
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={state.address.phone}
+            onChange={(e) => onAddressChange({ phone: e.target.value })}
+            onBlur={() => onBlurField('phone')}
+            error={visible('phone') ? messageFor('phone') : undefined}
+            hint={ta('phoneHint')}
           />
-          <div className="grid gap-6 sm:grid-cols-2">
-            <Input
-              id={FIELD_ID.city}
-              label={ta('city')}
-              autoComplete="address-level2"
-              value={state.address.city}
-              onChange={(e) => onAddressChange({ city: e.target.value })}
-              onBlur={() => onBlurField('city')}
-              error={visible('city') ? messageFor('city') : undefined}
-            />
-            <Input
-              id={FIELD_ID.state}
-              label={ta('state')}
-              autoComplete="address-level1"
-              value={state.address.state}
-              onChange={(e) => onAddressChange({ state: e.target.value })}
-              onBlur={() => onBlurField('state')}
-              error={visible('state') ? messageFor('state') : undefined}
-            />
-          </div>
-          <div className="grid gap-6 sm:grid-cols-2">
-            <Input
-              id={FIELD_ID.postalCode}
-              label={ta('postalCode')}
-              inputMode="numeric"
-              maxLength={5}
-              autoComplete="postal-code"
-              className="tabular-nums"
-              value={state.address.postalCode}
-              onChange={(e) => onAddressChange({ postalCode: e.target.value.replace(/\D/g, '') })}
-              onBlur={() => onBlurField('postalCode')}
-              error={visible('postalCode') ? messageFor('postalCode') : undefined}
-            />
-            <Input
-              id={FIELD_ID.phone}
-              label={ta('phone')}
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              value={state.address.phone}
-              onChange={(e) => onAddressChange({ phone: e.target.value })}
-              onBlur={() => onBlurField('phone')}
-              error={visible('phone') ? messageFor('phone') : undefined}
-              hint={t('guest.phoneHelp')}
-            />
-          </div>
           {/* País fijo MX, mismo tratamiento que el formulario de direcciones (§15.3). */}
           <div className="flex flex-col">
             <span className="eyebrow">{ta('country')}</span>
