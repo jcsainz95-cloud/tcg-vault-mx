@@ -1,7 +1,7 @@
 # Baseline del censo de salvaguardas E2E (scripts/check-e2e-skip-census.sh).
 # Formato: clave ocurrencias ficheros. Se regenera SOLO con --update --motivo, en el mismo diff que el cambio.
-# 2026-10-04 · frontend/e2e/precios-s5.spec.ts (0f3dda00, FRONTEND_NOTES §85) +8 mockOnly/+3 realOnly, +1 fichero cada uno: los casos de dinero de §39/§40 son mockOnly porque el seed E2E no tiene pedidos directos liquidados en enviado/guia ni un reembolso tras envío sin motivo; los realOnly son 400/403/404 que el mock no sirve. Salida: backend siembra un directo liquidado enviado, otro guia y uno reembolsado con fullRefundAfterShipment=true sin motivo; entonces los mockOnly pasan a @real y el techo baja (pendiente en DEVOPS_NOTES, dueños backend: seed; frontend: convertir los casos)
-mockOnly 135 27
+# 2026-10-05 · frontend/e2e/shipping-alerts.spec.ts (3d0238f0, F-1/F-2 DESIGN_SYSTEM §43.22) +3 mockOnly (2 llamadas + 1 import, método grep -rwo), +1 fichero: smoke de mocks — el selector «Ver como» solo se renderiza con canSwitchRole (AdminTopbar.tsx:41-43, modo demo) y la lista con alert=true sale del servidor falso. Salida: un spec @real aparte (dueño frontend; recomendado por QA en el gate sobre 31af0883) que entre como súper-admin y como operador reales y abra /admin/m4?tab=envios&alert=true contra el stack sembrado. El motivo anterior (precios-s5, 2026-10-04) sigue en git: git log -p scripts/e2e-skip-census.baseline
+mockOnly 138 28
 needsSeed 34 9
 harnessLimit 5 3
 skipIfSeedMissing 15 7
