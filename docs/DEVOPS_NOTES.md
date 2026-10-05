@@ -13302,10 +13302,16 @@ diagnóstico sale del log del servidor y del código.
 - [ ] Censo y limpieza de datos de prueba hechos (§14.8), C3 = 0.
 - [ ] Respaldo del día existente y simulacro hecho (§83.5).
 - [ ] Cuenta de Stripe **activada** para cobrar y depositar en MX (solo lo ve el dueño, §14.13 P-2).
-- [ ] **`npm run check:legal` verde (criterios 500–508)** sobre el sha que está en producción (lo corre devops o el CI;
-  aquí se cita el run). Rojo ⇒ nombra lo que falta y no se empieza. (`API_CONTRACT §14.10`, errata v1.84.2.)
-- [ ] **QA aprobó 500–508 contra la tienda publicada** (veredicto citado con su sha). `check:legal` solo mide 501 y
-  503–505; 500, 502, 506, 507 y 508 los mide QA. **Las dos casillas o no se empieza.**
+- **Modo provisional** (`API_CONTRACT §14.10`, errata v1.84.4 / §14.17 E4-4; sustituye las dos casillas legales de
+  v1.84.2). ⚠️ Excepción **aceptada por el dueño, no por el equipo**: `HECHOS.md` fila 2026-10-05 (sesión 6) «Salir en
+  vivo SIN datos fiscales del aviso de privacidad; se regulariza después» («Por el momento salimos sin datos fiscales
+  nos regularizamos rápido»). Cubre solo razón social, RFC y domicilio (P-LEG-1…3).
+  - [ ] `npm run check:legal:provisional` verde sobre el sha que está en producción (lo corre devops o el CI; aquí se
+    cita el run). Los sitios 3 (`GuestCheckoutForm`) y 7 (`pedido/layout.tsx`) siguen bloqueando. Rojo ⇒ no se empieza.
+  - [ ] QA aprueba 500–508 contra la tienda publicada con las excepciones de E4-5 y solo esas (veredicto con su sha;
+    cada criterio `cumple` / `excepción aceptada (HECHOS 2026-10-05)`; una tercera categoría ⇒ no se empieza).
+  - [ ] El dueño leyó el aviso publicado (`https://tcghunt.mx/es/privacidad`; borrador del product-owner sin validar
+    por abogado, P-LEG-4), puesto en la solicitud de fusión `main → production`.
 
 **Pasos:**
 1. [ ] **Stripe (live) → Developers → Webhooks → Add endpoint.** URL `https://<dominio-del-backend>/api/v1/webhooks/stripe`;
@@ -13329,6 +13335,16 @@ cobra). Hora de poco tráfico.
 **Reversa (volver a prueba):** los mismos pasos con `sk_test_`/`pk_test_` y el `whsec_` del endpoint de prueba
 (reactivarlo); `health` ⇒ `"stripeMode":"test"`; `EXPECTED_STRIPE_MODE` = `test`. ⚠️ Los pedidos **live** cobrados en
 el intervalo se reembolsan desde el panel de Stripe live **solo** en ese caso, y se anota.
+
+
+#### Después — Regularización legal (`API_CONTRACT §14.10`, v1.84.4 E4-4; pendiente prioritario, `HECHOS.md` 2026-10-05 (c))
+Se abre cuando el dueño entrega P-LEG-1…3 y se cierra con:
+- [ ] Frontend sustituye la frase fija de E4-1 por los datos, vacía `pendingOwnerData` y carga `common.footer.legalEntity`
+  en `es.json` y `en.json` (mismo valor, criterio 506); backend pone la razón social en el pie de los correos (507).
+- [ ] `npm run check:legal` (final) verde: rojo mientras quede un `pendingOwnerData` o `legalEntity` entre corchetes.
+- [ ] QA aprueba 500–508 completos, sin excepciones, contra la tienda publicada (sha citado).
+- [ ] Solo entonces se borra la excepción de esta guía. Si llega a la vez el texto del abogado (P-LEG-4), sustituye al
+  borrador entero, verbatim.
 
 ### 83.8 · Rollback de esta sección
 
